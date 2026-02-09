@@ -5,6 +5,7 @@ use core::marker::PhantomData;
 use core::sync::atomic::{AtomicU8, Ordering};
 use core::task::Poll;
 
+use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use mec17xx_pac::uart0::regs::DataLsr;
@@ -22,8 +23,6 @@ const FIFO_SZ: usize = 16;
 
 // The HW gives us a convenient scratch register which we use to hold interrupt flags
 mod int_flag {
-    pub(crate) const RX_AVAILABLE: u8 = 1 << 0;
-    pub(crate) const TIMEOUT: u8 = 1 << 1;
     pub(crate) const TX_EMPTY: u8 = 1 << 2;
 }
 
@@ -36,40 +35,26 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     unsafe fn on_interrupt() {
         let intid = InterruptType::try_from(T::info().reg.data().int_id().read().intid());
         match intid {
-            // In case of RxAvailable, We need a way to know that the FIFO level is triggered in task,
-            // but also need to disable the interrupt to clear it (which clears it in intid).
-            //
-            // In case of LineStatus, We don't use a separate flag from RxAvailable because
-            // the RX task will keep reading bytes until it hits the byte that produced the error
-            Ok(InterruptType::LineStatus) | Ok(InterruptType::RxAvailable) => {
-                T::info().reg.data().scr().modify(|w| *w |= int_flag::RX_AVAILABLE);
-                T::info().reg.data().ien().modify(|w| {
-                    w.set_elsi(false);
-                    w.set_erdai(false);
-                });
-                T::info().rx_waker.wake();
+            Ok(InterruptType::LineStatus) => {
+                let lsr = T::info().reg.data().lsr().read();
+                let err = if lsr.overrun() { Error::Overrun } else { Error::Fifo };
+                error!("UART RX error occurred: {:?}", err);
             }
+            Ok(InterruptType::RxAvailable) | Ok(InterruptType::CharacterTimeout) => {
+                let mut pushed_any = false;
+                while T::info().reg.data().lsr().read().data_ready() {
+                    let mut writer = unsafe { T::info().buffer.writer() };
+                    let byte = T::info().reg.data().rx_dat().read();
+                    if writer.push_one(byte) {
+                        pushed_any = true;
+                    } else {
+                        break;
+                    }
+                }
 
-            // There does not appear to be a way of disabling this interrupt, and it is always
-            // enabled if RX available interrupt is enabled. The datasheet shows this as equal
-            // priority to RxAvailable, but it seems to have higher priority because even if the
-            // FIFO trigger level is reached, we will always see this interrupt ID until a byte
-            // is read from FIFO.
-            //
-            // This is annoying because we want to be able to batch read to the set RX FIFO
-            // level trigger, but if our input source is slow (such as person typing on keyboard),
-            // this will almost always trigger after the first byte is received (since we want
-            // to wait until the FIFO trigger is reached until reading bytes from FIFO).
-            //
-            // Alas we have to deal with this, which the RX task will do by falling back into
-            // interrupting for every byte.
-            Ok(InterruptType::CharacterTimeout) => {
-                T::info().reg.data().scr().modify(|w| *w |= int_flag::TIMEOUT);
-                T::info().reg.data().ien().modify(|w| {
-                    w.set_elsi(false);
-                    w.set_erdai(false);
-                });
-                T::info().rx_waker.wake();
+                if pushed_any {
+                    T::info().rx_waker.wake();
+                }
             }
 
             // Note: We mark TX empty flag because although we could check LSR for tx empty
@@ -271,6 +256,8 @@ pub enum Error {
     Frame,
     /// RX break interrupt occurred.
     Break,
+    /// Any FIFO error occurred
+    Fifo,
 }
 
 /// UART RX error.
@@ -296,6 +283,7 @@ impl core::fmt::Display for RxError {
             Error::Parity => write!(f, "RX parity error occurred."),
             Error::Frame => write!(f, "RX frame error occurred."),
             Error::Break => write!(f, "RX break interrupt occurred."),
+            Error::Fifo => write!(f, "RX FIFO error occurred."),
         }
     }
 }
@@ -413,12 +401,13 @@ impl<'d, M: Mode> Uart<'d, M> {
     fn new_inner<T: Instance>(
         _rx_pin: Peri<'d, impl RxPin<T>>,
         _tx_pin: Peri<'d, impl TxPin<T>>,
+        buf: &'d mut [u8],
         config: Config,
     ) -> Result<Self, Error> {
         let rx_pin = _rx_pin.into();
         let tx_pin = _tx_pin.into();
         init::<T>(Some(&rx_pin), Some(&tx_pin), config)?;
-        let rx = UartRx::new_inner::<T>(rx_pin);
+        let rx = UartRx::new_inner::<T>(rx_pin, buf);
         let tx = UartTx::new_inner::<T>(tx_pin);
         Ok(Self { rx, tx })
     }
@@ -468,9 +457,10 @@ impl<'d> Uart<'d, Blocking> {
         _peri: Peri<'d, T>,
         _rx_pin: Peri<'d, impl RxPin<T>>,
         _tx_pin: Peri<'d, impl TxPin<T>>,
+        buf: &'d mut [u8],
         config: Config,
     ) -> Result<Self, Error> {
-        Self::new_inner(_rx_pin, _tx_pin, config)
+        Self::new_inner(_rx_pin, _tx_pin, buf, config)
     }
 }
 
@@ -486,9 +476,10 @@ impl<'d> Uart<'d, Async> {
         _rx_pin: Peri<'d, impl RxPin<T>>,
         _tx_pin: Peri<'d, impl TxPin<T>>,
         _irq: impl Binding<T::Interrupt, InterruptHandler<T>>,
+        buf: &'d mut [u8],
         config: Config,
     ) -> Result<Self, Error> {
-        let uart = Self::new_inner(_rx_pin, _tx_pin, config)?;
+        let uart = Self::new_inner(_rx_pin, _tx_pin, buf, config)?;
         interrupt_en::<T>();
         Ok(uart)
     }
@@ -521,8 +512,22 @@ pub struct UartRx<'d, M: Mode> {
 }
 
 impl<'d, M: Mode> UartRx<'d, M> {
-    fn new_inner<T: Instance>(_rx_pin: Peri<'d, AnyPin>) -> Self {
+    fn new_inner<T: Instance>(_rx_pin: Peri<'d, AnyPin>, buf: &'d mut [u8]) -> Self {
         T::info().rx_tx_refcount.fetch_add(1, Ordering::AcqRel);
+
+        // Buffer hack stuff
+        unsafe { T::info().buffer.init(buf.as_mut_ptr(), buf.len()) }
+        T::info().reg.data().fifo_cr().write(|w| {
+            // Must always set EXRF when setting other bits in the reg, even if previously set
+            w.set_exrf(true);
+            w.set_recv_fifo_trig_lvl(RxFifoTrigger::_1.into());
+        });
+        critical_section::with(|_| {
+            T::info().reg.data().ien().modify(|w| {
+                w.set_elsi(true);
+                w.set_erdai(true);
+            })
+        });
 
         Self {
             info: T::info(),
@@ -557,11 +562,6 @@ impl<'d, M: Mode> UartRx<'d, M> {
         } else {
             Ok(byte)
         }
-    }
-
-    fn nb_read_byte(&mut self) -> Result<u8, Error> {
-        let lsr = self.info.reg.data().lsr().read();
-        self.read_inner(lsr)
     }
 
     fn blocking_read_byte(&mut self) -> Result<u8, Error> {
@@ -601,108 +601,16 @@ impl<'d> UartRx<'d, Blocking> {
     pub fn new_blocking<T: Instance>(
         _peri: Peri<'d, T>,
         _rx_pin: Peri<'d, impl RxPin<T>>,
+        buf: &'d mut [u8],
         config: Config,
     ) -> Result<Self, Error> {
         let rx_pin = _rx_pin.into();
         init::<T>(Some(&rx_pin), None, config)?;
-        Ok(Self::new_inner::<T>(rx_pin))
+        Ok(Self::new_inner::<T>(rx_pin, buf))
     }
 }
 
 impl<'d> UartRx<'d, Async> {
-    async fn wait_rx_ready(&mut self) -> bool {
-        poll_fn(|cx| {
-            self.info.rx_waker.register(cx.waker());
-            let int_flags = self.info.reg.data().scr().read();
-
-            if int_flags & int_flag::TIMEOUT != 0 {
-                critical_section::with(|_| self.info.reg.data().scr().modify(|w| *w &= !int_flag::TIMEOUT));
-                // Indicates a byte is ready to read, but we didn't trigger the FIFO level before timeout
-                Poll::Ready(false)
-            } else if int_flags & int_flag::RX_AVAILABLE != 0 {
-                critical_section::with(|_| self.info.reg.data().scr().modify(|w| *w &= !int_flag::RX_AVAILABLE));
-                Poll::Ready(true)
-            } else {
-                critical_section::with(|_| {
-                    self.info.reg.data().ien().modify(|w| {
-                        w.set_elsi(true);
-                        w.set_erdai(true);
-                    })
-                });
-                Poll::Pending
-            }
-        })
-        .await
-    }
-
-    fn set_fifo_trigger(&mut self, trigger: RxFifoTrigger) {
-        self.info.reg.data().fifo_cr().write(|w| {
-            // Must always set EXRF when setting other bits in the reg, even if previously set
-            w.set_exrf(true);
-            w.set_recv_fifo_trig_lvl(trigger.into());
-        });
-    }
-
-    async fn read_byte(&mut self) -> Result<u8, Error> {
-        // LSR clears error bits on read so want to make sure only read it once when data ready then check bits
-        let lsr = {
-            let lsr = self.info.reg.data().lsr().read();
-            if !lsr.data_ready() {
-                let _ = self.wait_rx_ready().await;
-                self.info.reg.data().lsr().read()
-            } else {
-                lsr
-            }
-        };
-
-        self.read_inner(lsr)
-    }
-
-    async fn read_chunk(&mut self, chunk: &mut [u8], bytes_read_start: usize) -> Result<(), RxError> {
-        self.set_fifo_trigger(RxFifoTrigger::_1);
-        for (bytes_read, byte) in chunk.iter_mut().enumerate() {
-            *byte = self.read_byte().await.map_err(|err| RxError {
-                bytes_read: bytes_read_start + bytes_read,
-                err,
-            })?;
-        }
-        Ok(())
-    }
-
-    async fn read_chunk_batched(&mut self, chunk: &mut [u8], bytes_read_start: usize) -> Result<(), RxError> {
-        // If our FIFO level was reached without timeout, we can read all the bytes in one go,
-        // but still need to check each byte for an error
-        if self.wait_rx_ready().await {
-            for (bytes_read, byte) in chunk.iter_mut().enumerate() {
-                *byte = self.nb_read_byte().map_err(|err| RxError {
-                    bytes_read: bytes_read_start + bytes_read,
-                    err,
-                })?;
-            }
-
-        // However, if a timeout occured, our assumptions about the number of bytes in the FIFO
-        // no longer holds (since we have to read a byte to clear the timeout interrupt), meaning
-        // we have no choice but to unfortunately fall back on byte-by-byte interrupts
-        } else {
-            self.read_chunk(chunk, bytes_read_start).await?;
-        }
-
-        Ok(())
-    }
-
-    async fn read_chunks<const N: usize>(
-        &mut self,
-        chunks: &mut [[u8; N]],
-        trigger: RxFifoTrigger,
-        bytes_read_start: usize,
-    ) -> Result<(), RxError> {
-        self.set_fifo_trigger(trigger);
-        for (i, chunk) in chunks.iter_mut().enumerate() {
-            self.read_chunk_batched(chunk, bytes_read_start + (N * i)).await?;
-        }
-        Ok(())
-    }
-
     /// Create a new async RX-only UART driver instance with given configuration.
     ///
     /// # Errors
@@ -713,12 +621,13 @@ impl<'d> UartRx<'d, Async> {
         _peri: Peri<'d, T>,
         _rx_pin: Peri<'d, impl RxPin<T>>,
         _irq: impl Binding<T::Interrupt, InterruptHandler<T>>,
+        buf: &'d mut [u8],
         config: Config,
     ) -> Result<Self, Error> {
         let rx_pin = _rx_pin.into();
         init::<T>(Some(&rx_pin), None, config)?;
         interrupt_en::<T>();
-        Ok(Self::new_inner::<T>(rx_pin))
+        Ok(Self::new_inner::<T>(rx_pin, buf))
     }
 
     /// Reads bytes from RX FIFO until buffer is full.
@@ -727,35 +636,26 @@ impl<'d> UartRx<'d, Async> {
     ///
     /// Returns [`RxError`] if error occurred during read.
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<(), RxError> {
-        // The idea here is that the HW provides us 4 FIFO level triggers (14, 8, 4, 1),
-        // so to minimize the number of interrupts, we split the buffer up greedily into chunks
-        // of the highest trigger level we can, and then know when the interrupt is triggered,
-        // we can read that number of bytes in one shot.
-        const TRIG_14: usize = 14;
-        const TRIG_8: usize = 8;
-        const TRIG_4: usize = 4;
-
-        let (c14, rem) = buf.as_chunks_mut::<TRIG_14>();
-        let (c8, rem) = rem.as_chunks_mut::<TRIG_8>();
-        let (c4, c1) = rem.as_chunks_mut::<TRIG_4>();
-
-        // We keep track of total number of valid bytes read, so in case of error,
-        // we can return this number to the caller
-        let mut bytes_read = 0;
-
-        self.read_chunks(c14, RxFifoTrigger::_14, bytes_read).await?;
-        bytes_read += c14.len() * TRIG_14;
-
-        self.read_chunks(c8, RxFifoTrigger::_8, bytes_read).await?;
-        bytes_read += c8.len() * TRIG_8;
-
-        self.read_chunks(c4, RxFifoTrigger::_4, bytes_read).await?;
-        bytes_read += c4.len() * TRIG_4;
-
-        // The last chunk is smaller than 4, so we have no choice but to interrupt for each byte
-        self.read_chunk(c1, bytes_read).await?;
-
-        Ok(())
+        poll_fn(|cx| {
+            self.info.rx_waker.register(cx.waker());
+            if self.info.buffer.available() >= buf.len() {
+                critical_section::with(|_| {
+                    let mut reader = unsafe { self.info.buffer.reader() };
+                    let mut copied = 0;
+                    while copied < buf.len() {
+                        copied += reader.pop(|data| {
+                            let len = core::cmp::min(data.len(), buf.len() - copied);
+                            buf[copied..copied + len].copy_from_slice(&data[..len]);
+                            len
+                        });
+                    }
+                });
+                Poll::Ready(Ok(()))
+            } else {
+                Poll::Pending
+            }
+        })
+        .await
     }
 }
 
@@ -829,7 +729,7 @@ impl<'d> UartTx<'d, Async> {
         poll_fn(|cx| {
             self.info.tx_waker.register(cx.waker());
             if self.info.reg.data().scr().read() & int_flag::TX_EMPTY != 0 {
-                critical_section::with(|_| self.info.reg.data().scr().modify(|w| *w &= !int_flag::TX_EMPTY));
+                critical_section::with(|_| self.info.reg.data().scr().write(|w| *w &= !int_flag::TX_EMPTY));
                 Poll::Ready(())
             } else {
                 critical_section::with(|_| self.info.reg.data().ien().modify(|w| w.set_ethrei(true)));
@@ -884,6 +784,7 @@ impl<'d, M: Mode> Drop for UartTx<'d, M> {
 
 struct Info {
     reg: Uart0,
+    buffer: RingBuffer,
     rx_tx_refcount: AtomicU8,
     rx_waker: AtomicWaker,
     tx_waker: AtomicWaker,
@@ -923,6 +824,7 @@ macro_rules! impl_instance {
             fn info() -> &'static Info {
                 static INFO: Info = Info {
                     reg: pac::$peri,
+                    buffer: RingBuffer::new(),
                     rx_tx_refcount: AtomicU8::new(0),
                     rx_waker: AtomicWaker::new(),
                     tx_waker: AtomicWaker::new(),
