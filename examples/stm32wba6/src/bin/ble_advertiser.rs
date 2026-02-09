@@ -85,7 +85,7 @@ async fn main(spawner: Spawner) {
     info!("BLE stack initialized");
 
     // Spawn the BLE runner task (required for proper BLE operation)
-    spawner.spawn(ble_runner_task()).unwrap();
+    spawner.spawn(ble_runner_task().unwrap());
 
     // Initialize GATT server
     let mut gatt = GattServer::new();

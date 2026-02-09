@@ -43,10 +43,13 @@ use core::sync::atomic::{AtomicBool, Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_futures::join;
+use embassy_futures::select::{Either, select};
 use embassy_sync::waitqueue::AtomicWaker;
+use embassy_time::Timer;
 
 // Note: complete_ble_link_layer_init is now called as part of init_ble_stack()
 // in Ble::init(), so we no longer need to call it from the runner.
+use super::linklayer_plat;
 use super::util_seq;
 
 // BleStack_Process return values
@@ -147,7 +150,28 @@ pub async fn ble_runner() -> ! {
     join::join(
         async {
             loop {
-                util_seq::wait_for_event().await;
+                // Wait for either a sequencer event or a timer expiry
+                match linklayer_plat::earliest_timer_deadline() {
+                    Some(deadline) => {
+                        // Race between sequencer event and timer deadline
+                        match select(util_seq::wait_for_event(), Timer::at(deadline)).await {
+                            Either::First(()) => {
+                                // Sequencer event arrived
+                            }
+                            Either::Second(()) => {
+                                // Timer expired - check and fire expired timers
+                                linklayer_plat::check_expired_timers();
+                            }
+                        }
+                    }
+                    None => {
+                        // No active timers, just wait for sequencer event
+                        util_seq::wait_for_event().await;
+                    }
+                }
+
+                // Check for any expired timers on each iteration
+                linklayer_plat::check_expired_timers();
 
                 // Resume the sequencer context
                 // This will run BLE stack tasks until the sequencer yields

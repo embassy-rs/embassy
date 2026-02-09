@@ -17,5 +17,5 @@ pub mod util_seq;
 // Re-export main types
 pub use ble::{Ble, VersionInfo};
 pub use error::BleError;
-pub use linklayer_plat::{run_radio_high_isr, run_radio_sw_low_isr};
+pub use linklayer_plat::{run_radio_high_isr, run_radio_sw_low_isr, set_nvm_base_address};
 pub use runner::ble_runner;
