@@ -20,7 +20,6 @@ use crate::interrupt::{self};
 pub struct State {
     tx_waker: AtomicWaker,
     tx_buf: RingBuffer,
-    tx_done: AtomicBool,
     rx_waker: AtomicWaker,
     rx_buf: RingBuffer,
     initialized: AtomicBool,
@@ -38,7 +37,6 @@ impl State {
         Self {
             tx_waker: AtomicWaker::new(),
             tx_buf: RingBuffer::new(),
-            tx_done: AtomicBool::new(true),
             rx_waker: AtomicWaker::new(),
             rx_buf: RingBuffer::new(),
             initialized: AtomicBool::new(false),
@@ -456,35 +454,35 @@ impl<'a> BufferedLpuartTx<'a> {
 
 impl<'a> BufferedLpuartTx<'a> {
     /// Write data asynchronously
-    pub async fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        let mut written = 0;
+    pub fn write(&mut self, buf: &[u8]) -> impl Future<Output = Result<usize>> {
+        // Wait for space in the buffer
+        poll_fn(move |cx| {
+            self.state.tx_waker.register(cx.waker());
 
-        for &byte in buf {
-            // Wait for space in the buffer
-            poll_fn(|cx| {
-                self.state.tx_waker.register(cx.waker());
+            let mut writer = unsafe { self.state.tx_buf.writer() };
+            let written = writer.push(|slice| {
+                let write_len = slice.len().min(buf.len());
+                slice[..write_len].copy_from_slice(&buf[..write_len]);
+                write_len
+            });
 
-                let mut writer = unsafe { self.state.tx_buf.writer() };
-                if writer.push_one(byte) {
-                    // Enable TX interrupt to start transmission
-                    cortex_m::interrupt::free(|_| {
-                        self.info.regs().ctrl().modify(|w| w.set_tie(true));
-                    });
-                    Poll::Ready(Ok(()))
-                } else {
-                    Poll::Pending
-                }
-            })
-            .await?;
+            // Enable TX interrupt to start transmission
+            cortex_m::interrupt::free(|_| {
+                self.info.regs().ctrl().modify(|w| {
+                    w.set_tie(true);
+                });
+            });
 
-            written += 1;
-        }
-
-        Ok(written)
+            if written != 0 {
+                Poll::Ready(Ok(written))
+            } else {
+                Poll::Pending
+            }
+        })
     }
 
     /// Flush the TX buffer and wait for transmission to complete
-    pub async fn flush(&mut self) -> Result<()> {
+    pub fn flush(&mut self) -> impl Future<Output = Result<()>> {
         // Wait for TX buffer to empty and transmission to complete
         poll_fn(|cx| {
             self.state.tx_waker.register(cx.waker());
@@ -496,18 +494,9 @@ impl<'a> BufferedLpuartTx<'a> {
             if tx_empty && fifo_empty && tc_complete {
                 Poll::Ready(Ok(()))
             } else {
-                // Enable appropriate interrupt
-                cortex_m::interrupt::free(|_| {
-                    if !tx_empty {
-                        self.info.regs().ctrl().modify(|w| w.set_tie(true));
-                    } else {
-                        self.info.regs().ctrl().modify(|w| w.set_tcie(true));
-                    }
-                });
                 Poll::Pending
             }
         })
-        .await
     }
 
     /// Try to write without blocking
@@ -695,6 +684,11 @@ impl<'a> BufferedLpuartRx<'a> {
 
 impl<'a> Drop for BufferedLpuartTx<'a> {
     fn drop(&mut self) {
+        #[cfg(feature = "defmt")]
+        if !self.state.tx_buf.is_empty() {
+            defmt::warn!("Dropping BufferedLpuartTx while TX is still active. Consider flushing first");
+        }
+
         self._tx_pin.set_as_disabled();
         if let Some(cts_pin) = &self._cts_pin {
             cts_pin.set_as_disabled();
@@ -826,7 +820,6 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for Buffere
 
             // Handle transmission complete
             if ctrl.tcie() && regs.stat().read().tc() == Tc::COMPLETE {
-                state.tx_done.store(true, Ordering::Release);
                 T::PERF_INT_WAKE_INCR();
                 state.tx_waker.wake();
 
