@@ -587,6 +587,13 @@ impl<'a> DmaChannel<'a> {
 }
 
 impl DmaChannel<'_> {
+    /// Reborrow the DmaChannel with a shorter lifetime.
+    fn reborrow(&mut self) -> DmaChannel<'_> {
+        DmaChannel {
+            channel: self.channel.reborrow(),
+        }
+    }
+
     /// Channel index in the EDMA_0_TCD0 array.
     #[inline]
     pub fn index(&self) -> usize {
@@ -1957,8 +1964,11 @@ impl<'a> Drop for Transfer<'a> {
 /// let mut buf = [0u8; 16];
 /// let n = ring_buf.read(&mut buf).await?;
 /// ```
-pub struct RingBuffer<'peri, 'buf, W: Word> {
-    channel: &'peri DmaChannel<'peri>,
+pub struct RingBuffer<'channel, 'buf, W: Word> {
+    /// Reference to the DmaChannel for the duration of the DMA transfer.
+    ///
+    /// When this RingBuffer is dropped, the DmaChannel becomes usable again.
+    channel: DmaChannel<'channel>,
     /// Buffer pointer. We use NonNull instead of &mut because DMA acts like
     /// a separate thread writing to this buffer, and &mut claims exclusive
     /// access which the compiler could optimize incorrectly.
@@ -1971,7 +1981,7 @@ pub struct RingBuffer<'peri, 'buf, W: Word> {
     _lt: PhantomData<&'buf mut [W]>,
 }
 
-impl<'peri, 'buf, W: Word> RingBuffer<'peri, 'buf, W> {
+impl<'channel, 'buf, W: Word> RingBuffer<'channel, 'buf, W> {
     /// Create a new ring buffer for the given channel and buffer.
     ///
     /// # Safety
@@ -1980,7 +1990,7 @@ impl<'peri, 'buf, W: Word> RingBuffer<'peri, 'buf, W> {
     /// - The DMA channel has been configured for circular transfer
     /// - The buffer remains valid for the lifetime of the ring buffer
     /// - Only one RingBuffer exists per DMA channel at a time
-    pub(crate) unsafe fn new(channel: &'peri DmaChannel<'peri>, buf: &'buf mut [W]) -> Self {
+    pub(crate) unsafe fn new(channel: DmaChannel<'channel>, buf: &'buf mut [W]) -> Self {
         let buf_len = buf.len();
         Self {
             channel,
@@ -2195,14 +2205,13 @@ impl<'a> DmaChannel<'a> {
     ///
     /// # Safety
     ///
-    /// - The buffer must remain valid for the lifetime of the returned RingBuffer.
     /// - The peripheral address must be valid for reads.
     /// - The peripheral's DMA request must be configured to trigger this channel.
-    pub unsafe fn setup_circular_read<'buf: 'a, W: Word>(
-        &'a self,
+    pub unsafe fn setup_circular_read<'buf, W: Word>(
+        &mut self,
         peri_addr: *const W,
         buf: &'buf mut [W],
-    ) -> RingBuffer<'a, 'buf, W> {
+    ) -> RingBuffer<'_, 'buf, W> {
         unsafe {
             assert!(!buf.is_empty());
             assert!(buf.len() <= 0x7fff);
@@ -2263,7 +2272,7 @@ impl<'a> DmaChannel<'a> {
             // Enable NVIC interrupt for this channel so async wakeups work
             self.enable_interrupt();
 
-            RingBuffer::new(self, buf)
+            RingBuffer::new(self.reborrow(), buf)
         }
     }
 }

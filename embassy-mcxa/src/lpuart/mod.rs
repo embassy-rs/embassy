@@ -1482,7 +1482,7 @@ impl<'a, T: Instance> LpuartRxDma<'a, T> {
         Ok(())
     }
 
-    pub fn into_ring_dma_rx<'buf: 'a>(&'a self, buf: &'buf mut [u8]) -> LpuartRxRingDma<'a, 'buf> {
+    pub fn into_ring_dma_rx<'buf: 'a>(&mut self, buf: &'buf mut [u8]) -> LpuartRxRingDma<'_, 'buf> {
         unsafe {
             let ring = self.setup_ring_buffer(buf);
             ring.enable_dma_request();
@@ -1522,27 +1522,20 @@ impl<'a, T: Instance> LpuartRxDma<'a, T> {
     /// let mut buf = [0u8; 16];
     /// let n = ring_buf.read(&mut buf).await.unwrap();
     /// ```
-    ///
-    /// # Safety
-    ///
-    /// - The buffer must remain valid for the lifetime of the returned RingBuffer.
-    /// - Only one RingBuffer should exist per LPUART RX channel at a time.
-    /// - The caller must ensure the static buffer is not accessed elsewhere while
-    ///   the ring buffer is active.
-    unsafe fn setup_ring_buffer<'buf: 'a>(&'a self, buf: &'buf mut [u8]) -> RingBuffer<'a, 'buf, u8> {
+    fn setup_ring_buffer<'buf: 'a>(&mut self, buf: &'buf mut [u8]) -> RingBuffer<'_, 'buf, u8> {
+        // Get the peripheral data register address
+        let peri_addr = self.info.regs().data().as_ptr() as *const u8;
+
+        // Configure DMA request source for this LPUART instance (type-safe)
         unsafe {
-            // Get the peripheral data register address
-            let peri_addr = self.info.regs().data().as_ptr() as *const u8;
-
-            // Configure DMA request source for this LPUART instance (type-safe)
             self.rx_dma.set_request_source::<T::RxDmaRequest>();
-
-            // Enable RX DMA request in the LPUART peripheral
-            self.info.regs().baud().modify(|w| w.set_rdmae(true));
-
-            // Set up circular DMA transfer (this also enables NVIC interrupt)
-            self.rx_dma.setup_circular_read(peri_addr, buf)
         }
+
+        // Enable RX DMA request in the LPUART peripheral
+        self.info.regs().baud().modify(|w| w.set_rdmae(true));
+
+        // Set up circular DMA transfer (this also enables NVIC interrupt)
+        unsafe { self.rx_dma.setup_circular_read(peri_addr, buf) }
     }
 }
 
