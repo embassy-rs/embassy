@@ -1173,12 +1173,12 @@ impl<'a> Lpuart<'a, Blocking> {
 /// (e.g., due to a timeout), the DMA transfer is automatically aborted to prevent
 /// use-after-free when the buffer goes out of scope.
 struct TxDmaGuard<'a> {
-    dma: &'a DmaChannel<'a>,
+    dma: DmaChannel<'a>,
     info: &'static Info,
 }
 
 impl<'a> TxDmaGuard<'a> {
-    fn new(dma: &'a DmaChannel<'a>, info: &'static Info) -> Self {
+    fn new(dma: DmaChannel<'a>, info: &'static Info) -> Self {
         Self { dma, info }
     }
 
@@ -1210,12 +1210,12 @@ impl Drop for TxDmaGuard<'_> {
 
 /// Guard struct for RX DMA transfers.
 struct RxDmaGuard<'a> {
-    dma: &'a DmaChannel<'a>,
+    dma: DmaChannel<'a>,
     info: &'static Info,
 }
 
 impl<'a> RxDmaGuard<'a> {
-    fn new(dma: &'a DmaChannel<'a>, info: &'static Info) -> Self {
+    fn new(dma: DmaChannel<'a>, info: &'static Info) -> Self {
         Self { dma, info }
     }
 
@@ -1330,12 +1330,12 @@ impl<'a, T: Instance> LpuartTxDma<'a, T> {
         }
 
         // Create guard that will abort DMA if this future is dropped
-        let guard = TxDmaGuard::new(&self.tx_dma, self.info);
+        let guard = TxDmaGuard::new(self.tx_dma.reborrow(), self.info);
 
         // Wait for completion asynchronously
         core::future::poll_fn(|cx| {
-            self.tx_dma.waker().register(cx.waker());
-            if self.tx_dma.is_done() {
+            guard.dma.waker().register(cx.waker());
+            if guard.dma.is_done() {
                 core::task::Poll::Ready(())
             } else {
                 core::task::Poll::Pending
@@ -1449,12 +1449,12 @@ impl<'a, T: Instance> LpuartRxDma<'a, T> {
         }
 
         // Create guard that will abort DMA if this future is dropped
-        let guard = RxDmaGuard::new(&self.rx_dma, self.info);
+        let guard = RxDmaGuard::new(self.rx_dma.reborrow(), self.info);
 
         // Wait for completion asynchronously
         core::future::poll_fn(|cx| {
-            self.rx_dma.waker().register(cx.waker());
-            if self.rx_dma.is_done() {
+            guard.dma.waker().register(cx.waker());
+            if guard.dma.is_done() {
                 core::task::Poll::Ready(())
             } else {
                 core::task::Poll::Pending

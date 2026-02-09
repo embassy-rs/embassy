@@ -588,7 +588,7 @@ impl<'a> DmaChannel<'a> {
 
 impl DmaChannel<'_> {
     /// Reborrow the DmaChannel with a shorter lifetime.
-    fn reborrow(&mut self) -> DmaChannel<'_> {
+    pub fn reborrow(&mut self) -> DmaChannel<'_> {
         DmaChannel {
             channel: self.channel.reborrow(),
         }
