@@ -144,6 +144,7 @@ pub enum PixelFormat {
     /// AL88 (8-bit alpha, 8-bit luminance)
     AL88 = Pf::AL88 as u8,
 }
+/// Pixel format
 #[repr(u8)]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
