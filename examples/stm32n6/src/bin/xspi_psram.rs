@@ -102,24 +102,24 @@ async fn main(_spawner: Spawner) {
     });
 
     // Configure IC1: CPU clock = PLL1 / 2 = 600 MHz
-    config.rcc.ic1 = Some (IcConfig {
+    config.rcc.ic1 = Some(IcConfig {
         source: Icsel::PLL1,
         divider: Icint::from_bits(1), // DIV2: (1+1) = 2
     });
     config.rcc.cpu = CpuClk::Ic1;
 
     // Configure IC2/IC6/IC11: System bus = PLL1 / 3 = 400 MHz
-    config.rcc.ic2 = Some (IcConfig {
-            source: Icsel::PLL1,
-            divider: Icint::from_bits(2), // DIV3: (2+1) = 3
+    config.rcc.ic2 = Some(IcConfig {
+        source: Icsel::PLL1,
+        divider: Icint::from_bits(2), // DIV3: (2+1) = 3
     });
-    config.rcc.ic6 = Some (IcConfig {
-            source: Icsel::PLL1,
-            divider: Icint::from_bits(3), // DIV4: (3+1) = 4 (C HAL uses /4)
+    config.rcc.ic6 = Some(IcConfig {
+        source: Icsel::PLL1,
+        divider: Icint::from_bits(3), // DIV4: (3+1) = 4 (C HAL uses /4)
     });
-    config.rcc.ic11 = Some (IcConfig {
-            source: Icsel::PLL1,
-            divider: Icint::from_bits(3), // DIV4: (3+1) = 4 (C HAL uses /4)
+    config.rcc.ic11 = Some(IcConfig {
+        source: Icsel::PLL1,
+        divider: Icint::from_bits(3), // DIV4: (3+1) = 4 (C HAL uses /4)
     });
     config.rcc.sys = SysClk::Ic2;
 
