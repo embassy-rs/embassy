@@ -11,8 +11,8 @@ pub(crate) trait SealedValidInputMuxConfig {
     fn mux() {}
 }
 
+/// Marker trait for valid Input mux configurations.
 #[allow(private_bounds)]
-
 pub trait ValidInputMuxConfig: SealedValidInputMuxConfig {}
 
 pub(crate) fn init() {

@@ -10,7 +10,8 @@ use nxp_pac::ctimer::vals::{
     Cap0fe, Cap0i, Cap0re, Cap1fe, Cap1i, Cap1re, Cap2fe, Cap2i, Cap2re, Cap3fe, Cap3i, Cap3re,
 };
 
-use super::{AnyChannel, CTimer, CTimerChannel, Info, InputPin, Instance};
+use super::{AnyChannel, CTimer, CTimerChannel, Channel, Info, InputPin, Instance};
+use crate::clocks::WakeGuard;
 use crate::gpio::{AnyPin, SealedPin};
 use crate::inputmux::{SealedValidInputMuxConfig, ValidInputMuxConfig};
 use crate::interrupt;
@@ -18,6 +19,7 @@ use crate::interrupt::typelevel::Interrupt;
 
 /// Capture error.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum CaptureError {
     /// Other
     Other,
@@ -45,7 +47,7 @@ pub enum Edge {
 
 /// Timestamp capture
 ///
-/// Timestamp value in microseconds.
+/// Timestamp value in ticks.
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Timestamp(u32);
@@ -69,11 +71,13 @@ pub struct TicksDiff(pub i32);
 impl TicksDiff {
     #[inline]
     pub fn to_period(self, tick_hz: u32) -> f32 {
+        assert!(tick_hz != 0);
         self.0 as f32 / tick_hz as f32
     }
 
     #[inline]
     pub fn to_frequency(self, tick_hz: u32) -> f32 {
+        assert!(self.0 != 0);
         tick_hz as f32 / self.0 as f32
     }
 
@@ -158,6 +162,7 @@ pub struct Capture<'d> {
     ch: Peri<'d, AnyChannel>,
     pin: Peri<'d, AnyPin>,
     source_freq: u32,
+    _wg: Option<WakeGuard>,
 }
 
 impl<'d> Capture<'d> {
@@ -183,6 +188,7 @@ impl<'d> Capture<'d> {
             ch: ch.into(),
             pin: pin.into(),
             source_freq: ctimer._freq,
+            _wg: ctimer._wg.clone(),
         };
 
         inst.set_configuration(&config)?;
@@ -201,7 +207,7 @@ impl<'d> Capture<'d> {
     fn set_configuration(&mut self, config: &Config) -> Result<(), CaptureError> {
         self.info.regs().ccr().modify(|w| {
             match self.ch.number() {
-                0 => match config.edge {
+                Channel::Zero => match config.edge {
                     Edge::Both => {
                         w.set_cap0re(Cap0re::CAPORE_1);
                         w.set_cap0fe(Cap0fe::CAPOFE_1);
@@ -213,7 +219,7 @@ impl<'d> Capture<'d> {
                         w.set_cap0fe(Cap0fe::CAPOFE_1);
                     }
                 },
-                1 => match config.edge {
+                Channel::One => match config.edge {
                     Edge::Both => {
                         w.set_cap1re(Cap1re::CAP1RE_1);
                         w.set_cap1fe(Cap1fe::CAP1FE_1);
@@ -225,7 +231,7 @@ impl<'d> Capture<'d> {
                         w.set_cap1fe(Cap1fe::CAP1FE_1);
                     }
                 },
-                2 => match config.edge {
+                Channel::Two => match config.edge {
                     Edge::Both => {
                         w.set_cap2re(Cap2re::CAP2RE_1);
                         w.set_cap2fe(Cap2fe::CAP2FE_1);
@@ -237,7 +243,7 @@ impl<'d> Capture<'d> {
                         w.set_cap2fe(Cap2fe::CAP2FE_1);
                     }
                 },
-                3 => match config.edge {
+                Channel::Three => match config.edge {
                     Edge::Both => {
                         w.set_cap3re(Cap3re::CAP3RE_1);
                         w.set_cap3fe(Cap3fe::CAP3FE_1);
@@ -249,7 +255,6 @@ impl<'d> Capture<'d> {
                         w.set_cap3fe(Cap3fe::CAP3FE_1);
                     }
                 },
-                _ => unreachable!(),
             };
         });
 
@@ -265,27 +270,26 @@ impl<'d> Capture<'d> {
             .wait_cell()
             .wait_for(|| {
                 self.info.regs().ccr().modify(|w| match self.ch.number() {
-                    0 => {
+                    Channel::Zero => {
                         w.set_cap0i(Cap0i::CAPOI_1);
                     }
-                    1 => {
+                    Channel::One => {
                         w.set_cap1i(Cap1i::CAP1I_1);
                     }
-                    2 => {
+                    Channel::Two => {
                         w.set_cap2i(Cap2i::CAP2I_1);
                     }
-                    3 => {
+                    Channel::Three => {
                         w.set_cap3i(Cap3i::CAP3I_1);
                     }
-                    _ => unreachable!(),
                 });
 
-                self.info.timestamp(self.ch.number()).load(Ordering::Acquire) != 0
+                self.info.timestamp(self.ch.number().into()).load(Ordering::Acquire) != 0
             })
             .await
             .map_err(|_| CaptureError::Other)?;
 
-        let timestamp = self.info.timestamp(self.ch.number()).swap(0, Ordering::AcqRel);
+        let timestamp = self.info.timestamp(self.ch.number().into()).swap(0, Ordering::AcqRel);
         Ok(Timestamp(timestamp))
     }
 }
@@ -308,6 +312,15 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let ir = T::info().regs().ir().read();
         T::info().regs().ir().write(|w| w.0 = ir.0);
 
+        // If the interrupt triggered, we want to know which channel
+        // triggered it and update the correct timestamp
+        // `AtomicU32`. There is a very, very low probability of
+        // reading a zero timestamp, but that would only happen with a
+        // very, very slow external clock being used to feed the
+        // CTimer.
+        //
+        // That scenario is currently not supported, so we're assuming
+        // that case will **never happen**.
         T::info().regs().ccr().modify(|w| {
             if ir.cr0int() {
                 w.set_cap0i(Cap0i::CAP0I_0);

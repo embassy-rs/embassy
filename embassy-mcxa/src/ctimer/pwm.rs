@@ -4,7 +4,7 @@ use embassy_hal_internal::Peri;
 pub use embedded_hal_1::pwm::SetDutyCycle;
 use embedded_hal_1::pwm::{Error, ErrorKind, ErrorType};
 
-use super::{AnyChannel, CTimer, CTimerChannel, Info, Instance, OutputPin};
+use super::{AnyChannel, CTimer, CTimerChannel, Channel, Info, Instance, OutputPin};
 use crate::gpio::{AnyPin, SealedPin};
 use crate::pac::ctimer::vals::{
     Mr0i, Mr0r, Mr0rl, Mr0s, Mr1i, Mr1r, Mr1rl, Mr1s, Mr2i, Mr2r, Mr2rl, Mr2s, Mr3i, Mr3r, Mr3rl, Mr3s, Pwmen0, Pwmen1,
@@ -78,19 +78,18 @@ impl<'d> Pwm<'d> {
 
     fn set_pwm_mode(&self) {
         self.info.regs().pwmc().modify(|w| match self.duty_ch.number() {
-            0 => {
+            Channel::Zero => {
                 w.set_pwmen0(Pwmen0::PWM);
             }
-            1 => {
+            Channel::One => {
                 w.set_pwmen1(Pwmen1::PWM);
             }
-            2 => {
+            Channel::Two => {
                 w.set_pwmen2(Pwmen2::PWM);
             }
-            3 => {
+            Channel::Three => {
                 w.set_pwmen3(Pwmen3::PWM);
             }
-            _ => unreachable!(),
         });
     }
 
@@ -98,43 +97,41 @@ impl<'d> Pwm<'d> {
         self.info.regs().mcr().modify(|w| {
             // Clear stop, reset, and interrupt bits for the PWM channel
             match self.duty_ch.number() {
-                0 => {
+                Channel::Zero => {
                     w.set_mr0i(Mr0i::MR0I_0);
                     w.set_mr0r(Mr0r::MR0R_0);
                     w.set_mr0s(Mr0s::MR0S_0);
                 }
-                1 => {
+                Channel::One => {
                     w.set_mr1i(Mr1i::MR1I_0);
                     w.set_mr1r(Mr1r::MR1R_0);
                     w.set_mr1s(Mr1s::MRIS_0);
                 }
-                2 => {
+                Channel::Two => {
                     w.set_mr2i(Mr2i::MR2I_0);
                     w.set_mr2r(Mr2r::MR2R_0);
                     w.set_mr2s(Mr2s::MR2S_0);
                 }
-                3 => {
+                Channel::Three => {
                     w.set_mr3i(Mr3i::MR3I_0);
                     w.set_mr3r(Mr3r::MR3R_0);
                     w.set_mr3s(Mr3s::MR3S_0);
                 }
-                _ => unreachable!(),
             }
 
             match self.duty_ch.number() {
-                0 => {
+                Channel::Zero => {
                     w.set_mr0rl(Mr0rl::MR0RL_1);
                 }
-                1 => {
+                Channel::One => {
                     w.set_mr1rl(Mr1rl::MR1RL_1);
                 }
-                2 => {
+                Channel::Two => {
                     w.set_mr2rl(Mr2rl::MR2RL_1);
                 }
-                3 => {
+                Channel::Three => {
                     w.set_mr3rl(Mr3rl::MR3RL_1);
                 }
-                _ => unreachable!(),
             }
         });
     }
@@ -142,11 +139,11 @@ impl<'d> Pwm<'d> {
     fn configure_duty_cycle(&self, duty_cycle: u32) {
         self.info
             .regs()
-            .mr(self.duty_ch.number())
+            .mr(self.duty_ch.number().into())
             .write(|w| w.set_match_(duty_cycle));
         self.info
             .regs()
-            .msr(self.duty_ch.number())
+            .msr(self.duty_ch.number().into())
             .write(|w| w.set_match_shadow(duty_cycle));
     }
 }
@@ -207,19 +204,18 @@ impl<'d> SinglePwm<'d> {
         self.pwm.clear_status();
 
         self.pwm.info.regs().mcr().modify(|w| match self.period_ch.number() {
-            0 => {
+            Channel::Zero => {
                 w.set_mr0r(Mr0r::MR0R_1);
             }
-            1 => {
+            Channel::One => {
                 w.set_mr1r(Mr1r::MR1R_1);
             }
-            2 => {
+            Channel::Two => {
                 w.set_mr2r(Mr2r::MR2R_1);
             }
-            3 => {
+            Channel::Three => {
                 w.set_mr3r(Mr3r::MR3R_1);
             }
-            _ => unreachable!(),
         });
 
         // Configure PWM period
@@ -228,7 +224,7 @@ impl<'d> SinglePwm<'d> {
         self.pwm
             .info
             .regs()
-            .mr(self.period_ch.number())
+            .mr(self.period_ch.number().into())
             .write(|w| w.set_match_(period));
 
         // Configure PWM duty cycle
@@ -317,19 +313,18 @@ impl<'d> DualPwm<'d> {
         self.pwm1.clear_status();
 
         self.pwm0.info.regs().mcr().modify(|w| match self.period_ch.number() {
-            0 => {
+            Channel::Zero => {
                 w.set_mr0r(Mr0r::MR0R_1);
             }
-            1 => {
+            Channel::One => {
                 w.set_mr1r(Mr1r::MR1R_1);
             }
-            2 => {
+            Channel::Two => {
                 w.set_mr2r(Mr2r::MR2R_1);
             }
-            3 => {
+            Channel::Three => {
                 w.set_mr3r(Mr3r::MR3R_1);
             }
-            _ => unreachable!(),
         });
 
         // Configure PWM period
@@ -341,7 +336,7 @@ impl<'d> DualPwm<'d> {
         self.pwm0
             .info
             .regs()
-            .mr(self.period_ch.number())
+            .mr(self.period_ch.number().into())
             .write(|w| w.set_match_(period));
 
         // Configure PWM duty cycle
@@ -454,19 +449,18 @@ impl<'d> TriplePwm<'d> {
         self.pwm2.clear_status();
 
         self.pwm0.info.regs().mcr().modify(|w| match self.period_ch.number() {
-            0 => {
+            Channel::Zero => {
                 w.set_mr0r(Mr0r::MR0R_1);
             }
-            1 => {
+            Channel::One => {
                 w.set_mr1r(Mr1r::MR1R_1);
             }
-            2 => {
+            Channel::Two => {
                 w.set_mr2r(Mr2r::MR2R_1);
             }
-            3 => {
+            Channel::Three => {
                 w.set_mr3r(Mr3r::MR3R_1);
             }
-            _ => unreachable!(),
         });
 
         // Configure PWM period
@@ -479,7 +473,7 @@ impl<'d> TriplePwm<'d> {
         self.pwm0
             .info
             .regs()
-            .mr(self.period_ch.number())
+            .mr(self.period_ch.number().into())
             .write(|w| w.set_match_(period));
 
         // Configure PWM duty cycle
@@ -534,7 +528,7 @@ impl<'d> SetDutyCycle for Pwm<'d> {
 
         self.info
             .regs()
-            .msr(usize::from(self.duty_ch.number()))
+            .msr(self.duty_ch.number().into())
             .write(|w| w.set_match_shadow(u32::from(duty)));
 
         Ok(())
