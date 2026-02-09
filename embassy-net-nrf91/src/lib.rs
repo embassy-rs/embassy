@@ -200,10 +200,10 @@ async fn new_internal<'a>(
     compiler_fence(Ordering::SeqCst);
 
     let power = pac::POWER_S;
-    // POWER.LTEMODEM.STARTN = 0
-    // TODO: The reg is missing in the PAC??
-    let startn = unsafe { (power.as_ptr() as *mut u32).add(0x610 / 4) };
-    unsafe { startn.write_volatile(0) }
+    power
+        .ltemodem()
+        .startn()
+        .write(|w| w.set_startn(pac::power::vals::Startn::START));
 
     unsafe { NVIC::unmask(pac::Interrupt::IPC) };
 
