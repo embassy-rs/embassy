@@ -1,5 +1,5 @@
 [package]
-name = "embassy-mcxa-examples"
+name = "embassy-mcxa-tests"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
@@ -25,6 +25,7 @@ embassy-time-driver = { version = "0.2.1", path = "../../embassy-time-driver", o
 embedded-io-async = "0.7.0"
 panic-probe = { version = "1.0", features = ["print-defmt"] }
 static_cell = "2.1.1"
+rand_core = "0.9"
 
 [profile.dev]
 debug = 2
