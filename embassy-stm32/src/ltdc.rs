@@ -125,6 +125,7 @@ pub struct LtdcLayerConfig {
 #[repr(u8)]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg(not(ltdc_v1_3))]
 pub enum PixelFormat {
     /// ARGB8888
     ARGB8888 = Pf::ARGB8888 as u8,
@@ -143,15 +144,46 @@ pub enum PixelFormat {
     /// AL88 (8-bit alpha, 8-bit luminance)
     AL88 = Pf::AL88 as u8,
 }
+/// Pixel format
+#[repr(u8)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg(ltdc_v1_3)]
+pub enum PixelFormat {
+    /// ARGB8888
+    ARGB8888 = Pf::ARGB8888 as u8,
+    /// ABGR8888
+    ABGR8888 = Pf::ABGR8888 as u8,
+    /// RGBA8888
+    RGBA8888 = Pf::RGBA8888 as u8,
+    /// BGRA8888
+    BGRA8888 = Pf::BGRA8888 as u8,
+    /// RGB565
+    RGB565 = Pf::RGB565 as u8,
+    /// BGR565
+    BGR565 = Pf::BGR565 as u8,
+    /// RGB888
+    RGB888 = Pf::RGB888 as u8,
+    /// Flexible
+    FLEXIBLE = Pf::FLEXIBLE as u8,
+}
 
 impl PixelFormat {
     /// Number of bytes per pixel
     pub fn bytes_per_pixel(&self) -> usize {
+        #[cfg(not(ltdc_v1_3))]
         match self {
             PixelFormat::ARGB8888 => 4,
             PixelFormat::RGB888 => 3,
             PixelFormat::RGB565 | PixelFormat::ARGB4444 | PixelFormat::ARGB1555 | PixelFormat::AL88 => 2,
             PixelFormat::AL44 | PixelFormat::L8 => 1,
+        }
+        #[cfg(ltdc_v1_3)]
+        match self {
+            PixelFormat::ARGB8888 | PixelFormat::ABGR8888 | PixelFormat::RGBA8888 | PixelFormat::BGRA8888 => 4,
+            PixelFormat::RGB888 => 3,
+            PixelFormat::RGB565 | PixelFormat::BGR565 => 2,
+            PixelFormat::FLEXIBLE => todo!("Flexable pixels are not yet implemented"),
         }
     }
 }
@@ -562,7 +594,7 @@ pin_trait!(B6Pin, Instance);
 pin_trait!(B7Pin, Instance);
 
 foreach_interrupt!(
-    ($inst:ident, ltdc, LTDC, GLOBAL, $irq:ident) => {
+    ($inst:ident, ltdc, LTDC, LO, $irq:ident) => {
         impl Instance for peripherals::$inst {
             type Interrupt = crate::interrupt::typelevel::$irq;
         }
