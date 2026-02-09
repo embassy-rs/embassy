@@ -1,6 +1,5 @@
-use std::env;
-use std::fs;
 use std::path::PathBuf;
+use std::{env, fs};
 
 fn main() {
     let out = PathBuf::from(env::var("OUT_DIR").unwrap());
