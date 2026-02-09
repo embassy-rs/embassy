@@ -1,8 +1,6 @@
 #![no_std]
 #![no_main]
 
-// TODO: Come back after https://github.com/embassy-rs/embassy/issues/5359 is fixed to check if everything fully runs
-
 teleprobe_meta::target!(b"frdm-mcx-a266");
 
 use embassy_executor::Spawner;
