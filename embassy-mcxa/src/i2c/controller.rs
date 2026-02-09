@@ -387,6 +387,9 @@ impl<'d, M: Mode> I2c<'d, M> {
     /// waiting for the FIFO to become empty ensuring the command was
     /// sent.
     fn stop(&self) -> Result<(), IOError> {
+        // There may have been a nack or arbitration loss. In that case, don't send a stop condition
+        self.status()?;
+
         // Wait until we have space in the TxFIFO
         while self.is_tx_fifo_full() {}
 

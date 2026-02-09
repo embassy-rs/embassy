@@ -151,7 +151,7 @@ impl Default for ClockConfig {
 }
 
 /// I2C target events
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Request {
