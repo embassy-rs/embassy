@@ -372,6 +372,9 @@ impl<'d, M: Mode> I2c<'d, M> {
     /// waiting for the FIFO to become empty ensuring the command was
     /// sent.
     fn stop(&self) -> Result<(), IOError> {
+        // There may have been a nack or arbitration loss. In that case, don't send a stop condition
+        self.status()?;
+
         // Wait until we have space in the TxFIFO
         while self.is_tx_fifo_full() {}
 
@@ -630,16 +633,24 @@ impl<'d> I2c<'d, Async> {
         for byte in write {
             self.info
                 .wait_cell()
-                .wait_for(|| {
+                .wait_for_value(|| {
                     // enable interrupts
                     self.enable_tx_ints();
                     // initiate transmit
                     self.send_cmd(Cmd::TRANSMIT, *byte);
+                    // make sure we're ok to continue
+                    if let Err(e) = self.status() {
+                        return Some(Err(e));
+                    }
                     // if the tx FIFO is empty, we're done transmiting
-                    self.is_tx_fifo_empty()
+                    if self.is_tx_fifo_empty() {
+                        return Some(Ok(()));
+                    }
+
+                    None
                 })
                 .await
-                .map_err(|_| IOError::WriteFail)?;
+                .map_err(|_| IOError::WriteFail)??;
         }
 
         if send_stop == SendStop::Yes {
