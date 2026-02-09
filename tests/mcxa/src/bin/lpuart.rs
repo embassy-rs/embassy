@@ -91,6 +91,7 @@ async fn echo_plus_1(mut uart: BufferedLpuart<'static>) {
 
     defmt::info!("Sending back");
     uart.write_all(&buf).await.unwrap();
+    uart.flush().await.unwrap();
 
     defmt::info!("Done");
 }
