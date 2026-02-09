@@ -1,17 +1,7 @@
-//! DMA memory-to-memory transfer example for MCXA276.
-//!
-//! This example demonstrates using DMA to copy data between memory buffers
-//! using the Embassy-style async API with type-safe transfers.
-//!
-//! # Embassy-style features demonstrated:
-//! - `TransferOptions` for configuration
-//! - Type-safe `mem_to_mem<u32>()` method with async `.await`
-//! - `Transfer` Future that can be `.await`ed
-//! - `Word` trait for automatic transfer width detection
-//! - `memset()` method for filling memory with a pattern
-
 #![no_std]
 #![no_main]
+
+teleprobe_meta::target!(b"frdm-mcx-a266");
 
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
@@ -21,7 +11,6 @@ use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 const BUFFER_LENGTH: usize = 4;
 
-// Buffers in RAM (static mut is automatically placed in .bss/.data)
 static SRC_BUFFER: ConstStaticCell<[u32; BUFFER_LENGTH]> = ConstStaticCell::new([1, 2, 3, 4]);
 static DEST_BUFFER: ConstStaticCell<[u32; BUFFER_LENGTH]> = ConstStaticCell::new([0; BUFFER_LENGTH]);
 static MEMSET_BUFFER: ConstStaticCell<[u32; BUFFER_LENGTH]> = ConstStaticCell::new([0; BUFFER_LENGTH]);

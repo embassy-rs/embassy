@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 
+teleprobe_meta::target!(b"frdm-mcx-a266");
+
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use embassy_executor::Spawner;
@@ -41,7 +43,7 @@ async fn main(_spawner: Spawner) {
 
     assert!(!INTERRUPT_TRIGGERED.load(Ordering::Relaxed));
 
-    // Set to watchdog to generate interrupt if it's not fed within 1.05 seconds, and start it.
+    // Set to watchdog to generate interrupt if it's not fed within 50ms, and start it.
     // The warning interrupt will trigger 4ms before the timeout.
     watchdog.start();
 

@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 
+teleprobe_meta::target!(b"frdm-mcx-a266");
+
 use embassy_executor::Spawner;
 use hal::bind_interrupts;
 use hal::config::Config;
@@ -18,6 +20,8 @@ bind_interrupts!(
 async fn main(_spawner: Spawner) {
     let config = Config::default();
     let mut p = hal::init(config);
+
+    // Note: this test might fail once every ~2^28 or so.
 
     // Static
     let mut trng = Trng::new_blocking_128(p.TRNG0.reborrow());

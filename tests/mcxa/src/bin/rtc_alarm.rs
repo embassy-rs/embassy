@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 
+teleprobe_meta::target!(b"frdm-mcx-a266");
+
 use embassy_executor::Spawner;
 use embassy_mcxa::bind_interrupts;
 use hal::rtc::{InterruptHandler, Rtc, RtcDateTime};

@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 
+teleprobe_meta::target!(b"frdm-mcx-a266");
+
 use embassy_executor::Spawner;
 use embassy_time::Timer;
 use hal::bind_interrupts;
@@ -46,6 +48,8 @@ async fn main(_spawner: Spawner) {
 
     // Now demonstrating how the instruction timer feature of the cdog works.
     watchdog.start(0xFFF, 0);
+    assert_ne!(watchdog.get_instruction_timer(), 0);
+
     while watchdog.get_instruction_timer() != 0 {
         Timer::after_millis(1).await;
     }
