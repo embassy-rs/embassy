@@ -2,14 +2,14 @@
 
 mod traits;
 
-// TODO
-// mod high_level;
+pub mod bridge_converter;
+pub mod resonant_converter;
 
 use core::mem::MaybeUninit;
 
 use embassy_hal_internal::Peri;
 use stm32_hrtim::control::{HrPwmControl, HrTimOngoingCalibration};
-use stm32_hrtim::output::{HrOut1, HrOut2, ToHrOut};
+use stm32_hrtim::output::{Output1Pin, Output2Pin};
 #[cfg(stm32g4)]
 use stm32_hrtim::pac::HRTIM_TIMF;
 use stm32_hrtim::pac::{HRTIM_TIMA, HRTIM_TIMB, HRTIM_TIMC, HRTIM_TIMD, HRTIM_TIME};
@@ -81,21 +81,26 @@ impl<T: super::hrtim::Instance> HrControltExt for T {
 }
 
 /// Extension trait for initializing the HRTIM timer instance
-pub trait HrPwmBuilderExt<TIM, PSCL, PINS: ToHrOut<TIM>> {
+pub trait HrPwmBuilderExt<TIM, PSCL, P1: Output1Pin<TIM>, P2: Output2Pin<TIM>> {
     /// Finalize the configuration and initialize the timer
-    fn finalize(self, control: &mut HrPwmControl) -> HrParts<TIM, PSCL, PINS::Out<PSCL>>;
+    fn finalize(self, control: &mut HrPwmControl) -> HrParts<TIM, PSCL>;
 }
 macro_rules! impl_finalize {
     ($($TIMX:ident),+) => {$(
-        impl<PSCL: stm32_hrtim::HrtimPrescaler, PINS: HrtimPin<$TIMX>> HrPwmBuilderExt<$TIMX, PSCL, PINS>
-            for HrPwmBuilder<$TIMX, PSCL, stm32_hrtim::PreloadSource, PINS>
+        impl<PSCL, P1, P2> HrPwmBuilderExt<$TIMX, PSCL, P1, P2>
+            for HrPwmBuilder<$TIMX, PSCL, stm32_hrtim::PreloadSource, P1, P2>
+        where PSCL:
+            stm32_hrtim::HrtimPrescaler,
+            P1: Out1Pin<$TIMX>,
+            P2: Out2Pin<$TIMX>
         {
             fn finalize(
                 self,
                 control: &mut HrPwmControl,
-            ) -> HrParts<$TIMX, PSCL, <PINS as ToHrOut<$TIMX>>::Out<PSCL>> {
-                let pins = self._init(control);
-                pins.connect_to_hrtim();
+            ) -> HrParts<$TIMX, PSCL> {
+                let (pin1, pin2) = self._init(control);
+                pin1.connect_to_hrtim();
+                pin2.connect_to_hrtim();
                 unsafe { MaybeUninit::uninit().assume_init() }
             }
         }
@@ -124,30 +129,23 @@ impl_finalize! {
     HRTIM_TIMF
 }
 
-/// Implemented for types that can be used as outputs for HRTIM timer instances
-pub trait HrtimPin<TIM>: ToHrOut<TIM> {
+/// Implemented for types that can be used as output1 for HRTIM timer instances
+pub trait Out1Pin<TIM>: Output1Pin<TIM> {
     /// Connect pin to hrtim timer
     fn connect_to_hrtim(self);
 }
 
-impl<TIM, PA, PB> HrtimPin<TIM> for (PA, PB)
-where
-    PA: HrtimPin<TIM>,
-    PB: HrtimPin<TIM>,
-{
-    fn connect_to_hrtim(self) {
-        self.0.connect_to_hrtim();
-        self.1.connect_to_hrtim();
-    }
+/// Implemented for types that can be used as output2 for HRTIM timer instances
+pub trait Out2Pin<TIM>: Output2Pin<TIM> {
+    /// Connect pin to hrtim timer
+    fn connect_to_hrtim(self);
 }
 
 macro_rules! pins_helper {
-    ($TIMX:ty, $HrOutY:ident, $CHY:ident<$CHY_AF:literal>) => {
-        unsafe impl<'d> ToHrOut<$TIMX> for Pin<Peri<'d, $CHY>> {
-            type Out<PSCL> = $HrOutY<$TIMX, PSCL>;
-        }
+    ($TIMX:ty, $OutYPin:ident, $OutputYPin:ident, $HrOutY:ident, $CHY:ident<$CHY_AF:literal>) => {
+        unsafe impl<'d> $OutputYPin<$TIMX> for Pin<Peri<'d, $CHY>> {}
 
-        impl<'d> HrtimPin<$TIMX> for Pin<Peri<'d, $CHY>> {
+        impl<'d> $OutYPin<$TIMX> for Pin<Peri<'d, $CHY>> {
             // Pin<Gpio, Index, Alternate<PushPull, AF>>
             fn connect_to_hrtim(self) {
                 // It is quite important that we leave this up to the HRTIM driver. Doing this too
@@ -161,8 +159,8 @@ macro_rules! pins_helper {
 
 macro_rules! pins {
     ($($TIMX:ty: CH1: $CH1:ident<$CH1_AF:literal>, CH2: $CH2:ident<$CH2_AF:literal>),+) => {$(
-        pins_helper!($TIMX, HrOut1, $CH1<$CH1_AF>);
-        pins_helper!($TIMX, HrOut2, $CH2<$CH1_AF>);
+        pins_helper!($TIMX, Out1Pin, Output1Pin, HrOut1, $CH1<$CH1_AF>);
+        pins_helper!($TIMX, Out2Pin, Output2Pin, HrOut2, $CH2<$CH1_AF>);
     )+};
 }
 
