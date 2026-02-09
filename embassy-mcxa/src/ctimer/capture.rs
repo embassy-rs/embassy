@@ -284,20 +284,14 @@ impl<'d> Capture<'d> {
                     }
                 });
 
-                let flags = self.info.irq_flags().load(Ordering::Acquire);
                 let n: usize = self.ch.number().into();
-                (flags & (1 << n)) != 0
+                let mask = 1 << n;
+                (self.info.irq_flags().fetch_and(!mask, Ordering::AcqRel)) != 0
             })
             .await
             .map_err(|_| CaptureError::Other)?;
 
         let timestamp = self.info.regs().cr(self.ch.number().into()).read().cap();
-
-        let mut flags = self.info.irq_flags().load(Ordering::Acquire);
-        let n: usize = self.ch.number().into();
-        flags &= !(1 << n);
-        self.info.irq_flags().store(flags, Ordering::Release);
-
         Ok(Timestamp(timestamp))
     }
 }
@@ -320,31 +314,29 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let ir = T::info().regs().ir().read();
         T::info().regs().ir().write(|w| w.0 = ir.0);
 
-        let mut flags = T::info().irq_flags().load(Ordering::Acquire);
-
+        let mut mask = 0;
         T::info().regs().ccr().modify(|w| {
             if ir.cr0int() {
                 w.set_cap0i(Cap0i::CAP0I_0);
-                flags |= 1 << 0;
+                mask |= 1 << 0;
             }
 
             if ir.cr1int() {
                 w.set_cap1i(Cap1i::CAP1I_0);
-                flags |= 1 << 1;
+                mask |= 1 << 1;
             }
 
             if ir.cr2int() {
                 w.set_cap2i(Cap2i::CAP2I_0);
-                flags |= 1 << 2;
+                mask |= 1 << 2;
             }
 
             if ir.cr3int() {
                 w.set_cap3i(Cap3i::CAP3I_0);
-                flags |= 1 << 3;
+                mask |= 1 << 3;
             }
         });
-
-        T::info().irq_flags().store(flags, Ordering::Release);
+        T::info().irq_flags().fetch_or(mask, Ordering::Release);
 
         T::PERF_INT_WAKE_INCR();
         T::info().wait_cell().wake();
