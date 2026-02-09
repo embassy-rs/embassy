@@ -35,11 +35,11 @@ async fn main(_spawner: Spawner) {
 
     info!("Hello World!");
 
-    let pin_a = hrtim::Pin {
+    let pin1 = hrtim::Pin {
         pin: p.PA8,
         speed: Speed::Low,
     };
-    let pin_b = hrtim::Pin {
+    let pin2 = hrtim::Pin {
         pin: p.PA9,
         speed: Speed::Low,
     };
@@ -55,11 +55,11 @@ async fn main(_spawner: Spawner) {
     //        .               .               .               .
     //        .  30%          .               .               .
     //        .----           .               .----           .
-    //pin_a   |    |          .               |    |          .
+    //pin1    |    |          .               |    |          .
     //        |    |          .               |    |          .
     // --------    ----------------------------    --------------------
     //        .               .----           .               .----
-    //pin_b   .               |    |          .               |    |
+    //pin2    .               |    |          .               |    |
     //        .               |    |          .               |    |
     // ------------------------    ----------------------------    ----
     //        .               .               .               .
@@ -68,10 +68,11 @@ async fn main(_spawner: Spawner) {
     let HrParts {
         mut timer,
         mut cr1,
-        out: (mut out1, mut out2),
+        mut out1,
+        mut out2,
         ..
     } = tima
-        .pwm_advanced((pin_a, pin_b))
+        .pwm_advanced(pin1, pin2)
         .prescaler(prescaler)
         .period(0xFFFF)
         .push_pull_mode(true) // Set push pull mode, out1 and out2 are
