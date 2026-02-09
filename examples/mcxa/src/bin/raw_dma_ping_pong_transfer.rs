@@ -207,7 +207,7 @@ async fn main(_spawner: Spawner) {
 
     defmt::info!("SRC2: {=[?]}", src2.as_slice());
 
-    let dma_ch1 = DmaChannel::new(p.DMA_CH1);
+    let mut dma_ch1 = DmaChannel::new(p.DMA_CH1);
 
     // Configure transfer with half-transfer interrupt enabled
     let mut options = TransferOptions::default();

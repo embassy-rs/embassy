@@ -709,7 +709,7 @@ impl DmaChannel<'_> {
     /// The caller must ensure the DMA channel has been properly configured
     /// and that source/destination buffers remain valid for the duration
     /// of the transfer.
-    pub unsafe fn start_transfer(&self) -> Transfer<'_> {
+    pub unsafe fn start_transfer(&mut self) -> Transfer<'_> {
         // Clear any previous DONE/INT flags
         let t = self.tcd();
         t.ch_csr().modify(|w| w.set_done(true));
@@ -721,7 +721,7 @@ impl DmaChannel<'_> {
             w.set_earq(true);
         });
 
-        Transfer::new(&self)
+        Transfer::new(self.reborrow())
     }
 
     // ========================================================================
@@ -745,7 +745,7 @@ impl DmaChannel<'_> {
     /// The source and destination buffers must remain valid for the
     /// duration of the transfer.
     pub fn mem_to_mem<W: Word>(
-        &self,
+        &mut self,
         src: &[W],
         dst: &mut [W],
         options: TransferOptions,
@@ -813,7 +813,7 @@ impl DmaChannel<'_> {
             w.set_start(Start::CHANNEL_STARTED); // Start the channel
         });
 
-        Ok(Transfer::new(&self))
+        Ok(Transfer::new(self.reborrow()))
     }
 
     /// Fill a memory buffer with a pattern value (memset).
@@ -843,7 +843,7 @@ impl DmaChannel<'_> {
     /// // buffer is now filled with 0xDEADBEEF
     /// ```
     ///
-    pub fn memset<W: Word>(&self, pattern: &W, dst: &mut [W], options: TransferOptions) -> Transfer<'_> {
+    pub fn memset<W: Word>(&mut self, pattern: &W, dst: &mut [W], options: TransferOptions) -> Transfer<'_> {
         assert!(!dst.is_empty());
         assert!(dst.len() <= 0x7fff);
 
@@ -911,7 +911,7 @@ impl DmaChannel<'_> {
             w.set_start(Start::CHANNEL_STARTED); // Start the channel
         });
 
-        Transfer::new(&self)
+        Transfer::new(self.reborrow())
     }
 
     /// Write data from memory to a peripheral register.
@@ -929,7 +929,7 @@ impl DmaChannel<'_> {
     ///
     /// - The buffer must remain valid for the duration of the transfer.
     /// - The peripheral address must be valid for writes.
-    pub unsafe fn write<W: Word>(&self, buf: &[W], peri_addr: *mut W, options: TransferOptions) -> Transfer<'_> {
+    pub unsafe fn write<W: Word>(&mut self, buf: &[W], peri_addr: *mut W, options: TransferOptions) -> Transfer<'_> {
         unsafe { self.write_to_peripheral(buf, peri_addr, options) }
     }
 
@@ -999,7 +999,7 @@ impl DmaChannel<'_> {
     /// - The buffer must remain valid for the duration of the transfer.
     /// - The peripheral address must be valid for writes.
     pub unsafe fn write_to_peripheral<W: Word>(
-        &self,
+        &mut self,
         buf: &[W],
         peri_addr: *mut W,
         options: TransferOptions,
@@ -1051,7 +1051,7 @@ impl DmaChannel<'_> {
         // Ensure all TCD writes have completed before DMA engine reads them
         cortex_m::asm::dsb();
 
-        Transfer::new(&self)
+        Transfer::new(self.reborrow())
     }
 
     /// Read data from a peripheral register to memory.
@@ -1069,7 +1069,12 @@ impl DmaChannel<'_> {
     ///
     /// - The buffer must remain valid for the duration of the transfer.
     /// - The peripheral address must be valid for reads.
-    pub unsafe fn read<W: Word>(&self, peri_addr: *const W, buf: &mut [W], options: TransferOptions) -> Transfer<'_> {
+    pub unsafe fn read<W: Word>(
+        &mut self,
+        peri_addr: *const W,
+        buf: &mut [W],
+        options: TransferOptions,
+    ) -> Transfer<'_> {
         unsafe { self.read_from_peripheral(peri_addr, buf, options) }
     }
 
@@ -1140,7 +1145,7 @@ impl DmaChannel<'_> {
     /// - The buffer must remain valid for the duration of the transfer.
     /// - The peripheral address must be valid for reads.
     pub unsafe fn read_from_peripheral<W: Word>(
-        &self,
+        &mut self,
         peri_addr: *const W,
         buf: &mut [W],
         options: TransferOptions,
@@ -1192,7 +1197,7 @@ impl DmaChannel<'_> {
         // Ensure all TCD writes have completed before DMA engine reads them
         cortex_m::asm::dsb();
 
-        Transfer::new(&self)
+        Transfer::new(self.reborrow())
     }
 
     /// Configure a memory-to-peripheral DMA transfer without starting it.
@@ -1652,14 +1657,14 @@ pub(crate) fn half_waker(idx: usize) -> &'static AtomicWaker {
 /// transfer to complete. Dropping the transfer will abort it.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct Transfer<'a> {
-    channel: &'a DmaChannel<'a>,
+    channel: DmaChannel<'a>,
 }
 
 impl<'a> Transfer<'a> {
     /// Create a new transfer for the given channel.
     ///
     /// The caller must have already configured and started the DMA channel.
-    pub(crate) fn new(channel: &'a DmaChannel<'a>) -> Self {
+    pub(crate) fn new(channel: DmaChannel<'a>) -> Self {
         Self { channel }
     }
 
@@ -2380,7 +2385,7 @@ impl<'a, W: Word> ScatterGatherBuilder<'a, W> {
     /// # Returns
     ///
     /// A `Transfer` future that completes when the entire chain has executed.
-    pub fn build<C: Channel>(&mut self, channel: &'a DmaChannel<'a>) -> Result<Transfer<'a>, Error> {
+    pub fn build(&mut self, channel: DmaChannel<'a>) -> Result<Transfer<'a>, Error> {
         if self.count == 0 {
             return Err(Error::Configuration);
         }
