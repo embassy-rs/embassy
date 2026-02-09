@@ -5,7 +5,7 @@
 //! with a low-voltage on the secondary side.
 use stm32_hrtim::control::HrPwmControl;
 pub use stm32_hrtim::deadtime::DeadtimeConfig;
-use stm32_hrtim::output::{HrOut1, HrOut2, HrOutput, Output1Pin, Output2Pin};
+use stm32_hrtim::output::{HrOutput, Output1Pin, Output2Pin};
 use stm32_hrtim::timer::{HrTim, HrTimer};
 use stm32_hrtim::{HrParts, HrPwmAdvExt, HrPwmBuilder, HrtimPrescaler, InterleavedMode, PreloadSource, capture};
 
@@ -41,8 +41,6 @@ where
         P1: Output1Pin<TIM>,
         P2: Output2Pin<TIM>,
         HrPwmBuilder<TIM, PSCL, PreloadSource, P1, P2>: HrPwmBuilderExt<TIM, PSCL, P1, P2>,
-        HrOut1<TIM, PSCL>: HrOutput<TIM, PSCL>,
-        HrOut2<TIM, PSCL>: HrOutput<TIM, PSCL>,
     {
         let f_min = min_frequency.0;
 
