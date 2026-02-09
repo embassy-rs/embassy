@@ -74,7 +74,7 @@ async fn main(spawner: Spawner) {
     defmt::info!("Done, waiting for response");
     dma_uart.read_dma(&mut rx_buffer).await.unwrap();
     assert_eq!(rx_buffer, MESSAGE);
-    
+
     defmt::info!("Test OK");
     cortex_m::asm::bkpt();
 }
