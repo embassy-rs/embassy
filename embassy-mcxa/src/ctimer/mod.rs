@@ -5,6 +5,7 @@ use core::sync::atomic::AtomicU32;
 
 use embassy_hal_internal::{Peri, PeripheralType};
 use maitake_sync::WaitCell;
+use paste::paste;
 
 use crate::clkout::Div4;
 use crate::clocks::periph_helpers::{CTimerClockSel, CTimerConfig};
@@ -116,10 +117,12 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send + Gate<Mrcc
     type Interrupt: interrupt::typelevel::Interrupt;
     /// Clock instance
     const CLOCK_INSTANCE: crate::clocks::periph_helpers::CTimerInstance;
+    const PERF_INT_INCR: fn();
+    const PERF_INT_WAKE_INCR: fn();
 }
 
 macro_rules! impl_instance {
-    ($peri:ident, $clock:ident) => {
+    ($peri:ident, $clock:ident, $perf:ident) => {
         impl SealedInstance for crate::peripherals::$peri {
             fn info() -> &'static Info {
                 static INFO: Info = Info {
@@ -140,15 +143,19 @@ macro_rules! impl_instance {
             type Interrupt = crate::interrupt::typelevel::$peri;
             const CLOCK_INSTANCE: crate::clocks::periph_helpers::CTimerInstance =
                 crate::clocks::periph_helpers::CTimerInstance::$clock;
+            paste! {
+                const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_ $perf>];
+                const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_ $perf _wake>];
+            }
         }
     };
 }
 
-impl_instance!(CTIMER0, CTimer0);
-impl_instance!(CTIMER1, CTimer1);
-impl_instance!(CTIMER2, CTimer2);
-impl_instance!(CTIMER3, CTimer3);
-impl_instance!(CTIMER4, CTimer4);
+impl_instance!(CTIMER0, CTimer0, ctimer0);
+impl_instance!(CTIMER1, CTimer1, ctimer1);
+impl_instance!(CTIMER2, CTimer2, ctimer2);
+impl_instance!(CTIMER3, CTimer3, ctimer3);
+impl_instance!(CTIMER4, CTimer4, ctimer4);
 
 trait SealedCTimerChannel<T: Instance> {
     fn number(&self) -> usize;

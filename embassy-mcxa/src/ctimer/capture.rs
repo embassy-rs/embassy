@@ -303,6 +303,7 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
+        T::PERF_INT_INCR();
         // Clear interrupt status
         let ir = T::info().regs().ir().read();
         T::info().regs().ir().write(|w| w.0 = ir.0);
@@ -337,6 +338,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
             }
         });
 
+        T::PERF_INT_WAKE_INCR();
         T::info().wait_cell().wake();
     }
 }
