@@ -4,6 +4,7 @@ use core::str::FromStr;
 
 use at_commands::builder::CommandBuilder;
 use at_commands::parser::CommandParser;
+use embassy_net_driver_channel::driver::LinkState;
 use embassy_time::{Duration, Timer};
 use heapless::Vec;
 
@@ -343,16 +344,19 @@ impl<'a> Control<'a> {
     pub async fn run<F: Fn(&Status)>(&self, reattach: F) -> Result<(), Error> {
         self.enable().await?;
         let status = self.wait_attached().await?;
+        self.control.set_link_state(LinkState::Up);
         let mut fd = self.control.open_raw_socket().await;
         reattach(&status);
 
         loop {
             if !self.attached().await? {
+                self.control.set_link_state(LinkState::Down);
                 trace!("detached");
 
                 self.control.close_raw_socket(fd).await;
                 let status = self.wait_attached().await?;
                 trace!("attached");
+                self.control.set_link_state(LinkState::Up);
                 fd = self.control.open_raw_socket().await;
                 reattach(&status);
             }

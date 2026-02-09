@@ -11,7 +11,7 @@ documentation = "https://docs.embassy.dev/embassy-net-nrf91"
 publish = true
 
 [features]
-defmt = ["dep:defmt", "heapless/defmt"]
+defmt = ["dep:defmt", "heapless/defmt", "embassy-time/defmt"]
 log = ["dep:log"]
 
 [dependencies]
