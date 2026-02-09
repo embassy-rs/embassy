@@ -21,7 +21,10 @@ use core::cell::RefCell;
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::peripherals::RNG;
+use embassy_stm32::aes::{self, Aes};
+use embassy_stm32::mode::Blocking;
+use embassy_stm32::peripherals::{AES, PKA, RNG};
+use embassy_stm32::pka::{self, Pka};
 use embassy_stm32::rcc::{
     AHB5Prescaler, AHBPrescaler, APBPrescaler, Hse, HsePrescaler, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk,
     VoltageScale, mux,
@@ -37,7 +40,9 @@ use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
-    RNG => rng::InterruptHandler<embassy_stm32::peripherals::RNG>;
+    RNG => rng::InterruptHandler<RNG>;
+    AES => aes::InterruptHandler<AES>;
+    PKA => pka::InterruptHandler<PKA>;
 });
 
 // RADIO interrupt handler - required for BLE stack operation
@@ -107,13 +112,21 @@ async fn main(spawner: Spawner) {
     }
     info!("Radio sleep timer clock configured to HSE/1000");
 
-    // Initialize RNG (required by BLE stack)
-    static RNG: StaticCell<Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>> = StaticCell::new();
-    let rng = RNG.init(Mutex::new(RefCell::new(Rng::new(p.RNG, Irqs))));
-    info!("RNG initialized");
+    // Initialize hardware peripherals required by BLE stack
+    static RNG_INST: StaticCell<Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>> = StaticCell::new();
+    let rng = RNG_INST.init(Mutex::new(RefCell::new(Rng::new(p.RNG, Irqs))));
+
+    static AES_INST: StaticCell<Mutex<CriticalSectionRawMutex, RefCell<Aes<'static, AES, Blocking>>>> =
+        StaticCell::new();
+    let aes = AES_INST.init(Mutex::new(RefCell::new(Aes::new_blocking(p.AES, Irqs))));
+
+    static PKA_INST: StaticCell<Mutex<CriticalSectionRawMutex, RefCell<Pka<'static, PKA>>>> = StaticCell::new();
+    let pka = PKA_INST.init(Mutex::new(RefCell::new(Pka::new_blocking(p.PKA, Irqs))));
+
+    info!("Hardware peripherals initialized (RNG, AES, PKA)");
 
     // Initialize BLE stack
-    let mut ble = Ble::new(rng);
+    let mut ble = Ble::new(rng, aes, pka);
     ble.init().expect("BLE initialization failed");
     info!("BLE stack initialized");
 

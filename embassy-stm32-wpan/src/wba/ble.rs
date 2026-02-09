@@ -6,12 +6,15 @@
 use core::cell::RefCell;
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use embassy_stm32::peripherals::RNG;
+use embassy_stm32::aes::Aes;
+use embassy_stm32::mode::Blocking;
+use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph, RNG};
+use embassy_stm32::pka::Pka;
 use embassy_stm32::rng::Rng;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
-use crate::linklayer_plat::HARDWARE_RNG;
+use crate::linklayer_plat::{HARDWARE_AES, HARDWARE_PKA, HARDWARE_RNG};
 use crate::wba::error::BleError;
 use crate::wba::gap::Advertiser;
 use crate::wba::gap::connection::{
@@ -62,9 +65,20 @@ pub struct Ble {
 impl Ble {
     /// Create a new BLE instance
     ///
+    /// Requires hardware peripheral instances for RNG, AES, and PKA.
+    /// These are stored in statics so the BLE stack's `extern "C"` callbacks can access them.
+    ///
     /// Note: You must call `init()` before using other BLE functionality.
-    pub fn new(rng: &'static Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>) -> Self {
-        unsafe { HARDWARE_RNG.replace(rng) };
+    pub fn new(
+        rng: &'static Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>,
+        aes: &'static Mutex<CriticalSectionRawMutex, RefCell<Aes<'static, AesPeriph, Blocking>>>,
+        pka: &'static Mutex<CriticalSectionRawMutex, RefCell<Pka<'static, PkaPeriph>>>,
+    ) -> Self {
+        unsafe {
+            HARDWARE_RNG.replace(rng);
+            HARDWARE_AES.replace(aes);
+            HARDWARE_PKA.replace(pka);
+        }
 
         Self {
             cmd_sender: CommandSender::new(),

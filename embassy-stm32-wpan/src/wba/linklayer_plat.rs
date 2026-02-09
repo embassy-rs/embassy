@@ -99,8 +99,11 @@ macro_rules! warn {
     ($($arg:tt)*) => {{}};
 }
 use embassy_stm32::NVIC_PRIO_BITS;
+use embassy_stm32::aes::{Aes, AesEcb, Direction};
+use embassy_stm32::mode::Blocking;
 use embassy_stm32::pac::{FLASH, RCC};
-use embassy_stm32::peripherals::RNG;
+use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph, RNG};
+use embassy_stm32::pka::{EccPoint, EcdsaCurveParams, Pka};
 use embassy_stm32::rng::Rng;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time::{Duration, Instant, block_for};
@@ -161,56 +164,26 @@ static mut CS_RESTORE_STATE: Option<critical_section::RestoreState> = None;
 // This must be set by the application using `set_rng_instance` before the link layer requests random numbers.
 pub(crate) static mut HARDWARE_RNG: Option<&'static Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>> = None;
 
+// Hardware AES and PKA driver instances, following the HARDWARE_RNG pattern.
+// Stored as statics so the extern "C" BLEPLAT callbacks can access them.
+pub(crate) static mut HARDWARE_AES: Option<&'static Mutex<CriticalSectionRawMutex, RefCell<Aes<'static, AesPeriph, Blocking>>>> =
+    None;
+pub(crate) static mut HARDWARE_PKA: Option<&'static Mutex<CriticalSectionRawMutex, RefCell<Pka<'static, PkaPeriph>>>> = None;
+
 // ============================================================================
-// AES-128 ECB Hardware Acceleration (PAC-level)
+// AES-128 ECB Hardware Acceleration (Embassy driver)
 // ============================================================================
 
-/// Perform AES-128 ECB encryption using the hardware AES peripheral.
-///
-/// Uses PAC registers directly since this is called from extern "C" callbacks.
+/// Perform AES-128 ECB encryption using the Embassy AES driver.
 fn aes_ecb_encrypt(key: &[u8; 16], input: &[u8; 16], output: &mut [u8; 16]) {
-    let aes = embassy_stm32::pac::AES;
-
-    // Disable AES peripheral
-    aes.cr().modify(|w| w.set_en(false));
-
-    // Configure: ECB mode (CHMOD=0), encrypt (MODE=0), 128-bit key, NO_SWAP datatype
-    aes.cr().write(|w| {
-        w.set_chmod(embassy_stm32::pac::aes::vals::Chmod::from_bits(0)); // ECB
-        w.set_mode(embassy_stm32::pac::aes::vals::Mode::from_bits(0)); // Encrypt
-        w.set_keysize(false); // 128-bit
-        w.set_datatype(embassy_stm32::pac::aes::vals::Datatype::from_bits(0)); // NO_SWAP
+    critical_section::with(|cs| {
+        let aes_ref = unsafe { HARDWARE_AES.as_ref() }.expect("HARDWARE_AES not initialized");
+        let mut aes = aes_ref.borrow(cs).borrow_mut();
+        let cipher = AesEcb::new(key);
+        let mut ctx = aes.start(&cipher, Direction::Encrypt);
+        aes.payload_blocking(&mut ctx, input, output, true).unwrap();
+        aes.finish_blocking(ctx).unwrap();
     });
-
-    // Load key: big-endian words in reverse register order (keyr(3)=first word, keyr(0)=last word)
-    for i in 0..4 {
-        let word = u32::from_be_bytes([key[i * 4], key[i * 4 + 1], key[i * 4 + 2], key[i * 4 + 3]]);
-        aes.keyr(3 - i).write_value(word);
-    }
-
-    // Enable AES peripheral
-    aes.cr().modify(|w| w.set_en(true));
-
-    // Write 4 input words via DINR (big-endian conversion)
-    for i in 0..4 {
-        let word = u32::from_be_bytes([input[i * 4], input[i * 4 + 1], input[i * 4 + 2], input[i * 4 + 3]]);
-        aes.dinr().write_value(word);
-    }
-
-    // Wait for Computation Complete Flag (CCF)
-    while !aes.sr().read().ccf() {}
-
-    // Read 4 output words from DOUTR (big-endian conversion)
-    for i in 0..4 {
-        let word = aes.doutr().read();
-        output[i * 4..i * 4 + 4].copy_from_slice(&word.to_be_bytes());
-    }
-
-    // Clear CCF flag
-    aes.icr().write(|w| w.0 = 0xFFFF_FFFF);
-
-    // Disable AES peripheral
-    aes.cr().modify(|w| w.set_en(false));
 }
 
 // ============================================================================
@@ -297,212 +270,66 @@ fn cmac_compute(key: &[u8; 16], input: &[u8], output: &mut [u8; 16]) {
 }
 
 // ============================================================================
-// PKA P-256 Hardware Acceleration (PAC-level)
+// PKA P-256 Hardware Acceleration (Embassy driver)
 // ============================================================================
 
-/// PKA ECC scalar multiplication RAM offsets (from embassy-stm32 pka driver)
-mod pka_offsets {
-    pub const IN_EXP_NB_BITS: usize = 0x00;
-    pub const IN_OP_NB_BITS: usize = 0x08;
-    pub const IN_A_COEFF_SIGN: usize = 0x10;
-    pub const IN_A_COEFF: usize = 0x18;
-    pub const IN_B_COEFF: usize = 0x120;
-    pub const IN_MOD_GF: usize = 0xC88;
-    pub const IN_K: usize = 0xEA0;
-    pub const IN_INITIAL_POINT_X: usize = 0x178;
-    pub const IN_INITIAL_POINT_Y: usize = 0x70;
-    pub const IN_N_PRIME_ORDER: usize = 0xB88;
-    pub const OUT_RESULT_X: usize = 0x178;
-    pub const OUT_RESULT_Y: usize = 0x1D0;
-    pub const OUT_ERROR: usize = 0x280;
-}
-
-/// P-256 curve parameters as u32 words (little-endian word order, index 0 = LSW)
-/// This matches the format the BLE stack uses for its u32 arrays.
-mod p256 {
-    /// Prime p = FFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF
-    pub const P: [u32; 8] = [
-        0xFFFF_FFFF, 0xFFFF_FFFF, 0xFFFF_FFFF, 0x0000_0000,
-        0x0000_0000, 0x0000_0000, 0x0000_0001, 0xFFFF_FFFF,
-    ];
-
-    /// |a| = 3 (a = -3 mod p, sign stored separately)
-    pub const A: [u32; 8] = [
-        0x0000_0003, 0x0000_0000, 0x0000_0000, 0x0000_0000,
-        0x0000_0000, 0x0000_0000, 0x0000_0000, 0x0000_0000,
-    ];
-
-    /// b coefficient
-    pub const B: [u32; 8] = [
-        0x27D2_604B, 0x3BCE_3C3E, 0xCC53_B0F6, 0x651D_06B0,
-        0x7698_86BC, 0xB3EB_BD55, 0xAA3A_93E7, 0x5AC6_35D8,
-    ];
-
-    /// Generator point Gx
-    pub const GX: [u32; 8] = [
-        0xD898_C296, 0xF4A1_3945, 0x2DEB_33A0, 0x7703_7D81,
-        0x63A4_40F2, 0xF8BC_E6E5, 0xE12C_4247, 0x6B17_D1F2,
-    ];
-
-    /// Generator point Gy
-    pub const GY: [u32; 8] = [
-        0x37BF_51F5, 0xCBB6_4068, 0x6B31_5ECE, 0x2BCE_3357,
-        0x7C0F_9E16, 0x8EE7_EB4A, 0xFE1A_7F9B, 0x4FE3_42E2,
-    ];
-
-    /// Order n
-    pub const N: [u32; 8] = [
-        0xFC63_2551, 0xF3B9_CAC2, 0xA717_9E84, 0xBCE6_FAAD,
-        0xFFFF_FFFF, 0xFFFF_FFFF, 0x0000_0000, 0xFFFF_FFFF,
-    ];
-}
-
-/// Cached PKA result for async Start/Read pattern
+/// Cached PKA result for async Start/Read pattern.
 /// The BLE stack calls Start (begin computation), then later calls Read (get result).
+/// Results stored as u32 LE word arrays (index 0 = LSW) matching BLE stack format.
 static mut PKA_RESULT_X: [u32; 8] = [0u32; 8];
 static mut PKA_RESULT_Y: [u32; 8] = [0u32; 8];
 static PKA_RESULT_READY: AtomicBool = AtomicBool::new(false);
 
-fn pka_write_ram_word(offset: usize, value: u32) {
-    let pka = embassy_stm32::pac::PKA;
-    let word_index = offset / 4;
-    unsafe {
-        let ram_ptr = pka.ram(word_index).as_ptr() as *mut u32;
-        ram_ptr.write_volatile(value);
+/// Convert u32 LE word array (index 0 = LSW) to big-endian byte array.
+/// This is needed because the BLE stack uses u32 LE words, but the Embassy
+/// PKA driver uses big-endian byte arrays.
+fn words_le_to_be_bytes(words: &[u32; 8], bytes: &mut [u8; 32]) {
+    for i in 0..8 {
+        let be = words[7 - i].to_be_bytes();
+        bytes[i * 4..i * 4 + 4].copy_from_slice(&be);
     }
 }
 
-fn pka_read_ram_word(offset: usize) -> u32 {
-    let pka = embassy_stm32::pac::PKA;
-    let word_index = offset / 4;
-    unsafe {
-        let ram_ptr = pka.ram(word_index).as_ptr() as *const u32;
-        ram_ptr.read_volatile()
+/// Convert big-endian byte array to u32 LE word array (index 0 = LSW).
+fn be_bytes_to_words_le(bytes: &[u8], words: &mut [u32; 8]) {
+    for i in 0..8 {
+        words[7 - i] = u32::from_be_bytes([bytes[i * 4], bytes[i * 4 + 1], bytes[i * 4 + 2], bytes[i * 4 + 3]]);
     }
 }
 
-/// Write a u32 array (LE word order) to PKA RAM at a given offset.
-/// Also writes two zero-terminator words after the data (per ST HAL convention).
-fn pka_write_operand_words(offset: usize, words: &[u32]) {
-    for (i, &word) in words.iter().enumerate() {
-        pka_write_ram_word(offset + i * 4, word);
-    }
-    // Two zero terminators (matching __PKA_RAM_PARAM_END)
-    pka_write_ram_word(offset + words.len() * 4, 0);
-    pka_write_ram_word(offset + (words.len() + 1) * 4, 0);
-}
-
-/// Read u32 words from PKA RAM into a u32 array
-fn pka_read_result_words(offset: usize, words: &mut [u32]) {
-    for (i, word) in words.iter_mut().enumerate() {
-        *word = pka_read_ram_word(offset + i * 4);
-    }
-}
-
-/// Perform P-256 ECC scalar multiplication: result = k * P
+/// Perform P-256 ECC scalar multiplication using the Embassy PKA driver.
 /// k and point coordinates are u32 arrays in LE word order (index 0 = LSW).
 /// Returns 0 on success, non-zero on error.
 fn pka_p256_mul(k: &[u32; 8], px: &[u32; 8], py: &[u32; 8], rx: &mut [u32; 8], ry: &mut [u32; 8]) -> i32 {
-    let pka = embassy_stm32::pac::PKA;
+    // Convert from BLE stack u32 LE words to big-endian bytes for Embassy PKA driver
+    let mut k_be = [0u8; 32];
+    let mut px_be = [0u8; 32];
+    let mut py_be = [0u8; 32];
+    words_le_to_be_bytes(k, &mut k_be);
+    words_le_to_be_bytes(px, &mut px_be);
+    words_le_to_be_bytes(py, &mut py_be);
 
-    // Enable PKA clock
-    RCC.ahb2enr().modify(|w| w.set_pkaen(true));
-    compiler_fence(Ordering::SeqCst);
+    let curve = EcdsaCurveParams::nist_p256();
+    let mut result = EccPoint::new(32);
 
-    // Enable PKA peripheral
-    pka.cr().write(|w| w.set_en(true));
-
-    // Wait for INITOK (bit 0 of SR) - RAM initialization complete
-    let sr_ptr = pka.sr().as_ptr() as *const u32;
-    let mut timeout: u32 = 0;
-    loop {
-        let sr_raw = unsafe { sr_ptr.read_volatile() };
-        if sr_raw & 0x01 != 0 {
-            break;
-        }
-        timeout += 1;
-        if timeout > 1_000_000 {
-            warn!("PKA INITOK timeout");
-            return -1;
-        }
-    }
-
-    // Clear any pending flags
-    pka.clrfr().write(|w| {
-        w.set_procendfc(true);
-        w.set_ramerrfc(true);
-        w.set_addrerrfc(true);
-        w.set_operrfc(true);
+    let status = critical_section::with(|cs| {
+        let pka_ref = unsafe { HARDWARE_PKA.as_ref() }.expect("HARDWARE_PKA not initialized");
+        let mut pka = pka_ref.borrow(cs).borrow_mut();
+        pka.ecc_mul(&curve, &k_be, &px_be, &py_be, &mut result)
     });
 
-    // Write bit counts
-    pka_write_ram_word(pka_offsets::IN_EXP_NB_BITS, 256); // scalar bits
-    pka_write_ram_word(pka_offsets::IN_OP_NB_BITS, 256); // modulus bits
-    pka_write_ram_word(pka_offsets::IN_A_COEFF_SIGN, 1); // a is negative
-
-    // Write P-256 curve parameters
-    pka_write_operand_words(pka_offsets::IN_A_COEFF, &p256::A);
-    pka_write_operand_words(pka_offsets::IN_B_COEFF, &p256::B);
-    pka_write_operand_words(pka_offsets::IN_MOD_GF, &p256::P);
-    pka_write_operand_words(pka_offsets::IN_N_PRIME_ORDER, &p256::N);
-
-    // Write scalar and point
-    pka_write_operand_words(pka_offsets::IN_K, k);
-    pka_write_operand_words(pka_offsets::IN_INITIAL_POINT_X, px);
-    pka_write_operand_words(pka_offsets::IN_INITIAL_POINT_Y, py);
-
-    // Set mode to ECC scalar multiplication (0x20) and start
-    pka.cr().modify(|w| {
-        w.set_mode(0x20);
-        w.set_procendie(false);
-        w.set_ramerrie(false);
-        w.set_addrerrie(false);
-        w.set_operrie(false);
-    });
-    pka.cr().modify(|w| w.set_start(true));
-
-    // Wait for completion
-    timeout = 0;
-    loop {
-        let sr = pka.sr().read();
-        if sr.ramerrf() || sr.addrerrf() || sr.operrf() {
-            pka.clrfr().write(|w| {
-                w.set_ramerrfc(true);
-                w.set_addrerrfc(true);
-                w.set_operrfc(true);
-            });
-            pka.cr().modify(|w| w.set_en(false));
-            warn!("PKA error during ECC mul");
-            return -1;
+    match status {
+        Ok(()) => {
+            // Convert result from big-endian bytes back to u32 LE words
+            be_bytes_to_words_le(&result.x[..32], rx);
+            be_bytes_to_words_le(&result.y[..32], ry);
+            0
         }
-        if sr.procendf() {
-            pka.clrfr().write(|w| w.set_procendfc(true));
-            break;
-        }
-        timeout += 1;
-        if timeout > 10_000_000 {
-            pka.cr().modify(|w| w.set_en(false));
-            warn!("PKA timeout during ECC mul");
-            return -1;
+        Err(_e) => {
+            warn!("PKA ECC mul failed");
+            -1
         }
     }
-
-    // Check result status
-    let status = pka_read_ram_word(pka_offsets::OUT_ERROR);
-    if status != 0xD60D {
-        pka.cr().modify(|w| w.set_en(false));
-        warn!("PKA ECC mul failed, status=0x{:08X}", status);
-        return -1;
-    }
-
-    // Read result
-    pka_read_result_words(pka_offsets::OUT_RESULT_X, rx);
-    pka_read_result_words(pka_offsets::OUT_RESULT_Y, ry);
-
-    // Disable PKA
-    pka.cr().modify(|w| w.set_en(false));
-
-    0 // success
 }
 
 // ============================================================================
@@ -1412,16 +1239,8 @@ pub unsafe extern "C" fn LINKLAYER_DEBUG_SIGNAL_TOGGLE() {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn BLEPLAT_Init() {
     trace!("BLEPLAT_Init");
-
-    // Enable AES hardware clock for crypto operations
-    RCC.ahb2enr().modify(|w| w.set_aesen(true));
-    compiler_fence(Ordering::SeqCst);
-
-    // Enable PKA hardware clock for ECC operations
-    RCC.ahb2enr().modify(|w| w.set_pkaen(true));
-    compiler_fence(Ordering::SeqCst);
-
-    trace!("BLEPLAT_Init: AES and PKA clocks enabled");
+    // AES and PKA clocks are enabled by their respective Embassy driver constructors
+    // (Aes::new_blocking and Pka::new_blocking call rcc::enable_and_reset)
 }
 
 /// Get random numbers from RNG
@@ -1654,7 +1473,14 @@ pub unsafe extern "C" fn BLEPLAT_PkaStartP256Key(local_private_key: *const u32) 
 
     let k: &[u32; 8] = &*(local_private_key as *const [u32; 8]);
 
-    let result = pka_p256_mul(k, &p256::GX, &p256::GY, &mut PKA_RESULT_X, &mut PKA_RESULT_Y);
+    // Convert P-256 generator point from big-endian bytes to u32 LE words
+    let curve = EcdsaCurveParams::nist_p256();
+    let mut gx_words = [0u32; 8];
+    let mut gy_words = [0u32; 8];
+    be_bytes_to_words_le(curve.generator_x, &mut gx_words);
+    be_bytes_to_words_le(curve.generator_y, &mut gy_words);
+
+    let result = pka_p256_mul(k, &gx_words, &gy_words, &mut PKA_RESULT_X, &mut PKA_RESULT_Y);
 
     if result == 0 {
         PKA_RESULT_READY.store(true, Ordering::Release);
