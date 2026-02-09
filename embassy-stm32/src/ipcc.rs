@@ -2,7 +2,7 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::sync::atomic::{Ordering, compiler_fence};
+use core::sync::atomic::{Ordering, compiler_fence, fence};
 use core::task::Poll;
 
 use embassy_hal_internal::Peri;
@@ -146,8 +146,7 @@ impl<'a> IpccTxChannel<'a> {
         self.flush().await;
 
         f();
-
-        compiler_fence(Ordering::SeqCst);
+        fence(Ordering::Release);
 
         trace!("ipcc: ch {}: send data", self.index as u8);
         regs.cpu(core.to_index())
@@ -250,6 +249,7 @@ impl<'a> IpccRxChannel<'a> {
 
             trace!("ipcc: ch {}: read data", self.index as u8);
 
+            fence(Ordering::Acquire);
             let ret = f();
 
             trace!("ipcc: ch {}: clear rx", self.index as u8);
