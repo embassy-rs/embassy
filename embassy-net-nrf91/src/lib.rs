@@ -22,6 +22,7 @@ use cortex_m::peripheral::NVIC;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::pipe;
 use embassy_sync::waitqueue::{AtomicWaker, WakerRegistration};
+use embassy_time::{Duration, Instant};
 use heapless::Vec;
 use {embassy_net_driver_channel as ch, nrf_pac as pac};
 
@@ -226,7 +227,7 @@ async fn new_internal<'a>(
         },
 
         tx_seq_no: 0,
-        tx_buf_used: [false; TX_BUF_COUNT],
+        tx_buf_used: [None; TX_BUF_COUNT],
         tx_waker: WakerRegistration::new(),
 
         trace_chans: Vec::new(),
@@ -296,6 +297,7 @@ impl State {
 
 const TX_BUF_COUNT: usize = 4;
 const TX_BUF_SIZE: usize = 1500;
+const TX_BUF_TIMEOUT: Duration = Duration::from_secs(15);
 
 struct TraceChannelInfo {
     ptr: *mut TraceChannel,
@@ -335,7 +337,8 @@ struct StateInner {
     rx_check: PointerChecker,
 
     tx_seq_no: u16,
-    tx_buf_used: [bool; TX_BUF_COUNT],
+    /// Tracks tx_buf allocation. Some(instant) = used, allocated at that time. None = free.
+    tx_buf_used: [Option<Instant>; TX_BUF_COUNT],
     tx_waker: WakerRegistration,
 
     trace_chans: Vec<TraceChannelInfo, TRACE_CHANNEL_COUNT>,
@@ -463,6 +466,8 @@ impl StateInner {
             }
         }
 
+        self.check_stale_tx_bufs();
+
         ipc.intenset().write(|w| {
             w.set_receive0(true);
             w.set_receive2(true);
@@ -529,19 +534,37 @@ impl StateInner {
 
     fn find_free_tx_buf(&mut self) -> Option<usize> {
         for i in 0..TX_BUF_COUNT {
-            if !self.tx_buf_used[i] {
+            if self.tx_buf_used[i].is_none() {
                 trace!("using tx buf idx {}", i);
                 return Some(i);
             }
         }
-        return None;
+        warn!("TX_BUF EXHAUSTED: used={:?}", self.tx_buf_used);
+        None
     }
 
-    fn send_message(&mut self, msg: &mut Message, data: &[u8]) -> Result<(), NoFreeBufs> {
+    /// Check for stale tx_bufs that have been allocated for too long without being freed.
+    /// This handles the case where the modem doesn't send CONTROL_FREE for rapid burst sends.
+    fn check_stale_tx_bufs(&mut self) {
+        let now = Instant::now();
+        for i in 0..TX_BUF_COUNT {
+            if let Some(allocated_at) = self.tx_buf_used[i] {
+                if now.duration_since(allocated_at) > TX_BUF_TIMEOUT {
+                    warn!("tx_buf {} timed out, force freeing", i);
+                    self.tx_buf_used[i] = None;
+                    self.tx_waker.wake();
+                }
+            }
+        }
+    }
+
+    /// Send a message, optionally with data. Returns the tx_buf index if one was allocated.
+    fn send_message(&mut self, msg: &mut Message, data: &[u8]) -> Result<Option<usize>, NoFreeBufs> {
         if data.is_empty() {
             msg.data = ptr::null_mut();
             msg.data_len = 0;
-            self.send_message_raw(msg)
+            self.send_message_raw(msg)?;
+            Ok(None)
         } else {
             assert!(data.len() <= TX_BUF_SIZE);
             let buf_idx = self.find_free_tx_buf().ok_or(NoFreeBufs)?;
@@ -549,17 +572,17 @@ impl StateInner {
             unsafe { copy_nonoverlapping(data.as_ptr(), buf, data.len()) }
             msg.data = buf;
             msg.data_len = data.len();
-            self.tx_buf_used[buf_idx] = true;
+            self.tx_buf_used[buf_idx] = Some(Instant::now());
 
             fence(Ordering::SeqCst); // synchronize copy_nonoverlapping (non-volatile) with volatile writes below.
             if let Err(e) = self.send_message_raw(msg) {
                 msg.data = ptr::null_mut();
                 msg.data_len = 0;
-                self.tx_buf_used[buf_idx] = false;
+                self.tx_buf_used[buf_idx] = None;
                 self.tx_waker.wake();
                 Err(e)
             } else {
-                Ok(())
+                Ok(Some(buf_idx))
             }
         }
     }
@@ -613,14 +636,14 @@ impl StateInner {
             return;
         }
 
-        trace!("control free pointer {:08x} idx {}", ptr, idx);
-        if !self.tx_buf_used[idx] {
+        trace!("CONTROL_FREE: idx={} was_used={}", idx, self.tx_buf_used[idx].is_some());
+        if self.tx_buf_used[idx].is_none() {
             warn!(
                 "control free pointer {:08x} idx {}: buffer was already free??",
                 ptr, idx
             );
         }
-        self.tx_buf_used[idx] = false;
+        self.tx_buf_used[idx] = None;
         self.tx_waker.wake();
     }
 
@@ -963,8 +986,12 @@ impl<'a> Runner<'a> {
                     msg.id = 0x7006_0004; // IP send
                     msg.param_len = 12;
                     msg.param[4..8].copy_from_slice(&fd.to_le_bytes());
-                    if let Err(e) = state.send_message(&mut msg, buf) {
-                        warn!("tx failed: {:?}", e);
+                    match state.send_message(&mut msg, buf) {
+                        Err(e) => warn!("IP_SEND failed: {:?}", e),
+                        Ok(Some(buf_idx)) => {
+                            trace!("IP_SEND: buf_idx={} len={}", buf_idx, buf.len());
+                        }
+                        Ok(None) => {}
                     }
                     self.ch.tx_done();
                 }
