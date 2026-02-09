@@ -56,8 +56,8 @@ async fn main(spawner: Spawner) {
     i2c.async_read(0x37, &mut buf).await.unwrap();
     assert_eq!(buf[0], 37);
 
-    defmt::info!("Write 0x00");
-    let error = i2c.async_write(0x14, &[0]).await.unwrap_err();
+    defmt::info!("Write 0x01");
+    let error = i2c.async_write(0x01, &[0]).await.unwrap_err();
     assert_eq!(error, controller::IOError::AddressNack);
 
     defmt::info!("Test OK");
@@ -66,8 +66,8 @@ async fn main(spawner: Spawner) {
 
 #[embassy_executor::task]
 async fn target_task(mut target: target::I2c<'static, Async>) {
-    let mut addr0_value = [0; 128];
-    let mut addr1_value = [0; 128];
+    let mut addr0_value = [0];
+    let mut addr1_value = [0];
 
     loop {
         defmt::debug!("Target listen");
