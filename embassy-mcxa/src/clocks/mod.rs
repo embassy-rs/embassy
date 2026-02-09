@@ -2006,6 +2006,7 @@ pub(crate) mod gate {
     impl_cc_gate!(PORT4, mrcc_glb_cc1, mrcc_glb_rst1, port4, NoConfig);
 
     impl_cc_gate!(CRC0, mrcc_glb_cc0, mrcc_glb_rst0, crc0, NoConfig);
+    impl_cc_gate!(INPUTMUX0, mrcc_glb_cc0, mrcc_glb_rst0, inputmux0, NoConfig);
 
     // These peripherals DO have meaningful configuration, and could fail if the system
     // clocks do not match their needs.

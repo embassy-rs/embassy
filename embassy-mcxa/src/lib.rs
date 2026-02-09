@@ -16,6 +16,7 @@ pub mod dma;
 pub mod gpio;
 pub mod i2c;
 pub mod i3c;
+pub mod inputmux;
 pub mod lpuart;
 pub mod ostimer;
 pub mod perf_counters;
@@ -500,6 +501,9 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
     // Initialize embassy-time global driver backed by OSTIMER0
     // NOTE: As early as possible, but MUST be AFTER clocks!
     crate::ostimer::init(cfg.time_interrupt_priority);
+
+    // Initialize the INPUTMUX peripheral
+    crate::inputmux::init();
 
     unsafe {
         crate::gpio::interrupt_init();
