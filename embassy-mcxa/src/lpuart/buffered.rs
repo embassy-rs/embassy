@@ -18,8 +18,7 @@ use crate::interrupt::{self};
 
 /// State for buffered LPUART operations
 pub struct State {
-    tie_waker: AtomicWaker,
-    tcie_waker: AtomicWaker,
+    tx_waker: AtomicWaker,
     tx_buf: RingBuffer,
     rx_waker: AtomicWaker,
     rx_buf: RingBuffer,
@@ -36,8 +35,7 @@ impl State {
     /// Create a new state instance
     pub const fn new() -> Self {
         Self {
-            tie_waker: AtomicWaker::new(),
-            tcie_waker: AtomicWaker::new(),
+            tx_waker: AtomicWaker::new(),
             tx_buf: RingBuffer::new(),
             rx_waker: AtomicWaker::new(),
             rx_buf: RingBuffer::new(),
@@ -459,7 +457,7 @@ impl<'a> BufferedLpuartTx<'a> {
     pub fn write(&mut self, buf: &[u8]) -> impl Future<Output = Result<usize>> {
         // Wait for space in the buffer
         poll_fn(move |cx| {
-            self.state.tie_waker.register(cx.waker());
+            self.state.tx_waker.register(cx.waker());
 
             let mut writer = unsafe { self.state.tx_buf.writer() };
             let written = writer.push(|slice| {
@@ -487,7 +485,7 @@ impl<'a> BufferedLpuartTx<'a> {
     pub fn flush(&mut self) -> impl Future<Output = Result<()>> {
         // Wait for TX buffer to empty and transmission to complete
         poll_fn(|cx| {
-            self.state.tcie_waker.register(cx.waker());
+            self.state.tx_waker.register(cx.waker());
 
             let tx_empty = self.state.tx_buf.is_empty();
             let fifo_empty = self.info.regs().water().read().txcount() == 0;
@@ -806,7 +804,7 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for Buffere
 
                 if sent_any {
                     T::PERF_INT_WAKE_INCR();
-                    state.tie_waker.wake();
+                    state.tx_waker.wake();
                 }
 
                 // If buffer is empty, switch to TC interrupt or disable
@@ -823,7 +821,7 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for Buffere
             // Handle transmission complete
             if ctrl.tcie() && regs.stat().read().tc() == Tc::COMPLETE {
                 T::PERF_INT_WAKE_INCR();
-                state.tcie_waker.wake();
+                state.tx_waker.wake();
 
                 // Disable TC interrupt
                 cortex_m::interrupt::free(|_| {
