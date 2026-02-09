@@ -284,12 +284,14 @@ impl<'d> Capture<'d> {
                     }
                 });
 
-                self.info.timestamp(self.ch.number().into()).load(Ordering::Acquire) != 0
+                let n: usize = self.ch.number().into();
+                let mask = 1 << n;
+                (self.info.irq_flags().fetch_and(!mask, Ordering::AcqRel)) != 0
             })
             .await
             .map_err(|_| CaptureError::Other)?;
 
-        let timestamp = self.info.timestamp(self.ch.number().into()).swap(0, Ordering::AcqRel);
+        let timestamp = self.info.regs().cr(self.ch.number().into()).read().cap();
         Ok(Timestamp(timestamp))
     }
 }
@@ -312,44 +314,29 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let ir = T::info().regs().ir().read();
         T::info().regs().ir().write(|w| w.0 = ir.0);
 
-        // If the interrupt triggered, we want to know which channel
-        // triggered it and update the correct timestamp
-        // `AtomicU32`. There is a very, very low probability of
-        // reading a zero timestamp, but that would only happen with a
-        // very, very slow external clock being used to feed the
-        // CTimer.
-        //
-        // That scenario is currently not supported, so we're assuming
-        // that case will **never happen**.
+        let mut mask = 0;
         T::info().regs().ccr().modify(|w| {
             if ir.cr0int() {
                 w.set_cap0i(Cap0i::CAP0I_0);
-                T::info()
-                    .timestamp(0)
-                    .store(T::info().regs().cr(0).read().cap(), Ordering::Release);
+                mask |= 1 << 0;
             }
 
             if ir.cr1int() {
                 w.set_cap1i(Cap1i::CAP1I_0);
-                T::info()
-                    .timestamp(1)
-                    .store(T::info().regs().cr(1).read().cap(), Ordering::Release);
+                mask |= 1 << 1;
             }
 
             if ir.cr2int() {
                 w.set_cap2i(Cap2i::CAP2I_0);
-                T::info()
-                    .timestamp(2)
-                    .store(T::info().regs().cr(2).read().cap(), Ordering::Release);
+                mask |= 1 << 2;
             }
 
             if ir.cr3int() {
                 w.set_cap3i(Cap3i::CAP3I_0);
-                T::info()
-                    .timestamp(3)
-                    .store(T::info().regs().cr(3).read().cap(), Ordering::Release);
+                mask |= 1 << 3;
             }
         });
+        T::info().irq_flags().fetch_or(mask, Ordering::Release);
 
         T::PERF_INT_WAKE_INCR();
         T::info().wait_cell().wake();

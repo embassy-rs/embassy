@@ -1,7 +1,7 @@
 //! CTimer driver.
 
 use core::marker::PhantomData;
-use core::sync::atomic::AtomicU32;
+use core::sync::atomic::AtomicU8;
 
 use embassy_hal_internal::{Peri, PeripheralType};
 use maitake_sync::WaitCell;
@@ -15,8 +15,6 @@ use crate::{interrupt, pac};
 
 pub mod capture;
 pub mod pwm;
-
-const CTIMER_CHANNELS_PER_INSTANCE: usize = 4;
 
 /// CTimer channel
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -32,9 +30,9 @@ pub enum Channel {
     Three,
 }
 
-impl Into<usize> for Channel {
-    fn into(self) -> usize {
-        match self {
+impl From<Channel> for usize {
+    fn from(value: Channel) -> usize {
+        match value {
             Channel::Zero => 0,
             Channel::One => 1,
             Channel::Two => 2,
@@ -111,7 +109,7 @@ impl<'d> CTimer<'d> {
 struct Info {
     regs: pac::ctimer::Ctimer,
     wait_cell: WaitCell,
-    timestamp: [AtomicU32; 4],
+    irq_flags: AtomicU8,
 }
 
 impl Info {
@@ -126,8 +124,8 @@ impl Info {
     }
 
     #[inline(always)]
-    fn timestamp(&self, ch: usize) -> &AtomicU32 {
-        &self.timestamp[ch]
+    fn irq_flags(&self) -> &AtomicU8 {
+        &self.irq_flags
     }
 }
 
@@ -155,7 +153,7 @@ macro_rules! impl_instance {
                 static INFO: Info = Info {
                     regs: pac::$peri,
                     wait_cell: WaitCell::new(),
-                    timestamp: [const { AtomicU32::new(0) }; CTIMER_CHANNELS_PER_INSTANCE],
+                    irq_flags: const { AtomicU8::new(0) },
                 };
                 &INFO
             }
