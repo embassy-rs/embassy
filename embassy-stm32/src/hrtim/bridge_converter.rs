@@ -1,12 +1,12 @@
-/// Fixed-frequency bridge converter driver.
-///
-/// Our implementation of the bridge converter uses a single channel and three compare registers,
-/// allowing implementation of a synchronous buck or boost converter in continuous or discontinuous
-/// conduction mode.
-///
-/// It is important to remember that in synchronous topologies, energy can flow in reverse during
-/// light loading conditions, and that the low-side switch must be active for a short time to drive
-/// a bootstrapped high-side switch.
+//! Fixed-frequency bridge converter driver.
+//!
+//! Our implementation of the bridge converter uses a single channel and three compare registers,
+//! allowing implementation of a synchronous buck or boost converter in continuous or discontinuous
+//! conduction mode.
+//!
+//! It is important to remember that in synchronous topologies, energy can flow in reverse during
+//! light loading conditions, and that the low-side switch must be active for a short time to drive
+//! a bootstrapped high-side switch.
 use stm32_hrtim::compare_register::HrCompareRegister;
 use stm32_hrtim::control::{HrPwmControl, HrPwmCtrl};
 use stm32_hrtim::output::{HrOut1, HrOut2, HrOutput, Output1Pin, Output2Pin};

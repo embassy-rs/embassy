@@ -1,8 +1,8 @@
-/// Variable-frequency resonant converter driver.
-///
-/// This implementation of a resonsant converter is appropriate for a half or full bridge,
-/// but does not include secondary rectification, which is appropriate for applications
-/// with a low-voltage on the secondary side.
+//! Variable-frequency resonant converter driver.
+//!
+//! This implementation of a resonsant converter is appropriate for a half or full bridge,
+//! but does not include secondary rectification, which is appropriate for applications
+//! with a low-voltage on the secondary side.
 use stm32_hrtim::control::HrPwmControl;
 pub use stm32_hrtim::deadtime::DeadtimeConfig;
 use stm32_hrtim::output::{HrOut1, HrOut2, HrOutput, Output1Pin, Output2Pin};
