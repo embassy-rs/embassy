@@ -25,7 +25,7 @@ async fn main(spawner: Spawner) {
 
     defmt::info!("Capture example");
 
-    let pin = Output::new(p.P3_12, Level::High, DriveStrength::Normal, SlewRate::Fast);
+    let pin = Output::new(p.P3_12, Level::Low, DriveStrength::Normal, SlewRate::Fast);
 
     let ctimer = CTimer::new(p.CTIMER2, Default::default()).unwrap();
     let mut config = capture::Config::default();
