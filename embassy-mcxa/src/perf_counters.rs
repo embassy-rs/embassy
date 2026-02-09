@@ -185,5 +185,7 @@ define_counters!(
     interrupt_rtc0_wake,
     interrupt_trng,
     interrupt_trng_wake,
-    interrupt_wwdt
+    interrupt_wwdt,
+    wfe_sleeps,
+    deep_sleeps
 );
