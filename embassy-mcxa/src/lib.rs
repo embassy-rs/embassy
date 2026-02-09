@@ -13,6 +13,7 @@ pub mod config;
 pub mod crc;
 pub mod ctimer;
 pub mod dma;
+pub mod flash;
 pub mod gpio;
 pub mod i2c;
 pub mod i3c;
