@@ -532,7 +532,10 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
         _ = crate::clocks::enable_and_reset::<crate::peripherals::GPIO4>(&crate::clocks::periph_helpers::NoConfig);
     }
 
+    // import may be unused if none of the following features are set
+    #[allow(unused_imports)]
     use crate::gpio::SealedPin;
+
     // If we are not using SWD pins for SWD reasons, make them floating inputs
     #[cfg(feature = "swd-as-gpio")]
     {

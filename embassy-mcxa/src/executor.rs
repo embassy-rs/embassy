@@ -10,15 +10,9 @@ static EXECUTOR_ONCE: AtomicU8 = AtomicU8::new(0);
 
 const EXECUTOR_UNINIT: u8 = 0;
 const EXECUTOR_TAKEN: u8 = 1;
-const EXECUTOR_INITING: u8 = 2;
-const EXECUTOR_ACTIVE: u8 = 3;
 
 // Use a sentinel value for context to denote the thread pender context
 const THREAD_PENDER: usize = usize::MAX;
-
-pub(crate) fn custom_executor_active() -> bool {
-    EXECUTOR_ONCE.load(Ordering::Acquire) == EXECUTOR_ACTIVE
-}
 
 pub struct Executor {
     inner: raw::Executor,
@@ -73,15 +67,8 @@ impl Executor {
     ///
     /// This function never returns.
     pub fn run(&'static mut self, init: impl FnOnce(Spawner)) -> ! {
-        // We can only create the executor once, so this must be the only one, meaning we
-        // can store instead of exchange.
-        EXECUTOR_ONCE.store(EXECUTOR_INITING, Ordering::Release);
+        // We can only create the executor once
         init(self.inner.spawner());
-
-        // TODO: We probably want to set SEVONPEND if we take a critical section while tearing
-        // down and setting up for deep sleep!
-
-        EXECUTOR_ONCE.store(EXECUTOR_ACTIVE, Ordering::Release);
 
         // Until we've performed HAL init, just do WFE sleep
         let power_depth = loop {
