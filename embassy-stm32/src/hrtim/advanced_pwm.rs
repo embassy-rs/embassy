@@ -7,6 +7,7 @@ use embassy_hal_internal::Peri;
 use crate::gpio::{AfType, Flex, OutputType, Speed};
 pub use crate::timer::simple_pwm::PwmPinConfig;
 
+use super::low_level::HrTimer;
 use super::{BurstController, ChA, ChB, ChC, ChD, ChE, Instance, Master, Prescaler};
 #[cfg(hrtim_v2)]
 use super::{ChF, ChannelFComplementaryPin, ChannelFPin};
@@ -21,7 +22,7 @@ use crate::time::Hertz;
 
 /// Struct used to divide a high resolution timer into multiple channels
 pub struct AdvancedPwm<'d, T: Instance> {
-    _inner: Peri<'d, T>,
+    _inner: HrTimer<'d, T>,
     /// Master instance.
     pub master: Master<T>,
     /// Burst controller.
@@ -64,30 +65,11 @@ impl<'d, T: Instance> AdvancedPwm<'d, T> {
     }
 
     fn new_inner(tim: Peri<'d, T>) -> Self {
-        rcc::enable_and_reset::<T>();
+        let mut tim = HrTimer::new(tim);
 
         #[cfg(stm32f334)]
         if crate::pac::RCC.cfgr3().read().hrtim1sw() == crate::pac::rcc::vals::Timsw::PLL1_P {
-            // Enable and and stabilize the DLL
-            T::regs().dllcr().modify(|w| {
-                w.set_cal(true);
-            });
-
-            trace!("hrtim: wait for dll calibration");
-            while !T::regs().isr().read().dllrdy() {}
-
-            trace!("hrtim: dll calibration complete");
-
-            // Enable periodic calibration
-            // Cal must be disabled before we can enable it
-            T::regs().dllcr().modify(|w| {
-                w.set_cal(false);
-            });
-
-            T::regs().dllcr().modify(|w| {
-                w.set_calen(true);
-                w.set_calrte(11);
-            });
+            tim.calibrate();
         }
 
         Self {

@@ -7,6 +7,7 @@ use embassy_hal_internal::PeripheralType;
 mod advanced_channel;
 mod advanced_pwm;
 mod bridge_converter;
+pub mod low_level;
 mod resonant_converter;
 
 pub use advanced_channel::AdvancedChannel;
