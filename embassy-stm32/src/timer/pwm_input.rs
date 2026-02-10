@@ -1,9 +1,14 @@
 //! PWM Input driver.
 
+use core::marker::PhantomData;
+use core::pin::Pin;
+use core::task::{Context, Poll};
+
 use super::low_level::{CountingMode, InputCaptureMode, InputTISelection, SlaveMode, Timer, TriggerSource};
-use super::{Ch1, Ch2, Channel, GeneralInstance4Channel, TimerPin};
+use super::{CaptureCompareInterruptHandler, Ch1, Ch2, Channel, GeneralInstance4Channel, TimerPin};
 use crate::Peri;
 use crate::gpio::{AfType, Pull};
+use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::time::Hertz;
 
 /// PWM Input driver.
@@ -21,6 +26,7 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
     pub fn new_ch1<#[cfg(afio)] A>(
         tim: Peri<'d, T>,
         pin: Peri<'d, if_afio!(impl TimerPin<T, Ch1, A>)>,
+        _irq: impl Binding<T::CaptureCompareInterrupt, CaptureCompareInterruptHandler<T>> + 'd,
         pull: Pull,
         freq: Hertz,
     ) -> Self {
@@ -33,6 +39,7 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
     pub fn new_ch2<#[cfg(afio)] A>(
         tim: Peri<'d, T>,
         pin: Peri<'d, if_afio!(impl TimerPin<T, Ch2, A>)>,
+        _irq: impl Binding<T::CaptureCompareInterrupt, CaptureCompareInterruptHandler<T>> + 'd,
         pull: Pull,
         freq: Hertz,
     ) -> Self {
@@ -68,6 +75,10 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
         inner.set_slave_mode(SlaveMode::RESET_MODE);
 
         // Must call the `enable` function after
+
+        // enable NVIC interrupt
+        T::CaptureCompareInterrupt::unpend();
+        unsafe { T::CaptureCompareInterrupt::enable() };
 
         Self { channel: ch1, inner }
     }
@@ -112,5 +123,68 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
             return 0.;
         }
         100. * (self.get_width_ticks() as f32) / (period as f32)
+    }
+
+    fn new_future(&self, channel: Channel) -> PwmInputFuture<T> {
+        self.inner.enable_channel(channel, true);
+        self.inner.enable_input_interrupt(channel, true);
+
+        PwmInputFuture {
+            channel,
+            phantom: PhantomData,
+        }
+    }
+
+    /// Asynchronously wait until the pin sees a rising edge (period measurement).
+    pub async fn wait_for_period(&self) -> u32 {
+        self.new_future(self.channel.into()).await
+    }
+
+    /// Asynchronously wait until the pin sees a falling edge (width measurement).
+    pub async fn wait_for_width(&self) -> u32 {
+        self.new_future(
+            match self.channel {
+                Channel::Ch1 => Channel::Ch2,
+                Channel::Ch2 => Channel::Ch1,
+                _ => panic!("Invalid channel for PWM input"),
+            }
+            .into(),
+        )
+        .await
+    }
+}
+
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+struct PwmInputFuture<T: GeneralInstance4Channel> {
+    channel: Channel,
+    phantom: PhantomData<T>,
+}
+
+impl<T: GeneralInstance4Channel> Drop for PwmInputFuture<T> {
+    fn drop(&mut self) {
+        critical_section::with(|_| {
+            let regs = unsafe { crate::pac::timer::TimGp16::from_ptr(T::regs()) };
+
+            // disable interrupt enable
+            regs.dier().modify(|w| w.set_ccie(self.channel.index(), false));
+        });
+    }
+}
+
+impl<T: GeneralInstance4Channel> Future for PwmInputFuture<T> {
+    type Output = u32;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        T::state().cc_waker[self.channel.index()].register(cx.waker());
+
+        let regs = unsafe { crate::pac::timer::TimGp16::from_ptr(T::regs()) };
+
+        let dier = regs.dier().read();
+        if !dier.ccie(self.channel.index()) {
+            let val = regs.ccr(self.channel.index()).read().0;
+            Poll::Ready(val)
+        } else {
+            Poll::Pending
+        }
     }
 }
