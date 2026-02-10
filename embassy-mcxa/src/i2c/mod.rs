@@ -135,11 +135,12 @@ impl_pin!(P1_12, LPI2C1, MUX2, SdaPin);
 impl_pin!(P1_13, LPI2C1, MUX2, SclPin);
 impl_pin!(P1_14, LPI2C1, MUX2, SclPin);
 impl_pin!(P1_15, LPI2C1, MUX2, SdaPin);
-// NOTE: P1_30 and P1_31 are typically used for the external oscillator
-// For now, we just don't give users these pins.
-//
-// impl_pin!(P1_30, LPI2C0, MUX3, SdaPin);
-// impl_pin!(P1_31, LPI2C0, MUX3, SclPin);
+
+#[cfg(feature = "sosc-as-gpio")]
+impl_pin!(P1_30, LPI2C0, MUX3, SdaPin);
+#[cfg(feature = "sosc-as-gpio")]
+impl_pin!(P1_31, LPI2C0, MUX3, SclPin);
+
 impl_pin!(P3_27, LPI2C3, MUX2, SclPin);
 impl_pin!(P3_28, LPI2C3, MUX2, SdaPin);
 // impl_pin!(P3_29, LPI2C3, MUX2, HreqPin); What is this HREQ pin?
