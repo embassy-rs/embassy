@@ -26,7 +26,7 @@ async fn main(_spawner: Spawner) {
     let dst = DEST_BUFFER.take();
     let mst = MEMSET_BUFFER.take();
 
-    let dma_ch0 = DmaChannel::new(p.DMA_CH0);
+    let mut dma_ch0 = DmaChannel::new(p.DMA_CH0);
     let transfer = dma_ch0.mem_to_mem(src, dst, TransferOptions::default()).unwrap();
     transfer.await.unwrap();
 
