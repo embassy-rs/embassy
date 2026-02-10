@@ -202,7 +202,7 @@ pub enum FlashSleep {
 }
 
 /// Maximum sleep depth for the CPU core
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, Default, Debug)]
 #[non_exhaustive]
 pub enum CoreSleep {
     /// System will sleep using WFE when idle, but the CPU clock domain will not ever

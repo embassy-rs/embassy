@@ -28,10 +28,7 @@ use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 static RX_RING_BUFFER: ConstStaticCell<[u8; 64]> = ConstStaticCell::new([0; 64]);
 
 /// Helper to write a byte as hex to UART
-fn write_hex<T: embassy_mcxa::lpuart::Instance, C: embassy_mcxa::dma::Channel>(
-    tx: &mut LpuartTxDma<'_, T, C>,
-    byte: u8,
-) {
+fn write_hex<T: embassy_mcxa::lpuart::Instance>(tx: &mut LpuartTxDma<'_, T>, byte: u8) {
     const HEX: &[u8; 16] = b"0123456789ABCDEF";
     let buf = [HEX[(byte >> 4) as usize], HEX[(byte & 0x0F) as usize]];
     tx.blocking_write(&buf).ok();
@@ -60,7 +57,7 @@ async fn main(_spawner: Spawner) {
     // Create LPUART with DMA support for both TX and RX, then split
     // This is the proper Embassy pattern - create once, split into TX and RX
     let lpuart = LpuartDma::new(p.LPUART2, p.P2_2, p.P2_3, p.DMA_CH1, p.DMA_CH0, config).unwrap();
-    let (mut tx, rx) = lpuart.split();
+    let (mut tx, mut rx) = lpuart.split();
 
     tx.blocking_write(b"LPUART Ring Buffer DMA Example\r\n").unwrap();
     tx.blocking_write(b"==============================\r\n\r\n").unwrap();

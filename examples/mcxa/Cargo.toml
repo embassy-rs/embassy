@@ -13,7 +13,7 @@ critical-section = "1.2.0"
 defmt = "1.0"
 defmt-rtt = "1.0"
 embassy-embedded-hal = { version = "0.5.0", path = "../../embassy-embedded-hal" }
-embassy-executor = { version = "0.9.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-interrupt", "executor-thread"], default-features = false }
+embassy-executor = { version = "0.9.0", path = "../../embassy-executor", default-features = false }
 embassy-mcxa = { version = "0.1.0", path = "../../embassy-mcxa", features = ["defmt", "unstable-pac"] }
 embassy-sync = { version = "0.7.2", path = "../../embassy-sync" }
 embassy-time = { version = "0.5.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
@@ -24,6 +24,17 @@ panic-probe = { version = "1.0", features = ["print-defmt"] }
 rand_core = "0.9"
 static_cell = "2.1.1"
 tmp108 = "0.4.0"
+
+[features]
+default = ["default-executor"]
+default-executor = [
+  "embassy-executor/arch-cortex-m",
+  "embassy-executor/executor-interrupt",
+  "embassy-executor/executor-thread",
+]
+custom-executor = [
+  "embassy-mcxa/custom-executor"
+]
 
 [profile.release]
 lto = true # better optimizations

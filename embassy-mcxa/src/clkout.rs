@@ -78,6 +78,35 @@ impl<'a> ClockOut<'a> {
         })
     }
 
+    /// Unsafe constructor that ignores PoweredClock checks and discards WakeGuards
+    ///
+    /// Only intended for debugging low power clock gating, to ensure that clocks start/stop
+    /// appropriately.
+    pub unsafe fn new_unchecked(
+        _peri: Peri<'a, CLKOUT>,
+        pin: Peri<'a, impl sealed::ClockOutPin>,
+        mut cfg: Config,
+    ) -> Result<Self, ClockError> {
+        // Ignore the users clock selection so it Just Works
+        cfg.level = PoweredClock::NormalEnabledDeepSleepDisabled;
+
+        // There's no MRCC enable bit, so we check the validity of the clocks here
+        let (freq, mux, _wg) = check_sel(cfg.sel, cfg.level, cfg.div.into_divisor())?;
+
+        // All good! Apply requested config, starting with the pin.
+        pin.mux();
+
+        setup_clkout(mux, cfg.div);
+
+        Ok(Self {
+            _p: PhantomData,
+            pin: pin.into(),
+            freq: freq / cfg.div.into_divisor(),
+            // No wake guards here!
+            _wg: None,
+        })
+    }
+
     /// Frequency of the clkout pin
     #[inline]
     pub fn frequency(&self) -> u32 {

@@ -200,10 +200,10 @@ async fn new_internal<'a>(
     compiler_fence(Ordering::SeqCst);
 
     let power = pac::POWER_S;
-    // POWER.LTEMODEM.STARTN = 0
-    // TODO: The reg is missing in the PAC??
-    let startn = unsafe { (power.as_ptr() as *mut u32).add(0x610 / 4) };
-    unsafe { startn.write_volatile(0) }
+    power
+        .ltemodem()
+        .startn()
+        .write(|w| w.set_startn(pac::power::vals::Startn::START));
 
     unsafe { NVIC::unmask(pac::Interrupt::IPC) };
 
@@ -236,11 +236,13 @@ async fn new_internal<'a>(
         },
     }));
 
-    let control = Control { state: state_inner };
-
     let (ch_runner, device) = ch::new(&mut state.ch, ch::driver::HardwareAddress::Ip);
     let state_ch = ch_runner.state_runner();
-    state_ch.set_link_state(ch::driver::LinkState::Up);
+
+    let control = Control {
+        state: state_inner,
+        state_ch,
+    };
 
     let (trace_reader, trace_writer) = if let Some(trace) = trace_buffer {
         let (r, w) = trace.trace.split();
@@ -762,6 +764,7 @@ impl PointerChecker {
 /// You can use this object to control the modem at runtime, such as running AT commands.
 pub struct Control<'a> {
     state: &'a RefCell<StateInner>,
+    state_ch: ch::StateRunner<'a>,
 }
 
 impl<'a> Control<'a> {
@@ -935,6 +938,10 @@ impl<'a> Control<'a> {
         assert!(msg.param_len >= 12);
         let status = u32::from_le_bytes(msg.param[8..12].try_into().unwrap());
         assert_eq!(status, 0);
+    }
+
+    fn set_link_state(&self, state: ch::driver::LinkState) {
+        self.state_ch.set_link_state(state);
     }
 }
 
