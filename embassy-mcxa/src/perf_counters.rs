@@ -130,6 +130,7 @@ macro_rules! define_counters {
 // We can implement this later if we decide that "all of the perf counters" takes up too
 // much static RAM space.
 define_counters!(
+    deep_sleeps,
     interrupt_adc0,
     interrupt_adc1,
     interrupt_adc2,
@@ -183,9 +184,12 @@ define_counters!(
     interrupt_ostimer_alarm,
     interrupt_rtc0,
     interrupt_rtc0_wake,
+    interrupt_spi0,
+    interrupt_spi0_wake,
+    interrupt_spi1,
+    interrupt_spi1_wake,
     interrupt_trng,
     interrupt_trng_wake,
     interrupt_wwdt,
-    wfe_sleeps,
-    deep_sleeps
+    wfe_sleeps
 );

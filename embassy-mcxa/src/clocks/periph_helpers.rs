@@ -11,7 +11,7 @@ use super::{ClockError, Clocks, PoweredClock, WakeGuard};
 use crate::clocks::config::VddLevel;
 use crate::pac::mrcc::vals::{
     AdcClkselMux, ClkdivHalt, ClkdivReset, ClkdivUnstab, CtimerClkselMux, FclkClkselMux, Lpi2cClkselMux,
-    LpuartClkselMux, OstimerClkselMux,
+    LpspiClkselMux, LpuartClkselMux, OstimerClkselMux,
 };
 use crate::pac::{self};
 
@@ -262,6 +262,114 @@ impl SPConfHelper for I3cConfig {
         if freq > I3C_FCLK_MAX {
             return Err(ClockError::BadConfig {
                 clock: "i3c fclk",
+                reason: "exceeds max rating",
+            });
+        }
+
+        apply_div4!(self, clksel, clkdiv, variant, freq)
+    }
+}
+
+//
+// LPSPI
+//
+
+/// Selectable clocks for `Lpspi` peripherals
+#[derive(Debug, Clone, Copy)]
+pub enum LpspiClockSel {
+    /// FRO12M/FRO_LF/SIRC clock source, passed through divider
+    /// "fro_lf_div"
+    FroLfDiv,
+    /// FRO180M/FRO_HF/FIRC clock source, passed through divider
+    /// "fro_hf_div"
+    FroHfDiv,
+    /// SOSC/XTAL/EXTAL clock source
+    ClkIn,
+    /// clk_1m/FRO_LF divided by 12
+    Clk1M,
+    /// Output of PLL1, passed through clock divider,
+    /// "pll1_clk_div", maybe "pll1_lf_div"?
+    Pll1ClkDiv,
+    /// Disabled
+    None,
+}
+
+/// Which instance of the `Lpspi` is this?
+///
+/// Should not be directly selectable by end-users.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum LpspiInstance {
+    /// Instance 0
+    Lpspi0,
+    /// Instance 1
+    Lpspi1,
+}
+
+/// Top level configuration for `Lpspi` instances.
+pub struct LpspiConfig {
+    /// Power state required for this peripheral
+    pub power: PoweredClock,
+    /// Clock source
+    pub source: LpspiClockSel,
+    /// Clock divisor
+    pub div: Div4,
+    /// Which instance is this?
+    // NOTE: should not be user settable
+    pub(crate) instance: LpspiInstance,
+}
+
+impl SPConfHelper for LpspiConfig {
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
+        // check that source is suitable
+        let mrcc0 = pac::MRCC0;
+
+        let (clkdiv, clksel) = match self.instance {
+            LpspiInstance::Lpspi0 => (mrcc0.mrcc_lpspi0_clkdiv(), mrcc0.mrcc_lpspi0_clksel()),
+            LpspiInstance::Lpspi1 => (mrcc0.mrcc_lpspi1_clkdiv(), mrcc0.mrcc_lpspi1_clksel()),
+        };
+
+        let (freq, variant) = match self.source {
+            LpspiClockSel::FroLfDiv => {
+                let freq = clocks.ensure_fro_lf_div_active(&self.power)?;
+                (freq, LpspiClkselMux::CLKROOT_FUNC_0)
+            }
+            LpspiClockSel::FroHfDiv => {
+                let freq = clocks.ensure_fro_hf_div_active(&self.power)?;
+                (freq, LpspiClkselMux::CLKROOT_FUNC_2)
+            }
+            LpspiClockSel::ClkIn => {
+                let freq = clocks.ensure_clk_in_active(&self.power)?;
+                (freq, LpspiClkselMux::CLKROOT_FUNC_3)
+            }
+            LpspiClockSel::Clk1M => {
+                let freq = clocks.ensure_clk_1m_active(&self.power)?;
+                (freq, LpspiClkselMux::CLKROOT_FUNC_5)
+            }
+            LpspiClockSel::Pll1ClkDiv => {
+                let freq = clocks.ensure_pll1_clk_div_active(&self.power)?;
+                (freq, LpspiClkselMux::CLKROOT_FUNC_6)
+            }
+            LpspiClockSel::None => {
+                // no ClkrootFunc7, just write manually for now
+                clksel.write(|w| w.0 = 0b111);
+                clkdiv.modify(|w| {
+                    w.set_reset(ClkdivReset::OFF);
+                    w.set_halt(ClkdivHalt::OFF);
+                });
+                return Ok(PreEnableParts::empty());
+            }
+        };
+
+        let div = self.div.into_divisor();
+        let expected = freq / div;
+        // 21.3.2 peripheral clock max functional clock limits
+        let fmax = match clocks.active_power {
+            VddLevel::MidDriveMode => 50_000_000,
+            VddLevel::OverDriveMode => 100_000_000,
+        };
+        if expected > fmax {
+            return Err(ClockError::BadConfig {
+                clock: "lpspi fclk",
                 reason: "exceeds max rating",
             });
         }
