@@ -3,8 +3,8 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::hrtim::BridgeConverter;
 use embassy_stm32::hrtim::*;
+use embassy_stm32::hrtim::{AdvancedPwm, BridgeConverter, ComplementaryPwmPin, PwmPin};
 use embassy_stm32::time::{khz, mhz};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};

@@ -7,7 +7,7 @@ use embassy_hal_internal::Peri;
 use crate::gpio::{AfType, Flex, OutputType, Speed};
 pub use crate::timer::simple_pwm::PwmPinConfig;
 
-use super::{BurstController, ChA, ChB, ChC, ChD, ChE, Instance, Master};
+use super::{BurstController, ChA, ChB, ChC, ChD, ChE, Instance, Master, Prescaler};
 #[cfg(hrtim_v2)]
 use super::{ChF, ChannelFComplementaryPin, ChannelFPin};
 use super::{
@@ -17,6 +17,7 @@ use super::{
 use super::{ChannelAPin, ChannelBPin, ChannelCPin, ChannelDPin, ChannelEPin};
 
 use crate::rcc;
+use crate::time::Hertz;
 
 /// Struct used to divide a high resolution timer into multiple channels
 pub struct AdvancedPwm<'d, T: Instance> {
@@ -101,6 +102,32 @@ impl<'d, T: Instance> AdvancedPwm<'d, T> {
             #[cfg(hrtim_v2)]
             ch_f: ChF { phantom: PhantomData },
         }
+    }
+
+    /// Set master frequency
+    pub fn set_master_frequency(&mut self, frequency: Hertz) {
+        let f = frequency.0;
+
+        // TODO: wire up HRTIM to the RCC mux infra.
+        //#[cfg(stm32f334)]
+        //let timer_f = unsafe { crate::rcc::get_freqs() }.hrtim.unwrap_or(T::frequency()).0;
+        //#[cfg(not(stm32f334))]
+        let timer_f = T::frequency().0;
+
+        let psc_min = (timer_f / f) / (u16::MAX as u32 / 32);
+        let psc = if T::regs().isr().read().dllrdy() {
+            Prescaler::compute_min_high_res(psc_min)
+        } else {
+            Prescaler::compute_min_low_res(psc_min)
+        };
+
+        let timer_f = 32 * (timer_f / psc as u32);
+        let per: u16 = (timer_f / f) as u16;
+
+        let regs = T::regs();
+
+        regs.mcr().modify(|w| w.set_ckpsc(psc.into()));
+        regs.mper().modify(|w| w.set_mper(per));
     }
 }
 

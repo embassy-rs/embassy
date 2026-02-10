@@ -20,10 +20,10 @@ pub struct ResonantConverter<T: Instance, C: AdvancedChannel<T>> {
 impl<T: Instance, C: AdvancedChannel<T>> ResonantConverter<T, C> {
     /// Create a new variable-frequency resonant converter driver.
     pub fn new(_channel: C, min_frequency: Hertz, max_frequency: Hertz) -> Self {
-        T::set_channel_frequency(C::raw(), min_frequency);
+        C::set_channel_frequency(C::index(), min_frequency);
 
         // Always enable preload
-        T::regs().tim(C::raw()).cr().modify(|w| {
+        T::regs().tim(C::index()).cr().modify(|w| {
             w.set_preen(true);
             w.set_repu(true);
 
@@ -33,15 +33,15 @@ impl<T: Instance, C: AdvancedChannel<T>> ResonantConverter<T, C> {
 
         // Enable timer outputs
         T::regs().oenr().modify(|w| {
-            w.set_t1oen(C::raw(), true);
-            w.set_t2oen(C::raw(), true);
+            w.set_t1oen(C::index(), true);
+            w.set_t2oen(C::index(), true);
         });
 
         // Dead-time generator can be used in this case because the primary fets
         // of a resonant converter are always complementary
-        T::regs().tim(C::raw()).outr().modify(|w| w.set_dten(true));
+        T::regs().tim(C::index()).outr().modify(|w| w.set_dten(true));
 
-        let max_period = T::regs().tim(C::raw()).per().read().per();
+        let max_period = T::regs().tim(C::index()).per().read().per();
         let min_period = max_period * (min_frequency.0 / max_frequency.0) as u16;
 
         Self {
@@ -54,7 +54,7 @@ impl<T: Instance, C: AdvancedChannel<T>> ResonantConverter<T, C> {
 
     /// Set the dead time as a proportion of the maximum compare value
     pub fn set_dead_time(&mut self, value: u16) {
-        T::set_channel_dead_time(C::raw(), value);
+        C::set_channel_dead_time(C::index(), value);
     }
 
     /// Set the timer period.
@@ -62,7 +62,7 @@ impl<T: Instance, C: AdvancedChannel<T>> ResonantConverter<T, C> {
         assert!(period < self.max_period);
         assert!(period > self.min_period);
 
-        T::regs().tim(C::raw()).per().modify(|w| w.set_per(period));
+        T::regs().tim(C::index()).per().modify(|w| w.set_per(period));
     }
 
     /// Get the minimum compare value of a duty cycle

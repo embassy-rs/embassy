@@ -26,10 +26,10 @@ pub struct BridgeConverter<T: Instance, C: AdvancedChannel<T>> {
 impl<T: Instance, C: AdvancedChannel<T>> BridgeConverter<T, C> {
     /// Create a new HRTIM bridge converter driver.
     pub fn new(_channel: C, frequency: Hertz) -> Self {
-        T::set_channel_frequency(C::raw(), frequency);
+        C::set_channel_frequency(C::index(), frequency);
 
         // Always enable preload
-        T::regs().tim(C::raw()).cr().modify(|w| {
+        T::regs().tim(C::index()).cr().modify(|w| {
             w.set_preen(true);
             w.set_repu(true);
             w.set_cont(true);
@@ -37,8 +37,8 @@ impl<T: Instance, C: AdvancedChannel<T>> BridgeConverter<T, C> {
 
         // Enable timer outputs
         T::regs().oenr().modify(|w| {
-            w.set_t1oen(C::raw(), true);
-            w.set_t2oen(C::raw(), true);
+            w.set_t1oen(C::index(), true);
+            w.set_t2oen(C::index(), true);
         });
 
         // The dead-time generation unit cannot be used because it forces the other output
@@ -46,16 +46,16 @@ impl<T: Instance, C: AdvancedChannel<T>> BridgeConverter<T, C> {
         // Therefore, software-implemented dead time must be used when setting the duty cycles
 
         // Set output 1 to active on a period event
-        T::regs().tim(C::raw()).setr(0).modify(|w| w.set_per(true));
+        T::regs().tim(C::index()).setr(0).modify(|w| w.set_per(true));
 
         // Set output 1 to inactive on a compare 1 event
-        T::regs().tim(C::raw()).rstr(0).modify(|w| w.set_cmp(0, true));
+        T::regs().tim(C::index()).rstr(0).modify(|w| w.set_cmp(0, true));
 
         // Set output 2 to active on a compare 2 event
-        T::regs().tim(C::raw()).setr(1).modify(|w| w.set_cmp(1, true));
+        T::regs().tim(C::index()).setr(1).modify(|w| w.set_cmp(1, true));
 
         // Set output 2 to inactive on a compare 3 event
-        T::regs().tim(C::raw()).rstr(1).modify(|w| w.set_cmp(2, true));
+        T::regs().tim(C::index()).rstr(1).modify(|w| w.set_cmp(2, true));
 
         Self {
             timer: PhantomData,
@@ -69,17 +69,17 @@ impl<T: Instance, C: AdvancedChannel<T>> BridgeConverter<T, C> {
 
     /// Start HRTIM.
     pub fn start(&mut self) {
-        T::regs().mcr().modify(|w| w.set_tcen(C::raw(), true));
+        T::regs().mcr().modify(|w| w.set_tcen(C::index(), true));
     }
 
     /// Stop HRTIM.
     pub fn stop(&mut self) {
-        T::regs().mcr().modify(|w| w.set_tcen(C::raw(), false));
+        T::regs().mcr().modify(|w| w.set_tcen(C::index(), false));
     }
 
     /// Enable burst mode.
     pub fn enable_burst_mode(&mut self) {
-        T::regs().tim(C::raw()).outr().modify(|w| {
+        T::regs().tim(C::index()).outr().modify(|w| {
             // Enable Burst Mode
             w.set_idlem(0, true);
             w.set_idlem(1, true);
@@ -92,7 +92,7 @@ impl<T: Instance, C: AdvancedChannel<T>> BridgeConverter<T, C> {
 
     /// Disable burst mode.
     pub fn disable_burst_mode(&mut self) {
-        T::regs().tim(C::raw()).outr().modify(|w| {
+        T::regs().tim(C::index()).outr().modify(|w| {
             // Disable Burst Mode
             w.set_idlem(0, false);
             w.set_idlem(1, false);
@@ -102,9 +102,12 @@ impl<T: Instance, C: AdvancedChannel<T>> BridgeConverter<T, C> {
     fn update_primary_duty_or_dead_time(&mut self) {
         self.min_secondary_duty = self.primary_duty + self.dead_time;
 
-        T::regs().tim(C::raw()).cmp(0).modify(|w| w.set_cmp(self.primary_duty));
         T::regs()
-            .tim(C::raw())
+            .tim(C::index())
+            .cmp(0)
+            .modify(|w| w.set_cmp(self.primary_duty));
+        T::regs()
+            .tim(C::index())
             .cmp(1)
             .modify(|w| w.set_cmp(self.min_secondary_duty));
     }
@@ -118,7 +121,7 @@ impl<T: Instance, C: AdvancedChannel<T>> BridgeConverter<T, C> {
 
     /// Get the maximum compare value of a duty cycle
     pub fn get_max_compare_value(&mut self) -> u16 {
-        T::regs().tim(C::raw()).per().read().per()
+        T::regs().tim(C::index()).per().read().per()
     }
 
     /// The primary duty is the period in which the primary switch is active
@@ -143,6 +146,6 @@ impl<T: Instance, C: AdvancedChannel<T>> BridgeConverter<T, C> {
             secondary_duty
         };
 
-        T::regs().tim(C::raw()).cmp(2).modify(|w| w.set_cmp(secondary_duty));
+        T::regs().tim(C::index()).cmp(2).modify(|w| w.set_cmp(secondary_duty));
     }
 }
