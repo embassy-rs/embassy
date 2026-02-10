@@ -7,7 +7,7 @@ use embassy_stm32::gpio::Speed;
 use embassy_stm32::hrtim::stm32_hrtim::compare_register::HrCompareRegister;
 use embassy_stm32::hrtim::stm32_hrtim::output::HrOutput;
 use embassy_stm32::hrtim::stm32_hrtim::timer::HrTimer;
-use embassy_stm32::hrtim::stm32_hrtim::{HrParts, HrPwmAdvExt};
+use embassy_stm32::hrtim::stm32_hrtim::{HrParts, HrPwmAdvExt, PreloadSource};
 use embassy_stm32::hrtim::{HrControltExt, HrPwmBuilderExt, Parts};
 use embassy_stm32::time::mhz;
 use embassy_stm32::{Config, hrtim};
@@ -41,11 +41,11 @@ async fn main(_spawner: Spawner) {
 
     info!("Hello World!");
 
-    let pin_a = hrtim::Pin {
+    let pin1 = hrtim::Pin {
         pin: p.PA8,
         speed: Speed::Low,
     };
-    let pin_b = hrtim::Pin {
+    let pin2 = hrtim::Pin {
         pin: p.PA9,
         speed: Speed::Low,
     };
@@ -61,11 +61,11 @@ async fn main(_spawner: Spawner) {
     //        .               .               .               .
     //        .  30%          .               .               .
     //        .----           .               .----           .
-    //pin_a   |    |          .               |    |          .
+    //pin1    |    |          .               |    |          .
     //        |    |          .               |    |          .
     // --------    ----------------------------    --------------------
     //        .               .----           .               .----
-    //pin_b   .               |    |          .               |    |
+    //pin2    .               |    |          .               |    |
     //        .               |    |          .               |    |
     // ------------------------    ----------------------------    ----
     //        .               .               .               .
@@ -78,13 +78,14 @@ async fn main(_spawner: Spawner) {
         mut out2,
         ..
     } = tima
-        .pwm_advanced(pin_a, pin_b)
+        .pwm_advanced(pin1, pin2)
         .prescaler(prescaler)
         .period(0xFFFF)
         .push_pull_mode(true) // Set push pull mode, out1 and out2 are
         // alternated every period with one being
         // inactive and the other getting to output its wave form
         // as normal
+        .preload(PreloadSource::OnRepetitionUpdate)
         .finalize(&mut control);
 
     out1.enable_rst_event(&cr1); // Set low on compare match with cr1
@@ -106,8 +107,11 @@ async fn main(_spawner: Spawner) {
         cr1.set_duty(new_period / 3);
         timer.set_period(new_period);
 
-        Timer::after_millis(500).await;
+        Timer::after_millis(1).await;
     }
+
+    out1.disable();
+    out2.disable();
 
     info!("end program");
 
