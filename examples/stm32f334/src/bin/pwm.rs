@@ -3,7 +3,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::Config;
+use embassy_stm32::hrtim::BridgeConverter;
 use embassy_stm32::hrtim::*;
 use embassy_stm32::time::{khz, mhz};
 use embassy_time::Timer;
