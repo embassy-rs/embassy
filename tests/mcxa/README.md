@@ -1,16 +1,16 @@
 # HIL setup
 
 ## Implemented:
-- [x] GPIO + interrupts (reuse ADC pins)
+- [x] GPIO + interrupts
 - [x] I2C controller + target
 - [x] Uart
 - [x] ADC
 - [x] I3C
 - [x] CRC
-- [x] Watchdog (but how to test? reset reason?)
+- [x] Watchdog
 - [ ] Flash
 - [x] CTimer PWM
-- [ ] CTimer capture (reuse ADC pins)
+- [x] CTimer capture
 - [ ] SPI
 
 ## Wiring:
