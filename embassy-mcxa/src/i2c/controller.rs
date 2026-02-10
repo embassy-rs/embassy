@@ -650,7 +650,8 @@ impl<'d> I2c<'d, Async> {
                     None
                 })
                 .await
-                .map_err(|_| IOError::WriteFail)??;
+                .map_err(|_| IOError::WriteFail)
+                .flatten()?;
         }
 
         if send_stop == SendStop::Yes {
