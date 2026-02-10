@@ -1,6 +1,12 @@
 #![no_std]
 #![no_main]
 
+//! PWM Input capture example
+//!
+//! This example reads the period and duty cycle of a square signal on PA6 using TIM3.
+//!
+//! On the NUCLEO-G474RE board, connect PA5 and PA6. (SCK/D13 on CN5 and pin 13 on CN10)
+
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{AnyPin, Level, Output, Pull, Speed};
@@ -9,8 +15,6 @@ use embassy_stm32::timer::pwm_input::PwmInput;
 use embassy_stm32::{Peri, bind_interrupts, peripherals, timer};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
-
-/// Connect PA5 and PA6
 
 bind_interrupts!(struct Irqs {
     TIM3 => timer::CaptureCompareInterruptHandler<peripherals::TIM3>;
