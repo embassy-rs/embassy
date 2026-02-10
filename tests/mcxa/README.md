@@ -17,9 +17,9 @@
 - `I2C controller` + `target`: `LPI2C1` on arduino connector `J4` to `LPI2C2` on camera connector `J9`
   - `SDA`: `P1_0` -> `P1_8`
   - `SCL`: `P1_1` -> `P1_9`
-- `Uart`: `LPUART3` on mikroBUS connector `J5` to `LPUART4` on flexIO connector `J8`
-  - `P4_5` (TX) -> `P4_4` (RX)
-  - `P4_2` (RX) -> `P4_3` (TX)
+- `Uart`: `LPUART3` on mikroBUS connector `J5` to `LPUART2` on arduino connector `J1`
+  - `P4_5` (TX) -> `P2_3` (RX)
+  - `P4_2` (RX) -> `P2_2` (TX)
 - `ADC` + `GPIO` + `CTimer capture` + `CTimer PWM`: `ADC0_A1` on arduino connector `J2` to `CT_INP8` + `CT0_MAT2` on arduino connector `J2`
   - `P2_4` -> `P1_8` (overlaps with I2C SDA but on different connector)
 - `I3C`: Only one peripheral, so no loopback tests. But it's connected to the `P3T1755DP` temperature sensor
