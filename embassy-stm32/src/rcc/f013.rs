@@ -4,12 +4,12 @@ pub use crate::pac::rcc::vals::Adcpre as ADCPrescaler;
 #[cfg(stm32f3)]
 pub use crate::pac::rcc::vals::Adcpres as AdcPllPrescaler;
 use crate::pac::rcc::vals::Pllsrc;
-#[cfg(all(stm32f1, not(stm32f107)))]
+#[cfg(all(stm32f1, not(any(stm32f105, stm32f107))))]
 pub use crate::pac::rcc::vals::Pllxtpre as PllPreDiv;
 #[cfg(any(stm32f0, stm32f3))]
 pub use crate::pac::rcc::vals::Prediv as PllPreDiv;
 pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Pllmul as PllMul, Ppre as APBPrescaler, Sw as Sysclk};
-#[cfg(stm32f107)]
+#[cfg(any(stm32f105, stm32f107))]
 pub use crate::pac::rcc::vals::{I2s2src, Pll2mul as Pll2Mul, Prediv1 as PllPreDiv, Prediv1src, Usbpre as UsbPre};
 use crate::pac::{FLASH, RCC};
 use crate::time::Hertz;
@@ -39,7 +39,7 @@ pub enum PllSource {
     HSI,
     #[cfg(rcc_f0v4)]
     HSI48,
-    #[cfg(stm32f107)]
+    #[cfg(any(stm32f105, stm32f107))]
     PLL2,
 }
 
@@ -56,7 +56,7 @@ pub struct Pll {
     pub mul: PllMul,
 }
 
-#[cfg(stm32f107)]
+#[cfg(any(stm32f105, stm32f107))]
 #[derive(Clone, Copy)]
 pub struct Pll2Or3 {
     pub mul: Pll2Mul,
@@ -95,11 +95,11 @@ pub struct Config {
     pub sys: Sysclk,
 
     pub pll: Option<Pll>,
-    #[cfg(stm32f107)]
+    #[cfg(any(stm32f105, stm32f107))]
     pub pll2: Option<Pll2Or3>,
-    #[cfg(stm32f107)]
+    #[cfg(any(stm32f105, stm32f107))]
     pub pll3: Option<Pll2Or3>,
-    #[cfg(stm32f107)]
+    #[cfg(any(stm32f105, stm32f107))]
     pub prediv2: PllPreDiv,
 
     pub ahb_pre: AHBPrescaler,
@@ -115,9 +115,9 @@ pub struct Config {
     #[cfg(all(stm32f3, not(rcc_f37), any(peri_adc3_common, peri_adc34_common)))]
     pub adc34: AdcClockSource,
 
-    #[cfg(stm32f107)]
+    #[cfg(any(stm32f105, stm32f107))]
     pub i2s2_src: I2s2src,
-    #[cfg(stm32f107)]
+    #[cfg(any(stm32f105, stm32f107))]
     pub i2s3_src: I2s2src,
 
     /// Per-peripheral kernel clock selection muxes
@@ -136,11 +136,11 @@ impl Config {
             sys: Sysclk::HSI,
             pll: None,
 
-            #[cfg(stm32f107)]
+            #[cfg(any(stm32f105,stm32f107))]
             pll2: None,
-            #[cfg(stm32f107)]
+            #[cfg(any(stm32f105,stm32f107))]
             pll3: None,
-            #[cfg(stm32f107)]
+            #[cfg(any(stm32f105,stm32f107))]
             prediv2: PllPreDiv::DIV1,
 
             ahb_pre: AHBPrescaler::DIV1,
@@ -158,9 +158,9 @@ impl Config {
             #[cfg(all(stm32f3, not(rcc_f37), any(peri_adc3_common, peri_adc34_common)))]
             adc34: AdcClockSource::Hclk(AdcHclkPrescaler::Div1),
 
-            #[cfg(stm32f107)]
+            #[cfg(any(stm32f105,stm32f107))]
             i2s2_src: I2s2src::SYS,
-            #[cfg(stm32f107)]
+            #[cfg(any(stm32f105,stm32f107))]
             i2s3_src: I2s2src::SYS,
 
             mux: super::mux::ClockMux::default(),
@@ -217,7 +217,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     // PLL2 and PLL3
     // Configure this before PLL since PLL2 can be the source for PLL.
-    #[cfg(stm32f107)]
+    #[cfg(any(stm32f105, stm32f107))]
     {
         // Common prediv for PLL2 and PLL3
         RCC.cfgr2().modify(|w| w.set_prediv2(config.prediv2));
@@ -250,14 +250,14 @@ pub(crate) unsafe fn init(config: Config) {
                 (Pllsrc::HSI_DIV2, unwrap!(hsi))
             }
             PllSource::HSE => {
-                #[cfg(stm32f107)]
+                #[cfg(any(stm32f105, stm32f107))]
                 RCC.cfgr2().modify(|w| w.set_prediv1src(Prediv1src::HSE));
 
                 (Pllsrc::HSE_DIV_PREDIV, unwrap!(hse))
             }
             #[cfg(rcc_f0v4)]
             PllSource::HSI48 => (Pllsrc::HSI48_DIV_PREDIV, unwrap!(hsi48)),
-            #[cfg(stm32f107)]
+            #[cfg(any(stm32f105, stm32f107))]
             PllSource::PLL2 => {
                 if config.pll2.is_none() {
                     panic!("if PLL source is PLL2, Config::pll2 must also be set.");
@@ -280,13 +280,13 @@ pub(crate) unsafe fn init(config: Config) {
         #[cfg(not(stm32f1))]
         RCC.cfgr2().modify(|w| w.set_prediv(pll.prediv));
 
-        #[cfg(stm32f107)]
+        #[cfg(any(stm32f105, stm32f107))]
         RCC.cfgr2().modify(|w| w.set_prediv1(pll.prediv));
 
         RCC.cfgr().modify(|w| {
             w.set_pllmul(pll.mul);
             w.set_pllsrc(src_val);
-            #[cfg(all(stm32f1, not(stm32f107)))]
+            #[cfg(all(stm32f1, not(any(stm32f105, stm32f107))))]
             w.set_pllxtpre(pll.prediv);
         });
         RCC.cr().modify(|w| w.set_pllon(true));
@@ -295,7 +295,7 @@ pub(crate) unsafe fn init(config: Config) {
         out_freq
     });
 
-    #[cfg(any(rcc_f1, rcc_f1cl, stm32f3, stm32f107))]
+    #[cfg(any(rcc_f1, rcc_f1cl, stm32f3, stm32f105, stm32f107))]
     let usb = match pll {
         Some(Hertz(72_000_000)) => Some(crate::pac::rcc::vals::Usbpre::DIV1_5),
         Some(Hertz(48_000_000)) => Some(crate::pac::rcc::vals::Usbpre::DIV1),
@@ -376,7 +376,7 @@ pub(crate) unsafe fn init(config: Config) {
     });
 
     // I2S2 and I2S3
-    #[cfg(stm32f107)]
+    #[cfg(any(stm32f105, stm32f107))]
     {
         RCC.cfgr2().modify(|w| w.set_i2s2src(config.i2s2_src));
         RCC.cfgr2().modify(|w| w.set_i2s3src(config.i2s3_src));
