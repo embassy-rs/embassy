@@ -312,7 +312,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba))]
     /// Configures the ADC to use a DMA ring buffer for continuous data acquisition.
     ///
-    /// Use the [`read`] method to retrieve measurements from the DMA ring buffer. The read buffer
+    /// Use the [`Self::read`] method to retrieve measurements from the DMA ring buffer. The read buffer
     /// should be exactly half the size of `dma_buf`. When using triggered mode, it is recommended
     /// to configure `dma_buf` as a double buffer so that one half can be read while the other half
     /// is being filled by the DMA, preventing data loss. The trigger period of the ADC effectively

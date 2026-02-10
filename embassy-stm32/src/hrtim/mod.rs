@@ -8,9 +8,11 @@ pub mod resonant_converter;
 use core::mem::MaybeUninit;
 
 use embassy_hal_internal::Peri;
+#[allow(unused_imports)] // HrPwmAdvExt::pwm_advanced used by doc
+use stm32_hrtim::HrPwmAdvExt;
 use stm32_hrtim::control::{HrPwmControl, HrTimOngoingCalibration};
 use stm32_hrtim::output::{Output1Pin, Output2Pin};
-#[cfg(stm32g4)]
+#[cfg(hrtim_v2)]
 use stm32_hrtim::pac::HRTIM_TIMF;
 use stm32_hrtim::pac::{HRTIM_TIMA, HRTIM_TIMB, HRTIM_TIMC, HRTIM_TIMD, HRTIM_TIME};
 pub use stm32_hrtim::{self, Pscl1, Pscl2, Pscl4, Pscl8, Pscl16, Pscl32, Pscl64, Pscl128, PsclDefault};
