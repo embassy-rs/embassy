@@ -33,8 +33,8 @@ pub trait AdvancedChannel<T: Instance>: SealedAdvancedChannel<T> {
             Prescaler::compute_min_low_res(psc_min)
         };
 
-        let timer_f = 32 * (timer_f / psc as u32);
-        let per: u16 = (timer_f / f) as u16;
+        let timer_f = 32 * (timer_f as u64/ psc as u64);
+        let per: u16 = (timer_f / f as u64) as u16;
 
         let regs = T::regs();
 
