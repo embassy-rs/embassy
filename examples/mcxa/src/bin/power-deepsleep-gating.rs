@@ -97,6 +97,8 @@ async fn main(_spawner: Spawner) {
 
     let p = hal::init(cfg);
 
+    embassy_mcxa::executor::set_executor_debug_gpio(p.P1_12);
+
     let mut pin = p.P4_2;
     let mut clkout = p.CLKOUT;
     const M1_CONFIG: clkout::Config = clkout::Config {
