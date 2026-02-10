@@ -234,15 +234,6 @@ unsafe fn setup_deep_sleep() {
     // Redundant?
     // cmc.pmctrlmain().modify(|w| w.set_lpmode(PmctrlmainLpmode::LPMODE0001));
 
-    // SPC_LPWKUP_DELAY_LPWKUP_DELAY?
-    // TODO: "When voltage levels are not the same between ACTIVE mode and Low Power mode, you must write a
-    // nonzero value to this field."
-    //
-    // TODO: Do we need to ensure the CPU is on some kind of clock source that
-    // is always-on, so we have a core clock source that we know is active when
-    // we come back? How does this affect any peripherals that have main_clk selected
-    // as a source?
-
     // From the C SDK:
     //
     // Before executing WFI instruction read back the last register to
@@ -1106,6 +1097,7 @@ impl ClockOperator<'_> {
             self.syscon.frohfdiv().write(|w| {
                 w.set_halt(FrohfdivHalt::RUN);
                 w.set_reset(FrohfdivReset::RELEASED);
+                w.set_div(d.into_bits());
             });
 
             // Wait for clock to stabilize
@@ -1199,6 +1191,7 @@ impl ClockOperator<'_> {
             self.syscon.frolfdiv().modify(|w| {
                 w.set_halt(FrolfdivHalt::RUN);
                 w.set_reset(FrolfdivReset::RELEASED);
+                w.set_div(d.into_bits());
             });
 
             // Wait for clock to stabilize
@@ -1946,7 +1939,30 @@ impl ClockOperator<'_> {
         //
         // TODO(AJM): I don't really understand this! Enforce it literally for now I guess.
         let ds_match = self.config.vdd_power.active_mode.drive == self.config.vdd_power.low_power_mode.drive;
-        let vdd_match = self.config.vdd_power.active_mode.level == self.config.vdd_power.low_power_mode.level;
+        let (vdd_match, lpwkup) = match (
+            self.config.vdd_power.active_mode.level,
+            self.config.vdd_power.low_power_mode.level,
+        ) {
+            (VddLevel::OverDriveMode, VddLevel::MidDriveMode) => {
+                // When voltage levels are not the same between ACTIVE mode and Low Power mode, you must write a
+                // nonzero value to SPC->LPWKUP_DELAY.
+                //
+                // This SHOULD be covered by table 165. LPWKUP Delay, but it doesn't actually have
+                // a value for the 1.0v-1.2v transition we need. For now, the C SDK always uses 0x5B.
+                (false, 0x005b)
+            }
+            (VddLevel::MidDriveMode, VddLevel::OverDriveMode) => {
+                // For now, enforce that active is always >= voltage to low power. I don't know if this
+                // is required, but there's probably also no reason to support it?
+                return Err(ClockError::BadConfig {
+                    clock: "vdd_power",
+                    reason: "Deep sleep can't have higher level than active mode",
+                });
+            }
+            // Voltages match, no lpwkup delay required
+            _ => (true, 0x0000),
+        };
+        self.spc0.lpwkup_delay().write(|w| w.set_lpwkup_delay(lpwkup));
 
         if ds_match && !vdd_match {
             return Err(ClockError::BadConfig {

@@ -492,6 +492,18 @@ impl Default for Fro16KConfig {
     }
 }
 
+impl Default for FircConfig {
+    fn default() -> Self {
+        FircConfig {
+            frequency: FircFreqSel::Mhz45,
+            power: PoweredClock::NormalEnabledDeepSleepDisabled,
+            fro_hf_enabled: true,
+            clk_45m_enabled: true,
+            fro_hf_div: None,
+        }
+    }
+}
+
 impl Default for ClocksConfig {
     fn default() -> Self {
         Self {
