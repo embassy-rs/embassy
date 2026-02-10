@@ -2,8 +2,7 @@
 
 use core::marker::PhantomData;
 
-use super::traits::Instance;
-use super::AdvancedChannel;
+use super::{AdvancedChannel, Instance};
 use crate::time::Hertz;
 
 /// Fixed-frequency bridge converter driver.
