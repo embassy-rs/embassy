@@ -7,7 +7,7 @@ use embassy_stm32::gpio::Speed;
 use embassy_stm32::hrtim::stm32_hrtim::compare_register::HrCompareRegister;
 use embassy_stm32::hrtim::stm32_hrtim::output::HrOutput;
 use embassy_stm32::hrtim::stm32_hrtim::timer::HrTimer;
-use embassy_stm32::hrtim::stm32_hrtim::{HrParts, HrPwmAdvExt};
+use embassy_stm32::hrtim::stm32_hrtim::{HrParts, HrPwmAdvExt, PreloadSource};
 use embassy_stm32::hrtim::{HrControltExt, HrPwmBuilderExt, Parts};
 use embassy_stm32::{Config, hrtim};
 use embassy_time::Timer;
@@ -79,6 +79,7 @@ async fn main(_spawner: Spawner) {
         // alternated every period with one being
         // inactive and the other getting to output its wave form
         // as normal
+        .preload(PreloadSource::OnRepetitionUpdate)
         .finalize(&mut control);
 
     out1.enable_rst_event(&cr1); // Set low on compare match with cr1
@@ -100,8 +101,11 @@ async fn main(_spawner: Spawner) {
         cr1.set_duty(new_period / 3);
         timer.set_period(new_period);
 
-        Timer::after_millis(500).await;
+        Timer::after_millis(1).await;
     }
+
+    out1.disable();
+    out2.disable();
 
     info!("end program");
 
