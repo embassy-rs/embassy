@@ -49,13 +49,13 @@ fn __pender(context: *mut ()) {
                 let irq = Irq(context as u16);
 
                 // STIR is faster, but is only available in v7 and higher.
-                #[cfg(not(armv6m))]
+                #[cfg(feature = "_rp235x")]
                 {
                     let mut nvic: NVIC = core::mem::transmute(());
                     nvic.request(irq);
                 }
 
-                #[cfg(armv6m)]
+                #[cfg(feature = "rp2040")]
                 NVIC::pend(irq);
             } else {
                 fifo_write(PEND_IRQ_TOKEN | context as u32);
