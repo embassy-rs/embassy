@@ -73,16 +73,26 @@ pin_trait!(ChannelFPin, Instance);
 #[cfg(hrtim_v2)]
 pin_trait!(ChannelFComplementaryPin, Instance);
 
+/// Prescaler
 #[repr(u8)]
 #[derive(Clone, Copy)]
-pub(crate) enum Prescaler {
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Prescaler {
+    /// Prescaler ratio 1
     Div1 = 1,
+    /// Prescaler ratio 2
     Div2 = 2,
+    /// Prescaler ratio 4
     Div4 = 4,
+    /// Prescaler ratio 8
     Div8 = 8,
+    /// Prescaler ratio 16
     Div16 = 16,
+    /// Prescaler ratio 32
     Div32 = 32,
+    /// Prescaler ratio 64
     Div64 = 64,
+    /// Prescaler ratio 128
     Div128 = 128,
 }
 
