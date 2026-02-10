@@ -93,6 +93,11 @@ impl Executor {
         let power_depth = loop {
             unsafe {
                 self.inner.poll();
+
+                if go_around() {
+                    continue;
+                }
+
                 let sleep = crate::clocks::with_clocks(|c| c.core_sleep);
                 if let Some(s) = sleep {
                     break s;
@@ -111,6 +116,11 @@ impl Executor {
             CoreSleep::WfeUngated | CoreSleep::WfeGated => loop {
                 unsafe {
                     self.inner.poll();
+
+                    if go_around() {
+                        continue;
+                    }
+
                     debug_lo();
                     do_wfe();
                     debug_hi();
@@ -122,6 +132,10 @@ impl Executor {
                     // For deep sleep, we need to be a bit more clever. First, poll any
                     // pending tasks
                     self.inner.poll();
+
+                    if go_around() {
+                        continue;
+                    }
 
                     // Next, we need to check if any high-power peripherals exist that should
                     // inhibit us from entering deep sleep. Take a critical section to check.
@@ -159,6 +173,18 @@ impl Executor {
 unsafe fn do_wfe() {
     cortex_m::asm::dsb();
     cortex_m::asm::wfe();
+}
+
+/// Function to go around to poll again, and clear a pending sev if we
+/// know we will immediately wake anyway.
+fn go_around() -> bool {
+    let sev_pending = TASKS_PENDING.swap(false, Ordering::AcqRel);
+    if sev_pending {
+        // We know __pender has sent a sev, ack it with a wfe, which we
+        // know will immediately return control flow to us.
+        cortex_m::asm::wfe();
+    }
+    sev_pending
 }
 
 /// Dedicate a pin to be used for introspecting the state of the custom executor.
