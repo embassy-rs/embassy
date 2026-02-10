@@ -17,10 +17,8 @@ pub use stm32_hrtim::{self, Pscl1, Pscl2, Pscl4, Pscl8, Pscl16, Pscl32, Pscl64, 
 use stm32_hrtim::{HrParts, HrPwmBuilder};
 use traits::Instance;
 
-use crate::gpio::{AfType, OutputType, SealedPin, Speed};
-use crate::peripherals::{PA8, PA9, PA10, PA11, PB12, PB13, PB14, PB15, PC8, PC9};
-#[cfg(stm32g4)]
-use crate::peripherals::{PC6, PC7};
+use crate::gpio::{AfType, OutputType, Speed};
+use crate::peripherals::HRTIM1;
 use crate::rcc;
 
 /// Uninitialized HRTIM resources as returned by [HrControltExt::hr_control]
@@ -142,64 +140,51 @@ pub trait Out2Pin<TIM>: Output2Pin<TIM> {
 }
 
 macro_rules! pins_helper {
-    ($TIMX:ty, $OutYPin:ident, $OutputYPin:ident, $HrOutY:ident, $CHY:ident<$CHY_AF:literal>) => {
-        unsafe impl<'d> $OutputYPin<$TIMX> for Pin<Peri<'d, $CHY>> {}
-
-        impl<'d> $OutYPin<$TIMX> for Pin<Peri<'d, $CHY>> {
-            // Pin<Gpio, Index, Alternate<PushPull, AF>>
+    ($TIMX:ty, $ChannelXPin:ident, $OutYPin:ident, $OutputYPin:ident, $HrOutY:ident) => {
+        unsafe impl<'d, T: $ChannelXPin<HRTIM1>> $OutputYPin<$TIMX> for Pin<Peri<'d, T>> {}
+        impl<'d, T: $ChannelXPin<HRTIM1>> $OutYPin<$TIMX> for Pin<Peri<'d, T>> {
             fn connect_to_hrtim(self) {
-                // It is quite important that we leave this up to the HRTIM driver. Doing this too
-                // early might lead to undefined levels on the pin until the timer init is done.
-                self.pin
-                    .set_as_af($CHY_AF, AfType::output(OutputType::PushPull, self.speed));
+                self.pin.set_as_af(
+                    self.pin.af_num(),
+                    AfType::output(OutputType::PushPull, self.speed),
+                );
             }
         }
     };
 }
 
-macro_rules! pins {
-    ($($TIMX:ty: CH1: $CH1:ident<$CH1_AF:literal>, CH2: $CH2:ident<$CH2_AF:literal>),+) => {$(
-        pins_helper!($TIMX, Out1Pin, Output1Pin, HrOut1, $CH1<$CH1_AF>);
-        pins_helper!($TIMX, Out2Pin, Output2Pin, HrOut2, $CH2<$CH1_AF>);
-    )+};
-}
-
-// TODO dont use stm32 pac types here. Impl some way to split the HRTIM1 instance into corresponding types maybe?
-// or hr_control could return them all in a struct along with the calib thing?
+pins_helper!(HRTIM_TIMA, ChannelAPin, Out1Pin, Output1Pin, HrOut1);
+pins_helper!(HRTIM_TIMA, ChannelAComplementaryPin, Out2Pin, Output2Pin, HrOut2);
+pins_helper!(HRTIM_TIMB, ChannelBPin, Out1Pin, Output1Pin, HrOut1);
+pins_helper!(HRTIM_TIMB, ChannelBComplementaryPin, Out2Pin, Output2Pin, HrOut2);
+pins_helper!(HRTIM_TIMC, ChannelCPin, Out1Pin, Output1Pin, HrOut1);
+pins_helper!(HRTIM_TIMC, ChannelCComplementaryPin, Out2Pin, Output2Pin, HrOut2);
+pins_helper!(HRTIM_TIMD, ChannelDPin, Out1Pin, Output1Pin, HrOut1);
+pins_helper!(HRTIM_TIMD, ChannelDComplementaryPin, Out2Pin, Output2Pin, HrOut2);
+pins_helper!(HRTIM_TIME, ChannelEPin, Out1Pin, Output1Pin, HrOut1);
+pins_helper!(HRTIM_TIME, ChannelEComplementaryPin, Out2Pin, Output2Pin, HrOut2);
 
 #[cfg(stm32g4)]
-pins! {
-    HRTIM_TIMA: CH1: PA8<13>,  CH2: PA9<13>,
-    HRTIM_TIMB: CH1: PA10<13>, CH2: PA11<13>,
-    HRTIM_TIMC: CH1: PB12<13>, CH2: PB13<13>,
-    HRTIM_TIMD: CH1: PB14<13>, CH2: PB15<13>,
-    HRTIM_TIME: CH1: PC8<3>,   CH2: PC9<3>,
-    HRTIM_TIMF: CH1: PC6<13>,  CH2: PC7<13>
-}
+pins_helper!(HRTIM_TIMF, ChannelFPin, Out1Pin, Output1Pin, HrOut1);
+#[cfg(stm32g4)]
+pins_helper!(HRTIM_TIMF, ChannelFComplementaryPin, Out2Pin, Output2Pin, HrOut2);
 
-#[cfg(stm32f3)]
-pins! {
-    HRTIM_TIMA: CH1: PA8<13>, CH2: PA9<13>,
-    HRTIM_TIMB: CH1: PA10<13>, CH2: PA11<13>,
-    HRTIM_TIMC: CH1: PB12<13>, CH2: PB13<13>,
-    HRTIM_TIMD: CH1: PB14<13>, CH2: PB15<13>,
-    HRTIM_TIME: CH1: PC8<3>, CH2: PC9<3>
-}
+// macro_rules! pins {
+//     ($($TIMX:ty: CH1: $CH1:ident<$CH1_AF:literal>, CH2: $CH2:ident<$CH2_AF:literal>),+) => {$(
+//         pins_helper!($TIMX, Out1Pin, Output1Pin, HrOut1, $CH1<$CH1_AF>);
+//         pins_helper!($TIMX, Out2Pin, Output2Pin, HrOut2, $CH2<$CH1_AF>);
+//     )+};
+// }
 
-/* // TODO: Figure out how to use these traits instead of hardcoded types
-pins! {
-    HRTIM_TIMA: CH1: ChannelAPin, CH2: ChannelAComplementaryPin,
-    HRTIM_TIMB: CH1: ChannelBPin, CH2: ChannelBComplementaryPin,
-    HRTIM_TIMC: CH1: ChannelCPin, CH2: ChannelCComplementaryPin,
-    HRTIM_TIMD: CH1: ChannelDPin, CH2: ChannelDComplementaryPin,
-    HRTIM_TIME: CH1: ChannelEPin, CH2: ChannelEComplementaryPin,
-}
-
-#[cfg(hrtim_v2)]
-pins! {
-    HRTIM_TIMF: CH1: ChannelFPin, CH2: ChannelFComplementaryPin
-}
-*/
+// #[cfg(stm32g4)]
+// pins! {
+//     HRTIM_TIMA: CH1: PA8<13>,  CH2: PA9<13>,
+//     HRTIM_TIMB: CH1: PA10<13>, CH2: PA11<13>,
+//     HRTIM_TIMC: CH1: PB12<13>, CH2: PB13<13>,
+//     HRTIM_TIMD: CH1: PB14<13>, CH2: PB15<13>,
+//     HRTIM_TIME: CH1: PC8<3>,   CH2: PC9<3>,
+//     HRTIM_TIMF: CH1: PC6<13>,  CH2: PC7<13>
+// }
 
 pin_trait!(ChannelAPin, Instance);
 pin_trait!(ChannelAComplementaryPin, Instance);
