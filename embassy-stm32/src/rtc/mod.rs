@@ -32,7 +32,7 @@ pub use _version::*;
 use crate::Peri;
 use crate::peripherals::RTC;
 
-/// Errors that can occur on methods on [RtcClock]
+/// Errors that can occur on methods on [Rtc]
 #[non_exhaustive]
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
