@@ -6,6 +6,7 @@ use paste::paste;
 
 use crate::clocks::periph_helpers::{Div4, LpuartClockSel, LpuartConfig};
 use crate::clocks::{ClockError, Gate, PoweredClock, WakeGuard, enable_and_reset};
+use crate::dma::Channel;
 use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt;
 use crate::pac::lpuart::vals::{
@@ -704,52 +705,77 @@ pub struct Lpuart<'a, M: Mode> {
     rx: LpuartRx<'a, M>,
 }
 
+struct TxPins<'a> {
+    tx_pin: Peri<'a, AnyPin>,
+    cts_pin: Option<Peri<'a, AnyPin>>,
+}
+
+struct RxPins<'a> {
+    rx_pin: Peri<'a, AnyPin>,
+    rts_pin: Option<Peri<'a, AnyPin>>,
+}
+
+impl Drop for TxPins<'_> {
+    fn drop(&mut self) {
+        self.tx_pin.set_as_disabled();
+        if let Some(cts_pin) = &self.cts_pin {
+            cts_pin.set_as_disabled();
+        }
+    }
+}
+
+impl Drop for RxPins<'_> {
+    fn drop(&mut self) {
+        self.rx_pin.set_as_disabled();
+        if let Some(rts_pin) = &self.rts_pin {
+            rts_pin.set_as_disabled();
+        }
+    }
+}
+
 /// Lpuart TX driver.
 pub struct LpuartTx<'a, M: Mode> {
     info: &'static Info,
-    _tx_pin: Peri<'a, AnyPin>,
-    _cts_pin: Option<Peri<'a, AnyPin>>,
     mode: PhantomData<(&'a (), M)>,
+    _tx_pins: TxPins<'a>,
     _wg: Option<WakeGuard>,
 }
 
 /// Lpuart Rx driver.
 pub struct LpuartRx<'a, M: Mode> {
     info: &'static Info,
-    _rx_pin: Peri<'a, AnyPin>,
-    _rts_pin: Option<Peri<'a, AnyPin>>,
     mode: PhantomData<(&'a (), M)>,
+    _rx_pins: RxPins<'a>,
     _wg: Option<WakeGuard>,
 }
 
 /// Lpuart TX driver with DMA support.
-pub struct LpuartTxDma<'a, T: Instance, C: DmaChannelTrait> {
+pub struct LpuartTxDma<'a, T: Instance> {
     info: &'static Info,
-    _tx_pin: Peri<'a, AnyPin>,
-    tx_dma: DmaChannel<C>,
+    tx_dma: DmaChannel<'a>,
+    _tx_pins: TxPins<'a>,
     _instance: core::marker::PhantomData<T>,
     _wg: Option<WakeGuard>,
 }
 
 /// Lpuart RX driver with DMA support.
-pub struct LpuartRxDma<'a, T: Instance, C: DmaChannelTrait> {
+pub struct LpuartRxDma<'a, T: Instance> {
     info: &'static Info,
-    _rx_pin: Peri<'a, AnyPin>,
-    rx_dma: DmaChannel<C>,
+    rx_dma: DmaChannel<'a>,
+    _rx_pins: RxPins<'a>,
     _instance: core::marker::PhantomData<T>,
     _wg: Option<WakeGuard>,
 }
 
 /// Lpuart driver with DMA support for both TX and RX.
-pub struct LpuartDma<'a, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> {
-    tx: LpuartTxDma<'a, T, TxC>,
-    rx: LpuartRxDma<'a, T, RxC>,
+pub struct LpuartDma<'a, T: Instance> {
+    tx: LpuartTxDma<'a, T>,
+    rx: LpuartRxDma<'a, T>,
 }
 
 /// Lpuart RX driver with ring-buffered DMA support.
-pub struct LpuartRxRingDma<'peri, 'ring, T: Instance, C: DmaChannelTrait> {
-    _inner: LpuartRxDma<'peri, T, C>,
-    ring: RingBuffer<'ring, u8>,
+pub struct LpuartRxRingDma<'peri, 'ring> {
+    ring: RingBuffer<'peri, 'ring, u8>,
 }
 
 // ============================================================================
@@ -882,9 +908,8 @@ impl<'a, M: Mode> LpuartTx<'a, M> {
     ) -> Self {
         Self {
             info,
-            _tx_pin: tx_pin,
-            _cts_pin: cts_pin,
             mode: PhantomData,
+            _tx_pins: TxPins { tx_pin, cts_pin },
             _wg,
         }
     }
@@ -1009,9 +1034,8 @@ impl<'a, M: Mode> LpuartRx<'a, M> {
     ) -> Self {
         Self {
             info,
-            _rx_pin: rx_pin,
-            _rts_pin: rts_pin,
             mode: PhantomData,
+            _rx_pins: RxPins { rx_pin, rts_pin },
             _wg,
         }
     }
@@ -1148,13 +1172,13 @@ impl<'a> Lpuart<'a, Blocking> {
 /// This implements the RAII pattern: if the future is dropped before completion
 /// (e.g., due to a timeout), the DMA transfer is automatically aborted to prevent
 /// use-after-free when the buffer goes out of scope.
-struct TxDmaGuard<'a, C: DmaChannelTrait> {
-    dma: &'a DmaChannel<C>,
+struct TxDmaGuard<'a> {
+    dma: DmaChannel<'a>,
     info: &'static Info,
 }
 
-impl<'a, C: DmaChannelTrait> TxDmaGuard<'a, C> {
-    fn new(dma: &'a DmaChannel<C>, info: &'static Info) -> Self {
+impl<'a> TxDmaGuard<'a> {
+    fn new(dma: DmaChannel<'a>, info: &'static Info) -> Self {
         Self { dma, info }
     }
 
@@ -1171,7 +1195,7 @@ impl<'a, C: DmaChannelTrait> TxDmaGuard<'a, C> {
     }
 }
 
-impl<C: DmaChannelTrait> Drop for TxDmaGuard<'_, C> {
+impl Drop for TxDmaGuard<'_> {
     fn drop(&mut self) {
         // Abort the DMA transfer if still running
         unsafe {
@@ -1185,13 +1209,13 @@ impl<C: DmaChannelTrait> Drop for TxDmaGuard<'_, C> {
 }
 
 /// Guard struct for RX DMA transfers.
-struct RxDmaGuard<'a, C: DmaChannelTrait> {
-    dma: &'a DmaChannel<C>,
+struct RxDmaGuard<'a> {
+    dma: DmaChannel<'a>,
     info: &'static Info,
 }
 
-impl<'a, C: DmaChannelTrait> RxDmaGuard<'a, C> {
-    fn new(dma: &'a DmaChannel<C>, info: &'static Info) -> Self {
+impl<'a> RxDmaGuard<'a> {
+    fn new(dma: DmaChannel<'a>, info: &'static Info) -> Self {
         Self { dma, info }
     }
 
@@ -1210,7 +1234,7 @@ impl<'a, C: DmaChannelTrait> RxDmaGuard<'a, C> {
     }
 }
 
-impl<C: DmaChannelTrait> Drop for RxDmaGuard<'_, C> {
+impl Drop for RxDmaGuard<'_> {
     fn drop(&mut self) {
         // Abort the DMA transfer if still running
         unsafe {
@@ -1223,11 +1247,11 @@ impl<C: DmaChannelTrait> Drop for RxDmaGuard<'_, C> {
     }
 }
 
-impl<'a, T: Instance, C: DmaChannelTrait> LpuartTxDma<'a, T, C> {
+impl<'a, T: Instance> LpuartTxDma<'a, T> {
     /// Create a new LPUART TX driver with DMA support.
     ///
     /// Any external pin will be placed into Disabled state upon Drop.
-    pub fn new(
+    pub fn new<C: DmaChannelTrait>(
         _inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
         tx_dma_ch: Peri<'a, C>,
@@ -1245,8 +1269,8 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartTxDma<'a, T, C> {
 
         Ok(Self {
             info: T::info(),
-            _tx_pin: tx_pin,
             tx_dma,
+            _tx_pins: TxPins { tx_pin, cts_pin: None },
             _instance: core::marker::PhantomData,
             _wg,
         })
@@ -1306,12 +1330,12 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartTxDma<'a, T, C> {
         }
 
         // Create guard that will abort DMA if this future is dropped
-        let guard = TxDmaGuard::new(&self.tx_dma, self.info);
+        let guard = TxDmaGuard::new(self.tx_dma.reborrow(), self.info);
 
         // Wait for completion asynchronously
         core::future::poll_fn(|cx| {
-            self.tx_dma.waker().register(cx.waker());
-            if self.tx_dma.is_done() {
+            guard.dma.waker().register(cx.waker());
+            if guard.dma.is_done() {
                 core::task::Poll::Ready(())
             } else {
                 core::task::Poll::Pending
@@ -1342,11 +1366,11 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartTxDma<'a, T, C> {
     }
 }
 
-impl<'a, T: Instance, C: DmaChannelTrait> LpuartRxDma<'a, T, C> {
+impl<'a, T: Instance> LpuartRxDma<'a, T> {
     /// Create a new LPUART RX driver with DMA support.
     ///
     /// Any external pin will be placed into Disabled state upon Drop.
-    pub fn new(
+    pub fn new<C: Channel>(
         _inner: Peri<'a, T>,
         rx_pin: Peri<'a, impl RxPin<T>>,
         rx_dma_ch: Peri<'a, C>,
@@ -1364,8 +1388,8 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartRxDma<'a, T, C> {
 
         Ok(Self {
             info: T::info(),
-            _rx_pin: rx_pin,
             rx_dma,
+            _rx_pins: RxPins { rx_pin, rts_pin: None },
             _instance: core::marker::PhantomData,
             _wg,
         })
@@ -1425,12 +1449,12 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartRxDma<'a, T, C> {
         }
 
         // Create guard that will abort DMA if this future is dropped
-        let guard = RxDmaGuard::new(&self.rx_dma, self.info);
+        let guard = RxDmaGuard::new(self.rx_dma.reborrow(), self.info);
 
         // Wait for completion asynchronously
         core::future::poll_fn(|cx| {
-            self.rx_dma.waker().register(cx.waker());
-            if self.rx_dma.is_done() {
+            guard.dma.waker().register(cx.waker());
+            if guard.dma.is_done() {
                 core::task::Poll::Ready(())
             } else {
                 core::task::Poll::Pending
@@ -1458,11 +1482,11 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartRxDma<'a, T, C> {
         Ok(())
     }
 
-    pub fn into_ring_dma_rx<'buf>(self, buf: &'buf mut [u8]) -> LpuartRxRingDma<'a, 'buf, T, C> {
+    pub fn into_ring_dma_rx<'buf: 'a>(&mut self, buf: &'buf mut [u8]) -> LpuartRxRingDma<'_, 'buf> {
         unsafe {
             let ring = self.setup_ring_buffer(buf);
-            self.enable_dma_request();
-            LpuartRxRingDma { _inner: self, ring }
+            ring.enable_dma_request();
+            LpuartRxRingDma { ring }
         }
     }
 
@@ -1498,47 +1522,29 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartRxDma<'a, T, C> {
     /// let mut buf = [0u8; 16];
     /// let n = ring_buf.read(&mut buf).await.unwrap();
     /// ```
-    ///
-    /// # Safety
-    ///
-    /// - The buffer must remain valid for the lifetime of the returned RingBuffer.
-    /// - Only one RingBuffer should exist per LPUART RX channel at a time.
-    /// - The caller must ensure the static buffer is not accessed elsewhere while
-    ///   the ring buffer is active.
-    unsafe fn setup_ring_buffer<'b>(&self, buf: &'b mut [u8]) -> RingBuffer<'b, u8> {
-        unsafe {
-            // Get the peripheral data register address
-            let peri_addr = self.info.regs().data().as_ptr() as *const u8;
+    fn setup_ring_buffer<'buf: 'a>(&mut self, buf: &'buf mut [u8]) -> RingBuffer<'_, 'buf, u8> {
+        // Get the peripheral data register address
+        let peri_addr = self.info.regs().data().as_ptr() as *const u8;
 
-            // Configure DMA request source for this LPUART instance (type-safe)
+        // Configure DMA request source for this LPUART instance (type-safe)
+        unsafe {
             self.rx_dma.set_request_source::<T::RxDmaRequest>();
-
-            // Enable RX DMA request in the LPUART peripheral
-            self.info.regs().baud().modify(|w| w.set_rdmae(true));
-
-            // Set up circular DMA transfer (this also enables NVIC interrupt)
-            self.rx_dma.setup_circular_read(peri_addr, buf)
         }
-    }
 
-    /// Enable the DMA channel request.
-    ///
-    /// Call this after `setup_ring_buffer()` to start continuous reception.
-    /// This is separated from setup to allow for any additional configuration
-    /// before starting the transfer.
-    unsafe fn enable_dma_request(&self) {
-        unsafe {
-            self.rx_dma.enable_request();
-        }
+        // Enable RX DMA request in the LPUART peripheral
+        self.info.regs().baud().modify(|w| w.set_rdmae(true));
+
+        // Set up circular DMA transfer (this also enables NVIC interrupt)
+        unsafe { self.rx_dma.setup_circular_read(peri_addr, buf) }
     }
 }
 
-impl<'peri, 'buf, T: Instance, C: DmaChannelTrait> LpuartRxRingDma<'peri, 'buf, T, C> {
+impl<'peri, 'buf> LpuartRxRingDma<'peri, 'buf> {
     /// Read from the ring buffer
     pub fn read<'d>(
         &mut self,
         dst: &'d mut [u8],
-    ) -> impl Future<Output = core::result::Result<usize, crate::dma::Error>> + use<'_, 'buf, 'd, T, C> {
+    ) -> impl Future<Output = core::result::Result<usize, crate::dma::Error>> + use<'_, 'buf, 'd> {
         self.ring.read(dst)
     }
 
@@ -1548,11 +1554,11 @@ impl<'peri, 'buf, T: Instance, C: DmaChannelTrait> LpuartRxRingDma<'peri, 'buf, 
     }
 }
 
-impl<'a, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> LpuartDma<'a, T, TxC, RxC> {
+impl<'a, T: Instance> LpuartDma<'a, T> {
     /// Create a new LPUART driver with DMA support for both TX and RX.
     ///
     /// Any external pin will be placed into Disabled state upon Drop.
-    pub fn new(
+    pub fn new<TxC: DmaChannelTrait, RxC: DmaChannelTrait>(
         _inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
         rx_pin: Peri<'a, impl RxPin<T>>,
@@ -1578,15 +1584,15 @@ impl<'a, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> LpuartDma<'a, 
         Ok(Self {
             tx: LpuartTxDma {
                 info: T::info(),
-                _tx_pin: tx_pin,
                 tx_dma,
+                _tx_pins: TxPins { tx_pin, cts_pin: None },
                 _instance: core::marker::PhantomData,
                 _wg: _wg.clone(),
             },
             rx: LpuartRxDma {
                 info: T::info(),
-                _rx_pin: rx_pin,
                 rx_dma,
+                _rx_pins: RxPins { rx_pin, rts_pin: None },
                 _instance: core::marker::PhantomData,
                 _wg,
             },
@@ -1594,7 +1600,7 @@ impl<'a, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> LpuartDma<'a, 
     }
 
     /// Split into separate TX and RX drivers
-    pub fn split(self) -> (LpuartTxDma<'a, T, TxC>, LpuartRxDma<'a, T, RxC>) {
+    pub fn split(self) -> (LpuartTxDma<'a, T>, LpuartRxDma<'a, T>) {
         (self.tx, self.rx)
     }
 
@@ -1610,52 +1616,18 @@ impl<'a, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> LpuartDma<'a, 
 }
 
 // ============================================================================
-// DROP TRAIT IMPLEMENTATIONS
-// ============================================================================
-
-impl<'a, M: Mode> Drop for LpuartTx<'a, M> {
-    fn drop(&mut self) {
-        self._tx_pin.set_as_disabled();
-        if let Some(cts_pin) = &self._cts_pin {
-            cts_pin.set_as_disabled();
-        }
-    }
-}
-
-impl<'a, M: Mode> Drop for LpuartRx<'a, M> {
-    fn drop(&mut self) {
-        self._rx_pin.set_as_disabled();
-        if let Some(rts_pin) = &self._rts_pin {
-            rts_pin.set_as_disabled();
-        }
-    }
-}
-
-impl<'a, T: Instance, C: DmaChannelTrait> Drop for LpuartTxDma<'a, T, C> {
-    fn drop(&mut self) {
-        self._tx_pin.set_as_disabled();
-    }
-}
-
-impl<'a, T: Instance, C: DmaChannelTrait> Drop for LpuartRxDma<'a, T, C> {
-    fn drop(&mut self) {
-        self._rx_pin.set_as_disabled();
-    }
-}
-
-// ============================================================================
 // EMBEDDED-IO-ASYNC TRAIT IMPLEMENTATIONS
 // ============================================================================
 
-impl<T: Instance, C: DmaChannelTrait> embedded_io::ErrorType for LpuartTxDma<'_, T, C> {
+impl<T: Instance> embedded_io::ErrorType for LpuartTxDma<'_, T> {
     type Error = Error;
 }
 
-impl<T: Instance, C: DmaChannelTrait> embedded_io::ErrorType for LpuartRxDma<'_, T, C> {
+impl<T: Instance> embedded_io::ErrorType for LpuartRxDma<'_, T> {
     type Error = Error;
 }
 
-impl<T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> embedded_io::ErrorType for LpuartDma<'_, T, TxC, RxC> {
+impl<T: Instance> embedded_io::ErrorType for LpuartDma<'_, T> {
     type Error = Error;
 }
 
