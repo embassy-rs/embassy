@@ -33,9 +33,7 @@
 //! # let src = [0u32; 4];
 //! # let mut dst = [0u32; 4];
 //! // Simple memory-to-memory transfer
-//! unsafe {
-//!     dma_ch.mem_to_mem(&src, &mut dst, TransferOptions::default()).await;
-//! }
+//! dma_ch.mem_to_mem(&src, &mut dst, TransferOptions::default())?.await;
 //! ```
 //!
 //! ## Setup Methods (For Peripheral Drivers)
@@ -294,6 +292,108 @@ pub enum Error {
     Configuration,
     /// Buffer overrun (for ring buffers).
     Overrun,
+    /// Buffer is not in a DMA-accessible memory region.
+    BufferNotAccessible,
+}
+
+// =============================================================================
+// MEMORY REGION VALIDATION
+// =============================================================================
+
+/// Address range boundaries for DMA buffer access validation.
+///
+/// These are MCXA276-specific memory regions, aligned with the MCUXpresso SDK
+/// linker memory layout for FRDM-MCXA276.
+///
+/// Notes:
+/// - Main SRAM is at 0x2000_0000.
+/// - MCXA276 also exposes small SRAMX regions at 0x0400_0000.
+/// - Flash is mapped at 0x0000_0000.
+///
+/// We keep this check conservative and easy to reason about: the entire slice
+/// must fit inside a single valid region.
+const MAIN_SRAM_LOWER: usize = 0x2000_0000;
+const MAIN_SRAM_UPPER: usize = 0x2003_C000; // 240 KiB
+
+const SRAMX0_LOWER: usize = 0x0400_0000;
+const SRAMX0_UPPER: usize = 0x0400_2000; // 8 KiB
+
+const SRAMX1_LOWER: usize = 0x0400_2000;
+const SRAMX1_UPPER: usize = 0x0400_4000; // 8 KiB
+
+// Physical flash size is 1 MiB mapped at 0x0000_0000.
+// (MCUXpresso often reserves a small top-of-flash area for configuration, but
+// DMA reads remain valid across the physical flash address window.)
+const FLASH_LOWER: usize = 0x0000_0000;
+const FLASH_UPPER: usize = 0x0010_0000;
+
+#[inline]
+const fn slice_fits_in_range(ptr: usize, end: usize, lower: usize, upper: usize) -> bool {
+    ptr >= lower && end <= upper
+}
+
+/// Check if a slice resides entirely within RAM (SRAM).
+///
+/// Returns true if the slice is in DMA-accessible RAM, or if empty.
+#[inline]
+fn slice_in_ram<T>(slice: &[T]) -> bool {
+    if slice.is_empty() {
+        return true;
+    }
+    let ptr = slice.as_ptr() as usize;
+    let Some(bytes) = slice.len().checked_mul(core::mem::size_of::<T>()) else {
+        return false;
+    };
+    let Some(end) = ptr.checked_add(bytes) else {
+        return false;
+    };
+    slice_fits_in_range(ptr, end, MAIN_SRAM_LOWER, MAIN_SRAM_UPPER)
+        || slice_fits_in_range(ptr, end, SRAMX0_LOWER, SRAMX0_UPPER)
+        || slice_fits_in_range(ptr, end, SRAMX1_LOWER, SRAMX1_UPPER)
+}
+
+/// Check if a slice resides within RAM or Flash (readable by DMA).
+///
+/// Returns true if the slice is in a region DMA can read from.
+#[inline]
+fn slice_in_ram_or_flash<T>(slice: &[T]) -> bool {
+    if slice.is_empty() {
+        return true;
+    }
+    let ptr = slice.as_ptr() as usize;
+    let Some(bytes) = slice.len().checked_mul(core::mem::size_of::<T>()) else {
+        return false;
+    };
+    let Some(end) = ptr.checked_add(bytes) else {
+        return false;
+    };
+    // Check RAM regions
+    if slice_in_ram(slice) {
+        return true;
+    }
+
+    // Check Flash
+    slice_fits_in_range(ptr, end, FLASH_LOWER, FLASH_UPPER)
+}
+
+/// Validate that a source buffer is in a DMA-readable region (RAM or Flash).
+#[inline]
+fn validate_src_buffer<T>(slice: &[T]) -> Result<(), Error> {
+    if slice_in_ram_or_flash(slice) {
+        Ok(())
+    } else {
+        Err(Error::BufferNotAccessible)
+    }
+}
+
+/// Validate that a destination buffer is in a DMA-writable region (RAM only).
+#[inline]
+fn validate_dst_buffer<T>(slice: &[T]) -> Result<(), Error> {
+    if slice_in_ram(slice) {
+        Ok(())
+    } else {
+        Err(Error::BufferNotAccessible)
+    }
 }
 
 /// Whether to enable the major loop completion interrupt.
@@ -361,6 +461,24 @@ macro_rules! define_dma_request {
         }
     };
 }
+
+// LPSPI DMA request sources (from MCXA276 reference manual Table 4-8)
+define_dma_request!(
+    /// DMA request source for LPSPI0 RX.
+    Lpspi0RxRequest = 15
+);
+define_dma_request!(
+    /// DMA request source for LPSPI0 TX.
+    Lpspi0TxRequest = 16
+);
+define_dma_request!(
+    /// DMA request source for LPSPI1 RX.
+    Lpspi1RxRequest = 17
+);
+define_dma_request!(
+    /// DMA request source for LPSPI1 TX.
+    Lpspi1TxRequest = 18
+);
 
 // LPUART DMA request sources (from MCXA276 reference manual Table 4-8)
 define_dma_request!(
@@ -746,7 +864,7 @@ impl<C: Channel> DmaChannel<C> {
         // Enable the channel request
         t.ch_csr().modify(|w| {
             w.set_erq(true);
-            w.set_earq(true);
+            w.set_earq(false);
         });
 
         Transfer::new(self.as_any())
@@ -762,22 +880,31 @@ impl<C: Channel> DmaChannel<C> {
     /// the correct transfer width automatically. Uses the global eDMA TCD
     /// register accessor internally.
     ///
+    /// Returns an error if the buffers are not in DMA-accessible memory regions:
+    /// - Source must be in SRAM or Flash
+    /// - Destination must be in SRAM
+    ///
     /// # Arguments
     ///
-    /// * `src` - Source buffer
-    /// * `dst` - Destination buffer (must be at least as large as src)
+    /// * `src` - Source buffer (must be in SRAM or Flash)
+    /// * `dst` - Destination buffer (must be in SRAM, at least as large as src)
     /// * `options` - Transfer configuration options
     ///
-    /// # Safety
+    /// # Errors
     ///
-    /// The source and destination buffers must remain valid for the
-    /// duration of the transfer.
+    /// Returns [`Error::BufferNotAccessible`] if the buffers are not in valid
+    /// DMA-accessible memory regions.
+    /// Returns [`Error::Configuration`] if the buffer sizes are invalid.
     pub fn mem_to_mem<W: Word>(
         &self,
         src: &[W],
         dst: &mut [W],
         options: TransferOptions,
     ) -> Result<Transfer<'_>, Error> {
+        // Validate buffer accessibility
+        validate_src_buffer(src)?;
+        validate_dst_buffer(dst)?;
+
         let mut invalid = false;
         invalid |= src.is_empty();
         invalid |= src.len() > dst.len();
@@ -850,10 +977,12 @@ impl<C: Channel> DmaChannel<C> {
     /// (pattern value) while the destination address increments through the buffer.
     /// It's useful for quickly filling large memory regions with a constant value.
     ///
+    /// Returns an error if the destination buffer is not in DMA-writable memory (SRAM).
+    ///
     /// # Arguments
     ///
     /// * `pattern` - Reference to the pattern value (will be read repeatedly)
-    /// * `dst` - Destination buffer to fill
+    /// * `dst` - Destination buffer to fill (must be in SRAM)
     /// * `options` - Transfer configuration options
     ///
     /// # Example
@@ -865,15 +994,21 @@ impl<C: Channel> DmaChannel<C> {
     /// let pattern: u32 = 0xDEADBEEF;
     /// let mut buffer = [0u32; 256];
     ///
-    /// unsafe {
-    ///     dma_ch.memset(&pattern, &mut buffer, TransferOptions::default()).await;
-    /// }
+    /// dma_ch.memset(&pattern, &mut buffer, TransferOptions::default())?.await;
     /// // buffer is now filled with 0xDEADBEEF
     /// ```
     ///
-    pub fn memset<W: Word>(&self, pattern: &W, dst: &mut [W], options: TransferOptions) -> Transfer<'_> {
-        assert!(!dst.is_empty());
-        assert!(dst.len() <= 0x7fff);
+    /// # Errors
+    ///
+    /// Returns [`Error::BufferNotAccessible`] if the destination buffer is not in SRAM.
+    /// Returns [`Error::Configuration`] if the buffer size is invalid.
+    pub fn memset<W: Word>(&self, pattern: &W, dst: &mut [W], options: TransferOptions) -> Result<Transfer<'_>, Error> {
+        // Validate destination is in DMA-writable region
+        validate_dst_buffer(dst)?;
+
+        if dst.is_empty() || dst.len() > 0x7fff {
+            return Err(Error::Configuration);
+        }
 
         let size = W::size();
         let byte_size = size.bytes();
@@ -939,7 +1074,7 @@ impl<C: Channel> DmaChannel<C> {
             w.set_start(Start::CHANNEL_STARTED); // Start the channel
         });
 
-        Transfer::new(self.as_any())
+        Ok(Transfer::new(self.as_any()))
     }
 
     /// Write data from memory to a peripheral register.
@@ -1389,9 +1524,7 @@ impl<C: Channel> DmaChannel<C> {
     ///
     /// # Note
     ///
-    /// The NXP SDK requires a two-step write sequence: first clear
-    /// the mux to 0, then set the actual source. This is a hardware
-    /// requirement on eDMA4 for the mux to properly latch.
+    /// Configure the DMAMUX request source for this channel.
     ///
     /// # Example
     ///
@@ -1405,10 +1538,12 @@ impl<C: Channel> DmaChannel<C> {
     /// ```
     #[inline]
     pub unsafe fn set_request_source<R: DmaRequest>(&self) {
-        // Two-step write per NXP SDK: clear to 0, then set actual source.
-        self.tcd().ch_mux().write(|w| w.set_src(0));
+        // Two-step write required on eDMA4: clear to 0, then set actual source.
+        // This ensures the DMAMUX properly recognizes the new request source.
+        let t = self.tcd();
+        t.ch_mux().write(|w| w.set_src(0));
         cortex_m::asm::dsb(); // Ensure the clear completes before setting new source
-        self.tcd().ch_mux().write(|w| w.set_src(R::REQUEST_NUMBER));
+        t.ch_mux().write(|w| w.set_src(R::REQUEST_NUMBER));
     }
 
     /// Enable hardware requests for this channel (ERQ=1).
@@ -1420,7 +1555,7 @@ impl<C: Channel> DmaChannel<C> {
         let t = self.tcd();
         t.ch_csr().modify(|w| {
             w.set_erq(true);
-            w.set_earq(true);
+            w.set_earq(false);
         });
     }
 
@@ -1608,10 +1743,16 @@ impl<C: Channel> DmaChannel<C> {
         t.tcd_slast_sda().write(|w| w.set_slast_sda(tcd.slast as u32));
         t.tcd_daddr().write(|w| w.set_daddr(tcd.daddr));
         t.tcd_doff().write(|w| w.set_doff(tcd.doff as u16));
-        t.tcd_citer_elinkno().write(|w| w.set_citer(tcd.citer));
+        t.tcd_citer_elinkno().write(|w| {
+            w.set_citer(tcd.citer);
+            w.set_elink(false);
+        });
         t.tcd_dlast_sga().write(|w| w.set_dlast_sga(tcd.dlast_sga as u32));
         t.tcd_csr().write(|w| w.0 = tcd.csr);
-        t.tcd_biter_elinkno().write(|w| w.set_biter(tcd.biter));
+        t.tcd_biter_elinkno().write(|w| {
+            w.set_biter(tcd.biter);
+            w.set_elink(false);
+        });
     }
 }
 
@@ -2281,7 +2422,7 @@ impl<C: Channel> DmaChannel<C> {
             // Enable the channel request
             t.ch_csr().modify(|w| {
                 w.set_erq(true);
-                w.set_earq(true);
+                w.set_earq(false);
             });
 
             // Enable NVIC interrupt for this channel so async wakeups work
