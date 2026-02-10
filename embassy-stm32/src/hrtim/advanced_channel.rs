@@ -16,6 +16,17 @@ pub trait AdvancedChannel<T: Instance>: SealedAdvancedChannel<T> {
     fn index() -> usize {
         Self::raw()
     }
+
+    /// Set channel prescaler
+    fn set_channel_prescaler(channel: usize, ckpsc: Prescaler) {
+        T::regs().tim(channel).cr().modify(|w| w.set_ckpsc(ckpsc.into()))
+    }
+
+    /// Set channel period
+    fn set_channel_period(channel: usize, per: u16) {
+        T::regs().tim(channel).per().modify(|w| w.set_per(per));
+    }
+
     /// Set channel frequency
     fn set_channel_frequency(channel: usize, frequency: Hertz) {
         let f = frequency.0;
@@ -33,13 +44,11 @@ pub trait AdvancedChannel<T: Instance>: SealedAdvancedChannel<T> {
             Prescaler::compute_min_low_res(psc_min)
         };
 
-        let timer_f = 32 * (timer_f as u64/ psc as u64);
+        let timer_f = 32 * (timer_f as u64 / psc as u64);
         let per: u16 = (timer_f / f as u64) as u16;
 
-        let regs = T::regs();
-
-        regs.tim(channel).cr().modify(|w| w.set_ckpsc(psc.into()));
-        regs.tim(channel).per().modify(|w| w.set_per(per));
+        Self::set_channel_prescaler(channel, psc);
+        Self::set_channel_period(channel, per);
     }
 
     /// Set the dead time as a proportion of max_duty
