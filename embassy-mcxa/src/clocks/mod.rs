@@ -2060,26 +2060,12 @@ impl ClockOperator<'_> {
                 // Allow the core to be gated - this WILL kill the debugging session!
                 let mut cp = unsafe { cortex_m::Peripherals::steal() };
                 cp.SCB.set_sleepdeep();
-                unsafe {
-                    // TODO: wait for https://github.com/rust-embedded/cortex-m/commit/1be630fdd06990bd14251eabe4cca9307bde549d
-                    // to be released, until then, manual version of SCB.set_sevonpend();
-                    cp.SCB.scr.modify(|w| w | (1 << 4));
-                }
             }
             CoreSleep::DeepSleep => {
                 // We can only support deep sleep with a custom executor which properly
                 // handles going to sleep and returning
-                #[cfg(not(feature = "custom-executor"))]
-                let custom_active = false;
-                #[cfg(feature = "custom-executor")]
-                let custom_active = crate::executor::custom_executor_active();
-
-                if !custom_active {
-                    return Err(ClockError::BadConfig {
-                        clock: "core_sleep",
-                        reason: "Deep Sleep is only supported with the custom executor",
-                    });
-                }
+                #[cfg(all(not(feature = "custom-executor"), feature = "defmt"))]
+                defmt::warn!("deep sleep enabled without custom executor");
 
                 // For now, just enable light sleep. The executor will set deep sleep when
                 // appropriate
@@ -2091,6 +2077,8 @@ impl ClockOperator<'_> {
                 // Allow the core to be gated - this WILL kill the debugging session!
                 let mut cp = unsafe { cortex_m::Peripherals::steal() };
                 cp.SCB.set_sleepdeep();
+
+                // Enable sevonpend, to allow us to wake from WFE sleep with interrupts disabled
                 unsafe {
                     // TODO: wait for https://github.com/rust-embedded/cortex-m/commit/1be630fdd06990bd14251eabe4cca9307bde549d
                     // to be released, until then, manual version of SCB.set_sevonpend();
