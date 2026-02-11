@@ -641,20 +641,32 @@ impl RxMode {
     }
 
     fn on_interrupt<T: Instance>(&self, fifonr: usize, ns_per_timer_tick: u64) {
-        T::registers().regs.ir().write(|w| w.set_rfn(fifonr, true));
         match self {
             RxMode::NonBuffered(waker) => {
+                T::registers().regs.ir().write(|w| w.set_rfn(fifonr, true));
                 waker.wake();
             }
             RxMode::ClassicBuffered(buf) => {
-                if let Some(result) = self.try_read::<T>(ns_per_timer_tick) {
-                    let _ = buf.rx_sender.try_send(result);
+                loop {
+                    match self.try_read::<T>(ns_per_timer_tick) {
+                        Some(result) => {
+                            let _ = buf.rx_sender.try_send(result);
+                        }
+                        None => break,
+                    }
                 }
+                T::registers().regs.ir().write(|w| w.set_rfn(fifonr, true));
             }
             RxMode::FdBuffered(buf) => {
-                if let Some(result) = self.try_read_fd::<T>(ns_per_timer_tick) {
-                    let _ = buf.rx_sender.try_send(result);
+                loop {
+                    match self.try_read_fd::<T>(ns_per_timer_tick) {
+                        Some(result) => {
+                            let _ = buf.rx_sender.try_send(result);
+                        }
+                        None => break,
+                    }
                 }
+                T::registers().regs.ir().write(|w| w.set_rfn(fifonr, true));
             }
         }
     }
