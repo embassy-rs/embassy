@@ -131,6 +131,7 @@ impl From<u8> for Prescaler {
 }
 
 impl Prescaler {
+    /// Computer the minium prescaler for high resolution
     pub fn compute_min_high_res(val: u32) -> Self {
         *[
             Prescaler::Div1,
@@ -148,6 +149,7 @@ impl Prescaler {
         .unwrap()
     }
 
+    /// Compute the minium prescaler for low resolution
     pub fn compute_min_low_res(val: u32) -> Self {
         *[Prescaler::Div32, Prescaler::Div64, Prescaler::Div128]
             .iter()

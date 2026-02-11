@@ -4,21 +4,16 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::Peri;
 
-use crate::gpio::{AfType, Flex, OutputType, Speed};
-pub use crate::timer::simple_pwm::PwmPinConfig;
-
 use super::low_level::HrTimer;
-use super::{BurstController, ChA, ChB, ChC, ChD, ChE, Instance, Master, Prescaler};
+use super::{
+    BurstController, ChA, ChB, ChC, ChD, ChE, ChannelAComplementaryPin, ChannelAPin, ChannelBComplementaryPin,
+    ChannelBPin, ChannelCComplementaryPin, ChannelCPin, ChannelDComplementaryPin, ChannelDPin,
+    ChannelEComplementaryPin, ChannelEPin, Instance, Master,
+};
 #[cfg(hrtim_v2)]
 use super::{ChF, ChannelFComplementaryPin, ChannelFPin};
-use super::{
-    ChannelAComplementaryPin, ChannelBComplementaryPin, ChannelCComplementaryPin, ChannelDComplementaryPin,
-    ChannelEComplementaryPin,
-};
-use super::{ChannelAPin, ChannelBPin, ChannelCPin, ChannelDPin, ChannelEPin};
-
-use crate::rcc;
-use crate::time::Hertz;
+use crate::gpio::{AfType, Flex, OutputType, Speed};
+pub use crate::timer::simple_pwm::PwmPinConfig;
 
 /// Struct used to divide a high resolution timer into multiple channels
 pub struct AdvancedPwm<'d, T: Instance> {
@@ -164,10 +159,52 @@ macro_rules! channel_impl {
     };
 }
 
-channel_impl!(new_cha, new_cha_with_config, ChA, 0, ChannelAPin, ChannelAComplementaryPin);
-channel_impl!(new_chb, new_chb_with_config, ChB, 1, ChannelBPin, ChannelBComplementaryPin);
-channel_impl!(new_chc, new_chc_with_config, ChC, 2, ChannelCPin, ChannelCComplementaryPin);
-channel_impl!(new_chd, new_chd_with_config, ChD, 3, ChannelDPin, ChannelDComplementaryPin);
-channel_impl!(new_che, new_che_with_config, ChE, 4, ChannelEPin, ChannelEComplementaryPin);
+channel_impl!(
+    new_cha,
+    new_cha_with_config,
+    ChA,
+    0,
+    ChannelAPin,
+    ChannelAComplementaryPin
+);
+channel_impl!(
+    new_chb,
+    new_chb_with_config,
+    ChB,
+    1,
+    ChannelBPin,
+    ChannelBComplementaryPin
+);
+channel_impl!(
+    new_chc,
+    new_chc_with_config,
+    ChC,
+    2,
+    ChannelCPin,
+    ChannelCComplementaryPin
+);
+channel_impl!(
+    new_chd,
+    new_chd_with_config,
+    ChD,
+    3,
+    ChannelDPin,
+    ChannelDComplementaryPin
+);
+channel_impl!(
+    new_che,
+    new_che_with_config,
+    ChE,
+    4,
+    ChannelEPin,
+    ChannelEComplementaryPin
+);
 #[cfg(hrtim_v2)]
-channel_impl!(new_chf, new_chf_with_config, ChF, 5, ChannelFPin, ChannelFComplementaryPin);
+channel_impl!(
+    new_chf,
+    new_chf_with_config,
+    ChF,
+    5,
+    ChannelFPin,
+    ChannelFComplementaryPin
+);

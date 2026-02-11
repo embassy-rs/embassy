@@ -20,7 +20,6 @@ pub struct HrTimer<'d, T: Instance> {
 impl<'d, T: Instance> HrTimer<'d, T> {
     /// Create a new timer driver.
     pub fn new(tim: Peri<'d, T>) -> Self {
-
         rcc::enable_and_reset::<T>();
 
         Self { _tim: tim }

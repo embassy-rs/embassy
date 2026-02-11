@@ -2,7 +2,7 @@
 
 #[cfg(hrtim_v2)]
 use super::ChF;
-use super::{Master, ChA, ChB, ChC, ChD, ChE, Instance, Prescaler};
+use super::{ChA, ChB, ChC, ChD, ChE, Instance, Master, Prescaler};
 use crate::time::Hertz;
 
 trait SealedAdvancedChannel<T: Instance> {
@@ -79,7 +79,7 @@ pub trait AdvancedChannel<T: Instance>: SealedAdvancedChannel<T> {
 trait SealedAdvancedChannelMaster<T: Instance> {}
 impl<T: Instance> SealedAdvancedChannelMaster<T> for Master<T> {}
 
-/// Master channel instance trait.
+/// Advanced channel instance trait.
 #[allow(private_bounds)]
 pub trait AdvancedChannelMaster<T: Instance>: SealedAdvancedChannelMaster<T> {
     /// Set master frequency

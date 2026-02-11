@@ -2,9 +2,7 @@
 
 use core::marker::PhantomData;
 
-use super::AdvancedChannel;
-use super::Instance;
-use super::Prescaler;
+use super::{AdvancedChannel, Instance, Prescaler};
 use crate::time::Hertz;
 
 /// Fixed-frequency full-bridge converter driver.
