@@ -46,6 +46,9 @@ use embedded_storage::nor_flash::{
     ErrorType, MultiwriteNorFlash, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash,
 };
 
+use crate::pac;
+use crate::pac::syscon::vals::{ClrLpcac, DisDataSpec, DisFlashSpec, DisLpcac, DisMbeccErrData, DisMbeccErrInst};
+
 // ---------------------------------------------------------------------------
 // Flash geometry constants
 // ---------------------------------------------------------------------------
@@ -76,35 +79,12 @@ const ROM_API_BASE: u32 = 0x0300_5FE0;
 const FLASH_ERASE_KEY: u32 = 0x6B65_666C;
 
 // ---------------------------------------------------------------------------
-// SYSCON register addresses for cache clearing
-// ---------------------------------------------------------------------------
-
-/// SYSCON base address (MCXA276).
-const SYSCON_BASE: u32 = 0x4009_1000;
-
-/// NVM_CTRL register offset from SYSCON base.
-const NVM_CTRL_OFFSET: u32 = 0x400;
-
-/// LPCAC_CTRL register offset from SYSCON base.
-const LPCAC_CTRL_OFFSET: u32 = 0x824;
-
-// NVM_CTRL bit masks
-const NVM_CTRL_DIS_FLASH_SPEC: u32 = 0x1;
-const NVM_CTRL_DIS_DATA_SPEC: u32 = 0x2;
-const NVM_CTRL_DIS_MBECC_ERR_INST: u32 = 0x0001_0000;
-const NVM_CTRL_DIS_MBECC_ERR_DATA: u32 = 0x0002_0000;
-
-// LPCAC_CTRL bit masks
-const LPCAC_CTRL_DIS_LPCAC: u32 = 0x1;
-const LPCAC_CTRL_CLR_LPCAC: u32 = 0x2;
-
-// ---------------------------------------------------------------------------
 // ROM API C-ABI structures
 // ---------------------------------------------------------------------------
 
 /// Flash FFR (Factory Failure Records) configuration, populated by `flash_init`.
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Default, Copy, Clone)]
 struct FlashFfrConfig {
     ffr_block_base: u32,
     ffr_total_size: u32,
@@ -116,7 +96,7 @@ struct FlashFfrConfig {
 
 /// Flash driver configuration, populated by `flash_init`.
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Default, Copy, Clone)]
 struct FlashConfig {
     pflash_block_base: u32,
     pflash_total_size: u32,
@@ -127,23 +107,25 @@ struct FlashConfig {
 }
 
 // Type aliases for ROM API function pointer signatures (C ABI).
+// Only `flash_init` takes `*mut FlashConfig`; all other calls use `*const FlashConfig`.
 type FnFlashInit = unsafe extern "C" fn(config: *mut FlashConfig) -> i32;
-type FnFlashEraseSector = unsafe extern "C" fn(config: *mut FlashConfig, start: u32, len: u32, key: u32) -> i32;
-type FnFlashProgramPhrase = unsafe extern "C" fn(config: *mut FlashConfig, start: u32, src: *const u8, len: u32) -> i32;
-type FnFlashProgramPage = unsafe extern "C" fn(config: *mut FlashConfig, start: u32, src: *const u8, len: u32) -> i32;
+type FnFlashEraseSector = unsafe extern "C" fn(config: *const FlashConfig, start: u32, len: u32, key: u32) -> i32;
+type FnFlashProgramPhrase =
+    unsafe extern "C" fn(config: *const FlashConfig, start: u32, src: *const u8, len: u32) -> i32;
+type FnFlashProgramPage = unsafe extern "C" fn(config: *const FlashConfig, start: u32, src: *const u8, len: u32) -> i32;
 type FnFlashVerifyProgram = unsafe extern "C" fn(
-    config: *mut FlashConfig,
+    config: *const FlashConfig,
     start: u32,
     len: u32,
     expected: *const u8,
     failed_addr: *mut u32,
     failed_data: *mut u32,
 ) -> i32;
-type FnFlashVerifyErasePhrase = unsafe extern "C" fn(config: *mut FlashConfig, start: u32, len: u32) -> i32;
-type FnFlashVerifyErasePage = unsafe extern "C" fn(config: *mut FlashConfig, start: u32, len: u32) -> i32;
-type FnFlashVerifyEraseSector = unsafe extern "C" fn(config: *mut FlashConfig, start: u32, len: u32) -> i32;
-type FnFlashGetProperty = unsafe extern "C" fn(config: *mut FlashConfig, property: u32, value: *mut u32) -> i32;
-type FnFlashRead = unsafe extern "C" fn(config: *mut FlashConfig, start: u32, dest: *mut u8, len: u32) -> i32;
+type FnFlashVerifyErasePhrase = unsafe extern "C" fn(config: *const FlashConfig, start: u32, len: u32) -> i32;
+type FnFlashVerifyErasePage = unsafe extern "C" fn(config: *const FlashConfig, start: u32, len: u32) -> i32;
+type FnFlashVerifyEraseSector = unsafe extern "C" fn(config: *const FlashConfig, start: u32, len: u32) -> i32;
+type FnFlashGetProperty = unsafe extern "C" fn(config: *const FlashConfig, property: u32, value: *mut u32) -> i32;
+type FnFlashRead = unsafe extern "C" fn(config: *const FlashConfig, start: u32, dest: *mut u8, len: u32) -> i32;
 
 /// ROM API flash driver interface vtable.
 ///
@@ -257,25 +239,20 @@ fn check_status(status: i32) -> Result<(), Error> {
 /// in SYSCON->NVM_CTRL, matching the C `speculation_buffer_clear()`.
 #[inline]
 fn speculation_buffer_clear() {
-    unsafe {
-        let nvm_ctrl = (SYSCON_BASE + NVM_CTRL_OFFSET) as *mut u32;
-        let val = core::ptr::read_volatile(nvm_ctrl);
+    let nvm = pac::SYSCON.nvm_ctrl();
+    let val = nvm.read();
 
-        // Only proceed if MBECC error reporting is enabled for both inst and data
-        if (val & NVM_CTRL_DIS_MBECC_ERR_INST) == 0 && (val & NVM_CTRL_DIS_MBECC_ERR_DATA) == 0 {
-            // Toggle flash speculation disable
-            if (val & NVM_CTRL_DIS_FLASH_SPEC) == 0 {
-                core::ptr::write_volatile(nvm_ctrl, val | NVM_CTRL_DIS_FLASH_SPEC);
-                let v2 = core::ptr::read_volatile(nvm_ctrl);
-                core::ptr::write_volatile(nvm_ctrl, v2 & !NVM_CTRL_DIS_FLASH_SPEC);
-            }
-            // Toggle data speculation disable
-            let val = core::ptr::read_volatile(nvm_ctrl);
-            if (val & NVM_CTRL_DIS_DATA_SPEC) == 0 {
-                core::ptr::write_volatile(nvm_ctrl, val | NVM_CTRL_DIS_DATA_SPEC);
-                let v2 = core::ptr::read_volatile(nvm_ctrl);
-                core::ptr::write_volatile(nvm_ctrl, v2 & !NVM_CTRL_DIS_DATA_SPEC);
-            }
+    // Only proceed if MBECC error reporting is enabled for both inst and data
+    if val.dis_mbecc_err_inst() == DisMbeccErrInst::ENABLE && val.dis_mbecc_err_data() == DisMbeccErrData::ENABLE {
+        // Toggle flash speculation disable
+        if val.dis_flash_spec() == DisFlashSpec::ENABLE {
+            nvm.modify(|w| w.set_dis_flash_spec(DisFlashSpec::DISABLE));
+            nvm.modify(|w| w.set_dis_flash_spec(DisFlashSpec::ENABLE));
+        }
+        // Toggle data speculation disable
+        if nvm.read().dis_data_spec() == DisDataSpec::ENABLE {
+            nvm.modify(|w| w.set_dis_data_spec(DisDataSpec::DISABLE));
+            nvm.modify(|w| w.set_dis_data_spec(DisDataSpec::ENABLE));
         }
     }
 }
@@ -284,12 +261,9 @@ fn speculation_buffer_clear() {
 /// matching the C `lpcac_clear()`.
 #[inline]
 fn lpcac_clear() {
-    unsafe {
-        let lpcac_ctrl = (SYSCON_BASE + LPCAC_CTRL_OFFSET) as *mut u32;
-        let val = core::ptr::read_volatile(lpcac_ctrl);
-        if (val & LPCAC_CTRL_DIS_LPCAC) == 0 {
-            core::ptr::write_volatile(lpcac_ctrl, val | LPCAC_CTRL_CLR_LPCAC);
-        }
+    let lpcac = pac::SYSCON.lpcac_ctrl();
+    if lpcac.read().dis_lpcac() == DisLpcac::ENABLE {
+        lpcac.modify(|w| w.set_clr_lpcac(ClrLpcac::DISABLE));
     }
 }
 
@@ -319,7 +293,7 @@ impl Flash {
     /// This calls the ROM API `flash_init` to populate the internal flash
     /// configuration. Returns an error if the ROM API reports failure.
     pub fn new() -> Result<Self, Error> {
-        let mut config = unsafe { core::mem::zeroed::<FlashConfig>() };
+        let mut config = FlashConfig::default();
         let status = unsafe { (flash_api().flash_init)(&mut config) };
         check_status(status)?;
         Ok(Self { config })
@@ -333,7 +307,7 @@ impl Flash {
     /// Runs inside a critical section and clears caches afterwards.
     pub fn blocking_erase(&mut self, address: u32, len: u32) -> Result<(), Error> {
         let status = cortex_m::interrupt::free(|_| unsafe {
-            (flash_api().flash_erase_sector)(&mut self.config, address, len, FLASH_ERASE_KEY)
+            (flash_api().flash_erase_sector)(&self.config, address, len, FLASH_ERASE_KEY)
         });
         clear_caches();
         check_status(status)
@@ -347,7 +321,7 @@ impl Flash {
     /// Runs inside a critical section and clears caches afterwards.
     pub fn blocking_program_phrase(&mut self, address: u32, data: &[u8]) -> Result<(), Error> {
         let status = cortex_m::interrupt::free(|_| unsafe {
-            (flash_api().flash_program_phrase)(&mut self.config, address, data.as_ptr(), data.len() as u32)
+            (flash_api().flash_program_phrase)(&self.config, address, data.as_ptr(), data.len() as u32)
         });
         clear_caches();
         check_status(status)
@@ -361,7 +335,7 @@ impl Flash {
     /// Runs inside a critical section and clears caches afterwards.
     pub fn blocking_program(&mut self, address: u32, data: &[u8]) -> Result<(), Error> {
         let status = cortex_m::interrupt::free(|_| unsafe {
-            (flash_api().flash_program_page)(&mut self.config, address, data.as_ptr(), data.len() as u32)
+            (flash_api().flash_program_page)(&self.config, address, data.as_ptr(), data.len() as u32)
         });
         clear_caches();
         check_status(status)
@@ -375,7 +349,7 @@ impl Flash {
         let mut failed_data: u32 = 0;
         let status = unsafe {
             (flash_api().flash_verify_program)(
-                &mut self.config,
+                &self.config,
                 address,
                 expected.len() as u32,
                 expected.as_ptr(),
@@ -388,7 +362,7 @@ impl Flash {
 
     /// Verify that the sector(s) starting at `address` are erased.
     pub fn verify_erase_sector(&mut self, address: u32, len: u32) -> Result<(), Error> {
-        let status = unsafe { (flash_api().flash_verify_erase_sector)(&mut self.config, address, len) };
+        let status = unsafe { (flash_api().flash_verify_erase_sector)(&self.config, address, len) };
         check_status(status)
     }
 
@@ -397,8 +371,7 @@ impl Flash {
     /// - `address`: absolute start address.
     /// - `dest`: destination buffer.
     pub fn blocking_read_rom(&mut self, address: u32, dest: &mut [u8]) -> Result<(), Error> {
-        let status =
-            unsafe { (flash_api().flash_read)(&mut self.config, address, dest.as_mut_ptr(), dest.len() as u32) };
+        let status = unsafe { (flash_api().flash_read)(&self.config, address, dest.as_mut_ptr(), dest.len() as u32) };
         check_status(status)
     }
 
@@ -423,7 +396,7 @@ impl Flash {
     /// Get a ROM API flash property value.
     pub fn get_property(&mut self, property: FlashProperty) -> Result<u32, Error> {
         let mut value: u32 = 0;
-        let status = unsafe { (flash_api().flash_get_property)(&mut self.config, property as u32, &mut value) };
+        let status = unsafe { (flash_api().flash_get_property)(&self.config, property as u32, &mut value) };
         check_status(status)?;
         Ok(value)
     }
