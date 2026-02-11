@@ -69,7 +69,7 @@ impl<'d> Channel<'d> {
     }
 
     /// Get the channel register block.
-    fn regs(&self) -> pac::dma::Channel {
+    pub fn regs(&self) -> pac::dma::Channel {
         pac::DMA.ch(self.number as _)
     }
 
@@ -250,7 +250,7 @@ pub struct Transfer<'a> {
 }
 
 impl<'a> Transfer<'a> {
-    fn new(channel: Channel<'a>) -> Self {
+    pub fn new(channel: Channel<'a>) -> Self {
         Self { channel }
     }
 }
