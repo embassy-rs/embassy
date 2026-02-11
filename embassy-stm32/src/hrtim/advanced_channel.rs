@@ -2,7 +2,7 @@
 
 #[cfg(hrtim_v2)]
 use super::ChF;
-use super::{ChA, ChB, ChC, ChD, ChE, Instance, Prescaler};
+use super::{Master, ChA, ChB, ChC, ChD, ChE, Instance, Prescaler};
 use crate::time::Hertz;
 
 trait SealedAdvancedChannel<T: Instance> {
@@ -75,6 +75,41 @@ pub trait AdvancedChannel<T: Instance>: SealedAdvancedChannel<T> {
         });
     }
 }
+
+trait SealedAdvancedChannelMaster<T: Instance> {}
+impl<T: Instance> SealedAdvancedChannelMaster<T> for Master<T> {}
+
+/// Master channel instance trait.
+#[allow(private_bounds)]
+pub trait AdvancedChannelMaster<T: Instance>: SealedAdvancedChannelMaster<T> {
+    /// Set master frequency
+    fn set_master_frequency(&mut self, frequency: Hertz) {
+        let f = frequency.0;
+
+        // TODO: wire up HRTIM to the RCC mux infra.
+        //#[cfg(stm32f334)]
+        //let timer_f = unsafe { crate::rcc::get_freqs() }.hrtim.unwrap_or(T::frequency()).0;
+        //#[cfg(not(stm32f334))]
+        let timer_f = T::frequency().0;
+
+        let psc_min = (timer_f / f) / (u16::MAX as u32 / 32);
+        let psc = if T::regs().isr().read().dllrdy() {
+            Prescaler::compute_min_high_res(psc_min)
+        } else {
+            Prescaler::compute_min_low_res(psc_min)
+        };
+
+        let timer_f = 32 * (timer_f as u64 / psc as u64);
+        let per: u16 = (timer_f / f as u64) as u16;
+
+        let regs = T::regs();
+
+        regs.mcr().modify(|w| w.set_ckpsc(psc.into()));
+        regs.mper().modify(|w| w.set_mper(per));
+    }
+}
+
+impl<T: Instance> AdvancedChannelMaster<T> for Master<T> {}
 
 macro_rules! advanced_channel_impl {
     ($new_chx:ident, $channel:tt, $ch_num:expr, $pin_trait:ident, $complementary_pin_trait:ident) => {

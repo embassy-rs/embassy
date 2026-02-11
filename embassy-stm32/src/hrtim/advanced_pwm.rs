@@ -85,32 +85,6 @@ impl<'d, T: Instance> AdvancedPwm<'d, T> {
             ch_f: ChF { phantom: PhantomData },
         }
     }
-
-    /// Set master frequency
-    pub fn set_master_frequency(&mut self, frequency: Hertz) {
-        let f = frequency.0;
-
-        // TODO: wire up HRTIM to the RCC mux infra.
-        //#[cfg(stm32f334)]
-        //let timer_f = unsafe { crate::rcc::get_freqs() }.hrtim.unwrap_or(T::frequency()).0;
-        //#[cfg(not(stm32f334))]
-        let timer_f = T::frequency().0;
-
-        let psc_min = (timer_f / f) / (u16::MAX as u32 / 32);
-        let psc = if T::regs().isr().read().dllrdy() {
-            Prescaler::compute_min_high_res(psc_min)
-        } else {
-            Prescaler::compute_min_low_res(psc_min)
-        };
-
-        let timer_f = 32 * (timer_f as u64 / psc as u64);
-        let per: u16 = (timer_f / f as u64) as u16;
-
-        let regs = T::regs();
-
-        regs.mcr().modify(|w| w.set_ckpsc(psc.into()));
-        regs.mper().modify(|w| w.set_mper(per));
-    }
 }
 
 /// HRTIM PWM pin.
