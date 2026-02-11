@@ -69,6 +69,13 @@ impl<'d> Channel<'d> {
     }
 
     /// Get the channel register block.
+    #[cfg(feature = "unstable-pac")]
+    pub fn regs(&self) -> pac::dma::Channel {
+        pac::DMA.ch(self.number as _)
+    }
+
+    /// Get the channel register block.
+    #[cfg(not(feature = "unstable-pac"))]
     fn regs(&self) -> pac::dma::Channel {
         pac::DMA.ch(self.number as _)
     }
