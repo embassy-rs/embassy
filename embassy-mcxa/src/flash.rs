@@ -30,7 +30,7 @@
 //! // Erase a sector at offset 0xFE000 (near the end of 1 MB flash)
 //! flash.erase(0xFE000, 0x10_0000).unwrap();
 //!
-//! // Program 128 bytes at that offset
+//! // Program 128 bytes at that offset (must be a multiple of 16-byte phrase size)
 //! let data = [0xABu8; 128];
 //! flash.write(0xFE000, &data).unwrap();
 //!
@@ -339,6 +339,20 @@ impl Flash {
         check_status(status)
     }
 
+    /// Program a phrase (16 bytes) of data at the given absolute address.
+    ///
+    /// - `address`: absolute start address (must be phrase-aligned).
+    /// - `data`: source buffer whose length must be a multiple of `PHRASE_SIZE`.
+    ///
+    /// Runs inside a critical section and clears caches afterwards.
+    pub fn blocking_program_phrase(&mut self, address: u32, data: &[u8]) -> Result<(), Error> {
+        let status = cortex_m::interrupt::free(|_| unsafe {
+            (flash_api().flash_program_phrase)(&mut self.config, address, data.as_ptr(), data.len() as u32)
+        });
+        clear_caches();
+        check_status(status)
+    }
+
     /// Program a page of data at the given absolute address.
     ///
     /// - `address`: absolute start address (must be page-aligned).
@@ -436,7 +450,7 @@ impl ReadNorFlash for Flash {
 }
 
 impl NorFlash for Flash {
-    const WRITE_SIZE: usize = PAGE_SIZE;
+    const WRITE_SIZE: usize = PHRASE_SIZE;
     const ERASE_SIZE: usize = SECTOR_SIZE;
 
     fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
@@ -462,10 +476,10 @@ impl NorFlash for Flash {
             return Err(Error::Unaligned);
         }
 
-        // Program one page at a time
-        for (i, chunk) in bytes.chunks(PAGE_SIZE).enumerate() {
-            let addr = FLASH_BASE + offset + (i * PAGE_SIZE) as u32;
-            self.blocking_program(addr, chunk)?;
+        // Program one phrase at a time (16 bytes — the smallest write unit)
+        for (i, chunk) in bytes.chunks(PHRASE_SIZE).enumerate() {
+            let addr = FLASH_BASE + offset + (i * PHRASE_SIZE) as u32;
+            self.blocking_program_phrase(addr, chunk)?;
         }
         Ok(())
     }
