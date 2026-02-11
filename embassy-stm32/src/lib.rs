@@ -335,6 +335,10 @@ pub struct Config {
     /// Defaults to false (disabled).
     #[cfg(peri_ucpd2)]
     pub enable_ucpd2_dead_battery: bool,
+
+    /// Allows JTAG pins to be used for GPIO
+    #[cfg(stm32f1)]
+    pub swj: gpio::SwjCfg,
 }
 
 impl Default for Config {
@@ -363,6 +367,8 @@ impl Default for Config {
             enable_ucpd1_dead_battery: false,
             #[cfg(peri_ucpd2)]
             enable_ucpd2_dead_battery: false,
+            #[cfg(stm32f1)]
+            swj: Default::default(),
         }
     }
 }
@@ -689,6 +695,10 @@ fn init_hw(config: Config) -> Peripherals {
             });
 
             gpio::init(cs);
+
+            #[cfg(stm32f1)]
+            crate::pac::AFIO.mapr().modify(|w| w.set_swj_cfg(config.swj.into()));
+
             dma::init(
                 cs,
                 #[cfg(bdma)]

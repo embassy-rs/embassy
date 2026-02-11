@@ -937,6 +937,47 @@ pub(crate) unsafe fn init(_cs: CriticalSection) {
     crate::_generated::init_gpio();
 }
 
+#[cfg(stm32f1)]
+/// SWJ Config
+#[derive(Clone, Copy, Debug, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum SwjCfg {
+    /// Full SWJ (JTAG-DP + SW-DP) (Reset state)
+    ///
+    /// PA13, PA14, PA15, PB3, and PB4 cannot be used
+    #[default]
+    SwdAndJtag = 0x0,
+    /// Full SWJ (JTAG-DP + SW-DP) but without NJTRST
+    ///
+    /// PA13, PA14, PA15, and PB3 cannot be used
+    ///
+    /// PB4 can be used
+    SwdAndJtagNoRst = 0x01,
+    /// JTAG-DP Disabled and SW-DP Enabled
+    ///
+    /// PA13 and  PA14 cannot be used
+    ///
+    /// PA15, PB3, and PB4 can be used
+    SwdOnly = 0x02,
+    /// JTAG-DP Disabled and SW-DP Disabled
+    ///
+    /// PA13, PA14, PA15, PB3, and PB4 can be used
+    Disabled = 0x04,
+}
+
+#[cfg(stm32f1)]
+impl From<SwjCfg> for crate::pac::afio::vals::SwjCfg {
+    #[inline(always)]
+    fn from(value: SwjCfg) -> Self {
+        match value {
+            SwjCfg::SwdAndJtag => crate::pac::afio::vals::SwjCfg::RESET,
+            SwjCfg::SwdAndJtagNoRst => crate::pac::afio::vals::SwjCfg::NO_JNT_RST,
+            SwjCfg::SwdOnly => crate::pac::afio::vals::SwjCfg::JTAG_DISABLE,
+            SwjCfg::Disabled => crate::pac::afio::vals::SwjCfg::DISABLE,
+        }
+    }
+}
+
 impl<'d> embedded_hal_02::digital::v2::InputPin for Input<'d> {
     type Error = Infallible;
 
