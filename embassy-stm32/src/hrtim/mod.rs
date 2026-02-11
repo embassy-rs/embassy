@@ -7,12 +7,14 @@ use embassy_hal_internal::PeripheralType;
 mod advanced_channel;
 mod advanced_pwm;
 mod bridge_converter;
+mod fullbridge;
 pub mod low_level;
 mod resonant_converter;
 
 pub use advanced_channel::AdvancedChannel;
 pub use advanced_pwm::{AdvancedPwm, ComplementaryPwmPin, PwmPin};
 pub use bridge_converter::BridgeConverter;
+pub use fullbridge::FullBridgeConverter;
 pub use resonant_converter::ResonantConverter;
 
 use crate::rcc::RccPeripheral;
