@@ -72,6 +72,9 @@ impl<'d, T: Instance> AdvancedPwm<'d, T> {
             tim.calibrate();
         }
 
+        #[cfg(not(stm32f334))]
+        tim.calibrate();
+
         Self {
             _inner: tim,
             master: Master { phantom: PhantomData },
