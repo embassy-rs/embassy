@@ -1,5 +1,6 @@
 {
   pkgs,
+  config,
   ...
 }:
 {
@@ -34,5 +35,17 @@
       "armv7r-none-eabi"
       "armv7r-none-eabihf"
     ];
+  };
+
+  treefmt = {
+    enable = true;
+    config.programs = {
+      nixfmt.enable = true;
+      rustfmt = {
+        enable = true;
+        package = config.languages.rust.toolchain.rustfmt;
+        edition = "2024";
+      };
+    };
   };
 }
