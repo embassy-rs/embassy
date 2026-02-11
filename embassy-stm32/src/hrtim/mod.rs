@@ -14,7 +14,7 @@ use stm32_hrtim::control::{HrPwmControl, HrTimOngoingCalibration};
 use stm32_hrtim::output::{Output1Pin, Output2Pin};
 #[cfg(hrtim_v2)]
 use stm32_hrtim::pac::HRTIM_TIMF;
-use stm32_hrtim::pac::{HRTIM_TIMA, HRTIM_TIMB, HRTIM_TIMC, HRTIM_TIMD, HRTIM_TIME};
+use stm32_hrtim::pac::{HRTIM_MASTER, HRTIM_TIMA, HRTIM_TIMB, HRTIM_TIMC, HRTIM_TIMD, HRTIM_TIME};
 pub use stm32_hrtim::{self, Pscl1, Pscl2, Pscl4, Pscl8, Pscl16, Pscl32, Pscl64, Pscl128, PsclDefault};
 use stm32_hrtim::{HrParts, HrPwmBuilder};
 use traits::Instance;
@@ -29,6 +29,9 @@ pub struct Parts {
     ///
     /// This needs to be initialized and calibrated by calling [HrTimOngoingCalibration::wait_for_calibration]
     pub control: HrTimOngoingCalibration,
+
+    /// Uninitialized MASTER, call [HRTIM_MASTER::pwm_advanced] to set it up
+    pub master: HRTIM_MASTER,
 
     /// Uninitialized TIMA, call [HRTIM_TIMA::pwm_advanced] to set it up
     pub tima: HRTIM_TIMA,
@@ -68,6 +71,7 @@ impl<T: super::hrtim::Instance> HrControltExt for T {
         unsafe {
             Parts {
                 control: HrTimOngoingCalibration::hr_control(),
+                master: HRTIM_MASTER::steal(),
                 tima: HRTIM_TIMA::steal(),
                 timb: HRTIM_TIMB::steal(),
                 timc: HRTIM_TIMC::steal(),
