@@ -1375,17 +1375,16 @@ impl DmaChannel<'_> {
     /// ```ignore
     /// use embassy_mcxa::dma::{DmaChannel, Lpuart2RxRequest};
     ///
-    /// // Type-safe: compiler verifies this is a valid DMA request type
     /// unsafe {
-    ///     channel.set_request_source::<Lpuart2RxRequest>();
+    ///     channel.set_request_source(Lpuart2RxRequest::REQUEST_NUMBER);
     /// }
     /// ```
     #[inline]
-    pub unsafe fn set_request_source<R: DmaRequest>(&self) {
+    pub unsafe fn set_request_source(&self, source: u8) {
         // Two-step write per NXP SDK: clear to 0, then set actual source.
         self.tcd().ch_mux().write(|w| w.set_src(0));
         cortex_m::asm::dsb(); // Ensure the clear completes before setting new source
-        self.tcd().ch_mux().write(|w| w.set_src(R::REQUEST_NUMBER));
+        self.tcd().ch_mux().write(|w| w.set_src(source));
     }
 
     /// Enable hardware requests for this channel (ERQ=1).
