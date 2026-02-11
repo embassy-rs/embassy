@@ -946,23 +946,23 @@ pub enum SwjCfg {
     ///
     /// PA13, PA14, PA15, PB3, and PB4 cannot be used
     #[default]
-    Reset = 0x0,
+    SwdAndJtag = 0x0,
     /// Full SWJ (JTAG-DP + SW-DP) but without NJTRST
     ///
     /// PA13, PA14, PA15, and PB3 cannot be used
     ///
     /// PB4 can be used
-    NoJntRst = 0x01,
+    SwdAndJtagNoRst = 0x01,
     /// JTAG-DP Disabled and SW-DP Enabled
     ///
     /// PA13 and  PA14 cannot be used
     ///
     /// PA15, PB3, and PB4 can be used
-    JtagDisable = 0x02,
+    SwdOnly = 0x02,
     /// JTAG-DP Disabled and SW-DP Disabled
     ///
     /// PA13, PA14, PA15, PB3, and PB4 can be used
-    Disable = 0x04,
+    Disabled = 0x04,
 }
 
 #[cfg(stm32f1)]
@@ -970,10 +970,10 @@ impl From<SwjCfg> for crate::pac::afio::vals::SwjCfg {
     #[inline(always)]
     fn from(value: SwjCfg) -> Self {
         match value {
-            SwjCfg::Reset => crate::pac::afio::vals::SwjCfg::RESET,
-            SwjCfg::NoJntRst => crate::pac::afio::vals::SwjCfg::NO_JNT_RST,
-            SwjCfg::JtagDisable => crate::pac::afio::vals::SwjCfg::JTAG_DISABLE,
-            SwjCfg::Disable => crate::pac::afio::vals::SwjCfg::DISABLE,
+            SwjCfg::SwdAndJtag => crate::pac::afio::vals::SwjCfg::RESET,
+            SwjCfg::SwdAndJtagNoRst => crate::pac::afio::vals::SwjCfg::NO_JNT_RST,
+            SwjCfg::SwdOnly => crate::pac::afio::vals::SwjCfg::JTAG_DISABLE,
+            SwjCfg::Disabled => crate::pac::afio::vals::SwjCfg::DISABLE,
         }
     }
 }
