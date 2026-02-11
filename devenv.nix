@@ -1,6 +1,11 @@
-{ ... }:
 {
-  packages = [  ];
+  pkgs,
+  ...
+}:
+{
+  packages = [
+    pkgs.flip-link
+  ];
 
   languages.rust = {
     enable = true;
