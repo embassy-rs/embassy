@@ -11,7 +11,6 @@
 
 #![no_std]
 #![no_main]
-#![cfg_attr(not(feature = "custom-executor"), allow(unused_imports))]
 
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::PoweredClock;
@@ -22,8 +21,11 @@ use embassy_time::Timer;
 use hal::gpio::{DriveStrength, Level, Output, SlewRate};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
-#[cfg(feature = "custom-executor")]
-#[embassy_executor::main(executor = "embassy_mcxa::executor::Executor", entry = "cortex_m_rt::entry")]
+#[cfg_attr(
+    feature = "custom-executor",
+    embassy_executor::main(executor = "embassy_mcxa::executor::Executor", entry = "cortex_m_rt::entry")
+)]
+#[cfg_attr(not(feature = "custom-executor"), embassy_executor::main)]
 async fn main(_spawner: Spawner) {
     // Do a short delay in order to allow for us to attach the debugger/start
     // a flash in case some setting below is wrong, and the CPU gets stuck
@@ -82,10 +84,4 @@ async fn main(_spawner: Spawner) {
         Timer::after_millis(100).await;
         red.set_high();
     }
-}
-
-#[cfg(not(feature = "custom-executor"))]
-#[embassy_executor::main]
-async fn main(_spawner: Spawner) {
-    defmt::panic!("This example requires the `custom-executor` feature!");
 }

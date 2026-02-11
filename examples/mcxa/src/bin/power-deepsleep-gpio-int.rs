@@ -21,6 +21,7 @@ use embassy_mcxa::clocks::config::{
     CoreSleep, Div8, FircConfig, FircFreqSel, FlashSleep, MainClockConfig, MainClockSource, VddDriveStrength, VddLevel,
 };
 use embassy_mcxa::clocks::{PoweredClock, WakeGuard};
+use embassy_mcxa::gpio::{Input, Pull};
 use embassy_time::{Duration, Instant, Timer};
 use hal::gpio::{DriveStrength, Level, Output, SlewRate};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
@@ -30,7 +31,7 @@ use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
     embassy_executor::main(executor = "embassy_mcxa::executor::Executor", entry = "cortex_m_rt::entry")
 )]
 #[cfg_attr(not(feature = "custom-executor"), embassy_executor::main)]
-async fn main(_spawner: Spawner) {
+async fn main(spawner: Spawner) {
     // Do a short delay in order to allow for us to attach the debugger/start
     // a flash in case some setting below is wrong, and the CPU gets stuck
     // in deep sleep with debugging disabled.
@@ -108,8 +109,16 @@ async fn main(_spawner: Spawner) {
     cortex_m::asm::delay(45_000_000 / 4);
 
     let mut red = Output::new(p.P3_18, Level::High, DriveStrength::Normal, SlewRate::Slow);
+
+    // Setup a second LED, and use the button labeled "WAKEUP" as an input source
+    let blue = Output::new(p.P3_21, Level::High, DriveStrength::Normal, SlewRate::Slow);
+    let btn = Input::new(p.P1_7, Pull::Up);
+    spawner.spawn(press_toggler(btn, blue).unwrap());
+
     loop {
-        Timer::after_millis(900).await;
+        // We sleep a little longer than usual, to make it easier to distinguish between
+        // timer wakeups and GPIO wakeups.
+        Timer::after_millis(4900).await;
 
         // For the 100ms the LED is low, we manually take a wakeguard to prevent the
         // system from returning to deep sleep, which drastically increases our power
@@ -127,5 +136,22 @@ async fn main(_spawner: Spawner) {
         red.set_high();
         // The WakeGuard is dropped here before returning to the top of the loop. When this
         // happens, we will enter deep sleep automatically on our next .await.
+    }
+}
+
+/// A task that toggles the given LED every time the button falls low. No fancy
+/// debouncing, but useful to look at with the scope and the custom executor
+/// debug pin (or a power analyzer) to measure the time delta between the
+/// WAKEUP pin going low and the executor resuming from deep sleep.
+///
+/// At the time of writing, it takes us roughly 20us from the GPIO falling to
+/// the assertion of the executor debug gpio pin. This button can be observed
+/// using the mikro-bus header pin labeled "RST".
+#[embassy_executor::task]
+async fn press_toggler(mut button: Input<'static>, mut led: Output<'static>) {
+    loop {
+        button.wait_for_low().await;
+        led.toggle();
+        button.wait_for_high().await;
     }
 }

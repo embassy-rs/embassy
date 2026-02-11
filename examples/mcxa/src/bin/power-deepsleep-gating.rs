@@ -14,7 +14,6 @@
 
 #![no_std]
 #![no_main]
-#![cfg_attr(not(feature = "custom-executor"), allow(unused_imports))]
 
 use embassy_executor::Spawner;
 use embassy_mcxa::clkout::{self, ClockOut, ClockOutSel, Div4};
@@ -27,8 +26,11 @@ use embassy_time::Timer;
 use hal::gpio::{DriveStrength, Level, Output, SlewRate};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
-#[cfg(feature = "custom-executor")]
-#[embassy_executor::main(executor = "embassy_mcxa::executor::Executor", entry = "cortex_m_rt::entry")]
+#[cfg_attr(
+    feature = "custom-executor",
+    embassy_executor::main(executor = "embassy_mcxa::executor::Executor", entry = "cortex_m_rt::entry")
+)]
+#[cfg_attr(not(feature = "custom-executor"), embassy_executor::main)]
 async fn main(_spawner: Spawner) {
     // Do a short delay in order to allow for us to attach the debugger/start
     // a flash in case some setting below is wrong, and the CPU gets stuck
@@ -97,6 +99,7 @@ async fn main(_spawner: Spawner) {
 
     let p = hal::init(cfg);
 
+    #[cfg(feature = "custom-executor")]
     embassy_mcxa::executor::set_executor_debug_gpio(p.P1_12);
 
     let mut pin = p.P4_2;
@@ -133,10 +136,4 @@ async fn main(_spawner: Spawner) {
         // The WakeGuard is dropped here before returning to the top of the loop. When this
         // happens, we will enter deep sleep automatically on our next .await.
     }
-}
-
-#[cfg(not(feature = "custom-executor"))]
-#[embassy_executor::main]
-async fn main(_spawner: Spawner) {
-    defmt::panic!("This example requires the `custom-executor` feature!");
 }
