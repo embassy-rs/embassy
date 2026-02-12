@@ -12,9 +12,8 @@ use aligned::{A4, Aligned};
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use sdio_host::Cmd;
-use sdio_host::common_cmd::{self, R1, R2, R3, Resp, ResponseLen, Rz};
-use sdio_host::sd::{BusWidth, CID, CSD, CardStatus, OCR, RCA};
-use sdio_host::sd_cmd::{R6, R7};
+use sdio_host::common_cmd::{self, R1, R2, Resp, ResponseLen, Rz};
+use sdio_host::sd::{BusWidth, CID, CSD, CardStatus};
 
 #[cfg(sdmmc_v1)]
 use crate::dma::ChannelAndRequest;
@@ -141,30 +140,6 @@ impl<E> From<CommandResponse<R2>> for CSD<E> {
     fn from(value: CommandResponse<R2>) -> Self {
         CSD::<E>::from(value.0)
     }
-}
-
-impl TypedResp for R3 {
-    type Word = u32;
-}
-
-impl<E> From<CommandResponse<R3>> for OCR<E> {
-    fn from(value: CommandResponse<R3>) -> Self {
-        OCR::<E>::from(value.0)
-    }
-}
-
-impl TypedResp for R6 {
-    type Word = u32;
-}
-
-impl<E> From<CommandResponse<R6>> for RCA<E> {
-    fn from(value: CommandResponse<R6>) -> Self {
-        RCA::<E>::from(value.0)
-    }
-}
-
-impl TypedResp for R7 {
-    type Word = u32;
 }
 
 /// Frequency used for SD Card initialization. Must be no higher than 400 kHz.
