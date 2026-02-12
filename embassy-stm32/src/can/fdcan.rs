@@ -641,19 +641,43 @@ impl RxMode {
     }
 
     fn on_interrupt<T: Instance>(&self, fifonr: usize, ns_per_timer_tick: u64) {
-        T::registers().regs.ir().write(|w| w.set_rfn(fifonr, true));
         match self {
             RxMode::NonBuffered(waker) => {
+                T::registers().regs.ir().write(|w| w.set_rfn(fifonr, true));
                 waker.wake();
             }
             RxMode::ClassicBuffered(buf) => {
-                if let Some(result) = self.try_read::<T>(ns_per_timer_tick) {
-                    let _ = buf.rx_sender.try_send(result);
+                T::registers().regs.ir().write(|w| w.set_rfn(fifonr, true));
+                loop {
+                    match self.try_read::<T>(ns_per_timer_tick) {
+                        Some(Ok(envelope)) => {
+                            let _ = buf.rx_sender.try_send(Ok(envelope));
+                        }
+                        Some(Err(err)) => {
+                            // bus error states can persist; emit once and return to avoid
+                            // spinning forever in interrupt context when no frames are available
+                            let _ = buf.rx_sender.try_send(Err(err));
+                            break;
+                        }
+                        None => break,
+                    }
                 }
             }
             RxMode::FdBuffered(buf) => {
-                if let Some(result) = self.try_read_fd::<T>(ns_per_timer_tick) {
-                    let _ = buf.rx_sender.try_send(result);
+                T::registers().regs.ir().write(|w| w.set_rfn(fifonr, true));
+                loop {
+                    match self.try_read_fd::<T>(ns_per_timer_tick) {
+                        Some(Ok(envelope)) => {
+                            let _ = buf.rx_sender.try_send(Ok(envelope));
+                        }
+                        Some(Err(err)) => {
+                            // bus error states can persist; emit once and return to avoid
+                            // spinning forever in interrupt context when no frames are available
+                            let _ = buf.rx_sender.try_send(Err(err));
+                            break;
+                        }
+                        None => break,
+                    }
                 }
             }
         }
