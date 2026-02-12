@@ -249,7 +249,7 @@ impl<'d> Flex<'d> {
 impl<'d> Drop for Flex<'d> {
     #[inline]
     fn drop(&mut self) {
-        trace!("Dropping pin {}", self.pin);
+        trace!("gpio: dropping {}", self.pin);
         critical_section::with(|_| {
             self.pin.set_as_disconnected();
         });
