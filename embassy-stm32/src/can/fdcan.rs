@@ -650,8 +650,14 @@ impl RxMode {
                 T::registers().regs.ir().write(|w| w.set_rfn(fifonr, true));
                 loop {
                     match self.try_read::<T>(ns_per_timer_tick) {
-                        Some(result) => {
-                            let _ = buf.rx_sender.try_send(result);
+                        Some(Ok(envelope)) => {
+                            let _ = buf.rx_sender.try_send(Ok(envelope));
+                        }
+                        Some(Err(err)) => {
+                            // bus error states can persist; emit once and return to avoid
+                            // spinning forever in interrupt context when no frames are available
+                            let _ = buf.rx_sender.try_send(Err(err));
+                            break;
                         }
                         None => break,
                     }
@@ -661,8 +667,14 @@ impl RxMode {
                 T::registers().regs.ir().write(|w| w.set_rfn(fifonr, true));
                 loop {
                     match self.try_read_fd::<T>(ns_per_timer_tick) {
-                        Some(result) => {
-                            let _ = buf.rx_sender.try_send(result);
+                        Some(Ok(envelope)) => {
+                            let _ = buf.rx_sender.try_send(Ok(envelope));
+                        }
+                        Some(Err(err)) => {
+                            // bus error states can persist; emit once and return to avoid
+                            // spinning forever in interrupt context when no frames are available
+                            let _ = buf.rx_sender.try_send(Err(err));
+                            break;
                         }
                         None => break,
                     }
