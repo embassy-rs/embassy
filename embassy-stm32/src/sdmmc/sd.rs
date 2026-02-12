@@ -101,7 +101,10 @@ impl DerefMut for CmdBlock {
 }
 
 /// Represents either an SD or EMMC card
-pub trait Addressable: Sized + Clone {
+pub trait Addressable: Sized + Clone
+where
+    CardStatus<Self::Ext>: From<u32>,
+{
     /// Associated type
     type Ext;
 
@@ -239,7 +242,7 @@ impl<'a, 'b> StorageDevice<'a, 'b, Card> {
     ///
     /// SD only.
     async fn switch_signalling_mode(
-        &mut self,
+        &self,
         cmd_block: &mut CmdBlock,
         signalling: Signalling,
     ) -> Result<Signalling, Error> {
@@ -294,8 +297,6 @@ impl<'a, 'b> StorageDevice<'a, 'b, Card> {
         self.sdmmc.cmd(common_cmd::app_cmd(self.info.rca), true, false)?;
 
         let scr = &mut cmd_block.0[..2];
-
-        // Arm `OnDrop` after the buffer, so it will be dropped first
 
         let transfer = self
             .sdmmc
@@ -500,10 +501,7 @@ impl<'a, 'b, A: Addressable> StorageDevice<'a, 'b, A> {
     }
 
     /// Write a data block.
-    pub async fn write_block(&mut self, block_idx: u32, buffer: &DataBlock) -> Result<(), Error>
-    where
-        CardStatus<A::Ext>: From<u32>,
-    {
+    pub async fn write_block(&mut self, block_idx: u32, buffer: &DataBlock) -> Result<(), Error> {
         let _scoped_wake_guard = self.sdmmc.info.rcc.wake_guard();
 
         // Always read 1 block of 512 bytes
@@ -544,10 +542,7 @@ impl<'a, 'b, A: Addressable> StorageDevice<'a, 'b, A> {
     }
 
     /// Write multiple data blocks.
-    pub async fn write_blocks(&mut self, block_idx: u32, blocks: &[DataBlock]) -> Result<(), Error>
-    where
-        CardStatus<A::Ext>: From<u32>,
-    {
+    pub async fn write_blocks(&mut self, block_idx: u32, blocks: &[DataBlock]) -> Result<(), Error> {
         let _scoped_wake_guard = self.sdmmc.info.rcc.wake_guard();
 
         // NOTE(unsafe) reinterpret buffer as &[u32]
