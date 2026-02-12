@@ -647,6 +647,7 @@ impl RxMode {
                 waker.wake();
             }
             RxMode::ClassicBuffered(buf) => {
+                T::registers().regs.ir().write(|w| w.set_rfn(fifonr, true));
                 loop {
                     match self.try_read::<T>(ns_per_timer_tick) {
                         Some(result) => {
@@ -655,9 +656,9 @@ impl RxMode {
                         None => break,
                     }
                 }
-                T::registers().regs.ir().write(|w| w.set_rfn(fifonr, true));
             }
             RxMode::FdBuffered(buf) => {
+                T::registers().regs.ir().write(|w| w.set_rfn(fifonr, true));
                 loop {
                     match self.try_read_fd::<T>(ns_per_timer_tick) {
                         Some(result) => {
@@ -666,7 +667,6 @@ impl RxMode {
                         None => break,
                     }
                 }
-                T::registers().regs.ir().write(|w| w.set_rfn(fifonr, true));
             }
         }
     }
