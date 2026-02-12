@@ -1,6 +1,6 @@
 use core::future::{Future, poll_fn};
 use core::pin::Pin;
-use core::sync::atomic::{AtomicUsize, Ordering, fence};
+use core::sync::atomic::{AtomicUsize, Ordering, compiler_fence, fence};
 use core::task::{Context, Poll, Waker};
 
 use embassy_sync::waitqueue::AtomicWaker;
@@ -922,10 +922,11 @@ impl<'d> Channel<'d> {
     }
 
     fn poll_stop(&self) -> Poll<()> {
-        use core::sync::atomic::compiler_fence;
         compiler_fence(Ordering::SeqCst);
 
         if !self.is_running() {
+            fence(Ordering::Acquire);
+
             Poll::Ready(())
         } else {
             Poll::Pending
@@ -1156,9 +1157,12 @@ impl<'a> Future for Transfer<'a> {
 
         state.waker.register(cx.waker());
 
+        compiler_fence(Ordering::SeqCst);
         if self.is_running() {
             Poll::Pending
         } else {
+            fence(Ordering::Acquire);
+
             Poll::Ready(())
         }
     }

@@ -5,10 +5,10 @@ use core::default::Default;
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::slice;
+use core::sync::atomic::{Ordering, fence};
 use core::task::Poll;
 
 use aligned::{A4, Aligned};
-use cortex_m::asm::dsb;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use sdio_host::Cmd;
@@ -807,9 +807,6 @@ impl<'d> Sdmmc<'d> {
 
         regs.dlenr().write(|w| w.set_datalength(size_of_val(buffer) as u32));
 
-        // Memory barrier before DMA setup to ensure any pending memory writes complete
-        dsb();
-
         // SAFETY: No other functions use the dma
         #[cfg(sdmmc_v1)]
         let transfer = unsafe {
@@ -846,7 +843,7 @@ impl<'d> Sdmmc<'d> {
         });
 
         // Memory barrier after DMA setup to ensure register writes complete before command
-        dsb();
+        fence(Ordering::SeqCst);
 
         self.enable_interrupts();
 
@@ -869,9 +866,6 @@ impl<'d> Sdmmc<'d> {
         self.clear_interrupt_flags();
 
         regs.dlenr().write(|w| w.set_datalength(size_of_val(buffer) as u32));
-
-        // Memory barrier before DMA setup to ensure buffer data is visible to DMA
-        dsb();
 
         // SAFETY: No other functions use the dma
         #[cfg(sdmmc_v1)]
@@ -909,7 +903,7 @@ impl<'d> Sdmmc<'d> {
         });
 
         // Memory barrier after DMA setup to ensure register writes complete before command
-        dsb();
+        fence(Ordering::SeqCst);
 
         self.enable_interrupts();
 
@@ -1167,7 +1161,7 @@ impl<'d> Sdmmc<'d> {
         .await;
 
         // Memory barrier after DMA completion to ensure CPU sees DMA-written data
-        dsb();
+        fence(Ordering::Acquire);
 
         self.clear_interrupt_flags();
         self.stop_datapath();

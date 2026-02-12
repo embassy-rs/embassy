@@ -2,7 +2,7 @@
 
 use core::future::Future;
 use core::pin::Pin;
-use core::sync::atomic::{AtomicUsize, Ordering, fence};
+use core::sync::atomic::{AtomicUsize, Ordering, compiler_fence, fence};
 use core::task::{Context, Poll};
 
 use embassy_sync::waitqueue::AtomicWaker;
@@ -425,10 +425,11 @@ impl<'d> Channel<'d> {
     }
 
     fn poll_stop(&self) -> Poll<()> {
-        use core::sync::atomic::compiler_fence;
         compiler_fence(Ordering::SeqCst);
 
         if !self.is_running() {
+            fence(Ordering::Acquire);
+
             Poll::Ready(())
         } else {
             Poll::Pending
@@ -636,6 +637,8 @@ impl<'a, const ITEM_COUNT: usize> Future for LinkedListTransfer<'a, ITEM_COUNT> 
         if self.is_running() {
             Poll::Pending
         } else {
+            fence(Ordering::Acquire);
+
             Poll::Ready(())
         }
     }
@@ -716,9 +719,12 @@ impl<'a> Future for Transfer<'a> {
         let state = &STATE[self.channel.id as usize];
         state.waker.register(cx.waker());
 
+        compiler_fence(Ordering::SeqCst);
         if self.is_running() {
             Poll::Pending
         } else {
+            fence(Ordering::Acquire);
+
             Poll::Ready(())
         }
     }
