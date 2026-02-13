@@ -148,7 +148,7 @@ impl Default for ClockConfig {
 }
 
 /// I2C target events
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Request {
@@ -392,8 +392,9 @@ impl<'d, M: Mode> I2c<'d, M> {
             let avr = ssr.avf();
             let sarf = ssr.sarf();
             let gcf = ssr.gcf();
+            let sdf = ssr.sdf();
 
-            if avr || sarf || gcf {
+            if avr || sarf || gcf || sdf {
                 break;
             }
         }
@@ -549,9 +550,8 @@ impl<'d> I2c<'d, Async> {
             .wait_cell()
             .wait_for(|| {
                 self.enable_ints();
-                self.info.regs().ssr().read().avf()
-                    || self.info.regs().ssr().read().sarf()
-                    || self.info.regs().ssr().read().gcf()
+                let status = self.info.regs().ssr().read();
+                status.avf() || status.sarf() || status.gcf() || status.sdf()
             })
             .await
             .map_err(|_| IOError::Other)?;

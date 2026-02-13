@@ -630,16 +630,25 @@ impl<'d> I2c<'d, Async> {
         for byte in write {
             self.info
                 .wait_cell()
-                .wait_for(|| {
+                .wait_for_value(|| {
                     // enable interrupts
                     self.enable_tx_ints();
                     // initiate transmit
                     self.send_cmd(Cmd::TRANSMIT, *byte);
+                    // make sure we're ok to continue
+                    if let Err(e) = self.status() {
+                        return Some(Err(e));
+                    }
                     // if the tx FIFO is empty, we're done transmiting
-                    self.is_tx_fifo_empty()
+                    if self.is_tx_fifo_empty() {
+                        return Some(Ok(()));
+                    }
+
+                    None
                 })
                 .await
-                .map_err(|_| IOError::WriteFail)?;
+                .map_err(|_| IOError::WriteFail)
+                .flatten()?;
         }
 
         if send_stop == SendStop::Yes {
