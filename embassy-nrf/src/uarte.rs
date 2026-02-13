@@ -265,6 +265,11 @@ impl<'d> Uarte<'d> {
         self.rx.read(buffer).await
     }
 
+    /// Flush the RX FIFO to RAM without activating the receiver.
+    pub async fn flush_rx(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+        self.rx.flush_rx(buffer).await
+    }
+
     /// Write all bytes in the buffer.
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         self.tx.write(buffer).await
@@ -278,6 +283,11 @@ impl<'d> Uarte<'d> {
     /// Read bytes until the buffer is filled.
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         self.rx.blocking_read(buffer)
+    }
+
+    /// Flush the RX FIFO to RAM without activating the receiver.
+    pub fn blocking_flush_rx(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+        self.rx.blocking_flush_rx(buffer)
     }
 
     /// Write all bytes in the buffer.
@@ -740,6 +750,65 @@ impl<'d> UarteRx<'d> {
         result
     }
 
+    /// Flush the RX FIFO to RAM without activating the receiver.
+    pub async fn flush_rx(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        if buffer.len() > EASY_DMA_SIZE {
+            return Err(Error::BufferTooLong);
+        }
+
+        let ptr = buffer.as_ptr();
+        let len = buffer.len();
+
+        let r = self.r;
+        let s = self.state;
+
+        let drop = OnDrop::new(move || {
+            trace!("flush_rx drop: stopping");
+
+            r.intenclr().write(|w| {
+                w.set_dmarxend(true);
+            });
+            r.tasks_dma().rx().stop().write_value(1);
+
+            while r.events_dma().rx().end().read() == 0 {}
+
+            trace!("flush_rx drop: stopped");
+        });
+
+        r.dma().rx().ptr().write_value(ptr as u32);
+        r.dma().rx().maxcnt().write(|w| w.set_maxcnt(len as _));
+
+        r.events_dma().rx().end().write_value(0);
+        r.intenset().write(|w| {
+            w.set_dmarxend(true);
+        });
+
+        compiler_fence(Ordering::SeqCst);
+
+        trace!("flush_rx");
+        r.tasks_dma().rx().flush().write_value(1);
+
+        poll_fn(|cx| {
+            s.rx_waker.register(cx.waker());
+
+            if r.events_dma().rx().end().read() != 0 {
+                return Poll::Ready(());
+            }
+            Poll::Pending
+        })
+        .await;
+
+        compiler_fence(Ordering::SeqCst);
+        r.events_dma().rx().ready().write_value(0);
+        let amount = r.dma().rx().amount().read().amount();
+        drop.defuse();
+
+        Ok(amount as usize)
+    }
+
     /// Read bytes until the buffer is filled.
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         if buffer.is_empty() {
@@ -775,6 +844,42 @@ impl<'d> UarteRx<'d> {
         r.events_dma().rx().ready().write_value(0);
 
         self.check_and_clear_errors()
+    }
+
+    /// Flush the RX FIFO to RAM without activating the receiver.
+    pub fn blocking_flush_rx(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        if buffer.len() > EASY_DMA_SIZE {
+            return Err(Error::BufferTooLong);
+        }
+
+        let ptr = buffer.as_ptr();
+        let len = buffer.len();
+
+        let r = self.r;
+
+        r.dma().rx().ptr().write_value(ptr as u32);
+        r.dma().rx().maxcnt().write(|w| w.set_maxcnt(len as _));
+
+        r.events_dma().rx().end().write_value(0);
+        r.intenclr().write(|w| {
+            w.set_dmarxend(true);
+        });
+
+        compiler_fence(Ordering::SeqCst);
+
+        trace!("flush_rx");
+        r.tasks_dma().rx().flush().write_value(1);
+
+        while r.events_dma().rx().end().read() == 0 {}
+
+        compiler_fence(Ordering::SeqCst);
+        r.events_dma().rx().ready().write_value(0);
+
+        let amount = r.dma().rx().amount().read().amount();
+        Ok(amount as usize)
     }
 }
 
@@ -815,10 +920,20 @@ impl<'d> UarteRxWithIdle<'d> {
         self.rx.read(buffer).await
     }
 
+    /// Flush the RX FIFO to RAM without activating the receiver.
+    pub async fn flush_rx(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+        self.rx.flush_rx(buffer).await
+    }
+
     /// Read bytes until the buffer is filled.
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         self.ppi_ch1.disable();
         self.rx.blocking_read(buffer)
+    }
+
+    /// Flush the RX FIFO to RAM without activating the receiver.
+    pub fn blocking_flush_rx(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+        self.rx.blocking_flush_rx(buffer)
     }
 
     /// Read bytes until the buffer is filled, or the line becomes idle.
