@@ -15,6 +15,8 @@ use crate::{Peri, peripherals};
 mod tsel;
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+#[cfg(stm32g4)]
+pub use tsel::StepTriggerSel;
 pub use tsel::TriggerSel;
 
 /// Operating mode for DAC channel
@@ -335,6 +337,27 @@ impl<'d, M: PeriMode> DacChannel<'d, M> {
         });
     }
 
+    /// Set the sawtooth mode this channel.
+    ///
+    /// See [Self::set_sawtooth_reset_value], [Self::set_sawtooth_step_value] and [Self::set_sawtooth_step_direction]
+    /// for setting the reset value, step size and -direction.
+    ///
+    /// This method disables the channel, so you may need to re-enable afterwards.
+    #[cfg(stm32g4)]
+    pub fn set_sawtooth_mode(&mut self, reset_source: TriggerSel, step_source: StepTriggerSel) {
+        critical_section::with(|_| {
+            T::regs().cr().modify(|reg| {
+                reg.set_en(C::IDX, false);
+                reg.set_wave(C::IDX, dac::vals::Wave::SAWTOOTH);
+            });
+
+            T::regs().stmodr().modify(|reg| {
+                reg.set_strsttrigsel(C::IDX, reset_source as u8);
+                reg.set_stinctrigsel(C::IDX, step_source as u8);
+            });
+        });
+    }
+
     /// Enable or disable triggering for this channel.
     pub fn set_triggering(&mut self, on: bool) {
         critical_section::with(|_| {
@@ -381,6 +404,36 @@ impl<'d, M: PeriMode> DacChannel<'d, M> {
     /// Read the current output value of the DAC.
     pub fn read(&self) -> u16 {
         self.info.regs.dor(self.idx).read().dor()
+    }
+
+    /// Set sawtooth reset value set on every reset trigger
+    ///
+    /// This is only used when the channel is in sawtooth waveform mode
+    #[cfg(stm32g4)]
+    pub fn set_sawtooth_reset_value(&mut self, value: u16) {
+        T::regs().str(C::IDX).modify(|reg| reg.set_rstdata(value));
+    }
+
+    /// Set sawtooth step value (12.4 bit format)
+    ///
+    /// See [Self::set_sawtooth_step_direction] for setting the step direction
+    /// and [Self::set_sawtooth_mode] for setting sawtooth mode.
+    ///
+    /// NOTE: This is only used when the channel is in sawtooth waveform mode
+    #[cfg(stm32g4)]
+    pub fn set_sawtooth_step_value(&mut self, value: u16) {
+        T::regs().str(C::IDX).modify(|reg| reg.set_incdata(value));
+    }
+
+    /// Set sawtooth step direction
+    ///
+    /// See [Self::set_sawtooth_step_value] for setting the step value
+    /// and [Self::set_sawtooth_mode] for setting sawtooth mode.
+    ///
+    /// NOTE: This is only used when the channel is in sawtooth waveform mode
+    #[cfg(stm32g4)]
+    pub fn set_sawtooth_step_direction(&mut self, value: tsel::StepDirection) {
+        T::regs().str(C::IDX).modify(|reg| reg.set_dir(value.into()));
     }
 
     /// Set HFSEL as appropriate for the current peripheral clock frequency.

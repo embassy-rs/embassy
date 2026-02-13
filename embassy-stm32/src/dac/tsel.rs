@@ -255,6 +255,8 @@ pub enum TriggerSel {
 }
 
 /// Trigger selection for G4.
+///
+/// Also used for Sawtooth reset trigger selection
 #[cfg(stm32g4)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -280,6 +282,47 @@ pub enum TriggerSel {
     /// * DAC2: HRTIM_DAC_TRG2
     /// * DAC3: HRTIM_DAC_TRG3
     HrtimDacTrg123 = 15,
+}
+
+/// Sawtooth step trigger selection for G4.
+#[cfg(stm32g4)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum StepTriggerSel {
+    Software = 0,
+    Dac124Tim8Dac3Tim1 = 1,
+    Tim7 = 2,
+    Tim15 = 3,
+    Tim2 = 4,
+    Tim4 = 5,
+    Exti10 = 6,
+    Tim6 = 7,
+    Tim3 = 8,
+    HrtimDacStpTrg1 = 9,
+    HrtimDacStpTrg2 = 10,
+    HrtimDacStpTrg3 = 11,
+    HrtimDacStpTrg4 = 12,
+    HrtimDacStpTrg5 = 13,
+    HrtimDacStpTrg6 = 14,
+}
+
+/// Sawtooth step direction
+#[cfg(stm32g4)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum StepDirection {
+    Decrement = 0,
+    Increment = 1,
+}
+
+#[cfg(stm32g4)]
+impl From<StepDirection> for bool {
+    fn from(value: StepDirection) -> Self {
+        match value {
+            StepDirection::Decrement => false,
+            StepDirection::Increment => true,
+        }
+    }
 }
 
 /// Trigger selection for WL.
