@@ -5,6 +5,7 @@ use paste::paste;
 
 use crate::clocks::Gate;
 use crate::clocks::periph_helpers::LpspiConfig;
+use crate::dma::{Channel, DmaChannel};
 use crate::gpio::{GpioPin, SealedPin};
 use crate::{interrupt, pac};
 
@@ -76,6 +77,50 @@ macro_rules! impl_instance {
 
 impl_instance!(0, 1);
 
+/// RxDma marker trait.
+pub trait RxDma<Instance>: PeripheralType + Send + Channel {
+    fn request_number(&self) -> u8;
+}
+
+/// TxDma marker trait.
+pub trait TxDma<Instance>: PeripheralType + Send + Channel {
+    fn request_number(&self) -> u8;
+}
+
+macro_rules! impl_dma {
+    ($peri:ident, $rx:literal, $tx:literal) => {
+        impl_dma!($peri, 0, $rx, $tx);
+        impl_dma!($peri, 1, $rx, $tx);
+        impl_dma!($peri, 2, $rx, $tx);
+        impl_dma!($peri, 3, $rx, $tx);
+        impl_dma!($peri, 4, $rx, $tx);
+        impl_dma!($peri, 5, $rx, $tx);
+        impl_dma!($peri, 6, $rx, $tx);
+        impl_dma!($peri, 7, $rx, $tx);
+    };
+
+    ($peri:ident, $ch:literal, $rx:literal, $tx: literal) => {
+        paste! {
+            impl RxDma<crate::peripherals::$peri> for crate::peripherals::[<DMA_CH $ch>] {
+                #[inline(always)]
+                fn request_number(&self) -> u8 {
+                    $rx
+                }
+            }
+
+            impl TxDma<crate::peripherals::$peri> for crate::peripherals::[<DMA_CH $ch>] {
+                #[inline(always)]
+                fn request_number(&self) -> u8 {
+                    $tx
+                }
+            }
+        }
+    };
+}
+
+impl_dma!(LPSPI0, 15, 16);
+impl_dma!(LPSPI1, 17, 18);
+
 /// MOSI pin trait.
 pub trait MosiPin<Instance>: GpioPin + sealed::Sealed + PeripheralType {
     fn mux(&self);
@@ -95,6 +140,10 @@ pub trait SckPin<Instance>: GpioPin + sealed::Sealed + PeripheralType {
 #[allow(private_bounds)]
 pub trait Mode: sealed::Sealed {}
 
+/// Async driver mode.
+#[allow(private_bounds)]
+pub trait AsyncMode: sealed::Sealed + Mode {}
+
 /// Blocking mode.
 pub struct Blocking;
 impl sealed::Sealed for Blocking {}
@@ -104,6 +153,18 @@ impl Mode for Blocking {}
 pub struct Async;
 impl sealed::Sealed for Async {}
 impl Mode for Async {}
+impl AsyncMode for Async {}
+
+/// DMA mode.
+pub struct Dma<'d> {
+    tx_dma: DmaChannel<'d>,
+    rx_dma: DmaChannel<'d>,
+    rx_request_number: u8,
+    tx_request_number: u8,
+}
+impl sealed::Sealed for Dma<'_> {}
+impl Mode for Dma<'_> {}
+impl AsyncMode for Dma<'_> {}
 
 macro_rules! impl_pin {
     ($pin:ident, $peri:ident, $fn:ident, $trait:ident) => {
