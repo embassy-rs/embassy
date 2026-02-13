@@ -763,7 +763,7 @@ impl<'d> I2c<'d, Dma<'d>> {
             scl,
             sda,
             config,
-            super::Dma {
+            Dma {
                 tx_dma,
                 rx_dma,
                 tx_request_number,
