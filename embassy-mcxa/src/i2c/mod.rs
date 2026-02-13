@@ -6,7 +6,7 @@ use paste::paste;
 
 use crate::clocks::Gate;
 use crate::clocks::periph_helpers::Lpi2cConfig;
-use crate::dma::Channel;
+use crate::dma::{Channel, DmaChannel};
 use crate::gpio::{GpioPin, SealedPin};
 use crate::{interrupt, pac};
 
@@ -156,10 +156,15 @@ impl Mode for Async {}
 impl AsyncMode for Async {}
 
 /// DMA mode.
-pub struct Dma;
-impl sealed::Sealed for Dma {}
-impl Mode for Dma {}
-impl AsyncMode for Dma {}
+pub struct Dma<'d> {
+    tx_dma: DmaChannel<'d>,
+    rx_dma: DmaChannel<'d>,
+    rx_request_number: u8,
+    tx_request_number: u8,
+}
+impl sealed::Sealed for Dma<'_> {}
+impl Mode for Dma<'_> {}
+impl AsyncMode for Dma<'_> {}
 
 macro_rules! impl_pin {
     ($pin:ident, $peri:ident, $fn:ident, $trait:ident) => {

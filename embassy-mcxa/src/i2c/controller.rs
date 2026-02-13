@@ -140,11 +140,7 @@ pub struct I2c<'d, M: Mode> {
     info: &'static Info,
     _scl: Peri<'d, AnyPin>,
     _sda: Peri<'d, AnyPin>,
-    _tx_dma: Option<DmaChannel<'d>>,
-    _rx_dma: Option<DmaChannel<'d>>,
-    _rx_request_number: u8,
-    _tx_request_number: u8,
-    _phantom: PhantomData<M>,
+    mode: M,
     is_hs: bool,
     _wg: Option<WakeGuard>,
 }
@@ -159,7 +155,7 @@ impl<'d> I2c<'d, Blocking> {
         sda: Peri<'d, impl SdaPin<T>>,
         config: Config,
     ) -> Result<Self, SetupError> {
-        Self::new_inner(peri, scl, sda, None, None, 0, 0, config)
+        Self::new_inner(peri, scl, sda, config, Blocking)
     }
 }
 
@@ -168,11 +164,8 @@ impl<'d, M: Mode> I2c<'d, M> {
         _peri: Peri<'d, T>,
         scl: Peri<'d, impl SclPin<T>>,
         sda: Peri<'d, impl SdaPin<T>>,
-        _tx_dma: Option<DmaChannel<'d>>,
-        _rx_dma: Option<DmaChannel<'d>>,
-        _tx_request_number: u8,
-        _rx_request_number: u8,
         config: Config,
+        mode: M,
     ) -> Result<Self, SetupError> {
         let (power, source, div) = Self::clock_config(config.speed);
 
@@ -196,11 +189,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             info: T::info(),
             _scl,
             _sda,
-            _tx_dma,
-            _rx_dma,
-            _tx_request_number,
-            _rx_request_number,
-            _phantom: PhantomData,
+            mode,
             is_hs: config.speed == Speed::UltraFast,
             _wg: parts.wake_guard,
         };
@@ -622,7 +611,7 @@ impl<'d> I2c<'d, Async> {
         // Safety: `_irq` ensures an Interrupt Handler exists.
         unsafe { T::Interrupt::enable() };
 
-        Self::new_inner(peri, scl, sda, None, None, 0, 0, config)
+        Self::new_inner(peri, scl, sda, config, Async)
     }
 }
 
@@ -739,7 +728,7 @@ impl<'d> AsyncEngine for I2c<'d, Async> {
     }
 }
 
-impl<'d> I2c<'d, Dma> {
+impl<'d> I2c<'d, Dma<'d>> {
     /// Create a new async instance of the I2C Controller bus driver with DMA support.
     ///
     /// Any external pin will be placed into Disabled state upon Drop,
@@ -773,16 +762,18 @@ impl<'d> I2c<'d, Dma> {
             peri,
             scl,
             sda,
-            Some(tx_dma),
-            Some(rx_dma),
-            tx_request_number,
-            rx_request_number,
             config,
+            super::Dma {
+                tx_dma,
+                rx_dma,
+                tx_request_number,
+                rx_request_number,
+            },
         )
     }
 }
 
-impl<'d> AsyncEngine for I2c<'d, Dma> {
+impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
     fn async_read_internal<'a>(
         &'a mut self,
         address: u8,
@@ -809,31 +800,31 @@ impl<'d> AsyncEngine for I2c<'d, Dma> {
                 let peri_addr = self.info.regs().mrdr().as_ptr() as *const u8;
 
                 // _rx_dma is guaranteed to be Some
-                let rx_dma = self._rx_dma.as_ref().unwrap();
-
                 unsafe {
                     // Clean up channel state
-                    rx_dma.disable_request();
-                    rx_dma.clear_done();
-                    rx_dma.clear_interrupt();
+                    self.mode.rx_dma.disable_request();
+                    self.mode.rx_dma.clear_done();
+                    self.mode.rx_dma.clear_interrupt();
 
                     // Set DMA request source from instance type (type-safe)
-                    rx_dma.set_request_source(self._rx_request_number);
+                    self.mode.rx_dma.set_request_source(self.mode.rx_request_number);
 
                     // Configure TCD for peripheral-to-memory transfer
-                    rx_dma.setup_read_from_peripheral(peri_addr, chunk, EnableInterrupt::Yes);
+                    self.mode
+                        .rx_dma
+                        .setup_read_from_peripheral(peri_addr, chunk, EnableInterrupt::Yes);
 
                     // Enable I2C RX DMA request
                     self.info.regs().mder().modify(|w| w.set_rdde(true));
 
                     // Enable DMA channel request
-                    rx_dma.enable_request();
+                    self.mode.rx_dma.enable_request();
                 }
 
                 // Wait for completion asynchronously
                 core::future::poll_fn(|cx| {
-                    rx_dma.waker().register(cx.waker());
-                    if rx_dma.is_done() {
+                    self.mode.rx_dma.waker().register(cx.waker());
+                    if self.mode.rx_dma.is_done() {
                         core::task::Poll::Ready(())
                     } else {
                         core::task::Poll::Pending
@@ -846,8 +837,8 @@ impl<'d> AsyncEngine for I2c<'d, Dma> {
                 // Cleanup
                 self.info.regs().mder().modify(|w| w.set_rdde(false));
                 unsafe {
-                    rx_dma.disable_request();
-                    rx_dma.clear_done();
+                    self.mode.rx_dma.disable_request();
+                    self.mode.rx_dma.clear_done();
                 }
             }
 
@@ -899,32 +890,31 @@ impl<'d> AsyncEngine for I2c<'d, Dma> {
             for chunk in write.chunks(DMA_MAX_TRANSFER_SIZE) {
                 let peri_addr = self.info.regs().mtdr().as_ptr() as *mut u8;
 
-                // _tx_dma is guaranteed to be Some
-                let tx_dma = self._tx_dma.as_ref().unwrap();
-
                 unsafe {
                     // Clean up channel state
-                    tx_dma.disable_request();
-                    tx_dma.clear_done();
-                    tx_dma.clear_interrupt();
+                    self.mode.tx_dma.disable_request();
+                    self.mode.tx_dma.clear_done();
+                    self.mode.tx_dma.clear_interrupt();
 
                     // Set DMA request source from instance type (type-safe)
-                    tx_dma.set_request_source(self._tx_request_number);
+                    self.mode.tx_dma.set_request_source(self.mode.tx_request_number);
 
                     // Configure TCD for memory-to-peripheral transfer
-                    tx_dma.setup_write_to_peripheral(chunk, peri_addr, EnableInterrupt::Yes);
+                    self.mode
+                        .tx_dma
+                        .setup_write_to_peripheral(chunk, peri_addr, EnableInterrupt::Yes);
 
                     // Enable I2C TX DMA request
                     self.info.regs().mder().modify(|w| w.set_tdde(true));
 
                     // Enable DMA channel request
-                    tx_dma.enable_request();
+                    self.mode.tx_dma.enable_request();
                 }
 
                 // Wait for completion asynchronously
                 core::future::poll_fn(|cx| {
-                    tx_dma.waker().register(cx.waker());
-                    if tx_dma.is_done() {
+                    self.mode.tx_dma.waker().register(cx.waker());
+                    if self.mode.tx_dma.is_done() {
                         core::task::Poll::Ready(())
                     } else {
                         core::task::Poll::Pending
@@ -937,8 +927,8 @@ impl<'d> AsyncEngine for I2c<'d, Dma> {
                 // Cleanup
                 self.info.regs().mder().modify(|w| w.set_tdde(false));
                 unsafe {
-                    tx_dma.disable_request();
-                    tx_dma.clear_done();
+                    self.mode.tx_dma.disable_request();
+                    self.mode.tx_dma.clear_done();
                 }
             }
 
