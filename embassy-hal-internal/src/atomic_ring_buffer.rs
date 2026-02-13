@@ -167,6 +167,19 @@ impl RingBuffer {
         start == end
     }
 
+    /// Reset the ring buffer to its initial state.
+    ///
+    /// This does not deinitialize the backing buffer.
+    pub fn reset(&self) {
+        trace!("  ringbuf: reset");
+
+        // Ordering: write `start` and `end`, with Release ordering.
+        //
+        // This ensures that the reset will wait until previous values are written.
+        self.end.store(0, Ordering::Release);
+        self.start.store(0, Ordering::Release);
+    }
+
     fn wrap(&self, mut n: usize) -> usize {
         let len = self.len.load(Ordering::Relaxed);
 
@@ -638,6 +651,71 @@ mod tests {
                     1
                 });
             }
+        }
+    }
+
+    #[test]
+    fn push_and_reset() {
+        let mut b = [0; 4];
+        let rb = RingBuffer::new();
+        unsafe {
+            rb.init(b.as_mut_ptr(), 4);
+
+            assert_eq!(rb.is_empty(), true);
+            assert_eq!(rb.is_half_full(), false);
+            assert_eq!(rb.is_full(), false);
+
+            rb.writer().push(|buf| {
+                assert_eq!(4, buf.len());
+                buf[0] = 1;
+                buf[1] = 2;
+                buf[2] = 3;
+                buf[3] = 4;
+                4
+            });
+
+            assert_eq!(rb.is_empty(), false);
+            assert_eq!(rb.is_half_full(), true);
+            assert_eq!(rb.is_full(), true);
+            assert_eq!(rb.available(), 4);
+
+            // Erasing should make the buffer empty.
+            rb.reset();
+
+            assert_eq!(rb.is_empty(), true);
+            assert_eq!(rb.is_half_full(), false);
+            assert_eq!(rb.is_full(), false);
+            // There are no available items after a reset.
+            assert_eq!(rb.available(), 0);
+
+            // The reader should see nothing
+            rb.reader().pop(|buf| {
+                assert_eq!(0, buf.len());
+                0
+            });
+
+            // The writer should be able to fill the buffer again
+            rb.writer().push(|buf| {
+                assert_eq!(4, buf.len());
+                buf[0] = 5;
+                buf[1] = 6;
+                buf[2] = 7;
+                buf[3] = 8;
+                4
+            });
+
+            assert_eq!(rb.is_empty(), false);
+            assert_eq!(rb.is_half_full(), true);
+            assert_eq!(rb.is_full(), true);
+
+            rb.reader().pop(|buf| {
+                assert_eq!(4, buf.len());
+                assert_eq!(5, buf[0]);
+                assert_eq!(6, buf[1]);
+                assert_eq!(7, buf[2]);
+                assert_eq!(8, buf[3]);
+                4
+            });
         }
     }
 }
