@@ -694,6 +694,7 @@ impl SealedChannel for Ch2 {
 impl Channel for Ch1 {}
 impl Channel for Ch2 {}
 
+trigger_trait!(ChannelTrigger, Instance);
 dma_trait!(Dma, Instance, Channel);
 pin_trait!(DacPin, Instance, Channel);
 

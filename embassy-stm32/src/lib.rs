@@ -173,7 +173,7 @@ pub(crate) mod _generated {
     include!(concat!(env!("OUT_DIR"), "/_generated.rs"));
 }
 
-pub use crate::_generated::interrupt;
+pub use crate::_generated::{interrupt, triggers};
 
 /// Macro to bind interrupts to handlers.
 ///
