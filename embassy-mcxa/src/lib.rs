@@ -24,6 +24,7 @@ pub mod ostimer;
 pub mod perf_counters;
 pub mod reset_reason;
 pub mod rtc;
+pub mod spi;
 pub mod trng;
 pub mod wwdt;
 

@@ -370,7 +370,7 @@ impl OutputDrive {
     }
 }
 
-/// [`SAI`] configuration.
+/// [`Sai`] configuration.
 #[allow(missing_docs)]
 #[non_exhaustive]
 #[derive(Copy, Clone)]

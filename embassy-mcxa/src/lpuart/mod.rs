@@ -1316,7 +1316,7 @@ impl<'a, T: Instance> LpuartTxDma<'a, T> {
             self.tx_dma.clear_interrupt();
 
             // Set DMA request source from instance type (type-safe)
-            self.tx_dma.set_request_source::<T::TxDmaRequest>();
+            self.tx_dma.set_request_source(T::TxDmaRequest::REQUEST_NUMBER);
 
             // Configure TCD for memory-to-peripheral transfer
             self.tx_dma
@@ -1435,7 +1435,7 @@ impl<'a, T: Instance> LpuartRxDma<'a, T> {
             self.rx_dma.clear_interrupt();
 
             // Set DMA request source from instance type (type-safe)
-            self.rx_dma.set_request_source::<T::RxDmaRequest>();
+            self.rx_dma.set_request_source(T::RxDmaRequest::REQUEST_NUMBER);
 
             // Configure TCD for peripheral-to-memory transfer
             self.rx_dma
@@ -1528,7 +1528,7 @@ impl<'a, T: Instance> LpuartRxDma<'a, T> {
 
         // Configure DMA request source for this LPUART instance (type-safe)
         unsafe {
-            self.rx_dma.set_request_source::<T::RxDmaRequest>();
+            self.rx_dma.set_request_source(T::RxDmaRequest::REQUEST_NUMBER);
         }
 
         // Enable RX DMA request in the LPUART peripheral

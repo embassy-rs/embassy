@@ -18,11 +18,11 @@
 use embassy_executor::Spawner;
 use embassy_mcxa::clkout::{self, ClockOut, ClockOutSel, Div4};
 use embassy_mcxa::clocks::config::{
-    CoreSleep, Div8, FlashSleep, MainClockConfig, MainClockSource, SoscConfig, SoscMode, SpllConfig, SpllMode,
-    SpllSource, VddDriveStrength, VddLevel,
+    CoreSleep, Div8, FircConfig, FircFreqSel, FlashSleep, MainClockConfig, MainClockSource, VddDriveStrength, VddLevel,
 };
 use embassy_mcxa::clocks::{PoweredClock, WakeGuard};
-use embassy_time::Timer;
+use embassy_mcxa::gpio::{Input, Pull};
+use embassy_time::{Duration, Instant, Timer};
 use hal::gpio::{DriveStrength, Level, Output, SlewRate};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
@@ -31,7 +31,7 @@ use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
     embassy_executor::main(executor = "embassy_mcxa::executor::Executor", entry = "cortex_m_rt::entry")
 )]
 #[cfg_attr(not(feature = "custom-executor"), embassy_executor::main)]
-async fn main(_spawner: Spawner) {
+async fn main(spawner: Spawner) {
     // Do a short delay in order to allow for us to attach the debugger/start
     // a flash in case some setting below is wrong, and the CPU gets stuck
     // in deep sleep with debugging disabled.
@@ -41,10 +41,16 @@ async fn main(_spawner: Spawner) {
     defmt::info!("Pre-power delay complete!");
     let mut cfg = hal::config::Config::default();
 
-    // Disable 45M osc
-    cfg.clock_cfg.firc = None;
+    // Enable 180M FIRC
+    let mut fcfg = FircConfig::default();
+    fcfg.frequency = FircFreqSel::Mhz180;
+    fcfg.power = PoweredClock::NormalEnabledDeepSleepDisabled;
+    fcfg.fro_hf_enabled = true;
+    fcfg.clk_45m_enabled = false;
+    fcfg.fro_hf_div = Some(const { Div8::from_divisor(180).unwrap() });
+    cfg.clock_cfg.firc = Some(fcfg);
 
-    // Enable 12M osc to use as core clock
+    // Enable 12M osc to use as ostimer clock
     cfg.clock_cfg.sirc.fro_12m_enabled = true;
     cfg.clock_cfg.sirc.fro_lf_div = None;
     cfg.clock_cfg.sirc.power = PoweredClock::AlwaysEnabled;
@@ -52,44 +58,25 @@ async fn main(_spawner: Spawner) {
     // Disable 16K osc
     cfg.clock_cfg.fro16k = None;
 
-    // Enable external osc, but ONLY in high-power mode
-    cfg.clock_cfg.sosc = Some(SoscConfig {
-        mode: SoscMode::CrystalOscillator,
-        frequency: 8_000_000,
-        power: PoweredClock::NormalEnabledDeepSleepDisabled,
-    });
+    // Disable external osc
+    cfg.clock_cfg.sosc = None;
 
-    // Enable PLL, but ONLY in high-power mode
-    cfg.clock_cfg.spll = Some(SpllConfig {
-        source: SpllSource::Sosc,
-        // 8MHz
-        // 8 x 48 => 384MHz
-        // 384 / (16 x 2) => 12.0MHz
-        mode: SpllMode::Mode1b {
-            m_mult: 48,
-            p_div: 16,
-            bypass_p2_div: false,
-        },
-        power: PoweredClock::NormalEnabledDeepSleepDisabled,
-        pll1_clk_div: None,
-    });
+    // Disable PLL
+    cfg.clock_cfg.spll = None;
 
-    // Feed core from 12M osc
+    // Feed core from 180M osc
     cfg.clock_cfg.main_clock = MainClockConfig {
-        source: MainClockSource::SircFro12M,
-        power: PoweredClock::AlwaysEnabled,
+        source: MainClockSource::FircHfRoot,
+        power: PoweredClock::NormalEnabledDeepSleepDisabled,
         ahb_clk_div: Div8::no_div(),
     };
 
-    // Set lowest core power, disable bandgap LDO reference
-    cfg.clock_cfg.vdd_power.active_mode.level = VddLevel::MidDriveMode;
+    // Set the core in high power active mode
+    cfg.clock_cfg.vdd_power.active_mode.level = VddLevel::OverDriveMode;
+    cfg.clock_cfg.vdd_power.active_mode.drive = VddDriveStrength::Normal;
+    // Set the core in low power sleep mode
     cfg.clock_cfg.vdd_power.low_power_mode.level = VddLevel::MidDriveMode;
     cfg.clock_cfg.vdd_power.low_power_mode.drive = VddDriveStrength::Low { enable_bandgap: false };
-
-    // We DO need to enable the core bandgap while in active mode, as the SOSC and SPLL clock
-    // sources require this to operate. If we wanted these clocks active in low power mode,
-    // we would need to enable it there too.
-    cfg.clock_cfg.vdd_power.active_mode.drive = VddDriveStrength::Low { enable_bandgap: true };
 
     // Set "deep sleep" mode
     cfg.clock_cfg.vdd_power.core_sleep = CoreSleep::DeepSleep;
@@ -104,9 +91,11 @@ async fn main(_spawner: Spawner) {
 
     let mut pin = p.P4_2;
     let mut clkout = p.CLKOUT;
-    const M1_CONFIG: clkout::Config = clkout::Config {
-        sel: ClockOutSel::Pll1Clk,
-        div: const { Div4::from_divisor(12).unwrap() },
+    const K250_CONFIG: clkout::Config = clkout::Config {
+        // 180MHz / 180 -> 1MHz
+        sel: ClockOutSel::FroHfDiv,
+        // 1MHz / 4 -> 250kHz
+        div: const { Div4::from_divisor(4).unwrap() },
         level: PoweredClock::NormalEnabledDeepSleepDisabled,
     };
 
@@ -114,26 +103,55 @@ async fn main(_spawner: Spawner) {
     // in a logic analyzer. We use `new_unchecked` here, which doesn't participate
     // in verifying that the clock sources are always valid, and does not take
     // a WaitGuard token, which would prevent us from entering deep sleep.
-    let _clock_out = unsafe { ClockOut::new_unchecked(clkout.reborrow(), pin.reborrow(), M1_CONFIG) };
+    let _clock_out = unsafe { ClockOut::new_unchecked(clkout.reborrow(), pin.reborrow(), K250_CONFIG) };
 
     defmt::info!("Going to sleep shortly...");
     cortex_m::asm::delay(45_000_000 / 4);
 
     let mut red = Output::new(p.P3_18, Level::High, DriveStrength::Normal, SlewRate::Slow);
+
+    // Setup a second LED, and use the button labeled "WAKEUP" as an input source
+    let blue = Output::new(p.P3_21, Level::High, DriveStrength::Normal, SlewRate::Slow);
+    let btn = Input::new(p.P1_7, Pull::Up);
+    spawner.spawn(press_toggler(btn, blue).unwrap());
+
     loop {
-        Timer::after_millis(900).await;
+        // We sleep a little longer than usual, to make it easier to distinguish between
+        // timer wakeups and GPIO wakeups.
+        Timer::after_millis(4900).await;
 
         // For the 100ms the LED is low, we manually take a wakeguard to prevent the
         // system from returning to deep sleep, which drastically increases our power
-        // usage (experimentally: 1660uA vs the 154uA visible with these clocks *not*
-        // running in deep sleep), but also prevents these clock sources from being
-        // disabled automatically.
+        // usage, but also prevents these clock sources from being disabled automatically.
         red.set_low();
         let _wg = WakeGuard::new();
-        Timer::after_millis(100).await;
+        let start = Instant::now();
+
+        // for the first 20ms, busyloop
+        while start.elapsed() < Duration::from_millis(20) {}
+
+        // then wfe sleep for 80ms
+        Timer::after_millis(80).await;
 
         red.set_high();
         // The WakeGuard is dropped here before returning to the top of the loop. When this
         // happens, we will enter deep sleep automatically on our next .await.
+    }
+}
+
+/// A task that toggles the given LED every time the button falls low. No fancy
+/// debouncing, but useful to look at with the scope and the custom executor
+/// debug pin (or a power analyzer) to measure the time delta between the
+/// WAKEUP pin going low and the executor resuming from deep sleep.
+///
+/// At the time of writing, it takes us roughly 20us from the GPIO falling to
+/// the assertion of the executor debug gpio pin. This button can be observed
+/// using the mikro-bus header pin labeled "RST".
+#[embassy_executor::task]
+async fn press_toggler(mut button: Input<'static>, mut led: Output<'static>) {
+    loop {
+        button.wait_for_low().await;
+        led.toggle();
+        button.wait_for_high().await;
     }
 }

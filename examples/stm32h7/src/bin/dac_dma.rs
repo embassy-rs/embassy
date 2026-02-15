@@ -3,10 +3,10 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::dac::{DacCh1, DacCh2, ValueArray};
+use embassy_stm32::dac::{DacChannel, ValueArray};
 use embassy_stm32::mode::Async;
 use embassy_stm32::pac::timer::vals::Mms;
-use embassy_stm32::peripherals::{DAC1, DMA1_CH3, DMA1_CH4, TIM6, TIM7};
+use embassy_stm32::peripherals::{DMA1_CH3, DMA1_CH4, TIM6, TIM7};
 use embassy_stm32::rcc::frequency;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::low_level::Timer;
@@ -65,7 +65,7 @@ async fn main(spawner: Spawner) {
 }
 
 #[embassy_executor::task]
-async fn dac_task1(tim: Peri<'static, TIM6>, mut dac: DacCh1<'static, DAC1, Async>) {
+async fn dac_task1(tim: Peri<'static, TIM6>, mut dac: DacChannel<'static, Async>) {
     let data: &[u8; 256] = &calculate_array::<256>();
 
     info!("TIM6 frequency is {}", frequency::<TIM6>());
@@ -108,7 +108,7 @@ async fn dac_task1(tim: Peri<'static, TIM6>, mut dac: DacCh1<'static, DAC1, Asyn
 }
 
 #[embassy_executor::task]
-async fn dac_task2(tim: Peri<'static, TIM7>, mut dac: DacCh2<'static, DAC1, Async>) {
+async fn dac_task2(tim: Peri<'static, TIM7>, mut dac: DacChannel<'static, Async>) {
     let data: &[u8; 256] = &calculate_array::<256>();
 
     info!("TIM7 frequency is {}", frequency::<TIM6>());

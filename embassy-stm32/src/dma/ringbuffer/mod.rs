@@ -1,4 +1,5 @@
 use core::future::poll_fn;
+use core::sync::atomic::{Ordering, fence};
 use core::task::{Poll, Waker};
 
 use crate::dma::word::Word;
@@ -168,6 +169,8 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
     }
 
     fn read_raw(&mut self, dma: &mut impl DmaCtrl, buf: &mut [W]) -> Result<(usize, usize), Error> {
+        fence(Ordering::Acquire);
+
         let readable = self.len(dma)?.min(buf.len());
         for i in 0..readable {
             buf[i] = self.read_buf(i);
@@ -257,6 +260,8 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
     /// In case of success, returns the written length, and the empty space in front of the written block.
     /// Fails if the data to write exceeds the buffer capacity.
     pub fn write_immediate(&mut self, buf: &[W]) -> Result<(usize, usize), Error> {
+        fence(Ordering::Release);
+
         if buf.len() > self.cap() {
             return Err(Error::Overrun);
         }
@@ -309,6 +314,8 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
     }
 
     fn write_raw(&mut self, dma: &mut impl DmaCtrl, buf: &[W]) -> Result<(usize, usize), Error> {
+        fence(Ordering::Release);
+
         let writable = self.len(dma)?.min(buf.len());
         for i in 0..writable {
             self.write_buf(i, buf[i]);
