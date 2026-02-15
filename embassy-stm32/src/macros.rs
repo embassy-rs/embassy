@@ -153,6 +153,32 @@ macro_rules! dma_trait_impl {
     };
 }
 
+// ====================
+
+#[allow(unused)]
+macro_rules! trigger_trait {
+    ($signal:ident, $instance:path$(, $mode:path)?) => {
+        #[doc = concat!(stringify!($signal), " trigger trait")]
+        pub trait $signal<T: $instance $(, M: $mode)?>  {
+            #[doc = concat!("Get the signal number needed to use this trigger as", stringify!($signal))]
+            /// Note: in some chips, ST calls this the "channel", and calls channels "streams".
+            /// `embassy-stm32` always uses the "channel" and "request number" names.
+            fn signal(&self) -> u8;
+        }
+    };
+}
+
+#[allow(unused)]
+macro_rules! trigger_trait_impl {
+    (crate::$mod:ident::$trait:ident$(<$mode:ident>)?, $instance:ident, $trigger:ident, $signal:expr) => {
+        impl crate::$mod::$trait<crate::peripherals::$instance $(, crate::$mod::$mode)?> for crate::triggers::$trigger {
+            fn signal(&self) -> u8 {
+                $signal
+            }
+        }
+    };
+}
+
 #[allow(unused)]
 macro_rules! new_dma_nonopt {
     ($name:ident, $irqs:expr) => {{
