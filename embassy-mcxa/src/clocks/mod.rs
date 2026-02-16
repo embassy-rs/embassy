@@ -44,7 +44,6 @@ use config::{
     VddLevel,
 };
 use critical_section::CriticalSection;
-use paste::paste;
 use periph_helpers::{PreEnableParts, SPConfHelper};
 
 use crate::pac;
@@ -2182,11 +2181,13 @@ macro_rules! impl_cc_gate {
 /// This module contains implementations of MRCC APIs, specifically of the [`Gate`] trait,
 /// for various low level peripherals.
 pub(crate) mod gate {
+    use paste::paste;
+
+    use super::Gate;
     use super::periph_helpers::{
-        AdcConfig, I3cConfig, Lpi2cConfig, LpspiConfig, LpuartConfig, NoConfig, OsTimerConfig,
+        AdcConfig, CTimerConfig, I3cConfig, Lpi2cConfig, LpspiConfig, LpuartConfig, NoConfig, OsTimerConfig,
     };
-    use super::*;
-    use crate::clocks::periph_helpers::CTimerConfig;
+    use crate::pac;
 
     // These peripherals have no additional upstream clocks or configuration required
     // other than enabling through the MRCC gate. Currently, these peripherals will
