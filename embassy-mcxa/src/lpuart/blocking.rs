@@ -57,6 +57,52 @@ impl<'a> Lpuart<'a, Blocking> {
             tx: LpuartTx::new_inner(T::info(), tx_pin.into(), Some(cts_pin.into()), Blocking, _wg),
         })
     }
+
+    /// Read data from LPUART RX blocking execution until the buffer is filled
+    pub fn blocking_read(&mut self, buf: &mut [u8]) -> Result<()> {
+        self.rx.blocking_read(buf)
+    }
+
+    /// Read data from LPUART RX without blocking
+    pub fn read(&mut self, buf: &mut [u8]) -> Result<()> {
+        self.rx.read(buf)
+    }
+
+    /// Write data to LPUART TX blocking execution until all data is sent
+    pub fn blocking_write(&mut self, buf: &[u8]) -> Result<()> {
+        self.tx.blocking_write(buf)
+    }
+
+    pub fn write_byte(&mut self, byte: u8) -> Result<()> {
+        self.tx.write_byte(byte)
+    }
+
+    pub fn read_byte_blocking(&mut self) -> u8 {
+        loop {
+            if let Ok(b) = self.rx.read_byte() {
+                return b;
+            }
+        }
+    }
+
+    pub fn write_str_blocking(&mut self, buf: &str) {
+        self.tx.write_str_blocking(buf);
+    }
+
+    /// Write data to LPUART TX without blocking
+    pub fn write(&mut self, buf: &[u8]) -> Result<()> {
+        self.tx.write(buf)
+    }
+
+    /// Flush LPUART TX blocking execution until all data has been transmitted
+    pub fn blocking_flush(&mut self) -> Result<()> {
+        self.tx.blocking_flush()
+    }
+
+    /// Flush LPUART TX without blocking
+    pub fn flush(&mut self) -> Result<()> {
+        self.tx.flush()
+    }
 }
 
 impl<'a> LpuartTx<'a, Blocking> {
@@ -248,54 +294,6 @@ impl<'a> LpuartRx<'a, Blocking> {
             *byte = self.blocking_read_byte()?;
         }
         Ok(())
-    }
-}
-
-impl<'a> Lpuart<'a, Blocking> {
-    /// Read data from LPUART RX blocking execution until the buffer is filled
-    pub fn blocking_read(&mut self, buf: &mut [u8]) -> Result<()> {
-        self.rx.blocking_read(buf)
-    }
-
-    /// Read data from LPUART RX without blocking
-    pub fn read(&mut self, buf: &mut [u8]) -> Result<()> {
-        self.rx.read(buf)
-    }
-
-    /// Write data to LPUART TX blocking execution until all data is sent
-    pub fn blocking_write(&mut self, buf: &[u8]) -> Result<()> {
-        self.tx.blocking_write(buf)
-    }
-
-    pub fn write_byte(&mut self, byte: u8) -> Result<()> {
-        self.tx.write_byte(byte)
-    }
-
-    pub fn read_byte_blocking(&mut self) -> u8 {
-        loop {
-            if let Ok(b) = self.rx.read_byte() {
-                return b;
-            }
-        }
-    }
-
-    pub fn write_str_blocking(&mut self, buf: &str) {
-        self.tx.write_str_blocking(buf);
-    }
-
-    /// Write data to LPUART TX without blocking
-    pub fn write(&mut self, buf: &[u8]) -> Result<()> {
-        self.tx.write(buf)
-    }
-
-    /// Flush LPUART TX blocking execution until all data has been transmitted
-    pub fn blocking_flush(&mut self) -> Result<()> {
-        self.tx.blocking_flush()
-    }
-
-    /// Flush LPUART TX without blocking
-    pub fn flush(&mut self) -> Result<()> {
-        self.tx.flush()
     }
 }
 

@@ -3,8 +3,8 @@
 
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
-use embassy_mcxa::lpuart::BufferedLpuart;
 use embassy_mcxa::lpuart::Config;
+use embassy_mcxa::lpuart::Lpuart;
 use embassy_mcxa::{bind_interrupts, lpuart};
 use embedded_io_async::Write;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
@@ -33,7 +33,7 @@ async fn main(_spawner: Spawner) {
     let mut rx_buf = [0u8; 256];
 
     // Create a buffered LPUART2 instance with both TX and RX
-    let mut uart = BufferedLpuart::new(
+    let mut uart = Lpuart::new_buffered(
         p.LPUART2,
         p.P2_2, // TX pin
         p.P2_3, // RX pin
