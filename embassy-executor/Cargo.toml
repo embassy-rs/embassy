@@ -109,7 +109,7 @@ wasm-bindgen = { version = "0.2.82", optional = true }
 js-sys = { version = "0.3", optional = true }
 
 # arch-avr dependencies
-avr-device = { version = "0.7.0", optional = true }
+avr-device = { version = "0.8.1", optional = true }
 
 
 [dependencies.cordyceps]
