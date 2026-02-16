@@ -63,14 +63,14 @@ impl TxRxRefMask {
 
     /// Atomically signal that either the Tx or Rx has been dropped.
     ///
-    /// Returns `true` if all parts have been dropped.
-    pub fn unalive(&self, value: TxRxRef) -> bool {
+    /// Returns `true` if after this call all parts are inactive.
+    pub fn set_inactive_fetch_last(&self, value: TxRxRef) -> bool {
         let value = value as u8;
-        self.0.fetch_and(!value, Ordering::AcqRel) == value
+        self.0.fetch_and(!value, Ordering::AcqRel) & !value == 0
     }
 
     /// Atomically signal that either the Tx or Rx has been created.
-    pub fn alive(&self, value: TxRxRef) {
+    pub fn set_active(&self, value: TxRxRef) {
         let value = value as u8;
         self.0.fetch_or(value, Ordering::AcqRel);
     }
@@ -78,9 +78,8 @@ impl TxRxRefMask {
     /// Atomically determine if either channels have been created, but not dropped. Clears the state.
     ///
     /// Should only be relevant when any of the parts have been leaked using [core::mem::forget].
-    pub fn check_alive_reset(&self) -> bool {
-        // 'and' with zero clears the value.
-        self.0.fetch_and(0, Ordering::AcqRel) != 0
+    pub fn fetch_any_alive_reset(&self) -> bool {
+        self.0.swap(0, Ordering::AcqRel) != 0
     }
 }
 
@@ -766,7 +765,7 @@ fn disable_peripheral(info: &'static Info) {
 
 impl<M: Mode> Drop for LpuartTx<'_, M> {
     fn drop(&mut self) {
-        if self.state.tx_rx_refmask.unalive(TxRxRef::Tx) {
+        if self.state.tx_rx_refmask.set_inactive_fetch_last(TxRxRef::Tx) {
             disable_peripheral(self.info);
         }
     }
@@ -774,7 +773,7 @@ impl<M: Mode> Drop for LpuartTx<'_, M> {
 
 impl<M: Mode> Drop for LpuartRx<'_, M> {
     fn drop(&mut self) {
-        if self.state.tx_rx_refmask.unalive(TxRxRef::Rx) {
+        if self.state.tx_rx_refmask.set_inactive_fetch_last(TxRxRef::Rx) {
             disable_peripheral(self.info);
         }
     }
@@ -789,7 +788,7 @@ impl<'a, M: Mode> Lpuart<'a, M> {
         config: Config,
     ) -> Result<Option<WakeGuard>> {
         // Check if the peripheral was leaked using [core::mem::forget], and clean up the peripheral.
-        if T::state().tx_rx_refmask.check_alive_reset() {
+        if T::state().tx_rx_refmask.fetch_any_alive_reset() {
             disable_peripheral(T::info());
         }
 
@@ -835,7 +834,7 @@ impl<'a, M: Mode> LpuartTx<'a, M> {
         mode: M,
         wg: Option<WakeGuard>,
     ) -> Self {
-        T::state().tx_rx_refmask.alive(TxRxRef::Tx);
+        T::state().tx_rx_refmask.set_active(TxRxRef::Tx);
 
         Self {
             info: T::info(),
@@ -855,7 +854,7 @@ impl<'a, M: Mode> LpuartRx<'a, M> {
         mode: M,
         _wg: Option<WakeGuard>,
     ) -> Self {
-        T::state().tx_rx_refmask.alive(TxRxRef::Rx);
+        T::state().tx_rx_refmask.set_active(TxRxRef::Rx);
 
         Self {
             info: T::info(),
