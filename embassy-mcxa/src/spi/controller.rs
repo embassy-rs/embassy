@@ -1,6 +1,7 @@
 //! LPSPI Controller Driver.
 
 use core::marker::PhantomData;
+use core::sync::atomic::{Ordering, fence};
 
 use embassy_embedded_hal::SetConfig;
 use embassy_futures::join::join;
@@ -574,8 +575,6 @@ impl<'d> Spi<'d, Dma<'d>> {
         })
         .await;
 
-        // Ensure DMA writes are visible to CPU
-        cortex_m::asm::dsb();
         // Cleanup
         self.info.regs().der().modify(|w| {
             w.set_rdde(false);
@@ -588,6 +587,11 @@ impl<'d> Spi<'d, Dma<'d>> {
             self.mode.tx_dma.disable_request();
             self.mode.tx_dma.clear_done();
         }
+
+        // Ensure all writes by DMA are visible to the CPU
+        // TODO: ensure this is done internal to the DMA methods so individual drivers
+        // don't need to handle this?
+        fence(Ordering::Acquire);
 
         Ok(())
     }
@@ -609,6 +613,11 @@ impl<'d> Spi<'d, Dma<'d>> {
                 .tx_dma
                 .setup_write_to_peripheral(data, peri_addr, EnableInterrupt::Yes);
 
+            // Ensure all writes by CPU are visible to the DMA
+            // TODO: ensure this is done internal to the DMA methods so individual drivers
+            // don't need to handle this?
+            fence(Ordering::Release);
+
             // Enable SPI TX DMA request
             self.info.regs().der().modify(|w| w.set_tdde(true));
 
@@ -627,8 +636,6 @@ impl<'d> Spi<'d, Dma<'d>> {
         })
         .await;
 
-        // Ensure DMA writes are visible to CPU
-        cortex_m::asm::dsb();
         // Cleanup
         self.info.regs().der().modify(|w| w.set_tdde(false));
         unsafe {
@@ -664,6 +671,11 @@ impl<'d> Spi<'d, Dma<'d>> {
             self.mode
                 .rx_dma
                 .setup_read_from_peripheral(rx_peri_addr, read, EnableInterrupt::Yes);
+
+            // Ensure all writes by CPU are visible to the DMA
+            // TODO: ensure this is done internal to the DMA methods so individual drivers
+            // don't need to handle this?
+            fence(Ordering::Release);
 
             // Enable SPI DMA request
             self.info.regs().der().modify(|w| {
@@ -730,8 +742,6 @@ impl<'d> Spi<'d, Dma<'d>> {
 
         join(tx_transfer, rx_transfer).await;
 
-        // Ensure DMA writes are visible to CPU
-        cortex_m::asm::dsb();
         // Cleanup
         self.info.regs().der().modify(|w| {
             w.set_rdde(false);
@@ -751,6 +761,11 @@ impl<'d> Spi<'d, Dma<'d>> {
             self.check_status()?;
             let _ = self.info.regs().rdr().read().data() as u8;
         }
+
+        // Ensure all writes by DMA are visible to the CPU
+        // TODO: ensure this is done internal to the DMA methods so individual drivers
+        // don't need to handle this?
+        fence(Ordering::Acquire);
 
         Ok(())
     }
@@ -780,6 +795,11 @@ impl<'d> Spi<'d, Dma<'d>> {
             self.mode
                 .rx_dma
                 .setup_read_from_peripheral(rx_peri_addr, data, EnableInterrupt::Yes);
+
+            // Ensure all writes by CPU are visible to the DMA
+            // TODO: ensure this is done internal to the DMA methods so individual drivers
+            // don't need to handle this?
+            fence(Ordering::Release);
 
             // Enable SPI DMA request
             self.info.regs().der().modify(|w| {
@@ -813,8 +833,6 @@ impl<'d> Spi<'d, Dma<'d>> {
 
         join(tx_transfer, rx_transfer).await;
 
-        // Ensure DMA writes are visible to CPU
-        cortex_m::asm::dsb();
         // Cleanup
         self.info.regs().der().modify(|w| {
             w.set_rdde(false);
@@ -828,15 +846,20 @@ impl<'d> Spi<'d, Dma<'d>> {
             self.mode.tx_dma.clear_done();
         }
 
+        // Ensure all writes by DMA are visible to the CPU
+        // TODO: ensure this is done internal to the DMA methods so individual drivers
+        // don't need to handle this?
+        fence(Ordering::Acquire);
+
         Ok(())
     }
 }
 
 trait AsyncEngine {
-    fn async_read_internal(&mut self, data: &mut [u8]) -> impl Future<Output = Result<(), IoError>>;
-    fn async_write_internal(&mut self, data: &[u8]) -> impl Future<Output = Result<(), IoError>>;
-    fn async_transfer_internal(&mut self, read: &mut [u8], write: &[u8]) -> impl Future<Output = Result<(), IoError>>;
-    fn async_transfer_in_place_internal(&mut self, data: &mut [u8]) -> impl Future<Output = Result<(), IoError>>;
+    async fn async_read_internal(&mut self, data: &mut [u8]) -> Result<(), IoError>;
+    async fn async_write_internal(&mut self, data: &[u8]) -> Result<(), IoError>;
+    async fn async_transfer_internal(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), IoError>;
+    async fn async_transfer_in_place_internal(&mut self, data: &mut [u8]) -> Result<(), IoError>;
 }
 
 #[allow(private_bounds)]
