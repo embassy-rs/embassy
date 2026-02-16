@@ -81,6 +81,7 @@ pub struct ReadableDmaRingBuffer<'a, W: Word> {
     dma_buf: &'a mut [W],
     write_index: DmaIndex,
     read_index: DmaIndex,
+    alignment: usize,
 }
 
 impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
@@ -90,7 +91,26 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
             dma_buf,
             write_index: Default::default(),
             read_index: Default::default(),
+            alignment: 1,
         }
+    }
+
+    /// Set the frame alignment for the ring buffer.
+    ///
+    /// When set to a value > 1, the ring buffer will automatically discard partial
+    /// frames after overrun recovery to maintain alignment. This is critical for
+    /// protocols like I2S where each frame consists of multiple DMA transfers
+    /// (e.g. 4 half-words for stereo 32-bit I2S) and reading from a mid-frame
+    /// position produces garbage data.
+    ///
+    /// The DMA buffer length must be a multiple of the alignment value.
+    pub fn set_alignment(&mut self, alignment: usize) {
+        let alignment = alignment.max(1);
+        assert!(
+            self.cap() % alignment == 0,
+            "DMA buffer length must be a multiple of the alignment value"
+        );
+        self.alignment = alignment;
     }
 
     /// Reset the ring buffer to its initial state.
@@ -171,13 +191,35 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
     fn read_raw(&mut self, dma: &mut impl DmaCtrl, buf: &mut [W]) -> Result<(usize, usize), Error> {
         fence(Ordering::Acquire);
 
-        let readable = self.len(dma)?.min(buf.len());
+        let mut available = self.len(dma)?;
+
+        // Skip misaligned samples to maintain frame alignment after overrun recovery.
+        // DMA always starts at buffer position 0 (frame-aligned) and advances
+        // sequentially, so position N is frame-aligned when N % alignment == 0.
+        if self.alignment > 1 {
+            let misalignment = self.read_index.pos % self.alignment;
+            if misalignment != 0 {
+                let skip = self.alignment - misalignment;
+                if available >= skip {
+                    self.read_index.advance(self.cap(), skip);
+                    available -= skip;
+                } else {
+                    return Ok((0, available));
+                }
+            }
+        }
+
+        let mut readable = available.min(buf.len());
+        // Round down to alignment so read_index always lands on a frame boundary.
+        if self.alignment > 1 {
+            readable -= readable % self.alignment;
+        }
         for i in 0..readable {
             buf[i] = self.read_buf(i);
         }
-        let available = self.len(dma)?;
+        let remaining = self.len(dma)?;
         self.read_index.advance(self.cap(), readable);
-        Ok((readable, available - readable))
+        Ok((readable, remaining - readable))
     }
 
     fn read_buf(&self, offset: usize) -> W {

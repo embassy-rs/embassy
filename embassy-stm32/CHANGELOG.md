@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## Unreleased - ReleaseDate
+- fix: stm32/i2s: fix frame misalignment after DMA ring buffer overrun recovery by adding alignment support to `ReadableDmaRingBuffer`
 - fix: stm32/i2s: defer I2SE enable from constructor to `start()` for proper slave frame synchronization
 - fix: stm32/i2s: Use correct PLLI2S clock source for STM32F2 and STM32F7 instead of APB clock
 - change: stm32: Change HRTIM implementetion to use stm32-hrtim driver for G474/484 and F334
