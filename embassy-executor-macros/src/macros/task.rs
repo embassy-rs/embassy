@@ -132,6 +132,7 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
     let task_ident = f.sig.ident.clone();
     let task_inner_ident = format_ident!("__{}_task", task_ident);
 
+    let orig_output = f.sig.output.clone();
     let task_inner_future_output = match &f.sig.output {
         ReturnType::Default => quote! {-> impl ::core::future::Future<Output = ()>},
         // Special case the never type since we can't stuff it into a `impl Future<Output = !>`
@@ -247,8 +248,20 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
         #[doc(hidden)]
         #task_inner
 
+        #[cfg(not(doc))]
         #(#task_outer_attrs)*
         #visibility #unsafety fn #task_ident #generics (#fargs) -> ::core::result::Result<#embassy_executor::SpawnToken<impl Sized>, #embassy_executor::SpawnError> #where_clause{
+            #task_outer_body
+        }
+
+        #[cfg(doc)]
+        #[doc = "**Task:** [^task_note]"]
+        #(#task_outer_attrs)*
+        #[doc = ""]
+        #[doc = "[^task_note]: This function is marked with #\\[task\\] so you can not call it as a normal async fn as the signature would suggest."]
+        #[doc = "The macro transforms it into a non async fn with a different return type.  You can only pass this fn to spawn()"]
+        #[doc = ""]
+        #visibility async #unsafety fn #task_ident #generics (#fargs) #orig_output #where_clause{
             #task_outer_body
         }
 

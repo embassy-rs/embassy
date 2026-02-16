@@ -221,12 +221,19 @@ For example: `#[embassy_executor::main(entry = ..., executor = \"some_crate::Exe
     }
 
     let result = quote! {
+        #[cfg(not(doc))]
         #[::embassy_executor::task()]
         #[allow(clippy::future_not_send)]
         async fn __embassy_main(#fargs) #out {
             #f_body
         }
 
+        #[cfg(doc)]
+        async fn main(#fargs) #out {
+            #f_body
+        }
+
+        #[cfg(not(doc))]
         #entry
         #main_attrs
         fn main() -> #main_ret {
