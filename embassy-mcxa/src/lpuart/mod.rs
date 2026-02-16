@@ -19,9 +19,9 @@ mod blocking;
 mod buffered;
 mod dma;
 
-pub use blocking::*;
-pub use buffered::*;
-pub use dma::*;
+pub use blocking::Blocking;
+pub use buffered::{Buffered, BufferedInterruptHandler};
+pub use dma::{Dma, RingBufferedLpuartRx};
 
 mod sealed {
     pub trait Sealed {}
