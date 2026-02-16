@@ -1,6 +1,7 @@
+use embassy_hal_internal::Peri;
+
 use super::*;
 use crate::pac::lpuart::vals::{Tc, Tdre};
-use embassy_hal_internal::Peri;
 
 /// Blocking mode.
 pub struct Blocking;

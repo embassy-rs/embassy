@@ -1,10 +1,12 @@
+use core::future::Future;
+use core::marker::PhantomData;
+
+use embassy_hal_internal::Peri;
+
 use super::*;
 use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, DmaRequest, EnableInterrupt, RingBuffer};
 use crate::gpio::AnyPin;
 use crate::pac::lpuart::vals::{Tc, Tdre};
-use core::future::Future;
-use core::marker::PhantomData;
-use embassy_hal_internal::Peri;
 
 /// DMA mode.
 pub struct Dma<'d> {
