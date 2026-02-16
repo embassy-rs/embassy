@@ -2,7 +2,7 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_mcxa::adc::{ConvCommandConfig, ConvTriggerConfig};
+use embassy_mcxa::adc::{Command, Trigger};
 use embassy_time::{Duration, Ticker};
 use hal::adc::{self, Adc, TriggerPriorityPolicy};
 use hal::clocks::PoweredClock;
@@ -25,8 +25,8 @@ async fn main(_spawner: Spawner) {
 
     let adc_config = adc::Config {
         enable_in_doze_mode: true,
-        conversion_average_mode: CalAvgs::AVERAGE_128,
-        enable_analog_preliminary: true,
+        calibration_average_mode: CalAvgs::AVERAGE_128,
+        power_pre_enabled: true,
         power_up_delay: 0x80,
         reference_voltage_source: Refsel::OPTION_3,
         power_level_mode: Pwrsel::LOWEST,
@@ -42,13 +42,13 @@ async fn main(_spawner: Spawner) {
     adc.do_offset_calibration();
     adc.do_auto_calibration();
 
-    let conv_command_config = ConvCommandConfig {
+    let conv_command_config = Command {
         conversion_resolution_mode: Mode::DATA_16_BITS,
-        ..ConvCommandConfig::default()
+        ..Command::default()
     };
     adc.set_conv_command_config(1, &conv_command_config).unwrap();
 
-    let conv_trigger_config: ConvTriggerConfig = ConvTriggerConfig {
+    let conv_trigger_config: Trigger = Trigger {
         target_command_id: Tcmd::EXECUTE_CMD1,
         enable_hardware_trigger: false,
         ..Default::default()

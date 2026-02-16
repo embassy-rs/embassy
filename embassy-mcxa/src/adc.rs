@@ -1,6 +1,7 @@
 //! ADC driver
 use core::future::Future;
 use core::marker::PhantomData;
+use core::ops::RangeInclusive;
 
 use embassy_hal_internal::{Peri, PeripheralType};
 use maitake_sync::WaitCell;
@@ -11,8 +12,8 @@ use crate::clocks::{ClockError, Gate, PoweredClock, WakeGuard, enable_and_reset}
 use crate::gpio::{AnyPin, GpioPin, SealedPin};
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac::adc::vals::{
-    Avgs, CalAvgs, CalRdy, CalReq, Calofs, Cmpen, Dozen, Gcc0Rdy, HptExdi, Loop, Mode as ConvMode, Next, Pwrsel,
-    Refsel, Rst, Rstfifo0, Sts, Tcmd, Tpri, Tprictrl,
+    Avgs, CalAvgs, CalRdy, CalReq, Calofs, Cmpen, Dozen, Gcc0Rdy, HptExdi, Loop as HwLoop, Mode as ConvMode, Next,
+    Pwrsel, Refsel, Rst, Rstfifo0, Sts, Tcmd, Tpri, Tprictrl,
 };
 use crate::pac::port::vals::Mux;
 use crate::pac::{self};
@@ -48,12 +49,12 @@ pub struct Config {
     pub enable_in_doze_mode: bool,
 
     /// Auto-Calibration Averages.
-    pub conversion_average_mode: CalAvgs,
+    pub calibration_average_mode: CalAvgs,
 
-    /// ADC analog circuits are pre-enabled and ready to execute
-    /// conversions without startup delays(at the cost of higher DC
+    /// When true, the ADC analog circuits are pre-enabled and ready to execute
+    /// conversions without startup delays (at the cost of higher DC
     /// current consumption).
-    pub enable_analog_preliminary: bool,
+    pub power_pre_enabled: bool,
 
     /// Power-up delay value (in ADC clock cycles)
     pub power_up_delay: u8,
@@ -67,20 +68,13 @@ pub struct Config {
     /// Trigger priority policy for handling multiple triggers
     pub trigger_priority_policy: TriggerPriorityPolicy,
 
-    /// Enables the ADC pausing function. When enabled, a programmable
-    /// delay is inserted during command execution sequencing between
-    /// LOOP iterations, between commands in a sequence, and between
-    /// conversions when command is executing in "Compare Until True"
-    /// configuration.
-    pub enable_conv_pause: bool,
-
     /// Controls the duration of pausing during command execution
     /// sequencing. The pause delay is a count of (convPauseDelay*4)
     /// ADCK cycles.
     ///
-    /// Only available when ADC pausing function is enabled. The
-    /// available value range is in 9-bit.
-    pub conv_pause_delay: u16,
+    /// The available value range is in 9-bit.
+    /// When None, the pausing function is not enabled
+    pub conv_pause_delay: Option<u16>,
 
     /// Power configuration (normal/deep sleep behavior)
     pub power: PoweredClock,
@@ -96,14 +90,13 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             enable_in_doze_mode: true,
-            conversion_average_mode: CalAvgs::NO_AVERAGE,
-            enable_analog_preliminary: false,
+            calibration_average_mode: CalAvgs::NO_AVERAGE,
+            power_pre_enabled: false,
             power_up_delay: 0x80,
             reference_voltage_source: Refsel::OPTION_1,
             power_level_mode: Pwrsel::LOWEST,
             trigger_priority_policy: TriggerPriorityPolicy::ConvPreemptImmediatelyNotAutoResumed,
-            enable_conv_pause: false,
-            conv_pause_delay: 0,
+            conv_pause_delay: None,
             power: PoweredClock::NormalEnabledDeepSleepDisabled,
             source: AdcClockSel::FroLfDiv,
             div: Div4::no_div(),
@@ -111,36 +104,134 @@ impl Default for Config {
     }
 }
 
-/// Configuration for a conversion command.
-///
-/// Defines the parameters for a single ADC conversion operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ConvCommandConfig {
-    pub chained_next_command_number: Next,
-    pub enable_auto_channel_increment: bool,
-    pub loop_: Loop,
-    pub hardware_average_mode: Avgs,
-    pub sample_time_mode: Sts,
-    pub hardware_compare_mode: Cmpen,
-    pub hardware_compare_value_high: u32,
-    pub hardware_compare_value_low: u32,
-    pub conversion_resolution_mode: ConvMode,
-    pub enable_wait_trigger: bool,
+#[repr(u8)]
+pub enum CommandId {
+    Cmd1 = 1,
+    Cmd2 = 2,
+    Cmd3 = 3,
+    Cmd4 = 4,
+    Cmd5 = 5,
+    Cmd6 = 6,
+    Cmd7 = 7,
 }
 
-impl Default for ConvCommandConfig {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Compare {
+    /// Do not perform compare operation. Always store the conversion result to the FIFO.
+    Disabled,
+    /// Store conversion result to FIFO at end
+    /// of averaging only if compare is true. If compare is false do not store
+    /// the result to the FIFO. In either the true or false condition, the LOOP
+    /// setting is considered and increments the LOOP counter before deciding
+    /// whether the current command has completed or additional LOOP
+    /// iterations are required.
+    StoreIf(CompareFunction),
+    /// Store conversion result to FIFO at end of
+    /// averaging only if compare is true. Once the true condition is found the
+    /// LOOP setting is considered and increments the LOOP counter before
+    /// deciding whether the current command has completed or additional
+    /// LOOP iterations are required. If the compare is false do not store the
+    /// result to the FIFO. The conversion is repeated without consideration of
+    /// LOOP setting and does not increment the LOOP counter.
+    SkipUntil(CompareFunction),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CompareFunction {
+    OutsideRange(RangeInclusive<u16>),
+    LessThan(u16),
+    GreaterThan(u16),
+    InsideRange(RangeInclusive<u16>),
+}
+
+impl CompareFunction {
+    /// Get the CVL & CVH values
+    fn get_vals(&self) -> (u16, u16) {
+        match self {
+            CompareFunction::OutsideRange(range) => {
+                assert!(!range.is_empty());
+                (*range.start(), *range.end())
+            }
+            CompareFunction::LessThan(val) => (*val, u16::MAX),
+            CompareFunction::GreaterThan(val) => (0, *val),
+            CompareFunction::InsideRange(range) => {
+                assert!(!range.is_empty());
+                (*range.end(), *range.start())
+            }
+        }
+    }
+}
+
+/// A command that can be executed by the ADC
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Command {
+    /// When true, if
+    increment_channel: bool,
+    /// The number of times the command is repeated. Range = `0..=15`.
+    /// If [Self::increment_channel] is true, the repeats happen on different channels
+    loop_count: u8,
+
+    config: CommandConfig,
+}
+
+impl Command {
+    /// A command that does one conversion on a channel
+    pub fn new_single(channel: (), config: CommandConfig) -> Self {
+        Self {
+            increment_channel: false,
+            loop_count: 0,
+            config,
+        }
+    }
+
+    /// A command that does multiple conversions on a channel.
+    /// - `num_loops`: The amount of times the command is repeated. Range: `1..=15`
+    pub fn new_looping(channel: (), num_loops: u8, config: CommandConfig) -> Result<Self, Error> {
+        if !(1..=15).contains(&num_loops) {
+            return Err(Error::InvalidConfig);
+        }
+
+        Ok(Self {
+            increment_channel: false,
+            loop_count: num_loops,
+            config,
+        })
+    }
+
+    /// A command that does multiple conversions on multiple channels
+    pub fn new_multichannel<const N: usize>(channels: [(); N], config: CommandConfig) -> Self {}
+}
+
+/// Configuration for a conversion command
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandConfig {
+    /// The command that will be executed next.
+    ///
+    /// If None, conversion will end
+    pub chained_command: Option<CommandId>,
+    /// The averaging done on a conversion
+    pub averaging: Avgs,
+    /// The sampling time of a conversion
+    pub sample_time: Sts,
+    /// The compare function being used
+    pub compare: Compare,
+    /// The resolution of a conversion
+    pub resolution: ConvMode,
+    /// When false, the command will not wait for a trigger once the command sequence has been started.
+    /// When true, a trigger is required before the command is started.
+    pub wait_for_trigger: bool,
+}
+
+impl Default for CommandConfig {
     fn default() -> Self {
         Self {
-            chained_next_command_number: Next::NO_NEXT_CMD_TERMINATE_ON_FINISH,
-            enable_auto_channel_increment: false,
-            loop_: Loop::CMD_EXEC_1X,
-            hardware_average_mode: Avgs::NO_AVERAGE,
-            sample_time_mode: Sts::SAMPLE_3P5,
-            hardware_compare_mode: Cmpen::DISABLED_ALWAYS_STORE_RESULT,
-            hardware_compare_value_high: 0,
-            hardware_compare_value_low: 0,
-            conversion_resolution_mode: ConvMode::DATA_12_BITS,
-            enable_wait_trigger: false,
+            chained_command: None,
+            averaging: Avgs::NO_AVERAGE,
+            sample_time: Sts::SAMPLE_3P5,
+            compare: Compare::Disabled,
+            resolution: ConvMode::DATA_12_BITS,
+            wait_for_trigger: false,
         }
     }
 }
@@ -149,17 +240,17 @@ impl Default for ConvCommandConfig {
 ///
 /// Defines how a trigger initiates ADC conversions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ConvTriggerConfig {
-    pub target_command_id: Tcmd,
+pub struct Trigger {
+    pub target_command_id: CommandId,
     pub delay_power: u8,
     pub priority: Tpri,
     pub enable_hardware_trigger: bool,
 }
 
-impl Default for ConvTriggerConfig {
+impl Default for Trigger {
     fn default() -> Self {
-        ConvTriggerConfig {
-            target_command_id: Tcmd::NOT_VALID,
+        Trigger {
+            target_command_id: CommandId::Cmd1,
             delay_power: 0,
             priority: Tpri::HIGHEST_PRIORITY,
             enable_hardware_trigger: false,
@@ -187,7 +278,7 @@ pub enum Error {
 /// Contains the conversion value and metadata about the conversion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConvResult {
-    pub command_id_source: u8,
+    pub command: CommandId,
     pub loop_count_index: u8,
     pub trigger_id_source: u8,
     pub conv_value: u16,
@@ -278,7 +369,7 @@ impl<'a> Adc<'a, Blocking> {
     /// # Returns
     /// * `Ok(())` if the command was configured successfully
     /// * `Err(Error::InvalidConfig)` if the index is out of range
-    pub fn set_conv_command_config(&self, index: usize, config: &ConvCommandConfig) -> Result<()> {
+    pub fn set_conv_command_config(&self, index: usize, config: &Command) -> Result<()> {
         self.set_conv_command_config_inner(index, config)
     }
 
@@ -290,7 +381,7 @@ impl<'a> Adc<'a, Blocking> {
     /// # Arguments
     /// * `trigger_id` - Trigger index (0..=3)
     /// * `config` - Trigger configuration
-    pub fn set_conv_trigger_config(&self, trigger_id: usize, config: &ConvTriggerConfig) -> Result<()> {
+    pub fn set_conv_trigger_config(&self, trigger_id: usize, config: &Trigger) -> Result<()> {
         self.set_conv_trigger_config_inner(trigger_id, config)
     }
 
@@ -332,12 +423,12 @@ impl<'a> Adc<'a, Async> {
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
-        let cfg = ConvCommandConfig {
-            chained_next_command_number: Next::NO_NEXT_CMD_TERMINATE_ON_FINISH,
-            enable_auto_channel_increment: false,
-            loop_: Loop::CMD_EXEC_1X,
-            hardware_average_mode: Avgs::NO_AVERAGE,
-            sample_time_mode: Sts::SAMPLE_3P5,
+        let cfg = Command {
+            chained_command: None,
+            increment_channel: false,
+            loop_: Loop::None,
+            averaging: Avgs::NO_AVERAGE,
+            sample_time: Sts::SAMPLE_3P5,
             hardware_compare_mode: Cmpen::DISABLED_ALWAYS_STORE_RESULT,
             hardware_compare_value_high: 0,
             hardware_compare_value_low: 0,
@@ -348,8 +439,8 @@ impl<'a> Adc<'a, Async> {
         // We always use command 1, so this cannot fail
         _ = adc.set_conv_command_config_inner(1, &cfg);
 
-        let cfg = ConvTriggerConfig {
-            target_command_id: Tcmd::EXECUTE_CMD1,
+        let cfg = Trigger {
+            target_command_id: CommandId::Cmd1,
             delay_power: 0,
             priority: Tpri::HIGHEST_PRIORITY,
             enable_hardware_trigger: false,
@@ -460,10 +551,10 @@ impl<'a, M: Mode> Adc<'a, M> {
         });
 
         /* Set calibration average mode. */
-        adc.ctrl().modify(|w| w.set_cal_avgs(config.conversion_average_mode));
+        adc.ctrl().modify(|w| w.set_cal_avgs(config.calibration_average_mode));
 
         adc.cfg().write(|w| {
-            w.set_pwren(config.enable_analog_preliminary);
+            w.set_pwren(config.power_pre_enabled);
 
             w.set_pudly(config.power_up_delay);
             w.set_refsel(config.reference_voltage_source);
@@ -499,13 +590,13 @@ impl<'a, M: Mode> Adc<'a, M> {
             });
         });
 
-        if config.enable_conv_pause {
-            adc.pause().modify(|w| {
+        if let Some(pause_delay) = config.conv_pause_delay {
+            adc.pause().write(|w| {
                 w.set_pauseen(true);
-                w.set_pausedly(config.conv_pause_delay);
+                w.set_pausedly(pause_delay);
             });
         } else {
-            adc.pause().write(|w| w.0 = 0);
+            adc.pause().write(|w| w.set_pauseen(false));
         }
 
         adc.fctrl0().write(|w| w.set_fwmark(0));
@@ -585,7 +676,7 @@ impl<'a, M: Mode> Adc<'a, M> {
         while self.info.regs().stat().read().cal_rdy() == CalRdy::NOT_SET {}
     }
 
-    fn set_conv_command_config_inner(&self, index: usize, config: &ConvCommandConfig) -> Result<()> {
+    fn set_conv_command_config_inner(&self, index: usize, config: &Command) -> Result<()> {
         let (cmdl, cmdh) = match index {
             1 => (self.info.regs().cmdl1(), self.info.regs().cmdh1()),
             2 => (self.info.regs().cmdl2(), self.info.regs().cmdh2()),
@@ -603,19 +694,19 @@ impl<'a, M: Mode> Adc<'a, M> {
         });
 
         cmdh.write(|w| {
-            w.set_next(config.chained_next_command_number);
+            w.set_next(config.chained_command);
             w.set_loop_(config.loop_);
-            w.set_avgs(config.hardware_average_mode);
-            w.set_sts(config.sample_time_mode);
+            w.set_avgs(config.averaging);
+            w.set_sts(config.sample_time);
             w.set_cmpen(config.hardware_compare_mode);
             w.set_wait_trig(config.enable_wait_trigger);
-            w.set_lwi(config.enable_auto_channel_increment);
+            w.set_lwi(config.increment_channel);
         });
 
         Ok(())
     }
 
-    fn set_conv_trigger_config_inner(&self, trigger_id: usize, config: &ConvTriggerConfig) -> Result<()> {
+    fn set_conv_trigger_config_inner(&self, trigger_id: usize, config: &Trigger) -> Result<()> {
         // 0..4 are valid
         if trigger_id >= 4 {
             return Err(Error::InvalidConfig);
@@ -650,7 +741,7 @@ impl<'a, M: Mode> Adc<'a, M> {
         }
 
         Ok(ConvResult {
-            command_id_source: fifo.cmdsrc() as u8,
+            command: fifo.cmdsrc() as u8,
             loop_count_index: fifo.loopcnt() as u8,
             trigger_id_source: fifo.tsrc() as u8,
             conv_value: fifo.d(),

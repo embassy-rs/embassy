@@ -28,14 +28,13 @@ async fn main(_spawner: Spawner) {
 
     let adc_config = adc::Config {
         enable_in_doze_mode: true,
-        conversion_average_mode: CalAvgs::AVERAGE_128,
-        enable_analog_preliminary: true,
+        calibration_average_mode: CalAvgs::AVERAGE_128,
+        power_pre_enabled: true,
         power_up_delay: 0x80,
         reference_voltage_source: Refsel::OPTION_3,
         power_level_mode: Pwrsel::LOWEST,
         trigger_priority_policy: TriggerPriorityPolicy::ConvPreemptImmediatelyNotAutoResumed,
-        enable_conv_pause: false,
-        conv_pause_delay: 0,
+        conv_pause_delay: None,
         power: PoweredClock::NormalEnabledDeepSleepDisabled,
         source: AdcClockSel::FroLfDiv,
         div: Div4::no_div(),
