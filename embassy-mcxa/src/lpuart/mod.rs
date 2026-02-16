@@ -40,7 +40,48 @@ struct State {
     tx_buf: RingBuffer,
     rx_waker: AtomicWaker,
     rx_buf: RingBuffer,
-    tx_rx_refcount: AtomicU8,
+    tx_rx_refmask: TxRxRefMask,
+}
+
+/// Value corresponding to either the Tx or the Rx part of the Uart being active.
+#[derive(Clone, Copy)]
+#[repr(u8)]
+enum TxRxRef {
+    Rx = 0b01,
+    Tx = 0b10,
+}
+
+/// Mask that stores whether a Tx and/or Rx part of the Uart is active.
+///
+/// Used in constructors and Drop to manage the peripheral lifetime.
+struct TxRxRefMask(AtomicU8);
+
+impl TxRxRefMask {
+    pub const fn new() -> Self {
+        Self(AtomicU8::new(0))
+    }
+
+    /// Atomically signal that either the Tx or Rx has been dropped.
+    ///
+    /// Returns `true` if all parts have been dropped.
+    pub fn unalive(&self, value: TxRxRef) -> bool {
+        let value = value as u8;
+        self.0.fetch_and(!value, Ordering::AcqRel) == value
+    }
+
+    /// Atomically signal that either the Tx or Rx has been created.
+    pub fn alive(&self, value: TxRxRef) {
+        let value = value as u8;
+        self.0.fetch_or(value, Ordering::AcqRel);
+    }
+
+    /// Atomically determine if either channels have been created, but not dropped. Clears the state.
+    ///
+    /// Should only be relevant when any of the parts have been leaked using [core::mem::forget].
+    pub fn check_alive_reset(&self) -> bool {
+        // 'and' with zero clears the value.
+        self.0.fetch_and(0, Ordering::AcqRel) != 0
+    }
 }
 
 impl Default for State {
@@ -57,7 +98,7 @@ impl State {
             tx_buf: RingBuffer::new(),
             rx_waker: AtomicWaker::new(),
             rx_buf: RingBuffer::new(),
-            tx_rx_refcount: AtomicU8::new(0),
+            tx_rx_refmask: TxRxRefMask::new(),
         }
     }
 }
@@ -712,29 +753,30 @@ pub struct LpuartRx<'a, M: Mode> {
     _phantom: PhantomData<&'a ()>,
 }
 
-fn drop_tx_rx(info: &'static Info, state: &'static State) {
-    let is_last_drop = state.tx_rx_refcount.fetch_sub(1, Ordering::AcqRel) == 1;
-    if is_last_drop {
-        // Wait for TX operations to complete
-        wait_for_tx_complete(info);
+fn disable_peripheral(info: &'static Info) {
+    // Wait for TX operations to complete
+    wait_for_tx_complete(info);
 
-        // Clear all status flags
-        clear_all_status_flags(info);
+    // Clear all status flags
+    clear_all_status_flags(info);
 
-        // Disable the module - clear all CTRL register bits
-        info.regs().ctrl().write(|w| w.0 = 0);
-    }
+    // Disable the module - clear all CTRL register bits
+    info.regs().ctrl().write(|w| w.0 = 0);
 }
 
 impl<M: Mode> Drop for LpuartTx<'_, M> {
     fn drop(&mut self) {
-        drop_tx_rx(self.info, self.state);
+        if self.state.tx_rx_refmask.unalive(TxRxRef::Tx) {
+            disable_peripheral(self.info);
+        }
     }
 }
 
 impl<M: Mode> Drop for LpuartRx<'_, M> {
     fn drop(&mut self) {
-        drop_tx_rx(self.info, self.state);
+        if self.state.tx_rx_refmask.unalive(TxRxRef::Rx) {
+            disable_peripheral(self.info);
+        }
     }
 }
 
@@ -746,6 +788,11 @@ impl<'a, M: Mode> Lpuart<'a, M> {
         enable_rx_rts: bool,
         config: Config,
     ) -> Result<Option<WakeGuard>> {
+        // Check if the peripheral was leaked using [core::mem::forget], and clean up the peripheral.
+        if T::state().tx_rx_refmask.check_alive_reset() {
+            disable_peripheral(T::info());
+        }
+
         // Enable clocks
         let conf = LpuartConfig {
             power: config.power,
@@ -788,7 +835,7 @@ impl<'a, M: Mode> LpuartTx<'a, M> {
         mode: M,
         wg: Option<WakeGuard>,
     ) -> Self {
-        T::state().tx_rx_refcount.fetch_add(1, Ordering::AcqRel);
+        T::state().tx_rx_refmask.alive(TxRxRef::Tx);
 
         Self {
             info: T::info(),
@@ -808,7 +855,7 @@ impl<'a, M: Mode> LpuartRx<'a, M> {
         mode: M,
         _wg: Option<WakeGuard>,
     ) -> Self {
-        T::state().tx_rx_refcount.fetch_add(1, Ordering::AcqRel);
+        T::state().tx_rx_refmask.alive(TxRxRef::Rx);
 
         Self {
             info: T::info(),
