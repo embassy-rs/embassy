@@ -222,9 +222,8 @@ impl<'s, 'd, W: Word> Reader<'s, 'd, W> {
     /// Can be used to prevent overrun.
     /// The ringbuffer will always auto-reset on Overrun in any case.
     ///
-    /// NOTE: This only clears the DMA buffer and is not synchronized to WS/LR clock, so the order
-    /// of channels may or may not be swapped after this. A full restart is required to ensure
-    /// buffer contents and I2S transmissions are in sync.
+    /// After reset, the next read will automatically realign to a frame boundary,
+    /// discarding any partial frame at the current DMA position.
     pub fn reset(&mut self) {
         self.0.clear();
     }
@@ -445,9 +444,8 @@ impl<'d, W: Word> I2S<'d, W> {
     /// Reset the ring buffer to its initial state.
     /// Can be used to recover from overrun.
     ///
-    /// NOTE: This only clears the DMA buffer and is not synchronized to WS/LR clock, so the order
-    /// of channels may or may not be swapped after this. A full restart is required to ensure
-    /// buffer contents and I2S transmissions are in sync.
+    /// After reset, the next RX read will automatically realign to a frame boundary,
+    /// discarding any partial frame at the current DMA position.
     pub fn clear(&mut self) {
         if let Some(rx_ring_buffer) = &mut self.rx_ring_buffer {
             rx_ring_buffer.clear();
@@ -641,6 +639,14 @@ impl<'d, W: Word> I2S<'d, W> {
         let mut opts = TransferOptions::default();
         opts.half_transfer_ir = true;
 
+        // Compute stereo frame size in DMA half-words for ring buffer alignment.
+        // 16-bit channel width: 1 half-word per channel × 2 channels = 2
+        // 32-bit channel width: 2 half-words per channel × 2 channels = 4
+        let frame_words = match config.format.chlen() {
+            vals::Chlen::BITS16 => 2,
+            vals::Chlen::BITS32 => 4,
+        };
+
         Self {
             mode: config.mode,
             spi,
@@ -651,8 +657,11 @@ impl<'d, W: Word> I2S<'d, W> {
             _mck: mck.map(|w| w.into()),
             tx_ring_buffer: txdma
                 .map(|(ch, buf)| unsafe { WritableRingBuffer::new(ch.channel, ch.request, regs.tx_ptr(), buf, opts) }),
-            rx_ring_buffer: rxdma
-                .map(|(ch, buf)| unsafe { ReadableRingBuffer::new(ch.channel, ch.request, regs.rx_ptr(), buf, opts) }),
+            rx_ring_buffer: rxdma.map(|(ch, buf)| {
+                let mut rb = unsafe { ReadableRingBuffer::new(ch.channel, ch.request, regs.rx_ptr(), buf, opts) };
+                rb.set_alignment(frame_words);
+                rb
+            }),
         }
     }
 }

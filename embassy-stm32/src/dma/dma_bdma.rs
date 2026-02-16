@@ -1247,6 +1247,13 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         self.channel.start();
     }
 
+    /// Set the frame alignment for the ring buffer.
+    ///
+    /// See [`ReadableDmaRingBuffer::set_alignment`] for details.
+    pub fn set_alignment(&mut self, alignment: usize) {
+        self.ringbuf.set_alignment(alignment);
+    }
+
     /// Clear all data in the ring buffer.
     pub fn clear(&mut self) {
         self.ringbuf.reset(&mut DmaCtrlImpl(self.channel.reborrow()));
