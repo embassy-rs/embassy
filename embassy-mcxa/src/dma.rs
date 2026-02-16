@@ -103,7 +103,7 @@
 use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
-use core::ptr::NonNull;
+use core::ptr::{NonNull, addr_of_mut};
 use core::sync::atomic::{AtomicUsize, Ordering, fence};
 use core::task::{Context, Poll};
 
@@ -1198,6 +1198,83 @@ impl DmaChannel<'_> {
         cortex_m::asm::dsb();
 
         Transfer::new(self.reborrow())
+    }
+
+    /// Configure a memory-to-peripheral DMA transfer without starting it.
+    ///
+    /// This configures the TCD for a memory-to-peripheral transfer but does NOT
+    /// return a Transfer object. The caller is responsible for:
+    /// 1. Enabling the peripheral's DMA request
+    /// 2. Calling `enable_request()` to start the transfer
+    /// 3. Polling `is_done()` or using interrupts to detect completion
+    /// 4. Calling `disable_request()`, `clear_done()`, `clear_interrupt()` for cleanup
+    ///
+    /// Use this when you need manual control over the DMA lifecycle (e.g., in
+    /// peripheral drivers that have their own completion polling).
+    ///
+    /// # Arguments
+    ///
+    /// * `peri_addr` - Peripheral register address
+    /// * `enable_interrupt` - Whether to enable interrupt on completion
+    ///
+    /// # Safety
+    ///
+    /// - The buffer must remain valid for the duration of the transfer.
+    /// - The peripheral address must be valid for writes.
+    pub unsafe fn setup_write_zeros_to_peripheral<W: Word>(
+        &self,
+        count: usize,
+        peri_addr: *mut W,
+        enable_interrupt: EnableInterrupt,
+    ) {
+        assert!(count <= 0x7fff);
+
+        // static mut so that this is allocated in RAM.
+        static mut DUMMY: u32 = 0;
+
+        let size = W::size();
+        let byte_size = size.bytes();
+
+        let t = self.tcd();
+
+        // Reset channel state
+        Self::reset_channel_state(&t);
+
+        // Addresses
+        Self::set_source_ptr(&t, addr_of_mut!(DUMMY) as *const W);
+        Self::set_dest_ptr(&t, peri_addr);
+
+        // Offsets: Source increments, Dest fixed
+        Self::set_source_fixed(&t);
+        Self::set_dest_fixed(&t);
+
+        // Attributes: set size and explicitly disable modulo
+        Self::set_even_transfer_size(&t, size);
+
+        // Minor loop: transfer one word per request
+        Self::set_minor_loop_ct_no_offsets(&t, byte_size as u32);
+
+        // No final adjustments
+        Self::set_no_final_adjustments(&t);
+
+        // Major loop count = number of words
+        let count = count as u16;
+        Self::set_major_loop_ct_elinkno(&t, count);
+
+        // CSR: optional interrupt on major loop complete and auto-clear ERQ
+        t.tcd_csr().write(|w| {
+            w.set_intmajor(matches!(enable_interrupt, EnableInterrupt::Yes));
+            w.set_inthalf(false);
+            w.set_dreq(Dreq::ERQ_FIELD_CLEAR);
+            w.set_esg(Esg::NORMAL_FORMAT);
+            w.set_majorelink(false);
+            w.set_eeop(false);
+            w.set_esda(false);
+            w.set_bwc(Bwc::NO_STALL);
+        });
+
+        // Ensure all TCD writes have completed before DMA engine reads them
+        cortex_m::asm::dsb();
     }
 
     /// Configure a memory-to-peripheral DMA transfer without starting it.

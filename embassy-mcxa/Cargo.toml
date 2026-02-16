@@ -30,6 +30,7 @@ cortex-m-rt = { version = "0.7", features = ["device"] }
 critical-section = "1.2.0"
 defmt = { version = "1.0", optional = true }
 embassy-embedded-hal = { version = "0.5.0", path = "../embassy-embedded-hal" }
+embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-hal-internal = { version = "0.4.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-3"] }
 embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
