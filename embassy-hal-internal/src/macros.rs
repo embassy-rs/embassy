@@ -20,7 +20,7 @@ macro_rules! peripherals_definition {
                     ///
                     /// You must ensure that you're only using one instance of this type at a time.
                     #[inline]
-                    pub unsafe fn steal() -> $crate::Peri<'static, Self> {
+                    pub const unsafe fn steal() -> $crate::Peri<'static, Self> {
                         $crate::Peri::new_unchecked(Self{ _private: ()})
                     }
                 }
