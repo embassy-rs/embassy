@@ -1,7 +1,10 @@
 use core::future::Future;
 use core::marker::PhantomData;
+use core::sync::atomic::{AtomicU8, Ordering};
 
+use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
 use embassy_hal_internal::{Peri, PeripheralType};
+use embassy_sync::waitqueue::AtomicWaker;
 use paste::paste;
 
 use crate::clocks::periph_helpers::{Div4, LpuartClockSel, LpuartConfig};
@@ -29,7 +32,74 @@ mod sealed {
 
 trait SealedInstance {
     fn info() -> &'static Info;
-    fn buffered_state() -> &'static buffered::State;
+    fn state() -> &'static State;
+}
+
+struct State {
+    tx_waker: AtomicWaker,
+    tx_buf: RingBuffer,
+    rx_waker: AtomicWaker,
+    rx_buf: RingBuffer,
+    tx_rx_refmask: TxRxRefMask,
+}
+
+/// Value corresponding to either the Tx or the Rx part of the Uart being active.
+#[derive(Clone, Copy)]
+#[repr(u8)]
+enum TxRxRef {
+    Rx = 0b01,
+    Tx = 0b10,
+}
+
+/// Mask that stores whether a Tx and/or Rx part of the Uart is active.
+///
+/// Used in constructors and Drop to manage the peripheral lifetime.
+struct TxRxRefMask(AtomicU8);
+
+impl TxRxRefMask {
+    pub const fn new() -> Self {
+        Self(AtomicU8::new(0))
+    }
+
+    /// Atomically signal that either the Tx or Rx has been dropped.
+    ///
+    /// Returns `true` if after this call all parts are inactive.
+    pub fn set_inactive_fetch_last(&self, value: TxRxRef) -> bool {
+        let value = value as u8;
+        self.0.fetch_and(!value, Ordering::AcqRel) & !value == 0
+    }
+
+    /// Atomically signal that either the Tx or Rx has been created.
+    pub fn set_active(&self, value: TxRxRef) {
+        let value = value as u8;
+        self.0.fetch_or(value, Ordering::AcqRel);
+    }
+
+    /// Atomically determine if either channels have been created, but not dropped. Clears the state.
+    ///
+    /// Should only be relevant when any of the parts have been leaked using [core::mem::forget].
+    pub fn fetch_any_alive_reset(&self) -> bool {
+        self.0.swap(0, Ordering::AcqRel) != 0
+    }
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl State {
+    /// Create a new state instance
+    pub const fn new() -> Self {
+        Self {
+            tx_waker: AtomicWaker::new(),
+            tx_buf: RingBuffer::new(),
+            rx_waker: AtomicWaker::new(),
+            rx_buf: RingBuffer::new(),
+            tx_rx_refmask: TxRxRefMask::new(),
+        }
+    }
 }
 
 struct Info {
@@ -70,9 +140,9 @@ macro_rules! impl_instance {
                         &INFO
                     }
 
-                    fn buffered_state() -> &'static buffered::State {
-                        static BUFFERED_STATE: buffered::State = buffered::State::new();
-                        &BUFFERED_STATE
+                    fn state() -> &'static State {
+                        static STATE: State = State::new();
+                        &STATE
                     }
                 }
 
@@ -630,7 +700,6 @@ pub trait Mode: sealed::Sealed {}
 
 /// Lpuart driver.
 pub struct Lpuart<'a, M: Mode> {
-    info: &'static Info,
     tx: LpuartTx<'a, M>,
     rx: LpuartRx<'a, M>,
 }
@@ -666,6 +735,7 @@ impl Drop for RxPins<'_> {
 /// Lpuart TX driver.
 pub struct LpuartTx<'a, M: Mode> {
     info: &'static Info,
+    state: &'static State,
     mode: M,
     _tx_pins: TxPins<'a>,
     _wg: Option<WakeGuard>,
@@ -675,10 +745,38 @@ pub struct LpuartTx<'a, M: Mode> {
 /// Lpuart Rx driver.
 pub struct LpuartRx<'a, M: Mode> {
     info: &'static Info,
+    state: &'static State,
     mode: M,
     _rx_pins: RxPins<'a>,
     _wg: Option<WakeGuard>,
     _phantom: PhantomData<&'a ()>,
+}
+
+fn disable_peripheral(info: &'static Info) {
+    // Wait for TX operations to complete
+    wait_for_tx_complete(info);
+
+    // Clear all status flags
+    clear_all_status_flags(info);
+
+    // Disable the module - clear all CTRL register bits
+    info.regs().ctrl().write(|w| w.0 = 0);
+}
+
+impl<M: Mode> Drop for LpuartTx<'_, M> {
+    fn drop(&mut self) {
+        if self.state.tx_rx_refmask.set_inactive_fetch_last(TxRxRef::Tx) {
+            disable_peripheral(self.info);
+        }
+    }
+}
+
+impl<M: Mode> Drop for LpuartRx<'_, M> {
+    fn drop(&mut self) {
+        if self.state.tx_rx_refmask.set_inactive_fetch_last(TxRxRef::Rx) {
+            disable_peripheral(self.info);
+        }
+    }
 }
 
 impl<'a, M: Mode> Lpuart<'a, M> {
@@ -689,6 +787,11 @@ impl<'a, M: Mode> Lpuart<'a, M> {
         enable_rx_rts: bool,
         config: Config,
     ) -> Result<Option<WakeGuard>> {
+        // Check if the peripheral was leaked using [core::mem::forget], and clean up the peripheral.
+        if T::state().tx_rx_refmask.fetch_any_alive_reset() {
+            disable_peripheral(T::info());
+        }
+
         // Enable clocks
         let conf = LpuartConfig {
             power: config.power,
@@ -713,20 +816,6 @@ impl<'a, M: Mode> Lpuart<'a, M> {
         Ok(parts.wake_guard)
     }
 
-    /// Deinitialize the LPUART peripheral
-    pub fn deinit(&self) -> Result<()> {
-        // Wait for TX operations to complete
-        wait_for_tx_complete(self.info);
-
-        // Clear all status flags
-        clear_all_status_flags(self.info);
-
-        // Disable the module - clear all CTRL register bits
-        self.info.regs().ctrl().write(|w| w.0 = 0);
-
-        Ok(())
-    }
-
     /// Split the Lpuart into a transmitter and receiver
     pub fn split(self) -> (LpuartTx<'a, M>, LpuartRx<'a, M>) {
         (self.tx, self.rx)
@@ -739,15 +828,17 @@ impl<'a, M: Mode> Lpuart<'a, M> {
 }
 
 impl<'a, M: Mode> LpuartTx<'a, M> {
-    fn new_inner(
-        info: &'static Info,
+    fn new_inner<T: Instance>(
         tx_pin: Peri<'a, AnyPin>,
         cts_pin: Option<Peri<'a, AnyPin>>,
         mode: M,
         wg: Option<WakeGuard>,
     ) -> Self {
+        T::state().tx_rx_refmask.set_active(TxRxRef::Tx);
+
         Self {
-            info,
+            info: T::info(),
+            state: T::state(),
             mode,
             _tx_pins: TxPins { tx_pin, cts_pin },
             _wg: wg,
@@ -757,15 +848,17 @@ impl<'a, M: Mode> LpuartTx<'a, M> {
 }
 
 impl<'a, M: Mode> LpuartRx<'a, M> {
-    fn new_inner(
-        info: &'static Info,
+    fn new_inner<T: Instance>(
         rx_pin: Peri<'a, AnyPin>,
         rts_pin: Option<Peri<'a, AnyPin>>,
         mode: M,
         _wg: Option<WakeGuard>,
     ) -> Self {
+        T::state().tx_rx_refmask.set_active(TxRxRef::Rx);
+
         Self {
-            info,
+            info: T::info(),
+            state: T::state(),
             mode,
             _rx_pins: RxPins { rx_pin, rts_pin },
             _wg,

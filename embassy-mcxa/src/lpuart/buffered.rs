@@ -1,11 +1,8 @@
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
 
 use embassy_hal_internal::Peri;
-use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
-use embassy_sync::waitqueue::AtomicWaker;
 
 use super::*;
 use crate::clocks::WakeGuard;
@@ -13,39 +10,9 @@ use crate::interrupt::typelevel::Interrupt;
 use crate::interrupt::{self};
 
 /// Async buffered mode where the bytes are pumped by the interrupt handler.
-pub struct Buffered {
-    state: &'static State,
-}
+pub struct Buffered;
 impl sealed::Sealed for Buffered {}
 impl Mode for Buffered {}
-
-/// State for buffered LPUART operations
-pub(crate) struct State {
-    tx_waker: AtomicWaker,
-    tx_buf: RingBuffer,
-    rx_waker: AtomicWaker,
-    rx_buf: RingBuffer,
-    initialized: AtomicBool,
-}
-
-impl Default for State {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl State {
-    /// Create a new state instance
-    pub const fn new() -> Self {
-        Self {
-            tx_waker: AtomicWaker::new(),
-            tx_buf: RingBuffer::new(),
-            rx_waker: AtomicWaker::new(),
-            rx_buf: RingBuffer::new(),
-            initialized: AtomicBool::new(false),
-        }
-    }
-}
 
 impl<'a> Lpuart<'a, Buffered> {
     /// Common initialization logic
@@ -57,29 +24,21 @@ impl<'a> Lpuart<'a, Buffered> {
         enable_rx: bool,
         enable_rts: bool,
         enable_cts: bool,
-    ) -> Result<(&'static State, Option<WakeGuard>)> {
-        let state = T::buffered_state();
-
-        if state.initialized.load(Ordering::Relaxed) {
-            return Err(Error::InvalidArgument);
-        }
-
+    ) -> Result<Option<WakeGuard>> {
         // Initialize buffers
         if let Some(tx_buffer) = tx_buffer {
             if tx_buffer.is_empty() {
                 return Err(Error::InvalidArgument);
             }
-            unsafe { state.tx_buf.init(tx_buffer.as_mut_ptr(), tx_buffer.len()) };
+            unsafe { T::state().tx_buf.init(tx_buffer.as_mut_ptr(), tx_buffer.len()) };
         }
 
         if let Some(rx_buffer) = rx_buffer {
             if rx_buffer.is_empty() {
                 return Err(Error::InvalidArgument);
             }
-            unsafe { state.rx_buf.init(rx_buffer.as_mut_ptr(), rx_buffer.len()) };
+            unsafe { T::state().rx_buf.init(rx_buffer.as_mut_ptr(), rx_buffer.len()) };
         }
-
-        state.initialized.store(true, Ordering::Relaxed);
 
         // Enable clocks and initialize hardware
         let conf = LpuartConfig {
@@ -109,7 +68,7 @@ impl<'a> Lpuart<'a, Buffered> {
             T::Interrupt::enable();
         }
 
-        Ok((state, parts.wake_guard))
+        Ok(parts.wake_guard)
     }
 
     /// Helper for full-duplex initialization
@@ -121,8 +80,8 @@ impl<'a> Lpuart<'a, Buffered> {
         tx_buffer: &'a mut [u8],
         rx_buffer: &'a mut [u8],
         config: Config,
-    ) -> Result<(LpuartTx<'a, Buffered>, LpuartRx<'a, Buffered>)> {
-        let (state, wg) = Self::init_buffered::<T>(
+    ) -> Result<Self> {
+        let wg = Self::init_buffered::<T>(
             Some(tx_buffer),
             Some(rx_buffer),
             config,
@@ -132,10 +91,10 @@ impl<'a> Lpuart<'a, Buffered> {
             cts_pin.is_some(),
         )?;
 
-        Ok((
-            LpuartTx::new_inner(T::info(), tx_pin, cts_pin, Buffered { state }, wg.clone()),
-            LpuartRx::new_inner(T::info(), rx_pin, rts_pin, Buffered { state }, wg),
-        ))
+        Ok(Self {
+            tx: LpuartTx::new_inner::<T>(tx_pin, cts_pin, Buffered, wg.clone()),
+            rx: LpuartRx::new_inner::<T>(rx_pin, rts_pin, Buffered, wg),
+        })
     }
 
     /// Create a new full duplex buffered LPUART.
@@ -153,14 +112,7 @@ impl<'a> Lpuart<'a, Buffered> {
         tx_pin.as_tx();
         rx_pin.as_rx();
 
-        let (tx, rx) =
-            Self::new_inner_buffered::<T>(tx_pin.into(), rx_pin.into(), None, None, tx_buffer, rx_buffer, config)?;
-
-        Ok(Self {
-            info: T::info(),
-            tx,
-            rx,
-        })
+        Self::new_inner_buffered::<T>(tx_pin.into(), rx_pin.into(), None, None, tx_buffer, rx_buffer, config)
     }
 
     /// Create a new buffered LPUART instance with RTS/CTS flow control.
@@ -182,7 +134,7 @@ impl<'a> Lpuart<'a, Buffered> {
         rts_pin.as_rts();
         cts_pin.as_cts();
 
-        let (tx, rx) = Self::new_inner_buffered::<T>(
+        Self::new_inner_buffered::<T>(
             tx_pin.into(),
             rx_pin.into(),
             Some(rts_pin.into()),
@@ -190,13 +142,7 @@ impl<'a> Lpuart<'a, Buffered> {
             tx_buffer,
             rx_buffer,
             config,
-        )?;
-
-        Ok(Self {
-            info: T::info(),
-            tx,
-            rx,
-        })
+        )
     }
 
     /// Create a new buffered LPUART with only RTS flow control (RX flow control).
@@ -216,7 +162,7 @@ impl<'a> Lpuart<'a, Buffered> {
         rx_pin.as_rx();
         rts_pin.as_rts();
 
-        let (tx, rx) = Self::new_inner_buffered::<T>(
+        Self::new_inner_buffered::<T>(
             tx_pin.into(),
             rx_pin.into(),
             Some(rts_pin.into()),
@@ -224,13 +170,7 @@ impl<'a> Lpuart<'a, Buffered> {
             tx_buffer,
             rx_buffer,
             config,
-        )?;
-
-        Ok(Self {
-            info: T::info(),
-            tx,
-            rx,
-        })
+        )
     }
 
     /// Create a new buffered LPUART with only CTS flow control (TX flow control).
@@ -250,7 +190,7 @@ impl<'a> Lpuart<'a, Buffered> {
         rx_pin.as_rx();
         cts_pin.as_cts();
 
-        let (tx, rx) = Self::new_inner_buffered::<T>(
+        Self::new_inner_buffered::<T>(
             tx_pin.into(),
             rx_pin.into(),
             None,
@@ -258,13 +198,7 @@ impl<'a> Lpuart<'a, Buffered> {
             tx_buffer,
             rx_buffer,
             config,
-        )?;
-
-        Ok(Self {
-            info: T::info(),
-            tx,
-            rx,
-        })
+        )
     }
 }
 
@@ -276,7 +210,7 @@ impl<'a> LpuartTx<'a, Buffered> {
         tx_buffer: &'a mut [u8],
         config: Config,
     ) -> Result<Self> {
-        let (state, wg) = Lpuart::<'a, Buffered>::init_buffered::<T>(
+        let wg = Lpuart::<'a, Buffered>::init_buffered::<T>(
             Some(tx_buffer),
             None,
             config,
@@ -286,7 +220,7 @@ impl<'a> LpuartTx<'a, Buffered> {
             cts_pin.is_some(),
         )?;
 
-        Ok(Self::new_inner(T::info(), tx_pin, cts_pin, Buffered { state }, wg))
+        Ok(Self::new_inner::<T>(tx_pin, cts_pin, Buffered, wg))
     }
 
     /// Create a new TX-only LPUART.
@@ -335,9 +269,9 @@ impl<'a> LpuartTx<'a, Buffered> {
     pub fn write(&mut self, buf: &[u8]) -> impl Future<Output = Result<usize>> {
         // Wait for space in the buffer
         poll_fn(move |cx| {
-            self.mode.state.tx_waker.register(cx.waker());
+            self.state.tx_waker.register(cx.waker());
 
-            let mut writer = unsafe { self.mode.state.tx_buf.writer() };
+            let mut writer = unsafe { self.state.tx_buf.writer() };
             let written = writer.push(|slice| {
                 let write_len = slice.len().min(buf.len());
                 slice[..write_len].copy_from_slice(&buf[..write_len]);
@@ -363,9 +297,9 @@ impl<'a> LpuartTx<'a, Buffered> {
     pub fn flush(&mut self) -> impl Future<Output = Result<()>> {
         // Wait for TX buffer to empty and transmission to complete
         poll_fn(|cx| {
-            self.mode.state.tx_waker.register(cx.waker());
+            self.state.tx_waker.register(cx.waker());
 
-            let tx_empty = self.mode.state.tx_buf.is_empty();
+            let tx_empty = self.state.tx_buf.is_empty();
             let fifo_empty = self.info.regs().water().read().txcount() == 0;
             let tc_complete = self.info.regs().stat().read().tc() == Tc::COMPLETE;
 
@@ -379,7 +313,7 @@ impl<'a> LpuartTx<'a, Buffered> {
 
     /// Try to write without blocking
     pub fn try_write(&mut self, buf: &[u8]) -> Result<usize> {
-        let mut writer = unsafe { self.mode.state.tx_buf.writer() };
+        let mut writer = unsafe { self.state.tx_buf.writer() };
         let mut written = 0;
 
         for &byte in buf {
@@ -409,7 +343,7 @@ impl<'a> LpuartRx<'a, Buffered> {
         rx_buffer: &'a mut [u8],
         config: Config,
     ) -> Result<Self> {
-        let (state, wg) = Lpuart::<'a, Buffered>::init_buffered::<T>(
+        let wg = Lpuart::<'a, Buffered>::init_buffered::<T>(
             None,
             Some(rx_buffer),
             config,
@@ -419,7 +353,7 @@ impl<'a> LpuartRx<'a, Buffered> {
             false,
         )?;
 
-        Ok(Self::new_inner(T::info(), rx_pin, rts_pin, Buffered { state }, wg))
+        Ok(Self::new_inner::<T>(rx_pin, rts_pin, Buffered, wg))
     }
 
     /// Create a new RX-only buffered LPUART.
@@ -480,14 +414,14 @@ impl<'a> LpuartRx<'a, Buffered> {
 
         // Try to read available data
         poll_fn(|cx| {
-            self.mode.state.rx_waker.register(cx.waker());
+            self.state.rx_waker.register(cx.waker());
 
             // Disable RX interrupt while reading from buffer
             cortex_m::interrupt::free(|_| {
                 self.info.regs().ctrl().modify(|w| w.set_rie(false));
             });
 
-            let mut reader = unsafe { self.mode.state.rx_buf.reader() };
+            let mut reader = unsafe { self.state.rx_buf.reader() };
             let available = reader.pop(|data| {
                 let to_copy = core::cmp::min(data.len(), buf.len() - read);
                 if to_copy > 0 {
@@ -524,7 +458,7 @@ impl<'a> LpuartRx<'a, Buffered> {
             self.info.regs().ctrl().modify(|w| w.set_rie(false));
         });
 
-        let mut reader = unsafe { self.mode.state.rx_buf.reader() };
+        let mut reader = unsafe { self.state.rx_buf.reader() };
         let read = reader.pop(|data| {
             let to_copy = core::cmp::min(data.len(), buf.len());
             if to_copy > 0 {
@@ -550,117 +484,111 @@ pub struct BufferedInterruptHandler<T: Instance> {
 impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for BufferedInterruptHandler<T> {
     unsafe fn on_interrupt() {
         T::PERF_INT_INCR();
-        unsafe {
-            let regs = T::info().regs();
-            let state = T::buffered_state();
 
-            // Check if this instance is initialized
-            if !state.initialized.load(Ordering::Relaxed) {
-                return;
-            }
+        let regs = T::info().regs();
+        let state = T::state();
 
-            let ctrl = regs.ctrl().read();
-            let stat = regs.stat().read();
-            let has_fifo = regs.param().read().rxfifo() > 0;
+        let ctrl = regs.ctrl().read();
+        let stat = regs.stat().read();
+        let has_fifo = regs.param().read().rxfifo() > 0;
 
-            // Handle overrun error
-            if stat.or() {
-                regs.stat().write(|w| w.set_or(true));
-                T::PERF_INT_WAKE_INCR();
-                state.rx_waker.wake();
-                return;
-            }
+        // Handle overrun error
+        if stat.or() {
+            regs.stat().write(|w| w.set_or(true));
+            T::PERF_INT_WAKE_INCR();
+            state.rx_waker.wake();
+            return;
+        }
 
-            // Clear other error flags
-            if stat.pf() {
-                regs.stat().write(|w| w.set_pf(true));
-            }
-            if stat.fe() {
-                regs.stat().write(|w| w.set_fe(true));
-            }
-            if stat.nf() {
-                regs.stat().write(|w| w.set_nf(true));
-            }
+        // Clear other error flags
+        if stat.pf() {
+            regs.stat().write(|w| w.set_pf(true));
+        }
+        if stat.fe() {
+            regs.stat().write(|w| w.set_fe(true));
+        }
+        if stat.nf() {
+            regs.stat().write(|w| w.set_nf(true));
+        }
 
-            // Handle RX data
-            if ctrl.rie() && (has_data(T::info()) || stat.idle()) {
-                let mut pushed_any = false;
-                let mut writer = state.rx_buf.writer();
+        // Handle RX data
+        if ctrl.rie() && (has_data(T::info()) || stat.idle()) {
+            let mut pushed_any = false;
+            let mut writer = unsafe { state.rx_buf.writer() };
 
-                if has_fifo {
-                    // Read from FIFO
-                    while regs.water().read().rxcount() > 0 {
-                        let byte = (regs.data().read().0 & 0xFF) as u8;
-                        if writer.push_one(byte) {
-                            pushed_any = true;
-                        } else {
-                            // Buffer full, stop reading
-                            break;
-                        }
-                    }
-                } else {
-                    // Read single byte
-                    if regs.stat().read().rdrf() {
-                        let byte = (regs.data().read().0 & 0xFF) as u8;
-                        if writer.push_one(byte) {
-                            pushed_any = true;
-                        }
-                    }
-                }
-
-                if pushed_any {
-                    T::PERF_INT_WAKE_INCR();
-                    state.rx_waker.wake();
-                }
-
-                // Clear idle flag if set
-                if stat.idle() {
-                    regs.stat().write(|w| w.set_idle(true));
-                }
-            }
-
-            // Handle TX data
-            if ctrl.tie() {
-                let mut sent_any = false;
-                let mut reader = state.tx_buf.reader();
-
-                // Send data while TX buffer is ready and we have data
-                while regs.stat().read().tdre() == Tdre::NO_TXDATA {
-                    if let Some(byte) = reader.pop_one() {
-                        regs.data().write(|w| w.0 = u32::from(byte));
-                        sent_any = true;
+            if has_fifo {
+                // Read from FIFO
+                while regs.water().read().rxcount() > 0 {
+                    let byte = (regs.data().read().0 & 0xFF) as u8;
+                    if writer.push_one(byte) {
+                        pushed_any = true;
                     } else {
-                        // No more data to send
+                        // Buffer full, stop reading
                         break;
                     }
                 }
-
-                if sent_any {
-                    T::PERF_INT_WAKE_INCR();
-                    state.tx_waker.wake();
-                }
-
-                // If buffer is empty, switch to TC interrupt or disable
-                if state.tx_buf.is_empty() {
-                    cortex_m::interrupt::free(|_| {
-                        regs.ctrl().modify(|w| {
-                            w.set_tie(false);
-                            w.set_tcie(true);
-                        });
-                    });
+            } else {
+                // Read single byte
+                if regs.stat().read().rdrf() {
+                    let byte = (regs.data().read().0 & 0xFF) as u8;
+                    if writer.push_one(byte) {
+                        pushed_any = true;
+                    }
                 }
             }
 
-            // Handle transmission complete
-            if ctrl.tcie() && regs.stat().read().tc() == Tc::COMPLETE {
+            if pushed_any {
+                T::PERF_INT_WAKE_INCR();
+                state.rx_waker.wake();
+            }
+
+            // Clear idle flag if set
+            if stat.idle() {
+                regs.stat().write(|w| w.set_idle(true));
+            }
+        }
+
+        // Handle TX data
+        if ctrl.tie() {
+            let mut sent_any = false;
+            let mut reader = unsafe { state.tx_buf.reader() };
+
+            // Send data while TX buffer is ready and we have data
+            while regs.stat().read().tdre() == Tdre::NO_TXDATA {
+                if let Some(byte) = reader.pop_one() {
+                    regs.data().write(|w| w.0 = u32::from(byte));
+                    sent_any = true;
+                } else {
+                    // No more data to send
+                    break;
+                }
+            }
+
+            if sent_any {
                 T::PERF_INT_WAKE_INCR();
                 state.tx_waker.wake();
+            }
 
-                // Disable TC interrupt
+            // If buffer is empty, switch to TC interrupt or disable
+            if state.tx_buf.is_empty() {
                 cortex_m::interrupt::free(|_| {
-                    regs.ctrl().modify(|w| w.set_tcie(false));
+                    regs.ctrl().modify(|w| {
+                        w.set_tie(false);
+                        w.set_tcie(true);
+                    });
                 });
             }
+        }
+
+        // Handle transmission complete
+        if ctrl.tcie() && regs.stat().read().tc() == Tc::COMPLETE {
+            T::PERF_INT_WAKE_INCR();
+            state.tx_waker.wake();
+
+            // Disable TC interrupt
+            cortex_m::interrupt::free(|_| {
+                regs.ctrl().modify(|w| w.set_tcie(false));
+            });
         }
     }
 }

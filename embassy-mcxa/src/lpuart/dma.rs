@@ -1,5 +1,4 @@
 use core::future::Future;
-use core::marker::PhantomData;
 
 use embassy_hal_internal::Peri;
 
@@ -100,7 +99,7 @@ impl<'a> LpuartTx<'a, Dma<'a>> {
     /// Create a new LPUART TX driver with DMA support.
     ///
     /// Any external pin will be placed into Disabled state upon Drop.
-    pub fn new<T: Instance>(
+    pub fn new_async_with_dma<T: Instance>(
         _inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
         tx_dma_ch: Peri<'a, impl Channel>,
@@ -110,22 +109,21 @@ impl<'a> LpuartTx<'a, Dma<'a>> {
         let tx_pin: Peri<'a, AnyPin> = tx_pin.into();
 
         // Initialize LPUART with TX enabled, RX disabled, no flow control
-        let _wg = Lpuart::<Dma<'_>>::init::<T>(true, false, false, false, config)?;
+        let wg = Lpuart::<Dma<'_>>::init::<T>(true, false, false, false, config)?;
 
         // Enable interrupt
         let dma = DmaChannel::new(tx_dma_ch);
         dma.enable_interrupt();
 
-        Ok(Self {
-            info: T::info(),
-            mode: Dma {
+        Ok(Self::new_inner::<T>(
+            tx_pin,
+            None,
+            Dma {
                 dma,
                 request_number: T::TxDmaRequest::REQUEST_NUMBER,
             },
-            _tx_pins: TxPins { tx_pin, cts_pin: None },
-            _wg,
-            _phantom: PhantomData,
-        })
+            wg,
+        ))
     }
 
     /// Write data using DMA.
@@ -223,7 +221,7 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
     /// Create a new LPUART RX driver with DMA support.
     ///
     /// Any external pin will be placed into Disabled state upon Drop.
-    pub fn new<T: Instance>(
+    pub fn new_async_with_dma<T: Instance>(
         _inner: Peri<'a, T>,
         rx_pin: Peri<'a, impl RxPin<T>>,
         rx_dma_ch: Peri<'a, impl Channel>,
@@ -239,8 +237,7 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
         let dma = DmaChannel::new(rx_dma_ch);
         dma.enable_interrupt();
 
-        Ok(Self::new_inner(
-            T::info(),
+        Ok(Self::new_inner::<T>(
             rx_pin,
             None,
             Dma {
@@ -428,7 +425,7 @@ impl<'a> Lpuart<'a, Dma<'a>> {
         let rx_pin: Peri<'a, AnyPin> = rx_pin.into();
 
         // Initialize LPUART with both TX and RX enabled, no flow control
-        let _wg = Lpuart::<Dma<'a>>::init::<T>(true, true, false, false, config)?;
+        let wg = Lpuart::<Dma<'a>>::init::<T>(true, true, false, false, config)?;
 
         // Enable DMA interrupts
         let tx_dma = DmaChannel::new(tx_dma_ch);
@@ -436,30 +433,25 @@ impl<'a> Lpuart<'a, Dma<'a>> {
         tx_dma.enable_interrupt();
         rx_dma.enable_interrupt();
 
-        let info = T::info();
-
         Ok(Self {
-            info,
-            tx: LpuartTx {
-                info,
-                mode: Dma {
+            tx: LpuartTx::new_inner::<T>(
+                tx_pin,
+                None,
+                Dma {
                     dma: tx_dma,
                     request_number: T::TxDmaRequest::REQUEST_NUMBER,
                 },
-                _tx_pins: TxPins { tx_pin, cts_pin: None },
-                _wg: _wg.clone(),
-                _phantom: PhantomData,
-            },
-            rx: LpuartRx {
-                info,
-                mode: Dma {
+                wg.clone(),
+            ),
+            rx: LpuartRx::new_inner::<T>(
+                rx_pin,
+                None,
+                Dma {
                     dma: rx_dma,
                     request_number: T::RxDmaRequest::REQUEST_NUMBER,
                 },
-                _rx_pins: RxPins { rx_pin, rts_pin: None },
-                _wg,
-                _phantom: PhantomData,
-            },
+                wg,
+            ),
         })
     }
 

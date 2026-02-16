@@ -22,13 +22,10 @@ impl<'a> Lpuart<'a, Blocking> {
         tx_pin.as_tx();
         rx_pin.as_rx();
 
-        // Initialize the peripheral
-        let _wg = Self::init::<T>(true, true, false, false, config)?;
-
+        let wg = Self::init::<T>(true, true, false, false, config)?;
         Ok(Self {
-            info: T::info(),
-            tx: LpuartTx::new_inner(T::info(), tx_pin.into(), None, Blocking, _wg.clone()),
-            rx: LpuartRx::new_inner(T::info(), rx_pin.into(), None, Blocking, _wg),
+            tx: LpuartTx::new_inner::<T>(tx_pin.into(), None, Blocking, wg.clone()),
+            rx: LpuartRx::new_inner::<T>(rx_pin.into(), None, Blocking, wg),
         })
     }
 
@@ -49,13 +46,10 @@ impl<'a> Lpuart<'a, Blocking> {
         rts_pin.as_rts();
         cts_pin.as_cts();
 
-        // Initialize the peripheral with flow control
-        let _wg = Self::init::<T>(true, true, true, true, config)?;
-
+        let wg = Self::init::<T>(true, true, true, true, config)?;
         Ok(Self {
-            info: T::info(),
-            rx: LpuartRx::new_inner(T::info(), rx_pin.into(), Some(rts_pin.into()), Blocking, _wg.clone()),
-            tx: LpuartTx::new_inner(T::info(), tx_pin.into(), Some(cts_pin.into()), Blocking, _wg),
+            rx: LpuartRx::new_inner::<T>(rx_pin.into(), Some(rts_pin.into()), Blocking, wg.clone()),
+            tx: LpuartTx::new_inner::<T>(tx_pin.into(), Some(cts_pin.into()), Blocking, wg),
         })
     }
 
@@ -118,10 +112,8 @@ impl<'a> LpuartTx<'a, Blocking> {
         // Configure the pins for LPUART usage
         tx_pin.as_tx();
 
-        // Initialize the peripheral
-        let _wg = Lpuart::<Blocking>::init::<T>(true, false, false, false, config)?;
-
-        Ok(Self::new_inner(T::info(), tx_pin.into(), None, Blocking, _wg))
+        let wg = Lpuart::<Blocking>::init::<T>(true, false, false, false, config)?;
+        Ok(Self::new_inner::<T>(tx_pin.into(), None, Blocking, wg))
     }
 
     /// Create a new blocking LPUART transmitter instance with CTS flow control.
@@ -136,15 +128,8 @@ impl<'a> LpuartTx<'a, Blocking> {
         tx_pin.as_tx();
         cts_pin.as_cts();
 
-        let _wg = Lpuart::<Blocking>::init::<T>(true, false, true, false, config)?;
-
-        Ok(Self::new_inner(
-            T::info(),
-            tx_pin.into(),
-            Some(cts_pin.into()),
-            Blocking,
-            _wg,
-        ))
+        let wg = Lpuart::<Blocking>::init::<T>(true, false, true, false, config)?;
+        Ok(Self::new_inner::<T>(tx_pin.into(), Some(cts_pin.into()), Blocking, wg))
     }
 
     fn write_byte_internal(&mut self, byte: u8) -> Result<()> {
@@ -229,9 +214,8 @@ impl<'a> LpuartRx<'a, Blocking> {
     ) -> Result<Self> {
         rx_pin.as_rx();
 
-        let _wg = Lpuart::<Blocking>::init::<T>(false, true, false, false, config)?;
-
-        Ok(Self::new_inner(T::info(), rx_pin.into(), None, Blocking, _wg))
+        let wg = Lpuart::<Blocking>::init::<T>(false, true, false, false, config)?;
+        Ok(Self::new_inner::<T>(rx_pin.into(), None, Blocking, wg))
     }
 
     /// Create a new blocking LPUART Receiver instance with RTS flow control.
@@ -246,15 +230,8 @@ impl<'a> LpuartRx<'a, Blocking> {
         rx_pin.as_rx();
         rts_pin.as_rts();
 
-        let _wg = Lpuart::<Blocking>::init::<T>(false, true, false, true, config)?;
-
-        Ok(Self::new_inner(
-            T::info(),
-            rx_pin.into(),
-            Some(rts_pin.into()),
-            Blocking,
-            _wg,
-        ))
+        let wg = Lpuart::<Blocking>::init::<T>(false, true, false, true, config)?;
+        Ok(Self::new_inner::<T>(rx_pin.into(), Some(rts_pin.into()), Blocking, wg))
     }
 
     fn read_byte_internal(&mut self) -> Result<u8> {
