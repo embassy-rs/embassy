@@ -6,7 +6,7 @@ use paste::paste;
 
 use crate::clocks::periph_helpers::{Div4, LpuartClockSel, LpuartConfig};
 use crate::clocks::{ClockError, Gate, PoweredClock, WakeGuard, enable_and_reset};
-use crate::dma::Channel;
+use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, DmaRequest, EnableInterrupt, RingBuffer};
 use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt;
 use crate::pac::lpuart::vals::{
@@ -15,28 +15,13 @@ use crate::pac::lpuart::vals::{
 };
 use crate::pac::{self};
 
-pub mod buffered;
+mod buffered;
 
-// ============================================================================
-// DMA INTEGRATION
-// ============================================================================
-
-use crate::dma::{
-    Channel as DmaChannelTrait, DMA_MAX_TRANSFER_SIZE, DmaChannel, DmaRequest, EnableInterrupt, RingBuffer,
-};
-
-// ============================================================================
-// MISC
-// ============================================================================
+pub use buffered::*;
 
 mod sealed {
-    /// Simply seal a trait to prevent external implementations
     pub trait Sealed {}
 }
-
-// ============================================================================
-// INSTANCE TRAIT
-// ============================================================================
 
 trait SealedInstance {
     fn info() -> &'static Info;
@@ -110,10 +95,6 @@ macro_rules! impl_instance {
 // LPUART4: RX=29, TX=30 -> Lpuart4RxRequest, Lpuart4TxRequest
 // LPUART5: RX=31, TX=32 -> Lpuart5RxRequest, Lpuart5TxRequest
 impl_instance!(0; 1; 2; 3; 4; 5);
-
-// ============================================================================
-// INSTANCE HELPER FUNCTIONS
-// ============================================================================
 
 /// Perform software reset on the LPUART peripheral
 fn perform_software_reset(info: &'static Info) {
@@ -340,31 +321,23 @@ fn has_data(info: &'static Info) -> bool {
     }
 }
 
-// ============================================================================
-// PIN TRAITS FOR LPUART FUNCTIONALITY
-// ============================================================================
-
 impl<T: SealedPin> sealed::Sealed for T {}
 
-/// io configuration trait for Lpuart Tx configuration
 pub trait TxPin<T: Instance>: Into<AnyPin> + sealed::Sealed + PeripheralType {
     /// convert the pin to appropriate function for Lpuart Tx  usage
     fn as_tx(&self);
 }
 
-/// io configuration trait for Lpuart Rx configuration
 pub trait RxPin<T: Instance>: Into<AnyPin> + sealed::Sealed + PeripheralType {
     /// convert the pin to appropriate function for Lpuart Rx  usage
     fn as_rx(&self);
 }
 
-/// io configuration trait for Lpuart Cts
 pub trait CtsPin<T: Instance>: Into<AnyPin> + sealed::Sealed + PeripheralType {
     /// convert the pin to appropriate function for Lpuart Cts usage
     fn as_cts(&self);
 }
 
-/// io configuration trait for Lpuart Rts
 pub trait RtsPin<T: Instance>: Into<AnyPin> + sealed::Sealed + PeripheralType {
     /// convert the pin to appropriate function for Lpuart Rts usage
     fn as_rts(&self);
@@ -374,12 +347,11 @@ macro_rules! impl_tx_pin {
     ($inst:ident, $pin:ident, $alt:ident) => {
         impl TxPin<crate::peripherals::$inst> for crate::peripherals::$pin {
             fn as_tx(&self) {
-                // TODO: Check these are right
-                self.set_pull(crate::gpio::Pull::Up);
+                self.set_pull(crate::gpio::Pull::Disabled);
                 self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
-                self.set_drive_strength(crate::gpio::DriveStrength::Double.into());
+                self.set_drive_strength(crate::gpio::DriveStrength::Normal.into());
                 self.set_function(crate::pac::port::vals::Mux::$alt);
-                self.set_enable_input_buffer(true);
+                self.set_enable_input_buffer(false);
             }
         }
     };
@@ -389,10 +361,7 @@ macro_rules! impl_rx_pin {
     ($inst:ident, $pin:ident, $alt:ident) => {
         impl RxPin<crate::peripherals::$inst> for crate::peripherals::$pin {
             fn as_rx(&self) {
-                // TODO: Check these are right
-                self.set_pull(crate::gpio::Pull::Up);
-                self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
-                self.set_drive_strength(crate::gpio::DriveStrength::Double.into());
+                self.set_pull(crate::gpio::Pull::Disabled);
                 self.set_function(crate::pac::port::vals::Mux::$alt);
                 self.set_enable_input_buffer(true);
             }
@@ -400,12 +369,13 @@ macro_rules! impl_rx_pin {
     };
 }
 
-// TODO: Macro and impls for CTS/RTS pins
 macro_rules! impl_cts_pin {
     ($inst:ident, $pin:ident, $alt:ident) => {
         impl CtsPin<crate::peripherals::$inst> for crate::peripherals::$pin {
             fn as_cts(&self) {
-                todo!()
+                self.set_pull(crate::gpio::Pull::Disabled);
+                self.set_function(crate::pac::port::vals::Mux::$alt);
+                self.set_enable_input_buffer(true);
             }
         }
     };
@@ -415,7 +385,11 @@ macro_rules! impl_rts_pin {
     ($inst:ident, $pin:ident, $alt:ident) => {
         impl RtsPin<crate::peripherals::$inst> for crate::peripherals::$pin {
             fn as_rts(&self) {
-                todo!()
+                self.set_pull(crate::gpio::Pull::Disabled);
+                self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
+                self.set_drive_strength(crate::gpio::DriveStrength::Normal.into());
+                self.set_function(crate::pac::port::vals::Mux::$alt);
+                self.set_enable_input_buffer(false);
             }
         }
     };
@@ -535,10 +509,6 @@ impl_cts_pin!(LPUART5, P1_19, MUX8);
 impl_rts_pin!(LPUART5, P1_13, MUX8);
 impl_rts_pin!(LPUART5, P1_18, MUX8);
 
-// ============================================================================
-// ERROR TYPES AND RESULTS
-// ============================================================================
-
 /// LPUART error types
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -592,10 +562,6 @@ impl core::error::Error for Error {}
 
 /// A specialized Result type for LPUART operations
 pub type Result<T> = core::result::Result<T, Error>;
-
-// ============================================================================
-// CONFIGURATION STRUCTURES
-// ============================================================================
 
 /// Lpuart config
 #[derive(Debug, Clone, Copy)]
@@ -676,27 +642,27 @@ pub struct Status {
     pub parity: bool,
 }
 
-// ============================================================================
-// MODE TRAITS (BLOCKING/ASYNC)
-// ============================================================================
-
-/// Driver move trait.
+/// Driver mode.
 #[allow(private_bounds)]
 pub trait Mode: sealed::Sealed {}
+
+/// Async driver mode.
+#[allow(private_bounds)]
+pub trait AsyncMode: sealed::Sealed + Mode {}
 
 /// Blocking mode.
 pub struct Blocking;
 impl sealed::Sealed for Blocking {}
 impl Mode for Blocking {}
 
-/// Async mode.
-pub struct Async;
-impl sealed::Sealed for Async {}
-impl Mode for Async {}
-
-// ============================================================================
-// CORE DRIVER STRUCTURES
-// ============================================================================
+/// DMA mode.
+pub struct Dma<'d> {
+    dma: DmaChannel<'d>,
+    request_number: u8,
+}
+impl sealed::Sealed for Dma<'_> {}
+impl Mode for Dma<'_> {}
+impl AsyncMode for Dma<'_> {}
 
 /// Lpuart driver.
 pub struct Lpuart<'a, M: Mode> {
@@ -736,51 +702,25 @@ impl Drop for RxPins<'_> {
 /// Lpuart TX driver.
 pub struct LpuartTx<'a, M: Mode> {
     info: &'static Info,
-    mode: PhantomData<(&'a (), M)>,
+    mode: M,
     _tx_pins: TxPins<'a>,
     _wg: Option<WakeGuard>,
+    _phantom: PhantomData<&'a ()>,
 }
 
 /// Lpuart Rx driver.
 pub struct LpuartRx<'a, M: Mode> {
     info: &'static Info,
-    mode: PhantomData<(&'a (), M)>,
+    mode: M,
     _rx_pins: RxPins<'a>,
     _wg: Option<WakeGuard>,
-}
-
-/// Lpuart TX driver with DMA support.
-pub struct LpuartTxDma<'a, T: Instance> {
-    info: &'static Info,
-    tx_dma: DmaChannel<'a>,
-    _tx_pins: TxPins<'a>,
-    _instance: core::marker::PhantomData<T>,
-    _wg: Option<WakeGuard>,
-}
-
-/// Lpuart RX driver with DMA support.
-pub struct LpuartRxDma<'a, T: Instance> {
-    info: &'static Info,
-    rx_dma: DmaChannel<'a>,
-    _rx_pins: RxPins<'a>,
-    _instance: core::marker::PhantomData<T>,
-    _wg: Option<WakeGuard>,
-}
-
-/// Lpuart driver with DMA support for both TX and RX.
-pub struct LpuartDma<'a, T: Instance> {
-    tx: LpuartTxDma<'a, T>,
-    rx: LpuartRxDma<'a, T>,
+    _phantom: PhantomData<&'a ()>,
 }
 
 /// Lpuart RX driver with ring-buffered DMA support.
-pub struct LpuartRxRingDma<'peri, 'ring> {
+pub struct RingBufferedLpuartRx<'peri, 'ring> {
     ring: RingBuffer<'peri, 'ring, u8>,
 }
-
-// ============================================================================
-// LPUART CORE IMPLEMENTATION
-// ============================================================================
 
 impl<'a, M: Mode> Lpuart<'a, M> {
     fn init<T: Instance>(
@@ -839,10 +779,6 @@ impl<'a, M: Mode> Lpuart<'a, M> {
     }
 }
 
-// ============================================================================
-// BLOCKING MODE IMPLEMENTATIONS
-// ============================================================================
-
 impl<'a> Lpuart<'a, Blocking> {
     /// Create a new blocking LPUART instance with RX/TX pins.
     ///
@@ -862,8 +798,8 @@ impl<'a> Lpuart<'a, Blocking> {
 
         Ok(Self {
             info: T::info(),
-            tx: LpuartTx::new_inner(T::info(), tx_pin.into(), None, _wg.clone()),
-            rx: LpuartRx::new_inner(T::info(), rx_pin.into(), None, _wg),
+            tx: LpuartTx::new_inner(T::info(), tx_pin.into(), None, Blocking, _wg.clone()),
+            rx: LpuartRx::new_inner(T::info(), rx_pin.into(), None, Blocking, _wg),
         })
     }
 
@@ -889,28 +825,26 @@ impl<'a> Lpuart<'a, Blocking> {
 
         Ok(Self {
             info: T::info(),
-            rx: LpuartRx::new_inner(T::info(), rx_pin.into(), Some(rts_pin.into()), _wg.clone()),
-            tx: LpuartTx::new_inner(T::info(), tx_pin.into(), Some(cts_pin.into()), _wg),
+            rx: LpuartRx::new_inner(T::info(), rx_pin.into(), Some(rts_pin.into()), Blocking, _wg.clone()),
+            tx: LpuartTx::new_inner(T::info(), tx_pin.into(), Some(cts_pin.into()), Blocking, _wg),
         })
     }
 }
-
-// ----------------------------------------------------------------------------
-// Blocking TX Implementation
-// ----------------------------------------------------------------------------
 
 impl<'a, M: Mode> LpuartTx<'a, M> {
     fn new_inner(
         info: &'static Info,
         tx_pin: Peri<'a, AnyPin>,
         cts_pin: Option<Peri<'a, AnyPin>>,
-        _wg: Option<WakeGuard>,
+        mode: M,
+        wg: Option<WakeGuard>,
     ) -> Self {
         Self {
             info,
-            mode: PhantomData,
+            mode,
             _tx_pins: TxPins { tx_pin, cts_pin },
-            _wg,
+            _wg: wg,
+            _phantom: PhantomData,
         }
     }
 }
@@ -930,7 +864,7 @@ impl<'a> LpuartTx<'a, Blocking> {
         // Initialize the peripheral
         let _wg = Lpuart::<Blocking>::init::<T>(true, false, false, false, config)?;
 
-        Ok(Self::new_inner(T::info(), tx_pin.into(), None, _wg))
+        Ok(Self::new_inner(T::info(), tx_pin.into(), None, Blocking, _wg))
     }
 
     /// Create a new blocking LPUART transmitter instance with CTS flow control.
@@ -947,7 +881,13 @@ impl<'a> LpuartTx<'a, Blocking> {
 
         let _wg = Lpuart::<Blocking>::init::<T>(true, false, true, false, config)?;
 
-        Ok(Self::new_inner(T::info(), tx_pin.into(), Some(cts_pin.into()), _wg))
+        Ok(Self::new_inner(
+            T::info(),
+            tx_pin.into(),
+            Some(cts_pin.into()),
+            Blocking,
+            _wg,
+        ))
     }
 
     fn write_byte_internal(&mut self, byte: u8) -> Result<()> {
@@ -1021,22 +961,20 @@ impl<'a> LpuartTx<'a, Blocking> {
     }
 }
 
-// ----------------------------------------------------------------------------
-// Blocking RX Implementation
-// ----------------------------------------------------------------------------
-
 impl<'a, M: Mode> LpuartRx<'a, M> {
     fn new_inner(
         info: &'static Info,
         rx_pin: Peri<'a, AnyPin>,
         rts_pin: Option<Peri<'a, AnyPin>>,
+        mode: M,
         _wg: Option<WakeGuard>,
     ) -> Self {
         Self {
             info,
-            mode: PhantomData,
+            mode,
             _rx_pins: RxPins { rx_pin, rts_pin },
             _wg,
+            _phantom: PhantomData,
         }
     }
 }
@@ -1054,7 +992,7 @@ impl<'a> LpuartRx<'a, Blocking> {
 
         let _wg = Lpuart::<Blocking>::init::<T>(false, true, false, false, config)?;
 
-        Ok(Self::new_inner(T::info(), rx_pin.into(), None, _wg))
+        Ok(Self::new_inner(T::info(), rx_pin.into(), None, Blocking, _wg))
     }
 
     /// Create a new blocking LPUART Receiver instance with RTS flow control.
@@ -1071,7 +1009,13 @@ impl<'a> LpuartRx<'a, Blocking> {
 
         let _wg = Lpuart::<Blocking>::init::<T>(false, true, false, true, config)?;
 
-        Ok(Self::new_inner(T::info(), rx_pin.into(), Some(rts_pin.into()), _wg))
+        Ok(Self::new_inner(
+            T::info(),
+            rx_pin.into(),
+            Some(rts_pin.into()),
+            Blocking,
+            _wg,
+        ))
     }
 
     fn read_byte_internal(&mut self) -> Result<u8> {
@@ -1163,15 +1107,6 @@ impl<'a> Lpuart<'a, Blocking> {
     }
 }
 
-// ============================================================================
-// ASYNC MODE IMPLEMENTATIONS (DMA-based)
-// ============================================================================
-
-/// Guard struct that ensures DMA is stopped if the async future is cancelled.
-///
-/// This implements the RAII pattern: if the future is dropped before completion
-/// (e.g., due to a timeout), the DMA transfer is automatically aborted to prevent
-/// use-after-free when the buffer goes out of scope.
 struct TxDmaGuard<'a> {
     dma: DmaChannel<'a>,
     info: &'static Info,
@@ -1247,32 +1182,35 @@ impl Drop for RxDmaGuard<'_> {
     }
 }
 
-impl<'a, T: Instance> LpuartTxDma<'a, T> {
+impl<'a> LpuartTx<'a, Dma<'a>> {
     /// Create a new LPUART TX driver with DMA support.
     ///
     /// Any external pin will be placed into Disabled state upon Drop.
-    pub fn new<C: DmaChannelTrait>(
+    pub fn new<T: Instance>(
         _inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
-        tx_dma_ch: Peri<'a, C>,
+        tx_dma_ch: Peri<'a, impl Channel>,
         config: Config,
     ) -> Result<Self> {
         tx_pin.as_tx();
         let tx_pin: Peri<'a, AnyPin> = tx_pin.into();
 
         // Initialize LPUART with TX enabled, RX disabled, no flow control
-        let _wg = Lpuart::<Async>::init::<T>(true, false, false, false, config)?;
+        let _wg = Lpuart::<Dma<'_>>::init::<T>(true, false, false, false, config)?;
 
         // Enable interrupt
-        let tx_dma = DmaChannel::new(tx_dma_ch);
-        tx_dma.enable_interrupt();
+        let dma = DmaChannel::new(tx_dma_ch);
+        dma.enable_interrupt();
 
         Ok(Self {
             info: T::info(),
-            tx_dma,
+            mode: Dma {
+                dma,
+                request_number: T::TxDmaRequest::REQUEST_NUMBER,
+            },
             _tx_pins: TxPins { tx_pin, cts_pin: None },
-            _instance: core::marker::PhantomData,
             _wg,
+            _phantom: PhantomData,
         })
     }
 
@@ -1291,7 +1229,7 @@ impl<'a, T: Instance> LpuartTxDma<'a, T> {
     ///
     /// # Arguments
     /// * `buf` - Data buffer to transmit
-    pub async fn write_dma(&mut self, buf: &[u8]) -> Result<usize> {
+    pub async fn write(&mut self, buf: &[u8]) -> Result<usize> {
         if buf.is_empty() {
             return Ok(0);
         }
@@ -1309,28 +1247,29 @@ impl<'a, T: Instance> LpuartTxDma<'a, T> {
         let len = buf.len();
         let peri_addr = self.info.regs().data().as_ptr() as *mut u8;
 
+        let dma = &mut self.mode.dma;
+
         unsafe {
             // Clean up channel state
-            self.tx_dma.disable_request();
-            self.tx_dma.clear_done();
-            self.tx_dma.clear_interrupt();
+            dma.disable_request();
+            dma.clear_done();
+            dma.clear_interrupt();
 
             // Set DMA request source from instance type (type-safe)
-            self.tx_dma.set_request_source(T::TxDmaRequest::REQUEST_NUMBER);
+            dma.set_request_source(self.mode.request_number);
 
             // Configure TCD for memory-to-peripheral transfer
-            self.tx_dma
-                .setup_write_to_peripheral(buf, peri_addr, EnableInterrupt::Yes);
+            dma.setup_write_to_peripheral(buf, peri_addr, EnableInterrupt::Yes);
 
             // Enable UART TX DMA request
             self.info.regs().baud().modify(|w| w.set_tdmae(true));
 
             // Enable DMA channel request
-            self.tx_dma.enable_request();
+            dma.enable_request();
         }
 
         // Create guard that will abort DMA if this future is dropped
-        let guard = TxDmaGuard::new(self.tx_dma.reborrow(), self.info);
+        let guard = TxDmaGuard::new(dma.reborrow(), self.info);
 
         // Wait for completion asynchronously
         core::future::poll_fn(|cx| {
@@ -1366,33 +1305,36 @@ impl<'a, T: Instance> LpuartTxDma<'a, T> {
     }
 }
 
-impl<'a, T: Instance> LpuartRxDma<'a, T> {
+impl<'a> LpuartRx<'a, Dma<'a>> {
     /// Create a new LPUART RX driver with DMA support.
     ///
     /// Any external pin will be placed into Disabled state upon Drop.
-    pub fn new<C: Channel>(
+    pub fn new<T: Instance>(
         _inner: Peri<'a, T>,
         rx_pin: Peri<'a, impl RxPin<T>>,
-        rx_dma_ch: Peri<'a, C>,
+        rx_dma_ch: Peri<'a, impl Channel>,
         config: Config,
     ) -> Result<Self> {
         rx_pin.as_rx();
         let rx_pin: Peri<'a, AnyPin> = rx_pin.into();
 
         // Initialize LPUART with TX disabled, RX enabled, no flow control
-        let _wg = Lpuart::<Async>::init::<T>(false, true, false, false, config)?;
+        let _wg = Lpuart::<Dma<'_>>::init::<T>(false, true, false, false, config)?;
 
         // Enable dma interrupt
-        let rx_dma = DmaChannel::new(rx_dma_ch);
-        rx_dma.enable_interrupt();
+        let dma = DmaChannel::new(rx_dma_ch);
+        dma.enable_interrupt();
 
-        Ok(Self {
-            info: T::info(),
-            rx_dma,
-            _rx_pins: RxPins { rx_pin, rts_pin: None },
-            _instance: core::marker::PhantomData,
+        Ok(Self::new_inner(
+            T::info(),
+            rx_pin,
+            None,
+            Dma {
+                dma,
+                request_number: T::RxDmaRequest::REQUEST_NUMBER,
+            },
             _wg,
-        })
+        ))
     }
 
     /// Read data using DMA.
@@ -1410,7 +1352,7 @@ impl<'a, T: Instance> LpuartRxDma<'a, T> {
     ///
     /// # Arguments
     /// * `buf` - Buffer to receive data into
-    pub async fn read_dma(&mut self, buf: &mut [u8]) -> Result<usize> {
+    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         if buf.is_empty() {
             return Ok(0);
         }
@@ -1428,28 +1370,29 @@ impl<'a, T: Instance> LpuartRxDma<'a, T> {
         let len = buf.len();
         let peri_addr = self.info.regs().data().as_ptr() as *const u8;
 
+        let rx_dma = &mut self.mode.dma;
+
         unsafe {
             // Clean up channel state
-            self.rx_dma.disable_request();
-            self.rx_dma.clear_done();
-            self.rx_dma.clear_interrupt();
+            rx_dma.disable_request();
+            rx_dma.clear_done();
+            rx_dma.clear_interrupt();
 
             // Set DMA request source from instance type (type-safe)
-            self.rx_dma.set_request_source(T::RxDmaRequest::REQUEST_NUMBER);
+            rx_dma.set_request_source(self.mode.request_number);
 
             // Configure TCD for peripheral-to-memory transfer
-            self.rx_dma
-                .setup_read_from_peripheral(peri_addr, buf, EnableInterrupt::Yes);
+            rx_dma.setup_read_from_peripheral(peri_addr, buf, EnableInterrupt::Yes);
 
             // Enable UART RX DMA request
             self.info.regs().baud().modify(|w| w.set_rdmae(true));
 
             // Enable DMA channel request
-            self.rx_dma.enable_request();
+            rx_dma.enable_request();
         }
 
         // Create guard that will abort DMA if this future is dropped
-        let guard = RxDmaGuard::new(self.rx_dma.reborrow(), self.info);
+        let guard = RxDmaGuard::new(rx_dma.reborrow(), self.info);
 
         // Wait for completion asynchronously
         core::future::poll_fn(|cx| {
@@ -1482,12 +1425,10 @@ impl<'a, T: Instance> LpuartRxDma<'a, T> {
         Ok(())
     }
 
-    pub fn into_ring_dma_rx<'buf: 'a>(&mut self, buf: &'buf mut [u8]) -> LpuartRxRingDma<'_, 'buf> {
-        unsafe {
-            let ring = self.setup_ring_buffer(buf);
-            ring.enable_dma_request();
-            LpuartRxRingDma { ring }
-        }
+    pub fn into_ring_dma_rx<'buf: 'a>(&mut self, buf: &'buf mut [u8]) -> RingBufferedLpuartRx<'_, 'buf> {
+        let ring = self.setup_ring_buffer(buf);
+        unsafe { ring.enable_dma_request() };
+        RingBufferedLpuartRx { ring }
     }
 
     /// Set up a ring buffer for continuous DMA reception.
@@ -1528,18 +1469,18 @@ impl<'a, T: Instance> LpuartRxDma<'a, T> {
 
         // Configure DMA request source for this LPUART instance (type-safe)
         unsafe {
-            self.rx_dma.set_request_source(T::RxDmaRequest::REQUEST_NUMBER);
+            self.mode.dma.set_request_source(self.mode.request_number);
         }
 
         // Enable RX DMA request in the LPUART peripheral
         self.info.regs().baud().modify(|w| w.set_rdmae(true));
 
         // Set up circular DMA transfer (this also enables NVIC interrupt)
-        unsafe { self.rx_dma.setup_circular_read(peri_addr, buf) }
+        unsafe { self.mode.dma.setup_circular_read(peri_addr, buf) }
     }
 }
 
-impl<'peri, 'buf> LpuartRxRingDma<'peri, 'buf> {
+impl<'peri, 'buf> RingBufferedLpuartRx<'peri, 'buf> {
     /// Read from the ring buffer
     pub fn read<'d>(
         &mut self,
@@ -1554,16 +1495,16 @@ impl<'peri, 'buf> LpuartRxRingDma<'peri, 'buf> {
     }
 }
 
-impl<'a, T: Instance> LpuartDma<'a, T> {
+impl<'a> Lpuart<'a, Dma<'a>> {
     /// Create a new LPUART driver with DMA support for both TX and RX.
     ///
     /// Any external pin will be placed into Disabled state upon Drop.
-    pub fn new<TxC: DmaChannelTrait, RxC: DmaChannelTrait>(
+    pub fn new<T: Instance>(
         _inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
         rx_pin: Peri<'a, impl RxPin<T>>,
-        tx_dma_ch: Peri<'a, TxC>,
-        rx_dma_ch: Peri<'a, RxC>,
+        tx_dma_ch: Peri<'a, impl Channel>,
+        rx_dma_ch: Peri<'a, impl Channel>,
         config: Config,
     ) -> Result<Self> {
         tx_pin.as_tx();
@@ -1573,7 +1514,7 @@ impl<'a, T: Instance> LpuartDma<'a, T> {
         let rx_pin: Peri<'a, AnyPin> = rx_pin.into();
 
         // Initialize LPUART with both TX and RX enabled, no flow control
-        let _wg = Lpuart::<Async>::init::<T>(true, true, false, false, config)?;
+        let _wg = Lpuart::<Dma<'a>>::init::<T>(true, true, false, false, config)?;
 
         // Enable DMA interrupts
         let tx_dma = DmaChannel::new(tx_dma_ch);
@@ -1581,59 +1522,43 @@ impl<'a, T: Instance> LpuartDma<'a, T> {
         tx_dma.enable_interrupt();
         rx_dma.enable_interrupt();
 
+        let info = T::info();
+
         Ok(Self {
-            tx: LpuartTxDma {
-                info: T::info(),
-                tx_dma,
+            info,
+            tx: LpuartTx {
+                info,
+                mode: Dma {
+                    dma: tx_dma,
+                    request_number: T::TxDmaRequest::REQUEST_NUMBER,
+                },
                 _tx_pins: TxPins { tx_pin, cts_pin: None },
-                _instance: core::marker::PhantomData,
                 _wg: _wg.clone(),
+                _phantom: PhantomData,
             },
-            rx: LpuartRxDma {
-                info: T::info(),
-                rx_dma,
+            rx: LpuartRx {
+                info,
+                mode: Dma {
+                    dma: rx_dma,
+                    request_number: T::RxDmaRequest::REQUEST_NUMBER,
+                },
                 _rx_pins: RxPins { rx_pin, rts_pin: None },
-                _instance: core::marker::PhantomData,
                 _wg,
+                _phantom: PhantomData,
             },
         })
     }
 
-    /// Split into separate TX and RX drivers
-    pub fn split(self) -> (LpuartTxDma<'a, T>, LpuartRxDma<'a, T>) {
-        (self.tx, self.rx)
-    }
-
     /// Write data using DMA
-    pub async fn write_dma(&mut self, buf: &[u8]) -> Result<usize> {
-        self.tx.write_dma(buf).await
+    pub async fn write(&mut self, buf: &[u8]) -> Result<usize> {
+        self.tx.write(buf).await
     }
 
     /// Read data using DMA
-    pub async fn read_dma(&mut self, buf: &mut [u8]) -> Result<usize> {
-        self.rx.read_dma(buf).await
+    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        self.rx.read(buf).await
     }
 }
-
-// ============================================================================
-// EMBEDDED-IO-ASYNC TRAIT IMPLEMENTATIONS
-// ============================================================================
-
-impl<T: Instance> embedded_io::ErrorType for LpuartTxDma<'_, T> {
-    type Error = Error;
-}
-
-impl<T: Instance> embedded_io::ErrorType for LpuartRxDma<'_, T> {
-    type Error = Error;
-}
-
-impl<T: Instance> embedded_io::ErrorType for LpuartDma<'_, T> {
-    type Error = Error;
-}
-
-// ============================================================================
-// EMBEDDED-HAL 0.2 TRAIT IMPLEMENTATIONS
-// ============================================================================
 
 impl embedded_hal_02::serial::Read<u8> for LpuartRx<'_, Blocking> {
     type Error = Error;
@@ -1712,10 +1637,6 @@ impl embedded_hal_02::blocking::serial::Write<u8> for Lpuart<'_, Blocking> {
     }
 }
 
-// ============================================================================
-// EMBEDDED-HAL-NB TRAIT IMPLEMENTATIONS
-// ============================================================================
-
 impl embedded_hal_nb::serial::Error for Error {
     fn kind(&self) -> embedded_hal_nb::serial::ErrorKind {
         match *self {
@@ -1791,25 +1712,21 @@ impl embedded_hal_nb::serial::Write for Lpuart<'_, Blocking> {
     }
 }
 
-// ============================================================================
-// EMBEDDED-IO TRAIT IMPLEMENTATIONS
-// ============================================================================
-
 impl embedded_io::Error for Error {
     fn kind(&self) -> embedded_io::ErrorKind {
         embedded_io::ErrorKind::Other
     }
 }
 
-impl embedded_io::ErrorType for LpuartRx<'_, Blocking> {
+impl<M: Mode> embedded_io::ErrorType for LpuartRx<'_, M> {
     type Error = Error;
 }
 
-impl embedded_io::ErrorType for LpuartTx<'_, Blocking> {
+impl<M: Mode> embedded_io::ErrorType for LpuartTx<'_, M> {
     type Error = Error;
 }
 
-impl embedded_io::ErrorType for Lpuart<'_, Blocking> {
+impl<M: Mode> embedded_io::ErrorType for Lpuart<'_, M> {
     type Error = Error;
 }
 
@@ -1842,5 +1759,39 @@ impl embedded_io::Write for Lpuart<'_, Blocking> {
 
     fn flush(&mut self) -> core::result::Result<(), Self::Error> {
         embedded_io::Write::flush(&mut self.tx)
+    }
+}
+
+impl<'a> embedded_io_async::Read for LpuartRx<'a, Dma<'a>> {
+    async fn read(&mut self, buf: &mut [u8]) -> core::result::Result<usize, Self::Error> {
+        self.read(buf).await
+    }
+}
+
+impl<'a> embedded_io_async::Write for LpuartTx<'a, Dma<'a>> {
+    async fn write(&mut self, buf: &[u8]) -> core::result::Result<usize, Self::Error> {
+        self.write(buf).await
+    }
+
+    async fn flush(&mut self) -> core::result::Result<(), Self::Error> {
+        // No-op, when DMA transfer is completed, it is also flushed.
+        Ok(())
+    }
+}
+
+impl<'a> embedded_io_async::Read for Lpuart<'a, Dma<'a>> {
+    async fn read(&mut self, buf: &mut [u8]) -> core::result::Result<usize, Self::Error> {
+        self.rx.read(buf).await
+    }
+}
+
+impl<'a> embedded_io_async::Write for Lpuart<'a, Dma<'a>> {
+    async fn write(&mut self, buf: &[u8]) -> core::result::Result<usize, Self::Error> {
+        self.tx.write(buf).await
+    }
+
+    async fn flush(&mut self) -> core::result::Result<(), Self::Error> {
+        // No-op, when DMA transfer is completed, it is also flushed.
+        self.tx.flush().await
     }
 }

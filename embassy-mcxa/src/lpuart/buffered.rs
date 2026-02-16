@@ -17,7 +17,7 @@ use crate::interrupt::{self};
 // ============================================================================
 
 /// State for buffered LPUART operations
-pub struct State {
+pub(crate) struct State {
     tx_waker: AtomicWaker,
     tx_buf: RingBuffer,
     rx_waker: AtomicWaker,
