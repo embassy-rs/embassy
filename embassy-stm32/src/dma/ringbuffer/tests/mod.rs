@@ -125,11 +125,11 @@ fn alignment_skip_after_overrun() {
 
     let (read, _remaining) = ringbuf.read(&mut dma, &mut read_buf).unwrap();
 
-    // 9 samples available (pos 5..14), but alignment skip of 3 (to pos 8),
-    // leaves 6 samples. Read buf is 8, so we read 6.
-    assert_eq!(read, 6);
+    // 9 samples available (pos 5..14), alignment skip of 3 (to pos 8),
+    // leaves 6 samples, rounded down to nearest frame (4).
+    assert_eq!(read, 4);
     // Data should start at buffer position 8 (the next aligned frame boundary).
-    assert_eq!(&read_buf[..read], &[8, 9, 10, 11, 12, 13]);
+    assert_eq!(&read_buf[..read], &[8, 9, 10, 11]);
 }
 
 /// Test that reads from an already-aligned position are unaffected by alignment setting.
