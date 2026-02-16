@@ -1,7 +1,10 @@
 use core::future::Future;
 use core::marker::PhantomData;
+use core::sync::atomic::{AtomicU8, Ordering};
 
+use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
 use embassy_hal_internal::{Peri, PeripheralType};
+use embassy_sync::waitqueue::AtomicWaker;
 use paste::paste;
 
 use crate::clocks::periph_helpers::{Div4, LpuartClockSel, LpuartConfig};
@@ -29,7 +32,34 @@ mod sealed {
 
 trait SealedInstance {
     fn info() -> &'static Info;
-    fn buffered_state() -> &'static buffered::State;
+    fn state() -> &'static State;
+}
+
+struct State {
+    tx_waker: AtomicWaker,
+    tx_buf: RingBuffer,
+    rx_waker: AtomicWaker,
+    rx_buf: RingBuffer,
+    tx_rx_refcount: AtomicU8,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl State {
+    /// Create a new state instance
+    pub const fn new() -> Self {
+        Self {
+            tx_waker: AtomicWaker::new(),
+            tx_buf: RingBuffer::new(),
+            rx_waker: AtomicWaker::new(),
+            rx_buf: RingBuffer::new(),
+            tx_rx_refcount: AtomicU8::new(0),
+        }
+    }
 }
 
 struct Info {
@@ -70,9 +100,9 @@ macro_rules! impl_instance {
                         &INFO
                     }
 
-                    fn buffered_state() -> &'static buffered::State {
-                        static BUFFERED_STATE: buffered::State = buffered::State::new();
-                        &BUFFERED_STATE
+                    fn state() -> &'static State {
+                        static STATE: State = State::new();
+                        &STATE
                     }
                 }
 
@@ -630,7 +660,6 @@ pub trait Mode: sealed::Sealed {}
 
 /// Lpuart driver.
 pub struct Lpuart<'a, M: Mode> {
-    info: &'static Info,
     tx: LpuartTx<'a, M>,
     rx: LpuartRx<'a, M>,
 }
@@ -666,6 +695,7 @@ impl Drop for RxPins<'_> {
 /// Lpuart TX driver.
 pub struct LpuartTx<'a, M: Mode> {
     info: &'static Info,
+    state: &'static State,
     mode: M,
     _tx_pins: TxPins<'a>,
     _wg: Option<WakeGuard>,
@@ -675,10 +705,37 @@ pub struct LpuartTx<'a, M: Mode> {
 /// Lpuart Rx driver.
 pub struct LpuartRx<'a, M: Mode> {
     info: &'static Info,
+    state: &'static State,
     mode: M,
     _rx_pins: RxPins<'a>,
     _wg: Option<WakeGuard>,
     _phantom: PhantomData<&'a ()>,
+}
+
+fn drop_tx_rx(info: &'static Info, state: &'static State) {
+    let is_last_drop = state.tx_rx_refcount.fetch_sub(1, Ordering::AcqRel) == 1;
+    if is_last_drop {
+        // Wait for TX operations to complete
+        wait_for_tx_complete(info);
+
+        // Clear all status flags
+        clear_all_status_flags(info);
+
+        // Disable the module - clear all CTRL register bits
+        info.regs().ctrl().write(|w| w.0 = 0);
+    }
+}
+
+impl<M: Mode> Drop for LpuartTx<'_, M> {
+    fn drop(&mut self) {
+        drop_tx_rx(self.info, self.state);
+    }
+}
+
+impl<M: Mode> Drop for LpuartRx<'_, M> {
+    fn drop(&mut self) {
+        drop_tx_rx(self.info, self.state);
+    }
 }
 
 impl<'a, M: Mode> Lpuart<'a, M> {
@@ -713,20 +770,6 @@ impl<'a, M: Mode> Lpuart<'a, M> {
         Ok(parts.wake_guard)
     }
 
-    /// Deinitialize the LPUART peripheral
-    pub fn deinit(&self) -> Result<()> {
-        // Wait for TX operations to complete
-        wait_for_tx_complete(self.info);
-
-        // Clear all status flags
-        clear_all_status_flags(self.info);
-
-        // Disable the module - clear all CTRL register bits
-        self.info.regs().ctrl().write(|w| w.0 = 0);
-
-        Ok(())
-    }
-
     /// Split the Lpuart into a transmitter and receiver
     pub fn split(self) -> (LpuartTx<'a, M>, LpuartRx<'a, M>) {
         (self.tx, self.rx)
@@ -739,15 +782,17 @@ impl<'a, M: Mode> Lpuart<'a, M> {
 }
 
 impl<'a, M: Mode> LpuartTx<'a, M> {
-    fn new_inner(
-        info: &'static Info,
+    fn new_inner<T: Instance>(
         tx_pin: Peri<'a, AnyPin>,
         cts_pin: Option<Peri<'a, AnyPin>>,
         mode: M,
         wg: Option<WakeGuard>,
     ) -> Self {
+        T::state().tx_rx_refcount.fetch_add(1, Ordering::AcqRel);
+
         Self {
-            info,
+            info: T::info(),
+            state: T::state(),
             mode,
             _tx_pins: TxPins { tx_pin, cts_pin },
             _wg: wg,
@@ -757,15 +802,17 @@ impl<'a, M: Mode> LpuartTx<'a, M> {
 }
 
 impl<'a, M: Mode> LpuartRx<'a, M> {
-    fn new_inner(
-        info: &'static Info,
+    fn new_inner<T: Instance>(
         rx_pin: Peri<'a, AnyPin>,
         rts_pin: Option<Peri<'a, AnyPin>>,
         mode: M,
         _wg: Option<WakeGuard>,
     ) -> Self {
+        T::state().tx_rx_refcount.fetch_add(1, Ordering::AcqRel);
+
         Self {
-            info,
+            info: T::info(),
+            state: T::state(),
             mode,
             _rx_pins: RxPins { rx_pin, rts_pin },
             _wg,
