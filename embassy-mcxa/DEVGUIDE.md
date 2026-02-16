@@ -249,3 +249,16 @@ enum RecvError {
     TransferTooLarge,
 }
 ```
+
+#### Avoid Wildcard/Glob imports
+
+We generally want to avoid the use of wildcard/glob imports, like:
+
+```rust
+use super::*;
+use other_module::*;
+```
+
+This can cause [surprising semver breakage], and make the code harder to read.
+
+[surprising semver breakage]: https://predr.ag/blog/breaking-semver-in-rust-by-adding-private-type-or-import/
