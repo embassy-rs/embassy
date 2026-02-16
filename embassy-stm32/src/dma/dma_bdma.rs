@@ -630,7 +630,7 @@ impl<'d> Channel<'d> {
             }
             #[cfg(mdma)]
             DmaInfo::Mdma(r) => {
-                use pac::mdma::vals::Incmode;
+                use pac::mdma::vals::*;
 
                 use crate::_generated::{MEMORY_REGION_DTCM, MEMORY_REGION_ITCM};
 
@@ -706,6 +706,10 @@ impl<'d> Channel<'d> {
                             w.set_dinc(dinc);
                         }
                     };
+                    if dir == Dir::MemoryToMemory {
+                        w.set_swrm(dir == Dir::MemoryToMemory);
+                        w.set_trgm(Trgm::REPEATED);
+                    }
                 });
 
                 ch.bndtr().write(|w| {
@@ -713,11 +717,16 @@ impl<'d> Channel<'d> {
                     w.set_brc(block_count as u16 - 1);
                 });
 
+                ch.brur().write(|w| {
+                    w.set_suv(0);
+                    w.set_duv(0);
+                });
+
                 let get_bus = |addr: u32| {
                     if MEMORY_REGION_ITCM.contains(&addr) || MEMORY_REGION_DTCM.contains(&addr) {
-                        pac::mdma::vals::Bus::AHB
+                        Bus::AHB
                     } else {
-                        pac::mdma::vals::Bus::SYSTEM
+                        Bus::SYSTEM
                     }
                 };
 
@@ -771,7 +780,15 @@ impl<'d> Channel<'d> {
             #[cfg(mdma)]
             DmaInfo::Mdma(r) => {
                 let ch = r.ch(info.num);
-                ch.cr().modify(|w| w.set_en(true));
+
+                let swrm = ch.tcr().read().swrm();
+
+                ch.cr().modify(|w| {
+                    w.set_en(true);
+                    if swrm {
+                        w.set_swrq(true);
+                    }
+                });
             }
         }
     }
@@ -937,11 +954,11 @@ impl<'d> Channel<'d> {
     pub unsafe fn transfer<'a, MW: Word, PW: Word>(
         &'a mut self,
         request: Request,
-        buf: *const [MW],
-        dest_addr: *mut PW,
+        buf: *const [PW],
+        dest_addr: *mut MW,
         options: TransferOptions,
     ) -> Transfer<'a> {
-        self.transfer_raw(request, buf as *const MW as *mut u32, buf.len(), dest_addr, options)
+        self.transfer_raw(request, buf as *const PW, buf.len(), dest_addr, options)
     }
 
     /// Create a memory DMA transfer (memory to memory), using raw pointers.
@@ -953,8 +970,6 @@ impl<'d> Channel<'d> {
         dest_addr: *mut PW,
         options: TransferOptions,
     ) -> Transfer<'a> {
-        assert!(src_size > 0 && src_size <= 0xFFFF);
-
         self.configure(
             request,
             Dir::MemoryToMemory,
