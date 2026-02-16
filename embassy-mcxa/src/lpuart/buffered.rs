@@ -12,10 +12,6 @@ use crate::clocks::WakeGuard;
 use crate::interrupt::typelevel::Interrupt;
 use crate::interrupt::{self};
 
-// ============================================================================
-// STATIC STATE MANAGEMENT
-// ============================================================================
-
 /// State for buffered LPUART operations
 pub(crate) struct State {
     tx_waker: AtomicWaker,

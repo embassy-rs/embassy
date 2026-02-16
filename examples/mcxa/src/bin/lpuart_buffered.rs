@@ -3,15 +3,15 @@
 
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
+use embassy_mcxa::lpuart::BufferedLpuart;
 use embassy_mcxa::lpuart::Config;
-use embassy_mcxa::lpuart::buffered::BufferedLpuart;
 use embassy_mcxa::{bind_interrupts, lpuart};
 use embedded_io_async::Write;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 // Bind OS_EVENT for timers plus LPUART2 IRQ for the buffered driver
 bind_interrupts!(struct Irqs {
-    LPUART2 => lpuart::buffered::BufferedInterruptHandler::<hal::peripherals::LPUART2>;
+    LPUART2 => lpuart::BufferedInterruptHandler::<hal::peripherals::LPUART2>;
 });
 
 #[embassy_executor::main]

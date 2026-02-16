@@ -12,7 +12,7 @@
 
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
-use embassy_mcxa::lpuart::{Config, LpuartDma};
+use embassy_mcxa::lpuart::{Config, Lpuart};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 #[embassy_executor::main]
@@ -31,7 +31,7 @@ async fn main(_spawner: Spawner) {
     };
 
     // Create UART instance with DMA channels
-    let mut lpuart = LpuartDma::new(
+    let mut lpuart = Lpuart::new_async_with_dma(
         p.LPUART2, // Instance
         p.P2_2,    // TX pin
         p.P2_3,    // RX pin
@@ -43,26 +43,26 @@ async fn main(_spawner: Spawner) {
 
     // Send a message using DMA (DMA request source is automatically derived from LPUART2)
     let tx_msg = b"Hello from LPUART2 DMA TX!\r\n";
-    lpuart.write_dma(tx_msg).await.unwrap();
+    lpuart.write(tx_msg).await.unwrap();
 
     defmt::info!("TX DMA complete");
 
     // Send prompt
     let prompt = b"Type 16 characters to echo via DMA:\r\n";
-    lpuart.write_dma(prompt).await.unwrap();
+    lpuart.write(prompt).await.unwrap();
 
     // Receive 16 characters using DMA
     let mut rx_buf = [0u8; 16];
-    lpuart.read_dma(&mut rx_buf).await.unwrap();
+    lpuart.read(&mut rx_buf).await.unwrap();
 
     defmt::info!("RX DMA complete");
 
     // Echo back the received data
     let echo_prefix = b"\r\nReceived: ";
-    lpuart.write_dma(echo_prefix).await.unwrap();
-    lpuart.write_dma(&rx_buf).await.unwrap();
+    lpuart.write(echo_prefix).await.unwrap();
+    lpuart.write(&rx_buf).await.unwrap();
     let done_msg = b"\r\nDone!\r\n";
-    lpuart.write_dma(done_msg).await.unwrap();
+    lpuart.write(done_msg).await.unwrap();
 
     defmt::info!("Example complete");
 }
