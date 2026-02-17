@@ -157,6 +157,7 @@ pub struct UarteRx<'d> {
     r: pac::uarte::Uarte,
     state: &'static State,
     _p: PhantomData<&'d ()>,
+    rx_on: bool,
 }
 
 impl<'d> Uarte<'d> {
@@ -227,6 +228,7 @@ impl<'d> Uarte<'d> {
                 r: T::regs(),
                 state: T::state(),
                 _p: PhantomData {},
+                rx_on: false,
             },
         }
     }
@@ -632,6 +634,7 @@ impl<'d> UarteRx<'d> {
             r: T::regs(),
             state: T::state(),
             _p: PhantomData {},
+            rx_on: false,
         }
     }
 
@@ -709,7 +712,6 @@ impl<'d> UarteRx<'d> {
                 w.set_dmarxend(true);
                 w.set_error(true);
             });
-            r.events_rxto().write_value(0);
             r.events_error().write_value(0);
             r.tasks_dma().rx().stop().write_value(1);
 
@@ -721,6 +723,8 @@ impl<'d> UarteRx<'d> {
         r.dma().rx().ptr().write_value(ptr as u32);
         r.dma().rx().maxcnt().write(|w| w.set_maxcnt(len as _));
 
+        self.rx_on = true;
+        r.events_rxto().write_value(0);
         r.events_dma().rx().end().write_value(0);
         r.events_error().write_value(0);
         r.intenset().write(|w| {
@@ -809,8 +813,9 @@ impl<'d> UarteRx<'d> {
             });
         });
 
-        // Clear the RXTO bit and enable the interrupt.
-        r.events_rxto().write_value(0);
+        // Enable the interrupt.
+        // NOTE: Do not clear the RXTO bit: we use it as a status bit to see if the receiver is off.
+        // We only clear it when we start the receiver.
         r.intenset().write(|w| {
             w.set_rxto(true);
         });
@@ -825,7 +830,7 @@ impl<'d> UarteRx<'d> {
         poll_fn(|cx| {
             s.rx_waker.register(cx.waker());
 
-            if r.events_rxto().read() != 0 {
+            if !self.rx_on || r.events_rxto().read() != 0 {
                 return Poll::Ready(());
             }
             Poll::Pending
@@ -834,8 +839,8 @@ impl<'d> UarteRx<'d> {
 
         compiler_fence(Ordering::SeqCst);
 
-        // Clear the RXTO bit and disable the interrupt.
-        r.events_rxto().write_value(0);
+        // Clear the rx_on flag and disable the interrupt.
+        self.rx_on = false;
         r.intenclr().write(|w| {
             w.set_rxto(true);
         });
@@ -853,22 +858,21 @@ impl<'d> UarteRx<'d> {
     pub fn blocking_stop_rx(&mut self) {
         let r = self.r;
 
-        // Clear the RXTO bit.
-        r.events_rxto().write_value(0);
-
         compiler_fence(Ordering::SeqCst);
 
         // Trigger the STOPRX task.
+        // NOTE: Do not clear the RXTO bit: we use it as a status bit to see if the receiver is off.
+        // We only clear it when we start the receiver.
         trace!("stop_rx");
         r.tasks_dma().rx().stop().write_value(1);
 
         // Wait for the RXTO bit.
-        while r.events_rxto().read() == 0 {}
+        while self.rx_on && r.events_rxto().read() == 0 {}
+        self.rx_on = false;
 
         compiler_fence(Ordering::SeqCst);
 
-        // Clear the RXTO bit.
-        r.events_rxto().write_value(0);
+        self.rx_on = false;
     }
 
     /// Flush the RX FIFO to RAM without activating the receiver.
@@ -1068,7 +1072,6 @@ impl<'d> UarteRxWithIdle<'d> {
                 w.set_dmarxend(true);
                 w.set_error(true);
             });
-            r.events_rxto().write_value(0);
             r.events_error().write_value(0);
             r.tasks_dma().rx().stop().write_value(1);
 
@@ -1078,6 +1081,8 @@ impl<'d> UarteRxWithIdle<'d> {
         r.dma().rx().ptr().write_value(ptr as u32);
         r.dma().rx().maxcnt().write(|w| w.set_maxcnt(len as _));
 
+        self.rx.rx_on = true;
+        r.events_rxto().write_value(0);
         r.events_dma().rx().end().write_value(0);
         r.events_error().write_value(0);
         r.intenset().write(|w| {
@@ -1136,6 +1141,8 @@ impl<'d> UarteRxWithIdle<'d> {
         r.dma().rx().ptr().write_value(ptr as u32);
         r.dma().rx().maxcnt().write(|w| w.set_maxcnt(len as _));
 
+        self.rx.rx_on = true;
+        r.events_rxto().write_value(0);
         r.events_dma().rx().end().write_value(0);
         r.events_error().write_value(0);
         r.intenclr().write(|w| {
