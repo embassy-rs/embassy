@@ -42,9 +42,7 @@
 
 use core::slice;
 
-use embedded_storage::nor_flash::{
-    ErrorType, MultiwriteNorFlash, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash,
-};
+use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
 
 use crate::pac;
 use crate::pac::syscon::vals::{ClrLpcac, DisDataSpec, DisFlashSpec, DisLpcac, DisMbeccErrData, DisMbeccErrInst};
@@ -457,5 +455,3 @@ impl NorFlash for Flash {
         Ok(())
     }
 }
-
-impl MultiwriteNorFlash for Flash {}
