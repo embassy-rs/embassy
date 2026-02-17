@@ -13,7 +13,7 @@ async fn main(_spawner: Spawner) -> ! {
     info!("Hello world!");
     let p = embassy_mspm0::init(Config::default());
 
-    let mut led1 = Output::new(p.PA0, Level::Low);
+    let mut led1 = Output::new(p.PB14, Level::Low);
     led1.set_inversion(true);
 
     loop {
