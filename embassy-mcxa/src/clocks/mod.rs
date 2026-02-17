@@ -1385,7 +1385,7 @@ impl ClockOperator<'_> {
         // * We need to decide if we need an interrupt or a reset if the monitor trips
         let (bg_good, soscsten) = match parts.power {
             PoweredClock::NormalEnabledDeepSleepDisabled => (self.clocks.bandgap_active, false),
-            PoweredClock::AlwaysEnabled => (self.clocks.bandgap_active && self.clocks.bandgap_lowpower, false),
+            PoweredClock::AlwaysEnabled => (self.clocks.bandgap_active && self.clocks.bandgap_lowpower, true),
         };
 
         if !bg_good {
