@@ -298,7 +298,7 @@ impl<'d, M: Mode> I2c<'d, M> {
 
                     self.info.regs().samr().write(|w| {
                         w.set_addr0(start);
-                        w.set_addr1(end);
+                        w.set_addr1(end - 1);
                     });
                     self.info.regs().scfgr1().modify(|w| {
                         w.set_addrcfg(if (0x00..=0x7f).contains(&start) {
