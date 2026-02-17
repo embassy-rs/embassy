@@ -302,9 +302,9 @@ impl<'d, M: Mode> I2c<'d, M> {
                     });
                     self.info.regs().scfgr1().modify(|w| {
                         w.set_addrcfg(if (0x00..=0x7f).contains(&start) {
-                            Addrcfg::ADDRESS_MATCH0_7_BIT_OR_ADDRESS_MATCH1_7_BIT
+                            Addrcfg::FROM_ADDRESS_MATCH0_7_BIT_TO_ADDRESS_MATCH1_7_BIT
                         } else {
-                            Addrcfg::ADDRESS_MATCH0_10_BIT_OR_ADDRESS_MATCH1_10_BIT
+                            Addrcfg::FROM_ADDRESS_MATCH0_10_BIT_TO_ADDRESS_MATCH1_10_BIT
                         })
                     });
                 }
