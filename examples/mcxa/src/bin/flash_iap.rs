@@ -11,6 +11,7 @@
 #![no_main]
 
 use embassy_executor::Spawner;
+use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
 use hal::config::Config;
 use hal::flash::{Flash, FlashProperty};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
@@ -93,6 +94,72 @@ async fn main(_spawner: Spawner) {
     );
 
     defmt::unwrap!(flash.blocking_erase(dest_addr, pflash_sector_size));
+
+    // -----------------------------------------------------------------------
+    // 5. NorFlash trait
+    // -----------------------------------------------------------------------
+
+    defmt::info!("\n Pflash using NorFlash trait");
+    let dest_offset: u32 = pflash_total_size - ((SECTOR_INDEX_FROM_END + 1) * pflash_sector_size);
+    let dest_addr: u32 = pflash_block_base + dest_offset;
+
+    defmt::info!("\n Erase another sector of flash using NorFlash trait",);
+    defmt::unwrap!(flash.erase(dest_offset, dest_offset + pflash_sector_size));
+
+    defmt::info!("\n Calling flash_verify_erase_sector() API for the second sector.");
+    defmt::unwrap!(flash.verify_erase_sector(dest_addr, pflash_sector_size));
+    defmt::info!(
+        "\n Successfully erased sector: 0x{:x} -> 0x{:x}\n",
+        dest_addr,
+        dest_addr + pflash_sector_size
+    );
+
+    defmt::info!("\n Calling NorFlash::write().");
+    defmt::unwrap!(flash.write(dest_offset, &write_buf));
+
+    defmt::info!("\n Calling FLASH_VerifyProgram() API.");
+    defmt::unwrap!(flash.verify_program(dest_addr, &write_buf));
+
+    let mut read_buf = [0u8; 512];
+    defmt::unwrap!(flash.read(dest_offset, &mut read_buf));
+    defmt::assert_eq!(read_buf, write_buf);
+
+    defmt::info!(
+        "\n Successfully programmed and verified location: 0x{:x} -> 0x{:x} using NorFlash trait ",
+        dest_addr,
+        dest_addr + (write_buf.len() as u32)
+    );
+
+    // -----------------------------------------------------------------------
+    // 5. 16 byte write
+    // -----------------------------------------------------------------------
+
+    let dest_offset: u32 = pflash_total_size - ((SECTOR_INDEX_FROM_END + 1) * pflash_sector_size) + 512;
+    defmt::info!("\n Single 16 byte write using NorFlash trait: {:x}", dest_offset);
+    let dest_addr: u32 = pflash_block_base + dest_offset;
+
+    let mut write_buf = [0xFFu8; 32];
+    for i in 0..16 {
+        write_buf[i] = i as u8;
+    }
+
+    defmt::unwrap!(flash.write(dest_offset, &write_buf[..16]));
+
+    let mut read_buf = [0u8; 32];
+    defmt::unwrap!(flash.read(dest_offset, &mut read_buf));
+    defmt::assert_eq!(read_buf, write_buf);
+
+    defmt::info!(
+        "\n Successfully programmed and verified location: 0x{:x} -> 0x{:x} using NorFlash trait ",
+        dest_addr,
+        dest_addr + (write_buf.len() as u32)
+    );
+
+    defmt::unwrap!(flash.blocking_erase(
+        pflash_total_size - ((SECTOR_INDEX_FROM_END + 1) * pflash_sector_size),
+        pflash_sector_size
+    ));
+
     defmt::info!("\n End of PFlash Example! \n");
 
     loop {
