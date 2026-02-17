@@ -363,7 +363,11 @@ impl SPConfHelper for LpspiConfig {
         let div = self.div.into_divisor();
         let expected = freq / div;
         // 21.3.2 peripheral clock max functional clock limits
-        let fmax = match clocks.active_power {
+        let power = match self.power {
+            PoweredClock::NormalEnabledDeepSleepDisabled => clocks.active_power,
+            PoweredClock::AlwaysEnabled => clocks.lp_power,
+        };
+        let fmax = match power {
             VddLevel::MidDriveMode => 50_000_000,
             VddLevel::OverDriveMode => 100_000_000,
         };
@@ -478,7 +482,11 @@ impl SPConfHelper for Lpi2cConfig {
         let div = self.div.into_divisor();
         let expected = freq / div;
         // 22.3.2 peripheral clock max functional clock limits
-        let fmax = match clocks.active_power {
+        let power = match self.power {
+            PoweredClock::NormalEnabledDeepSleepDisabled => clocks.active_power,
+            PoweredClock::AlwaysEnabled => clocks.lp_power,
+        };
+        let fmax = match power {
             VddLevel::MidDriveMode => 25_000_000,
             VddLevel::OverDriveMode => 60_000_000,
         };
@@ -607,7 +615,11 @@ impl SPConfHelper for LpuartConfig {
         let div = self.div.into_divisor();
         let expected = freq / div;
         // 22.3.2 peripheral clock max functional clock limits
-        let fmax = match clocks.active_power {
+        let power = match self.power {
+            PoweredClock::NormalEnabledDeepSleepDisabled => clocks.active_power,
+            PoweredClock::AlwaysEnabled => clocks.lp_power,
+        };
+        let fmax = match power {
             VddLevel::MidDriveMode => 45_000_000,
             VddLevel::OverDriveMode => 180_000_000,
         };
@@ -727,7 +739,11 @@ impl SPConfHelper for CTimerConfig {
         let expected = freq / div;
 
         // 22.3.2 peripheral clock max functional clock limits
-        let fmax = match clocks.active_power {
+        let power = match self.power {
+            PoweredClock::NormalEnabledDeepSleepDisabled => clocks.active_power,
+            PoweredClock::AlwaysEnabled => clocks.lp_power,
+        };
+        let fmax = match power {
             VddLevel::MidDriveMode => 25_000_000,
             VddLevel::OverDriveMode => 60_000_000,
         };
@@ -879,7 +895,11 @@ impl SPConfHelper for AdcConfig {
         let div = self.div.into_divisor();
         let expected = freq / div;
         // 22.3.2 peripheral clock max functional clock limits
-        let fmax = match clocks.active_power {
+        let power = match self.power {
+            PoweredClock::NormalEnabledDeepSleepDisabled => clocks.active_power,
+            PoweredClock::AlwaysEnabled => clocks.lp_power,
+        };
+        let fmax = match power {
             VddLevel::MidDriveMode => 24_000_000,
             VddLevel::OverDriveMode => 64_000_000,
         };
