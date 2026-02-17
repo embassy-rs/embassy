@@ -19,6 +19,7 @@ embassy-sync = { version = "0.7.2", path = "../../embassy-sync" }
 embassy-time = { version = "0.5.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-time-driver = { version = "0.2.1", path = "../../embassy-time-driver", optional = true }
 embedded-io-async = "0.7.0"
+embedded-storage = "0.3.1"
 heapless = "0.9.2"
 panic-probe = { version = "1.0", features = ["print-defmt"] }
 rand_core = "0.9"

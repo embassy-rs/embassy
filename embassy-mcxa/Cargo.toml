@@ -55,6 +55,7 @@ embassy-time-queue-utils = { version = "0.3.0", path = "../embassy-time-queue-ut
 
 rand-core-06 = { package = "rand_core", version = "0.6" }
 rand-core-09 = { package = "rand_core", version = "0.9" }
+embedded-storage = "0.3.1"
 
 [features]
 default = ["rt", "swd-swo-as-gpio"]
