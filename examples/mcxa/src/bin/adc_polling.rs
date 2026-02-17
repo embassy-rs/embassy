@@ -2,17 +2,15 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_mcxa::adc::{Command, Trigger};
+use embassy_mcxa::adc::{Command, CommandConfig, CommandId, Trigger};
 use embassy_time::{Duration, Ticker};
 use hal::adc::{self, Adc, TriggerPriorityPolicy};
 use hal::clocks::PoweredClock;
 use hal::clocks::config::Div8;
 use hal::clocks::periph_helpers::{AdcClockSel, Div4};
 use hal::config::Config;
-use hal::pac::adc::vals::{CalAvgs, Mode, Pwrsel, Refsel, Tcmd};
+use hal::pac::adc::vals::{CalAvgs, Pwrsel, Refsel};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
-
-const G_LPADC_RESULT_SHIFT: u32 = 0;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -31,45 +29,66 @@ async fn main(_spawner: Spawner) {
         reference_voltage_source: Refsel::OPTION_3,
         power_level_mode: Pwrsel::LOWEST,
         trigger_priority_policy: TriggerPriorityPolicy::ConvPreemptImmediatelyNotAutoResumed,
-        enable_conv_pause: false,
-        conv_pause_delay: 0,
+        conv_pause_delay: None,
         power: PoweredClock::NormalEnabledDeepSleepDisabled,
         source: AdcClockSel::FroLfDiv,
         div: Div4::no_div(),
     };
-    let adc = Adc::new_blocking(p.ADC1, p.P1_10, adc_config).unwrap();
+
+    let commands = &[
+        Command::new_single(
+            p.P1_10,
+            CommandConfig {
+                chained_command: Some(CommandId::Cmd2),
+                ..Default::default()
+            },
+        ),
+        Command::new_looping(
+            p.P1_11,
+            3,
+            CommandConfig {
+                chained_command: None,
+                ..Default::default()
+            },
+        )
+        .unwrap(),
+    ];
+
+    let adc = Adc::new(
+        p.ADC1,
+        commands,
+        &[Trigger {
+            target_command_id: CommandId::Cmd1,
+            enable_hardware_trigger: false,
+            ..Default::default()
+        }],
+        adc_config,
+    )
+    .unwrap();
 
     adc.do_offset_calibration();
     adc.do_auto_calibration();
 
-    let conv_command_config = Command {
-        conversion_resolution_mode: Mode::DATA_16_BITS,
-        ..Command::default()
-    };
-    adc.set_conv_command_config(1, &conv_command_config).unwrap();
-
-    let conv_trigger_config: Trigger = Trigger {
-        target_command_id: Tcmd::EXECUTE_CMD1,
-        enable_hardware_trigger: false,
-        ..Default::default()
-    };
-    adc.set_conv_trigger_config(0, &conv_trigger_config).unwrap();
-
     defmt::info!("=== ADC configuration done... ===");
-    let mut tick = Ticker::every(Duration::from_millis(100));
+    let mut tick = Ticker::every(Duration::from_millis(1000));
 
     loop {
         tick.next().await;
-        adc.do_software_trigger(1).unwrap();
-        let result = loop {
-            match adc.get_conv_result() {
-                Ok(res) => break res,
-                Err(_) => {
+        adc.do_software_trigger(0b0001).unwrap();
+
+        loop {
+            match adc.try_get_conv_result() {
+                Ok(res) => {
+                    defmt::info!("ADC result: {}", res);
+                },
+                Err(adc::Error::FifoPending) => {
                     // Conversion not ready, continue polling
+                }
+                Err(_) => {
+                    // We're done
+                    break;
                 }
             }
         };
-        let value = result.conv_value >> G_LPADC_RESULT_SHIFT;
-        defmt::info!("ADC value: {=u16}", value);
     }
 }
