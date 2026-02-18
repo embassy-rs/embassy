@@ -512,6 +512,7 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
                 nss,
                 AfType::output_pull(OutputType::PushPull, config.gpio_speed, Pull::Up)
             ),
+            None,
             new_dma!(dma, _irq),
             config,
             FlashSelection::Flash1,
@@ -549,6 +550,7 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
             new_pin!(d2, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(d3, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(sck, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            None,
             new_pin!(
                 nss,
                 AfType::output_pull(OutputType::PushPull, config.gpio_speed, Pull::Up)
