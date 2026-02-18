@@ -223,8 +223,13 @@ fn configure_control_settings(info: &'static Info, config: &Config) {
             w.set_pe(false);
         };
 
-        // Allow the lpuart to wake from deep sleep
-        w.set_dozeen(Dozeen::ENABLED);
+        // Allow the lpuart to wake from deep sleep if configured to
+        // work in deep sleep mode.
+        let enable_doze = match config.power {
+            PoweredClock::NormalEnabledDeepSleepDisabled => Dozeen::DISABLED,
+            PoweredClock::AlwaysEnabled => Dozeen::ENABLED,
+        };
+        w.set_dozeen(enable_doze);
 
         // Data bits configuration
         match config.data_bits_count {
