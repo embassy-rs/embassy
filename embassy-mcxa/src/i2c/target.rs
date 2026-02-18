@@ -2,13 +2,16 @@
 
 use core::marker::PhantomData;
 use core::ops::Range;
+use core::sync::atomic::{Ordering, fence};
 
 use embassy_hal_internal::Peri;
+use embassy_hal_internal::drop::OnDrop;
 
-use super::{Async, Blocking, Info, Instance, Mode, SclPin, SdaPin};
+use super::{Async, AsyncMode, Blocking, Dma, Info, Instance, Mode, RxDma, SclPin, SdaPin, TxDma};
 pub use crate::clocks::PoweredClock;
 pub use crate::clocks::periph_helpers::{Div4, Lpi2cClockSel, Lpi2cConfig};
 use crate::clocks::{ClockError, WakeGuard, enable_and_reset};
+use crate::dma::{DMA_MAX_TRANSFER_SIZE, DmaChannel, EnableInterrupt};
 use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
@@ -186,9 +189,9 @@ pub struct I2c<'d, M: Mode> {
     info: &'static Info,
     _scl: Peri<'d, AnyPin>,
     _sda: Peri<'d, AnyPin>,
-    _phantom: PhantomData<M>,
     smbus_alert: Status,
     general_call: Status,
+    mode: M,
     _wg: Option<WakeGuard>,
 }
 
@@ -198,6 +201,7 @@ impl<'d, M: Mode> I2c<'d, M> {
         scl: Peri<'d, impl SclPin<T>>,
         sda: Peri<'d, impl SdaPin<T>>,
         config: Config,
+        mode: M,
     ) -> Result<Self, SetupError> {
         let ClockConfig { power, source, div } = config.clock_config;
 
@@ -221,9 +225,9 @@ impl<'d, M: Mode> I2c<'d, M> {
             info: T::info(),
             _scl,
             _sda,
-            _phantom: PhantomData,
             smbus_alert: config.smbus_alert.clone(),
             general_call: config.general_call.clone(),
+            mode,
             _wg: parts.wake_guard,
         };
 
@@ -298,13 +302,13 @@ impl<'d, M: Mode> I2c<'d, M> {
 
                     self.info.regs().samr().write(|w| {
                         w.set_addr0(start);
-                        w.set_addr1(end);
+                        w.set_addr1(end - 1);
                     });
                     self.info.regs().scfgr1().modify(|w| {
                         w.set_addrcfg(if (0x00..=0x7f).contains(&start) {
-                            Addrcfg::ADDRESS_MATCH0_7_BIT_OR_ADDRESS_MATCH1_7_BIT
+                            Addrcfg::FROM_ADDRESS_MATCH0_7_BIT_TO_ADDRESS_MATCH1_7_BIT
                         } else {
-                            Addrcfg::ADDRESS_MATCH0_10_BIT_OR_ADDRESS_MATCH1_10_BIT
+                            Addrcfg::FROM_ADDRESS_MATCH0_10_BIT_TO_ADDRESS_MATCH1_10_BIT
                         })
                     });
                 }
@@ -499,7 +503,7 @@ impl<'d> I2c<'d, Blocking> {
         sda: Peri<'d, impl SdaPin<T>>,
         config: Config,
     ) -> Result<Self, SetupError> {
-        Self::new_inner(peri, scl, sda, config)
+        Self::new_inner(peri, scl, sda, config, Blocking)
     }
 }
 
@@ -519,9 +523,194 @@ impl<'d> I2c<'d, Async> {
         // Safety: `_irq` ensures an Interrupt Handler exists.
         unsafe { T::Interrupt::enable() };
 
-        Self::new_inner(peri, scl, sda, config)
+        Self::new_inner(peri, scl, sda, config, Async)
+    }
+}
+
+impl<'d> I2c<'d, Dma<'d>> {
+    /// Create a new async instance of the I2C Controller bus driver with DMA support.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop,
+    /// additionally, the DMA channel is disabled.
+    pub fn new_async_with_dma<T: Instance>(
+        peri: Peri<'d, T>,
+        scl: Peri<'d, impl SclPin<T>>,
+        sda: Peri<'d, impl SdaPin<T>>,
+        tx_dma: Peri<'d, impl TxDma<T>>,
+        rx_dma: Peri<'d, impl RxDma<T>>,
+        _irq: impl crate::interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        config: Config,
+    ) -> Result<Self, SetupError> {
+        T::Interrupt::unpend();
+
+        // Safety: `_irq` ensures an Interrupt Handler exists.
+        unsafe { T::Interrupt::enable() };
+
+        // grab request numbers
+        let tx_request_number = tx_dma.request_number();
+        let rx_request_number = rx_dma.request_number();
+
+        // enable this channel's interrupt
+        let tx_dma = DmaChannel::new(tx_dma);
+        let rx_dma = DmaChannel::new(rx_dma);
+
+        tx_dma.enable_interrupt();
+        rx_dma.enable_interrupt();
+
+        Self::new_inner(
+            peri,
+            scl,
+            sda,
+            config,
+            Dma {
+                tx_dma,
+                rx_dma,
+                tx_request_number,
+                rx_request_number,
+            },
+        )
     }
 
+    async fn read_dma_chunk(&mut self, data: &mut [u8]) -> Result<usize, IOError> {
+        let peri_addr = self.info.regs().srdr().as_ptr() as *const u8;
+
+        self.clear_status();
+
+        unsafe {
+            // Clean up channel state
+            self.mode.rx_dma.disable_request();
+            self.mode.rx_dma.clear_done();
+            self.mode.rx_dma.clear_interrupt();
+
+            // Set DMA request source from instance type (type-safe)
+            self.mode.rx_dma.set_request_source(self.mode.rx_request_number);
+
+            // Configure TCD for memory-to-peripheral transfer
+            self.mode
+                .rx_dma
+                .setup_read_from_peripheral(peri_addr, data, EnableInterrupt::Yes);
+
+            // Enable I2C RX DMA request
+            self.info.regs().sder().modify(|w| w.set_rdde(true));
+
+            // Enable DMA channel request
+            self.mode.rx_dma.enable_request();
+        }
+
+        // Wait until STOP or REPEATED START
+        self.info
+            .wait_cell()
+            .wait_for(|| {
+                self.info.regs().sier().write(|w| {
+                    w.set_feie(true);
+                    w.set_beie(true);
+                    w.set_sdie(true);
+                    w.set_rsie(true);
+                });
+                let ssr = self.info.regs().ssr().read();
+                ssr.fef() || ssr.bef() || ssr.sdf() || ssr.rsf()
+            })
+            .await
+            .map_err(|_| IOError::Other)?;
+
+        // Cleanup
+        self.info.regs().sder().modify(|w| w.set_rdde(false));
+        unsafe {
+            self.mode.rx_dma.disable_request();
+            self.mode.rx_dma.clear_done();
+        }
+
+        // Ensure all writes by DMA are visible to the CPU
+        // TODO: ensure this is done internal to the DMA methods so individual drivers
+        // don't need to handle this?
+        fence(Ordering::Acquire);
+
+        let ssr = self.info.regs().ssr().read();
+
+        if ssr.fef() {
+            Err(IOError::FifoError)
+        } else if ssr.bef() {
+            Err(IOError::BitError)
+        } else if ssr.sdf() || ssr.rsf() {
+            Ok(self.mode.rx_dma.transferred_bytes())
+        } else {
+            Err(IOError::Other)
+        }
+    }
+
+    async fn write_dma_chunk(&mut self, data: &[u8]) -> Result<usize, IOError> {
+        let peri_addr = self.info.regs().stdr().as_ptr() as *mut u8;
+
+        self.clear_status();
+
+        unsafe {
+            // Clean up channel state
+            self.mode.tx_dma.disable_request();
+            self.mode.tx_dma.clear_done();
+            self.mode.tx_dma.clear_interrupt();
+
+            // Set DMA request source from instance type (type-safe)
+            self.mode.tx_dma.set_request_source(self.mode.tx_request_number);
+
+            // Configure TCD for memory-to-peripheral transfer
+            self.mode
+                .tx_dma
+                .setup_write_to_peripheral(data, peri_addr, EnableInterrupt::No);
+
+            // Ensure all writes by DMA are visible to the CPU
+            // TODO: ensure this is done internal to the DMA methods so individual drivers
+            // don't need to handle this?
+            fence(Ordering::Release);
+
+            // Enable I2C TX DMA request
+            self.info.regs().sder().modify(|w| w.set_tdde(true));
+
+            // Enable DMA channel request
+            self.mode.tx_dma.enable_request();
+        }
+
+        // Wait until STOP or REPEATED START
+        self.info
+            .wait_cell()
+            .wait_for(|| {
+                self.info.regs().sier().write(|w| {
+                    w.set_feie(true);
+                    w.set_beie(true);
+                    w.set_sdie(true);
+                    w.set_rsie(true);
+                });
+                let ssr = self.info.regs().ssr().read();
+                ssr.fef() || ssr.bef() || ssr.sdf() || ssr.rsf()
+            })
+            .await
+            .map_err(|_| IOError::Other)?;
+
+        // Cleanup
+        self.info.regs().sder().modify(|w| w.set_tdde(false));
+        unsafe {
+            self.mode.tx_dma.disable_request();
+            self.mode.tx_dma.clear_done();
+        }
+
+        let ssr = self.info.regs().ssr().read();
+
+        if ssr.fef() {
+            Err(IOError::FifoError)
+        } else if ssr.bef() {
+            Err(IOError::BitError)
+        } else if ssr.sdf() || ssr.rsf() {
+            Ok(self.mode.tx_dma.transferred_bytes())
+        } else {
+            Err(IOError::Other)
+        }
+    }
+}
+
+#[allow(private_bounds)]
+impl<'d, M: AsyncMode> I2c<'d, M>
+where
+    Self: AsyncEngine,
+{
     fn enable_ints(&self) {
         self.info.regs().sier().write(|w| {
             w.set_sarie(self.smbus_alert.clone().into());
@@ -578,37 +767,8 @@ impl<'d> I2c<'d, Async> {
     ///
     /// Returns either an `Ok(usize)` containing the number of bytes
     /// transmitted, or an `Error`.
-    pub async fn async_respond_to_read(&mut self, buf: &[u8]) -> Result<usize, IOError> {
-        let mut count = 0;
-
-        self.clear_status();
-
-        for byte in buf.iter() {
-            // Wait until we can send data
-            self.info
-                .wait_cell()
-                .wait_for(|| {
-                    self.enable_ints();
-                    let ssr = self.info.regs().ssr().read();
-                    ssr.tdf() || ssr.sdf() || ssr.rsf()
-                })
-                .await
-                .map_err(|_| IOError::Other)?;
-
-            // If we see a STOP or REPEATED START, break out
-            let ssr = self.info.regs().ssr().read();
-            if ssr.sdf() || ssr.rsf() {
-                #[cfg(feature = "defmt")]
-                defmt::trace!("Early stop of Target Send routine. STOP or Repeated-start received");
-                self.reset_fifos();
-                break;
-            } else {
-                self.info.regs().stdr().write(|w| w.set_data(*byte));
-                count += 1;
-            }
-        }
-
-        Ok(count)
+    pub fn async_respond_to_read<'a>(&'a mut self, buf: &'a [u8]) -> impl Future<Output = Result<usize, IOError>> + 'a {
+        <Self as AsyncEngine>::async_respond_to_read_internal(self, buf)
     }
 
     /// Asynchronously receive data from the I2C controller into
@@ -617,36 +777,152 @@ impl<'d> I2c<'d, Async> {
     /// Care is taken to guarantee that we receive at most `buf.len()`
     /// bytes. On success returns `Ok(usize)` containing the number of
     /// bytes received or an `Error`.
-    pub async fn async_respond_to_write(&mut self, buf: &mut [u8]) -> Result<usize, IOError> {
-        let mut count = 0;
+    pub fn async_respond_to_write<'a>(
+        &'a mut self,
+        buf: &'a mut [u8],
+    ) -> impl Future<Output = Result<usize, IOError>> + 'a {
+        <Self as AsyncEngine>::async_respond_to_write_internal(self, buf)
+    }
+}
 
-        self.clear_status();
+trait AsyncEngine {
+    fn async_respond_to_read_internal<'a>(
+        &'a mut self,
+        buf: &'a [u8],
+    ) -> impl Future<Output = Result<usize, IOError>> + 'a;
 
-        for byte in buf.iter_mut() {
-            self.info
-                .wait_cell()
-                .wait_for(|| {
-                    self.enable_ints();
-                    let ssr = self.info.regs().ssr().read();
-                    ssr.rdf() || ssr.sdf() || ssr.rsf()
-                })
-                .await
-                .map_err(|_| IOError::Other)?;
+    fn async_respond_to_write_internal<'a>(
+        &'a mut self,
+        buf: &'a mut [u8],
+    ) -> impl Future<Output = Result<usize, IOError>> + 'a;
+}
 
-            // If we see a STOP or REPEATED START, break out
-            let ssr = self.info.regs().ssr().read();
-            if ssr.sdf() || ssr.rsf() {
-                #[cfg(feature = "defmt")]
-                defmt::trace!("Early stop of Target Receive routine. STOP or Repeated-start received");
-                self.reset_fifos();
-                break;
-            } else {
-                *byte = self.info.regs().srdr().read().data();
-                count += 1;
+impl<'d> AsyncEngine for I2c<'d, Async> {
+    fn async_respond_to_read_internal<'a>(
+        &'a mut self,
+        buf: &'a [u8],
+    ) -> impl Future<Output = Result<usize, IOError>> + 'a {
+        async move {
+            let mut count = 0;
+
+            self.clear_status();
+
+            for byte in buf.iter() {
+                // Wait until we can send data
+                self.info
+                    .wait_cell()
+                    .wait_for(|| {
+                        self.enable_ints();
+                        let ssr = self.info.regs().ssr().read();
+                        ssr.tdf() || ssr.sdf() || ssr.rsf()
+                    })
+                    .await
+                    .map_err(|_| IOError::Other)?;
+
+                // If we see a STOP or REPEATED START, break out
+                let ssr = self.info.regs().ssr().read();
+                if ssr.sdf() || ssr.rsf() {
+                    #[cfg(feature = "defmt")]
+                    defmt::trace!("Early stop of Target Send routine. STOP or Repeated-start received");
+                    self.reset_fifos();
+                    break;
+                } else {
+                    self.info.regs().stdr().write(|w| w.set_data(*byte));
+                    count += 1;
+                }
             }
-        }
 
-        Ok(count)
+            Ok(count)
+        }
+    }
+
+    fn async_respond_to_write_internal<'a>(
+        &'a mut self,
+        buf: &'a mut [u8],
+    ) -> impl Future<Output = Result<usize, IOError>> + 'a {
+        async move {
+            let mut count = 0;
+
+            self.clear_status();
+
+            for byte in buf.iter_mut() {
+                self.info
+                    .wait_cell()
+                    .wait_for(|| {
+                        self.enable_ints();
+                        let ssr = self.info.regs().ssr().read();
+                        ssr.rdf() || ssr.sdf() || ssr.rsf()
+                    })
+                    .await
+                    .map_err(|_| IOError::Other)?;
+
+                // If we see a STOP or REPEATED START, break out
+                let ssr = self.info.regs().ssr().read();
+                if ssr.sdf() || ssr.rsf() {
+                    #[cfg(feature = "defmt")]
+                    defmt::trace!("Early stop of Target Receive routine. STOP or Repeated-start received");
+                    self.reset_fifos();
+                    break;
+                } else {
+                    *byte = self.info.regs().srdr().read().data();
+                    count += 1;
+                }
+            }
+
+            Ok(count)
+        }
+    }
+}
+
+impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
+    fn async_respond_to_read_internal<'a>(
+        &'a mut self,
+        buf: &'a [u8],
+    ) -> impl Future<Output = Result<usize, IOError>> + 'a {
+        async move {
+            let mut count = 0;
+
+            self.clear_status();
+
+            // perform corrective action if the future is dropped
+            let on_drop = OnDrop::new(|| {
+                self.info.regs().sder().modify(|w| w.set_tdde(false));
+            });
+
+            for chunk in buf.chunks(DMA_MAX_TRANSFER_SIZE) {
+                count += self.write_dma_chunk(chunk).await?;
+            }
+
+            // defuse it if the future is not dropped
+            on_drop.defuse();
+
+            Ok(count)
+        }
+    }
+
+    fn async_respond_to_write_internal<'a>(
+        &'a mut self,
+        buf: &'a mut [u8],
+    ) -> impl Future<Output = Result<usize, IOError>> + 'a {
+        async move {
+            let mut count = 0;
+
+            self.clear_status();
+
+            // perform corrective action if the future is dropped
+            let on_drop = OnDrop::new(|| {
+                self.info.regs().sder().modify(|w| w.set_rdde(false));
+            });
+
+            for chunk in buf.chunks_mut(DMA_MAX_TRANSFER_SIZE) {
+                count += self.read_dma_chunk(chunk).await?;
+            }
+
+            // defuse it if the future is not dropped
+            on_drop.defuse();
+
+            Ok(count)
+        }
     }
 }
 

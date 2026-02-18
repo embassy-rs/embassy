@@ -1277,6 +1277,18 @@ impl DmaChannel<'_> {
         cortex_m::asm::dsb();
     }
 
+    /// Produce the number of bytes transferred at the time of calling
+    /// this function.
+    pub fn transferred_bytes(&self) -> usize {
+        critical_section::with(|_| {
+            let t = self.tcd();
+            let biter = t.tcd_biter_elinkno().read().biter() as usize;
+            let citer = t.tcd_citer_elinkno().read().citer() as usize;
+            let minor = t.tcd_nbytes_mloffno().read().nbytes() as usize;
+            (biter - citer) * minor
+        })
+    }
+
     /// Configure a memory-to-peripheral DMA transfer without starting it.
     ///
     /// This configures the TCD for a memory-to-peripheral transfer but does NOT
