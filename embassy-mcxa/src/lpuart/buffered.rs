@@ -22,7 +22,7 @@ impl<'a> Lpuart<'a, Buffered> {
         enable_rx: bool,
         enable_rts: bool,
         enable_cts: bool,
-    ) -> Result<Option<WakeGuard>> {
+    ) -> Result<Option<WakeGuard>, Error> {
         // Initialize buffers
         if let Some(tx_buffer) = tx_buffer {
             if tx_buffer.is_empty() {
@@ -78,7 +78,7 @@ impl<'a> Lpuart<'a, Buffered> {
         tx_buffer: &'a mut [u8],
         rx_buffer: &'a mut [u8],
         config: Config,
-    ) -> Result<Self> {
+    ) -> Result<Self, Error> {
         let wg = Self::init_buffered::<T>(
             Some(tx_buffer),
             Some(rx_buffer),
@@ -106,7 +106,7 @@ impl<'a> Lpuart<'a, Buffered> {
         tx_buffer: &'a mut [u8],
         rx_buffer: &'a mut [u8],
         config: Config,
-    ) -> Result<Self> {
+    ) -> Result<Self, Error> {
         tx_pin.as_tx();
         rx_pin.as_rx();
 
@@ -126,7 +126,7 @@ impl<'a> Lpuart<'a, Buffered> {
         tx_buffer: &'a mut [u8],
         rx_buffer: &'a mut [u8],
         config: Config,
-    ) -> Result<Self> {
+    ) -> Result<Self, Error> {
         tx_pin.as_tx();
         rx_pin.as_rx();
         rts_pin.as_rts();
@@ -155,7 +155,7 @@ impl<'a> Lpuart<'a, Buffered> {
         tx_buffer: &'a mut [u8],
         rx_buffer: &'a mut [u8],
         config: Config,
-    ) -> Result<Self> {
+    ) -> Result<Self, Error> {
         tx_pin.as_tx();
         rx_pin.as_rx();
         rts_pin.as_rts();
@@ -183,7 +183,7 @@ impl<'a> Lpuart<'a, Buffered> {
         tx_buffer: &'a mut [u8],
         rx_buffer: &'a mut [u8],
         config: Config,
-    ) -> Result<Self> {
+    ) -> Result<Self, Error> {
         tx_pin.as_tx();
         rx_pin.as_rx();
         cts_pin.as_cts();
@@ -207,7 +207,7 @@ impl<'a> LpuartTx<'a, Buffered> {
         cts_pin: Option<Peri<'a, AnyPin>>,
         tx_buffer: &'a mut [u8],
         config: Config,
-    ) -> Result<Self> {
+    ) -> Result<Self, Error> {
         let wg = Lpuart::<'a, Buffered>::init_buffered::<T>(
             Some(tx_buffer),
             None,
@@ -230,7 +230,7 @@ impl<'a> LpuartTx<'a, Buffered> {
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, BufferedInterruptHandler<T>> + 'a,
         tx_buffer: &'a mut [u8],
         config: Config,
-    ) -> Result<Self> {
+    ) -> Result<Self, Error> {
         tx_pin.as_tx();
 
         let res = Self::new_inner_buffered::<T>(tx_pin.into(), None, tx_buffer, config)?;
@@ -248,7 +248,7 @@ impl<'a> LpuartTx<'a, Buffered> {
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, BufferedInterruptHandler<T>> + 'a,
         tx_buffer: &'a mut [u8],
         config: Config,
-    ) -> Result<Self> {
+    ) -> Result<Self, Error> {
         tx_pin.as_tx();
         cts_pin.as_cts();
 
@@ -264,7 +264,7 @@ impl<'a> LpuartTx<'a, Buffered> {
     }
 
     /// Write data asynchronously
-    pub async fn write(&mut self, buf: &[u8]) -> Result<usize> {
+    pub async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
         if buf.is_empty() {
             return Ok(0);
         }
@@ -276,7 +276,7 @@ impl<'a> LpuartTx<'a, Buffered> {
     }
 
     /// Flush the TX buffer and wait for transmission to complete
-    pub async fn flush(&mut self) -> Result<()> {
+    pub async fn flush(&mut self) -> Result<(), Error> {
         // Wait for TX buffer to empty and transmission to complete
         Ok(self
             .state
@@ -345,7 +345,7 @@ impl<'a> LpuartRx<'a, Buffered> {
         rts_pin: Option<Peri<'a, AnyPin>>,
         rx_buffer: &'a mut [u8],
         config: Config,
-    ) -> Result<Self> {
+    ) -> Result<Self, Error> {
         let wg = Lpuart::<'a, Buffered>::init_buffered::<T>(
             None,
             Some(rx_buffer),
@@ -368,7 +368,7 @@ impl<'a> LpuartRx<'a, Buffered> {
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, BufferedInterruptHandler<T>> + 'a,
         rx_buffer: &'a mut [u8],
         config: Config,
-    ) -> Result<Self> {
+    ) -> Result<Self, Error> {
         rx_pin.as_rx();
 
         let res = Self::new_inner_buffered::<T>(rx_pin.into(), None, rx_buffer, config)?;
@@ -392,7 +392,7 @@ impl<'a> LpuartRx<'a, Buffered> {
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, BufferedInterruptHandler<T>> + 'a,
         rx_buffer: &'a mut [u8],
         config: Config,
-    ) -> Result<Self> {
+    ) -> Result<Self, Error> {
         rx_pin.as_rx();
         rts_pin.as_rts();
 
@@ -408,7 +408,7 @@ impl<'a> LpuartRx<'a, Buffered> {
     }
 
     /// Read data asynchronously
-    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         if buf.is_empty() {
             return Ok(0);
         }

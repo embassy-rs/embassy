@@ -191,7 +191,7 @@ fn disable_transceiver(info: &'static Info) {
 }
 
 /// Calculate and configure baudrate settings
-fn configure_baudrate(info: &'static Info, baudrate_bps: u32, clock_freq: u32) -> Result<()> {
+fn configure_baudrate(info: &'static Info, baudrate_bps: u32, clock_freq: u32) -> Result<(), Error> {
     let (osr, sbr) = calculate_baudrate(baudrate_bps, clock_freq)?;
 
     // Configure BAUD register
@@ -319,7 +319,7 @@ fn enable_transceiver(info: &'static Info, enable_tx: bool, enable_rx: bool) {
     });
 }
 
-fn calculate_baudrate(baudrate: u32, src_clock_hz: u32) -> Result<(u8, u16)> {
+fn calculate_baudrate(baudrate: u32, src_clock_hz: u32) -> Result<(u8, u16), Error> {
     let mut baud_diff = baudrate;
     let mut osr = 0u8;
     let mut sbr = 0u16;
@@ -370,7 +370,7 @@ fn wait_for_tx_complete(info: &'static Info) {
     }
 }
 
-fn check_and_clear_rx_errors(info: &'static Info) -> Result<()> {
+fn check_and_clear_rx_errors(info: &'static Info) -> Result<(), Error> {
     let stat = info.regs().stat().read();
 
     // Check for overrun first - other error flags are prevented when OR is set
@@ -659,9 +659,6 @@ impl core::fmt::Display for Error {
 
 impl core::error::Error for Error {}
 
-/// A specialized Result type for LPUART operations
-pub type Result<T> = core::result::Result<T, Error>;
-
 /// Lpuart config
 #[derive(Debug, Clone, Copy)]
 pub struct Config {
@@ -848,7 +845,7 @@ impl<'a, M: Mode> Lpuart<'a, M> {
         enable_tx_cts: bool,
         enable_rx_rts: bool,
         config: Config,
-    ) -> Result<Option<WakeGuard>> {
+    ) -> Result<Option<WakeGuard>, Error> {
         // Check if the peripheral was leaked using [core::mem::forget], and clean up the peripheral.
         if T::state().tx_rx_refmask.fetch_any_alive_reset() {
             disable_peripheral(T::info());
