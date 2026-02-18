@@ -1,6 +1,4 @@
-use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::task::Poll;
 
 use embassy_hal_internal::Peri;
 
@@ -266,49 +264,44 @@ impl<'a> LpuartTx<'a, Buffered> {
     }
 
     /// Write data asynchronously
-    pub fn write(&mut self, buf: &[u8]) -> impl Future<Output = Result<usize>> {
+    pub async fn write(&mut self, buf: &[u8]) -> Result<usize> {
         // Wait for space in the buffer
-        poll_fn(move |cx| {
-            self.state.tx_waker.register(cx.waker());
-
-            let mut writer = unsafe { self.state.tx_buf.writer() };
-            let written = writer.push(|slice| {
-                let write_len = slice.len().min(buf.len());
-                slice[..write_len].copy_from_slice(&buf[..write_len]);
-                write_len
-            });
-
-            // Enable TX interrupt to start transmission
-            cortex_m::interrupt::free(|_| {
-                self.info.regs().ctrl().modify(|w| {
-                    w.set_tie(true);
+        Ok(self
+            .state
+            .tx_waker
+            .wait_for_value(|| {
+                let mut writer = unsafe { self.state.tx_buf.writer() };
+                let written = writer.push(|slice| {
+                    let write_len = slice.len().min(buf.len());
+                    slice[..write_len].copy_from_slice(&buf[..write_len]);
+                    write_len
                 });
-            });
 
-            if written != 0 {
-                Poll::Ready(Ok(written))
-            } else {
-                Poll::Pending
-            }
-        })
+                // Enable TX interrupt to start transmission
+                cortex_m::interrupt::free(|_| {
+                    self.info.regs().ctrl().modify(|w| {
+                        w.set_tie(true);
+                    });
+                });
+
+                if written != 0 { Some(written) } else { None }
+            })
+            .await?)
     }
 
     /// Flush the TX buffer and wait for transmission to complete
-    pub fn flush(&mut self) -> impl Future<Output = Result<()>> {
+    pub async fn flush(&mut self) -> Result<()> {
         // Wait for TX buffer to empty and transmission to complete
-        poll_fn(|cx| {
-            self.state.tx_waker.register(cx.waker());
-
-            let tx_empty = self.state.tx_buf.is_empty();
-            let fifo_empty = self.info.regs().water().read().txcount() == 0;
-            let tc_complete = self.info.regs().stat().read().tc() == Tc::COMPLETE;
-
-            if tx_empty && fifo_empty && tc_complete {
-                Poll::Ready(Ok(()))
-            } else {
-                Poll::Pending
-            }
-        })
+        Ok(self
+            .state
+            .tx_waker
+            .wait_for(|| {
+                let tx_empty = self.state.tx_buf.is_empty();
+                let fifo_empty = self.info.regs().water().read().txcount() == 0;
+                let tc_complete = self.info.regs().stat().read().tc() == Tc::COMPLETE;
+                tx_empty && fifo_empty && tc_complete
+            })
+            .await?)
     }
 
     /// Try to write without blocking
@@ -410,69 +403,44 @@ impl<'a> LpuartRx<'a, Buffered> {
             return Ok(0);
         }
 
-        let mut read = 0;
-
         // Try to read available data
-        poll_fn(|cx| {
-            self.state.rx_waker.register(cx.waker());
+        Ok(self
+            .state
+            .rx_waker
+            .wait_for_value(|| {
+                // Disable RX interrupt while reading from buffer
+                let read = cortex_m::interrupt::free(|_| {
+                    let mut reader = unsafe { self.state.rx_buf.reader() };
+                    reader.pop(|data| {
+                        let to_copy = core::cmp::min(data.len(), buf.len());
+                        buf[..to_copy].copy_from_slice(&data[..to_copy]);
+                        to_copy
+                    })
+                });
 
-            // Disable RX interrupt while reading from buffer
-            cortex_m::interrupt::free(|_| {
-                self.info.regs().ctrl().modify(|w| w.set_rie(false));
-            });
-
-            let mut reader = unsafe { self.state.rx_buf.reader() };
-            let available = reader.pop(|data| {
-                let to_copy = core::cmp::min(data.len(), buf.len() - read);
-                if to_copy > 0 {
-                    buf[read..read + to_copy].copy_from_slice(&data[..to_copy]);
-                    read += to_copy;
-                }
-                to_copy
-            });
-
-            // Re-enable RX interrupt
-            cortex_m::interrupt::free(|_| {
-                self.info.regs().ctrl().modify(|w| w.set_rie(true));
-            });
-
-            if read > 0 {
-                Poll::Ready(Ok(read))
-            } else if available == 0 {
-                Poll::Pending
-            } else {
-                Poll::Ready(Ok(0))
-            }
-        })
-        .await
+                if read > 0 { Some(read) } else { None }
+            })
+            .await?)
     }
 
     /// Try to read without blocking
-    pub fn try_read(&mut self, buf: &mut [u8]) -> Result<usize> {
+    ///
+    /// May return zero bytes if none are available, or the provided buffer is
+    /// of zero length.
+    pub fn try_read(&mut self, buf: &mut [u8]) -> usize {
         if buf.is_empty() {
-            return Ok(0);
+            return 0;
         }
 
         // Disable RX interrupt while reading from buffer
         cortex_m::interrupt::free(|_| {
-            self.info.regs().ctrl().modify(|w| w.set_rie(false));
-        });
-
-        let mut reader = unsafe { self.state.rx_buf.reader() };
-        let read = reader.pop(|data| {
-            let to_copy = core::cmp::min(data.len(), buf.len());
-            if to_copy > 0 {
+            let mut reader = unsafe { self.state.rx_buf.reader() };
+            reader.pop(|data| {
+                let to_copy = core::cmp::min(data.len(), buf.len());
                 buf[..to_copy].copy_from_slice(&data[..to_copy]);
-            }
-            to_copy
-        });
-
-        // Re-enable RX interrupt
-        cortex_m::interrupt::free(|_| {
-            self.info.regs().ctrl().modify(|w| w.set_rie(true));
-        });
-
-        Ok(read)
+                to_copy
+            })
+        })
     }
 }
 
