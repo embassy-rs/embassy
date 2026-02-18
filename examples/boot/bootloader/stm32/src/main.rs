@@ -29,7 +29,7 @@ fn main() -> ! {
     let active_offset = config.active.offset();
     let bl = BootLoader::prepare::<_, _, _, 2048>(config);
 
-    unsafe { bl.load(BANK1_REGION.base + active_offset) }
+    unsafe { bl.load(BANK1_REGION.base() + active_offset) }
 }
 
 #[unsafe(no_mangle)]
