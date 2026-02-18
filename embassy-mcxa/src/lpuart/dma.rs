@@ -330,7 +330,7 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
     pub fn blocking_read(&mut self, buf: &mut [u8]) -> Result<()> {
         for byte in buf.iter_mut() {
             loop {
-                if has_data(self.info) {
+                if has_rx_data_pending(self.info) {
                     *byte = (self.info.regs().data().read().0 & 0xFF) as u8;
                     break;
                 }

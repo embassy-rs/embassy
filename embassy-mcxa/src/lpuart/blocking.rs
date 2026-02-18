@@ -241,7 +241,7 @@ impl<'a> LpuartRx<'a, Blocking> {
     fn read_byte(&mut self) -> Result<u8> {
         check_and_clear_rx_errors(self.info)?;
 
-        if !has_data(self.info) {
+        if !has_rx_data_pending(self.info) {
             return Err(Error::RxFifoEmpty);
         }
 
@@ -250,7 +250,7 @@ impl<'a> LpuartRx<'a, Blocking> {
 
     fn blocking_read_byte(&mut self) -> Result<u8> {
         loop {
-            if has_data(self.info) {
+            if has_rx_data_pending(self.info) {
                 return self.read_byte_internal();
             }
 
