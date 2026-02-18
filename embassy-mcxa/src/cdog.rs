@@ -8,23 +8,27 @@
 //! - State: Invalid state transitions
 //! - Address: Invalid memory access
 
-use embassy_hal_internal::Peri;
-use embassy_hal_internal::interrupt::InterruptExt;
+use core::marker::PhantomData;
+use core::ops::{AddAssign, SubAssign};
 
-use crate::interrupt::typelevel::{self, Handler};
+use embassy_hal_internal::{Peri, PeripheralType};
+use maitake_sync::WaitCell;
+use paste::paste;
+
+use crate::interrupt::typelevel::Interrupt;
 use crate::pac::cdog::vals::{Ctrl, DebugHaltCtrl, IrqPause, LockCtrl};
-use crate::pac::{self};
-use crate::peripherals::CDOG0;
-
-/// Shorthand for `Result<T>`.
-pub type Result<T> = core::result::Result<T, Error>;
+use crate::{interrupt, pac};
 
 /// Errors that can occur when configuring or using the CDOG.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
-    /// Watchdog is currently running and cannot be reconfigured
-    WatchdogRunning,
+    /// Watchdog is currently running and cannot be reconfigured.
+    Running,
+
+    /// Watchdog is currently *not* running. This is an error
+    /// condition when attempting to issue a RESTART command.
+    NotRunning,
 }
 
 /// Fault control configuration for different fault types.
@@ -96,15 +100,12 @@ pub struct Config {
 }
 
 /// Code Watchdog peripheral
-pub struct Watchdog<'d> {
-    _peri: Peri<'d, CDOG0>,
-    // The register block of the CDOG instance
-    info: pac::cdog::Cdog,
-    /// Software-tracked secure counter value
-    secure_counter: u32,
+pub struct Cdog<'d> {
+    info: &'static Info,
+    _phantom: PhantomData<&'d mut ()>,
 }
 
-impl<'d> Watchdog<'d> {
+impl<'d> Cdog<'d> {
     /// Creates a new CDOG instance with the given configuration.
     ///
     /// # Arguments
@@ -114,26 +115,40 @@ impl<'d> Watchdog<'d> {
     ///
     /// # Returns
     /// * `Ok(Watchdog)` - Successfully configured watchdog
-    /// * `Err(Error::WatchdogRunning)` - Watchdog is already running and cannot be reconfigured
-    pub fn new(
-        _peri: Peri<'d, CDOG0>,
-        _irq: impl crate::interrupt::typelevel::Binding<typelevel::CDOG0, InterruptHandler> + 'd,
+    /// * `Err(Error::Running)` - Watchdog is already running and cannot be reconfigured
+    pub fn new<T: Instance>(
+        _peri: Peri<'d, T>,
+        _irq: impl crate::interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
-    ) -> Result<Self> {
-        let info = pac::CDOG0;
+    ) -> Result<Self, Error> {
+        let mut inst = Self {
+            info: T::info(),
+            _phantom: PhantomData,
+        };
 
+        inst.set_configuration(&config)?;
+
+        T::Interrupt::unpend();
+
+        // Safety: `_irq` ensures an Interrupt Handler exists.
+        unsafe { T::Interrupt::enable() };
+
+        Ok(inst)
+    }
+
+    fn set_configuration(&mut self, config: &Config) -> Result<(), Error> {
         // Ensure that CDOG is in IDLE mode otherwise writing to CONTROL register will trigger a fault.
-        if info.status().read().curst() == 0xA {
-            return Err(Error::WatchdogRunning);
+        if self.info.regs().status().read().curst() == 0xA {
+            return Err(Error::Running);
         }
 
         // Clear all pending error flags to prevent immediate reset after enable.
         // The clearing method depends on whether the module is locked:
         // - Unlocked (LOCK_CTRL = 10b): Write flag values directly
         // - Locked (LOCK_CTRL = 01b): Write '1' to clear individual flags
-        let b = info.control().read().lock_ctrl() == LockCtrl::LOCKED;
+        let b = self.info.regs().control().read().lock_ctrl() == LockCtrl::LOCKED;
         // Locked mode: write '1' to clear each flag
-        info.flags().write(|w| {
+        self.info.regs().flags().write(|w| {
             w.set_to_flag(b);
             w.set_miscom_flag(b);
             w.set_seq_flag(b);
@@ -144,7 +159,7 @@ impl<'d> Watchdog<'d> {
         });
 
         // Configure CONTROL register with the provided config
-        info.control().write(|w| {
+        self.info.regs().control().write(|w| {
             w.set_timeout_ctrl(config.timeout.into());
             w.set_miscompare_ctrl(config.miscompare.into());
             w.set_sequence_ctrl(config.sequence.into());
@@ -170,150 +185,249 @@ impl<'d> Watchdog<'d> {
             }
         });
 
-        crate::pac::Interrupt::CDOG0.unpend();
-
-        // Safety: `_irq` ensures an Interrupt Handler exists.
-        unsafe { crate::pac::Interrupt::CDOG0.enable() };
-
-        Ok(Self {
-            _peri,
-            info,
-            secure_counter: 0,
-        })
+        Ok(())
     }
 
     /// Starts the watchdog with specified timer and counter values.
     ///
     /// # Arguments
-    /// * `instruction_timer_value` - Number of clock cycles before timeout
-    /// * `secure_counter_value` - Initial value of the secure counter
+    /// * `instruction_timer` - Number of clock cycles before timeout
+    /// * `secure_counter` - Initial value of the secure counter
     ///
     /// # Note
-    /// If the watchdog is already running, this will stop it first.
-    pub fn start(&mut self, instruction_timer_value: u32, secure_counter_value: u32) {
-        // Ensure the CDOG is in IDLE mode before starting
-        // Status value 0xA indicates ACTIVE state
-        while self.info.status().read().curst() == 0xA {
-            self.stop();
+    /// If the watchdog is already running, this will return a `Running` error.
+    pub fn start(&mut self, instruction_timer: u32, secure_counter: u32) -> Result<(), Error> {
+        if is_running(self.info) {
+            return Err(Error::Running);
         }
 
-        // Update internal secure counter tracking
-        self.secure_counter = secure_counter_value;
-
         // Set the instruction timer reload value (timeout period)
-        self.info.reload().write(|w| w.set_rload(instruction_timer_value));
+        self.info.regs().reload().write(|w| w.set_rload(instruction_timer));
+
         // Start the watchdog with initial secure counter value
-        self.info.start().write(|w| w.set_strt(secure_counter_value));
+        self.info.regs().start().write(|w| w.set_strt(secure_counter));
+
+        Ok(())
     }
 
-    /// Adds a value to the secure counter.
+    /// Restart the watchdog while comparing against the secure counter.
     ///
-    /// # Arguments
-    /// * `add` - Value to add to the secure counter
-    pub fn add(&mut self, add: u32) {
-        self.secure_counter = self.secure_counter.wrapping_add(add);
-        self.info.add().write(|w| w.set_ad(add));
-    }
+    /// If the watchdog is not yet running, this produces a `NotRunning` error.
+    pub fn restart(&mut self, check: u32) -> Result<(), Error> {
+        if is_idle(self.info) {
+            return Err(Error::NotRunning);
+        }
 
-    // Subtracts a value from the secure counter.
-    ///
-    /// # Arguments
-    /// * `sub` - Value to subtract from the secure counter
-    pub fn sub(&mut self, sub: u32) {
-        self.secure_counter = self.secure_counter.wrapping_sub(sub);
-        self.info.sub().write(|w| w.set_sb(sub));
-    }
+        self.info.regs().restart().write(|w| w.set_rstrt(check));
 
-    /// Checks the secure counter value and restarts the watchdog.
-    ///
-    /// This stops the watchdog, verifies the secure counter matches the expected
-    /// value, and restarts with the same instruction timer reload value.
-    ///
-    /// # Arguments
-    /// * `check` - Expected secure counter value
-    ///
-    /// # Note
-    /// If the counter doesn't match, a miscompare fault may be triggered
-    /// depending on configuration.
-    pub fn check(&mut self, check: u32) {
-        self.secure_counter = check;
-        self.info.stop().write(|w| w.set_stp(self.secure_counter));
-        let reload = self.info.reload().read().rload();
-        self.info.reload().write(|w| w.set_rload(reload));
-        self.info.start().write(|w| w.set_strt(self.secure_counter));
+        Ok(())
     }
 
     /// Stops the watchdog timer.
     ///
-    /// # Note
-    /// This is a private method. The watchdog is stopped by writing the
-    /// current secure counter value to the STOP register.
-    fn stop(&mut self) {
-        self.info.stop().write(|w| w.set_stp(self.secure_counter));
+    /// If the watchdog is already stopped, this will return a `NotRunning` error.
+    pub fn stop(&mut self, check: u32) -> Result<(), Error> {
+        if is_idle(self.info) {
+            return Err(Error::NotRunning);
+        }
+
+        self.info.regs().stop().write(|w| w.set_stp(check));
+
+        Ok(())
     }
 
-    /// Reads the current instruction timer value.
-    ///
-    /// # Returns
-    /// Current countdown value of the instruction timer.
-    pub fn get_instruction_timer(&self) -> u32 {
-        self.info.instruction_timer().read().instim()
+    /// Produces a handle to operate on the internal secure counter
+    /// using regular + and - operators.
+    pub fn secure_counter(&self) -> SecureCounter {
+        SecureCounter::new(self.info)
     }
 
-    // Gets the current secure counter value.
-    ///
-    /// # Returns
-    /// The software-tracked secure counter value.
-    pub fn get_secure_counter(&self) -> u32 {
-        self.secure_counter
+    /// Produces a handle to operate on the instruction timer.
+    pub fn instruction_timer(&self) -> InstructionTimer {
+        InstructionTimer::new(self.info)
     }
 
-    /// Updates the instruction timer reload value.
-    ///
-    /// # Arguments
-    /// * `instruction_timer_value` - New timeout period in clock cycles
-    pub fn update_instruction_timer(&mut self, instruction_timer_value: u32) {
-        self.info.reload().write(|w| w.set_rload(instruction_timer_value));
-    }
-
-    /// Sets a persistent value in the CDOG peripheral.
-    ///
-    /// This value is stored in the 32 bits PERSISTENT register and persist through resets other than a Power-On Reset (POR).
-    ///
-    /// # Arguments
-    /// * `value` - The 32-bit value to store in the persistent register
-    pub fn set_persistent_value(&mut self, value: u32) {
-        self.info.persistent().write(|w| w.set_persis(value));
-    }
-
-    /// Gets the persistent value from the CDOG peripheral.
-    ///
-    /// # Returns
-    /// The 32-bit value stored in the persistent register
-    pub fn get_persistent_value(&self) -> u32 {
-        self.info.persistent().read().persis()
+    /// Produces a handle to operate on the persistent value.
+    pub fn persistent_value(&self) -> PersistentValue {
+        PersistentValue::new(self.info)
     }
 }
 
-/// CDOG0 interrupt handler.
+/// CDOG Persistent Value
+pub struct PersistentValue {
+    info: &'static Info,
+}
+
+impl PersistentValue {
+    fn new(info: &'static Info) -> Self {
+        Self { info }
+    }
+
+    /// Read the current value stored in persistent value
+    pub fn read(&self) -> u32 {
+        self.info.regs().persistent().read().persis()
+    }
+
+    /// Write a new value to persistent value
+    pub fn write(&mut self, value: u32) {
+        self.info.regs().persistent().write(|w| w.set_persis(value));
+    }
+}
+
+/// CDOG Instruction Timer
+pub struct InstructionTimer {
+    info: &'static Info,
+}
+
+impl InstructionTimer {
+    fn new(info: &'static Info) -> Self {
+        Self { info }
+    }
+
+    /// Read the current instruction counter value.
+    pub fn read(&self) -> u32 {
+        self.info.regs().instruction_timer().read().instim()
+    }
+
+    /// Update the instruction timer with a new counter value.
+    pub fn update(&mut self, value: u32) {
+        self.info.regs().reload().write(|w| w.set_rload(value));
+    }
+}
+
+/// CDOG Persistent Value
+pub struct SecureCounter {
+    info: &'static Info,
+}
+
+impl SecureCounter {
+    fn new(info: &'static Info) -> Self {
+        Self { info }
+    }
+
+    /// Validate secure counter
+    pub fn validate(&mut self, check: u32) -> Result<(), Error> {
+        if is_idle(self.info) {
+            return Err(Error::NotRunning);
+        }
+
+        self.info.regs().stop().write(|w| w.set_stp(check));
+        let reload = self.info.regs().reload().read().rload();
+        self.info.regs().reload().write(|w| w.set_rload(reload));
+        self.info.regs().start().write(|w| w.set_strt(check));
+
+        Ok(())
+    }
+}
+
+impl AddAssign<u32> for SecureCounter {
+    fn add_assign(&mut self, rhs: u32) {
+        self.info.regs().add().write(|w| w.set_ad(rhs));
+    }
+}
+
+impl SubAssign<u32> for SecureCounter {
+    fn sub_assign(&mut self, rhs: u32) {
+        self.info.regs().sub().write(|w| w.set_sb(rhs));
+    }
+}
+
+fn is_running(info: &'static Info) -> bool {
+    info.regs().status().read().curst() == 0x0a
+}
+
+fn is_idle(info: &'static Info) -> bool {
+    info.regs().status().read().curst() == 0x05
+}
+
+/// CDOG interrupt handler.
 ///
 /// This handler is called when any cdog interrupt fires.
 /// When reset happens, the interrupt handler will never be reached.
-pub struct InterruptHandler;
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
 
-impl Handler<typelevel::CDOG0> for InterruptHandler {
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        crate::perf_counters::incr_interrupt_cdog0();
-        let cdog0 = pac::CDOG0;
+        T::PERF_INT_INCR();
 
         // Print all flags at once using the Debug implementation
         #[cfg(feature = "defmt")]
-        defmt::trace!("CDOG0 flags {}", cdog0.flags().read());
+        defmt::trace!("CDOG0 flags {}", T::info().regs().flags().read());
 
         // Stop the cdog
-        cdog0.stop().write(|w| w.set_stp(0));
+        T::info().regs().stop().write(|w| w.set_stp(0));
 
         // Clear all flags by writing 0
-        cdog0.flags().write(|w| w.0 = 0);
+        T::info().regs().flags().write(|w| w.0 = 0);
+    }
+}
+
+trait SealedInstance {
+    fn info() -> &'static Info;
+}
+
+/// I2C Instance
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
+    /// Interrupt for this CDOG instance.
+    type Interrupt: interrupt::typelevel::Interrupt;
+    const PERF_INT_INCR: fn();
+    const PERF_INT_WAKE_INCR: fn();
+}
+
+struct Info {
+    regs: pac::cdog::Cdog,
+    wait_cell: WaitCell,
+}
+
+impl Info {
+    #[inline(always)]
+    fn regs(&self) -> pac::cdog::Cdog {
+        self.regs
+    }
+
+    #[inline(always)]
+    #[allow(dead_code)]
+    fn wait_cell(&self) -> &WaitCell {
+        &self.wait_cell
+    }
+}
+
+unsafe impl Sync for Info {}
+
+macro_rules! impl_instance {
+    ($($n:literal),*) => {
+        $(
+            paste!{
+                impl SealedInstance for crate::peripherals::[<CDOG $n>] {
+                    fn info() -> &'static Info {
+                        static INFO: Info = Info {
+                            regs: pac::[<CDOG $n>],
+                            wait_cell: WaitCell::new(),
+                        };
+                        &INFO
+                    }
+                }
+
+                impl Instance for crate::peripherals::[<CDOG $n>] {
+                    type Interrupt = crate::interrupt::typelevel::[<CDOG $n>];
+                    const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_cdog $n>];
+                    const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_cdog $n _wake>];
+                }
+            }
+        )*
+    };
+}
+
+impl_instance!(0, 1);
+
+impl<'d> embassy_embedded_hal::SetConfig for Cdog<'d> {
+    type Config = Config;
+    type ConfigError = Error;
+
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
+        self.set_configuration(config)
     }
 }
