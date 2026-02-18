@@ -17,7 +17,7 @@ impl<'a> Lpuart<'a, Blocking> {
         tx_pin: Peri<'a, impl TxPin<T>>,
         rx_pin: Peri<'a, impl RxPin<T>>,
         config: Config,
-    ) -> Result<Self> {
+    ) -> Result<Self, Error> {
         // Configure the pins for LPUART usage
         tx_pin.as_tx();
         rx_pin.as_rx();
@@ -39,7 +39,7 @@ impl<'a> Lpuart<'a, Blocking> {
         cts_pin: Peri<'a, impl CtsPin<T>>,
         rts_pin: Peri<'a, impl RtsPin<T>>,
         config: Config,
-    ) -> Result<Self> {
+    ) -> Result<Self, Error> {
         // Configure the pins for LPUART usage
         rx_pin.as_rx();
         tx_pin.as_tx();
@@ -54,21 +54,21 @@ impl<'a> Lpuart<'a, Blocking> {
     }
 
     /// Read data from LPUART RX blocking execution until the buffer is filled
-    pub fn blocking_read(&mut self, buf: &mut [u8]) -> Result<()> {
+    pub fn blocking_read(&mut self, buf: &mut [u8]) -> Result<(), Error> {
         self.rx.blocking_read(buf)
     }
 
     /// Read data from LPUART RX without blocking
-    pub fn read(&mut self, buf: &mut [u8]) -> Result<()> {
+    pub fn read(&mut self, buf: &mut [u8]) -> Result<(), Error> {
         self.rx.read(buf)
     }
 
     /// Write data to LPUART TX blocking execution until all data is sent
-    pub fn blocking_write(&mut self, buf: &[u8]) -> Result<()> {
+    pub fn blocking_write(&mut self, buf: &[u8]) -> Result<(), Error> {
         self.tx.blocking_write(buf)
     }
 
-    pub fn write_byte(&mut self, byte: u8) -> Result<()> {
+    pub fn write_byte(&mut self, byte: u8) -> Result<(), Error> {
         self.tx.write_byte(byte)
     }
 
@@ -85,17 +85,17 @@ impl<'a> Lpuart<'a, Blocking> {
     }
 
     /// Write data to LPUART TX without blocking
-    pub fn write(&mut self, buf: &[u8]) -> Result<()> {
+    pub fn write(&mut self, buf: &[u8]) -> Result<(), Error> {
         self.tx.write(buf)
     }
 
     /// Flush LPUART TX blocking execution until all data has been transmitted
-    pub fn blocking_flush(&mut self) -> Result<()> {
+    pub fn blocking_flush(&mut self) -> Result<(), Error> {
         self.tx.blocking_flush()
     }
 
     /// Flush LPUART TX without blocking
-    pub fn flush(&mut self) -> Result<()> {
+    pub fn flush(&mut self) -> Result<(), Error> {
         self.tx.flush()
     }
 }
@@ -108,7 +108,7 @@ impl<'a> LpuartTx<'a, Blocking> {
         _inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
         config: Config,
-    ) -> Result<Self> {
+    ) -> Result<Self, Error> {
         // Configure the pins for LPUART usage
         tx_pin.as_tx();
 
@@ -124,7 +124,7 @@ impl<'a> LpuartTx<'a, Blocking> {
         tx_pin: Peri<'a, impl TxPin<T>>,
         cts_pin: Peri<'a, impl CtsPin<T>>,
         config: Config,
-    ) -> Result<Self> {
+    ) -> Result<Self, Error> {
         tx_pin.as_tx();
         cts_pin.as_cts();
 
@@ -132,18 +132,18 @@ impl<'a> LpuartTx<'a, Blocking> {
         Ok(Self::new_inner::<T>(tx_pin.into(), Some(cts_pin.into()), Blocking, wg))
     }
 
-    fn write_byte_internal(&mut self, byte: u8) -> Result<()> {
+    fn write_byte_internal(&mut self, byte: u8) -> Result<(), Error> {
         self.info.regs().data().modify(|w| w.0 = u32::from(byte));
 
         Ok(())
     }
 
-    fn blocking_write_byte(&mut self, byte: u8) -> Result<()> {
+    fn blocking_write_byte(&mut self, byte: u8) -> Result<(), Error> {
         while self.info.regs().stat().read().tdre() == Tdre::TXDATA {}
         self.write_byte_internal(byte)
     }
 
-    fn write_byte(&mut self, byte: u8) -> Result<()> {
+    fn write_byte(&mut self, byte: u8) -> Result<(), Error> {
         if self.info.regs().stat().read().tdre() == Tdre::TXDATA {
             Err(Error::TxFifoFull)
         } else {
@@ -152,7 +152,7 @@ impl<'a> LpuartTx<'a, Blocking> {
     }
 
     /// Write data to LPUART TX blocking execution until all data is sent.
-    pub fn blocking_write(&mut self, buf: &[u8]) -> Result<()> {
+    pub fn blocking_write(&mut self, buf: &[u8]) -> Result<(), Error> {
         for x in buf {
             self.blocking_write_byte(*x)?;
         }
@@ -165,7 +165,7 @@ impl<'a> LpuartTx<'a, Blocking> {
     }
 
     /// Write data to LPUART TX without blocking.
-    pub fn write(&mut self, buf: &[u8]) -> Result<()> {
+    pub fn write(&mut self, buf: &[u8]) -> Result<(), Error> {
         for x in buf {
             self.write_byte(*x)?;
         }
@@ -174,7 +174,7 @@ impl<'a> LpuartTx<'a, Blocking> {
     }
 
     /// Flush LPUART TX blocking execution until all data has been transmitted.
-    pub fn blocking_flush(&mut self) -> Result<()> {
+    pub fn blocking_flush(&mut self) -> Result<(), Error> {
         while self.info.regs().water().read().txcount() != 0 {
             // Wait for TX FIFO to drain
         }
@@ -188,7 +188,7 @@ impl<'a> LpuartTx<'a, Blocking> {
     }
 
     /// Flush LPUART TX.
-    pub fn flush(&mut self) -> Result<()> {
+    pub fn flush(&mut self) -> Result<(), Error> {
         // Check if TX FIFO is empty
         if self.info.regs().water().read().txcount() != 0 {
             return Err(Error::TxBusy);
@@ -211,7 +211,7 @@ impl<'a> LpuartRx<'a, Blocking> {
         _inner: Peri<'a, T>,
         rx_pin: Peri<'a, impl RxPin<T>>,
         config: Config,
-    ) -> Result<Self> {
+    ) -> Result<Self, Error> {
         rx_pin.as_rx();
 
         let wg = Lpuart::<Blocking>::init::<T>(false, true, false, false, config)?;
@@ -226,7 +226,7 @@ impl<'a> LpuartRx<'a, Blocking> {
         rx_pin: Peri<'a, impl RxPin<T>>,
         rts_pin: Peri<'a, impl RtsPin<T>>,
         config: Config,
-    ) -> Result<Self> {
+    ) -> Result<Self, Error> {
         rx_pin.as_rx();
         rts_pin.as_rts();
 
@@ -234,23 +234,23 @@ impl<'a> LpuartRx<'a, Blocking> {
         Ok(Self::new_inner::<T>(rx_pin.into(), Some(rts_pin.into()), Blocking, wg))
     }
 
-    fn read_byte_internal(&mut self) -> Result<u8> {
+    fn read_byte_internal(&mut self) -> Result<u8, Error> {
         Ok((self.info.regs().data().read().0 & 0xFF) as u8)
     }
 
-    fn read_byte(&mut self) -> Result<u8> {
+    fn read_byte(&mut self) -> Result<u8, Error> {
         check_and_clear_rx_errors(self.info)?;
 
-        if !has_data(self.info) {
+        if !has_rx_data_pending(self.info) {
             return Err(Error::RxFifoEmpty);
         }
 
         self.read_byte_internal()
     }
 
-    fn blocking_read_byte(&mut self) -> Result<u8> {
+    fn blocking_read_byte(&mut self) -> Result<u8, Error> {
         loop {
-            if has_data(self.info) {
+            if has_rx_data_pending(self.info) {
                 return self.read_byte_internal();
             }
 
@@ -259,7 +259,7 @@ impl<'a> LpuartRx<'a, Blocking> {
     }
 
     /// Read data from LPUART RX without blocking.
-    pub fn read(&mut self, buf: &mut [u8]) -> Result<()> {
+    pub fn read(&mut self, buf: &mut [u8]) -> Result<(), Error> {
         for byte in buf.iter_mut() {
             *byte = self.read_byte()?;
         }
@@ -267,7 +267,7 @@ impl<'a> LpuartRx<'a, Blocking> {
     }
 
     /// Read data from LPUART RX blocking execution until the buffer is filled.
-    pub fn blocking_read(&mut self, buf: &mut [u8]) -> Result<()> {
+    pub fn blocking_read(&mut self, buf: &mut [u8]) -> Result<(), Error> {
         for byte in buf.iter_mut() {
             *byte = self.blocking_read_byte()?;
         }

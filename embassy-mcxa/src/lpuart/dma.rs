@@ -104,7 +104,7 @@ impl<'a> LpuartTx<'a, Dma<'a>> {
         tx_pin: Peri<'a, impl TxPin<T>>,
         tx_dma_ch: Peri<'a, impl Channel>,
         config: Config,
-    ) -> Result<Self> {
+    ) -> Result<Self, Error> {
         tx_pin.as_tx();
         let tx_pin: Peri<'a, AnyPin> = tx_pin.into();
 
@@ -141,7 +141,7 @@ impl<'a> LpuartTx<'a, Dma<'a>> {
     ///
     /// # Arguments
     /// * `buf` - Data buffer to transmit
-    pub async fn write(&mut self, buf: &[u8]) -> Result<usize> {
+    pub async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
         if buf.is_empty() {
             return Ok(0);
         }
@@ -155,7 +155,7 @@ impl<'a> LpuartTx<'a, Dma<'a>> {
     }
 
     /// Internal helper to write a single chunk (max 0x7FFF bytes) using DMA.
-    async fn write_dma_inner(&mut self, buf: &[u8]) -> Result<usize> {
+    async fn write_dma_inner(&mut self, buf: &[u8]) -> Result<usize, Error> {
         let len = buf.len();
         let peri_addr = self.info.regs().data().as_ptr() as *mut u8;
 
@@ -201,7 +201,7 @@ impl<'a> LpuartTx<'a, Dma<'a>> {
     }
 
     /// Blocking write (fallback when DMA is not needed)
-    pub fn blocking_write(&mut self, buf: &[u8]) -> Result<()> {
+    pub fn blocking_write(&mut self, buf: &[u8]) -> Result<(), Error> {
         for &byte in buf {
             while self.info.regs().stat().read().tdre() == Tdre::TXDATA {}
             self.info.regs().data().write(|w| w.0 = byte as u32);
@@ -210,7 +210,7 @@ impl<'a> LpuartTx<'a, Dma<'a>> {
     }
 
     /// Flush TX blocking
-    pub fn blocking_flush(&mut self) -> Result<()> {
+    pub fn blocking_flush(&mut self) -> Result<(), Error> {
         while self.info.regs().water().read().txcount() != 0 {}
         while self.info.regs().stat().read().tc() == Tc::ACTIVE {}
         Ok(())
@@ -226,7 +226,7 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
         rx_pin: Peri<'a, impl RxPin<T>>,
         rx_dma_ch: Peri<'a, impl Channel>,
         config: Config,
-    ) -> Result<Self> {
+    ) -> Result<Self, Error> {
         rx_pin.as_rx();
         let rx_pin: Peri<'a, AnyPin> = rx_pin.into();
 
@@ -263,7 +263,7 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
     ///
     /// # Arguments
     /// * `buf` - Buffer to receive data into
-    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         if buf.is_empty() {
             return Ok(0);
         }
@@ -277,7 +277,7 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
     }
 
     /// Internal helper to read a single chunk (max 0x7FFF bytes) using DMA.
-    async fn read_dma_inner(&mut self, buf: &mut [u8]) -> Result<usize> {
+    async fn read_dma_inner(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         // First check if there are any RX errors
         check_and_clear_rx_errors(self.info)?;
 
@@ -327,10 +327,10 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
     }
 
     /// Blocking read (fallback when DMA is not needed)
-    pub fn blocking_read(&mut self, buf: &mut [u8]) -> Result<()> {
+    pub fn blocking_read(&mut self, buf: &mut [u8]) -> Result<(), Error> {
         for byte in buf.iter_mut() {
             loop {
-                if has_data(self.info) {
+                if has_rx_data_pending(self.info) {
                     *byte = (self.info.regs().data().read().0 & 0xFF) as u8;
                     break;
                 }
@@ -421,7 +421,7 @@ impl<'a> Lpuart<'a, Dma<'a>> {
         tx_dma_ch: Peri<'a, impl Channel>,
         rx_dma_ch: Peri<'a, impl Channel>,
         config: Config,
-    ) -> Result<Self> {
+    ) -> Result<Self, Error> {
         tx_pin.as_tx();
         rx_pin.as_rx();
 
@@ -460,12 +460,12 @@ impl<'a> Lpuart<'a, Dma<'a>> {
     }
 
     /// Write data using DMA
-    pub async fn write(&mut self, buf: &[u8]) -> Result<usize> {
+    pub async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
         self.tx.write(buf).await
     }
 
     /// Read data using DMA
-    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         self.rx.read(buf).await
     }
 }

@@ -11,7 +11,8 @@ use crate::clocks::periph_helpers::{Div4, LpuartClockSel, LpuartConfig};
 use crate::clocks::{ClockError, Gate, PoweredClock, WakeGuard, enable_and_reset};
 use crate::dma::DmaRequest;
 use crate::gpio::{AnyPin, SealedPin};
-use crate::interrupt;
+use crate::interrupt::typelevel::Interrupt;
+use crate::interrupt::{self};
 use crate::pac::lpuart::vals::{
     Idlecfg as IdleConfig, Ilt as IdleType, M as DataBits, Msbf as MsbFirst, Pt as Parity, Rst, Rxflush,
     Sbns as StopBits, Swap, Tc, Tdre, Txctsc as TxCtsConfig, Txctssrc as TxCtsSource, Txflush,
@@ -104,6 +105,8 @@ impl State {
 
 struct Info {
     regs: crate::pac::lpuart::Lpuart,
+    int_disable: fn(),
+    mrcc_disable: unsafe fn(),
 }
 
 unsafe impl Sync for Info {}
@@ -136,6 +139,8 @@ macro_rules! impl_instance {
                     fn info() -> &'static Info {
                         static INFO: Info = Info {
                             regs: pac::[<LPUART $n>],
+                            int_disable: crate::interrupt::typelevel::[<LPUART $n>]::disable,
+                            mrcc_disable: crate::clocks::disable::<crate::peripherals::[<LPUART $n>]>,
                         };
                         &INFO
                     }
@@ -186,7 +191,7 @@ fn disable_transceiver(info: &'static Info) {
 }
 
 /// Calculate and configure baudrate settings
-fn configure_baudrate(info: &'static Info, baudrate_bps: u32, clock_freq: u32) -> Result<()> {
+fn configure_baudrate(info: &'static Info, baudrate_bps: u32, clock_freq: u32) -> Result<(), Error> {
     let (osr, sbr) = calculate_baudrate(baudrate_bps, clock_freq)?;
 
     // Configure BAUD register
@@ -314,7 +319,7 @@ fn enable_transceiver(info: &'static Info, enable_tx: bool, enable_rx: bool) {
     });
 }
 
-fn calculate_baudrate(baudrate: u32, src_clock_hz: u32) -> Result<(u8, u16)> {
+fn calculate_baudrate(baudrate: u32, src_clock_hz: u32) -> Result<(u8, u16), Error> {
     let mut baud_diff = baudrate;
     let mut osr = 0u8;
     let mut sbr = 0u16;
@@ -365,7 +370,7 @@ fn wait_for_tx_complete(info: &'static Info) {
     }
 }
 
-fn check_and_clear_rx_errors(info: &'static Info) -> Result<()> {
+fn check_and_clear_rx_errors(info: &'static Info) -> Result<(), Error> {
     let stat = info.regs().stat().read();
 
     // Check for overrun first - other error flags are prevented when OR is set
@@ -396,7 +401,7 @@ fn check_and_clear_rx_errors(info: &'static Info) -> Result<()> {
     }
 }
 
-fn has_data(info: &'static Info) -> bool {
+fn has_rx_data_pending(info: &'static Info) -> bool {
     if info.regs().param().read().rxfifo() > 0 {
         // FIFO is available - check RXCOUNT in WATER register
         info.regs().water().read().rxcount() > 0
@@ -654,9 +659,6 @@ impl core::fmt::Display for Error {
 
 impl core::error::Error for Error {}
 
-/// A specialized Result type for LPUART operations
-pub type Result<T> = core::result::Result<T, Error>;
-
 /// Lpuart config
 #[derive(Debug, Clone, Copy)]
 pub struct Config {
@@ -773,18 +775,38 @@ pub struct LpuartRx<'a, M: Mode> {
 }
 
 fn disable_peripheral(info: &'static Info) {
-    // Wait for TX operations to complete
-    wait_for_tx_complete(info);
-
     // Clear all status flags
     clear_all_status_flags(info);
 
+    // Disable interrupts at the NVIC level
+    (info.int_disable)();
+
     // Disable the module - clear all CTRL register bits
     info.regs().ctrl().write(|w| w.0 = 0);
+
+    // Disable at the MRCC level
+    unsafe {
+        (info.mrcc_disable)();
+    }
 }
 
 impl<M: Mode> Drop for LpuartTx<'_, M> {
     fn drop(&mut self) {
+        // Wait for TX operations to complete. We cannot load more items
+        // into the fifo as we have exclusive access to the LpuartTx
+        wait_for_tx_complete(self.info);
+
+        // Disable transmit interrupts to prevent usage of the buffer space
+        cortex_m::interrupt::free(|_| {
+            self.info.regs().ctrl().modify(|w| w.set_tie(false));
+        });
+
+        // De-init the tx buffer, as once '_ ends we no longer can guarantee
+        // our usage of the buffer is sound.
+        unsafe {
+            self.state.tx_buf.deinit();
+        }
+
         if self.state.tx_rx_refmask.set_inactive_fetch_last(TxRxRef::Tx) {
             disable_peripheral(self.info);
         }
@@ -793,6 +815,23 @@ impl<M: Mode> Drop for LpuartTx<'_, M> {
 
 impl<M: Mode> Drop for LpuartRx<'_, M> {
     fn drop(&mut self) {
+        // Disable receive interrupts to prevent future usage of the buffer space
+        cortex_m::interrupt::free(|_| {
+            self.info.regs().ctrl().modify(|w| {
+                w.set_rie(false); // RX interrupt
+                w.set_orie(false); // Overrun interrupt
+                w.set_peie(false); // Parity error interrupt
+                w.set_feie(false); // Framing error interrupt
+                w.set_neie(false); // Noise error interrupt
+            });
+        });
+
+        // De-init the rx buffer, as once '_ ends we no longer can guarantee
+        // our usage of the buffer is sound.
+        unsafe {
+            self.state.rx_buf.deinit();
+        }
+
         if self.state.tx_rx_refmask.set_inactive_fetch_last(TxRxRef::Rx) {
             disable_peripheral(self.info);
         }
@@ -806,7 +845,7 @@ impl<'a, M: Mode> Lpuart<'a, M> {
         enable_tx_cts: bool,
         enable_rx_rts: bool,
         config: Config,
-    ) -> Result<Option<WakeGuard>> {
+    ) -> Result<Option<WakeGuard>, Error> {
         // Check if the peripheral was leaked using [core::mem::forget], and clean up the peripheral.
         if T::state().tx_rx_refmask.fetch_any_alive_reset() {
             disable_peripheral(T::info());
