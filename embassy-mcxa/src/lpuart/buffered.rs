@@ -295,16 +295,11 @@ impl<'a> LpuartTx<'a, Buffered> {
         Ok(self
             .state
             .tx_waker
-            .wait_for_value(|| {
+            .wait_for(|| {
                 let tx_empty = self.state.tx_buf.is_empty();
                 let fifo_empty = self.info.regs().water().read().txcount() == 0;
                 let tc_complete = self.info.regs().stat().read().tc() == Tc::COMPLETE;
-
-                if tx_empty && fifo_empty && tc_complete {
-                    Some(())
-                } else {
-                    None
-                }
+                tx_empty && fifo_empty && tc_complete
             })
             .await?)
     }
@@ -408,70 +403,44 @@ impl<'a> LpuartRx<'a, Buffered> {
             return Ok(0);
         }
 
-        let mut read = 0;
-
         // Try to read available data
         Ok(self
             .state
             .rx_waker
             .wait_for_value(|| {
                 // Disable RX interrupt while reading from buffer
-                cortex_m::interrupt::free(|_| {
-                    self.info.regs().ctrl().modify(|w| w.set_rie(false));
+                let read = cortex_m::interrupt::free(|_| {
+                    let mut reader = unsafe { self.state.rx_buf.reader() };
+                    reader.pop(|data| {
+                        let to_copy = core::cmp::min(data.len(), buf.len());
+                        buf[..to_copy].copy_from_slice(&data[..to_copy]);
+                        to_copy
+                    })
                 });
 
-                let mut reader = unsafe { self.state.rx_buf.reader() };
-                let available = reader.pop(|data| {
-                    let to_copy = core::cmp::min(data.len(), buf.len() - read);
-                    if to_copy > 0 {
-                        buf[read..read + to_copy].copy_from_slice(&data[..to_copy]);
-                        read += to_copy;
-                    }
-                    to_copy
-                });
-
-                // Re-enable RX interrupt
-                cortex_m::interrupt::free(|_| {
-                    self.info.regs().ctrl().modify(|w| w.set_rie(true));
-                });
-
-                if read > 0 {
-                    Some(read)
-                } else if available == 0 {
-                    None
-                } else {
-                    Some(0)
-                }
+                if read > 0 { Some(read) } else { None }
             })
             .await?)
     }
 
     /// Try to read without blocking
-    pub fn try_read(&mut self, buf: &mut [u8]) -> Result<usize> {
+    ///
+    /// May return zero bytes if none are available, or the provided buffer is
+    /// of zero length.
+    pub fn try_read(&mut self, buf: &mut [u8]) -> usize {
         if buf.is_empty() {
-            return Ok(0);
+            return 0;
         }
 
         // Disable RX interrupt while reading from buffer
         cortex_m::interrupt::free(|_| {
-            self.info.regs().ctrl().modify(|w| w.set_rie(false));
-        });
-
-        let mut reader = unsafe { self.state.rx_buf.reader() };
-        let read = reader.pop(|data| {
-            let to_copy = core::cmp::min(data.len(), buf.len());
-            if to_copy > 0 {
+            let mut reader = unsafe { self.state.rx_buf.reader() };
+            reader.pop(|data| {
+                let to_copy = core::cmp::min(data.len(), buf.len());
                 buf[..to_copy].copy_from_slice(&data[..to_copy]);
-            }
-            to_copy
-        });
-
-        // Re-enable RX interrupt
-        cortex_m::interrupt::free(|_| {
-            self.info.regs().ctrl().modify(|w| w.set_rie(true));
-        });
-
-        Ok(read)
+                to_copy
+            })
+        })
     }
 }
 
