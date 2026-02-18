@@ -339,6 +339,14 @@ pub struct Config {
     /// Allows JTAG pins to be used for GPIO
     #[cfg(stm32f1)]
     pub swj: gpio::SwjCfg,
+
+    /// Sets if SYSCFG should be enabled and reset or not.
+    /// 
+    /// If running from external flash, the bootloader should handle initializing the SYSCFG peripheral.
+    /// 
+    /// Defaults to true (bootloader or single internal flash applications)
+    #[cfg(stm32h7rs)]
+    pub internal_flash: bool,
 }
 
 impl Default for Config {
@@ -369,6 +377,8 @@ impl Default for Config {
             enable_ucpd2_dead_battery: false,
             #[cfg(stm32f1)]
             swj: Default::default(),
+            #[cfg(stm32h7rs)]
+            internal_flash: true,
         }
     }
 }
@@ -612,7 +622,14 @@ fn init_hw(config: Config) -> Peripherals {
             }
         });
 
-        #[cfg(not(any(stm32f1, stm32wb, stm32wl, stm32h7rs)))]
+        #[cfg(any(stm32h7rs))]
+        {
+            if config.internal_flash {
+                rcc::enable_and_reset_with_cs::<peripherals::SYSCFG>(cs);
+            }
+        }
+
+        #[cfg(not(any(stm32f1, stm32wb, stm32wl)))]
         rcc::enable_and_reset_with_cs::<peripherals::SYSCFG>(cs);
         #[cfg(not(any(stm32h5, stm32h7, stm32h7rs, stm32wb, stm32wl)))]
         rcc::enable_and_reset_with_cs::<peripherals::PWR>(cs);
