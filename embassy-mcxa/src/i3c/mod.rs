@@ -150,8 +150,15 @@ macro_rules! impl_pin {
     };
 }
 
+// #[cfg(feature = "swd-swo-as-gpio")]
 // impl_pin!(P0_2, I3C0, MUX10, PurPin); REVISIT: what is this for?
 impl_pin!(P0_17, I3C0, MUX10, SclPin);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_pin!(P0_18, I3C0, MUX10, SdaPin);
 impl_pin!(P1_8, I3C0, MUX10, SdaPin);
 impl_pin!(P1_9, I3C0, MUX10, SclPin);

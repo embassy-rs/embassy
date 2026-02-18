@@ -222,5 +222,11 @@ mod sealed {
     impl_pin!(P0_6, MUX12);
     impl_pin!(P3_6, MUX1);
     impl_pin!(P3_8, MUX12);
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh"
+    )))]
     impl_pin!(P4_2, MUX1);
 }

@@ -11,7 +11,22 @@ documentation = "https://docs.embassy.dev/embassy-mcxa"
 
 [package.metadata.embassy]
 build = [
-    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["mcxa255vpn", "defmt", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["mcxa255vlq", "defmt", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["mcxa255vll", "defmt", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["mcxa255vlh", "defmt", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["mcxa256vpn", "defmt", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["mcxa256vlq", "defmt", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["mcxa256vll", "defmt", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["mcxa256vlh", "defmt", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["mcxa265vpn", "defmt", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["mcxa265vlq", "defmt", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["mcxa265vll", "defmt", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["mcxa265vlh", "defmt", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["mcxa266vpn", "defmt", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["mcxa266vlq", "defmt", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["mcxa266vll", "defmt", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["mcxa266vlh", "defmt", "unstable-pac"]},
 ]
 
 [package.metadata.embassy_docs]
@@ -115,3 +130,24 @@ perf = []
 #
 # If this feature is enabled, users should NOT enable `embassy-executor/arch-cortex-m`.
 custom-executor = []
+
+#! ## Chip-selection features
+#! Select your chip by specifying the model as a feature, e.g. `mcxa256vlq`.
+#! Check the `Cargo.toml` for the latest list of supported chips.
+
+mcxa255vpn = []
+mcxa255vlq = []
+mcxa255vll = []
+mcxa255vlh = []
+mcxa256vpn = []
+mcxa256vlq = []
+mcxa256vll = []
+mcxa256vlh = []
+mcxa265vpn = []
+mcxa265vlq = []
+mcxa265vll = []
+mcxa265vlh = []
+mcxa266vpn = []
+mcxa266vlq = []
+mcxa266vll = []
+mcxa266vlh = []

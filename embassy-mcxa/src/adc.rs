@@ -782,24 +782,134 @@ macro_rules! impl_pin {
     };
 }
 
-impl_pin!(P2_0, ADC0, 0);
-impl_pin!(P2_4, ADC0, 1);
-impl_pin!(P2_15, ADC0, 2);
-impl_pin!(P2_3, ADC0, 3);
-impl_pin!(P2_2, ADC0, 4);
-impl_pin!(P2_12, ADC0, 5);
-impl_pin!(P2_16, ADC0, 6);
-impl_pin!(P2_7, ADC0, 7);
-impl_pin!(P0_18, ADC0, 8);
-impl_pin!(P0_19, ADC0, 9);
-impl_pin!(P0_20, ADC0, 10);
-impl_pin!(P0_21, ADC0, 11);
-impl_pin!(P0_22, ADC0, 12);
-impl_pin!(P0_23, ADC0, 13);
+#[cfg(feature = "swd-swo-as-gpio")]
+impl_pin!(P0_2, ADC2, 8);
 #[cfg(feature = "jtag-extras-as-gpio")]
 impl_pin!(P0_3, ADC0, 14);
 #[cfg(feature = "jtag-extras-as-gpio")]
+// #[cfg(not(any(
+//     feature = "mcxa255vlh",
+//     feature = "mcxa256vlh",
+//     feature = "mcxa265vlh",
+//     feature = "mcxa266vlh",
+//     feature = "mcxa255vlq",
+//     feature = "mcxa256vll",
+//     feature = "mcxa265vll",
+//     feature = "mcxa266vll"
+// )))]
+// impl_pin!(P0_4, ADC2, 255);
+// #[cfg(not(any(
+//     feature = "mcxa255vlh",
+//     feature = "mcxa256vlh",
+//     feature = "mcxa265vlh",
+//     feature = "mcxa266vlh",
+//     feature = "mcxa255vlq",
+//     feature = "mcxa256vll",
+//     feature = "mcxa265vll",
+//     feature = "mcxa266vll"
+// )))]
+// impl_pin!(P0_5, ADC2, 255);
+// #[cfg(feature = "jtag-extras-as-gpio")]
+// impl_pin!(P0_6, ADC2, 255);
 impl_pin!(P0_6, ADC0, 15);
+// #[cfg(not(any(
+//     feature = "mcxa255vlh",
+//     feature = "mcxa256vlh",
+//     feature = "mcxa265vlh",
+//     feature = "mcxa266vlh",
+//     feature = "mcxa255vlq",
+//     feature = "mcxa256vll",
+//     feature = "mcxa265vll",
+//     feature = "mcxa266vll"
+// )))]
+// impl_pin!(P0_7, ADC2, 255);
+// #[cfg(not(any(
+//     feature = "mcxa255vlh",
+//     feature = "mcxa256vlh",
+//     feature = "mcxa265vlh",
+//     feature = "mcxa266vlh",
+//     feature = "mcxa255vlq",
+//     feature = "mcxa256vll",
+//     feature = "mcxa265vll",
+//     feature = "mcxa266vll"
+// )))]
+// impl_pin!(P0_12, ADC2, 255);
+// #[cfg(not(any(
+//     feature = "mcxa255vlh",
+//     feature = "mcxa256vlh",
+//     feature = "mcxa265vlh",
+//     feature = "mcxa266vlh",
+//     feature = "mcxa255vlq",
+//     feature = "mcxa256vll",
+//     feature = "mcxa265vll",
+//     feature = "mcxa266vll"
+// )))]
+// impl_pin!(P0_13, ADC2, 255);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
+impl_pin!(P0_14, ADC2, 14);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
+impl_pin!(P0_15, ADC2, 15);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh",
+    feature = "mcxa255vll",
+    feature = "mcxa256vll",
+    feature = "mcxa265vll",
+    feature = "mcxa266vll"
+)))]
+impl_pin!(P0_18, ADC0, 8);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh",
+    feature = "mcxa255vll",
+    feature = "mcxa256vll",
+    feature = "mcxa265vll",
+    feature = "mcxa266vll"
+)))]
+impl_pin!(P0_19, ADC0, 9);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
+impl_pin!(P0_20, ADC0, 10);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
+impl_pin!(P0_21, ADC0, 11);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
+impl_pin!(P0_22, ADC0, 12);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
+impl_pin!(P0_23, ADC0, 13);
+
 impl_pin!(P1_0, ADC0, 16);
 impl_pin!(P1_1, ADC0, 17);
 impl_pin!(P1_2, ADC0, 18);
@@ -808,90 +918,358 @@ impl_pin!(P1_4, ADC0, 20);
 impl_pin!(P1_5, ADC0, 21);
 impl_pin!(P1_6, ADC0, 22);
 impl_pin!(P1_7, ADC0, 23);
-
-// ???
-// impl_pin!(P1_10, ADC0, 255);
-
-impl_pin!(P2_1, ADC1, 0);
-impl_pin!(P2_5, ADC1, 1);
-impl_pin!(P2_19, ADC1, 2);
-impl_pin!(P2_6, ADC1, 3);
-impl_pin!(P2_3, ADC1, 4);
-impl_pin!(P2_13, ADC1, 5);
-impl_pin!(P2_17, ADC1, 6);
-impl_pin!(P2_7, ADC1, 7);
 impl_pin!(P1_10, ADC1, 8);
+// impl_pin!(P1_10, ADC0, 255);
 impl_pin!(P1_11, ADC1, 9);
 impl_pin!(P1_12, ADC1, 10);
 impl_pin!(P1_13, ADC1, 11);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_pin!(P1_14, ADC1, 12);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_pin!(P1_15, ADC1, 13);
-// ???
+// #[cfg(not(any(
+//     feature = "mcxa255vlh",
+//     feature = "mcxa256vlh",
+//     feature = "mcxa265vlh",
+//     feature = "mcxa266vlh",
+//     feature = "mcxa255vll",
+//     feature = "mcxa256vll",
+//     feature = "mcxa265vll",
+//     feature = "mcxa266vll"
+// )))]
 // impl_pin!(P1_16, ADC1, 255);
+// #[cfg(not(any(
+//     feature = "mcxa255vlh",
+//     feature = "mcxa256vlh",
+//     feature = "mcxa265vlh",
+//     feature = "mcxa266vlh",
+//     feature = "mcxa255vll",
+//     feature = "mcxa256vll",
+//     feature = "mcxa265vll",
+//     feature = "mcxa266vll"
+// )))]
 // impl_pin!(P1_17, ADC1, 255);
+// #[cfg(not(any(
+//     feature = "mcxa255vlh",
+//     feature = "mcxa256vlh",
+//     feature = "mcxa265vlh",
+//     feature = "mcxa266vlh",
+//     feature = "mcxa255vll",
+//     feature = "mcxa256vll",
+//     feature = "mcxa265vll",
+//     feature = "mcxa266vll"
+// )))]
 // impl_pin!(P1_18, ADC1, 255);
+// #[cfg(not(any(
+//     feature = "mcxa255vlh",
+//     feature = "mcxa256vlh",
+//     feature = "mcxa265vlh",
+//     feature = "mcxa266vlh",
+//     feature = "mcxa255vll",
+//     feature = "mcxa256vll",
+//     feature = "mcxa265vll",
+//     feature = "mcxa266vll"
+// )))]
 // impl_pin!(P1_19, ADC1, 255);
-// ???
-impl_pin!(P3_31, ADC1, 20);
-impl_pin!(P3_30, ADC1, 21);
-impl_pin!(P3_29, ADC1, 22);
 
+impl_pin!(P2_0, ADC0, 0);
+impl_pin!(P2_1, ADC1, 0);
+impl_pin!(P2_2, ADC0, 4);
+impl_pin!(P2_3, ADC0, 3);
+impl_pin!(P2_3, ADC1, 4);
+impl_pin!(P2_4, ADC0, 1);
 impl_pin!(P2_4, ADC2, 0);
-impl_pin!(P2_10, ADC2, 1);
-impl_pin!(P4_4, ADC2, 2);
-// impl_pin!(P2_24, ADC2, 255); ???
-impl_pin!(P2_16, ADC2, 4);
-impl_pin!(P2_12, ADC2, 5);
-impl_pin!(P2_20, ADC2, 6);
-impl_pin!(P2_7, ADC2, 7);
-#[cfg(feature = "swd-swo-as-gpio")]
-impl_pin!(P0_2, ADC2, 8);
-// ???
-// impl_pin!(P0_4, ADC2, 255);
-// impl_pin!(P0_5, ADC2, 255);
-// impl_pin!(P0_6, ADC2, 255);
-// impl_pin!(P0_7, ADC2, 255);
-// impl_pin!(P0_12, ADC2, 255);
-// impl_pin!(P0_13, ADC2, 255);
-// ???
-impl_pin!(P0_14, ADC2, 14);
-impl_pin!(P0_15, ADC2, 15);
-// ???
-// impl_pin!(P4_0, ADC2, 255);
-// impl_pin!(P4_1, ADC2, 255);
-// ???
-impl_pin!(P4_2, ADC2, 18);
-impl_pin!(P4_3, ADC2, 19);
-//impl_pin!(P4_4, ADC2, 20); // Conflit with ADC2_A3 and ADC2_A20 using the same pin
-impl_pin!(P4_5, ADC2, 21);
-impl_pin!(P4_6, ADC2, 22);
-impl_pin!(P4_7, ADC2, 23);
-
+impl_pin!(P2_5, ADC1, 1);
 impl_pin!(P2_5, ADC3, 0);
-impl_pin!(P2_11, ADC3, 1);
-impl_pin!(P2_23, ADC3, 2);
-// impl_pin!(P2_25, ADC3, 255); // ???
-impl_pin!(P2_17, ADC3, 4);
-impl_pin!(P2_13, ADC3, 5);
-impl_pin!(P2_21, ADC3, 6);
+impl_pin!(P2_6, ADC1, 3);
+impl_pin!(P2_7, ADC0, 7);
+impl_pin!(P2_7, ADC1, 7);
+impl_pin!(P2_7, ADC2, 7);
 impl_pin!(P2_7, ADC3, 7);
-// ???
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
+impl_pin!(P2_10, ADC2, 1);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
+impl_pin!(P2_11, ADC3, 1);
+impl_pin!(P2_12, ADC0, 5);
+impl_pin!(P2_12, ADC2, 5);
+impl_pin!(P2_13, ADC1, 5);
+impl_pin!(P2_13, ADC3, 5);
+impl_pin!(P2_15, ADC0, 2);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
+impl_pin!(P2_16, ADC0, 6);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
+impl_pin!(P2_16, ADC2, 4);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
+impl_pin!(P2_17, ADC1, 6);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
+impl_pin!(P2_17, ADC3, 4);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
+impl_pin!(P2_19, ADC1, 2);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
+impl_pin!(P2_20, ADC2, 6);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
+impl_pin!(P2_21, ADC3, 6);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
+impl_pin!(P2_23, ADC3, 2);
+// #[cfg(not(any(
+//     feature = "mcxa255vlh",
+//     feature = "mcxa256vlh",
+//     feature = "mcxa265vlh",
+//     feature = "mcxa266vlh",
+//     feature = "mcxa255vll",
+//     feature = "mcxa256vll",
+//     feature = "mcxa265vll",
+//     feature = "mcxa266vll"
+// )))]
+// impl_pin!(P2_24, ADC2, 255);
+// #[cfg(not(any(
+//     feature = "mcxa255vlh",
+//     feature = "mcxa256vlh",
+//     feature = "mcxa265vlh",
+//     feature = "mcxa266vlh",
+//     feature = "mcxa255vll",
+//     feature = "mcxa256vll",
+//     feature = "mcxa265vll",
+//     feature = "mcxa266vll"
+// )))]
+// impl_pin!(P2_25, ADC3, 255);
+
+// #[cfg(not(any(
+//     feature = "mcxa255vlh",
+//     feature = "mcxa256vlh",
+//     feature = "mcxa265vlh",
+//     feature = "mcxa266vlh",
+//     feature = "mcxa255vll",
+//     feature = "mcxa256vll",
+//     feature = "mcxa265vll",
+//     feature = "mcxa266vll"
+// )))]
 // impl_pin!(P3_2, ADC3, 255);
+// #[cfg(not(any(
+//     feature = "mcxa255vlh",
+//     feature = "mcxa256vlh",
+//     feature = "mcxa265vlh",
+//     feature = "mcxa266vlh",
+//     feature = "mcxa255vll",
+//     feature = "mcxa256vll",
+//     feature = "mcxa265vll",
+//     feature = "mcxa266vll"
+// )))]
 // impl_pin!(P3_3, ADC3, 255);
+// #[cfg(not(any(
+//     feature = "mcxa255vlh",
+//     feature = "mcxa256vlh",
+//     feature = "mcxa265vlh",
+//     feature = "mcxa266vlh",
+//     feature = "mcxa255vll",
+//     feature = "mcxa256vll",
+//     feature = "mcxa265vll",
+//     feature = "mcxa266vll"
+// )))]
 // impl_pin!(P3_4, ADC3, 255);
+// #[cfg(not(any(
+//     feature = "mcxa255vlh",
+//     feature = "mcxa256vlh",
+//     feature = "mcxa265vlh",
+//     feature = "mcxa266vlh",
+//     feature = "mcxa255vll",
+//     feature = "mcxa256vll",
+//     feature = "mcxa265vll",
+//     feature = "mcxa266vll"
+// )))]
 // impl_pin!(P3_5, ADC3, 255);
-// ???
 impl_pin!(P3_6, ADC3, 12);
 impl_pin!(P3_7, ADC3, 13);
 impl_pin!(P3_12, ADC3, 14);
 impl_pin!(P3_13, ADC3, 15);
 impl_pin!(P3_14, ADC3, 16);
 impl_pin!(P3_15, ADC3, 17);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_pin!(P3_20, ADC3, 18);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_pin!(P3_21, ADC3, 19);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_pin!(P3_22, ADC3, 20);
-// ???
+// #[cfg(not(any(
+//     feature = "mcxa255vlh",
+//     feature = "mcxa256vlh",
+//     feature = "mcxa265vlh",
+//     feature = "mcxa266vlh",
+//     feature = "mcxa255vll",
+//     feature = "mcxa256vll",
+//     feature = "mcxa265vll",
+//     feature = "mcxa266vll"
+// )))]
 // impl_pin!(P3_23, ADC3, 255);
+// #[cfg(not(any(
+//     feature = "mcxa255vlh",
+//     feature = "mcxa256vlh",
+//     feature = "mcxa265vlh",
+//     feature = "mcxa266vlh",
+//     feature = "mcxa255vll",
+//     feature = "mcxa256vll",
+//     feature = "mcxa265vll",
+//     feature = "mcxa266vll"
+// )))]
 // impl_pin!(P3_24, ADC3, 255);
+// #[cfg(not(any(
+//     feature = "mcxa255vlh",
+//     feature = "mcxa256vlh",
+//     feature = "mcxa265vlh",
+//     feature = "mcxa266vlh",
+//     feature = "mcxa255vll",
+//     feature = "mcxa256vll",
+//     feature = "mcxa265vll",
+//     feature = "mcxa266vll"
+// )))]
 // impl_pin!(P3_25, ADC3, 255);
-// ???
+impl_pin!(P3_29, ADC1, 22);
+impl_pin!(P3_30, ADC1, 21);
+impl_pin!(P3_31, ADC1, 20);
+
+// #[cfg(not(any(
+//     feature = "mcxa255vlh",
+//     feature = "mcxa256vlh",
+//     feature = "mcxa265vlh",
+//     feature = "mcxa266vlh",
+//     feature = "mcxa255vll",
+//     feature = "mcxa256vll",
+//     feature = "mcxa265vll",
+//     feature = "mcxa266vll"
+// )))]
+// impl_pin!(P4_0, ADC2, 255);
+// #[cfg(not(any(
+//     feature = "mcxa255vlh",
+//     feature = "mcxa256vlh",
+//     feature = "mcxa265vlh",
+//     feature = "mcxa266vlh",
+//     feature = "mcxa255vll",
+//     feature = "mcxa256vll",
+//     feature = "mcxa265vll",
+//     feature = "mcxa266vll"
+// )))]
+// impl_pin!(P4_1, ADC2, 255);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
+impl_pin!(P4_2, ADC2, 18);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
+impl_pin!(P4_3, ADC2, 19);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
+impl_pin!(P4_4, ADC2, 2);
+// #[cfg(not(any(
+//     feature = "mcxa255vlh",
+//     feature = "mcxa256vlh",
+//     feature = "mcxa265vlh",
+//     feature = "mcxa266vlh"
+// )))]
+//impl_pin!(P4_4, ADC2, 20); // Conflit with ADC2_A3 and ADC2_A20 using the same pin
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
+impl_pin!(P4_5, ADC2, 21);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
+impl_pin!(P4_6, ADC2, 22);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
+impl_pin!(P4_7, ADC2, 23);

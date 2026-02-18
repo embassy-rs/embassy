@@ -488,21 +488,45 @@ macro_rules! impl_rts_pin {
 // LPUART 0
 #[cfg(feature = "jtag-extras-as-gpio")]
 impl_tx_pin!(LPUART0, P0_3, MUX2);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_tx_pin!(LPUART0, P0_21, MUX3);
 impl_tx_pin!(LPUART0, P2_1, MUX2);
 
 #[cfg(feature = "swd-swo-as-gpio")]
 impl_rx_pin!(LPUART0, P0_2, MUX2);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_rx_pin!(LPUART0, P0_20, MUX3);
 impl_rx_pin!(LPUART0, P2_0, MUX2);
 
 #[cfg(feature = "swd-as-gpio")]
 impl_cts_pin!(LPUART0, P0_1, MUX2);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_cts_pin!(LPUART0, P0_23, MUX3);
 impl_cts_pin!(LPUART0, P2_3, MUX2);
 
 #[cfg(feature = "swd-as-gpio")]
 impl_rts_pin!(LPUART0, P0_0, MUX2);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_rts_pin!(LPUART0, P0_22, MUX3);
 impl_rts_pin!(LPUART0, P2_2, MUX2);
 
@@ -510,20 +534,54 @@ impl_rts_pin!(LPUART0, P2_2, MUX2);
 impl_tx_pin!(LPUART1, P1_9, MUX2);
 impl_tx_pin!(LPUART1, P2_13, MUX3);
 impl_tx_pin!(LPUART1, P3_9, MUX3);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_tx_pin!(LPUART1, P3_21, MUX3);
 
 impl_rx_pin!(LPUART1, P1_8, MUX2);
 impl_rx_pin!(LPUART1, P2_12, MUX3);
 impl_rx_pin!(LPUART1, P3_8, MUX3);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_rx_pin!(LPUART1, P3_20, MUX3);
 
 impl_cts_pin!(LPUART1, P1_11, MUX2);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_cts_pin!(LPUART1, P2_17, MUX3);
 impl_cts_pin!(LPUART1, P3_11, MUX3);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh",
+    feature = "mcxa255vlq",
+    feature = "mcxa256vll",
+    feature = "mcxa265vll",
+    feature = "mcxa266vll"
+)))]
 impl_cts_pin!(LPUART1, P3_23, MUX3);
 
 impl_rts_pin!(LPUART1, P1_10, MUX2);
 impl_rts_pin!(LPUART1, P2_15, MUX3);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_rts_pin!(LPUART1, P2_16, MUX3);
 impl_rts_pin!(LPUART1, P3_10, MUX3);
 
@@ -531,21 +589,45 @@ impl_rts_pin!(LPUART1, P3_10, MUX3);
 impl_tx_pin!(LPUART2, P1_5, MUX3);
 impl_tx_pin!(LPUART2, P1_13, MUX3);
 impl_tx_pin!(LPUART2, P2_2, MUX3);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_tx_pin!(LPUART2, P2_10, MUX3);
 impl_tx_pin!(LPUART2, P3_15, MUX2);
 
 impl_rx_pin!(LPUART2, P1_4, MUX3);
 impl_rx_pin!(LPUART2, P1_12, MUX3);
 impl_rx_pin!(LPUART2, P2_3, MUX3);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_rx_pin!(LPUART2, P2_11, MUX3);
 impl_rx_pin!(LPUART2, P3_14, MUX2);
 
 impl_cts_pin!(LPUART2, P1_7, MUX3);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_cts_pin!(LPUART2, P1_15, MUX3);
 impl_cts_pin!(LPUART2, P2_4, MUX3);
 impl_cts_pin!(LPUART2, P3_13, MUX2);
 
 impl_rts_pin!(LPUART2, P1_6, MUX3);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_rts_pin!(LPUART2, P1_14, MUX3);
 impl_rts_pin!(LPUART2, P2_5, MUX3);
 impl_rts_pin!(LPUART2, P3_12, MUX2);
@@ -553,50 +635,150 @@ impl_rts_pin!(LPUART2, P3_12, MUX2);
 // LPUART 3
 impl_tx_pin!(LPUART3, P3_1, MUX3);
 impl_tx_pin!(LPUART3, P3_12, MUX3);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_tx_pin!(LPUART3, P4_5, MUX3);
 
 impl_rx_pin!(LPUART3, P3_0, MUX3);
 impl_rx_pin!(LPUART3, P3_13, MUX3);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_rx_pin!(LPUART3, P4_2, MUX3);
 
 impl_cts_pin!(LPUART3, P3_7, MUX3);
 impl_cts_pin!(LPUART3, P3_14, MUX3);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_cts_pin!(LPUART3, P4_6, MUX3);
 
 impl_rts_pin!(LPUART3, P3_6, MUX3);
 impl_rts_pin!(LPUART3, P3_15, MUX3);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_rts_pin!(LPUART3, P4_7, MUX3);
 
 // LPUART 4
 impl_tx_pin!(LPUART4, P2_7, MUX3);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_tx_pin!(LPUART4, P3_19, MUX2);
 impl_tx_pin!(LPUART4, P3_27, MUX3);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_tx_pin!(LPUART4, P4_3, MUX3);
 
 impl_rx_pin!(LPUART4, P2_6, MUX3);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_rx_pin!(LPUART4, P3_18, MUX2);
 impl_rx_pin!(LPUART4, P3_28, MUX3);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_rx_pin!(LPUART4, P4_4, MUX3);
 
 impl_cts_pin!(LPUART4, P2_0, MUX3);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_cts_pin!(LPUART4, P3_17, MUX2);
 impl_cts_pin!(LPUART4, P3_31, MUX3);
 
 impl_rts_pin!(LPUART4, P2_1, MUX3);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_rts_pin!(LPUART4, P3_16, MUX2);
 impl_rts_pin!(LPUART4, P3_30, MUX3);
 
 // LPUART 5
 impl_tx_pin!(LPUART5, P1_10, MUX8);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh",
+    feature = "mcxa255vll",
+    feature = "mcxa256vll",
+    feature = "mcxa265vll",
+    feature = "mcxa266vll"
+)))]
 impl_tx_pin!(LPUART5, P1_17, MUX8);
 
 impl_rx_pin!(LPUART5, P1_11, MUX8);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh",
+    feature = "mcxa255vll",
+    feature = "mcxa256vll",
+    feature = "mcxa265vll",
+    feature = "mcxa266vll"
+)))]
 impl_rx_pin!(LPUART5, P1_16, MUX8);
 
 impl_cts_pin!(LPUART5, P1_12, MUX8);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh",
+    feature = "mcxa255vll",
+    feature = "mcxa256vll",
+    feature = "mcxa265vll",
+    feature = "mcxa266vll"
+)))]
 impl_cts_pin!(LPUART5, P1_19, MUX8);
 
 impl_rts_pin!(LPUART5, P1_13, MUX8);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh",
+    feature = "mcxa255vll",
+    feature = "mcxa256vll",
+    feature = "mcxa265vll",
+    feature = "mcxa266vll"
+)))]
 impl_rts_pin!(LPUART5, P1_18, MUX8);
 
 /// LPUART error types

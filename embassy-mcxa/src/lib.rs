@@ -159,31 +159,165 @@ embassy_hal_internal::peripherals!(
     // Normally JTAG TDI!
     #[cfg(feature = "jtag-extras-as-gpio")]
     P0_3,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh",
+        feature = "mcxa255vlq",
+        feature = "mcxa256vll",
+        feature = "mcxa265vll",
+        feature = "mcxa266vll"
+    )))]
     P0_4,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh",
+        feature = "mcxa255vlq",
+        feature = "mcxa256vll",
+        feature = "mcxa265vll",
+        feature = "mcxa266vll"
+    )))]
     P0_5,
     // Normally JTAG ISPMODE_N!
     #[cfg(feature = "jtag-extras-as-gpio")]
     P0_6,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh",
+        feature = "mcxa255vlq",
+        feature = "mcxa256vll",
+        feature = "mcxa265vll",
+        feature = "mcxa266vll"
+    )))]
     P0_7,
-    P0_8,
-    P0_9,
-    P0_10,
-    P0_11,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh",
+        feature = "mcxa255vlq",
+        feature = "mcxa256vll",
+        feature = "mcxa265vll",
+        feature = "mcxa266vll"
+    )))]
     P0_12,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh",
+        feature = "mcxa255vlq",
+        feature = "mcxa256vll",
+        feature = "mcxa265vll",
+        feature = "mcxa266vll"
+    )))]
     P0_13,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh"
+    )))]
     P0_14,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh"
+    )))]
     P0_15,
     P0_16,
     P0_17,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh"
+    )))]
     P0_18,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh"
+    )))]
     P0_19,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh"
+    )))]
     P0_20,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh"
+    )))]
     P0_21,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh"
+    )))]
     P0_22,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh"
+    )))]
     P0_23,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh",
+        feature = "mcxa255vlq",
+        feature = "mcxa256vll",
+        feature = "mcxa265vll",
+        feature = "mcxa266vll"
+    )))]
     P0_24,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh",
+        feature = "mcxa255vlq",
+        feature = "mcxa256vll",
+        feature = "mcxa265vll",
+        feature = "mcxa266vll"
+    )))]
     P0_25,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh",
+        feature = "mcxa255vlq",
+        feature = "mcxa256vll",
+        feature = "mcxa265vll",
+        feature = "mcxa266vll"
+    )))]
     P0_26,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh",
+        feature = "mcxa255vlq",
+        feature = "mcxa256vll",
+        feature = "mcxa265vll",
+        feature = "mcxa266vll"
+    )))]
     P0_27,
     P0_28,
     P0_29,
@@ -204,11 +338,63 @@ embassy_hal_internal::peripherals!(
     P1_11,
     P1_12,
     P1_13,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh"
+    )))]
     P1_14,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh"
+    )))]
     P1_15,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh",
+        feature = "mcxa255vll",
+        feature = "mcxa256vll",
+        feature = "mcxa265vll",
+        feature = "mcxa266vll"
+    )))]
     P1_16,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh",
+        feature = "mcxa255vll",
+        feature = "mcxa256vll",
+        feature = "mcxa265vll",
+        feature = "mcxa266vll"
+    )))]
     P1_17,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh",
+        feature = "mcxa255vll",
+        feature = "mcxa256vll",
+        feature = "mcxa265vll",
+        feature = "mcxa266vll"
+    )))]
     P1_18,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh",
+        feature = "mcxa255vll",
+        feature = "mcxa256vll",
+        feature = "mcxa265vll",
+        feature = "mcxa266vll"
+    )))]
     P1_19,
     P1_20,
     P1_21,
@@ -234,36 +420,199 @@ embassy_hal_internal::peripherals!(
     P2_5,
     P2_6,
     P2_7,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh",
+        feature = "mcxa255vlq",
+        feature = "mcxa256vll",
+        feature = "mcxa265vll",
+        feature = "mcxa266vll"
+    )))]
     P2_8,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh",
+        feature = "mcxa255vlq",
+        feature = "mcxa256vll",
+        feature = "mcxa265vll",
+        feature = "mcxa266vll"
+    )))]
     P2_9,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh"
+    )))]
     P2_10,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh"
+    )))]
     P2_11,
     P2_12,
     P2_13,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh",
+        feature = "mcxa255vlq",
+        feature = "mcxa256vll",
+        feature = "mcxa265vll",
+        feature = "mcxa266vll"
+    )))]
     P2_14,
     P2_15,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh"
+    )))]
     P2_16,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh"
+    )))]
     P2_17,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh",
+        feature = "mcxa255vlq",
+        feature = "mcxa256vll",
+        feature = "mcxa265vll",
+        feature = "mcxa266vll"
+    )))]
     P2_18,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh"
+    )))]
     P2_19,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh"
+    )))]
     P2_20,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh"
+    )))]
     P2_21,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh",
+        feature = "mcxa255vlq",
+        feature = "mcxa256vll",
+        feature = "mcxa265vll",
+        feature = "mcxa266vll"
+    )))]
     P2_22,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh"
+    )))]
     P2_23,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh",
+        feature = "mcxa255vlq",
+        feature = "mcxa256vll",
+        feature = "mcxa265vll",
+        feature = "mcxa266vll"
+    )))]
     P2_24,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh",
+        feature = "mcxa255vlq",
+        feature = "mcxa256vll",
+        feature = "mcxa265vll",
+        feature = "mcxa266vll"
+    )))]
     P2_25,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh",
+        feature = "mcxa255vlq",
+        feature = "mcxa256vll",
+        feature = "mcxa265vll",
+        feature = "mcxa266vll"
+    )))]
     P2_26,
-    P2_27,
-    P2_28,
-    P2_29,
-    P2_30,
-    P2_31,
 
     P3_0,
     P3_1,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh",
+        feature = "mcxa255vlq",
+        feature = "mcxa256vll",
+        feature = "mcxa265vll",
+        feature = "mcxa266vll"
+    )))]
     P3_2,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh",
+        feature = "mcxa255vlq",
+        feature = "mcxa256vll",
+        feature = "mcxa265vll",
+        feature = "mcxa266vll"
+    )))]
     P3_3,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh",
+        feature = "mcxa255vlq",
+        feature = "mcxa256vll",
+        feature = "mcxa265vll",
+        feature = "mcxa266vll"
+    )))]
     P3_4,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh",
+        feature = "mcxa255vlq",
+        feature = "mcxa256vll",
+        feature = "mcxa265vll",
+        feature = "mcxa266vll"
+    )))]
     P3_5,
     P3_6,
     P3_7,
@@ -275,16 +624,98 @@ embassy_hal_internal::peripherals!(
     P3_13,
     P3_14,
     P3_15,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh"
+    )))]
     P3_16,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh"
+    )))]
     P3_17,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh"
+    )))]
     P3_18,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh"
+    )))]
     P3_19,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh"
+    )))]
     P3_20,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh"
+    )))]
     P3_21,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh"
+    )))]
     P3_22,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh",
+        feature = "mcxa255vlq",
+        feature = "mcxa256vll",
+        feature = "mcxa265vll",
+        feature = "mcxa266vll"
+    )))]
     P3_23,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh",
+        feature = "mcxa255vlq",
+        feature = "mcxa256vll",
+        feature = "mcxa265vll",
+        feature = "mcxa266vll"
+    )))]
     P3_24,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh",
+        feature = "mcxa255vlq",
+        feature = "mcxa256vll",
+        feature = "mcxa265vll",
+        feature = "mcxa266vll"
+    )))]
     P3_25,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh",
+        feature = "mcxa255vlq",
+        feature = "mcxa256vll",
+        feature = "mcxa265vll",
+        feature = "mcxa266vll"
+    )))]
     P3_26,
     P3_27,
     P3_28,
@@ -292,38 +723,70 @@ embassy_hal_internal::peripherals!(
     P3_30,
     P3_31,
 
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh",
+        feature = "mcxa255vlq",
+        feature = "mcxa256vll",
+        feature = "mcxa265vll",
+        feature = "mcxa266vll"
+    )))]
     P4_0,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh",
+        feature = "mcxa255vlq",
+        feature = "mcxa256vll",
+        feature = "mcxa265vll",
+        feature = "mcxa266vll"
+    )))]
     P4_1,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh"
+    )))]
     P4_2,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh"
+    )))]
     P4_3,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh"
+    )))]
     P4_4,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh"
+    )))]
     P4_5,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh"
+    )))]
     P4_6,
+    #[cfg(not(any(
+        feature = "mcxa255vlh",
+        feature = "mcxa256vlh",
+        feature = "mcxa265vlh",
+        feature = "mcxa266vlh"
+    )))]
     P4_7,
-    P4_8,
-    P4_9,
-    P4_10,
-    P4_11,
-    P4_12,
-    P4_13,
-    P4_14,
-    P4_15,
-    P4_16,
-    P4_17,
-    P4_18,
-    P4_19,
-    P4_20,
-    P4_21,
-    P4_22,
-    P4_23,
-    P4_24,
-    P4_25,
-    P4_26,
-    P4_27,
-    P4_28,
-    P4_29,
-    P4_30,
-    P4_31,
 
     P5_0,
     P5_1,
