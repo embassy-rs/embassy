@@ -44,8 +44,8 @@ pub enum Async {}
 pub struct FlashRegion {
     /// Bank number.
     pub bank: FlashBank,
-    /// Absolute base address.
-    pub base: u32,
+    /// Offset from bank base.
+    pub offset: u32,
     /// Size in bytes.
     pub size: u32,
     /// Erase size (sector size).
@@ -58,9 +58,14 @@ pub struct FlashRegion {
 }
 
 impl FlashRegion {
+    /// Absolute base address.
+    pub fn base(&self) -> u32 {
+        self.bank.base() + self.offset
+    }
+
     /// Absolute end address.
-    pub const fn end(&self) -> u32 {
-        self.base + self.size
+    pub fn end(&self) -> u32 {
+        self.base() + self.size
     }
 
     /// Number of sectors in the region.
