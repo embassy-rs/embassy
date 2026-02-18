@@ -98,6 +98,11 @@ impl<'a> Lpuart<'a, Buffered> {
     /// Create a new full duplex buffered LPUART.
     ///
     /// Any external pin will be placed into Disabled state upon Drop.
+    ///
+    /// ## SAFETY
+    ///
+    /// You must NOT call `core::mem::forget` on `Lpuart` if `rx_buffer` or `tx_buffer` are not
+    /// `'static`. This will cause memory corruption.
     pub fn new_buffered<T: Instance>(
         _inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
@@ -116,6 +121,11 @@ impl<'a> Lpuart<'a, Buffered> {
     /// Create a new buffered LPUART instance with RTS/CTS flow control.
     ///
     /// Any external pin will be placed into Disabled state upon Drop.
+    ///
+    /// ## SAFETY
+    ///
+    /// You must NOT call `core::mem::forget` on `Lpuart` if `rx_buffer` or `tx_buffer` are not
+    /// `'static`. This will cause memory corruption.
     pub fn new_buffered_with_rtscts<T: Instance>(
         _inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
@@ -146,6 +156,11 @@ impl<'a> Lpuart<'a, Buffered> {
     /// Create a new buffered LPUART with only RTS flow control (RX flow control).
     ///
     /// Any external pin will be placed into Disabled state upon Drop.
+    ///
+    /// ## SAFETY
+    ///
+    /// You must NOT call `core::mem::forget` on `Lpuart` if `rx_buffer` or `tx_buffer` are not
+    /// `'static`. This will cause memory corruption.
     pub fn new_buffered_with_rts<T: Instance>(
         _inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
@@ -174,6 +189,11 @@ impl<'a> Lpuart<'a, Buffered> {
     /// Create a new buffered LPUART with only CTS flow control (TX flow control).
     ///
     /// Any external pin will be placed into Disabled state upon Drop.
+    ///
+    /// ## SAFETY
+    ///
+    /// You must NOT call `core::mem::forget` on `Lpuart` if `rx_buffer` or `tx_buffer` are not
+    /// `'static`. This will cause memory corruption.
     pub fn new_buffered_with_cts<T: Instance>(
         _inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
@@ -224,6 +244,11 @@ impl<'a> LpuartTx<'a, Buffered> {
     /// Create a new TX-only LPUART.
     ///
     /// Any external pin will be placed into Disabled state upon Drop.
+    ///
+    /// ## SAFETY
+    ///
+    /// You must NOT call `core::mem::forget` on `LpuartTx` if `tx_buffer` is not `'static`.
+    /// This will potentially send "garbage" data via the UART.
     pub fn new<T: Instance>(
         _inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
@@ -241,6 +266,11 @@ impl<'a> LpuartTx<'a, Buffered> {
     /// Create a new TX-only buffered LPUART with CTS flow control.
     ///
     /// Any external pin will be placed into Disabled state upon Drop.
+    ///
+    /// ## SAFETY
+    ///
+    /// You must NOT call `core::mem::forget` on `LpuartTx` if `tx_buffer` is not `'static`.
+    /// This will potentially send "garbage" data via the UART.
     pub fn new_with_cts<T: Instance>(
         _inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
@@ -362,6 +392,11 @@ impl<'a> LpuartRx<'a, Buffered> {
     /// Create a new RX-only buffered LPUART.
     ///
     /// Any external pin will be placed into Disabled state upon Drop.
+    ///
+    /// ## SAFETY
+    ///
+    /// You must NOT call `core::mem::forget` on `LpuartRx` if `rx_buffer` is not `'static`.
+    /// This will cause memory corruption.
     pub fn new<T: Instance>(
         _inner: Peri<'a, T>,
         rx_pin: Peri<'a, impl RxPin<T>>,
@@ -385,6 +420,11 @@ impl<'a> LpuartRx<'a, Buffered> {
     /// Create a new RX-only buffered LPUART with RTS flow control.
     ///
     /// Any external pin will be placed into Disabled state upon Drop.
+    ///
+    /// ## SAFETY
+    ///
+    /// You must NOT call `core::mem::forget` on `LpuartRx` if `rx_buffer` is not `'static`.
+    /// This will cause memory corruption.
     pub fn new_with_rts<T: Instance>(
         _inner: Peri<'a, T>,
         rx_pin: Peri<'a, impl RxPin<T>>,
