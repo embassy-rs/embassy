@@ -548,7 +548,6 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for Buffere
             // Send data while TX buffer is ready and we have data
             for _ in 0..to_pop {
                 if let Some(byte) = reader.pop_one() {
-                    defmt::info!("boop");
                     regs.data().write(|w| w.0 = u32::from(byte));
                     sent_any = true;
                 } else {
@@ -556,8 +555,6 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for Buffere
                     break;
                 }
             }
-
-            defmt::warn!("done");
 
             if sent_any {
                 T::PERF_INT_WAKE_INCR();
