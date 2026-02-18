@@ -278,9 +278,13 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
 
     /// Internal helper to read a single chunk (max 0x7FFF bytes) using DMA.
     async fn read_dma_inner(&mut self, buf: &mut [u8]) -> Result<usize> {
+        // First check if there are any RX errors
+        check_and_clear_rx_errors(self.info)?;
+
+        // We already check in the public function that the length is
+        // 0 < buf.len <= DMA_MAX_TRANSFER_SIZE
         let len = buf.len();
         let peri_addr = self.info.regs().data().as_ptr() as *const u8;
-
         let rx_dma = &mut self.mode.dma;
 
         unsafe {

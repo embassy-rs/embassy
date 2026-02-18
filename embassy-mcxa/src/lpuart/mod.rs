@@ -5,6 +5,7 @@ use core::sync::atomic::{AtomicU8, Ordering};
 use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
+use nxp_pac::lpuart::vals::Dozeen;
 use paste::paste;
 
 use crate::clocks::periph_helpers::{Div4, LpuartClockSel, LpuartConfig};
@@ -222,6 +223,14 @@ fn configure_control_settings(info: &'static Info, config: &Config) {
             w.set_pe(false);
         };
 
+        // Allow the lpuart to wake from deep sleep if configured to
+        // work in deep sleep mode.
+        let enable_doze = match config.power {
+            PoweredClock::NormalEnabledDeepSleepDisabled => Dozeen::DISABLED,
+            PoweredClock::AlwaysEnabled => Dozeen::ENABLED,
+        };
+        w.set_dozeen(enable_doze);
+
         // Data bits configuration
         match config.data_bits_count {
             DataBits::DATA8 => {
@@ -357,32 +366,33 @@ fn wait_for_tx_complete(info: &'static Info) {
 
 fn check_and_clear_rx_errors(info: &'static Info) -> Result<()> {
     let stat = info.regs().stat().read();
-    let mut status = Ok(());
 
     // Check for overrun first - other error flags are prevented when OR is set
-    if stat.or() {
-        info.regs().stat().write(|w| w.set_or(true));
+    let or_set = stat.or();
+    let pf_set = stat.pf();
+    let fe_set = stat.fe();
+    let nf_set = stat.nf();
 
-        return Err(Error::Overrun);
+    // Clear all errors before returning
+    info.regs().stat().write(|w| {
+        w.set_or(or_set);
+        w.set_pf(pf_set);
+        w.set_fe(fe_set);
+        w.set_nf(nf_set);
+    });
+
+    // Return error source
+    if or_set {
+        Err(Error::Overrun)
+    } else if pf_set {
+        Err(Error::Parity)
+    } else if fe_set {
+        Err(Error::Framing)
+    } else if nf_set {
+        Err(Error::Noise)
+    } else {
+        Ok(())
     }
-
-    // Other errors are checked and cleared, but only 'most likely' error is returned.
-    if stat.pf() {
-        info.regs().stat().write(|w| w.set_pf(true));
-        status = Err(Error::Parity);
-    }
-
-    if stat.fe() {
-        info.regs().stat().write(|w| w.set_fe(true));
-        status = Err(Error::Framing);
-    }
-
-    if stat.nf() {
-        info.regs().stat().write(|w| w.set_nf(true));
-        status = Err(Error::Noise);
-    }
-
-    status
 }
 
 fn has_data(info: &'static Info) -> bool {

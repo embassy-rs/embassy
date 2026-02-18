@@ -379,6 +379,12 @@ pub struct Clocks {
     /// Low-power power config
     pub lp_power: VddLevel,
 
+    /// Is the bandgap enabled in active mode?
+    pub bandgap_active: bool,
+
+    /// Is the bandgap enabled in deep sleep mode?
+    pub bandgap_lowpower: bool,
+
     /// Lowest sleep level
     pub core_sleep: CoreSleep,
 
@@ -491,6 +497,7 @@ pub struct Clock {
 /// any peripherals that are NOT using an `AlwaysEnabled` clock active, entry into
 /// Deep Sleep will be prevented, in order to avoid misbehaving peripherals.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum PoweredClock {
     /// The given clock will NOT continue running in Deep Sleep mode
     NormalEnabledDeepSleepDisabled,
@@ -901,10 +908,25 @@ impl PoweredClock {
 }
 
 impl ClockOperator<'_> {
-    fn active_limits(&self) -> &ClockLimits {
+    fn active_limits(&self) -> &'static ClockLimits {
         match self.config.vdd_power.active_mode.level {
             VddLevel::MidDriveMode => &ClockLimits::MID_DRIVE,
             VddLevel::OverDriveMode => &ClockLimits::OVER_DRIVE,
+        }
+    }
+
+    fn low_power_limits(&self) -> &'static ClockLimits {
+        match self.config.vdd_power.low_power_mode.level {
+            VddLevel::MidDriveMode => &ClockLimits::MID_DRIVE,
+            VddLevel::OverDriveMode => &ClockLimits::OVER_DRIVE,
+        }
+    }
+
+    fn lowest_relevant_limits(&self, for_power: &PoweredClock) -> &'static ClockLimits {
+        // We always enforce that deep sleep has a drive <= active mode.
+        match for_power {
+            PoweredClock::NormalEnabledDeepSleepDisabled => self.active_limits(),
+            PoweredClock::AlwaysEnabled => self.low_power_limits(),
         }
     }
 
@@ -968,6 +990,8 @@ impl ClockOperator<'_> {
             });
         }
 
+        let limits = self.lowest_relevant_limits(&firc.power);
+
         // Set frequency (if not the default 45MHz!), re-enable FIRC, and return the base frequency
         //
         // NOTE: the SVD currently has the wrong(?) values for these:
@@ -977,27 +1001,18 @@ impl ClockOperator<'_> {
         // 180 -> 192
         //
         // Probably correct-ish, but for a different trim value?
-        let base_freq = match firc.frequency {
+        let (base_freq, sel) = match firc.frequency {
             FircFreqSel::Mhz45 => {
                 // We are default, there's nothing to do here.
-                45_000_000
+                (45_000_000, FreqSel::FIRC_48MHZ_192S)
             }
-            FircFreqSel::Mhz60 => {
-                self.scg0.firccfg().modify(|w| w.set_freq_sel(FreqSel::FIRC_64MHZ));
-                self.scg0.firccsr().modify(|w| w.set_fircen(true));
-                60_000_000
-            }
-            FircFreqSel::Mhz90 => {
-                self.scg0.firccfg().modify(|w| w.set_freq_sel(FreqSel::FIRC_96MHZ));
-                self.scg0.firccsr().modify(|w| w.set_fircen(true));
-                90_000_000
-            }
-            FircFreqSel::Mhz180 => {
-                self.scg0.firccfg().modify(|w| w.set_freq_sel(FreqSel::FIRC_192MHZ));
-                self.scg0.firccsr().modify(|w| w.set_fircen(true));
-                180_000_000
-            }
+            FircFreqSel::Mhz60 => (60_000_000, FreqSel::FIRC_64MHZ),
+            FircFreqSel::Mhz90 => (90_000_000, FreqSel::FIRC_96MHZ),
+            FircFreqSel::Mhz180 => (180_000_000, FreqSel::FIRC_192MHZ),
         };
+
+        self.scg0.firccfg().modify(|w| w.set_freq_sel(sel));
+        self.scg0.firccsr().modify(|w| w.set_fircen(true));
 
         // Wait for FIRC to be enabled, error-free, and accurate
         let mut firc_ok = false;
@@ -1025,14 +1040,27 @@ impl ClockOperator<'_> {
         } = firc;
 
         // When is the FRO enabled?
-        let pow_set = match power {
-            PoweredClock::NormalEnabledDeepSleepDisabled => Fircsten::DISABLED_IN_STOP_MODES,
-            PoweredClock::AlwaysEnabled => Fircsten::ENABLED_IN_STOP_MODES,
+        let (bg_good, pow_set) = match power {
+            PoweredClock::NormalEnabledDeepSleepDisabled => {
+                // We only need bandgap enabled in active mode
+                (self.clocks.bandgap_active, Fircsten::DISABLED_IN_STOP_MODES)
+            }
+            PoweredClock::AlwaysEnabled => {
+                // We need bandgaps enabled in both active and deep sleep mode
+                let bg_good = self.clocks.bandgap_active && self.clocks.bandgap_lowpower;
+                (bg_good, Fircsten::ENABLED_IN_STOP_MODES)
+            }
         };
+        if !bg_good {
+            return Err(ClockError::BadConfig {
+                clock: "fro_hf",
+                reason: "bandgap required to be enabled when clock enabled",
+            });
+        }
 
         // Do we enable the `fro_hf` output?
         let fro_hf_set = if *fro_hf_enabled {
-            if base_freq > self.active_limits().fro_hf {
+            if base_freq > limits.fro_hf {
                 return Err(ClockError::BadConfig {
                     clock: "fro_hf",
                     reason: "exceeds max",
@@ -1079,7 +1107,7 @@ impl ClockOperator<'_> {
             }
 
             let div_freq = base_freq / d.into_divisor();
-            if div_freq > self.active_limits().fro_hf_div {
+            if div_freq > limits.fro_hf_div {
                 return Err(ClockError::BadConfig {
                     clock: "fro_hf_root",
                     reason: "exceeds max frequency",
@@ -1266,31 +1294,15 @@ impl ClockOperator<'_> {
     }
 
     fn ensure_ldo_active(&mut self, for_clock: &'static str, for_power: &PoweredClock) -> Result<(), ClockError> {
-        match self.config.vdd_power.active_mode.drive {
-            VddDriveStrength::Low { enable_bandgap } => {
-                if !enable_bandgap {
-                    return Err(ClockError::BadConfig {
-                        clock: for_clock,
-                        reason: "LDO requires core active drive strength bandgap enabled",
-                    });
-                }
-            }
-            VddDriveStrength::Normal => {}
-        }
-
-        match for_power {
-            PoweredClock::NormalEnabledDeepSleepDisabled => {}
-            PoweredClock::AlwaysEnabled => match self.config.vdd_power.low_power_mode.drive {
-                VddDriveStrength::Low { enable_bandgap } => {
-                    if !enable_bandgap {
-                        return Err(ClockError::BadConfig {
-                            clock: for_clock,
-                            reason: "LDO requires core lp drive strength bandgap enabled",
-                        });
-                    }
-                }
-                VddDriveStrength::Normal => {}
-            },
+        let bg_good = match for_power {
+            PoweredClock::NormalEnabledDeepSleepDisabled => self.clocks.bandgap_active,
+            PoweredClock::AlwaysEnabled => self.clocks.bandgap_active && self.clocks.bandgap_lowpower,
+        };
+        if !bg_good {
+            return Err(ClockError::BadConfig {
+                clock: for_clock,
+                reason: "LDO requires core bandgap enabled",
+            });
         }
 
         // TODO: Config for the LDO? For now, just enable
@@ -1371,21 +1383,25 @@ impl ClockOperator<'_> {
         // * If SOSC needs to work in deep sleep, AND the monitor is enabled:
         //   * SIRC also need needs to be low power
         // * We need to decide if we need an interrupt or a reset if the monitor trips
+        let (bg_good, soscsten) = match parts.power {
+            PoweredClock::NormalEnabledDeepSleepDisabled => (self.clocks.bandgap_active, false),
+            PoweredClock::AlwaysEnabled => (self.clocks.bandgap_active && self.clocks.bandgap_lowpower, true),
+        };
+
+        if !bg_good {
+            return Err(ClockError::BadConfig {
+                clock: "sosc",
+                reason: "bandgap required",
+            });
+        }
 
         // Apply remaining config
         self.scg0.sosccsr().modify(|w| {
             // For now, just disable the monitor. See above.
             w.set_sosccm(false);
 
-            // Set deep sleep mode
-            match parts.power {
-                PoweredClock::NormalEnabledDeepSleepDisabled => {
-                    w.set_soscsten(false);
-                }
-                PoweredClock::AlwaysEnabled => {
-                    w.set_soscsten(true);
-                }
-            }
+            // Set deep sleep mode if needed
+            w.set_soscsten(soscsten);
 
             // Enable SOSC
             w.set_soscen(true)
@@ -1626,13 +1642,12 @@ impl ClockOperator<'_> {
             });
         }
 
+        let limits = self.lowest_relevant_limits(&cfg.power);
+
         // Fout: 4.3MHz to 2x Max CPU Frequency
-        let fmax = match self.config.vdd_power.active_mode.level {
-            VddLevel::MidDriveMode => ClockLimits::MID_DRIVE.cpu_clk,
-            VddLevel::OverDriveMode => ClockLimits::OVER_DRIVE.cpu_clk,
-        };
+        let fmax = limits.cpu_clk;
         let spll_range_bad1 = !(4_300_000..=(2 * fmax)).contains(&fout);
-        let spll_range_bad2 = fout > self.active_limits().pll1_clk;
+        let spll_range_bad2 = fout > limits.pll1_clk;
 
         if spll_range_bad1 || spll_range_bad2 {
             return Err(ClockError::BadConfig {
@@ -1710,14 +1725,24 @@ impl ClockOperator<'_> {
 
         // TODO: Support Spread spectrum?
 
+        let (bg_good, spllsten) = match cfg.power {
+            PoweredClock::NormalEnabledDeepSleepDisabled => (self.clocks.bandgap_active, Spllsten::DISABLED_IN_STOP),
+            PoweredClock::AlwaysEnabled => (
+                self.clocks.bandgap_active && self.clocks.bandgap_lowpower,
+                Spllsten::ENABLED_IN_STOP,
+            ),
+        };
+        if !bg_good {
+            return Err(ClockError::BadConfig {
+                clock: "spll",
+                reason: "bandgap required when active",
+            });
+        }
+
         self.scg0.spllcsr().modify(|w| {
             w.set_spllclken(true);
             w.set_spllpwren(true);
-            w.set_spllsten(if matches!(cfg.power, PoweredClock::AlwaysEnabled) {
-                Spllsten::ENABLED_IN_STOP
-            } else {
-                Spllsten::DISABLED_IN_STOP
-            });
+            w.set_spllsten(spllsten);
         });
 
         // Wait for SPLL to set up
@@ -1793,23 +1818,19 @@ impl ClockOperator<'_> {
             });
         }
 
-        let (levels, mclk_max, cpuclk_max, wsmax) = match self.config.vdd_power.active_mode.level {
-            VddLevel::MidDriveMode => (
-                VDD_CORE_MID_DRIVE_WAIT_STATE_LIMITS,
-                ClockLimits::MID_DRIVE.main_clk,
-                ClockLimits::MID_DRIVE.cpu_clk,
-                VDD_CORE_MID_DRIVE_MAX_WAIT_STATES,
-            ),
+        let lowest_limits = self.lowest_relevant_limits(&self.config.main_clock.power);
+        let active_limits = self.active_limits();
+
+        let (levels, wsmax) = match self.config.vdd_power.active_mode.level {
+            VddLevel::MidDriveMode => (VDD_CORE_MID_DRIVE_WAIT_STATE_LIMITS, VDD_CORE_MID_DRIVE_MAX_WAIT_STATES),
             VddLevel::OverDriveMode => (
                 VDD_CORE_OVER_DRIVE_WAIT_STATE_LIMITS,
-                ClockLimits::OVER_DRIVE.main_clk,
-                ClockLimits::OVER_DRIVE.cpu_clk,
                 VDD_CORE_OVER_DRIVE_MAX_WAIT_STATES,
             ),
         };
 
         // Is the main_clk source in range for main_clk?
-        if main_clk_src.frequency > mclk_max {
+        if main_clk_src.frequency > lowest_limits.main_clk {
             return Err(ClockError::BadConfig {
                 clock: name,
                 reason: "Exceeds main_clock frequency",
@@ -1820,8 +1841,9 @@ impl ClockOperator<'_> {
         let ahb_div = self.config.main_clock.ahb_clk_div;
         let cpu_freq = main_clk_src.frequency / ahb_div.into_divisor();
 
-        // Is the expected CPU frequency in range for cpu_clk?
-        if cpu_freq > cpuclk_max {
+        // Is the expected CPU frequency in range for cpu_clk? Note: the CPU
+        // is never running in deep sleep, so we directly use the active limits here
+        if cpu_freq > active_limits.cpu_clk {
             return Err(ClockError::BadConfig {
                 clock: name,
                 reason: "Exceeds ahb max frequency",
@@ -2014,6 +2036,7 @@ impl ClockOperator<'_> {
             self.spc0.lp_cfg().modify(|w| w.set_coreldo_vdd_lvl(lvl));
             self.spc0.lp_cfg().modify(|w| w.set_bgmode(LpCfgBgmode::BGMODE0));
         }
+        self.clocks.bandgap_lowpower = bgap;
 
         // Updating CORELDO_VDD_LVL sets the SC[BUSY] flag. That flag remains set for at least the total time
         // delay that Active Voltage Trim Delay (ACTIVE_VDELAY) specifies.
@@ -2047,9 +2070,12 @@ impl ClockOperator<'_> {
                         w.set_bgmode(ActiveCfgBgmode::BGMODE0)
                     }
                 });
+
+                self.clocks.bandgap_active = enable_bandgap;
             }
             VddDriveStrength::Normal => {
                 // Already set to normal above
+                self.clocks.bandgap_active = true;
             }
         }
 

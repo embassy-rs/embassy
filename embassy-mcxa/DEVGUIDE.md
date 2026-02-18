@@ -164,6 +164,67 @@ impl<'a> I2c<'a, Blocking> {
 }
 ```
 
+#### Checking Errors
+
+When checking errors, ensure that ALL errors are cleared before returning. Otherwise early returns
+can lead to "stuck" errors. Instead of this:
+
+```rust
+fn check_and_clear_rx_errors(info: &'static Info) -> Result<()> {
+    let stat = info.regs().stat().read();
+    if stat.or() {
+        info.regs().stat().write(|w| w.set_or(true));
+        Err(Error::Overrun)
+    } else if stat.pf() {
+        info.regs().stat().write(|w| w.set_pf(true));
+        Err(Error::Parity)
+    } else if stat.fe() {
+        info.regs().stat().write(|w| w.set_fe(true));
+        return Err(Error::Framing);
+    } else if stat.nf() {
+        info.regs().stat().write(|w| w.set_nf(true));
+        return Err(Error::Noise);
+    } else {
+        Ok(())
+    }
+}
+```
+
+Ensure that all errors are cleared:
+
+```rust
+fn check_and_clear_rx_errors(info: &'static Info) -> Result<()> {
+    let stat = info.regs().stat().read();
+
+    // Check for overrun first - other error flags are prevented when OR is set
+    let or_set = stat.or();
+    let pf_set = stat.pf();
+    let fe_set = stat.fe();
+    let nf_set = stat.nf();
+
+    // Clear all errors before returning
+    info.regs().stat().write(|w| {
+        w.set_or(or_set);
+        w.set_pf(pf_set);
+        w.set_fe(fe_set);
+        w.set_nf(nf_set);
+    });
+
+    // Return error source
+    if or_set {
+        Err(Error::Overrun)
+    } else if pf_set {
+        Err(Error::Parity)
+    } else if fe_set {
+        Err(Error::Framing)
+    } else if nf_set {
+        Err(Error::Noise)
+    } else {
+        Ok(())
+    }
+}
+```
+
 #### Error types
 
 When creating `Error` types for each peripheral, consider the following high level guidance:
