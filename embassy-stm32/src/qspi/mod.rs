@@ -470,7 +470,7 @@ impl<'d, T: Instance> Qspi<'d, T, Blocking> {
             new_pin!(bk2nss, AfType::output(OutputType::PushPull, config.gpio_speed)),                     
             None,
             config,
-            FlashSelection::Flash2, // Dual bank mode, so DFM is set and both banks are used
+            FlashSelection::Flash1, // Dual bank mode, so DFM is set and both banks are used
         )    
     }
     
