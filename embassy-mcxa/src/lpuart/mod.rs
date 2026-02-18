@@ -224,11 +224,13 @@ fn configure_control_settings(info: &'static Info, config: &Config) {
 
         // Allow the lpuart to wake from deep sleep if configured to
         // work in deep sleep mode.
-        let enable_doze = match config.power {
-            PoweredClock::NormalEnabledDeepSleepDisabled => Dozeen::DISABLED,
-            PoweredClock::AlwaysEnabled => Dozeen::ENABLED,
-        };
-        w.set_dozeen(enable_doze);
+        //
+        // NOTE: this is the default state, and setting this to `Dozeen::DISABLED`
+        // seems to actively *stop* the uart, regardless of whether automatic clock
+        // gating is used, or if the device never goes to deep sleep at all (e.g.
+        // in WfeUngated configuration). For now, let's not touch this unless we
+        // actually need to, e.g. *forcing* the lpuart to sleep!
+        w.set_dozeen(Dozeen::ENABLED);
 
         // Data bits configuration
         match config.data_bits_count {
