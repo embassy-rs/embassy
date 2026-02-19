@@ -39,6 +39,7 @@ use embassy_time::{Instant, Timer};
 use heapless::Vec;
 #[cfg(feature = "dns")]
 pub use smoltcp::config::DNS_MAX_SERVER_COUNT;
+pub use smoltcp::config::IFACE_MAX_ADDR_COUNT;
 #[cfg(feature = "multicast")]
 pub use smoltcp::iface::MulticastError;
 #[cfg(any(feature = "dns", feature = "dhcpv4"))]
@@ -122,8 +123,8 @@ pub struct StaticConfigV4 {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct StaticConfigV6 {
-    /// IP address and subnet mask.
-    pub address: Ipv6Cidr,
+    /// IP addresses with prefix length.
+    pub addresses: Vec<Ipv6Cidr, IFACE_MAX_ADDR_COUNT>,
     /// Default gateway.
     pub gateway: Option<Ipv6Address>,
     /// DNS servers.
@@ -754,10 +755,15 @@ impl Inner {
         #[cfg(feature = "proto-ipv6")]
         if let Some(config) = &self.static_v6 {
             debug!("IPv6: UP");
-            debug!("   IP address:      {:?}", config.address);
+            debug!("   IP addresses:    {:?}", config.addresses);
             debug!("   Default gateway: {:?}", config.gateway);
 
-            unwrap!(addrs.push(IpCidr::Ipv6(config.address)).ok());
+            // NOTE: Not using extend method as it uses corelib panic mechanism
+            // NOTE: …also, should we even panic?
+            for &addr in &config.addresses {
+                unwrap!(addrs.push(IpCidr::Ipv6(addr)).ok());
+            }
+
             gateway_v6 = config.gateway.into();
             #[cfg(feature = "dns")]
             for s in &config.dns_servers {
