@@ -222,6 +222,75 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
         Ok((readable, remaining - readable))
     }
 
+    /// Read the most recent elements from the ring buffer, discarding any older data.
+    ///
+    /// Returns the number of elements actually read into `buf`. This may be less than
+    /// `buf.len()` if fewer samples are available (e.g. the DMA has not yet filled enough
+    /// data since the last read).
+    ///
+    /// Unlike [`read`], this method **never returns an overrun error**. If the DMA has
+    /// lapped the read pointer, the read pointer is silently advanced to catch up, and
+    /// only the most recent data is returned. This makes it ideal for use cases like ADC
+    /// sampling where the consumer only cares about the latest values and old data can
+    /// be safely discarded.
+    ///
+    /// If an `alignment` has been set, the returned count is rounded down to a multiple
+    /// of the alignment and reading starts from a frame-aligned position.
+    pub fn read_latest(&mut self, dma: &mut impl DmaCtrl, buf: &mut [W]) -> usize {
+        fence(Ordering::Acquire);
+
+        self.write_index.dma_sync(self.cap(), dma);
+        DmaIndex::normalize(&mut self.write_index, &mut self.read_index);
+
+        let diff = self.write_index.diff(self.cap(), &self.read_index);
+
+        // On overrun or desync, reset the read pointer to the current write position.
+        // This means zero samples are available right now, but the next call will
+        // return fresh data without any error.
+        let available = if diff <= 0 || diff > self.cap() as isize {
+            self.read_index = self.write_index;
+            0
+        } else {
+            diff as usize
+        };
+
+        let mut to_read = available.min(buf.len());
+
+        // Respect frame alignment: figure out where reading would start,
+        // skip forward if misaligned, and round down the read length.
+        if self.alignment > 1 {
+            // We want to skip old data so that the start position is aligned.
+            // The start position after skipping is: read_index + (available - to_read).
+            // We need (read_index.pos + skip) % alignment == 0.
+            let skip = available - to_read;
+            let start_pos = self.read_index.as_index(self.cap(), skip);
+            let misalignment = start_pos % self.alignment;
+            if misalignment != 0 {
+                let extra_skip = self.alignment - misalignment;
+                if to_read >= extra_skip {
+                    to_read -= extra_skip;
+                } else {
+                    to_read = 0;
+                }
+            }
+            // Round down to alignment.
+            to_read -= to_read % self.alignment;
+        }
+
+        // Skip past old data to position the read at the latest `to_read` elements.
+        let skip = available - to_read;
+        if skip > 0 {
+            self.read_index.advance(self.cap(), skip);
+        }
+
+        for i in 0..to_read {
+            buf[i] = self.read_buf(i);
+        }
+        self.read_index.advance(self.cap(), to_read);
+
+        to_read
+    }
+
     fn read_buf(&self, offset: usize) -> W {
         unsafe {
             core::ptr::read_volatile(
