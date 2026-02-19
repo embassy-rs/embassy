@@ -199,13 +199,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
             while info.regs.cr2().read().start() {
                 timeout.check()?;
             }
-
-            // Wait for the bus to be free
-            while info.regs.isr().read().busy() {
-                timeout.check()?;
-            }
         }
-
         // Set START and prepare to send `bytes`. The
         // START bit can be set even if the bus is BUSY or
         // I2C is in slave mode.
