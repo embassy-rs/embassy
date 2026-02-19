@@ -512,7 +512,8 @@ where
     }
 
     async fn wait_for_event(&mut self) {
-        Timer::after(Duration::from_millis(10)).await;
-        // self.sdio.wait_for_event().await;
+        // Timer::after(Duration::from_millis(10)).await;
+        trace!("wait for event");
+        self.sdio.wait_for_event().await;
     }
 }
