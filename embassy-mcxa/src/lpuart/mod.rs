@@ -22,6 +22,7 @@ use crate::pac::{self};
 mod blocking;
 mod buffered;
 mod dma;
+mod bbq;
 
 pub use blocking::Blocking;
 pub use buffered::{Buffered, BufferedInterruptHandler};
