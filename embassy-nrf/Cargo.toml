@@ -223,7 +223,7 @@ embedded-io-async = { version = "0.7.0" }
 rand-core-06 = { package = "rand_core", version = "0.6" }
 rand-core-09 = { package = "rand_core", version = "0.9" }
 
-nrf-pac = { version = "0.2.0", git = "https://github.com/embassy-rs/nrf-pac.git", rev = "074935b9b24ab302fe812f91725937f57cd082cf" }
+nrf-pac = { version = "0.2.0", git = "https://github.com/embassy-rs/nrf-pac.git", rev = "f5ab107f18c50214f4a3d30c1f457e35567c4ef8" }
 
 defmt = { version = "1.0.1", optional = true }
 bitflags = "2.10.0"
