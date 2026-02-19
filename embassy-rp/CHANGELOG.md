@@ -6,13 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 <!-- next-header -->
+
 ## Unreleased - ReleaseDate
+
 - Add AON Timer driver for RP2350 with configurable clock sources and alarm wake modes
 - Add output enable inversion API (gpio, pio)
 - Add PIO clock generator
 - Change PioBatch interface
+- Add PIO NEC ir tx and rx
 
 ## 0.9.0 - 2025-11-27
+
 - Add documentation for pio `get_x` about autopush.
 - Fix several minor typos in documentation
 - Add PIO SPI
@@ -30,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## 0.8.0 - 2025-08-26
 
 ## 0.7.1 - 2025-08-26
+
 - add `i2c` internal pullup options ([#4564](https://github.com/embassy-rs/embassy/pull/4564))
 
 ## 0.7.0 - 2025-08-04
