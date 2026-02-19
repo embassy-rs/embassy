@@ -9,8 +9,7 @@ teleprobe_meta::target!(b"frdm-mcx-a266");
 use embassy_executor::Spawner;
 use embassy_mcxa::bind_interrupts;
 use embassy_mcxa::clocks::config::Div8;
-use embassy_mcxa::lpuart::LpuartDma;
-use embassy_mcxa::lpuart::buffered::BufferedLpuart;
+use embassy_mcxa::lpuart::{Buffered, Lpuart};
 use embedded_io_async::{Read, Write};
 use hal::config::Config;
 use static_cell::ConstStaticCell;
@@ -20,7 +19,7 @@ const MESSAGE_SIZE: usize = 69;
 const MESSAGE: [u8; MESSAGE_SIZE] = *b"You've found the HIL tests for MCXA! Hope you have a wonderful day :)";
 
 bind_interrupts!(struct Irqs {
-    LPUART3 => hal::lpuart::buffered::BufferedInterruptHandler::<hal::peripherals::LPUART3>;
+    LPUART3 => hal::lpuart::BufferedInterruptHandler::<hal::peripherals::LPUART3>;
 });
 
 #[embassy_executor::main]
@@ -43,7 +42,7 @@ async fn main(spawner: Spawner) {
     static TX_BUF: ConstStaticCell<[u8; 256]> = ConstStaticCell::new([0u8; 256]);
     static RX_BUF: ConstStaticCell<[u8; 256]> = ConstStaticCell::new([0u8; 256]);
 
-    let echo_uart = BufferedLpuart::new(
+    let echo_uart = Lpuart::new_buffered(
         p.LPUART3,
         p.P4_5, // TX pin
         p.P4_2, // RX pin
@@ -56,7 +55,7 @@ async fn main(spawner: Spawner) {
 
     spawner.spawn(echo_plus_1(echo_uart).unwrap());
 
-    let mut dma_uart = LpuartDma::new(
+    let mut dma_uart = Lpuart::new_async_with_dma(
         p.LPUART2, // Peripheral
         p.P2_2,    // TX pin
         p.P2_3,    // RX pin
@@ -70,9 +69,9 @@ async fn main(spawner: Spawner) {
     embassy_time::Timer::after_millis(1).await;
 
     defmt::info!("Sending message");
-    dma_uart.write_dma(&MESSAGE).await.unwrap();
+    dma_uart.write(&MESSAGE).await.unwrap();
     defmt::info!("Done, waiting for response");
-    dma_uart.read_dma(&mut rx_buffer).await.unwrap();
+    dma_uart.read(&mut rx_buffer).await.unwrap();
     assert_eq!(rx_buffer, MESSAGE);
 
     defmt::info!("Test OK");
@@ -80,7 +79,7 @@ async fn main(spawner: Spawner) {
 }
 
 #[embassy_executor::task]
-async fn echo_plus_1(mut uart: BufferedLpuart<'static>) {
+async fn echo_plus_1(mut uart: Lpuart<'static, Buffered>) {
     let mut buf = [0u8; MESSAGE_SIZE];
 
     uart.read_exact(&mut buf).await.unwrap();
