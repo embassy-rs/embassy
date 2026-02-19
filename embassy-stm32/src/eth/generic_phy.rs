@@ -49,6 +49,7 @@ pub struct GenericPhy<SM: StationManagement> {
     sm: SM,
     #[cfg(feature = "time")]
     poll_interval: Duration,
+    auto_recover: bool,
 }
 
 impl<SM: StationManagement> GenericPhy<SM> {
@@ -63,6 +64,7 @@ impl<SM: StationManagement> GenericPhy<SM> {
             sm,
             #[cfg(feature = "time")]
             poll_interval: Duration::from_millis(500),
+            auto_recover: false,
         }
     }
 
@@ -76,7 +78,16 @@ impl<SM: StationManagement> GenericPhy<SM> {
             phy_addr: 0xFF,
             #[cfg(feature = "time")]
             poll_interval: Duration::from_millis(500),
+            auto_recover: false,
         }
+    }
+
+    /// Enables automatic detection and recovery from spurious PHY resets.
+    ///
+    /// If your hardware works perfectly, this should not be necessary.
+    pub fn that_auto_recovers(mut self) -> Self {
+        self.auto_recover = true;
+        self
     }
 }
 
@@ -124,17 +135,31 @@ impl<SM: StationManagement> Phy for GenericPhy<SM> {
 
         let bsr = self.sm.smi_read(self.phy_addr, PHY_REG_BSR);
 
+        let mut link_up = true;
+
         // No link without autonegotiate
         if bsr & PHY_REG_BSR_ANDONE == 0 {
-            return false;
+            link_up = false;
         }
         // No link if link is down
-        if bsr & PHY_REG_BSR_UP == 0 {
-            return false;
+        if link_up && (bsr & PHY_REG_BSR_UP == 0) {
+            link_up = false;
+        }
+
+        if !link_up && self.auto_recover {
+            let bcr = sm.smi_read(self.phy_addr, PHY_REG_BCR);
+
+            if (bcr & PHY_REG_BCR_AN == 0) || (bcr & PHY_REG_BCR_100M == 0) {
+                #[cfg(feature = "defmt")]
+                defmt::error!("Spurious PHY reset detected, will automatically reconfigure.");
+
+                self.phy_reset(sm);
+                self.phy_init(sm);
+            }
         }
 
         // Got link
-        true
+        link_up
     }
 }
 
