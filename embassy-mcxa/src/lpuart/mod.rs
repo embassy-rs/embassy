@@ -27,7 +27,7 @@ mod bbq;
 pub use blocking::Blocking;
 pub use buffered::{Buffered, BufferedInterruptHandler};
 pub use dma::{Dma, RingBufferedLpuartRx};
-pub use bbq::{LpuartBbqTx, BbqInterruptHandler};
+pub use bbq::{LpuartBbqTx, LpuartBbqRx, BbqInterruptHandler};
 
 mod sealed {
     pub trait Sealed {}
