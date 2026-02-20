@@ -12,7 +12,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use crate::can::fd::peripheral::Registers;
 use crate::gpio::{AfType, OutputType, Pull, SealedPin as _, Speed};
 use crate::interrupt::typelevel::Interrupt;
-use crate::rcc::{self, RccPeripheral};
+use crate::rcc::{self, RccInfo, RccPeripheral, SealedRccPeripheral};
 use crate::{Peri, interrupt, peripherals};
 
 pub(crate) mod fd;
@@ -918,6 +918,7 @@ pub(crate) struct Info {
     _interrupt1: crate::interrupt::Interrupt,
     pub(crate) tx_waker: fn(),
     state: SharedState,
+    rcc_info: RccInfo,
 }
 
 impl Info {
@@ -951,6 +952,7 @@ impl Info {
                     let rx_pin = crate::gpio::AnyPin::steal(mut_state.rx_pin_port.unwrap());
                     rx_pin.set_as_disconnected();
                     self.interrupt0.disable();
+                    self.rcc_info.disable();
                 }
             }
         });
@@ -991,6 +993,7 @@ macro_rules! impl_fdcan {
                     _interrupt1: crate::_generated::peripheral_interrupts::$inst::IT1::IRQ,
                     tx_waker: crate::_generated::peripheral_interrupts::$inst::IT0::pend,
                     state: embassy_sync::blocking_mutex::Mutex::new(core::cell::RefCell::new(State::new())),
+                    rcc_info: crate::peripherals::$inst::RCC_INFO,
                 };
                 &INFO
             }
