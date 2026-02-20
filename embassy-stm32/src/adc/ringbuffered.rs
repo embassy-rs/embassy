@@ -72,6 +72,11 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
         self.ring_buf.clear();
     }
 
+    /// See [`ReadableDmaRingBuffer::set_alignment`] for details.
+    pub fn set_alignment(&mut self, alignment: usize) {
+        self.ring_buf.set_alignment(alignment);
+    }
+
     /// Reads measurements from the DMA ring buffer.
     ///
     /// This method fills the provided `measurements` array with ADC readings from the DMA buffer.
