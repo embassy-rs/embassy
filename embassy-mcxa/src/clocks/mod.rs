@@ -952,7 +952,7 @@ impl ClockOperator<'_> {
             self.scg0.rccr().modify(|w| w.set_scs(Scs::SIRC));
 
             // Wait for the change to complete
-            while self.scg0.csr().read().scs() == Scs::SIRC {}
+            while self.scg0.csr().read().scs() != Scs::SIRC {}
         }
 
         // Enable CSR writes
