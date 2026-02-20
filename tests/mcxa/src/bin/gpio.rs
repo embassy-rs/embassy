@@ -26,14 +26,19 @@ async fn main(spawner: Spawner) {
 
     embassy_time::Timer::after_millis(40).await;
     output.set_high();
+    assert!(output.is_set_high());
     embassy_time::Timer::after_millis(40).await;
     output.set_low();
+    assert!(output.is_set_low());
     embassy_time::Timer::after_millis(40).await;
     output.set_high();
+    assert!(output.is_set_high());
     embassy_time::Timer::after_millis(40).await;
     output.set_low();
+    assert!(output.is_set_low());
     embassy_time::Timer::after_millis(40).await;
     output.set_high();
+    assert!(output.is_set_high());
     embassy_time::Timer::after_millis(40).await;
 
     unreachable!("The wait task failed to see the output values");
