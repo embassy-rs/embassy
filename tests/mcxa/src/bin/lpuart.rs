@@ -10,6 +10,7 @@ use embassy_executor::Spawner;
 use embassy_mcxa::bind_interrupts;
 use embassy_mcxa::clocks::config::Div8;
 use embassy_mcxa::lpuart::{Buffered, Lpuart};
+use embassy_time::{Duration, WithTimeout as _};
 use embedded_io_async::{Read, Write};
 use hal::config::Config;
 use static_cell::ConstStaticCell;
@@ -42,7 +43,7 @@ async fn main(spawner: Spawner) {
     static TX_BUF: ConstStaticCell<[u8; 256]> = ConstStaticCell::new([0u8; 256]);
     static RX_BUF: ConstStaticCell<[u8; 256]> = ConstStaticCell::new([0u8; 256]);
 
-    let echo_uart = Lpuart::new_buffered(
+    let mut echo_uart = Lpuart::new_buffered(
         p.LPUART3,
         p.P4_5, // TX pin
         p.P4_2, // RX pin
@@ -53,8 +54,6 @@ async fn main(spawner: Spawner) {
     )
     .unwrap();
 
-    spawner.spawn(echo_plus_1(echo_uart).unwrap());
-
     let mut dma_uart = Lpuart::new_async_with_dma(
         p.LPUART2, // Peripheral
         p.P2_2,    // TX pin
@@ -64,6 +63,13 @@ async fn main(spawner: Spawner) {
         config,
     )
     .unwrap();
+
+    // Drain all the receivers in case there were little hiccups on creation
+    let mut buf = [0u8; 16];
+    while (echo_uart.read(&mut buf).with_timeout(Duration::from_millis(1)).await).is_ok() {}
+    while (dma_uart.read(&mut buf).with_timeout(Duration::from_millis(1)).await).is_ok() {}
+
+    spawner.spawn(echo_plus_1(echo_uart).unwrap());
 
     let mut rx_buffer = [0; MESSAGE_SIZE];
     embassy_time::Timer::after_millis(1).await;
