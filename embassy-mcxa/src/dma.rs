@@ -548,6 +548,25 @@ impl DmaChannel<'_> {
         pac::EDMA_0_TCD0.tcd(self.channel.index())
     }
 
+    /// set a manual callback to be called AFTER the DMA interrupt is processed. Will be called in the DMA interrupt
+    /// context.
+    pub(crate) unsafe fn set_callback(&mut self, f: fn()) {
+        let cb = f as *const ();
+        // See https://doc.rust-lang.org/std/primitive.fn.html#casting-to-and-from-integers
+        let cb: usize = unsafe {
+            core::mem::transmute(cb)
+        };
+        CALLBACKS[self.index()].store(cb, Ordering::Release);
+    }
+
+    pub(crate) fn daddr(&self) -> u32 {
+        self.tcd().tcd_daddr().read().daddr()
+    }
+
+    pub(crate) fn slast_sda(&self) -> u32 {
+        self.tcd().tcd_slast_sda().read().slast_sda()
+    }
+
     fn clear_tcd(t: &pac::edma_0_tcd::Tcd) {
         // Full TCD reset following NXP SDK pattern (EDMA_TcdResetExt).
         // Reset ALL TCD registers to 0 to clear any stale configuration from
@@ -1374,8 +1393,8 @@ impl DmaChannel<'_> {
             w.set_dreq(Dreq::ERQ_FIELD_CLEAR);
             w.set_esg(Esg::NORMAL_FORMAT);
             w.set_majorelink(false);
-            w.set_eeop(false);
-            w.set_esda(false);
+            w.set_eeop(true);
+            w.set_esda(true);
             w.set_bwc(Bwc::NO_STALL);
         });
 
@@ -2567,6 +2586,13 @@ macro_rules! impl_dma_interrupt_handler {
         fn $irq() {
             unsafe {
                 on_interrupt($ch);
+                let cb = CALLBACKS[$ch].load(Ordering::Acquire);
+                if cb != 0 {
+                    // I'm so sorry. See https://doc.rust-lang.org/std/primitive.fn.html#casting-to-and-from-integers
+                    let cb: *const () = cb as *const ();
+                    let cb: fn() = core::mem::transmute(cb);
+                    (cb)();
+                }
             }
         }
     };
@@ -2582,3 +2608,8 @@ impl_dma_interrupt_handler!(DMA_CH4, 4);
 impl_dma_interrupt_handler!(DMA_CH5, 5);
 impl_dma_interrupt_handler!(DMA_CH6, 6);
 impl_dma_interrupt_handler!(DMA_CH7, 7);
+
+// TODO(AJM): This is a gross, gross hack. This implements optional callbacks
+// for DMA completion interrupts. This should go away once we switch to
+// "in-band" DMA interrupt binding with `bind_interrupts!`.
+static CALLBACKS: [AtomicUsize; 8] = [const { AtomicUsize::new(0) }; 8];

@@ -15,7 +15,7 @@ use embassy_mcxa::clocks::PoweredClock;
 use embassy_mcxa::gpio::{DriveStrength, Level, Output, SlewRate};
 use embassy_mcxa::{bind_interrupts, lpuart};
 use embassy_mcxa::clocks::config::{CoreSleep, Div8, FlashSleep, MainClockConfig, MainClockSource, VddDriveStrength, VddLevel};
-use embassy_mcxa::lpuart::{Config, LpuartBbqTx};
+use embassy_mcxa::lpuart::{Config, LpuartBbqRx};
 use embassy_time::Timer;
 use static_cell::ConstStaticCell;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
@@ -73,10 +73,10 @@ async fn main(_spawner: Spawner) {
     cfg.clock_cfg.vdd_power.low_power_mode.drive = VddDriveStrength::Low { enable_bandgap: false };
 
     // Set "deep sleep" mode
-    cfg.clock_cfg.vdd_power.core_sleep = CoreSleep::DeepSleep;
+    cfg.clock_cfg.vdd_power.core_sleep = CoreSleep::WfeUngated;
 
     // Set flash doze, allowing internal flash clocks to be gated on sleep
-    cfg.clock_cfg.vdd_power.flash_sleep = FlashSleep::FlashDoze;
+    // cfg.clock_cfg.vdd_power.flash_sleep = FlashSleep::FlashDoze;
 
     let p = hal::init(cfg);
 
@@ -92,9 +92,9 @@ async fn main(_spawner: Spawner) {
     let tx_buf = TX_BUF.take();
 
     // Create UART instance with DMA channels
-    let mut lpuart = LpuartBbqTx::new(
+    let mut lpuart = LpuartBbqRx::new(
         p.LPUART3,
-        p.P4_5,
+        p.P4_2,
         Irqs,
         tx_buf,
         p.DMA_CH0,
@@ -108,20 +108,20 @@ async fn main(_spawner: Spawner) {
 
     Timer::after_millis(1000).await;
 
-    #[cfg(feature = "custom-executor")]
-    embassy_mcxa::executor::set_executor_debug_gpio(p.P4_2);
+    let mut red = Output::new(p.P3_18, Level::High, DriveStrength::Normal, SlewRate::Fast);
+
+    // #[cfg(feature = "custom-executor")]
+    // embassy_mcxa::executor::set_executor_debug_gpio(p.P4_2);
 
     loop {
-        for _ in 0..32 {
-            let mut window = to_send.as_slice();
-            while !window.is_empty() {
-                let sent = lpuart.write(window).await.unwrap();
-                // gpio.toggle();
-                let (_now, later) = window.split_at(sent);
-                window = later;
-            }
-        }
+        // let mut window = to_send.as_slice();
+        // while !window.is_empty() {
+        //     let sent = lpuart.write(window).await.unwrap();
+        //     let (_now, later) = window.split_at(sent);
+        //     window = later;
+        // }
         Timer::after_millis(3000).await;
+        red.toggle();
     }
 
 }
