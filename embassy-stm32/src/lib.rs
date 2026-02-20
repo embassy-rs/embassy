@@ -612,6 +612,9 @@ fn init_hw(config: Config) -> Peripherals {
             }
         });
 
+        #[cfg(any(stm32h7rs))]
+        // On the H7RS the SYSCFG should not be reset if it is already enabled. This is typically the case when running from external flash and the bootloader enables the SYSCFG.
+        rcc::enable_with_cs::<peripherals::SYSCFG>(cs);
         #[cfg(not(any(stm32f1, stm32wb, stm32wl, stm32h7rs)))]
         rcc::enable_and_reset_with_cs::<peripherals::SYSCFG>(cs);
         #[cfg(not(any(stm32h5, stm32h7, stm32h7rs, stm32wb, stm32wl)))]
