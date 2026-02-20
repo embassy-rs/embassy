@@ -334,11 +334,9 @@ fn read_latest_with_alignment() {
     ringbuf.reset(&mut dma);
 
     // DMA at position 14. 14 samples available, user buffer holds 6.
-    // read_latest wants the latest 6, but rounds down to 4 for alignment.
-    // The latest 4 aligned elements are [8, 9, 10, 11] (starting at position 8).
-    // Wait — let me think: available=14, to_read=min(14,6)=6.
-    // Start position after skip: read_index.pos(0) + skip(14-6)=8. 8%4==0 → aligned.
-    // Round down 6 to 4. Then skip = 14-4 = 10. Read from position 10: [10,11,12,13].
+    // Tail = 14 % 4 = 2 (partial frame discarded), aligned_available = 12.
+    // to_read = min(12, 6) = 6, rounded down to 4.
+    // front_skip = 12 - 4 = 8. Read starts at position 8 (aligned): [8, 9, 10, 11].
     let mut read_buf = [0u8; 6];
     dma.setup(vec![
         TestCircularTransferRequest::ResetCompleteCount(0),
@@ -347,7 +345,7 @@ fn read_latest_with_alignment() {
 
     let n = ringbuf.read_latest(&mut dma, &mut read_buf);
     assert_eq!(n, 4);
-    assert_eq!(&read_buf[..n], &[10, 11, 12, 13]);
+    assert_eq!(&read_buf[..n], &[8, 9, 10, 11]);
 }
 
 /// read_latest reads all available data when buffer is large enough.

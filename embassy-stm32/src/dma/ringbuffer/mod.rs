@@ -255,38 +255,34 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
         };
 
         let mut to_read = available.min(buf.len());
+        let mut front_skip = available - to_read;
 
-        // Respect frame alignment: figure out where reading would start,
-        // skip forward if misaligned, and round down the read length.
+        // Respect frame alignment. Because read_latest reads the NEWEST data
+        // (skip at the front, read at the tail), reducing to_read moves the
+        // start forward. We must compute front_skip explicitly so the read
+        // window starts at an aligned buffer position.
         if self.alignment > 1 {
-            // We want to skip old data so that the start position is aligned.
-            // The start position after skipping is: read_index + (available - to_read).
-            // We need (read_index.pos + skip) % alignment == 0.
-            let skip = available - to_read;
-            let start_pos = self.read_index.as_index(self.cap(), skip);
-            let misalignment = start_pos % self.alignment;
-            if misalignment != 0 {
-                let extra_skip = self.alignment - misalignment;
-                if to_read >= extra_skip {
-                    to_read -= extra_skip;
-                } else {
-                    to_read = 0;
-                }
-            }
-            // Round down to alignment.
+            // Discard any partial frame at the end of available data.
+            let end_pos = self.read_index.as_index(self.cap(), available);
+            let tail = end_pos % self.alignment;
+            let aligned_available = available.saturating_sub(tail);
+
+            to_read = aligned_available.min(buf.len());
             to_read -= to_read % self.alignment;
+            front_skip = aligned_available - to_read;
         }
 
-        // Skip past old data to position the read at the latest `to_read` elements.
-        let skip = available - to_read;
-        if skip > 0 {
-            self.read_index.advance(self.cap(), skip);
+        // Advance past old data to the aligned start position.
+        if front_skip > 0 {
+            self.read_index.advance(self.cap(), front_skip);
         }
 
         for i in 0..to_read {
             buf[i] = self.read_buf(i);
         }
-        self.read_index.advance(self.cap(), to_read);
+
+        // Advance past what we read plus any trailing partial frame.
+        self.read_index.advance(self.cap(), available - front_skip);
 
         to_read
     }
