@@ -1305,6 +1305,18 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         Ok(self.ringbuf.len(&mut DmaCtrlImpl(self.channel.reborrow()))?)
     }
 
+    /// Read the most recent elements from the ring buffer, discarding any older data.
+    ///
+    /// Returns the number of elements actually read into `buf`. Unlike [`read`](Self::read),
+    /// this method **never returns an overrun error**. If the DMA has lapped the read pointer,
+    /// old data is silently discarded and only the most recent samples are returned.
+    ///
+    /// This is ideal for use cases like ADC sampling where the consumer only cares about
+    /// the latest values.
+    pub fn read_latest(&mut self, buf: &mut [W]) -> usize {
+        self.ringbuf.read_latest(&mut DmaCtrlImpl(self.channel.reborrow()), buf)
+    }
+
     /// The capacity of the ringbuffer
     pub const fn capacity(&self) -> usize {
         self.ringbuf.cap()
