@@ -702,7 +702,7 @@ impl<'d> Flex<'d> {
     /// Is the output pin set as high?
     #[inline]
     pub fn is_set_high(&self) -> bool {
-        self.is_high()
+        self.gpio().pdor().read().pdo(self.pin.pin_index() as usize)
     }
 
     /// Is the output pin set as low?
@@ -855,13 +855,13 @@ impl<'d> Output<'d> {
     /// Is the output pin set as high?
     #[inline]
     pub fn is_set_high(&self) -> bool {
-        self.flex.is_high()
+        self.flex.is_set_high()
     }
 
     /// Is the output pin set as low?
     #[inline]
     pub fn is_set_low(&self) -> bool {
-        !self.is_set_high()
+        self.flex.is_set_low()
     }
 
     /// Expose the inner `Flex` if callers need to reconfigure the pin.
