@@ -1,25 +1,30 @@
-//! This example roughly emulates the `IDD_DEEP_SLEEP_MD_2` scenario from the datasheet.
+//! LPUART DMA example for MCXA276.
 //!
-//! As written, this achieves 153uA average current when measured with a Nordic PPK2.
+//! This example demonstrates using DMA for UART TX and RX operations.
+//! It sends a message using DMA, then waits for 16 characters to be received
+//! via DMA and echoes them back.
 //!
-//! **NOTE: This requires rework of the board! You must remove R26 (used for the on
-//! board op-amp), remove R52, and bodge the pad of R52 that is closest to R61 to TP9
-//! (VDD_MCU_LINK). Without these reworks, you will see much higher current consumption.**
-//!
-//! As of 2026-02-04, UM12439 ONLY mentions the R52 errata, but the removal of R26 (as
-//! described in AN14765 for the MCXA346) is also necessary for the FRDM-MCXA266.
+//! The DMA request sources are automatically derived from the LPUART instance type.
+//! DMA clock/reset/init is handled automatically by the HAL.
 
 #![no_std]
 #![no_main]
 
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::PoweredClock;
-use embassy_mcxa::clocks::config::{
-    CoreSleep, Div8, FlashSleep, MainClockConfig, MainClockSource, VddDriveStrength, VddLevel,
-};
+use embassy_mcxa::gpio::{DriveStrength, Level, Output, SlewRate};
+use embassy_mcxa::{bind_interrupts, lpuart};
+use embassy_mcxa::clocks::config::{CoreSleep, Div8, FlashSleep, MainClockConfig, MainClockSource, VddDriveStrength, VddLevel};
+use embassy_mcxa::lpuart::{Config, LpuartBbqTx};
 use embassy_time::Timer;
-use hal::gpio::{DriveStrength, Level, Output, SlewRate};
+use static_cell::ConstStaticCell;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    LPUART3 => lpuart::BbqInterruptHandler::<hal::peripherals::LPUART3>;
+});
+
+static TX_BUF: ConstStaticCell<[u8; 4096]> = ConstStaticCell::new([0u8; 4096]);
 
 #[cfg_attr(
     feature = "custom-executor",
@@ -34,6 +39,7 @@ async fn main(_spawner: Spawner) {
     // Experimentally: about 5-6s or so.
     cortex_m::asm::delay(45_000_000);
     defmt::info!("Pre-power delay complete!");
+
     let mut cfg = hal::config::Config::default();
 
     // Disable 45M osc
@@ -74,14 +80,48 @@ async fn main(_spawner: Spawner) {
 
     let p = hal::init(cfg);
 
-    defmt::info!("Going to sleep shortly...");
-    cortex_m::asm::delay(45_000_000 / 4);
+    defmt::info!("LPUART DMA example starting...");
 
-    let mut red = Output::new(p.P3_18, Level::High, DriveStrength::Normal, SlewRate::Slow);
+    // Create UART configuration
+    let config = Config {
+        baudrate_bps: 115_200,
+        power: PoweredClock::AlwaysEnabled,
+        ..Default::default()
+    };
+
+    let tx_buf = TX_BUF.take();
+
+    // Create UART instance with DMA channels
+    let mut lpuart = LpuartBbqTx::new(
+        p.LPUART3,
+        p.P4_5,
+        Irqs,
+        tx_buf,
+        p.DMA_CH0,
+        config,
+    ).unwrap();
+
+    // // let mut gpio = Output::new(p.P4_2, Level::Low, DriveStrength::Normal, SlewRate::Slow);
+
+    let mut to_send = [0u8; 256];
+    to_send.iter_mut().enumerate().for_each(|(i, b)| *b = i as u8);
+
+    Timer::after_millis(1000).await;
+
+    #[cfg(feature = "custom-executor")]
+    embassy_mcxa::executor::set_executor_debug_gpio(p.P4_2);
+
     loop {
-        Timer::after_millis(900).await;
-        red.set_low();
-        Timer::after_millis(100).await;
-        red.set_high();
+        for _ in 0..32 {
+            let mut window = to_send.as_slice();
+            while !window.is_empty() {
+                let sent = lpuart.write(window).await.unwrap();
+                // gpio.toggle();
+                let (_now, later) = window.split_at(sent);
+                window = later;
+            }
+        }
+        Timer::after_millis(3000).await;
     }
+
 }

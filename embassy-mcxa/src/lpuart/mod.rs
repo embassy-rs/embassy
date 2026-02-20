@@ -27,6 +27,7 @@ mod bbq;
 pub use blocking::Blocking;
 pub use buffered::{Buffered, BufferedInterruptHandler};
 pub use dma::{Dma, RingBufferedLpuartRx};
+pub use bbq::{LpuartBbqTx, BbqInterruptHandler};
 
 mod sealed {
     pub trait Sealed {}
@@ -872,7 +873,7 @@ impl<'a, M: Mode> Lpuart<'a, M> {
         clear_all_status_flags(T::info());
         configure_flow_control(T::info(), enable_tx_cts, enable_rx_rts, &config);
         configure_bit_order(T::info(), config.msb_first);
-        enable_transceiver(T::info(), enable_rx, enable_tx);
+        enable_transceiver(T::info(), enable_tx, enable_rx);
 
         Ok(parts.wake_guard)
     }
