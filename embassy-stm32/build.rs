@@ -7,6 +7,7 @@ use std::{env, fs};
 
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
+use regex::Regex;
 use stm32_metapac::metadata::ir::BitOffset;
 use stm32_metapac::metadata::{
     ALL_CHIPS, ALL_PERIPHERAL_VERSIONS, METADATA, MemoryRegion, MemoryRegionKind, Peripheral, PeripheralRccKernelClock,
@@ -1778,6 +1779,19 @@ fn main() {
     ]
     .into();
 
+    // ========
+    // Generate trigger_trait_impl!
+
+    let triggers: HashMap<_, _> = [
+        // (kind, signal) => trait
+        (("dac", "DAC_CHX_TRG"), quote!(crate::dac::ChannelTrigger)),
+    ]
+    .into();
+
+    let mut trigger_list: BTreeSet<&str> = BTreeSet::new();
+
+    let trigger_expr = Regex::new(r"(?m)(.+?)(\d+)").unwrap();
+
     if chip_name.starts_with("stm32u5") {
         signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma));
     } else {
@@ -1800,6 +1814,24 @@ fn main() {
             // FIXME: stm32u5a crash on Cordic driver
             if chip_name.starts_with("stm32u5a") && regs.kind == "cordic" {
                 continue;
+            }
+
+            for trigger in p.triggers {
+                let matches = trigger_expr.captures(trigger.signal).unwrap();
+                let signal = &matches[1];
+                let idx: u8 = (&matches[2]).parse().unwrap();
+
+                trigger_list.insert(trigger.source);
+
+                if let Some(tr) = triggers.get(&(regs.kind, signal)) {
+                    let peri = format_ident!("{}", p.name);
+                    let source = format_ident!("{}", trigger.source);
+                    let idx = quote!(#idx);
+
+                    g.extend(quote! {
+                        trigger_trait_impl!(#tr, #peri, #source, #idx);
+                    });
+                }
             }
 
             let mut dupe = HashSet::new();
@@ -1869,6 +1901,28 @@ fn main() {
                 }
             }
         }
+    }
+
+    // ========
+    // Generate Triggers mod
+    {
+        let triggers_mod: TokenStream = trigger_list
+            .iter()
+            .map(|trigger| {
+                let trigger = format_ident!("{}", trigger);
+
+                quote! {
+                    #[allow(non_camel_case_types)]
+                    pub struct #trigger;
+                }
+            })
+            .collect();
+
+        g.extend(quote! {
+            pub mod triggers {
+                #triggers_mod
+            }
+        });
     }
 
     // ========
