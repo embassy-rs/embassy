@@ -308,9 +308,33 @@ impl_input_pin!(P0_1, MUX4);
 #[cfg(feature = "jtag-extras-as-gpio")]
 impl_input_pin!(P0_6, MUX4);
 
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_input_pin!(P0_20, MUX4);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_input_pin!(P0_21, MUX4);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_input_pin!(P0_22, MUX4);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_input_pin!(P0_23, MUX4);
 
 impl_input_pin!(P1_0, MUX4);
@@ -321,7 +345,19 @@ impl_input_pin!(P1_6, MUX4);
 impl_input_pin!(P1_7, MUX4);
 impl_input_pin!(P1_8, MUX4);
 impl_input_pin!(P1_9, MUX4);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_input_pin!(P1_14, MUX4);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_input_pin!(P1_15, MUX4);
 
 #[cfg(feature = "sosc-as-gpio")]
@@ -344,14 +380,44 @@ impl_input_pin!(P3_8, MUX4);
 impl_input_pin!(P3_9, MUX4);
 impl_input_pin!(P3_14, MUX4);
 impl_input_pin!(P3_15, MUX4);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_input_pin!(P3_16, MUX4);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_input_pin!(P3_17, MUX4);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_input_pin!(P3_22, MUX4);
 impl_input_pin!(P3_27, MUX4);
 impl_input_pin!(P3_28, MUX4);
 impl_input_pin!(P3_29, MUX4);
 
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_input_pin!(P4_6, MUX4);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_input_pin!(P4_7, MUX4);
 
 // Output pins
@@ -361,9 +427,33 @@ impl_output_pin!(P0_2, CTIMER0, MUX4);
 impl_output_pin!(P0_3, CTIMER0, MUX4);
 impl_output_pin!(P0_16, CTIMER0, MUX4);
 impl_output_pin!(P0_17, CTIMER0, MUX4);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_output_pin!(P0_18, CTIMER0, MUX4);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_output_pin!(P0_19, CTIMER0, MUX4);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_output_pin!(P0_22, CTIMER0, MUX5);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_output_pin!(P0_23, CTIMER0, MUX5);
 
 impl_output_pin!(P1_0, CTIMER0, MUX5);
@@ -380,7 +470,19 @@ impl_output_pin!(P1_10, CTIMER2, MUX4);
 impl_output_pin!(P1_11, CTIMER2, MUX4);
 impl_output_pin!(P1_12, CTIMER2, MUX4);
 impl_output_pin!(P1_13, CTIMER2, MUX4);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_output_pin!(P1_14, CTIMER3, MUX5);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_output_pin!(P1_15, CTIMER3, MUX5);
 
 impl_output_pin!(P2_0, CTIMER2, MUX5);
@@ -391,7 +493,19 @@ impl_output_pin!(P2_4, CTIMER1, MUX5);
 impl_output_pin!(P2_5, CTIMER1, MUX5);
 impl_output_pin!(P2_6, CTIMER1, MUX5);
 impl_output_pin!(P2_7, CTIMER1, MUX5);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_output_pin!(P2_10, CTIMER3, MUX4);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_output_pin!(P2_11, CTIMER3, MUX4);
 impl_output_pin!(P2_12, CTIMER4, MUX4);
 impl_output_pin!(P2_12, CTIMER0, MUX5);
@@ -399,15 +513,73 @@ impl_output_pin!(P2_13, CTIMER4, MUX4);
 impl_output_pin!(P2_13, CTIMER0, MUX5);
 impl_output_pin!(P2_15, CTIMER4, MUX5);
 impl_output_pin!(P2_15, CTIMER0, MUX5);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_output_pin!(P2_16, CTIMER3, MUX5);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_output_pin!(P2_16, CTIMER0, MUX5);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_output_pin!(P2_17, CTIMER3, MUX5);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_output_pin!(P2_17, CTIMER0, MUX5);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_output_pin!(P2_19, CTIMER3, MUX4);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_output_pin!(P2_20, CTIMER2, MUX4);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_output_pin!(P2_21, CTIMER2, MUX4);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_output_pin!(P2_23, CTIMER2, MUX4);
 
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh",
+    feature = "mcxa255vlq",
+    feature = "mcxa256vll",
+    feature = "mcxa265vll",
+    feature = "mcxa266vll"
+)))]
 impl_output_pin!(P3_2, CTIMER4, MUX4);
 impl_output_pin!(P3_6, CTIMER4, MUX4);
 impl_output_pin!(P3_7, CTIMER4, MUX4);
@@ -415,20 +587,65 @@ impl_output_pin!(P3_10, CTIMER1, MUX4);
 impl_output_pin!(P3_11, CTIMER1, MUX4);
 impl_output_pin!(P3_12, CTIMER1, MUX4);
 impl_output_pin!(P3_13, CTIMER1, MUX4);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_output_pin!(P3_18, CTIMER2, MUX4);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_output_pin!(P3_19, CTIMER2, MUX4);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_output_pin!(P3_20, CTIMER2, MUX4);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_output_pin!(P3_21, CTIMER2, MUX4);
 impl_output_pin!(P3_27, CTIMER3, MUX5);
 impl_output_pin!(P3_28, CTIMER3, MUX5);
-#[cfg(feature = "dangerous-reset-as-gpio")]
 impl_output_pin!(P3_29, CTIMER3, MUX5);
-#[cfg(feature = "sosc-as-gpio")]
 impl_output_pin!(P3_30, CTIMER0, MUX4);
-#[cfg(feature = "sosc-as-gpio")]
 impl_output_pin!(P3_31, CTIMER0, MUX4);
 
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_output_pin!(P4_2, CTIMER4, MUX4);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_output_pin!(P4_3, CTIMER4, MUX4);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_output_pin!(P4_4, CTIMER4, MUX4);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_output_pin!(P4_5, CTIMER4, MUX4);

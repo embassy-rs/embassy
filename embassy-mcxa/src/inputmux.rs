@@ -80,9 +80,33 @@ impl_input_mux!(ctimer, 2, P0_1);
 #[cfg(feature = "jtag-extras-as-gpio")]
 impl_input_mux!(ctimer, 3, P0_6);
 
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_input_mux!(ctimer, 1, P0_20);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_input_mux!(ctimer, 2, P0_21);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_input_mux!(ctimer, 3, P0_22);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_input_mux!(ctimer, 4, P0_23);
 
 impl_input_mux!(ctimer, 5, P1_0);
@@ -93,7 +117,19 @@ impl_input_mux!(ctimer, 7, P1_6);
 impl_input_mux!(ctimer, 8, P1_7);
 impl_input_mux!(ctimer, 9, P1_8);
 impl_input_mux!(ctimer, 10, P1_9);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_input_mux!(ctimer, 11, P1_14);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_input_mux!(ctimer, 12, P1_15);
 
 #[cfg(feature = "sosc-as-gpio")]
@@ -116,12 +152,42 @@ impl_input_mux!(ctimer, 5, P3_8);
 impl_input_mux!(ctimer, 6, P3_9);
 impl_input_mux!(ctimer, 7, P3_14);
 impl_input_mux!(ctimer, 8, P3_15);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_input_mux!(ctimer, 9, P3_16);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_input_mux!(ctimer, 10, P3_17);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_input_mux!(ctimer, 11, P3_22);
 impl_input_mux!(ctimer, 14, P3_27);
 impl_input_mux!(ctimer, 13, P3_28);
 impl_input_mux!(ctimer, 4, P3_29);
 
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_input_mux!(ctimer, 7, P4_6);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_input_mux!(ctimer, 8, P4_7);

@@ -11,7 +11,22 @@ documentation = "https://docs.embassy.dev/embassy-mcxa"
 
 [package.metadata.embassy]
 build = [
-    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["mcxa255vpn", "defmt", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["mcxa255vlq", "defmt", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["mcxa255vll", "defmt", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["mcxa255vlh", "defmt", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["mcxa256vpn", "defmt", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["mcxa256vlq", "defmt", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["mcxa256vll", "defmt", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["mcxa256vlh", "defmt", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["mcxa265vpn", "defmt", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["mcxa265vlq", "defmt", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["mcxa265vll", "defmt", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["mcxa265vlh", "defmt", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["mcxa266vpn", "defmt", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["mcxa266vlq", "defmt", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["mcxa266vll", "defmt", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["mcxa266vlh", "defmt", "unstable-pac"]},
 ]
 
 [package.metadata.embassy_docs]
@@ -115,3 +130,33 @@ perf = []
 #
 # If this feature is enabled, users should NOT enable `embassy-executor/arch-cortex-m`.
 custom-executor = []
+
+## Automatically generate `memory.x` file
+memory-x = []
+
+## internal use only
+_flash-512k = []
+_flash-1024k = []
+_sram-128k =  []
+_sram-256k = []
+
+#! ## Chip-selection features
+#! Select your chip by specifying the model as a feature, e.g. `mcxa256vlq`.
+#! Check the `Cargo.toml` for the latest list of supported chips.
+
+mcxa255vpn = ["_flash-512k", "_sram-128k"]
+mcxa255vlq = ["_flash-512k", "_sram-128k"]
+mcxa255vll = ["_flash-512k", "_sram-128k"]
+mcxa255vlh = ["_flash-512k", "_sram-128k"]
+mcxa256vpn = ["_flash-1024k", "_sram-256k"]
+mcxa256vlq = ["_flash-1024k", "_sram-256k"]
+mcxa256vll = ["_flash-1024k", "_sram-256k"]
+mcxa256vlh = ["_flash-1024k", "_sram-256k"]
+mcxa265vpn = ["_flash-512k", "_sram-128k"]
+mcxa265vlq = ["_flash-512k", "_sram-128k"]
+mcxa265vll = ["_flash-512k", "_sram-128k"]
+mcxa265vlh = ["_flash-512k", "_sram-128k"]
+mcxa266vpn = ["_flash-1024k", "_sram-256k"]
+mcxa266vlq = ["_flash-1024k", "_sram-256k"]
+mcxa266vll = ["_flash-1024k", "_sram-256k"]
+mcxa266vlh = ["_flash-1024k", "_sram-256k"]
