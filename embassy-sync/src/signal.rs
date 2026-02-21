@@ -1,6 +1,8 @@
 //! A synchronization primitive for passing the latest value to a task.
 use core::cell::Cell;
+use core::convert::Infallible;
 use core::future::{Future, poll_fn};
+use core::pin::Pin;
 use core::task::{Context, Poll, Waker};
 
 use crate::blocking_mutex::Mutex;
@@ -127,7 +129,7 @@ where
         })
     }
 
-    /// non-blocking method to check whether this signal has been signaled. This does not clear the signal.  
+    /// non-blocking method to check whether this signal has been signaled. This does not clear the signal.
     pub fn signaled(&self) -> bool {
         self.state.lock(|cell| {
             let state = cell.replace(State::None);
@@ -140,3 +142,45 @@ where
         })
     }
 }
+
+macro_rules! impl_stream_sink {
+    ($($ref:tt)?) => {
+        impl<M, T> futures_core::Stream for $($ref)? Signal<M, T>
+        where
+            M: RawMutex,
+        {
+            type Item = T;
+
+            fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+                self.poll_wait(cx).map(Some)
+            }
+        }
+
+        impl<M, T> futures_sink::Sink<T> for $($ref)? Signal<M, T>
+        where
+            M: RawMutex,
+        {
+            type Error = Infallible;
+
+            fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+                Poll::Ready(Ok(()))
+            }
+
+            fn start_send(self: Pin<&mut Self>, item: T) -> Result<(), Self::Error> {
+                self.signal(item);
+                Ok(())
+            }
+
+            fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+                Poll::Ready(Ok(()))
+            }
+
+            fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+                Poll::Ready(Ok(()))
+            }
+        }
+    };
+}
+
+impl_stream_sink!();
+impl_stream_sink!(&);
