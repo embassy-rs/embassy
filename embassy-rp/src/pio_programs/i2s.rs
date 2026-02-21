@@ -39,7 +39,7 @@ impl<'d, PIO: Instance> PioI2sInProgram<'d, PIO> {
 
 /// Pio backed I2S input driver
 pub struct PioI2sIn<'d, P: Instance, const S: usize> {
-    dma: dma::Channel<'d>,
+    dma: dma::Channel<'d, dma::Auto>,
     sm: StateMachine<'d, P, S>,
 }
 
@@ -157,7 +157,7 @@ impl<'d, PIO: Instance> PioI2sOutProgram<'d, PIO> {
 
 /// Pio backed I2S output driver
 pub struct PioI2sOut<'d, P: Instance, const S: usize> {
-    dma: dma::Channel<'d>,
+    dma: dma::Channel<'d, dma::Auto>,
     sm: StateMachine<'d, P, S>,
 }
 
