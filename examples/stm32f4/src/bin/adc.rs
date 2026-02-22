@@ -5,7 +5,8 @@ use cortex_m::prelude::_embedded_hal_blocking_delay_DelayUs;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::vals::Exten;
-use embassy_stm32::adc::{Adc, AdcChannel, ConversionTrigger, RegularConversionMode, SampleTime, Temperature, VrefInt};
+use embassy_stm32::adc::{Adc, AdcChannel, SampleTime, Temperature, VrefInt};
+use embassy_stm32::triggers::TIM1_CH1;
 use embassy_stm32::{bind_interrupts, dma, peripherals};
 use embassy_time::{Delay, Timer};
 use {defmt_rtt as _, panic_probe as _};
@@ -21,15 +22,14 @@ async fn main(_spawner: Spawner) {
 
     let mut adc_dma_buf: [u16; 2] = [0; 2];
 
+    // TODO: impl. triggers for this
     let mut adc_ring_buffered = Adc::new(p.ADC2).into_ring_buffered(
         p.DMA2_CH2,
         &mut adc_dma_buf,
         Irqs,
         [(p.PA0.degrade_adc(), SampleTime::CYCLES112)].into_iter(),
-        RegularConversionMode::Triggered(ConversionTrigger {
-            channel: 0,
-            edge: Exten::RISING_EDGE,
-        }),
+        TIM1_CH1,
+        Exten::RISING_EDGE,
     );
     adc_ring_buffered.start();
 

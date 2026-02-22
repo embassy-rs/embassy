@@ -1785,6 +1785,8 @@ fn main() {
     let triggers: HashMap<_, _> = [
         // (kind, signal) => trait
         (("dac", "DAC_CHX_TRG"), quote!(crate::dac::ChannelTrigger)),
+        (("adc", "ADC_EXT_TRG"), quote!(crate::adc::RegularTrigger)),
+        (("adc", "ADC_JEXT_TRG"), quote!(crate::adc::InjectedTrigger)),
     ]
     .into();
 

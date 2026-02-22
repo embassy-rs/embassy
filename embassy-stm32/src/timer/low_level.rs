@@ -188,6 +188,22 @@ pub enum OutputCompareMode {
     AsymmetricPwmMode2,
 }
 
+#[cfg(timer_v3)]
+impl From<OutputCompareMode> for crate::pac::timer::vals::OcmGp {
+    fn from(mode: OutputCompareMode) -> Self {
+        match mode {
+            OutputCompareMode::Frozen => crate::pac::timer::vals::OcmGp::FROZEN,
+            OutputCompareMode::ActiveOnMatch => crate::pac::timer::vals::OcmGp::ACTIVE_ON_MATCH,
+            OutputCompareMode::InactiveOnMatch => crate::pac::timer::vals::OcmGp::INACTIVE_ON_MATCH,
+            OutputCompareMode::Toggle => crate::pac::timer::vals::OcmGp::TOGGLE,
+            OutputCompareMode::ForceInactive => crate::pac::timer::vals::OcmGp::FORCE_INACTIVE,
+            OutputCompareMode::ForceActive => crate::pac::timer::vals::OcmGp::FORCE_ACTIVE,
+            OutputCompareMode::PwmMode1 => crate::pac::timer::vals::OcmGp::PWM_MODE1,
+            OutputCompareMode::PwmMode2 => crate::pac::timer::vals::OcmGp::PWM_MODE2,
+        }
+    }
+}
+
 impl From<OutputCompareMode> for crate::pac::timer::vals::Ocm {
     fn from(mode: OutputCompareMode) -> Self {
         match mode {
