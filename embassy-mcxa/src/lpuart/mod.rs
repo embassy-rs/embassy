@@ -19,15 +19,15 @@ use crate::pac::lpuart::vals::{
 };
 use crate::pac::{self};
 
+mod bbq;
 mod blocking;
 mod buffered;
 mod dma;
-mod bbq;
 
+pub use bbq::{BbqInterruptHandler, LpuartBbqRx, LpuartBbqTx};
 pub use blocking::Blocking;
 pub use buffered::{Buffered, BufferedInterruptHandler};
 pub use dma::{Dma, RingBufferedLpuartRx};
-pub use bbq::{LpuartBbqTx, LpuartBbqRx, BbqInterruptHandler};
 
 mod sealed {
     pub trait Sealed {}

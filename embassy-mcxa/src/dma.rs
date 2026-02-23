@@ -553,9 +553,7 @@ impl DmaChannel<'_> {
     pub(crate) unsafe fn set_callback(&mut self, f: fn()) {
         let cb = f as *const ();
         // See https://doc.rust-lang.org/std/primitive.fn.html#casting-to-and-from-integers
-        let cb: usize = unsafe {
-            core::mem::transmute(cb)
-        };
+        let cb: usize = unsafe { core::mem::transmute(cb) };
         CALLBACKS[self.index()].store(cb, Ordering::Release);
     }
 
