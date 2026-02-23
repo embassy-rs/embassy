@@ -4,7 +4,7 @@ use core::ops::{Deref, RangeInclusive};
 
 use embassy_hal_internal::{Peri, PeripheralType};
 use maitake_sync::WaitCell;
-use nxp_pac::adc::vals::AdcActive;
+use nxp_pac::adc::vals::{AdcActive, TcompIe, TcompInt};
 use paste::paste;
 
 use crate::clocks::periph_helpers::{AdcClockSel, AdcConfig, Div4, PreEnableParts};
@@ -449,8 +449,11 @@ impl<'a> Adc<'a, Async> {
         self.info
             .wait_cell()
             .wait_for_value(|| {
-                // Enable the interrupt. Gets disabled in the interrupt handler
-                self.info.regs().ie().modify(|reg| reg.set_fwmie0(true));
+                // Enable the interrupts. They get disabled in the interrupt handler
+                self.info.regs().ie().write(|reg| {
+                    reg.set_fwmie0(true);
+                    reg.set_tcomp_ie(TcompIe::ALL_TRIGGER_COMPLETES_ENABLED);
+                });
 
                 match self.try_get_conversion() {
                     Ok(result) => Some(Some(result)),
@@ -470,8 +473,11 @@ impl<'a> Adc<'a, Async> {
         self.info
             .wait_cell()
             .wait_for_value(|| {
-                // Enable the interrupt. Gets disabled in the interrupt handler
-                self.info.regs().ie().modify(|reg| reg.set_fwmie0(true));
+                // Enable the interrupts. They get disabled in the interrupt handler
+                self.info.regs().ie().write(|reg| {
+                    reg.set_fwmie0(true);
+                    reg.set_tcomp_ie(TcompIe::ALL_TRIGGER_COMPLETES_ENABLED);
+                });
 
                 match self.try_get_conversion() {
                     Ok(result) => Some(result),
@@ -793,7 +799,14 @@ pub struct InterruptHandler<T: Instance> {
 impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         T::PERF_INT_INCR();
-        T::info().regs().ie().modify(|w| w.set_fwmie0(false));
+
+        T::info().regs().ie().write(|_| {});
+        // Stat tcomp should go to 0 when `ie` is disabled, but it doesn't.
+        // So we have to do it manually. Errata?
+        T::info()
+            .regs()
+            .stat()
+            .write(|reg| reg.set_tcomp_int(TcompInt::COMPLETION_DETECTED));
         T::info().wait_cell().wake();
     }
 }
