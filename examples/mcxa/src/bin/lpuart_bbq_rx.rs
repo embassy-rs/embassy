@@ -14,9 +14,8 @@ use embassy_executor::Spawner;
 use embassy_mcxa::clocks::PoweredClock;
 use embassy_mcxa::gpio::{DriveStrength, Level, Output, SlewRate};
 use embassy_mcxa::{bind_interrupts, lpuart};
-use embassy_mcxa::clocks::config::{CoreSleep, Div8, FlashSleep, MainClockConfig, MainClockSource, VddDriveStrength, VddLevel};
+use embassy_mcxa::clocks::config::{CoreSleep, Div8, FircConfig, FircFreqSel, FlashSleep, MainClockConfig, MainClockSource, VddDriveStrength, VddLevel};
 use embassy_mcxa::lpuart::{Config, LpuartBbqRx};
-use embassy_time::Timer;
 use static_cell::ConstStaticCell;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
@@ -24,7 +23,8 @@ bind_interrupts!(struct Irqs {
     LPUART3 => lpuart::BbqInterruptHandler::<hal::peripherals::LPUART3>;
 });
 
-static TX_BUF: ConstStaticCell<[u8; 4096]> = ConstStaticCell::new([0u8; 4096]);
+const SIZE: usize = 4096;
+static RX_BUF: ConstStaticCell<[u8; SIZE]> = ConstStaticCell::new([0u8; SIZE]);
 
 #[cfg_attr(
     feature = "custom-executor",
@@ -43,7 +43,13 @@ async fn main(_spawner: Spawner) {
     let mut cfg = hal::config::Config::default();
 
     // Disable 45M osc
-    cfg.clock_cfg.firc = None;
+    let mut fcfg = FircConfig::default();
+    fcfg.frequency = FircFreqSel::Mhz180;
+    fcfg.power = PoweredClock::NormalEnabledDeepSleepDisabled;
+    fcfg.fro_hf_enabled = true;
+    fcfg.clk_45m_enabled = false;
+    fcfg.fro_hf_div = Some(const { Div8::from_divisor(180).unwrap() });
+    cfg.clock_cfg.firc = Some(fcfg);
 
     // Enable 12M osc to use as core clock
     cfg.clock_cfg.sirc.fro_12m_enabled = true;
@@ -61,22 +67,23 @@ async fn main(_spawner: Spawner) {
 
     // Feed core from 12M osc
     cfg.clock_cfg.main_clock = MainClockConfig {
-        source: MainClockSource::SircFro12M,
-        power: PoweredClock::AlwaysEnabled,
+        source: MainClockSource::FircHfRoot,
+        power: PoweredClock::NormalEnabledDeepSleepDisabled,
         ahb_clk_div: Div8::no_div(),
     };
 
     // Set lowest core power, disable bandgap LDO reference
-    cfg.clock_cfg.vdd_power.active_mode.level = VddLevel::MidDriveMode;
+    cfg.clock_cfg.vdd_power.active_mode.level = VddLevel::OverDriveMode;
     cfg.clock_cfg.vdd_power.low_power_mode.level = VddLevel::MidDriveMode;
-    cfg.clock_cfg.vdd_power.active_mode.drive = VddDriveStrength::Low { enable_bandgap: false };
+    cfg.clock_cfg.vdd_power.active_mode.drive = VddDriveStrength::Normal;
     cfg.clock_cfg.vdd_power.low_power_mode.drive = VddDriveStrength::Low { enable_bandgap: false };
 
     // Set "deep sleep" mode
-    cfg.clock_cfg.vdd_power.core_sleep = CoreSleep::WfeUngated;
+    // cfg.clock_cfg.vdd_power.core_sleep = CoreSleep::DeepSleep; // FIX DELAY
+    cfg.clock_cfg.vdd_power.core_sleep = CoreSleep::WfeUngated; // FIX DELAY
 
     // Set flash doze, allowing internal flash clocks to be gated on sleep
-    // cfg.clock_cfg.vdd_power.flash_sleep = FlashSleep::FlashDoze;
+    cfg.clock_cfg.vdd_power.flash_sleep = FlashSleep::FlashDoze;
 
     let p = hal::init(cfg);
 
@@ -86,42 +93,54 @@ async fn main(_spawner: Spawner) {
     let config = Config {
         baudrate_bps: 115_200,
         power: PoweredClock::AlwaysEnabled,
+        rx_fifo_watermark: 0,
         ..Default::default()
     };
 
-    let tx_buf = TX_BUF.take();
+    let rx_buf = RX_BUF.take();
 
     // Create UART instance with DMA channels
     let mut lpuart = LpuartBbqRx::new(
         p.LPUART3,
         p.P4_2,
         Irqs,
-        tx_buf,
+        rx_buf,
         p.DMA_CH0,
         config,
     ).unwrap();
 
     // // let mut gpio = Output::new(p.P4_2, Level::Low, DriveStrength::Normal, SlewRate::Slow);
-
-    let mut to_send = [0u8; 256];
-    to_send.iter_mut().enumerate().for_each(|(i, b)| *b = i as u8);
-
-    Timer::after_millis(1000).await;
-
     let mut red = Output::new(p.P3_18, Level::High, DriveStrength::Normal, SlewRate::Fast);
 
     // #[cfg(feature = "custom-executor")]
-    // embassy_mcxa::executor::set_executor_debug_gpio(p.P4_2);
+    embassy_mcxa::executor::set_executor_debug_gpio(p.P1_0);
+
+    let mut streak = 0;
+    let mut idx = 0u8;
+    let mut buf = [0u8; 256];
 
     loop {
-        // let mut window = to_send.as_slice();
-        // while !window.is_empty() {
-        //     let sent = lpuart.write(window).await.unwrap();
-        //     let (_now, later) = window.split_at(sent);
-        //     window = later;
-        // }
-        Timer::after_millis(3000).await;
-        red.toggle();
+        // let used = match lpuart.read(&mut buf).with_timeout(Duration::from_millis(1500)).await {
+        //     Ok(Ok(used)) => used,
+        //     Ok(Err(_)) => panic!(),
+        //     Err(_) => {
+        //         defmt::info!("Timeout!");
+        //         continue
+        //     },
+        // };
+        defmt::info!("waiting!");
+        let used = lpuart.read(&mut buf).await.unwrap();
+        for byte in &buf[..used] {
+            if *byte == idx {
+                streak += 1;
+                idx = idx.wrapping_add(1);
+            } else {
+                defmt::error!("{=u8} != {=u8}", idx, *byte);
+                streak = 0;
+                idx = (*byte).wrapping_add(1);
+            }
+        }
+        defmt::info!("Got {=usize}, Streak: {=usize}", used, streak);
     }
 
 }
