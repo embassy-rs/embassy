@@ -21,7 +21,7 @@ async fn main(_spawner: Spawner) {
 
     let p = hal::init(config);
 
-    defmt::info!("=== ADC polling Example ===");
+    defmt::info!("=== ADC async Example ===");
 
     let commands = &[
         Command::new_single(

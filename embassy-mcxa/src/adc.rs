@@ -904,34 +904,49 @@ pub trait AdcPin<T: Instance>: sealed::SealedAdcPin<T> + GpioPin + PeripheralTyp
         let channel = self.channel();
         AnyAdcPin {
             channel,
-            pin: GpioPin::degrade(self),
+            pin: Some(GpioPin::degrade(self)),
             _phantom: PhantomData,
         }
     }
 }
 
-#[doc(hidden)] // Not really part of the public API
 /// A type-erased ADC pin
 pub struct AnyAdcPin<T> {
     channel: u8,
-    pin: AnyPin,
+    pin: Option<AnyPin>,
     _phantom: PhantomData<T>,
 }
 
 impl<T> AnyAdcPin<T> {
     #[inline]
     fn mux(&self) {
-        // Set to digital GPIO with input buffer disabled and no pull-ups.
-        // TODO also clear digital output value?
-        self.pin.set_pull(crate::gpio::Pull::Disabled);
-        self.pin.set_slew_rate(crate::gpio::SlewRate::Fast.into());
-        self.pin.set_drive_strength(crate::gpio::DriveStrength::Normal.into());
-        self.pin.set_function(Mux::MUX0);
+        if let Some(pin) = &self.pin {
+            // Set to digital GPIO with input buffer disabled and no pull-ups.
+            // TODO also clear digital output value?
+            pin.set_pull(crate::gpio::Pull::Disabled);
+            pin.set_slew_rate(crate::gpio::SlewRate::Fast.into());
+            pin.set_drive_strength(crate::gpio::DriveStrength::Normal.into());
+            pin.set_function(Mux::MUX0);
+        }
     }
 
     #[inline]
     fn demux(&self) {
-        self.pin.set_as_disabled()
+        if let Some(pin) = &self.pin {
+            pin.set_as_disabled()
+        }
+    }
+
+    /// Get the internal temperature sensor pin
+    pub fn temperature() -> Peri<'static, Self> {
+        // Safety: The temp sensor doesn't gate or own anything, so it's fine to give out as many as the user asks
+        unsafe {
+            Peri::new_unchecked(Self {
+                channel: 26,
+                pin: None,
+                _phantom: PhantomData,
+            })
+        }
     }
 }
 
