@@ -557,12 +557,9 @@ impl DmaChannel<'_> {
         CALLBACKS[self.index()].store(cb, Ordering::Release);
     }
 
+    /// Access TCD DADDR field
     pub(crate) fn daddr(&self) -> u32 {
         self.tcd().tcd_daddr().read().daddr()
-    }
-
-    pub(crate) fn slast_sda(&self) -> u32 {
-        self.tcd().tcd_slast_sda().read().slast_sda()
     }
 
     fn clear_tcd(t: &pac::edma_0_tcd::Tcd) {
@@ -1391,6 +1388,7 @@ impl DmaChannel<'_> {
             w.set_dreq(Dreq::ERQ_FIELD_CLEAR);
             w.set_esg(Esg::NORMAL_FORMAT);
             w.set_majorelink(false);
+            // TODO(AJM): Determine if these are necessary or if I can revert this change
             w.set_eeop(true);
             w.set_esda(true);
             w.set_bwc(Bwc::NO_STALL);
@@ -2587,6 +2585,7 @@ macro_rules! impl_dma_interrupt_handler {
                 let cb = CALLBACKS[$ch].load(Ordering::Acquire);
                 if cb != 0 {
                     // I'm so sorry. See https://doc.rust-lang.org/std/primitive.fn.html#casting-to-and-from-integers
+                    // for why this has to be like this.
                     let cb: *const () = cb as *const ();
                     let cb: fn() = core::mem::transmute(cb);
                     (cb)();
