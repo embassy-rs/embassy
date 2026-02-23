@@ -34,6 +34,7 @@ pub enum TriggerPriorityPolicy {
     TriggerPriorityExceptionDisabled = 16,
 }
 
+/// The reference voltage used by the ADC
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(u8)]
 pub enum ReferenceVoltage {
@@ -113,6 +114,7 @@ impl Default for Config {
     }
 }
 
+/// The ID for a command
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -141,6 +143,7 @@ impl From<u8> for CommandId {
     }
 }
 
+/// Select the compare functionality of the ADC
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Compare {
     /// Do not perform compare operation. Always store the conversion result to the FIFO.
@@ -163,7 +166,7 @@ pub enum Compare {
 }
 
 impl Compare {
-    pub fn cmp_en(&self) -> Cmpen {
+    fn cmp_en(&self) -> Cmpen {
         match self {
             Compare::Disabled => Cmpen::DISABLED_ALWAYS_STORE_RESULT,
             Compare::StoreIf(_) => Cmpen::COMPARE_RESULT_STORE_IF_TRUE,
@@ -172,7 +175,7 @@ impl Compare {
     }
 
     /// Get the CVL & CVH values
-    pub fn get_vals(&self) -> (u16, u16) {
+    fn get_vals(&self) -> (u16, u16) {
         match self {
             Compare::Disabled => (0, 0),
             Compare::StoreIf(compare_function) | Compare::SkipUntil(compare_function) => compare_function.get_vals(),
@@ -180,11 +183,18 @@ impl Compare {
     }
 }
 
+/// Type that specifies the function used for the compare featue of the ADC.
+///
+/// This determines the `CVL` & `CVH` values.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CompareFunction {
+    /// The compare will succeed when the value is *not* in the specified range
     OutsideRange(RangeInclusive<u16>),
+    /// The compare will succeed when the value is lower than the specified value
     LessThan(u16),
+    /// The compare will succeed when the value is higher than the specified value
     GreaterThan(u16),
+    /// The compare will succeed when the value is in the specified range
     InsideRange(RangeInclusive<u16>),
 }
 
@@ -325,8 +335,10 @@ impl Default for CommandConfig {
 /// Defines how a trigger initiates ADC conversions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Trigger {
+    /// The command that is triggered by this trigger
     pub target_command_id: CommandId,
     pub delay_power: u8,
+    /// The priority level of the trigger
     pub priority: Tpri,
     pub enable_hardware_trigger: bool,
     pub resync: bool,
@@ -372,9 +384,13 @@ pub enum Error {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Conversion {
+    /// The command that performed this conversion
     pub command: CommandId,
+    /// For a looping command, the loop index. For a multichannel command, the channel index.
     pub loop_channel_index: u8,
+    /// The trigger that triggered the command to run
     pub trigger_id_source: u8,
+    /// The raw value from the ADC
     pub conv_value: u16,
 }
 
@@ -388,6 +404,7 @@ pub struct Adc<'a, M: Mode> {
 }
 
 impl<'a> Adc<'a, Blocking> {
+    /// Create a new blocking instance of the ADC
     pub fn new_blocking<T: Instance>(
         _inst: Peri<'a, T>,
         commands: &'a [Command<'a, T>],
@@ -413,6 +430,7 @@ impl<'a> Adc<'a, Blocking> {
 }
 
 impl<'a> Adc<'a, Async> {
+    /// Create a new async instance of the ADC
     pub fn new_async<T: Instance>(
         _inst: Peri<'a, T>,
         _irq: impl crate::interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'a,
@@ -876,6 +894,7 @@ macro_rules! impl_instance {
 
 impl_instance!(0, 1, 2, 3);
 
+/// Trait implemented by any possible ADC pin
 pub trait AdcPin<T: Instance>: sealed::SealedAdcPin<T> + GpioPin + PeripheralType {
     /// The channel to be used
     fn channel(&self) -> u8;
@@ -891,6 +910,8 @@ pub trait AdcPin<T: Instance>: sealed::SealedAdcPin<T> + GpioPin + PeripheralTyp
     }
 }
 
+#[doc(hidden)] // Not really part of the public API
+/// A type-erased ADC pin
 pub struct AnyAdcPin<T> {
     channel: u8,
     pin: AnyPin,
