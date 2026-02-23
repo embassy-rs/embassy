@@ -572,7 +572,7 @@ impl<'a> LpuartBbqRx<'a> {
 
         // Now, if this was the last part of the lpuart, we are responsible for peripheral
         // cleanup.
-        if (state & !(STATE_TXGR_ACTIVE | STATE_TXDMA_PRESENT)) == STATE_INITED {
+        if (state & !rx_state_bits) == STATE_INITED {
             super::disable_peripheral(self.info);
             self.state.state.store(STATE_UNINIT, Ordering::Relaxed);
         }
