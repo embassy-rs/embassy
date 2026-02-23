@@ -43,7 +43,7 @@ impl<'d, MODE> Flash<'d, MODE> {
     ///
     /// NOTE: `offset` is an offset from the flash start, NOT an absolute address.
     /// For example, to read address `0x0800_1234` you have to use offset `0x1234`.
-    pub fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
+    pub unsafe fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
         blocking_read(FLASH_BASE as u32, FLASH_SIZE as u32, offset, bytes)
     }
 
@@ -51,7 +51,7 @@ impl<'d, MODE> Flash<'d, MODE> {
     ///
     /// NOTE: `offset` is an offset from the flash start, NOT an absolute address.
     /// For example, to write address `0x0800_1234` you have to use offset `0x1234`.
-    pub fn blocking_write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
+    pub unsafe fn blocking_write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
         unsafe {
             blocking_write(
                 FLASH_BASE as u32,
@@ -67,7 +67,7 @@ impl<'d, MODE> Flash<'d, MODE> {
     ///
     /// NOTE: `from` and `to` are offsets from the flash start, NOT an absolute address.
     /// For example, to erase address `0x0801_0000` you have to use offset `0x1_0000`.
-    pub fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
+    pub unsafe fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
         unsafe { blocking_erase(FLASH_BASE as u32, from, to, erase_sector_unlocked) }
     }
 }
@@ -229,7 +229,7 @@ impl<MODE> embedded_storage::nor_flash::ReadNorFlash for Flash<'_, MODE> {
     const READ_SIZE: usize = READ_SIZE;
 
     fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
-        self.blocking_read(offset, bytes)
+        unsafe { self.blocking_read(offset, bytes) }
     }
 
     fn capacity(&self) -> usize {
@@ -242,11 +242,11 @@ impl<MODE> embedded_storage::nor_flash::NorFlash for Flash<'_, MODE> {
     const ERASE_SIZE: usize = MAX_ERASE_SIZE;
 
     fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
-        self.blocking_write(offset, bytes)
+        unsafe { self.blocking_write(offset, bytes) }
     }
 
     fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-        self.blocking_erase(from, to)
+        unsafe { self.blocking_erase(from, to) }
     }
 }
 
@@ -257,7 +257,7 @@ foreach_flash_region! {
             ///
             /// NOTE: `offset` is an offset from the flash start, NOT an absolute address.
             /// For example, to read address `0x0800_1234` you have to use offset `0x1234`.
-            pub fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
+            pub unsafe fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
                 blocking_read(self.0.base(), self.0.size, offset, bytes)
             }
         }
@@ -267,7 +267,7 @@ foreach_flash_region! {
             ///
             /// NOTE: `offset` is an offset from the flash start, NOT an absolute address.
             /// For example, to write address `0x0800_1234` you have to use offset `0x1234`.
-            pub fn blocking_write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
+            pub unsafe  fn blocking_write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
                 unsafe { blocking_write(self.0.base(), self.0.size, offset, bytes, write_chunk_with_critical_section) }
             }
 
@@ -275,7 +275,7 @@ foreach_flash_region! {
             ///
             /// NOTE: `from` and `to` are offsets from the flash start, NOT an absolute address.
             /// For example, to erase address `0x0801_0000` you have to use offset `0x1_0000`.
-            pub fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
+            pub unsafe fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
                 unsafe { blocking_erase(self.0.base(), from, to, erase_sector_with_critical_section) }
             }
         }
@@ -288,7 +288,7 @@ foreach_flash_region! {
             const READ_SIZE: usize = READ_SIZE;
 
             fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
-                self.blocking_read(offset, bytes)
+                unsafe { self.blocking_read(offset, bytes) }
             }
 
             fn capacity(&self) -> usize {
@@ -301,11 +301,11 @@ foreach_flash_region! {
             const ERASE_SIZE: usize = $erase_size;
 
             fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
-                self.blocking_write(offset, bytes)
+                unsafe { self.blocking_write(offset, bytes) }
             }
 
             fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-                self.blocking_erase(from, to)
+               unsafe { self.blocking_erase(from, to) }
             }
         }
     };
