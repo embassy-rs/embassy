@@ -655,6 +655,8 @@ pub enum CTimerClockSel {
     Clk16K,
     /// clk_1m/FRO_LF divided by 12
     Clk1M,
+    /// Internal PLL output, with configurable divisor
+    Pll1ClkDiv,
     /// Disabled
     None,
 }
@@ -717,12 +719,16 @@ impl SPConfHelper for CTimerConfig {
                 (freq, CtimerClkselMux::CLKROOT_FUNC_3)
             }
             CTimerClockSel::Clk16K => {
-                let freq = clocks.ensure_clk_1m_active(&self.power)?;
+                let freq = clocks.ensure_clk_16k_vdd_core_active(&self.power)?;
                 (freq, CtimerClkselMux::CLKROOT_FUNC_4)
             }
             CTimerClockSel::Clk1M => {
-                let freq = clocks.ensure_pll1_clk_div_active(&self.power)?;
+                let freq = clocks.ensure_clk_1m_active(&self.power)?;
                 (freq, CtimerClkselMux::CLKROOT_FUNC_5)
+            }
+            CTimerClockSel::Pll1ClkDiv => {
+                let freq = clocks.ensure_pll1_clk_div_active(&self.power)?;
+                (freq, CtimerClkselMux::CLKROOT_FUNC_6)
             }
             CTimerClockSel::None => {
                 // no ClkrootFunc7, just write manually for now
