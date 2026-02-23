@@ -717,11 +717,11 @@ impl SPConfHelper for CTimerConfig {
                 (freq, CtimerClkselMux::CLKROOT_FUNC_3)
             }
             CTimerClockSel::Clk16K => {
-                let freq = clocks.ensure_clk_1m_active(&self.power)?;
+                let freq = clocks.ensure_clk_16k_vdd_core_active(&self.power)?;
                 (freq, CtimerClkselMux::CLKROOT_FUNC_4)
             }
             CTimerClockSel::Clk1M => {
-                let freq = clocks.ensure_pll1_clk_div_active(&self.power)?;
+                let freq = clocks.ensure_clk_1m_active(&self.power)?;
                 (freq, CtimerClkselMux::CLKROOT_FUNC_5)
             }
             CTimerClockSel::None => {
