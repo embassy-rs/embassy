@@ -671,16 +671,8 @@ impl<'a, M: Mode> Adc<'a, M> {
                 channel.mux();
             }
 
-            let (cmdl, cmdh) = match index {
-                0 => (adc.cmdl1(), adc.cmdh1()),
-                1 => (adc.cmdl2(), adc.cmdh2()),
-                2 => (adc.cmdl3(), adc.cmdh3()),
-                3 => (adc.cmdl4(), adc.cmdh4()),
-                4 => (adc.cmdl5(), adc.cmdh5()),
-                5 => (adc.cmdl6(), adc.cmdh6()),
-                6 => (adc.cmdl7(), adc.cmdh7()),
-                _ => unreachable!(),
-            };
+            let cmdl = adc.cmdl(index);
+            let cmdh = adc.cmdh(index);
 
             cmdl.write(|w| {
                 w.set_adch(command.channels[0].channel);
