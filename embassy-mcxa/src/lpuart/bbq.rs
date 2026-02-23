@@ -146,6 +146,11 @@ impl<'a> LpuartBbqRx<'a> {
         state
             .rxdma_num
             .store(T::RxDmaRequest::REQUEST_NUMBER, Ordering::Release);
+        T::info().regs().ctrl().modify(|w| {
+            w.set_orie(true);
+            w.set_neie(true);
+            w.set_feie(true);
+        });
         unsafe {
             <T as Instance>::Interrupt::unpend();
             <T as Instance>::Interrupt::enable();
@@ -164,17 +169,15 @@ impl<'a> LpuartBbqRx<'a> {
         })
     }
 
-    // pub async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
-    //     let queue = unsafe { &*self.state.tx_queue.get() };
-    //     let prod = queue.stream_producer();
-    //     let mut wgr = prod.wait_grant_max_remaining(buf.len()).await;
-    //     let to_copy = buf.len().min(wgr.len());
-    //     wgr[..to_copy].copy_from_slice(&buf[..to_copy]);
-    //     wgr.commit(to_copy);
-    //     (self.int_pend)();
-
-    //     Ok(to_copy)
-    // }
+    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+        let queue = unsafe { &*self.state.rx_queue.get() };
+        let cons = queue.stream_consumer();
+        let rgr = cons.wait_read().await;
+        let to_copy = buf.len().min(rgr.len());
+        buf[..to_copy].copy_from_slice(&rgr[..to_copy]);
+        rgr.release(to_copy);
+        Ok(to_copy)
+    }
 }
 
 struct Container {
@@ -267,7 +270,6 @@ impl BbqState {
     }
 
     unsafe fn finalize_read(&'static self, info: &'static Info) {
-        cortex_m::asm::delay(100000);
         let mask = STATE_INITED | STATE_RXGR_ACTIVE | STATE_RXDMA_PRESENT;
         let load = self.state.load(Ordering::Acquire);
         assert_eq!(load & mask, mask);
@@ -283,15 +285,13 @@ impl BbqState {
             rxdma.clear_done();
             fence(Ordering::AcqRel);
 
-            // TODO: WHY IS THIS PRINTING 255 and not 256?!?!
-            let daddr = rxdma.daddr();
-            let sstrt = rxgr.as_ptr() as usize as u32;
-            let ttl = daddr.wrapping_sub(sstrt);
-            defmt::warn!("{=u32} -> {=u32}: {=u32}", sstrt, daddr, ttl);
-            defmt::flush();
-            panic!();
+            let daddr = rxdma.daddr() as usize;
+            let sstrt = rxgr.as_ptr() as usize;
+            let ttl = daddr.wrapping_sub(sstrt).min(rxgr.len());
+            // defmt::info!("committing {=usize}", ttl);
+            rxgr.commit(ttl);
         }
-        todo!()
+        self.state.fetch_and(!STATE_RXGR_ACTIVE, Ordering::AcqRel);
     }
 
     unsafe fn start_write_transfer(&'static self, info: &'static Info) -> bool {
@@ -331,11 +331,11 @@ impl BbqState {
         let len = max_len.min(DMA_MAX_TRANSFER_SIZE);
         let Ok(mut wgr) = rx_queue.stream_producer().grant_max_remaining(len) else {
             // Nothing to do!
+            panic!();
             return false;
         };
 
         unsafe {
-            defmt::info!("REAL START");
             let rxdma = &mut *self.rxdma.get();
             rxdma.disable_request();
             rxdma.clear_done();
@@ -343,6 +343,7 @@ impl BbqState {
             rxdma.set_request_source(self.rxdma_num.load(Ordering::Relaxed));
 
             let peri_addr = info.regs().data().as_ptr().cast::<u8>();
+            let len = wgr.len();
             rxdma.setup_read_from_peripheral(peri_addr, &mut wgr, EnableInterrupt::Yes);
 
             info.regs().baud().modify(|w| w.set_rdmae(true));
@@ -398,8 +399,6 @@ impl<T: BbqInstance> Handler<T::Interrupt> for BbqInterruptHandler<T> {
         let ctrl = regs.ctrl().read();
         let stat = regs.stat().read();
 
-        defmt::info!("INT: {=?}, {=?}", stat, ctrl);
-
         let or = stat.or();
         let pf = stat.pf();
         let fe = stat.pf();
@@ -415,13 +414,17 @@ impl<T: BbqInstance> Handler<T::Interrupt> for BbqInterruptHandler<T> {
             w.set_idle(idle);
         });
 
+        if or || pf || fe || nf {
+            defmt::error!("ERR {=bool} {=bool} {=bool} {=bool}", or, pf, fe, nf);
+        }
+
         // Check DMA complete or idle interrupt occurred - we need to stop
         // the current RX transfer in either case.
         let pre_clear = state.state.fetch_and(!STATE_RXDMA_COMPLETE, Ordering::AcqRel);
         let dma_complete = (pre_clear & STATE_RXDMA_COMPLETE) != 0;
 
         if idle || dma_complete {
-            defmt::warn!("COMP");
+            defmt::warn!("FIN {=bool} {=bool}", idle, dma_complete);
             unsafe {
                 state.finalize_read(info);
             }
@@ -429,7 +432,6 @@ impl<T: BbqInstance> Handler<T::Interrupt> for BbqInterruptHandler<T> {
 
         let rx_idle = (state.state.load(Ordering::Acquire) & STATE_RXGR_ACTIVE) == 0;
         if rx_idle {
-            defmt::warn!("STRT");
             unsafe {
                 let started = state.start_read_transfer(info);
                 regs.ctrl().modify(|w| w.set_ilie(started));
@@ -452,7 +454,5 @@ impl<T: BbqInstance> Handler<T::Interrupt> for BbqInterruptHandler<T> {
                 regs.ctrl().modify(|w| w.set_tcie(started));
             }
         }
-
-        defmt::info!("INT2: {=?}, {=?}", stat, ctrl);
     }
 }

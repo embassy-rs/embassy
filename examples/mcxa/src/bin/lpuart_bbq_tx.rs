@@ -73,7 +73,7 @@ async fn main(_spawner: Spawner) {
     cfg.clock_cfg.vdd_power.low_power_mode.drive = VddDriveStrength::Low { enable_bandgap: false };
 
     // Set "deep sleep" mode
-    cfg.clock_cfg.vdd_power.core_sleep = CoreSleep::DeepSleep;
+    cfg.clock_cfg.vdd_power.core_sleep = CoreSleep::WfeUngated;
 
     // Set flash doze, allowing internal flash clocks to be gated on sleep
     cfg.clock_cfg.vdd_power.flash_sleep = FlashSleep::FlashDoze;
@@ -94,7 +94,7 @@ async fn main(_spawner: Spawner) {
     // Create UART instance with DMA channels
     let mut lpuart = LpuartBbqTx::new(
         p.LPUART3,
-        p.P4_2,
+        p.P4_5,
         Irqs,
         tx_buf,
         p.DMA_CH0,
@@ -103,7 +103,7 @@ async fn main(_spawner: Spawner) {
 
     // // let mut gpio = Output::new(p.P4_2, Level::Low, DriveStrength::Normal, SlewRate::Slow);
 
-    let mut to_send = [0u8; 256];
+    let mut to_send = [0u8; 4096];
     to_send.iter_mut().enumerate().for_each(|(i, b)| *b = i as u8);
 
     Timer::after_millis(1000).await;
@@ -120,7 +120,7 @@ async fn main(_spawner: Spawner) {
             let (_now, later) = window.split_at(sent);
             window = later;
         }
-        Timer::after_millis(3000).await;
+        Timer::after_millis(1000).await;
         red.toggle();
     }
 
