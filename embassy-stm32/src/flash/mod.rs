@@ -2,7 +2,7 @@
 use embedded_storage::nor_flash::{NorFlashError, NorFlashErrorKind};
 
 #[cfg(any(
-    flash_f4, flash_g0x0, flash_g0x1, flash_g4c2, flash_g4c3, flash_g4c4, flash_h7, flash_h7ab
+    flash_f4, flash_g0x0, flash_g0x1, flash_g4c2, flash_g4c3, flash_g4c4, flash_h7, flash_h7ab, flash_l4
 ))]
 mod asynch;
 #[cfg(flash)]
@@ -11,7 +11,7 @@ mod common;
 mod eeprom;
 
 #[cfg(any(
-    flash_f4, flash_g0x0, flash_g0x1, flash_g4c2, flash_g4c3, flash_g4c4, flash_h7, flash_h7ab
+    flash_f4, flash_g0x0, flash_g0x1, flash_g4c2, flash_g4c3, flash_g4c4, flash_h7, flash_h7ab, flash_l4
 ))]
 pub use asynch::InterruptHandler;
 #[cfg(flash)]
