@@ -7,7 +7,7 @@ use maitake_sync::WaitCell;
 use nxp_pac::adc::vals::AdcActive;
 use paste::paste;
 
-use crate::clocks::periph_helpers::{AdcClockSel, AdcConfig, Div4};
+use crate::clocks::periph_helpers::{AdcClockSel, AdcConfig, Div4, PreEnableParts};
 use crate::clocks::{ClockError, Gate, PoweredClock, WakeGuard, enable_and_reset};
 use crate::gpio::{AnyPin, GpioPin, SealedPin};
 use crate::interrupt::typelevel::{Handler, Interrupt};
@@ -32,6 +32,15 @@ pub enum TriggerPriorityPolicy {
     ConvPreemptSubsequentlyAutoRestarted = 6,
     ConvPreemptSubsequentlyAutoResumed = 14,
     TriggerPriorityExceptionDisabled = 16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[repr(u8)]
+pub enum ReferenceVoltage {
+    #[default]
+    VrefHReferencePin = 0b00,
+    VrefI = 0b01,
+    VddaAnaPin = 0b10,
 }
 
 /// Configuration for the LPADC peripheral.
@@ -60,7 +69,7 @@ pub struct Config {
     pub power_up_delay: u8,
 
     /// Reference voltage source selection
-    pub reference_voltage_source: Refsel,
+    pub reference_voltage_source: ReferenceVoltage,
 
     /// Power configuration selection.
     pub power_level_mode: Pwrsel,
@@ -93,7 +102,7 @@ impl Default for Config {
             calibration_average_mode: CalAvgs::NO_AVERAGE,
             power_pre_enabled: false,
             power_up_delay: 0x80,
-            reference_voltage_source: Refsel::OPTION_1,
+            reference_voltage_source: Default::default(),
             power_level_mode: Pwrsel::LOWEST,
             trigger_priority_policy: TriggerPriorityPolicy::ConvPreemptImmediatelyNotAutoResumed,
             conv_pause_delay: None,
@@ -370,14 +379,113 @@ pub struct Conversion {
 }
 
 /// ADC driver instance.
-pub struct Adc<'a> {
+pub struct Adc<'a, M: Mode> {
     commands: &'a [Command<'a, ()>],
     num_triggers: u8,
     info: &'static Info,
     _wg: Option<WakeGuard>,
+    _mode: PhantomData<M>,
 }
 
-impl<'a> Adc<'a> {
+impl<'a> Adc<'a, Blocking> {
+    pub fn new_blocking<T: Instance>(
+        _inst: Peri<'a, T>,
+        commands: &'a [Command<'a, T>],
+        triggers: &[Trigger],
+        config: Config,
+    ) -> Result<Self, Error> {
+        // Safety:
+        // We transmute the ADC instance to a `()`. This is fine since the `T` is only a phantomdata.
+        // Because we're now in this function, we don't need this info anymore.
+        let commands = unsafe { core::mem::transmute::<&[Command<'_, T>], &[Command<'_, ()>]>(commands) };
+
+        let parts = unsafe {
+            enable_and_reset::<T>(&AdcConfig {
+                power: config.power,
+                source: config.source,
+                div: config.div,
+            })
+            .map_err(Error::ClockSetup)?
+        };
+
+        Self::new_inner(T::info(), commands, triggers, config, parts)
+    }
+}
+
+impl<'a> Adc<'a, Async> {
+    pub fn new_async<T: Instance>(
+        _inst: Peri<'a, T>,
+        _irq: impl crate::interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'a,
+        commands: &'a [Command<'a, T>],
+        triggers: &[Trigger],
+        config: Config,
+    ) -> Result<Self, Error> {
+        // Safety:
+        // We transmute the ADC instance to a `()`. This is fine since the `T` is only a phantomdata.
+        // Because we're now in this function, we don't need this info anymore.
+        let commands = unsafe { core::mem::transmute::<&[Command<'_, T>], &[Command<'_, ()>]>(commands) };
+
+        let parts = unsafe {
+            enable_and_reset::<T>(&AdcConfig {
+                power: config.power,
+                source: config.source,
+                div: config.div,
+            })
+            .map_err(Error::ClockSetup)?
+        };
+
+        let adc = Self::new_inner(T::info(), commands, triggers, config, parts)?;
+
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
+
+        Ok(adc)
+    }
+
+    /// Reads the current conversion result from the fifo or waits for the next one if it's pending.
+    ///
+    /// If no conversion is pending, None is returned.
+    pub async fn wait_get_conversion(&mut self) -> Option<Conversion> {
+        self.info
+            .wait_cell()
+            .wait_for_value(|| {
+                // Enable the interrupt. Gets disabled in the interrupt handler
+                self.info.regs().ie().modify(|reg| reg.set_fwmie0(true));
+
+                match self.try_get_conversion() {
+                    Ok(result) => Some(Some(result)),
+                    Err(Error::FifoPending) => None,
+                    Err(Error::FifoEmpty) => Some(None),
+                    _ => unreachable!(),
+                }
+            })
+            .await
+            .unwrap()
+    }
+
+    /// Reads the current conversion result from the fifo or waits for the next one even if no conversion is currently pending.
+    ///
+    /// If no conversion is pending, None is returned.
+    pub async fn wait_conversion(&mut self) -> Conversion {
+        self.info
+            .wait_cell()
+            .wait_for_value(|| {
+                // Enable the interrupt. Gets disabled in the interrupt handler
+                self.info.regs().ie().modify(|reg| reg.set_fwmie0(true));
+
+                match self.try_get_conversion() {
+                    Ok(result) => Some(result),
+                    Err(Error::FifoPending) => None,
+                    Err(Error::FifoEmpty) => None,
+                    _ => unreachable!(),
+                }
+            })
+            .await
+            .unwrap()
+    }
+}
+
+impl<'a, M: Mode> Adc<'a, M> {
     /// Trigger ADC conversion(s) via software.
     ///
     /// Initiates conversion(s) for the trigger(s) specified in the bitmask.
@@ -389,7 +497,7 @@ impl<'a> Adc<'a> {
     /// # Returns
     /// * `Ok(())` if the triger mask was valid
     /// * [Error::NoTrigger] if the mask is calling a trigger that's not configured
-    pub fn do_software_trigger(&self, trigger_id_mask: u8) -> Result<(), Error> {
+    pub fn do_software_trigger(&mut self, trigger_id_mask: u8) -> Result<(), Error> {
         if (8 - trigger_id_mask.leading_zeros()) > self.num_triggers as u32 {
             return Err(Error::NoTrigger);
         }
@@ -400,7 +508,7 @@ impl<'a> Adc<'a> {
     /// Reset the FIFO buffer.
     ///
     /// Clears all pending conversion results from the FIFO.
-    pub fn do_reset_fifo(&self) {
+    pub fn do_reset_fifo(&mut self) {
         self.info
             .regs()
             .ctrl()
@@ -409,14 +517,11 @@ impl<'a> Adc<'a> {
 
     /// Get conversion result from FIFO.
     ///
-    /// Reads and returns the next conversion result from the FIFO.
-    /// Returns `None` if the FIFO is empty.
-    ///
-    /// # Returns
+    /// Returns:
     /// - `Ok(ConvResult)` if a result is available
     /// - [Error::FifoEmpty] if the FIFO is empty
     /// - [Error::FifoPending] if the FIFO is empty, but the adc is active
-    pub fn try_get_conv_result(&self) -> Result<Conversion, Error> {
+    pub fn try_get_conversion(&mut self) -> Result<Conversion, Error> {
         if self.info.regs().fctrl0().read().fcount() == 0 {
             if self.info.regs().stat().read().adc_active() == AdcActive::BUSY {
                 return Err(Error::FifoPending);
@@ -434,11 +539,12 @@ impl<'a> Adc<'a> {
         })
     }
 
-    pub fn new<T: Instance>(
-        _inst: Peri<'a, T>,
-        commands: &'a [Command<'a, T>],
+    fn new_inner(
+        info: &'static Info,
+        commands: &'a [Command<'a, ()>],
         triggers: &[Trigger],
         config: Config,
+        parts: PreEnableParts,
     ) -> Result<Self, Error> {
         if commands.len() > 7 {
             return Err(Error::TooManyCommands);
@@ -464,17 +570,7 @@ impl<'a> Adc<'a> {
             return Err(Error::InvalidConfig);
         }
 
-        let info = T::info();
         let adc = info.regs();
-
-        let parts = unsafe {
-            enable_and_reset::<T>(&AdcConfig {
-                power: config.power,
-                source: config.source,
-                div: config.div,
-            })
-            .map_err(Error::ClockSetup)?
-        };
 
         /* Reset the module. */
         adc.ctrl().modify(|w| w.set_rst(Rst::HELD_IN_RESET));
@@ -501,7 +597,7 @@ impl<'a> Adc<'a> {
             w.set_pwren(config.power_pre_enabled);
 
             w.set_pudly(config.power_up_delay);
-            w.set_refsel(config.reference_voltage_source);
+            w.set_refsel(Refsel::from_bits(config.reference_voltage_source as u8));
             w.set_pwrsel(config.power_level_mode);
             w.set_tprictrl(match config.trigger_priority_policy {
                 TriggerPriorityPolicy::ConvPreemptSoftlyNotAutoResumed
@@ -543,8 +639,8 @@ impl<'a> Adc<'a> {
             adc.pause().write(|w| w.set_pauseen(false));
         }
 
-        // Set fifo watermark level to 1
-        adc.fctrl0().write(|w| w.set_fwmark(1));
+        // Set fifo watermark level to 0, so any data will trigger the possible interrupt
+        adc.fctrl0().write(|w| w.set_fwmark(0));
 
         for (index, command) in commands.iter().enumerate() {
             for channel in command.channels.deref() {
@@ -603,19 +699,17 @@ impl<'a> Adc<'a> {
         adc.ctrl().modify(|w| w.set_adcen(true));
 
         Ok(Self {
-            // Safety:
-            // We transmute the ADC instance to a `()`.
-            // This is fine since the `T` is only a phantomdata.
-            commands: unsafe { core::mem::transmute::<&[Command<'_, T>], &[Command<'_, ()>]>(commands) },
+            commands,
             num_triggers: triggers.len() as u8,
             info,
             _wg: parts.wake_guard,
+            _mode: PhantomData,
         })
     }
 
     /// Perform offset calibration.
     /// Waits for calibration to complete before returning.
-    pub fn do_offset_calibration(&self) {
+    pub fn do_offset_calibration(&mut self) {
         // Enable calibration mode
         self.info
             .regs()
@@ -633,7 +727,7 @@ impl<'a> Adc<'a> {
     ///
     /// # Returns
     /// Gain calibration register value
-    fn get_gain_conv_result(&self, mut gain_adjustment: f32) -> u32 {
+    fn get_gain_conv_result(&mut self, mut gain_adjustment: f32) -> u32 {
         let mut gcra_array = [0u32; 17];
         let mut gcalr: u32 = 0;
 
@@ -652,7 +746,7 @@ impl<'a> Adc<'a> {
     }
 
     /// Perform automatic gain calibration.
-    pub fn do_auto_calibration(&self) {
+    pub fn do_auto_calibration(&mut self) {
         self.info
             .regs()
             .ctrl()
@@ -677,7 +771,7 @@ impl<'a> Adc<'a> {
     }
 }
 
-impl<'a> Drop for Adc<'a> {
+impl<'a, M: Mode> Drop for Adc<'a, M> {
     fn drop(&mut self) {
         // Turn off the ADC
         self.info.regs().ctrl().modify(|reg| reg.set_adcen(false));

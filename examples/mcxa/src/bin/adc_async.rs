@@ -3,11 +3,16 @@
 
 use embassy_executor::Spawner;
 use embassy_mcxa::adc::{Command, CommandConfig, CommandId, Trigger};
+use embassy_mcxa::{bind_interrupts, peripherals};
 use embassy_time::{Duration, Ticker};
 use hal::adc::{self, Adc};
 use hal::clocks::config::Div8;
 use hal::config::Config;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    ADC1 => adc::InterruptHandler<peripherals::ADC1>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -37,8 +42,9 @@ async fn main(_spawner: Spawner) {
         .unwrap(),
     ];
 
-    let mut adc = Adc::new_blocking(
+    let mut adc = Adc::new_async(
         p.ADC1,
+        Irqs,
         commands,
         &[Trigger {
             target_command_id: CommandId::Cmd1,
@@ -59,19 +65,8 @@ async fn main(_spawner: Spawner) {
         tick.next().await;
         adc.do_software_trigger(0b0001).unwrap();
 
-        loop {
-            match adc.try_get_conversion() {
-                Ok(res) => {
-                    defmt::info!("ADC result: {}", res);
-                }
-                Err(adc::Error::FifoPending) => {
-                    // Conversion not ready, continue polling
-                }
-                Err(_) => {
-                    // We're done
-                    break;
-                }
-            }
+        while let Some(res) = adc.wait_get_conversion().await {
+            defmt::info!("ADC result: {}", res);
         }
     }
 }
