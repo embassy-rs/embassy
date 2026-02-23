@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add as_nanos and from_nanos where missing
 - Added 375KHz tick rate support
+- driver_std: convert to using `LazyLock`
+- driver_std: wrap timer iteration in critical section
+- driver_std: also check timer queue within `schedule_wake()`
 
 ## 0.5.0 - 2025-08-26
 
