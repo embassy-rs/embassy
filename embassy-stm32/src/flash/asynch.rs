@@ -41,7 +41,7 @@ impl<'d> Flash<'d, Async> {
     ///
     /// NOTE: `offset` is an offset from the flash start, NOT an absolute address.
     /// For example, to write address `0x0800_1234` you have to use offset `0x1234`.
-    pub async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
+    pub async unsafe fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
         unsafe { write_chunked(FLASH_BASE as u32, FLASH_SIZE as u32, offset, bytes).await }
     }
 
@@ -49,7 +49,7 @@ impl<'d> Flash<'d, Async> {
     ///
     /// NOTE: `from` and `to` are offsets from the flash start, NOT an absolute address.
     /// For example, to erase address `0x0801_0000` you have to use offset `0x1_0000`.
-    pub async fn erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
+    pub async unsafe fn erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
         unsafe { erase_sectored(FLASH_BASE as u32, from, to).await }
     }
 }
@@ -67,7 +67,7 @@ impl embedded_storage_async::nor_flash::ReadNorFlash for Flash<'_, Async> {
     const READ_SIZE: usize = super::READ_SIZE;
 
     async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
-        self.blocking_read(offset, bytes)
+        unsafe { self.blocking_read(offset, bytes) }
     }
 
     fn capacity(&self) -> usize {
@@ -80,11 +80,11 @@ impl embedded_storage_async::nor_flash::NorFlash for Flash<'_, Async> {
     const ERASE_SIZE: usize = super::MAX_ERASE_SIZE;
 
     async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
-        self.write(offset, bytes).await
+        unsafe { self.write(offset, bytes).await }
     }
 
     async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-        self.erase(from, to).await
+        unsafe { self.erase(from, to).await }
     }
 }
 
@@ -152,28 +152,28 @@ foreach_flash_region! {
             /// Async read.
             ///
             /// Note: reading from flash can't actually block, so this is the same as `blocking_read`.
-            pub async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
+            pub async unsafe fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
                 blocking_read(self.0.base(), self.0.size, offset, bytes)
             }
 
             /// Async write.
-            pub async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
+            pub async unsafe fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
                 let _guard = REGION_ACCESS.lock().await;
                 unsafe { write_chunked(self.0.base(), self.0.size, offset, bytes).await }
             }
 
             /// Async erase.
-            pub async fn erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
+            pub async unsafe fn erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
                 let _guard = REGION_ACCESS.lock().await;
                 unsafe { erase_sectored(self.0.base(), from, to).await }
             }
         }
 
-                impl embedded_storage_async::nor_flash::ReadNorFlash for crate::_generated::flash_regions::$type_name<'_, Async> {
+        impl embedded_storage_async::nor_flash::ReadNorFlash for crate::_generated::flash_regions::$type_name<'_, Async> {
             const READ_SIZE: usize = super::READ_SIZE;
 
             async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
-                self.read(offset, bytes).await
+                unsafe { self.read(offset, bytes).await }
             }
 
             fn capacity(&self) -> usize {
@@ -181,16 +181,16 @@ foreach_flash_region! {
             }
         }
 
-                impl embedded_storage_async::nor_flash::NorFlash for crate::_generated::flash_regions::$type_name<'_, Async> {
+        impl embedded_storage_async::nor_flash::NorFlash for crate::_generated::flash_regions::$type_name<'_, Async> {
             const WRITE_SIZE: usize = $write_size;
             const ERASE_SIZE: usize = $erase_size;
 
             async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
-                self.write(offset, bytes).await
+                unsafe { self.write(offset, bytes).await }
             }
 
             async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-                self.erase(from, to).await
+                unsafe { self.erase(from, to).await }
             }
         }
     };
