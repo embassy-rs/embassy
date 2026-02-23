@@ -2,9 +2,101 @@
 use core::marker::PhantomData;
 
 use embassy_hal_internal::PeripheralType;
+use stm32_metapac::fmc::vals::Accmod;
 
 use crate::gpio::{AfType, OutputType, Pull, Speed};
-use crate::{Peri, rcc};
+use crate::{rcc, Peri};
+
+#[derive(Debug, Clone)]
+/// FMC Read/Write Access Mode
+pub enum AccessMode {
+    /// A
+    ModeA,
+    /// B
+    ModeB,
+    /// C
+    ModeC,
+    /// D
+    ModeD,
+}
+
+#[derive(Debug, Clone)]
+/// FMC Timing configuration
+pub struct Timing {
+    /// Write access mode
+    pub write_access_mode: AccessMode,
+    /// Write bus turn around
+    pub write_bus_turnaround: u8,
+    /// Write data
+    pub write_data: u8,
+    /// Write address hold
+    pub write_address_hold: u8,
+    /// Write address setup
+    pub write_address_setup: u8,
+    /// Read access mode
+    pub read_access_mode: AccessMode,
+    /// Read bus turn around
+    pub read_bus_turnaround: u8,
+    /// Read data
+    pub read_data: u8,
+    /// Read address hold
+    pub read_address_hold: u8,
+    /// Read address setup
+    pub read_address_setup: u8,
+}
+
+impl Timing {
+    /// Maximum allowed value of the bus turnaround time
+    pub const BUS_TURNAROUND_MAX: u8 = 15;
+    /// Minimum allowed value of the data phase time
+    pub const DATA_MIN: u8 = 1;
+    /// Maximum allowed value of the address hold time
+    pub const ADDRESS_HOLD_MIN: u8 = 1;
+    /// Maximum allowed value of the address hold time
+    pub const ADDRESS_HOLD_MAX: u8 = 15;
+    /// Maximum allowed value of the address setup time
+    pub const ADDRESS_SETUP_MAX: u8 = 15;
+}
+
+/// FMC bus width
+pub trait DataWidth {
+    /// Memory width
+    fn memory_width() -> stm32_metapac::fmc::vals::Mwid;
+}
+
+impl DataWidth for u8 {
+    fn memory_width() -> stm32_metapac::fmc::vals::Mwid {
+        stm32_metapac::fmc::vals::Mwid::BITS8
+    }
+}
+impl DataWidth for u16 {
+    fn memory_width() -> stm32_metapac::fmc::vals::Mwid {
+        stm32_metapac::fmc::vals::Mwid::BITS16
+    }
+}
+impl DataWidth for u32 {
+    fn memory_width() -> stm32_metapac::fmc::vals::Mwid {
+        stm32_metapac::fmc::vals::Mwid::BITS32
+    }
+}
+
+impl Default for Timing {
+    /// Returns a conservative (slow) timing configuration with access mode C
+    fn default() -> Self {
+        Timing {
+            write_access_mode: AccessMode::ModeC,
+            write_bus_turnaround: Timing::BUS_TURNAROUND_MAX,
+            write_data: 255,
+            write_address_hold: Timing::ADDRESS_HOLD_MAX,
+            write_address_setup: Timing::ADDRESS_SETUP_MAX,
+            read_access_mode: AccessMode::ModeC,
+            read_bus_turnaround: Timing::BUS_TURNAROUND_MAX,
+            read_data: 255,
+            read_address_hold: Timing::ADDRESS_HOLD_MAX,
+            read_address_setup: Timing::ADDRESS_SETUP_MAX,
+        }
+    }
+}
 
 /// FMC driver
 pub struct Fmc<'d, T: Instance> {
@@ -45,6 +137,55 @@ where
     pub fn source_clock_hz(&self) -> u32 {
         <T as crate::rcc::SealedRccPeripheral>::frequency().0
     }
+
+    /// Configure the FMC for 8080 parallel transmission
+    fn configure_8080<W: DataWidth>(&mut self, timing: &Timing) {
+        T::REGS.bcr1().modify(|r| {
+            r.set_cburstrw(false);
+            r.set_cpsize(stm32_metapac::fmc::vals::Cpsize::NO_BURST_SPLIT);
+            r.set_asyncwait(false);
+            r.set_extmod(true);
+            r.set_waiten(false);
+            r.set_wren(true);
+            r.set_waitcfg(stm32_metapac::fmc::vals::Waitcfg::BEFORE_WAIT_STATE);
+            r.set_waitpol(stm32_metapac::fmc::vals::Waitpol::ACTIVE_LOW);
+            r.set_bursten(false);
+            r.set_faccen(true);
+            r.set_mwid(W::memory_width());
+            r.set_mtyp(stm32_metapac::fmc::vals::Mtyp::FLASH);
+            r.set_muxen(false);
+            r.set_wfdis(false);
+            r.set_mbken(true);
+        });
+
+        // Read timing
+        T::REGS.btr(0).modify(|r| {
+            r.set_busturn(timing.write_bus_turnaround);
+            r.set_accmod(match timing.write_access_mode {
+                AccessMode::ModeA => Accmod::A,
+                AccessMode::ModeB => Accmod::B,
+                AccessMode::ModeC => Accmod::C,
+                AccessMode::ModeD => Accmod::D,
+            });
+            r.set_datast(timing.write_data);
+            r.set_addhld(timing.write_address_hold);
+            r.set_addset(timing.write_address_setup);
+        });
+
+        // Write timing
+        T::REGS.bwtr(0).modify(|r| {
+            r.set_busturn(timing.write_bus_turnaround);
+            r.set_accmod(match timing.write_access_mode {
+                AccessMode::ModeA => Accmod::A,
+                AccessMode::ModeB => Accmod::B,
+                AccessMode::ModeC => Accmod::C,
+                AccessMode::ModeD => Accmod::D,
+            });
+            r.set_datast(timing.write_data);
+            r.set_addhld(timing.write_address_hold);
+            r.set_addset(timing.write_address_setup);
+        });
+    }
 }
 
 unsafe impl<'d, T> stm32_fmc::FmcPeripheral for Fmc<'d, T>
@@ -75,8 +216,39 @@ where
 macro_rules! config_pins {
     ($($pin:ident),*) => {
                 $(
-            set_as_af!($pin, AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up));
+            $pin.set_as_af($pin.af_num(), AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up));
         )*
+    };
+}
+
+macro_rules! fmc_8080_display_constructor {
+    ($name:ident: (
+            ctrl: [$(($ctrl_pin_name:ident: $ctrl_signal:ident)),*],
+            d: [$(($d_pin_name:ident: $d_signal:ident)),*],
+            timing: $timing_param:ident
+    )) => {
+        #[allow(non_snake_case)]
+        pub fn $name<W: DataWidth>(
+            _instance: Peri<'d, T>,
+            $($ctrl_pin_name: Peri<'d, impl $ctrl_signal<T>>),*,
+            $($d_pin_name: Peri<'d, impl $d_signal<T>>),*,
+            $timing_param: &Timing
+        ) -> Self {
+            let mut fmc = Self { peri: PhantomData };
+            fmc.enable();
+
+            critical_section::with(|_| {
+                config_pins!(
+                    $($ctrl_pin_name),*,
+                    $($d_pin_name),*
+                );
+            });
+
+            fmc.configure_8080::<W>($timing_param);
+            fmc.memory_controller_enable();
+
+            fmc
+        }
     };
 }
 
@@ -237,40 +409,43 @@ impl<'d, T: Instance> Fmc<'d, T> {
         ]
     ));
 
-    fmc_sdram_constructor!(sdram_a13bits_d16bits_4banks_bank1: (
-        bank: stm32_fmc::SdramTargetBank::Bank1,
-        addr: [
-            (a0: A0Pin), (a1: A1Pin), (a2: A2Pin), (a3: A3Pin), (a4: A4Pin), (a5: A5Pin), (a6: A6Pin), (a7: A7Pin), (a8: A8Pin), (a9: A9Pin), (a10: A10Pin), (a11: A11Pin), (a12: A12Pin)
-        ],
-        ba: [(ba0: BA0Pin), (ba1: BA1Pin)],
-        d: [
-            (d0: D0Pin), (d1: D1Pin), (d2: D2Pin), (d3: D3Pin), (d4: D4Pin), (d5: D5Pin), (d6: D6Pin), (d7: D7Pin),
-            (d8: D8Pin), (d9: D9Pin), (d10: D10Pin), (d11: D11Pin), (d12: D12Pin), (d13: D13Pin), (d14: D14Pin), (d15: D15Pin)
-        ],
-        nbl: [
-            (nbl0: NBL0Pin), (nbl1: NBL1Pin)
-        ],
+    fmc_8080_display_constructor!(new_8080_without_dc: (
         ctrl: [
-            (sdcke: SDCKE0Pin), (sdclk: SDCLKPin), (sdncas: SDNCASPin), (sdne: SDNE0Pin), (sdnras: SDNRASPin), (sdnwe: SDNWEPin)
-        ]
+            (cs: NE1Pin),
+            (wr: NWEPin),
+            (rd: NOEPin)
+        ],
+        d: [
+            (d0: D0Pin),
+            (d1: D1Pin),
+            (d2: D2Pin),
+            (d3: D3Pin),
+            (d4: D4Pin),
+            (d5: D5Pin),
+            (d6: D6Pin),
+            (d7: D7Pin)
+        ],
+        timing: timing
     ));
 
-    fmc_sdram_constructor!(sdram_a13bits_d16bits_4banks_bank2: (
-        bank: stm32_fmc::SdramTargetBank::Bank2,
-        addr: [
-            (a0: A0Pin), (a1: A1Pin), (a2: A2Pin), (a3: A3Pin), (a4: A4Pin), (a5: A5Pin), (a6: A6Pin), (a7: A7Pin), (a8: A8Pin), (a9: A9Pin), (a10: A10Pin), (a11: A11Pin), (a12: A12Pin)
-        ],
-        ba: [(ba0: BA0Pin), (ba1: BA1Pin)],
-        d: [
-            (d0: D0Pin), (d1: D1Pin), (d2: D2Pin), (d3: D3Pin), (d4: D4Pin), (d5: D5Pin), (d6: D6Pin), (d7: D7Pin),
-            (d8: D8Pin), (d9: D9Pin), (d10: D10Pin), (d11: D11Pin), (d12: D12Pin), (d13: D13Pin), (d14: D14Pin), (d15: D15Pin)
-        ],
-        nbl: [
-            (nbl0: NBL0Pin), (nbl1: NBL1Pin)
-        ],
+    fmc_8080_display_constructor!(new_8080: (
         ctrl: [
-            (sdcke: SDCKE1Pin), (sdclk: SDCLKPin), (sdncas: SDNCASPin), (sdne: SDNE1Pin), (sdnras: SDNRASPin), (sdnwe: SDNWEPin)
-        ]
+            (cs: NE1Pin),
+            (wr: NWEPin),
+            (rd: NOEPin),
+            (dc: A0Pin)
+        ],
+        d: [
+            (d0: D0Pin),
+            (d1: D1Pin),
+            (d2: D2Pin),
+            (d3: D3Pin),
+            (d4: D4Pin),
+            (d5: D5Pin),
+            (d6: D6Pin),
+            (d7: D7Pin)
+        ],
+        timing: timing
     ));
 }
 
