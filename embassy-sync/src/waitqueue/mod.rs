@@ -9,3 +9,6 @@ pub use waker_registration::*;
 
 mod multi_waker;
 pub use multi_waker::*;
+
+mod cell_waker_registration;
+pub use cell_waker_registration::*;
