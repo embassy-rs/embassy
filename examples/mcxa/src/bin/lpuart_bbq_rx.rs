@@ -12,10 +12,13 @@
 
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::PoweredClock;
+use embassy_mcxa::clocks::config::{
+    CoreSleep, Div8, FircConfig, FircFreqSel, FlashSleep, MainClockConfig, MainClockSource, VddDriveStrength, VddLevel,
+};
+use embassy_mcxa::clocks::periph_helpers::LpuartClockSel;
 use embassy_mcxa::gpio::{DriveStrength, Level, Output, SlewRate};
-use embassy_mcxa::{bind_interrupts, lpuart};
-use embassy_mcxa::clocks::config::{CoreSleep, Div8, FircConfig, FircFreqSel, FlashSleep, MainClockConfig, MainClockSource, VddDriveStrength, VddLevel};
 use embassy_mcxa::lpuart::{Config, LpuartBbqRx};
+use embassy_mcxa::{bind_interrupts, lpuart};
 use static_cell::ConstStaticCell;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
@@ -48,7 +51,7 @@ async fn main(_spawner: Spawner) {
     fcfg.power = PoweredClock::NormalEnabledDeepSleepDisabled;
     fcfg.fro_hf_enabled = true;
     fcfg.clk_45m_enabled = false;
-    fcfg.fro_hf_div = Some(const { Div8::from_divisor(180).unwrap() });
+    fcfg.fro_hf_div = Some(const { Div8::from_divisor(4).unwrap() });
     cfg.clock_cfg.firc = Some(fcfg);
 
     // Enable 12M osc to use as core clock
@@ -91,23 +94,17 @@ async fn main(_spawner: Spawner) {
 
     // Create UART configuration
     let config = Config {
-        baudrate_bps: 115_200,
-        power: PoweredClock::AlwaysEnabled,
+        baudrate_bps: 4_000_000,
+        power: PoweredClock::NormalEnabledDeepSleepDisabled,
         rx_fifo_watermark: 0,
+        source: LpuartClockSel::FroHfDiv,
         ..Default::default()
     };
 
     let rx_buf = RX_BUF.take();
 
     // Create UART instance with DMA channels
-    let mut lpuart = LpuartBbqRx::new(
-        p.LPUART3,
-        p.P4_2,
-        Irqs,
-        rx_buf,
-        p.DMA_CH0,
-        config,
-    ).unwrap();
+    let mut lpuart = LpuartBbqRx::new(p.LPUART3, p.P4_2, Irqs, rx_buf, p.DMA_CH0, config).unwrap();
 
     // // let mut gpio = Output::new(p.P4_2, Level::Low, DriveStrength::Normal, SlewRate::Slow);
     let mut red = Output::new(p.P3_18, Level::High, DriveStrength::Normal, SlewRate::Fast);
@@ -117,7 +114,7 @@ async fn main(_spawner: Spawner) {
 
     let mut streak = 0;
     let mut idx = 0u8;
-    let mut buf = [0u8; 256];
+    let mut buf = [0u8; 1024];
 
     loop {
         // let used = match lpuart.read(&mut buf).with_timeout(Duration::from_millis(1500)).await {
@@ -142,5 +139,4 @@ async fn main(_spawner: Spawner) {
         }
         defmt::info!("Got {=usize}, Streak: {=usize}", used, streak);
     }
-
 }
