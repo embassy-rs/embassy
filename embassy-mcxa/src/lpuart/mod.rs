@@ -24,7 +24,7 @@ mod blocking;
 mod buffered;
 mod dma;
 
-pub use bbq::{BbqInterruptHandler, LpuartBbqRx, LpuartBbqTx};
+pub use bbq::{BbqInterruptHandler, LpuartBbq, LpuartBbqRx, LpuartBbqTx};
 pub use blocking::Blocking;
 pub use buffered::{Buffered, BufferedInterruptHandler};
 pub use dma::{Dma, RingBufferedLpuartRx};
@@ -734,9 +734,31 @@ struct TxPins<'a> {
     cts_pin: Option<Peri<'a, AnyPin>>,
 }
 
+impl<'a> TxPins<'a> {
+    fn take(self) -> (Peri<'a, AnyPin>, Option<Peri<'a, AnyPin>>) {
+        unsafe {
+            let tx_pin = self.tx_pin.clone_unchecked();
+            let cts_pin = self.cts_pin.as_ref().map(|p| p.clone_unchecked());
+            core::mem::forget(self);
+            (tx_pin, cts_pin)
+        }
+    }
+}
+
 struct RxPins<'a> {
     rx_pin: Peri<'a, AnyPin>,
     rts_pin: Option<Peri<'a, AnyPin>>,
+}
+
+impl<'a> RxPins<'a> {
+    fn take(self) -> (Peri<'a, AnyPin>, Option<Peri<'a, AnyPin>>) {
+        unsafe {
+            let rx_pin = self.rx_pin.clone_unchecked();
+            let rts_pin = self.rts_pin.as_ref().map(|p| p.clone_unchecked());
+            core::mem::forget(self);
+            (rx_pin, rts_pin)
+        }
+    }
 }
 
 impl Drop for TxPins<'_> {
