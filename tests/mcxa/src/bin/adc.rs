@@ -4,14 +4,13 @@
 teleprobe_meta::target!(b"frdm-mcx-a266");
 
 use embassy_executor::Spawner;
+use embassy_mcxa::adc::{Command, CommandConfig, CommandId, Trigger};
 use embassy_mcxa::bind_interrupts;
 use embassy_mcxa::gpio::Output;
-use hal::adc::{self, Adc, TriggerPriorityPolicy};
-use hal::clocks::PoweredClock;
+use hal::adc::{self, Adc};
 use hal::clocks::config::Div8;
-use hal::clocks::periph_helpers::{AdcClockSel, Div4};
 use hal::config::Config;
-use hal::pac::adc::vals::{CalAvgs, Mode, Pwrsel, Refsel};
+use hal::pac::adc::vals::Mode;
 use hal::peripherals::ADC0;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
@@ -33,41 +32,57 @@ async fn main(_spawner: Spawner) {
         embassy_mcxa::gpio::SlewRate::Slow,
     );
 
-    let adc_config = adc::Config {
-        enable_in_doze_mode: true,
-        conversion_average_mode: CalAvgs::AVERAGE_128,
-        enable_analog_preliminary: true,
-        power_up_delay: 0x80,
-        reference_voltage_source: Refsel::OPTION_3,
-        power_level_mode: Pwrsel::LOWEST,
-        trigger_priority_policy: TriggerPriorityPolicy::ConvPreemptImmediatelyNotAutoResumed,
-        enable_conv_pause: false,
-        conv_pause_delay: 0,
-        power: PoweredClock::NormalEnabledDeepSleepDisabled,
-        source: AdcClockSel::FroLfDiv,
-        div: Div4::no_div(),
-    };
-    let mut adc = Adc::new_async(p.ADC0, p.P2_4, Irqs, adc_config).unwrap();
+    let commands = &[Command::new_single(
+        p.P2_4,
+        CommandConfig {
+            resolution: Mode::DATA_16_BITS,
+            ..Default::default()
+        },
+    )];
+    let mut adc = Adc::new_async(
+        p.ADC0,
+        Irqs,
+        commands,
+        &[
+            Trigger {
+                target_command_id: CommandId::Cmd1,
+                ..Default::default()
+            },
+            Trigger {
+                target_command_id: CommandId::Cmd1,
+                ..Default::default()
+            },
+        ],
+        adc::Config::default(),
+    )
+    .unwrap();
 
     adc.do_offset_calibration();
     adc.do_auto_calibration();
-    adc.set_resolution(Mode::DATA_16_BITS);
 
     // Set output low. ADC should measure (close to) GND
 
     output.set_low();
     embassy_time::Timer::after_millis(10).await;
 
-    let val = adc.read().await.unwrap();
-    assert!(val < 0x1000);
+    adc.do_software_trigger(0b0001).unwrap();
+    let val = adc.wait_get_conversion().await.unwrap();
+    assert!(val.conv_value < 0x1000);
+    assert_eq!(val.command, CommandId::Cmd1);
+    assert_eq!(val.loop_channel_index, 0);
+    assert_eq!(val.trigger_id_source, 0);
 
     // Set output high, so ADC should measure (close to) VDD
 
     output.set_high();
     embassy_time::Timer::after_millis(10).await;
 
-    let val = adc.read().await.unwrap();
-    assert!(val > 0xE000);
+    adc.do_software_trigger(0b0010).unwrap();
+    let val = adc.wait_get_conversion().await.unwrap();
+    assert!(val.conv_value > 0xE000);
+    assert_eq!(val.command, CommandId::Cmd1);
+    assert_eq!(val.loop_channel_index, 0);
+    assert_eq!(val.trigger_id_source, 1);
 
     defmt::info!("Test OK");
     cortex_m::asm::bkpt();
