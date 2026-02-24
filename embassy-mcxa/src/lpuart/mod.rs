@@ -123,10 +123,8 @@ impl Info {
 pub trait Instance: SealedInstance + PeripheralType + 'static + Send + Gate<MrccPeriphConfig = LpuartConfig> {
     const CLOCK_INSTANCE: crate::clocks::periph_helpers::LpuartInstance;
     type Interrupt: interrupt::typelevel::Interrupt;
-    /// Type-safe DMA request source for TX
-    type TxDmaRequest: DmaRequest;
-    /// Type-safe DMA request source for RX
-    type RxDmaRequest: DmaRequest;
+    const TX_DMA_REQUEST: DmaRequest;
+    const RX_DMA_REQUEST: DmaRequest;
     const PERF_INT_INCR: fn();
     const PERF_INT_WAKE_INCR: fn();
 }
@@ -155,8 +153,8 @@ macro_rules! impl_instance {
                     const CLOCK_INSTANCE: crate::clocks::periph_helpers::LpuartInstance
                         = crate::clocks::periph_helpers::LpuartInstance::[<Lpuart $n>];
                     type Interrupt = crate::interrupt::typelevel::[<LPUART $n>];
-                    type TxDmaRequest = crate::dma::[<Lpuart $n TxRequest>];
-                    type RxDmaRequest = crate::dma::[<Lpuart $n RxRequest>];
+                    const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<LPUART $n Tx>];
+                    const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<LPUART $n Rx>];
                     const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_lpuart $n>];
                     const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_lpuart $n _wake>];
                 }

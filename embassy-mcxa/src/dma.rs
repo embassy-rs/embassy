@@ -38,39 +38,6 @@
 //! }
 //! ```
 //!
-//! ## Setup Methods (For Peripheral Drivers)
-//!
-//! Use setup methods when you need manual lifecycle control:
-//!
-//! | Method | Description |
-//! |--------|-------------|
-//! | [`DmaChannel::setup_write()`] | Configure TX without starting |
-//! | [`DmaChannel::setup_read()`] | Configure RX without starting |
-//!
-//! These configure the TCD but don't start the transfer. You control:
-//! 1. When to call [`DmaChannel::enable_request()`]
-//! 2. How to detect completion (polling or interrupts)
-//! 3. When to clean up with [`DmaChannel::clear_done()`]
-//!
-//! ## Circular/Ring Buffer API (For Continuous Reception)
-//!
-//! Use [`DmaChannel::setup_circular_read()`] for continuous data reception:
-//!
-//! ```no_run
-//! # use embassy_mcxa::dma::DmaChannel;
-//! # let dma_ch = DmaChannel::new(p.DMA_CH0);
-//! # let uart_rx_addr = 0x4000_0000 as *const u8;
-//! static mut RX_BUF: [u8; 64] = [0; 64];
-//!
-//! let ring_buf = unsafe {
-//!     dma_ch.setup_circular_read(uart_rx_addr, &mut RX_BUF)
-//! };
-//!
-//! // Read data as it arrives
-//! let mut buf = [0u8; 16];
-//! let n = ring_buf.read(&mut buf).await.unwrap();
-//! ```
-//!
 //! ## Scatter-Gather Builder (For Chained Transfers)
 //!
 //! Use [`ScatterGatherBuilder`] for complex multi-segment transfers:
@@ -310,108 +277,104 @@ pub enum EnableInterrupt {
     No,
 }
 
-// ============================================================================
-// DMA Constants
-// ============================================================================
-
 /// Maximum bytes per DMA transfer (eDMA4 CITER/BITER are 15-bit fields).
 ///
 /// This is a hardware limitation of the eDMA4 controller. Transfers larger
 /// than this must be split into multiple DMA operations.
 pub const DMA_MAX_TRANSFER_SIZE: usize = 0x7FFF;
 
-// ============================================================================
-// DMA Request Source Types (Type-Safe API)
-// ============================================================================
-
-/// Trait for type-safe DMA request sources.
+/// DMA request sources
 ///
-/// Each peripheral that can trigger DMA requests implements this trait
-/// with marker types that encode the correct request source number at
-/// compile time. This prevents using the wrong request source for a
-/// peripheral.
-///
-/// # Example
-///
-/// ```ignore
-/// // The LPUART2 RX request source is automatically derived from the type:
-/// channel.set_request_source::<Lpuart2RxRequest>();
-/// ```
-///
-/// This trait is sealed and cannot be implemented outside this crate.
-#[allow(private_bounds)]
-pub trait DmaRequest: sealed::SealedDmaRequest {
-    /// The hardware request source number for the DMA mux.
-    const REQUEST_NUMBER: u8;
+/// (from MCXA266 reference manual PDF attachment "DMA_Configuration.xml")
+#[derive(Clone, Copy, Debug)]
+#[repr(u8)]
+#[allow(dead_code)]
+pub(crate) enum DmaRequest {
+    WUU0WakeUpEvent = 1,
+    CAN0 = 2,
+    LPI2C2Rx = 3,
+    LPI2C2Tx = 4,
+    LPI2C3Rx = 5,
+    LPI2C3Tx = 6,
+    I3C0Rx = 7,
+    I3C0Tx = 8,
+    LPI2C0Rx = 11,
+    LPI2C0Tx = 12,
+    LPI2C1Rx = 13,
+    LPI2C1Tx = 14,
+    LPSPI0Rx = 15,
+    LPSPI0Tx = 16,
+    LPSPI1Rx = 17,
+    LPSPI1Tx = 18,
+    LPUART0Rx = 21,
+    LPUART0Tx = 22,
+    LPUART1Rx = 23,
+    LPUART1Tx = 24,
+    LPUART2Rx = 25,
+    LPUART2Tx = 26,
+    LPUART3Rx = 27,
+    LPUART3Tx = 28,
+    LPUART4Rx = 29,
+    LPUART4Tx = 30,
+    Ctimer0M0 = 31,
+    Ctimer0M1 = 32,
+    Ctimer1M0 = 33,
+    Ctimer1M1 = 34,
+    Ctimer2M0 = 35,
+    Ctimer2M1 = 36,
+    Ctimer3M0 = 37,
+    Ctimer3M1 = 38,
+    Ctimer4M0 = 39,
+    Ctimer4M1 = 40,
+    FlexPWM0Capt0 = 41,
+    FlexPWM0Capt1 = 42,
+    FlexPWM0Capt2 = 43,
+    FlexPWM0Capt3 = 44,
+    FlexPWM0Val0 = 45,
+    FlexPWM0Val1 = 46,
+    FlexPWM0Val2 = 47,
+    FlexPWM0Val3 = 48,
+    LPTMR0CounterMatchEvent = 49,
+    ADC0FifoRequest = 51,
+    ADC1FifoRequest = 52,
+    CMP0 = 53,
+    CMP1 = 54,
+    CMP2 = 55,
+    DAC0FifoRequest = 56,
+    GPIO0Pin = 60,
+    GPIO1Pin = 61,
+    GPIO2Pin = 62,
+    GPIO3Pin = 63,
+    GPIO4Pin = 64,
+    QDC0 = 65,
+    QDC1 = 66,
+    FlexIO0SR0 = 71,
+    FlexIO0SR1 = 72,
+    FlexIO0SR2 = 73,
+    FlexIO0SR3 = 74,
+    FlexPWM1ReqCapt0 = 79,
+    FlexPWM1ReqCapt1 = 80,
+    FlexPWM1ReqCapt2 = 81,
+    FlexPWM1ReqCapt3 = 82,
+    FlexPWM1ReqVal0 = 83,
+    FlexPWM1ReqVal1 = 84,
+    FlexPWM1ReqVal2 = 85,
+    FlexPWM1ReqVal3 = 86,
+    CAN1 = 87,
+    LPUART5Rx = 102,
+    LPUART5Tx = 103,
+    MAU0MAU = 115,
+    SGI0ReqIdat = 119,
+    SGI0ReqOdat = 120,
+    ADC2FifoRequest = 123,
+    ADC3FifoRequest = 124,
 }
 
-/// Macro to define a DMA request type.
-///
-/// Creates a zero-sized marker type that implements `DmaRequest` with
-/// the specified request number.
-macro_rules! define_dma_request {
-    ($(#[$meta:meta])* $name:ident = $num:expr) => {
-        $(#[$meta])*
-        #[derive(Debug, Copy, Clone)]
-        pub struct $name;
-
-        impl sealed::SealedDmaRequest for $name {}
-
-        impl DmaRequest for $name {
-            const REQUEST_NUMBER: u8 = $num;
-        }
-    };
+impl DmaRequest {
+    pub fn number(self) -> u8 {
+        self as u8
+    }
 }
-
-// DMA request sources (from MCXA266 reference manual PDF attachment "DMA_Configuration.xml")
-define_dma_request!(
-    /// DMA request source for LPUART0 RX.
-    Lpuart0RxRequest = 21
-);
-define_dma_request!(
-    /// DMA request source for LPUART0 TX.
-    Lpuart0TxRequest = 22
-);
-define_dma_request!(
-    /// DMA request source for LPUART1 RX.
-    Lpuart1RxRequest = 23
-);
-define_dma_request!(
-    /// DMA request source for LPUART1 TX.
-    Lpuart1TxRequest = 24
-);
-define_dma_request!(
-    /// DMA request source for LPUART2 RX.
-    Lpuart2RxRequest = 25
-);
-define_dma_request!(
-    /// DMA request source for LPUART2 TX.
-    Lpuart2TxRequest = 26
-);
-define_dma_request!(
-    /// DMA request source for LPUART3 RX.
-    Lpuart3RxRequest = 27
-);
-define_dma_request!(
-    /// DMA request source for LPUART3 TX.
-    Lpuart3TxRequest = 28
-);
-define_dma_request!(
-    /// DMA request source for LPUART4 RX.
-    Lpuart4RxRequest = 29
-);
-define_dma_request!(
-    /// DMA request source for LPUART4 TX.
-    Lpuart4TxRequest = 30
-);
-define_dma_request!(
-    /// DMA request source for LPUART5 RX.
-    Lpuart5RxRequest = 31
-);
-define_dma_request!(
-    /// DMA request source for LPUART5 TX.
-    Lpuart5TxRequest = 32
-);
 
 // ============================================================================
 // Channel Trait (Sealed Pattern)
@@ -426,9 +389,6 @@ mod sealed {
         /// Interrupt vector for this channel.
         fn interrupt(&self) -> crate::interrupt::Interrupt;
     }
-
-    /// Sealed trait for DMA request sources.
-    pub trait SealedDmaRequest {}
 }
 
 /// Marker trait implemented by HAL peripheral tokens that map to a DMA0
@@ -683,6 +643,7 @@ impl DmaChannel<'_> {
     /// The caller must ensure the DMA channel has been properly configured
     /// and that source/destination buffers remain valid for the duration
     /// of the transfer.
+    #[allow(unused)]
     pub(crate) unsafe fn start_transfer(&mut self) -> Transfer<'_> {
         // Clear any previous DONE/INT flags
         let t = self.tcd();
@@ -953,6 +914,7 @@ impl DmaChannel<'_> {
     ///
     /// - The buffer must remain valid for the duration of the transfer.
     /// - The peripheral address must be valid for writes.
+    #[allow(unused)]
     pub(crate) unsafe fn setup_write<W: Word>(&self, buf: &[W], peri_addr: *mut W, enable_interrupt: EnableInterrupt) {
         unsafe { self.setup_write_to_peripheral(buf, peri_addr, enable_interrupt) }
     }
@@ -1099,6 +1061,7 @@ impl DmaChannel<'_> {
     ///
     /// - The buffer must remain valid for the duration of the transfer.
     /// - The peripheral address must be valid for reads.
+    #[allow(unused)]
     pub(crate) unsafe fn setup_read<W: Word>(
         &self,
         peri_addr: *const W,
@@ -1448,11 +1411,11 @@ impl DmaChannel<'_> {
     /// }
     /// ```
     #[inline]
-    pub(crate) unsafe fn set_request_source(&self, source: u8) {
+    pub(crate) unsafe fn set_request_source(&self, source: DmaRequest) {
         // Two-step write per NXP SDK: clear to 0, then set actual source.
         self.tcd().ch_mux().write(|w| w.set_src(0));
         cortex_m::asm::dsb(); // Ensure the clear completes before setting new source
-        self.tcd().ch_mux().write(|w| w.set_src(source));
+        self.tcd().ch_mux().write(|w| w.set_src(source.number()));
     }
 
     /// Enable hardware requests for this channel (ERQ=1).
@@ -1515,6 +1478,7 @@ impl DmaChannel<'_> {
     /// # Safety
     ///
     /// The channel must be properly configured with a valid TCD before triggering.
+    #[allow(unused)]
     pub(crate) unsafe fn trigger_start(&self) {
         let t = self.tcd();
         t.tcd_csr().modify(|w| w.set_start(Start::CHANNEL_STARTED));
@@ -1544,6 +1508,7 @@ impl DmaChannel<'_> {
     /// # Safety
     ///
     /// The channel must be properly configured before setting up linking.
+    #[allow(unused)]
     pub(crate) unsafe fn set_major_link(&self, link_ch: usize) {
         let t = self.tcd();
         t.tcd_csr().modify(|w| {
@@ -1560,6 +1525,7 @@ impl DmaChannel<'_> {
     ///
     /// The caller must ensure this doesn't disrupt an active transfer that
     /// depends on the linking.
+    #[allow(unused)]
     pub(crate) unsafe fn clear_major_link(&self) {
         let t = self.tcd();
         t.tcd_csr().modify(|w| w.set_majorelink(false));
@@ -1582,6 +1548,7 @@ impl DmaChannel<'_> {
     /// # Safety
     ///
     /// The channel must be properly configured before setting up linking.
+    #[allow(unused)]
     pub(crate) unsafe fn set_minor_link(&self, link_ch: usize) {
         let t = self.tcd();
 
@@ -1613,6 +1580,7 @@ impl DmaChannel<'_> {
     ///
     /// The caller must ensure this doesn't disrupt an active transfer that
     /// depends on the linking.
+    #[allow(unused)]
     pub(crate) unsafe fn clear_minor_link(&self) {
         let t = self.tcd();
 

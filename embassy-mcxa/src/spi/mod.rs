@@ -5,7 +5,7 @@ use paste::paste;
 
 use crate::clocks::Gate;
 use crate::clocks::periph_helpers::LpspiConfig;
-use crate::dma::{Channel, DmaChannel};
+use crate::dma::{DmaChannel, DmaRequest};
 use crate::gpio::{GpioPin, SealedPin};
 use crate::{interrupt, pac};
 
@@ -28,6 +28,8 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send + Gate<Mrcc
     const CLOCK_INSTANCE: crate::clocks::periph_helpers::LpspiInstance;
     const PERF_INT_INCR: fn();
     const PERF_INT_WAKE_INCR: fn();
+    const TX_DMA_REQUEST: DmaRequest;
+    const RX_DMA_REQUEST: DmaRequest;
 }
 
 struct Info {
@@ -69,6 +71,8 @@ macro_rules! impl_instance {
                         = crate::clocks::periph_helpers::LpspiInstance::[<Lpspi $n>];
                     const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_spi $n>];
                     const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_spi $n _wake>];
+                    const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<LPSPI $n Tx>];
+                    const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<LPSPI $n Rx>];
                 }
             }
         )*
@@ -76,50 +80,6 @@ macro_rules! impl_instance {
 }
 
 impl_instance!(0, 1);
-
-/// RxDma marker trait.
-pub trait RxDma<Instance>: PeripheralType + Send + Channel {
-    fn request_number(&self) -> u8;
-}
-
-/// TxDma marker trait.
-pub trait TxDma<Instance>: PeripheralType + Send + Channel {
-    fn request_number(&self) -> u8;
-}
-
-macro_rules! impl_dma {
-    ($peri:ident, $rx:literal, $tx:literal) => {
-        impl_dma!($peri, 0, $rx, $tx);
-        impl_dma!($peri, 1, $rx, $tx);
-        impl_dma!($peri, 2, $rx, $tx);
-        impl_dma!($peri, 3, $rx, $tx);
-        impl_dma!($peri, 4, $rx, $tx);
-        impl_dma!($peri, 5, $rx, $tx);
-        impl_dma!($peri, 6, $rx, $tx);
-        impl_dma!($peri, 7, $rx, $tx);
-    };
-
-    ($peri:ident, $ch:literal, $rx:literal, $tx: literal) => {
-        paste! {
-            impl RxDma<crate::peripherals::$peri> for crate::peripherals::[<DMA_CH $ch>] {
-                #[inline(always)]
-                fn request_number(&self) -> u8 {
-                    $rx
-                }
-            }
-
-            impl TxDma<crate::peripherals::$peri> for crate::peripherals::[<DMA_CH $ch>] {
-                #[inline(always)]
-                fn request_number(&self) -> u8 {
-                    $tx
-                }
-            }
-        }
-    };
-}
-
-impl_dma!(LPSPI0, 15, 16);
-impl_dma!(LPSPI1, 17, 18);
 
 /// MOSI pin trait.
 pub trait MosiPin<Instance>: GpioPin + sealed::Sealed + PeripheralType {
@@ -159,8 +119,8 @@ impl AsyncMode for Async {}
 pub struct Dma<'d> {
     tx_dma: DmaChannel<'d>,
     rx_dma: DmaChannel<'d>,
-    rx_request_number: u8,
-    tx_request_number: u8,
+    rx_request: DmaRequest,
+    tx_request: DmaRequest,
 }
 impl sealed::Sealed for Dma<'_> {}
 impl Mode for Dma<'_> {}
