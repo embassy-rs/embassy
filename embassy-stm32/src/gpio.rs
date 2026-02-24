@@ -336,6 +336,17 @@ impl<'d> Input<'d> {
         Self { pin }
     }
 
+    /// Create a GPIO input driver from an existing [`Flex`] pin.
+    ///
+    /// This is useful when a pin was previously used in bidirectional mode and
+    /// needs to be converted to a typed input driver without re-acquiring the
+    /// peripheral token. The pin should already be configured as an input via
+    /// [`Flex::set_as_input()`].
+    #[inline]
+    pub fn from_flex(pin: Flex<'d>) -> Self {
+        Self { pin }
+    }
+
     /// Get whether the pin input level is high.
     #[inline]
     pub fn is_high(&self) -> bool {

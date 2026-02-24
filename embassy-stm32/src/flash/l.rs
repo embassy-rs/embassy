@@ -1,9 +1,137 @@
 use core::ptr::write_volatile;
 use core::sync::atomic::{Ordering, fence};
 
+#[cfg(flash_l4)]
+use cortex_m::interrupt;
+#[cfg(flash_l4)]
+use embassy_sync::waitqueue::AtomicWaker;
+#[cfg(flash_l4)]
+use pac::flash::regs::Sr;
+
 use super::{FlashSector, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
+
+#[cfg(flash_l4)]
+static WAKER: AtomicWaker = AtomicWaker::new();
+
+#[cfg(flash_l4)]
+pub(crate) unsafe fn on_interrupt() {
+    // Clear IRQ flags (EOP and error flags are write-1-to-clear)
+    pac::FLASH.sr().write(|w| {
+        w.set_eop(true);
+        w.set_operr(true);
+        w.set_progerr(true);
+        w.set_wrperr(true);
+        w.set_pgaerr(true);
+        w.set_sizerr(true);
+        w.set_pgserr(true);
+        w.set_miserr(true);
+        w.set_fasterr(true);
+        w.set_rderr(true);
+        w.set_optverr(true);
+    });
+
+    WAKER.wake();
+}
+
+#[cfg(flash_l4)]
+pub(crate) unsafe fn enable_write() {
+    assert_eq!(0, WRITE_SIZE % 4);
+    pac::FLASH.cr().write(|w| {
+        w.set_pg(true);
+        w.set_eopie(true);
+        w.set_errie(true);
+    });
+}
+
+#[cfg(flash_l4)]
+pub(crate) unsafe fn disable_write() {
+    pac::FLASH.cr().write(|w| {
+        w.set_pg(false);
+        w.set_eopie(false);
+        w.set_errie(false);
+    });
+}
+
+#[cfg(flash_l4)]
+unsafe fn write_start(start_address: u32, buf: &[u8; WRITE_SIZE]) {
+    let mut address = start_address;
+    for val in buf.chunks(4) {
+        write_volatile(address as *mut u32, u32::from_le_bytes(unwrap!(val.try_into())));
+        address += val.len() as u32;
+
+        // prevents parallelism errors
+        fence(Ordering::SeqCst);
+    }
+}
+
+#[cfg(flash_l4)]
+pub(crate) async unsafe fn write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
+    write_start(start_address, buf);
+    wait_ready().await
+}
+
+#[cfg(flash_l4)]
+pub(crate) async unsafe fn erase_sector(sector: &FlashSector) -> Result<(), Error> {
+    interrupt::free(|_| {
+        pac::FLASH.cr().modify(|w| {
+            w.set_per(true);
+            w.set_pnb(sector.index_in_bank);
+            w.set_bker(sector.bank == crate::flash::FlashBank::Bank2);
+            w.set_eopie(true);
+            w.set_errie(true);
+            w.set_start(true);
+        });
+    });
+
+    let ret = wait_ready().await;
+
+    pac::FLASH.cr().modify(|w| {
+        w.set_per(false);
+        w.set_eopie(false);
+        w.set_errie(false);
+    });
+    clear_all_err();
+    ret
+}
+
+#[cfg(flash_l4)]
+pub(crate) async fn wait_ready() -> Result<(), Error> {
+    use core::future::poll_fn;
+    use core::task::Poll;
+
+    poll_fn(|cx| {
+        WAKER.register(cx.waker());
+
+        let sr = pac::FLASH.sr().read();
+        if !sr.bsy() {
+            Poll::Ready(get_result(sr))
+        } else {
+            Poll::Pending
+        }
+    })
+    .await
+}
+
+#[cfg(flash_l4)]
+fn get_result(sr: Sr) -> Result<(), Error> {
+    if sr.progerr() {
+        Err(Error::Prog)
+    } else if sr.wrperr() {
+        Err(Error::Protected)
+    } else if sr.pgaerr() {
+        Err(Error::Unaligned)
+    } else if sr.sizerr() {
+        Err(Error::Size)
+    } else if sr.miserr() {
+        Err(Error::Miss)
+    } else if sr.pgserr() {
+        Err(Error::Seq)
+    } else {
+        Ok(())
+    }
+}
 
 pub(crate) unsafe fn lock() {
     #[cfg(any(flash_wl, flash_wb, flash_l4))]

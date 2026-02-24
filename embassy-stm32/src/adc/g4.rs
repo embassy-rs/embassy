@@ -8,11 +8,8 @@ pub use pac::adc::vals::{Adcaldif, Adstp, Difsel, Dmacfg, Dmaen, Exten, Rovsm, T
 use pac::adc::vals::{Adcaldif, Difsel, Exten};
 pub use pac::adccommon::vals::{Dual, Presc};
 
-use super::{
-    Adc, AnyAdcChannel, ConversionMode, ConversionTrigger, Instance, RegularConversionMode, Resolution, RxDma,
-    SampleTime, blocking_delay_us,
-};
-use crate::adc::{AdcRegs, BasicAdcRegs, SealedAdcChannel};
+use super::{Adc, AnyAdcChannel, ConversionMode, Instance, Resolution, RxDma, SampleTime, blocking_delay_us};
+use crate::adc::{AdcRegs, BasicAdcRegs, InjectedTrigger, RegularTrigger, SealedAdcChannel};
 use crate::pac::adc::regs::{Smpr, Smpr2, Sqr1, Sqr2, Sqr3, Sqr4};
 use crate::time::Hertz;
 use crate::{Peri, pac, rcc};
@@ -139,20 +136,21 @@ impl super::AdcRegs for crate::pac::adc::Adc {
             reg.set_dmaen(Dmaen::ENABLE);
         });
 
-        if let ConversionMode::Repeated(mode) = conversion_mode {
-            match mode {
-                RegularConversionMode::Continuous => {
+        if let ConversionMode::Repeated(trigger) = conversion_mode {
+            match trigger.signal {
+                u8::MAX => {
+                    // continuous conversions
                     self.cfgr().modify(|reg| {
                         reg.set_cont(true);
                     });
                 }
-                RegularConversionMode::Triggered(trigger) => {
+                _ => {
                     self.cfgr().modify(|r| {
                         r.set_cont(false); // New trigger is neede for each sample to be read
                     });
 
                     self.cfgr().modify(|r| {
-                        r.set_extsel(trigger.channel);
+                        r.set_extsel(trigger.signal);
                         r.set_exten(trigger.edge);
                     });
 
@@ -398,7 +396,8 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     pub fn setup_injected_conversions<'a, const N: usize>(
         self,
         sequence: [(AnyAdcChannel<'a, T>, SampleTime); N],
-        trigger: ConversionTrigger,
+        trigger: impl InjectedTrigger<T>,
+        edge: Exten,
         interrupt: bool,
     ) -> InjectedAdc<'a, T, N> {
         assert!(N != 0, "Read sequence cannot be empty");
@@ -440,8 +439,8 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
         // Set external trigger for injected conversion sequence
         // Possible trigger values are seen in Table 167 in RM0440 Rev 9
         T::regs().jsqr().modify(|r| {
-            r.set_jextsel(trigger.channel);
-            r.set_jexten(trigger.edge);
+            r.set_jextsel(trigger.signal());
+            r.set_jexten(edge);
         });
 
         // Enable end of injected sequence interrupt
@@ -481,9 +480,11 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
         dma_buf: &'a mut [u16],
         _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
         regular_sequence: impl ExactSizeIterator<Item = (AnyAdcChannel<'b, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
-        regular_conversion_mode: RegularConversionMode,
+        regular_trigger: impl RegularTrigger<T>,
+        regular_edge: Exten,
         injected_sequence: [(AnyAdcChannel<'b, T>, SampleTime); N],
-        injected_trigger: ConversionTrigger,
+        injected_trigger: impl InjectedTrigger<T>,
+        injected_edge: Exten,
         injected_interrupt: bool,
     ) -> (super::RingBufferedAdc<'a, T>, InjectedAdc<'b, T, N>) {
         unsafe {
@@ -491,11 +492,23 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
                 Self {
                     adc: self.adc.clone_unchecked(),
                 }
-                .into_ring_buffered(dma, dma_buf, _irq, regular_sequence, regular_conversion_mode),
+                .into_ring_buffered(
+                    dma,
+                    dma_buf,
+                    _irq,
+                    regular_sequence,
+                    regular_trigger,
+                    regular_edge,
+                ),
                 Self {
                     adc: self.adc.clone_unchecked(),
                 }
-                .setup_injected_conversions(injected_sequence, injected_trigger, injected_interrupt),
+                .setup_injected_conversions(
+                    injected_sequence,
+                    injected_trigger,
+                    injected_edge,
+                    injected_interrupt,
+                ),
             )
         }
     }

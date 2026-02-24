@@ -72,6 +72,11 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
         self.ring_buf.clear();
     }
 
+    /// See [`ReadableDmaRingBuffer::set_alignment`] for details.
+    pub fn set_alignment(&mut self, alignment: usize) {
+        self.ring_buf.set_alignment(alignment);
+    }
+
     /// Reads measurements from the DMA ring buffer.
     ///
     /// This method fills the provided `measurements` array with ADC readings from the DMA buffer.
@@ -142,6 +147,23 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
         //        }
 
         self.ring_buf.read_exact(measurements).await.map_err(|_| OverrunError)
+    }
+
+    /// Read the most recent ADC measurements, discarding any older data.
+    ///
+    /// Returns the number of samples actually read into `measurements`. Unlike [`read`](Self::read),
+    /// this method **never returns an overrun error**. If the DMA has lapped the consumer
+    /// (e.g. because the task was not scheduled quickly enough), old data is silently
+    /// discarded and only the most recent samples are returned.
+    ///
+    /// This is ideal for use cases like ADC oversampling where the consumer only cares about
+    /// the latest values and stale data can be safely ignored.
+    pub fn read_latest(&mut self, measurements: &mut [u16]) -> usize {
+        if !self.ring_buf.is_running() {
+            self.start();
+        }
+
+        self.ring_buf.read_latest(measurements)
     }
 
     /// Read bytes that are readily available in the ring buffer.

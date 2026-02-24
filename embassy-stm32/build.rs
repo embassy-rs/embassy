@@ -7,6 +7,7 @@ use std::{env, fs};
 
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
+use regex::Regex;
 use stm32_metapac::metadata::ir::BitOffset;
 use stm32_metapac::metadata::{
     ALL_CHIPS, ALL_PERIPHERAL_VERSIONS, METADATA, MemoryRegion, MemoryRegionKind, Peripheral, PeripheralRccKernelClock,
@@ -76,9 +77,9 @@ fn main() {
 
     // ========
     // Select the memory variant to use
+    let dual_bank_selected = env::var("CARGO_FEATURE_DUAL_BANK").is_ok();
     let memory = {
         let single_bank_selected = env::var("CARGO_FEATURE_SINGLE_BANK").is_ok();
-        let dual_bank_selected = env::var("CARGO_FEATURE_DUAL_BANK").is_ok();
 
         let single_bank_memory = METADATA.memory.iter().find(|mem| {
             mem.iter().any(|region| region.name.contains("BANK_1"))
@@ -418,21 +419,76 @@ fn main() {
             .iter()
             .filter(|x| x.kind == MemoryRegionKind::Flash && x.settings.is_some())
             .collect();
+
+        let check_fb_mode = dual_bank_selected
+            && METADATA.peripherals.iter().any(|p| {
+                p.name == "SYSCFG"
+                    && p.registers.as_ref().is_some_and(|r| {
+                        r.ir.fieldsets
+                            .iter()
+                            .any(|f| f.name == "Memrmp" && f.fields.iter().any(|f| f.name == "fb_mode"))
+                    })
+            });
+
+        let mut bank_1_base = None;
+        let mut bank_2_base = None;
+        let mut otp_base = None;
+        for region in flash_memory_regions.iter() {
+            if region.name == "BANK_1" || region.name == "BANK_1_REGION_1" {
+                bank_1_base = Some(region.address);
+            } else if region.name == "BANK_2" || region.name == "BANK_2_REGION_1" {
+                bank_2_base = Some(region.address);
+            } else if region.name == "OTP" {
+                otp_base = Some(region.address);
+            }
+        }
+        let bank_1 = bank_1_base
+            .map(|a| quote!(#a))
+            .unwrap_or_else(|| quote!(panic!("Bank 1 not present")));
+        let bank_2 = bank_2_base
+            .map(|a| quote!(#a))
+            .unwrap_or_else(|| quote!(panic!("Bank 2 not present")));
+        let otp = otp_base
+            .map(|a| quote!(#a))
+            .unwrap_or_else(|| quote!(panic!("OTP not present")));
+
+        let (swap_check, bank1, bank2) = if check_fb_mode {
+            (
+                quote! { let is_swapped = crate::pac::SYSCFG.memrmp().read().fb_mode(); },
+                quote! { if is_swapped { #bank_2 } else { #bank_1 } },
+                quote! { if is_swapped { #bank_1 } else { #bank_2 } },
+            )
+        } else {
+            (quote! {}, quote! { #bank_1 }, quote! { #bank_2 })
+        };
+
+        flash_regions.extend(quote! {
+            impl crate::flash::FlashBank {
+                /// Absolute base address.
+                pub fn base(&self) -> u32 {
+                    #swap_check
+                    match self {
+                        crate::flash::FlashBank::Bank1 => #bank1,
+                        crate::flash::FlashBank::Bank2 => #bank2,
+                        crate::flash::FlashBank::Otp => #otp,
+                    }
+                }
+            }
+        });
+
         for region in flash_memory_regions.iter() {
             let region_name = format_ident!("{}", get_flash_region_name(region.name));
-            let bank_variant = format_ident!(
-                "{}",
-                if region.name.starts_with("BANK_1") {
-                    "Bank1"
-                } else if region.name.starts_with("BANK_2") {
-                    "Bank2"
-                } else if region.name == "OTP" {
-                    "Otp"
-                } else {
-                    continue;
-                }
-            );
-            let base = region.address;
+            let (bank_variant, base) = if region.name.starts_with("BANK_1") {
+                ("Bank1", bank_1_base.unwrap())
+            } else if region.name.starts_with("BANK_2") {
+                ("Bank2", bank_2_base.unwrap())
+            } else if region.name == "OTP" {
+                ("Otp", otp_base.unwrap())
+            } else {
+                continue;
+            };
+            let bank_variant = format_ident!("{bank_variant}");
+            let offset = region.address - base;
             let size = region.size;
             let settings = region.settings.as_ref().unwrap();
             let erase_size = settings.erase_size;
@@ -442,7 +498,7 @@ fn main() {
             flash_regions.extend(quote! {
                 pub const #region_name: crate::flash::FlashRegion = crate::flash::FlashRegion {
                     bank: crate::flash::FlashBank::#bank_variant,
-                    base: #base,
+                    offset: #offset,
                     size: #size,
                     erase_size: #erase_size,
                     write_size: #write_size,
@@ -1723,6 +1779,21 @@ fn main() {
     ]
     .into();
 
+    // ========
+    // Generate trigger_trait_impl!
+
+    let triggers: HashMap<_, _> = [
+        // (kind, signal) => trait
+        (("dac", "DAC_CHX_TRG"), quote!(crate::dac::ChannelTrigger)),
+        (("adc", "ADC_EXT_TRG"), quote!(crate::adc::RegularTrigger)),
+        (("adc", "ADC_JEXT_TRG"), quote!(crate::adc::InjectedTrigger)),
+    ]
+    .into();
+
+    let mut trigger_list: BTreeSet<&str> = BTreeSet::new();
+
+    let trigger_expr = Regex::new(r"(?m)(.+?)(\d+)").unwrap();
+
     if chip_name.starts_with("stm32u5") {
         signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma));
     } else {
@@ -1745,6 +1816,24 @@ fn main() {
             // FIXME: stm32u5a crash on Cordic driver
             if chip_name.starts_with("stm32u5a") && regs.kind == "cordic" {
                 continue;
+            }
+
+            for trigger in p.triggers {
+                let matches = trigger_expr.captures(trigger.signal).unwrap();
+                let signal = &matches[1];
+                let idx: u8 = (&matches[2]).parse().unwrap();
+
+                trigger_list.insert(trigger.source);
+
+                if let Some(tr) = triggers.get(&(regs.kind, signal)) {
+                    let peri = format_ident!("{}", p.name);
+                    let source = format_ident!("{}", trigger.source);
+                    let idx = quote!(#idx);
+
+                    g.extend(quote! {
+                        trigger_trait_impl!(#tr, #peri, #source, #idx);
+                    });
+                }
             }
 
             let mut dupe = HashSet::new();
@@ -1814,6 +1903,28 @@ fn main() {
                 }
             }
         }
+    }
+
+    // ========
+    // Generate Triggers mod
+    {
+        let triggers_mod: TokenStream = trigger_list
+            .iter()
+            .map(|trigger| {
+                let trigger = format_ident!("{}", trigger);
+
+                quote! {
+                    #[allow(non_camel_case_types)]
+                    pub struct #trigger;
+                }
+            })
+            .collect();
+
+        g.extend(quote! {
+            pub mod triggers {
+                #triggers_mod
+            }
+        });
     }
 
     // ========
@@ -2245,7 +2356,7 @@ fn main() {
             .iter()
             .filter(|x| x.kind == MemoryRegionKind::Flash && x.name.starts_with("BANK_"))
             .collect();
-        let first_flash = flash_regions.first().unwrap();
+        let first_flash = flash_regions.iter().min_by_key(|region| region.address).unwrap();
         let total_flash_size = flash_regions
             .iter()
             .map(|x| x.size)

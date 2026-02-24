@@ -6,10 +6,7 @@ use embedded_hal_1::pwm::{Error, ErrorKind, ErrorType};
 
 use super::{AnyChannel, CTimer, CTimerChannel, Channel, Info, Instance, OutputPin};
 use crate::gpio::{AnyPin, SealedPin};
-use crate::pac::ctimer::vals::{
-    Mr0i, Mr0r, Mr0rl, Mr0s, Mr1i, Mr1r, Mr1rl, Mr1s, Mr2i, Mr2r, Mr2rl, Mr2s, Mr3i, Mr3r, Mr3rl, Mr3s, Pwmen0, Pwmen1,
-    Pwmen2, Pwmen3,
-};
+use crate::pac::ctimer::vals::{Mri, Mrr, Mrrl, Mrs, Pwmen};
 
 /// PWM error.
 #[derive(Debug)]
@@ -79,16 +76,16 @@ impl<'d> Pwm<'d> {
     fn set_pwm_mode(&self) {
         self.info.regs().pwmc().modify(|w| match self.duty_ch.number() {
             Channel::Zero => {
-                w.set_pwmen0(Pwmen0::PWM);
+                w.set_pwmen0(Pwmen::PWM);
             }
             Channel::One => {
-                w.set_pwmen1(Pwmen1::PWM);
+                w.set_pwmen1(Pwmen::PWM);
             }
             Channel::Two => {
-                w.set_pwmen2(Pwmen2::PWM);
+                w.set_pwmen2(Pwmen::PWM);
             }
             Channel::Three => {
-                w.set_pwmen3(Pwmen3::PWM);
+                w.set_pwmen3(Pwmen::PWM);
             }
         });
     }
@@ -98,39 +95,39 @@ impl<'d> Pwm<'d> {
             // Clear stop, reset, and interrupt bits for the PWM channel
             match self.duty_ch.number() {
                 Channel::Zero => {
-                    w.set_mr0i(Mr0i::MR0I_0);
-                    w.set_mr0r(Mr0r::MR0R_0);
-                    w.set_mr0s(Mr0s::MR0S_0);
+                    w.set_mr0i(Mri::MRI0);
+                    w.set_mr0r(Mrr::MRR0);
+                    w.set_mr0s(Mrs::MRS0);
                 }
                 Channel::One => {
-                    w.set_mr1i(Mr1i::MR1I_0);
-                    w.set_mr1r(Mr1r::MR1R_0);
-                    w.set_mr1s(Mr1s::MRIS_0);
+                    w.set_mr1i(Mri::MRI0);
+                    w.set_mr1r(Mrr::MRR0);
+                    w.set_mr1s(Mrs::MRS0);
                 }
                 Channel::Two => {
-                    w.set_mr2i(Mr2i::MR2I_0);
-                    w.set_mr2r(Mr2r::MR2R_0);
-                    w.set_mr2s(Mr2s::MR2S_0);
+                    w.set_mr2i(Mri::MRI0);
+                    w.set_mr2r(Mrr::MRR0);
+                    w.set_mr2s(Mrs::MRS0);
                 }
                 Channel::Three => {
-                    w.set_mr3i(Mr3i::MR3I_0);
-                    w.set_mr3r(Mr3r::MR3R_0);
-                    w.set_mr3s(Mr3s::MR3S_0);
+                    w.set_mr3i(Mri::MRI0);
+                    w.set_mr3r(Mrr::MRR0);
+                    w.set_mr3s(Mrs::MRS0);
                 }
             }
 
             match self.duty_ch.number() {
                 Channel::Zero => {
-                    w.set_mr0rl(Mr0rl::MR0RL_1);
+                    w.set_mr0rl(Mrrl::MRRL1);
                 }
                 Channel::One => {
-                    w.set_mr1rl(Mr1rl::MR1RL_1);
+                    w.set_mr1rl(Mrrl::MRRL1);
                 }
                 Channel::Two => {
-                    w.set_mr2rl(Mr2rl::MR2RL_1);
+                    w.set_mr2rl(Mrrl::MRRL1);
                 }
                 Channel::Three => {
-                    w.set_mr3rl(Mr3rl::MR3RL_1);
+                    w.set_mr3rl(Mrrl::MRRL1);
                 }
             }
         });
@@ -205,16 +202,16 @@ impl<'d> SinglePwm<'d> {
 
         self.pwm.info.regs().mcr().modify(|w| match self.period_ch.number() {
             Channel::Zero => {
-                w.set_mr0r(Mr0r::MR0R_1);
+                w.set_mr0r(Mrr::MRR1);
             }
             Channel::One => {
-                w.set_mr1r(Mr1r::MR1R_1);
+                w.set_mr1r(Mrr::MRR1);
             }
             Channel::Two => {
-                w.set_mr2r(Mr2r::MR2R_1);
+                w.set_mr2r(Mrr::MRR1);
             }
             Channel::Three => {
-                w.set_mr3r(Mr3r::MR3R_1);
+                w.set_mr3r(Mrr::MRR1);
             }
         });
 
@@ -314,16 +311,16 @@ impl<'d> DualPwm<'d> {
 
         self.pwm0.info.regs().mcr().modify(|w| match self.period_ch.number() {
             Channel::Zero => {
-                w.set_mr0r(Mr0r::MR0R_1);
+                w.set_mr0r(Mrr::MRR1);
             }
             Channel::One => {
-                w.set_mr1r(Mr1r::MR1R_1);
+                w.set_mr1r(Mrr::MRR1);
             }
             Channel::Two => {
-                w.set_mr2r(Mr2r::MR2R_1);
+                w.set_mr2r(Mrr::MRR1);
             }
             Channel::Three => {
-                w.set_mr3r(Mr3r::MR3R_1);
+                w.set_mr3r(Mrr::MRR1);
             }
         });
 
@@ -450,16 +447,16 @@ impl<'d> TriplePwm<'d> {
 
         self.pwm0.info.regs().mcr().modify(|w| match self.period_ch.number() {
             Channel::Zero => {
-                w.set_mr0r(Mr0r::MR0R_1);
+                w.set_mr0r(Mrr::MRR1);
             }
             Channel::One => {
-                w.set_mr1r(Mr1r::MR1R_1);
+                w.set_mr1r(Mrr::MRR1);
             }
             Channel::Two => {
-                w.set_mr2r(Mr2r::MR2R_1);
+                w.set_mr2r(Mrr::MRR1);
             }
             Channel::Three => {
-                w.set_mr3r(Mr3r::MR3R_1);
+                w.set_mr3r(Mrr::MRR1);
             }
         });
 

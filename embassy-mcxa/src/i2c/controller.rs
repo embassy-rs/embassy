@@ -6,12 +6,11 @@ use core::marker::PhantomData;
 use embassy_hal_internal::Peri;
 use embassy_hal_internal::drop::OnDrop;
 
-use super::{Async, Blocking, Dma, Info, Instance, Mode, RxDma, SclPin, SdaPin, TxDma};
+use super::{Async, AsyncMode, Blocking, Dma, Info, Instance, Mode, RxDma, SclPin, SdaPin, TxDma};
 use crate::clocks::periph_helpers::{Div4, Lpi2cClockSel, Lpi2cConfig};
 use crate::clocks::{ClockError, PoweredClock, WakeGuard, enable_and_reset};
 use crate::dma::{DMA_MAX_TRANSFER_SIZE, DmaChannel, EnableInterrupt};
 use crate::gpio::{AnyPin, SealedPin};
-use crate::i2c::AsyncMode;
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::lpi2c::vals::{Alf, Cmd, Dmf, Dozen, Epf, McrRrf, McrRtf, MsrFef, MsrSdf, Ndf, Pltf, Stf};

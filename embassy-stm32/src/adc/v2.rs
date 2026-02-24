@@ -1,7 +1,7 @@
 use core::sync::atomic::{Ordering, compiler_fence};
 
 use super::{ConversionMode, Temperature, Vbat, VrefInt, blocking_delay_us};
-use crate::adc::{Adc, AdcRegs, Instance, RegularConversionMode, Resolution, SampleTime};
+use crate::adc::{Adc, AdcRegs, Instance, Resolution, SampleTime};
 use crate::pac::adc::vals;
 pub use crate::pac::adccommon::vals::Adcpre;
 use crate::time::Hertz;
@@ -140,7 +140,7 @@ impl super::AdcRegs for crate::pac::adc::Adc {
 
     fn configure_dma(&self, conversion_mode: ConversionMode) {
         match conversion_mode {
-            ConversionMode::Repeated(mode) => {
+            ConversionMode::Repeated(trigger) => {
                 let r = self;
                 // Clear all interrupts
                 r.sr().modify(|regs| {
@@ -169,21 +169,22 @@ impl super::AdcRegs for crate::pac::adc::Adc {
                     w.set_eocs(vals::Eocs::EACH_CONVERSION);
                 });
 
-                match mode {
-                    RegularConversionMode::Continuous => {
+                match trigger.signal {
+                    u8::MAX => {
+                        // continuous conversion
                         r.cr2().modify(|w| {
                             // Enable continuous conversions
                             w.set_cont(true);
                         });
                     }
-                    RegularConversionMode::Triggered(trigger) => {
+                    _ => {
                         r.cr2().modify(|w| {
                             // Disable continuous conversions
                             w.set_cont(false);
                             // Trigger detection edge
                             w.set_exten(trigger.edge);
                             // Trigger channel
-                            w.set_extsel(trigger.channel);
+                            w.set_extsel(trigger.signal);
                         })
                     }
                 };
