@@ -132,6 +132,31 @@ enum SendStop {
 pub struct Config {
     /// Bus speed
     pub speed: Speed,
+
+    /// Clock configuration
+    pub clock_config: ClockConfig,
+}
+
+/// I2C controller clock configuration
+#[derive(Clone, Copy)]
+#[non_exhaustive]
+pub struct ClockConfig {
+    /// Powered clock configuration
+    pub power: PoweredClock,
+    /// LPI2C clock source
+    pub source: Lpi2cClockSel,
+    /// LPI2C pre-divider
+    pub div: Div4,
+}
+
+impl Default for ClockConfig {
+    fn default() -> Self {
+        Self {
+            power: PoweredClock::NormalEnabledDeepSleepDisabled,
+            source: Lpi2cClockSel::FroLfDiv,
+            div: const { Div4::no_div() },
+        }
+    }
 }
 
 /// I2C Controller Driver.
@@ -166,7 +191,7 @@ impl<'d, M: Mode> I2c<'d, M> {
         config: Config,
         mode: M,
     ) -> Result<Self, SetupError> {
-        let (power, source, div) = Self::clock_config(config.speed);
+        let ClockConfig { power, source, div } = config.clock_config;
 
         // Enable clocks
         let conf = Lpi2cConfig {
@@ -242,22 +267,6 @@ impl<'d, M: Mode> I2c<'d, M> {
             w.set_dmf(Dmf::INT_YES);
             w.set_stf(Stf::INT_YES);
         });
-    }
-
-    // REVISIT: turn this into a function of the speed parameter
-    fn clock_config(speed: Speed) -> (PoweredClock, Lpi2cClockSel, Div4) {
-        match speed {
-            Speed::Standard | Speed::Fast | Speed::FastPlus => (
-                PoweredClock::NormalEnabledDeepSleepDisabled,
-                Lpi2cClockSel::FroLfDiv,
-                const { Div4::no_div() },
-            ),
-            Speed::UltraFast => (
-                PoweredClock::NormalEnabledDeepSleepDisabled,
-                Lpi2cClockSel::FroHfDiv,
-                const { Div4::no_div() },
-            ),
-        }
     }
 
     fn remediation(&self) {
