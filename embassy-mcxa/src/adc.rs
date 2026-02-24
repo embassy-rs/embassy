@@ -848,16 +848,17 @@ impl Info {
     }
 }
 
-trait SealedInstance {
+trait SealedInstance: Gate<MrccPeriphConfig = AdcConfig> {
     fn info() -> &'static Info;
+
+    const PERF_INT_INCR: fn();
 }
 
 /// ADC Instance
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + PeripheralType + Gate<MrccPeriphConfig = AdcConfig> {
+pub trait Instance: SealedInstance + PeripheralType {
     /// Interrupt for this ADC instance.
     type Interrupt: Interrupt;
-    const PERF_INT_INCR: fn();
 }
 
 macro_rules! impl_instance {
@@ -873,11 +874,12 @@ macro_rules! impl_instance {
                         };
                         &INFO
                     }
+
+                    const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_adc $n>];
                 }
 
                 impl Instance for crate::peripherals::[<ADC $n>] {
                     type Interrupt = crate::interrupt::typelevel::[<ADC $n>];
-                    const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_adc $n>];
                 }
             }
         )*

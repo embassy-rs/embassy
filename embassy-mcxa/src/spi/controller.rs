@@ -10,10 +10,10 @@ use embassy_hal_internal::drop::OnDrop;
 pub use embedded_hal_1::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode, Phase, Polarity};
 use nxp_pac::lpspi::vals::{Cpha, Cpol, Lsbf, Master, Mbf, Outcfg, Pcspol, Pincfg, Prescale, Rrf, Rtf, Rxmsk, Txmsk};
 
-use super::{Async, AsyncMode, Blocking, Dma, Info, Instance, MisoPin, Mode as IoMode, MosiPin, RxDma, SckPin, TxDma};
+use super::{Async, AsyncMode, Blocking, Dma, Info, Instance, MisoPin, Mode as IoMode, MosiPin, SckPin};
 use crate::clocks::periph_helpers::{Div4, LpspiClockSel, LpspiConfig};
 use crate::clocks::{ClockError, PoweredClock, WakeGuard, enable_and_reset};
-use crate::dma::{DMA_MAX_TRANSFER_SIZE, DmaChannel, EnableInterrupt};
+use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, EnableInterrupt};
 use crate::gpio::AnyPin;
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
@@ -485,8 +485,8 @@ impl<'d> Spi<'d, Dma<'d>> {
         sck: Peri<'d, impl SckPin<T> + 'd>,
         mosi: Peri<'d, impl MosiPin<T> + 'd>,
         miso: Peri<'d, impl MisoPin<T> + 'd>,
-        tx_dma: Peri<'d, impl TxDma<T>>,
-        rx_dma: Peri<'d, impl RxDma<T>>,
+        tx_dma: Peri<'d, impl Channel>,
+        rx_dma: Peri<'d, impl Channel>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Result<Self, SetupError> {
@@ -497,10 +497,6 @@ impl<'d> Spi<'d, Dma<'d>> {
         let sck = sck.into();
         let mosi = mosi.into();
         let miso = miso.into();
-
-        // grab request numbers
-        let tx_request_number = tx_dma.request_number();
-        let rx_request_number = rx_dma.request_number();
 
         let tx_dma = DmaChannel::new(tx_dma);
         let rx_dma = DmaChannel::new(rx_dma);
@@ -521,8 +517,8 @@ impl<'d> Spi<'d, Dma<'d>> {
             Dma {
                 tx_dma,
                 rx_dma,
-                tx_request_number,
-                rx_request_number,
+                tx_request: T::TX_DMA_REQUEST,
+                rx_request: T::RX_DMA_REQUEST,
             },
         )
     }
@@ -542,8 +538,8 @@ impl<'d> Spi<'d, Dma<'d>> {
             self.mode.tx_dma.clear_interrupt();
 
             // Set DMA request source from instance type
-            self.mode.rx_dma.set_request_source(self.mode.rx_request_number);
-            self.mode.tx_dma.set_request_source(self.mode.tx_request_number);
+            self.mode.rx_dma.set_request_source(self.mode.rx_request);
+            self.mode.tx_dma.set_request_source(self.mode.tx_request);
 
             self.mode
                 .tx_dma
@@ -606,7 +602,7 @@ impl<'d> Spi<'d, Dma<'d>> {
             self.mode.tx_dma.clear_interrupt();
 
             // Set DMA request source from instance type (type-safe)
-            self.mode.tx_dma.set_request_source(self.mode.tx_request_number);
+            self.mode.tx_dma.set_request_source(self.mode.tx_request);
 
             // Configure TCD for memory-to-peripheral transfer
             self.mode
@@ -661,8 +657,8 @@ impl<'d> Spi<'d, Dma<'d>> {
             self.mode.tx_dma.clear_interrupt();
 
             // Set DMA request source from instance type
-            self.mode.rx_dma.set_request_source(self.mode.rx_request_number);
-            self.mode.tx_dma.set_request_source(self.mode.tx_request_number);
+            self.mode.rx_dma.set_request_source(self.mode.rx_request);
+            self.mode.tx_dma.set_request_source(self.mode.tx_request);
 
             self.mode
                 .tx_dma
@@ -785,8 +781,8 @@ impl<'d> Spi<'d, Dma<'d>> {
             self.mode.tx_dma.clear_interrupt();
 
             // Set DMA request source from instance type
-            self.mode.rx_dma.set_request_source(self.mode.rx_request_number);
-            self.mode.tx_dma.set_request_source(self.mode.tx_request_number);
+            self.mode.rx_dma.set_request_source(self.mode.rx_request);
+            self.mode.tx_dma.set_request_source(self.mode.tx_request);
 
             self.mode
                 .tx_dma

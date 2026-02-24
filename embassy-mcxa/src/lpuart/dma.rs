@@ -10,7 +10,7 @@ use crate::pac::lpuart::vals::{Tc, Tdre};
 /// DMA mode.
 pub struct Dma<'d> {
     dma: DmaChannel<'d>,
-    request_number: u8,
+    request: DmaRequest,
 }
 impl sealed::Sealed for Dma<'_> {}
 impl Mode for Dma<'_> {}
@@ -120,7 +120,7 @@ impl<'a> LpuartTx<'a, Dma<'a>> {
             None,
             Dma {
                 dma,
-                request_number: T::TxDmaRequest::REQUEST_NUMBER,
+                request: T::TX_DMA_REQUEST,
             },
             wg,
         ))
@@ -168,7 +168,7 @@ impl<'a> LpuartTx<'a, Dma<'a>> {
             dma.clear_interrupt();
 
             // Set DMA request source from instance type (type-safe)
-            dma.set_request_source(self.mode.request_number);
+            dma.set_request_source(self.mode.request);
 
             // Configure TCD for memory-to-peripheral transfer
             dma.setup_write_to_peripheral(buf, peri_addr, EnableInterrupt::Yes);
@@ -242,7 +242,7 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
             None,
             Dma {
                 dma,
-                request_number: T::RxDmaRequest::REQUEST_NUMBER,
+                request: T::RX_DMA_REQUEST,
             },
             _wg,
         ))
@@ -294,7 +294,7 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
             rx_dma.clear_interrupt();
 
             // Set DMA request source from instance type (type-safe)
-            rx_dma.set_request_source(self.mode.request_number);
+            rx_dma.set_request_source(self.mode.request);
 
             // Configure TCD for peripheral-to-memory transfer
             rx_dma.setup_read_from_peripheral(peri_addr, buf, EnableInterrupt::Yes);
@@ -384,7 +384,7 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
 
         // Configure DMA request source for this LPUART instance (type-safe)
         unsafe {
-            self.mode.dma.set_request_source(self.mode.request_number);
+            self.mode.dma.set_request_source(self.mode.request);
         }
 
         // Enable RX DMA request in the LPUART peripheral
@@ -443,7 +443,7 @@ impl<'a> Lpuart<'a, Dma<'a>> {
                 None,
                 Dma {
                     dma: tx_dma,
-                    request_number: T::TxDmaRequest::REQUEST_NUMBER,
+                    request: T::TX_DMA_REQUEST,
                 },
                 wg.clone(),
             ),
@@ -452,7 +452,7 @@ impl<'a> Lpuart<'a, Dma<'a>> {
                 None,
                 Dma {
                     dma: rx_dma,
-                    request_number: T::RxDmaRequest::REQUEST_NUMBER,
+                    request: T::RX_DMA_REQUEST,
                 },
                 wg,
             ),

@@ -6,7 +6,7 @@ use paste::paste;
 
 use crate::clocks::Gate;
 use crate::clocks::periph_helpers::Lpi2cConfig;
-use crate::dma::{Channel, DmaChannel};
+use crate::dma::{DmaChannel, DmaRequest};
 use crate::gpio::{GpioPin, SealedPin};
 use crate::{interrupt, pac};
 
@@ -18,19 +18,22 @@ mod sealed {
     pub trait Sealed {}
 }
 
-trait SealedInstance {
+trait SealedInstance: Gate<MrccPeriphConfig = Lpi2cConfig> {
     fn info() -> &'static Info;
-}
 
-/// I2C Instance
-#[allow(private_bounds)]
-pub trait Instance: SealedInstance + PeripheralType + 'static + Send + Gate<MrccPeriphConfig = Lpi2cConfig> {
-    /// Interrupt for this I2C instance.
-    type Interrupt: interrupt::typelevel::Interrupt;
     /// Clock instance
     const CLOCK_INSTANCE: crate::clocks::periph_helpers::Lpi2cInstance;
     const PERF_INT_INCR: fn();
     const PERF_INT_WAKE_INCR: fn();
+    const TX_DMA_REQUEST: DmaRequest;
+    const RX_DMA_REQUEST: DmaRequest;
+}
+
+/// I2C Instance
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
+    /// Interrupt for this I2C instance.
+    type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 struct Info {
@@ -64,14 +67,17 @@ macro_rules! impl_instance {
                         };
                         &INFO
                     }
-                }
 
-                impl Instance for crate::peripherals::[<LPI2C $n>] {
-                    type Interrupt = crate::interrupt::typelevel::[<LPI2C $n>];
                     const CLOCK_INSTANCE: crate::clocks::periph_helpers::Lpi2cInstance
                         = crate::clocks::periph_helpers::Lpi2cInstance::[<Lpi2c $n>];
                     const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_i2c $n>];
                     const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_i2c $n _wake>];
+                    const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<LPI2C $n Tx>];
+                    const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<LPI2C $n Rx>];
+                }
+
+                impl Instance for crate::peripherals::[<LPI2C $n>] {
+                    type Interrupt = crate::interrupt::typelevel::[<LPI2C $n>];
                 }
             }
         )*
@@ -79,52 +85,6 @@ macro_rules! impl_instance {
 }
 
 impl_instance!(0, 1, 2, 3);
-
-/// RxDma marker trait.
-pub trait RxDma<Instance>: PeripheralType + Send + Channel {
-    fn request_number(&self) -> u8;
-}
-
-/// TxDma marker trait.
-pub trait TxDma<Instance>: PeripheralType + Send + Channel {
-    fn request_number(&self) -> u8;
-}
-
-macro_rules! impl_dma {
-    ($peri:ident, $rx:literal, $tx:literal) => {
-        impl_dma!($peri, 0, $rx, $tx);
-        impl_dma!($peri, 1, $rx, $tx);
-        impl_dma!($peri, 2, $rx, $tx);
-        impl_dma!($peri, 3, $rx, $tx);
-        impl_dma!($peri, 4, $rx, $tx);
-        impl_dma!($peri, 5, $rx, $tx);
-        impl_dma!($peri, 6, $rx, $tx);
-        impl_dma!($peri, 7, $rx, $tx);
-    };
-
-    ($peri:ident, $ch:literal, $rx:literal, $tx: literal) => {
-        paste! {
-            impl RxDma<crate::peripherals::$peri> for crate::peripherals::[<DMA_CH $ch>] {
-                #[inline(always)]
-                fn request_number(&self) -> u8 {
-                    $rx
-                }
-            }
-
-            impl TxDma<crate::peripherals::$peri> for crate::peripherals::[<DMA_CH $ch>] {
-                #[inline(always)]
-                fn request_number(&self) -> u8 {
-                    $tx
-                }
-            }
-        }
-    };
-}
-
-impl_dma!(LPI2C0, 11, 12);
-impl_dma!(LPI2C1, 13, 14);
-impl_dma!(LPI2C2, 3, 4);
-impl_dma!(LPI2C3, 5, 6);
 
 /// SCL pin trait.
 pub trait SclPin<Instance>: GpioPin + sealed::Sealed + PeripheralType {
@@ -159,8 +119,8 @@ impl AsyncMode for Async {}
 pub struct Dma<'d> {
     tx_dma: DmaChannel<'d>,
     rx_dma: DmaChannel<'d>,
-    rx_request_number: u8,
-    tx_request_number: u8,
+    rx_request: DmaRequest,
+    tx_request: DmaRequest,
 }
 impl sealed::Sealed for Dma<'_> {}
 impl Mode for Dma<'_> {}

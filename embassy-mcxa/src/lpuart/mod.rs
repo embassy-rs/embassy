@@ -31,11 +31,6 @@ mod sealed {
     pub trait Sealed {}
 }
 
-trait SealedInstance {
-    fn info() -> &'static Info;
-    fn state() -> &'static State;
-}
-
 struct State {
     tx_waker: WaitCell,
     tx_buf: RingBuffer,
@@ -118,17 +113,21 @@ impl Info {
     }
 }
 
-/// Trait for LPUART peripheral instances
-#[allow(private_bounds)]
-pub trait Instance: SealedInstance + PeripheralType + 'static + Send + Gate<MrccPeriphConfig = LpuartConfig> {
+trait SealedInstance: Gate<MrccPeriphConfig = LpuartConfig> {
+    fn info() -> &'static Info;
+    fn state() -> &'static State;
+
     const CLOCK_INSTANCE: crate::clocks::periph_helpers::LpuartInstance;
-    type Interrupt: interrupt::typelevel::Interrupt;
-    /// Type-safe DMA request source for TX
-    type TxDmaRequest: DmaRequest;
-    /// Type-safe DMA request source for RX
-    type RxDmaRequest: DmaRequest;
+    const TX_DMA_REQUEST: DmaRequest;
+    const RX_DMA_REQUEST: DmaRequest;
     const PERF_INT_INCR: fn();
     const PERF_INT_WAKE_INCR: fn();
+}
+
+/// Trait for LPUART peripheral instances
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
+    type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 macro_rules! impl_instance {
@@ -149,16 +148,18 @@ macro_rules! impl_instance {
                         static STATE: State = State::new();
                         &STATE
                     }
+
+                    const CLOCK_INSTANCE: crate::clocks::periph_helpers::LpuartInstance
+                        = crate::clocks::periph_helpers::LpuartInstance::[<Lpuart $n>];
+                    const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<LPUART $n Tx>];
+                    const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<LPUART $n Rx>];
+                    const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_lpuart $n>];
+                    const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_lpuart $n _wake>];
                 }
 
                 impl Instance for crate::peripherals::[<LPUART $n>] {
-                    const CLOCK_INSTANCE: crate::clocks::periph_helpers::LpuartInstance
-                        = crate::clocks::periph_helpers::LpuartInstance::[<Lpuart $n>];
                     type Interrupt = crate::interrupt::typelevel::[<LPUART $n>];
-                    type TxDmaRequest = crate::dma::[<Lpuart $n TxRequest>];
-                    type RxDmaRequest = crate::dma::[<Lpuart $n RxRequest>];
-                    const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_lpuart $n>];
-                    const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_lpuart $n _wake>];
+
                 }
             }
         )*
