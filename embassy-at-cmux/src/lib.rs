@@ -535,6 +535,16 @@ pub enum ChannelError {
     Hangup,
 }
 
+impl core::fmt::Display for ChannelError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Hangup => write!(f, "channel hangup"),
+        }
+    }
+}
+
+impl core::error::Error for ChannelError {}
+
 impl embedded_io_async::Error for ChannelError {
     fn kind(&self) -> embedded_io_async::ErrorKind {
         match self {
@@ -567,6 +577,10 @@ impl<'a, const BUF: usize> Write for Channel<'a, BUF> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         check_hangup(self.tx.write(buf), self.lines).await
     }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
 }
 
 impl<'a, const BUF: usize> ErrorType for ChannelRx<'a, BUF> {
@@ -596,6 +610,10 @@ impl<'a, const BUF: usize> ErrorType for ChannelTx<'a, BUF> {
 impl<'a, const BUF: usize> Write for ChannelTx<'a, BUF> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         check_hangup(self.tx.write(buf), self.lines).await
+    }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(())
     }
 }
 
