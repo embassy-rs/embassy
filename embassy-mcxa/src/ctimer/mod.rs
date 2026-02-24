@@ -131,19 +131,20 @@ impl Info {
 
 unsafe impl Sync for Info {}
 
-trait SealedInstance {
+trait SealedInstance: Gate<MrccPeriphConfig = CTimerConfig> {
     fn info() -> &'static Info;
-}
 
-/// CTimer Instance
-#[allow(private_bounds)]
-pub trait Instance: SealedInstance + PeripheralType + 'static + Send + Gate<MrccPeriphConfig = CTimerConfig> {
-    /// Interrupt for this I2C instance.
-    type Interrupt: interrupt::typelevel::Interrupt;
     /// Clock instance
     const CLOCK_INSTANCE: crate::clocks::periph_helpers::CTimerInstance;
     const PERF_INT_INCR: fn();
     const PERF_INT_WAKE_INCR: fn();
+}
+
+/// CTimer Instance
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
+    /// Interrupt for this I2C instance.
+    type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 macro_rules! impl_instance {
@@ -157,16 +158,17 @@ macro_rules! impl_instance {
                 };
                 &INFO
             }
-        }
 
-        impl Instance for crate::peripherals::$peri {
-            type Interrupt = crate::interrupt::typelevel::$peri;
             const CLOCK_INSTANCE: crate::clocks::periph_helpers::CTimerInstance =
                 crate::clocks::periph_helpers::CTimerInstance::$clock;
             paste! {
                 const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_ $perf>];
                 const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_ $perf _wake>];
             }
+        }
+
+        impl Instance for crate::peripherals::$peri {
+            type Interrupt = crate::interrupt::typelevel::$peri;
         }
     };
 }

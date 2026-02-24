@@ -18,7 +18,7 @@ mod sealed {
     pub trait Sealed {}
 }
 
-trait SealedInstance {
+trait SealedInstance: Gate<MrccPeriphConfig = Lpi2cConfig> {
     fn info() -> &'static Info;
 
     /// Clock instance
@@ -31,7 +31,7 @@ trait SealedInstance {
 
 /// I2C Instance
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + PeripheralType + 'static + Send + Gate<MrccPeriphConfig = Lpi2cConfig> {
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Interrupt for this I2C instance.
     type Interrupt: interrupt::typelevel::Interrupt;
 }

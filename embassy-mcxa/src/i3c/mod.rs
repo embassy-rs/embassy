@@ -52,17 +52,18 @@ mod sealed {
     pub trait Sealed {}
 }
 
-trait SealedInstance {
+trait SealedInstance: Gate<MrccPeriphConfig = I3cConfig> {
     fn info() -> &'static Info;
+
+    const PERF_INT_INCR: fn();
+    const PERF_INT_WAKE_INCR: fn();
 }
 
 /// I3C Instance
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + PeripheralType + 'static + Send + Gate<MrccPeriphConfig = I3cConfig> {
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Interrupt for this I3C instance.
     type Interrupt: interrupt::typelevel::Interrupt;
-    const PERF_INT_INCR: fn();
-    const PERF_INT_WAKE_INCR: fn();
 }
 
 struct Info {
@@ -95,12 +96,13 @@ macro_rules! impl_instance {
                     };
                     &INFO
                 }
+
+                const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_i3c $n>];
+                const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_i3c $n _wake>];
             }
 
             impl Instance for crate::peripherals::[<I3C $n>] {
                 type Interrupt = crate::interrupt::typelevel::[<I3C $n>];
-                const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_i3c $n>];
-                const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_i3c $n _wake>];
             }
         }
     };

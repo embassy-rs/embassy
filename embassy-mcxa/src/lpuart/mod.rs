@@ -113,7 +113,7 @@ impl Info {
     }
 }
 
-trait SealedInstance {
+trait SealedInstance: Gate<MrccPeriphConfig = LpuartConfig> {
     fn info() -> &'static Info;
     fn state() -> &'static State;
 
@@ -126,7 +126,7 @@ trait SealedInstance {
 
 /// Trait for LPUART peripheral instances
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + PeripheralType + 'static + Send + Gate<MrccPeriphConfig = LpuartConfig> {
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
