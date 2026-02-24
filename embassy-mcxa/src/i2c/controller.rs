@@ -439,9 +439,13 @@ impl<'d, M: Mode> I2c<'d, M> {
         //
         // Because of this, we are not going to error out in case of
         // empty writes.
-        #[cfg(feature = "defmt")]
         if write.is_empty() {
+            #[cfg(feature = "defmt")]
             defmt::trace!("Empty write, write probing?");
+            if send_stop == SendStop::Yes {
+                self.stop()?;
+            }
+            return Ok(());
         }
 
         for byte in write {
@@ -695,9 +699,13 @@ impl<'d> AsyncEngine for I2c<'d, Async> {
             //
             // Because of this, we are not going to error out in case of
             // empty writes.
-            #[cfg(feature = "defmt")]
             if write.is_empty() {
+                #[cfg(feature = "defmt")]
                 defmt::trace!("Empty write, write probing?");
+                if send_stop == SendStop::Yes {
+                    self.async_stop().await?;
+                }
+                return Ok(());
             }
 
             for byte in write {
@@ -867,8 +875,8 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
             //
             // Because of this, we are not going to error out in case of
             // empty writes.
-            #[cfg(feature = "defmt")]
             if write.is_empty() {
+                #[cfg(feature = "defmt")]
                 defmt::trace!("Empty write, write probing?");
                 if send_stop == SendStop::Yes {
                     self.async_stop().await?;
