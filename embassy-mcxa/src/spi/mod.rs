@@ -17,6 +17,13 @@ mod sealed {
 
 trait SealedInstance {
     fn info() -> &'static Info;
+
+    /// Clock instance
+    const CLOCK_INSTANCE: crate::clocks::periph_helpers::LpspiInstance;
+    const PERF_INT_INCR: fn();
+    const PERF_INT_WAKE_INCR: fn();
+    const TX_DMA_REQUEST: DmaRequest;
+    const RX_DMA_REQUEST: DmaRequest;
 }
 
 /// SPI Instance
@@ -24,12 +31,6 @@ trait SealedInstance {
 pub trait Instance: SealedInstance + PeripheralType + 'static + Send + Gate<MrccPeriphConfig = LpspiConfig> {
     /// Interrupt for this SPI instance.
     type Interrupt: interrupt::typelevel::Interrupt;
-    /// Clock instance
-    const CLOCK_INSTANCE: crate::clocks::periph_helpers::LpspiInstance;
-    const PERF_INT_INCR: fn();
-    const PERF_INT_WAKE_INCR: fn();
-    const TX_DMA_REQUEST: DmaRequest;
-    const RX_DMA_REQUEST: DmaRequest;
 }
 
 struct Info {
@@ -63,16 +64,17 @@ macro_rules! impl_instance {
                         };
                         &INFO
                     }
-                }
 
-                impl Instance for crate::peripherals::[<LPSPI $n>] {
-                    type Interrupt = crate::interrupt::typelevel::[<LPSPI $n>];
                     const CLOCK_INSTANCE: crate::clocks::periph_helpers::LpspiInstance
                         = crate::clocks::periph_helpers::LpspiInstance::[<Lpspi $n>];
                     const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_spi $n>];
                     const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_spi $n _wake>];
                     const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<LPSPI $n Tx>];
                     const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<LPSPI $n Rx>];
+                }
+
+                impl Instance for crate::peripherals::[<LPSPI $n>] {
+                    type Interrupt = crate::interrupt::typelevel::[<LPSPI $n>];
                 }
             }
         )*

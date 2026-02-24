@@ -20,6 +20,13 @@ mod sealed {
 
 trait SealedInstance {
     fn info() -> &'static Info;
+
+    /// Clock instance
+    const CLOCK_INSTANCE: crate::clocks::periph_helpers::Lpi2cInstance;
+    const PERF_INT_INCR: fn();
+    const PERF_INT_WAKE_INCR: fn();
+    const TX_DMA_REQUEST: DmaRequest;
+    const RX_DMA_REQUEST: DmaRequest;
 }
 
 /// I2C Instance
@@ -27,12 +34,6 @@ trait SealedInstance {
 pub trait Instance: SealedInstance + PeripheralType + 'static + Send + Gate<MrccPeriphConfig = Lpi2cConfig> {
     /// Interrupt for this I2C instance.
     type Interrupt: interrupt::typelevel::Interrupt;
-    /// Clock instance
-    const CLOCK_INSTANCE: crate::clocks::periph_helpers::Lpi2cInstance;
-    const PERF_INT_INCR: fn();
-    const PERF_INT_WAKE_INCR: fn();
-    const TX_DMA_REQUEST: DmaRequest;
-    const RX_DMA_REQUEST: DmaRequest;
 }
 
 struct Info {
@@ -66,16 +67,17 @@ macro_rules! impl_instance {
                         };
                         &INFO
                     }
-                }
 
-                impl Instance for crate::peripherals::[<LPI2C $n>] {
-                    type Interrupt = crate::interrupt::typelevel::[<LPI2C $n>];
                     const CLOCK_INSTANCE: crate::clocks::periph_helpers::Lpi2cInstance
                         = crate::clocks::periph_helpers::Lpi2cInstance::[<Lpi2c $n>];
                     const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_i2c $n>];
                     const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_i2c $n _wake>];
                     const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<LPI2C $n Tx>];
                     const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<LPI2C $n Rx>];
+                }
+
+                impl Instance for crate::peripherals::[<LPI2C $n>] {
+                    type Interrupt = crate::interrupt::typelevel::[<LPI2C $n>];
                 }
             }
         )*
