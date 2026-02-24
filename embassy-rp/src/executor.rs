@@ -8,7 +8,7 @@
 //! When using this executors, they must be explicitely passed to the `main`
 //! macro using
 //!
-//! `#[main(executor = "embassy_rp::executor::Executor")]`
+//! `#[embassy_executor::main(executor = "embassy_rp::executor::Executor",  entry = "cortex_m_rt::entry")]`
 
 #[unsafe(export_name = "__pender")]
 #[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
@@ -74,7 +74,6 @@ mod thread {
     use core::marker::PhantomData;
 
     use embassy_executor::{Spawner, raw};
-    pub use embassy_executor_macros::main_cortex_m as main;
 
     /// Thread mode executor, using WFE/SEV.
     ///
