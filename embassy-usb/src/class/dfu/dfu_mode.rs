@@ -58,6 +58,16 @@ impl<'d, H: Handler> DfuState<H> {
         }
     }
 
+    /// Set DFU instance into firmware error
+    ///
+    /// This is typically called when the stored firmware
+    /// is corrupt and can not be booted.
+    pub fn set_to_firmware_error(&mut self) {
+        self.reset_state();
+        self.state = State::Error;
+        self.status = Status::ErrFirmware;
+    }
+
     fn reset_state(&mut self) {
         self.next_block_num = 0;
         self.state = State::DfuIdle;

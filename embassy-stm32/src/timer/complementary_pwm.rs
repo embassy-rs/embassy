@@ -61,6 +61,14 @@ impl<'d, T: AdvancedInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(
 /// PWM driver with support for standard and complementary outputs.
 pub struct ComplementaryPwm<'d, T: AdvancedInstance4Channel> {
     inner: Timer<'d, T>,
+    _ch1: Option<Flex<'d>>,
+    _ch1n: Option<Flex<'d>>,
+    _ch2: Option<Flex<'d>>,
+    _ch2n: Option<Flex<'d>>,
+    _ch3: Option<Flex<'d>>,
+    _ch3n: Option<Flex<'d>>,
+    _ch4: Option<Flex<'d>>,
+    _ch4n: Option<Flex<'d>>,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -88,11 +96,45 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         freq: Hertz,
         counting_mode: CountingMode,
     ) -> Self {
-        Self::new_inner(tim, freq, counting_mode)
+        Self::new_inner(
+            tim,
+            ch1.map(|pin| pin.pin),
+            ch1n.map(|pin| pin.pin),
+            ch2.map(|pin| pin.pin),
+            ch2n.map(|pin| pin.pin),
+            ch3.map(|pin| pin.pin),
+            ch3n.map(|pin| pin.pin),
+            ch4.map(|pin| pin.pin),
+            ch4n.map(|pin| pin.pin),
+            freq,
+            counting_mode,
+        )
     }
 
-    fn new_inner(tim: Peri<'d, T>, freq: Hertz, counting_mode: CountingMode) -> Self {
-        let mut this = Self { inner: Timer::new(tim) };
+    fn new_inner(
+        tim: Peri<'d, T>,
+        _ch1: Option<Flex<'d>>,
+        _ch1n: Option<Flex<'d>>,
+        _ch2: Option<Flex<'d>>,
+        _ch2n: Option<Flex<'d>>,
+        _ch3: Option<Flex<'d>>,
+        _ch3n: Option<Flex<'d>>,
+        _ch4: Option<Flex<'d>>,
+        _ch4n: Option<Flex<'d>>,
+        freq: Hertz,
+        counting_mode: CountingMode,
+    ) -> Self {
+        let mut this = Self {
+            inner: Timer::new(tim),
+            _ch1,
+            _ch1n,
+            _ch2,
+            _ch2n,
+            _ch3,
+            _ch3n,
+            _ch4,
+            _ch4n,
+        };
 
         this.inner.set_counting_mode(counting_mode);
         this.set_frequency(freq);

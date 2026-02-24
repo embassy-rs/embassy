@@ -202,7 +202,7 @@ pub enum FlashSleep {
 }
 
 /// Maximum sleep depth for the CPU core
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, Default, Debug)]
 #[non_exhaustive]
 pub enum CoreSleep {
     /// System will sleep using WFE when idle, but the CPU clock domain will not ever
@@ -488,6 +488,18 @@ impl Default for Fro16KConfig {
         Self {
             vsys_domain_active: true,
             vdd_core_domain_active: true,
+        }
+    }
+}
+
+impl Default for FircConfig {
+    fn default() -> Self {
+        FircConfig {
+            frequency: FircFreqSel::Mhz45,
+            power: PoweredClock::NormalEnabledDeepSleepDisabled,
+            fro_hf_enabled: true,
+            clk_45m_enabled: true,
+            fro_hf_div: None,
         }
     }
 }

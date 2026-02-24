@@ -13,14 +13,19 @@ pub mod config;
 pub mod crc;
 pub mod ctimer;
 pub mod dma;
+#[cfg(feature = "custom-executor")]
+pub mod executor;
+pub mod flash;
 pub mod gpio;
 pub mod i2c;
 pub mod i3c;
+pub mod inputmux;
 pub mod lpuart;
 pub mod ostimer;
 pub mod perf_counters;
 pub mod reset_reason;
 pub mod rtc;
+pub mod spi;
 pub mod trng;
 pub mod wwdt;
 
@@ -501,6 +506,9 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
     // NOTE: As early as possible, but MUST be AFTER clocks!
     crate::ostimer::init(cfg.time_interrupt_priority);
 
+    // Initialize the INPUTMUX peripheral
+    crate::inputmux::init();
+
     unsafe {
         crate::gpio::interrupt_init();
     }
@@ -526,7 +534,10 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
         _ = crate::clocks::enable_and_reset::<crate::peripherals::GPIO4>(&crate::clocks::periph_helpers::NoConfig);
     }
 
+    // import may be unused if none of the following features are set
+    #[allow(unused_imports)]
     use crate::gpio::SealedPin;
+
     // If we are not using SWD pins for SWD reasons, make them floating inputs
     #[cfg(feature = "swd-as-gpio")]
     {

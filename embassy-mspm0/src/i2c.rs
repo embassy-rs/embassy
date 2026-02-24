@@ -474,9 +474,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             w.set_cblen(length as u16);
             w.set_start(false);
             w.set_ack(send_ack_nack);
-            if send_stop {
-                w.set_stop(true);
-            }
+            w.set_stop(send_stop);
         });
 
         Ok(())
@@ -509,9 +507,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             w.set_burstrun(true);
             w.set_ack(send_ack_nack);
             w.set_start(true);
-            if send_stop {
-                w.set_stop(true);
-            }
+            w.set_stop(send_stop);
         });
 
         Ok(())
@@ -528,9 +524,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             w.set_cblen(length as u16);
             w.set_burstrun(true);
             w.set_start(true);
-            if send_stop {
-                w.set_stop(true);
-            }
+            w.set_stop(send_stop);
         });
 
         Ok(())

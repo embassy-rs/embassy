@@ -21,7 +21,11 @@ use embassy_time::Timer;
 use hal::gpio::{DriveStrength, Level, Output, SlewRate};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
-#[embassy_executor::main]
+#[cfg_attr(
+    feature = "custom-executor",
+    embassy_executor::main(executor = "embassy_mcxa::executor::Executor", entry = "cortex_m_rt::entry")
+)]
+#[cfg_attr(not(feature = "custom-executor"), embassy_executor::main)]
 async fn main(_spawner: Spawner) {
     // Do a short delay in order to allow for us to attach the debugger/start
     // a flash in case some setting below is wrong, and the CPU gets stuck
@@ -52,7 +56,7 @@ async fn main(_spawner: Spawner) {
     // Feed core from 12M osc
     cfg.clock_cfg.main_clock = MainClockConfig {
         source: MainClockSource::SircFro12M,
-        power: PoweredClock::NormalEnabledDeepSleepDisabled,
+        power: PoweredClock::AlwaysEnabled,
         ahb_clk_div: Div8::no_div(),
     };
 
@@ -69,12 +73,6 @@ async fn main(_spawner: Spawner) {
     cfg.clock_cfg.vdd_power.flash_sleep = FlashSleep::FlashDoze;
 
     let p = hal::init(cfg);
-
-    // SAFETY: We are only using SIRC, which is "always enabled". This is a temporary
-    // hack until we fully support deep sleep
-    unsafe {
-        hal::clocks::okay_but_actually_enable_deep_sleep();
-    }
 
     defmt::info!("Going to sleep shortly...");
     cortex_m::asm::delay(45_000_000 / 4);

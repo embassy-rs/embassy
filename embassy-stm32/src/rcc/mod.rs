@@ -252,7 +252,7 @@ impl RccInfo {
     }
 
     // TODO: should this be `unsafe`?
-    pub(crate) fn enable_and_reset_with_cs(&self, _cs: CriticalSection) {
+    pub(crate) fn enable_and_reset_with_cs(&self, cs: CriticalSection) {
         if self.refcount_idx_or_0xff != 0xff {
             let refcount_idx = self.refcount_idx_or_0xff as usize;
 
@@ -296,6 +296,11 @@ impl RccInfo {
             }
         }
 
+        self.enable_with_cs(cs);
+    }
+
+    // TODO: should this be `unsafe`?
+    pub(crate) fn enable_with_cs(&self, _cs: CriticalSection) {
         // set the xxxEN bit
         let enable_ptr = self.enable_ptr();
         unsafe {
@@ -325,6 +330,7 @@ impl RccInfo {
         cortex_m::asm::dsb();
 
         // clear the xxxRST bit
+        let reset_ptr = self.reset_ptr();
         if let Some(reset_ptr) = reset_ptr {
             unsafe {
                 let val = reset_ptr.read_volatile();
@@ -548,6 +554,15 @@ pub fn frequency<T: RccPeripheral>() -> Hertz {
 // TODO: should this be `unsafe`?
 pub fn enable_and_reset_with_cs<T: RccPeripheral>(cs: CriticalSection) {
     T::RCC_INFO.enable_and_reset_with_cs(cs);
+}
+
+/// Enables and clears the reset for peripheral `T`.
+///
+/// # Safety
+///
+/// The peripheral can be in use since this does not reset it
+pub fn enable_with_cs<T: RccPeripheral>(cs: CriticalSection) {
+    T::RCC_INFO.enable_with_cs(cs);
 }
 
 /// Disables peripheral `T`.

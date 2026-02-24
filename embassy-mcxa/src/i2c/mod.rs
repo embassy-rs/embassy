@@ -6,6 +6,7 @@ use paste::paste;
 
 use crate::clocks::Gate;
 use crate::clocks::periph_helpers::Lpi2cConfig;
+use crate::dma::{DmaChannel, DmaRequest};
 use crate::gpio::{GpioPin, SealedPin};
 use crate::{interrupt, pac};
 
@@ -17,19 +18,22 @@ mod sealed {
     pub trait Sealed {}
 }
 
-trait SealedInstance {
+trait SealedInstance: Gate<MrccPeriphConfig = Lpi2cConfig> {
     fn info() -> &'static Info;
-}
 
-/// I2C Instance
-#[allow(private_bounds)]
-pub trait Instance: SealedInstance + PeripheralType + 'static + Send + Gate<MrccPeriphConfig = Lpi2cConfig> {
-    /// Interrupt for this I2C instance.
-    type Interrupt: interrupt::typelevel::Interrupt;
     /// Clock instance
     const CLOCK_INSTANCE: crate::clocks::periph_helpers::Lpi2cInstance;
     const PERF_INT_INCR: fn();
     const PERF_INT_WAKE_INCR: fn();
+    const TX_DMA_REQUEST: DmaRequest;
+    const RX_DMA_REQUEST: DmaRequest;
+}
+
+/// I2C Instance
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
+    /// Interrupt for this I2C instance.
+    type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 struct Info {
@@ -52,7 +56,7 @@ impl Info {
 unsafe impl Sync for Info {}
 
 macro_rules! impl_instance {
-    ($($n:expr),*) => {
+    ($($n:literal),*) => {
         $(
             paste!{
                 impl SealedInstance for crate::peripherals::[<LPI2C $n>] {
@@ -63,14 +67,17 @@ macro_rules! impl_instance {
                         };
                         &INFO
                     }
-                }
 
-                impl Instance for crate::peripherals::[<LPI2C $n>] {
-                    type Interrupt = crate::interrupt::typelevel::[<LPI2C $n>];
                     const CLOCK_INSTANCE: crate::clocks::periph_helpers::Lpi2cInstance
                         = crate::clocks::periph_helpers::Lpi2cInstance::[<Lpi2c $n>];
                     const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_i2c $n>];
                     const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_i2c $n _wake>];
+                    const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<LPI2C $n Tx>];
+                    const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<LPI2C $n Rx>];
+                }
+
+                impl Instance for crate::peripherals::[<LPI2C $n>] {
+                    type Interrupt = crate::interrupt::typelevel::[<LPI2C $n>];
                 }
             }
         )*
@@ -93,6 +100,10 @@ pub trait SdaPin<Instance>: GpioPin + sealed::Sealed + PeripheralType {
 #[allow(private_bounds)]
 pub trait Mode: sealed::Sealed {}
 
+/// Async driver mode.
+#[allow(private_bounds)]
+pub trait AsyncMode: sealed::Sealed + Mode {}
+
 /// Blocking mode.
 pub struct Blocking;
 impl sealed::Sealed for Blocking {}
@@ -102,6 +113,18 @@ impl Mode for Blocking {}
 pub struct Async;
 impl sealed::Sealed for Async {}
 impl Mode for Async {}
+impl AsyncMode for Async {}
+
+/// DMA mode.
+pub struct Dma<'d> {
+    tx_dma: DmaChannel<'d>,
+    rx_dma: DmaChannel<'d>,
+    rx_request: DmaRequest,
+    tx_request: DmaRequest,
+}
+impl sealed::Sealed for Dma<'_> {}
+impl Mode for Dma<'_> {}
+impl AsyncMode for Dma<'_> {}
 
 macro_rules! impl_pin {
     ($pin:ident, $peri:ident, $fn:ident, $trait:ident) => {
@@ -135,11 +158,12 @@ impl_pin!(P1_12, LPI2C1, MUX2, SdaPin);
 impl_pin!(P1_13, LPI2C1, MUX2, SclPin);
 impl_pin!(P1_14, LPI2C1, MUX2, SclPin);
 impl_pin!(P1_15, LPI2C1, MUX2, SdaPin);
-// NOTE: P1_30 and P1_31 are typically used for the external oscillator
-// For now, we just don't give users these pins.
-//
-// impl_pin!(P1_30, LPI2C0, MUX3, SdaPin);
-// impl_pin!(P1_31, LPI2C0, MUX3, SclPin);
+
+#[cfg(feature = "sosc-as-gpio")]
+impl_pin!(P1_30, LPI2C0, MUX3, SdaPin);
+#[cfg(feature = "sosc-as-gpio")]
+impl_pin!(P1_31, LPI2C0, MUX3, SclPin);
+
 impl_pin!(P3_27, LPI2C3, MUX2, SclPin);
 impl_pin!(P3_28, LPI2C3, MUX2, SdaPin);
 // impl_pin!(P3_29, LPI2C3, MUX2, HreqPin); What is this HREQ pin?

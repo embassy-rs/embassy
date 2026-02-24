@@ -101,7 +101,7 @@ pub mod flash;
 pub mod fmc;
 #[cfg(hash)]
 pub mod hash;
-#[cfg(hrtim)]
+#[cfg(all(hrtim, feature = "stm32-hrtim"))]
 pub mod hrtim;
 #[cfg(hsem)]
 pub mod hsem;
@@ -173,7 +173,7 @@ pub(crate) mod _generated {
     include!(concat!(env!("OUT_DIR"), "/_generated.rs"));
 }
 
-pub use crate::_generated::interrupt;
+pub use crate::_generated::{interrupt, triggers};
 
 /// Macro to bind interrupts to handlers.
 ///
@@ -335,6 +335,10 @@ pub struct Config {
     /// Defaults to false (disabled).
     #[cfg(peri_ucpd2)]
     pub enable_ucpd2_dead_battery: bool,
+
+    /// Allows JTAG pins to be used for GPIO
+    #[cfg(stm32f1)]
+    pub swj: gpio::SwjCfg,
 }
 
 impl Default for Config {
@@ -363,6 +367,8 @@ impl Default for Config {
             enable_ucpd1_dead_battery: false,
             #[cfg(peri_ucpd2)]
             enable_ucpd2_dead_battery: false,
+            #[cfg(stm32f1)]
+            swj: Default::default(),
         }
     }
 }
@@ -606,6 +612,9 @@ fn init_hw(config: Config) -> Peripherals {
             }
         });
 
+        #[cfg(any(stm32h7rs))]
+        // On the H7RS the SYSCFG should not be reset if it is already enabled. This is typically the case when running from external flash and the bootloader enables the SYSCFG.
+        rcc::enable_with_cs::<peripherals::SYSCFG>(cs);
         #[cfg(not(any(stm32f1, stm32wb, stm32wl, stm32h7rs)))]
         rcc::enable_and_reset_with_cs::<peripherals::SYSCFG>(cs);
         #[cfg(not(any(stm32h5, stm32h7, stm32h7rs, stm32wb, stm32wl)))]
@@ -689,6 +698,10 @@ fn init_hw(config: Config) -> Peripherals {
             });
 
             gpio::init(cs);
+
+            #[cfg(stm32f1)]
+            crate::pac::AFIO.mapr().modify(|w| w.set_swj_cfg(config.swj.into()));
+
             dma::init(
                 cs,
                 #[cfg(bdma)]

@@ -14,8 +14,6 @@ use core::ops::Deref;
 ///   the driver code would be monomorphized two times. With Peri, the driver is generic
 ///   over a lifetime only. `SPI4` becomes `Peri<'static, SPI4>`, and `&mut SPI4` becomes
 ///   `Peri<'a, SPI4>`. Lifetimes don't cause monomorphization.
-#[derive(Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Peri<'a, T: PeripheralType> {
     inner: T,
     _lifetime: PhantomData<&'a mut T>,
@@ -30,7 +28,7 @@ impl<'a, T: PeripheralType> Peri<'a, T> {
     /// on the actual peripheral types instead.
     #[inline]
     #[doc(hidden)]
-    pub unsafe fn new_unchecked(inner: T) -> Self {
+    pub const unsafe fn new_unchecked(inner: T) -> Self {
         Self {
             inner,
             _lifetime: PhantomData,
@@ -48,14 +46,14 @@ impl<'a, T: PeripheralType> Peri<'a, T> {
     /// You should strongly prefer using `reborrow()` instead. It returns a
     /// `Peri` that borrows `self`, which allows the borrow checker
     /// to enforce this at compile time.
-    pub unsafe fn clone_unchecked(&self) -> Peri<'a, T> {
+    pub const unsafe fn clone_unchecked(&self) -> Peri<'a, T> {
         Peri::new_unchecked(self.inner)
     }
 
     /// Reborrow into a "child" Peri.
     ///
     /// `self` will stay borrowed until the child Peripheral is dropped.
-    pub fn reborrow(&mut self) -> Peri<'_, T> {
+    pub const fn reborrow(&mut self) -> Peri<'_, T> {
         // safety: we're returning the clone inside a new Peripheral that borrows
         // self, so user code can't use both at the same time.
         unsafe { self.clone_unchecked() }
@@ -83,6 +81,25 @@ impl<'a, T: PeripheralType> Deref for Peri<'a, T> {
     #[inline]
     fn deref(&self) -> &Self::Target {
         &self.inner
+    }
+}
+
+impl<'a, T: PeripheralType + core::fmt::Debug> core::fmt::Debug for Peri<'a, T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        self.inner.fmt(f)
+    }
+}
+
+impl<'a, T: PeripheralType + core::fmt::Display> core::fmt::Display for Peri<'a, T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        self.inner.fmt(f)
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl<'a, T: PeripheralType + defmt::Format> defmt::Format for Peri<'a, T> {
+    fn format(&self, fmt: defmt::Formatter) {
+        self.inner.format(fmt);
     }
 }
 

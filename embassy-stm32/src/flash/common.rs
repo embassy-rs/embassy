@@ -186,12 +186,12 @@ pub(super) fn get_sector(address: u32, regions: &[&FlashRegion]) -> FlashSector 
             bank_offset = 0;
         }
 
-        if address >= region.base && address < region.end() {
-            let index_in_region = (address - region.base) / region.erase_size;
+        if address >= region.base() && address < region.end() {
+            let index_in_region = (address - region.base()) / region.erase_size;
             return FlashSector {
                 bank: region.bank,
                 index_in_bank: bank_offset + index_in_region as u8,
-                start: region.base + index_in_region * region.erase_size,
+                start: region.base() + index_in_region * region.erase_size,
                 size: region.erase_size,
             };
         }
@@ -258,7 +258,7 @@ foreach_flash_region! {
             /// NOTE: `offset` is an offset from the flash start, NOT an absolute address.
             /// For example, to read address `0x0800_1234` you have to use offset `0x1234`.
             pub fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
-                blocking_read(self.0.base, self.0.size, offset, bytes)
+                blocking_read(self.0.base(), self.0.size, offset, bytes)
             }
         }
 
@@ -268,7 +268,7 @@ foreach_flash_region! {
             /// NOTE: `offset` is an offset from the flash start, NOT an absolute address.
             /// For example, to write address `0x0800_1234` you have to use offset `0x1234`.
             pub fn blocking_write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
-                unsafe { blocking_write(self.0.base, self.0.size, offset, bytes, write_chunk_with_critical_section) }
+                unsafe { blocking_write(self.0.base(), self.0.size, offset, bytes, write_chunk_with_critical_section) }
             }
 
             /// Blocking erase.
@@ -276,7 +276,7 @@ foreach_flash_region! {
             /// NOTE: `from` and `to` are offsets from the flash start, NOT an absolute address.
             /// For example, to erase address `0x0801_0000` you have to use offset `0x1_0000`.
             pub fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
-                unsafe { blocking_erase(self.0.base, from, to, erase_sector_with_critical_section) }
+                unsafe { blocking_erase(self.0.base(), from, to, erase_sector_with_critical_section) }
             }
         }
 

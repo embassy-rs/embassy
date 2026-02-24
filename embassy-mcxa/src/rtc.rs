@@ -16,14 +16,15 @@ pub struct InterruptHandler<I: Instance> {
 
 trait SealedInstance {
     fn info() -> &'static Info;
+
+    const PERF_INT_INCR: fn();
+    const PERF_INT_WAKE_INCR: fn();
 }
 
 /// Trait for RTC peripheral instances
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     type Interrupt: Interrupt;
-    const PERF_INT_INCR: fn();
-    const PERF_INT_WAKE_INCR: fn();
 }
 
 struct Info {
@@ -56,12 +57,13 @@ impl SealedInstance for crate::peripherals::RTC0 {
         };
         &INFO
     }
+
+    const PERF_INT_INCR: fn() = crate::perf_counters::incr_interrupt_rtc0;
+    const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::incr_interrupt_rtc0_wake;
 }
 
 impl Instance for crate::peripherals::RTC0 {
     type Interrupt = crate::interrupt::typelevel::RTC;
-    const PERF_INT_INCR: fn() = crate::perf_counters::incr_interrupt_rtc0;
-    const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::incr_interrupt_rtc0_wake;
 }
 
 /// Number of days in a standard year

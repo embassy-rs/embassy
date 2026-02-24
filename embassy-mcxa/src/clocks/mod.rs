@@ -35,21 +35,22 @@
 //! 2. Implementing the [`periph_helpers::SPConfHelper`] trait, which should check that the
 //!    necessary input clocks are reasonable
 
-use core::cell::RefCell;
+use core::cell::{Ref, RefCell};
+use core::ops::Deref;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 use config::{
     ClocksConfig, CoreSleep, FircConfig, FircFreqSel, Fro16KConfig, MainClockSource, SircConfig, VddDriveStrength,
     VddLevel,
 };
-use paste::paste;
+use critical_section::CriticalSection;
 use periph_helpers::{PreEnableParts, SPConfHelper};
 
 use crate::pac;
 use crate::pac::cmc::vals::CkctrlCkmode;
 use crate::pac::scg::vals::{
-    Erefs, Fircacc, FircaccIe, FirccsrLk, Fircerr, FircerrIe, Fircsten, FreqSel, Range, Scs, SirccsrLk, Sircerr,
-    Sircvld, SosccsrLk, Soscerr, Source, SpllLock, SpllcsrLk, Spllerr, Spllsten, TrimUnlock,
+    Erefs, Fircacc, FircaccIe, FirccsrLk, Fircerr, FircerrIe, Fircsten, Fircvld, FreqSel, Range, Scs, SirccsrLk,
+    Sircerr, Sircvld, SosccsrLk, Soscerr, Source, SpllLock, SpllcsrLk, Spllerr, Spllsten, TrimUnlock,
 };
 use crate::pac::spc::vals::{
     ActiveCfgBgmode, ActiveCfgCoreldoVddDs, ActiveCfgCoreldoVddLvl, LpCfgBgmode, LpCfgCoreldoVddLvl, Vsm,
@@ -162,6 +163,156 @@ pub fn with_clocks<R: 'static, F: FnOnce(&Clocks) -> R>(f: F) -> Option<R> {
     })
 }
 
+/// Are there active `WakeGuard`s?
+///
+/// Requires a critical section to ensure this doesn't race between getting the guard
+/// count and performing some action like setting up deep sleep
+#[inline(always)]
+pub fn active_wake_guards(_cs: &CriticalSection) -> bool {
+    // Relaxed is okay: we are in a critical section
+    LIVE_HP_TOKENS.load(Ordering::Relaxed) != 0
+}
+
+/// Attempt to go to deep sleep if possible.
+///
+/// If we successfully went and returned from deep sleep, this function returns a `true`.
+/// If we were unsuccessful due to active `WaitGuard`s, this function returns a `false`.
+///
+/// ## SAFETY
+///
+/// Care must be taken that we have ensured that the system is ready to go to deep
+/// sleep, otherwise HAL peripherals may misbehave. `crate::clocks::init()` must
+/// have been called and returned successfully, with a `CoreSleep` configuration
+/// set to DeepSleep (or lower).
+pub unsafe fn deep_sleep_if_possible(cs: &CriticalSection) -> bool {
+    let inhibit = crate::clocks::active_wake_guards(&cs);
+    if inhibit {
+        return false;
+    }
+
+    unsafe {
+        // Yep, it's time to go to deep sleep. WHILE STILL IN the CS, get ready
+        crate::clocks::setup_deep_sleep();
+
+        // Here we go!
+        //
+        // It is okay to WFE with interrupts disabled: we have enabled SEVONPEND
+        cortex_m::asm::dsb();
+        cortex_m::asm::wfe();
+
+        // Wakey wakey, eggs and bakey
+        recover_deep_sleep(&cs);
+    }
+
+    true
+}
+
+/// Prepare the system for deep sleep
+///
+/// ## SAFETY
+///
+/// Care must be taken that we have ensured that the system is ready to go to deep
+/// sleep, otherwise HAL peripherals may misbehave. `crate::clocks::init()` must
+/// have been called and returned successfully, with a `CoreSleep` configuration
+/// set to DeepSleep (or lower).
+unsafe fn setup_deep_sleep() {
+    let cmc = nxp_pac::CMC;
+    let spc = nxp_pac::SPC0;
+
+    // Isolate/unpower external voltage domains
+    spc.evd_cfg().write(|w| w.0 = 0);
+
+    // To configure for Deep Sleep Low-Power mode entry:
+    //
+    // Write Fh to Clock Control (CKCTRL)
+    cmc.ckctrl().modify(|w| w.set_ckmode(CkctrlCkmode::CKMODE1111));
+    // Write 1h to Power Mode Protection (PMPROT)
+    cmc.pmprot().write(|w| w.0 = 1);
+    // Write 1h to Global Power Mode Control (GPMCTRL)
+    cmc.gpmctrl().modify(|w| w.set_lpmode(0b0001));
+    // Redundant?
+    // cmc.pmctrlmain().modify(|w| w.set_lpmode(PmctrlmainLpmode::LPMODE0001));
+
+    // From the C SDK:
+    //
+    // Before executing WFI instruction read back the last register to
+    // ensure all registers writes have completed.
+    let _ = cmc.gpmctrl().read();
+}
+
+/// Start back up after deep sleep returns
+///
+/// ## SAFETY
+///
+/// Care must be taken that we have ensured that the system is ready to go to deep
+/// sleep, otherwise HAL peripherals may misbehave. `crate::clocks::init()` must
+/// have been called and returned successfully, with a `CoreSleep` configuration
+/// set to DeepSleep (or lower).
+unsafe fn recover_deep_sleep(cs: &CriticalSection) {
+    let cmc = nxp_pac::CMC;
+
+    // Restart any necessary clocks
+    unsafe {
+        restart_active_only_clocks(cs);
+    }
+
+    // Re-raise the sleep level to WFE sleep in the off chance that the
+    // user decides to call `wfe` on their own accord, and to avoid having
+    // to re-set if we chill in WFE sleep mostly
+    cmc.ckctrl().modify(|w| w.set_ckmode(CkctrlCkmode::CKMODE0001));
+}
+
+/// Perform any actions necessary to re-initialize clocks after returning to active
+/// mode after a low power (e.g. deep sleep, power-off) state.
+///
+/// ## Safety
+///
+/// This should only be called in a critical section, immediately after waking up.
+unsafe fn restart_active_only_clocks(_cs: &CriticalSection) {
+    let bref: Ref<'_, Option<Clocks>> = CLOCKS.borrow_ref(*_cs);
+    let dref: &Option<Clocks> = bref.deref();
+    let Some(clocks) = dref else {
+        return;
+    };
+    let scg = pac::SCG0;
+
+    // TODO: Restart clock monitors if necessary? Needs to be re-enabled
+    // AFTER FRO12M has been started, and probably after clocks are
+    // valid again.
+    //
+    // TODO: Timeout? Check error fields (at least for SPLL)? Clear
+    // or reset any status bits?
+
+    // Ensure FRO12M is up and running
+    if let Some(fro12m) = clocks.fro_12m_root.as_ref() {
+        if !matches!(fro12m.power, PoweredClock::AlwaysEnabled) {
+            while scg.sirccsr().read().sircvld() != Sircvld::ENABLED_AND_VALID {}
+        }
+    }
+
+    // Ensure FRO45M is up and running
+    if let Some(frohf) = clocks.fro_hf_root.as_ref() {
+        if !matches!(frohf.power, PoweredClock::AlwaysEnabled) {
+            while scg.firccsr().read().fircvld() != Fircvld::ENABLED_AND_VALID {}
+        }
+    }
+
+    // Ensure SOSC is up and running
+    #[cfg(not(feature = "sosc-as-gpio"))]
+    if let Some(clk_in) = clocks.clk_in.as_ref() {
+        if !matches!(clk_in.power, PoweredClock::AlwaysEnabled) {
+            while !scg.sosccsr().read().soscvld() {}
+        }
+    }
+
+    // Ensure SPLL is up and running
+    if let Some(spll) = clocks.pll1_clk.as_ref() {
+        if !matches!(spll.power, PoweredClock::AlwaysEnabled) {
+            while scg.spllcsr().read().spll_lock() != SpllLock::ENABLED_AND_VALID {}
+        }
+    }
+}
+
 //
 // Structs/Enums
 //
@@ -227,6 +378,15 @@ pub struct Clocks {
 
     /// Low-power power config
     pub lp_power: VddLevel,
+
+    /// Is the bandgap enabled in active mode?
+    pub bandgap_active: bool,
+
+    /// Is the bandgap enabled in deep sleep mode?
+    pub bandgap_lowpower: bool,
+
+    /// Lowest sleep level
+    pub core_sleep: CoreSleep,
 
     /// The `clk_in` is a clock provided by an external oscillator
     /// AKA SOSC
@@ -337,6 +497,7 @@ pub struct Clock {
 /// any peripherals that are NOT using an `AlwaysEnabled` clock active, entry into
 /// Deep Sleep will be prevented, in order to avoid misbehaving peripherals.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum PoweredClock {
     /// The given clock will NOT continue running in Deep Sleep mode
     NormalEnabledDeepSleepDisabled,
@@ -747,17 +908,29 @@ impl PoweredClock {
 }
 
 impl ClockOperator<'_> {
-    fn active_limits(&self) -> &ClockLimits {
+    fn active_limits(&self) -> &'static ClockLimits {
         match self.config.vdd_power.active_mode.level {
             VddLevel::MidDriveMode => &ClockLimits::MID_DRIVE,
             VddLevel::OverDriveMode => &ClockLimits::OVER_DRIVE,
         }
     }
 
+    fn low_power_limits(&self) -> &'static ClockLimits {
+        match self.config.vdd_power.low_power_mode.level {
+            VddLevel::MidDriveMode => &ClockLimits::MID_DRIVE,
+            VddLevel::OverDriveMode => &ClockLimits::OVER_DRIVE,
+        }
+    }
+
+    fn lowest_relevant_limits(&self, for_power: &PoweredClock) -> &'static ClockLimits {
+        // We always enforce that deep sleep has a drive <= active mode.
+        match for_power {
+            PoweredClock::NormalEnabledDeepSleepDisabled => self.active_limits(),
+            PoweredClock::AlwaysEnabled => self.low_power_limits(),
+        }
+    }
+
     /// Configure the FIRC/FRO180M clock family
-    ///
-    /// NOTE: Currently we require this to be a fairly hardcoded value, as this clock is used
-    /// as the main clock used for the CPU, AHB, APB, etc.
     fn configure_firc_clocks(&mut self) -> Result<(), ClockError> {
         // Three options here:
         //
@@ -779,7 +952,7 @@ impl ClockOperator<'_> {
             self.scg0.rccr().modify(|w| w.set_scs(Scs::SIRC));
 
             // Wait for the change to complete
-            while self.scg0.csr().read().scs() == Scs::SIRC {}
+            while self.scg0.csr().read().scs() != Scs::SIRC {}
         }
 
         // Enable CSR writes
@@ -817,6 +990,8 @@ impl ClockOperator<'_> {
             });
         }
 
+        let limits = self.lowest_relevant_limits(&firc.power);
+
         // Set frequency (if not the default 45MHz!), re-enable FIRC, and return the base frequency
         //
         // NOTE: the SVD currently has the wrong(?) values for these:
@@ -826,27 +1001,18 @@ impl ClockOperator<'_> {
         // 180 -> 192
         //
         // Probably correct-ish, but for a different trim value?
-        let base_freq = match firc.frequency {
+        let (base_freq, sel) = match firc.frequency {
             FircFreqSel::Mhz45 => {
                 // We are default, there's nothing to do here.
-                45_000_000
+                (45_000_000, FreqSel::FIRC_48MHZ_192S)
             }
-            FircFreqSel::Mhz60 => {
-                self.scg0.firccfg().modify(|w| w.set_freq_sel(FreqSel::FIRC_64MHZ));
-                self.scg0.firccsr().modify(|w| w.set_fircen(true));
-                60_000_000
-            }
-            FircFreqSel::Mhz90 => {
-                self.scg0.firccfg().modify(|w| w.set_freq_sel(FreqSel::FIRC_96MHZ));
-                self.scg0.firccsr().modify(|w| w.set_fircen(true));
-                90_000_000
-            }
-            FircFreqSel::Mhz180 => {
-                self.scg0.firccfg().modify(|w| w.set_freq_sel(FreqSel::FIRC_192MHZ));
-                self.scg0.firccsr().modify(|w| w.set_fircen(true));
-                180_000_000
-            }
+            FircFreqSel::Mhz60 => (60_000_000, FreqSel::FIRC_64MHZ),
+            FircFreqSel::Mhz90 => (90_000_000, FreqSel::FIRC_96MHZ),
+            FircFreqSel::Mhz180 => (180_000_000, FreqSel::FIRC_192MHZ),
         };
+
+        self.scg0.firccfg().modify(|w| w.set_freq_sel(sel));
+        self.scg0.firccsr().modify(|w| w.set_fircen(true));
 
         // Wait for FIRC to be enabled, error-free, and accurate
         let mut firc_ok = false;
@@ -874,14 +1040,27 @@ impl ClockOperator<'_> {
         } = firc;
 
         // When is the FRO enabled?
-        let pow_set = match power {
-            PoweredClock::NormalEnabledDeepSleepDisabled => Fircsten::DISABLED_IN_STOP_MODES,
-            PoweredClock::AlwaysEnabled => Fircsten::ENABLED_IN_STOP_MODES,
+        let (bg_good, pow_set) = match power {
+            PoweredClock::NormalEnabledDeepSleepDisabled => {
+                // We only need bandgap enabled in active mode
+                (self.clocks.bandgap_active, Fircsten::DISABLED_IN_STOP_MODES)
+            }
+            PoweredClock::AlwaysEnabled => {
+                // We need bandgaps enabled in both active and deep sleep mode
+                let bg_good = self.clocks.bandgap_active && self.clocks.bandgap_lowpower;
+                (bg_good, Fircsten::ENABLED_IN_STOP_MODES)
+            }
         };
+        if !bg_good {
+            return Err(ClockError::BadConfig {
+                clock: "fro_hf",
+                reason: "bandgap required to be enabled when clock enabled",
+            });
+        }
 
         // Do we enable the `fro_hf` output?
         let fro_hf_set = if *fro_hf_enabled {
-            if base_freq > self.active_limits().fro_hf {
+            if base_freq > limits.fro_hf {
                 return Err(ClockError::BadConfig {
                     clock: "fro_hf",
                     reason: "exceeds max",
@@ -928,7 +1107,7 @@ impl ClockOperator<'_> {
             }
 
             let div_freq = base_freq / d.into_divisor();
-            if div_freq > self.active_limits().fro_hf_div {
+            if div_freq > limits.fro_hf_div {
                 return Err(ClockError::BadConfig {
                     clock: "fro_hf_root",
                     reason: "exceeds max frequency",
@@ -945,6 +1124,7 @@ impl ClockOperator<'_> {
             self.syscon.frohfdiv().write(|w| {
                 w.set_halt(FrohfdivHalt::RUN);
                 w.set_reset(FrohfdivReset::RELEASED);
+                w.set_div(d.into_bits());
             });
 
             // Wait for clock to stabilize
@@ -1038,6 +1218,7 @@ impl ClockOperator<'_> {
             self.syscon.frolfdiv().modify(|w| {
                 w.set_halt(FrolfdivHalt::RUN);
                 w.set_reset(FrolfdivReset::RELEASED);
+                w.set_div(d.into_bits());
             });
 
             // Wait for clock to stabilize
@@ -1112,7 +1293,18 @@ impl ClockOperator<'_> {
         Ok(())
     }
 
-    fn ensure_ldo_active(&mut self) {
+    fn ensure_ldo_active(&mut self, for_clock: &'static str, for_power: &PoweredClock) -> Result<(), ClockError> {
+        let bg_good = match for_power {
+            PoweredClock::NormalEnabledDeepSleepDisabled => self.clocks.bandgap_active,
+            PoweredClock::AlwaysEnabled => self.clocks.bandgap_active && self.clocks.bandgap_lowpower,
+        };
+        if !bg_good {
+            return Err(ClockError::BadConfig {
+                clock: for_clock,
+                reason: "LDO requires core bandgap enabled",
+            });
+        }
+
         // TODO: Config for the LDO? For now, just enable
         // using the default settings:
         // LDOBYPASS: 0/not bypassed
@@ -1126,6 +1318,8 @@ impl ClockOperator<'_> {
             self.scg0.ldocsr().modify(|w| w.set_ldoen(true));
             while !self.scg0.ldocsr().read().vout_ok() {}
         }
+
+        Ok(())
     }
 
     /// Configure the SOSC/clk_in oscillator
@@ -1136,7 +1330,7 @@ impl ClockOperator<'_> {
         };
 
         // Enable (and wait for) LDO to be active
-        self.ensure_ldo_active();
+        self.ensure_ldo_active("sosc", &parts.power)?;
 
         let eref = match parts.mode {
             config::SoscMode::CrystalOscillator => Erefs::INTERNAL,
@@ -1189,21 +1383,25 @@ impl ClockOperator<'_> {
         // * If SOSC needs to work in deep sleep, AND the monitor is enabled:
         //   * SIRC also need needs to be low power
         // * We need to decide if we need an interrupt or a reset if the monitor trips
+        let (bg_good, soscsten) = match parts.power {
+            PoweredClock::NormalEnabledDeepSleepDisabled => (self.clocks.bandgap_active, false),
+            PoweredClock::AlwaysEnabled => (self.clocks.bandgap_active && self.clocks.bandgap_lowpower, true),
+        };
+
+        if !bg_good {
+            return Err(ClockError::BadConfig {
+                clock: "sosc",
+                reason: "bandgap required",
+            });
+        }
 
         // Apply remaining config
         self.scg0.sosccsr().modify(|w| {
             // For now, just disable the monitor. See above.
             w.set_sosccm(false);
 
-            // Set deep sleep mode
-            match parts.power {
-                PoweredClock::NormalEnabledDeepSleepDisabled => {
-                    w.set_soscsten(false);
-                }
-                PoweredClock::AlwaysEnabled => {
-                    w.set_soscsten(true);
-                }
-            }
+            // Set deep sleep mode if needed
+            w.set_soscsten(soscsten);
 
             // Enable SOSC
             w.set_soscen(true)
@@ -1251,7 +1449,7 @@ impl ClockOperator<'_> {
         };
 
         // Ensure the LDO is active
-        self.ensure_ldo_active();
+        self.ensure_ldo_active("spll", &cfg.power)?;
 
         // match on the source, ensure it is active already
         let res = match cfg.source {
@@ -1444,13 +1642,12 @@ impl ClockOperator<'_> {
             });
         }
 
+        let limits = self.lowest_relevant_limits(&cfg.power);
+
         // Fout: 4.3MHz to 2x Max CPU Frequency
-        let fmax = match self.config.vdd_power.active_mode.level {
-            VddLevel::MidDriveMode => ClockLimits::MID_DRIVE.cpu_clk,
-            VddLevel::OverDriveMode => ClockLimits::OVER_DRIVE.cpu_clk,
-        };
+        let fmax = limits.cpu_clk;
         let spll_range_bad1 = !(4_300_000..=(2 * fmax)).contains(&fout);
-        let spll_range_bad2 = fout > self.active_limits().pll1_clk;
+        let spll_range_bad2 = fout > limits.pll1_clk;
 
         if spll_range_bad1 || spll_range_bad2 {
             return Err(ClockError::BadConfig {
@@ -1528,14 +1725,24 @@ impl ClockOperator<'_> {
 
         // TODO: Support Spread spectrum?
 
+        let (bg_good, spllsten) = match cfg.power {
+            PoweredClock::NormalEnabledDeepSleepDisabled => (self.clocks.bandgap_active, Spllsten::DISABLED_IN_STOP),
+            PoweredClock::AlwaysEnabled => (
+                self.clocks.bandgap_active && self.clocks.bandgap_lowpower,
+                Spllsten::ENABLED_IN_STOP,
+            ),
+        };
+        if !bg_good {
+            return Err(ClockError::BadConfig {
+                clock: "spll",
+                reason: "bandgap required when active",
+            });
+        }
+
         self.scg0.spllcsr().modify(|w| {
             w.set_spllclken(true);
             w.set_spllpwren(true);
-            w.set_spllsten(if matches!(cfg.power, PoweredClock::AlwaysEnabled) {
-                Spllsten::ENABLED_IN_STOP
-            } else {
-                Spllsten::DISABLED_IN_STOP
-            });
+            w.set_spllsten(spllsten);
         });
 
         // Wait for SPLL to set up
@@ -1611,23 +1818,19 @@ impl ClockOperator<'_> {
             });
         }
 
-        let (levels, mclk_max, cpuclk_max, wsmax) = match self.config.vdd_power.active_mode.level {
-            VddLevel::MidDriveMode => (
-                VDD_CORE_MID_DRIVE_WAIT_STATE_LIMITS,
-                ClockLimits::MID_DRIVE.main_clk,
-                ClockLimits::MID_DRIVE.cpu_clk,
-                VDD_CORE_MID_DRIVE_MAX_WAIT_STATES,
-            ),
+        let lowest_limits = self.lowest_relevant_limits(&self.config.main_clock.power);
+        let active_limits = self.active_limits();
+
+        let (levels, wsmax) = match self.config.vdd_power.active_mode.level {
+            VddLevel::MidDriveMode => (VDD_CORE_MID_DRIVE_WAIT_STATE_LIMITS, VDD_CORE_MID_DRIVE_MAX_WAIT_STATES),
             VddLevel::OverDriveMode => (
                 VDD_CORE_OVER_DRIVE_WAIT_STATE_LIMITS,
-                ClockLimits::OVER_DRIVE.main_clk,
-                ClockLimits::OVER_DRIVE.cpu_clk,
                 VDD_CORE_OVER_DRIVE_MAX_WAIT_STATES,
             ),
         };
 
         // Is the main_clk source in range for main_clk?
-        if main_clk_src.frequency > mclk_max {
+        if main_clk_src.frequency > lowest_limits.main_clk {
             return Err(ClockError::BadConfig {
                 clock: name,
                 reason: "Exceeds main_clock frequency",
@@ -1638,8 +1841,9 @@ impl ClockOperator<'_> {
         let ahb_div = self.config.main_clock.ahb_clk_div;
         let cpu_freq = main_clk_src.frequency / ahb_div.into_divisor();
 
-        // Is the expected CPU frequency in range for cpu_clk?
-        if cpu_freq > cpuclk_max {
+        // Is the expected CPU frequency in range for cpu_clk? Note: the CPU
+        // is never running in deep sleep, so we directly use the active limits here
+        if cpu_freq > active_limits.cpu_clk {
             return Err(ClockError::BadConfig {
                 clock: name,
                 reason: "Exceeds ahb max frequency",
@@ -1756,7 +1960,30 @@ impl ClockOperator<'_> {
         //
         // TODO(AJM): I don't really understand this! Enforce it literally for now I guess.
         let ds_match = self.config.vdd_power.active_mode.drive == self.config.vdd_power.low_power_mode.drive;
-        let vdd_match = self.config.vdd_power.active_mode.level == self.config.vdd_power.low_power_mode.level;
+        let (vdd_match, lpwkup) = match (
+            self.config.vdd_power.active_mode.level,
+            self.config.vdd_power.low_power_mode.level,
+        ) {
+            (VddLevel::OverDriveMode, VddLevel::MidDriveMode) => {
+                // When voltage levels are not the same between ACTIVE mode and Low Power mode, you must write a
+                // nonzero value to SPC->LPWKUP_DELAY.
+                //
+                // This SHOULD be covered by table 165. LPWKUP Delay, but it doesn't actually have
+                // a value for the 1.0v-1.2v transition we need. For now, the C SDK always uses 0x5B.
+                (false, 0x005b)
+            }
+            (VddLevel::MidDriveMode, VddLevel::OverDriveMode) => {
+                // For now, enforce that active is always >= voltage to low power. I don't know if this
+                // is required, but there's probably also no reason to support it?
+                return Err(ClockError::BadConfig {
+                    clock: "vdd_power",
+                    reason: "Deep sleep can't have higher level than active mode",
+                });
+            }
+            // Voltages match, no lpwkup delay required
+            _ => (true, 0x0000),
+        };
+        self.spc0.lpwkup_delay().write(|w| w.set_lpwkup_delay(lpwkup));
 
         if ds_match && !vdd_match {
             return Err(ClockError::BadConfig {
@@ -1809,6 +2036,7 @@ impl ClockOperator<'_> {
             self.spc0.lp_cfg().modify(|w| w.set_coreldo_vdd_lvl(lvl));
             self.spc0.lp_cfg().modify(|w| w.set_bgmode(LpCfgBgmode::BGMODE0));
         }
+        self.clocks.bandgap_lowpower = bgap;
 
         // Updating CORELDO_VDD_LVL sets the SC[BUSY] flag. That flag remains set for at least the total time
         // delay that Active Voltage Trim Delay (ACTIVE_VDELAY) specifies.
@@ -1842,9 +2070,12 @@ impl ClockOperator<'_> {
                         w.set_bgmode(ActiveCfgBgmode::BGMODE0)
                     }
                 });
+
+                self.clocks.bandgap_active = enable_bandgap;
             }
             VddDriveStrength::Normal => {
                 // Already set to normal above
+                self.clocks.bandgap_active = true;
             }
         }
 
@@ -1872,7 +2103,13 @@ impl ClockOperator<'_> {
                 cp.SCB.set_sleepdeep();
             }
             CoreSleep::DeepSleep => {
-                // See TODO on `CoreSleep::DeepSleep`. For now, just enable light sleep
+                // We can only support deep sleep with a custom executor which properly
+                // handles going to sleep and returning
+                #[cfg(all(not(feature = "custom-executor"), feature = "defmt"))]
+                defmt::warn!("deep sleep enabled without custom executor");
+
+                // For now, just enable light sleep. The executor will set deep sleep when
+                // appropriate
                 self.cmc.ckctrl().modify(|w| w.set_ckmode(CkctrlCkmode::CKMODE0001));
 
                 // Debug is disabled when core sleeps
@@ -1881,8 +2118,16 @@ impl ClockOperator<'_> {
                 // Allow the core to be gated - this WILL kill the debugging session!
                 let mut cp = unsafe { cortex_m::Peripherals::steal() };
                 cp.SCB.set_sleepdeep();
+
+                // Enable sevonpend, to allow us to wake from WFE sleep with interrupts disabled
+                unsafe {
+                    // TODO: wait for https://github.com/rust-embedded/cortex-m/commit/1be630fdd06990bd14251eabe4cca9307bde549d
+                    // to be released, until then, manual version of SCB.set_sevonpend();
+                    cp.SCB.scr.modify(|w| w | (1 << 4));
+                }
             }
         }
+        self.clocks.core_sleep = self.config.vdd_power.core_sleep;
 
         // Allow automatic gating of the flash memory
         let (wake, doze) = match self.config.vdd_power.flash_sleep {
@@ -1907,42 +2152,6 @@ impl ClockOperator<'_> {
 
         Ok(())
     }
-}
-
-/// This method ACTUALLY enables deep sleep. See `CorePower::DeepSleep` for
-/// more context
-///
-/// ## SAFETY
-///
-/// This method is ONLY sound if you are ONLY using peripherals or clocks that are
-/// marked as `PoweredClock::AlwaysEnabled` (or are disabled). We do NOT currently
-/// implement the runtime reference counting to intelligently switch between WFE
-/// sleep and deep sleep, NOR do we properly implement re-starting any clocks that
-/// became gated by entering deep sleep. This will be fixed in the future.
-///
-/// You must ALSO guarantee that the voltage level used for active and LPMODE match,
-/// as we don't currently set LPWKUP correctly
-pub unsafe fn okay_but_actually_enable_deep_sleep() {
-    let cmc = pac::CMC;
-    let spc = pac::SPC0;
-
-    // Isolate/unpower external voltage domains
-    spc.evd_cfg().write(|w| w.0 = 0);
-
-    // To configure for Deep Sleep Low-Power mode entry:
-    //
-    // Write Fh to Clock Control (CKCTRL)
-    cmc.ckctrl().modify(|w| w.set_ckmode(CkctrlCkmode::CKMODE1111));
-    // Write 1h to Power Mode Protection (PMPROT)
-    cmc.pmprot().write(|w| w.0 = 1);
-    // Write 1h to Global Power Mode Control (GPMCTRL)
-    cmc.gpmctrl().modify(|w| w.set_lpmode(0b0001));
-    // Redundant?
-    // cmc.pmctrlmain().modify(|w| w.set_lpmode(PmctrlmainLpmode::LPMODE0001));
-
-    // SPC_LPWKUP_DELAY_LPWKUP_DELAY?
-    // TODO: "When voltage levels are not the same between ACTIVE mode and Low Power mode, you must write a
-    // nonzero value to this field."
 }
 
 //
@@ -1970,11 +2179,15 @@ macro_rules! impl_cc_gate {
                 #[inline]
                 unsafe fn release_reset() {
                     pac::MRCC0.$rst_reg().modify(|w| w.[<set_ $field>](true));
+                    // Wait for reset to set
+                    while !pac::MRCC0.$rst_reg().read().[<$field>]() {}
                 }
 
                 #[inline]
                 unsafe fn assert_reset() {
                     pac::MRCC0.$rst_reg().modify(|w| w.[<set_ $field>](false));
+                    // Wait for reset to clear
+                    while pac::MRCC0.$rst_reg().read().[<$field>]() {}
                 }
             }
 
@@ -1994,9 +2207,13 @@ macro_rules! impl_cc_gate {
 /// This module contains implementations of MRCC APIs, specifically of the [`Gate`] trait,
 /// for various low level peripherals.
 pub(crate) mod gate {
-    use super::periph_helpers::{AdcConfig, I3cConfig, Lpi2cConfig, LpuartConfig, NoConfig, OsTimerConfig};
-    use super::*;
-    use crate::clocks::periph_helpers::CTimerConfig;
+    use paste::paste;
+
+    use super::Gate;
+    use super::periph_helpers::{
+        AdcConfig, CTimerConfig, I3cConfig, Lpi2cConfig, LpspiConfig, LpuartConfig, NoConfig, OsTimerConfig,
+    };
+    use crate::pac;
 
     // These peripherals have no additional upstream clocks or configuration required
     // other than enabling through the MRCC gate. Currently, these peripherals will
@@ -2009,6 +2226,7 @@ pub(crate) mod gate {
     impl_cc_gate!(PORT4, mrcc_glb_cc1, mrcc_glb_rst1, port4, NoConfig);
 
     impl_cc_gate!(CRC0, mrcc_glb_cc0, mrcc_glb_rst0, crc0, NoConfig);
+    impl_cc_gate!(INPUTMUX0, mrcc_glb_cc0, mrcc_glb_rst0, inputmux0, NoConfig);
 
     // These peripherals DO have meaningful configuration, and could fail if the system
     // clocks do not match their needs.
@@ -2049,4 +2267,7 @@ pub(crate) mod gate {
     impl_cc_gate!(LPI2C1, mrcc_glb_acc0, mrcc_glb_rst0, lpi2c1, Lpi2cConfig);
     impl_cc_gate!(LPI2C2, mrcc_glb_acc1, mrcc_glb_rst1, lpi2c2, Lpi2cConfig);
     impl_cc_gate!(LPI2C3, mrcc_glb_acc1, mrcc_glb_rst1, lpi2c3, Lpi2cConfig);
+
+    impl_cc_gate!(LPSPI0, mrcc_glb_acc0, mrcc_glb_rst0, lpspi0, LpspiConfig);
+    impl_cc_gate!(LPSPI1, mrcc_glb_acc0, mrcc_glb_rst0, lpspi1, LpspiConfig);
 }

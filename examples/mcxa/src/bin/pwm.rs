@@ -4,21 +4,25 @@
 use embassy_executor::Spawner;
 use embassy_time::Timer;
 use hal::clocks::config::Div8;
+use hal::clocks::periph_helpers::CTimerClockSel;
 use hal::config::Config;
-use hal::ctimer::CTimer;
 use hal::ctimer::pwm::{SetDutyCycle, SinglePwm, TriplePwm};
+use hal::ctimer::{self, CTimer};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     config.clock_cfg.sirc.fro_lf_div = Div8::from_divisor(1);
+    config.clock_cfg.fro16k = None;
 
     let mut p = hal::init(config);
 
     defmt::info!("Pwm example");
 
-    let led_ctimer = CTimer::new(p.CTIMER2.reborrow(), Default::default()).unwrap();
+    let mut config = ctimer::Config::default();
+    config.source = CTimerClockSel::Clk1M;
+    let led_ctimer = CTimer::new(p.CTIMER2.reborrow(), config).unwrap();
     let mut pwm = TriplePwm::new(
         led_ctimer,
         p.CTIMER2_CH0,

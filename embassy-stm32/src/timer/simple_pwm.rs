@@ -210,6 +210,10 @@ pub struct SimplePwmChannels<'d, T: GeneralInstance4Channel> {
 /// Simple PWM driver.
 pub struct SimplePwm<'d, T: GeneralInstance4Channel> {
     inner: Timer<'d, T>,
+    _ch1: Option<Flex<'d>>,
+    _ch2: Option<Flex<'d>>,
+    _ch3: Option<Flex<'d>>,
+    _ch4: Option<Flex<'d>>,
 }
 
 impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
@@ -224,11 +228,33 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         freq: Hertz,
         counting_mode: CountingMode,
     ) -> Self {
-        Self::new_inner(tim, freq, counting_mode)
+        Self::new_inner(
+            tim,
+            ch1.map(|pin| pin.pin),
+            ch2.map(|pin| pin.pin),
+            ch3.map(|pin| pin.pin),
+            ch4.map(|pin| pin.pin),
+            freq,
+            counting_mode,
+        )
     }
 
-    fn new_inner(tim: Peri<'d, T>, freq: Hertz, counting_mode: CountingMode) -> Self {
-        let mut this = Self { inner: Timer::new(tim) };
+    fn new_inner(
+        tim: Peri<'d, T>,
+        ch1: Option<Flex<'d>>,
+        ch2: Option<Flex<'d>>,
+        ch3: Option<Flex<'d>>,
+        ch4: Option<Flex<'d>>,
+        freq: Hertz,
+        counting_mode: CountingMode,
+    ) -> Self {
+        let mut this = Self {
+            inner: Timer::new(tim),
+            _ch1: ch1,
+            _ch2: ch2,
+            _ch3: ch3,
+            _ch4: ch4,
+        };
 
         this.inner.set_counting_mode(counting_mode);
         this.set_frequency(freq);

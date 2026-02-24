@@ -8,6 +8,7 @@ use paste::paste;
 
 use crate::clocks::Gate;
 use crate::clocks::periph_helpers::I3cConfig;
+use crate::dma::{DmaChannel, DmaRequest};
 use crate::gpio::{GpioPin, SealedPin};
 use crate::{interrupt, pac};
 
@@ -52,17 +53,20 @@ mod sealed {
     pub trait Sealed {}
 }
 
-trait SealedInstance {
+trait SealedInstance: Gate<MrccPeriphConfig = I3cConfig> {
     fn info() -> &'static Info;
+
+    const PERF_INT_INCR: fn();
+    const PERF_INT_WAKE_INCR: fn();
+    const TX_DMA_REQUEST: DmaRequest;
+    const RX_DMA_REQUEST: DmaRequest;
 }
 
 /// I3C Instance
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + PeripheralType + 'static + Send + Gate<MrccPeriphConfig = I3cConfig> {
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Interrupt for this I3C instance.
     type Interrupt: interrupt::typelevel::Interrupt;
-    const PERF_INT_INCR: fn();
-    const PERF_INT_WAKE_INCR: fn();
 }
 
 struct Info {
@@ -95,12 +99,15 @@ macro_rules! impl_instance {
                     };
                     &INFO
                 }
+
+                const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<I3C $n Tx>];
+                const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<I3C $n Rx>];
+                const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_i3c $n>];
+                const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_i3c $n _wake>];
             }
 
             impl Instance for crate::peripherals::[<I3C $n>] {
                 type Interrupt = crate::interrupt::typelevel::[<I3C $n>];
-                const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_i3c $n>];
-                const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_i3c $n _wake>];
             }
         }
     };
@@ -122,6 +129,10 @@ pub trait SdaPin<T: Instance>: GpioPin + sealed::Sealed + PeripheralType {
 #[allow(private_bounds)]
 pub trait Mode: sealed::Sealed {}
 
+/// Async driver mode.
+#[allow(private_bounds)]
+pub trait AsyncMode: sealed::Sealed + Mode {}
+
 /// Blocking mode.
 pub struct Blocking;
 impl sealed::Sealed for Blocking {}
@@ -131,6 +142,19 @@ impl Mode for Blocking {}
 pub struct Async;
 impl sealed::Sealed for Async {}
 impl Mode for Async {}
+impl AsyncMode for Async {}
+
+/// DMA mode.
+pub struct Dma<'d> {
+    tx_dma: DmaChannel<'d>,
+    tx_request: DmaRequest,
+
+    rx_dma: DmaChannel<'d>,
+    rx_request: DmaRequest,
+}
+impl sealed::Sealed for Dma<'_> {}
+impl Mode for Dma<'_> {}
+impl AsyncMode for Dma<'_> {}
 
 macro_rules! impl_pin {
     ($pin:ident, $peri:ident, $fn:ident, $trait:ident) => {

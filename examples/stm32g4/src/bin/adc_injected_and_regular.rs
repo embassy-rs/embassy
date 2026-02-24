@@ -9,14 +9,13 @@
 use core::cell::RefCell;
 
 use defmt::info;
-use embassy_stm32::adc::{
-    Adc, AdcChannel as _, ConversionTrigger, Exten, InjectedAdc, RegularConversionMode, SampleTime,
-};
+use embassy_stm32::adc::{Adc, AdcChannel as _, Exten, InjectedAdc, SampleTime};
 use embassy_stm32::interrupt::typelevel::{ADC1_2, Interrupt};
 use embassy_stm32::peripherals::ADC1;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::complementary_pwm::{ComplementaryPwm, Mms2};
 use embassy_stm32::timer::low_level::CountingMode;
+use embassy_stm32::triggers::TIM1_TRGO2;
 use embassy_stm32::{Config, bind_interrupts, dma, interrupt, peripherals};
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use {defmt_rtt as _, panic_probe as _};
@@ -37,11 +36,6 @@ bind_interrupts!(struct Irqs {
 /// to only include one of the ADC conversion types.
 #[embassy_executor::main]
 async fn main(_spawner: embassy_executor::Spawner) {
-    // See Table 166 and 167 in RM0440 Rev 9 for ADC1/2 External triggers
-    // Note: Regular and Injected channels use different tables!!
-    const ADC1_INJECTED_TRIGGER_TIM1_TRGO2: u8 = 8;
-    const ADC1_REGULAR_TRIGGER_TIM1_TRGO2: u8 = 10;
-
     // --- RCC config ---
     let mut config = Config::default();
     {
@@ -100,23 +94,16 @@ async fn main(_spawner: embassy_executor::Spawner) {
     // Using buffer of double size means the half-full interrupts will generate at the expected rate
     let mut readings = [0u16; 4];
 
-    let injected_trigger = ConversionTrigger {
-        channel: ADC1_INJECTED_TRIGGER_TIM1_TRGO2,
-        edge: Exten::RISING_EDGE,
-    };
-    let regular_trigger = ConversionTrigger {
-        channel: ADC1_REGULAR_TRIGGER_TIM1_TRGO2,
-        edge: Exten::RISING_EDGE,
-    };
-
     let (mut ring_buffered_adc, injected_adc) = adc1.into_ring_buffered_and_injected(
         dma1_ch1,
         &mut readings,
         Irqs,
         regular_sequence,
-        RegularConversionMode::Triggered(regular_trigger),
+        TIM1_TRGO2,
+        Exten::RISING_EDGE,
         injected_sequence,
-        injected_trigger,
+        TIM1_TRGO2,
+        Exten::RISING_EDGE,
         true,
     );
 
