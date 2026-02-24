@@ -111,6 +111,7 @@ use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::clocks::Gate;
+use crate::dma::sealed::SealedChannel;
 use crate::pac::dma::vals::Halt;
 use crate::pac::edma_0_tcd::regs::{TcdAttr, TcdBiterElinkno, TcdCiterElinkno, TcdCsr};
 use crate::pac::edma_0_tcd::vals::{Bwc, Dreq, Esg, Size, Start};
@@ -362,7 +363,7 @@ macro_rules! define_dma_request {
     };
 }
 
-// LPUART DMA request sources (from MCXA276 reference manual Table 4-8)
+// DMA request sources (from MCXA266 reference manual PDF attachment "DMA_Configuration.xml")
 define_dma_request!(
     /// DMA request source for LPUART0 RX.
     Lpuart0RxRequest = 21
@@ -418,7 +419,13 @@ define_dma_request!(
 
 mod sealed {
     /// Sealed trait for DMA channels.
-    pub trait SealedChannel {}
+    pub trait SealedChannel {
+        /// Zero-based channel index into the TCD array.
+        fn index(&self) -> usize;
+
+        /// Interrupt vector for this channel.
+        fn interrupt(&self) -> crate::interrupt::Interrupt;
+    }
 
     /// Sealed trait for DMA request sources.
     pub trait SealedDmaRequest {}
@@ -426,15 +433,8 @@ mod sealed {
 
 /// Marker trait implemented by HAL peripheral tokens that map to a DMA0
 /// channel backed by one EDMA_0_TCD0 TCD slot.
-///
-/// This trait is sealed and cannot be implemented outside this crate.
 #[allow(private_bounds)]
-pub trait Channel: sealed::SealedChannel + PeripheralType + Into<AnyChannel> + 'static {
-    /// Zero-based channel index into the TCD array.
-    fn index(&self) -> usize;
-    /// Interrupt vector for this channel.
-    fn interrupt(&self) -> Interrupt;
-}
+pub trait Channel: sealed::SealedChannel + PeripheralType + Into<AnyChannel> + 'static {}
 
 /// Type-erased DMA channel.
 ///
@@ -447,9 +447,7 @@ pub struct AnyChannel {
 }
 
 impl PeripheralType for AnyChannel {}
-impl sealed::SealedChannel for AnyChannel {}
-
-impl Channel for AnyChannel {
+impl sealed::SealedChannel for AnyChannel {
     fn index(&self) -> usize {
         self.index
     }
@@ -458,6 +456,8 @@ impl Channel for AnyChannel {
         self.interrupt
     }
 }
+
+impl Channel for AnyChannel {}
 
 impl AnyChannel {
     /// Get a reference to the TCD register block for this channel.
@@ -484,9 +484,7 @@ impl AnyChannel {
 /// Macro to implement Channel trait for a peripheral.
 macro_rules! impl_channel {
     ($peri:ident, $index:expr, $irq:ident) => {
-        impl sealed::SealedChannel for crate::peripherals::$peri {}
-
-        impl Channel for crate::peripherals::$peri {
+        impl sealed::SealedChannel for crate::peripherals::$peri {
             fn index(&self) -> usize {
                 $index
             }
@@ -495,6 +493,7 @@ macro_rules! impl_channel {
                 Interrupt::$irq
             }
         }
+        impl Channel for crate::peripherals::$peri {}
 
         impl From<crate::peripherals::$peri> for AnyChannel {
             fn from(_: crate::peripherals::$peri) -> Self {
@@ -551,24 +550,6 @@ pub struct DmaChannel<'a> {
 //
 // **Use case:** When you want to use async/await and let the Transfer handle lifecycle management.
 //
-// ## 2. Setup Methods (Configure TCD Only)
-//
-// These methods configure the TCD but do NOT return a `Transfer`:
-//
-// - [`setup_write()`](DmaChannel::setup_write) - Memory-to-peripheral using default eDMA TCD block
-// - [`setup_read()`](DmaChannel::setup_read) - Peripheral-to-memory using default eDMA TCD block
-// - [`setup_write_to_peripheral()`](DmaChannel::setup_write_to_peripheral) - Memory-to-peripheral with custom eDMA TCD block
-// - [`setup_read_from_peripheral()`](DmaChannel::setup_read_from_peripheral) - Peripheral-to-memory with custom eDMA TCD block
-//
-// The caller is responsible for the complete DMA lifecycle:
-// 1. Call [`enable_request()`](DmaChannel::enable_request) to start the transfer
-// 2. Poll [`is_done()`](DmaChannel::is_done) or use interrupts to detect completion
-// 3. Call [`disable_request()`](DmaChannel::disable_request), [`clear_done()`](DmaChannel::clear_done),
-//    [`clear_interrupt()`](DmaChannel::clear_interrupt) for cleanup
-//
-// **Use case:** Peripheral drivers (like LPUART) that need fine-grained control over
-// DMA setup before starting a `Transfer`.
-//
 // ============================================================================
 
 impl<'a> DmaChannel<'a> {
@@ -596,20 +577,13 @@ impl DmaChannel<'_> {
 
     /// Channel index in the EDMA_0_TCD0 array.
     #[inline]
-    pub fn index(&self) -> usize {
+    pub(crate) fn index(&self) -> usize {
         self.channel.index()
     }
 
     /// Return a reference to the underlying TCD register block.
-    ///
-    /// This steals the eDMA pointer internally since MCXA276 has only one eDMA instance.
-    ///
-    /// # Note
-    ///
-    /// This is exposed for advanced use cases that need direct TCD access.
-    /// For most use cases, prefer the higher-level transfer methods.
     #[inline]
-    pub fn tcd(&self) -> pac::edma_0_tcd::Tcd {
+    pub(crate) fn tcd(&self) -> pac::edma_0_tcd::Tcd {
         // Safety: MCXA276 has a single eDMA instance
         pac::EDMA_0_TCD0.tcd(self.channel.index())
     }
@@ -709,7 +683,7 @@ impl DmaChannel<'_> {
     /// The caller must ensure the DMA channel has been properly configured
     /// and that source/destination buffers remain valid for the duration
     /// of the transfer.
-    pub unsafe fn start_transfer(&mut self) -> Transfer<'_> {
+    pub(crate) unsafe fn start_transfer(&mut self) -> Transfer<'_> {
         // Clear any previous DONE/INT flags
         let t = self.tcd();
         t.ch_csr().modify(|w| w.set_done(true));
@@ -979,7 +953,7 @@ impl DmaChannel<'_> {
     ///
     /// - The buffer must remain valid for the duration of the transfer.
     /// - The peripheral address must be valid for writes.
-    pub unsafe fn setup_write<W: Word>(&self, buf: &[W], peri_addr: *mut W, enable_interrupt: EnableInterrupt) {
+    pub(crate) unsafe fn setup_write<W: Word>(&self, buf: &[W], peri_addr: *mut W, enable_interrupt: EnableInterrupt) {
         unsafe { self.setup_write_to_peripheral(buf, peri_addr, enable_interrupt) }
     }
 
@@ -1125,7 +1099,12 @@ impl DmaChannel<'_> {
     ///
     /// - The buffer must remain valid for the duration of the transfer.
     /// - The peripheral address must be valid for reads.
-    pub unsafe fn setup_read<W: Word>(&self, peri_addr: *const W, buf: &mut [W], enable_interrupt: EnableInterrupt) {
+    pub(crate) unsafe fn setup_read<W: Word>(
+        &self,
+        peri_addr: *const W,
+        buf: &mut [W],
+        enable_interrupt: EnableInterrupt,
+    ) {
         unsafe { self.setup_read_from_peripheral(peri_addr, buf, enable_interrupt) }
     }
 
@@ -1221,7 +1200,7 @@ impl DmaChannel<'_> {
     ///
     /// - The buffer must remain valid for the duration of the transfer.
     /// - The peripheral address must be valid for writes.
-    pub unsafe fn setup_write_zeros_to_peripheral<W: Word>(
+    pub(crate) unsafe fn setup_write_zeros_to_peripheral<W: Word>(
         &self,
         count: usize,
         peri_addr: *mut W,
@@ -1311,7 +1290,7 @@ impl DmaChannel<'_> {
     ///
     /// - The buffer must remain valid for the duration of the transfer.
     /// - The peripheral address must be valid for writes.
-    pub unsafe fn setup_write_to_peripheral<W: Word>(
+    pub(crate) unsafe fn setup_write_to_peripheral<W: Word>(
         &self,
         buf: &[W],
         peri_addr: *mut W,
@@ -1387,7 +1366,7 @@ impl DmaChannel<'_> {
     ///
     /// - The buffer must remain valid for the duration of the transfer.
     /// - The peripheral address must be valid for reads.
-    pub unsafe fn setup_read_from_peripheral<W: Word>(
+    pub(crate) unsafe fn setup_read_from_peripheral<W: Word>(
         &self,
         peri_addr: *const W,
         buf: &mut [W],
@@ -1469,7 +1448,7 @@ impl DmaChannel<'_> {
     /// }
     /// ```
     #[inline]
-    pub unsafe fn set_request_source(&self, source: u8) {
+    pub(crate) unsafe fn set_request_source(&self, source: u8) {
         // Two-step write per NXP SDK: clear to 0, then set actual source.
         self.tcd().ch_mux().write(|w| w.set_src(0));
         cortex_m::asm::dsb(); // Ensure the clear completes before setting new source
@@ -1481,7 +1460,7 @@ impl DmaChannel<'_> {
     /// # Safety
     ///
     /// The channel must be properly configured before enabling requests.
-    pub unsafe fn enable_request(&self) {
+    pub(crate) unsafe fn enable_request(&self) {
         let t = self.tcd();
         t.ch_csr().modify(|w| {
             w.set_erq(true);
@@ -1494,7 +1473,7 @@ impl DmaChannel<'_> {
     /// # Safety
     ///
     /// Disabling requests on an active transfer may leave the transfer incomplete.
-    pub unsafe fn disable_request(&self) {
+    pub(crate) unsafe fn disable_request(&self) {
         let t = self.tcd();
         t.ch_csr().modify(|w| {
             w.set_erq(false);
@@ -1503,7 +1482,7 @@ impl DmaChannel<'_> {
     }
 
     /// Return true if the channel's DONE flag is set.
-    pub fn is_done(&self) -> bool {
+    pub(crate) fn is_done(&self) -> bool {
         let t = self.tcd();
         t.ch_csr().read().done()
     }
@@ -1516,7 +1495,7 @@ impl DmaChannel<'_> {
     /// # Safety
     ///
     /// Clearing DONE while a transfer is in progress may cause undefined behavior.
-    pub unsafe fn clear_done(&self) {
+    pub(crate) unsafe fn clear_done(&self) {
         let t = self.tcd();
         t.ch_csr().modify(|w| w.set_done(true));
     }
@@ -1526,7 +1505,7 @@ impl DmaChannel<'_> {
     /// # Safety
     ///
     /// Must be called from the correct interrupt context or with interrupts disabled.
-    pub unsafe fn clear_interrupt(&self) {
+    pub(crate) unsafe fn clear_interrupt(&self) {
         let t = self.tcd();
         t.ch_int().write(|w| w.set_int(true));
     }
@@ -1536,18 +1515,18 @@ impl DmaChannel<'_> {
     /// # Safety
     ///
     /// The channel must be properly configured with a valid TCD before triggering.
-    pub unsafe fn trigger_start(&self) {
+    pub(crate) unsafe fn trigger_start(&self) {
         let t = self.tcd();
         t.tcd_csr().modify(|w| w.set_start(Start::CHANNEL_STARTED));
     }
 
     /// Get the waker for this channel
-    pub fn waker(&self) -> &'static AtomicWaker {
+    pub(crate) fn waker(&self) -> &'static AtomicWaker {
         &STATES[self.channel.index()].waker
     }
 
     /// Enable the interrupt for this channel in the NVIC.
-    pub fn enable_interrupt(&self) {
+    pub(crate) fn enable_interrupt(&self) {
         unsafe {
             cortex_m::peripheral::NVIC::unmask(self.channel.interrupt());
         }
@@ -1565,7 +1544,7 @@ impl DmaChannel<'_> {
     /// # Safety
     ///
     /// The channel must be properly configured before setting up linking.
-    pub unsafe fn set_major_link(&self, link_ch: usize) {
+    pub(crate) unsafe fn set_major_link(&self, link_ch: usize) {
         let t = self.tcd();
         t.tcd_csr().modify(|w| {
             w.set_majorelink(true);
@@ -1581,7 +1560,7 @@ impl DmaChannel<'_> {
     ///
     /// The caller must ensure this doesn't disrupt an active transfer that
     /// depends on the linking.
-    pub unsafe fn clear_major_link(&self) {
+    pub(crate) unsafe fn clear_major_link(&self) {
         let t = self.tcd();
         t.tcd_csr().modify(|w| w.set_majorelink(false));
     }
@@ -1603,7 +1582,7 @@ impl DmaChannel<'_> {
     /// # Safety
     ///
     /// The channel must be properly configured before setting up linking.
-    pub unsafe fn set_minor_link(&self, link_ch: usize) {
+    pub(crate) unsafe fn set_minor_link(&self, link_ch: usize) {
         let t = self.tcd();
 
         // Read current CITER (assuming ELINKNO format initially)
@@ -1634,7 +1613,7 @@ impl DmaChannel<'_> {
     ///
     /// The caller must ensure this doesn't disrupt an active transfer that
     /// depends on the linking.
-    pub unsafe fn clear_minor_link(&self) {
+    pub(crate) unsafe fn clear_minor_link(&self) {
         let t = self.tcd();
 
         // Read current CITER (could be in either format, but we only need the count)
@@ -1664,7 +1643,7 @@ impl DmaChannel<'_> {
     ///
     /// - The TCD must be properly initialized.
     /// - The caller must ensure no concurrent access to the same channel.
-    pub unsafe fn load_tcd(&self, tcd: &Tcd) {
+    unsafe fn load_tcd(&self, tcd: &Tcd) {
         let t = self.tcd();
         t.tcd_saddr().write(|w| w.set_saddr(tcd.saddr));
         t.tcd_soff().write(|w| w.set_soff(tcd.soff as u16));
@@ -2300,7 +2279,7 @@ impl<'a> DmaChannel<'a> {
     ///
     /// - The peripheral address must be valid for reads.
     /// - The peripheral's DMA request must be configured to trigger this channel.
-    pub unsafe fn setup_circular_read<'buf, W: Word>(
+    pub(crate) unsafe fn setup_circular_read<'buf, W: Word>(
         &mut self,
         peri_addr: *const W,
         buf: &'buf mut [W],
@@ -2375,7 +2354,7 @@ impl<'a> DmaChannel<'a> {
 // ============================================================================
 
 /// Maximum number of TCDs in a scatter-gather chain.
-pub const MAX_SCATTER_GATHER_TCDS: usize = 16;
+pub(crate) const MAX_SCATTER_GATHER_TCDS: usize = 16;
 
 /// A builder for constructing scatter-gather DMA transfer chains.
 ///
@@ -2576,7 +2555,7 @@ pub struct ScatterGatherResult {
 ///
 /// # Safety
 /// Must be called from the correct DMA channel interrupt context.
-pub unsafe fn on_interrupt(ch_index: usize) {
+unsafe fn on_interrupt(ch_index: usize) {
     crate::perf_counters::incr_interrupt_edma0();
     let edma = &pac::EDMA_0_TCD0;
     let t = edma.tcd(ch_index);
