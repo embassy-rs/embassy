@@ -1,7 +1,8 @@
 #![no_std]
 #![no_main]
 
-use core::cell::{Cell, RefCell};
+use core::cell::RefCell;
+use core::sync::atomic::{AtomicU32, Ordering};
 
 use defmt::{panic, *};
 use embassy_executor::Spawner;
@@ -11,6 +12,7 @@ use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
 use embassy_sync::signal::Signal;
 use embassy_sync::zerocopy_channel;
+use embassy_time::{Duration, WithTimeout as _};
 use embassy_usb::class::uac1;
 use embassy_usb::class::uac1::speaker::{self, Speaker};
 use embassy_usb::driver::EndpointError;
@@ -23,6 +25,7 @@ bind_interrupts!(struct Irqs {
     OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
 });
 
+const TIMER_CHANNEL: timer::Channel = timer::Channel::Ch1;
 static TIMER: Mutex<CriticalSectionRawMutex, RefCell<Option<timer::low_level::Timer<peripherals::TIM2>>>> =
     Mutex::new(RefCell::new(None));
 
@@ -83,6 +86,8 @@ async fn feedback_handler<'d, T: usb::Instance + 'd>(
     // Collects the fractional component of the feedback value that is lost by rounding.
     let mut rest = 0.0_f32;
 
+    // Make sure the signal is clear before we start
+    _ = FEEDBACK_SIGNAL.wait().await;
     loop {
         let counter = FEEDBACK_SIGNAL.wait().await;
 
@@ -97,7 +102,19 @@ async fn feedback_handler<'d, T: usb::Instance + 'd>(
         packet.push((value >> 8) as u8).unwrap();
         packet.push((value >> 16) as u8).unwrap();
 
-        feedback.write_packet(&packet).await?;
+        let Ok(res) = feedback
+            .write_packet(&packet)
+            // Short timeout to prevent queueing
+            .with_timeout(Duration::from_micros(10))
+            .await
+        else {
+            // Ignore timeout. There was already an uncollected message in the FIFO.
+            // The previous message will be delivered next time the host polls for it
+            continue;
+        };
+
+        res?; // Return on error
+        debug!("feedback sent {}", value);
     }
 }
 
@@ -217,32 +234,24 @@ async fn usb_control_task(control_monitor: speaker::ControlMonitor<'static>) {
 /// This gives an (ideal) counter value of 336.000 for every update of the `FEEDBACK_SIGNAL`.
 #[interrupt]
 fn TIM2() {
-    static LAST_TICKS: Mutex<CriticalSectionRawMutex, Cell<u32>> = Mutex::new(Cell::new(0));
-    static FRAME_COUNT: Mutex<CriticalSectionRawMutex, Cell<usize>> = Mutex::new(Cell::new(0));
+    static LAST_TICKS: AtomicU32 = AtomicU32::new(0);
 
+    // Count up frames and emit a signal, when the refresh period is reached.
+    let regs = embassy_stm32::pac::USB_OTG_FS;
     critical_section::with(|cs| {
-        // Read timer counter.
-        let timer = TIMER.borrow(cs).borrow().as_ref().unwrap().regs_gp32();
-
-        let status = timer.sr().read();
-
-        const CHANNEL_INDEX: usize = 0;
-        if status.ccif(CHANNEL_INDEX) {
-            let ticks = timer.ccr(CHANNEL_INDEX).read();
-
-            let frame_count = FRAME_COUNT.borrow(cs);
-            let last_ticks = LAST_TICKS.borrow(cs);
-
-            frame_count.set(frame_count.get() + 1);
-            if frame_count.get() >= FEEDBACK_REFRESH_PERIOD.frame_count() {
-                frame_count.set(0);
-                FEEDBACK_SIGNAL.signal(ticks.wrapping_sub(last_ticks.get()));
-                last_ticks.set(ticks);
+        let mut guard = TIMER.borrow(cs).borrow_mut();
+        let timer = guard.as_mut().unwrap();
+        if timer.get_input_interrupt(TIMER_CHANNEL) {
+            let frame_number = regs.dsts().read().fnsof() as usize;
+            // Send the signal one frame before the feedback will be requested
+            if (frame_number + 1) % FEEDBACK_REFRESH_PERIOD.frame_count() == 0 {
+                let ticks = timer.get_capture_value(TIMER_CHANNEL);
+                let last_ticks = LAST_TICKS.load(Ordering::Relaxed);
+                FEEDBACK_SIGNAL.signal(ticks.wrapping_sub(last_ticks));
+                LAST_TICKS.store(ticks, Ordering::Relaxed);
             }
-        };
-
-        // Clear trigger interrupt flag.
-        timer.sr().modify(|r| r.set_tif(false));
+            timer.clear_input_interrupt(TIMER_CHANNEL);
+        }
     });
 }
 
@@ -259,13 +268,13 @@ async fn main(spawner: Spawner) {
     {
         use embassy_stm32::rcc::*;
         config.rcc.hse = Some(Hse {
-            freq: Hertz(8_000_000),
-            mode: HseMode::Bypass,
+            freq: embassy_stm32::time::Hertz::mhz(25),
+            mode: HseMode::Oscillator,
         });
         config.rcc.pll_src = PllSource::HSE;
         config.rcc.pll = Some(Pll {
-            prediv: PllPreDiv::DIV4,
-            mul: PllMul::MUL168,
+            prediv: PllPreDiv::DIV25,
+            mul: PllMul::MUL336,
             divp: Some(PllPDiv::DIV2), // ((8 MHz / 4) * 168) / 2 = 168 Mhz.
             divq: Some(PllQDiv::DIV7), // ((8 MHz / 4) * 168) / 7 = 48 Mhz.
             divr: None,
@@ -351,7 +360,6 @@ async fn main(spawner: Spawner) {
     tim2.set_tick_freq(Hertz(FEEDBACK_COUNTER_TICK_RATE));
     tim2.set_trigger_source(timer::low_level::TriggerSource::ITR1); // The USB SOF signal.
 
-    const TIMER_CHANNEL: timer::Channel = timer::Channel::Ch1;
     tim2.set_input_ti_selection(TIMER_CHANNEL, timer::low_level::InputTISelection::TRC);
     tim2.set_input_capture_prescaler(TIMER_CHANNEL, 0);
     tim2.set_input_capture_filter(TIMER_CHANNEL, timer::low_level::FilterValue::FCK_INT_N2);
