@@ -103,6 +103,10 @@ pub unsafe fn on_interrupt<const MAX_EP_COUNT: usize>(r: Otg, state: &State<MAX_
             }
             vals::Pktstsd::OUT_DATA_DONE => {
                 trace!("OUT_DATA_DONE ep={}", ep_num);
+                if status.stsphst() == 0x01 && r.doepint(ep_num).read().stsphsrx() {
+                    trace!("STSPHST bit set, Clear STSPHSRX Int");
+                    r.doepint(ep_num).write(|w| w.set_stsphsrx(true));
+                }
             }
             vals::Pktstsd::SETUP_DATA_DONE => {
                 trace!("SETUP_DATA_DONE ep={}", ep_num);
