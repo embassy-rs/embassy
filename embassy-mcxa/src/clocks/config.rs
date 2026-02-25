@@ -178,7 +178,7 @@ pub struct VddModeConfig {
 /// # FlashWake
 ///
 /// Specifies that when this field becomes 1, an attempt to read the flash memory when it is in Low-Power
-/// state because of FLASHCR[FLASHDIS] or FLASHCR[FLASHDOZE], causes the flash memory to exit
+/// state because of FLASHCR\[FLASHDIS\] or FLASHCR\[FLASHDOZE\], causes the flash memory to exit
 /// Low-Power state for the duration of the flash memory access.
 #[derive(Copy, Clone, Default)]
 #[non_exhaustive]
