@@ -33,7 +33,7 @@ async fn main(_spawner: Spawner) {
     assert_eq!(src, dst);
 
     let pattern: u32 = 0xDEADBEEF;
-    let transfer = dma_ch0.memset(&pattern, mst, TransferOptions::default());
+    let transfer = dma_ch0.memset(&pattern, mst, TransferOptions::default()).unwrap();
     transfer.await.unwrap();
 
     assert!(mst.iter().all(|&v| v == pattern));
