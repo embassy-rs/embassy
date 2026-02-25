@@ -122,17 +122,18 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        let sr = T::regs().sr().read();
-
-        // Wake when not busy (computation complete)
-        if !sr.busy() {
+        // Wake on computation complete flag (CCF) from ISR, not on BUSY clearing.
+        // BUSY also clears during init/RNG-fetch/key-transfer which must not wake tasks.
+        // Note: CCF is in SAES_ISR, not SAES_SR (unlike AES which has CCF in SR).
+        let isr = T::regs().isr().read();
+        if isr.ccf() {
             // Clear all interrupt flags
             T::regs().icr().write(|w| w.0 = 0xFFFF_FFFF);
             SAES_WAKER.wake();
         }
 
         // Clear error flags
-        if sr.rderr() || sr.wrerr() {
+        if isr.rweif() {
             T::regs().icr().write(|w| w.0 = 0xFFFF_FFFF);
         }
     }
@@ -187,6 +188,14 @@ impl<'d, T: Instance> Saes<'d, T, Blocking> {
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
         rcc::enable_and_reset::<T>();
+
+        let p = T::regs();
+        // After reset, SAES sets BUSY while it fetches a random number from the internal RNG.
+        // Writing CR before BUSY clears is forbidden (HAL: CRYP_FLAG_BUSY check at init).
+        while p.sr().read().busy() {}
+        // Panic on RNG error - the peripheral is unusable without a working RNG.
+        assert!(!p.isr().read().rngeif(), "SAES: RNG error during initialization");
+
         let instance = Self {
             _peripheral: peripheral,
             _phantom: PhantomData,
@@ -213,6 +222,13 @@ impl<'d, T: Instance> Saes<'d, T, Async> {
         + 'd,
     ) -> Self {
         rcc::enable_and_reset::<T>();
+
+        let p = T::regs();
+        // After reset, SAES sets BUSY while it fetches a random number from the internal RNG.
+        // Writing CR before BUSY clears is forbidden (HAL: CRYP_FLAG_BUSY check at init).
+        while p.sr().read().busy() {}
+        // Panic on RNG error - the peripheral is unusable without a working RNG.
+        assert!(!p.isr().read().rngeif(), "SAES: RNG error during initialization");
 
         let instance = Self {
             _peripheral: peripheral,
@@ -292,52 +308,56 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
         // Set cipher mode using SAES-compatible method
         self.set_cipher_mode(p, cipher);
 
-        // Detect if this is GCM/CCM mode and set GCMPH=0 BEFORE loading key (per RM step 2)
-        let iv = cipher.iv();
-        let is_gcm_ccm = iv.len() == 16 && (iv[12..15] == [0, 0, 0] || iv[15] == 2);
+        // For GCM/CCM (authenticated) modes, set GCMPH=0 (init phase) BEFORE loading the key.
+        // Use uses_gcm_phases() - reliable, unlike checking IV length which is ambiguous
+        // (GCM, CBC, and CTR all have 16-byte IVs after AesGcm/AesCbc/AesCtr construction).
+        let is_gcm_ccm = cipher.uses_gcm_phases();
         if is_gcm_ccm {
             p.cr().modify(|w| w.set_gcmph(pac::saes::vals::Gcmph::from_bits(0)));
         }
 
-        // Now configure/load the key (after GCMPH is set)
-        // Configure hardware key if specified
+        // Configure and load the key (after GCMPH is set).
         if let Some(hw_key_src) = hw_key {
-            // Use from_bits since enum names vary
             let keysel_val = pac::saes::vals::Keysel::from_bits(hw_key_src as u8);
             p.cr().modify(|w| w.set_keysel(keysel_val));
-            // Enable key protection for hardware keys
             p.cr().modify(|w| w.set_keyprot(true));
+            // For hardware keys (non-SW), SAES fetches the key autonomously: wait for KEYVALID.
+            while !p.sr().read().keyvalid() {}
         } else {
-            // Load software key
+            // Load software key, then wait for KEYVALID.
+            // Unlike plain AES, SAES validates the key register write sequence; KEYVALID must
+            // be set before EN can be asserted (RM: "EN cannot be set as long as KEYVALID = 0").
             self.load_key(cipher.key());
+            while !p.sr().read().keyvalid() {}
         }
 
-        // Prepare key if needed (CBC decrypt) - SAES compatible
-        if dir == Direction::Decrypt && cipher.key().len() > 0 {
-            // For CBC decryption, need to prepare key
+        // For ECB/CBC decryption, perform key derivation (MODE=1) before the actual operation.
+        // CTR, GCM, and CCM use the encryption key schedule in both directions - no derivation.
+        let needs_key_derivation = dir == Direction::Decrypt && matches!(cipher.chmod_bits(), 0 | 1);
+        if needs_key_derivation {
             p.cr().modify(|w| w.set_mode(pac::saes::vals::Mode::KEY_DERIVATION));
             p.cr().modify(|w| w.set_en(true));
-            // Wait for completion
-            while !p.sr().read().busy() {}
-            p.cr().write(|w| *w);
-            // Restore decrypt mode
+            // Wait for CCF (computation complete), not BUSY
+            while !p.isr().read().ccf() {}
+            // Clear CCF via ICR
+            p.icr().write(|w| w.0 = 0xFFFF_FFFF);
+            // Restore decrypt mode for the actual operation
             p.cr().modify(|w| w.set_mode(mode_val));
         }
 
         // Load IV
         self.load_iv(cipher.iv());
 
-        // Perform init phase for GCM/CCM
+        // Perform init phase for GCM/CCM (hash-key H calculation, phase 0)
         if is_gcm_ccm {
-            // Enable to start hash key calculation
             p.cr().modify(|w| w.set_en(true));
-            // Wait for completion
-            while p.sr().read().busy() {}
+            // Wait for CCF (init phase complete)
+            while !p.isr().read().ccf() {}
             // Clear flags
             p.icr().write(|w| w.0 = 0xFFFF_FFFF);
-            // ST HAL does NOT disable EN - leave enabled for next phase
+            // ST HAL leaves EN set after init phase - leave enabled for next phase
         } else {
-            // For non-GCM modes, just enable the peripheral
+            // For non-GCM/CCM modes, just enable the peripheral
             p.cr().modify(|w| w.set_en(true));
         }
 
@@ -368,29 +388,16 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
         p.cr().modify(|w| w.set_kshareid(kshareid_val));
     }
 
-    /// Set cipher mode for SAES peripheral
+    /// Set cipher mode for SAES peripheral using the cipher's CHMOD bits.
     fn set_cipher_mode<'c, C>(&mut self, p: pac::saes::Saes, cipher: &C)
     where
         C: Cipher<'c>,
     {
-        // Determine the cipher mode by checking the key/IV sizes
-        let iv_len = cipher.iv().len();
-        let chmod = if iv_len == 0 {
-            // ECB mode
-            pac::saes::vals::Chmod::ECB
-        } else if iv_len == 16 {
-            // Could be CBC or CTR
-            // Default to CBC
-            pac::saes::vals::Chmod::CBC
-        } else if iv_len == 12 {
-            // GCM mode (value 3)
-            // Use CCM enum value as they share the same GCMPH mechanism
-            pac::saes::vals::Chmod::CCM
-        } else {
-            // Default to ECB
-            pac::saes::vals::Chmod::ECB
-        };
-        p.cr().modify(|w| w.set_chmod(chmod));
+        // Use the cipher's canonical CHMOD value (0=ECB, 1=CBC, 2=CTR, 3=GCM/GMAC, 4=CCM).
+        // Inferring mode from IV length is unreliable: GCM, CBC, and CTR all use 16-byte IVs
+        // after AesGcm::new() pads the 12-byte nonce to 16 bytes.
+        p.cr()
+            .modify(|w| w.set_chmod(pac::saes::vals::Chmod::from_bits(cipher.chmod_bits())));
     }
 
     /// Process authenticated additional data (AAD) for GCM/CCM modes.
@@ -446,12 +453,10 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
         // If this is the last AAD block, pad and process
         if last {
             if ctx.aad_buffer_len > 0 {
-                // Pad with zeros
+                // Pad partial block with zeros (NPBLB is payload-phase-only, not set here)
                 for i in ctx.aad_buffer_len..16 {
                     ctx.aad_buffer[i] = 0;
                 }
-                // Set NPBLB for partial block
-                p.cr().modify(|w| w.set_npblb(ctx.aad_buffer_len as u8));
                 self.write_block_blocking(&ctx.aad_buffer)?;
                 ctx.header_len += ctx.aad_buffer_len as u64;
                 ctx.aad_buffer_len = 0;
@@ -644,12 +649,12 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
     fn read_block_blocking(&mut self, block: &mut [u8]) -> Result<(), Error> {
         let p = T::regs();
 
-        // Wait for computation complete (busy flag clear)
-        while p.sr().read().busy() {}
+        // Wait for CCF (Computation Complete Flag) in ISR — BUSY is not a reliable completion
+        // signal as it also clears during init/RNG-fetch/key-transfer.
+        while !p.isr().read().ccf() {}
 
-        // Check for errors before reading
-        let sr = p.sr().read();
-        if sr.rderr() {
+        // Check for read/write error flag in ISR before reading output
+        if p.isr().read().rweif() {
             p.icr().write(|w| w.0 = 0xFFFF_FFFF);
             return Err(Error::ReadError);
         }
