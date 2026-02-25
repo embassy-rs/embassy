@@ -2,7 +2,7 @@
 
 use core::marker::PhantomData;
 use core::ptr::NonNull;
-use core::sync::atomic::{AtomicU8, Ordering, fence};
+use core::sync::atomic::{AtomicU8, AtomicU32, Ordering, fence};
 
 use bbqueue::BBQueue;
 use bbqueue::prod_cons::stream::{StreamGrantR, StreamGrantW};
@@ -15,125 +15,366 @@ use maitake_sync::WaitCell;
 use nxp_pac::lpuart::vals::Tc;
 use paste::paste;
 
-use super::{Config, Info, RxPin, TxPin, TxPins};
-use crate::clocks::WakeGuard;
-use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, DmaRequest, EnableInterrupt};
+use super::{DataBits, IdleConfig, Info, MsbFirst, Parity, RxPin, StopBits, TxPin, TxPins};
+use crate::clocks::periph_helpers::{Div4, LpuartClockSel};
+use crate::clocks::{PoweredClock, WakeGuard};
+use crate::dma::{DMA_MAX_TRANSFER_SIZE, DmaChannel, DmaRequest, EnableInterrupt};
 use crate::gpio::AnyPin;
 use crate::interrupt::typelevel::{Binding, Handler, Interrupt};
-use crate::lpuart::{Instance, Lpuart, RxPins};
+use crate::lpuart::{Instance, RxPins};
 
 /// Error Type
 #[derive(Debug, PartialEq)]
 #[non_exhaustive]
-pub enum Error {
+pub enum BbqError {
     /// Errors from LPUart setup
     Basic(super::Error),
     /// Could not initialize a new instance as the current instance is already in use
     Busy,
 }
 
-/// A `bbqueue` powered buffered Lpuart
-pub struct LpuartBbq<'a> {
-    /// The TX half of the LPUART
-    pub tx: LpuartBbqTx<'a>,
-    /// The RX half of the LPUART
-    pub rx: LpuartBbqRx<'a>,
+/// RX Reception mode
+#[derive(Debug, Clone, Copy, Default)]
+#[non_exhaustive]
+pub enum RxMode {
+    /// Default mode, attempts to utilize the ring buffer as maximally as possible.
+    ///
+    /// In this mode, the interrupt will use whatever space is available, up to 1/4
+    /// the total ring buffer size, or the max DMA transfer size, whichever is smaller.
+    /// however this may mean that if we are at the "end" of the ring buffer,
+    /// some transfers may be smaller, meaning we need to "reload" the interrupt
+    /// more often.
+    ///
+    /// At slower UART rates (like 115_200), this is probably acceptable, as we have
+    /// roughly 347us to service the "end of transfer" interrupt and reload the next
+    /// DMA transfer. However at higher speeds (like 4_000_000), this time shrinks to
+    /// 10us, meaning that critical sections (including defmt logging) may cause us to
+    /// lose data.
+    ///
+    /// If you know your maximum frame/burst size, you can instead use [`RxMode::MaxFrame`],
+    /// which will never allow "short" grants, with the trade off that we may reduce the
+    /// total usable capacity temporarily if we need to wrap around the ring buffer early.
+    #[default]
+    Efficiency,
+
+    /// Max Frame mode, ensures that dma transfers always have exactly `size` bytes available
+    ///
+    /// In this mode, we will always make DMA transfers of the given size. This is intended for
+    /// cases where we are receving bursts of data <= `size`, ideally with a short gap between
+    /// bursts. This means that we will receive an IDLE interrupt, and switch over receiving grants
+    /// in the quiet period, avoiding potentially latency-sensitive DMA transfer updates while
+    /// data is still being transferred. This is especially useful at higher baudrates.
+    ///
+    /// The tradeoff here is that we can temporarily "waste" up to `(size - 1)` bytes if we
+    /// are forced to wrap-around the ring buffer early. For example if there is only 1023 bytes
+    /// in the ring buffer before it wraps around, and `size = 1024`, we will be forced to wrap
+    /// around the ring early, skipping that capacity. In some cases, where the required 1024
+    /// bytes are not available at the beginning of the ring buffer either, we will not begin
+    /// a transfer at all, potentially losing data if capacity is not freed up before the next
+    /// transfer starts (each time the ring buffer is drained, we will automatically re-start
+    /// receiving if enough capacity is made available).
+    ///
+    /// `size` must be <= (capacity / 4).
+    MaxFrame {
+        size: usize,
+    }
 }
 
-impl<'a> LpuartBbq<'a> {
-    /// Create a new LpuartBbq with both transmit and receive halves
-    pub fn new<T: BbqInstance>(
-        _inner: Peri<'a, T>,
-        tx_pin: Peri<'a, impl TxPin<T>>,
-        rx_pin: Peri<'a, impl RxPin<T>>,
-        _irq: impl Binding<T::Interrupt, BbqInterruptHandler<T>> + 'a,
-        // TODO: something better for this
-        tx_buffer: &'static mut [u8],
-        // TODO: lifetime
-        tx_dma_ch: Peri<'static, impl Channel>,
-        // TODO: something better for this
-        rx_buffer: &'static mut [u8],
-        // TODO: lifetime
-        rx_dma_ch: Peri<'static, impl Channel>,
-        config: Config,
-    ) -> Result<Self, Error> {
-        // Get state for this instance, and try to move from the "uninit" to "initing" state
-        let state = T::bbq_state();
-        state.uninit_to_initing()?;
-        let info = T::info();
+/// Lpuart config
+#[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
+pub struct BbqConfig {
+    /// Power state required for this peripheral
+    pub power: PoweredClock,
+    /// Clock source
+    pub source: LpuartClockSel,
+    /// Clock divisor
+    pub div: Div4,
+    /// Baud rate in bits per second
+    pub baudrate_bps: u32,
+    /// Parity configuration
+    pub parity_mode: Option<Parity>,
+    /// Number of data bits
+    pub data_bits_count: DataBits,
+    /// MSB First or LSB First configuration
+    pub msb_first: MsbFirst,
+    /// Number of stop bits
+    pub stop_bits_count: StopBits,
+    /// RX IDLE configuration
+    pub rx_idle_config: IdleConfig,
+    /// Swap TXD and RXD pins
+    pub swap_txd_rxd: bool,
+}
 
-        // Set as TX/TX pin mode
-        tx_pin.as_tx();
-        rx_pin.as_rx();
+impl Default for BbqConfig {
+    fn default() -> Self {
+        Self {
+            baudrate_bps: 115_200u32,
+            parity_mode: None,
+            data_bits_count: DataBits::DATA8,
+            msb_first: MsbFirst::LSB_FIRST,
+            stop_bits_count: StopBits::ONE,
+            rx_idle_config: IdleConfig::IDLE_1,
+            swap_txd_rxd: false,
+            power: PoweredClock::AlwaysEnabled,
+            source: LpuartClockSel::FroLfDiv,
+            div: Div4::no_div(),
+        }
+    }
+}
+
+impl From<BbqConfig> for super::Config {
+    fn from(value: BbqConfig) -> Self {
+        let mut cfg = super::Config::default();
+        let BbqConfig {
+            power,
+            source,
+            div,
+            baudrate_bps,
+            parity_mode,
+            data_bits_count,
+            msb_first,
+            stop_bits_count,
+            rx_idle_config,
+            swap_txd_rxd,
+        } = value;
+
+        // User selectable
+        cfg.power = power;
+        cfg.source = source;
+        cfg.div = div;
+        cfg.baudrate_bps = baudrate_bps;
+        cfg.parity_mode = parity_mode;
+        cfg.data_bits_count = data_bits_count;
+        cfg.msb_first = msb_first;
+        cfg.stop_bits_count = stop_bits_count;
+        cfg.rx_idle_config = rx_idle_config;
+        cfg.swap_txd_rxd = swap_txd_rxd;
+
+        // Manually set
+        cfg.tx_fifo_watermark = 0;
+        cfg.rx_fifo_watermark = 0;
+
+        cfg
+    }
+}
+
+/// A `bbqueue` powered buffered Lpuart
+pub struct LpuartBbq {
+    // TODO: Don't just make these pub, we don't *really* handle dropping/recreation
+    // of separate parts at the moment.
+
+    /// The TX half of the LPUART
+    tx: LpuartBbqTx,
+    /// The RX half of the LPUART
+    rx: LpuartBbqRx,
+}
+
+#[derive(Copy, Clone)]
+struct BbqVtable {
+    lpuart_init: fn(bool, bool, bool, bool, super::Config) -> Result<Option<WakeGuard>, super::Error>,
+    int_pend: fn(),
+    int_unpend: fn(),
+    int_disable: fn(),
+    dma_rx_cb: fn(),
+    int_enable: unsafe fn(),
+}
+
+impl BbqVtable {
+    fn for_lpuart<T: BbqInstance>() -> Self {
+        Self {
+            int_pend: T::Interrupt::pend,
+            int_unpend: T::Interrupt::unpend,
+            int_disable: T::Interrupt::disable,
+            int_enable: T::Interrupt::enable,
+            dma_rx_cb: T::dma_rx_complete_cb,
+            lpuart_init: super::Lpuart::<'static, super::Blocking>::init::<T>,
+        }
+    }
+}
+
+pub struct BbqHalfParts {
+    // resources
+    buffer: &'static mut [u8],
+    dma_ch: DmaChannel<'static>,
+    pin: Peri<'static, AnyPin>,
+
+    // type erasure
+    dma_req: u8,
+    mux: crate::pac::port::vals::Mux,
+    info: &'static Info,
+    state: &'static BbqState,
+    vtable: BbqVtable,
+}
+
+pub struct BbqParts {
+    // resources
+    tx_buffer: &'static mut [u8],
+    tx_dma_ch: DmaChannel<'static>,
+    tx_pin: Peri<'static, AnyPin>,
+    rx_buffer: &'static mut [u8],
+    rx_dma_ch: DmaChannel<'static>,
+    rx_pin: Peri<'static, AnyPin>,
+
+    // type erasure
+    tx_dma_req: u8,
+    tx_mux: crate::pac::port::vals::Mux,
+    rx_dma_req: u8,
+    rx_mux: crate::pac::port::vals::Mux,
+    info: &'static Info,
+    state: &'static BbqState,
+    vtable: BbqVtable,
+}
+
+impl BbqParts {
+    pub fn new<T: BbqInstance, Tx: TxPin<T>, Rx: RxPin<T>>(
+        _inner: Peri<'static, T>,
+        _irq: impl Binding<T::Interrupt, BbqInterruptHandler<T>> + 'static,
+        tx_pin: Peri<'static, Tx>,
+        tx_buffer: &'static mut [u8],
+        tx_dma_ch: impl Into<DmaChannel<'static>>,
+        rx_pin: Peri<'static, Rx>,
+        rx_buffer: &'static mut [u8],
+        rx_dma_ch: impl Into<DmaChannel<'static>>,
+    ) -> Result<Self, BbqError> {
+        Ok(Self {
+            tx_buffer,
+            tx_dma_ch: tx_dma_ch.into(),
+            tx_pin: tx_pin.into(),
+            rx_buffer,
+            rx_dma_ch: rx_dma_ch.into(),
+            rx_pin: rx_pin.into(),
+            tx_dma_req: T::TxDmaRequest::REQUEST_NUMBER,
+            tx_mux: Tx::MUX,
+            rx_dma_req: T::RxDmaRequest::REQUEST_NUMBER,
+            rx_mux: Rx::MUX,
+            info: T::info(),
+            state: T::bbq_state(),
+            vtable: BbqVtable::for_lpuart::<T>(),
+        })
+    }
+}
+
+impl BbqHalfParts {
+    pub fn new_tx_half<T: BbqInstance, P: TxPin<T>>(
+        _inner: Peri<'static, T>,
+        _irq: impl Binding<T::Interrupt, BbqInterruptHandler<T>> + 'static,
+        tx_pin: Peri<'static, P>,
+        buffer: &'static mut [u8],
+        dma_ch: impl Into<DmaChannel<'static>>,
+    ) -> Result<Self, BbqError> {
+        Ok(Self {
+            buffer,
+            dma_ch: dma_ch.into(),
+            pin: tx_pin.into(),
+            mux: P::MUX,
+            info: T::info(),
+            state: T::bbq_state(),
+            dma_req: T::TxDmaRequest::REQUEST_NUMBER,
+            vtable: BbqVtable::for_lpuart::<T>(),
+        })
+    }
+
+    pub fn new_rx_half<T: BbqInstance, P: RxPin<T>>(
+        _inner: Peri<'static, T>,
+        _irq: impl Binding<T::Interrupt, BbqInterruptHandler<T>> + 'static,
+        tx_pin: Peri<'static, P>,
+        buffer: &'static mut [u8],
+        dma_ch: impl Into<DmaChannel<'static>>,
+    ) -> Result<Self, BbqError> {
+        Ok(Self {
+            buffer,
+            dma_ch: dma_ch.into(),
+            pin: tx_pin.into(),
+            mux: P::MUX,
+            info: T::info(),
+            state: T::bbq_state(),
+            dma_req: T::RxDmaRequest::REQUEST_NUMBER,
+            vtable: BbqVtable::for_lpuart::<T>(),
+        })
+    }
+}
+
+impl LpuartBbq {
+    /// Create a new LpuartBbq with both transmit and receive halves
+    pub fn new(
+        parts: BbqParts,
+        config: BbqConfig,
+    ) -> Result<Self, BbqError> {
+        // Get state for this instance, and try to move from the "uninit" to "initing" state
+        parts.state.uninit_to_initing()?;
+
+        // Set as TX/RX pin mode
+        any_as_tx(&parts.tx_pin, parts.tx_mux);
+        any_as_rx(&parts.rx_pin, parts.rx_mux);
 
         // Configure UART peripheral
         // TODO make this a specific Bbq mode instead of using blocking
-        // TODO support CTS pin?
-        let _wg =
-            Lpuart::<super::blocking::Blocking>::init::<T>(true, true, false, false, config).map_err(Error::Basic)?;
+        // TODO support CTS/RTS pins?
+
+        let _wg = (parts.vtable.lpuart_init)(true, true, false, false, config.into()).map_err(BbqError::Basic)?;
 
         // Setup the TX state
-        LpuartBbqTx::initialize_tx_state(state, tx_dma_ch, tx_buffer, T::TxDmaRequest::REQUEST_NUMBER);
+        LpuartBbqTx::initialize_tx_state(
+            parts.state,
+            parts.tx_dma_ch,
+            parts.tx_buffer,
+            parts.tx_dma_req,
+        );
 
         // Setup the RX state
         LpuartBbqRx::initialize_rx_state(
-            state,
-            T::info(),
-            rx_dma_ch,
-            T::dma_rx_complete_cb,
-            rx_buffer,
-            T::RxDmaRequest::REQUEST_NUMBER,
+            parts.state,
+            parts.info,
+            parts.rx_dma_ch,
+            parts.vtable.dma_rx_cb,
+            parts.rx_buffer,
+            parts.rx_dma_req,
         );
 
         // Update our state to "initialized", and that we have the TXDMA + RXDMA channels present
         // Okay to just store: we have exclusive access
         let new_state = STATE_INITED | STATE_TXDMA_PRESENT | STATE_RXDMA_PRESENT;
-        state.state.store(new_state, Ordering::Release);
+        parts.state.state.store(new_state, Ordering::Release);
 
         unsafe {
             // Clear any stale interrupt flags
-            <T as Instance>::Interrupt::unpend();
+            (parts.vtable.int_unpend)();
             // Enable the LPUART interrupt
-            <T as Instance>::Interrupt::enable();
+            (parts.vtable.int_enable)();
             // Immediately pend the interrupt, this will "load" the DMA transfer as the
             // ISR will notice that there is no active grant. This means that we start
             // receiving immediately without additional user interaction.
-            <T as Instance>::Interrupt::pend();
+            (parts.vtable.int_pend)();
         }
 
         Ok(Self {
             tx: LpuartBbqTx {
-                state,
-                int_pend: T::Interrupt::pend,
-                _tx_pins: TxPins {
-                    tx_pin: tx_pin.into(),
-                    cts_pin: None,
-                },
+                state: parts.state,
+                info: parts.info,
+                vtable: parts.vtable,
+                mux: parts.tx_mux,
+                _tx_pins: TxPins { tx_pin: parts.tx_pin, cts_pin: None },
                 _wg: _wg.clone(),
-                _phantom: PhantomData,
-                info,
             },
             rx: LpuartBbqRx {
-                state,
-                int_pend: T::Interrupt::pend,
-                _rx_pins: RxPins {
-                    rx_pin: rx_pin.into(),
-                    rts_pin: None,
-                },
+                state: parts.state,
+                info: parts.info,
+                vtable: parts.vtable,
+                mux: parts.rx_mux,
+                _rx_pins: RxPins { rx_pin: parts.rx_pin, rts_pin: None },
                 _wg,
-                _phantom: PhantomData,
-                info,
             },
         })
     }
 
     /// Write some data to the buffer. See [`LpuartBbqTx::write`] for more information
-    pub fn write(&mut self, buf: &[u8]) -> impl Future<Output = Result<usize, Error>> {
+    pub fn write(&mut self, buf: &[u8]) -> impl Future<Output = Result<usize, BbqError>> {
         self.tx.write(buf)
     }
 
     /// Read some data from the buffer. See [`LpuartBbqRx::read`] for more information
-    pub fn read(&mut self, buf: &mut [u8]) -> impl Future<Output = Result<usize, Error>> {
+    pub fn read(&mut self, buf: &mut [u8]) -> impl Future<Output = Result<usize, BbqError>> {
         self.rx.read(buf)
     }
 
@@ -153,24 +394,22 @@ impl<'a> LpuartBbq<'a> {
 }
 
 /// A `bbqueue` powered Lpuart TX Half
-pub struct LpuartBbqTx<'a> {
+pub struct LpuartBbqTx {
     state: &'static BbqState,
     info: &'static Info,
-    int_pend: fn(),
-    _tx_pins: TxPins<'a>,
+    vtable: BbqVtable,
+    mux: crate::pac::port::vals::Mux,
+    _tx_pins: TxPins<'static>,
     _wg: Option<WakeGuard>,
-    _phantom: PhantomData<&'a mut ()>,
 }
 
-impl<'a> LpuartBbqTx<'a> {
+impl LpuartBbqTx {
     fn initialize_tx_state(
         state: &'static BbqState,
-        tx_dma_ch: Peri<'static, impl Channel>,
+        dma: DmaChannel<'static>,
         tx_buffer: &'static mut [u8],
         request_num: u8,
     ) {
-        // Create DMA channel to use for TX
-        let dma = DmaChannel::new(tx_dma_ch);
         // Enable the DMA interrupt to handle "transfer complete" interrupts
         dma.enable_interrupt();
 
@@ -192,57 +431,48 @@ impl<'a> LpuartBbqTx<'a> {
     ///
     /// NOTE: Dropping the `LpuartBbqTx` will *permanently* leak the TX buffer, DMA channel, and tx pin.
     /// Call [LpuartBbqTx::teardown] to reclaim these resources.
-    pub fn new<T: BbqInstance>(
-        _inner: Peri<'a, T>,
-        tx_pin: Peri<'static, impl TxPin<T>>,
-        _irq: impl Binding<T::Interrupt, BbqInterruptHandler<T>> + 'a,
-        // TODO: something better for this
-        tx_buffer: &'static mut [u8],
-        // TODO: lifetime
-        tx_dma_ch: Peri<'static, impl Channel>,
-        config: Config,
-    ) -> Result<Self, Error> {
+    pub fn new(
+        parts: BbqHalfParts,
+        config: BbqConfig,
+    ) -> Result<Self, BbqError> {
         // Get state for this instance, and try to move from the "uninit" to "initing" state
-        let state = T::bbq_state();
-        state.uninit_to_initing()?;
-        let info = T::info();
+        parts.state.uninit_to_initing()?;
 
         // Set as TX pin mode
-        tx_pin.as_tx();
+        any_as_tx(&parts.pin, parts.mux);
 
         // Configure UART peripheral
         // TODO make this a specific Bbq mode instead of using blocking
         // TODO support CTS pin?
-        let _wg =
-            Lpuart::<super::blocking::Blocking>::init::<T>(true, false, false, false, config).map_err(Error::Basic)?;
+        let _wg = (parts.vtable.lpuart_init)(true, false, false, false, config.into()).map_err(BbqError::Basic)?;
 
         // Setup the TX Half state
-        Self::initialize_tx_state(state, tx_dma_ch, tx_buffer, T::TxDmaRequest::REQUEST_NUMBER);
+        Self::initialize_tx_state(parts.state, parts.dma_ch, parts.buffer, parts.dma_req);
 
         // Update our state to "initialized", and that we have the TXDMA channel present
         // Okay to just store: we have exclusive access
         let new_state = STATE_INITED | STATE_TXDMA_PRESENT;
-        state.state.store(new_state, Ordering::Release);
+        parts.state.state.store(new_state, Ordering::Release);
 
         unsafe {
             // Clear any stale interrupt flags
-            <T as Instance>::Interrupt::unpend();
+            (parts.vtable.int_unpend)();
             // Enable the LPUART interrupt
-            <T as Instance>::Interrupt::enable();
+            (parts.vtable.int_enable)();
             // NOTE: Unlike RX, we don't begin transmitting immediately, we move
             // from Idle -> Transmitting the first time the user calls write.
         }
 
         Ok(Self {
-            state,
-            int_pend: T::Interrupt::pend,
+            state: parts.state,
+            info: parts.info,
+            vtable: parts.vtable,
             _tx_pins: TxPins {
-                tx_pin: tx_pin.into(),
+                tx_pin: parts.pin,
                 cts_pin: None,
             },
             _wg,
-            _phantom: PhantomData,
-            info,
+            mux: parts.mux,
         })
     }
 
@@ -254,7 +484,7 @@ impl<'a> LpuartBbqTx<'a> {
     /// This does NOT guarantee all bytes of `buf` have been buffered, only the amount returned.
     ///
     /// This does NOT guarantee the bytes have been written to the wire. See [`Self::flush()`].
-    pub async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
+    pub async fn write(&mut self, buf: &[u8]) -> Result<usize, BbqError> {
         // TODO: we could have a version of this that gives the user the grant directly
         // to reduce the effort of copying.
         let tx_queue = unsafe { &*self.state.tx_queue.get() };
@@ -263,7 +493,7 @@ impl<'a> LpuartBbqTx<'a> {
         let to_copy = buf.len().min(wgr.len());
         wgr[..to_copy].copy_from_slice(&buf[..to_copy]);
         wgr.commit(to_copy);
-        (self.int_pend)();
+        (self.vtable.int_pend)();
 
         Ok(to_copy)
     }
@@ -290,8 +520,8 @@ impl<'a> LpuartBbqTx<'a> {
         while (self.state.state.load(Ordering::Acquire) & STATE_TXGR_ACTIVE) != 0 {}
     }
 
-    /// Teardown the Tx handle, reclaiming the DMA channel, transmit buffer, and Tx pin.
-    pub fn teardown(self) -> (DmaChannel<'static>, &'static mut [u8], Peri<'a, AnyPin>) {
+    /// Teardown the Tx handle, reclaiming the parts.
+    pub fn teardown(self) -> BbqHalfParts {
         // First, disable relevant interrupts
         critical_section::with(|_cs| {
             self.info.regs.ctrl().modify(|w| w.set_tcie(false));
@@ -348,37 +578,44 @@ impl<'a> LpuartBbqTx<'a> {
         // Now, if this was the last part of the lpuart, we are responsible for peripheral
         // cleanup.
         if (state & !(STATE_TXGR_ACTIVE | STATE_TXDMA_PRESENT)) == STATE_INITED {
+            (self.vtable.int_disable)();
             super::disable_peripheral(self.info);
             self.state.state.store(STATE_UNINIT, Ordering::Relaxed);
         }
 
         let (tx_pin, _) = self._tx_pins.take();
 
-        (tx_dma, tx_buffer, tx_pin)
+        BbqHalfParts {
+            buffer: tx_buffer,
+            dma_ch: tx_dma,
+            pin: tx_pin,
+            dma_req: self.state.txdma_num.load(Ordering::Relaxed),
+            mux: self.mux,
+            info: self.info,
+            state: self.state,
+            vtable: self.vtable,
+        }
     }
 }
 
-pub struct LpuartBbqRx<'a> {
+pub struct LpuartBbqRx {
     state: &'static BbqState,
     info: &'static Info,
-    int_pend: fn(),
-    _rx_pins: RxPins<'a>,
+    vtable: BbqVtable,
+    mux: crate::pac::port::vals::Mux,
+    _rx_pins: RxPins<'static>,
     _wg: Option<WakeGuard>,
-    _phantom: PhantomData<&'a mut ()>,
 }
 
-impl<'a> LpuartBbqRx<'a> {
+impl LpuartBbqRx {
     fn initialize_rx_state(
         state: &'static BbqState,
-        info: &'static Info,
-        rx_dma_ch: Peri<'static, impl Channel>,
+        _info: &'static Info,
+        mut dma: DmaChannel<'static>,
         rx_callback: fn(),
         rx_buffer: &'static mut [u8],
         request_num: u8,
     ) {
-        // Create DMA channel to use with RX
-        let mut dma = DmaChannel::new(rx_dma_ch);
-
         // Set the callback to our completion handler, so our LPUART interrupt gets called to
         // complete the transfer and reload
         //
@@ -407,79 +644,74 @@ impl<'a> LpuartBbqRx<'a> {
 
         // TODO: Do we actually want these interrupts enabled? We probably do, so we can
         // clear the errors, but I'm not sure if any of these actually stall the receive.
-        info.regs().ctrl().modify(|w| {
-            // overrun
-            w.set_orie(true);
-            // noise
-            w.set_neie(true);
-            // framing
-            w.set_feie(true);
-        });
+        //
+        // That being said, I've observed the RX line being floating (e.g. if the sender
+        // is in reset or disconnected) causing ~infinite "framing errors", which causes
+        // an interrupt storm since we don't *disable* the interrupt. We probably need to
+        // think about how/if we handle these kinds of errors.
+        //
+        // info.regs().ctrl().modify(|w| {
+        //     // overrun
+        //     w.set_orie(true);
+        //     // noise
+        //     w.set_neie(true);
+        //     // framing
+        //     w.set_feie(true);
+        // });
     }
 
     /// Create a new LpuartBbq with only the receive half
     ///
     /// NOTE: Dropping the `LpuartBbqRx` will *permanently* leak the TX buffer, DMA channel, and tx pin.
     /// Call [LpuartBbqTx::teardown] to reclaim these resources.
-    pub fn new<T: BbqInstance>(
-        _inner: Peri<'a, T>,
-        rx_pin: Peri<'a, impl RxPin<T>>,
-        _irq: impl Binding<T::Interrupt, BbqInterruptHandler<T>> + 'a,
-        // TODO: something better for this
-        rx_buffer: &'static mut [u8],
-        // TODO: lifetime
-        rx_dma_ch: Peri<'static, impl Channel>,
-        config: Config,
-    ) -> Result<Self, Error> {
+    pub fn new(
+        parts: BbqHalfParts,
+        config: BbqConfig,
+    ) -> Result<Self, BbqError> {
         // Get state for this instance, and try to move from the "uninit" to "initing" state
-        let state = T::bbq_state();
-        state.uninit_to_initing()?;
+        parts.state.uninit_to_initing()?;
 
         // Set RX pin mode
-        rx_pin.as_rx();
+        any_as_rx(&parts.pin, parts.mux);
 
         // Configure UART peripheral
         // TODO make this a specific Bbq mode instead of using blocking
         // TODO support RTS pin?
-        let _wg =
-            Lpuart::<super::blocking::Blocking>::init::<T>(false, true, false, false, config).map_err(Error::Basic)?;
+        let _wg = (parts.vtable.lpuart_init)(false, true, false, false, config.into()).map_err(BbqError::Basic)?;
 
         // Setup the RX half state
         Self::initialize_rx_state(
-            state,
-            T::info(),
-            rx_dma_ch,
-            T::dma_rx_complete_cb,
-            rx_buffer,
-            T::RxDmaRequest::REQUEST_NUMBER,
+            parts.state,
+            parts.info,
+            parts.dma_ch,
+            parts.vtable.dma_rx_cb,
+            parts.buffer,
+            parts.dma_req,
         );
 
         // Update our state to "initialized", and that we have the RXDMA channel present
         // Okay to just store: we have exclusive access
         let new_state = STATE_INITED | STATE_RXDMA_PRESENT;
-        state.state.store(new_state, Ordering::Release);
+        parts.state.state.store(new_state, Ordering::Release);
 
         unsafe {
             // Clear any stale interrupt flags
-            <T as Instance>::Interrupt::unpend();
+            (parts.vtable.int_unpend)();
             // Enable the LPUART interrupt
-            <T as Instance>::Interrupt::enable();
+            (parts.vtable.int_enable)();
             // Immediately pend the interrupt, this will "load" the DMA transfer as the
             // ISR will notice that there is no active grant. This means that we start
             // receiving immediately without additional user interaction.
-            <T as Instance>::Interrupt::pend();
+            (parts.vtable.int_pend)();
         }
 
         Ok(Self {
-            state,
-            int_pend: T::Interrupt::pend,
-            _rx_pins: RxPins {
-                rx_pin: rx_pin.into(),
-                rts_pin: None,
-            },
+            state: parts.state,
+            info: parts.info,
+            vtable: parts.vtable,
+            mux: parts.mux,
+            _rx_pins: RxPins { rx_pin: parts.pin, rts_pin: None },
             _wg,
-            _phantom: PhantomData,
-            info: T::info(),
         })
     }
 
@@ -495,7 +727,7 @@ impl<'a> LpuartBbqRx<'a> {
     ///
     /// In this case, data will be discarded until this read method is called and capacity is made
     /// available.
-    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, BbqError> {
         // TODO: we could have a version of this that gives the user the grant directly
         // to reduce the effort of copying.
         let queue = unsafe { &*self.state.rx_queue.get() };
@@ -508,14 +740,14 @@ impl<'a> LpuartBbqRx<'a> {
         // If NO rx_dma is active, that means we stalled, so pend the interrupt to
         // restart it now that we've freed space.
         if (self.state.state.load(Ordering::Acquire) & STATE_RXGR_ACTIVE) == 0 {
-            (self.int_pend)();
+            (self.vtable.int_pend)();
         }
 
         Ok(to_copy)
     }
 
     /// Teardown the Rx handle, reclaiming the DMA channel, receive buffer, and Rx pin.
-    pub fn teardown(self) -> (DmaChannel<'static>, &'static mut [u8], Peri<'a, AnyPin>) {
+    pub fn teardown(self) -> BbqHalfParts {
         // First, mark the RXDMA as not present to halt the ISR from processing the state
         // machine
         let rx_state_bits = STATE_RXDMA_PRESENT | STATE_RXGR_ACTIVE | STATE_RXDMA_COMPLETE;
@@ -578,7 +810,16 @@ impl<'a> LpuartBbqRx<'a> {
         }
 
         let (rx_pin, _) = self._rx_pins.take();
-        (rx_dma, rx_buffer, rx_pin)
+        BbqHalfParts {
+            buffer: rx_buffer,
+            dma_ch: rx_dma,
+            pin: rx_pin,
+            dma_req: self.state.rxdma_num.load(Ordering::Relaxed),
+            mux: self.mux,
+            info: self.info,
+            state: self.state,
+            vtable: self.vtable,
+        }
     }
 }
 
@@ -609,24 +850,27 @@ pub struct BbqInterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
 
-const STATE_UNINIT: u8 = 0b0000_0000;
-const STATE_INITING: u8 = 0b0000_0001;
-const STATE_INITED: u8 = 0b0000_0011;
-const STATE_RXGR_ACTIVE: u8 = 0b0000_0100;
-const STATE_TXGR_ACTIVE: u8 = 0b0000_1000;
-const STATE_RXDMA_PRESENT: u8 = 0b0001_0000;
-const STATE_TXDMA_PRESENT: u8 = 0b0010_0000;
-const STATE_RXDMA_COMPLETE: u8 = 0b0100_0000;
+const STATE_UNINIT: u32 = 0b0000_0000_0000_0000_0000_0000_0000_0000;
+const STATE_INITING: u32 = 0b0000_0000_0000_0000_0000_0000_0000_0001;
+const STATE_INITED: u32 = 0b0000_0000_0000_0000_0000_0000_0000_0011;
+const STATE_RXGR_ACTIVE: u32 = 0b0000_0000_0000_0000_0000_0000_0000_0100;
+const STATE_TXGR_ACTIVE: u32 = 0b0000_0000_0000_0000_0000_0000_0000_1000;
+const STATE_RXDMA_PRESENT: u32 = 0b0000_0000_0000_0000_0000_0000_0001_0000;
+const STATE_TXDMA_PRESENT: u32 = 0b0000_0000_0000_0000_0000_0000_0010_0000;
+const STATE_RXDMA_COMPLETE: u32 = 0b0000_0000_0000_0000_0000_0000_0100_0000;
+const STATE_RXGR_SIZE_MASK: u32 = 0b1111_1111_1111_1111_0000_0000_0000_0000;
 
 struct BbqState {
-    /// 0bxDTR_PCAI
-    ///          ^^--> 0b00: uninit, 0b01: initing, 0b11 init'd.
-    ///         ^----> 0b0: No Rx grant, 0b1: Rx grant active
-    ///        ^-----> 0b0: No Tx grant, 0b1: Tx grant active
-    ///      ^-------> 0b0: No Rx DMA present, 0b1: Rx DMA present
-    ///     ^--------> 0b0: No Tx DMA present, 0b1: Tx DMA present
-    ///    ^---------> 0b0: Rx DMA not complete, 0b1: Rx DMA complete
-    state: AtomicU8,
+    /// 0bGGGG_GGGG_GGGG_GGGG_xxxx_xxxx_MDTR_PCAI
+    ///                                        ^^--> 0b00: uninit, 0b01: initing, 0b11 init'd.
+    ///                                       ^----> 0b0: No Rx grant, 0b1: Rx grant active
+    ///                                      ^-----> 0b0: No Tx grant, 0b1: Tx grant active
+    ///                                    ^-------> 0b0: No Rx DMA present, 0b1: Rx DMA present
+    ///                                   ^--------> 0b0: No Tx DMA present, 0b1: Tx DMA present
+    ///                                  ^---------> 0b0: Rx DMA not complete, 0b1: Rx DMA complete
+    ///                                 ^----------> 0b0: RxMode "Efficiency", 0b1: RxMode "Max Frame"
+    ///   ^^^^_^^^^_^^^^_^^^^----------------------> 16-bit: RX Grant size
+    state: AtomicU32,
 
     /// The "outgoing" bbqueue buffer
     ///
@@ -669,7 +913,7 @@ struct BbqState {
 impl BbqState {
     const fn new() -> Self {
         Self {
-            state: AtomicU8::new(0),
+            state: AtomicU32::new(0),
             tx_queue: GroundedCell::uninit(),
             rx_queue: GroundedCell::uninit(),
             rxgr: GroundedCell::uninit(),
@@ -684,11 +928,11 @@ impl BbqState {
 
     /// Attempt to move from the "uninit" state to the "initing" state. Returns an
     /// error if we are not in the "uninit" state.
-    fn uninit_to_initing(&'static self) -> Result<(), Error> {
+    fn uninit_to_initing(&'static self) -> Result<(), BbqError> {
         self.state
             .compare_exchange(STATE_UNINIT, STATE_INITING, Ordering::AcqRel, Ordering::Acquire)
             .map(drop)
-            .map_err(|_| Error::Busy)
+            .map_err(|_| BbqError::Busy)
     }
 
     /// Complete an active TX DMA transfer. Called from ISR context.
@@ -929,6 +1173,7 @@ unsafe fn handler(info: &'static Info, state: &'static BbqState) {
     let regs = info.regs();
     let ctrl = regs.ctrl().read();
     let stat = regs.stat().read();
+    // defmt::info!("INT {:?}", stat);
 
     // Just clear any errors - TODO, signal these to the consumer?
     // For now, we just clear + discard errors if they occur.
@@ -957,6 +1202,7 @@ unsafe fn handler(info: &'static Info, state: &'static BbqState) {
     let dma_complete = (pre_clear & STATE_RXDMA_COMPLETE) != 0;
 
     if rx_present && rx_active && (idle || dma_complete) {
+        // defmt::info!("a");
         // State change, move from Receiving -> Idle
         unsafe {
             state.finalize_read(info);
@@ -966,8 +1212,9 @@ unsafe fn handler(info: &'static Info, state: &'static BbqState) {
     // If we are now idle, attempt to "reload" the transfer and being receiving again ASAP.
     // Only do this if RXDMA is present. We re-load from state to ensure we see when
     // `finalize_read` just cleared the bit.
-    let rx_idle = (state.state.load(Ordering::Acquire) & STATE_RXGR_ACTIVE) != 0;
+    let rx_idle = (state.state.load(Ordering::Acquire) & STATE_RXGR_ACTIVE) == 0;
     if rx_present && rx_idle {
+        // defmt::info!("b");
         // Either Idle -> Receiving or Idle -> Idle
         unsafe {
             let started = state.start_read_transfer(info);
@@ -1022,4 +1269,20 @@ impl<T: BbqInstance> Handler<T::Interrupt> for BbqInterruptHandler<T> {
             handler(info, state);
         }
     }
+}
+
+use crate::gpio::SealedPin;
+
+fn any_as_tx(pin: &Peri<'_, AnyPin>, mux: crate::pac::port::vals::Mux) {
+    pin.set_pull(crate::gpio::Pull::Disabled);
+    pin.set_slew_rate(crate::gpio::SlewRate::Fast.into());
+    pin.set_drive_strength(crate::gpio::DriveStrength::Normal.into());
+    pin.set_function(mux);
+    pin.set_enable_input_buffer(false);
+}
+
+fn any_as_rx(pin: &Peri<'_, AnyPin>, mux: crate::pac::port::vals::Mux) {
+    pin.set_pull(crate::gpio::Pull::Disabled);
+    pin.set_function(mux);
+    pin.set_enable_input_buffer(true);
 }

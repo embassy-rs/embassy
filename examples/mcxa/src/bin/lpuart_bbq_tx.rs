@@ -17,7 +17,7 @@ use embassy_mcxa::clocks::config::{
 };
 use embassy_mcxa::clocks::periph_helpers::LpuartClockSel;
 use embassy_mcxa::gpio::{DriveStrength, Level, Output, SlewRate};
-use embassy_mcxa::lpuart::{Config, LpuartBbqTx};
+use embassy_mcxa::lpuart::{BbqConfig, LpuartBbqTx};
 use embassy_mcxa::{bind_interrupts, lpuart};
 use embassy_time::Timer;
 use static_cell::ConstStaticCell;
@@ -27,7 +27,8 @@ bind_interrupts!(struct Irqs {
     LPUART3 => lpuart::BbqInterruptHandler::<hal::peripherals::LPUART3>;
 });
 
-static TX_BUF: ConstStaticCell<[u8; 4096]> = ConstStaticCell::new([0u8; 4096]);
+const SIZE: usize = 4096;
+static TX_BUF: ConstStaticCell<[u8; SIZE]> = ConstStaticCell::new([0u8; SIZE]);
 
 #[cfg_attr(
     feature = "custom-executor",
@@ -45,7 +46,7 @@ async fn main(_spawner: Spawner) {
 
     let mut cfg = hal::config::Config::default();
 
-    // Disable 45M osc
+    // Enable 180MHz clock source
     let mut fcfg = FircConfig::default();
     fcfg.frequency = FircFreqSel::Mhz180;
     fcfg.power = PoweredClock::NormalEnabledDeepSleepDisabled;
@@ -54,7 +55,7 @@ async fn main(_spawner: Spawner) {
     fcfg.fro_hf_div = Some(const { Div8::from_divisor(4).unwrap() });
     cfg.clock_cfg.firc = Some(fcfg);
 
-    // Enable 12M osc to use as core clock
+    // Enable 12M osc
     cfg.clock_cfg.sirc.fro_12m_enabled = true;
     cfg.clock_cfg.sirc.fro_lf_div = Some(Div8::no_div());
     cfg.clock_cfg.sirc.power = PoweredClock::AlwaysEnabled;
@@ -68,20 +69,20 @@ async fn main(_spawner: Spawner) {
     // Disable PLL
     cfg.clock_cfg.spll = None;
 
-    // Feed core from 12M osc
+    // Feed core from 180M osc
     cfg.clock_cfg.main_clock = MainClockConfig {
         source: MainClockSource::FircHfRoot,
         power: PoweredClock::NormalEnabledDeepSleepDisabled,
         ahb_clk_div: Div8::no_div(),
     };
 
-    // Set lowest core power, disable bandgap LDO reference
+    // We don't sleep, set relatively high power
     cfg.clock_cfg.vdd_power.active_mode.level = VddLevel::OverDriveMode;
     cfg.clock_cfg.vdd_power.low_power_mode.level = VddLevel::MidDriveMode;
     cfg.clock_cfg.vdd_power.active_mode.drive = VddDriveStrength::Normal;
     cfg.clock_cfg.vdd_power.low_power_mode.drive = VddDriveStrength::Low { enable_bandgap: false };
 
-    // Set "deep sleep" mode
+    // Set "never sleep" mode
     cfg.clock_cfg.vdd_power.core_sleep = CoreSleep::WfeUngated;
 
     // Set flash doze, allowing internal flash clocks to be gated on sleep
@@ -92,20 +93,15 @@ async fn main(_spawner: Spawner) {
     defmt::info!("LPUART DMA example starting...");
 
     // Create UART configuration
-    let config = Config {
-        baudrate_bps: 4_000_000,
-        power: PoweredClock::NormalEnabledDeepSleepDisabled,
-        source: LpuartClockSel::FroHfDiv,
-        ..Default::default()
-    };
+    let mut config = BbqConfig::default();
+    config.baudrate_bps = 4_000_000;
+    config.power = PoweredClock::NormalEnabledDeepSleepDisabled;
+    config.source = LpuartClockSel::FroHfDiv;
 
     let tx_buf = TX_BUF.take();
 
     // Create UART instance with DMA channels
     let mut lpuart = LpuartBbqTx::new(p.LPUART3, p.P4_5, Irqs, tx_buf, p.DMA_CH0, config).unwrap();
-
-    // // let mut gpio = Output::new(p.P4_2, Level::Low, DriveStrength::Normal, SlewRate::Slow);
-
     let mut to_send = [0u8; 4096];
     to_send.iter_mut().enumerate().for_each(|(i, b)| *b = i as u8);
 
@@ -117,12 +113,16 @@ async fn main(_spawner: Spawner) {
     embassy_mcxa::executor::set_executor_debug_gpio(p.P4_2);
 
     loop {
+        defmt::info!("Firing!");
         let mut window = to_send.as_slice();
         while !window.is_empty() {
             let sent = lpuart.write(window).await.unwrap();
             let (_now, later) = window.split_at(sent);
             window = later;
         }
+        defmt::info!("Fired, flushing...");
+        lpuart.flush().await;
+        defmt::info!("Flushed.");
         Timer::after_millis(1000).await;
         red.toggle();
     }
