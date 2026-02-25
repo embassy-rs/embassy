@@ -31,6 +31,7 @@ pub enum BbqError {
     Basic(super::Error),
     /// Could not initialize a new instance as the current instance is already in use
     Busy,
+    WrongParts,
 }
 
 /// RX Reception mode
@@ -193,6 +194,12 @@ impl BbqVtable {
     }
 }
 
+#[derive(PartialEq, Copy, Clone)]
+enum WhichHalf {
+    Rx,
+    Tx,
+}
+
 pub struct BbqHalfParts {
     // resources
     buffer: &'static mut [u8],
@@ -200,6 +207,7 @@ pub struct BbqHalfParts {
     pin: Peri<'static, AnyPin>,
 
     // type erasure
+    which: WhichHalf,
     dma_req: u8,
     mux: crate::pac::port::vals::Mux,
     info: &'static Info,
@@ -256,14 +264,18 @@ impl BbqParts {
 }
 
 impl BbqHalfParts {
+    pub fn pin(&mut self) -> Peri<'_, AnyPin> {
+        self.pin.reborrow()
+    }
+
     pub fn new_tx_half<T: BbqInstance, P: TxPin<T>>(
         _inner: Peri<'static, T>,
         _irq: impl Binding<T::Interrupt, BbqInterruptHandler<T>> + 'static,
         tx_pin: Peri<'static, P>,
         buffer: &'static mut [u8],
         dma_ch: impl Into<DmaChannel<'static>>,
-    ) -> Result<Self, BbqError> {
-        Ok(Self {
+    ) -> Self {
+        Self {
             buffer,
             dma_ch: dma_ch.into(),
             pin: tx_pin.into(),
@@ -272,7 +284,8 @@ impl BbqHalfParts {
             state: T::bbq_state(),
             dma_req: T::TxDmaRequest::REQUEST_NUMBER,
             vtable: BbqVtable::for_lpuart::<T>(),
-        })
+            which: WhichHalf::Tx,
+        }
     }
 
     pub fn new_rx_half<T: BbqInstance, P: RxPin<T>>(
@@ -281,8 +294,8 @@ impl BbqHalfParts {
         tx_pin: Peri<'static, P>,
         buffer: &'static mut [u8],
         dma_ch: impl Into<DmaChannel<'static>>,
-    ) -> Result<Self, BbqError> {
-        Ok(Self {
+    ) -> Self {
+        Self {
             buffer,
             dma_ch: dma_ch.into(),
             pin: tx_pin.into(),
@@ -291,7 +304,8 @@ impl BbqHalfParts {
             state: T::bbq_state(),
             dma_req: T::RxDmaRequest::REQUEST_NUMBER,
             vtable: BbqVtable::for_lpuart::<T>(),
-        })
+            which: WhichHalf::Rx,
+        }
     }
 }
 
@@ -435,6 +449,11 @@ impl LpuartBbqTx {
         parts: BbqHalfParts,
         config: BbqConfig,
     ) -> Result<Self, BbqError> {
+        // Are these the right parts?
+        if parts.which != WhichHalf::Tx {
+            return Err(BbqError::WrongParts);
+        }
+
         // Get state for this instance, and try to move from the "uninit" to "initing" state
         parts.state.uninit_to_initing()?;
 
@@ -594,6 +613,7 @@ impl LpuartBbqTx {
             info: self.info,
             state: self.state,
             vtable: self.vtable,
+            which: WhichHalf::Tx,
         }
     }
 }
@@ -668,6 +688,11 @@ impl LpuartBbqRx {
         parts: BbqHalfParts,
         config: BbqConfig,
     ) -> Result<Self, BbqError> {
+        // Are these the right parts?
+        if parts.which != WhichHalf::Rx {
+            return Err(BbqError::WrongParts);
+        }
+
         // Get state for this instance, and try to move from the "uninit" to "initing" state
         parts.state.uninit_to_initing()?;
 
@@ -819,6 +844,7 @@ impl LpuartBbqRx {
             info: self.info,
             state: self.state,
             vtable: self.vtable,
+            which: WhichHalf::Rx,
         }
     }
 }

@@ -16,8 +16,9 @@ use embassy_mcxa::clocks::config::{
     CoreSleep, Div8, FircConfig, FircFreqSel, FlashSleep, MainClockConfig, MainClockSource, VddDriveStrength, VddLevel,
 };
 use embassy_mcxa::clocks::periph_helpers::LpuartClockSel;
+use embassy_mcxa::dma::DmaChannel;
 use embassy_mcxa::gpio::{DriveStrength, Level, Output, SlewRate};
-use embassy_mcxa::lpuart::{BbqConfig, LpuartBbqTx};
+use embassy_mcxa::lpuart::{BbqConfig, BbqHalfParts, LpuartBbqTx};
 use embassy_mcxa::{bind_interrupts, lpuart};
 use embassy_time::Timer;
 use static_cell::ConstStaticCell;
@@ -101,9 +102,13 @@ async fn main(_spawner: Spawner) {
     let tx_buf = TX_BUF.take();
 
     // Create UART instance with DMA channels
-    let mut lpuart = LpuartBbqTx::new(p.LPUART3, p.P4_5, Irqs, tx_buf, p.DMA_CH0, config).unwrap();
-    let mut to_send = [0u8; 4096];
-    to_send.iter_mut().enumerate().for_each(|(i, b)| *b = i as u8);
+    let dma_channel = DmaChannel::new(p.DMA_CH0);
+    let parts = BbqHalfParts::new_tx_half(p.LPUART3, Irqs, p.P4_5, tx_buf, dma_channel);
+    let mut lpuart = LpuartBbqTx::new(parts, config).unwrap();
+    let mut to_knock = [0u8; 16];
+    let mut to_send = [0u8; 1024];
+    to_knock.iter_mut().for_each(|b| *b = 0xFF);
+    to_send.iter_mut().enumerate().for_each(|(i, b)| *b = (i as u8) & 0x7F);
 
     Timer::after_millis(1000).await;
 
@@ -113,17 +118,33 @@ async fn main(_spawner: Spawner) {
     embassy_mcxa::executor::set_executor_debug_gpio(p.P4_2);
 
     loop {
-        defmt::info!("Firing!");
+        // Send a small 16-byte "knock" packet in case the other device is sleeping
+        defmt::info!("knock!");
+        let mut window = to_knock.as_slice();
+        while !window.is_empty() {
+            let sent = lpuart.write(window).await.unwrap();
+            let (_now, later) = window.split_at(sent);
+            window = later;
+        }
+        defmt::info!("Knocked, flushing...");
+        lpuart.flush().await;
+        // Wait a small amount of time AFTER knocking to allow the device to wake up
+        Timer::after_millis(1).await;
+
+        defmt::info!("Sending!");
         let mut window = to_send.as_slice();
         while !window.is_empty() {
             let sent = lpuart.write(window).await.unwrap();
             let (_now, later) = window.split_at(sent);
             window = later;
         }
-        defmt::info!("Fired, flushing...");
+        defmt::info!("Sent, flushing...");
         lpuart.flush().await;
+
         defmt::info!("Flushed.");
-        Timer::after_millis(1000).await;
+
+        // Now wait a bit to let the other device go back to sleep
+        Timer::after_millis(3000).await;
         red.toggle();
     }
 }
