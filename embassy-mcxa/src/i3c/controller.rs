@@ -7,7 +7,8 @@ use nxp_pac::i3c::vals::{MdmactrlDmafb, MdmactrlDmatb};
 use super::{Async, AsyncMode, Blocking, Dma, Info, Instance, InterruptHandler, Mode, SclPin, SdaPin};
 use crate::clocks::periph_helpers::{Div4, I3cClockSel, I3cConfig};
 use crate::clocks::{ClockError, PoweredClock, WakeGuard, enable_and_reset};
-use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, EnableInterrupt};
+use crate::dma::transfer_opts::EnableComplete;
+use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel};
 use crate::gpio::{AnyPin, SealedPin};
 pub use crate::i2c::controller::Speed;
 use crate::interrupt::typelevel;
@@ -66,6 +67,12 @@ pub enum IOError {
     InvalidReadBufferLength,
     /// Other internal errors or unexpected state.
     Other,
+}
+
+impl From<crate::dma::InvalidParameters> for IOError {
+    fn from(_value: crate::dma::InvalidParameters) -> Self {
+        Self::Other
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -791,7 +798,7 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
                 // Configure TCD for peripheral-to-memory transfer
                 self.mode
                     .rx_dma
-                    .setup_read_from_peripheral(peri_addr, chunk, EnableInterrupt::Yes);
+                    .setup_read_from_peripheral(peri_addr, chunk, EnableComplete.into())?;
 
                 // Enable I3C RX DMA request
                 self.info
@@ -893,7 +900,7 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
                 // Configure TCD for memory-to-peripheral transfer
                 self.mode
                     .tx_dma
-                    .setup_write_to_peripheral(chunk, peri_addr, EnableInterrupt::Yes);
+                    .setup_write_to_peripheral(chunk, peri_addr, EnableComplete.into())?;
 
                 // Enable I3C TX DMA request
                 self.info

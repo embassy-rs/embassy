@@ -22,8 +22,8 @@
 //! |--------|-------------|
 //! | [`DmaChannel::mem_to_mem()`] | Memory-to-memory copy |
 //! | [`DmaChannel::memset()`] | Fill memory with a pattern |
-//! | [`DmaChannel::write()`] | Memory-to-peripheral (TX) |
-//! | [`DmaChannel::read()`] | Peripheral-to-memory (RX) |
+//! | [`DmaChannel::write_to_peripheral()`] | Memory-to-peripheral (TX) |
+//! | [`DmaChannel::read_from_peripheral()`] | Peripheral-to-memory (RX) |
 //!
 //! These return a [`Transfer`] future that can be `.await`ed:
 //!
@@ -53,7 +53,7 @@
 use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
-use core::ptr::{NonNull, addr_of_mut};
+use core::ptr::NonNull;
 use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering, fence};
 use core::task::{Context, Poll};
 
@@ -210,30 +210,50 @@ impl Word for u32 {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub struct TransferOptions {
-    /// Transfer priority.
-    pub priority: Priority,
-    /// Enable circular (continuous) mode.
-    ///
-    /// When enabled, the transfer repeats automatically after completing.
-    pub circular: bool,
     /// Enable interrupt on half transfer complete.
     pub half_transfer_interrupt: bool,
     /// Enable interrupt on transfer complete.
     pub complete_transfer_interrupt: bool,
 }
 
+pub(crate) mod transfer_opts {
+    use super::TransferOptions;
+
+    /// Short-hand to specify that no options should be configured.
+    pub struct NoInterrupt;
+
+    /// Short-hand to specify that only the complete transfer interrupt should be triggered.
+    pub struct EnableComplete;
+
+    impl From<NoInterrupt> for TransferOptions {
+        fn from(_value: NoInterrupt) -> Self {
+            TransferOptions {
+                half_transfer_interrupt: false,
+                complete_transfer_interrupt: false,
+            }
+        }
+    }
+
+    impl From<EnableComplete> for TransferOptions {
+        fn from(_value: EnableComplete) -> Self {
+            TransferOptions {
+                half_transfer_interrupt: false,
+                complete_transfer_interrupt: true,
+            }
+        }
+    }
+}
+
 impl Default for TransferOptions {
     fn default() -> Self {
         Self {
-            priority: Priority::High,
-            circular: false,
             half_transfer_interrupt: false,
             complete_transfer_interrupt: true,
         }
     }
 }
 
-/// DMA error types.
+/// General DMA error types.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
@@ -247,18 +267,10 @@ pub enum Error {
     Overrun,
 }
 
-/// Whether to enable the major loop completion interrupt.
-///
-/// This enum provides better readability than a boolean parameter
-/// for functions that configure DMA interrupt behavior.
+/// An error that can occur if the parameters passed were invalid.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum EnableInterrupt {
-    /// Enable the interrupt on major loop completion.
-    Yes,
-    /// Do not enable the interrupt.
-    No,
-}
+pub struct InvalidParameters;
 
 /// Maximum bytes per DMA transfer (eDMA4 CITER/BITER are 15-bit fields).
 ///
@@ -448,6 +460,22 @@ impl_channel!(DMA_CH5, 5, DMA_CH5);
 impl_channel!(DMA_CH6, 6, DMA_CH6);
 impl_channel!(DMA_CH7, 7, DMA_CH7);
 
+/// Parameters used to configure a 'typical' DMA transfer in [DmaChannel::setup_typical].
+struct DmaTransferParameters<W> {
+    /// Number of words that should be transferred.
+    count: usize,
+    /// Source pointer. If incrementing, the backing memory region should be at least as large as `count`.
+    src_ptr: *const W,
+    /// Destination pointer. If incrementing, the backing memory region should be at least as large as `count`.
+    dst_ptr: *mut W,
+    /// Whether the source pointer should be incremented.
+    src_incr: bool,
+    /// Whether the destination pointer should be incremented.
+    dst_incr: bool,
+    /// Public facing transfer options that might be relevant.
+    options: TransferOptions,
+}
+
 /// DMA channel driver.
 pub struct DmaChannel<'a> {
     channel: Peri<'a, AnyChannel>,
@@ -624,6 +652,85 @@ impl DmaChannel<'_> {
         Transfer::new(self.reborrow())
     }
 
+    /// Setup a typical DMA transfer.
+    ///
+    /// # Safety
+    ///
+    /// Requires that the source/destination buffers remain valid for the duration
+    /// of the transfer.
+    unsafe fn setup_typical<W: Word>(&self, params: DmaTransferParameters<W>) -> Result<(), InvalidParameters> {
+        let size = W::size();
+        let byte_count = (params.count * size.bytes()) as u32;
+
+        let t = self.tcd();
+
+        // Reset channel state - clear DONE, disable requests, clear errors
+        Self::reset_channel_state(&t);
+
+        // Memory & compiler barrier to ensure channel state is fully reset before touching TCD
+        fence(Ordering::Release);
+
+        Self::clear_tcd(&t);
+
+        // Memory barrier after TCD reset
+        cortex_m::asm::dsb();
+
+        // Note: Priority is managed by round-robin arbitration (set in init())
+        // Per-channel priority can be configured via ch_pri() if needed
+
+        // Now configure the new transfer
+
+        // Source address and increment
+        Self::set_source_ptr(&t, params.src_ptr);
+
+        if params.src_incr {
+            Self::set_source_increment(&t, size);
+        } else {
+            Self::set_source_fixed(&t);
+        }
+
+        // Destination address and increment
+        Self::set_dest_ptr(&t, params.dst_ptr);
+
+        if params.dst_incr {
+            Self::set_dest_increment(&t, size);
+        } else {
+            Self::set_dest_fixed(&t);
+        }
+
+        // Transfer attributes (size)
+        Self::set_even_transfer_size(&t, size);
+
+        // Minor loop: transfer all bytes in one minor loop
+        Self::set_minor_loop_ct_no_offsets(&t, byte_count);
+
+        // No source/dest adjustment after major loop
+        Self::set_no_final_adjustments(&t);
+
+        // Major loop count = 1 (single major loop)
+        // Write BITER first, then CITER (CITER must match BITER at start)
+        Self::set_major_loop_ct_elinkno(&t, 1);
+
+        // Memory & compiler barrier before setting START
+        fence(Ordering::Release);
+
+        // Control/status: interrupt on major complete, start
+        // Write this last after all other TCD registers are configured
+        t.tcd_csr().write(|w| {
+            w.set_intmajor(params.options.complete_transfer_interrupt);
+            w.set_inthalf(params.options.half_transfer_interrupt);
+            w.set_dreq(Dreq::ERQ_FIELD_CLEAR); // Auto-disable request after major loop
+            w.set_start(Start::CHANNEL_STARTED); // Start the channel
+            w.set_esg(Esg::NORMAL_FORMAT);
+            w.set_majorelink(false);
+            w.set_eeop(false);
+            w.set_esda(false);
+            w.set_bwc(Bwc::NO_STALL);
+        });
+
+        Ok(())
+    }
+
     // ========================================================================
     // Type-Safe Transfer Methods (Embassy-style API)
     // ========================================================================
@@ -649,69 +756,21 @@ impl DmaChannel<'_> {
         src: &[W],
         dst: &mut [W],
         options: TransferOptions,
-    ) -> Result<Transfer<'_>, Error> {
-        let mut invalid = false;
-        invalid |= src.is_empty();
-        invalid |= src.len() > dst.len();
-        invalid |= src.len() > 0x7fff;
-        if invalid {
-            return Err(Error::Configuration);
+    ) -> Result<Transfer<'_>, InvalidParameters> {
+        if src.is_empty() || src.len() > dst.len() || src.len() > DMA_MAX_TRANSFER_SIZE {
+            return Err(InvalidParameters);
         }
 
-        let size = W::size();
-        let byte_count = (src.len() * size.bytes()) as u32;
-
-        let t = self.tcd();
-
-        // Reset channel state - clear DONE, disable requests, clear errors
-        Self::reset_channel_state(&t);
-
-        // Memory barrier to ensure channel state is fully reset before touching TCD
-        cortex_m::asm::dsb();
-
-        Self::clear_tcd(&t);
-
-        // Memory barrier after TCD reset
-        cortex_m::asm::dsb();
-
-        // Note: Priority is managed by round-robin arbitration (set in init())
-        // Per-channel priority can be configured via ch_pri() if needed
-
-        // Now configure the new transfer
-
-        // Source address and increment
-        Self::set_source_ptr(&t, src.as_ptr());
-        Self::set_source_increment(&t, size);
-
-        // Destination address and increment
-        Self::set_dest_ptr(&t, dst.as_mut_ptr());
-        Self::set_dest_increment(&t, size);
-
-        // Transfer attributes (size)
-        Self::set_even_transfer_size(&t, size);
-
-        // Minor loop: transfer all bytes in one minor loop
-        Self::set_minor_loop_ct_no_offsets(&t, byte_count);
-
-        // No source/dest adjustment after major loop
-        Self::set_no_final_adjustments(&t);
-
-        // Major loop count = 1 (single major loop)
-        // Write BITER first, then CITER (CITER must match BITER at start)
-        Self::set_major_loop_ct_elinkno(&t, 1);
-
-        // Memory barrier before setting START
-        cortex_m::asm::dsb();
-
-        // Control/status: interrupt on major complete, start
-        // Write this last after all other TCD registers are configured
-        let int_major = options.complete_transfer_interrupt;
-        t.tcd_csr().write(|w| {
-            w.set_intmajor(int_major);
-            w.set_inthalf(options.half_transfer_interrupt);
-            w.set_dreq(Dreq::ERQ_FIELD_CLEAR); // Auto-disable request after major loop
-            w.set_start(Start::CHANNEL_STARTED); // Start the channel
-        });
+        unsafe {
+            self.setup_typical(DmaTransferParameters {
+                src_ptr: src.as_ptr(),
+                dst_ptr: dst.as_mut_ptr(),
+                count: src.len(),
+                src_incr: true,
+                dst_incr: true,
+                options,
+            })?
+        };
 
         Ok(Transfer::new(self.reborrow()))
     }
@@ -748,77 +807,21 @@ impl DmaChannel<'_> {
         pattern: &W,
         dst: &mut [W],
         options: TransferOptions,
-    ) -> Result<Transfer<'_>, Error> {
-        let mut invalid = false;
-        invalid |= dst.is_empty();
-        invalid |= dst.len() > 0x7fff;
-        if invalid {
-            return Err(Error::Configuration);
+    ) -> Result<Transfer<'_>, InvalidParameters> {
+        if dst.is_empty() || dst.len() > DMA_MAX_TRANSFER_SIZE {
+            return Err(InvalidParameters);
         }
 
-        let size = W::size();
-        let byte_size = size.bytes();
-        // Total bytes to transfer - all in one minor loop for software-triggered transfers
-        let total_bytes = (dst.len() * byte_size) as u32;
-
-        let t = self.tcd();
-
-        // Reset channel state - clear DONE, disable requests, clear errors
-        Self::reset_channel_state(&t);
-
-        // Memory barrier to ensure channel state is fully reset before touching TCD
-        cortex_m::asm::dsb();
-
-        Self::clear_tcd(&t);
-
-        // Memory barrier after TCD reset
-        cortex_m::asm::dsb();
-
-        // Now configure the new transfer
-        //
-        // For software-triggered memset, we use a SINGLE minor loop that transfers
-        // all bytes at once. The source address stays fixed (SOFF=0) while the
-        // destination increments (DOFF=byte_size). The eDMA will read from the
-        // same source address for each destination word.
-        //
-        // This is necessary because the START bit only triggers ONE minor loop
-        // iteration. Using CITER>1 with software trigger would require multiple
-        // START triggers.
-
-        // Source: pattern address, fixed (soff=0)
-        Self::set_source_ptr(&t, pattern);
-        Self::set_source_fixed(&t);
-
-        // Destination: memory buffer, incrementing by word size
-        Self::set_dest_ptr(&t, dst.as_mut_ptr());
-        Self::set_dest_increment(&t, size);
-
-        // Transfer attributes - source and dest are same word size
-        Self::set_even_transfer_size(&t, size);
-
-        // Minor loop: transfer ALL bytes in one minor loop (like mem_to_mem)
-        // This allows the entire transfer to complete with a single START trigger
-        Self::set_minor_loop_ct_no_offsets(&t, total_bytes);
-
-        // No address adjustment after major loop
-        Self::set_no_final_adjustments(&t);
-
-        // Major loop count = 1 (single major loop, all data in minor loop)
-        // Write BITER first, then CITER (CITER must match BITER at start)
-        Self::set_major_loop_ct_elinkno(&t, 1);
-
-        // Memory barrier before setting START
-        cortex_m::asm::dsb();
-
-        // Control/status: interrupt on major complete, start immediately
-        // Write this last after all other TCD registers are configured
-        let int_major = options.complete_transfer_interrupt;
-        t.tcd_csr().write(|w| {
-            w.set_intmajor(int_major);
-            w.set_inthalf(options.half_transfer_interrupt);
-            w.set_dreq(Dreq::ERQ_FIELD_CLEAR); // Auto-disable request after major loop
-            w.set_start(Start::CHANNEL_STARTED); // Start the channel
-        });
+        unsafe {
+            self.setup_typical(DmaTransferParameters {
+                src_ptr: pattern,
+                dst_ptr: dst.as_mut_ptr(),
+                count: dst.len(),
+                src_incr: false,
+                dst_incr: true,
+                options,
+            })?
+        };
 
         Ok(Transfer::new(self.reborrow()))
     }
@@ -838,211 +841,14 @@ impl DmaChannel<'_> {
     ///
     /// - The buffer must remain valid for the duration of the transfer.
     /// - The peripheral address must be valid for writes.
-    pub unsafe fn write<W: Word>(&mut self, buf: &[W], peri_addr: *mut W, options: TransferOptions) -> Transfer<'_> {
-        unsafe { self.write_to_peripheral(buf, peri_addr, options) }
-    }
-
-    /// Configure a memory-to-peripheral DMA transfer without starting it.
-    ///
-    /// This is a convenience wrapper around [`setup_write_to_peripheral()`](Self::setup_write_to_peripheral)
-    /// that uses the default eDMA TCD register block.
-    ///
-    /// This method configures the TCD but does NOT return a `Transfer`. The caller
-    /// is responsible for the complete DMA lifecycle:
-    /// 1. Call [`enable_request()`](Self::enable_request) to start the transfer
-    /// 2. Poll [`is_done()`](Self::is_done) or use interrupts to detect completion
-    /// 3. Call [`disable_request()`](Self::disable_request), [`clear_done()`](Self::clear_done),
-    ///    [`clear_interrupt()`](Self::clear_interrupt) for cleanup
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// # use embassy_mcxa::dma::DmaChannel;
-    /// # let dma_ch = DmaChannel::new(p.DMA_CH0);
-    /// # let uart_tx_addr = 0x4000_0000 as *mut u8;
-    /// let data = [0x48, 0x65, 0x6c, 0x6c, 0x6f]; // "Hello"
-    ///
-    /// unsafe {
-    ///     // Configure the transfer
-    ///     dma_ch.setup_write(&data, uart_tx_addr, EnableInterrupt::Yes);
-    ///
-    ///     // Start when peripheral is ready
-    ///     dma_ch.enable_request();
-    ///
-    ///     // Wait for completion (or use interrupt)
-    ///     while !dma_ch.is_done() {}
-    ///
-    ///     // Clean up
-    ///     dma_ch.clear_done();
-    ///     dma_ch.clear_interrupt();
-    /// }
-    /// ```
-    ///
-    /// # Arguments
-    ///
-    /// * `buf` - Source buffer to write from
-    /// * `peri_addr` - Peripheral register address
-    /// * `enable_interrupt` - Whether to enable interrupt on completion
-    ///
-    /// # Safety
-    ///
-    /// - The buffer must remain valid for the duration of the transfer.
-    /// - The peripheral address must be valid for writes.
-    #[allow(unused)]
-    pub(crate) unsafe fn setup_write<W: Word>(&self, buf: &[W], peri_addr: *mut W, enable_interrupt: EnableInterrupt) {
-        unsafe { self.setup_write_to_peripheral(buf, peri_addr, enable_interrupt) }
-    }
-
-    /// Write data from memory to a peripheral register.
-    ///
-    /// The destination address remains fixed (peripheral register) while
-    /// the source address increments through the buffer.
-    ///
-    /// # Arguments
-    ///
-    /// * `buf` - Source buffer to write from
-    /// * `peri_addr` - Peripheral register address
-    /// * `options` - Transfer configuration options
-    ///
-    /// # Safety
-    ///
-    /// - The buffer must remain valid for the duration of the transfer.
-    /// - The peripheral address must be valid for writes.
-    unsafe fn write_to_peripheral<W: Word>(
+    pub unsafe fn write_to_peripheral<W: Word>(
         &mut self,
         buf: &[W],
         peri_addr: *mut W,
         options: TransferOptions,
-    ) -> Transfer<'_> {
-        assert!(!buf.is_empty());
-        assert!(buf.len() <= 0x7fff);
-
-        let size = W::size();
-        let byte_size = size.bytes();
-
-        let t = self.tcd();
-
-        // Reset channel state
-        Self::reset_channel_state(&t);
-
-        // Addresses
-        Self::set_source_ptr(&t, buf.as_ptr());
-        Self::set_dest_ptr(&t, peri_addr);
-
-        // Offsets: Source increments, Dest fixed
-        Self::set_source_increment(&t, size);
-        Self::set_dest_fixed(&t);
-
-        // Attributes: set size and explicitly disable modulo
-        Self::set_even_transfer_size(&t, size);
-
-        // Minor loop: transfer one word per request (match old: only set nbytes)
-        Self::set_minor_loop_ct_no_offsets(&t, byte_size as u32);
-
-        // No final adjustments
-        Self::set_no_final_adjustments(&t);
-
-        // Major loop count = number of words
-        let count = buf.len() as u16;
-        Self::set_major_loop_ct_elinkno(&t, count);
-
-        // CSR: interrupt on major loop complete and auto-clear ERQ
-        t.tcd_csr().write(|w| {
-            w.set_intmajor(options.complete_transfer_interrupt);
-            w.set_inthalf(false);
-            w.set_dreq(Dreq::ERQ_FIELD_CLEAR); // Disable request when done
-            w.set_esg(Esg::NORMAL_FORMAT);
-            w.set_majorelink(false);
-            w.set_eeop(false);
-            w.set_esda(false);
-            w.set_bwc(Bwc::NO_STALL);
-        });
-
-        // Ensure all TCD writes have completed before DMA engine reads them
-        cortex_m::asm::dsb();
-
-        Transfer::new(self.reborrow())
-    }
-
-    /// Read data from a peripheral register to memory.
-    ///
-    /// The source address remains fixed (peripheral register) while
-    /// the destination address increments through the buffer.
-    ///
-    /// # Arguments
-    ///
-    /// * `peri_addr` - Peripheral register address
-    /// * `buf` - Destination buffer to read into
-    /// * `options` - Transfer configuration options
-    ///
-    /// # Safety
-    ///
-    /// - The buffer must remain valid for the duration of the transfer.
-    /// - The peripheral address must be valid for reads.
-    pub unsafe fn read<W: Word>(
-        &mut self,
-        peri_addr: *const W,
-        buf: &mut [W],
-        options: TransferOptions,
-    ) -> Transfer<'_> {
-        unsafe { self.read_from_peripheral(peri_addr, buf, options) }
-    }
-
-    /// Configure a peripheral-to-memory DMA transfer without starting it.
-    ///
-    /// This is a convenience wrapper around [`setup_read_from_peripheral()`](Self::setup_read_from_peripheral)
-    /// that uses the default eDMA TCD register block.
-    ///
-    /// This method configures the TCD but does NOT return a `Transfer`. The caller
-    /// is responsible for the complete DMA lifecycle:
-    /// 1. Call [`enable_request()`](Self::enable_request) to start the transfer
-    /// 2. Poll [`is_done()`](Self::is_done) or use interrupts to detect completion
-    /// 3. Call [`disable_request()`](Self::disable_request), [`clear_done()`](Self::clear_done),
-    ///    [`clear_interrupt()`](Self::clear_interrupt) for cleanup
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// # use embassy_mcxa::dma::DmaChannel;
-    /// # let dma_ch = DmaChannel::new(p.DMA_CH0);
-    /// # let uart_rx_addr = 0x4000_0000 as *const u8;
-    /// let mut buf = [0u8; 32];
-    ///
-    /// unsafe {
-    ///     // Configure the transfer
-    ///     dma_ch.setup_read(uart_rx_addr, &mut buf, EnableInterrupt::Yes);
-    ///
-    ///     // Start when peripheral is ready
-    ///     dma_ch.enable_request();
-    ///
-    ///     // Wait for completion (or use interrupt)
-    ///     while !dma_ch.is_done() {}
-    ///
-    ///     // Clean up
-    ///     dma_ch.clear_done();
-    ///     dma_ch.clear_interrupt();
-    /// }
-    /// // buf now contains received data
-    /// ```
-    ///
-    /// # Arguments
-    ///
-    /// * `peri_addr` - Peripheral register address
-    /// * `buf` - Destination buffer to read into
-    /// * `enable_interrupt` - Whether to enable interrupt on completion
-    ///
-    /// # Safety
-    ///
-    /// - The buffer must remain valid for the duration of the transfer.
-    /// - The peripheral address must be valid for reads.
-    #[allow(unused)]
-    pub(crate) unsafe fn setup_read<W: Word>(
-        &self,
-        peri_addr: *const W,
-        buf: &mut [W],
-        enable_interrupt: EnableInterrupt,
-    ) {
-        unsafe { self.setup_read_from_peripheral(peri_addr, buf, enable_interrupt) }
+    ) -> Result<Transfer<'_>, InvalidParameters> {
+        unsafe { self.setup_write_to_peripheral(buf, peri_addr, options)? };
+        Ok(Transfer::new(self.reborrow()))
     }
 
     /// Read data from a peripheral register to memory.
@@ -1065,55 +871,9 @@ impl DmaChannel<'_> {
         peri_addr: *const W,
         buf: &mut [W],
         options: TransferOptions,
-    ) -> Transfer<'_> {
-        assert!(!buf.is_empty());
-        assert!(buf.len() <= 0x7fff);
-
-        let size = W::size();
-        let byte_size = size.bytes();
-
-        let t = self.tcd();
-
-        // Reset channel control/error/interrupt state
-        Self::reset_channel_state(&t);
-
-        // Source: peripheral register, fixed
-        Self::set_source_ptr(&t, peri_addr);
-        Self::set_source_fixed(&t);
-
-        // Destination: memory buffer, incrementing
-        Self::set_dest_ptr(&t, buf.as_mut_ptr());
-        Self::set_dest_increment(&t, size);
-
-        // Transfer attributes: set size and explicitly disable modulo
-        Self::set_even_transfer_size(&t, size);
-
-        // Minor loop: transfer one word per request, no offsets
-        Self::set_minor_loop_ct_no_offsets(&t, byte_size as u32);
-
-        // Major loop count = number of words
-        let count = buf.len() as u16;
-        Self::set_major_loop_ct_elinkno(&t, count);
-
-        // No address adjustment after major loop
-        Self::set_no_final_adjustments(&t);
-
-        // Control/status: interrupt on major complete, auto-clear ERQ when done
-        t.tcd_csr().write(|w| {
-            w.set_intmajor(options.complete_transfer_interrupt);
-            w.set_inthalf(options.half_transfer_interrupt);
-            w.set_dreq(Dreq::ERQ_FIELD_CLEAR); // Disable request when done (important for peripheral DMA)
-            w.set_esg(Esg::NORMAL_FORMAT);
-            w.set_majorelink(false);
-            w.set_eeop(false);
-            w.set_esda(false);
-            w.set_bwc(Bwc::NO_STALL);
-        });
-
-        // Ensure all TCD writes have completed before DMA engine reads them
-        cortex_m::asm::dsb();
-
-        Transfer::new(self.reborrow())
+    ) -> Result<Transfer<'_>, InvalidParameters> {
+        unsafe { self.setup_read_from_peripheral(peri_addr, buf, options)? };
+        Ok(Transfer::new(self.reborrow()))
     }
 
     /// Configure a memory-to-peripheral DMA transfer without starting it.
@@ -1141,56 +901,25 @@ impl DmaChannel<'_> {
         &self,
         count: usize,
         peri_addr: *mut W,
-        enable_interrupt: EnableInterrupt,
-    ) {
-        assert!(count <= 0x7fff);
+        options: TransferOptions,
+    ) -> Result<(), InvalidParameters> {
+        if count > DMA_MAX_TRANSFER_SIZE {
+            return Err(InvalidParameters);
+        }
 
-        // static mut so that this is allocated in RAM.
+        // Static mut so that this is allocated in RAM.
         static mut DUMMY: u32 = 0;
 
-        let size = W::size();
-        let byte_size = size.bytes();
-
-        let t = self.tcd();
-
-        // Reset channel state
-        Self::reset_channel_state(&t);
-
-        // Addresses
-        Self::set_source_ptr(&t, addr_of_mut!(DUMMY) as *const W);
-        Self::set_dest_ptr(&t, peri_addr);
-
-        // Offsets: Source increments, Dest fixed
-        Self::set_source_fixed(&t);
-        Self::set_dest_fixed(&t);
-
-        // Attributes: set size and explicitly disable modulo
-        Self::set_even_transfer_size(&t, size);
-
-        // Minor loop: transfer one word per request
-        Self::set_minor_loop_ct_no_offsets(&t, byte_size as u32);
-
-        // No final adjustments
-        Self::set_no_final_adjustments(&t);
-
-        // Major loop count = number of words
-        let count = count as u16;
-        Self::set_major_loop_ct_elinkno(&t, count);
-
-        // CSR: optional interrupt on major loop complete and auto-clear ERQ
-        t.tcd_csr().write(|w| {
-            w.set_intmajor(matches!(enable_interrupt, EnableInterrupt::Yes));
-            w.set_inthalf(false);
-            w.set_dreq(Dreq::ERQ_FIELD_CLEAR);
-            w.set_esg(Esg::NORMAL_FORMAT);
-            w.set_majorelink(false);
-            w.set_eeop(false);
-            w.set_esda(false);
-            w.set_bwc(Bwc::NO_STALL);
-        });
-
-        // Ensure all TCD writes have completed before DMA engine reads them
-        cortex_m::asm::dsb();
+        unsafe {
+            self.setup_typical(DmaTransferParameters {
+                src_ptr: core::ptr::addr_of_mut!(DUMMY) as *const W,
+                dst_ptr: peri_addr,
+                count,
+                src_incr: false,
+                dst_incr: false,
+                options,
+            })
+        }
     }
 
     /// Produce the number of bytes transferred at the time of calling
@@ -1231,54 +960,22 @@ impl DmaChannel<'_> {
         &self,
         buf: &[W],
         peri_addr: *mut W,
-        enable_interrupt: EnableInterrupt,
-    ) {
-        assert!(!buf.is_empty());
-        assert!(buf.len() <= 0x7fff);
+        options: TransferOptions,
+    ) -> Result<(), InvalidParameters> {
+        if buf.is_empty() || buf.len() > DMA_MAX_TRANSFER_SIZE {
+            return Err(InvalidParameters);
+        }
 
-        let size = W::size();
-        let byte_size = size.bytes();
-
-        let t = self.tcd();
-
-        // Reset channel state
-        Self::reset_channel_state(&t);
-
-        // Addresses
-        Self::set_source_ptr(&t, buf.as_ptr());
-        Self::set_dest_ptr(&t, peri_addr);
-
-        // Offsets: Source increments, Dest fixed
-        Self::set_source_increment(&t, size);
-        Self::set_dest_fixed(&t);
-
-        // Attributes: set size and explicitly disable modulo
-        Self::set_even_transfer_size(&t, size);
-
-        // Minor loop: transfer one word per request
-        Self::set_minor_loop_ct_no_offsets(&t, byte_size as u32);
-
-        // No final adjustments
-        Self::set_no_final_adjustments(&t);
-
-        // Major loop count = number of words
-        let count = buf.len() as u16;
-        Self::set_major_loop_ct_elinkno(&t, count);
-
-        // CSR: optional interrupt on major loop complete and auto-clear ERQ
-        t.tcd_csr().write(|w| {
-            w.set_intmajor(matches!(enable_interrupt, EnableInterrupt::Yes));
-            w.set_inthalf(false);
-            w.set_dreq(Dreq::ERQ_FIELD_CLEAR);
-            w.set_esg(Esg::NORMAL_FORMAT);
-            w.set_majorelink(false);
-            w.set_eeop(false);
-            w.set_esda(false);
-            w.set_bwc(Bwc::NO_STALL);
-        });
-
-        // Ensure all TCD writes have completed before DMA engine reads them
-        cortex_m::asm::dsb();
+        unsafe {
+            self.setup_typical(DmaTransferParameters {
+                src_ptr: buf.as_ptr(),
+                dst_ptr: peri_addr,
+                count: buf.len(),
+                src_incr: true,
+                dst_incr: false,
+                options,
+            })
+        }
     }
 
     /// Configure a peripheral-to-memory DMA transfer without starting it.
@@ -1307,54 +1004,22 @@ impl DmaChannel<'_> {
         &self,
         peri_addr: *const W,
         buf: &mut [W],
-        enable_interrupt: EnableInterrupt,
-    ) {
-        assert!(!buf.is_empty());
-        assert!(buf.len() <= 0x7fff);
+        options: TransferOptions,
+    ) -> Result<(), InvalidParameters> {
+        if buf.is_empty() || buf.len() > DMA_MAX_TRANSFER_SIZE {
+            return Err(InvalidParameters);
+        }
 
-        let size = W::size();
-        let byte_size = size.bytes();
-
-        let t = self.tcd();
-
-        // Reset channel control/error/interrupt state
-        Self::reset_channel_state(&t);
-
-        // Source: peripheral register, fixed
-        Self::set_source_ptr(&t, peri_addr);
-        Self::set_source_fixed(&t);
-
-        // Destination: memory buffer, incrementing
-        Self::set_dest_ptr(&t, buf.as_mut_ptr());
-        Self::set_dest_increment(&t, size);
-
-        // Attributes: set size and explicitly disable modulo
-        Self::set_even_transfer_size(&t, size);
-
-        // Minor loop: transfer one word per request
-        Self::set_minor_loop_ct_no_offsets(&t, byte_size as u32);
-
-        // No final adjustments
-        Self::set_no_final_adjustments(&t);
-
-        // Major loop count = number of words
-        let count = buf.len() as u16;
-        Self::set_major_loop_ct_elinkno(&t, count);
-
-        // CSR: optional interrupt on major loop complete and auto-clear ERQ
-        t.tcd_csr().write(|w| {
-            w.set_intmajor(matches!(enable_interrupt, EnableInterrupt::Yes));
-            w.set_inthalf(false);
-            w.set_dreq(Dreq::ERQ_FIELD_CLEAR);
-            w.set_esg(Esg::NORMAL_FORMAT);
-            w.set_majorelink(false);
-            w.set_eeop(false);
-            w.set_esda(false);
-            w.set_bwc(Bwc::NO_STALL);
-        });
-
-        // Ensure all TCD writes have completed before DMA engine reads them
-        cortex_m::asm::dsb();
+        unsafe {
+            self.setup_typical(DmaTransferParameters {
+                src_ptr: peri_addr,
+                dst_ptr: buf.as_mut_ptr(),
+                count: buf.len(),
+                src_incr: false,
+                dst_incr: true,
+                options,
+            })
+        }
     }
 
     /// Configure the integrated channel MUX to use the given typed

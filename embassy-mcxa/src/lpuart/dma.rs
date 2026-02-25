@@ -3,7 +3,8 @@ use core::future::Future;
 use embassy_hal_internal::Peri;
 
 use super::*;
-use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, DmaRequest, EnableInterrupt, RingBuffer};
+use crate::dma::transfer_opts::EnableComplete;
+use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, DmaRequest, RingBuffer};
 use crate::gpio::AnyPin;
 use crate::pac::lpuart::vals::{Tc, Tdre};
 
@@ -171,7 +172,7 @@ impl<'a> LpuartTx<'a, Dma<'a>> {
             dma.set_request_source(self.mode.request);
 
             // Configure TCD for memory-to-peripheral transfer
-            dma.setup_write_to_peripheral(buf, peri_addr, EnableInterrupt::Yes);
+            dma.setup_write_to_peripheral(buf, peri_addr, EnableComplete.into())?;
 
             // Enable UART TX DMA request
             self.info.regs().baud().modify(|w| w.set_tdmae(true));
@@ -297,7 +298,7 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
             rx_dma.set_request_source(self.mode.request);
 
             // Configure TCD for peripheral-to-memory transfer
-            rx_dma.setup_read_from_peripheral(peri_addr, buf, EnableInterrupt::Yes);
+            rx_dma.setup_read_from_peripheral(peri_addr, buf, EnableComplete.into())?;
 
             // Enable UART RX DMA request
             self.info.regs().baud().modify(|w| w.set_rdmae(true));
