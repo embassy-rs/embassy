@@ -391,8 +391,7 @@ pub trait Channel: sealed::SealedChannel + PeripheralType + Into<AnyChannel> + '
 /// This allows storing DMA channels in a uniform way regardless of their
 /// concrete type, useful for async transfer futures and runtime channel selection.
 ///
-/// ```
-/// # use embassy_hal_internal::Peri;
+/// ```no_run
 /// let anychannel: Peri<'static, AnyChannel> = p.DMA_CH0.into();
 /// DmaChannel::new(anychannel);
 /// ```
@@ -453,34 +452,6 @@ impl_channel!(DMA_CH7, 7, DMA_CH7);
 pub struct DmaChannel<'a> {
     channel: Peri<'a, AnyChannel>,
 }
-
-// ============================================================================
-// DMA Transfer Methods - API Overview
-// ============================================================================
-//
-// The DMA API provides two categories of methods for configuring transfers:
-//
-// ## 1. Async Methods (Return `Transfer` Future)
-//
-// These methods return a [`Transfer`] Future that must be `.await`ed:
-//
-// - [`write()`](DmaChannel::write) - Memory-to-peripheral using default eDMA TCD block
-// - [`read()`](DmaChannel::read) - Peripheral-to-memory using default eDMA TCD block
-// - [`write_to_peripheral()`](DmaChannel::write_to_peripheral) - Memory-to-peripheral with custom eDMA TCD block
-// - [`read_from_peripheral()`](DmaChannel::read_from_peripheral) - Peripheral-to-memory with custom eDMA TCD block
-// - [`mem_to_mem()`](DmaChannel::mem_to_mem) - Memory-to-memory using default eDMA TCD block
-//
-// The `Transfer` manages the DMA lifecycle automatically:
-// - Enables channel request
-// - Waits for completion via async/await
-// - Cleans up on completion
-//
-// **Important:** `Transfer::Drop` aborts the transfer if dropped before completion.
-// This means you MUST `.await` the Transfer or it will be aborted when it goes out of scope.
-//
-// **Use case:** When you want to use async/await and let the Transfer handle lifecycle management.
-//
-// ============================================================================
 
 impl<'a> DmaChannel<'a> {
     /// Wrap a DMA channel token (takes ownership of the Peri wrapper).
@@ -772,9 +743,18 @@ impl DmaChannel<'_> {
     /// // buffer is now filled with 0xDEADBEEF
     /// ```
     ///
-    pub fn memset<W: Word>(&mut self, pattern: &W, dst: &mut [W], options: TransferOptions) -> Transfer<'_> {
-        assert!(!dst.is_empty());
-        assert!(dst.len() <= 0x7fff);
+    pub fn memset<W: Word>(
+        &mut self,
+        pattern: &W,
+        dst: &mut [W],
+        options: TransferOptions,
+    ) -> Result<Transfer<'_>, Error> {
+        let mut invalid = false;
+        invalid |= dst.is_empty();
+        invalid |= dst.len() > 0x7fff;
+        if invalid {
+            return Err(Error::Configuration);
+        }
 
         let size = W::size();
         let byte_size = size.bytes();
@@ -840,7 +820,7 @@ impl DmaChannel<'_> {
             w.set_start(Start::CHANNEL_STARTED); // Start the channel
         });
 
-        Transfer::new(self.reborrow())
+        Ok(Transfer::new(self.reborrow()))
     }
 
     /// Write data from memory to a peripheral register.
@@ -928,7 +908,7 @@ impl DmaChannel<'_> {
     ///
     /// - The buffer must remain valid for the duration of the transfer.
     /// - The peripheral address must be valid for writes.
-    pub unsafe fn write_to_peripheral<W: Word>(
+    unsafe fn write_to_peripheral<W: Word>(
         &mut self,
         buf: &[W],
         peri_addr: *mut W,
@@ -1790,13 +1770,14 @@ impl<'a> Transfer<'a> {
     }
 }
 
-/// A collection of errors that can occur after a transfer.
+/// A collection of [TransferError] returned by any transfer.
 ///
-/// Can be queried or all errors can be iterated over.
+/// Each error variant can be queried separately, or all errors can be iterated by using [TransferErrors::into_iter].
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Copy, Clone, Debug)]
 pub struct TransferErrors(u8);
 
+/// Iterator to extract all [TransferError]s using [TransferErrors::into_iter].
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Copy, Clone, Debug)]
 pub struct TransferErrorIter(u8);
@@ -1901,6 +1882,7 @@ impl Iterator for TransferErrorIter {
     }
 }
 
+/// An error that can be returned as the result of a failed transfer.
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum TransferError {
@@ -1982,29 +1964,11 @@ impl<'a> Drop for Transfer<'a> {
 
 /// A ring buffer for continuous DMA reception.
 ///
+/// Can only be constructed by drivers in this HAL, and not from the application.
+///
 /// This structure manages a circular DMA transfer, allowing continuous
 /// reception of data without losing bytes between reads. It uses both
 /// half-transfer and complete-transfer interrupts to track available data.
-///
-/// # Example
-///
-/// ```no_run
-/// use embassy_mcxa::dma::{DmaChannel, RingBuffer, TransferOptions};
-///
-/// static mut RX_BUF: [u8; 64] = [0; 64];
-///
-/// let dma_ch = DmaChannel::new(p.DMA_CH0);
-/// let ring_buf = unsafe {
-///     dma_ch.setup_circular_read(
-///         uart_rx_addr,
-///         &mut RX_BUF,
-///     )
-/// };
-///
-/// // Read data as it arrives
-/// let mut buf = [0u8; 16];
-/// let n = ring_buf.read(&mut buf).await?;
-/// ```
 pub struct RingBuffer<'channel, 'buf, W: Word> {
     /// Reference to the DmaChannel for the duration of the DMA transfer.
     ///
@@ -2201,7 +2165,7 @@ impl<'channel, 'buf, W: Word> RingBuffer<'channel, 'buf, W> {
     /// The Dma Channel must have been setup with proper manual configuration prior to
     /// calling `enable_dma_request`. See safety requirements of the configuration methods
     /// for more details.
-    pub unsafe fn enable_dma_request(&self) {
+    pub(crate) unsafe fn enable_dma_request(&self) {
         unsafe {
             self.channel.enable_request();
         }
