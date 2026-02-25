@@ -1,7 +1,8 @@
 #![no_std]
 #![no_main]
 
-use core::cell::{Cell, RefCell};
+use core::cell::RefCell;
+use core::sync::atomic::{AtomicU32, Ordering};
 
 use defmt::{panic, *};
 use embassy_executor::Spawner;
@@ -105,12 +106,13 @@ async fn feedback_handler<'d, T: usb::Instance + 'd>(
             .write_packet(&packet)
             // Short timeout to prevent queueing
             .with_timeout(Duration::from_micros(10))
-            .await else {
-                // Ignore timeout. There was already an uncollected message in the FIFO.
-                // The previous message will be delivered next time the host polls for it
-                continue;
-            };
-        
+            .await
+        else {
+            // Ignore timeout. There was already an uncollected message in the FIFO.
+            // The previous message will be delivered next time the host polls for it
+            continue;
+        };
+
         res?; // Return on error
         debug!("feedback sent {}", value);
     }
@@ -266,13 +268,13 @@ async fn main(spawner: Spawner) {
     {
         use embassy_stm32::rcc::*;
         config.rcc.hse = Some(Hse {
-            freq: Hertz(8_000_000),
-            mode: HseMode::Bypass,
+            freq: embassy_stm32::time::Hertz::mhz(25),
+            mode: HseMode::Oscillator,
         });
         config.rcc.pll_src = PllSource::HSE;
         config.rcc.pll = Some(Pll {
-            prediv: PllPreDiv::DIV4,
-            mul: PllMul::MUL168,
+            prediv: PllPreDiv::DIV25,
+            mul: PllMul::MUL336,
             divp: Some(PllPDiv::DIV2), // ((8 MHz / 4) * 168) / 2 = 168 Mhz.
             divq: Some(PllQDiv::DIV7), // ((8 MHz / 4) * 168) / 7 = 48 Mhz.
             divr: None,
