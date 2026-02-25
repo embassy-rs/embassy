@@ -11,7 +11,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use stm32_metapac::ltdc::regs::Dccr;
 use stm32_metapac::ltdc::vals::{Bf1, Bf2, Cfuif, Clif, Crrif, Cterrif, Pf, Vbr};
 
-use crate::gpio::{AfType, OutputType, Speed};
+use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::interrupt::{self};
 use crate::{Peri, peripherals, rcc};
@@ -84,6 +84,7 @@ pub enum PolarityActive {
 /// LTDC driver.
 pub struct Ltdc<'d, T: Instance> {
     _peri: Peri<'d, T>,
+    _pins: Option<[Flex<'d>; 27]>,
 }
 
 /// LTDC interrupt handler.
@@ -212,7 +213,10 @@ impl<'d, T: Instance> Ltdc<'d, T> {
     /// Note: Full-Duplex modes are not supported at this time
     pub fn new(peri: Peri<'d, T>) -> Self {
         Self::setup_clocks();
-        Self { _peri: peri }
+        Self {
+            _peri: peri,
+            _pins: None,
+        }
     }
 
     /// Create a new LTDC driver. 8 pins per color channel for blue, green and red
@@ -249,35 +253,40 @@ impl<'d, T: Instance> Ltdc<'d, T> {
         r7: Peri<'d, impl R7Pin<T>>,
     ) -> Self {
         Self::setup_clocks();
-        new_pin!(clk, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(hsync, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(vsync, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(b0, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(b1, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(b2, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(b3, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(b4, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(b5, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(b6, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(b7, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(g0, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(g1, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(g2, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(g3, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(g4, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(g5, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(g6, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(g7, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(r0, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(r1, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(r2, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(r3, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(r4, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(r5, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(r6, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(r7, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        let pins = [
+            new_pin!(clk, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(hsync, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(vsync, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(b0, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(b1, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(b2, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(b3, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(b4, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(b5, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(b6, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(b7, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(g0, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(g1, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(g2, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(g3, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(g4, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(g5, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(g6, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(g7, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(r0, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(r1, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(r2, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(r3, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(r4, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(r5, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(r6, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(r7, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+        ];
 
-        Self { _peri: peri }
+        Self {
+            _peri: peri,
+            _pins: Some(pins),
+        }
     }
 
     /// Initialise and enable the display
