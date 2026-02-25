@@ -158,6 +158,12 @@ impl_pin!(P1_2, LPSPI0, MUX2, MisoPin);
 impl_pin!(P2_12, LPSPI1, MUX2, SckPin);
 impl_pin!(P2_13, LPSPI1, MUX2, MosiPin);
 impl_pin!(P2_15, LPSPI1, MUX2, MisoPin);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_pin!(P2_16, LPSPI1, MUX2, MisoPin);
 
 impl_pin!(P3_8, LPSPI1, MUX2, MosiPin);

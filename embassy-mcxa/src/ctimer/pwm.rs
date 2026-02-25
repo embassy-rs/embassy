@@ -568,17 +568,39 @@ impl_valid_match!(CTIMER0, CTIMER0_CH1, P0_3, 1);
 
 impl_valid_match!(CTIMER0, CTIMER0_CH0, P0_16, 0);
 impl_valid_match!(CTIMER0, CTIMER0_CH1, P0_17, 1);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_valid_match!(CTIMER0, CTIMER0_CH2, P0_18, 2);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_valid_match!(CTIMER0, CTIMER0_CH3, P0_19, 3);
 
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_valid_match!(CTIMER0, CTIMER0_CH0, P0_22, 0);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_valid_match!(CTIMER0, CTIMER0_CH1, P0_23, 1);
 impl_valid_match!(CTIMER0, CTIMER0_CH2, P1_0, 2);
 impl_valid_match!(CTIMER0, CTIMER0_CH3, P1_1, 3);
 
-#[cfg(feature = "sosc-as-gpio")]
 impl_valid_match!(CTIMER0, CTIMER0_CH2, P3_30, 2);
-#[cfg(feature = "sosc-as-gpio")]
 impl_valid_match!(CTIMER0, CTIMER0_CH3, P3_31, 3);
 
 // CTIMER1 match channels
@@ -608,28 +630,111 @@ impl_valid_match!(CTIMER2, CTIMER2_CH1, P2_1, 1);
 impl_valid_match!(CTIMER2, CTIMER2_CH2, P2_2, 2);
 impl_valid_match!(CTIMER2, CTIMER2_CH3, P2_3, 3);
 
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_valid_match!(CTIMER2, CTIMER2_CH0, P2_20, 0);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_valid_match!(CTIMER2, CTIMER2_CH1, P2_21, 1);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_valid_match!(CTIMER2, CTIMER2_CH3, P2_23, 3);
 
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_valid_match!(CTIMER2, CTIMER2_CH0, P3_18, 0);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_valid_match!(CTIMER2, CTIMER2_CH1, P3_19, 1);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_valid_match!(CTIMER2, CTIMER2_CH2, P3_20, 2);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_valid_match!(CTIMER2, CTIMER2_CH3, P3_21, 3);
 
 // CTIMER3 match channels
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_valid_match!(CTIMER3, CTIMER3_CH0, P1_14, 0);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_valid_match!(CTIMER3, CTIMER3_CH1, P1_15, 1);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_valid_match!(CTIMER3, CTIMER3_CH2, P2_10, 2);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_valid_match!(CTIMER3, CTIMER3_CH3, P2_11, 3);
 
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_valid_match!(CTIMER3, CTIMER3_CH0, P2_16, 0);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_valid_match!(CTIMER3, CTIMER3_CH1, P2_17, 1);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_valid_match!(CTIMER3, CTIMER3_CH2, P2_19, 3);
 
 impl_valid_match!(CTIMER3, CTIMER3_CH0, P3_27, 1);
 impl_valid_match!(CTIMER3, CTIMER3_CH2, P3_28, 2);
-#[cfg(feature = "dangerous-reset-as-gpio")]
 impl_valid_match!(CTIMER3, CTIMER3_CH3, P3_29, 3);
 
 // CTIMER4 match channels
@@ -640,11 +745,45 @@ impl_valid_match!(CTIMER4, CTIMER4_CH0, P2_12, 0);
 impl_valid_match!(CTIMER4, CTIMER4_CH1, P2_13, 1);
 impl_valid_match!(CTIMER4, CTIMER4_CH3, P2_15, 3);
 
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh",
+    feature = "mcxa255vlq",
+    feature = "mcxa256vll",
+    feature = "mcxa265vll",
+    feature = "mcxa266vll"
+)))]
 impl_valid_match!(CTIMER4, CTIMER4_CH0, P3_2, 0);
 impl_valid_match!(CTIMER4, CTIMER4_CH2, P3_6, 2);
 impl_valid_match!(CTIMER4, CTIMER4_CH3, P3_7, 3);
 
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_valid_match!(CTIMER4, CTIMER4_CH0, P4_2, 0);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_valid_match!(CTIMER4, CTIMER4_CH1, P4_3, 1);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_valid_match!(CTIMER4, CTIMER4_CH2, P4_4, 2);
+#[cfg(not(any(
+    feature = "mcxa255vlh",
+    feature = "mcxa256vlh",
+    feature = "mcxa265vlh",
+    feature = "mcxa266vlh"
+)))]
 impl_valid_match!(CTIMER4, CTIMER4_CH3, P4_5, 3);
