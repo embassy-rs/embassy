@@ -194,8 +194,7 @@ impl<'d, T: Instance> Saes<'d, T, Blocking> {
         {
             let rcc = pac::RCC;
             if !rcc.ahb2enr().read().rngen() {
-                rcc.ccipr2()
-                    .modify(|w| w.set_rngsel(pac::rcc::vals::Rngsel::HSI));
+                rcc.ccipr2().modify(|w| w.set_rngsel(pac::rcc::vals::Rngsel::HSI));
                 rcc.ahb2enr().modify(|w| w.set_rngen(true));
                 pac::RNG.cr().modify(|w| w.set_rngen(true));
                 // Brief settle delay (~100 µs at 96 MHz) before SAES tries to read from RNG
@@ -244,8 +243,7 @@ impl<'d, T: Instance> Saes<'d, T, Async> {
         {
             let rcc = pac::RCC;
             if !rcc.ahb2enr().read().rngen() {
-                rcc.ccipr2()
-                    .modify(|w| w.set_rngsel(pac::rcc::vals::Rngsel::HSI));
+                rcc.ccipr2().modify(|w| w.set_rngsel(pac::rcc::vals::Rngsel::HSI));
                 rcc.ahb2enr().modify(|w| w.set_rngen(true));
                 pac::RNG.cr().modify(|w| w.set_rngen(true));
                 cortex_m::asm::delay(10_000);

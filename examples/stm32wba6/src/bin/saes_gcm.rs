@@ -25,7 +25,9 @@
 #![no_main]
 
 use defmt::*;
-use embassy_stm32::rcc::{AHB5Prescaler, AHBPrescaler, APBPrescaler, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale};
+use embassy_stm32::rcc::{
+    AHB5Prescaler, AHBPrescaler, APBPrescaler, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale,
+};
 use embassy_stm32::saes::{AesGcm, Direction, Saes};
 use embassy_stm32::{Config, bind_interrupts, peripherals};
 use {defmt_rtt as _, panic_probe as _};
@@ -74,12 +76,22 @@ async fn main(_spawner: embassy_executor::Spawner) {
         Ok(()) => info!("Ciphertext: {:02x}", ct),
         Err(e) => {
             error!("✗ Encrypt failed: {:?}", e);
-            loop { cortex_m::asm::wfi(); }
+            loop {
+                cortex_m::asm::wfi();
+            }
         }
     }
     let enc_tag = match saes.finish_blocking(ctx) {
-        Ok(Some(tag)) => { info!("Encrypt tag: {:02x}", tag); tag }
-        _ => { error!("✗ No tag"); loop { cortex_m::asm::wfi(); } }
+        Ok(Some(tag)) => {
+            info!("Encrypt tag: {:02x}", tag);
+            tag
+        }
+        _ => {
+            error!("✗ No tag");
+            loop {
+                cortex_m::asm::wfi();
+            }
+        }
     };
 
     let cipher = AesGcm::new(&key, &iv);
@@ -95,8 +107,12 @@ async fn main(_spawner: embassy_executor::Spawner) {
             if recovered == pt && dec_tag == enc_tag {
                 info!("✓ GCM no-AAD round-trip PASSED (plaintext + tag both match)");
             } else {
-                if recovered != pt { error!("✗ Plaintext mismatch"); }
-                if dec_tag != enc_tag { error!("✗ Tag mismatch"); }
+                if recovered != pt {
+                    error!("✗ Plaintext mismatch");
+                }
+                if dec_tag != enc_tag {
+                    error!("✗ Tag mismatch");
+                }
             }
         }
         Ok(None) => error!("✗ No tag returned"),
@@ -110,10 +126,10 @@ async fn main(_spawner: embassy_executor::Spawner) {
     ];
     let iv2 = [0xca, 0xfe, 0xba, 0xbe, 0xfa, 0xce, 0xdb, 0xad, 0xde, 0xca, 0xf8, 0x88u8];
     let pt2 = [
-        0xd9, 0x31, 0x32, 0x25, 0xf8, 0x84, 0x06, 0xe5, 0xa5, 0x59, 0x09, 0xc5, 0xaf, 0xf5, 0x26, 0x9a,
-        0x86, 0xa7, 0xa9, 0x53, 0x15, 0x34, 0xf7, 0xda, 0x2e, 0x4c, 0x30, 0x3d, 0x8a, 0x31, 0x8a, 0x72,
-        0x1c, 0x3c, 0x0c, 0x95, 0x95, 0x68, 0x09, 0x53, 0x2f, 0xcf, 0x0e, 0x24, 0x49, 0xa6, 0xb5, 0x25,
-        0xb1, 0x6a, 0xed, 0xf5, 0xaa, 0x0d, 0xe6, 0x57, 0xba, 0x63, 0x7b, 0x39u8,
+        0xd9, 0x31, 0x32, 0x25, 0xf8, 0x84, 0x06, 0xe5, 0xa5, 0x59, 0x09, 0xc5, 0xaf, 0xf5, 0x26, 0x9a, 0x86, 0xa7,
+        0xa9, 0x53, 0x15, 0x34, 0xf7, 0xda, 0x2e, 0x4c, 0x30, 0x3d, 0x8a, 0x31, 0x8a, 0x72, 0x1c, 0x3c, 0x0c, 0x95,
+        0x95, 0x68, 0x09, 0x53, 0x2f, 0xcf, 0x0e, 0x24, 0x49, 0xa6, 0xb5, 0x25, 0xb1, 0x6a, 0xed, 0xf5, 0xaa, 0x0d,
+        0xe6, 0x57, 0xba, 0x63, 0x7b, 0x39u8,
     ];
 
     let cipher = AesGcm::new(&key2, &iv2);
@@ -121,8 +137,16 @@ async fn main(_spawner: embassy_executor::Spawner) {
     let mut ct2 = [0u8; 60];
     saes.payload_blocking(&mut ctx, &pt2, &mut ct2, true).ok();
     let enc_tag2 = match saes.finish_blocking(ctx) {
-        Ok(Some(tag)) => { info!("Encrypt tag: {:02x}", tag); tag }
-        _ => { error!("✗ Encrypt failed"); loop { cortex_m::asm::wfi(); } }
+        Ok(Some(tag)) => {
+            info!("Encrypt tag: {:02x}", tag);
+            tag
+        }
+        _ => {
+            error!("✗ Encrypt failed");
+            loop {
+                cortex_m::asm::wfi();
+            }
+        }
     };
 
     let cipher = AesGcm::new(&key2, &iv2);
@@ -134,8 +158,12 @@ async fn main(_spawner: embassy_executor::Spawner) {
             if recovered2 == pt2 && dec_tag == enc_tag2 {
                 info!("✓ GCM 60-byte no-AAD round-trip PASSED");
             } else {
-                if recovered2 != pt2 { error!("✗ Plaintext mismatch"); }
-                if dec_tag != enc_tag2 { error!("✗ Tag mismatch"); }
+                if recovered2 != pt2 {
+                    error!("✗ Plaintext mismatch");
+                }
+                if dec_tag != enc_tag2 {
+                    error!("✗ Tag mismatch");
+                }
             }
         }
         _ => error!("✗ Decrypt failed"),
