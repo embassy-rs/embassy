@@ -1,8 +1,8 @@
 //! DMA driver for MCXA276.
 //!
 //! This module provides a typed channel abstraction over the EDMA_0_TCD0 array
-//! and helpers for configuring the channel MUX. The driver supports both
-//! low-level TCD configuration and higher-level async transfer APIs.
+//! and helpers for configuring the channel MUX. The driver supports
+//! higher-level async transfer APIs.
 //!
 //! # Architecture
 //!
@@ -29,13 +29,10 @@
 //!
 //! ```no_run
 //! # use embassy_mcxa::dma::{DmaChannel, TransferOptions};
-//! # let dma_ch = DmaChannel::new(p.DMA_CH0);
+//! let dma_ch = DmaChannel::new(p.DMA_CH0);
 //! # let src = [0u32; 4];
 //! # let mut dst = [0u32; 4];
-//! // Simple memory-to-memory transfer
-//! unsafe {
-//!     dma_ch.mem_to_mem(&src, &mut dst, TransferOptions::default()).await;
-//! }
+//! dma_ch.mem_to_mem(&src, &mut dst, TransferOptions::default()).await;
 //! ```
 //!
 //! ## Scatter-Gather Builder (For Chained Transfers)
@@ -49,22 +46,8 @@
 //! builder.add_transfer(&src1, &mut dst1);
 //! builder.add_transfer(&src2, &mut dst2);
 //!
-//! let transfer = unsafe { builder.build(&dma_ch).unwrap() };
+//! let transfer = builder.build(&dma_ch).unwrap();
 //! transfer.await;
-//! ```
-//!
-//! ## Direct TCD Access (For Advanced Use Cases)
-//!
-//! For full control, use the channel's `tcd()` method to access TCD registers directly.
-//! See the `dma_*` examples for patterns.
-//!
-//! # Example
-//!
-//! ```no_run
-//! use embassy_mcxa::dma::{DmaChannel, TransferOptions, Direction};
-//!
-//! let dma_ch = DmaChannel::new(p.DMA_CH0);
-//! // Configure and trigger a transfer...
 //! ```
 
 use core::future::Future;
@@ -387,10 +370,6 @@ impl DmaRequest {
     }
 }
 
-// ============================================================================
-// Channel Trait (Sealed Pattern)
-// ============================================================================
-
 mod sealed {
     /// Sealed trait for DMA channels.
     pub trait SealedChannel {
@@ -411,6 +390,12 @@ pub trait Channel: sealed::SealedChannel + PeripheralType + Into<AnyChannel> + '
 ///
 /// This allows storing DMA channels in a uniform way regardless of their
 /// concrete type, useful for async transfer futures and runtime channel selection.
+///
+/// ```
+/// # use embassy_hal_internal::Peri;
+/// let anychannel: Peri<'static, AnyChannel> = p.DMA_CH0.into();
+/// DmaChannel::new(anychannel);
+/// ```
 #[derive(Debug, Clone, Copy)]
 pub struct AnyChannel {
     index: usize,
@@ -429,28 +414,6 @@ impl sealed::SealedChannel for AnyChannel {
 }
 
 impl Channel for AnyChannel {}
-
-impl AnyChannel {
-    /// Get a reference to the TCD register block for this channel.
-    ///
-    /// This steals the eDMA pointer internally since MCXA276 has only one eDMA instance.
-    #[inline]
-    fn tcd(&self) -> pac::edma_0_tcd::Tcd {
-        // Safety: MCXA276 has a single eDMA instance, and we're only accessing
-        // the TCD for this specific channel
-        pac::EDMA_0_TCD0.tcd(self.index)
-    }
-
-    /// Check if the channel's DONE flag is set.
-    pub fn is_done(&self) -> bool {
-        self.tcd().ch_csr().read().done()
-    }
-
-    /// Get the waker for this channel.
-    pub fn waker(&self) -> &'static AtomicWaker {
-        &STATES[self.index].waker
-    }
-}
 
 /// Macro to implement Channel trait for a peripheral.
 macro_rules! impl_channel {
@@ -486,11 +449,7 @@ impl_channel!(DMA_CH5, 5, DMA_CH5);
 impl_channel!(DMA_CH6, 6, DMA_CH6);
 impl_channel!(DMA_CH7, 7, DMA_CH7);
 
-/// Strongly-typed handle to a DMA0 channel.
-///
-/// The lifetime of this value is tied to the unique peripheral token
-/// supplied by `embassy_hal_internal::peripherals!`, so safe code cannot
-/// create two `DmaChannel` instances for the same hardware channel.
+/// DMA channel driver.
 pub struct DmaChannel<'a> {
     channel: Peri<'a, AnyChannel>,
 }
@@ -1668,7 +1627,7 @@ impl DmaChannel<'_> {
 #[repr(C, align(32))]
 #[derive(Clone, Copy, Debug, Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Tcd {
+struct Tcd {
     pub saddr: u32,
     pub soff: i16,
     pub attr: u16,
@@ -1774,7 +1733,7 @@ impl<'a> Transfer<'a> {
     ///
     /// The transfer must be configured with `TransferOptions::half_transfer_interrupt = true`
     /// for this method to work correctly.
-    pub async fn wait_half(&mut self) -> Result<bool, TransferErrorRaw> {
+    pub async fn wait_half(&mut self) -> Result<bool, TransferErrors> {
         use core::future::poll_fn;
 
         poll_fn(|cx| {
@@ -1789,7 +1748,7 @@ impl<'a> Transfer<'a> {
             if es.err() {
                 // Currently, all error fields are in the lowest 8 bits, as-casting truncates
                 let errs = es.0 as u8;
-                return Poll::Ready(Err(TransferErrorRaw(errs)));
+                return Poll::Ready(Err(TransferErrors(errs)));
             }
 
             // Check if we're past the half-way point
@@ -1831,16 +1790,18 @@ impl<'a> Transfer<'a> {
     }
 }
 
-/// Raw transfer error bits. Can be queried or all errors can be iterated over
+/// A collection of errors that can occur after a transfer.
+///
+/// Can be queried or all errors can be iterated over.
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Copy, Clone, Debug)]
-pub struct TransferErrorRaw(u8);
+pub struct TransferErrors(u8);
 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Copy, Clone, Debug)]
-pub struct TransferErrorRawIter(u8);
+pub struct TransferErrorIter(u8);
 
-impl TransferErrorRaw {
+impl TransferErrors {
     const MAP: &[(u8, TransferError)] = &[
         (1 << 0, TransferError::DestinationBus),
         (1 << 1, TransferError::SourceBus),
@@ -1851,11 +1812,6 @@ impl TransferErrorRaw {
         (1 << 6, TransferError::SourceOffset),
         (1 << 7, TransferError::SourceAddress),
     ];
-
-    /// Convert to an iterator of contained errors
-    pub fn err_iter(self) -> TransferErrorRawIter {
-        TransferErrorRawIter(self.0)
-    }
 
     /// Destination Bus Error
     #[inline]
@@ -1912,7 +1868,17 @@ impl TransferErrorRaw {
     }
 }
 
-impl Iterator for TransferErrorRawIter {
+impl IntoIterator for TransferErrors {
+    type Item = TransferError;
+
+    type IntoIter = TransferErrorIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        TransferErrorIter(self.0)
+    }
+}
+
+impl Iterator for TransferErrorIter {
     type Item = TransferError;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -1920,7 +1886,7 @@ impl Iterator for TransferErrorRawIter {
             return None;
         }
 
-        for (mask, var) in TransferErrorRaw::MAP {
+        for (mask, var) in TransferErrors::MAP {
             // If the bit is set...
             if self.0 & mask != 0 {
                 // clear the bit
@@ -1965,7 +1931,7 @@ pub enum TransferError {
 impl<'a> Unpin for Transfer<'a> {}
 
 impl<'a> Future for Transfer<'a> {
-    type Output = Result<(), TransferErrorRaw>;
+    type Output = Result<(), TransferErrors>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let state = &STATES[self.channel.index()];
@@ -1983,7 +1949,7 @@ impl<'a> Future for Transfer<'a> {
             if es.err() {
                 // Currently, all error fields are in the lowest 8 bits, as-casting truncates
                 let errs = es.0 as u8;
-                Poll::Ready(Err(TransferErrorRaw(errs)))
+                Poll::Ready(Err(TransferErrors(errs)))
             } else {
                 Poll::Ready(Ok(()))
             }
