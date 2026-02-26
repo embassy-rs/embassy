@@ -54,6 +54,8 @@ fn __pender(context: *mut ()) {
 }
 
 impl Executor {
+    // Note: We don't really want a Default impl for this singleton.
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         let res = EXECUTOR_ONCE.compare_exchange(EXECUTOR_UNINIT, EXECUTOR_TAKEN, Ordering::AcqRel, Ordering::Relaxed);
 

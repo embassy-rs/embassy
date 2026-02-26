@@ -2194,6 +2194,12 @@ impl<'channel, 'buf, W: Word> RingBuffer<'channel, 'buf, W> {
     /// Call this to start continuous reception.
     /// This is separated from setup to allow for any additional configuration
     /// before starting the transfer.
+    ///
+    /// ## SAFETY
+    ///
+    /// The Dma Channel must have been setup with proper manual configuration prior to
+    /// calling `enable_dma_request`. See safety requirements of the configuration methods
+    /// for more details.
     pub unsafe fn enable_dma_request(&self) {
         unsafe {
             self.channel.enable_request();

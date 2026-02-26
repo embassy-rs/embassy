@@ -296,8 +296,6 @@ impl<'d, M: IoMode> Spi<'d, M> {
             return Ok(());
         }
 
-        let len = read.len().max(write.len());
-
         self.info.regs().tcr().modify(|w| {
             w.set_txmsk(Txmsk::NORMAL);
             w.set_rxmsk(Rxmsk::NORMAL);
@@ -305,21 +303,16 @@ impl<'d, M: IoMode> Spi<'d, M> {
 
         let fifo_size = LPSPI_FIFO_SIZE;
 
-        for i in 0..len {
-            let wb = write[i];
-
+        for (wb, rb) in write.iter().zip(read.iter_mut()) {
             // Wait until we have at least one byte space in the TxFIFO.
             while self.info.regs().fsr().read().txcount() - fifo_size == 0 {}
             self.check_status()?;
-            self.info.regs().tdr().write(|w| w.set_data(wb as u32));
+            self.info.regs().tdr().write(|w| w.set_data(*wb as u32));
 
             // Wait until we have data in the RxFIFO.
             while self.info.regs().fsr().read().rxcount() == 0 {}
             self.check_status()?;
-            let rb = self.info.regs().rdr().read().data() as u8;
-            if let Some(r) = read.get_mut(i) {
-                *r = rb;
-            }
+            *rb = self.info.regs().rdr().read().data() as u8;
         }
 
         self.blocking_flush()
@@ -968,16 +961,13 @@ impl<'d> AsyncEngine for Spi<'d, Async> {
             return Ok(());
         }
 
-        let len = read.len().max(write.len());
-
         self.info.regs().tcr().modify(|w| {
             w.set_txmsk(Txmsk::NORMAL);
             w.set_rxmsk(Rxmsk::NORMAL);
         });
 
-        for i in 0..len {
-            let wb = write[i];
-
+        // Zip will terminate whenever the first of write or read are exhausted
+        for (wb, rb) in write.iter().zip(read.iter_mut()) {
             // Wait until we have at least one byte space in the TxFIFO.
             self.info
                 .wait_cell()
@@ -991,7 +981,7 @@ impl<'d> AsyncEngine for Spi<'d, Async> {
                 .await
                 .map_err(|_| IoError::Other)?;
             self.check_status()?;
-            self.info.regs().tdr().write(|w| w.set_data(wb as u32));
+            self.info.regs().tdr().write(|w| w.set_data(*wb as u32));
 
             // Wait until we have data in the RxFIFO.
             self.info
@@ -1006,10 +996,7 @@ impl<'d> AsyncEngine for Spi<'d, Async> {
                 .await
                 .map_err(|_| IoError::Other)?;
             self.check_status()?;
-            let rb = self.info.regs().rdr().read().data() as u8;
-            if let Some(r) = read.get_mut(i) {
-                *r = rb;
-            }
+            *rb = self.info.regs().rdr().read().data() as u8;
         }
 
         self.async_flush().await
