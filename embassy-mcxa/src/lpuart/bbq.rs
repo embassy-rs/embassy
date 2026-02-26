@@ -1,5 +1,7 @@
 //! Buffered Lpuart driver powered by `bbqueue`
 
+#![deny(clippy::undocumented_unsafe_blocks)]
+
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 use core::sync::atomic::{AtomicU8, AtomicU32, Ordering, fence};
@@ -326,18 +328,25 @@ impl LpuartBbq {
         let _wg = (parts.vtable.lpuart_init)(true, true, false, false, config.into()).map_err(BbqError::Basic)?;
 
         // Setup the TX state
-        LpuartBbqTx::initialize_tx_state(parts.state, parts.tx_dma_ch, parts.tx_buffer, parts.tx_dma_req);
+        //
+        // SAFETY: We have ensured we are in the INITING state, and interrupts are not yet active.
+        unsafe {
+            LpuartBbqTx::initialize_tx_state(parts.state, parts.tx_dma_ch, parts.tx_buffer, parts.tx_dma_req);
+        }
 
         // Setup the RX state
         let len = parts.rx_buffer.len();
-        LpuartBbqRx::initialize_rx_state(
-            parts.state,
-            parts.info,
-            parts.rx_dma_ch,
-            parts.vtable.dma_rx_cb,
-            parts.rx_buffer,
-            parts.rx_dma_req,
-        );
+        // SAFETY: We have ensured we are in the INITING state, and the interrupt is not yet active.
+        unsafe {
+            LpuartBbqRx::initialize_rx_state(
+                parts.state,
+                parts.info,
+                parts.rx_dma_ch,
+                parts.vtable.dma_rx_cb,
+                parts.rx_buffer,
+                parts.rx_dma_req,
+            );
+        }
 
         // Update our state to "initialized", and that we have the TXDMA + RXDMA channels present
         // Okay to just store: we have exclusive access
@@ -355,6 +364,9 @@ impl LpuartBbq {
         let new_state = STATE_INITED | STATE_TXDMA_PRESENT | STATE_RXDMA_PRESENT | rx_mode_bits;
         parts.state.state.store(new_state, Ordering::Release);
 
+        // SAFETY: We have ensured that our ISR is present via the IRQ token, and we have
+        // initialized the shared state machine sufficiently that it can execute correctly
+        // when triggered.
         unsafe {
             // Clear any stale interrupt flags
             (parts.vtable.int_unpend)();
@@ -450,7 +462,12 @@ pub struct LpuartBbqTx {
 }
 
 impl LpuartBbqTx {
-    fn initialize_tx_state(
+    /// ## SAFETY
+    ///
+    /// This function must only be called in the "INITING" state, and BEFORE
+    /// enabling interrupts, meaning we have exclusive access to the TX components
+    /// of the given BbqState.
+    unsafe fn initialize_tx_state(
         state: &'static BbqState,
         dma: DmaChannel<'static>,
         tx_buffer: &'static mut [u8],
@@ -466,6 +483,9 @@ impl LpuartBbqTx {
         // number ONCE in init, then just do a minimal-reload. This would allow us to
         // avoid storing the txdma_num, and save some effort in the ISR.
         let cont = Container::from(tx_buffer);
+
+        // SAFETY: We have exclusive access to the shared TX components, and the interrupt
+        // is not yet enabled. We move ownership of these resources to the shared area.
         unsafe {
             state.tx_queue.get().write(BBQueue::new_with_storage(cont));
             state.txdma.get().write(dma);
@@ -495,13 +515,19 @@ impl LpuartBbqTx {
         let _wg = (parts.vtable.lpuart_init)(true, false, false, false, config.into()).map_err(BbqError::Basic)?;
 
         // Setup the TX Half state
-        Self::initialize_tx_state(parts.state, parts.dma_ch, parts.buffer, parts.dma_req);
+        //
+        // SAFETY: We have ensured we are in the INITING state, and the interrupt is not yet active.
+        unsafe {
+            Self::initialize_tx_state(parts.state, parts.dma_ch, parts.buffer, parts.dma_req);
+        }
 
         // Update our state to "initialized", and that we have the TXDMA channel present
         // Okay to just store: we have exclusive access
         let new_state = STATE_INITED | STATE_TXDMA_PRESENT;
         parts.state.state.store(new_state, Ordering::Release);
 
+        // SAFETY: We have properly initialized the shared storage, and ensured that
+        // our ISR is installed with the Irq token.
         unsafe {
             // Clear any stale interrupt flags
             (parts.vtable.int_unpend)();
@@ -535,7 +561,11 @@ impl LpuartBbqTx {
     pub async fn write(&mut self, buf: &[u8]) -> Result<usize, BbqError> {
         // TODO: we could have a version of this that gives the user the grant directly
         // to reduce the effort of copying.
+
+        // SAFETY: The existence of a LpuartBbqTx ensures that the `tx_queue` has been
+        // initialized. The tx_queue is safe to access in a shared manner after initialization.
         let tx_queue = unsafe { &*self.state.tx_queue.get() };
+
         let prod = tx_queue.stream_producer();
         let mut wgr = prod.wait_grant_max_remaining(buf.len()).await;
         let to_copy = buf.len().min(wgr.len());
@@ -571,15 +601,17 @@ impl LpuartBbqTx {
     /// Teardown the Tx handle, reclaiming the parts.
     pub fn teardown(self) -> BbqHalfParts {
         // First, disable relevant interrupts
-        critical_section::with(|_cs| {
+        let state = critical_section::with(|_cs| {
             self.info.regs.ctrl().modify(|w| w.set_tcie(false));
+            // Clear the TXDMA present bit to prevent the ISR from touching anything.
+            // Relaxed is okay here because CS::with has Acq/Rel semantics on entry and exit
+            self.state.state.fetch_and(!STATE_TXDMA_PRESENT, Ordering::Relaxed)
         });
-
-        // We now have exclusive access to the TX contents. First, check and see if the DMA transfer is active
-        let state = self.state.state.load(Ordering::Acquire);
 
         // If there is an active grant, the TX DMA may be active. Stop it and release the grant
         if (state & STATE_TXGR_ACTIVE) != 0 {
+            // SAFETY: We have unset TXDMA_PRESENT and disabled TCIE: we now have exclusive
+            // access to the shared tx resources.
             unsafe {
                 // Take DMA channel by mut ref
                 let txdma = &mut *self.state.txdma.get();
@@ -593,24 +625,26 @@ impl LpuartBbqTx {
                 // Then take the grant by ownership, and drop it, which releases the grant
                 _ = self.state.txgr.get().read();
             }
+            self.state.state.fetch_and(!STATE_TXGR_ACTIVE, Ordering::AcqRel);
         }
 
-        // Fully notch out the TX relevant state bits
-        let state = self
-            .state
-            .state
-            .fetch_and(!(STATE_TXGR_ACTIVE | STATE_TXDMA_PRESENT), Ordering::AcqRel);
-
         // Get a reference to the tx_queue to retrieve the Container
+        //
+        // SAFETY: We have unset TXDMA_PRESENT and disabled TCIE: we now have exclusive
+        // access to the shared tx resources.
         let (ptr, len) = unsafe {
             let tx_queue = &*self.state.tx_queue.get();
             tx_queue.storage().ptr_len()
         };
+
         // Now, drop the queue in place. This is sound because as the LpuartBbqTx, we have exclusive
         // access to the "producer" half, and by disabling the interrupt and notching out the state
         // bits, we know the ISR will no longer touch the consumer part.
         //
         // Also, take the DmaChannel by ownership this time.
+        //
+        // SAFETY: We have unset TXDMA_PRESENT and disabled TCIE: we now have exclusive
+        // access to the shared tx resources.
         let tx_dma = unsafe {
             core::ptr::drop_in_place(self.state.tx_queue.get());
             // Defensive coding: purge the tx_queue just in case. This doesn't zero the
@@ -623,6 +657,9 @@ impl LpuartBbqTx {
 
         // Re-magic the mut slice from the storage we have now reclaimed by dropping the
         // tx_queue.
+        //
+        // SAFETY: We have unset TXDMA_PRESENT and disabled TCIE: we now have exclusive
+        // access to the shared tx resources.
         let tx_buffer = unsafe { core::slice::from_raw_parts_mut(ptr.as_ptr(), len) };
 
         // Now, if this was the last part of the lpuart, we are responsible for peripheral
@@ -659,7 +696,12 @@ pub struct LpuartBbqRx {
 }
 
 impl LpuartBbqRx {
-    fn initialize_rx_state(
+    /// ## SAFETY
+    ///
+    /// This function must only be called in the "INITING" state, and BEFORE
+    /// enabling interrupts, meaning we have exclusive access to the RX components
+    /// of the given BbqState.
+    unsafe fn initialize_rx_state(
         state: &'static BbqState,
         _info: &'static Info,
         mut dma: DmaChannel<'static>,
@@ -673,6 +715,9 @@ impl LpuartBbqRx {
         // TODO: Right now we only do this on RX, we might want to also handle this on TX as well
         // so we have more time to reload, but for now we'll naturally get the "transfer complete"
         // interrupt when the TX fifo empties, and we are less latency sensitive on TX than RX.
+        //
+        // SAFETY: We have exclusive ownership of the DmaChannel, and are able to overwrite the
+        // existing callback, if any.
         unsafe {
             dma.set_callback(rx_callback);
         }
@@ -687,6 +732,9 @@ impl LpuartBbqRx {
         // number ONCE in init, then just do a minimal-reload. This would allow us to
         // avoid storing the rxdma_num, and save some effort in the ISR.
         let cont = Container::from(rx_buffer);
+
+        // SAFETY: We have exclusive access to the shared RX components, and the interrupt
+        // is not yet enabled. We move ownership of these resources to the shared area.
         unsafe {
             state.rx_queue.get().write(BBQueue::new_with_storage(cont));
             state.rxdma.get().write(dma);
@@ -734,14 +782,18 @@ impl LpuartBbqRx {
 
         // Setup the RX half state
         let len = parts.buffer.len();
-        Self::initialize_rx_state(
-            parts.state,
-            parts.info,
-            parts.dma_ch,
-            parts.vtable.dma_rx_cb,
-            parts.buffer,
-            parts.dma_req,
-        );
+
+        // SAFETY: We have ensured that we are in the INITING state, and the interrupt is not yet active.
+        unsafe {
+            Self::initialize_rx_state(
+                parts.state,
+                parts.info,
+                parts.dma_ch,
+                parts.vtable.dma_rx_cb,
+                parts.buffer,
+                parts.dma_req,
+            );
+        }
 
         // Update our state to "initialized", and that we have the RXDMA channel present
         // Okay to just store: we have exclusive access
@@ -759,6 +811,9 @@ impl LpuartBbqRx {
         let new_state = STATE_INITED | STATE_RXDMA_PRESENT | rx_mode_bits;
         parts.state.state.store(new_state, Ordering::Release);
 
+        // SAFETY: We have ensured that our ISR is present via the IRQ token, and we have
+        // initialized the shared state machine sufficiently that it can execute correctly
+        // when triggered.
         unsafe {
             // Clear any stale interrupt flags
             (parts.vtable.int_unpend)();
@@ -798,6 +853,9 @@ impl LpuartBbqRx {
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, BbqError> {
         // TODO: we could have a version of this that gives the user the grant directly
         // to reduce the effort of copying.
+
+        // SAFETY: The existence of a LpuartBbqRx ensures that the `rx_queue` has been
+        // initialized. The rx_queue is safe to access in a shared manner after initialization.
         let queue = unsafe { &*self.state.rx_queue.get() };
         let cons = queue.stream_consumer();
         let rgr = cons.wait_read().await;
@@ -837,6 +895,8 @@ impl LpuartBbqRx {
 
         // If there is an active grant, the RX DMA may be active. Stop it and release the grant
         if (state & STATE_RXGR_ACTIVE) != 0 {
+            // SAFETY: We have unset RXDMA_PRESENT and disabled all RX interrupts: we now have exclusive
+            // access to the shared rx resources.
             unsafe {
                 // Take DMA channel by mut ref
                 let rxdma = &mut *self.state.rxdma.get();
@@ -853,15 +913,22 @@ impl LpuartBbqRx {
         }
 
         // Get a reference to the rx_queue to retrieve the Container
+        //
+        // SAFETY: We have unset RXDMA_PRESENT and disabled all RX interrupts: we now have exclusive
+        // access to the shared rx resources.
         let (ptr, len) = unsafe {
             let rx_queue = &*self.state.rx_queue.get();
             rx_queue.storage().ptr_len()
         };
+
         // Now, drop the queue in place. This is sound because as the LpuartBbqRx, we have exclusive
         // access to the "consumer" half, and by disabling the interrupt and notching out the state
         // bits, we know the ISR will no longer touch the producer part.
         //
         // Also, take the DmaChannel by ownership this time.
+        //
+        // SAFETY: We have unset RXDMA_PRESENT and disabled all RX interrupts: we now have exclusive
+        // access to the shared rx resources.
         let rx_dma = unsafe {
             core::ptr::drop_in_place(self.state.rx_queue.get());
             // Defensive coding: purge the rx_queue just in case. This doesn't zero the
@@ -874,6 +941,9 @@ impl LpuartBbqRx {
 
         // Re-magic the mut slice from the storage we have now reclaimed by dropping the
         // rx_queue.
+        //
+        // SAFETY: We have unset RXDMA_PRESENT and disabled all RX interrupts: we now have exclusive
+        // access to the shared rx resources.
         let rx_buffer = unsafe { core::slice::from_raw_parts_mut(ptr.as_ptr(), len) };
 
         // Now, if this was the last part of the lpuart, we are responsible for peripheral
@@ -915,6 +985,7 @@ impl From<&'static mut [u8]> for Container {
     fn from(value: &'static mut [u8]) -> Self {
         Self {
             len: value.len(),
+            // SAFETY: The input slice is guaranteed to contain a non-null value
             ptr: unsafe { NonNull::new_unchecked(value.as_mut_ptr()) },
         }
     }
@@ -1022,6 +1093,8 @@ impl BbqState {
     /// * A write grant must be active
     /// * We must be in ISR context
     unsafe fn finalize_write(&'static self, info: &'static Info) {
+        // SAFETY: With the function-level safety requirements met, we are free to modify
+        // shared tx state.
         unsafe {
             // Load the active TX grant, taking it "by ownership"
             let txgr = self.txgr.get().read();
@@ -1060,6 +1133,8 @@ impl BbqState {
     /// * A read grant must be active
     /// * We must be in ISR context
     unsafe fn finalize_read(&'static self, info: &'static Info) {
+        // SAFETY: With the function-level safety requirements met, we are free to modify
+        // shared rx state.
         unsafe {
             // Load the active RX grant, taking it by ownership
             let rxgr = self.rxgr.get().read();
@@ -1103,12 +1178,17 @@ impl BbqState {
     /// * We must be in ISR context
     unsafe fn start_write_transfer(&'static self, info: &'static Info) -> bool {
         // Get the tx queue, by & ref
+        //
+        // SAFETY: TXDMA_PRESENT bit being enabled means the tx_queue has been initialized.
+        // The tx_queue is safe to access in a shared manner after initialization.
         let tx_queue = unsafe { &*self.tx_queue.get() };
         let Ok(rgr) = tx_queue.stream_consumer().read() else {
             // Nothing to do!
             return false;
         };
 
+        // SAFETY: With the function-level safety requirements met, we are free to modify
+        // shared tx state.
         unsafe {
             // Take the TXDMA by &mut ref
             let txdma = &mut *self.txdma.get();
@@ -1161,10 +1241,12 @@ impl BbqState {
     /// ## SAFETY
     ///
     /// * The HAL driver must be initialized
-    /// * The TXDMA must be present
+    /// * The RXDMA must be present
     /// * A write grant must NOT be active
     /// * We must be in ISR context
     unsafe fn start_read_transfer(&'static self, info: &'static Info) -> bool {
+        // SAFETY: RXDMA_PRESENT bit being enabled means the rx_queue has been initialized.
+        // The rx_queue is safe to access in a shared manner after initialization.
         let rx_queue = unsafe { &*self.rx_queue.get() };
 
         // Determine the size and kind of grant to request
@@ -1186,6 +1268,8 @@ impl BbqState {
             return false;
         };
 
+        // SAFETY: With the function-level safety requirements met, we are free to modify
+        // shared rx state.
         unsafe {
             // Initialize the transfer from the DMA to the bbqueue grant
             //
@@ -1253,11 +1337,13 @@ impl_instance!(0; 1; 2; 3; 4; 5);
 
 // Basically the on_interrupt handler, but as a free function so it doesn't get
 // monomorphized.
+//
+// SAFETY: Should only be called by the `on_interrupt` function in ISR context, with
+// the shared BbqState properly initialized in the INITED state
 unsafe fn handler(info: &'static Info, state: &'static BbqState) {
     let regs = info.regs();
     let ctrl = regs.ctrl().read();
     let stat = regs.stat().read();
-    // defmt::info!("INT {:?}", stat);
 
     // Just clear any errors - TODO, signal these to the consumer?
     // For now, we just clear + discard errors if they occur.
@@ -1281,30 +1367,39 @@ unsafe fn handler(info: &'static Info, state: &'static BbqState) {
     // Check DMA complete or idle interrupt occurred - we need to stop
     // the current RX transfer in either case.
     let pre_clear = state.state.fetch_and(!STATE_RXDMA_COMPLETE, Ordering::AcqRel);
+
+    // SAFETY NOTE: The RXDMA_PRESENT bit is used to mediate whether the interrupt should
+    // act the shared RX data. This is used by functions like `teardown` to disable interrupt
+    // access to shared data when tearing down.
     let rx_present = (pre_clear & STATE_RXDMA_PRESENT) != 0;
-    let rx_active = (pre_clear & STATE_RXGR_ACTIVE) != 0;
-    let dma_complete = (pre_clear & STATE_RXDMA_COMPLETE) != 0;
-
-    if rx_present && rx_active && (idle || dma_complete) {
-        // defmt::info!("a");
-        // State change, move from Receiving -> Idle
-        unsafe {
-            state.finalize_read(info);
+    if rx_present {
+        let rx_active = (pre_clear & STATE_RXGR_ACTIVE) != 0;
+        let dma_complete = (pre_clear & STATE_RXDMA_COMPLETE) != 0;
+        if rx_active && (idle || dma_complete) {
+            // State change, move from Receiving -> Idle
+            //
+            // SAFETY: The HAL driver is initialized, we checked that RXDMA_PRESENT is set, we
+            // checked that RXGR_ACTIVE is set, we are in ISR context
+            unsafe {
+                state.finalize_read(info);
+            }
         }
-    }
 
-    // If we are now idle, attempt to "reload" the transfer and being receiving again ASAP.
-    // Only do this if RXDMA is present. We re-load from state to ensure we see when
-    // `finalize_read` just cleared the bit.
-    let rx_idle = (state.state.load(Ordering::Acquire) & STATE_RXGR_ACTIVE) == 0;
-    if rx_present && rx_idle {
-        // defmt::info!("b");
-        // Either Idle -> Receiving or Idle -> Idle
-        unsafe {
-            let started = state.start_read_transfer(info);
-            // Enable ILIE if we started a transfer, otherwise (keep) disabled.
-            // ILIE - Idle Line Interrupt Enable
-            regs.ctrl().modify(|w| w.set_ilie(started));
+        // If we are now idle, attempt to "reload" the transfer and being receiving again ASAP.
+        // Only do this if RXDMA is present. We re-load from state to ensure we see when
+        // `finalize_read` just cleared the bit.
+        let rx_idle = (state.state.load(Ordering::Acquire) & STATE_RXGR_ACTIVE) == 0;
+        if rx_idle {
+            // Either Idle -> Receiving or Idle -> Idle
+            //
+            // SAFETY: The HAL driver is initialized, we checked that RXDMA_PRESENT is set, we
+            // checked there isn't a write grant active, and we are in ISR context.
+            unsafe {
+                let started = state.start_read_transfer(info);
+                // Enable ILIE if we started a transfer, otherwise (keep) disabled.
+                // ILIE - Idle Line Interrupt Enable
+                regs.ctrl().modify(|w| w.set_ilie(started));
+            }
         }
     }
 
@@ -1312,33 +1407,49 @@ unsafe fn handler(info: &'static Info, state: &'static BbqState) {
     // TX state machine
     //
 
-    // Handle TX data - TCIE is only enabled if we are transmitting, and we only
-    // check that the outgoing transfer is complete. In the future, we might
-    // try to do this a bit earlier if the DMA completes but we haven't yet
-    // drained the TX fifo yet.
-    let tx_did_finish = ctrl.tcie() && regs.stat().read().tc() == Tc::COMPLETE;
-    if tx_did_finish {
-        // State change, move from Transmitting -> Idle
-        unsafe {
-            state.finalize_write(info);
+    // SAFETY NOTE: The TXDMA_PRESENT bit is used to mediate whether the interrupt should
+    // act the shared TX data. This is used by functions like `teardown` to disable interrupt
+    // access to shared data when tearing down.
+    let tx_state = state.state.load(Ordering::Acquire);
+    let tx_present = (tx_state & STATE_TXDMA_PRESENT) != 0;
+    if tx_present {
+        // Handle TX data - TCIE is only enabled if we are transmitting, and we only
+        // check that the outgoing transfer is complete. In the future, we might
+        // try to do this a bit earlier if the DMA completes but we haven't yet
+        // drained the TX fifo yet.
+        let txie_set = ctrl.tcie();
+        let tc_complete = regs.stat().read().tc() == Tc::COMPLETE;
+        let txgr_present = (tx_state & STATE_TXGR_ACTIVE) != 0;
+
+        let tx_did_finish = txie_set && tc_complete && txgr_present;
+        if tx_did_finish {
+            // State change, move from Transmitting -> Idle
+            //
+            // SAFETY: The driver has been initialized, we've checked TXDMA_PRESENT is set,
+            // we've checked TXGR_ACTIVE is set, we are in ISR context.
+            unsafe {
+                state.finalize_write(info);
+            }
         }
-    }
 
-    // If we are now idle, attempt to "reload" the transfer and begin transmitting again.
-    // Only do this if TXDMA is present.
-    let tx_idle =
-        (state.state.load(Ordering::Acquire) & (STATE_TXGR_ACTIVE | STATE_TXDMA_PRESENT)) == STATE_TXDMA_PRESENT;
-    if tx_idle {
-        // Either Idle -> Transmitting or Idle -> Idle
-        unsafe {
-            let started = state.start_write_transfer(info);
-            // Enable tcie if we started a transfer, otherwise (keep) disabled.
-            // TCIE - Transfer Complete Interrupt Enable
-            regs.ctrl().modify(|w| w.set_tcie(started));
+        // If we are now idle, attempt to "reload" the transfer and begin transmitting again.
+        // Only do this if TXDMA is present.
+        let tx_idle = (state.state.load(Ordering::Acquire) & STATE_TXGR_ACTIVE) == 0;
+        if tx_idle {
+            // Either Idle -> Transmitting or Idle -> Idle
+            //
+            // SAFETY: The driver has been initialized, we've checked TXDMA_PRESENT is set,
+            // we've checked TXGR_ACTIVE is NOT set, we are in ISR context.
+            unsafe {
+                let started = state.start_write_transfer(info);
+                // Enable tcie if we started a transfer, otherwise (keep) disabled.
+                // TCIE - Transfer Complete Interrupt Enable
+                regs.ctrl().modify(|w| w.set_tcie(started));
 
-            // Did we go from "transmitting" to "idle" in this ISR? If so, wake any "flush" waiters.
-            if tx_did_finish && !started {
-                state.tx_flushed.wake();
+                // Did we go from "transmitting" to "idle" in this ISR? If so, wake any "flush" waiters.
+                if tx_did_finish && !started {
+                    state.tx_flushed.wake();
+                }
             }
         }
     }
@@ -1349,6 +1460,9 @@ impl<T: BbqInstance> Handler<T::Interrupt> for BbqInterruptHandler<T> {
         T::PERF_INT_INCR();
         let info = T::info();
         let state = T::bbq_state();
+
+        // SAFETY: Interrupts are only enabled when state is valid, we are calling the handler
+        // from ISR context.
         unsafe {
             handler(info, state);
         }
