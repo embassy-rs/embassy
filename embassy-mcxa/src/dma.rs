@@ -1,4 +1,4 @@
-//! DMA driver for MCXA276.
+//! DMA driver.
 //!
 //! This module provides a typed channel abstraction over the EDMA_0_TCD0 array
 //! and helpers for configuring the channel MUX. The driver supports
@@ -91,10 +91,6 @@ pub(crate) fn init() {
     }
 }
 
-// ============================================================================
-// Phase 1: Foundation Types (Embassy-aligned)
-// ============================================================================
-
 /// DMA transfer direction.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -177,9 +173,7 @@ impl WordSize {
     }
 }
 
-/// Trait for types that can be transferred via DMA.
-///
-/// This provides compile-time type safety for DMA transfers.
+/// Trait for word-sizes that are supported.
 pub trait Word: Copy + 'static {
     /// The word size for this type.
     fn size() -> WordSize;
@@ -204,8 +198,6 @@ impl Word for u32 {
 }
 
 /// DMA transfer options.
-///
-/// This struct configures various aspects of a DMA transfer.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
@@ -390,7 +382,7 @@ mod sealed {
 #[allow(private_bounds)]
 pub trait Channel: sealed::SealedChannel + PeripheralType + Into<AnyChannel> + 'static {}
 
-/// Type-erased DMA channel.
+/// Type-erased DMA channel peripheral.
 ///
 /// This allows storing DMA channels in a uniform way regardless of their
 /// concrete type, useful for async transfer futures and runtime channel selection.
@@ -1373,7 +1365,7 @@ impl<'a> Transfer<'a> {
         }
 
         // Ensure all DMA writes are visible
-        fence(Ordering::SeqCst);
+        fence(Ordering::Release);
 
         // Don't run drop (which would abort)
         core::mem::forget(self);
@@ -1595,15 +1587,10 @@ impl<'a> Future for Transfer<'a> {
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let state = &STATES[self.channel.index()];
-
-        // Register waker first
         state.waker.register(cx.waker());
-
-        let done = self.channel.is_done();
-
-        if done {
+        if self.channel.is_done() {
             // Ensure all DMA writes are visible before returning
-            fence(Ordering::SeqCst);
+            fence(Ordering::Acquire);
 
             let es = self.channel.tcd().ch_es().read();
             if es.err() {
@@ -1632,13 +1619,9 @@ impl<'a> Drop for Transfer<'a> {
             }
         }
 
-        fence(Ordering::SeqCst);
+        fence(Ordering::Release);
     }
 }
-
-// ============================================================================
-// Ring Buffer for Circular DMA
-// ============================================================================
 
 /// A ring buffer for continuous DMA reception.
 ///
@@ -1864,7 +1847,7 @@ impl<'channel, 'buf, W: Word> RingBuffer<'channel, 'buf, W> {
         t.ch_int().write(|w| w.set_int(true));
         t.ch_csr().modify(|w| w.set_done(true));
 
-        fence(Ordering::SeqCst);
+        fence(Ordering::Release);
 
         available
     }
@@ -1926,10 +1909,6 @@ impl<'a> DmaChannel<'a> {
         Ok(unsafe { RingBuffer::new(self.reborrow(), buf) })
     }
 }
-
-// ============================================================================
-// Scatter-Gather Builder
-// ============================================================================
 
 /// Maximum number of TCDs in a scatter-gather chain.
 pub(crate) const MAX_SCATTER_GATHER_TCDS: usize = 16;
@@ -2122,10 +2101,6 @@ pub struct ScatterGatherResult {
     pub error: Option<Error>,
 }
 
-// ============================================================================
-// Interrupt Handler
-// ============================================================================
-
 /// Interrupt handler helper.
 ///
 /// Call this from your interrupt handler to clear the interrupt flag and wake the waker.
@@ -2165,10 +2140,6 @@ unsafe fn on_interrupt(ch_index: usize) {
         waker(ch_index).wake();
     }
 }
-
-// ============================================================================
-// Type-level Interrupt Handlers
-// ============================================================================
 
 /// Macro to generate DMA channel interrupt handlers.
 macro_rules! impl_dma_interrupt_handler {
