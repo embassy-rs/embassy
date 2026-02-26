@@ -216,7 +216,8 @@ pub struct TransferOptions {
     pub complete_transfer_interrupt: bool,
 }
 
-pub(crate) mod transfer_opts {
+/// Typical variants of [TransferOptions] to be used as shorthands.
+pub mod transfer_opts {
     use super::TransferOptions;
 
     /// Short-hand to specify that no options should be configured.
@@ -240,15 +241,6 @@ pub(crate) mod transfer_opts {
                 half_transfer_interrupt: false,
                 complete_transfer_interrupt: true,
             }
-        }
-    }
-}
-
-impl Default for TransferOptions {
-    fn default() -> Self {
-        Self {
-            half_transfer_interrupt: false,
-            complete_transfer_interrupt: true,
         }
     }
 }
@@ -472,6 +464,10 @@ struct DmaTransferParameters<W> {
     src_incr: bool,
     /// Whether the destination pointer should be incremented.
     dst_incr: bool,
+    /// Perform circular DMA.
+    ///
+    /// After each loop, will reset the current pointer to the starting addresses, both for src and dest.
+    circular: bool,
     /// Public facing transfer options that might be relevant.
     options: TransferOptions,
 }
@@ -672,9 +668,6 @@ impl DmaChannel<'_> {
 
         Self::clear_tcd(&t);
 
-        // Memory barrier after TCD reset
-        cortex_m::asm::dsb();
-
         // Note: Priority is managed by round-robin arbitration (set in init())
         // Per-channel priority can be configured via ch_pri() if needed
 
@@ -711,6 +704,16 @@ impl DmaChannel<'_> {
         // Write BITER first, then CITER (CITER must match BITER at start)
         Self::set_major_loop_ct_elinkno(&t, 1);
 
+        if params.circular {
+            let byte_diff = -(byte_count as i32); // Decrement the address pointers (if incrementing & not fixed).
+            let byte_diff_reg = byte_diff as u32; // Cast as u32 so that it can be stored in the register.
+
+            t.tcd_slast_sda()
+                .write(|w| w.set_slast_sda(params.src_incr.then_some(byte_diff_reg).unwrap_or(0)));
+            t.tcd_dlast_sga()
+                .write(|w| w.set_dlast_sga(params.dst_incr.then_some(byte_diff_reg).unwrap_or(0)));
+        }
+
         // Memory & compiler barrier before setting START
         fence(Ordering::Release);
 
@@ -719,13 +722,18 @@ impl DmaChannel<'_> {
         t.tcd_csr().write(|w| {
             w.set_intmajor(params.options.complete_transfer_interrupt);
             w.set_inthalf(params.options.half_transfer_interrupt);
-            w.set_dreq(Dreq::ERQ_FIELD_CLEAR); // Auto-disable request after major loop
             w.set_start(Start::CHANNEL_STARTED); // Start the channel
             w.set_esg(Esg::NORMAL_FORMAT);
             w.set_majorelink(false);
             w.set_eeop(false);
             w.set_esda(false);
             w.set_bwc(Bwc::NO_STALL);
+
+            w.set_dreq(if params.circular {
+                Dreq::CHANNEL_NOT_AFFECTED // Don't clear ERQ on complete (circular)
+            } else {
+                Dreq::ERQ_FIELD_CLEAR // Auto-disable request after major loop
+            });
         });
 
         Ok(())
@@ -768,6 +776,7 @@ impl DmaChannel<'_> {
                 count: src.len(),
                 src_incr: true,
                 dst_incr: true,
+                circular: false,
                 options,
             })?
         };
@@ -819,6 +828,7 @@ impl DmaChannel<'_> {
                 count: dst.len(),
                 src_incr: false,
                 dst_incr: true,
+                circular: false,
                 options,
             })?
         };
@@ -917,6 +927,7 @@ impl DmaChannel<'_> {
                 count,
                 src_incr: false,
                 dst_incr: false,
+                circular: false,
                 options,
             })
         }
@@ -973,6 +984,7 @@ impl DmaChannel<'_> {
                 count: buf.len(),
                 src_incr: true,
                 dst_incr: false,
+                circular: false,
                 options,
             })
         }
@@ -1017,6 +1029,7 @@ impl DmaChannel<'_> {
                 count: buf.len(),
                 src_incr: false,
                 dst_incr: true,
+                circular: false,
                 options,
             })
         }
@@ -1887,69 +1900,30 @@ impl<'a> DmaChannel<'a> {
         &mut self,
         peri_addr: *const W,
         buf: &'buf mut [W],
-    ) -> RingBuffer<'_, 'buf, W> {
-        unsafe {
-            assert!(!buf.is_empty());
-            assert!(buf.len() <= 0x7fff);
-            // For circular mode, buffer size should ideally be power of 2
-            // but we don't enforce it
-
-            let size = W::size();
-            let byte_size = size.bytes();
-
-            let t = self.tcd();
-
-            // Reset channel state
-            Self::reset_channel_state(&t);
-
-            // Source: peripheral register, fixed
-            Self::set_source_ptr(&t, peri_addr);
-            Self::set_source_fixed(&t);
-
-            // Destination: memory buffer, incrementing
-            Self::set_dest_ptr(&t, buf.as_mut_ptr());
-            Self::set_dest_increment(&t, size);
-
-            // Transfer attributes
-            Self::set_even_transfer_size(&t, size);
-
-            // Minor loop: transfer one word per request
-            Self::set_minor_loop_ct_no_offsets(&t, byte_size as u32);
-
-            // Major loop count = buffer size
-            let count = buf.len() as u16;
-            Self::set_major_loop_ct_elinkno(&t, count);
-
-            // After major loop: reset destination to buffer start (circular)
-            let buf_bytes = (buf.len() * byte_size) as i32;
-            t.tcd_slast_sda().write(|w| w.set_slast_sda(0)); // Source doesn't change
-            t.tcd_dlast_sga().write(|w| w.set_dlast_sga((-buf_bytes) as u32));
-
-            // Control/status: enable both half and complete interrupts, NO DREQ (continuous)
-            t.tcd_csr().write(|w| {
-                w.set_intmajor(true);
-                w.set_inthalf(true);
-                w.set_dreq(Dreq::CHANNEL_NOT_AFFECTED); // Don't clear ERQ on complete (circular)
-                w.set_esg(Esg::NORMAL_FORMAT);
-                w.set_majorelink(false);
-                w.set_eeop(false);
-                w.set_esda(false);
-                w.set_bwc(Bwc::NO_STALL);
-            });
-
-            cortex_m::asm::dsb();
-
-            // Enable the channel request
-            t.ch_csr().modify(|w| {
-                w.set_erq(true);
-                w.set_earq(true);
-            });
-
-            // Enable NVIC interrupt for this channel so async wakeups work
-            self.enable_interrupt();
-
-            RingBuffer::new(self.reborrow(), buf)
+    ) -> Result<RingBuffer<'_, 'buf, W>, InvalidParameters> {
+        if buf.is_empty() || buf.len() > DMA_MAX_TRANSFER_SIZE {
+            return Err(InvalidParameters);
         }
+
+        unsafe {
+            self.setup_typical(DmaTransferParameters {
+                count: buf.len(),
+                src_ptr: peri_addr,
+                dst_ptr: buf.as_mut_ptr(),
+                src_incr: false,
+                dst_incr: true,
+                circular: true,
+                options: TransferOptions {
+                    half_transfer_interrupt: true,
+                    complete_transfer_interrupt: true,
+                },
+            })?
+        };
+
+        // Enable NVIC interrupt for this channel so async wakeups work
+        self.enable_interrupt();
+
+        Ok(unsafe { RingBuffer::new(self.reborrow(), buf) })
     }
 }
 

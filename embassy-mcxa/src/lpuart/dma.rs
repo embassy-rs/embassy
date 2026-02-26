@@ -4,7 +4,7 @@ use embassy_hal_internal::Peri;
 
 use super::*;
 use crate::dma::transfer_opts::EnableComplete;
-use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, DmaRequest, RingBuffer};
+use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, DmaRequest, InvalidParameters, RingBuffer};
 use crate::gpio::AnyPin;
 use crate::pac::lpuart::vals::{Tc, Tdre};
 
@@ -341,10 +341,13 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
         Ok(())
     }
 
-    pub fn into_ring_dma_rx<'buf: 'a>(&mut self, buf: &'buf mut [u8]) -> RingBufferedLpuartRx<'_, 'buf> {
-        let ring = self.setup_ring_buffer(buf);
+    pub fn into_ring_dma_rx<'buf: 'a>(
+        &mut self,
+        buf: &'buf mut [u8],
+    ) -> Result<RingBufferedLpuartRx<'_, 'buf>, InvalidParameters> {
+        let ring = self.setup_ring_buffer(buf)?;
         unsafe { ring.enable_dma_request() };
-        RingBufferedLpuartRx { ring }
+        Ok(RingBufferedLpuartRx { ring })
     }
 
     /// Set up a ring buffer for continuous DMA reception.
@@ -379,7 +382,10 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
     /// let mut buf = [0u8; 16];
     /// let n = ring_buf.read(&mut buf).await.unwrap();
     /// ```
-    fn setup_ring_buffer<'buf: 'a>(&mut self, buf: &'buf mut [u8]) -> RingBuffer<'_, 'buf, u8> {
+    fn setup_ring_buffer<'buf: 'a>(
+        &mut self,
+        buf: &'buf mut [u8],
+    ) -> Result<RingBuffer<'_, 'buf, u8>, InvalidParameters> {
         // Get the peripheral data register address
         let peri_addr = self.info.regs().data().as_ptr() as *const u8;
 
