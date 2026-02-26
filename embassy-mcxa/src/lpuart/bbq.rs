@@ -252,9 +252,9 @@ impl BbqParts {
             rx_buffer,
             rx_dma_ch: rx_dma_ch.into(),
             rx_pin: rx_pin.into(),
-            tx_dma_req: T::TxDmaRequest::REQUEST_NUMBER,
+            tx_dma_req: T::TX_DMA_REQUEST.number(),
             tx_mux: Tx::MUX,
-            rx_dma_req: T::RxDmaRequest::REQUEST_NUMBER,
+            rx_dma_req: T::RX_DMA_REQUEST.number(),
             rx_mux: Rx::MUX,
             info: T::info(),
             state: T::bbq_state(),
@@ -282,7 +282,7 @@ impl BbqHalfParts {
             mux: P::MUX,
             info: T::info(),
             state: T::bbq_state(),
-            dma_req: T::TxDmaRequest::REQUEST_NUMBER,
+            dma_req: T::TX_DMA_REQUEST.number(),
             vtable: BbqVtable::for_lpuart::<T>(),
             which: WhichHalf::Tx,
         }
@@ -302,7 +302,7 @@ impl BbqHalfParts {
             mux: P::MUX,
             info: T::info(),
             state: T::bbq_state(),
-            dma_req: T::RxDmaRequest::REQUEST_NUMBER,
+            dma_req: T::RX_DMA_REQUEST.number(),
             vtable: BbqVtable::for_lpuart::<T>(),
             which: WhichHalf::Rx,
         }
@@ -1112,10 +1112,11 @@ impl BbqState {
             //
             // TODO: Most of this setup is redundant/repeated, we could save some effort
             // since most DMA transfer parameters are the same.
+            let source = DmaRequest::from_number_unchecked(self.txdma_num.load(Ordering::Relaxed));
             txdma.disable_request();
             txdma.clear_done();
             txdma.clear_interrupt();
-            txdma.set_request_source(self.txdma_num.load(Ordering::Relaxed));
+            txdma.set_request_source(source);
 
             let peri_addr = info.regs().data().as_ptr().cast::<u8>();
 
@@ -1186,10 +1187,11 @@ impl BbqState {
             // TODO: Most of this setup is redundant/repeated, we could save some effort
             // since most DMA transfer parameters are the same.
             let rxdma = &mut *self.rxdma.get();
+            let source = DmaRequest::from_number_unchecked(self.rxdma_num.load(Ordering::Relaxed));
             rxdma.disable_request();
             rxdma.clear_done();
             rxdma.clear_interrupt();
-            rxdma.set_request_source(self.rxdma_num.load(Ordering::Relaxed));
+            rxdma.set_request_source(source);
 
             let peri_addr = info.regs().data().as_ptr().cast::<u8>();
             rxdma.setup_read_from_peripheral(peri_addr, &mut wgr, EnableInterrupt::Yes);

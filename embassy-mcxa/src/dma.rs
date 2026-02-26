@@ -371,8 +371,19 @@ pub(crate) enum DmaRequest {
 }
 
 impl DmaRequest {
-    pub fn number(self) -> u8 {
+    /// Convert enumerated value into a raw integer
+    pub const fn number(self) -> u8 {
         self as u8
+    }
+
+    /// Convert a raw integer into an enumerated value
+    ///
+    /// ## SAFETY
+    ///
+    /// The given number MUST be one of the defined variant, e.g. a number
+    /// derived from [`Self::number()`], otherwise it is immediate undefined behavior.
+    pub unsafe fn from_number_unchecked(num: u8) -> Self {
+        unsafe { core::mem::transmute(num) }
     }
 }
 
