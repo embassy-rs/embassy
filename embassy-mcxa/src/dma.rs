@@ -64,7 +64,7 @@ use crate::clocks::Gate;
 use crate::dma::sealed::SealedChannel;
 use crate::pac::dma::vals::Halt;
 use crate::pac::edma_0_tcd::regs::{TcdAttr, TcdBiterElinkno, TcdCiterElinkno, TcdCsr};
-use crate::pac::edma_0_tcd::vals::{Bwc, Dreq, Esg, Size, Start};
+use crate::pac::edma_0_tcd::vals::{Bwc, Dpa, Dreq, Ecp, Esg, Size, Start};
 use crate::pac::{self, Interrupt};
 use crate::peripherals::DMA0;
 
@@ -91,42 +91,26 @@ pub(crate) fn init() {
     }
 }
 
-/// DMA transfer direction.
+/// DMA transfer priority.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Direction {
-    /// Transfer from memory to memory.
-    MemoryToMemory,
-    /// Transfer from memory to a peripheral register.
-    MemoryToPeripheral,
-    /// Transfer from a peripheral register to memory.
-    PeripheralToMemory,
-}
-
-/// DMA transfer priority.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
 pub enum Priority {
-    /// Low priority (channel priority 7).
-    Low,
-    /// Medium priority (channel priority 4).
-    Medium,
-    /// High priority (channel priority 1).
-    #[default]
-    High,
-    /// Highest priority (channel priority 0).
-    Highest,
+    /// Highest priority.
+    P0 = 0,
+    P1 = 1,
+    P2 = 2,
+    P3 = 3,
+    P4 = 4,
+    P5 = 5,
+    P6 = 6,
+    /// Lowest priority.
+    P7 = 7,
 }
 
-impl Priority {
-    /// Convert to hardware priority value (0 = highest, 7 = lowest).
-    pub fn to_hw_priority(self) -> u8 {
-        match self {
-            Priority::Low => 7,
-            Priority::Medium => 4,
-            Priority::High => 1,
-            Priority::Highest => 0,
-        }
+impl Default for Priority {
+    fn default() -> Self {
+        Priority::P7
     }
 }
 
@@ -206,11 +190,13 @@ pub struct TransferOptions {
     pub half_transfer_interrupt: bool,
     /// Enable interrupt on transfer complete.
     pub complete_transfer_interrupt: bool,
+    /// Transfer priority
+    pub priority: Priority,
 }
 
 /// Typical variants of [TransferOptions] to be used as shorthands.
 pub mod transfer_opts {
-    use super::TransferOptions;
+    use crate::dma::{Priority, TransferOptions};
 
     /// Short-hand to specify that no options should be configured.
     pub struct NoInterrupt;
@@ -223,6 +209,7 @@ pub mod transfer_opts {
             TransferOptions {
                 half_transfer_interrupt: false,
                 complete_transfer_interrupt: false,
+                priority: Priority::default(),
             }
         }
     }
@@ -232,6 +219,7 @@ pub mod transfer_opts {
             TransferOptions {
                 half_transfer_interrupt: false,
                 complete_transfer_interrupt: true,
+                priority: Priority::default(),
             }
         }
     }
@@ -595,6 +583,15 @@ impl DmaChannel<'_> {
     }
 
     #[inline]
+    fn set_fixed_priority(t: &pac::edma_0_tcd::Tcd, p: Priority) {
+        t.ch_pri().write(|w| {
+            w.set_dpa(Dpa::SUSPEND);
+            w.set_ecp(Ecp::SUSPEND);
+            w.set_apl(p as u8);
+        });
+    }
+
+    #[inline]
     fn set_even_transfer_size(t: &pac::edma_0_tcd::Tcd, sz: WordSize) {
         let hw_size = sz.to_hw_size();
         t.tcd_attr().write(|w| {
@@ -695,6 +692,9 @@ impl DmaChannel<'_> {
         // Major loop count = 1 (single major loop)
         // Write BITER first, then CITER (CITER must match BITER at start)
         Self::set_major_loop_ct_elinkno(&t, 1);
+
+        // Configure channel to be interruptable, to interrupt, with a set priority.
+        Self::set_fixed_priority(&t, params.options.priority);
 
         if params.circular {
             let byte_diff = -(byte_count as i32); // Decrement the address pointers (if incrementing & not fixed).
@@ -1899,6 +1899,7 @@ impl<'a> DmaChannel<'a> {
                 options: TransferOptions {
                     half_transfer_interrupt: true,
                     complete_transfer_interrupt: true,
+                    priority: Priority::default(),
                 },
             })?
         };
