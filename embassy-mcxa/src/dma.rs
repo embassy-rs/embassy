@@ -520,7 +520,6 @@ impl DmaChannel<'_> {
         t.tcd_soff().write(|w| w.set_soff(0));
         t.tcd_attr().write(|w| *w = TcdAttr(0));
         t.tcd_nbytes_mloffno().write(|w| w.set_nbytes(0));
-        t.tcd_slast_sda().write(|w| w.set_slast_sda(0));
         t.tcd_daddr().write(|w| w.set_daddr(0));
         t.tcd_doff().write(|w| w.set_doff(0));
         t.tcd_citer_elinkno().write(|w| *w = TcdCiterElinkno(0));
@@ -681,9 +680,6 @@ impl DmaChannel<'_> {
         // Minor loop: transfer one word per loop (thus arbritration can occur after every word)
         Self::set_minor_loop_ct_no_offsets(&t, size.bytes() as u32);
 
-        // No source/dest adjustment after major loop
-        Self::set_no_final_adjustments(&t);
-
         // Major loop: one iteration is a minor loop, so iterate over all words
         // Note(cast to u16): max transfer size is 0x7FFF, so even for wordsize=u8, this would work out.
         Self::set_major_loop_ct_elinkno(&t, params.count as u16);
@@ -699,6 +695,8 @@ impl DmaChannel<'_> {
                 .write(|w| w.set_slast_sda(params.src_incr.then_some(byte_diff_reg).unwrap_or(0)));
             t.tcd_dlast_sga()
                 .write(|w| w.set_dlast_sga(params.dst_incr.then_some(byte_diff_reg).unwrap_or(0)));
+        } else {
+            Self::set_no_final_adjustments(&t);
         }
 
         // Memory & compiler barrier before setting START
