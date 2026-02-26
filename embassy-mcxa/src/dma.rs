@@ -92,7 +92,7 @@ pub(crate) fn init() {
 }
 
 /// DMA transfer priority.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
 pub enum Priority {
@@ -105,13 +105,8 @@ pub enum Priority {
     P5 = 5,
     P6 = 6,
     /// Lowest priority.
+    #[default]
     P7 = 7,
-}
-
-impl Default for Priority {
-    fn default() -> Self {
-        Priority::P7
-    }
 }
 
 /// DMA transfer data width.
