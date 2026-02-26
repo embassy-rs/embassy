@@ -1,11 +1,14 @@
-//! LPUART DMA example for MCXA276.
+//! LPUART BBQueue example for MCXA276.
 //!
-//! This example demonstrates using DMA for UART TX and RX operations.
-//! It sends a message using DMA, then waits for 16 characters to be received
-//! via DMA and echoes them back.
+//! This scenario is meant to be coupled with another device receiving using the
+//! `lpuart_bbq_rx` example. In this scenario:
 //!
-//! The DMA request sources are automatically derived from the LPUART instance type.
-//! DMA clock/reset/init is handled automatically by the HAL.
+//! * We send a short 16-byte "knock" packet
+//! * We wait 1ms for the other device to wake up
+//! * We send a larger 768-byte "data" packet
+//!
+//! See `lpuart_bbq_rx` for more information. This half is not sleepy, it just sends
+//! regularly without concern for power consumption.
 
 #![no_std]
 #![no_main]
@@ -37,14 +40,6 @@ static TX_BUF: ConstStaticCell<[u8; SIZE]> = ConstStaticCell::new([0u8; SIZE]);
 )]
 #[cfg_attr(not(feature = "custom-executor"), embassy_executor::main)]
 async fn main(_spawner: Spawner) {
-    // Do a short delay in order to allow for us to attach the debugger/start
-    // a flash in case some setting below is wrong, and the CPU gets stuck
-    // in deep sleep with debugging disabled.
-    defmt::info!("Pre-power delay!");
-    // Experimentally: about 5-6s or so.
-    cortex_m::asm::delay(45_000_000);
-    defmt::info!("Pre-power delay complete!");
-
     let mut cfg = hal::config::Config::default();
 
     // Enable 180MHz clock source

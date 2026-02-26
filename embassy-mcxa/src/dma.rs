@@ -1404,9 +1404,8 @@ impl DmaChannel<'_> {
             w.set_dreq(Dreq::ERQ_FIELD_CLEAR);
             w.set_esg(Esg::NORMAL_FORMAT);
             w.set_majorelink(false);
-            // TODO(AJM): Determine if these are necessary or if I can revert this change
-            w.set_eeop(true);
-            w.set_esda(true);
+            w.set_eeop(false);
+            w.set_esda(false);
             w.set_bwc(Bwc::NO_STALL);
         });
 

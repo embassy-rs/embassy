@@ -349,7 +349,7 @@ impl LpuartBbq {
                     return Err(BbqError::MaxFrameTooLarge);
                 }
                 let size = (size as u32) << 16;
-                size | STATE_RXDMA_MAXFRAME
+                size | STATE_RXDMA_MODE_MAXFRAME
             }
         };
         let new_state = STATE_INITED | STATE_TXDMA_PRESENT | STATE_RXDMA_PRESENT | rx_mode_bits;
@@ -753,7 +753,7 @@ impl LpuartBbqRx {
                     return Err(BbqError::MaxFrameTooLarge);
                 }
                 let size = (size as u32) << 16;
-                size | STATE_RXDMA_MAXFRAME
+                size | STATE_RXDMA_MODE_MAXFRAME
             }
         };
         let new_state = STATE_INITED | STATE_RXDMA_PRESENT | rx_mode_bits;
@@ -818,7 +818,7 @@ impl LpuartBbqRx {
     pub fn teardown(self) -> BbqHalfParts {
         // First, mark the RXDMA as not present to halt the ISR from processing the state
         // machine
-        let rx_state_bits = STATE_RXDMA_PRESENT | STATE_RXGR_ACTIVE | STATE_RXDMA_COMPLETE;
+        let rx_state_bits = STATE_RXDMA_PRESENT | STATE_RXGR_ACTIVE | STATE_RXDMA_COMPLETE | STATE_RXDMA_MODE_MAXFRAME | STATE_RXGR_LEN_MASK;
         let state = self.state.state.fetch_and(!rx_state_bits, Ordering::AcqRel);
 
         // Then, disable receive-relevant interrupts
@@ -929,7 +929,8 @@ const STATE_TXGR_ACTIVE: u32 = 0b0000_0000_0000_0000_0000_0000_0000_1000;
 const STATE_RXDMA_PRESENT: u32 = 0b0000_0000_0000_0000_0000_0000_0001_0000;
 const STATE_TXDMA_PRESENT: u32 = 0b0000_0000_0000_0000_0000_0000_0010_0000;
 const STATE_RXDMA_COMPLETE: u32 = 0b0000_0000_0000_0000_0000_0000_0100_0000;
-const STATE_RXDMA_MAXFRAME: u32 = 0b0000_0000_0000_0000_0000_0000_1000_0000;
+const STATE_RXDMA_MODE_MAXFRAME: u32 = 0b0000_0000_0000_0000_0000_0000_1000_0000;
+const STATE_RXGR_LEN_MASK: u32 = 0b1111_1111_1111_1111_0000_0000_0000_0000;
 
 struct BbqState {
     /// 0bGGGG_GGGG_GGGG_GGGG_xxxx_xxxx_MDTR_PCAI
@@ -1165,7 +1166,7 @@ impl BbqState {
         // Determine the size and kind of grant to request
         let state = self.state.load(Ordering::Relaxed);
         let len = (state >> 16) as usize;
-        let is_max_frame = (state & STATE_RXDMA_MAXFRAME) != 0;
+        let is_max_frame = (state & STATE_RXDMA_MODE_MAXFRAME) != 0;
         let prod = rx_queue.stream_producer();
 
         let grant_res = if is_max_frame {
