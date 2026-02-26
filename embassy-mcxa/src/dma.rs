@@ -638,7 +638,7 @@ impl DmaChannel<'_> {
     ///
     /// Requires that the source/destination buffers remain valid for the duration
     /// of the transfer.
-    unsafe fn setup_typical<W: Word>(&self, params: DmaTransferParameters<W>) -> Result<(), InvalidParameters> {
+    unsafe fn setup_typical<W: Word>(&self, params: DmaTransferParameters<W>) {
         let size = W::size();
         let byte_count = (params.count * size.bytes()) as u32;
 
@@ -722,8 +722,6 @@ impl DmaChannel<'_> {
                 Dreq::ERQ_FIELD_CLEAR // Auto-disable request after major loop
             });
         });
-
-        Ok(())
     }
 
     // ========================================================================
@@ -765,7 +763,7 @@ impl DmaChannel<'_> {
                 dst_incr: true,
                 circular: false,
                 options,
-            })?
+            })
         };
 
         Ok(Transfer::new(self.reborrow()))
@@ -817,7 +815,7 @@ impl DmaChannel<'_> {
                 dst_incr: true,
                 circular: false,
                 options,
-            })?
+            })
         };
 
         Ok(Transfer::new(self.reborrow()))
@@ -916,8 +914,10 @@ impl DmaChannel<'_> {
                 dst_incr: false,
                 circular: false,
                 options,
-            })
+            });
         }
+
+        Ok(())
     }
 
     /// Produce the number of bytes transferred at the time of calling
@@ -973,8 +973,10 @@ impl DmaChannel<'_> {
                 dst_incr: false,
                 circular: false,
                 options,
-            })
+            });
         }
+
+        Ok(())
     }
 
     /// Configure a peripheral-to-memory DMA transfer without starting it.
@@ -1018,8 +1020,10 @@ impl DmaChannel<'_> {
                 dst_incr: true,
                 circular: false,
                 options,
-            })
+            });
         }
+
+        Ok(())
     }
 
     /// Configure the integrated channel MUX to use the given typed
@@ -1896,8 +1900,8 @@ impl<'a> DmaChannel<'a> {
                     complete_transfer_interrupt: true,
                     priority: Priority::default(),
                 },
-            })?
-        };
+            });
+        }
 
         // Enable NVIC interrupt for this channel so async wakeups work
         self.enable_interrupt();
