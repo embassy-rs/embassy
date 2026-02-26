@@ -1,14 +1,16 @@
 // Hash functionality using SGI hardware
-use crate::sgi::{
-    SGIError, Sgi, SGI_HASH_OUTPUT_SIZE, SGI_SHA2_CTRL_AUTO_INIT, SGI_SHA2_CTRL_MODE_AUTO, SGI_SHA2_CTRL_MODE_NORMAL,
-    SGI_SHA2_CTRL_NO_AUTO_INIT, SGI_SHA2_CTRL_NO_HASH_RELOAD, SGI_SHA2_CTRL_SIZE_SHA384, SGI_SHA2_CTRL_SIZE_SHA512,
-};
-use embassy_mcxa::dma::DmaChannel;
-use embassy_time::{with_timeout, Duration, Instant, Timer};
-use log::{error, info};
-
 use core::future::poll_fn;
 use core::task::Poll;
+
+use embassy_mcxa::dma::DmaChannel;
+use embassy_time::{Duration, Instant, Timer, with_timeout};
+use log::{error, info};
+
+use crate::sgi::{
+    SGI_HASH_OUTPUT_SIZE, SGI_SHA2_CTRL_AUTO_INIT, SGI_SHA2_CTRL_MODE_AUTO, SGI_SHA2_CTRL_MODE_NORMAL,
+    SGI_SHA2_CTRL_NO_AUTO_INIT, SGI_SHA2_CTRL_NO_HASH_RELOAD, SGI_SHA2_CTRL_SIZE_SHA384, SGI_SHA2_CTRL_SIZE_SHA512,
+    SGIError, Sgi,
+};
 
 const MAX_BLOCK_SIZE: usize = 128;
 const SHA384_DIGEST_LEN: usize = 48;
@@ -521,10 +523,7 @@ impl SGIHasher {
         }
         info!(
             "Final block length (including padding): {}, remaining data length: {}, ctx.total_len: {}, ctx.processed_len: {}",
-            final_block_len,
-            remaining_data_len,
-            self.ctx.total_len,
-            self.ctx.processed_len
+            final_block_len, remaining_data_len, self.ctx.total_len, self.ctx.processed_len
         );
         if final_block_len > MAX_FINAL_BUFFER_SIZE {
             return Err(SGIError::InvalidSize); // Final block cannot be larger than 144 bytes, any less fits in a block and any more would exceed the max padding size for a final block.
@@ -547,11 +546,7 @@ impl SGIHasher {
             final_block_len
         }; // In NORMAL mode we can only process 128 bytes at a time, in AUTO mode we can process the entire final block at once, even if it's larger than 128 bytes.
         let passes = if self.ctx.options.op_mode == SGI_SHA2_CTRL_MODE_NORMAL {
-            if final_block_len > MAX_BLOCK_SIZE {
-                2
-            } else {
-                1
-            }
+            if final_block_len > MAX_BLOCK_SIZE { 2 } else { 1 }
         } else {
             1
         };

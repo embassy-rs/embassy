@@ -1,12 +1,13 @@
 // SGI (Secure Generic Interface) driver for MCXA
 
-use crate::hash::HashOptions;
 use core::sync::atomic::{AtomicBool, Ordering};
-use embassy_time::Instant;
-use log::{error, info};
 
 use embassy_mcxa::dma::DmaChannel;
+use embassy_time::Instant;
+use log::{error, info};
 use nxp_pac::edma_0_tcd::vals::{Bwc, Dreq, Esg, Size, Start};
+
+use crate::hash::HashOptions;
 
 // ============================================================================
 // SGI0 (Secure Generic Interface) constants and bitfields
@@ -568,10 +569,7 @@ impl Sgi {
         self.read_dataout_block(output, idx)?;
 
         for i in 0..max_sha2_dataout_pass {
-            self.write_reg(
-                SGI_CTRL_OFFSET,
-                SGI_CTRL_DATOUT_RES_TRIGGER_UP | SGI_CTRL_START,
-            );
+            self.write_reg(SGI_CTRL_OFFSET, SGI_CTRL_DATOUT_RES_TRIGGER_UP | SGI_CTRL_START);
             self.wait_until_sha2_not_busy()?;
             self.read_dataout_block(output, idx + (16 * (i + 1)))?; // Each block is 16 bytes
         }
@@ -612,10 +610,7 @@ impl Sgi {
         self.read_dataout_block(output, idx)?;
 
         for i in 0..max_sha2_dataout_pass {
-            self.write_reg(
-                SGI_CTRL_OFFSET,
-                SGI_CTRL_DATOUT_RES_TRIGGER_UP | SGI_CTRL_START,
-            );
+            self.write_reg(SGI_CTRL_OFFSET, SGI_CTRL_DATOUT_RES_TRIGGER_UP | SGI_CTRL_START);
             self.wait_until_sha2_not_busy()?;
             self.read_dataout_block(output, idx + (16 * (i + 1)))?; // Each block is 16 bytes
         }
