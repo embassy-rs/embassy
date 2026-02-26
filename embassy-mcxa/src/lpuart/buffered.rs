@@ -577,12 +577,10 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for Buffere
                 // tx fifo size is 2^param.txfifo, we want to pop enough to fill
                 // the fifo, minus whatever is in there now.
                 (1 << param.txfifo()) - regs.water().read().txcount()
+            } else if regs.stat().read().tdre() != Tdre::TXDATA {
+                1
             } else {
-                if regs.stat().read().tdre() != Tdre::TXDATA {
-                    1
-                } else {
-                    0
-                }
+                0
             };
 
             // Send data while TX buffer is ready and we have data

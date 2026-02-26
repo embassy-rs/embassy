@@ -117,9 +117,7 @@ impl OsTimer {
 
         let gray_timestamp = dec_to_gray(timestamp);
 
-        OSTIMER0
-            .match_l()
-            .write(|w| w.set_match_value(gray_timestamp as u32 & 0xffff_ffff));
+        OSTIMER0.match_l().write(|w| w.set_match_value(gray_timestamp as u32));
         OSTIMER0
             .match_h()
             .write(|w| w.set_match_value((gray_timestamp >> 32) as u16));

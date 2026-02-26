@@ -408,7 +408,7 @@ impl<'d, M: Mode> I2c<'d, M> {
         match event {
             Event::SmbusAlert => Ok(Request::SmbusAlert),
             Event::GeneralCall => Ok(Request::GeneralCall),
-            Event::Stop(addr) => return Ok(Request::Stop(addr >> 1)),
+            Event::Stop(addr) => Ok(Request::Stop(addr >> 1)),
             Event::RepeatedStart(addr) | Event::AddressValid(addr) => {
                 if addr & 1 != 0 {
                     Ok(Request::Read(addr >> 1))
@@ -746,7 +746,7 @@ where
         match event {
             Event::SmbusAlert => Ok(Request::SmbusAlert),
             Event::GeneralCall => Ok(Request::GeneralCall),
-            Event::Stop(addr) => return Ok(Request::Stop(addr >> 1)),
+            Event::Stop(addr) => Ok(Request::Stop(addr >> 1)),
             Event::RepeatedStart(addr) | Event::AddressValid(addr) => {
                 if addr & 1 != 0 {
                     Ok(Request::Read(addr >> 1))
