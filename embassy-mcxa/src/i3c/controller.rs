@@ -1086,17 +1086,15 @@ where
     }
 
     /// Write to address from bytes and then read from address into buffer asynchronously.
-    pub fn async_write_read<'a>(
+    pub async fn async_write_read<'a>(
         &'a mut self,
         address: u8,
         write: &'a [u8],
         read: &'a mut [u8],
         bus_type: BusType,
-    ) -> impl Future<Output = Result<(), IOError>> + 'a {
-        async move {
-            <Self as AsyncEngine>::async_write_internal(self, address, write, bus_type, SendStop::No).await?;
-            <Self as AsyncEngine>::async_read_internal(self, address, read, bus_type, SendStop::Yes).await
-        }
+    ) -> Result<(), IOError> {
+        <Self as AsyncEngine>::async_write_internal(self, address, write, bus_type, SendStop::No).await?;
+        <Self as AsyncEngine>::async_read_internal(self, address, read, bus_type, SendStop::Yes).await
     }
 }
 

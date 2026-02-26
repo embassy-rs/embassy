@@ -559,7 +559,6 @@ where
     // Public API: Async
 
     /// Read from address into buffer asynchronously.
-
     pub fn async_read<'a>(
         &'a mut self,
         address: u8,
@@ -568,6 +567,7 @@ where
         <Self as AsyncEngine>::async_read_internal(self, address, read, SendStop::Yes)
     }
 
+    /// Write to address from
     pub fn async_write<'a>(
         &'a mut self,
         address: u8,
@@ -577,17 +577,14 @@ where
     }
 
     /// Write to address from bytes and read from address into buffer asynchronously.
-
-    pub fn async_write_read<'a>(
+    pub async fn async_write_read<'a>(
         &'a mut self,
         address: u8,
         write: &'a [u8],
         read: &'a mut [u8],
-    ) -> impl Future<Output = Result<(), IOError>> + 'a {
-        async move {
-            <Self as AsyncEngine>::async_write_internal(self, address, write, SendStop::No).await?;
-            <Self as AsyncEngine>::async_read_internal(self, address, read, SendStop::Yes).await
-        }
+    ) -> Result<(), IOError> {
+        <Self as AsyncEngine>::async_write_internal(self, address, write, SendStop::No).await?;
+        <Self as AsyncEngine>::async_read_internal(self, address, read, SendStop::Yes).await
     }
 }
 
@@ -628,119 +625,105 @@ impl<'d> I2c<'d, Async> {
 }
 
 impl<'d> AsyncEngine for I2c<'d, Async> {
-    fn async_read_internal<'a>(
-        &'a mut self,
-        address: u8,
-        read: &'a mut [u8],
-        send_stop: SendStop,
-    ) -> impl Future<Output = Result<(), IOError>> + 'a {
-        async move {
-            if read.is_empty() {
-                return Err(IOError::InvalidReadBufferLength);
-            }
+    async fn async_read_internal(&mut self, address: u8, read: &mut [u8], send_stop: SendStop) -> Result<(), IOError> {
+        if read.is_empty() {
+            return Err(IOError::InvalidReadBufferLength);
+        }
 
-            // perform corrective action if the future is dropped
-            let on_drop = OnDrop::new(|| self.remediation());
+        // perform corrective action if the future is dropped
+        let on_drop = OnDrop::new(|| self.remediation());
 
-            for chunk in read.chunks_mut(256) {
-                self.async_start(address, true).await?;
+        for chunk in read.chunks_mut(256) {
+            self.async_start(address, true).await?;
 
-                // send receive command
-                self.send_cmd(Cmd::RECEIVE, (chunk.len() - 1) as u8);
+            // send receive command
+            self.send_cmd(Cmd::RECEIVE, (chunk.len() - 1) as u8);
 
+            self.info
+                .wait_cell()
+                .wait_for(|| {
+                    // enable interrupts
+                    self.enable_tx_ints();
+                    // if the command FIFO is empty, we're done sending start
+                    self.is_tx_fifo_empty()
+                })
+                .await
+                .map_err(|_| IOError::Other)?;
+
+            for byte in chunk.iter_mut() {
                 self.info
                     .wait_cell()
                     .wait_for(|| {
                         // enable interrupts
-                        self.enable_tx_ints();
-                        // if the command FIFO is empty, we're done sending start
-                        self.is_tx_fifo_empty()
+                        self.enable_rx_ints();
+                        // if the rx FIFO is not empty, we need to read a byte
+                        !self.is_rx_fifo_empty()
                     })
                     .await
-                    .map_err(|_| IOError::Other)?;
+                    .map_err(|_| IOError::ReadFail)?;
 
-                for byte in chunk.iter_mut() {
-                    self.info
-                        .wait_cell()
-                        .wait_for(|| {
-                            // enable interrupts
-                            self.enable_rx_ints();
-                            // if the rx FIFO is not empty, we need to read a byte
-                            !self.is_rx_fifo_empty()
-                        })
-                        .await
-                        .map_err(|_| IOError::ReadFail)?;
-
-                    *byte = self.info.regs().mrdr().read().data();
-                }
+                *byte = self.info.regs().mrdr().read().data();
             }
-
-            if send_stop == SendStop::Yes {
-                self.async_stop().await?;
-            }
-
-            // defuse it if the future is not dropped
-            on_drop.defuse();
-
-            Ok(())
         }
+
+        if send_stop == SendStop::Yes {
+            self.async_stop().await?;
+        }
+
+        // defuse it if the future is not dropped
+        on_drop.defuse();
+
+        Ok(())
     }
 
-    fn async_write_internal<'a>(
-        &'a mut self,
-        address: u8,
-        write: &'a [u8],
-        send_stop: SendStop,
-    ) -> impl Future<Output = Result<(), IOError>> + 'a {
-        async move {
-            self.async_start(address, false).await?;
+    async fn async_write_internal(&mut self, address: u8, write: &[u8], send_stop: SendStop) -> Result<(), IOError> {
+        self.async_start(address, false).await?;
 
-            // perform corrective action if the future is dropped
-            let on_drop = OnDrop::new(|| self.remediation());
+        // perform corrective action if the future is dropped
+        let on_drop = OnDrop::new(|| self.remediation());
 
-            // Usually, embassy HALs error out with an empty write,
-            // however empty writes are useful for writing I2C scanning
-            // logic through write probing. That is, we send a start with
-            // R/w bit cleared, but instead of writing any data, just send
-            // the stop onto the bus. This has the effect of checking if
-            // the resulting address got an ACK but causing no
-            // side-effects to the device on the other end.
-            //
-            // Because of this, we are not going to error out in case of
-            // empty writes.
-            if write.is_empty() {
-                #[cfg(feature = "defmt")]
-                defmt::trace!("Empty write, write probing?");
-                if send_stop == SendStop::Yes {
-                    self.async_stop().await?;
-                }
-                return Ok(());
-            }
-
-            for byte in write {
-                self.info
-                    .wait_cell()
-                    .wait_for(|| {
-                        // enable interrupts
-                        self.enable_tx_ints();
-                        // initiate transmit
-                        self.send_cmd(Cmd::TRANSMIT, *byte);
-                        // if the tx FIFO is empty, we're done transmiting
-                        self.is_tx_fifo_empty()
-                    })
-                    .await
-                    .map_err(|_| IOError::WriteFail)?;
-            }
-
+        // Usually, embassy HALs error out with an empty write,
+        // however empty writes are useful for writing I2C scanning
+        // logic through write probing. That is, we send a start with
+        // R/w bit cleared, but instead of writing any data, just send
+        // the stop onto the bus. This has the effect of checking if
+        // the resulting address got an ACK but causing no
+        // side-effects to the device on the other end.
+        //
+        // Because of this, we are not going to error out in case of
+        // empty writes.
+        if write.is_empty() {
+            #[cfg(feature = "defmt")]
+            defmt::trace!("Empty write, write probing?");
             if send_stop == SendStop::Yes {
                 self.async_stop().await?;
             }
-
-            // defuse it if the future is not dropped
-            on_drop.defuse();
-
-            Ok(())
+            return Ok(());
         }
+
+        for byte in write {
+            self.info
+                .wait_cell()
+                .wait_for(|| {
+                    // enable interrupts
+                    self.enable_tx_ints();
+                    // initiate transmit
+                    self.send_cmd(Cmd::TRANSMIT, *byte);
+                    // if the tx FIFO is empty, we're done transmiting
+                    self.is_tx_fifo_empty()
+                })
+                .await
+                .map_err(|_| IOError::WriteFail)?;
+        }
+
+        if send_stop == SendStop::Yes {
+            self.async_stop().await?;
+        }
+
+        // defuse it if the future is not dropped
+        on_drop.defuse();
+
+        Ok(())
     }
 }
 
@@ -786,173 +769,159 @@ impl<'d> I2c<'d, Dma<'d>> {
 }
 
 impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
-    fn async_read_internal<'a>(
-        &'a mut self,
-        address: u8,
-        read: &'a mut [u8],
-        send_stop: SendStop,
-    ) -> impl Future<Output = Result<(), IOError>> + 'a {
-        async move {
-            if read.is_empty() {
-                return Err(IOError::InvalidReadBufferLength);
-            }
-
-            // perform corrective action if the future is dropped
-            let on_drop = OnDrop::new(|| {
-                self.remediation();
-                self.info.regs().mder().modify(|w| w.set_rdde(false));
-            });
-
-            for chunk in read.chunks_mut(256) {
-                self.async_start(address, true).await?;
-
-                // send receive command
-                self.send_cmd(Cmd::RECEIVE, (chunk.len() - 1) as u8);
-
-                let peri_addr = self.info.regs().mrdr().as_ptr() as *const u8;
-
-                // _rx_dma is guaranteed to be Some
-                unsafe {
-                    // Clean up channel state
-                    self.mode.rx_dma.disable_request();
-                    self.mode.rx_dma.clear_done();
-                    self.mode.rx_dma.clear_interrupt();
-
-                    // Set DMA request source from instance type (type-safe)
-                    self.mode.rx_dma.set_request_source(self.mode.rx_request);
-
-                    // Configure TCD for peripheral-to-memory transfer
-                    self.mode
-                        .rx_dma
-                        .setup_read_from_peripheral(peri_addr, chunk, EnableInterrupt::Yes);
-
-                    // Enable I2C RX DMA request
-                    self.info.regs().mder().modify(|w| w.set_rdde(true));
-
-                    // Enable DMA channel request
-                    self.mode.rx_dma.enable_request();
-                }
-
-                // Wait for completion asynchronously
-                core::future::poll_fn(|cx| {
-                    self.mode.rx_dma.waker().register(cx.waker());
-                    if self.mode.rx_dma.is_done() {
-                        core::task::Poll::Ready(())
-                    } else {
-                        core::task::Poll::Pending
-                    }
-                })
-                .await;
-
-                // Ensure DMA writes are visible to CPU
-                cortex_m::asm::dsb();
-                // Cleanup
-                self.info.regs().mder().modify(|w| w.set_rdde(false));
-                unsafe {
-                    self.mode.rx_dma.disable_request();
-                    self.mode.rx_dma.clear_done();
-                }
-            }
-
-            if send_stop == SendStop::Yes {
-                self.async_stop().await?;
-            }
-
-            // defuse it if the future is not dropped
-            on_drop.defuse();
-
-            Ok(())
+    async fn async_read_internal(&mut self, address: u8, read: &mut [u8], send_stop: SendStop) -> Result<(), IOError> {
+        if read.is_empty() {
+            return Err(IOError::InvalidReadBufferLength);
         }
+
+        // perform corrective action if the future is dropped
+        let on_drop = OnDrop::new(|| {
+            self.remediation();
+            self.info.regs().mder().modify(|w| w.set_rdde(false));
+        });
+
+        for chunk in read.chunks_mut(256) {
+            self.async_start(address, true).await?;
+
+            // send receive command
+            self.send_cmd(Cmd::RECEIVE, (chunk.len() - 1) as u8);
+
+            let peri_addr = self.info.regs().mrdr().as_ptr() as *const u8;
+
+            // _rx_dma is guaranteed to be Some
+            unsafe {
+                // Clean up channel state
+                self.mode.rx_dma.disable_request();
+                self.mode.rx_dma.clear_done();
+                self.mode.rx_dma.clear_interrupt();
+
+                // Set DMA request source from instance type (type-safe)
+                self.mode.rx_dma.set_request_source(self.mode.rx_request);
+
+                // Configure TCD for peripheral-to-memory transfer
+                self.mode
+                    .rx_dma
+                    .setup_read_from_peripheral(peri_addr, chunk, EnableInterrupt::Yes);
+
+                // Enable I2C RX DMA request
+                self.info.regs().mder().modify(|w| w.set_rdde(true));
+
+                // Enable DMA channel request
+                self.mode.rx_dma.enable_request();
+            }
+
+            // Wait for completion asynchronously
+            core::future::poll_fn(|cx| {
+                self.mode.rx_dma.waker().register(cx.waker());
+                if self.mode.rx_dma.is_done() {
+                    core::task::Poll::Ready(())
+                } else {
+                    core::task::Poll::Pending
+                }
+            })
+            .await;
+
+            // Ensure DMA writes are visible to CPU
+            cortex_m::asm::dsb();
+            // Cleanup
+            self.info.regs().mder().modify(|w| w.set_rdde(false));
+            unsafe {
+                self.mode.rx_dma.disable_request();
+                self.mode.rx_dma.clear_done();
+            }
+        }
+
+        if send_stop == SendStop::Yes {
+            self.async_stop().await?;
+        }
+
+        // defuse it if the future is not dropped
+        on_drop.defuse();
+
+        Ok(())
     }
 
-    fn async_write_internal<'a>(
-        &'a mut self,
-        address: u8,
-        write: &'a [u8],
-        send_stop: SendStop,
-    ) -> impl Future<Output = Result<(), IOError>> + 'a {
-        async move {
-            self.async_start(address, false).await?;
+    async fn async_write_internal(&mut self, address: u8, write: &[u8], send_stop: SendStop) -> Result<(), IOError> {
+        self.async_start(address, false).await?;
 
-            // Usually, embassy HALs error out with an empty write,
-            // however empty writes are useful for writing I2C scanning
-            // logic through write probing. That is, we send a start with
-            // R/w bit cleared, but instead of writing any data, just send
-            // the stop onto the bus. This has the effect of checking if
-            // the resulting address got an ACK but causing no
-            // side-effects to the device on the other end.
-            //
-            // Because of this, we are not going to error out in case of
-            // empty writes.
-            if write.is_empty() {
-                #[cfg(feature = "defmt")]
-                defmt::trace!("Empty write, write probing?");
-                if send_stop == SendStop::Yes {
-                    self.async_stop().await?;
-                }
-                return Ok(());
-            }
-
-            // perform corrective action if the future is dropped
-            let on_drop = OnDrop::new(|| {
-                self.remediation();
-                self.info.regs().mder().modify(|w| w.set_tdde(false));
-            });
-
-            for chunk in write.chunks(DMA_MAX_TRANSFER_SIZE) {
-                let peri_addr = self.info.regs().mtdr().as_ptr() as *mut u8;
-
-                unsafe {
-                    // Clean up channel state
-                    self.mode.tx_dma.disable_request();
-                    self.mode.tx_dma.clear_done();
-                    self.mode.tx_dma.clear_interrupt();
-
-                    // Set DMA request source from instance type (type-safe)
-                    self.mode.tx_dma.set_request_source(self.mode.tx_request);
-
-                    // Configure TCD for memory-to-peripheral transfer
-                    self.mode
-                        .tx_dma
-                        .setup_write_to_peripheral(chunk, peri_addr, EnableInterrupt::Yes);
-
-                    // Enable I2C TX DMA request
-                    self.info.regs().mder().modify(|w| w.set_tdde(true));
-
-                    // Enable DMA channel request
-                    self.mode.tx_dma.enable_request();
-                }
-
-                // Wait for completion asynchronously
-                core::future::poll_fn(|cx| {
-                    self.mode.tx_dma.waker().register(cx.waker());
-                    if self.mode.tx_dma.is_done() {
-                        core::task::Poll::Ready(())
-                    } else {
-                        core::task::Poll::Pending
-                    }
-                })
-                .await;
-
-                // Ensure DMA writes are visible to CPU
-                cortex_m::asm::dsb();
-                // Cleanup
-                self.info.regs().mder().modify(|w| w.set_tdde(false));
-                unsafe {
-                    self.mode.tx_dma.disable_request();
-                    self.mode.tx_dma.clear_done();
-                }
-            }
-
+        // Usually, embassy HALs error out with an empty write,
+        // however empty writes are useful for writing I2C scanning
+        // logic through write probing. That is, we send a start with
+        // R/w bit cleared, but instead of writing any data, just send
+        // the stop onto the bus. This has the effect of checking if
+        // the resulting address got an ACK but causing no
+        // side-effects to the device on the other end.
+        //
+        // Because of this, we are not going to error out in case of
+        // empty writes.
+        if write.is_empty() {
+            #[cfg(feature = "defmt")]
+            defmt::trace!("Empty write, write probing?");
             if send_stop == SendStop::Yes {
                 self.async_stop().await?;
             }
-
-            // defuse it if the future is not dropped
-            on_drop.defuse();
-
-            Ok(())
+            return Ok(());
         }
+
+        // perform corrective action if the future is dropped
+        let on_drop = OnDrop::new(|| {
+            self.remediation();
+            self.info.regs().mder().modify(|w| w.set_tdde(false));
+        });
+
+        for chunk in write.chunks(DMA_MAX_TRANSFER_SIZE) {
+            let peri_addr = self.info.regs().mtdr().as_ptr() as *mut u8;
+
+            unsafe {
+                // Clean up channel state
+                self.mode.tx_dma.disable_request();
+                self.mode.tx_dma.clear_done();
+                self.mode.tx_dma.clear_interrupt();
+
+                // Set DMA request source from instance type (type-safe)
+                self.mode.tx_dma.set_request_source(self.mode.tx_request);
+
+                // Configure TCD for memory-to-peripheral transfer
+                self.mode
+                    .tx_dma
+                    .setup_write_to_peripheral(chunk, peri_addr, EnableInterrupt::Yes);
+
+                // Enable I2C TX DMA request
+                self.info.regs().mder().modify(|w| w.set_tdde(true));
+
+                // Enable DMA channel request
+                self.mode.tx_dma.enable_request();
+            }
+
+            // Wait for completion asynchronously
+            core::future::poll_fn(|cx| {
+                self.mode.tx_dma.waker().register(cx.waker());
+                if self.mode.tx_dma.is_done() {
+                    core::task::Poll::Ready(())
+                } else {
+                    core::task::Poll::Pending
+                }
+            })
+            .await;
+
+            // Ensure DMA writes are visible to CPU
+            cortex_m::asm::dsb();
+            // Cleanup
+            self.info.regs().mder().modify(|w| w.set_tdde(false));
+            unsafe {
+                self.mode.tx_dma.disable_request();
+                self.mode.tx_dma.clear_done();
+            }
+        }
+
+        if send_stop == SendStop::Yes {
+            self.async_stop().await?;
+        }
+
+        // defuse it if the future is not dropped
+        on_drop.defuse();
+
+        Ok(())
     }
 }
 

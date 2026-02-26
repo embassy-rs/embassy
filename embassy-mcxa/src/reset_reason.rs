@@ -45,6 +45,17 @@ pub struct ResetReasonRaw(u32);
 #[derive(Copy, Clone, Debug)]
 pub struct ResetReasonRawIter(u32);
 
+impl IntoIterator for ResetReasonRaw {
+    type Item = ResetReason;
+
+    type IntoIter = ResetReasonRawIter;
+
+    /// Convert to an iterator of contained reset reasons
+    fn into_iter(self) -> Self::IntoIter {
+        ResetReasonRawIter(self.0)
+    }
+}
+
 impl ResetReasonRaw {
     const MAP: &[(u32, ResetReason)] = &[
         (1 << 0, ResetReason::WakeUp),
@@ -64,11 +75,6 @@ impl ResetReasonRaw {
         (1 << 27, ResetReason::Cdog1),
         (1 << 28, ResetReason::Jtag),
     ];
-
-    /// Convert to an iterator of contained reset reasons
-    pub fn into_iter(self) -> ResetReasonRawIter {
-        ResetReasonRawIter(self.0)
-    }
 
     /// Wake up
     #[inline]

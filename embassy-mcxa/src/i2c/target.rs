@@ -408,7 +408,7 @@ impl<'d, M: Mode> I2c<'d, M> {
         match event {
             Event::SmbusAlert => Ok(Request::SmbusAlert),
             Event::GeneralCall => Ok(Request::GeneralCall),
-            Event::Stop(addr) => return Ok(Request::Stop(addr >> 1)),
+            Event::Stop(addr) => Ok(Request::Stop(addr >> 1)),
             Event::RepeatedStart(addr) | Event::AddressValid(addr) => {
                 if addr & 1 != 0 {
                     Ok(Request::Read(addr >> 1))
@@ -746,7 +746,7 @@ where
         match event {
             Event::SmbusAlert => Ok(Request::SmbusAlert),
             Event::GeneralCall => Ok(Request::GeneralCall),
-            Event::Stop(addr) => return Ok(Request::Stop(addr >> 1)),
+            Event::Stop(addr) => Ok(Request::Stop(addr >> 1)),
             Event::RepeatedStart(addr) | Event::AddressValid(addr) => {
                 if addr & 1 != 0 {
                     Ok(Request::Read(addr >> 1))
@@ -794,49 +794,46 @@ trait AsyncEngine {
 }
 
 impl<'d> AsyncEngine for I2c<'d, Async> {
-    fn async_respond_to_read_internal<'a>(
-        &'a mut self,
-        buf: &'a [u8],
-    ) -> impl Future<Output = Result<usize, IOError>> + 'a {
-        async move {
-            let mut count = 0;
+    async fn async_respond_to_read_internal(
+        &mut self,
+        buf: &[u8],
+    ) -> Result<usize, IOError> {
+        let mut count = 0;
 
-            self.clear_status();
+        self.clear_status();
 
-            for byte in buf.iter() {
-                // Wait until we can send data
-                self.info
-                    .wait_cell()
-                    .wait_for(|| {
-                        self.enable_ints();
-                        let ssr = self.info.regs().ssr().read();
-                        ssr.tdf() || ssr.sdf() || ssr.rsf()
-                    })
-                    .await
-                    .map_err(|_| IOError::Other)?;
+        for byte in buf.iter() {
+            // Wait until we can send data
+            self.info
+                .wait_cell()
+                .wait_for(|| {
+                    self.enable_ints();
+                    let ssr = self.info.regs().ssr().read();
+                    ssr.tdf() || ssr.sdf() || ssr.rsf()
+                })
+                .await
+                .map_err(|_| IOError::Other)?;
 
-                // If we see a STOP or REPEATED START, break out
-                let ssr = self.info.regs().ssr().read();
-                if ssr.sdf() || ssr.rsf() {
-                    #[cfg(feature = "defmt")]
-                    defmt::trace!("Early stop of Target Send routine. STOP or Repeated-start received");
-                    self.reset_fifos();
-                    break;
-                } else {
-                    self.info.regs().stdr().write(|w| w.set_data(*byte));
-                    count += 1;
-                }
+            // If we see a STOP or REPEATED START, break out
+            let ssr = self.info.regs().ssr().read();
+            if ssr.sdf() || ssr.rsf() {
+                #[cfg(feature = "defmt")]
+                defmt::trace!("Early stop of Target Send routine. STOP or Repeated-start received");
+                self.reset_fifos();
+                break;
+            } else {
+                self.info.regs().stdr().write(|w| w.set_data(*byte));
+                count += 1;
             }
-
-            Ok(count)
         }
+
+        Ok(count)
     }
 
-    fn async_respond_to_write_internal<'a>(
-        &'a mut self,
-        buf: &'a mut [u8],
-    ) -> impl Future<Output = Result<usize, IOError>> + 'a {
-        async move {
+    async fn async_respond_to_write_internal(
+        &mut self,
+        buf: &mut [u8],
+    ) -> Result<usize, IOError> {
             let mut count = 0;
 
             self.clear_status();
@@ -866,59 +863,54 @@ impl<'d> AsyncEngine for I2c<'d, Async> {
             }
 
             Ok(count)
-        }
     }
 }
 
 impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
-    fn async_respond_to_read_internal<'a>(
-        &'a mut self,
-        buf: &'a [u8],
-    ) -> impl Future<Output = Result<usize, IOError>> + 'a {
-        async move {
-            let mut count = 0;
+    async fn async_respond_to_read_internal(
+        &mut self,
+        buf: &[u8],
+    ) -> Result<usize, IOError> {
+        let mut count = 0;
 
-            self.clear_status();
+        self.clear_status();
 
-            // perform corrective action if the future is dropped
-            let on_drop = OnDrop::new(|| {
-                self.info.regs().sder().modify(|w| w.set_tdde(false));
-            });
+        // perform corrective action if the future is dropped
+        let on_drop = OnDrop::new(|| {
+            self.info.regs().sder().modify(|w| w.set_tdde(false));
+        });
 
-            for chunk in buf.chunks(DMA_MAX_TRANSFER_SIZE) {
-                count += self.write_dma_chunk(chunk).await?;
-            }
-
-            // defuse it if the future is not dropped
-            on_drop.defuse();
-
-            Ok(count)
+        for chunk in buf.chunks(DMA_MAX_TRANSFER_SIZE) {
+            count += self.write_dma_chunk(chunk).await?;
         }
+
+        // defuse it if the future is not dropped
+        on_drop.defuse();
+
+        Ok(count)
     }
 
-    fn async_respond_to_write_internal<'a>(
+    async fn async_respond_to_write_internal<'a>(
         &'a mut self,
         buf: &'a mut [u8],
-    ) -> impl Future<Output = Result<usize, IOError>> + 'a {
-        async move {
-            let mut count = 0;
+    ) -> Result<usize, IOError> {
+        let mut count = 0;
 
-            self.clear_status();
+        self.clear_status();
 
-            // perform corrective action if the future is dropped
-            let on_drop = OnDrop::new(|| {
-                self.info.regs().sder().modify(|w| w.set_rdde(false));
-            });
+        // perform corrective action if the future is dropped
+        let on_drop = OnDrop::new(|| {
+            self.info.regs().sder().modify(|w| w.set_rdde(false));
+        });
 
-            for chunk in buf.chunks_mut(DMA_MAX_TRANSFER_SIZE) {
-                count += self.read_dma_chunk(chunk).await?;
-            }
-
-            // defuse it if the future is not dropped
-            on_drop.defuse();
-
-            Ok(count)
+        for chunk in buf.chunks_mut(DMA_MAX_TRANSFER_SIZE) {
+            count += self.read_dma_chunk(chunk).await?;
         }
+
+        // defuse it if the future is not dropped
+        on_drop.defuse();
+
+        Ok(count)
     }
 }
 

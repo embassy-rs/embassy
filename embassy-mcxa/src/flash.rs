@@ -428,7 +428,7 @@ impl NorFlash for Flash {
         if to < from || to as usize > FLASH_SIZE {
             return Err(Error::OutOfBounds);
         }
-        if from as usize % Self::ERASE_SIZE != 0 || to as usize % Self::ERASE_SIZE != 0 {
+        if !(from as usize).is_multiple_of(Self::ERASE_SIZE) || !(to as usize).is_multiple_of(Self::ERASE_SIZE) {
             return Err(Error::Unaligned);
         }
 
@@ -443,7 +443,7 @@ impl NorFlash for Flash {
         if offset as usize + bytes.len() > FLASH_SIZE {
             return Err(Error::OutOfBounds);
         }
-        if offset as usize % Self::WRITE_SIZE != 0 || bytes.len() % Self::WRITE_SIZE != 0 {
+        if !(offset as usize).is_multiple_of(Self::WRITE_SIZE) || !bytes.len().is_multiple_of(Self::WRITE_SIZE) {
             return Err(Error::Unaligned);
         }
 

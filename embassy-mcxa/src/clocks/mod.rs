@@ -185,7 +185,7 @@ pub fn active_wake_guards(_cs: &CriticalSection) -> bool {
 /// have been called and returned successfully, with a `CoreSleep` configuration
 /// set to DeepSleep (or lower).
 pub unsafe fn deep_sleep_if_possible(cs: &CriticalSection) -> bool {
-    let inhibit = crate::clocks::active_wake_guards(&cs);
+    let inhibit = crate::clocks::active_wake_guards(cs);
     if inhibit {
         return false;
     }
@@ -201,7 +201,7 @@ pub unsafe fn deep_sleep_if_possible(cs: &CriticalSection) -> bool {
         cortex_m::asm::wfe();
 
         // Wakey wakey, eggs and bakey
-        recover_deep_sleep(&cs);
+        recover_deep_sleep(cs);
     }
 
     true
@@ -284,32 +284,32 @@ unsafe fn restart_active_only_clocks(_cs: &CriticalSection) {
     // or reset any status bits?
 
     // Ensure FRO12M is up and running
-    if let Some(fro12m) = clocks.fro_12m_root.as_ref() {
-        if !matches!(fro12m.power, PoweredClock::AlwaysEnabled) {
-            while scg.sirccsr().read().sircvld() != Sircvld::ENABLED_AND_VALID {}
-        }
+    if let Some(fro12m) = clocks.fro_12m_root.as_ref()
+        && !matches!(fro12m.power, PoweredClock::AlwaysEnabled)
+    {
+        while scg.sirccsr().read().sircvld() != Sircvld::ENABLED_AND_VALID {}
     }
 
     // Ensure FRO45M is up and running
-    if let Some(frohf) = clocks.fro_hf_root.as_ref() {
-        if !matches!(frohf.power, PoweredClock::AlwaysEnabled) {
-            while scg.firccsr().read().fircvld() != Fircvld::ENABLED_AND_VALID {}
-        }
+    if let Some(frohf) = clocks.fro_hf_root.as_ref()
+        && !matches!(frohf.power, PoweredClock::AlwaysEnabled)
+    {
+        while scg.firccsr().read().fircvld() != Fircvld::ENABLED_AND_VALID {}
     }
 
     // Ensure SOSC is up and running
     #[cfg(not(feature = "sosc-as-gpio"))]
-    if let Some(clk_in) = clocks.clk_in.as_ref() {
-        if !matches!(clk_in.power, PoweredClock::AlwaysEnabled) {
-            while !scg.sosccsr().read().soscvld() {}
-        }
+    if let Some(clk_in) = clocks.clk_in.as_ref()
+        && !matches!(clk_in.power, PoweredClock::AlwaysEnabled)
+    {
+        while !scg.sosccsr().read().soscvld() {}
     }
 
     // Ensure SPLL is up and running
-    if let Some(spll) = clocks.pll1_clk.as_ref() {
-        if !matches!(spll.power, PoweredClock::AlwaysEnabled) {
-            while scg.spllcsr().read().spll_lock() != SpllLock::ENABLED_AND_VALID {}
-        }
+    if let Some(spll) = clocks.pll1_clk.as_ref()
+        && !matches!(spll.power, PoweredClock::AlwaysEnabled)
+    {
+        while scg.spllcsr().read().spll_lock() != SpllLock::ENABLED_AND_VALID {}
     }
 }
 
