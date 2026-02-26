@@ -557,6 +557,11 @@ impl DmaChannel<'_> {
         CALLBACKS[self.index()].store(cb, Ordering::Release);
     }
 
+    /// Unset the callback, causing no method to be called after DMA completion
+    pub(crate) unsafe fn clear_callback(&mut self) {
+        CALLBACKS[self.index()].store(0, Ordering::Release);
+    }
+
     /// Access TCD DADDR field
     pub(crate) fn daddr(&self) -> u32 {
         self.tcd().tcd_daddr().read().daddr()

@@ -31,13 +31,16 @@ pub enum BbqError {
     Basic(super::Error),
     /// Could not initialize a new instance as the current instance is already in use
     Busy,
+    /// Attempted to create an Rx half with Tx parts, or a Tx half with Rx parts
     WrongParts,
+    /// Requested an [`RxMode::MaxFrame`] too large for the provided buffer
+    MaxFrameTooLarge,
 }
 
 /// RX Reception mode
 #[derive(Debug, Clone, Copy, Default)]
 #[non_exhaustive]
-pub enum RxMode {
+pub enum BbqRxMode {
     /// Default mode, attempts to utilize the ring buffer as maximally as possible.
     ///
     /// In this mode, the interrupt will use whatever space is available, up to 1/4
@@ -76,9 +79,7 @@ pub enum RxMode {
     /// receiving if enough capacity is made available).
     ///
     /// `size` must be <= (capacity / 4).
-    MaxFrame {
-        size: usize,
-    }
+    MaxFrame { size: usize },
 }
 
 /// Lpuart config
@@ -164,7 +165,6 @@ impl From<BbqConfig> for super::Config {
 pub struct LpuartBbq {
     // TODO: Don't just make these pub, we don't *really* handle dropping/recreation
     // of separate parts at the moment.
-
     /// The TX half of the LPUART
     tx: LpuartBbqTx,
     /// The RX half of the LPUART
@@ -311,10 +311,7 @@ impl BbqHalfParts {
 
 impl LpuartBbq {
     /// Create a new LpuartBbq with both transmit and receive halves
-    pub fn new(
-        parts: BbqParts,
-        config: BbqConfig,
-    ) -> Result<Self, BbqError> {
+    pub fn new(parts: BbqParts, config: BbqConfig, mode: BbqRxMode) -> Result<Self, BbqError> {
         // Get state for this instance, and try to move from the "uninit" to "initing" state
         parts.state.uninit_to_initing()?;
 
@@ -329,14 +326,10 @@ impl LpuartBbq {
         let _wg = (parts.vtable.lpuart_init)(true, true, false, false, config.into()).map_err(BbqError::Basic)?;
 
         // Setup the TX state
-        LpuartBbqTx::initialize_tx_state(
-            parts.state,
-            parts.tx_dma_ch,
-            parts.tx_buffer,
-            parts.tx_dma_req,
-        );
+        LpuartBbqTx::initialize_tx_state(parts.state, parts.tx_dma_ch, parts.tx_buffer, parts.tx_dma_req);
 
         // Setup the RX state
+        let len = parts.rx_buffer.len();
         LpuartBbqRx::initialize_rx_state(
             parts.state,
             parts.info,
@@ -348,7 +341,18 @@ impl LpuartBbq {
 
         // Update our state to "initialized", and that we have the TXDMA + RXDMA channels present
         // Okay to just store: we have exclusive access
-        let new_state = STATE_INITED | STATE_TXDMA_PRESENT | STATE_RXDMA_PRESENT;
+        let max_size = (len / 4).min(DMA_MAX_TRANSFER_SIZE);
+        let rx_mode_bits = match mode {
+            BbqRxMode::Efficiency => (max_size as u32) << 16,
+            BbqRxMode::MaxFrame { size } => {
+                if size > max_size {
+                    return Err(BbqError::MaxFrameTooLarge);
+                }
+                let size = (size as u32) << 16;
+                size | STATE_RXDMA_MAXFRAME
+            }
+        };
+        let new_state = STATE_INITED | STATE_TXDMA_PRESENT | STATE_RXDMA_PRESENT | rx_mode_bits;
         parts.state.state.store(new_state, Ordering::Release);
 
         unsafe {
@@ -368,7 +372,10 @@ impl LpuartBbq {
                 info: parts.info,
                 vtable: parts.vtable,
                 mux: parts.tx_mux,
-                _tx_pins: TxPins { tx_pin: parts.tx_pin, cts_pin: None },
+                _tx_pins: TxPins {
+                    tx_pin: parts.tx_pin,
+                    cts_pin: None,
+                },
                 _wg: _wg.clone(),
             },
             rx: LpuartBbqRx {
@@ -376,7 +383,10 @@ impl LpuartBbq {
                 info: parts.info,
                 vtable: parts.vtable,
                 mux: parts.rx_mux,
-                _rx_pins: RxPins { rx_pin: parts.rx_pin, rts_pin: None },
+                _rx_pins: RxPins {
+                    rx_pin: parts.rx_pin,
+                    rts_pin: None,
+                },
                 _wg,
             },
         })
@@ -404,6 +414,28 @@ impl LpuartBbq {
     /// See [`LpuartBbqTx::blocking_flush`] for more information
     pub fn blocking_flush(&mut self) {
         self.tx.blocking_flush();
+    }
+
+    /// Teardown the LpuartBbq, retrieving the original parts
+    pub fn teardown(self) -> BbqParts {
+        let Self { tx, rx } = self;
+        let tx_parts = tx.teardown();
+        let rx_parts = rx.teardown();
+        BbqParts {
+            tx_buffer: tx_parts.buffer,
+            tx_dma_ch: tx_parts.dma_ch,
+            tx_pin: tx_parts.pin,
+            rx_buffer: rx_parts.buffer,
+            rx_dma_ch: rx_parts.dma_ch,
+            rx_pin: rx_parts.pin,
+            tx_dma_req: tx_parts.dma_req,
+            tx_mux: tx_parts.mux,
+            rx_dma_req: rx_parts.dma_req,
+            rx_mux: rx_parts.mux,
+            info: tx_parts.info,
+            state: tx_parts.state,
+            vtable: tx_parts.vtable,
+        }
     }
 }
 
@@ -445,10 +477,7 @@ impl LpuartBbqTx {
     ///
     /// NOTE: Dropping the `LpuartBbqTx` will *permanently* leak the TX buffer, DMA channel, and tx pin.
     /// Call [LpuartBbqTx::teardown] to reclaim these resources.
-    pub fn new(
-        parts: BbqHalfParts,
-        config: BbqConfig,
-    ) -> Result<Self, BbqError> {
+    pub fn new(parts: BbqHalfParts, config: BbqConfig) -> Result<Self, BbqError> {
         // Are these the right parts?
         if parts.which != WhichHalf::Tx {
             return Err(BbqError::WrongParts);
@@ -587,7 +616,9 @@ impl LpuartBbqTx {
             // Defensive coding: purge the tx_queue just in case. This doesn't zero the
             // whole buffer, only the tracking pointers.
             core::ptr::write_bytes(self.state.tx_queue.get(), 0, 1);
-            self.state.txdma.get().read()
+            let mut dma = self.state.txdma.get().read();
+            dma.clear_callback();
+            dma
         };
 
         // Re-magic the mut slice from the storage we have now reclaimed by dropping the
@@ -684,10 +715,7 @@ impl LpuartBbqRx {
     ///
     /// NOTE: Dropping the `LpuartBbqRx` will *permanently* leak the TX buffer, DMA channel, and tx pin.
     /// Call [LpuartBbqTx::teardown] to reclaim these resources.
-    pub fn new(
-        parts: BbqHalfParts,
-        config: BbqConfig,
-    ) -> Result<Self, BbqError> {
+    pub fn new(parts: BbqHalfParts, config: BbqConfig, mode: BbqRxMode) -> Result<Self, BbqError> {
         // Are these the right parts?
         if parts.which != WhichHalf::Rx {
             return Err(BbqError::WrongParts);
@@ -705,6 +733,7 @@ impl LpuartBbqRx {
         let _wg = (parts.vtable.lpuart_init)(false, true, false, false, config.into()).map_err(BbqError::Basic)?;
 
         // Setup the RX half state
+        let len = parts.buffer.len();
         Self::initialize_rx_state(
             parts.state,
             parts.info,
@@ -716,7 +745,18 @@ impl LpuartBbqRx {
 
         // Update our state to "initialized", and that we have the RXDMA channel present
         // Okay to just store: we have exclusive access
-        let new_state = STATE_INITED | STATE_RXDMA_PRESENT;
+        let max_size = (len / 4).min(DMA_MAX_TRANSFER_SIZE);
+        let rx_mode_bits = match mode {
+            BbqRxMode::Efficiency => (max_size as u32) << 16,
+            BbqRxMode::MaxFrame { size } => {
+                if size > max_size {
+                    return Err(BbqError::MaxFrameTooLarge);
+                }
+                let size = (size as u32) << 16;
+                size | STATE_RXDMA_MAXFRAME
+            }
+        };
+        let new_state = STATE_INITED | STATE_RXDMA_PRESENT | rx_mode_bits;
         parts.state.state.store(new_state, Ordering::Release);
 
         unsafe {
@@ -735,7 +775,10 @@ impl LpuartBbqRx {
             info: parts.info,
             vtable: parts.vtable,
             mux: parts.mux,
-            _rx_pins: RxPins { rx_pin: parts.pin, rts_pin: None },
+            _rx_pins: RxPins {
+                rx_pin: parts.pin,
+                rts_pin: None,
+            },
             _wg,
         })
     }
@@ -820,7 +863,9 @@ impl LpuartBbqRx {
             // Defensive coding: purge the rx_queue just in case. This doesn't zero the
             // whole buffer, only the tracking pointers.
             core::ptr::write_bytes(self.state.rx_queue.get(), 0, 1);
-            self.state.rxdma.get().read()
+            let mut dma = self.state.rxdma.get().read();
+            dma.clear_callback();
+            dma
         };
 
         // Re-magic the mut slice from the storage we have now reclaimed by dropping the
@@ -884,7 +929,7 @@ const STATE_TXGR_ACTIVE: u32 = 0b0000_0000_0000_0000_0000_0000_0000_1000;
 const STATE_RXDMA_PRESENT: u32 = 0b0000_0000_0000_0000_0000_0000_0001_0000;
 const STATE_TXDMA_PRESENT: u32 = 0b0000_0000_0000_0000_0000_0000_0010_0000;
 const STATE_RXDMA_COMPLETE: u32 = 0b0000_0000_0000_0000_0000_0000_0100_0000;
-const STATE_RXGR_SIZE_MASK: u32 = 0b1111_1111_1111_1111_0000_0000_0000_0000;
+const STATE_RXDMA_MAXFRAME: u32 = 0b0000_0000_0000_0000_0000_0000_1000_0000;
 
 struct BbqState {
     /// 0bGGGG_GGGG_GGGG_GGGG_xxxx_xxxx_MDTR_PCAI
@@ -1116,13 +1161,19 @@ impl BbqState {
     unsafe fn start_read_transfer(&'static self, info: &'static Info) -> bool {
         let rx_queue = unsafe { &*self.rx_queue.get() };
 
-        // Limit the transfer size to 1/4 the capacity to limit max latency from
-        // receiving bytes off the wire to making them available to the user for
-        // draining, to avoid completely filling the buffer before the user has
-        // a chance to drain and make the capacity available again.
-        let max_len = (rx_queue.capacity() / 4).min(DMA_MAX_TRANSFER_SIZE);
+        // Determine the size and kind of grant to request
+        let state = self.state.load(Ordering::Relaxed);
+        let len = (state >> 16) as usize;
+        let is_max_frame = (state & STATE_RXDMA_MAXFRAME) != 0;
+        let prod = rx_queue.stream_producer();
 
-        let Ok(mut wgr) = rx_queue.stream_producer().grant_max_remaining(max_len) else {
+        let grant_res = if is_max_frame {
+            prod.grant_exact(len)
+        } else {
+            prod.grant_max_remaining(len)
+        };
+
+        let Ok(mut wgr) = grant_res else {
             // If we can't get a grant, that's a problem. Return false to note we didn't
             // start one, and hope the user frees space soon. See the `read` method for
             // how read transfers are restarted in this case.
