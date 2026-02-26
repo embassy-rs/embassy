@@ -71,7 +71,7 @@ use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
 use core::ptr::{NonNull, addr_of_mut};
-use core::sync::atomic::{AtomicUsize, Ordering, fence};
+use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering, fence};
 use core::task::{Context, Poll};
 
 use embassy_hal_internal::{Peri, PeripheralType};
@@ -561,16 +561,21 @@ impl DmaChannel<'_> {
 
     /// set a manual callback to be called AFTER the DMA interrupt is processed. Will be called in the DMA interrupt
     /// context.
+    ///
+    /// SAFETY: This must only be called on an owned DmaChannel, as there is only a single
+    /// callback slot, and calling this will invalidate any previously set callbacks.
     pub(crate) unsafe fn set_callback(&mut self, f: fn()) {
-        let cb = f as *const ();
         // See https://doc.rust-lang.org/std/primitive.fn.html#casting-to-and-from-integers
-        let cb: usize = unsafe { core::mem::transmute(cb) };
+        let cb = f as *mut ();
         CALLBACKS[self.index()].store(cb, Ordering::Release);
     }
 
-    /// Unset the callback, causing no method to be called after DMA completion
+    /// Unset the callback, causing no method to be called after DMA completion.
+    ///
+    /// SAFETY: This must only be called on an owned DmaChannel, as there is only a single
+    /// callback slot, and calling this will invalidate any previously set callbacks.
     pub(crate) unsafe fn clear_callback(&mut self) {
-        CALLBACKS[self.index()].store(0, Ordering::Release);
+        CALLBACKS[self.index()].store(core::ptr::null_mut(), Ordering::Release);
     }
 
     /// Access TCD DADDR field
@@ -2595,13 +2600,14 @@ macro_rules! impl_dma_interrupt_handler {
     ($irq:ident, $ch:expr) => {
         #[interrupt]
         fn $irq() {
+            // SAFETY: The correct $ch is called as generated, We check that
+            // the given callback is non-null before calling.
             unsafe {
                 on_interrupt($ch);
-                let cb = CALLBACKS[$ch].load(Ordering::Acquire);
-                if cb != 0 {
-                    // I'm so sorry. See https://doc.rust-lang.org/std/primitive.fn.html#casting-to-and-from-integers
-                    // for why this has to be like this.
-                    let cb: *const () = cb as *const ();
+
+                // See https://doc.rust-lang.org/std/primitive.fn.html#casting-to-and-from-integers
+                let cb: *mut () = CALLBACKS[$ch].load(Ordering::Acquire);
+                if cb != core::ptr::null_mut() {
                     let cb: fn() = core::mem::transmute(cb);
                     (cb)();
                 }
@@ -2624,4 +2630,4 @@ impl_dma_interrupt_handler!(DMA_CH7, 7);
 // TODO(AJM): This is a gross, gross hack. This implements optional callbacks
 // for DMA completion interrupts. This should go away once we switch to
 // "in-band" DMA interrupt binding with `bind_interrupts!`.
-static CALLBACKS: [AtomicUsize; 8] = [const { AtomicUsize::new(0) }; 8];
+static CALLBACKS: [AtomicPtr<()>; 8] = [const { AtomicPtr::new(core::ptr::null_mut()) }; 8];
