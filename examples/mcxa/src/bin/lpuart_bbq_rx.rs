@@ -1,11 +1,26 @@
-//! LPUART DMA example for MCXA276.
+//! LPUART BBQueue example for MCXA276.
 //!
-//! This example demonstrates using DMA for UART TX and RX operations.
-//! It sends a message using DMA, then waits for 16 characters to be received
-//! via DMA and echoes them back.
+//! This scenario is meant to be coupled with another device sending using the
+//! `lpuart_bbq_tx` example. In this scenario:
 //!
-//! The DMA request sources are automatically derived from the LPUART instance type.
-//! DMA clock/reset/init is handled automatically by the HAL.
+//! * We set the device up to have a high power FRO180M clock in active mode
+//! * We set up the device to disable that FRO180M clock in deep sleep
+//! * We use a GPIO interrupt to detect the falling edge on the UART RX line while in deep sleep
+//! * We wake up, start the lpuart from the FRO180M clock source (which keeps us from entering deep sleep)
+//! * We process any incoming data, until the line is silent for 100ms
+//! * We then repeat the processs
+//!
+//! This is meant to model a scenario where the other device is talking to us, and sends
+//! a short "dummy"/"knock" packet to wake us up, then sends a relatively large burst of data
+//! for some amount of time, before timing out.
+//!
+//! By using a GPIO interrupt and releasing the lpuart, we are able to return to deep sleep mode, at the
+//! cost of losing any data sent while we are "waking up". Experimentally, this is approximately 80us, or
+//! about 32 bytes of data at 4mbaud. In the tx half of this example, the other device waits a full millisecond
+//! between the "knock" and the "data" packets.
+//!
+//! The benefit to this approach is that the CPU uses ~18mA at "cpu working" level, ~8mA at "cpu WFE, lpuart+FRO180M active" level,
+//! And ~160uA at "waiting for GPIO interrupt" level.
 
 #![no_std]
 #![no_main]
@@ -69,13 +84,13 @@ async fn main(_spawner: Spawner) {
         ahb_clk_div: Div8::no_div(),
     };
 
-    // We don't sleep, set relatively high power
+    // Active mode: High power, Deep Sleep: Low power
     cfg.clock_cfg.vdd_power.active_mode.level = VddLevel::OverDriveMode;
     cfg.clock_cfg.vdd_power.active_mode.drive = VddDriveStrength::Normal;
     cfg.clock_cfg.vdd_power.low_power_mode.level = VddLevel::MidDriveMode;
     cfg.clock_cfg.vdd_power.low_power_mode.drive = VddDriveStrength::Low { enable_bandgap: false };
 
-    // Useful for measuring prints, but power will be higher.
+    // Set to deep sleep for measuring power. Set to WfeUngated to see defmt logs
     cfg.clock_cfg.vdd_power.core_sleep = CoreSleep::DeepSleep;
 
     // Set flash doze, allowing internal flash clocks to be gated on sleep
