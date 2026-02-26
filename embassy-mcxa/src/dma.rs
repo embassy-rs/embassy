@@ -678,15 +678,15 @@ impl DmaChannel<'_> {
         // Transfer attributes (size)
         Self::set_even_transfer_size(&t, size);
 
-        // Minor loop: transfer all bytes in one minor loop
-        Self::set_minor_loop_ct_no_offsets(&t, byte_count);
+        // Minor loop: transfer one word per loop (thus arbritration can occur after every word)
+        Self::set_minor_loop_ct_no_offsets(&t, size.bytes() as u32);
 
         // No source/dest adjustment after major loop
         Self::set_no_final_adjustments(&t);
 
-        // Major loop count = 1 (single major loop)
-        // Write BITER first, then CITER (CITER must match BITER at start)
-        Self::set_major_loop_ct_elinkno(&t, 1);
+        // Major loop: one iteration is a minor loop, so iterate over all words
+        // Note(cast to u16): max transfer size is 0x7FFF, so even for wordsize=u8, this would work out.
+        Self::set_major_loop_ct_elinkno(&t, params.count as u16);
 
         // Configure channel to be interruptable, to interrupt, with a set priority.
         Self::set_fixed_priority(&t, params.options.priority);
