@@ -82,6 +82,11 @@ impl<'a> ClockOut<'a> {
     ///
     /// Only intended for debugging low power clock gating, to ensure that clocks start/stop
     /// appropriately.
+    ///
+    /// ## SAFETY
+    ///
+    /// The caller must not rely on the clock running for correctness if the provided
+    /// clock will be gated in deep sleep mode.
     pub unsafe fn new_unchecked(
         _peri: Peri<'a, CLKOUT>,
         pin: Peri<'a, impl sealed::ClockOutPin>,
