@@ -106,7 +106,7 @@ async fn main(_spawner: Spawner) {
     let parts = BbqHalfParts::new_tx_half(p.LPUART3, Irqs, p.P4_5, tx_buf, dma_channel);
     let mut lpuart = LpuartBbqTx::new(parts, config).unwrap();
     let mut to_knock = [0u8; 16];
-    let mut to_send = [0u8; 1024];
+    let mut to_send = [0u8; 768];
     to_knock.iter_mut().for_each(|b| *b = 0xFF);
     to_send.iter_mut().enumerate().for_each(|(i, b)| *b = (i as u8) & 0x7F);
 

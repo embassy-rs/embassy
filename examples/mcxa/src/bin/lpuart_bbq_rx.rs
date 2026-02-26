@@ -10,7 +10,6 @@
 #![no_std]
 #![no_main]
 
-
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::PoweredClock;
 use embassy_mcxa::clocks::config::{
@@ -19,9 +18,9 @@ use embassy_mcxa::clocks::config::{
 use embassy_mcxa::clocks::periph_helpers::LpuartClockSel;
 use embassy_mcxa::dma::DmaChannel;
 use embassy_mcxa::gpio::{DriveStrength, Input, Level, Output, Pull, SlewRate};
-use embassy_mcxa::lpuart::{BbqConfig, BbqHalfParts, LpuartBbqRx};
+use embassy_mcxa::lpuart::{BbqConfig, BbqHalfParts, BbqRxMode, LpuartBbqRx};
 use embassy_mcxa::{bind_interrupts, lpuart};
-use embassy_time::{WithTimeout, Duration};
+use embassy_time::{Duration, WithTimeout};
 use static_cell::ConstStaticCell;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
@@ -112,7 +111,8 @@ async fn main(_spawner: Spawner) {
             input.wait_for_low().await;
         }
 
-        let mut lpuart = LpuartBbqRx::new(parts, config).unwrap();
+        let mode = BbqRxMode::MaxFrame { size: 1024 };
+        let mut lpuart = LpuartBbqRx::new(parts, config, mode).unwrap();
         red.set_low();
         debug.set_low();
         defmt::info!("got wake, listening");
@@ -146,7 +146,12 @@ async fn main(_spawner: Spawner) {
             }
         }
 
-        defmt::info!("Going to sleep, got: {=usize}, streak: {=usize}, dummies: {=usize}", got, streak, dummies);
+        defmt::info!(
+            "Going to sleep, got: {=usize}, streak: {=usize}, dummies: {=usize}",
+            got,
+            streak,
+            dummies
+        );
 
         parts = lpuart.teardown();
     }

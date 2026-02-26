@@ -12,19 +12,20 @@ use crate::clocks::{ClockError, Gate, PoweredClock, WakeGuard, enable_and_reset}
 use crate::dma::DmaRequest;
 use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt::typelevel::Interrupt;
-use crate::interrupt;
 use crate::pac::lpuart::vals::{
     Idlecfg as IdleConfig, Ilt as IdleType, M as DataBits, Msbf as MsbFirst, Pt as Parity, Rst, Rxflush,
     Sbns as StopBits, Swap, Tc, Tdre, Txctsc as TxCtsConfig, Txctssrc as TxCtsSource, Txflush,
 };
-use crate::pac;
+use crate::{interrupt, pac};
 
 mod bbq;
 mod blocking;
 mod buffered;
 mod dma;
 
-pub use bbq::{BbqInterruptHandler, LpuartBbq, LpuartBbqRx, LpuartBbqTx, BbqConfig, BbqError, BbqParts, BbqHalfParts};
+pub use bbq::{
+    BbqConfig, BbqError, BbqHalfParts, BbqInterruptHandler, BbqParts, BbqRxMode, LpuartBbq, LpuartBbqRx, LpuartBbqTx,
+};
 pub use blocking::Blocking;
 pub use buffered::{Buffered, BufferedInterruptHandler};
 pub use dma::{Dma, RingBufferedLpuartRx};
