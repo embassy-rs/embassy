@@ -818,7 +818,11 @@ impl LpuartBbqRx {
     pub fn teardown(self) -> BbqHalfParts {
         // First, mark the RXDMA as not present to halt the ISR from processing the state
         // machine
-        let rx_state_bits = STATE_RXDMA_PRESENT | STATE_RXGR_ACTIVE | STATE_RXDMA_COMPLETE | STATE_RXDMA_MODE_MAXFRAME | STATE_RXGR_LEN_MASK;
+        let rx_state_bits = STATE_RXDMA_PRESENT
+            | STATE_RXGR_ACTIVE
+            | STATE_RXDMA_COMPLETE
+            | STATE_RXDMA_MODE_MAXFRAME
+            | STATE_RXGR_LEN_MASK;
         let state = self.state.state.fetch_and(!rx_state_bits, Ordering::AcqRel);
 
         // Then, disable receive-relevant interrupts
