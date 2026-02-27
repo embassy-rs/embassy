@@ -937,6 +937,7 @@ mod embedded_io_impls {
                 ConnectError::TimedOut => embedded_io_async::ErrorKind::TimedOut,
                 ConnectError::NoRoute => embedded_io_async::ErrorKind::NotConnected,
                 ConnectError::InvalidState => embedded_io_async::ErrorKind::Other,
+                ConnectError::WouldBlock => embedded_io_async::ErrorKind::Other,
             }
         }
     }
