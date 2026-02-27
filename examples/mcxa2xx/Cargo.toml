@@ -1,5 +1,5 @@
 [package]
-name = "embassy-mcxa-examples"
+name = "embassy-mcxa2xx-examples"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
@@ -14,7 +14,7 @@ defmt = "1.0"
 defmt-rtt = "1.0"
 embassy-embedded-hal = { version = "0.5.0", path = "../../embassy-embedded-hal" }
 embassy-executor = { version = "0.9.0", path = "../../embassy-executor", default-features = false }
-embassy-mcxa = { version = "0.1.0", path = "../../embassy-mcxa", features = ["defmt", "unstable-pac"] }
+embassy-mcxa = { version = "0.1.0", path = "../../embassy-mcxa", features = ["defmt", "unstable-pac", "mcxa2xx"] }
 embassy-sync = { version = "0.7.2", path = "../../embassy-sync" }
 embassy-time = { version = "0.5.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-time-driver = { version = "0.2.1", path = "../../embassy-time-driver", optional = true }
@@ -43,5 +43,5 @@ debug = 2  # enough information for defmt/rtt locations
 
 [package.metadata.embassy]
 build = [
-  { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/mcxa" }
+  { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/mcxa2xx" }
 ]
