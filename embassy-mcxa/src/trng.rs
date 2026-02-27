@@ -6,14 +6,13 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use embassy_hal_internal::Peri;
 use embassy_hal_internal::interrupt::InterruptExt;
 use maitake_sync::WaitCell;
-use nxp_pac::trng::regs::IntStatus;
-use nxp_pac::trng::vals::IntStatusEntVal;
 
 use crate::clocks::enable_and_reset;
 use crate::clocks::periph_helpers::NoConfig;
 use crate::interrupt::typelevel;
 use crate::interrupt::typelevel::Handler;
-use crate::pac::trng::vals::TrngEntCtl;
+use crate::pac::trng::regs::IntStatus;
+use crate::pac::trng::vals::{IntStatusEntVal, TrngEntCtl};
 use crate::peripherals::TRNG0;
 
 static WAIT_CELL: WaitCell = WaitCell::new();
@@ -380,7 +379,8 @@ impl<'d> Trng<'d, Async> {
                 }
             })
             .await
-            .map_err(|_| Error::ErrorStatus)?
+            .map_err(|_| Error::ErrorStatus)
+            .flatten()
     }
 
     // Async API
@@ -461,6 +461,8 @@ pub enum Error {
 
     /// Buffer argument is invalid
     InvalidBuffer,
+
+    /// Hardware fail
     HardwareFail,
 }
 
