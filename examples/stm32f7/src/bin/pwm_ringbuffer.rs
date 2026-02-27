@@ -59,14 +59,17 @@ async fn main(_spawner: Spawner) {
         Default::default(),
     );
 
-    // Use channel 1 for static PWM at 50%
-    let mut ch1 = pwm.ch1();
-    ch1.enable();
-    ch1.set_duty_cycle_fraction(1, 2);
-    info!("Channel 1 (PE9/D6): Static 50% duty cycle");
+    let max_duty = {
+        // Use channel 1 for static PWM at 50%
+        let mut ch1 = pwm.ch1();
+        ch1.enable();
+        ch1.set_duty_cycle_fraction(1, 2);
+        info!("Channel 1 (PE9/D6): Static 50% duty cycle");
 
-    // Get max duty from channel 1 before converting channel 2
-    let max_duty = ch1.max_duty_cycle();
+        // Get max duty from channel 1 before converting channel 2
+        ch1.max_duty_cycle()
+    };
+
     info!("PWM max duty: {}", max_duty);
 
     // Create a DMA ring buffer for channel 2
