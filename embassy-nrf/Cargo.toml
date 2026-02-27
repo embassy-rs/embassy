@@ -1,6 +1,6 @@
 [package]
 name = "embassy-nrf"
-version = "0.9.0"
+version = "0.9.1"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Embassy Hardware Abstraction Layer (HAL) for nRF series microcontrollers"
@@ -235,4 +235,4 @@ fixed = "1.10.0"
 embedded-storage = "0.3.1"
 embedded-storage-async = "0.4.1"
 cfg-if = "1.0.0"
-document-features = "0.2.7"
+document-features = "0.2.12"
