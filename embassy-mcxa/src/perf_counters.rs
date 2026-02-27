@@ -188,8 +188,8 @@ define_counters!(
     interrupt_spi0_wake,
     interrupt_spi1,
     interrupt_spi1_wake,
-    interrupt_trng,
-    interrupt_trng_wake,
+    interrupt_trng0,
+    interrupt_trng0_wake,
     interrupt_wwdt,
     wfe_sleeps
 );
