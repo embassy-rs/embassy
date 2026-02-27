@@ -41,7 +41,7 @@ async fn main(_spawner: Spawner) {
 
     // Enable 12M osc to use as core clock
     cfg.clock_cfg.sirc.fro_12m_enabled = true;
-    cfg.clock_cfg.sirc.fro_lf_div = None;
+    cfg.clock_cfg.sirc.fro_lf_div = Some(Div8::no_div());
     cfg.clock_cfg.sirc.power = PoweredClock::AlwaysEnabled;
 
     // Disable 16K osc
