@@ -369,7 +369,10 @@ impl<'a> TcpSocket<'a> {
         match self.state() {
             tcp::State::Closed | tcp::State::TimeWait => {
                 let local_port = self.io.stack.with_mut(|i| i.get_local_port());
-                match self.io.with_mut(|s, i| s.connect(i.context(), remote_endpoint, local_port)) {
+                match self
+                    .io
+                    .with_mut(|s, i| s.connect(i.context(), remote_endpoint, local_port))
+                {
                     Ok(()) => Err(ConnectError::WouldBlock),
                     Err(tcp::ConnectError::InvalidState) => Err(ConnectError::InvalidState),
                     Err(tcp::ConnectError::Unaddressable) => Err(ConnectError::NoRoute),
@@ -421,13 +424,11 @@ impl<'a> TcpSocket<'a> {
         T: Into<IpListenEndpoint>,
     {
         match self.state() {
-            tcp::State::Closed | tcp::State::TimeWait => {
-                match self.io.with_mut(|s, _| s.listen(local_endpoint)) {
-                    Ok(()) => Err(AcceptError::WouldBlock),
-                    Err(tcp::ListenError::InvalidState) => Err(AcceptError::InvalidState),
-                    Err(tcp::ListenError::Unaddressable) => Err(AcceptError::InvalidPort),
-                }
-            }
+            tcp::State::Closed | tcp::State::TimeWait => match self.io.with_mut(|s, _| s.listen(local_endpoint)) {
+                Ok(()) => Err(AcceptError::WouldBlock),
+                Err(tcp::ListenError::InvalidState) => Err(AcceptError::InvalidState),
+                Err(tcp::ListenError::Unaddressable) => Err(AcceptError::InvalidPort),
+            },
             tcp::State::Listen | tcp::State::SynSent | tcp::State::SynReceived => Err(AcceptError::WouldBlock),
             _ => Ok(()),
         }
@@ -824,9 +825,7 @@ impl<'d> TcpIo<'d> {
                 }
             } else {
                 match s.recv(f) {
-                    Err(tcp::RecvError::Finished) | Err(tcp::RecvError::InvalidState) => {
-                        Err(Error::ConnectionReset)
-                    }
+                    Err(tcp::RecvError::Finished) | Err(tcp::RecvError::InvalidState) => Err(Error::ConnectionReset),
                     Ok(r) => Ok(r),
                 }
             }
