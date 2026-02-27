@@ -21,6 +21,7 @@ fn main() {
 
     generate_code(&mut cfgs);
     select_gpio_features(&mut cfgs);
+    select_sysctl_features(&mut cfgs);
     interrupt_group_linker_magic();
 }
 
@@ -31,7 +32,7 @@ fn generate_code(cfgs: &mut CfgSet) {
         PathBuf::from(env::var_os("OUT_DIR").unwrap()).display(),
     );
 
-    cfgs.declare_all(&["gpio_pb", "gpio_pc", "int_group1", "unicomm"]);
+    cfgs.declare_all(&["gpio_pb", "gpio_pc", "int_group1", "unicomm", "canfd"]);
 
     let chip_name = match env::vars()
         .map(|(a, _)| a)
@@ -314,6 +315,11 @@ fn get_singletons(cfgs: &mut common::CfgSet) -> Vec<Singleton> {
 
             // TODO: Remove after TIMB is fixed
             "tim" if peripheral.name.starts_with("TIMB") => true,
+
+            "canfd" => {
+                cfgs.enable("canfd");
+                false
+            }
 
             _ => false,
         };
@@ -641,6 +647,7 @@ fn generate_peripheral_instances() -> TokenStream {
             "uart" => Some(quote! { impl_uart_instance!(#peri); }),
             "i2c" => Some(quote! { impl_i2c_instance!(#peri, #fifo_size); }),
             "wwdt" => Some(quote! { impl_wwdt_instance!(#peri); }),
+            "canfd" => Some(quote! { impl_can_instance!(#peri); }),
             "adc" => Some(quote! { impl_adc_instance!(#peri); }),
             "mathacl" => Some(quote! { impl_mathacl_instance!(#peri); }),
             _ => None,
@@ -691,6 +698,8 @@ fn generate_pin_trait_impls() -> TokenStream {
                 ("uart", "RTS") => Some(quote! { impl_uart_rts_pin!(#peri, #pin_name, #pf); }),
                 ("i2c", "SDA") => Some(quote! { impl_i2c_sda_pin!(#peri, #pin_name, #pf); }),
                 ("i2c", "SCL") => Some(quote! { impl_i2c_scl_pin!(#peri, #pin_name, #pf); }),
+                ("canfd", "CANTX") => Some(quote! { impl_can_tx_pin!(#peri, #pin_name, #pf); }),
+                ("canfd", "CANRX") => Some(quote! { impl_can_rx_pin!(#peri, #pin_name, #pf); }),
                 ("adc", s) => {
                     let signal = s.parse::<u8>().unwrap();
                     Some(quote! { impl_adc_pin!(#peri, #pin_name, #signal); })
@@ -707,6 +716,25 @@ fn generate_pin_trait_impls() -> TokenStream {
 
     quote! {
         #(#impls)*
+    }
+}
+
+fn select_sysctl_features(cfgs: &mut CfgSet) {
+    // for now, it seems only mspm0g series (but all of them within the series?)
+    // have syspll.
+    cfgs.declare_all(&["sysctl_syspll"]);
+
+    let sysctl = METADATA
+        .peripherals
+        .iter()
+        .find(|p| p.name == "SYSCTL")
+        .expect("no SYSCTL peripheral");
+
+    match sysctl.version {
+        Some("g350x_g310x_g150x_g110x") | Some("g351x_g151x") => {
+            cfgs.enable("sysctl_syspll");
+        }
+        _ => {}
     }
 }
 
