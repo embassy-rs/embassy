@@ -10,7 +10,7 @@ repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/embassy-net-esp-hosted"
 
 [features]
-defmt = ["dep:defmt", "heapless/defmt-03"]
+defmt = ["dep:defmt", "heapless/defmt"]
 log = ["dep:log"]
 
 [dependencies]
@@ -25,8 +25,8 @@ embassy-net-driver-channel = { version = "0.3.2", path = "../embassy-net-driver-
 embedded-hal = { version = "1.0" }
 embedded-hal-async = { version = "1.0" }
 
-micropb = { version = "0.4.0", default-features = false, features = ["container-heapless", "encode", "decode"] }
-heapless = "0.8"
+micropb = { version = "0.6.0", default-features = false, features = ["container-heapless-0-9", "encode", "decode"] }
+heapless = "0.9"
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-esp-hosted-v$VERSION/embassy-net-esp-hosted/src/"

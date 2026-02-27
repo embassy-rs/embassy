@@ -1,15 +1,47 @@
 use core::default::Default;
 use core::ops::{Deref, DerefMut};
 
+use sdio_host::common_cmd::R3;
 use sdio_host::emmc::{EMMC, ExtCSD};
 use sdio_host::sd::{BusWidth, CIC, CID, CSD, CardCapacity, CardStatus, CurrentState, OCR, RCA, SCR, SD, SDStatus};
+use sdio_host::sd_cmd::{R6, R7};
 use sdio_host::{common_cmd, emmc_cmd, sd_cmd};
 
 use crate::sdmmc::{
-    BlockSize, DatapathMode, Error, Sdmmc, Signalling, aligned_mut, aligned_ref, block_size, bus_width_vals,
-    slice8_mut, slice8_ref,
+    BlockSize, CommandResponse, DatapathMode, Error, Sdmmc, Signalling, TypedResp, aligned_mut, aligned_ref,
+    block_size, bus_width_vals, slice8_mut, slice8_ref,
 };
 use crate::time::{Hertz, mhz};
+
+impl TypedResp for R3 {
+    type Word = u32;
+}
+
+impl<E> From<CommandResponse<R3>> for OCR<E> {
+    fn from(value: CommandResponse<R3>) -> Self {
+        OCR::<E>::from(value.0)
+    }
+}
+
+impl TypedResp for R6 {
+    type Word = u32;
+}
+
+impl<E> From<CommandResponse<R6>> for RCA<E> {
+    fn from(value: CommandResponse<R6>) -> Self {
+        RCA::<E>::from(value.0)
+    }
+}
+
+impl TypedResp for R7 {
+    type Word = u32;
+}
+
+impl From<CommandResponse<R7>> for CIC {
+    fn from(value: CommandResponse<R7>) -> Self {
+        CIC::from(value.0)
+    }
+}
 
 /// Aligned data block for SDMMC transfers.
 ///
@@ -69,7 +101,10 @@ impl DerefMut for CmdBlock {
 }
 
 /// Represents either an SD or EMMC card
-pub trait Addressable: Sized + Clone {
+pub trait Addressable: Sized + Clone
+where
+    CardStatus<Self::Ext>: From<u32>,
+{
     /// Associated type
     type Ext;
 
@@ -106,10 +141,10 @@ impl<'a, 'b> StorageDevice<'a, 'b, Card> {
 
     /// Initializes the card into a known state (or at least tries to).
     async fn acquire(&mut self, cmd_block: &mut CmdBlock, freq: Hertz) -> Result<(), Error> {
-        let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
-        let regs = self.sdmmc.info.regs;
+        let _scoped_wake_guard = self.sdmmc.info.rcc.wake_guard();
 
-        let _bus_width = match self.sdmmc.bus_width() {
+        // Get the bus width configured in the Sdmmc peripheral
+        let configured_bus_width = match self.sdmmc.bus_width() {
             BusWidth::Eight => return Err(Error::BusWidth),
             bus_width => bus_width,
         };
@@ -119,8 +154,7 @@ impl<'a, 'b> StorageDevice<'a, 'b, Card> {
         self.sdmmc.init_idle()?;
 
         // Check if cards supports CMD8 (with pattern)
-        self.sdmmc.cmd(sd_cmd::send_if_cond(1, 0xAA), true, false)?;
-        let cic = CIC::from(regs.respr(0).read().cardstatus());
+        let cic: CIC = self.sdmmc.cmd(sd_cmd::send_if_cond(1, 0xAA), true, false)?.into();
 
         if cic.pattern() != 0xAA {
             return Err(Error::UnsupportedCardVersion);
@@ -164,10 +198,11 @@ impl<'a, 'b> StorageDevice<'a, 'b, Card> {
         self.sdmmc.select_card(Some(self.info.get_address()))?;
         self.info.scr = self.get_scr(cmd_block).await?;
 
-        let (bus_width, acmd_arg) = if !self.info.scr.bus_width_four() {
-            (BusWidth::One, 0)
-        } else {
-            (BusWidth::Four, 2)
+        // Select bus width based on Sdmmc configuration and card capability
+        // Use 4-bit only if both the peripheral is configured for it AND the card supports it
+        let (bus_width, acmd_arg) = match configured_bus_width {
+            BusWidth::Four if self.info.scr.bus_width_four() => (BusWidth::Four, 2),
+            _ => (BusWidth::One, 0),
         };
 
         self.sdmmc.cmd(common_cmd::app_cmd(self.info.rca), true, false)?;
@@ -263,8 +298,6 @@ impl<'a, 'b> StorageDevice<'a, 'b, Card> {
 
         let scr = &mut cmd_block.0[..2];
 
-        // Arm `OnDrop` after the buffer, so it will be dropped first
-
         let transfer = self
             .sdmmc
             .prepare_datapath_read(aligned_mut(scr), DatapathMode::Block(BlockSize::Size8));
@@ -315,8 +348,7 @@ impl<'a, 'b> StorageDevice<'a, 'b, Emmc> {
     }
 
     async fn acquire(&mut self, _cmd_block: &mut CmdBlock, freq: Hertz) -> Result<(), Error> {
-        let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
-        let regs = self.sdmmc.info.regs;
+        let _scoped_wake_guard = self.sdmmc.info.rcc.wake_guard();
 
         let bus_width = self.sdmmc.bus_width();
 
@@ -329,12 +361,7 @@ impl<'a, 'b> StorageDevice<'a, 'b, Emmc> {
             let access_mode = 0b10 << 29;
             let op_cond = high_voltage | access_mode | 0b1_1111_1111 << 15;
             // Initialize card
-            match self.sdmmc.cmd(emmc_cmd::send_op_cond(op_cond), true, false) {
-                Ok(_) => (),
-                Err(Error::Crc) => (),
-                Err(err) => return Err(err),
-            }
-            let ocr: OCR<EMMC> = regs.respr(0).read().cardstatus().into();
+            let ocr: OCR<EMMC> = self.sdmmc.cmd(emmc_cmd::send_op_cond(op_cond), false, false)?.into();
             if !ocr.is_busy() {
                 // Power up done
                 break ocr;
@@ -413,7 +440,7 @@ impl<'a, 'b, A: Addressable> StorageDevice<'a, 'b, A> {
     /// Read a data block.
     #[inline]
     pub async fn read_block(&mut self, block_idx: u32, data_block: &mut DataBlock) -> Result<(), Error> {
-        let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
+        let _scoped_wake_guard = self.sdmmc.info.rcc.wake_guard();
         let card_capacity = self.info.get_capacity();
 
         // Always read 1 block of 512 bytes
@@ -439,7 +466,7 @@ impl<'a, 'b, A: Addressable> StorageDevice<'a, 'b, A> {
     /// Read multiple data blocks.
     #[inline]
     pub async fn read_blocks(&mut self, block_idx: u32, blocks: &mut [DataBlock]) -> Result<(), Error> {
-        let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
+        let _scoped_wake_guard = self.sdmmc.info.rcc.wake_guard();
         let card_capacity = self.info.get_capacity();
 
         // NOTE(unsafe) reinterpret buffer as &mut [u32]
@@ -474,11 +501,8 @@ impl<'a, 'b, A: Addressable> StorageDevice<'a, 'b, A> {
     }
 
     /// Write a data block.
-    pub async fn write_block(&mut self, block_idx: u32, buffer: &DataBlock) -> Result<(), Error>
-    where
-        CardStatus<A::Ext>: From<u32>,
-    {
-        let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
+    pub async fn write_block(&mut self, block_idx: u32, buffer: &DataBlock) -> Result<(), Error> {
+        let _scoped_wake_guard = self.sdmmc.info.rcc.wake_guard();
 
         // Always read 1 block of 512 bytes
         //  cards are byte addressed hence the blockaddress is in multiples of 512 bytes
@@ -518,11 +542,8 @@ impl<'a, 'b, A: Addressable> StorageDevice<'a, 'b, A> {
     }
 
     /// Write multiple data blocks.
-    pub async fn write_blocks(&mut self, block_idx: u32, blocks: &[DataBlock]) -> Result<(), Error>
-    where
-        CardStatus<A::Ext>: From<u32>,
-    {
-        let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
+    pub async fn write_blocks(&mut self, block_idx: u32, blocks: &[DataBlock]) -> Result<(), Error> {
+        let _scoped_wake_guard = self.sdmmc.info.rcc.wake_guard();
 
         // NOTE(unsafe) reinterpret buffer as &[u32]
         let buffer = unsafe {

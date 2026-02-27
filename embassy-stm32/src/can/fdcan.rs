@@ -12,7 +12,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use crate::can::fd::peripheral::Registers;
 use crate::gpio::{AfType, OutputType, Pull, SealedPin as _, Speed};
 use crate::interrupt::typelevel::Interrupt;
-use crate::rcc::{self, RccPeripheral};
+use crate::rcc::{self, RccInfo, RccPeripheral, SealedRccPeripheral};
 use crate::{Peri, interrupt, peripherals};
 
 pub(crate) mod fd;
@@ -641,19 +641,43 @@ impl RxMode {
     }
 
     fn on_interrupt<T: Instance>(&self, fifonr: usize, ns_per_timer_tick: u64) {
-        T::registers().regs.ir().write(|w| w.set_rfn(fifonr, true));
         match self {
             RxMode::NonBuffered(waker) => {
+                T::registers().regs.ir().write(|w| w.set_rfn(fifonr, true));
                 waker.wake();
             }
             RxMode::ClassicBuffered(buf) => {
-                if let Some(result) = self.try_read::<T>(ns_per_timer_tick) {
-                    let _ = buf.rx_sender.try_send(result);
+                T::registers().regs.ir().write(|w| w.set_rfn(fifonr, true));
+                loop {
+                    match self.try_read::<T>(ns_per_timer_tick) {
+                        Some(Ok(envelope)) => {
+                            let _ = buf.rx_sender.try_send(Ok(envelope));
+                        }
+                        Some(Err(err)) => {
+                            // bus error states can persist; emit once and return to avoid
+                            // spinning forever in interrupt context when no frames are available
+                            let _ = buf.rx_sender.try_send(Err(err));
+                            break;
+                        }
+                        None => break,
+                    }
                 }
             }
             RxMode::FdBuffered(buf) => {
-                if let Some(result) = self.try_read_fd::<T>(ns_per_timer_tick) {
-                    let _ = buf.rx_sender.try_send(result);
+                T::registers().regs.ir().write(|w| w.set_rfn(fifonr, true));
+                loop {
+                    match self.try_read_fd::<T>(ns_per_timer_tick) {
+                        Some(Ok(envelope)) => {
+                            let _ = buf.rx_sender.try_send(Ok(envelope));
+                        }
+                        Some(Err(err)) => {
+                            // bus error states can persist; emit once and return to avoid
+                            // spinning forever in interrupt context when no frames are available
+                            let _ = buf.rx_sender.try_send(Err(err));
+                            break;
+                        }
+                        None => break,
+                    }
                 }
             }
         }
@@ -894,6 +918,7 @@ pub(crate) struct Info {
     _interrupt1: crate::interrupt::Interrupt,
     pub(crate) tx_waker: fn(),
     state: SharedState,
+    rcc_info: RccInfo,
 }
 
 impl Info {
@@ -927,6 +952,7 @@ impl Info {
                     let rx_pin = crate::gpio::AnyPin::steal(mut_state.rx_pin_port.unwrap());
                     rx_pin.set_as_disconnected();
                     self.interrupt0.disable();
+                    self.rcc_info.disable();
                 }
             }
         });
@@ -967,6 +993,7 @@ macro_rules! impl_fdcan {
                     _interrupt1: crate::_generated::peripheral_interrupts::$inst::IT1::IRQ,
                     tx_waker: crate::_generated::peripheral_interrupts::$inst::IT0::pend,
                     state: embassy_sync::blocking_mutex::Mutex::new(core::cell::RefCell::new(State::new())),
+                    rcc_info: crate::peripherals::$inst::RCC_INFO,
                 };
                 &INFO
             }

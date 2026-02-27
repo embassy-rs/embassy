@@ -7,7 +7,7 @@ use stm32_metapac::syscfg::vals::EthSelPhy;
 
 pub(crate) use self::descriptors::{RDes, RDesRing, TDes, TDesRing};
 use super::*;
-use crate::gpio::{AfType, AnyPin, OutputType, SealedPin as _, Speed};
+use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::interrupt;
 use crate::interrupt::InterruptExt;
 use crate::pac::ETH;
@@ -38,15 +38,17 @@ pub struct Ethernet<'d, T: Instance, P: Phy> {
     _peri: Peri<'d, T>,
     pub(crate) tx: TDesRing<'d>,
     pub(crate) rx: RDesRing<'d>,
-    pins: Pins<'d>,
+    _pins: Pins<'d>,
     pub(crate) phy: P,
     pub(crate) mac_addr: [u8; 6],
 }
 
 /// Pins of ethernet driver.
 enum Pins<'d> {
-    Rmii([Peri<'d, AnyPin>; 7]),
-    Mii([Peri<'d, AnyPin>; 12]),
+    #[allow(unused)]
+    Rmii([Flex<'d>; 7]),
+    #[allow(unused)]
+    Mii([Flex<'d>; 12]),
 }
 
 macro_rules! config_pins {
@@ -149,13 +151,13 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         config_pins!(ref_clk, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
 
         let pins = Pins::Rmii([
-            ref_clk.into(),
-            crs.into(),
-            rx_d0.into(),
-            rx_d1.into(),
-            tx_d0.into(),
-            tx_d1.into(),
-            tx_en.into(),
+            Flex::new(ref_clk),
+            Flex::new(crs),
+            Flex::new(rx_d0),
+            Flex::new(rx_d1),
+            Flex::new(tx_d0),
+            Flex::new(tx_d1),
+            Flex::new(tx_en),
         ]);
 
         Self::new_inner(queue, peri, irq, pins, phy, mac_addr, EthSelPhy::RMII)
@@ -186,18 +188,18 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         );
 
         let pins = Pins::Mii([
-            rx_clk.into(),
-            tx_clk.into(),
-            rxdv.into(),
-            rx_d0.into(),
-            rx_d1.into(),
-            rx_d2.into(),
-            rx_d3.into(),
-            tx_d0.into(),
-            tx_d1.into(),
-            tx_d2.into(),
-            tx_d3.into(),
-            tx_en.into(),
+            Flex::new(rx_clk),
+            Flex::new(tx_clk),
+            Flex::new(rxdv),
+            Flex::new(rx_d0),
+            Flex::new(rx_d1),
+            Flex::new(rx_d2),
+            Flex::new(rx_d3),
+            Flex::new(tx_d0),
+            Flex::new(tx_d1),
+            Flex::new(tx_d2),
+            Flex::new(tx_d3),
+            Flex::new(tx_en),
         ]);
 
         Self::new_inner(queue, peri, irq, pins, phy, mac_addr, EthSelPhy::MII_GMII)
@@ -288,7 +290,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             _peri: peri,
             tx: TDesRing::new(&mut queue.tx_desc, &mut queue.tx_buf),
             rx: RDesRing::new(&mut queue.rx_desc, &mut queue.rx_buf),
-            pins,
+            _pins: pins,
             phy,
             mac_addr,
         };
@@ -350,14 +352,5 @@ impl<'d, T: Instance, P: Phy> Drop for Ethernet<'d, T, P> {
             rxqueue.rxqsts() != 0b00 || rxqueue.prxq() != 0
         } {}
         dma.dmacrx_cr().modify(|w| w.set_sr(false));
-
-        critical_section::with(|_| {
-            for pin in match self.pins {
-                Pins::Rmii(ref mut pins) => pins.iter_mut(),
-                Pins::Mii(ref mut pins) => pins.iter_mut(),
-            } {
-                pin.set_as_disconnected();
-            }
-        })
     }
 }

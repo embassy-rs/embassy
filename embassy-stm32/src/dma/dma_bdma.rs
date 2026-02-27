@@ -1,17 +1,94 @@
 use core::future::{Future, poll_fn};
 use core::pin::Pin;
-use core::sync::atomic::{AtomicUsize, Ordering, fence};
+use core::sync::atomic::{AtomicUsize, Ordering, compiler_fence, fence};
 use core::task::{Context, Poll, Waker};
 
-use embassy_hal_internal::Peri;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use super::ringbuffer::{DmaCtrl, Error, ReadableDmaRingBuffer, WritableDmaRingBuffer};
 use super::word::{Word, WordSize};
-use super::{AnyChannel, Channel, Dir, Increment, Request, STATE};
+use super::{Channel, Dir, Increment, Request, STATE, info};
 use crate::interrupt::typelevel::Interrupt;
-use crate::rcc::BusyPeripheral;
+use crate::rcc::WakeGuard;
 use crate::{interrupt, pac};
+
+pub(crate) unsafe fn on_irq(id: u8) {
+    let info = info(id);
+    let state = &STATE[id as usize];
+    match info.dma {
+        #[cfg(dma)]
+        DmaInfo::Dma(r) => {
+            let cr = r.st(info.num).cr();
+            let isr = r.isr(info.num / 4).read();
+
+            if isr.teif(info.num % 4) {
+                panic!("DMA: error on DMA@{:08x} channel {}", r.as_ptr() as u32, info.num);
+            }
+
+            if isr.htif(info.num % 4) && cr.read().htie() {
+                // Acknowledge half transfer complete interrupt
+                r.ifcr(info.num / 4).write(|w| w.set_htif(info.num % 4, true));
+            } else if isr.tcif(info.num % 4) && cr.read().tcie() {
+                // Acknowledge  transfer complete interrupt
+                r.ifcr(info.num / 4).write(|w| w.set_tcif(info.num % 4, true));
+                state.complete_count.fetch_add(1, Ordering::Release);
+            } else {
+                return;
+            }
+            state.waker.wake();
+        }
+        #[cfg(bdma)]
+        DmaInfo::Bdma(r) => {
+            let isr = r.isr().read();
+            let cr = r.ch(info.num).cr();
+
+            if isr.teif(info.num) {
+                panic!("DMA: error on BDMA@{:08x} channel {}", r.as_ptr() as u32, info.num);
+            }
+
+            if isr.htif(info.num) && cr.read().htie() {
+                // Acknowledge half transfer complete interrupt
+                r.ifcr().write(|w| w.set_htif(info.num, true));
+            } else if isr.tcif(info.num) && cr.read().tcie() {
+                // Acknowledge transfer complete interrupt
+                r.ifcr().write(|w| w.set_tcif(info.num, true));
+                #[cfg(not(armv6m))]
+                state.complete_count.fetch_add(1, Ordering::Release);
+                #[cfg(armv6m)]
+                critical_section::with(|_| {
+                    let x = state.complete_count.load(Ordering::Relaxed);
+                    state.complete_count.store(x + 1, Ordering::Release);
+                })
+            } else {
+                return;
+            }
+
+            state.waker.wake();
+        }
+        #[cfg(mdma)]
+        DmaInfo::Mdma(r) => {
+            // If our bit in gisr0 is not set, then the interrupt is not for this channel
+            if !r.gisr0().read().gif(info.num) {
+                return;
+            }
+
+            let isr = r.ch(info.num).isr();
+            let ifcr = r.ch(info.num).ifcr();
+
+            if isr.read().teif() {
+                panic!("DMA: error on MDMA@{:08x} channel {}", r.as_ptr() as u32, info.num);
+            }
+
+            if isr.read().ctcif() {
+                // Channel Transfer complete
+                state.complete_count.fetch_add(1, Ordering::Release);
+                ifcr.write(|w| w.set_cctcif(true));
+            }
+
+            state.waker.wake();
+        }
+    }
+}
 
 pub(crate) struct ChannelInfo {
     pub(crate) dma: DmaInfo,
@@ -19,7 +96,18 @@ pub(crate) struct ChannelInfo {
     #[cfg(feature = "_dual-core")]
     pub(crate) irq: pac::Interrupt,
     #[cfg(dmamux)]
-    pub(crate) dmamux: super::DmamuxInfo,
+    pub(crate) dmamux: Option<super::DmamuxInfo>,
+    #[cfg(feature = "low-power")]
+    pub(crate) stop_mode: crate::rcc::StopMode,
+}
+
+impl ChannelInfo {
+    fn wake_guard(&self) -> WakeGuard {
+        WakeGuard::new(
+            #[cfg(feature = "low-power")]
+            self.stop_mode,
+        )
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -28,6 +116,8 @@ pub(crate) enum DmaInfo {
     Dma(pac::dma::Dma),
     #[cfg(bdma)]
     Bdma(pac::bdma::Dma),
+    #[cfg(mdma)]
+    Mdma(pac::mdma::Mdma),
 }
 
 /// DMA transfer options.
@@ -36,10 +126,10 @@ pub(crate) enum DmaInfo {
 #[non_exhaustive]
 pub struct TransferOptions {
     /// Peripheral burst transfer configuration
-    #[cfg(dma)]
+    #[cfg(any(dma, mdma))]
     pub pburst: Burst,
     /// Memory burst transfer configuration
-    #[cfg(dma)]
+    #[cfg(any(dma, mdma))]
     pub mburst: Burst,
     /// Flow control configuration
     #[cfg(dma)]
@@ -59,6 +149,18 @@ pub struct TransferOptions {
     pub half_transfer_ir: bool,
     /// Enable transfer complete interrupt
     pub complete_transfer_ir: bool,
+    #[cfg(mdma)]
+    /// Max bytes to transfer at once, 1-64
+    pub buffer_size: u8,
+    #[cfg(mdma)]
+    /// Swap bytes in each half-word
+    pub byte_swap: bool,
+    #[cfg(mdma)]
+    /// Swap half-words in each word
+    pub half_word_swap: bool,
+    #[cfg(mdma)]
+    /// Swap words in each double-word
+    pub word_swap: bool,
 }
 
 impl Default for TransferOptions {
@@ -76,6 +178,14 @@ impl Default for TransferOptions {
             circular: false,
             half_transfer_ir: false,
             complete_transfer_ir: true,
+            #[cfg(mdma)]
+            buffer_size: MDMA_MAX_BUFFER,
+            #[cfg(mdma)]
+            byte_swap: false,
+            #[cfg(mdma)]
+            half_word_swap: false,
+            #[cfg(mdma)]
+            word_swap: false,
         }
     }
 }
@@ -132,6 +242,7 @@ mod dma_only {
                 WordSize::OneByte => Self::BITS8,
                 WordSize::TwoBytes => Self::BITS16,
                 WordSize::FourBytes => Self::BITS32,
+                WordSize::EightBytes => unimplemented!(),
             }
         }
     }
@@ -158,6 +269,14 @@ mod dma_only {
         Incr8,
         /// Incremental burst of 16 beats
         Incr16,
+        /// Incremental burst of 32 beats
+        Incr32,
+        /// Incremental burst of 64 beats
+        Incr64,
+        /// Incremental burst of 128 beats
+        Incr128,
+        /// Incremental burst of 256 beats
+        Incr256,
     }
 
     impl From<Burst> for vals::Burst {
@@ -167,6 +286,7 @@ mod dma_only {
                 Burst::Incr4 => vals::Burst::INCR4,
                 Burst::Incr8 => vals::Burst::INCR8,
                 Burst::Incr16 => vals::Burst::INCR16,
+                _ => unimplemented!("invalid burst size"),
             }
         }
     }
@@ -216,6 +336,61 @@ mod dma_only {
     }
 }
 
+#[cfg(mdma)]
+pub use mdma_only::*;
+#[cfg(mdma)]
+mod mdma_only {
+    use pac::mdma::vals;
+
+    use super::*;
+
+    /// Maximum Buffer Size
+    pub const MDMA_MAX_BUFFER: u8 = 0x40;
+
+    /// Max Block Size (bytes)
+    pub const MDMA_MAX_BLOCK: usize = 0x10000;
+
+    /// Max Number of Blocks
+    pub const MDMA_MAX_BLOCK_COUNT: usize = 0x1000;
+
+    impl From<WordSize> for vals::Wordsize {
+        fn from(raw: WordSize) -> Self {
+            match raw {
+                WordSize::OneByte => Self::BYTE,
+                WordSize::TwoBytes => Self::HALF_WORD,
+                WordSize::FourBytes => Self::WORD,
+                WordSize::EightBytes => Self::DOUBLE_WORD,
+            }
+        }
+    }
+
+    impl From<Burst> for vals::Burst {
+        fn from(burst: Burst) -> Self {
+            match burst {
+                Burst::Single => vals::Burst::SINGLE,
+                Burst::Incr4 => vals::Burst::INCR4,
+                Burst::Incr8 => vals::Burst::INCR8,
+                Burst::Incr16 => vals::Burst::INCR16,
+                Burst::Incr32 => vals::Burst::INCR32,
+                Burst::Incr64 => vals::Burst::INCR64,
+                Burst::Incr128 => vals::Burst::INCR128,
+                Burst::Incr256 => vals::Burst::INCR256,
+            }
+        }
+    }
+
+    impl From<Priority> for pac::mdma::vals::Pl {
+        fn from(value: Priority) -> Self {
+            match value {
+                Priority::Low => pac::mdma::vals::Pl::LOW,
+                Priority::Medium => pac::mdma::vals::Pl::MEDIUM,
+                Priority::High => pac::mdma::vals::Pl::HIGH,
+                Priority::VeryHigh => pac::mdma::vals::Pl::VERY_HIGH,
+            }
+        }
+    }
+}
+
 #[cfg(bdma)]
 mod bdma_only {
     use pac::bdma::vals;
@@ -228,6 +403,7 @@ mod bdma_only {
                 WordSize::OneByte => Self::BITS8,
                 WordSize::TwoBytes => Self::BITS16,
                 WordSize::FourBytes => Self::BITS32,
+                WordSize::EightBytes => unimplemented!(),
             }
         }
     }
@@ -260,6 +436,7 @@ pub(crate) unsafe fn init(
     cs: critical_section::CriticalSection,
     #[cfg(dma)] dma_priority: interrupt::Priority,
     #[cfg(bdma)] bdma_priority: interrupt::Priority,
+    #[cfg(mdma)] mdma_priority: interrupt::Priority,
 ) {
     foreach_interrupt! {
         ($peri:ident, dma, $block:ident, $signal_name:ident, $irq:ident) => {
@@ -273,66 +450,23 @@ pub(crate) unsafe fn init(
             crate::interrupt::typelevel::$irq::enable();
         };
     }
+    #[cfg(mdma)]
+    foreach_interrupt! {
+        ($peri:ident, mdma, $block:ident, $signal_name:ident, $irq:ident) => {
+            crate::interrupt::typelevel::$irq::set_priority_with_cs(cs, mdma_priority);
+            #[cfg(not(feature = "_dual-core"))]
+            crate::interrupt::typelevel::$irq::enable();
+        };
+    }
     crate::_generated::init_dma();
     crate::_generated::init_bdma();
+    #[cfg(mdma)]
+    crate::_generated::init_mdma();
 }
 
-impl AnyChannel {
-    /// Safety: Must be called with a matching set of parameters for a valid dma channel
-    pub(crate) unsafe fn on_irq(&self) {
-        let info = self.info();
-        let state = &STATE[self.id as usize];
-        match self.info().dma {
-            #[cfg(dma)]
-            DmaInfo::Dma(r) => {
-                let cr = r.st(info.num).cr();
-                let isr = r.isr(info.num / 4).read();
-
-                if isr.teif(info.num % 4) {
-                    panic!("DMA: error on DMA@{:08x} channel {}", r.as_ptr() as u32, info.num);
-                }
-
-                if isr.htif(info.num % 4) && cr.read().htie() {
-                    // Acknowledge half transfer complete interrupt
-                    r.ifcr(info.num / 4).write(|w| w.set_htif(info.num % 4, true));
-                } else if isr.tcif(info.num % 4) && cr.read().tcie() {
-                    // Acknowledge  transfer complete interrupt
-                    r.ifcr(info.num / 4).write(|w| w.set_tcif(info.num % 4, true));
-                    state.complete_count.fetch_add(1, Ordering::Release);
-                } else {
-                    return;
-                }
-                state.waker.wake();
-            }
-            #[cfg(bdma)]
-            DmaInfo::Bdma(r) => {
-                let isr = r.isr().read();
-                let cr = r.ch(info.num).cr();
-
-                if isr.teif(info.num) {
-                    panic!("DMA: error on BDMA@{:08x} channel {}", r.as_ptr() as u32, info.num);
-                }
-
-                if isr.htif(info.num) && cr.read().htie() {
-                    // Acknowledge half transfer complete interrupt
-                    r.ifcr().write(|w| w.set_htif(info.num, true));
-                } else if isr.tcif(info.num) && cr.read().tcie() {
-                    // Acknowledge transfer complete interrupt
-                    r.ifcr().write(|w| w.set_tcif(info.num, true));
-                    #[cfg(not(armv6m))]
-                    state.complete_count.fetch_add(1, Ordering::Release);
-                    #[cfg(armv6m)]
-                    critical_section::with(|_| {
-                        let x = state.complete_count.load(Ordering::Relaxed);
-                        state.complete_count.store(x + 1, Ordering::Release);
-                    })
-                } else {
-                    return;
-                }
-
-                state.waker.wake();
-            }
-        }
+impl<'d> Channel<'d> {
+    fn info(&self) -> &'static super::ChannelInfo {
+        super::info(self.id)
     }
 
     unsafe fn configure(
@@ -358,11 +492,14 @@ impl AnyChannel {
         }
 
         #[cfg(dmamux)]
-        super::dmamux::configure_dmamux(&info.dmamux, _request);
+        if let Some(ref dmamux) = info.dmamux {
+            super::dmamux::configure_dmamux(dmamux, _request);
+        }
 
         match self.info().dma {
             #[cfg(dma)]
             DmaInfo::Dma(r) => {
+                assert!(mem_len > 0 && mem_len <= 0xFFFF);
                 let state: &ChannelState = &STATE[self.id as usize];
                 let ch = r.st(info.num);
 
@@ -385,6 +522,7 @@ impl AnyChannel {
                         assert!(mem_len % 4 == 0);
                         mem_len / 4
                     }
+                    (WordSize::EightBytes, _) | (_, WordSize::EightBytes) => unimplemented!("invalid word size"),
                 };
 
                 assert!(ndtr > 0 && ndtr <= 0xFFFF);
@@ -490,6 +628,139 @@ impl AnyChannel {
                     w.set_en(false); // don't start yet
                 });
             }
+            #[cfg(mdma)]
+            DmaInfo::Mdma(r) => {
+                use pac::mdma::vals::*;
+
+                use crate::_generated::{MEMORY_REGION_DTCM, MEMORY_REGION_ITCM};
+
+                assert!(mem_len > 0 && mem_len <= MDMA_MAX_BLOCK * MDMA_MAX_BLOCK_COUNT);
+
+                // Circular mode is not supported
+                assert!(!options.circular);
+
+                let state: &ChannelState = &STATE[self.id as usize];
+                let ch = r.ch(info.num);
+
+                state.complete_count.store(0, Ordering::Release);
+                self.clear_irqs();
+
+                match dir {
+                    Dir::MemoryToPeripheral => {
+                        ch.sar().write(|w| w.set_sar(mem_addr as u32));
+                        ch.dar().write(|w| w.set_dar(peri_addr as u32));
+                    }
+                    _ => {
+                        ch.sar().write(|w| w.set_sar(peri_addr as u32));
+                        ch.dar().write(|w| w.set_dar(mem_addr as u32));
+                    }
+                };
+
+                // Find the best block size/count. This is essentially a factorisation problem
+                // So it's best to avoid large prime number transfer sizes.
+                let mut block_count = mem_len.div_ceil(MDMA_MAX_BLOCK);
+                let mut block_size = mem_len.div_ceil(block_count);
+
+                loop {
+                    // Everything matches up so we're good to go
+                    if block_count * block_size == mem_len {
+                        break;
+                    }
+
+                    // Try a higher block count, lower block size
+                    block_count += 1;
+                    block_size = mem_len.div_ceil(block_count);
+
+                    if block_count > MDMA_MAX_BLOCK_COUNT {
+                        panic!("MDMA: max block count hit");
+                    }
+                }
+
+                let (sinc, dinc) = match (incr_mem, dir) {
+                    (Increment::None, _) => (Incmode::FIXED, Incmode::FIXED),
+                    (Increment::Both, _) => (Incmode::INCREMENT, Incmode::INCREMENT),
+                    (_, Dir::MemoryToMemory) => (Incmode::INCREMENT, Incmode::INCREMENT),
+                    (Increment::Peripheral, Dir::PeripheralToMemory) => (Incmode::INCREMENT, Incmode::FIXED),
+                    (Increment::Peripheral, Dir::MemoryToPeripheral) => (Incmode::FIXED, Incmode::INCREMENT),
+                    (Increment::Memory, Dir::PeripheralToMemory) => (Incmode::FIXED, Incmode::INCREMENT),
+                    (Increment::Memory, Dir::MemoryToPeripheral) => (Incmode::INCREMENT, Incmode::FIXED),
+                };
+
+                ch.tcr().write(|w| {
+                    w.set_tlen((options.buffer_size - 1) as u8);
+                    match dir {
+                        Dir::MemoryToPeripheral => {
+                            w.set_sincos(mem_size.into());
+                            w.set_ssize(mem_size.into());
+                            w.set_sinc(sinc);
+                            w.set_dincos(peri_size.into());
+                            w.set_dsize(peri_size.into());
+                            w.set_dinc(dinc);
+                        }
+                        _ => {
+                            w.set_sincos(peri_size.into());
+                            w.set_ssize(peri_size.into());
+                            w.set_sinc(sinc);
+                            w.set_dincos(mem_size.into());
+                            w.set_dsize(mem_size.into());
+                            w.set_dinc(dinc);
+                        }
+                    };
+                    if dir == Dir::MemoryToMemory {
+                        w.set_swrm(dir == Dir::MemoryToMemory);
+                        w.set_trgm(Trgm::REPEATED);
+                    }
+                });
+
+                ch.bndtr().write(|w| {
+                    w.set_bndt(block_size as u32);
+                    w.set_brc(block_count as u16 - 1);
+                });
+
+                ch.brur().write(|w| {
+                    w.set_suv(0);
+                    w.set_duv(0);
+                });
+
+                let get_bus = |addr: u32| {
+                    if MEMORY_REGION_ITCM.contains(&addr) || MEMORY_REGION_DTCM.contains(&addr) {
+                        Bus::AHB
+                    } else {
+                        Bus::SYSTEM
+                    }
+                };
+
+                let mem_bus = get_bus(mem_addr as u32);
+                let peri_bus = get_bus(peri_addr as u32);
+
+                ch.tbr().write(|w| {
+                    match dir {
+                        Dir::MemoryToPeripheral => {
+                            w.set_sbus(mem_bus);
+                            w.set_dbus(peri_bus);
+                        }
+                        _ => {
+                            w.set_sbus(peri_bus);
+                            w.set_dbus(mem_bus);
+                        }
+                    };
+
+                    w.set_tsel(_request);
+                });
+
+                ch.cr().write(|w| {
+                    w.set_teie(true);
+                    w.set_ctcie(true);
+                    w.set_tcie(false);
+                    w.set_btie(false);
+                    w.set_brtie(false);
+                    w.set_pl(options.priority.into());
+                    w.set_bex(options.byte_swap);
+                    w.set_wex(options.word_swap);
+                    w.set_hex(options.half_word_swap);
+                    w.set_en(false); // don't start yet
+                });
+            }
         }
     }
 
@@ -505,6 +776,19 @@ impl AnyChannel {
             DmaInfo::Bdma(r) => {
                 let ch = r.ch(info.num);
                 ch.cr().modify(|w| w.set_en(true));
+            }
+            #[cfg(mdma)]
+            DmaInfo::Mdma(r) => {
+                let ch = r.ch(info.num);
+
+                let swrm = ch.tcr().read().swrm();
+
+                ch.cr().modify(|w| {
+                    w.set_en(true);
+                    if swrm {
+                        w.set_swrq(true);
+                    }
+                });
             }
         }
     }
@@ -531,6 +815,17 @@ impl AnyChannel {
                     w.set_teif(info.num, true);
                 });
             }
+            #[cfg(mdma)]
+            DmaInfo::Mdma(r) => {
+                let ch = r.ch(info.num);
+                ch.ifcr().write(|w| {
+                    w.set_cbrtif(true);
+                    w.set_cbtif(true);
+                    w.set_cctcif(true);
+                    w.set_cltcif(true);
+                    w.set_cteif(true);
+                });
+            }
         }
     }
 
@@ -546,6 +841,13 @@ impl AnyChannel {
             }
             #[cfg(bdma)]
             DmaInfo::Bdma(r) => {
+                // Disable the channel without overwriting the existing configuration
+                r.ch(info.num).cr().modify(|w| {
+                    w.set_en(false);
+                });
+            }
+            #[cfg(mdma)]
+            DmaInfo::Mdma(r) => {
                 // Disable the channel without overwriting the existing configuration
                 r.ch(info.num).cr().modify(|w| {
                     w.set_en(false);
@@ -577,6 +879,13 @@ impl AnyChannel {
                     w.set_tcie(true);
                 });
             }
+            #[cfg(mdma)]
+            DmaInfo::Mdma(r) => {
+                // Disable the channel. Keep the IEs enabled so the irqs still fire.
+                r.ch(info.num).cr().modify(|m| {
+                    m.set_en(false);
+                });
+            }
         }
 
         while self.is_running() {}
@@ -596,16 +905,20 @@ impl AnyChannel {
                 let tcif = state.complete_count.load(Ordering::Acquire) != 0;
                 en && (circular || !tcif)
             }
+            #[cfg(mdma)]
+            DmaInfo::Mdma(r) => r.ch(info.num).cr().read().en(),
         }
     }
 
-    fn get_remaining_transfers(&self) -> u16 {
+    fn get_remaining_transfers(&self) -> u32 {
         let info = self.info();
         match self.info().dma {
             #[cfg(dma)]
-            DmaInfo::Dma(r) => r.st(info.num).ndtr().read().ndt(),
+            DmaInfo::Dma(r) => r.st(info.num).ndtr().read().ndt() as u32,
             #[cfg(bdma)]
-            DmaInfo::Bdma(r) => r.ch(info.num).ndtr().read().ndt(),
+            DmaInfo::Bdma(r) => r.ch(info.num).ndtr().read().ndt() as u32,
+            #[cfg(mdma)]
+            DmaInfo::Mdma(r) => r.ch(info.num).bndtr().read().bndt(),
         }
     }
 
@@ -620,146 +933,151 @@ impl AnyChannel {
             DmaInfo::Bdma(regs) => regs.ch(info.num).cr().modify(|w| {
                 w.set_circ(false);
             }),
+            #[cfg(mdma)]
+            DmaInfo::Mdma(_regs) => (),
         }
     }
 
     fn poll_stop(&self) -> Poll<()> {
-        use core::sync::atomic::compiler_fence;
         compiler_fence(Ordering::SeqCst);
 
         if !self.is_running() {
+            fence(Ordering::Acquire);
+
             Poll::Ready(())
         } else {
             Poll::Pending
         }
     }
-}
 
-/// DMA transfer.
-#[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct Transfer<'a> {
-    channel: BusyPeripheral<Peri<'a, AnyChannel>>,
-}
-
-impl<'a> Transfer<'a> {
-    /// Create a new memory DMA transfer (memory to memory), using raw pointers.
-    pub unsafe fn new_transfer<MW: Word, PW: Word>(
-        channel: Peri<'a, impl Channel>,
+    /// Create a memory DMA transfer (memory to memory), using raw pointers.
+    pub unsafe fn transfer<'a, MW: Word, PW: Word>(
+        &'a mut self,
         request: Request,
-        buf: *const [MW],
-        dest_addr: *mut PW,
+        buf: *const [PW],
+        dest_addr: *mut MW,
         options: TransferOptions,
-    ) -> Self {
-        Self::new_transfer_raw(
-            channel,
-            request,
-            buf as *const MW as *mut u32,
-            buf.len(),
-            dest_addr,
-            options,
-        )
+    ) -> Transfer<'a> {
+        self.transfer_raw(request, buf as *const PW, buf.len(), dest_addr, options)
     }
 
-    /// Create a new memory DMA transfer (memory to memory), using raw pointers.
-    pub unsafe fn new_transfer_raw<MW: Word, PW: Word>(
-        channel: Peri<'a, impl Channel>,
+    /// Create a memory DMA transfer (memory to memory), using raw pointers.
+    pub unsafe fn transfer_raw<'a, MW: Word, PW: Word>(
+        &'a mut self,
         request: Request,
         src_addr: *const MW,
         src_size: usize,
         dest_addr: *mut PW,
         options: TransferOptions,
-    ) -> Self {
-        Self::new_inner(
-            channel.into(),
+    ) -> Transfer<'a> {
+        self.configure(
             request,
             Dir::MemoryToMemory,
             src_addr as *mut u32,
             dest_addr as *mut u32,
             src_size,
-            Increment::Peripheral,
+            Increment::Both,
             MW::size(),
             PW::size(),
             options,
-        )
+        );
+        self.start();
+        Transfer {
+            _wake_guard: self.info().wake_guard(),
+            channel: self.reborrow(),
+        }
     }
 
-    /// Create a new read DMA transfer (peripheral to memory).
-    pub unsafe fn new_read<W: Word>(
-        channel: Peri<'a, impl Channel>,
+    /// Create a read DMA transfer (peripheral to memory).
+    pub unsafe fn read<'a, W: Word>(
+        &'a mut self,
         request: Request,
         peri_addr: *mut W,
         buf: &'a mut [W],
         options: TransferOptions,
-    ) -> Self {
-        Self::new_read_raw(channel, request, peri_addr, buf, options)
+    ) -> Transfer<'a> {
+        self.read_raw(request, peri_addr, buf, options)
     }
 
-    /// Create a new read DMA transfer (peripheral to memory), using raw pointers.
-    pub unsafe fn new_read_raw<MW: Word, PW: Word>(
-        channel: Peri<'a, impl Channel>,
+    /// Create a read DMA transfer (peripheral to memory), using raw pointers.
+    pub unsafe fn read_raw<'a, MW: Word, PW: Word>(
+        &'a mut self,
         request: Request,
         peri_addr: *mut PW,
         buf: *mut [MW],
         options: TransferOptions,
-    ) -> Self {
-        Self::new_inner(
-            channel.into(),
+    ) -> Transfer<'a> {
+        let mem_len = buf.len();
+
+        self.configure(
             request,
             Dir::PeripheralToMemory,
             peri_addr as *const u32,
             buf as *mut MW as *mut u32,
-            buf.len(),
+            mem_len,
             Increment::Memory,
             MW::size(),
             PW::size(),
             options,
-        )
+        );
+        self.start();
+        Transfer {
+            _wake_guard: self.info().wake_guard(),
+            channel: self.reborrow(),
+        }
     }
 
-    /// Create a new write DMA transfer (memory to peripheral).
-    pub unsafe fn new_write<MW: Word, PW: Word>(
-        channel: Peri<'a, impl Channel>,
+    /// Create a write DMA transfer (memory to peripheral).
+    pub unsafe fn write<'a, MW: Word, PW: Word>(
+        &'a mut self,
         request: Request,
         buf: &'a [MW],
         peri_addr: *mut PW,
         options: TransferOptions,
-    ) -> Self {
-        Self::new_write_raw(channel, request, buf, peri_addr, options)
+    ) -> Transfer<'a> {
+        self.write_raw(request, buf, peri_addr, options)
     }
 
-    /// Create a new write DMA transfer (memory to peripheral), using raw pointers.
-    pub unsafe fn new_write_raw<MW: Word, PW: Word>(
-        channel: Peri<'a, impl Channel>,
+    /// Create a write DMA transfer (memory to peripheral), using raw pointers.
+    pub unsafe fn write_raw<'a, MW: Word, PW: Word>(
+        &'a mut self,
         request: Request,
         buf: *const [MW],
         peri_addr: *mut PW,
         options: TransferOptions,
-    ) -> Self {
-        Self::new_inner(
-            channel.into(),
+    ) -> Transfer<'a> {
+        let mem_len = buf.len();
+
+        self.configure(
             request,
             Dir::MemoryToPeripheral,
             peri_addr as *const u32,
             buf as *const MW as *mut u32,
-            buf.len(),
+            mem_len,
             Increment::Memory,
             MW::size(),
             PW::size(),
             options,
-        )
+        );
+        self.start();
+        Transfer {
+            _wake_guard: self.info().wake_guard(),
+            channel: self.reborrow(),
+        }
     }
 
-    /// Create a new write DMA transfer (memory to peripheral), writing the same value repeatedly.
-    pub unsafe fn new_write_repeated<W: Word>(
-        channel: Peri<'a, impl Channel>,
+    /// Create a write DMA transfer (memory to peripheral), writing the same value repeatedly.
+    pub unsafe fn write_repeated<'a, W: Word>(
+        &'a mut self,
         request: Request,
         repeated: &'a W,
         count: usize,
         peri_addr: *mut W,
         options: TransferOptions,
-    ) -> Self {
-        Self::new_inner(
-            channel.into(),
+    ) -> Transfer<'a> {
+        assert!(count > 0 && count <= 0xFFFF);
+
+        self.configure(
             request,
             Dir::MemoryToPeripheral,
             peri_addr as *const u32,
@@ -769,32 +1087,23 @@ impl<'a> Transfer<'a> {
             W::size(),
             W::size(),
             options,
-        )
-    }
-
-    unsafe fn new_inner(
-        channel: Peri<'a, AnyChannel>,
-        _request: Request,
-        dir: Dir,
-        peri_addr: *const u32,
-        mem_addr: *mut u32,
-        mem_len: usize,
-        incr_mem: Increment,
-        mem_size: WordSize,
-        peri_size: WordSize,
-        options: TransferOptions,
-    ) -> Self {
-        assert!(mem_len > 0 && mem_len <= 0xFFFF);
-
-        channel.configure(
-            _request, dir, peri_addr, mem_addr, mem_len, incr_mem, mem_size, peri_size, options,
         );
-        channel.start();
-        Self {
-            channel: BusyPeripheral::new(channel),
+        self.start();
+        Transfer {
+            _wake_guard: self.info().wake_guard(),
+            channel: self.reborrow(),
         }
     }
+}
 
+/// DMA transfer.
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+pub struct Transfer<'a> {
+    channel: Channel<'a>,
+    _wake_guard: WakeGuard,
+}
+
+impl<'a> Transfer<'a> {
     /// Request the transfer to pause, keeping the existing configuration for this channel.
     ///
     /// To resume the transfer, call [`request_resume`](Self::request_resume) again.
@@ -826,7 +1135,7 @@ impl<'a> Transfer<'a> {
 
     /// Gets the total remaining transfers for the channel
     /// Note: this will be zero for transfers that completed without cancellation.
-    pub fn get_remaining_transfers(&self) -> u16 {
+    pub fn get_remaining_transfers(&self) -> u32 {
         self.channel.get_remaining_transfers()
     }
 
@@ -838,6 +1147,10 @@ impl<'a> Transfer<'a> {
         fence(Ordering::SeqCst);
 
         core::mem::forget(self);
+    }
+
+    pub(crate) unsafe fn unchecked_extend_lifetime(self) -> Transfer<'static> {
+        unsafe { core::mem::transmute(self) }
     }
 }
 
@@ -859,9 +1172,12 @@ impl<'a> Future for Transfer<'a> {
 
         state.waker.register(cx.waker());
 
+        compiler_fence(Ordering::SeqCst);
         if self.is_running() {
             Poll::Pending
         } else {
+            fence(Ordering::Acquire);
+
             Poll::Ready(())
         }
     }
@@ -869,7 +1185,7 @@ impl<'a> Future for Transfer<'a> {
 
 // ==============================
 
-struct DmaCtrlImpl<'a>(Peri<'a, AnyChannel>);
+struct DmaCtrlImpl<'a>(Channel<'a>);
 
 impl<'a> DmaCtrl for DmaCtrlImpl<'a> {
     fn get_remaining_transfers(&self) -> usize {
@@ -895,20 +1211,21 @@ impl<'a> DmaCtrl for DmaCtrlImpl<'a> {
 
 /// Ringbuffer for receiving data using DMA circular mode.
 pub struct ReadableRingBuffer<'a, W: Word> {
-    channel: BusyPeripheral<Peri<'a, AnyChannel>>,
+    channel: Channel<'a>,
+    _wake_guard: WakeGuard,
     ringbuf: ReadableDmaRingBuffer<'a, W>,
 }
 
 impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// Create a new ring buffer.
     pub unsafe fn new(
-        channel: Peri<'a, impl Channel>,
+        channel: Channel<'a>,
         _request: Request,
         peri_addr: *mut W,
         buffer: &'a mut [W],
         mut options: TransferOptions,
     ) -> Self {
-        let channel: Peri<'a, AnyChannel> = channel.into();
+        let channel: Channel<'a> = channel.into();
 
         let buffer_ptr = buffer.as_mut_ptr();
         let len = buffer.len();
@@ -932,7 +1249,8 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         );
 
         Self {
-            channel: BusyPeripheral::new(channel),
+            _wake_guard: channel.info().wake_guard(),
+            channel,
             ringbuf: ReadableDmaRingBuffer::new(buffer),
         }
     }
@@ -942,6 +1260,13 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// You must call this after creating it for it to work.
     pub fn start(&mut self) {
         self.channel.start();
+    }
+
+    /// Set the frame alignment for the ring buffer.
+    ///
+    /// See [`ReadableDmaRingBuffer::set_alignment`] for details.
+    pub fn set_alignment(&mut self, alignment: usize) {
+        self.ringbuf.set_alignment(alignment);
     }
 
     /// Clear all data in the ring buffer.
@@ -978,6 +1303,18 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// The current length of the ringbuffer
     pub fn len(&mut self) -> Result<usize, Error> {
         Ok(self.ringbuf.len(&mut DmaCtrlImpl(self.channel.reborrow()))?)
+    }
+
+    /// Read the most recent elements from the ring buffer, discarding any older data.
+    ///
+    /// Returns the number of elements actually read into `buf`. Unlike [`read`](Self::read),
+    /// this method **never returns an overrun error**. If the DMA has lapped the read pointer,
+    /// old data is silently discarded and only the most recent samples are returned.
+    ///
+    /// This is ideal for use cases like ADC sampling where the consumer only cares about
+    /// the latest values.
+    pub fn read_latest(&mut self, buf: &mut [W]) -> usize {
+        self.ringbuf.read_latest(&mut DmaCtrlImpl(self.channel.reborrow()), buf)
     }
 
     /// The capacity of the ringbuffer
@@ -1051,20 +1388,21 @@ impl<'a, W: Word> Drop for ReadableRingBuffer<'a, W> {
 
 /// Ringbuffer for writing data using DMA circular mode.
 pub struct WritableRingBuffer<'a, W: Word> {
-    channel: BusyPeripheral<Peri<'a, AnyChannel>>,
+    channel: Channel<'a>,
+    _wake_guard: WakeGuard,
     ringbuf: WritableDmaRingBuffer<'a, W>,
 }
 
 impl<'a, W: Word> WritableRingBuffer<'a, W> {
     /// Create a new ring buffer.
     pub unsafe fn new(
-        channel: Peri<'a, impl Channel>,
+        channel: Channel<'a>,
         _request: Request,
         peri_addr: *mut W,
         buffer: &'a mut [W],
         mut options: TransferOptions,
     ) -> Self {
-        let channel: Peri<'a, AnyChannel> = channel.into();
+        let channel: Channel<'a> = channel.into();
 
         let len = buffer.len();
         let dir = Dir::MemoryToPeripheral;
@@ -1088,7 +1426,8 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         );
 
         Self {
-            channel: BusyPeripheral::new(channel),
+            _wake_guard: channel.info().wake_guard(),
+            channel,
             ringbuf: WritableDmaRingBuffer::new(buffer),
         }
     }

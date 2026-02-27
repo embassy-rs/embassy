@@ -52,7 +52,7 @@ use embassy_executor::*;
 #[cfg(not(feature = "_lp-time-driver"))]
 use crate::interrupt;
 pub use crate::rcc::StopMode;
-use crate::rcc::{BusyPeripheral, REFCOUNT_STOP1, REFCOUNT_STOP2};
+use crate::rcc::{REFCOUNT_STOP1, REFCOUNT_STOP2};
 #[cfg(feature = "low-power")]
 use crate::time_driver::LPTimeDriver;
 use crate::time_driver::get_driver;
@@ -77,30 +77,6 @@ fn __pender(context: *mut ()) {
             TASKS_PENDING.store(true, Ordering::Release);
             core::arch::asm!("sev");
             return;
-        }
-    }
-}
-
-/// Prevent the device from going into the stop mode if held
-pub struct DeviceBusy {
-    _stop_mode: BusyPeripheral<StopMode>,
-}
-
-impl DeviceBusy {
-    /// Create a new DeviceBusy with stop1.
-    pub fn new_stop1() -> Self {
-        Self::new(StopMode::Stop1)
-    }
-
-    /// Create a new DeviceBusy with stop2.
-    pub fn new_stop2() -> Self {
-        Self::new(StopMode::Stop2)
-    }
-
-    /// Create a new DeviceBusy.
-    pub fn new(stop_mode: StopMode) -> Self {
-        Self {
-            _stop_mode: BusyPeripheral::new(stop_mode),
         }
     }
 }
@@ -284,6 +260,16 @@ impl Executor {
                 }
             }
 
+            #[cfg(stm32l0)]
+            {
+                let csr = crate::pac::PWR.csr().read();
+                if csr.wuf() {
+                    debug!("low power: cpu has been in STOP");
+                    crate::rcc::init(unsafe { crate::rcc::get_rcc_config() }.unwrap());
+                    crate::pac::PWR.cr().modify(|w| w.set_cwuf(true));
+                }
+            }
+
             get_driver().resume_time(_cs);
 
             trace!("low power: resumed");
@@ -412,6 +398,15 @@ impl Executor {
             v.set_svos(vals::Svos::SCALE3);
         });
 
+        #[cfg(stm32l0)]
+        {
+            use crate::pac::pwr::vals::Pdds;
+            crate::pac::PWR.cr().modify(|w| {
+                w.set_pdds(Pdds::STOP_MODE);
+                w.set_cwuf(true);
+            });
+        }
+
         #[cfg(stm32wb)]
         drop(mutex);
 
@@ -446,8 +441,11 @@ impl Executor {
 
             Some(stop_mode)
         })
-        .map(|stop_mode| {
-            trace!("low power: enter stop: {}", stop_mode);
+        .map(|_stop_mode| {
+            #[cfg(stm32l0)]
+            trace!("low power: enter stop");
+            #[cfg(not(stm32l0))]
+            trace!("low power: enter stop: {}", _stop_mode);
 
             #[cfg(not(feature = "low-power-debug-with-sleep"))]
             Self::get_scb().set_sleepdeep();

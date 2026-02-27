@@ -3,8 +3,12 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_stm32::{Config, sai};
+use embassy_stm32::{Config, bind_interrupts, dma, peripherals, sai};
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    GPDMA1_CHANNEL0 => dma::InterruptHandler<peripherals::GPDMA1_CH0>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -37,6 +41,7 @@ async fn main(_spawner: Spawner) {
         p.PF9,
         p.GPDMA1_CH0,
         &mut write_buffer,
+        Irqs,
         Default::default(),
     );
 

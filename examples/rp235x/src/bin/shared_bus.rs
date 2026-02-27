@@ -7,11 +7,11 @@ use defmt::*;
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
 use embassy_executor::Spawner;
-use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::i2c::{self, I2c, InterruptHandler};
-use embassy_rp::peripherals::{I2C1, SPI1};
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, I2C1, SPI1};
 use embassy_rp::spi::{self, Spi};
+use embassy_rp::{bind_interrupts, dma};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::Timer;
@@ -23,6 +23,7 @@ type I2c1Bus = Mutex<NoopRawMutex, I2c<'static, I2C1, i2c::Async>>;
 
 bind_interrupts!(struct Irqs {
     I2C1_IRQ => InterruptHandler<I2C1>;
+    DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>, dma::InterruptHandler<DMA_CH1>;
 });
 
 #[embassy_executor::main]
@@ -40,7 +41,9 @@ async fn main(spawner: Spawner) {
 
     // Shared SPI bus
     let spi_cfg = spi::Config::default();
-    let spi = Spi::new(p.SPI1, p.PIN_10, p.PIN_11, p.PIN_12, p.DMA_CH0, p.DMA_CH1, spi_cfg);
+    let spi = Spi::new(
+        p.SPI1, p.PIN_10, p.PIN_11, p.PIN_12, p.DMA_CH0, p.DMA_CH1, Irqs, spi_cfg,
+    );
     static SPI_BUS: StaticCell<Spi1Bus> = StaticCell::new();
     let spi_bus = SPI_BUS.init(Mutex::new(spi));
 

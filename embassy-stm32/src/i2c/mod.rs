@@ -20,7 +20,7 @@ use mode::MasterMode;
 pub use mode::{Master, MultiMaster};
 
 use crate::dma::ChannelAndRequest;
-use crate::gpio::{AnyPin, SealedPin as _};
+use crate::gpio::Flex;
 use crate::interrupt::typelevel::Interrupt;
 use crate::mode::{Async, Blocking, Mode};
 use crate::rcc::{RccInfo, SealedRccPeripheral};
@@ -117,18 +117,11 @@ pub enum SendStatus {
 
 struct I2CDropGuard<'d> {
     info: &'static Info,
-    scl: Option<Peri<'d, AnyPin>>,
-    sda: Option<Peri<'d, AnyPin>>,
+    _scl: Option<Flex<'d>>,
+    _sda: Option<Flex<'d>>,
 }
 impl<'d> Drop for I2CDropGuard<'d> {
     fn drop(&mut self) {
-        if let Some(x) = self.scl.as_ref() {
-            x.set_as_disconnected()
-        }
-        if let Some(x) = self.sda.as_ref() {
-            x.set_as_disconnected()
-        }
-
         self.info.rcc.disable_without_stop();
     }
 }
@@ -149,23 +142,25 @@ pub struct I2c<'d, M: Mode, IM: MasterMode> {
 
 impl<'d> I2c<'d, Async, Master> {
     /// Create a new I2C driver.
-    pub fn new<T: Instance, #[cfg(afio)] A>(
+    pub fn new<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         scl: Peri<'d, if_afio!(impl SclPin<T, A>)>,
         sda: Peri<'d, if_afio!(impl SdaPin<T, A>)>,
+        tx_dma: Peri<'d, D1>,
+        rx_dma: Peri<'d, D2>,
         _irq: impl interrupt::typelevel::Binding<T::EventInterrupt, EventInterruptHandler<T>>
         + interrupt::typelevel::Binding<T::ErrorInterrupt, ErrorInterruptHandler<T>>
+        + interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
+        + interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
         + 'd,
-        tx_dma: Peri<'d, impl TxDma<T>>,
-        rx_dma: Peri<'d, impl RxDma<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
             peri,
             new_pin!(scl, config.scl_af()),
             new_pin!(sda, config.sda_af()),
-            new_dma!(tx_dma),
-            new_dma!(rx_dma),
+            new_dma!(tx_dma, _irq),
+            new_dma!(rx_dma, _irq),
             config,
         )
     }
@@ -194,8 +189,8 @@ impl<'d, M: Mode> I2c<'d, M, Master> {
     /// Create a new I2C driver.
     fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
-        scl: Option<Peri<'d, AnyPin>>,
-        sda: Option<Peri<'d, AnyPin>>,
+        _scl: Option<Flex<'d>>,
+        _sda: Option<Flex<'d>>,
         tx_dma: Option<ChannelAndRequest<'d>>,
         rx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
@@ -215,8 +210,8 @@ impl<'d, M: Mode> I2c<'d, M, Master> {
             _phantom2: PhantomData,
             _drop_guard: I2CDropGuard {
                 info: T::info(),
-                scl,
-                sda,
+                _scl,
+                _sda,
             },
         };
 

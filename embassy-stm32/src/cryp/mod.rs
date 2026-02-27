@@ -1461,18 +1461,21 @@ impl<'d, T: Instance, M: Mode> Cryp<'d, T, M> {
 
 impl<'d, T: Instance> Cryp<'d, T, Async> {
     /// Create a new CRYP driver.
-    pub fn new(
+    pub fn new<D1: DmaIn<T>, D2: DmaOut<T>>(
         peri: Peri<'d, T>,
-        indma: Peri<'d, impl DmaIn<T>>,
-        outdma: Peri<'d, impl DmaOut<T>>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        indma: Peri<'d, D1>,
+        outdma: Peri<'d, D2>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
+        + interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + 'd,
     ) -> Self {
         rcc::enable_and_reset::<T>();
         let instance = Self {
             _peripheral: peri,
             _phantom: PhantomData,
-            indma: new_dma!(indma),
-            outdma: new_dma!(outdma),
+            indma: new_dma!(indma, _irq),
+            outdma: new_dma!(outdma, _irq),
         };
 
         T::Interrupt::unpend();

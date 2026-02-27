@@ -4,33 +4,66 @@ use core::marker::PhantomData;
 use embassy_hal_internal::{Peri, PeripheralType};
 use maitake_sync::WaitCell;
 
-use crate::clocks::with_clocks;
+use crate::clocks::{WakeGuard, with_clocks};
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac;
-use crate::pac::rtc0::cr::Um;
-
-/// Global wait cell for alarm notifications
-static WAKER: WaitCell = WaitCell::new();
+use crate::pac::rtc::vals::{Swr, Tcr, Um};
 
 /// RTC interrupt handler.
 pub struct InterruptHandler<I: Instance> {
     _phantom: PhantomData<I>,
 }
 
-/// Trait for RTC peripheral instances
-pub trait Instance: PeripheralType {
-    type Interrupt: Interrupt;
-    fn ptr() -> &'static pac::rtc0::RegisterBlock;
+trait SealedInstance {
+    fn info() -> &'static Info;
+
+    const PERF_INT_INCR: fn();
+    const PERF_INT_WAKE_INCR: fn();
 }
+
+/// Trait for RTC peripheral instances
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
+    type Interrupt: Interrupt;
+}
+
+struct Info {
+    regs: pac::rtc::Rtc,
+    wait_cell: WaitCell,
+}
+
+impl Info {
+    #[inline(always)]
+    fn regs(&self) -> pac::rtc::Rtc {
+        self.regs
+    }
+
+    #[inline(always)]
+    fn wait_cell(&self) -> &WaitCell {
+        &self.wait_cell
+    }
+}
+
+unsafe impl Sync for Info {}
 
 /// Token for RTC0
 pub type Rtc0 = crate::peripherals::RTC0;
+impl SealedInstance for crate::peripherals::RTC0 {
+    #[inline(always)]
+    fn info() -> &'static Info {
+        static INFO: Info = Info {
+            regs: pac::RTC0,
+            wait_cell: WaitCell::new(),
+        };
+        &INFO
+    }
+
+    const PERF_INT_INCR: fn() = crate::perf_counters::incr_interrupt_rtc0;
+    const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::incr_interrupt_rtc0_wake;
+}
+
 impl Instance for crate::peripherals::RTC0 {
     type Interrupt = crate::interrupt::typelevel::RTC;
-    #[inline(always)]
-    fn ptr() -> &'static pac::rtc0::RegisterBlock {
-        unsafe { &*pac::Rtc0::ptr() }
-    }
 }
 
 /// Number of days in a standard year
@@ -62,7 +95,7 @@ pub struct RtcConfig {
     #[allow(dead_code)]
     supervisor_access: bool,
     compensation_interval: u8,
-    compensation_time: u8,
+    compensation_time: Tcr,
 }
 
 /// RTC interrupt enable flags
@@ -199,57 +232,57 @@ pub fn convert_seconds_to_datetime(seconds: u32) -> RtcDateTime {
 pub fn get_default_config() -> RtcConfig {
     RtcConfig {
         wakeup_select: false,
-        update_mode: Um::Um0,
+        update_mode: Um::UM_0,
         supervisor_access: false,
         compensation_interval: 0,
-        compensation_time: 0,
+        compensation_time: Tcr::TCR_0,
     }
 }
 /// Minimal RTC handle for a specific instance I (store the zero-sized token like embassy)
 pub struct Rtc<'a> {
     _inst: core::marker::PhantomData<&'a mut ()>,
-    info: &'static pac::rtc0::RegisterBlock,
+    info: &'static Info,
+    _wg: Option<WakeGuard>,
 }
 
 impl<'a> Rtc<'a> {
     /// Create a new instance of the real time clock.
-    pub fn new<I: Instance>(
-        _inst: Peri<'a, I>,
-        _irq: impl crate::interrupt::typelevel::Binding<I::Interrupt, InterruptHandler<I>> + 'a,
+    pub fn new<T: Instance>(
+        _inst: Peri<'a, T>,
+        _irq: impl crate::interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'a,
         config: RtcConfig,
     ) -> Self {
-        let info = I::ptr();
+        let info = T::info();
 
         // The RTC is NOT gated by the MRCC, but we DO need to make sure the 16k clock
         // on the vsys domain is active
         let clocks = with_clocks(|c| c.clk_16k_vsys.clone());
-        match clocks {
+        let clk = match clocks {
             None => panic!("Clocks have not been initialized"),
             Some(None) => panic!("Clocks initialized, but clk_16k_vsys not active"),
-            Some(Some(_)) => {}
-        }
+            Some(Some(clk)) => clk,
+        };
 
         // RTC reset
-        info.cr().modify(|_, w| w.swr().set_bit());
-        info.cr().modify(|_, w| w.swr().clear_bit());
-        info.tsr().write(|w| unsafe { w.bits(1) });
+        info.regs().cr().modify(|w| w.set_swr(Swr::SWR_1));
+        info.regs().cr().modify(|w| w.set_swr(Swr::SWR_0));
+        info.regs().tsr().write(|w| w.0 = 1);
 
-        info.cr().modify(|_, w| w.um().variant(config.update_mode));
+        info.regs().cr().modify(|w| w.set_um(config.update_mode));
 
-        info.tcr().modify(|_, w| unsafe {
-            w.cir()
-                .bits(config.compensation_interval)
-                .tcr()
-                .bits(config.compensation_time)
+        info.regs().tcr().modify(|w| {
+            w.set_cir(config.compensation_interval);
+            w.set_tcr(config.compensation_time);
         });
 
         // Enable RTC interrupt
-        I::Interrupt::unpend();
-        unsafe { I::Interrupt::enable() };
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
         Self {
             _inst: core::marker::PhantomData,
             info,
+            _wg: WakeGuard::for_power(&clk.power),
         }
     }
 
@@ -264,7 +297,7 @@ impl<'a> Rtc<'a> {
     /// The datetime is converted to Unix timestamp and written to the time seconds register.
     pub fn set_datetime(&self, datetime: RtcDateTime) {
         let seconds = convert_datetime_to_seconds(&datetime);
-        self.info.tsr().write(|w| unsafe { w.bits(seconds) });
+        self.info.regs().tsr().write(|w| w.0 = seconds);
     }
 
     /// Get the current date and time
@@ -277,7 +310,7 @@ impl<'a> Rtc<'a> {
     ///
     /// Reads the current Unix timestamp from the time seconds register and converts it.
     pub fn get_datetime(&self) -> RtcDateTime {
-        let seconds = self.info.tsr().read().bits();
+        let seconds = self.info.regs().tsr().read().0;
         convert_seconds_to_datetime(seconds)
     }
 
@@ -299,16 +332,16 @@ impl<'a> Rtc<'a> {
     pub fn set_alarm(&self, alarm: RtcDateTime) {
         let seconds = convert_datetime_to_seconds(&alarm);
 
-        self.info.tar().write(|w| unsafe { w.bits(0) });
+        self.info.regs().tar().write(|w| w.0 = 0);
         let mut timeout = 10000;
-        while self.info.tar().read().bits() != 0 && timeout > 0 {
+        while self.info.regs().tar().read().0 != 0 && timeout > 0 {
             timeout -= 1;
         }
 
-        self.info.tar().write(|w| unsafe { w.bits(seconds) });
+        self.info.regs().tar().write(|w| w.0 = seconds);
 
         let mut timeout = 10000;
-        while self.info.tar().read().bits() != seconds && timeout > 0 {
+        while self.info.regs().tar().read().0 != seconds && timeout > 0 {
             timeout -= 1;
         }
 
@@ -325,7 +358,7 @@ impl<'a> Rtc<'a> {
     ///
     /// Reads the alarm timestamp from the time alarm register and converts it.
     pub fn get_alarm(&self) -> RtcDateTime {
-        let alarm_seconds = self.info.tar().read().bits();
+        let alarm_seconds = self.info.regs().tar().read().0;
         convert_seconds_to_datetime(alarm_seconds)
     }
 
@@ -335,7 +368,7 @@ impl<'a> Rtc<'a> {
     ///
     /// Sets the Time Counter Enable (TCE) bit in the status register.
     pub fn start(&self) {
-        self.info.sr().modify(|_, w| w.tce().set_bit());
+        self.info.regs().sr().modify(|w| w.set_tce(true));
     }
 
     /// Stop the RTC time counter
@@ -344,7 +377,7 @@ impl<'a> Rtc<'a> {
     ///
     /// Clears the Time Counter Enable (TCE) bit in the status register.
     pub fn stop(&self) {
-        self.info.sr().modify(|_, w| w.tce().clear_bit());
+        self.info.regs().sr().modify(|w| w.set_tce(false));
     }
 
     /// Enable specific RTC interrupts
@@ -363,16 +396,16 @@ impl<'a> Rtc<'a> {
     /// - Seconds Interrupt
     pub fn set_interrupt(&self, mask: u32) {
         if (RtcInterruptEnable::RTC_TIME_INVALID_INTERRUPT_ENABLE & mask) != 0 {
-            self.info.ier().modify(|_, w| w.tiie().tiie_1());
+            self.info.regs().ier().modify(|w| w.set_tiie(true));
         }
         if (RtcInterruptEnable::RTC_TIME_OVERFLOW_INTERRUPT_ENABLE & mask) != 0 {
-            self.info.ier().modify(|_, w| w.toie().toie_1());
+            self.info.regs().ier().modify(|w| w.set_toie(true));
         }
         if (RtcInterruptEnable::RTC_ALARM_INTERRUPT_ENABLE & mask) != 0 {
-            self.info.ier().modify(|_, w| w.taie().taie_1());
+            self.info.regs().ier().modify(|w| w.set_taie(true));
         }
         if (RtcInterruptEnable::RTC_SECONDS_INTERRUPT_ENABLE & mask) != 0 {
-            self.info.ier().modify(|_, w| w.tsie().tsie_1());
+            self.info.regs().ier().modify(|w| w.set_tsie(true));
         }
     }
 
@@ -387,16 +420,16 @@ impl<'a> Rtc<'a> {
     /// This function disables the specified interrupt types.
     pub fn disable_interrupt(&self, mask: u32) {
         if (RtcInterruptEnable::RTC_TIME_INVALID_INTERRUPT_ENABLE & mask) != 0 {
-            self.info.ier().modify(|_, w| w.tiie().tiie_0());
+            self.info.regs().ier().modify(|w| w.set_tiie(false));
         }
         if (RtcInterruptEnable::RTC_TIME_OVERFLOW_INTERRUPT_ENABLE & mask) != 0 {
-            self.info.ier().modify(|_, w| w.toie().toie_0());
+            self.info.regs().ier().modify(|w| w.set_toie(false));
         }
         if (RtcInterruptEnable::RTC_ALARM_INTERRUPT_ENABLE & mask) != 0 {
-            self.info.ier().modify(|_, w| w.taie().taie_0());
+            self.info.regs().ier().modify(|w| w.set_taie(false));
         }
         if (RtcInterruptEnable::RTC_SECONDS_INTERRUPT_ENABLE & mask) != 0 {
-            self.info.ier().modify(|_, w| w.tsie().tsie_0());
+            self.info.regs().ier().modify(|w| w.set_tsie(false));
         }
     }
 
@@ -406,7 +439,7 @@ impl<'a> Rtc<'a> {
     ///
     /// This function clears the Time Alarm Interrupt Enable bit.
     pub fn clear_alarm_flag(&self) {
-        self.info.ier().modify(|_, w| w.taie().clear_bit());
+        self.info.regs().ier().modify(|w| w.set_taie(false));
     }
 
     /// Wait for an RTC alarm to trigger.
@@ -418,7 +451,7 @@ impl<'a> Rtc<'a> {
     /// This function will wait until the RTC alarm is triggered.
     /// If no alarm is scheduled, it will wait indefinitely until one is scheduled and triggered.
     pub async fn wait_for_alarm(&mut self, alarm: RtcDateTime) {
-        let wait = WAKER.subscribe().await;
+        let wait = self.info.wait_cell().subscribe().await;
 
         self.set_alarm(alarm);
         self.start();
@@ -436,14 +469,14 @@ impl<'a> Rtc<'a> {
 /// This struct implements the interrupt handler for RTC events.
 impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        unsafe {
-            let rtc = &*pac::Rtc0::ptr();
-            // Check if this is actually a time alarm interrupt
-            let sr = rtc.sr().read();
-            if sr.taf().bit_is_set() {
-                rtc.ier().modify(|_, w| w.taie().clear_bit());
-                WAKER.wake();
-            }
+        T::PERF_INT_INCR();
+        let rtc = pac::RTC0;
+        // Check if this is actually a time alarm interrupt
+        let sr = rtc.sr().read();
+        if sr.taf() {
+            rtc.ier().modify(|w| w.set_taie(false));
+            T::PERF_INT_WAKE_INCR();
+            T::info().wait_cell().wake();
         }
     }
 }

@@ -10,7 +10,7 @@ use embassy_stm32::mode::Async;
 use embassy_stm32::usart::{
     BufferedUartRx, BufferedUartTx, Config, ConfigError, OutputConfig, RingBufferedUartRx, UartTx,
 };
-use embassy_stm32::{bind_interrupts, peripherals, usart};
+use embassy_stm32::{bind_interrupts, dma, peripherals, usart};
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -19,6 +19,8 @@ fn create_onewire(p: embassy_stm32::Peripherals) -> OneWire<UartTx<'static, Asyn
     use embassy_stm32::usart::Uart;
     bind_interrupts!(struct Irqs {
         USART1 => usart::InterruptHandler<peripherals::USART1>;
+        DMA1_CHANNEL1 => dma::InterruptHandler<peripherals::DMA1_CH1>;
+        DMA1_CHANNEL2_3 => dma::InterruptHandler<peripherals::DMA1_CH2>;
     });
 
     let mut config = Config::default();
@@ -27,9 +29,9 @@ fn create_onewire(p: embassy_stm32::Peripherals) -> OneWire<UartTx<'static, Asyn
     let usart = Uart::new_half_duplex(
         p.USART1,
         p.PA9,
-        Irqs,
         p.DMA1_CH1,
         p.DMA1_CH2,
+        Irqs,
         config,
         // Enable readback so we can read sensor pulling data low while transmission is in progress
         usart::HalfDuplexReadback::Readback,

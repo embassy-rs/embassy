@@ -23,6 +23,7 @@ async fn main(_spawner: Spawner) {
     let mut miso = peri!(p, SPI_MISO);
     let mut tx_dma = peri!(p, SPI_TX_DMA);
     let mut rx_dma = peri!(p, SPI_RX_DMA);
+    let irq = irqs!(UART);
 
     let mut spi_config = spi::Config::default();
     spi_config.frequency = Hertz(1_000_000);
@@ -34,6 +35,7 @@ async fn main(_spawner: Spawner) {
         miso.reborrow(), // Arduino D12
         tx_dma.reborrow(),
         rx_dma.reborrow(),
+        irq,
         spi_config,
     );
 
@@ -50,6 +52,7 @@ async fn main(_spawner: Spawner) {
         #[cfg(not(feature = "spi-v345"))]
         tx_dma.reborrow(),
         rx_dma.reborrow(),
+        irq,
         spi_config,
     );
     let mut mosi_out = Output::new(mosi.reborrow(), Level::Low, Speed::VeryHigh);
@@ -64,13 +67,14 @@ async fn main(_spawner: Spawner) {
         sck.reborrow(),
         mosi.reborrow(),
         tx_dma.reborrow(),
+        irq,
         spi_config,
     );
     test_tx::<u8>(&mut spi).await;
     test_tx::<u16>(&mut spi).await;
     drop(spi);
 
-    let mut spi = Spi::new_txonly_nosck(spi_peri.reborrow(), mosi.reborrow(), tx_dma.reborrow(), spi_config);
+    let mut spi = Spi::new_txonly_nosck(spi_peri.reborrow(), mosi.reborrow(), tx_dma.reborrow(), irq, spi_config);
     test_tx::<u8>(&mut spi).await;
     test_tx::<u16>(&mut spi).await;
     drop(spi);

@@ -134,45 +134,39 @@ impl<'d> Crc<'d> {
         PAC_CRC.dr32().read()
     }
 
-    /// Feeds a byte into the CRC peripheral. Returns the computed CRC.
-    pub fn feed_byte(&mut self, byte: u8) -> u32 {
+    /// Feeds a byte into the CRC peripheral.
+    pub fn feed_byte(&mut self, byte: u8) {
         PAC_CRC.dr8().write_value(byte);
-        self.read()
     }
 
-    /// Feeds a slice of bytes into the CRC peripheral. Returns the computed CRC.
-    pub fn feed_bytes(&mut self, bytes: &[u8]) -> u32 {
+    /// Feeds a slice of bytes into the CRC peripheral.
+    pub fn feed_bytes(&mut self, bytes: &[u8]) {
         for byte in bytes {
             PAC_CRC.dr8().write_value(*byte);
         }
-        self.read()
     }
 
-    /// Feeds a halfword into the CRC peripheral. Returns the computed CRC.
-    pub fn feed_halfword(&mut self, halfword: u16) -> u32 {
+    /// Feeds a halfword into the CRC peripheral.
+    pub fn feed_halfword(&mut self, halfword: u16) {
         PAC_CRC.dr16().write_value(halfword);
-        self.read()
     }
 
-    /// Feeds a slice of halfwords into the CRC peripheral. Returns the computed CRC.
-    pub fn feed_halfwords(&mut self, halfwords: &[u16]) -> u32 {
+    /// Feeds a slice of halfwords into the CRC peripheral.
+    pub fn feed_halfwords(&mut self, halfwords: &[u16]) {
         for halfword in halfwords {
             PAC_CRC.dr16().write_value(*halfword);
         }
-        self.read()
     }
 
-    /// Feeds a word into the CRC peripheral. Returns the computed CRC.
-    pub fn feed_word(&mut self, word: u32) -> u32 {
+    /// Feeds a word into the CRC peripheral.
+    pub fn feed_word(&mut self, word: u32) {
         PAC_CRC.dr32().write_value(word as u32);
-        self.read()
     }
 
-    /// Feeds a slice of words into the CRC peripheral. Returns the computed CRC.
-    pub fn feed_words(&mut self, words: &[u32]) -> u32 {
+    /// Feeds a slice of words into the CRC peripheral.
+    pub fn feed_words(&mut self, words: &[u32]) {
         for word in words {
             PAC_CRC.dr32().write_value(*word as u32);
         }
-        self.read()
     }
 }

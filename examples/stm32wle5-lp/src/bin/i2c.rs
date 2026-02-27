@@ -7,14 +7,16 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::i2c::I2c;
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{bind_interrupts, i2c, peripherals};
+use embassy_stm32::{bind_interrupts, dma, i2c, peripherals};
 use embassy_time::{Duration, Timer};
 use panic_probe as _;
 use static_cell::StaticCell;
 
-bind_interrupts!(struct IrqsI2C{
+bind_interrupts!(struct Irqs{
     I2C2_EV => i2c::EventInterruptHandler<peripherals::I2C2>;
     I2C2_ER => i2c::ErrorInterruptHandler<peripherals::I2C2>;
+    DMA1_CHANNEL6 => dma::InterruptHandler<peripherals::DMA1_CH6>;
+    DMA1_CHANNEL7 => dma::InterruptHandler<peripherals::DMA1_CH7>;
 });
 
 #[embassy_executor::main(executor = "embassy_stm32::Executor", entry = "cortex_m_rt::entry")]
@@ -58,7 +60,7 @@ async fn async_main(_spawner: Spawner) {
     );
     core::mem::forget(en3v3); // keep the output pin enabled
 
-    let mut i2c = I2c::new(p.I2C2, p.PB15, p.PA15, IrqsI2C, p.DMA1_CH6, p.DMA1_CH7, {
+    let mut i2c = I2c::new(p.I2C2, p.PB15, p.PA15, p.DMA1_CH6, p.DMA1_CH7, Irqs, {
         let mut config = i2c::Config::default();
         config.frequency = Hertz::khz(100);
         config.timeout = Duration::from_millis(1000);

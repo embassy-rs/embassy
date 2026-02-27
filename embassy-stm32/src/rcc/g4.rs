@@ -331,6 +331,7 @@ pub(crate) unsafe fn init(config: Config) {
         hse: hse,
         hsi48: hsi48,
         rtc: rtc,
+        i2s_ckin: None,
         lsi: None,
         lse: None,
     );

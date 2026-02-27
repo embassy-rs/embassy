@@ -23,7 +23,7 @@ use embedded_graphics::pixelcolor::Rgb888;
 use embedded_graphics::pixelcolor::raw::RawU24;
 use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::Rectangle;
-use heapless::{Entry, FnvIndexMap};
+use heapless::index_map::{Entry, FnvIndexMap};
 use tinybmp::Bmp;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -127,7 +127,7 @@ async fn main(spawner: Spawner) {
 
 /// builds the color look-up table from all unique colors found in the bitmap. This should be a 256 color indexed bitmap to work.
 fn build_color_lookup_map(bmp: &Bmp<Rgb888>) -> FnvIndexMap<u32, u8, NUM_COLORS> {
-    let mut color_map: FnvIndexMap<u32, u8, NUM_COLORS> = heapless::FnvIndexMap::new();
+    let mut color_map: FnvIndexMap<u32, u8, NUM_COLORS> = FnvIndexMap::new();
     let mut counter: u8 = 0;
 
     // add black to position 0

@@ -49,6 +49,7 @@ pub trait DecimRate: sealed::Sealed + Into<vals::DecimRate> + Copy {}
 /// Fast decimation rates for non-cryptographic applications.
 /// See [`DecimRate`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FastDecimRate {
     Decim1,
     Decim2,
@@ -70,6 +71,7 @@ impl DecimRate for FastDecimRate {}
 /// Cryptographic decimation rates for cryptographic applications.
 /// See [`DecimRate`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum CryptoDecimRate {
     Decim4,
     Decim5,
@@ -94,6 +96,7 @@ impl DecimRate for CryptoDecimRate {}
 
 /// Represents errors that can arise during initialization with [`Trng::new`] or reading a value from the [`Trng`].
 #[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// L-series TRM
     /// The digital startup health test is run by application software when powering up the TRNG module.

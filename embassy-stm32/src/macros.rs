@@ -122,7 +122,7 @@ macro_rules! sel_trait_impl {
 macro_rules! dma_trait {
     ($signal:ident, $instance:path$(, $mode:path)?) => {
         #[doc = concat!(stringify!($signal), " DMA request trait")]
-        pub trait $signal<T: $instance $(, M: $mode)?>: crate::dma::Channel {
+        pub trait $signal<T: $instance $(, M: $mode)?>: crate::dma::ChannelInstance {
             #[doc = concat!("Get the DMA request number needed to use this channel as", stringify!($signal))]
             /// Note: in some chips, ST calls this the "channel", and calls channels "streams".
             /// `embassy-stm32` always uses the "channel" and "request number" names.
@@ -153,27 +153,48 @@ macro_rules! dma_trait_impl {
     };
 }
 
+// ====================
+
+#[allow(unused)]
+macro_rules! trigger_trait {
+    ($signal:ident, $instance:path$(, $mode:path)?) => {
+        #[doc = concat!(stringify!($signal), " trigger trait")]
+        pub trait $signal<T: $instance $(, M: $mode)?>  {
+            #[doc = concat!("Get the signal number needed to use this trigger as", stringify!($signal))]
+            /// Note: in some chips, ST calls this the "channel", and calls channels "streams".
+            /// `embassy-stm32` always uses the "channel" and "request number" names.
+            fn signal(&self) -> u8;
+        }
+    };
+}
+
+#[allow(unused)]
+macro_rules! trigger_trait_impl {
+    (crate::$mod:ident::$trait:ident$(<$mode:ident>)?, $instance:ident, $trigger:ident, $signal:expr) => {
+        impl crate::$mod::$trait<crate::peripherals::$instance $(, crate::$mod::$mode)?> for crate::triggers::$trigger {
+            fn signal(&self) -> u8 {
+                $signal
+            }
+        }
+    };
+}
+
 #[allow(unused)]
 macro_rules! new_dma_nonopt {
-    ($name:ident) => {{
+    ($name:ident, $irqs:expr) => {{
         let dma = $name;
+        dma.remap();
         let request = dma.request();
-        crate::dma::ChannelAndRequest {
-            channel: dma.into(),
-            request,
-        }
+        crate::dma::ChannelAndRequest::new(dma, $irqs, request)
     }};
 }
 
 macro_rules! new_dma {
-    ($name:ident) => {{
+    ($name:ident, $irqs:expr) => {{
         let dma = $name;
         dma.remap();
         let request = dma.request();
-        Some(crate::dma::ChannelAndRequest {
-            channel: dma.into(),
-            request,
-        })
+        Some(crate::dma::ChannelAndRequest::new(dma, $irqs, request))
     }};
 }
 
@@ -187,7 +208,7 @@ macro_rules! new_pin {
             pin.af_num(),
             $af_type,
         );
-        Some(pin.into())
+        Some(crate::gpio::Flex::new(pin))
     }};
 }
 

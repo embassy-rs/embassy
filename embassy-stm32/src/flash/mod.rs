@@ -1,14 +1,18 @@
 //! Flash memory (FLASH)
 use embedded_storage::nor_flash::{NorFlashError, NorFlashErrorKind};
 
-#[cfg(any(flash_f4, flash_h7, flash_h7ab))]
+#[cfg(any(
+    flash_f4, flash_g0x0, flash_g0x1, flash_g4c2, flash_g4c3, flash_g4c4, flash_h7, flash_h7ab, flash_l4
+))]
 mod asynch;
 #[cfg(flash)]
 mod common;
 #[cfg(eeprom)]
 mod eeprom;
 
-#[cfg(any(flash_f4, flash_h7, flash_h7ab))]
+#[cfg(any(
+    flash_f4, flash_g0x0, flash_g0x1, flash_g4c2, flash_g4c3, flash_g4c4, flash_h7, flash_h7ab, flash_l4
+))]
 pub use asynch::InterruptHandler;
 #[cfg(flash)]
 pub use common::*;
@@ -40,8 +44,8 @@ pub enum Async {}
 pub struct FlashRegion {
     /// Bank number.
     pub bank: FlashBank,
-    /// Absolute base address.
-    pub base: u32,
+    /// Offset from bank base.
+    pub offset: u32,
     /// Size in bytes.
     pub size: u32,
     /// Erase size (sector size).
@@ -54,9 +58,14 @@ pub struct FlashRegion {
 }
 
 impl FlashRegion {
+    /// Absolute base address.
+    pub fn base(&self) -> u32 {
+        self.bank.base() + self.offset
+    }
+
     /// Absolute end address.
-    pub const fn end(&self) -> u32 {
-        self.base + self.size
+    pub fn end(&self) -> u32 {
+        self.base() + self.size
     }
 
     /// Number of sectors in the region.

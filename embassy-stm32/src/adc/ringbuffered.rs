@@ -7,6 +7,7 @@ use embassy_hal_internal::Peri;
 use super::AdcRegs;
 #[allow(unused_imports)]
 use crate::adc::{Instance, RxDma};
+use crate::dma::Channel;
 #[allow(unused_imports)]
 use crate::dma::{ReadableRingBuffer, TransferOptions};
 use crate::rcc;
@@ -20,18 +21,32 @@ pub struct RingBufferedAdc<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> RingBufferedAdc<'d, T> {
-    pub(crate) fn new(dma: Peri<'d, impl RxDma<T>>, dma_buf: &'d mut [u16]) -> Self {
-        //dma side setup
+    pub(crate) fn new<D: RxDma<T>>(
+        dma: Peri<'d, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
+        dma_buf: &'d mut [u16],
+    ) -> Self {
+        // DMA side setup - configuration differs between DMA/BDMA and GPDMA
+        // For DMA/BDMA: use circular mode via TransferOptions
+        // For GPDMA: circular mode is achieved via linked-list ping-pong
+        #[cfg(not(gpdma))]
         let opts = TransferOptions {
             half_transfer_ir: true,
             circular: true,
             ..Default::default()
         };
 
+        #[cfg(gpdma)]
+        let opts = TransferOptions {
+            half_transfer_ir: true,
+            ..Default::default()
+        };
+
         // Safety: we forget the struct before this function returns.
         let request = dma.request();
 
-        let ring_buf = unsafe { ReadableRingBuffer::new(dma, request, T::regs().data(), dma_buf, opts) };
+        let ring_buf =
+            unsafe { ReadableRingBuffer::new(Channel::new(dma, irq), request, T::regs().data(), dma_buf, opts) };
 
         Self {
             _phantom: PhantomData,
@@ -55,6 +70,11 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
 
     pub fn clear(&mut self) {
         self.ring_buf.clear();
+    }
+
+    /// See [`ReadableDmaRingBuffer::set_alignment`] for details.
+    pub fn set_alignment(&mut self, alignment: usize) {
+        self.ring_buf.set_alignment(alignment);
     }
 
     /// Reads measurements from the DMA ring buffer.
@@ -127,6 +147,23 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
         //        }
 
         self.ring_buf.read_exact(measurements).await.map_err(|_| OverrunError)
+    }
+
+    /// Read the most recent ADC measurements, discarding any older data.
+    ///
+    /// Returns the number of samples actually read into `measurements`. Unlike [`read`](Self::read),
+    /// this method **never returns an overrun error**. If the DMA has lapped the consumer
+    /// (e.g. because the task was not scheduled quickly enough), old data is silently
+    /// discarded and only the most recent samples are returned.
+    ///
+    /// This is ideal for use cases like ADC oversampling where the consumer only cares about
+    /// the latest values and stale data can be safely ignored.
+    pub fn read_latest(&mut self, measurements: &mut [u16]) -> usize {
+        if !self.ring_buf.is_running() {
+            self.start();
+        }
+
+        self.ring_buf.read_latest(measurements)
     }
 
     /// Read bytes that are readily available in the ring buffer.

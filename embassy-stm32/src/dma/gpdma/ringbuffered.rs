@@ -6,16 +6,14 @@ use core::future::poll_fn;
 use core::sync::atomic::{Ordering, fence};
 use core::task::Waker;
 
-use embassy_hal_internal::Peri;
-
-use super::{AnyChannel, STATE, TransferOptions};
+use super::{Channel, STATE, TransferOptions};
 use crate::dma::gpdma::linked_list::{RunMode, Table};
 use crate::dma::ringbuffer::{DmaCtrl, Error, ReadableDmaRingBuffer, WritableDmaRingBuffer};
 use crate::dma::word::Word;
-use crate::dma::{Channel, Dir, Request};
-use crate::rcc::BusyPeripheral;
+use crate::dma::{Dir, Request};
+use crate::rcc::WakeGuard;
 
-struct DmaCtrlImpl<'a>(Peri<'a, AnyChannel>);
+struct DmaCtrlImpl<'a>(Channel<'a>);
 
 impl<'a> DmaCtrl for DmaCtrlImpl<'a> {
     fn get_remaining_transfers(&self) -> usize {
@@ -50,7 +48,8 @@ impl<'a> DmaCtrl for DmaCtrlImpl<'a> {
 
 /// Ringbuffer for receiving data using GPDMA linked-list mode.
 pub struct ReadableRingBuffer<'a, W: Word> {
-    channel: BusyPeripheral<Peri<'a, AnyChannel>>,
+    channel: Channel<'a>,
+    _wake_guard: WakeGuard,
     ringbuf: ReadableDmaRingBuffer<'a, W>,
     table: Table<2>,
     options: TransferOptions,
@@ -61,17 +60,17 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     ///
     /// Transfer options are applied to the individual linked list items.
     pub unsafe fn new(
-        channel: Peri<'a, impl Channel>,
+        channel: Channel<'a>,
         request: Request,
         peri_addr: *mut W,
         buffer: &'a mut [W],
         options: TransferOptions,
     ) -> Self {
-        let channel: Peri<'a, AnyChannel> = channel.into();
         let table = Table::<2>::new_ping_pong::<W>(request, peri_addr, buffer, Dir::PeripheralToMemory);
 
         Self {
-            channel: BusyPeripheral::new(channel),
+            _wake_guard: channel.info().wake_guard(),
+            channel,
             ringbuf: ReadableDmaRingBuffer::new(buffer),
             table,
             options,
@@ -84,6 +83,13 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         unsafe { self.channel.configure_linked_list(&self.table, self.options) };
         self.table.link(RunMode::Circular);
         self.channel.start();
+    }
+
+    /// Set the frame alignment for the ring buffer.
+    ///
+    /// See [`ReadableDmaRingBuffer::set_alignment`] for details.
+    pub fn set_alignment(&mut self, alignment: usize) {
+        self.ringbuf.set_alignment(alignment);
     }
 
     /// Clear all data in the ring buffer.
@@ -120,6 +126,18 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// The current length of the ringbuffer
     pub fn len(&mut self) -> Result<usize, Error> {
         Ok(self.ringbuf.len(&mut DmaCtrlImpl(self.channel.reborrow()))?)
+    }
+
+    /// Read the most recent elements from the ring buffer, discarding any older data.
+    ///
+    /// Returns the number of elements actually read into `buf`. Unlike [`read`](Self::read),
+    /// this method **never returns an overrun error**. If the DMA has lapped the read pointer,
+    /// old data is silently discarded and only the most recent samples are returned.
+    ///
+    /// This is ideal for use cases like ADC sampling where the consumer only cares about
+    /// the latest values.
+    pub fn read_latest(&mut self, buf: &mut [W]) -> usize {
+        self.ringbuf.read_latest(&mut DmaCtrlImpl(self.channel.reborrow()), buf)
     }
 
     /// The capacity of the ringbuffer
@@ -190,7 +208,8 @@ impl<'a, W: Word> Drop for ReadableRingBuffer<'a, W> {
 
 /// Ringbuffer for writing data using GPDMA linked-list mode.
 pub struct WritableRingBuffer<'a, W: Word> {
-    channel: BusyPeripheral<Peri<'a, AnyChannel>>,
+    channel: Channel<'a>,
+    _wake_guard: WakeGuard,
     ringbuf: WritableDmaRingBuffer<'a, W>,
     table: Table<2>,
     options: TransferOptions,
@@ -201,17 +220,17 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
     ///
     /// Transfer options are applied to the individual linked list items.
     pub unsafe fn new(
-        channel: Peri<'a, impl Channel>,
+        channel: Channel<'a>,
         request: Request,
         peri_addr: *mut W,
         buffer: &'a mut [W],
         options: TransferOptions,
     ) -> Self {
-        let channel: Peri<'a, AnyChannel> = channel.into();
         let table = Table::<2>::new_ping_pong::<W>(request, peri_addr, buffer, Dir::MemoryToPeripheral);
 
         Self {
-            channel: BusyPeripheral::new(channel),
+            _wake_guard: channel.info().wake_guard(),
+            channel,
             ringbuf: WritableDmaRingBuffer::new(buffer),
             table,
             options,

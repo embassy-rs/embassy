@@ -7,12 +7,14 @@ use aes_gcm::aead::{AeadInPlace, KeyInit};
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_stm32::cryp::{self, *};
-use embassy_stm32::{Config, bind_interrupts, peripherals};
+use embassy_stm32::{Config, bind_interrupts, dma, peripherals};
 use embassy_time::Instant;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     CRYP => cryp::InterruptHandler<peripherals::CRYP>;
+    DMA2_STREAM6 => dma::InterruptHandler<peripherals::DMA2_CH6>;
+    DMA2_STREAM5 => dma::InterruptHandler<peripherals::DMA2_CH5>;
 });
 
 #[embassy_executor::main]

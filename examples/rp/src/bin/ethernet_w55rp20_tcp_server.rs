@@ -16,7 +16,7 @@ use embassy_net_wiznet::chip::W5500;
 use embassy_net_wiznet::*;
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
-use embassy_rp::peripherals::PIO0;
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, PIO0};
 use embassy_rp::pio_programs::spi::Spi;
 use embassy_rp::spi::{Async, Config as SpiConfig};
 use embassy_rp::{bind_interrupts, pio};
@@ -28,6 +28,7 @@ use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => pio::InterruptHandler<PIO0>;
+    DMA_IRQ_0 => embassy_rp::dma::InterruptHandler<DMA_CH0>, embassy_rp::dma::InterruptHandler<DMA_CH1>;
 });
 
 #[embassy_executor::task]
@@ -66,7 +67,7 @@ async fn main(spawner: Spawner) {
     let mut spi_cfg = SpiConfig::default();
     spi_cfg.frequency = 12_500_000; // The PIO SPI program is much less stable than the actual SPI
     // peripheral, use higher speeds at your peril
-    let spi = Spi::new(&mut common, sm0, clk, mosi, miso, p.DMA_CH0, p.DMA_CH1, spi_cfg);
+    let spi = Spi::new(&mut common, sm0, clk, mosi, miso, p.DMA_CH0, p.DMA_CH1, Irqs, spi_cfg);
 
     // Further control pins
     let cs = Output::new(p.PIN_20, Level::High);

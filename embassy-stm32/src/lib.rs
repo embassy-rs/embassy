@@ -59,8 +59,26 @@ pub mod backup_sram;
 #[cfg(can)]
 pub mod can;
 // FIXME: Cordic driver cause stm32u5a5zj crash
+#[cfg(aes_v3b)]
+pub mod aes;
+#[cfg(comp_u5)]
+pub mod comp;
 #[cfg(all(cordic, not(any(stm32u5a5, stm32u5a9))))]
 pub mod cordic;
+
+// Stub macros for COMP pin implementations when comp module is not compiled.
+// These are needed because build.rs generates macro calls for all chips with COMP,
+// but the actual macros are only defined in the comp module which is only compiled for comp_u5.
+#[cfg(all(comp, not(comp_u5)))]
+macro_rules! impl_comp_inp_pin {
+    ($inst:ident, $pin:ident, $ch:expr) => {};
+}
+#[cfg(all(comp, not(comp_u5)))]
+macro_rules! impl_comp_inm_pin {
+    ($inst:ident, $pin:ident, $ch:expr) => {};
+}
+#[cfg(any(ipcc, hsem))]
+pub mod cpu;
 #[cfg(crc)]
 pub mod crc;
 #[cfg(cryp)]
@@ -83,7 +101,7 @@ pub mod flash;
 pub mod fmc;
 #[cfg(hash)]
 pub mod hash;
-#[cfg(hrtim)]
+#[cfg(all(hrtim, feature = "stm32-hrtim"))]
 pub mod hrtim;
 #[cfg(hsem)]
 pub mod hsem;
@@ -107,12 +125,16 @@ pub mod ltdc;
 pub mod opamp;
 #[cfg(octospi)]
 pub mod ospi;
+#[cfg(pka_v1a)]
+pub mod pka;
 #[cfg(quadspi)]
 pub mod qspi;
 #[cfg(rng)]
 pub mod rng;
 #[cfg(all(rtc, not(rtc_v1)))]
 pub mod rtc;
+#[cfg(saes_v1a)]
+pub mod saes;
 #[cfg(sai)]
 pub mod sai;
 #[cfg(sdmmc)]
@@ -151,7 +173,7 @@ pub(crate) mod _generated {
     include!(concat!(env!("OUT_DIR"), "/_generated.rs"));
 }
 
-pub use crate::_generated::interrupt;
+pub use crate::_generated::{interrupt, triggers};
 
 /// Macro to bind interrupts to handlers.
 ///
@@ -296,6 +318,12 @@ pub struct Config {
     #[cfg(gpdma)]
     pub gpdma_interrupt_priority: Priority,
 
+    /// MDMA interrupt priority.
+    ///
+    /// Defaults to P0 (highest).
+    #[cfg(mdma)]
+    pub mdma_interrupt_priority: Priority,
+
     /// Enables UCPD1 dead battery functionality.
     ///
     /// Defaults to false (disabled).
@@ -307,6 +335,10 @@ pub struct Config {
     /// Defaults to false (disabled).
     #[cfg(peri_ucpd2)]
     pub enable_ucpd2_dead_battery: bool,
+
+    /// Allows JTAG pins to be used for GPIO
+    #[cfg(stm32f1)]
+    pub swj: gpio::SwjCfg,
 }
 
 impl Default for Config {
@@ -329,10 +361,14 @@ impl Default for Config {
             dma_interrupt_priority: Priority::P0,
             #[cfg(gpdma)]
             gpdma_interrupt_priority: Priority::P0,
+            #[cfg(mdma)]
+            mdma_interrupt_priority: Priority::P0,
             #[cfg(peri_ucpd1)]
             enable_ucpd1_dead_battery: false,
             #[cfg(peri_ucpd2)]
             enable_ucpd2_dead_battery: false,
+            #[cfg(stm32f1)]
+            swj: Default::default(),
         }
     }
 }
@@ -472,6 +508,8 @@ mod dual_core {
                     config.dma_interrupt_priority,
                     #[cfg(gpdma)]
                     config.gpdma_interrupt_priority,
+                    #[cfg(mdma)]
+                    config.mdma_interrupt_priority,
                 )
             }
 
@@ -492,6 +530,8 @@ mod dual_core {
         dma_interrupt_priority: Priority,
         #[cfg(gpdma)]
         gpdma_interrupt_priority: Priority,
+        #[cfg(mdma)]
+        mdma_interrupt_priority: Priority,
     }
 
     impl From<Config> for SharedConfig {
@@ -503,6 +543,8 @@ mod dual_core {
                 dma_interrupt_priority,
                 #[cfg(gpdma)]
                 gpdma_interrupt_priority,
+                #[cfg(mdma)]
+                mdma_interrupt_priority,
                 ..
             } = value;
 
@@ -513,6 +555,8 @@ mod dual_core {
                 dma_interrupt_priority,
                 #[cfg(gpdma)]
                 gpdma_interrupt_priority,
+                #[cfg(mdma)]
+                mdma_interrupt_priority,
             }
         }
     }
@@ -568,6 +612,9 @@ fn init_hw(config: Config) -> Peripherals {
             }
         });
 
+        #[cfg(any(stm32h7rs))]
+        // On the H7RS the SYSCFG should not be reset if it is already enabled. This is typically the case when running from external flash and the bootloader enables the SYSCFG.
+        rcc::enable_with_cs::<peripherals::SYSCFG>(cs);
         #[cfg(not(any(stm32f1, stm32wb, stm32wl, stm32h7rs)))]
         rcc::enable_and_reset_with_cs::<peripherals::SYSCFG>(cs);
         #[cfg(not(any(stm32h5, stm32h7, stm32h7rs, stm32wb, stm32wl)))]
@@ -651,6 +698,10 @@ fn init_hw(config: Config) -> Peripherals {
             });
 
             gpio::init(cs);
+
+            #[cfg(stm32f1)]
+            crate::pac::AFIO.mapr().modify(|w| w.set_swj_cfg(config.swj.into()));
+
             dma::init(
                 cs,
                 #[cfg(bdma)]
@@ -659,6 +710,8 @@ fn init_hw(config: Config) -> Peripherals {
                 config.dma_interrupt_priority,
                 #[cfg(gpdma)]
                 config.gpdma_interrupt_priority,
+                #[cfg(mdma)]
+                config.mdma_interrupt_priority,
             );
             #[cfg(feature = "exti")]
             exti::init(cs);

@@ -13,7 +13,7 @@ pub use enums::*;
 use stm32_metapac::octospi::vals::{PhaseMode, SizeInBits};
 
 use crate::dma::{ChannelAndRequest, word};
-use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
+use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::octospi::{Octospi as Regs, vals};
 #[cfg(octospim_v1)]
@@ -175,17 +175,17 @@ pub enum OspiError {
 /// OSPI driver.
 pub struct Ospi<'d, T: Instance, M: PeriMode> {
     _peri: Peri<'d, T>,
-    sck: Option<Peri<'d, AnyPin>>,
-    d0: Option<Peri<'d, AnyPin>>,
-    d1: Option<Peri<'d, AnyPin>>,
-    d2: Option<Peri<'d, AnyPin>>,
-    d3: Option<Peri<'d, AnyPin>>,
-    d4: Option<Peri<'d, AnyPin>>,
-    d5: Option<Peri<'d, AnyPin>>,
-    d6: Option<Peri<'d, AnyPin>>,
-    d7: Option<Peri<'d, AnyPin>>,
-    nss: Option<Peri<'d, AnyPin>>,
-    dqs: Option<Peri<'d, AnyPin>>,
+    _sck: Option<Flex<'d>>,
+    _d0: Option<Flex<'d>>,
+    _d1: Option<Flex<'d>>,
+    _d2: Option<Flex<'d>>,
+    _d3: Option<Flex<'d>>,
+    _d4: Option<Flex<'d>>,
+    _d5: Option<Flex<'d>>,
+    _d6: Option<Flex<'d>>,
+    _d7: Option<Flex<'d>>,
+    _nss: Option<Flex<'d>>,
+    _dqs: Option<Flex<'d>>,
     dma: Option<ChannelAndRequest<'d>>,
     _phantom: PhantomData<M>,
     config: Config,
@@ -261,17 +261,17 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
 
     fn new_inner(
         peri: Peri<'d, T>,
-        d0: Option<Peri<'d, AnyPin>>,
-        d1: Option<Peri<'d, AnyPin>>,
-        d2: Option<Peri<'d, AnyPin>>,
-        d3: Option<Peri<'d, AnyPin>>,
-        d4: Option<Peri<'d, AnyPin>>,
-        d5: Option<Peri<'d, AnyPin>>,
-        d6: Option<Peri<'d, AnyPin>>,
-        d7: Option<Peri<'d, AnyPin>>,
-        sck: Option<Peri<'d, AnyPin>>,
-        nss: Option<Peri<'d, AnyPin>>,
-        dqs: Option<Peri<'d, AnyPin>>,
+        d0: Option<Flex<'d>>,
+        d1: Option<Flex<'d>>,
+        d2: Option<Flex<'d>>,
+        d3: Option<Flex<'d>>,
+        d4: Option<Flex<'d>>,
+        d5: Option<Flex<'d>>,
+        d6: Option<Flex<'d>>,
+        d7: Option<Flex<'d>>,
+        sck: Option<Flex<'d>>,
+        nss: Option<Flex<'d>>,
+        dqs: Option<Flex<'d>>,
         dma: Option<ChannelAndRequest<'d>>,
         config: Config,
         width: OspiWidth,
@@ -421,17 +421,17 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
 
         Self {
             _peri: peri,
-            sck,
-            d0,
-            d1,
-            d2,
-            d3,
-            d4,
-            d5,
-            d6,
-            d7,
-            nss,
-            dqs,
+            _sck: sck,
+            _d0: d0,
+            _d1: d1,
+            _d2: d2,
+            _d3: d3,
+            _d4: d4,
+            _d5: d5,
+            _d6: d6,
+            _d7: d7,
+            _nss: nss,
+            _dqs: dqs,
             dma,
             _phantom: PhantomData,
             config,
@@ -928,13 +928,14 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
 
 impl<'d, T: Instance> Ospi<'d, T, Async> {
     /// Create new blocking OSPI driver for a single spi external chip
-    pub fn new_singlespi(
+    pub fn new_singlespi<D: OctoDma<T>>(
         peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
         nss: Peri<'d, impl NSSPin<T>>,
-        dma: Peri<'d, impl OctoDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -953,7 +954,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            new_dma!(dma),
+            new_dma!(dma, _irq),
             config,
             OspiWidth::SING,
             false,
@@ -961,13 +962,14 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
     }
 
     /// Create new blocking OSPI driver for a dualspi external chip
-    pub fn new_dualspi(
+    pub fn new_dualspi<D: OctoDma<T>>(
         peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
         nss: Peri<'d, impl NSSPin<T>>,
-        dma: Peri<'d, impl OctoDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -986,7 +988,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            new_dma!(dma),
+            new_dma!(dma, _irq),
             config,
             OspiWidth::DUAL,
             false,
@@ -994,7 +996,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
     }
 
     /// Create new blocking OSPI driver for a quadspi external chip
-    pub fn new_quadspi(
+    pub fn new_quadspi<D: OctoDma<T>>(
         peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
@@ -1002,7 +1004,8 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         d2: Peri<'d, impl D2Pin<T>>,
         d3: Peri<'d, impl D3Pin<T>>,
         nss: Peri<'d, impl NSSPin<T>>,
-        dma: Peri<'d, impl OctoDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -1021,7 +1024,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            new_dma!(dma),
+            new_dma!(dma, _irq),
             config,
             OspiWidth::QUAD,
             false,
@@ -1029,7 +1032,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
     }
 
     /// Create new blocking OSPI driver for two quadspi external chips
-    pub fn new_dualquadspi(
+    pub fn new_dualquadspi<D: OctoDma<T>>(
         peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
@@ -1041,7 +1044,8 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         d6: Peri<'d, impl D6Pin<T>>,
         d7: Peri<'d, impl D7Pin<T>>,
         nss: Peri<'d, impl NSSPin<T>>,
-        dma: Peri<'d, impl OctoDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -1060,7 +1064,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            new_dma!(dma),
+            new_dma!(dma, _irq),
             config,
             OspiWidth::QUAD,
             true,
@@ -1068,7 +1072,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
     }
 
     /// Create new blocking OSPI driver for octospi external chips
-    pub fn new_octospi(
+    pub fn new_octospi<D: OctoDma<T>>(
         peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
@@ -1080,7 +1084,8 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         d6: Peri<'d, impl D6Pin<T>>,
         d7: Peri<'d, impl D7Pin<T>>,
         nss: Peri<'d, impl NSSPin<T>>,
-        dma: Peri<'d, impl OctoDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -1099,7 +1104,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            new_dma!(dma),
+            new_dma!(dma, _irq),
             config,
             OspiWidth::OCTO,
             false,
@@ -1107,7 +1112,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
     }
 
     /// Create new blocking OSPI driver for octospi external chips with DQS support
-    pub fn new_octospi_with_dqs(
+    pub fn new_octospi_with_dqs<D: OctoDma<T>>(
         peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
@@ -1120,7 +1125,8 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         d7: Peri<'d, impl D7Pin<T>>,
         nss: Peri<'d, impl NSSPin<T>>,
         dqs: Peri<'d, impl DQSPin<T>>,
-        dma: Peri<'d, impl OctoDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -1139,7 +1145,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             new_pin!(dqs, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
-            new_dma!(dma),
+            new_dma!(dma, _irq),
             config,
             OspiWidth::OCTO,
             false,
@@ -1303,18 +1309,6 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
 
 impl<'d, T: Instance, M: PeriMode> Drop for Ospi<'d, T, M> {
     fn drop(&mut self) {
-        self.sck.as_ref().map(|x| x.set_as_disconnected());
-        self.d0.as_ref().map(|x| x.set_as_disconnected());
-        self.d1.as_ref().map(|x| x.set_as_disconnected());
-        self.d2.as_ref().map(|x| x.set_as_disconnected());
-        self.d3.as_ref().map(|x| x.set_as_disconnected());
-        self.d4.as_ref().map(|x| x.set_as_disconnected());
-        self.d5.as_ref().map(|x| x.set_as_disconnected());
-        self.d6.as_ref().map(|x| x.set_as_disconnected());
-        self.d7.as_ref().map(|x| x.set_as_disconnected());
-        self.nss.as_ref().map(|x| x.set_as_disconnected());
-        self.dqs.as_ref().map(|x| x.set_as_disconnected());
-
         rcc::disable::<T>();
     }
 }

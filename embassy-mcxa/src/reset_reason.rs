@@ -3,13 +3,37 @@
 //! MCXA families keep the most recent reset reason in the SRS
 //! register of the CMC block. This lets users understand why the MCU
 //! has reset and take appropriate corrective actions if required.
+//!
+//! The reset reason bits are cached for the during of this boot,
+//! allowing the user to query the reset reason as many times as
+//! necessary.
+
+use core::sync::atomic::{AtomicU32, Ordering};
+
+static RESET_REASON: AtomicU32 = AtomicU32::new(0);
 
 /// Reads the most recent reset reason from the Core Mode Controller
 /// (CMC).
 pub fn reset_reason() -> ResetReasonRaw {
-    let regs = unsafe { &*crate::pac::Cmc::steal() };
-    let srs = regs.srs().read().bits();
-    ResetReasonRaw(srs)
+    let regs = crate::pac::CMC;
+
+    let reason = critical_section::with(|_| {
+        let mut r = RESET_REASON.load(Ordering::Relaxed);
+
+        if r == 0 {
+            // Read status
+            r = regs.srs().read().0;
+
+            // Clear status
+            regs.ssrs().modify(|w| w.0 = r);
+
+            RESET_REASON.store(r, Ordering::Relaxed);
+        }
+
+        r
+    });
+
+    ResetReasonRaw(reason)
 }
 
 /// Raw reset reason bits. Can be queried or all reasons can be iterated over
@@ -20,6 +44,17 @@ pub struct ResetReasonRaw(u32);
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Copy, Clone, Debug)]
 pub struct ResetReasonRawIter(u32);
+
+impl IntoIterator for ResetReasonRaw {
+    type Item = ResetReason;
+
+    type IntoIter = ResetReasonRawIter;
+
+    /// Convert to an iterator of contained reset reasons
+    fn into_iter(self) -> Self::IntoIter {
+        ResetReasonRawIter(self.0)
+    }
+}
 
 impl ResetReasonRaw {
     const MAP: &[(u32, ResetReason)] = &[
@@ -40,11 +75,6 @@ impl ResetReasonRaw {
         (1 << 27, ResetReason::Cdog1),
         (1 << 28, ResetReason::Jtag),
     ];
-
-    /// Convert to an iterator of contained reset reasons
-    pub fn into_iter(self) -> ResetReasonRawIter {
-        ResetReasonRawIter(self.0)
-    }
 
     /// Wake up
     #[inline]

@@ -10,7 +10,7 @@ repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/embassy-usb-logger"
 
 [package.metadata.embassy_docs]
-src_base = "https://github.com/embassy-rs/embassy/blob/embassy-usb-logger-v$VERSION/embassy-usb/src/"
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-usb-logger-v$VERSION/embassy-usb-logger/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-usb-logger/src/"
 target = "thumbv7em-none-eabi"
 

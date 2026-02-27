@@ -23,7 +23,8 @@ async fn main(_spawner: Spawner) {
         )),
     );
 
-    let output = crc.feed_bytes(b"Life, it never die\nWomen are my favorite guy") ^ 0xFFFFFFFF;
+    crc.feed_bytes(b"Life, it never die\nWomen are my favorite guy");
+    let output = crc.read() ^ 0xFFFFFFFF;
 
     defmt::assert_eq!(output, 0x33F0E26B);
 

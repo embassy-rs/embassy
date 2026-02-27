@@ -137,7 +137,7 @@ macro_rules! interrupt_mod {
                 /// to be called every time the `I` interrupt fires.
                 ///
                 /// This allows drivers to check bindings at compile-time.
-                pub unsafe trait Binding<I: Interrupt, H: Handler<I>> {}
+                pub unsafe trait Binding<I: Interrupt, H: Handler<I>>: Copy {}
             }
         }
     };

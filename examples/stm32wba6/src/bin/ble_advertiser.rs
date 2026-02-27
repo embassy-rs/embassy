@@ -17,16 +17,22 @@
 #![no_std]
 #![no_main]
 
+use core::cell::RefCell;
+
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_stm32::peripherals::RNG;
 use embassy_stm32::rcc::{
     AHB5Prescaler, AHBPrescaler, APBPrescaler, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale, mux,
 };
 use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::{Config, bind_interrupts};
+use embassy_stm32_wpan::Ble;
 use embassy_stm32_wpan::gap::{AdvData, AdvParams, AdvType};
 use embassy_stm32_wpan::gatt::{CharProperties, GattEventMask, GattServer, SecurityPermissions, ServiceType, Uuid};
-use embassy_stm32_wpan::{Ble, set_rng_instance};
+use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -63,12 +69,12 @@ async fn main(_spawner: Spawner) {
     info!("Embassy STM32WBA6 BLE Advertiser Example");
 
     // Initialize RNG (required by BLE stack)
-    let mut rng = Rng::new(p.RNG, Irqs);
-    set_rng_instance(&mut rng as *mut _ as *mut ());
+    static RNG: StaticCell<Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>> = StaticCell::new();
+    let rng = RNG.init(Mutex::new(RefCell::new(Rng::new(p.RNG, Irqs))));
     info!("RNG initialized");
 
     // Initialize BLE stack
-    let mut ble = Ble::new();
+    let mut ble = Ble::new(rng);
     ble.init().expect("BLE initialization failed");
     info!("BLE stack initialized");
 

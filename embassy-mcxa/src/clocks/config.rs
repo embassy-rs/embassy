@@ -112,6 +112,8 @@ impl Div8 {
 /// ```
 #[non_exhaustive]
 pub struct ClocksConfig {
+    /// Power states of VDD Core
+    pub vdd_power: VddPowerConfig,
     /// Clocks that are used to drive the main clock, including the AHB and CPU core
     pub main_clock: MainClockConfig,
     /// FIRC, FRO180, 45/60/90/180M clock source
@@ -122,9 +124,143 @@ pub struct ClocksConfig {
     /// FRO16K clock source
     pub fro16k: Option<Fro16KConfig>,
     /// SOSC, clk_in clock source
+    ///
+    /// NOTE: Requires `sosc-as-gpio` feature disabled, which also disables GPIO access to P1_30 and P1_31
+    #[cfg(not(feature = "sosc-as-gpio"))]
     pub sosc: Option<SoscConfig>,
     /// SPLL
     pub spll: Option<SpllConfig>,
+}
+
+// Power (which is not a clock)
+
+/// Selected VDD Power Mode
+#[derive(Copy, Clone, PartialEq, Debug, Default)]
+#[non_exhaustive]
+pub enum VddLevel {
+    /// Standard "mid drive" "MD" power, 1.0v VDD Core
+    #[default]
+    MidDriveMode,
+
+    /// Overdrive "OD" power, 1.2v VDD Core
+    OverDriveMode,
+}
+
+#[derive(Copy, Clone, PartialEq)]
+#[non_exhaustive]
+pub enum VddDriveStrength {
+    /// Low drive
+    Low { enable_bandgap: bool },
+
+    /// Normal drive
+    Normal,
+}
+
+#[derive(Copy, Clone)]
+#[non_exhaustive]
+pub struct VddModeConfig {
+    /// VDD_CORE/LDO_CORE voltage level
+    pub level: VddLevel,
+    /// VDD_CORE/LDO_CORE drive strength
+    pub drive: VddDriveStrength,
+}
+
+/// Settings for gating power to on-chip flash
+///
+/// Applies to both "light" WFE sleep, as well as Deep Sleep. Requires that
+///
+/// ## FlashDoze
+///
+/// Disables flash memory accesses and places flash memory in Low-Power state whenever the core clock
+/// is gated (CKMODE > 0) because of execution of WFI, WFE, or SLEEPONEXIT. Other bus masters that
+/// attempt to access the flash memory stalls until the core is no longer sleeping.
+///
+/// # FlashWake
+///
+/// Specifies that when this field becomes 1, an attempt to read the flash memory when it is in Low-Power
+/// state because of FLASHCR[FLASHDIS] or FLASHCR[FLASHDOZE], causes the flash memory to exit
+/// Low-Power state for the duration of the flash memory access.
+#[derive(Copy, Clone, Default)]
+#[non_exhaustive]
+pub enum FlashSleep {
+    /// Don't ever set the flash to sleep
+    #[default]
+    Never,
+    /// Set FlashDoze
+    ///
+    /// This setting is only effective if [CoreSleep] has been configured with at least
+    /// the `WfeGated` option or deeper.
+    FlashDoze,
+    /// Set FlashDoze + FlashWake
+    ///
+    /// This setting is only effective if [CoreSleep] has been configured with at least
+    /// the `WfeGated` option or deeper.
+    //
+    // TODO: This *might* be required for DMA out of flash to actually work when
+    // the core is sleeping, otherwise DMA will stall? Needs to be confirmed.
+    FlashDozeWithFlashWake,
+}
+
+/// Maximum sleep depth for the CPU core
+#[derive(Copy, Clone, Default, Debug)]
+#[non_exhaustive]
+pub enum CoreSleep {
+    /// System will sleep using WFE when idle, but the CPU clock domain will not ever
+    /// be gated. This mode uses the most power, but allows for debugging to
+    /// continue uninterrupted.
+    ///
+    /// With this setting, the system never leaves the "Active" configuration mode.
+    #[default]
+    WfeUngated,
+    /// The system will sleep using WFE when idle, and the CPU clock domain will be
+    /// be gated. If configured with [FlashSleep], the internal flash may be gated
+    /// as well.
+    ///
+    /// ## WARNING
+    ///
+    /// Enabling this mode has potential danger to soft-lock the system!
+    ///
+    /// * This mode WILL detach the debugging/RTT/defmt session if active upon first sleep.
+    /// * This mode WILL also require ISP mode recovery in order to re-flash if the core becomes
+    ///   "stuck" in sleep.
+    WfeGated,
+    /// The system will go to deep sleep when idle, and the CPU clock domain will be
+    /// be gated. If configured with [FlashSleep], the internal flash may be gated
+    /// as well.
+    ///
+    /// This will also move the system into the "low power" state, which will disable any
+    /// clocks not configured as `PoweredClock::AlwaysActive".
+    ///
+    /// ## TODO
+    ///
+    /// For now, this REQUIRES calling unsafe `okay_but_actually_enable_deep_sleep()`
+    /// otherwise we'd ALWAYS go to deep sleep on every WFE. We need to implement a
+    /// custom executor that does proper go-to-deepsleep and come-back-from-deepsleep
+    /// before un-chickening this. If the method isn't called, we just set to `WfeGated`
+    /// instead.
+    ///
+    /// ## WARNING
+    ///
+    /// Enabling this mode has potential danger to soft-lock the system!
+    ///
+    /// * This mode WILL detach the debugging/RTT/defmt session if active upon first sleep.
+    /// * This mode WILL also require ISP mode recovery in order to re-flash if the core becomes
+    ///   "stuck" in sleep.
+    DeepSleep,
+}
+
+/// Power control options for the VDD domain, including the CPU and flash memory
+#[derive(Copy, Clone)]
+#[non_exhaustive]
+pub struct VddPowerConfig {
+    /// Active power mode, used when not in Deep Sleep
+    pub active_mode: VddModeConfig,
+    /// Low power mode, used when in Deep Sleep
+    pub low_power_mode: VddModeConfig,
+    /// CPU core clock gating settings
+    pub core_sleep: CoreSleep,
+    /// Internal flash clock gating settings
+    pub flash_sleep: FlashSleep,
 }
 
 // Main Clock
@@ -133,6 +269,9 @@ pub struct ClocksConfig {
 #[derive(Copy, Clone)]
 pub enum MainClockSource {
     /// Clock derived from `clk_in`, via the external oscillator (8-50MHz)
+    ///
+    /// NOTE: Requires `sosc-as-gpio` feature disabled, which also disables GPIO access to P1_30 and P1_31
+    #[cfg(not(feature = "sosc-as-gpio"))]
     SoscClkIn,
     /// Clock derived from `fro_12m`, via the internal 12MHz oscillator (12MHz)
     SircFro12M,
@@ -193,6 +332,7 @@ pub struct SpllConfig {
 /// Input clock source for the PLL1/SPLL
 pub enum SpllSource {
     /// External Oscillator (8-50MHz)
+    #[cfg(not(feature = "sosc-as-gpio"))]
     Sosc,
     /// Fast Internal Oscillator (45MHz)
     // NOTE: Figure 69 says "firc_45mhz"/"clk_45m", not "fro_hf_gated",
@@ -343,9 +483,42 @@ pub struct Fro16KConfig {
     pub vdd_core_domain_active: bool,
 }
 
+impl Default for Fro16KConfig {
+    fn default() -> Self {
+        Self {
+            vsys_domain_active: true,
+            vdd_core_domain_active: true,
+        }
+    }
+}
+
+impl Default for FircConfig {
+    fn default() -> Self {
+        FircConfig {
+            frequency: FircFreqSel::Mhz45,
+            power: PoweredClock::NormalEnabledDeepSleepDisabled,
+            fro_hf_enabled: true,
+            clk_45m_enabled: true,
+            fro_hf_div: None,
+        }
+    }
+}
+
 impl Default for ClocksConfig {
     fn default() -> Self {
         Self {
+            vdd_power: VddPowerConfig {
+                active_mode: VddModeConfig {
+                    level: VddLevel::MidDriveMode,
+                    drive: VddDriveStrength::Normal,
+                },
+                low_power_mode: VddModeConfig {
+                    level: VddLevel::MidDriveMode,
+                    drive: VddDriveStrength::Normal,
+                },
+                core_sleep: CoreSleep::WfeUngated,
+                flash_sleep: FlashSleep::Never,
+            },
             main_clock: MainClockConfig {
                 source: MainClockSource::FircHfRoot,
                 power: PoweredClock::NormalEnabledDeepSleepDisabled,
@@ -367,6 +540,7 @@ impl Default for ClocksConfig {
                 vsys_domain_active: true,
                 vdd_core_domain_active: true,
             }),
+            #[cfg(not(feature = "sosc-as-gpio"))]
             sosc: None,
             spll: None,
         }

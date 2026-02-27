@@ -12,7 +12,7 @@ use super::low_level::{
 use super::{CaptureCompareInterruptHandler, Channel, ExternalTriggerPin, GeneralInstance4Channel, TimerPin};
 pub use super::{Ch1, Ch2};
 use crate::Peri;
-use crate::gpio::{AfType, AnyPin, Pull};
+use crate::gpio::{AfType, Flex, Pull};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::pac::timer::vals::Etp;
 use crate::time::Hertz;
@@ -44,7 +44,7 @@ impl From<ExternalTriggerPolarity> for Etp {
 /// This wraps a pin to make it usable as a timer trigger.
 pub struct TriggerPin<'d, T, C> {
     #[allow(unused)]
-    pin: Peri<'d, AnyPin>,
+    pin: Flex<'d>,
     phantom: PhantomData<(T, C)>,
 }
 
@@ -65,9 +65,8 @@ impl SealedTriggerSource for Ext {}
 impl<'d, T: GeneralInstance4Channel, C: TriggerSource + TimerChannel> TriggerPin<'d, T, C> {
     /// Create a new Channel trigger pin instance.
     pub fn new<#[cfg(afio)] A>(pin: Peri<'d, if_afio!(impl TimerPin<T, C, A>)>, pull: Pull) -> Self {
-        set_as_af!(pin, AfType::input(pull));
         TriggerPin {
-            pin: pin.into(),
+            pin: new_pin!(pin, AfType::input(pull)).unwrap(),
             phantom: PhantomData,
         }
     }
@@ -76,9 +75,8 @@ impl<'d, T: GeneralInstance4Channel, C: TriggerSource + TimerChannel> TriggerPin
 impl<'d, T: GeneralInstance4Channel> TriggerPin<'d, T, Ext> {
     /// Create a new external trigger pin instance.
     pub fn new_external<#[cfg(afio)] A>(pin: Peri<'d, if_afio!(impl ExternalTriggerPin<T, A>)>, pull: Pull) -> Self {
-        set_as_af!(pin, AfType::input(pull));
         TriggerPin {
-            pin: pin.into(),
+            pin: new_pin!(pin, AfType::input(pull)).unwrap(),
             phantom: PhantomData,
         }
     }
@@ -89,6 +87,7 @@ impl<'d, T: GeneralInstance4Channel> TriggerPin<'d, T, Ext> {
 /// Generates a pulse after a trigger and some configurable delay.
 pub struct OnePulse<'d, T: GeneralInstance4Channel> {
     inner: Timer<'d, T>,
+    _pin: Flex<'d>,
 }
 
 impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
@@ -105,7 +104,10 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
         pulse_end: u32,
         counting_mode: CountingMode,
     ) -> Self {
-        let mut this = Self { inner: Timer::new(tim) };
+        let mut this = Self {
+            inner: Timer::new(tim),
+            _pin: pin.pin,
+        };
 
         this.inner.set_trigger_source(Ts::TI1F_ED);
         this.inner
@@ -130,7 +132,10 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
         counting_mode: CountingMode,
         capture_mode: InputCaptureMode,
     ) -> Self {
-        let mut this = Self { inner: Timer::new(tim) };
+        let mut this = Self {
+            inner: Timer::new(tim),
+            _pin: _pin.pin,
+        };
 
         this.inner.set_trigger_source(Ts::TI1FP1);
         this.inner
@@ -156,7 +161,10 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
         counting_mode: CountingMode,
         capture_mode: InputCaptureMode,
     ) -> Self {
-        let mut this = Self { inner: Timer::new(tim) };
+        let mut this = Self {
+            inner: Timer::new(tim),
+            _pin: _pin.pin,
+        };
 
         this.inner.set_trigger_source(Ts::TI2FP2);
         this.inner
@@ -181,7 +189,10 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
         counting_mode: CountingMode,
         polarity: ExternalTriggerPolarity,
     ) -> Self {
-        let mut this = Self { inner: Timer::new(tim) };
+        let mut this = Self {
+            inner: Timer::new(tim),
+            _pin: _pin.pin,
+        };
 
         this.inner.regs_gp16().smcr().modify(|r| {
             r.set_etp(polarity.into());
