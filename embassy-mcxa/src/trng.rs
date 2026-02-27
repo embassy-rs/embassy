@@ -1,6 +1,7 @@
 //! True Random Number Generator
 
 use core::marker::PhantomData;
+use core::sync::atomic::{AtomicU32, Ordering};
 
 use embassy_hal_internal::Peri;
 use embassy_hal_internal::interrupt::InterruptExt;
@@ -10,7 +11,8 @@ use crate::clocks::enable_and_reset;
 use crate::clocks::periph_helpers::NoConfig;
 use crate::interrupt::typelevel;
 use crate::interrupt::typelevel::Handler;
-use crate::pac::trng::vals::TrngEntCtl;
+use crate::pac::trng::regs::IntStatus;
+use crate::pac::trng::vals::{IntStatusEntVal, TrngEntCtl};
 use crate::peripherals::TRNG0;
 
 static WAIT_CELL: WaitCell = WaitCell::new();
@@ -274,6 +276,7 @@ impl<'d> Trng<'d, Async> {
             },
         );
         crate::pac::Interrupt::TRNG0.unpend();
+        INT_STAT.store(0, Ordering::Release);
         unsafe {
             crate::pac::Interrupt::TRNG0.enable();
         }
@@ -303,6 +306,7 @@ impl<'d> Trng<'d, Async> {
             },
         );
         crate::pac::Interrupt::TRNG0.unpend();
+        INT_STAT.store(0, Ordering::Release);
         unsafe {
             crate::pac::Interrupt::TRNG0.enable();
         }
@@ -316,6 +320,7 @@ impl<'d> Trng<'d, Async> {
     ) -> Self {
         let inst = Self::new_inner(_peri, Default::default());
         crate::pac::Interrupt::TRNG0.unpend();
+        INT_STAT.store(0, Ordering::Release);
         unsafe {
             crate::pac::Interrupt::TRNG0.enable();
         }
@@ -334,6 +339,7 @@ impl<'d> Trng<'d, Async> {
     ) -> Self {
         let inst = Self::new_inner(_peri, config);
         crate::pac::Interrupt::TRNG0.unpend();
+        INT_STAT.store(0, Ordering::Release);
         unsafe {
             crate::pac::Interrupt::TRNG0.enable();
         }
@@ -351,12 +357,30 @@ impl<'d> Trng<'d, Async> {
 
     async fn wait_for_generation() -> Result<(), Error> {
         WAIT_CELL
-            .wait_for(|| {
+            .wait_for_value(|| {
                 Self::enable_ints();
-                regs().mctl().read().ent_val()
+                let status = INT_STAT.swap(0, Ordering::AcqRel);
+                if status == 0 {
+                    return None;
+                }
+
+                let status = IntStatus(status);
+
+                if status.ent_val() == IntStatusEntVal::ENT_VAL_VALID {
+                    Some(Ok(()))
+                } else if status.frq_ct_fail() {
+                    Some(Err(Error::FrequencyCountFail))
+                } else if status.hw_err() {
+                    Some(Err(Error::HardwareFail))
+                } else if status.intg_flt() {
+                    Some(Err(Error::IntegrityError))
+                } else {
+                    Some(Err(Error::ErrorStatus))
+                }
             })
             .await
             .map_err(|_| Error::ErrorStatus)
+            .flatten()
     }
 
     // Async API
@@ -437,15 +461,21 @@ pub enum Error {
 
     /// Buffer argument is invalid
     InvalidBuffer,
+
+    /// Hardware fail
+    HardwareFail,
 }
 
 /// TRNG interrupt handler.
 pub struct InterruptHandler;
+static INT_STAT: AtomicU32 = AtomicU32::new(0);
 
 impl Handler<typelevel::TRNG0> for InterruptHandler {
     unsafe fn on_interrupt() {
         crate::perf_counters::incr_interrupt_trng();
-        if regs().int_status().read().0 != 0 {
+        let int_status = regs().int_status().read().0;
+        INT_STAT.fetch_or(int_status, Ordering::AcqRel);
+        if int_status != 0 {
             regs().int_ctrl().write(|w| {
                 w.set_hw_err(false);
                 w.set_ent_val(false);
