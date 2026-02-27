@@ -106,8 +106,6 @@ pub struct BbqConfig {
     pub stop_bits_count: StopBits,
     /// RX IDLE configuration
     pub rx_idle_config: IdleConfig,
-    /// Swap TXD and RXD pins
-    pub swap_txd_rxd: bool,
 }
 
 impl Default for BbqConfig {
@@ -119,7 +117,6 @@ impl Default for BbqConfig {
             msb_first: MsbFirst::LSB_FIRST,
             stop_bits_count: StopBits::ONE,
             rx_idle_config: IdleConfig::IDLE_1,
-            swap_txd_rxd: false,
             power: PoweredClock::AlwaysEnabled,
             source: LpuartClockSel::FroLfDiv,
             div: Div4::no_div(),
@@ -140,7 +137,6 @@ impl From<BbqConfig> for super::Config {
             msb_first,
             stop_bits_count,
             rx_idle_config,
-            swap_txd_rxd,
         } = value;
 
         // User selectable
@@ -153,11 +149,11 @@ impl From<BbqConfig> for super::Config {
         cfg.msb_first = msb_first;
         cfg.stop_bits_count = stop_bits_count;
         cfg.rx_idle_config = rx_idle_config;
-        cfg.swap_txd_rxd = swap_txd_rxd;
 
         // Manually set
         cfg.tx_fifo_watermark = 0;
         cfg.rx_fifo_watermark = 0;
+        cfg.swap_txd_rxd = false;
 
         cfg
     }
