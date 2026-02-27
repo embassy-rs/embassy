@@ -11,7 +11,10 @@ documentation = "https://docs.embassy.dev/embassy-mcxa"
 
 [package.metadata.embassy]
 build = [
-    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxa2xx"]},
+
+    # TODO: Don't enable until mcxa-pac adds support for mcxa577! Until then, this won't build
+    # {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxa5xx"]},
 ]
 
 [package.metadata.embassy_docs]
@@ -20,7 +23,10 @@ src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-mcxa/
 
 features = ["defmt", "unstable-pac"]
 flavors = [
-    { name = "mcx-a256", target = "thumbv8m.main-none-eabihf" },
+    { name = "mcx-a256", target = "thumbv8m.main-none-eabihf", feature = ["mcxa2xx"] },
+
+    # TODO: Don't enable until mcxa-pac adds support for mcxa577! Until then, this won't build
+    # { name = "mcx-a577", target = "thumbv8m.main-none-eabihf", feature = ["mcxa5xx"] },
 ]
 
 [dependencies]
@@ -41,7 +47,7 @@ embedded-io = "0.7"
 embedded-io-async = { version = "0.7.0" }
 heapless = "0.9"
 maitake-sync = { version = "0.2.2", default-features = false, features = ["critical-section", "no-cache-pad"] }
-nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "5a0af4d1b4f11625819df170252bd6ca8ba455ab", features = ["rt", "mcxa256"] }
+nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "5a0af4d1b4f11625819df170252bd6ca8ba455ab", features = ["rt"] }
 nb = "1.1.0"
 paste = "1.0.15"
 
@@ -117,3 +123,9 @@ perf = []
 #
 # If this feature is enabled, users should NOT enable `embassy-executor/arch-cortex-m`.
 custom-executor = []
+
+#
+# Chip family selection
+#
+mcxa2xx = ["nxp-pac/mcxa256"]
+mcxa5xx = []
