@@ -87,7 +87,7 @@ async fn main(_spawner: Spawner) {
     }
 
     // Convert channel 2 to ring-buffered PWM
-    let mut ring_pwm = pwm.ch1().into_ring_buffered_channel(p.DMA2_CH5, dma_buffer, Irqs);
+    let mut ring_pwm = pwm.ch2().into_ring_buffered_channel(p.DMA2_CH5, dma_buffer, Irqs);
 
     info!("Ring buffer capacity: {}", ring_pwm.capacity());
 
