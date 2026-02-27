@@ -282,7 +282,15 @@ where
 
         // wait until HT clock is available; takes about 29ms
         debug!("waiting for HT clock...");
-        while self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 == 0 {}
+        if !try_until(
+            async || self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 != 0,
+            Duration::from_millis(500),
+        )
+        .await
+        {
+            debug!("timeout while waiting for HT clock!");
+            return Err(());
+        }
 
         // "Set up the interrupt mask and enable interrupts"
         debug!("setup interrupt mask");
@@ -376,14 +384,7 @@ where
         self.bus.write8(FUNC_BACKPLANE, REG_BACKPLANE_PULL_UP, 0).await;
         let _ = self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_PULL_UP).await;
 
-        // start HT clock
-        self.bus
-            .write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, 0x10)
-            .await; // SBSDIO_HT_AVAIL_REQ
-        debug!("waiting for HT clock...");
-        while self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 == 0 {}
-        debug!("clock ok");
-
+        self.wake_bus().await;
         #[cfg(feature = "firmware-logs")]
         self.log_init().await;
 
@@ -454,6 +455,8 @@ where
     /// Run the CYW43 event handling loop.
     pub async fn run(mut self) -> ! {
         let mut buf = [0; 512];
+
+        self.wake_bus().await;
         loop {
             #[cfg(feature = "firmware-logs")]
             self.log_read().await;
@@ -572,6 +575,49 @@ where
                 self.bus.wait_for_event().await;
                 self.handle_irq(&mut buf).await;
             }
+        }
+    }
+
+    async fn wake_bus(&mut self) {
+        // set kso (keep SDIO on)
+        self.bus
+            .write8(FUNC_BACKPLANE, SDIO_SLEEP_CSR, SBSDIO_SLPCSR_KEEP_SDIO_ON as u8)
+            .await;
+
+        let compare_value = (SBSDIO_SLPCSR_KEEP_SDIO_ON | SBSDIO_SLPCSR_DEVICE_ON) as u8;
+        let mask = compare_value;
+
+        if !try_until(
+            async || {
+                self.bus
+                    .write8(FUNC_BACKPLANE, SDIO_SLEEP_CSR, SBSDIO_SLPCSR_KEEP_SDIO_ON as u8)
+                    .await;
+
+                let read_value = self.bus.read8(FUNC_BACKPLANE, SDIO_SLEEP_CSR).await;
+
+                ((read_value & mask) == compare_value) && read_value != 0xff
+            },
+            Duration::from_millis(100),
+        )
+        .await
+        {
+            debug!("set kso failed");
+        }
+
+        // start HT clock
+        self.bus
+            .write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, 0x10)
+            .await; // SBSDIO_HT_AVAIL_REQ
+        // wait until HT clock is available; takes about 29ms
+        debug!("waiting for HT clock...");
+        if !try_until(
+            async || self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 != 0,
+            Duration::from_millis(500),
+        )
+        .await
+        {
+            debug!("timeout while waiting for HT clock!");
+            return;
         }
     }
 
