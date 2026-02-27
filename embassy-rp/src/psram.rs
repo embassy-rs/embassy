@@ -458,7 +458,7 @@ impl<'d> Psram<'d> {
         // - Max select must be <= 8 us. The value is given in multiples of 64 system clocks.
         // - Min deselect must be >= 18ns. The value is given in system clock cycles - ceil(divisor / 2).
         let clock_period_fs: u64 = 1_000_000_000_000_000_u64 / u64::from(clock_hz);
-        let max_select: u8 = ((config.max_select_us as u64 * 1_000_000) / clock_period_fs) as u8;
+        let max_select: u8 = (((config.max_select_us as u64 * 1_000_000_000) / clock_period_fs) / 64) as u8;
         let min_deselect: u32 = ((config.min_deselect_ns as u64 * 1_000_000 + (clock_period_fs - 1)) / clock_period_fs
             - u64::from(divisor + 1) / 2) as u32;
 
