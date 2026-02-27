@@ -13,7 +13,7 @@ export PATH=$CARGO_HOME/bin:$PATH
 mv rust-toolchain-nightly.toml rust-toolchain.toml
 
 cargo install --git https://github.com/embassy-rs/cargo-embassy-devtool --locked --rev 786e8e05ef2de5fc1421a4fcd50e79c5dd2d3e4d
-cargo install --git https://github.com/embassy-rs/docserver --locked --rev 720181a1a94e5f9890cec6e03e6ced6da3fc35c5
+cargo install --git https://github.com/embassy-rs/docserver --locked --rev 81aeba7662c4da4efe673f7f858902b689faacb9
 
 cargo embassy-devtool doc -o webroot
 

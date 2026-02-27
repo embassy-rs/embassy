@@ -23,10 +23,10 @@ src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-mcxa/
 
 features = ["defmt", "unstable-pac"]
 flavors = [
-    { name = "mcx-a256", target = "thumbv8m.main-none-eabihf", feature = ["mcxa2xx"] },
+    { name = "mcx-a256", target = "thumbv8m.main-none-eabihf", features = ["mcxa2xx"] },
 
     # TODO: Don't enable until mcxa-pac adds support for mcxa577! Until then, this won't build
-    # { name = "mcx-a577", target = "thumbv8m.main-none-eabihf", feature = ["mcxa5xx"] },
+    # { name = "mcx-a577", target = "thumbv8m.main-none-eabihf", features = ["mcxa5xx"] },
 ]
 
 [dependencies]
