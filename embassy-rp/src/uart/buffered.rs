@@ -174,7 +174,7 @@ impl BufferedUart {
 
     /// sets baudrate on runtime
     pub fn set_baudrate<'d>(&mut self, baudrate: u32) {
-        super::Uart::<'d, Async>::set_baudrate_inner(self.rx.info, baudrate);
+        self.tx.set_baudrate(baudrate);
     }
 
     /// Split into separate RX and TX handles.
@@ -481,6 +481,11 @@ impl BufferedUartTx {
         regs.uartlcr_h().write_set(|w| w.set_brk(true));
         Timer::after_micros(wait_usecs).await;
         regs.uartlcr_h().write_clear(|w| w.set_brk(true));
+    }
+
+    /// sets baudrate on runtime
+    pub fn set_baudrate<'d>(&mut self, baudrate: u32) {
+        super::Uart::<'d, Async>::set_baudrate_inner(self.info, baudrate);
     }
 }
 
