@@ -9,7 +9,6 @@ use core::pin::pin;
 
 use embassy_hal_internal::{Peri, PeripheralType};
 use maitake_sync::WaitMap;
-use paste::paste;
 
 use crate::pac::common::{RW, Reg};
 use crate::pac::gpio::vals::{Irqc, Isf, Pdd, Pid, Ptco, Ptso};
@@ -195,7 +194,7 @@ pub struct AnyPin {
 
 impl AnyPin {
     /// Create an `AnyPin` from raw components.
-    fn new(
+    pub(crate) fn new(
         port: u8,
         pin: u8,
         gpio: crate::pac::gpio::Gpio,
@@ -346,9 +345,11 @@ impl SealedPin for AnyPin {
 
 impl GpioPin for AnyPin {}
 
+#[doc(hidden)]
+#[macro_export]
 macro_rules! impl_pin {
     ($peri:ident, $port:expr, $pin:expr, $block:ident) => {
-        paste! {
+        ::paste::paste! {
             impl SealedPin for crate::peripherals::$peri {
                 #[inline(always)]
                 fn port(&self) -> u8 {
@@ -440,179 +441,6 @@ macro_rules! impl_pin {
         }
     };
 }
-
-#[cfg(feature = "swd-as-gpio")]
-impl_pin!(P0_0, 0, 0, GPIO0);
-#[cfg(feature = "swd-as-gpio")]
-impl_pin!(P0_1, 0, 1, GPIO0);
-#[cfg(feature = "swd-swo-as-gpio")]
-impl_pin!(P0_2, 0, 2, GPIO0);
-#[cfg(feature = "jtag-extras-as-gpio")]
-impl_pin!(P0_3, 0, 3, GPIO0);
-impl_pin!(P0_4, 0, 4, GPIO0);
-impl_pin!(P0_5, 0, 5, GPIO0);
-#[cfg(feature = "jtag-extras-as-gpio")]
-impl_pin!(P0_6, 0, 6, GPIO0);
-impl_pin!(P0_7, 0, 7, GPIO0);
-impl_pin!(P0_8, 0, 8, GPIO0);
-impl_pin!(P0_9, 0, 9, GPIO0);
-impl_pin!(P0_10, 0, 10, GPIO0);
-impl_pin!(P0_11, 0, 11, GPIO0);
-impl_pin!(P0_12, 0, 12, GPIO0);
-impl_pin!(P0_13, 0, 13, GPIO0);
-impl_pin!(P0_14, 0, 14, GPIO0);
-impl_pin!(P0_15, 0, 15, GPIO0);
-impl_pin!(P0_16, 0, 16, GPIO0);
-impl_pin!(P0_17, 0, 17, GPIO0);
-impl_pin!(P0_18, 0, 18, GPIO0);
-impl_pin!(P0_19, 0, 19, GPIO0);
-impl_pin!(P0_20, 0, 20, GPIO0);
-impl_pin!(P0_21, 0, 21, GPIO0);
-impl_pin!(P0_22, 0, 22, GPIO0);
-impl_pin!(P0_23, 0, 23, GPIO0);
-impl_pin!(P0_24, 0, 24, GPIO0);
-impl_pin!(P0_25, 0, 25, GPIO0);
-impl_pin!(P0_26, 0, 26, GPIO0);
-impl_pin!(P0_27, 0, 27, GPIO0);
-impl_pin!(P0_28, 0, 28, GPIO0);
-impl_pin!(P0_29, 0, 29, GPIO0);
-impl_pin!(P0_30, 0, 30, GPIO0);
-impl_pin!(P0_31, 0, 31, GPIO0);
-
-impl_pin!(P1_0, 1, 0, GPIO1);
-impl_pin!(P1_1, 1, 1, GPIO1);
-impl_pin!(P1_2, 1, 2, GPIO1);
-impl_pin!(P1_3, 1, 3, GPIO1);
-impl_pin!(P1_4, 1, 4, GPIO1);
-impl_pin!(P1_5, 1, 5, GPIO1);
-impl_pin!(P1_6, 1, 6, GPIO1);
-impl_pin!(P1_7, 1, 7, GPIO1);
-impl_pin!(P1_8, 1, 8, GPIO1);
-impl_pin!(P1_9, 1, 9, GPIO1);
-impl_pin!(P1_10, 1, 10, GPIO1);
-impl_pin!(P1_11, 1, 11, GPIO1);
-impl_pin!(P1_12, 1, 12, GPIO1);
-impl_pin!(P1_13, 1, 13, GPIO1);
-impl_pin!(P1_14, 1, 14, GPIO1);
-impl_pin!(P1_15, 1, 15, GPIO1);
-impl_pin!(P1_16, 1, 16, GPIO1);
-impl_pin!(P1_17, 1, 17, GPIO1);
-impl_pin!(P1_18, 1, 18, GPIO1);
-impl_pin!(P1_19, 1, 19, GPIO1);
-impl_pin!(P1_20, 1, 20, GPIO1);
-impl_pin!(P1_21, 1, 21, GPIO1);
-impl_pin!(P1_22, 1, 22, GPIO1);
-impl_pin!(P1_23, 1, 23, GPIO1);
-impl_pin!(P1_24, 1, 24, GPIO1);
-impl_pin!(P1_25, 1, 25, GPIO1);
-impl_pin!(P1_26, 1, 26, GPIO1);
-impl_pin!(P1_27, 1, 27, GPIO1);
-impl_pin!(P1_28, 1, 28, GPIO1);
-#[cfg(feature = "dangerous-reset-as-gpio")]
-impl_pin!(P1_29, 1, 29, GPIO1);
-#[cfg(feature = "sosc-as-gpio")]
-impl_pin!(P1_30, 1, 30, GPIO1);
-#[cfg(feature = "sosc-as-gpio")]
-impl_pin!(P1_31, 1, 31, GPIO1);
-
-impl_pin!(P2_0, 2, 0, GPIO2);
-impl_pin!(P2_1, 2, 1, GPIO2);
-impl_pin!(P2_2, 2, 2, GPIO2);
-impl_pin!(P2_3, 2, 3, GPIO2);
-impl_pin!(P2_4, 2, 4, GPIO2);
-impl_pin!(P2_5, 2, 5, GPIO2);
-impl_pin!(P2_6, 2, 6, GPIO2);
-impl_pin!(P2_7, 2, 7, GPIO2);
-impl_pin!(P2_8, 2, 8, GPIO2);
-impl_pin!(P2_9, 2, 9, GPIO2);
-impl_pin!(P2_10, 2, 10, GPIO2);
-impl_pin!(P2_11, 2, 11, GPIO2);
-impl_pin!(P2_12, 2, 12, GPIO2);
-impl_pin!(P2_13, 2, 13, GPIO2);
-impl_pin!(P2_14, 2, 14, GPIO2);
-impl_pin!(P2_15, 2, 15, GPIO2);
-impl_pin!(P2_16, 2, 16, GPIO2);
-impl_pin!(P2_17, 2, 17, GPIO2);
-impl_pin!(P2_18, 2, 18, GPIO2);
-impl_pin!(P2_19, 2, 19, GPIO2);
-impl_pin!(P2_20, 2, 20, GPIO2);
-impl_pin!(P2_21, 2, 21, GPIO2);
-impl_pin!(P2_22, 2, 22, GPIO2);
-impl_pin!(P2_23, 2, 23, GPIO2);
-impl_pin!(P2_24, 2, 24, GPIO2);
-impl_pin!(P2_25, 2, 25, GPIO2);
-impl_pin!(P2_26, 2, 26, GPIO2);
-// impl_pin!(P2_27, 2, 27, GPIO2);
-// impl_pin!(P2_28, 2, 28, GPIO2);
-// impl_pin!(P2_29, 2, 29, GPIO2);
-// impl_pin!(P2_30, 2, 30, GPIO2);
-// impl_pin!(P2_31, 2, 31, GPIO2);
-
-impl_pin!(P3_0, 3, 0, GPIO3);
-impl_pin!(P3_1, 3, 1, GPIO3);
-impl_pin!(P3_2, 3, 2, GPIO3);
-impl_pin!(P3_3, 3, 3, GPIO3);
-impl_pin!(P3_4, 3, 4, GPIO3);
-impl_pin!(P3_5, 3, 5, GPIO3);
-impl_pin!(P3_6, 3, 6, GPIO3);
-impl_pin!(P3_7, 3, 7, GPIO3);
-impl_pin!(P3_8, 3, 8, GPIO3);
-impl_pin!(P3_9, 3, 9, GPIO3);
-impl_pin!(P3_10, 3, 10, GPIO3);
-impl_pin!(P3_11, 3, 11, GPIO3);
-impl_pin!(P3_12, 3, 12, GPIO3);
-impl_pin!(P3_13, 3, 13, GPIO3);
-impl_pin!(P3_14, 3, 14, GPIO3);
-impl_pin!(P3_15, 3, 15, GPIO3);
-impl_pin!(P3_16, 3, 16, GPIO3);
-impl_pin!(P3_17, 3, 17, GPIO3);
-impl_pin!(P3_18, 3, 18, GPIO3);
-impl_pin!(P3_19, 3, 19, GPIO3);
-impl_pin!(P3_20, 3, 20, GPIO3);
-impl_pin!(P3_21, 3, 21, GPIO3);
-impl_pin!(P3_22, 3, 22, GPIO3);
-impl_pin!(P3_23, 3, 23, GPIO3);
-impl_pin!(P3_24, 3, 24, GPIO3);
-impl_pin!(P3_25, 3, 25, GPIO3);
-impl_pin!(P3_26, 3, 26, GPIO3);
-impl_pin!(P3_27, 3, 27, GPIO3);
-impl_pin!(P3_28, 3, 28, GPIO3);
-impl_pin!(P3_29, 3, 29, GPIO3);
-impl_pin!(P3_30, 3, 30, GPIO3);
-impl_pin!(P3_31, 3, 31, GPIO3);
-
-impl_pin!(P4_0, 4, 0, GPIO4);
-impl_pin!(P4_1, 4, 1, GPIO4);
-impl_pin!(P4_2, 4, 2, GPIO4);
-impl_pin!(P4_3, 4, 3, GPIO4);
-impl_pin!(P4_4, 4, 4, GPIO4);
-impl_pin!(P4_5, 4, 5, GPIO4);
-impl_pin!(P4_6, 4, 6, GPIO4);
-impl_pin!(P4_7, 4, 7, GPIO4);
-// impl_pin!(P4_8, 4, 8, GPIO4);
-// impl_pin!(P4_9, 4, 9, GPIO4);
-// impl_pin!(P4_10, 4, 10, GPIO4);
-// impl_pin!(P4_11, 4, 11, GPIO4);
-// impl_pin!(P4_12, 4, 12, GPIO4);
-// impl_pin!(P4_13, 4, 13, GPIO4);
-// impl_pin!(P4_14, 4, 14, GPIO4);
-// impl_pin!(P4_15, 4, 15, GPIO4);
-// impl_pin!(P4_16, 4, 16, GPIO4);
-// impl_pin!(P4_17, 4, 17, GPIO4);
-// impl_pin!(P4_18, 4, 18, GPIO4);
-// impl_pin!(P4_19, 4, 19, GPIO4);
-// impl_pin!(P4_20, 4, 20, GPIO4);
-// impl_pin!(P4_21, 4, 21, GPIO4);
-// impl_pin!(P4_22, 4, 22, GPIO4);
-// impl_pin!(P4_23, 4, 23, GPIO4);
-// impl_pin!(P4_24, 4, 24, GPIO4);
-// impl_pin!(P4_25, 4, 25, GPIO4);
-// impl_pin!(P4_26, 4, 26, GPIO4);
-// impl_pin!(P4_27, 4, 27, GPIO4);
-// impl_pin!(P4_28, 4, 28, GPIO4);
-// impl_pin!(P4_29, 4, 29, GPIO4);
-// impl_pin!(P4_30, 4, 30, GPIO4);
-// impl_pin!(P4_31, 4, 31, GPIO4);
 
 /// A flexible pin that can be configured as input or output.
 pub struct Flex<'d> {
