@@ -45,6 +45,8 @@ pub enum ConnectError {
     TimedOut,
     /// No route to host.
     NoRoute,
+    /// The socket would block.
+    WouldBlock,
 }
 
 /// Error returned by [`TcpSocket::accept`].
@@ -57,6 +59,8 @@ pub enum AcceptError {
     InvalidPort,
     /// The remote host rejected the connection with a RST packet.
     ConnectionReset,
+    /// The socket would block.
+    WouldBlock,
 }
 
 /// A TCP socket.
@@ -348,6 +352,35 @@ impl<'a> TcpSocket<'a> {
         .await
     }
 
+    /// Connect to a remote host.
+    ///
+    /// This method will not wait for the connection to be established.
+    ///
+    /// If the socket is not already connecting, this method will initiate the connection
+    /// and return `Err(ConnectError::WouldBlock)`. While the connection is being established,
+    /// it will continue to return `Err(ConnectError::WouldBlock)`.
+    ///
+    /// Once the connection is successfully established and ready to send/receive data,
+    /// this method will return `Ok(())`.
+    pub fn try_connect<T>(&mut self, remote_endpoint: T) -> Result<(), ConnectError>
+    where
+        T: Into<IpEndpoint>,
+    {
+        match self.state() {
+            tcp::State::Closed | tcp::State::TimeWait => {
+                let local_port = self.io.stack.with_mut(|i| i.get_local_port());
+                match self.io.with_mut(|s, i| s.connect(i.context(), remote_endpoint, local_port)) {
+                    Ok(()) => Err(ConnectError::WouldBlock),
+                    Err(tcp::ConnectError::InvalidState) => Err(ConnectError::InvalidState),
+                    Err(tcp::ConnectError::Unaddressable) => Err(ConnectError::NoRoute),
+                }
+            }
+            tcp::State::SynSent | tcp::State::SynReceived => Err(ConnectError::WouldBlock),
+            tcp::State::Listen => Err(ConnectError::InvalidState),
+            _ => Ok(()),
+        }
+    }
+
     /// Accept a connection from a remote host.
     ///
     /// This function puts the socket in listening mode, and waits until a connection is received.
@@ -371,6 +404,33 @@ impl<'a> TcpSocket<'a> {
             })
         })
         .await
+    }
+
+    /// Accept a connection from a remote host.
+    ///
+    /// This method will not wait for a connection to be received.
+    ///
+    /// If the socket is not already listening, this method will put the socket into
+    /// listening mode and return `Err(AcceptError::WouldBlock)`. While waiting for
+    /// a remote host to connect, it will continue to return `Err(AcceptError::WouldBlock)`.
+    ///
+    /// Once a connection is successfully established and ready to send/receive data,
+    /// this method will return `Ok(())`.
+    pub fn try_accept<T>(&mut self, local_endpoint: T) -> Result<(), AcceptError>
+    where
+        T: Into<IpListenEndpoint>,
+    {
+        match self.state() {
+            tcp::State::Closed | tcp::State::TimeWait => {
+                match self.io.with_mut(|s, _| s.listen(local_endpoint)) {
+                    Ok(()) => Err(AcceptError::WouldBlock),
+                    Err(tcp::ListenError::InvalidState) => Err(AcceptError::InvalidState),
+                    Err(tcp::ListenError::Unaddressable) => Err(AcceptError::InvalidPort),
+                }
+            }
+            tcp::State::Listen | tcp::State::SynSent | tcp::State::SynReceived => Err(AcceptError::WouldBlock),
+            _ => Ok(()),
+        }
     }
 
     /// Wait until the socket becomes readable.
