@@ -150,6 +150,9 @@ impl RtcDriver {
         unsafe {
             <T as GeneralInstance1Channel>::CaptureCompareInterrupt::enable();
             <T as CoreInstance>::UpdateInterrupt::enable();
+
+            #[cfg(feature = "low-power")]
+            crate::rcc::reset_stop_refcount(cs);
         }
     }
 

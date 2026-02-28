@@ -52,7 +52,7 @@ use embassy_executor::*;
 #[cfg(not(feature = "_lp-time-driver"))]
 use crate::interrupt;
 pub use crate::rcc::StopMode;
-use crate::rcc::{REFCOUNT_STOP1, REFCOUNT_STOP2};
+use crate::rcc::get_stop_mode;
 #[cfg(feature = "low-power")]
 use crate::time_driver::LPTimeDriver;
 use crate::time_driver::get_driver;
@@ -60,10 +60,10 @@ use crate::time_driver::get_driver;
 const THREAD_PENDER: usize = usize::MAX;
 
 static EXECUTOR_TAKEN: AtomicBool = AtomicBool::new(false);
-#[cfg(feature = "low-power-pender")]
+#[cfg(not(feature = "low-power-disable-pender"))]
 static TASKS_PENDING: AtomicBool = AtomicBool::new(false);
 
-#[cfg(feature = "low-power-pender")]
+#[cfg(not(feature = "low-power-disable-pender"))]
 #[unsafe(export_name = "__pender")]
 fn __pender(context: *mut ()) {
     unsafe {
@@ -101,18 +101,6 @@ foreach_interrupt! {
             Executor::on_wakeup_irq_or_event();
         }
     };
-}
-
-/// Get whether the core is ready to enter the given stop mode.
-///
-/// This will return false if some peripheral driver is in use that
-/// prevents entering the given stop mode.
-pub fn stop_ready(stop_mode: StopMode) -> bool {
-    critical_section::with(|cs| match Executor::stop_mode(cs) {
-        Some(StopMode::Standby | StopMode::Stop2) => true,
-        Some(StopMode::Stop1) => stop_mode == StopMode::Stop1,
-        None => false,
-    })
 }
 
 #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u3, stm32wba, stm32wb, stm32wl, stm32u0))]
@@ -252,13 +240,6 @@ impl Executor {
                     // when we wake from STOP2, we need to re-initialize the time driver
                     #[cfg(not(feature = "_lp-time-driver"))]
                     get_driver().init_timer(_cs);
-                    // reset the refcounts for STOP2 and STOP1 (initializing the time driver will increment one of them for the timer)
-                    // and given that we just woke from STOP2, we can reset them
-                    #[cfg(not(feature = "_lp-time-driver"))]
-                    {
-                        REFCOUNT_STOP2 = 0;
-                        REFCOUNT_STOP1 = 0;
-                    }
                 }
             }
 
@@ -280,11 +261,7 @@ impl Executor {
 
                     // Reinitialize time driver (TIM1 is clock-gated during STOP)
                     #[cfg(not(feature = "_lp-time-driver"))]
-                    {
-                        get_driver().init_timer(_cs);
-                        REFCOUNT_STOP2 = 0;
-                        REFCOUNT_STOP1 = 0;
-                    }
+                    get_driver().init_timer(_cs);
                 }
             }
 
@@ -306,20 +283,6 @@ impl Executor {
 
     const fn get_scb() -> SCB {
         unsafe { mem::transmute(()) }
-    }
-
-    fn stop_mode(_cs: CriticalSection) -> Option<StopMode> {
-        // We cannot enter standby because we will lose program state.
-        if unsafe { REFCOUNT_STOP2 == 0 && REFCOUNT_STOP1 == 0 } {
-            Some(StopMode::Stop2)
-        } else if unsafe { REFCOUNT_STOP1 == 0 } {
-            Some(StopMode::Stop1)
-        } else {
-            trace!("low power: not ready to stop (refcount_stop1: {})", unsafe {
-                REFCOUNT_STOP1
-            });
-            None
-        }
     }
 
     #[cfg(all(stm32wb, feature = "low-power"))]
@@ -454,7 +417,7 @@ impl Executor {
         #[cfg(stm32wba)]
         crate::pac::PWR.sr().modify(|w| w.set_cssf(true));
 
-        #[cfg(feature = "low-power-pender")]
+        #[cfg(not(feature = "low-power-disable-pender"))]
         if TASKS_PENDING.load(Ordering::Acquire) {
             TASKS_PENDING.store(false, Ordering::Release);
 
@@ -464,8 +427,7 @@ impl Executor {
         compiler_fence(Ordering::Acquire);
 
         critical_section::with(|cs| {
-            let _ = unsafe { crate::rcc::get_rcc_config() }?;
-            let stop_mode = Self::stop_mode(cs)?;
+            let stop_mode = get_stop_mode(cs)?;
             get_driver().pause_time(cs).ok()?;
             self.configure_stop(cs, stop_mode).ok()?;
 

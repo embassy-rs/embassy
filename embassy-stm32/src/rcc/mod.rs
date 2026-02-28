@@ -126,13 +126,13 @@ pub(crate) unsafe fn get_rcc_config() -> Option<Config> {
 
 #[cfg(all(feature = "low-power", not(feature = "_dual-core")))]
 /// Safety: Sets a mutable global.
-pub(crate) unsafe fn set_rcc_config(config: Option<Config>) {
+unsafe fn set_rcc_config(config: Option<Config>) {
     RCC_CONFIG = config;
 }
 
 #[cfg(all(feature = "low-power", feature = "_dual-core"))]
 /// Safety: Sets a mutable global.
-pub(crate) unsafe fn set_rcc_config(config: Option<Config>) {
+unsafe fn set_rcc_config(config: Option<Config>) {
     RCC_CONFIG_PTR
         .load(core::sync::atomic::Ordering::SeqCst)
         .write(MaybeUninit::new(config));
@@ -145,6 +145,32 @@ pub fn clocks<'a>(_rcc: &'a crate::Peri<'a, crate::peripherals::RCC>) -> &'a Clo
     // The clocks could be modified again by `reinit()`, but reinit
     // (for this reason) requires an exclusive reference to `Peri<RCC>`.
     unsafe { get_freqs() }
+}
+
+#[cfg(feature = "low-power")]
+/// Get the current stop mode
+pub fn get_stop_mode(_cs: CriticalSection) -> Option<StopMode> {
+    // If rcc config is not set, then we're not ready to stop
+    unsafe { get_rcc_config()? };
+
+    // We cannot enter standby because we will lose program state.
+    if unsafe { REFCOUNT_STOP2 == 0 && REFCOUNT_STOP1 == 0 } {
+        Some(StopMode::Stop2)
+    } else if unsafe { REFCOUNT_STOP1 == 0 } {
+        Some(StopMode::Stop1)
+    } else {
+        trace!("low power: not ready to stop (refcount_stop1: {})", unsafe {
+            REFCOUNT_STOP1
+        });
+        None
+    }
+}
+
+#[cfg(feature = "low-power")]
+#[allow(dead_code)]
+pub(crate) unsafe fn reset_stop_refcount(_cs: CriticalSection) {
+    REFCOUNT_STOP2 = 0;
+    REFCOUNT_STOP1 = 0;
 }
 
 #[cfg(feature = "low-power")]
@@ -217,6 +243,24 @@ pub enum StopMode {
     Stop2,
     /// Peripheral does not prevent chip from entering Stop
     Standby,
+}
+
+#[cfg(feature = "low-power")]
+impl StopMode {
+    /// Return whether this stop mode is at least another stop mode.
+    pub const fn at_least(&self, other: StopMode) -> bool {
+        match other {
+            Self::Stop1 => true,
+            Self::Stop2 => match *self {
+                Self::Stop2 | Self::Standby => true,
+                _ => false,
+            },
+            Self::Standby => match *self {
+                Self::Standby => true,
+                _ => false,
+            },
+        }
+    }
 }
 
 impl RccInfo {
@@ -712,19 +756,8 @@ pub(crate) fn init_rcc(_cs: CriticalSection, config: Config) {
 
         init(config);
 
-        // must be after rcc init
-        #[cfg(feature = "_time-driver")]
-        crate::time_driver::init(_cs);
-
         #[cfg(feature = "low-power")]
-        {
-            set_rcc_config(Some(config));
-            #[cfg(not(feature = "_lp-time-driver"))]
-            {
-                REFCOUNT_STOP2 = 0;
-                REFCOUNT_STOP1 = 0;
-            }
-        }
+        set_rcc_config(Some(config));
     }
 }
 
