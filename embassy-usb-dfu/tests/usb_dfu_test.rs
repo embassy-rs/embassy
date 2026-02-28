@@ -44,7 +44,7 @@ impl<const SIZE: usize> NorFlash for InMemoryFlashPartition<SIZE> {
 
     fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
         let (from, to) = (from as usize, to as usize);
-        self.buffer.borrow_mut()[from..to].fill(0xFF);
+        self.buffer.borrow_mut()[from..to].fill(0);
         Ok(())
     }
 

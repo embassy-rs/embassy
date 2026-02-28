@@ -50,8 +50,6 @@ dfu-core = { version = "0.10.0", features=["std"] }
 anyhow = "1"
 
 [features]
-# TODO: remove
-default = ["dfu"]
 dfu = []
 application = []
 defmt = ["dep:defmt", "embassy-boot/defmt", "embassy-usb/defmt"]
