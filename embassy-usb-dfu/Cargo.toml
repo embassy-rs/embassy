@@ -45,6 +45,10 @@ embassy-usb = { version = "0.5.1", path = "../embassy-usb", default-features = f
 embedded-storage = { version = "0.3.1" }
 esp32c3-hal = { version = "0.13.0", optional = true, default-features = false }
 
+[dev-dependencies]
+dfu-core = { version = "0.10.0", features=["std"] }
+anyhow = "1"
+
 [features]
 dfu = []
 application = []

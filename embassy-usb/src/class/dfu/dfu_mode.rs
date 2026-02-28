@@ -161,6 +161,9 @@ impl<H: Handler> crate::Handler for DfuState<H> {
                 buf[0..6].copy_from_slice(&[self.status as u8, 0x32, 0x00, 0x00, self.state as u8, 0x00]);
                 match self.state {
                     State::DlSync => self.state = State::Download,
+                    State::ManifestSync if self.attrs.contains(DfuAttributes::MANIFESTATION_TOLERANT) => {
+                        self.state = State::DfuIdle
+                    }
                     State::ManifestSync => self.state = State::ManifestWaitReset,
                     _ => {}
                 }
