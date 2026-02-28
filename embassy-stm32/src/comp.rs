@@ -31,6 +31,7 @@ pub enum PowerMode {
 /// Hysteresis level.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg(comp_h5)]
 pub enum Hysteresis {
     /// No hysteresis.
     None,
@@ -40,6 +41,29 @@ pub enum Hysteresis {
     Medium,
     /// High hysteresis.
     High,
+}
+
+/// Hysteresis level.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg(comp_v2)]
+pub enum Hysteresis {
+    /// No hysteresis.
+    None,
+    /// 10mV hysteresis.
+    Hyst10M,
+    /// 20mV hysteresis.
+    Hyst20M,
+    /// 30mV hysteresis.
+    Hyst30M,
+    /// 40mV hysteresis.
+    Hyst40M,
+    /// 50mV hysteresis.
+    Hyst50M,
+    /// 60mV hysteresis.
+    Hyst60M,
+    /// 70mV hysteresis.
+    Hyst70M,
 }
 
 /// Output polarity.
@@ -244,16 +268,16 @@ impl<'d, T: Instance> Comp<'d, T> {
             PowerMode::UltraLowPower => vals::PowerMode::ULTRA_LOW,
         };
 
-        #[cfg(not(comp_u5))] // TODO: Maybe we should adjust our Hysteresis to have the same fields
+        #[cfg(comp_v2)]
         let hyst = match config.hysteresis {
             Hysteresis::None => vals::Hysteresis::NONE,
-            Hysteresis::Low => vals::Hysteresis::HYST10M,
-            //vals::Hyst::HYST20M,
-            //vals::Hyst::HYST30M,
-            Hysteresis::Medium => vals::Hysteresis::HYST40M,
-            //vals::Hyst::HYST50M,
-            //vals::Hyst::HYST60M,
-            Hysteresis::High => vals::Hysteresis::HYST70M,
+            Hysteresis::Hyst10M => vals::Hysteresis::HYST10M,
+            Hysteresis::Hyst20M => vals::Hysteresis::HYST20M,
+            Hysteresis::Hyst30M => vals::Hysteresis::HYST30M,
+            Hysteresis::Hyst40M => vals::Hysteresis::HYST40M,
+            Hysteresis::Hyst50M => vals::Hysteresis::HYST50M,
+            Hysteresis::Hyst60M => vals::Hysteresis::HYST60M,
+            Hysteresis::Hyst70M => vals::Hysteresis::HYST70M,
         };
 
         #[cfg(comp_u5)]
@@ -281,14 +305,14 @@ impl<'d, T: Instance> Comp<'d, T> {
             WindowMode::Disabled => vals::WindowMode::THIS_INPSEL,
             WindowMode::Enabled => vals::WindowMode::OTHER_INPSEL,
         };
-        
+
         #[cfg(comp_u5)]
         let winout = match config.window_output {
             WindowOutput::OwnValue => vals::WindowOut::COMP1_VALUE,
             WindowOutput::XorValue => vals::WindowOut::COMP1_VALUE_XOR_COMP2_VALUE,
         };
 
-        #[cfg(adc_g4)]
+        #[cfg(comp_v2)]
         let inp_channel = inp_channel != 0;
 
         T::regs().csr().modify(|w| {
@@ -297,8 +321,9 @@ impl<'d, T: Instance> Comp<'d, T> {
             w.set_hyst(hyst);
             w.set_polarity(polarity);
             w.set_blanksel(blanksel);
-            
-            #[cfg(comp_u5)] {
+
+            #[cfg(comp_u5)]
+            {
                 w.set_pwrmode(pwrmode);
                 w.set_winmode(winmode);
                 w.set_winout(winout);
@@ -318,9 +343,9 @@ impl<'d, T: Instance> Comp<'d, T> {
             InvertingInput::Dac1 => vals::Inm::DAC1,
             #[cfg(comp_u5)]
             InvertingInput::Dac2 => vals::Inm::DAC2,
-            #[cfg(adc_g4)] // TODO: comp_g4
+            #[cfg(comp_v2)]
             InvertingInput::Dac1 => vals::Inm::DACA,
-            #[cfg(adc_g4)] // TODO: comp_g4
+            #[cfg(comp_v2)]
             InvertingInput::Dac2 => vals::Inm::DACB,
 
             InvertingInput::InputPin => vals::Inm::INM1,
