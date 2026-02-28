@@ -13,7 +13,7 @@ embassy-stm32 = { version = "0.5.0", path = "../../embassy-stm32", features = [
   "exti",
   "unstable-pac",
   "chrono",
-  "low-power-pender",
+  "low-power",
 ] }
 embassy-sync = { version = "0.7.2", path = "../../embassy-sync", features = [] }
 # embassy-embedded-hal = { version = "0.5.0", path = "../../embassy-embedded-hal" }

@@ -718,9 +718,15 @@ fn init_hw(config: Config) -> Peripherals {
 
             rcc::init_rcc(cs, config.rcc);
 
+            // must be before time_driver init to allow refcount reset
             #[cfg(all(any(stm32wb, stm32wl5x), feature = "low-power"))]
             hsem::init_hsem(cs);
 
+            // must be after rcc init
+            #[cfg(feature = "_time-driver")]
+            crate::time_driver::init(cs);
+
+            // must be after time-driver init
             #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
             rtc::init_rtc(cs, config.rtc, config.min_stop_pause);
         }

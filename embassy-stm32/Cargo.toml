@@ -250,7 +250,7 @@ stm32-hrtim = ["dep:stm32-hrtim"]
 
 exti = []
 low-power = [ "dep:embassy-executor", "time", "chrono" ]
-low-power-pender = [ "low-power" ]
+low-power-disable-pender = [ "low-power" ]
 low-power-debug-with-sleep = [ "low-power" ]
 
 ## Automatically generate `memory.x` file based on the memory map from [`stm32-metapac`](https://docs.rs/stm32-metapac/)
