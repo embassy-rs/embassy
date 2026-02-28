@@ -2,16 +2,15 @@ use core::cell::RefCell;
 use core::convert::Infallible;
 use std::rc::Rc;
 
+use dfu_core::DfuIo;
 use embassy_boot::{BlockingFirmwareUpdater, FirmwareUpdaterConfig};
 use embassy_usb::Handler;
 use embassy_usb::class::dfu::dfu_mode::Handler as DfuModeHandler;
 use embassy_usb::control::{InResponse, OutResponse, Recipient, Request as ControlRequest, RequestType};
 use embassy_usb::driver::Direction;
-use embassy_usb_dfu::{Reset, consts::DfuAttributes};
-use embassy_usb_dfu::{UsbDfuState, new_state};
+use embassy_usb_dfu::consts::DfuAttributes;
+use embassy_usb_dfu::{Reset, UsbDfuState, new_state};
 use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
-
-use dfu_core::DfuIo;
 
 const READ_WRITE_SIZE: usize = 8;
 
