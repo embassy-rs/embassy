@@ -126,7 +126,9 @@ impl Into<Lpms> for StopMode {
             #[cfg(not(stm32wba))]
             StopMode::Standby | StopMode::Stop2 => Lpms::STOP2,
             #[cfg(stm32wba)]
-            StopMode::Standby | StopMode::Stop2 => Lpms::STOP1, // TODO: WBA has no STOP2?
+            // WBA STOP2 is auto-entered by hardware when LPMS=STOP0 and
+            // the 2.4 GHz radio is in deep sleep. It's not a separate LPMS value.
+            StopMode::Standby | StopMode::Stop2 => Lpms::STOP0,
         }
     }
 }
@@ -254,6 +256,32 @@ impl Executor {
                     // and given that we just woke from STOP2, we can reset them
                     #[cfg(not(feature = "_lp-time-driver"))]
                     {
+                        REFCOUNT_STOP2 = 0;
+                        REFCOUNT_STOP1 = 0;
+                    }
+                }
+            }
+
+            #[cfg(stm32wba)]
+            {
+                let sr = crate::pac::PWR.sr().read();
+                if sr.stopf() {
+                    if sr.stop2f() {
+                        debug!("low power: WBA woke from STOP2");
+                    } else {
+                        debug!("low power: WBA woke from STOP0/1");
+                    }
+
+                    // PLL is off after STOP — reinitialize full clock tree
+                    crate::rcc::init(unsafe { crate::rcc::get_rcc_config() }.unwrap());
+
+                    // Clear stop and standby flags
+                    crate::pac::PWR.sr().modify(|w| w.set_cssf(true));
+
+                    // Reinitialize time driver (TIM1 is clock-gated during STOP)
+                    #[cfg(not(feature = "_lp-time-driver"))]
+                    {
+                        get_driver().init_timer(_cs);
                         REFCOUNT_STOP2 = 0;
                         REFCOUNT_STOP1 = 0;
                     }
@@ -423,6 +451,8 @@ impl Executor {
             #[cfg(feature = "_core-cm0p")]
             w.set_c2cssf(true);
         });
+        #[cfg(stm32wba)]
+        crate::pac::PWR.sr().modify(|w| w.set_cssf(true));
 
         #[cfg(feature = "low-power-pender")]
         if TASKS_PENDING.load(Ordering::Acquire) {
