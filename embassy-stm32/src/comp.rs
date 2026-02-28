@@ -10,6 +10,7 @@ use core::task::Poll;
 
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
+use stm32_metapac::comp::vals;
 
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::rcc::RccInfo;
@@ -233,120 +234,107 @@ impl<'d, T: Instance> Comp<'d, T> {
         Self { _peri: peri }
     }
 
-    #[cfg(comp_u5)]
-    fn configure(inp_channel: u8, config: Config) {
+    fn configure_raw(inp_channel: u8, inmsel: vals::Inm, config: Config) {
         use crate::pac::comp::vals;
 
+        #[cfg(comp_u5)]
         let pwrmode = match config.power_mode {
             PowerMode::HighSpeed => vals::PowerMode::HIGH_SPEED,
             PowerMode::MediumSpeed => vals::PowerMode::MEDIUM_SPEED,
             PowerMode::UltraLowPower => vals::PowerMode::ULTRA_LOW,
         };
 
+        #[cfg(not(comp_u5))] // TODO: Maybe we should adjust our Hysteresis to have the same fields
         let hyst = match config.hysteresis {
             Hysteresis::None => vals::Hysteresis::NONE,
-            Hysteresis::Low => vals::Hysteresis::LOW,
-            Hysteresis::Medium => vals::Hysteresis::MEDIUM,
-            Hysteresis::High => vals::Hysteresis::HIGH,
+            Hysteresis::Low => vals::Hysteresis::HYST10M,
+            //vals::Hyst::HYST20M,
+            //vals::Hyst::HYST30M,
+            Hysteresis::Medium => vals::Hysteresis::HYST40M,
+            //vals::Hyst::HYST50M,
+            //vals::Hyst::HYST60M,
+            Hysteresis::High => vals::Hysteresis::HYST70M,
+        };
+
+        #[cfg(comp_u5)]
+        let hyst = match config.hysteresis {
+            Hysteresis::None => Hysteresis::NONE,
+            Hysteresis::Low => Hysteresis::LOW,
+            Hysteresis::Medium => Hysteresis::MEDIUM,
+            Hysteresis::High => Hysteresis::HIGH,
         };
 
         let polarity = match config.output_polarity {
             OutputPolarity::NotInverted => vals::Polarity::NOT_INVERTED,
             OutputPolarity::Inverted => vals::Polarity::INVERTED,
         };
+
+        let blanksel = match config.blanking_source {
+            BlankingSource::None => vals::Blanking::NO_BLANKING,
+            BlankingSource::Blank1 => vals::Blanking::BLANK1,
+            BlankingSource::Blank2 => vals::Blanking::BLANK2,
+            BlankingSource::Blank3 => vals::Blanking::BLANK3,
+        };
+
+        #[cfg(comp_u5)]
+        let winmode = match config.window_mode {
+            WindowMode::Disabled => vals::WindowMode::THIS_INPSEL,
+            WindowMode::Enabled => vals::WindowMode::OTHER_INPSEL,
+        };
+        
+        #[cfg(comp_u5)]
+        let winout = match config.window_output {
+            WindowOutput::OwnValue => vals::WindowOut::COMP1_VALUE,
+            WindowOutput::XorValue => vals::WindowOut::COMP1_VALUE_XOR_COMP2_VALUE,
+        };
+
+        #[cfg(adc_g4)]
+        let inp_channel = inp_channel != 0;
+
+        T::regs().csr().modify(|w| {
+            w.set_inpsel(inp_channel);
+            w.set_inmsel(inmsel);
+            w.set_hyst(hyst);
+            w.set_polarity(polarity);
+            w.set_blanksel(blanksel);
+            
+            #[cfg(comp_u5)] {
+                w.set_pwrmode(pwrmode);
+                w.set_winmode(winmode);
+                w.set_winout(winout);
+            }
+        });
+    }
+
+    fn configure(inp_channel: u8, config: Config) {
+        use crate::pac::comp::vals;
 
         let inmsel = match config.inverting_input {
             InvertingInput::OneQuarterVref => vals::Inm::QUARTER_VREF,
             InvertingInput::HalfVref => vals::Inm::HALF_VREF,
             InvertingInput::ThreeQuarterVref => vals::Inm::THREE_QUARTER_VREF,
             InvertingInput::Vref => vals::Inm::VREF,
+            #[cfg(comp_u5)]
             InvertingInput::Dac1 => vals::Inm::DAC1,
+            #[cfg(comp_u5)]
             InvertingInput::Dac2 => vals::Inm::DAC2,
+            #[cfg(adc_g4)] // TODO: comp_g4
+            InvertingInput::Dac1 => vals::Inm::DACA,
+            #[cfg(adc_g4)] // TODO: comp_g4
+            InvertingInput::Dac2 => vals::Inm::DACB,
+
             InvertingInput::InputPin => vals::Inm::INM1,
         };
 
-        let blanksel = match config.blanking_source {
-            BlankingSource::None => vals::Blanking::NO_BLANKING,
-            BlankingSource::Blank1 => vals::Blanking::BLANK1,
-            BlankingSource::Blank2 => vals::Blanking::BLANK2,
-            BlankingSource::Blank3 => vals::Blanking::BLANK3,
-        };
-
-        let winmode = match config.window_mode {
-            WindowMode::Disabled => vals::WindowMode::THIS_INPSEL,
-            WindowMode::Enabled => vals::WindowMode::OTHER_INPSEL,
-        };
-
-        let winout = match config.window_output {
-            WindowOutput::OwnValue => vals::WindowOut::COMP1_VALUE,
-            WindowOutput::XorValue => vals::WindowOut::COMP1_VALUE_XOR_COMP2_VALUE,
-        };
-
-        T::regs().csr().modify(|w| {
-            w.set_inpsel(inp_channel);
-            w.set_inmsel(inmsel);
-            w.set_pwrmode(pwrmode);
-            w.set_hyst(hyst);
-            w.set_polarity(polarity);
-            w.set_blanksel(blanksel);
-            w.set_winmode(winmode);
-            w.set_winout(winout);
-        });
+        Self::configure_raw(inp_channel, inmsel, config);
     }
 
-    #[cfg(comp_u5)]
     fn configure_with_input_minus_pin(inp_channel: u8, inm_channel: u8, config: Config) {
-        use crate::pac::comp::vals;
-
-        let pwrmode = match config.power_mode {
-            PowerMode::HighSpeed => vals::PowerMode::HIGH_SPEED,
-            PowerMode::MediumSpeed => vals::PowerMode::MEDIUM_SPEED,
-            PowerMode::UltraLowPower => vals::PowerMode::ULTRA_LOW,
-        };
-
-        let hyst = match config.hysteresis {
-            Hysteresis::None => vals::Hysteresis::NONE,
-            Hysteresis::Low => vals::Hysteresis::LOW,
-            Hysteresis::Medium => vals::Hysteresis::MEDIUM,
-            Hysteresis::High => vals::Hysteresis::HIGH,
-        };
-
-        let polarity = match config.output_polarity {
-            OutputPolarity::NotInverted => vals::Polarity::NOT_INVERTED,
-            OutputPolarity::Inverted => vals::Polarity::INVERTED,
-        };
-
         // Map the channel to the INM enum value
         // INM1 = 0x06, INM2 = 0x07
         let inmsel = vals::Inm::from_bits(0x06 + inm_channel);
 
-        let blanksel = match config.blanking_source {
-            BlankingSource::None => vals::Blanking::NO_BLANKING,
-            BlankingSource::Blank1 => vals::Blanking::BLANK1,
-            BlankingSource::Blank2 => vals::Blanking::BLANK2,
-            BlankingSource::Blank3 => vals::Blanking::BLANK3,
-        };
-
-        let winmode = match config.window_mode {
-            WindowMode::Disabled => vals::WindowMode::THIS_INPSEL,
-            WindowMode::Enabled => vals::WindowMode::OTHER_INPSEL,
-        };
-
-        let winout = match config.window_output {
-            WindowOutput::OwnValue => vals::WindowOut::COMP1_VALUE,
-            WindowOutput::XorValue => vals::WindowOut::COMP1_VALUE_XOR_COMP2_VALUE,
-        };
-
-        T::regs().csr().modify(|w| {
-            w.set_inpsel(inp_channel);
-            w.set_inmsel(inmsel);
-            w.set_pwrmode(pwrmode);
-            w.set_hyst(hyst);
-            w.set_polarity(polarity);
-            w.set_blanksel(blanksel);
-            w.set_winmode(winmode);
-            w.set_winout(winout);
-        });
+        Self::configure_raw(inp_channel, inmsel, config)
     }
 
     /// Enable the comparator.
@@ -372,7 +360,6 @@ impl<'d, T: Instance> Comp<'d, T> {
     ///
     /// Returns `true` if the non-inverting input is higher than the inverting input
     /// (or the opposite if polarity is inverted).
-    #[cfg(comp_u5)]
     pub fn output_level(&self) -> bool {
         T::regs().csr().read().value()
     }
