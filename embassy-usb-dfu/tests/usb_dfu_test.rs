@@ -1,6 +1,5 @@
 use core::cell::RefCell;
 use core::convert::Infallible;
-use std::rc::Rc;
 
 use dfu_core::DfuIo;
 use embassy_boot::{BlockingFirmwareUpdater, FirmwareUpdaterConfig};
@@ -14,11 +13,11 @@ use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
 
 const READ_WRITE_SIZE: usize = 8;
 
-struct InMemoryFlashPartition<const SIZE: usize> {
-    buffer: Rc<RefCell<[u8; SIZE]>>,
+struct InMemoryFlashPartition<'a, const SIZE: usize> {
+    buffer: &'a RefCell<[u8; SIZE]>,
 }
 
-impl<const SIZE: usize> ReadNorFlash for InMemoryFlashPartition<SIZE> {
+impl<'a, const SIZE: usize> ReadNorFlash for InMemoryFlashPartition<'a, SIZE> {
     const READ_SIZE: usize = READ_WRITE_SIZE;
 
     fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
@@ -32,11 +31,11 @@ impl<const SIZE: usize> ReadNorFlash for InMemoryFlashPartition<SIZE> {
     }
 }
 
-impl<const SIZE: usize> ErrorType for InMemoryFlashPartition<SIZE> {
+impl<'a, const SIZE: usize> ErrorType for InMemoryFlashPartition<'a, SIZE> {
     type Error = Infallible;
 }
 
-impl<const SIZE: usize> NorFlash for InMemoryFlashPartition<SIZE> {
+impl<'a, const SIZE: usize> NorFlash for InMemoryFlashPartition<'a, SIZE> {
     const WRITE_SIZE: usize = READ_WRITE_SIZE;
 
     const ERASE_SIZE: usize = READ_WRITE_SIZE;
@@ -144,12 +143,10 @@ fn usb_dfu(dfu_attributes: DfuAttributes) {
 
     const BLOCK_SIZE: usize = 128;
 
-    let dfu_buffer = Rc::new(RefCell::new([0; { BLOCK_SIZE * 2 }]));
-    let dfu_partition = InMemoryFlashPartition {
-        buffer: dfu_buffer.clone(),
-    };
-    let state_buffer = Rc::new(RefCell::new([0; { READ_WRITE_SIZE * 2 }]));
-    let state_partition = InMemoryFlashPartition { buffer: state_buffer };
+    let dfu_buffer = RefCell::new([0; { BLOCK_SIZE * 2 }]);
+    let dfu_partition = InMemoryFlashPartition { buffer: &dfu_buffer };
+    let state_buffer = RefCell::new([0; { READ_WRITE_SIZE * 2 }]);
+    let state_partition = InMemoryFlashPartition { buffer: &state_buffer };
     let fw_config = FirmwareUpdaterConfig {
         dfu: dfu_partition,
         state: state_partition,
