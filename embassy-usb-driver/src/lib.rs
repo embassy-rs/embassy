@@ -168,7 +168,7 @@ pub trait Driver<'a> {
     ///
     /// This consumes the `Driver` instance, so it's no longer possible to allocate more
     /// endpoints.
-    fn start(self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe);
+    fn start(self, control_max_packet_size: u16, enable_sof_interrupts: bool) -> (Self::Bus, Self::ControlPipe);
 }
 
 /// USB bus trait.
@@ -402,6 +402,9 @@ pub enum Event {
 
     /// The USB power has been removed. Not supported by all devices.
     PowerRemoved,
+
+    /// A Start of Frame token has been received
+    SOF,
 }
 
 /// Allocating an endpoint failed.

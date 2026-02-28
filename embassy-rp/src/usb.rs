@@ -330,7 +330,7 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
         self.alloc_endpoint(ep_type, ep_addr, max_packet_size, interval_ms)
     }
 
-    fn start(self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
+    fn start(self, control_max_packet_size: u16, _enable_sof_interrupts: bool) -> (Self::Bus, Self::ControlPipe) {
         let regs = T::regs();
         regs.inte().write(|w| {
             w.set_bus_reset(true);
