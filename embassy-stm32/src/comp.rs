@@ -31,7 +31,7 @@ pub enum PowerMode {
 /// Hysteresis level.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[cfg(comp_h5)]
+#[cfg(comp_u5)]
 pub enum Hysteresis {
     /// No hysteresis.
     None,
@@ -215,6 +215,7 @@ impl<'d, T: Instance> Comp<'d, T> {
     ///
     /// The non-inverting input is connected to the provided pin. The inverting input
     /// is configured via the `config.inverting_input` parameter.
+    #[cfg(any(comp_u5, comp_v2))]
     pub fn new(
         peri: Peri<'d, T>,
         inp: Peri<'_, impl InputPlusPin<T> + crate::gpio::Pin>,
@@ -238,6 +239,7 @@ impl<'d, T: Instance> Comp<'d, T> {
     ///
     /// Both non-inverting and inverting inputs are connected to the provided pins.
     /// The `config.inverting_input` parameter is ignored; the pin determines the input.
+    #[cfg(any(comp_u5, comp_v2))]
     pub fn new_with_input_minus_pin(
         peri: Peri<'d, T>,
         inp: Peri<'_, impl InputPlusPin<T> + crate::gpio::Pin>,
@@ -258,6 +260,7 @@ impl<'d, T: Instance> Comp<'d, T> {
         Self { _peri: peri }
     }
 
+    #[cfg(any(comp_u5, comp_v2))]
     fn configure_raw(inp_channel: u8, inmsel: vals::Inm, config: Config) {
         use crate::pac::comp::vals;
 
@@ -282,10 +285,10 @@ impl<'d, T: Instance> Comp<'d, T> {
 
         #[cfg(comp_u5)]
         let hyst = match config.hysteresis {
-            Hysteresis::None => Hysteresis::NONE,
-            Hysteresis::Low => Hysteresis::LOW,
-            Hysteresis::Medium => Hysteresis::MEDIUM,
-            Hysteresis::High => Hysteresis::HIGH,
+            Hysteresis::None => vals::Hysteresis::NONE,
+            Hysteresis::Low => vals::Hysteresis::LOW,
+            Hysteresis::Medium => vals::Hysteresis::MEDIUM,
+            Hysteresis::High => vals::Hysteresis::HIGH,
         };
 
         let polarity = match config.output_polarity {
@@ -385,6 +388,7 @@ impl<'d, T: Instance> Comp<'d, T> {
     ///
     /// Returns `true` if the non-inverting input is higher than the inverting input
     /// (or the opposite if polarity is inverted).
+    #[cfg(any(comp_u5, comp_v2))]
     pub fn output_level(&self) -> bool {
         T::regs().csr().read().value()
     }
