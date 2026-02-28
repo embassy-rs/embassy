@@ -46,16 +46,14 @@ use core::mem;
 use core::sync::atomic::{AtomicBool, Ordering, compiler_fence};
 
 use cortex_m::peripheral::SCB;
-use critical_section::CriticalSection;
 use embassy_executor::*;
 
 #[cfg(not(feature = "_lp-time-driver"))]
 use crate::interrupt;
+use crate::low_power::platform::{clear_flags, enter_stop};
 pub use crate::rcc::StopMode;
 use crate::rcc::get_stop_mode;
-#[cfg(feature = "low-power")]
-use crate::time_driver::LPTimeDriver;
-use crate::time_driver::get_driver;
+use crate::time_driver::{LPTimeDriver, get_driver};
 
 const THREAD_PENDER: usize = usize::MAX;
 
@@ -121,236 +119,88 @@ impl Into<Lpms> for StopMode {
     }
 }
 
-/// Thread mode executor, using WFE/SEV.
-///
-/// This is the simplest and most common kind of executor. It runs on
-/// thread mode (at the lowest priority level), and uses the `WFE` ARM instruction
-/// to sleep when it has no more work to do. When a task is woken, a `SEV` instruction
-/// is executed, to make the `WFE` exit from sleep and poll the task.
-///
-/// This executor allows for ultra low power consumption for chips where `WFE`
-/// triggers low-power sleep without extra steps. If your chip requires extra steps,
-/// you may use [`raw::Executor`] directly to program custom behavior.
-pub struct Executor {
-    inner: raw::Executor,
-    not_send: PhantomData<*mut ()>,
-}
+mod platform {
+    use critical_section::CriticalSection;
 
-impl Executor {
-    /// Create a new Executor.
-    pub fn new() -> Self {
-        if EXECUTOR_TAKEN.load(Ordering::Acquire) {
-            panic!("Low power executor can only be taken once.");
-        } else {
-            EXECUTOR_TAKEN.store(true, Ordering::Release);
-        }
+    use crate::rcc::StopMode;
 
-        Self {
-            inner: raw::Executor::new(THREAD_PENDER as *mut ()),
-            not_send: PhantomData,
-        }
+    pub fn clear_flags() {
+        // Clear any previous stop flags
+        #[cfg(stm32wl)]
+        crate::pac::PWR.extscr().modify(|w| {
+            #[cfg(not(feature = "_core-cm0p"))]
+            w.set_c1cssf(true);
+            #[cfg(feature = "_core-cm0p")]
+            w.set_c2cssf(true);
+        });
+        #[cfg(stm32wba)]
+        crate::pac::PWR.sr().modify(|w| w.set_cssf(true));
     }
 
-    pub(crate) unsafe fn on_wakeup_irq_or_event() {
-        if !get_driver().is_stopped() {
-            trace!("low power: time driver not stopped!");
-            return;
-        }
+    pub fn enter_stop(_cs: CriticalSection, stop_mode: StopMode) -> Result<(), ()> {
+        #[cfg(all(stm32wb, feature = "low-power"))]
+        fn configure_stop_stm32wb(
+            _cs: CriticalSection<'_>,
+        ) -> Result<crate::hsem::HardwareSemaphoreMutex<'_, crate::peripherals::HSEM>, ()> {
+            use core::task::Poll;
 
-        critical_section::with(|_cs| {
-            #[cfg(any(stm32wl, stm32wb))]
-            {
-                // stm32wl5x is dual core and we don't want BOTH cores to re-initialize RCC so we hold a lock
-                #[cfg(stm32wl5x)]
-                let lock = crate::hsem::get_hsem(3).blocking_lock(0);
+            use embassy_futures::poll_once;
 
-                let es = crate::pac::PWR.extscr().read();
+            use crate::hsem::get_hsem;
+            use crate::pac::rcc::vals::{Smps, Sw};
+            use crate::pac::{PWR, RCC};
 
-                // we need to re-initialize RCC if *BOTH* cores have been in some STOP mode!
-                #[cfg(stm32wl)]
-                let re_initialize_rcc = {
-                    #[cfg(stm32wl5x)]
-                    {
-                        // core 1 in any STOP mode AND core 2 in any STOP mode
-                        (es.c1stopf() || es.c1stop2f()) && (es.c2stopf() || es.c2stop2f())
-                    }
-                    #[cfg(stm32wlex)]
-                    {
-                        es.c1stop2f() || es.c1stopf()
-                    }
-                };
+            trace!("low power: trying to get sem3");
 
-                #[cfg(not(stm32wb))]
-                let re_initialize_timer = {
-                    #[cfg(not(feature = "_core-cm0p"))]
-                    {
-                        es.c1stop2f()
-                    }
-                    #[cfg(feature = "_core-cm0p")]
-                    {
-                        es.c2stop2f()
-                    }
-                };
+            let sem3_mutex = match poll_once(get_hsem(3).lock(0)) {
+                Poll::Pending => None,
+                Poll::Ready(mutex) => Some(mutex),
+            }
+            .ok_or(())?;
 
-                #[cfg(not(stm32wb))]
-                if re_initialize_rcc {
-                    // when we wake from any stop mode we need to re-initialize the rcc
-                    crate::rcc::init(unsafe { crate::rcc::get_rcc_config() }.unwrap());
-                }
+            trace!("low power: got sem3");
 
-                // Clear this core's stop flags
-                #[cfg(stm32wl)]
-                crate::pac::PWR.extscr().modify(|w| {
-                    #[cfg(any(stm32wlex, not(feature = "_core-cm0p")))]
-                    w.set_c1cssf(true);
-                    #[cfg(feature = "_core-cm0p")]
-                    w.set_c2cssf(true);
-                });
+            let sem4_mutex = get_hsem(4).try_lock(0);
+            if let Some(sem4_mutex) = sem4_mutex {
+                trace!("low power: got sem4");
 
-                #[cfg(stm32wl5x)]
-                drop(lock);
-
-                #[cfg(stm32wl)]
-                match (es.c1stopf(), es.c1stop2f()) {
-                    (true, false) => debug!("low power: cpu1 has been in STOP1"),
-                    (false, true) => debug!("low power: cpu1 has been in STOP2"),
-                    (true, true) => debug!("low power: cpu1 has been in STOP1 and STOP2 ???"),
-                    (false, false) => trace!("low power: cpu1 stop mode not entered"),
-                };
-                #[cfg(stm32wl5x)]
-                // TODO: only for the current cpu
-                match (es.c2stopf(), es.c2stop2f()) {
-                    (true, false) => debug!("low power: cpu2 has been in STOP1"),
-                    (false, true) => debug!("low power: cpu2 has been in STOP2"),
-                    (true, true) => debug!("low power: cpu2 has been in STOP1 and STOP2 ???"),
-                    (false, false) => trace!("low power: cpu2 stop mode not entered"),
-                };
-
-                #[cfg(stm32wb)]
-                match (es.c1stopf(), es.c2stopf()) {
-                    (true, false) => debug!("low power: cpu1 has been in STOP"),
-                    (false, true) => debug!("low power: cpu2 has been in STOP"),
-                    (true, true) => debug!("low power: cpu1 and cpu2 have been in STOP"),
-                    (false, false) => trace!("low power: stop mode not entered"),
-                };
-
-                #[cfg(not(stm32wb))]
-                if re_initialize_timer {
-                    trace!("low power: re-initializing timer");
-                    // when we wake from STOP2, we need to re-initialize the time driver
-                    #[cfg(not(feature = "_lp-time-driver"))]
-                    get_driver().init_timer(_cs);
+                if PWR.extscr().read().c2ds() {
+                    drop(sem4_mutex);
+                } else {
+                    return Ok(sem3_mutex);
                 }
             }
 
-            #[cfg(stm32wba)]
-            {
-                let sr = crate::pac::PWR.sr().read();
-                if sr.stopf() {
-                    if sr.stop2f() {
-                        debug!("low power: WBA woke from STOP2");
-                    } else {
-                        debug!("low power: WBA woke from STOP0/1");
-                    }
+            // Sem4 not granted
+            // Set HSION
+            RCC.cr().modify(|w| {
+                w.set_hsion(true);
+            });
 
-                    // PLL is off after STOP — reinitialize full clock tree
-                    crate::rcc::init(unsafe { crate::rcc::get_rcc_config() }.unwrap());
+            // Wait for HSIRDY
+            while !RCC.cr().read().hsirdy() {}
 
-                    // Clear stop and standby flags
-                    crate::pac::PWR.sr().modify(|w| w.set_cssf(true));
+            // Set SW to HSI
+            RCC.cfgr().modify(|w| {
+                w.set_sw(Sw::HSI);
+            });
 
-                    // Reinitialize time driver (TIM1 is clock-gated during STOP)
-                    #[cfg(not(feature = "_lp-time-driver"))]
-                    get_driver().init_timer(_cs);
-                }
-            }
+            // Wait for SWS to report HSI
+            while !RCC.cfgr().read().sws().eq(&Sw::HSI) {}
 
-            #[cfg(stm32l0)]
-            {
-                let csr = crate::pac::PWR.csr().read();
-                if csr.wuf() {
-                    debug!("low power: cpu has been in STOP");
-                    crate::rcc::init(unsafe { crate::rcc::get_rcc_config() }.unwrap());
-                    crate::pac::PWR.cr().modify(|w| w.set_cwuf(true));
-                }
-            }
+            // Set SMPSSEL to HSI
+            RCC.smpscr().modify(|w| {
+                w.set_smpssel(Smps::HSI);
+            });
 
-            get_driver().resume_time(_cs);
-
-            trace!("low power: resumed");
-        });
-    }
-
-    const fn get_scb() -> SCB {
-        unsafe { mem::transmute(()) }
-    }
-
-    #[cfg(all(stm32wb, feature = "low-power"))]
-    fn configure_stop_stm32wb(
-        &self,
-        _cs: CriticalSection,
-    ) -> Result<crate::hsem::HardwareSemaphoreMutex<'_, crate::peripherals::HSEM>, ()> {
-        use core::task::Poll;
-
-        use embassy_futures::poll_once;
-
-        use crate::hsem::get_hsem;
-        use crate::pac::rcc::vals::{Smps, Sw};
-        use crate::pac::{PWR, RCC};
-
-        trace!("low power: trying to get sem3");
-
-        let sem3_mutex = match poll_once(get_hsem(3).lock(0)) {
-            Poll::Pending => None,
-            Poll::Ready(mutex) => Some(mutex),
-        }
-        .ok_or(())?;
-
-        trace!("low power: got sem3");
-
-        let sem4_mutex = get_hsem(4).try_lock(0);
-        if let Some(sem4_mutex) = sem4_mutex {
-            trace!("low power: got sem4");
-
-            if PWR.extscr().read().c2ds() {
-                drop(sem4_mutex);
-            } else {
-                return Ok(sem3_mutex);
-            }
+            Ok(sem3_mutex)
         }
 
-        // Sem4 not granted
-        // Set HSION
-        RCC.cr().modify(|w| {
-            w.set_hsion(true);
-        });
-
-        // Wait for HSIRDY
-        while !RCC.cr().read().hsirdy() {}
-
-        // Set SW to HSI
-        RCC.cfgr().modify(|w| {
-            w.set_sw(Sw::HSI);
-        });
-
-        // Wait for SWS to report HSI
-        while !RCC.cfgr().read().sws().eq(&Sw::HSI) {}
-
-        // Set SMPSSEL to HSI
-        RCC.smpscr().modify(|w| {
-            w.set_smpssel(Smps::HSI);
-        });
-
-        Ok(sem3_mutex)
-    }
-
-    #[allow(unused_variables)]
-    fn configure_stop(&self, _cs: CriticalSection, stop_mode: StopMode) -> Result<(), ()> {
         #[cfg(stm32wb)]
         let mutex = {
             use crate::pac::{PWR, RCC};
 
-            let mutex = self.configure_stop_stm32wb(_cs)?;
+            let mutex = configure_stop_stm32wb(_cs)?;
 
             // on PWR
             RCC.apb1enr1().modify(|r| r.0 |= 1 << 28);
@@ -401,21 +251,182 @@ impl Executor {
         #[cfg(stm32wb)]
         drop(mutex);
 
+        let _ = stop_mode;
+
         Ok(())
     }
 
-    fn configure_pwr(&self) {
-        Self::get_scb().clear_sleepdeep();
-        // Clear any previous stop flags
-        #[cfg(stm32wl)]
-        crate::pac::PWR.extscr().modify(|w| {
-            #[cfg(not(feature = "_core-cm0p"))]
-            w.set_c1cssf(true);
-            #[cfg(feature = "_core-cm0p")]
-            w.set_c2cssf(true);
-        });
+    pub fn exit_stop(_cs: CriticalSection) {
+        #[cfg(any(stm32wl, stm32wb))]
+        {
+            // stm32wl5x is dual core and we don't want BOTH cores to re-initialize RCC so we hold a lock
+            #[cfg(stm32wl5x)]
+            let lock = crate::hsem::get_hsem(3).blocking_lock(0);
+
+            let es = crate::pac::PWR.extscr().read();
+
+            // we need to re-initialize RCC if *BOTH* cores have been in some STOP mode!
+            #[cfg(stm32wl)]
+            let re_initialize_rcc = {
+                #[cfg(stm32wl5x)]
+                {
+                    // core 1 in any STOP mode AND core 2 in any STOP mode
+                    (es.c1stopf() || es.c1stop2f()) && (es.c2stopf() || es.c2stop2f())
+                }
+                #[cfg(stm32wlex)]
+                {
+                    es.c1stop2f() || es.c1stopf()
+                }
+            };
+
+            #[cfg(not(stm32wb))]
+            let re_initialize_timer = {
+                #[cfg(not(feature = "_core-cm0p"))]
+                {
+                    es.c1stop2f()
+                }
+                #[cfg(feature = "_core-cm0p")]
+                {
+                    es.c2stop2f()
+                }
+            };
+
+            #[cfg(not(stm32wb))]
+            if re_initialize_rcc {
+                // when we wake from any stop mode we need to re-initialize the rcc
+                crate::rcc::reinit_saved(_cs);
+            }
+
+            // Clear this core's stop flags
+            #[cfg(stm32wl)]
+            crate::pac::PWR.extscr().modify(|w| {
+                #[cfg(any(stm32wlex, not(feature = "_core-cm0p")))]
+                w.set_c1cssf(true);
+                #[cfg(feature = "_core-cm0p")]
+                w.set_c2cssf(true);
+            });
+
+            #[cfg(stm32wl5x)]
+            drop(lock);
+
+            #[cfg(stm32wl)]
+            match (es.c1stopf(), es.c1stop2f()) {
+                (true, false) => debug!("low power: cpu1 has been in STOP1"),
+                (false, true) => debug!("low power: cpu1 has been in STOP2"),
+                (true, true) => debug!("low power: cpu1 has been in STOP1 and STOP2 ???"),
+                (false, false) => trace!("low power: cpu1 stop mode not entered"),
+            };
+            #[cfg(stm32wl5x)]
+            // TODO: only for the current cpu
+            match (es.c2stopf(), es.c2stop2f()) {
+                (true, false) => debug!("low power: cpu2 has been in STOP1"),
+                (false, true) => debug!("low power: cpu2 has been in STOP2"),
+                (true, true) => debug!("low power: cpu2 has been in STOP1 and STOP2 ???"),
+                (false, false) => trace!("low power: cpu2 stop mode not entered"),
+            };
+
+            #[cfg(stm32wb)]
+            match (es.c1stopf(), es.c2stopf()) {
+                (true, false) => debug!("low power: cpu1 has been in STOP"),
+                (false, true) => debug!("low power: cpu2 has been in STOP"),
+                (true, true) => debug!("low power: cpu1 and cpu2 have been in STOP"),
+                (false, false) => trace!("low power: stop mode not entered"),
+            };
+
+            #[cfg(not(stm32wb))]
+            if re_initialize_timer {
+                trace!("low power: re-initializing timer");
+                // when we wake from STOP2, we need to re-initialize the time driver
+                #[cfg(not(feature = "_lp-time-driver"))]
+                super::get_driver().init_timer(_cs);
+            }
+        }
+
         #[cfg(stm32wba)]
-        crate::pac::PWR.sr().modify(|w| w.set_cssf(true));
+        {
+            let sr = crate::pac::PWR.sr().read();
+            if sr.stopf() {
+                if sr.stop2f() {
+                    debug!("low power: WBA woke from STOP2");
+                } else {
+                    debug!("low power: WBA woke from STOP0/1");
+                }
+
+                // PLL is off after STOP — reinitialize full clock tree
+                crate::rcc::reinit_saved(_cs);
+
+                // Clear stop and standby flags
+                crate::pac::PWR.sr().modify(|w| w.set_cssf(true));
+
+                // Reinitialize time driver (TIM1 is clock-gated during STOP)
+                #[cfg(not(feature = "_lp-time-driver"))]
+                super::get_driver().init_timer(_cs);
+            }
+        }
+
+        #[cfg(stm32l0)]
+        {
+            let csr = crate::pac::PWR.csr().read();
+            if csr.wuf() {
+                debug!("low power: cpu has been in STOP");
+                crate::rcc::reinit_saved(_cs);
+                crate::pac::PWR.cr().modify(|w| w.set_cwuf(true));
+            }
+        }
+    }
+}
+
+/// Thread mode executor, using WFE/SEV.
+///
+/// This is the simplest and most common kind of executor. It runs on
+/// thread mode (at the lowest priority level), and uses the `WFE` ARM instruction
+/// to sleep when it has no more work to do. When a task is woken, a `SEV` instruction
+/// is executed, to make the `WFE` exit from sleep and poll the task.
+///
+/// This executor allows for ultra low power consumption for chips where `WFE`
+/// triggers low-power sleep without extra steps. If your chip requires extra steps,
+/// you may use [`raw::Executor`] directly to program custom behavior.
+pub struct Executor {
+    inner: raw::Executor,
+    not_send: PhantomData<*mut ()>,
+}
+
+impl Executor {
+    /// Create a new Executor.
+    pub fn new() -> Self {
+        if EXECUTOR_TAKEN.load(Ordering::Acquire) {
+            panic!("Low power executor can only be taken once.");
+        } else {
+            EXECUTOR_TAKEN.store(true, Ordering::Release);
+        }
+
+        Self {
+            inner: raw::Executor::new(THREAD_PENDER as *mut ()),
+            not_send: PhantomData,
+        }
+    }
+
+    pub(crate) unsafe fn on_wakeup_irq_or_event() {
+        if !get_driver().is_stopped() {
+            trace!("low power: time driver not stopped!");
+            return;
+        }
+
+        critical_section::with(|cs| {
+            platform::exit_stop(cs);
+
+            get_driver().resume_time(cs);
+            trace!("low power: resumed");
+        });
+    }
+
+    fn configure_pwr() {
+        const fn get_scb() -> SCB {
+            unsafe { mem::transmute(()) }
+        }
+
+        get_scb().clear_sleepdeep();
+        clear_flags();
 
         #[cfg(not(feature = "low-power-disable-pender"))]
         if TASKS_PENDING.load(Ordering::Acquire) {
@@ -429,7 +440,7 @@ impl Executor {
         critical_section::with(|cs| {
             let stop_mode = get_stop_mode(cs)?;
             get_driver().pause_time(cs).ok()?;
-            self.configure_stop(cs, stop_mode).ok()?;
+            enter_stop(cs, stop_mode).ok()?;
 
             Some(stop_mode)
         })
@@ -440,7 +451,7 @@ impl Executor {
             trace!("low power: enter stop: {}", _stop_mode);
 
             #[cfg(not(feature = "low-power-debug-with-sleep"))]
-            Self::get_scb().set_sleepdeep();
+            get_scb().set_sleepdeep();
         });
     }
 
@@ -468,7 +479,7 @@ impl Executor {
         loop {
             unsafe {
                 self.inner.poll();
-                self.configure_pwr();
+                Self::configure_pwr();
                 #[cfg(feature = "defmt")]
                 defmt::flush();
                 asm!("wfe");

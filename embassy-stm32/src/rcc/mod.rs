@@ -662,6 +662,13 @@ pub fn reinit(config: Config, _rcc: &'_ mut crate::Peri<'_, crate::peripherals::
     critical_section::with(|cs| init_rcc(cs, config))
 }
 
+#[cfg(feature = "low-power")]
+#[allow(dead_code)]
+/// Re-initialize the `embassy-stm32` clock configuration with the saved configuration.
+pub(crate) fn reinit_saved(_cs: CriticalSection) {
+    unsafe { init(get_rcc_config().unwrap()) };
+}
+
 pub(crate) fn init_rcc(_cs: CriticalSection, config: Config) {
     unsafe {
         // if we are using a lp timer as the time driver, we need to make sure that the clock selection is sane
