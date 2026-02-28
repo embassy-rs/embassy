@@ -158,6 +158,7 @@ impl<H: Handler> crate::Handler for DfuState<H> {
         match Request::try_from(req.request) {
             Ok(Request::GetStatus) => {
                 //TODO: Configurable poll timeout, ability to add string for Vendor error
+                // Probably the bug is here
                 buf[0..6].copy_from_slice(&[self.status as u8, 0x32, 0x00, 0x00, self.state as u8, 0x00]);
                 match self.state {
                     State::DlSync => self.state = State::Download,
