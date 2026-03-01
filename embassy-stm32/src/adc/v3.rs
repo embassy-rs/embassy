@@ -245,16 +245,38 @@ impl super::AdcRegs for crate::pac::adc::Adc {
         #[cfg(any(adc_g0, adc_u0))]
         let regs = self.cfgr1();
 
-        regs.modify(|reg| {
-            reg.set_discen(false);
-            reg.set_cont(true);
-            reg.set_dmacfg(match conversion_mode {
-                ConversionMode::Singular => Dmacfg::ONE_SHOT,
-                #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
-                ConversionMode::Repeated(_) => Dmacfg::CIRCULAR,
-            });
-            reg.set_dmaen(true);
-        });
+        match conversion_mode {
+            ConversionMode::Singular => {
+                regs.modify(|reg| {
+                    reg.set_discen(false);
+                    reg.set_cont(true);
+                    reg.set_dmacfg(Dmacfg::ONE_SHOT);
+                    reg.set_dmaen(true);
+                });
+            }
+            #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
+            ConversionMode::Repeated(trigger) => {
+                regs.modify(|reg| {
+                    reg.set_discen(false);
+                    #[cfg(adc_g0)]
+                    {
+                        // Configure trigger edge (rising, falling, or both)
+                        reg.set_exten(trigger.edge);
+                        // Convert u8 signal to Extsel enum
+                        // Safety: trigger.signal is guaranteed to be a valid trigger number
+                        reg.set_extsel(unsafe { core::mem::transmute(trigger.signal) });
+                        // Triggered, not continuous
+                        reg.set_cont(false);
+                    }
+                    #[cfg(not(adc_g0))]
+                    {
+                        reg.set_cont(true);
+                    }
+                    reg.set_dmacfg(Dmacfg::CIRCULAR);
+                    reg.set_dmaen(true);
+                });
+            }
+        }
     }
 
     fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
