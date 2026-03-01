@@ -50,7 +50,6 @@ use embassy_executor::*;
 
 #[cfg(not(feature = "_lp-time-driver"))]
 use crate::interrupt;
-use crate::low_power::platform::{clear_flags, enter_stop};
 pub use crate::rcc::StopMode;
 use crate::rcc::get_stop_mode;
 use crate::time_driver::{LPTimeDriver, get_driver};
@@ -124,22 +123,10 @@ mod platform {
 
     use crate::rcc::StopMode;
 
-    pub fn clear_flags() {
-        // Clear any previous stop flags
-        #[cfg(stm32wl)]
-        crate::pac::PWR.extscr().modify(|w| {
-            #[cfg(not(feature = "_core-cm0p"))]
-            w.set_c1cssf(true);
-            #[cfg(feature = "_core-cm0p")]
-            w.set_c2cssf(true);
-        });
-        #[cfg(stm32wba)]
-        crate::pac::PWR.sr().modify(|w| w.set_cssf(true));
-    }
-
+    /// Enter stop mode
     pub fn enter_stop(_cs: CriticalSection, stop_mode: StopMode) -> Result<(), ()> {
-        #[cfg(all(stm32wb, feature = "low-power"))]
-        fn configure_stop_stm32wb(
+        #[cfg(stm32wb)]
+        fn enter_stop_stm32wb(
             _cs: CriticalSection<'_>,
         ) -> Result<crate::hsem::HardwareSemaphoreMutex<'_, crate::peripherals::HSEM>, ()> {
             use core::task::Poll;
@@ -200,7 +187,7 @@ mod platform {
         let mutex = {
             use crate::pac::{PWR, RCC};
 
-            let mutex = configure_stop_stm32wb(_cs)?;
+            let mutex = enter_stop_stm32wb(_cs)?;
 
             // on PWR
             RCC.apb1enr1().modify(|r| r.0 |= 1 << 28);
@@ -224,13 +211,7 @@ mod platform {
             #[cfg(not(feature = "_core-cm0p"))]
             crate::pac::PWR.cr1().modify(|m| m.set_lpms(stop_mode.into()));
             #[cfg(feature = "_core-cm0p")]
-            crate::pac::PWR.c2cr1().modify(|m| {
-                m.set_lpms(match stop_mode {
-                    StopMode::Stop1 => 1,
-                    StopMode::Stop2 => 2,
-                    StopMode::Standby => 3,
-                })
-            });
+            crate::pac::PWR.c2cr1().modify(|m| m.set_lpms(stop_mode.into()));
         }
         #[cfg(stm32h5)]
         crate::pac::PWR.pmcr().modify(|v| {
@@ -256,17 +237,41 @@ mod platform {
         Ok(())
     }
 
+    /// Clear any previous stop flags
+    pub fn clear_flags() {
+        #[cfg(stm32wl)]
+        crate::pac::PWR.extscr().modify(|w| {
+            #[cfg(not(feature = "_core-cm0p"))]
+            w.set_c1cssf(true);
+            #[cfg(feature = "_core-cm0p")]
+            w.set_c2cssf(true);
+        });
+        #[cfg(stm32wba)]
+        crate::pac::PWR.sr().modify(|w| w.set_cssf(true));
+
+        #[cfg(stm32l0)]
+        crate::pac::PWR.cr().modify(|w| w.set_cwuf(true));
+    }
+
+    /// Exit stop mode, reinitializing timer and rcc if required
     pub fn exit_stop(_cs: CriticalSection) {
-        #[cfg(any(stm32wl, stm32wb))]
+        #[cfg(any(stm32l0, stm32wl, stm32wb, stm32wba))]
         {
             // stm32wl5x is dual core and we don't want BOTH cores to re-initialize RCC so we hold a lock
             #[cfg(stm32wl5x)]
             let lock = crate::hsem::get_hsem(3).blocking_lock(0);
 
+            #[cfg(any(stm32wl, stm32wb))]
             let es = crate::pac::PWR.extscr().read();
 
+            #[cfg(stm32wba)]
+            let es = crate::pac::PWR.sr().read();
+
+            #[cfg(stm32l0)]
+            let es = crate::pac::PWR.csr().read();
+
             // we need to re-initialize RCC if *BOTH* cores have been in some STOP mode!
-            #[cfg(stm32wl)]
+            #[cfg(any(stm32l0, stm32wl, stm32wba))]
             let re_initialize_rcc = {
                 #[cfg(stm32wl5x)]
                 {
@@ -277,37 +282,44 @@ mod platform {
                 {
                     es.c1stop2f() || es.c1stopf()
                 }
+                #[cfg(stm32wba)]
+                {
+                    es.stopf()
+                }
+                #[cfg(stm32l0)]
+                {
+                    es.wuf()
+                }
             };
 
-            #[cfg(not(stm32wb))]
+            #[cfg(any(stm32wl, stm32wba))]
             let re_initialize_timer = {
-                #[cfg(not(feature = "_core-cm0p"))]
+                #[cfg(all(stm32wl, not(feature = "_core-cm0p")))]
                 {
                     es.c1stop2f()
                 }
-                #[cfg(feature = "_core-cm0p")]
+                #[cfg(all(stm32wl, feature = "_core-cm0p"))]
                 {
                     es.c2stop2f()
                 }
+                #[cfg(stm32wba)]
+                {
+                    es.stopf()
+                }
             };
 
-            #[cfg(not(stm32wb))]
+            #[cfg(any(stm32l0, stm32wl, stm32wba))]
             if re_initialize_rcc {
                 // when we wake from any stop mode we need to re-initialize the rcc
                 crate::rcc::reinit_saved(_cs);
             }
 
-            // Clear this core's stop flags
-            #[cfg(stm32wl)]
-            crate::pac::PWR.extscr().modify(|w| {
-                #[cfg(any(stm32wlex, not(feature = "_core-cm0p")))]
-                w.set_c1cssf(true);
-                #[cfg(feature = "_core-cm0p")]
-                w.set_c2cssf(true);
-            });
-
-            #[cfg(stm32wl5x)]
-            drop(lock);
+            #[cfg(stm32wba)]
+            match (es.stopf(), es.stop2f()) {
+                (true, true) => debug!("low power: WBA woke from STOP2"),
+                (true, false) => debug!("low power: WBA woke from STOP0/1"),
+                _ => {}
+            };
 
             #[cfg(stm32wl)]
             match (es.c1stopf(), es.c1stop2f()) {
@@ -316,6 +328,7 @@ mod platform {
                 (true, true) => debug!("low power: cpu1 has been in STOP1 and STOP2 ???"),
                 (false, false) => trace!("low power: cpu1 stop mode not entered"),
             };
+
             #[cfg(stm32wl5x)]
             // TODO: only for the current cpu
             match (es.c2stopf(), es.c2stop2f()) {
@@ -333,44 +346,23 @@ mod platform {
                 (false, false) => trace!("low power: stop mode not entered"),
             };
 
-            #[cfg(not(stm32wb))]
+            #[cfg(stm32l0)]
+            match es.wuf() {
+                true => debug!("low power: L0 has been in stop"),
+                _ => {}
+            };
+
+            clear_flags();
+
+            #[cfg(stm32wl5x)]
+            drop(lock);
+
+            #[cfg(any(stm32wl, stm32wba))]
             if re_initialize_timer {
                 trace!("low power: re-initializing timer");
                 // when we wake from STOP2, we need to re-initialize the time driver
                 #[cfg(not(feature = "_lp-time-driver"))]
                 super::get_driver().init_timer(_cs);
-            }
-        }
-
-        #[cfg(stm32wba)]
-        {
-            let sr = crate::pac::PWR.sr().read();
-            if sr.stopf() {
-                if sr.stop2f() {
-                    debug!("low power: WBA woke from STOP2");
-                } else {
-                    debug!("low power: WBA woke from STOP0/1");
-                }
-
-                // PLL is off after STOP — reinitialize full clock tree
-                crate::rcc::reinit_saved(_cs);
-
-                // Clear stop and standby flags
-                crate::pac::PWR.sr().modify(|w| w.set_cssf(true));
-
-                // Reinitialize time driver (TIM1 is clock-gated during STOP)
-                #[cfg(not(feature = "_lp-time-driver"))]
-                super::get_driver().init_timer(_cs);
-            }
-        }
-
-        #[cfg(stm32l0)]
-        {
-            let csr = crate::pac::PWR.csr().read();
-            if csr.wuf() {
-                debug!("low power: cpu has been in STOP");
-                crate::rcc::reinit_saved(_cs);
-                crate::pac::PWR.cr().modify(|w| w.set_cwuf(true));
             }
         }
     }
@@ -426,7 +418,7 @@ impl Executor {
         }
 
         get_scb().clear_sleepdeep();
-        clear_flags();
+        platform::clear_flags();
 
         #[cfg(not(feature = "low-power-disable-pender"))]
         if TASKS_PENDING.load(Ordering::Acquire) {
@@ -440,7 +432,7 @@ impl Executor {
         critical_section::with(|cs| {
             let stop_mode = get_stop_mode(cs)?;
             get_driver().pause_time(cs).ok()?;
-            enter_stop(cs, stop_mode).ok()?;
+            platform::enter_stop(cs, stop_mode).ok()?;
 
             Some(stop_mode)
         })
