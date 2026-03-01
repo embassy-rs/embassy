@@ -1,0 +1,317 @@
+//! USB Host implementation
+//!
+//! Requires an [UsbHostDriver] implementation.
+//!
+
+#![allow(async_fn_in_trait)]
+
+use core::num::NonZeroU8;
+
+use embassy_time::Timer;
+use embassy_usb_driver::host::channel::{Control, InOut};
+use embassy_usb_driver::host::{ChannelError, HostError, RequestType, SetupPacket, UsbChannel, UsbHostDriver, channel};
+use embassy_usb_driver::{EndpointInfo, EndpointType, Speed};
+
+use crate::control::Request;
+use crate::handlers::EnumerationInfo;
+
+pub mod descriptor;
+
+use descriptor::*;
+
+impl ConfigurationDescriptor<'_> {
+    pub async fn set_configuration<D: channel::IsOut, C: UsbChannel<channel::Control, D>>(
+        &self,
+        channel: &mut C,
+    ) -> Result<(), HostError> {
+        channel.set_configuration(self.configuration_value).await
+    }
+}
+
+/// Extension trait with convenience methods for control channels
+pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control, D> {
+    // CONTROL IN methods
+    /// Request and try to parse the device descriptor.
+    async fn request_descriptor<T: USBDescriptor, const SIZE: usize>(
+        &mut self,
+        index: u8,
+        class: bool,
+    ) -> Result<T, HostError>
+    where
+        D: channel::IsIn,
+    {
+        let mut buf = [0u8; SIZE];
+
+        // The wValue field specifies the descriptor type in the high byte
+        // and the descriptor index in the low byte.
+        let value = ((T::DESC_TYPE as u16) << 8) | index as u16;
+
+        let ty = if class {
+            RequestType::TYPE_CLASS
+        } else {
+            RequestType::TYPE_STANDARD
+        };
+
+        let packet = SetupPacket {
+            request_type: RequestType::IN | ty | RequestType::RECIPIENT_DEVICE,
+            request: Request::GET_DESCRIPTOR,
+            value,               // descriptor type & index
+            index: 0,            // zero or language ID
+            length: SIZE as u16, // descriptor length
+        };
+
+        self.control_in(&packet, &mut buf).await?;
+        trace!("Descriptor {}: {:?}", core::any::type_name::<T>(), buf);
+
+        T::try_from_bytes(&buf).map_err(|e| {
+            // TODO: Log error or make descriptor error not generic
+            // error!("Device [{}]: Descriptor parse failed: {}", addr, e);
+            HostError::InvalidDescriptor
+        })
+    }
+
+    /// Request the underlying bytes for a descriptor of a specific type.
+    /// bytes.len() determines how many bytes are read at maximum.
+    /// This can be used for descriptors of varying length, which are parsed by the caller.
+    async fn request_descriptor_bytes(&mut self, desc_type: u8, index: u8, buf: &mut [u8]) -> Result<usize, HostError>
+    where
+        D: channel::IsIn,
+    {
+        // The wValue field specifies the descriptor type in the high byte
+        // and the descriptor index in the low byte.
+        let value = ((desc_type as u16) << 8) | index as u16;
+
+        let packet = SetupPacket {
+            request_type: RequestType::IN | RequestType::TYPE_STANDARD | RequestType::RECIPIENT_DEVICE,
+            request: Request::GET_DESCRIPTOR,
+            value,                    // descriptor type & index
+            index: 0,                 // zero or language ID
+            length: buf.len() as u16, // descriptor length
+        };
+
+        let len = self.control_in(&packet, buf).await?;
+        Ok(len)
+    }
+
+    /// Request the underlying bytes for an additional descriptor of a specific interface.
+    /// Useful for class specific descriptors of varying length.
+    /// bytes.len() determines how many bytes are read at maximum.
+    async fn interface_request_descriptor_bytes<T: USBDescriptor>(
+        &mut self,
+        interface_num: u8,
+        buf: &mut [u8],
+    ) -> Result<usize, HostError>
+    where
+        D: channel::IsIn,
+    {
+        // The wValue field specifies the descriptor type in the high byte
+        // and the descriptor index in the low byte.
+        let value = (T::DESC_TYPE as u16) << 8;
+
+        let packet = SetupPacket {
+            request_type: RequestType::IN | RequestType::TYPE_STANDARD | RequestType::RECIPIENT_INTERFACE,
+            request: Request::GET_DESCRIPTOR,
+            value,                       // descriptor type & index
+            index: interface_num as u16, // zero or language ID
+            length: buf.len() as u16,    // descriptor length
+        };
+
+        let len = self.control_in(&packet, buf).await?;
+        Ok(len)
+    }
+
+    /// GET_CONFIGURATION control request.
+    /// Retrieves the configurationValue of the active configuration
+    async fn active_configuration_value(&mut self) -> Result<Option<NonZeroU8>, HostError>
+    where
+        D: channel::IsIn,
+    {
+        let packet = SetupPacket {
+            request_type: RequestType::IN | RequestType::TYPE_STANDARD | RequestType::RECIPIENT_DEVICE,
+            request: Request::GET_CONFIGURATION,
+            value: 0,
+            index: 0,
+            length: 1,
+        };
+
+        let mut config_buf = [0u8; 1];
+
+        self.control_in(&packet, &mut config_buf).await?;
+
+        Ok(NonZeroU8::new(config_buf[0]))
+    }
+
+    // CONTROL OUT methods
+
+    /// SET_CONFIGURATION control request.
+    /// Selects the configuration with the given index `config_no`.
+    async fn set_configuration(&mut self, config_no: u8) -> Result<(), HostError>
+    where
+        D: channel::IsOut,
+    {
+        let packet = SetupPacket {
+            request_type: RequestType::OUT | RequestType::TYPE_STANDARD | RequestType::RECIPIENT_DEVICE,
+            request: Request::SET_CONFIGURATION,
+            value: config_no as u16,
+            index: 0,
+            length: 0,
+        };
+
+        self.control_out(&packet, &[]).await?;
+
+        Ok(())
+    }
+
+    /// Execute the SET_ADDRESS control request. Assign the given address to the device.
+    /// Usually done during enumeration.
+    ///
+    /// # WARNING
+    /// This method can break host assumptions. Please do not use it manually
+    async fn device_set_address(&mut self, new_addr: u8) -> Result<(), HostError>
+    where
+        D: channel::IsOut,
+    {
+        let packet = SetupPacket {
+            request_type: RequestType::OUT | RequestType::TYPE_STANDARD | RequestType::RECIPIENT_DEVICE,
+            request: Request::SET_ADDRESS,
+            value: new_addr as u16,
+            index: 0,
+            length: 0,
+        };
+
+        self.control_out(&packet, &[]).await?;
+
+        Ok(())
+    }
+
+    /// Execute a control request with request type Class and recipient Interface
+    async fn class_request_out(&mut self, request: u8, value: u16, index: u16, buf: &[u8]) -> Result<(), HostError>
+    where
+        D: channel::IsOut,
+    {
+        let packet = SetupPacket {
+            request_type: RequestType::OUT | RequestType::TYPE_CLASS | RequestType::RECIPIENT_INTERFACE,
+            request,
+            value,
+            index,
+            length: buf.len() as u16,
+        };
+
+        self.control_out(&packet, buf).await?;
+
+        Ok(())
+    }
+
+    /// Enumerate *the* currently pending device
+    ///  the device is expected to be reset right before this
+    ///
+    /// - `speed` is generally provided by the hardware (core or hub)
+    /// - `new_device_address` is generated by the software from any available
+    /// - `ls_over_fs` is derived from the topology (tracker in software), if the device is LS but is plugged into an FS/HS hub it needs this flag set
+    async fn enumerate_device<'a>(
+        &mut self,
+        speed: Speed,
+        new_device_address: u8,
+        ls_over_fs: bool,
+    ) -> Result<EnumerationInfo, HostError>
+    where
+        D: channel::IsIn + channel::IsOut,
+    {
+        self.retarget_channel(
+            0,
+            &EndpointInfo::new(0.into(), EndpointType::Control, speed.max_packet_size()),
+            ls_over_fs,
+        )?;
+
+        trace!("[enum] Attempting to get max_packet_size for new device");
+        let max_packet_size0 = {
+            let mut max_retries = 10;
+            loop {
+                match self
+                    .request_descriptor::<DeviceDescriptorPartial, { DeviceDescriptorPartial::SIZE }>(0, false)
+                    .await
+                {
+                    Ok(desc) => break desc.max_packet_size0,
+                    Err(e) => {
+                        warn!("Request descriptor error: {:?}, retries: {}", e, max_retries);
+                        if max_retries > 0 {
+                            max_retries -= 1;
+                            Timer::after_millis(1).await;
+                            trace!("Retry Device Descriptor");
+                            continue;
+                        } else {
+                            return Err(HostError::RequestFailed);
+                        }
+                    }
+                }
+            }
+        };
+
+        trace!(
+            "[enum] got max packet size for new device {}, attempting to set address",
+            max_packet_size0
+        );
+
+        self.device_set_address(new_device_address).await?;
+
+        trace!("[enum] Finished setting address");
+        self.retarget_channel(
+            new_device_address,
+            &EndpointInfo::new(0.into(), EndpointType::Control, max_packet_size0 as u16),
+            ls_over_fs,
+        )?;
+
+        // device has 2ms to change internally by spec but may be faster, we can retry to speed up enumeration
+
+        // TODO: macro this shit
+        // Retries a request `retries` times until a non-timeout (NAK) is received, if all requests time-out `Err(ChannelError::Timeout)` is returned
+        let retries = 5;
+        let device_desc = async {
+            for _ in 0..retries {
+                match self
+                    .request_descriptor::<DeviceDescriptor, { DeviceDescriptor::SIZE }>(0, false)
+                    .await
+                {
+                    Err(HostError::ChannelError(ChannelError::Timeout)) => {
+                        Timer::after_millis(1).await;
+                        continue;
+                    }
+                    v => return v,
+                }
+            }
+            Err(HostError::ChannelError(ChannelError::Timeout))
+        }
+        .await?;
+
+        trace!("Device Descriptor: {:?}", device_desc);
+
+        Ok(EnumerationInfo {
+            device_address: new_device_address,
+            ls_over_fs,
+            speed,
+            device_desc,
+        })
+    }
+}
+
+impl<D: channel::Direction, C> ControlChannelExt<D> for C where C: UsbChannel<channel::Control, D> {}
+
+/// Extensions for the UsbHostDriver trait
+pub trait UsbHostBusExt: UsbHostDriver {
+    /// Enumerates the root port of the device, without selecting a configuration
+    async fn enumerate_root_bare(
+        &mut self,
+        speed: Speed,
+        new_device_address: u8,
+    ) -> Result<EnumerationInfo, HostError> {
+        let mut channel = self.alloc_channel::<Control, InOut>(
+            0,
+            &EndpointInfo::new(0.into(), EndpointType::Control, speed.max_packet_size()),
+            false,
+        )?;
+
+        channel.enumerate_device(speed, new_device_address, false).await
+    }
+}
+
+impl<C: UsbHostDriver> UsbHostBusExt for C {}
