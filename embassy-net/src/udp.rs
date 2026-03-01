@@ -31,6 +31,8 @@ pub enum SendError {
     SocketNotBound,
     /// There is not enough transmit buffer capacity to ever send this packet.
     PacketTooLarge,
+    /// Socket buffer is full.
+    BufferFull,
 }
 
 /// Error returned by [`UdpSocket::recv_from`].
@@ -39,6 +41,8 @@ pub enum SendError {
 pub enum RecvError {
     /// Provided buffer was smaller than the received packet.
     Truncated,
+    /// No data available.
+    Exhausted,
 }
 
 /// An UDP socket.
@@ -145,6 +149,21 @@ impl<'a> UdpSocket<'a> {
 
     /// Receive a datagram.
     ///
+    /// This method will not wait for a datagram to be received.
+    ///
+    /// If no datagram is available, this method will return `Err(RecvError::Exhausted)`.
+    ///
+    /// Returns the number of bytes received and the remote endpoint.
+    pub fn try_recv_from(&self, buf: &mut [u8]) -> Result<(usize, UdpMetadata), RecvError> {
+        self.with_mut(|s, _| match s.recv_slice(buf) {
+            Ok((n, meta)) => Ok((n, meta)),
+            Err(udp::RecvError::Truncated) => Err(RecvError::Truncated),
+            Err(udp::RecvError::Exhausted) => Err(RecvError::Exhausted),
+        })
+    }
+
+    /// Receive a datagram.
+    ///
     /// When no datagram is available, this method will return `Poll::Pending` and
     /// register the current task to be notified when a datagram is received.
     ///
@@ -195,6 +214,22 @@ impl<'a> UdpSocket<'a> {
         .await
     }
 
+    /// Receive a datagram with a zero-copy function.
+    ///
+    /// This method will not wait for a datagram to be received.
+    ///
+    /// If no datagram is available, this method will return `Err(RecvError::Exhausted)`.
+    pub fn try_recv_from_with<F, R>(&mut self, f: F) -> Result<R, RecvError>
+    where
+        F: FnOnce(&[u8], UdpMetadata) -> R,
+    {
+        self.with_mut(|s, _| match s.recv() {
+            Ok((buffer, endpoint)) => Ok(f(buffer, endpoint)),
+            Err(udp::RecvError::Truncated) => unreachable!(),
+            Err(udp::RecvError::Exhausted) => Err(RecvError::Exhausted),
+        })
+    }
+
     /// Wait until the socket becomes writable.
     ///
     /// A socket becomes writable when there is space in the buffer, from initial memory or after
@@ -235,6 +270,41 @@ impl<'a> UdpSocket<'a> {
     {
         let remote_endpoint: UdpMetadata = remote_endpoint.into();
         poll_fn(move |cx| self.poll_send_to(buf, remote_endpoint, cx)).await
+    }
+
+    /// Send a datagram to the specified remote endpoint.
+    ///
+    /// This method will not wait for the buffer to become free.
+    ///
+    /// If the socket's send buffer is full, this method will return `Err(SendError::BufferFull)`.
+    ///
+    /// If the socket's send buffer is too small to fit `buf`, this method will return `Err(SendError::PacketTooLarge)`
+    ///
+    /// When the remote endpoint is not reachable, this method will return `Err(SendError::NoRoute)`
+    pub fn try_send_to<T>(&self, buf: &[u8], remote_endpoint: T) -> Result<(), SendError>
+    where
+        T: Into<UdpMetadata>,
+    {
+        let remote_endpoint: UdpMetadata = remote_endpoint.into();
+
+        // Check if packet can ever fit in the transmit buffer
+        if self.with(|s, _| s.payload_send_capacity() < buf.len()) {
+            return Err(SendError::PacketTooLarge);
+        }
+
+        self.with_mut(|s, _| match s.send_slice(buf, remote_endpoint) {
+            // Entire datagram has been sent
+            Ok(()) => Ok(()),
+            Err(udp::SendError::BufferFull) => Err(SendError::BufferFull),
+            Err(udp::SendError::Unaddressable) => {
+                // If no sender/outgoing port is specified, there is not really "no route"
+                if s.endpoint().port == 0 {
+                    Err(SendError::SocketNotBound)
+                } else {
+                    Err(SendError::NoRoute)
+                }
+            }
+        })
     }
 
     /// Send a datagram to the specified remote endpoint.
@@ -317,6 +387,40 @@ impl<'a> UdpSocket<'a> {
         .await
     }
 
+    /// Send a datagram to the specified remote endpoint with a zero-copy function.
+    ///
+    /// This method will not wait for the buffer to become free.
+    ///
+    /// If the socket's send buffer is full, this method will return `Err(SendError::BufferFull)`.
+    ///
+    /// If the socket's send buffer is too small to fit `size`, this method will return `Err(SendError::PacketTooLarge)`
+    ///
+    /// When the remote endpoint is not reachable, this method will return `Err(SendError::NoRoute)`
+    pub fn try_send_to_with<T, F, R>(&mut self, size: usize, remote_endpoint: T, f: F) -> Result<R, SendError>
+    where
+        T: Into<UdpMetadata>,
+        F: FnOnce(&mut [u8]) -> R,
+    {
+        let remote_endpoint: UdpMetadata = remote_endpoint.into();
+
+        if self.with(|s, _| s.payload_send_capacity() < size) {
+            return Err(SendError::PacketTooLarge);
+        }
+
+        self.with_mut(|s, _| match s.send(size, remote_endpoint) {
+            Ok(buffer) => Ok(f(buffer)),
+            Err(udp::SendError::BufferFull) => Err(SendError::BufferFull),
+            Err(udp::SendError::Unaddressable) => {
+                // If no sender/outgoing port is specified, there is not really "no route"
+                if s.endpoint().port == 0 {
+                    Err(SendError::SocketNotBound)
+                } else {
+                    Err(SendError::NoRoute)
+                }
+            }
+        })
+    }
+
     /// Flush the socket.
     ///
     /// This method will wait until the socket is flushed.
@@ -331,6 +435,18 @@ impl<'a> UdpSocket<'a> {
                 }
             })
         })
+    }
+
+    /// Try to flush the socket.
+    ///
+    /// This method will check if the socket is flushed, and if not, return an error
+    /// indicating that the buffer is still full.
+    pub fn try_flush(&mut self) -> Result<(), SendError> {
+        if self.with(|s, _| s.send_queue() == 0) {
+            Ok(())
+        } else {
+            Err(SendError::BufferFull)
+        }
     }
 
     /// Returns the local endpoint of the socket.

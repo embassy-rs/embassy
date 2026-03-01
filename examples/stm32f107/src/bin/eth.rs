@@ -3,7 +3,7 @@
 
 use defmt::{info, unwrap, warn};
 use embassy_executor::Spawner;
-use embassy_net::tcp::{self, TcpSocket};
+use embassy_net::tcp::TcpSocket;
 use embassy_net::{IpListenEndpoint, StackResources};
 use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, Sma};
 use embassy_stm32::peripherals::{ETH, ETH_SMA};
@@ -96,8 +96,8 @@ async fn main(spawner: Spawner) -> ! {
                     info!("Received {} bytes: {:a}", bytes, read_buffer[..bytes]);
                     unwrap!(socket.write(&read_buffer[..bytes]).await);
                 }
-                Err(tcp::Error::ConnectionReset) => {
-                    warn!("Error: connection reset");
+                Err(e) => {
+                    warn!("read error: {:?}", e);
                     break;
                 }
             }
