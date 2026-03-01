@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Disabling an OUT endpoint no longer flushes the TX FIFO of the corresponding IN endpoint
+
 ## 0.3.1 - 2025-08-26
 
 - Improve receive performance, more efficient copy from FIFO
