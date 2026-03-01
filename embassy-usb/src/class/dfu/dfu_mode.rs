@@ -14,7 +14,9 @@ pub trait Handler {
     /// Called when a firmware download starts.
     ///
     /// This is called when the first DFU_DNLOAD request is received.
-    fn start(&mut self);
+    ///
+    /// Returns `Ok(())` on success, or a `Status` error on failure.
+    fn start(&mut self) -> Result<(), Status>;
 
     /// Called to write a chunk of firmware data.
     ///
@@ -101,8 +103,16 @@ impl<H: Handler> crate::Handler for DfuState<H> {
                 }
 
                 if req.value == 0 {
-                    self.state = State::Download;
-                    self.handler.start();
+                    match self.handler.start() {
+                        Ok(_) => {
+                            self.state = State::Download;
+                        }
+                        Err(e) => {
+                            self.state = State::Error;
+                            self.status = e;
+                            return Some(OutResponse::Rejected);
+                        }
+                    }
                 }
 
                 if req.length == 0 {
