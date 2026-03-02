@@ -692,9 +692,9 @@ impl DmaChannel<'_> {
             let byte_diff_reg = byte_diff as u32; // Cast as u32 so that it can be stored in the register.
 
             t.tcd_slast_sda()
-                .write(|w| w.set_slast_sda(params.src_incr.then_some(byte_diff_reg).unwrap_or(0)));
+                .write(|w| w.set_slast_sda(if params.src_incr { byte_diff_reg } else { 0 }));
             t.tcd_dlast_sga()
-                .write(|w| w.set_dlast_sga(params.dst_incr.then_some(byte_diff_reg).unwrap_or(0)));
+                .write(|w| w.set_dlast_sga(if params.dst_incr { byte_diff_reg } else { 0 }));
         } else {
             Self::set_no_final_adjustments(&t);
         }
@@ -2151,7 +2151,7 @@ macro_rules! impl_dma_interrupt_handler {
 
                 // See https://doc.rust-lang.org/std/primitive.fn.html#casting-to-and-from-integers
                 let cb: *mut () = CALLBACKS[$ch].load(Ordering::Acquire);
-                if cb != core::ptr::null_mut() {
+                if !cb.is_null() {
                     let cb: fn() = core::mem::transmute(cb);
                     (cb)();
                 }
