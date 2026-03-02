@@ -3,6 +3,8 @@
 
 use core::marker::PhantomData;
 
+#[cfg(stm32g4)]
+use dac::vals;
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
@@ -17,6 +19,23 @@ use crate::{Peri, peripherals};
 
 /// Software trigger
 pub struct SOFTWARE;
+
+/// Sawtooth waveform step direction
+#[cfg(stm32g4)]
+pub enum StepDirection {
+    /// Increment dac value every step trigger
+    Increment,
+
+    /// Decrement dac value every step trigger
+    Decrement,
+}
+
+#[cfg(stm32g4)]
+impl<T: Instance> ChannelIncTrigger<T> for SOFTWARE {
+    fn signal(&self) -> u8 {
+        0
+    }
+}
 
 impl<T: Instance> ChannelTrigger<T> for SOFTWARE {
     fn signal(&self) -> u8 {
@@ -199,9 +218,12 @@ impl<'d> DacChannel<'d, Async> {
         Self::new_inner::<T, C>(
             peri,
             None,
+            None,
             new_dma!(dma, _irq),
             #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
             Mode::NormalExternalBuffered,
+            #[cfg(stm32g4)]
+            vals::Wave::DISABLED,
         )
     }
 
@@ -221,9 +243,12 @@ impl<'d> DacChannel<'d, Async> {
         Self::new_inner::<T, C>(
             peri,
             Some(trigger.signal()),
+            None,
             new_dma!(dma, _irq),
             #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
             Mode::NormalExternalBuffered,
+            #[cfg(stm32g4)]
+            vals::Wave::DISABLED,
         )
     }
 
@@ -240,7 +265,15 @@ impl<'d> DacChannel<'d, Async> {
         dma: Peri<'d, D>,
         _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
     ) -> Self {
-        Self::new_inner::<T, C>(peri, None, new_dma!(dma, _irq), Mode::NormalInternalUnbuffered)
+        Self::new_inner::<T, C>(
+            peri,
+            None,
+            None,
+            new_dma!(dma, _irq),
+            Mode::NormalInternalUnbuffered,
+            #[cfg(stm32g4)]
+            vals::Wave::DISABLED,
+        )
     }
 
     /// Create a new `DacChannel` instance where the external output pin is not used,
@@ -260,8 +293,11 @@ impl<'d> DacChannel<'d, Async> {
         Self::new_inner::<T, C>(
             peri,
             Some(trigger.signal()),
+            None,
             new_dma!(dma, _irq),
             Mode::NormalInternalUnbuffered,
+            #[cfg(stm32g4)]
+            vals::Wave::DISABLED,
         )
     }
 
@@ -325,8 +361,11 @@ impl<'d> DacChannel<'d, Blocking> {
             peri,
             None,
             None,
+            None,
             #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
             Mode::NormalExternalBuffered,
+            #[cfg(stm32g4)]
+            vals::Wave::DISABLED,
         )
     }
 
@@ -342,7 +381,37 @@ impl<'d> DacChannel<'d, Blocking> {
     /// [`DacChannel::set_trigger()`].
     #[cfg(all(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7), not(any(stm32h56x, stm32h57x))))]
     pub fn new_internal_blocking<T: Instance, C: Channel>(peri: Peri<'d, T>) -> Self {
-        Self::new_inner::<T, C>(peri, None, None, Mode::NormalInternalUnbuffered)
+        Self::new_inner::<T, C>(
+            peri,
+            None,
+            None,
+            None,
+            Mode::NormalInternalUnbuffered,
+            #[cfg(stm32g4)]
+            vals::Wave::DISABLED,
+        )
+    }
+
+    /// Create a new `DacChannel` instance with sawtooth mode enabled
+    ///
+    /// See [Self::set_sawtooth_reset_value], [Self::set_sawtooth_step_value] and [Self::set_sawtooth_step_direction]
+    /// for setting the reset value, step size and -direction.
+    ///
+    /// This method disables the channel, so you may need to re-enable afterwards.
+    #[cfg(stm32g4)]
+    pub fn new_sawtooth<T: Instance, C: Channel>(
+        peri: Peri<'d, T>,
+        reset_trigger: impl ChannelTrigger<T>,
+        step_trigger: impl ChannelIncTrigger<T>,
+    ) -> Self {
+        Self::new_inner::<T, C>(
+            peri,
+            Some(reset_trigger.signal()),
+            Some(step_trigger.signal()),
+            None,
+            Mode::NormalInternalUnbuffered,
+            vals::Wave::SAWTOOTH,
+        )
     }
 }
 
@@ -350,8 +419,10 @@ impl<'d, M: PeriMode> DacChannel<'d, M> {
     fn new_inner<T: Instance, C: Channel>(
         _peri: Peri<'d, T>,
         trigger: Option<u8>,
+        inc_trigger: Option<u8>,
         dma: Option<ChannelAndRequest<'d>>,
         #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))] mode: Mode,
+        #[cfg(stm32g4)] wave: dac::vals::Wave,
     ) -> Self {
         rcc::enable_and_reset::<T>();
         let mut dac = Self {
@@ -371,7 +442,21 @@ impl<'d, M: PeriMode> DacChannel<'d, M> {
             dac.info.regs.cr().modify(|reg| {
                 reg.set_tsel(dac.idx, idx);
             });
+
+            // Set in case Sawtooth wave form is used
+            #[cfg(stm32g4)]
+            dac.info.regs.stmodr().modify(|reg| {
+                reg.set_strsttrigsel(dac.idx, idx);
+            })
         });
+        #[cfg(stm32g4)]
+        inc_trigger.map(|idx| {
+            dac.info.regs.stmodr().modify(|reg| {
+                reg.set_stinctrigsel(dac.idx, idx);
+            })
+        });
+        #[cfg(stm32g4)]
+        dac.set_wave(wave);
         dac.enable();
         dac
     }
@@ -405,39 +490,6 @@ impl<'d, M: PeriMode> DacChannel<'d, M> {
         self.set_enable(false)
     }
 
-    /// Set the trigger source for this channel.
-    ///
-    /// This method disables the channel, so you may need to re-enable afterwards.
-    pub fn set_trigger(&mut self, source: TriggerSel) {
-        critical_section::with(|_| {
-            T::regs().cr().modify(|reg| {
-                reg.set_en(C::IDX, false);
-                reg.set_tsel(C::IDX, source as u8);
-            });
-        });
-    }
-
-    /// Set the sawtooth mode this channel.
-    ///
-    /// See [Self::set_sawtooth_reset_value], [Self::set_sawtooth_step_value] and [Self::set_sawtooth_step_direction]
-    /// for setting the reset value, step size and -direction.
-    ///
-    /// This method disables the channel, so you may need to re-enable afterwards.
-    #[cfg(stm32g4)]
-    pub fn set_sawtooth_mode(&mut self, reset_source: TriggerSel, step_source: StepTriggerSel) {
-        critical_section::with(|_| {
-            T::regs().cr().modify(|reg| {
-                reg.set_en(C::IDX, false);
-                reg.set_wave(C::IDX, dac::vals::Wave::SAWTOOTH);
-            });
-
-            T::regs().stmodr().modify(|reg| {
-                reg.set_strsttrigsel(C::IDX, reset_source as u8);
-                reg.set_stinctrigsel(C::IDX, step_source as u8);
-            });
-        });
-    }
-
     /// Enable or disable triggering for this channel.
     pub fn set_triggering(&mut self, on: bool) {
         critical_section::with(|_| {
@@ -469,6 +521,19 @@ impl<'d, M: PeriMode> DacChannel<'d, M> {
         });
     }
 
+    /// Set mode of this channel.
+    ///
+    /// This method disables the channel, so you may need to re-enable afterwards.
+    #[cfg(stm32g4)]
+    fn set_wave(&mut self, wave: dac::vals::Wave) {
+        critical_section::with(|_| {
+            self.info.regs.cr().modify(|reg| {
+                reg.set_en(self.idx, false);
+                reg.set_wave(self.idx, wave);
+            });
+        });
+    }
+
     /// Write a new value to this channel.
     ///
     /// If triggering is not enabled, the new value is immediately output; otherwise,
@@ -491,7 +556,7 @@ impl<'d, M: PeriMode> DacChannel<'d, M> {
     /// This is only used when the channel is in sawtooth waveform mode
     #[cfg(stm32g4)]
     pub fn set_sawtooth_reset_value(&mut self, value: u16) {
-        T::regs().str(C::IDX).modify(|reg| reg.set_rstdata(value));
+        self.info.regs.str(self.idx).modify(|reg| reg.set_rstdata(value));
     }
 
     /// Set sawtooth step value (12.4 bit format)
@@ -502,7 +567,7 @@ impl<'d, M: PeriMode> DacChannel<'d, M> {
     /// NOTE: This is only used when the channel is in sawtooth waveform mode
     #[cfg(stm32g4)]
     pub fn set_sawtooth_step_value(&mut self, value: u16) {
-        T::regs().str(C::IDX).modify(|reg| reg.set_incdata(value));
+        self.info.regs.str(self.idx).modify(|reg| reg.set_incdata(value));
     }
 
     /// Set sawtooth step direction
@@ -512,8 +577,11 @@ impl<'d, M: PeriMode> DacChannel<'d, M> {
     ///
     /// NOTE: This is only used when the channel is in sawtooth waveform mode
     #[cfg(stm32g4)]
-    pub fn set_sawtooth_step_direction(&mut self, value: tsel::StepDirection) {
-        T::regs().str(C::IDX).modify(|reg| reg.set_dir(value.into()));
+    pub fn set_sawtooth_step_direction(&mut self, value: StepDirection) {
+        self.info
+            .regs
+            .str(self.idx)
+            .modify(|reg| reg.set_dir(matches!(value, StepDirection::Increment)));
     }
 
     /// Set HFSEL as appropriate for the current peripheral clock frequency.
@@ -980,6 +1048,7 @@ impl Channel for Ch1 {}
 impl Channel for Ch2 {}
 
 trigger_trait!(ChannelTrigger, Instance);
+trigger_trait!(ChannelIncTrigger, Instance);
 dma_trait!(Dma, Instance, Channel);
 pin_trait!(DacPin, Instance, Channel);
 
