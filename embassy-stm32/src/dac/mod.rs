@@ -403,6 +403,32 @@ impl<'d> DacChannel<'d, Blocking> {
         peri: Peri<'d, T>,
         reset_trigger: impl ChannelTrigger<T>,
         step_trigger: impl ChannelIncTrigger<T>,
+        pin: Peri<'d, impl DacPin<T, C>>,
+    ) -> Self {
+        pin.set_as_analog();
+        Self::new_inner::<T, C>(
+            peri,
+            Some(reset_trigger.signal()),
+            Some(step_trigger.signal()),
+            None,
+            Mode::NormalExternalBuffered,
+            vals::Wave::SAWTOOTH,
+        )
+    }
+
+    /// Create a new `DacChannel` instance with sawtooth mode enabled where the external output pin is not used,
+    /// so the DAC can only be used to generate internal signals.
+    /// The GPIO pin is therefore available to be used for other functions.
+    ///
+    /// See [Self::set_sawtooth_reset_value], [Self::set_sawtooth_step_value] and [Self::set_sawtooth_step_direction]
+    /// for setting the reset value, step size and -direction.
+    ///
+    /// This method disables the channel, so you may need to re-enable afterwards.
+    #[cfg(stm32g4)]
+    pub fn new_sawtooth_internal<T: Instance, C: Channel>(
+        peri: Peri<'d, T>,
+        reset_trigger: impl ChannelTrigger<T>,
+        step_trigger: impl ChannelIncTrigger<T>,
     ) -> Self {
         Self::new_inner::<T, C>(
             peri,
