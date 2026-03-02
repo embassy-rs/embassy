@@ -7,13 +7,21 @@
 //!
 //! See the docs of [`SPConfHelper`] for more details.
 
-use super::{ClockError, Clocks, WakeGuard};
+use super::{ClockError, Clocks, PoweredClock, WakeGuard};
 
 #[cfg(feature = "mcxa2xx")]
 mod mcxa2xx;
 
 #[cfg(feature = "mcxa2xx")]
 pub use mcxa2xx::*;
+
+#[cfg(feature = "mcxa5xx")]
+mod mcxa5xx;
+
+#[allow(unused_imports)]
+#[cfg(feature = "mcxa5xx")]
+pub use mcxa5xx::*;
+use nxp_pac::mrcc::vals::OstimerClkselMux;
 
 #[must_use]
 pub struct PreEnableParts {
@@ -188,5 +196,70 @@ pub struct NoConfig;
 impl SPConfHelper for NoConfig {
     fn pre_enable_config(&self, _clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
         Ok(PreEnableParts::empty())
+    }
+}
+
+//
+// OSTimer
+//
+
+/// Selectable clocks for the OSTimer peripheral
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum OstimerClockSel {
+    /// 16k clock, sourced from FRO16K (Vdd Core)
+    #[cfg(feature = "mcxa2xx")]
+    Clk16kVddCore,
+    /// 1 MHz Clock sourced from FRO12M
+    Clk1M,
+    /// Disabled
+    None,
+}
+
+/// Top level configuration for the `OSTimer` peripheral
+pub struct OsTimerConfig {
+    /// Power state required for this peripheral
+    pub power: PoweredClock,
+    /// Selected clock source for this peripheral
+    pub source: OstimerClockSel,
+}
+
+impl SPConfHelper for OsTimerConfig {
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
+        let mrcc0 = crate::pac::MRCC0;
+        // NOTE: complies with 22.3.2 peripheral clock max functional clock limits
+        // which is 1MHz, and we can only select 1mhz/16khz.
+        Ok(match self.source {
+            #[cfg(feature = "mcxa2xx")]
+            OstimerClockSel::Clk16kVddCore => {
+                let freq = clocks.ensure_clk_16k_vdd_core_active(&self.power)?;
+                mrcc0
+                    .mrcc_ostimer0_clksel()
+                    .write(|w| w.set_mux(OstimerClkselMux::CLKROOT_16K));
+                PreEnableParts {
+                    freq,
+                    wake_guard: WakeGuard::for_power(&self.power),
+                }
+            }
+            OstimerClockSel::Clk1M => {
+                let freq = clocks.ensure_clk_1m_active(&self.power)?;
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = OstimerClkselMux::CLKROOT_1M;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = OstimerClkselMux::I2_CLKROOT_1M;
+
+                mrcc0.mrcc_ostimer0_clksel().write(|w| w.set_mux(mux));
+                PreEnableParts {
+                    freq,
+                    wake_guard: WakeGuard::for_power(&self.power),
+                }
+            }
+            OstimerClockSel::None => {
+                mrcc0
+                    .mrcc_ostimer0_clksel()
+                    .write(|w| w.set_mux(OstimerClkselMux::_RESERVED_3));
+                PreEnableParts::empty()
+            }
+        })
     }
 }

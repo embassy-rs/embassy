@@ -43,11 +43,14 @@ static PORT_WAIT_MAPS: [WaitMap<usize, ()>; PORT_COUNT] = [
 ];
 
 fn irq_handler(port_index: usize, gpio: crate::pac::gpio::Gpio, perf_wake: fn()) {
-    let isfr = gpio.isfr0().read();
+    #[cfg(feature = "mcxa2xx")]
+    let isfr = gpio.isfr0();
+    #[cfg(feature = "mcxa5xx")]
+    let isfr = gpio.isfr(0);
 
-    for pin in BitIter(isfr.0) {
+    for pin in BitIter(isfr.read().0) {
         // Clear all pending interrupts
-        gpio.isfr0().write(|w| w.0 = 1 << pin);
+        isfr.write(|w| w.0 = 1 << pin);
         gpio.icr(pin).modify(|w| w.set_irqc(Irqc::IRQC0)); // Disable interrupt
 
         // Wake the corresponding port waker
@@ -350,7 +353,7 @@ impl GpioPin for AnyPin {}
 macro_rules! impl_pin {
     ($peri:ident, $port:expr, $pin:expr, $block:ident) => {
         ::paste::paste! {
-            impl SealedPin for crate::peripherals::$peri {
+            impl SealedPin for $crate::peripherals::$peri {
                 #[inline(always)]
                 fn port(&self) -> u8 {
                     $port
@@ -530,7 +533,11 @@ impl<'d> Flex<'d> {
     /// Is the output pin set as high?
     #[inline]
     pub fn is_set_high(&self) -> bool {
-        self.gpio().pdor().read().pdo(self.pin.pin_index() as usize)
+        #[cfg(feature = "mcxa2xx")]
+        let set = self.gpio().pdor().read().pdo(self.pin.pin_index() as usize);
+        #[cfg(feature = "mcxa5xx")]
+        let set = (self.gpio().pdor().read().0 & (1 << self.pin.pin_index())) != 0;
+        set
     }
 
     /// Is the output pin set as low?
@@ -586,7 +593,11 @@ impl<'d> Flex<'d> {
         // Now that our waker is in the map, we can enable the appropriate interrupt
         //
         // Clear any existing pending interrupt on this pin
+        // TODO: Fix PAC naming
+        #[cfg(feature = "mcxa2xx")]
         self.pin.gpio().isfr0().write(|w| w.0 = 1 << self.pin.pin());
+        #[cfg(feature = "mcxa5xx")]
+        self.pin.gpio().isfr(0).write(|w| w.0 = 1 << self.pin.pin());
         self.pin
             .gpio()
             .icr(self.pin.pin().into())
