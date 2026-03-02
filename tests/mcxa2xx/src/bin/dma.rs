@@ -27,13 +27,17 @@ async fn main(_spawner: Spawner) {
     let mst = MEMSET_BUFFER.take();
 
     let mut dma_ch0 = DmaChannel::new(p.DMA_CH0);
-    let transfer = dma_ch0.mem_to_mem(src, dst, TransferOptions::default()).unwrap();
+    let transfer = dma_ch0
+        .mem_to_mem(src, dst, TransferOptions::COMPLETE_INTERRUPT)
+        .unwrap();
     transfer.await.unwrap();
 
     assert_eq!(src, dst);
 
     let pattern: u32 = 0xDEADBEEF;
-    let transfer = dma_ch0.memset(&pattern, mst, TransferOptions::default());
+    let transfer = dma_ch0
+        .memset(&pattern, mst, TransferOptions::COMPLETE_INTERRUPT)
+        .unwrap();
     transfer.await.unwrap();
 
     assert!(mst.iter().all(|&v| v == pattern));

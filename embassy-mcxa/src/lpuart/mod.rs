@@ -643,6 +643,12 @@ pub enum Error {
     Other,
 }
 
+impl From<crate::dma::InvalidParameters> for Error {
+    fn from(_value: crate::dma::InvalidParameters) -> Self {
+        Error::Other
+    }
+}
+
 impl From<maitake_sync::Closed> for Error {
     fn from(_value: maitake_sync::Closed) -> Self {
         Error::Other

@@ -57,6 +57,8 @@ pub use mcxa5xx_exlusive::*;
 pub(crate) mod chips;
 
 // Re-export interrupt traits and types
+// Re-export Peri and PeripheralType to allow applications to express Peri types and requirements.
+pub use embassy_hal_internal::{Peri, PeripheralType};
 #[cfg(feature = "unstable-pac")]
 pub use nxp_pac as pac;
 #[cfg(not(feature = "unstable-pac"))]
