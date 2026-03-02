@@ -10,13 +10,13 @@
 ///
 /// NOTE: *for now*, some items are here because we haven't validated them on the MCXA5xx yet.
 /// This note will be removed when the two reach parity.
+#[cfg(feature = "mcxa2xx")]
 #[path = "."]
-mod mcxa2xx_exlusive {
+mod mcxa2xx_exclusive {
     pub mod adc;
     pub mod cdog;
     pub mod clkout;
-    pub mod clocks; // still provide clock helpers
-    pub mod config;
+    pub mod clocks;
     pub mod crc;
     pub mod ctimer;
     pub mod dma;
@@ -40,19 +40,24 @@ mod mcxa2xx_exlusive {
 }
 
 /// Module for MCXA5xx-specific HAL drivers
+#[cfg(feature = "mcxa5xx")]
 #[path = "."]
-mod mcxa5xx_exclusive {}
+mod mcxa5xx_exclusive {
+    pub use crate::chips::mcxa5xx::{Peripherals, init, interrupt, peripherals};
+}
 
 /// Module for HAL drivers supported by all chips
 #[path = "."]
-mod all_chips {}
+mod all_chips {
+    pub mod config;
+}
 
 #[allow(unused_imports)]
 pub use all_chips::*;
 #[cfg(feature = "mcxa2xx")]
-pub use mcxa2xx_exlusive::*;
+pub use mcxa2xx_exclusive::*;
 #[cfg(feature = "mcxa5xx")]
-pub use mcxa5xx_exlusive::*;
+pub use mcxa5xx_exclusive::*;
 
 pub(crate) mod chips;
 
