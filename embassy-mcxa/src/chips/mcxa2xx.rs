@@ -719,7 +719,6 @@ mod gpio_impls {
     // impl_pin!(P4_31, 4, 31, GPIO4);
 }
 
-
 /// This module contains implementations of MRCC APIs, specifically of the [`Gate`] trait,
 /// for various low level peripherals.
 pub(crate) mod peripheral_gating {
@@ -729,7 +728,7 @@ pub(crate) mod peripheral_gating {
     use crate::clocks::periph_helpers::{
         AdcConfig, CTimerConfig, I3cConfig, Lpi2cConfig, LpspiConfig, LpuartConfig, NoConfig, OsTimerConfig,
     };
-    use crate::{pac, impl_cc_gate};
+    use crate::{impl_cc_gate, pac};
 
     // These peripherals have no additional upstream clocks or configuration required
     // other than enabling through the MRCC gate. Currently, these peripherals will

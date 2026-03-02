@@ -22,13 +22,10 @@ mod mcxa2xx_exclusive {
     #[cfg(feature = "custom-executor")]
     pub mod executor;
     pub mod flash;
-    pub mod gpio;
     pub mod i2c;
     pub mod i3c;
     pub mod inputmux;
     pub mod lpuart;
-    pub mod ostimer;
-    pub mod perf_counters;
     pub mod reset_reason;
     pub mod rtc;
     pub mod spi;
@@ -48,8 +45,11 @@ mod mcxa5xx_exclusive {
 /// Module for HAL drivers supported by all chips
 #[path = "."]
 mod all_chips {
-    pub mod config;
     pub mod clocks;
+    pub mod config;
+    pub mod gpio;
+    pub mod ostimer;
+    pub mod perf_counters;
 }
 
 #[allow(unused_imports)]

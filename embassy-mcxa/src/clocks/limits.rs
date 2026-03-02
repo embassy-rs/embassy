@@ -1,4 +1,3 @@
-
 // From Table 165 - Max Clock Frequencies
 #[allow(dead_code)]
 pub(crate) struct ClockLimits {
@@ -84,9 +83,7 @@ mod mcxa2xx {
             // slow_clk: 36_000_000,
         };
     }
-
 }
-
 
 #[cfg(feature = "mcxa5xx")]
 mod mcxa5xx {
