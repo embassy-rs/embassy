@@ -15,8 +15,7 @@
 
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
-use embassy_mcxa::dma::DmaChannel;
-use embassy_mcxa::dma::transfer_opts::EnableComplete;
+use embassy_mcxa::dma::{DmaChannel, TransferOptions};
 use static_cell::ConstStaticCell;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
@@ -55,7 +54,7 @@ async fn main(_spawner: Spawner) {
     let mut dma_ch0 = DmaChannel::new(p.DMA_CH0);
 
     // Configure transfer options
-    let options = EnableComplete.into();
+    let options = TransferOptions::COMPLETE_INTERRUPT;
 
     // =========================================================================
     // Part 1: Embassy-style async API demonstration (mem_to_mem)
