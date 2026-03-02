@@ -696,7 +696,7 @@ impl<'d, M: Mode> Usart<'d, M> {
         // DMA-related settings
         registers.fifocfg().modify(|w| {
             w.set_dmatx(false);
-            w.set_dmatx(false);
+            w.set_dmarx(false);
         });
 
         // Enabling USART
