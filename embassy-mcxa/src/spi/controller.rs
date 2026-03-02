@@ -13,11 +13,11 @@ use nxp_pac::lpspi::vals::{Cpha, Cpol, Lsbf, Master, Mbf, Outcfg, Pcspol, Pincfg
 use super::{Async, AsyncMode, Blocking, Dma, Info, Instance, MisoPin, Mode as IoMode, MosiPin, SckPin};
 use crate::clocks::periph_helpers::{Div4, LpspiClockSel, LpspiConfig};
 use crate::clocks::{ClockError, PoweredClock, WakeGuard, enable_and_reset};
-use crate::dma::transfer_opts::{EnableComplete, NoInterrupt};
 use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel};
 use crate::gpio::AnyPin;
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
+use crate::mcxa2xx_exlusive::dma::TransferOptions;
 
 // LPSPI has a 4-word FIFO.
 const LPSPI_FIFO_SIZE: u8 = 4;
@@ -541,13 +541,15 @@ impl<'d> Spi<'d, Dma<'d>> {
             self.mode.rx_dma.set_request_source(self.mode.rx_request);
             self.mode.tx_dma.set_request_source(self.mode.tx_request);
 
-            self.mode
-                .tx_dma
-                .setup_write_zeros_to_peripheral(data.len(), tx_peri_addr, NoInterrupt.into())?;
+            self.mode.tx_dma.setup_write_zeros_to_peripheral(
+                data.len(),
+                tx_peri_addr,
+                TransferOptions::NO_INTERRUPTS,
+            )?;
 
             self.mode
                 .rx_dma
-                .setup_read_from_peripheral(rx_peri_addr, data, EnableComplete.into())?;
+                .setup_read_from_peripheral(rx_peri_addr, data, TransferOptions::COMPLETE_INTERRUPT)?;
 
             // Enable SPI DMA request
             self.info.regs().der().modify(|w| {
@@ -607,7 +609,7 @@ impl<'d> Spi<'d, Dma<'d>> {
             // Configure TCD for memory-to-peripheral transfer
             self.mode
                 .tx_dma
-                .setup_write_to_peripheral(data, peri_addr, EnableComplete.into())?;
+                .setup_write_to_peripheral(data, peri_addr, TransferOptions::COMPLETE_INTERRUPT)?;
 
             // Ensure all writes by CPU are visible to the DMA
             // TODO: ensure this is done internal to the DMA methods so individual drivers
@@ -662,11 +664,11 @@ impl<'d> Spi<'d, Dma<'d>> {
 
             self.mode
                 .tx_dma
-                .setup_write_to_peripheral(write, tx_peri_addr, EnableComplete.into())?;
+                .setup_write_to_peripheral(write, tx_peri_addr, TransferOptions::COMPLETE_INTERRUPT)?;
 
             self.mode
                 .rx_dma
-                .setup_read_from_peripheral(rx_peri_addr, read, EnableComplete.into())?;
+                .setup_read_from_peripheral(rx_peri_addr, read, TransferOptions::COMPLETE_INTERRUPT)?;
 
             // Ensure all writes by CPU are visible to the DMA
             // TODO: ensure this is done internal to the DMA methods so individual drivers
@@ -708,7 +710,7 @@ impl<'d> Spi<'d, Dma<'d>> {
                     self.mode.tx_dma.setup_write_zeros_to_peripheral(
                         write_bytes_len,
                         tx_peri_addr,
-                        EnableComplete.into(),
+                        TransferOptions::COMPLETE_INTERRUPT,
                     )?;
 
                     self.mode.tx_dma.enable_request();
@@ -789,10 +791,10 @@ impl<'d> Spi<'d, Dma<'d>> {
 
             self.mode
                 .tx_dma
-                .setup_write_to_peripheral(data, tx_peri_addr, EnableComplete.into())?;
+                .setup_write_to_peripheral(data, tx_peri_addr, TransferOptions::COMPLETE_INTERRUPT)?;
             self.mode
                 .rx_dma
-                .setup_read_from_peripheral(rx_peri_addr, data, EnableComplete.into())?;
+                .setup_read_from_peripheral(rx_peri_addr, data, TransferOptions::COMPLETE_INTERRUPT)?;
 
             // Ensure all writes by CPU are visible to the DMA
             // TODO: ensure this is done internal to the DMA methods so individual drivers

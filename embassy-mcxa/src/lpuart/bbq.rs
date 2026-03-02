@@ -24,6 +24,7 @@ use crate::dma::{DMA_MAX_TRANSFER_SIZE, DmaChannel, DmaRequest};
 use crate::gpio::AnyPin;
 use crate::interrupt::typelevel::{Binding, Handler, Interrupt};
 use crate::lpuart::{Instance, RxPins};
+use crate::mcxa2xx_exlusive::dma::{InvalidParameters, TransferOptions};
 
 /// Error Type
 #[derive(Debug, PartialEq)]
@@ -1208,7 +1209,7 @@ impl BbqState {
             let max_len = (&*self.tx_queue.get()).capacity() / 4;
             let len = rgr.len().min(max_len).min(DMA_MAX_TRANSFER_SIZE);
             if let Err(InvalidParameters) =
-                txdma.setup_write_to_peripheral(&rgr[..len], peri_addr, EnableComplete.into())
+                txdma.setup_write_to_peripheral(&rgr[..len], peri_addr, TransferOptions::COMPLETE_INTERRUPT)
             {
                 return false;
             }
@@ -1283,7 +1284,8 @@ impl BbqState {
             rxdma.set_request_source(source);
 
             let peri_addr = info.regs().data().as_ptr().cast::<u8>();
-            if let Err(InvalidParameters) = rxdma.setup_read_from_peripheral(peri_addr, &mut wgr, EnableComplete.into())
+            if let Err(InvalidParameters) =
+                rxdma.setup_read_from_peripheral(peri_addr, &mut wgr, TransferOptions::COMPLETE_INTERRUPT)
             {
                 return false;
             }
@@ -1473,8 +1475,6 @@ impl<T: BbqInstance> Handler<T::Interrupt> for BbqInterruptHandler<T> {
 }
 
 use crate::gpio::SealedPin;
-use crate::mcxa2xx_exlusive::dma::InvalidParameters;
-use crate::mcxa2xx_exlusive::dma::transfer_opts::EnableComplete;
 
 fn any_as_tx(pin: &Peri<'_, AnyPin>, mux: crate::pac::port::vals::Mux) {
     pin.set_pull(crate::gpio::Pull::Disabled);

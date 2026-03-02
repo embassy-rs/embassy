@@ -9,11 +9,11 @@ use embassy_hal_internal::drop::OnDrop;
 use super::{Async, AsyncMode, Blocking, Dma, Info, Instance, Mode, SclPin, SdaPin};
 use crate::clocks::periph_helpers::{Div4, Lpi2cClockSel, Lpi2cConfig};
 use crate::clocks::{ClockError, PoweredClock, WakeGuard, enable_and_reset};
-use crate::dma::transfer_opts::EnableComplete;
 use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel};
 use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
+use crate::mcxa2xx_exlusive::dma::TransferOptions;
 use crate::pac::lpi2c::vals::{Alf, Cmd, Dmf, Dozen, Epf, McrRrf, McrRtf, MsrFef, MsrSdf, Ndf, Pltf, Stf};
 
 /// Errors exclusive to HW initialization
@@ -808,7 +808,7 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
                 // Configure TCD for peripheral-to-memory transfer
                 self.mode
                     .rx_dma
-                    .setup_read_from_peripheral(peri_addr, chunk, EnableComplete.into())?;
+                    .setup_read_from_peripheral(peri_addr, chunk, TransferOptions::COMPLETE_INTERRUPT)?;
 
                 // Enable I2C RX DMA request
                 self.info.regs().mder().modify(|w| w.set_rdde(true));
@@ -891,7 +891,7 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
                 // Configure TCD for memory-to-peripheral transfer
                 self.mode
                     .tx_dma
-                    .setup_write_to_peripheral(chunk, peri_addr, EnableComplete.into())?;
+                    .setup_write_to_peripheral(chunk, peri_addr, TransferOptions::COMPLETE_INTERRUPT)?;
 
                 // Enable I2C TX DMA request
                 self.info.regs().mder().modify(|w| w.set_tdde(true));

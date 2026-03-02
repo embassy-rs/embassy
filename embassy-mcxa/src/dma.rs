@@ -109,6 +109,11 @@ pub enum Priority {
     P7 = 7,
 }
 
+impl Priority {
+    pub const LOWEST: Priority = Priority::P7;
+    pub const HIGHEST: Priority = Priority::P0;
+}
+
 /// DMA transfer data width.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -189,35 +194,20 @@ pub struct TransferOptions {
     pub priority: Priority,
 }
 
-/// Typical variants of [TransferOptions] to be used as shorthands.
-pub mod transfer_opts {
-    use crate::dma::{Priority, TransferOptions};
-
+impl TransferOptions {
     /// Short-hand to specify that no options should be configured.
-    pub struct NoInterrupt;
+    pub const NO_INTERRUPTS: Self = Self {
+        half_transfer_interrupt: false,
+        complete_transfer_interrupt: false,
+        priority: Priority::LOWEST,
+    };
 
     /// Short-hand to specify that only the complete transfer interrupt should be triggered.
-    pub struct EnableComplete;
-
-    impl From<NoInterrupt> for TransferOptions {
-        fn from(_value: NoInterrupt) -> Self {
-            TransferOptions {
-                half_transfer_interrupt: false,
-                complete_transfer_interrupt: false,
-                priority: Priority::default(),
-            }
-        }
-    }
-
-    impl From<EnableComplete> for TransferOptions {
-        fn from(_value: EnableComplete) -> Self {
-            TransferOptions {
-                half_transfer_interrupt: false,
-                complete_transfer_interrupt: true,
-                priority: Priority::default(),
-            }
-        }
-    }
+    pub const COMPLETE_INTERRUPT: Self = Self {
+        half_transfer_interrupt: false,
+        complete_transfer_interrupt: true,
+        priority: Priority::LOWEST,
+    };
 }
 
 /// General DMA error types.
