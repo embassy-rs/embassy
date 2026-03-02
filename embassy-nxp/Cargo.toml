@@ -44,7 +44,7 @@ imxrt-rt = { version = "0.1.7", optional = true, features = ["device"] }
 
 [build-dependencies]
 cfg_aliases = "0.2.1"
-nxp-pac = { version = "0.1.0", git = "https://github.com/i509VCB/nxp-pac", rev = "af5122e1cbe1483833c5d2e5af96b26a34ed5d62", features = ["metadata"], optional = true }
+nxp-pac = { version = "0.1.0", git = "https://github.com/i509VCB/nxp-pac", rev = "af5122e1cbe1483833c5d2e5af96b26a34ed5d62", features = ["metadata"] }
 proc-macro2 = "1.0.95"
 quote = "1.0.15"
 
