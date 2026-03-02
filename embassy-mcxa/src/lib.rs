@@ -16,7 +16,6 @@ mod mcxa2xx_exclusive {
     pub mod adc;
     pub mod cdog;
     pub mod clkout;
-    pub mod clocks;
     pub mod crc;
     pub mod ctimer;
     pub mod dma;
@@ -50,6 +49,7 @@ mod mcxa5xx_exclusive {
 #[path = "."]
 mod all_chips {
     pub mod config;
+    pub mod clocks;
 }
 
 #[allow(unused_imports)]

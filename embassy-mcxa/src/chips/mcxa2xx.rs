@@ -459,8 +459,6 @@ mod inner_interrupt {
     );
 }
 
-// Use cortex-m-rt's #[interrupt] attribute directly; PAC does not re-export it.
-
 /// Initialize HAL with configuration (mirrors embassy-imxrt style). Minimal: just take peripherals.
 /// Also applies configurable NVIC priority for the OSTIMER OS_EVENT interrupt (no enabling).
 pub fn init(cfg: crate::config::Config) -> Peripherals {
@@ -719,4 +717,73 @@ mod gpio_impls {
     // impl_pin!(P4_29, 4, 29, GPIO4);
     // impl_pin!(P4_30, 4, 30, GPIO4);
     // impl_pin!(P4_31, 4, 31, GPIO4);
+}
+
+
+/// This module contains implementations of MRCC APIs, specifically of the [`Gate`] trait,
+/// for various low level peripherals.
+pub(crate) mod peripheral_gating {
+    use paste::paste;
+
+    use crate::clocks::Gate;
+    use crate::clocks::periph_helpers::{
+        AdcConfig, CTimerConfig, I3cConfig, Lpi2cConfig, LpspiConfig, LpuartConfig, NoConfig, OsTimerConfig,
+    };
+    use crate::{pac, impl_cc_gate};
+
+    // These peripherals have no additional upstream clocks or configuration required
+    // other than enabling through the MRCC gate. Currently, these peripherals will
+    // ALWAYS return `Ok(0)` when calling [`enable_and_reset()`] and/or
+    // [`SPConfHelper::post_enable_config()`].
+    impl_cc_gate!(PORT0, mrcc_glb_cc1, mrcc_glb_rst1, port0, NoConfig);
+    impl_cc_gate!(PORT1, mrcc_glb_cc1, mrcc_glb_rst1, port1, NoConfig);
+    impl_cc_gate!(PORT2, mrcc_glb_cc1, mrcc_glb_rst1, port2, NoConfig);
+    impl_cc_gate!(PORT3, mrcc_glb_cc1, mrcc_glb_rst1, port3, NoConfig);
+    impl_cc_gate!(PORT4, mrcc_glb_cc1, mrcc_glb_rst1, port4, NoConfig);
+
+    impl_cc_gate!(CRC0, mrcc_glb_cc0, mrcc_glb_rst0, crc0, NoConfig);
+    impl_cc_gate!(INPUTMUX0, mrcc_glb_cc0, mrcc_glb_rst0, inputmux0, NoConfig);
+
+    // These peripherals DO have meaningful configuration, and could fail if the system
+    // clocks do not match their needs.
+    impl_cc_gate!(ADC0, mrcc_glb_cc1, mrcc_glb_rst1, adc0, AdcConfig);
+    impl_cc_gate!(ADC1, mrcc_glb_cc1, mrcc_glb_rst1, adc1, AdcConfig);
+    impl_cc_gate!(ADC2, mrcc_glb_cc1, mrcc_glb_rst1, adc2, AdcConfig);
+    impl_cc_gate!(ADC3, mrcc_glb_cc1, mrcc_glb_rst1, adc3, AdcConfig);
+
+    impl_cc_gate!(I3C0, mrcc_glb_cc0, mrcc_glb_rst0, i3c0, I3cConfig);
+    impl_cc_gate!(CTIMER0, mrcc_glb_cc0, mrcc_glb_rst0, ctimer0, CTimerConfig);
+    impl_cc_gate!(CTIMER1, mrcc_glb_cc0, mrcc_glb_rst0, ctimer1, CTimerConfig);
+    impl_cc_gate!(CTIMER2, mrcc_glb_cc0, mrcc_glb_rst0, ctimer2, CTimerConfig);
+    impl_cc_gate!(CTIMER3, mrcc_glb_cc0, mrcc_glb_rst0, ctimer3, CTimerConfig);
+    impl_cc_gate!(CTIMER4, mrcc_glb_cc0, mrcc_glb_rst0, ctimer4, CTimerConfig);
+    impl_cc_gate!(OSTIMER0, mrcc_glb_cc1, mrcc_glb_rst1, ostimer0, OsTimerConfig);
+
+    // TRNG peripheral - uses NoConfig since it has no selectable clock source
+    impl_cc_gate!(TRNG0, mrcc_glb_cc1, mrcc_glb_rst1, trng0, NoConfig);
+
+    // Peripherals that use ACC instead of CC!
+    impl_cc_gate!(LPUART0, mrcc_glb_acc0, mrcc_glb_rst0, lpuart0, LpuartConfig);
+    impl_cc_gate!(LPUART1, mrcc_glb_acc0, mrcc_glb_rst0, lpuart1, LpuartConfig);
+    impl_cc_gate!(LPUART2, mrcc_glb_acc0, mrcc_glb_rst0, lpuart2, LpuartConfig);
+    impl_cc_gate!(LPUART3, mrcc_glb_acc0, mrcc_glb_rst0, lpuart3, LpuartConfig);
+    impl_cc_gate!(LPUART4, mrcc_glb_acc0, mrcc_glb_rst0, lpuart4, LpuartConfig);
+    impl_cc_gate!(LPUART5, mrcc_glb_acc1, mrcc_glb_rst1, lpuart5, LpuartConfig);
+
+    // DMA0 peripheral - uses NoConfig since it has no selectable clock source
+    impl_cc_gate!(DMA0, mrcc_glb_acc0, mrcc_glb_rst0, dma0, NoConfig);
+
+    impl_cc_gate!(GPIO0, mrcc_glb_acc2, mrcc_glb_rst2, gpio0, NoConfig);
+    impl_cc_gate!(GPIO1, mrcc_glb_acc2, mrcc_glb_rst2, gpio1, NoConfig);
+    impl_cc_gate!(GPIO2, mrcc_glb_acc2, mrcc_glb_rst2, gpio2, NoConfig);
+    impl_cc_gate!(GPIO3, mrcc_glb_acc2, mrcc_glb_rst2, gpio3, NoConfig);
+    impl_cc_gate!(GPIO4, mrcc_glb_acc2, mrcc_glb_rst2, gpio4, NoConfig);
+
+    impl_cc_gate!(LPI2C0, mrcc_glb_acc0, mrcc_glb_rst0, lpi2c0, Lpi2cConfig);
+    impl_cc_gate!(LPI2C1, mrcc_glb_acc0, mrcc_glb_rst0, lpi2c1, Lpi2cConfig);
+    impl_cc_gate!(LPI2C2, mrcc_glb_acc1, mrcc_glb_rst1, lpi2c2, Lpi2cConfig);
+    impl_cc_gate!(LPI2C3, mrcc_glb_acc1, mrcc_glb_rst1, lpi2c3, Lpi2cConfig);
+
+    impl_cc_gate!(LPSPI0, mrcc_glb_acc0, mrcc_glb_rst0, lpspi0, LpspiConfig);
+    impl_cc_gate!(LPSPI1, mrcc_glb_acc0, mrcc_glb_rst0, lpspi1, LpspiConfig);
 }

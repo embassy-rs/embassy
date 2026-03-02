@@ -39,44 +39,38 @@ use core::cell::{Ref, RefCell};
 use core::ops::Deref;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use config::{
-    ClocksConfig, CoreSleep, FircConfig, FircFreqSel, Fro16KConfig, MainClockSource, SircConfig, VddDriveStrength,
-    VddLevel,
-};
+use config::{ClocksConfig, SircConfig};
+#[cfg(feature = "mcxa2xx")]
+use config::{CoreSleep, FircConfig, FircFreqSel, Fro16KConfig, MainClockSource, VddDriveStrength, VddLevel};
 use critical_section::CriticalSection;
+#[cfg(feature = "mcxa2xx")]
+use limits::ClockLimits;
 use periph_helpers::{PreEnableParts, SPConfHelper};
 
 use crate::pac;
 use crate::pac::cmc::vals::CkctrlCkmode;
+#[cfg(feature = "mcxa2xx")]
 use crate::pac::scg::vals::{
-    Erefs, Fircacc, FircaccIe, FirccsrLk, Fircerr, FircerrIe, Fircsten, Fircvld, FreqSel, Range, Scs, SirccsrLk,
-    Sircerr, Sircvld, SosccsrLk, Soscerr, Source, SpllLock, SpllcsrLk, Spllerr, Spllsten, TrimUnlock,
+    Erefs, Fircacc, FircaccIe, FirccsrLk, Fircerr, FircerrIe, Fircsten, Fircvld, FreqSel, Range, Scs, SosccsrLk,
+    Soscerr, Source, SpllLock, SpllcsrLk, Spllerr, Spllsten, TrimUnlock,
 };
+use crate::pac::scg::vals::{SirccsrLk, Sircerr, Sircvld};
+#[cfg(feature = "mcxa2xx")]
 use crate::pac::spc::vals::{
     ActiveCfgBgmode, ActiveCfgCoreldoVddDs, ActiveCfgCoreldoVddLvl, LpCfgBgmode, LpCfgCoreldoVddLvl, Vsm,
 };
+#[cfg(feature = "mcxa2xx")]
 use crate::pac::syscon::vals::{
-    AhbclkdivUnstab, FrohfdivHalt, FrohfdivReset, FrohfdivUnstab, FrolfdivHalt, FrolfdivReset, FrolfdivUnstab,
-    Pll1clkdivHalt, Pll1clkdivReset, Pll1clkdivUnstab,
+    AhbclkdivUnstab, FrohfdivHalt, FrohfdivReset, FrohfdivUnstab, Pll1clkdivHalt, Pll1clkdivReset, Pll1clkdivUnstab,
 };
+use crate::pac::syscon::vals::{FrolfdivHalt, FrolfdivReset, FrolfdivUnstab};
 pub mod config;
+pub mod limits;
 pub mod periph_helpers;
 
 //
 // Statics/Consts
 //
-
-// TODO: Different for different CPUs?
-const VDD_CORE_MID_DRIVE_WAIT_STATE_LIMITS: &[(u32, u8)] = &[(22_500_000, 0b0000)];
-const VDD_CORE_MID_DRIVE_MAX_WAIT_STATES: u8 = 0b0001;
-
-const VDD_CORE_OVER_DRIVE_WAIT_STATE_LIMITS: &[(u32, u8)] = &[
-    (40_000_000, 0b0000),
-    (80_000_000, 0b0001),
-    (120_000_000, 0b0010),
-    (160_000_000, 0b0011),
-];
-const VDD_CORE_OVER_DRIVE_MAX_WAIT_STATES: u8 = 0b0100;
 
 /// The state of system core clocks.
 ///
@@ -119,18 +113,24 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
 
     // Before applying any requested clocks, apply the requested VDD_CORE
     // voltage level
+    #[cfg(feature = "mcxa2xx")]
     operator.configure_voltages()?;
 
     // Enable SIRC clocks FIRST, in case we need to use SIRC as main_clk for
     // a short while.
     operator.configure_sirc_clocks_early()?;
+    #[cfg(feature = "mcxa2xx")]
     operator.configure_firc_clocks()?;
+    #[cfg(feature = "mcxa2xx")]
     operator.configure_fro16k_clocks()?;
+    #[cfg(feature = "mcxa2xx")]
     #[cfg(not(feature = "sosc-as-gpio"))]
     operator.configure_sosc()?;
+    #[cfg(feature = "mcxa2xx")]
     operator.configure_spll()?;
 
     // Finally, setup main clock
+    #[cfg(feature = "mcxa2xx")]
     operator.configure_main_clk()?;
 
     // If we were keeping SIRC enabled, now we can release it.
@@ -291,6 +291,7 @@ unsafe fn restart_active_only_clocks(_cs: &CriticalSection) {
     }
 
     // Ensure FRO45M is up and running
+    #[cfg(feature = "mcxa2xx")]
     if let Some(frohf) = clocks.fro_hf_root.as_ref()
         && !matches!(frohf.power, PoweredClock::AlwaysEnabled)
     {
@@ -298,6 +299,7 @@ unsafe fn restart_active_only_clocks(_cs: &CriticalSection) {
     }
 
     // Ensure SOSC is up and running
+    #[cfg(feature = "mcxa2xx")]
     #[cfg(not(feature = "sosc-as-gpio"))]
     if let Some(clk_in) = clocks.clk_in.as_ref()
         && !matches!(clk_in.power, PoweredClock::AlwaysEnabled)
@@ -306,6 +308,7 @@ unsafe fn restart_active_only_clocks(_cs: &CriticalSection) {
     }
 
     // Ensure SPLL is up and running
+    #[cfg(feature = "mcxa2xx")]
     if let Some(spll) = clocks.pll1_clk.as_ref()
         && !matches!(spll.power, PoweredClock::AlwaysEnabled)
     {
@@ -373,23 +376,29 @@ impl Drop for WakeGuard {
 #[derive(Default, Debug, Clone)]
 #[non_exhaustive]
 pub struct Clocks {
+    #[cfg(feature = "mcxa2xx")]
     /// Active power config
     pub active_power: VddLevel,
 
     /// Low-power power config
+    #[cfg(feature = "mcxa2xx")]
     pub lp_power: VddLevel,
 
     /// Is the bandgap enabled in active mode?
+    #[cfg(feature = "mcxa2xx")]
     pub bandgap_active: bool,
 
     /// Is the bandgap enabled in deep sleep mode?
+    #[cfg(feature = "mcxa2xx")]
     pub bandgap_lowpower: bool,
 
     /// Lowest sleep level
+    #[cfg(feature = "mcxa2xx")]
     pub core_sleep: CoreSleep,
 
     /// The `clk_in` is a clock provided by an external oscillator
     /// AKA SOSC
+    #[cfg(feature = "mcxa2xx")]
     #[cfg(not(feature = "sosc-as-gpio"))]
     pub clk_in: Option<Clock>,
 
@@ -399,15 +408,19 @@ pub struct Clocks {
     ///
     /// It is used to feed downstream clocks, such as `fro_hf`, `clk_45m`,
     /// and `fro_hf_div`.
+    #[cfg(feature = "mcxa2xx")]
     pub fro_hf_root: Option<Clock>,
 
     /// `fro_hf` is the same frequency as `fro_hf_root`, but behind a gate.
+    #[cfg(feature = "mcxa2xx")]
     pub fro_hf: Option<Clock>,
 
     /// `clk_45` is a 45MHz clock, sourced from `fro_hf`.
+    #[cfg(feature = "mcxa2xx")]
     pub clk_45m: Option<Clock>,
 
     /// `fro_hf_div` is a configurable frequency clock, sourced from `fro_hf`.
+    #[cfg(feature = "mcxa2xx")]
     pub fro_hf_div: Option<Clock>,
 
     //
@@ -435,25 +448,31 @@ pub struct Clocks {
     ///
     /// Also referred to as `clk_16k[0]` in the datasheet, it feeds peripherals in
     /// the system domain, such as the CMP and RTC.
+    #[cfg(feature = "mcxa2xx")]
     pub clk_16k_vsys: Option<Clock>,
 
     /// `clk_16k_vdd_core` is one of two outputs of the `FRO16K` internal oscillator.
     ///
     /// Also referred to as `clk_16k[1]` in the datasheet, it feeds peripherals in
     /// the VDD Core domain, such as the OSTimer or LPUarts.
+    #[cfg(feature = "mcxa2xx")]
     pub clk_16k_vdd_core: Option<Clock>,
 
     /// `main_clk` is the main clock, upstream of the cpu/system clock.
+    #[cfg(feature = "mcxa2xx")]
     pub main_clk: Option<Clock>,
 
     /// `CPU_CLK` or `SYSTEM_CLK` is the output of `main_clk`, run through the `AHBCLKDIV`,
     /// used for the CPU, AHB, APB, IPS bus, and some high speed peripherals.
+    #[cfg(feature = "mcxa2xx")]
     pub cpu_system_clk: Option<Clock>,
 
     /// `pll1_clk` is the output of the main system PLL, `pll1`.
+    #[cfg(feature = "mcxa2xx")]
     pub pll1_clk: Option<Clock>,
 
     /// `pll1_clk_div` is a configurable frequency clock, sourced from `pll1_clk`
+    #[cfg(feature = "mcxa2xx")]
     pub pll1_clk_div: Option<Clock>,
 }
 
@@ -512,6 +531,7 @@ pub enum PoweredClock {
 ///
 /// Concurrent access to clock-relevant peripheral registers, such as `MRCC`, `SCG`,
 /// `SYSCON`, and `VBAT` should not be allowed for the duration of the [`init()`] function.
+#[allow(dead_code)]
 struct ClockOperator<'a> {
     /// A mutable reference to the current state of system clocks
     clocks: &'a mut Clocks,
@@ -529,69 +549,6 @@ struct ClockOperator<'a> {
     spc0: pac::spc::Spc,
     fmu0: pac::fmu::Fmu,
     cmc: pac::cmc::Cmc,
-}
-
-// From Table 165 - Max Clock Frequencies
-struct ClockLimits {
-    fro_hf: u32,
-    fro_hf_div: u32,
-    pll1_clk: u32,
-    main_clk: u32,
-    cpu_clk: u32,
-    // The following items are LISTED in Table 165, but are not necessary
-    // to check at runtime either because they are physically fixed, the
-    // HAL exposes no way for them to exceed their limits, or they cannot
-    // exceed their limits due to some upstream clock enforcement. They
-    // are included here as documentation.
-    //
-    // clk_16k: u32,        // fixed (16.384kHz), no need to check
-    // clk_in: u32,         // Checked already in configure_sosc method, 50MHz in all modes
-    // clk_48m: u32,        // clk_48m is fixed (to 45mhz actually)
-    // fro_12m: u32,        // We don't allow modifying from 12mhz
-    // fro_12m_div: u32,    // div can never exceed 12mhz
-    // pll1_clk_div: u32,   // if pll1_clk is in range, so is pll1_clk_div
-    // clk_1m: u32,         // fro_12m / 12 can never exceed 12mhz
-    // system_clk: u32,     // cpu_clk == system_clk
-    // bus_clk: u32,        // bus_clk == (cpu_clk / 2), if cpu_clk is good so is bus_clk
-    // slow_clk: u32,       // slow_clk == (cpu_clk / 6), if cpu_clk is good so is slow_clock
-}
-
-impl ClockLimits {
-    const MID_DRIVE: Self = Self {
-        fro_hf: 90_000_000,
-        fro_hf_div: 45_000_000,
-        pll1_clk: 48_000_000,
-        main_clk: 90_000_000,
-        cpu_clk: 45_000_000,
-        // clk_16k: 16_384,
-        // clk_in: 50_000_000,
-        // clk_48m: 48_000_000,
-        // fro_12m: 24_000_000, // what?
-        // fro_12m_div: 24_000_000, // what?
-        // pll1_clk_div: 48_000_000,
-        // clk_1m: 1_000_000,
-        // system_clk: 45_000_000,
-        // bus_clk: 22_500_000,
-        // slow_clk: 7_500_000,
-    };
-
-    const OVER_DRIVE: Self = Self {
-        fro_hf: 180_000_000,
-        fro_hf_div: 180_000_000,
-        pll1_clk: 240_000_000,
-        main_clk: 180_000_000,
-        cpu_clk: 180_000_000,
-        // clk_16k: 16_384,
-        // clk_in: 50_000_000,
-        // clk_48m: 48_000_000,
-        // fro_12m: 24_000_000, // what?
-        // fro_12m_div: 24_000_000, // what?
-        // pll1_clk_div: 240_000_000,
-        // clk_1m: 1_000_000,
-        // system_clk: 180_000_000,
-        // bus_clk: 90_000_000,
-        // slow_clk: 36_000_000,
-    };
 }
 
 /// Trait describing an AHB clock gate that can be toggled through MRCC.
@@ -804,18 +761,21 @@ impl Clocks {
     }
 
     /// Ensure the `fro_hf` clock is active and valid at the given power state.
+    #[cfg(feature = "mcxa2xx")]
     #[inline]
     pub fn ensure_fro_hf_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
         self.ensure_clock_active(&self.fro_hf, "fro_hf", at_level)
     }
 
     /// Ensure the `fro_hf_div` clock is active and valid at the given power state.
+    #[cfg(feature = "mcxa2xx")]
     #[inline]
     pub fn ensure_fro_hf_div_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
         self.ensure_clock_active(&self.fro_hf_div, "fro_hf_div", at_level)
     }
 
     /// Ensure the `clk_in` clock is active and valid at the given power state.
+    #[cfg(feature = "mcxa2xx")]
     #[cfg(not(feature = "sosc-as-gpio"))]
     #[inline]
     pub fn ensure_clk_in_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
@@ -823,6 +783,7 @@ impl Clocks {
     }
 
     /// Ensure the `clk_16k_vsys` clock is active and valid at the given power state.
+    #[cfg(feature = "mcxa2xx")]
     pub fn ensure_clk_16k_vsys_active(&self, _at_level: &PoweredClock) -> Result<u32, ClockError> {
         // NOTE: clk_16k is always active in low power mode
         Ok(self
@@ -836,6 +797,7 @@ impl Clocks {
     }
 
     /// Ensure the `clk_16k_vdd_core` clock is active and valid at the given power state.
+    #[cfg(feature = "mcxa2xx")]
     pub fn ensure_clk_16k_vdd_core_active(&self, _at_level: &PoweredClock) -> Result<u32, ClockError> {
         // NOTE: clk_16k is always active in low power mode
         Ok(self
@@ -855,18 +817,21 @@ impl Clocks {
     }
 
     /// Ensure the `pll1_clk` clock is active and valid at the given power state.
+    #[cfg(feature = "mcxa2xx")]
     #[inline]
     pub fn ensure_pll1_clk_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
         self.ensure_clock_active(&self.pll1_clk, "pll1_clk", at_level)
     }
 
     /// Ensure the `pll1_clk_div` clock is active and valid at the given power state.
+    #[cfg(feature = "mcxa2xx")]
     #[inline]
     pub fn ensure_pll1_clk_div_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
         self.ensure_clock_active(&self.pll1_clk_div, "pll1_clk_div", at_level)
     }
 
     /// Ensure the `CPU_CLK` or `SYSTEM_CLK` is active
+    #[cfg(feature = "mcxa2xx")]
     pub fn ensure_cpu_system_clk_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
         let Some(clk) = self.cpu_system_clk.as_ref() else {
             return Err(ClockError::BadConfig {
@@ -888,6 +853,7 @@ impl Clocks {
         Ok(clk.frequency)
     }
 
+    #[cfg(feature = "mcxa2xx")]
     pub fn ensure_slow_clk_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
         let freq = self.ensure_cpu_system_clk_active(at_level)?;
 
@@ -908,6 +874,7 @@ impl PoweredClock {
 }
 
 impl ClockOperator<'_> {
+    #[cfg(feature = "mcxa2xx")]
     fn active_limits(&self) -> &'static ClockLimits {
         match self.config.vdd_power.active_mode.level {
             VddLevel::MidDriveMode => &ClockLimits::MID_DRIVE,
@@ -915,6 +882,7 @@ impl ClockOperator<'_> {
         }
     }
 
+    #[cfg(feature = "mcxa2xx")]
     fn low_power_limits(&self) -> &'static ClockLimits {
         match self.config.vdd_power.low_power_mode.level {
             VddLevel::MidDriveMode => &ClockLimits::MID_DRIVE,
@@ -922,6 +890,7 @@ impl ClockOperator<'_> {
         }
     }
 
+    #[cfg(feature = "mcxa2xx")]
     fn lowest_relevant_limits(&self, for_power: &PoweredClock) -> &'static ClockLimits {
         // We always enforce that deep sleep has a drive <= active mode.
         match for_power {
@@ -931,6 +900,7 @@ impl ClockOperator<'_> {
     }
 
     /// Configure the FIRC/FRO180M clock family
+    #[cfg(feature = "mcxa2xx")]
     fn configure_firc_clocks(&mut self) -> Result<(), ClockError> {
         // Three options here:
         //
@@ -1249,6 +1219,7 @@ impl ClockOperator<'_> {
     }
 
     /// Configure the ROSC/FRO16K/clk_16k clock family
+    #[cfg(feature = "mcxa2xx")]
     fn configure_fro16k_clocks(&mut self) -> Result<(), ClockError> {
         // If we have a config: ensure fro16k is enabled. If not: ensure it is disabled.
         let enable = self.config.fro16k.is_some();
@@ -1293,6 +1264,7 @@ impl ClockOperator<'_> {
         Ok(())
     }
 
+    #[cfg(feature = "mcxa2xx")]
     fn ensure_ldo_active(&mut self, for_clock: &'static str, for_power: &PoweredClock) -> Result<(), ClockError> {
         let bg_good = match for_power {
             PoweredClock::NormalEnabledDeepSleepDisabled => self.clocks.bandgap_active,
@@ -1323,6 +1295,7 @@ impl ClockOperator<'_> {
     }
 
     /// Configure the SOSC/clk_in oscillator
+    #[cfg(feature = "mcxa2xx")]
     #[cfg(not(feature = "sosc-as-gpio"))]
     fn configure_sosc(&mut self) -> Result<(), ClockError> {
         let Some(parts) = self.config.sosc.as_ref() else {
@@ -1427,6 +1400,7 @@ impl ClockOperator<'_> {
         Ok(())
     }
 
+    #[cfg(feature = "mcxa2xx")]
     fn configure_spll(&mut self) -> Result<(), ClockError> {
         // # Vocab
         //
@@ -1795,6 +1769,7 @@ impl ClockOperator<'_> {
         Ok(())
     }
 
+    #[cfg(feature = "mcxa2xx")]
     fn configure_main_clk(&mut self) -> Result<(), ClockError> {
         let (var, name, clk) = match self.config.main_clock.source {
             #[cfg(not(feature = "sosc-as-gpio"))]
@@ -1821,13 +1796,23 @@ impl ClockOperator<'_> {
         let lowest_limits = self.lowest_relevant_limits(&self.config.main_clock.power);
         let active_limits = self.active_limits();
 
+        #[cfg(feature = "mcxa2xx")]
         let (levels, wsmax) = match self.config.vdd_power.active_mode.level {
-            VddLevel::MidDriveMode => (VDD_CORE_MID_DRIVE_WAIT_STATE_LIMITS, VDD_CORE_MID_DRIVE_MAX_WAIT_STATES),
+            VddLevel::MidDriveMode => (
+                limits::VDD_CORE_MID_DRIVE_WAIT_STATE_LIMITS,
+                limits::VDD_CORE_MID_DRIVE_MAX_WAIT_STATES,
+            ),
             VddLevel::OverDriveMode => (
-                VDD_CORE_OVER_DRIVE_WAIT_STATE_LIMITS,
-                VDD_CORE_OVER_DRIVE_MAX_WAIT_STATES,
+                limits::VDD_CORE_OVER_DRIVE_WAIT_STATE_LIMITS,
+                limits::VDD_CORE_OVER_DRIVE_MAX_WAIT_STATES,
             ),
         };
+
+        #[cfg(feature = "mcxa5xx")]
+        let (levels, wsmax) = (
+            limits::VDD_CORE_MID_DRIVE_WAIT_STATE_LIMITS,
+            limits::VDD_CORE_MID_DRIVE_MAX_WAIT_STATES,
+        );
 
         // Is the main_clk source in range for main_clk?
         if main_clk_src.frequency > lowest_limits.main_clk {
@@ -1894,6 +1879,7 @@ impl ClockOperator<'_> {
         Ok(())
     }
 
+    #[cfg(feature = "mcxa2xx")]
     fn configure_voltages(&mut self) -> Result<(), ClockError> {
         match self.config.vdd_power.active_mode.level {
             VddLevel::MidDriveMode => {
@@ -2160,9 +2146,11 @@ impl ClockOperator<'_> {
 
 /// This macro is used to implement the [`Gate`] trait for a given peripheral
 /// that is controlled by the MRCC peripheral.
+#[doc(hidden)]
+#[macro_export]
 macro_rules! impl_cc_gate {
     ($name:ident, $clk_reg:ident, $rst_reg:ident, $field:ident, $config:ty) => {
-        impl Gate for crate::peripherals::$name {
+        impl Gate for $crate::peripherals::$name {
             type MrccPeriphConfig = $config;
 
             paste! {
@@ -2202,72 +2190,4 @@ macro_rules! impl_cc_gate {
             }
         }
     };
-}
-
-/// This module contains implementations of MRCC APIs, specifically of the [`Gate`] trait,
-/// for various low level peripherals.
-pub(crate) mod gate {
-    use paste::paste;
-
-    use super::Gate;
-    use super::periph_helpers::{
-        AdcConfig, CTimerConfig, I3cConfig, Lpi2cConfig, LpspiConfig, LpuartConfig, NoConfig, OsTimerConfig,
-    };
-    use crate::pac;
-
-    // These peripherals have no additional upstream clocks or configuration required
-    // other than enabling through the MRCC gate. Currently, these peripherals will
-    // ALWAYS return `Ok(0)` when calling [`enable_and_reset()`] and/or
-    // [`SPConfHelper::post_enable_config()`].
-    impl_cc_gate!(PORT0, mrcc_glb_cc1, mrcc_glb_rst1, port0, NoConfig);
-    impl_cc_gate!(PORT1, mrcc_glb_cc1, mrcc_glb_rst1, port1, NoConfig);
-    impl_cc_gate!(PORT2, mrcc_glb_cc1, mrcc_glb_rst1, port2, NoConfig);
-    impl_cc_gate!(PORT3, mrcc_glb_cc1, mrcc_glb_rst1, port3, NoConfig);
-    impl_cc_gate!(PORT4, mrcc_glb_cc1, mrcc_glb_rst1, port4, NoConfig);
-
-    impl_cc_gate!(CRC0, mrcc_glb_cc0, mrcc_glb_rst0, crc0, NoConfig);
-    impl_cc_gate!(INPUTMUX0, mrcc_glb_cc0, mrcc_glb_rst0, inputmux0, NoConfig);
-
-    // These peripherals DO have meaningful configuration, and could fail if the system
-    // clocks do not match their needs.
-    impl_cc_gate!(ADC0, mrcc_glb_cc1, mrcc_glb_rst1, adc0, AdcConfig);
-    impl_cc_gate!(ADC1, mrcc_glb_cc1, mrcc_glb_rst1, adc1, AdcConfig);
-    impl_cc_gate!(ADC2, mrcc_glb_cc1, mrcc_glb_rst1, adc2, AdcConfig);
-    impl_cc_gate!(ADC3, mrcc_glb_cc1, mrcc_glb_rst1, adc3, AdcConfig);
-
-    impl_cc_gate!(I3C0, mrcc_glb_cc0, mrcc_glb_rst0, i3c0, I3cConfig);
-    impl_cc_gate!(CTIMER0, mrcc_glb_cc0, mrcc_glb_rst0, ctimer0, CTimerConfig);
-    impl_cc_gate!(CTIMER1, mrcc_glb_cc0, mrcc_glb_rst0, ctimer1, CTimerConfig);
-    impl_cc_gate!(CTIMER2, mrcc_glb_cc0, mrcc_glb_rst0, ctimer2, CTimerConfig);
-    impl_cc_gate!(CTIMER3, mrcc_glb_cc0, mrcc_glb_rst0, ctimer3, CTimerConfig);
-    impl_cc_gate!(CTIMER4, mrcc_glb_cc0, mrcc_glb_rst0, ctimer4, CTimerConfig);
-    impl_cc_gate!(OSTIMER0, mrcc_glb_cc1, mrcc_glb_rst1, ostimer0, OsTimerConfig);
-
-    // TRNG peripheral - uses NoConfig since it has no selectable clock source
-    impl_cc_gate!(TRNG0, mrcc_glb_cc1, mrcc_glb_rst1, trng0, NoConfig);
-
-    // Peripherals that use ACC instead of CC!
-    impl_cc_gate!(LPUART0, mrcc_glb_acc0, mrcc_glb_rst0, lpuart0, LpuartConfig);
-    impl_cc_gate!(LPUART1, mrcc_glb_acc0, mrcc_glb_rst0, lpuart1, LpuartConfig);
-    impl_cc_gate!(LPUART2, mrcc_glb_acc0, mrcc_glb_rst0, lpuart2, LpuartConfig);
-    impl_cc_gate!(LPUART3, mrcc_glb_acc0, mrcc_glb_rst0, lpuart3, LpuartConfig);
-    impl_cc_gate!(LPUART4, mrcc_glb_acc0, mrcc_glb_rst0, lpuart4, LpuartConfig);
-    impl_cc_gate!(LPUART5, mrcc_glb_acc1, mrcc_glb_rst1, lpuart5, LpuartConfig);
-
-    // DMA0 peripheral - uses NoConfig since it has no selectable clock source
-    impl_cc_gate!(DMA0, mrcc_glb_acc0, mrcc_glb_rst0, dma0, NoConfig);
-
-    impl_cc_gate!(GPIO0, mrcc_glb_acc2, mrcc_glb_rst2, gpio0, NoConfig);
-    impl_cc_gate!(GPIO1, mrcc_glb_acc2, mrcc_glb_rst2, gpio1, NoConfig);
-    impl_cc_gate!(GPIO2, mrcc_glb_acc2, mrcc_glb_rst2, gpio2, NoConfig);
-    impl_cc_gate!(GPIO3, mrcc_glb_acc2, mrcc_glb_rst2, gpio3, NoConfig);
-    impl_cc_gate!(GPIO4, mrcc_glb_acc2, mrcc_glb_rst2, gpio4, NoConfig);
-
-    impl_cc_gate!(LPI2C0, mrcc_glb_acc0, mrcc_glb_rst0, lpi2c0, Lpi2cConfig);
-    impl_cc_gate!(LPI2C1, mrcc_glb_acc0, mrcc_glb_rst0, lpi2c1, Lpi2cConfig);
-    impl_cc_gate!(LPI2C2, mrcc_glb_acc1, mrcc_glb_rst1, lpi2c2, Lpi2cConfig);
-    impl_cc_gate!(LPI2C3, mrcc_glb_acc1, mrcc_glb_rst1, lpi2c3, Lpi2cConfig);
-
-    impl_cc_gate!(LPSPI0, mrcc_glb_acc0, mrcc_glb_rst0, lpspi0, LpspiConfig);
-    impl_cc_gate!(LPSPI1, mrcc_glb_acc0, mrcc_glb_rst0, lpspi1, LpspiConfig);
 }
