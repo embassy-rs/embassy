@@ -362,8 +362,8 @@ pub enum LpuartInstance {
     Lpuart3,
     /// Instance 4
     Lpuart4,
-    /// Instance 5
-    Lpuart5,
+    // /// Instance 5
+    // Lpuart5,
 }
 
 /// Top level configuration for `Lpuart` instances.
@@ -390,7 +390,7 @@ impl SPConfHelper for LpuartConfig {
             LpuartInstance::Lpuart2 => (mrcc0.mrcc_lpuart2_clkdiv(), mrcc0.mrcc_lpuart2_clksel()),
             LpuartInstance::Lpuart3 => (mrcc0.mrcc_lpuart3_clkdiv(), mrcc0.mrcc_lpuart3_clksel()),
             LpuartInstance::Lpuart4 => (mrcc0.mrcc_lpuart4_clkdiv(), mrcc0.mrcc_lpuart4_clksel()),
-            LpuartInstance::Lpuart5 => (mrcc0.mrcc_lpuart5_clkdiv(), mrcc0.mrcc_lpuart5_clksel()),
+            // LpuartInstance::Lpuart5 => (mrcc0.mrcc_lpuart5_clkdiv(), mrcc0.mrcc_lpuart5_clksel()),
         };
 
         let (freq, variant) = match self.source {

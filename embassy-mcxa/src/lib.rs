@@ -29,7 +29,7 @@ mod mcxa2xx_exclusive {
     pub mod reset_reason;
     pub mod rtc;
     pub mod spi;
-    pub mod trng;
+    // pub mod trng;
     pub mod wwdt;
 
     pub use crate::chips::mcxa2xx::{Peripherals, init, interrupt, peripherals};
