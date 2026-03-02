@@ -77,7 +77,7 @@ impl<'d, H: Handler> DfuState<H> {
 
 impl<H: Handler> crate::Handler for DfuState<H> {
     fn reset(&mut self) {
-        if matches!(self.state, State::ManifestSync | State::ManifestWaitReset) {
+        if matches!(self.state, State::ManifestSync | State::Manifest) {
             self.handler.system_reset();
         }
     }
@@ -157,17 +157,24 @@ impl<H: Handler> crate::Handler for DfuState<H> {
         }
         match Request::try_from(req.request) {
             Ok(Request::GetStatus) => {
-                //TODO: Configurable poll timeout, ability to add string for Vendor error
-                buf[0..6].copy_from_slice(&[self.status as u8, 0x32, 0x00, 0x00, self.state as u8, 0x00]);
                 match self.state {
                     State::DlSync => self.state = State::Download,
                     State::ManifestSync if self.attrs.contains(DfuAttributes::MANIFESTATION_TOLERANT) => {
                         self.state = State::DfuIdle
                     }
-                    State::ManifestSync => self.state = State::ManifestWaitReset,
+                    State::ManifestSync => {
+                        // Technically we would be in ManifestWaitReset after responding with
+                        // Manifest, but ManifestWaitReset isn't meant to be seen by the host
+                        // anyways.
+                        self.state = State::Manifest;
+                        if self.attrs.contains(DfuAttributes::WILL_DETACH) {
+                            self.reset();
+                        }
+                    }
                     _ => {}
                 }
-
+                //TODO: Configurable poll timeout, ability to add string for Vendor error
+                buf[0..6].copy_from_slice(&[self.status as u8, 0x32, 0x00, 0x00, self.state as u8, 0x00]);
                 Some(InResponse::Accepted(&buf[0..6]))
             }
             Ok(Request::GetState) => {
