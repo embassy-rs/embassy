@@ -22,6 +22,8 @@ pub struct SOFTWARE;
 
 /// Sawtooth waveform step direction
 #[cfg(stm32g4)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum StepDirection {
     /// Increment dac value every step trigger
     Increment,
