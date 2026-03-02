@@ -1568,15 +1568,20 @@ pub trait GpinPin: crate::gpio::Pin {
 }
 
 macro_rules! impl_gpinpin {
-    ($name:ident, $pin_num:expr, $gpin_num:expr) => {
+    ($name:ident, $gpin_num:expr) => {
         impl GpinPin for crate::peripherals::$name {
             const NR: usize = $gpin_num;
         }
     };
 }
 
-impl_gpinpin!(PIN_20, 20, 0);
-impl_gpinpin!(PIN_22, 22, 1);
+#[cfg(feature = "_rp235x")]
+impl_gpinpin!(PIN_12, 0);
+#[cfg(feature = "_rp235x")]
+impl_gpinpin!(PIN_14, 1);
+
+impl_gpinpin!(PIN_20, 0);
+impl_gpinpin!(PIN_22, 1);
 
 /// General purpose clock input driver.
 pub struct Gpin<'d, T: GpinPin> {
@@ -1631,6 +1636,11 @@ macro_rules! impl_gpoutpin {
         }
     };
 }
+
+#[cfg(feature = "_rp235x")]
+impl_gpoutpin!(PIN_13, 0);
+#[cfg(feature = "_rp235x")]
+impl_gpoutpin!(PIN_15, 1);
 
 impl_gpoutpin!(PIN_21, 0);
 impl_gpoutpin!(PIN_23, 1);
