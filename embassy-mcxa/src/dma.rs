@@ -1025,6 +1025,164 @@ impl DmaChannel<'_> {
         Transfer::new(self.reborrow())
     }
 
+    /// Write data from memory to a peripheral register with mixed word sizes.
+    ///
+    /// This supports transfers where the source and destination widths differ,
+    /// e.g. feeding a 32-bit peripheral FIFO from an unaligned byte stream
+    /// (`S = u8`, `D = u32`).
+    ///
+    /// The destination address remains fixed (peripheral register) while the
+    /// source address increments. Each DMA request transfers exactly one
+    /// destination word (`NBYTES = size_of::<D>()`).
+    ///
+    /// # Safety
+    ///
+    /// - The source buffer must remain valid for the duration of the transfer.
+    /// - The destination peripheral address must be valid for writes.
+    /// - The caller must select the correct request source using
+    ///   [`set_request_source`](Self::set_request_source).
+    pub unsafe fn write_to_peripheral_mixed<S: Word, D: Word>(
+        &mut self,
+        buf: &[S],
+        peri_addr: *mut D,
+        options: TransferOptions,
+    ) -> Transfer<'_> {
+        let ssize = S::size();
+        let dsize = D::size();
+        let sbytes = ssize.bytes();
+        let dbytes = dsize.bytes();
+
+        let total_bytes = buf.len() * sbytes;
+        let major_ct = total_bytes / dbytes;
+
+        let t = self.tcd();
+
+        // Reset channel state
+        Self::reset_channel_state(&t);
+
+        // Addresses
+        Self::set_source_ptr(&t, buf.as_ptr());
+        Self::set_dest_ptr(&t, peri_addr);
+
+        // Offsets: Source increments, Dest fixed
+        Self::set_source_increment(&t, ssize);
+        Self::set_dest_fixed(&t);
+
+        // Mixed transfer attributes
+        t.tcd_attr().write(|w| {
+            w.set_ssize(ssize.to_hw_size());
+            w.set_dsize(dsize.to_hw_size());
+            w.set_smod(0);
+            w.set_dmod(0);
+        });
+
+        // Minor loop: one destination word per request
+        Self::set_minor_loop_ct_no_offsets(&t, dbytes as u32);
+
+        // No final adjustments
+        Self::set_no_final_adjustments(&t);
+
+        // Major loop count
+        Self::set_major_loop_ct_elinkno(&t, major_ct as u16);
+
+        // Control/status: interrupt on major complete, auto-clear ERQ when done
+        t.tcd_csr().write(|w| {
+            w.set_intmajor(options.complete_transfer_interrupt);
+            w.set_inthalf(options.half_transfer_interrupt);
+            w.set_dreq(Dreq::ERQ_FIELD_CLEAR);
+            w.set_esg(Esg::NORMAL_FORMAT);
+            w.set_majorelink(false);
+            w.set_eeop(false);
+            w.set_esda(false);
+            w.set_bwc(Bwc::NO_STALL);
+        });
+
+        // Ensure all TCD writes have completed before DMA engine reads them
+        cortex_m::asm::dsb();
+
+        // Clear any pending interrupt, clear DONE, then enable hardware requests.
+        t.ch_int().write(|w| w.set_int(true));
+        t.ch_csr().modify(|w| {
+            w.set_done(true);
+            w.set_erq(true);
+            w.set_earq(true);
+        });
+
+        Transfer::new(self.reborrow())
+    }
+
+    /// Write data from memory to a peripheral register with mixed word sizes,
+    /// using a software start.
+    ///
+    /// This programs the channel as a single major loop (`CITER=BITER=1`) with
+    /// `NBYTES` set to the total byte length, then triggers `START`.
+    ///
+    /// This is useful for large transfers where the request-driven major loop
+    /// count limit (15-bit CITER/BITER) would be exceeded.
+    ///
+    /// # Safety
+    ///
+    /// - The source buffer must remain valid for the duration of the transfer.
+    /// - The destination peripheral address must be valid for writes.
+
+    /// This specific mode is specifically destined for use by the SGI0 peripheral for SHA2 operations in auto mode.
+
+    pub unsafe fn write_to_peripheral_mixed_software_start<S: Word, D: Word>(
+        &mut self,
+        buf: &[S],
+        peri_addr: *mut D,
+        options: TransferOptions,
+    ) -> Transfer<'_> {
+        let ssize = S::size();
+        let dsize = D::size();
+        let sbytes = ssize.bytes();
+        let dbytes = dsize.bytes();
+        let total_bytes = buf.len() * sbytes;
+
+        let t = self.tcd();
+
+        // Reset channel state
+        Self::reset_channel_state(&t);
+
+        // Addresses
+        Self::set_source_ptr(&t, buf.as_ptr());
+        Self::set_dest_ptr(&t, peri_addr);
+
+        // Offsets: Source increments, Dest fixed
+        Self::set_source_increment(&t, ssize);
+        Self::set_dest_fixed(&t);
+
+        // Mixed transfer attributes
+        t.tcd_attr().write(|w| {
+            w.set_ssize(ssize.to_hw_size());
+            w.set_dsize(dsize.to_hw_size());
+            w.set_smod(0);
+            w.set_dmod(0);
+        });
+
+        // Minor loop: transfer ALL bytes in a single minor loop.
+        Self::set_minor_loop_ct_no_offsets(&t, total_bytes as u32);
+
+        // No final adjustments
+        Self::set_no_final_adjustments(&t);
+
+        // Single major loop
+        Self::set_major_loop_ct_elinkno(&t, 1);
+
+        // Memory barrier before setting START
+        cortex_m::asm::dsb();
+
+        // Control/status: optional interrupt on major complete, start immediately
+        t.tcd_csr().write(|w| {
+            w.set_intmajor(options.complete_transfer_interrupt);
+            w.set_inthalf(options.half_transfer_interrupt);
+            w.set_dreq(Dreq::ERQ_FIELD_CLEAR);
+            w.set_start(Start::CHANNEL_STARTED);
+        });
+
+        Transfer::new(self.reborrow())
+    }
+
     /// Read data from a peripheral register to memory.
     ///
     /// The source address remains fixed (peripheral register) while
