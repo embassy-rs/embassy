@@ -1136,7 +1136,6 @@ impl DmaChannel<'_> {
         let ssize = S::size();
         let dsize = D::size();
         let sbytes = ssize.bytes();
-        let dbytes = dsize.bytes();
         let total_bytes = buf.len() * sbytes;
 
         let t = self.tcd();
