@@ -466,16 +466,18 @@ impl<'d, M: PeriMode> DacChannel<'d, M> {
         #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
         dac.set_mode(mode);
 
+        #[cfg(stm32g4)]
+        dac.set_wave(wave);
         trigger.map(|idx| {
             dac.info.regs.cr().modify(|reg| {
-                reg.set_tsel(dac.idx, idx);
+               reg.set_tsel(dac.idx, idx);
             });
 
             // Set in case Sawtooth wave form is used
             #[cfg(stm32g4)]
             dac.info.regs.stmodr().modify(|reg| {
                 reg.set_strsttrigsel(dac.idx, idx);
-            })
+            });
         });
         #[cfg(stm32g4)]
         inc_trigger.map(|idx| {
@@ -483,8 +485,6 @@ impl<'d, M: PeriMode> DacChannel<'d, M> {
                 reg.set_stinctrigsel(dac.idx, idx);
             })
         });
-        #[cfg(stm32g4)]
-        dac.set_wave(wave);
         dac.enable();
         dac
     }
@@ -528,9 +528,20 @@ impl<'d, M: PeriMode> DacChannel<'d, M> {
     }
 
     /// Software trigger this channel.
+    ///
+    /// NOTE: In sawtooth mode, this only works with [SOFTWARE] as reset_trigger source
     pub fn trigger(&mut self) {
         self.info.regs.swtrigr().write(|reg| {
             reg.set_swtrig(self.idx, true);
+        });
+    }
+
+    /// Software trigger this channels sawtooth waveform step
+    /// 
+    /// NOTE: This only works with [SOFTWARE] as reset_trigger source
+    pub fn trigger_step(&mut self) {
+        self.info.regs.swtrigr().write(|reg| {
+            reg.set_swtrigb(self.idx, true);
         });
     }
 
