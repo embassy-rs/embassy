@@ -43,9 +43,6 @@ static PORT_WAIT_MAPS: [WaitMap<usize, ()>; PORT_COUNT] = [
 ];
 
 fn irq_handler(port_index: usize, gpio: crate::pac::gpio::Gpio, perf_wake: fn()) {
-    #[cfg(feature = "mcxa2xx")]
-    let isfr = gpio.isfr0();
-    #[cfg(feature = "mcxa5xx")]
     let isfr = gpio.isfr(0);
 
     for pin in BitIter(isfr.read().0) {
@@ -593,10 +590,6 @@ impl<'d> Flex<'d> {
         // Now that our waker is in the map, we can enable the appropriate interrupt
         //
         // Clear any existing pending interrupt on this pin
-        // TODO: Fix PAC naming
-        #[cfg(feature = "mcxa2xx")]
-        self.pin.gpio().isfr0().write(|w| w.0 = 1 << self.pin.pin());
-        #[cfg(feature = "mcxa5xx")]
         self.pin.gpio().isfr(0).write(|w| w.0 = 1 << self.pin.pin());
         self.pin
             .gpio()
