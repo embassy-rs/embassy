@@ -295,7 +295,7 @@ mod inner_periph {
         // SPC0,
         // SYSCON,
         // TDET0,
-        // TRNG0,
+        TRNG0,
         // UDF0,
         // USB0,
         // UTICK0,
@@ -406,7 +406,7 @@ mod inner_interrupt {
         // SMARTDMA,
         // SPC0,
         // TDET,
-        // TRNG0,
+        TRNG0,
         // USB0,
         // UTICK0,
         // WAKETIMER0,
@@ -695,8 +695,8 @@ pub(crate) mod peripheral_gating {
     // impl_cc_gate!(CTIMER4, mrcc_glb_cc0, mrcc_glb_rst0, ctimer4, CTimerConfig);
     impl_cc_gate!(OSTIMER0, mrcc_glb_cc0, mrcc_glb_rst0, ostimer0, OsTimerConfig);
 
-    // // TRNG peripheral - uses NoConfig since it has no selectable clock source
-    // impl_cc_gate!(TRNG0, mrcc_glb_cc1, mrcc_glb_rst1, trng0, NoConfig);
+    // TRNG peripheral - uses NoConfig since it has no selectable clock source
+    impl_cc_gate!(TRNG0, mrcc_glb_acc4, mrcc_glb_rst4, trng0, NoConfig);
 
     // // Peripherals that use ACC instead of CC!
     // impl_cc_gate!(LPUART0, mrcc_glb_acc0, mrcc_glb_rst0, lpuart0, LpuartConfig);

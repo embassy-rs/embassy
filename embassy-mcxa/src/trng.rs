@@ -114,10 +114,12 @@ impl<'d, M: Mode> Trng<'d, M> {
     }
 
     fn start(&mut self) {
+        #[cfg(feature = "mcxa2xx")]
         self.info.regs().mctl().modify(|w| w.set_trng_acc(true));
     }
 
     fn stop(&mut self) {
+        #[cfg(feature = "mcxa2xx")]
         self.info.regs().mctl().modify(|w| w.set_trng_acc(false));
     }
 
