@@ -22,7 +22,6 @@ mod mcxa2xx_exclusive {
     pub mod i3c;
     pub mod inputmux;
     pub mod lpuart;
-    pub mod reset_reason;
     pub mod rtc;
     pub mod spi;
     pub mod trng;
@@ -50,6 +49,7 @@ mod all_chips {
     pub mod gpio;
     pub mod ostimer;
     pub mod perf_counters;
+    pub mod reset_reason;
 }
 
 #[allow(unused_imports)]
