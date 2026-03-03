@@ -119,8 +119,11 @@ impl_input_mux!(ctimer, 8, P3_15);
 impl_input_mux!(ctimer, 9, P3_16);
 impl_input_mux!(ctimer, 10, P3_17);
 impl_input_mux!(ctimer, 11, P3_22);
+#[cfg(feature = "mcxa2xx")]
 impl_input_mux!(ctimer, 14, P3_27);
+#[cfg(feature = "mcxa2xx")]
 impl_input_mux!(ctimer, 13, P3_28);
+#[cfg(all(feature = "dangerous-reset-as-gpio", feature = "mcxa2xx"))]
 impl_input_mux!(ctimer, 4, P3_29);
 
 impl_input_mux!(ctimer, 7, P4_6);

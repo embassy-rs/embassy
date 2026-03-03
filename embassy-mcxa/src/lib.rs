@@ -15,12 +15,10 @@
 mod mcxa2xx_exclusive {
     pub mod adc;
     pub mod clkout;
-    pub mod ctimer;
     pub mod dma;
     pub mod flash;
     pub mod i2c;
     pub mod i3c;
-    pub mod inputmux;
     pub mod lpuart;
     pub mod rtc;
     pub mod spi;
@@ -42,9 +40,11 @@ mod all_chips {
     pub mod clocks;
     pub mod config;
     pub mod crc;
+    pub mod ctimer;
     #[cfg(feature = "custom-executor")]
     pub mod executor;
     pub mod gpio;
+    pub mod inputmux;
     pub mod ostimer;
     pub mod perf_counters;
     pub mod reset_reason;
