@@ -94,6 +94,9 @@ pub enum InvertingInput {
     Dac2,
     /// External IO pin (INM1).
     InputPin,
+    /// External IO pin (INM2).
+    #[cfg(comp_v2)]
+    InputPin2,
 }
 
 /// Blanking source selection.
@@ -325,6 +328,16 @@ impl<'d, T: Instance> Comp<'d, T> {
             w.set_polarity(polarity);
             w.set_blanksel(blanksel);
 
+            w.set_scalen(matches!(
+                inmsel,
+                vals::Inm::QUARTER_VREF | vals::Inm::HALF_VREF | vals::Inm::THREE_QUARTER_VREF | vals::Inm::VREF
+            ));
+            w.set_brgen(matches!(
+                inmsel,
+                vals::Inm::QUARTER_VREF | vals::Inm::HALF_VREF | vals::Inm::THREE_QUARTER_VREF
+            ));
+
+            w.set_en(true);
             #[cfg(comp_u5)]
             {
                 w.set_pwrmode(pwrmode);
@@ -352,6 +365,8 @@ impl<'d, T: Instance> Comp<'d, T> {
             InvertingInput::Dac2 => vals::Inm::DACB,
 
             InvertingInput::InputPin => vals::Inm::INM1,
+            #[cfg(comp_v2)]
+            InvertingInput::InputPin2 => vals::Inm::INM2,
         };
 
         Self::configure_raw(inp_channel, inmsel, config);
@@ -651,12 +666,38 @@ macro_rules! impl_comp {
 }
 
 // COMP1 uses EXTI line 17, COMP2 uses EXTI line 18
+#[cfg(stm32u5)]
 foreach_peripheral! {
     (comp, COMP1) => {
         impl_comp!(COMP1, 17);
     };
     (comp, COMP2) => {
         impl_comp!(COMP2, 18);
+    };
+}
+
+#[cfg(stm32g4)]
+foreach_peripheral! {
+    (comp, COMP1) => {
+        impl_comp!(COMP1, 21);
+    };
+    (comp, COMP2) => {
+        impl_comp!(COMP2, 22);
+    };
+    (comp, COMP3) => {
+        impl_comp!(COMP3, 29);
+    };
+    (comp, COMP4) => {
+        impl_comp!(COMP4, 30);
+    };
+    (comp, COMP5) => {
+        impl_comp!(COMP5, 31);
+    };
+    (comp, COMP6) => {
+        impl_comp!(COMP6, 32);
+    };
+    (comp, COMP7) => {
+        impl_comp!(COMP7, 33);
     };
 }
 
@@ -683,3 +724,66 @@ macro_rules! impl_comp_inm_pin {
         }
     };
 }
+
+// TODO: This should probably be build scriptified
+#[cfg(stm32g4)]
+impl_comp_inp_pin!(COMP1, PA1, 0);
+#[cfg(stm32g4)]
+impl_comp_inp_pin!(COMP1, PB1, 1);
+
+#[cfg(stm32g4)]
+impl_comp_inp_pin!(COMP2, PA7, 0);
+#[cfg(stm32g4)]
+impl_comp_inp_pin!(COMP2, PA3, 1);
+
+#[cfg(stm32g4)]
+impl_comp_inp_pin!(COMP3, PA0, 0);
+#[cfg(stm32g4)]
+impl_comp_inp_pin!(COMP3, PC1, 1);
+
+#[cfg(stm32g4)]
+impl_comp_inp_pin!(COMP4, PB0, 0);
+//impl_comp_inp_pin!(COMP4, PE7, 1);
+
+#[cfg(stm32g4)]
+impl_comp_inp_pin!(COMP5, PB13, 0);
+//impl_comp_inp_pin!(COMP5, PD12, 1);
+
+#[cfg(stm32g4)]
+impl_comp_inp_pin!(COMP6, PB11, 0);
+//impl_comp_inp_pin!(COMP6, PD11, 1);
+
+#[cfg(stm32g4)]
+impl_comp_inp_pin!(COMP7, PB14, 0);
+//impl_comp_inp_pin!(COMP7, PD14, 1);
+
+#[cfg(stm32g4)]
+impl_comp_inm_pin!(COMP1, PA4, 0);
+#[cfg(stm32g4)]
+impl_comp_inm_pin!(COMP1, PA0, 1);
+
+#[cfg(stm32g4)]
+impl_comp_inm_pin!(COMP2, PA5, 0);
+#[cfg(stm32g4)]
+impl_comp_inm_pin!(COMP2, PA2, 1);
+
+#[cfg(stm32g4)]
+impl_comp_inm_pin!(COMP3, PF1, 0);
+#[cfg(stm32g4)]
+impl_comp_inm_pin!(COMP3, PC0, 1);
+
+//impl_comp_inm_pin!(COMP4, PE8, 0);
+#[cfg(stm32g4)]
+impl_comp_inm_pin!(COMP4, PB2, 1);
+
+#[cfg(stm32g4)]
+impl_comp_inm_pin!(COMP5, PB10, 0);
+//impl_comp_inm_pin!(COMP5, PD13, 1);
+
+//impl_comp_inm_pin!(COMP6, PD10, 0);
+#[cfg(stm32g4)]
+impl_comp_inm_pin!(COMP6, PB15, 1);
+
+//impl_comp_inm_pin!(COMP6, PD15, 0);
+#[cfg(stm32g4)]
+impl_comp_inm_pin!(COMP6, PB12, 1);
