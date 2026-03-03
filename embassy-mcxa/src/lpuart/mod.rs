@@ -177,7 +177,9 @@ macro_rules! impl_instance {
 // LPUART3: RX=27, TX=28 -> Lpuart3RxRequest, Lpuart3TxRequest
 // LPUART4: RX=29, TX=30 -> Lpuart4RxRequest, Lpuart4TxRequest
 // LPUART5: RX=31, TX=32 -> Lpuart5RxRequest, Lpuart5TxRequest
-impl_instance!(0; 1; 2; 3; 4; 5);
+impl_instance!(0; 1; 2; 3; 4);
+#[cfg(feature = "mcxa5xx")]
+impl_instance!(5);
 
 /// Perform software reset on the LPUART peripheral
 fn perform_software_reset(info: &'static Info) {
@@ -599,16 +601,24 @@ impl_rts_pin!(LPUART4, P3_16, MUX2);
 impl_rts_pin!(LPUART4, P3_30, MUX3);
 
 // LPUART 5
+#[cfg(feature = "mcxa5xx")]
 impl_tx_pin!(LPUART5, P1_10, MUX8);
+#[cfg(feature = "mcxa5xx")]
 impl_tx_pin!(LPUART5, P1_17, MUX8);
 
+#[cfg(feature = "mcxa5xx")]
 impl_rx_pin!(LPUART5, P1_11, MUX8);
+#[cfg(feature = "mcxa5xx")]
 impl_rx_pin!(LPUART5, P1_16, MUX8);
 
+#[cfg(feature = "mcxa5xx")]
 impl_cts_pin!(LPUART5, P1_12, MUX8);
+#[cfg(feature = "mcxa5xx")]
 impl_cts_pin!(LPUART5, P1_19, MUX8);
 
+#[cfg(feature = "mcxa5xx")]
 impl_rts_pin!(LPUART5, P1_13, MUX8);
+#[cfg(feature = "mcxa5xx")]
 impl_rts_pin!(LPUART5, P1_18, MUX8);
 
 /// LPUART error types
