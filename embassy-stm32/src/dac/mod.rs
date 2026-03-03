@@ -220,12 +220,13 @@ impl<'d> DacChannel<'d, Async> {
         Self::new_inner::<T, C>(
             peri,
             None,
-            None,
             new_dma!(dma, _irq),
             #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
             Mode::NormalExternalBuffered,
             #[cfg(stm32g4)]
             vals::Wave::DISABLED,
+            #[cfg(stm32g4)]
+            None,
         )
     }
 
@@ -245,12 +246,13 @@ impl<'d> DacChannel<'d, Async> {
         Self::new_inner::<T, C>(
             peri,
             Some(trigger.signal()),
-            None,
             new_dma!(dma, _irq),
             #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
             Mode::NormalExternalBuffered,
             #[cfg(stm32g4)]
             vals::Wave::DISABLED,
+            #[cfg(stm32g4)]
+            None,
         )
     }
 
@@ -270,11 +272,12 @@ impl<'d> DacChannel<'d, Async> {
         Self::new_inner::<T, C>(
             peri,
             None,
-            None,
             new_dma!(dma, _irq),
             Mode::NormalInternalUnbuffered,
             #[cfg(stm32g4)]
             vals::Wave::DISABLED,
+            #[cfg(stm32g4)]
+            None,
         )
     }
 
@@ -295,11 +298,12 @@ impl<'d> DacChannel<'d, Async> {
         Self::new_inner::<T, C>(
             peri,
             Some(trigger.signal()),
-            None,
             new_dma!(dma, _irq),
             Mode::NormalInternalUnbuffered,
             #[cfg(stm32g4)]
             vals::Wave::DISABLED,
+            #[cfg(stm32g4)]
+            None,
         )
     }
 
@@ -363,11 +367,12 @@ impl<'d> DacChannel<'d, Blocking> {
             peri,
             None,
             None,
-            None,
             #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
             Mode::NormalExternalBuffered,
             #[cfg(stm32g4)]
             vals::Wave::DISABLED,
+            #[cfg(stm32g4)]
+            None,
         )
     }
 
@@ -387,10 +392,11 @@ impl<'d> DacChannel<'d, Blocking> {
             peri,
             None,
             None,
-            None,
             Mode::NormalInternalUnbuffered,
             #[cfg(stm32g4)]
             vals::Wave::DISABLED,
+            #[cfg(stm32g4)]
+            None,
         )
     }
 
@@ -411,10 +417,10 @@ impl<'d> DacChannel<'d, Blocking> {
         Self::new_inner::<T, C>(
             peri,
             Some(reset_trigger.signal()),
-            Some(step_trigger.signal()),
             None,
             Mode::NormalExternalBuffered,
             vals::Wave::SAWTOOTH,
+            Some(step_trigger.signal()),
         )
     }
 
@@ -435,10 +441,10 @@ impl<'d> DacChannel<'d, Blocking> {
         Self::new_inner::<T, C>(
             peri,
             Some(reset_trigger.signal()),
-            Some(step_trigger.signal()),
             None,
             Mode::NormalInternalUnbuffered,
             vals::Wave::SAWTOOTH,
+            Some(step_trigger.signal()),
         )
     }
 }
@@ -447,10 +453,10 @@ impl<'d, M: PeriMode> DacChannel<'d, M> {
     fn new_inner<T: Instance, C: Channel>(
         _peri: Peri<'d, T>,
         trigger: Option<u8>,
-        inc_trigger: Option<u8>,
         dma: Option<ChannelAndRequest<'d>>,
         #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))] mode: Mode,
         #[cfg(stm32g4)] wave: dac::vals::Wave,
+        #[cfg(stm32g4)] inc_trigger: Option<u8>,
     ) -> Self {
         rcc::enable_and_reset::<T>();
         let mut dac = Self {
@@ -539,6 +545,7 @@ impl<'d, M: PeriMode> DacChannel<'d, M> {
     /// Software trigger this channels sawtooth waveform step
     /// 
     /// NOTE: This only works with [SOFTWARE] as reset_trigger source
+    #[cfg(stm32g4)]
     pub fn trigger_step(&mut self) {
         self.info.regs.swtrigr().write(|reg| {
             reg.set_swtrigb(self.idx, true);
