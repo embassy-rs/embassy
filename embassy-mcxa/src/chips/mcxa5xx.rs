@@ -303,6 +303,7 @@ mod inner_periph {
         // WAKETIMER0,
         // WUU0,
         WWDT0,
+        WWDT1,
     );
 }
 
@@ -412,6 +413,7 @@ mod inner_interrupt {
         // WAKETIMER0,
         // WUU0,
         WWDT0,
+        WWDT1,
     );
 }
 

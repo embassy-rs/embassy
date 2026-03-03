@@ -6,12 +6,13 @@ use embassy_time::{Duration, Timer};
 use hal::bind_interrupts;
 use hal::config::Config;
 use hal::gpio::{DriveStrength, Level, Output, SlewRate};
+use hal::peripherals::WWDT0;
 use hal::wwdt::{InterruptHandler, Watchdog};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 bind_interrupts!(
     struct Irqs {
-        WWDT0 => InterruptHandler;
+        WWDT0 => InterruptHandler<WWDT0>;
     }
 );
 
@@ -28,7 +29,7 @@ async fn main(_spawner: Spawner) {
     };
 
     let mut watchdog = Watchdog::new(p.WWDT0, Irqs, wwdt_config).unwrap();
-    let mut led = Output::new(p.P3_18, Level::High, DriveStrength::Normal, SlewRate::Fast);
+    let mut led = Output::new(p.P2_14, Level::High, DriveStrength::Normal, SlewRate::Fast);
 
     // Set the LED high for 2 seconds so we know when we're about to start the watchdog
     led.toggle();
