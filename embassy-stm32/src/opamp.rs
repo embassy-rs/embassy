@@ -160,6 +160,50 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         OpAmpOutput { _inner: self }
     }
 
+    /// Configure the OpAmp as a PGA for the provided input pin,
+    /// outputting to the provided output pin, and enable the opamp.
+    ///
+    /// The ground node of the gain network is connected to the provided VINM0 bias pin.
+    ///
+    /// The input and bias pins are configured for analogue mode but not consumed,
+    /// so it may subsequently be used for ADC or comparator inputs.
+    ///
+    /// The output pin is held within the returned [`OpAmpOutput`] struct,
+    /// preventing it being used elsewhere. The `OpAmpOutput` can then be
+    /// directly used as an ADC input. The opamp will be disabled when the
+    /// [`OpAmpOutput`] is dropped.
+    #[cfg(opamp_v5)]
+    pub fn pga_biased_ext(
+        &mut self,
+        in_pin: Peri<'_, impl NonInvertingPin<T> + crate::gpio::Pin>,
+        bias_pin: Peri<'_, impl BiasPin<T> + crate::gpio::Pin>,
+        out_pin: Peri<'_, impl OutputPin<T> + crate::gpio::Pin>,
+        gain: OpAmpGain,
+    ) -> OpAmpOutput<'_, T> {
+        in_pin.set_as_analog();
+        bias_pin.set_as_analog();
+        out_pin.set_as_analog();
+
+        let pga_gain = match gain {
+            OpAmpGain::Mul2 => PgaGain::GAIN2_INPUT_VINM0,
+            OpAmpGain::Mul4 => PgaGain::GAIN4_INPUT_VINM0,
+            OpAmpGain::Mul8 => PgaGain::GAIN8_INPUT_VINM0,
+            OpAmpGain::Mul16 => PgaGain::GAIN16_INPUT_VINM0,
+            OpAmpGain::Mul32 => PgaGain::GAIN32_INPUT_VINM0,
+            OpAmpGain::Mul64 => PgaGain::GAIN64_INPUT_VINM0,
+        };
+
+        T::regs().csr().modify(|w| {
+            w.set_vp_sel(VpSel::from_bits(in_pin.channel()));
+            w.set_vm_sel(VmSel::PGA);
+            w.set_pga_gain(pga_gain);
+            w.set_opaintoen(false);
+            w.set_opampen(true);
+        });
+
+        OpAmpOutput { _inner: self }
+    }
+
     /// Configure the OpAmp as a buffer for the DAC it is connected to,
     /// outputting to the provided output pin, and enable the opamp.
     ///
@@ -236,6 +280,46 @@ impl<'d, T: Instance> OpAmp<'d, T> {
 
         T::regs().csr().modify(|w| {
             w.set_vp_sel(VpSel::from_bits(pin.channel()));
+            w.set_vm_sel(VmSel::PGA);
+            w.set_pga_gain(pga_gain);
+            w.set_opaintoen(true);
+            w.set_opampen(true);
+        });
+
+        OpAmpInternalOutput { _inner: self }
+    }
+
+    /// Configure the OpAmp as a PGA for the provided input pin,
+    /// with the output only used internally, and enable the opamp.
+    ///
+    /// The ground node of the gain network is connected to the provided VINM0 bias pin.
+    ///
+    /// The input pin and bias pins are configured for analogue mode but not consumed,
+    /// so it may be subsequently used for ADC or comparator inputs.
+    ///
+    /// The returned `OpAmpInternalOutput` struct may be used as an ADC input.
+    /// The opamp output will be disabled when it is dropped.
+    #[cfg(opamp_v5)]
+    pub fn pga_biased_int(
+        &mut self,
+        in_pin: Peri<'_, impl NonInvertingPin<T> + crate::gpio::Pin>,
+        bias_pin: Peri<'_, impl BiasPin<T> + crate::gpio::Pin>,
+        gain: OpAmpGain,
+    ) -> OpAmpInternalOutput<'_, T> {
+        in_pin.set_as_analog();
+        bias_pin.set_as_analog();
+
+        let pga_gain = match gain {
+            OpAmpGain::Mul2 => PgaGain::GAIN2_INPUT_VINM0,
+            OpAmpGain::Mul4 => PgaGain::GAIN4_INPUT_VINM0,
+            OpAmpGain::Mul8 => PgaGain::GAIN8_INPUT_VINM0,
+            OpAmpGain::Mul16 => PgaGain::GAIN16_INPUT_VINM0,
+            OpAmpGain::Mul32 => PgaGain::GAIN32_INPUT_VINM0,
+            OpAmpGain::Mul64 => PgaGain::GAIN64_INPUT_VINM0,
+        };
+
+        T::regs().csr().modify(|w| {
+            w.set_vp_sel(VpSel::from_bits(in_pin.channel()));
             w.set_vm_sel(VmSel::PGA);
             w.set_pga_gain(pga_gain);
             w.set_opaintoen(true);
@@ -493,6 +577,8 @@ pub(crate) trait SealedInvertingPin<T: Instance> {
     fn channel(&self) -> u8;
 }
 
+pub(crate) trait SealedBiasPin<T: Instance> {}
+
 pub(crate) trait SealedOutputPin<T: Instance> {}
 
 /// Opamp instance trait.
@@ -504,6 +590,9 @@ pub trait NonInvertingPin<T: Instance>: SealedNonInvertingPin<T> {}
 /// Inverting pin trait.
 #[allow(private_bounds)]
 pub trait InvertingPin<T: Instance>: SealedInvertingPin<T> {}
+/// Bias pin trait.
+#[allow(private_bounds)]
+pub trait BiasPin<T: Instance>: SealedBiasPin<T> {}
 /// Output pin trait.
 #[allow(private_bounds)]
 pub trait OutputPin<T: Instance>: SealedOutputPin<T> {}
@@ -654,6 +743,13 @@ macro_rules! impl_opamp_vn_pin {
     };
 }
 
+#[allow(unused_macros)]
+macro_rules! impl_opamp_bias_pin {
+    ($inst:ident, $pin:ident, $ch:expr) => {
+        impl crate::opamp::BiasPin<peripherals::$inst> for crate::peripherals::$pin {}
+        impl crate::opamp::SealedBiasPin<peripherals::$inst> for crate::peripherals::$pin {}
+    };
+}
 #[allow(unused_macros)]
 macro_rules! impl_opamp_vout_pin {
     ($inst:ident, $pin:ident) => {
