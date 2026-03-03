@@ -476,7 +476,7 @@ impl<'d, M: PeriMode> DacChannel<'d, M> {
         dac.set_wave(wave);
         trigger.map(|idx| {
             dac.info.regs.cr().modify(|reg| {
-               reg.set_tsel(dac.idx, idx);
+                reg.set_tsel(dac.idx, idx);
             });
 
             // Set in case Sawtooth wave form is used
@@ -543,7 +543,7 @@ impl<'d, M: PeriMode> DacChannel<'d, M> {
     }
 
     /// Software trigger this channels sawtooth waveform step
-    /// 
+    ///
     /// NOTE: This only works with [SOFTWARE] as reset_trigger source
     #[cfg(stm32g4)]
     pub fn trigger_step(&mut self) {
