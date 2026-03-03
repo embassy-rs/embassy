@@ -12,14 +12,11 @@ mod inner_periph {
     embassy_hal_internal::peripherals!(
         ADC0,
         ADC1,
-        ADC2,
-        ADC3,
 
         AOI0,
         AOI1,
 
         CAN0,
-        CAN1,
 
         CDOG0,
         CDOG1,
@@ -115,7 +112,6 @@ mod inner_periph {
         LPUART2,
         LPUART3,
         LPUART4,
-        LPUART5,
 
         MAU0,
         MBC0,
@@ -369,16 +365,12 @@ mod inner_interrupt {
     embassy_hal_internal::interrupt_mod!(
         ADC0,
         ADC1,
-        ADC2,
-        ADC3,
         CAN0,
-        CAN1,
         CDOG0,
         CDOG1,
         CMC,
         CMP0,
         CMP1,
-        CMP2,
         CTIMER0,
         CTIMER1,
         CTIMER2,
@@ -437,7 +429,6 @@ mod inner_interrupt {
         LPUART2,
         LPUART3,
         LPUART4,
-        LPUART5,
         MAU,
         MBC0,
         OS_EVENT,
@@ -446,7 +437,6 @@ mod inner_interrupt {
         RTC_1HZ,
         SCG0,
         SGI,
-        SLCD,
         SMARTDMA,
         SPC0,
         TDET,
@@ -747,8 +737,6 @@ pub(crate) mod peripheral_gating {
     // clocks do not match their needs.
     impl_cc_gate!(ADC0, mrcc_glb_cc1, mrcc_glb_rst1, adc0, AdcConfig);
     impl_cc_gate!(ADC1, mrcc_glb_cc1, mrcc_glb_rst1, adc1, AdcConfig);
-    impl_cc_gate!(ADC2, mrcc_glb_cc1, mrcc_glb_rst1, adc2, AdcConfig);
-    impl_cc_gate!(ADC3, mrcc_glb_cc1, mrcc_glb_rst1, adc3, AdcConfig);
 
     impl_cc_gate!(I3C0, mrcc_glb_cc0, mrcc_glb_rst0, i3c0, I3cConfig);
     impl_cc_gate!(CTIMER0, mrcc_glb_cc0, mrcc_glb_rst0, ctimer0, CTimerConfig);
@@ -767,7 +755,6 @@ pub(crate) mod peripheral_gating {
     impl_cc_gate!(LPUART2, mrcc_glb_acc0, mrcc_glb_rst0, lpuart2, LpuartConfig);
     impl_cc_gate!(LPUART3, mrcc_glb_acc0, mrcc_glb_rst0, lpuart3, LpuartConfig);
     impl_cc_gate!(LPUART4, mrcc_glb_acc0, mrcc_glb_rst0, lpuart4, LpuartConfig);
-    impl_cc_gate!(LPUART5, mrcc_glb_acc1, mrcc_glb_rst1, lpuart5, LpuartConfig);
 
     // DMA0 peripheral - uses NoConfig since it has no selectable clock source
     impl_cc_gate!(DMA0, mrcc_glb_acc0, mrcc_glb_rst0, dma0, NoConfig);
