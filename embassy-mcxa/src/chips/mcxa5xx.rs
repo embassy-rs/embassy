@@ -21,8 +21,8 @@ mod inner_periph {
         // CAN0,
         // CAN1,
 
-        // CDOG0,
-        // CDOG1,
+        CDOG0,
+        CDOG1,
 
         // // CLKOUT is not specifically a peripheral (it's part of SYSCON),
         // // but we still want it to be a singleton.
@@ -310,25 +310,33 @@ mod inner_periph {
 pub use inner_interrupt::*;
 #[allow(clippy::missing_safety_doc, unsafe_op_in_unsafe_fn)]
 mod inner_interrupt {
+    #[rustfmt::skip]
     embassy_hal_internal::interrupt_mod!(
         // ADC0,
         // ADC1,
         // ADC2,
         // ADC3,
+
         // CAN0,
         // CAN1,
-        // CDOG0,
-        // CDOG1,
+
+        CDOG0,
+        CDOG1,
+
         // CMC,
+
         // CMP0,
         // CMP1,
         // CMP2,
+
         // CTIMER0,
         // CTIMER1,
         // CTIMER2,
         // CTIMER3,
         // CTIMER4,
+
         // DAC0,
+
         // DMA_CH0,
         // DMA_CH1,
         // DMA_CH2,
@@ -337,6 +345,7 @@ mod inner_interrupt {
         // DMA_CH5,
         // DMA_CH6,
         // DMA_CH7,
+
         // EQDC0_COMPARE,
         // EQDC0_HOME,
         // EQDC0_INDEX,
@@ -363,7 +372,14 @@ mod inner_interrupt {
         // FMU0,
         // FREQME0,
         // GLIKEY0,
-        GPIO0, GPIO1, GPIO2, GPIO3, GPIO4, GPIO5,
+
+        GPIO0,
+        GPIO1,
+        GPIO2,
+        GPIO3,
+        GPIO4,
+        GPIO5,
+
         // I3C0,
         // LPI2C0,
         // LPI2C1,
