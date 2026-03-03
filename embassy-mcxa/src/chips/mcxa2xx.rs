@@ -786,3 +786,57 @@ pub(crate) mod peripheral_gating {
     impl_cc_gate!(LPSPI0, mrcc_glb_acc0, mrcc_glb_rst0, lpspi0, LpspiConfig);
     impl_cc_gate!(LPSPI1, mrcc_glb_acc0, mrcc_glb_rst0, lpspi1, LpspiConfig);
 }
+
+pub(crate) mod clock_limits {
+    use crate::chips::ClockLimits;
+
+    // TODO: Different for different CPUs?
+    pub const VDD_CORE_MID_DRIVE_WAIT_STATE_LIMITS: &[(u32, u8)] = &[(22_500_000, 0b0000)];
+    pub const VDD_CORE_MID_DRIVE_MAX_WAIT_STATES: u8 = 0b0001;
+
+    pub const VDD_CORE_OVER_DRIVE_WAIT_STATE_LIMITS: &[(u32, u8)] = &[
+        (40_000_000, 0b0000),
+        (80_000_000, 0b0001),
+        (120_000_000, 0b0010),
+        (160_000_000, 0b0011),
+    ];
+    pub const VDD_CORE_OVER_DRIVE_MAX_WAIT_STATES: u8 = 0b0100;
+
+    impl ClockLimits {
+        pub const MID_DRIVE: Self = Self {
+            fro_hf: 90_000_000,
+            fro_hf_div: 45_000_000,
+            pll1_clk: 48_000_000,
+            main_clk: 90_000_000,
+            cpu_clk: 45_000_000,
+            pll1_clk_div: 48_000_000,
+            // clk_16k: 16_384,
+            // clk_in: 50_000_000,
+            // clk_48m: 48_000_000,
+            // fro_12m: 24_000_000, // what?
+            // fro_12m_div: 24_000_000, // what?
+            // clk_1m: 1_000_000,
+            // system_clk: 45_000_000,
+            // bus_clk: 22_500_000,
+            // slow_clk: 7_500_000,
+        };
+
+        pub const OVER_DRIVE: Self = Self {
+            fro_hf: 180_000_000,
+            fro_hf_div: 180_000_000,
+            pll1_clk: 240_000_000,
+            main_clk: 180_000_000,
+            cpu_clk: 180_000_000,
+            pll1_clk_div: 240_000_000,
+            // clk_16k: 16_384,
+            // clk_in: 50_000_000,
+            // clk_48m: 48_000_000,
+            // fro_12m: 24_000_000, // what?
+            // fro_12m_div: 24_000_000, // what?
+            // clk_1m: 1_000_000,
+            // system_clk: 180_000_000,
+            // bus_clk: 90_000_000,
+            // slow_clk: 36_000_000,
+        };
+    }
+}

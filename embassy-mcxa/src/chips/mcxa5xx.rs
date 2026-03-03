@@ -504,30 +504,30 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
         _ = crate::clocks::enable_and_reset::<crate::peripherals::GPIO4>(&crate::clocks::periph_helpers::NoConfig);
     }
 
-    // // import may be unused if none of the following features are set
-    // #[allow(unused_imports)]
-    // use crate::gpio::SealedPin;
+    // import may be unused if none of the following features are set
+    #[allow(unused_imports)]
+    use crate::gpio::SealedPin;
 
-    // // If we are not using SWD pins for SWD reasons, make them floating inputs
-    // #[cfg(feature = "swd-as-gpio")]
-    // {
-    //     peripherals.P0_0.set_as_disabled();
-    //     peripherals.P0_1.set_as_disabled();
-    // }
-    // #[cfg(feature = "swd-swo-as-gpio")]
-    // {
-    //     peripherals.P0_2.set_as_disabled();
-    // }
-    // #[cfg(feature = "jtag-extras-as-gpio")]
-    // {
-    //     peripherals.P0_3.set_as_disabled();
-    //     peripherals.P0_6.set_as_disabled();
-    // }
-    // #[cfg(feature = "dangerous-reset-as-gpio")]
-    // {
-    //     // DANGER DANGER DANGER
-    //     peripherals.P0_29.set_as_disabled();
-    // }
+    // If we are not using SWD pins for SWD reasons, make them floating inputs
+    #[cfg(feature = "swd-as-gpio")]
+    {
+        peripherals.P0_0.set_as_disabled();
+        peripherals.P0_1.set_as_disabled();
+    }
+    #[cfg(feature = "swd-swo-as-gpio")]
+    {
+        peripherals.P0_2.set_as_disabled();
+    }
+    #[cfg(feature = "jtag-extras-as-gpio")]
+    {
+        peripherals.P0_3.set_as_disabled();
+        peripherals.P0_6.set_as_disabled();
+    }
+    #[cfg(feature = "dangerous-reset-as-gpio")]
+    {
+        // DANGER DANGER DANGER
+        peripherals.P0_29.set_as_disabled();
+    }
 
     peripherals
 }
@@ -782,4 +782,85 @@ pub(crate) mod peripheral_gating {
 
     // impl_cc_gate!(LPSPI0, mrcc_glb_acc0, mrcc_glb_rst0, lpspi0, LpspiConfig);
     // impl_cc_gate!(LPSPI1, mrcc_glb_acc0, mrcc_glb_rst0, lpspi1, LpspiConfig);
+}
+
+pub(crate) mod clock_limits {
+    #![allow(dead_code)]
+
+    use crate::chips::ClockLimits;
+
+    pub const VDD_CORE_MID_DRIVE_WAIT_STATE_LIMITS: &[(u32, u8)] = &[(24_000_000, 0b0000)];
+    // <= 48MHz
+    pub const VDD_CORE_MID_DRIVE_MAX_WAIT_STATES: u8 = 0b0001;
+
+    pub const VDD_CORE_NORMAL_DRIVE_WAIT_STATE_LIMITS: &[(u32, u8)] =
+        &[(30_000_000, 0b0000), (60_000_000, 0b0001), (90_000_000, 0b0010)];
+    // <= 120MHz
+    pub const VDD_CORE_NORMAL_DRIVE_MAX_WAIT_STATES: u8 = 0b0011;
+
+    pub const VDD_CORE_OVER_DRIVE_WAIT_STATE_LIMITS: &[(u32, u8)] = &[
+        (40_000_000, 0b0000),
+        (80_000_000, 0b0001),
+        (120_000_000, 0b0010),
+        (160_000_000, 0b0011),
+        (200_000_000, 0b0100),
+    ];
+    // <= 250MHz
+    pub const VDD_CORE_OVER_DRIVE_MAX_WAIT_STATES: u8 = 0b0101;
+
+    impl ClockLimits {
+        pub const MID_DRIVE: Self = Self {
+            fro_hf: 96_000_000,
+            fro_hf_div: 48_000_000,
+            pll1_clk: 100_000_000,
+            pll1_clk_div: 100_000_000,
+            main_clk: 96_000_000,
+            cpu_clk: 48_000_000,
+            // clk_16k: 16_384,
+            // clk_in: 50_000_000,
+            // clk_48m: 48_000_000,
+            // fro_12m: 12_000_000,
+            // fro_12m_div: 12_000_000,
+            // clk_1m: 1_000_000,
+            // system_clk: cpu_clk,
+            // bus_clk: cpu_clk / 2,
+            // slow_clk: cpu_clk / 6,
+        };
+
+        pub const NORMAL_DRIVE: Self = Self {
+            fro_hf: 192_000_000,
+            fro_hf_div: 192_000_000,
+            pll1_clk: 300_000_000,
+            pll1_clk_div: 150_000_000,
+            main_clk: 120_000_000,
+            cpu_clk: 120_000_000,
+            // clk_16k: 16_384,
+            // clk_in: 50_000_000,
+            // clk_48m: 48_000_000,
+            // fro_12m: 12_000_000,
+            // fro_12m_div: 12_000_000,
+            // clk_1m: 1_000_000,
+            // system_clk: cpu_clk,
+            // bus_clk: cpu_clk / 2,
+            // slow_clk: cpu_clk / 6,
+        };
+
+        pub const OVER_DRIVE: Self = Self {
+            fro_hf: 192_000_000,
+            fro_hf_div: 192_000_000,
+            pll1_clk: 400_000_000,
+            pll1_clk_div: 200_000_000,
+            main_clk: 240_000_000,
+            cpu_clk: 240_000_000,
+            // clk_16k: 16_384,
+            // clk_in: 50_000_000,
+            // clk_48m: 48_000_000,
+            // fro_12m: 12_000_000,
+            // fro_12m_div: 12_000_000,
+            // clk_1m: 1_000_000,
+            // system_clk: cpu_clk,
+            // bus_clk: cpu_clk / 2,
+            // slow_clk: cpu_clk / 6,
+        };
+    }
 }

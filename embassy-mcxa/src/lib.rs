@@ -19,8 +19,6 @@ mod mcxa2xx_exclusive {
     pub mod crc;
     pub mod ctimer;
     pub mod dma;
-    #[cfg(feature = "custom-executor")]
-    pub mod executor;
     pub mod flash;
     pub mod i2c;
     pub mod i3c;
@@ -47,6 +45,8 @@ mod mcxa5xx_exclusive {
 mod all_chips {
     pub mod clocks;
     pub mod config;
+    #[cfg(feature = "custom-executor")]
+    pub mod executor;
     pub mod gpio;
     pub mod ostimer;
     pub mod perf_counters;
