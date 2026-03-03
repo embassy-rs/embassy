@@ -64,7 +64,9 @@ use crate::clocks::Gate;
 use crate::dma::sealed::SealedChannel;
 use crate::pac::dma::vals::Halt;
 use crate::pac::edma_0_tcd::regs::{TcdAttr, TcdBiterElinkno, TcdCiterElinkno, TcdCsr};
-use crate::pac::edma_0_tcd::vals::{Bwc, Dpa, Dreq, Ecp, Esg, Size, Start};
+use crate::pac::edma_0_tcd::vals::{
+    Bwc, Dpa, Dreq, Ecp, Esg, Size, Start, TcdNbytesMloffnoDmloe, TcdNbytesMloffnoSmloe,
+};
 use crate::pac::{self, Interrupt};
 use crate::peripherals::DMA0;
 
@@ -433,6 +435,11 @@ struct DmaTransferParameters<W> {
     ///
     /// After each loop, will reset the current pointer to the starting addresses, both for src and dest.
     circular: bool,
+    /// The transfer will be requested and managed by software.
+    ///
+    /// This implies that the transfer is completed in a single major loop iteration.
+    /// The transfer is also started from software, instead of using target DMA peripheral request signal.
+    software: bool,
     /// Public facing transfer options that might be relevant.
     options: TransferOptions,
 }
@@ -525,8 +532,12 @@ impl DmaChannel<'_> {
     }
 
     #[inline]
-    fn set_minor_loop_ct_no_offsets(t: &pac::edma_0_tcd::Tcd, count: u32) {
-        t.tcd_nbytes_mloffno().write(|w| w.set_nbytes(count));
+    fn set_major_loop_nbytes_without_minor(t: &pac::edma_0_tcd::Tcd, count: u32) {
+        t.tcd_nbytes_mloffno().write(|w| {
+            w.set_smloe(TcdNbytesMloffnoSmloe::OFFSET_NOT_APPLIED);
+            w.set_dmloe(TcdNbytesMloffnoDmloe::OFFSET_NOT_APPLIED);
+            w.set_nbytes(count)
+        });
     }
 
     #[inline]
@@ -623,13 +634,16 @@ impl DmaChannel<'_> {
 
     /// Setup a typical DMA transfer.
     ///
+    /// A minor loop iteration transfers to a single word before yielding to arbitrage.
+    /// A major loop iteration transfers the entire buffer.
+    ///
     /// # Safety
     ///
     /// Requires that the source/destination buffers remain valid for the duration
     /// of the transfer.
-    unsafe fn setup_typical<W: Word>(&self, params: DmaTransferParameters<W>) {
-        let size = W::size();
-        let byte_count = (params.count * size.bytes()) as u32;
+    unsafe fn setup_transfers<W: Word>(&self, params: DmaTransferParameters<W>) {
+        let word_size = W::size();
+        let byte_count = (params.count * word_size.bytes()) as u32;
 
         let t = self.tcd();
 
@@ -641,38 +655,37 @@ impl DmaChannel<'_> {
 
         Self::clear_tcd(&t);
 
-        // Note: Priority is managed by round-robin arbitration (set in init())
-        // Per-channel priority can be configured via ch_pri() if needed
-
-        // Now configure the new transfer
-
-        // Source address and increment
         Self::set_source_ptr(&t, params.src_ptr);
-
         if params.src_incr {
-            Self::set_source_increment(&t, size);
+            Self::set_source_increment(&t, word_size);
         } else {
             Self::set_source_fixed(&t);
         }
 
-        // Destination address and increment
         Self::set_dest_ptr(&t, params.dst_ptr);
-
         if params.dst_incr {
-            Self::set_dest_increment(&t, size);
+            Self::set_dest_increment(&t, word_size);
         } else {
             Self::set_dest_fixed(&t);
         }
 
         // Transfer attributes (size)
-        Self::set_even_transfer_size(&t, size);
+        Self::set_even_transfer_size(&t, word_size);
 
-        // Minor loop: transfer one word per loop (thus arbritration can occur after every word)
-        Self::set_minor_loop_ct_no_offsets(&t, size.bytes() as u32);
+        // Set the amount of bytes to be transferred per major loop iteration without minor loop offsets.
+        Self::set_major_loop_nbytes_without_minor(
+            &t,
+            if params.software {
+                byte_count
+            } else {
+                word_size.bytes() as u32
+            },
+        );
 
-        // Major loop: one iteration is a minor loop, so iterate over all words
-        // Note(cast to u16): max transfer size is 0x7FFF, so even for wordsize=u8, this would work out.
-        Self::set_major_loop_ct_elinkno(&t, params.count as u16);
+        // Set the number of major loop iterations we expect.
+        // If set to more than one, it will divide the bytes over the number of transfers.
+        // When the DMA channel requests (ERQ) is driven by a peripheral, this is desirable.
+        Self::set_major_loop_ct_elinkno(&t, if params.software { 1 } else { params.count as u16 });
 
         // Configure channel to be interruptable, to interrupt, with a set priority.
         Self::set_fixed_priority(&t, params.options.priority);
@@ -697,7 +710,11 @@ impl DmaChannel<'_> {
         t.tcd_csr().write(|w| {
             w.set_intmajor(params.options.complete_transfer_interrupt);
             w.set_inthalf(params.options.half_transfer_interrupt);
-            w.set_start(Start::CHANNEL_STARTED); // Start the channel
+            w.set_start(if params.software {
+                Start::CHANNEL_STARTED
+            } else {
+                Start::CHANNEL_NOT_STARTED
+            });
             w.set_esg(Esg::NORMAL_FORMAT);
             w.set_majorelink(false);
             w.set_eeop(false);
@@ -710,6 +727,9 @@ impl DmaChannel<'_> {
                 Dreq::ERQ_FIELD_CLEAR // Auto-disable request after major loop
             });
         });
+
+        // Memory & compiler barrier after setting START
+        fence(Ordering::Release);
     }
 
     // ========================================================================
@@ -743,16 +763,17 @@ impl DmaChannel<'_> {
         }
 
         unsafe {
-            self.setup_typical(DmaTransferParameters {
+            self.setup_transfers(DmaTransferParameters {
                 src_ptr: src.as_ptr(),
                 dst_ptr: dst.as_mut_ptr(),
                 count: src.len(),
                 src_incr: true,
                 dst_incr: true,
                 circular: false,
+                software: true,
                 options,
-            })
-        };
+            });
+        }
 
         Ok(Transfer::new(self.reborrow()))
     }
@@ -795,16 +816,17 @@ impl DmaChannel<'_> {
         }
 
         unsafe {
-            self.setup_typical(DmaTransferParameters {
+            self.setup_transfers(DmaTransferParameters {
                 src_ptr: pattern,
                 dst_ptr: dst.as_mut_ptr(),
                 count: dst.len(),
                 src_incr: false,
                 dst_incr: true,
                 circular: false,
+                software: true,
                 options,
-            })
-        };
+            });
+        }
 
         Ok(Transfer::new(self.reborrow()))
     }
@@ -894,13 +916,14 @@ impl DmaChannel<'_> {
         static mut DUMMY: u32 = 0;
 
         unsafe {
-            self.setup_typical(DmaTransferParameters {
+            self.setup_transfers(DmaTransferParameters {
                 src_ptr: core::ptr::addr_of_mut!(DUMMY) as *const W,
                 dst_ptr: peri_addr,
                 count,
                 src_incr: false,
                 dst_incr: false,
                 circular: false,
+                software: false,
                 options,
             });
         }
@@ -953,13 +976,14 @@ impl DmaChannel<'_> {
         }
 
         unsafe {
-            self.setup_typical(DmaTransferParameters {
+            self.setup_transfers(DmaTransferParameters {
                 src_ptr: buf.as_ptr(),
                 dst_ptr: peri_addr,
                 count: buf.len(),
                 src_incr: true,
                 dst_incr: false,
                 circular: false,
+                software: false,
                 options,
             });
         }
@@ -1000,13 +1024,14 @@ impl DmaChannel<'_> {
         }
 
         unsafe {
-            self.setup_typical(DmaTransferParameters {
+            self.setup_transfers(DmaTransferParameters {
                 src_ptr: peri_addr,
                 dst_ptr: buf.as_mut_ptr(),
                 count: buf.len(),
                 src_incr: false,
                 dst_incr: true,
                 circular: false,
+                software: false,
                 options,
             });
         }
@@ -1575,6 +1600,7 @@ impl<'a> Future for Transfer<'a> {
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let state = &STATES[self.channel.index()];
         state.waker.register(cx.waker());
+
         if self.channel.is_done() {
             // Ensure all DMA writes are visible before returning
             fence(Ordering::Acquire);
@@ -1876,13 +1902,14 @@ impl<'a> DmaChannel<'a> {
         }
 
         unsafe {
-            self.setup_typical(DmaTransferParameters {
+            self.setup_transfers(DmaTransferParameters {
                 count: buf.len(),
                 src_ptr: peri_addr,
                 dst_ptr: buf.as_mut_ptr(),
                 src_incr: false,
                 dst_incr: true,
                 circular: true,
+                software: true,
                 options: TransferOptions {
                     half_transfer_interrupt: true,
                     complete_transfer_interrupt: true,
