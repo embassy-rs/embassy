@@ -11,11 +11,10 @@ use super::{Async, AsyncMode, Blocking, Dma, Info, Instance, Mode, SclPin, SdaPi
 pub use crate::clocks::PoweredClock;
 pub use crate::clocks::periph_helpers::{Div4, Lpi2cClockSel, Lpi2cConfig};
 use crate::clocks::{ClockError, WakeGuard, enable_and_reset};
-use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel};
+use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, TransferOptions};
 use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
-use crate::mcxa2xx_exlusive::dma::TransferOptions;
 use crate::pac::lpi2c::vals::{Addrcfg, Filtdz, ScrRrf, ScrRtf};
 
 /// Errors exclusive to hardware Initialization

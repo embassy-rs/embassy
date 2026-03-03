@@ -3,9 +3,10 @@ use core::future::Future;
 use embassy_hal_internal::Peri;
 
 use super::*;
-use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, DmaRequest, InvalidParameters, RingBuffer};
+use crate::dma::{
+    Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, DmaRequest, InvalidParameters, RingBuffer, TransferOptions,
+};
 use crate::gpio::AnyPin;
-use crate::mcxa2xx_exlusive::dma::TransferOptions;
 use crate::pac::lpuart::vals::{Tc, Tdre};
 
 /// DMA mode.

@@ -20,11 +20,10 @@ use paste::paste;
 use super::{DataBits, IdleConfig, Info, MsbFirst, Parity, RxPin, StopBits, TxPin, TxPins};
 use crate::clocks::periph_helpers::{Div4, LpuartClockSel};
 use crate::clocks::{PoweredClock, WakeGuard};
-use crate::dma::{DMA_MAX_TRANSFER_SIZE, DmaChannel, DmaRequest};
+use crate::dma::{DMA_MAX_TRANSFER_SIZE, DmaChannel, DmaRequest, InvalidParameters, TransferOptions};
 use crate::gpio::AnyPin;
 use crate::interrupt::typelevel::{Binding, Handler, Interrupt};
 use crate::lpuart::{Instance, RxPins};
-use crate::mcxa2xx_exlusive::dma::{InvalidParameters, TransferOptions};
 
 /// Error Type
 #[derive(Debug, PartialEq)]
