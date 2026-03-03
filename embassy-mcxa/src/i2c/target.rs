@@ -794,10 +794,7 @@ trait AsyncEngine {
 }
 
 impl<'d> AsyncEngine for I2c<'d, Async> {
-    async fn async_respond_to_read_internal(
-        &mut self,
-        buf: &[u8],
-    ) -> Result<usize, IOError> {
+    async fn async_respond_to_read_internal(&mut self, buf: &[u8]) -> Result<usize, IOError> {
         let mut count = 0;
 
         self.clear_status();
@@ -830,47 +827,41 @@ impl<'d> AsyncEngine for I2c<'d, Async> {
         Ok(count)
     }
 
-    async fn async_respond_to_write_internal(
-        &mut self,
-        buf: &mut [u8],
-    ) -> Result<usize, IOError> {
-            let mut count = 0;
+    async fn async_respond_to_write_internal(&mut self, buf: &mut [u8]) -> Result<usize, IOError> {
+        let mut count = 0;
 
-            self.clear_status();
+        self.clear_status();
 
-            for byte in buf.iter_mut() {
-                self.info
-                    .wait_cell()
-                    .wait_for(|| {
-                        self.enable_ints();
-                        let ssr = self.info.regs().ssr().read();
-                        ssr.rdf() || ssr.sdf() || ssr.rsf()
-                    })
-                    .await
-                    .map_err(|_| IOError::Other)?;
+        for byte in buf.iter_mut() {
+            self.info
+                .wait_cell()
+                .wait_for(|| {
+                    self.enable_ints();
+                    let ssr = self.info.regs().ssr().read();
+                    ssr.rdf() || ssr.sdf() || ssr.rsf()
+                })
+                .await
+                .map_err(|_| IOError::Other)?;
 
-                // If we see a STOP or REPEATED START, break out
-                let ssr = self.info.regs().ssr().read();
-                if ssr.sdf() || ssr.rsf() {
-                    #[cfg(feature = "defmt")]
-                    defmt::trace!("Early stop of Target Receive routine. STOP or Repeated-start received");
-                    self.reset_fifos();
-                    break;
-                } else {
-                    *byte = self.info.regs().srdr().read().data();
-                    count += 1;
-                }
+            // If we see a STOP or REPEATED START, break out
+            let ssr = self.info.regs().ssr().read();
+            if ssr.sdf() || ssr.rsf() {
+                #[cfg(feature = "defmt")]
+                defmt::trace!("Early stop of Target Receive routine. STOP or Repeated-start received");
+                self.reset_fifos();
+                break;
+            } else {
+                *byte = self.info.regs().srdr().read().data();
+                count += 1;
             }
+        }
 
-            Ok(count)
+        Ok(count)
     }
 }
 
 impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
-    async fn async_respond_to_read_internal(
-        &mut self,
-        buf: &[u8],
-    ) -> Result<usize, IOError> {
+    async fn async_respond_to_read_internal(&mut self, buf: &[u8]) -> Result<usize, IOError> {
         let mut count = 0;
 
         self.clear_status();
@@ -890,10 +881,7 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
         Ok(count)
     }
 
-    async fn async_respond_to_write_internal<'a>(
-        &'a mut self,
-        buf: &'a mut [u8],
-    ) -> Result<usize, IOError> {
+    async fn async_respond_to_write_internal<'a>(&'a mut self, buf: &'a mut [u8]) -> Result<usize, IOError> {
         let mut count = 0;
 
         self.clear_status();
