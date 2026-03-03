@@ -16,7 +16,6 @@ mod mcxa2xx_exclusive {
     pub mod adc;
     pub mod cdog;
     pub mod clkout;
-    pub mod crc;
     pub mod ctimer;
     pub mod dma;
     pub mod flash;
@@ -45,6 +44,7 @@ mod mcxa5xx_exclusive {
 mod all_chips {
     pub mod clocks;
     pub mod config;
+    pub mod crc;
     #[cfg(feature = "custom-executor")]
     pub mod executor;
     pub mod gpio;

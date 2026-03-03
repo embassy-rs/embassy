@@ -31,7 +31,7 @@ mod inner_periph {
         // CMC,
         // CMP0,
         // CMP1,
-        // CRC0,
+        CRC0,
 
         // CTIMER0,
 
@@ -737,7 +737,7 @@ pub(crate) mod peripheral_gating {
     impl_cc_gate!(PORT3, mrcc_glb_cc1, mrcc_glb_rst1, port3, NoConfig);
     impl_cc_gate!(PORT4, mrcc_glb_cc1, mrcc_glb_rst1, port4, NoConfig);
 
-    // impl_cc_gate!(CRC0, mrcc_glb_cc0, mrcc_glb_rst0, crc0, NoConfig);
+    impl_cc_gate!(CRC0, mrcc_glb_cc0, mrcc_glb_rst0, crc0, NoConfig);
     // impl_cc_gate!(INPUTMUX0, mrcc_glb_cc0, mrcc_glb_rst0, inputmux0, NoConfig);
 
     // // These peripherals DO have meaningful configuration, and could fail if the system
