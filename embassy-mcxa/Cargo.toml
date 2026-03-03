@@ -12,9 +12,7 @@ documentation = "https://docs.embassy.dev/embassy-mcxa"
 [package.metadata.embassy]
 build = [
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxa2xx"]},
-
-    # TODO: Don't enable until mcxa-pac adds support for mcxa577! Until then, this won't build
-    # {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxa5xx"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxa5xx"]},
 ]
 
 [package.metadata.embassy_docs]
@@ -24,9 +22,7 @@ src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-mcxa/
 features = ["defmt", "unstable-pac"]
 flavors = [
     { name = "mcx-a256", target = "thumbv8m.main-none-eabihf", features = ["mcxa2xx"] },
-
-    # TODO: Don't enable until mcxa-pac adds support for mcxa577! Until then, this won't build
-    # { name = "mcx-a577", target = "thumbv8m.main-none-eabihf", features = ["mcxa5xx"] },
+    { name = "mcx-a577", target = "thumbv8m.main-none-eabihf", features = ["mcxa5xx"] },
 ]
 
 [dependencies]
