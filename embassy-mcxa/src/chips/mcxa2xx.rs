@@ -530,7 +530,7 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
     #[cfg(feature = "dangerous-reset-as-gpio")]
     {
         // DANGER DANGER DANGER
-        peripherals.P0_29.set_as_disabled();
+        peripherals.P1_29.set_as_disabled();
     }
 
     peripherals
