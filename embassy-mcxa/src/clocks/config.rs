@@ -113,7 +113,6 @@ impl Div8 {
 #[non_exhaustive]
 pub struct ClocksConfig {
     /// Power states of VDD Core
-    #[cfg(feature = "mcxa2xx")]
     pub vdd_power: VddPowerConfig,
     /// Clocks that are used to drive the main clock, including the AHB and CPU core
     pub main_clock: MainClockConfig,
@@ -142,6 +141,10 @@ pub enum VddLevel {
     /// Standard "mid drive" "MD" power, 1.0v VDD Core
     #[default]
     MidDriveMode,
+
+    /// "Normal" voltage, 1.1v VDD Core
+    #[cfg(feature = "mcxa5xx")]
+    NormalMode,
 
     /// Overdrive "OD" power, 1.2v VDD Core
     OverDriveMode,
@@ -508,7 +511,6 @@ impl Default for FircConfig {
 impl Default for ClocksConfig {
     fn default() -> Self {
         Self {
-            #[cfg(feature = "mcxa2xx")]
             vdd_power: VddPowerConfig {
                 active_mode: VddModeConfig {
                     level: VddLevel::MidDriveMode,

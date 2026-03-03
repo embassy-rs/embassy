@@ -39,9 +39,10 @@ use core::cell::{Ref, RefCell};
 use core::ops::Deref;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use config::{ClocksConfig, SircConfig};
+use config::{ClocksConfig, CoreSleep, SircConfig, VddDriveStrength, VddLevel};
 #[cfg(feature = "mcxa2xx")]
-use config::{CoreSleep, FircConfig, FircFreqSel, Fro16KConfig, MainClockSource, VddDriveStrength, VddLevel};
+use config::{FircConfig, FircFreqSel, Fro16KConfig, MainClockSource};
+use cortex_m::peripheral::SCB;
 use critical_section::CriticalSection;
 #[cfg(feature = "mcxa2xx")]
 use limits::ClockLimits;
@@ -56,7 +57,6 @@ use crate::pac::scg::vals::{
     Soscerr, Source, SpllLock, SpllcsrLk, Spllerr, Spllsten, TrimUnlock,
 };
 use crate::pac::scg::vals::{SirccsrLk, Sircerr, Sircvld};
-#[cfg(feature = "mcxa2xx")]
 use crate::pac::spc::vals::{
     ActiveCfgBgmode, ActiveCfgCoreldoVddDs, ActiveCfgCoreldoVddLvl, LpCfgBgmode, LpCfgCoreldoVddLvl, Vsm,
 };
@@ -119,7 +119,6 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
 
     // Before applying any requested clocks, apply the requested VDD_CORE
     // voltage level
-    #[cfg(feature = "mcxa2xx")]
     operator.configure_voltages()?;
 
     // Enable SIRC clocks FIRST, in case we need to use SIRC as main_clk for
@@ -382,24 +381,19 @@ impl Drop for WakeGuard {
 #[derive(Default, Debug, Clone)]
 #[non_exhaustive]
 pub struct Clocks {
-    #[cfg(feature = "mcxa2xx")]
     /// Active power config
     pub active_power: VddLevel,
 
     /// Low-power power config
-    #[cfg(feature = "mcxa2xx")]
     pub lp_power: VddLevel,
 
     /// Is the bandgap enabled in active mode?
-    #[cfg(feature = "mcxa2xx")]
     pub bandgap_active: bool,
 
     /// Is the bandgap enabled in deep sleep mode?
-    #[cfg(feature = "mcxa2xx")]
     pub bandgap_lowpower: bool,
 
     /// Lowest sleep level
-    #[cfg(feature = "mcxa2xx")]
     pub core_sleep: CoreSleep,
 
     /// The `clk_in` is a clock provided by an external oscillator
@@ -1885,65 +1879,71 @@ impl ClockOperator<'_> {
         Ok(())
     }
 
-    #[cfg(feature = "mcxa2xx")]
     fn configure_voltages(&mut self) -> Result<(), ClockError> {
-        match self.config.vdd_power.active_mode.level {
+        // Determine if we need to change the active mode voltage levels
+        let to_change = match self.config.vdd_power.active_mode.level {
             VddLevel::MidDriveMode => {
                 // This is the default mode, I don't believe we need to do anything.
                 //
                 // "The LVDE and HVDE fields reset only with a POR.
                 // All other fields reset only with a system reset."
+                None
             }
-            VddLevel::OverDriveMode => {
-                // You can change the core VDD levels for the LDO_CORE low power regulator only
-                // when CORELDO_VDD_DS=1.
-                //
-                // When switching CORELDO_VDD_DS from low to normal drive strength, ensure the LDO_CORE high
-                // VDD LVL setting is set to the same level that was set prior to switching to the LDO_CORE drive strength
-                // (CORELDO_VDD_DS). Otherwise, if the LVDs are enabled, an unexpected LVD can occur.
-                //
-                // Ensure drive strength is normal (BEFORE shifting level)
-                self.spc0
-                    .active_cfg()
-                    .modify(|w| w.set_coreldo_vdd_ds(ActiveCfgCoreldoVddDs::NORMAL));
-
-                // ## DS 26.3.2:
-                //
-                // When increasing voltage and frequency in Active mode, you must perform the following steps:
-                //
-                // 1. Increase voltage to a new level (ACTIVE_CFG[CORELDO_VDD_LVL]).
-                self.spc0
-                    .active_cfg()
-                    .modify(|w| w.set_coreldo_vdd_lvl(ActiveCfgCoreldoVddLvl::OVER));
-
-                // 2. Wait for voltage change to complete (SC[BUSY] = 0).
-                while self.spc0.sc().read().busy() {}
-
-                // 3. Configure flash memory to support higher voltage level and frequency (FMU_FCTRL[RWSC].
-                //
-                // NOTE: This step skipped - we will update RWSC when we later apply main cpu clock
-                // frequency changes.
-
-                // 4. Configure SRAM to support higher voltage levels (SRAMCTL[VSM]).
-                self.spc0.sramctl().modify(|w| w.set_vsm(Vsm::SRAM1V2));
-
-                // 5. Request SRAM voltage update (write 1 to SRAMCTL[REQ]).
-                self.spc0.sramctl().modify(|w| w.set_req(true));
-
-                // 6. Wait for SRAM voltage change to complete (SRAMCTL[ACK] = 1).
-                while !self.spc0.sramctl().read().ack() {}
-
-                // 7. Clear request for SRAM voltage change (write 0 to SRAMCTL[REQ]).
-                self.spc0.sramctl().modify(|w| w.set_req(false));
-
-                // 8. Increase frequency to a new level (for example, SCG_RCCR).
-                //
-                // NOTE: This step skipped - we will update RCCR when we later apply main cpu clock
-                // frequency changes.
-
-                // 9. You can continue execution.
-                // :)
+            #[cfg(feature = "mcxa5xx")]
+            VddLevel::NormalMode => {
+                // TODO: fix PAC fields, this is SRAM1V1
+                Some((ActiveCfgCoreldoVddLvl::NORMAL, Vsm::_RESERVED_2))
             }
+            VddLevel::OverDriveMode => Some((ActiveCfgCoreldoVddLvl::OVER, Vsm::SRAM1V2)),
+        };
+
+        if let Some((vdd, vsm)) = to_change {
+            // You can change the core VDD levels for the LDO_CORE low power regulator only
+            // when CORELDO_VDD_DS=1.
+            //
+            // When switching CORELDO_VDD_DS from low to normal drive strength, ensure the LDO_CORE high
+            // VDD LVL setting is set to the same level that was set prior to switching to the LDO_CORE drive strength
+            // (CORELDO_VDD_DS). Otherwise, if the LVDs are enabled, an unexpected LVD can occur.
+            //
+            // Ensure drive strength is normal (BEFORE shifting level)
+            self.spc0
+                .active_cfg()
+                .modify(|w| w.set_coreldo_vdd_ds(ActiveCfgCoreldoVddDs::NORMAL));
+
+            // ## DS 26.3.2:
+            //
+            // When increasing voltage and frequency in Active mode, you must perform the following steps:
+            //
+            // 1. Increase voltage to a new level (ACTIVE_CFG[CORELDO_VDD_LVL]).
+            self.spc0.active_cfg().modify(|w| w.set_coreldo_vdd_lvl(vdd));
+
+            // 2. Wait for voltage change to complete (SC[BUSY] = 0).
+            while self.spc0.sc().read().busy() {}
+
+            // 3. Configure flash memory to support higher voltage level and frequency (FMU_FCTRL[RWSC].
+            //
+            // NOTE: This step skipped - we will update RWSC when we later apply main cpu clock
+            // frequency changes.
+
+            // 4. Configure SRAM to support higher voltage levels (SRAMCTL[VSM]).
+            self.spc0.sramctl().modify(|w| w.set_vsm(vsm));
+
+            // 5. Request SRAM voltage update (write 1 to SRAMCTL[REQ]).
+            self.spc0.sramctl().modify(|w| w.set_req(true));
+
+            // 6. Wait for SRAM voltage change to complete (SRAMCTL[ACK] = 1).
+            while !self.spc0.sramctl().read().ack() {}
+
+            // 7. Clear request for SRAM voltage change (write 0 to SRAMCTL[REQ]).
+            self.spc0.sramctl().modify(|w| w.set_req(false));
+
+            // 8. Increase frequency to a new level (for example, SCG_RCCR).
+            //
+            // NOTE: This step skipped - we will update RCCR when we later apply main cpu clock
+            // frequency changes.
+
+            // 9. You can continue execution.
+            // :)
         }
 
         // If the CORELDO_VDD_DS fields are set to the same value in both the ACTIVE_CFG and LP_CFG registers,
@@ -1951,29 +1951,45 @@ impl ClockOperator<'_> {
         // level settings.
         //
         // TODO(AJM): I don't really understand this! Enforce it literally for now I guess.
+        const BAD_ASCENDING: Result<(), ClockError> = Err(ClockError::BadConfig {
+            clock: "vdd_power",
+            reason: "Deep sleep can't have higher level than active mode",
+        });
         let ds_match = self.config.vdd_power.active_mode.drive == self.config.vdd_power.low_power_mode.drive;
         let (vdd_match, lpwkup) = match (
             self.config.vdd_power.active_mode.level,
             self.config.vdd_power.low_power_mode.level,
         ) {
-            (VddLevel::OverDriveMode, VddLevel::MidDriveMode) => {
-                // When voltage levels are not the same between ACTIVE mode and Low Power mode, you must write a
-                // nonzero value to SPC->LPWKUP_DELAY.
-                //
-                // This SHOULD be covered by table 165. LPWKUP Delay, but it doesn't actually have
-                // a value for the 1.0v-1.2v transition we need. For now, the C SDK always uses 0x5B.
-                (false, 0x005b)
-            }
-            (VddLevel::MidDriveMode, VddLevel::OverDriveMode) => {
-                // For now, enforce that active is always >= voltage to low power. I don't know if this
-                // is required, but there's probably also no reason to support it?
-                return Err(ClockError::BadConfig {
-                    clock: "vdd_power",
-                    reason: "Deep sleep can't have higher level than active mode",
-                });
-            }
-            // Voltages match, no lpwkup delay required
-            _ => (true, 0x0000),
+            //
+            // Correct "descending" options
+            //
+            // When voltage levels are not the same between ACTIVE mode and Low Power mode, you must write a
+            // nonzero value to SPC->LPWKUP_DELAY.
+            //
+            // This SHOULD be covered by table 165. LPWKUP Delay, but it doesn't actually have
+            // a value for the 1.0v-1.2v transition we need. For now, the C SDK always uses 0x5B.
+            #[cfg(feature = "mcxa5xx")]
+            (VddLevel::OverDriveMode, VddLevel::NormalMode) => (false, 0x005b),
+            (VddLevel::OverDriveMode, VddLevel::MidDriveMode) => (false, 0x005b),
+            #[cfg(feature = "mcxa5xx")]
+            (VddLevel::NormalMode, VddLevel::MidDriveMode) => (false, 0x005b),
+
+            //
+            // Incorrect "ascending" options
+            //
+            // For now, enforce that active is always >= voltage to low power. I don't know if this
+            // is required, but there's probably also no reason to support it?
+            #[cfg(feature = "mcxa5xx")]
+            (VddLevel::MidDriveMode, VddLevel::NormalMode) => return BAD_ASCENDING,
+            (VddLevel::MidDriveMode, VddLevel::OverDriveMode) => return BAD_ASCENDING,
+            #[cfg(feature = "mcxa5xx")]
+            (VddLevel::NormalMode, VddLevel::OverDriveMode) => return BAD_ASCENDING,
+
+            // Correct "matching" options
+            (VddLevel::MidDriveMode, VddLevel::MidDriveMode) => (true, 0x0000),
+            #[cfg(feature = "mcxa5xx")]
+            (VddLevel::NormalMode, VddLevel::NormalMode) => (true, 0x0000),
+            (VddLevel::OverDriveMode, VddLevel::OverDriveMode) => (true, 0x0000),
         };
         self.spc0.lpwkup_delay().write(|w| w.set_lpwkup_delay(lpwkup));
 
@@ -2015,6 +2031,8 @@ impl ClockOperator<'_> {
         };
         let lvl = match self.config.vdd_power.low_power_mode.level {
             VddLevel::MidDriveMode => LpCfgCoreldoVddLvl::MID,
+            #[cfg(feature = "mcxa5xx")]
+            VddLevel::NormalMode => LpCfgCoreldoVddLvl::NORMAL,
             VddLevel::OverDriveMode => LpCfgCoreldoVddLvl::OVER,
         };
         self.spc0.lp_cfg().modify(|w| w.set_coreldo_vdd_ds(ds));
@@ -2071,6 +2089,12 @@ impl ClockOperator<'_> {
             }
         }
 
+        // NOTE: calling `` still marks the core peripherals as taken. See
+        // https://github.com/embassy-rs/embassy/issues/5563 for discussion. Since this
+        // is a ZST, transmuting from `()` is reasonable.
+        let mut scb: SCB = unsafe { core::mem::transmute(()) };
+
+        // Apply sleep settings
         match self.config.vdd_power.core_sleep {
             CoreSleep::WfeUngated => {
                 // Do not gate
@@ -2080,8 +2104,7 @@ impl ClockOperator<'_> {
                 self.cmc.dbgctl().modify(|w| w.set_sod(false));
 
                 // Don't allow the core to be gated to avoid killing the debugging session
-                let mut cp = unsafe { cortex_m::Peripherals::steal() };
-                cp.SCB.clear_sleepdeep();
+                scb.clear_sleepdeep();
             }
             CoreSleep::WfeGated => {
                 // Allow automatic gating of the core when in LIGHT sleep
@@ -2091,8 +2114,7 @@ impl ClockOperator<'_> {
                 self.cmc.dbgctl().modify(|w| w.set_sod(true));
 
                 // Allow the core to be gated - this WILL kill the debugging session!
-                let mut cp = unsafe { cortex_m::Peripherals::steal() };
-                cp.SCB.set_sleepdeep();
+                scb.set_sleepdeep();
             }
             CoreSleep::DeepSleep => {
                 // We can only support deep sleep with a custom executor which properly
@@ -2108,14 +2130,13 @@ impl ClockOperator<'_> {
                 self.cmc.dbgctl().modify(|w| w.set_sod(true));
 
                 // Allow the core to be gated - this WILL kill the debugging session!
-                let mut cp = unsafe { cortex_m::Peripherals::steal() };
-                cp.SCB.set_sleepdeep();
+                scb.set_sleepdeep();
 
                 // Enable sevonpend, to allow us to wake from WFE sleep with interrupts disabled
                 unsafe {
                     // TODO: wait for https://github.com/rust-embedded/cortex-m/commit/1be630fdd06990bd14251eabe4cca9307bde549d
                     // to be released, until then, manual version of SCB.set_sevonpend();
-                    cp.SCB.scr.modify(|w| w | (1 << 4));
+                    scb.scr.modify(|w| w | (1 << 4));
                 }
             }
         }
