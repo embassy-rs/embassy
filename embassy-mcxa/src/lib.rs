@@ -14,7 +14,6 @@
 #[path = "."]
 mod mcxa2xx_exclusive {
     pub mod adc;
-    pub mod cdog;
     pub mod clkout;
     pub mod ctimer;
     pub mod dma;
@@ -42,6 +41,7 @@ mod mcxa5xx_exclusive {
 /// Module for HAL drivers supported by all chips
 #[path = "."]
 mod all_chips {
+    pub mod cdog;
     pub mod clocks;
     pub mod config;
     pub mod crc;
