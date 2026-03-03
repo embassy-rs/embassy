@@ -39,6 +39,10 @@ fn main() {
         rt1xxx: { any(feature = "mimxrt1011", feature = "mimxrt1062") },
     }
 
+    cfg_aliases! {
+        lpc55: { any(feature = "lpc55s16", feature = "lpc55-core0") },
+    }
+
     eprintln!("chip: {chip_name}");
 
     generate_code(&mut cfgs, &singletons);

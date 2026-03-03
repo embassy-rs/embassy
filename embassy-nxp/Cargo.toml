@@ -9,6 +9,7 @@ publish = false
 [package.metadata.embassy]
 build = [
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "lpc55-core0"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "lpc55s16"]},
     {target = "thumbv7em-none-eabihf", features = ["defmt", "mimxrt1011", "rt", "time-driver-pit"]},
     {target = "thumbv7em-none-eabihf", features = ["defmt", "mimxrt1062", "rt", "time-driver-pit"]},
 ]
@@ -20,6 +21,7 @@ features = ["defmt", "unstable-pac" ] # TODO: Add time-driver-any, as both lpc55
 
 flavors = [
     { regex_feature = "lpc55-core0", target = "thumbv8m.main-none-eabihf" },
+    { regex_feature = "lpc55s16", target = "thumbv8m.main-none-eabihf" },
     { regex_feature = "mimxrt.*", target = "thumbv7em-none-eabihf" },
 ]
 
@@ -75,11 +77,13 @@ unstable-pac = []
 # This feature is unfortunately a hack around the fact that cfg_aliases cannot apply to the buildscript
 # that creates the aliases.
 _rt1xxx = []
+_lpc55 = []
 
 # A timer driver is enabled.
 _time_driver = ["dep:embassy-time-driver", "dep:embassy-time-queue-utils"]
 
 #! ### Chip selection features
 lpc55-core0 = ["nxp-pac/lpc55s69_cm33_core0"]
+lpc55s16 = ["nxp-pac/lpc55s16", "_lpc55"]
 mimxrt1011 = ["nxp-pac/mimxrt1011", "_rt1xxx", "dep:imxrt-rt"]
 mimxrt1062 = ["nxp-pac/mimxrt1062", "_rt1xxx", "dep:imxrt-rt"]
