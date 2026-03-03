@@ -45,6 +45,7 @@ use config::{CoreSleep, FircConfig, FircFreqSel, Fro16KConfig, MainClockSource, 
 use critical_section::CriticalSection;
 #[cfg(feature = "mcxa2xx")]
 use limits::ClockLimits;
+use nxp_pac::syscon::vals::Unlock;
 use periph_helpers::{PreEnableParts, SPConfHelper};
 
 use crate::pac;
@@ -110,6 +111,11 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
         fmu0: pac::FMU0,
         cmc: pac::CMC,
     };
+
+    // On the MCXA5xx, this is default *locked*, preventing any writes to
+    // MRCC registers re enable/div settings. For now, just leave it unlocked,
+    // we might want to actively unlock/lock in periph helpers in the future.
+    operator.syscon.clkunlock().modify(|w| w.set_unlock(Unlock::ENABLE));
 
     // Before applying any requested clocks, apply the requested VDD_CORE
     // voltage level
