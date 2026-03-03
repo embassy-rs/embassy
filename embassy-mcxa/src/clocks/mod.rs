@@ -39,35 +39,35 @@ use core::cell::{Ref, RefCell};
 use core::ops::Deref;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use config::{ClocksConfig, CoreSleep, SircConfig, VddDriveStrength, VddLevel};
+use config::{ClocksConfig, CoreSleep, MainClockSource, SircConfig, VddDriveStrength, VddLevel};
 #[cfg(feature = "mcxa2xx")]
-use config::{FircConfig, FircFreqSel, Fro16KConfig, MainClockSource};
+use config::{FircConfig, FircFreqSel, Fro16KConfig};
 use cortex_m::peripheral::SCB;
 use critical_section::CriticalSection;
-#[cfg(feature = "mcxa2xx")]
-use limits::ClockLimits;
 use nxp_pac::syscon::vals::Unlock;
 use periph_helpers::{PreEnableParts, SPConfHelper};
 
+use crate::chips::{ClockLimits, clock_limits};
 use crate::pac;
 use crate::pac::cmc::vals::CkctrlCkmode;
 #[cfg(feature = "mcxa2xx")]
 use crate::pac::scg::vals::{
-    Erefs, Fircacc, FircaccIe, FirccsrLk, Fircerr, FircerrIe, Fircsten, Fircvld, FreqSel, Range, Scs, SosccsrLk,
-    Soscerr, Source, SpllLock, SpllcsrLk, Spllerr, Spllsten, TrimUnlock,
+    Erefs, Fircacc, FircaccIe, FirccsrLk, Fircerr, FircerrIe, Fircsten, Fircvld, FreqSel, Range, SosccsrLk, Soscerr,
+    Source, SpllLock, SpllcsrLk, Spllerr, Spllsten, TrimUnlock,
 };
-use crate::pac::scg::vals::{SirccsrLk, Sircerr, Sircvld};
+use crate::pac::scg::vals::{Scs, SirccsrLk, Sircerr, Sircvld};
 use crate::pac::spc::vals::{
     ActiveCfgBgmode, ActiveCfgCoreldoVddDs, ActiveCfgCoreldoVddLvl, LpCfgBgmode, LpCfgCoreldoVddLvl, Vsm,
 };
+use crate::pac::syscon::vals::{AhbclkdivUnstab, FrolfdivHalt, FrolfdivReset, FrolfdivUnstab};
 #[cfg(feature = "mcxa2xx")]
 use crate::pac::syscon::vals::{
-    AhbclkdivUnstab, FrohfdivHalt, FrohfdivReset, FrohfdivUnstab, Pll1clkdivHalt, Pll1clkdivReset, Pll1clkdivUnstab,
+    FrohfdivHalt, FrohfdivReset, FrohfdivUnstab, Pll1clkdivHalt, Pll1clkdivReset, Pll1clkdivUnstab,
 };
-use crate::pac::syscon::vals::{FrolfdivHalt, FrolfdivReset, FrolfdivUnstab};
 pub mod config;
-pub mod limits;
 pub mod periph_helpers;
+
+// use crate::chips::
 
 //
 // Statics/Consts
@@ -135,7 +135,6 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
     operator.configure_spll()?;
 
     // Finally, setup main clock
-    #[cfg(feature = "mcxa2xx")]
     operator.configure_main_clk()?;
 
     // If we were keeping SIRC enabled, now we can release it.
@@ -459,12 +458,10 @@ pub struct Clocks {
     pub clk_16k_vdd_core: Option<Clock>,
 
     /// `main_clk` is the main clock, upstream of the cpu/system clock.
-    #[cfg(feature = "mcxa2xx")]
     pub main_clk: Option<Clock>,
 
     /// `CPU_CLK` or `SYSTEM_CLK` is the output of `main_clk`, run through the `AHBCLKDIV`,
     /// used for the CPU, AHB, APB, IPS bus, and some high speed peripherals.
-    #[cfg(feature = "mcxa2xx")]
     pub cpu_system_clk: Option<Clock>,
 
     /// `pll1_clk` is the output of the main system PLL, `pll1`.
@@ -890,7 +887,24 @@ impl ClockOperator<'_> {
         }
     }
 
-    #[cfg(feature = "mcxa2xx")]
+    #[cfg(feature = "mcxa5xx")]
+    fn active_limits(&self) -> &'static ClockLimits {
+        match self.config.vdd_power.active_mode.level {
+            VddLevel::MidDriveMode => &ClockLimits::MID_DRIVE,
+            VddLevel::NormalMode => &ClockLimits::NORMAL_DRIVE,
+            VddLevel::OverDriveMode => &ClockLimits::OVER_DRIVE,
+        }
+    }
+
+    #[cfg(feature = "mcxa5xx")]
+    fn low_power_limits(&self) -> &'static ClockLimits {
+        match self.config.vdd_power.low_power_mode.level {
+            VddLevel::MidDriveMode => &ClockLimits::MID_DRIVE,
+            VddLevel::NormalMode => &ClockLimits::NORMAL_DRIVE,
+            VddLevel::OverDriveMode => &ClockLimits::OVER_DRIVE,
+        }
+    }
+
     fn lowest_relevant_limits(&self, for_power: &PoweredClock) -> &'static ClockLimits {
         // We always enforce that deep sleep has a drive <= active mode.
         match for_power {
@@ -1744,6 +1758,14 @@ impl ClockOperator<'_> {
 
         // Do we enable the `pll1_clk_div` output?
         if let Some(d) = cfg.pll1_clk_div.as_ref() {
+            let exp_freq = fout / d.into_divisor();
+            if exp_freq > limits.pll1_clk_div {
+                return Err(ClockError::BadConfig {
+                    clock: "pll1_clk_div",
+                    reason: "exceeds max frequency",
+                });
+            }
+
             // Halt and reset the div; then set our desired div.
             self.syscon.pll1clkdiv().write(|w| {
                 w.set_halt(Pll1clkdivHalt::HALT);
@@ -1761,7 +1783,7 @@ impl ClockOperator<'_> {
 
             // Store off the clock info
             self.clocks.pll1_clk_div = Some(Clock {
-                frequency: fout / d.into_divisor(),
+                frequency: exp_freq,
                 power: cfg.power,
             });
         }
@@ -1769,14 +1791,17 @@ impl ClockOperator<'_> {
         Ok(())
     }
 
-    #[cfg(feature = "mcxa2xx")]
     fn configure_main_clk(&mut self) -> Result<(), ClockError> {
         let (var, name, clk) = match self.config.main_clock.source {
+            #[cfg(feature = "mcxa2xx")]
             #[cfg(not(feature = "sosc-as-gpio"))]
             MainClockSource::SoscClkIn => (Scs::SOSC, "clk_in", self.clocks.clk_in.as_ref()),
             MainClockSource::SircFro12M => (Scs::SIRC, "fro_12m", self.clocks.fro_12m.as_ref()),
+            #[cfg(feature = "mcxa2xx")]
             MainClockSource::FircHfRoot => (Scs::FIRC, "fro_hf_root", self.clocks.fro_hf_root.as_ref()),
+            #[cfg(feature = "mcxa2xx")]
             MainClockSource::RoscFro16K => (Scs::ROSC, "fro16k", self.clocks.clk_16k_vdd_core.as_ref()),
+            #[cfg(feature = "mcxa2xx")]
             MainClockSource::SPll1 => (Scs::SPLL, "pll1_clk", self.clocks.pll1_clk.as_ref()),
         };
         let Some(main_clk_src) = clk else {
@@ -1796,23 +1821,21 @@ impl ClockOperator<'_> {
         let lowest_limits = self.lowest_relevant_limits(&self.config.main_clock.power);
         let active_limits = self.active_limits();
 
-        #[cfg(feature = "mcxa2xx")]
         let (levels, wsmax) = match self.config.vdd_power.active_mode.level {
             VddLevel::MidDriveMode => (
-                limits::VDD_CORE_MID_DRIVE_WAIT_STATE_LIMITS,
-                limits::VDD_CORE_MID_DRIVE_MAX_WAIT_STATES,
+                clock_limits::VDD_CORE_MID_DRIVE_WAIT_STATE_LIMITS,
+                clock_limits::VDD_CORE_MID_DRIVE_MAX_WAIT_STATES,
+            ),
+            #[cfg(feature = "mcxa5xx")]
+            VddLevel::NormalMode => (
+                clock_limits::VDD_CORE_NORMAL_DRIVE_WAIT_STATE_LIMITS,
+                clock_limits::VDD_CORE_NORMAL_DRIVE_MAX_WAIT_STATES,
             ),
             VddLevel::OverDriveMode => (
-                limits::VDD_CORE_OVER_DRIVE_WAIT_STATE_LIMITS,
-                limits::VDD_CORE_OVER_DRIVE_MAX_WAIT_STATES,
+                clock_limits::VDD_CORE_OVER_DRIVE_WAIT_STATE_LIMITS,
+                clock_limits::VDD_CORE_OVER_DRIVE_MAX_WAIT_STATES,
             ),
         };
-
-        #[cfg(feature = "mcxa5xx")]
-        let (levels, wsmax) = (
-            limits::VDD_CORE_MID_DRIVE_WAIT_STATE_LIMITS,
-            limits::VDD_CORE_MID_DRIVE_MAX_WAIT_STATES,
-        );
 
         // Is the main_clk source in range for main_clk?
         if main_clk_src.frequency > lowest_limits.main_clk {
