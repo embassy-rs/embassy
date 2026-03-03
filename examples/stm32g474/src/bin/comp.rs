@@ -3,9 +3,9 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_stm32::comp::{self, Comp};
 use embassy_stm32::peripherals::COMP2;
 use embassy_stm32::{Config, bind_interrupts};
-use embassy_stm32::comp::{self, Comp};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
