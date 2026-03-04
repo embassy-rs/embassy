@@ -69,16 +69,25 @@ mod inner_periph {
         CTIMER4_CH3,
 
         // DBGMAILBOX,
-        // DMA0,
-        // DMA_CH0,
-        // DMA_CH1,
-        // DMA_CH2,
-        // DMA_CH3,
-        // DMA_CH4,
-        // DMA_CH5,
-        // DMA_CH6,
-        // DMA_CH7,
-        // EDMA0_TCD0,
+
+        DMA0,
+        DMA_CH0,
+        DMA_CH1,
+        DMA_CH2,
+        DMA_CH3,
+        DMA_CH4,
+        DMA_CH5,
+        DMA_CH6,
+        DMA_CH7,
+        // Need more work on the DMA driver before we can enable these
+        // DMA_CH8,
+        // DMA_CH9,
+        // DMA_CH10,
+        // DMA_CH11,
+        EDMA0_TCD0,
+        // Need more work on the DMA driver before we can enable this
+        // EDMA0_TCD1,
+
         // EIM0,
         // EQDC0,
         // EQDC1,
@@ -335,14 +344,18 @@ mod inner_interrupt {
 
         // DAC0,
 
-        // DMA_CH0,
-        // DMA_CH1,
-        // DMA_CH2,
-        // DMA_CH3,
-        // DMA_CH4,
-        // DMA_CH5,
-        // DMA_CH6,
-        // DMA_CH7,
+        DMA_CH0,
+        DMA_CH1,
+        DMA_CH2,
+        DMA_CH3,
+        DMA_CH4,
+        DMA_CH5,
+        DMA_CH6,
+        DMA_CH7,
+        DMA_CH8,
+        DMA_CH9,
+        DMA_CH10,
+        DMA_CH11,
 
         // EQDC0_COMPARE,
         // EQDC0_HOME,
@@ -707,8 +720,8 @@ pub(crate) mod peripheral_gating {
     // impl_cc_gate!(LPUART4, mrcc_glb_acc0, mrcc_glb_rst0, lpuart4, LpuartConfig);
     // impl_cc_gate!(LPUART5, mrcc_glb_acc1, mrcc_glb_rst1, lpuart5, LpuartConfig);
 
-    // // DMA0 peripheral - uses NoConfig since it has no selectable clock source
-    // impl_cc_gate!(DMA0, mrcc_glb_acc0, mrcc_glb_rst0, dma0, NoConfig);
+    // DMA0 peripheral - uses NoConfig since it has no selectable clock source
+    impl_cc_gate!(DMA0, mrcc_glb_acc0, mrcc_glb_rst0, dma0, NoConfig);
 
     impl_cc_gate!(GPIO0, mrcc_glb_acc3, mrcc_glb_rst3, gpio0, NoConfig);
     impl_cc_gate!(GPIO1, mrcc_glb_acc3, mrcc_glb_rst3, gpio1, NoConfig);

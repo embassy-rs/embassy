@@ -15,7 +15,6 @@
 mod mcxa2xx_exclusive {
     pub mod adc;
     pub mod clkout;
-    pub mod dma;
     pub mod flash;
     pub mod i2c;
     pub mod i3c;
@@ -41,6 +40,7 @@ mod all_chips {
     pub mod config;
     pub mod crc;
     pub mod ctimer;
+    pub mod dma;
     #[cfg(feature = "custom-executor")]
     pub mod executor;
     pub mod gpio;
