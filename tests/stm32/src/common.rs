@@ -435,6 +435,17 @@ define_peris!(
         GPDMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH1>;
     },
 );
+#[cfg(feature = "stm32wba65ri")]
+define_peris!(
+    UART = LPUART1, UART_TX = PB11, UART_RX = PA10, UART_TX_DMA = GPDMA1_CH0, UART_RX_DMA = GPDMA1_CH1,
+    SPI = SPI2, SPI_SCK = PB10, SPI_MOSI = PC3, SPI_MISO = PA9, SPI_TX_DMA = GPDMA1_CH0, SPI_RX_DMA = GPDMA1_CH1,
+    ADC = ADC4, DAC_PIN = PA0,
+    @irq UART = {
+        LPUART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::LPUART1>;
+        GPDMA1_CHANNEL0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH0>;
+        GPDMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH1>;
+    },
+);
 #[cfg(feature = "stm32h7s3l8")]
 define_peris!(
     CRYP_IN_DMA = GPDMA1_CH0, CRYP_OUT_DMA = GPDMA1_CH1,
@@ -841,6 +852,13 @@ pub fn config() -> Config {
         config.rcc.ahb5_pre = AHB5Prescaler::Div1;
         config.rcc.mux.rngsel = mux::Rngsel::Hsi;
         config.rcc.mux.sai1sel = mux::Sai1sel::Hsi;
+    }
+
+    #[cfg(feature = "stm32wba65ri")]
+    {
+        config.rcc.sys = Sysclk::HSI;
+        config.rcc.mux.rngsel = mux::Rngsel::HSI;
+        config.rcc.mux.sai1sel = mux::Sai1sel::HSI;
     }
 
     #[cfg(feature = "stm32l073rz")]
