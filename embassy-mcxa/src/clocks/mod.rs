@@ -1468,11 +1468,11 @@ impl ClockOperator<'_> {
                     }
                     if cfg.vdd_core_domain_active {
                         val |= 0b010;
-                        self.clocks.clk_32k_vsys = ENABLED;
+                        self.clocks.clk_32k_vdd_core = ENABLED;
                     }
                     if cfg.vbat_domain_active {
                         val |= 0b100;
-                        self.clocks.clk_32k_vsys = ENABLED;
+                        self.clocks.clk_32k_vbat = ENABLED;
                     }
                     w.set_clke(val);
                 });
@@ -1557,11 +1557,11 @@ impl ClockOperator<'_> {
                     }
                     if cfg.vdd_core_domain_active {
                         val |= 0b010;
-                        self.clocks.clk_32k_vsys = ENABLED;
+                        self.clocks.clk_32k_vdd_core = ENABLED;
                     }
                     if cfg.vbat_domain_active {
                         val |= 0b100;
-                        self.clocks.clk_32k_vsys = ENABLED;
+                        self.clocks.clk_32k_vbat = ENABLED;
                     }
                     w.set_clke(val);
                 });
