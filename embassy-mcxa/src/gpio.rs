@@ -32,15 +32,12 @@ impl Iterator for BitIter {
     }
 }
 
+#[cfg(feature = "mcxa2xx")]
 const PORT_COUNT: usize = 5;
+#[cfg(feature = "mcxa5xx")]
+const PORT_COUNT: usize = 6;
 
-static PORT_WAIT_MAPS: [WaitMap<usize, ()>; PORT_COUNT] = [
-    WaitMap::new(),
-    WaitMap::new(),
-    WaitMap::new(),
-    WaitMap::new(),
-    WaitMap::new(),
-];
+static PORT_WAIT_MAPS: [WaitMap<usize, ()>; PORT_COUNT] = [const { WaitMap::new() }; PORT_COUNT];
 
 fn irq_handler(port_index: usize, gpio: crate::pac::gpio::Gpio, perf_wake: fn()) {
     let isfr = gpio.isfr(0);
@@ -88,6 +85,13 @@ fn GPIO4() {
     irq_handler(4, crate::pac::GPIO4, crate::perf_counters::incr_interrupt_gpio4_wake);
 }
 
+#[cfg(feature = "mcxa5xx")]
+#[interrupt]
+fn GPIO5() {
+    crate::perf_counters::incr_interrupt_gpio5();
+    irq_handler(5, crate::pac::GPIO5, crate::perf_counters::incr_interrupt_gpio5_wake);
+}
+
 pub(crate) unsafe fn interrupt_init() {
     unsafe {
         use embassy_hal_internal::interrupt::InterruptExt;
@@ -97,6 +101,8 @@ pub(crate) unsafe fn interrupt_init() {
         crate::pac::interrupt::GPIO2.enable();
         crate::pac::interrupt::GPIO3.enable();
         crate::pac::interrupt::GPIO4.enable();
+        #[cfg(feature = "mcxa5xx")]
+        crate::pac::interrupt::GPIO5.enable();
 
         cortex_m::interrupt::enable();
     }

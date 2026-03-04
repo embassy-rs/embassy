@@ -473,10 +473,8 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
         _ = crate::clocks::enable_and_reset::<crate::peripherals::PORT4>(&crate::clocks::periph_helpers::NoConfig);
         _ = crate::clocks::enable_and_reset::<crate::peripherals::GPIO4>(&crate::clocks::periph_helpers::NoConfig);
 
-        // These are in the vbat domain, no clock controls?
-        //
-        // _ = crate::clocks::enable_and_reset::<crate::peripherals::PORT5>(&crate::clocks::periph_helpers::NoConfig);
-        // _ = crate::clocks::enable_and_reset::<crate::peripherals::GPIO5>(&crate::clocks::periph_helpers::NoConfig);
+        _ = crate::clocks::enable_and_reset::<crate::peripherals::PORT5>(&crate::clocks::periph_helpers::NoConfig);
+        _ = crate::clocks::enable_and_reset::<crate::peripherals::GPIO5>(&crate::clocks::periph_helpers::NoConfig);
     }
 
     // import may be unused if none of the following features are set
@@ -698,7 +696,7 @@ pub(crate) mod peripheral_gating {
     impl_cc_gate!(PORT2, mrcc_glb_cc1, mrcc_glb_rst1, port2, NoConfig);
     impl_cc_gate!(PORT3, mrcc_glb_cc1, mrcc_glb_rst1, port3, NoConfig);
     impl_cc_gate!(PORT4, mrcc_glb_cc1, mrcc_glb_rst1, port4, NoConfig);
-    // impl_cc_gate!(PORT5, mrcc_glb_cc1, mrcc_glb_rst1, port5, NoConfig); Missing RESET bit?
+    impl_cc_gate!(PORT5, mrcc_glb_cc1, port5, NoConfig);
 
     impl_cc_gate!(CRC0, mrcc_glb_cc0, mrcc_glb_rst0, crc0, NoConfig);
     // impl_cc_gate!(INPUTMUX0, mrcc_glb_cc0, mrcc_glb_rst0, inputmux0, NoConfig);
@@ -737,7 +735,7 @@ pub(crate) mod peripheral_gating {
     impl_cc_gate!(GPIO2, mrcc_glb_acc3, mrcc_glb_rst3, gpio2, NoConfig);
     impl_cc_gate!(GPIO3, mrcc_glb_acc3, mrcc_glb_rst3, gpio3, NoConfig);
     impl_cc_gate!(GPIO4, mrcc_glb_acc3, mrcc_glb_rst3, gpio4, NoConfig);
-    // impl_cc_gate!(GPIO5, mrcc_glb_acc3, mrcc_glb_rst3, gpio5, NoConfig); Missing RESET bit?
+    impl_cc_gate!(GPIO5, mrcc_glb_cc3, gpio5, NoConfig);
 
     // impl_cc_gate!(LPI2C0, mrcc_glb_acc0, mrcc_glb_rst0, lpi2c0, Lpi2cConfig);
     // impl_cc_gate!(LPI2C1, mrcc_glb_acc0, mrcc_glb_rst0, lpi2c1, Lpi2cConfig);
