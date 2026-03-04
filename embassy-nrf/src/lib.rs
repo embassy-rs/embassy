@@ -732,6 +732,31 @@ pub unsafe fn uicr_write_masked(address: *mut u32, value: u32, mask: u32) -> Wri
     WriteResult::Written
 }
 
+// Disable all NVIC interrupts before `.data`/`.bss` initialisation.
+//
+// After a soft reset (e.g. firmware reload via probe-rs) the NVIC may
+// retain interrupt-enable bits from the previous program.  If a stale
+// peripheral event fires before the new firmware's static data is
+// ready, the corresponding interrupt handler will operate on
+// uninitialised driver state and crash.
+//
+// Clearing every ICER (Interrupt Clear-Enable Register) word at
+// pre-init is always safe and guarantees no handler can run until the
+// firmware explicitly re-enables each interrupt during its own init
+// sequence.
+#[cfg(feature = "rt")]
+#[cortex_m_rt::pre_init]
+unsafe fn pre_init() {
+    const NVIC_ICER_BASE: *mut u32 = 0xE000_E180 as *mut u32;
+    // 16 ICER registers cover IRQ 0-511; nRF chips use far fewer but
+    // writing to unimplemented bits is harmless.
+    for i in 0..16 {
+        unsafe {
+            NVIC_ICER_BASE.add(i).write_volatile(0xFFFF_FFFF);
+        }
+    }
+}
+
 /// Initialize the `embassy-nrf` HAL with the provided configuration.
 ///
 /// This returns the peripheral singletons that can be used for creating drivers.

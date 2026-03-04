@@ -174,6 +174,13 @@ impl RtcDriver {
 
         #[cfg(feature = "_grtc")]
         {
+            // Clear stale GRTC peripheral state left by a previous program.
+            // NVIC interrupts are already disabled by init(), but the GRTC's
+            // own INTENSET and pending events persist across soft resets and
+            // could fire as soon as GRTC_1 is re-enabled in the NVIC below.
+            r.intenclr(1).write(|w| w.0 = compare_n(0));
+            r.events_compare(0).write_value(0);
+
             r.mode().write(|w| {
                 w.set_syscounteren(true);
             });
