@@ -127,8 +127,11 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
     #[cfg(feature = "mcxa2xx")]
     operator.configure_firc_clocks()?;
     operator.configure_fro16k_clocks()?;
+
+    // NOTE: OSC32K must be configured AFTER FRO16K.
     #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
     operator.configure_osc32k_clocks()?;
+
     #[cfg(feature = "mcxa2xx")]
     #[cfg(not(feature = "sosc-as-gpio"))]
     operator.configure_sosc()?;
@@ -830,7 +833,7 @@ impl Clocks {
             .frequency)
     }
 
-    /// Ensure the `clk_16k_vdd_core` clock is active and valid at the given power state.
+    /// Ensure the `clk_16k_vbat` clock is active and valid at the given power state.
     #[cfg(feature = "mcxa5xx")]
     pub fn ensure_clk_16k_vbat_active(&self, _at_level: &PoweredClock) -> Result<u32, ClockError> {
         // NOTE: clk_16k is always active in low power mode
@@ -844,18 +847,21 @@ impl Clocks {
             .frequency)
     }
 
+    /// Ensure the `clk_32k_vsys` clock is active and valid at the given power state.
     #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
     #[inline]
     pub fn ensure_clk_32k_vsys_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
         self.ensure_clock_active(&self.clk_32k_vsys, "clk_32k_vsys", at_level)
     }
 
+    /// Ensure the `clk_32k_vdd_core` clock is active and valid at the given power state.
     #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
     #[inline]
     pub fn ensure_clk_32k_vdd_core_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
         self.ensure_clock_active(&self.clk_32k_vdd_core, "clk_32k_vdd_core", at_level)
     }
 
+    /// Ensure the `clk_32k_vbat` clock is active and valid at the given power state.
     #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
     #[inline]
     pub fn ensure_clk_32k_vbat_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
@@ -1343,6 +1349,7 @@ impl ClockOperator<'_> {
         Ok(())
     }
 
+    /// Configure the ROSC/OSC32K clock family
     #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
     fn configure_osc32k_clocks(&mut self) -> Result<(), ClockError> {
         use config::{Osc32KCapSel, Osc32KCoarseGain, Osc32KMode};
@@ -1364,7 +1371,6 @@ impl ClockOperator<'_> {
 
         // To enable and lock the LDO and bandgap:
         //
-        // TODO(AJM): this appears to be required for OSC32K/
         // NOTE(AJM): "The FRO16K must be enabled before enabling the SRAM LDO or the bandgap"
         //
         // 1. Enable the FRO16K.
@@ -1399,7 +1405,6 @@ impl ClockOperator<'_> {
                 // required based on the external crystal component ESR and CL values, and by the PCB parasitics on the EXTAL32K and
                 // XTAL32K pins. Configure 0h to OSCCTLA[MODE_EN], 1h to OSCCTLA[CAP_SEL_EN], and 1h to OSCCTLA[OSC_EN].
                 //   * NOTE(AJM): You must write 1 to this field and OSCCTLA[OSC_EN] simultaneously.
-
                 self.vbat0.oscctla().modify(|w| {
                     w.set_xtal_cap_sel(match xtal_cap_sel {
                         Osc32KCapSel::Cap2PicoF => XtalCapSel::SEL2,

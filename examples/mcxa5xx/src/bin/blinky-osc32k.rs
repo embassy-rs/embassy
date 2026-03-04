@@ -1,3 +1,7 @@
+//! Similar to blinky, but clocked with external OSC32K
+//!
+//! This will probably go away once we have the CLKOUT peripheral supported.
+
 #![no_std]
 #![no_main]
 

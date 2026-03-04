@@ -80,6 +80,8 @@ sosc-as-gpio = []
 #
 # DISABLING this allows for use of the 32k clock, but reserves the GPIO pins required.
 # ENABLING this means the 32k clock cannot be set/configured, but makes the GPIO pins available
+#
+# NOTE: Only applicable to MCXA5xx.
 rosc-32k-as-gpio = []
 
 # Allows for using SWDIO and SWCLK pins as normal GPIOs.
