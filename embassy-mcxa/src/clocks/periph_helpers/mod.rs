@@ -291,7 +291,6 @@ impl SPConfHelper for OsTimerConfig {
 pub enum CTimerClockSel {
     /// FRO12M/FRO_LF/SIRC clock source, passed through divider
     /// "fro_lf_div"
-    #[cfg(feature = "mcxa2xx")]
     FroLfDiv,
     /// FRO180M/FRO_HF/FIRC clock source, passed through divider
     /// "fro_hf_div"
@@ -357,10 +356,16 @@ impl SPConfHelper for CTimerConfig {
         };
 
         let (freq, variant) = match self.source {
-            #[cfg(feature = "mcxa2xx")]
             CTimerClockSel::FroLfDiv => {
                 let freq = clocks.ensure_fro_lf_div_active(&self.power)?;
-                (freq, CtimerClkselMux::CLKROOT_FUNC_0)
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = CtimerClkselMux::CLKROOT_FUNC_0;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = CtimerClkselMux::I0_CLKROOT_SIRC_DIV;
+
+                (freq, mux)
             }
             #[cfg(feature = "mcxa2xx")]
             CTimerClockSel::FroHfDiv => {

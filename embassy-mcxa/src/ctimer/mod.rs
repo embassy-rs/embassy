@@ -68,10 +68,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             power: PoweredClock::NormalEnabledDeepSleepDisabled,
-            #[cfg(feature = "mcxa2xx")]
             source: CTimerClockSel::FroLfDiv,
-            #[cfg(feature = "mcxa5xx")]
-            source: CTimerClockSel::Clk1M,
             div: const { Div4::no_div() },
         }
     }
