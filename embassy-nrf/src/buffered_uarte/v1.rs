@@ -114,6 +114,10 @@ impl<U: UarteInstance> interrupt::typelevel::Handler<U::Interrupt> for Interrupt
                 //trace!("  irq_rx: rxstarted");
                 let (ptr, len) = rx.push_buf();
                 if len >= half_len {
+                    // Disable the ENDRX→STOPRX shortcut before restarting DMA.
+                    // It may have been enabled when the buffer was full.
+                    r.shorts().write(|w| w.set_endrx_stoprx(false));
+
                     r.events_dma().rx().ready().write_value(0);
 
                     //trace!("  irq_rx: starting second {:?}", half_len);
@@ -171,6 +175,22 @@ impl<U: UarteInstance> interrupt::typelevel::Handler<U::Interrupt> for Interrupt
                 } else {
                     //trace!("  irq_rx: rxstarted no buf");
                     r.intenclr().write(|w| w.set_dmarxready(true));
+
+                    // No buffer space for the next DMA transfer, and we did not
+                    // enable PPI, so when the current DMA completes (ENDRX) no
+                    // new STARTRX will fire. The UARTE receiver stays active and
+                    // bytes still in flight from the remote (after RTS
+                    // de-assertion) arrive into the RXD register without DMA to
+                    // drain them, causing hardware overrun.
+                    //
+                    // Enable the ENDRX→STOPRX hardware shortcut so that the
+                    // receiver is stopped in the same clock cycle as ENDRX.
+                    // Because STOPRX fires at the exact moment the full MAXCNT
+                    // DMA transfer completes, all half_len bytes are properly
+                    // written — no partial transfer, no ring buffer adjustment.
+                    // When the consumer frees buffer space, the recovery path
+                    // will disable this shortcut and issue STARTRX to resume.
+                    r.shorts().write(|w| w.set_endrx_stoprx(true));
                 }
             }
         }
