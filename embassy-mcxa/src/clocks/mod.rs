@@ -2199,6 +2199,40 @@ impl ClockOperator<'_> {
 #[doc(hidden)]
 #[macro_export]
 macro_rules! impl_cc_gate {
+    ($name:ident, $clk_reg:ident, $field:ident, $config:ty) => {
+        impl Gate for $crate::peripherals::$name {
+            type MrccPeriphConfig = $config;
+
+            paste! {
+                #[inline]
+                unsafe fn enable_clock() {
+                    pac::MRCC0.$clk_reg().modify(|w| w.[<set_ $field>](true));
+                }
+
+                #[inline]
+                unsafe fn disable_clock() {
+                    pac::MRCC0.$clk_reg().modify(|w| w.[<set_ $field>](false));
+                }
+
+                #[inline]
+                unsafe fn release_reset() {}
+
+                #[inline]
+                unsafe fn assert_reset() {}
+            }
+
+            #[inline]
+            fn is_clock_enabled() -> bool {
+                pac::MRCC0.$clk_reg().read().$field()
+            }
+
+            #[inline]
+            fn is_reset_released() -> bool {
+                false
+            }
+        }
+    };
+
     ($name:ident, $clk_reg:ident, $rst_reg:ident, $field:ident, $config:ty) => {
         impl Gate for $crate::peripherals::$name {
             type MrccPeriphConfig = $config;
