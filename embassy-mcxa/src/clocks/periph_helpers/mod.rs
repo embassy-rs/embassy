@@ -8,7 +8,6 @@
 //! See the docs of [`SPConfHelper`] for more details.
 
 use super::{ClockError, Clocks, PoweredClock, WakeGuard};
-
 use crate::clocks::VddLevel;
 use crate::pac::mrcc::vals::{ClkdivHalt, ClkdivReset, ClkdivUnstab, CtimerClkselMux, OstimerClkselMux};
 
