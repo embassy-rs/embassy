@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased - ReleaseDate
 
 - Add `EndpointOut::read_data()` and `EndpointIn::write_data()` provided methods.
+- Remove dependency on `embedded_io_async`
 
 ## 0.2.0 - 2025-07-16
 
