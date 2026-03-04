@@ -199,6 +199,21 @@ impl SPConfHelper for NoConfig {
     }
 }
 
+/// A basic type that always returns `Ok` when `PreEnableParts` is called.
+///
+/// This should only be used for peripherals that are clocked only by
+/// the CLK1M clock and have no other selectable/configurable source
+/// clock.
+pub struct Clk1MConfig;
+impl SPConfHelper for Clk1MConfig {
+    fn pre_enable_config(&self, _clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
+        Ok(PreEnableParts {
+            freq: 1_000_000,
+            wake_guard: None,
+        })
+    }
+}
+
 //
 // OSTimer
 //

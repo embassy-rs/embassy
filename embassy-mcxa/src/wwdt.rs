@@ -12,6 +12,8 @@ use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_time::Duration;
 use paste::paste;
 
+use crate::clocks::periph_helpers::Clk1MConfig;
+use crate::clocks::{ClockError, Gate, WakeGuard, enable_and_reset};
 use crate::interrupt::typelevel;
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac;
@@ -21,6 +23,8 @@ use crate::pac::wwdt::vals::{Wden, Wdprotect, Wdreset};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
+    /// Clock configuration error.
+    ClockSetup(ClockError),
     TimeoutTooSmall,
     TimeoutTooLarge,
     WarningTooLarge,
@@ -47,6 +51,7 @@ impl Default for Config {
 pub struct Watchdog<'d> {
     info: &'static Info,
     _phantom: PhantomData<&'d mut ()>,
+    _wg: Option<WakeGuard>,
 }
 
 impl<'d> Watchdog<'d> {
@@ -64,24 +69,15 @@ impl<'d> Watchdog<'d> {
         _irq: impl crate::interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Result<Self, Error> {
+        let parts = unsafe { enable_and_reset::<T>(&Clk1MConfig).map_err(Error::ClockSetup)? };
+
         let watchdog = Self {
             info: T::info(),
             _phantom: PhantomData,
+            _wg: parts.wake_guard,
         };
 
-        let base_frequency = crate::clocks::with_clocks(|clocks| {
-            // Ensure clk_1m is active at the required power level
-            clocks.ensure_clk_1m_active(&crate::clocks::PoweredClock::NormalEnabledDeepSleepDisabled)
-        })
-        .expect("Clocks not initialized")
-        .expect("clk_1m not enabled or not at required power level");
-
-        let frequency = base_frequency / 4;
-
-        // Enable WATCHDOG clock by writing to mrcc register
-        // Can't use enable_and_reset API here because WWDT doesn't have a reset signal.
-        pac::MRCC0.mrcc_glb_cc0().modify(|w| w.set_wwdt0(true));
-
+        let frequency = parts.freq / 4;
         let timeout_cycles = (frequency as u64 * config.timeout.as_micros()) / 1_000_000;
 
         // Ensure the value fits in u32 and is within valid range
@@ -218,7 +214,7 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
     }
 }
 
-trait SealedInstance {
+trait SealedInstance: Gate<MrccPeriphConfig = Clk1MConfig> {
     fn info() -> &'static Info;
 }
 
