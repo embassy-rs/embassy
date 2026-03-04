@@ -36,8 +36,6 @@ default-executor = [
 custom-executor = [
   "embassy-mcxa/custom-executor"
 ]
-mcxa5xx = []
-unstable-pac = []
 
 [profile.release]
 lto = true # better optimizations

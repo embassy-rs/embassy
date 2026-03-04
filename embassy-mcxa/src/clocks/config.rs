@@ -494,10 +494,14 @@ pub struct SircConfig {
     pub fro_lf_div: Option<Div8>,
 }
 
+/// FRO16K Configuration items
 #[non_exhaustive]
 pub struct Fro16KConfig {
+    /// is `clk_16k[0]` active?
     pub vsys_domain_active: bool,
+    /// is `clk_16k[1]` active?
     pub vdd_core_domain_active: bool,
+    /// is `clk_16k[2]` active?
     #[cfg(feature = "mcxa5xx")]
     pub vbat_domain_active: bool,
 }
@@ -513,26 +517,39 @@ impl Default for Fro16KConfig {
     }
 }
 
+/// OSC32K Operational Mode
 #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
 pub enum Osc32KMode {
     ///  low power switched oscillator mode
     LowPower {
+        /// 32K Oscillator internal transconductance gain current
         coarse_amp_gain: Osc32KCoarseGain,
+        /// Enable if Vbat exceeds 3.0v
         vbat_exceeds_3v0: bool,
     },
     /// high performance transconductance oscillator mode
     HighPower {
+        /// 32K Oscillator internal transconductance gain current
         coarse_amp_gain: Osc32KCoarseGain,
+        /// Configurable capacitance for XTAL pad
         xtal_cap_sel: Osc32KCapSel,
+        /// Configurable capacitance for EXTAL pad
         extal_cap_sel: Osc32KCapSel,
     },
 }
 
+/// Coarse Gain Amplification
+///
+/// See datasheet table 4.2.1.4, "32 kHz oscillation gain setting"
 #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
 pub enum Osc32KCoarseGain {
+    /// Max ESR 50kOhms, Max Cx 14pF
     EsrRange0,
+    /// Max ESR 70kOhms, Max Cx 22pF
     EsrRange1,
+    /// Max ESR 80kOhms, Max Cx 22pF
     EsrRange2,
+    /// Max ESR 100kOhms, Max Cx 20pF
     EsrRange3,
 }
 
@@ -571,12 +588,17 @@ pub enum Osc32KCapSel {
     Cap30PicoF,
 }
 
+/// OSC32K Configuration Items
 #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
 #[non_exhaustive]
 pub struct Osc32KConfig {
+    /// Low/High Power Mode Selection
     pub mode: Osc32KMode,
+    /// is `clk_32k[0]` active?
     pub vsys_domain_active: bool,
+    /// is `clk_32k[1]` active?
     pub vdd_core_domain_active: bool,
+    /// is `clk_32k[2]` active?
     pub vbat_domain_active: bool,
 }
 
