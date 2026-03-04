@@ -207,7 +207,6 @@ impl SPConfHelper for NoConfig {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum OstimerClockSel {
     /// 16k clock, sourced from FRO16K (Vdd Core)
-    #[cfg(feature = "mcxa2xx")]
     Clk16kVddCore,
     /// 1 MHz Clock sourced from FRO12M
     Clk1M,
@@ -229,12 +228,15 @@ impl SPConfHelper for OsTimerConfig {
         // NOTE: complies with 22.3.2 peripheral clock max functional clock limits
         // which is 1MHz, and we can only select 1mhz/16khz.
         Ok(match self.source {
-            #[cfg(feature = "mcxa2xx")]
             OstimerClockSel::Clk16kVddCore => {
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = OstimerClkselMux::CLKROOT_16K;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = OstimerClkselMux::I0_CLKROOT_16K;
+
                 let freq = clocks.ensure_clk_16k_vdd_core_active(&self.power)?;
-                mrcc0
-                    .mrcc_ostimer0_clksel()
-                    .write(|w| w.set_mux(OstimerClkselMux::CLKROOT_16K));
+                mrcc0.mrcc_ostimer0_clksel().write(|w| w.set_mux(mux));
                 PreEnableParts {
                     freq,
                     wake_guard: WakeGuard::for_power(&self.power),

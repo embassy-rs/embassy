@@ -183,10 +183,13 @@ mod inner_periph {
         P1_17,
         P1_18,
         P1_19,
+        // Normally RESET_B!
         #[cfg(feature = "dangerous-reset-as-gpio")]
         P1_29,
+        // Normally XTAL48M!
         #[cfg(feature = "sosc-as-gpio")]
         P1_30,
+        // Normally EXTAL48M!
         #[cfg(feature = "sosc-as-gpio")]
         P1_31,
 
@@ -266,7 +269,11 @@ mod inner_periph {
         P4_12,
         P4_13,
 
+        // Normally EXTAL32K!
+        #[cfg(feature = "rosc-32k-as-gpio")]
         P5_0,
+        // Normally XTAL32K!
+        #[cfg(feature = "rosc-32k-as-gpio")]
         P5_1,
         P5_2,
         P5_3,
@@ -466,6 +473,8 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
         _ = crate::clocks::enable_and_reset::<crate::peripherals::PORT4>(&crate::clocks::periph_helpers::NoConfig);
         _ = crate::clocks::enable_and_reset::<crate::peripherals::GPIO4>(&crate::clocks::periph_helpers::NoConfig);
 
+        // These are in the vbat domain, no clock controls?
+        //
         // _ = crate::clocks::enable_and_reset::<crate::peripherals::PORT5>(&crate::clocks::periph_helpers::NoConfig);
         // _ = crate::clocks::enable_and_reset::<crate::peripherals::GPIO5>(&crate::clocks::periph_helpers::NoConfig);
     }
@@ -474,7 +483,17 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
     #[allow(unused_imports)]
     use crate::gpio::SealedPin;
 
-    // If we are not using SWD pins for SWD reasons, make them floating inputs
+    // If we are not using pins for specialized purposes, set them as disabled
+    #[cfg(feature = "rosc-32k-as-gpio")]
+    {
+        peripherals.P5_0.set_as_disabled();
+        peripherals.P5_1.set_as_disabled();
+    }
+    #[cfg(feature = "sosc-as-gpio")]
+    {
+        peripherals.P1_30.set_as_disabled();
+        peripherals.P1_31.set_as_disabled();
+    }
     #[cfg(feature = "swd-as-gpio")]
     {
         peripherals.P0_0.set_as_disabled();
@@ -644,7 +663,9 @@ mod gpio_impls {
     impl_pin!(P4_12, 4, 12, GPIO4);
     impl_pin!(P4_13, 4, 13, GPIO4);
 
+    #[cfg(feature = "rosc-32k-as-gpio")]
     impl_pin!(P5_0, 5, 0, GPIO5);
+    #[cfg(feature = "rosc-32k-as-gpio")]
     impl_pin!(P5_1, 5, 1, GPIO5);
     impl_pin!(P5_2, 5, 2, GPIO5);
     impl_pin!(P5_3, 5, 3, GPIO5);

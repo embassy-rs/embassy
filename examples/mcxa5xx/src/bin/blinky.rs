@@ -8,7 +8,9 @@ use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = hal::init(hal::config::Config::default());
+    let mut cfg = hal::config::Config::default();
+    cfg.clock_cfg.main_clock.source = embassy_mcxa::clocks::config::MainClockSource::RoscFro16K;
+    let p = hal::init(cfg);
 
     defmt::info!("Blink example");
 
