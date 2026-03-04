@@ -67,6 +67,8 @@
 //! // Configure and trigger a transfer...
 //! ```
 
+#![allow(dead_code)]
+
 use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
@@ -77,7 +79,8 @@ use core::task::{Context, Poll};
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::clocks::Gate;
+use crate::clocks::enable_and_reset;
+use crate::clocks::periph_helpers::NoConfig;
 use crate::dma::sealed::SealedChannel;
 use crate::pac::dma::vals::Halt;
 use crate::pac::edma_0_tcd::regs::{TcdAttr, TcdBiterElinkno, TcdCiterElinkno, TcdCsr};
@@ -92,20 +95,17 @@ use crate::peripherals::DMA0;
 /// The function enables the DMA0 clock, releases reset, and configures the controller
 /// for normal operation with round-robin arbitration.
 pub(crate) fn init() {
-    unsafe {
-        // Enable DMA0 clock and release reset
-        DMA0::enable_clock();
-        DMA0::release_reset();
+    // Enable DMA0 clock and release reset
+    let _ = unsafe { enable_and_reset::<DMA0>(&NoConfig) };
 
-        // Configure DMA controller
-        pac::DMA0.mp_csr().modify(|w| {
-            w.set_edbg(true);
-            w.set_erca(true);
-            w.set_halt(Halt::NORMAL_OPERATION);
-            w.set_gclc(true);
-            w.set_gmrc(true);
-        });
-    }
+    // Configure DMA controller
+    pac::DMA0.mp_csr().modify(|w| {
+        w.set_edbg(true);
+        w.set_erca(true);
+        w.set_halt(Halt::NORMAL_OPERATION);
+        w.set_gclc(true);
+        w.set_gmrc(true);
+    });
 }
 
 // ============================================================================
