@@ -1,8 +1,7 @@
 #![no_std]
 #![no_main]
 
-use core::cell::RefCell;
-use core::sync::atomic::{AtomicU32, Ordering};
+use core::cell::{Cell, RefCell};
 
 use defmt::{panic, *};
 use embassy_executor::Spawner;
@@ -12,7 +11,6 @@ use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
 use embassy_sync::signal::Signal;
 use embassy_sync::zerocopy_channel;
-use embassy_time::{Duration, WithTimeout as _};
 use embassy_usb::class::uac1;
 use embassy_usb::class::uac1::speaker::{self, Speaker};
 use embassy_usb::driver::EndpointError;
@@ -86,8 +84,6 @@ async fn feedback_handler<'d, T: usb::Instance + 'd>(
     // Collects the fractional component of the feedback value that is lost by rounding.
     let mut rest = 0.0_f32;
 
-    // Make sure the signal is clear before we start
-    _ = FEEDBACK_SIGNAL.wait().await;
     loop {
         let counter = FEEDBACK_SIGNAL.wait().await;
 
@@ -102,18 +98,7 @@ async fn feedback_handler<'d, T: usb::Instance + 'd>(
         packet.push((value >> 8) as u8).unwrap();
         packet.push((value >> 16) as u8).unwrap();
 
-        let Ok(res) = feedback
-            .write_packet(&packet)
-            // Short timeout to prevent queueing
-            .with_timeout(Duration::from_micros(10))
-            .await
-        else {
-            // Ignore timeout. There was already an uncollected message in the FIFO.
-            // The previous message will be delivered next time the host polls for it
-            continue;
-        };
-
-        res?; // Return on error
+        feedback.write_packet(&packet).await?;
         debug!("feedback sent {}", value);
     }
 }
@@ -234,24 +219,27 @@ async fn usb_control_task(control_monitor: speaker::ControlMonitor<'static>) {
 /// This gives an (ideal) counter value of 336.000 for every update of the `FEEDBACK_SIGNAL`.
 #[interrupt]
 fn TIM2() {
-    static LAST_TICKS: AtomicU32 = AtomicU32::new(0);
+    static LAST_TICKS: Mutex<CriticalSectionRawMutex, Cell<u32>> = Mutex::new(Cell::new(0));
+    static FRAME_COUNT: Mutex<CriticalSectionRawMutex, Cell<usize>> = Mutex::new(Cell::new(0));
 
-    // Count up frames and emit a signal, when the refresh period is reached.
-    let regs = embassy_stm32::pac::USB_OTG_FS;
     critical_section::with(|cs| {
         let mut guard = TIMER.borrow(cs).borrow_mut();
         let timer = guard.as_mut().unwrap();
         if timer.get_input_interrupt(TIMER_CHANNEL) {
-            let frame_number = regs.dsts().read().fnsof() as usize;
-            // Send the signal one frame before the feedback will be requested
-            if (frame_number + 1) % FEEDBACK_REFRESH_PERIOD.frame_count() == 0 {
-                let ticks = timer.get_capture_value(TIMER_CHANNEL);
-                let last_ticks = LAST_TICKS.load(Ordering::Relaxed);
-                FEEDBACK_SIGNAL.signal(ticks.wrapping_sub(last_ticks));
-                LAST_TICKS.store(ticks, Ordering::Relaxed);
+            let ticks = timer.get_capture_value(TIMER_CHANNEL);
+
+            let frame_count = FRAME_COUNT.borrow(cs);
+            let last_ticks = LAST_TICKS.borrow(cs);
+
+            frame_count.set(frame_count.get() + 1);
+            if frame_count.get() >= FEEDBACK_REFRESH_PERIOD.frame_count() {
+                frame_count.set(0);
+                FEEDBACK_SIGNAL.signal(ticks.wrapping_sub(last_ticks.get()));
+                last_ticks.set(ticks);
             }
+            // Clear trigger interrupt flag.
             timer.clear_input_interrupt(TIMER_CHANNEL);
-        }
+        };
     });
 }
 

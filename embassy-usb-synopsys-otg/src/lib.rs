@@ -166,6 +166,55 @@ pub unsafe fn on_interrupt<const MAX_EP_COUNT: usize>(r: Otg, state: &State<MAX_
             ep_num += 1;
         }
     }
+
+    if ints.eopf() {
+        let frame_number = r.dsts().read().fnsof();
+        let frame_is_odd = frame_number & 0x01 == 1;
+
+        // If an isochronous endpoint has an IN message waiting in its FIFO, but the host didn't poll for it before eof,
+        // switch the packet polarity, in the hope that it will be polled for in the next frame.
+        for ep_num in (0..ep_count).into_iter().filter(|ep_num| {
+            let diepctl = r.diepctl(*ep_num).read();
+            // Find iso endpoints
+            diepctl.eptyp() == vals::Eptyp::ISOCHRONOUS
+                // That have and unsent IN message
+                && diepctl.epena()
+                // Where the frame polarity matches the current frame
+                && diepctl.eonum_dpid() == frame_is_odd
+        }) {
+            trace!("Unsent message at EOF for ep: {}, frame: {}", ep_num, frame_number);
+
+            let ep_diepctl = r.diepctl(ep_num);
+            let ep_diepint = r.diepint(ep_num);
+
+            // Set NAK
+            ep_diepctl.modify(|m| m.set_snak(true));
+            while !ep_diepint.read().inepne() {}
+
+            // Disable the endpoint
+            ep_diepctl.modify(|m| {
+                m.set_snak(true);
+                m.set_epdis(true);
+            });
+            while !ep_diepint.read().epdisd() {}
+            ep_diepint.modify(|m| m.set_epdisd(true));
+
+            // Switch the packet polarity
+            ep_diepctl.modify(|r| {
+                if frame_is_odd {
+                    r.set_sd0pid_sevnfrm(true);
+                } else {
+                    r.set_sd1pid_soddfrm(true);
+                }
+            });
+
+            // Enable the endpoint again
+            ep_diepctl.modify(|w| {
+                w.set_cnak(true);
+                w.set_epena(true);
+            });
+        }
+    }
 }
 
 /// USB PHY type
