@@ -123,8 +123,10 @@ pub struct ClocksConfig {
     // NOTE: I don't think we *can* disable the SIRC?
     pub sirc: SircConfig,
     /// FRO16K clock source
-    #[cfg(feature = "mcxa2xx")]
     pub fro16k: Option<Fro16KConfig>,
+    /// OSC32K clock source
+    #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+    pub osc32k: Option<Osc32KConfig>,
     /// SOSC, clk_in clock source
     ///
     /// NOTE: Requires `sosc-as-gpio` feature disabled, which also disables GPIO access to P1_30 and P1_31
@@ -290,6 +292,9 @@ pub enum MainClockSource {
     /// Clock derived from `clk_16k` (vdd core)
     #[cfg(feature = "mcxa2xx")]
     RoscFro16K,
+    /// Clock derived from `clk_32k` (vdd core)
+    #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+    RoscOsc32K,
     /// Clock derived from `pll1_clk`, via the internal PLL
     #[cfg(feature = "mcxa2xx")]
     SPll1,
@@ -489,10 +494,16 @@ pub struct SircConfig {
     pub fro_lf_div: Option<Div8>,
 }
 
+/// FRO16K Configuration items
 #[non_exhaustive]
 pub struct Fro16KConfig {
+    /// is `clk_16k[0]` active?
     pub vsys_domain_active: bool,
+    /// is `clk_16k[1]` active?
     pub vdd_core_domain_active: bool,
+    /// is `clk_16k[2]` active?
+    #[cfg(feature = "mcxa5xx")]
+    pub vbat_domain_active: bool,
 }
 
 impl Default for Fro16KConfig {
@@ -500,6 +511,108 @@ impl Default for Fro16KConfig {
         Self {
             vsys_domain_active: true,
             vdd_core_domain_active: true,
+            #[cfg(feature = "mcxa5xx")]
+            vbat_domain_active: true,
+        }
+    }
+}
+
+/// OSC32K Operational Mode
+#[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+pub enum Osc32KMode {
+    ///  low power switched oscillator mode
+    LowPower {
+        /// 32K Oscillator internal transconductance gain current
+        coarse_amp_gain: Osc32KCoarseGain,
+        /// Enable if Vbat exceeds 3.0v
+        vbat_exceeds_3v0: bool,
+    },
+    /// high performance transconductance oscillator mode
+    HighPower {
+        /// 32K Oscillator internal transconductance gain current
+        coarse_amp_gain: Osc32KCoarseGain,
+        /// Configurable capacitance for XTAL pad
+        xtal_cap_sel: Osc32KCapSel,
+        /// Configurable capacitance for EXTAL pad
+        extal_cap_sel: Osc32KCapSel,
+    },
+}
+
+/// Coarse Gain Amplification
+///
+/// See datasheet table 4.2.1.4, "32 kHz oscillation gain setting"
+#[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+pub enum Osc32KCoarseGain {
+    /// Max ESR 50kOhms, Max Cx 14pF
+    EsrRange0,
+    /// Max ESR 70kOhms, Max Cx 22pF
+    EsrRange1,
+    /// Max ESR 80kOhms, Max Cx 22pF
+    EsrRange2,
+    /// Max ESR 100kOhms, Max Cx 20pF
+    EsrRange3,
+}
+
+#[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+pub enum Osc32KCapSel {
+    // NOTE: 0pF is not supported in non-low-power-modes
+    /// 2pF
+    Cap2PicoF,
+    /// 4pF
+    Cap4PicoF,
+    /// 6pF
+    Cap6PicoF,
+    /// 8pF
+    Cap8PicoF,
+    /// 10pF
+    Cap10PicoF,
+    /// 12pF
+    Cap12PicoF,
+    /// 14pF
+    Cap14PicoF,
+    /// 16pF
+    Cap16PicoF,
+    /// 18pF
+    Cap18PicoF,
+    /// 20pF
+    Cap20PicoF,
+    /// 22pF
+    Cap22PicoF,
+    /// 24pF
+    Cap24PicoF,
+    /// 26pF
+    Cap26PicoF,
+    /// 28pF
+    Cap28PicoF,
+    /// 30pF
+    Cap30PicoF,
+}
+
+/// OSC32K Configuration Items
+#[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+#[non_exhaustive]
+pub struct Osc32KConfig {
+    /// Low/High Power Mode Selection
+    pub mode: Osc32KMode,
+    /// is `clk_32k[0]` active?
+    pub vsys_domain_active: bool,
+    /// is `clk_32k[1]` active?
+    pub vdd_core_domain_active: bool,
+    /// is `clk_32k[2]` active?
+    pub vbat_domain_active: bool,
+}
+
+#[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+impl Default for Osc32KConfig {
+    fn default() -> Self {
+        Self {
+            mode: Osc32KMode::LowPower {
+                coarse_amp_gain: Osc32KCoarseGain::EsrRange0,
+                vbat_exceeds_3v0: true,
+            },
+            vsys_domain_active: true,
+            vdd_core_domain_active: true,
+            vbat_domain_active: true,
         }
     }
 }
@@ -552,11 +665,14 @@ impl Default for ClocksConfig {
                 fro_12m_enabled: true,
                 fro_lf_div: None,
             },
-            #[cfg(feature = "mcxa2xx")]
             fro16k: Some(Fro16KConfig {
                 vsys_domain_active: true,
                 vdd_core_domain_active: true,
+                #[cfg(feature = "mcxa5xx")]
+                vbat_domain_active: true,
             }),
+            #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+            osc32k: None,
             #[cfg(feature = "mcxa2xx")]
             #[cfg(not(feature = "sosc-as-gpio"))]
             sosc: None,
