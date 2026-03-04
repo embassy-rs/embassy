@@ -662,7 +662,7 @@ pub(crate) mod peripheral_gating {
     use paste::paste;
 
     use crate::clocks::Gate;
-    use crate::clocks::periph_helpers::{NoConfig, OsTimerConfig};
+    use crate::clocks::periph_helpers::{Clk1MConfig, NoConfig, OsTimerConfig};
     // use crate::clocks::periph_helpers::{
     //     AdcConfig, CTimerConfig, I3cConfig, Lpi2cConfig, LpspiConfig, LpuartConfig, NoConfig,
     // };
@@ -725,6 +725,9 @@ pub(crate) mod peripheral_gating {
 
     // impl_cc_gate!(LPSPI0, mrcc_glb_acc0, mrcc_glb_rst0, lpspi0, LpspiConfig);
     // impl_cc_gate!(LPSPI1, mrcc_glb_acc0, mrcc_glb_rst0, lpspi1, LpspiConfig);
+
+    impl_cc_gate!(WWDT0, mrcc_glb_acc0, wwdt0, Clk1MConfig);
+    impl_cc_gate!(WWDT1, mrcc_glb_acc0, wwdt1, Clk1MConfig);
 }
 
 pub(crate) mod clock_limits {
