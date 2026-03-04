@@ -2,8 +2,12 @@
 //!
 //! Contains:
 //! - The `speaker` class with a single audio streaming interface (host to device)
+//! - Audio `source` device implementation with isochronous endpoints (device to host)
 
 pub mod speaker;
+
+///Audio `source` module
+pub mod source;
 
 mod class_codes;
 mod terminal_type;
