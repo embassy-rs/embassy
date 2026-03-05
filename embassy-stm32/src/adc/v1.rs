@@ -51,6 +51,11 @@ impl super::SealedSpecialConverter<super::VrefInt> for crate::peripherals::ADC1 
     const CHANNEL: u8 = 17;
 }
 
+#[cfg(adc_l0)]
+impl super::SealedSpecialConverter<super::Temperature> for crate::peripherals::ADC1 {
+    const CHANNEL: u8 = 18;
+}
+
 #[cfg(not(adc_l0))]
 impl super::SealedSpecialConverter<super::Temperature> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 16;
