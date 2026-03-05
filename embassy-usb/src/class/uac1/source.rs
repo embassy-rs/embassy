@@ -1,24 +1,20 @@
-use super::ChannelConfig;
-use super::SampleWidth;
+use core::marker::PhantomData;
+use core::usize;
+
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::pubsub::{PubSubChannel, Publisher, Subscriber};
+use embassy_usb_driver::{EndpointAddress, EndpointIn, EndpointOut};
+use heapless::Vec;
+
 use super::class_codes::*;
 use super::terminal_type::TerminalType;
-
-use crate::Builder;
-use crate::Handler;
+use super::{ChannelConfig, SampleWidth};
 use crate::builder::InterfaceAltBuilder;
 use crate::control::{InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::descriptor::{SynchronizationType, UsageType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointType};
 use crate::types::InterfaceNumber;
-
-use core::marker::PhantomData;
-use core::usize;
-use embassy_sync::{
-    blocking_mutex::raw::CriticalSectionRawMutex,
-    pubsub::{PubSubChannel, Publisher, Subscriber},
-};
-use embassy_usb_driver::{EndpointAddress, EndpointIn, EndpointOut};
-use heapless::Vec;
+use crate::{Builder, Handler};
 
 /// Parameters of the sample rate channel
 const SR_CH_CAP: usize = 4;
@@ -252,7 +248,7 @@ impl<'d, D: Driver<'d>> AudioSource<'d, D> {
         );
 
         debug!(
-            "AudioStream: Audio endpoint allocated: addr={:02x}, type={:?}, max_packet_size={}, interval={} ",
+            "AudioStream: Audio endpoint allocated: addr={:?}, type={:?}, max_packet_size={}, interval={} ",
             audio_in_endpoint.info().addr,
             audio_in_endpoint.info().ep_type,
             audio_in_endpoint.info().max_packet_size,
@@ -268,7 +264,7 @@ impl<'d, D: Driver<'d>> AudioSource<'d, D> {
         );
 
         debug!(
-            "Feedback endpoint allocated: addr={:02x}, type={:?}, max_packet_size={}, interval={}",
+            "Feedback endpoint allocated: addr={:?}, type={:?}, max_packet_size={}, interval={}",
             feedback_in_endpoint.info().addr,
             feedback_in_endpoint.info().ep_type,
             feedback_in_endpoint.info().max_packet_size,
@@ -408,7 +404,7 @@ impl AudioSourceControlHandler {
 
     fn handle_control_in<'r>(&'r mut self, req: Request, data: &'r mut [u8]) -> Option<InResponse<'r>> {
         debug!(
-            "AudioSourceControlHandler::handle_control_in(req:{}, data:{:X})",
+            "AudioSourceControlHandler::handle_control_in(req:{:?}, data:{:?})",
             req, data
         );
 
@@ -475,7 +471,7 @@ impl AudioSourceControlHandler {
 
     fn handle_control_out(&mut self, req: Request, data: &[u8]) -> Option<OutResponse> {
         debug!(
-            "AudioSourceControlHandler:handle_control_out(req:{}, data:{:X}",
+            "AudioSourceControlHandler:handle_control_out(req:{:?}, data:{:?})",
             req, data
         );
 
@@ -539,7 +535,7 @@ impl AudioSourceControlHandler {
         // Only handle class-specific requests for the Audio Control interface
         if req.request_type != RequestType::Class {
             error!(
-                "AudioSourceControlHandler: Unsupported request type: {}",
+                "AudioSourceControlHandler: Unsupported request type: {:?}",
                 req.request_type
             );
             return Some(InResponse::Rejected);
@@ -578,7 +574,7 @@ impl AudioSourceControlHandler {
     fn handle_ep_out(&mut self, req: Request, buf: &[u8]) -> Option<OutResponse> {
         if req.request_type != RequestType::Class {
             error!(
-                "AudioSourceControlHandler: Unsupported request type: {}",
+                "AudioSourceControlHandler: Unsupported request type: {:?}",
                 req.request_type
             );
             return Some(OutResponse::Rejected);
@@ -589,7 +585,7 @@ impl AudioSourceControlHandler {
                 // This is a request from the host to set the current sample rate via the feedback endpoint.
                 if req.index & 0xFF == u8::from(self.ep_audio_addr) as u16 {
                     debug!(
-                        "AudioSourceControlHandler: SET_CUR for endpoint:{:#02X}, data:{:X}",
+                        "AudioSourceControlHandler: SET_CUR for endpoint:{:#02X}, data:{:?}",
                         req.index & 0xFF,
                         buf
                     );
@@ -721,7 +717,7 @@ impl<'d> Handler for AudioSourceControlHandler {
     /// Called when a control request is received with direction HostToDevice.    
     fn control_out(&mut self, req: Request, buf: &[u8]) -> Option<OutResponse> {
         debug!(
-            "AudioSourceControlHandler: USB device control OUT EP({:#02X}): {:X}, Data: {:X}",
+            "AudioSourceControlHandler: USB device control OUT EP({:#02X}): {:?}, Data: {:?}",
             (req.index & 0xFF),
             req,
             buf,
@@ -740,7 +736,7 @@ impl<'d> Handler for AudioSourceControlHandler {
     /// Called when a control request is received with direction DeviceToHost.    
     fn control_in<'a>(&'a mut self, req: Request, buf: &'a mut [u8]) -> Option<InResponse<'a>> {
         debug!(
-            "AudioSourceControlHandler: USB device control IN EP({:#02X}): {:X}, Data: {:X}",
+            "AudioSourceControlHandler: USB device control IN EP({:#02X}): {:?}, Data: {:?}",
             (req.index & 0xFF),
             req,
             buf,

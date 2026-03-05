@@ -6,12 +6,12 @@ use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
-use embassy_stm32::{bind_interrupts, peripherals, Config};
+use embassy_stm32::{Config, bind_interrupts, peripherals};
 use embassy_usb::class::uac1::source::{AudioSource, AudioSourceControlHandler, AudioSourceEpIn};
-use embassy_usb::class::uac1::{self, terminal_type::TerminalType};
+use embassy_usb::class::uac1::terminal_type::TerminalType;
+use embassy_usb::class::uac1::{self};
 use embassy_usb::{Builder, UsbVersion};
 use static_cell::StaticCell;
-
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -31,26 +31,21 @@ static SUPPORTED_SAMPLE_RATES: [u32; 1] = [16_000];
 // Sample rate: 16000 Hz
 // Total bytes: 64
 static SINE_16000HZ_1MS_16BIT_2CH: [u8; 64] = [
-    0xFB, 0x30, 0xFB, 0x30, 0x82, 0x5A, 0x82, 0x5A, 0x41, 0x76, 0x41, 0x76, 0xFF, 0x7F, 0xFF, 0x7F,
-    0x41, 0x76, 0x41, 0x76, 0x82, 0x5A, 0x82, 0x5A, 0xFB, 0x30, 0xFB, 0x30, 0x00, 0x00, 0x00, 0x00,
-    0x05, 0xCF, 0x05, 0xCF, 0x7E, 0xA5, 0x7E, 0xA5, 0xBF, 0x89, 0xBF, 0x89, 0x01, 0x80, 0x01, 0x80,
-    0xBF, 0x89, 0xBF, 0x89, 0x7E, 0xA5, 0x7E, 0xA5, 0x05, 0xCF, 0x05, 0xCF, 0x00, 0x00, 0x00, 0x00,
+    0xFB, 0x30, 0xFB, 0x30, 0x82, 0x5A, 0x82, 0x5A, 0x41, 0x76, 0x41, 0x76, 0xFF, 0x7F, 0xFF, 0x7F, 0x41, 0x76, 0x41,
+    0x76, 0x82, 0x5A, 0x82, 0x5A, 0xFB, 0x30, 0xFB, 0x30, 0x00, 0x00, 0x00, 0x00, 0x05, 0xCF, 0x05, 0xCF, 0x7E, 0xA5,
+    0x7E, 0xA5, 0xBF, 0x89, 0xBF, 0x89, 0x01, 0x80, 0x01, 0x80, 0xBF, 0x89, 0xBF, 0x89, 0x7E, 0xA5, 0x7E, 0xA5, 0x05,
+    0xCF, 0x05, 0xCF, 0x00, 0x00, 0x00, 0x00,
 ];
 
 #[embassy_executor::task()]
 async fn usb_bus(
-    mut usb_device: embassy_usb::UsbDevice<
-        'static,
-        embassy_stm32::usb::Driver<'static, peripherals::USB>,
-    >,
+    mut usb_device: embassy_usb::UsbDevice<'static, embassy_stm32::usb::Driver<'static, peripherals::USB>>,
 ) {
     usb_device.run().await;
 }
 
 #[embassy_executor::task]
-async fn audio_feedback(
-    mut ep_in: AudioSourceEpIn<'static, embassy_stm32::usb::Driver<'static, peripherals::USB>>,
-) {
+async fn audio_feedback(mut ep_in: AudioSourceEpIn<'static, embassy_stm32::usb::Driver<'static, peripherals::USB>>) {
     let feedback_buf = [0x00, 0x00, 0x04]; //sample rate in 3 bytes for 10.14 format
 
     loop {
@@ -74,10 +69,7 @@ async fn audio_feedback(
 
 #[embassy_executor::task]
 async fn sine_wave_gen(
-    mut audio_ep_in: AudioSourceEpIn<
-        'static,
-        embassy_stm32::usb::Driver<'static, peripherals::USB>,
-    >,
+    mut audio_ep_in: AudioSourceEpIn<'static, embassy_stm32::usb::Driver<'static, peripherals::USB>>,
 ) {
     loop {
         audio_ep_in.wait_enabled().await;
@@ -131,8 +123,8 @@ async fn main(spawner: Spawner) {
     // USB config for composite audio device
     let mut usb_cfg = embassy_usb::Config::new(0xc0de, 0xcafe);
     usb_cfg.manufacturer = Some("Embassy");
-    usb_cfg.product = Some("USB Audio Source");   
-   
+    usb_cfg.product = Some("USB Audio Source");
+
     // Standard USB 2.0 full-speed settings
     usb_cfg.max_packet_size_0 = 64;
     usb_cfg.supports_remote_wakeup = false;
