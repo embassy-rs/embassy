@@ -133,7 +133,6 @@ pub struct ClocksConfig {
     #[cfg(not(feature = "sosc-as-gpio"))]
     pub sosc: Option<SoscConfig>,
     /// SPLL
-    #[cfg(feature = "mcxa2xx")]
     pub spll: Option<SpllConfig>,
 }
 
@@ -294,7 +293,6 @@ pub enum MainClockSource {
     #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
     RoscOsc32K,
     /// Clock derived from `pll1_clk`, via the internal PLL
-    #[cfg(feature = "mcxa2xx")]
     SPll1,
 }
 
@@ -352,6 +350,7 @@ pub enum SpllSource {
     /// Fast Internal Oscillator (45MHz)
     // NOTE: Figure 69 says "firc_45mhz"/"clk_45m", not "fro_hf_gated",
     // so this is is always 45MHz.
+    #[cfg(feature = "mcxa2xx")]
     Firc,
     /// S Internal Oscillator (12M)
     Sirc,
@@ -673,7 +672,6 @@ impl Default for ClocksConfig {
             osc32k: None,
             #[cfg(not(feature = "sosc-as-gpio"))]
             sosc: None,
-            #[cfg(feature = "mcxa2xx")]
             spll: None,
         }
     }

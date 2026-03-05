@@ -305,7 +305,6 @@ pub enum CTimerClockSel {
     /// clk_1m/FRO_LF divided by 12
     Clk1M,
     /// Internal PLL output, with configurable divisor
-    #[cfg(feature = "mcxa2xx")]
     Pll1ClkDiv,
     /// Disabled
     None,
@@ -399,10 +398,16 @@ impl SPConfHelper for CTimerConfig {
 
                 (freq, mux)
             }
-            #[cfg(feature = "mcxa2xx")]
             CTimerClockSel::Pll1ClkDiv => {
                 let freq = clocks.ensure_pll1_clk_div_active(&self.power)?;
-                (freq, CtimerClkselMux::CLKROOT_FUNC_6)
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = CtimerClkselMux::CLKROOT_FUNC_6;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = CtimerClkselMux::I6_CLKROOT_SPLL_DIV;
+
+                (freq, mux)
             }
             CTimerClockSel::None => {
                 // no ClkrootFunc7, just write manually for now
