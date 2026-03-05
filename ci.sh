@@ -83,6 +83,5 @@ rm out/tests/stm32h563zi/usart_dma
 rm -rf out/tests/stm32c071rb
 rm -rf out/tests/stm32f100rd
 rm -rf out/tests/stm32f107vc
-rm -rf out/tests/stm32wba65ri
 
 teleprobe client run -r out/tests
