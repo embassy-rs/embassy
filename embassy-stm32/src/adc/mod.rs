@@ -341,11 +341,16 @@ impl<'d, T: Instance> Adc<'d, T> {
         _trigger: impl RegularTrigger<T>,
         #[cfg(any(adc_v2, adc_g4))] edge: Exten,
     ) -> RingBufferedAdc<'a, T> {
+        let sequence_len = sequence.len();
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
-        assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
+        assert!(sequence_len != 0, "Asynchronous read sequence cannot be empty");
         assert!(
-            sequence.len() <= 16,
+            sequence_len <= 16,
             "Asynchronous read sequence cannot be more than 16 in length"
+        );
+        assert!(
+            dma_buf.len() % sequence_len == 0,
+            "DMA buffer length must be a multiple of the scan sequence length"
         );
         // Ensure no conversions are ongoing
         T::regs().stop();
@@ -370,7 +375,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         core::mem::forget(self);
 
-        RingBufferedAdc::new(dma, irq, dma_buf)
+        RingBufferedAdc::new(dma, irq, dma_buf, sequence_len)
     }
 }
 

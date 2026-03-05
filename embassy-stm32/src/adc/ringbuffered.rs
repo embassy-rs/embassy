@@ -25,6 +25,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
         dma: Peri<'d, D>,
         irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         dma_buf: &'d mut [u16],
+        sequence_len: usize,
     ) -> Self {
         // DMA side setup - configuration differs between DMA/BDMA and GPDMA
         // For DMA/BDMA: use circular mode via TransferOptions
@@ -45,8 +46,12 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
         // Safety: we forget the struct before this function returns.
         let request = dma.request();
 
-        let ring_buf =
+        let mut ring_buf =
             unsafe { ReadableRingBuffer::new(Channel::new(dma, irq), request, T::regs().data(), dma_buf, opts) };
+
+        // Align reads to the scan sequence boundary so that channel assignments
+        // never shift after an overrun recovery.
+        ring_buf.set_alignment(sequence_len);
 
         Self {
             _phantom: PhantomData,
