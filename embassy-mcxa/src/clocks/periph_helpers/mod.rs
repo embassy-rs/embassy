@@ -297,7 +297,6 @@ pub enum CTimerClockSel {
     #[cfg(feature = "mcxa2xx")]
     FroHfDiv,
     /// SOSC/XTAL/EXTAL clock source
-    #[cfg(feature = "mcxa2xx")]
     #[cfg(not(feature = "sosc-as-gpio"))]
     ClkIn,
     /// FRO16K/clk_16k source
@@ -375,7 +374,14 @@ impl SPConfHelper for CTimerConfig {
             #[cfg(not(feature = "sosc-as-gpio"))]
             CTimerClockSel::ClkIn => {
                 let freq = clocks.ensure_clk_in_active(&self.power)?;
-                (freq, CtimerClkselMux::CLKROOT_FUNC_3)
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = CtimerClkselMux::CLKROOT_FUNC_3;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = CtimerClkselMux::I3_CLKROOT_SOSC;
+
+                (freq, mux)
             }
             #[cfg(feature = "mcxa2xx")]
             CTimerClockSel::Clk16K => {
