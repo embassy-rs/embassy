@@ -50,12 +50,12 @@ use periph_helpers::{PreEnableParts, SPConfHelper};
 use crate::chips::{ClockLimits, clock_limits};
 use crate::pac;
 use crate::pac::cmc::vals::CkctrlCkmode;
+use crate::pac::scg::vals::{Erefs, Range, Scs, SirccsrLk, Sircerr, Sircvld, SosccsrLk, Soscerr};
 #[cfg(feature = "mcxa2xx")]
 use crate::pac::scg::vals::{
-    Fircacc, FircaccIe, FirccsrLk, Fircerr, FircerrIe, Fircsten, Fircvld, FreqSel,
-    Source, SpllLock, SpllcsrLk, Spllerr, Spllsten, TrimUnlock,
+    Fircacc, FircaccIe, FirccsrLk, Fircerr, FircerrIe, Fircsten, Fircvld, FreqSel, Source, SpllLock, SpllcsrLk,
+    Spllerr, Spllsten, TrimUnlock,
 };
-use crate::pac::scg::vals::{Scs, SirccsrLk, Sircerr, Sircvld, SosccsrLk, Soscerr, Range, Erefs};
 use crate::pac::spc::vals::{
     ActiveCfgBgmode, ActiveCfgCoreldoVddDs, ActiveCfgCoreldoVddLvl, LpCfgBgmode, LpCfgCoreldoVddLvl, Vsm,
 };

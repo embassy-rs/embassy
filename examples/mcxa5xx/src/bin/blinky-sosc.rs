@@ -6,7 +6,8 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_mcxa::clocks::{PoweredClock, config::{MainClockSource, SoscConfig, SoscMode}};
+use embassy_mcxa::clocks::PoweredClock;
+use embassy_mcxa::clocks::config::{MainClockSource, SoscConfig, SoscMode};
 use embassy_time::Timer;
 use hal::gpio::{DriveStrength, Level, Output, SlewRate};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
