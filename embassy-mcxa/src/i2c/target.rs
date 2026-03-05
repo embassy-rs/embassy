@@ -528,6 +528,7 @@ impl<'d> I2c<'d, Async> {
     }
 }
 
+#[cfg(feature = "mcxa2xx")]
 impl<'d> I2c<'d, Dma<'d>> {
     /// Create a new async instance of the I2C Controller bus driver with DMA support.
     ///
@@ -860,6 +861,7 @@ impl<'d> AsyncEngine for I2c<'d, Async> {
     }
 }
 
+#[cfg(feature = "mcxa2xx")]
 impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
     async fn async_respond_to_read_internal(&mut self, buf: &[u8]) -> Result<usize, IOError> {
         let mut count = 0;

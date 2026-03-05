@@ -19,7 +19,7 @@ async fn main(_spawner: Spawner) {
     let mut config = controller::Config::default();
     config.speed = Speed::Standard;
 
-    let mut i2c = I2c::new_blocking(p.LPI2C2, p.P1_9, p.P1_8, config).unwrap();
+    let mut i2c = I2c::new_blocking(p.LPI2C3, p.P3_21, p.P3_20, config).unwrap();
 
     for addr in 0x01..=0x7f {
         let result = i2c.blocking_write(addr, &[]);

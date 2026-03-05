@@ -727,6 +727,7 @@ impl<'d> AsyncEngine for I2c<'d, Async> {
     }
 }
 
+#[cfg(feature = "mcxa2xx")]
 impl<'d> I2c<'d, Dma<'d>> {
     /// Create a new async instance of the I2C Controller bus driver with DMA support.
     ///
@@ -768,6 +769,7 @@ impl<'d> I2c<'d, Dma<'d>> {
     }
 }
 
+#[cfg(feature = "mcxa2xx")]
 impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
     async fn async_read_internal(&mut self, address: u8, read: &mut [u8], send_stop: SendStop) -> Result<(), IOError> {
         if read.is_empty() {
