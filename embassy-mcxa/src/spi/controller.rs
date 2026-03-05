@@ -722,7 +722,7 @@ impl<'d> Spi<'d, Dma<'d>> {
 
         let rx_transfer = core::future::poll_fn(|cx| {
             self.mode.rx_dma.waker().register(cx.waker());
-            if self.mode.tx_dma.is_done() {
+            if self.mode.rx_dma.is_done() {
                 core::task::Poll::Ready(())
             } else {
                 core::task::Poll::Pending
