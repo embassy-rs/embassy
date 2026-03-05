@@ -372,7 +372,6 @@ impl SPConfHelper for CTimerConfig {
                 let freq = clocks.ensure_fro_hf_div_active(&self.power)?;
                 (freq, CtimerClkselMux::CLKROOT_FUNC_1)
             }
-            #[cfg(feature = "mcxa2xx")]
             #[cfg(not(feature = "sosc-as-gpio"))]
             CTimerClockSel::ClkIn => {
                 let freq = clocks.ensure_clk_in_active(&self.power)?;
