@@ -52,10 +52,10 @@ use crate::pac;
 use crate::pac::cmc::vals::CkctrlCkmode;
 #[cfg(feature = "mcxa2xx")]
 use crate::pac::scg::vals::{
-    Erefs, Fircacc, FircaccIe, FirccsrLk, Fircerr, FircerrIe, Fircsten, Fircvld, FreqSel, Range, SosccsrLk, Soscerr,
+    Fircacc, FircaccIe, FirccsrLk, Fircerr, FircerrIe, Fircsten, Fircvld, FreqSel,
     Source, SpllLock, SpllcsrLk, Spllerr, Spllsten, TrimUnlock,
 };
-use crate::pac::scg::vals::{Scs, SirccsrLk, Sircerr, Sircvld};
+use crate::pac::scg::vals::{Scs, SirccsrLk, Sircerr, Sircvld, SosccsrLk, Soscerr, Range, Erefs};
 use crate::pac::spc::vals::{
     ActiveCfgBgmode, ActiveCfgCoreldoVddDs, ActiveCfgCoreldoVddLvl, LpCfgBgmode, LpCfgCoreldoVddLvl, Vsm,
 };
@@ -132,7 +132,6 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
     #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
     operator.configure_osc32k_clocks()?;
 
-    #[cfg(feature = "mcxa2xx")]
     #[cfg(not(feature = "sosc-as-gpio"))]
     operator.configure_sosc()?;
     #[cfg(feature = "mcxa2xx")]
@@ -307,7 +306,6 @@ unsafe fn restart_active_only_clocks(_cs: &CriticalSection) {
     }
 
     // Ensure SOSC is up and running
-    #[cfg(feature = "mcxa2xx")]
     #[cfg(not(feature = "sosc-as-gpio"))]
     if let Some(clk_in) = clocks.clk_in.as_ref()
         && !matches!(clk_in.power, PoweredClock::AlwaysEnabled)
@@ -401,7 +399,6 @@ pub struct Clocks {
 
     /// The `clk_in` is a clock provided by an external oscillator
     /// AKA SOSC
-    #[cfg(feature = "mcxa2xx")]
     #[cfg(not(feature = "sosc-as-gpio"))]
     pub clk_in: Option<Clock>,
 
@@ -800,7 +797,6 @@ impl Clocks {
     }
 
     /// Ensure the `clk_in` clock is active and valid at the given power state.
-    #[cfg(feature = "mcxa2xx")]
     #[cfg(not(feature = "sosc-as-gpio"))]
     #[inline]
     pub fn ensure_clk_in_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
@@ -1576,7 +1572,6 @@ impl ClockOperator<'_> {
         Ok(())
     }
 
-    #[cfg(feature = "mcxa2xx")]
     fn ensure_ldo_active(&mut self, for_clock: &'static str, for_power: &PoweredClock) -> Result<(), ClockError> {
         let bg_good = match for_power {
             PoweredClock::NormalEnabledDeepSleepDisabled => self.clocks.bandgap_active,
@@ -1607,7 +1602,6 @@ impl ClockOperator<'_> {
     }
 
     /// Configure the SOSC/clk_in oscillator
-    #[cfg(feature = "mcxa2xx")]
     #[cfg(not(feature = "sosc-as-gpio"))]
     fn configure_sosc(&mut self) -> Result<(), ClockError> {
         let Some(parts) = self.config.sosc.as_ref() else {
@@ -2091,7 +2085,6 @@ impl ClockOperator<'_> {
 
     fn configure_main_clk(&mut self) -> Result<(), ClockError> {
         let (var, name, clk) = match self.config.main_clock.source {
-            #[cfg(feature = "mcxa2xx")]
             #[cfg(not(feature = "sosc-as-gpio"))]
             MainClockSource::SoscClkIn => (Scs::SOSC, "clk_in", self.clocks.clk_in.as_ref()),
             MainClockSource::SircFro12M => (Scs::SIRC, "fro_12m", self.clocks.fro_12m.as_ref()),

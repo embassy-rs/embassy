@@ -130,7 +130,6 @@ pub struct ClocksConfig {
     /// SOSC, clk_in clock source
     ///
     /// NOTE: Requires `sosc-as-gpio` feature disabled, which also disables GPIO access to P1_30 and P1_31
-    #[cfg(feature = "mcxa2xx")]
     #[cfg(not(feature = "sosc-as-gpio"))]
     pub sosc: Option<SoscConfig>,
     /// SPLL
@@ -281,7 +280,6 @@ pub enum MainClockSource {
     /// Clock derived from `clk_in`, via the external oscillator (8-50MHz)
     ///
     /// NOTE: Requires `sosc-as-gpio` feature disabled, which also disables GPIO access to P1_30 and P1_31
-    #[cfg(feature = "mcxa2xx")]
     #[cfg(not(feature = "sosc-as-gpio"))]
     SoscClkIn,
     /// Clock derived from `fro_12m`, via the internal 12MHz oscillator (12MHz)
@@ -673,7 +671,6 @@ impl Default for ClocksConfig {
             }),
             #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
             osc32k: None,
-            #[cfg(feature = "mcxa2xx")]
             #[cfg(not(feature = "sosc-as-gpio"))]
             sosc: None,
             #[cfg(feature = "mcxa2xx")]
