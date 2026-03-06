@@ -2,31 +2,27 @@
 // Provides hashing, AES encryption/decryption, and HMAC primitives.
 // Currently focused on hashing (SHA-384 and SHA-512) use cases, with AES and HMAC planned for future additions.
 
-pub use super::hash as hash;
-
-use self::hash::HashOptions;
-pub use hash::{
-    HashMode, HashOptions as SgiHashOptions, HashSize, MAX_BLOCK_SIZE, SGI_HASH_OUTPUT_SIZE,
-    SGI_SHA2_CTRL_AUTO_INIT, SGI_SHA2_CTRL_HASH_RELOAD, SGI_SHA2_CTRL_MODE_AUTO, SGI_SHA2_CTRL_MODE_NORMAL,
-    SGI_SHA2_CTRL_NO_AUTO_INIT, SGI_SHA2_CTRL_NO_HASH_RELOAD, SGI_SHA2_CTRL_SIZE_SHA384, SGI_SHA2_CTRL_SIZE_SHA512,
-    SGIHasher,
-};
-use embassy_time::Instant;
-
 use core::future::poll_fn;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
 
-use embassy_sync::waitqueue::AtomicWaker;
-
-use crate::dma::{DmaChannel, Transfer, TransferOptions};
 use embassy_hal_internal::Peri;
-use crate::clocks::{enable_and_reset, ClockError, WakeGuard};
+use embassy_sync::waitqueue::AtomicWaker;
+use embassy_time::Instant;
+pub use hash::{
+    HashMode, HashOptions as SgiHashOptions, HashSize, MAX_BLOCK_SIZE, SGI_HASH_OUTPUT_SIZE, SGI_SHA2_CTRL_AUTO_INIT,
+    SGI_SHA2_CTRL_HASH_RELOAD, SGI_SHA2_CTRL_MODE_AUTO, SGI_SHA2_CTRL_MODE_NORMAL, SGI_SHA2_CTRL_NO_AUTO_INIT,
+    SGI_SHA2_CTRL_NO_HASH_RELOAD, SGI_SHA2_CTRL_SIZE_SHA384, SGI_SHA2_CTRL_SIZE_SHA512, SGIHasher,
+};
+
+use self::hash::HashOptions;
+pub use super::hash;
 use crate::clocks::periph_helpers::Clk1MConfig;
-use crate::interrupt;
+use crate::clocks::{ClockError, WakeGuard, enable_and_reset};
+use crate::dma::{DmaChannel, Transfer, TransferOptions};
 use crate::interrupt::typelevel::Interrupt as _;
-use crate::peripherals;
 use crate::pac::sgi as pac_sgi;
+use crate::{interrupt, peripherals};
 
 mod sealed {
     pub trait SealedInstance {}
@@ -345,7 +341,7 @@ impl<'d> Sgi<'d> {
     pub fn is_sha2_fifo_full(&self) -> bool {
         self.status().sha_fifo_full()
     }
- 
+
     /// Fills SHAFIFO register using CPU writes in auto mode, with busy-waiting for FIFO availability.
     pub fn fill_sha2_fifo_auto(&mut self, data: &[u8], length: usize) -> Result<(), SGIError> {
         for chunk in data[..length].chunks_exact(4) {
@@ -371,7 +367,7 @@ impl<'d> Sgi<'d> {
             return Err(SGIError::InvalidSize);
         }
 
-        // Destination is SHAFIFO (32-bit). If the source buffer is not word aligned, we need smaller transfers and the mux 
+        // Destination is SHAFIFO (32-bit). If the source buffer is not word aligned, we need smaller transfers and the mux
         // will handle byte/halfword packing, but this is less efficient. Warn about it since it may indicate a usage issue.
         let align_addr = data.as_ptr() as usize;
         if (align_addr % 4) != 0 {
@@ -406,7 +402,7 @@ impl<'d> Sgi<'d> {
         Ok(transfer)
     }
 
-    /// Checks for SGI peripheral errors (SHA2, key read, key unwrap). This should be called after checking that the operation is done, 
+    /// Checks for SGI peripheral errors (SHA2, key read, key unwrap). This should be called after checking that the operation is done,
     /// since some errors only get latched/reported once busy is de-asserted. Clears any errors after reading.
     pub fn sgi_operation_error(&self) -> Result<(), SGIError> {
         let status = self.status();
@@ -422,7 +418,7 @@ impl<'d> Sgi<'d> {
         Ok(())
     }
 
-    /// SGI instance error (encompasses internal (e.g. PRNG) errors and usage errors like invalid commands or data). 
+    /// SGI instance error (encompasses internal (e.g. PRNG) errors and usage errors like invalid commands or data).
     pub fn sgi_error(&self) -> Result<(), SGIError> {
         let status = self.status();
         if status.error() != pac_sgi::vals::Error::NO_ERROR {
@@ -432,7 +428,7 @@ impl<'d> Sgi<'d> {
         Ok(())
     }
 
-    /// SGI status busy bit indicates the peripheral is currently processing data and cannot accept new commands or data. 
+    /// SGI status busy bit indicates the peripheral is currently processing data and cannot accept new commands or data.
     /// This is independent from the SHA2 busy bit, which specifically indicates the hash engine is active.
     pub fn is_busy(&self) -> bool {
         self.status().busy()
@@ -569,13 +565,13 @@ impl<'d> Sgi<'d> {
         .await;
         res
     }
- 
+
     /// Clears SGI errors by flushing the registers.
     pub fn clear_errors(&self) {
         self.periph.sgi_ctrl2().write(|w| w.set_flush((true as u8).into()));
     }
 
-    /// Issue stop command to halt the SHA2 operation. 
+    /// Issue stop command to halt the SHA2 operation.
     pub fn sgi_stop_sha2_cmd(&self) {
         self.periph
             .sgi_sha2_ctrl()
@@ -659,7 +655,7 @@ impl<'d> Sgi<'d> {
         self.sgi_byte_order_big(true)?; // SHA output is always in big-endian order, so set byte order accordingly for reading the output hash.
 
         if self.sgi_operation_error().is_err() {
-            self.clear_errors(); 
+            self.clear_errors();
             return Err(SGIError::ShaError);
         }
         if self.sgi_error().is_err() {
@@ -690,7 +686,7 @@ impl<'d> Sgi<'d> {
         options.op_mode = SGI_SHA2_CTRL_MODE_NORMAL;
         options.reload = SGI_SHA2_CTRL_HASH_RELOAD; // Set reload bit for hash reload operation
         options.init = SGI_SHA2_CTRL_NO_AUTO_INIT; // Clear auto init bit for hash reload operation, since we are providing the hash state to be reloaded and don't want SGI to overwrite it with IV.
-        
+
         if prev_hash_result.len() != SGI_HASH_OUTPUT_SIZE as usize {
             return Err(SGIError::InvalidSize);
         }

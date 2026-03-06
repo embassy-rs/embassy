@@ -24,7 +24,6 @@ pub const SGI_SHA2_CTRL_NO_HASH_RELOAD: u32 = 0 << 13;
 pub const SGI_SHA2_CTRL_NO_AUTO_INIT: u32 = 1 << 15;
 pub const SGI_SHA2_CTRL_AUTO_INIT: u32 = 0 << 15;
 
-
 use crate::dma::{DmaChannel, Transfer};
 
 const SHA384_DIGEST_LEN: usize = 48;
@@ -385,14 +384,12 @@ fn process_single_block_update<'d>(hasher: &mut SGIHasher, sgi: &mut Sgi<'d>, in
         hasher.ctx.curr_block_ptr += input_len;
         hasher.ctx.curr_block_ptr = hasher.ctx.curr_block_ptr % MAX_BLOCK_SIZE; // Wrap around if we exceed block size, but we won't process until we have a full block;
         return Ok(()); // Wait until we have a full block before processing
-
     } else if hasher.ctx.curr_block_ptr + input_len > MAX_BLOCK_SIZE {
         let space_left = MAX_BLOCK_SIZE - hasher.ctx.curr_block_ptr;
         hasher.ctx.curr_block[hasher.ctx.curr_block_ptr..].copy_from_slice(&input[..space_left]);
         write_bytes = input_len - space_left;
         overflows_block = true;
         hasher.ctx.curr_block_ptr = 0; // Reset pointer for the next block
-
     } else if hasher.ctx.curr_block_ptr + input_len == MAX_BLOCK_SIZE {
         hasher.ctx.curr_block[hasher.ctx.curr_block_ptr..hasher.ctx.curr_block_ptr + input_len].copy_from_slice(input);
         hasher.ctx.curr_block_ptr = 0; // Reset pointer for the next block
@@ -400,7 +397,6 @@ fn process_single_block_update<'d>(hasher: &mut SGIHasher, sgi: &mut Sgi<'d>, in
 
     if hasher.ctx.first_block {
         hasher.ctx.first_block = false;
-        
     } else {
         hasher.ctx.options.init = SGI_SHA2_CTRL_NO_AUTO_INIT;
         sgi.sgi_hash_reload(hasher.ctx.options, &hasher.ctx.prev_result)?; // Load the previous hash state into SGI for the current block
@@ -446,7 +442,7 @@ impl SGIHasher {
         self.ctx.options.hash_mode = hash_size.to_sgi_sha2_size();
 
         let mode = hash_mode.unwrap_or(HashMode::Normal);
-        
+
         self.ctx.options.op_mode = mode.to_sgi_op_mode();
         self.ctx.options.init = SGI_SHA2_CTRL_AUTO_INIT;
         self.ctx.options.reload = SGI_SHA2_CTRL_NO_HASH_RELOAD;
@@ -469,7 +465,7 @@ impl SGIHasher {
             let mut copy_buffer = [0u8; MAX_BLOCK_SIZE * 4]; // Temporary buffer to hold chunks of the input that fit within the block size, max 512 bytes.
             let curr_op_mode = self.ctx.options.op_mode;
             self.ctx.options.op_mode = SGI_SHA2_CTRL_MODE_AUTO; // Switch to auto mode for large inputs that exceed block size, since normal mode can only handle one block at a time
-            
+
             let copy_len = if input_len + self.ctx.curr_block_ptr > copy_buffer.len() {
                 copy_buffer.len()
             } else {
@@ -488,7 +484,7 @@ impl SGIHasher {
             self.ctx.processed_len += copy_len;
             let unprocessed_input_len = input_len - (copy_len - self.ctx.curr_block_ptr); // Calculate how much input is left after processing the copy buffer
             self.ctx.curr_block_ptr = unprocessed_input_len; // Set the current block pointer to the remaining unprocessed input length.
-            
+
             #[cfg(feature = "defmt")]
             defmt::info!(
                 "Processed {=usize} bytes in auto mode, {=usize} bytes remain unprocessed in current block buffer",
@@ -509,7 +505,7 @@ impl SGIHasher {
 
         let mut hash_buffer = [0u8; MAX_FINAL_BUFFER_SIZE]; // Buffer to hold the final block with padding, max size is 256 bytes to accommodate padding
         let remaining_data_len = self.ctx.total_len - self.ctx.processed_len;
-        
+
         if remaining_data_len > 0 {
             if remaining_data_len > MAX_BLOCK_SIZE {
                 return Err(SGIError::InvalidSize); // Can't have more than 128 bytes of unprocessed data for SHA-384/512, since that's the block size
@@ -519,11 +515,11 @@ impl SGIHasher {
         }
 
         let final_block_len = calculate_padded_length(self.ctx.total_len) - self.ctx.processed_len; // Calculate how many bytes are in the final block (including padding)
-        
+
         if remaining_data_len > final_block_len {
             return Err(SGIError::InvalidSize); // Remaining data can't exceed the final block length, otherwise we would need to process another block before finalizing
         }
-        
+
         #[cfg(feature = "defmt")]
         defmt::info!(
             "Final block length (including padding): {=usize}, remaining data length: {=usize}, ctx.total_len: {=usize}, ctx.processed_len: {=usize}",
@@ -532,11 +528,11 @@ impl SGIHasher {
             self.ctx.total_len,
             self.ctx.processed_len
         );
-        
+
         if final_block_len > MAX_FINAL_BUFFER_SIZE {
             return Err(SGIError::InvalidSize); // Final block cannot be larger than 144 bytes, any less fits in a block and any more would exceed the max padding size for a final block.
         }
-        
+
         let digest_len = required_digest_len(self.ctx.options.hash_mode)?;
         if hash_result.len() < digest_len {
             return Err(SGIError::BufferTooSmall);
@@ -552,16 +548,12 @@ impl SGIHasher {
             MAX_BLOCK_SIZE
         } else {
             final_block_len
-        }; 
-        
+        };
+
         // In NORMAL mode we can only process 128 bytes at a time, in AUTO mode we can process the entire final block at once, even if it's larger than 128 bytes.
-       
+
         let passes = if self.ctx.options.op_mode == SGI_SHA2_CTRL_MODE_NORMAL {
-            if final_block_len > MAX_BLOCK_SIZE {
-                2
-            } else {
-                1
-            }
+            if final_block_len > MAX_BLOCK_SIZE { 2 } else { 1 }
         } else {
             1
         };
@@ -571,7 +563,7 @@ impl SGIHasher {
         } else {
             final_block_len
         }; // In AUTO mode we process the entire final block at once, so we don't have any remaining data to process after the first pass.
-        
+
         #[cfg(feature = "defmt")]
         defmt::info!(
             "Final block will be processed in {=usize} pass(es) with FIFO range [{=usize}..{=usize}] in mode {=u32} with len {=usize}",
@@ -589,10 +581,10 @@ impl SGIHasher {
         // So if we have more than 128 bytes in the final block (which can happen if we have a lot of remaining data plus padding),
         // we need to process it in two steps: first fill the FIFO with the initial part of the final block (up to 128 bytes) and start the hash,
         // then fill the FIFO with the remaining part of the final block and continue.
-        
+
         for _ in 0..passes {
             sgi.wait_until_sha2_not_busy()?;
-            
+
             if self.ctx.processed_len >= MAX_BLOCK_SIZE {
                 // At least one block has already been processed; reload the hash state for the final block.
                 // Ensure we continue from the reloaded state; do not auto-init after reload.
