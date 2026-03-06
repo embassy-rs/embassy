@@ -63,6 +63,8 @@ pub mod rtc;
 #[cfg(mcxa_rtc2xx)]
 #[path = "rtc/mcxa2xx.rs"]
 pub mod rtc;
+#[cfg(mcxa_sgi)]
+pub mod sgi;
 #[cfg(mcxa_lpspi)]
 pub mod spi;
 #[cfg(mcxa_trng)]
