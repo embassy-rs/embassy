@@ -82,7 +82,7 @@ async fn main(_spawner: Spawner) {
     }
 
     for _ in 0..3 {
-        hasher.update(&mut sgi, &input_data[index..index + 64]).unwrap();
+        hasher.update(&mut sgi, &input_data[index..index + 50]).unwrap();
         index += 50; // doing less than a full block.
     }
 
