@@ -659,7 +659,13 @@ pub fn disable<T: RccPeripheral>() {
 /// This should only be called after `init`.
 #[cfg(not(feature = "_dual-core"))]
 pub fn reinit(config: Config, _rcc: &'_ mut crate::Peri<'_, crate::peripherals::RCC>) {
-    critical_section::with(|cs| init_rcc(cs, config))
+    critical_section::with(|cs| {
+        init_rcc(cs, config);
+
+        // must be after rcc init
+        #[cfg(feature = "_time-driver")]
+        crate::time_driver::init(cs);
+    })
 }
 
 #[cfg(feature = "low-power")]
