@@ -190,7 +190,12 @@ async fn main(spawner: Spawner) {
                     state.notifications_enabled = false; // Reset on new connection
                 }
                 GapEvent::Disconnected { handle, reason } => {
-                    info!("Disconnected: handle 0x{:04X}, reason 0x{:02X}", handle.0, reason);
+                    info!(
+                        "Disconnected: handle 0x{:04X}, reason 0x{:02X} ({})",
+                        handle.0,
+                        reason.as_u8(),
+                        Display2Format(&reason)
+                    );
                     state.current_conn_handle = None;
                     state.notifications_enabled = false;
 

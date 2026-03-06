@@ -1,9 +1,9 @@
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::Ordering::Relaxed;
 
+use ::sdio::sdio::CCCR_INT_ENABLE;
 use aligned::{A4, Aligned};
 use embassy_futures::select::{Either4, select4};
-use embassy_hal_internal::aligned::AsMutAligned;
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::LinkState;
 use embassy_time::Duration;
@@ -18,7 +18,7 @@ use crate::ioctl::{IoctlState, IoctlType, PendingIoctl};
 pub use crate::spi::SpiBusCyw43;
 use crate::structs::*;
 use crate::util::try_until;
-use crate::{Chip, ChipId, Core, MTU, WithContext, events, sdio};
+use crate::{Chip, ChipId, Core, MTU, WithContext, events};
 
 #[cfg(feature = "firmware-logs")]
 struct LogState {
@@ -45,22 +45,16 @@ pub(crate) enum BusType {
     Sdio,
 }
 
-pub(crate) enum BusConfig<'a> {
-    #[allow(dead_code)]
-    Spi(&'a ()),
-    Sdio(&'a sdio::Config),
-}
-
 pub(crate) trait SealedBus {
     const TYPE: BusType;
     type Config;
 
-    async fn init<'a>(&mut self, bluetooth: bool, config: &'a Self::Config) -> crate::Result<BusConfig<'a>>;
+    async fn init<'a>(&mut self, bluetooth: bool, config: &'a Self::Config) -> crate::Result<()>;
     async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()>;
     /// The first 4 bytes of this buffer are reserved for the cmd word
     async fn wlan_write(&mut self, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()>;
-    async fn bp_read(&mut self, addr: u32, data: &mut [u8]) -> crate::Result<()>;
-    async fn bp_write(&mut self, addr: u32, data: &[u8]) -> crate::Result<()>;
+    async fn bp_read(&mut self, addr: u32, data: &mut [u8], buf: &mut Aligned<A4, [u8]>) -> crate::Result<()>;
+    async fn bp_write(&mut self, addr: u32, data: &[u8], buf: &mut Aligned<A4, [u8]>) -> crate::Result<()>;
     async fn bp_read8(&mut self, addr: u32) -> u8;
     async fn bp_write8(&mut self, addr: u32, val: u8);
     async fn bp_read16(&mut self, addr: u32) -> u16;
@@ -69,13 +63,13 @@ pub(crate) trait SealedBus {
     #[allow(unused)]
     async fn bp_read32(&mut self, addr: u32) -> u32;
     async fn bp_write32(&mut self, addr: u32, val: u32);
-    async fn read8(&mut self, func: u32, addr: u32) -> u8;
-    async fn write8(&mut self, func: u32, addr: u32, val: u8);
-    async fn read16(&mut self, func: u32, addr: u32) -> u16;
-    async fn write16(&mut self, func: u32, addr: u32, val: u16);
-    async fn read32(&mut self, func: u32, addr: u32) -> u32;
+    async fn read8(&mut self, func: u8, addr: u32) -> u8;
+    async fn write8(&mut self, func: u8, addr: u32, val: u8);
+    async fn read16(&mut self, func: u8, addr: u32) -> u16;
+    async fn write16(&mut self, func: u8, addr: u32, val: u16);
+    async fn read32(&mut self, func: u8, addr: u32) -> u32;
     #[allow(unused)]
-    async fn write32(&mut self, func: u32, addr: u32, val: u32);
+    async fn write32(&mut self, func: u8, addr: u32, val: u32);
     async fn wait_for_event(&mut self);
 
     fn bus_type(&self) -> BusType {
@@ -103,15 +97,23 @@ async fn wake_bus(bus: &mut impl Bus) -> crate::Result<()> {
     Ok(())
 }
 
-async fn wlan_read(bus: &mut impl Bus, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()> {
-    wake_bus(bus).await?;
-    bus.wlan_read(buf).await.ctx("wlan_read failed")
+async fn wlan_read(
+    bus: &mut impl Bus,
+    buf: &mut Aligned<A4, [u8]>,
+    wake: bool,
+    start: usize,
+    len: usize,
+) -> crate::Result<()> {
+    if wake {
+        wake_bus(bus).await?;
+    }
+    bus.wlan_read(&mut buf[start..][..len]).await.ctx("wlan_read failed")
 }
 
 /// The first 4 bytes of this buffer are reserved for the cmd word
-async fn wlan_write(bus: &mut impl Bus, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()> {
+async fn wlan_write(bus: &mut impl Bus, buf: &mut Aligned<A4, [u8]>, len: usize) -> crate::Result<()> {
     wake_bus(bus).await?;
-    bus.wlan_write(buf).await.ctx("wlan_write failed")
+    bus.wlan_write(&mut buf[..4 + len]).await.ctx("wlan_write failed")
 }
 
 /// Driver communicating with the WiFi chip.
@@ -169,14 +171,21 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         }
     }
 
-    async fn verify_download(&mut self, label: &str, addr: u32, data: &[u8]) -> crate::Result<()> {
+    async fn verify_download(
+        &mut self,
+        label: &str,
+        addr: u32,
+        data: &[u8],
+        buf: &mut Aligned<A4, [u8]>,
+    ) -> crate::Result<()> {
         async fn bp_read_bytes<BUS: Bus, const N: usize>(
             bus: &mut BUS,
             addr: u32,
+            buf: &mut Aligned<A4, [u8]>,
         ) -> crate::Result<Aligned<A4, [u8; N]>> {
-            let mut buf = Aligned([0; N]);
-            bus.bp_read(addr, &mut buf[..]).await?;
-            Ok(buf)
+            let mut data = Aligned([0; N]);
+            bus.bp_read(addr, &mut data[..], buf).await?;
+            Ok(data)
         }
 
         fn sample_checksum(data: &[u8]) -> u32 {
@@ -207,7 +216,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         }
 
         for &offset in &offsets[..offset_count] {
-            let actual = bp_read_bytes::<BUS, SAMPLE_LEN>(&mut self.bus, addr + offset as u32).await?;
+            let actual = bp_read_bytes::<BUS, SAMPLE_LEN>(&mut self.bus, addr + offset as u32, buf).await?;
             let expected = &data[offset..offset + SAMPLE_LEN];
             let ok = &actual[..] == expected;
             debug!(
@@ -236,7 +245,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         ] {
             let mut actual: Aligned<A4, [u8; CHECKSUM_LEN]> = Aligned([0; CHECKSUM_LEN]);
             self.bus
-                .bp_read(addr + offset as u32, &mut actual[..checksum_span])
+                .bp_read(addr + offset as u32, &mut actual[..checksum_span], buf)
                 .await?;
             let expected = &data[offset..offset + checksum_span];
             let actual = &actual[..checksum_span];
@@ -285,15 +294,38 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         Ok(())
     }
 
-    async fn sdio_init_oob_intr(&mut self, config: &sdio::Config) {
-        if config.out_of_band_irq {
-            self.bus
-                .write8(FUNC_BUS, SDIOD_SEP_INT_CTL, SEP_INTR_CTL_MASK | SEP_INTR_CTL_EN)
-                .await;
-        }
+    /// Enable all SDIO in-band interrupts required for CYW43439.
+    /// This configures the SDIOD core, unmasks host-visible interrupt causes,
+    /// enables per-function interrupt routing, and enables separated interrupt mode.
+    async fn enable_sdio_interrupts(&mut self) {
+        // 1. Enable separated interrupt routing (required for mailbox + SDPCM)
+        self.bus
+            .write8(FUNC_BUS, SDIOD_SEP_INT_CTL, SEP_INTR_CTL_EN | SEP_INTR_CTL_MASK)
+            .await;
+
+        // 2. Unmask all host-visible SDIOD interrupt sources
+        //    (mailbox, F1 events, backplane events, errors)
+        self.bus
+            .write8(FUNC_BUS, SDIO_INT_HOST_MASK, SDIO_INT_HOST_MASK_ALL)
+            .await;
+
+        // 3. Unmask function-level interrupts (F1 = WLAN)
+        self.bus
+            .write8(FUNC_BUS, SDIO_FUNCTION_INT_MASK, SDIO_FUNC_INT_MASK_F1)
+            .await;
+
+        // 4. Enable SDIO CCCR interrupt signaling (F0 INT_ENABLE)
+        //    Bit 0 = master interrupt enable
+        self.bus
+            .write8(
+                0, // Function 0 (CCCR)
+                CCCR_INT_ENABLE,
+                CCCR_INT_ENABLE_MASTER,
+            )
+            .await;
     }
 
-    async fn read_chip_id_sdio(&mut self, config: &sdio::Config) -> u16 {
+    async fn read_chip_id_sdio(&mut self) -> u16 {
         // Disable the extra sdio pull-ups
         self.bus.write8(FUNC_BACKPLANE, SDIO_PULL_UP, 0).await;
 
@@ -310,7 +342,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
             )
             .await;
 
-        self.sdio_init_oob_intr(config).await;
+        self.enable_sdio_interrupts().await;
 
         // TODO: remove this after investigation
         self.bus
@@ -452,18 +484,14 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         bt_fw: Option<&[u8]>,
         config: &BUS::Config,
     ) -> crate::Result<()> {
+        let mut buf = Aligned([0u8; 4 + BLOCK_BUFFER_SIZE]);
+
         match self.chip.id() {
             ChipId::C43439 => debug!("using cyw43439"),
             ChipId::C4373 => debug!("using cyw43437"),
         }
 
-        let bus_config = self.bus.init(bt_fw.is_some(), config).await?;
-
-        // Validate type consistency
-        assert!(
-            (matches!(self.bus.bus_type(), BusType::Sdio) && matches!(bus_config, BusConfig::Sdio(_)))
-                || (matches!(self.bus.bus_type(), BusType::Spi) && matches!(bus_config, BusConfig::Spi(_)))
-        );
+        self.bus.init(bt_fw.is_some(), config).await?;
 
         // Init ALP (Active Low Power) clock
         debug!("init alp");
@@ -507,9 +535,9 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         debug!("clear request for ALP");
         self.bus.write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, 0).await;
 
-        let chip_id = match bus_config {
-            BusConfig::Spi(_) => self.bus.bp_read16(CHIPCOMMON_BASE_ADDRESS).await,
-            BusConfig::Sdio(config) => self.read_chip_id_sdio(config).await,
+        let chip_id = match BUS::TYPE {
+            BusType::Spi => self.bus.bp_read16(CHIPCOMMON_BASE_ADDRESS).await,
+            BusType::Sdio => self.read_chip_id_sdio().await,
         };
 
         debug!("chip ID: {}", chip_id);
@@ -530,20 +558,23 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         }
 
         debug!("loading fw");
-        self.bus.bp_write(ram_addr, wifi_fw).await.ctx("failed to write fw")?;
-        self.verify_download("FW", ram_addr, wifi_fw).await?;
+        self.bus
+            .bp_write(ram_addr, wifi_fw, &mut buf)
+            .await
+            .ctx("failed to write fw")?;
+        self.verify_download("FW", ram_addr, wifi_fw, &mut buf).await?;
         if ram_addr != 0 {
             self.write_reset_instruction(wifi_fw).await?;
         }
 
         debug!("loading nvram");
-        let nvram_len = (nvram.len() + 3) / 4 * 4;
+        let nvram_len = nvram.len().div_ceil(4) * 4;
         let nvram_addr = ram_addr + self.chip.chip_ram_size() - 4 - nvram_len as u32;
         self.bus
-            .bp_write(nvram_addr, nvram)
+            .bp_write(nvram_addr, nvram, &mut buf)
             .await
             .ctx("failed to write nvram")?;
-        self.verify_download("NVRAM", nvram_addr, nvram).await?;
+        self.verify_download("NVRAM", nvram_addr, nvram, &mut buf).await?;
 
         let nvram_len_words = nvram_len as u32 / 4;
         let nvram_len_magic = (!nvram_len_words << 16) | nvram_len_words;
@@ -652,11 +683,15 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         }
 
         #[cfg(feature = "firmware-logs")]
-        self.log_init().await;
+        self.log_init(&mut buf).await;
 
         #[cfg(feature = "bluetooth")]
         if let Some(bt_fw) = bt_fw {
-            self.bt.as_mut().unwrap().init_bluetooth(&mut self.bus, bt_fw).await;
+            self.bt
+                .as_mut()
+                .unwrap()
+                .init_bluetooth(&mut self.bus, bt_fw, &mut buf)
+                .await;
         }
 
         debug!("cyw43 runner init done");
@@ -665,7 +700,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
     }
 
     #[cfg(feature = "firmware-logs")]
-    async fn log_init(&mut self) {
+    async fn log_init(&mut self, buf: &mut Aligned<A4, [u8]>) {
         // Initialize shared memory for logging.
 
         let addr = self.chip.atcm_ram_base_address() + self.chip.chip_ram_size() - 4 - self.chip.socram_srmem_size();
@@ -673,17 +708,17 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         debug!("shared_addr {:08x}", shared_addr);
 
         let mut shared: Aligned<A4, [u8; _]> = Aligned([0; SharedMemData::SIZE]);
-        let _ = self.bus.bp_read(shared_addr, &mut shared[..]).await;
+        let _ = self.bus.bp_read(shared_addr, &mut shared[..], buf).await;
         let shared = SharedMemData::from_bytes(&shared);
 
         self.log.addr = shared.console_addr + 8;
     }
 
     #[cfg(feature = "firmware-logs")]
-    async fn log_read(&mut self) {
+    async fn log_read(&mut self, buf: &mut Aligned<A4, [u8]>) {
         // Read log struct
         let mut log: Aligned<A4, [u8; _]> = Aligned([0; SharedMemLog::SIZE]);
-        let _ = self.bus.bp_read(self.log.addr, &mut log[..]).await;
+        let _ = self.bus.bp_read(self.log.addr, &mut log[..], buf).await;
         let log = SharedMemLog::from_bytes(&log);
 
         let idx = log.idx as usize;
@@ -695,11 +730,11 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
 
         // Read entire buf for now. We could read only what we need, but then we
         // run into annoying alignment issues in `bp_read`.
-        let mut buf: Aligned<A4, [u8; _]> = Aligned([0; 0x400]);
-        let _ = self.bus.bp_read(log.buf, &mut buf[..]).await;
+        let mut data: Aligned<A4, [u8; _]> = Aligned([0; 0x400]);
+        let _ = self.bus.bp_read(log.buf, &mut data[..], buf).await;
 
         while self.log.last_idx != idx as usize {
-            let b = buf[self.log.last_idx];
+            let b = data[self.log.last_idx];
             if b == b'\r' || b == b'\n' {
                 if self.log.buf_count != 0 {
                     let s = unsafe { core::str::from_utf8_unchecked(&self.log.buf[..self.log.buf_count]) };
@@ -723,7 +758,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         let mut buf = Aligned([0u8; 4 + 2048]);
         loop {
             #[cfg(feature = "firmware-logs")]
-            self.log_read().await;
+            self.log_read(&mut buf).await;
 
             if self.has_credit() {
                 let ioctl = self.ioctl_state.wait_pending();
@@ -798,23 +833,23 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                         trace!("tx {:?}", sdpcm_header);
                         trace!("    {:?}", bdc_header);
 
-                        buf8[0..SdpcmHeader::SIZE].copy_from_slice(&sdpcm_header.to_bytes());
+                        buf8[0..SdpcmHeader::SIZE].copy_from_slice(sdpcm_header.to_bytes());
                         buf8[SdpcmHeader::SIZE + PADDING_SIZE..][..BdcHeader::SIZE]
-                            .copy_from_slice(&bdc_header.to_bytes());
+                            .copy_from_slice(bdc_header.to_bytes());
                         buf8[SdpcmHeader::SIZE + PADDING_SIZE + BdcHeader::SIZE..][..packet.len()]
-                            .copy_from_slice(&*packet);
+                            .copy_from_slice(&packet);
 
                         let total_len = (total_len + 3) & !3; // round up to 4byte
 
                         trace!("    {:02x}", Bytes(&buf8[..total_len.min(48)]));
 
-                        let _ = wlan_write(&mut self.bus, &mut buf.as_mut_aligned()[..4 + total_len]).await;
+                        let _ = wlan_write(&mut self.bus, &mut buf, total_len).await;
                         packet.tx_done();
                         self.check_status(&mut buf).await;
                     }
                     Either4::Third(_) => {
                         #[cfg(feature = "bluetooth")]
-                        self.bt.as_mut().unwrap().hci_write(&mut self.bus).await;
+                        self.bt.as_mut().unwrap().hci_write(&mut self.bus, &mut buf).await;
                     }
                     Either4::Fourth(()) => {
                         self.handle_irq(&mut buf).await;
@@ -911,7 +946,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
 
                 #[cfg(feature = "bluetooth")]
                 if let Some(bt) = &mut self.bt {
-                    bt.handle_irq(&mut self.bus).await;
+                    bt.handle_irq(&mut self.bus, buf).await;
                 }
             }
         }
@@ -927,21 +962,18 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
 
                     if status & STATUS_F2_PKT_AVAILABLE != 0 {
                         let len = (status & STATUS_F2_PKT_LEN_MASK) >> STATUS_F2_PKT_LEN_SHIFT;
-                        if wlan_read(&mut self.bus, &mut buf.as_mut_aligned()[..len as usize])
-                            .await
-                            .is_err()
-                        {
+                        if wlan_read(&mut self.bus, buf, true, 0, len as usize).await.is_err() {
                             debug!("spi wlan_read failed");
                             break;
                         }
-                        trace!("rx {:02x}", Bytes(&mut buf[..(len as usize).min(48)]));
+                        trace!("rx {:02x}", Bytes(&buf[..(len as usize).min(48)]));
                         self.rx(&mut buf[..len as usize]);
                     } else {
                         break;
                     }
                 }
                 BusType::Sdio => {
-                    if wlan_read(&mut self.bus, &mut buf.as_mut_aligned()[..4]).await.is_err() {
+                    if wlan_read(&mut self.bus, buf, true, 0, INITIAL_READ).await.is_err() {
                         debug!("failed to read sdio hwtag");
                         break;
                     }
@@ -961,10 +993,8 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
 
                     trace!("pkt ready...");
                     let len = len as usize;
-                    if len > INITIAL_READ as usize {
-                        if self
-                            .bus
-                            .wlan_read(&mut buf.as_mut_aligned()[4..][..len - INITIAL_READ as usize])
+                    if len > INITIAL_READ {
+                        if wlan_read(&mut self.bus, buf, false, INITIAL_READ, len - INITIAL_READ)
                             .await
                             .is_err()
                         {
@@ -983,7 +1013,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                             break;
                         };
 
-                        self.update_credit(&sdpcm_header);
+                        self.update_credit(sdpcm_header);
                     } else if len > SdpcmHeader::SIZE {
                         trace!("rx {:02x}", Bytes(&buf[..len.min(48)]));
                         self.rx(&mut buf[..len]);
@@ -998,7 +1028,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
             return;
         };
 
-        self.update_credit(&sdpcm_header);
+        self.update_credit(sdpcm_header);
 
         let channel = sdpcm_header.channel_and_flags & 0x0f;
 
@@ -1156,7 +1186,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                             let Some(bss_info) = BssInfo::parse(bss_info) else {
                                 return;
                             };
-                            events::Payload::BssInfo(*bss_info)
+                            events::Payload::BssInfo(bss_info.clone())
                         }
                         Event::ESCAN_RESULT => events::Payload::None,
                         _ => events::Payload::None,
@@ -1242,13 +1272,13 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         trace!("tx {:?}", sdpcm_header);
         trace!("    {:?}", cdc_header);
 
-        buf8[0..SdpcmHeader::SIZE].copy_from_slice(&sdpcm_header.to_bytes());
-        buf8[SdpcmHeader::SIZE..][..CdcHeader::SIZE].copy_from_slice(&cdc_header.to_bytes());
+        buf8[0..SdpcmHeader::SIZE].copy_from_slice(sdpcm_header.to_bytes());
+        buf8[SdpcmHeader::SIZE..][..CdcHeader::SIZE].copy_from_slice(cdc_header.to_bytes());
         buf8[SdpcmHeader::SIZE + CdcHeader::SIZE..][..data.len()].copy_from_slice(data);
 
         let total_len = (total_len + 3) & !3; // round up to 4byte,
         trace!("    {:02x}", Bytes(&buf8[..total_len.min(48)]));
 
-        let _ = wlan_write(&mut self.bus, &mut buf.as_mut_aligned()[..4 + total_len]).await;
+        let _ = wlan_write(&mut self.bus, buf, total_len).await;
     }
 }

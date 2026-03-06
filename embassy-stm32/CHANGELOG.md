@@ -48,6 +48,9 @@ CRYP:
 SAES:
 - feat: stm32/saes: expose explicit key-mode starters (`start_with_mode`, `start_wrapped_key`, `start_shared_key`) and async `aad`/`payload`/`finish` parity methods
 
+OSPI:
+- feat: stm32/ospi: add `Ospi::configure_hyperbus` + `HyperbusConfig`/`HyperbusLatencyMode` to program the HyperBus latency register (HLCR), enabling HyperBus/HyperRAM memory-mapped bring-up without reaching for `unstable-pac`
+
 ## 0.6.0 - 2026-03-10
 
 ADC:

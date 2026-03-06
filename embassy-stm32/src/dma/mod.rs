@@ -19,9 +19,7 @@ mod dmamux;
 #[cfg(dmamux)]
 pub(crate) use dmamux::*;
 
-#[cfg(not(stm32c5))]
 mod util;
-#[cfg(not(stm32c5))]
 pub(crate) use util::*;
 
 pub(crate) mod ringbuffer;
@@ -93,7 +91,6 @@ impl<'d> Channel<'d> {
         }
     }
 
-    #[cfg(not(stm32c5))]
     pub(crate) unsafe fn clone_unchecked(&self) -> Channel<'d> {
         Channel {
             channel: self.channel,

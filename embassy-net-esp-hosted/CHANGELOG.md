@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- `Interface` and `SpiInterface` have been moved to `crate::iface` and `crate::iface::spi` respectively.
+- Added `iface::hd_spi` module containing a half-duplex SPI `Interface` implementation.
+- Added `iface::sdio` module containing an SDIO `Interface` implementation.
+- Added `Interface::init` to initialize or re-initialize the transport.
+- Changed: The `Interface::transfer` method now takes a packet length.
 - Added `Control::scan` to retrieve visible networks. Note that `esp-hosted-fg` can only retrieve up to 8 entries.
 - `embassy_net_esp_hosted::new` now returns an `HostedResources` struct with named fields.
 - Added Bluetooth (BLE) support via the new `bluetooth` feature. `new` returns a `bluetooth::BtDriver` implementing `bt_hci::transport::Transport`, exposing the ESP coprocessor's HCI controller over the ESP-Hosted HCI interface.

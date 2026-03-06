@@ -129,11 +129,10 @@ const READ_OFFSETS: &[u32] = &[
     0, 1, 2, 3, 4, 5, 7, 16, 17, 64, 100, 127, 128, 129, 200, 255, 256, 257, 4095, 4096, 4097,
 ];
 
-/// Program sizes covering the DMA fast path (`>= 8 && % 8 == 0`) and the
-/// FIFO fallback (everything else).
-const PROGRAM_SIZES: &[usize] = &[
-    1, 2, 3, 4, 7, 8, 9, 15, 16, 17, 24, 31, 32, 33, 63, 64, 65, 100, 128, 200, 248, 255, 256,
-];
+/// Program sizes. The driver requires 8-byte-aligned writes (its write-size
+/// contract), so every entry is a multiple of 8; this still exercises both the
+/// DMA fast path (DMA mode) and the IP/FIFO path (blocking/interrupt mode).
+const PROGRAM_SIZES: &[usize] = &[8, 16, 24, 32, 40, 64, 96, 128, 192, 200, 248, 256];
 
 bind_interrupts!(struct Irqs {
     FLEXSPI0 => flexspi::InterruptHandler<peripherals::FLEXSPI0>;
@@ -530,7 +529,7 @@ async fn run_stress<F: FlashOps>(mode: &'static str, flash: &mut F, fails: &mut 
     //     tail.  Distinct from the program-size matrix in that it lives
     //     in its own dedicated sector so we don't perturb earlier results.
     unwrap!(flash.erase_sector(overlay_sector).await);
-    let partial_len = 100usize;
+    let partial_len = 96usize; // 8-byte aligned (driver write-size contract)
     let mut partial = [0u8; FLASH_PAGE_SIZE];
     fill_pattern(overlay_sector, &mut partial);
     unwrap!(flash.page_program(overlay_sector, &partial[..partial_len]).await);

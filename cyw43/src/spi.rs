@@ -7,7 +7,7 @@ use embedded_hal_1::digital::OutputPin;
 use futures::FutureExt;
 
 use crate::consts::*;
-use crate::runner::{BusConfig, BusType, SealedBus};
+use crate::runner::{BusType, SealedBus};
 
 /// Custom Spi Trait that _only_ supports the bus operation of the cyw43
 /// Implementors are expected to hold the CS pin low during an operation.
@@ -31,12 +31,12 @@ pub trait SpiBusCyw43 {
 }
 
 const fn slice32_mut(x: &mut Aligned<A4, [u8]>) -> &mut [u32] {
-    let len = (size_of_val(x) + 3) / 4;
+    let len = size_of_val(x).div_ceil(4);
     unsafe { slice::from_raw_parts_mut(x as *mut Aligned<A4, [u8]> as *mut u32, len) }
 }
 
 const fn slice32_ref(x: &Aligned<A4, [u8]>) -> &[u32] {
-    let len = (size_of_val(x) + 3) / 4;
+    let len = size_of_val(x).div_ceil(4);
     unsafe { slice::from_raw_parts(x as *const Aligned<A4, [u8]> as *const u32, len) }
 }
 
@@ -76,7 +76,7 @@ where
 
         trace!("backplane_readn addr = {:08x} len = {} val = {:08x}", addr, len, val);
 
-        return val;
+        val
     }
 
     async fn backplane_writen(&mut self, addr: u32, val: u32, len: u32) {
@@ -121,7 +121,7 @@ where
         self.backplane_window = new_window;
     }
 
-    async fn readn(&mut self, func: u32, addr: u32, len: u32) -> u32 {
+    async fn readn(&mut self, func: u8, addr: u32, len: u32) -> u32 {
         let cmd = cmd_word(READ, INC_ADDR, func, addr, len);
         let mut buf = [0; 2];
         // if we are reading from the backplane, we need an extra word for the response delay
@@ -133,13 +133,13 @@ where
         if func == FUNC_BACKPLANE { buf[1] } else { buf[0] }
     }
 
-    async fn writen(&mut self, func: u32, addr: u32, val: u32, len: u32) {
+    async fn writen(&mut self, func: u8, addr: u32, val: u32, len: u32) {
         let cmd = cmd_word(WRITE, INC_ADDR, func, addr, len);
 
         self.status = self.spi.cmd_write(&[cmd, val]).await;
     }
 
-    async fn read32_swapped(&mut self, func: u32, addr: u32) -> u32 {
+    async fn read32_swapped(&mut self, func: u8, addr: u32) -> u32 {
         let cmd = cmd_word(READ, INC_ADDR, func, addr, 4);
         let cmd = swap16(cmd);
         let mut buf = [0; 1];
@@ -149,7 +149,7 @@ where
         swap16(buf[0])
     }
 
-    async fn write32_swapped(&mut self, func: u32, addr: u32, val: u32) {
+    async fn write32_swapped(&mut self, func: u8, addr: u32, val: u32) {
         let cmd = cmd_word(WRITE, INC_ADDR, func, addr, 4);
         let buf = [swap16(cmd), swap16(val)];
 
@@ -165,7 +165,7 @@ where
     const TYPE: BusType = BusType::Spi;
     type Config = ();
 
-    async fn init<'a>(&mut self, bluetooth_enabled: bool, config: &'a ()) -> crate::Result<BusConfig<'a>> {
+    async fn init<'a>(&mut self, bluetooth_enabled: bool, _config: &'a ()) -> crate::Result<()> {
         fn cmp<R: Eq>(left: R, right: R) -> Result<(), ()> {
             if left == right { Ok(()) } else { Err(()) }
         }
@@ -251,11 +251,11 @@ where
             | IRQ_F2_PACKET_AVAILABLE
             | IRQ_F1_OVERFLOW;
         if bluetooth_enabled {
-            val = val | IRQ_F1_INTR;
+            val |= IRQ_F1_INTR;
         }
         self.write16(FUNC_BUS, REG_BUS_INTERRUPT_ENABLE, val).await;
 
-        Ok(BusConfig::Spi(config))
+        Ok(())
     }
 
     async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()> {
@@ -263,7 +263,7 @@ where
         let buf = slice32_mut(buf);
 
         let cmd = cmd_word(READ, INC_ADDR, FUNC_WLAN, 0, len_in_u8);
-        let len_in_u32 = (len_in_u8 as usize + 3) / 4;
+        let len_in_u32 = (len_in_u8 as usize).div_ceil(4);
 
         self.status = self.spi.cmd_read(cmd, &mut buf[..len_in_u32]).await;
 
@@ -279,17 +279,14 @@ where
         Ok(())
     }
 
-    async fn bp_read(&mut self, mut addr: u32, mut data: &mut [u8]) -> crate::Result<()> {
+    async fn bp_read(&mut self, mut addr: u32, mut data: &mut [u8], buf: &mut Aligned<A4, [u8]>) -> crate::Result<()> {
         trace!("bp_read addr = {:08x}", addr);
 
         // It seems the HW force-aligns the addr
         // to 2 if data.len() >= 2
         // to 4 if data.len() >= 4
         // To simplify, enforce 4-align for now.
-        assert!(addr % 4 == 0);
-
-        // Backplane read buffer has one extra word for the response delay.
-        let mut buf: Aligned<A4, [u8; _]> = Aligned([0u8; 4 + BACKPLANE_MAX_TRANSFER_SIZE]);
+        assert!(addr.is_multiple_of(4));
 
         while !data.is_empty() {
             // Ensure transfer doesn't cross a window boundary.
@@ -305,11 +302,11 @@ where
             // round `buf` to word boundary, add one extra word for the response delay
             self.status = self
                 .spi
-                .cmd_read(cmd, &mut slice32_mut(&mut buf)[..(len + 3) / 4 + 1])
+                .cmd_read(cmd, &mut slice32_mut(buf)[..len.div_ceil(4) + 1])
                 .await;
 
             // when writing out the data, we skip the response-delay byte
-            data[..len].copy_from_slice(&mut buf[4..][..len]);
+            data[..len].copy_from_slice(&buf[4..][..len]);
 
             // Advance ptr.
             addr += len as u32;
@@ -319,16 +316,14 @@ where
         Ok(())
     }
 
-    async fn bp_write(&mut self, mut addr: u32, mut data: &[u8]) -> crate::Result<()> {
+    async fn bp_write(&mut self, mut addr: u32, mut data: &[u8], buf: &mut Aligned<A4, [u8]>) -> crate::Result<()> {
         trace!("bp_write addr = {:08x}", addr);
 
         // It seems the HW force-aligns the addr
         // to 2 if data.len() >= 2
         // to 4 if data.len() >= 4
         // To simplify, enforce 4-align for now.
-        assert!(addr % 4 == 0);
-
-        let mut buf: Aligned<A4, [u8; _]> = Aligned([0u8; 4 + BACKPLANE_MAX_TRANSFER_SIZE]);
+        assert!(addr.is_multiple_of(4));
 
         while !data.is_empty() {
             // Ensure transfer doesn't cross a window boundary.
@@ -341,9 +336,9 @@ where
             self.backplane_set_window(addr).await;
 
             let cmd = cmd_word(WRITE, INC_ADDR, FUNC_BACKPLANE, window_offs, len as u32);
-            slice32_mut(&mut buf)[0] = cmd;
+            slice32_mut(buf)[0] = cmd;
 
-            self.status = self.spi.cmd_write(&slice32_ref(&buf)[..(len + 3) / 4 + 1]).await;
+            self.status = self.spi.cmd_write(&slice32_ref(buf)[..len.div_ceil(4) + 1]).await;
 
             // Advance ptr.
             addr += len as u32;
@@ -379,24 +374,24 @@ where
         self.backplane_writen(addr, val, 4).await
     }
 
-    async fn read8(&mut self, func: u32, addr: u32) -> u8 {
+    async fn read8(&mut self, func: u8, addr: u32) -> u8 {
         self.readn(func, addr, 1).await as u8
     }
 
-    async fn write8(&mut self, func: u32, addr: u32, val: u8) {
+    async fn write8(&mut self, func: u8, addr: u32, val: u8) {
         self.writen(func, addr, val as u32, 1).await
     }
 
-    async fn read16(&mut self, func: u32, addr: u32) -> u16 {
+    async fn read16(&mut self, func: u8, addr: u32) -> u16 {
         self.readn(func, addr, 2).await as u16
     }
 
     #[allow(unused)]
-    async fn write16(&mut self, func: u32, addr: u32, val: u16) {
+    async fn write16(&mut self, func: u8, addr: u32, val: u16) {
         self.writen(func, addr, val as u32, 2).await
     }
 
-    async fn read32(&mut self, func: u32, addr: u32) -> u32 {
+    async fn read32(&mut self, func: u8, addr: u32) -> u32 {
         if func == FUNC_BUS && addr == SPI_STATUS_REGISTER && self.status != 0 {
             let status = self.status;
             self.status = 0;
@@ -408,7 +403,7 @@ where
     }
 
     #[allow(unused)]
-    async fn write32(&mut self, func: u32, addr: u32, val: u32) {
+    async fn write32(&mut self, func: u8, addr: u32, val: u32) {
         self.writen(func, addr, val, 4).await
     }
 
@@ -421,6 +416,6 @@ fn swap16(x: u32) -> u32 {
     x.rotate_left(16)
 }
 
-fn cmd_word(write: bool, incr: bool, func: u32, addr: u32, len: u32) -> u32 {
-    (write as u32) << 31 | (incr as u32) << 30 | (func & 0b11) << 28 | (addr & 0x1FFFF) << 11 | (len & 0x7FF)
+fn cmd_word(write: bool, incr: bool, func: u8, addr: u32, len: u32) -> u32 {
+    (write as u32) << 31 | (incr as u32) << 30 | (func as u32 & 0b11) << 28 | (addr & 0x1FFFF) << 11 | (len & 0x7FF)
 }

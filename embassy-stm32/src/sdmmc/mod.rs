@@ -5,9 +5,10 @@ use core::default::Default;
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::slice;
-use core::sync::atomic::{Ordering, fence};
+use core::sync::atomic::{Ordering, compiler_fence, fence};
 use core::task::Poll;
 
+use ::sdio::{MmcBus, MmcError};
 use aligned::{A4, Aligned};
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
@@ -29,6 +30,7 @@ use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::sdmmc::Sdmmc as RegBlock;
 use crate::rcc::{self, RccInfo, RccPeripheral, SealedRccPeripheral};
+use crate::reg::AtomicModify;
 use crate::time::Hertz;
 use crate::wait::block_for_us;
 #[cfg(sdmmc_uhs)]
@@ -262,6 +264,14 @@ fn get_waitresp_val(rlen: ResponseLen) -> u8 {
         common_cmd::ResponseLen::Zero => 0,
         common_cmd::ResponseLen::R48 => 1,
         common_cmd::ResponseLen::R136 => 3,
+    }
+}
+
+const fn sdio_waitresp_val(rlen: ::sdio::ResponseLen) -> u8 {
+    match rlen {
+        ::sdio::ResponseLen::Zero => 0,
+        ::sdio::ResponseLen::R48 => 1,
+        ::sdio::ResponseLen::R136 => 3,
     }
 }
 
@@ -1624,6 +1634,8 @@ impl<'d> Sdmmc<'d> {
     /// Send command to card
     #[allow(unused_variables)]
     fn cmd<R: TypedResp>(&self, cmd: Cmd<R>, check_crc: bool, data: bool) -> Result<CommandResponse<R>, Error> {
+        debug!("(0) cmd arg: 0x{:x} 0x{:x}", cmd.cmd, cmd.arg);
+
         let regs = self.info.regs;
 
         self.clear_interrupt_flags();
@@ -1772,6 +1784,450 @@ impl<'d> Sdmmc<'d> {
         drop(transfer);
 
         res
+    }
+
+    /// Execute a command
+    async fn exec_command<R>(&self, cmd: u8, arg: u32, data: bool) -> Result<R, ::sdio::MmcError>
+    where
+        R: ::sdio::Response,
+    {
+        debug!("(1) cmd arg: 0x{:x} 0x{:x}", cmd, arg);
+
+        self.clear_interrupt_flags();
+        // CP state machine must be idle
+        while self.cmd_active() {}
+
+        // Command arg
+        self.info.regs.argr().write(|w| w.set_cmdarg(arg));
+
+        // Command index and start CP State Machine
+        self.info.regs.cmdr().write(|w| {
+            w.set_waitint(false);
+            w.set_waitresp(sdio_waitresp_val(R::LEN));
+            w.set_cmdindex(cmd);
+            w.set_cpsmen(true);
+
+            #[cfg(any(sdmmc_v2, sdmmc_v3))]
+            {
+                // Special mode in CP State Machine
+                // CMD12: Stop Transmission
+                w.set_cmdstop(cmd == 12);
+                w.set_cmdtrans(data);
+            }
+
+            #[cfg(not(any(sdmmc_v2, sdmmc_v3)))]
+            let _ = data;
+        });
+
+        let mut status;
+        if matches!(R::LEN, ::sdio::ResponseLen::Zero) {
+            // Wait for CMDSENT or a timeout
+            while {
+                status = self.info.regs.star().read();
+                !(status.ctimeout() || status.cmdsent())
+            } {}
+        } else {
+            // Wait for CMDREND or CCRCFAIL or a timeout
+            while {
+                status = self.info.regs.star().read();
+                !(status.ctimeout() || status.cmdrend() || status.ccrcfail())
+            } {}
+        }
+
+        if status.ctimeout() {
+            return Err(MmcError::Timeout);
+        } else if R::CRC && status.ccrcfail() {
+            return Err(MmcError::Crc);
+        }
+
+        let mut buf = [0u32; 4];
+        for i in 0..R::LEN.words() {
+            buf[i] = self.info.regs.respr(i).read().cardstatus();
+        }
+
+        Ok(::sdio::Response::from_words(&buf))
+    }
+
+    #[cfg(not(sdmmc_uhs))]
+    async fn exec_voltage_switch<R>(&mut self, _cmd: u8, _arg: u32) -> Result<R, ::sdio::MmcError>
+    where
+        R: ::sdio::Response,
+    {
+        Err(MmcError::Unsupported)
+    }
+
+    #[cfg(sdmmc_uhs)]
+    async fn exec_voltage_switch<R>(&mut self, cmd: u8, arg: u32) -> Result<R, ::sdio::MmcError>
+    where
+        R: ::sdio::Response,
+    {
+        // CKSTOP fires within microseconds of the CMD11 R1 ack at
+        // 400 kHz; a 50 ms ceiling is generous.
+        const CKSTOP_TIMEOUT: u64 = 50_000;
+        // VSWEND fires after the hardware-managed 5 ms clock-low hold
+        // plus the 1 ms post-restart sampling window — ~6 ms typical.
+        const VSWEND_TIMEOUT: u64 = 50_000;
+
+        let regs = self.info.regs;
+
+        // Clear stale CKSTOP / VSWEND flags from a previous attempt and
+        // arm the voltage-switch state machine. The next CMD11 R1 will
+        // trigger the clock-stop + timed-hold sequence.
+        regs.icr().write(|w| {
+            w.set_ckstopc(true);
+            w.set_vswendc(true);
+        });
+        regs.power().modify(|w| w.set_vswitchen(true));
+
+        // RAII guard: on any early return below, restore the level
+        // shifter to 3.3V (if we'd already toggled to 1.8V) and clear
+        // the vswitch trigger bits.
+        let mut guard = VswitchGuard {
+            sdmmc: &mut *self,
+            pin_toggled: false,
+            armed: true,
+        };
+
+        // 1. Send CMD11.
+        let ret = guard
+            .sdmmc
+            .exec_command(cmd, arg, false)
+            .await
+            .map_err(|_| MmcError::Other)?;
+
+        // 2. Wait for CKSTOP — peripheral parked the clock low.
+        guard
+            .sdmmc
+            .wait_status_flag(CKSTOP_TIMEOUT, |s| s.ckstop())
+            .await
+            .map_err(|_| MmcError::Other)?;
+        regs.icr().write(|w| w.set_ckstopc(true));
+
+        // 3. Toggle level-shifter pin to 1.8V (caller pre-set 3.3V).
+        if let Some(pin) = guard.sdmmc.vswitch_pin.as_mut() {
+            pin.toggle();
+        }
+        guard.pin_toggled = true;
+
+        // 4. Release the clock-low hold. Hardware holds SDMMC_CK low
+        //    for ≥5 ms then auto-restarts.
+        regs.power().modify(|w| w.set_vswitch(true));
+
+        // 5. Wait for VSWEND — peripheral re-sampled D0 after restart.
+        guard
+            .sdmmc
+            .wait_status_flag(VSWEND_TIMEOUT, |s| s.vswend())
+            .await
+            .map_err(|_| MmcError::Other)?;
+        regs.icr().write(|w| w.set_vswendc(true));
+
+        // 6. STAR.BUSYD0 is the INVERTED level of D0 (per the v3 metapac
+        //    docstring "Inverted value of SDMMC_D0 line (Busy)"):
+        //      BUSYD0 = 1 → D0 LOW  → card still busy / refused switch
+        //      BUSYD0 = 0 → D0 HIGH → card released D0 / handshake ok
+        if regs.star().read().busyd0() {
+            return Err(MmcError::Other);
+        }
+
+        // Success — disarm the abort guard and finalise.
+        guard.armed = false;
+        drop(guard);
+
+        // 7. Disarm the voltage-switch state machine. VSWITCHEN/VSWITCH
+        //    are one-shot triggers, not mode bits — leaving them set
+        //    has been observed to wedge the next command (e.g. CMD2).
+        regs.power().modify(|w| {
+            w.set_vswitch(false);
+            w.set_vswitchen(false);
+        });
+
+        // 8. Mark UHS active and assert busspeed=1 right away. The next
+        //    CMDs (CMD2/CMD3/CMD9/CMD7/...) fire before the next
+        //    clkcr_set_clkdiv, and they need UHS timing on the 1.8V bus.
+        //    CLKDIV / WIDBUS stay at their init_idle values (400 kHz,
+        //    1-bit) — only the busspeed bit flips.
+        self.uhs_active = true;
+        regs.clkcr().modify(|w| w.set_busspeed(true));
+
+        // 9. Settle. The clock just restarted and we just flipped
+        //    busspeed; empirically the very next CPSM command hangs
+        //    without a short delay. 1 ms is well above the internal
+        //    resync window.
+        wait_for_us(1_000).await;
+
+        Ok(ret)
+    }
+}
+
+impl<'d> MmcBus for Sdmmc<'d> {
+    fn supports_1v8(&self) -> bool {
+        self.has_vswitch()
+    }
+
+    fn supports_bus_width(&self) -> ::sdio::BusWidth {
+        match self.bus_width() {
+            BusWidth::One => ::sdio::BusWidth::W1,
+            BusWidth::Four => ::sdio::BusWidth::W4,
+            BusWidth::Eight => ::sdio::BusWidth::W8,
+            _ => ::sdio::BusWidth::W1,
+        }
+    }
+
+    fn supports_frequency(&self) -> u32 {
+        if self.uhs_active() && self.has_dlyb() {
+            208_000_000
+        } else if self.uhs_active() && (self.has_ckin() || self.has_dlyb()) {
+            100_000_000
+        } else {
+            50_000_000
+        }
+    }
+
+    fn supports_mmc(&self) -> bool {
+        true
+    }
+
+    /// Wait for DAT1 to be pulled low.
+    async fn wait_for_event(&mut self) -> Result<(), MmcError> {
+        poll_fn(|cx| {
+            self.state.it_waker.register(cx.waker());
+
+            compiler_fence(Ordering::SeqCst);
+
+            if self.info.regs.star().read().sdioit() {
+                self.info.regs.icr().write(|w| w.set_sdioitc(true));
+
+                Poll::Ready(())
+            } else {
+                self.info.regs.maskr().set_bits(|w| w.set_sdioitie(true));
+
+                Poll::Pending
+            }
+        })
+        .await;
+
+        Ok(())
+    }
+
+    async fn init_idle(&mut self, hz: u32) -> Result<(), ::sdio::MmcError> {
+        self.clkcr_set_clkdiv(Hertz(hz), BusWidth::One)
+            .map_err(|_| MmcError::Other)?;
+
+        self.info
+            .regs
+            .dtimer()
+            .write(|w| w.set_datatime(self.config.data_transfer_timeout));
+
+        self.info.regs.power().modify(|w| w.set_pwrctrl(PowerCtrl::On as u8));
+
+        Ok(())
+    }
+
+    #[cfg(sdmmc_dlyb)]
+    async fn tune_bus<O>(&mut self, width: ::sdio::BusWidth, hz: u32, op: &mut O) -> Result<(), MmcError>
+    where
+        O: ::sdio::TuningOp,
+    {
+        let bus_width = match width {
+            ::sdio::BusWidth::W1 => BusWidth::One,
+            ::sdio::BusWidth::W4 => BusWidth::Four,
+            ::sdio::BusWidth::W8 => BusWidth::Eight,
+        };
+
+        let freq = hz;
+
+        if self.dlyb_enable_lock().is_err() {
+            return Err(MmcError::SignalingSwitchFailed);
+        }
+
+        self.set_dlyb_active(true);
+        self.clkcr_set_clkdiv(Hertz(freq), bus_width)
+            .map_err(|_| MmcError::Other)?;
+
+        let mut best_start = 0u8;
+        let mut best_len = 0u8;
+        let mut run_start = 0u8;
+        let mut run_len = 0u8;
+
+        for tap in 0..32u8 {
+            if self.dlyb_set_tap(tap).is_err() {
+                run_len = 0;
+                continue;
+            }
+            if op.exec(self).await? {
+                if run_len == 0 {
+                    run_start = tap;
+                }
+                run_len += 1;
+                if run_len > best_len {
+                    best_start = run_start;
+                    best_len = run_len;
+                }
+            } else {
+                run_len = 0;
+            }
+        }
+        debug!("dlyb tune: window start={} len={}", best_start, best_len);
+
+        if best_len == 0 {
+            self.dlyb_disable();
+            self.clkcr_set_clkdiv(Hertz(freq), bus_width)
+                .map_err(|_| MmcError::Other)?;
+
+            return Err(MmcError::SignalingSwitchFailed);
+        }
+
+        let chosen = best_start + best_len / 2;
+        self.dlyb_set_tap(chosen).map_err(|_| MmcError::Other)?;
+
+        Ok(())
+    }
+
+    #[cfg(not(sdmmc_dlyb))]
+    async fn tune_bus<O>(&mut self, width: ::sdio::BusWidth, hz: u32, _op: &mut O) -> Result<(), MmcError>
+    where
+        O: ::sdio::TuningOp,
+    {
+        let bus_width = match width {
+            ::sdio::BusWidth::W1 => BusWidth::One,
+            ::sdio::BusWidth::W4 => BusWidth::Four,
+            ::sdio::BusWidth::W8 => BusWidth::Eight,
+        };
+
+        let freq = hz;
+
+        if freq > 50_000_000 {
+            self.set_feedback_clk(true);
+            self.clkcr_set_clkdiv(Hertz(freq), bus_width)
+                .map_err(|_| MmcError::Other)?;
+        }
+
+        Ok(())
+    }
+
+    fn set_bus(&mut self, width: ::sdio::BusWidth, hz: u32) -> Result<(), ::sdio::MmcError> {
+        let width = match width {
+            ::sdio::BusWidth::W1 => BusWidth::One,
+            ::sdio::BusWidth::W4 => BusWidth::Four,
+            ::sdio::BusWidth::W8 => BusWidth::Eight,
+        };
+
+        self.clkcr_set_clkdiv(Hertz(hz), width).map_err(|_| MmcError::Other)
+    }
+
+    async fn send_command<'a, C>(&mut self, cmd: C) -> Result<C::Resp<'a>, ::sdio::MmcError>
+    where
+        C: ::sdio::ControlCommand + 'a,
+    {
+        if C::INDEX == 11 {
+            self.exec_voltage_switch(cmd.index(), cmd.arg()).await
+        } else {
+            self.exec_command(cmd.index(), cmd.arg(), false).await
+        }
+    }
+
+    async fn read_blocks<'a, C>(&mut self, mut cmd: C) -> Result<C::Resp<'a>, ::sdio::MmcError>
+    where
+        C: ::sdio::BlockReadCommand + 'a,
+    {
+        debug!(
+            "read_blocks (cmd, block_size, block_count, buf len): {}, {}, {}, {}",
+            C::INDEX,
+            cmd.block_size().len(),
+            cmd.block_count(),
+            cmd.buf().len()
+        );
+
+        let size = cmd.block_size();
+        let index = cmd.index();
+        let arg = cmd.arg();
+        let transfer = self.prepare_datapath_read(cmd.buf(), DatapathMode::Block(block_size(size.len())));
+
+        let resp = self.exec_command(index, arg, true).await;
+
+        self.complete_datapath_transfer(transfer, false)
+            .await
+            .map_err(|_| MmcError::Other)?;
+
+        #[cfg(feature = "defmt")]
+        debug!("read_blocks buf: {}", **cmd.buf());
+
+        resp
+    }
+
+    async fn write_blocks<'a, C>(&mut self, cmd: C) -> Result<C::Resp<'a>, ::sdio::MmcError>
+    where
+        C: ::sdio::BlockWriteCommand + 'a,
+    {
+        debug!(
+            "write_blocks (cmd, block_size, block_count, buf len): {}, {}, {}, {}",
+            C::INDEX,
+            cmd.block_size().len(),
+            cmd.block_count(),
+            cmd.buf().len()
+        );
+
+        let size = cmd.block_size();
+        let index = cmd.index();
+        let arg = cmd.arg();
+
+        // sdmmc_v1 uses different cmd/dma order than v2, but only for writes
+        #[cfg(sdmmc_v1)]
+        let resp = self.exec_command(index, arg, true).await;
+
+        let transfer = self.prepare_datapath_write(cmd.buf(), DatapathMode::Block(block_size(size.len())));
+
+        #[cfg(any(sdmmc_v2, sdmmc_v3))]
+        let resp = self.exec_command(index, arg, true).await;
+
+        self.complete_datapath_transfer(transfer, false)
+            .await
+            .map_err(|_| MmcError::Other)?;
+
+        #[cfg(feature = "defmt")]
+        debug!("write_blocks buf: {}", **cmd.buf());
+
+        resp
+    }
+
+    async fn read_bytes<'a, C>(&mut self, mut cmd: C) -> Result<C::Resp<'a>, ::sdio::MmcError>
+    where
+        C: ::sdio::ByteReadCommand + 'a,
+    {
+        let index = cmd.index();
+        let arg = cmd.arg();
+        let transfer = self.prepare_datapath_read(cmd.buf(), DatapathMode::Byte);
+
+        let resp = self.exec_command(index, arg, true).await;
+
+        self.complete_datapath_transfer(transfer, false)
+            .await
+            .map_err(|_| MmcError::Other)?;
+
+        resp
+    }
+
+    async fn write_bytes<'a, C>(&mut self, cmd: C) -> Result<C::Resp<'a>, ::sdio::MmcError>
+    where
+        C: ::sdio::ByteWriteCommand + 'a,
+    {
+        let index = cmd.index();
+        let arg = cmd.arg();
+
+        // sdmmc_v1 uses different cmd/dma order than v2, but only for writes
+        #[cfg(sdmmc_v1)]
+        let resp = self.exec_command(index, arg, true).await;
+
+        let transfer = self.prepare_datapath_write(cmd.buf(), DatapathMode::Byte);
+
+        #[cfg(any(sdmmc_v2, sdmmc_v3))]
+        let resp = self.exec_command(index, arg, true).await;
+
+        self.complete_datapath_transfer(transfer, false)
+            .await
+            .map_err(|_| MmcError::Other)?;
+
+        resp
     }
 }
 

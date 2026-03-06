@@ -599,7 +599,6 @@ fn main() {
         g.extend(quote! { pub const MAX_ERASE_SIZE: usize = #max_erase_size as usize; });
 
         g.extend(quote! {
-            #[cfg(not(stm32c5))]
             pub mod flash_regions { #flash_regions }
         });
     }
@@ -1060,7 +1059,7 @@ fn main() {
     // ========
     // Generate fns to enable GPIO, DMA in RCC
 
-    for kind in ["mdma", "dma", "bdma", "dmamux", "gpdma", "gpio"] {
+    for kind in ["mdma", "dma", "bdma", "dmamux", "gpdma", "lpdma", "gpio"] {
         let mut gg = TokenStream::new();
 
         for (p, r) in &peripheral_list {
@@ -1907,7 +1906,7 @@ fn main() {
                     adc_pairs.entry(ch).or_insert((None, None)).0.replace(pin_name.clone());
 
                     g.extend(quote! {
-                    impl_adc_pin!( #peri, #pin_name, #ch);
+                        impl_adc_pin!( #peri, #pin_name, #ch);
                     })
                 }
                 if let Some((ch, true)) = ch {
@@ -2003,7 +2002,7 @@ fn main() {
                 let sel: u8 = pin.signal.strip_prefix("IN").unwrap().parse().unwrap();
 
                 g.extend(quote! {
-                impl_spdifrx_pin!( #peri, #pin_name, #af, #sel);
+                    impl_spdifrx_pin!( #peri, #pin_name, #af, #sel);
                 })
             }
         }
@@ -2020,7 +2019,7 @@ fn main() {
                 };
 
                 g.extend(quote! {
-                impl_adc_pair!( #peri, #pin_name, #npin_name, #ch);
+                    impl_adc_pair!( #peri, #pin_name, #npin_name, #ch);
                 })
             }
         }
@@ -2417,13 +2416,11 @@ fn main() {
         #[cfg(feature = "_split-pins-enabled")]
         for split_feature in &split_features {
             if split_feature.pin_name_without_c == pin.name {
-                pins_table.push(vec![
-                    split_feature.pin_name_with_c.to_string(),
-                    p.name.to_string(),
-                    port_num.to_string(),
-                    pin_num.to_string(),
-                    format!("EXTI{}", pin_num),
-                ]);
+                let pin_name = format_ident!("{}", split_feature.pin_name_with_c);
+
+                g.extend(quote! {
+                    impl_analog_pin!(#pin_name);
+                });
             }
         }
     }

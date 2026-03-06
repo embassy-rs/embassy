@@ -1,9 +1,9 @@
 #![allow(unused)]
 
-pub(crate) const FUNC_BUS: u32 = 0;
-pub(crate) const FUNC_BACKPLANE: u32 = 1;
-pub(crate) const FUNC_WLAN: u32 = 2;
-pub(crate) const FUNC_BT: u32 = 3;
+pub(crate) const FUNC_BUS: u8 = 0;
+pub(crate) const FUNC_BACKPLANE: u8 = 1;
+pub(crate) const FUNC_WLAN: u8 = 2;
+pub(crate) const FUNC_BT: u8 = 3;
 
 // Register addresses
 pub(crate) const REG_BUS_CTRL: u32 = 0x0;
@@ -35,7 +35,7 @@ pub(crate) const DATA_ERR_CHK_EN: u32 = 0x40;
 
 // SPI_STATUS_REGISTER bits
 pub(crate) const SPI_STATUS_REGISTER: u32 = 0x00000008;
-pub(crate) const INITIAL_READ: u32 = 0x04;
+pub(crate) const INITIAL_READ: usize = 0x04;
 
 pub(crate) const STATUS_DATA_NOT_AVAILABLE: u32 = 0x00000001;
 pub(crate) const STATUS_UNDERFLOW: u32 = 0x00000002;
@@ -74,6 +74,9 @@ pub(crate) const FRAME_AVAILABLE_MASK: u32 = I_HMB_SW_MASK;
 pub(crate) const SDIO_INT_STATUS: u32 = 0x20;
 pub(crate) const SDIO_INT_HOST_MASK: u32 = 0x24;
 pub(crate) const SDIO_FUNCTION_INT_MASK: u32 = 0x34;
+pub(crate) const SDIO_INT_HOST_MASK_ALL: u8 = 0xFF;
+pub(crate) const SDIO_FUNC_INT_MASK_F1: u8 = 0x02;
+pub(crate) const CCCR_INT_ENABLE_MASTER: u8 = 0x01;
 pub(crate) const SDIO_TO_SB_MAILBOX: u32 = 0x40;
 pub(crate) const SDIO_TO_SB_MAILBOX_DATA: u32 = 0x48;
 pub(crate) const SDIO_TO_HOST_MAILBOX_DATA: u32 = 0x4C;

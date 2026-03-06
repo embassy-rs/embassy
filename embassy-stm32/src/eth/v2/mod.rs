@@ -93,19 +93,18 @@ enum Pins<'d> {
 
 macro_rules! config_pins {
     ($($pin:ident),*) => {
+        config_pins!(@speed Speed::VeryHigh; $($pin),*)
+    };
+    (@speed $speed:expr; $($pin:ident),*) => {
         critical_section::with(|_| {
             $(
                 // TODO: shouldn't some pins be configured as inputs?
-                #[cfg(eth_v2)]
-                set_as_af!($pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-                #[cfg(eth_v2a)]
-                set_as_af!($pin, AfType::output(OutputType::PushPull, Speed::Low));
+                set_as_af!($pin, AfType::output(OutputType::PushPull, $speed));
             )*
         })
     };
 }
 
-#[cfg(eth_v2)]
 impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA>>> {
     /// Create a new RMII ethernet driver using 7 pins.
     ///
@@ -114,6 +113,7 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
     ///
     /// See [`Ethernet::new_with_phy`] for creating an RMII ethernet
     /// river with a non-standard PHY.
+    #[allow(clippy::too_many_arguments)]
     pub fn new<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
@@ -145,6 +145,7 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
     ///
     /// See [`Ethernet::new_mii_with_phy`] for creating an RMII ethernet
     /// river with a non-standard PHY.
+    #[cfg(eth_v2)]
     pub fn new_mii<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
@@ -219,43 +220,10 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
             clk125, mac_addr, phy,
         )
     }
-
-    /// Create a new RMII ethernet driver using 7 pins.
-    ///
-    /// This function uses a [`GenericPhy::new_auto`] as PHY, created using the
-    /// provided [`SMA`](sma::Instance), and MDIO and MDC pins.
-    ///
-    /// See [`Ethernet::new_with_phy`] for creating an RMII ethernet
-    /// river with a non-standard PHY.
-    #[allow(clippy::too_many_arguments)]
-    pub fn new_rmii<const TX: usize, const RX: usize>(
-        queue: &'d mut PacketQueue<TX, RX>,
-        peri: Peri<'d, T>,
-        irq: impl interrupt::typelevel::Binding<EthTypelevel, InterruptHandler> + 'd,
-        ref_clk: Peri<'d, impl RefClkPin<T>>,
-        crs: Peri<'d, impl CRSPin<T>>,
-        rx_d0: Peri<'d, impl RXD0Pin<T>>,
-        rx_d1: Peri<'d, impl RXD1Pin<T>>,
-        tx_d0: Peri<'d, impl TXD0Pin<T>>,
-        tx_d1: Peri<'d, impl TXD1Pin<T>>,
-        tx_en: Peri<'d, impl TXEnPin<T>>,
-        mac_addr: [u8; 6],
-        sma: Peri<'d, SMA>,
-        mdio: Peri<'d, impl MDIOPin<SMA>>,
-        mdc: Peri<'d, impl MDCPin<SMA>>,
-    ) -> Self {
-        let sma = Sma::new(sma, mdio, mdc);
-        let phy = GenericPhy::new_auto(sma);
-
-        Self::new_rmii_with_phy(
-            queue, peri, irq, ref_clk, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en, mac_addr, phy,
-        )
-    }
 }
 
 impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
     /// Create a new RMII ethernet driver using 7 pins.
-    #[cfg(eth_v2)]
     pub fn new_with_phy<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
@@ -282,7 +250,16 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             Flex::new(tx_en),
         ]);
 
-        Self::new_inner(queue, peri, irq, pins, phy, mac_addr, EthSelPhy::Rmii)
+        Self::new_inner(
+            queue,
+            peri,
+            irq,
+            pins,
+            phy,
+            mac_addr,
+            #[cfg(eth_v2)]
+            EthSelPhy::Rmii,
+        )
     }
 
     /// Create a new MII ethernet driver using 12 pins.
@@ -327,37 +304,6 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
 
         Self::new_inner(queue, peri, irq, pins, phy, mac_addr, EthSelPhy::MiiGmii)
     }
-    /// Create a new RMII ethernet driver using 7 pins.
-    #[cfg(eth_v2a)]
-    #[allow(clippy::too_many_arguments)]
-    pub fn new_rmii_with_phy<const TX: usize, const RX: usize>(
-        queue: &'d mut PacketQueue<TX, RX>,
-        peri: Peri<'d, T>,
-        irq: impl interrupt::typelevel::Binding<EthTypelevel, InterruptHandler> + 'd,
-        ref_clk: Peri<'d, impl RefClkPin<T>>,
-        crs: Peri<'d, impl CRSPin<T>>,
-        rx_d0: Peri<'d, impl RXD0Pin<T>>,
-        rx_d1: Peri<'d, impl RXD1Pin<T>>,
-        tx_d0: Peri<'d, impl TXD0Pin<T>>,
-        tx_d1: Peri<'d, impl TXD1Pin<T>>,
-        tx_en: Peri<'d, impl TXEnPin<T>>,
-        mac_addr: [u8; 6],
-        phy: P,
-    ) -> Self {
-        config_pins!(ref_clk, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
-
-        let pins = Pins::Rmii([
-            Flex::new(ref_clk),
-            Flex::new(crs),
-            Flex::new(rx_d0),
-            Flex::new(rx_d1),
-            Flex::new(tx_d0),
-            Flex::new(tx_d1),
-            Flex::new(tx_en),
-        ]);
-
-        Self::new_inner(queue, peri, irq, pins, phy, mac_addr)
-    }
 
     /// Create a new RGMII ethernet driver using 13 pins.
     #[cfg(eth_v2a)]
@@ -382,9 +328,12 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         mac_addr: [u8; 6],
         phy: P,
     ) -> Self {
+        // ST's example configures every ETH pin at VERY_HIGH speed
         config_pins!(
-            gtx_clk, tx_ctl, tx_d0, tx_d1, tx_d2, tx_d3, rx_clk, rx_ctl, rx_d0, rx_d1, rx_d2, rx_d3, clk125
+            tx_ctl, tx_d0, tx_d1, tx_d2, tx_d3, rx_clk, rx_ctl, rx_d0, rx_d1, rx_d2, rx_d3, clk125
         );
+        // GTX_CLK uses MEDIUM speed in ST's example
+        config_pins!(@speed Speed::Medium; gtx_clk);
 
         let pins = Pins::Rgmii([
             Flex::new(gtx_clk),
@@ -518,8 +467,6 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             w.set_txlpiuscim(true);
             w.set_txlpitrcim(true);
         });
-
-        //mtl.mtlomr().modify(|w| w.set_schalg(0b11));
 
         ch0!(mtl, mtl_rx_qomr).modify(|w| {
             w.set_rsf(true);

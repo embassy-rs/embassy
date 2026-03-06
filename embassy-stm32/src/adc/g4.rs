@@ -1,5 +1,3 @@
-#[cfg(stm32g4)]
-use pac::adc::regs::Difsel as DifselReg;
 #[allow(unused)]
 #[cfg(stm32g4)]
 pub use pac::adc::vals::{Adcaldif, Adstp, Difsel, Dmacfg, Dmaen, Exten, Rovsm, Trovs};
@@ -139,14 +137,14 @@ impl super::AdcRegs for crate::pac::adc::Adc {
     }
 
     fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
-        #[cfg(stm32g4)]
-        let mut difsel = DifselReg::default();
         let mut smpr = Smpr::default();
         let mut smpr2 = Smpr2::default();
         let mut sqr1 = Sqr1::default();
         let mut sqr2 = Sqr2::default();
         let mut sqr3 = Sqr3::default();
         let mut sqr4 = Sqr4::default();
+        #[cfg(stm32g4)]
+        let mut difsel = self.difsel().read();
 
         // Set sequence length
         sqr1.set_l(sequence.len() as u8 - 1);
@@ -177,28 +175,26 @@ impl super::AdcRegs for crate::pac::adc::Adc {
             }
 
             #[cfg(stm32g4)]
-            {
-                if ch < 18 {
-                    difsel.set_difsel(
-                        ch.into(),
-                        if is_differential {
-                            Difsel::Differential
-                        } else {
-                            Difsel::SingleEnded
-                        },
-                    );
-                }
+            if ch < 18 {
+                difsel.set_difsel(
+                    ch.into(),
+                    if is_differential {
+                        Difsel::Differential
+                    } else {
+                        Difsel::SingleEnded
+                    },
+                );
             }
         }
 
+        #[cfg(stm32g4)]
+        self.difsel().write_value(difsel);
         self.smpr().write_value(smpr);
         self.smpr2().write_value(smpr2);
         self.sqr1().write_value(sqr1);
         self.sqr2().write_value(sqr2);
         self.sqr3().write_value(sqr3);
         self.sqr4().write_value(sqr4);
-        #[cfg(stm32g4)]
-        self.difsel().write_value(difsel);
     }
 }
 
@@ -206,13 +202,15 @@ impl InjectedRegs for crate::pac::adc::Adc {
     fn configure_injected_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>) {
         let mut smpr1 = self.smpr().read();
         let mut smpr2 = self.smpr2().read();
+        #[cfg(stm32g4)]
+        let mut difsel = self.difsel().read();
 
         let mut jsqr = Jsqr::default();
 
         let len: u8 = sequence.len().try_into().unwrap();
         jsqr.set_jl(len - 1);
 
-        for (n, ((channel, _), sample_time)) in sequence.enumerate() {
+        for (n, ((channel, is_differential), sample_time)) in sequence.enumerate() {
             let sample_time = sample_time.clone().into();
             if channel <= 9 {
                 smpr1.set_smp(channel as _, sample_time);
@@ -229,8 +227,22 @@ impl InjectedRegs for crate::pac::adc::Adc {
             };
 
             jsqr.set_jsq(idx, channel);
+
+            #[cfg(stm32g4)]
+            if channel < 18 {
+                difsel.set_difsel(
+                    channel.into(),
+                    if is_differential {
+                        Difsel::Differential
+                    } else {
+                        Difsel::SingleEnded
+                    },
+                );
+            }
         }
 
+        #[cfg(stm32g4)]
+        self.difsel().write_value(difsel);
         self.smpr().write_value(smpr1);
         self.smpr2().write_value(smpr2);
 
