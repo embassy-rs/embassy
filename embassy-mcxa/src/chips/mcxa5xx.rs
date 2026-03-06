@@ -456,8 +456,8 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
         crate::gpio::interrupt_init();
     }
 
-    // // Initialize DMA controller (clock, reset, configuration)
-    // crate::dma::init();
+    // Initialize DMA controller (clock, reset, configuration)
+    crate::dma::init();
 
     // Enable GPIO clocks
     unsafe {
