@@ -5,9 +5,8 @@ use embassy_executor::Spawner;
 use hal::bind_interrupts;
 use hal::config::Config;
 use hal::dma::DmaChannel;
-use hal::sgi::hash::{hash_blocking, hash_dma_start, HashSize, SGIHasher};
+use hal::sgi::hash::{HashSize, SGIHasher, hash_blocking, hash_dma_start};
 use hal::sgi::{Config as SgiConfig, InterruptHandler as SgiInterruptHandler, Sgi};
-
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 bind_interrupts!(
@@ -113,12 +112,12 @@ async fn main(_spawner: Spawner) {
     // Returns a DmaHasher instance which can be awaited completion asynchronously (interrupts)
     match hash_dma_start(&mut sgi, &mut dma_ch0, HashSize::Sha384, &input_data) {
         Ok(dma_hasher) => {
-            match dma_hasher.finalize(&mut hash_result[..48]).await { // Call finalize with output buffer.
+            match dma_hasher.finalize(&mut hash_result[..48]).await {
+                // Call finalize with output buffer.
                 Ok(()) => defmt::info!("DMA Async Hash output: {=[u8]:x}", &hash_result[..48]),
                 Err(e) => defmt::error!("DMA Hashing failed in finalize(): {:?}", defmt::Debug2Format(&e)),
             }
         }
         Err(_) => defmt::error!("Hash DMA start failed"),
     }
-
 }
