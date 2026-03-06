@@ -39,9 +39,9 @@ use core::cell::{Ref, RefCell};
 use core::ops::Deref;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use config::{ClocksConfig, CoreSleep, MainClockSource, SircConfig, VddDriveStrength, VddLevel};
+use config::{ClocksConfig, CoreSleep, Fro16KConfig, MainClockSource, SircConfig, VddDriveStrength, VddLevel};
 #[cfg(feature = "mcxa2xx")]
-use config::{FircConfig, FircFreqSel, Fro16KConfig};
+use config::{FircConfig, FircFreqSel};
 use cortex_m::peripheral::SCB;
 use critical_section::CriticalSection;
 use nxp_pac::syscon::vals::Unlock;
@@ -50,20 +50,20 @@ use periph_helpers::{PreEnableParts, SPConfHelper};
 use crate::chips::{ClockLimits, clock_limits};
 use crate::pac;
 use crate::pac::cmc::vals::CkctrlCkmode;
-#[cfg(feature = "mcxa2xx")]
 use crate::pac::scg::vals::{
-    Erefs, Fircacc, FircaccIe, FirccsrLk, Fircerr, FircerrIe, Fircsten, Fircvld, FreqSel, Range, SosccsrLk, Soscerr,
-    Source, SpllLock, SpllcsrLk, Spllerr, Spllsten, TrimUnlock,
+    Erefs, Range, Scs, SirccsrLk, Sircerr, Sircvld, SosccsrLk, Soscerr, Source, SpllLock, SpllcsrLk, Spllerr, Spllsten,
+    TrimUnlock,
 };
-use crate::pac::scg::vals::{Scs, SirccsrLk, Sircerr, Sircvld};
+#[cfg(feature = "mcxa2xx")]
+use crate::pac::scg::vals::{Fircacc, FircaccIe, FirccsrLk, Fircerr, FircerrIe, Fircsten, Fircvld, FreqSel};
 use crate::pac::spc::vals::{
     ActiveCfgBgmode, ActiveCfgCoreldoVddDs, ActiveCfgCoreldoVddLvl, LpCfgBgmode, LpCfgCoreldoVddLvl, Vsm,
 };
-use crate::pac::syscon::vals::{AhbclkdivUnstab, FrolfdivHalt, FrolfdivReset, FrolfdivUnstab};
-#[cfg(feature = "mcxa2xx")]
 use crate::pac::syscon::vals::{
-    FrohfdivHalt, FrohfdivReset, FrohfdivUnstab, Pll1clkdivHalt, Pll1clkdivReset, Pll1clkdivUnstab,
+    AhbclkdivUnstab, FrolfdivHalt, FrolfdivReset, FrolfdivUnstab, Pll1clkdivHalt, Pll1clkdivReset, Pll1clkdivUnstab,
 };
+#[cfg(feature = "mcxa2xx")]
+use crate::pac::syscon::vals::{FrohfdivHalt, FrohfdivReset, FrohfdivUnstab};
 pub mod config;
 pub mod periph_helpers;
 
@@ -126,12 +126,14 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
     operator.configure_sirc_clocks_early()?;
     #[cfg(feature = "mcxa2xx")]
     operator.configure_firc_clocks()?;
-    #[cfg(feature = "mcxa2xx")]
     operator.configure_fro16k_clocks()?;
-    #[cfg(feature = "mcxa2xx")]
+
+    // NOTE: OSC32K must be configured AFTER FRO16K.
+    #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+    operator.configure_osc32k_clocks()?;
+
     #[cfg(not(feature = "sosc-as-gpio"))]
     operator.configure_sosc()?;
-    #[cfg(feature = "mcxa2xx")]
     operator.configure_spll()?;
 
     // Finally, setup main clock
@@ -303,7 +305,6 @@ unsafe fn restart_active_only_clocks(_cs: &CriticalSection) {
     }
 
     // Ensure SOSC is up and running
-    #[cfg(feature = "mcxa2xx")]
     #[cfg(not(feature = "sosc-as-gpio"))]
     if let Some(clk_in) = clocks.clk_in.as_ref()
         && !matches!(clk_in.power, PoweredClock::AlwaysEnabled)
@@ -312,7 +313,6 @@ unsafe fn restart_active_only_clocks(_cs: &CriticalSection) {
     }
 
     // Ensure SPLL is up and running
-    #[cfg(feature = "mcxa2xx")]
     if let Some(spll) = clocks.pll1_clk.as_ref()
         && !matches!(spll.power, PoweredClock::AlwaysEnabled)
     {
@@ -397,7 +397,6 @@ pub struct Clocks {
 
     /// The `clk_in` is a clock provided by an external oscillator
     /// AKA SOSC
-    #[cfg(feature = "mcxa2xx")]
     #[cfg(not(feature = "sosc-as-gpio"))]
     pub clk_in: Option<Clock>,
 
@@ -443,19 +442,43 @@ pub struct Clocks {
     pub fro_lf_div: Option<Clock>,
     //
     // End FRO12M stuff
-    /// `clk_16k_vsys` is one of two outputs of the `FRO16K` internal oscillator.
+    /// `clk_16k_vsys` is one of two/three outputs of the `FRO16K` internal oscillator.
     ///
     /// Also referred to as `clk_16k[0]` in the datasheet, it feeds peripherals in
     /// the system domain, such as the CMP and RTC.
-    #[cfg(feature = "mcxa2xx")]
     pub clk_16k_vsys: Option<Clock>,
 
-    /// `clk_16k_vdd_core` is one of two outputs of the `FRO16K` internal oscillator.
+    /// `clk_16k_vdd_core` is one of two/three outputs of the `FRO16K` internal oscillator.
     ///
     /// Also referred to as `clk_16k[1]` in the datasheet, it feeds peripherals in
     /// the VDD Core domain, such as the OSTimer or LPUarts.
-    #[cfg(feature = "mcxa2xx")]
     pub clk_16k_vdd_core: Option<Clock>,
+
+    /// `clk_16k_vbat` is one of three outputs of the `FRO16K` internal oscillator.
+    ///
+    /// Also referred to as `clk_16k[2]` in the datasheet.
+    #[cfg(feature = "mcxa5xx")]
+    pub clk_16k_vbat: Option<Clock>,
+
+    /// `clk_32k_vsys` is one of two/three outputs of the `FRO16K` internal oscillator.
+    ///
+    /// Also referred to as `clk_32k[0]` in the datasheet, it feeds peripherals in
+    /// the system domain, such as the CMP and RTC.
+    #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+    pub clk_32k_vsys: Option<Clock>,
+
+    /// `clk_32k_vdd_core` is one of two/three outputs of the `FRO16K` internal oscillator.
+    ///
+    /// Also referred to as `clk_32k[1]` in the datasheet, it feeds peripherals in
+    /// the VDD Core domain, such as the OSTimer or LPUarts.
+    #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+    pub clk_32k_vdd_core: Option<Clock>,
+
+    /// `clk_32k_vbat` is one of three outputs of the `FRO16K` internal oscillator.
+    ///
+    /// Also referred to as `clk_32k[2]` in the datasheet.
+    #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+    pub clk_32k_vbat: Option<Clock>,
 
     /// `main_clk` is the main clock, upstream of the cpu/system clock.
     pub main_clk: Option<Clock>,
@@ -465,11 +488,9 @@ pub struct Clocks {
     pub cpu_system_clk: Option<Clock>,
 
     /// `pll1_clk` is the output of the main system PLL, `pll1`.
-    #[cfg(feature = "mcxa2xx")]
     pub pll1_clk: Option<Clock>,
 
     /// `pll1_clk_div` is a configurable frequency clock, sourced from `pll1_clk`
-    #[cfg(feature = "mcxa2xx")]
     pub pll1_clk_div: Option<Clock>,
 }
 
@@ -772,7 +793,6 @@ impl Clocks {
     }
 
     /// Ensure the `clk_in` clock is active and valid at the given power state.
-    #[cfg(feature = "mcxa2xx")]
     #[cfg(not(feature = "sosc-as-gpio"))]
     #[inline]
     pub fn ensure_clk_in_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
@@ -780,7 +800,6 @@ impl Clocks {
     }
 
     /// Ensure the `clk_16k_vsys` clock is active and valid at the given power state.
-    #[cfg(feature = "mcxa2xx")]
     pub fn ensure_clk_16k_vsys_active(&self, _at_level: &PoweredClock) -> Result<u32, ClockError> {
         // NOTE: clk_16k is always active in low power mode
         Ok(self
@@ -794,7 +813,6 @@ impl Clocks {
     }
 
     /// Ensure the `clk_16k_vdd_core` clock is active and valid at the given power state.
-    #[cfg(feature = "mcxa2xx")]
     pub fn ensure_clk_16k_vdd_core_active(&self, _at_level: &PoweredClock) -> Result<u32, ClockError> {
         // NOTE: clk_16k is always active in low power mode
         Ok(self
@@ -807,6 +825,41 @@ impl Clocks {
             .frequency)
     }
 
+    /// Ensure the `clk_16k_vbat` clock is active and valid at the given power state.
+    #[cfg(feature = "mcxa5xx")]
+    pub fn ensure_clk_16k_vbat_active(&self, _at_level: &PoweredClock) -> Result<u32, ClockError> {
+        // NOTE: clk_16k is always active in low power mode
+        Ok(self
+            .clk_16k_vbat
+            .as_ref()
+            .ok_or(ClockError::BadConfig {
+                clock: "clk_16k_vbat",
+                reason: "required but not active",
+            })?
+            .frequency)
+    }
+
+    /// Ensure the `clk_32k_vsys` clock is active and valid at the given power state.
+    #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+    #[inline]
+    pub fn ensure_clk_32k_vsys_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
+        self.ensure_clock_active(&self.clk_32k_vsys, "clk_32k_vsys", at_level)
+    }
+
+    /// Ensure the `clk_32k_vdd_core` clock is active and valid at the given power state.
+    #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+    #[inline]
+    pub fn ensure_clk_32k_vdd_core_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
+        self.ensure_clock_active(&self.clk_32k_vdd_core, "clk_32k_vdd_core", at_level)
+    }
+
+    /// Ensure the `clk_32k_vbat` clock is active and valid at the given power state.
+    #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+    #[inline]
+    pub fn ensure_clk_32k_vbat_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
+        self.ensure_clock_active(&self.clk_32k_vbat, "clk_32k_vbat", at_level)
+    }
+
     /// Ensure the `clk_1m` clock is active and valid at the given power state.
     #[inline]
     pub fn ensure_clk_1m_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
@@ -814,14 +867,12 @@ impl Clocks {
     }
 
     /// Ensure the `pll1_clk` clock is active and valid at the given power state.
-    #[cfg(feature = "mcxa2xx")]
     #[inline]
     pub fn ensure_pll1_clk_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
         self.ensure_clock_active(&self.pll1_clk, "pll1_clk", at_level)
     }
 
     /// Ensure the `pll1_clk_div` clock is active and valid at the given power state.
-    #[cfg(feature = "mcxa2xx")]
     #[inline]
     pub fn ensure_pll1_clk_div_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
         self.ensure_clock_active(&self.pll1_clk_div, "pll1_clk_div", at_level)
@@ -1233,7 +1284,6 @@ impl ClockOperator<'_> {
     }
 
     /// Configure the ROSC/FRO16K/clk_16k clock family
-    #[cfg(feature = "mcxa2xx")]
     fn configure_fro16k_clocks(&mut self) -> Result<(), ClockError> {
         // If we have a config: ensure fro16k is enabled. If not: ensure it is disabled.
         let enable = self.config.fro16k.is_some();
@@ -1251,11 +1301,14 @@ impl ClockOperator<'_> {
         let Fro16KConfig {
             vsys_domain_active,
             vdd_core_domain_active,
+            #[cfg(feature = "mcxa5xx")]
+            vbat_domain_active,
         } = fro16k;
 
         // Enable clock outputs to both VSYS and VDD_CORE domains
         // Bit 0: clk_16k0 to VSYS domain
-        // Bit 1: clk_16k1 to VDD_CORE domain
+        // Bit 1: clk_16k1 to VDD_CORE/CORE_MAIN domain
+        // Bit 2: clk_16k2 to VBAT domain (5xx only)
         //
         // TODO: Define sub-fields for this register with a PAC patch?
         let mut bits = 0;
@@ -1273,12 +1326,246 @@ impl ClockOperator<'_> {
                 power: PoweredClock::AlwaysEnabled,
             });
         }
+        #[cfg(feature = "mcxa5xx")]
+        if *vbat_domain_active {
+            bits |= 0b100;
+            self.clocks.clk_16k_vbat = Some(Clock {
+                frequency: 16_384,
+                power: PoweredClock::AlwaysEnabled,
+            });
+        }
         self.vbat0.froclke().modify(|w| w.set_clke(bits));
 
         Ok(())
     }
 
-    #[cfg(feature = "mcxa2xx")]
+    /// Configure the ROSC/OSC32K clock family
+    #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+    fn configure_osc32k_clocks(&mut self) -> Result<(), ClockError> {
+        use config::{Osc32KCapSel, Osc32KCoarseGain, Osc32KMode};
+        use nxp_pac::vbat::vals::{
+            CoarseAmpGain, ExtalCapSel, InitTrim, ModeEn, StatusaLdoRdy, StatusaOscRdy, SupplyDet, XtalCapSel,
+        };
+
+        // Unlock the control first
+        self.vbat0.ldolcka().modify(|w| w.set_lock(false));
+
+        let Some(cfg) = self.config.osc32k.as_ref() else {
+            // TODO: how to ensure disabled?
+            // ???
+
+            // Re-lock after disabling
+            self.vbat0.ldolcka().modify(|w| w.set_lock(true));
+            return Ok(());
+        };
+
+        // To enable and lock the LDO and bandgap:
+        //
+        // NOTE(AJM): "The FRO16K must be enabled before enabling the SRAM LDO or the bandgap"
+        //
+        // 1. Enable the FRO16K.
+        //   * NOTE(AJM): clk_16k is always enabled if enabled at all.
+        //   * TODO(AJM): I'm not sure which domain needs to be active for this requirement.
+        //     It seems reasonable that it would be the vbat domain?
+
+        self.clocks.ensure_clk_16k_vbat_active(&PoweredClock::AlwaysEnabled)?;
+
+        // 2. Write 7h to LDO_RAM Control A (LDOCTLA).
+        self.vbat0.ldoctla().write(|w| {
+            w.set_refresh_en(true);
+            w.set_ldo_en(true);
+            w.set_bg_en(true);
+        });
+
+        // 3. Wait for STATUSA[LDO_RDY] to become 1.
+        while self.vbat0.statusa().read().ldo_rdy() != StatusaLdoRdy::SET {}
+
+        // 4. Write 1h to LDOLCKA[LOCK].
+        self.vbat0.ldolcka().modify(|w| w.set_lock(true));
+
+        match &cfg.mode {
+            Osc32KMode::HighPower {
+                coarse_amp_gain,
+                xtal_cap_sel,
+                extal_cap_sel,
+            } => {
+                // To configure and lock OSC32kHz for normal mode operation:
+                //
+                // 1. Configure OSCCTLA[EXTAL_CAP_SEL], OSCCTLA[XTAL_CAP_SEL] and OSCCTLA[COARSE_AMP_GAIN] as
+                // required based on the external crystal component ESR and CL values, and by the PCB parasitics on the EXTAL32K and
+                // XTAL32K pins. Configure 0h to OSCCTLA[MODE_EN], 1h to OSCCTLA[CAP_SEL_EN], and 1h to OSCCTLA[OSC_EN].
+                //   * NOTE(AJM): You must write 1 to this field and OSCCTLA[OSC_EN] simultaneously.
+                self.vbat0.oscctla().modify(|w| {
+                    w.set_xtal_cap_sel(match xtal_cap_sel {
+                        Osc32KCapSel::Cap2PicoF => XtalCapSel::SEL2,
+                        Osc32KCapSel::Cap4PicoF => XtalCapSel::SEL4,
+                        Osc32KCapSel::Cap6PicoF => XtalCapSel::SEL6,
+                        Osc32KCapSel::Cap8PicoF => XtalCapSel::SEL8,
+                        Osc32KCapSel::Cap10PicoF => XtalCapSel::SEL10,
+                        Osc32KCapSel::Cap12PicoF => XtalCapSel::SEL12,
+                        Osc32KCapSel::Cap14PicoF => XtalCapSel::SEL14,
+                        Osc32KCapSel::Cap16PicoF => XtalCapSel::SEL16,
+                        Osc32KCapSel::Cap18PicoF => XtalCapSel::SEL18,
+                        Osc32KCapSel::Cap20PicoF => XtalCapSel::SEL20,
+                        Osc32KCapSel::Cap22PicoF => XtalCapSel::SEL22,
+                        Osc32KCapSel::Cap24PicoF => XtalCapSel::SEL24,
+                        Osc32KCapSel::Cap26PicoF => XtalCapSel::SEL26,
+                        Osc32KCapSel::Cap28PicoF => XtalCapSel::SEL28,
+                        Osc32KCapSel::Cap30PicoF => XtalCapSel::SEL30,
+                    });
+                    w.set_extal_cap_sel(match extal_cap_sel {
+                        Osc32KCapSel::Cap2PicoF => ExtalCapSel::SEL2,
+                        Osc32KCapSel::Cap4PicoF => ExtalCapSel::SEL4,
+                        Osc32KCapSel::Cap6PicoF => ExtalCapSel::SEL6,
+                        Osc32KCapSel::Cap8PicoF => ExtalCapSel::SEL8,
+                        Osc32KCapSel::Cap10PicoF => ExtalCapSel::SEL10,
+                        Osc32KCapSel::Cap12PicoF => ExtalCapSel::SEL12,
+                        Osc32KCapSel::Cap14PicoF => ExtalCapSel::SEL14,
+                        Osc32KCapSel::Cap16PicoF => ExtalCapSel::SEL16,
+                        Osc32KCapSel::Cap18PicoF => ExtalCapSel::SEL18,
+                        Osc32KCapSel::Cap20PicoF => ExtalCapSel::SEL20,
+                        Osc32KCapSel::Cap22PicoF => ExtalCapSel::SEL22,
+                        Osc32KCapSel::Cap24PicoF => ExtalCapSel::SEL24,
+                        Osc32KCapSel::Cap26PicoF => ExtalCapSel::SEL26,
+                        Osc32KCapSel::Cap28PicoF => ExtalCapSel::SEL28,
+                        Osc32KCapSel::Cap30PicoF => ExtalCapSel::SEL30,
+                    });
+                    w.set_coarse_amp_gain(match coarse_amp_gain {
+                        Osc32KCoarseGain::EsrRange0 => CoarseAmpGain::GAIN05,
+                        Osc32KCoarseGain::EsrRange1 => CoarseAmpGain::GAIN10,
+                        Osc32KCoarseGain::EsrRange2 => CoarseAmpGain::GAIN18,
+                        Osc32KCoarseGain::EsrRange3 => CoarseAmpGain::GAIN33,
+                    });
+                    w.set_mode_en(ModeEn::HP);
+                    w.set_cap_sel_en(true);
+                    w.set_osc_en(true);
+                });
+
+                // 2. Wait for STATUSA[OSC_RDY] to become 1.
+                while self.vbat0.statusa().read().osc_rdy() != StatusaOscRdy::SET {}
+
+                // 3. Write 1h to OSCLCKA[LOCK].
+                self.vbat0.osclcka().modify(|w| w.set_lock(true));
+
+                // 4. Write 0h to .
+                // TODO(AJM): what???????
+
+                // 5. Alter OSCCLKE[CLKE] to clock gate different OSC32K outputs to different peripherals to reduce power consumption.
+                const ENABLED: Option<Clock> = Some(Clock {
+                    frequency: 32_768,
+                    power: PoweredClock::NormalEnabledDeepSleepDisabled,
+                });
+                self.vbat0.oscclke().modify(|w| {
+                    let mut val = 0u8;
+                    if cfg.vsys_domain_active {
+                        val |= 0b001;
+                        self.clocks.clk_32k_vsys = ENABLED;
+                    }
+                    if cfg.vdd_core_domain_active {
+                        val |= 0b010;
+                        self.clocks.clk_32k_vdd_core = ENABLED;
+                    }
+                    if cfg.vbat_domain_active {
+                        val |= 0b100;
+                        self.clocks.clk_32k_vbat = ENABLED;
+                    }
+                    w.set_clke(val);
+                });
+            }
+            Osc32KMode::LowPower {
+                coarse_amp_gain,
+                vbat_exceeds_3v0,
+            } => {
+                // To configure OSC32kHz for low power mode operation:
+                //
+                // 1. Write 3h to OSCCFGA[INIT_TRIM].
+                //   * NOTE(AJM): This is "1 second"?
+                self.vbat0.osccfga().modify(|w| w.set_init_trim(InitTrim::SEL3));
+
+                // 2. Configure OSCCTLA[EXTAL_CAP_SEL], OSCCTLA[XTAL_CAP_SEL] and OSCCTLA[COARSE_AMP_GAIN] as
+                // required based on the external crystal component ESR and CL values, and by the PCB parasitics on the EXTAL32K and
+                // XTAL32K pins. Configure 1h to OSCCTLA[MODE_EN], 1h to OSCCTLA[CAP_SEL_EN], and 1h to OSCCTLA[OSC_EN].
+                //   * NOTE(AJM): The configuration EXTAL_CAP_SEL=0000 and CAP_SEL_EN=1 is required in low power
+                //     mode and is not supported in other modes
+                self.vbat0.oscctla().modify(|w| {
+                    // TODO(AJM): Do we need to set these to reasonable values during the "startup" phase, and THEN
+                    // restore them to 0? RM is very unclear here.
+                    w.set_xtal_cap_sel(XtalCapSel::SEL0);
+                    w.set_extal_cap_sel(ExtalCapSel::SEL0);
+
+                    w.set_coarse_amp_gain(match coarse_amp_gain {
+                        Osc32KCoarseGain::EsrRange0 => CoarseAmpGain::GAIN05,
+                        Osc32KCoarseGain::EsrRange1 => CoarseAmpGain::GAIN10,
+                        Osc32KCoarseGain::EsrRange2 => CoarseAmpGain::GAIN18,
+                        Osc32KCoarseGain::EsrRange3 => CoarseAmpGain::GAIN33,
+                    });
+
+                    // TODO: This naming is bad
+                    //
+                    // pub enum ModeEn {
+                    //     #[doc = "Normal mode"]
+                    //     HP = 0x0,
+                    //     #[doc = "Startup mode"]
+                    //     LP = 0x01,
+                    //     _RESERVED_2 = 0x02,
+                    //     #[doc = "Low power mode"]
+                    //     SW = 0x03,
+                    // }
+
+                    w.set_mode_en(ModeEn::LP);
+                    w.set_cap_sel_en(true);
+                    w.set_osc_en(true);
+                });
+
+                // 3. Wait for STATUSA[OSC_RDY] to become 1.
+                while self.vbat0.statusa().read().osc_rdy() != StatusaOscRdy::SET {}
+
+                // 4. Write 0h to OSCCFGA[INIT_TRIM].
+                self.vbat0.osccfga().modify(|w| w.set_init_trim(InitTrim::SEL0));
+
+                // 5. Configure 3h to OSCCTLA[MODE_EN], 0h to OSCCTLA[EXTAL_CAP_SEL] and 0h to OSCCTLA[XTAL_CAP_SEL].
+                // Configure OSCCTLA[SUPPLY_DET] as required by application.
+                self.vbat0.oscctla().modify(|w| {
+                    w.set_mode_en(ModeEn::SW);
+                    w.set_xtal_cap_sel(XtalCapSel::SEL0);
+                    w.set_extal_cap_sel(ExtalCapSel::SEL0);
+                    w.set_supply_det(if *vbat_exceeds_3v0 {
+                        SupplyDet::G3VSUPPLY
+                    } else {
+                        SupplyDet::L3VSUPPLY
+                    });
+                });
+
+                // 6. Wait for STATUSA[OSC_RDY] to become 1.
+                while self.vbat0.statusa().read().osc_rdy() != StatusaOscRdy::SET {}
+
+                // 7. Alter OSCCLKE[CLKE] to clock gate different OSC32K outputs to different peripherals to reduce power consumption.
+                const ENABLED: Option<Clock> = Some(Clock {
+                    frequency: 32_768,
+                    power: PoweredClock::AlwaysEnabled,
+                });
+                self.vbat0.oscclke().modify(|w| {
+                    let mut val = 0u8;
+                    if cfg.vsys_domain_active {
+                        val |= 0b001;
+                        self.clocks.clk_32k_vsys = ENABLED;
+                    }
+                    if cfg.vdd_core_domain_active {
+                        val |= 0b010;
+                        self.clocks.clk_32k_vdd_core = ENABLED;
+                    }
+                    if cfg.vbat_domain_active {
+                        val |= 0b100;
+                        self.clocks.clk_32k_vbat = ENABLED;
+                    }
+                    w.set_clke(val);
+                });
+            }
+        }
+
+        Ok(())
+    }
+
     fn ensure_ldo_active(&mut self, for_clock: &'static str, for_power: &PoweredClock) -> Result<(), ClockError> {
         let bg_good = match for_power {
             PoweredClock::NormalEnabledDeepSleepDisabled => self.clocks.bandgap_active,
@@ -1309,7 +1596,6 @@ impl ClockOperator<'_> {
     }
 
     /// Configure the SOSC/clk_in oscillator
-    #[cfg(feature = "mcxa2xx")]
     #[cfg(not(feature = "sosc-as-gpio"))]
     fn configure_sosc(&mut self) -> Result<(), ClockError> {
         let Some(parts) = self.config.sosc.as_ref() else {
@@ -1414,7 +1700,6 @@ impl ClockOperator<'_> {
         Ok(())
     }
 
-    #[cfg(feature = "mcxa2xx")]
     fn configure_spll(&mut self) -> Result<(), ClockError> {
         // # Vocab
         //
@@ -1448,6 +1733,7 @@ impl ClockOperator<'_> {
                 .as_ref()
                 .map(|c| (c, Source::SOSC))
                 .ok_or("sosc not active"),
+            #[cfg(feature = "mcxa2xx")]
             config::SpllSource::Firc => self
                 .clocks
                 .clk_45m
@@ -1793,7 +2079,6 @@ impl ClockOperator<'_> {
 
     fn configure_main_clk(&mut self) -> Result<(), ClockError> {
         let (var, name, clk) = match self.config.main_clock.source {
-            #[cfg(feature = "mcxa2xx")]
             #[cfg(not(feature = "sosc-as-gpio"))]
             MainClockSource::SoscClkIn => (Scs::SOSC, "clk_in", self.clocks.clk_in.as_ref()),
             MainClockSource::SircFro12M => (Scs::SIRC, "fro_12m", self.clocks.fro_12m.as_ref()),
@@ -1801,7 +2086,8 @@ impl ClockOperator<'_> {
             MainClockSource::FircHfRoot => (Scs::FIRC, "fro_hf_root", self.clocks.fro_hf_root.as_ref()),
             #[cfg(feature = "mcxa2xx")]
             MainClockSource::RoscFro16K => (Scs::ROSC, "fro16k", self.clocks.clk_16k_vdd_core.as_ref()),
-            #[cfg(feature = "mcxa2xx")]
+            #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+            MainClockSource::RoscOsc32K => (Scs::ROSC, "osc32k", self.clocks.clk_32k_vdd_core.as_ref()),
             MainClockSource::SPll1 => (Scs::SPLL, "pll1_clk", self.clocks.pll1_clk.as_ref()),
         };
         let Some(main_clk_src) = clk else {
@@ -2199,6 +2485,40 @@ impl ClockOperator<'_> {
 #[doc(hidden)]
 #[macro_export]
 macro_rules! impl_cc_gate {
+    ($name:ident, $clk_reg:ident, $field:ident, $config:ty) => {
+        impl Gate for $crate::peripherals::$name {
+            type MrccPeriphConfig = $config;
+
+            paste! {
+                #[inline]
+                unsafe fn enable_clock() {
+                    pac::MRCC0.$clk_reg().modify(|w| w.[<set_ $field>](true));
+                }
+
+                #[inline]
+                unsafe fn disable_clock() {
+                    pac::MRCC0.$clk_reg().modify(|w| w.[<set_ $field>](false));
+                }
+
+                #[inline]
+                unsafe fn release_reset() {}
+
+                #[inline]
+                unsafe fn assert_reset() {}
+            }
+
+            #[inline]
+            fn is_clock_enabled() -> bool {
+                pac::MRCC0.$clk_reg().read().$field()
+            }
+
+            #[inline]
+            fn is_reset_released() -> bool {
+                false
+            }
+        }
+    };
+
     ($name:ident, $clk_reg:ident, $rst_reg:ident, $field:ident, $config:ty) => {
         impl Gate for $crate::peripherals::$name {
             type MrccPeriphConfig = $config;
