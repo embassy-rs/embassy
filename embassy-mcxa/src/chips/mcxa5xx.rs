@@ -110,10 +110,10 @@ mod inner_periph {
         // I3C0,
         INPUTMUX0,
 
-        // LPI2C0,
-        // LPI2C1,
-        // LPI2C2,
-        // LPI2C3,
+        LPI2C0,
+        LPI2C1,
+        LPI2C2,
+        LPI2C3,
 
         // LPSPI0,
         // LPSPI1,
@@ -392,10 +392,12 @@ mod inner_interrupt {
         GPIO5,
 
         // I3C0,
-        // LPI2C0,
-        // LPI2C1,
-        // LPI2C2,
-        // LPI2C3,
+
+        LPI2C0,
+        LPI2C1,
+        LPI2C2,
+        LPI2C3,
+
         // LPSPI0,
         // LPSPI1,
         // LPTMR0,
@@ -674,7 +676,7 @@ pub(crate) mod peripheral_gating {
     use paste::paste;
 
     use crate::clocks::Gate;
-    use crate::clocks::periph_helpers::{CTimerConfig, Clk1MConfig, NoConfig, OsTimerConfig};
+    use crate::clocks::periph_helpers::{CTimerConfig, Clk1MConfig, Lpi2cConfig, NoConfig, OsTimerConfig};
     // use crate::clocks::periph_helpers::{
     //     AdcConfig, CTimerConfig, I3cConfig, Lpi2cConfig, LpspiConfig, LpuartConfig, NoConfig,
     // };
@@ -730,10 +732,10 @@ pub(crate) mod peripheral_gating {
     impl_cc_gate!(GPIO4, mrcc_glb_acc3, mrcc_glb_rst3, gpio4, NoConfig);
     impl_cc_gate!(GPIO5, mrcc_glb_cc3, gpio5, NoConfig);
 
-    // impl_cc_gate!(LPI2C0, mrcc_glb_acc0, mrcc_glb_rst0, lpi2c0, Lpi2cConfig);
-    // impl_cc_gate!(LPI2C1, mrcc_glb_acc0, mrcc_glb_rst0, lpi2c1, Lpi2cConfig);
-    // impl_cc_gate!(LPI2C2, mrcc_glb_acc1, mrcc_glb_rst1, lpi2c2, Lpi2cConfig);
-    // impl_cc_gate!(LPI2C3, mrcc_glb_acc1, mrcc_glb_rst1, lpi2c3, Lpi2cConfig);
+    impl_cc_gate!(LPI2C0, mrcc_glb_acc0, mrcc_glb_rst0, lpi2c0, Lpi2cConfig);
+    impl_cc_gate!(LPI2C1, mrcc_glb_acc0, mrcc_glb_rst0, lpi2c1, Lpi2cConfig);
+    impl_cc_gate!(LPI2C2, mrcc_glb_acc0, mrcc_glb_rst0, lpi2c2, Lpi2cConfig);
+    impl_cc_gate!(LPI2C3, mrcc_glb_acc0, mrcc_glb_rst0, lpi2c3, Lpi2cConfig);
 
     // impl_cc_gate!(LPSPI0, mrcc_glb_acc0, mrcc_glb_rst0, lpspi0, LpspiConfig);
     // impl_cc_gate!(LPSPI1, mrcc_glb_acc0, mrcc_glb_rst0, lpspi1, LpspiConfig);

@@ -2,9 +2,11 @@
 #![no_main]
 
 use embassy_executor::Spawner;
+use embassy_time::Timer;
 use hal::clocks::config::Div8;
 use hal::config::Config;
 use hal::i2c::controller::{self, I2c, Speed};
+use tmp108::Tmp108;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 #[embassy_executor::main]
@@ -18,13 +20,12 @@ async fn main(_spawner: Spawner) {
 
     let mut config = controller::Config::default();
     config.speed = Speed::Standard;
+    let i2c = I2c::new_blocking(p.LPI2C3, p.P3_21, p.P3_20, config).unwrap();
+    let mut tmp = Tmp108::new_with_a0_gnd(i2c);
 
-    let mut i2c = I2c::new_blocking(p.LPI2C2, p.P1_9, p.P1_8, config).unwrap();
-
-    for addr in 0x01..=0x7f {
-        let result = i2c.blocking_write(addr, &[]);
-        if result.is_ok() {
-            defmt::info!("Device found at addr {:02x}", addr);
-        }
+    loop {
+        let temperature = tmp.temperature().unwrap();
+        defmt::info!("Temperature: {}C", temperature);
+        Timer::after_secs(1).await;
     }
 }
