@@ -24,9 +24,9 @@ mod inner_periph {
         CDOG0,
         CDOG1,
 
-        // // CLKOUT is not specifically a peripheral (it's part of SYSCON),
-        // // but we still want it to be a singleton.
-        // CLKOUT,
+        // CLKOUT is not specifically a peripheral (it's part of SYSCON),
+        // but we still want it to be a singleton.
+        CLKOUT,
 
         // CMC,
         // CMP0,
