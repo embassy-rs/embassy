@@ -609,13 +609,11 @@ pub enum CTimerClockSel {
     FroLfDiv,
     /// FRO180M/FRO192M/FRO_HF/FIRC clock source, passed through divider
     /// "fro_hf_div"
-    #[cfg(feature = "mcxa2xx")]
     FroHfDiv,
     /// SOSC/XTAL/EXTAL clock source
     #[cfg(not(feature = "sosc-as-gpio"))]
     ClkIn,
     /// FRO16K/clk_16k source
-    #[cfg(feature = "mcxa2xx")]
     Clk16K,
     /// clk_1m/FRO_LF divided by 12
     Clk1M,
@@ -680,10 +678,16 @@ impl SPConfHelper for CTimerConfig {
 
                 (freq, mux)
             }
-            #[cfg(feature = "mcxa2xx")]
             CTimerClockSel::FroHfDiv => {
                 let freq = clocks.ensure_fro_hf_div_active(&self.power)?;
-                (freq, CtimerClkselMux::CLKROOT_FUNC_1)
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = CtimerClkselMux::CLKROOT_FUNC_1;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = CtimerClkselMux::I1_CLKROOT_FIRC_GATED;
+
+                (freq, mux)
             }
             #[cfg(not(feature = "sosc-as-gpio"))]
             CTimerClockSel::ClkIn => {
@@ -697,10 +701,16 @@ impl SPConfHelper for CTimerConfig {
 
                 (freq, mux)
             }
-            #[cfg(feature = "mcxa2xx")]
             CTimerClockSel::Clk16K => {
                 let freq = clocks.ensure_clk_16k_vdd_core_active(&self.power)?;
-                (freq, CtimerClkselMux::CLKROOT_FUNC_4)
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = CtimerClkselMux::CLKROOT_FUNC_4;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = CtimerClkselMux::I4_CLKROOT_LPOSC;
+
+                (freq, mux)
             }
             CTimerClockSel::Clk1M => {
                 let freq = clocks.ensure_clk_1m_active(&self.power)?;
