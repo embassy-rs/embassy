@@ -40,6 +40,9 @@ mod all_chips {
     pub mod crc;
     pub mod ctimer;
     pub mod dma;
+    #[path = "sgi/hash.rs"]
+    pub mod hash;
+    pub mod sgi;
     #[cfg(feature = "custom-executor")]
     pub mod executor;
     pub mod gpio;
