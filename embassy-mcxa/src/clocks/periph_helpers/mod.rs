@@ -607,7 +607,7 @@ pub enum CTimerClockSel {
     /// FRO12M/FRO_LF/SIRC clock source, passed through divider
     /// "fro_lf_div"
     FroLfDiv,
-    /// FRO180M/FRO_HF/FIRC clock source, passed through divider
+    /// FRO180M/FRO192M/FRO_HF/FIRC clock source, passed through divider
     /// "fro_hf_div"
     #[cfg(feature = "mcxa2xx")]
     FroHfDiv,
