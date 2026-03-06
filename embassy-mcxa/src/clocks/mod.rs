@@ -50,20 +50,20 @@ use periph_helpers::{PreEnableParts, SPConfHelper};
 use crate::chips::{ClockLimits, clock_limits};
 use crate::pac;
 use crate::pac::cmc::vals::CkctrlCkmode;
-#[cfg(feature = "mcxa2xx")]
 use crate::pac::scg::vals::{
-    Erefs, Fircacc, FircaccIe, FirccsrLk, Fircerr, FircerrIe, Fircsten, Fircvld, FreqSel, Range, SosccsrLk, Soscerr,
-    Source, SpllLock, SpllcsrLk, Spllerr, Spllsten, TrimUnlock,
+    Erefs, Range, Scs, SirccsrLk, Sircerr, Sircvld, SosccsrLk, Soscerr, Source, SpllLock, SpllcsrLk, Spllerr, Spllsten,
+    TrimUnlock,
 };
-use crate::pac::scg::vals::{Scs, SirccsrLk, Sircerr, Sircvld};
+#[cfg(feature = "mcxa2xx")]
+use crate::pac::scg::vals::{Fircacc, FircaccIe, FirccsrLk, Fircerr, FircerrIe, Fircsten, Fircvld, FreqSel};
 use crate::pac::spc::vals::{
     ActiveCfgBgmode, ActiveCfgCoreldoVddDs, ActiveCfgCoreldoVddLvl, LpCfgBgmode, LpCfgCoreldoVddLvl, Vsm,
 };
-use crate::pac::syscon::vals::{AhbclkdivUnstab, FrolfdivHalt, FrolfdivReset, FrolfdivUnstab};
-#[cfg(feature = "mcxa2xx")]
 use crate::pac::syscon::vals::{
-    FrohfdivHalt, FrohfdivReset, FrohfdivUnstab, Pll1clkdivHalt, Pll1clkdivReset, Pll1clkdivUnstab,
+    AhbclkdivUnstab, FrolfdivHalt, FrolfdivReset, FrolfdivUnstab, Pll1clkdivHalt, Pll1clkdivReset, Pll1clkdivUnstab,
 };
+#[cfg(feature = "mcxa2xx")]
+use crate::pac::syscon::vals::{FrohfdivHalt, FrohfdivReset, FrohfdivUnstab};
 pub mod config;
 pub mod periph_helpers;
 
@@ -132,10 +132,8 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
     #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
     operator.configure_osc32k_clocks()?;
 
-    #[cfg(feature = "mcxa2xx")]
     #[cfg(not(feature = "sosc-as-gpio"))]
     operator.configure_sosc()?;
-    #[cfg(feature = "mcxa2xx")]
     operator.configure_spll()?;
 
     // Finally, setup main clock
@@ -307,7 +305,6 @@ unsafe fn restart_active_only_clocks(_cs: &CriticalSection) {
     }
 
     // Ensure SOSC is up and running
-    #[cfg(feature = "mcxa2xx")]
     #[cfg(not(feature = "sosc-as-gpio"))]
     if let Some(clk_in) = clocks.clk_in.as_ref()
         && !matches!(clk_in.power, PoweredClock::AlwaysEnabled)
@@ -316,7 +313,6 @@ unsafe fn restart_active_only_clocks(_cs: &CriticalSection) {
     }
 
     // Ensure SPLL is up and running
-    #[cfg(feature = "mcxa2xx")]
     if let Some(spll) = clocks.pll1_clk.as_ref()
         && !matches!(spll.power, PoweredClock::AlwaysEnabled)
     {
@@ -401,7 +397,6 @@ pub struct Clocks {
 
     /// The `clk_in` is a clock provided by an external oscillator
     /// AKA SOSC
-    #[cfg(feature = "mcxa2xx")]
     #[cfg(not(feature = "sosc-as-gpio"))]
     pub clk_in: Option<Clock>,
 
@@ -493,11 +488,9 @@ pub struct Clocks {
     pub cpu_system_clk: Option<Clock>,
 
     /// `pll1_clk` is the output of the main system PLL, `pll1`.
-    #[cfg(feature = "mcxa2xx")]
     pub pll1_clk: Option<Clock>,
 
     /// `pll1_clk_div` is a configurable frequency clock, sourced from `pll1_clk`
-    #[cfg(feature = "mcxa2xx")]
     pub pll1_clk_div: Option<Clock>,
 }
 
@@ -800,7 +793,6 @@ impl Clocks {
     }
 
     /// Ensure the `clk_in` clock is active and valid at the given power state.
-    #[cfg(feature = "mcxa2xx")]
     #[cfg(not(feature = "sosc-as-gpio"))]
     #[inline]
     pub fn ensure_clk_in_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
@@ -875,14 +867,12 @@ impl Clocks {
     }
 
     /// Ensure the `pll1_clk` clock is active and valid at the given power state.
-    #[cfg(feature = "mcxa2xx")]
     #[inline]
     pub fn ensure_pll1_clk_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
         self.ensure_clock_active(&self.pll1_clk, "pll1_clk", at_level)
     }
 
     /// Ensure the `pll1_clk_div` clock is active and valid at the given power state.
-    #[cfg(feature = "mcxa2xx")]
     #[inline]
     pub fn ensure_pll1_clk_div_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
         self.ensure_clock_active(&self.pll1_clk_div, "pll1_clk_div", at_level)
@@ -1576,7 +1566,6 @@ impl ClockOperator<'_> {
         Ok(())
     }
 
-    #[cfg(feature = "mcxa2xx")]
     fn ensure_ldo_active(&mut self, for_clock: &'static str, for_power: &PoweredClock) -> Result<(), ClockError> {
         let bg_good = match for_power {
             PoweredClock::NormalEnabledDeepSleepDisabled => self.clocks.bandgap_active,
@@ -1607,7 +1596,6 @@ impl ClockOperator<'_> {
     }
 
     /// Configure the SOSC/clk_in oscillator
-    #[cfg(feature = "mcxa2xx")]
     #[cfg(not(feature = "sosc-as-gpio"))]
     fn configure_sosc(&mut self) -> Result<(), ClockError> {
         let Some(parts) = self.config.sosc.as_ref() else {
@@ -1712,7 +1700,6 @@ impl ClockOperator<'_> {
         Ok(())
     }
 
-    #[cfg(feature = "mcxa2xx")]
     fn configure_spll(&mut self) -> Result<(), ClockError> {
         // # Vocab
         //
@@ -1746,6 +1733,7 @@ impl ClockOperator<'_> {
                 .as_ref()
                 .map(|c| (c, Source::SOSC))
                 .ok_or("sosc not active"),
+            #[cfg(feature = "mcxa2xx")]
             config::SpllSource::Firc => self
                 .clocks
                 .clk_45m
@@ -2091,7 +2079,6 @@ impl ClockOperator<'_> {
 
     fn configure_main_clk(&mut self) -> Result<(), ClockError> {
         let (var, name, clk) = match self.config.main_clock.source {
-            #[cfg(feature = "mcxa2xx")]
             #[cfg(not(feature = "sosc-as-gpio"))]
             MainClockSource::SoscClkIn => (Scs::SOSC, "clk_in", self.clocks.clk_in.as_ref()),
             MainClockSource::SircFro12M => (Scs::SIRC, "fro_12m", self.clocks.fro_12m.as_ref()),
@@ -2101,7 +2088,6 @@ impl ClockOperator<'_> {
             MainClockSource::RoscFro16K => (Scs::ROSC, "fro16k", self.clocks.clk_16k_vdd_core.as_ref()),
             #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
             MainClockSource::RoscOsc32K => (Scs::ROSC, "osc32k", self.clocks.clk_32k_vdd_core.as_ref()),
-            #[cfg(feature = "mcxa2xx")]
             MainClockSource::SPll1 => (Scs::SPLL, "pll1_clk", self.clocks.pll1_clk.as_ref()),
         };
         let Some(main_clk_src) = clk else {
