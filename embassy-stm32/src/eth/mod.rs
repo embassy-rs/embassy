@@ -16,7 +16,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 pub use self::_version::{InterruptHandler, *};
 pub use self::generic_phy::*;
-pub use self::sma::{Sma, StationManagement};
+pub use self::sma::{Instance as SmaInstance, Sma, StationManagement};
 use crate::rcc::RccPeripheral;
 
 #[allow(unused)]

@@ -5,7 +5,7 @@ use super::Instance;
 use super::errors::GroupError;
 use super::io_pin::*;
 use crate::Peri;
-use crate::gpio::{AfType, AnyPin, OutputType, Speed};
+use crate::gpio::{AfType, Flex, OutputType, Speed};
 
 /// Pin type definition to control IO parameters
 #[derive(PartialEq, Clone, Copy)]
@@ -21,7 +21,7 @@ pub enum PinType {
 /// Pin struct that maintains usage
 #[allow(missing_docs)]
 pub struct Pin<'d, T, Group> {
-    _pin: Peri<'d, AnyPin>,
+    _pin: Flex<'d>,
     role: PinType,
     tsc_io_pin: IOPin,
     phantom: PhantomData<(T, Group)>,
@@ -430,7 +430,7 @@ macro_rules! impl_set_io {
                 set_as_af!(pin, AfType::output(Role::output_type(), Speed::VeryHigh));
                 let tsc_io_pin = trait_to_io_pin!($trait);
                 let new_pin = Pin {
-                    _pin: pin.into(),
+                    _pin: Flex::new(pin),
                     role: Role::pin_type(),
                     tsc_io_pin,
                     phantom: PhantomData,

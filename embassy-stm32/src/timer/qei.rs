@@ -6,7 +6,7 @@ use super::low_level::Timer;
 pub use super::{Ch1, Ch2};
 use super::{GeneralInstance4Channel, TimerPin};
 use crate::Peri;
-use crate::gpio::{AfType, AnyPin, Pull};
+use crate::gpio::{AfType, Flex, Pull};
 use crate::timer::TimerChannel;
 
 /// Qei driver config.
@@ -77,8 +77,8 @@ impl SealedQeiChannel for Ch2 {}
 /// Quadrature decoder driver.
 pub struct Qei<'d, T: GeneralInstance4Channel> {
     inner: Timer<'d, T>,
-    _ch1: Peri<'d, AnyPin>,
-    _ch2: Peri<'d, AnyPin>,
+    _ch1: Flex<'d>,
+    _ch2: Flex<'d>,
 }
 
 impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
@@ -93,10 +93,7 @@ impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
         // Configure the pins to be used for the QEI peripheral.
         critical_section::with(|_| {
             ch1.set_low();
-            set_as_af!(ch1, AfType::input(config.ch1_pull));
-
             ch2.set_low();
-            set_as_af!(ch2, AfType::input(config.ch2_pull));
         });
 
         let inner = Timer::new(tim);
@@ -126,8 +123,8 @@ impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
 
         Self {
             inner,
-            _ch1: ch1.into(),
-            _ch2: ch2.into(),
+            _ch1: new_pin!(ch1, AfType::input(config.ch1_pull)).unwrap(),
+            _ch2: new_pin!(ch2, AfType::input(config.ch2_pull)).unwrap(),
         }
     }
 

@@ -4,7 +4,7 @@ use stm32_metapac::eth::regs;
 
 use super::{Instance, StationManagement};
 use crate::eth::{MDCPin, MDIOPin};
-use crate::gpio::{AfType, AnyPin, OutputType, SealedPin, Speed};
+use crate::gpio::{AfType, Flex, OutputType, Speed};
 
 /// Station Management Agent.
 ///
@@ -12,16 +12,13 @@ use crate::gpio::{AfType, AnyPin, OutputType, SealedPin, Speed};
 /// ethernet PHY/device(s).
 pub struct Sma<'d, T: Instance> {
     _peri: Peri<'d, T>,
-    pins: [Peri<'d, AnyPin>; 2],
+    _pins: [Flex<'d>; 2],
     clock_range: u8,
 }
 
 impl<'d, T: Instance> Sma<'d, T> {
     /// Create a new instance of this peripheral.
     pub fn new(peri: Peri<'d, T>, mdio: Peri<'d, impl MDIOPin<T>>, mdc: Peri<'d, impl MDCPin<T>>) -> Self {
-        set_as_af!(mdio, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        set_as_af!(mdc, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-
         // Enable necessary clocks.
         critical_section::with(|_| {
             crate::pac::RCC.ahb1enr().modify(|w| {
@@ -49,7 +46,10 @@ impl<'d, T: Instance> Sma<'d, T> {
         Self {
             _peri: peri,
             clock_range,
-            pins: [mdio.into(), mdc.into()],
+            _pins: [
+                new_pin!(mdio, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+                new_pin!(mdc, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            ],
         }
     }
 }
@@ -84,11 +84,5 @@ impl<T: Instance> StationManagement for Sma<'_, T> {
         });
 
         while macmdioar.read().mb() {}
-    }
-}
-
-impl<T: Instance> Drop for Sma<'_, T> {
-    fn drop(&mut self) {
-        self.pins.iter_mut().for_each(|p| p.set_as_disconnected());
     }
 }

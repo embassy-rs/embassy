@@ -11,7 +11,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use stm32_metapac::ltdc::regs::Dccr;
 use stm32_metapac::ltdc::vals::{Bf1, Bf2, Cfuif, Clif, Crrif, Cterrif, Pf, Vbr};
 
-use crate::gpio::{AfType, OutputType, Speed};
+use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::interrupt::{self};
 use crate::{Peri, peripherals, rcc};
@@ -84,6 +84,7 @@ pub enum PolarityActive {
 /// LTDC driver.
 pub struct Ltdc<'d, T: Instance> {
     _peri: Peri<'d, T>,
+    _pins: Option<[Flex<'d>; 27]>,
 }
 
 /// LTDC interrupt handler.
@@ -125,6 +126,7 @@ pub struct LtdcLayerConfig {
 #[repr(u8)]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg(not(ltdc_v1_3))]
 pub enum PixelFormat {
     /// ARGB8888
     ARGB8888 = Pf::ARGB8888 as u8,
@@ -143,15 +145,46 @@ pub enum PixelFormat {
     /// AL88 (8-bit alpha, 8-bit luminance)
     AL88 = Pf::AL88 as u8,
 }
+/// Pixel format
+#[repr(u8)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg(ltdc_v1_3)]
+pub enum PixelFormat {
+    /// ARGB8888
+    ARGB8888 = Pf::ARGB8888 as u8,
+    /// ABGR8888
+    ABGR8888 = Pf::ABGR8888 as u8,
+    /// RGBA8888
+    RGBA8888 = Pf::RGBA8888 as u8,
+    /// BGRA8888
+    BGRA8888 = Pf::BGRA8888 as u8,
+    /// RGB565
+    RGB565 = Pf::RGB565 as u8,
+    /// BGR565
+    BGR565 = Pf::BGR565 as u8,
+    /// RGB888
+    RGB888 = Pf::RGB888 as u8,
+    /// Flexible
+    FLEXIBLE = Pf::FLEXIBLE as u8,
+}
 
 impl PixelFormat {
     /// Number of bytes per pixel
     pub fn bytes_per_pixel(&self) -> usize {
+        #[cfg(not(ltdc_v1_3))]
         match self {
             PixelFormat::ARGB8888 => 4,
             PixelFormat::RGB888 => 3,
             PixelFormat::RGB565 | PixelFormat::ARGB4444 | PixelFormat::ARGB1555 | PixelFormat::AL88 => 2,
             PixelFormat::AL44 | PixelFormat::L8 => 1,
+        }
+        #[cfg(ltdc_v1_3)]
+        match self {
+            PixelFormat::ARGB8888 | PixelFormat::ABGR8888 | PixelFormat::RGBA8888 | PixelFormat::BGRA8888 => 4,
+            PixelFormat::RGB888 => 3,
+            PixelFormat::RGB565 | PixelFormat::BGR565 => 2,
+            PixelFormat::FLEXIBLE => todo!("Flexable pixels are not yet implemented"),
         }
     }
 }
@@ -180,7 +213,10 @@ impl<'d, T: Instance> Ltdc<'d, T> {
     /// Note: Full-Duplex modes are not supported at this time
     pub fn new(peri: Peri<'d, T>) -> Self {
         Self::setup_clocks();
-        Self { _peri: peri }
+        Self {
+            _peri: peri,
+            _pins: None,
+        }
     }
 
     /// Create a new LTDC driver. 8 pins per color channel for blue, green and red
@@ -217,35 +253,40 @@ impl<'d, T: Instance> Ltdc<'d, T> {
         r7: Peri<'d, impl R7Pin<T>>,
     ) -> Self {
         Self::setup_clocks();
-        new_pin!(clk, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(hsync, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(vsync, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(b0, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(b1, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(b2, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(b3, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(b4, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(b5, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(b6, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(b7, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(g0, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(g1, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(g2, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(g3, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(g4, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(g5, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(g6, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(g7, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(r0, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(r1, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(r2, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(r3, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(r4, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(r5, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(r6, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        new_pin!(r7, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        let pins = [
+            new_pin!(clk, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(hsync, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(vsync, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(b0, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(b1, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(b2, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(b3, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(b4, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(b5, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(b6, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(b7, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(g0, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(g1, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(g2, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(g3, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(g4, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(g5, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(g6, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(g7, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(r0, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(r1, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(r2, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(r3, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(r4, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(r5, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(r6, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(r7, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+        ];
 
-        Self { _peri: peri }
+        Self {
+            _peri: peri,
+            _pins: Some(pins),
+        }
     }
 
     /// Initialise and enable the display
@@ -393,9 +434,9 @@ impl<'d, T: Instance> Ltdc<'d, T> {
         // framebuffer pitch and line length
         layer.cfblr().modify(|w| {
             w.set_cfbp(width * bytes_per_pixel);
-            #[cfg(not(stm32u5))]
+            #[cfg(not(any(stm32u5, stm32f7)))]
             w.set_cfbll(width * bytes_per_pixel + 7);
-            #[cfg(stm32u5)]
+            #[cfg(any(stm32u5, stm32f7))]
             w.set_cfbll(width * bytes_per_pixel + 3);
         });
 
@@ -562,7 +603,7 @@ pin_trait!(B6Pin, Instance);
 pin_trait!(B7Pin, Instance);
 
 foreach_interrupt!(
-    ($inst:ident, ltdc, LTDC, GLOBAL, $irq:ident) => {
+    ($inst:ident, ltdc, LTDC, LO, $irq:ident) => {
         impl Instance for peripherals::$inst {
             type Interrupt = crate::interrupt::typelevel::$irq;
         }

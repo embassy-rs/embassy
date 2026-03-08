@@ -11,7 +11,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use enums::*;
 
 use crate::dma::ChannelAndRequest;
-use crate::gpio::{AfType, AnyPin, OutputType, Pull, Speed};
+use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::quadspi::Quadspi as Regs;
@@ -89,12 +89,12 @@ impl Default for Config {
 #[allow(dead_code)]
 pub struct Qspi<'d, T: Instance, M: PeriMode> {
     _peri: Peri<'d, T>,
-    sck: Option<Peri<'d, AnyPin>>,
-    d0: Option<Peri<'d, AnyPin>>,
-    d1: Option<Peri<'d, AnyPin>>,
-    d2: Option<Peri<'d, AnyPin>>,
-    d3: Option<Peri<'d, AnyPin>>,
-    nss: Option<Peri<'d, AnyPin>>,
+    sck: Option<Flex<'d>>,
+    d0: Option<Flex<'d>>,
+    d1: Option<Flex<'d>>,
+    d2: Option<Flex<'d>>,
+    d3: Option<Flex<'d>>,
+    nss: Option<Flex<'d>>,
     dma: Option<ChannelAndRequest<'d>>,
     _phantom: PhantomData<M>,
     config: Config,
@@ -103,12 +103,12 @@ pub struct Qspi<'d, T: Instance, M: PeriMode> {
 impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
     fn new_inner(
         peri: Peri<'d, T>,
-        d0: Option<Peri<'d, AnyPin>>,
-        d1: Option<Peri<'d, AnyPin>>,
-        d2: Option<Peri<'d, AnyPin>>,
-        d3: Option<Peri<'d, AnyPin>>,
-        sck: Option<Peri<'d, AnyPin>>,
-        nss: Option<Peri<'d, AnyPin>>,
+        d0: Option<Flex<'d>>,
+        d1: Option<Flex<'d>>,
+        d2: Option<Flex<'d>>,
+        d3: Option<Flex<'d>>,
+        sck: Option<Flex<'d>>,
+        nss: Option<Flex<'d>>,
         dma: Option<ChannelAndRequest<'d>>,
         config: Config,
         fsel: FlashSelection,

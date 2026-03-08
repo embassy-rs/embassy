@@ -74,6 +74,29 @@ where
 
 impl<'ch, M, T, const N: usize> Copy for Sender<'ch, M, T, N> where M: RawMutex {}
 
+impl<'ch, M, T, const N: usize> futures_sink::Sink<T> for Sender<'ch, M, T, N>
+where
+    M: RawMutex,
+{
+    type Error = TrySendError<T>;
+
+    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.poll_ready_to_send(cx).map(|()| Ok(()))
+    }
+
+    fn start_send(self: Pin<&mut Self>, item: T) -> Result<(), Self::Error> {
+        self.try_send(item)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+}
+
 impl<'ch, M, T, const N: usize> Sender<'ch, M, T, N>
 where
     M: RawMutex,
@@ -1007,6 +1030,29 @@ where
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.poll_receive(cx).map(Some)
+    }
+}
+
+impl<M, T, const N: usize> futures_sink::Sink<T> for Channel<M, T, N>
+where
+    M: RawMutex,
+{
+    type Error = TrySendError<T>;
+
+    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.poll_ready_to_send(cx).map(|()| Ok(()))
+    }
+
+    fn start_send(self: Pin<&mut Self>, item: T) -> Result<(), Self::Error> {
+        self.try_send(item)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
     }
 }
 

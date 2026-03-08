@@ -189,7 +189,7 @@ If you end up doing this, please update this section with more specific examples
 
 === For Static Memory Usage
 
-Tools like `cargo size` and `cargo nm` can tell you the size of any globals or other static usage. Specifically you will want to see the size of the `.data` and `.bss` sections, which together make up the total global/static memory usage.
+Tools like `cargo size` and `cargo nm` from `cargo-binutils` can tell you the size of any globals or other static usage. Specifically you will want to see the size of the `.data` and `.bss` sections, which together make up the total global/static memory usage.
 
 === For Max Stack Usage
 

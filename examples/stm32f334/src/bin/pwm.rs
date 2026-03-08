@@ -3,9 +3,11 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::Config;
+use embassy_stm32::gpio::Speed;
+use embassy_stm32::hrtim::bridge_converter::BridgeConverter;
 use embassy_stm32::hrtim::*;
 use embassy_stm32::time::{khz, mhz};
+use embassy_stm32::{Config, hrtim};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -34,25 +36,26 @@ async fn main(_spawner: Spawner) {
 
     info!("Hello World!");
 
-    let ch1 = PwmPin::new_cha(p.PA8);
-    let ch1n = ComplementaryPwmPin::new_cha(p.PA9);
-    let pwm = AdvancedPwm::new(
-        p.HRTIM1,
-        Some(ch1),
-        Some(ch1n),
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-    );
+    let ch1 = hrtim::Pin {
+        pin: p.PA8,
+        speed: Speed::Low,
+    };
+    let ch1n = hrtim::Pin {
+        pin: p.PA9,
+        speed: Speed::Low,
+    };
+
+    // ...with a prescaler of 4 this gives us a HrTimer with a tick rate of 1152MHz
+    // With max the max period set, this would be 1152MHz/2^16 ~= 17.6kHz...
+    let prescaler = hrtim::Pscl4;
+
+    let Parts { control, tima, .. } = p.HRTIM1.hr_control();
+    let (control, ..) = control.wait_for_calibration();
+    let mut control = control.constrain();
 
     info!("pwm constructed");
 
-    let mut buck_converter = BridgeConverter::new(pwm.ch_a, khz(5));
+    let mut buck_converter = BridgeConverter::new(tima, ch1, ch1n, khz(5), prescaler, &mut control);
 
     //    embassy_stm32::pac::HRTIM1
     //        .tim(0)
@@ -74,7 +77,7 @@ async fn main(_spawner: Spawner) {
     buck_converter.set_primary_duty(max_duty / 2);
     buck_converter.set_secondary_duty(3 * max_duty / 4);
 
-    buck_converter.start();
+    buck_converter.start(&mut control.control);
 
     Timer::after_millis(500).await;
 

@@ -8,7 +8,7 @@ use core::task::{Context, Poll};
 use super::low_level::{CountingMode, FilterValue, InputCaptureMode, InputTISelection, Timer};
 use super::{CaptureCompareInterruptHandler, Channel, GeneralInstance4Channel, TimerPin};
 pub use super::{Ch1, Ch2, Ch3, Ch4};
-use crate::gpio::{AfType, AnyPin, Pull};
+use crate::gpio::{AfType, Flex, Pull};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::time::Hertz;
 use crate::timer::TimerChannel;
@@ -19,7 +19,7 @@ use crate::{Peri, dma};
 /// This wraps a pin to make it usable with capture.
 pub struct CapturePin<'d, T, C, #[cfg(afio)] A> {
     #[allow(unused)]
-    pin: Peri<'d, AnyPin>,
+    pin: Flex<'d>,
     phantom: PhantomData<if_afio!((T, C, A))>,
 }
 impl<'d, T: GeneralInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(CapturePin<'d, T, C, A>) {
@@ -27,7 +27,7 @@ impl<'d, T: GeneralInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(C
     pub fn new(pin: Peri<'d, if_afio!(impl TimerPin<T, C, A>)>, pull: Pull) -> Self {
         set_as_af!(pin, AfType::input(pull));
         CapturePin {
-            pin: pin.into(),
+            pin: Flex::new(pin),
             phantom: PhantomData,
         }
     }

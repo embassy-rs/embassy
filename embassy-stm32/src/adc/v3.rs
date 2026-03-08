@@ -17,8 +17,12 @@ use crate::{Peri, pac, rcc};
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
+#[cfg(any(adc_v3, adc_g0, adc_u0))]
 /// VREF voltage used for factory calibration of VREFINTCAL register.
 pub const VREF_CALIB_MV: u32 = 3000;
+#[cfg(any(adc_h5, adc_h7rs))]
+/// VREF voltage used for factory calibration of VREFINTCAL register.
+pub const VREF_CALIB_MV: u32 = 3300;
 
 #[cfg(adc_g0)]
 /// The number of variants in Smpsel

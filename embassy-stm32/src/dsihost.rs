@@ -6,7 +6,7 @@ use embassy_hal_internal::PeripheralType;
 
 //use crate::gpio::{AnyPin, SealedPin};
 use crate::block_for_us;
-use crate::gpio::{AfType, AnyPin, OutputType, Speed};
+use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::rcc::{self, RccPeripheral};
 use crate::{Peri, peripherals};
 
@@ -62,7 +62,7 @@ impl From<PacketType> for u8 {
 /// DSIHOST driver.
 pub struct DsiHost<'d, T: Instance> {
     _peri: PhantomData<&'d mut T>,
-    _te: Peri<'d, AnyPin>,
+    _te: Flex<'d>,
 }
 
 impl<'d, T: Instance> DsiHost<'d, T> {
@@ -79,7 +79,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
         */
         Self {
             _peri: PhantomData,
-            _te: te.into(),
+            _te: Flex::new(te),
         }
     }
 

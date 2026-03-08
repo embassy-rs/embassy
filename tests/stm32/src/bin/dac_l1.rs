@@ -11,7 +11,7 @@ use common::*;
 use defmt::assert;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, SampleTime};
-use embassy_stm32::dac::{DacCh1, Value};
+use embassy_stm32::dac::{DacChannel, Value};
 use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_time::Timer;
 use micromath::F32Ext;
@@ -31,7 +31,7 @@ async fn main(_spawner: Spawner) {
     let dac_pin = peri!(p, DAC_PIN);
     let mut adc_pin = unsafe { core::ptr::read(&dac_pin) };
 
-    let mut dac = DacCh1::new_blocking(dac, dac_pin);
+    let mut dac = DacChannel::new_blocking(dac, dac_pin);
     let mut adc = Adc::new(adc, Irqs);
 
     #[cfg(feature = "stm32h755zi")]

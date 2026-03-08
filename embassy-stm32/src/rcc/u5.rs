@@ -354,9 +354,27 @@ pub(crate) unsafe fn init(config: Config) {
     while RCC.cfgr1().read().sws() != default_system_clock_source {}
 
     let pll_input = PllInput { hse, hsi, msi: msis };
-    let pll1 = init_pll(PllInstance::Pll1, config.pll1, &pll_input, config.voltage_range);
-    let pll2 = init_pll(PllInstance::Pll2, config.pll2, &pll_input, config.voltage_range);
-    let pll3 = init_pll(PllInstance::Pll3, config.pll3, &pll_input, config.voltage_range);
+    let pll1 = config.pll1.map_or_else(
+        || {
+            pll_enable(PllInstance::Pll1, false);
+            PllOutput::default()
+        },
+        |c| init_pll(PllInstance::Pll1, Some(c), &pll_input, config.voltage_range),
+    );
+    let pll2 = config.pll2.map_or_else(
+        || {
+            pll_enable(PllInstance::Pll2, false);
+            PllOutput::default()
+        },
+        |c| init_pll(PllInstance::Pll2, Some(c), &pll_input, config.voltage_range),
+    );
+    let pll3 = config.pll3.map_or_else(
+        || {
+            pll_enable(PllInstance::Pll3, false);
+            PllOutput::default()
+        },
+        |c| init_pll(PllInstance::Pll3, Some(c), &pll_input, config.voltage_range),
+    );
 
     let sys_clk = match config.sys {
         Sysclk::HSE => hse.unwrap(),

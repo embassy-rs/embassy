@@ -1,17 +1,17 @@
 //! I3C Controller driver.
 
-use core::marker::PhantomData;
-
 use embassy_hal_internal::Peri;
 use embassy_hal_internal::drop::OnDrop;
-use embassy_hal_internal::interrupt::InterruptExt;
+use nxp_pac::i3c::vals::{MdmactrlDmafb, MdmactrlDmatb};
 
-use super::{Async, Blocking, Info, Instance, InterruptHandler, Mode, SclPin, SdaPin};
+use super::{Async, AsyncMode, Blocking, Dma, Info, Instance, InterruptHandler, Mode, SclPin, SdaPin};
 use crate::clocks::periph_helpers::{Div4, I3cClockSel, I3cConfig};
 use crate::clocks::{ClockError, PoweredClock, WakeGuard, enable_and_reset};
+use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, EnableInterrupt};
 use crate::gpio::{AnyPin, SealedPin};
 pub use crate::i2c::controller::Speed;
 use crate::interrupt::typelevel;
+use crate::interrupt::typelevel::Interrupt;
 use crate::pac::i3c::vals::{
     Disto, Hkeep, Ibiresp, MctrlDir as I3cDir, MdatactrlRxtrig, MdatactrlTxtrig, Mstena, Request, State, Type,
 };
@@ -127,6 +127,9 @@ pub struct Config {
 
     /// I2C bus speed
     pub i2c_speed: Speed,
+
+    /// Clock configuration
+    pub clock_config: ClockConfig,
 }
 
 impl Default for Config {
@@ -135,6 +138,29 @@ impl Default for Config {
             push_pull_freq: 1_500_000,
             open_drain_freq: 750_000,
             i2c_speed: Speed::Fast,
+            clock_config: ClockConfig::default(),
+        }
+    }
+}
+
+/// I3C controller clock configuration
+#[derive(Clone)]
+#[non_exhaustive]
+pub struct ClockConfig {
+    /// Powered clock configuration
+    pub power: PoweredClock,
+    /// I3C clock source
+    pub source: I3cClockSel,
+    /// I3C pre-divider
+    pub div: Div4,
+}
+
+impl Default for ClockConfig {
+    fn default() -> Self {
+        Self {
+            power: PoweredClock::NormalEnabledDeepSleepDisabled,
+            source: I3cClockSel::FroLfDiv,
+            div: const { Div4::no_div() },
         }
     }
 }
@@ -149,9 +175,9 @@ pub struct I3c<'d, M: Mode> {
     info: &'static Info,
     _scl: Peri<'d, AnyPin>,
     _sda: Peri<'d, AnyPin>,
+    mode: M,
     fclk: u32,
     _wg: Option<WakeGuard>,
-    _phantom: PhantomData<M>,
 }
 
 impl<'d, M: Mode> I3c<'d, M> {
@@ -160,8 +186,9 @@ impl<'d, M: Mode> I3c<'d, M> {
         scl: Peri<'d, impl SclPin<T>>,
         sda: Peri<'d, impl SdaPin<T>>,
         config: Config,
+        mode: M,
     ) -> Result<Self, SetupError> {
-        let (power, source, div) = Self::clock_config();
+        let ClockConfig { power, source, div } = config.clock_config;
 
         // Enable clocks
         let conf = I3cConfig { power, source, div };
@@ -178,23 +205,14 @@ impl<'d, M: Mode> I3c<'d, M> {
             info: T::info(),
             _scl,
             _sda,
+            mode,
             fclk: parts.freq,
             _wg: parts.wake_guard,
-            _phantom: PhantomData,
         };
 
         inst.set_configuration(&config)?;
 
         Ok(inst)
-    }
-
-    // REVISIT: turn this into a function of the speed parameter
-    fn clock_config() -> (PoweredClock, I3cClockSel, Div4) {
-        (
-            PoweredClock::NormalEnabledDeepSleepDisabled,
-            I3cClockSel::FroLfDiv,
-            const { Div4::no_div() },
-        )
     }
 
     fn set_configuration(&self, config: &Config) -> Result<(), SetupError> {
@@ -486,9 +504,13 @@ impl<'d, M: Mode> I3c<'d, M> {
         //
         // Because of this, we are not going to error out in case of
         // empty writes.
-        #[cfg(feature = "defmt")]
         if write.is_empty() {
+            #[cfg(feature = "defmt")]
             defmt::trace!("Empty write, write probing?");
+            if send_stop == SendStop::Yes {
+                self.blocking_stop(bus_type)?;
+            }
+            return Ok(());
         }
 
         let Some((last, rest)) = write.split_last() else {
@@ -547,8 +569,26 @@ impl<'d> I3c<'d, Blocking> {
         sda: Peri<'d, impl SdaPin<T>>,
         config: Config,
     ) -> Result<Self, SetupError> {
-        Self::new_inner(peri, scl, sda, config)
+        Self::new_inner(peri, scl, sda, config, Blocking)
     }
+}
+
+trait AsyncEngine {
+    fn async_read_internal<'a>(
+        &'a self,
+        address: u8,
+        read: &'a mut [u8],
+        bus_type: BusType,
+        send_stop: SendStop,
+    ) -> impl Future<Output = Result<(), IOError>> + 'a;
+
+    fn async_write_internal<'a>(
+        &'a self,
+        address: u8,
+        write: &'a [u8],
+        bus_type: BusType,
+        send_stop: SendStop,
+    ) -> impl Future<Output = Result<(), IOError>> + 'a;
 }
 
 impl<'d> I3c<'d, Async> {
@@ -562,16 +602,356 @@ impl<'d> I3c<'d, Async> {
         _irq: impl typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Result<Self, SetupError> {
-        let inst = Self::new_inner(peri, scl, sda, config);
+        let inst = Self::new_inner(peri, scl, sda, config, Async);
 
-        crate::pac::Interrupt::I3C0.unpend();
+        T::Interrupt::unpend();
         unsafe {
-            crate::pac::Interrupt::I3C0.enable();
+            T::Interrupt::enable();
         }
 
         inst
     }
+}
 
+impl<'d> AsyncEngine for I3c<'d, Async> {
+    async fn async_read_internal(
+        &self,
+        address: u8,
+        read: &mut [u8],
+        bus_type: BusType,
+        send_stop: SendStop,
+    ) -> Result<(), IOError> {
+        if read.is_empty() {
+            return Err(IOError::InvalidReadBufferLength);
+        }
+
+        // perform corrective action if the future is dropped
+        let on_drop = OnDrop::new(|| {
+            self.blocking_remediation(bus_type);
+        });
+
+        for chunk in read.chunks_mut(MAX_CHUNK_SIZE) {
+            self.async_start(address, bus_type, Dir::Read, chunk.len() as u8)
+                .await?;
+
+            for byte in chunk.iter_mut() {
+                self.async_wait_for_rx_fifo().await?;
+                *byte = self.info.regs().mrdatab().read().value();
+            }
+        }
+
+        if send_stop == SendStop::Yes {
+            self.async_stop(bus_type).await?;
+        }
+
+        // defuse it if the future is not dropped
+        on_drop.defuse();
+
+        Ok(())
+    }
+
+    async fn async_write_internal(
+        &self,
+        address: u8,
+        write: &[u8],
+        bus_type: BusType,
+        send_stop: SendStop,
+    ) -> Result<(), IOError> {
+        // perform corrective action if the future is dropped
+        let on_drop = OnDrop::new(|| {
+            self.blocking_remediation(bus_type);
+        });
+
+        self.async_start(address, bus_type, Dir::Write, 0).await?;
+
+        // Usually, embassy HALs error out with an empty write,
+        // however empty writes are useful for writing I2C scanning
+        // logic through write probing. That is, we send a start with
+        // R/w bit cleared, but instead of writing any data, just send
+        // the stop onto the bus. This has the effect of checking if
+        // the resulting address got an ACK but causing no
+        // side-effects to the device on the other end.
+        //
+        // Because of this, we are not going to error out in case of
+        // empty writes.
+        if write.is_empty() {
+            #[cfg(feature = "defmt")]
+            defmt::trace!("Empty write, write probing?");
+            if send_stop == SendStop::Yes {
+                self.async_stop(bus_type).await?;
+            }
+            return Ok(());
+        }
+
+        let Some((last, rest)) = write.split_last() else {
+            return Err(IOError::InvalidWriteBufferLength);
+        };
+
+        for byte in rest {
+            self.async_wait_for_tx_fifo().await?;
+            self.info.regs().mwdatab().write(|w| w.set_value(*byte));
+        }
+
+        // Wait until we have space in the TX FIFO.
+        self.async_wait_for_tx_fifo().await?;
+        self.info.regs().mwdatabe().write(|w| w.set_value(*last));
+
+        // Wait for complete
+        self.async_wait_for_complete().await?;
+
+        if send_stop == SendStop::Yes {
+            self.async_stop(bus_type).await?;
+        }
+
+        // defuse it if the future is not dropped
+        on_drop.defuse();
+
+        Ok(())
+    }
+}
+
+impl<'d> I3c<'d, Dma<'d>> {
+    /// Create a new async instance of the I3C Controller bus driver
+    /// with DMA support.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop,
+    /// additionally, the DMA channel is disabled.
+    pub fn new_async_with_dma<T: Instance>(
+        peri: Peri<'d, T>,
+        scl: Peri<'d, impl SclPin<T>>,
+        sda: Peri<'d, impl SdaPin<T>>,
+        tx_dma: Peri<'d, impl Channel>,
+        rx_dma: Peri<'d, impl Channel>,
+        _irq: impl typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        config: Config,
+    ) -> Result<Self, SetupError> {
+        T::Interrupt::unpend();
+
+        // Safety: `_irq` ensures an Interrupt Handler exists.
+        unsafe { T::Interrupt::enable() };
+
+        // enable this channel's interrupt
+        let tx_dma = DmaChannel::new(tx_dma);
+        let rx_dma = DmaChannel::new(rx_dma);
+
+        tx_dma.enable_interrupt();
+        rx_dma.enable_interrupt();
+
+        Self::new_inner(
+            peri,
+            scl,
+            sda,
+            config,
+            Dma {
+                tx_dma,
+                rx_dma,
+                tx_request: T::TX_DMA_REQUEST,
+                rx_request: T::RX_DMA_REQUEST,
+            },
+        )
+    }
+}
+
+impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
+    async fn async_read_internal(
+        &self,
+        address: u8,
+        read: &mut [u8],
+        bus_type: BusType,
+        send_stop: SendStop,
+    ) -> Result<(), IOError> {
+        if read.is_empty() {
+            return Err(IOError::InvalidReadBufferLength);
+        }
+
+        // perform corrective action if the future is dropped
+        let on_drop = OnDrop::new(|| {
+            self.blocking_remediation(bus_type);
+            self.info
+                .regs()
+                .mdmactrl()
+                .modify(|w| w.set_dmafb(MdmactrlDmafb::NOT_USED));
+        });
+
+        for chunk in read.chunks_mut(MAX_CHUNK_SIZE) {
+            self.async_start(address, bus_type, Dir::Read, chunk.len() as u8)
+                .await?;
+
+            let peri_addr = self.info.regs().mrdatab().as_ptr() as *const u8;
+
+            unsafe {
+                // Clean up channel state
+                self.mode.rx_dma.disable_request();
+                self.mode.rx_dma.clear_done();
+                self.mode.rx_dma.clear_interrupt();
+
+                // Set DMA request source from instance type (type-safe)
+                self.mode.rx_dma.set_request_source(self.mode.rx_request);
+
+                // Configure TCD for peripheral-to-memory transfer
+                self.mode
+                    .rx_dma
+                    .setup_read_from_peripheral(peri_addr, chunk, EnableInterrupt::Yes);
+
+                // Enable I3C RX DMA request
+                self.info
+                    .regs()
+                    .mdmactrl()
+                    .modify(|w| w.set_dmafb(MdmactrlDmafb::ENABLE));
+
+                // Enable DMA channel request
+                self.mode.rx_dma.enable_request();
+            }
+
+            // Wait for completion asynchronously
+            core::future::poll_fn(|cx| {
+                self.mode.rx_dma.waker().register(cx.waker());
+                if self.mode.rx_dma.is_done() {
+                    core::task::Poll::Ready(())
+                } else {
+                    core::task::Poll::Pending
+                }
+            })
+            .await;
+
+            // Ensure DMA writes are visible to CPU
+            cortex_m::asm::dsb();
+            // Cleanup
+            self.info
+                .regs()
+                .mdmactrl()
+                .modify(|w| w.set_dmafb(MdmactrlDmafb::NOT_USED));
+            unsafe {
+                self.mode.rx_dma.disable_request();
+                self.mode.rx_dma.clear_done();
+            }
+        }
+
+        if send_stop == SendStop::Yes {
+            self.async_stop(bus_type).await?;
+        }
+
+        // defuse it if the future is not dropped
+        on_drop.defuse();
+
+        Ok(())
+    }
+
+    async fn async_write_internal(
+        &self,
+        address: u8,
+        write: &[u8],
+        bus_type: BusType,
+        send_stop: SendStop,
+    ) -> Result<(), IOError> {
+        // perform corrective action if the future is dropped
+        let on_drop = OnDrop::new(|| {
+            self.blocking_remediation(bus_type);
+            self.info
+                .regs()
+                .mdmactrl()
+                .modify(|w| w.set_dmatb(MdmactrlDmatb::NOT_USED));
+        });
+
+        self.async_start(address, bus_type, Dir::Write, 0).await?;
+
+        // Usually, embassy HALs error out with an empty write,
+        // however empty writes are useful for writing I2C scanning
+        // logic through write probing. That is, we send a start with
+        // R/w bit cleared, but instead of writing any data, just send
+        // the stop onto the bus. This has the effect of checking if
+        // the resulting address got an ACK but causing no
+        // side-effects to the device on the other end.
+        //
+        // Because of this, we are not going to error out in case of
+        // empty writes.
+        if write.is_empty() {
+            #[cfg(feature = "defmt")]
+            defmt::trace!("Empty write, write probing?");
+            if send_stop == SendStop::Yes {
+                self.async_stop(bus_type).await?;
+            }
+            return Ok(());
+        }
+
+        let Some((last, rest)) = write.split_last() else {
+            return Err(IOError::InvalidWriteBufferLength);
+        };
+
+        for chunk in rest.chunks(DMA_MAX_TRANSFER_SIZE) {
+            let peri_addr = self.info.regs().mwdatab().as_ptr() as *mut u8;
+
+            unsafe {
+                // Clean up channel state
+                self.mode.tx_dma.disable_request();
+                self.mode.tx_dma.clear_done();
+                self.mode.tx_dma.clear_interrupt();
+
+                // Set DMA request source from instance type (type-safe)
+                self.mode.tx_dma.set_request_source(self.mode.tx_request);
+
+                // Configure TCD for memory-to-peripheral transfer
+                self.mode
+                    .tx_dma
+                    .setup_write_to_peripheral(chunk, peri_addr, EnableInterrupt::Yes);
+
+                // Enable I3C TX DMA request
+                self.info
+                    .regs()
+                    .mdmactrl()
+                    .modify(|w| w.set_dmatb(MdmactrlDmatb::ENABLE));
+
+                // Enable DMA channel request
+                self.mode.tx_dma.enable_request();
+            }
+
+            // Wait for completion asynchronously
+            core::future::poll_fn(|cx| {
+                self.mode.tx_dma.waker().register(cx.waker());
+                if self.mode.tx_dma.is_done() {
+                    core::task::Poll::Ready(())
+                } else {
+                    core::task::Poll::Pending
+                }
+            })
+            .await;
+
+            // Ensure DMA writes are visible to CPU
+            cortex_m::asm::dsb();
+            // Cleanup
+            self.info
+                .regs()
+                .mdmactrl()
+                .modify(|w| w.set_dmatb(MdmactrlDmatb::NOT_USED));
+            unsafe {
+                self.mode.tx_dma.disable_request();
+                self.mode.tx_dma.clear_done();
+            }
+        }
+
+        // Wait until we have space in the TX FIFO.
+        self.async_wait_for_tx_fifo().await?;
+        self.info.regs().mwdatabe().write(|w| w.set_value(*last));
+
+        // Wait for complete
+        self.async_wait_for_complete().await?;
+
+        if send_stop == SendStop::Yes {
+            self.async_stop(bus_type).await?;
+        }
+
+        // defuse it if the future is not dropped
+        on_drop.defuse();
+
+        Ok(())
+    }
+}
+
+#[allow(private_bounds)]
+impl<'d, M: AsyncMode> I3c<'d, M>
+where
+    Self: AsyncEngine,
+{
     async fn async_wait_for_ctrldone(&self) -> Result<(), IOError> {
         self.info
             .wait_cell()
@@ -683,130 +1063,38 @@ impl<'d> I3c<'d, Async> {
         }
     }
 
-    async fn async_read_internal(
-        &self,
-        address: u8,
-        read: &mut [u8],
-        bus_type: BusType,
-        send_stop: SendStop,
-    ) -> Result<(), IOError> {
-        if read.is_empty() {
-            return Err(IOError::InvalidReadBufferLength);
-        }
-
-        // perform corrective action if the future is dropped
-        let on_drop = OnDrop::new(|| {
-            self.blocking_remediation(bus_type);
-        });
-
-        for chunk in read.chunks_mut(MAX_CHUNK_SIZE) {
-            self.async_start(address, bus_type, Dir::Read, chunk.len() as u8)
-                .await?;
-
-            for byte in chunk.iter_mut() {
-                self.async_wait_for_rx_fifo().await?;
-                *byte = self.info.regs().mrdatab().read().value();
-            }
-        }
-
-        if send_stop == SendStop::Yes {
-            self.async_stop(bus_type).await?;
-        }
-
-        // defuse it if the future is not dropped
-        on_drop.defuse();
-
-        Ok(())
-    }
-
-    async fn async_write_internal(
-        &self,
-        address: u8,
-        write: &[u8],
-        bus_type: BusType,
-        send_stop: SendStop,
-    ) -> Result<(), IOError> {
-        // perform corrective action if the future is dropped
-        let on_drop = OnDrop::new(|| {
-            self.blocking_remediation(bus_type);
-        });
-
-        self.async_start(address, bus_type, Dir::Write, 0).await?;
-
-        // Usually, embassy HALs error out with an empty write,
-        // however empty writes are useful for writing I2C scanning
-        // logic through write probing. That is, we send a start with
-        // R/w bit cleared, but instead of writing any data, just send
-        // the stop onto the bus. This has the effect of checking if
-        // the resulting address got an ACK but causing no
-        // side-effects to the device on the other end.
-        //
-        // Because of this, we are not going to error out in case of
-        // empty writes.
-        #[cfg(feature = "defmt")]
-        if write.is_empty() {
-            defmt::trace!("Empty write, write probing?");
-        }
-
-        let Some((last, rest)) = write.split_last() else {
-            return Err(IOError::InvalidWriteBufferLength);
-        };
-
-        for byte in rest {
-            self.async_wait_for_tx_fifo().await?;
-            self.info.regs().mwdatab().write(|w| w.set_value(*byte));
-        }
-
-        // Wait until we have space in the TX FIFO.
-        self.async_wait_for_tx_fifo().await?;
-        self.info.regs().mwdatabe().write(|w| w.set_value(*last));
-
-        // Wait for complete
-        self.async_wait_for_complete().await?;
-
-        if send_stop == SendStop::Yes {
-            self.async_stop(bus_type).await?;
-        }
-
-        // defuse it if the future is not dropped
-        on_drop.defuse();
-
-        Ok(())
-    }
-
     // Public API: Async
 
     /// Read from address into buffer asynchronously.
     pub fn async_read<'a>(
-        &mut self,
+        &'a mut self,
         address: u8,
         read: &'a mut [u8],
         bus_type: BusType,
-    ) -> impl Future<Output = Result<(), IOError>> + use<'_, 'a, 'd> {
-        self.async_read_internal(address, read, bus_type, SendStop::Yes)
+    ) -> impl Future<Output = Result<(), IOError>> + 'a {
+        <Self as AsyncEngine>::async_read_internal(self, address, read, bus_type, SendStop::Yes)
     }
 
     /// Write to address from buffer asynchronously.
     pub fn async_write<'a>(
-        &mut self,
+        &'a mut self,
         address: u8,
         write: &'a [u8],
         bus_type: BusType,
-    ) -> impl Future<Output = Result<(), IOError>> + use<'_, 'a, 'd> {
-        self.async_write_internal(address, write, bus_type, SendStop::Yes)
+    ) -> impl Future<Output = Result<(), IOError>> + 'a {
+        <Self as AsyncEngine>::async_write_internal(self, address, write, bus_type, SendStop::Yes)
     }
 
     /// Write to address from bytes and then read from address into buffer asynchronously.
-    pub async fn async_write_read(
-        &mut self,
+    pub async fn async_write_read<'a>(
+        &'a mut self,
         address: u8,
-        write: &[u8],
-        read: &mut [u8],
+        write: &'a [u8],
+        read: &'a mut [u8],
         bus_type: BusType,
     ) -> Result<(), IOError> {
-        self.async_write_internal(address, write, bus_type, SendStop::No)
-            .await?;
-        self.async_read_internal(address, read, bus_type, SendStop::Yes).await
+        <Self as AsyncEngine>::async_write_internal(self, address, write, bus_type, SendStop::No).await?;
+        <Self as AsyncEngine>::async_read_internal(self, address, read, bus_type, SendStop::Yes).await
     }
 }
 
@@ -922,7 +1210,10 @@ impl<'d, M: Mode> embedded_hal_1::i2c::I2c for I3c<'d, M> {
     }
 }
 
-impl<'d> embedded_hal_async::i2c::I2c for I3c<'d, Async> {
+impl<'d, M: AsyncMode> embedded_hal_async::i2c::I2c for I3c<'d, M>
+where
+    I3c<'d, M>: AsyncEngine,
+{
     async fn transaction(
         &mut self,
         address: u8,
@@ -935,24 +1226,20 @@ impl<'d> embedded_hal_async::i2c::I2c for I3c<'d, Async> {
         for op in rest {
             match op {
                 embedded_hal_async::i2c::Operation::Read(buf) => {
-                    self.async_read_internal(address, buf, BusType::I2c, SendStop::No)
-                        .await?
+                    <Self as AsyncEngine>::async_read_internal(self, address, buf, BusType::I2c, SendStop::No).await?
                 }
                 embedded_hal_async::i2c::Operation::Write(buf) => {
-                    self.async_write_internal(address, buf, BusType::I2c, SendStop::No)
-                        .await?
+                    <Self as AsyncEngine>::async_write_internal(self, address, buf, BusType::I2c, SendStop::No).await?
                 }
             }
         }
 
         match last {
             embedded_hal_async::i2c::Operation::Read(buf) => {
-                self.async_read_internal(address, buf, BusType::I2c, SendStop::Yes)
-                    .await
+                <Self as AsyncEngine>::async_read_internal(self, address, buf, BusType::I2c, SendStop::Yes).await
             }
             embedded_hal_async::i2c::Operation::Write(buf) => {
-                self.async_write_internal(address, buf, BusType::I2c, SendStop::Yes)
-                    .await
+                <Self as AsyncEngine>::async_write_internal(self, address, buf, BusType::I2c, SendStop::Yes).await
             }
         }
     }

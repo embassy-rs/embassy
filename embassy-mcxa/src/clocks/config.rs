@@ -117,12 +117,16 @@ pub struct ClocksConfig {
     /// Clocks that are used to drive the main clock, including the AHB and CPU core
     pub main_clock: MainClockConfig,
     /// FIRC, FRO180, 45/60/90/180M clock source
+    #[cfg(feature = "mcxa2xx")]
     pub firc: Option<FircConfig>,
     /// SIRC, FRO12M, clk_12m clock source
     // NOTE: I don't think we *can* disable the SIRC?
     pub sirc: SircConfig,
     /// FRO16K clock source
     pub fro16k: Option<Fro16KConfig>,
+    /// OSC32K clock source
+    #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+    pub osc32k: Option<Osc32KConfig>,
     /// SOSC, clk_in clock source
     ///
     /// NOTE: Requires `sosc-as-gpio` feature disabled, which also disables GPIO access to P1_30 and P1_31
@@ -141,6 +145,10 @@ pub enum VddLevel {
     /// Standard "mid drive" "MD" power, 1.0v VDD Core
     #[default]
     MidDriveMode,
+
+    /// "Normal" voltage, 1.1v VDD Core
+    #[cfg(feature = "mcxa5xx")]
+    NormalMode,
 
     /// Overdrive "OD" power, 1.2v VDD Core
     OverDriveMode,
@@ -202,7 +210,7 @@ pub enum FlashSleep {
 }
 
 /// Maximum sleep depth for the CPU core
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, Default, Debug)]
 #[non_exhaustive]
 pub enum CoreSleep {
     /// System will sleep using WFE when idle, but the CPU clock domain will not ever
@@ -224,6 +232,29 @@ pub enum CoreSleep {
     /// * This mode WILL also require ISP mode recovery in order to re-flash if the core becomes
     ///   "stuck" in sleep.
     WfeGated,
+    /// The system will go to deep sleep when idle, and the CPU clock domain will be
+    /// be gated. If configured with [FlashSleep], the internal flash may be gated
+    /// as well.
+    ///
+    /// This will also move the system into the "low power" state, which will disable any
+    /// clocks not configured as `PoweredClock::AlwaysActive".
+    ///
+    /// ## TODO
+    ///
+    /// For now, this REQUIRES calling unsafe `okay_but_actually_enable_deep_sleep()`
+    /// otherwise we'd ALWAYS go to deep sleep on every WFE. We need to implement a
+    /// custom executor that does proper go-to-deepsleep and come-back-from-deepsleep
+    /// before un-chickening this. If the method isn't called, we just set to `WfeGated`
+    /// instead.
+    ///
+    /// ## WARNING
+    ///
+    /// Enabling this mode has potential danger to soft-lock the system!
+    ///
+    /// * This mode WILL detach the debugging/RTT/defmt session if active upon first sleep.
+    /// * This mode WILL also require ISP mode recovery in order to re-flash if the core becomes
+    ///   "stuck" in sleep.
+    DeepSleep,
 }
 
 /// Power control options for the VDD domain, including the CPU and flash memory
@@ -253,9 +284,14 @@ pub enum MainClockSource {
     /// Clock derived from `fro_12m`, via the internal 12MHz oscillator (12MHz)
     SircFro12M,
     /// Clock derived from `fro_hf_root`, via the internal 45/60/90/180M clock source (45-180MHz)
+    #[cfg(feature = "mcxa2xx")]
     FircHfRoot,
     /// Clock derived from `clk_16k` (vdd core)
+    #[cfg(feature = "mcxa2xx")]
     RoscFro16K,
+    /// Clock derived from `clk_32k` (vdd core)
+    #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+    RoscOsc32K,
     /// Clock derived from `pll1_clk`, via the internal PLL
     SPll1,
 }
@@ -314,6 +350,7 @@ pub enum SpllSource {
     /// Fast Internal Oscillator (45MHz)
     // NOTE: Figure 69 says "firc_45mhz"/"clk_45m", not "fro_hf_gated",
     // so this is is always 45MHz.
+    #[cfg(feature = "mcxa2xx")]
     Firc,
     /// S Internal Oscillator (12M)
     Sirc,
@@ -454,10 +491,16 @@ pub struct SircConfig {
     pub fro_lf_div: Option<Div8>,
 }
 
+/// FRO16K Configuration items
 #[non_exhaustive]
 pub struct Fro16KConfig {
+    /// is `clk_16k[0]` active?
     pub vsys_domain_active: bool,
+    /// is `clk_16k[1]` active?
     pub vdd_core_domain_active: bool,
+    /// is `clk_16k[2]` active?
+    #[cfg(feature = "mcxa5xx")]
+    pub vbat_domain_active: bool,
 }
 
 impl Default for Fro16KConfig {
@@ -465,6 +508,120 @@ impl Default for Fro16KConfig {
         Self {
             vsys_domain_active: true,
             vdd_core_domain_active: true,
+            #[cfg(feature = "mcxa5xx")]
+            vbat_domain_active: true,
+        }
+    }
+}
+
+/// OSC32K Operational Mode
+#[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+pub enum Osc32KMode {
+    ///  low power switched oscillator mode
+    LowPower {
+        /// 32K Oscillator internal transconductance gain current
+        coarse_amp_gain: Osc32KCoarseGain,
+        /// Enable if Vbat exceeds 3.0v
+        vbat_exceeds_3v0: bool,
+    },
+    /// high performance transconductance oscillator mode
+    HighPower {
+        /// 32K Oscillator internal transconductance gain current
+        coarse_amp_gain: Osc32KCoarseGain,
+        /// Configurable capacitance for XTAL pad
+        xtal_cap_sel: Osc32KCapSel,
+        /// Configurable capacitance for EXTAL pad
+        extal_cap_sel: Osc32KCapSel,
+    },
+}
+
+/// Coarse Gain Amplification
+///
+/// See datasheet table 4.2.1.4, "32 kHz oscillation gain setting"
+#[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+pub enum Osc32KCoarseGain {
+    /// Max ESR 50kOhms, Max Cx 14pF
+    EsrRange0,
+    /// Max ESR 70kOhms, Max Cx 22pF
+    EsrRange1,
+    /// Max ESR 80kOhms, Max Cx 22pF
+    EsrRange2,
+    /// Max ESR 100kOhms, Max Cx 20pF
+    EsrRange3,
+}
+
+#[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+pub enum Osc32KCapSel {
+    // NOTE: 0pF is not supported in non-low-power-modes
+    /// 2pF
+    Cap2PicoF,
+    /// 4pF
+    Cap4PicoF,
+    /// 6pF
+    Cap6PicoF,
+    /// 8pF
+    Cap8PicoF,
+    /// 10pF
+    Cap10PicoF,
+    /// 12pF
+    Cap12PicoF,
+    /// 14pF
+    Cap14PicoF,
+    /// 16pF
+    Cap16PicoF,
+    /// 18pF
+    Cap18PicoF,
+    /// 20pF
+    Cap20PicoF,
+    /// 22pF
+    Cap22PicoF,
+    /// 24pF
+    Cap24PicoF,
+    /// 26pF
+    Cap26PicoF,
+    /// 28pF
+    Cap28PicoF,
+    /// 30pF
+    Cap30PicoF,
+}
+
+/// OSC32K Configuration Items
+#[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+#[non_exhaustive]
+pub struct Osc32KConfig {
+    /// Low/High Power Mode Selection
+    pub mode: Osc32KMode,
+    /// is `clk_32k[0]` active?
+    pub vsys_domain_active: bool,
+    /// is `clk_32k[1]` active?
+    pub vdd_core_domain_active: bool,
+    /// is `clk_32k[2]` active?
+    pub vbat_domain_active: bool,
+}
+
+#[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+impl Default for Osc32KConfig {
+    fn default() -> Self {
+        Self {
+            mode: Osc32KMode::LowPower {
+                coarse_amp_gain: Osc32KCoarseGain::EsrRange0,
+                vbat_exceeds_3v0: true,
+            },
+            vsys_domain_active: true,
+            vdd_core_domain_active: true,
+            vbat_domain_active: true,
+        }
+    }
+}
+
+impl Default for FircConfig {
+    fn default() -> Self {
+        FircConfig {
+            frequency: FircFreqSel::Mhz45,
+            power: PoweredClock::NormalEnabledDeepSleepDisabled,
+            fro_hf_enabled: true,
+            clk_45m_enabled: true,
+            fro_hf_div: None,
         }
     }
 }
@@ -485,10 +642,14 @@ impl Default for ClocksConfig {
                 flash_sleep: FlashSleep::Never,
             },
             main_clock: MainClockConfig {
+                #[cfg(feature = "mcxa2xx")]
                 source: MainClockSource::FircHfRoot,
+                #[cfg(feature = "mcxa5xx")]
+                source: MainClockSource::SircFro12M,
                 power: PoweredClock::NormalEnabledDeepSleepDisabled,
                 ahb_clk_div: Div8::no_div(),
             },
+            #[cfg(feature = "mcxa2xx")]
             firc: Some(FircConfig {
                 frequency: FircFreqSel::Mhz45,
                 power: PoweredClock::NormalEnabledDeepSleepDisabled,
@@ -504,7 +665,11 @@ impl Default for ClocksConfig {
             fro16k: Some(Fro16KConfig {
                 vsys_domain_active: true,
                 vdd_core_domain_active: true,
+                #[cfg(feature = "mcxa5xx")]
+                vbat_domain_active: true,
             }),
+            #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+            osc32k: None,
             #[cfg(not(feature = "sosc-as-gpio"))]
             sosc: None,
             spll: None,

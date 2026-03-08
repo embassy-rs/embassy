@@ -8,11 +8,21 @@ mod common;
 use chrono::NaiveDate;
 use common::*;
 use embassy_executor::Spawner;
-use embassy_stm32::low_power::{StopMode, stop_ready};
-use embassy_stm32::rcc::LsConfig;
+use embassy_stm32::rcc::{LsConfig, StopMode, get_stop_mode};
 use embassy_stm32::rtc::Rtc;
 use embassy_stm32::{Config, low_power};
 use embassy_time::Timer;
+
+/// Get whether the core is ready to enter the given stop mode.
+///
+/// This will return false if some peripheral driver is in use that
+/// prevents entering the given stop mode.
+fn stop_ready(stop_mode: StopMode) -> bool {
+    critical_section::with(|cs| match get_stop_mode(cs) {
+        Some(mode) => mode.at_least(stop_mode),
+        None => false,
+    })
+}
 
 #[embassy_executor::task]
 async fn task_1() {
