@@ -103,6 +103,27 @@ static LL_INIT_COMPLETED: AtomicBool = AtomicBool::new(false);
 /// Signal to trigger BleStack_Process (equivalent to Sidewalk SDK's BleHostSemaphore)
 pub(crate) static BLE_WAKER: AtomicWaker = AtomicWaker::new();
 
+/// Register BLE stack tasks with the runner.
+///
+/// In the async runner architecture, BleStack_Process is called directly via
+/// poll_fn rather than through the sequencer task model, so this is a no-op.
+/// It is provided for compatibility with initialization code that follows
+/// ST's reference pattern.
+pub fn register_ble_tasks() {
+    // No-op: BleStack_Process is driven directly by the async runner's poll_fn.
+}
+
+/// Schedule the BLE Host task to run.
+///
+/// Wakes the BLE runner so it calls BleStack_Process on its next poll.
+/// Call this after HCI events arrive or whenever BLE stack processing is needed.
+pub fn schedule_ble_host_task() {
+    BLE_WAKER.wake();
+
+    #[cfg(feature = "defmt")]
+    defmt::trace!("BLE Host task scheduled (waker woken)");
+}
+
 /// BLE stack runner function
 ///
 /// This async function drives the BLE stack. It must be spawned as a task

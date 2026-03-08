@@ -89,6 +89,25 @@ mod update_type {
 
 const BLE_STATUS_SUCCESS: u8 = 0x00;
 
+/// Initialize the GATT layer globally
+///
+/// This function calls aci_gatt_init() to initialize the GATT layer.
+/// Per ST's BLE_HeartRate example, this MUST be called before aci_gap_init().
+///
+/// This is called automatically by Ble::init() and should not be called directly.
+pub(crate) fn init_gatt_layer() -> Result<(), BleError> {
+    unsafe {
+        let status = aci_gatt_init();
+        if status == BLE_STATUS_SUCCESS {
+            Ok(())
+        } else {
+            #[cfg(feature = "defmt")]
+            defmt::error!("aci_gatt_init failed: 0x{:02X}", status);
+            Err(BleError::CommandFailed(crate::wba::hci::types::Status::from_u8(status)))
+        }
+    }
+}
+
 /// GATT Server
 ///
 /// Provides methods for creating and managing GATT services and characteristics.
@@ -104,24 +123,21 @@ impl GattServer {
         Self { initialized: false }
     }
 
-    /// Initialize the GATT server
+    /// Initialize the GATT server instance
     ///
-    /// This adds the GATT service with Service Changed Characteristic.
-    /// Must be called before using any GATT features.
+    /// Note: The global GATT layer (aci_gatt_init) is now initialized automatically
+    /// by Ble::init(). This method just marks this GattServer instance as initialized.
+    ///
+    /// Must be called before using any GATT features on this instance.
     pub fn init(&mut self) -> Result<(), BleError> {
         if self.initialized {
             return Ok(());
         }
 
-        unsafe {
-            let status = aci_gatt_init();
-            if status == BLE_STATUS_SUCCESS {
-                self.initialized = true;
-                Ok(())
-            } else {
-                Err(BleError::CommandFailed(crate::wba::hci::types::Status::from_u8(status)))
-            }
-        }
+        // The actual aci_gatt_init() is now called in Ble::init() before GAP initialization
+        // This maintains the correct ST initialization order: GATT before GAP
+        self.initialized = true;
+        Ok(())
     }
 
     /// Add a service to the GATT database

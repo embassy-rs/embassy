@@ -64,9 +64,14 @@ pub unsafe extern "C" fn hci_host_callback(ptr_evnt_hdr: *mut ble_buff_hdr_t) ->
 /// This function is called from ll_sys_bg_process (the link layer background task).
 /// It checks if there are pending events from the C layer and processes them.
 /// This is the implementation of the weak HostStack_Process function in the C code.
+///
+/// This also matches ST's BleStackCB_Process() which schedules the BLE Host task.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn HostStack_Process() {
     if !HAS_PENDING_EVENT {
+        // Even if no events, we should schedule BLE_HOST task periodically
+        // to keep BleStack_Process running for advertising, connections, etc.
+        crate::wba::runner::schedule_ble_host_task();
         return;
     }
 
@@ -84,6 +89,10 @@ pub unsafe extern "C" fn HostStack_Process() {
 
     HAS_PENDING_EVENT = false;
     HCI_EVENT_LEN = 0;
+
+    // Schedule BLE Host task to process events (matches ST's BleStackCB_Process)
+    // This is CRITICAL - it's what keeps BleStack_Process running!
+    crate::wba::runner::schedule_ble_host_task();
 }
 
 // Note: For WBA, the callback mechanism above is the primary event delivery method.
