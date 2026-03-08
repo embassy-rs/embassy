@@ -211,6 +211,14 @@ async fn main(spawner: Spawner) {
     config.rcc.mux.rngsel = mux::Rngsel::HSI;
 
     let p = embassy_stm32::init(config);
+
+    // Configure radio sleep timer to use LSE
+    {
+        use embassy_stm32::pac::RCC;
+        use embassy_stm32::pac::rcc::vals::Radiostsel;
+        RCC.bdcr().modify(|w| w.set_radiostsel(Radiostsel::LSE));
+    }
+
     info!("Embassy STM32WBA BLE Serial Communication Example");
     info!("Based on ST BLE_SerialCom_Peripheral");
 

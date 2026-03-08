@@ -25,13 +25,15 @@ use embassy_stm32::mode::Blocking;
 use embassy_stm32::peripherals::{AES, PKA, RNG};
 use embassy_stm32::pka::{self, Pka};
 use embassy_stm32::rcc::{
-    AHB5Prescaler, AHBPrescaler, APBPrescaler, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale, mux,
+    AHB5Prescaler, AHBPrescaler, APBPrescaler, Hse, HsePrescaler, LsConfig, LseDrive, LseConfig, LseMode,
+    PllDiv, PllMul, PllPreDiv, PllSource, RtcClockSource, Sysclk, VoltageScale, mux,
 };
 use embassy_stm32::rng::{self, Rng};
-use embassy_stm32::{Config, bind_interrupts};
+use embassy_stm32::time::Hertz;
+use embassy_stm32::{Config, bind_interrupts, interrupt};
 use embassy_stm32_wpan::gap::{ConnectionInitParams, GapEvent, ParsedAdvData, ScanParams, ScanType};
 use embassy_stm32_wpan::hci::event::EventParams;
-use embassy_stm32_wpan::{Ble, ble_runner};
+use embassy_stm32_wpan::{Ble, ble_runner, run_radio_high_isr, run_radio_sw_low_isr};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use static_cell::StaticCell;
@@ -42,6 +44,18 @@ bind_interrupts!(struct Irqs {
     AES => aes::InterruptHandler<AES>;
     PKA => pka::InterruptHandler<PKA>;
 });
+
+// RADIO interrupt handler - required for BLE stack operation
+#[interrupt]
+unsafe fn RADIO() {
+    unsafe { run_radio_high_isr() };
+}
+
+// HASH interrupt handler - used as software low-priority interrupt for BLE
+#[interrupt]
+unsafe fn HASH() {
+    unsafe { run_radio_sw_low_isr() };
+}
 
 /// BLE runner task - drives the BLE stack sequencer
 #[embassy_executor::task]
@@ -58,6 +72,22 @@ const MIN_RSSI: i8 = -80;
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let mut config = Config::default();
+
+    // Enable HSE (32 MHz external crystal) - REQUIRED for BLE radio
+    config.rcc.hse = Some(Hse {
+        prescaler: HsePrescaler::DIV1,
+    });
+
+    // Enable LSE (32.768 kHz external crystal) - REQUIRED for BLE radio sleep timer
+    config.rcc.ls = LsConfig {
+        rtc: RtcClockSource::LSE,
+        lsi: false,
+        lse: Some(LseConfig {
+            frequency: Hertz(32_768),
+            mode: LseMode::Oscillator(LseDrive::MediumLow),
+            peripherals_clocked: true,
+        }),
+    };
 
     // Configure PLL1 (required on WBA)
     config.rcc.pll1 = Some(embassy_stm32::rcc::Pll {
@@ -80,6 +110,14 @@ async fn main(spawner: Spawner) {
     config.rcc.mux.rngsel = mux::Rngsel::HSI;
 
     let p = embassy_stm32::init(config);
+
+    // Configure radio sleep timer to use LSE
+    {
+        use embassy_stm32::pac::RCC;
+        use embassy_stm32::pac::rcc::vals::Radiostsel;
+        RCC.bdcr().modify(|w| w.set_radiostsel(Radiostsel::LSE));
+    }
+
     info!("Embassy STM32WBA6 BLE Central Example");
 
     // Initialize hardware peripherals required by BLE stack
@@ -101,7 +139,8 @@ async fn main(spawner: Spawner) {
     info!("BLE stack initialized");
 
     // Spawn the BLE runner task (required for proper BLE operation)
-    spawner.spawn(ble_runner_task().unwrap());
+    spawner.spawn(ble_runner_task().expect("Failed to spawn BLE runner"));
+    embassy_futures::yield_now().await;
 
     // State machine for central role
     let mut state = CentralState::Scanning;
