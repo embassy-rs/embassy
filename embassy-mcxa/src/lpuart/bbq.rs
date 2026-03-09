@@ -20,7 +20,7 @@ use paste::paste;
 use super::{DataBits, IdleConfig, Info, MsbFirst, Parity, RxPin, StopBits, TxPin, TxPins};
 use crate::clocks::periph_helpers::{Div4, LpuartClockSel};
 use crate::clocks::{PoweredClock, WakeGuard};
-use crate::dma::{DMA_MAX_TRANSFER_SIZE, DmaChannel, DmaRequest, EnableInterrupt};
+use crate::dma::{DMA_MAX_TRANSFER_SIZE, DmaChannel, DmaRequest, InvalidParameters, TransferOptions};
 use crate::gpio::AnyPin;
 use crate::interrupt::typelevel::{Binding, Handler, Interrupt};
 use crate::lpuart::{Instance, RxPins};
@@ -1207,7 +1207,11 @@ impl BbqState {
             // the transfer completes.
             let max_len = (&*self.tx_queue.get()).capacity() / 4;
             let len = rgr.len().min(max_len).min(DMA_MAX_TRANSFER_SIZE);
-            txdma.setup_write_to_peripheral(&rgr[..len], peri_addr, EnableInterrupt::Yes);
+            if let Err(InvalidParameters) =
+                txdma.setup_write_to_peripheral(&rgr[..len], peri_addr, false, TransferOptions::COMPLETE_INTERRUPT)
+            {
+                return false;
+            }
 
             // Enable the DMA transfer
             info.regs().baud().modify(|w| w.set_tdmae(true));
@@ -1279,7 +1283,11 @@ impl BbqState {
             rxdma.set_request_source(source);
 
             let peri_addr = info.regs().data().as_ptr().cast::<u8>();
-            rxdma.setup_read_from_peripheral(peri_addr, &mut wgr, EnableInterrupt::Yes);
+            if let Err(InvalidParameters) =
+                rxdma.setup_read_from_peripheral(peri_addr, &mut wgr, false, TransferOptions::COMPLETE_INTERRUPT)
+            {
+                return false;
+            }
 
             // Enable the DMA transfer
             info.regs().baud().modify(|w| w.set_rdmae(true));
