@@ -1,7 +1,10 @@
 use core::sync::atomic::{Ordering, compiler_fence};
 
 use super::{AnyAdcChannel, ConversionMode, Temperature, Vbat, VrefInt, blocking_delay_us};
-use crate::adc::{Adc, AdcRegs, InjectedTrigger, Instance, Resolution, SampleTime, RegularTrigger, BasicAdcRegs, RxDma};
+use crate::adc::{
+    Adc, AdcRegs, BasicAdcRegs, InjectedTrigger, Instance, RegularTrigger, Resolution, RxDma, SampleTime,
+    SealedAdcChannel,
+};
 use crate::pac::adc::vals;
 pub use crate::pac::adccommon::vals::Adcpre;
 use crate::time::Hertz;
@@ -320,8 +323,45 @@ where
 
         T::regs().enable();
 
+        // TODO: check if this one is needed at all
         T::regs().cr1().modify(|w| w.set_jauto(false));
-        todo!()
+        // Set injected sequence length
+        T::regs().jsqr().modify(|w| w.set_jl(N as u8 - 1));
+
+        for (n, (channel, sample_time)) in sequence.iter().enumerate() {
+            let sample_time = sample_time.clone().into();
+            if channel.channel() <= 9 {
+                T::regs()
+                    .smpr2()
+                    .modify(|reg| reg.set_smp(channel.channel() as _, sample_time));
+            } else {
+                T::regs()
+                    .smpr1()
+                    .modify(|reg| reg.set_smp((channel.channel() - 10) as _, sample_time));
+            }
+
+            let idx = match n {
+                0..=3 => n,
+                4..=8 => n - 4,
+                9..=13 => n - 9,
+                14..=15 => n - 14,
+                _ => unreachable!(),
+            };
+
+            T::regs().jsqr().modify(|w| w.set_jsq(idx, channel.channel()));
+        }
+
+        T::regs().cr1().modify(|w| w.set_jdiscen(false));
+        T::regs().cr2().modify(|w| {
+            w.set_jextsel(trigger.signal());
+            w.set_jexten(edge);
+        });
+
+        T::regs().cr1().modify(|w| w.set_jeocie(interrupt));
+
+        Self::start_injected_conversions();
+
+        InjectedAdc::new(sequence) // InjectedAdc<'a, T, N> now borrows the channels
     }
 
     /// Configures ADC for both regular conversions with a ring-buffered DMA and injected conversions.
@@ -388,18 +428,32 @@ where
 
     /// Stop injected conversions
     pub(super) fn stop_injected_conversions() {
-        todo!()
+        // No true "abort injected conversion" primitive on adc_v2.
+        // Best practical stop: disable external injected triggering.
+        T::regs().cr2().modify(|w| w.set_jexten(vals::Exten::DISABLED));
+        T::regs().cr1().modify(|w| w.set_jeocie(false));
+        T::regs().sr().modify(|w| {
+            w.set_jeoc(false);
+            w.set_jstrt(false);
+        });
     }
     /// Start injected ADC conversion
     pub(super) fn start_injected_conversions() {
-        todo!()
+        T::regs().cr2().modify(|w| w.set_jswstart(true));
     }
 }
 impl<'a, T: Instance<Regs = crate::pac::adc::Adc>, const N: usize> InjectedAdc<'a, T, N> {
     /// Read sampled data from all injected ADC injected ranks
     /// Clear the JEOS flag to allow a new injected sequence
     pub(super) fn read_injected_data() -> [u16; N] {
-        todo!()
+        let mut data = [0u16; N];
+        for i in 0..N {
+            data[i] = T::regs().jdr(i).read().jdata();
+        }
+
+        // Clear JEOS by writing 1
+        T::regs().sr().modify(|r| r.set_jeoc(true));
+        data
     }
 }
 
