@@ -947,6 +947,11 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                 w.set_arlocf(true);
                 w.set_ovrcf(true);
             });
+            if isr.berr() || isr.arlo() {
+                regs.cr1().modify(|w| w.set_pe(false));
+                while regs.cr1().read().pe() {}
+                regs.cr1().modify(|w| w.set_pe(true));
+            }
         });
 
         poll_fn(|cx| {
@@ -1051,6 +1056,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
         let on_drop = OnDrop::new(|| {
             let regs = self.info.regs;
+            let isr = regs.isr().read();
             regs.cr1().modify(|w| {
                 w.set_rxdmaen(false);
                 w.set_tcie(false);
@@ -1063,6 +1069,11 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                 w.set_arlocf(true);
                 w.set_ovrcf(true);
             });
+            if isr.berr() || isr.arlo() {
+                regs.cr1().modify(|w| w.set_pe(false));
+                while regs.cr1().read().pe() {}
+                regs.cr1().modify(|w| w.set_pe(true));
+            }
         });
 
         poll_fn(|cx| {
@@ -1436,6 +1447,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
         let on_drop = OnDrop::new(|| {
             let regs = self.info.regs;
+            let isr = regs.isr().read();
             regs.cr1().modify(|w| {
                 w.set_rxdmaen(false);
                 w.set_tcie(false);
@@ -1448,6 +1460,11 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                 w.set_arlocf(true);
                 w.set_ovrcf(true);
             });
+            if isr.berr() || isr.arlo() {
+                regs.cr1().modify(|w| w.set_pe(false));
+                while regs.cr1().read().pe() {}
+                regs.cr1().modify(|w| w.set_pe(true));
+            }
         });
 
         poll_fn(|cx| {
