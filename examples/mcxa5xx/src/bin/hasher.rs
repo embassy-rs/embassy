@@ -73,24 +73,24 @@ async fn main(_spawner: Spawner) {
     //streaming mode:
     let mut hasher = SGIHasher::new();
     // Init takes two inputs, size and mode. Unless there are specific concerns about memory/performance, leave mode as None.
-    hasher.init(HashSize::Sha512, None).unwrap();
+    let _ = hasher.init(HashSize::Sha512, None).unwrap();
     let mut index = 0;
     // hasher.update has a max input size of 512 bytes per update call.
     for _ in 0..3 {
-        hasher.update(&mut sgi, &input_data[index..index + 128]).unwrap();
+        let _ = hasher.update(&mut sgi, &input_data[index..index + 128]).unwrap();
         index += 128; // doing one full block at a time.
     }
 
     for _ in 0..3 {
-        hasher.update(&mut sgi, &input_data[index..index + 50]).unwrap();
+        let _ = hasher.update(&mut sgi, &input_data[index..index + 50]).unwrap();
         index += 50; // doing less than a full block.
     }
 
-    hasher.update(&mut sgi, &input_data[index..index + 512]).unwrap(); //max size.
-    index += 512;
+    let _ = hasher.update(&mut sgi, &input_data[index..index + 512]).unwrap(); //max size.
+    //index += 512;
 
     // Call hasher.finalize to get the final hash result
-    hasher.finalize(&mut sgi, &mut hash_result[..64]);
+    let _ = hasher.finalize(&mut sgi, &mut hash_result[..64]).unwrap();
 
     defmt::info!("Hash output streaming: {=[u8]:x}", &hash_result[..64]);
 
