@@ -1058,10 +1058,10 @@ impl DmaChannel<'_> {
     ///
     /// - The buffer must remain valid for the duration of the transfer.
     /// - The peripheral address must be valid for writes.
-    pub(crate) unsafe fn setup_write_to_peripheral<W: Word>(
+    pub(crate) unsafe fn setup_write_to_peripheral<WSRC: Word, WDST: Word>(
         &self,
-        buf: &[W],
-        peri_addr: *mut W,
+        buf: &[WSRC],
+        peri_addr: *mut WDST,
         options: TransferOptions,
     ) -> Result<(), InvalidParameters> {
         if buf.is_empty() || buf.len() > DMA_MAX_TRANSFER_SIZE {
@@ -1072,7 +1072,7 @@ impl DmaChannel<'_> {
             self.setup_transfers(DmaTransferParameters {
                 src_ptr: buf.as_ptr(),
                 dst_ptr: peri_addr,
-                dst_count: buf.len(),
+                dst_count: buf.len() * WSRC::size().bytes() / WDST::size().bytes(),
                 src_incr: true,
                 dst_incr: false,
                 circular: false,
@@ -1106,10 +1106,10 @@ impl DmaChannel<'_> {
     ///
     /// - The buffer must remain valid for the duration of the transfer.
     /// - The peripheral address must be valid for reads.
-    pub(crate) unsafe fn setup_read_from_peripheral<W: Word>(
+    pub(crate) unsafe fn setup_read_from_peripheral<WSRC: Word, WDST: Word>(
         &self,
-        peri_addr: *const W,
-        buf: &mut [W],
+        peri_addr: *const WSRC,
+        buf: &mut [WDST],
         options: TransferOptions,
     ) -> Result<(), InvalidParameters> {
         if buf.is_empty() || buf.len() > DMA_MAX_TRANSFER_SIZE {
