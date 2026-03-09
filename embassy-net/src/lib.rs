@@ -840,39 +840,47 @@ impl Inner {
             self.state_waker.wake();
         }
 
-        #[cfg(feature = "dhcpv4")]
-        if let Some(dhcp_handle) = self.dhcp_socket {
-            let socket = self.sockets.get_mut::<dhcpv4::Socket>(dhcp_handle);
+        #[allow(unused_mut)]
+        let mut configure = false;
 
-            let configure = if self.link_up {
-                if old_link_up != self.link_up {
+        #[cfg(feature = "dhcpv4")]
+        {
+            configure |= if let Some(dhcp_handle) = self.dhcp_socket {
+                let socket = self.sockets.get_mut::<dhcpv4::Socket>(dhcp_handle);
+
+                if self.link_up {
+                    if old_link_up != self.link_up {
+                        socket.reset();
+                    }
+                    match socket.poll() {
+                        None => false,
+                        Some(dhcpv4::Event::Deconfigured) => {
+                            self.static_v4 = None;
+                            true
+                        }
+                        Some(dhcpv4::Event::Configured(config)) => {
+                            self.static_v4 = Some(StaticConfigV4 {
+                                address: config.address,
+                                gateway: config.router,
+                                dns_servers: config.dns_servers,
+                            });
+                            true
+                        }
+                    }
+                } else if old_link_up {
                     socket.reset();
+                    self.static_v4 = None;
+                    true
+                } else {
+                    false
                 }
-                match socket.poll() {
-                    None => false,
-                    Some(dhcpv4::Event::Deconfigured) => {
-                        self.static_v4 = None;
-                        true
-                    }
-                    Some(dhcpv4::Event::Configured(config)) => {
-                        self.static_v4 = Some(StaticConfigV4 {
-                            address: config.address,
-                            gateway: config.router,
-                            dns_servers: config.dns_servers,
-                        });
-                        true
-                    }
-                }
-            } else if old_link_up {
-                socket.reset();
-                self.static_v4 = None;
-                true
             } else {
                 false
-            };
-            if configure {
-                self.apply_static_config()
             }
+        }
+
+        if configure {
+            self.apply_static_config()
         }
 
         if let Some(poll_at) = self.iface.poll_at(timestamp, &mut self.sockets) {
