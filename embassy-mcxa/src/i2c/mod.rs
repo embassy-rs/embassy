@@ -1,8 +1,5 @@
 //! I2C Support
 
-#![allow(dead_code)]
-#![allow(unused_imports)]
-
 use embassy_hal_internal::PeripheralType;
 use maitake_sync::WaitCell;
 use paste::paste;
