@@ -130,6 +130,9 @@ pub enum WordSize {
 }
 
 impl WordSize {
+    /// Largest [WordSize] supported by this HAL driver.
+    pub const LARGEST: WordSize = WordSize::FourBytes;
+
     /// Size in bytes.
     pub const fn bytes(self) -> usize {
         match self {
@@ -515,13 +518,13 @@ impl_channel!(DMA_CH6, 6, DMA_CH6);
 impl_channel!(DMA_CH7, 7, DMA_CH7);
 
 /// Parameters used to configure a 'typical' DMA transfer in [DmaChannel::setup_typical].
-struct DmaTransferParameters<W> {
-    /// Number of words that should be transferred.
-    count: usize,
+struct DmaTransferParameters<WSRC: Word, WDST: Word> {
+    /// Number of words (with size WDST) that should be transferred to the destination.
+    dst_count: usize,
     /// Source pointer. If incrementing, the backing memory region should be at least as large as `count`.
-    src_ptr: *const W,
+    src_ptr: *const WSRC,
     /// Destination pointer. If incrementing, the backing memory region should be at least as large as `count`.
-    dst_ptr: *mut W,
+    dst_ptr: *mut WDST,
     /// Whether the source pointer should be incremented.
     src_incr: bool,
     /// Whether the destination pointer should be incremented.
@@ -682,15 +685,6 @@ impl DmaChannel<'_> {
     }
 
     #[inline]
-    fn set_even_transfer_size(t: &pac::edma_0_tcd::Tcd, sz: WordSize) {
-        let hw_size = sz.to_hw_size();
-        t.tcd_attr().write(|w| {
-            w.set_ssize(hw_size);
-            w.set_dsize(hw_size);
-        });
-    }
-
-    #[inline]
     fn reset_channel_state(t: &pac::edma_0_tcd::Tcd) {
         // CSR: Resets to all zeroes (disabled), "done" is cleared by writing 1
         t.ch_csr().write(|w| w.set_done(true));
@@ -736,9 +730,8 @@ impl DmaChannel<'_> {
     ///
     /// Requires that the source/destination buffers remain valid for the duration
     /// of the transfer.
-    unsafe fn setup_transfers<W: Word>(&self, params: DmaTransferParameters<W>) {
-        let word_size = W::size();
-        let byte_count = (params.count * word_size.bytes()) as u32;
+    unsafe fn setup_transfers<WSRC: Word, WDST: Word>(&self, params: DmaTransferParameters<WSRC, WDST>) {
+        let byte_count = (params.dst_count as usize * WDST::size().bytes()) as u32;
 
         let t = self.tcd();
 
@@ -752,35 +745,36 @@ impl DmaChannel<'_> {
 
         Self::set_source_ptr(&t, params.src_ptr);
         if params.src_incr {
-            Self::set_source_increment(&t, word_size);
+            Self::set_source_increment(&t, WSRC::size());
         } else {
             Self::set_source_fixed(&t);
         }
 
         Self::set_dest_ptr(&t, params.dst_ptr);
         if params.dst_incr {
-            Self::set_dest_increment(&t, word_size);
+            Self::set_dest_increment(&t, WDST::size());
         } else {
             Self::set_dest_fixed(&t);
         }
 
         // Transfer attributes (size)
-        Self::set_even_transfer_size(&t, word_size);
+        t.tcd_attr().write(|w| {
+            w.set_ssize(WSRC::size().to_hw_size());
+            w.set_dsize(WDST::size().to_hw_size());
+        });
+
+        let (minor, major) = if params.software {
+            // When called from software, transfer all bytes in a single major loop iteration.
+            (byte_count, 1)
+        } else {
+            // When driven by hardware, transfer a DST word per major loop iteration.
+            // When the DMA channel requests (ERQ) is driven by a peripheral, this is desirable.
+            (WDST::size().bytes() as u32, params.dst_count as u16)
+        };
 
         // Set the amount of bytes to be transferred per major loop iteration without minor loop offsets.
-        Self::set_major_loop_nbytes_without_minor(
-            &t,
-            if params.software {
-                byte_count
-            } else {
-                word_size.bytes() as u32
-            },
-        );
-
-        // Set the number of major loop iterations we expect.
-        // If set to more than one, it will divide the bytes over the number of transfers.
-        // When the DMA channel requests (ERQ) is driven by a peripheral, this is desirable.
-        Self::set_major_loop_ct_elinkno(&t, if params.software { 1 } else { params.count as u16 });
+        Self::set_major_loop_nbytes_without_minor(&t, minor);
+        Self::set_major_loop_ct_elinkno(&t, major);
 
         // Configure channel to be interruptable, to interrupt, with a set priority.
         Self::set_fixed_priority(&t, params.options.priority);
@@ -861,7 +855,7 @@ impl DmaChannel<'_> {
             self.setup_transfers(DmaTransferParameters {
                 src_ptr: src.as_ptr(),
                 dst_ptr: dst.as_mut_ptr(),
-                count: src.len(),
+                dst_count: dst.len(),
                 src_incr: true,
                 dst_incr: true,
                 circular: false,
@@ -914,7 +908,7 @@ impl DmaChannel<'_> {
             self.setup_transfers(DmaTransferParameters {
                 src_ptr: pattern,
                 dst_ptr: dst.as_mut_ptr(),
-                count: dst.len(),
+                dst_count: dst.len(),
                 src_incr: false,
                 dst_incr: true,
                 circular: false,
@@ -1007,14 +1001,18 @@ impl DmaChannel<'_> {
             return Err(InvalidParameters);
         }
 
+        #[repr(C, align(4))]
+        struct Zero([u8; WordSize::LARGEST.bytes()]);
+
         // Static mut so that this is allocated in RAM.
-        static mut DUMMY: u32 = 0;
+        static mut DUMMY: Zero = Zero([0u8; WordSize::LARGEST.bytes()]);
 
         unsafe {
             self.setup_transfers(DmaTransferParameters {
+                // Unsafe: cast to W is safe as DUMMY is aligned and guaranteed to be as least as large.
                 src_ptr: core::ptr::addr_of_mut!(DUMMY) as *const W,
                 dst_ptr: peri_addr,
-                count,
+                dst_count: count,
                 src_incr: false,
                 dst_incr: false,
                 circular: false,
@@ -1074,7 +1072,7 @@ impl DmaChannel<'_> {
             self.setup_transfers(DmaTransferParameters {
                 src_ptr: buf.as_ptr(),
                 dst_ptr: peri_addr,
-                count: buf.len(),
+                dst_count: buf.len(),
                 src_incr: true,
                 dst_incr: false,
                 circular: false,
@@ -1122,7 +1120,7 @@ impl DmaChannel<'_> {
             self.setup_transfers(DmaTransferParameters {
                 src_ptr: peri_addr,
                 dst_ptr: buf.as_mut_ptr(),
-                count: buf.len(),
+                dst_count: buf.len(),
                 src_incr: false,
                 dst_incr: true,
                 circular: false,
@@ -1998,9 +1996,9 @@ impl<'a> DmaChannel<'a> {
 
         unsafe {
             self.setup_transfers(DmaTransferParameters {
-                count: buf.len(),
                 src_ptr: peri_addr,
                 dst_ptr: buf.as_mut_ptr(),
+                dst_count: buf.len(),
                 src_incr: false,
                 dst_incr: true,
                 circular: true,
