@@ -10,7 +10,7 @@
 use super::{ClockError, Clocks, PoweredClock, WakeGuard};
 use crate::clocks::VddLevel;
 use crate::pac::mrcc::vals::{
-    ClkdivHalt, ClkdivReset, ClkdivUnstab, CtimerClkselMux, Lpi2cClkselMux, OstimerClkselMux,
+    ClkdivHalt, ClkdivReset, ClkdivUnstab, CtimerClkselMux, Lpi2cClkselMux, LpspiClkselMux, OstimerClkselMux,
 };
 
 #[cfg(feature = "mcxa2xx")]
@@ -281,6 +281,171 @@ impl SPConfHelper for OsTimerConfig {
                 PreEnableParts::empty()
             }
         })
+    }
+}
+
+//
+// LPSPI
+//
+
+/// Selectable clocks for `Lpspi` peripherals
+#[derive(Debug, Clone, Copy)]
+pub enum LpspiClockSel {
+    /// FRO12M/FRO_LF/SIRC clock source, passed through divider
+    /// "fro_lf_div"
+    FroLfDiv,
+    /// FRO180M/FRO_HF/FIRC clock source, passed through divider
+    /// "fro_hf_div"
+    #[cfg(feature = "mcxa2xx")]
+    FroHfDiv,
+    /// SOSC/XTAL/EXTAL clock source
+    #[cfg(feature = "mcxa2xx")]
+    #[cfg(not(feature = "sosc-as-gpio"))]
+    ClkIn,
+    /// clk_1m/FRO_LF divided by 12
+    Clk1M,
+    /// Output of PLL1, passed through clock divider,
+    /// "pll1_clk_div", maybe "pll1_lf_div"?
+    #[cfg(feature = "mcxa2xx")]
+    Pll1ClkDiv,
+    /// Disabled
+    None,
+}
+
+/// Which instance of the `Lpspi` is this?
+///
+/// Should not be directly selectable by end-users.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum LpspiInstance {
+    /// Instance 0
+    Lpspi0,
+    /// Instance 1
+    Lpspi1,
+    /// Instance 2
+    #[cfg(feature = "mcxa5xx")]
+    Lpspi2,
+    /// Instance 3
+    #[cfg(feature = "mcxa5xx")]
+    Lpspi3,
+    /// Instance 4
+    #[cfg(feature = "mcxa5xx")]
+    Lpspi4,
+    /// Instance 5
+    #[cfg(feature = "mcxa5xx")]
+    Lpspi5,
+}
+
+/// Top level configuration for `Lpspi` instances.
+pub struct LpspiConfig {
+    /// Power state required for this peripheral
+    pub power: PoweredClock,
+    /// Clock source
+    pub source: LpspiClockSel,
+    /// Clock divisor
+    pub div: Div4,
+    /// Which instance is this?
+    // NOTE: should not be user settable
+    pub(crate) instance: LpspiInstance,
+}
+
+impl SPConfHelper for LpspiConfig {
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
+        // check that source is suitable
+        let mrcc0 = crate::pac::MRCC0;
+
+        let (clkdiv, clksel) = match self.instance {
+            LpspiInstance::Lpspi0 => (mrcc0.mrcc_lpspi0_clkdiv(), mrcc0.mrcc_lpspi0_clksel()),
+            LpspiInstance::Lpspi1 => (mrcc0.mrcc_lpspi1_clkdiv(), mrcc0.mrcc_lpspi1_clksel()),
+            #[cfg(feature = "mcxa5xx")]
+            LpspiInstance::Lpspi2 => (mrcc0.mrcc_lpspi2_clkdiv(), mrcc0.mrcc_lpspi2_clksel()),
+            #[cfg(feature = "mcxa5xx")]
+            LpspiInstance::Lpspi3 => (mrcc0.mrcc_lpspi3_clkdiv(), mrcc0.mrcc_lpspi3_clksel()),
+            #[cfg(feature = "mcxa5xx")]
+            LpspiInstance::Lpspi4 => (mrcc0.mrcc_lpspi4_clkdiv(), mrcc0.mrcc_lpspi4_clksel()),
+            #[cfg(feature = "mcxa5xx")]
+            LpspiInstance::Lpspi5 => (mrcc0.mrcc_lpspi5_clkdiv(), mrcc0.mrcc_lpspi5_clksel()),
+        };
+
+        let (freq, variant) = match self.source {
+            LpspiClockSel::FroLfDiv => {
+                let freq = clocks.ensure_fro_lf_div_active(&self.power)?;
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = LpspiClkselMux::CLKROOT_FUNC_0;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = LpspiClkselMux::I0_CLKROOT_FUNC_0;
+
+                (freq, mux)
+            }
+            #[cfg(feature = "mcxa2xx")]
+            LpspiClockSel::FroHfDiv => {
+                let freq = clocks.ensure_fro_hf_div_active(&self.power)?;
+                (freq, LpspiClkselMux::CLKROOT_FUNC_2)
+            }
+            #[cfg(feature = "mcxa2xx")]
+            #[cfg(not(feature = "sosc-as-gpio"))]
+            LpspiClockSel::ClkIn => {
+                let freq = clocks.ensure_clk_in_active(&self.power)?;
+                (freq, LpspiClkselMux::CLKROOT_FUNC_3)
+            }
+            LpspiClockSel::Clk1M => {
+                let freq = clocks.ensure_clk_1m_active(&self.power)?;
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = LpspiClkselMux::CLKROOT_FUNC_5;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = LpspiClkselMux::I5_CLKROOT_FUNC_5;
+
+                (freq, mux)
+            }
+            #[cfg(feature = "mcxa2xx")]
+            LpspiClockSel::Pll1ClkDiv => {
+                let freq = clocks.ensure_pll1_clk_div_active(&self.power)?;
+                (freq, LpspiClkselMux::CLKROOT_FUNC_6)
+            }
+            LpspiClockSel::None => {
+                // no ClkrootFunc7, just write manually for now
+                clksel.write(|w| w.0 = 0b111);
+                clkdiv.modify(|w| {
+                    w.set_reset(ClkdivReset::OFF);
+                    w.set_halt(ClkdivHalt::OFF);
+                });
+                return Ok(PreEnableParts::empty());
+            }
+        };
+
+        let div = self.div.into_divisor();
+        let expected = freq / div;
+
+        // 21.3.2 peripheral clock max functional clock limits
+        let power = match self.power {
+            PoweredClock::NormalEnabledDeepSleepDisabled => clocks.active_power,
+            PoweredClock::AlwaysEnabled => clocks.lp_power,
+        };
+
+        #[cfg(feature = "mcxa2xx")]
+        let fmax = match power {
+            VddLevel::MidDriveMode => 25_000_000,
+            VddLevel::OverDriveMode => 60_000_000,
+        };
+
+        #[cfg(feature = "mcxa5xx")]
+        let fmax = match power {
+            VddLevel::MidDriveMode => 50_000_000,
+            VddLevel::NormalMode => 150_000_000,
+            VddLevel::OverDriveMode => 200_000_000,
+        };
+
+        if expected > fmax {
+            return Err(ClockError::BadConfig {
+                clock: "lpspi fclk",
+                reason: "exceeds max rating",
+            });
+        }
+
+        apply_div4!(self, clksel, clkdiv, variant, freq)
     }
 }
 
