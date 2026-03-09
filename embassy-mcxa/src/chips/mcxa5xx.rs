@@ -115,8 +115,12 @@ mod inner_periph {
         LPI2C2,
         LPI2C3,
 
-        // LPSPI0,
-        // LPSPI1,
+        LPSPI0,
+        LPSPI1,
+        LPSPI2,
+        LPSPI3,
+        LPSPI4,
+        LPSPI5,
 
         // LPTMR0,
 
@@ -267,6 +271,12 @@ mod inner_periph {
         P4_5,
         P4_6,
         P4_7,
+        P4_8,
+        P4_9,
+        P4_10,
+        P4_11,
+        P4_12,
+        P4_13,
 
         // Normally EXTAL32K!
         #[cfg(feature = "rosc-32k-as-gpio")]
@@ -398,8 +408,13 @@ mod inner_interrupt {
         LPI2C2,
         LPI2C3,
 
-        // LPSPI0,
-        // LPSPI1,
+        LPSPI0,
+        LPSPI1,
+        LPSPI2,
+        LPSPI3,
+        LPSPI4,
+        LPSPI5,
+
         // LPTMR0,
         // LPUART0,
         // LPUART1,
@@ -655,6 +670,12 @@ mod gpio_impls {
     impl_pin!(P4_5, 4, 5, GPIO4);
     impl_pin!(P4_6, 4, 6, GPIO4);
     impl_pin!(P4_7, 4, 7, GPIO4);
+    impl_pin!(P4_8, 4, 8, GPIO4);
+    impl_pin!(P4_9, 4, 9, GPIO4);
+    impl_pin!(P4_10, 4, 10, GPIO4);
+    impl_pin!(P4_11, 4, 11, GPIO4);
+    impl_pin!(P4_12, 4, 12, GPIO4);
+    impl_pin!(P4_13, 4, 13, GPIO4);
 
     #[cfg(feature = "rosc-32k-as-gpio")]
     impl_pin!(P5_0, 5, 0, GPIO5);
@@ -676,7 +697,7 @@ pub(crate) mod peripheral_gating {
     use paste::paste;
 
     use crate::clocks::Gate;
-    use crate::clocks::periph_helpers::{CTimerConfig, Clk1MConfig, Lpi2cConfig, NoConfig, OsTimerConfig};
+    use crate::clocks::periph_helpers::{CTimerConfig, Clk1MConfig, Lpi2cConfig, LpspiConfig, NoConfig, OsTimerConfig};
     // use crate::clocks::periph_helpers::{
     //     AdcConfig, CTimerConfig, I3cConfig, Lpi2cConfig, LpspiConfig, LpuartConfig, NoConfig,
     // };
@@ -737,8 +758,12 @@ pub(crate) mod peripheral_gating {
     impl_cc_gate!(LPI2C2, mrcc_glb_acc0, mrcc_glb_rst0, lpi2c2, Lpi2cConfig);
     impl_cc_gate!(LPI2C3, mrcc_glb_acc0, mrcc_glb_rst0, lpi2c3, Lpi2cConfig);
 
-    // impl_cc_gate!(LPSPI0, mrcc_glb_acc0, mrcc_glb_rst0, lpspi0, LpspiConfig);
-    // impl_cc_gate!(LPSPI1, mrcc_glb_acc0, mrcc_glb_rst0, lpspi1, LpspiConfig);
+    impl_cc_gate!(LPSPI0, mrcc_glb_acc1, mrcc_glb_rst1, lpspi0, LpspiConfig);
+    impl_cc_gate!(LPSPI1, mrcc_glb_acc1, mrcc_glb_rst1, lpspi1, LpspiConfig);
+    impl_cc_gate!(LPSPI2, mrcc_glb_acc1, mrcc_glb_rst1, lpspi2, LpspiConfig);
+    impl_cc_gate!(LPSPI3, mrcc_glb_acc1, mrcc_glb_rst1, lpspi3, LpspiConfig);
+    impl_cc_gate!(LPSPI4, mrcc_glb_acc1, mrcc_glb_rst1, lpspi4, LpspiConfig);
+    impl_cc_gate!(LPSPI5, mrcc_glb_acc1, mrcc_glb_rst1, lpspi5, LpspiConfig);
 
     impl_cc_gate!(WWDT0, mrcc_glb_acc0, wwdt0, Clk1MConfig);
     impl_cc_gate!(WWDT1, mrcc_glb_acc0, wwdt1, Clk1MConfig);

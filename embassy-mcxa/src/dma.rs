@@ -91,6 +91,24 @@ pub(crate) fn init() {
         w.set_gclc(true);
         w.set_gmrc(true);
     });
+
+    // REVISIT: This needs to be improved.
+    //
+    // Enable all DMA request lines for non-secure access.
+    #[cfg(feature = "mcxa5xx")]
+    {
+        let ahbsc = crate::pac::AHBSC;
+        ahbsc.sec_gp_reg0().write(|w| w.0 = 0xffff_ffff);
+        ahbsc.sec_gp_reg1().write(|w| w.0 = 0xffff_ffff);
+        ahbsc.sec_gp_reg2().write(|w| w.0 = 0xffff_ffff);
+        ahbsc.sec_gp_reg3().write(|w| w.0 = 0xffff_ffff);
+        ahbsc.sec_gp_reg4().write(|w| w.0 = 0xffff_ffff);
+        ahbsc.sec_gp_reg5().write(|w| w.0 = 0xffff_ffff);
+        ahbsc.sec_gp_reg6().write(|w| w.0 = 0xffff_ffff);
+        ahbsc.sec_gp_reg7().write(|w| w.0 = 0xffff_ffff);
+        ahbsc.sec_gp_reg8().write(|w| w.0 = 0xffff_ffff);
+        ahbsc.sec_gp_reg9().write(|w| w.0 = 0xffff_ffff);
+    }
 }
 
 /// DMA transfer priority.
@@ -403,8 +421,10 @@ pub(crate) enum DmaRequest {
     LPSPI3Tx = 97,
     LPSPI4Rx = 98,
     LPSPI4Tx = 99,
-    LPUART5Rx = 100,
-    LPUART5Tx = 101,
+    LPSPI5Rx = 100,
+    LPSPI5Tx = 101,
+    LPUART5Rx = 102,
+    LPUART5Tx = 103,
     I3C2Rx = 106,
     I3C2Tx = 107,
     I3C3Rx = 108,

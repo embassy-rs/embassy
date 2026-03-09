@@ -83,6 +83,9 @@ macro_rules! impl_instance {
 
 impl_instance!(0, 1);
 
+#[cfg(feature = "mcxa5xx")]
+impl_instance!(2, 3, 4, 5);
+
 /// MOSI pin trait.
 pub trait MosiPin<Instance>: GpioPin + sealed::Sealed + PeripheralType {
     fn mux(&self);
@@ -163,3 +166,31 @@ impl_pin!(P2_16, LPSPI1, MUX2, MisoPin);
 impl_pin!(P3_8, LPSPI1, MUX2, MosiPin);
 impl_pin!(P3_9, LPSPI1, MUX2, MisoPin);
 impl_pin!(P3_10, LPSPI1, MUX2, SckPin);
+
+#[cfg(feature = "mcxa5xx")]
+mod mcxa5xx {
+    use super::*;
+
+    impl_pin!(P0_20, LPSPI4, MUX8, MisoPin);
+    impl_pin!(P0_21, LPSPI4, MUX8, SckPin);
+    impl_pin!(P0_22, LPSPI4, MUX8, MosiPin);
+
+    impl_pin!(P1_12, LPSPI5, MUX5, MisoPin);
+    impl_pin!(P1_13, LPSPI5, MUX5, SckPin);
+    impl_pin!(P1_14, LPSPI5, MUX8, MosiPin);
+
+    impl_pin!(P2_0, LPSPI2, MUX8, MisoPin);
+    impl_pin!(P2_1, LPSPI2, MUX8, SckPin);
+    impl_pin!(P2_2, LPSPI2, MUX8, MosiPin);
+
+    impl_pin!(P3_4, LPSPI4, MUX3, MosiPin);
+    impl_pin!(P3_3, LPSPI4, MUX3, SckPin);
+    impl_pin!(P3_2, LPSPI4, MUX3, MisoPin);
+
+    impl_pin!(P4_3, LPSPI2, MUX8, SckPin);
+    impl_pin!(P4_4, LPSPI2, MUX8, MisoPin);
+    impl_pin!(P4_5, LPSPI2, MUX8, MosiPin);
+    impl_pin!(P4_8, LPSPI5, MUX8, MosiPin);
+    impl_pin!(P4_9, LPSPI5, MUX8, MisoPin);
+    impl_pin!(P4_10, LPSPI5, MUX8, SckPin);
+}
