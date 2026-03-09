@@ -1,5 +1,8 @@
 //! I2C Support
 
+#![allow(dead_code)]
+#![allow(unused_imports)]
+
 use embassy_hal_internal::PeripheralType;
 use maitake_sync::WaitCell;
 use paste::paste;
@@ -142,35 +145,74 @@ macro_rules! impl_pin {
     };
 }
 
-impl_pin!(P0_16, LPI2C0, MUX2, SdaPin);
-impl_pin!(P0_17, LPI2C0, MUX2, SclPin);
-impl_pin!(P0_18, LPI2C0, MUX2, SclPin);
-impl_pin!(P0_19, LPI2C0, MUX2, SdaPin);
-impl_pin!(P1_0, LPI2C1, MUX3, SdaPin);
-impl_pin!(P1_1, LPI2C1, MUX3, SclPin);
-impl_pin!(P1_2, LPI2C1, MUX3, SdaPin);
-impl_pin!(P1_3, LPI2C1, MUX3, SclPin);
-impl_pin!(P1_8, LPI2C2, MUX3, SdaPin);
-impl_pin!(P1_9, LPI2C2, MUX3, SclPin);
-impl_pin!(P1_10, LPI2C2, MUX3, SdaPin);
-impl_pin!(P1_11, LPI2C2, MUX3, SclPin);
-impl_pin!(P1_12, LPI2C1, MUX2, SdaPin);
-impl_pin!(P1_13, LPI2C1, MUX2, SclPin);
-impl_pin!(P1_14, LPI2C1, MUX2, SclPin);
-impl_pin!(P1_15, LPI2C1, MUX2, SdaPin);
+#[cfg(feature = "mcxa2xx")]
+mod mcxa2xx {
+    use super::*;
 
-#[cfg(feature = "sosc-as-gpio")]
-impl_pin!(P1_30, LPI2C0, MUX3, SdaPin);
-#[cfg(feature = "sosc-as-gpio")]
-impl_pin!(P1_31, LPI2C0, MUX3, SclPin);
+    impl_pin!(P0_16, LPI2C0, MUX2, SdaPin);
+    impl_pin!(P0_17, LPI2C0, MUX2, SclPin);
+    impl_pin!(P0_18, LPI2C0, MUX2, SclPin);
+    impl_pin!(P0_19, LPI2C0, MUX2, SdaPin);
+    impl_pin!(P1_0, LPI2C1, MUX3, SdaPin);
+    impl_pin!(P1_1, LPI2C1, MUX3, SclPin);
+    impl_pin!(P1_2, LPI2C1, MUX3, SdaPin);
+    impl_pin!(P1_3, LPI2C1, MUX3, SclPin);
+    impl_pin!(P1_8, LPI2C2, MUX3, SdaPin);
+    impl_pin!(P1_9, LPI2C2, MUX3, SclPin);
+    impl_pin!(P1_10, LPI2C2, MUX3, SdaPin);
+    impl_pin!(P1_11, LPI2C2, MUX3, SclPin);
+    impl_pin!(P1_12, LPI2C1, MUX2, SdaPin);
+    impl_pin!(P1_13, LPI2C1, MUX2, SclPin);
+    impl_pin!(P1_14, LPI2C1, MUX2, SclPin);
+    impl_pin!(P1_15, LPI2C1, MUX2, SdaPin);
 
-impl_pin!(P3_27, LPI2C3, MUX2, SclPin);
-impl_pin!(P3_28, LPI2C3, MUX2, SdaPin);
-// impl_pin!(P3_29, LPI2C3, MUX2, HreqPin); What is this HREQ pin?
-impl_pin!(P3_30, LPI2C3, MUX2, SclPin);
-impl_pin!(P3_31, LPI2C3, MUX2, SdaPin);
-impl_pin!(P4_2, LPI2C2, MUX2, SdaPin);
-impl_pin!(P4_3, LPI2C0, MUX2, SclPin);
-impl_pin!(P4_4, LPI2C2, MUX2, SdaPin);
-impl_pin!(P4_5, LPI2C0, MUX2, SclPin);
-// impl_pin!(P4_6, LPI2C0, MUX2, HreqPin); What is this HREQ pin?
+    #[cfg(feature = "sosc-as-gpio")]
+    impl_pin!(P1_30, LPI2C0, MUX3, SdaPin);
+    #[cfg(feature = "sosc-as-gpio")]
+    impl_pin!(P1_31, LPI2C0, MUX3, SclPin);
+
+    impl_pin!(P3_27, LPI2C3, MUX2, SclPin);
+    impl_pin!(P3_28, LPI2C3, MUX2, SdaPin);
+    // impl_pin!(P3_29, LPI2C3, MUX2, HreqPin); What is this HREQ pin?
+    impl_pin!(P3_30, LPI2C3, MUX2, SclPin);
+    impl_pin!(P3_31, LPI2C3, MUX2, SdaPin);
+    impl_pin!(P4_2, LPI2C2, MUX2, SdaPin);
+    impl_pin!(P4_3, LPI2C0, MUX2, SclPin);
+    impl_pin!(P4_4, LPI2C2, MUX2, SdaPin);
+    impl_pin!(P4_5, LPI2C0, MUX2, SclPin);
+    // impl_pin!(P4_6, LPI2C0, MUX2, HreqPin); What is this HREQ pin?
+}
+
+#[cfg(feature = "mcxa5xx")]
+mod mcxa5xx {
+    use super::*;
+
+    impl_pin!(P0_16, LPI2C0, MUX2, SdaPin);
+    impl_pin!(P0_17, LPI2C0, MUX2, SclPin);
+    impl_pin!(P0_18, LPI2C0, MUX2, SclPin);
+    impl_pin!(P0_19, LPI2C0, MUX2, SdaPin);
+    #[cfg(feature = "sosc-as-gpio")]
+    impl_pin!(P1_30, LPI2C0, MUX3, SdaPin);
+    #[cfg(feature = "sosc-as-gpio")]
+    impl_pin!(P1_31, LPI2C0, MUX3, SclPin);
+
+    impl_pin!(P1_0, LPI2C1, MUX3, SdaPin);
+    impl_pin!(P1_1, LPI2C1, MUX3, SclPin);
+    impl_pin!(P1_12, LPI2C1, MUX2, SdaPin);
+    impl_pin!(P1_14, LPI2C1, MUX2, SclPin);
+    impl_pin!(P1_15, LPI2C1, MUX2, SdaPin);
+
+    impl_pin!(P1_8, LPI2C2, MUX3, SdaPin);
+    impl_pin!(P1_9, LPI2C2, MUX3, SclPin);
+    impl_pin!(P4_2, LPI2C2, MUX2, SdaPin);
+    impl_pin!(P4_3, LPI2C2, MUX2, SclPin);
+    impl_pin!(P4_4, LPI2C2, MUX2, SdaPin);
+    impl_pin!(P4_5, LPI2C2, MUX2, SclPin);
+
+    impl_pin!(P3_20, LPI2C3, MUX2, SdaPin);
+    impl_pin!(P3_21, LPI2C3, MUX2, SclPin);
+    impl_pin!(P3_27, LPI2C3, MUX2, SclPin);
+    impl_pin!(P3_28, LPI2C3, MUX2, SdaPin);
+    impl_pin!(P3_30, LPI2C3, MUX2, SclPin);
+    impl_pin!(P3_31, LPI2C3, MUX2, SdaPin);
+}

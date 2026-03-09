@@ -14,21 +14,12 @@
 #[path = "."]
 mod mcxa2xx_exclusive {
     pub mod adc;
-    pub mod cdog;
     pub mod clkout;
-    pub mod crc;
-    pub mod ctimer;
-    pub mod dma;
     pub mod flash;
-    pub mod i2c;
     pub mod i3c;
-    pub mod inputmux;
     pub mod lpuart;
-    pub mod reset_reason;
     pub mod rtc;
     pub mod spi;
-    pub mod trng;
-    pub mod wwdt;
 
     pub use crate::chips::mcxa2xx::{Peripherals, init, interrupt, peripherals};
 }
@@ -43,13 +34,22 @@ mod mcxa5xx_exclusive {
 /// Module for HAL drivers supported by all chips
 #[path = "."]
 mod all_chips {
+    pub mod cdog;
     pub mod clocks;
     pub mod config;
+    pub mod crc;
+    pub mod ctimer;
+    pub mod dma;
     #[cfg(feature = "custom-executor")]
     pub mod executor;
     pub mod gpio;
+    pub mod i2c;
+    pub mod inputmux;
     pub mod ostimer;
     pub mod perf_counters;
+    pub mod reset_reason;
+    pub mod trng;
+    pub mod wwdt;
 }
 
 #[allow(unused_imports)]

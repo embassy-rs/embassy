@@ -76,7 +76,7 @@ Now that cargo knows what target to compile for (and probe-rs knows what chip to
 Looking in `examples/stm32g4/Cargo.toml`, we can see that the examples require a number of embassy crates. For blinky, we’ll only need three of them: `embassy-stm32`, `embassy-executor` and `embassy-time`.
 
 
-At the time of writing, embassy is already published to crates.io. Therefore, dependencies can easily added via Cargo.toml.
+At the time of writing, embassy is already published to crates.io. Therefore, dependencies can easily be added in Cargo.toml.
 
 [source,toml]
 ----
@@ -86,8 +86,8 @@ embassy-executor = { version = "0.6.3", features = ["nightly", "arch-cortex-m", 
 embassy-time = { version = "0.3.2", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 ----
 
-Prior, embassy needed to be installed straight from the git repository. Installing from git is still useful, if you want to checkout a specic revision of an embassy crate which is not yet published.
-The recommended way of doing so is as follows:
+Previously, embassy needed to be installed straight from the git repository. Installing from git is still useful, if you want to checkout a specic revision of an embassy crate which is not yet published.
+The recommended way of doing so is:
 
 * Copy the required `embassy-*` lines from the example `Cargo.toml`
 * Make any necessary changes to `features`, e.g. requiring the `stm32g474re` feature of `embassy-stm32`
@@ -96,7 +96,7 @@ The recommended way of doing so is as follows:
 
 NOTE: When using this method, it’s necessary that the `version` keys in `[dependencies]` match up with the versions defined in each crate’s `Cargo.toml` in the specificed `rev` under `[patch.crates.io]`. This means that when updating, you have to a pick a new revision, change everything in `[patch.crates.io]` to match it, and then correct any versions under `[dependencies]` which have changed.
 
-An example Cargo.toml file might look as follows:
+An example Cargo.toml file follows:
 
 [source,toml]
 ----
@@ -124,7 +124,7 @@ panic-probe = "0.3.1"
 
 These are the bare minimum dependencies required to run `blinky.rs`, but it’s worth taking a look at the other dependencies specified in the example `Cargo.toml`, and noting what features are required for use with embassy – for example `futures = { version = "0.3.17", default-features = false, features = ["async-await"] }`.
 
-Finally, copy the `[profile.release]` section from the example `Cargo.toml` into ours.
+Finally, copy the `[profile.release]` section from the example `Cargo.toml` into ours:
 
 [source,toml]
 ----

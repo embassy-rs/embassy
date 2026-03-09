@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix: don't put USB pins into alternate mode on chips where USB is an additional function
 - feat: add i2s to STM32G4 except G414
 - fix: stm32/rcc: allow linker to optimize out expensive PLL init functions in binaries where the PLL is not used (e.g. most bootloaders)
+- fix: stm32/adc/v3: correct VREF_CALIB_MV for H5 and H7RS chips
+- fix: stm32/adc/g4: correct VREF_CALIB_MV
 
 ## 0.5.0 - 2026-01-04
 - Add `receive_waveform` method in `InputCapture`, allowing asynchronous input capture with DMA.

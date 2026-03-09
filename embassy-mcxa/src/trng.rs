@@ -81,26 +81,6 @@ impl<'d, M: Mode> Trng<'d, M> {
             w.set_run3_rng(config.run_length3_limit_range);
         });
 
-        self.info.regs().scr4l().write(|w| {
-            w.set_run4_max(config.run_length4_limit_max);
-            w.set_run4_rng(config.run_length4_limit_range);
-        });
-
-        self.info.regs().scr5l().write(|w| {
-            w.set_run5_max(config.run_length5_limit_max);
-            w.set_run5_rng(config.run_length5_limit_range);
-        });
-
-        self.info.regs().scr6pl().write(|w| {
-            w.set_run6p_max(config.run_length6_limit_max);
-            w.set_run6p_rng(config.run_length6_limit_range);
-        });
-
-        self.info
-            .regs()
-            .pkrmax()
-            .write(|w| w.set_pkr_max(config.poker_limit_max));
-
         self.info
             .regs()
             .frqmax()
@@ -111,20 +91,10 @@ impl<'d, M: Mode> Trng<'d, M> {
             .frqmin()
             .write(|w| w.set_frq_min(config.freq_counter_min));
 
-        self.info
-            .regs()
-            .sblim()
-            .write(|w| w.set_sb_lim(config.sparse_bit_limit));
-
         self.info.regs().scmisc().write(|w| {
             w.set_lrun_max(config.long_run_limit_max);
             w.set_rty_ct(config.retry_count);
         });
-
-        self.info
-            .regs()
-            .mctl()
-            .modify(|w| w.set_dis_slf_tst(config.self_test.into()));
 
         self.info.regs().sdctl().write(|w| {
             w.set_samp_size(config.sample_size);
@@ -144,10 +114,12 @@ impl<'d, M: Mode> Trng<'d, M> {
     }
 
     fn start(&mut self) {
+        #[cfg(feature = "mcxa2xx")]
         self.info.regs().mctl().modify(|w| w.set_trng_acc(true));
     }
 
     fn stop(&mut self) {
+        #[cfg(feature = "mcxa2xx")]
         self.info.regs().mctl().modify(|w| w.set_trng_acc(false));
     }
 
@@ -522,9 +494,6 @@ pub struct Config {
     /// Length (in system clocks) of each Entropy sample taken.
     pub entropy_delay: u16,
 
-    /// Enable or disable internal self-tests.
-    pub self_test: SelfTest,
-
     /// Frequency Counter Maximum Limit
     pub freq_counter_max: u32,
 
@@ -555,24 +524,6 @@ pub struct Config {
     /// Statistical check run length 3 limit range
     pub run_length3_limit_range: u16,
 
-    /// Statistical check run length 4 limit max
-    pub run_length4_limit_max: u16,
-
-    /// Statistical check run length 4 limit range
-    pub run_length4_limit_range: u16,
-
-    /// Statistical check run length 5 limit max
-    pub run_length5_limit_max: u16,
-
-    /// Statistical check run length 5 limit range
-    pub run_length5_limit_range: u16,
-
-    /// Statistical check run length 6 limit max
-    pub run_length6_limit_max: u16,
-
-    /// Statistical check run length 6 limit range
-    pub run_length6_limit_range: u16,
-
     /// Retry count
     pub retry_count: u8,
 
@@ -581,9 +532,6 @@ pub struct Config {
 
     /// Sparse bit limit
     pub sparse_bit_limit: u16,
-
-    /// Poker limit max
-    pub poker_limit_max: u32,
 
     /// Oscillator mode
     pub osc_mode: OscMode,
@@ -594,7 +542,6 @@ impl Default for Config {
         Self {
             sample_size: 512,
             entropy_delay: 32_000,
-            self_test: SelfTest::Enabled,
             freq_counter_max: 75_000,
             freq_counter_min: 30_000,
             monobit_limit_max: 317,
@@ -605,16 +552,9 @@ impl Default for Config {
             run_length2_limit_range: 55,
             run_length3_limit_max: 39,
             run_length3_limit_range: 39,
-            run_length4_limit_max: 0,
-            run_length4_limit_range: 0,
-            run_length5_limit_max: 0,
-            run_length5_limit_range: 0,
-            run_length6_limit_max: 0,
-            run_length6_limit_range: 0,
             retry_count: 1,
             long_run_limit_max: 32,
             sparse_bit_limit: 0,
-            poker_limit_max: 0,
             osc_mode: OscMode::DualOscs,
         }
     }
@@ -633,27 +573,6 @@ pub enum SampleSize {
 
     /// 512 bits
     _512,
-}
-
-/// Enable or disable internal self-tests.
-#[derive(Clone, Copy, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[non_exhaustive]
-pub enum SelfTest {
-    /// Disabled.
-    Disabled,
-
-    /// Enabled.
-    Enabled,
-}
-
-impl From<SelfTest> for bool {
-    fn from(value: SelfTest) -> Self {
-        match value {
-            SelfTest::Disabled => true,
-            SelfTest::Enabled => false,
-        }
-    }
 }
 
 /// Oscillator mode.

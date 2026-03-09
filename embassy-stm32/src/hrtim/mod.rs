@@ -16,7 +16,7 @@ use stm32_hrtim::output::{Output1Pin, Output2Pin};
 use stm32_hrtim::pac::HRTIM_TIMF;
 use stm32_hrtim::pac::{HRTIM_MASTER, HRTIM_TIMA, HRTIM_TIMB, HRTIM_TIMC, HRTIM_TIMD, HRTIM_TIME};
 pub use stm32_hrtim::{self, Pscl1, Pscl2, Pscl4, Pscl8, Pscl16, Pscl32, Pscl64, Pscl128, PsclDefault};
-use stm32_hrtim::{HrParts, HrPwmBuilder};
+use stm32_hrtim::{DacResetTrigger, DacStepTrigger, HrParts, HrPwmBuilder};
 use traits::Instance;
 
 use crate::gpio::{AfType, OutputType, Speed};
@@ -91,12 +91,14 @@ pub trait HrPwmBuilderExt<TIM, PSCL, P1: Output1Pin<TIM>, P2: Output2Pin<TIM>> {
 }
 macro_rules! impl_finalize {
     ($($TIMX:ident),+) => {$(
-        impl<PSCL, P1, P2> HrPwmBuilderExt<$TIMX, PSCL, P1, P2>
-            for HrPwmBuilder<$TIMX, PSCL, stm32_hrtim::PreloadSource, P1, P2>
+        impl<PSCL, P1, P2, DacRst, DacStp> HrPwmBuilderExt<$TIMX, PSCL, P1, P2>
+            for HrPwmBuilder<$TIMX, PSCL, stm32_hrtim::PreloadSource, P1, P2, DacRst, DacStp>
         where PSCL:
             stm32_hrtim::HrtimPrescaler,
             P1: Out1Pin<$TIMX>,
-            P2: Out2Pin<$TIMX>
+            P2: Out2Pin<$TIMX>,
+            DacRst: DacResetTrigger,
+            DacStp: DacStepTrigger,
         {
             fn finalize(
                 self,

@@ -1337,7 +1337,7 @@ macro_rules! impl_instance {
     };
 }
 
-impl_instance!(0; 1; 2; 3; 4; 5);
+impl_instance!(0; 1; 2; 3; 4);
 
 // Basically the on_interrupt handler, but as a free function so it doesn't get
 // monomorphized.
@@ -1353,7 +1353,7 @@ unsafe fn handler(info: &'static Info, state: &'static BbqState) {
     // For now, we just clear + discard errors if they occur.
     let or = stat.or();
     let pf = stat.pf();
-    let fe = stat.pf();
+    let fe = stat.fe();
     let nf = stat.nf();
     let idle = stat.idle();
     regs.stat().modify(|w| {
