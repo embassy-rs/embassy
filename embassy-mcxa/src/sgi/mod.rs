@@ -377,25 +377,30 @@ impl<'d> Sgi<'d> {
 
         let peri_address = self.periph.sgi_sha_fifo().as_ptr() as *mut u32;
 
-        // Use software-start mode with mixed byte ion support.
-        // This matches the legacy driver behavior (single major loop, NBYTES=total length)
-        // and avoids the 15-bit major-loop limitation for large buffers.
+        // Use the current generic DMA helper in software-start mode.
+        // This preserves the "legacy behavior" for mixed-width transfers while
+        // using the shared DMA setup path from dma.rs.
 
         // NOTE: `length` is guaranteed to be a multiple of 128 bytes here, so it's always divisible by 2 and 4.
-        let options = TransferOptions::default();
+
+        let options = TransferOptions::COMPLETE_INTERRUPT;
 
         let src_addr = data.as_ptr() as usize;
-        let transfer = unsafe {
+        unsafe {
+            let software_start = true; // need to trigger the hash operation start via software after setting up the DMA, so this is true regardless of auto vs. normal mode.
             if (src_addr % 4) == 0 {
                 let words = core::slice::from_raw_parts(data.as_ptr() as *const u32, length / 4);
-                dma_ch.write_to_peripheral_mixed_software_start::<u32, u32>(words, peri_address, options)
+                dma_ch.setup_write_to_peripheral(words, peri_address, software_start, options)
             } else if (src_addr % 2) == 0 {
                 let halfwords = core::slice::from_raw_parts(data.as_ptr() as *const u16, length / 2);
-                dma_ch.write_to_peripheral_mixed_software_start::<u16, u32>(halfwords, peri_address, options)
+                dma_ch.setup_write_to_peripheral(halfwords, peri_address, software_start, options)
             } else {
-                dma_ch.write_to_peripheral_mixed_software_start::<u8, u32>(&data[..length], peri_address, options)
+                dma_ch.setup_write_to_peripheral(&data[..length], peri_address, software_start, options)
             }
-        };
+        }
+        .map_err(|_| SGIError::InvalidSize)?;
+
+        let transfer = Transfer::new(dma_ch.reborrow());
 
         #[cfg(feature = "defmt")]
         defmt::info!("DMA started for {=usize} bytes (software-start, DSIZE=32)", length);
