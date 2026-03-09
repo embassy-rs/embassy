@@ -334,12 +334,14 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
                 trace!("BERR triggered.");
                 self.info.regs.icr().modify(|reg| reg.set_berrcf(true));
                 self.flush_txdr();
+                self.soft_reset();
                 return Err(Error::Bus);
             }
             if isr.arlo() {
                 trace!("ARLO triggered.");
                 self.info.regs.icr().modify(|reg| reg.set_arlocf(true));
                 self.flush_txdr();
+                self.soft_reset();
                 return Err(Error::Arbitration);
             }
             if isr.ovr() {
