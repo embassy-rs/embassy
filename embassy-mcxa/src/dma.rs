@@ -941,7 +941,7 @@ impl DmaChannel<'_> {
         peri_addr: *mut W,
         options: TransferOptions,
     ) -> Result<Transfer<'_>, InvalidParameters> {
-        unsafe { self.setup_write_to_peripheral(buf, peri_addr, options)? };
+        unsafe { self.setup_write_to_peripheral(buf, peri_addr, false, options)? };
         Ok(Transfer::new(self.reborrow()))
     }
 
@@ -966,7 +966,7 @@ impl DmaChannel<'_> {
         buf: &mut [W],
         options: TransferOptions,
     ) -> Result<Transfer<'_>, InvalidParameters> {
-        unsafe { self.setup_read_from_peripheral(peri_addr, buf, options)? };
+        unsafe { self.setup_read_from_peripheral(peri_addr, buf, false, options)? };
         Ok(Transfer::new(self.reborrow()))
     }
 
@@ -1052,6 +1052,8 @@ impl DmaChannel<'_> {
     ///
     /// * `buf` - Source buffer to write from
     /// * `peri_addr` - Peripheral register address
+    /// * `software` - Use software start for the transfer; otherwise use hardware ERQ to drive the transfer.
+    ///                Should be `false` unless your peripheral does not support hardware ERQ.
     /// * `enable_interrupt` - Whether to enable interrupt on completion
     ///
     /// # Safety
@@ -1062,6 +1064,7 @@ impl DmaChannel<'_> {
         &self,
         buf: &[WSRC],
         peri_addr: *mut WDST,
+        software: bool,
         options: TransferOptions,
     ) -> Result<(), InvalidParameters> {
         if buf.is_empty() || buf.len() > DMA_MAX_TRANSFER_SIZE {
@@ -1076,7 +1079,7 @@ impl DmaChannel<'_> {
                 src_incr: true,
                 dst_incr: false,
                 circular: false,
-                software: false,
+                software,
                 options,
             });
         }
@@ -1100,6 +1103,8 @@ impl DmaChannel<'_> {
     ///
     /// * `peri_addr` - Peripheral register address
     /// * `buf` - Destination buffer to read into
+    /// * `software` - Use software start for the transfer; otherwise use hardware ERQ to drive the transfer.
+    ///                Should be `false` unless your peripheral does not support hardware ERQ.
     /// * `enable_interrupt` - Whether to enable interrupt on completion
     ///
     /// # Safety
@@ -1110,6 +1115,7 @@ impl DmaChannel<'_> {
         &self,
         peri_addr: *const WSRC,
         buf: &mut [WDST],
+        software: bool,
         options: TransferOptions,
     ) -> Result<(), InvalidParameters> {
         if buf.is_empty() || buf.len() > DMA_MAX_TRANSFER_SIZE {
@@ -1124,7 +1130,7 @@ impl DmaChannel<'_> {
                 src_incr: false,
                 dst_incr: true,
                 circular: false,
-                software: false,
+                software,
                 options,
             });
         }

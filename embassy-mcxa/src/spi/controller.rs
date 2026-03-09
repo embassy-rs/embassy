@@ -546,9 +546,12 @@ impl<'d> Spi<'d, Dma<'d>> {
                 TransferOptions::NO_INTERRUPTS,
             )?;
 
-            self.mode
-                .rx_dma
-                .setup_read_from_peripheral(rx_peri_addr, data, TransferOptions::COMPLETE_INTERRUPT)?;
+            self.mode.rx_dma.setup_read_from_peripheral(
+                rx_peri_addr,
+                data,
+                false,
+                TransferOptions::COMPLETE_INTERRUPT,
+            )?;
 
             // Enable SPI DMA request
             self.info.regs().der().modify(|w| {
@@ -608,7 +611,7 @@ impl<'d> Spi<'d, Dma<'d>> {
             // Configure TCD for memory-to-peripheral transfer
             self.mode
                 .tx_dma
-                .setup_write_to_peripheral(data, peri_addr, TransferOptions::COMPLETE_INTERRUPT)?;
+                .setup_write_to_peripheral(data, peri_addr, false, TransferOptions::COMPLETE_INTERRUPT)?;
 
             // Ensure all writes by CPU are visible to the DMA
             // TODO: ensure this is done internal to the DMA methods so individual drivers
@@ -661,13 +664,19 @@ impl<'d> Spi<'d, Dma<'d>> {
             self.mode.rx_dma.set_request_source(self.mode.rx_request);
             self.mode.tx_dma.set_request_source(self.mode.tx_request);
 
-            self.mode
-                .tx_dma
-                .setup_write_to_peripheral(write, tx_peri_addr, TransferOptions::COMPLETE_INTERRUPT)?;
+            self.mode.tx_dma.setup_write_to_peripheral(
+                write,
+                tx_peri_addr,
+                false,
+                TransferOptions::COMPLETE_INTERRUPT,
+            )?;
 
-            self.mode
-                .rx_dma
-                .setup_read_from_peripheral(rx_peri_addr, read, TransferOptions::COMPLETE_INTERRUPT)?;
+            self.mode.rx_dma.setup_read_from_peripheral(
+                rx_peri_addr,
+                read,
+                false,
+                TransferOptions::COMPLETE_INTERRUPT,
+            )?;
 
             // Ensure all writes by CPU are visible to the DMA
             // TODO: ensure this is done internal to the DMA methods so individual drivers
@@ -788,12 +797,18 @@ impl<'d> Spi<'d, Dma<'d>> {
             self.mode.rx_dma.set_request_source(self.mode.rx_request);
             self.mode.tx_dma.set_request_source(self.mode.tx_request);
 
-            self.mode
-                .tx_dma
-                .setup_write_to_peripheral(data, tx_peri_addr, TransferOptions::COMPLETE_INTERRUPT)?;
-            self.mode
-                .rx_dma
-                .setup_read_from_peripheral(rx_peri_addr, data, TransferOptions::COMPLETE_INTERRUPT)?;
+            self.mode.tx_dma.setup_write_to_peripheral(
+                data,
+                tx_peri_addr,
+                false,
+                TransferOptions::COMPLETE_INTERRUPT,
+            )?;
+            self.mode.rx_dma.setup_read_from_peripheral(
+                rx_peri_addr,
+                data,
+                false,
+                TransferOptions::COMPLETE_INTERRUPT,
+            )?;
 
             // Ensure all writes by CPU are visible to the DMA
             // TODO: ensure this is done internal to the DMA methods so individual drivers

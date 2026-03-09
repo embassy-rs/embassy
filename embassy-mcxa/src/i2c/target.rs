@@ -592,7 +592,7 @@ impl<'d> I2c<'d, Dma<'d>> {
             // Configure TCD for memory-to-peripheral transfer
             self.mode
                 .rx_dma
-                .setup_read_from_peripheral(peri_addr, data, TransferOptions::COMPLETE_INTERRUPT)?;
+                .setup_read_from_peripheral(peri_addr, data, false, TransferOptions::COMPLETE_INTERRUPT)?;
 
             // Enable I2C RX DMA request
             self.info.regs().sder().modify(|w| w.set_rdde(true));
@@ -659,7 +659,7 @@ impl<'d> I2c<'d, Dma<'d>> {
             // Configure TCD for memory-to-peripheral transfer
             self.mode
                 .tx_dma
-                .setup_write_to_peripheral(data, peri_addr, TransferOptions::NO_INTERRUPTS)?;
+                .setup_write_to_peripheral(data, peri_addr, false, TransferOptions::NO_INTERRUPTS)?;
 
             // Ensure all writes by DMA are visible to the CPU
             // TODO: ensure this is done internal to the DMA methods so individual drivers

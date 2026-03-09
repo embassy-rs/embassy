@@ -1208,7 +1208,7 @@ impl BbqState {
             let max_len = (&*self.tx_queue.get()).capacity() / 4;
             let len = rgr.len().min(max_len).min(DMA_MAX_TRANSFER_SIZE);
             if let Err(InvalidParameters) =
-                txdma.setup_write_to_peripheral(&rgr[..len], peri_addr, TransferOptions::COMPLETE_INTERRUPT)
+                txdma.setup_write_to_peripheral(&rgr[..len], peri_addr, false, TransferOptions::COMPLETE_INTERRUPT)
             {
                 return false;
             }
@@ -1284,7 +1284,7 @@ impl BbqState {
 
             let peri_addr = info.regs().data().as_ptr().cast::<u8>();
             if let Err(InvalidParameters) =
-                rxdma.setup_read_from_peripheral(peri_addr, &mut wgr, TransferOptions::COMPLETE_INTERRUPT)
+                rxdma.setup_read_from_peripheral(peri_addr, &mut wgr, false, TransferOptions::COMPLETE_INTERRUPT)
             {
                 return false;
             }

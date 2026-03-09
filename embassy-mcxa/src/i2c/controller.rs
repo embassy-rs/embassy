@@ -807,9 +807,12 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
                 self.mode.rx_dma.set_request_source(self.mode.rx_request);
 
                 // Configure TCD for peripheral-to-memory transfer
-                self.mode
-                    .rx_dma
-                    .setup_read_from_peripheral(peri_addr, chunk, TransferOptions::COMPLETE_INTERRUPT)?;
+                self.mode.rx_dma.setup_read_from_peripheral(
+                    peri_addr,
+                    chunk,
+                    false,
+                    TransferOptions::COMPLETE_INTERRUPT,
+                )?;
 
                 // Enable I2C RX DMA request
                 self.info.regs().mder().modify(|w| w.set_rdde(true));
@@ -890,9 +893,12 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
                 self.mode.tx_dma.set_request_source(self.mode.tx_request);
 
                 // Configure TCD for memory-to-peripheral transfer
-                self.mode
-                    .tx_dma
-                    .setup_write_to_peripheral(chunk, peri_addr, TransferOptions::COMPLETE_INTERRUPT)?;
+                self.mode.tx_dma.setup_write_to_peripheral(
+                    chunk,
+                    peri_addr,
+                    false,
+                    TransferOptions::COMPLETE_INTERRUPT,
+                )?;
 
                 // Enable I2C TX DMA request
                 self.info.regs().mder().modify(|w| w.set_tdde(true));
