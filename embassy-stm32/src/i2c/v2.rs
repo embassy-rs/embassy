@@ -144,6 +144,15 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         self.info.regs.cr2().write(|w| w.set_stop(true));
     }
 
+    /// Toggle PE off/on to reset the I2C peripheral state machine.
+    /// TIMINGR and other config registers are preserved across this.
+    fn soft_reset(&self) {
+        self.info.regs.cr1().modify(|w| w.set_pe(false));
+        // PE needs a few APB cycles to actually clear
+        while self.info.regs.cr1().read().pe() {}
+        self.info.regs.cr1().modify(|w| w.set_pe(true));
+    }
+
     fn master_read(
         info: &'static Info,
         address: Address,
