@@ -459,9 +459,8 @@ pub enum Lpi2cClockSel {
     /// FRO12M/FRO_LF/SIRC clock source, passed through divider
     /// "fro_lf_div"
     FroLfDiv,
-    /// FRO180M/FRO_HF/FIRC clock source, passed through divider
+    /// FRO180M/FRO192M/FRO_HF/FIRC clock source, passed through divider
     /// "fro_hf_div"
-    #[cfg(feature = "mcxa2xx")]
     FroHfDiv,
     /// SOSC/XTAL/EXTAL clock source
     #[cfg(feature = "mcxa2xx")]
@@ -529,10 +528,16 @@ impl SPConfHelper for Lpi2cConfig {
 
                 (freq, mux)
             }
-            #[cfg(feature = "mcxa2xx")]
             Lpi2cClockSel::FroHfDiv => {
                 let freq = clocks.ensure_fro_hf_div_active(&self.power)?;
-                (freq, Lpi2cClkselMux::CLKROOT_FUNC_2)
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = Lpi2cClkselMux::CLKROOT_FUNC_2;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = Lpi2cClkselMux::I2_CLKROOT_FUNC_2;
+
+                (freq, mux)
             }
             #[cfg(feature = "mcxa2xx")]
             #[cfg(not(feature = "sosc-as-gpio"))]
