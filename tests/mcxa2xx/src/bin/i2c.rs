@@ -37,6 +37,9 @@ async fn main(spawner: Spawner) {
 
     spawner.spawn(target_task(target).unwrap());
 
+    // Await for the target task to have started listening.
+    embassy_time::Timer::after_millis(10).await;
+
     let config = controller::Config::default();
     let mut i2c = controller::I2c::new_async(p.LPI2C2, p.P1_9, p.P1_8, Irqs, config).unwrap();
 
