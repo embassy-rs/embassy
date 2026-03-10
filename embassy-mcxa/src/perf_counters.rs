@@ -177,6 +177,18 @@ define_counters!(
     interrupt_i2c3_wake,
     interrupt_i3c0,
     interrupt_i3c0_wake,
+    #[cfg(feature = "mcxa5xx")]
+    interrupt_i3c1,
+    #[cfg(feature = "mcxa5xx")]
+    interrupt_i3c1_wake,
+    #[cfg(feature = "mcxa5xx")]
+    interrupt_i3c2,
+    #[cfg(feature = "mcxa5xx")]
+    interrupt_i3c2_wake,
+    #[cfg(feature = "mcxa5xx")]
+    interrupt_i3c3,
+    #[cfg(feature = "mcxa5xx")]
+    interrupt_i3c3_wake,
     interrupt_lpuart0,
     interrupt_lpuart0_wake,
     interrupt_lpuart1,
