@@ -28,7 +28,7 @@ pub struct ClockOut<'a> {
 pub enum ClockOutSel {
     /// 12MHz Internal Oscillator
     Fro12M,
-    /// FRO180M Internal Oscillator, via divisor
+    /// FRO180M/FRO192M Internal Oscillator, via divisor
     FroHfDiv,
     /// External Oscillator
     #[cfg(not(feature = "sosc-as-gpio"))]

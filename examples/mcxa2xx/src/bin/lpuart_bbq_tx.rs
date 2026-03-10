@@ -47,7 +47,7 @@ async fn main(_spawner: Spawner) {
     fcfg.frequency = FircFreqSel::Mhz180;
     fcfg.power = PoweredClock::NormalEnabledDeepSleepDisabled;
     fcfg.fro_hf_enabled = true;
-    fcfg.clk_45m_enabled = false;
+    fcfg.clk_hf_fundamental_enabled = false;
     fcfg.fro_hf_div = Some(const { Div8::from_divisor(4).unwrap() });
     cfg.clock_cfg.firc = Some(fcfg);
 

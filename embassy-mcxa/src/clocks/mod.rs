@@ -109,7 +109,6 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
     // Enable SIRC clocks FIRST, in case we need to use SIRC as main_clk for
     // a short while.
     operator.configure_sirc_clocks_early()?;
-    #[cfg(feature = "mcxa2xx")]
     operator.configure_firc_clocks()?;
     operator.configure_fro16k_clocks()?;
 
