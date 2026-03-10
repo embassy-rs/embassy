@@ -154,10 +154,10 @@ pub fn init(_config: config::Config) -> Peripherals {
         pac::CCM.ccgr6().modify(|v| v.set_cg0(1));
     }
 
-    #[cfg(any(feature = "lpc55-core0", rt1xxx))]
+    #[cfg(any(lpc55, rt1xxx))]
     gpio::init();
 
-    #[cfg(feature = "lpc55-core0")]
+    #[cfg(lpc55)]
     {
         pint::init();
         pwm::Pwm::reset();
@@ -166,7 +166,7 @@ pub fn init(_config: config::Config) -> Peripherals {
     #[cfg(feature = "_time_driver")]
     time_driver::init();
 
-    #[cfg(feature = "lpc55-core0")]
+    #[cfg(lpc55)]
     dma::init();
 
     peripherals
