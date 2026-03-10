@@ -447,7 +447,7 @@ impl ClockOperator<'_> {
     }
 
     /// Configure the ROSC/OSC32K clock family
-    #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+    #[cfg(all(feature = "mcxa5xx", feature = "unstable-osc32k", not(feature = "rosc-32k-as-gpio")))]
     pub(super) fn configure_osc32k_clocks(&mut self) -> Result<(), ClockError> {
         use config::{Osc32KCapSel, Osc32KCoarseGain, Osc32KMode};
         use nxp_pac::vbat::vals::{
@@ -554,8 +554,11 @@ impl ClockOperator<'_> {
                 // 3. Write 1h to OSCLCKA[LOCK].
                 self.vbat0.osclcka().modify(|w| w.set_lock(true));
 
-                // 4. Write 0h to .
-                // TODO(AJM): what???????
+                // 4. Write 0h to OSCCTLA[EXTAL_CAP_SEL] and 0h to OSCCTLA[XTAL_CAP_SEL].
+                self.vbat0.oscctla().modify(|w| {
+                    w.set_xtal_cap_sel(XtalCapSel::SEL0);
+                    w.set_extal_cap_sel(ExtalCapSel::SEL0);
+                });
 
                 // 5. Alter OSCCLKE[CLKE] to clock gate different OSC32K outputs to different peripherals to reduce power consumption.
                 const ENABLED: Option<Clock> = Some(Clock {

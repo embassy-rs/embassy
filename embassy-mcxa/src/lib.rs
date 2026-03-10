@@ -14,7 +14,6 @@
 #[path = "."]
 mod mcxa2xx_exclusive {
     pub mod adc;
-    pub mod clkout;
     pub mod flash;
     pub mod i3c;
     pub mod lpuart;
@@ -34,6 +33,7 @@ mod mcxa5xx_exclusive {
 #[path = "."]
 mod all_chips {
     pub mod cdog;
+    pub mod clkout;
     pub mod clocks;
     pub mod config;
     pub mod crc;
