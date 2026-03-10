@@ -5,6 +5,7 @@ use crate::adc::{
     Adc, AdcRegs, BasicAdcRegs, InjectedTrigger, Instance, RegularTrigger, Resolution, RxDma, SampleTime,
     SealedAdcChannel,
 };
+use core::mem;
 use crate::pac::adc::vals;
 pub use crate::pac::adccommon::vals::Adcpre;
 use crate::time::Hertz;
@@ -26,8 +27,6 @@ pub const VREF_DEFAULT_MV: u32 = 3300;
 pub const VREF_CALIB_MV: u32 = 3300;
 
 const NR_INJECTED_RANKS: usize = 4;
-
-// FIXME: NR_INJECTED_RANKS is not here
 
 impl super::SealedSpecialConverter<super::VrefInt> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 17;
@@ -351,15 +350,20 @@ where
             T::regs().jsqr().modify(|w| w.set_jsq(idx, channel.channel()));
         }
 
-        T::regs().cr1().modify(|w| w.set_jdiscen(false));
+        T::regs().cr1().modify(|w| {
+            // Scanning conversions of multiple channels
+            w.set_scan(true);
+            w.set_jdiscen(false);
+            w.set_jeocie(interrupt);
+        });
         T::regs().cr2().modify(|w| {
             w.set_jextsel(trigger.signal());
             w.set_jexten(edge);
         });
 
-        T::regs().cr1().modify(|w| w.set_jeocie(interrupt));
-
         Self::start_injected_conversions();
+
+        mem::forget(self);
 
         InjectedAdc::new(sequence) // InjectedAdc<'a, T, N> now borrows the channels
     }
@@ -440,6 +444,7 @@ where
     /// Start injected ADC conversion
     pub(super) fn start_injected_conversions() {
         T::regs().cr2().modify(|w| w.set_jswstart(true));
+        T::regs().sr().modify(|w| w.set_jeoc(false));
     }
 }
 impl<'a, T: Instance<Regs = crate::pac::adc::Adc>, const N: usize> InjectedAdc<'a, T, N> {
