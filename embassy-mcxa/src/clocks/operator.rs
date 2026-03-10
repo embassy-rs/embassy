@@ -454,8 +454,6 @@ impl ClockOperator<'_> {
             CoarseAmpGain, ExtalCapSel, InitTrim, ModeEn, StatusaLdoRdy, StatusaOscRdy, SupplyDet, XtalCapSel,
         };
 
-        defmt::info!("prelock");
-
         // Unlock the control first
         self.vbat0.ldolcka().modify(|w| w.set_lock(false));
 
@@ -467,11 +465,6 @@ impl ClockOperator<'_> {
             self.vbat0.ldolcka().modify(|w| w.set_lock(true));
             return Ok(());
         };
-
-        // TODO: Why does the SDK do this?
-        self.ensure_ldo_active("osc32k", &PoweredClock::NormalEnabledDeepSleepDisabled)?;
-
-        defmt::info!("prebat");
 
         // To enable and lock the LDO and bandgap:
         //
@@ -491,14 +484,12 @@ impl ClockOperator<'_> {
             w.set_bg_en(true);
         });
 
-        defmt::info!("Preldo");
         // 3. Wait for STATUSA[LDO_RDY] to become 1.
         while self.vbat0.statusa().read().ldo_rdy() != StatusaLdoRdy::SET {}
 
         // 4. Write 1h to LDOLCKA[LOCK].
         self.vbat0.ldolcka().modify(|w| w.set_lock(true));
 
-        defmt::info!("prematch");
         match &cfg.mode {
             Osc32KMode::HighPower {
                 coarse_amp_gain,
@@ -511,8 +502,6 @@ impl ClockOperator<'_> {
                 // required based on the external crystal component ESR and CL values, and by the PCB parasitics on the EXTAL32K and
                 // XTAL32K pins. Configure 0h to OSCCTLA[MODE_EN], 1h to OSCCTLA[CAP_SEL_EN], and 1h to OSCCTLA[OSC_EN].
                 //   * NOTE(AJM): You must write 1 to this field and OSCCTLA[OSC_EN] simultaneously.
-
-                use nxp_pac::scg::vals::Roscvld;
                 self.vbat0.oscctla().modify(|w| {
                     w.set_xtal_cap_sel(match xtal_cap_sel {
                         Osc32KCapSel::Cap2PicoF => XtalCapSel::SEL2,
@@ -566,10 +555,10 @@ impl ClockOperator<'_> {
                 self.vbat0.osclcka().modify(|w| w.set_lock(true));
 
                 // 4. Write 0h to OSCCTLA[EXTAL_CAP_SEL] and 0h to OSCCTLA[XTAL_CAP_SEL].
-                // self.vbat0.oscctla().modify(|w| {
-                //     w.set_xtal_cap_sel(XtalCapSel::SEL0);
-                //     w.set_extal_cap_sel(ExtalCapSel::SEL0);
-                // });
+                self.vbat0.oscctla().modify(|w| {
+                    w.set_xtal_cap_sel(XtalCapSel::SEL0);
+                    w.set_extal_cap_sel(ExtalCapSel::SEL0);
+                });
 
                 // 5. Alter OSCCLKE[CLKE] to clock gate different OSC32K outputs to different peripherals to reduce power consumption.
                 const ENABLED: Option<Clock> = Some(Clock {
@@ -592,17 +581,6 @@ impl ClockOperator<'_> {
                     }
                     w.set_clke(val);
                 });
-
-                self.scg0.rosccsr().write(|w| {
-                    w.set_roscerr(nxp_pac::scg::vals::Roscerr::ENABLED_AND_ERROR);
-                });
-                self.scg0.rosccsr().modify(|w| {
-                    w.set_lk(nxp_pac::scg::vals::RosccsrLk::WRITE_ENABLED);
-                });
-                self.scg0.rosccsr().modify(|w| {
-                    w.set_rosccm(true);
-                });
-                while self.scg0.rosccsr().read().roscvld() != Roscvld::ENABLED_AND_VALID {}
             }
             Osc32KMode::LowPower {
                 coarse_amp_gain,
