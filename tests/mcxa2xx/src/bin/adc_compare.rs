@@ -65,6 +65,9 @@ async fn main(_spawner: Spawner) {
 
         output.set_high();
 
+        // Await for the GPIO pin voltage to rise
+        embassy_time::Timer::after_millis(1).await;
+
         defmt::info!("High, Some");
         // Output is high, so a trigger should result in a store to fifo
         adc.do_software_trigger(0b0001).unwrap();
@@ -108,6 +111,10 @@ async fn main(_spawner: Spawner) {
         defmt::info!("High, Some");
         // Set output high, and we should get a value without new trigger
         output.set_high();
+
+        // Await for the GPIO pin voltage to rise
+        embassy_time::Timer::after_millis(1).await;
+
         assert!(adc.wait_get_conversion().await.is_some());
     }
 
