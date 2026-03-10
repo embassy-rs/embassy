@@ -65,7 +65,7 @@ async fn main(_spawner: Spawner) {
 
     let buf = RX_RING_BUFFER.take();
     // Set up the ring buffer with circular DMA
-    let mut ring_buf = rx.into_ring_dma_rx(buf);
+    let mut ring_buf = rx.into_ring_dma_rx(buf).unwrap();
 
     tx.write(b"Ring buffer ready! Type characters to see them echoed.\r\n")
         .await

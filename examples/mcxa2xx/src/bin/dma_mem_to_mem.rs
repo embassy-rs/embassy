@@ -53,9 +53,8 @@ async fn main(_spawner: Spawner) {
     // Create DMA channel
     let mut dma_ch0 = DmaChannel::new(p.DMA_CH0);
 
-    // Configure transfer options (Embassy-style)
-    // TransferOptions defaults to: complete_transfer_interrupt = true
-    let options = TransferOptions::default();
+    // Configure transfer options
+    let options = TransferOptions::COMPLETE_INTERRUPT;
 
     // =========================================================================
     // Part 1: Embassy-style async API demonstration (mem_to_mem)
@@ -101,7 +100,7 @@ async fn main(_spawner: Spawner) {
     defmt::info!("Filling with pattern 0xDEADBEEF...");
 
     // Using blocking_wait() for demonstration - also shows non-async usage
-    let transfer = dma_ch0.memset(&pattern, mst, options);
+    let transfer = dma_ch0.memset(&pattern, mst, options).unwrap();
     transfer.blocking_wait();
 
     defmt::info!("DMA memset complete!");

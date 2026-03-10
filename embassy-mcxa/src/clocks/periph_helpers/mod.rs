@@ -8,6 +8,10 @@
 //! See the docs of [`SPConfHelper`] for more details.
 
 use super::{ClockError, Clocks, PoweredClock, WakeGuard};
+use crate::clocks::VddLevel;
+use crate::pac::mrcc::vals::{
+    ClkdivHalt, ClkdivReset, ClkdivUnstab, CtimerClkselMux, Lpi2cClkselMux, LpspiClkselMux, OstimerClkselMux,
+};
 
 #[cfg(feature = "mcxa2xx")]
 mod mcxa2xx;
@@ -21,7 +25,6 @@ mod mcxa5xx;
 #[allow(unused_imports)]
 #[cfg(feature = "mcxa5xx")]
 pub use mcxa5xx::*;
-use nxp_pac::mrcc::vals::OstimerClkselMux;
 
 #[must_use]
 pub struct PreEnableParts {
@@ -199,6 +202,21 @@ impl SPConfHelper for NoConfig {
     }
 }
 
+/// A basic type that always returns `Ok` when `PreEnableParts` is called.
+///
+/// This should only be used for peripherals that are clocked only by
+/// the CLK1M clock and have no other selectable/configurable source
+/// clock.
+pub struct Clk1MConfig;
+impl SPConfHelper for Clk1MConfig {
+    fn pre_enable_config(&self, _clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
+        Ok(PreEnableParts {
+            freq: 1_000_000,
+            wake_guard: None,
+        })
+    }
+}
+
 //
 // OSTimer
 //
@@ -207,7 +225,6 @@ impl SPConfHelper for NoConfig {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum OstimerClockSel {
     /// 16k clock, sourced from FRO16K (Vdd Core)
-    #[cfg(feature = "mcxa2xx")]
     Clk16kVddCore,
     /// 1 MHz Clock sourced from FRO12M
     Clk1M,
@@ -229,12 +246,15 @@ impl SPConfHelper for OsTimerConfig {
         // NOTE: complies with 22.3.2 peripheral clock max functional clock limits
         // which is 1MHz, and we can only select 1mhz/16khz.
         Ok(match self.source {
-            #[cfg(feature = "mcxa2xx")]
             OstimerClockSel::Clk16kVddCore => {
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = OstimerClkselMux::CLKROOT_16K;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = OstimerClkselMux::I0_CLKROOT_16K;
+
                 let freq = clocks.ensure_clk_16k_vdd_core_active(&self.power)?;
-                mrcc0
-                    .mrcc_ostimer0_clksel()
-                    .write(|w| w.set_mux(OstimerClkselMux::CLKROOT_16K));
+                mrcc0.mrcc_ostimer0_clksel().write(|w| w.set_mux(mux));
                 PreEnableParts {
                     freq,
                     wake_guard: WakeGuard::for_power(&self.power),
@@ -261,5 +281,517 @@ impl SPConfHelper for OsTimerConfig {
                 PreEnableParts::empty()
             }
         })
+    }
+}
+
+//
+// LPSPI
+//
+
+/// Selectable clocks for `Lpspi` peripherals
+#[derive(Debug, Clone, Copy)]
+pub enum LpspiClockSel {
+    /// FRO12M/FRO_LF/SIRC clock source, passed through divider
+    /// "fro_lf_div"
+    FroLfDiv,
+    /// FRO180M/FRO192M/FRO_HF/FIRC clock source, passed through divider
+    /// "fro_hf_div"
+    FroHfDiv,
+    /// SOSC/XTAL/EXTAL clock source
+    #[cfg(not(feature = "sosc-as-gpio"))]
+    ClkIn,
+    /// clk_1m/FRO_LF divided by 12
+    Clk1M,
+    /// Output of PLL1, passed through clock divider,
+    /// "pll1_clk_div", maybe "pll1_lf_div"?
+    Pll1ClkDiv,
+    /// Disabled
+    None,
+}
+
+/// Which instance of the `Lpspi` is this?
+///
+/// Should not be directly selectable by end-users.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum LpspiInstance {
+    /// Instance 0
+    Lpspi0,
+    /// Instance 1
+    Lpspi1,
+    /// Instance 2
+    #[cfg(feature = "mcxa5xx")]
+    Lpspi2,
+    /// Instance 3
+    #[cfg(feature = "mcxa5xx")]
+    Lpspi3,
+    /// Instance 4
+    #[cfg(feature = "mcxa5xx")]
+    Lpspi4,
+    /// Instance 5
+    #[cfg(feature = "mcxa5xx")]
+    Lpspi5,
+}
+
+/// Top level configuration for `Lpspi` instances.
+pub struct LpspiConfig {
+    /// Power state required for this peripheral
+    pub power: PoweredClock,
+    /// Clock source
+    pub source: LpspiClockSel,
+    /// Clock divisor
+    pub div: Div4,
+    /// Which instance is this?
+    // NOTE: should not be user settable
+    pub(crate) instance: LpspiInstance,
+}
+
+impl SPConfHelper for LpspiConfig {
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
+        // check that source is suitable
+        let mrcc0 = crate::pac::MRCC0;
+
+        let (clkdiv, clksel) = match self.instance {
+            LpspiInstance::Lpspi0 => (mrcc0.mrcc_lpspi0_clkdiv(), mrcc0.mrcc_lpspi0_clksel()),
+            LpspiInstance::Lpspi1 => (mrcc0.mrcc_lpspi1_clkdiv(), mrcc0.mrcc_lpspi1_clksel()),
+            #[cfg(feature = "mcxa5xx")]
+            LpspiInstance::Lpspi2 => (mrcc0.mrcc_lpspi2_clkdiv(), mrcc0.mrcc_lpspi2_clksel()),
+            #[cfg(feature = "mcxa5xx")]
+            LpspiInstance::Lpspi3 => (mrcc0.mrcc_lpspi3_clkdiv(), mrcc0.mrcc_lpspi3_clksel()),
+            #[cfg(feature = "mcxa5xx")]
+            LpspiInstance::Lpspi4 => (mrcc0.mrcc_lpspi4_clkdiv(), mrcc0.mrcc_lpspi4_clksel()),
+            #[cfg(feature = "mcxa5xx")]
+            LpspiInstance::Lpspi5 => (mrcc0.mrcc_lpspi5_clkdiv(), mrcc0.mrcc_lpspi5_clksel()),
+        };
+
+        let (freq, variant) = match self.source {
+            LpspiClockSel::FroLfDiv => {
+                let freq = clocks.ensure_fro_lf_div_active(&self.power)?;
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = LpspiClkselMux::CLKROOT_FUNC_0;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = LpspiClkselMux::I0_CLKROOT_FUNC_0;
+
+                (freq, mux)
+            }
+            LpspiClockSel::FroHfDiv => {
+                let freq = clocks.ensure_fro_hf_div_active(&self.power)?;
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = LpspiClkselMux::CLKROOT_FUNC_2;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = LpspiClkselMux::I2_CLKROOT_FUNC_2;
+
+                (freq, mux)
+            }
+            #[cfg(not(feature = "sosc-as-gpio"))]
+            LpspiClockSel::ClkIn => {
+                let freq = clocks.ensure_clk_in_active(&self.power)?;
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = LpspiClkselMux::CLKROOT_FUNC_3;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = LpspiClkselMux::I3_CLKROOT_FUNC_3;
+
+                (freq, mux)
+            }
+            LpspiClockSel::Clk1M => {
+                let freq = clocks.ensure_clk_1m_active(&self.power)?;
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = LpspiClkselMux::CLKROOT_FUNC_5;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = LpspiClkselMux::I5_CLKROOT_FUNC_5;
+
+                (freq, mux)
+            }
+            LpspiClockSel::Pll1ClkDiv => {
+                let freq = clocks.ensure_pll1_clk_div_active(&self.power)?;
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = LpspiClkselMux::CLKROOT_FUNC_6;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = LpspiClkselMux::I6_CLKROOT_FUNC_6;
+
+                (freq, mux)
+            }
+            LpspiClockSel::None => {
+                // no ClkrootFunc7, just write manually for now
+                clksel.write(|w| w.0 = 0b111);
+                clkdiv.modify(|w| {
+                    w.set_reset(ClkdivReset::OFF);
+                    w.set_halt(ClkdivHalt::OFF);
+                });
+                return Ok(PreEnableParts::empty());
+            }
+        };
+
+        let div = self.div.into_divisor();
+        let expected = freq / div;
+
+        // 21.3.2 peripheral clock max functional clock limits
+        let power = match self.power {
+            PoweredClock::NormalEnabledDeepSleepDisabled => clocks.active_power,
+            PoweredClock::AlwaysEnabled => clocks.lp_power,
+        };
+
+        #[cfg(feature = "mcxa2xx")]
+        let fmax = match power {
+            VddLevel::MidDriveMode => 25_000_000,
+            VddLevel::OverDriveMode => 60_000_000,
+        };
+
+        #[cfg(feature = "mcxa5xx")]
+        let fmax = match power {
+            VddLevel::MidDriveMode => 50_000_000,
+            VddLevel::NormalMode => 150_000_000,
+            VddLevel::OverDriveMode => 200_000_000,
+        };
+
+        if expected > fmax {
+            return Err(ClockError::BadConfig {
+                clock: "lpspi fclk",
+                reason: "exceeds max rating",
+            });
+        }
+
+        apply_div4!(self, clksel, clkdiv, variant, freq)
+    }
+}
+
+//
+// LPI2c
+//
+
+/// Selectable clocks for `Lpi2c` peripherals
+#[derive(Debug, Clone, Copy)]
+pub enum Lpi2cClockSel {
+    /// FRO12M/FRO_LF/SIRC clock source, passed through divider
+    /// "fro_lf_div"
+    FroLfDiv,
+    /// FRO180M/FRO192M/FRO_HF/FIRC clock source, passed through divider
+    /// "fro_hf_div"
+    FroHfDiv,
+    /// SOSC/XTAL/EXTAL clock source
+    #[cfg(feature = "mcxa2xx")]
+    #[cfg(not(feature = "sosc-as-gpio"))]
+    ClkIn,
+    /// clk_1m/FRO_LF divided by 12
+    Clk1M,
+    /// Output of PLL1, passed through clock divider,
+    /// "pll1_clk_div", maybe "pll1_lf_div"?
+    #[cfg(feature = "mcxa2xx")]
+    Pll1ClkDiv,
+    /// Disabled
+    None,
+}
+
+/// Which instance of the `Lpi2c` is this?
+///
+/// Should not be directly selectable by end-users.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Lpi2cInstance {
+    /// Instance 0
+    Lpi2c0,
+    /// Instance 1
+    Lpi2c1,
+    /// Instance 2
+    Lpi2c2,
+    /// Instance 3
+    Lpi2c3,
+}
+
+/// Top level configuration for `Lpi2c` instances.
+pub struct Lpi2cConfig {
+    /// Power state required for this peripheral
+    pub power: PoweredClock,
+    /// Clock source
+    pub source: Lpi2cClockSel,
+    /// Clock divisor
+    pub div: Div4,
+    /// Which instance is this?
+    // NOTE: should not be user settable
+    pub(crate) instance: Lpi2cInstance,
+}
+
+impl SPConfHelper for Lpi2cConfig {
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
+        // check that source is suitable
+        let mrcc0 = crate::pac::MRCC0;
+
+        let (clkdiv, clksel) = match self.instance {
+            Lpi2cInstance::Lpi2c0 => (mrcc0.mrcc_lpi2c0_clkdiv(), mrcc0.mrcc_lpi2c0_clksel()),
+            Lpi2cInstance::Lpi2c1 => (mrcc0.mrcc_lpi2c1_clkdiv(), mrcc0.mrcc_lpi2c1_clksel()),
+            Lpi2cInstance::Lpi2c2 => (mrcc0.mrcc_lpi2c2_clkdiv(), mrcc0.mrcc_lpi2c2_clksel()),
+            Lpi2cInstance::Lpi2c3 => (mrcc0.mrcc_lpi2c3_clkdiv(), mrcc0.mrcc_lpi2c3_clksel()),
+        };
+
+        let (freq, variant) = match self.source {
+            Lpi2cClockSel::FroLfDiv => {
+                let freq = clocks.ensure_fro_lf_div_active(&self.power)?;
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = Lpi2cClkselMux::CLKROOT_FUNC_0;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = Lpi2cClkselMux::I0_CLKROOT_FUNC_0;
+
+                (freq, mux)
+            }
+            Lpi2cClockSel::FroHfDiv => {
+                let freq = clocks.ensure_fro_hf_div_active(&self.power)?;
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = Lpi2cClkselMux::CLKROOT_FUNC_2;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = Lpi2cClkselMux::I2_CLKROOT_FUNC_2;
+
+                (freq, mux)
+            }
+            #[cfg(feature = "mcxa2xx")]
+            #[cfg(not(feature = "sosc-as-gpio"))]
+            Lpi2cClockSel::ClkIn => {
+                let freq = clocks.ensure_clk_in_active(&self.power)?;
+                (freq, Lpi2cClkselMux::CLKROOT_FUNC_3)
+            }
+            Lpi2cClockSel::Clk1M => {
+                let freq = clocks.ensure_clk_1m_active(&self.power)?;
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = Lpi2cClkselMux::CLKROOT_FUNC_5;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = Lpi2cClkselMux::I5_CLKROOT_FUNC_5;
+
+                (freq, mux)
+            }
+            #[cfg(feature = "mcxa2xx")]
+            Lpi2cClockSel::Pll1ClkDiv => {
+                let freq = clocks.ensure_pll1_clk_div_active(&self.power)?;
+                (freq, Lpi2cClkselMux::CLKROOT_FUNC_6)
+            }
+            Lpi2cClockSel::None => {
+                // no ClkrootFunc7, just write manually for now
+                clksel.write(|w| w.0 = 0b111);
+                clkdiv.modify(|w| {
+                    w.set_reset(ClkdivReset::OFF);
+                    w.set_halt(ClkdivHalt::OFF);
+                });
+                return Ok(PreEnableParts::empty());
+            }
+        };
+        let div = self.div.into_divisor();
+        let expected = freq / div;
+        // 22.3.2 peripheral clock max functional clock limits
+        let power = match self.power {
+            PoweredClock::NormalEnabledDeepSleepDisabled => clocks.active_power,
+            PoweredClock::AlwaysEnabled => clocks.lp_power,
+        };
+
+        #[cfg(feature = "mcxa2xx")]
+        let fmax = match power {
+            VddLevel::MidDriveMode => 25_000_000,
+            VddLevel::OverDriveMode => 60_000_000,
+        };
+
+        #[cfg(feature = "mcxa5xx")]
+        let fmax = match power {
+            VddLevel::MidDriveMode => 25_000_000,
+            VddLevel::NormalMode | VddLevel::OverDriveMode => 64_000_000,
+        };
+
+        if expected > fmax {
+            return Err(ClockError::BadConfig {
+                clock: "lpi2c fclk",
+                reason: "exceeds max rating",
+            });
+        }
+
+        apply_div4!(self, clksel, clkdiv, variant, freq)
+    }
+}
+
+//
+// CTimer
+//
+
+/// Selectable clocks for `CTimer` peripherals
+#[derive(Debug, Clone, Copy)]
+pub enum CTimerClockSel {
+    /// FRO12M/FRO_LF/SIRC clock source, passed through divider
+    /// "fro_lf_div"
+    FroLfDiv,
+    /// FRO180M/FRO192M/FRO_HF/FIRC clock source, passed through divider
+    /// "fro_hf_div"
+    FroHfDiv,
+    /// SOSC/XTAL/EXTAL clock source
+    #[cfg(not(feature = "sosc-as-gpio"))]
+    ClkIn,
+    /// FRO16K/clk_16k source
+    Clk16K,
+    /// clk_1m/FRO_LF divided by 12
+    Clk1M,
+    /// Internal PLL output, with configurable divisor
+    Pll1ClkDiv,
+    /// Disabled
+    None,
+}
+
+/// Which instance of the `CTimer` is this?
+///
+/// Should not be directly selectable by end-users.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum CTimerInstance {
+    /// Instance 0
+    CTimer0,
+    /// Instance 1
+    CTimer1,
+    /// Instance 2
+    CTimer2,
+    /// Instance 3
+    CTimer3,
+    /// Instance 4
+    CTimer4,
+}
+
+/// Top level configuration for `CTimer` instances.
+pub struct CTimerConfig {
+    /// Power state required for this peripheral
+    pub power: PoweredClock,
+    /// Clock source
+    pub source: CTimerClockSel,
+    /// Clock divisor
+    pub div: Div4,
+    /// Which instance is this?
+    // NOTE: should not be user settable
+    pub(crate) instance: CTimerInstance,
+}
+
+impl SPConfHelper for CTimerConfig {
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
+        // check that source is suitable
+        let mrcc0 = crate::pac::MRCC0;
+
+        let (clkdiv, clksel) = match self.instance {
+            CTimerInstance::CTimer0 => (mrcc0.mrcc_ctimer0_clkdiv(), mrcc0.mrcc_ctimer0_clksel()),
+            CTimerInstance::CTimer1 => (mrcc0.mrcc_ctimer1_clkdiv(), mrcc0.mrcc_ctimer1_clksel()),
+            CTimerInstance::CTimer2 => (mrcc0.mrcc_ctimer2_clkdiv(), mrcc0.mrcc_ctimer2_clksel()),
+            CTimerInstance::CTimer3 => (mrcc0.mrcc_ctimer3_clkdiv(), mrcc0.mrcc_ctimer3_clksel()),
+            CTimerInstance::CTimer4 => (mrcc0.mrcc_ctimer4_clkdiv(), mrcc0.mrcc_ctimer4_clksel()),
+        };
+
+        let (freq, variant) = match self.source {
+            CTimerClockSel::FroLfDiv => {
+                let freq = clocks.ensure_fro_lf_div_active(&self.power)?;
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = CtimerClkselMux::CLKROOT_FUNC_0;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = CtimerClkselMux::I0_CLKROOT_SIRC_DIV;
+
+                (freq, mux)
+            }
+            CTimerClockSel::FroHfDiv => {
+                let freq = clocks.ensure_fro_hf_div_active(&self.power)?;
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = CtimerClkselMux::CLKROOT_FUNC_1;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = CtimerClkselMux::I1_CLKROOT_FIRC_GATED;
+
+                (freq, mux)
+            }
+            #[cfg(not(feature = "sosc-as-gpio"))]
+            CTimerClockSel::ClkIn => {
+                let freq = clocks.ensure_clk_in_active(&self.power)?;
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = CtimerClkselMux::CLKROOT_FUNC_3;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = CtimerClkselMux::I3_CLKROOT_SOSC;
+
+                (freq, mux)
+            }
+            CTimerClockSel::Clk16K => {
+                let freq = clocks.ensure_clk_16k_vdd_core_active(&self.power)?;
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = CtimerClkselMux::CLKROOT_FUNC_4;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = CtimerClkselMux::I4_CLKROOT_LPOSC;
+
+                (freq, mux)
+            }
+            CTimerClockSel::Clk1M => {
+                let freq = clocks.ensure_clk_1m_active(&self.power)?;
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = CtimerClkselMux::CLKROOT_FUNC_5;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = CtimerClkselMux::I5_CLKROOT_1M;
+
+                (freq, mux)
+            }
+            CTimerClockSel::Pll1ClkDiv => {
+                let freq = clocks.ensure_pll1_clk_div_active(&self.power)?;
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = CtimerClkselMux::CLKROOT_FUNC_6;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = CtimerClkselMux::I6_CLKROOT_SPLL_DIV;
+
+                (freq, mux)
+            }
+            CTimerClockSel::None => {
+                // no ClkrootFunc7, just write manually for now
+                clksel.write(|w| w.set_mux(CtimerClkselMux::_RESERVED_7));
+                clkdiv.modify(|w| {
+                    w.set_reset(ClkdivReset::ON);
+                    w.set_halt(ClkdivHalt::ON)
+                });
+                return Ok(PreEnableParts::empty());
+            }
+        };
+
+        let div = self.div.into_divisor();
+        let expected = freq / div;
+
+        // 22.3.2 peripheral clock max functional clock limits
+        let power = match self.power {
+            PoweredClock::NormalEnabledDeepSleepDisabled => clocks.active_power,
+            PoweredClock::AlwaysEnabled => clocks.lp_power,
+        };
+        #[cfg(feature = "mcxa2xx")]
+        let fmax = match power {
+            VddLevel::MidDriveMode => 25_000_000,
+            VddLevel::OverDriveMode => 60_000_000,
+        };
+        #[cfg(feature = "mcxa5xx")]
+        let fmax = match power {
+            VddLevel::MidDriveMode => 50_000_000,
+            VddLevel::NormalMode => 150_000_000,
+            VddLevel::OverDriveMode => 200_000_000,
+        };
+
+        if expected > fmax {
+            return Err(ClockError::BadConfig {
+                clock: "ctimer fclk",
+                reason: "exceeds max rating",
+            });
+        }
+
+        apply_div4!(self, clksel, clkdiv, variant, freq)
     }
 }

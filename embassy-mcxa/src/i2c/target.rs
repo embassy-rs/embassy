@@ -11,7 +11,7 @@ use super::{Async, AsyncMode, Blocking, Dma, Info, Instance, Mode, SclPin, SdaPi
 pub use crate::clocks::PoweredClock;
 pub use crate::clocks::periph_helpers::{Div4, Lpi2cClockSel, Lpi2cConfig};
 use crate::clocks::{ClockError, WakeGuard, enable_and_reset};
-use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, EnableInterrupt};
+use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, TransferOptions};
 use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
@@ -45,6 +45,12 @@ pub enum IOError {
     BitError,
     /// Other internal errors or unexpected state.
     Other,
+}
+
+impl From<crate::dma::InvalidParameters> for IOError {
+    fn from(_value: crate::dma::InvalidParameters) -> Self {
+        IOError::Other
+    }
 }
 
 /// I2C interrupt handler.
@@ -585,7 +591,7 @@ impl<'d> I2c<'d, Dma<'d>> {
             // Configure TCD for memory-to-peripheral transfer
             self.mode
                 .rx_dma
-                .setup_read_from_peripheral(peri_addr, data, EnableInterrupt::Yes);
+                .setup_read_from_peripheral(peri_addr, data, false, TransferOptions::COMPLETE_INTERRUPT)?;
 
             // Enable I2C RX DMA request
             self.info.regs().sder().modify(|w| w.set_rdde(true));
@@ -652,7 +658,7 @@ impl<'d> I2c<'d, Dma<'d>> {
             // Configure TCD for memory-to-peripheral transfer
             self.mode
                 .tx_dma
-                .setup_write_to_peripheral(data, peri_addr, EnableInterrupt::No);
+                .setup_write_to_peripheral(data, peri_addr, false, TransferOptions::NO_INTERRUPTS)?;
 
             // Ensure all writes by DMA are visible to the CPU
             // TODO: ensure this is done internal to the DMA methods so individual drivers

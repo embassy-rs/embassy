@@ -14,16 +14,10 @@
 #[path = "."]
 mod mcxa2xx_exclusive {
     pub mod adc;
-    pub mod clkout;
-    pub mod ctimer;
-    pub mod dma;
     pub mod flash;
-    pub mod i2c;
     pub mod i3c;
-    pub mod inputmux;
     pub mod lpuart;
     pub mod rtc;
-    pub mod spi;
 
     pub use crate::chips::mcxa2xx::{Peripherals, init, interrupt, peripherals};
 }
@@ -39,15 +33,21 @@ mod mcxa5xx_exclusive {
 #[path = "."]
 mod all_chips {
     pub mod cdog;
+    pub mod clkout;
     pub mod clocks;
     pub mod config;
     pub mod crc;
+    pub mod ctimer;
+    pub mod dma;
     #[cfg(feature = "custom-executor")]
     pub mod executor;
     pub mod gpio;
+    pub mod i2c;
+    pub mod inputmux;
     pub mod ostimer;
     pub mod perf_counters;
     pub mod reset_reason;
+    pub mod spi;
     pub mod trng;
     pub mod wwdt;
 }
@@ -62,6 +62,8 @@ pub use mcxa5xx_exclusive::*;
 pub(crate) mod chips;
 
 // Re-export interrupt traits and types
+// Re-export Peri and PeripheralType to allow applications to express Peri types and requirements.
+pub use embassy_hal_internal::{Peri, PeripheralType};
 #[cfg(feature = "unstable-pac")]
 pub use nxp_pac as pac;
 #[cfg(not(feature = "unstable-pac"))]
