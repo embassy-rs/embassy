@@ -12,6 +12,7 @@ use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 /// Demonstrate CLKOUT, using Pin P4.2
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
+    defmt::info!("START");
     let mut cfg = hal::config::Config::default();
     cfg.clock_cfg.sosc = Some(SoscConfig {
         mode: SoscMode::CrystalOscillator,
@@ -33,17 +34,23 @@ async fn main(_spawner: Spawner) {
     });
     // TODO: These are wild guesses! They seem to work, I have no idea what these should be!
     let mut osc = Osc32KConfig::default();
-    osc.mode = Osc32KMode::HighPower {
+    // osc.mode = Osc32KMode::HighPower {
+    //     coarse_amp_gain: Osc32KCoarseGain::EsrRange0,
+    //     xtal_cap_sel: Osc32KCapSel::Cap12PicoF,
+    //     extal_cap_sel: Osc32KCapSel::Cap12PicoF,
+    // };
+    osc.mode = Osc32KMode::LowPower {
         coarse_amp_gain: Osc32KCoarseGain::EsrRange0,
-        xtal_cap_sel: Osc32KCapSel::Cap12PicoF,
-        extal_cap_sel: Osc32KCapSel::Cap12PicoF,
+        vbat_exceeds_3v0: true,
     };
     osc.vsys_domain_active = true;
     osc.vdd_core_domain_active = true;
     osc.vbat_domain_active = true;
     cfg.clock_cfg.osc32k = Some(osc);
 
+    defmt::info!("init...");
     let p = hal::init(cfg);
+    defmt::info!("inited");
 
     let mut pin = p.P4_2;
     let mut clkout = p.CLKOUT;
