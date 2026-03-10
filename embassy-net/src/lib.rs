@@ -951,7 +951,7 @@ impl Inner {
                 let config = StaticConfigV6 {
                     address: *address,
                     gateway,
-                    dns_servers: Vec::new(), // RDNNS not (yet) supported by smoltcp.
+                    dns_servers: Vec::new(), // RDNSS not (yet) supported by smoltcp.
                 };
                 Some(config)
             } else {
