@@ -130,6 +130,9 @@ perf = []
 # If this feature is enabled, users should NOT enable `embassy-executor/arch-cortex-m`.
 custom-executor = []
 
+# This feature is not done yet, don't use it!
+unstable-osc32k = []
+
 #
 # Chip family selection
 #

@@ -113,7 +113,7 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
     operator.configure_fro16k_clocks()?;
 
     // NOTE: OSC32K must be configured AFTER FRO16K.
-    #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+    #[cfg(all(feature = "mcxa5xx", feature = "unstable-osc32k", not(feature = "rosc-32k-as-gpio")))]
     operator.configure_osc32k_clocks()?;
 
     #[cfg(not(feature = "sosc-as-gpio"))]

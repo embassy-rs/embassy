@@ -130,7 +130,7 @@ pub struct ClocksConfig {
     /// FRO16K clock source
     pub fro16k: Option<Fro16KConfig>,
     /// OSC32K clock source
-    #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+    #[cfg(all(feature = "mcxa5xx", feature = "unstable-osc32k", not(feature = "rosc-32k-as-gpio")))]
     pub osc32k: Option<Osc32KConfig>,
     /// SOSC, clk_in clock source
     ///
@@ -728,7 +728,7 @@ impl Default for ClocksConfig {
                 #[cfg(feature = "mcxa5xx")]
                 vbat_domain_active: true,
             }),
-            #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+            #[cfg(all(feature = "mcxa5xx", feature = "unstable-osc32k", not(feature = "rosc-32k-as-gpio")))]
             osc32k: None,
             #[cfg(not(feature = "sosc-as-gpio"))]
             sosc: None,
