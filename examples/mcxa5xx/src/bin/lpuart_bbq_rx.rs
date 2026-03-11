@@ -40,7 +40,7 @@ use static_cell::ConstStaticCell;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
-    LPUART3 => lpuart::BbqInterruptHandler::<hal::peripherals::LPUART3>;
+    LPUART5 => lpuart::BbqInterruptHandler::<hal::peripherals::LPUART5>;
 });
 
 const SIZE: usize = 4096;
@@ -92,6 +92,7 @@ async fn main(_spawner: Spawner) {
 
     // Set to deep sleep for measuring power. Set to WfeUngated to see defmt logs
     cfg.clock_cfg.vdd_power.core_sleep = CoreSleep::DeepSleep;
+    // cfg.clock_cfg.vdd_power.core_sleep = CoreSleep::WfeUngated;
 
     // Set flash doze, allowing internal flash clocks to be gated on sleep
     cfg.clock_cfg.vdd_power.flash_sleep = FlashSleep::FlashDoze;
@@ -100,74 +101,74 @@ async fn main(_spawner: Spawner) {
 
     defmt::info!("LPUART DMA example starting...");
 
-    // Create UART configuration
-    let mut config = BbqConfig::default();
-    config.baudrate_bps = 4_000_000;
-    config.power = PoweredClock::NormalEnabledDeepSleepDisabled;
-    config.source = LpuartClockSel::FroHfDiv;
+    // // Create UART configuration
+    // let mut config = BbqConfig::default();
+    // config.baudrate_bps = 4_000_000;
+    // config.power = PoweredClock::NormalEnabledDeepSleepDisabled;
+    // config.source = LpuartClockSel::FroHfDiv;
 
-    let rx_buf = RX_BUF.take();
+    // let rx_buf = RX_BUF.take();
 
-    // Create UART instance with DMA channels
-    let dma = DmaChannel::new(p.DMA_CH0);
-    let mut parts = BbqHalfParts::new_rx_half(p.LPUART3, Irqs, p.P4_2, rx_buf, dma);
-    let mut red = Output::new(p.P2_14, Level::High, DriveStrength::Normal, SlewRate::Fast);
-    let mut debug = Output::new(p.P3_28, Level::High, DriveStrength::Normal, SlewRate::Fast);
+    // // Create UART instance with DMA channels
+    // let dma = DmaChannel::new(p.DMA_CH0);
+    // let mut parts = BbqHalfParts::new_rx_half(p.LPUART5, Irqs, p.P0_24, rx_buf, dma);
+    // let mut red = Output::new(p.P2_14, Level::High, DriveStrength::Normal, SlewRate::Fast);
+    // let mut debug = Output::new(p.P5_8, Level::High, DriveStrength::Normal, SlewRate::Fast);
 
-    #[cfg(feature = "custom-executor")]
-    embassy_mcxa::executor::set_executor_debug_gpio(p.P1_0);
+    // #[cfg(feature = "custom-executor")]
+    // embassy_mcxa::executor::set_executor_debug_gpio(p.P3_27);
 
-    loop {
-        defmt::info!("Waiting for falling edge");
-        red.set_high();
-        debug.set_high();
-        {
-            let mut input = Input::new(parts.pin(), Pull::Up);
-            input.wait_for_low().await;
-        }
+    // loop {
+    //     defmt::info!("Waiting for falling edge");
+    //     red.set_high();
+    //     debug.set_high();
+    //     {
+    //         let mut input = Input::new(parts.pin(), Pull::Up);
+    //         input.wait_for_low().await;
+    //     }
 
-        let mode = BbqRxMode::MaxFrame { size: 1024 };
-        let mut lpuart = LpuartBbqRx::new(parts, config, mode).unwrap();
-        red.set_low();
-        debug.set_low();
-        defmt::info!("got wake, listening");
+    //     let mode = BbqRxMode::MaxFrame { size: 1024 };
+    //     let mut lpuart = LpuartBbqRx::new(parts, config, mode).unwrap();
+    //     red.set_low();
+    //     debug.set_low();
+    //     defmt::info!("got wake, listening");
 
-        let mut streak = 0;
-        let mut idx = 0u8;
-        let mut buf = [0u8; 64];
-        let mut got = 0;
-        let mut dummies = 0;
+    //     let mut streak = 0;
+    //     let mut idx = 0u8;
+    //     let mut buf = [0u8; 64];
+    //     let mut got = 0;
+    //     let mut dummies = 0;
 
-        'wake: loop {
-            match lpuart.read(&mut buf).with_timeout(Duration::from_millis(100)).await {
-                Ok(res) => {
-                    let used = res.unwrap();
-                    for byte in &buf[..used] {
-                        if *byte > 0x7F {
-                            dummies += 1;
-                        } else if *byte == idx {
-                            streak += 1;
-                            idx = idx.wrapping_add(1) & 0x7F;
-                        } else {
-                            streak = 0;
-                            idx = (*byte).wrapping_add(1) & 0x7F;
-                        }
-                    }
-                    got += used;
-                }
-                Err(_) => {
-                    break 'wake;
-                }
-            }
-        }
+    //     'wake: loop {
+    //         match lpuart.read(&mut buf).with_timeout(Duration::from_millis(100)).await {
+    //             Ok(res) => {
+    //                 let used = res.unwrap();
+    //                 for byte in &buf[..used] {
+    //                     if *byte > 0x7F {
+    //                         dummies += 1;
+    //                     } else if *byte == idx {
+    //                         streak += 1;
+    //                         idx = idx.wrapping_add(1) & 0x7F;
+    //                     } else {
+    //                         streak = 0;
+    //                         idx = (*byte).wrapping_add(1) & 0x7F;
+    //                     }
+    //                 }
+    //                 got += used;
+    //             }
+    //             Err(_) => {
+    //                 break 'wake;
+    //             }
+    //         }
+    //     }
 
-        defmt::info!(
-            "Going to sleep, got: {=usize}, streak: {=usize}, dummies: {=usize}",
-            got,
-            streak,
-            dummies
-        );
+    //     defmt::info!(
+    //         "Going to sleep, got: {=usize}, streak: {=usize}, dummies: {=usize}",
+    //         got,
+    //         streak,
+    //         dummies
+    //     );
 
-        parts = lpuart.teardown();
-    }
+    //     parts = lpuart.teardown();
+    // }
 }

@@ -28,7 +28,7 @@ use static_cell::ConstStaticCell;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
-    LPUART3 => lpuart::BbqInterruptHandler::<hal::peripherals::LPUART3>;
+    LPUART5 => lpuart::BbqInterruptHandler::<hal::peripherals::LPUART5>;
 });
 
 const SIZE: usize = 4096;
@@ -65,7 +65,7 @@ async fn main(_spawner: Spawner) {
     // Disable PLL
     cfg.clock_cfg.spll = None;
 
-    // Feed core from 180M osc
+    // Feed core from 192M osc
     cfg.clock_cfg.main_clock = MainClockConfig {
         source: MainClockSource::FircHfRoot,
         power: PoweredClock::NormalEnabledDeepSleepDisabled,
@@ -98,7 +98,7 @@ async fn main(_spawner: Spawner) {
 
     // Create UART instance with DMA channels
     let dma_channel = DmaChannel::new(p.DMA_CH0);
-    let parts = BbqHalfParts::new_tx_half(p.LPUART3, Irqs, p.P4_5, tx_buf, dma_channel);
+    let parts = BbqHalfParts::new_tx_half(p.LPUART5, Irqs, p.P0_25, tx_buf, dma_channel);
     let mut lpuart = LpuartBbqTx::new(parts, config).unwrap();
     let mut to_knock = [0u8; 16];
     let mut to_send = [0u8; 768];
@@ -110,7 +110,7 @@ async fn main(_spawner: Spawner) {
     let mut red = Output::new(p.P2_14, Level::High, DriveStrength::Normal, SlewRate::Fast);
 
     #[cfg(feature = "custom-executor")]
-    embassy_mcxa::executor::set_executor_debug_gpio(p.P4_2);
+    embassy_mcxa::executor::set_executor_debug_gpio(p.P3_27);
 
     loop {
         // Send a small 16-byte "knock" packet in case the other device is sleeping
