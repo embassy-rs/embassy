@@ -355,10 +355,10 @@ impl<'d, const CH_COUNT: usize> HostBus<'d, CH_COUNT> {
     fn init_host(&mut self) {
         let r = self.instance.regs;
 
-        // Configure HCFG: set PHY clock
+        // Configure HCFG: set PHY clock.
+        // fslspcs=0: 30/60 MHz (HS PHY); fslspcs=1: 48 MHz (FS PHY).
         r.hcfg().modify(|w| {
-            // 48 MHz PHY clock for FS
-            w.set_fslspcs(1);
+            w.set_fslspcs(if self.instance.phy_type.high_speed() { 0 } else { 1 });
         });
 
         // Configure FIFO sizes for host mode:

@@ -669,6 +669,25 @@ mod host_impl {
 
             super::super::common_init::<T>();
 
+            // Enable HS PHY clock and configure PHY for WBA devices.
+            #[cfg(all(stm32wba, peri_usb_otg_hs))]
+            {
+                critical_section::with(|_| {
+                    crate::pac::RCC.ahb2enr().modify(|w| {
+                        w.set_usb_otg_hs_phyen(true);
+                    });
+                });
+
+                crate::pac::SYSCFG.otghsphytuner2().modify(|w| {
+                    w.set_compdistune(0b010);
+                    w.set_sqrxtune(0b000);
+                });
+
+                crate::pac::SYSCFG.otghsphycr().modify(|w| {
+                    w.set_en(true);
+                });
+            }
+
             let instance = OtgHostInstance {
                 regs: T::regs(),
                 state: host_state::<T>(),
