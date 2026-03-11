@@ -28,7 +28,7 @@ async fn main(_spawner: Spawner) {
 
     let mut hash_result: [u8; 64] = [0u8; 64];
 
-    let mut blocking_hasher = BlockingHasher::new(p.SGI0.reborrow()).unwrap();
+    let mut blocking_hasher = BlockingHasher::new(p.SGI0.reborrow());
 
     // Hash blocking will block until complete, max input size limited to 512 bytes.
     match blocking_hasher.hash_blocking(HashSize::Sha384, &input_data[..308], &mut hash_result) {
