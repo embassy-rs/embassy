@@ -34,7 +34,7 @@ For Cortex-M targets, check whether ALL of the following features are enabled in
 * `arch-cortex-m`
 * `executor-thread`
 
-For ESP32, consider using the executors and `#[main]` macro provided by your appropriate link:https://crates.io/crates/esp-hal-common[HAL crate].
+For ESP32, consider using the executors and `#[main]` macro provided by link:https://crates.io/crates/esp-hal[esp-hal].
 
 == Why is my binary so big?
 
@@ -128,7 +128,7 @@ Another common error you may experience is:
 
 There are two possible causes to this error:
 
-* You are using `embassy-executor` withuout enabling one of the architecture-specific features, but you are using a HAL that does not bring its own executors. For example, for Cortex-M (like the RP2040), you need to enable the `arch-cortex-m` feature of `embassy-executor`.
+* You are using `embassy-executor` without enabling one of the architecture-specific features, but you are using a HAL that does not bring its own executors. For example, for Cortex-M (like the RP2040), you need to enable the `arch-cortex-m` feature of `embassy-executor`.
 * You are not using `embassy-executor`. In this case, you need to enable the one of the `generic-queue-X` features of `embassy-time`.
 
 == Error: `Only one package in the dependency graph may specify the same links value.`
@@ -220,7 +220,7 @@ If you find a case where the memory.x is wrong, please report it on link:https:/
 
 == The USB examples are not working on my board, is there anything else I need to configure?
 
-If you are trying out the USB examples and your device doesn not connect, the most common issues are listed below.
+If you are trying out the USB examples and your device does not connect, the most common issues are listed below.
 
 === Incorrect RCC config
 

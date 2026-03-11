@@ -4,7 +4,7 @@ The Embassy executor is an async/await executor designed for embedded usage alon
 
 == Features
 
-* No `alloc`, no heap needed. Task are statically allocated.
+* No `alloc`, no heap needed. Tasks are statically allocated.
 * No "fixed capacity" data structures, executor works with 1 or 1000 tasks without needing config/tuning.
 * Integrated timer queue: sleeping is easy, just do `Timer::after_secs(1).await;`.
 * No busy-loop polling: CPU sleeps when there's no work to do, using interrupts or `WFE/SEV`.
@@ -14,7 +14,13 @@ The Embassy executor is an async/await executor designed for embedded usage alon
 
 == Executor
 
-The executor function is described below. The executor keeps a queue of tasks that it should poll. When a task is created, it is polled (1). The task will attempt to make progress until it reaches a point where it would be blocked. This may happen whenever a task is .await'ing an async function. When that happens, the task yields execution by (2) returning `Poll::Pending`. Once a task yields, the executor enqueues the task at the end of the run queue, and proceeds to (3) poll the next task in the queue. When a task is finished or canceled, it will not be enqueued again.
+The executor works as follows:
+
+. When a task is created, it is polled.
+. The task attempts to make progress until it reaches a point where it would be blocked. This may happen whenever a task is `.await`-ing an async function. When that happens, the task yields execution by returning `Poll::Pending`.
+. Once a task yields, the executor enqueues the task at the end of the run queue and proceeds to poll the next task in the queue.
+
+When a task is finished or canceled, it will not be enqueued again.
 
 IMPORTANT: The executor relies on tasks not blocking indefinitely, this would prevent the executor regaining control and scheduling another task.
 
