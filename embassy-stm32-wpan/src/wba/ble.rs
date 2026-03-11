@@ -88,6 +88,26 @@ impl Ble {
         }
     }
 
+    /// Create a BLE instance for Direct Test Mode (DTM) only.
+    ///
+    /// Only RNG is required; AES and PKA are left unset. Use this for FCC DTM
+    /// (TX test, RX test, tone) where no pairing or crypto is used. Do not use
+    /// for full BLE (advertising, connections, GATT) as those require AES/PKA.
+    pub fn new_dtm(
+        rng: &'static Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>,
+    ) -> Self {
+        unsafe {
+            HARDWARE_RNG.replace(rng);
+            // HARDWARE_AES and HARDWARE_PKA remain None
+        }
+
+        Self {
+            cmd_sender: CommandSender::new(),
+            initialized: AtomicBool::new(false),
+            connections: ConnectionManager::new(),
+        }
+    }
+
     /// Initialize the BLE stack
     ///
     /// This function performs the following initialization steps:

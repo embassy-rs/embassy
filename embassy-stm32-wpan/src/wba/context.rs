@@ -146,6 +146,7 @@ impl ContextManager {
             // [stack_top - 28]: R6
             // [stack_top - 32]: R5
             // [stack_top - 36]: R4
+            // [stack_top - 40]: padding for 8-byte-aligned SP (ARM AAPCS)
             // SP points here after "restore"
 
             let mut sp = stack_top;
@@ -160,7 +161,12 @@ impl ContextManager {
                 core::ptr::write_volatile(sp as *mut u32, 0);
             }
 
-            (*task_ctx).sp = sp;
+            // Extra word so SP is 8-byte aligned (required by ARM AAPCS; 36 mod 8 = 4)
+            sp -= 4;
+            core::ptr::write_volatile(sp as *mut u32, 0);
+
+            // Volatile write so the compiler cannot optimize this away; the read happens in asm.
+            core::ptr::write_volatile(&mut (*task_ctx).sp, sp);
         }
 
         self.set_state(ContextManagerState::Yielded);
