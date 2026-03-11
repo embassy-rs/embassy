@@ -1,6 +1,6 @@
 // Hash functionality using SGI hardware
 
-use super::sgi::{Config as SgiConfig, SGIError, SetupError, Sgi, SgiInterrupt};
+use super::sgi::{Config as SgiConfig, SGIError, Sgi, SgiInterrupt};
 
 /// Maximum SHA-384/512 block size in bytes.
 pub const MAX_BLOCK_SIZE: usize = 128;
@@ -237,19 +237,22 @@ impl<'a, 'd> DmaHasher<'a, 'd> {
     }
 }
 
+/// Blocking Hash instance that provides a simple interface for hashing data with SGI in a blocking manner, input size limited to 512 bytes.
+/// Holds an SGI0 peri instance.
+
 pub struct BlockingHasher<'d> {
-    peri: Sgi<'d>,
+    peri: Peri<'d, peripherals::SGI0>,
 }
 
 impl<'d> BlockingHasher<'d> {
-    pub fn new(peri: Peri<'d, peripherals::SGI0>) -> Result<Self, SetupError> {
-        Ok(Self {
-            peri: Sgi::new_blocking(peri)?,
-        })
+    pub fn new(peri: Peri<'d, peripherals::SGI0>) -> Self {
+        Self { peri }
     }
 
     /// Hash the provided input in one blocking call and write the digest into `hash_result`.
     pub fn hash_blocking(&mut self, hash_size: HashSize, input: &[u8], hash_result: &mut [u8]) -> Result<(), SGIError> {
+        let mut sgi = Sgi::new_blocking(self.peri.reborrow()).map_err(|_| SGIError::HardwareError)?;
+
         let options = HashOptions {
             hash_size: hash_size,
             op_mode: HashMode::Auto,
@@ -287,10 +290,10 @@ impl<'d> BlockingHasher<'d> {
             return Err(SGIError::InvalidSize);
         }
 
-        self.peri.init_sgi_sha(options)?;
-        self.peri.start_sgi_hash(options, &hash_buffer)?;
-        self.peri.fill_sha2_fifo(options, &hash_buffer, len)?;
-        self.peri.read_hash_output(options, hash_result)?;
+        sgi.init_sgi_sha(options)?;
+        sgi.start_sgi_hash(options, &hash_buffer)?;
+        sgi.fill_sha2_fifo(options, &hash_buffer, len)?;
+        sgi.read_hash_output(options, hash_result)?;
         Ok(())
     }
 
