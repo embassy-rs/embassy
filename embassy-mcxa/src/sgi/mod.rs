@@ -10,9 +10,8 @@ use embassy_hal_internal::Peri;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::Instant;
 pub use hash::{
-    HashMode, HashOptions as SgiHashOptions, HashSize, MAX_BLOCK_SIZE, SGI_HASH_OUTPUT_SIZE, SGI_SHA2_CTRL_AUTO_INIT,
-    SGI_SHA2_CTRL_HASH_RELOAD, SGI_SHA2_CTRL_MODE_AUTO, SGI_SHA2_CTRL_MODE_NORMAL, SGI_SHA2_CTRL_NO_AUTO_INIT,
-    SGI_SHA2_CTRL_NO_HASH_RELOAD, SGI_SHA2_CTRL_SIZE_SHA384, SGI_SHA2_CTRL_SIZE_SHA512, SGIHasher,
+    BlockingHasher, ByteOrder, HashInit, HashMode, HashOptions as SgiHashOptions, HashReload, HashSize, MAX_BLOCK_SIZE,
+    SGI_HASH_OUTPUT_SIZE, StreamingHasher,
 };
 
 use self::hash::HashOptions;
@@ -21,8 +20,8 @@ use crate::clocks::periph_helpers::Clk1MConfig;
 use crate::clocks::{ClockError, WakeGuard, enable_and_reset};
 use crate::dma::{DmaChannel, Transfer, TransferOptions};
 use crate::interrupt::typelevel::Interrupt as _;
-use crate::pac::sgi as pac_sgi;
-use crate::{interrupt, peripherals};
+use crate::pac::{interrupt, sgi as pac_sgi};
+use crate::{interrupt as crate_interrupt, peripherals};
 
 mod sealed {
     pub trait SealedInstance {}
@@ -37,13 +36,25 @@ pub trait Instance: sealed::SealedInstance {}
 impl sealed::SealedInstance for peripherals::SGI0 {}
 impl Instance for peripherals::SGI0 {}
 
-// ============================================================================
-// SGI0 (Secure Generic Interface) constants
-// ============================================================================
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+enum CryptoOp {
+    Aes = 0,
+    Des = 1,
+    Tdes = 2,
+    Gfmul = 3,
+    Sha2 = 4,
+    Cmac = 5,
+}
 
-// CTRL field values.
-const CRYPTO_OP_SHA2: u8 = 4;
-const DATOUT_RES_TRIGGER_UP: u8 = 2;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+enum DataOutRes {
+    EndUp = 0,
+    StartUp = 1,
+    TriggerUp = 2,
+    NoUp = 3,
+}
 
 // FIFO limits used by SHA2 configuration.
 const SHA2_FIFO_LOW_LIM: u8 = 0;
@@ -51,8 +62,14 @@ const SHA2_FIFO_HIGH_LIM_NORMAL_BLOCK: u8 = 7;
 
 // Hash constants/types live in the `hash` submodule.
 
-// ============================================================================
-// SGI structs and helpers
+/// SGI interrupt config.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SgiInterrupt {
+    /// Async means Interrupt is needed so enable it.
+    AsyncEnabled,
+    /// Blocking means no interrupt is needed.
+    BlockingDisabled,
+}
 
 /// SGI driver configuration.
 #[derive(Debug, Clone, Copy)]
@@ -60,13 +77,13 @@ pub struct Config {
     /// Enable the SGI interrupt in NVIC.
     ///
     /// The driver currently polls for completion, so this is optional, but can be enabled for async/DMA flows to avoid busy-waiting on the completion bit.
-    pub enable_interrupt: bool,
+    pub interrupt: SgiInterrupt,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            enable_interrupt: false,
+            interrupt: SgiInterrupt::BlockingDisabled,
         }
     }
 }
@@ -79,26 +96,24 @@ pub enum SetupError {
     ClockSetup(ClockError),
 }
 
-/// SGI interrupt handler.
-///
-/// Clears the operation-done interrupt flag to avoid retrigger loops.
-pub struct InterruptHandler;
-
 static SGI_OP_DONE: AtomicBool = AtomicBool::new(false);
 static SGI_WAKER: AtomicWaker = AtomicWaker::new();
 
-impl interrupt::typelevel::Handler<interrupt::typelevel::SGI> for InterruptHandler {
-    unsafe fn on_interrupt() {
-        let sgi = crate::pac::SGI0;
+unsafe fn on_interrupt() {
+    let sgi = crate::pac::SGI0;
 
-        // Record completion and wake any waiter.
-        // The HW status bit gets cleared here to avoid a retrigger loop.
-        if sgi.sgi_int_status().read().int_pdone() {
-            SGI_OP_DONE.store(true, Ordering::Release);
-        }
-        sgi.sgi_int_status_clr().write(|w| w.set_int_clr(true));
-        SGI_WAKER.wake();
+    // Record completion and wake any waiter.
+    // The HW status bit gets cleared here to avoid a retrigger loop.
+    if sgi.sgi_int_status().read().int_pdone() {
+        SGI_OP_DONE.store(true, Ordering::Release);
     }
+    sgi.sgi_int_status_clr().write(|w| w.set_int_clr(true));
+    SGI_WAKER.wake();
+}
+
+#[interrupt]
+fn SGI() {
+    unsafe { on_interrupt() }
 }
 
 /// SGI Error types
@@ -115,10 +130,9 @@ pub enum SGIError {
     HardwareError,
     DmaError,
     HashingNotComplete,
+    InterruptNotEnabled,
 }
 
-// ============================================================================
-// SGI driver interface and implementations
 /// SGI (Secure Generic Interface) hardware abstraction
 pub struct Sgi<'d> {
     _peri: Peri<'d, peripherals::SGI0>,
@@ -152,20 +166,15 @@ impl<'d> Sgi<'d> {
     /// Create a new SGI instance by consuming the Embassy peripheral token.
     ///
     /// This enforces the singleton at the type level, so no global atomic is needed.
-    pub fn new(
-        peri: Peri<'d, peripherals::SGI0>,
-        _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::SGI, InterruptHandler> + 'd,
-        config: Config,
-    ) -> Result<Self, SetupError> {
+    pub fn new(peri: Peri<'d, peripherals::SGI0>, config: Config) -> Result<Self, SetupError> {
         let parts = unsafe { enable_and_reset::<peripherals::SGI0>(&Clk1MConfig).map_err(SetupError::ClockSetup)? };
         let wake_guard = parts.wake_guard;
 
-        let irq_enabled = config.enable_interrupt;
+        let irq_enabled = config.interrupt == SgiInterrupt::AsyncEnabled;
 
         if irq_enabled {
-            interrupt::typelevel::SGI::unpend();
-            // SAFETY: `_irq` ensures an Interrupt Handler exists.
-            unsafe { interrupt::typelevel::SGI::enable() };
+            crate_interrupt::typelevel::SGI::unpend();
+            unsafe { crate_interrupt::typelevel::SGI::enable() };
         }
 
         let periph = crate::pac::SGI0;
@@ -177,9 +186,23 @@ impl<'d> Sgi<'d> {
         })
     }
 
+    /// Create a blocking-only SGI instance without requiring an IRQ binding.
+    pub fn new_blocking(peri: Peri<'d, peripherals::SGI0>) -> Result<Self, SetupError> {
+        let parts = unsafe { enable_and_reset::<peripherals::SGI0>(&Clk1MConfig).map_err(SetupError::ClockSetup)? };
+        let wake_guard = parts.wake_guard;
+        let periph = crate::pac::SGI0;
+
+        Ok(Self {
+            _peri: peri,
+            periph,
+            irq_enabled: false,
+            _wake_guard: wake_guard,
+        })
+    }
+
     /// Helper to check if SGI IRQ is enabled.
     #[inline(always)]
-    pub fn irq_enabled(&self) -> bool {
+    fn irq_enabled(&self) -> bool {
         self.irq_enabled
     }
 
@@ -190,7 +213,7 @@ impl<'d> Sgi<'d> {
     }
 
     /// Enables DMA handshake for datain/dataout registers.
-    pub fn set_auto_dma_handshake(&mut self, input_fifo_enable: bool, output_fifo_enable: Option<bool>) {
+    pub(crate) fn set_auto_dma_handshake(&mut self, input_fifo_enable: bool, output_fifo_enable: Option<bool>) {
         let output_enable = output_fifo_enable.unwrap_or(false); // Default to false if not provided
 
         // Reserved bits are written as 0.
@@ -201,26 +224,22 @@ impl<'d> Sgi<'d> {
     }
 
     /// Configures the appropriate hash operation parameters (e.g. auto vs. normal mode, hash size, byte order) and enables the hash engine.
-    pub fn init_sgi_sha(&mut self, options: HashOptions) -> Result<(), SGIError> {
-        if self.is_busy() || self.is_sha2_busy() {
-            return Err(SGIError::Busy);
-        }
-        self.sgi_byte_order_big(options.byte_order_big)?; // Set byte order for input data.
+    pub(crate) fn init_sgi_sha(&mut self, options: HashOptions) -> Result<(), SGIError> {
+        self.sgi_byte_order_big(options.byte_order)?; // Set byte order for input data.
         let mut fifo_low_lim = 0u8;
         let mut fifo_high_lim = 0u8;
-        if options.op_mode == SGI_SHA2_CTRL_MODE_NORMAL {
+        if options.op_mode == HashMode::Normal {
             fifo_low_lim = SHA2_FIFO_LOW_LIM;
             fifo_high_lim = SHA2_FIFO_HIGH_LIM_NORMAL_BLOCK;
         }
 
-        let sha2_mode_auto = options.op_mode == SGI_SHA2_CTRL_MODE_AUTO;
-        let sha2_size = match options.hash_mode {
-            SGI_SHA2_CTRL_SIZE_SHA384 => 2u8,
-            SGI_SHA2_CTRL_SIZE_SHA512 => 3u8,
-            _ => return Err(SGIError::InvalidSize),
+        let sha2_mode_auto = options.op_mode == HashMode::Auto;
+        let sha2_size = match options.hash_size {
+            HashSize::Sha384 => 2u8,
+            HashSize::Sha512 => 3u8,
         };
-        let hash_reload = options.reload == SGI_SHA2_CTRL_HASH_RELOAD;
-        let no_auto_init = options.init == SGI_SHA2_CTRL_NO_AUTO_INIT;
+        let hash_reload = options.reload == HashReload::Reload;
+        let no_auto_init = options.init == HashInit::NoInit;
 
         // Enable hash engine with FIFO limits.
         self.periph.sgi_sha2_ctrl().write(|w| {
@@ -237,10 +256,11 @@ impl<'d> Sgi<'d> {
     }
 
     /// Configures byte order for SGI IO.
-    pub fn sgi_byte_order_big(&self, byte_order_big: bool) -> Result<(), SGIError> {
+    pub(crate) fn sgi_byte_order_big(&self, byte_order: ByteOrder) -> Result<(), SGIError> {
         if self.is_busy() || self.is_sha2_busy() {
             return Err(SGIError::Busy);
         }
+        let byte_order_big = byte_order == ByteOrder::BigEndian;
 
         // The hardware uses an inverted convention here in our existing driver:
         // - `byte_order_big = true` => clear BYTES_ORDER
@@ -252,18 +272,17 @@ impl<'d> Sgi<'d> {
     }
 
     /// Give command to start SGI hash operation. Fills buffer if normal mode.
-    pub fn start_sgi_hash(&mut self, options: HashOptions, data: &[u8]) -> Result<(), SGIError> {
+    pub(crate) fn start_sgi_hash(&mut self, options: HashOptions, data: &[u8]) -> Result<(), SGIError> {
         if self.is_busy() || self.is_sha2_busy() {
             return Err(SGIError::Busy);
         }
 
-        if options.op_mode == SGI_SHA2_CTRL_MODE_NORMAL {
+        if options.op_mode == HashMode::Normal {
             self.fill_sha2_fifo_normal(data)?;
         }
         // Keep as a single write to the CTRL register.
         self.periph.sgi_ctrl().write(|w| {
-            // crypto_op selects the kernel. For SHA2 this is 0b100 (4).
-            w.set_crypto_op(CRYPTO_OP_SHA2.into());
+            w.set_crypto_op((CryptoOp::Sha2 as u8).into());
             w.set_start((true as u8).into());
         });
         Ok(())
@@ -313,7 +332,7 @@ impl<'d> Sgi<'d> {
     }
 
     /// CPU driven FIFO filling for normal mode. Caller is responsible for starting the operation after filling the FIFO, and ensuring data size does not exceed FIFO capacity.
-    pub fn fill_sha2_fifo_normal(&mut self, data: &[u8]) -> Result<(), SGIError> {
+    fn fill_sha2_fifo_normal(&mut self, data: &[u8]) -> Result<(), SGIError> {
         const MAX_FIFO_NORM_WORD_SIZE: usize = 32;
         // Max size = (4 datain +  8 keyin) banks *  4 words per bank = 48 words = 192 bytes;
         // but we set it to 32 words (128 bytes) to fit one full SHA2 block, since the hardware processes data in blocks
@@ -330,25 +349,24 @@ impl<'d> Sgi<'d> {
     }
 
     /// Wrapper for normal/auto mode FIFO filling. Normal mode requires FIFO be filled prior to SHA2 operation start.
-    pub fn fill_sha2_fifo(&mut self, options: HashOptions, data: &[u8], length: usize) -> Result<(), SGIError> {
-        if options.op_mode == SGI_SHA2_CTRL_MODE_AUTO {
+    pub(crate) fn fill_sha2_fifo(&mut self, options: HashOptions, data: &[u8], length: usize) -> Result<(), SGIError> {
+        if options.op_mode == HashMode::Auto {
             self.fill_sha2_fifo_auto(data, length)?;
         }
         Ok(())
     }
 
     /// Helper to check if SHAFIFO is full and cannot accept more data.
-    pub fn is_sha2_fifo_full(&self) -> bool {
+    fn is_sha2_fifo_full(&self) -> bool {
         self.status().sha_fifo_full()
     }
 
     /// Fills SHAFIFO register using CPU writes in auto mode, with busy-waiting for FIFO availability.
-    pub fn fill_sha2_fifo_auto(&mut self, data: &[u8], length: usize) -> Result<(), SGIError> {
+    fn fill_sha2_fifo_auto(&mut self, data: &[u8], length: usize) -> Result<(), SGIError> {
         for chunk in data[..length].chunks_exact(4) {
             let word = u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
             while self.is_sha2_fifo_full() {
                 // Wait until there is space in the FIFO.
-                core::hint::spin_loop();
             }
             self.periph.sgi_sha_fifo().write(|w| w.set_fifo(word));
         }
@@ -357,7 +375,7 @@ impl<'d> Sgi<'d> {
 
     /// Fills SHAFIFO register using DMA in software start mode, handles misalignment and awaits completion in async manner.
     /// Returns immediately after starting the DMA transfer; caller should await completion and check for errors.
-    pub fn fill_sha2_fifo_dma_start<'a, 'd_dma>(
+    pub(crate) fn fill_sha2_fifo_dma_start<'a, 'd_dma>(
         &mut self,
         dma_ch: &'a mut DmaChannel<'d_dma>,
         data: &[u8],
@@ -403,13 +421,13 @@ impl<'d> Sgi<'d> {
         let transfer = Transfer::new(dma_ch.reborrow());
 
         #[cfg(feature = "defmt")]
-        defmt::info!("DMA started for {=usize} bytes (software-start, DSIZE=32)", length);
+        defmt::trace!("DMA started for {=usize} bytes (software-start, DSIZE=32)", length);
         Ok(transfer)
     }
 
     /// Checks for SGI peripheral errors (SHA2, key read, key unwrap). This should be called after checking that the operation is done,
     /// since some errors only get latched/reported once busy is de-asserted. Clears any errors after reading.
-    pub fn sgi_operation_error(&self) -> Result<(), SGIError> {
+    pub(crate) fn sgi_operation_error(&self) -> Result<(), SGIError> {
         let status = self.status();
         if status.sha_error() {
             return Err(SGIError::ShaError);
@@ -424,7 +442,7 @@ impl<'d> Sgi<'d> {
     }
 
     /// SGI instance error (encompasses internal (e.g. PRNG) errors and usage errors like invalid commands or data).
-    pub fn sgi_error(&self) -> Result<(), SGIError> {
+    pub(crate) fn sgi_error(&self) -> Result<(), SGIError> {
         let status = self.status();
         if status.error() != pac_sgi::vals::Error::NO_ERROR {
             self.clear_errors(); // Clear errors after reading
@@ -435,17 +453,17 @@ impl<'d> Sgi<'d> {
 
     /// SGI status busy bit indicates the peripheral is currently processing data and cannot accept new commands or data.
     /// This is independent from the SHA2 busy bit, which specifically indicates the hash engine is active.
-    pub fn is_busy(&self) -> bool {
+    fn is_busy(&self) -> bool {
         self.status().busy()
     }
 
     /// Checks if the SHA2 engine is busy processing data. This is independent from the BUSY bit, which may be de-asserted in error conditions.
-    pub fn is_sha2_busy(&self) -> bool {
+    fn is_sha2_busy(&self) -> bool {
         self.status().sha2_busy()
     }
 
     /// busy-waits with deterministic timeout for SHA2 completion, and returns a timeout error if it takes too long.
-    pub fn wait_until_sha2_not_busy(&mut self) -> Result<(), SGIError> {
+    pub(crate) fn wait_until_sha2_not_busy(&mut self) -> Result<(), SGIError> {
         let start_time = Instant::now();
         const MAX_WAIT_TIME_USEC: u64 = 1000; // 1 millisecond timeout for normal SHA2 operations.
         while self.is_sha2_busy() {
@@ -455,14 +473,13 @@ impl<'d> Sgi<'d> {
                 defmt::error!("Timeout waiting for SGI SHA2 operation to complete");
                 return Err(SGIError::Timeout);
             }
-            core::hint::spin_loop();
         }
         Ok(())
     }
 
     /// Read a block of output data from the SGI dataout registers into the provided buffer at the specified index.
     ///Note: This must be used by the update output functions after TRIGGER_UP to read the whole output.
-    pub(crate) fn read_dataout_block(&self, output: &mut [u8], idx: usize) -> Result<(), SGIError> {
+    fn read_dataout_block(&self, output: &mut [u8], idx: usize) -> Result<(), SGIError> {
         const TOTAL_DATAOUT_REGS: usize = 4; // DATOUTA, DATOUTB, DATOUTC, DATOUTD
         let words = [
             self.periph.sgi_datouta().read().datouta(),
@@ -478,7 +495,7 @@ impl<'d> Sgi<'d> {
     }
 
     ///Checks if PDONE interrupt is set, which indicates SHA2 operation completion. Also checks for errors.
-    pub fn interrupt_is_operation_done(&self) -> Result<bool, SGIError> {
+    fn interrupt_is_operation_done(&self) -> Result<bool, SGIError> {
         // Only report errors once the SHA2 engine is no longer busy.
         // This keeps error/timeout reporting consistent with the wait path.
         if self.is_sha2_busy() {
@@ -496,12 +513,12 @@ impl<'d> Sgi<'d> {
     }
 
     /// Clear the SGI operation-done interrupt flag.
-    pub fn clear_operation_interrupt(&self) {
+    fn clear_operation_interrupt(&self) {
         self.periph.sgi_int_status_clr().write(|w| w.set_int_clr(true));
     }
 
     ///Enables the SGI NVIC interrupt source.
-    pub fn enable_sgi_interrupt(&self) {
+    fn enable_sgi_interrupt(&self) {
         self.periph.sgi_int_enable().write(|w| w.set_int_en(true));
     }
 
@@ -510,7 +527,7 @@ impl<'d> Sgi<'d> {
     /// This clears any stale pending state and enables the SGI peripheral interrupt source.
     ///
     /// Call this *before* starting the SHA2 operation you intend to await.
-    pub fn enable_operation_done_interrupt(&self) {
+    pub(crate) fn enable_operation_done_interrupt(&self) {
         SGI_OP_DONE.store(false, Ordering::Release);
         self.clear_operation_interrupt();
         self.enable_sgi_interrupt();
@@ -521,17 +538,16 @@ impl<'d> Sgi<'d> {
     /// This is intended for async/DMA flows, to avoid busy-spinning on `sha2_busy`.
     ///
     /// Notes:
-    /// - NVIC enable is controlled by `Config.enable_interrupt` in `Sgi::new`.
+    /// - NVIC enable is controlled by `Config.interrupt` in `Sgi::new`.
     /// - Hardware error paths may deassert busy without generating an interrupt; this
     ///   function treats that as completion and returns the decoded error.
-    pub async fn wait_sha2_complete_irq(&mut self) -> Result<(), SGIError> {
-        // If the SGI NVIC line is disabled, the waiter will never be woken by an ISR.
-        // Fall back to a bounded busy-bit wait to avoid hanging forever.
-        if !self.irq_enabled {
-            self.wait_until_sha2_not_busy()?;
-            self.sgi_operation_error()?;
-            self.sgi_error()?;
-            return Ok(());
+    pub(crate) async fn wait_sha2_complete_irq(&mut self) -> Result<(), SGIError> {
+        if !self.irq_enabled() {
+            // We do not want to be blocking for an async operation, but async requires INT be enabled.
+            //Return error here when async is the expected functionality but interrupt is not enabled, to avoid hanging forever.
+            #[cfg(feature = "defmt")]
+            defmt::error!("SGI interrupt is not enabled, cannot wait for SHA2 completion via interrupt");
+            return Err(SGIError::InterruptNotEnabled);
         }
 
         let res = poll_fn(|cx| {
@@ -572,12 +588,12 @@ impl<'d> Sgi<'d> {
     }
 
     /// Clears SGI errors by flushing the registers.
-    pub fn clear_errors(&self) {
+    fn clear_errors(&self) {
         self.periph.sgi_ctrl2().write(|w| w.set_flush((true as u8).into()));
     }
 
     /// Issue stop command to halt the SHA2 operation.
-    pub fn sgi_stop_sha2_cmd(&self) {
+    pub(crate) fn sgi_stop_sha2_cmd(&self) {
         self.periph
             .sgi_sha2_ctrl()
             .modify(|w| w.set_sha2_stop((true as u8).into()));
@@ -585,13 +601,13 @@ impl<'d> Sgi<'d> {
 
     /// Reads the hash output from the SGI dataout registers into the provided buffer. This should be called after confirming operation completion,
     /// and it checks for errors before reading. It handles both normal and auto mode completion, including triggering additional reads for the larger SHA-512 outputs.
-    pub fn read_hash_output(&mut self, options: HashOptions, output: &mut [u8]) -> Result<(), SGIError> {
-        if options.hash_mode == SGI_SHA2_CTRL_SIZE_SHA384 && output.len() < 48 {
+    pub(crate) fn read_hash_output(&mut self, options: HashOptions, output: &mut [u8]) -> Result<(), SGIError> {
+        if options.hash_size == HashSize::Sha384 && output.len() < 48 {
             return Err(SGIError::BufferTooSmall);
-        } else if options.hash_mode == SGI_SHA2_CTRL_SIZE_SHA512 && output.len() < 64 {
+        } else if options.hash_size == HashSize::Sha512 && output.len() < 64 {
             return Err(SGIError::BufferTooSmall);
         }
-        if options.op_mode == SGI_SHA2_CTRL_MODE_AUTO {
+        if options.op_mode == HashMode::Auto {
             // Automatic mode
             self.periph
                 .sgi_sha2_ctrl()
@@ -599,14 +615,13 @@ impl<'d> Sgi<'d> {
             let mut loop_counter = 0;
             while self.is_busy() && loop_counter < 1000 {
                 loop_counter += 1;
-                core::hint::spin_loop();
                 // The de-assertion of the busy bit in auto mode is a single pulse; a simple
                 // count-based timeout is sufficient here.
             }
         }
         self.wait_until_sha2_not_busy()?;
 
-        self.sgi_byte_order_big(true)?; // SHA output is always in big-endian order, so set byte order accordingly for reading the output hash.
+        self.sgi_byte_order_big(ByteOrder::BigEndian)?; // SHA output is always in big-endian order, so set byte order accordingly for reading the output hash.
 
         if self.sgi_operation_error().is_err() {
             self.clear_errors(); // Clear errors after reading
@@ -617,10 +632,9 @@ impl<'d> Sgi<'d> {
             return Err(SGIError::HardwareError);
         }
 
-        let max_sha2_dataout_pass = match options.hash_mode {
-            SGI_SHA2_CTRL_SIZE_SHA384 => 2,
-            SGI_SHA2_CTRL_SIZE_SHA512 => 3,
-            _ => 0,
+        let max_sha2_dataout_pass = match options.hash_size {
+            HashSize::Sha384 => 2,
+            HashSize::Sha512 => 3,
         }; // each pass reads 4 * 4 bytes = 16 bytes, so for SHA-384 we need 2 passes, for SHA-512 we need 3 passes; AFTER the first END_UP reading.
         let idx: usize = 0;
 
@@ -628,7 +642,7 @@ impl<'d> Sgi<'d> {
 
         for i in 0..max_sha2_dataout_pass {
             self.periph.sgi_ctrl().write(|w| {
-                w.set_datout_res(DATOUT_RES_TRIGGER_UP.into());
+                w.set_datout_res((DataOutRes::TriggerUp as u8).into());
                 w.set_start((true as u8).into());
             });
             self.wait_until_sha2_not_busy()?;
@@ -638,11 +652,11 @@ impl<'d> Sgi<'d> {
     }
 
     /// To be used with partial modes. This function reads the current hash output (64 bytes for SHA2) and it can be stored in Ctx and reloaded later.
-    pub fn update_partial_output(&mut self, options: HashOptions, output: &mut [u8]) -> Result<(), SGIError> {
+    pub(crate) fn update_partial_output(&mut self, options: HashOptions, output: &mut [u8]) -> Result<(), SGIError> {
         if output.len() < 64 {
             return Err(SGIError::BufferTooSmall);
         }
-        if options.op_mode == SGI_SHA2_CTRL_MODE_AUTO {
+        if options.op_mode == HashMode::Auto {
             // Automatic mode
             self.periph
                 .sgi_sha2_ctrl()
@@ -650,14 +664,13 @@ impl<'d> Sgi<'d> {
             let mut loop_counter = 0;
             while self.is_busy() && loop_counter < 1000 {
                 loop_counter += 1;
-                core::hint::spin_loop();
                 // The de-assertion of the busy bit in auto mode is a single pulse; a simple
                 // count-based timeout is sufficient here.
             }
         }
         self.wait_until_sha2_not_busy()?;
 
-        self.sgi_byte_order_big(true)?; // SHA output is always in big-endian order, so set byte order accordingly for reading the output hash.
+        self.sgi_byte_order_big(ByteOrder::BigEndian)?; // SHA output is always in big-endian order, so set byte order accordingly for reading the output hash.
 
         if self.sgi_operation_error().is_err() {
             self.clear_errors();
@@ -675,7 +688,7 @@ impl<'d> Sgi<'d> {
 
         for i in 0..max_sha2_dataout_pass {
             self.periph.sgi_ctrl().write(|w| {
-                w.set_datout_res(DATOUT_RES_TRIGGER_UP.into());
+                w.set_datout_res((DataOutRes::TriggerUp as u8).into());
                 w.set_start((true as u8).into());
             });
             self.wait_until_sha2_not_busy()?;
@@ -685,12 +698,16 @@ impl<'d> Sgi<'d> {
     }
 
     /// Reloads a previously computed partial hash result back into SGI internal hash registers.
-    pub fn sgi_hash_reload(&mut self, mut options: HashOptions, prev_hash_result: &[u8]) -> Result<(), SGIError> {
+    pub(crate) fn sgi_hash_reload(
+        &mut self,
+        mut options: HashOptions,
+        prev_hash_result: &[u8],
+    ) -> Result<(), SGIError> {
         // Reload the internal hash state using the DATIN path (NORMAL mode) with HASH_RELOAD enabled.
         // This must NOT auto-init, otherwise the hardware IV would overwrite the provided state.
-        options.op_mode = SGI_SHA2_CTRL_MODE_NORMAL;
-        options.reload = SGI_SHA2_CTRL_HASH_RELOAD; // Set reload bit for hash reload operation
-        options.init = SGI_SHA2_CTRL_NO_AUTO_INIT; // Clear auto init bit for hash reload operation, since we are providing the hash state to be reloaded and don't want SGI to overwrite it with IV.
+        options.op_mode = HashMode::Normal; // Use normal mode for hash reload to allow loading the hash state through the datain registers.
+        options.reload = HashReload::Reload; // Set reload bit for hash reload operation
+        options.init = HashInit::NoInit; // Clear auto init bit for hash reload operation, since we are providing the hash state to be reloaded and don't want SGI to overwrite it with IV.
 
         if prev_hash_result.len() != SGI_HASH_OUTPUT_SIZE as usize {
             return Err(SGIError::InvalidSize);
@@ -705,4 +722,3 @@ impl<'d> Sgi<'d> {
         Ok(())
     }
 }
-
