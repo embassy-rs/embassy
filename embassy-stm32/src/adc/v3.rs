@@ -265,27 +265,44 @@ impl super::AdcRegs for crate::pac::adc::Adc {
                     reg.set_dmaen(true);
                 });
             }
-            #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
             ConversionMode::Repeated(trigger) => {
-                regs.modify(|reg| {
-                    reg.set_discen(false);
-                    #[cfg(adc_g0)]
-                    {
-                        // Configure trigger edge (rising, falling, or both)
-                        reg.set_exten(trigger.edge);
-                        // Convert u8 signal to Extsel enum
-                        // Safety: trigger.signal is guaranteed to be a valid trigger number
-                        reg.set_extsel(unsafe { core::mem::transmute(trigger.signal) });
-                        // Triggered, not continuous
-                        reg.set_cont(false);
-                    }
-                    #[cfg(not(adc_g0))]
-                    {
+                #[cfg(not(adc_g0))]
+                {
+                    let _ = trigger; // Suppress unused variable warning
+                    // For non-G0 variants, only continuous conversions are supported
+                    regs.modify(|reg| {
+                        reg.set_discen(false);
                         reg.set_cont(true);
+                        reg.set_dmacfg(Dmacfg::CIRCULAR);
+                        reg.set_dmaen(true);
+                    });
+                }
+                #[cfg(adc_g0)]
+                match trigger.signal {
+                    u8::MAX => {
+                        // continuous conversions
+                        regs.modify(|reg| {
+                            reg.set_discen(false);
+                            reg.set_cont(true);
+                            reg.set_dmacfg(Dmacfg::CIRCULAR);
+                            reg.set_dmaen(true);
+                        });
                     }
-                    reg.set_dmacfg(Dmacfg::CIRCULAR);
-                    reg.set_dmaen(true);
-                });
+                    _ => {
+                        regs.modify(|reg| {
+                            reg.set_discen(false);
+                            reg.set_cont(false); // New trigger is needed for each sample to be read
+                            reg.set_dmacfg(Dmacfg::CIRCULAR);
+                            reg.set_dmaen(true);
+                            // Configure trigger edge (rising, falling, or both)
+                            reg.set_exten(trigger.edge);
+                            reg.set_extsel(trigger.signal.into());
+                        });
+
+                        // Regular conversions uses DMA so no need to generate interrupt
+                        self.ier().modify(|r| r.set_eosie(false));
+                    }
+                }
             }
         }
     }
