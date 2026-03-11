@@ -68,6 +68,9 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// info!("ADC sample is high {}", v_high);
     /// ```
     pub async fn monitor_watchdog(&mut self, sample_time: SampleTime) -> u16 {
+        let _scoped_wake_guard = <T as crate::rcc::SealedRccPeripheral>::RCC_INFO.wake_guard();
+        self.enable();
+
         assert!(
             match T::regs().cfgr1().read().awdsgl() {
                 Awdsgl::SINGLE_CHANNEL => T::regs().cfgr1().read().awdch() != 0,
