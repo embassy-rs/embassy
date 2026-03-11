@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.8.0 - 2026-03-11
+
 ## 0.7.0 - 2026-01-04
 
 - Update embassy-stm32 version
