@@ -443,21 +443,24 @@ where
     }
     /// Start injected ADC conversion
     pub(super) fn start_injected_conversions() {
-        T::regs().cr2().modify(|w| w.set_jswstart(true));
         T::regs().sr().modify(|w| w.set_jeoc(false));
+        // T::regs().cr2().modify(|w| w.set_jswstart(true));
     }
 }
 impl<'a, T: Instance<Regs = crate::pac::adc::Adc>, const N: usize> InjectedAdc<'a, T, N> {
     /// Read sampled data from all injected ADC injected ranks
-    /// Clear the JEOS flag to allow a new injected sequence
+    /// Clear the JEOC and JSTRT flags to allow a new injected sequence
     pub(super) fn read_injected_data() -> [u16; N] {
         let mut data = [0u16; N];
         for i in 0..N {
             data[i] = T::regs().jdr(i).read().jdata();
         }
 
-        // Clear JEOS by writing 1
-        T::regs().sr().modify(|r| r.set_jeoc(true));
+        // Clear JEOC and JSTRT
+        T::regs().sr().modify(|w| {
+            w.set_jeoc(false);
+            w.set_jstrt(false);
+        });
         data
     }
 }
