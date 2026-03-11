@@ -322,7 +322,6 @@ where
 
         T::regs().enable();
 
-        // TODO: check if this one is needed at all
         T::regs().cr1().modify(|w| w.set_jauto(false));
         // Set injected sequence length
         T::regs().jsqr().modify(|w| w.set_jl(N as u8 - 1));
@@ -339,19 +338,16 @@ where
                     .modify(|reg| reg.set_smp((channel.channel() - 10) as _, sample_time));
             }
 
-            let idx = match n {
-                0..=3 => n,
-                4..=8 => n - 4,
-                9..=13 => n - 9,
-                14..=15 => n - 14,
-                _ => unreachable!(),
-            };
+            // On adc_v2/F4, injected JSQ rank field placement depends on the
+            // programmed sequence length (JL). ST's HAL uses:
+            //   shift = 5 * ((rank + 3) - sequence_len)
+            // with rank starting at 1.
+            let idx = n + (4 - N);
 
             T::regs().jsqr().modify(|w| w.set_jsq(idx, channel.channel()));
         }
 
         T::regs().cr1().modify(|w| {
-            // Scanning conversions of multiple channels
             w.set_scan(true);
             w.set_jdiscen(false);
             w.set_jeocie(interrupt);
@@ -443,8 +439,17 @@ where
     }
     /// Start injected ADC conversion
     pub(super) fn start_injected_conversions() {
-        T::regs().sr().modify(|w| w.set_jeoc(false));
-        // T::regs().cr2().modify(|w| w.set_jswstart(true));
+        T::regs().sr().modify(|w| {
+            w.set_jeoc(false);
+            w.set_jstrt(false);
+        });
+
+        // On STM32F4 adc_v2, externally-triggered injected conversions are armed
+        // by JEXTEN and start on the next trigger event. JSWSTART is only valid
+        // for pure software-triggered injected conversions.
+        if T::regs().cr2().read().jexten() == vals::Exten::DISABLED {
+            T::regs().cr2().modify(|w| w.set_jswstart(true));
+        }
     }
 }
 impl<'a, T: Instance<Regs = crate::pac::adc::Adc>, const N: usize> InjectedAdc<'a, T, N> {
