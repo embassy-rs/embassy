@@ -143,4 +143,9 @@ impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
     pub fn count(&self) -> u16 {
         self.inner.regs_gp16().cnt().read().cnt()
     }
+
+    /// Reset count.
+    pub fn reset(&mut self) {
+        self.inner.regs_gp16().cnt().modify(|w| w.set_cnt(0));
+    }
 }
