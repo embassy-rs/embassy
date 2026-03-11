@@ -1,0 +1,203 @@
+# STM32N6570-DK Flash Boot - Build, Sign, Flash Orchestration
+#
+# Prerequisites:
+#   - cargo-binutils: `cargo install cargo-binutils`
+#   - STM32CubeProgrammer (for signing tool)
+#   - probe-rs: `cargo install probe-rs-tools`
+#
+# Usage:
+#   just build        # Build both FSBL and app
+#   just flash-all    # Build, sign, flash everything
+#   just test-dfu     # Test DFU update flow
+#
+# If probe-rs cannot flash external flash, use the stm32-* recipes instead.
+
+# Tool paths (auto-detect macOS vs Linux; override with `just --set stm32_bin /custom/path`)
+stm32_bin := if os() == "macos" {
+    "/Applications/STMicroelectronics/STM32Cube/STM32CubeProgrammer/STM32CubeProgrammer.app/Contents/Resources/bin"
+} else {
+    "/usr/local/STMicroelectronics/STM32Cube/STM32CubeProgrammer/bin"
+}
+
+signing_tool := stm32_bin / "STM32_SigningTool_CLI"
+programmer := stm32_bin / "STM32_Programmer_CLI"
+ext_loader := stm32_bin / "ExternalLoader" / "MX66UW1G45G_STM32N6570-DK.stldr"
+
+# Memory layout constants
+active_addr := "0x70100000"
+dfu_addr := "0x70300000"
+state_addr := "0x70500000"
+
+target := "thumbv8m.main-none-eabihf"
+chip := "STM32N657"
+uhubctl_serial := "0025001C3234510E33353533"
+
+# Power-cycle the board via uhubctl (skips if not installed)
+powercycle:
+    #!/usr/bin/env bash
+    if command -v uhubctl &>/dev/null; then
+        uhubctl -a cycle -s {{uhubctl_serial}} -d 2
+        sleep 1
+    else
+        echo "Note: uhubctl not found — install it for automatic board power-cycling"
+    fi
+
+# === Build ===
+
+# Build FSBL bootloader
+build-fsbl:
+    cargo build --release -p stm32n6-fsbl
+
+# Build application
+build-app:
+    cargo build --release -p stm32n6-app
+
+# Build both
+build:
+    cargo build --release
+
+# === Binary conversion ===
+
+# Convert FSBL ELF to raw binary
+fsbl-bin: build-fsbl
+    rust-objcopy -O binary target/{{target}}/release/stm32n6-fsbl target/fsbl.bin
+
+# Convert app ELF to raw binary
+app-bin: build-app
+    rust-objcopy -O binary target/{{target}}/release/stm32n6-app target/app.bin
+
+# === Signing ===
+
+# Sign FSBL for boot ROM (required for STM32N6 boot)
+# -align is required: without it, the signing tool reads the entry point from offset
+# 0x70 of the binary (a vector table entry = DefaultHandler) instead of the actual
+# reset vector. With -align, the payload is padded to 0x400 and the correct entry
+# point (offset 0x04 = Cortex-M reset vector) is extracted.
+sign-fsbl: fsbl-bin
+    {{signing_tool}} -bin target/fsbl.bin -nk -of 0x80000000 -t fsbl -o target/fsbl-trusted.bin -hv 2.3 -align -dump target/fsbl-trusted.bin -s
+
+# Sign app firmware (adds 0x400 header; app code starts at ACTIVE+0x400)
+sign-app: app-bin
+    {{signing_tool}} -bin target/app.bin -nk -of 0x80000000 -t fsbl -o target/app-trusted.bin -hv 2.3 -align -dump target/app-trusted.bin -s
+
+# === Flashing (probe-rs) ===
+
+# Flash signed FSBL to external flash at 0x70000000
+flash-fsbl: sign-fsbl powercycle
+    probe-rs download --chip {{chip}} --binary-format bin --base-address 0x70000000 target/fsbl-trusted.bin
+
+# Flash signed app to ACTIVE partition
+flash-app: sign-app powercycle
+    probe-rs download --chip {{chip}} --binary-format bin --base-address {{active_addr}} target/app-trusted.bin
+
+# Flash everything (FSBL + app) and erase state
+flash-all: sign-fsbl sign-app powercycle
+    probe-rs download --chip {{chip}} --binary-format bin --base-address 0x70000000 target/fsbl-trusted.bin
+    probe-rs download --chip {{chip}} --binary-format bin --base-address {{active_addr}} target/app-trusted.bin
+    just erase-state
+    @echo "Flash complete. Set BOOT switches to LOW and reset the board."
+
+# === State management ===
+
+# Erase STATE partition (write 0xFF = NOR flash erased state)
+erase-state:
+    dd if=/dev/zero bs=1 count=12288 2>/dev/null | tr '\0' '\377' > /tmp/erase_state.bin
+    probe-rs download --chip {{chip}} --binary-format bin --base-address {{state_addr}} /tmp/erase_state.bin
+
+# Write SWAP_MAGIC (0xF0) to trigger swap on next boot
+trigger-swap:
+    @echo "Writing SWAP_MAGIC to STATE partition..."
+    printf '\xf0\xf0\xf0\xf0' > /tmp/swap_magic.bin
+    probe-rs download --chip {{chip}} --binary-format bin --base-address {{state_addr}} /tmp/swap_magic.bin
+
+# Write BOOT_MAGIC (0xD0) to mark boot successful from host
+mark-booted:
+    @echo "Writing BOOT_MAGIC to STATE partition..."
+    just erase-state
+    printf '\xd0\xd0\xd0\xd0' > /tmp/boot_magic.bin
+    probe-rs download --chip {{chip}} --binary-format bin --base-address {{state_addr}} /tmp/boot_magic.bin
+
+# Read STATE partition (debug)
+read-state:
+    probe-rs read --chip {{chip}} {{state_addr}} 16
+
+# === DFU Update Testing ===
+
+# Flash updated app to DFU partition and trigger swap
+test-dfu: sign-app
+    @echo "Flashing app to DFU partition..."
+    probe-rs download --chip {{chip}} --binary-format bin --base-address {{dfu_addr}} target/app-trusted.bin
+    just trigger-swap
+    @echo ""
+    @echo "DFU staged and swap triggered!"
+    @echo "Reset the board to boot the new firmware."
+    @echo "The app will call mark_booted() after 2s."
+    @echo "To test revert: power-cycle before the 2s window."
+
+# === Flashing (STM32_Programmer_CLI fallback) ===
+
+# Flash signed FSBL via STM32_Programmer_CLI
+stm32-flash-fsbl: sign-fsbl powercycle
+    {{programmer}} -c port=SWD mode=HOTPLUG -el {{ext_loader}} -d target/fsbl-trusted.bin 0x70000000
+
+# Flash signed app to ACTIVE partition via STM32_Programmer_CLI
+stm32-flash-app: sign-app powercycle
+    {{programmer}} -c port=SWD mode=HOTPLUG -el {{ext_loader}} -d target/app-trusted.bin {{active_addr}}
+
+# Flash everything via STM32_Programmer_CLI
+stm32-flash-all: sign-fsbl sign-app powercycle
+    {{programmer}} -c port=SWD mode=HOTPLUG -el {{ext_loader}} -d target/fsbl-trusted.bin 0x70000000
+    {{programmer}} -c port=SWD mode=HOTPLUG -el {{ext_loader}} -d target/app-trusted.bin {{active_addr}}
+    just stm32-erase-state
+    @echo "Flash complete. Set BOOT switches to LOW and reset the board."
+
+# Erase STATE partition via STM32_Programmer_CLI (write 0xFF = NOR erased state)
+stm32-erase-state:
+    dd if=/dev/zero bs=1 count=12288 2>/dev/null | tr '\0' '\377' > /tmp/erase_state.bin
+    {{programmer}} -c port=SWD mode=HOTPLUG -el {{ext_loader}} -d /tmp/erase_state.bin {{state_addr}}
+
+# Write SWAP_MAGIC via STM32_Programmer_CLI
+stm32-trigger-swap:
+    @echo "Writing SWAP_MAGIC to STATE partition..."
+    printf '\xf0\xf0\xf0\xf0' > /tmp/swap_magic.bin
+    {{programmer}} -c port=SWD mode=HOTPLUG -el {{ext_loader}} -d /tmp/swap_magic.bin {{state_addr}}
+
+# Write BOOT_MAGIC via STM32_Programmer_CLI
+stm32-mark-booted:
+    just stm32-erase-state
+    printf '\xd0\xd0\xd0\xd0' > /tmp/boot_magic.bin
+    {{programmer}} -c port=SWD mode=HOTPLUG -el {{ext_loader}} -d /tmp/boot_magic.bin {{state_addr}}
+
+# Read STATE partition via STM32_Programmer_CLI
+stm32-read-state:
+    {{programmer}} -c port=SWD mode=HOTPLUG -el {{ext_loader}} -r32 {{state_addr}} 16
+
+# Flash app to DFU partition and trigger swap via STM32_Programmer_CLI
+stm32-test-dfu: sign-app
+    @echo "Flashing app to DFU partition..."
+    {{programmer}} -c port=SWD mode=HOTPLUG -el {{ext_loader}} -d target/app-trusted.bin {{dfu_addr}}
+    just stm32-trigger-swap
+    @echo ""
+    @echo "DFU staged and swap triggered! Reset the board."
+
+# === Debugging ===
+
+# Attach to running FSBL with defmt RTT output
+attach-fsbl: powercycle
+    probe-rs attach --chip {{chip}} target/{{target}}/release/stm32n6-fsbl
+
+# Flash FSBL and attach for debugging (probe-rs)
+debug-fsbl: sign-fsbl powercycle
+    probe-rs download --chip {{chip}} --binary-format bin --base-address 0x70000000 target/fsbl-trusted.bin
+    just attach-fsbl
+
+# Flash FSBL and attach for debugging (STM32_Programmer_CLI)
+stm32-debug-fsbl: sign-fsbl powercycle
+    {{programmer}} -c port=SWD mode=HOTPLUG -el {{ext_loader}} -d target/fsbl-trusted.bin 0x70000000
+    just attach-fsbl
+
+# === Utilities ===
+
+# Clean build artifacts
+clean:
+    cargo clean
