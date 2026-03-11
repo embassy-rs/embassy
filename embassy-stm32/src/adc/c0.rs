@@ -99,17 +99,33 @@ impl AdcRegs for crate::pac::adc::Adc {
                 });
             }
             ConversionMode::Repeated(trigger) => {
-                self.cfgr1().modify(|reg| {
-                    reg.set_discen(false);
-                    // Configure trigger edge (rising, falling, or both)
-                    reg.set_exten(trigger.edge);
-                    reg.set_extsel(trigger.signal);
-                    // Continuous DMA with circular mode
-                    reg.set_cont(false); // Triggered, not continuous
-                    reg.set_dmacfg(Dmacfg::DMA_CIRCULAR);
-                    reg.set_dmaen(true);
-                    reg.set_ovrmod(Ovrmod::OVERWRITE);
-                });
+                match trigger.signal {
+                    u8::MAX => {
+                        // continuous conversions
+                        self.cfgr1().modify(|reg| {
+                            reg.set_discen(false);
+                            reg.set_cont(true);
+                            reg.set_dmacfg(Dmacfg::DMA_CIRCULAR);
+                            reg.set_dmaen(true);
+                            reg.set_ovrmod(Ovrmod::OVERWRITE);
+                        });
+                    }
+                    _ => {
+                        self.cfgr1().modify(|reg| {
+                            reg.set_discen(false);
+                            reg.set_cont(false); // Triggered, not continuous
+                            reg.set_dmacfg(Dmacfg::DMA_CIRCULAR);
+                            reg.set_dmaen(true);
+                            reg.set_ovrmod(Ovrmod::OVERWRITE);
+                            // Configure trigger edge (rising, falling, or both)
+                            reg.set_exten(trigger.edge);
+                            reg.set_extsel(trigger.signal);
+                        });
+
+                        // Regular conversions uses DMA so no need to generate interrupt
+                        self.ier().modify(|r| r.set_eosie(false));
+                    }
+                }
             }
         }
     }
