@@ -1,0 +1,26 @@
+[package]
+name = "embassy-usb-host-driver"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Driver trait for `embassy-usb-host`, an async USB host stack for embedded devices."
+keywords = ["embedded", "async", "usb", "hal", "embedded-hal"]
+categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-usb-host-driver"
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-usb-host-driver-v$VERSION/embassy-usb-host-driver/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-usb-host-driver/src/"
+features = ["defmt"]
+target = "thumbv7em-none-eabi"
+
+[package.metadata.docs.rs]
+features = ["defmt"]
+
+[dependencies]
+embedded-io-async = "0.7.0"
+defmt = { version = "1", optional = true }
+
+[features]
+defmt = ["dep:defmt"]

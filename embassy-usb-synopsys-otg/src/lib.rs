@@ -23,6 +23,9 @@ use crate::fmt::Bytes;
 
 pub mod otg_v1;
 
+#[cfg(feature = "host")]
+pub mod host;
+
 use otg_v1::{Otg, regs, vals};
 
 /// Handle interrupts.
