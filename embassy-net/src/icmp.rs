@@ -277,7 +277,7 @@ impl<'a> IcmpSocket<'a> {
     /// This method will wait until the buffer can fit the requested size before
     /// passing it to the closure. The closure returns the number of bytes
     /// written into the buffer.
-    pub async fn send_to_with<T, F, R>(&mut self, max_size: usize, remote_endpoint: T, f: F) -> Result<R, SendError>
+    pub async fn send_to_with<T, F, R>(&self, max_size: usize, remote_endpoint: T, f: F) -> Result<R, SendError>
     where
         T: Into<IpAddress>,
         F: FnOnce(&mut [u8]) -> (usize, R),
@@ -589,7 +589,7 @@ pub mod ping {
             // Send with timeout the ICMP packet filling it with the helper function
             let send_result = socket
                 .send_to_with(ping_repr.buffer_len(), params.target.unwrap(), |buf| {
-                    fill_packet_buffer(buf, ping_repr)
+                    (buf.len(), fill_packet_buffer(buf, ping_repr))
                 })
                 .with_timeout(Duration::from_millis(100))
                 .await;
@@ -660,7 +660,7 @@ pub mod ping {
             // Send with timeout the ICMP packet filling it with the helper function
             let send_result = socket
                 .send_to_with(ping_repr.buffer_len(), params.target.unwrap(), |buf| {
-                    fill_packet_buffer(buf, ping_repr, params)
+                    (buf.len(), fill_packet_buffer(buf, ping_repr, params))
                 })
                 .with_timeout(Duration::from_millis(100))
                 .await;

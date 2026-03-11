@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased - ReleaseDate
 
 - raw: Removed unnecessary Driver type parameter from `RawSocket::new`
-- `{UdpSocket, IcmpSocket}::send_to_with` now support writing less than `max_size` into the buffer by returning the number of bytes written from the closure
+- `{UdpSocket, IcmpSocket}::send_to_with` now take `&self` instead of `&mut self`, and support writing less than `max_size` into the buffer by returning the number of bytes written from the closure
 
 ## 0.8.0 - 2026-01-04
 
