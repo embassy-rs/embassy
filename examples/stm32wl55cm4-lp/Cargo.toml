@@ -21,7 +21,7 @@ embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["de
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = [
   "defmt",
 ]}
-embassy-time = { version = "0.6.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-1_000_000"] }
+embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-1_000_000"] }
 
 defmt = "1.0.1"
 defmt-rtt = { version = "1.0.0", optional = true }

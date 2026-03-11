@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
-## 0.6.0 - 2026-03-10
+## 0.5.1 - 2026-03-11
 
 - Add as_nanos and from_nanos where missing
 - Added 375KHz tick rate support

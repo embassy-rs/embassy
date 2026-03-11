@@ -8,7 +8,7 @@ publish = false
 [dependencies]
 # NOTE: "scheduler-deadline" and "embassy-time-driver" features are enabled
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "scheduler-deadline", "embassy-time-driver"] }
-embassy-time = { version = "0.6.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
+embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-nrf = { version = "0.10.0", path = "../../embassy-nrf", features = ["defmt", "nrf52840", "time-driver-rtc1", "gpiote", "unstable-pac", "time"] }
 
 defmt = "1.0.1"

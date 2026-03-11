@@ -25,7 +25,7 @@ embassy-executor = { version = "0.10.0", path = "../../embassy-executor", featur
   "executor-interrupt",
   "defmt",
 ] }
-embassy-time = { version = "0.6.0", path = "../../embassy-time", features = [
+embassy-time = { version = "0.5.1", path = "../../embassy-time", features = [
   "defmt",
   "defmt-timestamp-uptime",
   "tick-hz-32_768",

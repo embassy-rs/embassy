@@ -107,7 +107,7 @@ smoltcp = {  git = "https://github.com/smoltcp-rs/smoltcp", rev = "52b224a0f30e0
 ] }
 
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
-embassy-time = { version = "0.6.0", path = "../embassy-time" }
+embassy-time = { version = "0.5.1", path = "../embassy-time" }
 embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
 embedded-io-async = { version = "0.7.0" }
 
