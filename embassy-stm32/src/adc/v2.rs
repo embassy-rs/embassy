@@ -1,3 +1,4 @@
+use core::mem;
 use core::sync::atomic::{Ordering, compiler_fence};
 
 use super::{AnyAdcChannel, ConversionMode, Temperature, Vbat, VrefInt, blocking_delay_us};
@@ -5,7 +6,6 @@ use crate::adc::{
     Adc, AdcRegs, BasicAdcRegs, InjectedTrigger, Instance, RegularTrigger, Resolution, RxDma, SampleTime,
     SealedAdcChannel,
 };
-use core::mem;
 use crate::pac::adc::vals;
 pub use crate::pac::adccommon::vals::Adcpre;
 use crate::time::Hertz;
