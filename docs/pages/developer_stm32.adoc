@@ -1,4 +1,4 @@
-= Developer Documentation: STM32
+= STM32
 
 == Understanding metapac
 
