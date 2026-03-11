@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Signal link state based on link attach to prevent too early transmit confusing LTE modem.
 - Upgrade embassy-time to 0.6.0
 - Upgrade embassy-sync to 0.8.0
-- Upgrade embassy-net-driver-channel to 0.3.3
+- Update embassy-net-driver-channel to 0.4.0
 
 ## 0.1.0 - 2025-12-15
 

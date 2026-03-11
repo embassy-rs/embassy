@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.4.0 - 2026-03-11
+
 ## 0.3.3 - 2026-03-10
 
 - Update embassy-sync to 0.8.0
