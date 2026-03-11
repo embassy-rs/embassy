@@ -11,8 +11,8 @@ use embassy_usb_host_driver::{
     HostChannel as HostChannelTrait, HostDriver as HostDriverTrait, PortEvent, TransferError,
 };
 
-use crate::otg_v1::{Otg, vals};
 use crate::PhyType;
+use crate::otg_v1::{Otg, vals};
 
 // Channel transfer result codes stored atomically.
 const CH_RESULT_NONE: u8 = 0;
@@ -189,11 +189,7 @@ pub unsafe fn on_host_interrupt<const CH_COUNT: usize>(r: Otg, state: &HostState
                     if remaining > 0 {
                         let word = r.fifo(0).read().0;
                         unsafe {
-                            core::ptr::copy_nonoverlapping(
-                                word.to_ne_bytes().as_ptr(),
-                                dst.add(offset),
-                                remaining,
-                            );
+                            core::ptr::copy_nonoverlapping(word.to_ne_bytes().as_ptr(), dst.add(offset), remaining);
                         }
                     }
                     unsafe {
@@ -682,7 +678,9 @@ impl<const CH_COUNT: usize> Channel<CH_COUNT> {
         r.hcint(ch).write_value(crate::otg_v1::regs::Hcint(0xFFFF_FFFF));
 
         // Clear result
-        self.state().channels[ch].result.store(CH_RESULT_NONE, Ordering::Release);
+        self.state().channels[ch]
+            .result
+            .store(CH_RESULT_NONE, Ordering::Release);
     }
 
     fn enable_channel(&self) {
@@ -775,12 +773,7 @@ impl<const CH_COUNT: usize> Channel<CH_COUNT> {
     }
 
     /// Execute an OUT transfer on this channel, retrying on NAK.
-    async fn do_out_transfer(
-        &mut self,
-        ep_type: EndpointType,
-        data: &[u8],
-        dpid: u8,
-    ) -> Result<(), TransferError> {
+    async fn do_out_transfer(&mut self, ep_type: EndpointType, data: &[u8], dpid: u8) -> Result<(), TransferError> {
         let pktcnt = if data.is_empty() {
             1
         } else {
@@ -860,11 +853,7 @@ impl<const CH_COUNT: usize> HostChannelTrait for Channel<CH_COUNT> {
                     let mut offset = 0;
                     let mut toggle = true; // DATA1
                     while offset < data.len() {
-                        let dpid = if toggle {
-                            vals::Dpid::DATA1
-                        } else {
-                            vals::Dpid::DATA0
-                        };
+                        let dpid = if toggle { vals::Dpid::DATA1 } else { vals::Dpid::DATA0 };
                         let remaining = &mut data[offset..];
                         let chunk_size = remaining.len().min(self.max_packet_size as usize);
                         let n = self
@@ -888,19 +877,11 @@ impl<const CH_COUNT: usize> HostChannelTrait for Channel<CH_COUNT> {
                     let mut offset = 0;
                     let mut toggle = true; // DATA1
                     while offset < data.len() {
-                        let dpid = if toggle {
-                            vals::Dpid::DATA1
-                        } else {
-                            vals::Dpid::DATA0
-                        };
+                        let dpid = if toggle { vals::Dpid::DATA1 } else { vals::Dpid::DATA0 };
                         let remaining = &data[offset..];
                         let chunk_size = remaining.len().min(self.max_packet_size as usize);
-                        self.do_out_transfer(
-                            EndpointType::Control,
-                            &remaining[..chunk_size],
-                            dpid.to_bits(),
-                        )
-                        .await?;
+                        self.do_out_transfer(EndpointType::Control, &remaining[..chunk_size], dpid.to_bits())
+                            .await?;
                         offset += chunk_size;
                         toggle = !toggle;
                     }

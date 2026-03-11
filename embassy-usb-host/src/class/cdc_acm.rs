@@ -49,7 +49,13 @@ impl LineCoding {
     fn to_bytes(&self) -> [u8; 7] {
         let baud = self.baud_rate.to_le_bytes();
         [
-            baud[0], baud[1], baud[2], baud[3], self.stop_bits, self.parity, self.data_bits,
+            baud[0],
+            baud[1],
+            baud[2],
+            baud[3],
+            self.stop_bits,
+            self.parity,
+            self.data_bits,
         ]
     }
 }
@@ -132,8 +138,7 @@ pub fn find_cdc_acm(config_desc: &[u8]) -> Option<CdcAcmInfo> {
                 if let Some(iface) = InterfaceDescriptor::parse(desc_data) {
                     current_iface_class = iface.interface_class;
 
-                    if iface.interface_class == USB_CLASS_CDC && iface.interface_subclass == CDC_SUBCLASS_ACM
-                    {
+                    if iface.interface_class == USB_CLASS_CDC && iface.interface_subclass == CDC_SUBCLASS_ACM {
                         comm_iface = Some(iface.interface_number);
                     } else if iface.interface_class == USB_CLASS_CDC_DATA {
                         data_iface = Some(iface.interface_number);
@@ -188,12 +193,7 @@ impl<B: HostBus> CdcAcmHost<B> {
     /// Create a new CDC ACM host driver.
     ///
     /// Parses the config descriptor to find CDC ACM endpoints and allocates channels.
-    pub fn new(
-        bus: &B,
-        config_desc: &[u8],
-        device_address: u8,
-        speed: DeviceSpeed,
-    ) -> Result<Self, CdcAcmError> {
+    pub fn new(bus: &B, config_desc: &[u8], device_address: u8, speed: DeviceSpeed) -> Result<Self, CdcAcmError> {
         let info = find_cdc_acm(config_desc).ok_or(CdcAcmError::NoInterface)?;
 
         let ctrl_ep = DeviceEndpoint {
@@ -238,29 +238,17 @@ impl<B: HostBus> CdcAcmHost<B> {
     /// Set the line coding (baud rate, data bits, parity, stop bits).
     pub async fn set_line_coding(&mut self, coding: &LineCoding) -> Result<(), CdcAcmError> {
         let mut data = coding.to_bytes();
-        let setup = crate::control::class_interface_out_with_data(
-            REQ_SET_LINE_CODING,
-            0,
-            self.comm_interface as u16,
-            7,
-        );
-        self.ctrl_ch
-            .control_transfer(&setup, Direction::Out, &mut data)
-            .await?;
+        let setup =
+            crate::control::class_interface_out_with_data(REQ_SET_LINE_CODING, 0, self.comm_interface as u16, 7);
+        self.ctrl_ch.control_transfer(&setup, Direction::Out, &mut data).await?;
         Ok(())
     }
 
     /// Set the control line state (DTR, RTS).
     pub async fn set_control_line_state(&mut self, dtr: bool, rts: bool) -> Result<(), CdcAcmError> {
         let value = (dtr as u16) | ((rts as u16) << 1);
-        let setup = crate::control::class_interface_out(
-            REQ_SET_CONTROL_LINE_STATE,
-            value,
-            self.comm_interface as u16,
-        );
-        self.ctrl_ch
-            .control_transfer(&setup, Direction::Out, &mut [])
-            .await?;
+        let setup = crate::control::class_interface_out(REQ_SET_CONTROL_LINE_STATE, value, self.comm_interface as u16);
+        self.ctrl_ch.control_transfer(&setup, Direction::Out, &mut []).await?;
         Ok(())
     }
 

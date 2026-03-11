@@ -11,7 +11,6 @@ pub mod control;
 pub mod descriptor;
 
 pub use embassy_usb_host_driver as driver;
-
 use embassy_usb_host_driver::{
     DeviceEndpoint, DeviceSpeed, Direction, EndpointType, HostBus, HostChannel, PortEvent, TransferError,
 };
@@ -53,10 +52,7 @@ pub struct UsbHost<B: HostBus> {
 impl<B: HostBus> UsbHost<B> {
     /// Create a new USB host from a bus.
     pub fn new(bus: B) -> Self {
-        Self {
-            bus,
-            next_address: 1,
-        }
+        Self { bus, next_address: 1 }
     }
 
     /// Get a mutable reference to the underlying bus.
@@ -127,9 +123,7 @@ impl<B: HostBus> UsbHost<B> {
 
         // GET_DESCRIPTOR(Device, 8 bytes)
         let setup = control::get_device_descriptor(8);
-        let n = ch
-            .control_transfer(&setup, Direction::In, &mut desc_buf[..8])
-            .await?;
+        let n = ch.control_transfer(&setup, Direction::In, &mut desc_buf[..8]).await?;
 
         if n < 8 {
             return Err(EnumerationError::InvalidDescriptor);
@@ -152,9 +146,7 @@ impl<B: HostBus> UsbHost<B> {
 
         // Step 3: Get full device descriptor (18 bytes)
         let setup = control::get_device_descriptor(18);
-        let n = ch
-            .control_transfer(&setup, Direction::In, &mut desc_buf)
-            .await?;
+        let n = ch.control_transfer(&setup, Direction::In, &mut desc_buf).await?;
 
         if n < 18 {
             return Err(EnumerationError::InvalidDescriptor);
@@ -168,16 +160,13 @@ impl<B: HostBus> UsbHost<B> {
 
         // Step 4: Get configuration descriptor header (9 bytes)
         let setup = control::get_config_descriptor(0, 9);
-        let n = ch
-            .control_transfer(&setup, Direction::In, &mut config_buf[..9])
-            .await?;
+        let n = ch.control_transfer(&setup, Direction::In, &mut config_buf[..9]).await?;
 
         if n < 9 {
             return Err(EnumerationError::InvalidDescriptor);
         }
 
-        let config_header =
-            ConfigDescriptor::parse(&config_buf[..9]).ok_or(EnumerationError::InvalidDescriptor)?;
+        let config_header = ConfigDescriptor::parse(&config_buf[..9]).ok_or(EnumerationError::InvalidDescriptor)?;
         let total_len = config_header.total_length as usize;
 
         if total_len > config_buf.len() {

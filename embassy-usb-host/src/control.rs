@@ -47,13 +47,7 @@ pub fn get_config_descriptor(index: u8, max_len: u16) -> [u8; 8] {
 
 /// Build a SET_ADDRESS SETUP packet.
 pub fn set_address(address: u8) -> [u8; 8] {
-    make_setup(
-        TYPE_STANDARD | RECIPIENT_DEVICE,
-        SET_ADDRESS,
-        address as u16,
-        0,
-        0,
-    )
+    make_setup(TYPE_STANDARD | RECIPIENT_DEVICE, SET_ADDRESS, address as u16, 0, 0)
 }
 
 /// Build a SET_CONFIGURATION SETUP packet.
@@ -69,19 +63,18 @@ pub fn set_configuration(config_value: u8) -> [u8; 8] {
 
 /// Build a class-specific interface request SETUP packet (OUT, no data).
 pub fn class_interface_out(request: u8, value: u16, interface: u16) -> [u8; 8] {
-    make_setup(
-        TYPE_CLASS | RECIPIENT_INTERFACE,
-        request,
-        value,
-        interface,
-        0,
-    )
+    make_setup(TYPE_CLASS | RECIPIENT_INTERFACE, request, value, interface, 0)
 }
 
 /// Build a class-specific interface request SETUP packet (OUT, with data).
 pub fn class_interface_out_with_data(request: u8, value: u16, interface: u16, length: u16) -> [u8; 8] {
+    make_setup(TYPE_CLASS | RECIPIENT_INTERFACE, request, value, interface, length)
+}
+
+/// Build a class-specific interface request SETUP packet (IN, with data).
+pub fn class_interface_in_with_data(request: u8, value: u16, interface: u16, length: u16) -> [u8; 8] {
     make_setup(
-        TYPE_CLASS | RECIPIENT_INTERFACE,
+        DIR_DEVICE_TO_HOST | TYPE_CLASS | RECIPIENT_INTERFACE,
         request,
         value,
         interface,

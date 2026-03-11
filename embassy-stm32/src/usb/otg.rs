@@ -584,11 +584,11 @@ foreach_interrupt!(
 mod host_impl {
     use core::marker::PhantomData;
 
+    use embassy_usb_synopsys_otg::PhyType;
     use embassy_usb_synopsys_otg::host::{
         HostBus as OtgHostBus, HostDriver as OtgHostDriver, HostState, OtgHostInstance,
         on_host_interrupt as on_host_interrupt_impl,
     };
-    use embassy_usb_synopsys_otg::PhyType;
 
     use super::*;
 

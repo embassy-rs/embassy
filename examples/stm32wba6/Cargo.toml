@@ -69,6 +69,9 @@ required-features = ["ble"]
 [[bin]]
 name = "usb_host_serial"
 
+[[bin]]
+name = "usb_host_hid"
+
 [package.metadata.embassy]
 build = [
   { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/stm32wba6" }
