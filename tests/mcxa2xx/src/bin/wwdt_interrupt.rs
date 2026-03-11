@@ -3,27 +3,31 @@
 
 teleprobe_meta::target!(b"frdm-mcx-a266");
 
+use core::marker::PhantomData;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
 use hal::bind_interrupts;
 use hal::config::Config;
-use hal::interrupt::typelevel::{Handler, WWDT0};
-use hal::wwdt::{InterruptHandler, Watchdog};
+use hal::interrupt::typelevel::{self, Handler};
+use hal::peripherals::WWDT0;
+use hal::wwdt::{Instance, InterruptHandler, Watchdog};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 bind_interrupts!(
     struct Irqs {
-        WWDT0 => InterruptHandler, TestInterruptHandler;
+        WWDT0 => InterruptHandler<WWDT0>, TestInterruptHandler<WWDT0>;
     }
 );
 
 static INTERRUPT_TRIGGERED: AtomicBool = AtomicBool::new(false);
 
-pub struct TestInterruptHandler;
+pub struct TestInterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
 
-impl Handler<WWDT0> for TestInterruptHandler {
+impl<T: Instance> Handler<typelevel::WWDT0> for TestInterruptHandler<T> {
     unsafe fn on_interrupt() {
         INTERRUPT_TRIGGERED.store(true, Ordering::Relaxed);
     }

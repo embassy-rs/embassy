@@ -1671,8 +1671,15 @@ fn main() {
                             });
                         }
                     } else if let Some(ch_str) = pin.signal.strip_prefix("VINM") {
-                        // Impl InvertingPin for VINM0, VINM1 etc.
                         if let Ok(ch) = ch_str.parse::<u8>() {
+                            // Impl BiasPin for VINM0
+                            if ch == 0 {
+                                g.extend(quote! {
+                                    impl_opamp_bias_pin!( #peri, #pin_name, #ch);
+                                });
+                            }
+
+                            // Impl InvertingPin for VINM0, VINM1 etc.
                             g.extend(quote! {
                                 impl_opamp_vn_pin!( #peri, #pin_name, #ch);
                             });
@@ -1787,6 +1794,7 @@ fn main() {
     let triggers: HashMap<_, _> = [
         // (kind, signal) => trait
         (("dac", "DAC_CHX_TRG"), quote!(crate::dac::ChannelTrigger)),
+        (("dac", "DAC_INC_CHX_TRG"), quote!(crate::dac::ChannelIncTrigger)),
         (("adc", "ADC_EXT_TRG"), quote!(crate::adc::RegularTrigger)),
         (("adc", "ADC_JEXT_TRG"), quote!(crate::adc::InjectedTrigger)),
     ]

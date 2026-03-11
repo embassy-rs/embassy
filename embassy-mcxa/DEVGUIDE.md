@@ -10,6 +10,22 @@ This document will be written incrementally. If you see something missing: pleas
 * Ask in the embassy matrix chat
 * Open a PR to add the documentation you think is missing
 
+## FRDM Usage Tips
+
+### Recovering from a too-sleepy firmware
+
+If you have an example that is configured to the DeepSleep state, it will sever the debugger connection once it enters deep sleep. This can mean it will be hard to re-flash since the debugging core is disabled.
+
+To recover from this state, you can use the ISP mode, which triggers the ROM bootloader:
+
+1. Hold the "ISP" button down
+2. Tap and release the "RESET" button
+3. Release the "ISP" button
+4. Try to flash with probe-rs, the first time will likely fail (I don't know why yet, it probably makes the bootloader upset)
+5. Try to flash again, the second time will likely work.
+
+You probably want to recover the device by flashing a simple example like the `blinky` example which doesn't attempt to go to deep sleep.
+
 ## The `Cargo.toml` file
 
 This section describes the notable components of the `Cargo.toml` package manifest.

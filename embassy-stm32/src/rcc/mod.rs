@@ -659,7 +659,20 @@ pub fn disable<T: RccPeripheral>() {
 /// This should only be called after `init`.
 #[cfg(not(feature = "_dual-core"))]
 pub fn reinit(config: Config, _rcc: &'_ mut crate::Peri<'_, crate::peripherals::RCC>) {
-    critical_section::with(|cs| init_rcc(cs, config))
+    critical_section::with(|cs| {
+        init_rcc(cs, config);
+
+        // must be after rcc init
+        #[cfg(feature = "_time-driver")]
+        crate::time_driver::init(cs);
+    })
+}
+
+#[cfg(feature = "low-power")]
+#[allow(dead_code)]
+/// Re-initialize the `embassy-stm32` clock configuration with the saved configuration.
+pub(crate) fn reinit_saved(_cs: CriticalSection) {
+    unsafe { init(get_rcc_config().unwrap()) };
 }
 
 pub(crate) fn init_rcc(_cs: CriticalSection, config: Config) {

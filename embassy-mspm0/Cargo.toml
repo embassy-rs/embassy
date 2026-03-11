@@ -8,6 +8,7 @@ keywords = ["embedded", "async", "mspm0", "hal", "embedded-hal"]
 categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
 repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/embassy-mspm0"
+publish = false
 
 [package.metadata.embassy]
 build = [

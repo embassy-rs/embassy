@@ -28,15 +28,23 @@ pub struct ClockOut<'a> {
 pub enum ClockOutSel {
     /// 12MHz Internal Oscillator
     Fro12M,
-    /// FRO180M Internal Oscillator, via divisor
+    /// FRO180M/FRO192M Internal Oscillator, via divisor
     FroHfDiv,
     /// External Oscillator
     #[cfg(not(feature = "sosc-as-gpio"))]
     ClkIn,
     /// 16KHz oscillator
+    #[cfg(feature = "mcxa2xx")]
     Clk16K,
+    /// Either the 16K or 32K oscillator, depending on settings
+    #[cfg(feature = "mcxa5xx")]
+    LpOsc,
     /// Output of PLL1
+    #[cfg(feature = "mcxa2xx")]
     Pll1Clk,
+    /// Output of divided PLL1
+    #[cfg(feature = "mcxa5xx")]
+    Pll1ClkDiv,
     /// Main System CPU clock, divided by 6
     SlowClk,
 }
@@ -129,19 +137,43 @@ impl Drop for ClockOut<'_> {
 /// Check whether the given clock selection is valid
 fn check_sel(sel: ClockOutSel, level: PoweredClock, divisor: u32) -> Result<(u32, Mux, Option<WakeGuard>), ClockError> {
     let res = with_clocks(|c| {
-        let (freq, mux) = match sel {
-            ClockOutSel::Fro12M => (c.ensure_fro_hf_active(&level)?, Mux::CLKROOT_12M),
-            ClockOutSel::FroHfDiv => (c.ensure_fro_hf_div_active(&level)?, Mux::CLKROOT_FIRC_DIV),
-            #[cfg(not(feature = "sosc-as-gpio"))]
-            ClockOutSel::ClkIn => (c.ensure_clk_in_active(&level)?, Mux::CLKROOT_SOSC),
-            ClockOutSel::Clk16K => (c.ensure_clk_16k_vdd_core_active(&level)?, Mux::CLKROOT_16K),
-            ClockOutSel::Pll1Clk => (c.ensure_pll1_clk_active(&level)?, Mux::CLKROOT_SPLL),
-            ClockOutSel::SlowClk => (c.ensure_slow_clk_active(&level)?, Mux::CLKROOT_SLOW),
+        #[cfg(feature = "mcxa2xx")]
+        let (freq, mux, fmax, expected) = {
+            let (freq, mux) = match sel {
+                ClockOutSel::Fro12M => (c.ensure_fro_hf_active(&level)?, Mux::CLKROOT_12M),
+                ClockOutSel::FroHfDiv => (c.ensure_fro_hf_div_active(&level)?, Mux::CLKROOT_FIRC_DIV),
+                #[cfg(not(feature = "sosc-as-gpio"))]
+                ClockOutSel::ClkIn => (c.ensure_clk_in_active(&level)?, Mux::CLKROOT_SOSC),
+                ClockOutSel::Clk16K => (c.ensure_clk_16k_vdd_core_active(&level)?, Mux::CLKROOT_16K),
+                ClockOutSel::Pll1Clk => (c.ensure_pll1_clk_active(&level)?, Mux::CLKROOT_SPLL),
+                ClockOutSel::SlowClk => (c.ensure_slow_clk_active(&level)?, Mux::CLKROOT_SLOW),
+            };
+            let expected = freq / divisor;
+            let fmax = match c.active_power {
+                VddLevel::MidDriveMode => 45_000_000,
+                VddLevel::OverDriveMode => 90_000_000,
+            };
+            (freq, mux, fmax, expected)
         };
-        let expected = freq / divisor;
-        let fmax = match c.active_power {
-            VddLevel::MidDriveMode => 45_000_000,
-            VddLevel::OverDriveMode => 90_000_000,
+        #[cfg(feature = "mcxa5xx")]
+        let (freq, mux, fmax, expected) = {
+            let (freq, mux) = match sel {
+                ClockOutSel::Fro12M => (c.ensure_fro_hf_active(&level)?, Mux::I0_CLKROOT_12M),
+                ClockOutSel::FroHfDiv => (c.ensure_fro_hf_div_active(&level)?, Mux::I1_CLKROOT_FIRC_DIV),
+                #[cfg(not(feature = "sosc-as-gpio"))]
+                ClockOutSel::ClkIn => (c.ensure_clk_in_active(&level)?, Mux::I2_CLKROOT_SOSC),
+                // TODO: we need this to be an lp_osc clock
+                ClockOutSel::LpOsc => (c.ensure_clk_32k_vdd_core_active(&level)?, Mux::I3_CLKROOT_LPOSC),
+                ClockOutSel::Pll1ClkDiv => (c.ensure_pll1_clk_div_active(&level)?, Mux::I5_CLKROOT_SPLL_DIV),
+                ClockOutSel::SlowClk => (c.ensure_slow_clk_active(&level)?, Mux::I6_CLKROOT_SLOW),
+            };
+            let expected = freq / divisor;
+            let fmax = match c.active_power {
+                VddLevel::MidDriveMode => 48_000_000,
+                VddLevel::NormalMode => 100_000_000,
+                VddLevel::OverDriveMode => 100_000_000,
+            };
+            (freq, mux, fmax, expected)
         };
 
         if expected > fmax {
@@ -223,9 +255,14 @@ mod sealed {
         };
     }
 
+    // TODO: 5xx reference manual states that P0_6 and P3_8 are clkout pins (Table 352), but the pinmux
+    // table doesn't list which alt mode corresponds with clkout (Table 340)
+    #[cfg(feature = "mcxa2xx")]
     #[cfg(feature = "jtag-extras-as-gpio")]
     impl_pin!(P0_6, MUX12);
-    impl_pin!(P3_6, MUX1);
+    #[cfg(feature = "mcxa2xx")]
     impl_pin!(P3_8, MUX12);
+
+    impl_pin!(P3_6, MUX1);
     impl_pin!(P4_2, MUX1);
 }

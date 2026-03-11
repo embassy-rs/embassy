@@ -886,7 +886,7 @@ macro_rules! impl_instance {
     };
 }
 
-impl_instance!(0, 1, 2, 3);
+impl_instance!(0, 1);
 
 /// Trait implemented by any possible ADC pin
 pub trait AdcPin<T: Instance>: sealed::SealedAdcPin<T> + GpioPin + PeripheralType {
@@ -1032,63 +1032,3 @@ impl_pin!(P1_15, ADC1, 13);
 impl_pin!(P3_31, ADC1, 20);
 impl_pin!(P3_30, ADC1, 21);
 impl_pin!(P3_29, ADC1, 22);
-
-impl_pin!(P2_4, ADC2, 0);
-impl_pin!(P2_10, ADC2, 1);
-impl_pin!(P4_4, ADC2, 2);
-// impl_pin!(P2_24, ADC2, 255); ???
-impl_pin!(P2_16, ADC2, 4);
-impl_pin!(P2_12, ADC2, 5);
-impl_pin!(P2_20, ADC2, 6);
-impl_pin!(P2_7, ADC2, 7);
-#[cfg(feature = "swd-swo-as-gpio")]
-impl_pin!(P0_2, ADC2, 8);
-// ???
-// impl_pin!(P0_4, ADC2, 255);
-// impl_pin!(P0_5, ADC2, 255);
-// impl_pin!(P0_6, ADC2, 255);
-// impl_pin!(P0_7, ADC2, 255);
-// impl_pin!(P0_12, ADC2, 255);
-// impl_pin!(P0_13, ADC2, 255);
-// ???
-impl_pin!(P0_14, ADC2, 14);
-impl_pin!(P0_15, ADC2, 15);
-// ???
-// impl_pin!(P4_0, ADC2, 255);
-// impl_pin!(P4_1, ADC2, 255);
-// ???
-impl_pin!(P4_2, ADC2, 18);
-impl_pin!(P4_3, ADC2, 19);
-//impl_pin!(P4_4, ADC2, 20); // Conflit with ADC2_A3 and ADC2_A20 using the same pin
-impl_pin!(P4_5, ADC2, 21);
-impl_pin!(P4_6, ADC2, 22);
-impl_pin!(P4_7, ADC2, 23);
-
-impl_pin!(P2_5, ADC3, 0);
-impl_pin!(P2_11, ADC3, 1);
-impl_pin!(P2_23, ADC3, 2);
-// impl_pin!(P2_25, ADC3, 255); // ???
-impl_pin!(P2_17, ADC3, 4);
-impl_pin!(P2_13, ADC3, 5);
-impl_pin!(P2_21, ADC3, 6);
-impl_pin!(P2_7, ADC3, 7);
-// ???
-// impl_pin!(P3_2, ADC3, 255);
-// impl_pin!(P3_3, ADC3, 255);
-// impl_pin!(P3_4, ADC3, 255);
-// impl_pin!(P3_5, ADC3, 255);
-// ???
-impl_pin!(P3_6, ADC3, 12);
-impl_pin!(P3_7, ADC3, 13);
-impl_pin!(P3_12, ADC3, 14);
-impl_pin!(P3_13, ADC3, 15);
-impl_pin!(P3_14, ADC3, 16);
-impl_pin!(P3_15, ADC3, 17);
-impl_pin!(P3_20, ADC3, 18);
-impl_pin!(P3_21, ADC3, 19);
-impl_pin!(P3_22, ADC3, 20);
-// ???
-// impl_pin!(P3_23, ADC3, 255);
-// impl_pin!(P3_24, ADC3, 255);
-// impl_pin!(P3_25, ADC3, 255);
-// ???

@@ -32,22 +32,19 @@ impl Iterator for BitIter {
     }
 }
 
+#[cfg(feature = "mcxa2xx")]
 const PORT_COUNT: usize = 5;
+#[cfg(feature = "mcxa5xx")]
+const PORT_COUNT: usize = 6;
 
-static PORT_WAIT_MAPS: [WaitMap<usize, ()>; PORT_COUNT] = [
-    WaitMap::new(),
-    WaitMap::new(),
-    WaitMap::new(),
-    WaitMap::new(),
-    WaitMap::new(),
-];
+static PORT_WAIT_MAPS: [WaitMap<usize, ()>; PORT_COUNT] = [const { WaitMap::new() }; PORT_COUNT];
 
 fn irq_handler(port_index: usize, gpio: crate::pac::gpio::Gpio, perf_wake: fn()) {
-    let isfr = gpio.isfr0().read();
+    let isfr = gpio.isfr(0);
 
-    for pin in BitIter(isfr.0) {
+    for pin in BitIter(isfr.read().0) {
         // Clear all pending interrupts
-        gpio.isfr0().write(|w| w.0 = 1 << pin);
+        isfr.write(|w| w.0 = 1 << pin);
         gpio.icr(pin).modify(|w| w.set_irqc(Irqc::IRQC0)); // Disable interrupt
 
         // Wake the corresponding port waker
@@ -88,6 +85,13 @@ fn GPIO4() {
     irq_handler(4, crate::pac::GPIO4, crate::perf_counters::incr_interrupt_gpio4_wake);
 }
 
+#[cfg(feature = "mcxa5xx")]
+#[interrupt]
+fn GPIO5() {
+    crate::perf_counters::incr_interrupt_gpio5();
+    irq_handler(5, crate::pac::GPIO5, crate::perf_counters::incr_interrupt_gpio5_wake);
+}
+
 pub(crate) unsafe fn interrupt_init() {
     unsafe {
         use embassy_hal_internal::interrupt::InterruptExt;
@@ -97,6 +101,8 @@ pub(crate) unsafe fn interrupt_init() {
         crate::pac::interrupt::GPIO2.enable();
         crate::pac::interrupt::GPIO3.enable();
         crate::pac::interrupt::GPIO4.enable();
+        #[cfg(feature = "mcxa5xx")]
+        crate::pac::interrupt::GPIO5.enable();
 
         cortex_m::interrupt::enable();
     }
@@ -350,7 +356,7 @@ impl GpioPin for AnyPin {}
 macro_rules! impl_pin {
     ($peri:ident, $port:expr, $pin:expr, $block:ident) => {
         ::paste::paste! {
-            impl SealedPin for crate::peripherals::$peri {
+            impl SealedPin for $crate::peripherals::$peri {
                 #[inline(always)]
                 fn port(&self) -> u8 {
                     $port
@@ -530,7 +536,11 @@ impl<'d> Flex<'d> {
     /// Is the output pin set as high?
     #[inline]
     pub fn is_set_high(&self) -> bool {
-        self.gpio().pdor().read().pdo(self.pin.pin_index() as usize)
+        #[cfg(feature = "mcxa2xx")]
+        let set = self.gpio().pdor().read().pdo(self.pin.pin_index() as usize);
+        #[cfg(feature = "mcxa5xx")]
+        let set = (self.gpio().pdor().read().0 & (1 << self.pin.pin_index())) != 0;
+        set
     }
 
     /// Is the output pin set as low?
@@ -586,7 +596,7 @@ impl<'d> Flex<'d> {
         // Now that our waker is in the map, we can enable the appropriate interrupt
         //
         // Clear any existing pending interrupt on this pin
-        self.pin.gpio().isfr0().write(|w| w.0 = 1 << self.pin.pin());
+        self.pin.gpio().isfr(0).write(|w| w.0 = 1 << self.pin.pin());
         self.pin
             .gpio()
             .icr(self.pin.pin().into())
