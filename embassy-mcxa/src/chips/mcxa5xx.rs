@@ -302,7 +302,7 @@ mod inner_periph {
         PORT4,
         PORT5,
 
-        // RTC0,
+        RTC0,
         // SAU,
         // SCG0,
         // SCN_SCB,
@@ -426,8 +426,7 @@ mod inner_interrupt {
         // MBC0,
         OS_EVENT,
         // PKC,
-        // RTC,
-        // RTC_1HZ,
+        RTC,
         // SCG0,
         // SGI,
         // SLCD,

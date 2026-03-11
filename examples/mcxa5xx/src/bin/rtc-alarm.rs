@@ -4,7 +4,7 @@
 use embassy_executor::Spawner;
 use embassy_mcxa::bind_interrupts;
 use hal::peripherals::RTC0;
-use hal::rtc::{DateTime, InterruptHandler, Rtc};
+use hal::rtc::{DateTime, InterruptHandler, Month, Rtc, Weekday};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -17,30 +17,26 @@ async fn main(_spawner: Spawner) {
 
     defmt::info!("=== RTC Alarm Example ===");
 
-    let mut rtc = Rtc::new(p.RTC0, Irqs, Default::default());
+    let mut rtc = Rtc::new(p.RTC0, Irqs, Default::default()).unwrap();
 
     let now = DateTime {
-        year: 2025,
-        month: 10,
-        day: 15,
+        year: 2026,
+        month: Month::March,
+        dow: Weekday::Wednesday,
+        day: 11,
         hour: 14,
         minute: 30,
-        second: 0,
+        second: 42,
     };
 
-    rtc.stop();
-
-    defmt::info!("Time set to: 2025-10-15 14:30:00");
-    rtc.set_datetime(now);
+    defmt::info!("Time set to: 2026-03-11 14:30:42");
+    rtc.set_datetime(now).unwrap();
 
     let mut alarm = now;
     alarm.second += 10;
 
-    defmt::info!("Alarm set for: 2025-10-15 14:30:10 (+10 seconds)");
-    defmt::info!("RTC started, waiting for alarm...");
-
-    rtc.wait_for_alarm(alarm).await;
-    defmt::info!("*** ALARM TRIGGERED! ***");
+    defmt::info!("Alarm set for: 2026-03-11 14:30:52 (+10 seconds)");
+    rtc.wait_for_alarm(alarm).await.unwrap();
 
     defmt::info!("Example complete - Test PASSED!");
 }
