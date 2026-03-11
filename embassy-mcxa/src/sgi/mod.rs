@@ -39,21 +39,23 @@ impl Instance for peripherals::SGI0 {}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 enum CryptoOp {
-    Aes = 0,
-    Des = 1,
-    Tdes = 2,
-    Gfmul = 3,
+    // TODO: Implement other operations (e.g. AES) as needed. For now we only support SHA2, so this is the only variant.
+    // Aes = 0,
+    // Des = 1,
+    // Tdes = 2,
+    // Gfmul = 3,
     Sha2 = 4,
-    Cmac = 5,
+    // Cmac = 5,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 enum DataOutRes {
-    EndUp = 0,
-    StartUp = 1,
+    // SHA only needs TRIGGER_UP, other future operations will need more states.
+    // EndUp = 0,
+    // StartUp = 1,
     TriggerUp = 2,
-    NoUp = 3,
+    // NoUp = 3,
 }
 
 // FIFO limits used by SHA2 configuration.
@@ -492,24 +494,6 @@ impl<'d> Sgi<'d> {
             output[idx + (i * 4)..idx + (i * 4) + 4].copy_from_slice(&word.to_be_bytes());
         }
         Ok(())
-    }
-
-    ///Checks if PDONE interrupt is set, which indicates SHA2 operation completion. Also checks for errors.
-    fn interrupt_is_operation_done(&self) -> Result<bool, SGIError> {
-        // Only report errors once the SHA2 engine is no longer busy.
-        // This keeps error/timeout reporting consistent with the wait path.
-        if self.is_sha2_busy() {
-            return Ok(false);
-        }
-
-        self.sgi_operation_error()?;
-        self.sgi_error()?;
-        // NOTE: `INT_PDONE` is cleared in the ISR to avoid a level-triggered retrigger loop,
-        // so callers that poll the raw register may observe `false` even though an IRQ fired.
-        // We therefore consult the software latch as well.
-        let latched = SGI_OP_DONE.load(Ordering::Acquire);
-        let hw = self.periph.sgi_int_status().read().int_pdone();
-        Ok(latched || hw)
     }
 
     /// Clear the SGI operation-done interrupt flag.
