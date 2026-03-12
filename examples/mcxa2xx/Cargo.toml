@@ -33,8 +33,8 @@ default-executor = [
   "embassy-executor/executor-interrupt",
   "embassy-executor/executor-thread",
 ]
-custom-executor = [
-  "embassy-mcxa/custom-executor"
+executor-platform = [
+  "embassy-mcxa/executor-platform"
 ]
 
 [profile.release]

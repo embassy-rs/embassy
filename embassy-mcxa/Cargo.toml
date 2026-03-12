@@ -125,10 +125,10 @@ rt = []
 # Enable perf counters
 perf = []
 
-# Enable the custom executor, which allows for low-power modes.
+# Enable the custom executor platform implementation, which allows for low-power modes.
 #
-# If this feature is enabled, users should NOT enable `embassy-executor/platform-cortex-m`.
-custom-executor = []
+# If this feature is enabled, users should NOT enable `embassy-executor/platform-cortex-m` or any other executor platform.
+executor-platform = []
 
 # This feature is not done yet, don't use it!
 unstable-osc32k = []
