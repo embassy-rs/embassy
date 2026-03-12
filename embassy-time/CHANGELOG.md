@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 0.5.1 - 2026-03-11
 
-- Add as_nanos and from_nanos where missing
+- Add `as_nanos` and `from_nanos` where missing
+- Add `Instant::try_from_nanos`
 - Added 375KHz tick rate support
 - Upgrade embassy-executor to 0.10.0
 

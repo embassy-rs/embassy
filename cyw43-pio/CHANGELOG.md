@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 0.10.0 - 2026-03-10
 
+- Updated to use new DMA `Channel` driver struct from embassy-rp
 - Update cyw43 0.7.0
 - Update embassy-rp 0.10.0
 

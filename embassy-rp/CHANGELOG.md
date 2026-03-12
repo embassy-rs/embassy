@@ -13,8 +13,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add output enable inversion API (gpio, pio)
 - Add PIO clock generator
 - Change PioBatch interface
+- breaking: Change watchdog interface — `feed` now takes a duration argument, added `stop`
+- Add DMA `Channel` driver struct
+- breaking: DMA renames — `read_repeated`→`read_discard`, `write_repeated`→`write_zeros`, `dma_push_repeated`→`dma_push_zeros`, `dma_pull_repeated`→`dma_pull_discard`
+- DMA: add byte swap option
+- DMA: made `Channel::regs` private
+- DMA: disallow construction of `Transfer` outside dma.rs
+- Fix race in DMA IRQ handler
+- Add PIO StateMachine `rx_fifo_ptr`, `tx_fifo_ptr`, `rx_treq`, `tx_treq` functions
+- Add I2S start/stop functions
+- Fix onewire bug with multiple family codes
+- Fix PIO freeze regression
+- Increase VCO max frequency to 1600 MHz
+- Allow sourcing gpout clock from LPOSC
+- Complete missing Gpin/GpoutPin impls for RP235x
+- Improve PIO clock divider math
+- Fix chrono compilation
 - Update embassy-sync to 0.8.0
-- Update embassy-time to 0.6.0
 - Update embassy-embedded-hal to 0.6.0
 
 ## 0.9.0 - 2025-11-27
