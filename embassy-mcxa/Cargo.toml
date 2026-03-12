@@ -127,7 +127,7 @@ perf = []
 
 # Enable the custom executor, which allows for low-power modes.
 #
-# If this feature is enabled, users should NOT enable `embassy-executor/arch-cortex-m`.
+# If this feature is enabled, users should NOT enable `embassy-executor/platform-cortex-m`.
 custom-executor = []
 
 # This feature is not done yet, don't use it!

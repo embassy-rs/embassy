@@ -29,7 +29,7 @@ tmp108 = "0.4.0"
 [features]
 default = ["default-executor"]
 default-executor = [
-  "embassy-executor/arch-cortex-m",
+  "embassy-executor/platform-cortex-m",
   "embassy-executor/executor-interrupt",
   "embassy-executor/executor-thread",
 ]
