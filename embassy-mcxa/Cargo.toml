@@ -140,5 +140,7 @@ mcxa2xx = ["nxp-pac/mcxa256"]
 mcxa5xx = ["nxp-pac/mcxa577"]
 
 [dev-dependencies]
+embassy-executor = { version = "0.10.0", path = "../embassy-executor", features = ["platform-cortex-m", "executor-interrupt", "executor-thread"] }
+embedded-storage = "0.3.1"
 panic-halt = "1.0.0"
-embassy-executor = { version = "0.10.0", path = "../embassy-executor", features = ["arch-cortex-m", "executor-interrupt", "executor-thread"] }
+static_cell = "2.1.1"

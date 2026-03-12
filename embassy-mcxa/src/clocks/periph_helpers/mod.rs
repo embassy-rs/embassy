@@ -90,7 +90,7 @@ pub trait SPConfHelper {
 ///
 /// usage:
 ///
-/// ```rust
+/// ```rust,ignore
 /// apply_div4!(self, clksel, clkdiv, variant, freq)
 /// ```
 ///
