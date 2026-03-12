@@ -13,7 +13,7 @@ use nxp_pac::lpspi::vals::{Cpha, Cpol, Lsbf, Master, Mbf, Outcfg, Pcspol, Pincfg
 use super::{Async, AsyncMode, Blocking, Dma, Info, Instance, MisoPin, Mode as IoMode, MosiPin, SckPin};
 use crate::clocks::periph_helpers::{Div4, LpspiClockSel, LpspiConfig};
 use crate::clocks::{ClockError, PoweredClock, WakeGuard, enable_and_reset};
-use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, EnableInterrupt};
+use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, TransferOptions};
 use crate::gpio::AnyPin;
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
@@ -47,6 +47,12 @@ pub enum IoError {
     TransmitError,
     /// Other internal errors or unexpected state.
     Other,
+}
+
+impl From<crate::dma::InvalidParameters> for IoError {
+    fn from(_value: crate::dma::InvalidParameters) -> Self {
+        IoError::Other
+    }
 }
 
 /// SPI interrupt handler.
@@ -296,8 +302,6 @@ impl<'d, M: IoMode> Spi<'d, M> {
             return Ok(());
         }
 
-        let len = read.len().max(write.len());
-
         self.info.regs().tcr().modify(|w| {
             w.set_txmsk(Txmsk::NORMAL);
             w.set_rxmsk(Rxmsk::NORMAL);
@@ -305,21 +309,16 @@ impl<'d, M: IoMode> Spi<'d, M> {
 
         let fifo_size = LPSPI_FIFO_SIZE;
 
-        for i in 0..len {
-            let wb = write[i];
-
+        for (wb, rb) in write.iter().zip(read.iter_mut()) {
             // Wait until we have at least one byte space in the TxFIFO.
             while self.info.regs().fsr().read().txcount() - fifo_size == 0 {}
             self.check_status()?;
-            self.info.regs().tdr().write(|w| w.set_data(wb as u32));
+            self.info.regs().tdr().write(|w| w.set_data(*wb as u32));
 
             // Wait until we have data in the RxFIFO.
             while self.info.regs().fsr().read().rxcount() == 0 {}
             self.check_status()?;
-            let rb = self.info.regs().rdr().read().data() as u8;
-            if let Some(r) = read.get_mut(i) {
-                *r = rb;
-            }
+            *rb = self.info.regs().rdr().read().data() as u8;
         }
 
         self.blocking_flush()
@@ -541,13 +540,18 @@ impl<'d> Spi<'d, Dma<'d>> {
             self.mode.rx_dma.set_request_source(self.mode.rx_request);
             self.mode.tx_dma.set_request_source(self.mode.tx_request);
 
-            self.mode
-                .tx_dma
-                .setup_write_zeros_to_peripheral(data.len(), tx_peri_addr, EnableInterrupt::No);
+            self.mode.tx_dma.setup_write_zeros_to_peripheral(
+                data.len(),
+                tx_peri_addr,
+                TransferOptions::NO_INTERRUPTS,
+            )?;
 
-            self.mode
-                .rx_dma
-                .setup_read_from_peripheral(rx_peri_addr, data, EnableInterrupt::Yes);
+            self.mode.rx_dma.setup_read_from_peripheral(
+                rx_peri_addr,
+                data,
+                false,
+                TransferOptions::COMPLETE_INTERRUPT,
+            )?;
 
             // Enable SPI DMA request
             self.info.regs().der().modify(|w| {
@@ -607,7 +611,7 @@ impl<'d> Spi<'d, Dma<'d>> {
             // Configure TCD for memory-to-peripheral transfer
             self.mode
                 .tx_dma
-                .setup_write_to_peripheral(data, peri_addr, EnableInterrupt::Yes);
+                .setup_write_to_peripheral(data, peri_addr, false, TransferOptions::COMPLETE_INTERRUPT)?;
 
             // Ensure all writes by CPU are visible to the DMA
             // TODO: ensure this is done internal to the DMA methods so individual drivers
@@ -660,13 +664,19 @@ impl<'d> Spi<'d, Dma<'d>> {
             self.mode.rx_dma.set_request_source(self.mode.rx_request);
             self.mode.tx_dma.set_request_source(self.mode.tx_request);
 
-            self.mode
-                .tx_dma
-                .setup_write_to_peripheral(write, tx_peri_addr, EnableInterrupt::Yes);
+            self.mode.tx_dma.setup_write_to_peripheral(
+                write,
+                tx_peri_addr,
+                false,
+                TransferOptions::COMPLETE_INTERRUPT,
+            )?;
 
-            self.mode
-                .rx_dma
-                .setup_read_from_peripheral(rx_peri_addr, read, EnableInterrupt::Yes);
+            self.mode.rx_dma.setup_read_from_peripheral(
+                rx_peri_addr,
+                read,
+                false,
+                TransferOptions::COMPLETE_INTERRUPT,
+            )?;
 
             // Ensure all writes by CPU are visible to the DMA
             // TODO: ensure this is done internal to the DMA methods so individual drivers
@@ -708,8 +718,8 @@ impl<'d> Spi<'d, Dma<'d>> {
                     self.mode.tx_dma.setup_write_zeros_to_peripheral(
                         write_bytes_len,
                         tx_peri_addr,
-                        EnableInterrupt::Yes,
-                    );
+                        TransferOptions::COMPLETE_INTERRUPT,
+                    )?;
 
                     self.mode.tx_dma.enable_request();
                 }
@@ -725,18 +735,21 @@ impl<'d> Spi<'d, Dma<'d>> {
                 })
                 .await
             }
+
+            Ok::<(), IoError>(())
         };
 
         let rx_transfer = core::future::poll_fn(|cx| {
             self.mode.rx_dma.waker().register(cx.waker());
-            if self.mode.tx_dma.is_done() {
+            if self.mode.rx_dma.is_done() {
                 core::task::Poll::Ready(())
             } else {
                 core::task::Poll::Pending
             }
         });
 
-        join(tx_transfer, rx_transfer).await;
+        let (tx_res, ()) = join(tx_transfer, rx_transfer).await;
+        tx_res?;
 
         // Cleanup
         self.info.regs().der().modify(|w| {
@@ -784,13 +797,18 @@ impl<'d> Spi<'d, Dma<'d>> {
             self.mode.rx_dma.set_request_source(self.mode.rx_request);
             self.mode.tx_dma.set_request_source(self.mode.tx_request);
 
-            self.mode
-                .tx_dma
-                .setup_write_to_peripheral(data, tx_peri_addr, EnableInterrupt::Yes);
-
-            self.mode
-                .rx_dma
-                .setup_read_from_peripheral(rx_peri_addr, data, EnableInterrupt::Yes);
+            self.mode.tx_dma.setup_write_to_peripheral(
+                data,
+                tx_peri_addr,
+                false,
+                TransferOptions::COMPLETE_INTERRUPT,
+            )?;
+            self.mode.rx_dma.setup_read_from_peripheral(
+                rx_peri_addr,
+                data,
+                false,
+                TransferOptions::COMPLETE_INTERRUPT,
+            )?;
 
             // Ensure all writes by CPU are visible to the DMA
             // TODO: ensure this is done internal to the DMA methods so individual drivers
@@ -968,16 +986,13 @@ impl<'d> AsyncEngine for Spi<'d, Async> {
             return Ok(());
         }
 
-        let len = read.len().max(write.len());
-
         self.info.regs().tcr().modify(|w| {
             w.set_txmsk(Txmsk::NORMAL);
             w.set_rxmsk(Rxmsk::NORMAL);
         });
 
-        for i in 0..len {
-            let wb = write[i];
-
+        // Zip will terminate whenever the first of write or read are exhausted
+        for (wb, rb) in write.iter().zip(read.iter_mut()) {
             // Wait until we have at least one byte space in the TxFIFO.
             self.info
                 .wait_cell()
@@ -991,7 +1006,7 @@ impl<'d> AsyncEngine for Spi<'d, Async> {
                 .await
                 .map_err(|_| IoError::Other)?;
             self.check_status()?;
-            self.info.regs().tdr().write(|w| w.set_data(wb as u32));
+            self.info.regs().tdr().write(|w| w.set_data(*wb as u32));
 
             // Wait until we have data in the RxFIFO.
             self.info
@@ -1006,10 +1021,7 @@ impl<'d> AsyncEngine for Spi<'d, Async> {
                 .await
                 .map_err(|_| IoError::Other)?;
             self.check_status()?;
-            let rb = self.info.regs().rdr().read().data() as u8;
-            if let Some(r) = read.get_mut(i) {
-                *r = rb;
-            }
+            *rb = self.info.regs().rdr().read().data() as u8;
         }
 
         self.async_flush().await

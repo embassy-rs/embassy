@@ -7,7 +7,7 @@ use nxp_pac::i3c::vals::{MdmactrlDmafb, MdmactrlDmatb};
 use super::{Async, AsyncMode, Blocking, Dma, Info, Instance, InterruptHandler, Mode, SclPin, SdaPin};
 use crate::clocks::periph_helpers::{Div4, I3cClockSel, I3cConfig};
 use crate::clocks::{ClockError, PoweredClock, WakeGuard, enable_and_reset};
-use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, EnableInterrupt};
+use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, TransferOptions};
 use crate::gpio::{AnyPin, SealedPin};
 pub use crate::i2c::controller::Speed;
 use crate::interrupt::typelevel;
@@ -66,6 +66,12 @@ pub enum IOError {
     InvalidReadBufferLength,
     /// Other internal errors or unexpected state.
     Other,
+}
+
+impl From<crate::dma::InvalidParameters> for IOError {
+    fn from(_value: crate::dma::InvalidParameters) -> Self {
+        Self::Other
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -127,6 +133,9 @@ pub struct Config {
 
     /// I2C bus speed
     pub i2c_speed: Speed,
+
+    /// Clock configuration
+    pub clock_config: ClockConfig,
 }
 
 impl Default for Config {
@@ -135,6 +144,29 @@ impl Default for Config {
             push_pull_freq: 1_500_000,
             open_drain_freq: 750_000,
             i2c_speed: Speed::Fast,
+            clock_config: ClockConfig::default(),
+        }
+    }
+}
+
+/// I3C controller clock configuration
+#[derive(Clone)]
+#[non_exhaustive]
+pub struct ClockConfig {
+    /// Powered clock configuration
+    pub power: PoweredClock,
+    /// I3C clock source
+    pub source: I3cClockSel,
+    /// I3C pre-divider
+    pub div: Div4,
+}
+
+impl Default for ClockConfig {
+    fn default() -> Self {
+        Self {
+            power: PoweredClock::NormalEnabledDeepSleepDisabled,
+            source: I3cClockSel::FroLfDiv,
+            div: const { Div4::no_div() },
         }
     }
 }
@@ -162,7 +194,7 @@ impl<'d, M: Mode> I3c<'d, M> {
         config: Config,
         mode: M,
     ) -> Result<Self, SetupError> {
-        let (power, source, div) = Self::clock_config();
+        let ClockConfig { power, source, div } = config.clock_config;
 
         // Enable clocks
         let conf = I3cConfig { power, source, div };
@@ -187,15 +219,6 @@ impl<'d, M: Mode> I3c<'d, M> {
         inst.set_configuration(&config)?;
 
         Ok(inst)
-    }
-
-    // REVISIT: turn this into a function of the speed parameter
-    fn clock_config() -> (PoweredClock, I3cClockSel, Div4) {
-        (
-            PoweredClock::NormalEnabledDeepSleepDisabled,
-            I3cClockSel::FroLfDiv,
-            const { Div4::no_div() },
-        )
     }
 
     fn set_configuration(&self, config: &Config) -> Result<(), SetupError> {
@@ -772,9 +795,12 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
                 self.mode.rx_dma.set_request_source(self.mode.rx_request);
 
                 // Configure TCD for peripheral-to-memory transfer
-                self.mode
-                    .rx_dma
-                    .setup_read_from_peripheral(peri_addr, chunk, EnableInterrupt::Yes);
+                self.mode.rx_dma.setup_read_from_peripheral(
+                    peri_addr,
+                    chunk,
+                    false,
+                    TransferOptions::COMPLETE_INTERRUPT,
+                )?;
 
                 // Enable I3C RX DMA request
                 self.info
@@ -874,9 +900,12 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
                 self.mode.tx_dma.set_request_source(self.mode.tx_request);
 
                 // Configure TCD for memory-to-peripheral transfer
-                self.mode
-                    .tx_dma
-                    .setup_write_to_peripheral(chunk, peri_addr, EnableInterrupt::Yes);
+                self.mode.tx_dma.setup_write_to_peripheral(
+                    chunk,
+                    peri_addr,
+                    false,
+                    TransferOptions::COMPLETE_INTERRUPT,
+                )?;
 
                 // Enable I3C TX DMA request
                 self.info
@@ -1069,17 +1098,15 @@ where
     }
 
     /// Write to address from bytes and then read from address into buffer asynchronously.
-    pub fn async_write_read<'a>(
+    pub async fn async_write_read<'a>(
         &'a mut self,
         address: u8,
         write: &'a [u8],
         read: &'a mut [u8],
         bus_type: BusType,
-    ) -> impl Future<Output = Result<(), IOError>> + 'a {
-        async move {
-            <Self as AsyncEngine>::async_write_internal(self, address, write, bus_type, SendStop::No).await?;
-            <Self as AsyncEngine>::async_read_internal(self, address, read, bus_type, SendStop::Yes).await
-        }
+    ) -> Result<(), IOError> {
+        <Self as AsyncEngine>::async_write_internal(self, address, write, bus_type, SendStop::No).await?;
+        <Self as AsyncEngine>::async_read_internal(self, address, read, bus_type, SendStop::Yes).await
     }
 }
 

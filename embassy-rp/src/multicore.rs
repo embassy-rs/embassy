@@ -283,7 +283,7 @@ where
         1,
         vector_table as usize,
         stack_ptr as usize,
-        core1_startup::<F> as usize,
+        core1_startup::<F> as *const () as usize,
     ];
 
     let mut seq = 0;

@@ -616,11 +616,11 @@ impl<'d> UartRx<'d, Async> {
             let int_flags = self.info.reg.data().scr().read();
 
             if int_flags & int_flag::TIMEOUT != 0 {
-                critical_section::with(|_| self.info.reg.data().scr().write(|w| *w &= !int_flag::TIMEOUT));
+                critical_section::with(|_| self.info.reg.data().scr().modify(|w| *w &= !int_flag::TIMEOUT));
                 // Indicates a byte is ready to read, but we didn't trigger the FIFO level before timeout
                 Poll::Ready(false)
             } else if int_flags & int_flag::RX_AVAILABLE != 0 {
-                critical_section::with(|_| self.info.reg.data().scr().write(|w| *w &= !int_flag::RX_AVAILABLE));
+                critical_section::with(|_| self.info.reg.data().scr().modify(|w| *w &= !int_flag::RX_AVAILABLE));
                 Poll::Ready(true)
             } else {
                 critical_section::with(|_| {
@@ -829,7 +829,7 @@ impl<'d> UartTx<'d, Async> {
         poll_fn(|cx| {
             self.info.tx_waker.register(cx.waker());
             if self.info.reg.data().scr().read() & int_flag::TX_EMPTY != 0 {
-                critical_section::with(|_| self.info.reg.data().scr().write(|w| *w &= !int_flag::TX_EMPTY));
+                critical_section::with(|_| self.info.reg.data().scr().modify(|w| *w &= !int_flag::TX_EMPTY));
                 Poll::Ready(())
             } else {
                 critical_section::with(|_| self.info.reg.data().ien().modify(|w| w.set_ethrei(true)));

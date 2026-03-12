@@ -14,7 +14,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     fs::write(out.join("memory.x"), memory_x).unwrap();
 
     println!("cargo:rustc-link-search={}", out.display());
-    println!("cargo:rerun-if-changed=link_ram.x");
+    println!("cargo:rerun-if-changed=../link_ram_cortex_m.x");
     // copy main linker script.
     fs::write(out.join("link_ram.x"), include_bytes!("../link_ram_cortex_m.x")).unwrap();
 

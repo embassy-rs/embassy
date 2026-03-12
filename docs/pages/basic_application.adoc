@@ -10,7 +10,7 @@ NOTE: If you’re using VS Code and rust-analyzer to view and edit the examples,
 
 === Bare metal
 
-The first thing you’ll notice are two attributes at the top of the file. These tells the compiler that program has no access to std, and that there is no main function (because it is not run by an OS).
+The first thing you’ll notice are two attributes at the top of the file. These tell the compiler that the program has no access to std, and that there is no main function (because it is not run by an OS).
 
 [source,rust]
 ----

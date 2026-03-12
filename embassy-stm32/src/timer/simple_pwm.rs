@@ -78,6 +78,7 @@ impl<'d, T: GeneralInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(P
 pub struct SimplePwmChannel<'d, T: GeneralInstance4Channel> {
     timer: ManuallyDrop<Timer<'d, T>>,
     channel: Channel,
+    _pin: Option<Flex<'d>>,
 }
 
 // TODO: check for RMW races
@@ -210,10 +211,10 @@ pub struct SimplePwmChannels<'d, T: GeneralInstance4Channel> {
 /// Simple PWM driver.
 pub struct SimplePwm<'d, T: GeneralInstance4Channel> {
     inner: Timer<'d, T>,
-    _ch1: Option<Flex<'d>>,
-    _ch2: Option<Flex<'d>>,
-    _ch3: Option<Flex<'d>>,
-    _ch4: Option<Flex<'d>>,
+    ch1: Option<Flex<'d>>,
+    ch2: Option<Flex<'d>>,
+    ch3: Option<Flex<'d>>,
+    ch4: Option<Flex<'d>>,
 }
 
 impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
@@ -250,10 +251,10 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     ) -> Self {
         let mut this = Self {
             inner: Timer::new(tim),
-            _ch1: ch1,
-            _ch2: ch2,
-            _ch3: ch3,
-            _ch4: ch4,
+            ch1,
+            ch2,
+            ch3,
+            ch4,
         };
 
         this.inner.set_counting_mode(counting_mode);
@@ -283,6 +284,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         SimplePwmChannel {
             timer: unsafe { self.inner.clone_unchecked() },
             channel,
+            _pin: None,
         }
     }
 
@@ -335,16 +337,17 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         // without this, the timer would be disabled at the end of this function
         let timer = ManuallyDrop::new(self.inner);
 
-        let ch = |channel| SimplePwmChannel {
+        let ch = |channel, pin| SimplePwmChannel {
             timer: unsafe { timer.clone_unchecked() },
             channel,
+            _pin: pin,
         };
 
         SimplePwmChannels {
-            ch1: ch(Channel::Ch1),
-            ch2: ch(Channel::Ch2),
-            ch3: ch(Channel::Ch3),
-            ch4: ch(Channel::Ch4),
+            ch1: ch(Channel::Ch1, self.ch1),
+            ch2: ch(Channel::Ch2, self.ch2),
+            ch3: ch(Channel::Ch3, self.ch3),
+            ch4: ch(Channel::Ch4, self.ch4),
         }
     }
 

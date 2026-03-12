@@ -8,8 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.3.0 - 2026-03-10
+
 - Added experimental W6100 driver with disabled MAC filter (does not currently work with it enabled)
+- Added W6300 driver
 - Introduced `SOCKET_INTR_CLR` register which is needed on W6100 and later models (on W5100/W5500 this is shared with `SOCKET_INTR` and the address is the same)
+- Upgrade embassy-net-driver-channel to 0.4.0
 
 ## 0.2.1 - 2025-08-26
 

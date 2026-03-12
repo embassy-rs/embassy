@@ -19,10 +19,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         feature = "stm32f091rc",
     )) {
         println!("cargo:rustc-link-arg-bins=-Tlink.x");
-        println!("cargo:rerun-if-changed=link.x");
     } else {
         println!("cargo:rustc-link-arg-bins=-Tlink_ram.x");
-        println!("cargo:rerun-if-changed=link_ram.x");
+        println!("cargo:rerun-if-changed=../link_ram_cortex_m.x");
     }
 
     if cfg!(feature = "stm32wb55rg") {

@@ -60,9 +60,10 @@ fn firmware_error_to_status(e: FirmwareUpdaterError) -> Status {
 impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> dfu_mode::Handler
     for FirmwareHandler<'d, DFU, STATE, RST, BLOCK_SIZE>
 {
-    fn start(&mut self) {
+    fn start(&mut self) -> Result<(), Status> {
         info!("Download starting");
         self.offset = 0;
+        Ok(())
     }
 
     fn write(&mut self, data: &[u8]) -> Result<(), Status> {

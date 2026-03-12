@@ -20,7 +20,7 @@ pub use injected::InjectedAdc;
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
 /// VREF voltage used for factory calibration of VREFINTCAL register.
-pub const VREF_CALIB_MV: u32 = 3300;
+pub const VREF_CALIB_MV: u32 = 3000;
 
 const NR_INJECTED_RANKS: usize = 4;
 
