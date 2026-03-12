@@ -463,13 +463,13 @@ impl sealed::Sealed for Blocking {}
 impl Mode for Blocking {}
 
 /// A flexible pin that can be configured as input or output.
-pub struct Flex<'d, M: Mode> {
+pub struct Flex<'d, M: Mode = Blocking> {
     pin: Peri<'d, AnyPin>,
     _marker: PhantomData<&'d mut ()>,
     _mode: PhantomData<M>,
 }
 
-impl<'d> Flex<'d, Blocking> {
+impl<'d> Flex<'d> {
     /// Wrap the pin in a `Flex`.
     ///
     /// The pin remains unmodified. The initial output level is unspecified, but
@@ -690,7 +690,7 @@ impl<'d, M: Mode> Drop for Flex<'d, M> {
 
 /// GPIO output driver that owns a `Flex` pin.
 pub struct Output<'d> {
-    flex: Flex<'d, Blocking>,
+    flex: Flex<'d>,
 }
 
 impl<'d> Output<'d> {
@@ -742,17 +742,17 @@ impl<'d> Output<'d> {
 
     /// Expose the inner `Flex` if callers need to reconfigure the pin.
     #[inline]
-    pub fn into_flex(self) -> Flex<'d, Blocking> {
+    pub fn into_flex(self) -> Flex<'d> {
         self.flex
     }
 }
 
 /// GPIO input driver that owns a `Flex` pin.
-pub struct Input<'d, M: Mode> {
+pub struct Input<'d, M: Mode = Blocking> {
     flex: Flex<'d, M>,
 }
 
-impl<'d> Input<'d, Blocking> {
+impl<'d> Input<'d> {
     /// Create a GPIO input driver for a [GpioPin].
     ///
     pub fn new(pin: Peri<'d, impl GpioPin>, pull_select: Pull) -> Self {
