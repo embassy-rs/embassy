@@ -9,13 +9,13 @@ use core::pin::pin;
 
 use embassy_hal_internal::{Peri, PeripheralType};
 use maitake_sync::WaitMap;
+use paste::paste;
 
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac::common::{RW, Reg};
 use crate::pac::gpio::vals::{Irqc, Isf, Pdd, Pid, Ptco, Ptso};
 use crate::pac::port::regs::Pcr;
 use crate::pac::port::vals::{Dse, Ibe, Inv, Mux, Pe, Ps, Sre};
-use paste::paste;
 
 struct BitIter(u32);
 
@@ -48,6 +48,10 @@ pub trait Instance: SealedInstance + PeripheralType {
 struct Info {
     pub port_index: usize,
     pub gpio: crate::pac::gpio::Gpio,
+}
+
+pub trait HasGpioInstance: GpioPin {
+    type Instance: Instance;
 }
 
 trait SealedInstance {
@@ -445,6 +449,10 @@ macro_rules! impl_pin {
                     )
                 }
             }
+
+            impl crate::gpio::HasGpioInstance for crate::peripherals::$peri {
+                type Instance = crate::peripherals::$block;
+            }
         }
     };
 }
@@ -598,17 +606,16 @@ impl<'d> Flex<'d, Async> {
     /// Wrap the pin in Flex with Async support.
     ///
     /// This enables the use of async functions like: [`Flex::wait_for_high`] and [`Flex::wait_for_falling_edge`].
-    pub fn new_async<P, T>(
+    pub fn new_async<P>(
         pin: Peri<'d, P>,
-        _irq: impl crate::interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl crate::interrupt::typelevel::Binding<<P::Instance as Instance>::Interrupt, InterruptHandler<P::Instance>>,
     ) -> Self
     where
-        P: GpioPin,
-        T: Instance,
+        P: GpioPin + HasGpioInstance,
     {
         pin.set_function(Mux::MUX0);
         unsafe {
-            T::Interrupt::enable();
+            <P::Instance as Instance>::Interrupt::enable();
         }
         Self {
             pin: pin.into(),
@@ -800,14 +807,14 @@ impl<'d> Input<'d, Async> {
     /// Create a GPIO input driver for a [GpioPin] with async support.
     ///
     /// This enables the use of async functions like: [`Input::wait_for_high`] and [`Input::wait_for_falling_edge`].
-    pub fn new_async<P, T>(
+    pub fn new_async<P>(
         pin: Peri<'d, P>,
-        irq: impl crate::interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        irq: impl crate::interrupt::typelevel::Binding<<P::Instance as Instance>::Interrupt, InterruptHandler<P::Instance>>
+        + 'd,
         pull_select: Pull,
     ) -> Self
     where
-        P: GpioPin,
-        T: Instance,
+        P: GpioPin + HasGpioInstance,
     {
         let mut flex = Flex::new_async(pin, irq);
         flex.set_as_input();
