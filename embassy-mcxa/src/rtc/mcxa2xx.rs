@@ -144,7 +144,7 @@ pub fn convert_seconds_to_datetime(seconds: u32) -> RtcDateTime {
     let minute = (seconds_remaining / consts::SECONDS_IN_A_MINUTE) as u8;
     let second = (seconds_remaining % consts::SECONDS_IN_A_MINUTE) as u8;
 
-    let mut year = consts::YEAR_RANGE_START;
+    let mut year = consts::EPOCH_YEAR_RANGE_START;
     let mut days_in_year = consts::DAYS_IN_A_YEAR;
 
     while days > days_in_year {
@@ -209,15 +209,18 @@ pub fn convert_seconds_to_datetime(seconds: u32) -> RtcDateTime {
 /// - Update mode 0 (immediate updates)
 /// - No supervisor access restriction
 /// - No compensation
-pub fn get_default_config() -> RtcConfig {
-    RtcConfig {
-        wakeup_select: false,
-        update_mode: Um::UM_0,
-        supervisor_access: false,
-        compensation_interval: 0,
-        compensation_time: Tcr::TCR_0,
+impl Default for RtcConfig {
+    fn default() -> Self {
+        RtcConfig {
+            wakeup_select: false,
+            update_mode: Um::UM_0,
+            supervisor_access: false,
+            compensation_interval: 0,
+            compensation_time: Tcr::TCR_0,
+        }
     }
 }
+
 /// Minimal RTC handle for a specific instance I (store the zero-sized token like embassy)
 pub struct Rtc<'a> {
     _inst: core::marker::PhantomData<&'a mut ()>,

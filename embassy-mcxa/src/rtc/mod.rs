@@ -4,7 +4,7 @@
 mod mcxa2xx;
 
 #[cfg(feature = "mcxa2xx")]
-pub use mcxa2xx::{InterruptHandler, Rtc, Rtc0, RtcConfig, get_default_config};
+pub use mcxa2xx::{InterruptHandler, Rtc, Rtc0, RtcConfig};
 
 pub(crate) mod consts {
     /// Number of days in a standard year
@@ -16,7 +16,7 @@ pub(crate) mod consts {
     /// Number of seconds in a minute
     pub(crate) const SECONDS_IN_A_MINUTE: u32 = 60;
     /// Unix epoch start year
-    pub(crate) const YEAR_RANGE_START: u16 = 1970;
+    pub(crate) const EPOCH_YEAR_RANGE_START: u16 = 1970;
 }
 
 /// Date and time structure for RTC operations
