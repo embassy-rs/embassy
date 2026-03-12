@@ -595,7 +595,9 @@ impl<'d, M: Mode> Flex<'d, M> {
 
 /// Async methods
 impl<'d> Flex<'d, Async> {
-    /// Wrap the pin in AsyncFlex with Async support.
+    /// Wrap the pin in Flex with Async support.
+    ///
+    /// This enables the use of async functions like: [`Flex::wait_for_high`] and [`Flex::wait_for_falling_edge`].
     pub fn new_async<P, T>(
         pin: Peri<'d, P>,
         _irq: impl crate::interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
@@ -795,8 +797,9 @@ impl<'d, M: Mode> Input<'d, M> {
 
 /// Async methods
 impl<'d> Input<'d, Async> {
-    /// Create a GPIO input driver for a [GpioPin].
+    /// Create a GPIO input driver for a [GpioPin] with async support.
     ///
+    /// This enables the use of async functions like: [`Input::wait_for_high`] and [`Input::wait_for_falling_edge`].
     pub fn new_async<P, T>(
         pin: Peri<'d, P>,
         irq: impl crate::interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
