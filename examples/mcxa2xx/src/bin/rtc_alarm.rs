@@ -3,7 +3,7 @@
 
 use embassy_executor::Spawner;
 use embassy_mcxa::bind_interrupts;
-use hal::rtc::{InterruptHandler, Rtc, RtcDateTime};
+use hal::rtc::{InterruptHandler, Rtc, RtcConfig, RtcDateTime};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -16,7 +16,7 @@ async fn main(_spawner: Spawner) {
 
     defmt::info!("=== RTC Alarm Example ===");
 
-    let rtc_config = hal::rtc::get_default_config();
+    let rtc_config = RtcConfig::default();
 
     let mut rtc = Rtc::new(p.RTC0, Irqs, rtc_config);
 

@@ -8,6 +8,7 @@ use crate::clocks::{WakeGuard, with_clocks};
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac;
 use crate::pac::rtc::vals::{Swr, Tcr, Um};
+use crate::rtc::{RtcDateTime, consts};
 
 /// RTC interrupt handler.
 pub struct InterruptHandler<I: Instance> {
@@ -66,27 +67,6 @@ impl Instance for crate::peripherals::RTC0 {
     type Interrupt = crate::interrupt::typelevel::RTC;
 }
 
-/// Number of days in a standard year
-const DAYS_IN_A_YEAR: u32 = 365;
-/// Number of seconds in a day
-const SECONDS_IN_A_DAY: u32 = 86400;
-/// Number of seconds in an hour
-const SECONDS_IN_A_HOUR: u32 = 3600;
-/// Number of seconds in a minute
-const SECONDS_IN_A_MINUTE: u32 = 60;
-/// Unix epoch start year
-const YEAR_RANGE_START: u16 = 1970;
-
-/// Date and time structure for RTC operations
-#[derive(Debug, Clone, Copy)]
-pub struct RtcDateTime {
-    pub year: u16,
-    pub month: u8,
-    pub day: u8,
-    pub hour: u8,
-    pub minute: u8,
-    pub second: u8,
-}
 #[derive(Copy, Clone)]
 pub struct RtcConfig {
     #[allow(dead_code)]
@@ -124,7 +104,7 @@ impl RtcInterruptEnable {
 pub fn convert_datetime_to_seconds(datetime: &RtcDateTime) -> u32 {
     let month_days: [u16; 13] = [0, 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
 
-    let mut seconds = (datetime.year as u32 - 1970) * DAYS_IN_A_YEAR;
+    let mut seconds = (datetime.year as u32 - 1970) * consts::DAYS_IN_A_YEAR;
     seconds += (datetime.year as u32 / 4) - (1970 / 4);
     seconds += month_days[datetime.month as usize] as u32;
     seconds += datetime.day as u32 - 1;
@@ -133,9 +113,9 @@ pub fn convert_datetime_to_seconds(datetime: &RtcDateTime) -> u32 {
         seconds -= 1;
     }
 
-    seconds = seconds * SECONDS_IN_A_DAY
-        + (datetime.hour as u32 * SECONDS_IN_A_HOUR)
-        + (datetime.minute as u32 * SECONDS_IN_A_MINUTE)
+    seconds = seconds * consts::SECONDS_IN_A_DAY
+        + (datetime.hour as u32 * consts::SECONDS_IN_A_HOUR)
+        + (datetime.minute as u32 * consts::SECONDS_IN_A_MINUTE)
         + datetime.second as u32;
 
     seconds
@@ -156,25 +136,25 @@ pub fn convert_datetime_to_seconds(datetime: &RtcDateTime) -> u32 {
 /// This function handles leap years correctly.
 pub fn convert_seconds_to_datetime(seconds: u32) -> RtcDateTime {
     let mut seconds_remaining = seconds;
-    let mut days = seconds_remaining / SECONDS_IN_A_DAY + 1;
-    seconds_remaining %= SECONDS_IN_A_DAY;
+    let mut days = seconds_remaining / consts::SECONDS_IN_A_DAY + 1;
+    seconds_remaining %= consts::SECONDS_IN_A_DAY;
 
-    let hour = (seconds_remaining / SECONDS_IN_A_HOUR) as u8;
-    seconds_remaining %= SECONDS_IN_A_HOUR;
-    let minute = (seconds_remaining / SECONDS_IN_A_MINUTE) as u8;
-    let second = (seconds_remaining % SECONDS_IN_A_MINUTE) as u8;
+    let hour = (seconds_remaining / consts::SECONDS_IN_A_HOUR) as u8;
+    seconds_remaining %= consts::SECONDS_IN_A_HOUR;
+    let minute = (seconds_remaining / consts::SECONDS_IN_A_MINUTE) as u8;
+    let second = (seconds_remaining % consts::SECONDS_IN_A_MINUTE) as u8;
 
-    let mut year = YEAR_RANGE_START;
-    let mut days_in_year = DAYS_IN_A_YEAR;
+    let mut year = consts::EPOCH_YEAR_RANGE_START;
+    let mut days_in_year = consts::DAYS_IN_A_YEAR;
 
     while days > days_in_year {
         days -= days_in_year;
         year += 1;
 
         days_in_year = if year.is_multiple_of(4) {
-            DAYS_IN_A_YEAR + 1
+            consts::DAYS_IN_A_YEAR + 1
         } else {
-            DAYS_IN_A_YEAR
+            consts::DAYS_IN_A_YEAR
         };
     }
 
@@ -229,15 +209,18 @@ pub fn convert_seconds_to_datetime(seconds: u32) -> RtcDateTime {
 /// - Update mode 0 (immediate updates)
 /// - No supervisor access restriction
 /// - No compensation
-pub fn get_default_config() -> RtcConfig {
-    RtcConfig {
-        wakeup_select: false,
-        update_mode: Um::UM_0,
-        supervisor_access: false,
-        compensation_interval: 0,
-        compensation_time: Tcr::TCR_0,
+impl Default for RtcConfig {
+    fn default() -> Self {
+        RtcConfig {
+            wakeup_select: false,
+            update_mode: Um::UM_0,
+            supervisor_access: false,
+            compensation_interval: 0,
+            compensation_time: Tcr::TCR_0,
+        }
     }
 }
+
 /// Minimal RTC handle for a specific instance I (store the zero-sized token like embassy)
 pub struct Rtc<'a> {
     _inst: core::marker::PhantomData<&'a mut ()>,
@@ -391,7 +374,7 @@ impl<'a> Rtc<'a> {
     /// This function enables the specified interrupt types and resets the alarm occurred flag.
     /// Available interrupts:
     /// - Time Invalid Interrupt
-    /// - Time Overflow Interrupt  
+    /// - Time Overflow Interrupt
     /// - Alarm Interrupt
     /// - Seconds Interrupt
     pub fn set_interrupt(&self, mask: u32) {
