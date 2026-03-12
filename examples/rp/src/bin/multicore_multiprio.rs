@@ -3,14 +3,17 @@
 //! with:
 //!
 //! ```sh
-//! cargo run --release --no-default-features --features=custom-executor --bin multicore_multiprio
+//! cargo run --release --no-default-features --features=executor-platform --bin multicore_multiprio
 //! ```
 //! Output will be logged via a USB serial port device
 //! Note this example will not work with the regular executors in embassy_executor
 #![no_std]
 #![no_main]
 
+#[cfg(feature = "default-executor")]
+use embassy_executor::{Executor, InterruptExecutor};
 use embassy_executor::{Spawner, main};
+#[cfg(feature = "executor-platform")]
 use embassy_rp::executor::{Executor, InterruptExecutor};
 use embassy_rp::interrupt::{InterruptExt, Priority};
 use embassy_rp::multicore::{CoreId, Stack, current_core, spawn_core1};
