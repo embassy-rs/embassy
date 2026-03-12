@@ -1,13 +1,6 @@
 //! This example roughly emulates the `IDD_SLEEP_MD_3` scenario from the datasheet.
 //!
-//! As written, this achieves 579uA average current when measured with a Nordic PPK2.
-//!
-//! **NOTE: This requires rework of the board! You must remove R26 (used for the on
-//! board op-amp), remove R52, and bodge the pad of R52 that is closest to R61 to TP9
-//! (VDD_MCU_LINK). Without these reworks, you will see much higher current consumption.**
-//!
-//! As of 2026-02-04, UM12439 ONLY mentions the R52 errata, but the removal of R26 (as
-//! described in AN14765 for the MCXA346) is also necessary for the FRDM-MCXA266.
+//! As written, this achieves TBD average current when measured with a Nordic PPK2.
 
 #![no_std]
 #![no_main]

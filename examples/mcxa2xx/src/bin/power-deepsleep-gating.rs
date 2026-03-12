@@ -2,7 +2,7 @@
 //! with:
 //!
 //! ```sh
-//! cargo run --release --no-default-features --features=custom-executor --bin power-deepsleep
+//! cargo run --release --no-default-features --features=custom-executor --bin power-deepsleep-gating
 //! ```
 //!
 //! **NOTE: This requires rework of the board! You must remove R26 (used for the on
