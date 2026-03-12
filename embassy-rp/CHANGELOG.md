@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add output enable inversion API (gpio, pio)
 - Add PIO clock generator
 - Change PioBatch interface
+- Add custom multicore-ready executors
 - breaking: Change watchdog interface — `feed` now takes a duration argument, added `stop`
 - Add DMA `Channel` driver struct
 - breaking: DMA renames — `read_repeated`→`read_discard`, `write_repeated`→`write_zeros`, `dma_push_repeated`→`dma_push_zeros`, `dma_pull_repeated`→`dma_pull_discard`
