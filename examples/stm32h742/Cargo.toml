@@ -19,7 +19,7 @@ embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = [
 ] }
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = [
     "arch-cortex-m",
-    "executor-thread",
+    "executor-thread-single-core",
     "defmt",
 ] }
 embassy-time = { version = "0.5.1", path = "../../embassy-time", features = [

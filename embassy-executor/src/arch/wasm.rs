@@ -1,9 +1,9 @@
-#[cfg(feature = "executor-interrupt")]
+#[cfg(feature = "executor-interrupt-single-core")]
 compile_error!("`executor-interrupt` is not supported with `arch-wasm`.");
 
-#[cfg(feature = "executor-thread")]
+#[cfg(feature = "executor-thread-single-core")]
 pub use thread::*;
-#[cfg(feature = "executor-thread")]
+#[cfg(feature = "executor-thread-single-core")]
 mod thread {
 
     use core::marker::PhantomData;

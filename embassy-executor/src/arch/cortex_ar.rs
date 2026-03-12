@@ -1,26 +1,26 @@
 #[cfg(arm_profile = "legacy")]
 compile_error!("`arch-cortex-ar` does not support the legacy ARM profile, WFE/SEV are not available.");
 
-#[cfg(feature = "executor-interrupt")]
+#[cfg(feature = "executor-interrupt-single-core")]
 compile_error!("`executor-interrupt` is not supported with `arch-cortex-ar`.");
 
 #[unsafe(export_name = "__pender")]
-#[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
+#[cfg(any(feature = "executor-thread-single-core", feature = "executor-interrupt-single-core"))]
 fn __pender(context: *mut ()) {
     // `context` is always `usize::MAX` created by `Executor::run`.
     let context = context as usize;
 
-    #[cfg(feature = "executor-thread")]
+    #[cfg(feature = "executor-thread-single-core")]
     // Try to make Rust optimize the branching away if we only use thread mode.
-    if !cfg!(feature = "executor-interrupt") || context == THREAD_PENDER {
+    if !cfg!(feature = "executor-interrupt-single-core") || context == THREAD_PENDER {
         aarch32_cpu::asm::sev();
         return;
     }
 }
 
-#[cfg(feature = "executor-thread")]
+#[cfg(feature = "executor-thread-single-core")]
 pub use thread::*;
-#[cfg(feature = "executor-thread")]
+#[cfg(feature = "executor-thread-single-core")]
 mod thread {
     pub(super) const THREAD_PENDER: usize = usize::MAX;
 

@@ -1,5 +1,5 @@
 #[unsafe(export_name = "__pender")]
-#[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
+#[cfg(any(feature = "executor-thread-single-core", feature = "executor-interrupt-single-core"))]
 fn __pender(context: *mut ()) {
     unsafe {
         // Safety: `context` is either `usize::MAX` created by `Executor::run`, or a valid interrupt
@@ -7,14 +7,14 @@ fn __pender(context: *mut ()) {
 
         let context = context as usize;
 
-        #[cfg(feature = "executor-thread")]
+        #[cfg(feature = "executor-thread-single-core")]
         // Try to make Rust optimize the branching away if we only use thread mode.
-        if !cfg!(feature = "executor-interrupt") || context == THREAD_PENDER {
+        if !cfg!(feature = "executor-interrupt-single-core") || context == THREAD_PENDER {
             core::arch::asm!("sev");
             return;
         }
 
-        #[cfg(feature = "executor-interrupt")]
+        #[cfg(feature = "executor-interrupt-single-core")]
         {
             use cortex_m::interrupt::InterruptNumber;
             use cortex_m::peripheral::NVIC;
@@ -42,9 +42,9 @@ fn __pender(context: *mut ()) {
     }
 }
 
-#[cfg(feature = "executor-thread")]
+#[cfg(feature = "executor-thread-single-core")]
 pub use thread::*;
-#[cfg(feature = "executor-thread")]
+#[cfg(feature = "executor-thread-single-core")]
 mod thread {
     pub(super) const THREAD_PENDER: usize = usize::MAX;
 
@@ -110,9 +110,9 @@ mod thread {
     }
 }
 
-#[cfg(feature = "executor-interrupt")]
+#[cfg(feature = "executor-interrupt-single-core")]
 pub use interrupt::*;
-#[cfg(feature = "executor-interrupt")]
+#[cfg(feature = "executor-interrupt-single-core")]
 mod interrupt {
     use core::cell::{Cell, UnsafeCell};
     use core::mem::MaybeUninit;
