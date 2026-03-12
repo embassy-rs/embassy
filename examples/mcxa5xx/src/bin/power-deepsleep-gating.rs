@@ -2,7 +2,7 @@
 //! with:
 //!
 //! ```sh
-//! cargo run --release --no-default-features --features=custom-executor --bin power-deepsleep-gating
+//! cargo run --release --no-default-features --features=executor-platform --bin power-deepsleep-gating
 //! ```
 
 #![no_std]
@@ -20,10 +20,10 @@ use hal::gpio::{DriveStrength, Level, Output, SlewRate};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 #[cfg_attr(
-    feature = "custom-executor",
+    feature = "executor-platform",
     embassy_executor::main(executor = "embassy_mcxa::executor::Executor", entry = "cortex_m_rt::entry")
 )]
-#[cfg_attr(not(feature = "custom-executor"), embassy_executor::main)]
+#[cfg_attr(not(feature = "executor-platform"), embassy_executor::main)]
 async fn main(_spawner: Spawner) {
     // Do a short delay in order to allow for us to attach the debugger/start
     // a flash in case some setting below is wrong, and the CPU gets stuck
@@ -92,7 +92,7 @@ async fn main(_spawner: Spawner) {
 
     let p = hal::init(cfg);
 
-    #[cfg(feature = "custom-executor")]
+    #[cfg(feature = "executor-platform")]
     embassy_mcxa::executor::set_executor_debug_gpio(p.P2_3);
 
     let mut pin = p.P4_2;

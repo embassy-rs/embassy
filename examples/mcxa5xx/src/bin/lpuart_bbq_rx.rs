@@ -47,10 +47,10 @@ const SIZE: usize = 4096;
 static RX_BUF: ConstStaticCell<[u8; SIZE]> = ConstStaticCell::new([0u8; SIZE]);
 
 #[cfg_attr(
-    feature = "custom-executor",
+    feature = "executor-platform",
     embassy_executor::main(executor = "embassy_mcxa::executor::Executor", entry = "cortex_m_rt::entry")
 )]
-#[cfg_attr(not(feature = "custom-executor"), embassy_executor::main)]
+#[cfg_attr(not(feature = "executor-platform"), embassy_executor::main)]
 async fn main(_spawner: Spawner) {
     let mut cfg = hal::config::Config::default();
 
@@ -115,7 +115,7 @@ async fn main(_spawner: Spawner) {
     let mut red = Output::new(p.P2_14, Level::High, DriveStrength::Normal, SlewRate::Fast);
     let mut debug = Output::new(p.P5_8, Level::High, DriveStrength::Normal, SlewRate::Fast);
 
-    #[cfg(feature = "custom-executor")]
+    #[cfg(feature = "executor-platform")]
     embassy_mcxa::executor::set_executor_debug_gpio(p.P3_27);
 
     loop {

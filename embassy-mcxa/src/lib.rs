@@ -38,7 +38,7 @@ mod all_chips {
     pub mod crc;
     pub mod ctimer;
     pub mod dma;
-    #[cfg(feature = "custom-executor")]
+    #[cfg(feature = "executor-platform")]
     pub mod executor;
     pub mod gpio;
     pub mod i2c;

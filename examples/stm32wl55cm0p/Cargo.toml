@@ -20,7 +20,7 @@ embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = [
 ] }
 embassy-embedded-hal = { version = "0.6.0", path = "../../embassy-embedded-hal" }
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = [
-  "arch-cortex-m",
+  "platform-cortex-m",
   "executor-thread",
   "executor-interrupt",
   "defmt",
