@@ -6,11 +6,11 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]
-embassy-executor = { version = "0.9.1", path = "../../../embassy-executor", features = ["arch-cortex-m", "executor-thread"] }
-embassy-stm32 = { version = "0.5.0", path = "../../../embassy-stm32", features = ["defmt", "stm32n657x0", "time", "time-driver-any", "exti"] }
-embassy-time = { version = "0.5.0", path = "../../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
+embassy-executor = { version = "0.10.0", path = "../../../embassy-executor", features = ["platform-cortex-m", "executor-thread"] }
+embassy-stm32 = { version = "0.6.0", path = "../../../embassy-stm32", features = ["defmt", "stm32n657x0", "time", "time-driver-any", "exti"] }
+embassy-time = { version = "0.5.1", path = "../../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 defmt = "1.0.1"
-defmt-rtt = "1.0.0"
+defmt-rtt = "1.1.0"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 
 cortex-m = { version = "0.7.7", features = ["inline-asm", "critical-section-single-core"] }
