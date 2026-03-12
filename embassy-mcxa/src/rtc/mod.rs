@@ -6,6 +6,7 @@ mod mcxa2xx;
 #[cfg(feature = "mcxa2xx")]
 pub use mcxa2xx::{InterruptHandler, Rtc, Rtc0, RtcConfig};
 
+#[cfg(feature = "mcxa2xx")]
 pub(crate) mod consts {
     /// Number of days in a standard year
     pub(crate) const DAYS_IN_A_YEAR: u32 = 365;
