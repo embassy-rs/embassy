@@ -8,7 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.3.2 - 2026-03-10
+
 - Disabling an OUT endpoint no longer flushes the TX FIFO of the corresponding IN endpoint
+- Upgrade embassy-sync to 0.8.0
 
 ## 0.3.1 - 2025-08-26
 

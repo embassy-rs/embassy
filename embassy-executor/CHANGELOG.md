@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.10.0 - 2026-03-10
+
 - Added new metadata API for tasks.
 - Main task automatically gets a name of `main` when the `metadata-name` feature is enabled.
 - Upgraded rtos-trace

@@ -8,8 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.7.0 - 2026-03-10
+
 - Reset WPA security before creating secure AP
 - Bump bt-hci to 0.8.0.
+- Update embassy-time to 0.6.0
+- Update embassy-sync to 0.8.0
+- Update embassy-net-driver-channel to 0.4.0
 
 ## 0.6.0 - 2025-11-27
 

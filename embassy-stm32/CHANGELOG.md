@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## Unreleased - ReleaseDate
+
+## 0.6.0 - 2026-03-10
 - fix: stm32/i2s: fix frame misalignment after DMA ring buffer overrun recovery by adding alignment support to `ReadableDmaRingBuffer`
 - fix: stm32/i2s: defer I2SE enable from constructor to `start()` for proper slave frame synchronization
 - fix: stm32/i2s: Use correct PLLI2S clock source for STM32F2 and STM32F7 instead of APB clock
@@ -23,6 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - change: stm32/timer/input_capture: use timer word size for all outputs
 - fix: stm32/adc/v3: correct VREF_CALIB_MV for H5 and H7RS chips
 - fix: stm32/adc/g4: correct VREF_CALIB_MV
+- Upgrade embassy-sync to 0.8.0
+- Upgrade embassy-time to 0.6.0
+- Upgrade embassy-embedded-hal to 0.6.0
+- Upgrade embassy-usb-synopsys-otg to 0.3.2
+- Upgrade embassy-executor to 0.10.0
+- Upgrade cyw43 to 0.7.0
 
 ## 0.5.0 - 2026-01-04
 - Add `receive_waveform` method in `InputCapture`, allowing asynchronous input capture with DMA.
