@@ -10,18 +10,16 @@
 #![no_std]
 #![no_main]
 
-use defmt_rtt as _;
 use embassy_executor::{Spawner, main};
 use embassy_rp::executor::{Executor, InterruptExecutor};
 use embassy_rp::interrupt::{InterruptExt, Priority};
 use embassy_rp::multicore::{CoreId, Stack, current_core, spawn_core1};
 use embassy_rp::peripherals::USB;
-use embassy_rp::usb;
-use embassy_rp::{bind_interrupts, interrupt};
+use embassy_rp::{bind_interrupts, interrupt, usb};
 use embassy_time::{Duration, Ticker, Timer};
 use log::*;
-use panic_probe as _;
 use static_cell::StaticCell;
+use {defmt_rtt as _, panic_probe as _};
 
 static mut CORE1_STACK: Stack<4096> = Stack::new();
 static CORE1_LOW: StaticCell<Executor> = StaticCell::new();
