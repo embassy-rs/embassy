@@ -140,19 +140,33 @@ turbowakers = []
 
 #! ### Platform
 _platform = [] # some platform was picked
-## std
+## STD platform. Enables running the executor on top of `std` threading primitives.
 platform-std = ["_platform"]
-## Cortex-M
+## Cortex-M platform. Uses `WFE`/`SEV` for the thread executor, NVIC interrupts for the interrupt executor.
+## 
+## - Only usable on **single-core chips**. (Exception: the thread executor might work if your chip has wired the "event" signal between the cores, so `SEV` on one core can break a `WFE` in the other)
+## - Only usable on **bare-metal**. Do not use this if you want to run the executor inside an RTOS thread, you must use RTOS primitives to sleep/notify the thread instead.
+## - Only usable on **privileged mode**. 
 platform-cortex-m = ["_platform", "dep:cortex-m"]
-## Cortex-A/R
+## Cortex-A/R platform. Uses `WFE`/`SEV` for the thread executor. Interrupt executor is not supported.
+## 
+## - Only usable on **single-core chips**. (Exception: the thread executor might work if your chip has wired the "event" signal between the cores, so `SEV` on one core can break a `WFE` in the other)
+## - Only usable on **bare-metal**. Do not use this if you want to run the executor inside an RTOS thread, you must use RTOS primitives to sleep/notify the thread instead.
+## - Only usable on **privileged mode**. 
 platform-cortex-ar = ["_platform", "dep:aarch32-cpu", "dep:arm-targets"]
-## RISC-V 32
+## RISC-V 32-bit platform. Uses WFI for the thread executor. Interrupt executor is not supported.
+## 
+## - Only usable on **single-core chips**.
+## - Only usable on **bare-metal**. Do not use this if you want to run the executor inside an RTOS thread, you must use RTOS primitives to sleep/notify the thread instead.
+## - Only usable on **privileged mode**. 
 platform-riscv32 = ["_platform"]
-## WASM
+## WASM platform.
 platform-wasm = ["_platform", "dep:wasm-bindgen", "dep:js-sys"]
-## AVR
+## AVR platform. Uses WFI for the thread executor. Interrupt executor is not supported.
 platform-avr = ["_platform", "dep:portable-atomic", "dep:avr-device"]
-## spin (architecture agnostic; never sleeps)
+## Spin-loop platform.
+## 
+## This "platform" implementation is architecture/platform/chip agnostic. The main loop polls the executor constantly without sleeping, and the pender callback simply does nothing. Using this is not recommended, you probably want to use a platform-specific implementation that can sleep instead.
 platform-spin = ["_platform"]
 
 #! ### Metadata
@@ -180,7 +194,7 @@ scheduler-deadline = []
 scheduler-priority = []
 
 ## Enable the embassy_time_driver dependency.
-## This can unlock extra APIs, for example for the `sheduler-deadline`
+## This can unlock extra APIs, for example for the `scheduler-deadline`
 embassy-time-driver = ["dep:embassy-time-driver"]
 
 [build-dependencies]
