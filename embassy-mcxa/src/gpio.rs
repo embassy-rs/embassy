@@ -607,7 +607,6 @@ impl<'d> Flex<'d, Async> {
         pin.set_function(Mux::MUX0);
         unsafe {
             T::Interrupt::enable();
-            cortex_m::interrupt::enable();
         }
         Self {
             pin: pin.into(),

@@ -473,6 +473,11 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
     // Initialize the INPUTMUX peripheral
     crate::inputmux::init();
 
+    // Enable interrupts
+    unsafe {
+        cortex_m::interrupt::enable();
+    }
+
     // Initialize DMA controller (clock, reset, configuration)
     crate::dma::init();
 
