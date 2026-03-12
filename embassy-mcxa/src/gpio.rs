@@ -82,11 +82,7 @@ macro_rules! impl_instance {
     };
 }
 
-impl_instance!(0);
-impl_instance!(1);
-impl_instance!(2);
-impl_instance!(3);
-impl_instance!(4);
+impl_instance!(0, 1, 2, 3, 4);
 #[cfg(feature = "mcxa5xx")]
 impl_instance!(5);
 
@@ -473,8 +469,7 @@ impl Mode for Blocking {}
 /// A flexible pin that can be configured as input or output.
 pub struct Flex<'d, M: Mode = Blocking> {
     pin: Peri<'d, AnyPin>,
-    _marker: PhantomData<&'d mut ()>,
-    _mode: PhantomData<M>,
+    _phantom: PhantomData<&'d mut M>,
 }
 
 impl<'d> Flex<'d> {
@@ -486,8 +481,7 @@ impl<'d> Flex<'d> {
         pin.set_function(Mux::MUX0);
         Self {
             pin: pin.into(),
-            _marker: PhantomData,
-            _mode: PhantomData,
+            _phantom: PhantomData,
         }
     }
 }
@@ -619,8 +613,7 @@ impl<'d> Flex<'d, Async> {
         }
         Self {
             pin: pin.into(),
-            _marker: PhantomData,
-            _mode: PhantomData,
+            _phantom: PhantomData,
         }
     }
 
