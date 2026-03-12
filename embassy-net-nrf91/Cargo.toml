@@ -18,7 +18,8 @@ log = ["dep:log"]
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
 
-nrf-pac = { version = "0.2.0", git = "https://github.com/embassy-rs/nrf-pac.git", rev = "074935b9b24ab302fe812f91725937f57cd082cf" }
+# nrf-pac = { version = "0.2.0", git = "https://github.com/embassy-rs/nrf-pac.git", rev = "074935b9b24ab302fe812f91725937f57cd082cf" }
+nrf-pac = "0.3.0"
 cortex-m = "0.7.7"
 
 embassy-time = { version = "0.5.1", path = "../embassy-time" }
