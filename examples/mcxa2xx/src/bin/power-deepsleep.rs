@@ -1,5 +1,11 @@
 //! This example roughly emulates the `IDD_DEEP_SLEEP_MD_2` scenario from the datasheet.
 //!
+//! This example needs to be run with:
+//!
+//! ```sh
+//! cargo run --release --no-default-features --features=custom-executor --bin power-deepsleep
+//! ```
+//!
 //! As written, this achieves 153uA average current when measured with a Nordic PPK2.
 //!
 //! **NOTE: This requires rework of the board! You must remove R26 (used for the on

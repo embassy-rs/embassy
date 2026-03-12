@@ -4,13 +4,6 @@
 //! ```sh
 //! cargo run --release --no-default-features --features=custom-executor --bin power-deepsleep-gating
 //! ```
-//!
-//! **NOTE: This requires rework of the board! You must remove R26 (used for the on
-//! board op-amp), remove R52, and bodge the pad of R52 that is closest to R61 to TP9
-//! (VDD_MCU_LINK). Without these reworks, you will see much higher current consumption.**
-//!
-//! As of 2026-02-04, UM12439 ONLY mentions the R52 errata, but the removal of R26 (as
-//! described in AN14765 for the MCXA346) is also necessary for the FRDM-MCXA266.
 
 #![no_std]
 #![no_main]
@@ -55,23 +48,23 @@ async fn main(_spawner: Spawner) {
     // Enable external osc, but ONLY in high-power mode
     cfg.clock_cfg.sosc = Some(SoscConfig {
         mode: SoscMode::CrystalOscillator,
-        frequency: 8_000_000,
+        frequency: 24_000_000,
         power: PoweredClock::NormalEnabledDeepSleepDisabled,
     });
 
     // Enable PLL, but ONLY in high-power mode
     cfg.clock_cfg.spll = Some(SpllConfig {
         source: SpllSource::Sosc,
-        // 8MHz
-        // 8 x 48 => 384MHz
+        // 24MHz
+        // 24 x 16 => 384MHz
         // 384 / (16 x 2) => 12.0MHz
         mode: SpllMode::Mode1b {
-            m_mult: 48,
+            m_mult: 16,
             p_div: 16,
             bypass_p2_div: false,
         },
         power: PoweredClock::NormalEnabledDeepSleepDisabled,
-        pll1_clk_div: None,
+        pll1_clk_div: Some(Div8::no_div()),
     });
 
     // Feed core from 12M osc
@@ -100,12 +93,12 @@ async fn main(_spawner: Spawner) {
     let p = hal::init(cfg);
 
     #[cfg(feature = "custom-executor")]
-    embassy_mcxa::executor::set_executor_debug_gpio(p.P1_12);
+    embassy_mcxa::executor::set_executor_debug_gpio(p.P2_3);
 
     let mut pin = p.P4_2;
     let mut clkout = p.CLKOUT;
     const M1_CONFIG: clkout::Config = clkout::Config {
-        sel: ClockOutSel::Pll1Clk,
+        sel: ClockOutSel::Pll1ClkDiv,
         div: const { Div4::from_divisor(12).unwrap() },
         level: PoweredClock::NormalEnabledDeepSleepDisabled,
     };
@@ -119,7 +112,7 @@ async fn main(_spawner: Spawner) {
     defmt::info!("Going to sleep shortly...");
     cortex_m::asm::delay(45_000_000 / 4);
 
-    let mut red = Output::new(p.P3_18, Level::High, DriveStrength::Normal, SlewRate::Slow);
+    let mut red = Output::new(p.P2_14, Level::High, DriveStrength::Normal, SlewRate::Slow);
     loop {
         Timer::after_millis(900).await;
 

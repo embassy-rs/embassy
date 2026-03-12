@@ -2,15 +2,8 @@
 //! with:
 //!
 //! ```sh
-//! cargo run --release --no-default-features --features=custom-executor --bin power-deepsleep-big-jump
+//! cargo run --release --no-default-features --features=custom-executor --bin power-deepsleep-gpio-int
 //! ```
-//!
-//! **NOTE: This requires rework of the board! You must remove R26 (used for the on
-//! board op-amp), remove R52, and bodge the pad of R52 that is closest to R61 to TP9
-//! (VDD_MCU_LINK). Without these reworks, you will see much higher current consumption.**
-//!
-//! As of 2026-02-04, UM12439 ONLY mentions the R52 errata, but the removal of R26 (as
-//! described in AN14765 for the MCXA346) is also necessary for the FRDM-MCXA266.
 
 #![no_std]
 #![no_main]
@@ -21,6 +14,7 @@ use embassy_mcxa::clocks::config::{
     CoreSleep, Div8, FircConfig, FircFreqSel, FlashSleep, MainClockConfig, MainClockSource, VddDriveStrength, VddLevel,
 };
 use embassy_mcxa::clocks::{PoweredClock, WakeGuard};
+use embassy_mcxa::gpio::{Input, Pull};
 use embassy_time::{Duration, Instant, Timer};
 use hal::gpio::{DriveStrength, Level, Output, SlewRate};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
@@ -30,23 +24,23 @@ use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
     embassy_executor::main(executor = "embassy_mcxa::executor::Executor", entry = "cortex_m_rt::entry")
 )]
 #[cfg_attr(not(feature = "custom-executor"), embassy_executor::main)]
-async fn main(_spawner: Spawner) {
+async fn main(spawner: Spawner) {
     // Do a short delay in order to allow for us to attach the debugger/start
     // a flash in case some setting below is wrong, and the CPU gets stuck
     // in deep sleep with debugging disabled.
     defmt::info!("Pre-power delay!");
     // Experimentally: about 5-6s or so.
-    cortex_m::asm::delay(45_000_000);
+    cortex_m::asm::delay(48_000_000);
     defmt::info!("Pre-power delay complete!");
     let mut cfg = hal::config::Config::default();
 
-    // Enable 180M FIRC
+    // Enable 192M FIRC
     let mut fcfg = FircConfig::default();
-    fcfg.frequency = FircFreqSel::Mhz180;
+    fcfg.frequency = FircFreqSel::Mhz192;
     fcfg.power = PoweredClock::NormalEnabledDeepSleepDisabled;
     fcfg.fro_hf_enabled = true;
     fcfg.clk_hf_fundamental_enabled = false;
-    fcfg.fro_hf_div = Some(const { Div8::from_divisor(180).unwrap() });
+    fcfg.fro_hf_div = Some(const { Div8::from_divisor(192).unwrap() });
     cfg.clock_cfg.firc = Some(fcfg);
 
     // Enable 12M osc to use as ostimer clock
@@ -86,12 +80,12 @@ async fn main(_spawner: Spawner) {
     let p = hal::init(cfg);
 
     #[cfg(feature = "custom-executor")]
-    embassy_mcxa::executor::set_executor_debug_gpio(p.P1_12);
+    embassy_mcxa::executor::set_executor_debug_gpio(p.P2_3);
 
     let mut pin = p.P4_2;
     let mut clkout = p.CLKOUT;
     const K250_CONFIG: clkout::Config = clkout::Config {
-        // 180MHz / 180 -> 1MHz
+        // 192MHz / 192 -> 1MHz
         sel: ClockOutSel::FroHfDiv,
         // 1MHz / 4 -> 250kHz
         div: const { Div4::from_divisor(4).unwrap() },
@@ -105,11 +99,19 @@ async fn main(_spawner: Spawner) {
     let _clock_out = unsafe { ClockOut::new_unchecked(clkout.reborrow(), pin.reborrow(), K250_CONFIG) };
 
     defmt::info!("Going to sleep shortly...");
-    cortex_m::asm::delay(45_000_000 / 4);
+    cortex_m::asm::delay(48_000_000 / 4);
 
-    let mut red = Output::new(p.P3_18, Level::High, DriveStrength::Normal, SlewRate::Slow);
+    let mut red = Output::new(p.P2_14, Level::High, DriveStrength::Normal, SlewRate::Slow);
+
+    // Setup a second LED, and use the button labeled "WAKEUP" as an input source
+    let blue = Output::new(p.P2_23, Level::High, DriveStrength::Normal, SlewRate::Slow);
+    let btn = Input::new(p.P3_17, Pull::Up);
+    spawner.spawn(press_toggler(btn, blue).unwrap());
+
     loop {
-        Timer::after_millis(900).await;
+        // We sleep a little longer than usual, to make it easier to distinguish between
+        // timer wakeups and GPIO wakeups.
+        Timer::after_millis(4900).await;
 
         // For the 100ms the LED is low, we manually take a wakeguard to prevent the
         // system from returning to deep sleep, which drastically increases our power
@@ -127,5 +129,22 @@ async fn main(_spawner: Spawner) {
         red.set_high();
         // The WakeGuard is dropped here before returning to the top of the loop. When this
         // happens, we will enter deep sleep automatically on our next .await.
+    }
+}
+
+/// A task that toggles the given LED every time the button falls low. No fancy
+/// debouncing, but useful to look at with the scope and the custom executor
+/// debug pin (or a power analyzer) to measure the time delta between the
+/// WAKEUP pin going low and the executor resuming from deep sleep.
+///
+/// At the time of writing, it takes us roughly 20us from the GPIO falling to
+/// the assertion of the executor debug gpio pin. This button can be observed
+/// using the mikro-bus header pin labeled "RST".
+#[embassy_executor::task]
+async fn press_toggler(mut button: Input<'static>, mut led: Output<'static>) {
+    loop {
+        button.wait_for_low().await;
+        led.toggle();
+        button.wait_for_high().await;
     }
 }
