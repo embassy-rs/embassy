@@ -33,6 +33,7 @@ stm32u585ai = ["embassy-stm32/stm32u585ai", "spi-v345", "chrono", "rng", "hash",
 stm32u5a5zj = ["embassy-stm32/stm32u5a5zj", "spi-v345", "chrono", "rng", "hash"] # FIXME: cordic test cause it crash
 stm32wb55rg = ["embassy-stm32/stm32wb55rg", "chrono", "not-gpdma", "ble", "mac" , "rng", "hsem", "stop"]
 stm32wba52cg = ["embassy-stm32/stm32wba52cg", "spi-v345", "chrono", "rng", "hash", "adc"]
+stm32wba65ri = ["embassy-stm32/stm32wba65ri", "spi-v345", "chrono", "rng", "hash", "adc"]
 stm32wl55jc = ["embassy-stm32/stm32wl55jc-cm4", "not-gpdma", "rng", "chrono", "hsem", "stop"]
 stm32f091rc = ["embassy-stm32/stm32f091rc", "cm0", "not-gpdma", "chrono"]
 stm32h503rb = ["embassy-stm32/stm32h503rb", "spi-v345", "rng", "stop"]
@@ -285,6 +286,7 @@ build = [
   { target = "thumbv8m.main-none-eabihf", features = ["stm32u585ai"], artifact-dir = "out/tests/stm32u585ai" },
   { target = "thumbv8m.main-none-eabihf", features = ["stm32u5a5zj"], artifact-dir = "out/tests/stm32u5a5zj" },
   { target = "thumbv8m.main-none-eabihf", features = ["stm32wba52cg"], artifact-dir = "out/tests/stm32wba52cg" },
+  { target = "thumbv8m.main-none-eabihf", features = ["stm32wba65ri"], artifact-dir = "out/tests/stm32wba65ri" },
   { target = "thumbv6m-none-eabi", features = ["stm32l073rz"], artifact-dir = "out/tests/stm32l073rz" },
   { target = "thumbv7m-none-eabi", features = ["stm32l152re"], artifact-dir = "out/tests/stm32l152re" },
   { target = "thumbv7em-none-eabi", features = ["stm32l4a6zg"], artifact-dir = "out/tests/stm32l4a6zg" },
