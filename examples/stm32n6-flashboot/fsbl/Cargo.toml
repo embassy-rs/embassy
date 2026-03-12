@@ -17,3 +17,9 @@ embedded-storage = "0.3.1"
 
 defmt = "1.0.1"
 defmt-rtt = "1.1.0"
+
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/stm32n6-flashboot/fsbl" }
+]
