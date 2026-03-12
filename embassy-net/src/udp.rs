@@ -278,18 +278,19 @@ impl<'a> UdpSocket<'a> {
     /// Send a datagram to the specified remote endpoint with a zero-copy function.
     ///
     /// This method will wait until the buffer can fit the requested size before
-    /// calling the function to fill its contents.
+    /// passing it to the closure. The closure returns the number of bytes
+    /// written into the buffer.
     ///
-    /// If the socket's send buffer is too small to fit `size`, this method will return `Err(SendError::PacketTooLarge)`
+    /// If the socket's send buffer is too small to fit `max_size`, this method will return `Err(SendError::PacketTooLarge)`
     ///
     /// When the remote endpoint is not reachable, this method will return `Err(SendError::NoRoute)`
-    pub async fn send_to_with<T, F, R>(&mut self, size: usize, remote_endpoint: T, f: F) -> Result<R, SendError>
+    pub async fn send_to_with<T, F, R>(&mut self, max_size: usize, remote_endpoint: T, f: F) -> Result<R, SendError>
     where
         T: Into<UdpMetadata> + Copy,
-        F: FnOnce(&mut [u8]) -> R,
+        F: FnOnce(&mut [u8]) -> (usize, R),
     {
         // Don't need to wake waker in `with_mut` if the buffer will never fit the udp tx_buffer.
-        let send_capacity_too_small = self.with(|s, _| s.payload_send_capacity() < size);
+        let send_capacity_too_small = self.with(|s, _| s.payload_send_capacity() < max_size);
         if send_capacity_too_small {
             return Err(SendError::PacketTooLarge);
         }
@@ -297,8 +298,14 @@ impl<'a> UdpSocket<'a> {
         let mut f = Some(f);
         poll_fn(move |cx| {
             self.with_mut(|s, _| {
-                match s.send(size, remote_endpoint) {
-                    Ok(buffer) => Poll::Ready(Ok(unwrap!(f.take())(buffer))),
+                let mut ret = None;
+
+                match s.send_with(max_size, remote_endpoint, |buf| {
+                    let (size, r) = unwrap!(f.take())(buf);
+                    ret = Some(r);
+                    size
+                }) {
+                    Ok(_n) => Poll::Ready(Ok(unwrap!(ret))),
                     Err(udp::SendError::BufferFull) => {
                         s.register_send_waker(cx.waker());
                         Poll::Pending

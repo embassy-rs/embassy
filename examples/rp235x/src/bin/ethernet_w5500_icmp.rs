@@ -114,7 +114,7 @@ async fn main(spawner: Spawner) {
             // Create and populate the packet buffer allocated by `send_to_with`
             let mut icmp_packet = Icmpv4Packet::new_unchecked(buf);
             icmp_repr.emit(&mut icmp_packet, &ChecksumCapabilities::default());
-            Instant::now() // Return the instant where the packet was sent
+            (icmp_repr.buffer_len(), Instant::now()) // Return the instant where the packet was sent
         })
         .await
         .unwrap();
