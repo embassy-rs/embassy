@@ -69,6 +69,8 @@ pub struct Config {
     pub sample_shifting: SampleShifting,
     /// GPIO Speed
     pub gpio_speed: Speed,
+    /// Dual flash mode
+    pub dual_flash: bool,
 }
 
 impl Default for Config {
@@ -81,6 +83,7 @@ impl Default for Config {
             cs_high_time: ChipSelectHighTime::_5Cycle,
             sample_shifting: SampleShifting::None,
             gpio_speed: Speed::VeryHigh,
+            dual_flash: false,
         }
     }
 }
@@ -90,11 +93,16 @@ impl Default for Config {
 pub struct Qspi<'d, T: Instance, M: PeriMode> {
     _peri: Peri<'d, T>,
     sck: Option<Flex<'d>>,
-    d0: Option<Flex<'d>>,
-    d1: Option<Flex<'d>>,
-    d2: Option<Flex<'d>>,
-    d3: Option<Flex<'d>>,
-    nss: Option<Flex<'d>>,
+    bk1d0: Option<Flex<'d>>,
+    bk1d1: Option<Flex<'d>>,
+    bk1d2: Option<Flex<'d>>,
+    bk1d3: Option<Flex<'d>>,
+    bk2d0: Option<Flex<'d>>,
+    bk2d1: Option<Flex<'d>>,
+    bk2d2: Option<Flex<'d>>,
+    bk2d3: Option<Flex<'d>>,
+    bk1nss: Option<Flex<'d>>,
+    bk2nss: Option<Flex<'d>>,
     dma: Option<ChannelAndRequest<'d>>,
     _phantom: PhantomData<M>,
     config: Config,
@@ -103,12 +111,17 @@ pub struct Qspi<'d, T: Instance, M: PeriMode> {
 impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
     fn new_inner(
         peri: Peri<'d, T>,
-        d0: Option<Flex<'d>>,
-        d1: Option<Flex<'d>>,
-        d2: Option<Flex<'d>>,
-        d3: Option<Flex<'d>>,
+        bk1d0: Option<Flex<'d>>,
+        bk1d1: Option<Flex<'d>>,
+        bk1d2: Option<Flex<'d>>,
+        bk1d3: Option<Flex<'d>>,
+        bk2d0: Option<Flex<'d>>,
+        bk2d1: Option<Flex<'d>>,
+        bk2d2: Option<Flex<'d>>,
+        bk2d3: Option<Flex<'d>>,
         sck: Option<Flex<'d>>,
-        nss: Option<Flex<'d>>,
+        bk1nss: Option<Flex<'d>>,
+        bk2nss: Option<Flex<'d>>,
         dma: Option<ChannelAndRequest<'d>>,
         config: Config,
         fsel: FlashSelection,
@@ -137,6 +150,7 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
             w.set_fthres(config.fifo_threshold.into());
             w.set_prescaler(config.prescaler);
             w.set_fsel(fsel.into());
+            w.set_dfm(config.dual_flash.into());
         });
         T::REGS.dcr().modify(|w| {
             w.set_fsize(config.memory_size.into());
@@ -147,11 +161,16 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
         Self {
             _peri: peri,
             sck,
-            d0,
-            d1,
-            d2,
-            d3,
-            nss,
+            bk1d0,
+            bk1d1,
+            bk1d2,
+            bk1d3,
+            bk2d0,
+            bk2d1,
+            bk2d2,
+            bk2d3,
+            bk1nss,
+            bk2nss,
             dma,
             _phantom: PhantomData,
             config,
@@ -366,11 +385,16 @@ impl<'d, T: Instance> Qspi<'d, T, Blocking> {
             new_pin!(d1, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(d2, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(d3, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            None,
+            None,
+            None,
+            None,
             new_pin!(sck, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(
                 nss,
                 AfType::output_pull(OutputType::PushPull, config.gpio_speed, Pull::Up)
             ),
+            None,
             None,
             config,
             FlashSelection::Flash1,
@@ -390,11 +414,16 @@ impl<'d, T: Instance> Qspi<'d, T, Blocking> {
     ) -> Self {
         Self::new_inner(
             peri,
+            None,
+            None,
+            None,
+            None,
             new_pin!(d0, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(d1, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(d2, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(d3, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(sck, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            None,
             new_pin!(
                 nss,
                 AfType::output_pull(OutputType::PushPull, config.gpio_speed, Pull::Up)
@@ -402,6 +431,41 @@ impl<'d, T: Instance> Qspi<'d, T, Blocking> {
             None,
             config,
             FlashSelection::Flash2,
+        )
+    }
+    /// Create a new QSPI driver for a dual bank, in blocking mode.
+    /// NOTE: Both nss pins are optional, there are 3 mods of operation: (1)boths flashes share nss 1, (2)boths flashes share nss 2,(3)each flash have its own nss pin.
+    pub fn new_blocking_dual_bank(
+        peri: Peri<'d, T>,
+        bk1d0: Peri<'d, impl BK1D0Pin<T>>,
+        bk1d1: Peri<'d, impl BK1D1Pin<T>>,
+        bk1d2: Peri<'d, impl BK1D2Pin<T>>,
+        bk1d3: Peri<'d, impl BK1D3Pin<T>>,
+        bk2d0: Peri<'d, impl BK2D0Pin<T>>,
+        bk2d1: Peri<'d, impl BK2D1Pin<T>>,
+        bk2d2: Peri<'d, impl BK2D2Pin<T>>,
+        bk2d3: Peri<'d, impl BK2D3Pin<T>>,
+        sck: Peri<'d, impl SckPin<T>>,
+        bk1nss: Peri<'d, impl BK1NSSPin<T>>,
+        bk2nss: Peri<'d, impl BK2NSSPin<T>>,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(bk1d0, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(bk1d1, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(bk1d2, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(bk1d3, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(bk2d0, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(bk2d1, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(bk2d2, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(bk2d3, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(sck, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(bk1nss, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(bk2nss, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            None,
+            config,
+            FlashSelection::Flash1, // Dual bank mode, so DFM is set and both banks are used
         )
     }
 }
@@ -433,11 +497,16 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
             new_pin!(d1, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(d2, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(d3, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            None,
+            None,
+            None,
+            None,
             new_pin!(sck, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(
                 nss,
                 AfType::output_pull(OutputType::PushPull, config.gpio_speed, Pull::Up)
             ),
+            None,
             new_dma!(dma, _irq),
             config,
             FlashSelection::Flash1,
@@ -466,11 +535,16 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
 
         Self::new_inner(
             peri,
+            None,
+            None,
+            None,
+            None,
             new_pin!(d0, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(d1, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(d2, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(d3, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(sck, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            None,
             new_pin!(
                 nss,
                 AfType::output_pull(OutputType::PushPull, config.gpio_speed, Pull::Up)
