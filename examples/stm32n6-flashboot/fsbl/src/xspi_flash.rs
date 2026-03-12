@@ -5,9 +5,7 @@
 use core::cmp::min;
 
 use embassy_stm32::mode::Blocking;
-use embassy_stm32::xspi::{
-    AddressSize, DummyCycles, Instance, TransferConfig, Xspi, XspiWidth,
-};
+use embassy_stm32::xspi::{AddressSize, DummyCycles, Instance, TransferConfig, Xspi, XspiWidth};
 
 const MEMORY_PAGE_SIZE: usize = 256;
 

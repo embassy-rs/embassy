@@ -166,7 +166,10 @@ fn erase_sector(addr: u32) {
 
     reg_modify(CR, CR_FMODE_MASK, CR_FMODE_INDIRECT_WRITE);
     // CCR: IMODE=single, ADMODE=single, ADSIZE=32bit, no data
-    reg_write(CCR, CCR_IMODE_SINGLE | CCR_ADMODE_SINGLE | CCR_ADSIZE_32BIT | CCR_DMODE_NONE);
+    reg_write(
+        CCR,
+        CCR_IMODE_SINGLE | CCR_ADMODE_SINGLE | CCR_ADSIZE_32BIT | CCR_DMODE_NONE,
+    );
     reg_write(TCR, 0);
     reg_write(DLR, 0);
     // Write address first, then instruction triggers the command
