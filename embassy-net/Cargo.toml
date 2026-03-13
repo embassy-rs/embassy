@@ -65,6 +65,8 @@ packet-trace = []
 
 ## Enable ICMP support
 icmp = ["smoltcp/socket-icmp"]
+## ICMP echo request auto reply
+auto-icmp-echo-reply = ["smoltcp/auto-icmp-echo-reply"]
 ## Enable UDP support
 udp = ["smoltcp/socket-udp"]
 ## Enable Raw support
