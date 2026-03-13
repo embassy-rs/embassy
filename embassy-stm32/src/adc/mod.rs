@@ -266,6 +266,8 @@ impl<'d, T: Instance> Adc<'d, T> {
         sequence: impl ExactSizeIterator<Item = (&'a mut AnyAdcChannel<'b, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
         readings: &mut [u16],
     ) {
+        let _scoped_wake_guard = <T as crate::rcc::SealedRccPeripheral>::RCC_INFO.wake_guard();
+
         assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
         assert!(
             readings.len() % sequence.len() == 0,

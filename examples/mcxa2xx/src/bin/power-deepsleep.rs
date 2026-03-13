@@ -1,5 +1,11 @@
 //! This example roughly emulates the `IDD_DEEP_SLEEP_MD_2` scenario from the datasheet.
 //!
+//! This example needs to be run with:
+//!
+//! ```sh
+//! cargo run --release --no-default-features --features=executor-platform --bin power-deepsleep
+//! ```
+//!
 //! As written, this achieves 153uA average current when measured with a Nordic PPK2.
 //!
 //! **NOTE: This requires rework of the board! You must remove R26 (used for the on
@@ -22,10 +28,10 @@ use hal::gpio::{DriveStrength, Level, Output, SlewRate};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 #[cfg_attr(
-    feature = "custom-executor",
+    feature = "executor-platform",
     embassy_executor::main(executor = "embassy_mcxa::executor::Executor", entry = "cortex_m_rt::entry")
 )]
-#[cfg_attr(not(feature = "custom-executor"), embassy_executor::main)]
+#[cfg_attr(not(feature = "executor-platform"), embassy_executor::main)]
 async fn main(_spawner: Spawner) {
     // Do a short delay in order to allow for us to attach the debugger/start
     // a flash in case some setting below is wrong, and the CPU gets stuck

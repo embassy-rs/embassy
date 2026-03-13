@@ -1,4 +1,4 @@
-//! Similar to blinky, but clocked with external OSC32K
+//! Similar to blinky, but clocked with FIRC
 //!
 //! This will probably go away once we have the CLKOUT peripheral supported.
 
@@ -6,7 +6,8 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_mcxa::clocks::config::{Osc32KCapSel, Osc32KCoarseGain, Osc32KConfig};
+use embassy_mcxa::clocks::config::{FircConfig, FircFreqSel, MainClockSource, VddDriveStrength};
+use embassy_mcxa::clocks::{PoweredClock, VddLevel};
 use embassy_time::Timer;
 use hal::gpio::{DriveStrength, Level, Output, SlewRate};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
@@ -14,19 +15,19 @@ use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut cfg = hal::config::Config::default();
-    let mut osc = Osc32KConfig::default();
 
-    // TODO: These are wild guesses! They seem to work, I have no idea what these should be!
-    osc.mode = embassy_mcxa::clocks::config::Osc32KMode::HighPower {
-        coarse_amp_gain: Osc32KCoarseGain::EsrRange0,
-        xtal_cap_sel: Osc32KCapSel::Cap12PicoF,
-        extal_cap_sel: Osc32KCapSel::Cap12PicoF,
-    };
-    osc.vsys_domain_active = true;
-    osc.vdd_core_domain_active = true;
-    osc.vbat_domain_active = true;
-    cfg.clock_cfg.osc32k = Some(osc);
-    cfg.clock_cfg.main_clock.source = embassy_mcxa::clocks::config::MainClockSource::RoscOsc32K;
+    // Setup FIRC at 192MHz
+    let mut firc = FircConfig::default();
+    firc.frequency = FircFreqSel::Mhz192;
+    firc.power = PoweredClock::NormalEnabledDeepSleepDisabled;
+    cfg.clock_cfg.firc = Some(firc);
+
+    // Set CPU to OverDrive mode to allow for 192MHz cpu clock
+    cfg.clock_cfg.main_clock.source = MainClockSource::FircHfRoot;
+    cfg.clock_cfg.vdd_power.active_mode.level = VddLevel::OverDriveMode;
+    cfg.clock_cfg.vdd_power.active_mode.drive = VddDriveStrength::Normal;
+    cfg.clock_cfg.vdd_power.low_power_mode.level = VddLevel::OverDriveMode;
+    cfg.clock_cfg.vdd_power.low_power_mode.drive = VddDriveStrength::Normal;
     let p = hal::init(cfg);
 
     defmt::info!("Blink example");

@@ -24,9 +24,9 @@ mod inner_periph {
         CDOG0,
         CDOG1,
 
-        // // CLKOUT is not specifically a peripheral (it's part of SYSCON),
-        // // but we still want it to be a singleton.
-        // CLKOUT,
+        // CLKOUT is not specifically a peripheral (it's part of SYSCON),
+        // but we still want it to be a singleton.
+        CLKOUT,
 
         // CMC,
         // CMP0,
@@ -124,12 +124,12 @@ mod inner_periph {
 
         // LPTMR0,
 
-        // LPUART0,
-        // LPUART1,
-        // LPUART2,
-        // LPUART3,
-        // LPUART4,
-        // LPUART5,
+        LPUART0,
+        LPUART1,
+        LPUART2,
+        LPUART3,
+        LPUART4,
+        LPUART5,
 
         // MAU0,
         // MBC0,
@@ -416,12 +416,12 @@ mod inner_interrupt {
         LPSPI5,
 
         // LPTMR0,
-        // LPUART0,
-        // LPUART1,
-        // LPUART2,
-        // LPUART3,
-        // LPUART4,
-        // LPUART5,
+        LPUART0,
+        LPUART1,
+        LPUART2,
+        LPUART3,
+        LPUART4,
+        LPUART5,
         // MAU,
         // MBC0,
         OS_EVENT,
@@ -697,7 +697,9 @@ pub(crate) mod peripheral_gating {
     use paste::paste;
 
     use crate::clocks::Gate;
-    use crate::clocks::periph_helpers::{CTimerConfig, Clk1MConfig, Lpi2cConfig, LpspiConfig, NoConfig, OsTimerConfig};
+    use crate::clocks::periph_helpers::{
+        CTimerConfig, Clk1MConfig, Lpi2cConfig, LpspiConfig, LpuartConfig, NoConfig, OsTimerConfig,
+    };
     // use crate::clocks::periph_helpers::{
     //     AdcConfig, CTimerConfig, I3cConfig, Lpi2cConfig, LpspiConfig, LpuartConfig, NoConfig,
     // };
@@ -735,13 +737,13 @@ pub(crate) mod peripheral_gating {
     // TRNG peripheral - uses NoConfig since it has no selectable clock source
     impl_cc_gate!(TRNG0, mrcc_glb_acc4, mrcc_glb_rst4, trng0, NoConfig);
 
-    // // Peripherals that use ACC instead of CC!
-    // impl_cc_gate!(LPUART0, mrcc_glb_acc0, mrcc_glb_rst0, lpuart0, LpuartConfig);
-    // impl_cc_gate!(LPUART1, mrcc_glb_acc0, mrcc_glb_rst0, lpuart1, LpuartConfig);
-    // impl_cc_gate!(LPUART2, mrcc_glb_acc0, mrcc_glb_rst0, lpuart2, LpuartConfig);
-    // impl_cc_gate!(LPUART3, mrcc_glb_acc0, mrcc_glb_rst0, lpuart3, LpuartConfig);
-    // impl_cc_gate!(LPUART4, mrcc_glb_acc0, mrcc_glb_rst0, lpuart4, LpuartConfig);
-    // impl_cc_gate!(LPUART5, mrcc_glb_acc1, mrcc_glb_rst1, lpuart5, LpuartConfig);
+    // Peripherals that use ACC instead of CC!
+    impl_cc_gate!(LPUART0, mrcc_glb_acc0, mrcc_glb_rst0, lpuart0, LpuartConfig);
+    impl_cc_gate!(LPUART1, mrcc_glb_acc0, mrcc_glb_rst0, lpuart1, LpuartConfig);
+    impl_cc_gate!(LPUART2, mrcc_glb_acc0, mrcc_glb_rst0, lpuart2, LpuartConfig);
+    impl_cc_gate!(LPUART3, mrcc_glb_acc0, mrcc_glb_rst0, lpuart3, LpuartConfig);
+    impl_cc_gate!(LPUART4, mrcc_glb_acc0, mrcc_glb_rst0, lpuart4, LpuartConfig);
+    impl_cc_gate!(LPUART5, mrcc_glb_acc0, mrcc_glb_rst0, lpuart5, LpuartConfig);
 
     // DMA0 peripheral - uses NoConfig since it has no selectable clock source
     impl_cc_gate!(DMA0, mrcc_glb_acc0, mrcc_glb_rst0, dma0, NoConfig);

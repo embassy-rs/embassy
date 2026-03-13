@@ -3,9 +3,10 @@
 //! This module contains the private `ClockOperator` struct and all of its
 //! `configure_*` methods. It is only used during [`super::init()`].
 
-use config::{ClocksConfig, CoreSleep, Fro16KConfig, MainClockSource, SircConfig, VddDriveStrength, VddLevel};
-#[cfg(feature = "mcxa2xx")]
-use config::{FircConfig, FircFreqSel};
+use config::{
+    ClocksConfig, CoreSleep, FircConfig, FircFreqSel, Fro16KConfig, MainClockSource, SircConfig, VddDriveStrength,
+    VddLevel,
+};
 use cortex_m::peripheral::SCB;
 use nxp_pac::syscon::vals::Unlock;
 
@@ -15,19 +16,16 @@ use crate::chips::{ClockLimits, clock_limits};
 use crate::pac;
 use crate::pac::cmc::vals::CkctrlCkmode;
 use crate::pac::scg::vals::{
-    Erefs, Range, Scs, SirccsrLk, Sircerr, Sircvld, SosccsrLk, Soscerr, Source, SpllLock, SpllcsrLk, Spllerr, Spllsten,
-    TrimUnlock,
+    Erefs, Fircacc, FircaccIe, FirccsrLk, Fircerr, FircerrIe, Fircsten, Range, Scs, SirccsrLk, Sircerr, Sircvld,
+    SosccsrLk, Soscerr, Source, SpllLock, SpllcsrLk, Spllerr, Spllsten, TrimUnlock,
 };
-#[cfg(feature = "mcxa2xx")]
-use crate::pac::scg::vals::{Fircacc, FircaccIe, FirccsrLk, Fircerr, FircerrIe, Fircsten, FreqSel};
 use crate::pac::spc::vals::{
     ActiveCfgBgmode, ActiveCfgCoreldoVddDs, ActiveCfgCoreldoVddLvl, LpCfgBgmode, LpCfgCoreldoVddLvl, Vsm,
 };
 use crate::pac::syscon::vals::{
-    AhbclkdivUnstab, FrolfdivHalt, FrolfdivReset, FrolfdivUnstab, Pll1clkdivHalt, Pll1clkdivReset, Pll1clkdivUnstab,
+    AhbclkdivUnstab, FrohfdivHalt, FrohfdivReset, FrohfdivUnstab, FrolfdivHalt, FrolfdivReset, FrolfdivUnstab,
+    Pll1clkdivHalt, Pll1clkdivReset, Pll1clkdivUnstab,
 };
-#[cfg(feature = "mcxa2xx")]
-use crate::pac::syscon::vals::{FrohfdivHalt, FrohfdivReset, FrohfdivUnstab};
 
 /// The ClockOperator is a private helper type that contains the methods used
 /// during system clock initialization.
@@ -90,8 +88,7 @@ impl ClockOperator<'_> {
         }
     }
 
-    /// Configure the FIRC/FRO180M clock family
-    #[cfg(feature = "mcxa2xx")]
+    /// Configure the FIRC/FRO180M/FRO192M clock family
     pub(super) fn configure_firc_clocks(&mut self) -> Result<(), ClockError> {
         // Three options here:
         //
@@ -101,11 +98,11 @@ impl ClockOperator<'_> {
         //   * Make FIRC changes
         //   * Switch main clock back to FIRC
         // * Firc is enabled and default -> nop
-        let is_default = self
-            .config
-            .firc
-            .as_ref()
-            .is_some_and(|c| matches!(c.frequency, FircFreqSel::Mhz45));
+        #[cfg(feature = "mcxa2xx")]
+        let default_freq = FircFreqSel::Mhz45;
+        #[cfg(feature = "mcxa5xx")]
+        let default_freq = FircFreqSel::Mhz48;
+        let is_default = self.config.firc.as_ref().is_some_and(|c| c.frequency == default_freq);
 
         // If we are not default, then we need to switch to SIRC
         if !is_default {
@@ -153,24 +150,8 @@ impl ClockOperator<'_> {
 
         let limits = self.lowest_relevant_limits(&firc.power);
 
-        // Set frequency (if not the default 45MHz!), re-enable FIRC, and return the base frequency
-        //
-        // NOTE: the SVD currently has the wrong(?) values for these:
-        // 45 -> 48
-        // 60 -> 64
-        // 90 -> 96
-        // 180 -> 192
-        //
-        // Probably correct-ish, but for a different trim value?
-        let (base_freq, sel) = match firc.frequency {
-            FircFreqSel::Mhz45 => {
-                // We are default, there's nothing to do here.
-                (45_000_000, FreqSel::FIRC_48MHZ_192S)
-            }
-            FircFreqSel::Mhz60 => (60_000_000, FreqSel::FIRC_64MHZ),
-            FircFreqSel::Mhz90 => (90_000_000, FreqSel::FIRC_96MHZ),
-            FircFreqSel::Mhz180 => (180_000_000, FreqSel::FIRC_192MHZ),
-        };
+        // Set frequency (if not the default!), re-enable FIRC, and return the base frequency
+        let (base_freq, sel) = firc.frequency.to_freq_and_sel();
 
         self.scg0.firccfg().modify(|w| w.set_freq_sel(sel));
         self.scg0.firccsr().modify(|w| w.set_fircen(true));
@@ -196,7 +177,7 @@ impl ClockOperator<'_> {
             frequency: _,
             power,
             fro_hf_enabled,
-            clk_45m_enabled,
+            clk_hf_fundamental_enabled,
             fro_hf_div,
         } = firc;
 
@@ -237,9 +218,9 @@ impl ClockOperator<'_> {
             false
         };
 
-        // Do we enable the `clk_45m` output?
-        let clk_45m_set = if *clk_45m_enabled {
-            self.clocks.clk_45m = Some(Clock {
+        // Do we enable the `clk_45m`/`clk_48m` output?
+        let clk_fund_set = if *clk_hf_fundamental_enabled {
+            self.clocks.clk_hf_fundamental = Some(Clock {
                 frequency: 45_000_000,
                 power: *power,
             });
@@ -251,7 +232,7 @@ impl ClockOperator<'_> {
         self.scg0.firccsr().modify(|w| {
             w.set_fircsten(pow_set);
             w.set_firc_fclk_periph_en(fro_hf_set);
-            w.set_firc_sclk_periph_en(clk_45m_set);
+            w.set_firc_sclk_periph_en(clk_fund_set);
         });
 
         // Last write to CSR, re-lock
@@ -466,7 +447,7 @@ impl ClockOperator<'_> {
     }
 
     /// Configure the ROSC/OSC32K clock family
-    #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+    #[cfg(all(feature = "mcxa5xx", feature = "unstable-osc32k", not(feature = "rosc-32k-as-gpio")))]
     pub(super) fn configure_osc32k_clocks(&mut self) -> Result<(), ClockError> {
         use config::{Osc32KCapSel, Osc32KCoarseGain, Osc32KMode};
         use nxp_pac::vbat::vals::{
@@ -573,8 +554,11 @@ impl ClockOperator<'_> {
                 // 3. Write 1h to OSCLCKA[LOCK].
                 self.vbat0.osclcka().modify(|w| w.set_lock(true));
 
-                // 4. Write 0h to .
-                // TODO(AJM): what???????
+                // 4. Write 0h to OSCCTLA[EXTAL_CAP_SEL] and 0h to OSCCTLA[XTAL_CAP_SEL].
+                self.vbat0.oscctla().modify(|w| {
+                    w.set_xtal_cap_sel(XtalCapSel::SEL0);
+                    w.set_extal_cap_sel(ExtalCapSel::SEL0);
+                });
 
                 // 5. Alter OSCCLKE[CLKE] to clock gate different OSC32K outputs to different peripherals to reduce power consumption.
                 const ENABLED: Option<Clock> = Some(Clock {
@@ -859,10 +843,9 @@ impl ClockOperator<'_> {
                 .as_ref()
                 .map(|c| (c, Source::SOSC))
                 .ok_or("sosc not active"),
-            #[cfg(feature = "mcxa2xx")]
             config::SpllSource::Firc => self
                 .clocks
-                .clk_45m
+                .clk_hf_fundamental
                 .as_ref()
                 .map(|c| (c, Source::FIRC))
                 .ok_or("firc not active"),
@@ -1208,7 +1191,6 @@ impl ClockOperator<'_> {
             #[cfg(not(feature = "sosc-as-gpio"))]
             MainClockSource::SoscClkIn => (Scs::SOSC, "clk_in", self.clocks.clk_in.as_ref()),
             MainClockSource::SircFro12M => (Scs::SIRC, "fro_12m", self.clocks.fro_12m.as_ref()),
-            #[cfg(feature = "mcxa2xx")]
             MainClockSource::FircHfRoot => (Scs::FIRC, "fro_hf_root", self.clocks.fro_hf_root.as_ref()),
             #[cfg(feature = "mcxa2xx")]
             MainClockSource::RoscFro16K => (Scs::ROSC, "fro16k", self.clocks.clk_16k_vdd_core.as_ref()),
@@ -1554,7 +1536,7 @@ impl ClockOperator<'_> {
             CoreSleep::DeepSleep => {
                 // We can only support deep sleep with a custom executor which properly
                 // handles going to sleep and returning
-                #[cfg(all(not(feature = "custom-executor"), feature = "defmt"))]
+                #[cfg(all(not(feature = "executor-platform"), feature = "defmt"))]
                 defmt::warn!("deep sleep enabled without custom executor");
 
                 // For now, just enable light sleep. The executor will set deep sleep when

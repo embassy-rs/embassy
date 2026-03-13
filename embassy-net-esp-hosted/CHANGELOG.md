@@ -8,10 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.3.0 - 2026-03-10
+
 - Add an `Interface` trait to allow using other interface transports.
 - Switch to `micropb` for protobuf.
 - Update protos to latest `esp-hosted-fg`.
 - Add support for OTA firmware updates.
+- Update embassy-net-driver-channel to 0.4.0
+- Update embassy-sync to 0.8.0
 
 ## 0.2.1 - 2025-08-26
 

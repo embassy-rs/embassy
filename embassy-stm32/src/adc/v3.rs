@@ -157,6 +157,13 @@ impl super::AdcRegs for crate::pac::adc::Adc {
 
     // Enable ADC only when it is not already running.
     fn enable(&self) {
+        #[cfg(adc_u0)]
+        if self.cfgr1().read().autoff() {
+            // In AUTOFF mode the ADC wakes automatically when conversion starts,
+            // so waiting for ADRDY here can stall instead of helping.
+            return;
+        }
+
         // Make sure bits are off
         while self.cr().read().addis() {
             // spin
@@ -392,7 +399,7 @@ impl super::AdcRegs for crate::pac::adc::Adc {
 impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     /// Enable the voltage regulator
     fn init_regulator() {
-        rcc::enable_and_reset::<T>();
+        rcc::enable_and_reset_without_stop::<T>();
         T::regs().cr().modify(|reg| {
             #[cfg(not(any(adc_g0, adc_u0)))]
             reg.set_deeppwd(false);
@@ -411,6 +418,13 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
 
     /// Calibrate to remove conversion offset
     fn init_calibrate() {
+        #[cfg(adc_u0)]
+        let auto_off = T::regs().cfgr1().read().autoff();
+        #[cfg(adc_u0)]
+        T::regs().cfgr1().modify(|reg| {
+            reg.set_autoff(false);
+        });
+
         T::regs().cr().modify(|reg| {
             reg.set_adcal(true);
         });
@@ -418,6 +432,11 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
         while T::regs().cr().read().adcal() {
             // spin
         }
+
+        #[cfg(adc_u0)]
+        T::regs().cfgr1().modify(|reg| {
+            reg.set_autoff(auto_off);
+        });
 
         blocking_delay_us(1);
     }
@@ -533,6 +552,35 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
         Self { adc }
     }
 
+    /// Power down the ADC.
+    ///
+    /// This stops ADC operation and may reduce power consumption.
+    /// A later read will enable it automatically.
+    pub fn power_down(&mut self) {
+        super::AdcRegs::stop(&T::regs());
+
+        if T::regs().cr().read().aden() {
+            T::regs().cr().modify(|reg| {
+                reg.set_addis(true);
+            });
+            while T::regs().cr().read().aden() {}
+        }
+    }
+
+    #[cfg(adc_u0)]
+    pub fn enable_auto_off(&self) {
+        T::regs().cfgr1().modify(|reg| {
+            reg.set_autoff(true);
+        });
+    }
+
+    #[cfg(adc_u0)]
+    pub fn disable_auto_off(&self) {
+        T::regs().cfgr1().modify(|reg| {
+            reg.set_autoff(false);
+        });
+    }
+
     pub fn enable_vrefint(&self) -> VrefInt {
         #[cfg(not(any(adc_g0, adc_u0)))]
         T::common_regs().ccr().modify(|reg| {
@@ -616,4 +664,11 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
             + 30.0
     }
      */
+}
+
+impl<'d, T: Instance> Drop for Adc<'d, T> {
+    fn drop(&mut self) {
+        super::AdcRegs::stop(&T::regs());
+        <T as crate::rcc::SealedRccPeripheral>::RCC_INFO.disable_without_stop();
+    }
 }

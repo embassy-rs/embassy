@@ -101,6 +101,7 @@ impl OsTimer {
         unsafe { interrupt::OS_EVENT.enable() };
     }
 
+    /// Set an alarm for timestamp, returning false if the time has already expired.
     fn set_alarm(&self, cs: CriticalSection, timestamp: u64) -> bool {
         let alarm = self.alarms.borrow(cs);
         alarm.timestamp.set(timestamp);
@@ -108,6 +109,14 @@ impl OsTimer {
         // Wait until we're allowed to write to MATCH_L/MATCH_H registers
         while OSTIMER0.osevent_ctrl().read().match_wr_rdy() {}
 
+        let gray_timestamp = dec_to_gray(timestamp);
+
+        OSTIMER0.match_l().write(|w| w.set_match_value(gray_timestamp as u32));
+        OSTIMER0
+            .match_h()
+            .write(|w| w.set_match_value((gray_timestamp >> 32) as u16));
+
+        // Check if the timestamp has already expired, which could mean the just set match value would never match.
         let t = self.now();
         if timestamp <= t {
             OSTIMER0.osevent_ctrl().modify(|w| w.set_ostimer_intena(false));
@@ -115,14 +124,8 @@ impl OsTimer {
             return false;
         }
 
-        let gray_timestamp = dec_to_gray(timestamp);
-
-        OSTIMER0.match_l().write(|w| w.set_match_value(gray_timestamp as u32));
-        OSTIMER0
-            .match_h()
-            .write(|w| w.set_match_value((gray_timestamp >> 32) as u16));
+        // Enable interrupt. If the timestamp already matched, this would immediately pend the interrupt.
         OSTIMER0.osevent_ctrl().modify(|w| w.set_ostimer_intena(true));
-
         true
     }
 

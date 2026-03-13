@@ -1634,20 +1634,8 @@ fn main() {
                         format_ident!("{}", pin.pin)
                     };
 
-                    // H7 has differential voltage measurements
-                    let ch: Option<(u8, bool)> = if pin.signal.starts_with("INP") {
-                        Some((pin.signal.strip_prefix("INP").unwrap().parse().unwrap(), false))
-                    } else if pin.signal.starts_with("INN") {
-                        Some((pin.signal.strip_prefix("INN").unwrap().parse().unwrap(), true))
-                    } else if pin.signal.starts_with("IN") && pin.signal.ends_with('b') {
-                        // we number STM32L1 ADC bank 1 as 0..=31, bank 2 as 32..=63
-                        let signal = pin.signal.strip_prefix("IN").unwrap().strip_suffix('b').unwrap();
-                        Some((32u8 + signal.parse::<u8>().unwrap(), false))
-                    } else if pin.signal.starts_with("IN") {
-                        Some((pin.signal.strip_prefix("IN").unwrap().parse().unwrap(), false))
-                    } else {
-                        None
-                    };
+                    // H7 has differential voltage measurements.
+                    let ch = parse_adc_pin_signal(pin.signal);
                     if let Some((ch, false)) = ch {
                         adc_pairs.entry(ch).or_insert((None, None)).0.replace(pin_name.clone());
 
@@ -1688,7 +1676,29 @@ fn main() {
                         // Impl OutputPin for the VOUT pin
                         g.extend(quote! {
                             impl_opamp_vout_pin!( #peri, #pin_name );
-                        })
+                        });
+
+                        for adc in METADATA.peripherals {
+                            let Some(adc_regs) = &adc.registers else {
+                                continue;
+                            };
+                            if adc_regs.kind != "adc" || adc.rcc.is_none() {
+                                continue;
+                            }
+
+                            let adc_peri = format_ident!("{}", adc.name);
+                            for adc_pin in adc.pins {
+                                if adc_pin.pin != pin.pin {
+                                    continue;
+                                }
+
+                                if let Some((ch, false)) = parse_adc_pin_signal(adc_pin.signal) {
+                                    g.extend(quote! {
+                                        impl_opamp_external_output!( #peri, #adc_peri, #ch );
+                                    });
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -2692,6 +2702,22 @@ fn mem_filter(chip: &str, region: &str) -> bool {
     }
 
     true
+}
+
+fn parse_adc_pin_signal(signal: &str) -> Option<(u8, bool)> {
+    if signal.starts_with("INP") {
+        Some((signal.strip_prefix("INP").unwrap().parse().unwrap(), false))
+    } else if signal.starts_with("INN") {
+        Some((signal.strip_prefix("INN").unwrap().parse().unwrap(), true))
+    } else if signal.starts_with("IN") && signal.ends_with('b') {
+        // We number STM32L1 ADC bank 1 as 0..=31, bank 2 as 32..=63.
+        let signal = signal.strip_prefix("IN").unwrap().strip_suffix('b').unwrap();
+        Some((32u8 + signal.parse::<u8>().unwrap(), false))
+    } else if signal.starts_with("IN") {
+        Some((signal.strip_prefix("IN").unwrap().parse().unwrap(), false))
+    } else {
+        None
+    }
 }
 
 #[derive(Copy, Clone, Debug)]

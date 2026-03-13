@@ -1339,6 +1339,9 @@ macro_rules! impl_instance {
 
 impl_instance!(0; 1; 2; 3; 4);
 
+#[cfg(feature = "mcxa5xx")]
+impl_instance!(5);
+
 // Basically the on_interrupt handler, but as a free function so it doesn't get
 // monomorphized.
 //
