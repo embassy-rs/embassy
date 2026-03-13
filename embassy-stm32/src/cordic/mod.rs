@@ -1,4 +1,4 @@
-//! coordinate rotation digital computer (CORDIC)
+//! Coordinate Rotation Digital Computer (CORDIC)
 
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{Peri, PeripheralType};
@@ -24,100 +24,6 @@ pub struct Cordic<'d, T: Instance> {
 trait SealedInstance {
     /// Get access to CORDIC registers
     fn regs() -> crate::pac::cordic::Cordic;
-
-    /// Set Function value
-    fn set_func(&self, func: Function) {
-        Self::regs()
-            .csr()
-            .modify(|v| v.set_func(vals::Func::from_bits(func as u8)));
-    }
-
-    /// Set Precision value
-    fn set_precision(&self, precision: Precision) {
-        Self::regs()
-            .csr()
-            .modify(|v| v.set_precision(vals::Precision::from_bits(precision as u8)))
-    }
-
-    /// Set Scale value
-    fn set_scale(&self, scale: Scale) {
-        Self::regs()
-            .csr()
-            .modify(|v| v.set_scale(vals::Scale::from_bits(scale as u8)))
-    }
-
-    /// Enable global interrupt
-    #[allow(unused)]
-    fn enable_irq(&self) {
-        Self::regs().csr().modify(|v| v.set_ien(true))
-    }
-
-    /// Disable global interrupt
-    fn disable_irq(&self) {
-        Self::regs().csr().modify(|v| v.set_ien(false))
-    }
-
-    /// Enable Read DMA
-    fn enable_read_dma(&self) {
-        Self::regs().csr().modify(|v| {
-            v.set_dmaren(true);
-        })
-    }
-
-    /// Disable Read DMA
-    fn disable_read_dma(&self) {
-        Self::regs().csr().modify(|v| {
-            v.set_dmaren(false);
-        })
-    }
-
-    /// Enable Write DMA
-    fn enable_write_dma(&self) {
-        Self::regs().csr().modify(|v| {
-            v.set_dmawen(true);
-        })
-    }
-
-    /// Disable Write DMA
-    fn disable_write_dma(&self) {
-        Self::regs().csr().modify(|v| {
-            v.set_dmawen(false);
-        })
-    }
-
-    /// Set NARGS value
-    fn set_argument_count(&self, n: AccessCount) {
-        Self::regs().csr().modify(|v| {
-            v.set_nargs(match n {
-                AccessCount::One => vals::Num::NUM1,
-                AccessCount::Two => vals::Num::NUM2,
-            })
-        })
-    }
-
-    /// Set NRES value
-    fn set_result_count(&self, n: AccessCount) {
-        Self::regs().csr().modify(|v| {
-            v.set_nres(match n {
-                AccessCount::One => vals::Num::NUM1,
-                AccessCount::Two => vals::Num::NUM2,
-            });
-        })
-    }
-
-    /// Set ARGSIZE and RESSIZE value
-    fn set_data_width(&self, arg: Width, res: Width) {
-        Self::regs().csr().modify(|v| {
-            v.set_argsize(match arg {
-                Width::Bits32 => vals::Size::BITS32,
-                Width::Bits16 => vals::Size::BITS16,
-            });
-            v.set_ressize(match res {
-                Width::Bits32 => vals::Size::BITS32,
-                Width::Bits16 => vals::Size::BITS16,
-            })
-        })
-    }
 
     /// Read RRDY flag
     fn ready_to_read(&self) -> bool {
@@ -216,8 +122,20 @@ impl<'d, T: Instance> Cordic<'d, T> {
 
     /// Set extra config for data count and data width.
     pub fn extra_config(&mut self, arg_cnt: AccessCount, arg_width: Width, res_width: Width) {
-        self.peri.set_argument_count(arg_cnt);
-        self.peri.set_data_width(arg_width, res_width);
+        T::regs().csr().modify(|v| {
+            v.set_nargs(match arg_cnt {
+                AccessCount::One => vals::Num::NUM1,
+                AccessCount::Two => vals::Num::NUM2,
+            });
+            v.set_argsize(match arg_width {
+                Width::Bits32 => vals::Size::BITS32,
+                Width::Bits16 => vals::Size::BITS16,
+            });
+            v.set_ressize(match res_width {
+                Width::Bits32 => vals::Size::BITS32,
+                Width::Bits16 => vals::Size::BITS16,
+            });
+        });
     }
 
     fn clean_rrdy_flag(&mut self) {
@@ -228,27 +146,33 @@ impl<'d, T: Instance> Cordic<'d, T> {
 
     /// Disable IRQ and DMA, clean RRDY, and set ARG2 to +1 (0x7FFFFFFF)
     pub fn reconfigure(&mut self) {
-        // reset ARG2 to +1
-        {
-            self.peri.disable_irq();
-            self.peri.disable_read_dma();
-            self.peri.disable_write_dma();
-            self.clean_rrdy_flag();
+        // Disable IRQ and DMA first
+        T::regs().csr().modify(|v| {
+            v.set_ien(false);
+            v.set_dmaren(false);
+            v.set_dmawen(false);
+        });
+        self.clean_rrdy_flag();
 
-            self.peri.set_func(Function::Cos);
-            self.peri.set_precision(Precision::Iters4);
-            self.peri.set_scale(Scale::Arg1Res1);
-            self.peri.set_argument_count(AccessCount::Two);
-            self.peri.set_data_width(Width::Bits32, Width::Bits32);
-            self.peri.write_argument(0x0u32);
-            self.peri.write_argument(0x7FFFFFFFu32);
+        // Reset ARG2 to +1: configure for 2-arg Cos with minimal precision, feed dummy args.
+        T::regs().csr().modify(|v| {
+            v.set_func(vals::Func::from_bits(Function::Cos as u8));
+            v.set_precision(vals::Precision::from_bits(Precision::Iters4 as u8));
+            v.set_scale(vals::Scale::from_bits(Scale::Arg1Res1 as u8));
+            v.set_nargs(vals::Num::NUM2);
+            v.set_argsize(vals::Size::BITS32);
+            v.set_ressize(vals::Size::BITS32);
+        });
+        self.peri.write_argument(0x0u32);
+        self.peri.write_argument(0x7FFFFFFFu32);
+        self.clean_rrdy_flag();
 
-            self.clean_rrdy_flag();
-        }
-
-        self.peri.set_func(self.config.function);
-        self.peri.set_precision(self.config.precision);
-        self.peri.set_scale(self.config.scale);
+        // Apply user configuration (func, precision, scale).
+        T::regs().csr().modify(|v| {
+            v.set_func(vals::Func::from_bits(self.config.function as u8));
+            v.set_precision(vals::Precision::from_bits(self.config.precision as u8));
+            v.set_scale(vals::Scale::from_bits(self.config.scale as u8));
+        });
 
         // we don't set NRES in here, but to make sure NRES is set each time user call "calc"-ish functions,
         // since each "calc"-ish functions can have different ARGSIZE and RESSIZE, thus NRES should be change accordingly.
@@ -282,13 +206,12 @@ impl<'d, T: Instance> Cordic<'d, T> {
 
         let res_cnt = Self::check_arg_res_length_32bit(arg.len(), res.len(), arg1_only, res1_only)?;
 
-        self.peri
-            .set_argument_count(if arg1_only { AccessCount::One } else { AccessCount::Two });
-
-        self.peri
-            .set_result_count(if res1_only { AccessCount::One } else { AccessCount::Two });
-
-        self.peri.set_data_width(Width::Bits32, Width::Bits32);
+        T::regs().csr().modify(|v| {
+            v.set_nargs(if arg1_only { vals::Num::NUM1 } else { vals::Num::NUM2 });
+            v.set_nres(if res1_only { vals::Num::NUM1 } else { vals::Num::NUM2 });
+            v.set_argsize(vals::Size::BITS32);
+            v.set_ressize(vals::Size::BITS32);
+        });
 
         let mut cnt = 0;
 
@@ -398,23 +321,25 @@ impl<'d, T: Instance> Cordic<'d, T> {
 
         let active_res_buf = &mut res[..res_cnt];
 
-        self.peri
-            .set_argument_count(if arg1_only { AccessCount::One } else { AccessCount::Two });
-
-        self.peri
-            .set_result_count(if res1_only { AccessCount::One } else { AccessCount::Two });
-
-        self.peri.set_data_width(Width::Bits32, Width::Bits32);
+        T::regs().csr().modify(|v| {
+            v.set_nargs(if arg1_only { vals::Num::NUM1 } else { vals::Num::NUM2 });
+            v.set_nres(if res1_only { vals::Num::NUM1 } else { vals::Num::NUM2 });
+            v.set_argsize(vals::Size::BITS32);
+            v.set_ressize(vals::Size::BITS32);
+        });
 
         let write_req = write_dma.request();
         let read_req = read_dma.request();
 
-        self.peri.enable_write_dma();
-        self.peri.enable_read_dma();
+        // DMAWEN and DMAREN must be set in separate register writes;
+        // setting both in a single write hangs the CORDIC+DMA on STM32H563.
+        T::regs().csr().modify(|v| v.set_dmawen(true));
+        T::regs().csr().modify(|v| v.set_dmaren(true));
 
+        // Same H563 constraint: clear DMAWEN and DMAREN in separate writes.
         let _on_drop = OnDrop::new(|| {
-            self.peri.disable_write_dma();
-            self.peri.disable_read_dma();
+            T::regs().csr().modify(|v| v.set_dmawen(false));
+            T::regs().csr().modify(|v| v.set_dmaren(false));
         });
 
         unsafe {
@@ -482,10 +407,12 @@ impl<'d, T: Instance> Cordic<'d, T> {
         let res_cnt = arg.len();
 
         // In q1.15 mode, 1 write/read to access 2 arguments/results
-        self.peri.set_argument_count(AccessCount::One);
-        self.peri.set_result_count(AccessCount::One);
-
-        self.peri.set_data_width(Width::Bits16, Width::Bits16);
+        T::regs().csr().modify(|v| {
+            v.set_nargs(vals::Num::NUM1);
+            v.set_nres(vals::Num::NUM1);
+            v.set_argsize(vals::Size::BITS16);
+            v.set_ressize(vals::Size::BITS16);
+        });
 
         // To use cordic preload function, the first value is special.
         // It is loaded to CORDIC WDATA register out side of loop
@@ -543,20 +470,25 @@ impl<'d, T: Instance> Cordic<'d, T> {
         let active_res_buf = &mut res[..res_cnt];
 
         // In q1.15 mode, 1 write/read to access 2 arguments/results
-        self.peri.set_argument_count(AccessCount::One);
-        self.peri.set_result_count(AccessCount::One);
-
-        self.peri.set_data_width(Width::Bits16, Width::Bits16);
+        T::regs().csr().modify(|v| {
+            v.set_nargs(vals::Num::NUM1);
+            v.set_nres(vals::Num::NUM1);
+            v.set_argsize(vals::Size::BITS16);
+            v.set_ressize(vals::Size::BITS16);
+        });
 
         let write_req = write_dma.request();
         let read_req = read_dma.request();
 
-        self.peri.enable_write_dma();
-        self.peri.enable_read_dma();
+        // DMAWEN and DMAREN must be set in separate register writes;
+        // setting both in a single write hangs the CORDIC+DMA on STM32H563.
+        T::regs().csr().modify(|v| v.set_dmawen(true));
+        T::regs().csr().modify(|v| v.set_dmaren(true));
 
+        // Same H563 constraint: clear DMAWEN and DMAREN in separate writes.
         let _on_drop = OnDrop::new(|| {
-            self.peri.disable_write_dma();
-            self.peri.disable_read_dma();
+            T::regs().csr().modify(|v| v.set_dmawen(false));
+            T::regs().csr().modify(|v| v.set_dmaren(false));
         });
 
         unsafe {
