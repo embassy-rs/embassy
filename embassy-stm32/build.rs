@@ -1705,15 +1705,24 @@ fn main() {
                 if regs.kind == "comp" {
                     let peri = format_ident!("{}", p.name);
                     let pin_name = format_ident!("{}", pin.pin);
-                    if pin.signal.starts_with("INP") {
-                        // Impl InputPlusPin for INP or INP0, INP1 etc.
-                        let ch: u8 = pin.signal.strip_prefix("INP").unwrap().parse().unwrap_or(0);
+                    // Check if this peripheral has numbered signals (e.g. INP0/INP1 from extra YAML).
+                    // If so, skip bare INP/INM to avoid duplicate trait impls.
+                    let has_numbered = p.pins.iter().any(|s| s.signal.starts_with("INP") && s.signal.len() > 3);
+                    if let Some(ch_str) = pin.signal.strip_prefix("INP") {
+                        let ch: u8 = match ch_str.parse() {
+                            Ok(ch) => ch,
+                            Err(_) if !has_numbered => 0, // bare "INP" on chips without numbered signals
+                            Err(_) => continue,           // skip bare "INP" when numbered signals exist
+                        };
                         g.extend(quote! {
                             impl_comp_inp_pin!( #peri, #pin_name, #ch );
                         });
-                    } else if pin.signal.starts_with("INM") {
-                        // Impl InputMinusPin for INM or INM0, INM1 etc.
-                        let ch: u8 = pin.signal.strip_prefix("INM").unwrap().parse().unwrap_or(0);
+                    } else if let Some(ch_str) = pin.signal.strip_prefix("INM") {
+                        let ch: u8 = match ch_str.parse() {
+                            Ok(ch) => ch,
+                            Err(_) if !has_numbered => 0,
+                            Err(_) => continue,
+                        };
                         g.extend(quote! {
                             impl_comp_inm_pin!( #peri, #pin_name, #ch );
                         });
