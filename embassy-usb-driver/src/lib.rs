@@ -429,16 +429,6 @@ pub enum EndpointError {
     Disabled,
 }
 
-// TODO: remove before releasing embassy-usb-driver v0.3
-impl embedded_io_async::Error for EndpointError {
-    fn kind(&self) -> embedded_io_async::ErrorKind {
-        match self {
-            Self::BufferOverflow => embedded_io_async::ErrorKind::OutOfMemory,
-            Self::Disabled => embedded_io_async::ErrorKind::NotConnected,
-        }
-    }
-}
-
 impl core::fmt::Display for EndpointError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
