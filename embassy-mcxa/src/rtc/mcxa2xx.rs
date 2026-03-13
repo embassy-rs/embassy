@@ -1,6 +1,8 @@
 //! RTC DateTime driver.
+use core::convert::Infallible;
 use core::marker::PhantomData;
 
+use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::{Peri, PeripheralType};
 use maitake_sync::WaitCell;
 
@@ -8,7 +10,6 @@ use crate::clocks::{WakeGuard, with_clocks};
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac;
 use crate::pac::rtc::vals::{Swr, Tcr, Um};
-use crate::rtc::{RtcDateTime, consts};
 
 /// RTC interrupt handler.
 pub struct InterruptHandler<I: Instance> {
@@ -47,8 +48,6 @@ impl Info {
 
 unsafe impl Sync for Info {}
 
-/// Token for RTC0
-pub type Rtc0 = crate::peripherals::RTC0;
 impl SealedInstance for crate::peripherals::RTC0 {
     #[inline(always)]
     fn info() -> &'static Info {
@@ -67,8 +66,30 @@ impl Instance for crate::peripherals::RTC0 {
     type Interrupt = crate::interrupt::typelevel::RTC;
 }
 
+/// Number of days in a standard year
+const DAYS_IN_A_YEAR: u32 = 365;
+/// Number of seconds in a day
+const SECONDS_IN_A_DAY: u32 = 86400;
+/// Number of seconds in an hour
+const SECONDS_IN_A_HOUR: u32 = 3600;
+/// Number of seconds in a minute
+const SECONDS_IN_A_MINUTE: u32 = 60;
+/// Unix epoch start year
+const YEAR_RANGE_START: u16 = 1970;
+
+/// Date and time structure for RTC operations
+#[derive(Debug, Clone, Copy)]
+pub struct DateTime {
+    pub year: u16,
+    pub month: u8,
+    pub day: u8,
+    pub hour: u8,
+    pub minute: u8,
+    pub second: u8,
+}
+
 #[derive(Copy, Clone)]
-pub struct RtcConfig {
+pub struct Config {
     #[allow(dead_code)]
     wakeup_select: bool,
     update_mode: Um,
@@ -78,9 +99,22 @@ pub struct RtcConfig {
     compensation_time: Tcr,
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            wakeup_select: false,
+            update_mode: Um::UM_0,
+            supervisor_access: false,
+            compensation_interval: 0,
+            compensation_time: Tcr::TCR_0,
+        }
+    }
+}
+
 /// RTC interrupt enable flags
 #[derive(Copy, Clone)]
 pub struct RtcInterruptEnable;
+
 impl RtcInterruptEnable {
     pub const RTC_TIME_INVALID_INTERRUPT_ENABLE: u32 = 1 << 0;
     pub const RTC_TIME_OVERFLOW_INTERRUPT_ENABLE: u32 = 1 << 1;
@@ -101,10 +135,10 @@ impl RtcInterruptEnable {
 /// # Note
 ///
 /// This function handles leap years correctly.
-pub fn convert_datetime_to_seconds(datetime: &RtcDateTime) -> u32 {
+pub fn convert_datetime_to_seconds(datetime: &DateTime) -> u32 {
     let month_days: [u16; 13] = [0, 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
 
-    let mut seconds = (datetime.year as u32 - 1970) * consts::DAYS_IN_A_YEAR;
+    let mut seconds = (datetime.year as u32 - 1970) * DAYS_IN_A_YEAR;
     seconds += (datetime.year as u32 / 4) - (1970 / 4);
     seconds += month_days[datetime.month as usize] as u32;
     seconds += datetime.day as u32 - 1;
@@ -113,9 +147,9 @@ pub fn convert_datetime_to_seconds(datetime: &RtcDateTime) -> u32 {
         seconds -= 1;
     }
 
-    seconds = seconds * consts::SECONDS_IN_A_DAY
-        + (datetime.hour as u32 * consts::SECONDS_IN_A_HOUR)
-        + (datetime.minute as u32 * consts::SECONDS_IN_A_MINUTE)
+    seconds = seconds * SECONDS_IN_A_DAY
+        + (datetime.hour as u32 * SECONDS_IN_A_HOUR)
+        + (datetime.minute as u32 * SECONDS_IN_A_MINUTE)
         + datetime.second as u32;
 
     seconds
@@ -129,32 +163,32 @@ pub fn convert_datetime_to_seconds(datetime: &RtcDateTime) -> u32 {
 ///
 /// # Returns
 ///
-/// RtcDateTime structure with the converted date and time
+/// DateTime structure with the converted date and time
 ///
 /// # Note
 ///
 /// This function handles leap years correctly.
-pub fn convert_seconds_to_datetime(seconds: u32) -> RtcDateTime {
+pub fn convert_seconds_to_datetime(seconds: u32) -> DateTime {
     let mut seconds_remaining = seconds;
-    let mut days = seconds_remaining / consts::SECONDS_IN_A_DAY + 1;
-    seconds_remaining %= consts::SECONDS_IN_A_DAY;
+    let mut days = seconds_remaining / SECONDS_IN_A_DAY + 1;
+    seconds_remaining %= SECONDS_IN_A_DAY;
 
-    let hour = (seconds_remaining / consts::SECONDS_IN_A_HOUR) as u8;
-    seconds_remaining %= consts::SECONDS_IN_A_HOUR;
-    let minute = (seconds_remaining / consts::SECONDS_IN_A_MINUTE) as u8;
-    let second = (seconds_remaining % consts::SECONDS_IN_A_MINUTE) as u8;
+    let hour = (seconds_remaining / SECONDS_IN_A_HOUR) as u8;
+    seconds_remaining %= SECONDS_IN_A_HOUR;
+    let minute = (seconds_remaining / SECONDS_IN_A_MINUTE) as u8;
+    let second = (seconds_remaining % SECONDS_IN_A_MINUTE) as u8;
 
-    let mut year = consts::EPOCH_YEAR_RANGE_START;
-    let mut days_in_year = consts::DAYS_IN_A_YEAR;
+    let mut year = YEAR_RANGE_START;
+    let mut days_in_year = DAYS_IN_A_YEAR;
 
     while days > days_in_year {
         days -= days_in_year;
         year += 1;
 
         days_in_year = if year.is_multiple_of(4) {
-            consts::DAYS_IN_A_YEAR + 1
+            DAYS_IN_A_YEAR + 1
         } else {
-            consts::DAYS_IN_A_YEAR
+            DAYS_IN_A_YEAR
         };
     }
 
@@ -190,34 +224,13 @@ pub fn convert_seconds_to_datetime(seconds: u32) -> RtcDateTime {
 
     let day = days as u8;
 
-    RtcDateTime {
+    DateTime {
         year,
         month: month as u8,
         day,
         hour,
         minute,
         second,
-    }
-}
-
-/// Returns default RTC configuration
-///
-/// # Returns
-///
-/// RtcConfig with sensible default values:
-/// - No wakeup selection
-/// - Update mode 0 (immediate updates)
-/// - No supervisor access restriction
-/// - No compensation
-impl Default for RtcConfig {
-    fn default() -> Self {
-        RtcConfig {
-            wakeup_select: false,
-            update_mode: Um::UM_0,
-            supervisor_access: false,
-            compensation_interval: 0,
-            compensation_time: Tcr::TCR_0,
-        }
     }
 }
 
@@ -233,7 +246,7 @@ impl<'a> Rtc<'a> {
     pub fn new<T: Instance>(
         _inst: Peri<'a, T>,
         _irq: impl crate::interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'a,
-        config: RtcConfig,
+        config: Config,
     ) -> Self {
         let info = T::info();
 
@@ -246,17 +259,13 @@ impl<'a> Rtc<'a> {
             Some(Some(clk)) => clk,
         };
 
-        // RTC reset
-        info.regs().cr().modify(|w| w.set_swr(Swr::SWR_1));
-        info.regs().cr().modify(|w| w.set_swr(Swr::SWR_0));
-        info.regs().tsr().write(|w| w.0 = 1);
+        let mut inst = Self {
+            info,
+            _inst: PhantomData,
+            _wg: WakeGuard::for_power(&clk.power),
+        };
 
-        info.regs().cr().modify(|w| w.set_um(config.update_mode));
-
-        info.regs().tcr().modify(|w| {
-            w.set_cir(config.compensation_interval);
-            w.set_tcr(config.compensation_time);
-        });
+        inst.set_configuration(&config);
 
         // Enable RTC interrupt
         T::Interrupt::unpend();
@@ -269,6 +278,19 @@ impl<'a> Rtc<'a> {
         }
     }
 
+    fn set_configuration(&mut self, config: &Config) {
+        self.info.regs().cr().modify(|w| w.set_swr(Swr::SWR_1));
+        self.info.regs().cr().modify(|w| w.set_swr(Swr::SWR_0));
+        self.info.regs().tsr().write(|w| w.0 = 1);
+
+        self.info.regs().cr().modify(|w| w.set_um(config.update_mode));
+
+        self.info.regs().tcr().modify(|w| {
+            w.set_cir(config.compensation_interval);
+            w.set_tcr(config.compensation_time);
+        });
+    }
+
     /// Set the current date and time
     ///
     /// # Arguments
@@ -278,7 +300,7 @@ impl<'a> Rtc<'a> {
     /// # Note
     ///
     /// The datetime is converted to Unix timestamp and written to the time seconds register.
-    pub fn set_datetime(&self, datetime: RtcDateTime) {
+    pub fn set_datetime(&self, datetime: DateTime) {
         let seconds = convert_datetime_to_seconds(&datetime);
         self.info.regs().tsr().write(|w| w.0 = seconds);
     }
@@ -287,12 +309,12 @@ impl<'a> Rtc<'a> {
     ///
     /// # Returns
     ///
-    /// Current date and time as RtcDateTime
+    /// Current date and time as DateTime
     ///
     /// # Note
     ///
     /// Reads the current Unix timestamp from the time seconds register and converts it.
-    pub fn get_datetime(&self) -> RtcDateTime {
+    pub fn get_datetime(&self) -> DateTime {
         let seconds = self.info.regs().tsr().read().0;
         convert_seconds_to_datetime(seconds)
     }
@@ -312,7 +334,7 @@ impl<'a> Rtc<'a> {
     /// - Waits for the write operation to complete
     /// - Uses timeouts to prevent infinite loops
     /// - Enables the alarm interrupt after setting
-    pub fn set_alarm(&self, alarm: RtcDateTime) {
+    pub fn set_alarm(&self, alarm: DateTime) {
         let seconds = convert_datetime_to_seconds(&alarm);
 
         self.info.regs().tar().write(|w| w.0 = 0);
@@ -335,12 +357,12 @@ impl<'a> Rtc<'a> {
     ///
     /// # Returns
     ///
-    /// Alarm date and time as RtcDateTime
+    /// Alarm date and time as DateTime
     ///
     /// # Note
     ///
     /// Reads the alarm timestamp from the time alarm register and converts it.
-    pub fn get_alarm(&self) -> RtcDateTime {
+    pub fn get_alarm(&self) -> DateTime {
         let alarm_seconds = self.info.regs().tar().read().0;
         convert_seconds_to_datetime(alarm_seconds)
     }
@@ -433,7 +455,7 @@ impl<'a> Rtc<'a> {
     ///
     /// This function will wait until the RTC alarm is triggered.
     /// If no alarm is scheduled, it will wait indefinitely until one is scheduled and triggered.
-    pub async fn wait_for_alarm(&mut self, alarm: RtcDateTime) {
+    pub async fn wait_for_alarm(&mut self, alarm: DateTime) {
         let wait = self.info.wait_cell().subscribe().await;
 
         self.set_alarm(alarm);
@@ -461,5 +483,15 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
             T::PERF_INT_WAKE_INCR();
             T::info().wait_cell().wake();
         }
+    }
+}
+
+impl<'a> SetConfig for Rtc<'a> {
+    type Config = Config;
+    type ConfigError = Infallible;
+
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
+        self.set_configuration(config);
+        Ok(())
     }
 }
