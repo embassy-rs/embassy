@@ -21,10 +21,15 @@ use embassy_mcxa::clocks::config::{
     CoreSleep, Div8, FircConfig, FircFreqSel, FlashSleep, MainClockConfig, MainClockSource, VddDriveStrength, VddLevel,
 };
 use embassy_mcxa::clocks::{PoweredClock, WakeGuard};
-use embassy_mcxa::gpio::{Input, Pull};
+use embassy_mcxa::gpio::{Async, Input, Pull};
+use embassy_mcxa::{bind_interrupts, gpio, peripherals};
 use embassy_time::{Duration, Instant, Timer};
 use hal::gpio::{DriveStrength, Level, Output, SlewRate};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    GPIO1 => gpio::InterruptHandler<peripherals::GPIO1>;
+});
 
 #[cfg_attr(
     feature = "custom-executor",
@@ -112,7 +117,7 @@ async fn main(spawner: Spawner) {
 
     // Setup a second LED, and use the button labeled "WAKEUP" as an input source
     let blue = Output::new(p.P3_21, Level::High, DriveStrength::Normal, SlewRate::Slow);
-    let btn = Input::new(p.P1_7, Pull::Up);
+    let btn = Input::new_async(p.P1_7, Irqs, Pull::Up);
     spawner.spawn(press_toggler(btn, blue).unwrap());
 
     loop {
@@ -148,7 +153,7 @@ async fn main(spawner: Spawner) {
 /// the assertion of the executor debug gpio pin. This button can be observed
 /// using the mikro-bus header pin labeled "RST".
 #[embassy_executor::task]
-async fn press_toggler(mut button: Input<'static>, mut led: Output<'static>) {
+async fn press_toggler(mut button: Input<'static, Async>, mut led: Output<'static>) {
     loop {
         button.wait_for_low().await;
         led.toggle();
