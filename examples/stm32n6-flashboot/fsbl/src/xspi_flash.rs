@@ -189,11 +189,4 @@ impl<I: Instance> SpiFlashMemory<I> {
         };
         self.xspi.enable_memory_mapped_mode(read_config, write_config).unwrap();
     }
-
-    /// Consume the driver and return the inner XSPI peripheral.
-    /// This allows re-creating a fresh XSPI driver for memory-mapped mode after
-    /// embassy-boot operations are complete.
-    pub fn free(self) -> Xspi<'static, I, Blocking> {
-        self.xspi
-    }
 }
