@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Complete missing Gpin/GpoutPin impls for RP235x
 - Improve PIO clock divider math
 - Fix chrono compilation
+- Enable interrupts in `init`
 - Update embassy-sync to 0.8.0
 - Update embassy-embedded-hal to 0.6.0
 

@@ -627,6 +627,12 @@ pub fn init(config: config::Config) -> Peripherals {
     // before doing anything important.
     let peripherals = Peripherals::take();
 
+    // Make sure interrupts are enabled even when the bootloader does not do it.
+    #[cfg(feature = "_rp235x")]
+    unsafe {
+        cortex_m::interrupt::enable();
+    }
+
     unsafe {
         clocks::init(config.clocks);
         #[cfg(feature = "time-driver")]
