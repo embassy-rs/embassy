@@ -50,8 +50,44 @@ struct Info {
     pub gpio: crate::pac::gpio::Gpio,
 }
 
+pub trait PeriGpioExt<'d, T: HasGpioInstance> {
+    /// Type erase the pin while also binding and Irq.
+    ///
+    /// This means the [`AnyPin`] can be used to constuct an async [`Input`] with [`Flex::async_from_anypin`]
+    /// and an async [`Flex`] with [`Flex::async_from_anypin`].
+    fn degrade_async(
+        self,
+        _irq: impl crate::interrupt::typelevel::Binding<<T::Instance as Instance>::Interrupt, InterruptHandler<T::Instance>>,
+    ) -> Peri<'d, AnyPin>;
+}
+
+impl<'d, T: HasGpioInstance> PeriGpioExt<'d, T> for Peri<'d, T> {
+    /// Type erase the pin while also binding and Irq.
+    ///
+    /// This means the [`AnyPin`] can be used to constuct an async [`Input`] with [`Flex::async_from_anypin`]
+    /// and an async [`Flex`] with [`Flex::async_from_anypin`].
+    fn degrade_async(
+        self,
+        _irq: impl crate::interrupt::typelevel::Binding<<T::Instance as Instance>::Interrupt, InterruptHandler<T::Instance>>,
+    ) -> Peri<'d, AnyPin> {
+        HasGpioInstance::degrade_async(self, _irq)
+    }
+}
+
 pub trait HasGpioInstance: GpioPin {
     type Instance: Instance;
+
+    /// Type erase the pin while also binding and Irq.
+    ///
+    /// This means the [`AnyPin`] can be used to constuct an async [`Input`] with [`Flex::async_from_anypin`]
+    /// and an async [`Flex`] with [`Flex::async_from_anypin`].
+    fn degrade_async<'p>(
+        this: Peri<'p, Self>,
+        _irq: impl crate::interrupt::typelevel::Binding<
+            <Self::Instance as Instance>::Interrupt,
+            InterruptHandler<Self::Instance>,
+        >,
+    ) -> Peri<'p, AnyPin>;
 }
 
 trait SealedInstance {
@@ -197,6 +233,7 @@ pub struct AnyPin {
     gpio: crate::pac::gpio::Gpio,
     port_reg: crate::pac::port::Port,
     pcr_reg: Reg<Pcr, RW>,
+    irq_bound: bool,
 }
 
 impl AnyPin {
@@ -207,6 +244,7 @@ impl AnyPin {
         gpio: crate::pac::gpio::Gpio,
         port_reg: crate::pac::port::Port,
         pcr_reg: Reg<Pcr, RW>,
+        irq_bound: bool,
     ) -> Self {
         Self {
             port,
@@ -214,6 +252,7 @@ impl AnyPin {
             gpio,
             port_reg,
             pcr_reg,
+            irq_bound,
         }
     }
 
@@ -240,6 +279,11 @@ impl AnyPin {
     #[inline(always)]
     fn pcr_reg(&self) -> Reg<Pcr, RW> {
         self.pcr_reg
+    }
+
+    #[inline(always)]
+    fn irq_bound(&self) -> bool {
+        self.irq_bound
     }
 }
 
@@ -277,7 +321,14 @@ pub trait GpioPin: SealedPin + Sized + PeripheralType + Into<AnyPin> + 'static {
         // SAFETY: This is only called within the GpioPin trait, which is only
         // implemented within this module on valid pin peripherals and thus
         // has been verified to be correct.
-        AnyPin::new(self.port(), self.pin(), self.gpio(), self.port_reg(), self.pcr_reg())
+        AnyPin::new(
+            self.port(),
+            self.pin(),
+            self.gpio(),
+            self.port_reg(),
+            self.pcr_reg(),
+            false,
+        )
     }
 }
 
@@ -442,12 +493,35 @@ macro_rules! impl_pin {
                         self.gpio(),
                         self.port_reg(),
                         self.pcr_reg(),
+                        false,
                     )
                 }
             }
 
             impl crate::gpio::HasGpioInstance for crate::peripherals::$peri {
                 type Instance = crate::peripherals::$block;
+                fn degrade_async<'p>(
+                    this: embassy_hal_internal::Peri<'p, Self>,
+                    _irq: impl crate::interrupt::typelevel::Binding<
+                        <Self::Instance as crate::gpio::Instance>::Interrupt,
+                        crate::gpio::InterruptHandler<Self::Instance>,
+                    >,
+                ) -> embassy_hal_internal::Peri<'p, AnyPin> {
+                    use crate::interrupt::typelevel::Interrupt;
+                    unsafe {
+                        <<Self as crate::gpio::HasGpioInstance>::Instance as crate::gpio::Instance>::Interrupt::enable();
+                    }
+                    unsafe {
+                        embassy_hal_internal::Peri::new_unchecked(AnyPin::new(
+                            this.port(),
+                            this.pin(),
+                            this.gpio(),
+                            this.port_reg(),
+                            this.pcr_reg(),
+                            true,
+                        ))
+                    }
+                }
             }
         }
     };
@@ -595,6 +669,9 @@ impl<'d, M: Mode> Flex<'d, M> {
     }
 }
 
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct NoIrqBound;
+
 /// Async methods
 impl<'d> Flex<'d, Async> {
     /// Wrap the pin in Flex with Async support.
@@ -614,6 +691,25 @@ impl<'d> Flex<'d, Async> {
         Self {
             pin: pin.into(),
             _phantom: PhantomData,
+        }
+    }
+
+    /// Wrap an [`AnyPin`] in Flex with Async support.
+    ///
+    /// This enables the use of async functions like: [`Input::wait_for_high`] and [`Input::wait_for_falling_edge`].
+    /// In order to use an [`AnyPin`] with this function it needs to be constructed by
+    /// calling [`PeriGpioExt::degrade_async`] on the pin to bind the Irq.
+    /// If an [`AnyPin`] is provided that was not constucted with [`PeriGpioExt::degrade_async`],
+    /// it will return the error: [`NoIrqBound`].
+    pub fn async_from_anypin(pin: Peri<'d, AnyPin>) -> Result<Self, NoIrqBound> {
+        pin.set_function(Mux::MUX0);
+        if pin.irq_bound() {
+            Ok(Self {
+                pin: pin.into(),
+                _phantom: PhantomData,
+            })
+        } else {
+            Err(NoIrqBound)
         }
     }
 
@@ -814,6 +910,21 @@ impl<'d> Input<'d, Async> {
         flex.set_pull(pull_select);
         Self { flex }
     }
+
+    /// Create a GPIO input driver for a [GpioPin] with async support from an [`AnyPin`].
+    ///
+    /// This enables the use of async functions like: [`Input::wait_for_high`] and [`Input::wait_for_falling_edge`].
+    /// In order to use an [`AnyPin`] with this function it needs to be constructed by
+    /// calling [`PeriGpioExt::degrade_async`] on the pin to bind the Irq.
+    /// If an [`AnyPin`] is provided that was not constucted with [`PeriGpioExt::degrade_async`],
+    /// it will return the error: [`NoIrqBound`].
+    pub fn async_from_anypin(pin: Peri<'d, AnyPin>, pull_select: Pull) -> Result<Self, NoIrqBound> {
+        let mut flex = Flex::async_from_anypin(pin)?;
+        flex.set_as_input();
+        flex.set_pull(pull_select);
+        Ok(Self { flex })
+    }
+
     /// Wait until the pin is high. If it is already high, return immediately.
     #[inline]
     pub fn wait_for_high(&mut self) -> impl Future<Output = ()> + use<'_, 'd> {
