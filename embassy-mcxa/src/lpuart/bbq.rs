@@ -269,6 +269,19 @@ impl BbqParts {
             vtable: BbqVtable::for_lpuart::<T>(),
         })
     }
+
+    pub fn rx_pin(&mut self) -> Peri<'_, AnyPin> {
+        self.rx_pin.reborrow()
+    }
+
+    pub fn tx_pin(&mut self) -> Peri<'_, AnyPin> {
+        self.tx_pin.reborrow()
+    }
+
+    pub fn pins(&mut self) -> (Peri<'_, AnyPin>, Peri<'_, AnyPin>) {
+        let Self { tx_pin, rx_pin, .. } = self;
+        (rx_pin.reborrow(), tx_pin.reborrow())
+    }
 }
 
 impl BbqHalfParts {
