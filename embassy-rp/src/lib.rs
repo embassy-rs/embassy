@@ -30,7 +30,7 @@ pub mod bootsel;
 pub mod clocks;
 pub(crate) mod datetime;
 pub mod dma;
-#[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
+#[cfg(feature = "executor-platform")]
 pub mod executor;
 pub mod flash;
 #[cfg(feature = "rp2040")]

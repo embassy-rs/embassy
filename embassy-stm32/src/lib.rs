@@ -115,7 +115,7 @@ pub mod i2s;
 pub mod ipcc;
 #[cfg(lcd)]
 pub mod lcd;
-#[cfg(feature = "low-power")]
+#[cfg(feature = "executor-platform")]
 pub mod low_power;
 #[cfg(lptim)]
 pub mod lptim;
@@ -160,7 +160,7 @@ pub mod wdg;
 #[cfg(xspi)]
 pub mod xspi;
 
-#[cfg(feature = "low-power")]
+#[cfg(feature = "executor-platform")]
 pub use low_power::Executor;
 
 // This must go last, so that it sees all the impl_foo! macros defined earlier.

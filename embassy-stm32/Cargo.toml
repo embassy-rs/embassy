@@ -249,7 +249,11 @@ cyw43 = ["dep:cyw43"]
 stm32-hrtim = ["dep:stm32-hrtim"]
 
 exti = []
-low-power = [ "dep:embassy-executor", "time", "chrono" ]
+## Enable the custom executor platform implementation, which allows for low-power modes.
+##
+## If this feature is enabled, users should NOT enable `embassy-executor/platform-cortex-m` or any other executor platform.
+executor-platform = [ "dep:embassy-executor", "time", "chrono" ]
+low-power = [ "executor-platform" ]
 low-power-disable-pender = [ "low-power" ]
 low-power-debug-with-sleep = [ "low-power" ]
 
