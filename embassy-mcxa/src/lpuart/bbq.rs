@@ -21,7 +21,7 @@ use super::{DataBits, IdleConfig, Info, MsbFirst, Parity, RxPin, StopBits, TxPin
 use crate::clocks::periph_helpers::{Div4, LpuartClockSel};
 use crate::clocks::{PoweredClock, WakeGuard};
 use crate::dma::{DMA_MAX_TRANSFER_SIZE, DmaChannel, DmaRequest, InvalidParameters, TransferOptions};
-use crate::gpio::AnyPin;
+use crate::gpio::{AnyPin, HasGpioInstance, PeriGpioExt};
 use crate::interrupt::typelevel::{Binding, Handler, Interrupt};
 use crate::lpuart::{Instance, RxPins};
 
@@ -297,6 +297,30 @@ impl BbqHalfParts {
             buffer,
             dma_ch: dma_ch.into(),
             pin: tx_pin.into(),
+            mux: P::MUX,
+            info: T::info(),
+            state: T::bbq_state(),
+            dma_req: T::RX_DMA_REQUEST.number(),
+            vtable: BbqVtable::for_lpuart::<T>(),
+            which: WhichHalf::Rx,
+        }
+    }
+
+    /// Setup Rx half while binding GPIO to the gpio pin.
+    /// This allows later use of async functions on the pin.
+    pub fn new_rx_half_async<T: BbqInstance, P: RxPin<T> + HasGpioInstance>(
+        _inner: Peri<'static, T>,
+        irq: impl Binding<T::Interrupt, BbqInterruptHandler<T>>
+        + Binding<<P::Instance as crate::gpio::Instance>::Interrupt, crate::gpio::InterruptHandler<P::Instance>>
+        + 'static,
+        tx_pin: Peri<'static, P>,
+        buffer: &'static mut [u8],
+        dma_ch: impl Into<DmaChannel<'static>>,
+    ) -> Self {
+        Self {
+            buffer,
+            dma_ch: dma_ch.into(),
+            pin: tx_pin.degrade_async(irq),
             mux: P::MUX,
             info: T::info(),
             state: T::bbq_state(),
