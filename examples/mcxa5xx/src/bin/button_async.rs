@@ -8,7 +8,7 @@ use hal::gpio::{Input, Pull};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
-    GPIO1 => gpio::InterruptHandler<peripherals::GPIO1>;
+    GPIO3 => gpio::InterruptHandler<peripherals::GPIO3>;
 });
 
 #[embassy_executor::main]
