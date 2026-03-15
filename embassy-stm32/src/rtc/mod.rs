@@ -118,6 +118,7 @@ impl RtcTimeProvider {
 
 #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
 /// Contains an RTC driver.
+#[derive(Clone)]
 pub struct RtcContainer {
     pub(self) mutex: &'static Mutex<CriticalSectionRawMutex, RefCell<Option<Rtc>>>,
 }
@@ -334,6 +335,65 @@ impl Rtc {
     /// retain their value when Vdd is switched off as long as V_BAT is powered.
     pub fn write_backup_register(&self, register: usize, value: u32) {
         RTC::write_backup_register(RTC::regs(), register, value)
+    }
+}
+
+/// Trait applicable to an `Rtc` or an `RtcContainer`
+pub trait AnyRtc {
+    /// Set the datetime to a new value.
+    fn set_datetime(&mut self, t: DateTime) -> Result<(), RtcError>;
+    /// Check if daylight savings time is active.
+    fn get_daylight_savings(&self) -> bool;
+    /// Enable/disable daylight savings time.
+    fn set_daylight_savings(&mut self, daylight_savings: bool);
+    /// Read content of the backup register.
+    fn read_backup_register(&self, register: usize) -> Option<u32>;
+    /// Set content of the backup register.
+    fn write_backup_register(&self, register: usize, value: u32);
+}
+
+#[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
+impl AnyRtc for RtcContainer {
+    fn set_datetime(&mut self, t: DateTime) -> Result<(), RtcError> {
+        critical_section::with(|cs| self.borrow_mut(cs).set_datetime(t))
+    }
+
+    fn get_daylight_savings(&self) -> bool {
+        critical_section::with(|cs| self.borrow_mut(cs).get_daylight_savings())
+    }
+
+    fn set_daylight_savings(&mut self, daylight_savings: bool) {
+        critical_section::with(|cs| self.borrow_mut(cs).set_daylight_savings(daylight_savings))
+    }
+
+    fn read_backup_register(&self, register: usize) -> Option<u32> {
+        critical_section::with(|cs| self.borrow_mut(cs).read_backup_register(register))
+    }
+
+    fn write_backup_register(&self, register: usize, value: u32) {
+        critical_section::with(|cs| self.borrow_mut(cs).write_backup_register(register, value))
+    }
+}
+
+impl AnyRtc for Rtc {
+    fn set_datetime(&mut self, t: DateTime) -> Result<(), RtcError> {
+        self.set_datetime(t)
+    }
+
+    fn get_daylight_savings(&self) -> bool {
+        self.get_daylight_savings()
+    }
+
+    fn set_daylight_savings(&mut self, daylight_savings: bool) {
+        self.set_daylight_savings(daylight_savings)
+    }
+
+    fn read_backup_register(&self, register: usize) -> Option<u32> {
+        self.read_backup_register(register)
+    }
+
+    fn write_backup_register(&self, register: usize, value: u32) {
+        self.write_backup_register(register, value)
     }
 }
 

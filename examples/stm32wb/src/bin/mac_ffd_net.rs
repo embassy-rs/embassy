@@ -72,7 +72,7 @@ async fn main(spawner: Spawner) {
     info!("Hello World!");
 
     let config = Config::default();
-    let mut mbox = TlMbox::init(p.IPCC, Irqs, config).await;
+    let mut mbox = TlMbox::init(p.IPCC, Irqs, config).await.unwrap();
 
     spawner.spawn(run_mm_queue(mbox.mm_subsystem).unwrap());
 
