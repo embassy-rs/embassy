@@ -404,8 +404,23 @@ pub struct VrefInt;
 impl SpecialChannel for VrefInt {}
 
 impl VrefInt {
-    #[cfg(any(adc_f3v1, adc_f3v2))]
-    /// The value that vref would be if vdda was at 3300mv
+    #[cfg(any(
+        stm32f0,
+        stm32f3,
+        stm32f7,
+        stm32g0,
+        stm32g4,
+        stm32l0,
+        stm32l1,
+        stm32l4,
+        stm32l4_plus,
+        stm32l5,
+        stm32n6,
+        stm32l5,
+        stm32wb,
+        stm32wl
+    ))]
+    /// The value that vref would be if vdda was at the factory calibration voltage `VREF_CALIB_MV`.
     pub fn calibrated_value(&self) -> u16 {
         crate::pac::VREFINTCAL.data().read()
     }
