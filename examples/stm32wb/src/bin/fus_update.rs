@@ -1,13 +1,16 @@
 #![no_std]
 #![no_main]
 
+use cortex_m::peripheral::SCB;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
 use embassy_stm32::rcc::WPAN_DEFAULT;
+use embassy_stm32::rtc::Rtc;
 use embassy_stm32_wpan::TlMbox;
-use embassy_stm32_wpan::sub::mm;
+use embassy_stm32_wpan::fus::FirmwareUpgrader;
+use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs{
@@ -15,13 +18,8 @@ bind_interrupts!(struct Irqs{
     IPCC_C1_TX => TransmitInterruptHandler;
 });
 
-#[embassy_executor::task]
-async fn run_mm_queue(mut memory_manager: mm::MemoryManager<'static>) {
-    memory_manager.run_queue().await;
-}
-
 #[embassy_executor::main(executor = "embassy_stm32::Executor", entry = "cortex_m_rt::entry")]
-async fn main(spawner: Spawner) {
+async fn main(_spawner: Spawner) {
     /*
         How to make this work:
 
@@ -50,23 +48,35 @@ async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(config);
     info!("Hello World!");
 
+    let (rtc, _time_provider) = Rtc::new(p.RTC);
+
     let config = Config::default();
-    let mbox = TlMbox::init(p.IPCC, Irqs, config).await.unwrap();
-    let mut sys = mbox.sys_subsystem;
-    let mut ble = mbox.ble_subsystem;
+    let mut mbox = TlMbox::init(p.IPCC, Irqs, config).await.unwrap();
 
-    spawner.spawn(run_mm_queue(mbox.mm_subsystem).unwrap());
+    match mbox.sys_subsystem.wireless_fw_info() {
+        None => info!("not yet initialized"),
+        Some(fw_info) => {
+            let version_major = fw_info.version_major();
+            let version_minor = fw_info.version_minor();
+            let subversion = fw_info.subversion();
 
-    let _ = sys.shci_c2_ble_init(Default::default()).await;
+            let sram2a_size = fw_info.sram2a_size();
+            let sram2b_size = fw_info.sram2b_size();
 
-    info!("starting ble...");
-    ble.tl_write(0x0c, &[]).await;
+            info!(
+                "version {}.{}.{} - SRAM2a {} - SRAM2b {}",
+                version_major, version_minor, subversion, sram2a_size, sram2b_size
+            );
+        }
+    }
 
-    info!("waiting for ble...");
-    let ble_event = ble.tl_read().await;
+    let mut updater = FirmwareUpgrader::new(rtc, 15);
 
-    info!("ble event: {}", ble_event.payload());
+    updater.boot(mbox.sys_event, &mut mbox.sys_subsystem).await.unwrap();
 
-    info!("Test OK");
-    cortex_m::asm::bkpt();
+    Timer::after(Duration::from_secs(3)).await;
+
+    info!("System Reset");
+    defmt::flush();
+    SCB::sys_reset();
 }
