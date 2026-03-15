@@ -1,0 +1,25 @@
+[package]
+edition = "2024"
+name = "stm32n6-fsbl"
+version = "0.1.0"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+embassy-stm32 = { version = "0.6.0", path = "../../../embassy-stm32", features = ["stm32n657x0", "unstable-pac"] }
+embassy-boot-stm32 = { version = "0.8.0", path = "../../../embassy-boot-stm32" }
+embassy-boot = { version = "0.7.0", path = "../../../embassy-boot" }
+embassy-sync = { version = "0.8.0", path = "../../../embassy-sync" }
+
+cortex-m = { version = "0.7.7", features = ["inline-asm", "critical-section-single-core"] }
+cortex-m-rt = { version = "0.7.5", features = ["set-sp"] }
+embedded-storage = "0.3.1"
+
+defmt = "1.0.1"
+defmt-rtt = "1.1.0"
+
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/stm32n6-flashboot/fsbl" }
+]
