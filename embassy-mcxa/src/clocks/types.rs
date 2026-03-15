@@ -56,8 +56,9 @@ impl Drop for WakeGuard {
 
 /// The `Clocks` structure contains the initialized state of the core system clocks
 ///
-/// These values are configured by providing [`config::ClocksConfig`] to the [`init()`](super::init) function
-/// at boot time.
+/// These values are configured by providing
+/// [ClocksConfig](crate::clocks::config::ClocksConfig) to the
+/// [`init()`](super::init) function at boot time.
 #[derive(Default, Debug, Clone)]
 #[non_exhaustive]
 pub struct Clocks {

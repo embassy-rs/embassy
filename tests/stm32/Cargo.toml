@@ -33,6 +33,7 @@ stm32u585ai = ["embassy-stm32/stm32u585ai", "spi-v345", "chrono", "rng", "hash",
 stm32u5a5zj = ["embassy-stm32/stm32u5a5zj", "spi-v345", "chrono", "rng", "hash"] # FIXME: cordic test cause it crash
 stm32wb55rg = ["embassy-stm32/stm32wb55rg", "chrono", "not-gpdma", "ble", "mac" , "rng", "hsem", "stop"]
 stm32wba52cg = ["embassy-stm32/stm32wba52cg", "spi-v345", "chrono", "rng", "hash", "adc"]
+stm32wba65ri = ["embassy-stm32/stm32wba65ri", "spi-v345", "chrono", "rng", "hash", "adc"]
 stm32wl55jc = ["embassy-stm32/stm32wl55jc-cm4", "not-gpdma", "rng", "chrono", "hsem", "stop"]
 stm32f091rc = ["embassy-stm32/stm32f091rc", "cm0", "not-gpdma", "chrono"]
 stm32h503rb = ["embassy-stm32/stm32h503rb", "spi-v345", "rng", "stop"]
@@ -72,13 +73,13 @@ cm0 = ["portable-atomic/unsafe-assume-single-core"]
 [dependencies]
 teleprobe-meta = "1"
 
-embassy-sync = { version = "0.7.2", path = "../../embassy-sync", features = ["defmt"] }
-embassy-executor = { version = "0.9.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt"] }
-embassy-time = { version = "0.5.0", path = "../../embassy-time", features = ["defmt", "tick-hz-131_072", "defmt-timestamp-uptime"] }
-embassy-stm32 = { version = "0.5.0", path = "../../embassy-stm32", features = [ "defmt", "unstable-pac", "memory-x", "time-driver-any", "_allow-disable-rtc"]  }
+embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }
+embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-cortex-m", "executor-thread", "defmt"] }
+embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "tick-hz-131_072", "defmt-timestamp-uptime"] }
+embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "unstable-pac", "memory-x", "time-driver-any", "_allow-disable-rtc"]  }
 embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
 embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", optional = true, features = ["defmt", "stm32wb55rg", "wb55_ble"] }
-embassy-net = { version = "0.8.0", path = "../../embassy-net", features = ["defmt",  "tcp", "udp", "dhcpv4", "medium-ethernet"] }
+embassy-net = { version = "0.9.0", path = "../../embassy-net", features = ["defmt",  "tcp", "udp", "dhcpv4", "medium-ethernet"] }
 perf-client = { path = "../perf-client" }
 
 defmt = "1.0.1"
@@ -285,6 +286,7 @@ build = [
   { target = "thumbv8m.main-none-eabihf", features = ["stm32u585ai"], artifact-dir = "out/tests/stm32u585ai" },
   { target = "thumbv8m.main-none-eabihf", features = ["stm32u5a5zj"], artifact-dir = "out/tests/stm32u5a5zj" },
   { target = "thumbv8m.main-none-eabihf", features = ["stm32wba52cg"], artifact-dir = "out/tests/stm32wba52cg" },
+  { target = "thumbv8m.main-none-eabihf", features = ["stm32wba65ri"], artifact-dir = "out/tests/stm32wba65ri" },
   { target = "thumbv6m-none-eabi", features = ["stm32l073rz"], artifact-dir = "out/tests/stm32l073rz" },
   { target = "thumbv7m-none-eabi", features = ["stm32l152re"], artifact-dir = "out/tests/stm32l152re" },
   { target = "thumbv7em-none-eabi", features = ["stm32l4a6zg"], artifact-dir = "out/tests/stm32l4a6zg" },

@@ -16,8 +16,6 @@ mod mcxa2xx_exclusive {
     pub mod adc;
     pub mod flash;
     pub mod i3c;
-    pub mod lpuart;
-    pub mod rtc;
 
     pub use crate::chips::mcxa2xx::{Peripherals, init, interrupt, peripherals};
 }
@@ -39,14 +37,16 @@ mod all_chips {
     pub mod crc;
     pub mod ctimer;
     pub mod dma;
-    #[cfg(feature = "custom-executor")]
+    #[cfg(feature = "executor-platform")]
     pub mod executor;
     pub mod gpio;
     pub mod i2c;
     pub mod inputmux;
+    pub mod lpuart;
     pub mod ostimer;
     pub mod perf_counters;
     pub mod reset_reason;
+    pub mod rtc;
     pub mod spi;
     pub mod trng;
     pub mod wwdt;

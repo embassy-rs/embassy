@@ -1536,7 +1536,7 @@ impl ClockOperator<'_> {
             CoreSleep::DeepSleep => {
                 // We can only support deep sleep with a custom executor which properly
                 // handles going to sleep and returning
-                #[cfg(all(not(feature = "custom-executor"), feature = "defmt"))]
+                #[cfg(all(not(feature = "executor-platform"), feature = "defmt"))]
                 defmt::warn!("deep sleep enabled without custom executor");
 
                 // For now, just enable light sleep. The executor will set deep sleep when

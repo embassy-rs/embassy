@@ -17,6 +17,7 @@ pub mod channels;
 pub mod cmd;
 pub mod consts;
 pub mod evt;
+pub mod fus;
 pub mod lhci;
 pub mod shci;
 pub mod sub;
@@ -26,6 +27,7 @@ pub mod unsafe_linked_list;
 #[cfg(feature = "wb55_mac")]
 pub mod mac;
 
+use crate::shci::SchiSysEventReady;
 #[cfg(feature = "wb55_ble")]
 pub use crate::sub::ble::hci;
 
@@ -33,6 +35,7 @@ type PacketHeader = LinkedListNode;
 
 /// Transport Layer for the Mailbox interface
 pub struct TlMbox<'d> {
+    pub sys_event: SchiSysEventReady,
     pub sys_subsystem: Sys<'d>,
     pub mm_subsystem: MemoryManager<'d>,
     #[cfg(feature = "wb55_ble")]
@@ -76,7 +79,7 @@ impl<'d> TlMbox<'d> {
         _irqs: impl interrupt::typelevel::Binding<interrupt::typelevel::IPCC_C1_RX, ReceiveInterruptHandler>
         + interrupt::typelevel::Binding<interrupt::typelevel::IPCC_C1_TX, TransmitInterruptHandler>,
         config: Config,
-    ) -> Self {
+    ) -> Result<Self, ()> {
         // this is an inlined version of TL_Init from the STM32WB firmware as requested by AN5289.
         // HW_IPCC_Init is not called, and its purpose is (presumably?) covered by this
         // implementation
@@ -176,9 +179,12 @@ impl<'d> TlMbox<'d> {
         let mm = sub::mm::MemoryManager::new(ipcc_mm_release_buffer_channel);
         let mut sys = sub::sys::Sys::new(ipcc_system_cmd_rsp_channel, ipcc_system_event_channel);
 
-        debug!("sys event: {}", sys.read_ready().await);
+        let sys_event = sys.read_ready().await?;
 
-        Self {
+        debug!("sys event: {}", sys_event);
+
+        Ok(Self {
+            sys_event: sys_event,
             sys_subsystem: sys,
             #[cfg(feature = "wb55_ble")]
             ble_subsystem: sub::ble::Ble::new(
@@ -193,6 +199,6 @@ impl<'d> TlMbox<'d> {
             ),
             mm_subsystem: mm,
             traces: _ipcc_traces_channel,
-        }
+        })
     }
 }

@@ -373,15 +373,54 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
     ///
     /// # Example
     ///
-    /// ```no_run
-    /// static mut RX_BUF: [u8; 64] = [0; 64];
+    /// ```rust,no_run
+    /// # #![no_std]
+    /// # #![no_main]
+    /// #
+    /// # extern crate panic_halt;
+    /// # extern crate embassy_mcxa;
+    /// # extern crate embassy_executor;
+    /// # use panic_halt as _;
+    /// # use embassy_executor::Spawner;
+    /// # use embassy_mcxa::clocks::config::Div8;
+    /// # use embassy_mcxa::config::Config;
+    /// # use embassy_mcxa::lpuart;
+    /// # use static_cell::ConstStaticCell;
+    /// #
+    /// static RX_RING_BUFFER: ConstStaticCell<[u8; 64]> = ConstStaticCell::new([0; 64]);
+    /// # #[embassy_executor::main]
+    /// # async fn main(_spawner: Spawner) {
+    /// #     let mut cfg = Config::default();
+    /// #     cfg.clock_cfg.sirc.fro_12m_enabled = true;
+    /// #     cfg.clock_cfg.sirc.fro_lf_div = Some(Div8::no_div());
+    /// #
+    /// #     let p = embassy_mcxa::init(cfg);
+    /// #
+    /// #     // Create UART configuration
+    /// #     let config = lpuart::Config {
+    /// #     baudrate_bps: 115_200,
+    /// #     ..Default::default()
+    /// #     };
     ///
-    /// let rx = LpuartRxDma::new(p.LPUART2, p.P2_3, p.DMA_CH0, config).unwrap();
-    /// let ring_buf = unsafe { rx.setup_ring_buffer(&mut RX_BUF) };
+    ///      // Create UART instance with DMA channels
+    ///      let mut lpuart = lpuart::Lpuart::new_async_with_dma(
+    ///          p.LPUART2, // Instance
+    ///          p.P2_2,    // TX pin
+    ///          p.P2_3,    // RX pin
+    ///          p.DMA_CH0, // TX DMA channel
+    ///          p.DMA_CH1, // RX DMA channel
+    ///          config,
+    ///      )
+    ///      .unwrap();
     ///
-    /// // Read data as it arrives
-    /// let mut buf = [0u8; 16];
-    /// let n = ring_buf.read(&mut buf).await.unwrap();
+    ///      let (_, mut rx) = lpuart.split();
+    ///
+    ///      let buf = RX_RING_BUFFER.take();
+    ///      // Set up the ring buffer with circular DMA
+    ///      let mut ring_buf = rx.into_ring_dma_rx(buf).unwrap();
+    ///      let mut read_buf = [0u8; 16];
+    ///      let n = ring_buf.read(&mut read_buf).await.unwrap();
+    /// # }
     /// ```
     fn setup_ring_buffer<'buf: 'a>(
         &mut self,
