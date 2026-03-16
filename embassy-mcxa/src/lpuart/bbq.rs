@@ -449,7 +449,7 @@ impl LpuartBbq {
     }
 
     /// Borrow split parts.
-    pub fn split(&mut self) -> (&mut LpuartBbqRx, &mut LpuartBbqTx) {
+    pub fn split_ref(&mut self) -> (&mut LpuartBbqRx, &mut LpuartBbqTx) {
         let Self { tx, rx } = self;
         (rx, tx)
     }
