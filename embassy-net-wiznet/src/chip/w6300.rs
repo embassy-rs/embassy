@@ -1,4 +1,4 @@
-use embedded_hal_async::spi::{Operation, SpiDevice};
+use crate::wiznet_spi_interface::{SpiType, WiznetSpiBus, WiznetSpiOperation};
 
 #[repr(u8)]
 pub enum RegisterBlock {
@@ -6,6 +6,17 @@ pub enum RegisterBlock {
     Socket0 = 0x01,
     TxBuf = 0x02,
     RxBuf = 0x03,
+}
+
+/// Return bits to be ORed with instruction byte to set SPI mode corresponding to given SPI type
+const fn spi_mode_instruction_bits(spi_type: &SpiType) -> u8 {
+    // page 75 of datasheet
+    // https://docs.wiznet.io/pdf-viewer?file=%2Fassets%2Ffiles%2F20251204_W6300_DS_V101E-4f4cd2e75de8d76f51a741f6a492ea01.pdf
+    match spi_type {
+        SpiType::Single => 0b0000_0000,
+        SpiType::Dual => 0b0100_0000,
+        SpiType::Quad => 0b1000_0000,
+    }
 }
 
 /// Wiznet W6300 chip.
@@ -66,34 +77,42 @@ impl super::SealedChip for W6300 {
         (RegisterBlock::TxBuf, addr)
     }
 
-    async fn bus_read<SPI: SpiDevice>(
+    async fn bus_read<SPI: WiznetSpiBus>(
         spi: &mut SPI,
         address: Self::Address,
         data: &mut [u8],
     ) -> Result<(), SPI::Error> {
-        let instruction_phase = [address.0 as u8];
+        let spi_mode_bits: u8 = spi_mode_instruction_bits(&SPI::SPI_TYPE);
+        let instruction_phase = [(address.0 as u8) | spi_mode_bits];
         let address_phase = address.1.to_be_bytes();
         let dummy_phase = [0u8];
-        let operations = &mut [
-            Operation::Write(&instruction_phase),
-            Operation::Write(&address_phase),
-            Operation::Write(&dummy_phase),
-            Operation::TransferInPlace(data),
+
+        let operations = [
+            WiznetSpiOperation::WriteSingleLine(&instruction_phase),
+            WiznetSpiOperation::Write(&address_phase),
+            WiznetSpiOperation::Write(&dummy_phase),
+            WiznetSpiOperation::Read(data),
         ];
         spi.transaction(operations).await
     }
 
-    async fn bus_write<SPI: SpiDevice>(spi: &mut SPI, address: Self::Address, data: &[u8]) -> Result<(), SPI::Error> {
-        // Set the Write Access Bit
-        let instruction_phase = [(address.0 as u8) | 0b0010_0000];
+    async fn bus_write<SPI: WiznetSpiBus>(
+        spi: &mut SPI,
+        address: Self::Address,
+        data: &[u8],
+    ) -> Result<(), SPI::Error> {
+        const WRITE_ACCESS_BIT: u8 = 0b0010_0000;
+        let spi_mode_bits: u8 = spi_mode_instruction_bits(&SPI::SPI_TYPE);
+        // Set the SPI Mode and Write Access bits
+        let instruction_phase = [(address.0 as u8) | spi_mode_bits | WRITE_ACCESS_BIT];
         let address_phase = address.1.to_be_bytes();
         let dummy_phase = [0u8];
 
-        let operations = &mut [
-            Operation::Write(&instruction_phase),
-            Operation::Write(&address_phase),
-            Operation::Write(&dummy_phase),
-            Operation::Write(data),
+        let operations = [
+            WiznetSpiOperation::WriteSingleLine(&instruction_phase),
+            WiznetSpiOperation::Write(&address_phase),
+            WiznetSpiOperation::Write(&dummy_phase),
+            WiznetSpiOperation::Write(data),
         ];
         spi.transaction(operations).await
     }
