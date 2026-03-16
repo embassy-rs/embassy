@@ -2,9 +2,14 @@
 #![no_main]
 
 use embassy_executor::Spawner;
+use embassy_mcxa::{bind_interrupts, gpio, peripherals};
 use embassy_time::Timer;
 use hal::gpio::{Input, Pull};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    GPIO3 => gpio::InterruptHandler<peripherals::GPIO3>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -14,7 +19,7 @@ async fn main(_spawner: Spawner) {
 
     // This button is labeled "WAKEUP" on the FRDM-MCXA577
     // The board already has a 10K pullup
-    let mut pin = Input::new(p.P3_17, Pull::Disabled);
+    let mut pin = Input::new_async(p.P3_17, Irqs, Pull::Disabled);
 
     let mut press_count = 0u32;
 

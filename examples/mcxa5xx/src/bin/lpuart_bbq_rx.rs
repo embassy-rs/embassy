@@ -34,13 +34,14 @@ use embassy_mcxa::clocks::periph_helpers::LpuartClockSel;
 use embassy_mcxa::dma::DmaChannel;
 use embassy_mcxa::gpio::{DriveStrength, Input, Level, Output, Pull, SlewRate};
 use embassy_mcxa::lpuart::{BbqConfig, BbqHalfParts, BbqRxMode, LpuartBbqRx};
-use embassy_mcxa::{bind_interrupts, lpuart};
+use embassy_mcxa::{bind_interrupts, gpio, lpuart};
 use embassy_time::{Duration, WithTimeout};
 use static_cell::ConstStaticCell;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     LPUART5 => lpuart::BbqInterruptHandler::<hal::peripherals::LPUART5>;
+    GPIO0 => gpio::InterruptHandler<hal::peripherals::GPIO0>;
 });
 
 const SIZE: usize = 4096;
@@ -111,7 +112,7 @@ async fn main(_spawner: Spawner) {
 
     // Create UART instance with DMA channels
     let dma = DmaChannel::new(p.DMA_CH0);
-    let mut parts = BbqHalfParts::new_rx_half(p.LPUART5, Irqs, p.P0_24, rx_buf, dma);
+    let mut parts = BbqHalfParts::new_rx_half_async(p.LPUART5, Irqs, p.P0_24, rx_buf, dma);
     let mut red = Output::new(p.P2_14, Level::High, DriveStrength::Normal, SlewRate::Fast);
     let mut debug = Output::new(p.P5_8, Level::High, DriveStrength::Normal, SlewRate::Fast);
 
@@ -123,7 +124,7 @@ async fn main(_spawner: Spawner) {
         red.set_high();
         debug.set_high();
         {
-            let mut input = Input::new(parts.pin(), Pull::Up);
+            let mut input = defmt::unwrap!(Input::async_from_anypin(parts.pin(), Pull::Up));
             input.wait_for_low().await;
         }
 
