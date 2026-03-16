@@ -1,4 +1,4 @@
-# STM32N6570-DK Flash Boot - Build, Sign, Flash Orchestration
+# STM32N6 Flash Boot - Build, Sign, Flash Orchestration (DK & Nucleo)
 #
 # Prerequisites:
 #   - cargo-binutils: `cargo install cargo-binutils`
@@ -6,9 +6,10 @@
 #   - probe-rs: `cargo install probe-rs-tools`
 #
 # Usage:
-#   just build        # Build both FSBL and app
-#   just flash-all    # Build, sign, flash everything
-#   just test-dfu     # Test DFU update flow
+#   just build                  # Build both FSBL and app (DK, default)
+#   just board=nucleo flash-all # Build, sign, flash everything (Nucleo)
+#   just flash-all              # Build, sign, flash everything (DK)
+#   just test-dfu               # Test DFU update flow
 #
 # If probe-rs cannot flash external flash, use the stm32-* recipes instead.
 
@@ -19,9 +20,15 @@ stm32_bin := if os() == "macos" {
     "/usr/local/STMicroelectronics/STM32Cube/STM32CubeProgrammer/bin"
 }
 
+board := "dk"
+
 signing_tool := stm32_bin / "STM32_SigningTool_CLI"
 programmer := stm32_bin / "STM32_Programmer_CLI"
-ext_loader := stm32_bin / "ExternalLoader" / "MX66UW1G45G_STM32N6570-DK.stldr"
+ext_loader := if board == "dk" {
+    stm32_bin / "ExternalLoader" / "MX66UW1G45G_STM32N6570-DK.stldr"
+} else {
+    stm32_bin / "ExternalLoader" / "MX25UM51245G_STM32N6570-NUCLEO.stldr"
+}
 
 # Memory layout constants
 active_addr := "0x70100000"
@@ -44,17 +51,16 @@ powercycle:
 
 # === Build ===
 
-# Build FSBL bootloader
+# Build FSBL bootloader (board-aware: dk or nucleo)
 build-fsbl:
-    cargo build --release -p stm32n6-fsbl
+    cargo build --release -p stm32n6-fsbl --no-default-features --features {{board}}
 
 # Build application
 build-app:
     cargo build --release -p stm32n6-app
 
 # Build both
-build:
-    cargo build --release
+build: build-fsbl build-app
 
 # === Binary conversion ===
 
@@ -179,6 +185,15 @@ stm32-test-dfu: sign-app
     just stm32-trigger-swap
     @echo ""
     @echo "DFU staged and swap triggered! Reset the board."
+
+# === UART DFU ===
+
+# Send firmware via XMODEM over serial (requires lrzsz: brew install lrzsz)
+# Usage: just uart-dfu /dev/tty.usbmodem1234
+# Start this FIRST, then reset the board with PE0 held
+uart-dfu port:
+    stty -f {{port}} 115200 cs8 parenb -parodd -cstopb -crtscts
+    sx target/app-trusted.bin < {{port}} > {{port}}
 
 # === Debugging ===
 

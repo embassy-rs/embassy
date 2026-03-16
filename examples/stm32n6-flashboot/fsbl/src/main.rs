@@ -89,7 +89,10 @@ fn main() -> ! {
         fifo_threshold: FIFOThresholdLevel::_4Bytes,
         memory_type: MemoryType::Macronix,
         delay_hold_quarter_cycle: true,
+        #[cfg(feature = "dk")]
         device_size: MemorySize::_128MiB,
+        #[cfg(feature = "nucleo")]
+        device_size: MemorySize::_64MiB,
         chip_select_high_time: ChipSelectHighTime::_2Cycle,
         free_running_clock: false,
         clock_mode: false,
@@ -146,8 +149,13 @@ fn main() -> ! {
         flash_id[0], flash_id[1], flash_id[2]
     );
 
-    if flash_id[0] == 0xC2 {
-        info!("Flash ID OK (Macronix MX66UW1G45G)");
+    #[cfg(feature = "dk")]
+    const EXPECTED_ID: [u8; 3] = [0xC2, 0x86, 0x1A]; // MX66UW1G45G
+    #[cfg(feature = "nucleo")]
+    const EXPECTED_ID: [u8; 3] = [0xC2, 0x85, 0x3A]; // MX25UM51245G
+
+    if flash_id == EXPECTED_ID {
+        info!("Flash ID OK");
     } else if flash_id == [0, 0, 0] {
         info!("Flash ID all zeros - not responding!");
     } else {
