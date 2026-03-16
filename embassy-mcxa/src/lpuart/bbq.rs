@@ -45,9 +45,7 @@ impl core::fmt::Display for BbqError {
     }
 }
 
-impl core::error::Error for BbqError {
-
-}
+impl core::error::Error for BbqError {}
 
 /// RX Reception mode
 #[derive(Debug, Clone, Copy, Default)]
@@ -270,14 +268,17 @@ impl BbqParts {
         })
     }
 
+    /// Access a borrow of the contained RX pin
     pub fn rx_pin(&mut self) -> Peri<'_, AnyPin> {
         self.rx_pin.reborrow()
     }
 
+    /// Access a borrow of the contained TX pin
     pub fn tx_pin(&mut self) -> Peri<'_, AnyPin> {
         self.tx_pin.reborrow()
     }
 
+    /// Access a borrow of both the RX and TX pin (in that order)
     pub fn pins(&mut self) -> (Peri<'_, AnyPin>, Peri<'_, AnyPin>) {
         let Self { tx_pin, rx_pin, .. } = self;
         (rx_pin.reborrow(), tx_pin.reborrow())
