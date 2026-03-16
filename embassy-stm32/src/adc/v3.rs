@@ -265,6 +265,7 @@ impl super::AdcRegs for crate::pac::adc::Adc {
                     reg.set_dmaen(true);
                 });
             }
+            #[cfg(any(adc_v3, adc_g0, adc_u0))]
             ConversionMode::Repeated(trigger) => {
                 #[cfg(not(adc_g0))]
                 {

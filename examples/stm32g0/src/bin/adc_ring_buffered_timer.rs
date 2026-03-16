@@ -16,10 +16,10 @@ use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, AdcChannel as _, Clock, Presc, SampleTime};
 use embassy_stm32::pac::adc::vals::Exten;
 use embassy_stm32::peripherals::DMA1_CH1;
-use embassy_stm32::triggers::TIM1_TRGO2;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::complementary_pwm::{ComplementaryPwm, Mms2};
 use embassy_stm32::timer::low_level::CountingMode;
+use embassy_stm32::triggers::TIM1_TRGO2;
 use embassy_stm32::{bind_interrupts, dma};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -39,18 +39,18 @@ async fn main(_spawner: Spawner) {
     let tim1 = p.TIM1;
     let mut pwm = ComplementaryPwm::new(
         tim1,
-        None,  // CH1
-        None,  // CH1N
-        None,  // CH2
-        None,  // CH2N
-        None,  // CH3
-        None,  // CH3N
-        None,  // CH4
-        None,  // CH4N
+        None,          // CH1
+        None,          // CH1N
+        None,          // CH2
+        None,          // CH2N
+        None,          // CH3
+        None,          // CH3N
+        None,          // CH4
+        None,          // CH4N
         Hertz::hz(10), // 10 Hz trigger rate
         CountingMode::EdgeAlignedUp,
     );
-    
+
     // Configure TRGO2 to trigger on update event
     pwm.set_mms2(Mms2::UPDATE);
 
@@ -79,7 +79,7 @@ async fn main(_spawner: Spawner) {
         &mut dma_buf,
         Irqs,
         sequence,
-        TIM1_TRGO2, // Timer 1 TRGO2 as trigger source
+        TIM1_TRGO2,         // Timer 1 TRGO2 as trigger source
         Exten::RISING_EDGE, // Trigger on rising edge (can also use FALLING_EDGE or BOTH_EDGES)
     );
 
