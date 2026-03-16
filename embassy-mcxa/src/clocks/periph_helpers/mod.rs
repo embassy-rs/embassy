@@ -10,8 +10,8 @@
 use super::{ClockError, Clocks, PoweredClock, WakeGuard};
 use crate::clocks::VddLevel;
 use crate::pac::mrcc::vals::{
-    ClkdivHalt, ClkdivReset, ClkdivUnstab, CtimerClkselMux, Lpi2cClkselMux, LpspiClkselMux, LpuartClkselMux,
-    OstimerClkselMux,
+    ClkdivHalt, ClkdivReset, ClkdivUnstab, CtimerClkselMux, FclkClkselMux, Lpi2cClkselMux, LpspiClkselMux,
+    LpuartClkselMux, OstimerClkselMux,
 };
 
 #[cfg(feature = "mcxa2xx")]
@@ -457,6 +457,131 @@ impl SPConfHelper for LpspiConfig {
         if expected > fmax {
             return Err(ClockError::BadConfig {
                 clock: "lpspi fclk",
+                reason: "exceeds max rating",
+            });
+        }
+
+        apply_div4!(self, clksel, clkdiv, variant, freq)
+    }
+}
+
+//
+// I3C
+//
+
+/// Selectable clocks for `I3c` peripherals
+#[derive(Debug, Clone, Copy)]
+pub enum I3cClockSel {
+    /// FRO12M/FRO_LF/SIRC clock source, passed through divider
+    /// "fro_lf_div"
+    FroLfDiv,
+    /// FRO180M/FRO_HF/FIRC clock source, passed through divider
+    /// "fro_hf_div"
+    #[cfg(feature = "mcxa2xx")]
+    FroHfDiv,
+    /// SOSC/XTAL/EXTAL clock source
+    #[cfg(not(feature = "sosc-as-gpio"))]
+    ClkIn,
+    /// clk_1m/FRO_LF divided by 12
+    Clk1M,
+    /// Internal PLL output, with configurable divisor
+    #[cfg(feature = "mcxa5xx")]
+    Pll1ClkDiv,
+    /// Disabled
+    None,
+}
+
+/// Top level configuration for `I3c` instances.
+pub struct I3cConfig {
+    /// Power state required for this peripheral
+    pub power: PoweredClock,
+    /// Clock source
+    pub source: I3cClockSel,
+    /// Clock divisor
+    pub div: Div4,
+}
+
+impl SPConfHelper for I3cConfig {
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
+        #[cfg(feature = "mcxa2xx")]
+        // Always 25MHz maximum frequency.
+        const I3C_FCLK_MAX: u32 = 25_000_000;
+
+        #[cfg(feature = "mcxa5xx")]
+        // Always 100MHz maximum frequency.
+        const I3C_FCLK_MAX: u32 = 100_000_000;
+
+        // check that source is suitable
+        let mrcc0 = crate::pac::MRCC0;
+
+        let (clkdiv, clksel) = (mrcc0.mrcc_i3c0_fclk_clkdiv(), mrcc0.mrcc_i3c0_fclk_clksel());
+
+        let (freq, variant) = match self.source {
+            I3cClockSel::FroLfDiv => {
+                let freq = clocks.ensure_fro_lf_div_active(&self.power)?;
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = FclkClkselMux::CLKROOT_FUNC_0;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = FclkClkselMux::I0_CLKROOT_FUNC_0;
+
+                (freq, mux)
+            }
+            #[cfg(feature = "mcxa2xx")]
+            I3cClockSel::FroHfDiv => {
+                let freq = clocks.ensure_fro_hf_div_active(&self.power)?;
+                (freq, FclkClkselMux::CLKROOT_FUNC_2)
+            }
+            #[cfg(not(feature = "sosc-as-gpio"))]
+            I3cClockSel::ClkIn => {
+                let freq = clocks.ensure_clk_in_active(&self.power)?;
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = FclkClkselMux::CLKROOT_FUNC_3;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = FclkClkselMux::I3_CLKROOT_FUNC_3;
+
+                (freq, mux)
+            }
+            I3cClockSel::Clk1M => {
+                let freq = clocks.ensure_clk_1m_active(&self.power)?;
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = FclkClkselMux::CLKROOT_FUNC_5;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = FclkClkselMux::I5_CLKROOT_FUNC_5;
+
+                (freq, mux)
+            }
+            #[cfg(feature = "mcxa5xx")]
+            I3cClockSel::Pll1ClkDiv => {
+                let freq = clocks.ensure_pll1_clk_div_active(&self.power)?;
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = FclkClkselMux::CLKROOT_FUNC_6;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = FclkClkselMux::I6_CLKROOT_FUNC_6;
+
+                (freq, mux)
+            }
+            I3cClockSel::None => {
+                // no ClkrootFunc7, just write manually for now
+                clksel.write(|w| w.0 = 0b111);
+                clkdiv.modify(|w| {
+                    w.set_reset(ClkdivReset::OFF);
+                    w.set_halt(ClkdivHalt::OFF);
+                });
+                return Ok(PreEnableParts::empty());
+            }
+        };
+
+        if freq > I3C_FCLK_MAX {
+            return Err(ClockError::BadConfig {
+                clock: "i3c fclk",
                 reason: "exceeds max rating",
             });
         }

@@ -45,7 +45,7 @@ embedded-io = "0.7"
 embedded-io-async = { version = "0.7.0" }
 heapless = "0.9"
 maitake-sync = { version = "0.2.2", default-features = false, features = ["critical-section", "no-cache-pad"] }
-nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "fa40195eef5e3cc886a65d5b5a79f72d6ef044a6", features = ["rt"] }
+nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "c2f056f666c766563c7a22cb48d5f7a199714d7f", features = ["rt"] }
 nb = "1.1.0"
 paste = "1.0.15"
 
