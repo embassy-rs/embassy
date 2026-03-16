@@ -53,6 +53,15 @@ use crate::peripherals;
 
 dma_trait!(RxDma, Instance);
 
+/// Continuous Trigger
+pub struct CONTINUOUS;
+
+impl<T: Instance> RegularTrigger<T> for CONTINUOUS {
+    fn signal(&self) -> u8 {
+        u8::MAX
+    }
+}
+
 /// Analog to Digital driver.
 pub struct Adc<'d, T: Instance> {
     #[allow(unused)]
@@ -162,6 +171,14 @@ pub enum Averaging {
     Samples1024,
 }
 
+#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba))]
+pub(crate) struct Trigger {
+    #[cfg(any(adc_v2, adc_g4))]
+    signal: u8,
+    #[cfg(any(adc_v2, adc_g4))]
+    edge: Exten,
+}
+
 #[cfg(any(
     adc_v2, adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_wba, adc_c0
 ))]
@@ -173,28 +190,7 @@ pub(crate) enum ConversionMode {
     Singular,
     // Should match the cfg on "into_ring_buffered" below
     #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba))]
-    Repeated(RegularConversionMode),
-}
-
-// Trigger source for ADC conversions¨
-#[cfg(any(adc_v2, adc_g4))]
-#[derive(Copy, Clone)]
-pub struct ConversionTrigger {
-    // Note that Injected and Regular channels uses different mappings
-    pub channel: u8,
-    pub edge: Exten,
-}
-
-// Should match the cfg on "into_ring_buffered" below
-#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba))]
-// Conversion mode for regular ADC channels
-#[derive(Copy, Clone)]
-pub enum RegularConversionMode {
-    // Samples as fast as possible
-    Continuous,
-    #[cfg(any(adc_g4, adc_v2))]
-    // Sample at rate determined by external trigger
-    Triggered(ConversionTrigger),
+    Repeated(Trigger),
 }
 
 impl<'d, T: Instance> Adc<'d, T> {
@@ -270,6 +266,8 @@ impl<'d, T: Instance> Adc<'d, T> {
         sequence: impl ExactSizeIterator<Item = (&'a mut AnyAdcChannel<'b, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
         readings: &mut [u16],
     ) {
+        let _scoped_wake_guard = <T as crate::rcc::SealedRccPeripheral>::RCC_INFO.wake_guard();
+
         assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
         assert!(
             readings.len() % sequence.len() == 0,
@@ -342,13 +340,19 @@ impl<'d, T: Instance> Adc<'d, T> {
         dma_buf: &'a mut [u16],
         irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
         sequence: impl ExactSizeIterator<Item = (AnyAdcChannel<'b, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
-        mode: RegularConversionMode,
+        _trigger: impl RegularTrigger<T>,
+        #[cfg(any(adc_v2, adc_g4))] edge: Exten,
     ) -> RingBufferedAdc<'a, T> {
+        let sequence_len = sequence.len();
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
-        assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
+        assert!(sequence_len != 0, "Asynchronous read sequence cannot be empty");
         assert!(
-            sequence.len() <= 16,
+            sequence_len <= 16,
             "Asynchronous read sequence cannot be more than 16 in length"
+        );
+        assert!(
+            dma_buf.len() % sequence_len == 0,
+            "DMA buffer length must be a multiple of the scan sequence length"
         );
         // Ensure no conversions are ongoing
         T::regs().stop();
@@ -364,11 +368,16 @@ impl<'d, T: Instance> Adc<'d, T> {
         // TODO: If hardware allows, enable after configure_sequence on all chips
         #[cfg(any(adc_g4, adc_h5))]
         T::regs().enable();
-        T::regs().configure_dma(ConversionMode::Repeated(mode));
+        T::regs().configure_dma(ConversionMode::Repeated(Trigger {
+            #[cfg(any(adc_v2, adc_g4))]
+            signal: _trigger.signal(),
+            #[cfg(any(adc_v2, adc_g4))]
+            edge,
+        }));
 
         core::mem::forget(self);
 
-        RingBufferedAdc::new(dma, irq, dma_buf)
+        RingBufferedAdc::new(dma, irq, dma_buf, sequence_len)
     }
 }
 
@@ -395,8 +404,23 @@ pub struct VrefInt;
 impl SpecialChannel for VrefInt {}
 
 impl VrefInt {
-    #[cfg(any(adc_f3v1, adc_f3v2))]
-    /// The value that vref would be if vdda was at 3300mv
+    #[cfg(any(
+        stm32f0,
+        stm32f3,
+        stm32f7,
+        stm32g0,
+        stm32g4,
+        stm32l0,
+        stm32l1,
+        stm32l4,
+        stm32l4_plus,
+        stm32l5,
+        stm32n6,
+        stm32l5,
+        stm32wb,
+        stm32wl
+    ))]
+    /// The value that vref would be if vdda was at the factory calibration voltage `VREF_CALIB_MV`.
     pub fn calibrated_value(&self) -> u16 {
         crate::pac::VREFINTCAL.data().read()
     }
@@ -492,6 +516,9 @@ impl BasicAdcRegs for crate::pac::adc::Adc {
 impl BasicAdcRegs for crate::pac::adc::Adc4 {
     type SampleTime = Adc4SampleTime;
 }
+
+trigger_trait!(RegularTrigger, Instance);
+trigger_trait!(InjectedTrigger, Instance);
 
 #[cfg(adc_wba)]
 foreach_adc!(

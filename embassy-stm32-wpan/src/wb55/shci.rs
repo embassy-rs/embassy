@@ -156,6 +156,7 @@ impl TryFrom<u8> for ShciFusGetStateErrorCode {
 }
 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(PartialEq, Clone, Copy)]
 pub enum SchiSysEventReady {
     WirelessFwRunning = 0x00,
     FusFwRunning = 0x01,

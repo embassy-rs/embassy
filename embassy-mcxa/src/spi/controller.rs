@@ -1,15 +1,19 @@
 //! LPSPI Controller Driver.
 
 use core::marker::PhantomData;
+use core::sync::atomic::{Ordering, fence};
 
 use embassy_embedded_hal::SetConfig;
+use embassy_futures::join::join;
 use embassy_hal_internal::Peri;
+use embassy_hal_internal::drop::OnDrop;
 pub use embedded_hal_1::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode, Phase, Polarity};
-use nxp_pac::lpspi::vals::{Cpha, Cpol, Lsbf, Master, Mbf, Pcspol, Pincfg, Prescale, Rrf, Rtf, Rxmsk, Txmsk};
+use nxp_pac::lpspi::vals::{Cpha, Cpol, Lsbf, Master, Mbf, Outcfg, Pcspol, Pincfg, Prescale, Rrf, Rtf, Rxmsk, Txmsk};
 
-use super::{Async, Blocking, Info, Instance, MisoPin, Mode as IoMode, MosiPin, SckPin};
+use super::{Async, AsyncMode, Blocking, Dma, Info, Instance, MisoPin, Mode as IoMode, MosiPin, SckPin};
 use crate::clocks::periph_helpers::{Div4, LpspiClockSel, LpspiConfig};
 use crate::clocks::{ClockError, PoweredClock, WakeGuard, enable_and_reset};
+use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, TransferOptions};
 use crate::gpio::AnyPin;
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
@@ -43,6 +47,12 @@ pub enum IoError {
     TransmitError,
     /// Other internal errors or unexpected state.
     Other,
+}
+
+impl From<crate::dma::InvalidParameters> for IoError {
+    fn from(_value: crate::dma::InvalidParameters) -> Self {
+        IoError::Other
+    }
 }
 
 /// SPI interrupt handler.
@@ -125,6 +135,7 @@ pub struct Spi<'d, M: IoMode> {
     _miso: Option<Peri<'d, AnyPin>>,
     _mosi: Option<Peri<'d, AnyPin>>,
     _freq: u32,
+    mode: M,
     _wg: Option<WakeGuard>,
     _phantom: PhantomData<&'d M>,
 }
@@ -136,6 +147,7 @@ impl<'d, M: IoMode> Spi<'d, M> {
         _mosi: Option<Peri<'d, AnyPin>>,
         _miso: Option<Peri<'d, AnyPin>>,
         config: Config,
+        mode: M,
     ) -> Result<Self, SetupError> {
         let ClockConfig { power, source, div } = config.clock_config;
 
@@ -154,6 +166,7 @@ impl<'d, M: IoMode> Spi<'d, M> {
             _sck,
             _mosi,
             _miso,
+            mode,
             _freq: parts.freq,
             _wg: parts.wake_guard,
             _phantom: PhantomData,
@@ -196,7 +209,7 @@ impl<'d, M: IoMode> Spi<'d, M> {
 
         self.info.regs().tcr().write(|w| {
             // Assuming byte transfers
-            w.set_framesz(8);
+            w.set_framesz(7);
 
             w.set_cpol(match config.mode.polarity {
                 Polarity::IdleLow => Cpol::INACTIVE_LOW,
@@ -289,8 +302,6 @@ impl<'d, M: IoMode> Spi<'d, M> {
             return Ok(());
         }
 
-        let len = read.len().max(write.len());
-
         self.info.regs().tcr().modify(|w| {
             w.set_txmsk(Txmsk::NORMAL);
             w.set_rxmsk(Rxmsk::NORMAL);
@@ -298,21 +309,16 @@ impl<'d, M: IoMode> Spi<'d, M> {
 
         let fifo_size = LPSPI_FIFO_SIZE;
 
-        for i in 0..len {
-            let wb = write[i];
-
+        for (wb, rb) in write.iter().zip(read.iter_mut()) {
             // Wait until we have at least one byte space in the TxFIFO.
             while self.info.regs().fsr().read().txcount() - fifo_size == 0 {}
             self.check_status()?;
-            self.info.regs().tdr().write(|w| w.set_data(wb as u32));
+            self.info.regs().tdr().write(|w| w.set_data(*wb as u32));
 
             // Wait until we have data in the RxFIFO.
             while self.info.regs().fsr().read().rxcount() == 0 {}
             self.check_status()?;
-            let rb = self.info.regs().rdr().read().data() as u8;
-            if let Some(r) = read.get_mut(i) {
-                *r = rb;
-            }
+            *rb = self.info.regs().rdr().read().data() as u8;
         }
 
         self.blocking_flush()
@@ -370,7 +376,7 @@ impl<'d> Spi<'d, Blocking> {
         let mosi = mosi.into();
         let miso = miso.into();
 
-        Self::new_inner(_peri, sck, Some(mosi), Some(miso), config)
+        Self::new_inner(_peri, sck, Some(mosi), Some(miso), config, Blocking)
     }
 
     /// Create a TX-only SPI driver in blocking mode.
@@ -386,7 +392,7 @@ impl<'d> Spi<'d, Blocking> {
         let sck = sck.into();
         let mosi = mosi.into();
 
-        Self::new_inner(_peri, sck, Some(mosi), None, config)
+        Self::new_inner(_peri, sck, Some(mosi), None, config, Blocking)
     }
 
     /// Create an RX-only SPI driver in blocking mode.
@@ -402,7 +408,7 @@ impl<'d> Spi<'d, Blocking> {
         let sck = sck.into();
         let miso = miso.into();
 
-        Self::new_inner(_peri, sck, None, Some(miso), config)
+        Self::new_inner(_peri, sck, None, Some(miso), config, Blocking)
     }
 }
 
@@ -427,7 +433,7 @@ impl<'d> Spi<'d, Async> {
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
-        Self::new_inner(_peri, sck, Some(mosi), Some(miso), config)
+        Self::new_inner(_peri, sck, Some(mosi), Some(miso), config, Async)
     }
 
     /// Create a TX-only SPI driver in async mode.
@@ -447,7 +453,7 @@ impl<'d> Spi<'d, Async> {
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
-        Self::new_inner(_peri, sck, Some(mosi), None, config)
+        Self::new_inner(_peri, sck, Some(mosi), None, config, Async)
     }
 
     /// Create an RX-only SPI driver in async mode.
@@ -467,11 +473,449 @@ impl<'d> Spi<'d, Async> {
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
-        Self::new_inner(_peri, sck, None, Some(miso), config)
+        Self::new_inner(_peri, sck, None, Some(miso), config, Async)
+    }
+}
+
+impl<'d> Spi<'d, Dma<'d>> {
+    /// Create a SPI driver in async mode.
+    pub fn new_async_with_dma<T: Instance>(
+        _peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T> + 'd>,
+        mosi: Peri<'d, impl MosiPin<T> + 'd>,
+        miso: Peri<'d, impl MisoPin<T> + 'd>,
+        tx_dma: Peri<'d, impl Channel>,
+        rx_dma: Peri<'d, impl Channel>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        config: Config,
+    ) -> Result<Self, SetupError> {
+        sck.mux();
+        mosi.mux();
+        miso.mux();
+
+        let sck = sck.into();
+        let mosi = mosi.into();
+        let miso = miso.into();
+
+        let tx_dma = DmaChannel::new(tx_dma);
+        let rx_dma = DmaChannel::new(rx_dma);
+
+        // enable this channel's interrupt
+        tx_dma.enable_interrupt();
+        rx_dma.enable_interrupt();
+
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
+
+        Self::new_inner(
+            _peri,
+            sck,
+            Some(mosi),
+            Some(miso),
+            config,
+            Dma {
+                tx_dma,
+                rx_dma,
+                tx_request: T::TX_DMA_REQUEST,
+                rx_request: T::RX_DMA_REQUEST,
+            },
+        )
     }
 
+    async fn read_dma_chunk(&mut self, data: &mut [u8]) -> Result<(), IoError> {
+        let rx_peri_addr = self.info.regs().rdr().as_ptr() as *mut u8;
+        let tx_peri_addr = self.info.regs().tdr().as_ptr() as *mut u8;
+
+        unsafe {
+            // Clean up channel state
+            self.mode.rx_dma.disable_request();
+            self.mode.rx_dma.clear_done();
+            self.mode.rx_dma.clear_interrupt();
+
+            self.mode.tx_dma.disable_request();
+            self.mode.tx_dma.clear_done();
+            self.mode.tx_dma.clear_interrupt();
+
+            // Set DMA request source from instance type
+            self.mode.rx_dma.set_request_source(self.mode.rx_request);
+            self.mode.tx_dma.set_request_source(self.mode.tx_request);
+
+            self.mode.tx_dma.setup_write_zeros_to_peripheral(
+                data.len(),
+                tx_peri_addr,
+                TransferOptions::NO_INTERRUPTS,
+            )?;
+
+            self.mode.rx_dma.setup_read_from_peripheral(
+                rx_peri_addr,
+                data,
+                false,
+                TransferOptions::COMPLETE_INTERRUPT,
+            )?;
+
+            // Enable SPI DMA request
+            self.info.regs().der().modify(|w| {
+                w.set_rdde(true);
+                w.set_tdde(true);
+            });
+
+            // Enable DMA channel request
+            self.mode.rx_dma.enable_request();
+            self.mode.tx_dma.enable_request();
+        }
+
+        // Wait for completion asynchronously
+        core::future::poll_fn(|cx| {
+            self.mode.rx_dma.waker().register(cx.waker());
+            if self.mode.rx_dma.is_done() {
+                core::task::Poll::Ready(())
+            } else {
+                core::task::Poll::Pending
+            }
+        })
+        .await;
+
+        // Cleanup
+        self.info.regs().der().modify(|w| {
+            w.set_rdde(false);
+            w.set_tdde(false);
+        });
+        unsafe {
+            self.mode.rx_dma.disable_request();
+            self.mode.rx_dma.clear_done();
+
+            self.mode.tx_dma.disable_request();
+            self.mode.tx_dma.clear_done();
+        }
+
+        // Ensure all writes by DMA are visible to the CPU
+        // TODO: ensure this is done internal to the DMA methods so individual drivers
+        // don't need to handle this?
+        fence(Ordering::Acquire);
+
+        Ok(())
+    }
+
+    async fn write_dma_chunk(&mut self, data: &[u8]) -> Result<(), IoError> {
+        let peri_addr = self.info.regs().tdr().as_ptr() as *mut u8;
+
+        unsafe {
+            // Clean up channel state
+            self.mode.tx_dma.disable_request();
+            self.mode.tx_dma.clear_done();
+            self.mode.tx_dma.clear_interrupt();
+
+            // Set DMA request source from instance type (type-safe)
+            self.mode.tx_dma.set_request_source(self.mode.tx_request);
+
+            // Configure TCD for memory-to-peripheral transfer
+            self.mode
+                .tx_dma
+                .setup_write_to_peripheral(data, peri_addr, false, TransferOptions::COMPLETE_INTERRUPT)?;
+
+            // Ensure all writes by CPU are visible to the DMA
+            // TODO: ensure this is done internal to the DMA methods so individual drivers
+            // don't need to handle this?
+            fence(Ordering::Release);
+
+            // Enable SPI TX DMA request
+            self.info.regs().der().modify(|w| w.set_tdde(true));
+
+            // Enable DMA channel request
+            self.mode.tx_dma.enable_request();
+        }
+
+        // Wait for completion asynchronously
+        core::future::poll_fn(|cx| {
+            self.mode.tx_dma.waker().register(cx.waker());
+            if self.mode.tx_dma.is_done() {
+                core::task::Poll::Ready(())
+            } else {
+                core::task::Poll::Pending
+            }
+        })
+        .await;
+
+        // Cleanup
+        self.info.regs().der().modify(|w| w.set_tdde(false));
+        unsafe {
+            self.mode.tx_dma.disable_request();
+            self.mode.tx_dma.clear_done();
+        }
+
+        Ok(())
+    }
+
+    async fn transfer_dma_chunk(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), IoError> {
+        let rx_peri_addr = self.info.regs().rdr().as_ptr() as *mut u8;
+        let tx_peri_addr = self.info.regs().tdr().as_ptr() as *mut u8;
+
+        unsafe {
+            // Clean up channel state
+            self.mode.rx_dma.disable_request();
+            self.mode.rx_dma.clear_done();
+            self.mode.rx_dma.clear_interrupt();
+
+            self.mode.tx_dma.disable_request();
+            self.mode.tx_dma.clear_done();
+            self.mode.tx_dma.clear_interrupt();
+
+            // Set DMA request source from instance type
+            self.mode.rx_dma.set_request_source(self.mode.rx_request);
+            self.mode.tx_dma.set_request_source(self.mode.tx_request);
+
+            self.mode.tx_dma.setup_write_to_peripheral(
+                write,
+                tx_peri_addr,
+                false,
+                TransferOptions::COMPLETE_INTERRUPT,
+            )?;
+
+            self.mode.rx_dma.setup_read_from_peripheral(
+                rx_peri_addr,
+                read,
+                false,
+                TransferOptions::COMPLETE_INTERRUPT,
+            )?;
+
+            // Ensure all writes by CPU are visible to the DMA
+            // TODO: ensure this is done internal to the DMA methods so individual drivers
+            // don't need to handle this?
+            fence(Ordering::Release);
+
+            // Enable SPI DMA request
+            self.info.regs().der().modify(|w| {
+                w.set_rdde(true);
+                w.set_tdde(true);
+            });
+
+            // Enable DMA channel request
+            self.mode.rx_dma.enable_request();
+            self.mode.tx_dma.enable_request();
+        }
+
+        // Wait for completion asynchronously
+        let tx_transfer = async {
+            core::future::poll_fn(|cx| {
+                self.mode.tx_dma.waker().register(cx.waker());
+
+                if self.mode.tx_dma.is_done() {
+                    core::task::Poll::Ready(())
+                } else {
+                    core::task::Poll::Pending
+                }
+            })
+            .await;
+
+            if read.len() > write.len() {
+                let write_bytes_len = read.len() - write.len();
+
+                unsafe {
+                    self.mode.tx_dma.disable_request();
+                    self.mode.tx_dma.clear_done();
+                    self.mode.tx_dma.clear_interrupt();
+
+                    self.mode.tx_dma.setup_write_zeros_to_peripheral(
+                        write_bytes_len,
+                        tx_peri_addr,
+                        TransferOptions::COMPLETE_INTERRUPT,
+                    )?;
+
+                    self.mode.tx_dma.enable_request();
+                }
+
+                core::future::poll_fn(|cx| {
+                    self.mode.tx_dma.waker().register(cx.waker());
+
+                    if self.mode.tx_dma.is_done() {
+                        core::task::Poll::Ready(())
+                    } else {
+                        core::task::Poll::Pending
+                    }
+                })
+                .await
+            }
+
+            Ok::<(), IoError>(())
+        };
+
+        let rx_transfer = core::future::poll_fn(|cx| {
+            self.mode.rx_dma.waker().register(cx.waker());
+            if self.mode.rx_dma.is_done() {
+                core::task::Poll::Ready(())
+            } else {
+                core::task::Poll::Pending
+            }
+        });
+
+        let (tx_res, ()) = join(tx_transfer, rx_transfer).await;
+        tx_res?;
+
+        // Cleanup
+        self.info.regs().der().modify(|w| {
+            w.set_rdde(false);
+            w.set_tdde(false);
+        });
+        unsafe {
+            self.mode.rx_dma.disable_request();
+            self.mode.rx_dma.clear_done();
+
+            self.mode.tx_dma.disable_request();
+            self.mode.tx_dma.clear_done();
+        }
+
+        // if write > read we should clear any overflow of the FIFO SPI buffer
+        if write.len() > read.len() {
+            while self.info.regs().fsr().read().rxcount() == 0 {}
+            self.check_status()?;
+            let _ = self.info.regs().rdr().read().data() as u8;
+        }
+
+        // Ensure all writes by DMA are visible to the CPU
+        // TODO: ensure this is done internal to the DMA methods so individual drivers
+        // don't need to handle this?
+        fence(Ordering::Acquire);
+
+        Ok(())
+    }
+
+    async fn transfer_in_place_dma_chunk(&mut self, data: &mut [u8]) -> Result<(), IoError> {
+        let rx_peri_addr = self.info.regs().rdr().as_ptr() as *mut u8;
+        let tx_peri_addr = self.info.regs().tdr().as_ptr() as *mut u8;
+
+        unsafe {
+            // Clean up channel state
+            self.mode.rx_dma.disable_request();
+            self.mode.rx_dma.clear_done();
+            self.mode.rx_dma.clear_interrupt();
+
+            self.mode.tx_dma.disable_request();
+            self.mode.tx_dma.clear_done();
+            self.mode.tx_dma.clear_interrupt();
+
+            // Set DMA request source from instance type
+            self.mode.rx_dma.set_request_source(self.mode.rx_request);
+            self.mode.tx_dma.set_request_source(self.mode.tx_request);
+
+            self.mode.tx_dma.setup_write_to_peripheral(
+                data,
+                tx_peri_addr,
+                false,
+                TransferOptions::COMPLETE_INTERRUPT,
+            )?;
+            self.mode.rx_dma.setup_read_from_peripheral(
+                rx_peri_addr,
+                data,
+                false,
+                TransferOptions::COMPLETE_INTERRUPT,
+            )?;
+
+            // Ensure all writes by CPU are visible to the DMA
+            // TODO: ensure this is done internal to the DMA methods so individual drivers
+            // don't need to handle this?
+            fence(Ordering::Release);
+
+            // Enable SPI DMA request
+            self.info.regs().der().modify(|w| {
+                w.set_rdde(true);
+                w.set_tdde(true);
+            });
+
+            // Enable DMA channel request
+            self.mode.rx_dma.enable_request();
+            self.mode.tx_dma.enable_request();
+        }
+
+        // Wait for completion asynchronously
+        let tx_transfer = core::future::poll_fn(|cx| {
+            self.mode.tx_dma.waker().register(cx.waker());
+            if self.mode.tx_dma.is_done() {
+                core::task::Poll::Ready(())
+            } else {
+                core::task::Poll::Pending
+            }
+        });
+
+        let rx_transfer = core::future::poll_fn(|cx| {
+            self.mode.rx_dma.waker().register(cx.waker());
+            if self.mode.rx_dma.is_done() {
+                core::task::Poll::Ready(())
+            } else {
+                core::task::Poll::Pending
+            }
+        });
+
+        join(tx_transfer, rx_transfer).await;
+
+        // Cleanup
+        self.info.regs().der().modify(|w| {
+            w.set_rdde(false);
+            w.set_tdde(false);
+        });
+        unsafe {
+            self.mode.rx_dma.disable_request();
+            self.mode.rx_dma.clear_done();
+
+            self.mode.tx_dma.disable_request();
+            self.mode.tx_dma.clear_done();
+        }
+
+        // Ensure all writes by DMA are visible to the CPU
+        // TODO: ensure this is done internal to the DMA methods so individual drivers
+        // don't need to handle this?
+        fence(Ordering::Acquire);
+
+        Ok(())
+    }
+}
+
+trait AsyncEngine {
+    async fn async_read_internal(&mut self, data: &mut [u8]) -> Result<(), IoError>;
+    async fn async_write_internal(&mut self, data: &[u8]) -> Result<(), IoError>;
+    async fn async_transfer_internal(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), IoError>;
+    async fn async_transfer_in_place_internal(&mut self, data: &mut [u8]) -> Result<(), IoError>;
+}
+
+#[allow(private_bounds)]
+impl<'d, M: AsyncMode> Spi<'d, M>
+where
+    Self: AsyncEngine,
+{
     /// Read data from Spi async execution until done.
-    pub async fn async_read(&mut self, data: &mut [u8]) -> Result<(), IoError> {
+    pub fn async_read(&mut self, data: &mut [u8]) -> impl Future<Output = Result<(), IoError>> {
+        <Self as AsyncEngine>::async_read_internal(self, data)
+    }
+
+    /// Write data to Spi async execution until done.
+    pub fn async_write(&mut self, data: &[u8]) -> impl Future<Output = Result<(), IoError>> {
+        <Self as AsyncEngine>::async_write_internal(self, data)
+    }
+
+    /// Transfer data to SPI async execution until done.
+    pub fn async_transfer(&mut self, read: &mut [u8], write: &[u8]) -> impl Future<Output = Result<(), IoError>> {
+        <Self as AsyncEngine>::async_transfer_internal(self, read, write)
+    }
+
+    /// Transfer data in place to SPI async execution until done.
+    pub fn async_transfer_in_place(&mut self, data: &mut [u8]) -> impl Future<Output = Result<(), IoError>> {
+        <Self as AsyncEngine>::async_transfer_in_place_internal(self, data)
+    }
+
+    /// Async flush.
+    pub async fn async_flush(&mut self) -> Result<(), IoError> {
+        self.info
+            .wait_cell()
+            .wait_for(|| {
+                self.info.regs().ier().write(|w| w.set_tcie(true));
+                self.info.regs().sr().read().tcf()
+            })
+            .await
+            .map_err(|_| IoError::Other)
+    }
+}
+
+impl<'d> AsyncEngine for Spi<'d, Async> {
+    async fn async_read_internal(&mut self, data: &mut [u8]) -> Result<(), IoError> {
         if data.is_empty() {
             return Ok(());
         }
@@ -505,8 +949,7 @@ impl<'d> Spi<'d, Async> {
         Ok(())
     }
 
-    /// Write data to Spi async execution until done.
-    pub async fn async_write(&mut self, data: &[u8]) -> Result<(), IoError> {
+    async fn async_write_internal(&mut self, data: &[u8]) -> Result<(), IoError> {
         if data.is_empty() {
             return Ok(());
         }
@@ -538,22 +981,18 @@ impl<'d> Spi<'d, Async> {
         self.async_flush().await
     }
 
-    /// Transfer data to SPI async execution until done.
-    pub async fn async_transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), IoError> {
+    async fn async_transfer_internal(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), IoError> {
         if read.is_empty() && write.is_empty() {
             return Ok(());
         }
-
-        let len = read.len().max(write.len());
 
         self.info.regs().tcr().modify(|w| {
             w.set_txmsk(Txmsk::NORMAL);
             w.set_rxmsk(Rxmsk::NORMAL);
         });
 
-        for i in 0..len {
-            let wb = write[i];
-
+        // Zip will terminate whenever the first of write or read are exhausted
+        for (wb, rb) in write.iter().zip(read.iter_mut()) {
             // Wait until we have at least one byte space in the TxFIFO.
             self.info
                 .wait_cell()
@@ -567,7 +1006,7 @@ impl<'d> Spi<'d, Async> {
                 .await
                 .map_err(|_| IoError::Other)?;
             self.check_status()?;
-            self.info.regs().tdr().write(|w| w.set_data(wb as u32));
+            self.info.regs().tdr().write(|w| w.set_data(*wb as u32));
 
             // Wait until we have data in the RxFIFO.
             self.info
@@ -582,17 +1021,13 @@ impl<'d> Spi<'d, Async> {
                 .await
                 .map_err(|_| IoError::Other)?;
             self.check_status()?;
-            let rb = self.info.regs().rdr().read().data() as u8;
-            if let Some(r) = read.get_mut(i) {
-                *r = rb;
-            }
+            *rb = self.info.regs().rdr().read().data() as u8;
         }
 
         self.async_flush().await
     }
 
-    /// Transfer data in place to SPI async execution until done.
-    pub async fn async_transfer_in_place(&mut self, data: &mut [u8]) -> Result<(), IoError> {
+    async fn async_transfer_in_place_internal(&mut self, data: &mut [u8]) -> Result<(), IoError> {
         if data.is_empty() {
             return Ok(());
         }
@@ -628,17 +1063,97 @@ impl<'d> Spi<'d, Async> {
 
         self.async_flush().await
     }
+}
 
-    /// Async flush.
-    pub async fn async_flush(&mut self) -> Result<(), IoError> {
-        self.info
-            .wait_cell()
-            .wait_for(|| {
-                self.info.regs().ier().write(|w| w.set_tcie(true));
-                self.info.regs().sr().read().tcf()
-            })
-            .await
-            .map_err(|_| IoError::Other)
+impl<'d> AsyncEngine for Spi<'d, Dma<'d>> {
+    async fn async_read_internal(&mut self, data: &mut [u8]) -> Result<(), IoError> {
+        if data.is_empty() {
+            return Ok(());
+        }
+
+        self.info.regs().tcr().modify(|w| {
+            w.set_txmsk(Txmsk::NORMAL);
+            w.set_rxmsk(Rxmsk::NORMAL);
+        });
+
+        self.info.regs().cfgr1().modify(|w| w.set_outcfg(Outcfg::TRISTATED));
+
+        let _on_drop = OnDrop::new(|| {
+            self.info.regs().der().modify(|w| w.set_rdde(false));
+            self.info.regs().cfgr1().modify(|w| w.set_outcfg(Outcfg::TRISTATED));
+        });
+
+        for chunk in data.chunks_mut(DMA_MAX_TRANSFER_SIZE) {
+            self.read_dma_chunk(chunk).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn async_write_internal(&mut self, data: &[u8]) -> Result<(), IoError> {
+        if data.is_empty() {
+            return Ok(());
+        }
+
+        self.info.regs().tcr().modify(|w| {
+            w.set_txmsk(Txmsk::NORMAL);
+            w.set_rxmsk(Rxmsk::MASK);
+        });
+
+        let on_drop = OnDrop::new(|| {
+            self.info.regs().der().modify(|w| w.set_tdde(false));
+        });
+
+        for chunk in data.chunks(DMA_MAX_TRANSFER_SIZE) {
+            self.write_dma_chunk(chunk).await?;
+        }
+
+        on_drop.defuse();
+
+        self.async_flush().await
+    }
+
+    async fn async_transfer_internal(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), IoError> {
+        if read.is_empty() && write.is_empty() {
+            return Ok(());
+        }
+
+        self.info.regs().tcr().modify(|w| {
+            w.set_txmsk(Txmsk::NORMAL);
+            w.set_rxmsk(Rxmsk::NORMAL);
+        });
+
+        let on_drop = OnDrop::new(|| {
+            self.info.regs().der().modify(|w| w.set_tdde(false));
+        });
+
+        for (read_chunk, write_chunk) in read
+            .chunks_mut(DMA_MAX_TRANSFER_SIZE)
+            .zip(write.chunks(DMA_MAX_TRANSFER_SIZE))
+        {
+            self.transfer_dma_chunk(read_chunk, write_chunk).await?;
+        }
+
+        on_drop.defuse();
+
+        self.async_flush().await
+    }
+
+    async fn async_transfer_in_place_internal(&mut self, data: &mut [u8]) -> Result<(), IoError> {
+        if data.is_empty() {
+            return Ok(());
+        }
+
+        self.info.regs().tcr().modify(|w| {
+            w.set_txmsk(Txmsk::NORMAL);
+            w.set_rxmsk(Rxmsk::NORMAL);
+        });
+
+        for chunk in data.chunks_mut(DMA_MAX_TRANSFER_SIZE) {
+            self.transfer_in_place_dma_chunk(chunk).await?;
+        }
+
+        self.async_flush().await
     }
 }
 
@@ -740,7 +1255,10 @@ impl<'d, M: IoMode> embedded_hal_1::spi::SpiBus<u8> for Spi<'d, M> {
     }
 }
 
-impl<'d> embedded_hal_async::spi::SpiBus<u8> for Spi<'d, Async> {
+impl<'d, M: AsyncMode> embedded_hal_async::spi::SpiBus<u8> for Spi<'d, M>
+where
+    Spi<'d, M>: AsyncEngine,
+{
     async fn flush(&mut self) -> Result<(), Self::Error> {
         self.async_flush().await
     }

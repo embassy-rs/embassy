@@ -22,6 +22,7 @@ bind_interrupts!(struct Irqs {
 
 #[cfg(any(
     feature = "stm32wba52cg",
+    feature = "stm32wba65ri",
     feature = "stm32l552ze",
     feature = "stm32h563zi",
     feature = "stm32h503rb",

@@ -45,6 +45,17 @@ pub struct ResetReasonRaw(u32);
 #[derive(Copy, Clone, Debug)]
 pub struct ResetReasonRawIter(u32);
 
+impl IntoIterator for ResetReasonRaw {
+    type Item = ResetReason;
+
+    type IntoIter = ResetReasonRawIter;
+
+    /// Convert to an iterator of contained reset reasons
+    fn into_iter(self) -> Self::IntoIter {
+        ResetReasonRawIter(self.0)
+    }
+}
+
 impl ResetReasonRaw {
     const MAP: &[(u32, ResetReason)] = &[
         (1 << 0, ResetReason::WakeUp),
@@ -60,15 +71,14 @@ impl ResetReasonRaw {
         (1 << 13, ResetReason::Wwdt0),
         (1 << 14, ResetReason::Software),
         (1 << 15, ResetReason::Lockup),
+        #[cfg(feature = "mcxa5xx")]
+        (1 << 25, ResetReason::Wwdt1),
         (1 << 26, ResetReason::Cdog0),
         (1 << 27, ResetReason::Cdog1),
         (1 << 28, ResetReason::Jtag),
+        #[cfg(feature = "mcxa5xx")]
+        (1 << 30, ResetReason::SecurityViolation),
     ];
-
-    /// Convert to an iterator of contained reset reasons
-    pub fn into_iter(self) -> ResetReasonRawIter {
-        ResetReasonRawIter(self.0)
-    }
 
     /// Wake up
     #[inline]
@@ -146,6 +156,13 @@ impl ResetReasonRaw {
         (self.0 & (1 << 15)) != 0
     }
 
+    /// Watchdog 1
+    #[inline]
+    #[cfg(feature = "mcxa5xx")]
+    pub fn is_watchdog1(&self) -> bool {
+        (self.0 & (1 << 25)) != 0
+    }
+
     /// Code watchdog 0
     pub fn is_code_watchdog0(&self) -> bool {
         (self.0 & (1 << 26)) != 0
@@ -159,6 +176,12 @@ impl ResetReasonRaw {
     /// JTAG
     pub fn is_jtag(&self) -> bool {
         (self.0 & (1 << 28)) != 0
+    }
+
+    /// Security Violation
+    #[cfg(feature = "mcxa5xx")]
+    pub fn is_security_violation(&self) -> bool {
+        (self.0 & (1 << 30)) != 0
     }
 }
 
@@ -210,6 +233,14 @@ pub enum ResetReason {
 
     /// Windowed Watchdog 0 reset.
     Wwdt0,
+
+    /// Windowed Watchdog 1 reset.
+    #[cfg(feature = "mcxa5xx")]
+    Wwdt1,
+
+    /// Security Violation reset.
+    #[cfg(feature = "mcxa5xx")]
+    SecurityViolation,
 
     /// System clock generation reset.
     SystemClockGeneration,

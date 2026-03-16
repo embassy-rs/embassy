@@ -10,6 +10,7 @@ use embassy_stm32::peripherals::{DMA1_CH3, DMA1_CH4, TIM6, TIM7};
 use embassy_stm32::rcc::frequency;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::low_level::Timer;
+use embassy_stm32::triggers::{TIM6_TRGO, TIM7_TRGO};
 use embassy_stm32::{Peri, bind_interrupts, dma};
 use micromath::F32Ext;
 use {defmt_rtt as _, panic_probe as _};
@@ -58,7 +59,10 @@ async fn main(spawner: Spawner) {
     let p: embassy_stm32::Peripherals = embassy_stm32::init(config);
 
     // Obtain two independent channels (p.DAC1 can only be consumed once, though!)
-    let (dac_ch1, dac_ch2) = embassy_stm32::dac::Dac::new(p.DAC1, p.DMA1_CH3, p.DMA1_CH4, Irqs, p.PA4, p.PA5).split();
+    let (dac_ch1, dac_ch2) = embassy_stm32::dac::Dac::new_triggered(
+        p.DAC1, p.DMA1_CH3, p.DMA1_CH4, TIM6_TRGO, TIM7_TRGO, Irqs, p.PA4, p.PA5,
+    )
+    .split();
 
     spawner.spawn(dac_task1(p.TIM6, dac_ch1).unwrap());
     spawner.spawn(dac_task2(p.TIM7, dac_ch2).unwrap());
@@ -79,7 +83,6 @@ async fn dac_task1(tim: Peri<'static, TIM6>, mut dac: DacChannel<'static, Async>
         error!("Reload value {} below threshold!", reload);
     }
 
-    dac.set_trigger(embassy_stm32::dac::TriggerSel::Tim6);
     dac.set_triggering(true);
     dac.enable();
 
@@ -128,7 +131,6 @@ async fn dac_task2(tim: Peri<'static, TIM7>, mut dac: DacChannel<'static, Async>
         w.set_cen(true);
     });
 
-    dac.set_trigger(embassy_stm32::dac::TriggerSel::Tim7);
     dac.set_triggering(true);
     dac.enable();
 

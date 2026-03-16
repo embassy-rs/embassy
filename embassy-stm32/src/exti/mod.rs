@@ -9,7 +9,7 @@ use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use futures_util::FutureExt;
 
-use crate::gpio::{AnyPin, ExtiPin, Input, Level, Pin as GpioPin, PinNumber, Pull};
+use crate::gpio::{AnyPin, ExtiPin, Flex, Input, Level, Pin as GpioPin, PinNumber, Pull};
 use crate::interrupt::Interrupt as InterruptEnum;
 use crate::interrupt::typelevel::{Binding, Handler, Interrupt as InterruptType};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
@@ -143,6 +143,46 @@ impl<'d> ExtiInput<'d, Async> {
     ) -> Self {
         Self {
             pin: Input::new(pin, pull),
+            _kind: PhantomData,
+        }
+    }
+
+    /// Create an EXTI input from an existing [`Input`] pin.
+    ///
+    /// Useful when a pin was previously used as a plain [`Input`] and needs to
+    /// be upgraded to interrupt-driven mode without re-acquiring the peripheral
+    /// token. The pin retains its current pull configuration.
+    ///
+    /// The Binding must bind the Channel's IRQ to [InterruptHandler].
+    pub fn from_input<C: Channel>(
+        pin: Input<'d>,
+        _ch: Peri<'d, C>,
+        _irq: impl Binding<C::IRQ, InterruptHandler<C::IRQ>>,
+    ) -> Self {
+        Self {
+            pin,
+            _kind: PhantomData,
+        }
+    }
+
+    /// Create an EXTI input from an existing [`Flex`] pin.
+    ///
+    /// Useful when a pin was previously used in bidirectional mode (e.g.,
+    /// driven as an output for a hardware entry sequence) and needs to be
+    /// switched to interrupt-driven input mode without re-acquiring the
+    /// peripheral token.
+    ///
+    /// The pin should be in input mode (configured via [`Flex::set_as_input()`])
+    /// before calling this.
+    ///
+    /// The Binding must bind the Channel's IRQ to [InterruptHandler].
+    pub fn from_flex<C: Channel>(
+        pin: Flex<'d>,
+        _ch: Peri<'d, C>,
+        _irq: impl Binding<C::IRQ, InterruptHandler<C::IRQ>>,
+    ) -> Self {
+        Self {
+            pin: Input::from_flex(pin),
             _kind: PhantomData,
         }
     }

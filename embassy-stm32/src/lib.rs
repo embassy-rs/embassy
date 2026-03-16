@@ -61,19 +61,21 @@ pub mod can;
 // FIXME: Cordic driver cause stm32u5a5zj crash
 #[cfg(aes_v3b)]
 pub mod aes;
-#[cfg(comp_u5)]
+#[cfg(any(comp_u5, comp_v2))]
 pub mod comp;
 #[cfg(all(cordic, not(any(stm32u5a5, stm32u5a9))))]
 pub mod cordic;
 
 // Stub macros for COMP pin implementations when comp module is not compiled.
 // These are needed because build.rs generates macro calls for all chips with COMP,
-// but the actual macros are only defined in the comp module which is only compiled for comp_u5.
-#[cfg(all(comp, not(comp_u5)))]
+// but the actual macros are only defined in the comp module.
+#[cfg(all(comp, not(any(comp_u5, comp_v2))))]
+#[allow(unused_macros)]
 macro_rules! impl_comp_inp_pin {
     ($inst:ident, $pin:ident, $ch:expr) => {};
 }
-#[cfg(all(comp, not(comp_u5)))]
+#[cfg(all(comp, not(any(comp_u5, comp_v2))))]
+#[allow(unused_macros)]
 macro_rules! impl_comp_inm_pin {
     ($inst:ident, $pin:ident, $ch:expr) => {};
 }
@@ -173,7 +175,7 @@ pub(crate) mod _generated {
     include!(concat!(env!("OUT_DIR"), "/_generated.rs"));
 }
 
-pub use crate::_generated::interrupt;
+pub use crate::_generated::{interrupt, triggers};
 
 /// Macro to bind interrupts to handlers.
 ///
@@ -612,6 +614,9 @@ fn init_hw(config: Config) -> Peripherals {
             }
         });
 
+        #[cfg(any(stm32h7rs))]
+        // On the H7RS the SYSCFG should not be reset if it is already enabled. This is typically the case when running from external flash and the bootloader enables the SYSCFG.
+        rcc::enable_with_cs::<peripherals::SYSCFG>(cs);
         #[cfg(not(any(stm32f1, stm32wb, stm32wl, stm32h7rs)))]
         rcc::enable_and_reset_with_cs::<peripherals::SYSCFG>(cs);
         #[cfg(not(any(stm32h5, stm32h7, stm32h7rs, stm32wb, stm32wl)))]
@@ -715,9 +720,15 @@ fn init_hw(config: Config) -> Peripherals {
 
             rcc::init_rcc(cs, config.rcc);
 
+            // must be before time_driver init to allow refcount reset
             #[cfg(all(any(stm32wb, stm32wl5x), feature = "low-power"))]
             hsem::init_hsem(cs);
 
+            // must be after rcc init
+            #[cfg(feature = "_time-driver")]
+            crate::time_driver::init(cs);
+
+            // must be after time-driver init
             #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
             rtc::init_rtc(cs, config.rtc, config.min_stop_pause);
         }

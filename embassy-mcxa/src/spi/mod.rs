@@ -5,6 +5,7 @@ use paste::paste;
 
 use crate::clocks::Gate;
 use crate::clocks::periph_helpers::LpspiConfig;
+use crate::dma::{DmaChannel, DmaRequest};
 use crate::gpio::{GpioPin, SealedPin};
 use crate::{interrupt, pac};
 
@@ -14,19 +15,22 @@ mod sealed {
     pub trait Sealed {}
 }
 
-trait SealedInstance {
+trait SealedInstance: Gate<MrccPeriphConfig = LpspiConfig> {
     fn info() -> &'static Info;
-}
 
-/// SPI Instance
-#[allow(private_bounds)]
-pub trait Instance: SealedInstance + PeripheralType + 'static + Send + Gate<MrccPeriphConfig = LpspiConfig> {
-    /// Interrupt for this SPI instance.
-    type Interrupt: interrupt::typelevel::Interrupt;
     /// Clock instance
     const CLOCK_INSTANCE: crate::clocks::periph_helpers::LpspiInstance;
     const PERF_INT_INCR: fn();
     const PERF_INT_WAKE_INCR: fn();
+    const TX_DMA_REQUEST: DmaRequest;
+    const RX_DMA_REQUEST: DmaRequest;
+}
+
+/// SPI Instance
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
+    /// Interrupt for this SPI instance.
+    type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 struct Info {
@@ -60,14 +64,17 @@ macro_rules! impl_instance {
                         };
                         &INFO
                     }
-                }
 
-                impl Instance for crate::peripherals::[<LPSPI $n>] {
-                    type Interrupt = crate::interrupt::typelevel::[<LPSPI $n>];
                     const CLOCK_INSTANCE: crate::clocks::periph_helpers::LpspiInstance
                         = crate::clocks::periph_helpers::LpspiInstance::[<Lpspi $n>];
                     const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_spi $n>];
                     const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_spi $n _wake>];
+                    const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<LPSPI $n Tx>];
+                    const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<LPSPI $n Rx>];
+                }
+
+                impl Instance for crate::peripherals::[<LPSPI $n>] {
+                    type Interrupt = crate::interrupt::typelevel::[<LPSPI $n>];
                 }
             }
         )*
@@ -75,6 +82,9 @@ macro_rules! impl_instance {
 }
 
 impl_instance!(0, 1);
+
+#[cfg(feature = "mcxa5xx")]
+impl_instance!(2, 3, 4, 5);
 
 /// MOSI pin trait.
 pub trait MosiPin<Instance>: GpioPin + sealed::Sealed + PeripheralType {
@@ -95,6 +105,10 @@ pub trait SckPin<Instance>: GpioPin + sealed::Sealed + PeripheralType {
 #[allow(private_bounds)]
 pub trait Mode: sealed::Sealed {}
 
+/// Async driver mode.
+#[allow(private_bounds)]
+pub trait AsyncMode: sealed::Sealed + Mode {}
+
 /// Blocking mode.
 pub struct Blocking;
 impl sealed::Sealed for Blocking {}
@@ -104,6 +118,18 @@ impl Mode for Blocking {}
 pub struct Async;
 impl sealed::Sealed for Async {}
 impl Mode for Async {}
+impl AsyncMode for Async {}
+
+/// DMA mode.
+pub struct Dma<'d> {
+    tx_dma: DmaChannel<'d>,
+    rx_dma: DmaChannel<'d>,
+    rx_request: DmaRequest,
+    tx_request: DmaRequest,
+}
+impl sealed::Sealed for Dma<'_> {}
+impl Mode for Dma<'_> {}
+impl AsyncMode for Dma<'_> {}
 
 macro_rules! impl_pin {
     ($pin:ident, $peri:ident, $fn:ident, $trait:ident) => {
@@ -140,3 +166,31 @@ impl_pin!(P2_16, LPSPI1, MUX2, MisoPin);
 impl_pin!(P3_8, LPSPI1, MUX2, MosiPin);
 impl_pin!(P3_9, LPSPI1, MUX2, MisoPin);
 impl_pin!(P3_10, LPSPI1, MUX2, SckPin);
+
+#[cfg(feature = "mcxa5xx")]
+mod mcxa5xx {
+    use super::*;
+
+    impl_pin!(P0_20, LPSPI4, MUX8, MisoPin);
+    impl_pin!(P0_21, LPSPI4, MUX8, SckPin);
+    impl_pin!(P0_22, LPSPI4, MUX8, MosiPin);
+
+    impl_pin!(P1_12, LPSPI5, MUX5, MisoPin);
+    impl_pin!(P1_13, LPSPI5, MUX5, SckPin);
+    impl_pin!(P1_14, LPSPI5, MUX8, MosiPin);
+
+    impl_pin!(P2_0, LPSPI2, MUX8, MisoPin);
+    impl_pin!(P2_1, LPSPI2, MUX8, SckPin);
+    impl_pin!(P2_2, LPSPI2, MUX8, MosiPin);
+
+    impl_pin!(P3_4, LPSPI4, MUX3, MosiPin);
+    impl_pin!(P3_3, LPSPI4, MUX3, SckPin);
+    impl_pin!(P3_2, LPSPI4, MUX3, MisoPin);
+
+    impl_pin!(P4_3, LPSPI2, MUX8, SckPin);
+    impl_pin!(P4_4, LPSPI2, MUX8, MisoPin);
+    impl_pin!(P4_5, LPSPI2, MUX8, MosiPin);
+    impl_pin!(P4_8, LPSPI5, MUX8, MosiPin);
+    impl_pin!(P4_9, LPSPI5, MUX8, MisoPin);
+    impl_pin!(P4_10, LPSPI5, MUX8, SckPin);
+}
