@@ -1,6 +1,6 @@
 [package]
 edition = "2024"
-name = "embassy-mspm0-g3519-examples"
+name = "embassy-mspm0-g3107-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
 publish = false
