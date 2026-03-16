@@ -1,4 +1,6 @@
-//! XSPI NOR Flash driver for MX66UW1G45G on STM32N6570-DK
+//! XSPI NOR Flash driver for Macronix NOR flash on STM32N6 boards
+//! - MX66UW1G45G (128MB) on STM32N6570-DK
+//! - MX25UM51245G (64MB) on NUCLEO-N657X0-Q
 //!
 //! Adapted from examples/stm32n6/src/bin/xspi_flash.rs
 
@@ -44,9 +46,53 @@ impl<I: Instance> SpiFlashMemory<I> {
     }
 
     pub fn reset_memory(&mut self) {
+        // Send reset in all three modes — the boot ROM may leave the flash in OPI mode
+        // (observed on Nucleo-N657). Commands in the wrong mode are silently ignored.
+
+        // 1. OPI-DTR reset
+        self.exec_command_opi_dtr(SpiCommand::ResetEnable as u8);
+        self.exec_command_opi_dtr(SpiCommand::ResetMemory as u8);
+
+        // 2. OPI-STR reset
+        self.exec_command_opi_str(SpiCommand::ResetEnable as u8);
+        self.exec_command_opi_str(SpiCommand::ResetMemory as u8);
+
+        // 3. SPI single-line reset
         self.exec_command(SpiCommand::ResetEnable as u8);
         self.exec_command(SpiCommand::ResetMemory as u8);
+
+        // Wait for reset recovery (tRST ~30μs typical, use ~200μs margin at 64MHz)
+        cortex_m::asm::delay(12_800);
+
         self.wait_write_finish();
+    }
+
+    fn exec_command_opi_dtr(&mut self, cmd: u8) {
+        let transaction = TransferConfig {
+            iwidth: XspiWidth::OCTO,
+            idtr: true,
+            adwidth: XspiWidth::NONE,
+            dwidth: XspiWidth::NONE,
+            instruction: Some(cmd as u32),
+            address: None,
+            dummy: DummyCycles::_0,
+            ..Default::default()
+        };
+        let _ = self.xspi.blocking_command(&transaction);
+    }
+
+    fn exec_command_opi_str(&mut self, cmd: u8) {
+        let transaction = TransferConfig {
+            iwidth: XspiWidth::OCTO,
+            idtr: false,
+            adwidth: XspiWidth::NONE,
+            dwidth: XspiWidth::NONE,
+            instruction: Some(cmd as u32),
+            address: None,
+            dummy: DummyCycles::_0,
+            ..Default::default()
+        };
+        let _ = self.xspi.blocking_command(&transaction);
     }
 
     fn exec_command(&mut self, cmd: u8) {

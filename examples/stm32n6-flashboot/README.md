@@ -1,6 +1,6 @@
 # STM32N6 Flash Boot Example
 
-Two-stage boot system (FSBL + application) for the STM32N6570-DK using embassy-boot. The FSBL runs from SRAM, initializes external NOR flash in memory-mapped mode, and boots the application firmware with support for DFU updates.
+Two-stage boot system (FSBL + application) for the STM32N6 using embassy-boot. Supports both the STM32N6570-DK and NUCLEO-N657X0-Q boards. The FSBL runs from SRAM, initializes external NOR flash in memory-mapped mode, and boots the application firmware with support for DFU updates.
 
 ## Prerequisites
 
@@ -9,11 +9,14 @@ Two-stage boot system (FSBL + application) for the STM32N6570-DK using embassy-b
 - [probe-rs](https://probe.rs/): `cargo install probe-rs-tools`
 - [just](https://github.com/casey/just): `cargo install just`
 
-## Hardware
+## Supported Boards
 
-- **Board**: STM32N6570-DK
-- **External flash**: MX66UW1G45G (128 MB NOR flash on XSPI2)
-- **BOOT switches**: Both LOW for serial NOR boot (boot config 6, default when OTP is unfused)
+| Board | `board` value | External Flash | Size |
+|-------|---------------|----------------|------|
+| STM32N6570-DK | `dk` (default) | MX66UW1G45G | 128 MB |
+| NUCLEO-N657X0-Q | `nucleo` | MX25UM51245G | 64 MB |
+
+Set both BOOT switches to LOW for serial NOR boot (boot config 6, default when OTP is unfused).
 
 ## Project Structure
 
@@ -24,8 +27,14 @@ Two-stage boot system (FSBL + application) for the STM32N6570-DK using embassy-b
 
 ## Quick Start
 
+All recipes accept a `board` parameter (defaults to `dk`):
+
 ```console
+# DK (default)
 just flash-all
+
+# Nucleo
+just board=nucleo flash-all
 ```
 
 This builds both crates, converts to raw binaries, signs them for the boot ROM, flashes everything to external flash, and erases the boot state partition. After flashing, set BOOT switches to LOW and reset the board.
@@ -61,6 +70,8 @@ Each signed image has a 0x400 header, so application code starts at `ACTIVE + 0x
 | `just debug-fsbl` | Flash FSBL and attach for debugging |
 | `just erase-state` | Erase STATE partition (reset boot state) |
 | `just trigger-swap` | Write SWAP_MAGIC to trigger DFU swap on next boot |
+
+All recipes work with the `board` parameter, e.g. `just board=nucleo flash-all`.
 
 Recipes prefixed with `stm32-` (e.g. `just stm32-flash-all`) use STM32_Programmer_CLI instead of probe-rs, as a fallback if probe-rs cannot flash external flash.
 

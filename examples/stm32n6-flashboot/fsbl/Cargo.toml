@@ -18,6 +18,10 @@ embedded-storage = "0.3.1"
 defmt = "1.0.1"
 defmt-rtt = "1.1.0"
 
+[features]
+default = ["dk"]
+dk = []       # STM32N6570-DK: MX66UW1G45G 128MB
+nucleo = []   # NUCLEO-N657X0-Q: MX25UM51245G 64MB
 
 [package.metadata.embassy]
 build = [

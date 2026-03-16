@@ -45,7 +45,10 @@ impl<I: Instance> ReadNorFlash for XspiNorFlash<I> {
     }
 
     fn capacity(&self) -> usize {
-        128 * 1024 * 1024 // 128 MB total flash
+        #[cfg(feature = "dk")]
+        { 128 * 1024 * 1024 }
+        #[cfg(feature = "nucleo")]
+        { 64 * 1024 * 1024 }
     }
 }
 
