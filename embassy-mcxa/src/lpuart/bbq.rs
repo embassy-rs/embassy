@@ -477,6 +477,11 @@ impl LpuartBbq {
         (rx, tx)
     }
 
+    /// Split the LpuartBbq into separate TX and RX halves
+    pub fn split(self) -> (LpuartBbqTx, LpuartBbqRx) {
+        (self.tx, self.rx)
+    }
+
     /// Teardown the LpuartBbq, retrieving the original parts
     pub fn teardown(self) -> BbqParts {
         let Self { tx, rx } = self;
