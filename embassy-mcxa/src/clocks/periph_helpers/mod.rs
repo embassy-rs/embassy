@@ -477,7 +477,6 @@ pub enum I3cClockSel {
     FroLfDiv,
     /// FRO180M/FRO_HF/FIRC clock source, passed through divider
     /// "fro_hf_div"
-    #[cfg(feature = "mcxa2xx")]
     FroHfDiv,
     /// SOSC/XTAL/EXTAL clock source
     #[cfg(not(feature = "sosc-as-gpio"))]
@@ -528,10 +527,16 @@ impl SPConfHelper for I3cConfig {
 
                 (freq, mux)
             }
-            #[cfg(feature = "mcxa2xx")]
             I3cClockSel::FroHfDiv => {
                 let freq = clocks.ensure_fro_hf_div_active(&self.power)?;
-                (freq, FclkClkselMux::CLKROOT_FUNC_2)
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = FclkClkselMux::CLKROOT_FUNC_2;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = FclkClkselMux::I2_CLKROOT_FUNC_2;
+
+                (freq, mux)
             }
             #[cfg(not(feature = "sosc-as-gpio"))]
             I3cClockSel::ClkIn => {
