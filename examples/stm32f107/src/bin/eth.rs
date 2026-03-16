@@ -96,8 +96,8 @@ async fn main(spawner: Spawner) -> ! {
                     info!("Received {} bytes: {:a}", bytes, read_buffer[..bytes]);
                     unwrap!(socket.write(&read_buffer[..bytes]).await);
                 }
-                Err(e) => {
-                    warn!("read error: {:?}", e);
+                Err(tcp::Error::ConnectionReset) => {
+                    warn!("Error: connection reset");
                     break;
                 }
             }
