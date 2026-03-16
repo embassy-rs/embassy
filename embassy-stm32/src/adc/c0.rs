@@ -81,14 +81,14 @@ impl AdcRegs for crate::pac::adc::Adc {
     }
 
     fn configure_dma(&self, conversion_mode: super::ConversionMode) {
+        // Enable overrun control, so no new DMA requests will be generated until
+        // previous DR values is read.
+        self.isr().modify(|reg| {
+            reg.set_ovr(true);
+        });
+
         match conversion_mode {
             ConversionMode::Singular => {
-                // Enable overrun control, so no new DMA requests will be generated until
-                // previous DR values is read.
-                self.isr().modify(|reg| {
-                    reg.set_ovr(true);
-                });
-
                 // Set continuous mode with oneshot dma.
                 self.cfgr1().modify(|reg| {
                     reg.set_discen(false);
@@ -97,6 +97,35 @@ impl AdcRegs for crate::pac::adc::Adc {
                     reg.set_dmaen(true);
                     reg.set_ovrmod(Ovrmod::PRESERVE);
                 });
+            }
+            ConversionMode::Repeated(trigger) => {
+                match trigger.signal {
+                    u8::MAX => {
+                        // continuous conversions
+                        self.cfgr1().modify(|reg| {
+                            reg.set_discen(false);
+                            reg.set_cont(true);
+                            reg.set_dmacfg(Dmacfg::DMA_CIRCULAR);
+                            reg.set_dmaen(true);
+                            reg.set_ovrmod(Ovrmod::OVERWRITE);
+                        });
+                    }
+                    _ => {
+                        self.cfgr1().modify(|reg| {
+                            reg.set_discen(false);
+                            reg.set_cont(false); // Triggered, not continuous
+                            reg.set_dmacfg(Dmacfg::DMA_CIRCULAR);
+                            reg.set_dmaen(true);
+                            reg.set_ovrmod(Ovrmod::OVERWRITE);
+                            // Configure trigger edge (rising, falling, or both)
+                            reg.set_exten(trigger.edge);
+                            reg.set_extsel(trigger.signal);
+                        });
+
+                        // Regular conversions uses DMA so no need to generate interrupt
+                        self.ier().modify(|r| r.set_eosie(false));
+                    }
+                }
             }
         }
     }

@@ -256,16 +256,56 @@ impl super::AdcRegs for crate::pac::adc::Adc {
         #[cfg(any(adc_g0, adc_u0))]
         let regs = self.cfgr1();
 
-        regs.modify(|reg| {
-            reg.set_discen(false);
-            reg.set_cont(true);
-            reg.set_dmacfg(match conversion_mode {
-                ConversionMode::Singular => Dmacfg::ONE_SHOT,
-                #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
-                ConversionMode::Repeated(_) => Dmacfg::CIRCULAR,
-            });
-            reg.set_dmaen(true);
-        });
+        match conversion_mode {
+            ConversionMode::Singular => {
+                regs.modify(|reg| {
+                    reg.set_discen(false);
+                    reg.set_cont(true);
+                    reg.set_dmacfg(Dmacfg::ONE_SHOT);
+                    reg.set_dmaen(true);
+                });
+            }
+            #[cfg(any(adc_v3, adc_g0, adc_u0))]
+            ConversionMode::Repeated(trigger) => {
+                #[cfg(not(adc_g0))]
+                {
+                    let _ = trigger; // Suppress unused variable warning
+                    // For non-G0 variants, only continuous conversions are supported
+                    regs.modify(|reg| {
+                        reg.set_discen(false);
+                        reg.set_cont(true);
+                        reg.set_dmacfg(Dmacfg::CIRCULAR);
+                        reg.set_dmaen(true);
+                    });
+                }
+                #[cfg(adc_g0)]
+                match trigger.signal {
+                    u8::MAX => {
+                        // continuous conversions
+                        regs.modify(|reg| {
+                            reg.set_discen(false);
+                            reg.set_cont(true);
+                            reg.set_dmacfg(Dmacfg::CIRCULAR);
+                            reg.set_dmaen(true);
+                        });
+                    }
+                    _ => {
+                        regs.modify(|reg| {
+                            reg.set_discen(false);
+                            reg.set_cont(false); // New trigger is needed for each sample to be read
+                            reg.set_dmacfg(Dmacfg::CIRCULAR);
+                            reg.set_dmaen(true);
+                            // Configure trigger edge (rising, falling, or both)
+                            reg.set_exten(trigger.edge);
+                            reg.set_extsel(trigger.signal.into());
+                        });
+
+                        // Regular conversions uses DMA so no need to generate interrupt
+                        self.ier().modify(|r| r.set_eosie(false));
+                    }
+                }
+            }
+        }
     }
 
     fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
