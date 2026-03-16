@@ -9,7 +9,7 @@ use smoltcp::socket::raw;
 pub use smoltcp::socket::raw::PacketMetadata;
 pub use smoltcp::wire::{IpProtocol, IpVersion};
 
-use crate::Stack;
+use crate::{Stack, TryError};
 
 /// Error returned by [`RawSocket::recv`].
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -17,17 +17,12 @@ use crate::Stack;
 pub enum RecvError {
     /// Provided buffer was smaller than the received packet.
     Truncated,
-    /// No data available.
-    Exhausted,
 }
 
 /// Error returned by [`RawSocket::send`].
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum SendError {
-    /// Socket buffer is full.
-    BufferFull,
-}
+pub enum SendError {}
 
 /// An Raw socket.
 pub struct RawSocket<'a> {
@@ -90,12 +85,12 @@ impl<'a> RawSocket<'a> {
     ///
     /// This method will not wait for a datagram to be received.
     ///
-    /// If no datagram is available, this method will return `Err(RecvError::Exhausted)`.
-    pub fn try_recv(&self, buf: &mut [u8]) -> Result<usize, RecvError> {
+    /// If no datagram is available, this method will return `Err(TryError::WouldBlock)`.
+    pub fn try_recv(&self, buf: &mut [u8]) -> Result<usize, TryError<RecvError>> {
         self.with_mut(|s, _| match s.recv_slice(buf) {
             Ok(n) => Ok(n),
-            Err(raw::RecvError::Truncated) => Err(RecvError::Truncated),
-            Err(raw::RecvError::Exhausted) => Err(RecvError::Exhausted),
+            Err(raw::RecvError::Truncated) => Err(TryError::Other(RecvError::Truncated)),
+            Err(raw::RecvError::Exhausted) => Err(TryError::WouldBlock),
         })
     }
 
@@ -171,11 +166,11 @@ impl<'a> RawSocket<'a> {
     ///
     /// This method will not wait for the buffer to become free.
     ///
-    /// If the socket's send buffer is full, this method will return `Err(SendError::BufferFull)`.
-    pub fn try_send(&self, buf: &[u8]) -> Result<(), SendError> {
+    /// If the socket's send buffer is full, this method will return `Err(TryError::WouldBlock)`.
+    pub fn try_send(&self, buf: &[u8]) -> Result<(), TryError<SendError>> {
         self.with_mut(|s, _| match s.send_slice(buf) {
             Ok(()) => Ok(()),
-            Err(raw::SendError::BufferFull) => Err(SendError::BufferFull),
+            Err(raw::SendError::BufferFull) => Err(TryError::WouldBlock),
         })
     }
 
@@ -214,13 +209,13 @@ impl<'a> RawSocket<'a> {
 
     /// Try to flush the socket.
     ///
-    /// This method will check if the socket is flushed, and if not, return `Err(SendError::BufferFull)`.
-    pub fn try_flush(&mut self) -> Result<(), SendError> {
+    /// This method will check if the socket is flushed, and if not, return `Err(TryError::WouldBlock)`.
+    pub fn try_flush(&mut self) -> Result<(), TryError<SendError>> {
         self.with_mut(|s, _| {
             if s.send_queue() == 0 {
                 Ok(())
             } else {
-                Err(SendError::BufferFull)
+                Err(TryError::WouldBlock)
             }
         })
     }

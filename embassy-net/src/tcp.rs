@@ -18,7 +18,7 @@ use smoltcp::socket::tcp;
 pub use smoltcp::socket::tcp::State;
 use smoltcp::wire::{IpEndpoint, IpListenEndpoint};
 
-use crate::Stack;
+use crate::{Stack, TryError};
 use crate::time::duration_to_smoltcp;
 
 /// Error returned by TcpSocket read/write functions.
@@ -29,8 +29,6 @@ pub enum Error {
     ///
     /// This can happen on receiving a RST packet, or on timeout.
     ConnectionReset,
-    /// The socket would block.
-    WouldBlock,
 }
 
 /// Error returned by [`TcpSocket::connect`].
@@ -45,8 +43,6 @@ pub enum ConnectError {
     TimedOut,
     /// No route to host.
     NoRoute,
-    /// The socket would block.
-    WouldBlock,
 }
 
 /// Error returned by [`TcpSocket::accept`].
@@ -59,8 +55,6 @@ pub enum AcceptError {
     InvalidPort,
     /// The remote host rejected the connection with a RST packet.
     ConnectionReset,
-    /// The socket would block.
-    WouldBlock,
 }
 
 /// A TCP socket.
@@ -110,8 +104,8 @@ impl<'a> TcpReader<'a> {
     ///
     /// This method will not wait for data to be received.
     ///
-    /// If no data is available, this method will return `Err(Error::WouldBlock)`.
-    pub fn try_read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+    /// If no data is available, this method will return `Err(TryError::WouldBlock)`.
+    pub fn try_read(&mut self, buf: &mut [u8]) -> Result<usize, TryError<Error>> {
         self.io.try_read(buf)
     }
 
@@ -131,8 +125,8 @@ impl<'a> TcpReader<'a> {
     ///
     /// This method will not wait for data to be received.
     ///
-    /// If no data is available, this method will return `Err(Error::WouldBlock)`.
-    pub fn try_read_with<F, R>(&mut self, f: F) -> Result<R, Error>
+    /// If no data is available, this method will return `Err(TryError::WouldBlock)`.
+    pub fn try_read_with<F, R>(&mut self, f: F) -> Result<R, TryError<Error>>
     where
         F: FnOnce(&mut [u8]) -> (usize, R),
     {
@@ -175,8 +169,8 @@ impl<'a> TcpWriter<'a> {
     ///
     /// This method will not wait for the buffer to become free.
     ///
-    /// If the socket's send buffer is full, this method will return `Err(Error::WouldBlock)`.
-    pub fn try_write(&mut self, buf: &[u8]) -> Result<usize, Error> {
+    /// If the socket's send buffer is full, this method will return `Err(TryError::WouldBlock)`.
+    pub fn try_write(&mut self, buf: &[u8]) -> Result<usize, TryError<Error>> {
         self.io.try_write(buf)
     }
 
@@ -190,8 +184,8 @@ impl<'a> TcpWriter<'a> {
 
     /// Try to flush the socket.
     ///
-    /// This method will check if the socket is flushed, and if not, return `Err(Error::WouldBlock)`.
-    pub fn try_flush(&mut self) -> Result<(), Error> {
+    /// This method will check if the socket is flushed, and if not, return `Err(TryError::WouldBlock)`.
+    pub fn try_flush(&mut self) -> Result<(), TryError<Error>> {
         self.io.try_flush()
     }
 
@@ -211,8 +205,8 @@ impl<'a> TcpWriter<'a> {
     ///
     /// This method will not wait for the buffer to become free.
     ///
-    /// If the socket's send buffer is full, this method will return `Err(Error::WouldBlock)`.
-    pub fn try_write_with<F, R>(&mut self, f: F) -> Result<R, Error>
+    /// If the socket's send buffer is full, this method will return `Err(TryError::WouldBlock)`.
+    pub fn try_write_with<F, R>(&mut self, f: F) -> Result<R, TryError<Error>>
     where
         F: FnOnce(&mut [u8]) -> (usize, R),
     {
@@ -285,8 +279,8 @@ impl<'a> TcpSocket<'a> {
     ///
     /// This method will not wait for the buffer to become free.
     ///
-    /// If the socket's send buffer is full, this method will return `Err(Error::WouldBlock)`.
-    pub fn try_write_with<F, R>(&mut self, f: F) -> Result<R, Error>
+    /// If the socket's send buffer is full, this method will return `Err(TryError::WouldBlock)`.
+    pub fn try_write_with<F, R>(&mut self, f: F) -> Result<R, TryError<Error>>
     where
         F: FnOnce(&mut [u8]) -> (usize, R),
     {
@@ -309,8 +303,8 @@ impl<'a> TcpSocket<'a> {
     ///
     /// This method will not wait for data to be received.
     ///
-    /// If no data is available, this method will return `Err(Error::WouldBlock)`.
-    pub fn try_read_with<F, R>(&mut self, f: F) -> Result<R, Error>
+    /// If no data is available, this method will return `Err(TryError::WouldBlock)`.
+    pub fn try_read_with<F, R>(&mut self, f: F) -> Result<R, TryError<Error>>
     where
         F: FnOnce(&mut [u8]) -> (usize, R),
     {
@@ -357,12 +351,12 @@ impl<'a> TcpSocket<'a> {
     /// This method will not wait for the connection to be established.
     ///
     /// If the socket is not already connecting, this method will initiate the connection
-    /// and return `Err(ConnectError::WouldBlock)`. While the connection is being established,
-    /// it will continue to return `Err(ConnectError::WouldBlock)`.
+    /// and return `Err(TryError::WouldBlock)`. While the connection is being established,
+    /// it will continue to return `Err(TryError::WouldBlock)`.
     ///
     /// Once the connection is successfully established and ready to send/receive data,
     /// this method will return `Ok(())`.
-    pub fn try_connect<T>(&mut self, remote_endpoint: T) -> Result<(), ConnectError>
+    pub fn try_connect<T>(&mut self, remote_endpoint: T) -> Result<(), TryError<ConnectError>>
     where
         T: Into<IpEndpoint>,
     {
@@ -373,13 +367,13 @@ impl<'a> TcpSocket<'a> {
                     .io
                     .with_mut(|s, i| s.connect(i.context(), remote_endpoint, local_port))
                 {
-                    Ok(()) => Err(ConnectError::WouldBlock),
-                    Err(tcp::ConnectError::InvalidState) => Err(ConnectError::InvalidState),
-                    Err(tcp::ConnectError::Unaddressable) => Err(ConnectError::NoRoute),
+                    Ok(()) => Err(TryError::WouldBlock),
+                    Err(tcp::ConnectError::InvalidState) => Err(TryError::Other(ConnectError::InvalidState)),
+                    Err(tcp::ConnectError::Unaddressable) => Err(TryError::Other(ConnectError::NoRoute)),
                 }
             }
-            tcp::State::SynSent | tcp::State::SynReceived => Err(ConnectError::WouldBlock),
-            tcp::State::Listen => Err(ConnectError::InvalidState),
+            tcp::State::SynSent | tcp::State::SynReceived => Err(TryError::WouldBlock),
+            tcp::State::Listen => Err(TryError::Other(ConnectError::InvalidState)),
             _ => Ok(()),
         }
     }
@@ -414,22 +408,22 @@ impl<'a> TcpSocket<'a> {
     /// This method will not wait for a connection to be received.
     ///
     /// If the socket is not already listening, this method will put the socket into
-    /// listening mode and return `Err(AcceptError::WouldBlock)`. While waiting for
-    /// a remote host to connect, it will continue to return `Err(AcceptError::WouldBlock)`.
+    /// listening mode and return `Err(TryError::WouldBlock)`. While waiting for
+    /// a remote host to connect, it will continue to return `Err(TryError::WouldBlock)`.
     ///
     /// Once a connection is successfully established and ready to send/receive data,
     /// this method will return `Ok(())`.
-    pub fn try_accept<T>(&mut self, local_endpoint: T) -> Result<(), AcceptError>
+    pub fn try_accept<T>(&mut self, local_endpoint: T) -> Result<(), TryError<AcceptError>>
     where
         T: Into<IpListenEndpoint>,
     {
         match self.state() {
             tcp::State::Closed | tcp::State::TimeWait => match self.io.with_mut(|s, _| s.listen(local_endpoint)) {
-                Ok(()) => Err(AcceptError::WouldBlock),
-                Err(tcp::ListenError::InvalidState) => Err(AcceptError::InvalidState),
-                Err(tcp::ListenError::Unaddressable) => Err(AcceptError::InvalidPort),
+                Ok(()) => Err(TryError::WouldBlock),
+                Err(tcp::ListenError::InvalidState) => Err(TryError::Other(AcceptError::InvalidState)),
+                Err(tcp::ListenError::Unaddressable) => Err(TryError::Other(AcceptError::InvalidPort)),
             },
-            tcp::State::Listen | tcp::State::SynSent | tcp::State::SynReceived => Err(AcceptError::WouldBlock),
+            tcp::State::Listen | tcp::State::SynSent | tcp::State::SynReceived => Err(TryError::WouldBlock),
             _ => Ok(()),
         }
     }
@@ -459,8 +453,8 @@ impl<'a> TcpSocket<'a> {
     ///
     /// This method will not wait for data to be received.
     ///
-    /// If no data is available, this method will return `Err(Error::WouldBlock)`.
-    pub fn try_read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+    /// If no data is available, this method will return `Err(TryError::WouldBlock)`.
+    pub fn try_read(&mut self, buf: &mut [u8]) -> Result<usize, TryError<Error>> {
         self.io.try_read(buf)
     }
 
@@ -486,8 +480,8 @@ impl<'a> TcpSocket<'a> {
     ///
     /// This method will not wait for the buffer to become free.
     ///
-    /// If the socket's send buffer is full, this method will return `Err(Error::WouldBlock)`.
-    pub fn try_write(&mut self, buf: &[u8]) -> Result<usize, Error> {
+    /// If the socket's send buffer is full, this method will return `Err(TryError::WouldBlock)`.
+    pub fn try_write(&mut self, buf: &[u8]) -> Result<usize, TryError<Error>> {
         self.io.try_write(buf)
     }
 
@@ -501,8 +495,8 @@ impl<'a> TcpSocket<'a> {
 
     /// Try to flush the socket.
     ///
-    /// This method will check if the socket is flushed, and if not, return `Err(Error::WouldBlock)`.
-    pub fn try_flush(&mut self) -> Result<(), Error> {
+    /// This method will check if the socket is flushed, and if not, return `Err(TryError::WouldBlock)`.
+    pub fn try_flush(&mut self) -> Result<(), TryError<Error>> {
         self.io.try_flush()
     }
 
@@ -680,18 +674,18 @@ impl<'d> TcpIo<'d> {
         })
     }
 
-    fn try_read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+    fn try_read(&mut self, buf: &mut [u8]) -> Result<usize, TryError<Error>> {
         self.with_mut(|s, _| match s.recv_slice(buf) {
             // Reading into empty buffer
             Ok(0) if buf.is_empty() => Ok(0),
             // No data ready
-            Ok(0) => Err(Error::WouldBlock),
+            Ok(0) => Err(TryError::WouldBlock),
             // Data ready!
             Ok(n) => Ok(n),
             // EOF
             Err(tcp::RecvError::Finished) => Ok(0),
             // Connection reset.
-            Err(tcp::RecvError::InvalidState) => Err(Error::ConnectionReset),
+            Err(tcp::RecvError::InvalidState) => Err(TryError::Other(Error::ConnectionReset)),
         })
     }
 
@@ -733,16 +727,16 @@ impl<'d> TcpIo<'d> {
         })
     }
 
-    fn try_write(&mut self, buf: &[u8]) -> Result<usize, Error> {
+    fn try_write(&mut self, buf: &[u8]) -> Result<usize, TryError<Error>> {
         self.with_mut(|s, _| match s.send_slice(buf) {
             // Writing an empty buffer
             Ok(0) if buf.is_empty() => Ok(0),
             // Not ready to send (no space in the tx buffer)
-            Ok(0) => Err(Error::WouldBlock),
+            Ok(0) => Err(TryError::WouldBlock),
             // Some data sent
             Ok(n) => Ok(n),
             // Connection reset.
-            Err(tcp::SendError::InvalidState) => Err(Error::ConnectionReset),
+            Err(tcp::SendError::InvalidState) => Err(TryError::Other(Error::ConnectionReset)),
         })
     }
 
@@ -764,20 +758,20 @@ impl<'d> TcpIo<'d> {
         })
     }
 
-    fn try_write_with<F, R>(&mut self, f: F) -> Result<R, Error>
+    fn try_write_with<F, R>(&mut self, f: F) -> Result<R, TryError<Error>>
     where
         F: FnOnce(&mut [u8]) -> (usize, R),
     {
         self.with_mut(|s, _| {
             if !s.can_send() {
                 if s.may_send() {
-                    Err(Error::WouldBlock)
+                    Err(TryError::WouldBlock)
                 } else {
-                    Err(Error::ConnectionReset)
+                    Err(TryError::Other(Error::ConnectionReset))
                 }
             } else {
                 match s.send(f) {
-                    Err(tcp::SendError::InvalidState) => Err(Error::ConnectionReset),
+                    Err(tcp::SendError::InvalidState) => Err(TryError::Other(Error::ConnectionReset)),
                     Ok(r) => Ok(r),
                 }
             }
@@ -812,20 +806,22 @@ impl<'d> TcpIo<'d> {
         .await
     }
 
-    fn try_read_with<F, R>(&mut self, f: F) -> Result<R, Error>
+    fn try_read_with<F, R>(&mut self, f: F) -> Result<R, TryError<Error>>
     where
         F: FnOnce(&mut [u8]) -> (usize, R),
     {
         self.with_mut(|s, _| {
             if !s.can_recv() {
                 if s.may_recv() {
-                    Err(Error::WouldBlock)
+                    Err(TryError::WouldBlock)
                 } else {
-                    Err(Error::ConnectionReset)
+                    Err(TryError::Other(Error::ConnectionReset))
                 }
             } else {
                 match s.recv(f) {
-                    Err(tcp::RecvError::Finished) | Err(tcp::RecvError::InvalidState) => Err(Error::ConnectionReset),
+                    Err(tcp::RecvError::Finished) | Err(tcp::RecvError::InvalidState) => {
+                        Err(TryError::Other(Error::ConnectionReset))
+                    }
                     Ok(r) => Ok(r),
                 }
             }
@@ -862,7 +858,7 @@ impl<'d> TcpIo<'d> {
         .await
     }
 
-    fn try_flush(&mut self) -> Result<(), Error> {
+    fn try_flush(&mut self) -> Result<(), TryError<Error>> {
         self.with_mut(|s, _| {
             let data_pending = (s.send_queue() > 0) && s.state() != tcp::State::Closed;
             let fin_pending = matches!(
@@ -872,7 +868,7 @@ impl<'d> TcpIo<'d> {
             let rst_pending = s.state() == tcp::State::Closed && s.remote_endpoint().is_some();
 
             if data_pending || fin_pending || rst_pending {
-                Err(Error::WouldBlock)
+                Err(TryError::WouldBlock)
             } else {
                 Ok(())
             }
@@ -936,7 +932,6 @@ mod embedded_io_impls {
                 ConnectError::TimedOut => embedded_io_async::ErrorKind::TimedOut,
                 ConnectError::NoRoute => embedded_io_async::ErrorKind::NotConnected,
                 ConnectError::InvalidState => embedded_io_async::ErrorKind::Other,
-                ConnectError::WouldBlock => embedded_io_async::ErrorKind::Other,
             }
         }
     }
@@ -945,7 +940,6 @@ mod embedded_io_impls {
         fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             match self {
                 Self::ConnectionReset => f.write_str("ConnectionReset"),
-                Self::WouldBlock => f.write_str("WouldBlock"),
             }
         }
     }
@@ -955,7 +949,6 @@ mod embedded_io_impls {
         fn kind(&self) -> embedded_io_async::ErrorKind {
             match self {
                 Error::ConnectionReset => embedded_io_async::ErrorKind::ConnectionReset,
-                Error::WouldBlock => embedded_io_async::ErrorKind::Other,
             }
         }
     }
