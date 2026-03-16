@@ -19,11 +19,6 @@ pub enum RecvError {
     Truncated,
 }
 
-/// Error returned by [`RawSocket::send`].
-#[derive(PartialEq, Eq, Clone, Copy, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum SendError {}
-
 /// An Raw socket.
 pub struct RawSocket<'a> {
     stack: Stack<'a>,
@@ -167,7 +162,7 @@ impl<'a> RawSocket<'a> {
     /// This method will not wait for the buffer to become free.
     ///
     /// If the socket's send buffer is full, this method will return `Err(TryError::WouldBlock)`.
-    pub fn try_send(&self, buf: &[u8]) -> Result<(), TryError<SendError>> {
+    pub fn try_send(&self, buf: &[u8]) -> Result<(), TryError<core::convert::Infallible>> {
         self.with_mut(|s, _| match s.send_slice(buf) {
             Ok(()) => Ok(()),
             Err(raw::SendError::BufferFull) => Err(TryError::WouldBlock),
@@ -210,7 +205,7 @@ impl<'a> RawSocket<'a> {
     /// Try to flush the socket.
     ///
     /// This method will check if the socket is flushed, and if not, return `Err(TryError::WouldBlock)`.
-    pub fn try_flush(&mut self) -> Result<(), TryError<SendError>> {
+    pub fn try_flush(&mut self) -> Result<(), TryError<core::convert::Infallible>> {
         self.with_mut(|s, _| {
             if s.send_queue() == 0 {
                 Ok(())
