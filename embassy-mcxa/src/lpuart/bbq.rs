@@ -39,6 +39,14 @@ pub enum BbqError {
     MaxFrameTooLarge,
 }
 
+impl core::fmt::Display for BbqError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        <Self as core::fmt::Debug>::fmt(self, f)
+    }
+}
+
+impl core::error::Error for BbqError {}
+
 /// RX Reception mode
 #[derive(Debug, Clone, Copy, Default)]
 #[non_exhaustive]
@@ -259,6 +267,22 @@ impl BbqParts {
             vtable: BbqVtable::for_lpuart::<T>(),
         })
     }
+
+    /// Access a borrow of the contained RX pin
+    pub fn rx_pin(&mut self) -> Peri<'_, AnyPin> {
+        self.rx_pin.reborrow()
+    }
+
+    /// Access a borrow of the contained TX pin
+    pub fn tx_pin(&mut self) -> Peri<'_, AnyPin> {
+        self.tx_pin.reborrow()
+    }
+
+    /// Access a borrow of both the RX and TX pin (in that order)
+    pub fn pins(&mut self) -> (Peri<'_, AnyPin>, Peri<'_, AnyPin>) {
+        let Self { tx_pin, rx_pin, .. } = self;
+        (rx_pin.reborrow(), tx_pin.reborrow())
+    }
 }
 
 impl BbqHalfParts {
@@ -446,6 +470,12 @@ impl LpuartBbq {
     /// See [`LpuartBbqTx::blocking_flush`] for more information
     pub fn blocking_flush(&mut self) {
         self.tx.blocking_flush();
+    }
+
+    /// Borrow split parts.
+    pub fn split_ref(&mut self) -> (&mut LpuartBbqRx, &mut LpuartBbqTx) {
+        let Self { tx, rx } = self;
+        (rx, tx)
     }
 
     /// Teardown the LpuartBbq, retrieving the original parts
@@ -703,6 +733,32 @@ impl LpuartBbqTx {
             vtable: self.vtable,
             which: WhichHalf::Tx,
         }
+    }
+}
+
+use embedded_io_async::ErrorType;
+impl embedded_io_async::Error for BbqError {
+    fn kind(&self) -> embedded_io::ErrorKind {
+        match self {
+            BbqError::Basic(error) => error.kind(),
+            BbqError::Busy => embedded_io::ErrorKind::Other,
+            BbqError::WrongParts => embedded_io::ErrorKind::Other,
+            BbqError::MaxFrameTooLarge => embedded_io::ErrorKind::OutOfMemory,
+        }
+    }
+}
+impl ErrorType for LpuartBbqTx {
+    type Error = BbqError;
+}
+
+impl embedded_io_async::Write for LpuartBbqTx {
+    fn write(&mut self, buf: &[u8]) -> impl Future<Output = Result<usize, Self::Error>> {
+        self.write(buf)
+    }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        self.flush().await;
+        Ok(())
     }
 }
 
@@ -985,6 +1041,16 @@ impl LpuartBbqRx {
             vtable: self.vtable,
             which: WhichHalf::Rx,
         }
+    }
+}
+
+impl embedded_io_async::ErrorType for LpuartBbqRx {
+    type Error = BbqError;
+}
+
+impl embedded_io_async::Read for LpuartBbqRx {
+    fn read(&mut self, buf: &mut [u8]) -> impl Future<Output = Result<usize, Self::Error>> {
+        self.read(buf)
     }
 }
 
