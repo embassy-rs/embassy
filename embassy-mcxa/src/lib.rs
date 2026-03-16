@@ -13,7 +13,6 @@
 #[cfg(feature = "mcxa2xx")]
 #[path = "."]
 mod mcxa2xx_exclusive {
-    pub mod adc;
     pub mod flash;
 
     pub use crate::chips::mcxa2xx::{Peripherals, init, interrupt, peripherals};
@@ -29,6 +28,7 @@ mod mcxa5xx_exclusive {
 /// Module for HAL drivers supported by all chips
 #[path = "."]
 mod all_chips {
+    pub mod adc;
     pub mod cdog;
     pub mod clkout;
     pub mod clocks;

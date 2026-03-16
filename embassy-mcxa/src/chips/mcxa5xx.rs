@@ -10,10 +10,8 @@ use crate::interrupt::InterruptExt;
 mod inner_periph {
     #[rustfmt::skip]
     embassy_hal_internal::peripherals!(
-        // ADC0,
-        // ADC1,
-        // ADC2,
-        // ADC3,
+        ADC0,
+        ADC1,
 
         // AOI0,
         // AOI1,
@@ -336,10 +334,8 @@ pub use inner_interrupt::*;
 mod inner_interrupt {
     #[rustfmt::skip]
     embassy_hal_internal::interrupt_mod!(
-        // ADC0,
-        // ADC1,
-        // ADC2,
-        // ADC3,
+        ADC0,
+        ADC1,
 
         // CAN0,
         // CAN1,
@@ -707,11 +703,9 @@ pub(crate) mod peripheral_gating {
 
     use crate::clocks::Gate;
     use crate::clocks::periph_helpers::{
-        CTimerConfig, Clk1MConfig, I3cConfig, Lpi2cConfig, LpspiConfig, LpuartConfig, NoConfig, OsTimerConfig,
+        AdcConfig, CTimerConfig, Clk1MConfig, I3cConfig, Lpi2cConfig, LpspiConfig, LpuartConfig, NoConfig,
+        OsTimerConfig,
     };
-    // use crate::clocks::periph_helpers::{
-    //     AdcConfig, CTimerConfig, I3cConfig, Lpi2cConfig, LpspiConfig, LpuartConfig, NoConfig,
-    // };
     use crate::{impl_cc_gate, pac};
 
     // These peripherals have no additional upstream clocks or configuration required
@@ -728,12 +722,10 @@ pub(crate) mod peripheral_gating {
     impl_cc_gate!(CRC0, mrcc_glb_cc0, mrcc_glb_rst0, crc0, NoConfig);
     impl_cc_gate!(INPUTMUX0, mrcc_glb_cc0, mrcc_glb_rst0, inputmux0, NoConfig);
 
-    // // These peripherals DO have meaningful configuration, and could fail if the system
-    // // clocks do not match their needs.
-    // impl_cc_gate!(ADC0, mrcc_glb_cc1, mrcc_glb_rst1, adc0, AdcConfig);
-    // impl_cc_gate!(ADC1, mrcc_glb_cc1, mrcc_glb_rst1, adc1, AdcConfig);
-    // impl_cc_gate!(ADC2, mrcc_glb_cc1, mrcc_glb_rst1, adc2, AdcConfig);
-    // impl_cc_gate!(ADC3, mrcc_glb_cc1, mrcc_glb_rst1, adc3, AdcConfig);
+    // These peripherals DO have meaningful configuration, and could fail if the system
+    // clocks do not match their needs.
+    impl_cc_gate!(ADC0, mrcc_glb_cc1, mrcc_glb_rst1, adc0, AdcConfig);
+    impl_cc_gate!(ADC1, mrcc_glb_cc1, mrcc_glb_rst1, adc1, AdcConfig);
 
     impl_cc_gate!(I3C0, mrcc_glb_acc2, mrcc_glb_rst2, i3c0, I3cConfig);
     impl_cc_gate!(I3C1, mrcc_glb_acc2, mrcc_glb_rst2, i3c1, I3cConfig);

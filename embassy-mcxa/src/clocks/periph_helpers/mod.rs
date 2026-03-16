@@ -10,13 +10,14 @@
 use super::{ClockError, Clocks, PoweredClock, WakeGuard};
 use crate::clocks::VddLevel;
 use crate::pac::mrcc::vals::{
-    ClkdivHalt, ClkdivReset, ClkdivUnstab, CtimerClkselMux, FclkClkselMux, Lpi2cClkselMux, LpspiClkselMux,
-    LpuartClkselMux, OstimerClkselMux,
+    AdcClkselMux, ClkdivHalt, ClkdivReset, ClkdivUnstab, CtimerClkselMux, FclkClkselMux, Lpi2cClkselMux,
+    LpspiClkselMux, LpuartClkselMux, OstimerClkselMux,
 };
 
 #[cfg(feature = "mcxa2xx")]
 mod mcxa2xx;
 
+#[allow(unused_imports)]
 #[cfg(feature = "mcxa2xx")]
 pub use mcxa2xx::*;
 
@@ -215,6 +216,156 @@ impl SPConfHelper for Clk1MConfig {
             freq: 1_000_000,
             wake_guard: None,
         })
+    }
+}
+
+//
+// Adc
+//
+
+/// Selectable clocks for the ADC peripheral
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum AdcClockSel {
+    /// Divided `fro_lf`/`clk_12m`/FRO12M source
+    FroLfDiv,
+    /// Gated `fro_hf`/`FRO180M` source
+    FroHf,
+    /// External Clock Source
+    #[cfg(not(feature = "sosc-as-gpio"))]
+    ClkIn,
+    // /// USB PLL Clk
+    // #[cfg(feature = "mcxa5xx")]
+    // UsbPllClk,
+    /// 1MHz clock sourced by a divided `fro_lf`/`clk_12m`
+    Clk1M,
+    /// Internal PLL output, with configurable divisor
+    Pll1ClkDiv,
+    /// No clock/disabled
+    None,
+}
+
+/// Top level configuration for the ADC peripheral
+pub struct AdcConfig {
+    /// Power state required for this peripheral
+    pub power: PoweredClock,
+    /// Selected clock-source for this peripheral
+    pub source: AdcClockSel,
+    /// Pre-divisor, applied to the upstream clock output
+    pub div: Div4,
+}
+
+impl SPConfHelper for AdcConfig {
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
+        let mrcc0 = crate::pac::MRCC0;
+
+        let (freq, variant) = match self.source {
+            AdcClockSel::FroLfDiv => {
+                let freq = clocks.ensure_fro_lf_div_active(&self.power)?;
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = AdcClkselMux::CLKROOT_FUNC_0;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = AdcClkselMux::I0_CLKROOT_SIRC_DIV;
+
+                (freq, mux)
+            }
+            AdcClockSel::FroHf => {
+                let freq = clocks.ensure_fro_hf_active(&self.power)?;
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = AdcClkselMux::CLKROOT_FUNC_1;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = AdcClkselMux::I1_CLKROOT_FIRC_GATED;
+
+                (freq, mux)
+            }
+            #[cfg(not(feature = "sosc-as-gpio"))]
+            AdcClockSel::ClkIn => {
+                let freq = clocks.ensure_clk_in_active(&self.power)?;
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = AdcClkselMux::CLKROOT_FUNC_3;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = AdcClkselMux::I3_CLKROOT_SOSC;
+
+                (freq, mux)
+            }
+            // #[cfg(feature = "mcxa5xx")]
+            // AdcClockSel::UsbPllClk => {
+            //     let freq = clocks.ensure_usb_pll_clk_active(&self.power)?;
+            //     let mux = AdcClkselMux::I4_CLKROOT_USBPFD;
+            //     (freq, mux)
+            // }
+            AdcClockSel::Clk1M => {
+                let freq = clocks.ensure_clk_1m_active(&self.power)?;
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = AdcClkselMux::CLKROOT_FUNC_5;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = AdcClkselMux::I5_CLKROOT_1M;
+
+                (freq, mux)
+            }
+            AdcClockSel::Pll1ClkDiv => {
+                let freq = clocks.ensure_pll1_clk_div_active(&self.power)?;
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = AdcClkselMux::CLKROOT_FUNC_6;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = AdcClkselMux::I6_CLKROOT_SPLL_DIV;
+
+                (freq, mux)
+            }
+            AdcClockSel::None => {
+                mrcc0.mrcc_adc_clksel().write(|w| {
+                    // no ClkrootFunc7, just write manually for now
+                    w.set_mux(AdcClkselMux::_RESERVED_7)
+                });
+                mrcc0.mrcc_adc_clkdiv().modify(|w| {
+                    w.set_reset(ClkdivReset::ON);
+                    w.set_halt(ClkdivHalt::ON);
+                });
+                return Ok(PreEnableParts::empty());
+            }
+        };
+        let clksel = mrcc0.mrcc_adc_clksel();
+        let clkdiv = mrcc0.mrcc_adc_clkdiv();
+
+        // Check clock speed is reasonable
+        let div = self.div.into_divisor();
+        let expected = freq / div;
+        // 22.3.2 peripheral clock max functional clock limits
+        let power = match self.power {
+            PoweredClock::NormalEnabledDeepSleepDisabled => clocks.active_power,
+            PoweredClock::AlwaysEnabled => clocks.lp_power,
+        };
+
+        #[cfg(feature = "mcxa2xx")]
+        let fmax = match power {
+            VddLevel::MidDriveMode => 24_000_000,
+            VddLevel::OverDriveMode => 64_000_000,
+        };
+
+        #[cfg(feature = "mcxa5xx")]
+        let fmax = match power {
+            VddLevel::MidDriveMode => 24_000_000,
+            VddLevel::NormalMode | VddLevel::OverDriveMode => 64_000_000,
+        };
+
+        if expected > fmax {
+            return Err(ClockError::BadConfig {
+                clock: "adc fclk",
+                reason: "exceeds max rating",
+            });
+        }
+
+        apply_div4!(self, clksel, clkdiv, variant, freq)
     }
 }
 

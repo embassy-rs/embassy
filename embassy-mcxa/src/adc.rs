@@ -979,56 +979,119 @@ macro_rules! impl_pin {
     };
 }
 
-impl_pin!(P2_0, ADC0, 0);
-impl_pin!(P2_4, ADC0, 1);
-impl_pin!(P2_15, ADC0, 2);
-impl_pin!(P2_3, ADC0, 3);
-impl_pin!(P2_2, ADC0, 4);
-impl_pin!(P2_12, ADC0, 5);
-impl_pin!(P2_16, ADC0, 6);
-impl_pin!(P2_7, ADC0, 7);
-impl_pin!(P0_18, ADC0, 8);
-impl_pin!(P0_19, ADC0, 9);
-impl_pin!(P0_20, ADC0, 10);
-impl_pin!(P0_21, ADC0, 11);
-impl_pin!(P0_22, ADC0, 12);
-impl_pin!(P0_23, ADC0, 13);
-#[cfg(feature = "jtag-extras-as-gpio")]
-impl_pin!(P0_3, ADC0, 14);
-#[cfg(feature = "jtag-extras-as-gpio")]
-impl_pin!(P0_6, ADC0, 15);
-impl_pin!(P1_0, ADC0, 16);
-impl_pin!(P1_1, ADC0, 17);
-impl_pin!(P1_2, ADC0, 18);
-impl_pin!(P1_3, ADC0, 19);
-impl_pin!(P1_4, ADC0, 20);
-impl_pin!(P1_5, ADC0, 21);
-impl_pin!(P1_6, ADC0, 22);
-impl_pin!(P1_7, ADC0, 23);
+#[cfg(feature = "mcxa2xx")]
+mod mcxa2xx_pins {
+    use super::*;
 
-// ???
-// impl_pin!(P1_10, ADC0, 255);
+    impl_pin!(P2_0, ADC0, 0);
+    impl_pin!(P2_4, ADC0, 1);
+    impl_pin!(P2_15, ADC0, 2);
+    impl_pin!(P2_3, ADC0, 3);
+    impl_pin!(P2_2, ADC0, 4);
+    impl_pin!(P2_12, ADC0, 5);
+    impl_pin!(P2_16, ADC0, 6);
+    impl_pin!(P2_7, ADC0, 7);
+    impl_pin!(P0_18, ADC0, 8);
+    impl_pin!(P0_19, ADC0, 9);
+    impl_pin!(P0_20, ADC0, 10);
+    impl_pin!(P0_21, ADC0, 11);
+    impl_pin!(P0_22, ADC0, 12);
+    impl_pin!(P0_23, ADC0, 13);
+    #[cfg(feature = "jtag-extras-as-gpio")]
+    impl_pin!(P0_3, ADC0, 14);
+    #[cfg(feature = "jtag-extras-as-gpio")]
+    impl_pin!(P0_6, ADC0, 15);
+    impl_pin!(P1_0, ADC0, 16);
+    impl_pin!(P1_1, ADC0, 17);
+    impl_pin!(P1_2, ADC0, 18);
+    impl_pin!(P1_3, ADC0, 19);
+    impl_pin!(P1_4, ADC0, 20);
+    impl_pin!(P1_5, ADC0, 21);
+    impl_pin!(P1_6, ADC0, 22);
+    impl_pin!(P1_7, ADC0, 23);
 
-impl_pin!(P2_1, ADC1, 0);
-impl_pin!(P2_5, ADC1, 1);
-impl_pin!(P2_19, ADC1, 2);
-impl_pin!(P2_6, ADC1, 3);
-impl_pin!(P2_3, ADC1, 4);
-impl_pin!(P2_13, ADC1, 5);
-impl_pin!(P2_17, ADC1, 6);
-impl_pin!(P2_7, ADC1, 7);
-impl_pin!(P1_10, ADC1, 8);
-impl_pin!(P1_11, ADC1, 9);
-impl_pin!(P1_12, ADC1, 10);
-impl_pin!(P1_13, ADC1, 11);
-impl_pin!(P1_14, ADC1, 12);
-impl_pin!(P1_15, ADC1, 13);
-// ???
-// impl_pin!(P1_16, ADC1, 255);
-// impl_pin!(P1_17, ADC1, 255);
-// impl_pin!(P1_18, ADC1, 255);
-// impl_pin!(P1_19, ADC1, 255);
-// ???
-impl_pin!(P3_31, ADC1, 20);
-impl_pin!(P3_30, ADC1, 21);
-impl_pin!(P3_29, ADC1, 22);
+    // ???
+    // impl_pin!(P1_10, ADC0, 255);
+
+    impl_pin!(P2_1, ADC1, 0);
+    impl_pin!(P2_5, ADC1, 1);
+    impl_pin!(P2_19, ADC1, 2);
+    impl_pin!(P2_6, ADC1, 3);
+    impl_pin!(P2_3, ADC1, 4);
+    impl_pin!(P2_13, ADC1, 5);
+    impl_pin!(P2_17, ADC1, 6);
+    impl_pin!(P2_7, ADC1, 7);
+    impl_pin!(P1_10, ADC1, 8);
+    impl_pin!(P1_11, ADC1, 9);
+    impl_pin!(P1_12, ADC1, 10);
+    impl_pin!(P1_13, ADC1, 11);
+    impl_pin!(P1_14, ADC1, 12);
+    impl_pin!(P1_15, ADC1, 13);
+    // ???
+    // impl_pin!(P1_16, ADC1, 255);
+    // impl_pin!(P1_17, ADC1, 255);
+    // impl_pin!(P1_18, ADC1, 255);
+    // impl_pin!(P1_19, ADC1, 255);
+    // ???
+    impl_pin!(P3_31, ADC1, 20);
+    impl_pin!(P3_30, ADC1, 21);
+    impl_pin!(P3_29, ADC1, 22);
+}
+
+#[cfg(feature = "mcxa5xx")]
+mod mcxa5xx_pins {
+    use super::*;
+
+    #[cfg(feature = "jtag-extras-as-gpio")]
+    impl_pin!(P0_3, ADC0, 14);
+    #[cfg(feature = "jtag-extras-as-gpio")]
+    impl_pin!(P0_6, ADC0, 15);
+    impl_pin!(P0_14, ADC0, 10);
+    impl_pin!(P0_15, ADC0, 11);
+    impl_pin!(P0_18, ADC0, 8);
+    impl_pin!(P0_19, ADC0, 9);
+    impl_pin!(P0_22, ADC0, 12);
+    impl_pin!(P0_23, ADC0, 13);
+
+    impl_pin!(P1_0, ADC0, 16);
+    impl_pin!(P1_1, ADC0, 17);
+    impl_pin!(P1_2, ADC0, 18);
+    impl_pin!(P1_3, ADC0, 19);
+    impl_pin!(P1_4, ADC0, 20);
+    impl_pin!(P1_5, ADC0, 21);
+    impl_pin!(P1_6, ADC0, 22);
+    impl_pin!(P1_7, ADC0, 23);
+    impl_pin!(P1_10, ADC1, 8);
+    impl_pin!(P1_11, ADC1, 9);
+    impl_pin!(P1_12, ADC1, 10);
+    impl_pin!(P1_13, ADC1, 11);
+    impl_pin!(P1_14, ADC1, 12);
+    impl_pin!(P1_15, ADC1, 13);
+    impl_pin!(P1_16, ADC1, 14);
+    impl_pin!(P1_17, ADC1, 15);
+    impl_pin!(P1_18, ADC1, 16);
+    impl_pin!(P1_19, ADC1, 17);
+
+    impl_pin!(P2_0, ADC0, 0);
+    impl_pin!(P2_1, ADC1, 0);
+    impl_pin!(P2_2, ADC0, 4);
+    impl_pin!(P2_3, ADC0, 3);
+    impl_pin!(P2_3, ADC1, 4);
+    impl_pin!(P2_4, ADC0, 1);
+    impl_pin!(P2_5, ADC1, 1);
+    impl_pin!(P2_6, ADC1, 3);
+    impl_pin!(P2_7, ADC0, 7);
+    impl_pin!(P2_7, ADC1, 7);
+    impl_pin!(P2_12, ADC0, 5);
+    impl_pin!(P2_13, ADC1, 5);
+    impl_pin!(P2_15, ADC0, 2);
+    impl_pin!(P2_16, ADC0, 6);
+    impl_pin!(P2_17, ADC1, 6);
+    impl_pin!(P2_19, ADC1, 2);
+
+    #[cfg(feature = "rosc-32k-as-gpio")]
+    impl_pin!(P5_0, ADC1, 20);
+    #[cfg(feature = "rosc-32k-as-gpio")]
+    impl_pin!(P5_1, ADC1, 21);
+    impl_pin!(P5_2, ADC1, 22);
+}
