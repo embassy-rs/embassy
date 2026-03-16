@@ -155,6 +155,10 @@ mod inner_periph {
         #[cfg(feature = "jtag-extras-as-gpio")]
         P0_6,
         P0_7,
+        P0_8,
+        P0_9,
+        P0_10,
+        P0_11,
         P0_12,
         P0_13,
         P0_14,
