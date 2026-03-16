@@ -18,8 +18,8 @@ use smoltcp::socket::tcp;
 pub use smoltcp::socket::tcp::State;
 use smoltcp::wire::{IpEndpoint, IpListenEndpoint};
 
-use crate::{Stack, TryError};
 use crate::time::duration_to_smoltcp;
+use crate::{Stack, TryError};
 
 /// Error returned by TcpSocket read/write functions.
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
