@@ -110,6 +110,11 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
             self.cap() % alignment == 0,
             "DMA buffer length must be a multiple of the alignment value"
         );
+        assert!(
+            self.cap() >= alignment * 2,
+            "DMA buffer must hold at least 2 frames (cap >= 2 * alignment); \
+             with only one frame there is no safe read window between HTIF and TCIF"
+        );
         self.alignment = alignment;
     }
 
