@@ -128,19 +128,18 @@ pub struct StorageDevice<'a, 'b, T: Addressable> {
 /// Card Storage Device
 impl<'a, 'b> StorageDevice<'a, 'b, Card> {
     /// Create a new SD card
-    pub async fn new_sd_card(sdmmc: &'a mut Sdmmc<'b>, cmd_block: &mut CmdBlock, freq: Hertz) -> Result<Self, Error> {
-        let mut s = Self {
+    ///
+    /// Remember to call [`initialize`](`StorageDevice::initialize`)
+    /// before using it, or after inserting an SD card.
+    pub fn new_sd_card(sdmmc: &'a mut Sdmmc<'b>) -> Self {
+        Self {
             info: Card::default(),
             sdmmc,
-        };
-
-        s.acquire(cmd_block, freq).await?;
-
-        Ok(s)
+        }
     }
 
-    /// Initializes the card into a known state (or at least tries to).
-    async fn acquire(&mut self, cmd_block: &mut CmdBlock, freq: Hertz) -> Result<(), Error> {
+    /// Try to initialize the card into a known state.
+    pub async fn initialize(&mut self, cmd_block: &mut CmdBlock, freq: Hertz) -> Result<(), Error> {
         let _scoped_wake_guard = self.sdmmc.info.rcc.wake_guard();
 
         // Get the bus width configured in the Sdmmc peripheral
@@ -333,21 +332,20 @@ impl<'a, 'b> StorageDevice<'a, 'b, Card> {
     }
 }
 
-/// Emmc storage device
+/// eMMC storage device
 impl<'a, 'b> StorageDevice<'a, 'b, Emmc> {
-    /// Create a new EMMC card
-    pub async fn new_emmc(sdmmc: &'a mut Sdmmc<'b>, cmd_block: &mut CmdBlock, freq: Hertz) -> Result<Self, Error> {
-        let mut s = Self {
+    /// Create a new eMMC storage device.
+    /// 
+    /// Remember to call [`initialize`](`StorageDevice::initialize`) before using it.
+    pub fn new_emmc(sdmmc: &'a mut Sdmmc<'b>) -> Self {
+        Self {
             info: Emmc::default(),
             sdmmc,
-        };
-
-        s.acquire(cmd_block, freq).await?;
-
-        Ok(s)
+        }
     }
 
-    async fn acquire(&mut self, _cmd_block: &mut CmdBlock, freq: Hertz) -> Result<(), Error> {
+    /// Try to initialize the eMMC into a known state.
+    pub async fn initialize(&mut self, freq: Hertz) -> Result<(), Error> {
         let _scoped_wake_guard = self.sdmmc.info.rcc.wake_guard();
 
         let bus_width = self.sdmmc.bus_width();
