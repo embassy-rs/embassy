@@ -504,6 +504,9 @@ embassy_hal_internal::peripherals! {
     // RRAMC
     RRAMC,
 
+    // SQSPI
+    SQSPI,
+
     // TEMP
     TEMP,
 
@@ -779,6 +782,8 @@ impl_saadc_input!(P1_11, 1, 11);
 impl_saadc_input!(P1_12, 1, 12);
 impl_saadc_input!(P1_13, 1, 13);
 impl_saadc_input!(P1_14, 1, 14);
+
+impl_sqspi!(SQSPI, VPR00, VPR00);
 
 #[cfg(feature = "_s")]
 impl_cracen!(CRACEN, CRACEN, CRACEN);

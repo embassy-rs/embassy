@@ -141,6 +141,8 @@ pub mod qdec;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(any(feature = "nrf52840", feature = "_nrf5340-app"))]
 pub mod qspi;
+#[cfg(feature = "_nrf54l")]
+pub mod sqspi;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(any(feature = "_nrf91", feature = "_nrf5340-app")))]
 pub mod radio;
