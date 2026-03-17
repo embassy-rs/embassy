@@ -21,7 +21,7 @@ use super::{DataBits, IdleConfig, Info, MsbFirst, Parity, RxPin, StopBits, TxPin
 use crate::clocks::periph_helpers::{Div4, LpuartClockSel};
 use crate::clocks::{PoweredClock, WakeGuard};
 use crate::dma::{DMA_MAX_TRANSFER_SIZE, DmaChannel, DmaRequest, InvalidParameters, TransferOptions};
-use crate::gpio::AnyPin;
+use crate::gpio::{AnyPin, HasGpioInstance, PeriGpioExt};
 use crate::interrupt::typelevel::{Binding, Handler, Interrupt};
 use crate::lpuart::{Instance, RxPins};
 
@@ -38,6 +38,14 @@ pub enum BbqError {
     /// Requested an [`RxMode::MaxFrame`] too large for the provided buffer
     MaxFrameTooLarge,
 }
+
+impl core::fmt::Display for BbqError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        <Self as core::fmt::Debug>::fmt(self, f)
+    }
+}
+
+impl core::error::Error for BbqError {}
 
 /// RX Reception mode
 #[derive(Debug, Clone, Copy, Default)]
@@ -259,6 +267,22 @@ impl BbqParts {
             vtable: BbqVtable::for_lpuart::<T>(),
         })
     }
+
+    /// Access a borrow of the contained RX pin
+    pub fn rx_pin(&mut self) -> Peri<'_, AnyPin> {
+        self.rx_pin.reborrow()
+    }
+
+    /// Access a borrow of the contained TX pin
+    pub fn tx_pin(&mut self) -> Peri<'_, AnyPin> {
+        self.tx_pin.reborrow()
+    }
+
+    /// Access a borrow of both the RX and TX pin (in that order)
+    pub fn pins(&mut self) -> (Peri<'_, AnyPin>, Peri<'_, AnyPin>) {
+        let Self { tx_pin, rx_pin, .. } = self;
+        (rx_pin.reborrow(), tx_pin.reborrow())
+    }
 }
 
 impl BbqHalfParts {
@@ -297,6 +321,30 @@ impl BbqHalfParts {
             buffer,
             dma_ch: dma_ch.into(),
             pin: tx_pin.into(),
+            mux: P::MUX,
+            info: T::info(),
+            state: T::bbq_state(),
+            dma_req: T::RX_DMA_REQUEST.number(),
+            vtable: BbqVtable::for_lpuart::<T>(),
+            which: WhichHalf::Rx,
+        }
+    }
+
+    /// Setup Rx half while binding GPIO to the gpio pin.
+    /// This allows later use of async functions on the pin.
+    pub fn new_rx_half_async<T: BbqInstance, P: RxPin<T> + HasGpioInstance>(
+        _inner: Peri<'static, T>,
+        irq: impl Binding<T::Interrupt, BbqInterruptHandler<T>>
+        + Binding<<P::Instance as crate::gpio::Instance>::Interrupt, crate::gpio::InterruptHandler<P::Instance>>
+        + 'static,
+        tx_pin: Peri<'static, P>,
+        buffer: &'static mut [u8],
+        dma_ch: impl Into<DmaChannel<'static>>,
+    ) -> Self {
+        Self {
+            buffer,
+            dma_ch: dma_ch.into(),
+            pin: tx_pin.degrade_async(irq),
             mux: P::MUX,
             info: T::info(),
             state: T::bbq_state(),
@@ -422,6 +470,12 @@ impl LpuartBbq {
     /// See [`LpuartBbqTx::blocking_flush`] for more information
     pub fn blocking_flush(&mut self) {
         self.tx.blocking_flush();
+    }
+
+    /// Borrow split parts.
+    pub fn split_ref(&mut self) -> (&mut LpuartBbqRx, &mut LpuartBbqTx) {
+        let Self { tx, rx } = self;
+        (rx, tx)
     }
 
     /// Teardown the LpuartBbq, retrieving the original parts
@@ -679,6 +733,32 @@ impl LpuartBbqTx {
             vtable: self.vtable,
             which: WhichHalf::Tx,
         }
+    }
+}
+
+use embedded_io_async::ErrorType;
+impl embedded_io_async::Error for BbqError {
+    fn kind(&self) -> embedded_io::ErrorKind {
+        match self {
+            BbqError::Basic(error) => error.kind(),
+            BbqError::Busy => embedded_io::ErrorKind::Other,
+            BbqError::WrongParts => embedded_io::ErrorKind::Other,
+            BbqError::MaxFrameTooLarge => embedded_io::ErrorKind::OutOfMemory,
+        }
+    }
+}
+impl ErrorType for LpuartBbqTx {
+    type Error = BbqError;
+}
+
+impl embedded_io_async::Write for LpuartBbqTx {
+    fn write(&mut self, buf: &[u8]) -> impl Future<Output = Result<usize, Self::Error>> {
+        self.write(buf)
+    }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        self.flush().await;
+        Ok(())
     }
 }
 
@@ -961,6 +1041,16 @@ impl LpuartBbqRx {
             vtable: self.vtable,
             which: WhichHalf::Rx,
         }
+    }
+}
+
+impl embedded_io_async::ErrorType for LpuartBbqRx {
+    type Error = BbqError;
+}
+
+impl embedded_io_async::Read for LpuartBbqRx {
+    fn read(&mut self, buf: &mut [u8]) -> impl Future<Output = Result<usize, Self::Error>> {
+        self.read(buf)
     }
 }
 
@@ -1338,6 +1428,9 @@ macro_rules! impl_instance {
 }
 
 impl_instance!(0; 1; 2; 3; 4);
+
+#[cfg(feature = "mcxa5xx")]
+impl_instance!(5);
 
 // Basically the on_interrupt handler, but as a free function so it doesn't get
 // monomorphized.

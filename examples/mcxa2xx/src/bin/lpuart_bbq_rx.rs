@@ -34,23 +34,24 @@ use embassy_mcxa::clocks::periph_helpers::LpuartClockSel;
 use embassy_mcxa::dma::DmaChannel;
 use embassy_mcxa::gpio::{DriveStrength, Input, Level, Output, Pull, SlewRate};
 use embassy_mcxa::lpuart::{BbqConfig, BbqHalfParts, BbqRxMode, LpuartBbqRx};
-use embassy_mcxa::{bind_interrupts, lpuart};
+use embassy_mcxa::{bind_interrupts, gpio, lpuart, peripherals};
 use embassy_time::{Duration, WithTimeout};
 use static_cell::ConstStaticCell;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     LPUART3 => lpuart::BbqInterruptHandler::<hal::peripherals::LPUART3>;
+    GPIO4 => gpio::InterruptHandler<peripherals::GPIO4>;
 });
 
 const SIZE: usize = 4096;
 static RX_BUF: ConstStaticCell<[u8; SIZE]> = ConstStaticCell::new([0u8; SIZE]);
 
 #[cfg_attr(
-    feature = "custom-executor",
+    feature = "executor-platform",
     embassy_executor::main(executor = "embassy_mcxa::executor::Executor", entry = "cortex_m_rt::entry")
 )]
-#[cfg_attr(not(feature = "custom-executor"), embassy_executor::main)]
+#[cfg_attr(not(feature = "executor-platform"), embassy_executor::main)]
 async fn main(_spawner: Spawner) {
     let mut cfg = hal::config::Config::default();
 
@@ -59,7 +60,7 @@ async fn main(_spawner: Spawner) {
     fcfg.frequency = FircFreqSel::Mhz180;
     fcfg.power = PoweredClock::NormalEnabledDeepSleepDisabled;
     fcfg.fro_hf_enabled = true;
-    fcfg.clk_45m_enabled = false;
+    fcfg.clk_hf_fundamental_enabled = false;
     fcfg.fro_hf_div = Some(Div8::no_div());
     cfg.clock_cfg.firc = Some(fcfg);
 
@@ -110,11 +111,12 @@ async fn main(_spawner: Spawner) {
 
     // Create UART instance with DMA channels
     let dma = DmaChannel::new(p.DMA_CH0);
-    let mut parts = BbqHalfParts::new_rx_half(p.LPUART3, Irqs, p.P4_2, rx_buf, dma);
+
+    let mut parts = BbqHalfParts::new_rx_half_async(p.LPUART3, Irqs, p.P4_2, rx_buf, dma);
     let mut red = Output::new(p.P3_18, Level::High, DriveStrength::Normal, SlewRate::Fast);
     let mut debug = Output::new(p.P3_28, Level::High, DriveStrength::Normal, SlewRate::Fast);
 
-    #[cfg(feature = "custom-executor")]
+    #[cfg(feature = "executor-platform")]
     embassy_mcxa::executor::set_executor_debug_gpio(p.P1_0);
 
     loop {
@@ -122,7 +124,7 @@ async fn main(_spawner: Spawner) {
         red.set_high();
         debug.set_high();
         {
-            let mut input = Input::new(parts.pin(), Pull::Up);
+            let mut input = defmt::unwrap!(Input::async_from_anypin(parts.pin(), Pull::Up));
             input.wait_for_low().await;
         }
 

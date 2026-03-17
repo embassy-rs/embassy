@@ -8,7 +8,7 @@ publish = false
 [dependencies]
 
 # Change stm32l4r5zi to your chip name, if necessary.
-embassy-stm32 = { version = "0.5.0", path = "../../embassy-stm32", features = [ "defmt", "unstable-pac", "stm32l4r5zi", "memory-x", "exti", "single-bank"]  }
+embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "unstable-pac", "stm32l4r5zi", "memory-x", "exti", "single-bank"]  }
 
 # rtic = { version = "2.1.2", features = [ "thumbv7-backend" ] }
 rtic = { version = "2.2.0", features = [ "thumbv7-backend" ] }

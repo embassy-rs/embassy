@@ -4,9 +4,15 @@
 teleprobe_meta::target!(b"frdm-mcx-a266");
 
 use embassy_executor::Spawner;
-use embassy_mcxa::gpio::{Input, Output};
+use embassy_mcxa::gpio::{self, Async, Input, Output};
+use embassy_mcxa::{bind_interrupts, peripherals};
 use hal::config::Config;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    GPIO2 => gpio::InterruptHandler<peripherals::GPIO2>;
+    }
+);
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -22,7 +28,7 @@ async fn main(spawner: Spawner) {
         embassy_mcxa::gpio::SlewRate::Slow,
     );
 
-    spawner.spawn(wait(Input::new(p.P2_4, embassy_mcxa::gpio::Pull::Down)).unwrap());
+    spawner.spawn(wait(Input::new_async(p.P2_4, Irqs, embassy_mcxa::gpio::Pull::Down)).unwrap());
 
     embassy_time::Timer::after_millis(40).await;
     output.set_high();
@@ -45,7 +51,7 @@ async fn main(spawner: Spawner) {
 }
 
 #[embassy_executor::task]
-async fn wait(mut input: Input<'static>) {
+async fn wait(mut input: Input<'static, Async>) {
     assert!(input.is_low());
 
     input.wait_for_high().await;

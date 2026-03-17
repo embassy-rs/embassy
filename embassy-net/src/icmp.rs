@@ -275,14 +275,15 @@ impl<'a> IcmpSocket<'a> {
     /// Enqueue a packet to be sent to a given remote address with a zero-copy function.
     ///
     /// This method will wait until the buffer can fit the requested size before
-    /// calling the function to fill its contents.
-    pub async fn send_to_with<T, F, R>(&mut self, size: usize, remote_endpoint: T, f: F) -> Result<R, SendError>
+    /// passing it to the closure. The closure returns the number of bytes
+    /// written into the buffer.
+    pub async fn send_to_with<T, F, R>(&mut self, max_size: usize, remote_endpoint: T, f: F) -> Result<R, SendError>
     where
         T: Into<IpAddress>,
-        F: FnOnce(&mut [u8]) -> R,
+        F: FnOnce(&mut [u8]) -> (usize, R),
     {
         // Don't need to wake waker in `with_mut` if the buffer will never fit the icmp tx_buffer.
-        let send_capacity_too_small = self.with(|s, _| s.payload_send_capacity() < size);
+        let send_capacity_too_small = self.with(|s, _| s.payload_send_capacity() < max_size);
         if send_capacity_too_small {
             return Err(SendError::PacketTooLarge);
         }
@@ -290,13 +291,21 @@ impl<'a> IcmpSocket<'a> {
         let mut f = Some(f);
         let remote_endpoint = remote_endpoint.into();
         poll_fn(move |cx| {
-            self.with_mut(|s, _| match s.send(size, remote_endpoint) {
-                Ok(buf) => Poll::Ready(Ok({ unwrap!(f.take())(buf) })),
-                Err(icmp::SendError::BufferFull) => {
-                    s.register_send_waker(cx.waker());
-                    Poll::Pending
+            self.with_mut(|s, _| {
+                let mut ret = None;
+
+                match s.send_with(max_size, remote_endpoint, |buf| {
+                    let (size, r) = unwrap!(f.take())(buf);
+                    ret = Some(r);
+                    size
+                }) {
+                    Ok(_n) => Poll::Ready(Ok(unwrap!(ret))),
+                    Err(icmp::SendError::BufferFull) => {
+                        s.register_send_waker(cx.waker());
+                        Poll::Pending
+                    }
+                    Err(icmp::SendError::Unaddressable) => Poll::Ready(Err(SendError::NoRoute)),
                 }
-                Err(icmp::SendError::Unaddressable) => Poll::Ready(Err(SendError::NoRoute)),
             })
         })
         .await
@@ -580,7 +589,7 @@ pub mod ping {
             // Send with timeout the ICMP packet filling it with the helper function
             let send_result = socket
                 .send_to_with(ping_repr.buffer_len(), params.target.unwrap(), |buf| {
-                    fill_packet_buffer(buf, ping_repr)
+                    (buf.len(), fill_packet_buffer(buf, ping_repr))
                 })
                 .with_timeout(Duration::from_millis(100))
                 .await;
@@ -651,7 +660,7 @@ pub mod ping {
             // Send with timeout the ICMP packet filling it with the helper function
             let send_result = socket
                 .send_to_with(ping_repr.buffer_len(), params.target.unwrap(), |buf| {
-                    fill_packet_buffer(buf, ping_repr, params)
+                    (buf.len(), fill_packet_buffer(buf, ping_repr, params))
                 })
                 .with_timeout(Duration::from_millis(100))
                 .await;

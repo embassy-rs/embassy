@@ -56,8 +56,9 @@ impl Drop for WakeGuard {
 
 /// The `Clocks` structure contains the initialized state of the core system clocks
 ///
-/// These values are configured by providing [`config::ClocksConfig`] to the [`init()`](super::init) function
-/// at boot time.
+/// These values are configured by providing
+/// [ClocksConfig](crate::clocks::config::ClocksConfig) to the
+/// [`init()`](super::init) function at boot time.
 #[derive(Default, Debug, Clone)]
 #[non_exhaustive]
 pub struct Clocks {
@@ -81,29 +82,25 @@ pub struct Clocks {
     #[cfg(not(feature = "sosc-as-gpio"))]
     pub clk_in: Option<Clock>,
 
-    // FRO180M stuff
+    // FRO180M/FRO192M stuff
     //
-    /// `fro_hf_root` is the direct output of the `FRO180M` internal oscillator
+    /// `fro_hf_root` is the direct output of the `FRO180M`/`FRO192M` internal oscillator
     ///
-    /// It is used to feed downstream clocks, such as `fro_hf`, `clk_45m`,
+    /// It is used to feed downstream clocks, such as `fro_hf`, `clk_45m`/`clk_48m`,
     /// and `fro_hf_div`.
-    #[cfg(feature = "mcxa2xx")]
     pub fro_hf_root: Option<Clock>,
 
     /// `fro_hf` is the same frequency as `fro_hf_root`, but behind a gate.
-    #[cfg(feature = "mcxa2xx")]
     pub fro_hf: Option<Clock>,
 
-    /// `clk_45` is a 45MHz clock, sourced from `fro_hf`.
-    #[cfg(feature = "mcxa2xx")]
-    pub clk_45m: Option<Clock>,
+    /// `clk_45m` (2xx) or `clk_48` (5xx) is a 45MHz/48MHz clock, sourced from `fro_hf`.
+    pub clk_hf_fundamental: Option<Clock>,
 
     /// `fro_hf_div` is a configurable frequency clock, sourced from `fro_hf`.
-    #[cfg(feature = "mcxa2xx")]
     pub fro_hf_div: Option<Clock>,
 
     //
-    // End FRO180M
+    // End FRO180M/FRO192M
 
     // FRO12M stuff
     //
@@ -257,14 +254,12 @@ impl Clocks {
     }
 
     /// Ensure the `fro_hf` clock is active and valid at the given power state.
-    #[cfg(feature = "mcxa2xx")]
     #[inline]
     pub fn ensure_fro_hf_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
         self.ensure_clock_active(&self.fro_hf, "fro_hf", at_level)
     }
 
     /// Ensure the `fro_hf_div` clock is active and valid at the given power state.
-    #[cfg(feature = "mcxa2xx")]
     #[inline]
     pub fn ensure_fro_hf_div_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
         self.ensure_clock_active(&self.fro_hf_div, "fro_hf_div", at_level)
@@ -357,7 +352,6 @@ impl Clocks {
     }
 
     /// Ensure the `CPU_CLK` or `SYSTEM_CLK` is active
-    #[cfg(feature = "mcxa2xx")]
     pub fn ensure_cpu_system_clk_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
         let Some(clk) = self.cpu_system_clk.as_ref() else {
             return Err(ClockError::BadConfig {
@@ -380,7 +374,6 @@ impl Clocks {
         Ok(clk.frequency)
     }
 
-    #[cfg(feature = "mcxa2xx")]
     pub fn ensure_slow_clk_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
         let freq = self.ensure_cpu_system_clk_active(at_level)?;
 

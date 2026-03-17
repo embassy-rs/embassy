@@ -144,6 +144,13 @@ impl<'d, T: Instance> Rng<'d, T> {
             reg.set_rngen(true);
             reg.set_condrst(false);
         });
+
+        // According to reference manual for RNGv3: SEIS must be cleared manually.
+        // RNGv2 does not say anything about SEIS clearing, but ST Cube HAL clears it.
+        T::regs().sr().modify(|reg| {
+            reg.set_seis(false);
+        });
+
         // According to reference manual: after software reset, wait for random number to be ready
         // The next_u32() call will wait for DRDY, completing the initialization
         let _ = self.next_u32();

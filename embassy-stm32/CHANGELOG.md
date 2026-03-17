@@ -7,21 +7,138 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## Unreleased - ReleaseDate
-- fix: stm32/i2s: fix frame misalignment after DMA ring buffer overrun recovery by adding alignment support to `ReadableDmaRingBuffer`
-- fix: stm32/i2s: defer I2SE enable from constructor to `start()` for proper slave frame synchronization
-- fix: stm32/i2s: Use correct PLLI2S clock source for STM32F2 and STM32F7 instead of APB clock
-- change: stm32: Change HRTIM implementetion to use stm32-hrtim driver for G474/484 and F334
-- fix: stm32/spi-i2s: Add dedicated I2sSdPin trait for I2S data pins to unlock previously unavailable I2S pin configurations
-- feat: stm32/i2s: add `new_rxonly_nomck` and `new_full_duplex_nomck` constructors for use without master clock (e.g. slave mode)
+
+ADC:
+- feat: stm32/adc: add `VrefInt::calibrated_value()` for additional chips
+
+## 0.6.0 - 2026-03-10
+
+ADC:
+- feat: stm32/adc v2: add support for injected conversions
+- feat: stm32/adc v2: add support for triggered ADC conversions
+- feat: stm32/adc: add `read_latest()` to ring buffer
+- feat: stm32/adc: expose `set_alignment()` on `RingBufferedAdc`
+- fix: stm32/adc: align ring buffer reads to scan sequence length
+- feat: stm32/adc: add low-power improvements for v1/v3
+- feat: stm32/adc: add ADC4 circular DMA and temperature calibration for STM32WBA
+- fix: stm32/adc/v3: correct VREF_CALIB_MV for H5 and H7RS chips
+- fix: stm32/adc/g4: correct VREF_CALIB_MV
+- feat: stm32/adc: add `SealedSpecialConverter` for STM32L0 temperature
+- feat: stm32/adc: add triggers
+
+I2C:
+- fix: stm32/i2c v2: reset peripheral on BERR/ARLO in all paths (async DMA, blocking slave, blocking master)
 - fix: stm32/i2c v2: Fix async slave by using DMA completion instead of TC flag for buffer-full detection
 - change: stm32/i2c v2: slave `respond_to_write` and `respond_to_read` now return actual bytes transferred instead of buffer size (breaking change, matching v1 behavior)
 - fix: stm32/i2c v1: `write_read` was losing last write byte before RESTART due to not waiting for BTF
 - fix: stm32/i2c v1: slave: async `respond_to_write` and `respond_to_read` now return actual bytes transferred instead of buffer size
-- fix: don't put USB pins into alternate mode on chips where USB is an additional function
-- feat: add i2s to STM32G4 except G414
+
+I2S:
+- fix: stm32/i2s: fix frame misalignment after DMA ring buffer overrun recovery by adding alignment support to `ReadableDmaRingBuffer`
+- fix: stm32/i2s: defer I2SE enable from constructor to `start()` for proper slave frame synchronization
+- fix: stm32/i2s: Use correct PLLI2S clock source for STM32F2 and STM32F7 instead of APB clock
+- fix: stm32/spi-i2s: Add dedicated I2sSdPin trait for I2S data pins to unlock previously unavailable I2S pin configurations
+- feat: stm32/i2s: add `new_rxonly_nomck` and `new_full_duplex_nomck` constructors for use without master clock (e.g. slave mode)
+- feat: add I2S to STM32G4 except G414
+
+QEI:
+- feat: stm32/qei: add counter reset
+- feat: stm32/qei: add auto reload config
+
+DAC:
+- feat: stm32/dac: add sawtooth waveform for G4
+- feat: stm32/dac: add HRTIM DAC triggers
+- feat: stm32/dac: type-erase DAC
+- feat: stm32/dac: add trigger trait impl
+
+OPAMP:
+- feat: stm32/opamp: allow VINM0 as bias input
+
+New peripheral drivers:
+- feat: stm32: add WWDG (window watchdog) driver
+- feat: stm32: add COMP (Comparator) driver for STM32WBA/U5
+
+DMA:
+- feat: stm32/dma: add memory-to-memory transfers for BDMA/GPDMA
+- feat: stm32/dma: add MDMA support for H7
+- feat: stm32/dma: add `set_alignment` pass-through to GPDMA `ReadableRingBuffer`
+- fix: stm32/xspi: fix DMA
+
+Flash:
+- feat: stm32/flash: add async support for L4
+- feat: stm32/flash: add async support for G0/G4
+- feat: stm32: support flash base address remapping
+
+FDCAN:
+- fix: stm32/fdcan: disable RCC when refcount reaches 0
+- fix: stm32/fdcan: avoid ISR spin on persistent bus errors
+- fix: stm32/fdcan: drain all RX FIFO frames per interrupt in buffered mode
+- change: stm32/can: remove `BusOFF`, `BusPassive`, `BusWarning` from bus error enum (breaking change)
+
+GPIO/EXTI:
+- feat: stm32/gpio,exti: add `from_flex`/`from_input` constructors for `Input` and `ExtiInput`
+
+SPI:
+- fix: stm32/spi: wait for TXE/BSY before disabling SPE
+
+Timer:
+- feat: stm32/timer: add `set_period`, improve PSC/ARR calculation
+- change: stm32/timer/input_capture: use timer word size for all outputs
+
+HRTIM:
+- change: stm32: Change HRTIM implementation to use stm32-hrtim driver for G474/484 and F334
+- feat: stm32/hrtim: add master timer
+
+SDMMC:
+- fix: stm32/sdmmc: add WFE support
+
+Crypto (WBA):
+- feat: stm32/wba: add AES, SAES, and PKA cryptographic drivers
+- feat: stm32/aes: add GMAC and CCM cipher modes
+- fix: stm32/aes: fix CBC/CTR cipher modes to match ST HAL behavior
+- fix: stm32/saes: fix multiple bugs in SAES driver for saes_v1a peripheral
+- feat: stm32/pka: add full ECC support with ECDSA sign/verify and ECDH
+- feat: stm32/pka: add Montgomery, arithmetic, and RSA operations
+
+Low-power:
+- feat: stm32/low-power: add WBA STOP mode support
+- feat: stm32/low-power: add STM32WLEx LPTIM time driver
+- feat: stm32/low-power: add STM32WL5x dual-core support
+
+STM32F1:
+- feat: stm32f1: add config option to remap JTAG pins
+
+STM32N6:
+- feat: stm32n6: add PLL3/4 support, configure all ICs and clock multiplexer
+- feat: stm32n6: add LTDC support
+- feat: stm32n6: rewrite RISAF access from raw pointer to PAC
+- feat: stm32n6: implement ClockCalculations for IC1 and IC2
+
+STM32H7RS:
+- feat: stm32h7rs: add SYSCFG control for internal flash config
+- feat: stm32h7rs: enable PLL2 S/T channels
+
+QSPI:
+- feat: stm32/xspi: add Hexadeca-SPI method for dual DQS pins
+
+SMI:
+- feat: stm32: expose `smi::Instance` publicly
+
+RCC:
 - fix: stm32/rcc: allow linker to optimize out expensive PLL init functions in binaries where the PLL is not used (e.g. most bootloaders)
-- fix: stm32/adc/v3: correct VREF_CALIB_MV for H5 and H7RS chips
-- fix: stm32/adc/g4: correct VREF_CALIB_MV
+
+USB:
+- fix: don't put USB pins into alternate mode on chips where USB is an additional function
+
+Misc:
+- change: `gpio-init-analog` is now a non-default feature
+- fix: stm32/rng: panic if RNG clock not set
+
+- Upgrade embassy-sync to 0.8.0
+- Upgrade embassy-embedded-hal to 0.6.0
+- Upgrade embassy-usb-synopsys-otg to 0.3.2
+- Upgrade embassy-executor to 0.10.0
+- Upgrade cyw43 to 0.7.0
 
 ## 0.5.0 - 2026-01-04
 - Add `receive_waveform` method in `InputCapture`, allowing asynchronous input capture with DMA.
