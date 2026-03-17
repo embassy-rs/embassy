@@ -1,44 +1,42 @@
 #[unsafe(export_name = "__pender")]
 #[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
 fn __pender(context: *mut ()) {
-    unsafe {
-        // Safety: `context` is either `usize::MAX` created by `Executor::run`, or a valid interrupt
-        // request number given to `InterruptExecutor::start`.
+    // Safety: `context` is either `usize::MAX` created by `Executor::run`, or a valid interrupt
+    // request number given to `InterruptExecutor::start`.
 
-        let context = context as usize;
+    let context = context as usize;
 
-        #[cfg(feature = "executor-thread")]
-        // Try to make Rust optimize the branching away if we only use thread mode.
-        if !cfg!(feature = "executor-interrupt") || context == THREAD_PENDER {
-            core::arch::asm!("sev");
-            return;
+    #[cfg(feature = "executor-thread")]
+    // Try to make Rust optimize the branching away if we only use thread mode.
+    if !cfg!(feature = "executor-interrupt") || context == THREAD_PENDER {
+        thread::SIGNAL_WORK_THREAD_MODE.store(true, core::sync::atomic::Ordering::SeqCst);
+        return;
+    }
+
+    #[cfg(feature = "executor-interrupt")]
+    {
+        use cortex_m::interrupt::InterruptNumber;
+        use cortex_m::peripheral::NVIC;
+
+        #[derive(Clone, Copy)]
+        struct Irq(u16);
+        unsafe impl InterruptNumber for Irq {
+            fn number(self) -> u16 {
+                self.0
+            }
         }
 
-        #[cfg(feature = "executor-interrupt")]
+        let irq = Irq(context as u16);
+
+        // STIR is faster, but is only available in v7 and higher.
+        #[cfg(not(armv6m))]
         {
-            use cortex_m::interrupt::InterruptNumber;
-            use cortex_m::peripheral::NVIC;
-
-            #[derive(Clone, Copy)]
-            struct Irq(u16);
-            unsafe impl InterruptNumber for Irq {
-                fn number(self) -> u16 {
-                    self.0
-                }
-            }
-
-            let irq = Irq(context as u16);
-
-            // STIR is faster, but is only available in v7 and higher.
-            #[cfg(not(armv6m))]
-            {
-                let mut nvic: NVIC = core::mem::transmute(());
-                nvic.request(irq);
-            }
-
-            #[cfg(armv6m)]
-            NVIC::pend(irq);
+            let mut nvic: NVIC = unsafe { core::mem::transmute(()) };
+            nvic.request(irq);
         }
+
+        #[cfg(armv6m)]
+        NVIC::pend(irq);
     }
 }
 
@@ -50,19 +48,22 @@ mod thread {
 
     use core::arch::asm;
     use core::marker::PhantomData;
+    use core::sync::atomic::{AtomicBool, Ordering};
 
     pub use embassy_executor_macros::main_cortex_m as main;
 
     use crate::{Spawner, raw};
 
-    /// Thread mode executor, using WFE/SEV.
+    pub(super) static SIGNAL_WORK_THREAD_MODE: AtomicBool = AtomicBool::new(false);
+
+    /// Thread mode executor, using WFI.
     ///
     /// This is the simplest and most common kind of executor. It runs on
-    /// thread mode (at the lowest priority level), and uses the `WFE` ARM instruction
-    /// to sleep when it has no more work to do. When a task is woken, a `SEV` instruction
-    /// is executed, to make the `WFE` exit from sleep and poll the task.
+    /// thread mode (at the lowest priority level), and uses the `WFI` ARM instruction
+    /// to sleep when it has no more work to do. When a task is woken, the `WFI`
+    /// exits and the executor polls the task.
     ///
-    /// This executor allows for ultra low power consumption for chips where `WFE`
+    /// This executor allows for ultra low power consumption for chips where `WFI`
     /// triggers low-power sleep without extra steps. If your chip requires extra steps,
     /// you may use [`raw::Executor`] directly to program custom behavior.
     pub struct Executor {
@@ -103,8 +104,14 @@ mod thread {
             loop {
                 unsafe {
                     self.inner.poll();
-                    asm!("wfe");
-                };
+                    critical_section::with(|_| {
+                        if SIGNAL_WORK_THREAD_MODE.load(Ordering::SeqCst) {
+                            SIGNAL_WORK_THREAD_MODE.store(false, Ordering::SeqCst);
+                        } else {
+                            asm!("wfi");
+                        }
+                    });
+                }
             }
         }
     }
