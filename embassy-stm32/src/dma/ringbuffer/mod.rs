@@ -218,15 +218,22 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
         if self.alignment > 1 {
             readable -= readable % self.alignment;
         }
+        // Snapshot write_index before copying so the returned `remaining` reflects
+        // the buffer state at the time of the read rather than requiring a second
+        // hardware NDTR access and complete_count reset mid-copy.
+        let write_snapshot = self.write_index;
+
         // Copy data starting skip words ahead of current read_index.
         for i in 0..readable {
             buf[i] = self.read_buf(skip + i);
         }
-        let remaining = self.len(dma)?;
+
         // Commit both the alignment skip and the read in one advance, so
-        // read_index is never in a partially-advanced state if len() errors above.
+        // read_index is never in a partially-advanced state on error.
         self.read_index.advance(self.cap(), skip + readable);
-        Ok((readable, remaining.saturating_sub(skip + readable)))
+
+        let remaining = write_snapshot.diff(self.cap(), &self.read_index).max(0) as usize;
+        Ok((readable, remaining))
     }
 
     /// Read the most recent elements from the ring buffer, discarding any older data.
