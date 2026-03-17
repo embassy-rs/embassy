@@ -172,16 +172,20 @@ impl<'a, 'd> DmaHasher<'a, 'd> {
         state.processed_bytes = dma_len_bytes;
 
         if remainder_len > 0 {
-            state.remainder[..remainder_len].copy_from_slice(&input[input.len() - remainder_len..]);
+            let remainder_start = input.len().checked_sub(remainder_len).ok_or(SGIError::InvalidSize)?;
+            let src = input.get(remainder_start..).ok_or(SGIError::InvalidSize)?;
+            let dst = state.remainder.get_mut(..remainder_len).ok_or(SGIError::InvalidSize)?;
+            dst.copy_from_slice(src);
         }
 
         if dma_len_bytes > 0 {
+            let dma_input = input.get(..dma_len_bytes).ok_or(SGIError::InvalidSize)?;
             sgi.init_sgi_sha(state.options)?;
 
             // Arm operation-done interrupt before starting the hash operation.
             sgi.enable_operation_done_interrupt();
-            sgi.start_sgi_hash(state.options, &input[..dma_len_bytes])?;
-            state.transfer = Some(sgi.fill_sha2_fifo_dma_start(dma_ch, &input[..dma_len_bytes], dma_len_bytes)?);
+            sgi.start_sgi_hash(state.options, dma_input)?;
+            state.transfer = Some(sgi.fill_sha2_fifo_dma_start(dma_ch, dma_input, dma_len_bytes)?);
 
             // After starting, subsequent operations must not auto-init unless re-init'd.
             state.options.init = HashInit::NoInit;
@@ -194,7 +198,11 @@ impl<'a, 'd> DmaHasher<'a, 'd> {
 
         let final_remainder_len = state.total_input_len - state.processed_bytes;
         let mut padded = [0u8; MAX_BLOCK_SIZE * 2];
-        let padded_len = match create_padded_message(&state.remainder[..final_remainder_len], &mut padded) {
+        let final_remainder = state
+            .remainder
+            .get(..final_remainder_len)
+            .ok_or(SGIError::InvalidSize)?;
+        let padded_len = match create_padded_message(final_remainder, &mut padded) {
             Some(padded_len) => padded_len,
             None => {
                 #[cfg(feature = "defmt")]
@@ -210,7 +218,10 @@ impl<'a, 'd> DmaHasher<'a, 'd> {
         // IMPORTANT: total length is the total length of the original message, not just the remainder, since the SGI engine needs this for padding and length encoding in the final block(s).
         let bit_len = (state.total_input_len as u128) * 8;
         let length_field_offset = padded_len - 16;
-        padded[length_field_offset..length_field_offset + 16].copy_from_slice(&bit_len.to_be_bytes());
+        let length_field = padded
+            .get_mut(length_field_offset..length_field_offset + 16)
+            .ok_or(SGIError::InvalidSize)?;
+        length_field.copy_from_slice(&bit_len.to_be_bytes());
 
         if state.processed_bytes > 0 {
             sgi.update_partial_output(state.options, &mut state.prev_result)?;
@@ -267,7 +278,7 @@ impl<'d> BlockingHasher<'d> {
             return Err(SGIError::BufferTooSmall);
         }
 
-        let required_total_len = calculate_padded_length(input.len());
+        let required_total_len = calculate_padded_length(input.len()).ok_or(SGIError::InvalidSize)?;
         if required_total_len > MAX_BLOCK_SIZE * 5 {
             return Err(SGIError::BufferTooSmall);
         }
@@ -309,37 +320,37 @@ impl<'d> BlockingHasher<'d> {
         }
 
         let mut result = [0u8; 48];
-        result.copy_from_slice(&full_digest[..48]);
+        result.copy_from_slice(full_digest.get(..48)?);
         Some(result)
     }
 }
 
-fn calculate_padded_length(message_len: usize) -> usize {
-    let bit_len = message_len * 8;
+fn calculate_padded_length(message_len: usize) -> Option<usize> {
+    let bit_len = message_len.checked_mul(8)?;
     // Calculate k where (bit_len + 1 + k) ≡ 896 (mod 1024)
     // k = (896 - (bit_len + 1)) mod 1024, need to handle cases where bit_len + 1 > 896
-    let remainder = (bit_len + 1) % 1024;
+    let remainder = bit_len.checked_add(1)? % 1024;
     let padding_bits = (1024 + 896 - remainder) % 1024;
     // Total bits guaranteed to be a multiple of 1024 and divisible by 8.
-    let total_bits = bit_len + 1 + padding_bits + 128;
-    total_bits / 8 // Return bytes because array copy is in bytes.
+    let total_bits = bit_len.checked_add(1)?.checked_add(padding_bits)?.checked_add(128)?;
+    Some(total_bits / 8) // Return bytes because array copy is in bytes.
 }
 
 // Create padded message according to FIPS-180-4 in a fixed buffer
 // Returns the actual length used
 fn create_padded_message(input: &[u8], buffer: &mut [u8]) -> Option<usize> {
-    let padded_len = calculate_padded_length(input.len());
+    let padded_len = calculate_padded_length(input.len())?;
     if buffer.len() < padded_len {
         return None;
     }
 
-    buffer[..input.len()].copy_from_slice(input); // Copy original message
-    buffer[input.len()] = 0x80; // Add padding bit immediately after the last byte of the message per FIPS-180-4
+    buffer.get_mut(..input.len())?.copy_from_slice(input); // Copy original message
+    *buffer.get_mut(input.len())? = 0x80; // Add padding bit immediately after the last byte of the message per FIPS-180-4
 
     // Add 128-bit length in bits (big-endian) to last 16 bytes
     let bit_len = (input.len() as u128) * 8;
     let len_offset = padded_len - 16;
-    buffer[len_offset..len_offset + 16].copy_from_slice(&bit_len.to_be_bytes());
+    buffer.get_mut(len_offset..len_offset + 16)?.copy_from_slice(&bit_len.to_be_bytes());
 
     Some(padded_len)
 }
@@ -385,18 +396,38 @@ fn process_single_block_update<'d>(
     let mut write_bytes = 0;
 
     if hasher.ctx.curr_block_ptr + input_len < MAX_BLOCK_SIZE {
-        hasher.ctx.curr_block[hasher.ctx.curr_block_ptr..hasher.ctx.curr_block_ptr + input_len].copy_from_slice(input);
+        // process_single_block_update() only handles sub-block inputs, so this end offset stays in-bounds.
+        let block_end = hasher.ctx.curr_block_ptr + input_len;
+        hasher
+            .ctx
+            .curr_block
+            .get_mut(hasher.ctx.curr_block_ptr..block_end)
+            .ok_or(SGIError::InvalidSize)?
+            .copy_from_slice(input);
         hasher.ctx.curr_block_ptr += input_len;
         hasher.ctx.curr_block_ptr = hasher.ctx.curr_block_ptr % MAX_BLOCK_SIZE; // Wrap around if we exceed block size, but we won't process until we have a full block;
         return Ok(()); // Wait until we have a full block before processing
     } else if hasher.ctx.curr_block_ptr + input_len > MAX_BLOCK_SIZE {
         let space_left = MAX_BLOCK_SIZE - hasher.ctx.curr_block_ptr;
-        hasher.ctx.curr_block[hasher.ctx.curr_block_ptr..].copy_from_slice(&input[..space_left]);
+        let curr_block_tail = hasher
+            .ctx
+            .curr_block
+            .get_mut(hasher.ctx.curr_block_ptr..)
+            .ok_or(SGIError::InvalidSize)?;
+        let input_prefix = input.get(..space_left).ok_or(SGIError::InvalidSize)?;
+        curr_block_tail.copy_from_slice(input_prefix);
         write_bytes = input_len - space_left;
         overflows_block = true;
         hasher.ctx.curr_block_ptr = 0; // Reset pointer for the next block
-    } else if hasher.ctx.curr_block_ptr + input_len == MAX_BLOCK_SIZE {
-        hasher.ctx.curr_block[hasher.ctx.curr_block_ptr..hasher.ctx.curr_block_ptr + input_len].copy_from_slice(input);
+    } else {
+        // This branch exactly fills the current block, so the end offset lands on MAX_BLOCK_SIZE.
+        let block_end = hasher.ctx.curr_block_ptr + input_len;
+        hasher
+            .ctx
+            .curr_block
+            .get_mut(hasher.ctx.curr_block_ptr..block_end)
+            .ok_or(SGIError::InvalidSize)?
+            .copy_from_slice(input);
         hasher.ctx.curr_block_ptr = 0; // Reset pointer for the next block
     }
 
@@ -424,7 +455,16 @@ fn process_single_block_update<'d>(
             "Input overflows current block by {=usize} bytes, writing remaining bytes to next block",
             write_bytes
         );
-        hasher.ctx.curr_block[..write_bytes].copy_from_slice(&input[input.len() - write_bytes..]);
+        let curr_block_prefix = hasher
+            .ctx
+            .curr_block
+            .get_mut(..write_bytes)
+            .ok_or(SGIError::InvalidSize)?;
+        // This overflow path only writes the leftover suffix, so `write_bytes` cannot exceed `input.len()`.
+        let input_suffix = input
+            .get(input.len() - write_bytes..)
+            .ok_or(SGIError::InvalidSize)?;
+        curr_block_prefix.copy_from_slice(input_suffix);
         hasher.ctx.curr_block_ptr = write_bytes;
     }
     Ok(())
@@ -460,7 +500,15 @@ impl StreamingHasher {
             // 512 bytes seems like a reasonable upper limit for UPDATE calls that are > 128 bytes,
             // since this will require auto mode FIFO filling.
         }
-        self.ctx.total_len += input_len;
+        if self.ctx.curr_block_ptr > MAX_BLOCK_SIZE {
+            return Err(SGIError::InvalidSize);
+        }
+
+        self.ctx.total_len = self
+            .ctx
+            .total_len
+            .checked_add(input_len)
+            .ok_or(SGIError::InvalidSize)?;
 
         if input_len > MAX_BLOCK_SIZE {
             let mut copy_buffer = [0u8; MAX_BLOCK_SIZE * 4]; // Temporary buffer to hold chunks of the input that fit within the block size, max 512 bytes.
@@ -474,15 +522,20 @@ impl StreamingHasher {
             };
 
             // We can only copy as much as fits in the copy buffer, and we need to make sure we only copy full blocks worth of data for processing
-            // Copy available but yet unprocessed data from the current block buffer.
+            // Copy available but yet unprocessed data from the current block buffer. Copy is safe because `curr_block_ptr` is guaranteed to be less than or equal to `MAX_BLOCK_SIZE`, and thus less than the `copy_buffer` size.
             copy_buffer[..self.ctx.curr_block_ptr].copy_from_slice(&self.ctx.curr_block[..self.ctx.curr_block_ptr]);
-            // Copy the rest of the data that fills up to `copy_len`, which is now a multiple of block size.
+            // Copy the rest of the data that fills up to `copy_len`, which is now a multiple of block size. Copy is safe because `copy_len` is guaranteed to be less than or equal to `input_len + self.ctx.curr_block_ptr`, 
+            // and we only copy the portion of `input` that fits within `copy_len - self.ctx.curr_block_ptr`.
             copy_buffer[self.ctx.curr_block_ptr..copy_len]
                 .copy_from_slice(&input[..copy_len - self.ctx.curr_block_ptr]);
 
             process_multi_block_update(self, &mut sgi, &copy_buffer[..copy_len])?;
 
-            self.ctx.processed_len += copy_len;
+            self.ctx.processed_len = self
+                .ctx
+                .processed_len
+                .checked_add(copy_len)
+                .ok_or(SGIError::InvalidSize)?;
             let unprocessed_input_len = input_len - (copy_len - self.ctx.curr_block_ptr); // Calculate how much input is left after processing the copy buffer
             self.ctx.curr_block_ptr = unprocessed_input_len; // Set the current block pointer to the remaining unprocessed input length.
 
@@ -493,7 +546,14 @@ impl StreamingHasher {
                 unprocessed_input_len
             );
 
-            self.ctx.curr_block[..self.ctx.curr_block_ptr].copy_from_slice(&input[input_len - unprocessed_input_len..]); // Copy the remaining unprocessed input into the current block buffer for future processing
+            let remaining_input_start = input_len.checked_sub(unprocessed_input_len).ok_or(SGIError::InvalidSize)?;
+            let remaining_input = input.get(remaining_input_start..).ok_or(SGIError::InvalidSize)?;
+            let curr_block_prefix = self
+                .ctx
+                .curr_block
+                .get_mut(..self.ctx.curr_block_ptr)
+                .ok_or(SGIError::InvalidSize)?;
+            curr_block_prefix.copy_from_slice(remaining_input); // Copy the remaining unprocessed input into the current block buffer for future processing
             self.ctx.options.op_mode = curr_op_mode; // Restore original mode after processing large input
             return Ok(());
         }
@@ -506,17 +566,32 @@ impl StreamingHasher {
         const MAX_FINAL_BUFFER_SIZE: usize = 256;
 
         let mut hash_buffer = [0u8; MAX_FINAL_BUFFER_SIZE]; // Buffer to hold the final block with padding, max size is 256 bytes to accommodate padding
-        let remaining_data_len = self.ctx.total_len - self.ctx.processed_len;
+        let remaining_data_len = self
+            .ctx
+            .total_len
+            .checked_sub(self.ctx.processed_len)
+            .ok_or(SGIError::InvalidSize)?;
 
         if remaining_data_len > 0 {
             if remaining_data_len > MAX_BLOCK_SIZE {
                 return Err(SGIError::InvalidSize); // Can't have more than 128 bytes of unprocessed data for SHA-384/512, since that's the block size
             }
             // Process the remaining data in the current block buffer
-            hash_buffer[..remaining_data_len].copy_from_slice(&self.ctx.curr_block[..remaining_data_len]);
+            let remaining_curr_block = self
+                .ctx
+                .curr_block
+                .get(..remaining_data_len)
+                .ok_or(SGIError::InvalidSize)?;
+            let hash_buffer_prefix = hash_buffer
+                .get_mut(..remaining_data_len)
+                .ok_or(SGIError::InvalidSize)?;
+            hash_buffer_prefix.copy_from_slice(remaining_curr_block);
         }
 
-        let final_block_len = calculate_padded_length(self.ctx.total_len) - self.ctx.processed_len; // Calculate how many bytes are in the final block (including padding)
+        let padded_total_len = calculate_padded_length(self.ctx.total_len).ok_or(SGIError::InvalidSize)?;
+        let final_block_len = padded_total_len
+            .checked_sub(self.ctx.processed_len)
+            .ok_or(SGIError::InvalidSize)?; // Calculate how many bytes are in the final block (including padding)
 
         if remaining_data_len > final_block_len {
             return Err(SGIError::InvalidSize); // Remaining data can't exceed the final block length, otherwise we would need to process another block before finalizing
@@ -540,10 +615,14 @@ impl StreamingHasher {
             return Err(SGIError::BufferTooSmall);
         }
 
-        hash_buffer[remaining_data_len] = 0x80; // Add the '1' bit padding immediately after the message data in the final block
-        let len_offset = final_block_len - 16; // The last 16 bytes of the final block are reserved for the length
+        *hash_buffer.get_mut(remaining_data_len).ok_or(SGIError::InvalidSize)? = 0x80; // Add the '1' bit padding immediately after the message data in the final block
+        let len_offset = final_block_len.checked_sub(16).ok_or(SGIError::InvalidSize)?; // The last 16 bytes of the final block are reserved for the length
+        // total_len widens from `usize` to `u128`, so multiplying by 8 cannot overflow.
         let bit_len = (self.ctx.total_len as u128) * 8;
-        hash_buffer[len_offset..len_offset + 16].copy_from_slice(&bit_len.to_be_bytes());
+        let len_field = hash_buffer
+            .get_mut(len_offset..len_offset + 16)
+            .ok_or(SGIError::InvalidSize)?;
+        len_field.copy_from_slice(&bit_len.to_be_bytes());
 
         let mut fifo_start = 0; // We will fill the FIFO starting from the beginning of the hash_buffer which contains the final block with padding
         let mut fifo_end = if self.ctx.options.op_mode == HashMode::Normal {
