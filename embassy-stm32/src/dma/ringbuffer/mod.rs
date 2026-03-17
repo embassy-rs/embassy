@@ -193,33 +193,40 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
 
         let mut available = self.len(dma)?;
 
-        // Skip misaligned samples to maintain frame alignment after overrun recovery.
+        // Compute alignment skip without advancing read_index yet.
         // DMA always starts at buffer position 0 (frame-aligned) and advances
         // sequentially, so position N is frame-aligned when N % alignment == 0.
-        if self.alignment > 1 {
+        let skip = if self.alignment > 1 {
             let misalignment = self.read_index.pos % self.alignment;
             if misalignment != 0 {
                 let skip = self.alignment - misalignment;
                 if available >= skip {
-                    self.read_index.advance(self.cap(), skip);
                     available -= skip;
+                    skip
                 } else {
                     return Ok((0, available));
                 }
+            } else {
+                0
             }
-        }
+        } else {
+            0
+        };
 
         let mut readable = available.min(buf.len());
         // Round down to alignment so read_index always lands on a frame boundary.
         if self.alignment > 1 {
             readable -= readable % self.alignment;
         }
+        // Copy data starting skip words ahead of current read_index.
         for i in 0..readable {
-            buf[i] = self.read_buf(i);
+            buf[i] = self.read_buf(skip + i);
         }
         let remaining = self.len(dma)?;
-        self.read_index.advance(self.cap(), readable);
-        Ok((readable, remaining - readable))
+        // Commit both the alignment skip and the read in one advance, so
+        // read_index is never in a partially-advanced state if len() errors above.
+        self.read_index.advance(self.cap(), skip + readable);
+        Ok((readable, remaining.saturating_sub(skip + readable)))
     }
 
     /// Read the most recent elements from the ring buffer, discarding any older data.
