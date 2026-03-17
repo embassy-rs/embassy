@@ -350,7 +350,9 @@ fn create_padded_message(input: &[u8], buffer: &mut [u8]) -> Option<usize> {
     // Add 128-bit length in bits (big-endian) to last 16 bytes
     let bit_len = (input.len() as u128) * 8;
     let len_offset = padded_len - 16;
-    buffer.get_mut(len_offset..len_offset + 16)?.copy_from_slice(&bit_len.to_be_bytes());
+    buffer
+        .get_mut(len_offset..len_offset + 16)?
+        .copy_from_slice(&bit_len.to_be_bytes());
 
     Some(padded_len)
 }
@@ -461,9 +463,7 @@ fn process_single_block_update<'d>(
             .get_mut(..write_bytes)
             .ok_or(SGIError::InvalidSize)?;
         // This overflow path only writes the leftover suffix, so `write_bytes` cannot exceed `input.len()`.
-        let input_suffix = input
-            .get(input.len() - write_bytes..)
-            .ok_or(SGIError::InvalidSize)?;
+        let input_suffix = input.get(input.len() - write_bytes..).ok_or(SGIError::InvalidSize)?;
         curr_block_prefix.copy_from_slice(input_suffix);
         hasher.ctx.curr_block_ptr = write_bytes;
     }
@@ -504,11 +504,7 @@ impl StreamingHasher {
             return Err(SGIError::InvalidSize);
         }
 
-        self.ctx.total_len = self
-            .ctx
-            .total_len
-            .checked_add(input_len)
-            .ok_or(SGIError::InvalidSize)?;
+        self.ctx.total_len = self.ctx.total_len.checked_add(input_len).ok_or(SGIError::InvalidSize)?;
 
         if input_len > MAX_BLOCK_SIZE {
             let mut copy_buffer = [0u8; MAX_BLOCK_SIZE * 4]; // Temporary buffer to hold chunks of the input that fit within the block size, max 512 bytes.
@@ -524,7 +520,7 @@ impl StreamingHasher {
             // We can only copy as much as fits in the copy buffer, and we need to make sure we only copy full blocks worth of data for processing
             // Copy available but yet unprocessed data from the current block buffer. Copy is safe because `curr_block_ptr` is guaranteed to be less than or equal to `MAX_BLOCK_SIZE`, and thus less than the `copy_buffer` size.
             copy_buffer[..self.ctx.curr_block_ptr].copy_from_slice(&self.ctx.curr_block[..self.ctx.curr_block_ptr]);
-            // Copy the rest of the data that fills up to `copy_len`, which is now a multiple of block size. Copy is safe because `copy_len` is guaranteed to be less than or equal to `input_len + self.ctx.curr_block_ptr`, 
+            // Copy the rest of the data that fills up to `copy_len`, which is now a multiple of block size. Copy is safe because `copy_len` is guaranteed to be less than or equal to `input_len + self.ctx.curr_block_ptr`,
             // and we only copy the portion of `input` that fits within `copy_len - self.ctx.curr_block_ptr`.
             copy_buffer[self.ctx.curr_block_ptr..copy_len]
                 .copy_from_slice(&input[..copy_len - self.ctx.curr_block_ptr]);
@@ -546,7 +542,9 @@ impl StreamingHasher {
                 unprocessed_input_len
             );
 
-            let remaining_input_start = input_len.checked_sub(unprocessed_input_len).ok_or(SGIError::InvalidSize)?;
+            let remaining_input_start = input_len
+                .checked_sub(unprocessed_input_len)
+                .ok_or(SGIError::InvalidSize)?;
             let remaining_input = input.get(remaining_input_start..).ok_or(SGIError::InvalidSize)?;
             let curr_block_prefix = self
                 .ctx
@@ -582,9 +580,7 @@ impl StreamingHasher {
                 .curr_block
                 .get(..remaining_data_len)
                 .ok_or(SGIError::InvalidSize)?;
-            let hash_buffer_prefix = hash_buffer
-                .get_mut(..remaining_data_len)
-                .ok_or(SGIError::InvalidSize)?;
+            let hash_buffer_prefix = hash_buffer.get_mut(..remaining_data_len).ok_or(SGIError::InvalidSize)?;
             hash_buffer_prefix.copy_from_slice(remaining_curr_block);
         }
 
