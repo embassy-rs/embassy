@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Bump usbd-hid from 0.9.0 to 0.10.0
+
 ## 0.6.0 - 2026-03-10
 
 - Add support for USB HID Boot Protocol Mode
