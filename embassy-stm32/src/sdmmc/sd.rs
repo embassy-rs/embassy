@@ -139,6 +139,20 @@ impl<'a, 'b> StorageDevice<'a, 'b, Card> {
         Ok(s)
     }
 
+    /// Create a new uninitialized card
+    pub fn new_uninit_sd_card(sdmmc: &'a mut Sdmmc<'b>) -> Self {
+        Self {
+            info: Card::default(),
+            sdmmc,
+        }
+    }
+
+    /// Re-acquire an sd card
+    pub async fn reacquire(&mut self, cmd_block: &mut CmdBlock, freq: Hertz) -> Result<(), Error> {
+        self.sdmmc.on_drop();
+        self.acquire(cmd_block, freq).await
+    }
+
     /// Initializes the card into a known state (or at least tries to).
     async fn acquire(&mut self, cmd_block: &mut CmdBlock, freq: Hertz) -> Result<(), Error> {
         let _scoped_wake_guard = self.sdmmc.info.rcc.wake_guard();
@@ -345,6 +359,20 @@ impl<'a, 'b> StorageDevice<'a, 'b, Emmc> {
         s.acquire(cmd_block, freq).await?;
 
         Ok(s)
+    }
+
+    /// Create a new uninitialized emmc
+    pub fn new_uninit_emmc(sdmmc: &'a mut Sdmmc<'b>) -> Self {
+        Self {
+            info: Emmc::default(),
+            sdmmc,
+        }
+    }
+
+    /// Re-acquire an emmc
+    pub async fn reacquire(&mut self, cmd_block: &mut CmdBlock, freq: Hertz) -> Result<(), Error> {
+        self.sdmmc.on_drop();
+        self.acquire(cmd_block, freq).await
     }
 
     async fn acquire(&mut self, _cmd_block: &mut CmdBlock, freq: Hertz) -> Result<(), Error> {
