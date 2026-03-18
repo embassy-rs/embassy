@@ -346,6 +346,15 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
         self.write_index.advance(self.cap(), self.cap());
     }
 
+    /// Return the current write position (index into the DMA buffer where the next CPU write will go).
+    ///
+    /// Immediately after an overrun reset, this equals the DMA position recorded at reset time.
+    /// Use this to compute frame-alignment padding after a TX write error without the timing
+    /// uncertainty of reading the DMA NDTR register externally.
+    pub fn write_pos(&self) -> usize {
+        self.write_index.pos
+    }
+
     /// Get the remaining writable dma samples.
     pub fn len(&mut self, dma: &mut impl DmaCtrl) -> Result<usize, Error> {
         self.read_index.dma_sync(self.cap(), dma);
