@@ -15,7 +15,7 @@ use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac::common::{RW, Reg};
 use crate::pac::gpio::vals::{Irqc, Isf, Pdd, Pid, Ptco, Ptso};
 use crate::pac::port::regs::Pcr;
-use crate::pac::port::vals::{Dse, Ibe, Inv, Mux, Pe, Ps, Sre};
+use crate::pac::port::vals::{Dse, Ibe, Inv, Mux, Ode, Pe, Ps, Sre};
 
 struct BitIter(u32);
 
@@ -141,6 +141,25 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
                 T::PERF_INT_INCR();
                 w.wake(&pin, ());
             }
+        }
+    }
+}
+
+/// Open-drain for GPIO pins.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum OpenDrain {
+    /// Output is push-pull (not open-drain)
+    No,
+    /// Output is open-drain
+    Yes,
+}
+
+impl From<OpenDrain> for Ode {
+    fn from(open_drain: OpenDrain) -> Self {
+        match open_drain {
+            OpenDrain::No => Ode::ODE0,
+            OpenDrain::Yes => Ode::ODE1,
         }
     }
 }
@@ -643,6 +662,18 @@ impl<'d, M: Mode> Flex<'d, M> {
         !self.is_set_high()
     }
 
+    /// Configure open-drain output.
+    #[inline]
+    pub fn set_open_drain(&mut self, open_drain: OpenDrain) {
+        self.pin.pcr_reg().modify(|w| w.set_ode(open_drain.into()));
+    }
+
+    /// Configure the input logic inversion of this pin.
+    #[inline]
+    pub fn set_input_inversion(&mut self, invert: Inverter) {
+        self.pin.pcr_reg().modify(|w| w.set_inv(invert.into()));
+    }
+
     /// Configure the pin pull up/down level.
     pub fn set_pull(&mut self, pull_select: Pull) {
         self.pin.set_pull(pull_select);
@@ -799,6 +830,7 @@ impl<'d> Output<'d> {
         flex.set_as_output();
         flex.set_drive_strength(strength);
         flex.set_slew_rate(slew_rate);
+        flex.set_open_drain(OpenDrain::No);
         Self { flex }
     }
 
@@ -843,6 +875,96 @@ impl<'d> Output<'d> {
     pub fn into_flex(self) -> Flex<'d> {
         self.flex
     }
+
+    /// Convert this output pin into an open-drain output pin.
+    #[inline]
+    pub fn into_open_drain(mut self) -> OutputOpenDrain<'d> {
+        self.flex.set_open_drain(OpenDrain::Yes);
+        OutputOpenDrain { flex: self.flex }
+    }
+}
+
+/// GPIO output open-drain driver that owns a `Flex` pin.
+pub struct OutputOpenDrain<'d> {
+    flex: Flex<'d>,
+}
+
+impl<'d> OutputOpenDrain<'d> {
+    /// Create a GPIO output open-drain driver for a [GpioPin] with the provided [Level].
+    pub fn new(pin: Peri<'d, impl GpioPin>, initial: Level, strength: DriveStrength, slew_rate: SlewRate) -> Self {
+        let mut flex = Flex::new(pin);
+        flex.set_level(initial);
+        flex.set_as_output();
+        flex.set_drive_strength(strength);
+        flex.set_slew_rate(slew_rate);
+        flex.set_enable_input_buffer(true);
+        flex.set_open_drain(OpenDrain::Yes);
+        Self { flex }
+    }
+
+    /// Get whether the pin level is high.
+    #[inline]
+    pub fn is_high(&self) -> bool {
+        self.flex.is_high()
+    }
+
+    /// Get whether the pin level is low.
+    #[inline]
+    pub fn is_low(&self) -> bool {
+        self.flex.is_low()
+    }
+
+    /// Set the output as high (open-drain high is just letting go of the line).
+    #[inline]
+    pub fn set_high(&mut self) {
+        self.flex.set_high();
+    }
+
+    /// Set the output as low (open-drain low is driving the line low).
+    #[inline]
+    pub fn set_low(&mut self) {
+        self.flex.set_low();
+    }
+
+    /// Set the output level.
+    #[inline]
+    pub fn set_level(&mut self, level: Level) {
+        self.flex.set_level(level);
+    }
+
+    /// Get the pin level.
+    pub fn get_level(&self) -> Level {
+        self.flex.get_level()
+    }
+
+    /// Toggle the output level.
+    #[inline]
+    pub fn toggle(&mut self) {
+        if self.flex.is_set_low() {
+            self.set_high();
+        } else {
+            self.set_low();
+        }
+    }
+
+    /// Configure the input logic inversion of this pin.
+    #[inline]
+    pub fn set_inversion(&mut self, invert: Inverter) {
+        self.flex.set_input_inversion(invert)
+    }
+
+    /// Expose the inner `Flex` if callers need to reconfigure the pin.
+    #[inline]
+    pub fn into_flex(self) -> Flex<'d> {
+        self.flex
+    }
+
+    /// Convert this output pin into an push-pull output pin.
+    #[inline]
+    pub fn into_push_pull(mut self) -> Output<'d> {
+        self.flex.set_open_drain(OpenDrain::No);
+        Output { flex: self.flex }
+    }
 }
 
 /// GPIO input driver that owns a `Flex` pin.
@@ -883,6 +1005,12 @@ impl<'d, M: Mode> Input<'d, M> {
         self.flex.set_drive_strength(strength);
         self.flex.set_slew_rate(slew_rate);
         self.flex
+    }
+
+    /// Configure the input logic inversion of this pin.
+    #[inline]
+    pub fn set_inversion(&mut self, invert: Inverter) {
+        self.flex.set_input_inversion(invert)
     }
 
     /// Get the pin level.
