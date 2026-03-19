@@ -1,38 +1,29 @@
-// Notice:
-// the MCU might need an extra reset to make the code actually running
-
 #![no_std]
 #![no_main]
 
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{AnyPin, Level, Output, Speed};
-use embassy_stm32::rcc::{HSIPrescaler, LsConfig};
-use embassy_stm32::{Config, Peri, low_power};
+use embassy_stm32::rcc::LsConfig;
+use embassy_stm32::{Config, Peri};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
-#[embassy_executor::main(executor = "low_power::Executor")]
+#[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn async_main(spawner: Spawner) {
-    defmt::info!("Program Start");
-
     let mut config = Config::default();
-
-    // System Clock seems need to be equal or lower than 16 MHz
-    config.rcc.hsi = Some(HSIPrescaler::DIV4);
-
     config.rcc.ls = LsConfig::default_lsi();
     // when enabled the power-consumption is much higher during stop, but debugging and RTT is working
     // if you wan't to measure the power-consumption, or for production: uncomment this line
     // config.enable_debug_during_sleep = false;
     let p = embassy_stm32::init(config);
 
-    spawner.spawn(unwrap!(blinky(p.PB4.into())));
+    spawner.spawn(unwrap!(blinky(p.PC7.into())));
     spawner.spawn(unwrap!(timeout()));
 }
 
 #[embassy_executor::task]
-async fn blinky(led: Peri<'static, AnyPin>) {
+async fn blinky(led: Peri<'static, AnyPin>) -> ! {
     let mut led = Output::new(led, Level::Low, Speed::Low);
     loop {
         info!("high");
@@ -50,6 +41,5 @@ async fn blinky(led: Peri<'static, AnyPin>) {
 #[embassy_executor::task]
 async fn timeout() -> ! {
     Timer::after_secs(30).await;
-    #[allow(clippy::empty_loop)]
     loop {}
 }

@@ -161,8 +161,8 @@ pub mod wdg;
 #[cfg(xspi)]
 pub mod xspi;
 
-#[cfg(feature = "low-power")]
-pub use low_power::Executor;
+#[cfg(feature = "_executor")]
+pub mod executor;
 
 // This must go last, so that it sees all the impl_foo! macros defined earlier.
 pub(crate) mod _generated {

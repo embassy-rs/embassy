@@ -34,7 +34,11 @@ async fn net_task(mut runner: embassy_net::Runner<'static, Device>) -> ! {
     runner.run().await
 }
 
-#[embassy_executor::main]
+#[cfg_attr(
+    feature = "stop",
+    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
+)]
+#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
 async fn main(spawner: Spawner) {
     let p = init();
     info!("Hello World!");

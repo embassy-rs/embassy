@@ -10,10 +10,18 @@ use embassy_futures::select::{Either, select};
 use embassy_futures::yield_now;
 use embassy_time::{Instant, Timer};
 
-#[embassy_executor::main]
+#[cfg_attr(
+    feature = "stop",
+    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
+)]
+#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
 async fn main(_spawner: Spawner) {
     let _p = init();
     info!("Hello World!");
+
+    // TODO: investigate. Test fails with low-power executor.
+    #[cfg(all(feature = "stop", feature = "stm32h563zi"))]
+    let _guard = embassy_stm32::rcc::WakeGuard::new(embassy_stm32::rcc::StopMode::Stop1);
 
     let start = Instant::now();
     Timer::after_millis(100).await;

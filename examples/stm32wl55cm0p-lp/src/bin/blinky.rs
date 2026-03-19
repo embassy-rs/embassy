@@ -16,7 +16,7 @@ use panic_probe as _;
 #[unsafe(link_section = ".shared_data.0")]
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
 
-#[embassy_executor::main(executor = "embassy_stm32::Executor", entry = "cortex_m_rt::entry")]
+#[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn async_main(_spawner: Spawner) {
     let p = embassy_stm32::init_secondary(&SHARED_DATA);
 
