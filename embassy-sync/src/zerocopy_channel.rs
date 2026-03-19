@@ -12,7 +12,7 @@
 //!
 //! This module provides a bounded channel that has a limit on the number of
 //! messages that it can store, and if this limit is reached, trying to send
-//! another message will result in an error being returned.
+//! another message will wait until a message is received from the channel.
 
 use core::cell::RefCell;
 use core::future::{Future, poll_fn};
