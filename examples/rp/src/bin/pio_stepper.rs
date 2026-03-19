@@ -9,7 +9,7 @@ use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::PIO0;
 use embassy_rp::pio::{InterruptHandler, Pio};
-use embassy_rp::pio_programs::stepper::{PioStepper, PioStepperProgram};
+use embassy_rp::pio_programs::stepper::{PioStepper4, PioStepper4Program};
 use embassy_time::{Duration, Timer, with_timeout};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -24,8 +24,8 @@ async fn main(_spawner: Spawner) {
         mut common, irq0, sm0, ..
     } = Pio::new(p.PIO0, Irqs);
 
-    let prg = PioStepperProgram::new(&mut common);
-    let mut stepper = PioStepper::new(&mut common, sm0, irq0, p.PIN_4, p.PIN_5, p.PIN_6, p.PIN_7, &prg);
+    let prg = PioStepper4Program::new(&mut common);
+    let mut stepper = PioStepper4::new(&mut common, sm0, irq0, p.PIN_4, p.PIN_5, p.PIN_6, p.PIN_7, &prg);
     stepper.set_frequency(120);
     loop {
         info!("CW full steps");
