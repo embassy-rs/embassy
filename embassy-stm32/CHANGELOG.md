@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+DMA:
+- fix: stm32/dma: fix HTIF masking TCIF in on_irq when both flags fire simultaneously
+- fix: stm32/dma: defer read_index advance until after copy in read_raw to avoid partial-advance on overrun
+- fix: stm32/dma: eliminate second sync_len() call in read_raw to prevent consuming a lap count mid-copy
+- fix: stm32/dma: assert minimum buffer size of 2 frames in set_alignment
+- feat: stm32/dma: expose write_pos() on WritableRingBuffer for timing-safe TX frame alignment after overrun
+
 ADC:
 - feat: stm32/adc: add `VrefInt::calibrated_value()` for additional chips
 
