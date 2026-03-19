@@ -23,7 +23,11 @@ const INPUT_U8_COUNT: usize = 4 * INPUT_U32_COUNT;
 // And all calculations generate 2 results.
 const OUTPUT_LENGTH: usize = (INPUT_U32_COUNT - 1) * 2;
 
-#[embassy_executor::main]
+#[cfg_attr(
+    feature = "stop",
+    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
+)]
+#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
 async fn main(_spawner: Spawner) {
     let dp = init();
 

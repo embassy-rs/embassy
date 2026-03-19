@@ -10,7 +10,7 @@ use embassy_time::Timer;
 use panic_probe as _;
 use static_cell::StaticCell;
 
-#[embassy_executor::main(executor = "embassy_stm32::Executor", entry = "cortex_m_rt::entry")]
+#[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn async_main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
     config.rcc.msi = Some(embassy_stm32::rcc::MSIRange::RANGE4M);

@@ -103,6 +103,9 @@ build = [
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32n657x0", "time", "time-driver-any"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32wb35ce", "time", "time-driver-any"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "low-power", "stm32wb55rg", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "low-power", "stm32wb55rg", "time", "time-driver-any", "executor-thread"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "low-power", "stm32wb55rg", "time", "time-driver-any", "executor-thread", "executor-interrupt"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "low-power", "stm32wb55rg", "time", "time-driver-any", "executor-interrupt"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32u031r8", "time", "time-driver-any"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32u073mb", "time", "time-driver-any"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32u083rc", "time", "time-driver-any"]},
@@ -249,9 +252,17 @@ cyw43 = ["dep:cyw43"]
 stm32-hrtim = ["dep:stm32-hrtim"]
 
 exti = []
-low-power = [ "dep:embassy-executor", "time", "chrono" ]
-low-power-disable-pender = [ "low-power" ]
+low-power = [ "time", "chrono" ]
 low-power-debug-with-sleep = [ "low-power" ]
+low-power-defmt-flush = [ "defmt" ]
+
+_executor = [ "dep:embassy-executor", "low-power" ]
+
+## Enable the thread-mode low-power executor.
+executor-thread = ["_executor"]
+
+## Enable the interrupt-mode low-power executor.
+executor-interrupt = ["_executor"]
 
 ## Automatically generate `memory.x` file based on the memory map from [`stm32-metapac`](https://docs.rs/stm32-metapac/)
 memory-x = []

@@ -23,7 +23,7 @@ The `embassy-executor` crate ships with support for some commonly used platforms
 Chip-specific executor platform implementations are maintained in their respective HALs:
 
 - `embassy-rp`: multicore support. Enabled with the `executor-interrupt` or `executor-thread` features.
-- `embassy-stm32`: automatic low-power sleep support. Enabled with the `low-power` feature.
+- `embassy-stm32`: automatic low-power sleep support. Enabled with the `executor-interrupt` or `executor-thread` features.
 - `embassy-mcxa`: automatic low-power sleep support. Enabled with the `executor-platform` feature.
 - `esp-rtos`: ESP32 RTOS support, multicore support. Enabled with the `embassy` feature.
 
