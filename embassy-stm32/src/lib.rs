@@ -54,16 +54,15 @@ pub mod timer;
 
 #[cfg(adc)]
 pub mod adc;
+#[cfg(aes_v3b)]
+pub mod aes;
 #[cfg(backup_sram)]
 pub mod backup_sram;
 #[cfg(can)]
 pub mod can;
-// FIXME: Cordic driver cause stm32u5a5zj crash
-#[cfg(aes_v3b)]
-pub mod aes;
 #[cfg(any(comp_u5, comp_v2))]
 pub mod comp;
-#[cfg(all(cordic, not(any(stm32u5a5, stm32u5a9))))]
+#[cfg(cordic)]
 pub mod cordic;
 
 // Stub macros for COMP pin implementations when comp module is not compiled.
