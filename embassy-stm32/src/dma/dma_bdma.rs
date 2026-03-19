@@ -1312,7 +1312,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
 
     /// The current length of the ringbuffer
     pub fn len(&mut self) -> Result<usize, Error> {
-        Ok(self.ringbuf.len(&mut DmaCtrlImpl(self.channel.reborrow()))?)
+        Ok(self.ringbuf.sync_len(&mut DmaCtrlImpl(self.channel.reborrow()))?)
     }
 
     /// Read the most recent elements from the ring buffer, discarding any older data.
@@ -1482,7 +1482,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
 
     /// The current length of the ringbuffer
     pub fn len(&mut self) -> Result<usize, Error> {
-        Ok(self.ringbuf.len(&mut DmaCtrlImpl(self.channel.reborrow()))?)
+        Ok(self.ringbuf.sync_len(&mut DmaCtrlImpl(self.channel.reborrow()))?)
     }
 
     /// The capacity of the ringbuffer

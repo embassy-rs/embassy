@@ -143,8 +143,8 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
         self.dma_buf.len()
     }
 
-    /// Get the available readable dma samples.
-    pub fn len(&mut self, dma: &mut impl DmaCtrl) -> Result<usize, Error> {
+    /// Sync against the DMA hardware and return the number of readable samples available.
+    pub fn sync_len(&mut self, dma: &mut impl DmaCtrl) -> Result<usize, Error> {
         self.write_index.dma_sync(self.cap(), dma);
         DmaIndex::normalize(&mut self.write_index, &mut self.read_index);
 
@@ -163,7 +163,7 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
     ///
     /// Return a tuple of the length read and the length remaining in the buffer
     /// If not all of the elements were read, then there will be some elements in the buffer remaining
-    /// The length remaining is the capacity, ring_buf.len(), less the elements remaining after the read
+    /// The length remaining is the capacity, ring_buf.sync_len(), less the elements remaining after the read
     /// Error is returned if the portion to be read was overwritten by the DMA controller,
     /// in which case the rinbuffer will automatically reset itself.
     pub fn read(&mut self, dma: &mut impl DmaCtrl, buf: &mut [W]) -> Result<(usize, usize), Error> {
@@ -208,7 +208,7 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
     fn read_raw(&mut self, dma: &mut impl DmaCtrl, buf: &mut [W]) -> Result<(usize, usize), Error> {
         fence(Ordering::Acquire);
 
-        let mut available = self.len(dma)?;
+        let mut available = self.sync_len(dma)?;
 
         // Compute alignment skip without advancing read_index yet.
         // DMA always starts at buffer position 0 (frame-aligned) and advances
@@ -367,8 +367,8 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
         self.write_index.pos
     }
 
-    /// Get the remaining writable dma samples.
-    pub fn len(&mut self, dma: &mut impl DmaCtrl) -> Result<usize, Error> {
+    /// Sync against the DMA hardware and return the number of writable samples available.
+    pub fn sync_len(&mut self, dma: &mut impl DmaCtrl) -> Result<usize, Error> {
         self.read_index.dma_sync(self.cap(), dma);
         DmaIndex::normalize(&mut self.read_index, &mut self.write_index);
 
@@ -426,7 +426,7 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
         poll_fn(|cx| {
             dma.set_waker(cx.waker());
 
-            match self.len(dma) {
+            match self.sync_len(dma) {
                 Ok(_) => Poll::Pending,
                 Err(e) => Poll::Ready(Err(e)),
             }
@@ -463,11 +463,11 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
     fn write_raw(&mut self, dma: &mut impl DmaCtrl, buf: &[W]) -> Result<(usize, usize), Error> {
         fence(Ordering::Release);
 
-        let writable = self.len(dma)?.min(buf.len());
+        let writable = self.sync_len(dma)?.min(buf.len());
         for i in 0..writable {
             self.write_buf(i, buf[i]);
         }
-        let available = self.len(dma)?;
+        let available = self.sync_len(dma)?;
         self.write_index.advance(self.cap(), writable);
         Ok((writable, available - writable))
     }
