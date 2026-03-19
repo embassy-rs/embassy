@@ -39,8 +39,12 @@ impl<'d, T: Instance, const SM: usize> PioEncoder<'d, T, SM> {
     ) -> Self {
         let mut pin_a = pio.make_pio_pin(pin_a);
         let mut pin_b = pio.make_pio_pin(pin_b);
-        pin_a.set_pull(Pull::Up);
-        pin_b.set_pull(Pull::Up);
+
+        pin_a.set_pull(Pull::None);
+        pin_b.set_pull(Pull::None);
+        pin_a.set_schmitt(true);
+        pin_b.set_schmitt(true);
+
         sm.set_pin_dirs(PioDirection::In, &[&pin_a, &pin_b]);
 
         let mut cfg = Config::default();
