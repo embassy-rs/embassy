@@ -181,32 +181,6 @@ impl<'d, PIO: Instance, const SM: usize, M: Mode> Qspi<'d, PIO, SM, M> {
         Ok(())
     }
 
-    /// Transfer data to QSPI blocking execution until done.
-    pub fn blocking_transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error> {
-        let len = read.len().max(write.len());
-        for i in 0..len {
-            let wb = write.get(i).copied().unwrap_or(0);
-            self.blocking_write_u8(wb)?;
-
-            let rb = self.blocking_read_u8()?;
-            if let Some(r) = read.get_mut(i) {
-                *r = rb;
-            }
-        }
-        self.flush()?;
-        Ok(())
-    }
-
-    /// Transfer data in place to QSPI blocking execution until done.
-    pub fn blocking_transfer_in_place(&mut self, data: &mut [u8]) -> Result<(), Error> {
-        for v in data {
-            self.blocking_write_u8(*v)?;
-            *v = self.blocking_read_u8()?;
-        }
-        self.flush()?;
-        Ok(())
-    }
-
     /// Block execution until QSPI is done.
     pub fn flush(&mut self) -> Result<(), Error> {
         // Wait for all words in the FIFO to have been pulled by the SM
@@ -337,46 +311,6 @@ impl<'d, PIO: Instance, const SM: usize> Qspi<'d, PIO, SM, Async> {
 
         let mut tx_ch = self.tx_dma.as_mut().unwrap().reborrow();
         let tx_transfer = tx.dma_push(&mut tx_ch, buffer, false);
-
-        join(tx_transfer, rx_transfer).await;
-
-        Ok(())
-    }
-
-    /// Transfer data to QSPI using DMA.
-    pub async fn transfer(&mut self, rx_buffer: &mut [u8], tx_buffer: &[u8]) -> Result<(), Error> {
-        self.transfer_inner(rx_buffer, tx_buffer).await
-    }
-
-    /// Transfer data in place to QSPI using DMA.
-    pub async fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Error> {
-        self.transfer_inner(words, words).await
-    }
-
-    async fn transfer_inner(&mut self, rx_buffer: *mut [u8], tx_buffer: *const [u8]) -> Result<(), Error> {
-        let (rx, tx) = self.sm.rx_tx();
-
-        let mut rx_ch = self.rx_dma.as_mut().unwrap().reborrow();
-        let rx_transfer = async {
-            rx.dma_pull(&mut rx_ch, unsafe { &mut *rx_buffer }, false).await;
-
-            if tx_buffer.len() > rx_buffer.len() {
-                let read_bytes_len = tx_buffer.len() - rx_buffer.len();
-
-                rx.dma_pull_discard::<u8>(&mut rx_ch, read_bytes_len).await;
-            }
-        };
-
-        let mut tx_ch = self.tx_dma.as_mut().unwrap().reborrow();
-        let tx_transfer = async {
-            tx.dma_push(&mut tx_ch, unsafe { &*tx_buffer }, false).await;
-
-            if rx_buffer.len() > tx_buffer.len() {
-                let write_bytes_len = rx_buffer.len() - tx_buffer.len();
-
-                tx.dma_push_zeros::<u8>(&mut tx_ch, write_bytes_len).await;
-            }
-        };
 
         join(tx_transfer, rx_transfer).await;
 
