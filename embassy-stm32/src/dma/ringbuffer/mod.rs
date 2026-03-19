@@ -35,43 +35,55 @@ struct DmaIndex {
 }
 
 impl DmaIndex {
+    /// Reset the index to the start of the buffer (position 0, lap 0).
     fn reset(&mut self) {
         self.pos = 0;
         self.complete_count = 0;
     }
 
+    /// Convert the index to a physical buffer offset, applying `offset` additional
+    /// steps and wrapping at `cap`.
     fn as_index(&self, cap: usize, offset: usize) -> usize {
         (self.pos + offset) % cap
     }
 
+    /// Synchronise the index against the live DMA hardware state.
     fn dma_sync(&mut self, cap: usize, dma: &mut impl DmaCtrl) {
-        // Important!
-        // The ordering of the first two lines matters!
-        // If changed, the code will detect a wrong +capacity
-        // jump at wrap-around.
-        let count_diff = dma.reset_complete_count();
+        // Reset complete_count BEFORE reading NDTR. If the DMA wraps between
+        // these two reads, laps_completed will be 0 while pos appears to go
+        // backwards — the wrap-around guard below detects this and clamps pos
+        // to cap-1 until the next sync picks up the increment.
+        let laps_completed = dma.reset_complete_count();
         let pos = cap - dma.get_remaining_transfers();
-        self.pos = if pos < self.pos && count_diff == 0 {
+        self.pos = if pos < self.pos && laps_completed == 0 {
             cap - 1
         } else {
             pos
         };
 
-        self.complete_count += count_diff;
+        self.complete_count += laps_completed;
     }
 
+    /// Advance the index by `steps` words, incrementing `complete_count` for
+    /// each full lap completed.
     fn advance(&mut self, cap: usize, steps: usize) {
         let next = self.pos + steps;
         self.complete_count += next / cap;
         self.pos = next % cap;
     }
 
+    /// Subtract the smaller `complete_count` from both indices so that the
+    /// absolute lap counts stay small. This prevents overflow in [`diff`] after
+    /// many laps while leaving the relative difference unchanged.
     fn normalize(lhs: &mut DmaIndex, rhs: &mut DmaIndex) {
         let min_count = lhs.complete_count.min(rhs.complete_count);
         lhs.complete_count -= min_count;
         rhs.complete_count -= min_count;
     }
 
+    /// Return how many words `self` is ahead of `rhs` in linear (unwrapped)
+    /// space. A negative result means `self` is behind `rhs`, which indicates
+    /// a driver bug or an out-of-band DMA reset.
     fn diff(&self, cap: usize, rhs: &DmaIndex) -> isize {
         (self.complete_count * cap + self.pos) as isize - (rhs.complete_count * cap + rhs.pos) as isize
     }
