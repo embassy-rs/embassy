@@ -23,10 +23,6 @@ use embassy_time::Timer;
 async fn main(_spawner: Spawner) {
     let mut config = config();
     config.rcc.ls = LsConfig::default_lse();
-    #[cfg(feature = "stop")]
-    {
-        config.rtc._disable_rtc = false;
-    }
 
     let p = init_with_config(config);
     info!("Hello World!");
