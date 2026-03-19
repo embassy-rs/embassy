@@ -287,6 +287,13 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         self.ringbuf.cap()
     }
 
+    /// Return the current write position in the DMA buffer.
+    ///
+    /// See [`WritableDmaRingBuffer::write_pos`] for details.
+    pub fn write_pos(&self) -> usize {
+        self.ringbuf.write_pos()
+    }
+
     /// Set a waker to be woken when at least one byte is received.
     pub fn set_waker(&mut self, waker: &Waker) {
         DmaCtrlImpl(self.channel.reborrow()).set_waker(waker);
