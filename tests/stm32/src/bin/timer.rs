@@ -19,10 +19,6 @@ async fn main(_spawner: Spawner) {
     let _p = init();
     info!("Hello World!");
 
-    // TODO: investigate. Test fails with low-power executor.
-    #[cfg(all(feature = "stop", feature = "stm32h563zi"))]
-    let _guard = embassy_stm32::rcc::WakeGuard::new(embassy_stm32::rcc::StopMode::Stop1);
-
     let start = Instant::now();
     Timer::after_millis(100).await;
     let end = Instant::now();
