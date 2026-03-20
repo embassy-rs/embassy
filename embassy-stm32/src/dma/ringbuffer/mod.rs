@@ -278,30 +278,32 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
         // On overrun or desync, reset the read pointer to the current write position.
         // This means zero samples are available right now, but the next call will
         // return fresh data without any error.
-        let available = if diff <= 0 || diff > self.cap() as isize {
+        if diff < 0 || diff > self.cap() as isize {
             self.read_index = self.write_index;
-            0
-        } else {
-            diff as usize
-        };
+            return 0;
+        }
 
-        let mut to_read = available.min(buf.len());
-        let mut front_skip = available - to_read;
+        let available = diff as usize;
+        if available == 0 {
+            return 0;
+        }
 
         // Respect frame alignment. Because read_latest reads the NEWEST data
         // (skip at the front, read at the tail), reducing to_read moves the
         // start forward. We must compute front_skip explicitly so the read
         // window starts at an aligned buffer position.
-        if self.alignment > 1 {
-            // Discard any partial frame at the end of available data.
+        let (to_read, front_skip) = if self.alignment > 1 {
+            // Discard any partial frame at the tail of available data, then
+            // round down to_read so it fits in buf and lands on a frame boundary.
             let end_pos = self.read_index.as_index(self.cap(), available);
-            let tail = end_pos % self.alignment;
-            let aligned_available = available.saturating_sub(tail);
-
-            to_read = aligned_available.min(buf.len());
-            to_read -= to_read % self.alignment;
-            front_skip = aligned_available - to_read;
-        }
+            let aligned_available = available.saturating_sub(end_pos % self.alignment);
+            let to_read = aligned_available.min(buf.len());
+            let to_read = to_read - to_read % self.alignment;
+            (to_read, aligned_available - to_read)
+        } else {
+            let to_read = available.min(buf.len());
+            (to_read, available - to_read)
+        };
 
         // Advance past old data to the aligned start position.
         if front_skip > 0 {

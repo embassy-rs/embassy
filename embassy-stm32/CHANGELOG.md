@@ -13,6 +13,7 @@ DMA:
 - fix: stm32/dma: defer read_index advance until after copy in read_raw to avoid partial-advance on overrun
 - fix: stm32/dma: eliminate second sync_len() call in read_raw to prevent consuming a lap count mid-copy
 - fix: stm32/dma: assert minimum buffer size of 2 frames in set_alignment
+- fix: stm32/dma: fix read_latest incorrectly resetting read_index when diff == 0 (no data available)
 - feat: stm32/dma: expose write_pos() on WritableRingBuffer for timing-safe TX frame alignment after overrun
 
 ADC:
