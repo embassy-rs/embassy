@@ -438,9 +438,18 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
         .await
     }
 
-    /// Write an exact number of elements to the ringbuffer.
+    /// Write all elements of `buffer` to the ring buffer, waiting asynchronously
+    /// if there is insufficient space.
     ///
-    /// Returns the remaining write capacity in the buffer.
+    /// Wakes each time the DMA raises a half-transfer or transfer-complete interrupt,
+    /// so up to one interrupt period of latency may occur between partial writes.
+    ///
+    /// Returns the remaining write capacity as reported by the final [`write`] call.
+    /// This is a snapshot from the last partial write and may be slightly stale.
+    ///
+    /// Returns [`Error::Overrun`] if the DMA read pointer overtook the write pointer
+    /// mid-write. In this case the ring buffer resets itself and any partially
+    /// written data is lost.
     #[allow(dead_code)]
     pub async fn write_exact(&mut self, dma: &mut impl DmaCtrl, buffer: &[W]) -> Result<usize, Error> {
         let mut written_len = 0;
