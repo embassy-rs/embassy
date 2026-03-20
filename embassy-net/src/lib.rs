@@ -870,16 +870,28 @@ impl Inner {
         }
 
         let timestamp = instant_to_smoltcp(Instant::now());
+        let old_link_up = self.link_up;
+        self.link_up = driver.link_state(cx) == LinkState::Up;
+
         let mut smoldev = DriverAdapter {
             cx: Some(cx),
             inner: driver,
             medium,
         };
-        self.iface.poll(timestamp, &mut smoldev, &mut self.sockets);
-
-        // Update link up
-        let old_link_up = self.link_up;
-        self.link_up = driver.link_state(cx) == LinkState::Up;
+        if self.link_up {
+            self.iface.poll(timestamp, &mut smoldev, &mut self.sockets);
+        } else {
+            loop {
+                match self
+                    .iface
+                    .poll_ingress_single(timestamp, &mut smoldev, &mut self.sockets)
+                {
+                    smoltcp::iface::PollIngressSingleResult::None => break,
+                    smoltcp::iface::PollIngressSingleResult::PacketProcessed => {}
+                    smoltcp::iface::PollIngressSingleResult::SocketStateChanged => {}
+                }
+            }
+        }
 
         // Print when changed
         if old_link_up != self.link_up {

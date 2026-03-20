@@ -58,8 +58,10 @@ const REQ_SET_NTB_INPUT_SIZE: u8 = 0x86;
 //const REQ_GET_CRC_MODE: u8 = 0x89;
 //const REQ_SET_CRC_MODE: u8 = 0x8A;
 
-//const NOTIF_MAX_PACKET_SIZE: u16 = 8;
-//const NOTIF_POLL_INTERVAL: u8 = 20;
+const NOTIF_NETWORK_CONNECTION: u8 = 0x00;
+const NOTIF_CONNECTION_SPEED_CHANGE: u8 = 0x2A;
+const NOTIF_MAX_PACKET_SIZE: u16 = 16;
+const NOTIF_POLL_INTERVAL: u8 = 16;
 
 const NTB_MAX_SIZE: usize = 2048;
 const SIG_NTH: u32 = 0x484d_434e;
@@ -68,7 +70,7 @@ const SIG_NDP_WITH_FCS: u32 = 0x314d_434e;
 
 const ALTERNATE_SETTING_DISABLED: u8 = 0x00;
 const ALTERNATE_SETTING_ENABLED: u8 = 0x01;
-
+const FULL_SPEED_LINK_BPS: u32 = 12_000_000;
 /// Simple NTB header (NTH+NDP all in one) for sending packets
 #[repr(packed)]
 #[allow(unused)]
@@ -313,7 +315,7 @@ impl<'d, D: Driver<'d>> CdcNcmClass<'d, D> {
             ],
         );
 
-        let comm_ep = alt.endpoint_interrupt_in(None, 8, 255);
+        let comm_ep = alt.endpoint_interrupt_in(None, NOTIF_MAX_PACKET_SIZE, NOTIF_POLL_INTERVAL);
 
         // Data interface
         let mut iface = func.interface();
@@ -356,7 +358,7 @@ impl<'d, D: Driver<'d>> CdcNcmClass<'d, D> {
                 max_packet_size: self.max_packet_size,
             },
             Receiver {
-                data_if: self.data_if,
+                comm_if: self._comm_if,
                 comm_ep: self.comm_ep,
                 read_ep: self.read_ep,
             },
@@ -374,6 +376,11 @@ pub struct Sender<'d, D: Driver<'d>> {
 }
 
 impl<'d, D: Driver<'d>> Sender<'d, D> {
+    /// Wait until the bulk IN endpoint is enabled by the USB host.
+    pub async fn wait_connection(&mut self) {
+        self.write_ep.wait_enabled().await;
+    }
+
     /// Write a packet.
     ///
     /// This waits until the packet is successfully stored in the CDC-NCM endpoint buffers.
@@ -434,7 +441,7 @@ impl<'d, D: Driver<'d>> Sender<'d, D> {
 ///
 /// You can obtain a `Receiver` with [`CdcNcmClass::split`]
 pub struct Receiver<'d, D: Driver<'d>> {
-    data_if: InterfaceNumber,
+    comm_if: InterfaceNumber,
     comm_ep: D::EndpointIn,
     read_ep: D::EndpointOut,
 }
@@ -444,10 +451,19 @@ impl<'d, D: Driver<'d>> Receiver<'d, D> {
     ///
     /// This waits until a packet is successfully received from the endpoint buffers.
     pub async fn read_packet(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        let mut ntb = [0u8; NTB_MAX_SIZE];
+        self.read_packet_with_ntb(&mut ntb, buf).await
+    }
+
+    /// Write a network packet using an external NTB scratch buffer.
+    pub async fn read_packet_with_ntb(
+        &mut self,
+        ntb: &mut [u8; NTB_MAX_SIZE],
+        buf: &mut [u8],
+    ) -> Result<usize, EndpointError> {
         // Retry loop
         loop {
             // read NTB
-            let mut ntb = [0u8; NTB_MAX_SIZE];
             let mut pos = 0;
             loop {
                 let n = self.read_ep.read(&mut ntb[pos..]).await?;
@@ -506,14 +522,38 @@ impl<'d, D: Driver<'d>> Receiver<'d, D> {
             self.read_ep.wait_enabled().await;
             self.comm_ep.wait_enabled().await;
 
+            let speed_buf = [
+                0xA1, //bmRequestType
+                NOTIF_CONNECTION_SPEED_CHANGE,
+                0x00,
+                0x00,
+                self.comm_if.into(),
+                0x00,
+                0x08,
+                0x00,
+                FULL_SPEED_LINK_BPS as u8,
+                (FULL_SPEED_LINK_BPS >> 8) as u8,
+                (FULL_SPEED_LINK_BPS >> 16) as u8,
+                (FULL_SPEED_LINK_BPS >> 24) as u8,
+                FULL_SPEED_LINK_BPS as u8,
+                (FULL_SPEED_LINK_BPS >> 8) as u8,
+                (FULL_SPEED_LINK_BPS >> 16) as u8,
+                (FULL_SPEED_LINK_BPS >> 24) as u8,
+            ];
+            match self.comm_ep.write(&speed_buf).await {
+                Ok(()) => {}
+                Err(EndpointError::Disabled) => continue,
+                Err(e) => return Err(e),
+            }
+
             let buf = [
                 0xA1, //bmRequestType
-                0x00, //bNotificationType = NETWORK_CONNECTION
-                0x01, // wValue = connected
+                NOTIF_NETWORK_CONNECTION,
+                0x01,
                 0x00,
-                self.data_if.into(), // wIndex = interface
+                self.comm_if.into(),
                 0x00,
-                0x00, // wLength
+                0x00,
                 0x00,
             ];
             match self.comm_ep.write(&buf).await {

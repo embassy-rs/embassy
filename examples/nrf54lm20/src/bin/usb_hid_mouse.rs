@@ -1,0 +1,162 @@
+#![no_std]
+#![no_main]
+
+use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+
+use defmt::*;
+use embassy_executor::Spawner;
+use embassy_futures::join::join;
+use embassy_nrf54lm20_examples::{init_board, usb_driver};
+use embassy_time::Timer;
+use embassy_usb::class::hid::{
+    HidBootProtocol, HidProtocolMode, HidReaderWriter, HidSubclass, ReportId, RequestHandler, State,
+};
+use embassy_usb::control::OutResponse;
+use embassy_usb::{Builder, Config, Handler};
+use static_cell::StaticCell;
+use usbd_hid::descriptor::{MouseReport, SerializedDescriptor};
+use {defmt_rtt as _, panic_probe as _};
+
+static CONFIGURED: AtomicBool = AtomicBool::new(false);
+static HID_PROTOCOL_MODE: AtomicU8 = AtomicU8::new(HidProtocolMode::Boot as u8);
+static EP_OUT_BUFFER: StaticCell<[u8; 2048]> = StaticCell::new();
+
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
+    let p = init_board();
+
+    let driver = usb_driver(p.USBHS, &mut EP_OUT_BUFFER.init([0; 2048])[..]);
+
+    let mut config = Config::new(0xc0de, 0xcaf1);
+    config.manufacturer = Some("Embassy");
+    config.product = Some("HID mouse example");
+    config.serial_number = Some("mouse-demo");
+    config.max_power = 100;
+    config.max_packet_size_0 = 64;
+    config.composite_with_iads = false;
+    config.device_class = 0;
+    config.device_sub_class = 0;
+    config.device_protocol = 0;
+
+    let mut config_descriptor = [0; 256];
+    let mut bos_descriptor = [0; 256];
+    let mut msos_descriptor = [0; 256];
+    let mut control_buf = [0; 256];
+    let mut request_handler = MyRequestHandler {};
+    let mut device_handler = MyDeviceHandler;
+    let mut state = State::new();
+
+    let mut builder = Builder::new(
+        driver,
+        config,
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut msos_descriptor,
+        &mut control_buf,
+    );
+    builder.handler(&mut device_handler);
+
+    let config = embassy_usb::class::hid::Config {
+        report_descriptor: MouseReport::desc(),
+        request_handler: None,
+        poll_ms: 60,
+        max_packet_size: 64,
+        hid_subclass: HidSubclass::Boot,
+        hid_boot_protocol: HidBootProtocol::Mouse,
+    };
+
+    let hid = HidReaderWriter::<_, 1, 8>::new(&mut builder, &mut state, config);
+    let mut usb = builder.build();
+
+    let usb_fut = usb.run();
+    let (reader, mut writer) = hid.split();
+    let hid_fut = async {
+        let mut y: i8 = 5;
+        loop {
+            Timer::after_millis(500).await;
+            if !CONFIGURED.load(Ordering::Acquire) {
+                continue;
+            }
+
+            y = -y;
+
+            if HID_PROTOCOL_MODE.load(Ordering::Relaxed) == HidProtocolMode::Boot as u8 {
+                match writer.write(&[0, 0, y as u8]).await {
+                    Ok(()) => {}
+                    Err(e) => warn!("Failed to send boot report: {:?}", e),
+                }
+            } else {
+                let report = MouseReport {
+                    buttons: 0,
+                    x: 0,
+                    y,
+                    wheel: 0,
+                    pan: 0,
+                };
+                match writer.write_serialize(&report).await {
+                    Ok(()) => {}
+                    Err(e) => warn!("Failed to send report: {:?}", e),
+                }
+            }
+        }
+    };
+
+    let out_fut = async {
+        reader.run(false, &mut request_handler).await;
+    };
+
+    join(usb_fut, join(hid_fut, out_fut)).await;
+}
+
+struct MyDeviceHandler;
+
+impl Handler for MyDeviceHandler {
+    fn enabled(&mut self, enabled: bool) {
+        if !enabled {
+            CONFIGURED.store(false, Ordering::Release);
+        }
+    }
+
+    fn reset(&mut self) {
+        CONFIGURED.store(false, Ordering::Release);
+    }
+
+    fn configured(&mut self, configured: bool) {
+        CONFIGURED.store(configured, Ordering::Release);
+    }
+}
+
+struct MyRequestHandler;
+
+impl RequestHandler for MyRequestHandler {
+    fn get_report(&mut self, id: ReportId, _buf: &mut [u8]) -> Option<usize> {
+        info!("Get report for {:?}", id);
+        None
+    }
+
+    fn set_report(&mut self, id: ReportId, data: &[u8]) -> OutResponse {
+        info!("Set report for {:?}: {=[u8]}", id, data);
+        OutResponse::Accepted
+    }
+
+    fn get_protocol(&self) -> HidProtocolMode {
+        let protocol = HidProtocolMode::from(HID_PROTOCOL_MODE.load(Ordering::Relaxed));
+        info!("The current HID protocol mode is: {}", protocol);
+        protocol
+    }
+
+    fn set_protocol(&mut self, protocol: HidProtocolMode) -> OutResponse {
+        info!("Switching to HID protocol mode: {}", protocol);
+        HID_PROTOCOL_MODE.store(protocol as u8, Ordering::Relaxed);
+        OutResponse::Accepted
+    }
+
+    fn set_idle_ms(&mut self, id: Option<ReportId>, dur: u32) {
+        info!("Set idle rate for {:?} to {:?}", id, dur);
+    }
+
+    fn get_idle_ms(&mut self, id: Option<ReportId>) -> Option<u32> {
+        info!("Get idle rate for {:?}", id);
+        None
+    }
+}

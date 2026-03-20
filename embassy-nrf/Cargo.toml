@@ -71,7 +71,7 @@ rt = ["nrf-pac/rt"]
 time = ["dep:embassy-time", "embassy-embedded-hal/time"]
 
 ## Enable defmt
-defmt = ["dep:defmt", "embassy-hal-internal/defmt", "embassy-sync/defmt", "embassy-usb-driver/defmt", "embassy-embedded-hal/defmt"]
+defmt = ["dep:defmt", "embassy-hal-internal/defmt", "embassy-sync/defmt", "embassy-usb-driver/defmt", "embassy-usb-synopsys-otg/defmt", "embassy-embedded-hal/defmt"]
 ## Enable log
 log = ["dep:log"]
 
@@ -211,6 +211,7 @@ embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
 embassy-hal-internal = { version = "0.4.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-3"] }
 embassy-embedded-hal = { version = "0.6.0", path = "../embassy-embedded-hal", default-features = false }
 embassy-usb-driver = { version = "0.2.0", path = "../embassy-usb-driver" }
+embassy-usb-synopsys-otg = { version = "0.3.2", path = "../embassy-usb-synopsys-otg" }
 embassy-net-driver-channel = { version = "0.4.0", path = "../embassy-net-driver-channel", optional = true}
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 
