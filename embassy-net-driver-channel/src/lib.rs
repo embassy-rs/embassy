@@ -334,10 +334,6 @@ impl<'d, const MTU: usize> embassy_net_driver::Driver for Device<'d, MTU> {
         Self: 'a;
 
     fn receive(&mut self, cx: &mut Context) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
-        if self.link_state(cx) != LinkState::Up {
-            return None;
-        }
-
         if self.rx.poll_receive(cx).is_ready() && self.tx.poll_send(cx).is_ready() {
             Some((RxToken { rx: self.rx.borrow() }, TxToken { tx: self.tx.borrow() }))
         } else {
@@ -347,10 +343,6 @@ impl<'d, const MTU: usize> embassy_net_driver::Driver for Device<'d, MTU> {
 
     /// Construct a transmit token.
     fn transmit(&mut self, cx: &mut Context) -> Option<Self::TxToken<'_>> {
-        if self.link_state(cx) != LinkState::Up {
-            return None;
-        }
-
         if self.tx.poll_send(cx).is_ready() {
             Some(TxToken { tx: self.tx.borrow() })
         } else {

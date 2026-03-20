@@ -4,7 +4,10 @@
 use defmt::{info, panic};
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
-use embassy_nrf54lm20_examples::{UsbDriver, init_board, usb_driver};
+use embassy_nrf::config::{ClockSpeed, Config as NrfConfig, HfclkSource};
+use embassy_nrf::usb::vbus_detect::HardwareVbusDetect;
+use embassy_nrf::usb::{self, Driver};
+use embassy_nrf::{Peri, bind_interrupts, peripherals};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config};
@@ -17,6 +20,13 @@ static MSOS_DESCRIPTOR: StaticCell<[u8; 256]> = StaticCell::new();
 static CONTROL_BUFFER: StaticCell<[u8; 64]> = StaticCell::new();
 static STATE: StaticCell<State> = StaticCell::new();
 static EP_OUT_BUFFER: StaticCell<[u8; 2048]> = StaticCell::new();
+
+bind_interrupts!(pub struct Irqs {
+    USBHS => usb::InterruptHandler<peripherals::USBHS>;
+    VREGUSB => usb::vbus_detect::InterruptHandler;
+});
+
+type UsbDriver<'d> = Driver<'d, HardwareVbusDetect>;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -75,4 +85,21 @@ async fn echo<'d>(class: &mut CdcAcmClass<'d, UsbDriver<'d>>) -> Result<(), Disc
         info!("data: {:x}", data);
         class.write_packet(data).await?;
     }
+}
+
+fn init_board() -> embassy_nrf::Peripherals {
+    let mut config = NrfConfig::default();
+    config.hfclk_source = HfclkSource::ExternalXtal;
+    config.clock_speed = ClockSpeed::CK64;
+    embassy_nrf::init(config)
+}
+
+fn usb_driver(usb: Peri<'static, peripherals::USBHS>, ep_out_buffer: &'static mut [u8]) -> UsbDriver<'static> {
+    Driver::new(
+        usb,
+        Irqs,
+        HardwareVbusDetect::new(Irqs),
+        ep_out_buffer,
+        usb::Config::default(),
+    )
 }

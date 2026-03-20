@@ -2,24 +2,35 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{Ipv4Address, Ipv4Cidr, StackResources, StaticConfigV4};
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::LinkState;
-use embassy_nrf54lm20_examples::{UsbDriver, init_board, usb_driver};
+use embassy_nrf::config::{ClockSpeed, Config as NrfConfig, HfclkSource};
+use embassy_nrf::usb::vbus_detect::HardwareVbusDetect;
+use embassy_nrf::usb::{self, Driver};
+use embassy_nrf::{Peri, bind_interrupts, peripherals};
 use embassy_time::{Duration, Timer};
 use embassy_usb::class::cdc_ncm::{CdcNcmClass, Receiver, Sender, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config, UsbDevice};
 use embedded_io_async::Write;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 type NetDevice = ch::Device<'static, 1514>;
 
 static EP_OUT_BUFFER: StaticCell<[u8; 4096]> = StaticCell::new();
 static NCM_SCRATCH: StaticCell<[u8; 2048]> = StaticCell::new();
+
+bind_interrupts!(pub struct Irqs {
+    USBHS => usb::InterruptHandler<peripherals::USBHS>;
+    VREGUSB => usb::vbus_detect::InterruptHandler;
+});
+
+type UsbDriver<'d> = Driver<'d, HardwareVbusDetect>;
 
 #[embassy_executor::task]
 async fn usb_task(mut device: UsbDevice<'static, UsbDriver<'static>>) -> ! {
@@ -206,4 +217,21 @@ async fn main(spawner: Spawner) {
             }
         }
     }
+}
+
+fn init_board() -> embassy_nrf::Peripherals {
+    let mut config = NrfConfig::default();
+    config.hfclk_source = HfclkSource::ExternalXtal;
+    config.clock_speed = ClockSpeed::CK64;
+    embassy_nrf::init(config)
+}
+
+fn usb_driver(usb: Peri<'static, peripherals::USBHS>, ep_out_buffer: &'static mut [u8]) -> UsbDriver<'static> {
+    Driver::new(
+        usb,
+        Irqs,
+        HardwareVbusDetect::new(Irqs),
+        ep_out_buffer,
+        usb::Config::default(),
+    )
 }

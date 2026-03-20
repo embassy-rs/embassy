@@ -3,9 +3,7 @@
 use embassy_futures::select::{Either, select};
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::LinkState;
-use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-use embassy_sync::signal::Signal;
-use embassy_usb_driver::{Driver, EndpointError};
+use embassy_usb_driver::Driver;
 
 use super::{CdcNcmClass, Receiver, Sender};
 
@@ -38,26 +36,15 @@ impl<'d, D: Driver<'d>, const MTU: usize> Runner<'d, D, MTU> {
     /// You must call this in a background task for the class to operate.
     pub async fn run(mut self) -> ! {
         let (state_chan, mut rx_chan, mut tx_chan) = self.ch.split();
-        let link_state = Signal::<NoopRawMutex, bool>::new();
-        let rx_link_state = &link_state;
-        let tx_link_state = &link_state;
         let rx_fut = async move {
             loop {
                 trace!("WAITING for connection");
                 state_chan.set_link_state(LinkState::Down);
-                rx_link_state.signal(false);
 
-                match self.rx_usb.wait_connection().await {
-                    Ok(()) => {}
-                    Err(e) => {
-                        warn!("wait_connection failed: {:?}", e);
-                        continue;
-                    }
-                }
+                self.rx_usb.wait_connection().await.unwrap();
 
                 trace!("Connected");
                 state_chan.set_link_state(LinkState::Up);
-                rx_link_state.signal(true);
 
                 loop {
                     let p = rx_chan.rx_buf().await;
@@ -73,24 +60,11 @@ impl<'d, D: Driver<'d>, const MTU: usize> Runner<'d, D, MTU> {
         };
         let tx_fut = async move {
             loop {
-                while !tx_link_state.wait().await {}
-                self.tx_usb.wait_connection().await;
-
-                loop {
-                    let p = tx_chan.tx_buf().await;
-                    match self.tx_usb.write_packet(p).await {
-                        Ok(()) => {}
-                        Err(EndpointError::Disabled) => {
-                            trace!("TX path disabled, waiting for link");
-                            tx_chan.tx_done();
-                            break;
-                        }
-                        Err(e) => {
-                            warn!("Failed to TX packet: {:?}", e);
-                        }
-                    }
-                    tx_chan.tx_done();
+                let p = tx_chan.tx_buf().await;
+                if let Err(e) = self.tx_usb.write_packet(p).await {
+                    warn!("Failed to TX packet: {:?}", e);
                 }
+                tx_chan.tx_done();
             }
         };
         match select(rx_fut, tx_fut).await {

@@ -7,8 +7,11 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_futures::select::{Either, select};
+use embassy_nrf::config::{ClockSpeed, Config as NrfConfig, HfclkSource};
 use embassy_nrf::gpio::{Input, Pull};
-use embassy_nrf54lm20_examples::{init_board, usb_driver};
+use embassy_nrf::usb::vbus_detect::HardwareVbusDetect;
+use embassy_nrf::usb::{self, Driver};
+use embassy_nrf::{bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_usb::class::hid::{
@@ -24,11 +27,27 @@ static SUSPENDED: AtomicBool = AtomicBool::new(false);
 static HID_PROTOCOL_MODE: AtomicU8 = AtomicU8::new(HidProtocolMode::Boot as u8);
 static EP_OUT_BUFFER: StaticCell<[u8; 2048]> = StaticCell::new();
 
+bind_interrupts!(pub struct Irqs {
+    USBHS => usb::InterruptHandler<peripherals::USBHS>;
+    VREGUSB => usb::vbus_detect::InterruptHandler;
+});
+
+pub type UsbDriver<'d> = Driver<'d, HardwareVbusDetect>;
+
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = init_board();
+    let mut config = NrfConfig::default();
+    config.hfclk_source = HfclkSource::ExternalXtal;
+    config.clock_speed = ClockSpeed::CK64;
+    let p = embassy_nrf::init(config);
 
-    let driver = usb_driver(p.USBHS, &mut EP_OUT_BUFFER.init([0; 2048])[..]);
+    let driver = Driver::new(
+        p.USBHS,
+        Irqs,
+        HardwareVbusDetect::new(Irqs),
+        EP_OUT_BUFFER.init([0; 2048]),
+        usb::Config::default(),
+    );
 
     let mut config = Config::new(0xc0de, 0xcafe);
     config.manufacturer = Some("Embassy");

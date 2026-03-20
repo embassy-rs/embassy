@@ -6,7 +6,10 @@ use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
-use embassy_nrf54lm20_examples::{init_board, usb_driver};
+use embassy_nrf::config::{ClockSpeed, Config as NrfConfig, HfclkSource};
+use embassy_nrf::usb::vbus_detect::HardwareVbusDetect;
+use embassy_nrf::usb::{self, Driver};
+use embassy_nrf::{Peri, bind_interrupts, peripherals};
 use embassy_time::Timer;
 use embassy_usb::class::hid::{
     HidBootProtocol, HidProtocolMode, HidReaderWriter, HidSubclass, ReportId, RequestHandler, State,
@@ -20,6 +23,13 @@ use {defmt_rtt as _, panic_probe as _};
 static CONFIGURED: AtomicBool = AtomicBool::new(false);
 static HID_PROTOCOL_MODE: AtomicU8 = AtomicU8::new(HidProtocolMode::Boot as u8);
 static EP_OUT_BUFFER: StaticCell<[u8; 2048]> = StaticCell::new();
+
+bind_interrupts!(pub struct Irqs {
+    USBHS => usb::InterruptHandler<peripherals::USBHS>;
+    VREGUSB => usb::vbus_detect::InterruptHandler;
+});
+
+type UsbDriver<'d> = Driver<'d, HardwareVbusDetect>;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -159,4 +169,21 @@ impl RequestHandler for MyRequestHandler {
         info!("Get idle rate for {:?}", id);
         None
     }
+}
+
+fn init_board() -> embassy_nrf::Peripherals {
+    let mut config = NrfConfig::default();
+    config.hfclk_source = HfclkSource::ExternalXtal;
+    config.clock_speed = ClockSpeed::CK64;
+    embassy_nrf::init(config)
+}
+
+fn usb_driver(usb: Peri<'static, peripherals::USBHS>, ep_out_buffer: &'static mut [u8]) -> UsbDriver<'static> {
+    Driver::new(
+        usb,
+        Irqs,
+        HardwareVbusDetect::new(Irqs),
+        ep_out_buffer,
+        usb::Config::default(),
+    )
 }

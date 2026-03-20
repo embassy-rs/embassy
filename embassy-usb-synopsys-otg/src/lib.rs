@@ -607,8 +607,7 @@ impl<'d, const MAX_EP_COUNT: usize> Bus<'d, MAX_EP_COUNT> {
             // Force device mode
             w.set_fdmod(true);
 
-            // Mirror Zephyr's DWC2 PHY setup: internal HS PHYs use UTMI/UTMI+,
-            // external PHYs use ULPI, and GHWCFG4.PHYDATAWIDTH selects 8/16-bit HS width.
+            // External PHYs use ULPI, and GHWCFG4.PHYDATAWIDTH selects 8/16-bit HS width.
             match phy_type {
                 PhyType::InternalFullSpeed => {
                     w.set_physel(true);
