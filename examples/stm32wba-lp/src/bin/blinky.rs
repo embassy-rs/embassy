@@ -14,7 +14,7 @@ use embassy_stm32::rcc::*;
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
-#[embassy_executor::main(executor = "embassy_stm32::Executor", entry = "cortex_m_rt::entry")]
+#[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
 

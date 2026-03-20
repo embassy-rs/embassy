@@ -176,21 +176,13 @@ pub struct RtcConfig {
     ///
     /// A high counter frequency may impact stop power consumption
     pub frequency: Hertz,
-
-    #[cfg(feature = "_allow-disable-rtc")]
-    /// Allow disabling the rtc, even when stop is configured
-    pub _disable_rtc: bool,
 }
 
 impl Default for RtcConfig {
     /// LSI with prescalers assuming 32.768 kHz.
     /// Raw sub-seconds in 1/256.
     fn default() -> Self {
-        RtcConfig {
-            frequency: Hertz(256),
-            #[cfg(feature = "_allow-disable-rtc")]
-            _disable_rtc: false,
-        }
+        RtcConfig { frequency: Hertz(256) }
     }
 }
 
@@ -450,11 +442,6 @@ trait SealedInstance {
 #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
 pub(crate) fn init_rtc(cs: CriticalSection, config: RtcConfig, min_stop_pause: embassy_time::Duration) {
     use crate::time_driver::{LPTimeDriver, get_driver};
-
-    #[cfg(feature = "_allow-disable-rtc")]
-    if config._disable_rtc {
-        return;
-    }
 
     get_driver().set_rtc(cs, Rtc::new_inner(config));
     get_driver().set_min_stop_pause(cs, min_stop_pause);

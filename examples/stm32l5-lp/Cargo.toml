@@ -1,20 +1,20 @@
 [package]
 edition = "2024"
-name = "embassy-stm32l5-examples"
+name = "embassy-stm32l5-lp-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]
 # Change stm32l552ze to your chip name, if necessary.
-embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "unstable-pac", "stm32l552ze", "time-driver-any", "exti", "memory-x", "dual-bank"]  }
+embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "unstable-pac", "stm32l552ze", "time-driver-any", "exti", "memory-x", "dual-bank", "low-power", "executor-thread"]  }
 embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }
-embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-cortex-m", "executor-thread", "defmt"] }
+embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["defmt"] }
 embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 embassy-usb = { version = "0.6.0", path = "../../embassy-usb", features = ["defmt"] }
 embassy-net = { version = "0.9.0", path = "../../embassy-net", features = ["defmt",  "tcp", "dhcpv4", "medium-ethernet"] }
 embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
-usbd-hid = "0.10.0"
+usbd-hid = "0.9.0"
 
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
@@ -32,5 +32,5 @@ debug = 2
 
 [package.metadata.embassy]
 build = [
-  { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/stm32l5" }
+  { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/stm32l5-lp" }
 ]
