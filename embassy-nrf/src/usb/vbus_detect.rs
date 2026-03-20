@@ -248,5 +248,7 @@ impl VbusDetect for &SoftwareVbusDetect {
 
 #[cfg(feature = "_nrf54lm20-app")]
 fn raw_vbus_detected() -> bool {
-    unsafe { ((USB_REG_PERI.as_ptr() as *const u32).add(0x400 / 4).read_volatile() & VREGUSB_STATUS_VBUS_DETECTED) != 0 }
+    unsafe {
+        ((USB_REG_PERI.as_ptr() as *const u32).add(0x400 / 4).read_volatile() & VREGUSB_STATUS_VBUS_DETECTED) != 0
+    }
 }

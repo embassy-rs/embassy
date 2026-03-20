@@ -64,7 +64,7 @@ impl<'d, V: VbusDetect> Driver<'d, V> {
             state: T::state(),
             fifo_depth_words: FIFO_DEPTH_WORDS,
             endpoint_count: MAX_EP_COUNT,
-            phy_type: PhyType::InternalFullSpeed,
+            phy_type: PhyType::InternalHighSpeed,
             extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
             calculate_trdt_fn: calculate_trdt,
         };

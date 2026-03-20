@@ -592,13 +592,44 @@ impl<'d, const MAX_EP_COUNT: usize> Bus<'d, MAX_EP_COUNT> {
 
     /// Configures the PHY as a device.
     pub fn configure_as_device(&mut self) {
+        const GUSBCFG_PHYIF_16_BIT: u32 = 1 << 3;
+        const GUSBCFG_ULPI_UTMI_SEL: u32 = 1 << 4;
+        const GHWCFG4_PHY_DATA_WIDTH_MASK: u32 = 0x3 << 14;
+        const GHWCFG4_OFFSET: usize = 0x50;
+
         let r = self.instance.regs;
         let phy_type = self.instance.phy_type;
-        r.gusbcfg().write(|w| {
+        // `otg_v1` doesn't expose GHWCFG4 yet, so read the standard DWC2 register directly.
+        let ghwcfg4 = unsafe { ((r.as_ptr() as *const u32).add(GHWCFG4_OFFSET / 4)).read_volatile() };
+        let hs_phy_16_bit = (ghwcfg4 & GHWCFG4_PHY_DATA_WIDTH_MASK) != 0;
+
+        r.gusbcfg().modify(|w| {
             // Force device mode
             w.set_fdmod(true);
-            // Enable internal full-speed PHY
-            w.set_physel(phy_type.internal() && !phy_type.high_speed());
+
+            // Mirror Zephyr's DWC2 PHY setup: internal HS PHYs use UTMI/UTMI+,
+            // external PHYs use ULPI, and GHWCFG4.PHYDATAWIDTH selects 8/16-bit HS width.
+            match phy_type {
+                PhyType::InternalFullSpeed => {
+                    w.set_physel(true);
+                    w.0 &= !GUSBCFG_ULPI_UTMI_SEL;
+                    w.0 &= !GUSBCFG_PHYIF_16_BIT;
+                }
+                PhyType::InternalHighSpeed => {
+                    w.set_physel(false);
+                    w.0 &= !GUSBCFG_ULPI_UTMI_SEL;
+                    if hs_phy_16_bit {
+                        w.0 |= GUSBCFG_PHYIF_16_BIT;
+                    } else {
+                        w.0 &= !GUSBCFG_PHYIF_16_BIT;
+                    }
+                }
+                PhyType::ExternalFullSpeed | PhyType::ExternalHighSpeed => {
+                    w.set_physel(false);
+                    w.0 |= GUSBCFG_ULPI_UTMI_SEL;
+                    w.0 &= !GUSBCFG_PHYIF_16_BIT;
+                }
+            }
         });
     }
 
