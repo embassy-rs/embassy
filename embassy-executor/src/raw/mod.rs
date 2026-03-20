@@ -34,7 +34,7 @@ use core::marker::PhantomData;
 use core::mem;
 use core::pin::Pin;
 use core::ptr::NonNull;
-#[cfg(not(feature = "arch-avr"))]
+#[cfg(not(feature = "platform-avr"))]
 use core::sync::atomic::AtomicPtr;
 use core::sync::atomic::Ordering;
 use core::task::{Context, Poll, Waker};
@@ -42,7 +42,7 @@ use core::task::{Context, Poll, Waker};
 #[cfg(feature = "scheduler-deadline")]
 pub(crate) use deadline::Deadline;
 use embassy_executor_timer_queue::TimerQueueItem;
-#[cfg(feature = "arch-avr")]
+#[cfg(feature = "platform-avr")]
 use portable_atomic::AtomicPtr;
 
 use self::run_queue::{RunQueue, RunQueueItem};

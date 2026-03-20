@@ -6,10 +6,7 @@ use embedded_hal_1::pwm::{Error, ErrorKind, ErrorType};
 
 use super::{AnyChannel, CTimer, CTimerChannel, Channel, Info, Instance, OutputPin};
 use crate::gpio::{AnyPin, SealedPin};
-use crate::pac::ctimer::vals::{
-    Mr0i, Mr0r, Mr0rl, Mr0s, Mr1i, Mr1r, Mr1rl, Mr1s, Mr2i, Mr2r, Mr2rl, Mr2s, Mr3i, Mr3r, Mr3rl, Mr3s, Pwmen0, Pwmen1,
-    Pwmen2, Pwmen3,
-};
+use crate::pac::ctimer::vals::{Mri, Mrr, Mrrl, Mrs, Pwmen};
 
 /// PWM error.
 #[derive(Debug)]
@@ -79,16 +76,16 @@ impl<'d> Pwm<'d> {
     fn set_pwm_mode(&self) {
         self.info.regs().pwmc().modify(|w| match self.duty_ch.number() {
             Channel::Zero => {
-                w.set_pwmen0(Pwmen0::PWM);
+                w.set_pwmen0(Pwmen::PWM);
             }
             Channel::One => {
-                w.set_pwmen1(Pwmen1::PWM);
+                w.set_pwmen1(Pwmen::PWM);
             }
             Channel::Two => {
-                w.set_pwmen2(Pwmen2::PWM);
+                w.set_pwmen2(Pwmen::PWM);
             }
             Channel::Three => {
-                w.set_pwmen3(Pwmen3::PWM);
+                w.set_pwmen3(Pwmen::PWM);
             }
         });
     }
@@ -98,39 +95,39 @@ impl<'d> Pwm<'d> {
             // Clear stop, reset, and interrupt bits for the PWM channel
             match self.duty_ch.number() {
                 Channel::Zero => {
-                    w.set_mr0i(Mr0i::MR0I_0);
-                    w.set_mr0r(Mr0r::MR0R_0);
-                    w.set_mr0s(Mr0s::MR0S_0);
+                    w.set_mr0i(Mri::MRI0);
+                    w.set_mr0r(Mrr::MRR0);
+                    w.set_mr0s(Mrs::MRS0);
                 }
                 Channel::One => {
-                    w.set_mr1i(Mr1i::MR1I_0);
-                    w.set_mr1r(Mr1r::MR1R_0);
-                    w.set_mr1s(Mr1s::MRIS_0);
+                    w.set_mr1i(Mri::MRI0);
+                    w.set_mr1r(Mrr::MRR0);
+                    w.set_mr1s(Mrs::MRS0);
                 }
                 Channel::Two => {
-                    w.set_mr2i(Mr2i::MR2I_0);
-                    w.set_mr2r(Mr2r::MR2R_0);
-                    w.set_mr2s(Mr2s::MR2S_0);
+                    w.set_mr2i(Mri::MRI0);
+                    w.set_mr2r(Mrr::MRR0);
+                    w.set_mr2s(Mrs::MRS0);
                 }
                 Channel::Three => {
-                    w.set_mr3i(Mr3i::MR3I_0);
-                    w.set_mr3r(Mr3r::MR3R_0);
-                    w.set_mr3s(Mr3s::MR3S_0);
+                    w.set_mr3i(Mri::MRI0);
+                    w.set_mr3r(Mrr::MRR0);
+                    w.set_mr3s(Mrs::MRS0);
                 }
             }
 
             match self.duty_ch.number() {
                 Channel::Zero => {
-                    w.set_mr0rl(Mr0rl::MR0RL_1);
+                    w.set_mr0rl(Mrrl::MRRL1);
                 }
                 Channel::One => {
-                    w.set_mr1rl(Mr1rl::MR1RL_1);
+                    w.set_mr1rl(Mrrl::MRRL1);
                 }
                 Channel::Two => {
-                    w.set_mr2rl(Mr2rl::MR2RL_1);
+                    w.set_mr2rl(Mrrl::MRRL1);
                 }
                 Channel::Three => {
-                    w.set_mr3rl(Mr3rl::MR3RL_1);
+                    w.set_mr3rl(Mrrl::MRRL1);
                 }
             }
         });
@@ -205,16 +202,16 @@ impl<'d> SinglePwm<'d> {
 
         self.pwm.info.regs().mcr().modify(|w| match self.period_ch.number() {
             Channel::Zero => {
-                w.set_mr0r(Mr0r::MR0R_1);
+                w.set_mr0r(Mrr::MRR1);
             }
             Channel::One => {
-                w.set_mr1r(Mr1r::MR1R_1);
+                w.set_mr1r(Mrr::MRR1);
             }
             Channel::Two => {
-                w.set_mr2r(Mr2r::MR2R_1);
+                w.set_mr2r(Mrr::MRR1);
             }
             Channel::Three => {
-                w.set_mr3r(Mr3r::MR3R_1);
+                w.set_mr3r(Mrr::MRR1);
             }
         });
 
@@ -314,16 +311,16 @@ impl<'d> DualPwm<'d> {
 
         self.pwm0.info.regs().mcr().modify(|w| match self.period_ch.number() {
             Channel::Zero => {
-                w.set_mr0r(Mr0r::MR0R_1);
+                w.set_mr0r(Mrr::MRR1);
             }
             Channel::One => {
-                w.set_mr1r(Mr1r::MR1R_1);
+                w.set_mr1r(Mrr::MRR1);
             }
             Channel::Two => {
-                w.set_mr2r(Mr2r::MR2R_1);
+                w.set_mr2r(Mrr::MRR1);
             }
             Channel::Three => {
-                w.set_mr3r(Mr3r::MR3R_1);
+                w.set_mr3r(Mrr::MRR1);
             }
         });
 
@@ -450,16 +447,16 @@ impl<'d> TriplePwm<'d> {
 
         self.pwm0.info.regs().mcr().modify(|w| match self.period_ch.number() {
             Channel::Zero => {
-                w.set_mr0r(Mr0r::MR0R_1);
+                w.set_mr0r(Mrr::MRR1);
             }
             Channel::One => {
-                w.set_mr1r(Mr1r::MR1R_1);
+                w.set_mr1r(Mrr::MRR1);
             }
             Channel::Two => {
-                w.set_mr2r(Mr2r::MR2R_1);
+                w.set_mr2r(Mrr::MRR1);
             }
             Channel::Three => {
-                w.set_mr3r(Mr3r::MR3R_1);
+                w.set_mr3r(Mrr::MRR1);
             }
         });
 
@@ -563,91 +560,200 @@ macro_rules! impl_valid_match {
     };
 }
 
-// CTIMER0 match channels
-#[cfg(feature = "swd-swo-as-gpio")]
-impl_valid_match!(CTIMER0, CTIMER0_CH0, P0_2, 0);
-#[cfg(feature = "jtag-extras-as-gpio")]
-impl_valid_match!(CTIMER0, CTIMER0_CH1, P0_3, 1);
+#[cfg(feature = "mcxa2xx")]
+mod mcxa2xx {
+    use super::*;
 
-impl_valid_match!(CTIMER0, CTIMER0_CH0, P0_16, 0);
-impl_valid_match!(CTIMER0, CTIMER0_CH1, P0_17, 1);
-impl_valid_match!(CTIMER0, CTIMER0_CH2, P0_18, 2);
-impl_valid_match!(CTIMER0, CTIMER0_CH3, P0_19, 3);
+    // CTIMER0 match channels
+    #[cfg(feature = "swd-swo-as-gpio")]
+    impl_valid_match!(CTIMER0, CTIMER0_CH0, P0_2, 0);
+    #[cfg(feature = "jtag-extras-as-gpio")]
+    impl_valid_match!(CTIMER0, CTIMER0_CH1, P0_3, 1);
 
-impl_valid_match!(CTIMER0, CTIMER0_CH0, P0_22, 0);
-impl_valid_match!(CTIMER0, CTIMER0_CH1, P0_23, 1);
-impl_valid_match!(CTIMER0, CTIMER0_CH2, P1_0, 2);
-impl_valid_match!(CTIMER0, CTIMER0_CH3, P1_1, 3);
+    impl_valid_match!(CTIMER0, CTIMER0_CH0, P0_16, 0);
+    impl_valid_match!(CTIMER0, CTIMER0_CH1, P0_17, 1);
+    impl_valid_match!(CTIMER0, CTIMER0_CH2, P0_18, 2);
+    impl_valid_match!(CTIMER0, CTIMER0_CH3, P0_19, 3);
 
-#[cfg(feature = "sosc-as-gpio")]
-impl_valid_match!(CTIMER0, CTIMER0_CH2, P3_30, 2);
-#[cfg(feature = "sosc-as-gpio")]
-impl_valid_match!(CTIMER0, CTIMER0_CH3, P3_31, 3);
+    impl_valid_match!(CTIMER0, CTIMER0_CH0, P0_22, 0);
+    impl_valid_match!(CTIMER0, CTIMER0_CH1, P0_23, 1);
+    impl_valid_match!(CTIMER0, CTIMER0_CH2, P1_0, 2);
+    impl_valid_match!(CTIMER0, CTIMER0_CH3, P1_1, 3);
 
-// CTIMER1 match channels
-impl_valid_match!(CTIMER1, CTIMER1_CH0, P1_2, 0);
-impl_valid_match!(CTIMER1, CTIMER1_CH1, P1_3, 1);
-impl_valid_match!(CTIMER1, CTIMER1_CH2, P1_4, 2);
-impl_valid_match!(CTIMER1, CTIMER1_CH3, P1_5, 3);
+    #[cfg(feature = "sosc-as-gpio")]
+    impl_valid_match!(CTIMER0, CTIMER0_CH2, P3_30, 2);
+    #[cfg(feature = "sosc-as-gpio")]
+    impl_valid_match!(CTIMER0, CTIMER0_CH3, P3_31, 3);
 
-impl_valid_match!(CTIMER1, CTIMER1_CH0, P2_4, 0);
-impl_valid_match!(CTIMER1, CTIMER1_CH1, P2_5, 1);
-impl_valid_match!(CTIMER1, CTIMER1_CH2, P2_6, 2);
-impl_valid_match!(CTIMER1, CTIMER1_CH3, P2_7, 3);
+    // CTIMER1 match channels
+    impl_valid_match!(CTIMER1, CTIMER1_CH0, P1_2, 0);
+    impl_valid_match!(CTIMER1, CTIMER1_CH1, P1_3, 1);
+    impl_valid_match!(CTIMER1, CTIMER1_CH2, P1_4, 2);
+    impl_valid_match!(CTIMER1, CTIMER1_CH3, P1_5, 3);
 
-impl_valid_match!(CTIMER1, CTIMER1_CH0, P3_10, 0);
-impl_valid_match!(CTIMER1, CTIMER1_CH1, P3_11, 1);
-impl_valid_match!(CTIMER1, CTIMER1_CH2, P3_12, 2);
-impl_valid_match!(CTIMER1, CTIMER1_CH3, P3_13, 3);
+    impl_valid_match!(CTIMER1, CTIMER1_CH0, P2_4, 0);
+    impl_valid_match!(CTIMER1, CTIMER1_CH1, P2_5, 1);
+    impl_valid_match!(CTIMER1, CTIMER1_CH2, P2_6, 2);
+    impl_valid_match!(CTIMER1, CTIMER1_CH3, P2_7, 3);
 
-// CTIMER2 match channels
-impl_valid_match!(CTIMER2, CTIMER2_CH0, P1_10, 0);
-impl_valid_match!(CTIMER2, CTIMER2_CH1, P1_11, 1);
-impl_valid_match!(CTIMER2, CTIMER2_CH2, P1_12, 2);
-impl_valid_match!(CTIMER2, CTIMER2_CH3, P1_13, 3);
+    impl_valid_match!(CTIMER1, CTIMER1_CH0, P3_10, 0);
+    impl_valid_match!(CTIMER1, CTIMER1_CH1, P3_11, 1);
+    impl_valid_match!(CTIMER1, CTIMER1_CH2, P3_12, 2);
+    impl_valid_match!(CTIMER1, CTIMER1_CH3, P3_13, 3);
 
-impl_valid_match!(CTIMER2, CTIMER2_CH0, P2_0, 0);
-impl_valid_match!(CTIMER2, CTIMER2_CH1, P2_1, 1);
-impl_valid_match!(CTIMER2, CTIMER2_CH2, P2_2, 2);
-impl_valid_match!(CTIMER2, CTIMER2_CH3, P2_3, 3);
+    // CTIMER2 match channels
+    impl_valid_match!(CTIMER2, CTIMER2_CH0, P1_10, 0);
+    impl_valid_match!(CTIMER2, CTIMER2_CH1, P1_11, 1);
+    impl_valid_match!(CTIMER2, CTIMER2_CH2, P1_12, 2);
+    impl_valid_match!(CTIMER2, CTIMER2_CH3, P1_13, 3);
 
-impl_valid_match!(CTIMER2, CTIMER2_CH0, P2_20, 0);
-impl_valid_match!(CTIMER2, CTIMER2_CH1, P2_21, 1);
-impl_valid_match!(CTIMER2, CTIMER2_CH3, P2_23, 3);
+    impl_valid_match!(CTIMER2, CTIMER2_CH0, P2_0, 0);
+    impl_valid_match!(CTIMER2, CTIMER2_CH1, P2_1, 1);
+    impl_valid_match!(CTIMER2, CTIMER2_CH2, P2_2, 2);
+    impl_valid_match!(CTIMER2, CTIMER2_CH3, P2_3, 3);
 
-impl_valid_match!(CTIMER2, CTIMER2_CH0, P3_18, 0);
-impl_valid_match!(CTIMER2, CTIMER2_CH1, P3_19, 1);
-impl_valid_match!(CTIMER2, CTIMER2_CH2, P3_20, 2);
-impl_valid_match!(CTIMER2, CTIMER2_CH3, P3_21, 3);
+    impl_valid_match!(CTIMER2, CTIMER2_CH0, P2_20, 0);
+    impl_valid_match!(CTIMER2, CTIMER2_CH1, P2_21, 1);
+    impl_valid_match!(CTIMER2, CTIMER2_CH3, P2_23, 3);
 
-// CTIMER3 match channels
-impl_valid_match!(CTIMER3, CTIMER3_CH0, P1_14, 0);
-impl_valid_match!(CTIMER3, CTIMER3_CH1, P1_15, 1);
-impl_valid_match!(CTIMER3, CTIMER3_CH2, P2_10, 2);
-impl_valid_match!(CTIMER3, CTIMER3_CH3, P2_11, 3);
+    impl_valid_match!(CTIMER2, CTIMER2_CH0, P3_18, 0);
+    impl_valid_match!(CTIMER2, CTIMER2_CH1, P3_19, 1);
+    impl_valid_match!(CTIMER2, CTIMER2_CH2, P3_20, 2);
+    impl_valid_match!(CTIMER2, CTIMER2_CH3, P3_21, 3);
 
-impl_valid_match!(CTIMER3, CTIMER3_CH0, P2_16, 0);
-impl_valid_match!(CTIMER3, CTIMER3_CH1, P2_17, 1);
-impl_valid_match!(CTIMER3, CTIMER3_CH2, P2_19, 3);
+    // CTIMER3 match channels
+    impl_valid_match!(CTIMER3, CTIMER3_CH0, P1_14, 0);
+    impl_valid_match!(CTIMER3, CTIMER3_CH1, P1_15, 1);
+    impl_valid_match!(CTIMER3, CTIMER3_CH2, P2_10, 2);
+    impl_valid_match!(CTIMER3, CTIMER3_CH3, P2_11, 3);
 
-impl_valid_match!(CTIMER3, CTIMER3_CH0, P3_27, 1);
-impl_valid_match!(CTIMER3, CTIMER3_CH2, P3_28, 2);
-#[cfg(feature = "dangerous-reset-as-gpio")]
-impl_valid_match!(CTIMER3, CTIMER3_CH3, P3_29, 3);
+    impl_valid_match!(CTIMER3, CTIMER3_CH0, P2_16, 0);
+    impl_valid_match!(CTIMER3, CTIMER3_CH1, P2_17, 1);
+    impl_valid_match!(CTIMER3, CTIMER3_CH2, P2_19, 3);
 
-// CTIMER4 match channels
-impl_valid_match!(CTIMER4, CTIMER4_CH0, P1_6, 0);
-impl_valid_match!(CTIMER4, CTIMER4_CH1, P1_7, 1);
+    impl_valid_match!(CTIMER3, CTIMER3_CH0, P3_27, 1);
+    impl_valid_match!(CTIMER3, CTIMER3_CH2, P3_28, 2);
+    #[cfg(feature = "dangerous-reset-as-gpio")]
+    impl_valid_match!(CTIMER3, CTIMER3_CH3, P3_29, 3);
 
-impl_valid_match!(CTIMER4, CTIMER4_CH0, P2_12, 0);
-impl_valid_match!(CTIMER4, CTIMER4_CH1, P2_13, 1);
-impl_valid_match!(CTIMER4, CTIMER4_CH3, P2_15, 3);
+    // CTIMER4 match channels
+    impl_valid_match!(CTIMER4, CTIMER4_CH0, P1_6, 0);
+    impl_valid_match!(CTIMER4, CTIMER4_CH1, P1_7, 1);
 
-impl_valid_match!(CTIMER4, CTIMER4_CH0, P3_2, 0);
-impl_valid_match!(CTIMER4, CTIMER4_CH2, P3_6, 2);
-impl_valid_match!(CTIMER4, CTIMER4_CH3, P3_7, 3);
+    impl_valid_match!(CTIMER4, CTIMER4_CH0, P2_12, 0);
+    impl_valid_match!(CTIMER4, CTIMER4_CH1, P2_13, 1);
+    impl_valid_match!(CTIMER4, CTIMER4_CH3, P2_15, 3);
 
-impl_valid_match!(CTIMER4, CTIMER4_CH0, P4_2, 0);
-impl_valid_match!(CTIMER4, CTIMER4_CH1, P4_3, 1);
-impl_valid_match!(CTIMER4, CTIMER4_CH2, P4_4, 2);
-impl_valid_match!(CTIMER4, CTIMER4_CH3, P4_5, 3);
+    impl_valid_match!(CTIMER4, CTIMER4_CH0, P3_2, 0);
+    impl_valid_match!(CTIMER4, CTIMER4_CH2, P3_6, 2);
+    impl_valid_match!(CTIMER4, CTIMER4_CH3, P3_7, 3);
+
+    impl_valid_match!(CTIMER4, CTIMER4_CH0, P4_2, 0);
+    impl_valid_match!(CTIMER4, CTIMER4_CH1, P4_3, 1);
+    impl_valid_match!(CTIMER4, CTIMER4_CH2, P4_4, 2);
+    impl_valid_match!(CTIMER4, CTIMER4_CH3, P4_5, 3);
+}
+
+#[cfg(feature = "mcxa5xx")]
+mod mcxa5xx {
+    use super::*;
+
+    // CTIMER0 match channels
+    impl_valid_match!(CTIMER0, CTIMER0_CH0, P0_16, 0);
+    #[cfg(feature = "swd-swo-as-gpio")]
+    impl_valid_match!(CTIMER0, CTIMER0_CH0, P0_2, 0);
+    impl_valid_match!(CTIMER0, CTIMER0_CH0, P0_22, 0);
+    impl_valid_match!(CTIMER0, CTIMER0_CH0, P0_24, 0);
+    impl_valid_match!(CTIMER0, CTIMER0_CH0, P2_12, 0);
+    impl_valid_match!(CTIMER0, CTIMER0_CH1, P0_17, 1);
+    impl_valid_match!(CTIMER0, CTIMER0_CH1, P0_23, 1);
+    impl_valid_match!(CTIMER0, CTIMER0_CH1, P0_25, 1);
+    #[cfg(feature = "jtag-extras-as-gpio")]
+    impl_valid_match!(CTIMER0, CTIMER0_CH1, P0_3, 1);
+    impl_valid_match!(CTIMER0, CTIMER0_CH1, P2_13, 1);
+    impl_valid_match!(CTIMER0, CTIMER0_CH2, P0_12, 2);
+    impl_valid_match!(CTIMER0, CTIMER0_CH2, P0_18, 2);
+    impl_valid_match!(CTIMER0, CTIMER0_CH2, P0_26, 2);
+    impl_valid_match!(CTIMER0, CTIMER0_CH2, P0_4, 2);
+    impl_valid_match!(CTIMER0, CTIMER0_CH2, P1_0, 2);
+    impl_valid_match!(CTIMER0, CTIMER0_CH2, P1_8, 2);
+    impl_valid_match!(CTIMER0, CTIMER0_CH2, P2_15, 2);
+    impl_valid_match!(CTIMER0, CTIMER0_CH2, P2_16, 2);
+    #[cfg(feature = "sosc-as-gpio")]
+    impl_valid_match!(CTIMER0, CTIMER0_CH2, P3_30, 2);
+    impl_valid_match!(CTIMER0, CTIMER0_CH3, P0_13, 3);
+    impl_valid_match!(CTIMER0, CTIMER0_CH3, P0_19, 3);
+    impl_valid_match!(CTIMER0, CTIMER0_CH3, P0_27, 3);
+    impl_valid_match!(CTIMER0, CTIMER0_CH3, P0_5, 3);
+    impl_valid_match!(CTIMER0, CTIMER0_CH3, P1_1, 3);
+    impl_valid_match!(CTIMER0, CTIMER0_CH3, P1_9, 3);
+    impl_valid_match!(CTIMER0, CTIMER0_CH3, P2_17, 3);
+    #[cfg(feature = "sosc-as-gpio")]
+    impl_valid_match!(CTIMER0, CTIMER0_CH3, P3_31, 3);
+
+    // CTIMER1 match channels
+    impl_valid_match!(CTIMER1, CTIMER1_CH0, P1_2, 0);
+    impl_valid_match!(CTIMER1, CTIMER1_CH1, P1_3, 1);
+    impl_valid_match!(CTIMER1, CTIMER1_CH2, P1_4, 2);
+    impl_valid_match!(CTIMER1, CTIMER1_CH3, P1_5, 3);
+    impl_valid_match!(CTIMER1, CTIMER1_CH0, P2_4, 0);
+    impl_valid_match!(CTIMER1, CTIMER1_CH1, P2_5, 1);
+    impl_valid_match!(CTIMER1, CTIMER1_CH2, P2_6, 2);
+    impl_valid_match!(CTIMER1, CTIMER1_CH0, P3_10, 0);
+    impl_valid_match!(CTIMER1, CTIMER1_CH1, P3_11, 1);
+    impl_valid_match!(CTIMER1, CTIMER1_CH2, P3_12, 2);
+    impl_valid_match!(CTIMER1, CTIMER1_CH3, P2_7, 3);
+    impl_valid_match!(CTIMER1, CTIMER1_CH3, P3_13, 3);
+
+    // CTIMER2 match channels
+    impl_valid_match!(CTIMER2, CTIMER2_CH0, P1_10, 0);
+    impl_valid_match!(CTIMER2, CTIMER2_CH0, P2_0, 0);
+    impl_valid_match!(CTIMER2, CTIMER2_CH0, P2_20, 0);
+    impl_valid_match!(CTIMER2, CTIMER2_CH0, P3_18, 0);
+    impl_valid_match!(CTIMER2, CTIMER2_CH1, P1_11, 1);
+    impl_valid_match!(CTIMER2, CTIMER2_CH1, P2_1, 1);
+    impl_valid_match!(CTIMER2, CTIMER2_CH1, P2_21, 1);
+    impl_valid_match!(CTIMER2, CTIMER2_CH1, P3_19, 1);
+    impl_valid_match!(CTIMER2, CTIMER2_CH2, P1_12, 2);
+    impl_valid_match!(CTIMER2, CTIMER2_CH2, P2_2, 2);
+    impl_valid_match!(CTIMER2, CTIMER2_CH2, P2_22, 2);
+    impl_valid_match!(CTIMER2, CTIMER2_CH2, P3_20, 2);
+    impl_valid_match!(CTIMER2, CTIMER2_CH3, P1_13, 3);
+    impl_valid_match!(CTIMER2, CTIMER2_CH3, P2_23, 3);
+    impl_valid_match!(CTIMER2, CTIMER2_CH3, P2_3, 3);
+    impl_valid_match!(CTIMER2, CTIMER2_CH3, P3_21, 3);
+
+    // CTIMER3 match channels
+    impl_valid_match!(CTIMER3, CTIMER3_CH0, P1_14, 0);
+    impl_valid_match!(CTIMER3, CTIMER3_CH0, P1_18, 0);
+    impl_valid_match!(CTIMER3, CTIMER3_CH0, P2_16, 0);
+    impl_valid_match!(CTIMER3, CTIMER3_CH0, P2_8, 0);
+    impl_valid_match!(CTIMER3, CTIMER3_CH1, P1_15, 1);
+    impl_valid_match!(CTIMER3, CTIMER3_CH1, P1_19, 1);
+    impl_valid_match!(CTIMER3, CTIMER3_CH1, P2_17, 1);
+    impl_valid_match!(CTIMER3, CTIMER3_CH1, P2_9, 1);
+    impl_valid_match!(CTIMER3, CTIMER3_CH1, P3_27, 1);
+    impl_valid_match!(CTIMER3, CTIMER3_CH2, P2_10, 2);
+    impl_valid_match!(CTIMER3, CTIMER3_CH2, P2_18, 2);
+    impl_valid_match!(CTIMER3, CTIMER3_CH2, P3_28, 2);
+    impl_valid_match!(CTIMER3, CTIMER3_CH3, P2_11, 3);
+    impl_valid_match!(CTIMER3, CTIMER3_CH3, P2_19, 3);
+    #[cfg(feature = "dangerous-reset-as-gpio")]
+    impl_valid_match!(CTIMER3, CTIMER3_CH3, P3_29, 3);
+
+    // CTIMER4 match channels
+    impl_valid_match!(CTIMER4, CTIMER4_CH0, P1_6, 0);
+    impl_valid_match!(CTIMER4, CTIMER4_CH0, P2_12, 0);
+    impl_valid_match!(CTIMER4, CTIMER4_CH0, P3_2, 0);
+    impl_valid_match!(CTIMER4, CTIMER4_CH0, P4_2, 0);
+    impl_valid_match!(CTIMER4, CTIMER4_CH1, P1_7, 1);
+    impl_valid_match!(CTIMER4, CTIMER4_CH1, P2_13, 1);
+    impl_valid_match!(CTIMER4, CTIMER4_CH1, P3_3, 1);
+    impl_valid_match!(CTIMER4, CTIMER4_CH1, P4_3, 1);
+    impl_valid_match!(CTIMER4, CTIMER4_CH2, P2_14, 2);
+    impl_valid_match!(CTIMER4, CTIMER4_CH2, P3_6, 2);
+    impl_valid_match!(CTIMER4, CTIMER4_CH2, P4_4, 2);
+    impl_valid_match!(CTIMER4, CTIMER4_CH3, P2_15, 3);
+    impl_valid_match!(CTIMER4, CTIMER4_CH3, P3_7, 3);
+    impl_valid_match!(CTIMER4, CTIMER4_CH3, P4_5, 3);
+}

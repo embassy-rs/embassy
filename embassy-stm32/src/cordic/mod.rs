@@ -1,4 +1,4 @@
-//! coordinate rotation digital computer (CORDIC)
+//! Coordinate Rotation Digital Computer (CORDIC)
 
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{Peri, PeripheralType};
@@ -24,100 +24,6 @@ pub struct Cordic<'d, T: Instance> {
 trait SealedInstance {
     /// Get access to CORDIC registers
     fn regs() -> crate::pac::cordic::Cordic;
-
-    /// Set Function value
-    fn set_func(&self, func: Function) {
-        Self::regs()
-            .csr()
-            .modify(|v| v.set_func(vals::Func::from_bits(func as u8)));
-    }
-
-    /// Set Precision value
-    fn set_precision(&self, precision: Precision) {
-        Self::regs()
-            .csr()
-            .modify(|v| v.set_precision(vals::Precision::from_bits(precision as u8)))
-    }
-
-    /// Set Scale value
-    fn set_scale(&self, scale: Scale) {
-        Self::regs()
-            .csr()
-            .modify(|v| v.set_scale(vals::Scale::from_bits(scale as u8)))
-    }
-
-    /// Enable global interrupt
-    #[allow(unused)]
-    fn enable_irq(&self) {
-        Self::regs().csr().modify(|v| v.set_ien(true))
-    }
-
-    /// Disable global interrupt
-    fn disable_irq(&self) {
-        Self::regs().csr().modify(|v| v.set_ien(false))
-    }
-
-    /// Enable Read DMA
-    fn enable_read_dma(&self) {
-        Self::regs().csr().modify(|v| {
-            v.set_dmaren(true);
-        })
-    }
-
-    /// Disable Read DMA
-    fn disable_read_dma(&self) {
-        Self::regs().csr().modify(|v| {
-            v.set_dmaren(false);
-        })
-    }
-
-    /// Enable Write DMA
-    fn enable_write_dma(&self) {
-        Self::regs().csr().modify(|v| {
-            v.set_dmawen(true);
-        })
-    }
-
-    /// Disable Write DMA
-    fn disable_write_dma(&self) {
-        Self::regs().csr().modify(|v| {
-            v.set_dmawen(false);
-        })
-    }
-
-    /// Set NARGS value
-    fn set_argument_count(&self, n: AccessCount) {
-        Self::regs().csr().modify(|v| {
-            v.set_nargs(match n {
-                AccessCount::One => vals::Num::NUM1,
-                AccessCount::Two => vals::Num::NUM2,
-            })
-        })
-    }
-
-    /// Set NRES value
-    fn set_result_count(&self, n: AccessCount) {
-        Self::regs().csr().modify(|v| {
-            v.set_nres(match n {
-                AccessCount::One => vals::Num::NUM1,
-                AccessCount::Two => vals::Num::NUM2,
-            });
-        })
-    }
-
-    /// Set ARGSIZE and RESSIZE value
-    fn set_data_width(&self, arg: Width, res: Width) {
-        Self::regs().csr().modify(|v| {
-            v.set_argsize(match arg {
-                Width::Bits32 => vals::Size::BITS32,
-                Width::Bits16 => vals::Size::BITS16,
-            });
-            v.set_ressize(match res {
-                Width::Bits32 => vals::Size::BITS32,
-                Width::Bits16 => vals::Size::BITS16,
-            })
-        })
-    }
 
     /// Read RRDY flag
     fn ready_to_read(&self) -> bool {
@@ -145,20 +51,45 @@ pub struct Config {
     function: Function,
     precision: Precision,
     scale: Scale,
+    arg_count: AccessCount,
+    res_count: AccessCount,
 }
 
 impl Config {
     /// Create a config for Cordic driver
+    ///
+    /// `arg_count` defaults to `AccessCount::One` and `res_count` defaults to `AccessCount::Two`.
+    /// Use the builder methods [`Self::arg_count`] and [`Self::res_count`] to override.
     pub fn new(function: Function, precision: Precision, scale: Scale) -> Result<Self, CordicError> {
         let config = Self {
             function,
             precision,
             scale,
+            arg_count: AccessCount::One,
+            res_count: AccessCount::Two,
         };
 
         config.check_scale()?;
 
         Ok(config)
+    }
+
+    /// Set the argument access count.
+    ///
+    /// `AccessCount::One`: each WDATA write provides one argument (ARG1), reusing the previous ARG2.
+    /// `AccessCount::Two`: arguments are written in pairs (ARG1 then ARG2) to WDATA.
+    pub fn arg_count(mut self, arg_count: AccessCount) -> Self {
+        self.arg_count = arg_count;
+        self
+    }
+
+    /// Set the result access count.
+    ///
+    /// `AccessCount::One`: each calculation produces one RDATA read (primary result only).
+    /// `AccessCount::Two`: each calculation produces two RDATA reads (primary + secondary).
+    pub fn res_count(mut self, res_count: AccessCount) -> Self {
+        self.res_count = res_count;
+        self
     }
 
     fn check_scale(&self) -> Result<(), ConfigError> {
@@ -194,10 +125,6 @@ impl Config {
 // common method
 impl<'d, T: Instance> Cordic<'d, T> {
     /// Create a Cordic driver instance
-    ///
-    /// Note:
-    /// If you need a peripheral -> CORDIC -> peripheral mode,
-    /// you may want to set Cordic into [Mode::ZeroOverhead] mode, and add extra arguments with [Self::extra_config]
     pub fn new(peri: Peri<'d, T>, config: Config) -> Self {
         rcc::enable_and_reset::<T>();
 
@@ -208,16 +135,34 @@ impl<'d, T: Instance> Cordic<'d, T> {
         instance
     }
 
-    /// Set a new config for Cordic driver
+    /// Set a new config for Cordic driver.
+    ///
+    /// This calls [`Self::reconfigure`], which resets ARG2 to +1.
+    /// To change only `arg_count`/`res_count` without resetting ARG2,
+    /// use [`Self::set_access_counts`] instead.
     pub fn set_config(&mut self, config: Config) {
         self.config = config;
         self.reconfigure();
     }
 
-    /// Set extra config for data count and data width.
-    pub fn extra_config(&mut self, arg_cnt: AccessCount, arg_width: Width, res_width: Width) {
-        self.peri.set_argument_count(arg_cnt);
-        self.peri.set_data_width(arg_width, res_width);
+    /// Change `arg_count` and `res_count` without resetting ARG2.
+    ///
+    /// This is a lightweight CSR update for switching between 1-arg and 2-arg
+    /// modes within the same function configuration (e.g. after an initial
+    /// 2-arg call sets ARG2, switch to 1-arg mode for the hot loop).
+    pub fn set_access_counts(&mut self, arg_count: AccessCount, res_count: AccessCount) {
+        self.config.arg_count = arg_count;
+        self.config.res_count = res_count;
+        T::regs().csr().modify(|v| {
+            v.set_nargs(match arg_count {
+                AccessCount::One => vals::Num::NUM1,
+                AccessCount::Two => vals::Num::NUM2,
+            });
+            v.set_nres(match res_count {
+                AccessCount::One => vals::Num::NUM1,
+                AccessCount::Two => vals::Num::NUM2,
+            });
+        });
     }
 
     fn clean_rrdy_flag(&mut self) {
@@ -228,30 +173,47 @@ impl<'d, T: Instance> Cordic<'d, T> {
 
     /// Disable IRQ and DMA, clean RRDY, and set ARG2 to +1 (0x7FFFFFFF)
     pub fn reconfigure(&mut self) {
-        // reset ARG2 to +1
-        {
-            self.peri.disable_irq();
-            self.peri.disable_read_dma();
-            self.peri.disable_write_dma();
-            self.clean_rrdy_flag();
+        // Disable IRQ and DMA first
+        T::regs().csr().modify(|v| {
+            v.set_ien(false);
+            v.set_dmaren(false);
+            v.set_dmawen(false);
+        });
+        self.clean_rrdy_flag();
 
-            self.peri.set_func(Function::Cos);
-            self.peri.set_precision(Precision::Iters4);
-            self.peri.set_scale(Scale::Arg1Res1);
-            self.peri.set_argument_count(AccessCount::Two);
-            self.peri.set_data_width(Width::Bits32, Width::Bits32);
-            self.peri.write_argument(0x0u32);
-            self.peri.write_argument(0x7FFFFFFFu32);
+        // Reset ARG2 to +1: configure for 2-arg Cos with minimal precision, feed dummy args.
+        T::regs().csr().modify(|v| {
+            v.set_func(vals::Func::from_bits(Function::Cos as u8));
+            v.set_precision(vals::Precision::from_bits(Precision::Iters4 as u8));
+            v.set_scale(vals::Scale::from_bits(Scale::Arg1Res1 as u8));
+            v.set_nargs(vals::Num::NUM2);
+            v.set_argsize(vals::Size::BITS32);
+            v.set_ressize(vals::Size::BITS32);
+        });
+        self.peri.write_argument(0x0u32);
+        self.peri.write_argument(0x7FFFFFFFu32);
+        self.clean_rrdy_flag();
 
-            self.clean_rrdy_flag();
-        }
+        // Apply full user configuration (func, precision, scale, data interface).
+        T::regs().csr().modify(|v| {
+            v.set_func(vals::Func::from_bits(self.config.function as u8));
+            v.set_precision(vals::Precision::from_bits(self.config.precision as u8));
+            v.set_scale(vals::Scale::from_bits(self.config.scale as u8));
+            v.set_nargs(match self.config.arg_count {
+                AccessCount::One => vals::Num::NUM1,
+                AccessCount::Two => vals::Num::NUM2,
+            });
+            v.set_nres(match self.config.res_count {
+                AccessCount::One => vals::Num::NUM1,
+                AccessCount::Two => vals::Num::NUM2,
+            });
+            v.set_argsize(vals::Size::BITS32);
+            v.set_ressize(vals::Size::BITS32);
+        });
 
-        self.peri.set_func(self.config.function);
-        self.peri.set_precision(self.config.precision);
-        self.peri.set_scale(self.config.scale);
-
-        // we don't set NRES in here, but to make sure NRES is set each time user call "calc"-ish functions,
-        // since each "calc"-ish functions can have different ARGSIZE and RESSIZE, thus NRES should be change accordingly.
+        // Changing NRES or other CSR fields above can re-assert RRDY if secondary
+        // results from the dummy calc were not fully drained. Clean it again.
+        self.clean_rrdy_flag();
     }
 }
 
@@ -263,32 +225,21 @@ impl<'d, T: Instance> Drop for Cordic<'d, T> {
 
 // q1.31 related
 impl<'d, T: Instance> Cordic<'d, T> {
-    /// Run a blocking CORDIC calculation in q1.31 format
+    /// Run a blocking CORDIC calculation in q1.31 format.
     ///
-    /// Notice:
-    /// If you set `arg1_only` to `true`, please be sure ARG2 value has been set to desired value before.
-    /// This function won't set ARG2 to +1 before or after each round of calculation.
-    /// If you want to make sure ARG2 is set to +1, consider run [.reconfigure()](Self::reconfigure).
-    pub fn blocking_calc_32bit(
-        &mut self,
-        arg: &[u32],
-        res: &mut [u32],
-        arg1_only: bool,
-        res1_only: bool,
-    ) -> Result<usize, CordicError> {
+    /// Uses `arg_count` and `res_count` from the current [`Config`].
+    /// If `arg_count` is `One`, ARG2 must have been set to the desired value
+    /// beforehand (e.g. via a prior `Two`-arg call or [`Self::reconfigure`]).
+    #[inline]
+    pub fn blocking_calc_32bit(&mut self, arg: &[u32], res: &mut [u32]) -> Result<usize, CordicError> {
         if arg.is_empty() {
             return Ok(0);
         }
 
+        let arg1_only = matches!(self.config.arg_count, AccessCount::One);
+        let res1_only = matches!(self.config.res_count, AccessCount::One);
+
         let res_cnt = Self::check_arg_res_length_32bit(arg.len(), res.len(), arg1_only, res1_only)?;
-
-        self.peri
-            .set_argument_count(if arg1_only { AccessCount::One } else { AccessCount::Two });
-
-        self.peri
-            .set_result_count(if res1_only { AccessCount::One } else { AccessCount::Two });
-
-        self.peri.set_data_width(Width::Bits32, Width::Bits32);
 
         let mut cnt = 0;
 
@@ -368,12 +319,12 @@ impl<'d, T: Instance> Cordic<'d, T> {
         Ok(res_cnt)
     }
 
-    /// Run a async CORDIC calculation in q.1.31 format
+    /// Run an async CORDIC calculation in q1.31 format.
     ///
-    /// Notice:
-    /// If you set `arg1_only` to `true`, please be sure ARG2 value has been set to desired value before.
-    /// This function won't set ARG2 to +1 before or after each round of calculation.
-    /// If you want to make sure ARG2 is set to +1, consider run [.reconfigure()](Self::reconfigure).
+    /// Uses `arg_count` and `res_count` from the current [`Config`].
+    /// If `arg_count` is `One`, ARG2 must have been set to the desired value
+    /// beforehand (e.g. via a prior `Two`-arg call or [`Self::reconfigure`]).
+    #[inline]
     pub async fn async_calc_32bit<'a, W, R>(
         &mut self,
         mut write_dma: Peri<'a, W>,
@@ -383,8 +334,6 @@ impl<'d, T: Instance> Cordic<'d, T> {
         + 'a,
         arg: &[u32],
         res: &mut [u32],
-        arg1_only: bool,
-        res1_only: bool,
     ) -> Result<usize, CordicError>
     where
         W: WriteDma<T>,
@@ -394,27 +343,25 @@ impl<'d, T: Instance> Cordic<'d, T> {
             return Ok(0);
         }
 
+        let arg1_only = matches!(self.config.arg_count, AccessCount::One);
+        let res1_only = matches!(self.config.res_count, AccessCount::One);
+
         let res_cnt = Self::check_arg_res_length_32bit(arg.len(), res.len(), arg1_only, res1_only)?;
 
         let active_res_buf = &mut res[..res_cnt];
 
-        self.peri
-            .set_argument_count(if arg1_only { AccessCount::One } else { AccessCount::Two });
-
-        self.peri
-            .set_result_count(if res1_only { AccessCount::One } else { AccessCount::Two });
-
-        self.peri.set_data_width(Width::Bits32, Width::Bits32);
-
         let write_req = write_dma.request();
         let read_req = read_dma.request();
 
-        self.peri.enable_write_dma();
-        self.peri.enable_read_dma();
+        // DMAWEN and DMAREN must be set in separate register writes;
+        // setting both in a single write hangs the CORDIC+DMA on STM32H563.
+        T::regs().csr().modify(|v| v.set_dmawen(true));
+        T::regs().csr().modify(|v| v.set_dmaren(true));
 
+        // Same H563 constraint: clear DMAWEN and DMAREN in separate writes.
         let _on_drop = OnDrop::new(|| {
-            self.peri.disable_write_dma();
-            self.peri.disable_read_dma();
+            T::regs().csr().modify(|v| v.set_dmawen(false));
+            T::regs().csr().modify(|v| v.set_dmaren(false));
         });
 
         unsafe {
@@ -466,10 +413,13 @@ impl<'d, T: Instance> Cordic<'d, T> {
 
 // q1.15 related
 impl<'d, T: Instance> Cordic<'d, T> {
-    /// Run a blocking CORDIC calculation in q1.15 format
+    /// Run a blocking CORDIC calculation in q1.15 format.
     ///
-    /// Notice::
-    /// User will take respond to merge two u16 arguments into one u32 data, and/or split one u32 data into two u16 results.
+    /// In q1.15 mode, each WDATA write / RDATA read contains two packed 16-bit values,
+    /// so `nargs` and `nres` are always 1 (one register access = two values).
+    ///
+    /// After this call, the CSR is restored to the 32-bit state from the current [`Config`].
+    #[inline]
     pub fn blocking_calc_16bit(&mut self, arg: &[u32], res: &mut [u32]) -> Result<usize, CordicError> {
         if arg.is_empty() {
             return Ok(0);
@@ -482,10 +432,12 @@ impl<'d, T: Instance> Cordic<'d, T> {
         let res_cnt = arg.len();
 
         // In q1.15 mode, 1 write/read to access 2 arguments/results
-        self.peri.set_argument_count(AccessCount::One);
-        self.peri.set_result_count(AccessCount::One);
-
-        self.peri.set_data_width(Width::Bits16, Width::Bits16);
+        T::regs().csr().modify(|v| {
+            v.set_nargs(vals::Num::NUM1);
+            v.set_nres(vals::Num::NUM1);
+            v.set_argsize(vals::Size::BITS16);
+            v.set_ressize(vals::Size::BITS16);
+        });
 
         // To use cordic preload function, the first value is special.
         // It is loaded to CORDIC WDATA register out side of loop
@@ -509,13 +461,19 @@ impl<'d, T: Instance> Cordic<'d, T> {
         res[cnt] = self.peri.read_result();
         // cnt += 1;
 
+        // Restore CSR to 32-bit state matching current Config
+        self.restore_csr_from_config();
+
         Ok(res_cnt)
     }
 
-    /// Run a async CORDIC calculation in q1.15 format
+    /// Run an async CORDIC calculation in q1.15 format.
     ///
-    /// Notice::
-    /// User will take respond to merge two u16 arguments into one u32 data, and/or split one u32 data into two u16 results.
+    /// In q1.15 mode, each WDATA write / RDATA read contains two packed 16-bit values,
+    /// so `nargs` and `nres` are always 1 (one register access = two values).
+    ///
+    /// After this call, the CSR is restored to the 32-bit state from the current [`Config`].
+    #[inline]
     pub async fn async_calc_16bit<'a, W, R>(
         &mut self,
         mut write_dma: Peri<'a, W>,
@@ -543,20 +501,25 @@ impl<'d, T: Instance> Cordic<'d, T> {
         let active_res_buf = &mut res[..res_cnt];
 
         // In q1.15 mode, 1 write/read to access 2 arguments/results
-        self.peri.set_argument_count(AccessCount::One);
-        self.peri.set_result_count(AccessCount::One);
-
-        self.peri.set_data_width(Width::Bits16, Width::Bits16);
+        T::regs().csr().modify(|v| {
+            v.set_nargs(vals::Num::NUM1);
+            v.set_nres(vals::Num::NUM1);
+            v.set_argsize(vals::Size::BITS16);
+            v.set_ressize(vals::Size::BITS16);
+        });
 
         let write_req = write_dma.request();
         let read_req = read_dma.request();
 
-        self.peri.enable_write_dma();
-        self.peri.enable_read_dma();
+        // DMAWEN and DMAREN must be set in separate register writes;
+        // setting both in a single write hangs the CORDIC+DMA on STM32H563.
+        T::regs().csr().modify(|v| v.set_dmawen(true));
+        T::regs().csr().modify(|v| v.set_dmaren(true));
 
+        // Same H563 constraint: clear DMAWEN and DMAREN in separate writes.
         let _on_drop = OnDrop::new(|| {
-            self.peri.disable_write_dma();
-            self.peri.disable_read_dma();
+            T::regs().csr().modify(|v| v.set_dmawen(false));
+            T::regs().csr().modify(|v| v.set_dmaren(false));
         });
 
         unsafe {
@@ -575,7 +538,25 @@ impl<'d, T: Instance> Cordic<'d, T> {
             embassy_futures::join::join(write_transfer, read_transfer).await;
         }
 
+        // Restore CSR to 32-bit state matching current Config
+        self.restore_csr_from_config();
+
         Ok(res_cnt)
+    }
+
+    fn restore_csr_from_config(&self) {
+        T::regs().csr().modify(|v| {
+            v.set_nargs(match self.config.arg_count {
+                AccessCount::One => vals::Num::NUM1,
+                AccessCount::Two => vals::Num::NUM2,
+            });
+            v.set_nres(match self.config.res_count {
+                AccessCount::One => vals::Num::NUM1,
+                AccessCount::Two => vals::Num::NUM2,
+            });
+            v.set_argsize(vals::Size::BITS32);
+            v.set_ressize(vals::Size::BITS32);
+        });
     }
 }
 

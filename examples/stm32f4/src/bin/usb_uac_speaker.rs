@@ -23,6 +23,7 @@ bind_interrupts!(struct Irqs {
     OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
 });
 
+const TIMER_CHANNEL: timer::Channel = timer::Channel::Ch1;
 static TIMER: Mutex<CriticalSectionRawMutex, RefCell<Option<timer::low_level::Timer<peripherals::TIM2>>>> =
     Mutex::new(RefCell::new(None));
 
@@ -98,6 +99,7 @@ async fn feedback_handler<'d, T: usb::Instance + 'd>(
         packet.push((value >> 16) as u8).unwrap();
 
         feedback.write_packet(&packet).await?;
+        debug!("feedback sent {}", value);
     }
 }
 
@@ -221,14 +223,10 @@ fn TIM2() {
     static FRAME_COUNT: Mutex<CriticalSectionRawMutex, Cell<usize>> = Mutex::new(Cell::new(0));
 
     critical_section::with(|cs| {
-        // Read timer counter.
-        let timer = TIMER.borrow(cs).borrow().as_ref().unwrap().regs_gp32();
-
-        let status = timer.sr().read();
-
-        const CHANNEL_INDEX: usize = 0;
-        if status.ccif(CHANNEL_INDEX) {
-            let ticks = timer.ccr(CHANNEL_INDEX).read();
+        let mut guard = TIMER.borrow(cs).borrow_mut();
+        let timer = guard.as_mut().unwrap();
+        if timer.get_input_interrupt(TIMER_CHANNEL) {
+            let ticks = timer.get_capture_value(TIMER_CHANNEL);
 
             let frame_count = FRAME_COUNT.borrow(cs);
             let last_ticks = LAST_TICKS.borrow(cs);
@@ -239,10 +237,9 @@ fn TIM2() {
                 FEEDBACK_SIGNAL.signal(ticks.wrapping_sub(last_ticks.get()));
                 last_ticks.set(ticks);
             }
+            // Clear trigger interrupt flag.
+            timer.clear_input_interrupt(TIMER_CHANNEL);
         };
-
-        // Clear trigger interrupt flag.
-        timer.sr().modify(|r| r.set_tif(false));
     });
 }
 
@@ -259,13 +256,13 @@ async fn main(spawner: Spawner) {
     {
         use embassy_stm32::rcc::*;
         config.rcc.hse = Some(Hse {
-            freq: Hertz(8_000_000),
-            mode: HseMode::Bypass,
+            freq: embassy_stm32::time::Hertz::mhz(25),
+            mode: HseMode::Oscillator,
         });
         config.rcc.pll_src = PllSource::HSE;
         config.rcc.pll = Some(Pll {
-            prediv: PllPreDiv::DIV4,
-            mul: PllMul::MUL168,
+            prediv: PllPreDiv::DIV25,
+            mul: PllMul::MUL336,
             divp: Some(PllPDiv::DIV2), // ((8 MHz / 4) * 168) / 2 = 168 Mhz.
             divq: Some(PllQDiv::DIV7), // ((8 MHz / 4) * 168) / 7 = 48 Mhz.
             divr: None,
@@ -351,7 +348,6 @@ async fn main(spawner: Spawner) {
     tim2.set_tick_freq(Hertz(FEEDBACK_COUNTER_TICK_RATE));
     tim2.set_trigger_source(timer::low_level::TriggerSource::ITR1); // The USB SOF signal.
 
-    const TIMER_CHANNEL: timer::Channel = timer::Channel::Ch1;
     tim2.set_input_ti_selection(TIMER_CHANNEL, timer::low_level::InputTISelection::TRC);
     tim2.set_input_capture_prescaler(TIMER_CHANNEL, 0);
     tim2.set_input_capture_filter(TIMER_CHANNEL, timer::low_level::FilterValue::FCK_INT_N2);

@@ -5,8 +5,6 @@ use core::ops::Range;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 #[cfg(feature = "usbd-hid")]
-use ssmarshal::serialize;
-#[cfg(feature = "usbd-hid")]
 use usbd_hid::descriptor::AsInputReport;
 
 use crate::control::{InResponse, OutResponse, Recipient, Request, RequestType};
@@ -320,7 +318,7 @@ impl<'d, D: Driver<'d>, const N: usize> HidWriter<'d, D, N> {
     #[cfg(feature = "usbd-hid")]
     pub async fn write_serialize<IR: AsInputReport>(&mut self, r: &IR) -> Result<(), EndpointError> {
         let mut buf: [u8; N] = [0; N];
-        let Ok(size) = serialize(&mut buf, r) else {
+        let Ok(size) = r.serialize(&mut buf) else {
             return Err(EndpointError::BufferOverflow);
         };
         self.write(&buf[0..size]).await

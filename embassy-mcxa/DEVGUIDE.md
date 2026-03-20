@@ -10,6 +10,22 @@ This document will be written incrementally. If you see something missing: pleas
 * Ask in the embassy matrix chat
 * Open a PR to add the documentation you think is missing
 
+## FRDM Usage Tips
+
+### Recovering from a too-sleepy firmware
+
+If you have an example that is configured to the DeepSleep state, it will sever the debugger connection once it enters deep sleep. This can mean it will be hard to re-flash since the debugging core is disabled.
+
+To recover from this state, you can use the ISP mode, which triggers the ROM bootloader:
+
+1. Hold the "ISP" button down
+2. Tap and release the "RESET" button
+3. Release the "ISP" button
+4. Try to flash with probe-rs, the first time will likely fail (I don't know why yet, it probably makes the bootloader upset)
+5. Try to flash again, the second time will likely work.
+
+You probably want to recover the device by flashing a simple example like the `blinky` example which doesn't attempt to go to deep sleep.
+
 ## The `Cargo.toml` file
 
 This section describes the notable components of the `Cargo.toml` package manifest.
@@ -164,6 +180,67 @@ impl<'a> I2c<'a, Blocking> {
 }
 ```
 
+#### Checking Errors
+
+When checking errors, ensure that ALL errors are cleared before returning. Otherwise early returns
+can lead to "stuck" errors. Instead of this:
+
+```rust
+fn check_and_clear_rx_errors(info: &'static Info) -> Result<()> {
+    let stat = info.regs().stat().read();
+    if stat.or() {
+        info.regs().stat().write(|w| w.set_or(true));
+        Err(Error::Overrun)
+    } else if stat.pf() {
+        info.regs().stat().write(|w| w.set_pf(true));
+        Err(Error::Parity)
+    } else if stat.fe() {
+        info.regs().stat().write(|w| w.set_fe(true));
+        return Err(Error::Framing);
+    } else if stat.nf() {
+        info.regs().stat().write(|w| w.set_nf(true));
+        return Err(Error::Noise);
+    } else {
+        Ok(())
+    }
+}
+```
+
+Ensure that all errors are cleared:
+
+```rust
+fn check_and_clear_rx_errors(info: &'static Info) -> Result<()> {
+    let stat = info.regs().stat().read();
+
+    // Check for overrun first - other error flags are prevented when OR is set
+    let or_set = stat.or();
+    let pf_set = stat.pf();
+    let fe_set = stat.fe();
+    let nf_set = stat.nf();
+
+    // Clear all errors before returning
+    info.regs().stat().write(|w| {
+        w.set_or(or_set);
+        w.set_pf(pf_set);
+        w.set_fe(fe_set);
+        w.set_nf(nf_set);
+    });
+
+    // Return error source
+    if or_set {
+        Err(Error::Overrun)
+    } else if pf_set {
+        Err(Error::Parity)
+    } else if fe_set {
+        Err(Error::Framing)
+    } else if nf_set {
+        Err(Error::Noise)
+    } else {
+        Ok(())
+    }
+}
+```
+
 #### Error types
 
 When creating `Error` types for each peripheral, consider the following high level guidance:
@@ -249,3 +326,16 @@ enum RecvError {
     TransferTooLarge,
 }
 ```
+
+#### Avoid Wildcard/Glob imports
+
+We generally want to avoid the use of wildcard/glob imports, like:
+
+```rust
+use super::*;
+use other_module::*;
+```
+
+This can cause [surprising semver breakage], and make the code harder to read.
+
+[surprising semver breakage]: https://predr.ag/blog/breaking-semver-in-rust-by-adding-private-type-or-import/

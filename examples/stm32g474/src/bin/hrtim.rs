@@ -2,13 +2,11 @@
 #![no_main]
 
 use defmt::*;
-
 use embassy_executor::Spawner;
+use embassy_stm32::Config;
 use embassy_stm32::hrtim::{AdvancedPwm, BridgeConverter, ComplementaryPwmPin, FullBridgeConverter, PwmPin};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::Config;
 use embassy_time::Timer;
-
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]

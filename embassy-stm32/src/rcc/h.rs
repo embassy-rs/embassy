@@ -513,7 +513,7 @@ pub(crate) unsafe fn init(config: Config) {
         |c| init_pll(1, Some(c), &pll_input),
     );
     #[cfg(any(rcc_h5, stm32h7, stm32h7rs))]
-    let pll3 = config.pll2.map_or_else(
+    let pll3 = config.pll3.map_or_else(
         || {
             disable_pll(2);
             PllOutput::default()

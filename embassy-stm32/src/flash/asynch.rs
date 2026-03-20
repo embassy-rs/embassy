@@ -153,19 +153,19 @@ foreach_flash_region! {
             ///
             /// Note: reading from flash can't actually block, so this is the same as `blocking_read`.
             pub async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
-                blocking_read(self.0.base, self.0.size, offset, bytes)
+                blocking_read(self.0.base(), self.0.size, offset, bytes)
             }
 
             /// Async write.
             pub async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
                 let _guard = REGION_ACCESS.lock().await;
-                unsafe { write_chunked(self.0.base, self.0.size, offset, bytes).await }
+                unsafe { write_chunked(self.0.base(), self.0.size, offset, bytes).await }
             }
 
             /// Async erase.
             pub async fn erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
                 let _guard = REGION_ACCESS.lock().await;
-                unsafe { erase_sectored(self.0.base, from, to).await }
+                unsafe { erase_sectored(self.0.base(), from, to).await }
             }
         }
 

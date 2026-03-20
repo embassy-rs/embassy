@@ -106,7 +106,7 @@ fn main() -> ! {
         embassy_futures::block_on(dev.run());
     }
 
-    unsafe { bl.load(BANK1_REGION.base + active_offset) }
+    unsafe { bl.load(BANK1_REGION.base() + active_offset) }
 }
 
 #[unsafe(no_mangle)]

@@ -11,12 +11,16 @@ use common::*;
 use defmt::assert;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, SampleTime};
-use embassy_stm32::dac::{DacCh1, Value};
+use embassy_stm32::dac::{DacChannel, Value};
 use embassy_time::Timer;
 use micromath::F32Ext;
 use {defmt_rtt as _, panic_probe as _};
 
-#[embassy_executor::main]
+#[cfg_attr(
+    feature = "stop",
+    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
+)]
+#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
 async fn main(_spawner: Spawner) {
     // Initialize the board and obtain a Peripherals instance
     let p: embassy_stm32::Peripherals = init();
@@ -26,7 +30,7 @@ async fn main(_spawner: Spawner) {
     let dac_pin = peri!(p, DAC_PIN);
     let mut adc_pin = unsafe { core::ptr::read(&dac_pin) };
 
-    let mut dac = DacCh1::new_blocking(dac, dac_pin);
+    let mut dac = DacChannel::new_blocking(dac, dac_pin);
     let mut adc = Adc::new(adc);
 
     #[cfg(feature = "stm32h755zi")]

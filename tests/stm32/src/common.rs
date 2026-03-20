@@ -58,6 +58,8 @@ teleprobe_meta::target!(b"nucleo-stm32l496zg");
 teleprobe_meta::target!(b"nucleo-stm32wl55jc");
 #[cfg(feature = "stm32wba52cg")]
 teleprobe_meta::target!(b"nucleo-stm32wba52cg");
+#[cfg(feature = "stm32wba65ri")]
+teleprobe_meta::target!(b"nucleo-stm32wba65ri");
 #[cfg(feature = "stm32f091rc")]
 teleprobe_meta::target!(b"nucleo-stm32f091rc");
 #[cfg(feature = "stm32h503rb")]
@@ -225,6 +227,7 @@ define_peris!(
     UART = LPUART1, UART_TX = PG7, UART_RX = PG8, UART_TX_DMA = GPDMA1_CH0, UART_RX_DMA = GPDMA1_CH1,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = GPDMA1_CH0, SPI_RX_DMA = GPDMA1_CH1,
     @irq UART = {
+        RNG => embassy_stm32::rng::InterruptHandler<embassy_stm32::peripherals::RNG>;
         LPUART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::LPUART1>;
         GPDMA1_CHANNEL0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH0>;
         GPDMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH1>;
@@ -386,6 +389,17 @@ define_peris!(
 define_peris!(
     UART = LPUART1, UART_TX = PB5, UART_RX = PA10, UART_TX_DMA = GPDMA1_CH0, UART_RX_DMA = GPDMA1_CH1,
     SPI = SPI1, SPI_SCK = PB4, SPI_MOSI = PA15, SPI_MISO = PB3, SPI_TX_DMA = GPDMA1_CH0, SPI_RX_DMA = GPDMA1_CH1,
+    ADC = ADC4, DAC_PIN = PA0,
+    @irq UART = {
+        LPUART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::LPUART1>;
+        GPDMA1_CHANNEL0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH0>;
+        GPDMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH1>;
+    },
+);
+#[cfg(feature = "stm32wba65ri")]
+define_peris!(
+    UART = LPUART1, UART_TX = PB11, UART_RX = PA10, UART_TX_DMA = GPDMA1_CH0, UART_RX_DMA = GPDMA1_CH1,
+    SPI = SPI2, SPI_SCK = PB10, SPI_MOSI = PC3, SPI_MISO = PA9, SPI_TX_DMA = GPDMA1_CH0, SPI_RX_DMA = GPDMA1_CH1,
     ADC = ADC4, DAC_PIN = PA0,
     @irq UART = {
         LPUART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::LPUART1>;
@@ -609,8 +623,6 @@ pub fn config() -> Config {
         config.rcc.apb3_pre = APBPrescaler::DIV1;
         config.rcc.sys = Sysclk::PLL1_P;
         config.rcc.voltage_scale = VoltageScale::Scale0;
-
-        config.rtc._disable_rtc = true;
     }
 
     #[cfg(feature = "stm32h503rb")]
@@ -788,6 +800,13 @@ pub fn config() -> Config {
     {
         config.rcc.sys = Sysclk::HSI;
         config.rcc.mux.rngsel = mux::Rngsel::HSI;
+    }
+
+    #[cfg(feature = "stm32wba65ri")]
+    {
+        config.rcc.sys = Sysclk::HSI;
+        config.rcc.mux.rngsel = mux::Rngsel::HSI;
+        config.rcc.mux.sai1sel = mux::Sai1sel::HSI;
     }
 
     #[cfg(feature = "stm32l073rz")]

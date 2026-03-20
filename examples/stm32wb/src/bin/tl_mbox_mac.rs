@@ -20,7 +20,7 @@ async fn run_mm_queue(mut memory_manager: mm::MemoryManager<'static>) {
     memory_manager.run_queue().await;
 }
 
-#[embassy_executor::main(executor = "embassy_stm32::Executor", entry = "cortex_m_rt::entry")]
+#[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(spawner: Spawner) {
     /*
         How to make this work:
@@ -51,7 +51,7 @@ async fn main(spawner: Spawner) {
     info!("Hello World!");
 
     let config = Config::default();
-    let mbox = TlMbox::init(p.IPCC, Irqs, config).await;
+    let mbox = TlMbox::init(p.IPCC, Irqs, config).await.unwrap();
     let mut sys = mbox.sys_subsystem;
 
     spawner.spawn(run_mm_queue(mbox.mm_subsystem).unwrap());

@@ -1,6 +1,6 @@
 // required-features: rng, cordic
 
-// Test Cordic driver, with Q1.31 format, Sin function, at 24 iterations (aka PRECISION = 6), using DMA transfer
+// Test Cordic driver, with Q1.31 format, Sin function, at 24 iterations (aka PRECISION = 6)
 
 #![no_std]
 #![no_main]
@@ -19,11 +19,15 @@ use {defmt_rtt as _, panic_probe as _};
 const INPUT_U32_COUNT: usize = 9;
 const INPUT_U8_COUNT: usize = 4 * INPUT_U32_COUNT;
 
-// Assume first calculation needs 2 arguments, the reset needs 1 argument.
-// And all calculation generate 2 results.
+// Assume first calculation needs 2 arguments, the rest needs 1 argument.
+// And all calculations generate 2 results.
 const OUTPUT_LENGTH: usize = (INPUT_U32_COUNT - 1) * 2;
 
-#[embassy_executor::main]
+#[cfg_attr(
+    feature = "stop",
+    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
+)]
+#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
 async fn main(_spawner: Spawner) {
     let dp = init();
 
@@ -52,15 +56,23 @@ async fn main(_spawner: Spawner) {
 
     let mut output_q1_31 = [0u32; OUTPUT_LENGTH];
 
-    // setup Cordic driver
+    // setup Cordic driver with 2-arg, 2-result config for the initial call
     let mut cordic = cordic::Cordic::new(
         dp.CORDIC,
         defmt::unwrap!(cordic::Config::new(
             cordic::Function::Sin,
             Default::default(),
             Default::default(),
-        )),
+        ))
+        .arg_count(cordic::AccessCount::Two)
+        .res_count(cordic::AccessCount::Two),
     );
+
+    // calculate first result using blocking mode (2 args: ARG1 + ARG2)
+    let cnt0 = defmt::unwrap!(cordic.blocking_calc_32bit(&input_q1_31[..2], &mut output_q1_31));
+
+    // switch to 1-arg mode without resetting ARG2
+    cordic.set_access_counts(cordic::AccessCount::One, cordic::AccessCount::Two);
 
     #[cfg(feature = "stm32g491re")]
     let (mut write_dma, mut read_dma) = (dp.DMA1_CH4, dp.DMA1_CH5);
@@ -73,10 +85,7 @@ async fn main(_spawner: Spawner) {
     ))]
     let (mut write_dma, mut read_dma) = (dp.GPDMA1_CH0, dp.GPDMA1_CH1);
 
-    // calculate first result using blocking mode
-    let cnt0 = defmt::unwrap!(cordic.blocking_calc_32bit(&input_q1_31[..2], &mut output_q1_31, false, false));
-
-    // calculate rest results using async mode
+    // calculate rest results using async mode (1 arg, reusing ARG2)
     let cnt1 = defmt::unwrap!(
         cordic
             .async_calc_32bit(
@@ -85,8 +94,6 @@ async fn main(_spawner: Spawner) {
                 irq,
                 &input_q1_31[2..],
                 &mut output_q1_31[cnt0..],
-                true,
-                false,
             )
             .await
     );

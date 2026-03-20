@@ -10,7 +10,11 @@ use embassy_stm32::mode::Blocking;
 use embassy_stm32::usart::{Config, ConfigError, Error, Uart};
 use embassy_time::{Duration, Instant, block_for};
 
-#[embassy_executor::main]
+#[cfg_attr(
+    feature = "stop",
+    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
+)]
+#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
 async fn main(_spawner: Spawner) {
     let p = init();
     info!("Hello World!");

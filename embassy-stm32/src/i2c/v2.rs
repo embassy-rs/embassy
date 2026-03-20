@@ -70,11 +70,6 @@ fn debug_print_interrupts(isr: stm32_metapac::i2c::regs::Isr) {
 }
 
 pub(crate) unsafe fn on_interrupt<T: Instance>() {
-    // restore the clocks to their last configured state as
-    // much is lost in STOP modes
-    #[cfg(all(feature = "low-power", stm32wlex))]
-    crate::low_power::Executor::on_wakeup_irq_or_event();
-
     let regs = T::info().regs;
     let isr = regs.isr().read();
 
@@ -142,6 +137,15 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
 
     fn master_stop(&mut self) {
         self.info.regs.cr2().write(|w| w.set_stop(true));
+    }
+
+    /// Toggle PE off/on to reset the I2C peripheral state machine.
+    /// TIMINGR and other config registers are preserved across this.
+    fn soft_reset(&self) {
+        self.info.regs.cr1().modify(|w| w.set_pe(false));
+        // PE needs a few APB cycles to actually clear
+        while self.info.regs.cr1().read().pe() {}
+        self.info.regs.cr1().modify(|w| w.set_pe(true));
     }
 
     fn master_read(
@@ -277,11 +281,13 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
             trace!("BERR triggered.");
             self.info.regs.icr().modify(|reg| reg.set_berrcf(true));
             self.flush_txdr();
+            self.soft_reset();
             return Err(Error::Bus);
         } else if isr.arlo() {
             trace!("ARLO triggered.");
             self.info.regs.icr().modify(|reg| reg.set_arlocf(true));
             self.flush_txdr();
+            self.soft_reset();
             return Err(Error::Arbitration);
         } else if isr.ovr() {
             trace!("OVR triggered.");
@@ -323,12 +329,14 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
                 trace!("BERR triggered.");
                 self.info.regs.icr().modify(|reg| reg.set_berrcf(true));
                 self.flush_txdr();
+                self.soft_reset();
                 return Err(Error::Bus);
             }
             if isr.arlo() {
                 trace!("ARLO triggered.");
                 self.info.regs.icr().modify(|reg| reg.set_arlocf(true));
                 self.flush_txdr();
+                self.soft_reset();
                 return Err(Error::Arbitration);
             }
             if isr.ovr() {
@@ -934,6 +942,11 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                 w.set_arlocf(true);
                 w.set_ovrcf(true);
             });
+            if isr.berr() || isr.arlo() {
+                regs.cr1().modify(|w| w.set_pe(false));
+                while regs.cr1().read().pe() {}
+                regs.cr1().modify(|w| w.set_pe(true));
+            }
         });
 
         poll_fn(|cx| {
@@ -1038,6 +1051,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
         let on_drop = OnDrop::new(|| {
             let regs = self.info.regs;
+            let isr = regs.isr().read();
             regs.cr1().modify(|w| {
                 w.set_rxdmaen(false);
                 w.set_tcie(false);
@@ -1050,6 +1064,11 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                 w.set_arlocf(true);
                 w.set_ovrcf(true);
             });
+            if isr.berr() || isr.arlo() {
+                regs.cr1().modify(|w| w.set_pe(false));
+                while regs.cr1().read().pe() {}
+                regs.cr1().modify(|w| w.set_pe(true));
+            }
         });
 
         poll_fn(|cx| {
@@ -1423,6 +1442,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
         let on_drop = OnDrop::new(|| {
             let regs = self.info.regs;
+            let isr = regs.isr().read();
             regs.cr1().modify(|w| {
                 w.set_rxdmaen(false);
                 w.set_tcie(false);
@@ -1435,6 +1455,11 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                 w.set_arlocf(true);
                 w.set_ovrcf(true);
             });
+            if isr.berr() || isr.arlo() {
+                regs.cr1().modify(|w| w.set_pe(false));
+                while regs.cr1().read().pe() {}
+                regs.cr1().modify(|w| w.set_pe(true));
+            }
         });
 
         poll_fn(|cx| {

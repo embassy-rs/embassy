@@ -79,8 +79,8 @@ async fn main(_spawner: Spawner) {
     let mut i = 0;
     loop {
         i += 1;
-        pwm.set_duty(0, DutyCycle::normal(DUTY[i % 1024]));
-        pwm.set_duty(1, DutyCycle::normal(DUTY[(i + 512) % 1024]));
+        pwm.set_duty(0, DutyCycle::inverted(DUTY[i % 1024]));
+        pwm.set_duty(1, DutyCycle::inverted(DUTY[(i + 512) % 1024]));
         Timer::after_millis(3).await;
     }
 }
