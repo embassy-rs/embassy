@@ -15,7 +15,7 @@ use embassy_usb::class::hid::{
     HidBootProtocol, HidProtocolMode, HidReaderWriter, HidSubclass, ReportId, RequestHandler, State,
 };
 use embassy_usb::control::OutResponse;
-use embassy_usb::{Builder, Config, Handler};
+use embassy_usb::{Builder, Config, Handler, UsbDeviceSpeed};
 use static_cell::StaticCell;
 use usbd_hid::descriptor::{MouseReport, SerializedDescriptor};
 use {defmt_rtt as _, panic_probe as _};
@@ -43,6 +43,7 @@ async fn main(_spawner: Spawner) {
     config.serial_number = Some("mouse-demo");
     config.max_power = 100;
     config.max_packet_size_0 = 64;
+    config.max_speed = UsbDeviceSpeed::High;
     config.composite_with_iads = false;
     config.device_class = 0;
     config.device_sub_class = 0;

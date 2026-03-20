@@ -15,7 +15,7 @@ use embassy_nrf::{Peri, bind_interrupts, peripherals};
 use embassy_time::{Duration, Timer};
 use embassy_usb::class::cdc_ncm::{CdcNcmClass, Receiver, Sender, State};
 use embassy_usb::driver::EndpointError;
-use embassy_usb::{Builder, Config, UsbDevice};
+use embassy_usb::{Builder, Config, UsbDevice, UsbDeviceSpeed};
 use embedded_io_async::Write;
 use panic_probe as _;
 use static_cell::StaticCell;
@@ -132,6 +132,7 @@ async fn main(spawner: Spawner) {
     config.serial_number = Some("12345678");
     config.max_power = 100;
     config.max_packet_size_0 = 64;
+    config.max_speed = UsbDeviceSpeed::High;
     config.composite_with_iads = true;
     config.device_class = 0xEF;
     config.device_sub_class = 0x02;

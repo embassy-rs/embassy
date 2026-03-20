@@ -113,7 +113,6 @@ impl HardwareVbusDetect {
 
         #[cfg(feature = "_nrf54lm20-app")]
         {
-            USB_DETECTED.store(false, Ordering::Relaxed);
             regs.events_vbusdetected().write_value(0);
             regs.events_vbusremoved().write_value(0);
             regs.intenset().write(|w| {
@@ -122,7 +121,7 @@ impl HardwareVbusDetect {
             });
             regs.tasks_start().write_value(1);
 
-            if raw_vbus_detected() {
+            if initial_vbus_detected() {
                 USB_DETECTED.store(true, Ordering::Relaxed);
                 BUS_WAKER.wake();
                 POWER_WAKER.wake();
@@ -144,7 +143,7 @@ impl VbusDetect for HardwareVbusDetect {
     fn is_usb_detected(&self) -> bool {
         #[cfg(feature = "_nrf54lm20-app")]
         {
-            USB_DETECTED.load(Ordering::Relaxed) || raw_vbus_detected()
+            USB_DETECTED.load(Ordering::Relaxed)
         }
 
         #[cfg(not(feature = "_nrf54lm20-app"))]
@@ -247,7 +246,7 @@ impl VbusDetect for &SoftwareVbusDetect {
 }
 
 #[cfg(feature = "_nrf54lm20-app")]
-fn raw_vbus_detected() -> bool {
+fn initial_vbus_detected() -> bool {
     unsafe {
         ((USB_REG_PERI.as_ptr() as *const u32).add(0x400 / 4).read_volatile() & VREGUSB_STATUS_VBUS_DETECTED) != 0
     }

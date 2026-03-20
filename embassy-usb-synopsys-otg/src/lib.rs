@@ -1030,6 +1030,18 @@ impl<'d, const MAX_EP_COUNT: usize> embassy_usb_driver::Bus for Bus<'d, MAX_EP_C
                     regs.doepctl(ep_addr.index()).modify(|w| {
                         w.set_usbaep(enabled);
                     });
+
+                    if enabled && ep_addr.index() != 0 {
+                        let ep = self.ep_out[ep_addr.index()].expect("OUT endpoint metadata missing");
+                        regs.doeptsiz(ep_addr.index()).modify(|w| {
+                            w.set_xfrsiz(ep.max_packet_size as _);
+                            w.set_pktcnt(1);
+                        });
+                        regs.doepctl(ep_addr.index()).modify(|w| {
+                            w.set_cnak(true);
+                            w.set_epena(true);
+                        });
+                    }
                 });
 
                 // Wake `Endpoint::wait_enabled()`

@@ -18,7 +18,7 @@ use embassy_usb::class::hid::{
     HidBootProtocol, HidProtocolMode, HidReaderWriter, HidSubclass, ReportId, RequestHandler, State,
 };
 use embassy_usb::control::OutResponse;
-use embassy_usb::{Builder, Config, Handler};
+use embassy_usb::{Builder, Config, Handler, UsbDeviceSpeed};
 use static_cell::StaticCell;
 use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
 use {defmt_rtt as _, panic_probe as _};
@@ -55,6 +55,7 @@ async fn main(_spawner: Spawner) {
     config.serial_number = Some("12345678");
     config.max_power = 100;
     config.max_packet_size_0 = 64;
+    config.max_speed = UsbDeviceSpeed::High;
     config.supports_remote_wakeup = true;
     config.composite_with_iads = false;
     config.device_class = 0;
@@ -77,7 +78,6 @@ async fn main(_spawner: Spawner) {
         &mut msos_descriptor,
         &mut control_buf,
     );
-
     builder.handler(&mut device_handler);
 
     let config = embassy_usb::class::hid::Config {
@@ -98,17 +98,22 @@ async fn main(_spawner: Spawner) {
             usb.run_until_suspend().await;
             match select(usb.wait_resume(), remote_wakeup.wait()).await {
                 Either::First(_) => {}
-                Either::Second(_) => unwrap!(usb.remote_wakeup().await),
+                Either::Second(_) => {
+                    if let Err(e) = usb.remote_wakeup().await {
+                        warn!("remote wakeup failed: {:?}", e);
+                    }
+                }
             }
         }
     };
 
-    let mut button = Input::new(p.P1_26, Pull::Up);
+    let _button = Input::new(p.P1_26, Pull::Up);
     let (reader, mut writer) = hid.split();
 
     let in_fut = async {
         loop {
-            button.wait_for_low().await;
+            // button.wait_for_low().await;
+            embassy_time::Timer::after_secs(3).await;
             info!("PRESSED");
 
             if SUSPENDED.load(Ordering::Acquire) {
@@ -132,7 +137,8 @@ async fn main(_spawner: Spawner) {
                 }
             }
 
-            button.wait_for_high().await;
+            // button.wait_for_high().await;
+            embassy_time::Timer::after_secs(1).await;
             info!("RELEASED");
             if HID_PROTOCOL_MODE.load(Ordering::Relaxed) == HidProtocolMode::Boot as u8 {
                 match writer.write(&[0, 0, 0, 0, 0, 0, 0, 0]).await {
@@ -186,16 +192,21 @@ impl Handler for MyDeviceHandler {
 
     fn reset(&mut self) {
         self.configured.store(false, Ordering::Relaxed);
+        SUSPENDED.store(false, Ordering::Release);
         info!("Bus reset, the Vbus current limit is 100mA");
     }
 
     fn addressed(&mut self, addr: u8) {
         self.configured.store(false, Ordering::Relaxed);
+        SUSPENDED.store(false, Ordering::Release);
         info!("USB address set to: {}", addr);
     }
 
     fn configured(&mut self, configured: bool) {
         self.configured.store(configured, Ordering::Relaxed);
+        if configured {
+            SUSPENDED.store(false, Ordering::Release);
+        }
         if configured {
             info!("Device configured, it may now draw up to the configured current limit from Vbus.");
         } else {

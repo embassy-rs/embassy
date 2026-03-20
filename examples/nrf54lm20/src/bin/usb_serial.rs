@@ -10,7 +10,7 @@ use embassy_nrf::usb::{self, Driver};
 use embassy_nrf::{Peri, bind_interrupts, peripherals};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
-use embassy_usb::{Builder, Config};
+use embassy_usb::{Builder, Config, UsbDeviceSpeed};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -40,6 +40,7 @@ async fn main(_spawner: Spawner) {
     config.serial_number = Some("12345678");
     config.max_power = 100;
     config.max_packet_size_0 = 64;
+    config.max_speed = UsbDeviceSpeed::High;
 
     let mut builder = Builder::new(
         driver,
