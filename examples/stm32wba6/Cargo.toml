@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "stm32wba65ri", "time-driver-any", "memory-x", "exti"]  }
-stm32-metapac = { version = "19", features = ["stm32wba65ri"] }
+stm32-metapac = { version = "21", features = ["stm32wba65ri"] }
 embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", features = ["defmt", "stm32wba65ri"], optional = true }
 embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-cortex-m", "executor-thread", "defmt"] }
