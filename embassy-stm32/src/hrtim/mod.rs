@@ -1,7 +1,5 @@
 //! High Resolution Timer (HRTIM)
 
-use core::marker::PhantomData;
-
 use embassy_hal_internal::PeripheralType;
 
 mod advanced_channel;
@@ -11,70 +9,111 @@ mod fullbridge;
 pub mod low_level;
 mod resonant_converter;
 
+use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 
 pub use advanced_channel::AdvancedChannel;
-pub use advanced_pwm::{AdvancedPwm, ComplementaryPwmPin, PwmPin};
+pub use advanced_pwm::AdvancedPwm;
 pub use bridge_converter::BridgeConverter;
 use embassy_hal_internal::Peri;
 pub use fullbridge::FullBridgeConverter;
 pub use resonant_converter::ResonantConverter;
 use stm32_hrtim::control::{HrPwmControl, HrTimOngoingCalibration};
 use stm32_hrtim::output::{Output1Pin, Output2Pin};
-
-use crate::rcc::RccPeripheral;
-use crate::time::Hertz;
-
-/// HRTIM burst controller instance.
-pub struct BurstController<T: Instance> {
-    phantom: PhantomData<T>,
-}
-
-/// HRTIM master instance.
-pub struct Master<T: Instance> {
-    phantom: PhantomData<T>,
-}
-
-/// HRTIM channel A instance.
-pub struct ChA<T: Instance> {
-    phantom: PhantomData<T>,
-}
-
-/// HRTIM channel B instance.
-pub struct ChB<T: Instance> {
-    phantom: PhantomData<T>,
-}
-
-/// HRTIM channel C instance.
-pub struct ChC<T: Instance> {
-    phantom: PhantomData<T>,
-}
-
-/// HRTIM channel D instance.
-pub struct ChD<T: Instance> {
-    phantom: PhantomData<T>,
-}
-
-/// HRTIM channel E instance.
-pub struct ChE<T: Instance> {
-    phantom: PhantomData<T>,
-}
-
-#[cfg(hrtim_v2)]
-/// HRTIM channel F instance.
-pub struct ChF<T: Instance> {
-    phantom: PhantomData<T>,
-}
-
 #[cfg(hrtim_v2)]
 use stm32_hrtim::pac::HRTIM_TIMF;
 use stm32_hrtim::pac::{HRTIM_MASTER, HRTIM_TIMA, HRTIM_TIMB, HRTIM_TIMC, HRTIM_TIMD, HRTIM_TIME};
 pub use stm32_hrtim::{self, Pscl1, Pscl2, Pscl4, Pscl8, Pscl16, Pscl32, Pscl64, Pscl128, PsclDefault};
 use stm32_hrtim::{DacResetTrigger, DacStepTrigger, HrParts, HrPwmBuilder};
 
-use crate::gpio::{AfType, OutputType, Speed};
+use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::peripherals::HRTIM1;
 use crate::rcc;
+use crate::rcc::RccPeripheral;
+use crate::time::Hertz;
+use crate::timer::simple_pwm::PwmPinConfig;
+
+/// Timer channel.
+#[derive(Clone, Copy)]
+pub enum Channel {
+    /// Channel A.
+    ChA,
+    /// Channel B.
+    ChB,
+    /// Channel C.
+    ChC,
+    /// Channel D.
+    ChD,
+    /// Channel E.
+    ChE,
+    #[cfg(hrtim_v2)]
+    /// Channel F.
+    ChF,
+}
+
+/// Burst Controller marker type.
+pub enum BurstController {}
+
+/// Master marker type.
+pub enum Master {}
+
+/// Channel A marker type.
+pub enum ChA {}
+/// Channel B marker type.
+pub enum ChB {}
+/// Channel C marker type.
+pub enum ChC {}
+/// Channel D marker type.
+pub enum ChD {}
+
+/// Channel E marker type.
+pub enum ChE {}
+
+#[cfg(hrtim_v2)]
+/// Channel F marker type.
+pub enum ChF {}
+
+/// Timer channel trait.
+#[allow(private_bounds)]
+pub trait HRTimerChannel: SealedTimerChannel {
+    /// The runtime channel.
+    const CHANNEL: Channel;
+}
+
+trait SealedTimerChannel {}
+
+impl HRTimerChannel for ChA {
+    const CHANNEL: Channel = Channel::ChA;
+}
+
+impl HRTimerChannel for ChB {
+    const CHANNEL: Channel = Channel::ChB;
+}
+
+impl HRTimerChannel for ChC {
+    const CHANNEL: Channel = Channel::ChC;
+}
+
+impl HRTimerChannel for ChD {
+    const CHANNEL: Channel = Channel::ChD;
+}
+
+impl HRTimerChannel for ChE {
+    const CHANNEL: Channel = Channel::ChE;
+}
+
+#[cfg(hrtim_v2)]
+impl HRTimerChannel for ChF {
+    const CHANNEL: Channel = Channel::ChF;
+}
+
+impl SealedTimerChannel for ChA {}
+impl SealedTimerChannel for ChB {}
+impl SealedTimerChannel for ChC {}
+impl SealedTimerChannel for ChD {}
+impl SealedTimerChannel for ChE {}
+#[cfg(hrtim_v2)]
+impl SealedTimerChannel for ChF {}
 
 /// Uninitialized HRTIM resources as returned by [HrControltExt::hr_control]
 pub struct Parts {
@@ -166,6 +205,91 @@ macro_rules! impl_finalize {
     )+};
 }
 
+/// PWM pin wrapper.
+///
+/// This wraps a pin to make it usable with PWM.
+pub struct PwmPin<'d, T, C, #[cfg(afio)] A> {
+    #[allow(unused)]
+    pub(crate) pin: Flex<'d>,
+    phantom: PhantomData<if_afio!((T, C, A))>,
+}
+
+impl<'d, T: Instance, C: HRTimerChannel, #[cfg(afio)] A> if_afio!(PwmPin<'d, T, C, A>) {
+    /// Create a new PWM pin instance.
+    pub fn new(pin: Peri<'d, if_afio!(impl HRTimerPin<T, C, A>)>, output_type: OutputType) -> Self {
+        critical_section::with(|_| {
+            pin.set_low();
+            set_as_af!(pin, AfType::output(output_type, Speed::VeryHigh));
+        });
+        PwmPin {
+            pin: Flex::new(pin),
+            phantom: PhantomData,
+        }
+    }
+
+    /// Create a new PWM pin instance with a specific configuration.
+    pub fn new_with_config(pin: Peri<'d, if_afio!(impl HRTimerPin<T, C, A>)>, pin_config: PwmPinConfig) -> Self {
+        critical_section::with(|_| {
+            pin.set_low();
+            #[cfg(gpio_v1)]
+            set_as_af!(pin, AfType::output(pin_config.output_type, pin_config.speed));
+            #[cfg(gpio_v2)]
+            set_as_af!(
+                pin,
+                AfType::output_pull(pin_config.output_type, pin_config.speed, pin_config.pull)
+            );
+        });
+        PwmPin {
+            pin: Flex::new(pin),
+            phantom: PhantomData,
+        }
+    }
+}
+
+/// PWM pin wrapper.
+///
+/// This wraps a pin to make it usable with PWM.
+pub struct ComplementaryPwmPin<'d, T, C, #[cfg(afio)] A> {
+    #[allow(unused)]
+    pub(crate) pin: Flex<'d>,
+    phantom: PhantomData<if_afio!((T, C, A))>,
+}
+
+impl<'d, T: Instance, C: HRTimerChannel, #[cfg(afio)] A> if_afio!(ComplementaryPwmPin<'d, T, C, A>) {
+    /// Create a new PWM pin instance.
+    pub fn new(pin: Peri<'d, if_afio!(impl HRTimerComplementaryPin<T, C, A>)>, output_type: OutputType) -> Self {
+        critical_section::with(|_| {
+            pin.set_low();
+            set_as_af!(pin, AfType::output(output_type, Speed::VeryHigh));
+        });
+        Self {
+            pin: Flex::new(pin),
+            phantom: PhantomData,
+        }
+    }
+
+    /// Create a new PWM pin instance with a specific configuration.
+    pub fn new_with_config(
+        pin: Peri<'d, if_afio!(impl HRTimerComplementaryPin<T, C, A>)>,
+        pin_config: PwmPinConfig,
+    ) -> Self {
+        critical_section::with(|_| {
+            pin.set_low();
+            #[cfg(gpio_v1)]
+            set_as_af!(pin, AfType::output(pin_config.output_type, pin_config.speed));
+            #[cfg(gpio_v2)]
+            set_as_af!(
+                pin,
+                AfType::output_pull(pin_config.output_type, pin_config.speed, pin_config.pull)
+            );
+        });
+        Self {
+            pin: Flex::new(pin),
+            phantom: PhantomData,
+        }
+    }
+}
+
 /// Wrapper a pin that can be used as output to one of the HRTIM timer instances
 pub struct Pin<P> {
     /// The speed setting of the pin
@@ -201,9 +325,9 @@ pub trait Out2Pin<TIM>: Output2Pin<TIM> {
 }
 
 macro_rules! pins_helper {
-    ($TIMX:ty, $ChannelXPin:ident, $OutYPin:ident, $OutputYPin:ident, $HrOutY:ident) => {
-        unsafe impl<'d, T: $ChannelXPin<HRTIM1>> $OutputYPin<$TIMX> for Pin<Peri<'d, T>> {}
-        impl<'d, T: $ChannelXPin<HRTIM1>> $OutYPin<$TIMX> for Pin<Peri<'d, T>> {
+    ($TIMX:ty, $ChannelXPin:ident<$Channel:ident>, $OutYPin:ident, $OutputYPin:ident, $HrOutY:ident) => {
+        unsafe impl<'d, T: $ChannelXPin<HRTIM1, $Channel>> $OutputYPin<$TIMX> for Pin<Peri<'d, T>> {}
+        impl<'d, T: $ChannelXPin<HRTIM1, $Channel>> $OutYPin<$TIMX> for Pin<Peri<'d, T>> {
             fn connect_to_hrtim(self) {
                 self.pin.set_as_af(
                     self.pin.af_num(),
@@ -214,53 +338,28 @@ macro_rules! pins_helper {
     };
 }
 
-pins_helper!(HRTIM_TIMA, ChannelAPin, Out1Pin, Output1Pin, HrOut1);
-pins_helper!(HRTIM_TIMA, ChannelAComplementaryPin, Out2Pin, Output2Pin, HrOut2);
-pins_helper!(HRTIM_TIMB, ChannelBPin, Out1Pin, Output1Pin, HrOut1);
-pins_helper!(HRTIM_TIMB, ChannelBComplementaryPin, Out2Pin, Output2Pin, HrOut2);
-pins_helper!(HRTIM_TIMC, ChannelCPin, Out1Pin, Output1Pin, HrOut1);
-pins_helper!(HRTIM_TIMC, ChannelCComplementaryPin, Out2Pin, Output2Pin, HrOut2);
-pins_helper!(HRTIM_TIMD, ChannelDPin, Out1Pin, Output1Pin, HrOut1);
-pins_helper!(HRTIM_TIMD, ChannelDComplementaryPin, Out2Pin, Output2Pin, HrOut2);
-pins_helper!(HRTIM_TIME, ChannelEPin, Out1Pin, Output1Pin, HrOut1);
-pins_helper!(HRTIM_TIME, ChannelEComplementaryPin, Out2Pin, Output2Pin, HrOut2);
+macro_rules! pins {
+     ($($TIMX:ty: CH1: $CH1:ident<$CH1_AF:ident>, CH2: $CH2:ident<$CH2_AF:ident>),+) => {$(
+         pins_helper!($TIMX, $CH1<$CH1_AF>, Out1Pin, Output1Pin, HrOut1);
+         pins_helper!($TIMX, $CH2<$CH2_AF>, Out2Pin, Output2Pin, HrOut2);
+     )+};
+}
 
-#[cfg(stm32g4)]
-pins_helper!(HRTIM_TIMF, ChannelFPin, Out1Pin, Output1Pin, HrOut1);
-#[cfg(stm32g4)]
-pins_helper!(HRTIM_TIMF, ChannelFComplementaryPin, Out2Pin, Output2Pin, HrOut2);
+pins! {
+    HRTIM_TIMA: CH1: HRTimerPin<ChA>, CH2: HRTimerComplementaryPin<ChA>,
+    HRTIM_TIMB: CH1: HRTimerPin<ChB>, CH2: HRTimerComplementaryPin<ChB>,
+    HRTIM_TIMC: CH1: HRTimerPin<ChC>, CH2: HRTimerComplementaryPin<ChC>,
+    HRTIM_TIMD: CH1: HRTimerPin<ChD>, CH2: HRTimerComplementaryPin<ChD>,
+    HRTIM_TIME: CH1: HRTimerPin<ChE>, CH2: HRTimerComplementaryPin<ChE>
+}
 
-// macro_rules! pins {
-//     ($($TIMX:ty: CH1: $CH1:ident<$CH1_AF:literal>, CH2: $CH2:ident<$CH2_AF:literal>),+) => {$(
-//         pins_helper!($TIMX, Out1Pin, Output1Pin, HrOut1, $CH1<$CH1_AF>);
-//         pins_helper!($TIMX, Out2Pin, Output2Pin, HrOut2, $CH2<$CH1_AF>);
-//     )+};
-// }
-
-// #[cfg(stm32g4)]
-// pins! {
-//     HRTIM_TIMA: CH1: PA8<13>,  CH2: PA9<13>,
-//     HRTIM_TIMB: CH1: PA10<13>, CH2: PA11<13>,
-//     HRTIM_TIMC: CH1: PB12<13>, CH2: PB13<13>,
-//     HRTIM_TIMD: CH1: PB14<13>, CH2: PB15<13>,
-//     HRTIM_TIME: CH1: PC8<3>,   CH2: PC9<3>,
-//     HRTIM_TIMF: CH1: PC6<13>,  CH2: PC7<13>
-// }
-
-pin_trait!(ChannelAPin, Instance);
-pin_trait!(ChannelAComplementaryPin, Instance);
-pin_trait!(ChannelBPin, Instance);
-pin_trait!(ChannelBComplementaryPin, Instance);
-pin_trait!(ChannelCPin, Instance);
-pin_trait!(ChannelCComplementaryPin, Instance);
-pin_trait!(ChannelDPin, Instance);
-pin_trait!(ChannelDComplementaryPin, Instance);
-pin_trait!(ChannelEPin, Instance);
-pin_trait!(ChannelEComplementaryPin, Instance);
 #[cfg(hrtim_v2)]
-pin_trait!(ChannelFPin, Instance);
-#[cfg(hrtim_v2)]
-pin_trait!(ChannelFComplementaryPin, Instance);
+pins! {
+    HRTIM_TIMF: CH1: HRTimerPin<ChF>, CH2: HRTimerComplementaryPin<ChF>
+}
+
+pin_trait!(HRTimerPin, Instance, HRTimerChannel, @A);
+pin_trait!(HRTimerComplementaryPin, Instance, HRTimerChannel, @A);
 
 /// Prescaler
 #[repr(u8)]

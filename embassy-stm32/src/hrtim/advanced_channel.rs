@@ -1,8 +1,6 @@
 //! AdvancedChannel
 
-#[cfg(hrtim_v2)]
-use super::ChF;
-use super::{ChA, ChB, ChC, ChD, ChE, Instance, Master, Prescaler};
+use super::{Instance, Prescaler};
 use crate::time::Hertz;
 
 trait SealedAdvancedChannel<T: Instance> {
@@ -78,7 +76,6 @@ pub trait AdvancedChannel<T: Instance>: SealedAdvancedChannel<T> {
 
 #[allow(unused)]
 trait SealedAdvancedChannelMaster<T: Instance> {}
-impl<T: Instance> SealedAdvancedChannelMaster<T> for Master<T> {}
 
 /// Advanced channel instance trait.
 #[allow(private_bounds)]
@@ -110,24 +107,3 @@ pub trait AdvancedChannelMaster<T: Instance>: SealedAdvancedChannelMaster<T> {
         regs.mper().modify(|w| w.set_mper(per));
     }
 }
-
-impl<T: Instance> AdvancedChannelMaster<T> for Master<T> {}
-
-macro_rules! advanced_channel_impl {
-    ($new_chx:ident, $channel:tt, $ch_num:expr, $pin_trait:ident, $complementary_pin_trait:ident) => {
-        impl<T: Instance> SealedAdvancedChannel<T> for $channel<T> {
-            fn raw() -> usize {
-                $ch_num
-            }
-        }
-        impl<T: Instance> AdvancedChannel<T> for $channel<T> {}
-    };
-}
-
-advanced_channel_impl!(new_cha, ChA, 0, ChannelAPin, ChannelAComplementaryPin);
-advanced_channel_impl!(new_chb, ChB, 1, ChannelBPin, ChannelBComplementaryPin);
-advanced_channel_impl!(new_chc, ChC, 2, ChannelCPin, ChannelCComplementaryPin);
-advanced_channel_impl!(new_chd, ChD, 3, ChannelDPin, ChannelDComplementaryPin);
-advanced_channel_impl!(new_che, ChE, 4, ChannelEPin, ChannelEComplementaryPin);
-#[cfg(hrtim_v2)]
-advanced_channel_impl!(new_chf, ChF, 5, ChannelFPin, ChannelFComplementaryPin);

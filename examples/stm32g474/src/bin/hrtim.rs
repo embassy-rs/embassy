@@ -4,7 +4,8 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
-use embassy_stm32::hrtim::{AdvancedPwm, ComplementaryPwmPin, PwmPin};
+use embassy_stm32::gpio::OutputType;
+use embassy_stm32::hrtim::{ComplementaryPwmPin, PwmPin};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -13,27 +14,27 @@ async fn main(_spawner: Spawner) {
 
     info!("Hello World!");
 
-    let ch3 = PwmPin::new_chc(p.PB12);
-    let ch3n = ComplementaryPwmPin::new_chc(p.PB13);
+    let _ch3 = PwmPin::new(p.PB12, OutputType::PushPull);
+    let _ch3n = ComplementaryPwmPin::new(p.PB13, OutputType::PushPull);
 
-    let ch4 = PwmPin::new_chd(p.PB14);
-    let ch4n = ComplementaryPwmPin::new_chd(p.PB15);
-
-    let _pwm = AdvancedPwm::new(
-        p.HRTIM1,
-        None,
-        None,
-        None,
-        None,
-        Some(ch3),
-        Some(ch3n),
-        Some(ch4),
-        Some(ch4n),
-        None,
-        None,
-        None,
-        None,
-    );
+    //     let ch4 = PwmPin::new_chd(p.PB14);
+    //     let ch4n = ComplementaryPwmPin::new_chd(p.PB15);
+    //
+    //     let _pwm = AdvancedPwm::new(
+    //         p.HRTIM1,
+    //         None,
+    //         None,
+    //         None,
+    //         None,
+    //         Some(ch3),
+    //         Some(ch3n),
+    //         Some(ch4),
+    //         Some(ch4n),
+    //         None,
+    //         None,
+    //         None,
+    //         None,
+    //     );
 
     //    pwm.set_master_frequency(Hertz::mhz(1));
     //
