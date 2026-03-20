@@ -76,11 +76,13 @@ pub trait AdvancedChannel<T: Instance>: SealedAdvancedChannel<T> {
     }
 }
 
+#[allow(unused)]
 trait SealedAdvancedChannelMaster<T: Instance> {}
 impl<T: Instance> SealedAdvancedChannelMaster<T> for Master<T> {}
 
 /// Advanced channel instance trait.
 #[allow(private_bounds)]
+#[allow(unused)]
 pub trait AdvancedChannelMaster<T: Instance>: SealedAdvancedChannelMaster<T> {
     /// Set master frequency
     fn set_master_frequency(&mut self, frequency: Hertz) {

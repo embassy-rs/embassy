@@ -11,11 +11,16 @@ mod fullbridge;
 pub mod low_level;
 mod resonant_converter;
 
+use core::mem::MaybeUninit;
+
 pub use advanced_channel::AdvancedChannel;
 pub use advanced_pwm::{AdvancedPwm, ComplementaryPwmPin, PwmPin};
 pub use bridge_converter::BridgeConverter;
+use embassy_hal_internal::Peri;
 pub use fullbridge::FullBridgeConverter;
 pub use resonant_converter::ResonantConverter;
+use stm32_hrtim::control::{HrPwmControl, HrTimOngoingCalibration};
+use stm32_hrtim::output::{Output1Pin, Output2Pin};
 
 use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
@@ -61,7 +66,6 @@ use stm32_hrtim::pac::HRTIM_TIMF;
 use stm32_hrtim::pac::{HRTIM_MASTER, HRTIM_TIMA, HRTIM_TIMB, HRTIM_TIMC, HRTIM_TIMD, HRTIM_TIME};
 pub use stm32_hrtim::{self, Pscl1, Pscl2, Pscl4, Pscl8, Pscl16, Pscl32, Pscl64, Pscl128, PsclDefault};
 use stm32_hrtim::{DacResetTrigger, DacStepTrigger, HrParts, HrPwmBuilder};
-use traits::Instance;
 
 use crate::gpio::{AfType, OutputType, Speed};
 use crate::peripherals::HRTIM1;
