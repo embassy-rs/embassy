@@ -37,7 +37,7 @@ async fn blink_heartbeat(mut led: Output<'static>) {
     }
 }
 
-#[embassy_executor::main(executor = "embassy_stm32::Executor", entry = "cortex_m_rt::entry")]
+#[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 // #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
     #[cfg(feature = "defmt")]

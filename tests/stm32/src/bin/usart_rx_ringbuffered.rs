@@ -16,7 +16,11 @@ use rand_core::{RngCore, SeedableRng};
 
 const DMA_BUF_SIZE: usize = 256;
 
-#[embassy_executor::main]
+#[cfg_attr(
+    feature = "stop",
+    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
+)]
+#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
 async fn main(spawner: Spawner) {
     let p = init();
     info!("Hello World!");

@@ -19,7 +19,7 @@ bind_interrupts!(struct Irqs{
     DMA1_CHANNEL7 => dma::InterruptHandler<peripherals::DMA1_CH7>;
 });
 
-#[embassy_executor::main(executor = "embassy_stm32::Executor", entry = "cortex_m_rt::entry")]
+#[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn async_main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
     // enable HSI clock

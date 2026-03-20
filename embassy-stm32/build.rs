@@ -1800,8 +1800,8 @@ fn main() {
         (("timer", "CH2"), quote!(crate::timer::Dma<Ch2>)),
         (("timer", "CH3"), quote!(crate::timer::Dma<Ch3>)),
         (("timer", "CH4"), quote!(crate::timer::Dma<Ch4>)),
-        (("cordic", "WRITE"), quote!(crate::cordic::WriteDma)), // FIXME: stm32u5a crash on Cordic driver
-        (("cordic", "READ"), quote!(crate::cordic::ReadDma)),   // FIXME: stm32u5a crash on Cordic driver
+        (("cordic", "WRITE"), quote!(crate::cordic::WriteDma)),
+        (("cordic", "READ"), quote!(crate::cordic::ReadDma)),
         (("xspi", "RX"), quote!(crate::xspi::XDma)),
         (("xspi", "RX"), quote!(crate::xspi::XDma)),
     ]
@@ -1842,11 +1842,6 @@ fn main() {
 
     for p in METADATA.peripherals {
         if let Some(regs) = &p.registers {
-            // FIXME: stm32u5a crash on Cordic driver
-            if chip_name.starts_with("stm32u5a") && regs.kind == "cordic" {
-                continue;
-            }
-
             for trigger in p.triggers {
                 let matches = trigger_expr.captures(trigger.signal).unwrap();
                 let signal = &matches[1];
