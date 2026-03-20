@@ -340,20 +340,19 @@ pub struct WritableDmaRingBuffer<'a, W: Word> {
 impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
     /// Construct a ringbuffer filled with the given buffer data.
     pub fn new(dma_buf: &'a mut [W]) -> Self {
-        let len = dma_buf.len();
         Self {
             dma_buf,
             read_index: Default::default(),
             write_index: DmaIndex {
-                complete_count: 0,
-                pos: len,
+                complete_count: 1,
+                pos: 0,
             },
         }
     }
 
     /// Reset the ring buffer to its initial state. The buffer after the reset will be full.
     pub fn reset(&mut self, dma: &mut impl DmaCtrl) {
-        dma.reset_complete_count();
+        _ = dma.reset_complete_count();
         self.read_index.reset();
         self.read_index.dma_sync(self.cap(), dma);
         self.write_index = self.read_index;

@@ -15,6 +15,7 @@ DMA:
 - fix: stm32/dma: assert minimum buffer size of 2 frames in set_alignment
 - fix: stm32/dma: fix read_latest incorrectly resetting read_index when diff == 0 (no data available)
 - feat: stm32/dma: expose write_pos() on WritableRingBuffer for timing-safe TX frame alignment after overrun
+- fix: stm32/dma: fix WritableDmaRingBuffer::new using out-of-range pos (cap) instead of {complete_count:1, pos:0}
 
 ADC:
 - feat: stm32/adc: add `VrefInt::calibrated_value()` for additional chips
