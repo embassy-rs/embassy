@@ -204,7 +204,7 @@ _nrf52832_anomaly_109 = []
 _multi_wdt = []
 
 [dependencies]
-embassy-time-driver = { version = "0.2.1", path = "../embassy-time-driver", optional = true }
+embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", optional = true }
 embassy-time-queue-utils = { version = "0.3.0", path = "../embassy-time-queue-utils", optional = true }
 embassy-time = { version = "0.5.1", path = "../embassy-time", optional = true }
 embassy-sync = { version = "0.8.0", path = "../embassy-sync" }

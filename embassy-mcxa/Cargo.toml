@@ -54,7 +54,7 @@ embassy-executor = { version = "0.10.0", path = "../embassy-executor" }
 
 # `time` dependencies
 embassy-time = { version = "0.5.1", path = "../embassy-time" }
-embassy-time-driver = { version = "0.2.1", path = "../embassy-time-driver", features = ["tick-hz-1_000_000"] }
+embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", features = ["tick-hz-1_000_000"] }
 embassy-time-queue-utils = { version = "0.3.0", path = "../embassy-time-queue-utils" }
 
 rand-core-06 = { package = "rand_core", version = "0.6" }
