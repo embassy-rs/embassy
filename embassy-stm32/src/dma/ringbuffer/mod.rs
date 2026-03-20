@@ -350,7 +350,10 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
         }
     }
 
-    /// Reset the ring buffer to its initial state. The buffer after the reset will be full.
+    /// Reset the ring buffer after an overrun. Anchors read_index to the current DMA position
+    /// and places write_index one full buffer ahead, giving the CPU maximum lead time before
+    /// the next overrun can occur. No writable space is available immediately; the DMA must
+    /// advance before sync_len() returns non-zero.
     pub fn reset(&mut self, dma: &mut impl DmaCtrl) {
         _ = dma.reset_complete_count();
         self.read_index.reset();
