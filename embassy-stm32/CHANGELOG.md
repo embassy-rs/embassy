@@ -16,6 +16,7 @@ DMA:
 - fix: stm32/dma: fix read_latest incorrectly resetting read_index when diff == 0 (no data available)
 - feat: stm32/dma: expose write_pos() on WritableRingBuffer for timing-safe TX frame alignment after overrun
 - fix: stm32/dma: fix WritableDmaRingBuffer::new using out-of-range pos (cap) instead of {complete_count:1, pos:0}
+- fix: stm32/dma: eliminate second sync_len() call in write_raw to prevent consuming a lap count mid-copy
 
 ADC:
 - feat: stm32/adc: add `VrefInt::calibrated_value()` for additional chips

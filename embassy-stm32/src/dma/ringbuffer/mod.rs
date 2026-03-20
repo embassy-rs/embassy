@@ -473,16 +473,27 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
         .await
     }
 
+    /// Write as many elements as currently fit, returning `(written, remaining_capacity)`.
+    /// Does not block; call `write` for automatic reset-on-overrun or `write_exact` to write all.
     fn write_raw(&mut self, dma: &mut impl DmaCtrl, buf: &[W]) -> Result<(usize, usize), Error> {
         fence(Ordering::Release);
 
         let writable = self.sync_len(dma)?.min(buf.len());
+        // Snapshot read_index before the copy so that the returned `remaining`
+        // reflects the buffer state at the time of the write rather than
+        // requiring a second hardware NDTR access and complete_count reset mid-copy.
+        let read_snapshot = self.read_index;
+
         for i in 0..writable {
             self.write_buf(i, buf[i]);
         }
-        let available = self.sync_len(dma)?;
+
         self.write_index.advance(self.cap(), writable);
-        Ok((writable, available - writable))
+
+        let remaining = self
+            .cap()
+            .saturating_sub(self.write_index.diff(self.cap(), &read_snapshot) as usize);
+        Ok((writable, remaining))
     }
 
     fn write_buf(&mut self, offset: usize, value: W) {
