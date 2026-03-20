@@ -60,7 +60,12 @@ pub struct ChE<T: Instance> {
     phantom: PhantomData<T>,
 }
 
+#[cfg(hrtim_v2)]
 /// HRTIM channel F instance.
+pub struct ChF<T: Instance> {
+    phantom: PhantomData<T>,
+}
+
 #[cfg(hrtim_v2)]
 use stm32_hrtim::pac::HRTIM_TIMF;
 use stm32_hrtim::pac::{HRTIM_MASTER, HRTIM_TIMA, HRTIM_TIMB, HRTIM_TIMC, HRTIM_TIMD, HRTIM_TIME};
