@@ -21,7 +21,7 @@ use usbd_hid::descriptor::{MouseReport, SerializedDescriptor};
 use {defmt_rtt as _, panic_probe as _};
 
 static CONFIGURED: AtomicBool = AtomicBool::new(false);
-static HID_PROTOCOL_MODE: AtomicU8 = AtomicU8::new(HidProtocolMode::Boot as u8);
+static HID_PROTOCOL_MODE: AtomicU8 = AtomicU8::new(HidProtocolMode::Report as u8);
 static EP_OUT_BUFFER: StaticCell<[u8; 2048]> = StaticCell::new();
 
 bind_interrupts!(pub struct Irqs {
@@ -53,7 +53,8 @@ async fn main(_spawner: Spawner) {
     let mut bos_descriptor = [0; 256];
     let mut msos_descriptor = [0; 256];
     let mut control_buf = [0; 256];
-    let mut request_handler = MyRequestHandler {};
+    let mut control_handler = MyRequestHandler {};
+    let mut out_handler = MyRequestHandler {};
     let mut device_handler = MyDeviceHandler;
     let mut state = State::new();
 
@@ -69,7 +70,7 @@ async fn main(_spawner: Spawner) {
 
     let config = embassy_usb::class::hid::Config {
         report_descriptor: MouseReport::desc(),
-        request_handler: None,
+        request_handler: Some(&mut control_handler),
         poll_ms: 60,
         max_packet_size: 64,
         hid_subclass: HidSubclass::Boot,
@@ -113,7 +114,7 @@ async fn main(_spawner: Spawner) {
     };
 
     let out_fut = async {
-        reader.run(false, &mut request_handler).await;
+        reader.run(false, &mut out_handler).await;
     };
 
     join(usb_fut, join(hid_fut, out_fut)).await;
@@ -141,33 +142,30 @@ struct MyRequestHandler;
 
 impl RequestHandler for MyRequestHandler {
     fn get_report(&mut self, id: ReportId, _buf: &mut [u8]) -> Option<usize> {
-        info!("Get report for {:?}", id);
+        let _ = id;
         None
     }
 
     fn set_report(&mut self, id: ReportId, data: &[u8]) -> OutResponse {
-        info!("Set report for {:?}: {=[u8]}", id, data);
+        let _ = (id, data);
         OutResponse::Accepted
     }
 
     fn get_protocol(&self) -> HidProtocolMode {
-        let protocol = HidProtocolMode::from(HID_PROTOCOL_MODE.load(Ordering::Relaxed));
-        info!("The current HID protocol mode is: {}", protocol);
-        protocol
+        HidProtocolMode::from(HID_PROTOCOL_MODE.load(Ordering::Relaxed))
     }
 
     fn set_protocol(&mut self, protocol: HidProtocolMode) -> OutResponse {
-        info!("Switching to HID protocol mode: {}", protocol);
         HID_PROTOCOL_MODE.store(protocol as u8, Ordering::Relaxed);
         OutResponse::Accepted
     }
 
     fn set_idle_ms(&mut self, id: Option<ReportId>, dur: u32) {
-        info!("Set idle rate for {:?} to {:?}", id, dur);
+        let _ = (id, dur);
     }
 
     fn get_idle_ms(&mut self, id: Option<ReportId>) -> Option<u32> {
-        info!("Get idle rate for {:?}", id);
+        let _ = id;
         None
     }
 }
