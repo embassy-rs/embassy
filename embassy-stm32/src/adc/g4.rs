@@ -146,7 +146,7 @@ impl super::AdcRegs for crate::pac::adc::Adc {
                 }
                 _ => {
                     self.cfgr().modify(|r| {
-                        r.set_cont(false); // New trigger is neede for each sample to be read
+                        r.set_cont(false); // New trigger is needed for each sample to be read
                     });
 
                     self.cfgr().modify(|r| {

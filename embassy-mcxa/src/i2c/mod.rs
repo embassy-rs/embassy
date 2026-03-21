@@ -1,8 +1,5 @@
 //! I2C Support
 
-#![allow(dead_code)]
-#![allow(unused_imports)]
-
 use embassy_hal_internal::PeripheralType;
 use maitake_sync::WaitCell;
 use paste::paste;
@@ -199,6 +196,7 @@ mod mcxa5xx {
     impl_pin!(P1_0, LPI2C1, MUX3, SdaPin);
     impl_pin!(P1_1, LPI2C1, MUX3, SclPin);
     impl_pin!(P1_12, LPI2C1, MUX2, SdaPin);
+    impl_pin!(P1_13, LPI2C1, MUX2, SclPin);
     impl_pin!(P1_14, LPI2C1, MUX2, SclPin);
     impl_pin!(P1_15, LPI2C1, MUX2, SdaPin);
 

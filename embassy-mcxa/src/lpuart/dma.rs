@@ -3,7 +3,9 @@ use core::future::Future;
 use embassy_hal_internal::Peri;
 
 use super::*;
-use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, DmaRequest, EnableInterrupt, RingBuffer};
+use crate::dma::{
+    Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, DmaRequest, InvalidParameters, RingBuffer, TransferOptions,
+};
 use crate::gpio::AnyPin;
 use crate::pac::lpuart::vals::{Tc, Tdre};
 
@@ -171,7 +173,7 @@ impl<'a> LpuartTx<'a, Dma<'a>> {
             dma.set_request_source(self.mode.request);
 
             // Configure TCD for memory-to-peripheral transfer
-            dma.setup_write_to_peripheral(buf, peri_addr, EnableInterrupt::Yes);
+            dma.setup_write_to_peripheral(buf, peri_addr, false, TransferOptions::COMPLETE_INTERRUPT)?;
 
             // Enable UART TX DMA request
             self.info.regs().baud().modify(|w| w.set_tdmae(true));
@@ -297,7 +299,7 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
             rx_dma.set_request_source(self.mode.request);
 
             // Configure TCD for peripheral-to-memory transfer
-            rx_dma.setup_read_from_peripheral(peri_addr, buf, EnableInterrupt::Yes);
+            rx_dma.setup_read_from_peripheral(peri_addr, buf, false, TransferOptions::COMPLETE_INTERRUPT)?;
 
             // Enable UART RX DMA request
             self.info.regs().baud().modify(|w| w.set_rdmae(true));
@@ -340,10 +342,13 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
         Ok(())
     }
 
-    pub fn into_ring_dma_rx<'buf: 'a>(&mut self, buf: &'buf mut [u8]) -> RingBufferedLpuartRx<'_, 'buf> {
-        let ring = self.setup_ring_buffer(buf);
+    pub fn into_ring_dma_rx<'buf: 'a>(
+        &mut self,
+        buf: &'buf mut [u8],
+    ) -> Result<RingBufferedLpuartRx<'_, 'buf>, InvalidParameters> {
+        let ring = self.setup_ring_buffer(buf)?;
         unsafe { ring.enable_dma_request() };
-        RingBufferedLpuartRx { ring }
+        Ok(RingBufferedLpuartRx { ring })
     }
 
     /// Set up a ring buffer for continuous DMA reception.
@@ -368,17 +373,59 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
     ///
     /// # Example
     ///
-    /// ```no_run
-    /// static mut RX_BUF: [u8; 64] = [0; 64];
+    /// ```rust,no_run
+    /// # #![no_std]
+    /// # #![no_main]
+    /// #
+    /// # extern crate panic_halt;
+    /// # extern crate embassy_mcxa;
+    /// # extern crate embassy_executor;
+    /// # use panic_halt as _;
+    /// # use embassy_executor::Spawner;
+    /// # use embassy_mcxa::clocks::config::Div8;
+    /// # use embassy_mcxa::config::Config;
+    /// # use embassy_mcxa::lpuart;
+    /// # use static_cell::ConstStaticCell;
+    /// #
+    /// static RX_RING_BUFFER: ConstStaticCell<[u8; 64]> = ConstStaticCell::new([0; 64]);
+    /// # #[embassy_executor::main]
+    /// # async fn main(_spawner: Spawner) {
+    /// #     let mut cfg = Config::default();
+    /// #     cfg.clock_cfg.sirc.fro_12m_enabled = true;
+    /// #     cfg.clock_cfg.sirc.fro_lf_div = Some(Div8::no_div());
+    /// #
+    /// #     let p = embassy_mcxa::init(cfg);
+    /// #
+    /// #     // Create UART configuration
+    /// #     let config = lpuart::Config {
+    /// #     baudrate_bps: 115_200,
+    /// #     ..Default::default()
+    /// #     };
     ///
-    /// let rx = LpuartRxDma::new(p.LPUART2, p.P2_3, p.DMA_CH0, config).unwrap();
-    /// let ring_buf = unsafe { rx.setup_ring_buffer(&mut RX_BUF) };
+    ///      // Create UART instance with DMA channels
+    ///      let mut lpuart = lpuart::Lpuart::new_async_with_dma(
+    ///          p.LPUART2, // Instance
+    ///          p.P2_2,    // TX pin
+    ///          p.P2_3,    // RX pin
+    ///          p.DMA_CH0, // TX DMA channel
+    ///          p.DMA_CH1, // RX DMA channel
+    ///          config,
+    ///      )
+    ///      .unwrap();
     ///
-    /// // Read data as it arrives
-    /// let mut buf = [0u8; 16];
-    /// let n = ring_buf.read(&mut buf).await.unwrap();
+    ///      let (_, mut rx) = lpuart.split();
+    ///
+    ///      let buf = RX_RING_BUFFER.take();
+    ///      // Set up the ring buffer with circular DMA
+    ///      let mut ring_buf = rx.into_ring_dma_rx(buf).unwrap();
+    ///      let mut read_buf = [0u8; 16];
+    ///      let n = ring_buf.read(&mut read_buf).await.unwrap();
+    /// # }
     /// ```
-    fn setup_ring_buffer<'buf: 'a>(&mut self, buf: &'buf mut [u8]) -> RingBuffer<'_, 'buf, u8> {
+    fn setup_ring_buffer<'buf: 'a>(
+        &mut self,
+        buf: &'buf mut [u8],
+    ) -> Result<RingBuffer<'_, 'buf, u8>, InvalidParameters> {
         // Get the peripheral data register address
         let peri_addr = self.info.regs().data().as_ptr() as *const u8;
 

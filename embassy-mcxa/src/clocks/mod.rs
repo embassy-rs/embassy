@@ -109,12 +109,11 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
     // Enable SIRC clocks FIRST, in case we need to use SIRC as main_clk for
     // a short while.
     operator.configure_sirc_clocks_early()?;
-    #[cfg(feature = "mcxa2xx")]
     operator.configure_firc_clocks()?;
     operator.configure_fro16k_clocks()?;
 
     // NOTE: OSC32K must be configured AFTER FRO16K.
-    #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+    #[cfg(all(feature = "mcxa5xx", feature = "unstable-osc32k", not(feature = "rosc-32k-as-gpio")))]
     operator.configure_osc32k_clocks()?;
 
     #[cfg(not(feature = "sosc-as-gpio"))]

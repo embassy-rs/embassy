@@ -8,9 +8,9 @@ mod common;
 use chrono::NaiveDate;
 use common::*;
 use embassy_executor::Spawner;
+use embassy_stm32::Config;
 use embassy_stm32::rcc::{LsConfig, StopMode, get_stop_mode};
 use embassy_stm32::rtc::Rtc;
-use embassy_stm32::{Config, low_power};
 use embassy_time::Timer;
 
 /// Get whether the core is ready to enter the given stop mode.
@@ -45,13 +45,12 @@ async fn task_2() {
     cortex_m::asm::bkpt();
 }
 
-#[embassy_executor::main(executor = "low_power::Executor")]
+#[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn async_main(spawner: Spawner) {
     let _ = config();
 
     let mut config = Config::default();
     config.rcc.ls = LsConfig::default_lse();
-    config.rtc._disable_rtc = false;
 
     // System Clock seems cannot be greater than 16 MHz
     #[cfg(any(feature = "stm32h563zi", feature = "stm32h503rb"))]

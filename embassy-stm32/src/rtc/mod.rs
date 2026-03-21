@@ -118,6 +118,7 @@ impl RtcTimeProvider {
 
 #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
 /// Contains an RTC driver.
+#[derive(Clone)]
 pub struct RtcContainer {
     pub(self) mutex: &'static Mutex<CriticalSectionRawMutex, RefCell<Option<Rtc>>>,
 }
@@ -175,21 +176,13 @@ pub struct RtcConfig {
     ///
     /// A high counter frequency may impact stop power consumption
     pub frequency: Hertz,
-
-    #[cfg(feature = "_allow-disable-rtc")]
-    /// Allow disabling the rtc, even when stop is configured
-    pub _disable_rtc: bool,
 }
 
 impl Default for RtcConfig {
     /// LSI with prescalers assuming 32.768 kHz.
     /// Raw sub-seconds in 1/256.
     fn default() -> Self {
-        RtcConfig {
-            frequency: Hertz(256),
-            #[cfg(feature = "_allow-disable-rtc")]
-            _disable_rtc: false,
-        }
+        RtcConfig { frequency: Hertz(256) }
     }
 }
 
@@ -337,6 +330,65 @@ impl Rtc {
     }
 }
 
+/// Trait applicable to an `Rtc` or an `RtcContainer`
+pub trait AnyRtc {
+    /// Set the datetime to a new value.
+    fn set_datetime(&mut self, t: DateTime) -> Result<(), RtcError>;
+    /// Check if daylight savings time is active.
+    fn get_daylight_savings(&self) -> bool;
+    /// Enable/disable daylight savings time.
+    fn set_daylight_savings(&mut self, daylight_savings: bool);
+    /// Read content of the backup register.
+    fn read_backup_register(&self, register: usize) -> Option<u32>;
+    /// Set content of the backup register.
+    fn write_backup_register(&self, register: usize, value: u32);
+}
+
+#[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
+impl AnyRtc for RtcContainer {
+    fn set_datetime(&mut self, t: DateTime) -> Result<(), RtcError> {
+        critical_section::with(|cs| self.borrow_mut(cs).set_datetime(t))
+    }
+
+    fn get_daylight_savings(&self) -> bool {
+        critical_section::with(|cs| self.borrow_mut(cs).get_daylight_savings())
+    }
+
+    fn set_daylight_savings(&mut self, daylight_savings: bool) {
+        critical_section::with(|cs| self.borrow_mut(cs).set_daylight_savings(daylight_savings))
+    }
+
+    fn read_backup_register(&self, register: usize) -> Option<u32> {
+        critical_section::with(|cs| self.borrow_mut(cs).read_backup_register(register))
+    }
+
+    fn write_backup_register(&self, register: usize, value: u32) {
+        critical_section::with(|cs| self.borrow_mut(cs).write_backup_register(register, value))
+    }
+}
+
+impl AnyRtc for Rtc {
+    fn set_datetime(&mut self, t: DateTime) -> Result<(), RtcError> {
+        self.set_datetime(t)
+    }
+
+    fn get_daylight_savings(&self) -> bool {
+        self.get_daylight_savings()
+    }
+
+    fn set_daylight_savings(&mut self, daylight_savings: bool) {
+        self.set_daylight_savings(daylight_savings)
+    }
+
+    fn read_backup_register(&self, register: usize) -> Option<u32> {
+        self.read_backup_register(register)
+    }
+
+    fn write_backup_register(&self, register: usize, value: u32) {
+        self.write_backup_register(register, value)
+    }
+}
+
 pub(crate) fn byte_to_bcd2(byte: u8) -> (u8, u8) {
     let mut bcd_high: u8 = 0;
     let mut value = byte;
@@ -390,11 +442,6 @@ trait SealedInstance {
 #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
 pub(crate) fn init_rtc(cs: CriticalSection, config: RtcConfig, min_stop_pause: embassy_time::Duration) {
     use crate::time_driver::{LPTimeDriver, get_driver};
-
-    #[cfg(feature = "_allow-disable-rtc")]
-    if config._disable_rtc {
-        return;
-    }
 
     get_driver().set_rtc(cs, Rtc::new_inner(config));
     get_driver().set_min_stop_pause(cs, min_stop_pause);

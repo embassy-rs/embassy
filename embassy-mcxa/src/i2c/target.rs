@@ -1,4 +1,65 @@
-//! LPI2C target driver
+//! LPI2C Target Driver
+//!
+//! This module provides an implementation of an I2C target (slave)
+//! driver. It supports both blocking and asynchronous modes of
+//! operation, as well as DMA-based transfers. The driver allows the
+//! target device to respond to requests from an I2C controller
+//! (master), including reading and writing data, handling general
+//! calls, and responding to SMBus alerts.
+//!
+//! ## Example
+//!
+//! ```rust,no_run
+//! #![no_std]
+//! #![no_main]
+//!
+//! # extern crate panic_halt;
+//! # extern crate embassy_mcxa;
+//! # extern crate embassy_executor;
+//! # use panic_halt as _;
+//! use embassy_executor::Spawner;
+//! use embassy_mcxa::clocks::config::Div8;
+//! use embassy_mcxa::config::Config;
+//! use embassy_mcxa::i2c::target;
+//!
+//! #[embassy_executor::main]
+//! async fn main(_spawner: Spawner) {
+//!     let mut config = Config::default();
+//!     config.clock_cfg.sirc.fro_lf_div = Div8::from_divisor(1);
+//!
+//!     let p = embassy_mcxa::init(config);
+//!
+//!     let mut config = target::Config::default();
+//!     config.address = target::Address::Dual(0x2a, 0x31);
+//!     let mut i2c = target::I2c::new_blocking(p.LPI2C3, p.P3_27, p.P3_28, config).unwrap();
+//!     let mut buf = [0u8; 32];
+//!
+//!     loop {
+//!         let request = i2c.blocking_listen().unwrap();
+//!         match request {
+//!             target::Request::Read(addr) => {
+//!                 // Controller wants to read from us at `addr`
+//!                 buf.fill(0x55);
+//!                 let _count = i2c.blocking_respond_to_read(&buf).unwrap();
+//!             }
+//!             target::Request::Write(_addr) => {
+//!                 // Controller wants to write to us at `addr`
+//!                 let _count = i2c.blocking_respond_to_write(&mut buf).unwrap();
+//!             }
+//!             target::Request::Stop(_addr) => {
+//!                 // Controller issued a STOP condition for `addr`
+//!             }
+//!             target::Request::GeneralCall => {
+//!                 // Controller issued a General Call
+//!             }
+//!             target::Request::SmbusAlert => {
+//!                 // Controller issued an SMBus Alert
+//!             }
+//!             _ => {}
+//!         }
+//!     }
+//! }
+//! ```
 
 use core::marker::PhantomData;
 use core::ops::Range;
@@ -11,7 +72,7 @@ use super::{Async, AsyncMode, Blocking, Dma, Info, Instance, Mode, SclPin, SdaPi
 pub use crate::clocks::PoweredClock;
 pub use crate::clocks::periph_helpers::{Div4, Lpi2cClockSel, Lpi2cConfig};
 use crate::clocks::{ClockError, WakeGuard, enable_and_reset};
-use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, EnableInterrupt};
+use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, TransferOptions};
 use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
@@ -45,6 +106,12 @@ pub enum IOError {
     BitError,
     /// Other internal errors or unexpected state.
     Other,
+}
+
+impl From<crate::dma::InvalidParameters> for IOError {
+    fn from(_value: crate::dma::InvalidParameters) -> Self {
+        IOError::Other
+    }
 }
 
 /// I2C interrupt handler.
@@ -386,7 +453,15 @@ impl<'d, M: Mode> I2c<'d, M> {
 
     // Public API: Blocking
 
-    /// Block waiting for new events
+    /// Block waiting for new events.
+    ///
+    /// This function blocks the caller until a new I2C event is received. It returns the
+    /// type of request made by the I2C controller.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(Request)` on success.
+    /// - `Err(IOError)` if an error occurs.
     pub fn blocking_listen(&mut self) -> Result<Request, IOError> {
         self.clear_status();
 
@@ -420,10 +495,19 @@ impl<'d, M: Mode> I2c<'d, M> {
         }
     }
 
-    /// Transmit the contents of `buf` to the I2C controller.
+    /// Transmit data to the I2C controller.
     ///
-    /// Returns either an `Ok(usize)` containing the number of bytes
-    /// transmitted, or an `Error`.
+    /// This function sends the contents of the provided buffer to the I2C controller. It
+    /// blocks until the data is transmitted or an error occurs.
+    ///
+    /// # Parameters
+    ///
+    /// - `buf`: The buffer containing the data to transmit.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(usize)` with the number of bytes transmitted.
+    /// - `Err(IOError)` if an error occurs.
     pub fn blocking_respond_to_read(&mut self, buf: &[u8]) -> Result<usize, IOError> {
         let mut count = 0;
 
@@ -456,11 +540,19 @@ impl<'d, M: Mode> I2c<'d, M> {
         Ok(count)
     }
 
-    /// Receive data from the I2C controller into `buf`.
+    /// Receive data from the I2C controller.
     ///
-    /// Care is taken to guarantee that we receive at most `buf.len()`
-    /// bytes. On success returns `Ok(usize)` containing the number of
-    /// bytes received or an `Error`.
+    /// This function receives data from the I2C controller into the provided buffer. It
+    /// blocks until the buffer is filled or an error occurs.
+    ///
+    /// # Parameters
+    ///
+    /// - `buf`: The buffer to store the received data.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(usize)` with the number of bytes received.
+    /// - `Err(IOError)` if an error occurs.
     pub fn blocking_respond_to_write(&mut self, buf: &mut [u8]) -> Result<usize, IOError> {
         let mut count = 0;
 
@@ -497,7 +589,21 @@ impl<'d, M: Mode> I2c<'d, M> {
 impl<'d> I2c<'d, Blocking> {
     /// Create a new blocking instance of the I2C Target bus driver.
     ///
-    /// Any external pin will be placed into Disabled state upon Drop.
+    /// This function initializes the I2C target driver in blocking mode. It configures the
+    /// I2C peripheral, sets up the clock, and prepares the pins for operation. Any external
+    /// pin will be placed into the Disabled state upon `Drop`.
+    ///
+    /// # Parameters
+    ///
+    /// - `peri`: The I2C peripheral instance.
+    /// - `scl`: The SCL pin.
+    /// - `sda`: The SDA pin.
+    /// - `config`: The configuration for the I2C target.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(Self)` on success.
+    /// - `Err(SetupError)` if initialization fails.
     pub fn new_blocking<T: Instance>(
         peri: Peri<'d, T>,
         scl: Peri<'d, impl SclPin<T>>,
@@ -509,9 +615,24 @@ impl<'d> I2c<'d, Blocking> {
 }
 
 impl<'d> I2c<'d, Async> {
-    /// Create a new blocking instance of the I2C Target bus driver.
+    /// Create a new asynchronous instance of the I2C Target bus driver.
     ///
-    /// Any external pin will be placed into Disabled state upon Drop.
+    /// This function initializes the I2C target driver in asynchronous mode. It configures the
+    /// I2C peripheral, sets up the clock, and prepares the pins for operation. Any external
+    /// pin will be placed into the Disabled state upon `Drop`.
+    ///
+    /// # Parameters
+    ///
+    /// - `peri`: The I2C peripheral instance.
+    /// - `scl`: The SCL pin.
+    /// - `sda`: The SDA pin.
+    /// - `_irq`: The interrupt binding for the I2C peripheral.
+    /// - `config`: The configuration for the I2C target.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(Self)` on success.
+    /// - `Err(SetupError)` if initialization fails.
     pub fn new_async<T: Instance>(
         peri: Peri<'d, T>,
         scl: Peri<'d, impl SclPin<T>>,
@@ -528,12 +649,28 @@ impl<'d> I2c<'d, Async> {
     }
 }
 
-#[cfg(feature = "mcxa2xx")]
 impl<'d> I2c<'d, Dma<'d>> {
-    /// Create a new async instance of the I2C Controller bus driver with DMA support.
+    /// Create a new asynchronous instance of the I2C Target bus driver with DMA support.
     ///
-    /// Any external pin will be placed into Disabled state upon Drop,
-    /// additionally, the DMA channel is disabled.
+    /// This function initializes the I2C target driver in asynchronous mode with DMA support.
+    /// It configures the I2C peripheral, sets up the clock, and prepares the pins for operation.
+    /// Any external pin will be placed into the Disabled state upon `Drop`, and the DMA channels
+    /// are also disabled.
+    ///
+    /// # Parameters
+    ///
+    /// - `peri`: The I2C peripheral instance.
+    /// - `scl`: The SCL pin.
+    /// - `sda`: The SDA pin.
+    /// - `tx_dma`: The DMA channel for transmitting data.
+    /// - `rx_dma`: The DMA channel for receiving data.
+    /// - `_irq`: The interrupt binding for the I2C peripheral.
+    /// - `config`: The configuration for the I2C target.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(Self)` on success.
+    /// - `Err(SetupError)` if initialization fails.
     pub fn new_async_with_dma<T: Instance>(
         peri: Peri<'d, T>,
         scl: Peri<'d, impl SclPin<T>>,
@@ -586,7 +723,7 @@ impl<'d> I2c<'d, Dma<'d>> {
             // Configure TCD for memory-to-peripheral transfer
             self.mode
                 .rx_dma
-                .setup_read_from_peripheral(peri_addr, data, EnableInterrupt::Yes);
+                .setup_read_from_peripheral(peri_addr, data, false, TransferOptions::COMPLETE_INTERRUPT)?;
 
             // Enable I2C RX DMA request
             self.info.regs().sder().modify(|w| w.set_rdde(true));
@@ -653,7 +790,7 @@ impl<'d> I2c<'d, Dma<'d>> {
             // Configure TCD for memory-to-peripheral transfer
             self.mode
                 .tx_dma
-                .setup_write_to_peripheral(data, peri_addr, EnableInterrupt::No);
+                .setup_write_to_peripheral(data, peri_addr, false, TransferOptions::NO_INTERRUPTS)?;
 
             // Ensure all writes by DMA are visible to the CPU
             // TODO: ensure this is done internal to the DMA methods so individual drivers
@@ -728,7 +865,15 @@ where
 
     // Public API: Async
 
-    /// Asynchronously wait for new events
+    /// Asynchronously wait for new events.
+    ///
+    /// This function waits asynchronously for a new I2C event and returns the type of
+    /// request made by the I2C controller.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(Request)` on success.
+    /// - `Err(IOError)` if an error occurs.
     pub async fn async_listen(&mut self) -> Result<Request, IOError> {
         self.clear_status();
 
@@ -759,21 +904,36 @@ where
         }
     }
 
-    /// Asynchronously transmit the contents of `buf` to the I2C
-    /// controller.
+    /// Asynchronously transmit data to the I2C controller.
     ///
-    /// Returns either an `Ok(usize)` containing the number of bytes
-    /// transmitted, or an `Error`.
+    /// This function sends the contents of the provided buffer to the I2C controller
+    /// asynchronously.
+    ///
+    /// # Parameters
+    ///
+    /// - `buf`: The buffer containing the data to transmit.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(usize)` with the number of bytes transmitted.
+    /// - `Err(IOError)` if an error occurs.
     pub fn async_respond_to_read<'a>(&'a mut self, buf: &'a [u8]) -> impl Future<Output = Result<usize, IOError>> + 'a {
         <Self as AsyncEngine>::async_respond_to_read_internal(self, buf)
     }
 
-    /// Asynchronously receive data from the I2C controller into
-    /// `buf`.
+    /// Asynchronously receive data from the I2C controller.
     ///
-    /// Care is taken to guarantee that we receive at most `buf.len()`
-    /// bytes. On success returns `Ok(usize)` containing the number of
-    /// bytes received or an `Error`.
+    /// This function receives data from the I2C controller into the provided buffer
+    /// asynchronously.
+    ///
+    /// # Parameters
+    ///
+    /// - `buf`: The buffer to store the received data.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(usize)` with the number of bytes received.
+    /// - `Err(IOError)` if an error occurs.
     pub fn async_respond_to_write<'a>(
         &'a mut self,
         buf: &'a mut [u8],
@@ -861,7 +1021,6 @@ impl<'d> AsyncEngine for I2c<'d, Async> {
     }
 }
 
-#[cfg(feature = "mcxa2xx")]
 impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
     async fn async_respond_to_read_internal(&mut self, buf: &[u8]) -> Result<usize, IOError> {
         let mut count = 0;

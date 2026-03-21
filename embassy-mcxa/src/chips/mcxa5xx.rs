@@ -10,10 +10,8 @@ use crate::interrupt::InterruptExt;
 mod inner_periph {
     #[rustfmt::skip]
     embassy_hal_internal::peripherals!(
-        // ADC0,
-        // ADC1,
-        // ADC2,
-        // ADC3,
+        ADC0,
+        ADC1,
 
         // AOI0,
         // AOI1,
@@ -24,9 +22,9 @@ mod inner_periph {
         CDOG0,
         CDOG1,
 
-        // // CLKOUT is not specifically a peripheral (it's part of SYSCON),
-        // // but we still want it to be a singleton.
-        // CLKOUT,
+        // CLKOUT is not specifically a peripheral (it's part of SYSCON),
+        // but we still want it to be a singleton.
+        CLKOUT,
 
         // CMC,
         // CMP0,
@@ -107,7 +105,10 @@ mod inner_periph {
         GPIO4,
         GPIO5,
 
-        // I3C0,
+        I3C0,
+        I3C1,
+        I3C2,
+        I3C3,
         INPUTMUX0,
 
         LPI2C0,
@@ -115,17 +116,21 @@ mod inner_periph {
         LPI2C2,
         LPI2C3,
 
-        // LPSPI0,
-        // LPSPI1,
+        LPSPI0,
+        LPSPI1,
+        LPSPI2,
+        LPSPI3,
+        LPSPI4,
+        LPSPI5,
 
         // LPTMR0,
 
-        // LPUART0,
-        // LPUART1,
-        // LPUART2,
-        // LPUART3,
-        // LPUART4,
-        // LPUART5,
+        LPUART0,
+        LPUART1,
+        LPUART2,
+        LPUART3,
+        LPUART4,
+        LPUART5,
 
         // MAU0,
         // MBC0,
@@ -151,6 +156,10 @@ mod inner_periph {
         #[cfg(feature = "jtag-extras-as-gpio")]
         P0_6,
         P0_7,
+        P0_8,
+        P0_9,
+        P0_10,
+        P0_11,
         P0_12,
         P0_13,
         P0_14,
@@ -225,6 +234,10 @@ mod inner_periph {
         P2_24,
         P2_25,
         P2_26,
+        P2_28,
+        P2_29,
+        P2_30,
+        P2_31,
 
         P3_0,
         P3_1,
@@ -267,6 +280,12 @@ mod inner_periph {
         P4_5,
         P4_6,
         P4_7,
+        P4_8,
+        P4_9,
+        P4_10,
+        P4_11,
+        P4_12,
+        P4_13,
 
         // Normally EXTAL32K!
         #[cfg(feature = "rosc-32k-as-gpio")]
@@ -292,7 +311,7 @@ mod inner_periph {
         PORT4,
         PORT5,
 
-        // RTC0,
+        RTC0,
         // SAU,
         // SCG0,
         // SCN_SCB,
@@ -319,10 +338,8 @@ pub use inner_interrupt::*;
 mod inner_interrupt {
     #[rustfmt::skip]
     embassy_hal_internal::interrupt_mod!(
-        // ADC0,
-        // ADC1,
-        // ADC2,
-        // ADC3,
+        ADC0,
+        ADC1,
 
         // CAN0,
         // CAN1,
@@ -391,28 +408,35 @@ mod inner_interrupt {
         GPIO4,
         GPIO5,
 
-        // I3C0,
+        I3C0,
+        I3C1,
+        I3C2,
+        I3C3,
 
         LPI2C0,
         LPI2C1,
         LPI2C2,
         LPI2C3,
 
-        // LPSPI0,
-        // LPSPI1,
+        LPSPI0,
+        LPSPI1,
+        LPSPI2,
+        LPSPI3,
+        LPSPI4,
+        LPSPI5,
+
         // LPTMR0,
-        // LPUART0,
-        // LPUART1,
-        // LPUART2,
-        // LPUART3,
-        // LPUART4,
-        // LPUART5,
+        LPUART0,
+        LPUART1,
+        LPUART2,
+        LPUART3,
+        LPUART4,
+        LPUART5,
         // MAU,
         // MBC0,
         OS_EVENT,
         // PKC,
-        // RTC,
-        // RTC_1HZ,
+        RTC,
         // SCG0,
         // SGI,
         // SLCD,
@@ -454,8 +478,9 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
     // Initialize the INPUTMUX peripheral
     crate::inputmux::init();
 
+    // Enable interrupts
     unsafe {
-        crate::gpio::interrupt_init();
+        cortex_m::interrupt::enable();
     }
 
     // Initialize DMA controller (clock, reset, configuration)
@@ -542,6 +567,10 @@ mod gpio_impls {
     #[cfg(feature = "jtag-extras-as-gpio")]
     impl_pin!(P0_6, 0, 6, GPIO0);
     impl_pin!(P0_7, 0, 7, GPIO0);
+    impl_pin!(P0_8, 0, 8, GPIO0);
+    impl_pin!(P0_9, 0, 9, GPIO0);
+    impl_pin!(P0_10, 0, 10, GPIO0);
+    impl_pin!(P0_11, 0, 11, GPIO0);
     impl_pin!(P0_12, 0, 12, GPIO0);
     impl_pin!(P0_13, 0, 13, GPIO0);
     impl_pin!(P0_14, 0, 14, GPIO0);
@@ -613,6 +642,10 @@ mod gpio_impls {
     impl_pin!(P2_24, 2, 24, GPIO2);
     impl_pin!(P2_25, 2, 25, GPIO2);
     impl_pin!(P2_26, 2, 26, GPIO2);
+    impl_pin!(P2_28, 2, 28, GPIO2);
+    impl_pin!(P2_29, 2, 29, GPIO2);
+    impl_pin!(P2_30, 2, 30, GPIO2);
+    impl_pin!(P2_31, 2, 31, GPIO2);
 
     impl_pin!(P3_0, 3, 0, GPIO3);
     impl_pin!(P3_1, 3, 1, GPIO3);
@@ -655,6 +688,12 @@ mod gpio_impls {
     impl_pin!(P4_5, 4, 5, GPIO4);
     impl_pin!(P4_6, 4, 6, GPIO4);
     impl_pin!(P4_7, 4, 7, GPIO4);
+    impl_pin!(P4_8, 4, 8, GPIO4);
+    impl_pin!(P4_9, 4, 9, GPIO4);
+    impl_pin!(P4_10, 4, 10, GPIO4);
+    impl_pin!(P4_11, 4, 11, GPIO4);
+    impl_pin!(P4_12, 4, 12, GPIO4);
+    impl_pin!(P4_13, 4, 13, GPIO4);
 
     #[cfg(feature = "rosc-32k-as-gpio")]
     impl_pin!(P5_0, 5, 0, GPIO5);
@@ -676,10 +715,10 @@ pub(crate) mod peripheral_gating {
     use paste::paste;
 
     use crate::clocks::Gate;
-    use crate::clocks::periph_helpers::{CTimerConfig, Clk1MConfig, Lpi2cConfig, NoConfig, OsTimerConfig};
-    // use crate::clocks::periph_helpers::{
-    //     AdcConfig, CTimerConfig, I3cConfig, Lpi2cConfig, LpspiConfig, LpuartConfig, NoConfig,
-    // };
+    use crate::clocks::periph_helpers::{
+        AdcConfig, CTimerConfig, Clk1MConfig, I3cConfig, Lpi2cConfig, LpspiConfig, LpuartConfig, NoConfig,
+        OsTimerConfig,
+    };
     use crate::{impl_cc_gate, pac};
 
     // These peripherals have no additional upstream clocks or configuration required
@@ -696,14 +735,16 @@ pub(crate) mod peripheral_gating {
     impl_cc_gate!(CRC0, mrcc_glb_cc0, mrcc_glb_rst0, crc0, NoConfig);
     impl_cc_gate!(INPUTMUX0, mrcc_glb_cc0, mrcc_glb_rst0, inputmux0, NoConfig);
 
-    // // These peripherals DO have meaningful configuration, and could fail if the system
-    // // clocks do not match their needs.
-    // impl_cc_gate!(ADC0, mrcc_glb_cc1, mrcc_glb_rst1, adc0, AdcConfig);
-    // impl_cc_gate!(ADC1, mrcc_glb_cc1, mrcc_glb_rst1, adc1, AdcConfig);
-    // impl_cc_gate!(ADC2, mrcc_glb_cc1, mrcc_glb_rst1, adc2, AdcConfig);
-    // impl_cc_gate!(ADC3, mrcc_glb_cc1, mrcc_glb_rst1, adc3, AdcConfig);
+    // These peripherals DO have meaningful configuration, and could fail if the system
+    // clocks do not match their needs.
+    impl_cc_gate!(ADC0, mrcc_glb_cc1, mrcc_glb_rst1, adc0, AdcConfig);
+    impl_cc_gate!(ADC1, mrcc_glb_cc1, mrcc_glb_rst1, adc1, AdcConfig);
 
-    // impl_cc_gate!(I3C0, mrcc_glb_cc0, mrcc_glb_rst0, i3c0, I3cConfig);
+    impl_cc_gate!(I3C0, mrcc_glb_acc2, mrcc_glb_rst2, i3c0, I3cConfig);
+    impl_cc_gate!(I3C1, mrcc_glb_acc2, mrcc_glb_rst2, i3c1, I3cConfig);
+    impl_cc_gate!(I3C2, mrcc_glb_acc2, mrcc_glb_rst2, i3c2, I3cConfig);
+    impl_cc_gate!(I3C3, mrcc_glb_acc2, mrcc_glb_rst2, i3c3, I3cConfig);
+
     impl_cc_gate!(CTIMER0, mrcc_glb_acc0, mrcc_glb_rst0, ctimer0, CTimerConfig);
     impl_cc_gate!(CTIMER1, mrcc_glb_acc0, mrcc_glb_rst0, ctimer1, CTimerConfig);
     impl_cc_gate!(CTIMER2, mrcc_glb_acc0, mrcc_glb_rst0, ctimer2, CTimerConfig);
@@ -714,13 +755,13 @@ pub(crate) mod peripheral_gating {
     // TRNG peripheral - uses NoConfig since it has no selectable clock source
     impl_cc_gate!(TRNG0, mrcc_glb_acc4, mrcc_glb_rst4, trng0, NoConfig);
 
-    // // Peripherals that use ACC instead of CC!
-    // impl_cc_gate!(LPUART0, mrcc_glb_acc0, mrcc_glb_rst0, lpuart0, LpuartConfig);
-    // impl_cc_gate!(LPUART1, mrcc_glb_acc0, mrcc_glb_rst0, lpuart1, LpuartConfig);
-    // impl_cc_gate!(LPUART2, mrcc_glb_acc0, mrcc_glb_rst0, lpuart2, LpuartConfig);
-    // impl_cc_gate!(LPUART3, mrcc_glb_acc0, mrcc_glb_rst0, lpuart3, LpuartConfig);
-    // impl_cc_gate!(LPUART4, mrcc_glb_acc0, mrcc_glb_rst0, lpuart4, LpuartConfig);
-    // impl_cc_gate!(LPUART5, mrcc_glb_acc1, mrcc_glb_rst1, lpuart5, LpuartConfig);
+    // Peripherals that use ACC instead of CC!
+    impl_cc_gate!(LPUART0, mrcc_glb_acc0, mrcc_glb_rst0, lpuart0, LpuartConfig);
+    impl_cc_gate!(LPUART1, mrcc_glb_acc0, mrcc_glb_rst0, lpuart1, LpuartConfig);
+    impl_cc_gate!(LPUART2, mrcc_glb_acc0, mrcc_glb_rst0, lpuart2, LpuartConfig);
+    impl_cc_gate!(LPUART3, mrcc_glb_acc0, mrcc_glb_rst0, lpuart3, LpuartConfig);
+    impl_cc_gate!(LPUART4, mrcc_glb_acc0, mrcc_glb_rst0, lpuart4, LpuartConfig);
+    impl_cc_gate!(LPUART5, mrcc_glb_acc0, mrcc_glb_rst0, lpuart5, LpuartConfig);
 
     // DMA0 peripheral - uses NoConfig since it has no selectable clock source
     impl_cc_gate!(DMA0, mrcc_glb_acc0, mrcc_glb_rst0, dma0, NoConfig);
@@ -737,8 +778,12 @@ pub(crate) mod peripheral_gating {
     impl_cc_gate!(LPI2C2, mrcc_glb_acc0, mrcc_glb_rst0, lpi2c2, Lpi2cConfig);
     impl_cc_gate!(LPI2C3, mrcc_glb_acc0, mrcc_glb_rst0, lpi2c3, Lpi2cConfig);
 
-    // impl_cc_gate!(LPSPI0, mrcc_glb_acc0, mrcc_glb_rst0, lpspi0, LpspiConfig);
-    // impl_cc_gate!(LPSPI1, mrcc_glb_acc0, mrcc_glb_rst0, lpspi1, LpspiConfig);
+    impl_cc_gate!(LPSPI0, mrcc_glb_acc1, mrcc_glb_rst1, lpspi0, LpspiConfig);
+    impl_cc_gate!(LPSPI1, mrcc_glb_acc1, mrcc_glb_rst1, lpspi1, LpspiConfig);
+    impl_cc_gate!(LPSPI2, mrcc_glb_acc1, mrcc_glb_rst1, lpspi2, LpspiConfig);
+    impl_cc_gate!(LPSPI3, mrcc_glb_acc1, mrcc_glb_rst1, lpspi3, LpspiConfig);
+    impl_cc_gate!(LPSPI4, mrcc_glb_acc1, mrcc_glb_rst1, lpspi4, LpspiConfig);
+    impl_cc_gate!(LPSPI5, mrcc_glb_acc1, mrcc_glb_rst1, lpspi5, LpspiConfig);
 
     impl_cc_gate!(WWDT0, mrcc_glb_acc0, wwdt0, Clk1MConfig);
     impl_cc_gate!(WWDT1, mrcc_glb_acc0, wwdt1, Clk1MConfig);

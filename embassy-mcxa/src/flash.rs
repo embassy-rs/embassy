@@ -21,23 +21,38 @@
 //!
 //! # Example
 //!
-//! ```no_run
+//! ```rust,no_run
+//! #![no_std]
+//! #![no_main]
+//!
+//! # use panic_halt as _;
+//! use embassy_executor::Spawner;
+//! use embassy_mcxa::clocks::config::Div8;
+//! use embassy_mcxa::config::Config;
 //! use embassy_mcxa::flash::Flash;
 //! use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
 //!
-//! let mut flash = Flash::new();
+//! #[embassy_executor::main]
+//! async fn main(_spawner: Spawner) {
+//!     let mut config = Config::default();
+//!     config.clock_cfg.sirc.fro_lf_div = Div8::from_divisor(1);
 //!
-//! // Erase a sector at offset 0xFE000 (near the end of 1 MB flash)
-//! flash.erase(0xFE000, 0x10_0000).unwrap();
+//!     let p = embassy_mcxa::init(config);
 //!
-//! // Program 128 bytes at that offset (must be a multiple of 16-byte phrase size)
-//! let data = [0xABu8; 128];
-//! flash.write(0xFE000, &data).unwrap();
+//!     let mut flash = Flash::new().unwrap();
 //!
-//! // Read back
-//! let mut buf = [0u8; 128];
-//! flash.read(0xFE000, &mut buf).unwrap();
-//! assert_eq!(buf, data);
+//!     // Erase a sector at offset 0xFE000 (near the end of 1 MB flash)
+//!     flash.erase(0xFE000, 0x10_0000).unwrap();
+//!
+//!     // Program 128 bytes at that offset (must be a multiple of 16-byte phrase size)
+//!     let data = [0xABu8; 128];
+//!     flash.write(0xFE000, &data).unwrap();
+//!
+//!     // Read back
+//!     let mut buf = [0u8; 128];
+//!     flash.read(0xFE000, &mut buf).unwrap();
+//! }
+//!
 //! ```
 
 use core::slice;

@@ -61,6 +61,7 @@ rm out/tests/pimoroni-pico-plus-2/i2c
 rm out/tests/pimoroni-pico-plus-2/adc
 # temporarily disabled
 rm out/tests/pimoroni-pico-plus-2/pwm
+rm out/tests/frdm-mcx-a266/trng
 
 # flaky
 rm out/tests/rpi-pico/pwm

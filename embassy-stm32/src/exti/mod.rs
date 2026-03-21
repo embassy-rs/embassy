@@ -76,9 +76,6 @@ unsafe fn on_irq() {
 
     // Clear pending
     low_level::clear_exti_pending_mask(bits);
-
-    #[cfg(feature = "low-power")]
-    crate::low_power::Executor::on_wakeup_irq_or_event();
 }
 
 struct BitIter(u32);

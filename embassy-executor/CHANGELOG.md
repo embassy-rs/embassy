@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.10.0 - 2026-03-10
+
 - Added new metadata API for tasks.
 - Main task automatically gets a name of `main` when the `metadata-name` feature is enabled.
 - Upgraded rtos-trace
@@ -17,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   legacy ARM architectures are not supported.
 - Added `run_until` to `arch-std` variant of `Executor`.
 - Added `__try_embassy_time_queue_item_from_waker`
+- Added fallible `from_waker` getter for `TaskRef`
+- Changed: return error when creating the `SpawnToken`, not when spawning
+- Bump avr-device from 0.7.0 to 0.8.1
 
 ## 0.9.1 - 2025-08-31
 

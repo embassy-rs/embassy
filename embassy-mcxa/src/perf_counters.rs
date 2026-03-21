@@ -12,7 +12,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use paste::paste;
 macro_rules! define_counters {
-    ($($name:ident),*) => {
+    ($( $(#[$attr:meta])* $name:ident),*) => {
         #[cfg_attr(not(feature = "perf"), allow(dead_code))]
         static PERF_COUNTERS: Counters = Counters::new();
 
@@ -20,6 +20,7 @@ macro_rules! define_counters {
             const fn new() -> Self {
                 Self {
                     $(
+                        $(#[$attr])*
                         #[cfg(feature = "perf")]
                         $name: AtomicU32::new(0),
                     )*
@@ -59,6 +60,7 @@ macro_rules! define_counters {
 
             $(
                 /// Increment perf counter by 1
+                $(#[$attr])*
                 #[inline(always)]
                 pub fn [<incr_ $name>]() {
                     #[cfg(feature = "perf")]
@@ -66,6 +68,7 @@ macro_rules! define_counters {
                 }
 
                 /// Reset perf counter to zero
+                $(#[$attr])*
                 #[inline(always)]
                 pub fn [<clear_ $name>]() {
                     #[cfg(feature = "perf")]
@@ -75,6 +78,7 @@ macro_rules! define_counters {
                 /// Get current perf counter snapshot
                 ///
                 /// If the `perf` feature is not enabled, this always returns zero
+                $(#[$attr])*
                 #[inline(always)]
                 pub fn [<get_ $name>]() -> u32 {
                     #[cfg(feature = "perf")]
@@ -87,6 +91,7 @@ macro_rules! define_counters {
                 /// Get current perf counter snapshot and reset the perf counter to zero
                 ///
                 /// If the `perf` feature is not enabled, this always returns zero
+                $(#[$attr])*
                 #[inline(always)]
                 pub fn [<get_and_clear_ $name>]() -> u32 {
                     #[cfg(feature = "perf")]
@@ -104,12 +109,14 @@ macro_rules! define_counters {
         #[cfg_attr(feature = "defmt", derive(defmt::Format))]
         pub struct Report {
             $(
+                $(#[$attr])*
                 pub $name: u32,
             )*
         }
 
         struct Counters {
             $(
+                $(#[$attr])*
                 #[cfg(feature = "perf")]
                 $name: AtomicU32,
             )*
@@ -170,6 +177,18 @@ define_counters!(
     interrupt_i2c3_wake,
     interrupt_i3c0,
     interrupt_i3c0_wake,
+    #[cfg(feature = "mcxa5xx")]
+    interrupt_i3c1,
+    #[cfg(feature = "mcxa5xx")]
+    interrupt_i3c1_wake,
+    #[cfg(feature = "mcxa5xx")]
+    interrupt_i3c2,
+    #[cfg(feature = "mcxa5xx")]
+    interrupt_i3c2_wake,
+    #[cfg(feature = "mcxa5xx")]
+    interrupt_i3c3,
+    #[cfg(feature = "mcxa5xx")]
+    interrupt_i3c3_wake,
     interrupt_lpuart0,
     interrupt_lpuart0_wake,
     interrupt_lpuart1,
@@ -190,6 +209,22 @@ define_counters!(
     interrupt_spi0_wake,
     interrupt_spi1,
     interrupt_spi1_wake,
+    #[cfg(feature = "mcxa5xx")]
+    interrupt_spi2,
+    #[cfg(feature = "mcxa5xx")]
+    interrupt_spi2_wake,
+    #[cfg(feature = "mcxa5xx")]
+    interrupt_spi3,
+    #[cfg(feature = "mcxa5xx")]
+    interrupt_spi3_wake,
+    #[cfg(feature = "mcxa5xx")]
+    interrupt_spi4,
+    #[cfg(feature = "mcxa5xx")]
+    interrupt_spi4_wake,
+    #[cfg(feature = "mcxa5xx")]
+    interrupt_spi5,
+    #[cfg(feature = "mcxa5xx")]
+    interrupt_spi5_wake,
     interrupt_trng0,
     interrupt_trng0_wake,
     interrupt_wwdt,

@@ -159,9 +159,9 @@ pub fn get_stop_mode(_cs: CriticalSection) -> Option<StopMode> {
     } else if unsafe { REFCOUNT_STOP1 == 0 } {
         Some(StopMode::Stop1)
     } else {
-        trace!("low power: not ready to stop (refcount_stop1: {})", unsafe {
-            REFCOUNT_STOP1
-        });
+        //trace!("low power: not ready to stop (refcount_stop1: {})", unsafe {
+        //    REFCOUNT_STOP1
+        //});
         None
     }
 }

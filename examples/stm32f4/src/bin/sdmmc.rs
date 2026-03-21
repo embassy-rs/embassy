@@ -4,9 +4,12 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::sdmmc::Sdmmc;
-use embassy_stm32::sdmmc::sd::{CmdBlock, DataBlock, StorageDevice};
+use embassy_stm32::sdmmc::sd::{Card, CmdBlock, DataBlock, StorageDevice};
 use embassy_stm32::time::{Hertz, mhz};
 use embassy_stm32::{Config, bind_interrupts, dma, peripherals, sdmmc};
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+use embassy_sync::channel::Channel;
+use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 /// This is a safeguard to not overwrite any data on the SD card.
@@ -17,6 +20,42 @@ bind_interrupts!(struct Irqs {
     SDIO => sdmmc::InterruptHandler<peripherals::SDIO>;
     DMA2_STREAM3 => dma::InterruptHandler<peripherals::DMA2_CH3>;
 });
+
+pub enum StorageRequest {
+    WriteRequest(u32, &'static DataBlock),
+    ReadRequest,
+}
+
+pub async fn run_storage<'a>(mut sdmmc: Sdmmc<'a>, channel: &'static Channel<NoopRawMutex, StorageRequest, 3>) {
+    loop {
+        let storage = loop {
+            if let Ok(storage) = StorageDevice::new_sd_card(&mut sdmmc, &mut CmdBlock::new(), mhz(24)).await {
+                break storage;
+            }
+
+            // Wait 1/2 second to avoid saturating the core
+            Timer::after(Duration::from_millis(500)).await;
+        };
+
+        let _ = run_storage_inner(storage, channel).await;
+    }
+}
+
+pub async fn run_storage_inner<'a, 'b>(
+    mut storage: StorageDevice<'a, 'b, Card>,
+    channel: &'static Channel<NoopRawMutex, StorageRequest, 3>,
+) -> Result<(), ()> {
+    // Or, instead of receiving from a channel, you can read/write files here
+
+    loop {
+        match channel.receive().await {
+            StorageRequest::WriteRequest(block_idx, buffer) => {
+                storage.write_block(block_idx, buffer).await.map_err(|_| ())?;
+            }
+            StorageRequest::ReadRequest => {}
+        }
+    }
+}
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -58,9 +97,11 @@ async fn main(_spawner: Spawner) {
 
     let mut cmd_block = CmdBlock::new();
 
-    let mut storage = StorageDevice::new_sd_card(&mut sdmmc, &mut cmd_block, mhz(24))
-        .await
-        .unwrap();
+    let mut storage = loop {
+        if let Ok(storage) = StorageDevice::new_sd_card(&mut sdmmc, &mut cmd_block, mhz(24)).await {
+            break storage;
+        }
+    };
 
     let card = storage.card();
 

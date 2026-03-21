@@ -2,7 +2,7 @@
 //! with:
 //!
 //! ```sh
-//! cargo run --release --no-default-features --features=custom-executor --bin power-deepsleep
+//! cargo run --release --no-default-features --features=executor-platform --bin power-deepsleep-gpio-int
 //! ```
 //!
 //! **NOTE: This requires rework of the board! You must remove R26 (used for the on
@@ -21,16 +21,21 @@ use embassy_mcxa::clocks::config::{
     CoreSleep, Div8, FircConfig, FircFreqSel, FlashSleep, MainClockConfig, MainClockSource, VddDriveStrength, VddLevel,
 };
 use embassy_mcxa::clocks::{PoweredClock, WakeGuard};
-use embassy_mcxa::gpio::{Input, Pull};
+use embassy_mcxa::gpio::{Async, Input, Pull};
+use embassy_mcxa::{bind_interrupts, gpio, peripherals};
 use embassy_time::{Duration, Instant, Timer};
 use hal::gpio::{DriveStrength, Level, Output, SlewRate};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
+bind_interrupts!(struct Irqs {
+    GPIO1 => gpio::InterruptHandler<peripherals::GPIO1>;
+});
+
 #[cfg_attr(
-    feature = "custom-executor",
+    feature = "executor-platform",
     embassy_executor::main(executor = "embassy_mcxa::executor::Executor", entry = "cortex_m_rt::entry")
 )]
-#[cfg_attr(not(feature = "custom-executor"), embassy_executor::main)]
+#[cfg_attr(not(feature = "executor-platform"), embassy_executor::main)]
 async fn main(spawner: Spawner) {
     // Do a short delay in order to allow for us to attach the debugger/start
     // a flash in case some setting below is wrong, and the CPU gets stuck
@@ -46,7 +51,7 @@ async fn main(spawner: Spawner) {
     fcfg.frequency = FircFreqSel::Mhz180;
     fcfg.power = PoweredClock::NormalEnabledDeepSleepDisabled;
     fcfg.fro_hf_enabled = true;
-    fcfg.clk_45m_enabled = false;
+    fcfg.clk_hf_fundamental_enabled = false;
     fcfg.fro_hf_div = Some(const { Div8::from_divisor(180).unwrap() });
     cfg.clock_cfg.firc = Some(fcfg);
 
@@ -86,7 +91,7 @@ async fn main(spawner: Spawner) {
 
     let p = hal::init(cfg);
 
-    #[cfg(feature = "custom-executor")]
+    #[cfg(feature = "executor-platform")]
     embassy_mcxa::executor::set_executor_debug_gpio(p.P1_12);
 
     let mut pin = p.P4_2;
@@ -112,7 +117,7 @@ async fn main(spawner: Spawner) {
 
     // Setup a second LED, and use the button labeled "WAKEUP" as an input source
     let blue = Output::new(p.P3_21, Level::High, DriveStrength::Normal, SlewRate::Slow);
-    let btn = Input::new(p.P1_7, Pull::Up);
+    let btn = Input::new_async(p.P1_7, Irqs, Pull::Up);
     spawner.spawn(press_toggler(btn, blue).unwrap());
 
     loop {
@@ -148,7 +153,7 @@ async fn main(spawner: Spawner) {
 /// the assertion of the executor debug gpio pin. This button can be observed
 /// using the mikro-bus header pin labeled "RST".
 #[embassy_executor::task]
-async fn press_toggler(mut button: Input<'static>, mut led: Output<'static>) {
+async fn press_toggler(mut button: Input<'static, Async>, mut led: Output<'static>) {
     loop {
         button.wait_for_low().await;
         led.toggle();

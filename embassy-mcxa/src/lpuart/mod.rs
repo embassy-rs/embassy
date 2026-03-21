@@ -504,21 +504,29 @@ macro_rules! impl_rts_pin {
 impl_tx_pin!(LPUART0, P0_3, MUX2);
 impl_tx_pin!(LPUART0, P0_21, MUX3);
 impl_tx_pin!(LPUART0, P2_1, MUX2);
+#[cfg(feature = "mcxa5xx")]
+impl_tx_pin!(LPUART0, P4_9, MUX2);
 
 #[cfg(feature = "swd-swo-as-gpio")]
 impl_rx_pin!(LPUART0, P0_2, MUX2);
 impl_rx_pin!(LPUART0, P0_20, MUX3);
 impl_rx_pin!(LPUART0, P2_0, MUX2);
+#[cfg(feature = "mcxa5xx")]
+impl_rx_pin!(LPUART0, P4_8, MUX2);
 
 #[cfg(feature = "swd-as-gpio")]
 impl_cts_pin!(LPUART0, P0_1, MUX2);
 impl_cts_pin!(LPUART0, P0_23, MUX3);
 impl_cts_pin!(LPUART0, P2_3, MUX2);
+#[cfg(feature = "mcxa5xx")]
+impl_cts_pin!(LPUART0, P4_11, MUX2);
 
 #[cfg(feature = "swd-as-gpio")]
 impl_rts_pin!(LPUART0, P0_0, MUX2);
 impl_rts_pin!(LPUART0, P0_22, MUX3);
 impl_rts_pin!(LPUART0, P2_2, MUX2);
+#[cfg(feature = "mcxa5xx")]
+impl_rts_pin!(LPUART0, P4_10, MUX2);
 
 // LPUART 1
 impl_tx_pin!(LPUART1, P1_9, MUX2);
@@ -540,6 +548,8 @@ impl_rts_pin!(LPUART1, P1_10, MUX2);
 impl_rts_pin!(LPUART1, P2_15, MUX3);
 impl_rts_pin!(LPUART1, P2_16, MUX3);
 impl_rts_pin!(LPUART1, P3_10, MUX3);
+#[cfg(feature = "mcxa5xx")]
+impl_rts_pin!(LPUART1, P3_22, MUX3);
 
 // LPUART 2
 impl_tx_pin!(LPUART2, P1_5, MUX3);
@@ -589,37 +599,56 @@ impl_tx_pin!(LPUART4, P4_3, MUX3);
 
 impl_rx_pin!(LPUART4, P2_6, MUX3);
 impl_rx_pin!(LPUART4, P3_18, MUX2);
+#[cfg(feature = "mcxa2xx")]
 impl_rx_pin!(LPUART4, P3_28, MUX3);
 impl_rx_pin!(LPUART4, P4_4, MUX3);
 
 impl_cts_pin!(LPUART4, P2_0, MUX3);
 impl_cts_pin!(LPUART4, P3_17, MUX2);
+#[cfg(feature = "mcxa2xx")]
 impl_cts_pin!(LPUART4, P3_31, MUX3);
 
 impl_rts_pin!(LPUART4, P2_1, MUX3);
 impl_rts_pin!(LPUART4, P3_16, MUX2);
+#[cfg(feature = "mcxa2xx")]
 impl_rts_pin!(LPUART4, P3_30, MUX3);
 
 // LPUART 5
 #[cfg(feature = "mcxa5xx")]
+impl_tx_pin!(LPUART5, P0_25, MUX8);
+#[cfg(feature = "mcxa5xx")]
 impl_tx_pin!(LPUART5, P1_10, MUX8);
 #[cfg(feature = "mcxa5xx")]
 impl_tx_pin!(LPUART5, P1_17, MUX8);
+#[cfg(feature = "mcxa5xx")]
+impl_tx_pin!(LPUART5, P3_10, MUX8);
 
+#[cfg(feature = "mcxa5xx")]
+impl_rx_pin!(LPUART5, P0_24, MUX8);
 #[cfg(feature = "mcxa5xx")]
 impl_rx_pin!(LPUART5, P1_11, MUX8);
 #[cfg(feature = "mcxa5xx")]
 impl_rx_pin!(LPUART5, P1_16, MUX8);
+#[cfg(feature = "mcxa5xx")]
+impl_rx_pin!(LPUART5, P3_11, MUX8);
 
+#[cfg(feature = "mcxa5xx")]
+impl_cts_pin!(LPUART5, P0_27, MUX8);
 #[cfg(feature = "mcxa5xx")]
 impl_cts_pin!(LPUART5, P1_12, MUX8);
 #[cfg(feature = "mcxa5xx")]
 impl_cts_pin!(LPUART5, P1_19, MUX8);
+#[cfg(feature = "mcxa5xx")]
+impl_cts_pin!(LPUART5, P3_8, MUX8);
 
+#[cfg(feature = "mcxa5xx")]
+impl_rts_pin!(LPUART5, P0_26, MUX8);
 #[cfg(feature = "mcxa5xx")]
 impl_rts_pin!(LPUART5, P1_13, MUX8);
 #[cfg(feature = "mcxa5xx")]
 impl_rts_pin!(LPUART5, P1_18, MUX8);
+#[cfg(feature = "mcxa5xx")]
+impl_rts_pin!(LPUART5, P3_9, MUX8);
 
 /// LPUART error types
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -651,6 +680,12 @@ pub enum Error {
     ClockSetup(ClockError),
     /// Other internal errors or unexpected state.
     Other,
+}
+
+impl From<crate::dma::InvalidParameters> for Error {
+    fn from(_value: crate::dma::InvalidParameters) -> Self {
+        Error::Other
+    }
 }
 
 impl From<maitake_sync::Closed> for Error {
