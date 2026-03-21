@@ -13,12 +13,35 @@
 #
 # If probe-rs cannot flash external flash, use the stm32-* recipes instead.
 
-# Tool paths (auto-detect macOS vs Linux; override with `just --set stm32_bin /custom/path`)
-stm32_bin := if os() == "macos" {
-    "/Applications/STMicroelectronics/STM32Cube/STM32CubeProgrammer/STM32CubeProgrammer.app/Contents/Resources/bin"
-} else {
-    "/usr/local/STMicroelectronics/STM32Cube/STM32CubeProgrammer/bin"
-}
+# Tool paths (auto-detect STM32CubeProgrammer install; override with `just --set stm32_bin /path`)
+stm32_bin := `
+    if [ "$(uname)" = "Darwin" ]; then
+        mtime() { stat -f %m "$1" 2>/dev/null || echo 0; }
+    else
+        mtime() { stat -c %Y "$1" 2>/dev/null || echo 0; }
+    fi
+    best="" best_t=0 found=0 first=""
+    while IFS= read -r dir; do
+        [ -z "$dir" ] && continue
+        [ -z "$first" ] && first="$dir"
+        [ -d "$dir" ] || continue
+        found=$((found + 1))
+        t=$(mtime "$dir/STM32_Programmer_CLI")
+        if [ "$t" -gt "$best_t" ]; then best="$dir"; best_t="$t"; fi
+    done <<CANDIDATES
+/Applications/STMicroelectronics/STM32Cube/STM32CubeProgrammer/STM32CubeProgrammer.app/Contents/MacOs/bin
+/Applications/STMicroelectronics/STM32Cube/STM32CubeProgrammer/STM32CubeProgrammer.app/Contents/Resources/bin
+/usr/local/STMicroelectronics/STM32Cube/STM32CubeProgrammer/bin
+CANDIDATES
+    if [ "$found" -gt 1 ]; then
+        echo "Warning: found STM32CubeProgrammer in $found locations, using newest: $best" >&2
+    fi
+    if [ -n "$best" ]; then
+        printf '%s' "$best"
+    else
+        echo "Warning: STM32CubeProgrammer not found in any candidate location" >&2
+        printf '%s' "$first"
+    fi`
 
 board := "dk"
 
