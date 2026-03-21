@@ -14,7 +14,7 @@ pub use smoltcp::wire::{Icmpv4Message, Icmpv4Packet, Icmpv4Repr};
 #[cfg(feature = "proto-ipv6")]
 pub use smoltcp::wire::{Icmpv6Message, Icmpv6Packet, Icmpv6Repr};
 
-use crate::Stack;
+use crate::{Stack, TryError};
 
 /// Error returned by [`IcmpSocket::bind`].
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -151,6 +151,21 @@ impl<'a> IcmpSocket<'a> {
 
     /// Receive a datagram.
     ///
+    /// This method will not wait for a datagram to be received.
+    ///
+    /// If no datagram is available, this method will return `Err(TryError::WouldBlock)`.
+    ///
+    /// Returns the number of bytes received and the remote endpoint.
+    pub fn try_recv_from(&self, buf: &mut [u8]) -> Result<(usize, IpAddress), TryError<RecvError>> {
+        self.with_mut(|s, _| match s.recv_slice(buf) {
+            Ok((n, meta)) => Ok((n, meta)),
+            Err(icmp::RecvError::Truncated) => Err(TryError::Other(RecvError::Truncated)),
+            Err(icmp::RecvError::Exhausted) => Err(TryError::WouldBlock),
+        })
+    }
+
+    /// Receive a datagram.
+    ///
     /// When no datagram is available, this method will return `Poll::Pending` and
     /// register the current task to be notified when a datagram is received.
     ///
@@ -190,6 +205,23 @@ impl<'a> IcmpSocket<'a> {
             })
         })
         .await
+    }
+
+    /// Dequeue a packet received from a remote endpoint and calls the provided function with the
+    /// slice of the packet and the remote endpoint address.
+    ///
+    /// This method will not wait for a datagram to be received.
+    ///
+    /// If no datagram is available, this method will return `Err(TryError::WouldBlock)`.
+    pub fn try_recv_from_with<F, R>(&self, f: F) -> Result<R, TryError<RecvError>>
+    where
+        F: FnOnce((&[u8], IpAddress)) -> R,
+    {
+        self.with_mut(|s, _| match s.recv() {
+            Ok(x) => Ok(f(x)),
+            Err(icmp::RecvError::Exhausted) => Err(TryError::WouldBlock),
+            Err(icmp::RecvError::Truncated) => Err(TryError::Other(RecvError::Truncated)),
+        })
     }
 
     /// Wait until the socket becomes writable.
@@ -232,6 +264,40 @@ impl<'a> IcmpSocket<'a> {
     {
         let remote_endpoint: IpAddress = remote_endpoint.into();
         poll_fn(move |cx| self.poll_send_to(buf, remote_endpoint, cx)).await
+    }
+
+    /// Send a datagram to the specified remote endpoint.
+    ///
+    /// This method will not wait for the buffer to become free.
+    ///
+    /// If the socket's send buffer is full, this method will return `Err(TryError::WouldBlock)`.
+    ///
+    /// If the socket's send buffer is too small to fit `buf`, this method will return `Err(TryError::Other(SendError::PacketTooLarge))`
+    ///
+    /// When the remote endpoint is not reachable, this method will return `Err(TryError::Other(SendError::NoRoute))`
+    pub fn try_send_to<T>(&self, buf: &[u8], remote_endpoint: T) -> Result<(), TryError<SendError>>
+    where
+        T: Into<IpAddress>,
+    {
+        let remote_endpoint: IpAddress = remote_endpoint.into();
+
+        // Check if packet can ever fit in the transmit buffer
+        if self.with(|s, _| s.payload_send_capacity() < buf.len()) {
+            return Err(TryError::Other(SendError::PacketTooLarge));
+        }
+
+        self.with_mut(|s, _| match s.send_slice(buf, remote_endpoint.into()) {
+            // Entire datagram has been sent
+            Ok(()) => Ok(()),
+            Err(icmp::SendError::BufferFull) => Err(TryError::WouldBlock),
+            Err(icmp::SendError::Unaddressable) => {
+                if s.is_open() {
+                    Err(TryError::Other(SendError::NoRoute))
+                } else {
+                    Err(TryError::Other(SendError::SocketNotBound))
+                }
+            }
+        })
     }
 
     /// Send a datagram to the specified remote endpoint.
@@ -311,6 +377,33 @@ impl<'a> IcmpSocket<'a> {
         .await
     }
 
+    /// Enqueue a packet to be sent to a given remote address with a zero-copy function.
+    ///
+    /// This method will not wait for the buffer to become free.
+    ///
+    /// If the socket's send buffer is full, this method will return `Err(TryError::WouldBlock)`.
+    ///
+    /// If the socket's send buffer is too small to fit `size`, this method will return `Err(TryError::Other(SendError::PacketTooLarge))`
+    ///
+    /// When the remote endpoint is not reachable, this method will return `Err(TryError::Other(SendError::NoRoute))`
+    pub fn try_send_to_with<T, F, R>(&mut self, size: usize, remote_endpoint: T, f: F) -> Result<R, TryError<SendError>>
+    where
+        T: Into<IpAddress>,
+        F: FnOnce(&mut [u8]) -> R,
+    {
+        // Check if packet can ever fit in the transmit buffer
+        if self.with(|s, _| s.payload_send_capacity() < size) {
+            return Err(TryError::Other(SendError::PacketTooLarge));
+        }
+
+        let remote_endpoint = remote_endpoint.into();
+        self.with_mut(|s, _| match s.send(size, remote_endpoint) {
+            Ok(buf) => Ok(f(buf)),
+            Err(icmp::SendError::BufferFull) => Err(TryError::WouldBlock),
+            Err(icmp::SendError::Unaddressable) => Err(TryError::Other(SendError::NoRoute)),
+        })
+    }
+
     /// Flush the socket.
     ///
     /// This method will wait until the socket is flushed.
@@ -324,6 +417,19 @@ impl<'a> IcmpSocket<'a> {
                     Poll::Pending
                 }
             })
+        })
+    }
+
+    /// Try to flush the socket.
+    ///
+    /// This method will check if the socket is flushed, and if not, return `Err(TryError::WouldBlock)`.
+    pub fn try_flush(&mut self) -> Result<(), TryError<SendError>> {
+        self.with(|s, _| {
+            if s.send_queue() == 0 {
+                Ok(())
+            } else {
+                Err(TryError::WouldBlock)
+            }
         })
     }
 
