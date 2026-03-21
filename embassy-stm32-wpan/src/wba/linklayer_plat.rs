@@ -336,14 +336,12 @@ fn pka_p256_mul(k: &[u32; 8], px: &[u32; 8], py: &[u32; 8], rx: &mut [u32; 8], r
 // BLE Timer Support using embassy_time
 // ============================================================================
 
-/// Maximum number of BLE stack timers
-const MAX_BLE_TIMERS: usize = 8;
+/// Maximum number of BLE stack timers.
+/// Formula from ST doc: (6 * numOfLinks) + 5. With numOfLinks=2 → 17.
+const MAX_BLE_TIMERS: usize = 17;
 
 /// Timer deadlines stored as Option<Instant>. None means timer is not active.
 static mut TIMER_DEADLINES: [Option<Instant>; MAX_BLE_TIMERS] = [None; MAX_BLE_TIMERS];
-
-/// Flag indicating a timer has expired and sequencer should be woken
-static TIMER_EXPIRED: AtomicBool = AtomicBool::new(false);
 
 /// Get the earliest active timer deadline, if any
 pub fn earliest_timer_deadline() -> Option<Instant> {
@@ -363,19 +361,23 @@ pub fn earliest_timer_deadline() -> Option<Instant> {
 }
 
 /// Check and fire any expired timers. Called from the runner loop.
+/// Calls BLEPLATCB_TimerExpiry(id) for each expired timer to notify the BLE stack.
 pub fn check_expired_timers() {
     let now = Instant::now();
+    let mut any_expired = false;
     unsafe {
-        for deadline in TIMER_DEADLINES.iter_mut() {
+        for (idx, deadline) in TIMER_DEADLINES.iter_mut().enumerate() {
             if let Some(d) = deadline {
                 if now >= *d {
                     *deadline = None;
-                    TIMER_EXPIRED.store(true, Ordering::Release);
+                    any_expired = true;
+                    // Notify the BLE stack that this timer has expired
+                    super::bindings::ble::BLEPLATCB_TimerExpiry(idx as u16);
                 }
             }
         }
     }
-    if TIMER_EXPIRED.swap(false, Ordering::AcqRel) {
+    if any_expired {
         super::util_seq::seq_pend();
     }
 }
@@ -1348,6 +1350,250 @@ pub unsafe extern "C" fn BLEPLAT_AesCmacCompute(input: *const u8, input_length: 
     cmac_compute(&CMAC_KEY, input_slice, output_slice);
 }
 
+// ============================================================================
+// AES-CCM (RFC 3610 / NIST SP 800-38C) Implementation
+// Built on top of AES-ECB hardware acceleration.
+// ============================================================================
+
+/// XOR 16-byte blocks: dst ^= src
+fn xor_block(dst: &mut [u8; 16], src: &[u8; 16]) {
+    for i in 0..16 {
+        dst[i] ^= src[i];
+    }
+}
+
+/// Format the CCM B0 block (first block for CBC-MAC).
+/// flags = 64*Adata + 8*((t-2)/2) + (q-1) where q = 15 - iv_length
+fn ccm_format_b0(
+    iv: &[u8],
+    iv_length: usize,
+    add_length: usize,
+    input_length: u32,
+    tag_length: usize,
+) -> [u8; 16] {
+    let q = 15 - iv_length; // number of bytes for message length encoding
+    let adata = if add_length > 0 { 1 } else { 0 };
+    let flags = (adata << 6) | ((((tag_length as u8) - 2) / 2) << 3) | ((q as u8) - 1);
+
+    let mut b0 = [0u8; 16];
+    b0[0] = flags;
+    b0[1..1 + iv_length].copy_from_slice(&iv[..iv_length]);
+
+    // Encode message length in the last q bytes (big-endian)
+    let len_bytes = input_length.to_be_bytes();
+    for i in 0..q {
+        let src_idx = 4usize.saturating_sub(q) + i;
+        if src_idx < 4 {
+            b0[16 - q + i] = len_bytes[src_idx];
+        }
+    }
+    b0
+}
+
+/// Format CCM counter block Ai. flags = (q-1), then IV, then counter.
+fn ccm_format_ctr(iv: &[u8], iv_length: usize, counter: u32) -> [u8; 16] {
+    let q = 15 - iv_length;
+    let mut a = [0u8; 16];
+    a[0] = (q as u8) - 1;
+    a[1..1 + iv_length].copy_from_slice(&iv[..iv_length]);
+
+    // Counter in last q bytes (big-endian)
+    let ctr_bytes = counter.to_be_bytes();
+    for i in 0..q {
+        let src_idx = 4usize.saturating_sub(q) + i;
+        if src_idx < 4 {
+            a[16 - q + i] = ctr_bytes[src_idx];
+        }
+    }
+    a
+}
+
+/// AES-CCM encrypt or decrypt (RFC 3610).
+/// mode: 0 = encrypt, 1 = decrypt
+/// Returns BLEPLAT_OK (0) on success, BLEPLAT_ERROR (-5) on failure.
+fn aes_ccm_crypt(
+    mode: u8,
+    key: &[u8; 16],
+    iv: &[u8],
+    iv_length: usize,
+    aad: &[u8],
+    input: &[u8],
+    tag_length: usize,
+    tag: &mut [u8],
+    output: &mut [u8],
+) -> i32 {
+    let input_length = input.len() as u32;
+
+    // ---- CBC-MAC to compute/verify authentication tag ----
+    // For encryption: compute CBC-MAC over (B0 || AAD || plaintext)
+    // For decryption: compute CBC-MAC over (B0 || AAD || decrypted plaintext)
+    // We do the decryption first if needed, then compute tag.
+
+    // ---- CTR mode for encryption/decryption ----
+    // A0 is used to encrypt the tag, A1..An encrypt the payload
+    let mut ctr: u32 = 1;
+    let payload = input;
+    let payload_len = payload.len();
+
+    // CTR-mode encrypt/decrypt the payload
+    for offset in (0..payload_len).step_by(16) {
+        let a_i = ccm_format_ctr(iv, iv_length, ctr);
+        let mut keystream = [0u8; 16];
+        aes_ecb_encrypt(key, &a_i, &mut keystream);
+
+        let chunk_len = core::cmp::min(16, payload_len - offset);
+        for j in 0..chunk_len {
+            output[offset + j] = payload[offset + j] ^ keystream[j];
+        }
+        ctr += 1;
+    }
+
+    // Determine plaintext for CBC-MAC
+    let plaintext: &[u8] = if mode == 0 { input } else { &output[..payload_len] };
+
+    // Helper: CBC-MAC step — mac = AES(key, mac XOR block)
+    // Uses a temp buffer to avoid aliasing &mac and &mut mac.
+    let mut mac = [0u8; 16];
+    #[allow(unused_assignments)]
+    let mut tmp = [0u8; 16];
+
+    // CBC-MAC: start with B0
+    let b0 = ccm_format_b0(iv, iv_length, aad.len(), input_length, tag_length);
+    aes_ecb_encrypt(key, &b0, &mut mac);
+
+    // CBC-MAC: process AAD if present
+    if !aad.is_empty() {
+        // AAD header: encode length (assume < 65280, so 2-byte encoding)
+        let mut block = [0u8; 16];
+        let aad_len = aad.len();
+        block[0] = (aad_len >> 8) as u8;
+        block[1] = (aad_len & 0xFF) as u8;
+
+        let first_chunk = core::cmp::min(aad_len, 14);
+        block[2..2 + first_chunk].copy_from_slice(&aad[..first_chunk]);
+        xor_block(&mut mac, &block);
+        tmp = mac;
+        aes_ecb_encrypt(key, &tmp, &mut mac);
+
+        // Remaining AAD blocks
+        let mut aad_offset = first_chunk;
+        while aad_offset < aad_len {
+            let mut block = [0u8; 16];
+            let chunk = core::cmp::min(16, aad_len - aad_offset);
+            block[..chunk].copy_from_slice(&aad[aad_offset..aad_offset + chunk]);
+            xor_block(&mut mac, &block);
+            tmp = mac;
+            aes_ecb_encrypt(key, &tmp, &mut mac);
+            aad_offset += 16;
+        }
+    }
+
+    // CBC-MAC: process plaintext
+    for offset in (0..plaintext.len()).step_by(16) {
+        let mut block = [0u8; 16];
+        let chunk = core::cmp::min(16, plaintext.len() - offset);
+        block[..chunk].copy_from_slice(&plaintext[offset..offset + chunk]);
+        xor_block(&mut mac, &block);
+        tmp = mac;
+        aes_ecb_encrypt(key, &tmp, &mut mac);
+    }
+
+    // Encrypt the tag with A0
+    let a0 = ccm_format_ctr(iv, iv_length, 0);
+    let mut s0 = [0u8; 16];
+    aes_ecb_encrypt(key, &a0, &mut s0);
+
+    if mode == 0 {
+        // Encryption: output tag = CBC-MAC XOR S0
+        for i in 0..tag_length {
+            tag[i] = mac[i] ^ s0[i];
+        }
+    } else {
+        // Decryption: verify tag
+        let mut expected_tag = [0u8; 16];
+        for i in 0..tag_length {
+            expected_tag[i] = mac[i] ^ s0[i];
+        }
+        for i in 0..tag_length {
+            if tag[i] != expected_tag[i] {
+                return -5; // BLEPLAT_ERROR: authentication failure
+            }
+        }
+    }
+
+    0 // BLEPLAT_OK
+}
+
+/// AES-CCM encryption/decryption for the BLE stack.
+///
+/// # Arguments
+/// * `mode` - 0 for encryption, 1 for decryption
+/// * `key` - 16-byte AES key (Little Endian)
+/// * `iv_length` - IV length in bytes
+/// * `iv` - IV data
+/// * `add_length` - Additional Authenticated Data length
+/// * `add` - AAD data
+/// * `input_length` - Input data length
+/// * `input` - Data to encrypt/decrypt
+/// * `tag_length` - CCM tag length
+/// * `tag` - CCM tag (written on encrypt, verified on decrypt)
+/// * `output` - Result data
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn BLEPLAT_AesCcmCrypt(
+    mode: u8,
+    key: *const u8,
+    iv_length: u8,
+    iv: *const u8,
+    add_length: u16,
+    add: *const u8,
+    input_length: u32,
+    input: *const u8,
+    tag_length: u8,
+    tag: *mut u8,
+    output: *mut u8,
+) -> core::ffi::c_int {
+    trace!(
+        "BLEPLAT_AesCcmCrypt: mode={}, iv_len={}, add_len={}, input_len={}, tag_len={}",
+        mode, iv_length, add_length, input_length, tag_length
+    );
+
+    if key.is_null() || iv.is_null() || tag.is_null() || output.is_null() {
+        error!("BLEPLAT_AesCcmCrypt: null pointer");
+        return -5; // BLEPLAT_ERROR
+    }
+    if input.is_null() && input_length > 0 {
+        error!("BLEPLAT_AesCcmCrypt: null input with non-zero length");
+        return -5;
+    }
+
+    let key_slice: &[u8; 16] = &*(key as *const [u8; 16]);
+    let iv_slice = core::slice::from_raw_parts(iv, iv_length as usize);
+    let aad_slice = if add.is_null() || add_length == 0 {
+        &[]
+    } else {
+        core::slice::from_raw_parts(add, add_length as usize)
+    };
+    let input_slice = if input_length == 0 {
+        &[]
+    } else {
+        core::slice::from_raw_parts(input, input_length as usize)
+    };
+    let tag_slice = core::slice::from_raw_parts_mut(tag, tag_length as usize);
+    let output_slice = core::slice::from_raw_parts_mut(output, input_length as usize);
+
+    aes_ccm_crypt(
+        mode,
+        key_slice,
+        iv_slice,
+        iv_length as usize,
+        aad_slice,
+        input_slice,
+        tag_length as usize,
+        tag_slice,
+        output_slice,
+    ) as core::ffi::c_int
+}
+
 /// Start a BLE stack timer using embassy_time.
 ///
 /// Sets a deadline for the specified timer ID. The BLE runner checks
@@ -1494,6 +1740,8 @@ pub unsafe extern "C" fn BLEPLAT_PkaStartP256Key(local_private_key: *const u32) 
 
     if result == 0 {
         PKA_RESULT_READY.store(true, Ordering::Release);
+        // Notify the BLE stack that PKA computation is complete
+        super::bindings::ble::BLEPLATCB_PkaComplete();
     }
 
     result
@@ -1566,6 +1814,8 @@ pub unsafe extern "C" fn BLEPLAT_PkaStartDhKey(local_private_key: *const u32, re
 
     if result == 0 {
         PKA_RESULT_READY.store(true, Ordering::Release);
+        // Notify the BLE stack that PKA computation is complete
+        super::bindings::ble::BLEPLATCB_PkaComplete();
     }
 
     result
