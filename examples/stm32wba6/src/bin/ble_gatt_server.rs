@@ -125,10 +125,12 @@ async fn main(spawner: Spawner) {
 
     let p = embassy_stm32::init(config);
 
-    // Configure radio sleep timer to use LSE
+    // Apply HSE trimming for accurate radio frequency (matching ST's Config_HSE)
+    // and configure radio sleep timer to use LSE
     {
         use embassy_stm32::pac::RCC;
         use embassy_stm32::pac::rcc::vals::Radiostsel;
+        RCC.ecscr1().modify(|w| w.set_hsetrim(0x0C));
         RCC.bdcr().modify(|w| w.set_radiostsel(Radiostsel::LSE));
     }
 

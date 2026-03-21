@@ -101,7 +101,7 @@ macro_rules! warn {
 use embassy_stm32::NVIC_PRIO_BITS;
 use embassy_stm32::aes::{Aes, AesEcb, Direction};
 use embassy_stm32::mode::Blocking;
-use embassy_stm32::pac::{FLASH, RCC};
+use embassy_stm32::pac::{FLASH, PWR, RCC};
 use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph, RNG};
 use embassy_stm32::pka::{EccPoint, EcdsaCurveParams, Pka};
 use embassy_stm32::rng::Rng;
@@ -570,9 +570,16 @@ unsafe fn nvic_set_priority(irq: u32, priority: u8) {
     compiler_fence(Ordering::SeqCst);
 }
 
+/// Set BASEPRI to at least `value` (ARM BASEPRI_MAX semantics).
+/// Lower numeric value = higher priority = more restrictive mask.
+/// Only writes if `value` would make the mask MORE restrictive
+/// (i.e., block more interrupts) than the current BASEPRI.
 fn set_basepri_max(value: u8) {
     unsafe {
-        if basepri::read() < value {
+        let current = basepri::read();
+        // BASEPRI=0 means "no masking". Any non-zero value is more restrictive.
+        // Among non-zero values, a lower value masks more interrupts.
+        if value != 0 && (current == 0 || value < current) {
             basepri::write(value);
         }
     }
@@ -716,19 +723,21 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_WaitHclkRdy() {
 //   */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LINKLAYER_PLAT_NotifyWFIEnter() {
-    //   /* Check if Radio state will allow the AHB5 clock to be cut */
+    // Check if radio state will allow the AHB5 clock to be cut.
+    // AHB5 clock will be cut in the following cases:
+    //  - 2.4GHz radio is NOT in ACTIVE mode (in SLEEP or DEEPSLEEP), OR
+    //  - Both RADIOSMEN and STRADIOCLKON bits are at 0.
     //
-    //   /* AHB5 clock will be cut in the following cases:
-    //    * - 2.4GHz radio is not in ACTIVE mode (in SLEEP or DEEPSLEEP mode).
-    //    * - RADIOSMEN and STRADIOCLKON bits are at 0.
-    //    */
-    //   if((LL_PWR_GetRadioMode() != LL_PWR_RADIO_ACTIVE_MODE) ||
-    //      ((__HAL_RCC_RADIO_IS_CLK_SLEEP_ENABLED() == 0) && (LL_RCC_RADIO_IsEnabledSleepTimerClock() == 0)))
-    //   {
-    //     AHB5_SwitchedOff = 1;
-    //   }
-    trace!("LINKLAYER_PLAT_NotifyWFIEnter");
-    AHB5_SWITCHED_OFF.store(true, Ordering::Release);
+    // Radio mode: 0x0=DeepSleep, 0x1=Sleep, 0x2/0x3=Active (1x pattern)
+    let radio_mode = PWR.radioscr().read().mode().to_bits();
+    let radio_active = radio_mode >= 2; // 1x = active mode
+
+    let radiosmen = RCC.ahb5smenr().read().radiosmen();
+    let stradioclkon = RCC.radioenr().read().stradioclkon();
+
+    if !radio_active || (!radiosmen && !stradioclkon) {
+        AHB5_SWITCHED_OFF.store(true, Ordering::Release);
+    }
 }
 
 // /**
@@ -1089,11 +1098,11 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_DisableRadioIT() {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LINKLAYER_PLAT_StartRadioEvt() {
     trace!("LINKLAYER_PLAT_StartRadioEvt");
-    //   __HAL_RCC_RADIO_CLK_SLEEP_ENABLE();
-    //   NVIC_SetPriority(RADIO_INTR_NUM, RADIO_INTR_PRIO_HIGH);
-    // #if (CFG_SCM_SUPPORTED == 1)
-    //   scm_notifyradiostate(SCM_RADIO_ACTIVE);
-    // #endif /* CFG_SCM_SUPPORTED */
+
+    // Enable radio bus clock during Sleep/Stop modes (RADIOSMEN bit)
+    // This keeps the radio clock alive while the radio is active
+    RCC.ahb5smenr().modify(|w| w.set_radiosmen(true));
+
     nvic_set_priority(RADIO_INTR_NUM, pack_priority(mac::RADIO_INTR_PRIO_HIGH));
     nvic_enable(RADIO_INTR_NUM);
 }
@@ -1106,12 +1115,11 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_StartRadioEvt() {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LINKLAYER_PLAT_StopRadioEvt() {
     trace!("LINKLAYER_PLAT_StopRadioEvt");
-    // {
-    //   __HAL_RCC_RADIO_CLK_SLEEP_DISABLE();
-    //   NVIC_SetPriority(RADIO_INTR_NUM, RADIO_INTR_PRIO_LOW);
-    // #if (CFG_SCM_SUPPORTED == 1)
-    //   scm_notifyradiostate(SCM_RADIO_NOT_ACTIVE);
-    // #endif /* CFG_SCM_SUPPORTED */
+
+    // Disable radio bus clock during Sleep/Stop modes (RADIOSMEN bit)
+    // Radio is no longer active, so the clock can be gated
+    RCC.ahb5smenr().modify(|w| w.set_radiosmen(false));
+
     nvic_set_priority(RADIO_INTR_NUM, pack_priority(mac::RADIO_INTR_PRIO_LOW));
 }
 
