@@ -51,10 +51,6 @@ type T = peripherals::TIMA1;
 
 // TODO: RTC
 
-fn regs() -> Tim {
-    unsafe { Tim::from_ptr(T::regs()) }
-}
-
 /// Clock timekeeping works with something we call "periods", which are time intervals
 /// of 2^15 ticks. The Clock counter value is 16 bits, so one "overflow cycle" is 2 periods.
 fn calc_now(period: u32, counter: u16) -> u64 {
@@ -87,7 +83,7 @@ impl TimxDriver {
     fn init(&'static self, _cs: CriticalSection) {
         // Clock config
         // TODO: Configurable tick rate up to 4 MHz (32 kHz for now)
-        let regs = regs();
+        let regs = T::regs();
 
         // Reset timer
         regs.gprcm(0).rstctl().write(|w| {
@@ -176,7 +172,7 @@ impl TimxDriver {
 
     #[inline(never)]
     fn next_period(&self) {
-        let r = regs();
+        let r = T::regs();
 
         // We only modify the period from the timer interrupt, so we know this can't race.
         let period = self.period.load(Ordering::Relaxed) + 1;
@@ -198,7 +194,7 @@ impl TimxDriver {
 
     #[inline(never)]
     fn on_interrupt(&self) {
-        let r = regs();
+        let r = T::regs();
 
         critical_section::with(|cs| {
             let mis = r.cpu_int(0).mis().read();
@@ -239,7 +235,7 @@ impl TimxDriver {
     }
 
     fn set_alarm(&self, cs: CriticalSection, timestamp: u64) -> bool {
-        let r = regs();
+        let r = T::regs();
 
         self.alarm.borrow(cs).set(timestamp);
 
@@ -286,7 +282,7 @@ impl TimxDriver {
 
 impl Driver for TimxDriver {
     fn now(&self) -> u64 {
-        let regs = regs();
+        let regs = T::regs();
 
         let period = self.period.load(Ordering::Relaxed);
         // Ensure the compiler does not read the counter before the period.

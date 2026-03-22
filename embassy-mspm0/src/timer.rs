@@ -2,7 +2,7 @@
 
 use embassy_hal_internal::{Peri, PeripheralType};
 
-use crate::common::{get_mclk_frequency, hillclimb};
+use crate::common::hillclimb;
 
 /// Amount of bits of a timer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,8 +123,9 @@ impl<'d, T: Timer> LLTimer<'d, T> {
     pub fn set_clk_freq(&self, frequency: u32) -> u32 {
         let regs = T::regs();
         // Frequency is chip-specific & based on power-domain;
+
         // FIXME: usually BusClock is MCLK, but e.g. TIMG0 on G310x is PD0->ULPCLK, currently there is no way to distinguish
-        let clk_freq = get_mclk_frequency();
+        let clk_freq = crate::clocks::CLOCKS.m_clk.load(core::sync::atomic::Ordering::Relaxed);
 
         // TODO: use mathacl for div?
         // NOTE: could also use `FEATUREVER` to find the available features
