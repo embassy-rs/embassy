@@ -78,7 +78,10 @@ async fn main(spawner: Spawner) {
         info!("Start XMODEM sender on host first, then reset board with PE0 held");
 
         let mut red_led = Output::new(p.PG10, Level::High, Speed::Low);
+        #[cfg(feature = "dk")]
         let mut green_led = Output::new(p.PO1, Level::Low, Speed::Low);
+        #[cfg(feature = "nucleo")]
+        let mut green_led = Output::new(p.PG0, Level::Low, Speed::Low);
 
         let mut uart_config = usart::Config::default();
         uart_config.parity = usart::Parity::ParityEven;
@@ -107,7 +110,10 @@ async fn main(spawner: Spawner) {
 
     // Normal app mode
     let mut red_led = Output::new(p.PG10, Level::Low, Speed::Low);
+    #[cfg(feature = "dk")]
     let green_led = Output::new(p.PO1, Level::Low, Speed::Low);
+    #[cfg(feature = "nucleo")]
+    let green_led = Output::new(p.PG0, Level::Low, Speed::Low);
 
     let user_button = ExtiInput::new(p.PC13, p.EXTI13, Pull::Down, Irqs);
     spawner.spawn(user_button_task(user_button, green_led).unwrap());

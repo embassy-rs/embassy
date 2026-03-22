@@ -80,7 +80,7 @@ build-fsbl:
 
 # Build application
 build-app:
-    cargo build --release -p stm32n6-app
+    cargo build --release -p stm32n6-app --no-default-features --features {{board}}
 
 # Build both
 build: build-fsbl build-app
