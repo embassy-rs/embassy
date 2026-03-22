@@ -1,5 +1,6 @@
-use crate::pac;
 use core::sync::atomic::{AtomicU32, Ordering};
+
+use crate::pac;
 
 pub(crate) struct Clocks {
     /// PLL, SYSOSC, or HFXT
@@ -7,6 +8,7 @@ pub(crate) struct Clocks {
     /// LFOSC or LFXT
     pub rtc_clk: AtomicU32,
     /// ULPCLK
+    #[cfg(mspm0g)]
     pub ulp_clk: AtomicU32,
     /// MFCLK
     pub mf_clk: AtomicU32,
@@ -19,6 +21,7 @@ pub(crate) struct Clocks {
 pub(crate) static CLOCKS: Clocks = Clocks {
     m_clk: AtomicU32::new(0),
     rtc_clk: AtomicU32::new(0),
+    #[cfg(mspm0g)]
     ulp_clk: AtomicU32::new(0),
     mf_clk: AtomicU32::new(0),
     sys_osc: AtomicU32::new(0),
@@ -106,6 +109,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
 
     CLOCKS.m_clk.store(
         match config.mclk_source {
+            #[cfg(mspm0g)]
             MClkSource::PLL => 80_000_000, // TODO: calculate
             MClkSource::SYSOSC => config.sysosc_config.speed.frequency(),
             MClkSource::LFCLK => unimplemented!("LFCLK is not supported yet"),
@@ -126,6 +130,8 @@ pub(crate) unsafe fn init(config: ClockConfig) {
 
     pac::SYSCTL.sysoscfclctl().write(|w| {
         w.set_setusefcl(config.sysosc_config.fcl_enabled);
+        // FIXME: this should exist for mspm0c/mspm0l
+        #[cfg(not(any(mspm0c, mspm0l)))]
         w.set_setuseexres(config.sysosc_config.fcl_enabled);
     });
     pac::SYSCTL.sysosccfg().write(|w| {
@@ -146,7 +152,10 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             MClkSource::PLL => {
                 w.set_usehsclk(true);
             }
+
             MClkSource::HFCLK => {
+                // FIXME: this should exist for MSPM0L
+                #[cfg(not(mspm0l))]
                 w.set_usehsclk(false);
             }
             MClkSource::LFCLK => {
@@ -162,6 +171,8 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         w.set_mfpclken(true);
     });
 
+    // FIXME: this should exist for mpsm0c/mspm0l
+    #[cfg(not(any(mspm0c, mspm0l)))]
     pac::SYSCTL.hsclkcfg().write(|w| match config.mclk_source {
         #[cfg(mspm0g)]
         MClkSource::PLL => w.set_hsclksel(mspm0_metapac::sysctl::vals::Hsclksel::SYSPLL),
