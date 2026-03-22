@@ -2,6 +2,7 @@
 use core::fmt::Display;
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::sync::atomic::Ordering;
 use core::task::Poll;
 
 use cortex_m::asm;
@@ -341,7 +342,7 @@ impl TrngInner<'_> {
 
     fn set_div(&mut self) {
         // L-series TRM 13.2.2: The TRNG is derived from MCLK. Datasheets specify 9.5-20 MHz range.
-        let freq = get_mclk_frequency();
+        let freq = crate::clocks::CLOCKS.m_clk.load(Ordering::Relaxed);
         let ratio = if freq > 160_000_000 {
             panic!("MCLK frequency {} > 160 MHz is not compatible with the TRNG", freq)
         } else if freq >= 80_000_000 {
