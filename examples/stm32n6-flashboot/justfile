@@ -123,7 +123,7 @@ flash-app: sign-app powercycle
 flash-all: sign-fsbl sign-app powercycle
     probe-rs download --chip {{chip}} --binary-format bin --base-address 0x70000000 target/fsbl-trusted.bin
     probe-rs download --chip {{chip}} --binary-format bin --base-address {{active_addr}} target/app-trusted.bin
-    just erase-state
+    just board={{board}} erase-state
     @echo "Flash complete. Set BOOT switches to LOW and reset the board."
 
 # === State management ===
@@ -142,7 +142,7 @@ trigger-swap:
 # Write BOOT_MAGIC (0xD0) to mark boot successful from host
 mark-booted:
     @echo "Writing BOOT_MAGIC to STATE partition..."
-    just erase-state
+    just board={{board}} erase-state
     printf '\xd0\xd0\xd0\xd0' > /tmp/boot_magic.bin
     probe-rs download --chip {{chip}} --binary-format bin --base-address {{state_addr}} /tmp/boot_magic.bin
 
@@ -156,7 +156,7 @@ read-state:
 test-dfu: sign-app
     @echo "Flashing app to DFU partition..."
     probe-rs download --chip {{chip}} --binary-format bin --base-address {{dfu_addr}} target/app-trusted.bin
-    just trigger-swap
+    just board={{board}} trigger-swap
     @echo ""
     @echo "DFU staged and swap triggered!"
     @echo "Reset the board to boot the new firmware."
@@ -177,7 +177,7 @@ stm32-flash-app: sign-app powercycle
 stm32-flash-all: sign-fsbl sign-app powercycle
     {{programmer}} -c port=SWD mode=HOTPLUG -el {{ext_loader}} -d target/fsbl-trusted.bin 0x70000000
     {{programmer}} -c port=SWD mode=HOTPLUG -el {{ext_loader}} -d target/app-trusted.bin {{active_addr}}
-    just stm32-erase-state
+    just board={{board}} stm32-erase-state
     @echo "Flash complete. Set BOOT switches to LOW and reset the board."
 
 # Erase STATE partition via STM32_Programmer_CLI (write 0xFF = NOR erased state)
@@ -193,7 +193,7 @@ stm32-trigger-swap:
 
 # Write BOOT_MAGIC via STM32_Programmer_CLI
 stm32-mark-booted:
-    just stm32-erase-state
+    just board={{board}} stm32-erase-state
     printf '\xd0\xd0\xd0\xd0' > /tmp/boot_magic.bin
     {{programmer}} -c port=SWD mode=HOTPLUG -el {{ext_loader}} -d /tmp/boot_magic.bin {{state_addr}}
 
@@ -205,17 +205,32 @@ stm32-read-state:
 stm32-test-dfu: sign-app
     @echo "Flashing app to DFU partition..."
     {{programmer}} -c port=SWD mode=HOTPLUG -el {{ext_loader}} -d target/app-trusted.bin {{dfu_addr}}
-    just stm32-trigger-swap
+    just board={{board}} stm32-trigger-swap
     @echo ""
     @echo "DFU staged and swap triggered! Reset the board."
 
 # === UART DFU ===
 
-# Send firmware via XMODEM over serial (requires lrzsz: brew install lrzsz)
+# Send firmware via XMODEM over serial (requires lrzsz)
 # Usage: just uart-dfu /dev/tty.usbmodem1234
 # Start this FIRST, then reset the board with PE0 held
 uart-dfu port:
-    stty -f {{port}} 115200 cs8 parenb -parodd -cstopb -crtscts
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v sx &>/dev/null; then
+        echo "Error: 'sx' not found (part of lrzsz)."
+        if [ "$(uname)" = "Darwin" ]; then
+            echo "  Install with: brew install lrzsz"
+        else
+            echo "  Install with: apt install lrzsz"
+        fi
+        exit 1
+    fi
+    if [ "$(uname)" = "Darwin" ]; then
+        stty -f {{port}} 115200 cs8 parenb -parodd -cstopb -crtscts
+    else
+        stty -F {{port}} 115200 cs8 parenb -parodd -cstopb -crtscts
+    fi
     sx target/app-trusted.bin < {{port}} > {{port}}
 
 # === Debugging ===
@@ -227,12 +242,12 @@ attach-fsbl: powercycle
 # Flash FSBL and attach for debugging (probe-rs)
 debug-fsbl: sign-fsbl powercycle
     probe-rs download --chip {{chip}} --binary-format bin --base-address 0x70000000 target/fsbl-trusted.bin
-    just attach-fsbl
+    just board={{board}} attach-fsbl
 
 # Flash FSBL and attach for debugging (STM32_Programmer_CLI)
 stm32-debug-fsbl: sign-fsbl powercycle
     {{programmer}} -c port=SWD mode=HOTPLUG -el {{ext_loader}} -d target/fsbl-trusted.bin 0x70000000
-    just attach-fsbl
+    just board={{board}} attach-fsbl
 
 # === Utilities ===
 
