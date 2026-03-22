@@ -90,6 +90,21 @@ fn get_chip_cfgs(chip_name: &str) -> Vec<String> {
         cfgs.push("mspm0c1105_c1106".to_string());
     }
 
+    if chip_name.starts_with("mspm0g") {
+        // G-series
+        cfgs.push("mspm0g".to_string());
+    }
+
+    if chip_name.starts_with("mspm0l") {
+        // L-series
+        cfgs.push("mspm0l".to_string());
+    }
+
+    if chip_name.starts_with("mspm0c") {
+        // C-series
+        cfgs.push("mspm0c".to_string());
+    }
+
     // Family ranges (temporary until int groups are generated)
     //
     // TODO: Remove this once int group stuff is generated.
@@ -582,8 +597,14 @@ fn generate_timers() -> TokenStream {
                 quote! { Bits32 }
             };
 
+            let prescaler = if timer.prescaler {
+                quote! { Bits8 }
+            } else {
+                quote! { None }
+            };
+
             quote! {
-                impl_timer!(#name, #bits);
+                impl_timer!(#name, #bits, #prescaler);
             }
         });
 

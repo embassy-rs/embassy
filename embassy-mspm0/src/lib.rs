@@ -13,6 +13,7 @@ pub(crate) mod fmt;
 mod macros;
 
 pub mod adc;
+mod common;
 pub mod dma;
 pub mod gpio;
 // TODO: I2C unicomm
@@ -71,6 +72,7 @@ pub use mspm0_metapac as pac;
 pub(crate) use mspm0_metapac as pac;
 
 pub use crate::_generated::interrupt;
+use crate::common::{get_mclk_frequency, hillclimb};
 
 /// Macro to bind interrupts to handlers.
 ///
@@ -150,7 +152,13 @@ macro_rules! bind_interrupts {
 #[non_exhaustive]
 #[derive(Clone, Copy)]
 pub struct Config {
-    // TODO: OSC configuration.
+    // TODO: OSC configuration
+    /// Frequency of PLL (if use is desired)
+    ///
+    /// Only available on the G-series
+    #[cfg_attr(mspm0g, doc(hidden))]
+    pub pll_freq: Option<u32>,
+
     /// The size of DMA block transfer burst.
     ///
     /// If this is set to a value
@@ -167,6 +175,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            pll_freq: None,
             dma_burst_size: dma::BurstSize::Complete,
             dma_round_robin: false,
         }
@@ -178,10 +187,59 @@ pub fn init(config: Config) -> Peripherals {
         let peripherals = Peripherals::take_with_cs(cs);
 
         // TODO: Further clock configuration
+        pac::SYSCTL.hsclkcfg().write(|w| {
+            // For now PLL is assumed
+            #[cfg(mspm0g)]
+            w.set_hsclksel(mspm0_metapac::sysctl::vals::Hsclksel::SYSPLL);
+        });
+
+        // DEFAULT
+        // pac::SYSCTL.sysosccfg().write(|w| {
+        //     w.set_freq(mspm0_metapac::sysctl::vals::SysosccfgFreq::SYSOSCBASE);
+        // });
+
+        #[cfg(mspm0g)]
+        if let Some(target_freq) = config.pll_freq {
+            let divs = hillclimb([0u32, 1u32, 0u32], |divs| {
+                if divs[0] > 3 || !(1..127).contains(&divs[1]) || divs[2] > 15 {
+                    return i32::MAX;
+                }
+
+                let pdiv = 1 << divs[0];
+                let qdiv = divs[1] + 1;
+                let rdiv = divs[2] + 1;
+                target_freq as i32 - (((2 * get_mclk_frequency() * qdiv) / pdiv) / rdiv) as i32
+            });
+
+            pac::SYSCTL.syspllcfg0().write(|w| {
+                w.set_rdivclk2x(mspm0_metapac::sysctl::vals::Rdivclk2x::from_bits(divs[2] as u8));
+            });
+            pac::SYSCTL.syspllcfg1().write(|w| {
+                w.set_pdiv(mspm0_metapac::sysctl::vals::Pdiv::from_bits(divs[0] as u8));
+                w.set_qdiv(mspm0_metapac::sysctl::vals::Qdiv(divs[1] as u8));
+            });
+        }
+
+        #[cfg(mspm0g)]
+        pac::SYSCTL.syspllcfg0().write(|w| {
+            w.set_syspllref(mspm0_metapac::sysctl::vals::Syspllref::SYSOSC);
+            w.set_enableclk2x(config.pll_freq.is_some());
+            w.set_enableclk1(config.pll_freq.is_some());
+            w.set_mclk2xvco(true);
+        });
+
+        #[cfg(mspm0g)]
+        pac::SYSCTL.hsclken().write(|w| {
+            w.set_syspllen(config.pll_freq.is_some());
+        });
 
         pac::SYSCTL.mclkcfg().modify(|w| {
             // Enable MFCLK
-            w.set_usemftick(true);
+            w.set_usemftick(config.pll_freq.is_none());
+            // Enable PLL or SYSOSC
+            #[cfg(mspm0g)]
+            w.set_usehsclk(config.pll_freq.is_some());
+
             // MDIV must be disabled if MFCLK is enabled.
             w.set_mdiv(0);
         });

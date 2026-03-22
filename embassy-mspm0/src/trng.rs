@@ -280,21 +280,6 @@ impl<D: SecurityMarker> TryRngCore for Trng<'_, D> {
 
 impl TryCryptoRng for Trng<'_, Crypto> {}
 
-// TODO: Replace this when the MCLK rate can be adjusted.
-#[cfg(any(mspm0c110x, mspm0c1105_c1106))]
-fn get_mclk_frequency() -> u32 {
-    24_000_000
-}
-
-// TODO: Replace this when the MCLK rate can be adjusted.
-#[cfg(any(
-    mspm0g110x, mspm0g150x, mspm0g151x, mspm0g310x, mspm0g350x, mspm0g351x, mspm0h321x, mspm0l110x, mspm0l122x,
-    mspm0l130x, mspm0l134x, mspm0l222x
-))]
-fn get_mclk_frequency() -> u32 {
-    32_000_000
-}
-
 // Inner TRNG driver implementation. Used to reduce monomorphization bloat.
 struct TrngInner<'d> {
     decim_rate: vals::DecimRate,
