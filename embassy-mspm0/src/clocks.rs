@@ -131,7 +131,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     pac::SYSCTL.sysoscfclctl().write(|w| {
         w.set_setusefcl(config.sysosc_config.fcl_enabled);
         // FIXME: this should exist for mspm0c/mspm0l
-        #[cfg(not(any(mspm0c, mspm0l)))]
+        #[cfg(not(any(mspm0c, mspm0l, mspm0h)))]
         w.set_setuseexres(config.sysosc_config.fcl_enabled);
     });
     pac::SYSCTL.sysosccfg().write(|w| {
@@ -172,7 +172,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     });
 
     // FIXME: this should exist for mpsm0c/mspm0l
-    #[cfg(not(any(mspm0c, mspm0l)))]
+    #[cfg(not(any(mspm0c, mspm0l, mspm0h)))]
     pac::SYSCTL.hsclkcfg().write(|w| match config.mclk_source {
         #[cfg(mspm0g)]
         MClkSource::PLL => w.set_hsclksel(mspm0_metapac::sysctl::vals::Hsclksel::SYSPLL),
