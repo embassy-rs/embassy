@@ -105,6 +105,11 @@ fn get_chip_cfgs(chip_name: &str) -> Vec<String> {
         cfgs.push("mspm0c".to_string());
     }
 
+    if chip_name.starts_with("mspm0h") {
+        // H-series
+        cfgs.push("mspm0h".to_string());
+    }
+
     // Family ranges (temporary until int groups are generated)
     //
     // TODO: Remove this once int group stuff is generated.
