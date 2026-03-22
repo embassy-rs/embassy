@@ -16,6 +16,11 @@ panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 cortex-m = { version = "0.7.7", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt = { version = "0.7.5", features = ["set-sp", "set-vtor"] }
 
+[features]
+default = ["dk"]
+dk = []
+nucleo = []
+
 [package.metadata.embassy]
 build = [
   { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/stm32n6-flashboot/app" }
