@@ -6,7 +6,6 @@ use critical_section::{CriticalSection, Mutex};
 use embassy_time_driver::Driver;
 use embassy_time_queue_utils::Queue;
 use mspm0_metapac::interrupt;
-use mspm0_metapac::tim::Tim;
 use mspm0_metapac::tim::vals::{Cm, Cvae, CxC, EvtCfg, PwrenKey, Repeat, ResetKey};
 
 use crate::peripherals;
