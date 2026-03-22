@@ -9,6 +9,7 @@
 #   just build                  # Build both FSBL and app (DK, default)
 #   just board=nucleo flash-all # Build, sign, flash everything (Nucleo)
 #   just flash-all              # Build, sign, flash everything (DK)
+#   just cycle=false flash-all  # Skip power-cycle (board already connected)
 #   just test-dfu               # Test DFU update flow
 #
 # If probe-rs cannot flash external flash, use the stm32-* recipes instead.
@@ -44,6 +45,7 @@ CANDIDATES
     fi`
 
 board := "dk"
+cycle := "true"
 
 signing_tool := stm32_bin / "STM32_SigningTool_CLI"
 programmer := stm32_bin / "STM32_Programmer_CLI"
@@ -62,9 +64,10 @@ target := "thumbv8m.main-none-eabihf"
 chip := "STM32N657"
 uhubctl_serial := "0025001C3234510E33353533"
 
-# Power-cycle the board via uhubctl (skips if not installed)
+# Power-cycle the board via uhubctl (skips if not installed or cycle=false)
 powercycle:
     #!/usr/bin/env bash
+    if [ "{{cycle}}" != "true" ]; then exit 0; fi
     if command -v uhubctl &>/dev/null; then
         uhubctl -a cycle -s {{uhubctl_serial}} -d 2
         sleep 1

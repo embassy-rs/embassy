@@ -23,9 +23,35 @@ use xspi_flash::SpiFlashMemory;
 
 const APP_LOAD_ADDR: u32 = 0x70100400;
 
+/// Enable debug access via BSEC registers.
+///
+/// On BSEC-open (unfused) devices: these writes are no-ops — debug is
+/// always enabled by hardware (ap_unlocked and dbg_unlocked forced to 0xB4).
+///
+/// On BSEC-closed devices: unlocks the debug access port and enables
+/// secure + non-secure debug at HDPL >= 1 (FSBL level).
+/// Both registers are write-once per warm reset and persist across warm resets.
 fn enable_debug() {
     unsafe {
-        BSEC.as_ptr().cast::<u32>().byte_add(0xE90).write(0xB451_B400);
+        // Advance HDPL from 0 (boot ROM) to 1 (FSBL) if needed.
+        // On BSEC-closed devices, debug is gated by HDPL — outputs are forced
+        // to 0x00 while HDPL = 0xB4 (level 0), regardless of DBGCR contents.
+        let hdpl = BSEC.as_ptr().cast::<u32>().byte_add(0xE94).read();
+        if hdpl & 0xFF == 0xB4 {
+            // Still at HDPL0 (boot ROM level), advance to HDPL1
+            BSEC.as_ptr().cast::<u32>().byte_add(0xE98).write(0x60B1_66E7);
+        }
+
+        // BSEC_AP_UNLOCK (offset 0xE90): UNLOCK[7:0] = 0xB4
+        // Opens the CM55 Debug Access Port so the debugger can access
+        // the AHB-AP (AP1) and AXI-AP (AP2).
+        BSEC.as_ptr().cast::<u32>().byte_add(0xE90).write(0x0000_00B4);
+
+        // BSEC_DBGCR (offset 0xE8C):
+        //   AUTH_SEC[31:24]  = 0xB4 (secure debug authorized)
+        //   AUTH_HDPL[23:16] = 0x51 (enable from HDPL1 = FSBL level)
+        //   UNLOCK[15:8]     = 0xB4 (non-secure debug authorized)
+        //   Reserved[7:0]    = 0x00
         BSEC.as_ptr().cast::<u32>().byte_add(0xE8C).write(0xB451_B400);
     }
 }
@@ -34,7 +60,6 @@ fn enable_debug() {
 fn main() -> ! {
     // 1. Enable debug access
     enable_debug();
-    cortex_m::asm::delay(32_000_000);
 
     // 2. Set vector table
     let core_peri = unsafe { cortex_m::Peripherals::steal() };
@@ -66,8 +91,6 @@ fn main() -> ! {
     config.rcc.mux.xspi2sel = XspiClkSrc::PER;
     config.rcc.vddio3_1v8 = true;
     let p = embassy_stm32::init(config);
-
-    enable_debug();
 
     // 5. Enable all RAM early (before XSPI init)
     RCC.memenr().modify(|w| {
