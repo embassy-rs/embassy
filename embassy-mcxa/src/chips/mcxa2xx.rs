@@ -775,7 +775,9 @@ pub(crate) mod peripheral_gating {
     impl_cc_gate!(LPSPI0, mrcc_glb_acc0, mrcc_glb_rst0, lpspi0, LpspiConfig);
     impl_cc_gate!(LPSPI1, mrcc_glb_acc0, mrcc_glb_rst0, lpspi1, LpspiConfig);
 
+    // The following peripherals are no reset peripherals
     impl_cc_gate!(WWDT0, mrcc_glb_acc0, wwdt0, Clk1MConfig);
+    impl_cc_gate!(SGI0, mrcc_glb_acc1, sgi0, Clk1MConfig);
 }
 
 pub(crate) mod clock_limits {

@@ -39,6 +39,8 @@ mod all_chips {
     #[cfg(feature = "executor-platform")]
     pub mod executor;
     pub mod gpio;
+    #[path = "sgi/hash.rs"]
+    pub mod hash;
     pub mod i2c;
     pub mod i3c;
     pub mod inputmux;
@@ -47,6 +49,7 @@ mod all_chips {
     pub mod perf_counters;
     pub mod reset_reason;
     pub mod rtc;
+    pub mod sgi;
     pub mod spi;
     pub mod trng;
     pub mod wwdt;

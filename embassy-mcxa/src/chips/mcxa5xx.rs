@@ -315,7 +315,7 @@ mod inner_periph {
         // SAU,
         // SCG0,
         // SCN_SCB,
-        // SGI0,
+        SGI0,
         // SMARTDMA0,
         // SPC0,
         // SYSCON,
@@ -438,7 +438,7 @@ mod inner_interrupt {
         // PKC,
         RTC,
         // SCG0,
-        // SGI,
+        SGI,
         // SLCD,
         // SMARTDMA,
         // SPC0,
@@ -785,8 +785,10 @@ pub(crate) mod peripheral_gating {
     impl_cc_gate!(LPSPI4, mrcc_glb_acc1, mrcc_glb_rst1, lpspi4, LpspiConfig);
     impl_cc_gate!(LPSPI5, mrcc_glb_acc1, mrcc_glb_rst1, lpspi5, LpspiConfig);
 
+    // The following peripherals are no reset peripherals
     impl_cc_gate!(WWDT0, mrcc_glb_acc0, wwdt0, Clk1MConfig);
     impl_cc_gate!(WWDT1, mrcc_glb_acc0, wwdt1, Clk1MConfig);
+    impl_cc_gate!(SGI0, mrcc_glb_acc4, sgi0, Clk1MConfig);
 }
 
 pub(crate) mod clock_limits {
