@@ -24,6 +24,105 @@ pub const PROTOCOL_BOOT: u8 = 0;
 /// Report protocol.
 pub const PROTOCOL_REPORT: u8 = 1;
 
+// ── Boot-protocol report structs ─────────────────────────────────────────────
+
+/// Decoded keyboard report (USB HID boot protocol, 8 bytes).
+///
+/// All standard USB keyboards support this layout when placed in boot protocol
+/// mode via [`HidHost::set_protocol`] with [`PROTOCOL_BOOT`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct KeyboardReport {
+    /// Modifier keys bitmask.
+    ///
+    /// Bit 0: Left Ctrl  | Bit 1: Left Shift  | Bit 2: Left Alt  | Bit 3: Left GUI
+    /// Bit 4: Right Ctrl | Bit 5: Right Shift | Bit 6: Right Alt | Bit 7: Right GUI
+    pub modifiers: u8,
+    /// Up to 6 simultaneously pressed key codes (HID usage page 0x07).
+    /// A value of 0x00 means "no key"; 0x01 means "rollover error".
+    pub keycodes: [u8; 6],
+}
+
+impl KeyboardReport {
+    /// Parse a boot-protocol keyboard report from an 8-byte buffer.
+    /// Returns `None` if the buffer is shorter than 8 bytes.
+    pub fn parse(buf: &[u8]) -> Option<Self> {
+        if buf.len() < 8 {
+            return None;
+        }
+        Some(Self {
+            modifiers: buf[0],
+            // buf[1] is reserved
+            keycodes: [buf[2], buf[3], buf[4], buf[5], buf[6], buf[7]],
+        })
+    }
+
+    /// Returns `true` if the given HID key code is currently pressed.
+    pub fn is_pressed(&self, keycode: u8) -> bool {
+        keycode != 0 && self.keycodes.contains(&keycode)
+    }
+
+    /// Returns `true` if Left Ctrl or Right Ctrl is held.
+    pub fn ctrl(&self) -> bool { self.modifiers & 0x11 != 0 }
+    /// Returns `true` if Left Shift or Right Shift is held.
+    pub fn shift(&self) -> bool { self.modifiers & 0x22 != 0 }
+    /// Returns `true` if Left Alt or Right Alt is held.
+    pub fn alt(&self) -> bool { self.modifiers & 0x44 != 0 }
+    /// Returns `true` if Left GUI (Win/Cmd) or Right GUI is held.
+    pub fn gui(&self) -> bool { self.modifiers & 0x88 != 0 }
+}
+
+/// Mouse button bitmask used in [`MouseReport`].
+///
+/// Bit 0: left button | Bit 1: right button | Bit 2: middle button
+pub type MouseButtons = u8;
+
+/// Decoded mouse report (USB HID boot protocol, 4 bytes).
+///
+/// All standard USB mice support this layout in boot protocol mode.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct MouseReport {
+    /// Button state. Use the [`MouseButtons`] constants or check bits directly.
+    pub buttons: MouseButtons,
+    /// Horizontal movement since last report (signed, positive = right).
+    pub x: i8,
+    /// Vertical movement since last report (signed, positive = down).
+    pub y: i8,
+    /// Scroll wheel movement (signed, positive = scroll up / away from user).
+    pub wheel: i8,
+}
+
+impl MouseReport {
+    /// Left mouse button.
+    pub const BUTTON_LEFT: MouseButtons = 1 << 0;
+    /// Right mouse button.
+    pub const BUTTON_RIGHT: MouseButtons = 1 << 1;
+    /// Middle mouse button (scroll wheel click).
+    pub const BUTTON_MIDDLE: MouseButtons = 1 << 2;
+
+    /// Parse a boot-protocol mouse report from a buffer (minimum 3 bytes; 4 for wheel).
+    /// Returns `None` if the buffer is shorter than 3 bytes.
+    pub fn parse(buf: &[u8]) -> Option<Self> {
+        if buf.len() < 3 {
+            return None;
+        }
+        Some(Self {
+            buttons: buf[0],
+            x: buf[1] as i8,
+            y: buf[2] as i8,
+            wheel: if buf.len() >= 4 { buf[3] as i8 } else { 0 },
+        })
+    }
+
+    /// Returns `true` if the left button is pressed.
+    pub fn left(&self) -> bool { self.buttons & Self::BUTTON_LEFT != 0 }
+    /// Returns `true` if the right button is pressed.
+    pub fn right(&self) -> bool { self.buttons & Self::BUTTON_RIGHT != 0 }
+    /// Returns `true` if the middle button is pressed.
+    pub fn middle(&self) -> bool { self.buttons & Self::BUTTON_MIDDLE != 0 }
+}
+
 /// Information about a HID interface found in a configuration descriptor.
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -190,12 +289,33 @@ impl<D: UsbHostDriver> HidHost<D> {
         Ok(())
     }
 
-    /// Read an input report from the interrupt IN endpoint.
+    /// Read a raw input report from the interrupt IN endpoint.
     ///
     /// Returns the number of bytes received.
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, HidError> {
         let n = self.in_ch.request_in(buf).await?;
         Ok(n)
+    }
+
+    /// Read and parse a boot-protocol keyboard report.
+    ///
+    /// Call [`HidHost::set_protocol`] with [`PROTOCOL_BOOT`] first.
+    /// Returns `None` if the report is malformed (shorter than 8 bytes).
+    pub async fn read_keyboard(&mut self) -> Result<Option<KeyboardReport>, HidError> {
+        let mut buf = [0u8; 8];
+        self.in_ch.request_in(&mut buf).await?;
+        Ok(KeyboardReport::parse(&buf))
+    }
+
+    /// Read and parse a boot-protocol mouse report.
+    ///
+    /// Call [`HidHost::set_protocol`] with [`PROTOCOL_BOOT`] first.
+    /// Returns `None` if the report is malformed (shorter than 3 bytes).
+    pub async fn read_mouse(&mut self) -> Result<Option<MouseReport>, HidError> {
+        let mut buf = [0u8; 4];
+        // Some mice send only 3 bytes; read up to 4.
+        let n = self.in_ch.request_in(&mut buf).await?;
+        Ok(MouseReport::parse(&buf[..n]))
     }
 
     /// Issue a GET_REPORT control request.
