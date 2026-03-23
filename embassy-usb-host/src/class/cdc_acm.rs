@@ -2,9 +2,8 @@
 //!
 //! This driver can communicate with USB CDC ACM devices (virtual serial ports).
 
-use embassy_usb_host_driver::{
-    ChannelAllocError, DeviceEndpoint, DeviceSpeed, Direction, EndpointType, HostBus, HostChannel, TransferError,
-};
+use embassy_usb_driver::host::{ChannelError, SetupPacket, UsbChannel, UsbHostDriver, channel};
+use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType, Speed};
 
 use crate::descriptor::{DescriptorIter, EndpointDescriptor, InterfaceDescriptor, descriptor_type};
 
@@ -65,29 +64,23 @@ impl LineCoding {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum CdcAcmError {
     /// Transfer error.
-    Transfer(TransferError),
+    Transfer(ChannelError),
     /// No matching CDC ACM interface found in the device.
     NoInterface,
     /// Failed to allocate a channel.
     NoChannel,
 }
 
-impl From<TransferError> for CdcAcmError {
-    fn from(e: TransferError) -> Self {
+impl From<ChannelError> for CdcAcmError {
+    fn from(e: ChannelError) -> Self {
         Self::Transfer(e)
-    }
-}
-
-impl From<ChannelAllocError> for CdcAcmError {
-    fn from(_: ChannelAllocError) -> Self {
-        Self::NoChannel
     }
 }
 
 impl core::fmt::Display for CdcAcmError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::Transfer(e) => write!(f, "Transfer error: {}", e),
+            Self::Transfer(_e) => write!(f, "Transfer error"),
             Self::NoInterface => write!(f, "No CDC ACM interface found"),
             Self::NoChannel => write!(f, "No free channel"),
         }
@@ -99,7 +92,12 @@ impl core::error::Error for CdcAcmError {}
 impl embedded_io_async::Error for CdcAcmError {
     fn kind(&self) -> embedded_io_async::ErrorKind {
         match self {
-            Self::Transfer(e) => e.kind(),
+            Self::Transfer(e) => match e {
+                ChannelError::Disconnected => embedded_io_async::ErrorKind::NotConnected,
+                ChannelError::BufferOverflow => embedded_io_async::ErrorKind::OutOfMemory,
+                ChannelError::Timeout => embedded_io_async::ErrorKind::TimedOut,
+                _ => embedded_io_async::ErrorKind::Other,
+            },
             Self::NoInterface => embedded_io_async::ErrorKind::NotFound,
             Self::NoChannel => embedded_io_async::ErrorKind::OutOfMemory,
         }
@@ -179,53 +177,59 @@ pub fn find_cdc_acm(config_desc: &[u8]) -> Option<CdcAcmInfo> {
     }
 }
 
+/// Build a SetupPacket from raw bytes (same memory layout).
+fn bytes_to_setup(b: &[u8; 8]) -> SetupPacket {
+    // SAFETY: SetupPacket is repr(C) with same 8-byte layout.
+    unsafe { core::mem::transmute(*b) }
+}
+
 /// CDC ACM host driver.
 ///
 /// Provides read/write access to a CDC ACM (virtual serial port) USB device.
-pub struct CdcAcmHost<B: HostBus> {
-    ctrl_ch: B::Channel,
-    in_ch: B::Channel,
-    out_ch: B::Channel,
+pub struct CdcAcmHost<D: UsbHostDriver> {
+    ctrl_ch: D::Channel<channel::Control, channel::InOut>,
+    in_ch: D::Channel<channel::Bulk, channel::In>,
+    out_ch: D::Channel<channel::Bulk, channel::Out>,
     comm_interface: u8,
 }
 
-impl<B: HostBus> CdcAcmHost<B> {
+impl<D: UsbHostDriver> CdcAcmHost<D> {
     /// Create a new CDC ACM host driver.
     ///
     /// Parses the config descriptor to find CDC ACM endpoints and allocates channels.
-    pub fn new(bus: &B, config_desc: &[u8], device_address: u8, speed: DeviceSpeed) -> Result<Self, CdcAcmError> {
+    pub fn new(driver: &D, config_desc: &[u8], device_address: u8, _speed: Speed) -> Result<Self, CdcAcmError> {
         let info = find_cdc_acm(config_desc).ok_or(CdcAcmError::NoInterface)?;
 
-        let ctrl_ep = DeviceEndpoint {
-            device_address,
-            ep_number: 0,
-            direction: Direction::In,
+        let ctrl_ep_info = EndpointInfo {
+            addr: EndpointAddress::from_parts(0, UsbDirection::In),
             ep_type: EndpointType::Control,
             max_packet_size: 64, // Assume 64 for FS
-            speed,
+            interval_ms: 0,
         };
 
-        let in_ep = DeviceEndpoint {
-            device_address,
-            ep_number: info.bulk_in_ep & 0x0F,
-            direction: Direction::In,
+        let in_ep_info = EndpointInfo {
+            addr: EndpointAddress::from_parts((info.bulk_in_ep & 0x0F) as usize, UsbDirection::In),
             ep_type: EndpointType::Bulk,
             max_packet_size: info.bulk_in_mps,
-            speed,
+            interval_ms: 0,
         };
 
-        let out_ep = DeviceEndpoint {
-            device_address,
-            ep_number: info.bulk_out_ep & 0x0F,
-            direction: Direction::Out,
+        let out_ep_info = EndpointInfo {
+            addr: EndpointAddress::from_parts((info.bulk_out_ep & 0x0F) as usize, UsbDirection::Out),
             ep_type: EndpointType::Bulk,
             max_packet_size: info.bulk_out_mps,
-            speed,
+            interval_ms: 0,
         };
 
-        let ctrl_ch = bus.alloc_channel(&ctrl_ep)?;
-        let in_ch = bus.alloc_channel(&in_ep)?;
-        let out_ch = bus.alloc_channel(&out_ep)?;
+        let ctrl_ch = driver
+            .alloc_channel::<channel::Control, channel::InOut>(device_address, &ctrl_ep_info, false)
+            .map_err(|_| CdcAcmError::NoChannel)?;
+        let in_ch = driver
+            .alloc_channel::<channel::Bulk, channel::In>(device_address, &in_ep_info, false)
+            .map_err(|_| CdcAcmError::NoChannel)?;
+        let out_ch = driver
+            .alloc_channel::<channel::Bulk, channel::Out>(device_address, &out_ep_info, false)
+            .map_err(|_| CdcAcmError::NoChannel)?;
 
         Ok(Self {
             ctrl_ch,
@@ -237,45 +241,48 @@ impl<B: HostBus> CdcAcmHost<B> {
 
     /// Set the line coding (baud rate, data bits, parity, stop bits).
     pub async fn set_line_coding(&mut self, coding: &LineCoding) -> Result<(), CdcAcmError> {
-        let mut data = coding.to_bytes();
-        let setup =
+        let data = coding.to_bytes();
+        let setup_bytes =
             crate::control::class_interface_out_with_data(REQ_SET_LINE_CODING, 0, self.comm_interface as u16, 7);
-        self.ctrl_ch.control_transfer(&setup, Direction::Out, &mut data).await?;
+        let setup = bytes_to_setup(&setup_bytes);
+        self.ctrl_ch.control_out(&setup, &data).await?;
         Ok(())
     }
 
     /// Set the control line state (DTR, RTS).
     pub async fn set_control_line_state(&mut self, dtr: bool, rts: bool) -> Result<(), CdcAcmError> {
         let value = (dtr as u16) | ((rts as u16) << 1);
-        let setup = crate::control::class_interface_out(REQ_SET_CONTROL_LINE_STATE, value, self.comm_interface as u16);
-        self.ctrl_ch.control_transfer(&setup, Direction::Out, &mut []).await?;
+        let setup_bytes =
+            crate::control::class_interface_out(REQ_SET_CONTROL_LINE_STATE, value, self.comm_interface as u16);
+        let setup = bytes_to_setup(&setup_bytes);
+        self.ctrl_ch.control_out(&setup, &[]).await?;
         Ok(())
     }
 
     /// Read data from the CDC ACM device.
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, CdcAcmError> {
-        let n = self.in_ch.in_transfer(buf).await?;
+        let n = self.in_ch.request_in(buf).await?;
         Ok(n)
     }
 
     /// Write data to the CDC ACM device.
     pub async fn write(&mut self, data: &[u8]) -> Result<usize, CdcAcmError> {
-        let n = self.out_ch.out_transfer(data).await?;
-        Ok(n)
+        self.out_ch.request_out(data, false).await?;
+        Ok(data.len())
     }
 }
 
-impl<B: HostBus> embedded_io_async::ErrorType for CdcAcmHost<B> {
+impl<D: UsbHostDriver> embedded_io_async::ErrorType for CdcAcmHost<D> {
     type Error = CdcAcmError;
 }
 
-impl<B: HostBus> embedded_io_async::Read for CdcAcmHost<B> {
+impl<D: UsbHostDriver> embedded_io_async::Read for CdcAcmHost<D> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         CdcAcmHost::read(self, buf).await
     }
 }
 
-impl<B: HostBus> embedded_io_async::Write for CdcAcmHost<B> {
+impl<D: UsbHostDriver> embedded_io_async::Write for CdcAcmHost<D> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         CdcAcmHost::write(self, buf).await
     }

@@ -10,33 +10,42 @@ pub mod class;
 pub mod control;
 pub mod descriptor;
 
-pub use embassy_usb_host_driver as driver;
-use embassy_usb_host_driver::{
-    DeviceEndpoint, DeviceSpeed, Direction, EndpointType, HostBus, HostChannel, PortEvent, TransferError,
+use embassy_usb_driver::host::{
+    ChannelError, DeviceEvent, HostError, SetupPacket, UsbChannel, UsbHostDriver, channel,
 };
+use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType, Speed};
 
 use crate::descriptor::{ConfigDescriptor, DeviceDescriptor};
+
+/// Convert an 8-byte SETUP array to a SetupPacket.
+///
+/// SetupPacket is repr(C) with the same memory layout as `[u8; 8]`.
+fn bytes_to_setup(b: &[u8; 8]) -> SetupPacket {
+    // SAFETY: SetupPacket is repr(C), has the same size and alignment-compatible
+    // layout as a packed 8-byte struct (1+1+2+2+2 = 8 bytes, all LE).
+    unsafe { core::mem::transmute(*b) }
+}
 
 /// USB host enumeration error.
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum EnumerationError {
     /// Transfer failed during enumeration.
-    Transfer(TransferError),
+    Transfer(ChannelError),
     /// Invalid or unexpected descriptor received.
     InvalidDescriptor,
     /// No free channel for EP0.
     NoChannel,
 }
 
-impl From<TransferError> for EnumerationError {
-    fn from(e: TransferError) -> Self {
+impl From<ChannelError> for EnumerationError {
+    fn from(e: ChannelError) -> Self {
         Self::Transfer(e)
     }
 }
 
-impl From<embassy_usb_host_driver::ChannelAllocError> for EnumerationError {
-    fn from(_: embassy_usb_host_driver::ChannelAllocError) -> Self {
+impl From<HostError> for EnumerationError {
+    fn from(_: HostError) -> Self {
         Self::NoChannel
     }
 }
@@ -44,50 +53,40 @@ impl From<embassy_usb_host_driver::ChannelAllocError> for EnumerationError {
 /// USB host controller.
 ///
 /// Manages device connection, enumeration, and class driver binding.
-pub struct UsbHost<B: HostBus> {
-    bus: B,
+pub struct UsbHost<D: UsbHostDriver> {
+    driver: D,
     next_address: u8,
 }
 
-impl<B: HostBus> UsbHost<B> {
-    /// Create a new USB host from a bus.
-    pub fn new(bus: B) -> Self {
-        Self { bus, next_address: 1 }
+impl<D: UsbHostDriver> UsbHost<D> {
+    /// Create a new USB host from a driver.
+    pub fn new(driver: D) -> Self {
+        Self { driver, next_address: 1 }
     }
 
-    /// Get a mutable reference to the underlying bus.
-    pub fn bus_mut(&mut self) -> &mut B {
-        &mut self.bus
+    /// Get a reference to the underlying driver.
+    pub fn driver(&self) -> &D {
+        &self.driver
     }
 
-    /// Get a reference to the underlying bus.
-    pub fn bus(&self) -> &B {
-        &self.bus
-    }
-
-    /// Enable the host controller.
-    pub async fn enable(&mut self) {
-        self.bus.enable().await;
+    /// Get a mutable reference to the underlying driver.
+    pub fn driver_mut(&mut self) -> &mut D {
+        &mut self.driver
     }
 
     /// Wait for a device to connect.
-    pub async fn wait_for_connection(&mut self) -> DeviceSpeed {
+    ///
+    /// Issues a bus reset internally and returns the detected speed.
+    pub async fn wait_for_connection(&mut self) -> Speed {
         loop {
-            let event = self.bus.poll().await;
-            if let PortEvent::Connected = event {
-                info!("USB device connected, resetting port...");
-                self.bus.reset().await;
-
-                // Wait for Enabled event after reset
-                loop {
-                    let event = self.bus.poll().await;
-                    if let PortEvent::Enabled { speed } = event {
-                        info!("Port enabled, speed: {:?}", speed);
-                        return speed;
-                    }
-                    if let PortEvent::Disconnected = event {
-                        break; // Try again
-                    }
+            match self.driver.wait_for_device_event().await {
+                DeviceEvent::Connected(speed) => {
+                    info!("USB device connected, speed: {:?}", speed);
+                    return speed;
+                }
+                DeviceEvent::Disconnected => {
+                    // Spurious disconnect before connect; try again.
+                    continue;
                 }
             }
         }
@@ -105,25 +104,27 @@ impl<B: HostBus> UsbHost<B> {
     /// Returns the device descriptor, assigned address, and bytes written to config_buf.
     pub async fn enumerate(
         &mut self,
-        speed: DeviceSpeed,
+        _speed: Speed,
         config_buf: &mut [u8],
     ) -> Result<(DeviceDescriptor, u8, usize), EnumerationError> {
         // Step 1: Get device descriptor (first 8 bytes) on address 0, MPS=8
-        let ep0 = DeviceEndpoint {
-            device_address: 0,
-            ep_number: 0,
-            direction: Direction::In,
+        let ep0_info = EndpointInfo {
+            addr: EndpointAddress::from_parts(0, UsbDirection::In),
             ep_type: EndpointType::Control,
             max_packet_size: 8,
-            speed,
+            interval_ms: 0,
         };
 
-        let mut ch = self.bus.alloc_channel(&ep0)?;
+        let mut ch = self
+            .driver
+            .alloc_channel::<channel::Control, channel::InOut>(0, &ep0_info, false)
+            .map_err(|_| EnumerationError::NoChannel)?;
+
         let mut desc_buf = [0u8; 18];
 
         // GET_DESCRIPTOR(Device, 8 bytes)
-        let setup = control::get_device_descriptor(8);
-        let n = ch.control_transfer(&setup, Direction::In, &mut desc_buf[..8]).await?;
+        let setup = bytes_to_setup(&control::get_device_descriptor(8));
+        let n = ch.control_in(&setup, &mut desc_buf[..8]).await?;
 
         if n < 8 {
             return Err(EnumerationError::InvalidDescriptor);
@@ -136,17 +137,24 @@ impl<B: HostBus> UsbHost<B> {
         let addr = self.next_address;
         self.next_address = self.next_address.wrapping_add(1).max(1);
 
-        let setup = control::set_address(addr);
-        ch.control_transfer(&setup, Direction::Out, &mut []).await?;
+        let setup = bytes_to_setup(&control::set_address(addr));
+        ch.control_out(&setup, &[]).await?;
 
-        // Retarget channel to new address
-        ch.retarget(addr, max_packet_size_0 as u16);
+        // Retarget channel to new address and max packet size
+        let new_ep0_info = EndpointInfo {
+            addr: EndpointAddress::from_parts(0, UsbDirection::In),
+            ep_type: EndpointType::Control,
+            max_packet_size: max_packet_size_0 as u16,
+            interval_ms: 0,
+        };
+        ch.retarget_channel(addr, &new_ep0_info, false)
+            .map_err(|_| EnumerationError::NoChannel)?;
 
         trace!("Device assigned address {}", addr);
 
         // Step 3: Get full device descriptor (18 bytes)
-        let setup = control::get_device_descriptor(18);
-        let n = ch.control_transfer(&setup, Direction::In, &mut desc_buf).await?;
+        let setup = bytes_to_setup(&control::get_device_descriptor(18));
+        let n = ch.control_in(&setup, &mut desc_buf).await?;
 
         if n < 18 {
             return Err(EnumerationError::InvalidDescriptor);
@@ -159,8 +167,8 @@ impl<B: HostBus> UsbHost<B> {
         );
 
         // Step 4: Get configuration descriptor header (9 bytes)
-        let setup = control::get_config_descriptor(0, 9);
-        let n = ch.control_transfer(&setup, Direction::In, &mut config_buf[..9]).await?;
+        let setup = bytes_to_setup(&control::get_config_descriptor(0, 9));
+        let n = ch.control_in(&setup, &mut config_buf[..9]).await?;
 
         if n < 9 {
             return Err(EnumerationError::InvalidDescriptor);
@@ -174,16 +182,16 @@ impl<B: HostBus> UsbHost<B> {
         }
 
         // Get full configuration descriptor
-        let setup = control::get_config_descriptor(0, total_len as u16);
+        let setup = bytes_to_setup(&control::get_config_descriptor(0, total_len as u16));
         let n = ch
-            .control_transfer(&setup, Direction::In, &mut config_buf[..total_len])
+            .control_in(&setup, &mut config_buf[..total_len])
             .await?;
 
         trace!("Config descriptor: {} bytes", n);
 
         // Step 5: SET_CONFIGURATION
-        let setup = control::set_configuration(config_header.config_value);
-        ch.control_transfer(&setup, Direction::Out, &mut []).await?;
+        let setup = bytes_to_setup(&control::set_configuration(config_header.config_value));
+        ch.control_out(&setup, &[]).await?;
 
         info!("Device configured (config={})", config_header.config_value);
 

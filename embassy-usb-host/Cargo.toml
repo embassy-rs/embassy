@@ -19,12 +19,12 @@ target = "thumbv7em-none-eabi"
 features = ["defmt"]
 
 [dependencies]
-embassy-usb-host-driver = { version = "0.1.0", path = "../embassy-usb-host-driver" }
+embassy-usb-driver = { version = "0.2.0", path = "../embassy-usb-driver" }
 embedded-io-async = "0.7.0"
 
 defmt = { version = "1", optional = true }
 log = { version = "0.4.14", optional = true }
 
 [features]
-defmt = ["dep:defmt", "embassy-usb-host-driver/defmt"]
+defmt = ["dep:defmt", "embassy-usb-driver/defmt"]
 log = ["dep:log"]

@@ -3,7 +3,7 @@
 pub mod cdc_acm;
 pub mod hid;
 
-use embassy_usb_host_driver::DeviceSpeed;
+use embassy_usb_driver::Speed;
 
 use crate::descriptor::DeviceDescriptor;
 
@@ -22,7 +22,7 @@ pub trait HostClassDriver {
     /// * `config_desc` - The full configuration descriptor (all interfaces + endpoints)
     /// * `device_address` - The assigned USB device address
     /// * `speed` - The device speed
-    fn bind(&mut self, device: &DeviceDescriptor, config_desc: &[u8], device_address: u8, speed: DeviceSpeed) -> bool;
+    fn bind(&mut self, device: &DeviceDescriptor, config_desc: &[u8], device_address: u8, speed: Speed) -> bool;
 
     /// Called when the device is disconnected.
     fn unbind(&mut self);

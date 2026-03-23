@@ -586,8 +586,7 @@ mod host_impl {
 
     use embassy_usb_synopsys_otg::PhyType;
     use embassy_usb_synopsys_otg::host::{
-        HostBus as OtgHostBus, HostDriver as OtgHostDriver, HostState, OtgHostInstance,
-        on_host_interrupt as on_host_interrupt_impl,
+        HostState, OtgHost as OtgHostDriver, OtgHostInstance, on_host_interrupt as on_host_interrupt_impl,
     };
 
     use super::*;
@@ -703,11 +702,25 @@ mod host_impl {
         }
     }
 
-    impl<'d, T: Instance> embassy_usb_host_driver::HostDriver for HostDriver<'d, T> {
-        type Bus = OtgHostBus<'d, MAX_HOST_CH_COUNT>;
+    impl<'d, T: Instance> embassy_usb_driver::host::UsbHostDriver for HostDriver<'d, T> {
+        type Channel<Ty: embassy_usb_driver::host::channel::Type, D: embassy_usb_driver::host::channel::Direction> =
+            <OtgHostDriver<'d, MAX_HOST_CH_COUNT> as embassy_usb_driver::host::UsbHostDriver>::Channel<Ty, D>;
 
-        fn start(self) -> Self::Bus {
-            self.inner.start()
+        async fn wait_for_device_event(&self) -> embassy_usb_driver::host::DeviceEvent {
+            self.inner.wait_for_device_event().await
+        }
+
+        async fn bus_reset(&self) {
+            self.inner.bus_reset().await
+        }
+
+        fn alloc_channel<Ty: embassy_usb_driver::host::channel::Type, D: embassy_usb_driver::host::channel::Direction>(
+            &self,
+            addr: u8,
+            endpoint: &embassy_usb_driver::EndpointInfo,
+            pre: bool,
+        ) -> Result<Self::Channel<Ty, D>, embassy_usb_driver::host::HostError> {
+            self.inner.alloc_channel(addr, endpoint, pre)
         }
     }
 }

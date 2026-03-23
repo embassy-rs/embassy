@@ -47,13 +47,8 @@ async fn main(_spawner: Spawner) {
     // Create the host driver (HS mode, internal PHY)
     let driver = HostDriver::new_hs_host(p.USB_OTG_HS, Irqs, p.PD6, p.PD7);
 
-    // Start the host bus
-    let bus = embassy_usb_host_driver::HostDriver::start(driver);
-    let mut host = UsbHost::new(bus);
-
-    // Enable the host controller
-    host.enable().await;
-    info!("USB host enabled, waiting for device...");
+    let mut host = UsbHost::new(driver);
+    info!("USB host initialized, waiting for device...");
 
     loop {
         // Wait for a device to connect
@@ -78,7 +73,7 @@ async fn main(_spawner: Spawner) {
         );
 
         // Try to create a CDC ACM host driver
-        let mut cdc = match CdcAcmHost::new(host.bus(), &config_buf[..config_len], addr, speed) {
+        let mut cdc = match CdcAcmHost::new(host.driver(), &config_buf[..config_len], addr, speed) {
             Ok(c) => c,
             Err(e) => {
                 error!("CDC ACM init failed: {:?}", e);

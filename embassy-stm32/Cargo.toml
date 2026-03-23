@@ -159,7 +159,6 @@ embassy-embedded-hal = { version = "0.5.0", path = "../embassy-embedded-hal", de
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
 embassy-usb-driver = { version = "0.2.0", path = "../embassy-usb-driver" }
 embassy-usb-synopsys-otg = { version = "0.3.1", path = "../embassy-usb-synopsys-otg" }
-embassy-usb-host-driver = { version = "0.1.0", path = "../embassy-usb-host-driver", optional = true }
 embassy-executor = { version = "0.9.0", path = "../embassy-executor", optional = true }
 cyw43 = { version = "0.6.0", path = "../cyw43", optional = true }
 
@@ -250,7 +249,7 @@ cyw43 = ["dep:cyw43"]
 stm32-hrtim = ["dep:stm32-hrtim"]
 
 ## Enable USB host mode support
-usb-host = ["dep:embassy-usb-host-driver", "embassy-usb-synopsys-otg/host"]
+usb-host = ["embassy-usb-synopsys-otg/host"]
 
 exti = []
 low-power = [ "dep:embassy-executor", "time", "chrono" ]

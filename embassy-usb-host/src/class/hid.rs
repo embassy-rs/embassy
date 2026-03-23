@@ -2,9 +2,8 @@
 //!
 //! This driver can communicate with USB HID devices (keyboards, mice, gamepads, etc.).
 
-use embassy_usb_host_driver::{
-    ChannelAllocError, DeviceEndpoint, DeviceSpeed, Direction, EndpointType, HostBus, HostChannel, TransferError,
-};
+use embassy_usb_driver::host::{ChannelError, SetupPacket, UsbChannel, UsbHostDriver, channel};
+use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType, Speed};
 
 use crate::descriptor::{DescriptorIter, EndpointDescriptor, InterfaceDescriptor, descriptor_type};
 
@@ -90,29 +89,23 @@ pub fn find_hid(config_desc: &[u8]) -> Option<HidInfo> {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum HidError {
     /// Transfer error.
-    Transfer(TransferError),
+    Transfer(ChannelError),
     /// No matching HID interface found in the device.
     NoInterface,
     /// Failed to allocate a channel.
     NoChannel,
 }
 
-impl From<TransferError> for HidError {
-    fn from(e: TransferError) -> Self {
+impl From<ChannelError> for HidError {
+    fn from(e: ChannelError) -> Self {
         Self::Transfer(e)
-    }
-}
-
-impl From<ChannelAllocError> for HidError {
-    fn from(_: ChannelAllocError) -> Self {
-        Self::NoChannel
     }
 }
 
 impl core::fmt::Display for HidError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::Transfer(e) => write!(f, "Transfer error: {}", e),
+            Self::Transfer(_e) => write!(f, "Transfer error"),
             Self::NoInterface => write!(f, "No HID interface found"),
             Self::NoChannel => write!(f, "No free channel"),
         }
@@ -121,43 +114,49 @@ impl core::fmt::Display for HidError {
 
 impl core::error::Error for HidError {}
 
+/// Build a SetupPacket from raw bytes (same memory layout).
+fn bytes_to_setup(b: &[u8; 8]) -> SetupPacket {
+    // SAFETY: SetupPacket is repr(C) with same 8-byte layout.
+    unsafe { core::mem::transmute(*b) }
+}
+
 /// HID host driver.
 ///
 /// Provides report reading and optional class request access to a USB HID device.
-pub struct HidHost<B: HostBus> {
-    ctrl_ch: B::Channel,
-    in_ch: B::Channel,
+pub struct HidHost<D: UsbHostDriver> {
+    ctrl_ch: D::Channel<channel::Control, channel::InOut>,
+    in_ch: D::Channel<channel::Interrupt, channel::In>,
     interface: u8,
 }
 
-impl<B: HostBus> HidHost<B> {
+impl<D: UsbHostDriver> HidHost<D> {
     /// Create a new HID host driver.
     ///
     /// Parses the config descriptor to find the HID interface and its interrupt IN endpoint,
     /// then allocates the necessary channels.
-    pub fn new(bus: &B, config_desc: &[u8], device_address: u8, speed: DeviceSpeed) -> Result<Self, HidError> {
+    pub fn new(driver: &D, config_desc: &[u8], device_address: u8, _speed: Speed) -> Result<Self, HidError> {
         let info = find_hid(config_desc).ok_or(HidError::NoInterface)?;
 
-        let ctrl_ep = DeviceEndpoint {
-            device_address,
-            ep_number: 0,
-            direction: Direction::In,
+        let ctrl_ep_info = EndpointInfo {
+            addr: EndpointAddress::from_parts(0, UsbDirection::In),
             ep_type: EndpointType::Control,
             max_packet_size: 64,
-            speed,
+            interval_ms: 0,
         };
 
-        let in_ep = DeviceEndpoint {
-            device_address,
-            ep_number: info.interrupt_in_ep & 0x0F,
-            direction: Direction::In,
+        let in_ep_info = EndpointInfo {
+            addr: EndpointAddress::from_parts((info.interrupt_in_ep & 0x0F) as usize, UsbDirection::In),
             ep_type: EndpointType::Interrupt,
             max_packet_size: info.interrupt_in_mps,
-            speed,
+            interval_ms: 0,
         };
 
-        let ctrl_ch = bus.alloc_channel(&ctrl_ep)?;
-        let in_ch = bus.alloc_channel(&in_ep)?;
+        let ctrl_ch = driver
+            .alloc_channel::<channel::Control, channel::InOut>(device_address, &ctrl_ep_info, false)
+            .map_err(|_| HidError::NoChannel)?;
+        let in_ch = driver
+            .alloc_channel::<channel::Interrupt, channel::In>(device_address, &in_ep_info, false)
+            .map_err(|_| HidError::NoChannel)?;
 
         Ok(Self {
             ctrl_ch,
@@ -174,18 +173,20 @@ impl<B: HostBus> HidHost<B> {
     /// A STALL is treated as success per the HID specification.
     pub async fn set_idle(&mut self, report_id: u8, idle_duration: u8) -> Result<(), HidError> {
         let value = (idle_duration as u16) << 8 | report_id as u16;
-        let setup = crate::control::class_interface_out(SET_IDLE, value, self.interface as u16);
-        match self.ctrl_ch.control_transfer(&setup, Direction::Out, &mut []).await {
+        let setup_bytes = crate::control::class_interface_out(SET_IDLE, value, self.interface as u16);
+        let setup = bytes_to_setup(&setup_bytes);
+        match self.ctrl_ch.control_out(&setup, &[]).await {
             Ok(_) => Ok(()),
-            Err(TransferError::Stall) => Ok(()),
+            Err(ChannelError::Stall) => Ok(()),
             Err(e) => Err(HidError::Transfer(e)),
         }
     }
 
     /// Set the protocol (boot or report).
     pub async fn set_protocol(&mut self, protocol: u8) -> Result<(), HidError> {
-        let setup = crate::control::class_interface_out(SET_PROTOCOL, protocol as u16, self.interface as u16);
-        self.ctrl_ch.control_transfer(&setup, Direction::Out, &mut []).await?;
+        let setup_bytes = crate::control::class_interface_out(SET_PROTOCOL, protocol as u16, self.interface as u16);
+        let setup = bytes_to_setup(&setup_bytes);
+        self.ctrl_ch.control_out(&setup, &[]).await?;
         Ok(())
     }
 
@@ -193,7 +194,7 @@ impl<B: HostBus> HidHost<B> {
     ///
     /// Returns the number of bytes received.
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, HidError> {
-        let n = self.in_ch.in_transfer(buf).await?;
+        let n = self.in_ch.request_in(buf).await?;
         Ok(n)
     }
 
@@ -205,9 +206,14 @@ impl<B: HostBus> HidHost<B> {
     /// Returns the number of bytes received.
     pub async fn get_report(&mut self, report_type: u8, report_id: u8, buf: &mut [u8]) -> Result<usize, HidError> {
         let value = (report_type as u16) << 8 | report_id as u16;
-        let setup =
-            crate::control::class_interface_in_with_data(GET_REPORT, value, self.interface as u16, buf.len() as u16);
-        let n = self.ctrl_ch.control_transfer(&setup, Direction::In, buf).await?;
+        let setup_bytes = crate::control::class_interface_in_with_data(
+            GET_REPORT,
+            value,
+            self.interface as u16,
+            buf.len() as u16,
+        );
+        let setup = bytes_to_setup(&setup_bytes);
+        let n = self.ctrl_ch.control_in(&setup, buf).await?;
         Ok(n)
     }
 }
