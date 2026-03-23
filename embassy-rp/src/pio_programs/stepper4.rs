@@ -7,11 +7,11 @@ use crate::pio::{Common, Config, Direction, Instance, Irq, LoadedProgram, PioPin
 use crate::pio_programs::clock_divider::calculate_pio_clock_divider;
 
 /// This struct represents a Stepper driver program loaded into pio instruction memory.
-pub struct PioStepperProgram<'a, PIO: Instance> {
+pub struct PioStepper4Program<'a, PIO: Instance> {
     prg: LoadedProgram<'a, PIO>,
 }
 
-impl<'a, PIO: Instance> PioStepperProgram<'a, PIO> {
+impl<'a, PIO: Instance> PioStepper4Program<'a, PIO> {
     /// Load the program into the given pio
     pub fn new(common: &mut Common<'a, PIO>) -> Self {
         let prg = pio::pio_asm!(
@@ -37,12 +37,12 @@ impl<'a, PIO: Instance> PioStepperProgram<'a, PIO> {
 }
 
 /// Pio backed Stepper driver
-pub struct PioStepper<'d, T: Instance, const SM: usize> {
+pub struct PioStepper4<'d, T: Instance, const SM: usize> {
     irq: Irq<'d, T, SM>,
     sm: StateMachine<'d, T, SM>,
 }
 
-impl<'d, T: Instance, const SM: usize> PioStepper<'d, T, SM> {
+impl<'d, T: Instance, const SM: usize> PioStepper4<'d, T, SM> {
     /// Configure a state machine to drive a stepper
     pub fn new(
         pio: &mut Common<'d, T>,
@@ -52,7 +52,7 @@ impl<'d, T: Instance, const SM: usize> PioStepper<'d, T, SM> {
         pin1: Peri<'d, impl PioPin>,
         pin2: Peri<'d, impl PioPin>,
         pin3: Peri<'d, impl PioPin>,
-        program: &PioStepperProgram<'d, T>,
+        program: &PioStepper4Program<'d, T>,
     ) -> Self {
         let pin0 = pio.make_pio_pin(pin0);
         let pin1 = pio.make_pio_pin(pin1);
