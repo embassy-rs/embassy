@@ -209,7 +209,7 @@ impl Otg {
     #[doc = "Device IN endpoint transmit FIFO size register"]
     #[inline(always)]
     pub fn dieptxf(self, n: usize) -> Reg<regs::Fsiz, RW> {
-        assert!(n < 7usize);
+        assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0104usize + n * 4usize) as _) }
     }
     #[doc = "Host configuration register"]

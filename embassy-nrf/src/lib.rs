@@ -188,13 +188,15 @@ pub mod twim;
 pub mod twis;
 #[cfg(not(feature = "_nrf51"))]
 pub mod uarte;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(any(
     feature = "_nrf5340-app",
     feature = "nrf52820",
     feature = "nrf52833",
-    feature = "nrf52840"
+    feature = "nrf52840",
+    feature = "_nrf54lm20-app",
 ))]
+#[cfg_attr(feature = "_nrf54lm20-app", path = "usb/usbhs.rs")]
+#[cfg_attr(not(feature = "_nrf54lm20-app"), path = "usb/mod.rs")]
 pub mod usb;
 pub mod wdt;
 

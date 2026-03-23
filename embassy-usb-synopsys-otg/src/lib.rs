@@ -592,13 +592,43 @@ impl<'d, const MAX_EP_COUNT: usize> Bus<'d, MAX_EP_COUNT> {
 
     /// Configures the PHY as a device.
     pub fn configure_as_device(&mut self) {
+        const GUSBCFG_PHYIF_16_BIT: u32 = 1 << 3;
+        const GUSBCFG_ULPI_UTMI_SEL: u32 = 1 << 4;
+        const GHWCFG4_PHY_DATA_WIDTH_MASK: u32 = 0x3 << 14;
+        const GHWCFG4_OFFSET: usize = 0x50;
+
         let r = self.instance.regs;
         let phy_type = self.instance.phy_type;
-        r.gusbcfg().write(|w| {
+        // `otg_v1` doesn't expose GHWCFG4 yet, so read the standard DWC2 register directly.
+        let ghwcfg4 = unsafe { ((r.as_ptr() as *const u32).add(GHWCFG4_OFFSET / 4)).read_volatile() };
+        let hs_phy_16_bit = (ghwcfg4 & GHWCFG4_PHY_DATA_WIDTH_MASK) != 0;
+
+        r.gusbcfg().modify(|w| {
             // Force device mode
             w.set_fdmod(true);
-            // Enable internal full-speed PHY
-            w.set_physel(phy_type.internal() && !phy_type.high_speed());
+
+            // External PHYs use ULPI, and GHWCFG4.PHYDATAWIDTH selects 8/16-bit HS width.
+            match phy_type {
+                PhyType::InternalFullSpeed => {
+                    w.set_physel(true);
+                    w.0 &= !GUSBCFG_ULPI_UTMI_SEL;
+                    w.0 &= !GUSBCFG_PHYIF_16_BIT;
+                }
+                PhyType::InternalHighSpeed => {
+                    w.set_physel(false);
+                    w.0 &= !GUSBCFG_ULPI_UTMI_SEL;
+                    if hs_phy_16_bit {
+                        w.0 |= GUSBCFG_PHYIF_16_BIT;
+                    } else {
+                        w.0 &= !GUSBCFG_PHYIF_16_BIT;
+                    }
+                }
+                PhyType::ExternalFullSpeed | PhyType::ExternalHighSpeed => {
+                    w.set_physel(false);
+                    w.0 |= GUSBCFG_ULPI_UTMI_SEL;
+                    w.0 &= !GUSBCFG_PHYIF_16_BIT;
+                }
+            }
         });
     }
 
@@ -827,15 +857,21 @@ impl<'d, const MAX_EP_COUNT: usize> Bus<'d, MAX_EP_COUNT> {
             self.endpoint_set_enabled(EndpointAddress::from_parts(i, Direction::Out), false);
         }
     }
+
+    /// Initialize the device core once before polling for events.
+    pub fn init_device(&mut self) {
+        if !self.inited {
+            self.init();
+            self.inited = true;
+        }
+    }
 }
 
 impl<'d, const MAX_EP_COUNT: usize> embassy_usb_driver::Bus for Bus<'d, MAX_EP_COUNT> {
     async fn poll(&mut self) -> Event {
         poll_fn(move |cx| {
             if !self.inited {
-                self.init();
-                self.inited = true;
-
+                self.init_device();
                 // If no vbus detection, just return a single PowerDetected event at startup.
                 if !self.config.vbus_detection {
                     return Poll::Ready(Event::PowerDetected);
@@ -994,6 +1030,18 @@ impl<'d, const MAX_EP_COUNT: usize> embassy_usb_driver::Bus for Bus<'d, MAX_EP_C
                     regs.doepctl(ep_addr.index()).modify(|w| {
                         w.set_usbaep(enabled);
                     });
+
+                    if enabled && ep_addr.index() != 0 {
+                        let ep = self.ep_out[ep_addr.index()].expect("OUT endpoint metadata missing");
+                        regs.doeptsiz(ep_addr.index()).modify(|w| {
+                            w.set_xfrsiz(ep.max_packet_size as _);
+                            w.set_pktcnt(1);
+                        });
+                        regs.doepctl(ep_addr.index()).modify(|w| {
+                            w.set_cnak(true);
+                            w.set_epena(true);
+                        });
+                    }
                 });
 
                 // Wake `Endpoint::wait_enabled()`
@@ -1011,7 +1059,9 @@ impl<'d, const MAX_EP_COUNT: usize> embassy_usb_driver::Bus for Bus<'d, MAX_EP_C
 
                     regs.diepctl(ep_addr.index()).modify(|w| {
                         w.set_usbaep(enabled);
-                        w.set_cnak(enabled); // clear NAK that might've been set by SNAK above.
+                        if enabled {
+                            w.set_snak(true);
+                        }
                     });
 
                     // Flush tx fifo

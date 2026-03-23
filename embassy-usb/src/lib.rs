@@ -24,7 +24,9 @@ mod config {
 use embassy_futures::select::{Either, select};
 use heapless::Vec;
 
-pub use crate::builder::{Builder, Config, FunctionBuilder, InterfaceAltBuilder, InterfaceBuilder, UsbVersion};
+pub use crate::builder::{
+    Builder, Config, FunctionBuilder, InterfaceAltBuilder, InterfaceBuilder, UsbDeviceSpeed, UsbVersion,
+};
 use crate::config::{MAX_HANDLER_COUNT, MAX_INTERFACE_COUNT};
 use crate::control::{InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::descriptor::{descriptor_type, lang_id};

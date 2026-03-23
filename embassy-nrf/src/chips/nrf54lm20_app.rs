@@ -68,6 +68,9 @@ pub mod pac {
         QDEC20_NS as QDEC20,
         QDEC21_NS as QDEC21,
         GRTC_NS as GRTC,
+        USBHSCORE_NS as USBHSCORE,
+        USBHS_NS as USBHS,
+        VREGUSB_NS as VREGUSB,
         DPPIC30_NS as DPPIC30,
         PPIB30_NS as PPIB30,
         SPIM30_NS as SPIM30,
@@ -168,6 +171,9 @@ pub mod pac {
         QDEC20_S as QDEC20,
         QDEC21_S as QDEC21,
         GRTC_S as GRTC,
+        USBHSCORE_S as USBHSCORE,
+        USBHS_S as USBHS,
+        VREGUSB_S as VREGUSB,
         SPU30_S as SPU30,
         DPPIC30_S as DPPIC30,
         PPIB30_S as PPIB30,
@@ -202,6 +208,9 @@ pub const FORCE_COPY_BUFFER_SIZE: usize = 1024;
 pub const FLASH_SIZE: usize = 2048 * 1024;
 
 embassy_hal_internal::peripherals! {
+    // USB
+    USBHS,
+
     // PPI
     PPI00_CH0,
     PPI00_CH1,
@@ -798,6 +807,7 @@ embassy_hal_internal::interrupt_mod!(
     VPR00,
     CTRLAP,
     TIMER00,
+    USBHS,
     SPU10,
     TIMER10,
     EGU10,
@@ -838,4 +848,5 @@ embassy_hal_internal::interrupt_mod!(
     GPIOTE30_0,
     GPIOTE30_1,
     CLOCK_POWER,
+    VREGUSB,
 );
