@@ -13,9 +13,9 @@ use paste::paste;
 
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac::common::{RW, Reg};
-use crate::pac::gpio::vals::{Irqc, Isf, Pdd, Pid, Ptco, Ptso};
-use crate::pac::port::regs::Pcr;
-use crate::pac::port::vals::{Dse, Ibe, Inv, Mux, Ode, Pe, Ps, Sre};
+use crate::pac::gpio::{Irqc, Isf, Pdd, Pid, Ptco, Ptso};
+use crate::pac::port::Pcr;
+use crate::pac::port::{Dse, Ibe, Inv, Mux, Ode, Pe, Ps, Sre};
 
 struct BitIter(u32);
 
@@ -745,7 +745,7 @@ impl<'d> Flex<'d, Async> {
     }
 
     /// Helper function that waits for a given interrupt trigger
-    async fn wait_for_inner(&mut self, level: crate::pac::gpio::vals::Irqc) {
+    async fn wait_for_inner(&mut self, level: crate::pac::gpio::Irqc) {
         // First, ensure that we have a waker that is ready for this port+pin
         let w = PORT_WAIT_MAPS[usize::from(self.pin.port)].wait(self.pin.pin.into());
         let mut w = pin!(w);

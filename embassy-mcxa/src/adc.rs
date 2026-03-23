@@ -4,18 +4,18 @@ use core::ops::{Deref, RangeInclusive};
 
 use embassy_hal_internal::{Peri, PeripheralType};
 use maitake_sync::WaitCell;
-use nxp_pac::adc::vals::{AdcActive, TcompIe, TcompInt};
+use nxp_pac::adc::{AdcActive, TcompIe, TcompInt};
 use paste::paste;
 
 use crate::clocks::periph_helpers::{AdcClockSel, AdcConfig, Div4, PreEnableParts};
 use crate::clocks::{ClockError, Gate, PoweredClock, WakeGuard, enable_and_reset};
 use crate::gpio::{AnyPin, GpioPin, SealedPin};
 use crate::interrupt::typelevel::{Handler, Interrupt};
-use crate::pac::adc::vals::{
-    Avgs, CalAvgs, CalRdy, CalReq, Calofs, Cmpen, Dozen, Gcc0Rdy, HptExdi, Loop as HwLoop, Mode as ConvMode, Next,
+use crate::pac::adc::{
+    Avgs, CalAvgs, CalRdy, CalReq, Calofs, Cmpen, Dozen, Gcc0rdy, HptExdi, Loop as HwLoop, Mode as ConvMode, Next,
     Pwrsel, Refsel, Rst, Rstfifo0, Sts, Tcmd, Tpri, Tprictrl,
 };
-use crate::pac::port::vals::Mux;
+use crate::pac::port::Mux;
 use crate::pac::{self};
 
 /// Trigger priority policy for ADC conversions.
@@ -768,7 +768,7 @@ impl<'a, M: Mode> Adc<'a, M> {
             .ctrl()
             .modify(|w| w.set_cal_req(CalReq::CALIBRATION_REQUEST_PENDING));
 
-        while self.info.regs().gcc0().read().rdy() == Gcc0Rdy::GAIN_CAL_NOT_VALID {}
+        while self.info.regs().gcc0().read().rdy() == Gcc0rdy::GAIN_CAL_NOT_VALID {}
 
         let mut gcca = self.info.regs().gcc0().read().gain_cal() as u32;
         if gcca & 0x8000 != 0 {

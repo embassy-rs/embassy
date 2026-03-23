@@ -117,7 +117,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use crate::clocks::enable_and_reset;
 use crate::clocks::periph_helpers::NoConfig;
 use crate::dma::sealed::SealedChannel;
-use crate::pac::dma::vals::Halt;
+use crate::pac::dma::Halt;
 use crate::pac::edma_0_tcd::regs::{TcdAttr, TcdBiterElinkno, TcdCiterElinkno, TcdCsr};
 use crate::pac::edma_0_tcd::vals::{
     Bwc, Dpa, Dreq, Ecp, Esg, Size, Start, TcdNbytesMloffnoDmloe, TcdNbytesMloffnoSmloe,

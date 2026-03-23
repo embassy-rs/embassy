@@ -532,9 +532,9 @@ mod gpio_impls {
     use crate::gpio::{AnyPin, GpioPin, Pull, SealedPin};
     use crate::impl_pin;
     use crate::pac::common::{RW, Reg};
-    use crate::pac::gpio::vals::{Pdd, Pid};
-    use crate::pac::port::regs::Pcr;
-    use crate::pac::port::vals::{Dse, Ibe, Mux, Sre};
+    use crate::pac::gpio::{Pdd, Pid};
+    use crate::pac::port::Pcr;
+    use crate::pac::port::{Dse, Ibe, Mux, Sre};
 
     #[cfg(feature = "swd-as-gpio")]
     impl_pin!(P0_0, 0, 0, GPIO0);

@@ -74,8 +74,7 @@ use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, TransferOptions};
 use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
-use crate::pac::lpi2c::regs::Msr;
-use crate::pac::lpi2c::vals::{Alf, Cmd, Dmf, Dozen, Epf, McrRrf, McrRtf, MsrFef, MsrSdf, Ndf, Pltf, Stf};
+use crate::pac::lpi2c::{Alf, Cmd, Dmf, Dozen, Epf, McrRrf, McrRtf, Msr, MsrFef, MsrSdf, Ndf, Pltf, Stf};
 
 /// Errors exclusive to HW initialization
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]

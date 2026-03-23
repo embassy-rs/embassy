@@ -12,8 +12,8 @@ use crate::clocks::{Gate, enable_and_reset};
 use crate::interrupt::typelevel;
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac;
-use crate::pac::trng::regs::IntStatus;
-use crate::pac::trng::vals::{IntStatusEntVal, TrngEntCtl};
+use crate::pac::trng::IntStatus;
+use crate::pac::trng::{IntStatusEntVal, TrngEntCtl};
 
 const BLOCK_SIZE: usize = 8;
 

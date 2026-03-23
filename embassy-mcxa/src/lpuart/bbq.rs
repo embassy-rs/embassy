@@ -14,7 +14,7 @@ use bbqueue::traits::storage::Storage;
 use embassy_hal_internal::Peri;
 use grounded::uninit::GroundedCell;
 use maitake_sync::WaitCell;
-use nxp_pac::lpuart::vals::Tc;
+use nxp_pac::lpuart::Tc;
 use paste::paste;
 
 use super::{DataBits, IdleConfig, Info, MsbFirst, Parity, RxPin, StopBits, TxPin, TxPins};
@@ -215,7 +215,7 @@ pub struct BbqHalfParts {
     // type erasure
     which: WhichHalf,
     dma_req: u8,
-    mux: crate::pac::port::vals::Mux,
+    mux: crate::pac::port::Mux,
     info: &'static Info,
     state: &'static BbqState,
     vtable: BbqVtable,
@@ -232,9 +232,9 @@ pub struct BbqParts {
 
     // type erasure
     tx_dma_req: u8,
-    tx_mux: crate::pac::port::vals::Mux,
+    tx_mux: crate::pac::port::Mux,
     rx_dma_req: u8,
-    rx_mux: crate::pac::port::vals::Mux,
+    rx_mux: crate::pac::port::Mux,
     info: &'static Info,
     state: &'static BbqState,
     vtable: BbqVtable,
@@ -506,7 +506,7 @@ pub struct LpuartBbqTx {
     state: &'static BbqState,
     info: &'static Info,
     vtable: BbqVtable,
-    mux: crate::pac::port::vals::Mux,
+    mux: crate::pac::port::Mux,
     _tx_pins: TxPins<'static>,
     _wg: Option<WakeGuard>,
 }
@@ -766,7 +766,7 @@ pub struct LpuartBbqRx {
     state: &'static BbqState,
     info: &'static Info,
     vtable: BbqVtable,
-    mux: crate::pac::port::vals::Mux,
+    mux: crate::pac::port::Mux,
     _rx_pins: RxPins<'static>,
     _wg: Option<WakeGuard>,
 }
@@ -1568,7 +1568,7 @@ impl<T: BbqInstance> Handler<T::Interrupt> for BbqInterruptHandler<T> {
 
 use crate::gpio::SealedPin;
 
-fn any_as_tx(pin: &Peri<'_, AnyPin>, mux: crate::pac::port::vals::Mux) {
+fn any_as_tx(pin: &Peri<'_, AnyPin>, mux: crate::pac::port::Mux) {
     pin.set_pull(crate::gpio::Pull::Disabled);
     pin.set_slew_rate(crate::gpio::SlewRate::Fast.into());
     pin.set_drive_strength(crate::gpio::DriveStrength::Normal.into());
@@ -1576,7 +1576,7 @@ fn any_as_tx(pin: &Peri<'_, AnyPin>, mux: crate::pac::port::vals::Mux) {
     pin.set_enable_input_buffer(false);
 }
 
-fn any_as_rx(pin: &Peri<'_, AnyPin>, mux: crate::pac::port::vals::Mux) {
+fn any_as_rx(pin: &Peri<'_, AnyPin>, mux: crate::pac::port::Mux) {
     pin.set_pull(crate::gpio::Pull::Disabled);
     pin.set_function(mux);
     pin.set_enable_input_buffer(true);
