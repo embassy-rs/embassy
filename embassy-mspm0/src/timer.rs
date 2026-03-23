@@ -89,14 +89,28 @@ impl<'d, T: Timer> LLTimer<'d, T> {
     //  failure to do so will block the CPU
     pub unsafe fn start_periodic_timer(&self, freq: u32) -> u32 {
         let regs = T::regs();
-        let ctr = regs.counterregs(0);
-        regs.cpu_int(0).imask().write(|w| {
-            w.set_z(true);
+
+        // Reset timer regs
+        regs.gprcm(0).rstctl().write(|w| {
+            w.set_resetassert(true);
+            w.set_key(mspm0_metapac::tim::vals::ResetKey::KEY);
+            w.set_resetstkyclr(true);
         });
+        regs.gprcm(0).pwren().modify(|w| {
+            w.set_enable(true);
+            w.set_key(mspm0_metapac::tim::vals::PwrenKey::KEY);
+        });
+        // FIXME: assuming busclk for now
+        regs.clksel().modify(|w| w.set_busclk_sel(true));
+
+        let ctr = regs.counterregs(0);
 
         // Frequency guess
-        let actual_freq = self.set_clk_freq(freq * 64);
-        let load = actual_freq.div_ceil(freq);
+        let actual_freq = self.set_clk_freq(freq * 100);
+        let load = actual_freq.div_ceil(freq).min(u16::MAX as u32);
+
+        #[cfg(feature = "defmt")]
+        defmt::trace!("Timer LOAD={}", load);
 
         ctr.load().write_value(load);
         ctr.ctr().write_value(load);
@@ -106,6 +120,16 @@ impl<'d, T: Timer> LLTimer<'d, T> {
             w.set_cvae(mspm0_metapac::tim::vals::Cvae::LDVAL);
             w.set_en(true);
         });
+
+        regs.cpu_int(0).imask().write(|w| {
+            w.set_l(true);
+        });
+
+        regs.commonregs(0).cclkctl().modify(|w| {
+            w.set_clken(true);
+        });
+
+        unsafe { T::enable_interrupt() };
 
         actual_freq / load
     }
@@ -133,7 +157,7 @@ impl<'d, T: Timer> LLTimer<'d, T> {
             let div_range = 0..8u32;
             // Should be optimal value for this clock
             let divs = hillclimb([0u32; 2], |divs| {
-                if !div_range.contains(&divs[0]) || !div_range.contains(&divs[1]) {
+                if !div_range.contains(&divs[0]) || !(0..0xff).contains(&divs[1]) {
                     i32::MAX
                 } else {
                     clk_freq as i32 - (frequency * (divs[0] + 1) * (divs[1] + 1)) as i32
@@ -143,6 +167,9 @@ impl<'d, T: Timer> LLTimer<'d, T> {
             regs.commonregs(0)
                 .cps()
                 .write_value(mspm0_metapac::tim::regs::Cps(divs[1]));
+
+            #[cfg(feature = "defmt")]
+            defmt::trace!("clk={}, divs[0]={} divs[1]={}", clk_freq, divs[0], divs[1]);
             clk_freq / ((divs[0] + 1) * (divs[1] + 1))
         } else {
             let divider = (frequency / clk_freq).saturating_sub(1);

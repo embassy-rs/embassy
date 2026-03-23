@@ -11,17 +11,20 @@ pub fn hillclimb<const C: usize, F: Fn(&[u32; C]) -> i32>(mut initial_state: [u3
         for i in 0..C {
             let mut test_state = initial_state.clone();
             test_state[i] = test_state[i].saturating_add(1);
-            let add_error = derivate_fn(&initial_state).abs();
+            let add_error = derivate_fn(&test_state).abs();
             if add_error < best_error {
                 best_delta = (i, false);
                 best_error = add_error;
             }
             test_state[i] = test_state[i].saturating_sub(2);
-            let sub_error = derivate_fn(&initial_state).abs();
+            let sub_error = derivate_fn(&test_state).abs();
             if sub_error < best_error {
                 best_delta = (i, true);
                 best_error = sub_error;
             }
+
+            #[cfg(feature = "defmt")]
+            defmt::trace!("Evaluated axis {}, best_error {}", i, best_error);
         }
 
         // Surrounding errors are higher than current
