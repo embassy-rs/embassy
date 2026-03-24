@@ -85,6 +85,10 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
 
         this.inner.set_counting_mode(counting_mode);
         this.inner.set_tick_freq(freq);
+        for ch in [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4] {
+            this.inner.set_input_capture_filter(ch, FilterValue::NO_FILTER);
+            this.inner.set_input_capture_prescaler(ch, 0);
+        }
         this.inner.enable_outputs(); // Required for advanced timers, see GeneralInstance4Channel for details
         this.inner.generate_update_event();
         this.inner.start();
@@ -121,6 +125,16 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
         self.inner.set_input_ti_selection(channel, tisel)
     }
 
+    /// Set the input capture filter for a given channel.
+    pub fn set_input_capture_filter(&mut self, channel: Channel, filter: FilterValue) {
+        self.inner.set_input_capture_filter(channel, filter);
+    }
+
+    /// Set the input capture prescaler for a given channel.
+    pub fn set_input_capture_prescaler(&mut self, channel: Channel, factor: u8) {
+        self.inner.set_input_capture_prescaler(channel, factor);
+    }
+
     /// Get capture value for a channel.
     pub fn get_capture_value(&self, channel: Channel) -> T::Word {
         self.inner.get_capture_value(channel)
@@ -135,10 +149,9 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
         // Configuration steps from ST RM0390 (STM32F446) chapter 17.3.5
         // or ST RM0008 (STM32F103) chapter 15.3.5 Input capture mode
         self.inner.set_input_ti_selection(channel, tisel);
-        self.inner.set_input_capture_filter(channel, FilterValue::NO_FILTER);
         self.inner.set_input_capture_mode(channel, mode);
-        self.inner.set_input_capture_prescaler(channel, 0);
         self.inner.enable_channel(channel, true);
+        self.inner.clear_input_interrupt(channel);
         self.inner.enable_input_interrupt(channel, true);
 
         InputCaptureFuture {
