@@ -632,13 +632,13 @@ impl<M: RawMutex, T, R, F, const S: usize> Drop for CallFuture<'_, M, T, R, F, S
 }
 
 const fn assert_slot_fits<F, R, const S: usize>() {
-    assert!(mem::size_of::<F>() <= S, "closure must fit in slot, increase S");
-    assert!(mem::size_of::<R>() <= S, "return type must fit in slot, increase S");
-    assert!(
+    core::assert!(mem::size_of::<F>() <= S, "closure must fit in slot, increase S");
+    core::assert!(mem::size_of::<R>() <= S, "return type must fit in slot, increase S");
+    core::assert!(
         mem::align_of::<F>() <= mem::align_of::<Storage<S>>(),
         "closure alignment must not exceed 8 bytes"
     );
-    assert!(
+    core::assert!(
         mem::align_of::<R>() <= mem::align_of::<Storage<S>>(),
         "return type alignment must not exceed 8 bytes"
     );
@@ -651,11 +651,11 @@ mod tests {
     use alloc::string::String;
     use alloc::sync::Arc;
     use alloc::vec::Vec;
+    use core::pin::pin;
     use core::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
     use crate::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
-    use core::pin::pin;
 
     /// Run `caller` against `runner` until the caller completes.
     async fn drive<R, N>(caller: impl Future<Output = R>, runner: impl Future<Output = N>) -> R {
@@ -794,7 +794,13 @@ mod tests {
     async fn zero_sized_return() {
         let svc: ContextService<NoopRawMutex, i32, 64> = ContextService::new();
         let mut state = 0i32;
-        drive(svc.call(|s| { *s += 1; }), svc.run(&mut state)).await;
+        drive(
+            svc.call(|s| {
+                *s += 1;
+            }),
+            svc.run(&mut state),
+        )
+        .await;
     }
 
     #[futures_test::test]
