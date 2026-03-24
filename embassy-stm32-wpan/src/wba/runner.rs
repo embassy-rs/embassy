@@ -165,18 +165,31 @@ pub async fn ble_runner() -> ! {
         defmt::trace!("BLE runner: sequencer context initialized");
     }
 
-    // Schedule the initial tasks and kick the BLE stack
+    // Schedule the initial tasks and kick the BLE stack.
+    // BLE init and GAP setup happened before the runner started, so there may be
+    // pending HCI commands that need BleStack_Process to deliver them to the LL.
     schedule_ble_host_task();
     util_seq::UTIL_SEQ_SetTask(TASK_LINK_LAYER_MASK, 0);
+    util_seq::seq_resume();
+
+    // Flush pending HCI commands through BleStack_Process.
+    // This delivers scan enable, connection parameters, etc. to the LL.
+    loop {
+        let result = unsafe { BleStack_Process() };
+        if result != BLE_SLEEPMODE_RUNNING {
+            break;
+        }
+    }
 
     // Explicitly enable advertising in the LL.
     // ACI_GAP_SET_DISCOVERABLE configures parameters but does not call
-    // HCI_LE_Set_Advertising_Enable on WBA6. This must happen after the
-    // sequencer is initialized so BleStack_Process can deliver the command.
-    if let Err(_e) = super::hci::command::le_set_advertising_enable(true) {
-        #[cfg(feature = "defmt")]
-        defmt::warn!("HCI_LE_SET_ADVERTISING_ENABLE failed: {:?}", _e);
-    }
+    // HCI_LE_Set_Advertising_Enable on WBA6. This is safe to call even
+    // if advertising wasn't set up (it will just return an error).
+    let _ = super::hci::command::le_set_advertising_enable(true);
+
+    // Run the sequencer once more to process any LL events
+    util_seq::UTIL_SEQ_SetTask(TASK_LINK_LAYER_MASK, 0);
+    util_seq::seq_resume();
 
 
     loop {

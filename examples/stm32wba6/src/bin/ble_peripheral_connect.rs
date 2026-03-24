@@ -246,13 +246,12 @@ async fn main(spawner: Spawner) {
                     info!("  Reason: 0x{:02X} ({})", reason, disconnect_reason_str(reason));
                     info!("  Active connections: {}", ble.connections().count());
 
-                    // Restart advertising after disconnection
+                    // Restart advertising after disconnection.
+                    // Advertising parameters are still configured, just re-enable.
                     info!("Restarting advertising...");
-                    let mut advertiser = ble.advertiser();
-                    if let Err(e) = advertiser.start(adv_params.clone(), adv_data.clone(), None) {
-                        error!("Failed to restart advertising: {:?}", e);
-                    } else {
-                        info!("Advertising restarted");
+                    match embassy_stm32_wpan::hci::command::le_set_advertising_enable(true) {
+                        Ok(()) => info!("Advertising restarted"),
+                        Err(e) => error!("Failed to restart advertising: {:?}", e),
                     }
                 }
 

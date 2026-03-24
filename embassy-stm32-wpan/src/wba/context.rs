@@ -58,10 +58,11 @@ unsafe extern "C" {
     fn context_switch_asm(save_sp: *mut u32, restore_sp: *mut u32);
 }
 
-/// Size of the sequencer stack in bytes (16KB)
+/// Size of the sequencer stack in bytes (32KB)
 /// This needs to be large enough for the C BLE stack's call depth,
-/// including connection event processing which uses more stack than advertising alone.
-const SEQUENCER_CTX_STACK_SIZE: usize = 16 * 1024;
+/// including connection event processing and HCI event parsing
+/// (the Event enum is ~300+ bytes due to heapless::Vec variants).
+const SEQUENCER_CTX_STACK_SIZE: usize = 32 * 1024;
 
 /// Global sequencer state
 pub(crate) struct ContextManager {

@@ -1908,22 +1908,16 @@ pub unsafe extern "C" fn BLECB_Indication(data: *const u8, length: u16, _ext_dat
         }
     }
 
-    // Restart advertising after disconnection
+    // Schedule BLE host task processing after disconnect so the runner wakes
     if evt_code == 0x05 {
-        unsafe extern "C" {
-            #[link_name = "HCI_LE_SET_ADVERTISING_ENABLE"]
-            fn hci_le_set_advertising_enable(enable: u8) -> u8;
-        }
-        unsafe {
-            let _status = hci_le_set_advertising_enable(1);
-            #[cfg(feature = "defmt")]
-            defmt::info!("Re-enabled advertising after disconnect (status=0x{:02X})", _status);
-        }
         super::runner::schedule_ble_host_task();
     }
 
-    // Parse and queue the event for processing
-    if let Some(event) = super::hci::event::Event::parse(event_data) {
+    // Parse and queue the event for processing.
+    // Skip byte 0 (0x04 HCI Event packet indicator) — the parser expects
+    // data starting at the event code byte.
+    let parse_data = if length >= 2 && event_data[0] == 0x04 { &event_data[1..] } else { event_data };
+    if let Some(event) = super::hci::event::Event::parse(parse_data) {
         match super::hci::event::try_send_event(event) {
             Ok(_) => {
                 super::runner::schedule_ble_host_task();
