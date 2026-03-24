@@ -2,6 +2,7 @@
 
 pub mod cdc_acm;
 pub mod hid;
+pub mod hid_report;
 
 use embassy_usb_driver::Speed;
 

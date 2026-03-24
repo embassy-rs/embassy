@@ -2,6 +2,8 @@
 //!
 //! This driver can communicate with USB HID devices (keyboards, mice, gamepads, etc.).
 
+pub use super::hid_report::{ReportDescriptor, ReportField};
+
 use embassy_usb_driver::host::{ChannelError, SetupPacket, UsbChannel, UsbHostDriver, channel};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType, Speed};
 
@@ -123,6 +125,11 @@ impl MouseReport {
     pub fn middle(&self) -> bool { self.buttons & Self::BUTTON_MIDDLE != 0 }
 }
 
+/// HID class descriptor type (appears inside the configuration descriptor).
+const DESC_HID: u8 = 0x21;
+/// HID Report descriptor type (used in GET_DESCRIPTOR requests).
+const DESC_HID_REPORT: u8 = 0x22;
+
 /// Information about a HID interface found in a configuration descriptor.
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -133,11 +140,15 @@ pub struct HidInfo {
     pub interrupt_in_ep: u8,
     /// Interrupt IN max packet size.
     pub interrupt_in_mps: u16,
+    /// Length of the HID Report Descriptor in bytes (from the HID class descriptor).
+    /// Pass this to [`HidHost::fetch_report_descriptor`] as the buffer size.
+    pub report_descriptor_len: u16,
 }
 
 /// Find the first HID interface in a configuration descriptor.
 pub fn find_hid(config_desc: &[u8]) -> Option<HidInfo> {
     let mut hid_iface: Option<u8> = None;
+    let mut report_desc_len: u16 = 0;
     let mut interrupt_in: Option<(u8, u16)> = None;
     let mut in_hid_iface = false;
 
@@ -153,14 +164,19 @@ pub fn find_hid(config_desc: &[u8]) -> Option<HidInfo> {
                     }
                 }
             }
-            descriptor_type::ENDPOINT => {
-                if in_hid_iface {
-                    if let Some(ep) = EndpointDescriptor::parse(desc_data) {
-                        if ep.transfer_type() == TRANSFER_INTERRUPT && ep.is_in() {
-                            interrupt_in = Some((ep.endpoint_address, ep.max_packet_size));
-                            // We have both interface and endpoint; stop scanning
-                            in_hid_iface = false;
-                        }
+            // HID class descriptor (type 0x21): extract the report descriptor length.
+            // Layout: bLength, bDescriptorType(0x21), bcdHID(2), bCountryCode,
+            //         bNumDescriptors, bDescriptorType(0x22), wDescriptorLength(2)
+            DESC_HID if in_hid_iface => {
+                if desc_data.len() >= 7 {
+                    report_desc_len = u16::from_le_bytes([desc_data[5], desc_data[6]]);
+                }
+            }
+            descriptor_type::ENDPOINT if in_hid_iface => {
+                if let Some(ep) = EndpointDescriptor::parse(desc_data) {
+                    if ep.transfer_type() == TRANSFER_INTERRUPT && ep.is_in() {
+                        interrupt_in = Some((ep.endpoint_address, ep.max_packet_size));
+                        in_hid_iface = false;
                     }
                 }
             }
@@ -177,6 +193,7 @@ pub fn find_hid(config_desc: &[u8]) -> Option<HidInfo> {
             interface_number: iface,
             interrupt_in_ep: ep,
             interrupt_in_mps: mps,
+            report_descriptor_len: report_desc_len,
         })
     } else {
         None
@@ -226,6 +243,7 @@ pub struct HidHost<D: UsbHostDriver> {
     ctrl_ch: D::Channel<channel::Control, channel::InOut>,
     in_ch: D::Channel<channel::Interrupt, channel::In>,
     interface: u8,
+    report_descriptor_len: u16,
 }
 
 impl<D: UsbHostDriver> HidHost<D> {
@@ -261,7 +279,29 @@ impl<D: UsbHostDriver> HidHost<D> {
             ctrl_ch,
             in_ch,
             interface: info.interface_number,
+            report_descriptor_len: info.report_descriptor_len,
         })
+    }
+
+    /// Fetch the HID Report Descriptor from the device into `buf`.
+    ///
+    /// Returns the descriptor bytes as a slice. Pass the result to
+    /// [`ReportDescriptor::parse`] to decode it:
+    ///
+    /// ```no_run
+    /// let mut buf = [0u8; 256];
+    /// let desc = hid.fetch_report_descriptor(&mut buf).await?;
+    /// let report: ReportDescriptor<32> = ReportDescriptor::parse(desc);
+    /// ```
+    ///
+    /// `buf` should be at least [`HidInfo::report_descriptor_len`] bytes; any
+    /// excess is unused.
+    pub async fn fetch_report_descriptor<'a>(&mut self, buf: &'a mut [u8]) -> Result<&'a [u8], HidError> {
+        let len = (self.report_descriptor_len as usize).min(buf.len()) as u16;
+        let setup_bytes = crate::control::get_hid_report_descriptor(self.interface, len);
+        let setup = bytes_to_setup(&setup_bytes);
+        let n = self.ctrl_ch.control_in(&setup, &mut buf[..len as usize]).await?;
+        Ok(&buf[..n])
     }
 
     /// Set the idle rate for a report.
