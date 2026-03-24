@@ -1886,36 +1886,40 @@ pub unsafe extern "C" fn BLECB_Indication(data: *const u8, length: u16, _ext_dat
         length
     );
 
-    // Log the event at info level so we can see what's happening
+    // HCI event packet format:
+    // Byte 0: 0x04 (HCI Event packet indicator)
+    // Byte 1: Event code (0x05=Disconnect, 0x3E=LE Meta, 0xFF=Vendor)
+    // Byte 2: Parameter total length
+    // Byte 3+: Event parameters
+    let evt_code = if length >= 2 { event_data[1] } else { event_data[0] };
+
     #[cfg(feature = "defmt")]
     {
-        let evt_code = event_data[0];
-        // HCI event codes: 0x04 = HCI Event packet indicator
-        // For BLE: event_data[0] is typically the event code within the HCI event
-        // 0x05 = Disconnection Complete, 0x3E = LE Meta Event
-        // ACI vendor events start at 0xFF
         if evt_code == 0x05 {
-            // Disconnection Complete
-            let handle = if length >= 4 { u16::from_le_bytes([event_data[3], event_data[4]]) } else { 0 };
-            let reason = if length >= 5 { event_data[5] } else { 0 };
-            defmt::info!("HCI Event: Disconnection Complete (handle=0x{:04X}, reason=0x{:02X})", handle, reason);
-
-            // Restart advertising after disconnection
-            super::runner::schedule_ble_host_task();
-            // Re-enable advertising so the device is discoverable again
-            unsafe extern "C" {
-                #[link_name = "HCI_LE_SET_ADVERTISING_ENABLE"]
-                fn hci_le_set_advertising_enable(enable: u8) -> u8;
-            }
-            let _status = hci_le_set_advertising_enable(1);
-            defmt::info!("Re-enabled advertising after disconnect (status=0x{:02X})", _status);
+            let status = if length >= 4 { event_data[3] } else { 0 };
+            let handle = if length >= 6 { u16::from_le_bytes([event_data[4], event_data[5]]) } else { 0 };
+            let reason = if length >= 7 { event_data[6] } else { 0 };
+            defmt::info!("HCI Event: Disconnection Complete (status=0x{:02X}, handle=0x{:04X}, reason=0x{:02X})", status, handle, reason);
         } else if evt_code == 0x3E {
-            // LE Meta Event
-            let sub_code = if length >= 2 { event_data[1] } else { 0 };
+            let sub_code = if length >= 4 { event_data[3] } else { 0 };
             defmt::info!("HCI Event: LE Meta (sub=0x{:02X}, len={})", sub_code, length);
         } else {
             defmt::info!("HCI Event: code=0x{:02X}, len={}", evt_code, length);
         }
+    }
+
+    // Restart advertising after disconnection
+    if evt_code == 0x05 {
+        unsafe extern "C" {
+            #[link_name = "HCI_LE_SET_ADVERTISING_ENABLE"]
+            fn hci_le_set_advertising_enable(enable: u8) -> u8;
+        }
+        unsafe {
+            let _status = hci_le_set_advertising_enable(1);
+            #[cfg(feature = "defmt")]
+            defmt::info!("Re-enabled advertising after disconnect (status=0x{:02X})", _status);
+        }
+        super::runner::schedule_ble_host_task();
     }
 
     // Parse and queue the event for processing
