@@ -22,14 +22,15 @@
 use core::cell::RefCell;
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::aes::{self, Aes};
 use embassy_stm32::mode::Blocking;
 use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph, RNG};
 use embassy_stm32::pka::{self, Pka};
 use embassy_stm32::rcc::{
-    AHB5Prescaler, AHBPrescaler, APBPrescaler, Hse, HsePrescaler, LsConfig, LseDrive, LseConfig, LseMode,
-    PllDiv, PllMul, PllPreDiv, PllSource, RtcClockSource, Sysclk, VoltageScale, mux,
+    AHB5Prescaler, AHBPrescaler, APBPrescaler, Hse, HsePrescaler, LsConfig, LseConfig, LseDrive, LseMode, PllDiv,
+    PllMul, PllPreDiv, PllSource, RtcClockSource, Sysclk, VoltageScale, mux,
 };
 use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::time::Hertz;
@@ -43,8 +44,8 @@ use embassy_stm32_wpan::security::{
 use embassy_stm32_wpan::{Ble, ble_runner, run_radio_high_isr, run_radio_sw_low_isr};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<embassy_stm32::peripherals::RNG>;
@@ -134,8 +135,7 @@ async fn main(spawner: Spawner) {
         StaticCell::new();
     let aes = AES_INST.init(Mutex::new(RefCell::new(Aes::new_blocking(p.AES, Irqs))));
 
-    static PKA_INST: StaticCell<Mutex<CriticalSectionRawMutex, RefCell<Pka<'static, PkaPeriph>>>> =
-        StaticCell::new();
+    static PKA_INST: StaticCell<Mutex<CriticalSectionRawMutex, RefCell<Pka<'static, PkaPeriph>>>> = StaticCell::new();
     let pka = PKA_INST.init(Mutex::new(RefCell::new(Pka::new_blocking(p.PKA, Irqs))));
 
     info!("Hardware peripherals initialized (RNG, AES, PKA)");

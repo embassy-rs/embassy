@@ -29,24 +29,24 @@
 use core::cell::RefCell;
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::aes::{self, Aes};
 use embassy_stm32::mode::Blocking;
 use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph, RNG};
 use embassy_stm32::pka::{self, Pka};
 use embassy_stm32::rcc::{
-    AHB5Prescaler, AHBPrescaler, APBPrescaler, Hse, HsePrescaler, LsConfig, LseDrive, LseConfig, LseMode,
-    Pll, PllDiv, PllMul, PllPreDiv, PllSource, RtcClockSource, Sysclk, VoltageScale, mux,
+    AHB5Prescaler, AHBPrescaler, APBPrescaler, Hse, HsePrescaler, LsConfig, LseConfig, LseDrive, LseMode, Pll, PllDiv,
+    PllMul, PllPreDiv, PllSource, RtcClockSource, Sysclk, VoltageScale, mux,
 };
-use embassy_stm32::time::Hertz;
 use embassy_stm32::rng::{self, Rng};
+use embassy_stm32::time::Hertz;
 use embassy_stm32::usart::{self, BufferedUart, BufferedUartRx, BufferedUartTx, Config as UartConfig};
 use embassy_stm32::{Config, bind_interrupts, interrupt, peripherals};
 use embassy_stm32_wpan::gap::{AdvData, AdvParams, AdvType, GapEvent};
 use embassy_stm32_wpan::gatt::{
-    CHAR_VALUE_HANDLE_OFFSET, CccdValue, CharProperties, CharacteristicHandle, GattEventMask,
-    GattServer, SecurityPermissions, ServiceHandle, ServiceType, Uuid, is_cccd_handle,
-    is_value_handle,
+    CHAR_VALUE_HANDLE_OFFSET, CccdValue, CharProperties, CharacteristicHandle, GattEventMask, GattServer,
+    SecurityPermissions, ServiceHandle, ServiceType, Uuid, is_cccd_handle, is_value_handle,
 };
 use embassy_stm32_wpan::hci::event::EventParams;
 use embassy_stm32_wpan::{Ble, ble_runner, run_radio_high_isr, run_radio_sw_low_isr};
@@ -54,8 +54,8 @@ use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embedded_io_async::{Read, Write};
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 // Interrupt bindings
 bind_interrupts!(struct Irqs {
@@ -104,12 +104,10 @@ const NUS_TX_CHAR_UUID: [u8; 16] = [
 const MAX_DATA_LEN: usize = 244;
 
 /// Channel for UART -> BLE data flow
-static UART_TO_BLE: Channel<CriticalSectionRawMutex, heapless::Vec<u8, MAX_DATA_LEN>, 4> =
-    Channel::new();
+static UART_TO_BLE: Channel<CriticalSectionRawMutex, heapless::Vec<u8, MAX_DATA_LEN>, 4> = Channel::new();
 
 /// Channel for BLE -> UART data flow
-static BLE_TO_UART: Channel<CriticalSectionRawMutex, heapless::Vec<u8, MAX_DATA_LEN>, 4> =
-    Channel::new();
+static BLE_TO_UART: Channel<CriticalSectionRawMutex, heapless::Vec<u8, MAX_DATA_LEN>, 4> = Channel::new();
 
 /// Application state for the serial communication service
 struct SerialComState {
@@ -223,16 +221,14 @@ async fn main(spawner: Spawner) {
     info!("Based on ST BLE_SerialCom_Peripheral");
 
     // Initialize hardware peripherals required by BLE stack
-    static RNG_CELL: StaticCell<Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>> =
-        StaticCell::new();
+    static RNG_CELL: StaticCell<Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>> = StaticCell::new();
     let rng = RNG_CELL.init(Mutex::new(RefCell::new(Rng::new(p.RNG, Irqs))));
 
     static AES_INST: StaticCell<Mutex<CriticalSectionRawMutex, RefCell<Aes<'static, AesPeriph, Blocking>>>> =
         StaticCell::new();
     let aes = AES_INST.init(Mutex::new(RefCell::new(Aes::new_blocking(p.AES, Irqs))));
 
-    static PKA_INST: StaticCell<Mutex<CriticalSectionRawMutex, RefCell<Pka<'static, PkaPeriph>>>> =
-        StaticCell::new();
+    static PKA_INST: StaticCell<Mutex<CriticalSectionRawMutex, RefCell<Pka<'static, PkaPeriph>>>> = StaticCell::new();
     let pka = PKA_INST.init(Mutex::new(RefCell::new(Pka::new_blocking(p.PKA, Irqs))));
 
     info!("Hardware peripherals initialized (RNG, AES, PKA)");
@@ -313,10 +309,7 @@ async fn main(spawner: Spawner) {
         )
         .expect("Failed to add TX characteristic");
     info!("TX Characteristic: handle 0x{:04X}", tx_char_handle.0);
-    info!(
-        "  Value handle: 0x{:04X}",
-        tx_char_handle.0 + CHAR_VALUE_HANDLE_OFFSET
-    );
+    info!("  Value handle: 0x{:04X}", tx_char_handle.0 + CHAR_VALUE_HANDLE_OFFSET);
 
     // Application state
     let mut state = SerialComState {
@@ -329,12 +322,8 @@ async fn main(spawner: Spawner) {
 
     // Create advertising data
     let mut adv_data = AdvData::new();
-    adv_data
-        .add_flags(0x06)
-        .expect("Failed to add flags"); // General discoverable, no BR/EDR
-    adv_data
-        .add_name("Serial_Com")
-        .expect("Failed to add name");
+    adv_data.add_flags(0x06).expect("Failed to add flags"); // General discoverable, no BR/EDR
+    adv_data.add_name("Serial_Com").expect("Failed to add name");
 
     // Create scan response with full service UUID
     let mut scan_rsp = AdvData::new();
@@ -396,20 +385,13 @@ async fn main(spawner: Spawner) {
                     state.tx_notifications_enabled = false; // Reset on new connection
                 }
                 GapEvent::Disconnected { handle, reason } => {
-                    info!(
-                        "Disconnected: handle 0x{:04X}, reason 0x{:02X}",
-                        handle.0, reason
-                    );
+                    info!("Disconnected: handle 0x{:04X}, reason 0x{:02X}", handle.0, reason);
                     state.current_conn_handle = None;
                     state.tx_notifications_enabled = false;
 
                     // Restart advertising
                     let mut advertiser = ble.advertiser();
-                    let _ = advertiser.start(
-                        adv_params.clone(),
-                        adv_data.clone(),
-                        Some(scan_rsp.clone()),
-                    );
+                    let _ = advertiser.start(adv_params.clone(), adv_data.clone(), Some(scan_rsp.clone()));
                     info!("Advertising restarted");
                 }
                 _ => {}
@@ -430,11 +412,7 @@ async fn main(spawner: Spawner) {
                     state.tx_notifications_enabled = cccd.notifications;
                     info!(
                         "TX notifications {}",
-                        if cccd.notifications {
-                            "ENABLED"
-                        } else {
-                            "DISABLED"
-                        }
+                        if cccd.notifications { "ENABLED" } else { "DISABLED" }
                     );
                 }
                 // Check if this is a write to RX characteristic (data from BLE client)
@@ -459,10 +437,7 @@ async fn main(spawner: Spawner) {
                 conn_handle,
                 server_mtu,
             } => {
-                info!(
-                    "MTU exchanged: conn 0x{:04X}, MTU={}",
-                    conn_handle.0, server_mtu
-                );
+                info!("MTU exchanged: conn 0x{:04X}, MTU={}", conn_handle.0, server_mtu);
                 if let Some(conn) = ble.get_connection_mut(*conn_handle) {
                     conn.update_mtu(*server_mtu);
                 }
