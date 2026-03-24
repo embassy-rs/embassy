@@ -100,7 +100,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// Read elements from the ring buffer
     /// Return a tuple of the length read and the length remaining in the buffer
     /// If not all of the elements were read, then there will be some elements in the buffer remaining
-    /// The length remaining is the capacity, ring_buf.len(), less the elements remaining after the read
+    /// The length remaining is the capacity, ring_buf.sync_len(), less the elements remaining after the read
     /// Error is returned if the portion to be read was overwritten by the DMA controller.
     pub fn read(&mut self, buf: &mut [W]) -> Result<(usize, usize), Error> {
         self.ringbuf.read(&mut DmaCtrlImpl(self.channel.reborrow()), buf)
@@ -125,7 +125,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
 
     /// The current length of the ringbuffer
     pub fn len(&mut self) -> Result<usize, Error> {
-        Ok(self.ringbuf.len(&mut DmaCtrlImpl(self.channel.reborrow()))?)
+        Ok(self.ringbuf.sync_len(&mut DmaCtrlImpl(self.channel.reborrow()))?)
     }
 
     /// Read the most recent elements from the ring buffer, discarding any older data.
@@ -279,12 +279,19 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
 
     /// The current length of the ringbuffer
     pub fn len(&mut self) -> Result<usize, Error> {
-        Ok(self.ringbuf.len(&mut DmaCtrlImpl(self.channel.reborrow()))?)
+        Ok(self.ringbuf.sync_len(&mut DmaCtrlImpl(self.channel.reborrow()))?)
     }
 
     /// The capacity of the ringbuffer
     pub const fn capacity(&self) -> usize {
         self.ringbuf.cap()
+    }
+
+    /// Return the current write position in the DMA buffer.
+    ///
+    /// See [`WritableDmaRingBuffer::write_pos`] for details.
+    pub fn write_pos(&self) -> usize {
+        self.ringbuf.write_pos()
     }
 
     /// Set a waker to be woken when at least one byte is received.

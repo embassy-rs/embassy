@@ -17,7 +17,7 @@
 #[cfg_attr(adc_c0, path = "c0.rs")]
 mod _version;
 
-#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba))]
+#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba, adc_c0))]
 mod ringbuffered;
 
 use core::marker::PhantomData;
@@ -29,7 +29,7 @@ pub use _version::*;
 use embassy_hal_internal::PeripheralType;
 #[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2))]
 use embassy_sync::waitqueue::AtomicWaker;
-#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba))]
+#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba, adc_c0))]
 pub use ringbuffered::RingBufferedAdc;
 
 #[cfg(adc_u5)]
@@ -44,7 +44,7 @@ pub mod adc4;
 #[allow(unused)]
 pub(self) use crate::block_for_us as blocking_delay_us;
 pub use crate::pac::adc::vals;
-#[cfg(any(adc_v2, adc_g4))]
+#[cfg(any(adc_v2, adc_g4, adc_g0, adc_c0))]
 pub use crate::pac::adc::vals::Exten;
 #[cfg(not(any(adc_f1, adc_f3v3)))]
 pub use crate::pac::adc::vals::Res as Resolution;
@@ -171,11 +171,11 @@ pub enum Averaging {
     Samples1024,
 }
 
-#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba))]
+#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba, adc_c0))]
 pub(crate) struct Trigger {
-    #[cfg(any(adc_v2, adc_g4))]
+    #[cfg(any(adc_v2, adc_g4, adc_g0, adc_c0))]
     signal: u8,
-    #[cfg(any(adc_v2, adc_g4))]
+    #[cfg(any(adc_v2, adc_g4, adc_g0, adc_c0))]
     edge: Exten,
 }
 
@@ -189,7 +189,7 @@ pub(crate) enum ConversionMode {
     ))]
     Singular,
     // Should match the cfg on "into_ring_buffered" below
-    #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba))]
+    #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba, adc_c0))]
     Repeated(Trigger),
 }
 
@@ -266,6 +266,8 @@ impl<'d, T: Instance> Adc<'d, T> {
         sequence: impl ExactSizeIterator<Item = (&'a mut AnyAdcChannel<'b, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
         readings: &mut [u16],
     ) {
+        let _scoped_wake_guard = <T as crate::rcc::SealedRccPeripheral>::RCC_INFO.wake_guard();
+
         assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
         assert!(
             readings.len() % sequence.len() == 0,
@@ -305,7 +307,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().stop();
     }
 
-    #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba))]
+    #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba, adc_c0))]
     /// Configures the ADC to use a DMA ring buffer for continuous data acquisition.
     ///
     /// Use the [`Self::read`] method to retrieve measurements from the DMA ring buffer. The read buffer
@@ -339,7 +341,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
         sequence: impl ExactSizeIterator<Item = (AnyAdcChannel<'b, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
         _trigger: impl RegularTrigger<T>,
-        #[cfg(any(adc_v2, adc_g4))] edge: Exten,
+        #[cfg(any(adc_v2, adc_g4, adc_g0, adc_c0))] edge: Exten,
     ) -> RingBufferedAdc<'a, T> {
         let sequence_len = sequence.len();
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
@@ -367,9 +369,9 @@ impl<'d, T: Instance> Adc<'d, T> {
         #[cfg(any(adc_g4, adc_h5))]
         T::regs().enable();
         T::regs().configure_dma(ConversionMode::Repeated(Trigger {
-            #[cfg(any(adc_v2, adc_g4))]
+            #[cfg(any(adc_v2, adc_g4, adc_g0, adc_c0))]
             signal: _trigger.signal(),
-            #[cfg(any(adc_v2, adc_g4))]
+            #[cfg(any(adc_v2, adc_g4, adc_g0, adc_c0))]
             edge,
         }));
 
@@ -402,8 +404,23 @@ pub struct VrefInt;
 impl SpecialChannel for VrefInt {}
 
 impl VrefInt {
-    #[cfg(any(adc_f3v1, adc_f3v2))]
-    /// The value that vref would be if vdda was at 3300mv
+    #[cfg(any(
+        stm32f0,
+        stm32f3,
+        stm32f7,
+        stm32g0,
+        stm32g4,
+        stm32l0,
+        stm32l1,
+        stm32l4,
+        stm32l4_plus,
+        stm32l5,
+        stm32n6,
+        stm32l5,
+        stm32wb,
+        stm32wl
+    ))]
+    /// The value that vref would be if vdda was at the factory calibration voltage `VREF_CALIB_MV`.
     pub fn calibrated_value(&self) -> u16 {
         crate::pac::VREFINTCAL.data().read()
     }

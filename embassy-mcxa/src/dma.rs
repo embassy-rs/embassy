@@ -27,27 +27,79 @@
 //!
 //! These return a [`Transfer`] future that can be `.await`ed:
 //!
-//! ```no_run
-//! # use embassy_mcxa::dma::{DmaChannel, TransferOptions};
-//! let dma_ch = DmaChannel::new(p.DMA_CH0);
-//! # let src = [0u32; 4];
-//! # let mut dst = [0u32; 4];
-//! dma_ch.mem_to_mem(&src, &mut dst, TransferOptions::default()).await;
+//! ```rust,no_run
+//! #![no_std]
+//! #![no_main]
+//!
+//! # extern crate panic_halt;
+//! # extern crate embassy_mcxa;
+//! # extern crate embassy_executor;
+//! # use panic_halt as _;
+//! use embassy_executor::Spawner;
+//! use embassy_mcxa::clocks::config::Div8;
+//! use embassy_mcxa::config::Config;
+//! use embassy_mcxa::dma::{DmaChannel, TransferOptions};
+//!
+//! #[embassy_executor::main]
+//! async fn main(_spawner: Spawner) {
+//!     let mut config = Config::default();
+//!     config.clock_cfg.sirc.fro_12m_enabled = true;
+//!     config.clock_cfg.sirc.fro_lf_div = Div8::from_divisor(1);
+//!
+//!     let p = embassy_mcxa::init(config);
+//!
+//!     let src = [0xa5u8; 4];
+//!     let mut dst = [0u8; 4];
+//!
+//!     let mut ch0 = DmaChannel::new(p.DMA_CH0);
+//!     let options = TransferOptions::COMPLETE_INTERRUPT;
+//!     let transfer = ch0.mem_to_mem(&src, &mut dst, options).unwrap();
+//!     transfer.await;
+//! }
 //! ```
 //!
 //! ## Scatter-Gather Builder (For Chained Transfers)
 //!
 //! Use [`ScatterGatherBuilder`] for complex multi-segment transfers:
 //!
-//! ```no_run
-//! # use embassy_mcxa::dma::{DmaChannel, ScatterGatherBuilder};
-//! # let dma_ch = DmaChannel::new(p.DMA_CH0);
-//! let mut builder = ScatterGatherBuilder::<u32>::new();
-//! builder.add_transfer(&src1, &mut dst1);
-//! builder.add_transfer(&src2, &mut dst2);
+//! ```rust,no_run
+//! #![no_std]
+//! #![no_main]
 //!
-//! let transfer = builder.build(&dma_ch).unwrap();
-//! transfer.await;
+//! # extern crate panic_halt;
+//! # extern crate embassy_mcxa;
+//! # extern crate embassy_executor;
+//! # use panic_halt as _;
+//! use embassy_executor::Spawner;
+//! use embassy_mcxa::clocks::config::Div8;
+//! use embassy_mcxa::config::Config;
+//! use embassy_mcxa::dma::{DmaChannel, ScatterGatherBuilder};
+//!
+//! #[embassy_executor::main]
+//! async fn main(_spawner: Spawner) {
+//!     let mut config = Config::default();
+//!     config.clock_cfg.sirc.fro_12m_enabled = true;
+//!     config.clock_cfg.sirc.fro_lf_div = Div8::from_divisor(1);
+//!
+//!     let p = embassy_mcxa::init(config);
+//!
+//!     let src1 = [0x55u8; 4];
+//!     let src2 = [0xaau8; 4];
+//!     let src3 = [0x5au8; 4];
+//!     let mut dst1 = [0u8; 4];
+//!     let mut dst2 = [0u8; 4];
+//!     let mut dst3 = [0u8; 4];
+//!
+//!     let mut ch0 = DmaChannel::new(p.DMA_CH0);
+//!     let mut builder = ScatterGatherBuilder::<u8>::new();
+//!
+//!     builder.add_transfer(&src1, &mut dst1);
+//!     builder.add_transfer(&src2, &mut dst2);
+//!     builder.add_transfer(&src3, &mut dst3);
+//!
+//!     let transfer = builder.build(ch0).unwrap();
+//!     transfer.blocking_wait();
+//! }
 //! ```
 
 #![allow(dead_code)]
@@ -480,9 +532,30 @@ pub trait Channel: sealed::SealedChannel + PeripheralType + Into<AnyChannel> + '
 /// This allows storing DMA channels in a uniform way regardless of their
 /// concrete type, useful for async transfer futures and runtime channel selection.
 ///
-/// ```no_run
-/// let anychannel: Peri<'static, AnyChannel> = p.DMA_CH0.into();
-/// DmaChannel::new(anychannel);
+/// ```rust,no_run
+/// # #![no_std]
+/// # #![no_main]
+/// #
+/// # extern crate panic_halt;
+/// # extern crate embassy_mcxa;
+/// # extern crate embassy_executor;
+/// # use panic_halt as _;
+/// # use embassy_executor::Spawner;
+/// # use embassy_hal_internal::Peri;
+/// # use embassy_mcxa::clocks::config::Div8;
+/// # use embassy_mcxa::config::Config;
+/// # use embassy_mcxa::dma::{DmaChannel, AnyChannel};
+/// #
+/// # #[embassy_executor::main]
+/// # async fn main(_spawner: Spawner) {
+/// #     let mut config = Config::default();
+/// #     config.clock_cfg.sirc.fro_12m_enabled = true;
+/// #     config.clock_cfg.sirc.fro_lf_div = Div8::from_divisor(1);
+/// #
+/// #     let p = embassy_mcxa::init(config);
+///     let anychannel: Peri<'static, AnyChannel> = p.DMA_CH0.into();
+///     DmaChannel::new(anychannel);
+/// # }
 /// ```
 #[derive(Debug, Clone, Copy)]
 pub struct AnyChannel {
@@ -901,19 +974,36 @@ impl DmaChannel<'_> {
     ///
     /// # Example
     ///
-    /// ```no_run
-    /// use embassy_mcxa::dma::{DmaChannel, TransferOptions};
+    /// ```rust,no_run
+    /// # #![no_std]
+    /// # #![no_main]
     ///
-    /// let dma_ch = DmaChannel::new(p.DMA_CH0);
-    /// let pattern: u32 = 0xDEADBEEF;
-    /// let mut buffer = [0u32; 256];
+    /// # extern crate panic_halt;
+    /// # extern crate embassy_mcxa;
+    /// # extern crate embassy_executor;
+    /// # use panic_halt as _;
+    /// # use embassy_executor::Spawner;
+    /// # use embassy_mcxa::clocks::config::Div8;
+    /// # use embassy_mcxa::config::Config;
+    /// # use embassy_mcxa::dma::{DmaChannel, TransferOptions};
     ///
-    /// unsafe {
-    ///     dma_ch.memset(&pattern, &mut buffer, TransferOptions::default()).await;
-    /// }
-    /// // buffer is now filled with 0xDEADBEEF
+    /// # #[embassy_executor::main]
+    /// # async fn main(_spawner: Spawner) {
+    ///     let mut config = Config::default();
+    ///     config.clock_cfg.sirc.fro_12m_enabled = true;
+    ///     config.clock_cfg.sirc.fro_lf_div = Div8::from_divisor(1);
+    ///
+    ///     let p = embassy_mcxa::init(config);
+    ///
+    ///     let mut ch0 = DmaChannel::new(p.DMA_CH0);
+    ///     let pattern = 0xDEADBEEF_u32;
+    ///     let mut buffer = [0u32; 256];
+    ///
+    ///     unsafe {
+    ///         ch0.memset(&pattern, &mut buffer, TransferOptions::COMPLETE_INTERRUPT).unwrap().await;
+    ///     }
+    /// # }
     /// ```
-    ///
     pub fn memset<W: Word>(
         &mut self,
         pattern: &W,
@@ -1178,7 +1268,7 @@ impl DmaChannel<'_> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```rust,ignore
     /// use embassy_mcxa::dma::{DmaChannel, Lpuart2RxRequest};
     ///
     /// unsafe {
@@ -2054,19 +2144,47 @@ pub(crate) const MAX_SCATTER_GATHER_TCDS: usize = 16;
 ///
 /// # Example
 ///
-/// ```no_run
-/// use embassy_mcxa::dma::{DmaChannel, ScatterGatherBuilder};
+/// ```rust,no_run
+/// # #![no_std]
+/// # #![no_main]
+/// #
+/// # extern crate panic_halt;
+/// # extern crate embassy_mcxa;
+/// # extern crate embassy_executor;
+/// # use panic_halt as _;
+/// # use embassy_executor::Spawner;
+/// # use embassy_hal_internal::Peri;
+/// # use embassy_mcxa::clocks::config::Div8;
+/// # use embassy_mcxa::config::Config;
+/// # use embassy_mcxa::dma::{DmaChannel, ScatterGatherBuilder};
+/// #
+/// # #[embassy_executor::main]
+/// # async fn main(_spawner: Spawner) {
+/// #     let mut config = Config::default();
+/// #     config.clock_cfg.sirc.fro_12m_enabled = true;
+/// #     config.clock_cfg.sirc.fro_lf_div = Div8::from_divisor(1);
+/// #
+/// #     let p = embassy_mcxa::init(config);
+///     let src1 = [0x00u32; 128];
+///     let src2 = [0xffu32; 128];
+///     let src3 = [0x55u32; 128];
 ///
-/// let mut builder = ScatterGatherBuilder::<u32>::new();
+///     let mut dst1 = [0x00u32; 128];
+///     let mut dst2 = [0x00u32; 128];
+///     let mut dst3 = [0x00u32; 128];
 ///
-/// // Add transfer segments
-/// builder.add_transfer(&src1, &mut dst1);
-/// builder.add_transfer(&src2, &mut dst2);
-/// builder.add_transfer(&src3, &mut dst3);
+///     let mut ch0 = DmaChannel::new(p.DMA_CH0);
+///     let mut builder = ScatterGatherBuilder::<u32>::new();
 ///
-/// // Build and execute
-/// let transfer = unsafe { builder.build(&dma_ch).unwrap() };
-/// transfer.await;
+///     // Add transfer segments
+///     builder.add_transfer(&src1, &mut dst1);
+///     builder.add_transfer(&src2, &mut dst2);
+///     builder.add_transfer(&src3, &mut dst3);
+///
+///     // Build and execute
+///     let transfer = unsafe { builder.build(ch0).unwrap() };
+///     transfer.await;
+/// # }
 /// ```
 pub struct ScatterGatherBuilder<'a, W: Word> {
     /// TCD pool (must be 32-byte aligned)

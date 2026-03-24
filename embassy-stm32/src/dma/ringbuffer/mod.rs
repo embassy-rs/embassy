@@ -35,43 +35,55 @@ struct DmaIndex {
 }
 
 impl DmaIndex {
+    /// Reset the index to the start of the buffer (position 0, lap 0).
     fn reset(&mut self) {
         self.pos = 0;
         self.complete_count = 0;
     }
 
+    /// Convert the index to a physical buffer offset, applying `offset` additional
+    /// steps and wrapping at `cap`.
     fn as_index(&self, cap: usize, offset: usize) -> usize {
         (self.pos + offset) % cap
     }
 
+    /// Synchronise the index against the live DMA hardware state.
     fn dma_sync(&mut self, cap: usize, dma: &mut impl DmaCtrl) {
-        // Important!
-        // The ordering of the first two lines matters!
-        // If changed, the code will detect a wrong +capacity
-        // jump at wrap-around.
-        let count_diff = dma.reset_complete_count();
+        // Reset complete_count BEFORE reading NDTR. If the DMA wraps between
+        // these two reads, laps_completed will be 0 while pos appears to go
+        // backwards — the wrap-around guard below detects this and clamps pos
+        // to cap-1 until the next sync picks up the increment.
+        let laps_completed = dma.reset_complete_count();
         let pos = cap - dma.get_remaining_transfers();
-        self.pos = if pos < self.pos && count_diff == 0 {
+        self.pos = if pos < self.pos && laps_completed == 0 {
             cap - 1
         } else {
             pos
         };
 
-        self.complete_count += count_diff;
+        self.complete_count += laps_completed;
     }
 
+    /// Advance the index by `steps` words, incrementing `complete_count` for
+    /// each full lap completed.
     fn advance(&mut self, cap: usize, steps: usize) {
         let next = self.pos + steps;
         self.complete_count += next / cap;
         self.pos = next % cap;
     }
 
+    /// Subtract the smaller `complete_count` from both indices so that the
+    /// absolute lap counts stay small. This prevents overflow in [`diff`] after
+    /// many laps while leaving the relative difference unchanged.
     fn normalize(lhs: &mut DmaIndex, rhs: &mut DmaIndex) {
         let min_count = lhs.complete_count.min(rhs.complete_count);
         lhs.complete_count -= min_count;
         rhs.complete_count -= min_count;
     }
 
+    /// Return how many words `self` is ahead of `rhs` in linear (unwrapped)
+    /// space. A negative result means `self` is behind `rhs`, which indicates
+    /// a driver bug or an out-of-band DMA reset.
     fn diff(&self, cap: usize, rhs: &DmaIndex) -> isize {
         (self.complete_count * cap + self.pos) as isize - (rhs.complete_count * cap + rhs.pos) as isize
     }
@@ -110,6 +122,11 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
             self.cap() % alignment == 0,
             "DMA buffer length must be a multiple of the alignment value"
         );
+        assert!(
+            self.cap() >= alignment * 2,
+            "DMA buffer must hold at least 2 frames (cap >= 2 * alignment); \
+             with only one frame there is no safe read window between HTIF and TCIF"
+        );
         self.alignment = alignment;
     }
 
@@ -126,8 +143,8 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
         self.dma_buf.len()
     }
 
-    /// Get the available readable dma samples.
-    pub fn len(&mut self, dma: &mut impl DmaCtrl) -> Result<usize, Error> {
+    /// Sync against the DMA hardware and return the number of readable samples available.
+    pub fn sync_len(&mut self, dma: &mut impl DmaCtrl) -> Result<usize, Error> {
         self.write_index.dma_sync(self.cap(), dma);
         DmaIndex::normalize(&mut self.write_index, &mut self.read_index);
 
@@ -146,7 +163,7 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
     ///
     /// Return a tuple of the length read and the length remaining in the buffer
     /// If not all of the elements were read, then there will be some elements in the buffer remaining
-    /// The length remaining is the capacity, ring_buf.len(), less the elements remaining after the read
+    /// The length remaining is the capacity, ring_buf.sync_len(), less the elements remaining after the read
     /// Error is returned if the portion to be read was overwritten by the DMA controller,
     /// in which case the rinbuffer will automatically reset itself.
     pub fn read(&mut self, dma: &mut impl DmaCtrl, buf: &mut [W]) -> Result<(usize, usize), Error> {
@@ -191,35 +208,49 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
     fn read_raw(&mut self, dma: &mut impl DmaCtrl, buf: &mut [W]) -> Result<(usize, usize), Error> {
         fence(Ordering::Acquire);
 
-        let mut available = self.len(dma)?;
+        let mut available = self.sync_len(dma)?;
 
-        // Skip misaligned samples to maintain frame alignment after overrun recovery.
+        // Compute alignment skip without advancing read_index yet.
         // DMA always starts at buffer position 0 (frame-aligned) and advances
         // sequentially, so position N is frame-aligned when N % alignment == 0.
-        if self.alignment > 1 {
+        let skip = if self.alignment > 1 {
             let misalignment = self.read_index.pos % self.alignment;
             if misalignment != 0 {
                 let skip = self.alignment - misalignment;
                 if available >= skip {
-                    self.read_index.advance(self.cap(), skip);
                     available -= skip;
+                    skip
                 } else {
                     return Ok((0, available));
                 }
+            } else {
+                0
             }
-        }
+        } else {
+            0
+        };
 
         let mut readable = available.min(buf.len());
         // Round down to alignment so read_index always lands on a frame boundary.
         if self.alignment > 1 {
             readable -= readable % self.alignment;
         }
+        // Snapshot write_index before copying so the returned `remaining` reflects
+        // the buffer state at the time of the read rather than requiring a second
+        // hardware NDTR access and complete_count reset mid-copy.
+        let write_snapshot = self.write_index;
+
+        // Copy data starting skip words ahead of current read_index.
         for i in 0..readable {
-            buf[i] = self.read_buf(i);
+            buf[i] = self.read_buf(skip + i);
         }
-        let remaining = self.len(dma)?;
-        self.read_index.advance(self.cap(), readable);
-        Ok((readable, remaining - readable))
+
+        // Commit both the alignment skip and the read in one advance, so
+        // read_index is never in a partially-advanced state on error.
+        self.read_index.advance(self.cap(), skip + readable);
+
+        let remaining = write_snapshot.diff(self.cap(), &self.read_index).max(0) as usize;
+        Ok((readable, remaining))
     }
 
     /// Read the most recent elements from the ring buffer, discarding any older data.
@@ -247,30 +278,32 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
         // On overrun or desync, reset the read pointer to the current write position.
         // This means zero samples are available right now, but the next call will
         // return fresh data without any error.
-        let available = if diff <= 0 || diff > self.cap() as isize {
+        if diff < 0 || diff > self.cap() as isize {
             self.read_index = self.write_index;
-            0
-        } else {
-            diff as usize
-        };
+            return 0;
+        }
 
-        let mut to_read = available.min(buf.len());
-        let mut front_skip = available - to_read;
+        let available = diff as usize;
+        if available == 0 {
+            return 0;
+        }
 
         // Respect frame alignment. Because read_latest reads the NEWEST data
         // (skip at the front, read at the tail), reducing to_read moves the
         // start forward. We must compute front_skip explicitly so the read
         // window starts at an aligned buffer position.
-        if self.alignment > 1 {
-            // Discard any partial frame at the end of available data.
+        let (to_read, front_skip) = if self.alignment > 1 {
+            // Discard any partial frame at the tail of available data, then
+            // round down to_read so it fits in buf and lands on a frame boundary.
             let end_pos = self.read_index.as_index(self.cap(), available);
-            let tail = end_pos % self.alignment;
-            let aligned_available = available.saturating_sub(tail);
-
-            to_read = aligned_available.min(buf.len());
-            to_read -= to_read % self.alignment;
-            front_skip = aligned_available - to_read;
-        }
+            let aligned_available = available.saturating_sub(end_pos % self.alignment);
+            let to_read = aligned_available.min(buf.len());
+            let to_read = to_read - to_read % self.alignment;
+            (to_read, aligned_available - to_read)
+        } else {
+            let to_read = available.min(buf.len());
+            (to_read, available - to_read)
+        };
 
         // Advance past old data to the aligned start position.
         if front_skip > 0 {
@@ -307,28 +340,39 @@ pub struct WritableDmaRingBuffer<'a, W: Word> {
 impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
     /// Construct a ringbuffer filled with the given buffer data.
     pub fn new(dma_buf: &'a mut [W]) -> Self {
-        let len = dma_buf.len();
         Self {
             dma_buf,
             read_index: Default::default(),
             write_index: DmaIndex {
-                complete_count: 0,
-                pos: len,
+                complete_count: 1,
+                pos: 0,
             },
         }
     }
 
-    /// Reset the ring buffer to its initial state. The buffer after the reset will be full.
+    /// Reset the ring buffer after an overrun. Anchors read_index to the current DMA position
+    /// and places write_index one full buffer ahead, giving the CPU maximum lead time before
+    /// the next overrun can occur. No writable space is available immediately; the DMA must
+    /// advance before sync_len() returns non-zero.
     pub fn reset(&mut self, dma: &mut impl DmaCtrl) {
-        dma.reset_complete_count();
+        _ = dma.reset_complete_count();
         self.read_index.reset();
         self.read_index.dma_sync(self.cap(), dma);
         self.write_index = self.read_index;
         self.write_index.advance(self.cap(), self.cap());
     }
 
-    /// Get the remaining writable dma samples.
-    pub fn len(&mut self, dma: &mut impl DmaCtrl) -> Result<usize, Error> {
+    /// Return the current write position (index into the DMA buffer where the next CPU write will go).
+    ///
+    /// Immediately after an overrun reset, this equals the DMA position recorded at reset time.
+    /// Use this to compute frame-alignment padding after a TX write error without the timing
+    /// uncertainty of reading the DMA NDTR register externally.
+    pub fn write_pos(&self) -> usize {
+        self.write_index.pos
+    }
+
+    /// Sync against the DMA hardware and return the number of writable samples available.
+    pub fn sync_len(&mut self, dma: &mut impl DmaCtrl) -> Result<usize, Error> {
         self.read_index.dma_sync(self.cap(), dma);
         DmaIndex::normalize(&mut self.read_index, &mut self.write_index);
 
@@ -386,7 +430,7 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
         poll_fn(|cx| {
             dma.set_waker(cx.waker());
 
-            match self.len(dma) {
+            match self.sync_len(dma) {
                 Ok(_) => Poll::Pending,
                 Err(e) => Poll::Ready(Err(e)),
             }
@@ -394,9 +438,18 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
         .await
     }
 
-    /// Write an exact number of elements to the ringbuffer.
+    /// Write all elements of `buffer` to the ring buffer, waiting asynchronously
+    /// if there is insufficient space.
     ///
-    /// Returns the remaining write capacity in the buffer.
+    /// Wakes each time the DMA raises a half-transfer or transfer-complete interrupt,
+    /// so up to one interrupt period of latency may occur between partial writes.
+    ///
+    /// Returns the remaining write capacity as reported by the final [`write`] call.
+    /// This is a snapshot from the last partial write and may be slightly stale.
+    ///
+    /// Returns [`Error::Overrun`] if the DMA read pointer overtook the write pointer
+    /// mid-write. In this case the ring buffer resets itself and any partially
+    /// written data is lost.
     #[allow(dead_code)]
     pub async fn write_exact(&mut self, dma: &mut impl DmaCtrl, buffer: &[W]) -> Result<usize, Error> {
         let mut written_len = 0;
@@ -420,16 +473,27 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
         .await
     }
 
+    /// Write as many elements as currently fit, returning `(written, remaining_capacity)`.
+    /// Does not block; call `write` for automatic reset-on-overrun or `write_exact` to write all.
     fn write_raw(&mut self, dma: &mut impl DmaCtrl, buf: &[W]) -> Result<(usize, usize), Error> {
         fence(Ordering::Release);
 
-        let writable = self.len(dma)?.min(buf.len());
+        let writable = self.sync_len(dma)?.min(buf.len());
+        // Snapshot read_index before the copy so that the returned `remaining`
+        // reflects the buffer state at the time of the write rather than
+        // requiring a second hardware NDTR access and complete_count reset mid-copy.
+        let read_snapshot = self.read_index;
+
         for i in 0..writable {
             self.write_buf(i, buf[i]);
         }
-        let available = self.len(dma)?;
+
         self.write_index.advance(self.cap(), writable);
-        Ok((writable, available - writable))
+
+        let remaining = self
+            .cap()
+            .saturating_sub(self.write_index.diff(self.cap(), &read_snapshot) as usize);
+        Ok((writable, remaining))
     }
 
     fn write_buf(&mut self, offset: usize, value: W) {

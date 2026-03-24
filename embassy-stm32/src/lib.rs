@@ -54,26 +54,27 @@ pub mod timer;
 
 #[cfg(adc)]
 pub mod adc;
+#[cfg(aes_v3b)]
+pub mod aes;
 #[cfg(backup_sram)]
 pub mod backup_sram;
 #[cfg(can)]
 pub mod can;
-// FIXME: Cordic driver cause stm32u5a5zj crash
-#[cfg(aes_v3b)]
-pub mod aes;
-#[cfg(comp_u5)]
+#[cfg(any(comp_u5, comp_v2))]
 pub mod comp;
-#[cfg(all(cordic, not(any(stm32u5a5, stm32u5a9))))]
+#[cfg(cordic)]
 pub mod cordic;
 
 // Stub macros for COMP pin implementations when comp module is not compiled.
 // These are needed because build.rs generates macro calls for all chips with COMP,
-// but the actual macros are only defined in the comp module which is only compiled for comp_u5.
-#[cfg(all(comp, not(comp_u5)))]
+// but the actual macros are only defined in the comp module.
+#[cfg(all(comp, not(any(comp_u5, comp_v2))))]
+#[allow(unused_macros)]
 macro_rules! impl_comp_inp_pin {
     ($inst:ident, $pin:ident, $ch:expr) => {};
 }
-#[cfg(all(comp, not(comp_u5)))]
+#[cfg(all(comp, not(any(comp_u5, comp_v2))))]
+#[allow(unused_macros)]
 macro_rules! impl_comp_inm_pin {
     ($inst:ident, $pin:ident, $ch:expr) => {};
 }
@@ -160,8 +161,8 @@ pub mod wdg;
 #[cfg(xspi)]
 pub mod xspi;
 
-#[cfg(feature = "low-power")]
-pub use low_power::Executor;
+#[cfg(feature = "_executor")]
+pub mod executor;
 
 // This must go last, so that it sees all the impl_foo! macros defined earlier.
 pub(crate) mod _generated {

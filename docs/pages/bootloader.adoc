@@ -1,6 +1,6 @@
 = Bootloader
 
-`embassy-boot` a lightweight bootloader supporting firmware application upgrades in a power-fail-safe way, with trial boots and rollbacks.
+`embassy-boot` is a lightweight bootloader supporting firmware application upgrades in a power-fail-safe way, with trial boots and rollbacks.
 
 The update method used is referred to as an A/B partition update scheme.
 

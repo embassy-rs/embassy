@@ -66,7 +66,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         adc: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
-        rcc::enable_and_reset::<T>();
+        rcc::enable_and_reset_without_stop::<T>();
 
         // Delay 1μs when using HSI14 as the ADC clock.
         //
@@ -80,6 +80,12 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         // A.7.1 ADC calibration code example
         T::regs().cfgr1().modify(|reg| reg.set_dmaen(false));
+
+        #[cfg(adc_l0)]
+        let auto_off = T::regs().cfgr1().read().autoff();
+        #[cfg(adc_l0)]
+        T::regs().cfgr1().modify(|reg| reg.set_autoff(false));
+
         T::regs().cr().modify(|reg| reg.set_adcal(true));
 
         #[cfg(adc_l0)]
@@ -88,24 +94,54 @@ impl<'d, T: Instance> Adc<'d, T> {
         #[cfg(not(adc_l0))]
         while T::regs().cr().read().adcal() {}
 
-        // A.7.2 ADC enable sequence code example
-        if T::regs().isr().read().adrdy() {
-            T::regs().isr().modify(|reg| reg.set_adrdy(true));
-        }
-        T::regs().cr().modify(|reg| reg.set_aden(true));
-        while !T::regs().isr().read().adrdy() {
-            // ES0233, 2.4.3 ADEN bit cannot be set immediately after the ADC calibration
-            // Workaround: When the ADC calibration is complete (ADCAL = 0), keep setting the
-            // ADEN bit until the ADRDY flag goes high.
-            T::regs().cr().modify(|reg| reg.set_aden(true));
-        }
+        #[cfg(adc_l0)]
+        T::regs().cfgr1().modify(|reg| reg.set_autoff(auto_off));
+
+        let s = Self { adc };
+
+        s.enable();
 
         T::Interrupt::unpend();
         unsafe {
             T::Interrupt::enable();
         }
 
-        Self { adc }
+        s
+    }
+
+    fn enable(&self) {
+        #[cfg(adc_l0)]
+        if T::regs().cfgr1().read().autoff() {
+            // In AUTOFF mode the ADC wakes automatically when conversion starts,
+            // so waiting for ADRDY here can stall instead of helping.
+            return;
+        }
+
+        // A.7.2 ADC enable sequence code example
+
+        while T::regs().cr().read().addis() {}
+
+        if !T::regs().cr().read().aden() {
+            if T::regs().isr().read().adrdy() {
+                T::regs().isr().modify(|reg| reg.set_adrdy(true));
+            }
+            T::regs().cr().modify(|reg| reg.set_aden(true));
+            while !T::regs().isr().read().adrdy() {
+                // ES0233, 2.4.3 ADEN bit cannot be set immediately after the ADC calibration
+                // Workaround: keep setting ADEN until ADRDY goes high.
+                T::regs().cr().modify(|reg| reg.set_aden(true));
+            }
+        }
+    }
+
+    /// Power down the ADC.
+    ///
+    /// This stops ADC operation and powers down ADC-specific circuitry.
+    /// Later reads will enable the ADC again, but internal measurement paths
+    /// such as VREFINT or temperature sensing may need to be re-enabled.
+    pub fn power_down(&mut self) {
+        self.stop_watchdog();
+        Self::teardown_adc();
     }
 
     #[cfg(not(adc_l0))]
@@ -137,6 +173,16 @@ impl<'d, T: Instance> Adc<'d, T> {
         Temperature
     }
 
+    #[cfg(adc_l0)]
+    pub fn enable_auto_off(&self) {
+        T::regs().cfgr1().modify(|reg| reg.set_autoff(true));
+    }
+
+    #[cfg(adc_l0)]
+    pub fn disable_auto_off(&self) {
+        T::regs().cfgr1().modify(|reg| reg.set_autoff(false));
+    }
+
     pub fn set_resolution(&mut self, resolution: Resolution) {
         T::regs().cfgr1().modify(|reg| reg.set_res(resolution.into()));
     }
@@ -148,6 +194,9 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     pub async fn read(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) -> u16 {
+        let _scoped_wake_guard = <T as crate::rcc::SealedRccPeripheral>::RCC_INFO.wake_guard();
+        self.enable();
+
         let ch_num = channel.channel();
         channel.setup();
 
@@ -183,19 +232,38 @@ impl<'d, T: Instance> Adc<'d, T> {
 
     fn teardown_adc() {
         // A.7.3 ADC disable code example
-        T::regs().cr().modify(|reg| reg.set_adstp(true));
-        while T::regs().cr().read().adstp() {}
+        if T::regs().cr().read().adstart() {
+            T::regs().cr().modify(|reg| reg.set_adstp(true));
+            while T::regs().cr().read().adstp() {}
+        }
 
-        T::regs().cr().modify(|reg| reg.set_addis(true));
-        while T::regs().cr().read().aden() {}
+        if T::regs().cr().read().aden() {
+            T::regs().cr().modify(|reg| reg.set_addis(true));
+            while T::regs().cr().read().aden() {}
+        }
+
+        T::regs().ccr().modify(|reg| {
+            reg.set_vrefen(false);
+            reg.set_tsen(false);
+            #[cfg(not(adc_l0))]
+            reg.set_vbaten(false);
+        });
+
+        if T::regs().isr().read().adrdy() {
+            T::regs().isr().modify(|reg| reg.set_adrdy(true));
+        }
+
+        #[cfg(adc_l0)]
+        T::regs().cr().modify(|reg| reg.set_advregen(false));
     }
 }
 
 impl<'d, T: Instance> Drop for Adc<'d, T> {
     fn drop(&mut self) {
+        self.stop_watchdog();
         Self::teardown_adc();
         Self::teardown_awd();
 
-        rcc::disable::<T>();
+        <T as crate::rcc::SealedRccPeripheral>::RCC_INFO.disable_without_stop();
     }
 }

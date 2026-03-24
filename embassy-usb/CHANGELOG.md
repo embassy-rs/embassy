@@ -8,10 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
-- Add support for USB HID Boot Protocol Mode 
+- Bump usbd-hid from 0.9.0 to 0.10.0
+
+## 0.6.0 - 2026-03-10
+
+- Add support for USB HID Boot Protocol Mode
 - Bump usbd-hid from 0.8.1 to 0.9.0
 - Fix a bug where CDC ACM BufferedReceiver repeats data when its future is dropped
 - Expose `dtr()` and `rts()` on `cdc_acm::ControlChanged`
+- Add standalone DFU class implementation
+- Add method to signal firmware error in DFU
+- Allow `dfu_mode::Handler::start` to return a `Result` (fail gracefully)
+- Fix bug in USB DFU transition
+- Fix DFU GetStatus handler
+- Upgrade embassy-sync to 0.8.0
+- Upgrade embassy-net-driver-channel to 0.4.0
 
 ## 0.5.1 - 2025-08-26
 

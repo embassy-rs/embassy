@@ -602,7 +602,7 @@ macro_rules! impl_opamp_external_output {
         foreach_adc!(
             ($adc, $common_inst:ident, $adc_clock:ident) => {
                 impl<'d> crate::adc::SealedAdcChannel<crate::peripherals::$adc>
-                    for OpAmpOutput<'d, crate::peripherals::$inst>
+                    for crate::opamp::OpAmpOutput<'d, crate::peripherals::$inst>
                 {
                     fn channel(&self) -> u8 {
                         $ch
@@ -610,40 +610,13 @@ macro_rules! impl_opamp_external_output {
                 }
 
                 impl<'d> crate::adc::AdcChannel<crate::peripherals::$adc>
-                    for OpAmpOutput<'d, crate::peripherals::$inst>
+                    for crate::opamp::OpAmpOutput<'d, crate::peripherals::$inst>
                 {
                 }
             };
         );
     };
 }
-
-foreach_peripheral!(
-    (opamp, OPAMP1) => {
-        impl_opamp_external_output!(OPAMP1, ADC1, 3);
-    };
-    (opamp, OPAMP2) => {
-        impl_opamp_external_output!(OPAMP2, ADC2, 3);
-    };
-    (opamp, OPAMP3) => {
-        impl_opamp_external_output!(OPAMP3, ADC1, 12);
-        impl_opamp_external_output!(OPAMP3, ADC3, 1);
-    };
-    // OPAMP4 only in STM32G4 Cat 3 devices
-    (opamp, OPAMP4) => {
-        impl_opamp_external_output!(OPAMP4, ADC1, 11);
-        impl_opamp_external_output!(OPAMP4, ADC4, 3);
-    };
-    // OPAMP5 only in STM32G4 Cat 3 devices
-    (opamp, OPAMP5) => {
-        impl_opamp_external_output!(OPAMP5, ADC5, 1);
-    };
-    // OPAMP6 only in STM32G4 Cat 3/4 devices
-    (opamp, OPAMP6) => {
-        impl_opamp_external_output!(OPAMP6, ADC1, 14);
-        impl_opamp_external_output!(OPAMP6, ADC2, 14);
-    };
-);
 
 #[cfg(opamp_v5)]
 macro_rules! impl_opamp_internal_output {

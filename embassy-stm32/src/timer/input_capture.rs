@@ -36,6 +36,10 @@ impl<'d, T: GeneralInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(C
 /// Input capture driver.
 pub struct InputCapture<'d, T: GeneralInstance4Channel> {
     inner: Timer<'d, T>,
+    _ch1: Option<Flex<'d>>,
+    _ch2: Option<Flex<'d>>,
+    _ch3: Option<Flex<'d>>,
+    _ch4: Option<Flex<'d>>,
 }
 
 impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
@@ -51,11 +55,33 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
         freq: Hertz,
         counting_mode: CountingMode,
     ) -> Self {
-        Self::new_inner(tim, freq, counting_mode)
+        Self::new_inner(
+            tim,
+            ch1.map(|pin| pin.pin),
+            ch2.map(|pin| pin.pin),
+            ch3.map(|pin| pin.pin),
+            ch4.map(|pin| pin.pin),
+            freq,
+            counting_mode,
+        )
     }
 
-    fn new_inner(tim: Peri<'d, T>, freq: Hertz, counting_mode: CountingMode) -> Self {
-        let mut this = Self { inner: Timer::new(tim) };
+    fn new_inner(
+        tim: Peri<'d, T>,
+        _ch1: Option<Flex<'d>>,
+        _ch2: Option<Flex<'d>>,
+        _ch3: Option<Flex<'d>>,
+        _ch4: Option<Flex<'d>>,
+        freq: Hertz,
+        counting_mode: CountingMode,
+    ) -> Self {
+        let mut this = Self {
+            inner: Timer::new(tim),
+            _ch1,
+            _ch2,
+            _ch3,
+            _ch4,
+        };
 
         this.inner.set_counting_mode(counting_mode);
         this.inner.set_tick_freq(freq);
@@ -96,8 +122,8 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
     }
 
     /// Get capture value for a channel.
-    pub fn get_capture_value(&self, channel: Channel) -> u32 {
-        self.inner.get_capture_value(channel).into()
+    pub fn get_capture_value(&self, channel: Channel) -> T::Word {
+        self.inner.get_capture_value(channel)
     }
 
     /// Get input interrupt.
@@ -122,37 +148,37 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
     }
 
     /// Asynchronously wait until the pin sees a rising edge.
-    pub async fn wait_for_rising_edge(&mut self, channel: Channel) -> u32 {
+    pub async fn wait_for_rising_edge(&mut self, channel: Channel) -> T::Word {
         self.new_future(channel, InputCaptureMode::Rising, InputTISelection::Normal)
             .await
     }
 
     /// Asynchronously wait until the pin sees a falling edge.
-    pub async fn wait_for_falling_edge(&mut self, channel: Channel) -> u32 {
+    pub async fn wait_for_falling_edge(&mut self, channel: Channel) -> T::Word {
         self.new_future(channel, InputCaptureMode::Falling, InputTISelection::Normal)
             .await
     }
 
     /// Asynchronously wait until the pin sees any edge.
-    pub async fn wait_for_any_edge(&mut self, channel: Channel) -> u32 {
+    pub async fn wait_for_any_edge(&mut self, channel: Channel) -> T::Word {
         self.new_future(channel, InputCaptureMode::BothEdges, InputTISelection::Normal)
             .await
     }
 
     /// Asynchronously wait until the (alternate) pin sees a rising edge.
-    pub async fn wait_for_rising_edge_alternate(&mut self, channel: Channel) -> u32 {
+    pub async fn wait_for_rising_edge_alternate(&mut self, channel: Channel) -> T::Word {
         self.new_future(channel, InputCaptureMode::Rising, InputTISelection::Alternate)
             .await
     }
 
     /// Asynchronously wait until the (alternate) pin sees a falling edge.
-    pub async fn wait_for_falling_edge_alternate(&mut self, channel: Channel) -> u32 {
+    pub async fn wait_for_falling_edge_alternate(&mut self, channel: Channel) -> T::Word {
         self.new_future(channel, InputCaptureMode::Falling, InputTISelection::Alternate)
             .await
     }
 
     /// Asynchronously wait until the (alternate) pin sees any edge.
-    pub async fn wait_for_any_edge_alternate(&mut self, channel: Channel) -> u32 {
+    pub async fn wait_for_any_edge_alternate(&mut self, channel: Channel) -> T::Word {
         self.new_future(channel, InputCaptureMode::BothEdges, InputTISelection::Alternate)
             .await
     }
@@ -221,7 +247,7 @@ impl<T: GeneralInstance4Channel> Drop for InputCaptureFuture<T> {
 }
 
 impl<T: GeneralInstance4Channel> Future for InputCaptureFuture<T> {
-    type Output = u32;
+    type Output = T::Word;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         T::state().cc_waker[self.channel.index()].register(cx.waker());
@@ -230,7 +256,7 @@ impl<T: GeneralInstance4Channel> Future for InputCaptureFuture<T> {
 
         let dier = regs.dier().read();
         if !dier.ccie(self.channel.index()) {
-            let val = regs.ccr(self.channel.index()).read().0;
+            let val = unwrap!(regs.ccr(self.channel.index()).read().ccr().try_into());
             Poll::Ready(val)
         } else {
             Poll::Pending

@@ -1,13 +1,6 @@
 //! This example roughly emulates the `IDD_SLEEP_MD_3` scenario from the datasheet.
 //!
-//! As written, this achieves 579uA average current when measured with a Nordic PPK2.
-//!
-//! **NOTE: This requires rework of the board! You must remove R26 (used for the on
-//! board op-amp), remove R52, and bodge the pad of R52 that is closest to R61 to TP9
-//! (VDD_MCU_LINK). Without these reworks, you will see much higher current consumption.**
-//!
-//! As of 2026-02-04, UM12439 ONLY mentions the R52 errata, but the removal of R26 (as
-//! described in AN14765 for the MCXA346) is also necessary for the FRDM-MCXA266.
+//! As written, this achieves TBD average current when measured with a Nordic PPK2.
 
 #![no_std]
 #![no_main]
@@ -32,21 +25,21 @@ async fn main(_spawner: Spawner) {
     defmt::info!("Pre-power delay complete!");
     let mut cfg = hal::config::Config::default();
 
-    // // Disable 45M osc
-    // cfg.clock_cfg.firc = None;
+    // Disable 45M osc
+    cfg.clock_cfg.firc = None;
 
     // Enable 12M osc to use as core clock
     cfg.clock_cfg.sirc.fro_12m_enabled = true;
     cfg.clock_cfg.sirc.fro_lf_div = None;
 
-    // // Disable 16K osc
-    // cfg.clock_cfg.fro16k = None;
+    // Disable 16K osc
+    cfg.clock_cfg.fro16k = None;
 
-    // // Disable external osc
-    // cfg.clock_cfg.sosc = None;
+    // Disable external osc
+    cfg.clock_cfg.sosc = None;
 
-    // // Disable PLL
-    // cfg.clock_cfg.spll = None;
+    // Disable PLL
+    cfg.clock_cfg.spll = None;
 
     // Feed core from 12M osc
     cfg.clock_cfg.main_clock = MainClockConfig {
@@ -72,7 +65,7 @@ async fn main(_spawner: Spawner) {
     defmt::info!("Going to sleep shortly...");
     cortex_m::asm::delay(45_000_000 / 2);
 
-    let mut red = Output::new(p.P2_14, Level::High, DriveStrength::Normal, SlewRate::Slow);
+    let mut red = Output::new(p.P3_18, Level::High, DriveStrength::Normal, SlewRate::Slow);
     loop {
         Timer::after_millis(900).await;
         red.set_low();

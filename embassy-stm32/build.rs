@@ -1634,20 +1634,8 @@ fn main() {
                         format_ident!("{}", pin.pin)
                     };
 
-                    // H7 has differential voltage measurements
-                    let ch: Option<(u8, bool)> = if pin.signal.starts_with("INP") {
-                        Some((pin.signal.strip_prefix("INP").unwrap().parse().unwrap(), false))
-                    } else if pin.signal.starts_with("INN") {
-                        Some((pin.signal.strip_prefix("INN").unwrap().parse().unwrap(), true))
-                    } else if pin.signal.starts_with("IN") && pin.signal.ends_with('b') {
-                        // we number STM32L1 ADC bank 1 as 0..=31, bank 2 as 32..=63
-                        let signal = pin.signal.strip_prefix("IN").unwrap().strip_suffix('b').unwrap();
-                        Some((32u8 + signal.parse::<u8>().unwrap(), false))
-                    } else if pin.signal.starts_with("IN") {
-                        Some((pin.signal.strip_prefix("IN").unwrap().parse().unwrap(), false))
-                    } else {
-                        None
-                    };
+                    // H7 has differential voltage measurements.
+                    let ch = parse_adc_pin_signal(pin.signal);
                     if let Some((ch, false)) = ch {
                         adc_pairs.entry(ch).or_insert((None, None)).0.replace(pin_name.clone());
 
@@ -1688,22 +1676,53 @@ fn main() {
                         // Impl OutputPin for the VOUT pin
                         g.extend(quote! {
                             impl_opamp_vout_pin!( #peri, #pin_name );
-                        })
+                        });
+
+                        for adc in METADATA.peripherals {
+                            let Some(adc_regs) = &adc.registers else {
+                                continue;
+                            };
+                            if adc_regs.kind != "adc" || adc.rcc.is_none() {
+                                continue;
+                            }
+
+                            let adc_peri = format_ident!("{}", adc.name);
+                            for adc_pin in adc.pins {
+                                if adc_pin.pin != pin.pin {
+                                    continue;
+                                }
+
+                                if let Some((ch, false)) = parse_adc_pin_signal(adc_pin.signal) {
+                                    g.extend(quote! {
+                                        impl_opamp_external_output!( #peri, #adc_peri, #ch );
+                                    });
+                                }
+                            }
+                        }
                     }
                 }
 
                 if regs.kind == "comp" {
                     let peri = format_ident!("{}", p.name);
                     let pin_name = format_ident!("{}", pin.pin);
-                    if pin.signal.starts_with("INP") {
-                        // Impl InputPlusPin for INP or INP0, INP1 etc.
-                        let ch: u8 = pin.signal.strip_prefix("INP").unwrap().parse().unwrap_or(0);
+                    // Check if this peripheral has numbered signals (e.g. INP0/INP1 from extra YAML).
+                    // If so, skip bare INP/INM to avoid duplicate trait impls.
+                    let has_numbered = p.pins.iter().any(|s| s.signal.starts_with("INP") && s.signal.len() > 3);
+                    if let Some(ch_str) = pin.signal.strip_prefix("INP") {
+                        let ch: u8 = match ch_str.parse() {
+                            Ok(ch) => ch,
+                            Err(_) if !has_numbered => 0, // bare "INP" on chips without numbered signals
+                            Err(_) => continue,           // skip bare "INP" when numbered signals exist
+                        };
                         g.extend(quote! {
                             impl_comp_inp_pin!( #peri, #pin_name, #ch );
                         });
-                    } else if pin.signal.starts_with("INM") {
-                        // Impl InputMinusPin for INM or INM0, INM1 etc.
-                        let ch: u8 = pin.signal.strip_prefix("INM").unwrap().parse().unwrap_or(0);
+                    } else if let Some(ch_str) = pin.signal.strip_prefix("INM") {
+                        let ch: u8 = match ch_str.parse() {
+                            Ok(ch) => ch,
+                            Err(_) if !has_numbered => 0,
+                            Err(_) => continue,
+                        };
                         g.extend(quote! {
                             impl_comp_inm_pin!( #peri, #pin_name, #ch );
                         });
@@ -1781,8 +1800,8 @@ fn main() {
         (("timer", "CH2"), quote!(crate::timer::Dma<Ch2>)),
         (("timer", "CH3"), quote!(crate::timer::Dma<Ch3>)),
         (("timer", "CH4"), quote!(crate::timer::Dma<Ch4>)),
-        (("cordic", "WRITE"), quote!(crate::cordic::WriteDma)), // FIXME: stm32u5a crash on Cordic driver
-        (("cordic", "READ"), quote!(crate::cordic::ReadDma)),   // FIXME: stm32u5a crash on Cordic driver
+        (("cordic", "WRITE"), quote!(crate::cordic::WriteDma)),
+        (("cordic", "READ"), quote!(crate::cordic::ReadDma)),
         (("xspi", "RX"), quote!(crate::xspi::XDma)),
         (("xspi", "RX"), quote!(crate::xspi::XDma)),
     ]
@@ -1823,11 +1842,6 @@ fn main() {
 
     for p in METADATA.peripherals {
         if let Some(regs) = &p.registers {
-            // FIXME: stm32u5a crash on Cordic driver
-            if chip_name.starts_with("stm32u5a") && regs.kind == "cordic" {
-                continue;
-            }
-
             for trigger in p.triggers {
                 let matches = trigger_expr.captures(trigger.signal).unwrap();
                 let signal = &matches[1];
@@ -2692,6 +2706,22 @@ fn mem_filter(chip: &str, region: &str) -> bool {
     }
 
     true
+}
+
+fn parse_adc_pin_signal(signal: &str) -> Option<(u8, bool)> {
+    if signal.starts_with("INP") {
+        Some((signal.strip_prefix("INP").unwrap().parse().unwrap(), false))
+    } else if signal.starts_with("INN") {
+        Some((signal.strip_prefix("INN").unwrap().parse().unwrap(), true))
+    } else if signal.starts_with("IN") && signal.ends_with('b') {
+        // We number STM32L1 ADC bank 1 as 0..=31, bank 2 as 32..=63.
+        let signal = signal.strip_prefix("IN").unwrap().strip_suffix('b').unwrap();
+        Some((32u8 + signal.parse::<u8>().unwrap(), false))
+    } else if signal.starts_with("IN") {
+        Some((signal.strip_prefix("IN").unwrap().parse().unwrap(), false))
+    } else {
+        None
+    }
 }
 
 #[derive(Copy, Clone, Debug)]

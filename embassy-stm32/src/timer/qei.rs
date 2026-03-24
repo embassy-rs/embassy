@@ -19,6 +19,8 @@ pub struct Config {
     pub ch2_pull: Pull,
     /// Specifies the encoder mode to use for the Qei peripheral.
     pub mode: QeiMode,
+    /// Sets the auto-reload value for the counter.
+    pub auto_reload: u16,
 }
 
 impl Default for Config {
@@ -28,6 +30,7 @@ impl Default for Config {
             ch1_pull: Pull::None,
             ch2_pull: Pull::None,
             mode: QeiMode::Mode3,
+            auto_reload: u16::MAX,
         }
     }
 }
@@ -118,7 +121,7 @@ impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
             w.set_sms(config.mode.into());
         });
 
-        r.arr().modify(|w| w.set_arr(u16::MAX));
+        r.arr().modify(|w| w.set_arr(config.auto_reload));
         r.cr1().modify(|w| w.set_cen(true));
 
         Self {
@@ -139,5 +142,10 @@ impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
     /// Get count.
     pub fn count(&self) -> u16 {
         self.inner.regs_gp16().cnt().read().cnt()
+    }
+
+    /// Reset count.
+    pub fn reset(&mut self) {
+        self.inner.regs_gp16().cnt().modify(|w| w.set_cnt(0));
     }
 }

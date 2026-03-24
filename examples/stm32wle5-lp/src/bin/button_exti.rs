@@ -16,7 +16,7 @@ bind_interrupts!(
         EXTI0 => exti::InterruptHandler<interrupt::typelevel::EXTI0>;
 });
 
-#[embassy_executor::main(executor = "embassy_stm32::Executor", entry = "cortex_m_rt::entry")]
+#[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn async_main(_spawner: Spawner) {
     // delay to allow probe-rs to connect for flashing
     cortex_m::asm::delay(1_000_000);
