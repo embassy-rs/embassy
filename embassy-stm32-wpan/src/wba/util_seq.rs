@@ -16,18 +16,14 @@
 
 use core::cell::UnsafeCell;
 use core::future::poll_fn;
-use core::sync::atomic::{AtomicU32, Ordering, compiler_fence};
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::context::ContextManager;
+use super::context::ContextManager;
 
 type TaskFn = unsafe extern "C" fn();
-
-unsafe extern "Rust" {
-    fn __pender(context: *mut ());
-}
 
 const MAX_TASKS: usize = 32;
 const DEFAULT_PRIORITY: u8 = u8::MAX;
@@ -70,15 +66,27 @@ struct Sequencer {
     tasks: TaskTable,
     pending_tasks: AtomicU32,
     events: AtomicU32,
+    /// Set by seq_pend() (ISRs, timers, etc.) to indicate the runner should wake.
+    /// Checked and cleared by wait_for_event(). This ensures wakeups from radio ISRs
+    /// that don't set sequencer tasks are not lost.
+    pended: AtomicBool,
     waker: AtomicWaker,
+    super_mask: AtomicU32,
+    current_task_idx: AtomicU32,
 }
+
+const ALL_TASKS_MASK: u32 = 0xFFFFFFFF;
+const NO_TASK_RUNNING: u32 = 0xFFFFFFFF;
 
 static SEQUENCER: Sequencer = Sequencer {
     context: ContextManager::new(task_entry),
     tasks: TaskTable::new(),
     pending_tasks: AtomicU32::new(0),
     events: AtomicU32::new(0),
+    pended: AtomicBool::new(false),
     waker: AtomicWaker::new(),
+    super_mask: AtomicU32::new(ALL_TASKS_MASK),
+    current_task_idx: AtomicU32::new(NO_TASK_RUNNING),
 };
 
 fn mask_to_index(mask: u32) -> Option<usize> {
@@ -88,6 +96,21 @@ fn mask_to_index(mask: u32) -> Option<usize> {
     let idx = mask.trailing_zeros() as usize;
     if idx < MAX_TASKS { Some(idx) } else { None }
 }
+
+/// Run the sequencer with the given task mask.
+/// Use UTIL_SEQ_DEFAULT (0xFFFFFFFF) to run all tasks.
+/// Returns true if at least one task was executed.
+pub fn run(mask: u32) -> bool {
+    SEQUENCER.run(mask)
+}
+
+/// Check if there are any pending tasks or events
+pub fn has_pending_work() -> bool {
+    SEQUENCER.has_work()
+}
+
+/// Default mask value for running all tasks (matches ST's UTIL_SEQ_DEFAULT)
+pub const UTIL_SEQ_DEFAULT: u32 = ALL_TASKS_MASK;
 
 pub fn seq_pend() {
     SEQUENCER.seq_pend();
@@ -108,7 +131,8 @@ pub async fn wait_for_event() {
 extern "C" fn task_entry() -> ! {
     loop {
         // Poll and execute any pending sequencer tasks
-        SEQUENCER.run();
+        // Use UTIL_SEQ_DEFAULT to run all tasks
+        SEQUENCER.run(UTIL_SEQ_DEFAULT);
 
         // Yield back to the runner
         // This will return when the runner resumes us
@@ -123,7 +147,8 @@ impl Sequencer {
 
             compiler_fence(Ordering::Acquire);
 
-            if self.has_work() {
+            // Check both explicit sequencer work AND the pended flag (set by ISRs/timers)
+            if self.has_work() || self.pended.swap(false, Ordering::AcqRel) {
                 Poll::Ready(())
             } else {
                 Poll::Pending
@@ -137,9 +162,8 @@ impl Sequencer {
     }
 
     fn seq_pend(&self) {
+        self.pended.store(true, Ordering::Release);
         self.waker.wake();
-        // TODO: does the waker fire the pender automatically ? We may not need this.
-        unsafe { __pender(u32::MAX as *mut _) };
     }
 
     /// Wait for an event
@@ -170,8 +194,10 @@ impl Sequencer {
         self.pending_tasks.load(Ordering::Acquire) != 0 || self.events.load(Ordering::Acquire) != 0
     }
 
-    fn select_next_task(&self) -> Option<(usize, TaskFn)> {
+    fn select_next_task(&self, super_mask: u32) -> Option<(usize, TaskFn)> {
         let pending = self.pending_tasks.load(Ordering::Acquire);
+        // Apply super_mask to restrict which tasks can run
+        let pending = pending & super_mask;
         if pending == 0 {
             return None;
         }
@@ -214,29 +240,70 @@ impl Sequencer {
     }
 
     /// Poll and execute any tasks that have been scheduled via the UTIL sequencer API.
-    pub fn run(&self) {
+    ///
+    /// This function supports re-entrant calls (UTIL_SEQ_WaitEvt calls this recursively).
+    /// The mask parameter restricts which tasks can run in this invocation.
+    ///
+    /// Returns true if at least one task was executed.
+    pub fn run(&self, mask: u32) -> bool {
         compiler_fence(Ordering::Acquire);
+
+        let mut executed_any = false;
+
+        // Save and update SuperMask for nested calls
+        // Each nested call makes the mask MORE restrictive (following ST's implementation)
+        let super_mask_backup = self.super_mask.load(Ordering::Acquire);
+        let new_super_mask = super_mask_backup & mask;
+        self.super_mask.store(new_super_mask, Ordering::Release);
+
         loop {
             loop {
-                let next = critical_section::with(|_| self.select_next_task());
+                let current_super_mask = self.super_mask.load(Ordering::Acquire);
+                let next = critical_section::with(|_| self.select_next_task(current_super_mask));
                 match next {
-                    Some((idx, task)) => unsafe {
-                        task();
+                    Some((idx, task)) => {
+                        // Set current task index before executing
+                        self.current_task_idx.store(idx as u32, Ordering::Release);
+
+                        unsafe {
+                            task();
+                        }
+
+                        executed_any = true;
+
                         // Force a fresh read of the pending bitmask after each task completion.
                         // TODO: this appears to do nothing (will be optimized away)
                         let _ = idx;
-                    },
+                    }
                     None => break,
                 }
             }
 
-            if self.pending_tasks.load(Ordering::Acquire) == 0 {
+            let current_super_mask = self.super_mask.load(Ordering::Acquire);
+            let pending = self.pending_tasks.load(Ordering::Acquire);
+            if (pending & current_super_mask) == 0 {
                 break;
             }
         }
 
+        // Restore SuperMask when returning from nested call
+        self.super_mask.store(super_mask_backup, Ordering::Release);
+
+        // Clear current task index when no task is running
+        self.current_task_idx.store(NO_TASK_RUNNING, Ordering::Release);
+
         compiler_fence(Ordering::Release);
+
+        executed_any
     }
+}
+
+/// UTIL_SEQ_Run C API
+/// Runs the sequencer with the given mask.
+/// Per ST API: UTIL_SEQ_Run(UTIL_SEQ_DEFAULT) runs all tasks.
+#[unsafe(no_mangle)]
+pub extern "C" fn UTIL_SEQ_Run(mask: u32) {
+    let _ = run(mask); // Discard return value for C compatibility
 }
 
 #[unsafe(no_mangle)]
@@ -258,6 +325,47 @@ pub extern "C" fn UTIL_SEQ_UnregTask(task_mask: u32) {
             SEQUENCER.tasks.set_task(idx, None, DEFAULT_PRIORITY);
         });
         SEQUENCER.pending_tasks.fetch_and(!(task_mask), Ordering::AcqRel);
+    }
+}
+
+/// Check if a task is registered
+/// Returns 1 if registered, 0 if not
+#[unsafe(no_mangle)]
+pub extern "C" fn UTIL_SEQ_IsRegisteredTask(task_mask: u32) -> u32 {
+    if let Some(idx) = mask_to_index(task_mask) {
+        critical_section::with(|_| unsafe { if SEQUENCER.tasks.task(idx).is_some() { 1 } else { 0 } })
+    } else {
+        0
+    }
+}
+
+/// Check if a task is schedulable (pending and not masked)
+/// Returns 1 if schedulable, 0 if not
+#[unsafe(no_mangle)]
+pub extern "C" fn UTIL_SEQ_IsSchedulableTask(task_mask: u32) -> u32 {
+    let pending = SEQUENCER.pending_tasks.load(Ordering::Acquire);
+    let super_mask = SEQUENCER.super_mask.load(Ordering::Acquire);
+
+    if (pending & super_mask & task_mask) == task_mask {
+        1
+    } else {
+        0
+    }
+}
+
+/// Check if a task is paused
+/// Returns 1 if paused, 0 if not paused
+/// Note: In our simplified implementation, we don't have a separate pause mask like ST's TaskMask
+/// We just check if the task is NOT pending
+#[unsafe(no_mangle)]
+pub extern "C" fn UTIL_SEQ_IsPauseTask(task_mask: u32) -> u32 {
+    // In ST's implementation, pausing removes from TaskMask but not from TaskSet
+    // In our implementation, pausing is equivalent to clearing the pending bit
+    let pending = SEQUENCER.pending_tasks.load(Ordering::Acquire);
+    if (pending & task_mask) == 0 {
+        1 // Not pending = paused
+    } else {
+        0 // Pending = not paused
     }
 }
 
@@ -316,13 +424,79 @@ pub extern "C" fn UTIL_SEQ_IsEvtSet(event_mask: u32) -> u32 {
     if (state & event_mask) == event_mask { 1 } else { 0 }
 }
 
+/// Check if any pending event matches the currently waited event
+/// Returns the event_id if pending, 0 otherwise
+/// This matches ST's UTIL_SEQ_IsEvtPend API
+#[unsafe(no_mangle)]
+pub extern "C" fn UTIL_SEQ_IsEvtPend() -> u32 {
+    // In ST's implementation, this checks EvtSet & EvtWaited
+    // Since we don't track a global EvtWaited (we handle it locally in WaitEvt),
+    // we just return the current events mask
+    SEQUENCER.events.load(Ordering::Acquire)
+}
+
+/// Initialize the sequencer (matches ST's API)
+/// In our implementation, initialization is done statically, so this is a no-op
+#[unsafe(no_mangle)]
+pub extern "C" fn UTIL_SEQ_Init() {
+    // Sequencer is initialized statically in our implementation
+    #[cfg(feature = "defmt")]
+    defmt::trace!("UTIL_SEQ_Init called (no-op in Embassy implementation)");
+}
+
+/// Deinitialize the sequencer (matches ST's API)
+#[unsafe(no_mangle)]
+pub extern "C" fn UTIL_SEQ_DeInit() {
+    // No-op in our implementation
+    #[cfg(feature = "defmt")]
+    defmt::trace!("UTIL_SEQ_DeInit called (no-op in Embassy implementation)");
+}
+
+/// Idle function called when sequencer has no work
+/// This is a weak function in ST's implementation that can be overridden
+/// In our implementation, this is handled by seq_yield()
+#[unsafe(no_mangle)]
+pub extern "C" fn UTIL_SEQ_Idle() {
+    // This would be called by ST's sequencer when idle
+    // In our implementation, we handle this via seq_yield in the main loop
+    SEQUENCER.seq_yield();
+}
+
+/// Pre-idle hook (called before entering idle)
+#[unsafe(no_mangle)]
+pub extern "C" fn UTIL_SEQ_PreIdle() {
+    // Hook for power management - can be overridden by application
+    // Default implementation does nothing (matches ST's weak function)
+}
+
+/// Post-idle hook (called after waking from idle)
+#[unsafe(no_mangle)]
+pub extern "C" fn UTIL_SEQ_PostIdle() {
+    // Hook for power management - can be overridden by application
+    // Default implementation does nothing (matches ST's weak function)
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn UTIL_SEQ_WaitEvt(event_mask: u32) {
     #[cfg(feature = "defmt")]
     defmt::trace!("UTIL_SEQ_WaitEvt: mask=0x{:08X}", event_mask);
 
+    // Store the current task index (we may be called from a task or outside any task)
+    let current_task_idx = SEQUENCER.current_task_idx.load(Ordering::Acquire);
+
     loop {
-        SEQUENCER.run();
+        // Compute the exclusion mask: run all tasks EXCEPT the current one
+        // This matches ST's UTIL_SEQ_EvtIdle behavior: UTIL_SEQ_Run(~TaskId_bm)
+        let run_mask = if current_task_idx == NO_TASK_RUNNING {
+            // Called outside any task (e.g., during init), run all tasks
+            ALL_TASKS_MASK
+        } else {
+            // Called from a task, exclude that task from running
+            ALL_TASKS_MASK & !(1u32 << current_task_idx)
+        };
+
+        // This is a RE-ENTRANT call - it will run other tasks while we wait
+        SEQUENCER.run(run_mask);
 
         let current = SEQUENCER.events.load(Ordering::Acquire);
         if (current & event_mask) == event_mask {
@@ -334,10 +508,15 @@ pub extern "C" fn UTIL_SEQ_WaitEvt(event_mask: u32) {
 
         #[cfg(feature = "defmt")]
         defmt::trace!(
-            "UTIL_SEQ_WaitEvt: waiting (in_seq_ctx={})",
-            SEQUENCER.context.in_task_context()
+            "UTIL_SEQ_WaitEvt: waiting (in_seq_ctx={}, current_task={})",
+            SEQUENCER.context.in_task_context(),
+            current_task_idx
         );
 
         SEQUENCER.seq_yield();
     }
+
+    // Restore current task index after waiting
+    // (it may have been changed by nested run() calls)
+    SEQUENCER.current_task_idx.store(current_task_idx, Ordering::Release);
 }

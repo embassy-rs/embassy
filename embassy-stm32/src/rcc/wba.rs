@@ -274,6 +274,7 @@ pub(crate) unsafe fn init(config: Config) {
     };
 
     let lsi = config.ls.lsi.then_some(LSI_FREQ);
+    let lse = config.ls.lse.map(|c| c.frequency);
 
     // Disable HSI if not used
     if !config.hsi {
@@ -296,13 +297,12 @@ pub(crate) unsafe fn init(config: Config) {
         rtc: rtc,
         hse: hse,
         lsi: lsi,
+        lse: lse,
         hsi: hsi,
         pll1_p: pll1.p,
         pll1_q: pll1.q,
         pll1_r: pll1.r,
 
-        // TODO
-        lse: None,
         #[cfg(sai_v4_2pdm)]
         audioclk: audioclk,
     );
