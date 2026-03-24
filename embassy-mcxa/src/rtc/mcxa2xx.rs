@@ -10,7 +10,7 @@ use nxp_pac::rtc::TcrVal;
 use crate::clocks::{WakeGuard, with_clocks};
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac;
-use crate::pac::rtc::{Swr, Tcr, Um};
+use crate::pac::rtc::{Swr, Um};
 
 /// RTC interrupt handler.
 pub struct InterruptHandler<I: Instance> {

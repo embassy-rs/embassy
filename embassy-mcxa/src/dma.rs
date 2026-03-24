@@ -118,9 +118,9 @@ use crate::clocks::enable_and_reset;
 use crate::clocks::periph_helpers::NoConfig;
 use crate::dma::sealed::SealedChannel;
 use crate::pac::dma::Halt;
-use crate::pac::edma_0_tcd::regs::{TcdAttr, TcdBiterElinkno, TcdCiterElinkno, TcdCsr};
-use crate::pac::edma_0_tcd::vals::{
-    Bwc, Dpa, Dreq, Ecp, Esg, Size, Start, TcdNbytesMloffnoDmloe, TcdNbytesMloffnoSmloe,
+use crate::pac::edma_tcd::{
+    Bwc, Dpa, Dreq, Ecp, Esg, Size, Start, TcdAttr, TcdBiterElinkno, TcdCiterElinkno, TcdCsr, TcdNbytesMloffnoDmloe,
+    TcdNbytesMloffnoSmloe,
 };
 use crate::pac::{self, Interrupt};
 use crate::peripherals::DMA0;
@@ -671,9 +671,9 @@ impl DmaChannel<'_> {
 
     /// Return a reference to the underlying TCD register block.
     #[inline]
-    pub(crate) fn tcd(&self) -> pac::edma_0_tcd::Tcd {
+    pub(crate) fn tcd(&self) -> pac::edma_tcd::Tcd {
         // Safety: MCXA276 has a single eDMA instance
-        pac::EDMA_0_TCD0.tcd(self.channel.index())
+        pac::EDMA_0_TCD.tcd(self.channel.index())
     }
 
     /// set a manual callback to be called AFTER the DMA interrupt is processed. Will be called in the DMA interrupt
@@ -700,7 +700,7 @@ impl DmaChannel<'_> {
         self.tcd().tcd_daddr().read().daddr()
     }
 
-    fn clear_tcd(t: &pac::edma_0_tcd::Tcd) {
+    fn clear_tcd(t: &pac::edma_tcd::Tcd) {
         // Full TCD reset following NXP SDK pattern (EDMA_TcdResetExt).
         // Reset ALL TCD registers to 0 to clear any stale configuration from
         // previous transfers. This is critical when reusing a channel.
@@ -717,13 +717,13 @@ impl DmaChannel<'_> {
     }
 
     #[inline]
-    fn set_major_loop_ct_elinkno(t: &pac::edma_0_tcd::Tcd, count: u16) {
+    fn set_major_loop_ct_elinkno(t: &pac::edma_tcd::Tcd, count: u16) {
         t.tcd_biter_elinkno().write(|w| w.set_biter(count));
         t.tcd_citer_elinkno().write(|w| w.set_citer(count));
     }
 
     #[inline]
-    fn set_major_loop_nbytes_without_minor(t: &pac::edma_0_tcd::Tcd, count: u32) {
+    fn set_major_loop_nbytes_without_minor(t: &pac::edma_tcd::Tcd, count: u32) {
         t.tcd_nbytes_mloffno().write(|w| {
             w.set_smloe(TcdNbytesMloffnoSmloe::OFFSET_NOT_APPLIED);
             w.set_dmloe(TcdNbytesMloffnoDmloe::OFFSET_NOT_APPLIED);
@@ -732,44 +732,44 @@ impl DmaChannel<'_> {
     }
 
     #[inline]
-    fn set_no_final_adjustments(t: &pac::edma_0_tcd::Tcd) {
+    fn set_no_final_adjustments(t: &pac::edma_tcd::Tcd) {
         // No source/dest adjustment after major loop
         t.tcd_slast_sda().write(|w| w.set_slast_sda(0));
         t.tcd_dlast_sga().write(|w| w.set_dlast_sga(0));
     }
 
     #[inline]
-    fn set_source_ptr<T>(t: &pac::edma_0_tcd::Tcd, p: *const T) {
+    fn set_source_ptr<T>(t: &pac::edma_tcd::Tcd, p: *const T) {
         t.tcd_saddr().write(|w| w.set_saddr(p as u32));
     }
 
     #[inline]
-    fn set_source_increment(t: &pac::edma_0_tcd::Tcd, sz: WordSize) {
+    fn set_source_increment(t: &pac::edma_tcd::Tcd, sz: WordSize) {
         t.tcd_soff().write(|w| w.set_soff(sz.bytes() as u16));
     }
 
     #[inline]
-    fn set_source_fixed(t: &pac::edma_0_tcd::Tcd) {
+    fn set_source_fixed(t: &pac::edma_tcd::Tcd) {
         t.tcd_soff().write(|w| w.set_soff(0));
     }
 
     #[inline]
-    fn set_dest_ptr<T>(t: &pac::edma_0_tcd::Tcd, p: *mut T) {
+    fn set_dest_ptr<T>(t: &pac::edma_tcd::Tcd, p: *mut T) {
         t.tcd_daddr().write(|w| w.set_daddr(p as u32));
     }
 
     #[inline]
-    fn set_dest_increment(t: &pac::edma_0_tcd::Tcd, sz: WordSize) {
+    fn set_dest_increment(t: &pac::edma_tcd::Tcd, sz: WordSize) {
         t.tcd_doff().write(|w| w.set_doff(sz.bytes() as u16));
     }
 
     #[inline]
-    fn set_dest_fixed(t: &pac::edma_0_tcd::Tcd) {
+    fn set_dest_fixed(t: &pac::edma_tcd::Tcd) {
         t.tcd_doff().write(|w| w.set_doff(0));
     }
 
     #[inline]
-    fn set_fixed_priority(t: &pac::edma_0_tcd::Tcd, p: Priority) {
+    fn set_fixed_priority(t: &pac::edma_tcd::Tcd, p: Priority) {
         t.ch_pri().write(|w| {
             w.set_dpa(Dpa::SUSPEND);
             w.set_ecp(Ecp::SUSPEND);
@@ -778,7 +778,7 @@ impl DmaChannel<'_> {
     }
 
     #[inline]
-    fn reset_channel_state(t: &pac::edma_0_tcd::Tcd) {
+    fn reset_channel_state(t: &pac::edma_tcd::Tcd) {
         // CSR: Resets to all zeroes (disabled), "done" is cleared by writing 1
         t.ch_csr().write(|w| w.set_done(true));
         // ES: Resets to all zeroes (disabled), "err" is cleared by writing 1
@@ -2362,7 +2362,7 @@ pub struct ScatterGatherResult {
 /// Must be called from the correct DMA channel interrupt context.
 unsafe fn on_interrupt(ch_index: usize) {
     crate::perf_counters::incr_interrupt_edma0();
-    let edma = &pac::EDMA_0_TCD0;
+    let edma = &pac::EDMA_0_TCD;
     let t = edma.tcd(ch_index);
 
     // Read TCD CSR to determine interrupt source
