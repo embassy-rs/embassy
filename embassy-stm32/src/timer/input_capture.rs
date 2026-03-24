@@ -151,6 +151,7 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
         self.inner.set_input_ti_selection(channel, tisel);
         self.inner.set_input_capture_mode(channel, mode);
         self.inner.enable_channel(channel, true);
+        self.inner.clear_input_interrupt(channel);
         self.inner.enable_input_interrupt(channel, true);
 
         InputCaptureFuture {
