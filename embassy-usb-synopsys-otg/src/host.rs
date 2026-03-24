@@ -328,7 +328,7 @@ impl<'d, const CH_COUNT: usize> OtgHost<'d, CH_COUNT> {
             if timeout == 0 {
                 break;
             }
-            cortex_m_nop();
+            core::hint::spin_loop();
         }
     }
 
@@ -503,7 +503,7 @@ impl<'d, const CH_COUNT: usize> UsbHostDriver for OtgHost<'d, CH_COUNT> {
         // We use a busy-wait here since embassy-time may not be available.
         // 50ms to be safe.
         for _ in 0..500_000u32 {
-            cortex_m_nop();
+            core::hint::spin_loop();
         }
 
         // De-assert reset
@@ -516,7 +516,7 @@ impl<'d, const CH_COUNT: usize> UsbHostDriver for OtgHost<'d, CH_COUNT> {
 
         // Wait a bit for the device to recover
         for _ in 0..200_000u32 {
-            cortex_m_nop();
+            core::hint::spin_loop();
         }
     }
 
@@ -971,16 +971,3 @@ async fn yield_now() {
     .await
 }
 
-/// No-op for delay loops (architecture-specific NOP).
-#[inline(always)]
-fn cortex_m_nop() {
-    #[cfg(target_arch = "arm")]
-    unsafe {
-        core::arch::asm!("nop");
-    }
-    #[cfg(not(target_arch = "arm"))]
-    {
-        // No-op on non-ARM targets (e.g., during testing)
-        core::hint::spin_loop();
-    }
-}
