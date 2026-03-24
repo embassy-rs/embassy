@@ -12,7 +12,6 @@ use core::future::Future;
 use core::marker::PhantomData;
 use core::mem::{self, MaybeUninit};
 use core::pin::Pin;
-use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::{Context, Poll};
 
 use crate::blocking_mutex::Mutex;
@@ -168,6 +167,13 @@ impl SlotState {
     };
 }
 
+#[derive(Clone, Copy)]
+struct RunnerState {
+    running: bool,
+    initialized: bool,
+    needs_recovery: bool,
+}
+
 /// Type-erased storage for closures and return values.
 ///
 /// Invariants:
@@ -176,7 +182,7 @@ impl SlotState {
 /// - `take<T>()` reads a `T` out and clears `drop_fn`
 /// - `drop_contents()` drops in place if occupied; no-op if empty
 #[repr(C, align(8))]
-//TODO: unflexible, but need to choose some value... maybe target_pointer_width is better?
+// TODO: fixed at 8-byte alignment; consider using target_pointer_width instead.
 struct Storage<const S: usize> {
     buf: UnsafeCell<MaybeUninit<[u8; S]>>,
     drop_fn: UnsafeCell<Option<unsafe fn(&Self)>>,
@@ -280,43 +286,37 @@ impl<M: RawMutex, T, const S: usize> JobSlot<M, T, S> {
         }
     }
 
-    // TODO: should remove this or make debug_assert message clearer.
-    fn debug_assert_held(&self) {
-        self.state.lock(|cell| {
-            let s = cell.replace(SlotState::EMPTY);
-            debug_assert!(!s.free, "slot accessed without being held");
-            cell.set(s);
-        });
-    }
-
-    // TODO: documentation needed
-    fn poll_acquire(&self, cx: &mut Context<'_>) -> Poll<()> {
+    fn with_slot_state<R>(&self, f: impl FnOnce(&mut SlotState) -> R) -> R {
         self.state.lock(|cell| {
             let mut s = cell.replace(SlotState::EMPTY);
+            let r = f(&mut s);
+            cell.set(s);
+            r
+        })
+    }
+
+    fn debug_assert_held(&self) {
+        let free = self.with_slot_state(|s| s.free);
+        debug_assert!(!free, "slot is free but expected to be held");
+    }
+
+    fn poll_acquire(&self, cx: &mut Context<'_>) -> Poll<()> {
+        self.with_slot_state(|s| {
             if s.free {
                 s.free = false;
-                cell.set(s);
                 Poll::Ready(())
             } else {
                 s.waker.register(cx.waker());
-                cell.set(s);
                 Poll::Pending
             }
         })
     }
 
-    // TODO: documentation needed
     fn try_acquire(&self) -> bool {
-        self.state.lock(|cell| {
-            let mut s = cell.replace(SlotState::EMPTY);
-            if s.free {
-                s.free = false;
-                cell.set(s);
-                true
-            } else {
-                cell.set(s);
-                false
-            }
+        self.with_slot_state(|s| {
+            let was_free = s.free;
+            s.free = false;
+            was_free
         })
     }
 
@@ -340,12 +340,11 @@ impl<M: RawMutex, T, const S: usize> JobSlot<M, T, S> {
     fn mark_free(&self) {
         self.state.lock(|cell| {
             let mut s = cell.replace(SlotState::EMPTY);
-            cell.set(SlotState {
-                free: true,
-                waker: WakerRegistration::new(),
-            });
+            s.free = true;
+            let mut waker = mem::take(&mut s.waker);
+            cell.set(s);
             // TODO: check that waking inside the lock is ok
-            s.waker.wake();
+            waker.wake();
         });
     }
 
@@ -364,19 +363,22 @@ impl<M: RawMutex, T, const S: usize> JobSlot<M, T, S> {
         }
     }
 
-    // TODO: maybe more docs
     /// Wait for the caller's ack, then clean up the slot and mark it free.
     ///
     /// If the stored value's destructor panics under unwinding, the slot
     /// is still reset and freed.
-    async fn wait_ack_and_finish(&self, needs_recovery: &AtomicBool) {
+    async fn wait_ack_and_finish(&self, runner_state: &Mutex<M, Cell<RunnerState>>) {
         struct FinishGuard<'a, M: RawMutex, T, const S: usize> {
             slot: &'a JobSlot<M, T, S>,
-            needs_recovery: &'a AtomicBool,
+            runner_state: &'a Mutex<M, Cell<RunnerState>>,
         }
         impl<M: RawMutex, T, const S: usize> Drop for FinishGuard<'_, M, T, S> {
             fn drop(&mut self) {
-                self.needs_recovery.store(false, Ordering::Release);
+                self.runner_state.lock(|cell| {
+                    let mut s = cell.get();
+                    s.needs_recovery = false;
+                    cell.set(s);
+                });
                 self.slot.done.reset();
                 self.slot.mark_free();
             }
@@ -387,7 +389,7 @@ impl<M: RawMutex, T, const S: usize> JobSlot<M, T, S> {
 
         let _guard = FinishGuard {
             slot: self,
-            needs_recovery,
+            runner_state,
         };
         // SAFETY: ack received, so the caller is done with the slot.
         // drop_contents() already guards against double drop.
@@ -420,19 +422,28 @@ impl<M: RawMutex, T, const S: usize> JobSlot<M, T, S> {
 /// ```
 pub struct ContextService<M: RawMutex, T, const S: usize> {
     slot: JobSlot<M, T, S>,
-    running: AtomicBool,
-    initialized: AtomicBool,
-    needs_recovery: AtomicBool,
+    runner_state: Mutex<M, Cell<RunnerState>>,
 }
 
 impl<M: RawMutex, T, const S: usize> ContextService<M, T, S> {
+    fn with_runner_state<R>(&self, f: impl FnOnce(&mut RunnerState) -> R) -> R {
+        self.runner_state.lock(|cell| {
+            let mut s = cell.get();
+            let r = f(&mut s);
+            cell.set(s);
+            r
+        })
+    }
+
     /// Create a new `ContextService`.
     pub const fn new() -> Self {
         Self {
             slot: JobSlot::new(),
-            running: AtomicBool::new(false),
-            initialized: AtomicBool::new(false),
-            needs_recovery: AtomicBool::new(false),
+            runner_state: Mutex::new(Cell::new(RunnerState {
+                running: false,
+                initialized: false,
+                needs_recovery: false,
+            })),
         }
     }
 
@@ -501,32 +512,43 @@ impl<M: RawMutex, T, const S: usize> ContextService<M, T, S> {
     /// previous state and resume processing any in-flight call. Callers that were
     /// blocked will transparently continue once the new `run()` starts.
     pub async fn run(&self, state: &mut T) -> ! {
-        struct RunGuard<'a> {
-            running: &'a AtomicBool,
+        struct RunGuard<'a, M: RawMutex> {
+            runner_state: &'a Mutex<M, Cell<RunnerState>>,
         }
-        impl Drop for RunGuard<'_> {
+        impl<M: RawMutex> Drop for RunGuard<'_, M> {
             fn drop(&mut self) {
-                self.running.store(false, Ordering::Release);
+                self.runner_state.lock(|cell| {
+                    let mut s = cell.get();
+                    s.running = false;
+                    cell.set(s);
+                });
             }
         }
 
-        if self.running.swap(true, Ordering::AcqRel) {
-            panic!("ContextService::run() must not be called concurrently")
-        }
-        let _guard = RunGuard { running: &self.running };
+        let (needs_recovery, initialized) = self.with_runner_state(|s| {
+            if s.running {
+                panic!("ContextService::run() must not be called concurrently")
+            }
+            s.running = true;
+            (s.needs_recovery, s.initialized)
+        });
+        let _guard = RunGuard {
+            runner_state: &self.runner_state,
+        };
 
         // If the previous runner was cancelled mid-job the caller might still
         // be interacting with the slot. We must wait for it to finish (the caller
         // always acks, either explicitly or via its Drop) and then clean up.
-        if self.needs_recovery.load(Ordering::Acquire) {
-            self.slot.wait_ack_and_finish(&self.needs_recovery).await;
+        if needs_recovery {
+            self.slot.wait_ack_and_finish(&self.runner_state).await;
         }
 
         // Only the first run() may open the slot. On restarts, the slot
         // is either already free or holds a pending job from a caller
         // that submitted while no run() was active, which we may not clear!
-        if !self.initialized.swap(true, Ordering::Relaxed) {
+        if !initialized {
             self.slot.mark_free();
+            self.with_runner_state(|s| s.initialized = true);
         }
 
         loop {
@@ -535,7 +557,7 @@ impl<M: RawMutex, T, const S: usize> ContextService<M, T, S> {
             let run_fn = self.slot.job.wait().await;
 
             // From here on we may need to recover if cancellation occurs
-            self.needs_recovery.store(true, Ordering::Release);
+            self.with_runner_state(|s| s.needs_recovery = true);
 
             // SAFETY: slot contains a live F, run_fn matches its types.
             // No other task can access the slot, because the caller is waiting on done.
@@ -550,7 +572,7 @@ impl<M: RawMutex, T, const S: usize> ContextService<M, T, S> {
             // clean up the slot and mark it free for the next caller.
             // If cancelled here, needs_recovery is true and the next
             // run() will wait for ack before touching the slot.
-            self.slot.wait_ack_and_finish(&self.needs_recovery).await;
+            self.slot.wait_ack_and_finish(&self.runner_state).await;
         }
     }
 }
@@ -559,6 +581,7 @@ impl<M: RawMutex, T, const S: usize> ContextService<M, T, S> {
 unsafe impl<M: RawMutex, T, const S: usize> Sync for ContextService<M, T, S>
 where
     Mutex<M, Cell<SlotState>>: Sync,
+    Mutex<M, Cell<RunnerState>>: Sync,
     Signal<M, RunFn<T, S>>: Sync,
     Signal<M, ()>: Sync,
 {
