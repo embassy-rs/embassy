@@ -195,9 +195,10 @@ impl<'d, V: VbusDetect> embassy_usb_driver::Bus for Bus<'d, V> {
             w.set_core(true);
             w.set_phy(true);
         });
-        embassy_time::Timer::after_micros(45).await;
+        busy_wait_us(45);
         self.usb_regs.tasks_start().write_value(1);
-        embassy_time::Timer::after_micros(1).await;
+        busy_wait_us(1);
+        self.inner.core_soft_reset();
         self.inner.configure_as_device();
         self.release_vbus_override();
         self.inner.enable().await;
@@ -361,5 +362,18 @@ fn calculate_trdt(speed: Dspd) -> u8 {
             32_000_000..=u32::MAX => 0x6,
         },
         _ => unimplemented!(),
+    }
+}
+
+fn busy_wait_us(us: u32) {
+    #[cfg(feature = "time")]
+    embassy_time::block_for(embassy_time::Duration::from_micros(us as u64));
+
+    #[cfg(not(feature = "time"))]
+    {
+        // `asm::delay()` is a conservative lower-bound in CPU cycles, which is good enough for
+        // minimum hardware settle times when a real-time driver is unavailable.
+        let cycles = (current_hclk() / 1_000_000).saturating_mul(us);
+        cortex_m::asm::delay(cycles);
     }
 }

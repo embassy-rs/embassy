@@ -3277,6 +3277,17 @@ pub mod regs {
         pub fn set_txfnum(&mut self, val: u8) {
             self.0 = (self.0 & !(0x1f << 6usize)) | (((val as u32) & 0x1f) << 6usize);
         }
+        #[doc = "Core soft reset done"]
+        #[inline(always)]
+        pub const fn csrstdone(&self) -> bool {
+            let val = (self.0 >> 29usize) & 0x01;
+            val != 0
+        }
+        #[doc = "Core soft reset done"]
+        #[inline(always)]
+        pub fn set_csrstdone(&mut self, val: bool) {
+            self.0 = (self.0 & !(0x01 << 29usize)) | (((val as u32) & 0x01) << 29usize);
+        }
         #[doc = "DMA request signal enabled for USB OTG HS"]
         #[inline(always)]
         pub const fn dmareq(&self) -> bool {

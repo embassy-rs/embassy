@@ -590,6 +590,31 @@ impl<'d, const MAX_EP_COUNT: usize> Bus<'d, MAX_EP_COUNT> {
         self.instance.phy_type
     }
 
+    /// Applies a DWC2 core soft reset.
+    pub fn core_soft_reset(&mut self) {
+        let r = self.instance.regs;
+
+        // Wait for AHB idle
+        while !r.grstctl().read().ahbidl() {}
+
+        r.grstctl().write(|w| {
+            w.set_csrst(true);
+        });
+
+        // Wait until the reset done
+        loop {
+            let grstctl = r.grstctl().read();
+            if !grstctl.csrst() || grstctl.csrstdone() {
+                break;
+            }
+        }
+
+        // On synchronous-reset cores, CSRSTDONE is W1C. Preserve it in the writeback so it gets cleared.
+        r.grstctl().modify(|w| {
+            w.set_csrst(false);
+        });
+    }
+
     /// Configures the PHY as a device.
     pub fn configure_as_device(&mut self) {
         let r = self.instance.regs;
@@ -635,6 +660,9 @@ impl<'d, const MAX_EP_COUNT: usize> Bus<'d, MAX_EP_COUNT> {
                 }
             }
         });
+
+        // Wait for device mode ready
+        while r.gintsts().read().cmod() {}
     }
 
     /// Applies configuration specific to
