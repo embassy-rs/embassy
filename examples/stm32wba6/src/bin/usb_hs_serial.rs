@@ -2,6 +2,7 @@
 #![no_main]
 
 use defmt::{panic, *};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::usb::{Driver, Instance};
@@ -9,7 +10,7 @@ use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
 use embassy_usb::Builder;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     USB_OTG_HS => usb::InterruptHandler<peripherals::USB_OTG_HS>;

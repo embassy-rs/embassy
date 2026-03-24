@@ -45,8 +45,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::Timer;
 
 use super::bindings::mac;
-use super::linklayer_plat;
-use super::util_seq;
+use super::{linklayer_plat, util_seq};
 
 // BleStack_Process return values
 const BLE_SLEEPMODE_RUNNING: u8 = 0;
@@ -106,7 +105,10 @@ pub fn register_ble_tasks() {
     util_seq::UTIL_SEQ_RegTask(TASK_BLE_HOST_MASK, 0, Some(ble_stack_process_bg));
 
     #[cfg(feature = "defmt")]
-    defmt::trace!("Registered BleStack_Process_BG as sequencer task (mask=0x{:08X})", TASK_BLE_HOST_MASK);
+    defmt::trace!(
+        "Registered BleStack_Process_BG as sequencer task (mask=0x{:08X})",
+        TASK_BLE_HOST_MASK
+    );
 }
 
 /// Schedule the BLE Host task to run.
@@ -191,18 +193,15 @@ pub async fn ble_runner() -> ! {
     util_seq::UTIL_SEQ_SetTask(TASK_LINK_LAYER_MASK, 0);
     util_seq::seq_resume();
 
-
     loop {
         // Wait for either a sequencer event or a timer expiry
         match linklayer_plat::earliest_timer_deadline() {
-            Some(deadline) => {
-                match select(util_seq::wait_for_event(), Timer::at(deadline)).await {
-                    Either::First(()) => {}
-                    Either::Second(()) => {
-                        linklayer_plat::check_expired_timers();
-                    }
+            Some(deadline) => match select(util_seq::wait_for_event(), Timer::at(deadline)).await {
+                Either::First(()) => {}
+                Either::Second(()) => {
+                    linklayer_plat::check_expired_timers();
                 }
-            }
+            },
             None => {
                 util_seq::wait_for_event().await;
             }

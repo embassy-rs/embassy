@@ -274,7 +274,7 @@ impl Sequencer {
                         // Force a fresh read of the pending bitmask after each task completion.
                         // TODO: this appears to do nothing (will be optimized away)
                         let _ = idx;
-                    },
+                    }
                     None => break,
                 }
             }
@@ -333,13 +333,7 @@ pub extern "C" fn UTIL_SEQ_UnregTask(task_mask: u32) {
 #[unsafe(no_mangle)]
 pub extern "C" fn UTIL_SEQ_IsRegisteredTask(task_mask: u32) -> u32 {
     if let Some(idx) = mask_to_index(task_mask) {
-        critical_section::with(|_| unsafe {
-            if SEQUENCER.tasks.task(idx).is_some() {
-                1
-            } else {
-                0
-            }
-        })
+        critical_section::with(|_| unsafe { if SEQUENCER.tasks.task(idx).is_some() { 1 } else { 0 } })
     } else {
         0
     }
@@ -369,9 +363,9 @@ pub extern "C" fn UTIL_SEQ_IsPauseTask(task_mask: u32) -> u32 {
     // In our implementation, pausing is equivalent to clearing the pending bit
     let pending = SEQUENCER.pending_tasks.load(Ordering::Acquire);
     if (pending & task_mask) == 0 {
-        1  // Not pending = paused
+        1 // Not pending = paused
     } else {
-        0  // Pending = not paused
+        0 // Pending = not paused
     }
 }
 

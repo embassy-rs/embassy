@@ -147,12 +147,7 @@ pub fn le_set_advertising_enable(enable: bool) -> Result<(), BleError> {
 /// Standalone function for kicking the LL after runner startup when
 /// the scan enable command was issued before the runner was active.
 pub fn le_set_scan_enable(enable: bool, filter_duplicates: bool) -> Result<(), BleError> {
-    let status = unsafe {
-        hci_le_set_scan_enable(
-            if enable { 1 } else { 0 },
-            if filter_duplicates { 1 } else { 0 },
-        )
-    };
+    let status = unsafe { hci_le_set_scan_enable(if enable { 1 } else { 0 }, if filter_duplicates { 1 } else { 0 }) };
     if status == BLE_STATUS_SUCCESS {
         Ok(())
     } else {

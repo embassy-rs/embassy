@@ -140,9 +140,9 @@ pub struct PhyPrefs {
 impl Default for PhyPrefs {
     fn default() -> Self {
         Self {
-            all_phys: 0x00,  // Host has preference
-            tx_phys: 0x03,   // 1M and 2M
-            rx_phys: 0x03,   // 1M and 2M
+            all_phys: 0x00, // Host has preference
+            tx_phys: 0x03,  // 1M and 2M
+            rx_phys: 0x03,  // 1M and 2M
         }
     }
 }
@@ -192,7 +192,7 @@ impl Default for SecurityParams {
             max_encryption_key_size: 16,
             use_fixed_pin: 1,
             fixed_pin: 111111,
-            identity_address_type: 0,  // Public address
+            identity_address_type: 0, // Public address
         }
     }
 }
@@ -203,11 +203,11 @@ impl Default for GapInitParams {
             role: GapRole::Peripheral,
             privacy_enabled: false,
             device_name: b"Embassy-BLE",
-            appearance: 0,  // Unknown
+            appearance: 0,                                 // Unknown
             bd_addr: [0xE1, 0x80, 0xE1, 0x26, 0x1A, 0x00], // Default address
             ir_value: [0x12; 16],
             er_value: [0x34; 16],
-            tx_power: 25,  // +6 dBm
+            tx_power: 25, // +6 dBm
             phy_prefs: PhyPrefs::default(),
             io_capability: IoCapability::NoInputNoOutput,
             security: SecurityParams::default(),
@@ -273,22 +273,14 @@ pub fn init_gap_and_hal(params: &GapInitParams) -> Result<GapHandles, BleError> 
         );
 
         // 3. Write IR (Identity Root) value
-        let status = aci_hal_write_config_data(
-            CONFIG_DATA_IR_OFFSET,
-            CONFIG_DATA_IR_LEN,
-            params.ir_value.as_ptr(),
-        );
+        let status = aci_hal_write_config_data(CONFIG_DATA_IR_OFFSET, CONFIG_DATA_IR_LEN, params.ir_value.as_ptr());
         if status != BLE_STATUS_SUCCESS {
             #[cfg(feature = "defmt")]
             defmt::warn!("aci_hal_write_config_data (IR) failed: 0x{:02X}", status);
         }
 
         // 4. Write ER (Encryption Root) value
-        let status = aci_hal_write_config_data(
-            CONFIG_DATA_ER_OFFSET,
-            CONFIG_DATA_ER_LEN,
-            params.er_value.as_ptr(),
-        );
+        let status = aci_hal_write_config_data(CONFIG_DATA_ER_OFFSET, CONFIG_DATA_ER_LEN, params.er_value.as_ptr());
         if status != BLE_STATUS_SUCCESS {
             #[cfg(feature = "defmt")]
             defmt::warn!("aci_hal_write_config_data (ER) failed: 0x{:02X}", status);

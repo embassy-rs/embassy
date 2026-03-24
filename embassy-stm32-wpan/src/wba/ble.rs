@@ -22,11 +22,11 @@ use crate::wba::gap::connection::{
     MAX_CONNECTIONS,
 };
 use crate::wba::gap::scanner::Scanner;
+use crate::wba::gap_init::{GapInitParams, init_gap_and_hal};
 use crate::wba::hci::command::CommandSender;
 use crate::wba::hci::event::{Event, EventParams, read_event};
 use crate::wba::hci::types::{Address, Handle, Status};
 use crate::wba::ll_sys::init_ble_stack;
-use crate::wba::gap_init::{GapInitParams, init_gap_and_hal};
 
 /// Main BLE interface
 ///
@@ -93,9 +93,7 @@ impl Ble {
     /// Only RNG is required; AES and PKA are left unset. Use this for FCC DTM
     /// (TX test, RX test, tone) where no pairing or crypto is used. Do not use
     /// for full BLE (advertising, connections, GATT) as those require AES/PKA.
-    pub fn new_dtm(
-        rng: &'static Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>,
-    ) -> Self {
+    pub fn new_dtm(rng: &'static Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>) -> Self {
         unsafe {
             HARDWARE_RNG.replace(rng);
             // HARDWARE_AES and HARDWARE_PKA remain None

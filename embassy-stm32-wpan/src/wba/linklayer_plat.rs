@@ -166,9 +166,11 @@ pub(crate) static mut HARDWARE_RNG: Option<&'static Mutex<CriticalSectionRawMute
 
 // Hardware AES and PKA driver instances, following the HARDWARE_RNG pattern.
 // Stored as statics so the extern "C" BLEPLAT callbacks can access them.
-pub(crate) static mut HARDWARE_AES: Option<&'static Mutex<CriticalSectionRawMutex, RefCell<Aes<'static, AesPeriph, Blocking>>>> =
+pub(crate) static mut HARDWARE_AES: Option<
+    &'static Mutex<CriticalSectionRawMutex, RefCell<Aes<'static, AesPeriph, Blocking>>>,
+> = None;
+pub(crate) static mut HARDWARE_PKA: Option<&'static Mutex<CriticalSectionRawMutex, RefCell<Pka<'static, PkaPeriph>>>> =
     None;
-pub(crate) static mut HARDWARE_PKA: Option<&'static Mutex<CriticalSectionRawMutex, RefCell<Pka<'static, PkaPeriph>>>> = None;
 
 // ============================================================================
 // AES-128 ECB Hardware Acceleration (Embassy driver)
@@ -342,8 +344,7 @@ const MAX_BLE_TIMERS: usize = 32;
 
 /// Timer slots: (timer_id, deadline). id=0xFFFF means slot is free.
 const TIMER_SLOT_FREE: u16 = 0xFFFF;
-static mut TIMER_SLOTS: [(u16, Option<Instant>); MAX_BLE_TIMERS] =
-    [(TIMER_SLOT_FREE, None); MAX_BLE_TIMERS];
+static mut TIMER_SLOTS: [(u16, Option<Instant>); MAX_BLE_TIMERS] = [(TIMER_SLOT_FREE, None); MAX_BLE_TIMERS];
 
 /// Get the earliest active timer deadline, if any
 pub fn earliest_timer_deadline() -> Option<Instant> {
@@ -495,12 +496,7 @@ unsafe fn flash_write_quadword(addr: u32, data: &[u8; 16]) -> bool {
 
     // Write 4 x u32 words
     for i in 0..4 {
-        let word = u32::from_le_bytes([
-            data[i * 4],
-            data[i * 4 + 1],
-            data[i * 4 + 2],
-            data[i * 4 + 3],
-        ]);
+        let word = u32::from_le_bytes([data[i * 4], data[i * 4 + 1], data[i * 4 + 2], data[i * 4 + 3]]);
         core::ptr::write_volatile((addr + (i as u32) * 4) as *mut u32, word);
         core::sync::atomic::fence(Ordering::SeqCst);
     }
@@ -604,7 +600,10 @@ pub unsafe fn run_radio_high_isr() {
 }
 
 pub unsafe fn run_radio_sw_low_isr() {
-    trace!("HASH ISR (sw low): callback={:?}", load_callback(&LOW_ISR_CALLBACK).is_some());
+    trace!(
+        "HASH ISR (sw low): callback={:?}",
+        load_callback(&LOW_ISR_CALLBACK).is_some()
+    );
     if let Some(cb) = load_callback(&LOW_ISR_CALLBACK) {
         cb();
     }
@@ -1371,13 +1370,7 @@ fn xor_block(dst: &mut [u8; 16], src: &[u8; 16]) {
 
 /// Format the CCM B0 block (first block for CBC-MAC).
 /// flags = 64*Adata + 8*((t-2)/2) + (q-1) where q = 15 - iv_length
-fn ccm_format_b0(
-    iv: &[u8],
-    iv_length: usize,
-    add_length: usize,
-    input_length: u32,
-    tag_length: usize,
-) -> [u8; 16] {
+fn ccm_format_b0(iv: &[u8], iv_length: usize, add_length: usize, input_length: u32, tag_length: usize) -> [u8; 16] {
     let q = 15 - iv_length; // number of bytes for message length encoding
     let adata = if add_length > 0 { 1 } else { 0 };
     let flags = (adata << 6) | ((((tag_length as u8) - 2) / 2) << 3) | ((q as u8) - 1);
@@ -1703,7 +1696,11 @@ pub unsafe extern "C" fn BLEPLAT_NvmStore(ptr: *const u64, size: u16) {
     while offset < data.len() {
         let mut quad = [0u8; NVM_WRITE_SIZE];
         let remaining = data.len() - offset;
-        let chunk = if remaining >= NVM_WRITE_SIZE { NVM_WRITE_SIZE } else { remaining };
+        let chunk = if remaining >= NVM_WRITE_SIZE {
+            NVM_WRITE_SIZE
+        } else {
+            remaining
+        };
         quad[..chunk].copy_from_slice(&data[offset..offset + chunk]);
 
         if !flash_write_quadword(data_addr + offset as u32, &quad) {
@@ -1897,9 +1894,18 @@ pub unsafe extern "C" fn BLECB_Indication(data: *const u8, length: u16, _ext_dat
     {
         if evt_code == 0x05 {
             let status = if length >= 4 { event_data[3] } else { 0 };
-            let handle = if length >= 6 { u16::from_le_bytes([event_data[4], event_data[5]]) } else { 0 };
+            let handle = if length >= 6 {
+                u16::from_le_bytes([event_data[4], event_data[5]])
+            } else {
+                0
+            };
             let reason = if length >= 7 { event_data[6] } else { 0 };
-            defmt::info!("HCI Event: Disconnection Complete (status=0x{:02X}, handle=0x{:04X}, reason=0x{:02X})", status, handle, reason);
+            defmt::info!(
+                "HCI Event: Disconnection Complete (status=0x{:02X}, handle=0x{:04X}, reason=0x{:02X})",
+                status,
+                handle,
+                reason
+            );
         } else if evt_code == 0x3E {
             let sub_code = if length >= 4 { event_data[3] } else { 0 };
             defmt::info!("HCI Event: LE Meta (sub=0x{:02X}, len={})", sub_code, length);
@@ -1916,7 +1922,11 @@ pub unsafe extern "C" fn BLECB_Indication(data: *const u8, length: u16, _ext_dat
     // Parse and queue the event for processing.
     // Skip byte 0 (0x04 HCI Event packet indicator) — the parser expects
     // data starting at the event code byte.
-    let parse_data = if length >= 2 && event_data[0] == 0x04 { &event_data[1..] } else { event_data };
+    let parse_data = if length >= 2 && event_data[0] == 0x04 {
+        &event_data[1..]
+    } else {
+        event_data
+    };
     if let Some(event) = super::hci::event::Event::parse(parse_data) {
         match super::hci::event::try_send_event(event) {
             Ok(_) => {

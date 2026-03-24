@@ -13,15 +13,15 @@ const BLE_STATUS_SUCCESS: u8 = 0x00;
 
 // Advertising types for aci_gap_set_discoverable
 #[allow(dead_code)]
-pub const ADV_IND: u8 = 0x00;              // Connectable undirected
+pub const ADV_IND: u8 = 0x00; // Connectable undirected
 #[allow(dead_code)]
-pub const ADV_DIRECT_IND: u8 = 0x01;       // Connectable directed
+pub const ADV_DIRECT_IND: u8 = 0x01; // Connectable directed
 #[allow(dead_code)]
-pub const ADV_SCAN_IND: u8 = 0x02;         // Scannable undirected
+pub const ADV_SCAN_IND: u8 = 0x02; // Scannable undirected
 #[allow(dead_code)]
-pub const ADV_NONCONN_IND: u8 = 0x03;      // Non-connectable undirected
+pub const ADV_NONCONN_IND: u8 = 0x03; // Non-connectable undirected
 #[allow(dead_code)]
-pub const ADV_DIRECT_IND_LOW_DUTY: u8 = 0x04;  // Connectable directed low duty cycle
+pub const ADV_DIRECT_IND_LOW_DUTY: u8 = 0x04; // Connectable directed low duty cycle
 
 // Advertising filter policy
 #[allow(dead_code)]
@@ -97,8 +97,12 @@ pub fn set_discoverable(
         };
 
         #[cfg(feature = "defmt")]
-        defmt::trace!("set_discoverable: calling ACI_GAP_SET_DISCOVERABLE (type={}, int_min={}, int_max={})",
-            adv_type, interval_min, interval_max);
+        defmt::trace!(
+            "set_discoverable: calling ACI_GAP_SET_DISCOVERABLE (type={}, int_min={}, int_max={})",
+            adv_type,
+            interval_min,
+            interval_max
+        );
 
         let status = aci_gap_set_discoverable(
             adv_type,
@@ -110,8 +114,8 @@ pub fn set_discoverable(
             name_ptr,
             uuid_len,
             uuid_ptr,
-            0,     // slave_conn_interval_min (use default)
-            0,     // slave_conn_interval_max (use default)
+            0, // slave_conn_interval_min (use default)
+            0, // slave_conn_interval_max (use default)
         );
 
         #[cfg(feature = "defmt")]
