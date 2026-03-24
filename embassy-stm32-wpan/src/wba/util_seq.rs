@@ -16,7 +16,7 @@
 
 use core::cell::UnsafeCell;
 use core::future::poll_fn;
-use core::sync::atomic::{AtomicU32, Ordering, compiler_fence};
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
@@ -66,6 +66,10 @@ struct Sequencer {
     tasks: TaskTable,
     pending_tasks: AtomicU32,
     events: AtomicU32,
+    /// Set by seq_pend() (ISRs, timers, etc.) to indicate the runner should wake.
+    /// Checked and cleared by wait_for_event(). This ensures wakeups from radio ISRs
+    /// that don't set sequencer tasks are not lost.
+    pended: AtomicBool,
     waker: AtomicWaker,
     super_mask: AtomicU32,
     current_task_idx: AtomicU32,
@@ -79,6 +83,7 @@ static SEQUENCER: Sequencer = Sequencer {
     tasks: TaskTable::new(),
     pending_tasks: AtomicU32::new(0),
     events: AtomicU32::new(0),
+    pended: AtomicBool::new(false),
     waker: AtomicWaker::new(),
     super_mask: AtomicU32::new(ALL_TASKS_MASK),
     current_task_idx: AtomicU32::new(NO_TASK_RUNNING),
@@ -142,7 +147,8 @@ impl Sequencer {
 
             compiler_fence(Ordering::Acquire);
 
-            if self.has_work() {
+            // Check both explicit sequencer work AND the pended flag (set by ISRs/timers)
+            if self.has_work() || self.pended.swap(false, Ordering::AcqRel) {
                 Poll::Ready(())
             } else {
                 Poll::Pending
@@ -156,8 +162,7 @@ impl Sequencer {
     }
 
     fn seq_pend(&self) {
-        // waker.wake() already triggers the executor's __pender internally
-        // through Embassy's RawWaker::wake() chain, so no manual __pender call is needed.
+        self.pended.store(true, Ordering::Release);
         self.waker.wake();
     }
 

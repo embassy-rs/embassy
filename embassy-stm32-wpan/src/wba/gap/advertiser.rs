@@ -93,7 +93,7 @@ impl<'d> Advertiser<'d> {
         };
 
         // Use aci_gap_set_discoverable - the high-level ACI command
-        // This properly configures Link Layer scheduling for advertising
+        // This configures advertising parameters and data
         super::aci_gap::set_discoverable(
             aci_adv_type,
             params.interval_min,

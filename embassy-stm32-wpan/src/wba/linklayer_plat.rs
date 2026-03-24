@@ -336,23 +336,27 @@ fn pka_p256_mul(k: &[u32; 8], px: &[u32; 8], py: &[u32; 8], rx: &mut [u32; 8], r
 // BLE Timer Support using embassy_time
 // ============================================================================
 
-/// Maximum number of BLE stack timers.
-/// Formula from ST doc: (6 * numOfLinks) + 5. With numOfLinks=2 → 17.
-const MAX_BLE_TIMERS: usize = 17;
+/// Maximum number of concurrent BLE stack timers.
+/// The BLE stack uses sparse timer IDs (up to 2048+), so we store (id, deadline) pairs.
+const MAX_BLE_TIMERS: usize = 32;
 
-/// Timer deadlines stored as Option<Instant>. None means timer is not active.
-static mut TIMER_DEADLINES: [Option<Instant>; MAX_BLE_TIMERS] = [None; MAX_BLE_TIMERS];
+/// Timer slots: (timer_id, deadline). id=0xFFFF means slot is free.
+const TIMER_SLOT_FREE: u16 = 0xFFFF;
+static mut TIMER_SLOTS: [(u16, Option<Instant>); MAX_BLE_TIMERS] =
+    [(TIMER_SLOT_FREE, None); MAX_BLE_TIMERS];
 
 /// Get the earliest active timer deadline, if any
 pub fn earliest_timer_deadline() -> Option<Instant> {
     let mut earliest: Option<Instant> = None;
     unsafe {
-        for deadline in TIMER_DEADLINES.iter() {
-            if let Some(d) = deadline {
-                match earliest {
-                    None => earliest = Some(*d),
-                    Some(e) if *d < e => earliest = Some(*d),
-                    _ => {}
+        for &(id, ref deadline) in TIMER_SLOTS.iter() {
+            if id != TIMER_SLOT_FREE {
+                if let Some(d) = deadline {
+                    match earliest {
+                        None => earliest = Some(*d),
+                        Some(e) if *d < e => earliest = Some(*d),
+                        _ => {}
+                    }
                 }
             }
         }
@@ -366,13 +370,16 @@ pub fn check_expired_timers() {
     let now = Instant::now();
     let mut any_expired = false;
     unsafe {
-        for (idx, deadline) in TIMER_DEADLINES.iter_mut().enumerate() {
-            if let Some(d) = deadline {
-                if now >= *d {
-                    *deadline = None;
-                    any_expired = true;
-                    // Notify the BLE stack that this timer has expired
-                    super::bindings::ble::BLEPLATCB_TimerExpiry(idx as u16);
+        for slot in TIMER_SLOTS.iter_mut() {
+            if slot.0 != TIMER_SLOT_FREE {
+                if let Some(d) = slot.1 {
+                    if now >= d {
+                        let timer_id = slot.0;
+                        slot.0 = TIMER_SLOT_FREE;
+                        slot.1 = None;
+                        any_expired = true;
+                        super::bindings::ble::BLEPLATCB_TimerExpiry(timer_id);
+                    }
                 }
             }
         }
@@ -1609,36 +1616,43 @@ pub unsafe extern "C" fn BLEPLAT_AesCcmCrypt(
 pub unsafe extern "C" fn BLEPLAT_TimerStart(id: u16, timeout: u32) -> u8 {
     trace!("BLEPLAT_TimerStart: id={}, timeout={}ms", id, timeout);
 
-    let idx = id as usize;
-    if idx >= MAX_BLE_TIMERS {
-        warn!("BLEPLAT_TimerStart: invalid timer id {}", id);
-        return 1;
+    let deadline = Instant::now() + Duration::from_millis(timeout as u64);
+
+    // Find existing slot for this ID, or a free slot
+    let mut free_slot: Option<usize> = None;
+    for (i, slot) in TIMER_SLOTS.iter_mut().enumerate() {
+        if slot.0 == id {
+            // Update existing timer
+            slot.1 = Some(deadline);
+            super::util_seq::seq_pend();
+            return 0;
+        }
+        if slot.0 == TIMER_SLOT_FREE && free_slot.is_none() {
+            free_slot = Some(i);
+        }
     }
 
-    let deadline = Instant::now() + Duration::from_millis(timeout as u64);
-    TIMER_DEADLINES[idx] = Some(deadline);
-
-    // Wake the runner so it can update its select/timer
-    super::util_seq::seq_pend();
-
-    0 // Success
+    // Use a free slot
+    if let Some(i) = free_slot {
+        TIMER_SLOTS[i] = (id, Some(deadline));
+        super::util_seq::seq_pend();
+        0
+    } else {
+        warn!("BLEPLAT_TimerStart: no free timer slots for id {}", id);
+        1
+    }
 }
 
-/// Stop a BLE stack timer.
-///
-/// # Arguments
-/// * `id` - Timer ID to stop
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn BLEPLAT_TimerStop(id: u16) {
     trace!("BLEPLAT_TimerStop: id={}", id);
 
-    let idx = id as usize;
-    if idx >= MAX_BLE_TIMERS {
-        return;
-    }
-
-    unsafe {
-        TIMER_DEADLINES[idx] = None;
+    for slot in TIMER_SLOTS.iter_mut() {
+        if slot.0 == id {
+            slot.0 = TIMER_SLOT_FREE;
+            slot.1 = None;
+            return;
+        }
     }
 }
 
@@ -1872,15 +1886,42 @@ pub unsafe extern "C" fn BLECB_Indication(data: *const u8, length: u16, _ext_dat
         length
     );
 
+    // Log the event at info level so we can see what's happening
+    #[cfg(feature = "defmt")]
+    {
+        let evt_code = event_data[0];
+        // HCI event codes: 0x04 = HCI Event packet indicator
+        // For BLE: event_data[0] is typically the event code within the HCI event
+        // 0x05 = Disconnection Complete, 0x3E = LE Meta Event
+        // ACI vendor events start at 0xFF
+        if evt_code == 0x05 {
+            // Disconnection Complete
+            let handle = if length >= 4 { u16::from_le_bytes([event_data[3], event_data[4]]) } else { 0 };
+            let reason = if length >= 5 { event_data[5] } else { 0 };
+            defmt::info!("HCI Event: Disconnection Complete (handle=0x{:04X}, reason=0x{:02X})", handle, reason);
+
+            // Restart advertising after disconnection
+            super::runner::schedule_ble_host_task();
+            // Re-enable advertising so the device is discoverable again
+            unsafe extern "C" {
+                #[link_name = "HCI_LE_SET_ADVERTISING_ENABLE"]
+                fn hci_le_set_advertising_enable(enable: u8) -> u8;
+            }
+            let _status = hci_le_set_advertising_enable(1);
+            defmt::info!("Re-enabled advertising after disconnect (status=0x{:02X})", _status);
+        } else if evt_code == 0x3E {
+            // LE Meta Event
+            let sub_code = if length >= 2 { event_data[1] } else { 0 };
+            defmt::info!("HCI Event: LE Meta (sub=0x{:02X}, len={})", sub_code, length);
+        } else {
+            defmt::info!("HCI Event: code=0x{:02X}, len={}", evt_code, length);
+        }
+    }
+
     // Parse and queue the event for processing
     if let Some(event) = super::hci::event::Event::parse(event_data) {
         match super::hci::event::try_send_event(event) {
             Ok(_) => {
-                #[cfg(feature = "defmt")]
-                defmt::trace!("Event queued successfully");
-
-                // Signal BleStack_Process to run again
-                // Schedule the BLE host task to process this event
                 super::runner::schedule_ble_host_task();
             }
             Err(_) => {
@@ -1888,9 +1929,6 @@ pub unsafe extern "C" fn BLECB_Indication(data: *const u8, length: u16, _ext_dat
                 defmt::warn!("Event queue full, dropping event");
             }
         }
-    } else {
-        #[cfg(feature = "defmt")]
-        defmt::warn!("Failed to parse HCI event");
     }
 
     0 // Success

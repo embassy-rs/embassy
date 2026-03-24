@@ -128,6 +128,20 @@ unsafe extern "C" {
 /// BLE Success status code
 const BLE_STATUS_SUCCESS: u8 = 0x00;
 
+/// Enable or disable LE advertising in the link layer.
+///
+/// This is a standalone function because it may be needed outside the
+/// normal CommandSender flow (e.g., after ACI_GAP_SET_DISCOVERABLE which
+/// configures parameters but may not enable advertising on WBA6).
+pub fn le_set_advertising_enable(enable: bool) -> Result<(), BleError> {
+    let status = unsafe { hci_le_set_advertising_enable(if enable { 1 } else { 0 }) };
+    if status == BLE_STATUS_SUCCESS {
+        Ok(())
+    } else {
+        Err(BleError::CommandFailed(super::types::Status::from_u8(status)))
+    }
+}
+
 /// Command sender for HCI commands
 ///
 /// This uses the WBA BLE stack's built-in HCI command functions rather than

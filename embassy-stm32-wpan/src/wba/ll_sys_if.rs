@@ -358,11 +358,6 @@ pub unsafe extern "C" fn ll_sys_schedule_bg_process() {
     util_seq::UTIL_SEQ_SetTask(TASK_LINK_LAYER_MASK, TASK_PRIO_LINK_LAYER);
 }
 
-/**
- * @brief  Link Layer background process next iteration scheduling from ISR
- * @param  None
- * @retval None
- */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ll_sys_schedule_bg_process_isr() {
     util_seq::UTIL_SEQ_SetTask(TASK_LINK_LAYER_MASK, TASK_PRIO_LINK_LAYER);

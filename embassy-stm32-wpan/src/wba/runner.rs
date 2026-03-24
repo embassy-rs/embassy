@@ -44,6 +44,7 @@ use embassy_futures::select::{Either, select};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::Timer;
 
+use super::bindings::mac;
 use super::linklayer_plat;
 use super::util_seq;
 
@@ -55,6 +56,9 @@ const CFG_TASK_BLE_HOST: u32 = 9;
 const TASK_BLE_HOST_MASK: u32 = 1 << CFG_TASK_BLE_HOST;
 const TASK_PRIO_BLE_HOST: u32 = 0; // CFG_SEQ_PRIO_0
 
+// Link Layer background task
+const TASK_LINK_LAYER_MASK: u32 = 1 << mac::CFG_TASK_ID_T_CFG_TASK_LINK_LAYER;
+
 // External BLE stack process function
 #[link(name = "stm32wba_ble_stack_basic")]
 unsafe extern "C" {
@@ -65,44 +69,22 @@ unsafe extern "C" {
 /// BLE stack background processing task, registered as a sequencer task.
 ///
 /// Matches ST's BleStack_Process_BG:
-///   - Calls BleStack_Process() in a loop until it returns non-RUNNING
-///   - Then calls BleStackCB_Process() to re-queue if there's more work
+///   - Calls BleStack_Process() once
+///   - If it returns 0 (more work pending), re-queues via BleStackCB_Process
+///   - If non-zero (idle/can sleep), does NOT re-queue
 ///
 /// IMPORTANT: This runs on the sequencer's stack context, matching the
 /// C reference implementation where BleStack_Process is a UTIL_SEQ task.
 unsafe extern "C" fn ble_stack_process_bg() {
-    let mut iterations = 0;
-    loop {
-        let result = BleStack_Process();
-
-        #[cfg(feature = "defmt")]
-        if iterations == 0 {
-            defmt::trace!("BleStack_Process called, result={}", result);
-        }
-
-        if result != BLE_SLEEPMODE_RUNNING {
-            // CPU can halt, no more work to do
-            break;
-        }
-
-        iterations += 1;
-
-        // Safety limit to prevent infinite loop
-        if iterations > 1000 {
-            #[cfg(feature = "defmt")]
-            defmt::warn!("BleStack_Process called {} times, breaking to prevent hang", iterations);
-            break;
-        }
-    }
+    let result = BleStack_Process();
 
     #[cfg(feature = "defmt")]
-    if iterations > 10 {
-        defmt::debug!("BleStack_Process completed after {} iterations", iterations);
-    }
+    defmt::trace!("BleStack_Process called, result={}", result);
 
-    // Re-queue the BLE Host task (matches ST's BleStackCB_Process)
-    // This ensures continuous processing when there's pending work
-    ble_stack_cb_process();
+    if result == BLE_SLEEPMODE_RUNNING {
+        // More work to do - re-queue
+        ble_stack_cb_process();
+    }
 }
 
 /// Matches ST's BleStackCB_Process: re-queues BleStack_Process_BG via the sequencer.
@@ -183,26 +165,32 @@ pub async fn ble_runner() -> ! {
         defmt::trace!("BLE runner: sequencer context initialized");
     }
 
-    // Schedule the initial BLE Host task so BleStack_Process runs
+    // Schedule the initial tasks and kick the BLE stack
     schedule_ble_host_task();
+    util_seq::UTIL_SEQ_SetTask(TASK_LINK_LAYER_MASK, 0);
+
+    // Explicitly enable advertising in the LL.
+    // ACI_GAP_SET_DISCOVERABLE configures parameters but does not call
+    // HCI_LE_Set_Advertising_Enable on WBA6. This must happen after the
+    // sequencer is initialized so BleStack_Process can deliver the command.
+    if let Err(_e) = super::hci::command::le_set_advertising_enable(true) {
+        #[cfg(feature = "defmt")]
+        defmt::warn!("HCI_LE_SET_ADVERTISING_ENABLE failed: {:?}", _e);
+    }
+
 
     loop {
         // Wait for either a sequencer event or a timer expiry
         match linklayer_plat::earliest_timer_deadline() {
             Some(deadline) => {
-                // Race between sequencer event and timer deadline
                 match select(util_seq::wait_for_event(), Timer::at(deadline)).await {
-                    Either::First(()) => {
-                        // Sequencer event arrived
-                    }
+                    Either::First(()) => {}
                     Either::Second(()) => {
-                        // Timer expired - check and fire expired timers
                         linklayer_plat::check_expired_timers();
                     }
                 }
             }
             None => {
-                // No active timers, just wait for sequencer event
                 util_seq::wait_for_event().await;
             }
         }
@@ -211,8 +199,6 @@ pub async fn ble_runner() -> ! {
         linklayer_plat::check_expired_timers();
 
         // Resume the sequencer context
-        // This will run BLE stack tasks (including BleStack_Process_BG)
-        // until the sequencer yields back
         util_seq::seq_resume();
     }
 }
