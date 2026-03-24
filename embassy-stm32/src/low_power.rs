@@ -42,6 +42,7 @@ foreach_interrupt! {
         #[interrupt]
         #[allow(non_snake_case)]
         unsafe fn $irq() {
+            on_wakeup_irq_or_event();
         }
     };
 }
@@ -52,6 +53,7 @@ foreach_interrupt! {
         #[interrupt]
         #[allow(non_snake_case)]
         unsafe fn $irq() {
+            on_wakeup_irq_or_event();
         }
     };
 }
@@ -355,10 +357,12 @@ fn configure_pwr(cs: CriticalSection) {
 
     if get_driver().pause_time(cs).is_err() {
         warn!("low_power: failed to pause time, not entering stop");
+        return;
     }
 
     if platform::enter_stop(cs, stop_mode).is_err() {
         warn!("low_power: failed to enter stop");
+        return;
     }
 
     #[cfg(stm32l0)]
@@ -382,8 +386,8 @@ fn configure_pwr(cs: CriticalSection) {
 /// sleep, otherwise HAL peripherals may misbehave. HAL drivers automatically prevent
 /// sleep as needed, but you might have to do it manually if you're using some peripherals
 /// with the PAC directly.
-pub unsafe fn sleep(cs: CriticalSection) {
-    configure_pwr(cs);
+pub unsafe fn sleep() {
+    critical_section::with(|cs| configure_pwr(cs));
 
     #[cfg(feature = "low-power-defmt-flush")]
     defmt::flush();

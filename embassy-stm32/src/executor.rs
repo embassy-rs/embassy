@@ -136,15 +136,12 @@ mod thread {
 
                     // we do not care about race conditions between the load and store operations, interrupts
                     // will only set this value to true.
-                    critical_section::with(|cs| {
-                        // if there is work to do, loop back to polling
-                        if SIGNAL_WORK_THREAD_MODE.load(core::sync::atomic::Ordering::SeqCst) {
-                            SIGNAL_WORK_THREAD_MODE.store(false, core::sync::atomic::Ordering::SeqCst);
-                        } else {
-                            // if not, sleep waiting for interrupt
-                            crate::low_power::sleep(cs);
-                        }
-                    });
+                    if SIGNAL_WORK_THREAD_MODE.load(core::sync::atomic::Ordering::SeqCst) {
+                        SIGNAL_WORK_THREAD_MODE.store(false, core::sync::atomic::Ordering::SeqCst);
+                    } else {
+                        // if not, sleep waiting for interrupt
+                        crate::low_power::sleep();
+                    }
                     // if an interrupt occurred while waiting, it will be serviced here
                 };
             }
