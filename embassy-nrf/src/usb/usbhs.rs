@@ -195,9 +195,9 @@ impl<'d, V: VbusDetect> embassy_usb_driver::Bus for Bus<'d, V> {
             w.set_core(true);
             w.set_phy(true);
         });
-        busy_wait_us(45);
+        embassy_time::Timer::after_micros(45).await;
         self.usb_regs.tasks_start().write_value(1);
-        busy_wait_us(1);
+        embassy_time::Timer::after_micros(1).await;
         self.inner.configure_as_device();
         self.release_vbus_override();
         self.inner.enable().await;
@@ -333,14 +333,6 @@ impl Instance for crate::peripherals::USBHS {
 }
 
 fn current_hclk() -> u32 {
-    #[cfg(feature = "_s")]
-    match pac::OSCILLATORS.pll().currentfreq().read().currentfreq() {
-        pac::oscillators::vals::Currentfreq::CK128M => 128_000_000,
-        pac::oscillators::vals::Currentfreq::CK64M => 64_000_000,
-        _ => unreachable!(),
-    }
-
-    #[cfg(feature = "_ns")]
     match pac::OSCILLATORS.pll().currentfreq().read().currentfreq() {
         pac::oscillators::vals::Currentfreq::CK128M => 128_000_000,
         pac::oscillators::vals::Currentfreq::CK64M => 64_000_000,
@@ -370,9 +362,4 @@ fn calculate_trdt(speed: Dspd) -> u8 {
         },
         _ => unimplemented!(),
     }
-}
-
-fn busy_wait_us(us: u32) {
-    let cycles = (current_hclk() / 1_000_000) * us;
-    cortex_m::asm::delay(cycles);
 }
