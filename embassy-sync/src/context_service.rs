@@ -52,8 +52,8 @@ type RunFn<T, const S: usize> = unsafe fn(&Storage<S>, &mut T);
 // previous one left off, recovering any stale work before accepting new work.
 //
 // ## Implementation
-// Fundamentally, we need some shared memory between the caller and the runner for the
-// closure (and its captured environment) and the return value.
+// Fundamentally, we need some shared memory between the caller and the runner
+// for the closure and its return value.
 //
 // Stack-pinned memory on the caller side is not an option since after
 // submission, the runner may still be reading F or writing R when the
@@ -155,7 +155,6 @@ type RunFn<T, const S: usize> = unsafe fn(&Storage<S>, &mut T);
 // `R`'s destructor panics during cleanup, the `FinishGuard` in `wait_ack_and_finish`
 // ensures the slot is still freed and `needs_recovery` is cleared. The destructor's
 // side effects are lost but the service remains usable.
-// TODO: this could probably be circumvented, but is is worth it... :doubt:
 
 struct SlotState {
     free: bool,
