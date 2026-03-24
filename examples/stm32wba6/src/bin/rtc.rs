@@ -2,13 +2,12 @@
 #![no_main]
 
 use defmt::*;
-use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
 use embassy_stm32::rcc::*;
 use embassy_stm32::rtc::{DateTime, DayOfWeek, Rtc, RtcConfig};
 use embassy_time::Timer;
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 pub fn pll_init(config: &mut Config) {
     config.rcc.pll1 = Some(embassy_stm32::rcc::Pll {

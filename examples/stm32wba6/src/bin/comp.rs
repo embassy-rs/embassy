@@ -15,7 +15,6 @@
 #![no_main]
 
 use defmt::*;
-use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::comp::{Comp, Config, Hysteresis, InvertingInput, OutputPolarity, PowerMode};
 use embassy_stm32::rcc::{
@@ -23,7 +22,7 @@ use embassy_stm32::rcc::{
 };
 use embassy_stm32::{bind_interrupts, comp};
 use embassy_time::Timer;
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     COMP => comp::InterruptHandler<embassy_stm32::peripherals::COMP1>;
