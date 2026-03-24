@@ -196,6 +196,16 @@ impl Otg {
     pub fn cid(self) -> Reg<regs::Cid, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x3cusize) as _) }
     }
+    #[doc = "User HW config2 register"]
+    #[inline(always)]
+    pub fn ghwcfg2(self) -> Reg<regs::Ghwcfg2, R> {
+        unsafe { Reg::from_ptr(self.ptr.add(0x48usize) as _) }
+    }
+    #[doc = "User HW config4 register"]
+    #[inline(always)]
+    pub fn ghwcfg4(self) -> Reg<regs::Ghwcfg4, R> {
+        unsafe { Reg::from_ptr(self.ptr.add(0x50usize) as _) }
+    }
     #[doc = "OTG core LPM configuration register"]
     #[inline(always)]
     pub fn glpmcfg(self) -> Reg<regs::Glpmcfg, RW> {
@@ -3413,6 +3423,28 @@ pub mod regs {
         pub fn set_tocal(&mut self, val: u8) {
             self.0 = (self.0 & !(0x07 << 0usize)) | (((val as u32) & 0x07) << 0usize);
         }
+        #[doc = "PHY interface width (0 = 8-bit, 1 = 16-bit)"]
+        #[inline(always)]
+        pub const fn phyif(&self) -> bool {
+            let val = (self.0 >> 3usize) & 0x01;
+            val != 0
+        }
+        #[doc = "PHY interface width (0 = 8-bit, 1 = 16-bit)"]
+        #[inline(always)]
+        pub fn set_phyif(&mut self, val: bool) {
+            self.0 = (self.0 & !(0x01 << 3usize)) | (((val as u32) & 0x01) << 3usize);
+        }
+        #[doc = "ULPI/UTMI select (0 = UTMI+, 1 = ULPI)"]
+        #[inline(always)]
+        pub const fn ulpi_utmi_sel(&self) -> bool {
+            let val = (self.0 >> 4usize) & 0x01;
+            val != 0
+        }
+        #[doc = "ULPI/UTMI select (0 = UTMI+, 1 = ULPI)"]
+        #[inline(always)]
+        pub fn set_ulpi_utmi_sel(&mut self, val: bool) {
+            self.0 = (self.0 & !(0x01 << 4usize)) | (((val as u32) & 0x01) << 4usize);
+        }
         #[doc = "Full-speed internal serial transceiver enable"]
         #[inline(always)]
         pub const fn physel(&self) -> bool {
@@ -3423,6 +3455,17 @@ pub mod regs {
         #[inline(always)]
         pub fn set_physel(&mut self, val: bool) {
             self.0 = (self.0 & !(0x01 << 6usize)) | (((val as u32) & 0x01) << 6usize);
+        }
+        #[doc = "ULPI DDR select (0 = single data rate, 1 = double data rate)"]
+        #[inline(always)]
+        pub const fn ddr_sel(&self) -> bool {
+            let val = (self.0 >> 7usize) & 0x01;
+            val != 0
+        }
+        #[doc = "ULPI DDR select (0 = single data rate, 1 = double data rate)"]
+        #[inline(always)]
+        pub fn set_ddr_sel(&mut self, val: bool) {
+            self.0 = (self.0 & !(0x01 << 7usize)) | (((val as u32) & 0x01) << 7usize);
         }
         #[doc = "SRP-capable"]
         #[inline(always)]
@@ -3605,6 +3648,78 @@ pub mod regs {
         #[inline(always)]
         fn default() -> Gusbcfg {
             Gusbcfg(0)
+        }
+    }
+    #[doc = "User HW config2 register"]
+    #[repr(transparent)]
+    #[derive(Copy, Clone, Eq, PartialEq)]
+    pub struct Ghwcfg2(pub u32);
+    impl Ghwcfg2 {
+        #[doc = "High-speed PHY type (0=not supported, 1=UTMI+, 2=ULPI, 3=UTMI+ and ULPI)"]
+        #[inline(always)]
+        pub const fn hs_phy_type(&self) -> u8 {
+            let val = (self.0 >> 6usize) & 0x03;
+            val as u8
+        }
+        #[doc = "Full-speed PHY type (0=not supported, 1=dedicated, 2=shared UTMI+, 3=shared ULPI)"]
+        #[inline(always)]
+        pub const fn fs_phy_type(&self) -> u8 {
+            let val = (self.0 >> 8usize) & 0x03;
+            val as u8
+        }
+        #[doc = "Number of host channels minus 1"]
+        #[inline(always)]
+        pub const fn num_host_chan(&self) -> u8 {
+            let val = (self.0 >> 14usize) & 0x0f;
+            val as u8
+        }
+        #[doc = "Number of device endpoints minus 1"]
+        #[inline(always)]
+        pub const fn num_dev_ep(&self) -> u8 {
+            let val = (self.0 >> 10usize) & 0x0f;
+            val as u8
+        }
+    }
+    impl Default for Ghwcfg2 {
+        #[inline(always)]
+        fn default() -> Ghwcfg2 {
+            Ghwcfg2(0)
+        }
+    }
+    #[doc = "User HW config4 register"]
+    #[repr(transparent)]
+    #[derive(Copy, Clone, Eq, PartialEq)]
+    pub struct Ghwcfg4(pub u32);
+    impl Ghwcfg4 {
+        #[doc = "UTMI+ PHY data width (0=8-bit, 1=16-bit, 2=8/16-bit software selectable)"]
+        #[inline(always)]
+        pub const fn utmi_phy_data_width(&self) -> u8 {
+            let val = (self.0 >> 14usize) & 0x03;
+            val as u8
+        }
+        #[doc = "Number of device mode IN endpoints including EP0"]
+        #[inline(always)]
+        pub const fn num_in_eps(&self) -> u8 {
+            let val = (self.0 >> 26usize) & 0x0f;
+            val as u8
+        }
+        #[doc = "Dedicated FIFO enable"]
+        #[inline(always)]
+        pub const fn ded_fifo_en(&self) -> bool {
+            let val = (self.0 >> 25usize) & 0x01;
+            val != 0
+        }
+        #[doc = "Number of device mode control endpoints"]
+        #[inline(always)]
+        pub const fn num_dev_mode_ctrl_ep(&self) -> u8 {
+            let val = (self.0 >> 16usize) & 0x0f;
+            val as u8
+        }
+    }
+    impl Default for Ghwcfg4 {
+        #[inline(always)]
+        fn default() -> Ghwcfg4 {
+            Ghwcfg4(0)
         }
     }
     #[doc = "Host all channels interrupt register"]

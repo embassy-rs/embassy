@@ -113,7 +113,7 @@ async fn main(_spawner: Spawner) {
                 }
             }
 
-            embassy_time::Timer::after_secs(1).await;
+            embassy_time::Timer::after_millis(100).await;
             if !CONFIGURED.load(Ordering::Acquire) {
                 continue;
             }

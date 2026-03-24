@@ -592,41 +592,46 @@ impl<'d, const MAX_EP_COUNT: usize> Bus<'d, MAX_EP_COUNT> {
 
     /// Configures the PHY as a device.
     pub fn configure_as_device(&mut self) {
-        const GUSBCFG_PHYIF_16_BIT: u32 = 1 << 3;
-        const GUSBCFG_ULPI_UTMI_SEL: u32 = 1 << 4;
-        const GHWCFG4_PHY_DATA_WIDTH_MASK: u32 = 0x3 << 14;
-        const GHWCFG4_OFFSET: usize = 0x50;
-
         let r = self.instance.regs;
         let phy_type = self.instance.phy_type;
-        // `otg_v1` doesn't expose GHWCFG4 yet, so read the standard DWC2 register directly.
-        let ghwcfg4 = unsafe { ((r.as_ptr() as *const u32).add(GHWCFG4_OFFSET / 4)).read_volatile() };
-        let hs_phy_16_bit = (ghwcfg4 & GHWCFG4_PHY_DATA_WIDTH_MASK) != 0;
 
+        // Read PHY data width from GHWCFG4:
+        // 0 = 8-bit only, 1 = 16-bit only, 2 = software selectable (default to 8-bit)
+        let hw_width = r.ghwcfg4().read().utmi_phy_data_width();
         r.gusbcfg().modify(|w| {
             // Force device mode
             w.set_fdmod(true);
 
-            // External PHYs use ULPI, and GHWCFG4.PHYDATAWIDTH selects 8/16-bit HS width.
             match phy_type {
                 PhyType::InternalFullSpeed => {
+                    // Select embedded FS PHY
                     w.set_physel(true);
-                    w.0 &= !GUSBCFG_ULPI_UTMI_SEL;
-                    w.0 &= !GUSBCFG_PHYIF_16_BIT;
+                    w.set_ulpi_utmi_sel(false);
+                    w.set_phyif(false);
                 }
                 PhyType::InternalHighSpeed => {
+                    // Select UTMI+ PHY, determine data width from hardware
                     w.set_physel(false);
-                    w.0 &= !GUSBCFG_ULPI_UTMI_SEL;
-                    if hs_phy_16_bit {
-                        w.0 |= GUSBCFG_PHYIF_16_BIT;
-                    } else {
-                        w.0 &= !GUSBCFG_PHYIF_16_BIT;
-                    }
+                    w.set_ulpi_utmi_sel(false);
+                    w.set_phyif(hw_width == 1);
+                    // Disable ULPI-specific settings
+                    w.set_ulpievbusd(false);
+                    w.set_ulpievbusi(false);
+                    w.set_ulpifsls(false);
+                    w.set_ulpicsm(false);
                 }
                 PhyType::ExternalFullSpeed | PhyType::ExternalHighSpeed => {
+                    // Select ULPI external PHY, single data rate
                     w.set_physel(false);
-                    w.0 |= GUSBCFG_ULPI_UTMI_SEL;
-                    w.0 &= !GUSBCFG_PHYIF_16_BIT;
+                    w.set_ulpi_utmi_sel(true);
+                    w.set_phyif(false);
+                    w.set_ddr_sel(false);
+                    // Disable external VBUS source
+                    w.set_ulpievbusd(false);
+                    w.set_ulpievbusi(false);
+                    // Disable ULPI FS/LS mode
+                    w.set_ulpifsls(false);
+                    w.set_ulpicsm(false);
                 }
             }
         });
