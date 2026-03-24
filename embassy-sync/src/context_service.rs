@@ -340,18 +340,17 @@ impl<M: RawMutex, T, const S: usize> JobSlot<M, T, S> {
     fn mark_free(&self) {
         self.state.lock(|cell| {
             let mut s = cell.replace(SlotState::EMPTY);
-            s.free = true;
-            // Set the state to free before waking, so the woken caller
-            // sees free=true when it re-enters poll_acquire.
             cell.set(SlotState {
                 free: true,
                 waker: WakerRegistration::new(),
             });
+            // TODO: check that waking inside the lock is ok
             s.waker.wake();
         });
     }
 
     fn poll_result<R>(&self, cx: &mut Context<'_>) -> Poll<R> {
+        // TODO: recreating the wait future each poll... Check if ok
         let mut fut = self.done.wait();
         match Pin::new(&mut fut).poll(cx) {
             Poll::Pending => Poll::Pending,
