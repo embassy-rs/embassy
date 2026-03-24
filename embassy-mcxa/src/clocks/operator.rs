@@ -15,6 +15,10 @@ use super::types::{Clock, ClockError, Clocks, PoweredClock};
 use crate::chips::{ClockLimits, clock_limits};
 use crate::pac;
 use crate::pac::cmc::CkctrlCkmode;
+#[cfg(feature = "mcxa2xx")]
+use crate::pac::mrcc2xx::Mrcc;
+#[cfg(feature = "mcxa5xx")]
+use crate::pac::mrcc5xx::Mrcc;
 use crate::pac::scg::{
     Erefs, Fircacc, FircaccIe, FirccsrLk, Fircerr, FircerrIe, Fircsten, Range, Scs, SirccsrLk, Sircerr, Sircvld,
     SosccsrLk, Soscerr, Source, SpllLock, SpllcsrLk, Spllerr, Spllsten, TrimUnlock,
@@ -45,7 +49,7 @@ pub(super) struct ClockOperator<'a> {
     pub(super) sirc_forced: bool,
 
     // We hold on to stolen peripherals
-    pub(super) _mrcc0: pac::mrcc::Mrcc,
+    pub(super) _mrcc0: Mrcc,
     pub(super) scg0: pac::scg::Scg,
     pub(super) syscon: pac::syscon::Syscon,
     pub(super) vbat0: pac::vbat::Vbat,

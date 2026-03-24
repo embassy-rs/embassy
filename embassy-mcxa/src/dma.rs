@@ -601,14 +601,14 @@ macro_rules! impl_channel {
     };
 }
 
-impl_channel!(DMA_CH0, 0, DMA_CH0);
-impl_channel!(DMA_CH1, 1, DMA_CH1);
-impl_channel!(DMA_CH2, 2, DMA_CH2);
-impl_channel!(DMA_CH3, 3, DMA_CH3);
-impl_channel!(DMA_CH4, 4, DMA_CH4);
-impl_channel!(DMA_CH5, 5, DMA_CH5);
-impl_channel!(DMA_CH6, 6, DMA_CH6);
-impl_channel!(DMA_CH7, 7, DMA_CH7);
+impl_channel!(DMA0_CH0, 0, DMA0_CH0);
+impl_channel!(DMA0_CH1, 1, DMA0_CH1);
+impl_channel!(DMA0_CH2, 2, DMA0_CH2);
+impl_channel!(DMA0_CH3, 3, DMA0_CH3);
+impl_channel!(DMA0_CH4, 4, DMA0_CH4);
+impl_channel!(DMA0_CH5, 5, DMA0_CH5);
+impl_channel!(DMA0_CH6, 6, DMA0_CH6);
+impl_channel!(DMA0_CH7, 7, DMA0_CH7);
 
 /// Parameters used to configure a 'typical' DMA transfer in [DmaChannel::setup_typical].
 struct DmaTransferParameters<WSRC: Word, WDST: Word> {

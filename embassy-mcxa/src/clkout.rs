@@ -7,12 +7,16 @@
 use core::marker::PhantomData;
 
 use embassy_hal_internal::Peri;
+use mrcc::{ClkdivHalt, ClkdivReset, ClkdivUnstab, ClkoutClkselMux as Mux};
 
 use crate::clocks::config::VddLevel;
 pub use crate::clocks::periph_helpers::Div4;
 use crate::clocks::{ClockError, PoweredClock, WakeGuard, with_clocks};
 use crate::gpio::{AnyPin, SealedPin};
-use crate::pac::mrcc::{ClkdivHalt, ClkdivReset, ClkdivUnstab, ClkoutClkselMux as Mux};
+#[cfg(feature = "mcxa2xx")]
+use crate::pac::mrcc2xx as mrcc;
+#[cfg(feature = "mcxa5xx")]
+use crate::pac::mrcc5xx as mrcc;
 use crate::peripherals::CLKOUT;
 
 /// A peripheral representing the CLKOUT pseudo-peripheral
