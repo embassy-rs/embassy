@@ -17,7 +17,7 @@ bind_interrupts!(struct Irqs {
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = embassy_stm32::init(Default::default());
+    let mut p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
     let mut adc_dma_buf: [u16; 2] = [0; 2];

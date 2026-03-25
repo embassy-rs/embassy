@@ -30,7 +30,7 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let config = Default::default();
-    let p = embassy_stm32::init(config);
+    let mut p = embassy_stm32::init(config);
 
     info!("ADC Ring Buffer with Timer Trigger example for STM32G0");
 
@@ -58,8 +58,10 @@ async fn main(_spawner: Spawner) {
     let adc = Adc::new_with_clock(p.ADC1, Clock::Async { div: Presc::DIV1 });
 
     // Setup channels to measure
-    let vrefint_channel = adc.enable_vrefint().degrade_adc();
-    let temp_channel = adc.enable_temperature().degrade_adc();
+    let mut vrefint = adc.enable_vrefint();
+    let mut temperature = adc.enable_temperature();
+    let vrefint_channel = vrefint.degrade_adc();
+    let temp_channel = temperature.degrade_adc();
     let pa0 = p.PA0.degrade_adc();
 
     let sequence = [

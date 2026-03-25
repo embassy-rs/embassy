@@ -22,7 +22,7 @@ async fn main(_spawner: Spawner) {
         use embassy_stm32::rcc::*;
         config.rcc.mux.adcsel = mux::Adcsel::SYS;
     }
-    let p = embassy_stm32::init(config);
+    let mut p = embassy_stm32::init(config);
 
     let adc = Adc::new(p.ADC1);
     let adc_pin0 = p.PA0.degrade_adc();

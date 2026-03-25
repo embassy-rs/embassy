@@ -33,14 +33,15 @@ async fn main(_spawner: Spawner) {
         config.rcc.mux.adc12sel = mux::Adcsel::SYS;
         config.rcc.sys = Sysclk::PLL1_R;
     }
-    let p = embassy_stm32::init(config);
+    let mut p = embassy_stm32::init(config);
 
     info!("Hello World!");
 
     let mut adc = Adc::new(p.ADC1, Default::default());
 
     let mut dma = p.DMA1_CH1;
-    let mut vrefint_channel = adc.enable_vrefint().degrade_adc();
+    let mut vrefint = adc.enable_vrefint();
+    let mut vrefint_channel = vrefint.degrade_adc();
     let mut pa0 = p.PA0.degrade_adc();
 
     loop {
