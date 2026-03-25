@@ -56,6 +56,10 @@ const ASC_UNRECOVERED_READ_ERROR: u8 = 0x11;
 const ASC_WRITE_ERROR: u8 = 0x0c;
 const ASCQ_NONE: u8 = 0x00;
 
+const VPD_PAGE_SUPPORTED_PAGES: u8 = 0x00;
+const VPD_PAGE_UNIT_SERIAL_NUMBER: u8 = 0x80;
+const VPD_PAGE_DEVICE_IDENTIFICATION: u8 = 0x83;
+
 /// Trait implemented by block devices used by [`MscClass`].
 pub trait BlockDevice {
     /// Error type returned by storage operations.
@@ -329,6 +333,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
             };
 
             let result = self.process_cbw(block_device, block_buf, &cbw).await?;
+
             self.write_csw(cbw.tag, result.residue, result.status).await?;
         }
     }
@@ -420,13 +425,77 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
             return Ok(CommandResult::phase_error(cbw.data_transfer_length));
         }
 
-        // EVPD and CmdDT are not supported in this minimal implementation.
-        if cbw.cb[1] & 0x03 != 0 {
+        let evpd = cbw.cb[1] & 0x01 != 0;
+        let cmd_dt = cbw.cb[1] & 0x02 != 0;
+        let page_code = cbw.cb[2];
+        let allocation_len = cbw.cb[4] as usize;
+
+        // CmdDt is obsolete and unsupported.
+        if cmd_dt {
             self.set_sense(SENSE_KEY_ILLEGAL_REQUEST, ASC_INVALID_FIELD_IN_CDB, ASCQ_NONE);
             return Ok(CommandResult::failed(cbw.data_transfer_length));
         }
 
-        let allocation_len = cbw.cb[4] as usize;
+        if evpd {
+            let result = match page_code {
+                VPD_PAGE_SUPPORTED_PAGES => {
+                    // List only the pages we implement.
+                    let data = [
+                        0x00, // direct-access block device
+                        VPD_PAGE_SUPPORTED_PAGES,
+                        0x00,
+                        0x03, // 3 bytes follow
+                        VPD_PAGE_SUPPORTED_PAGES,
+                        VPD_PAGE_UNIT_SERIAL_NUMBER,
+                        VPD_PAGE_DEVICE_IDENTIFICATION,
+                    ];
+                    let len = min(data.len(), allocation_len);
+                    self.send_in_data(cbw, &data[..len]).await?
+                }
+                VPD_PAGE_UNIT_SERIAL_NUMBER => {
+                    // Stable short serial so host can cache device identity.
+                    const SERIAL: &[u8; 8] = b"EMBMSC01";
+                    let mut data = [0u8; 12];
+                    data[0] = 0x00;
+                    data[1] = VPD_PAGE_UNIT_SERIAL_NUMBER;
+                    data[2] = 0x00;
+                    data[3] = SERIAL.len() as u8;
+                    data[4..12].copy_from_slice(SERIAL);
+                    let len = min(data.len(), allocation_len);
+                    self.send_in_data(cbw, &data[..len]).await?
+                }
+                VPD_PAGE_DEVICE_IDENTIFICATION => {
+                    // One ASCII vendor-specific identifier descriptor.
+                    // Descriptor length = 16, page length = 4 + 16.
+                    let mut data = [0u8; 24];
+                    data[0] = 0x00;
+                    data[1] = VPD_PAGE_DEVICE_IDENTIFICATION;
+                    data[2] = 0x00;
+                    data[3] = 20;
+                    data[4] = 0x01; // binary protocol, association: logical unit
+                    data[5] = 0x00; // identifier type: vendor specific
+                    data[6] = 0x00;
+                    data[7] = 16; // identifier length
+                    data[8..24].copy_from_slice(b"EMBASSY_MSC_DISK");
+                    let len = min(data.len(), allocation_len);
+                    self.send_in_data(cbw, &data[..len]).await?
+                }
+                _ => {
+                    self.set_sense(SENSE_KEY_ILLEGAL_REQUEST, ASC_INVALID_FIELD_IN_CDB, ASCQ_NONE);
+                    return Ok(CommandResult::failed(cbw.data_transfer_length));
+                }
+            };
+
+            self.sense = SenseData::NO_SENSE;
+            return Ok(result);
+        }
+
+        // Standard inquiry should request page code 0.
+        if page_code != 0 {
+            self.set_sense(SENSE_KEY_ILLEGAL_REQUEST, ASC_INVALID_FIELD_IN_CDB, ASCQ_NONE);
+            return Ok(CommandResult::failed(cbw.data_transfer_length));
+        }
+
         let mut data = [0u8; 36];
         data[0] = 0x00; // direct-access block device
         data[1] = 0x80; // removable medium
