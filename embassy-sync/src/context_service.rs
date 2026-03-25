@@ -330,8 +330,7 @@ impl<M: RawMutex, T, const S: usize> JobSlot<M, T, S> {
     }
 
     fn mark_free(&self) {
-        self.state.lock(|rc| {
-            let mut s = unwrap!(rc.try_borrow_mut());
+        self.with_slot_state(|s| {
             s.free = true;
             // TODO: check that waking inside the lock is ok
             s.waker.wake();
