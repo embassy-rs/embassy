@@ -7,7 +7,7 @@
 //! results back. Closures and return values are stored inline in a
 //! fixed-size slot of `S` bytes, checked at compile time.
 
-use core::cell::{Cell, UnsafeCell};
+use core::cell::{Cell, RefCell, UnsafeCell};
 use core::future::Future;
 use core::marker::PhantomData;
 use core::mem::{self, MaybeUninit};
@@ -72,7 +72,7 @@ type RunFn<T, const S: usize> = unsafe fn(&Storage<S>, &mut T);
 //
 // Coordination uses a SlotState (behind a blocking mutex) and three signals:
 //
-//   - state (`Mutex<Cell<SlotState>>`): a boolean `free` flag and a
+//   - state (`Mutex<RefCell<SlotState>>`): a boolean `free` flag and a
 //     WakerRegistration. When a caller tries to acquire the slot and it
 //     is not free, the caller registers its waker here and returns
 //     Pending. When the runner finishes a job and marks the slot free,
@@ -267,7 +267,7 @@ unsafe fn run_job<T, R, F: FnOnce(&mut T) -> R, const S: usize>(slot: &Storage<S
 
 struct JobSlot<M: RawMutex, T, const S: usize> {
     storage: Storage<S>,
-    state: Mutex<M, Cell<SlotState>>,
+    state: Mutex<M, RefCell<SlotState>>,
     job: Signal<M, RunFn<T, S>>,
     done: Signal<M, ()>,
     ack: Signal<M, ()>,
@@ -277,7 +277,7 @@ impl<M: RawMutex, T, const S: usize> JobSlot<M, T, S> {
     const fn new() -> Self {
         Self {
             storage: Storage::new(),
-            state: Mutex::new(Cell::new(SlotState::EMPTY)),
+            state: Mutex::new(RefCell::new(SlotState::EMPTY)),
             job: Signal::new(),
             done: Signal::new(),
             ack: Signal::new(),
@@ -285,12 +285,7 @@ impl<M: RawMutex, T, const S: usize> JobSlot<M, T, S> {
     }
 
     fn with_slot_state<R>(&self, f: impl FnOnce(&mut SlotState) -> R) -> R {
-        self.state.lock(|cell| {
-            let mut s = cell.replace(SlotState::EMPTY);
-            let r = f(&mut s);
-            cell.set(s);
-            r
-        })
+        self.state.lock(|rc| f(&mut *unwrap!(rc.try_borrow_mut())))
     }
 
     fn debug_assert_held(&self) {
@@ -336,13 +331,11 @@ impl<M: RawMutex, T, const S: usize> JobSlot<M, T, S> {
     }
 
     fn mark_free(&self) {
-        self.state.lock(|cell| {
-            let mut s = cell.replace(SlotState::EMPTY);
+        self.state.lock(|rc| {
+            let mut s = unwrap!(rc.try_borrow_mut());
             s.free = true;
-            let mut waker = mem::take(&mut s.waker);
-            cell.set(s);
             // TODO: check that waking inside the lock is ok
-            waker.wake();
+            s.waker.wake();
         });
     }
 
@@ -569,7 +562,7 @@ impl<M: RawMutex, T, const S: usize> ContextService<M, T, S> {
 // SAFETY: access to Storage is serialized by the call/run handshake protocol
 unsafe impl<M: RawMutex, T, const S: usize> Sync for ContextService<M, T, S>
 where
-    Mutex<M, Cell<SlotState>>: Sync,
+    Mutex<M, RefCell<SlotState>>: Sync,
     Mutex<M, Cell<RunnerState>>: Sync,
     Signal<M, RunFn<T, S>>: Sync,
     Signal<M, ()>: Sync,
@@ -705,7 +698,7 @@ mod tests {
             },
             svc.run(&mut state),
         )
-            .await;
+        .await;
     }
 
     #[futures_test::test]
@@ -731,7 +724,7 @@ mod tests {
             },
             svc.run(&mut state),
         )
-            .await;
+        .await;
         assert_eq!(r, 10);
     }
 
@@ -817,7 +810,7 @@ mod tests {
             }),
             svc.run(&mut state),
         )
-            .await;
+        .await;
     }
 
     #[futures_test::test]
