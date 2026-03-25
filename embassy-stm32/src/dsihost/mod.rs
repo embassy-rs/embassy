@@ -96,16 +96,11 @@ pub struct DsiHost<'d, T: Instance> {
     /// TX escape clock frequency (20MHz max)
     /// Derived from pixel clock and TX Prescaler
     tx_escape_clock: MaybeHertz,
-
-    /// LTDC clock from PLL3R
-    ltdc_clock: MaybeHertz,
 }
 
 impl<'d, T: Instance> DsiHost<'d, T> {
     /// Note: Full-Duplex modes are not supported at this time
     pub fn new(_peri: Peri<'d, T>, te: Peri<'d, impl TePin<T>>) -> Self {
-        let clocks = unsafe { crate::rcc::get_freqs() };
-
         rcc::enable_and_reset::<T>();
 
         set_as_af!(te, AfType::input(crate::gpio::Pull::Down));
@@ -115,7 +110,6 @@ impl<'d, T: Instance> DsiHost<'d, T> {
             _te: Flex::new(te),
             lane_byte_clock: None.into(),
             tx_escape_clock: None.into(),
-            ltdc_clock: clocks.pll3_r,
         }
     }
 

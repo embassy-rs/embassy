@@ -3,6 +3,8 @@
 use super::panel::DsiPanel;
 use super::{DsiHost, Error, Instance};
 use crate::ltdc::PolarityActive;
+use crate::peripherals::LTDC;
+use crate::rcc::SealedRccPeripheral;
 
 /// DSI Color Mode.
 ///
@@ -286,10 +288,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
     /// Set video mode registers from a [`DsiVideoConfig`]
     fn set_video_config<Panel: DsiPanel>(&mut self, config: &DsiVideoConfig) {
         let lane_byte_clock = self.lane_byte_clock.to_hertz().expect("DSI lane byte clock");
-        let ltdc_clock = self
-            .ltdc_clock
-            .to_hertz()
-            .expect("DSI video mode requires LTDC clock configured on PLL3R");
+        let ltdc_clock = LTDC::frequency();
 
         T::regs().mcr().modify(|w| w.set_cmdm(false));
         T::regs().wcfgr().modify(|w| w.set_dsim(false));
