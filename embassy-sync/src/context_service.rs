@@ -6,21 +6,6 @@
 //! closures one at a time with exclusive `&mut T` access and sends
 //! results back. Closures and return values are stored inline in a
 //! fixed-size slot of `S` bytes, checked at compile time.
-
-use core::cell::{Cell, RefCell, UnsafeCell};
-use core::future::Future;
-use core::marker::PhantomData;
-use core::mem::{self, MaybeUninit};
-use core::pin::Pin;
-use core::task::{Context, Poll};
-
-use crate::blocking_mutex::Mutex;
-use crate::blocking_mutex::raw::RawMutex;
-use crate::signal::Signal;
-use crate::waitqueue::WakerRegistration;
-
-type RunFn<T, const S: usize> = unsafe fn(&Storage<S>, &mut T);
-
 // It is sometimes useful to dispatch blocking work from async tasks onto a
 // dedicated runner — for example to serialize access to a shared resource,
 // or to run blocking operations in a lower-priority task without stalling
@@ -154,23 +139,17 @@ type RunFn<T, const S: usize> = unsafe fn(&Storage<S>, &mut T);
 // ensures the slot is still freed and `needs_recovery` is cleared. The destructor's
 // side effects are lost but the service remains usable.
 
-struct SlotState {
-    free: bool,
-    waker: WakerRegistration,
-}
+use core::cell::{Cell, RefCell, UnsafeCell};
+use core::future::Future;
+use core::marker::PhantomData;
+use core::mem::{self, MaybeUninit};
+use core::pin::Pin;
+use core::task::{Context, Poll};
 
-impl SlotState {
-    const EMPTY: Self = Self {
-        free: true,
-        waker: WakerRegistration::new(),
-    };
-}
-
-#[derive(Clone, Copy)]
-struct RunnerState {
-    running: bool,
-    needs_recovery: bool,
-}
+use crate::blocking_mutex::Mutex;
+use crate::blocking_mutex::raw::RawMutex;
+use crate::signal::Signal;
+use crate::waitqueue::WakerRegistration;
 
 /// Type-erased storage for closures and return values.
 ///
@@ -247,6 +226,8 @@ impl<const S: usize> Drop for Storage<S> {
     }
 }
 
+type RunFn<T, const S: usize> = unsafe fn(&Storage<S>, &mut T);
+
 /// # Safety
 /// - `slot` must currently contain a live `F`.
 /// - `R` must fit in the slot.
@@ -263,6 +244,24 @@ unsafe fn run_job<T, R, F: FnOnce(&mut T) -> R, const S: usize>(slot: &Storage<S
         let res = f(state);
         slot.store(res);
     }
+}
+
+struct SlotState {
+    free: bool,
+    waker: WakerRegistration,
+}
+
+impl SlotState {
+    const EMPTY: Self = Self {
+        free: true,
+        waker: WakerRegistration::new(),
+    };
+}
+
+#[derive(Clone, Copy)]
+struct RunnerState {
+    running: bool,
+    needs_recovery: bool,
 }
 
 struct JobSlot<M: RawMutex, T, const S: usize> {
