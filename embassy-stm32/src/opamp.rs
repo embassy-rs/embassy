@@ -612,6 +612,21 @@ macro_rules! impl_opamp_external_output {
                 impl<'d> crate::adc::AdcChannel<crate::peripherals::$adc>
                     for crate::opamp::OpAmpOutput<'d, crate::peripherals::$inst>
                 {
+                    fn degrade_adc<'a>(self) -> crate::adc::AnyAdcChannel<'a, crate::peripherals::$adc>
+                    where
+                        Self: 'a,
+                    {
+                        let ch = crate::adc::AnyAdcChannel {
+                            channel: $ch,
+                            is_differential: false,
+                            _phantom: core::marker::PhantomData,
+                        };
+                        // Prevent Drop from disabling the OPAMP — the caller
+                        // has obtained the ADC channel and expects the OPAMP
+                        // to remain enabled.
+                        core::mem::forget(self);
+                        ch
+                    }
                 }
             };
         );
@@ -634,6 +649,21 @@ macro_rules! impl_opamp_internal_output {
                 impl<'d> crate::adc::AdcChannel<crate::peripherals::$adc>
                     for OpAmpInternalOutput<'d, crate::peripherals::$inst>
                 {
+                    fn degrade_adc<'a>(self) -> crate::adc::AnyAdcChannel<'a, crate::peripherals::$adc>
+                    where
+                        Self: 'a,
+                    {
+                        let ch = crate::adc::AnyAdcChannel {
+                            channel: $ch,
+                            is_differential: false,
+                            _phantom: core::marker::PhantomData,
+                        };
+                        // Prevent Drop from disabling the OPAMP — the caller
+                        // has obtained the ADC channel and expects the OPAMP
+                        // to remain enabled.
+                        core::mem::forget(self);
+                        ch
+                    }
                 }
             };
         );

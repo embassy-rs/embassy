@@ -485,9 +485,9 @@ pub trait AdcChannel<T>: SealedAdcChannel<T> + Sized {
 /// This is useful in scenarios where you need the ADC channels to have the same type, such as
 /// storing them in an array.
 pub struct AnyAdcChannel<'a, T> {
-    channel: u8,
-    is_differential: bool,
-    _phantom: PhantomData<&'a mut T>,
+    pub(crate) channel: u8,
+    pub(crate) is_differential: bool,
+    pub(crate) _phantom: PhantomData<&'a mut T>,
 }
 impl<T: Instance> AdcChannel<T> for AnyAdcChannel<'_, T> {}
 impl<T: Instance> SealedAdcChannel<T> for AnyAdcChannel<'_, T> {
