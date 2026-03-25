@@ -51,14 +51,15 @@ async fn main(_spawner: Spawner) {
         config.rcc.voltage_scale = VoltageScale::Scale1;
         config.rcc.mux.adcsel = mux::Adcsel::PLL2_P;
     }
-    let p = embassy_stm32::init(config);
+    let mut p = embassy_stm32::init(config);
 
     info!("Hello World!");
 
     let mut adc = Adc::new(p.ADC3);
 
     let mut dma = p.DMA1_CH1;
-    let mut vrefint_channel = adc.enable_vrefint().degrade_adc();
+    let mut vrefint = adc.enable_vrefint();
+    let mut vrefint_channel = vrefint.degrade_adc();
     let mut pc0 = p.PC0.degrade_adc();
 
     loop {

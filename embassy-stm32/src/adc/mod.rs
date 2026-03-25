@@ -465,10 +465,7 @@ pub trait Instance: SealedInstance + crate::PeripheralType + crate::rcc::RccPeri
 #[allow(private_bounds)]
 pub trait AdcChannel<T>: SealedAdcChannel<T> + Sized {
     #[allow(unused_mut)]
-    fn degrade_adc<'a>(mut self) -> AnyAdcChannel<'a, T>
-    where
-        Self: 'a,
-    {
+    fn degrade_adc<'a>(&'a mut self) -> AnyAdcChannel<'a, T> {
         #[cfg(any(adc_v1, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba))]
         self.setup();
 

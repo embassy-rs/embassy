@@ -77,9 +77,9 @@ async fn main(_spawner: embassy_executor::Spawner) {
     let max_count = adc4::resolution_to_max_count(adc4::Resolution::BITS12);
 
     // Enable internal channels
-    let vrefint = adc.enable_vrefint_adc4();
-    let temperature = adc.enable_temperature_adc4();
-    let vcore = adc.enable_vcore_adc4();
+    let mut vrefint = adc.enable_vrefint_adc4();
+    let mut temperature = adc.enable_temperature_adc4();
+    let mut vcore = adc.enable_vcore_adc4();
 
     // Degrade to AnyAdcChannel for use with DMA
     // IMPORTANT: Order matters for ADC4 - must be ascending channel numbers
