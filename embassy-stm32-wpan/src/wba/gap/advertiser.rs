@@ -1,9 +1,8 @@
 //! GAP Advertiser implementation
 
-use super::types::{AdvData, AdvParams};
+use super::types::{AdvData, AdvParams, AdvType};
 use crate::wba::error::BleError;
 use crate::wba::hci::command::CommandSender;
-use crate::wba::hci::types::AddressType;
 
 /// BLE Advertiser
 ///
@@ -77,28 +76,33 @@ impl<'d> Advertiser<'d> {
             }
         }
 
-        // Set advertising parameters
-        self.cmd.le_set_advertising_parameters(
+        // Extract device name from advertising data if present
+        let adv_bytes = adv_data.build();
+        let local_name = extract_local_name(adv_bytes);
+
+        // Extract service UUID bytes from advertising data if present
+        let service_uuid_bytes = extract_service_uuids_16(adv_bytes);
+
+        // Convert AdvType to ACI advertising type value
+        let aci_adv_type = match params.adv_type {
+            AdvType::ConnectableUndirected => super::aci_gap::ADV_IND,
+            AdvType::ConnectableDirectedHighDuty => super::aci_gap::ADV_DIRECT_IND,
+            AdvType::ScannableUndirected => super::aci_gap::ADV_SCAN_IND,
+            AdvType::NonConnectableUndirected => super::aci_gap::ADV_NONCONN_IND,
+            AdvType::ConnectableDirectedLowDuty => super::aci_gap::ADV_DIRECT_IND_LOW_DUTY,
+        };
+
+        // Use aci_gap_set_discoverable - the high-level ACI command
+        // This configures advertising parameters and data
+        super::aci_gap::set_discoverable(
+            aci_adv_type,
             params.interval_min,
             params.interval_max,
-            params.adv_type.into(),
-            params.own_addr_type,
-            AddressType::Public as u8, // Peer address type (not used for undirected advertising)
-            &[0; 6],                   // Peer address (not used for undirected advertising)
-            params.channel_map,
-            params.filter_policy,
+            params.own_addr_type as u8,
+            params.filter_policy as u8,
+            local_name,
+            service_uuid_bytes,
         )?;
-
-        // Set advertising data
-        self.cmd.le_set_advertising_data(adv_data.build())?;
-
-        // Set scan response data if provided
-        if let Some(scan_rsp) = scan_rsp_data {
-            self.cmd.le_set_scan_response_data(scan_rsp.build())?;
-        }
-
-        // Enable advertising
-        self.cmd.le_set_advertise_enable(true)?;
 
         self.is_advertising = true;
 
@@ -116,7 +120,8 @@ impl<'d> Advertiser<'d> {
             return Ok(());
         }
 
-        self.cmd.le_set_advertise_enable(false)?;
+        // Use aci_gap_set_non_discoverable - the high-level ACI command
+        super::aci_gap::set_non_discoverable()?;
         self.is_advertising = false;
 
         Ok(())
@@ -152,6 +157,56 @@ impl<'d> Advertiser<'d> {
 
         self.cmd.le_set_scan_response_data(scan_rsp_data.build())
     }
+}
+
+/// Extract local name from advertising data
+fn extract_local_name(adv_data: &[u8]) -> Option<&[u8]> {
+    let mut offset = 0;
+    while offset < adv_data.len() {
+        let len = adv_data[offset] as usize;
+        if len == 0 {
+            break;
+        }
+        if offset + len >= adv_data.len() {
+            break;
+        }
+
+        let ad_type = adv_data[offset + 1];
+        // AD_TYPE_COMPLETE_LOCAL_NAME = 0x09
+        // AD_TYPE_SHORTENED_LOCAL_NAME = 0x08
+        if ad_type == 0x09 || ad_type == 0x08 {
+            return Some(&adv_data[offset + 2..offset + 1 + len]);
+        }
+
+        offset += 1 + len;
+    }
+    None
+}
+
+/// Extract 16-bit service UUID bytes from advertising data
+/// Returns raw bytes in format expected by aci_gap_set_discoverable
+fn extract_service_uuids_16(adv_data: &[u8]) -> Option<&[u8]> {
+    let mut offset = 0;
+    while offset < adv_data.len() {
+        let len = adv_data[offset] as usize;
+        if len == 0 {
+            break;
+        }
+        if offset + len >= adv_data.len() {
+            break;
+        }
+
+        let ad_type = adv_data[offset + 1];
+        // AD_TYPE_16_BIT_SERV_UUID = 0x02 (incomplete list)
+        // AD_TYPE_16_BIT_SERV_UUID_CMPLT_LIST = 0x03 (complete list)
+        if ad_type == 0x02 || ad_type == 0x03 {
+            // Return the UUID data (without length and type bytes)
+            return Some(&adv_data[offset + 2..offset + 1 + len]);
+        }
+
+        offset += 1 + len;
+    }
+    None
 }
 
 impl<'d> Drop for Advertiser<'d> {

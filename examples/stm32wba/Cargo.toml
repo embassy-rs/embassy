@@ -6,12 +6,13 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]
-embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "stm32wba52cg", "time-driver-any", "memory-x", "exti"]  }
-stm32-metapac = { version = "21", features = ["stm32wba52cg"] }
-embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", features = ["defmt", "stm32wba52cg", "ble-stack-basic", "linklayer-ble-basic"] }
+embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "stm32wba55cg", "time-driver-any", "memory-x", "exti"]  }
+stm32-metapac = { version = "21", features = ["stm32wba55cg"] }
+embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", features = ["defmt", "stm32wba55cg", "ble-stack-basic", "linklayer-ble-basic"] }
 embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-cortex-m", "executor-thread", "defmt"] }
 embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
+embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
 embassy-net = { version = "0.9.0", path = "../../embassy-net", features = ["defmt", "udp", "proto-ipv6", "medium-ieee802154", ], optional = true }
 
 defmt = "1.0.1"
@@ -23,6 +24,7 @@ embedded-hal = "1.0.0"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 heapless = { version = "0.9", default-features = false }
 static_cell = "2"
+embedded-io-async = "0.7.0"
 
 [features]
 default = ["ble"]
@@ -35,6 +37,14 @@ required-features = ["mac"]
 
 [[bin]]
 name = "ble_advertiser"
+required-features = ["ble"]
+
+[[bin]]
+name = "ble_serial_com"
+required-features = ["ble"]
+
+[[bin]]
+name = "ble_gatt_server"
 required-features = ["ble"]
 
 [profile.release]

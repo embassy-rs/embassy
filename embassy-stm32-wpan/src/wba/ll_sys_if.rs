@@ -358,11 +358,6 @@ pub unsafe extern "C" fn ll_sys_schedule_bg_process() {
     util_seq::UTIL_SEQ_SetTask(TASK_LINK_LAYER_MASK, TASK_PRIO_LINK_LAYER);
 }
 
-/**
- * @brief  Link Layer background process next iteration scheduling from ISR
- * @param  None
- * @retval None
- */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ll_sys_schedule_bg_process_isr() {
     util_seq::UTIL_SEQ_SetTask(TASK_LINK_LAYER_MASK, TASK_PRIO_LINK_LAYER);
@@ -397,14 +392,23 @@ pub unsafe extern "C" fn ll_sys_reset() {
 }
 
 /// Select the sleep-clock source used by the Link Layer.
-/// Defaults to the crystal oscillator when no explicit configuration is available.
+/// Reads the RCC BDCR register to determine which clock source has been
+/// configured for the radio sleep timer and tells the link-layer accordingly.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ll_sys_sleep_clock_source_selection() {
+    use embassy_stm32::pac::RCC;
+    use embassy_stm32::pac::rcc::vals::Radiostsel;
+
+    let radiostsel = RCC.bdcr().read().radiostsel();
+    let slp_clk_src = match radiostsel {
+        Radiostsel::LSE => link_layer::_SLPTMR_SRC_TYPE_E_RTC_SLPTMR as u8,
+        Radiostsel::_RESERVED_2 => link_layer::_SLPTMR_SRC_TYPE_E_RCO_SLPTMR as u8, // LSI
+        Radiostsel::HSE => link_layer::_SLPTMR_SRC_TYPE_E_CRYSTAL_OSCILLATOR_SLPTMR as u8,
+        Radiostsel::DISABLE => panic!("Radio sleep timer clock not configured (RADIOSTSEL=DISABLE)"),
+    };
+
     let mut frequency: u16 = 0;
-    let _ = link_layer::ll_intf_cmn_le_select_slp_clk_src(
-        link_layer::_SLPTMR_SRC_TYPE_E_CRYSTAL_OSCILLATOR_SLPTMR as u8,
-        &mut frequency as *mut u16,
-    );
+    let _ = link_layer::ll_intf_cmn_le_select_slp_clk_src(slp_clk_src, &mut frequency as *mut u16);
 }
 
 /// Determine the BLE sleep-clock accuracy used by the stack.

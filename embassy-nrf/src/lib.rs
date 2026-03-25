@@ -73,8 +73,18 @@ compile_error!(
 #[cfg(all(feature = "reset-pin-as-gpio", not(feature = "_nrf52")))]
 compile_error!("feature `reset-pin-as-gpio` is only valid for nRF52 series chips.");
 
-#[cfg(all(feature = "nfc-pins-as-gpio", not(any(feature = "_nrf52", feature = "_nrf5340-app"))))]
-compile_error!("feature `nfc-pins-as-gpio` is only valid for nRF52, or nRF53's application core.");
+#[cfg(all(
+    feature = "nfc-pins-as-gpio",
+    not(any(
+        feature = "_nrf52",
+        feature = "_nrf5340-app",
+        feature = "_nrf54l05",
+        feature = "_nrf54l10",
+        feature = "_nrf54l15",
+        feature = "_nrf54lm20-app",
+    ))
+))]
+compile_error!("feature `nfc-pins-as-gpio` is not valid for this chip.");
 
 #[cfg(all(feature = "lfxo-pins-as-gpio", not(feature = "_nrf5340")))]
 compile_error!("feature `lfxo-pins-as-gpio` is only valid for nRF53 series chips.");
@@ -1228,6 +1238,9 @@ pub fn init(config: config::Config) -> Peripherals {
         // If an inductor is not detected, the device remains in LDO mode"
         pac::REGULATORS.vregmain().dcdcen().write(|w| w.set_val(true));
     }
+
+    #[cfg(all(feature = "_nrf54l", feature = "nfc-pins-as-gpio"))]
+    pac::NFCT.padconfig().write(|w| w.set_enable(false));
 
     // Init GPIOTE
     #[cfg(feature = "gpiote")]

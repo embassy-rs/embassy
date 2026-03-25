@@ -232,9 +232,6 @@ impl<'d, T: Instance> Ucpd<'d, T> {
     {
         let r = T::REGS;
 
-        // TODO: Currently only SOP messages are supported.
-        r.tx_ordsetr().write(|w| w.set_txordset(0b10001_11000_11000_11000));
-
         // Enable the receiver on one of the two CC lines.
         r.cr().modify(|w| w.set_phyccsel(cc_sel));
 
@@ -392,7 +389,7 @@ impl<'d, T: Instance> CcPhy<'d, T> {
     }
 }
 
-/// Receive SOP.
+/// Start of Packet.
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Sop {
@@ -406,6 +403,18 @@ pub enum Sop {
     SopPrimeDebug,
     /// SOP''_Debug
     SopDoublePrimeDebug,
+}
+
+impl Sop {
+    fn value(&self) -> u32 {
+        match self {
+            Sop::Sop => 0b10001_11000_11000_11000,
+            Sop::SopPrime => 0b00110_00110_11000_11000,
+            Sop::SopDoublePrime => 0b00110_11000_00110_11000,
+            Sop::SopPrimeDebug => 0b00110_11001_11001_11000,
+            Sop::SopDoublePrimeDebug => 0b10001_00110_11001_11000,
+        }
+    }
 }
 
 /// Receive Error.
@@ -544,8 +553,13 @@ impl<'d, T: Instance> PdPhy<'d, T> {
         T::REGS.imr().modify(|w| w.set_rxmsgendie(enable));
     }
 
-    /// Transmits a PD message.
+    /// Transmits an SOP PD message.
     pub async fn transmit(&mut self, buf: &[u8]) -> Result<(), TxError> {
+        self.transmit_with_sop(Sop::Sop, buf).await
+    }
+
+    /// Transmits a PD message with a given SOP.
+    pub async fn transmit_with_sop(&mut self, sop: Sop, buf: &[u8]) -> Result<(), TxError> {
         let r = T::REGS;
 
         // When a previous transmission was dropped before it had finished it
@@ -562,6 +576,8 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             w.set_txmsgdisccf(true);
             w.set_txmsgsentcf(true);
         });
+
+        r.tx_ordsetr().write(|w| w.set_txordset(sop.value()));
 
         // Start the DMA and let it do its thing in the background.
         let _dma = unsafe {
