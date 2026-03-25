@@ -7,14 +7,13 @@ use core::task::Poll;
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::Peri;
 use crate::dsihost::panel::DsiPanel;
 use crate::gpio::{AfType, Flex};
 use crate::interrupt::typelevel::Interrupt;
 use crate::peripherals::{self};
 use crate::rcc::{self, RccPeripheral};
 use crate::time::MaybeHertz;
-use crate::{block_for_us, interrupt};
+use crate::{Peri, block_for_us, interrupt};
 
 mod pll;
 pub use pll::{DsiHostPllConfig, DsiPllInput, DsiPllOutput};

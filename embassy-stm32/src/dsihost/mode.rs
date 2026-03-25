@@ -1,11 +1,8 @@
 //! DSIHOST Modes
 
-use crate::dsihost::Error;
-use crate::ltdc::PolarityActive;
-
-use super::DsiHost;
-use super::Instance;
 use super::panel::DsiPanel;
+use super::{DsiHost, Error, Instance};
+use crate::ltdc::PolarityActive;
 
 /// DSI Color Mode.
 ///

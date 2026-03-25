@@ -1,16 +1,13 @@
 //! DSIHOST Phase Locked Loop (PLL)
 
-use crate::rcc::get_freqs;
-use crate::rcc::set_freqs;
+use core::future::poll_fn;
+use core::task::Poll;
+
+use super::{DSIHOST_WAKER, DsiHost, Instance};
+use crate::rcc::{get_freqs, set_freqs};
 use crate::time::Hertz;
 #[cfg(dsihost_v1)]
 use crate::time::Prescaler;
-
-use super::DSIHOST_WAKER;
-use super::DsiHost;
-use super::Instance;
-use core::future::poll_fn;
-use core::task::Poll;
 
 /// DSI PLL Input Divisor of HSE clock
 #[cfg(dsihost_v1)]

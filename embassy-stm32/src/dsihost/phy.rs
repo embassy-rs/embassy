@@ -1,12 +1,8 @@
 //! DSIHOST Physical Layer (PHY)
 
-use stm32_metapac::RCC;
-
+use super::{DsiHost, Instance};
 #[cfg(dsihost_v1)]
 use crate::rcc::get_freqs;
-
-use super::DsiHost;
-use super::Instance;
 
 /// Number of DSI PHY data lanes
 #[derive(Clone, Copy)]
@@ -76,20 +72,24 @@ pub struct DsiHostPhyConfig {
 impl<'d, T: Instance> DsiHost<'d, T> {
     /// Initialize DSI D-PHY
     pub fn phy_init(&mut self, config: &DsiHostPhyConfig) {
-        // Lane clock depends on the DSISEL MUX. When DSI_PHY is selected, lane clock is PHY clock / 8
-        // TODO: get_rcc_config() is only available when low_power feature is enabled, and it would
-        // be nice to get the mux selection from the config rather than registers.
-        #[cfg(dsihost_v1)]
-        let lane_clock = match RCC.d1ccipr().read().dsisel() {
-            stm32_metapac::rcc::vals::Dsisel::DSI_PHY => T::frequency() / 8u8,
-            stm32_metapac::rcc::vals::Dsisel::PLL2_Q => T::frequency(),
+        // Lane clock frequency calculation depends on DSISEL mux
+        #[cfg(feature = "low-power")]
+        let lane_clock = {
+            use crate::rcc::get_rcc_config;
+            let cfg = unsafe { get_rcc_config() }.expect("RCC config");
+
+            match cfg.mux.dsisel {
+                stm32_metapac::rcc::vals::Dsisel::DSI_PHY => T::frequency() / 8u8,
+                #[cfg(dsihost_v1)]
+                stm32_metapac::rcc::vals::Dsisel::PLL2_Q => T::frequency(),
+                #[cfg(dsihost_u5)]
+                stm32_metapac::rcc::vals::Dsisel::PLL3_P => T::frequency(),
+            }
         };
 
-        #[cfg(dsihost_u5)]
-        let lane_clock = match RCC.ccipr2().read().dsisel() {
-            stm32_metapac::rcc::vals::Dsisel::DSI_PHY => T::frequency() / 8u8,
-            stm32_metapac::rcc::vals::Dsisel::PLL3_P => T::frequency(),
-        };
+        // If low-power is not enabled, assume DSI_PHY clock / 8
+        #[cfg(not(feature = "low-power"))]
+        let lane_clock = T::frequency() / 8u8;
 
         let tx_escape_clock = lane_clock / config.tx_escape_div;
 

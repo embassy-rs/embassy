@@ -1,9 +1,7 @@
 //! DSI Panel Configuration
 
-use super::DsiHost;
-use super::Error;
-use super::Instance;
 use super::mode::DsiColor;
+use super::{DsiHost, Error, Instance};
 use crate::ltdc::{LtdcConfiguration, PolarityActive, PolarityEdge};
 
 /// DSI Panel trait
