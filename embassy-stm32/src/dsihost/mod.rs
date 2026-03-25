@@ -1,14 +1,39 @@
 //! DSI HOST
 
+use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::task::Poll;
 
 use embassy_hal_internal::PeripheralType;
+use embassy_sync::waitqueue::AtomicWaker;
 
-//use crate::gpio::{AnyPin, SealedPin};
-use crate::block_for_us;
-use crate::gpio::{AfType, Flex, OutputType, Speed};
+use crate::dsihost::panel::DsiPanel;
+use crate::gpio::{AfType, Flex};
+use crate::interrupt::typelevel::Interrupt;
+use crate::peripherals::{self};
 use crate::rcc::{self, RccPeripheral};
-use crate::{Peri, peripherals};
+use crate::time::MaybeHertz;
+use crate::{Peri, block_for_us, interrupt};
+
+mod pll;
+pub use pll::{DsiHostPllConfig, DsiPllInput, DsiPllOutput};
+
+mod phy;
+pub use phy::{DsiHostPhyConfig, DsiHostPhyLanes};
+
+mod mode;
+pub use mode::{
+    DsiColor, DsiCommandConfig, DsiHostMode, DsiLtdcRefreshMode, DsiTearEventSource, DsiVideoConfig, DsiVideoMode,
+};
+
+pub mod panel;
+
+static DSIHOST_WAKER: AtomicWaker = AtomicWaker::new();
+
+/// DSIHOST interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
 
 /// PacketTypes extracted from CubeMX
 #[repr(u8)]
@@ -63,6 +88,14 @@ impl From<PacketType> for u8 {
 pub struct DsiHost<'d, T: Instance> {
     _peri: PhantomData<&'d mut T>,
     _te: Flex<'d>,
+
+    /// Lane byte clock frequency (62MHz max)
+    /// Can be mux'd from PHY clock / 8, or PLL2Q using RCC D1CCIPR.DSISEL
+    lane_byte_clock: MaybeHertz,
+
+    /// TX escape clock frequency (20MHz max)
+    /// Derived from pixel clock and TX Prescaler
+    tx_escape_clock: MaybeHertz,
 }
 
 impl<'d, T: Instance> DsiHost<'d, T> {
@@ -70,17 +103,59 @@ impl<'d, T: Instance> DsiHost<'d, T> {
     pub fn new(_peri: Peri<'d, T>, te: Peri<'d, impl TePin<T>>) -> Self {
         rcc::enable_and_reset::<T>();
 
-        // Set Tearing Enable pin according to CubeMx example
-        set_as_af!(te, AfType::output(OutputType::PushPull, Speed::Low));
-        /*
-                T::regs().wcr().modify(|w| {
-                    w.set_dsien(true);
-                });
-        */
+        set_as_af!(te, AfType::input(crate::gpio::Pull::Down));
+
         Self {
             _peri: PhantomData,
             _te: Flex::new(te),
+            lane_byte_clock: None.into(),
+            tx_escape_clock: None.into(),
         }
+    }
+
+    /// Start the DSI host
+    ///
+    /// LTDC should be initialized before starting DSIHOST
+    ///
+    /// * Enable regulator
+    /// * Initialize PLL and wait for lock
+    /// * Initialize PHY
+    /// * Initialize Mode
+    /// * Initialize Panel
+    /// * Enable DSI peripheral and DSI Wrapper
+    ///
+    pub async fn start_panel<Panel: DsiPanel>(
+        &mut self,
+        pll_config: &DsiHostPllConfig,
+        phy_config: &DsiHostPhyConfig,
+        mode: &DsiHostMode,
+    ) -> Result<(), Error> {
+        #[cfg(dsihost_v1)]
+        self.enable_regulator().await;
+
+        self.enable_pll(pll_config).await;
+
+        self.phy_init(phy_config);
+
+        self.set_mode::<Panel>(mode)?;
+
+        self.enable();
+
+        self.enable_wrapper_dsi();
+
+        let color = match mode {
+            DsiHostMode::Video(config) => config.color,
+            DsiHostMode::AdaptedCommand(config) => {
+                // Enable tearing output
+                self.write_cmd(0, 0x35, &[0x0])?;
+
+                config.color
+            }
+        };
+
+        self.init_panel::<Panel>(color).await?;
+
+        Ok(())
     }
 
     /// Get the DSIHOST hardware version. Found in the reference manual for comparison.
@@ -112,6 +187,60 @@ impl<'d, T: Instance> DsiHost<'d, T> {
         assert!(!T::regs().wcr().read().dsien())
     }
 
+    /// Enable the regulator
+    #[cfg(dsihost_v1)]
+    pub async fn enable_regulator(&mut self) {
+        T::regs().wrpcr().modify(|w| w.set_regen(true));
+
+        poll_fn(|cx| {
+            if T::regs().wisr().read().rrif() {
+                T::regs().wifcr().modify(|w| w.set_crrif(true));
+                Poll::Ready(())
+            } else {
+                DSIHOST_WAKER.register(cx.waker());
+                T::regs().wifcr().modify(|w| w.set_crrif(true));
+                T::regs().wier().modify(|w| w.set_rrie(true));
+                Self::enable_interrupts(true);
+                Poll::Pending
+            }
+        })
+        .await;
+    }
+
+    /// Wait for a tear interrupt event
+    pub async fn wait_tear(&mut self) {
+        poll_fn(|cx| {
+            if T::regs().wisr().read().teif() {
+                T::regs().wifcr().modify(|w| w.set_cteif(true));
+                Self::enable_interrupts(true);
+                Poll::Ready(())
+            } else {
+                DSIHOST_WAKER.register(cx.waker());
+                T::regs().wier().modify(|w| w.set_teie(true));
+                Self::enable_interrupts(true);
+                Poll::Pending
+            }
+        })
+        .await
+    }
+
+    /// Wait for an end of refresh interrupt
+    pub async fn wait_refresh(&mut self) {
+        poll_fn(|cx| {
+            if T::regs().wisr().read().erif() {
+                T::regs().wifcr().modify(|w| w.set_cerif(true));
+                Self::enable_interrupts(true);
+                Poll::Ready(())
+            } else {
+                DSIHOST_WAKER.register(cx.waker());
+                T::regs().wier().modify(|w| w.set_erie(true));
+                Self::enable_interrupts(true);
+                Poll::Pending
+            }
+        })
+        .await
+    }
+
     /// DCS or Generic short/long write command
     pub fn write_cmd(&mut self, channel_id: u8, address: u8, data: &[u8]) -> Result<(), Error> {
         match data.len() {
@@ -127,13 +256,8 @@ impl<'d, T: Instance> DsiHost<'d, T> {
     }
 
     fn short_write(&mut self, channel_id: u8, packet_type: PacketType, param1: u8, param2: u8) -> Result<(), Error> {
-        #[cfg(feature = "defmt")]
-        defmt::debug!("short_write: BEGIN wait for command fifo empty");
-
         // Wait for Command FIFO empty
         self.wait_command_fifo_empty()?;
-        #[cfg(feature = "defmt")]
-        defmt::debug!("short_write: END wait for command fifo empty");
 
         // Configure the packet to send a short DCS command with 0 or 1 parameters
         // Update the DSI packet header with new information
@@ -141,9 +265,9 @@ impl<'d, T: Instance> DsiHost<'d, T> {
 
         self.wait_command_fifo_empty()?;
 
-        let status = T::regs().isr1().read().0;
-        if status != 0 {
-            error!("ISR1 after short_write(): {:b}", status);
+        let status = T::regs().isr1().read();
+        if status.0 != 0 {
+            error!("ISR1 after short_write(): {}", status);
         }
         Ok(())
     }
@@ -170,13 +294,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
         // params needs to have at least 2 elements, otherwise short_write should be used
         assert!(data.len() >= 2);
 
-        #[cfg(feature = "defmt")]
-        defmt::debug!("long_write: BEGIN wait for command fifo empty");
-
         self.wait_command_fifo_empty()?;
-
-        #[cfg(feature = "defmt")]
-        defmt::debug!("long_write: DONE wait for command fifo empty");
 
         // Note: CubeMX example "NbParams" is always one LESS than params.len()
         // DCS code (last element of params) must be on payload byte 1 and if we have only 2 more params,
@@ -372,6 +490,16 @@ impl<'d, T: Instance> DsiHost<'d, T> {
     fn read_busy(&self) -> bool {
         T::regs().gpsr().read().rcb()
     }
+
+    /// Enable interrupts
+    fn enable_interrupts(enable: bool) {
+        T::Interrupt::unpend();
+        if enable {
+            unsafe { T::Interrupt::enable() };
+        } else {
+            T::Interrupt::disable()
+        }
+    }
 }
 
 /// Possible Error Types for DSI HOST
@@ -389,10 +517,36 @@ pub enum Error {
     ReadError,
     /// Read operation timed out
     ReadTimeout,
+    /// Color coding not supported by panel
+    ColorNotSupported,
 }
 
 impl<'d, T: Instance> Drop for DsiHost<'d, T> {
     fn drop(&mut self) {}
+}
+
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        cortex_m::asm::dsb();
+        DsiHost::<T>::enable_interrupts(false);
+
+        let isr0 = T::regs().isr0().read();
+        let isr1 = T::regs().isr1().read();
+        if isr0.0 != 0 {
+            warn!("{}", isr0);
+            unsafe { T::Interrupt::enable() };
+        }
+
+        if isr1.0 != 0 {
+            warn!("{}", isr1);
+            unsafe { T::Interrupt::enable() };
+        }
+
+        //let wisr = T::regs().wisr().read();
+        //info!("{}", wisr);
+
+        DSIHOST_WAKER.wake();
+    }
 }
 
 trait SealedInstance: crate::rcc::SealedRccPeripheral {
@@ -401,18 +555,23 @@ trait SealedInstance: crate::rcc::SealedRccPeripheral {
 
 /// DSI instance trait.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + PeripheralType + RccPeripheral + 'static {}
+pub trait Instance: SealedInstance + PeripheralType + RccPeripheral + 'static + Send {
+    /// Interrupt for this DSI instance.
+    type Interrupt: interrupt::typelevel::Interrupt;
+}
 
 pin_trait!(TePin, Instance);
 
-foreach_peripheral!(
-    (dsihost, $inst:ident) => {
-        impl crate::dsihost::SealedInstance for peripherals::$inst {
+foreach_interrupt!(
+    ($inst:ident, dsihost, DSIHOST, GLOBAL, $irq:ident) => {
+        impl Instance for peripherals::$inst {
+            type Interrupt = crate::interrupt::typelevel::$irq;
+        }
+
+        impl SealedInstance for peripherals::$inst {
             fn regs() -> crate::pac::dsihost::Dsihost {
                 crate::pac::$inst
             }
         }
-
-        impl crate::dsihost::Instance for peripherals::$inst {}
     };
 );
