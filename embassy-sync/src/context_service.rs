@@ -325,6 +325,9 @@ impl<M: RawMutex, T, const S: usize> JobSlot<M, T, S> {
     unsafe fn submit_immediate<F: FnOnce(&mut T)>(&self, f: F) {
         // SAFETY: caller guarantees slot is acquired and F fits.
         unsafe { self.storage.store(f) };
+        // It is ok to pre-signal ack here because signal retains the value until
+        // consumed, and no CallFuture can send a competing ack until
+        // the runner completes this F.
         self.ack.signal(());
         self.job.signal(run_job::<T, (), F, S>);
     }
@@ -448,7 +451,9 @@ impl<M: RawMutex, T, const S: usize> ContextService<M, T, S> {
     /// sound and leaves the service in a usable state. If dropped before
     /// the closure has been submitted, no work is performed. If dropped
     /// after submission, the closure will still be executed to completion
-    /// and the return value is discarded.
+    /// and the return value is discarded. Execution requires that
+    /// [`run()`](Self::run) is eventually polled and the service is not
+    /// dropped.
     pub fn call<R, F>(&self, f: F) -> CallFuture<'_, M, T, R, F, S>
     where
         F: FnOnce(&mut T) -> R + Send + 'static,
