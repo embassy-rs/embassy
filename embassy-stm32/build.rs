@@ -1655,7 +1655,7 @@ fn main() {
                         // Impl NonInvertingPin for VINP0, VINP1 etc.
                         if let Ok(ch) = ch_str.parse::<u8>() {
                             g.extend(quote! {
-                                impl_opamp_vp_pin!( #peri, #pin_name, #ch );
+                                analog_pin_trait_impl!(crate::opamp::NonInvertingPin, #peri, #pin_name, #ch);
                             });
                         }
                     } else if let Some(ch_str) = pin.signal.strip_prefix("VINM") {
@@ -1663,19 +1663,19 @@ fn main() {
                             // Impl BiasPin for VINM0
                             if ch == 0 {
                                 g.extend(quote! {
-                                    impl_opamp_bias_pin!( #peri, #pin_name, #ch);
+                                    analog_pin_trait_impl!(crate::opamp::BiasPin, #peri, #pin_name, 0);
                                 });
                             }
 
                             // Impl InvertingPin for VINM0, VINM1 etc.
                             g.extend(quote! {
-                                impl_opamp_vn_pin!( #peri, #pin_name, #ch);
+                                analog_pin_trait_impl!(crate::opamp::InvertingPin, #peri, #pin_name, #ch);
                             });
                         }
                     } else if pin.signal == "VOUT" {
                         // Impl OutputPin for the VOUT pin
                         g.extend(quote! {
-                            impl_opamp_vout_pin!( #peri, #pin_name );
+                            analog_pin_trait_impl!(crate::opamp::OutputPin, #peri, #pin_name, 0);
                         });
 
                         for adc in METADATA.peripherals {
@@ -1702,7 +1702,7 @@ fn main() {
                     }
                 }
 
-                if regs.kind == "comp" {
+                if regs.kind == "comp" && (regs.version == "u5" || regs.version == "v2") {
                     let peri = format_ident!("{}", p.name);
                     let pin_name = format_ident!("{}", pin.pin);
                     // Check if this peripheral has numbered signals (e.g. INP0/INP1 from extra YAML).
@@ -1715,7 +1715,7 @@ fn main() {
                             Err(_) => continue,           // skip bare "INP" when numbered signals exist
                         };
                         g.extend(quote! {
-                            impl_comp_inp_pin!( #peri, #pin_name, #ch );
+                            analog_pin_trait_impl!(crate::comp::NonInvertingPin, #peri, #pin_name, #ch);
                         });
                     } else if let Some(ch_str) = pin.signal.strip_prefix("INM") {
                         let ch: u8 = match ch_str.parse() {
@@ -1724,7 +1724,7 @@ fn main() {
                             Err(_) => continue,
                         };
                         g.extend(quote! {
-                            impl_comp_inm_pin!( #peri, #pin_name, #ch );
+                            analog_pin_trait_impl!(crate::comp::InvertingPin, #peri, #pin_name, #ch);
                         });
                     }
                 }
