@@ -106,21 +106,20 @@ type RunFn<T, const S: usize> = unsafe fn(&Storage<S>, &mut T);
 //   - runner owns the slot between receiving ack and marking the slot free
 //
 // To support cancellation and restartabilty of run(), we can extend the above
-// with a few atomic flags:
+// with a few flags:
 //   - `running`: prevents concurrent `run()` calls. Cleared by
 //     a drop guard so a new `run()` can start after the old one is dropped.
-//   - `initialized`: ensures the slot is marked free exactly
-//     once across all `run()` calls. Prevents reopening a slot occupied by a
-//     stale call on restart.
 //   - `needs_recovery`: set while a job is in-flight. If the
 //     runner task is dropped while this is true, the next `run()` waits for
 //     the caller's ack and cleans up before accepting new work.
+//
+// The slot starts free, so callers can acquire and submit before any runner
+// is active. The job will be processed once `run()` is called.
 //
 // ```text
 //   caller                          runner
 //     |                               |
 //     |                         [running = true, drop guard armed]
-//     |                         [if !initialized: mark slot free]
 //     |                               |
 //     |--- acquire slot ------------->|
 //     |    store F in slot            |
@@ -162,7 +161,7 @@ struct SlotState {
 
 impl SlotState {
     const EMPTY: Self = Self {
-        free: false,
+        free: true,
         waker: WakerRegistration::new(),
     };
 }
@@ -170,7 +169,6 @@ impl SlotState {
 #[derive(Clone, Copy)]
 struct RunnerState {
     running: bool,
-    initialized: bool,
     needs_recovery: bool,
 }
 
@@ -441,7 +439,6 @@ impl<M: RawMutex, T, const S: usize> ContextService<M, T, S> {
             slot: JobSlot::new(),
             runner_state: Mutex::new(Cell::new(RunnerState {
                 running: false,
-                initialized: false,
                 needs_recovery: false,
             })),
         }
@@ -525,12 +522,12 @@ impl<M: RawMutex, T, const S: usize> ContextService<M, T, S> {
             }
         }
 
-        let (needs_recovery, initialized) = self.with_runner_state(|s| {
+        let needs_recovery = self.with_runner_state(|s| {
             if s.running {
                 panic!("ContextService::run() must not be called concurrently")
             }
             s.running = true;
-            (s.needs_recovery, s.initialized)
+            s.needs_recovery
         });
         let _guard = RunGuard {
             runner_state: &self.runner_state,
@@ -541,14 +538,6 @@ impl<M: RawMutex, T, const S: usize> ContextService<M, T, S> {
         // always acks, either explicitly or via its Drop) and then clean up.
         if needs_recovery {
             self.slot.wait_ack_and_finish(&self.runner_state).await;
-        }
-
-        // Only the first run() may open the slot. On restarts, the slot
-        // is either already free or holds a pending job from a caller
-        // that submitted while no run() was active, which we may not clear!
-        if !initialized {
-            self.slot.mark_free();
-            self.with_runner_state(|s| s.initialized = true);
         }
 
         loop {
@@ -716,7 +705,7 @@ mod tests {
             },
             svc.run(&mut state),
         )
-        .await;
+            .await;
     }
 
     #[futures_test::test]
@@ -725,20 +714,25 @@ mod tests {
         let mut state = 0i32;
         let r = drive(
             async {
+                let first = svc.call(add(10));
+                let mut first = pin!(first);
+                assert!(futures_util::poll!(first.as_mut()).is_pending());
+
                 {
                     let fut = svc.call(add(100));
                     let mut fut = pin!(fut);
                     assert!(
                         futures_util::poll!(fut.as_mut()).is_pending(),
-                        "slot should not be free without a runner"
+                        "should be pending waiting for slot"
                     );
                 }
-                svc.call(add(1)).await
+
+                first.await
             },
             svc.run(&mut state),
         )
-        .await;
-        assert_eq!(r, 1);
+            .await;
+        assert_eq!(r, 10);
     }
 
     #[futures_test::test]
@@ -823,7 +817,7 @@ mod tests {
             }),
             svc.run(&mut state),
         )
-        .await;
+            .await;
     }
 
     #[futures_test::test]
@@ -909,16 +903,12 @@ mod tests {
         let svc: ContextService<NoopRawMutex, i32, 64> = ContextService::new();
         let mut state = 0i32;
 
-        assert!(!svc.try_call_immediate(|s| *s += 100)); // no runner yet
+        assert!(svc.try_call_immediate(|s| *s += 1)); // slot starts free
+        assert!(!svc.try_call_immediate(|s| *s += 100)); // slot busy
 
         {
             let runner = svc.run(&mut state);
             let mut runner = pin!(runner);
-            let _ = futures_util::poll!(runner.as_mut());
-
-            assert!(svc.try_call_immediate(|s| *s += 1));
-            assert!(!svc.try_call_immediate(|s| *s += 100)); // slot busy
-
             let _ = futures_util::poll!(runner.as_mut());
             let _ = futures_util::poll!(runner.as_mut());
 
