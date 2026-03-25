@@ -1,6 +1,9 @@
 //! DSIHOST Phase Locked Loop (PLL)
 
+use crate::rcc::get_freqs;
+use crate::rcc::set_freqs;
 use crate::time::Hertz;
+#[cfg(dsihost_v1)]
 use crate::time::Prescaler;
 
 use super::DSIHOST_WAKER;
@@ -10,6 +13,7 @@ use core::future::poll_fn;
 use core::task::Poll;
 
 /// DSI PLL Input Divisor of HSE clock
+#[cfg(dsihost_v1)]
 #[derive(Clone, Copy)]
 #[repr(u8)]
 pub enum DsiPllInput {
@@ -29,6 +33,7 @@ pub enum DsiPllInput {
     Div7 = 7,
 }
 
+#[cfg(dsihost_v1)]
 impl Prescaler for DsiPllInput {
     fn num(&self) -> u32 {
         1
@@ -40,6 +45,7 @@ impl Prescaler for DsiPllInput {
 }
 
 /// DSI PLL Output Divisor of the VCO frequency
+#[cfg(dsihost_v1)]
 #[derive(Clone, Copy)]
 #[repr(u8)]
 pub enum DsiPllOutput {
@@ -53,6 +59,7 @@ pub enum DsiPllOutput {
     Div8 = 3,
 }
 
+#[cfg(dsihost_v1)]
 impl Prescaler for DsiPllOutput {
     fn num(&self) -> u32 {
         1
@@ -68,10 +75,24 @@ impl Prescaler for DsiPllOutput {
     }
 }
 
+/// DSI PLL Output divisor of the VCO clock from 1-511
+#[cfg(dsihost_u5)]
+pub type DsiPllOutput = u16;
+
+/// DSI PLL Input divisor of the HSE clock from 1-511
+#[cfg(dsihost_u5)]
+pub type DsiPllInput = u16;
+
+#[cfg(dsihost_v1)]
+pub type DsiPllNdiv = u8;
+
+#[cfg(dsihost_u5)]
+pub type DsiPllNdiv = u16;
+
 /// DSI PLL Configuration
 pub struct DsiHostPllConfig {
     /// Loop division factor
-    ndiv: u8,
+    ndiv: DsiPllNdiv,
     /// Input division factor
     idf: DsiPllInput,
     /// Output division factor
@@ -80,11 +101,19 @@ pub struct DsiHostPllConfig {
 
 impl DsiHostPllConfig {
     /// Create a new DSI PLL configuration
-    pub fn new(ndiv: u8, idf: DsiPllInput, odf: DsiPllOutput) -> Self {
+    pub fn new(ndiv: DsiPllNdiv, idf: DsiPllInput, odf: DsiPllOutput) -> Self {
+        #[cfg(dsihost_v1)]
         assert!(
             ndiv >= 10 && ndiv <= 125,
             "DSI PLL loop divisor must be 10 <= ndiv <= 125"
         );
+
+        #[cfg(dsihost_u5)]
+        assert!(
+            ndiv >= 1 && ndiv <= 511,
+            "DSI PLL loop divisor must be 1 <= ndiv <= 511"
+        );
+
         Self { ndiv, idf, odf }
     }
 }
@@ -92,7 +121,9 @@ impl DsiHostPllConfig {
 impl<'d, T: Instance> DsiHost<'d, T> {
     /// Enable the DSIHOST PLL
     pub async fn enable_pll(&mut self, config: &DsiHostPllConfig) {
-        let pll_vco = self.hse_freq * config.idf * config.ndiv * 2u32;
+        let mut clocks = unsafe { *get_freqs() };
+
+        let pll_vco = clocks.hse.to_hertz().expect("DSI requires configured HSE") * config.idf * config.ndiv * 2u32;
 
         #[cfg(feature = "defmt")]
         {
@@ -103,6 +134,12 @@ impl<'d, T: Instance> DsiHost<'d, T> {
             pll_vco >= Hertz::mhz(1000) && pll_vco <= Hertz::mhz(2000),
             "DSI PLL VCO must be >= 1GHz and <= 2GHz"
         );
+
+        #[cfg(dsihost_u5)]
+        {
+            assert!(config.idf <= 511, "DSI PLL input division factor must be <= 511");
+            assert!(config.odf <= 511, "DSI PLL output division factor must be <= 511");
+        }
 
         let pll_freq = pll_vco / 2u32 * config.odf;
 
@@ -116,13 +153,27 @@ impl<'d, T: Instance> DsiHost<'d, T> {
             "DSI PLL output must be >= 62.5MHz and <= 1GHz"
         );
 
-        self.phy_freq = Some(pll_freq).into();
+        // Set the DSI PHY clock frequency in Clocks
+        unsafe {
+            clocks.dsi_phy = Some(pll_freq).into();
+            set_freqs(clocks);
+        };
 
         // Set the PLL configuration
         T::regs().wrpcr().modify(|w| {
             w.set_ndiv(config.ndiv);
-            w.set_idf(config.idf as u8);
-            w.set_odf(config.odf as u8);
+
+            #[cfg(dsihost_v1)]
+            {
+                w.set_idf(config.idf as u8);
+                w.set_odf(config.odf as u8);
+            }
+
+            #[cfg(dsihost_u5)]
+            {
+                w.set_idf(config.idf);
+                w.set_odf(config.odf);
+            }
         });
 
         Self::enable_wait_pll_lock().await;

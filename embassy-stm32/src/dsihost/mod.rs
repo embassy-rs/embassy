@@ -13,14 +13,14 @@ use crate::gpio::{AfType, Flex};
 use crate::interrupt::typelevel::Interrupt;
 use crate::peripherals::{self};
 use crate::rcc::{self, RccPeripheral};
-use crate::time::{Hertz, MaybeHertz};
+use crate::time::MaybeHertz;
 use crate::{block_for_us, interrupt};
 
 mod pll;
 pub use pll::{DsiHostPllConfig, DsiPllInput, DsiPllOutput};
 
 mod phy;
-pub use phy::{DsiHostPhyConfig, DsiHostPhyLanes, DsiPixelClockSource};
+pub use phy::{DsiHostPhyConfig, DsiHostPhyLanes};
 
 mod mode;
 pub use mode::{
@@ -90,13 +90,6 @@ pub struct DsiHost<'d, T: Instance> {
     _peri: PhantomData<&'d mut T>,
     _te: Flex<'d>,
 
-    /// Frequency of the HSE
-    hse_freq: Hertz,
-
-    /// Frequency of the DSI PHY (1GHz max)
-    /// Derived from HSE -> DSI PLL
-    phy_freq: MaybeHertz,
-
     /// Lane byte clock frequency (62MHz max)
     /// Can be mux'd from PHY clock / 8, or PLL2Q using RCC D1CCIPR.DSISEL
     lane_byte_clock: MaybeHertz,
@@ -113,7 +106,6 @@ impl<'d, T: Instance> DsiHost<'d, T> {
     /// Note: Full-Duplex modes are not supported at this time
     pub fn new(_peri: Peri<'d, T>, te: Peri<'d, impl TePin<T>>) -> Self {
         let clocks = unsafe { crate::rcc::get_freqs() };
-        let hse_freq = clocks.hse.to_hertz().expect("DSI requires a configured HSE");
 
         rcc::enable_and_reset::<T>();
 
@@ -122,8 +114,6 @@ impl<'d, T: Instance> DsiHost<'d, T> {
         Self {
             _peri: PhantomData,
             _te: Flex::new(te),
-            hse_freq,
-            phy_freq: None.into(),
             lane_byte_clock: None.into(),
             tx_escape_clock: None.into(),
             ltdc_clock: clocks.pll3_r,
@@ -147,13 +137,13 @@ impl<'d, T: Instance> DsiHost<'d, T> {
         phy_config: &DsiHostPhyConfig,
         mode: &DsiHostMode,
     ) -> Result<(), Error> {
-        Self::enable_dsi_interrupts();
-
+        #[cfg(dsihost_v1)]
         self.enable_regulator().await;
 
         self.enable_pll(pll_config).await;
 
         self.phy_init(phy_config);
+
         self.set_mode::<Panel>(mode)?;
 
         self.enable();
@@ -205,16 +195,17 @@ impl<'d, T: Instance> DsiHost<'d, T> {
     }
 
     /// Enable the regulator
+    #[cfg(dsihost_v1)]
     pub async fn enable_regulator(&mut self) {
         T::regs().wrpcr().modify(|w| w.set_regen(true));
 
         poll_fn(|cx| {
             if T::regs().wisr().read().rrif() {
-                Self::clear_interrupt_flags();
+                T::regs().wifcr().modify(|w| w.set_crrif(true));
                 Poll::Ready(())
             } else {
                 DSIHOST_WAKER.register(cx.waker());
-                Self::clear_interrupt_flags();
+                T::regs().wifcr().modify(|w| w.set_crrif(true));
                 T::regs().wier().modify(|w| w.set_rrie(true));
                 Self::enable_interrupts(true);
                 Poll::Pending
@@ -507,36 +498,8 @@ impl<'d, T: Instance> DsiHost<'d, T> {
         T::regs().gpsr().read().rcb()
     }
 
-    /// Clear interrupts
-    fn clear_interrupt_flags() {
-        T::regs().wifcr().write(|w| {
-            w.set_cteif(true);
-            w.set_cerif(true);
-            w.set_cplllif(true);
-            w.set_cplluif(true);
-            w.set_crrif(true);
-        });
-    }
-
-    fn enable_dsi_interrupts() {
-        T::regs().ier0().write(|w| w.0 = 0xffffffff);
-        T::regs().ier1().write(|w| w.0 = 0xffffffff);
-
-        Self::enable_interrupts(true);
-    }
-
     /// Enable interrupts
     fn enable_interrupts(enable: bool) {
-        /*
-        T::regs().wier().write(|w| {
-            w.set_teie(true); // Tearing
-            w.set_erie(true); // End of refresh
-            w.set_plllie(true); // PLL Lock
-            w.set_plluie(true); // PLL Unlock
-            w.set_rrie(true); // Regulator ready
-        });
-        */
-
         T::Interrupt::unpend();
         if enable {
             unsafe { T::Interrupt::enable() };

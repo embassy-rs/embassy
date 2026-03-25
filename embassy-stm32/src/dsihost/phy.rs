@@ -1,21 +1,12 @@
 //! DSIHOST Physical Layer (PHY)
 
 use stm32_metapac::RCC;
-use stm32_metapac::rcc::vals::Dsisel;
+
+#[cfg(dsihost_v1)]
+use crate::rcc::get_freqs;
 
 use super::DsiHost;
 use super::Instance;
-use crate::rcc;
-
-/// Select the clock mux for the DSI lane byte clock
-#[derive(Clone, Copy)]
-#[repr(u8)]
-pub enum DsiPixelClockSource {
-    /// DSI PHY Clock / 8
-    DsiPhy,
-    /// Main PLL2Q
-    Pll2Q,
-}
 
 /// Number of DSI PHY data lanes
 #[derive(Clone, Copy)]
@@ -31,9 +22,6 @@ pub enum DsiHostPhyLanes {
 pub struct DsiHostPhyConfig {
     /// Number of DSI PHY lanes
     pub lanes: DsiHostPhyLanes,
-
-    /// Mux selection of the pixel clock between PHY DSI clock / 8 or PLL2Q
-    pub pixel_clock_source: DsiPixelClockSource,
 
     /// Stop wait time. Minimum wait period to request a high speed transmission after the stop state
     pub stop_wait_time: u8,
@@ -66,10 +54,20 @@ pub struct DsiHostPhyConfig {
     pub clock_lp2hs: u16,
 
     /// Data high speed to low power timing
+    #[cfg(dsihost_v1)]
     pub data_hs2lp: u8,
 
+    /// Data high speed to low power timing
+    #[cfg(dsihost_u5)]
+    pub data_hs2lp: u16,
+
     /// Data low power to high speed timing
+    #[cfg(dsihost_v1)]
     pub data_lp2hs: u8,
+
+    /// Data low power to high speed timing
+    #[cfg(dsihost_u5)]
+    pub data_lp2hs: u16,
 
     /// Data maximum read time
     pub data_mrd: u16,
@@ -78,35 +76,28 @@ pub struct DsiHostPhyConfig {
 impl<'d, T: Instance> DsiHost<'d, T> {
     /// Initialize DSI D-PHY
     pub fn phy_init(&mut self, config: &DsiHostPhyConfig) {
-        let phy_clock = self
-            .phy_freq
-            .to_hertz()
-            .expect("DSI PHY clock must be enabled before init");
+        // Lane clock depends on the DSISEL MUX. When DSI_PHY is selected, lane clock is PHY clock / 8
+        // TODO: get_rcc_config() is only available when low_power feature is enabled, and it would
+        // be nice to get the mux selection from the config rather than registers.
+        #[cfg(dsihost_v1)]
+        let lane_clock = match RCC.d1ccipr().read().dsisel() {
+            stm32_metapac::rcc::vals::Dsisel::DSI_PHY => T::frequency() / 8u8,
+            stm32_metapac::rcc::vals::Dsisel::PLL2_Q => T::frequency(),
+        };
 
-        let lane_clock = match config.pixel_clock_source {
-            DsiPixelClockSource::DsiPhy => {
-                RCC.d1ccipr().modify(|w| w.set_dsisel(Dsisel::DSI_PHY));
-                phy_clock / 8u32
-            }
-            DsiPixelClockSource::Pll2Q => {
-                RCC.d1ccipr().modify(|w| w.set_dsisel(Dsisel::PLL2_Q));
-
-                let clocks = unsafe { rcc::get_freqs() };
-                clocks.pll2_q.to_hertz().expect("PLL2Q must be configured for DSI PHY")
-            }
+        #[cfg(dsihost_u5)]
+        let lane_clock = match RCC.ccipr2().read().dsisel() {
+            stm32_metapac::rcc::vals::Dsisel::DSI_PHY => T::frequency() / 8u8,
+            stm32_metapac::rcc::vals::Dsisel::PLL3_P => T::frequency(),
         };
 
         let tx_escape_clock = lane_clock / config.tx_escape_div;
 
-        // Calculate UIX4
-        let uix4 = (4_000_000_000u64) / phy_clock.0 as u64;
-        let uix4 = uix4.max(1).min(63) as u8;
-
         #[cfg(feature = "defmt")]
         {
             debug!(
-                "DSI lane byte clock: {} tx escape clock: {}, uix4: {}",
-                lane_clock, tx_escape_clock, uix4
+                "DSI lane byte clock: {} tx escape clock: {}",
+                lane_clock, tx_escape_clock
             );
         }
 
@@ -129,9 +120,21 @@ impl<'d, T: Instance> DsiHost<'d, T> {
             w.set_txeckdiv(config.tx_escape_div);
         });
 
-        T::regs().wpcr0().modify(|w| {
-            w.set_uix4(uix4);
-        });
+        #[cfg(dsihost_v1)]
+        {
+            let clocks = unsafe { get_freqs() };
+            let phy_clock = clocks
+                .dsi_phy
+                .to_hertz()
+                .expect("DSI PHY clock must be enabled before init");
+
+            // Calculate UIX4
+            let uix4 = (4_000_000_000u64) / phy_clock.0 as u64;
+            let uix4 = uix4.max(1).min(63) as u8;
+            T::regs().wpcr0().modify(|w| {
+                w.set_uix4(uix4);
+            });
+        }
 
         T::regs().pcr().modify(|w| {
             w.set_crcrxe(config.crc_rx);
@@ -147,6 +150,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
         });
 
         T::regs().dltcr().modify(|w| {
+            #[cfg(dsihost_v1)]
             w.set_mrd_time(config.data_mrd);
             w.set_hs2lp_time(config.data_hs2lp);
             w.set_lp2hs_time(config.data_lp2hs);
