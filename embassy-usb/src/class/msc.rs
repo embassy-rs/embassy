@@ -3,10 +3,12 @@
 //! This implements the USB Bulk-Only Transport (BOT) protocol with a
 //! SCSI transparent command set suitable for a simple block device.
 
+use core::cell::Cell;
 use core::cmp::min;
 use core::future::{Future, Ready, ready};
 use core::mem::MaybeUninit;
-use core::sync::atomic::{AtomicBool, Ordering};
+
+use embassy_sync::blocking_mutex::CriticalSectionMutex;
 
 use crate::control::{InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
@@ -171,7 +173,7 @@ impl<T: BlockDevice + ?Sized> AsyncBlockDevice for T {
 /// Internal state for the MSC class.
 pub struct State<'a> {
     control: MaybeUninit<Control<'a>>,
-    reset_requested: AtomicBool,
+    reset_requested: CriticalSectionMutex<Cell<bool>>,
 }
 
 impl<'a> Default for State<'a> {
@@ -185,14 +187,14 @@ impl<'a> State<'a> {
     pub const fn new() -> Self {
         Self {
             control: MaybeUninit::uninit(),
-            reset_requested: AtomicBool::new(false),
+            reset_requested: CriticalSectionMutex::new(Cell::new(false)),
         }
     }
 }
 
 struct Control<'a> {
     interface: InterfaceNumber,
-    reset_requested: &'a AtomicBool,
+    reset_requested: &'a CriticalSectionMutex<Cell<bool>>,
 }
 
 impl<'a> Handler for Control<'a> {
@@ -205,7 +207,7 @@ impl<'a> Handler for Control<'a> {
 
         match req.request {
             BOT_REQ_RESET if req.length == 0 && data.is_empty() => {
-                self.reset_requested.store(true, Ordering::Relaxed);
+                self.reset_requested.lock(|flag| flag.set(true));
                 Some(OutResponse::Accepted)
             }
             BOT_REQ_RESET => Some(OutResponse::Rejected),
@@ -236,7 +238,7 @@ pub struct MscClass<'d, D: Driver<'d>> {
     read_ep: D::EndpointOut,
     write_ep: D::EndpointIn,
     _interface: InterfaceNumber,
-    reset_requested: &'d AtomicBool,
+    reset_requested: &'d CriticalSectionMutex<Cell<bool>>,
     max_packet_size: usize,
     sense: SenseData,
 }
@@ -313,7 +315,12 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
         B::Error: core::fmt::Debug,
     {
         loop {
-            if self.reset_requested.swap(false, Ordering::Relaxed) {
+            let reset_requested = self.reset_requested.lock(|flag| {
+                let was_requested = flag.get();
+                flag.set(false);
+                was_requested
+            });
+            if reset_requested {
                 self.sense = SenseData::NO_SENSE;
             }
 
@@ -373,11 +380,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
             SCSI_PREVENT_ALLOW_MEDIUM_REMOVAL => Ok(self.prevent_allow_medium_removal(cbw)),
             SCSI_SYNCHRONIZE_CACHE_10 => self.synchronize_cache_10(cbw, block_device).await,
             _ => {
-                self.set_sense(
-                    SENSE_KEY_ILLEGAL_REQUEST,
-                    ASC_INVALID_COMMAND_OPERATION_CODE,
-                    ASCQ_NONE,
-                );
+                self.set_sense(SENSE_KEY_ILLEGAL_REQUEST, ASC_INVALID_COMMAND_OPERATION_CODE, ASCQ_NONE);
                 Ok(CommandResult::failed(cbw.data_transfer_length))
             }
         }
@@ -560,7 +563,11 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
 
         let mut residue = cbw.data_transfer_length;
         for i in 0..blocks {
-            if block_device.read_block(lba + i, &mut block_buf[..block_size]).await.is_err() {
+            if block_device
+                .read_block(lba + i, &mut block_buf[..block_size])
+                .await
+                .is_err()
+            {
                 warn!("msc: read_block failed");
                 self.set_sense(SENSE_KEY_MEDIUM_ERROR, ASC_UNRECOVERED_READ_ERROR, ASCQ_NONE);
                 return Ok(CommandResult::failed(residue));
