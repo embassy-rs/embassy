@@ -38,6 +38,8 @@ mod all_chips {
     pub mod dma;
     #[cfg(feature = "executor-platform")]
     pub mod executor;
+    #[cfg(feature = "mcxa5xx")]
+    pub mod flexspi;
     pub mod gpio;
     pub mod i2c;
     pub mod i3c;
