@@ -382,7 +382,9 @@ embassy_hal_internal::peripherals! {
     // GPIO port 1
     P1_00,
     P1_01,
+        #[cfg(feature = "nfc-pins-as-gpio")]
     P1_02,
+        #[cfg(feature = "nfc-pins-as-gpio")]
     P1_03,
     P1_04,
     P1_05,
@@ -494,7 +496,9 @@ impl_pin!(P0_06, 0, 6);
 
 impl_pin!(P1_00, 1, 0);
 impl_pin!(P1_01, 1, 1);
+#[cfg(feature = "nfc-pins-as-gpio")]
 impl_pin!(P1_02, 1, 2);
+#[cfg(feature = "nfc-pins-as-gpio")]
 impl_pin!(P1_03, 1, 3);
 impl_pin!(P1_04, 1, 4);
 impl_pin!(P1_05, 1, 5);
@@ -534,7 +538,9 @@ cfg_if::cfg_if! {
 
         impl_gpiote_pin!(P1_00, GPIOTE20);
         impl_gpiote_pin!(P1_01, GPIOTE20);
+        #[cfg(feature = "nfc-pins-as-gpio")]
         impl_gpiote_pin!(P1_02, GPIOTE20);
+        #[cfg(feature = "nfc-pins-as-gpio")]
         impl_gpiote_pin!(P1_03, GPIOTE20);
         impl_gpiote_pin!(P1_04, GPIOTE20);
         impl_gpiote_pin!(P1_05, GPIOTE20);
