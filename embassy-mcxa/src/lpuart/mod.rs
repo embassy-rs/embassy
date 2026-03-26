@@ -344,7 +344,7 @@ fn calculate_baudrate(baudrate: u32, src_clock_hz: u32) -> Result<(u8, u16), Err
         };
 
         // Calculate actual baud rate
-        let calculated_baud = src_clock_hz / (osr_temp as u32 * sbr_temp as u32);
+        let calculated_baud = src_clock_hz / ((osr_temp + 1) as u32 * sbr_temp as u32);
 
         let temp_diff = calculated_baud.abs_diff(baudrate);
 
