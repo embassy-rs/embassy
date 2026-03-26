@@ -57,6 +57,8 @@ pub unsafe fn on_interrupt<const MAX_EP_COUNT: usize>(r: Otg, state: &State<MAX_
 
                 // flushing TX if something stuck in control endpoint
                 if r.dieptsiz(ep_num).read().pktcnt() != 0 {
+                    // Wait for AHB idle first (STM32F4 errata ES0321 §2.16.1)
+                    while !r.grstctl().read().ahbidl() {}
                     r.grstctl().modify(|w| {
                         w.set_txfnum(ep_num as _);
                         w.set_txfflsh(true);
@@ -748,7 +750,8 @@ impl<'d, const MAX_EP_COUNT: usize> Bus<'d, MAX_EP_COUNT> {
                 "FIFO allocations exceeded maximum capacity"
             );
 
-            // Flush fifos
+            // Flush fifos. Wait for AHB idle first (STM32F4 errata ES0321 §2.16.1)
+            while !regs.grstctl().read().ahbidl() {}
             regs.grstctl().write(|w| {
                 w.set_rxfflsh(true);
                 w.set_txfflsh(true);
@@ -781,7 +784,6 @@ impl<'d, const MAX_EP_COUNT: usize> Bus<'d, MAX_EP_COUNT> {
                             w.set_eptyp(to_eptyp(ep.ep_type));
                             w.set_sd0pid_sevnfrm(true);
                             w.set_txfnum(index as _);
-                            w.set_snak(true);
                         }
                     });
                 });
@@ -1001,12 +1003,31 @@ impl<'d, const MAX_EP_COUNT: usize> embassy_usb_driver::Bus for Bus<'d, MAX_EP_C
             }
             Direction::In => {
                 critical_section::with(|_| {
-                    // cancel transfer if active
+                    // cancel transfer if active (STM32F4 errata: use proper SNAK->wait->EPDIS->wait sequence)
                     if !enabled && regs.diepctl(ep_addr.index()).read().epena() {
                         regs.diepctl(ep_addr.index()).modify(|w| {
-                            w.set_snak(true); // set NAK
+                            w.set_snak(true);
+                        });
+                        let mut count = 0u32;
+                        while !regs.diepint(ep_addr.index()).read().inepne() {
+                            count += 1;
+                            if count > 100_000 {
+                                break;
+                            }
+                        }
+                        regs.diepctl(ep_addr.index()).modify(|w| {
                             w.set_epdis(true);
-                        })
+                        });
+                        count = 0;
+                        while !regs.diepint(ep_addr.index()).read().epdisd() {
+                            count += 1;
+                            if count > 100_000 {
+                                break;
+                            }
+                        }
+                        regs.diepint(ep_addr.index()).modify(|w| {
+                            w.set_epdisd(true);
+                        });
                     }
 
                     regs.diepctl(ep_addr.index()).modify(|w| {
@@ -1014,7 +1035,8 @@ impl<'d, const MAX_EP_COUNT: usize> embassy_usb_driver::Bus for Bus<'d, MAX_EP_C
                         w.set_cnak(enabled); // clear NAK that might've been set by SNAK above.
                     });
 
-                    // Flush tx fifo
+                    // Flush tx fifo. Wait for AHB idle first (STM32F4 errata ES0321 §2.16.1)
+                    while !regs.grstctl().read().ahbidl() {}
                     regs.grstctl().write(|w| {
                         w.set_txfflsh(true);
                         w.set_txfnum(ep_addr.index() as _);
@@ -1198,6 +1220,52 @@ impl<'d> embassy_usb_driver::EndpointIn for Endpoint<'d, In> {
         }
 
         let index = self.info.addr.index();
+
+        // Recovery: if EPENA is stuck from a previous operation (STM32F4 errata),
+        // force-disable the endpoint using the ST HAL / TinyUSB recommended sequence:
+        // SNAK -> wait INEPNE -> EPDIS -> wait EPDISD -> clear EPDISD -> flush TX FIFO
+        if self.regs.diepctl(index).read().epena() {
+            warn!("write ep={:?}: EPENA stuck, recovering", self.info.addr);
+            self.regs.diepctl(index).modify(|w| {
+                w.set_snak(true);
+            });
+            let mut count = 0u32;
+            while !self.regs.diepint(index).read().inepne() {
+                count += 1;
+                if count > 100_000 {
+                    warn!("write ep={:?}: INEPNE timeout", self.info.addr);
+                    break;
+                }
+            }
+            self.regs.diepctl(index).modify(|w| {
+                w.set_epdis(true);
+            });
+            count = 0;
+            while !self.regs.diepint(index).read().epdisd() {
+                count += 1;
+                if count > 100_000 {
+                    warn!("write ep={:?}: EPDISD timeout", self.info.addr);
+                    break;
+                }
+            }
+            self.regs.diepint(index).modify(|w| {
+                w.set_epdisd(true);
+            });
+            while !self.regs.grstctl().read().ahbidl() {}
+            self.regs.grstctl().write(|w| {
+                w.set_txfflsh(true);
+                w.set_txfnum(index as _);
+            });
+            count = 0;
+            while self.regs.grstctl().read().txfflsh() {
+                count += 1;
+                if count > 100_000 {
+                    warn!("write ep={:?}: TX flush timeout", self.info.addr);
+                    break;
+                }
+            }
+        }
+
         // Wait for previous transfer to complete and check if endpoint is disabled
         poll_fn(|cx| {
             self.state.in_waker.register(cx.waker());
