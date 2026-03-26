@@ -6,6 +6,7 @@
 pub mod adapter;
 pub mod flash;
 pub mod shared_bus;
+pub mod qspi;
 
 /// Set the configuration of a peripheral driver.
 ///
