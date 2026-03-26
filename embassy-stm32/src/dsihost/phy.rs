@@ -72,24 +72,7 @@ pub struct DsiHostPhyConfig {
 impl<'d, T: Instance> DsiHost<'d, T> {
     /// Initialize DSI D-PHY
     pub fn phy_init(&mut self, config: &DsiHostPhyConfig) {
-        // Lane clock frequency calculation depends on DSISEL mux
-        #[cfg(feature = "low-power")]
-        let lane_clock = {
-            use crate::rcc::get_rcc_config;
-            let cfg = unsafe { get_rcc_config() }.expect("RCC config");
-
-            match cfg.mux.dsisel {
-                stm32_metapac::rcc::vals::Dsisel::DSI_PHY => T::frequency() / 8u8,
-                #[cfg(dsihost_v1)]
-                stm32_metapac::rcc::vals::Dsisel::PLL2_Q => T::frequency(),
-                #[cfg(dsihost_u5)]
-                stm32_metapac::rcc::vals::Dsisel::PLL3_P => T::frequency(),
-            }
-        };
-
-        // If low-power is not enabled, assume DSI_PHY clock / 8
-        #[cfg(not(feature = "low-power"))]
-        let lane_clock = T::frequency() / 8u8;
+        let lane_clock = T::frequency();
 
         let tx_escape_clock = lane_clock / config.tx_escape_div;
 

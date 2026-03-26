@@ -10,6 +10,10 @@ use crate::pac::{FLASH, PWR, RCC};
 #[cfg(all(peri_usb_otg_hs))]
 pub use crate::pac::{SYSCFG, syscfg::vals::Usbrefcksel};
 use crate::rcc::LSI_FREQ;
+#[cfg(dsihost)]
+use crate::rcc::dsi;
+#[cfg(dsihost)]
+pub use crate::rcc::dsi::{DsiHostPllConfig, DsiPllInput, DsiPllNdiv, DsiPllOutput};
 use crate::time::Hertz;
 
 /// HSI speed
@@ -125,6 +129,9 @@ pub struct Config {
     pub apb2_pre: APBPrescaler,
     pub apb3_pre: APBPrescaler,
 
+    #[cfg(dsihost)]
+    pub dsi: Option<DsiHostPllConfig>,
+
     /// The voltage range influences the maximum clock frequencies for different parts of the
     /// device. In particular, system clocks exceeding 110 MHz require `RANGE1`, and system clocks
     /// exceeding 55 MHz require at least `RANGE2`.
@@ -154,6 +161,8 @@ impl Config {
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
             apb3_pre: APBPrescaler::DIV1,
+            #[cfg(dsihost)]
+            dsi: None,
             voltage_range: VoltageScale::RANGE1,
             ls: crate::rcc::LsConfig::new(),
             mux: super::mux::ClockMux::default(),
@@ -526,7 +535,7 @@ pub(crate) unsafe fn init(config: Config) {
         pll3_r: pll3.r,
 
         #[cfg(dsihost)]
-        dsi_phy: None, // DSI PLL clock not supported, don't call `RccPeripheral::frequency()` in the drivers
+        dsi_phy: config.dsi.map(|config| dsi::configure_pll(hse, config)),
 
         // TODO
         audioclk: None,

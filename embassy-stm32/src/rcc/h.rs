@@ -11,6 +11,10 @@ pub use crate::pac::rcc::vals::{
 };
 use crate::pac::rcc::vals::{Pllrge, Pllvcosel, Timpre};
 use crate::pac::{FLASH, PWR, RCC};
+#[cfg(dsihost)]
+use crate::rcc::dsi;
+#[cfg(dsihost)]
+pub use crate::rcc::dsi::{DsiHostPllConfig, DsiPllInput, DsiPllNdiv, DsiPllOutput};
 use crate::time::Hertz;
 
 /// HSI speed
@@ -222,6 +226,9 @@ pub struct Config {
     #[cfg(stm32h7rs)]
     pub apb5_pre: APBPrescaler,
 
+    #[cfg(dsihost)]
+    pub dsi: Option<DsiHostPllConfig>,
+
     pub timer_prescaler: TimerPrescaler,
     pub voltage_scale: VoltageScale,
     pub ls: super::LsConfig,
@@ -257,6 +264,9 @@ impl Config {
             apb4_pre: APBPrescaler::DIV1,
             #[cfg(stm32h7rs)]
             apb5_pre: APBPrescaler::DIV1,
+
+            #[cfg(dsihost)]
+            dsi: None,
 
             timer_prescaler: TimerPrescaler::DefaultX2,
             #[cfg(not(rcc_h7rs))]
@@ -770,7 +780,7 @@ pub(crate) unsafe fn init(config: Config) {
         pll3_r: None,
 
         #[cfg(dsihost)]
-        dsi_phy: None, // DSI PLL clock not supported, don't call `RccPeripheral::frequency()` in the drivers
+        dsi_phy: config.dsi.map(|config| dsi::configure_pll(hse, config)),
 
         #[cfg(stm32h5)]
         audioclk: None,
