@@ -1,7 +1,8 @@
-use crate::pac::DSIHOST;
 use crate::time::Hertz;
 #[cfg(dsihost_v1)]
 use crate::time::Prescaler;
+
+pub static mut DSI_CONFIG: Option<DsiHostPllConfig> = None;
 
 /// DSI PLL Input Divisor of HSE clock
 #[cfg(dsihost_v1)]
@@ -84,11 +85,11 @@ pub type DsiPllNdiv = u16;
 #[derive(Clone, Copy)]
 pub struct DsiHostPllConfig {
     /// Loop division factor
-    ndiv: DsiPllNdiv,
+    pub(crate) ndiv: DsiPllNdiv,
     /// Input division factor
-    idf: DsiPllInput,
+    pub(crate) idf: DsiPllInput,
     /// Output division factor
-    odf: DsiPllOutput,
+    pub(crate) odf: DsiPllOutput,
 }
 
 impl DsiHostPllConfig {
@@ -142,22 +143,7 @@ pub fn configure_pll(hse: Option<Hertz>, config: DsiHostPllConfig) -> Hertz {
         "DSI PLL output must be >= 62.5MHz and <= 1GHz"
     );
 
-    // Set the PLL configuration
-    DSIHOST.wrpcr().modify(|w| {
-        w.set_ndiv(config.ndiv);
-
-        #[cfg(dsihost_v1)]
-        {
-            w.set_idf(config.idf as u8);
-            w.set_odf(config.odf as u8);
-        }
-
-        #[cfg(dsihost_u5)]
-        {
-            w.set_idf(config.idf);
-            w.set_odf(config.odf);
-        }
-    });
+    unsafe { DSI_CONFIG = Some(config) };
 
     pll_freq
 }
