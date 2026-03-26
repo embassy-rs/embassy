@@ -15,9 +15,6 @@ use crate::rcc::{self, RccPeripheral};
 use crate::time::MaybeHertz;
 use crate::{Peri, block_for_us, interrupt};
 
-mod pll;
-pub use pll::{DsiHostPllConfig, DsiPllInput, DsiPllOutput};
-
 mod phy;
 pub use phy::{DsiHostPhyConfig, DsiHostPhyLanes};
 
@@ -113,6 +110,31 @@ impl<'d, T: Instance> DsiHost<'d, T> {
         }
     }
 
+    /// Enable the PLL and wait for the lock interrupt
+    async fn enable_wait_pll_lock(&self) {
+        poll_fn(|cx| {
+            let status = T::regs().wisr().read();
+
+            if status.plllif() || status.pllls() {
+                T::regs().wifcr().modify(|w| w.set_cplllif(true));
+                Poll::Ready(())
+            } else {
+                DSIHOST_WAKER.register(cx.waker());
+
+                T::regs().wifcr().modify(|w| w.set_cplllif(true));
+                T::regs().wifcr().modify(|w| w.set_cplluif(true));
+                T::regs().wier().modify(|w| w.set_plllie(true));
+                Self::enable_interrupts(true);
+
+                // Set the PLL enable bit and wait for lock
+                T::regs().wrpcr().modify(|w| w.set_pllen(true));
+
+                Poll::Pending
+            }
+        })
+        .await;
+    }
+
     /// Start the DSI host
     ///
     /// LTDC should be initialized before starting DSIHOST
@@ -126,14 +148,13 @@ impl<'d, T: Instance> DsiHost<'d, T> {
     ///
     pub async fn start_panel<Panel: DsiPanel>(
         &mut self,
-        pll_config: &DsiHostPllConfig,
         phy_config: &DsiHostPhyConfig,
         mode: &DsiHostMode,
     ) -> Result<(), Error> {
         #[cfg(dsihost_v1)]
         self.enable_regulator().await;
 
-        self.enable_pll(pll_config).await;
+        self.enable_wait_pll_lock().await;
 
         self.phy_init(phy_config);
 

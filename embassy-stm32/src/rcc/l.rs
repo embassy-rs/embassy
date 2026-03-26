@@ -6,6 +6,10 @@ pub use crate::pac::rcc::vals::Hsepre as HsePrescaler;
 pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Msirange as MSIRange, Ppre as APBPrescaler, Sw as Sysclk};
 use crate::pac::{FLASH, RCC};
 use crate::rcc::LSI_FREQ;
+#[cfg(dsihost)]
+use crate::rcc::dsi;
+#[cfg(dsihost)]
+pub use crate::rcc::dsi::{DsiHostPllConfig, DsiPllInput, DsiPllNdiv, DsiPllOutput};
 use crate::time::Hertz;
 
 /// HSI speed
@@ -61,6 +65,9 @@ pub struct Config {
     // low speed LSI/LSE/RTC
     pub ls: super::LsConfig,
 
+    #[cfg(dsihost)]
+    pub dsi: Option<DsiHostPllConfig>,
+
     #[cfg(any(stm32l0, stm32l1))]
     pub voltage_scale: VoltageScale,
 
@@ -83,6 +90,8 @@ impl Config {
             core2_ahb_pre: AHBPrescaler::DIV1,
             #[cfg(any(stm32wl, stm32wb))]
             shared_ahb_pre: AHBPrescaler::DIV1,
+            #[cfg(dsihost)]
+            dsi: None,
             pll: None,
             #[cfg(any(stm32l4, stm32l5, stm32wb))]
             pllsai1: None,
@@ -467,7 +476,7 @@ pub(crate) unsafe fn init(config: Config) {
         pllsai2_r: pllsai2.r,
 
         #[cfg(dsihost)]
-        dsi_phy: None, // DSI PLL clock not supported, don't call `RccPeripheral::frequency()` in the drivers
+        dsi_phy: config.dsi.map(|config| dsi::configure_pll(hse, config)),
 
         rtc: rtc,
         lse: lse,
