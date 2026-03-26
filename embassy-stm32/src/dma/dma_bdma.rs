@@ -25,14 +25,19 @@ pub(crate) unsafe fn on_irq(id: u8) {
                 panic!("DMA: error on DMA@{:08x} channel {}", r.as_ptr() as u32, info.num);
             }
 
+            let mut activity = false;
             if isr.htif(info.num % 4) && cr.read().htie() {
                 // Acknowledge half transfer complete interrupt
                 r.ifcr(info.num / 4).write(|w| w.set_htif(info.num % 4, true));
-            } else if isr.tcif(info.num % 4) && cr.read().tcie() {
-                // Acknowledge  transfer complete interrupt
+                activity = true;
+            }
+            if isr.tcif(info.num % 4) && cr.read().tcie() {
+                // Acknowledge transfer complete interrupt
                 r.ifcr(info.num / 4).write(|w| w.set_tcif(info.num % 4, true));
                 state.complete_count.fetch_add(1, Ordering::Release);
-            } else {
+                activity = true;
+            }
+            if !activity {
                 return;
             }
             state.waker.wake();
@@ -46,10 +51,13 @@ pub(crate) unsafe fn on_irq(id: u8) {
                 panic!("DMA: error on BDMA@{:08x} channel {}", r.as_ptr() as u32, info.num);
             }
 
+            let mut activity = false;
             if isr.htif(info.num) && cr.read().htie() {
                 // Acknowledge half transfer complete interrupt
                 r.ifcr().write(|w| w.set_htif(info.num, true));
-            } else if isr.tcif(info.num) && cr.read().tcie() {
+                activity = true;
+            }
+            if isr.tcif(info.num) && cr.read().tcie() {
                 // Acknowledge transfer complete interrupt
                 r.ifcr().write(|w| w.set_tcif(info.num, true));
                 #[cfg(not(armv6m))]
@@ -58,8 +66,10 @@ pub(crate) unsafe fn on_irq(id: u8) {
                 critical_section::with(|_| {
                     let x = state.complete_count.load(Ordering::Relaxed);
                     state.complete_count.store(x + 1, Ordering::Release);
-                })
-            } else {
+                });
+                activity = true;
+            }
+            if !activity {
                 return;
             }
 
@@ -1302,7 +1312,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
 
     /// The current length of the ringbuffer
     pub fn len(&mut self) -> Result<usize, Error> {
-        Ok(self.ringbuf.len(&mut DmaCtrlImpl(self.channel.reborrow()))?)
+        Ok(self.ringbuf.sync_len(&mut DmaCtrlImpl(self.channel.reborrow()))?)
     }
 
     /// Read the most recent elements from the ring buffer, discarding any older data.
@@ -1472,12 +1482,19 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
 
     /// The current length of the ringbuffer
     pub fn len(&mut self) -> Result<usize, Error> {
-        Ok(self.ringbuf.len(&mut DmaCtrlImpl(self.channel.reborrow()))?)
+        Ok(self.ringbuf.sync_len(&mut DmaCtrlImpl(self.channel.reborrow()))?)
     }
 
     /// The capacity of the ringbuffer
     pub const fn capacity(&self) -> usize {
         self.ringbuf.cap()
+    }
+
+    /// Return the current write position in the DMA buffer.
+    ///
+    /// See [`WritableDmaRingBuffer::write_pos`] for details.
+    pub fn write_pos(&self) -> usize {
+        self.ringbuf.write_pos()
     }
 
     /// Set a waker to be woken when at least one byte is received.

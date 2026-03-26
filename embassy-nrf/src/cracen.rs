@@ -38,6 +38,12 @@ impl<'d, M: Mode> Cracen<'d, M> {
         });
 
         let r = Self::core();
+
+        #[cfg(feature = "_nrf54lm20")]
+        r.rngcontrol().cooldownperiod().write(|w| {
+            w.set_cooldownperiod(0);
+        });
+
         r.rngcontrol().control().write(|w| {
             w.set_enable(true);
         });
@@ -46,12 +52,15 @@ impl<'d, M: Mode> Cracen<'d, M> {
     }
 
     fn stop_rng(&self) {
-        let r = Self::core();
-        r.rngcontrol().control().write(|w| {
-            w.set_enable(false);
-        });
+        #[cfg(not(feature = "_nrf54lm20"))]
+        {
+            let r = Self::core();
+            r.rngcontrol().control().write(|w| {
+                w.set_enable(false);
+            });
 
-        while r.rngcontrol().status().read().state() != pac::cracencore::vals::State::RESET {}
+            while r.rngcontrol().status().read().state() != pac::cracencore::vals::State::RESET {}
+        }
 
         let r = Self::regs();
         r.enable().write(|w| {
@@ -63,6 +72,10 @@ impl<'d, M: Mode> Cracen<'d, M> {
 
     /// Fill the buffer with random bytes, blocking version.
     pub fn blocking_fill_bytes(&mut self, dest: &mut [u8]) {
+        if dest.is_empty() {
+            return;
+        }
+
         self.start_rng();
 
         let r = Self::core();
@@ -129,6 +142,25 @@ impl<'d, M: Mode> rand_core_09::RngCore for Cracen<'d, M> {
 }
 
 impl<'d, M: Mode> rand_core_09::CryptoRng for Cracen<'d, M> {}
+
+impl<'d, M: Mode> rand_core_10::TryRng for Cracen<'d, M> {
+    type Error = core::convert::Infallible;
+
+    fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+        Ok(self.blocking_next_u32())
+    }
+
+    fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+        Ok(self.blocking_next_u64())
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Self::Error> {
+        self.blocking_fill_bytes(dest);
+        Ok(())
+    }
+}
+
+impl<'d, M: Mode> rand_core_10::TryCryptoRng for Cracen<'d, M> {}
 
 pub(crate) trait SealedInstance {}
 

@@ -5,7 +5,7 @@
 
 use core::ptr;
 
-use super::event::{Event, try_send_event};
+// Event delivery is handled by BLECB_Indication (linklayer_plat.rs), not here.
 use crate::bindings::link_layer::ble_buff_hdr_t;
 
 /// Static buffer for receiving HCI event packets from C layer
@@ -59,31 +59,23 @@ pub unsafe extern "C" fn hci_host_callback(ptr_evnt_hdr: *mut ble_buff_hdr_t) ->
     0 // Success
 }
 
-/// Process pending HCI events
+/// Process pending HCI events from the link layer.
 ///
 /// This function is called from ll_sys_bg_process (the link layer background task).
-/// It checks if there are pending events from the C layer and processes them.
-/// This is the implementation of the weak HostStack_Process function in the C code.
+/// It schedules the BLE Host task so BleStack_Process runs.
+///
+/// NOTE: Event delivery to the application is handled exclusively by BLECB_Indication
+/// (in linklayer_plat.rs), which is called by the BLE Host stack after it processes
+/// events internally. We do NOT parse events here to avoid delivering duplicates.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn HostStack_Process() {
-    if !HAS_PENDING_EVENT {
-        return;
-    }
-
-    // Parse the event using the stored length
-    let event_len = HCI_EVENT_LEN as usize;
-    if event_len > 0 && event_len <= HCI_EVENT_BUFFER.len() {
-        let event_data = &HCI_EVENT_BUFFER[..event_len];
-        if let Some(event) = Event::parse(event_data) {
-            // Send all events to the general event channel
-            // Note: CommandComplete/CommandStatus events are now handled synchronously
-            // by the C HCI functions, so these events are mainly for informational purposes
-            let _ = try_send_event(event);
-        }
-    }
-
+    // Clear any pending flag — the event has been consumed by the C host stack
     HAS_PENDING_EVENT = false;
     HCI_EVENT_LEN = 0;
+
+    // Schedule BLE Host task to process events (matches ST's BleStackCB_Process)
+    // This is CRITICAL - it's what keeps BleStack_Process running!
+    crate::wba::runner::schedule_ble_host_task();
 }
 
 // Note: For WBA, the callback mechanism above is the primary event delivery method.

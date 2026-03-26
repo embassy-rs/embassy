@@ -526,6 +526,14 @@ impl<'d, W: Word> I2S<'d, W> {
         }
     }
 
+    /// Return the current write position in the TX DMA ring buffer.
+    ///
+    /// Immediately after a TX write error, this returns the DMA position recorded at ring buffer
+    /// reset time — use it to compute frame-alignment padding without NDTR timing uncertainty.
+    pub fn tx_write_pos(&self) -> Option<usize> {
+        self.tx_ring_buffer.as_ref().map(|rb| rb.write_pos())
+    }
+
     /// Write data directly to the raw I2S ringbuffer.
     /// This can be used to fill the buffer before starting the DMA transfer.
     pub async fn write_immediate(&mut self, data: &[W]) -> Result<(usize, usize), Error> {

@@ -568,34 +568,14 @@ pub(crate) trait SealedInstance {
     fn regs() -> crate::pac::opamp::Opamp;
 }
 
-pub(crate) trait SealedNonInvertingPin<T: Instance> {
-    fn channel(&self) -> u8;
-}
-
-pub(crate) trait SealedInvertingPin<T: Instance> {
-    #[allow(unused)]
-    fn channel(&self) -> u8;
-}
-
-pub(crate) trait SealedBiasPin<T: Instance> {}
-
-pub(crate) trait SealedOutputPin<T: Instance> {}
+analog_pin_trait!(NonInvertingPin, Instance);
+analog_pin_trait!(InvertingPin, Instance);
+analog_pin_trait!(BiasPin, Instance);
+analog_pin_trait!(OutputPin, Instance);
 
 /// Opamp instance trait.
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + PeripheralType + 'static {}
-/// Non-inverting pin trait.
-#[allow(private_bounds)]
-pub trait NonInvertingPin<T: Instance>: SealedNonInvertingPin<T> {}
-/// Inverting pin trait.
-#[allow(private_bounds)]
-pub trait InvertingPin<T: Instance>: SealedInvertingPin<T> {}
-/// Bias pin trait.
-#[allow(private_bounds)]
-pub trait BiasPin<T: Instance>: SealedBiasPin<T> {}
-/// Output pin trait.
-#[allow(private_bounds)]
-pub trait OutputPin<T: Instance>: SealedOutputPin<T> {}
 
 macro_rules! impl_opamp_external_output {
     ($inst:ident, $adc:ident, $ch:expr) => {
@@ -689,44 +669,5 @@ foreach_peripheral! {
 
         impl Instance for crate::peripherals::$inst {
         }
-    };
-}
-
-#[allow(unused_macros)]
-macro_rules! impl_opamp_vp_pin {
-    ($inst:ident, $pin:ident, $ch:expr) => {
-        impl crate::opamp::NonInvertingPin<peripherals::$inst> for crate::peripherals::$pin {}
-        impl crate::opamp::SealedNonInvertingPin<peripherals::$inst> for crate::peripherals::$pin {
-            fn channel(&self) -> u8 {
-                $ch
-            }
-        }
-    };
-}
-
-#[allow(unused_macros)]
-macro_rules! impl_opamp_vn_pin {
-    ($inst:ident, $pin:ident, $ch:expr) => {
-        impl crate::opamp::InvertingPin<peripherals::$inst> for crate::peripherals::$pin {}
-        impl crate::opamp::SealedInvertingPin<peripherals::$inst> for crate::peripherals::$pin {
-            fn channel(&self) -> u8 {
-                $ch
-            }
-        }
-    };
-}
-
-#[allow(unused_macros)]
-macro_rules! impl_opamp_bias_pin {
-    ($inst:ident, $pin:ident, $ch:expr) => {
-        impl crate::opamp::BiasPin<peripherals::$inst> for crate::peripherals::$pin {}
-        impl crate::opamp::SealedBiasPin<peripherals::$inst> for crate::peripherals::$pin {}
-    };
-}
-#[allow(unused_macros)]
-macro_rules! impl_opamp_vout_pin {
-    ($inst:ident, $pin:ident) => {
-        impl crate::opamp::OutputPin<peripherals::$inst> for crate::peripherals::$pin {}
-        impl crate::opamp::SealedOutputPin<peripherals::$inst> for crate::peripherals::$pin {}
     };
 }

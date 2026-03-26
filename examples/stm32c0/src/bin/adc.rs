@@ -16,14 +16,17 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let config = Default::default();
-    let p = embassy_stm32::init(config);
+    let mut p = embassy_stm32::init(config);
 
     info!("ADC STM32C0 example.");
 
     // We need to set certain sample time to be able to read temp sensor.
     let mut adc = Adc::new(p.ADC1, Resolution::BITS12);
-    let mut temp = adc.enable_temperature().degrade_adc();
-    let mut vref = adc.enable_vrefint().degrade_adc();
+    let mut temperature = adc.enable_temperature();
+    let mut vrefint = adc.enable_vrefint();
+
+    let mut temp = temperature.degrade_adc();
+    let mut vref = vrefint.degrade_adc();
     let mut pin0 = p.PA0.degrade_adc();
 
     let mut dma = p.DMA1_CH1;

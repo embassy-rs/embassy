@@ -1,6 +1,7 @@
 //! Random Number Generator (RNG)
 #![macro_use]
 
+use core::convert::Infallible;
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
@@ -300,6 +301,26 @@ impl<'d, T: Instance> rand_core_09::RngCore for Rng<'d, T> {
 }
 
 impl<'d, T: Instance> rand_core_09::CryptoRng for Rng<'d, T> {}
+
+impl<'d, T: Instance> rand_core_10::TryRng for Rng<'d, T> {
+    type Error = Infallible;
+
+    fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+        Ok(self.next_u32())
+    }
+
+    fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+        Ok(self.next_u64())
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Self::Error> {
+        self.fill_bytes(dest);
+
+        Ok(())
+    }
+}
+
+impl<'d, T: Instance> rand_core_10::TryCryptoRng for Rng<'d, T> {}
 
 trait SealedInstance {
     fn regs() -> pac::rng::Rng;

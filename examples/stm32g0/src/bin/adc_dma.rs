@@ -18,14 +18,15 @@ bind_interrupts!(struct Irqs {
 async fn main(_spawner: Spawner) {
     let mut read_buffer = unsafe { &mut DMA_BUF[..] };
 
-    let p = embassy_stm32::init(Default::default());
+    let mut p = embassy_stm32::init(Default::default());
 
     info!("Hello World!");
 
     let mut adc = Adc::new_with_clock(p.ADC1, Clock::Async { div: Presc::DIV1 });
 
     let mut dma = p.DMA1_CH1;
-    let mut vrefint_channel = adc.enable_vrefint().degrade_adc();
+    let mut vrefint = adc.enable_vrefint();
+    let mut vrefint_channel = vrefint.degrade_adc();
     let mut pa0 = p.PA0.degrade_adc();
 
     loop {

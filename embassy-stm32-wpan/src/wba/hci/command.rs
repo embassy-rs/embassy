@@ -128,6 +128,33 @@ unsafe extern "C" {
 /// BLE Success status code
 const BLE_STATUS_SUCCESS: u8 = 0x00;
 
+/// Enable or disable LE advertising in the link layer.
+///
+/// Standalone function for use outside the normal CommandSender flow
+/// (e.g., re-enabling advertising after disconnect, or kicking the LL
+/// after runner startup when ACI_GAP_SET_DISCOVERABLE didn't enable it).
+pub fn le_set_advertising_enable(enable: bool) -> Result<(), BleError> {
+    let status = unsafe { hci_le_set_advertising_enable(if enable { 1 } else { 0 }) };
+    if status == BLE_STATUS_SUCCESS {
+        Ok(())
+    } else {
+        Err(BleError::CommandFailed(super::types::Status::from_u8(status)))
+    }
+}
+
+/// Enable or disable LE scanning in the link layer.
+///
+/// Standalone function for kicking the LL after runner startup when
+/// the scan enable command was issued before the runner was active.
+pub fn le_set_scan_enable(enable: bool, filter_duplicates: bool) -> Result<(), BleError> {
+    let status = unsafe { hci_le_set_scan_enable(if enable { 1 } else { 0 }, if filter_duplicates { 1 } else { 0 }) };
+    if status == BLE_STATUS_SUCCESS {
+        Ok(())
+    } else {
+        Err(BleError::CommandFailed(super::types::Status::from_u8(status)))
+    }
+}
+
 /// Command sender for HCI commands
 ///
 /// This uses the WBA BLE stack's built-in HCI command functions rather than

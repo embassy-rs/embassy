@@ -3,6 +3,7 @@ pub mod ble;
 pub mod context;
 pub mod error;
 pub mod gap;
+pub mod gap_init;
 pub mod gatt;
 pub mod hci;
 pub mod linklayer_plat;
@@ -17,5 +18,6 @@ pub mod util_seq;
 // Re-export main types
 pub use ble::{Ble, VersionInfo};
 pub use error::BleError;
-pub use linklayer_plat::{run_radio_high_isr, run_radio_sw_low_isr};
+pub use gap_init::{GapInitParams, GapRole, IoCapability, PhyPrefs, SecurityParams};
+pub use linklayer_plat::{run_radio_high_isr, run_radio_sw_low_isr, set_nvm_base_address};
 pub use runner::ble_runner;
