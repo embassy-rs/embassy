@@ -95,6 +95,47 @@ fn test_interrupt(hw_hasher: &mut Hash<'_, peripherals::HASH, Blocking>) {
     defmt::assert!(hw_hmac == sw_hmac[..]);
 }
 
+/// Test inputs whose length is not a multiple of 4 bytes.
+/// This exercises the NBLW (number of valid bits in last word) handling
+/// in finish_blocking — a previous bug zeroed NBLW when triggering DCAL.
+fn test_short_inputs(hw_hasher: &mut Hash<'_, peripherals::HASH, Blocking>) {
+    // 3 bytes — NBLW must be 24
+    let mut ctx = hw_hasher.start(Algorithm::SHA256, DataType::Width8, None);
+    hw_hasher.update_blocking(&mut ctx, b"abc");
+    let mut hw_digest = [0u8; 32];
+    hw_hasher.finish_blocking(ctx, &mut hw_digest);
+
+    let mut sw = Sha256::new();
+    sw.update(b"abc");
+    let sw_digest = sw.finalize();
+    info!("Hardware SHA-256(abc): {:?}", hw_digest);
+    info!("Software SHA-256(abc): {:?}", sw_digest[..]);
+    defmt::assert!(hw_digest == sw_digest[..], "SHA-256 of 3-byte input (NBLW=24) failed");
+
+    // 1 byte — NBLW must be 8
+    let mut ctx = hw_hasher.start(Algorithm::SHA256, DataType::Width8, None);
+    hw_hasher.update_blocking(&mut ctx, b"x");
+    let mut hw_digest = [0u8; 32];
+    hw_hasher.finish_blocking(ctx, &mut hw_digest);
+
+    let mut sw = Sha256::new();
+    sw.update(b"x");
+    let sw_digest = sw.finalize();
+    defmt::assert!(hw_digest == sw_digest[..], "SHA-256 of 1-byte input (NBLW=8) failed");
+
+    // 5 bytes — multi-update, total not aligned
+    let mut ctx = hw_hasher.start(Algorithm::SHA256, DataType::Width8, None);
+    hw_hasher.update_blocking(&mut ctx, b"He");
+    hw_hasher.update_blocking(&mut ctx, b"llo");
+    let mut hw_digest = [0u8; 32];
+    hw_hasher.finish_blocking(ctx, &mut hw_digest);
+
+    let mut sw = Sha256::new();
+    sw.update(b"Hello");
+    let sw_digest = sw.finalize();
+    defmt::assert!(hw_digest == sw_digest[..], "SHA-256 of 5-byte multi-update input failed");
+}
+
 // This uses sha512, so only supported on hash_v3 and up
 #[cfg(feature = "hash-v34")]
 fn test_sizes(hw_hasher: &mut Hash<'_, peripherals::HASH, Blocking>) {
@@ -132,6 +173,7 @@ async fn main(_spawner: Spawner) {
     let p: embassy_stm32::Peripherals = init();
     let mut hw_hasher = Hash::new_blocking(p.HASH, Irqs);
 
+    test_short_inputs(&mut hw_hasher);
     test_interrupt(&mut hw_hasher);
     // Run it a second time to check hash-after-hmac
     test_interrupt(&mut hw_hasher);

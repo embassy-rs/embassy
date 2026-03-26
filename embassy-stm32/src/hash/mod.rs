@@ -220,7 +220,7 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
         if !ctx.key_sent {
             if let Some(key) = ctx.key {
                 self.accumulate_blocking(key);
-                T::regs().str().write(|w| w.set_dcal(true));
+                T::regs().str().modify(|w| w.set_dcal(true));
                 // Block waiting for digest.
                 while !T::regs().sr().read().dinis() {}
             }
@@ -303,13 +303,13 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
         ctx.buflen = 0;
 
         //Start the digest calculation.
-        T::regs().str().write(|w| w.set_dcal(true));
+        T::regs().str().modify(|w| w.set_dcal(true));
 
         // Load the HMAC key if provided.
         if let Some(key) = ctx.key {
             while !T::regs().sr().read().dinis() {}
             self.accumulate_blocking(key);
-            T::regs().str().write(|w| w.set_dcal(true));
+            T::regs().str().modify(|w| w.set_dcal(true));
         }
 
         // Block until digest computation is complete.
