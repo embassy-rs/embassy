@@ -1,8 +1,8 @@
 //! Async interface for dispatching `FnOnce(&mut T) -> R` jobs to a dedicated
 //! runner task with exclusive access to `T`.
 //!
-//! Callers submit an `FnOnce(&mut T) -> R` via [`ContextService::call`].
-//! A dedicated runner, started with [`ContextService::run`], executes
+//! Callers submit an `FnOnce(&mut T) -> R` via [`RpcService::call`].
+//! A dedicated runner, started with [`RpcService::run`], executes
 //! closures one at a time with exclusive `&mut T` access and sends
 //! results back. Closures and return values are stored inline in a
 //! fixed-size slot of `S` bytes, checked at compile time.
@@ -44,7 +44,7 @@
 // caller is dropped. We cannot block in Drop to wait for it to finish,
 // and also cannot interrupt the runner mid-execution either. So instead
 // of living on the stack, our closure and result will live in a shared
-// fixed-size byte buffer ("slot"), owned by the ContextService with access
+// fixed-size byte buffer ("slot"), owned by the RpcService with access
 // coordinated by a handshake protocol.
 //
 // The slot (`Storage<S>`) is a statically sized S-byte buffer. The caller writes
@@ -389,8 +389,8 @@ impl<M: RawMutex, T, const S: usize> JobSlot<M, T, S> {
 
 /// Dispatch closures for execution on a dedicated runner task.
 ///
-/// Callers submit an `FnOnce(&mut T) -> R` via [`call`](ContextService::call).
-/// The runner, started with [`run`](ContextService::run), executes closures one at a
+/// Callers submit an `FnOnce(&mut T) -> R` via [`call`](RpcService::call).
+/// The runner, started with [`run`](RpcService::run), executes closures one at a
 /// time with exclusive `&mut T` access and sends results back. Each call
 /// can return a different type.
 ///
@@ -401,8 +401,8 @@ impl<M: RawMutex, T, const S: usize> JobSlot<M, T, S> {
 /// ## Example
 ///
 /// ```rust,ignore
-/// static FS: ContextService<CriticalSectionRawMutex, Filesystem, 64> =
-///     ContextService::new();
+/// static FS: RpcService<CriticalSectionRawMutex, Filesystem, 64> =
+///     RpcService::new();
 ///
 /// // runner task
 /// FS.run(&mut filesystem).await;
@@ -410,12 +410,12 @@ impl<M: RawMutex, T, const S: usize> JobSlot<M, T, S> {
 /// // caller task
 /// let size = FS.call(|fs| fs.read_blocking(path).len()).await;
 /// ```
-pub struct ContextService<M: RawMutex, T, const S: usize> {
+pub struct RpcService<M: RawMutex, T, const S: usize> {
     slot: JobSlot<M, T, S>,
     runner_state: Mutex<M, Cell<RunnerState>>,
 }
 
-impl<M: RawMutex, T, const S: usize> ContextService<M, T, S> {
+impl<M: RawMutex, T, const S: usize> RpcService<M, T, S> {
     fn with_runner_state<R>(&self, f: impl FnOnce(&mut RunnerState) -> R) -> R {
         self.runner_state.lock(|cell| {
             let mut s = cell.get();
@@ -425,7 +425,7 @@ impl<M: RawMutex, T, const S: usize> ContextService<M, T, S> {
         })
     }
 
-    /// Create a new `ContextService`.
+    /// Create a new `RpcService`.
     pub const fn new() -> Self {
         Self {
             slot: JobSlot::new(),
@@ -516,7 +516,7 @@ impl<M: RawMutex, T, const S: usize> ContextService<M, T, S> {
 
         let needs_recovery = self.with_runner_state(|s| {
             if s.running {
-                panic!("ContextService::run() must not be called concurrently")
+                panic!("RpcService::run() must not be called concurrently")
             }
             s.running = true;
             s.needs_recovery
@@ -559,7 +559,7 @@ impl<M: RawMutex, T, const S: usize> ContextService<M, T, S> {
 }
 
 // SAFETY: access to Storage is serialized by the call/run handshake protocol
-unsafe impl<M: RawMutex, T, const S: usize> Sync for ContextService<M, T, S>
+unsafe impl<M: RawMutex, T, const S: usize> Sync for RpcService<M, T, S>
 where
     Mutex<M, RefCell<SlotState>>: Sync,
     Mutex<M, Cell<RunnerState>>: Sync,
@@ -575,12 +575,12 @@ enum Phase {
     Done,
 }
 
-/// Future returned by [`ContextService::call`].
+/// Future returned by [`RpcService::call`].
 ///
-/// This future is cancel-safe. See [`ContextService::call`] for details.
+/// This future is cancel-safe. See [`RpcService::call`] for details.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct CallFuture<'a, M: RawMutex, T, R, F, const S: usize> {
-    svc: &'a ContextService<M, T, S>,
+    svc: &'a RpcService<M, T, S>,
     f: Option<F>,
     phase: Phase,
     _marker: PhantomData<R>,
@@ -683,14 +683,14 @@ mod tests {
 
     #[futures_test::test]
     async fn basic() {
-        static SVC: ContextService<CriticalSectionRawMutex, i32, 64> = ContextService::new();
+        static SVC: RpcService<CriticalSectionRawMutex, i32, 64> = RpcService::new();
         let mut state = 0i32;
         assert_eq!(drive(SVC.call(add(10)), SVC.run(&mut state)).await, 10);
     }
 
     #[futures_test::test]
     async fn different_return_types() {
-        let svc: ContextService<NoopRawMutex, Vec<String>, 256> = ContextService::new();
+        let svc: RpcService<NoopRawMutex, Vec<String>, 256> = RpcService::new();
         let mut state = Vec::from([String::from("hello")]);
         drive(
             async {
@@ -705,7 +705,7 @@ mod tests {
 
     #[futures_test::test]
     async fn cancel_before_acquire_then_next_call() {
-        let svc: ContextService<NoopRawMutex, i32, 64> = ContextService::new();
+        let svc: RpcService<NoopRawMutex, i32, 64> = RpcService::new();
         let mut state = 0i32;
         let r = drive(
             async {
@@ -733,7 +733,7 @@ mod tests {
     #[futures_test::test]
     #[should_panic(expected = "must not be called concurrently")]
     async fn concurrent_run_panics() {
-        let svc: ContextService<NoopRawMutex, i32, 64> = ContextService::new();
+        let svc: RpcService<NoopRawMutex, i32, 64> = RpcService::new();
         let mut s1 = 0;
         let mut s2 = 0;
         let a = svc.run(&mut s1);
@@ -746,7 +746,7 @@ mod tests {
 
     #[futures_test::test]
     async fn restart_after_cancel_mid_job() {
-        let svc: ContextService<NoopRawMutex, (), 64> = ContextService::new();
+        let svc: RpcService<NoopRawMutex, (), 64> = RpcService::new();
         let mut state = ();
 
         let drop_count = Arc::new(AtomicUsize::new(0));
@@ -792,7 +792,7 @@ mod tests {
 
     #[futures_test::test]
     async fn restart_many_cycles() {
-        let svc: ContextService<NoopRawMutex, i32, 64> = ContextService::new();
+        let svc: RpcService<NoopRawMutex, i32, 64> = RpcService::new();
         let mut state = 0i32;
 
         for _ in 0..10 {
@@ -804,7 +804,7 @@ mod tests {
 
     #[futures_test::test]
     async fn zero_sized_return() {
-        let svc: ContextService<NoopRawMutex, i32, 64> = ContextService::new();
+        let svc: RpcService<NoopRawMutex, i32, 64> = RpcService::new();
         let mut state = 0i32;
         drive(
             svc.call(|s| {
@@ -827,7 +827,7 @@ mod tests {
         }
 
         {
-            let svc: ContextService<NoopRawMutex, (), 64> = ContextService::new();
+            let svc: RpcService<NoopRawMutex, (), 64> = RpcService::new();
             let mut state = ();
             let dc = drop_count.clone();
             let caller = async {
@@ -862,7 +862,7 @@ mod tests {
             }
         }
 
-        let svc: ContextService<NoopRawMutex, (), 4160> = ContextService::new();
+        let svc: RpcService<NoopRawMutex, (), 4160> = RpcService::new();
         let mut state = ();
 
         let runner = svc.run(&mut state);
@@ -895,7 +895,7 @@ mod tests {
 
     #[futures_test::test]
     async fn try_call_immediate() {
-        let svc: ContextService<NoopRawMutex, i32, 64> = ContextService::new();
+        let svc: RpcService<NoopRawMutex, i32, 64> = RpcService::new();
         let mut state = 0i32;
 
         assert!(svc.try_call_immediate(|s| *s += 1)); // slot starts free
@@ -928,7 +928,7 @@ mod tests {
             }
         }
 
-        let svc: ContextService<NoopRawMutex, (), 64> = ContextService::new();
+        let svc: RpcService<NoopRawMutex, (), 64> = RpcService::new();
         let mut state = ();
 
         let result = catch_unwind(AssertUnwindSafe(|| {
@@ -962,7 +962,7 @@ mod tests {
         extern crate std;
         use std::panic::{AssertUnwindSafe, catch_unwind};
 
-        let svc: ContextService<NoopRawMutex, i32, 64> = ContextService::new();
+        let svc: RpcService<NoopRawMutex, i32, 64> = RpcService::new();
         let mut state = 0i32;
 
         let result = catch_unwind(AssertUnwindSafe(|| {
@@ -987,7 +987,7 @@ mod tests {
     #[futures_test::test]
     #[should_panic(expected = "polled after completion")]
     async fn poll_after_completion_panics() {
-        let svc: ContextService<NoopRawMutex, i32, 64> = ContextService::new();
+        let svc: RpcService<NoopRawMutex, i32, 64> = RpcService::new();
         let mut state = 0i32;
         let runner = svc.run(&mut state);
         let mut runner = pin!(runner);
@@ -1008,7 +1008,7 @@ mod tests {
     async fn restart_with_pending_job() {
         // Runner is dropped with a pending job in the slot. The
         // new runner should process it and not mark the slot free.
-        let svc: ContextService<NoopRawMutex, i32, 64> = ContextService::new();
+        let svc: RpcService<NoopRawMutex, i32, 64> = RpcService::new();
         let mut state = 0i32;
 
         {

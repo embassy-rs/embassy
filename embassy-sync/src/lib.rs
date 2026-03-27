@@ -13,13 +13,13 @@ mod ring_buffer;
 
 pub mod blocking_mutex;
 pub mod channel;
-pub mod context_service;
 pub mod lazy_lock;
 pub mod mutex;
 pub mod once_lock;
 pub mod pipe;
 pub mod priority_channel;
 pub mod pubsub;
+pub mod rpc_service;
 pub mod rwlock;
 pub mod semaphore;
 pub mod signal;
