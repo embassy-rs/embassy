@@ -440,8 +440,8 @@ impl<M: RawMutex, T, const S: usize> ContextService<M, T, S> {
     ///
     /// Fails at compile time if `F` or `R` exceeds the slot capacity `S`.
     ///
-    /// **Note:** Under panic=unwind, a panicking closure prevents the returned
-    /// future from ever completing.
+    /// **Note:** Under panic=unwind, if the closure panics, the returned future
+    /// will not complete; it must be dropped for the service to recover.
     ///
     /// ## Cancellation
     ///
@@ -499,8 +499,7 @@ impl<M: RawMutex, T, const S: usize> ContextService<M, T, S> {
     /// # Cancellation
     ///
     /// This future is cancel-safe. A subsequent call to `run()` will recover the
-    /// previous state and resume processing any in-flight call. Callers that were
-    /// blocked will continue once the new `run()` starts.
+    /// previous state and resume processing any in-flight call.
     pub async fn run(&self, state: &mut T) -> ! {
         struct RunGuard<'a, M: RawMutex> {
             runner_state: &'a Mutex<M, Cell<RunnerState>>,
