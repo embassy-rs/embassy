@@ -1,4 +1,4 @@
-use core::cmp::min_by_key;
+use core::cmp::Reverse;
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicU8, Ordering};
 
@@ -327,32 +327,38 @@ fn enable_transceiver(info: &'static Info, enable_tx: bool, enable_rx: bool) {
 }
 
 // Calculate the best OSR and SBR values for the desired baud rate and
-// source clock frequency. Note that we compute and return OSR+1, the
+// source clock frequency. The calculation is biased towards lowest
+// possible diff and highest possible OSR value. A larger OSR favors
+// better noise tolerance, so in case of a tie, we break the tie by
+// largest OSR.
+//
+// Note that we compute and return OSR+1, the
 // caller is responsible for subtracting 1 when writing to the
 // register, as the hardware expects OSR-1.
 fn calculate_baudrate(baudrate: u32, src_clock_hz: u32) -> Result<(u8, u16), Error> {
     (4..=32)
-        .try_fold((baudrate, 4u32, 1u32), |(best_diff, best_osr, best_sbr), osr| {
-            // Calculate SBR: (srcClock_Hz * 2 / (baudRate * osr) + 1) / 2
-            let sbr = ((src_clock_hz * 2) / (baudrate * osr)).div_ceil(2).clamp(1, 0x1fff);
+        .flat_map(|osr| {
+            // Ideal SBR
+            let ideal_sbr = (src_clock_hz / (baudrate * osr)) as i32;
 
-            // Calculate actual baud rate
-            let calculated_baud = src_clock_hz / (osr * sbr);
+            // Search through a small window around the ideal SBR to
+            // find the best match.
+            (-2..=2i32).filter_map(move |delta| {
+                let sbr = ideal_sbr + delta;
 
-            // Calculate the absolute error
-            let diff = calculated_baud.abs_diff(baudrate);
-
-            // Choose the best parameters
-            let candidate = (diff, osr, sbr);
-            let best = (best_diff, best_osr, best_sbr);
-
-            Ok(min_by_key(best, candidate, |(d, _, _)| *d))
+                if (1..=0x1fff).contains(&sbr) {
+                    let sbr = sbr as u32;
+                    let calculated_baud = src_clock_hz / (osr * sbr);
+                    let diff = calculated_baud.abs_diff(baudrate);
+                    (diff <= (baudrate / 100) * 3).then_some((diff, osr, sbr))
+                } else {
+                    None
+                }
+            })
         })
-        .and_then(|(diff, osr, sbr)| {
-            (diff <= (baudrate / 100) * 3)
-                .then_some((osr as u8, sbr as u16))
-                .ok_or(Error::UnsupportedBaudrate)
-        })
+        .min_by_key(|&(diff, osr, _)| (diff, Reverse(osr)))
+        .map(|(_, osr, sbr)| (osr as u8, sbr as u16))
+        .ok_or(Error::UnsupportedBaudrate)
 }
 
 /// Wait for all transmit operations to complete
