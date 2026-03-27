@@ -66,10 +66,10 @@ impl<'a, M: RawMutex, T, const N: usize> ResourcePool<'a, M, T, N> {
 
 #[repr(transparent)]
 #[derive(Debug)]
-struct BufferPtr<T>(*mut T);
+struct BufferPtr<T: ?Sized>(*mut T);
 
-unsafe impl<T> Send for BufferPtr<T> {}
-unsafe impl<T> Sync for BufferPtr<T> {}
+unsafe impl<T: ?Sized> Send for BufferPtr<T> {}
+unsafe impl<T: ?Sized> Sync for BufferPtr<T> {}
 
 struct State<const N: usize> {
     available: Vec<usize, N>,
@@ -101,12 +101,92 @@ impl<'guard, 'buffer, M: RawMutex, T, const N: usize> Deref for ResourceGuard<'g
 
     fn deref(&self) -> &Self::Target {
         unsafe { &*self.store.buf.0.add(self.index) }
-        // unsafe { &*self.element.0 }
     }
 }
 
 impl<'guard, 'buffer, M: RawMutex, T, const N: usize> DerefMut for ResourceGuard<'guard, 'buffer, M, T, N> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { &mut *self.store.buf.0.add(self.index) }
+    }
+}
+
+impl<'guard, 'buffer, M: RawMutex, T, const N: usize> ResourceGuard<'guard, 'buffer, M, T, N> {
+    /// maps the value contained to another, referencing the original value. Does not take "self" to avoid shadowing any functions of the wrapped type.
+    pub fn map<U: ?Sized>(
+        orig: Self,
+        fun: impl FnOnce(&mut T) -> &mut U,
+    ) -> MappedResourceGuard<'guard, 'buffer, M, T, U, N> {
+        let store = orig.store;
+        let index = orig.index;
+        let value = fun(unsafe { &mut *store.buf.0.add(index) });
+        // Don't run the `drop` method for MutexGuard. The ownership of the underlying
+        // locked state is being moved to the returned MappedMutexGuard.
+        core::mem::forget(orig);
+        MappedResourceGuard {
+            store,
+            value: BufferPtr(value),
+            index,
+        }
+    }
+}
+
+/// Resource guard
+///
+/// Owning this guard provides mutable access to the underlying resource.
+///
+/// Dropping the guard returns the resource back to the pool.
+pub struct MappedResourceGuard<'guard, 'buffer, M: RawMutex, T, U: ?Sized, const N: usize> {
+    store: &'guard ResourcePool<'buffer, M, T, N>,
+    index: usize,
+    value: BufferPtr<U>,
+}
+
+impl<'guard, 'buffer, M: RawMutex, T, U: ?Sized, const N: usize> Drop
+    for MappedResourceGuard<'guard, 'buffer, M, T, U, N>
+{
+    fn drop(&mut self) {
+        self.store.state.lock(|state| {
+            let state = &mut *state.borrow_mut();
+            state.available.push(self.index).unwrap();
+            state.waker.wake();
+        });
+    }
+}
+
+impl<'guard, 'buffer, M: RawMutex, T, U: ?Sized, const N: usize> Deref
+    for MappedResourceGuard<'guard, 'buffer, M, T, U, N>
+{
+    type Target = U;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*self.value.0 }
+    }
+}
+
+impl<'guard, 'buffer, M: RawMutex, T, U: ?Sized, const N: usize> DerefMut
+    for MappedResourceGuard<'guard, 'buffer, M, T, U, N>
+{
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { &mut *self.value.0 }
+    }
+}
+
+impl<'guard, 'buffer, M: RawMutex, T, U: ?Sized, const N: usize> MappedResourceGuard<'guard, 'buffer, M, T, U, N> {
+    /// maps the value contained to another, referencing the original value. Does not take "self" to avoid shadowing any functions of the wrapped type.
+    pub fn map<V: ?Sized>(
+        orig: Self,
+        fun: impl FnOnce(&mut U) -> &mut V,
+    ) -> MappedResourceGuard<'guard, 'buffer, M, T, V, N> {
+        let store = orig.store;
+        let index = orig.index;
+        let value = fun(unsafe { &mut *orig.value.0 });
+        // Don't run the `drop` method for MutexGuard. The ownership of the underlying
+        // locked state is being moved to the returned MappedMutexGuard.
+        core::mem::forget(orig);
+        MappedResourceGuard {
+            store,
+            value: BufferPtr(value),
+            index,
+        }
     }
 }

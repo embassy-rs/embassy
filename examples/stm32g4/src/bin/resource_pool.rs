@@ -4,15 +4,14 @@
 use core::fmt::Write;
 
 use defmt::info;
-use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
-use embassy_sync::resource_pool::{ResourceGuard, ResourcePool};
+use embassy_sync::resource_pool::{MappedResourceGuard, ResourceGuard, ResourcePool};
 use embassy_time::Timer;
 use heapless::String;
-use panic_probe as _;
 use static_cell::{ConstStaticCell, StaticCell};
+use {defmt_rtt as _, panic_probe as _};
 
 const N_BUFFERS: usize = 3;
 const N_BYTES: usize = 256;
@@ -22,7 +21,7 @@ static BUFFERS: ConstStaticCell<[String<N_BYTES>; N_BUFFERS]> =
 
 static SHARED_CHANNEL: Channel<
     ThreadModeRawMutex,
-    ResourceGuard<'static, 'static, ThreadModeRawMutex, String<N_BYTES>, N_BUFFERS>,
+    MappedResourceGuard<'static, 'static, ThreadModeRawMutex, String<N_BYTES>, str, N_BUFFERS>,
     8,
 > = Channel::new();
 
@@ -48,11 +47,7 @@ async fn main(spawner: Spawner) {
     loop {
         let guard = receiver.receive().await;
 
-        defmt::info!(
-            "received: {} at addr {}",
-            guard.as_str(),
-            guard.as_str().as_ptr() as usize
-        );
+        defmt::info!("received: {} at addr {}", &*guard, guard.as_ptr() as usize);
 
         // keep buffer for a while so it is not immediately returned to the pool
         Timer::after_millis(1500).await;
@@ -70,11 +65,6 @@ async fn produce_data(pool: &'static ResourcePool<'static, ThreadModeRawMutex, S
     loop {
         Timer::after_secs(3).await;
 
-        // let Some(mut guard) = pool.try_take() else {
-        //     info!("task {} could not acquire buffer", num);
-        //     continue;
-        // };
-
         // acquire one buffer
         let mut guard = pool.take().await;
 
@@ -82,7 +72,10 @@ async fn produce_data(pool: &'static ResourcePool<'static, ThreadModeRawMutex, S
         guard.clear();
         write!(&mut *guard, "hello {} from task {}", n, num).unwrap();
 
-        let addr = guard.as_str().as_ptr() as usize;
+        // map
+        let guard = ResourceGuard::map(guard, |g| g.as_mut_str());
+
+        let addr = guard.as_ptr() as usize;
 
         // send buffer to main loop
         sender.try_send(guard).ok().unwrap();
