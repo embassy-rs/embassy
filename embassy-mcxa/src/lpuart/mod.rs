@@ -1,3 +1,4 @@
+use core::cmp::min_by_key;
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicU8, Ordering};
 
@@ -325,42 +326,33 @@ fn enable_transceiver(info: &'static Info, enable_tx: bool, enable_rx: bool) {
     });
 }
 
+// Calculate the best OSR and SBR values for the desired baud rate and
+// source clock frequency. Note that we compute and return OSR+1, the
+// caller is responsible for subtracting 1 when writing to the
+// register, as the hardware expects OSR-1.
 fn calculate_baudrate(baudrate: u32, src_clock_hz: u32) -> Result<(u8, u16), Error> {
-    let mut baud_diff = baudrate;
-    let mut osr = 0u8;
-    let mut sbr = 0u16;
+    (4..=32)
+        .try_fold((baudrate, 4u32, 1u32), |(best_diff, best_osr, best_sbr), osr| {
+            // Calculate SBR: (srcClock_Hz * 2 / (baudRate * osr) + 1) / 2
+            let sbr = ((src_clock_hz * 2) / (baudrate * osr)).div_ceil(2).clamp(1, 0x1fff);
 
-    // Try OSR values from 4 to 32
-    for osr_temp in 4u8..=32u8 {
-        // Calculate SBR: (srcClock_Hz * 2 / (baudRate * osr) + 1) / 2
-        let sbr_calc = ((src_clock_hz * 2) / (baudrate * osr_temp as u32)).div_ceil(2);
+            // Calculate actual baud rate
+            let calculated_baud = src_clock_hz / (osr * sbr);
 
-        let sbr_temp = if sbr_calc == 0 {
-            1
-        } else if sbr_calc > 0x1FFF {
-            0x1FFF
-        } else {
-            sbr_calc as u16
-        };
+            // Calculate the absolute error
+            let diff = calculated_baud.abs_diff(baudrate);
 
-        // Calculate actual baud rate
-        let calculated_baud = src_clock_hz / ((osr_temp + 1) as u32 * sbr_temp as u32);
+            // Choose the best parameters
+            let candidate = (diff, osr, sbr);
+            let best = (best_diff, best_osr, best_sbr);
 
-        let temp_diff = calculated_baud.abs_diff(baudrate);
-
-        if temp_diff <= baud_diff {
-            baud_diff = temp_diff;
-            osr = osr_temp;
-            sbr = sbr_temp;
-        }
-    }
-
-    // Check if baud rate difference is within 3%
-    if baud_diff > (baudrate / 100) * 3 {
-        return Err(Error::UnsupportedBaudrate);
-    }
-
-    Ok((osr, sbr))
+            Ok(min_by_key(best, candidate, |(d, _, _)| *d))
+        })
+        .and_then(|(diff, osr, sbr)| {
+            (diff <= (baudrate / 100) * 3)
+                .then_some((osr as u8, sbr as u16))
+                .ok_or(Error::UnsupportedBaudrate)
+        })
 }
 
 /// Wait for all transmit operations to complete
