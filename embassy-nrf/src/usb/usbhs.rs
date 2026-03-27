@@ -220,6 +220,7 @@ impl<'d, V: VbusDetect> embassy_usb_driver::Bus for Bus<'d, V> {
             w.set_phy(false);
         });
         self.stop_xo24m();
+        self.inner.deinit_device();
         self.enabled = false;
         self.core_ready = false;
     }
@@ -265,8 +266,6 @@ impl<'d, V: VbusDetect> embassy_usb_driver::Bus for Bus<'d, V> {
             Either::Second(()) => {
                 trace!("USBHS power removed");
                 self.power_present = false;
-                self.enabled = false;
-                self.core_ready = false;
                 Event::PowerRemoved
             }
         }

@@ -898,6 +898,13 @@ impl<'d, const MAX_EP_COUNT: usize> Bus<'d, MAX_EP_COUNT> {
             self.inited = true;
         }
     }
+
+    /// Deinitialize tehe device
+    pub fn deinit_device(&mut self) {
+        if self.inited {
+            self.inited = false;
+        }
+    }
 }
 
 impl<'d, const MAX_EP_COUNT: usize> embassy_usb_driver::Bus for Bus<'d, MAX_EP_COUNT> {
