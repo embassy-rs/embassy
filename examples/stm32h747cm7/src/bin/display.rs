@@ -2,31 +2,25 @@
 #![no_main]
 
 use core::mem::MaybeUninit;
+
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_stm32::SharedData;
 use embassy_stm32::dsihost::panel::DsiPanel;
 use embassy_stm32::dsihost::{
-    DsiCommandConfig, DsiHostMode, DsiHostPhyConfig, DsiHostPhyLanes, DsiLtdcRefreshMode, DsiTearEventSource,
+    self, DsiCommandConfig, DsiHost, DsiHostMode, DsiHostPhyConfig, DsiHostPhyLanes, DsiLtdcRefreshMode,
+    DsiTearEventSource,
 };
 use embassy_stm32::fmc::Fmc;
-use embassy_stm32::ltdc::{LtdcLayer, LtdcLayerConfig, PixelFormat, PolarityActive};
-use embassy_stm32::rcc::{DsiHostPllConfig, DsiPllInput, DsiPllOutput};
-use embassy_stm32::{
-    Config, bind_interrupts,
-    dsihost::{self, DsiHost},
-    ltdc::{self, Ltdc},
-    peripherals,
-    rcc::{Hse, Pll},
-    time::Hertz,
-};
+use embassy_stm32::ltdc::{self, Ltdc, LtdcLayer, LtdcLayerConfig, PixelFormat, PolarityActive};
+use embassy_stm32::rcc::{DsiHostPllConfig, DsiPllInput, DsiPllOutput, Hse, Pll};
+use embassy_stm32::time::Hertz;
+use embassy_stm32::{Config, SharedData, bind_interrupts, peripherals};
 use embassy_stm32h755cm7_examples::glass::Glass;
 use embassy_stm32h755cm7_examples::init_sdram;
 use embassy_stm32h755cm7_examples::ui::Tui;
 use mousefood::embedded_graphics::prelude::{DrawTarget, RgbColor};
 use mousefood::{EmbeddedBackend, EmbeddedBackendConfig};
 use ratatui::Terminal;
-
 use {defmt_rtt as _, panic_probe as _};
 
 extern crate alloc;

@@ -1,19 +1,22 @@
 #![no_std]
 
 use core::slice;
-use cortex_m::{Peripherals, peripheral::MPU};
+
+use cortex_m::Peripherals;
+use cortex_m::peripheral::MPU;
 use defmt::info;
-use embassy_stm32::{dsihost::panel::DsiPanel, fmc::Fmc, peripherals::FMC};
+use embassy_stm32::dsihost::panel::DsiPanel;
+use embassy_stm32::fmc::Fmc;
+use embassy_stm32::peripherals::FMC;
 use embassy_time::Delay;
 use embedded_alloc::LlffHeap as Heap;
 use static_cell::StaticCell;
-use stm32_fmc::{Sdram, devices::is42s32800g_6::Is42s32800g};
+use stm32_fmc::Sdram;
+use stm32_fmc::devices::is42s32800g_6::Is42s32800g;
 
-use crate::{
-    framebuffer::Framebuffer,
-    glass::Glass,
-    mpu::{ATTR_WRITE_BACK, ATTR_WRITE_THROUGH, mpu_region},
-};
+use crate::framebuffer::Framebuffer;
+use crate::glass::Glass;
+use crate::mpu::{ATTR_WRITE_BACK, ATTR_WRITE_THROUGH, mpu_region};
 
 extern crate alloc;
 

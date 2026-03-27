@@ -1,13 +1,13 @@
-use alloc::{format, vec::Vec};
-use ratatui::Frame;
+use alloc::format;
+use alloc::vec::Vec;
+
 use ratatui::prelude::*;
-use ratatui::symbols;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Gauge, List, ListItem, Paragraph, RatatuiLogo, Sparkline, Wrap};
+use ratatui::{Frame, symbols};
 use tui_big_text::BigText;
 
-use crate::HEAP;
-use crate::SDRAM_SIZE;
+use crate::{HEAP, SDRAM_SIZE};
 
 pub struct Tui {
     count: u64,

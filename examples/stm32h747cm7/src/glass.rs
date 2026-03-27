@@ -1,9 +1,8 @@
 //! DSI LCD ST MB1166-A09 module with NT35510 controller
 
-use embassy_stm32::{
-    dsihost::{self, DsiColor, Error, panel::DsiPanel},
-    ltdc::{PolarityActive, PolarityEdge},
-};
+use embassy_stm32::dsihost::panel::DsiPanel;
+use embassy_stm32::dsihost::{self, DsiColor, Error};
+use embassy_stm32::ltdc::{PolarityActive, PolarityEdge};
 use embassy_time::{Duration, Timer};
 
 pub struct Glass;

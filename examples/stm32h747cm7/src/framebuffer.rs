@@ -1,9 +1,11 @@
 //! Framebuffer implementing embedded_graphics DrawTarget
 
 use core::ptr::NonNull;
+
 use defmt::warn;
 use embassy_stm32::dsihost::panel::DsiPanel;
-use mousefood::{embedded_graphics::prelude::*, prelude::Rgb888};
+use mousefood::embedded_graphics::prelude::*;
+use mousefood::prelude::Rgb888;
 
 use crate::glass::Glass;
 
