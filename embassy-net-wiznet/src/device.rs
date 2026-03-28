@@ -87,8 +87,7 @@ impl<C: Chip, SPI: SpiDevice> WiznetDevice<C, SPI> {
         let mut version = [0];
         this.bus_read(C::COMMON_VERSION, &mut version).await?;
         if version[0] != C::CHIP_VERSION {
-            #[cfg(feature = "defmt")]
-            defmt::error!("invalid chip version: {} (expected {})", version[0], C::CHIP_VERSION);
+            error!("invalid chip version: {} (expected {})", version[0], C::CHIP_VERSION);
             return Err(InitError::InvalidChipVersion {
                 actual: version[0],
                 expected: C::CHIP_VERSION,
@@ -212,8 +211,7 @@ impl<C: Chip, SPI: SpiDevice> WiznetDevice<C, SPI> {
             let raw = u16::from_be_bytes(frame_bytes) as usize;
             if raw < 2 {
                 // Corrupted header — advance read pointer past it and discard.
-                #[cfg(feature = "defmt")]
-                defmt::warn!("wiznet rx: bogus frame size {}, discarding", raw);
+                warn!("wiznet rx: bogus frame size {}, discarding", raw);
                 self.set_rx_read_ptr(read_ptr).await?;
                 self.command(Command::Receive).await?;
                 return Ok(0);
@@ -226,8 +224,7 @@ impl<C: Chip, SPI: SpiDevice> WiznetDevice<C, SPI> {
         let read_len = expected_frame_size.min(frame.len());
 
         // Read the ethernet frame
-        self.read_bytes(&mut read_ptr, &mut frame[..read_len])
-            .await?;
+        self.read_bytes(&mut read_ptr, &mut frame[..read_len]).await?;
 
         // If the frame was larger than our buffer, skip the remaining bytes
         if expected_frame_size > read_len {
