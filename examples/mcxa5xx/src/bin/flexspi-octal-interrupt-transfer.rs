@@ -6,7 +6,7 @@ use embassy_executor::Spawner;
 use embassy_mcxa::{bind_interrupts, peripherals};
 use embassy_time::Timer;
 use hal::config::Config;
-use hal::flexspi::{self, ClockConfig as FlexspiClockConfig, Flexspi, NorFlash};
+use hal::flexspi::{self, ClockConfig as FlexspiClockConfig, NorFlash};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 #[path = "../flexspi_common.rs"]
@@ -23,9 +23,9 @@ bind_interrupts!(struct Irqs {
 async fn main(_spawner: Spawner) {
     let p = hal::init(Config::default());
 
-    info!("FlexSPI example");
+    info!("FlexSPI interrupt async example");
 
-    let flexspi = Flexspi::new_with_dma(
+    let mut flash = NorFlash::new_async(
         p.FLEXSPI0,
         p.P3_0,
         p.P3_1,
@@ -35,15 +35,11 @@ async fn main(_spawner: Spawner) {
         p.P3_9,
         p.P3_10,
         p.P3_11,
-        p.DMA_CH0,
-        p.DMA_CH1,
         Irqs,
         FlexspiClockConfig::default(),
         flexspi_common::FLASH_CONFIG,
     )
     .unwrap();
-
-    let mut flash = NorFlash::from_flexspi(flexspi);
 
     let vendor_id = flash.read_vendor_id_async().await.unwrap();
     info!("Vendor ID: 0x{:02x}", vendor_id);
@@ -55,7 +51,7 @@ async fn main(_spawner: Spawner) {
     info!("Erasing sector at 0x{:08x}", sector_address as u32);
     flash.erase_sector_async(sector_address as u32).await.unwrap();
     flash.read_async(sector_address as u32, &mut readback).await.unwrap();
-    assert!(readback.iter().all(|byte| *byte == u8::MAX));
+    assert!(readback.iter().all(|byte| *byte == 0xff));
     info!("Erase verified");
 
     for (index, byte) in program.iter_mut().enumerate() {
@@ -70,6 +66,6 @@ async fn main(_spawner: Spawner) {
 
     loop {
         Timer::after_secs(1).await;
-        info!("FlexSPI EDMA demo heartbeat");
+        info!("FlexSPI interrupt async demo heartbeat");
     }
 }
