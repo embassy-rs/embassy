@@ -172,7 +172,7 @@
 use core::fmt::Debug;
 
 #[cfg(feature = "defmt")]
-use crate::defmt;
+use defmt;
 
 /// Clock polarity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -282,10 +282,7 @@ impl core::fmt::Display for ErrorKind {
                 f,
                 "Multiple devices on the QSPI bus are trying to drive the slave select pin"
             ),
-            Self::FrameFormat => write!(
-                f,
-                "Received data does not conform to the peripheral configuration"
-            ),
+            Self::FrameFormat => write!(f, "Received data does not conform to the peripheral configuration"),
             Self::ChipSelectFault => write!(
                 f,
                 "An error occurred while asserting or deasserting the Chip Select pin"
@@ -354,7 +351,7 @@ pub trait QspiDevice<Word: Copy + 'static = u8>: ErrorType {
     ///
     /// On bus errors the implementation should try to deassert CS.
     /// If an error occurs while deasserting CS the bus error should take priority as the return value.
-    fn transaction(&mut self, operations: &mut [Operation<'_, Word>]) -> Result<(), Self::Error>;
+    async fn transaction(&mut self, operations: &mut [Operation<'_, Word>]) -> Result<(), Self::Error>;
 
     /// Do a read within a transaction.
     ///
@@ -362,8 +359,8 @@ pub trait QspiDevice<Word: Copy + 'static = u8>: ErrorType {
     ///
     /// See also: [`QspiDevice::transaction`], [`QspiBus::read`]
     #[inline]
-    fn read(&mut self, buf: &mut [Word]) -> Result<(), Self::Error> {
-        self.transaction(&mut [Operation::Read(buf)])
+    async fn read(&mut self, buf: &mut [Word]) -> Result<(), Self::Error> {
+        self.transaction(&mut [Operation::Read(buf)]).await
     }
 
     /// Do a write within a transaction.
@@ -372,8 +369,8 @@ pub trait QspiDevice<Word: Copy + 'static = u8>: ErrorType {
     ///
     /// See also: [`QspiDevice::transaction`], [`QspiBus::write`]
     #[inline]
-    fn write(&mut self, buf: &[Word]) -> Result<(), Self::Error> {
-        self.transaction(&mut [Operation::Write(buf)])
+    async fn write(&mut self, buf: &[Word]) -> Result<(), Self::Error> {
+        self.transaction(&mut [Operation::Write(buf)]).await
     }
 
     /// Do a write using a single line within a transaction.
@@ -382,30 +379,30 @@ pub trait QspiDevice<Word: Copy + 'static = u8>: ErrorType {
     ///
     /// See also: [`QspiDevice::transaction`], [`QspiBus::write`]
     #[inline]
-    fn write_single_line(&mut self, buf: &[Word]) -> Result<(), Self::Error> {
-        self.transaction(&mut [Operation::WriteSingleLine(buf)])
+    async fn write_single_line(&mut self, buf: &[Word]) -> Result<(), Self::Error> {
+        self.transaction(&mut [Operation::WriteSingleLine(buf)]).await
     }
 }
 
 impl<Word: Copy + 'static, T: QspiDevice<Word> + ?Sized> QspiDevice<Word> for &mut T {
     #[inline]
-    fn transaction(&mut self, operations: &mut [Operation<'_, Word>]) -> Result<(), Self::Error> {
-        T::transaction(self, operations)
+    async fn transaction(&mut self, operations: &mut [Operation<'_, Word>]) -> Result<(), Self::Error> {
+        T::transaction(self, operations).await
     }
 
     #[inline]
-    fn read(&mut self, buf: &mut [Word]) -> Result<(), Self::Error> {
-        T::read(self, buf)
+    async fn read(&mut self, buf: &mut [Word]) -> Result<(), Self::Error> {
+        T::read(self, buf).await
     }
 
     #[inline]
-    fn write(&mut self, buf: &[Word]) -> Result<(), Self::Error> {
-        T::write(self, buf)
+    async fn write(&mut self, buf: &[Word]) -> Result<(), Self::Error> {
+        T::write(self, buf).await
     }
 
     #[inline]
-    fn write_single_line(&mut self, buf: &[Word]) -> Result<(), Self::Error> {
-        T::write_single_line(self, buf)
+    async fn write_single_line(&mut self, buf: &[Word]) -> Result<(), Self::Error> {
+        T::write_single_line(self, buf).await
     }
 }
 
@@ -422,44 +419,44 @@ pub trait QspiBus<Word: Copy + 'static = u8>: ErrorType {
     ///
     /// Implementations are allowed to return before the operation is
     /// complete. See the [module-level documentation](self) for details.
-    fn read(&mut self, words: &mut [Word]) -> Result<(), Self::Error>;
+    async fn read(&mut self, words: &mut [Word]) -> Result<(), Self::Error>;
 
     /// Write `words` to the slave, ignoring all the incoming words.
     ///
     /// Implementations are allowed to return before the operation is
     /// complete. See the [module-level documentation](self) for details.
-    fn write(&mut self, words: &[Word]) -> Result<(), Self::Error>;
+    async fn write(&mut self, words: &[Word]) -> Result<(), Self::Error>;
 
     /// Write `words` to the slave using a single line, ignoring all the incoming words.
     ///
     /// Implementations are allowed to return before the operation is
     /// complete. See the [module-level documentation](self) for details.
-    fn write_single_line(&mut self, words: &[Word]) -> Result<(), Self::Error>;
+    async fn write_single_line(&mut self, words: &[Word]) -> Result<(), Self::Error>;
 
     /// Wait until all operations have completed and the bus is idle.
     ///
     /// See the [module-level documentation](self) for important usage information.
-    fn flush(&mut self) -> Result<(), Self::Error>;
+    async fn flush(&mut self) -> Result<(), Self::Error>;
 }
 
 impl<T: QspiBus<Word> + ?Sized, Word: Copy + 'static> QspiBus<Word> for &mut T {
     #[inline]
-    fn read(&mut self, words: &mut [Word]) -> Result<(), Self::Error> {
-        T::read(self, words)
+    async fn read(&mut self, words: &mut [Word]) -> Result<(), Self::Error> {
+        T::read(self, words).await
     }
 
     #[inline]
-    fn write(&mut self, words: &[Word]) -> Result<(), Self::Error> {
-        T::write(self, words)
+    async fn write(&mut self, words: &[Word]) -> Result<(), Self::Error> {
+        T::write(self, words).await
     }
 
     #[inline]
-    fn write_single_line(&mut self, words: &[Word]) -> Result<(), Self::Error> {
-        T::write_single_line(self, words)
+    async fn write_single_line(&mut self, words: &[Word]) -> Result<(), Self::Error> {
+        T::write_single_line(self, words).await
     }
 
     #[inline]
-    fn flush(&mut self) -> Result<(), Self::Error> {
-        T::flush(self)
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        T::flush(self).await
     }
 }

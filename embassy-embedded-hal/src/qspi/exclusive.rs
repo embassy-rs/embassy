@@ -1,13 +1,9 @@
 //! QSPI bus sharing mechanisms.
 
 use super::traits::{ErrorType, Operation, QspiBus, QspiDevice};
-use embedded_hal_1::delay::DelayNs;
 use embedded_hal_1::digital::OutputPin;
-#[cfg(feature = "async")]
-use embedded_hal_async::delay::DelayNs as AsyncDelayNs;
+use embedded_hal_async::delay::DelayNs;
 
-use super::traits::{QspiBus as AsyncQspiBus, QspiDevice as AsyncQspiDevice};
-use super::transaction::transaction;
 use super::device_error::DeviceError;
 
 /// Dummy [`DelayNs`](embedded_hal::delay::DelayNs) implementation that panics on use.
@@ -101,20 +97,6 @@ where
     D: DelayNs,
 {
     #[inline]
-    fn transaction(&mut self, operations: &mut [Operation<'_, Word>]) -> Result<(), Self::Error> {
-        transaction(operations, &mut self.bus, &mut self.delay, &mut self.cs)
-    }
-}
-
-#[cfg(feature = "async")]
-#[cfg_attr(docsrs, doc(cfg(feature = "async")))]
-impl<Word: Copy + 'static, BUS, CS, D> AsyncQspiDevice<Word> for ExclusiveDevice<BUS, CS, D>
-where
-    BUS: AsyncQspiBus<Word>,
-    CS: OutputPin,
-    D: AsyncDelayNs,
-{
-    #[inline]
     async fn transaction(&mut self, operations: &mut [Operation<'_, Word>]) -> Result<(), Self::Error> {
         self.cs.set_low().map_err(DeviceError::Cs)?;
 
@@ -123,8 +105,7 @@ where
                 let res = match op {
                     Operation::Read(buf) => self.bus.read(buf).await,
                     Operation::Write(buf) => self.bus.write(buf).await,
-                    Operation::Transfer(read, write) => self.bus.transfer(read, write).await,
-                    Operation::TransferInPlace(buf) => self.bus.transfer_in_place(buf).await,
+                    Operation::WriteSingleLine(buf) => self.bus.write_single_line(buf).await,
                     Operation::DelayNs(ns) => match self.bus.flush().await {
                         Err(e) => Err(e),
                         Ok(()) => {
