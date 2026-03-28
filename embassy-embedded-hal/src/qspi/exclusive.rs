@@ -7,11 +7,12 @@ use embedded_hal_1::digital::OutputPin;
 use embedded_hal_async::delay::DelayNs as AsyncDelayNs;
 
 use super::traits::{QspiBus as AsyncQspiBus, QspiDevice as AsyncQspiDevice};
-use embedded_hal_bus::spi::DeviceError;
+use super::transaction::transaction;
+use super::device_error::DeviceError;
 
 /// Dummy [`DelayNs`](embedded_hal::delay::DelayNs) implementation that panics on use.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
-#[cfg_attr(feature = "defmt-03", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct NoDelay;
 
 /// [`QspiDevice`] implementation with exclusive access to the bus (not shared).
@@ -101,7 +102,7 @@ where
 {
     #[inline]
     fn transaction(&mut self, operations: &mut [Operation<'_, Word>]) -> Result<(), Self::Error> {
-        self.transaction(operations, &mut self.bus, &mut self.delay, &mut self.cs)
+        transaction(operations, &mut self.bus, &mut self.delay, &mut self.cs)
     }
 }
 

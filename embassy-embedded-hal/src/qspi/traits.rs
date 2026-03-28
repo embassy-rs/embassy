@@ -171,12 +171,12 @@
 
 use core::fmt::Debug;
 
-#[cfg(feature = "defmt-03")]
+#[cfg(feature = "defmt")]
 use crate::defmt;
 
 /// Clock polarity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt-03", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Polarity {
     /// Clock signal low when idle.
     IdleLow,
@@ -186,7 +186,7 @@ pub enum Polarity {
 
 /// Clock phase.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt-03", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Phase {
     /// Data in "captured" on the first clock transition.
     CaptureOnFirstTransition,
@@ -196,7 +196,7 @@ pub enum Phase {
 
 /// QSPI mode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt-03", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Mode {
     /// Clock polarity.
     pub polarity: Polarity,
@@ -251,7 +251,7 @@ impl Error for core::convert::Infallible {
 /// free to define more specific or additional error types. However, by providing
 /// a mapping to these common QSPI errors, generic code can still react to them.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-#[cfg_attr(feature = "defmt-03", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum ErrorKind {
     /// The peripheral receive buffer was overrun.
@@ -314,7 +314,7 @@ impl<T: ErrorType + ?Sized> ErrorType for &mut T {
 ///
 /// This allows composition of QSPI operations into a single bus transaction.
 #[derive(Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt-03", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Operation<'a, Word: 'static> {
     /// Read data into the provided buffer.
     ///
@@ -376,9 +376,14 @@ pub trait QspiDevice<Word: Copy + 'static = u8>: ErrorType {
         self.transaction(&mut [Operation::Write(buf)])
     }
 
+    /// Do a write using a single line within a transaction.
+    ///
+    /// This is a convenience method equivalent to `device.transaction(&mut [Operation::WriteSingleLine(buf)])`.
+    ///
+    /// See also: [`QspiDevice::transaction`], [`QspiBus::write`]
     #[inline]
     fn write_single_line(&mut self, buf: &[Word]) -> Result<(), Self::Error> {
-        self.write_single_line(&mut [Operation::WriteSingleLine(buf)])
+        self.transaction(&mut [Operation::WriteSingleLine(buf)])
     }
 }
 
