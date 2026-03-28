@@ -1,3 +1,4 @@
+use core::cmp::Reverse;
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicU8, Ordering};
 
@@ -325,42 +326,39 @@ fn enable_transceiver(info: &'static Info, enable_tx: bool, enable_rx: bool) {
     });
 }
 
+// Calculate the best OSR and SBR values for the desired baud rate and
+// source clock frequency. The calculation is biased towards lowest
+// possible diff and highest possible OSR value. A larger OSR favors
+// better noise tolerance, so in case of a tie, we break the tie by
+// largest OSR.
+//
+// Note that we compute and return OSR+1, the
+// caller is responsible for subtracting 1 when writing to the
+// register, as the hardware expects OSR-1.
 fn calculate_baudrate(baudrate: u32, src_clock_hz: u32) -> Result<(u8, u16), Error> {
-    let mut baud_diff = baudrate;
-    let mut osr = 0u8;
-    let mut sbr = 0u16;
+    (4..=32)
+        .flat_map(|osr| {
+            // Ideal SBR
+            let ideal_sbr = (src_clock_hz / (baudrate * osr)) as i32;
 
-    // Try OSR values from 4 to 32
-    for osr_temp in 4u8..=32u8 {
-        // Calculate SBR: (srcClock_Hz * 2 / (baudRate * osr) + 1) / 2
-        let sbr_calc = ((src_clock_hz * 2) / (baudrate * osr_temp as u32)).div_ceil(2);
+            // Search through a small window around the ideal SBR to
+            // find the best match.
+            (-2..=2i32).filter_map(move |delta| {
+                let sbr = ideal_sbr + delta;
 
-        let sbr_temp = if sbr_calc == 0 {
-            1
-        } else if sbr_calc > 0x1FFF {
-            0x1FFF
-        } else {
-            sbr_calc as u16
-        };
-
-        // Calculate actual baud rate
-        let calculated_baud = src_clock_hz / (osr_temp as u32 * sbr_temp as u32);
-
-        let temp_diff = calculated_baud.abs_diff(baudrate);
-
-        if temp_diff <= baud_diff {
-            baud_diff = temp_diff;
-            osr = osr_temp;
-            sbr = sbr_temp;
-        }
-    }
-
-    // Check if baud rate difference is within 3%
-    if baud_diff > (baudrate / 100) * 3 {
-        return Err(Error::UnsupportedBaudrate);
-    }
-
-    Ok((osr, sbr))
+                if (1..=0x1fff).contains(&sbr) {
+                    let sbr = sbr as u32;
+                    let calculated_baud = src_clock_hz / (osr * sbr);
+                    let diff = calculated_baud.abs_diff(baudrate);
+                    (diff <= (baudrate / 100) * 3).then_some((diff, osr, sbr))
+                } else {
+                    None
+                }
+            })
+        })
+        .min_by_key(|&(diff, osr, _)| (diff, Reverse(osr)))
+        .map(|(_, osr, sbr)| (osr as u8, sbr as u16))
+        .ok_or(Error::UnsupportedBaudrate)
 }
 
 /// Wait for all transmit operations to complete

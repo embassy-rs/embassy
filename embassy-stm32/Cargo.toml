@@ -176,6 +176,7 @@ embedded-storage-async = { version = "0.4.1" }
 
 rand-core-06 = { package = "rand_core", version = "0.6" }
 rand-core-09 = { package = "rand_core", version = "0.9" }
+rand-core-10 = { package = "rand_core", version = "0.10" }
 
 
 defmt = { version = "1.0.1", optional = true }
@@ -206,12 +207,12 @@ block-device-driver = { version = "0.2" }
 aligned = "0.4.3"
 heapless = "0.9.1"
 
-stm32-metapac = { version = "21" }
-# stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-21b543f6cab91a2966c0a4247e418d73a87a4ae7" }
+# stm32-metapac = { version = "21" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-05a7735815ce643974dc12be5c73d61944101410" }
 
 [build-dependencies]
-stm32-metapac = { version = "21", default-features = false, features = ["metadata"]}
-# stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-21b543f6cab91a2966c0a4247e418d73a87a4ae7", default-features = false, features = ["metadata"] }
+# stm32-metapac = { version = "21", default-features = false, features = ["metadata"]}
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-05a7735815ce643974dc12be5c73d61944101410", default-features = false, features = ["metadata"] }
 
 proc-macro2 = "1.0.36"
 quote = "1.0.15"

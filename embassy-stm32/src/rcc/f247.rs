@@ -9,6 +9,10 @@ pub use crate::pac::rcc::vals::{
     Pllsrc as PllSource, Ppre as APBPrescaler, Sw as Sysclk,
 };
 use crate::pac::{FLASH, RCC};
+#[cfg(dsihost)]
+use crate::rcc::dsi;
+#[cfg(dsihost)]
+pub use crate::rcc::dsi::{DsiHostPllConfig, DsiPllInput, DsiPllNdiv, DsiPllOutput};
 use crate::time::Hertz;
 
 // TODO: on some F4s, PLLM is shared between all PLLs. Enforce that.
@@ -99,6 +103,9 @@ pub struct Config {
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
 
+    #[cfg(dsihost)]
+    pub dsi: Option<DsiHostPllConfig>,
+
     pub ls: super::LsConfig,
 
     /// Per-peripheral kernel clock selection muxes
@@ -126,6 +133,9 @@ impl Config {
             ahb_pre: AHBPrescaler::DIV1,
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
+
+            #[cfg(dsihost)]
+            dsi: None,
 
             ls: crate::rcc::LsConfig::new(),
 
@@ -338,7 +348,7 @@ pub(crate) unsafe fn init(config: Config) {
         pllsai1_q: None,
 
         #[cfg(dsihost)]
-        dsi_phy: None, // DSI PLL clock not supported, don't call `RccPeripheral::frequency()` in the drivers
+        dsi_phy: config.dsi.map(|config| dsi::configure_pll(hse, config)),
 
         hsi_hse: None,
         afif: None,

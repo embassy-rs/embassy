@@ -14,6 +14,9 @@ use critical_section::CriticalSection;
 #[cfg(any(mco, mco1, mco2))]
 pub use mco::*;
 
+#[cfg(dsihost)]
+pub(crate) mod dsi;
+
 #[cfg(crs)]
 mod hsi48;
 #[cfg(crs)]
