@@ -9,9 +9,11 @@
 
 use super::{ClockError, Clocks, PoweredClock, WakeGuard};
 use crate::clocks::VddLevel;
+#[cfg(feature = "mcxa5xx")]
+use crate::pac::mrcc::vals::FlexspiClkselMux;
 use crate::pac::mrcc::vals::{
-    AdcClkselMux, ClkdivHalt, ClkdivReset, ClkdivUnstab, CtimerClkselMux, FclkClkselMux, FlexspiClkselMux,
-    Lpi2cClkselMux, LpspiClkselMux, LpuartClkselMux, OstimerClkselMux,
+    AdcClkselMux, ClkdivHalt, ClkdivReset, ClkdivUnstab, CtimerClkselMux, FclkClkselMux, Lpi2cClkselMux,
+    LpspiClkselMux, LpuartClkselMux, OstimerClkselMux,
 };
 
 #[cfg(feature = "mcxa2xx")]
