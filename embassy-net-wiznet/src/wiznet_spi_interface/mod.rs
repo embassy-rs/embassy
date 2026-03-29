@@ -3,6 +3,8 @@
 mod qspi;
 mod spi;
 
+pub use qspi::WiznetQspiBus;
+
 use embedded_hal::spi::ErrorType;
 
 /// Number of lines used by SPI
