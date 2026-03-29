@@ -1,8 +1,9 @@
 //! QSPI bus sharing mechanisms.
 
-use super::traits::{ErrorType, Operation, QspiBus, QspiDevice};
+use super::traits::{Operation, QspiBus, QspiDevice};
 use embedded_hal_1::digital::OutputPin;
 use embedded_hal_async::delay::DelayNs;
+use embedded_hal_async::spi::ErrorType;
 
 use super::device_error::DeviceError;
 

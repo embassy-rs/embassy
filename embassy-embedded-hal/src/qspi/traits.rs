@@ -170,6 +170,7 @@
 //!   enough to "naturally" do the delay (very common if the delay is in the order of nanoseconds).
 
 use core::fmt::Debug;
+use embedded_hal_async::spi::ErrorType;
 
 #[cfg(feature = "defmt")]
 use defmt;
@@ -227,85 +228,6 @@ pub const MODE_3: Mode = Mode {
     polarity: Polarity::IdleHigh,
     phase: Phase::CaptureOnSecondTransition,
 };
-
-/// QSPI error.
-pub trait Error: Debug {
-    /// Convert error to a generic QSPI error kind.
-    ///
-    /// By using this method, QSPI errors freely defined by HAL implementations
-    /// can be converted to a set of generic QSPI errors upon which generic
-    /// code can act.
-    fn kind(&self) -> ErrorKind;
-}
-
-impl Error for core::convert::Infallible {
-    #[inline]
-    fn kind(&self) -> ErrorKind {
-        match *self {}
-    }
-}
-
-/// QSPI error kind.
-///
-/// This represents a common set of QSPI operation errors. HAL implementations are
-/// free to define more specific or additional error types. However, by providing
-/// a mapping to these common QSPI errors, generic code can still react to them.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[non_exhaustive]
-pub enum ErrorKind {
-    /// The peripheral receive buffer was overrun.
-    Overrun,
-    /// Multiple devices on the QSPI bus are trying to drive the slave select pin, e.g. in a multi-master setup.
-    ModeFault,
-    /// Received data does not conform to the peripheral configuration.
-    FrameFormat,
-    /// An error occurred while asserting or deasserting the Chip Select pin.
-    ChipSelectFault,
-    /// A different error occurred. The original error may contain more information.
-    Other,
-}
-
-impl Error for ErrorKind {
-    #[inline]
-    fn kind(&self) -> ErrorKind {
-        *self
-    }
-}
-
-impl core::fmt::Display for ErrorKind {
-    #[inline]
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::Overrun => write!(f, "The peripheral receive buffer was overrun"),
-            Self::ModeFault => write!(
-                f,
-                "Multiple devices on the QSPI bus are trying to drive the slave select pin"
-            ),
-            Self::FrameFormat => write!(f, "Received data does not conform to the peripheral configuration"),
-            Self::ChipSelectFault => write!(
-                f,
-                "An error occurred while asserting or deasserting the Chip Select pin"
-            ),
-            Self::Other => write!(
-                f,
-                "A different error occurred. The original error may contain more information"
-            ),
-        }
-    }
-}
-
-/// QSPI error type trait.
-///
-/// This just defines the error type, to be used by the other QSPI traits.
-pub trait ErrorType {
-    /// Error type.
-    type Error: Error;
-}
-
-impl<T: ErrorType + ?Sized> ErrorType for &mut T {
-    type Error = T::Error;
-}
 
 /// QSPI transaction operation.
 ///
