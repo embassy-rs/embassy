@@ -34,28 +34,18 @@ use core::sync::atomic::{AtomicU8, Ordering};
 use aligned::{A8, Aligned};
 
 // Pure assembly context switch: saves R4-R11+LR, swaps SP, restores R4-R11+LR, returns.
-// Defined via global_asm! so the compiler generates NO prologue/epilogue — the caller
+// Defined via naked_asm! so the compiler generates NO prologue/epilogue — the caller
 // sees a normal C function call, which is exactly what this is (just on a different stack).
 #[cfg(target_arch = "arm")]
-core::arch::global_asm!(
-    ".thumb_func",
-    ".global context_switch_asm",
-    ".type context_switch_asm, %function",
-    "context_switch_asm:",
-    "push {{r4-r11, lr}}",
-    "str sp, [r0]",
-    "ldr sp, [r1]",
-    "pop {{r4-r11, lr}}",
-    "bx lr",
-    ".size context_switch_asm, . - context_switch_asm",
-);
-
-#[cfg(target_arch = "arm")]
-unsafe extern "C" {
-    /// Raw context switch. Arguments:
-    /// - r0: pointer to u32 where current SP will be saved
-    /// - r1: pointer to u32 from which new SP will be loaded
-    fn context_switch_asm(save_sp: *mut u32, restore_sp: *mut u32);
+#[unsafe(naked)]
+pub unsafe extern "C" fn context_switch_asm(save: *mut u32, load: *const u32) {
+    core::arch::naked_asm!(
+        "push {{r4-r11, lr}}",
+        "str sp, [r0]",
+        "ldr sp, [r1]",
+        "pop {{r4-r11, lr}}",
+        "bx lr",
+    );
 }
 
 /// Size of the sequencer stack in bytes (32KB)
