@@ -105,6 +105,11 @@ pub struct OtgHostInstance<'d, const CH_COUNT: usize> {
 pub unsafe fn on_host_interrupt<const CH_COUNT: usize>(r: Otg, state: &HostState<CH_COUNT>, ch_count: usize) {
     let gintsts = r.gintsts().read();
 
+    // Clear SOF interrupt immediately to avoid flooding.
+    if gintsts.sof() {
+        r.gintsts().write(|w| w.set_sof(true));
+    }
+
     // Host port interrupt
     if gintsts.hprtint() {
         let hprt = r.hprt().read();
@@ -315,6 +320,41 @@ impl<'d, const CH_COUNT: usize> OtgHost<'d, CH_COUNT> {
         let r = self.instance.regs;
         let phy_type = self.instance.phy_type;
 
+        // Wait for AHB bus to be idle before configuring registers.
+        while !r.grstctl().read().ahbidl() {}
+
+        // Configure GCCFG for host mode based on core version.
+        // The register layout varies across DWC2 revisions; use CID to select.
+        let core_id = r.cid().read().0;
+        match core_id {
+            0x0000_1000 | 0x0000_1100 | 0x0000_1200 => {
+                // v1 cores (STM32F2/F4): power up internal transceiver, disable VBUS sensing.
+                r.gccfg_v1().modify(|w| {
+                    w.set_pwrdwn(phy_type.internal());
+                    w.set_novbussens(true);
+                    w.set_vbusasen(false);
+                    w.set_vbusbsen(false);
+                });
+            }
+            0x0000_2000 | 0x0000_2100 | 0x0000_2300 | 0x0000_3000 | 0x0000_3100 => {
+                // v2/v3 cores (STM32F446/H7): power up PHY, disable VBUS detection.
+                r.gccfg_v2().modify(|w| {
+                    w.set_pwrdwn(phy_type.internal() && !phy_type.high_speed());
+                    w.set_phyhsen(phy_type.internal() && phy_type.high_speed());
+                    w.set_vbden(false);
+                });
+            }
+            0x0000_5000 | 0x0000_6100 => {
+                // v5 cores (STM32U5/WBA): enable host pull-downs, clear VBUS override.
+                r.gccfg_v3().modify(|w| {
+                    w.set_forcehostpd(true);
+                    w.set_vbvaloval(false);
+                    w.set_vbvaloven(false);
+                });
+            }
+            _ => {} // Unknown core; rely on HAL-layer configuration.
+        }
+
         r.gusbcfg().modify(|w| {
             // Force host mode
             w.set_fhmod(true);
@@ -335,6 +375,9 @@ impl<'d, const CH_COUNT: usize> OtgHost<'d, CH_COUNT> {
 
     fn init_host(&self) {
         let r = self.instance.regs;
+
+        // Ensure PHY clock is running (clear any power/clock gating).
+        r.pcgcctl().write_value(Default::default());
 
         // Configure HCFG: set PHY clock.
         // fslspcs=0: 30/60 MHz (HS PHY); fslspcs=1: 48 MHz (FS PHY).
@@ -487,6 +530,24 @@ impl<'d, const CH_COUNT: usize> UsbHostDriver for OtgHost<'d, CH_COUNT> {
                         2 => Speed::High,
                         _ => Speed::Full,
                     };
+
+                    // Program the frame interval for the detected device speed.
+                    // The PHY clock rate determines the HFIR value:
+                    //   Internal HS PHY (UTMI): 60 MHz → HFIR = 60000 for FS
+                    //   Internal FS PHY:        48 MHz → HFIR = 48000 for FS
+                    let r = self.instance.regs;
+                    let phy_type = self.instance.phy_type;
+                    match speed {
+                        Speed::Full => {
+                            let frivl = if phy_type.high_speed() { 60_000 } else { 48_000 };
+                            r.hfir().write(|w| w.set_frivl(frivl));
+                        }
+                        Speed::Low => {
+                            r.hfir().write(|w| w.set_frivl(6_000));
+                        }
+                        Speed::High => {} // Keep HS defaults
+                    }
+
                     return DeviceEvent::Connected(speed);
                 }
                 _ => {
@@ -621,9 +682,10 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Channel<T, 
                 EndpointType::Interrupt => vals::Eptyp::INTERRUPT,
             });
             w.set_dad(self.device_address);
-            // For periodic endpoints, schedule on the opposite frame from the current one
-            // so the transfer starts on the next SOF.
             if is_periodic {
+                // Multi Count must be at least 1 for periodic endpoints (0 is reserved).
+                w.set_mcnt(1);
+                // Schedule on the opposite frame parity so the transfer starts on the next SOF.
                 let current_frame = r.hfnum().read().frnum();
                 w.set_oddfrm(current_frame & 1 == 0);
             }
@@ -673,7 +735,6 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Channel<T, 
         });
     }
 
-    #[allow(dead_code)]
     fn halt_channel(&self) {
         let r = self.regs;
         let ch = self.index;
@@ -782,7 +843,17 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Channel<T, 
 
     /// Execute an IN transfer on this channel, retrying on NAK up to [`NAK_RETRY_LIMIT`] times.
     async fn do_in_transfer(&mut self, ep_type: EndpointType, buf: &mut [u8], dpid: u8) -> Result<usize, ChannelError> {
-        let pktcnt = if buf.is_empty() {
+        // For interrupt/isochronous endpoints, only request one packet per transfer.
+        // The device sends at most one packet per (micro)frame.
+        let is_periodic = matches!(ep_type, EndpointType::Interrupt | EndpointType::Isochronous);
+        let xfer_size = if is_periodic {
+            (buf.len() as u32).min(self.max_packet_size as u32)
+        } else {
+            buf.len() as u32
+        };
+        let pktcnt: u16 = if is_periodic {
+            1
+        } else if buf.is_empty() {
             1
         } else {
             ((buf.len() as u32 + self.max_packet_size as u32 - 1) / self.max_packet_size as u32) as u16
@@ -790,15 +861,27 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Channel<T, 
 
         let mut nak_retries = 0u32;
         loop {
-            self.setup_rx_buffer(buf);
-            self.configure_channel(true, ep_type, pktcnt, buf.len() as u32, dpid);
+            self.setup_rx_buffer(&mut buf[..xfer_size as usize]);
+            self.configure_channel(true, ep_type, pktcnt, xfer_size, dpid);
             self.enable_channel();
 
             let result = self.wait_for_result().await;
             let count = self.rx_count();
             self.clear_rx_buffer();
 
+            if result == CH_RESULT_COMPLETE {
+                return Ok(count);
+            }
+
             if result == CH_RESULT_NAK {
+                if is_periodic {
+                    // For periodic endpoints, the hardware may start halting the
+                    // channel after NAK. Explicitly halt and wait for completion
+                    // (CHH) before reconfiguring, otherwise the retry races with
+                    // the in-progress halt and the new transfer never starts.
+                    self.halt_channel();
+                    let _halt = self.wait_for_result().await; // expect CHH
+                }
                 nak_retries += 1;
                 if nak_retries >= NAK_RETRY_LIMIT {
                     return Err(ChannelError::Timeout);
@@ -806,6 +889,7 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Channel<T, 
                 yield_now().await;
                 continue;
             }
+
             Self::result_to_error(result)?;
             return Ok(count);
         }

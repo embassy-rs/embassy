@@ -1,13 +1,17 @@
+// USB Host Serial (CDC ACM) example for NUCLEO-WBA65RI.
+// Hardware: fit jumper JP1 (5V_USB) to supply VBUS to the downstream device.
+
 #![no_std]
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::usb::HostDriver;
 use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
 use embassy_usb_host::UsbHost;
 use embassy_usb_host::class::cdc_acm::{CdcAcmHost, LineCoding};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     USB_OTG_HS => usb::HostInterruptHandler<peripherals::USB_OTG_HS>;

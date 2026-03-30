@@ -447,7 +447,7 @@ impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D,
     fn read_data(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError> {
         let index = self.index;
         let rx_len = btable::read_out_len::<I>(index) as usize & 0x3FF;
-        trace!("READ DONE, rx_len = {}", rx_len);
+        trace!("rx_len = {}", rx_len);
         if rx_len > buf.len() {
             return Err(ChannelError::BufferOverflow);
         }
