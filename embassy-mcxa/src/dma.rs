@@ -2416,14 +2416,14 @@ macro_rules! impl_dma_interrupt_handler {
 
 use crate::pac::interrupt;
 
-impl_dma_interrupt_handler!(DMA_CH0, 0);
-impl_dma_interrupt_handler!(DMA_CH1, 1);
-impl_dma_interrupt_handler!(DMA_CH2, 2);
-impl_dma_interrupt_handler!(DMA_CH3, 3);
-impl_dma_interrupt_handler!(DMA_CH4, 4);
-impl_dma_interrupt_handler!(DMA_CH5, 5);
-impl_dma_interrupt_handler!(DMA_CH6, 6);
-impl_dma_interrupt_handler!(DMA_CH7, 7);
+impl_dma_interrupt_handler!(DMA0_CH0, 0);
+impl_dma_interrupt_handler!(DMA0_CH1, 1);
+impl_dma_interrupt_handler!(DMA0_CH2, 2);
+impl_dma_interrupt_handler!(DMA0_CH3, 3);
+impl_dma_interrupt_handler!(DMA0_CH4, 4);
+impl_dma_interrupt_handler!(DMA0_CH5, 5);
+impl_dma_interrupt_handler!(DMA0_CH6, 6);
+impl_dma_interrupt_handler!(DMA0_CH7, 7);
 
 // TODO(AJM): This is a gross, gross hack. This implements optional callbacks
 // for DMA completion interrupts. This should go away once we switch to

@@ -27,7 +27,7 @@ async fn main(_spawner: Spawner) {
     defmt::info!("I3C example");
 
     let config = controller::Config::default();
-    let mut i3c = I3c::new_async_with_dma(p.I3C0, p.P0_21, p.P0_20, p.DMA_CH0, p.DMA_CH1, Irqs, config).unwrap();
+    let mut i3c = I3c::new_async_with_dma(p.I3C0, p.P0_21, p.P0_20, p.DMA0_CH0, p.DMA0_CH1, Irqs, config).unwrap();
     let mut buf = [0u8; 2];
 
     loop {

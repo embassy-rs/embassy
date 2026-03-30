@@ -35,8 +35,8 @@ async fn main(_spawner: Spawner) {
         p.LPUART2, // Instance
         p.P2_2,    // TX pin
         p.P2_3,    // RX pin
-        p.DMA_CH0, // TX DMA channel
-        p.DMA_CH1, // RX DMA channel
+        p.DMA0_CH0, // TX DMA channel
+        p.DMA0_CH1, // RX DMA channel
         config,
     )
     .unwrap();
