@@ -341,10 +341,6 @@ impl super::LPTimeDriver for RtcDriver {
 
         regs_gp16().cr1().modify(|w| w.set_cen(true));
     }
-
-    fn is_stopped(&self) -> bool {
-        !regs_gp16().cr1().read().cen()
-    }
 }
 
 impl Driver for RtcDriver {
