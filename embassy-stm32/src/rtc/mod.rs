@@ -223,7 +223,7 @@ impl Rtc {
         };
 
         let frequency = Self::frequency();
-        let async_psc = ((frequency.0 / rtc_config.frequency.0) - 1) as u8;
+        let async_psc = ((frequency / rtc_config.frequency) - 1) as u8;
         let sync_psc = (rtc_config.frequency.0 - 1) as u16;
 
         this.configure(async_psc, sync_psc);
@@ -245,8 +245,7 @@ impl Rtc {
     }
 
     fn frequency() -> Hertz {
-        let freqs = unsafe { crate::rcc::get_freqs() };
-        freqs.rtc.to_hertz().unwrap()
+        unsafe { crate::rcc::get_freqs() }.rtc.to_hertz().unwrap()
     }
 
     /// Set the datetime to a new value.
