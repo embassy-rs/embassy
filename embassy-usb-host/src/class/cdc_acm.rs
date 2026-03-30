@@ -2,8 +2,8 @@
 //!
 //! This driver can communicate with USB CDC ACM devices (virtual serial ports).
 
-use embassy_usb_driver::host::{ChannelError, SetupPacket, UsbChannel, UsbHostDriver, channel};
-use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType, Speed};
+use embassy_usb_driver::host::{ChannelError, UsbChannel, UsbHostDriver, channel};
+use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
 
 use crate::bytes_to_setup;
 use crate::descriptor::{DescriptorIter, EndpointDescriptor, InterfaceDescriptor, descriptor_type};

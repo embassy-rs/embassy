@@ -16,7 +16,9 @@ mod builder;
 pub mod class;
 pub mod control;
 pub mod descriptor;
+#[allow(dead_code, missing_docs, unused_variables)]
 pub(crate) mod handlers;
+#[allow(dead_code, missing_docs)]
 pub mod host;
 pub mod msos;
 pub mod types;

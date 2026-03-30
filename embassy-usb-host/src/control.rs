@@ -63,7 +63,7 @@ pub fn set_configuration(config_value: u8) -> [u8; 8] {
 
 /// Build a GET_DESCRIPTOR(HID Report Descriptor) SETUP packet (Standard, Interface).
 ///
-/// `interface` is the HID interface number; `len` is from [`HidInfo::report_descriptor_len`].
+/// `interface` is the HID interface number; `len` is from `HidInfo::report_descriptor_len`.
 pub fn get_hid_report_descriptor(interface: u8, len: u16) -> [u8; 8] {
     // wValue = descriptor_type(0x22) << 8 | index(0)
     make_setup(

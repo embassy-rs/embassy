@@ -5,7 +5,7 @@
 //!
 //! # Usage
 //!
-//! ```no_run
+//! ```ignore
 //! use embassy_usb_host::class::hid::{HidHost, PROTOCOL_BOOT};
 //! use embassy_usb_host::class::hid_report::{ReportDescriptor, usage_page, usage};
 //!
@@ -41,27 +41,43 @@ pub mod usage_page {
 
 /// Generic Desktop usages (usage page [`usage_page::GENERIC_DESKTOP`]).
 pub mod usage {
-    // Collection usages (for reference; you won't usually search for these as fields)
+    /// Pointer collection.
     pub const POINTER: u16 = 0x01;
+    /// Mouse collection.
     pub const MOUSE: u16 = 0x02;
+    /// Joystick collection.
     pub const JOYSTICK: u16 = 0x04;
+    /// Gamepad collection.
     pub const GAMEPAD: u16 = 0x05;
+    /// Keyboard collection.
     pub const KEYBOARD: u16 = 0x06;
-    // Axis / control usages
+    /// X axis.
     pub const X: u16 = 0x30;
+    /// Y axis.
     pub const Y: u16 = 0x31;
+    /// Z axis.
     pub const Z: u16 = 0x32;
+    /// X rotation axis.
     pub const RX: u16 = 0x33;
+    /// Y rotation axis.
     pub const RY: u16 = 0x34;
+    /// Z rotation axis.
     pub const RZ: u16 = 0x35;
+    /// Slider control.
     pub const SLIDER: u16 = 0x36;
+    /// Dial / rotary control.
     pub const DIAL: u16 = 0x37;
+    /// Scroll wheel.
     pub const WHEEL: u16 = 0x38;
+    /// Hat switch (POV).
     pub const HAT_SWITCH: u16 = 0x39;
-    /// D-pad directions (some gamepads use these instead of a hat switch).
+    /// D-pad up.
     pub const DPAD_UP: u16 = 0x90;
+    /// D-pad down.
     pub const DPAD_DOWN: u16 = 0x91;
+    /// D-pad right.
     pub const DPAD_RIGHT: u16 = 0x92;
+    /// D-pad left.
     pub const DPAD_LEFT: u16 = 0x93;
 }
 

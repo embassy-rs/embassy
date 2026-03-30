@@ -655,7 +655,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
         // Wait transfer buffer to be free
         self.wait_ready_for_transaction().await;
 
-        let regs = T::regs();
+        let _regs = T::regs();
 
         // Set this channel for transaction
         self.set_current();

@@ -346,6 +346,7 @@ impl<'d, I: Instance> UsbHost<'d, I> {
         .await
     }
 
+    #[allow(dead_code)]
     async fn wait_for_device_disconnect(&self) -> DeviceEvent {
         poll_fn(|cx| {
             let istr = I::regs().istr().read();
@@ -369,6 +370,7 @@ pub struct Channel<'d, I: Instance, D: channel::Direction, T: channel::Type> {
     /// Register index (there are 8 in total)
     index: usize,
     max_packet_size_in: u16,
+    #[allow(dead_code)]
     max_packet_size_out: u16,
     buf_in: Option<EndpointBuffer<I>>,
     buf_out: Option<EndpointBuffer<I>>,
@@ -462,7 +464,7 @@ impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D,
     }
 
     //TODO: Emit a zero length packet when ensure_transaction_end is true and the packet is of max size
-    async fn write(&mut self, buf: &[u8], ensure_transaction_end: bool) -> Result<(), ChannelError> {
+    async fn write(&mut self, buf: &[u8], _ensure_transaction_end: bool) -> Result<(), ChannelError> {
         self.write_data(buf);
 
         let index = self.index;
@@ -625,7 +627,7 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         &mut self,
         addr: u8,
         endpoint: &embassy_usb_driver::EndpointInfo,
-        pre: bool,
+        _pre: bool,
     ) -> Result<(), embassy_usb_driver::host::HostError> {
         trace!(
             "retarget_channel: addr: {:?} ep_type: {:?} index: {}",

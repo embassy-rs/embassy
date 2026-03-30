@@ -2,11 +2,10 @@
 //!
 //! This driver can communicate with USB HID devices (keyboards, mice, gamepads, etc.).
 
+use embassy_usb_driver::host::{ChannelError, UsbChannel, UsbHostDriver, channel};
+use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
+
 pub use super::hid_report::{ReportDescriptor, ReportField};
-
-use embassy_usb_driver::host::{ChannelError, SetupPacket, UsbChannel, UsbHostDriver, channel};
-use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType, Speed};
-
 use crate::bytes_to_setup;
 use crate::descriptor::{DescriptorIter, EndpointDescriptor, InterfaceDescriptor, descriptor_type};
 
@@ -142,8 +141,6 @@ impl MouseReport {
 
 /// HID class descriptor type (appears inside the configuration descriptor).
 const DESC_HID: u8 = 0x21;
-/// HID Report descriptor type (used in GET_DESCRIPTOR requests).
-const DESC_HID_REPORT: u8 = 0x22;
 
 /// Information about a HID interface found in a configuration descriptor.
 #[derive(Clone, Debug)]
@@ -297,13 +294,13 @@ impl<D: UsbHostDriver> HidHost<D> {
     /// Returns the descriptor bytes as a slice. Pass the result to
     /// [`ReportDescriptor::parse`] to decode it:
     ///
-    /// ```no_run
+    /// ```ignore
     /// let mut buf = [0u8; 256];
     /// let desc = hid.fetch_report_descriptor(&mut buf).await?;
     /// let report: ReportDescriptor<32> = ReportDescriptor::parse(desc);
     /// ```
     ///
-    /// `buf` should be at least [`HidInfo::report_descriptor_len`] bytes; any
+    /// `buf` should be at least `HidInfo::report_descriptor_len` bytes; any
     /// excess is unused.
     pub async fn fetch_report_descriptor<'a>(&mut self, buf: &'a mut [u8]) -> Result<&'a [u8], HidError> {
         let len = (self.report_descriptor_len as usize).min(buf.len()) as u16;

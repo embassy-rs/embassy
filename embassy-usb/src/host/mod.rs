@@ -63,7 +63,7 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
         self.control_in(&packet, &mut buf).await?;
         trace!("Descriptor {}: {:?}", core::any::type_name::<T>(), buf);
 
-        T::try_from_bytes(&buf).map_err(|e| {
+        T::try_from_bytes(&buf).map_err(|_e| {
             // TODO: Log error or make descriptor error not generic
             // error!("Device [{}]: Descriptor parse failed: {}", addr, e);
             HostError::InvalidDescriptor

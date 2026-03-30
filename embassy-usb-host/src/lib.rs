@@ -120,14 +120,15 @@ impl<D: UsbHostDriver> UsbHost<D> {
     /// Returns the device descriptor, assigned address, and bytes written to config_buf.
     pub async fn enumerate(
         &mut self,
-        _speed: Speed,
+        speed: Speed,
         config_buf: &mut [u8],
     ) -> Result<(DeviceDescriptor, u8, usize), EnumerationError> {
-        // Step 1: Get device descriptor (first 8 bytes) on address 0, MPS=8
+        // Step 1: Get device descriptor (first 8 bytes) on address 0.
+        // Use the speed-specific default MPS for the initial control transfer.
         let ep0_info = EndpointInfo {
             addr: EndpointAddress::from_parts(0, UsbDirection::In),
             ep_type: EndpointType::Control,
-            max_packet_size: 8,
+            max_packet_size: speed.max_packet_size(),
             interval_ms: 0,
         };
 

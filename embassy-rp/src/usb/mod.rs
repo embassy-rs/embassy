@@ -49,6 +49,7 @@ const DPRAM_DATA_OFFSET: u16 = 0x180;
 const NEW_AW: AtomicWaker = AtomicWaker::new();
 static BUS_WAKER: AtomicWaker = NEW_AW;
 static EP_IN_WAKERS: [AtomicWaker; EP_COUNT] = [NEW_AW; EP_COUNT];
+#[allow(dead_code)]
 static EP_OUT_WAKERS: [AtomicWaker; EP_COUNT] = [NEW_AW; EP_COUNT];
 
 #[derive(Debug)]
@@ -60,6 +61,7 @@ struct EndpointBuffer<T: Instance> {
 }
 
 impl<T: Instance> EndpointBuffer<T> {
+    #[allow(dead_code)]
     const fn new(addr: u16, len: u16) -> Self {
         Self {
             addr,
@@ -105,7 +107,9 @@ impl Dir for Out {
     }
 }
 
+/// USB device mode driver.
 pub mod device;
+/// USB host mode driver.
 pub mod host;
 
 // FIXME: Compat
