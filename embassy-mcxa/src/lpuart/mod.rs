@@ -838,7 +838,7 @@ pub struct LpuartTx<'a, M: Mode> {
     mode: M,
     _tx_pins: TxPins<'a>,
     _wg: Option<WakeGuard>,
-    _phantom: PhantomData<&'a ()>,
+    _phantom: PhantomData<&'a mut ()>,
 }
 
 /// Lpuart Rx driver.
@@ -848,7 +848,7 @@ pub struct LpuartRx<'a, M: Mode> {
     mode: M,
     _rx_pins: RxPins<'a>,
     _wg: Option<WakeGuard>,
-    _phantom: PhantomData<&'a ()>,
+    _phantom: PhantomData<&'a mut ()>,
 }
 
 fn disable_peripheral(info: &'static Info) {
