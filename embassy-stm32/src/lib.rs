@@ -741,3 +741,7 @@ fn init_hw(config: Config) -> Peripherals {
 pub(crate) fn block_for_us(us: u64) {
     cortex_m::asm::delay(unsafe { rcc::get_freqs().sys.to_hertz().unwrap().0 as u64 * us / 1_000_000 } as u32);
 }
+
+#[cfg(feature = "test")]
+#[unsafe(no_mangle)]
+extern "Rust" fn __embassy_time_queue_item_from_waker() {}

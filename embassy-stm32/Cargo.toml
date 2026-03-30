@@ -249,11 +249,13 @@ log = ["dep:log"]
 chrono = ["dep:chrono"]
 ## Enable cyw
 cyw43 = ["dep:cyw43"]
+## Used for running hosted tests
+test = []
 
 stm32-hrtim = ["dep:stm32-hrtim"]
 
 exti = []
-low-power = [ "time", "chrono" ]
+low-power = [ "time" ]
 low-power-debug-with-sleep = [ "low-power" ]
 low-power-defmt-flush = [ "defmt" ]
 
