@@ -1,8 +1,6 @@
-use core::marker::PhantomData;
-
 use embassy_hal_internal::PeripheralType;
 
-use crate::gpio::{AfType, OutputType, Speed};
+use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::pac::RCC;
 #[cfg(any(
     rcc_f2,
@@ -105,18 +103,21 @@ impl_peri!(MCO1, Mco1Source, set_mco1sel, set_mco1pre);
 impl_peri!(MCO2, Mco2Source, set_mco2sel, set_mco2pre);
 
 pub struct Mco<'d, T: McoInstance> {
-    phantom: PhantomData<&'d mut T>,
+    _peri: Peri<'d, T>,
+    _pin: Flex<'d>,
 }
 
 impl<'d, T: McoInstance> Mco<'d, T> {
     /// Create a new MCO instance.
-    pub fn new(_peri: Peri<'d, T>, pin: Peri<'d, impl McoPin<T>>, source: T::Source, config: McoConfig) -> Self {
+    pub fn new(peri: Peri<'d, T>, pin: Peri<'d, impl McoPin<T>>, source: T::Source, config: McoConfig) -> Self {
         critical_section::with(|_| unsafe {
             T::_apply_clock_settings(source, config.prescaler);
-            set_as_af!(pin, AfType::output(OutputType::PushPull, config.speed));
         });
 
-        Self { phantom: PhantomData }
+        Self {
+            _peri: peri,
+            _pin: new_pin!(pin, AfType::output(OutputType::PushPull, config.speed)).unwrap(),
+        }
     }
 }
 
