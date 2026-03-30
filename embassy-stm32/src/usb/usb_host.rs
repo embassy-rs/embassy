@@ -659,7 +659,7 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         self.write(buf, ensure_transaction_end).await
     }
 
-    async fn set_timeout(&mut self, _: TimeoutConfig) {
+    fn set_timeout(&mut self, _: TimeoutConfig) {
         //TODO: Implement.
     }
 }

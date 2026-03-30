@@ -688,8 +688,8 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
         res
     }
 
-    async fn set_timeout(&mut self, _: TimeoutConfig) {
-        todo!();
+    fn set_timeout(&mut self, _: TimeoutConfig) {
+        // Not yet implemented for RP2040.
     }
 }
 

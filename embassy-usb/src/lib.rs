@@ -16,11 +16,10 @@ mod builder;
 pub mod class;
 pub mod control;
 pub mod descriptor;
-pub mod handlers;
+pub(crate) mod handlers;
+pub mod host;
 pub mod msos;
 pub mod types;
-
-pub mod host;
 
 mod config {
     #![allow(unused)]
