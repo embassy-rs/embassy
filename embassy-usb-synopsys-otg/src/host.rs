@@ -24,6 +24,9 @@ const CH_RESULT_FRMOR: u8 = 6;
 const CH_RESULT_DTERR: u8 = 7;
 const CH_RESULT_HALTED: u8 = 8;
 
+/// Maximum number of NAK retries before returning a timeout error.
+const NAK_RETRY_LIMIT: u32 = 5000;
+
 // Port event bitflags (OR'd together, not mutually exclusive).
 const PORT_EVENT_CONNECTED: u8 = 1 << 0;
 const PORT_EVENT_DISCONNECTED: u8 = 1 << 1;
@@ -308,7 +311,7 @@ impl<'d, const CH_COUNT: usize> OtgHost<'d, CH_COUNT> {
         Self { instance }
     }
 
-    fn configure_as_host(&self) {
+    async fn configure_as_host(&self) {
         let r = self.instance.regs;
         let phy_type = self.instance.phy_type;
 
@@ -320,15 +323,13 @@ impl<'d, const CH_COUNT: usize> OtgHost<'d, CH_COUNT> {
             w.set_physel(phy_type.internal() && !phy_type.high_speed());
         });
 
-        // Wait for host mode to take effect (~25ms)
-        // We poll cmod bit in gintsts
-        let mut timeout = 250_000u32;
-        while !r.gintsts().read().cmod() {
-            timeout -= 1;
-            if timeout == 0 {
+        // Wait for host mode to take effect (~25ms).
+        // Poll cmod bit with async yield between attempts.
+        for _ in 0..50u32 {
+            if r.gintsts().read().cmod() {
                 break;
             }
-            core::hint::spin_loop();
+            embassy_time::Timer::after_millis(1).await;
         }
     }
 
@@ -395,7 +396,7 @@ impl<'d, const CH_COUNT: usize> OtgHost<'d, CH_COUNT> {
             w.set_hcim(true); // Host channel interrupt
             w.set_discint(true); // Disconnect interrupt
             w.set_rxflvlm(true); // RX FIFO non-empty
-            w.set_sofm(false); // SOF (disabled for now)
+            w.set_sofm(true); // SOF required for periodic (interrupt/isochronous) transfers
         });
 
         // Enable global interrupt
@@ -411,7 +412,7 @@ impl<'d, const CH_COUNT: usize> UsbHostDriver for OtgHost<'d, CH_COUNT> {
     async fn wait_for_device_event(&self) -> DeviceEvent {
         // Lazily initialize the host hardware on first call.
         if !self.instance.state.inited.load(Ordering::Acquire) {
-            self.configure_as_host();
+            self.configure_as_host().await;
             self.init_host();
             self.instance.state.inited.store(true, Ordering::Release);
         }
@@ -423,8 +424,10 @@ impl<'d, const CH_COUNT: usize> UsbHostDriver for OtgHost<'d, CH_COUNT> {
                 state.port_waker.register(cx.waker());
 
                 let ev = state.port_event.load(Ordering::Acquire);
-                if ev & PORT_EVENT_DISCONNECTED != 0 {
-                    state.port_event.fetch_and(!PORT_EVENT_DISCONNECTED, Ordering::AcqRel);
+                if ev & (PORT_EVENT_DISCONNECTED | PORT_EVENT_OVERCURRENT) != 0 {
+                    state
+                        .port_event
+                        .fetch_and(!(PORT_EVENT_DISCONNECTED | PORT_EVENT_OVERCURRENT), Ordering::AcqRel);
                     // Wake all channels to signal disconnection
                     for ch in &state.channels {
                         if ch.allocated.load(Ordering::Relaxed) {
@@ -455,8 +458,10 @@ impl<'d, const CH_COUNT: usize> UsbHostDriver for OtgHost<'d, CH_COUNT> {
                 state.port_waker.register(cx.waker());
 
                 let ev = state.port_event.load(Ordering::Acquire);
-                if ev & PORT_EVENT_DISCONNECTED != 0 {
-                    state.port_event.fetch_and(!PORT_EVENT_DISCONNECTED, Ordering::AcqRel);
+                if ev & (PORT_EVENT_DISCONNECTED | PORT_EVENT_OVERCURRENT) != 0 {
+                    state
+                        .port_event
+                        .fetch_and(!(PORT_EVENT_DISCONNECTED | PORT_EVENT_OVERCURRENT), Ordering::AcqRel);
                     for ch in &state.channels {
                         if ch.allocated.load(Ordering::Relaxed) {
                             ch.result.store(CH_RESULT_HALTED, Ordering::Release);
@@ -503,12 +508,8 @@ impl<'d, const CH_COUNT: usize> UsbHostDriver for OtgHost<'d, CH_COUNT> {
             w.set_ppwr(true);
         });
 
-        // USB spec requires reset to be held for at least 10ms.
-        // We use a busy-wait here since embassy-time may not be available.
-        // 50ms to be safe.
-        for _ in 0..500_000u32 {
-            core::hint::spin_loop();
-        }
+        // USB spec requires reset to be held for at least 10ms; use 50ms to be safe.
+        embassy_time::Timer::after_millis(50).await;
 
         // De-assert reset
         let safe_val = hprt_read_safe(r);
@@ -518,10 +519,8 @@ impl<'d, const CH_COUNT: usize> UsbHostDriver for OtgHost<'d, CH_COUNT> {
             w.set_ppwr(true);
         });
 
-        // Wait a bit for the device to recover
-        for _ in 0..200_000u32 {
-            core::hint::spin_loop();
-        }
+        // Wait for the device to recover after reset de-assertion.
+        embassy_time::Timer::after_millis(20).await;
     }
 
     fn alloc_channel<T: channel::Type, D: channel::Direction>(
@@ -609,6 +608,7 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Channel<T, 
         let ch = self.index;
 
         // Configure channel characteristics
+        let is_periodic = matches!(ep_type, EndpointType::Interrupt | EndpointType::Isochronous);
         r.hcchar(ch).write(|w| {
             w.set_mpsiz(self.max_packet_size);
             w.set_epnum(self.ep_number);
@@ -621,6 +621,12 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Channel<T, 
                 EndpointType::Interrupt => vals::Eptyp::INTERRUPT,
             });
             w.set_dad(self.device_address);
+            // For periodic endpoints, schedule on the opposite frame from the current one
+            // so the transfer starts on the next SOF.
+            if is_periodic {
+                let current_frame = r.hfnum().read().frnum();
+                w.set_oddfrm(current_frame & 1 == 0);
+            }
         });
 
         // Configure transfer size
@@ -642,9 +648,11 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Channel<T, 
             w.set_dterrm(true);
         });
 
-        // Enable this channel in HAINTMSK
-        r.haintmsk().modify(|w| {
-            w.set_haintm(w.haintm() | (1 << ch));
+        // Enable this channel in HAINTMSK (critical section guards the RMW against concurrent alloc_channel)
+        critical_section::with(|_| {
+            r.haintmsk().modify(|w| {
+                w.set_haintm(w.haintm() | (1 << ch));
+            });
         });
 
         // Clear any pending channel interrupts
@@ -745,7 +753,7 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Channel<T, 
         }
     }
 
-    /// Execute an OUT transfer on this channel, retrying on NAK.
+    /// Execute an OUT transfer on this channel, retrying on NAK up to [`NAK_RETRY_LIMIT`] times.
     async fn do_out_transfer(&mut self, ep_type: EndpointType, data: &[u8], dpid: u8) -> Result<(), ChannelError> {
         let pktcnt = if data.is_empty() {
             1
@@ -753,6 +761,7 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Channel<T, 
             ((data.len() as u32 + self.max_packet_size as u32 - 1) / self.max_packet_size as u32) as u16
         };
 
+        let mut nak_retries = 0u32;
         loop {
             self.configure_channel(false, ep_type, pktcnt, data.len() as u32, dpid);
             self.enable_channel();
@@ -760,7 +769,10 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Channel<T, 
 
             let result = self.wait_for_result().await;
             if result == CH_RESULT_NAK {
-                // Yield and retry
+                nak_retries += 1;
+                if nak_retries >= NAK_RETRY_LIMIT {
+                    return Err(ChannelError::Timeout);
+                }
                 yield_now().await;
                 continue;
             }
@@ -768,7 +780,7 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Channel<T, 
         }
     }
 
-    /// Execute an IN transfer on this channel, retrying on NAK.
+    /// Execute an IN transfer on this channel, retrying on NAK up to [`NAK_RETRY_LIMIT`] times.
     async fn do_in_transfer(&mut self, ep_type: EndpointType, buf: &mut [u8], dpid: u8) -> Result<usize, ChannelError> {
         let pktcnt = if buf.is_empty() {
             1
@@ -776,6 +788,7 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Channel<T, 
             ((buf.len() as u32 + self.max_packet_size as u32 - 1) / self.max_packet_size as u32) as u16
         };
 
+        let mut nak_retries = 0u32;
         loop {
             self.setup_rx_buffer(buf);
             self.configure_channel(true, ep_type, pktcnt, buf.len() as u32, dpid);
@@ -786,6 +799,10 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Channel<T, 
             self.clear_rx_buffer();
 
             if result == CH_RESULT_NAK {
+                nak_retries += 1;
+                if nak_retries >= NAK_RETRY_LIMIT {
+                    return Err(ChannelError::Timeout);
+                }
                 yield_now().await;
                 continue;
             }
@@ -794,87 +811,80 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Channel<T, 
         }
     }
 
-    /// Perform a complete control transfer (SETUP -> optional DATA -> STATUS).
-    ///
-    /// `setup` is the 8-byte SETUP packet bytes.
-    /// `dir_in` indicates whether the DATA phase is device-to-host.
-    /// `data` is the buffer for the DATA phase.
-    async fn do_control_transfer(
-        &mut self,
-        setup: &[u8],
-        dir_in: bool,
-        data: &mut [u8],
-    ) -> Result<usize, ChannelError> {
-        // SETUP phase: always DATA0 (MDATA/SETUP PID)
+    /// Perform a control IN transfer (SETUP -> DATA IN -> STATUS OUT).
+    async fn do_control_in(&mut self, setup: &[u8], buf: &mut [u8]) -> Result<usize, ChannelError> {
+        // SETUP phase
         self.do_out_transfer(EndpointType::Control, setup, vals::Dpid::SETUP.to_bits())
             .await?;
 
-        // DATA phase
+        // DATA IN phase
         let mut transferred = 0;
-        if !data.is_empty() {
-            // Data toggle starts at DATA1
-            if dir_in {
-                // IN data phase: read from device in MPS-sized chunks
-                let mut offset = 0;
-                let mut toggle = true; // DATA1
-                while offset < data.len() {
-                    let dpid = if toggle { vals::Dpid::DATA1 } else { vals::Dpid::DATA0 };
-                    let remaining = &mut data[offset..];
-                    let chunk_size = remaining.len().min(self.max_packet_size as usize);
-                    let n = self
-                        .do_in_transfer(EndpointType::Control, &mut remaining[..chunk_size], dpid.to_bits())
-                        .await?;
-                    offset += n;
-                    toggle = !toggle;
-                    // Short packet means end of data
-                    if n < self.max_packet_size as usize {
-                        break;
-                    }
-                }
-                transferred = offset;
-
-                // STATUS phase: OUT ZLP with DATA1
-                self.do_out_transfer(EndpointType::Control, &[], vals::Dpid::DATA1.to_bits())
+        if !buf.is_empty() {
+            let mut offset = 0;
+            let mut toggle = true; // DATA1
+            while offset < buf.len() {
+                let dpid = if toggle { vals::Dpid::DATA1 } else { vals::Dpid::DATA0 };
+                let remaining = &mut buf[offset..];
+                let chunk_size = remaining.len().min(self.max_packet_size as usize);
+                let n = self
+                    .do_in_transfer(EndpointType::Control, &mut remaining[..chunk_size], dpid.to_bits())
                     .await?;
-            } else {
-                // OUT data phase: send to device in MPS-sized chunks
-                let mut offset = 0;
-                let mut toggle = true; // DATA1
-                while offset < data.len() {
-                    let dpid = if toggle { vals::Dpid::DATA1 } else { vals::Dpid::DATA0 };
-                    let remaining = &data[offset..];
-                    let chunk_size = remaining.len().min(self.max_packet_size as usize);
-                    self.do_out_transfer(EndpointType::Control, &remaining[..chunk_size], dpid.to_bits())
-                        .await?;
-                    offset += chunk_size;
-                    toggle = !toggle;
+                offset += n;
+                toggle = !toggle;
+                if n < self.max_packet_size as usize {
+                    break;
                 }
-                transferred = offset;
-
-                // STATUS phase: IN ZLP with DATA1
-                let mut status_buf = [0u8; 0];
-                self.do_in_transfer(EndpointType::Control, &mut status_buf, vals::Dpid::DATA1.to_bits())
-                    .await?;
             }
+            transferred = offset;
+        }
+
+        // STATUS phase: OUT ZLP with DATA1
+        self.do_out_transfer(EndpointType::Control, &[], vals::Dpid::DATA1.to_bits())
+            .await?;
+
+        Ok(transferred)
+    }
+
+    /// Perform a control OUT transfer (SETUP -> DATA OUT -> STATUS IN).
+    async fn do_control_out(&mut self, setup: &[u8], data: &[u8]) -> Result<(), ChannelError> {
+        // SETUP phase
+        self.do_out_transfer(EndpointType::Control, setup, vals::Dpid::SETUP.to_bits())
+            .await?;
+
+        if !data.is_empty() {
+            // DATA OUT phase
+            let mut offset = 0;
+            let mut toggle = true; // DATA1
+            while offset < data.len() {
+                let dpid = if toggle { vals::Dpid::DATA1 } else { vals::Dpid::DATA0 };
+                let remaining = &data[offset..];
+                let chunk_size = remaining.len().min(self.max_packet_size as usize);
+                self.do_out_transfer(EndpointType::Control, &remaining[..chunk_size], dpid.to_bits())
+                    .await?;
+                offset += chunk_size;
+                toggle = !toggle;
+            }
+
+            // STATUS phase: IN ZLP with DATA1
+            let mut status_buf = [0u8; 0];
+            self.do_in_transfer(EndpointType::Control, &mut status_buf, vals::Dpid::DATA1.to_bits())
+                .await?;
         } else {
-            // No data phase
-            // STATUS phase direction is opposite of the request direction
+            // No data phase — STATUS direction is opposite of request direction
             let req_type = setup[0];
             let is_device_to_host = (req_type & 0x80) != 0;
 
             if is_device_to_host {
-                // Status: OUT ZLP with DATA1
                 self.do_out_transfer(EndpointType::Control, &[], vals::Dpid::DATA1.to_bits())
                     .await?;
             } else {
-                // Status: IN ZLP with DATA1
                 let mut status_buf = [0u8; 0];
                 self.do_in_transfer(EndpointType::Control, &mut status_buf, vals::Dpid::DATA1.to_bits())
                     .await?;
             }
         }
 
-        Ok(transferred)
+        Ok(())
     }
 }
 
@@ -884,8 +894,7 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> UsbChannel<
         T: channel::IsControl,
         D: channel::IsIn,
     {
-        let setup_bytes = setup.as_bytes();
-        self.do_control_transfer(setup_bytes, true, buf).await
+        self.do_control_in(setup.as_bytes(), buf).await
     }
 
     async fn control_out(&mut self, setup: &SetupPacket, buf: &[u8]) -> Result<(), ChannelError>
@@ -893,15 +902,7 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> UsbChannel<
         T: channel::IsControl,
         D: channel::IsOut,
     {
-        let setup_bytes = setup.as_bytes();
-        // We need a mutable slice for the internal API; OUT data is read-only but we can cast.
-        // Create a temporary mutable copy for the interface.
-        let mut tmp_buf: [u8; 512] = [0u8; 512];
-        let len = buf.len().min(tmp_buf.len());
-        tmp_buf[..len].copy_from_slice(&buf[..len]);
-        self.do_control_transfer(setup_bytes, false, &mut tmp_buf[..len])
-            .await?;
-        Ok(())
+        self.do_control_out(setup.as_bytes(), buf).await
     }
 
     async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError>

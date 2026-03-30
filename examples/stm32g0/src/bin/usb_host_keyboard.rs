@@ -1,3 +1,6 @@
+// TODO: This example uses the legacy embassy-usb host API (UsbHostBusExt / handlers).
+// Port to the new embassy-usb-host crate once the STM32G0 USB-FS host driver implements
+// the embassy-usb-driver::host::UsbHostDriver trait.
 #![no_std]
 #![no_main]
 
