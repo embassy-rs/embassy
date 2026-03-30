@@ -11,7 +11,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time_driver::{Driver, TICK_HZ};
 use embassy_time_queue_utils::Queue;
 use stm32_metapac::timer::TimGp16;
-#[cfg(not(feature = "test"))]
+#[cfg(feature = "rt")]
 use stm32_metapac::timer::regs;
 
 use super::AlarmState;
@@ -163,7 +163,7 @@ impl RtcDriver {
         regs_gp16().cr1().modify(|w| w.set_cen(true));
     }
 
-    #[cfg(not(feature = "test"))]
+    #[cfg(feature = "rt")]
     pub(crate) fn on_interrupt(&self) {
         let r = regs_gp16();
 
@@ -193,7 +193,7 @@ impl RtcDriver {
         })
     }
 
-    #[cfg(not(feature = "test"))]
+    #[cfg(feature = "rt")]
     fn next_period(&self) {
         let r = regs_gp16();
 

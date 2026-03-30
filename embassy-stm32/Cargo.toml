@@ -249,8 +249,6 @@ log = ["dep:log"]
 chrono = ["dep:chrono"]
 ## Enable cyw
 cyw43 = ["dep:cyw43"]
-## Used for running hosted tests
-test = []
 
 stm32-hrtim = ["dep:stm32-hrtim"]
 

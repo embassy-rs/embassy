@@ -742,6 +742,14 @@ pub(crate) fn block_for_us(us: u64) {
     cortex_m::asm::delay(unsafe { rcc::get_freqs().sys.to_hertz().unwrap().0 as u64 * us / 1_000_000 } as u32);
 }
 
-#[cfg(feature = "test")]
+#[cfg(all(feature = "time", not(feature = "rt")))]
 #[unsafe(no_mangle)]
-extern "Rust" fn __embassy_time_queue_item_from_waker() {}
+extern "Rust" fn __embassy_time_queue_item_from_waker(_waker: &core::task::Waker) {
+    unimplemented!()
+}
+
+#[cfg(all(feature = "time", not(feature = "rt")))]
+#[unsafe(no_mangle)]
+extern "Rust" fn __try_embassy_time_queue_item_from_waker(_waker: &core::task::Waker) {
+    unimplemented!()
+}
