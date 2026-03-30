@@ -88,7 +88,7 @@ async fn acquire_sensors(
     Timer::after_millis(discharge_delay).await;
 }
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: embassy_executor::Spawner) {
     let device_config = embassy_stm32::Config::default();
     let context = embassy_stm32::init(device_config);

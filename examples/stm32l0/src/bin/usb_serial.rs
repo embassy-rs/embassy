@@ -15,7 +15,7 @@ bind_interrupts!(struct Irqs {
     USB => usb::InterruptHandler<peripherals::USB>;
 });
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
     {

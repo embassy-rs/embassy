@@ -30,13 +30,13 @@ use core::sync::atomic::{Ordering, compiler_fence};
 use cortex_m::peripheral::SCB;
 use critical_section::CriticalSection;
 
-#[cfg(not(feature = "_lp-time-driver"))]
+#[cfg(all(feature = "rt", not(feature = "_lp-time-driver")))]
 use crate::interrupt;
 pub use crate::rcc::StopMode;
 use crate::rcc::get_stop_mode;
 use crate::time_driver::{LPTimeDriver, get_driver};
 
-#[cfg(not(any(stm32u0, feature = "_lp-time-driver")))]
+#[cfg(all(feature = "rt", not(any(stm32u0, feature = "_lp-time-driver"))))]
 foreach_interrupt! {
     (RTC, rtc, $block:ident, WKUP, $irq:ident) => {
         #[interrupt]
@@ -46,7 +46,7 @@ foreach_interrupt! {
     };
 }
 
-#[cfg(stm32u0)]
+#[cfg(all(feature = "rt", stm32u0))]
 foreach_interrupt! {
     (RTC, rtc, $block:ident, TAMP, $irq:ident) => {
         #[interrupt]

@@ -1,4 +1,3 @@
-use chrono::{DateTime, NaiveDateTime, TimeDelta, Utc};
 use embassy_time::{Duration, Instant, TICK_HZ};
 
 use super::Rtc;
@@ -20,10 +19,16 @@ fn wucksel_compute_min(val: u32) -> (Wucksel, u32) {
 }
 
 impl Rtc {
-    pub(super) fn calc_epoch(&self) -> DateTime<Utc> {
-        let now: NaiveDateTime = RtcTimeProvider::new().now().unwrap().into();
+    pub(super) fn millis_from_unix_epoch(&self) -> i64 {
+        RtcTimeProvider::new().now().unwrap().millis_from_unix_epoch()
+    }
 
-        now.and_utc() - TimeDelta::microseconds(Instant::now().as_micros().try_into().unwrap())
+    pub(super) fn calc_epoch(&self) -> i64 {
+        self.millis_from_unix_epoch() - Instant::now().as_millis() as i64
+    }
+
+    pub(super) fn reset_epoch(&mut self) {
+        self.epoch = self.calc_epoch();
     }
 
     /// start the wakeup alarm and with a duration that is as close to but less than
@@ -99,10 +104,7 @@ impl Rtc {
             });
         }
 
-        let datetime: NaiveDateTime = RtcTimeProvider::new().now().expect("failed to read now").into();
-        let offset = datetime.and_utc() - self.epoch;
-
-        Instant::from_micros(offset.num_microseconds().unwrap().try_into().unwrap())
+        Instant::from_millis((self.millis_from_unix_epoch() - self.epoch).try_into().unwrap())
     }
 
     pub(super) fn enable_wakeup_line(&mut self) {
