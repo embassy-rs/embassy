@@ -107,11 +107,11 @@ pub struct ReportField {
     pub usage_max: u16,
     /// Bit offset of the first element from the start of the report payload
     /// (i.e. *after* the report-ID byte when [`ReportDescriptor::has_report_ids`] is true).
-    pub bit_offset: u16,
+    pub bit_offset: u32,
     /// Bits per element.
     pub bit_size: u8,
     /// Number of consecutive elements (≥ 1).
-    pub count: u8,
+    pub count: u16,
     /// Logical minimum (signed).
     pub logical_min: i32,
     /// Logical maximum (signed).
@@ -156,7 +156,7 @@ impl ReportField {
         if index >= self.count as usize {
             return None;
         }
-        let bit_start = self.bit_offset as usize + index * self.bit_size as usize;
+        let bit_start = self.bit_offset as usize + index * (self.bit_size as usize);
         extract_bits(report_payload, bit_start, self.bit_size as usize)
     }
 
@@ -229,7 +229,7 @@ impl<const N: usize> ReportDescriptor<N> {
 
         // Per-report-ID bit offsets for Input fields.
         // Index 0 is always for report_id = 0 (no report IDs used).
-        let mut offsets: [(u8, u16); 16] = [(0, 0); 16];
+        let mut offsets: [(u8, u32); 16] = [(0, 0); 16];
         let mut offset_count: usize = 1;
 
         let mut result = ReportDescriptor {
@@ -254,7 +254,7 @@ impl<const N: usize> ReportDescriptor<N> {
                         offset_count += 1;
                     }
                 }
-                (1, 9) => global.report_count = item.data as u8,
+                (1, 9) => global.report_count = item.data as u16,
                 (1, 10) => {
                     // Push
                     if stack_depth < stack.len() {
@@ -306,7 +306,7 @@ impl<const N: usize> ReportDescriptor<N> {
                             .find(|(id, _)| *id == global.report_id)
                             .map(|(_, off)| {
                                 let start = *off;
-                                *off += rc as u16 * rs as u16;
+                                *off += rc as u32 * rs as u32;
                                 start
                             })
                             .unwrap_or(0);
@@ -335,7 +335,7 @@ impl<const N: usize> ReportDescriptor<N> {
                                     usage_page: page,
                                     usage_min: u,
                                     usage_max: u,
-                                    bit_offset: bit_offset + i as u16 * rs as u16,
+                                    bit_offset: bit_offset + i as u32 * rs as u32,
                                     bit_size: rs,
                                     count: 1,
                                     logical_min: global.logical_min,
@@ -366,7 +366,7 @@ impl<const N: usize> ReportDescriptor<N> {
                                 usage_max: umax,
                                 bit_offset,
                                 bit_size: rs,
-                                count: rc as u8,
+                                count: rc as u16,
                                 logical_min: global.logical_min,
                                 logical_max: global.logical_max,
                                 flags: item_flags,
@@ -468,7 +468,7 @@ struct GlobalState {
     logical_max: i32,
     report_size: u8,
     report_id: u8,
-    report_count: u8,
+    report_count: u16,
 }
 
 impl GlobalState {

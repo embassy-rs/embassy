@@ -86,9 +86,8 @@ impl<I: Instance> interrupt::typelevel::Handler<I::Interrupt> for USBHostInterru
 
         if istr.err() {
             debug!("USB IRQ: err");
-            regs.istr().write_value(regs::Istr(!0));
 
-            // Write 0 to clear.
+            // Write 0 to clear (rc_w0 register).
             let mut clear = regs::Istr(!0);
             clear.set_err(false);
             regs.istr().write_value(clear);

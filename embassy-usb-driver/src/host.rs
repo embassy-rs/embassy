@@ -38,7 +38,16 @@ macro_rules! bitflags {
 
 bitflags! {
     #[cfg_attr(not(feature = "defmt"), derive(Copy, Clone, Eq, PartialEq, Debug))]
-    /// RequestType bitfields for the setup packet
+    /// RequestType bitfields for the setup packet.
+    ///
+    /// This type encodes three separate multi-bit fields packed into a single byte
+    /// (USB 2.0 spec Table 9-2):
+    /// - **Recipient** (bits 0–4): `RECIPIENT_DEVICE`, `RECIPIENT_INTERFACE`, `RECIPIENT_ENDPOINT`, `RECIPIENT_OTHER`
+    /// - **Type** (bits 5–6): `TYPE_STANDARD`, `TYPE_CLASS`, `TYPE_VENDOR`, `TYPE_RESERVED`
+    /// - **Direction** (bit 7): `OUT`, `IN`
+    ///
+    /// Combine exactly one value from each group with `|`. Do **not** OR values
+    /// within the same group (e.g. `RECIPIENT_INTERFACE | RECIPIENT_ENDPOINT` is invalid).
     pub struct RequestType: u8 {
         // Recipient
         /// The request is intended for the entire device.
@@ -163,22 +172,23 @@ pub trait UsbHostDriver: Sized {
         endpoint: &EndpointInfo,
         pre: bool,
     ) -> Result<Self::Channel<T, D>, HostError>;
-
-    // Drop happens implicitly on channel-side
-    // / Drop allocated channel
-    // fn drop_channel<T: channel::Type, D: channel::Direction>(&self, channel: &mut Self::Channel<T, D>);
 }
 
 /// Type-level channel markers for endpoint type and direction.
 ///
 /// These structs and traits are used as generic parameters on [`UsbChannel`](super::UsbChannel)
 /// to statically enforce correct endpoint type and direction at compile time.
-// TODO: Seal traits
+///
+/// All marker traits are sealed — they cannot be implemented outside this crate.
 pub mod channel {
     use super::EndpointType;
 
+    mod sealed {
+        pub trait Sealed {}
+    }
+
     /// Marker trait for the endpoint transfer type of a channel.
-    pub trait Type {
+    pub trait Type: sealed::Sealed {
         /// Returns the [`EndpointType`] this marker represents.
         fn ep_type() -> EndpointType;
     }
@@ -191,6 +201,11 @@ pub mod channel {
     pub struct Bulk {}
     /// Marker for an isochronous endpoint channel.
     pub struct Isochronous {}
+
+    impl sealed::Sealed for Control {}
+    impl sealed::Sealed for Interrupt {}
+    impl sealed::Sealed for Bulk {}
+    impl sealed::Sealed for Isochronous {}
 
     impl Type for Control {
         fn ep_type() -> EndpointType {
@@ -215,16 +230,16 @@ pub mod channel {
 
     /// Trait bound satisfied only by [`Control`] channels.
     #[diagnostic::on_unimplemented(message = "This is not a CONTROL channel")]
-    pub trait IsControl {}
+    pub trait IsControl: sealed::Sealed {}
     impl IsControl for Control {}
 
     /// Trait bound satisfied only by [`Interrupt`] channels.
     #[diagnostic::on_unimplemented(message = "This is not an INTERRUPT channel")]
-    pub trait IsInterrupt {}
+    pub trait IsInterrupt: sealed::Sealed {}
     impl IsInterrupt for Interrupt {}
 
     /// Marker trait for the transfer direction of a channel.
-    pub trait Direction {
+    pub trait Direction: sealed::Sealed {
         /// Returns `true` if this direction supports IN (device-to-host) transfers.
         fn is_in() -> bool;
         /// Returns `true` if this direction supports OUT (host-to-device) transfers.
@@ -237,6 +252,10 @@ pub mod channel {
     pub struct Out {}
     /// Marker for a bidirectional channel (used for control endpoints).
     pub struct InOut {}
+
+    impl sealed::Sealed for In {}
+    impl sealed::Sealed for Out {}
+    impl sealed::Sealed for InOut {}
 
     impl Direction for In {
         fn is_in() -> bool {
@@ -328,6 +347,6 @@ pub trait UsbChannel<T: channel::Type, D: channel::Direction> {
     where
         D: channel::IsOut;
 
-    /// Configure the timeouts of this channel
-    async fn set_timeout(&mut self, timeout: TimeoutConfig);
+    /// Configure the timeouts of this channel.
+    fn set_timeout(&mut self, timeout: TimeoutConfig);
 }

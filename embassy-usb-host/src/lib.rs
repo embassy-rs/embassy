@@ -51,6 +51,18 @@ impl From<HostError> for EnumerationError {
     }
 }
 
+impl core::fmt::Display for EnumerationError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Transfer(_e) => write!(f, "Transfer error during enumeration"),
+            Self::InvalidDescriptor => write!(f, "Invalid descriptor"),
+            Self::NoChannel => write!(f, "No free channel"),
+        }
+    }
+}
+
+impl core::error::Error for EnumerationError {}
+
 /// USB host controller.
 ///
 /// Manages device connection, enumeration, and class driver binding.

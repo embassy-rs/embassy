@@ -943,7 +943,7 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> UsbChannel<
         Ok(())
     }
 
-    async fn set_timeout(&mut self, _timeout: embassy_usb_driver::host::TimeoutConfig) {
+    fn set_timeout(&mut self, _timeout: embassy_usb_driver::host::TimeoutConfig) {
         // Hardware timeouts; no-op
     }
 }

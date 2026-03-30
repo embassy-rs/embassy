@@ -24,7 +24,7 @@ impl Speed {
         match self {
             Speed::Low => 8,
             Speed::Full => 64,
-            Speed::High => 8, // Minimum max_packet_size (configurable)
+            Speed::High => 64, // USB 2.0 spec requires 64 for high-speed control EP0
         }
     }
 }
