@@ -6,16 +6,17 @@ use crate::pac::rtc::vals::Wucksel;
 use crate::peripherals::RTC;
 use crate::rtc::{RtcTimeProvider, SealedInstance};
 
-fn wucksel_compute_min(val: u32) -> (Wucksel, u32) {
+fn wucksel_compute_min(val: u32, rtc_hz: u32) -> (Wucksel, u32) {
     *[
         (Wucksel::DIV2, 2),
         (Wucksel::DIV4, 4),
         (Wucksel::DIV8, 8),
         (Wucksel::DIV16, 16),
+        (Wucksel::CLOCK_SPARE, rtc_hz),
     ]
     .iter()
     .find(|(_, psc)| *psc as u32 > val)
-    .unwrap_or(&(Wucksel::DIV16, 16))
+    .unwrap_or(&(Wucksel::CLOCK_SPARE, rtc_hz))
 }
 
 impl Rtc {
@@ -31,21 +32,16 @@ impl Rtc {
         self.epoch = self.calc_epoch();
     }
 
-    /// start the wakeup alarm and with a duration that is as close to but less than
-    /// the requested duration, and record the instant the wakeup alarm was started
+    /// Start the wakeup alarm and with a duration that is as close to but less than the requested duration
     pub(crate) fn start_wakeup_alarm(&mut self, requested_duration: embassy_time::Duration) {
-        // Panic if the rcc mod knows we're not using low-power rtc
-        #[cfg(any(rcc_wb, rcc_f4, rcc_f410))]
-        unsafe { crate::rcc::get_freqs() }.rtc.to_hertz().unwrap();
-
+        let rtc_hz: u32 = Self::frequency().0;
         let requested_duration = requested_duration.as_ticks().clamp(0, u32::MAX as u64);
-        let rtc_hz = Self::frequency().0 as u64;
-        let rtc_ticks = requested_duration * rtc_hz / TICK_HZ;
-        let (wucksel, prescaler) = wucksel_compute_min((rtc_ticks / u16::MAX as u64) as u32);
+        let rtc_ticks: u32 = (requested_duration * rtc_hz as u64 / TICK_HZ).clamp(0, u32::MAX as u64) as u32;
+        let (wucksel, prescaler) = wucksel_compute_min(rtc_ticks / u16::MAX as u32, rtc_hz);
 
         // adjust the rtc ticks to the prescaler and subtract one rtc tick
-        let rtc_ticks = rtc_ticks / prescaler as u64;
-        let rtc_ticks = rtc_ticks.clamp(0, (u16::MAX - 1) as u64).saturating_sub(1) as u16;
+        let rtc_ticks: u32 = rtc_ticks / prescaler;
+        let rtc_ticks = rtc_ticks.clamp(0, (u16::MAX - 1) as u32).saturating_sub(1).max(1) as u16;
 
         self.write(false, |regs| {
             regs.cr().modify(|w| w.set_wute(false));
@@ -70,7 +66,7 @@ impl Rtc {
 
         trace!(
             "rtc: start wakeup alarm for {} ms (psc: {}, ticks: {})",
-            Duration::from_ticks(rtc_ticks as u64 * TICK_HZ * prescaler as u64 / rtc_hz).as_millis(),
+            Duration::from_ticks(rtc_ticks as u64 * TICK_HZ * prescaler as u64 / rtc_hz as u64).as_millis(),
             prescaler as u32,
             rtc_ticks,
         );
