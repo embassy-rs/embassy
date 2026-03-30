@@ -304,7 +304,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
     fn set_current(&self) {
         let regs = T::regs();
         trace!(
-            "SET CURRENT: {} CHANNEL {}: dev: {}, ep: {}, max_packet: {}, preamble: {}",
+            "SET CURRENT: {:?} CHANNEL {}: dev: {}, ep: {}, max_packet: {}, preamble: {}",
             E::ep_type(),
             self.index,
             self.dev_addr,
@@ -554,7 +554,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
         E: channel::IsControl,
         D: channel::IsIn,
     {
-        trace!("CONTROL IN: {}", setup);
+        trace!("CONTROL IN: {:?}", setup);
         // Setup stage
         // TODO: Whole transaction error handling?
         self.send_setup(setup).await?;
@@ -577,7 +577,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
         E: channel::IsControl,
         D: channel::IsOut,
     {
-        trace!("CONTROL OUT: {}", setup);
+        trace!("CONTROL OUT: {:?}", setup);
         // Setup stage
         // TODO: Whole transaction error handling?
         self.send_setup(setup).await?;
