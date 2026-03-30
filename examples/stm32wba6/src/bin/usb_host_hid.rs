@@ -73,7 +73,12 @@ async fn main(_spawner: Spawner) {
         );
 
         // Try to create a HID host driver
-        let mut hid = match HidHost::new(host.driver(), &config_buf[..config_len], addr, speed) {
+        let mut hid = match HidHost::new(
+            host.driver(),
+            &config_buf[..config_len],
+            addr,
+            dev_desc.max_packet_size_0 as u16,
+        ) {
             Ok(h) => h,
             Err(e) => {
                 error!("HID init failed: {:?}", e);

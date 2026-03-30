@@ -207,7 +207,7 @@ pub unsafe fn on_interrupt<const MAX_EP_COUNT: usize>(r: Otg, state: &State<MAX_
                 if frame_is_odd {
                     r.set_sd0pid_sevnfrm(true);
                 } else {
-                    r.set_sd1pid_soddfrm(true);
+                    r.set_soddfrm_sd1pid(true);
                 }
             });
 

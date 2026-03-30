@@ -66,7 +66,13 @@ pub fn set_configuration(config_value: u8) -> [u8; 8] {
 /// `interface` is the HID interface number; `len` is from [`HidInfo::report_descriptor_len`].
 pub fn get_hid_report_descriptor(interface: u8, len: u16) -> [u8; 8] {
     // wValue = descriptor_type(0x22) << 8 | index(0)
-    make_setup(DIR_DEVICE_TO_HOST | TYPE_STANDARD | RECIPIENT_INTERFACE, 0x06, 0x2200, interface as u16, len)
+    make_setup(
+        DIR_DEVICE_TO_HOST | TYPE_STANDARD | RECIPIENT_INTERFACE,
+        0x06,
+        0x2200,
+        interface as u16,
+        len,
+    )
 }
 
 /// Build a class-specific interface request SETUP packet (OUT, no data).

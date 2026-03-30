@@ -7,9 +7,7 @@ use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
-use embassy_usb_driver::host::{
-    ChannelError, DeviceEvent, HostError, SetupPacket, UsbChannel, UsbHostDriver, channel,
-};
+use embassy_usb_driver::host::{ChannelError, DeviceEvent, HostError, SetupPacket, UsbChannel, UsbHostDriver, channel};
 use embassy_usb_driver::{EndpointInfo, EndpointType, Speed};
 
 use crate::PhyType;
@@ -26,11 +24,11 @@ const CH_RESULT_FRMOR: u8 = 6;
 const CH_RESULT_DTERR: u8 = 7;
 const CH_RESULT_HALTED: u8 = 8;
 
-// Port event flags.
-const PORT_EVENT_CONNECTED: u8 = 1;
-const PORT_EVENT_DISCONNECTED: u8 = 2;
-const PORT_EVENT_ENABLED: u8 = 3;
-const PORT_EVENT_OVERCURRENT: u8 = 4;
+// Port event bitflags (OR'd together, not mutually exclusive).
+const PORT_EVENT_CONNECTED: u8 = 1 << 0;
+const PORT_EVENT_DISCONNECTED: u8 = 1 << 1;
+const PORT_EVENT_ENABLED: u8 = 1 << 2;
+const PORT_EVENT_OVERCURRENT: u8 = 1 << 3;
 
 /// Per-channel state for interrupt communication.
 struct ChannelState {
@@ -110,7 +108,7 @@ pub unsafe fn on_host_interrupt<const CH_COUNT: usize>(r: Otg, state: &HostState
 
         if hprt.pcdet() {
             // Port connect detected
-            state.port_event.store(PORT_EVENT_CONNECTED, Ordering::Release);
+            state.port_event.fetch_or(PORT_EVENT_CONNECTED, Ordering::Release);
             state.port_waker.wake();
         }
 
@@ -124,17 +122,17 @@ pub unsafe fn on_host_interrupt<const CH_COUNT: usize>(r: Otg, state: &HostState
                     _ => 0,    // Default to full speed
                 };
                 state.port_speed.store(speed, Ordering::Release);
-                state.port_event.store(PORT_EVENT_ENABLED, Ordering::Release);
+                state.port_event.fetch_or(PORT_EVENT_ENABLED, Ordering::Release);
             } else {
                 // Port disabled
-                state.port_event.store(PORT_EVENT_DISCONNECTED, Ordering::Release);
+                state.port_event.fetch_or(PORT_EVENT_DISCONNECTED, Ordering::Release);
             }
             state.port_waker.wake();
         }
 
         if hprt.pocchng() {
             if hprt.poca() {
-                state.port_event.store(PORT_EVENT_OVERCURRENT, Ordering::Release);
+                state.port_event.fetch_or(PORT_EVENT_OVERCURRENT, Ordering::Release);
                 state.port_waker.wake();
             }
         }
@@ -147,7 +145,7 @@ pub unsafe fn on_host_interrupt<const CH_COUNT: usize>(r: Otg, state: &HostState
     // Disconnect interrupt
     if gintsts.discint() {
         r.gintsts().write(|w| w.set_discint(true)); // clear
-        state.port_event.store(PORT_EVENT_DISCONNECTED, Ordering::Release);
+        state.port_event.fetch_or(PORT_EVENT_DISCONNECTED, Ordering::Release);
         state.port_waker.wake();
     }
 
@@ -198,18 +196,20 @@ pub unsafe fn on_host_interrupt<const CH_COUNT: usize>(r: Otg, state: &HostState
                     unsafe {
                         *ch_state.rx_count.get() = count + to_copy;
                     }
+
+                    // Discard any remaining bytes we couldn't store (buffer was smaller than packet)
+                    if to_copy < len {
+                        // We already read ceil(to_copy/4) words; drain the rest.
+                        let words_read = (to_copy + 3) / 4;
+                        let total_words = (len + 3) / 4;
+                        for _ in words_read..total_words {
+                            r.fifo(0).read();
+                        }
+                    }
                 } else {
-                    // Discard data if buffer full or null
+                    // Discard all data if buffer full or null
                     let words = (len + 3) / 4;
                     for _ in 0..words {
-                        r.fifo(0).read();
-                    }
-                }
-
-                // Handle any remaining bytes we couldn't store
-                if to_copy < len {
-                    let discard_words = ((len - to_copy) + 3) / 4;
-                    for _ in 0..discard_words {
                         r.fifo(0).read();
                     }
                 }
@@ -422,21 +422,23 @@ impl<'d, const CH_COUNT: usize> UsbHostDriver for OtgHost<'d, CH_COUNT> {
                 let state = self.instance.state;
                 state.port_waker.register(cx.waker());
 
-                let ev = state.port_event.swap(0, Ordering::AcqRel);
-                match ev {
-                    PORT_EVENT_CONNECTED => Poll::Ready(PORT_EVENT_CONNECTED),
-                    PORT_EVENT_DISCONNECTED => {
-                        // Wake all channels to signal disconnection
-                        for ch in &state.channels {
-                            if ch.allocated.load(Ordering::Relaxed) {
-                                ch.result.store(CH_RESULT_HALTED, Ordering::Release);
-                                ch.waker.wake();
-                            }
+                let ev = state.port_event.load(Ordering::Acquire);
+                if ev & PORT_EVENT_DISCONNECTED != 0 {
+                    state.port_event.fetch_and(!PORT_EVENT_DISCONNECTED, Ordering::AcqRel);
+                    // Wake all channels to signal disconnection
+                    for ch in &state.channels {
+                        if ch.allocated.load(Ordering::Relaxed) {
+                            ch.result.store(CH_RESULT_HALTED, Ordering::Release);
+                            ch.waker.wake();
                         }
-                        Poll::Ready(PORT_EVENT_DISCONNECTED)
                     }
-                    _ => Poll::Pending,
+                    return Poll::Ready(PORT_EVENT_DISCONNECTED);
                 }
+                if ev & PORT_EVENT_CONNECTED != 0 {
+                    state.port_event.fetch_and(!PORT_EVENT_CONNECTED, Ordering::AcqRel);
+                    return Poll::Ready(PORT_EVENT_CONNECTED);
+                }
+                Poll::Pending
             })
             .await;
 
@@ -452,25 +454,27 @@ impl<'d, const CH_COUNT: usize> UsbHostDriver for OtgHost<'d, CH_COUNT> {
                 let state = self.instance.state;
                 state.port_waker.register(cx.waker());
 
-                let ev = state.port_event.swap(0, Ordering::AcqRel);
-                match ev {
-                    PORT_EVENT_ENABLED => Poll::Ready(Some(PORT_EVENT_ENABLED)),
-                    PORT_EVENT_DISCONNECTED => {
-                        for ch in &state.channels {
-                            if ch.allocated.load(Ordering::Relaxed) {
-                                ch.result.store(CH_RESULT_HALTED, Ordering::Release);
-                                ch.waker.wake();
-                            }
+                let ev = state.port_event.load(Ordering::Acquire);
+                if ev & PORT_EVENT_DISCONNECTED != 0 {
+                    state.port_event.fetch_and(!PORT_EVENT_DISCONNECTED, Ordering::AcqRel);
+                    for ch in &state.channels {
+                        if ch.allocated.load(Ordering::Relaxed) {
+                            ch.result.store(CH_RESULT_HALTED, Ordering::Release);
+                            ch.waker.wake();
                         }
-                        Poll::Ready(Some(PORT_EVENT_DISCONNECTED))
                     }
-                    _ => Poll::Pending,
+                    return Poll::Ready(PORT_EVENT_DISCONNECTED);
                 }
+                if ev & PORT_EVENT_ENABLED != 0 {
+                    state.port_event.fetch_and(!PORT_EVENT_ENABLED, Ordering::AcqRel);
+                    return Poll::Ready(PORT_EVENT_ENABLED);
+                }
+                Poll::Pending
             })
             .await;
 
             match enabled_event {
-                Some(PORT_EVENT_ENABLED) => {
+                PORT_EVENT_ENABLED => {
                     let speed_code = self.instance.state.port_speed.load(Ordering::Acquire);
                     let speed = match speed_code {
                         0 => Speed::Full,
@@ -765,12 +769,7 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Channel<T, 
     }
 
     /// Execute an IN transfer on this channel, retrying on NAK.
-    async fn do_in_transfer(
-        &mut self,
-        ep_type: EndpointType,
-        buf: &mut [u8],
-        dpid: u8,
-    ) -> Result<usize, ChannelError> {
+    async fn do_in_transfer(&mut self, ep_type: EndpointType, buf: &mut [u8], dpid: u8) -> Result<usize, ChannelError> {
         let pktcnt = if buf.is_empty() {
             1
         } else {
@@ -879,9 +878,7 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Channel<T, 
     }
 }
 
-impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> UsbChannel<T, D>
-    for Channel<T, D, CH_COUNT>
-{
+impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> UsbChannel<T, D> for Channel<T, D, CH_COUNT> {
     async fn control_in(&mut self, setup: &SetupPacket, buf: &mut [u8]) -> Result<usize, ChannelError>
     where
         T: channel::IsControl,
@@ -970,4 +967,3 @@ async fn yield_now() {
     })
     .await
 }
-

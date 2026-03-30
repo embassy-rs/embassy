@@ -7,6 +7,7 @@ pub use super::hid_report::{ReportDescriptor, ReportField};
 use embassy_usb_driver::host::{ChannelError, SetupPacket, UsbChannel, UsbHostDriver, channel};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType, Speed};
 
+use crate::bytes_to_setup;
 use crate::descriptor::{DescriptorIter, EndpointDescriptor, InterfaceDescriptor, descriptor_type};
 
 /// HID class code.
@@ -65,13 +66,21 @@ impl KeyboardReport {
     }
 
     /// Returns `true` if Left Ctrl or Right Ctrl is held.
-    pub fn ctrl(&self) -> bool { self.modifiers & 0x11 != 0 }
+    pub fn ctrl(&self) -> bool {
+        self.modifiers & 0x11 != 0
+    }
     /// Returns `true` if Left Shift or Right Shift is held.
-    pub fn shift(&self) -> bool { self.modifiers & 0x22 != 0 }
+    pub fn shift(&self) -> bool {
+        self.modifiers & 0x22 != 0
+    }
     /// Returns `true` if Left Alt or Right Alt is held.
-    pub fn alt(&self) -> bool { self.modifiers & 0x44 != 0 }
+    pub fn alt(&self) -> bool {
+        self.modifiers & 0x44 != 0
+    }
     /// Returns `true` if Left GUI (Win/Cmd) or Right GUI is held.
-    pub fn gui(&self) -> bool { self.modifiers & 0x88 != 0 }
+    pub fn gui(&self) -> bool {
+        self.modifiers & 0x88 != 0
+    }
 }
 
 /// Mouse button bitmask used in [`MouseReport`].
@@ -118,11 +127,17 @@ impl MouseReport {
     }
 
     /// Returns `true` if the left button is pressed.
-    pub fn left(&self) -> bool { self.buttons & Self::BUTTON_LEFT != 0 }
+    pub fn left(&self) -> bool {
+        self.buttons & Self::BUTTON_LEFT != 0
+    }
     /// Returns `true` if the right button is pressed.
-    pub fn right(&self) -> bool { self.buttons & Self::BUTTON_RIGHT != 0 }
+    pub fn right(&self) -> bool {
+        self.buttons & Self::BUTTON_RIGHT != 0
+    }
     /// Returns `true` if the middle button is pressed.
-    pub fn middle(&self) -> bool { self.buttons & Self::BUTTON_MIDDLE != 0 }
+    pub fn middle(&self) -> bool {
+        self.buttons & Self::BUTTON_MIDDLE != 0
+    }
 }
 
 /// HID class descriptor type (appears inside the configuration descriptor).
@@ -230,12 +245,6 @@ impl core::fmt::Display for HidError {
 
 impl core::error::Error for HidError {}
 
-/// Build a SetupPacket from raw bytes (same memory layout).
-fn bytes_to_setup(b: &[u8; 8]) -> SetupPacket {
-    // SAFETY: SetupPacket is repr(C) with same 8-byte layout.
-    unsafe { core::mem::transmute(*b) }
-}
-
 /// HID host driver.
 ///
 /// Provides report reading and optional class request access to a USB HID device.
@@ -251,13 +260,13 @@ impl<D: UsbHostDriver> HidHost<D> {
     ///
     /// Parses the config descriptor to find the HID interface and its interrupt IN endpoint,
     /// then allocates the necessary channels.
-    pub fn new(driver: &D, config_desc: &[u8], device_address: u8, _speed: Speed) -> Result<Self, HidError> {
+    pub fn new(driver: &D, config_desc: &[u8], device_address: u8, max_packet_size_0: u16) -> Result<Self, HidError> {
         let info = find_hid(config_desc).ok_or(HidError::NoInterface)?;
 
         let ctrl_ep_info = EndpointInfo {
             addr: EndpointAddress::from_parts(0, UsbDirection::In),
             ep_type: EndpointType::Control,
-            max_packet_size: 64,
+            max_packet_size: max_packet_size_0,
             interval_ms: 0,
         };
 
@@ -366,12 +375,8 @@ impl<D: UsbHostDriver> HidHost<D> {
     /// Returns the number of bytes received.
     pub async fn get_report(&mut self, report_type: u8, report_id: u8, buf: &mut [u8]) -> Result<usize, HidError> {
         let value = (report_type as u16) << 8 | report_id as u16;
-        let setup_bytes = crate::control::class_interface_in_with_data(
-            GET_REPORT,
-            value,
-            self.interface as u16,
-            buf.len() as u16,
-        );
+        let setup_bytes =
+            crate::control::class_interface_in_with_data(GET_REPORT, value, self.interface as u16, buf.len() as u16);
         let setup = bytes_to_setup(&setup_bytes);
         let n = self.ctrl_ch.control_in(&setup, buf).await?;
         Ok(n)

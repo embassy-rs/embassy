@@ -512,11 +512,11 @@ impl Default for LocalState {
 // ── HID descriptor item iterator ──────────────────────────────────────────────
 
 struct Item {
-    item_type: u8,   // 0 = Main, 1 = Global, 2 = Local
+    item_type: u8, // 0 = Main, 1 = Global, 2 = Local
     tag: u8,
-    data: u32,       // unsigned interpretation
+    data: u32,        // unsigned interpretation
     data_signed: i32, // sign-extended interpretation
-    size: u8,        // data byte count (0, 1, 2, or 4)
+    size: u8,         // data byte count (0, 1, 2, or 4)
 }
 
 struct ItemIter<'a> {
@@ -585,7 +585,13 @@ impl<'a> Iterator for ItemIter<'a> {
             };
             self.pos += size;
 
-            return Some(Item { item_type, tag, data, data_signed, size: size as u8 });
+            return Some(Item {
+                item_type,
+                tag,
+                data,
+                data_signed,
+                size: size as u8,
+            });
         }
     }
 }

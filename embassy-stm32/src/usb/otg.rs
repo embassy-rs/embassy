@@ -593,33 +593,54 @@ mod host_impl {
 
     const MAX_HOST_CH_COUNT: usize = 12;
 
+    /// Per-instance host state, analogous to `SealedInstance::state()` for device mode.
+    #[allow(private_bounds)]
+    pub(super) trait SealedHostInstance: Instance {
+        fn host_state() -> &'static HostState<MAX_HOST_CH_COUNT>;
+    }
+
+    foreach_interrupt!(
+        (USB_OTG_FS, otg, $block:ident, GLOBAL, $irq:ident) => {
+            impl SealedHostInstance for crate::peripherals::USB_OTG_FS {
+                fn host_state() -> &'static HostState<MAX_HOST_CH_COUNT> {
+                    static STATE: HostState<MAX_HOST_CH_COUNT> = HostState::new();
+                    &STATE
+                }
+            }
+        };
+        (USB_OTG_HS, otg, $block:ident, GLOBAL, $irq:ident) => {
+            impl SealedHostInstance for crate::peripherals::USB_OTG_HS {
+                fn host_state() -> &'static HostState<MAX_HOST_CH_COUNT> {
+                    static STATE: HostState<MAX_HOST_CH_COUNT> = HostState::new();
+                    &STATE
+                }
+            }
+        };
+    );
+
     /// USB host interrupt handler.
-    pub struct HostInterruptHandler<T: Instance> {
+    #[allow(private_bounds)]
+    pub struct HostInterruptHandler<T: SealedHostInstance> {
         _phantom: PhantomData<T>,
     }
 
-    impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for HostInterruptHandler<T> {
+    impl<T: SealedHostInstance> interrupt::typelevel::Handler<T::Interrupt> for HostInterruptHandler<T> {
         unsafe fn on_interrupt() {
             let r = T::regs();
-            let state = host_state::<T>();
+            let state = T::host_state();
             on_host_interrupt_impl(r, state, T::ENDPOINT_COUNT.min(MAX_HOST_CH_COUNT));
         }
     }
 
-    fn host_state<T: Instance>() -> &'static HostState<MAX_HOST_CH_COUNT> {
-        // Each OTG instance gets its own host state, separate from device state.
-        // We use inline statics per instance via the Instance trait.
-        static STATE: HostState<MAX_HOST_CH_COUNT> = HostState::new();
-        &STATE
-    }
-
     /// USB host driver.
-    pub struct HostDriver<'d, T: Instance> {
+    #[allow(private_interfaces, private_bounds)]
+    pub struct HostDriver<'d, T: SealedHostInstance> {
         phantom: PhantomData<&'d mut T>,
         inner: OtgHostDriver<'d, MAX_HOST_CH_COUNT>,
     }
 
-    impl<'d, T: Instance> HostDriver<'d, T> {
+    #[allow(private_bounds)]
+    impl<'d, T: SealedHostInstance> HostDriver<'d, T> {
         /// Initializes USB OTG peripheral in host mode with internal Full-Speed PHY.
         pub fn new_fs_host(
             _peri: crate::Peri<'d, T>,
@@ -639,7 +660,7 @@ mod host_impl {
 
             let instance = OtgHostInstance {
                 regs: T::regs(),
-                state: host_state::<T>(),
+                state: T::host_state(),
                 fifo_depth_words: T::FIFO_DEPTH_WORDS,
                 channel_count: T::ENDPOINT_COUNT.min(MAX_HOST_CH_COUNT),
                 phy_type: PhyType::InternalFullSpeed,
@@ -689,7 +710,7 @@ mod host_impl {
 
             let instance = OtgHostInstance {
                 regs: T::regs(),
-                state: host_state::<T>(),
+                state: T::host_state(),
                 fifo_depth_words: T::FIFO_DEPTH_WORDS,
                 channel_count: T::ENDPOINT_COUNT.min(MAX_HOST_CH_COUNT),
                 phy_type: PhyType::InternalHighSpeed,
@@ -702,7 +723,8 @@ mod host_impl {
         }
     }
 
-    impl<'d, T: Instance> embassy_usb_driver::host::UsbHostDriver for HostDriver<'d, T> {
+    #[allow(private_bounds)]
+    impl<'d, T: SealedHostInstance> embassy_usb_driver::host::UsbHostDriver for HostDriver<'d, T> {
         type Channel<Ty: embassy_usb_driver::host::channel::Type, D: embassy_usb_driver::host::channel::Direction> =
             <OtgHostDriver<'d, MAX_HOST_CH_COUNT> as embassy_usb_driver::host::UsbHostDriver>::Channel<Ty, D>;
 
@@ -714,7 +736,10 @@ mod host_impl {
             self.inner.bus_reset().await
         }
 
-        fn alloc_channel<Ty: embassy_usb_driver::host::channel::Type, D: embassy_usb_driver::host::channel::Direction>(
+        fn alloc_channel<
+            Ty: embassy_usb_driver::host::channel::Type,
+            D: embassy_usb_driver::host::channel::Direction,
+        >(
             &self,
             addr: u8,
             endpoint: &embassy_usb_driver::EndpointInfo,

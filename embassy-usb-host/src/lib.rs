@@ -10,20 +10,21 @@ pub mod class;
 pub mod control;
 pub mod descriptor;
 
-use embassy_usb_driver::host::{
-    ChannelError, DeviceEvent, HostError, SetupPacket, UsbChannel, UsbHostDriver, channel,
-};
+use embassy_usb_driver::host::{ChannelError, DeviceEvent, HostError, SetupPacket, UsbChannel, UsbHostDriver, channel};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType, Speed};
 
 use crate::descriptor::{ConfigDescriptor, DeviceDescriptor};
 
-/// Convert an 8-byte SETUP array to a SetupPacket.
-///
-/// SetupPacket is repr(C) with the same memory layout as `[u8; 8]`.
-fn bytes_to_setup(b: &[u8; 8]) -> SetupPacket {
-    // SAFETY: SetupPacket is repr(C), has the same size and alignment-compatible
-    // layout as a packed 8-byte struct (1+1+2+2+2 = 8 bytes, all LE).
-    unsafe { core::mem::transmute(*b) }
+/// Convert an 8-byte SETUP array to a [`SetupPacket`].
+pub(crate) fn bytes_to_setup(b: &[u8; 8]) -> SetupPacket {
+    use embassy_usb_driver::host::RequestType;
+    SetupPacket {
+        request_type: RequestType::from_bits_truncate(b[0]),
+        request: b[1],
+        value: u16::from_le_bytes([b[2], b[3]]),
+        index: u16::from_le_bytes([b[4], b[5]]),
+        length: u16::from_le_bytes([b[6], b[7]]),
+    }
 }
 
 /// USB host enumeration error.
@@ -61,7 +62,10 @@ pub struct UsbHost<D: UsbHostDriver> {
 impl<D: UsbHostDriver> UsbHost<D> {
     /// Create a new USB host from a driver.
     pub fn new(driver: D) -> Self {
-        Self { driver, next_address: 1 }
+        Self {
+            driver,
+            next_address: 1,
+        }
     }
 
     /// Get a reference to the underlying driver.
@@ -135,7 +139,11 @@ impl<D: UsbHostDriver> UsbHost<D> {
 
         // Step 2: SET_ADDRESS
         let addr = self.next_address;
-        self.next_address = self.next_address.wrapping_add(1).max(1);
+        self.next_address = if self.next_address >= 127 {
+            1
+        } else {
+            self.next_address + 1
+        };
 
         let setup = bytes_to_setup(&control::set_address(addr));
         ch.control_out(&setup, &[]).await?;
@@ -183,9 +191,7 @@ impl<D: UsbHostDriver> UsbHost<D> {
 
         // Get full configuration descriptor
         let setup = bytes_to_setup(&control::get_config_descriptor(0, total_len as u16));
-        let n = ch
-            .control_in(&setup, &mut config_buf[..total_len])
-            .await?;
+        let n = ch.control_in(&setup, &mut config_buf[..total_len]).await?;
 
         trace!("Config descriptor: {} bytes", n);
 

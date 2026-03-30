@@ -5,6 +5,7 @@
 use embassy_usb_driver::host::{ChannelError, SetupPacket, UsbChannel, UsbHostDriver, channel};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType, Speed};
 
+use crate::bytes_to_setup;
 use crate::descriptor::{DescriptorIter, EndpointDescriptor, InterfaceDescriptor, descriptor_type};
 
 /// CDC class code.
@@ -177,12 +178,6 @@ pub fn find_cdc_acm(config_desc: &[u8]) -> Option<CdcAcmInfo> {
     }
 }
 
-/// Build a SetupPacket from raw bytes (same memory layout).
-fn bytes_to_setup(b: &[u8; 8]) -> SetupPacket {
-    // SAFETY: SetupPacket is repr(C) with same 8-byte layout.
-    unsafe { core::mem::transmute(*b) }
-}
-
 /// CDC ACM host driver.
 ///
 /// Provides read/write access to a CDC ACM (virtual serial port) USB device.
@@ -197,13 +192,18 @@ impl<D: UsbHostDriver> CdcAcmHost<D> {
     /// Create a new CDC ACM host driver.
     ///
     /// Parses the config descriptor to find CDC ACM endpoints and allocates channels.
-    pub fn new(driver: &D, config_desc: &[u8], device_address: u8, _speed: Speed) -> Result<Self, CdcAcmError> {
+    pub fn new(
+        driver: &D,
+        config_desc: &[u8],
+        device_address: u8,
+        max_packet_size_0: u16,
+    ) -> Result<Self, CdcAcmError> {
         let info = find_cdc_acm(config_desc).ok_or(CdcAcmError::NoInterface)?;
 
         let ctrl_ep_info = EndpointInfo {
             addr: EndpointAddress::from_parts(0, UsbDirection::In),
             ep_type: EndpointType::Control,
-            max_packet_size: 64, // Assume 64 for FS
+            max_packet_size: max_packet_size_0,
             interval_ms: 0,
         };
 

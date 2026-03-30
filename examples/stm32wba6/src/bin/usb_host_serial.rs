@@ -73,7 +73,12 @@ async fn main(_spawner: Spawner) {
         );
 
         // Try to create a CDC ACM host driver
-        let mut cdc = match CdcAcmHost::new(host.driver(), &config_buf[..config_len], addr, speed) {
+        let mut cdc = match CdcAcmHost::new(
+            host.driver(),
+            &config_buf[..config_len],
+            addr,
+            dev_desc.max_packet_size_0 as u16,
+        ) {
             Ok(c) => c,
             Err(e) => {
                 error!("CDC ACM init failed: {:?}", e);

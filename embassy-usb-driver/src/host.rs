@@ -114,13 +114,21 @@ pub enum DeviceEvent {
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum HostError {
+    /// A channel-level transfer error occurred.
     ChannelError(ChannelError),
+    /// The control request was not acknowledged by the device.
     RequestFailed,
+    /// A descriptor returned by the device could not be parsed.
     InvalidDescriptor,
+    /// No free device slots available.
     OutOfSlots,
+    /// No free host channels available.
     OutOfChannels,
+    /// The addressed device does not exist.
     NoSuchDevice,
+    /// Insufficient memory for the requested operation.
     InsufficientMemory,
+    /// An unspecified error with a static description.
     Other(&'static str),
 }
 
@@ -161,18 +169,29 @@ pub trait UsbHostDriver: Sized {
     // fn drop_channel<T: channel::Type, D: channel::Direction>(&self, channel: &mut Self::Channel<T, D>);
 }
 
-/// [UsbChannel] Typelevel structs and traits
+/// Type-level channel markers for endpoint type and direction.
+///
+/// These structs and traits are used as generic parameters on [`UsbChannel`](super::UsbChannel)
+/// to statically enforce correct endpoint type and direction at compile time.
 // TODO: Seal traits
 pub mod channel {
     use super::EndpointType;
 
+    /// Marker trait for the endpoint transfer type of a channel.
     pub trait Type {
+        /// Returns the [`EndpointType`] this marker represents.
         fn ep_type() -> EndpointType;
     }
+
+    /// Marker for a control endpoint channel.
     pub struct Control {}
+    /// Marker for an interrupt endpoint channel.
     pub struct Interrupt {}
+    /// Marker for a bulk endpoint channel.
     pub struct Bulk {}
+    /// Marker for an isochronous endpoint channel.
     pub struct Isochronous {}
+
     impl Type for Control {
         fn ep_type() -> EndpointType {
             EndpointType::Control
@@ -194,21 +213,31 @@ pub mod channel {
         }
     }
 
+    /// Trait bound satisfied only by [`Control`] channels.
     #[diagnostic::on_unimplemented(message = "This is not a CONTROL channel")]
     pub trait IsControl {}
     impl IsControl for Control {}
 
-    #[diagnostic::on_unimplemented(message = "This is not a CONTROL channel")]
+    /// Trait bound satisfied only by [`Interrupt`] channels.
+    #[diagnostic::on_unimplemented(message = "This is not an INTERRUPT channel")]
     pub trait IsInterrupt {}
     impl IsInterrupt for Interrupt {}
 
+    /// Marker trait for the transfer direction of a channel.
     pub trait Direction {
+        /// Returns `true` if this direction supports IN (device-to-host) transfers.
         fn is_in() -> bool;
+        /// Returns `true` if this direction supports OUT (host-to-device) transfers.
         fn is_out() -> bool;
     }
+
+    /// Marker for an IN-only (device-to-host) channel.
     pub struct In {}
+    /// Marker for an OUT-only (host-to-device) channel.
     pub struct Out {}
+    /// Marker for a bidirectional channel (used for control endpoints).
     pub struct InOut {}
+
     impl Direction for In {
         fn is_in() -> bool {
             true
@@ -234,11 +263,13 @@ pub mod channel {
         }
     }
 
+    /// Trait bound satisfied by directions that support IN transfers.
     #[diagnostic::on_unimplemented(message = "This is not an IN channel")]
     pub trait IsIn: Direction {}
     impl IsIn for In {}
     impl IsIn for InOut {}
 
+    /// Trait bound satisfied by directions that support OUT transfers.
     #[diagnostic::on_unimplemented(message = "This is not an OUT channel")]
     pub trait IsOut: Direction {}
     impl IsOut for Out {}
