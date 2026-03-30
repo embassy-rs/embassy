@@ -58,6 +58,20 @@ pub enum DsiColor {
     Rgb888 = 5,
 }
 
+impl DsiColor {
+    /// Returns the number of bytes per pixel of this [`DsiColor`]
+    pub fn bytes_per_pixel(&self) -> u8 {
+        match self {
+            DsiColor::Rgb565Config1 => 2,
+            DsiColor::Rgb565Config2 => 2,
+            DsiColor::Rgb565Config3 => 2,
+            DsiColor::Rgb666Config1 => 3,
+            DsiColor::Rgb666Config2 => 3,
+            DsiColor::Rgb888 => 3,
+        }
+    }
+}
+
 /// DSI LTDC Refresh Mode
 pub enum DsiLtdcRefreshMode {
     /// Refresh is manually initiated by calling [`DsiHost::ltds_refresh`]
@@ -206,11 +220,6 @@ impl<'d, T: Instance> DsiHost<'d, T> {
             w.set_hsp(hsp);
         });
 
-        T::regs().lpmcr().modify(|w| {
-            w.set_lpsize(Panel::LP_MAX_PACKET_SIZE);
-            w.set_vlpsize(Panel::VACT_MAX_PACKET_SIZE);
-        });
-
         match mode {
             DsiHostMode::Video(config) => {
                 self.set_color::<Panel>(config.color);
@@ -288,6 +297,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
     /// Set video mode registers from a [`DsiVideoConfig`]
     fn set_video_config<Panel: DsiPanel>(&mut self, config: &DsiVideoConfig) {
         let lane_byte_clock = self.lane_byte_clock.to_hertz().expect("DSI lane byte clock");
+        let tx_escape_clock = self.tx_escape_clock.to_hertz().expect("DSI TX escape clock");
         let ltdc_clock = LTDC::frequency();
 
         T::regs().mcr().modify(|w| w.set_cmdm(false));
@@ -321,22 +331,86 @@ impl<'d, T: Instance> DsiHost<'d, T> {
 
         T::regs().vnpcr().modify(|w| w.set_npsize(Panel::NULL_PACKET_SIZE));
 
-        let lane_byte_clock_khz = lane_byte_clock.0 / 1000;
-        let ltdc_clock_khz = ltdc_clock.0 / 1000;
+        // Calculate low power mode command timings
+        // See RM0399 34.9.2 - Tranmission of commands in low-power mode
 
-        let hline = Panel::HLINE_TOTAL as u32 * lane_byte_clock_khz / ltdc_clock_khz;
-        let hsa = Panel::HSYNC as u32 * lane_byte_clock_khz / ltdc_clock_khz;
-        let hbp = Panel::HBP as u32 * lane_byte_clock_khz / ltdc_clock_khz;
+        // Convert LTDC pixel timing into DSI lane-byte-clock domain
+        // All t* values are expressed in lane byte clock cycles
+        let tl = Panel::HLINE_TOTAL as u64 * lane_byte_clock.0 as u64 / ltdc_clock.0 as u64;
+        let thsa = Panel::HSYNC as u64 * lane_byte_clock.0 as u64 / ltdc_clock.0 as u64;
+        let thbp = Panel::HBP as u64 * lane_byte_clock.0 as u64 / ltdc_clock.0 as u64;
+
+        let bytes_per_pixel = config.color.bytes_per_pixel() as u64;
+
+        // Read number of lanes from PHY
+        let lanes = T::regs().pconfr().read().nl() as u64 + 1;
+
+        // Active video transmission time in burst mode
+        let thact = Panel::ACTIVE_WIDTH as u64 * bytes_per_pixel / lanes;
+
+        // Escape clock period expressed in lane byte clock cycles
+        let tescclk = (lane_byte_clock / tx_escape_clock) as u64;
+
+        // Read HS/LP transition times from PHY
+        let dltcr = T::regs().dltcr().read();
+        let ths2lp = dltcr.hs2lp_time() as u64;
+        let tlp2hs = dltcr.lp2hs_time() as u64;
+
+        // LPDT overhead in escape mode
+        // 11 bits, 22 escape clock cycles (RM0399 34.9.2)
+        let tlpdt = 22 * tescclk;
+
+        // Vertical active region low power command budget (VLPSIZE)
+        // Time consumed during active line
+        let vused = (thsa + thbp + thact + ths2lp + tlp2hs + tlpdt + 2 * tescclk) as u64;
+
+        // Max command size in bytes that can be transmitted in the VACT region
+        let vlpsize = if tl > vused {
+            ((tl - vused) / (2 * 8 * tescclk as u64)) as u8
+        } else {
+            0
+        };
+
+        // VSA, VBP, VFP region low power command budget (LPSIZE)
+        // Time consumed during horizontal blanking
+        let hused = thsa + ths2lp + tlp2hs + tlpdt + 2 * tescclk;
+
+        // Max command size in bytes that can be transmitted in the VSA, VBP, VFP regions
+        let lpsize = if tl > hused {
+            ((tl - hused) / (2 * 8 * tescclk)).min(255) as u8
+        } else {
+            0
+        };
 
         #[cfg(feature = "defmt")]
         {
             debug!("LTDC clock: {}", ltdc_clock);
-            debug!("DSI hline: {} hsa: {} hbp: {}", hline, hsa, hbp);
+            debug!(
+                "tL={} tHSA={} tHBP={} tHACT={} tHS2LP={} tLP2HS={} tLPDT={} tESCCLK={} used={} avail={} lpsize={} vlpsize={}",
+                tl,
+                thsa,
+                thbp,
+                thact,
+                ths2lp,
+                tlp2hs,
+                tlpdt,
+                tescclk,
+                vused,
+                tl.saturating_sub(vused),
+                lpsize,
+                vlpsize
+            );
         }
 
-        T::regs().vlcr().modify(|w| w.set_hline(hline as u16));
-        T::regs().vhsacr().modify(|w| w.set_hsa(hsa as u16));
-        T::regs().vhbpcr().modify(|w| w.set_hbp(hbp as u16));
+        // Set horizontal/vertical low power command time budget
+        T::regs().lpmcr().modify(|w| {
+            w.set_lpsize(lpsize);
+            w.set_vlpsize(vlpsize);
+        });
+
+        T::regs().vlcr().modify(|w| w.set_hline(tl as u16));
+        T::regs().vhsacr().modify(|w| w.set_hsa(thsa as u16));
+        T::regs().vhbpcr().modify(|w| w.set_hbp(thbp as u16));
 
         // Vertical timing configuration
         T::regs().vvsacr().modify(|w| w.set_vsa(Panel::VSYNC));

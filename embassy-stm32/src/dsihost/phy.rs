@@ -22,9 +22,6 @@ pub struct DsiHostPhyConfig {
     /// Stop wait time. Minimum wait period to request a high speed transmission after the stop state
     pub stop_wait_time: u8,
 
-    /// TX escape clock div relative to lane byte clock
-    pub tx_escape_div: u8,
-
     /// D-PHY automatic clock lane control. Stops providing clock automatically.
     pub acr: bool,
 
@@ -74,18 +71,32 @@ impl<'d, T: Instance> DsiHost<'d, T> {
     pub fn phy_init(&mut self, config: &DsiHostPhyConfig) {
         let lane_clock = T::frequency();
 
-        let tx_escape_clock = lane_clock / config.tx_escape_div;
+        // Timeout clock: target ~= 20 MHz. Choose ceiling below 20MHz
+        const ESCAPE_TARGET_HZ: u32 = 20_000_000;
+        let escape_div = ((lane_clock.0 + (ESCAPE_TARGET_HZ - 1)) / ESCAPE_TARGET_HZ) as u8; // ceil
+        assert!(
+            escape_div > 1 && escape_div <= 32,
+            "DSI escape clock divider out of range"
+        );
+        let tx_escape_clock = lane_clock / escape_div;
+
+        // Timeout clock: target ~= 1 MHz
+        const TIMEOUT_TARGET_HZ: u32 = 1_000_000;
+        let timeout_div = ((lane_clock.0 + (TIMEOUT_TARGET_HZ / 2)) / TIMEOUT_TARGET_HZ) as u8;
+        assert!(timeout_div > 0, "DSI timeout clock divider out of range");
+        let timeout_clock = lane_clock / timeout_div;
 
         #[cfg(feature = "defmt")]
         {
             debug!(
-                "DSI lane byte clock: {} tx escape clock: {}",
-                lane_clock, tx_escape_clock
+                "DSI lane byte clock: {} tx escape clock: {} timeout clock: {}",
+                lane_clock, tx_escape_clock, timeout_clock
             );
         }
 
         self.lane_byte_clock = Some(lane_clock).into();
         self.tx_escape_clock = Some(tx_escape_clock).into();
+        self.timeout_clock = Some(timeout_clock).into();
 
         self.phy_clock_enable(true);
 
@@ -100,7 +111,8 @@ impl<'d, T: Instance> DsiHost<'d, T> {
         });
 
         T::regs().ccr().modify(|w| {
-            w.set_txeckdiv(config.tx_escape_div);
+            w.set_tockdiv(timeout_div);
+            w.set_txeckdiv(escape_div);
         });
 
         #[cfg(dsihost_v1)]

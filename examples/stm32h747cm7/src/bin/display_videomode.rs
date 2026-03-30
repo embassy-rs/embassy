@@ -1,4 +1,4 @@
-//! STM32H747I-DISCO Display example using DSI in adapted command mode
+//! STM32H747I-DISCO Display example using DSI in video burst mode
 
 #![no_std]
 #![no_main]
@@ -8,13 +8,10 @@ use core::mem::MaybeUninit;
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_stm32::dsihost::panel::DsiPanel;
-use embassy_stm32::dsihost::{
-    self, DsiCommandConfig, DsiHost, DsiHostMode, DsiHostPhyConfig, DsiHostPhyLanes, DsiLtdcRefreshMode,
-    DsiTearEventSource,
-};
+use embassy_stm32::dsihost::{self, DsiColor, DsiHost, DsiHostMode, DsiHostPhyConfig, DsiHostPhyLanes, DsiVideoConfig};
 use embassy_stm32::fmc::Fmc;
 use embassy_stm32::gpio::Output;
-use embassy_stm32::ltdc::{self, Ltdc, LtdcLayer, LtdcLayerConfig, PixelFormat, PolarityActive};
+use embassy_stm32::ltdc::{self, Ltdc, LtdcLayer, LtdcLayerConfig, PixelFormat};
 use embassy_stm32::rcc::{DsiHostPllConfig, DsiPllInput, DsiPllOutput, Hse, Pll};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{Config, SharedData, bind_interrupts, peripherals};
@@ -76,14 +73,13 @@ async fn main(_spawner: Spawner) {
     config.rcc.pll3 = Some(Pll {
         source: embassy_stm32::rcc::PllSource::HSE,
         prediv: embassy_stm32::rcc::PllPreDiv::DIV5,
-        mul: embassy_stm32::rcc::PllMul::MUL100,
+        mul: embassy_stm32::rcc::PllMul::MUL132,
         divp: Some(embassy_stm32::rcc::PllDiv::DIV2),
         divq: Some(embassy_stm32::rcc::PllDiv::DIV2),
 
         // LTDC is clocked from PLL3R
-        // Configured for 50MHz in adapted command mode
-        // In Video mode this needs to be configured to match lane byte clock
-        divr: Some(embassy_stm32::rcc::PllDiv::DIV10),
+        // 30MHz pixel clock
+        divr: Some(embassy_stm32::rcc::PllDiv::DIV22),
     });
     config.rcc.d1c_pre = embassy_stm32::rcc::AHBPrescaler::DIV1;
     config.rcc.ahb_pre = embassy_stm32::rcc::AHBPrescaler::DIV2;
@@ -209,19 +205,25 @@ async fn main(_spawner: Spawner) {
         bta: false,
         clock_hs2lp: 20,
         clock_lp2hs: 20,
-        data_hs2lp: 10,
-        data_lp2hs: 10,
+        data_hs2lp: 20,
+        data_lp2hs: 18,
         data_mrd: 0,
     };
 
-    // Initialize DSI command mode configuration
-    let mut command_config = DsiCommandConfig::default();
-    command_config.refresh = DsiLtdcRefreshMode::Automatic;
-    command_config.te_source = DsiTearEventSource::Gpio;
-    command_config.te_polarity = PolarityActive::ActiveLow;
+    let mut video_config = DsiVideoConfig::default();
+    video_config.mode = embassy_stm32::dsihost::DsiVideoMode::Burst;
+    video_config.color = DsiColor::Rgb888;
+    video_config.bta = false;
+    video_config.lpcmd = true;
+    video_config.lphbp = true;
+    video_config.lphfp = true;
+    video_config.lpva = true;
+    video_config.lpvbp = true;
+    video_config.lpvfp = true;
+    video_config.lpvsa = true;
 
     // Start the panel
-    dsi.start_panel::<Glass>(&dsi_phy_config, &DsiHostMode::AdaptedCommand(command_config))
+    dsi.start_panel::<Glass>(&dsi_phy_config, &DsiHostMode::Video(video_config))
         .await
         .unwrap();
 
@@ -230,7 +232,7 @@ async fn main(_spawner: Spawner) {
     let mut tui = Tui::new();
 
     loop {
-        dsi.wait_tear().await;
         terminal.draw(|frame| tui.draw(frame)).unwrap();
+        ltdc.wait_line(ltdc.total_height()).await;
     }
 }
