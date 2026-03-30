@@ -997,6 +997,21 @@ impl<'d, const MAX_EP_COUNT: usize> embassy_usb_driver::Bus for Bus<'d, MAX_EP_C
                     regs.doepctl(ep_addr.index()).modify(|w| {
                         w.set_usbaep(enabled);
                     });
+
+                    // When re-enabling a non-EP0 OUT endpoint, prime it to receive a packet.
+                    // Without this, the endpoint stays idle after reconnect and silently drops data.
+                    if enabled && ep_addr.index() != 0 {
+                        if let Some(ep) = &self.ep_out[ep_addr.index()] {
+                            regs.doeptsiz(ep_addr.index()).modify(|w| {
+                                w.set_xfrsiz(ep.max_packet_size as _);
+                                w.set_pktcnt(1);
+                            });
+                            regs.doepctl(ep_addr.index()).modify(|w| {
+                                w.set_cnak(true);
+                                w.set_epena(true);
+                            });
+                        }
+                    }
                 });
 
                 // Wake `Endpoint::wait_enabled()`
@@ -1014,7 +1029,12 @@ impl<'d, const MAX_EP_COUNT: usize> embassy_usb_driver::Bus for Bus<'d, MAX_EP_C
 
                     regs.diepctl(ep_addr.index()).modify(|w| {
                         w.set_usbaep(enabled);
-                        w.set_cnak(enabled); // clear NAK that might've been set by SNAK above.
+                        // Set NAK on enable so the endpoint NAKs IN tokens until the
+                        // application queues a transfer. Clearing NAK prematurely causes
+                        // the host to see unexpected empty packets.
+                        if enabled {
+                            w.set_snak(true);
+                        }
                     });
 
                     // Flush tx fifo
