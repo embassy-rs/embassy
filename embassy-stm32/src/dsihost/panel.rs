@@ -45,12 +45,6 @@ pub trait DsiPanel {
     /// Pixel clock edge polarity
     const PIXEL_CLOCK_POLARITY: PolarityEdge;
 
-    /// Maximum low power packet size
-    const LP_MAX_PACKET_SIZE: u8;
-
-    /// Maximum low power VACT packet size
-    const VACT_MAX_PACKET_SIZE: u8;
-
     /// Size of a null packet in Sync Pulse or Event modes
     const NULL_PACKET_SIZE: u16;
 

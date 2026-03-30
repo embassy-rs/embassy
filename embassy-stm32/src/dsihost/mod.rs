@@ -94,6 +94,9 @@ pub struct DsiHost<'d, T: Instance> {
     /// TX escape clock frequency (20MHz max)
     /// Derived from pixel clock and TX Prescaler
     tx_escape_clock: MaybeHertz,
+
+    /// Timeout clock
+    timeout_clock: MaybeHertz,
 }
 
 impl<'d, T: Instance> DsiHost<'d, T> {
@@ -108,6 +111,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
             _te: Flex::new(te),
             lane_byte_clock: None.into(),
             tx_escape_clock: None.into(),
+            timeout_clock: None.into(),
         }
     }
 

@@ -11,11 +11,11 @@ impl DsiPanel for Glass {
     const ACTIVE_WIDTH: u16 = 480;
     const ACTIVE_HEIGHT: u16 = 800;
 
-    const HSYNC: u16 = 64;
-    const HBP: u16 = 90;
-    const HFP: u16 = 90;
+    const HSYNC: u16 = 2;
+    const HBP: u16 = 34;
+    const HFP: u16 = 34;
 
-    const VSYNC: u16 = 3;
+    const VSYNC: u16 = 12;
     const VBP: u16 = 15;
     const VFP: u16 = 15;
 
@@ -25,10 +25,7 @@ impl DsiPanel for Glass {
 
     const DATA_ENABLE_POLARITY: PolarityActive = PolarityActive::ActiveHigh;
 
-    const PIXEL_CLOCK_POLARITY: PolarityEdge = PolarityEdge::RisingEdge;
-
-    const LP_MAX_PACKET_SIZE: u8 = 64;
-    const VACT_MAX_PACKET_SIZE: u8 = 64;
+    const PIXEL_CLOCK_POLARITY: PolarityEdge = PolarityEdge::FallingEdge;
 
     const NULL_PACKET_SIZE: u16 = 0x0fff;
 
@@ -42,7 +39,7 @@ impl DsiPanel for Glass {
 
         // Proprietary analog/power init
         dsi.write_cmd(0, 0xB0, &[0x03, 0x03, 0x03])?; // AVDD
-        dsi.write_cmd(0, 0xB6, &[0x46, 0x46, 0x46])?; // AVDD ratio
+        dsi.write_cmd(0, 0xB6, &[0x46, 0x46, 0x46])?; // PCK = 2 x Hsync, BTP = 2.5 x VDDB
         dsi.write_cmd(0, 0xB1, &[0x03, 0x03, 0x03])?; // AVEE
         dsi.write_cmd(0, 0xB7, &[0x36, 0x36, 0x36])?; // AVEE ratio
         dsi.write_cmd(0, 0xB2, &[0x00, 0x00, 0x02])?; // VCL
