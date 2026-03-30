@@ -538,12 +538,11 @@ impl<'d, const CH_COUNT: usize> UsbHostDriver for OtgHost<'d, CH_COUNT> {
                     let r = self.instance.regs;
                     let phy_type = self.instance.phy_type;
                     match speed {
-                        Speed::Full => {
+                        Speed::Full | Speed::Low => {
+                            // Both FS and LS use 1 ms frame intervals.
+                            // PHY clock: HS PHY = 60 MHz, FS PHY = 48 MHz.
                             let frivl = if phy_type.high_speed() { 60_000 } else { 48_000 };
                             r.hfir().write(|w| w.set_frivl(frivl));
-                        }
-                        Speed::Low => {
-                            r.hfir().write(|w| w.set_frivl(6_000));
                         }
                         Speed::High => {} // Keep HS defaults
                     }
@@ -881,10 +880,15 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Channel<T, 
                     // the in-progress halt and the new transfer never starts.
                     self.halt_channel();
                     let _halt = self.wait_for_result().await; // expect CHH
-                }
-                nak_retries += 1;
-                if nak_retries >= NAK_RETRY_LIMIT {
-                    return Err(ChannelError::Timeout);
+                } else {
+                    // NAK retry limit only applies to non-periodic (control/bulk)
+                    // transfers where NAK means "busy, try later". For periodic
+                    // (interrupt/iso) endpoints, NAK is the normal idle response
+                    // and polling should continue indefinitely.
+                    nak_retries += 1;
+                    if nak_retries >= NAK_RETRY_LIMIT {
+                        return Err(ChannelError::Timeout);
+                    }
                 }
                 yield_now().await;
                 continue;
