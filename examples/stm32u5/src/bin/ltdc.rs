@@ -77,15 +77,15 @@ async fn main(spawner: Spawner) {
     };
 
     info!("init ltdc");
-    let mut ltdc_de = Output::new(p.PD6, Level::Low, Speed::High);
     let mut ltdc_disp_ctrl = Output::new(p.PE4, Level::Low, Speed::High);
     let mut ltdc_bl_ctrl = Output::new(p.PE6, Level::Low, Speed::High);
-    let mut ltdc = Ltdc::new_with_pins(
+    let mut ltdc = Ltdc::<_, ltdc::Rgb888>::new_with_pins(
         p.LTDC, // PERIPHERAL
         Irqs,   // IRQS
         p.PD3,  // CLK
         p.PE0,  // HSYNC
         p.PD13, // VSYNC
+        p.PD6,  // DE
         p.PB9,  // B0
         p.PB2,  // B1
         p.PD14, // B2
@@ -112,7 +112,6 @@ async fn main(spawner: Spawner) {
         p.PD12, // R7
     );
     ltdc.init(&ltdc_config);
-    ltdc_de.set_low();
     ltdc_bl_ctrl.set_high();
     ltdc_disp_ctrl.set_high();
 
