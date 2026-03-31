@@ -7,17 +7,12 @@
 //!
 //! See the docs of [`SPConfHelper`] for more details.
 
-use mrcc::{
+use super::{ClockError, Clocks, PoweredClock, WakeGuard};
+use crate::clocks::VddLevel;
+use crate::pac::mrcc::{
     AdcClkselMux, ClkdivHalt, ClkdivReset, ClkdivUnstab, CtimerClkselMux, FclkClkselMux, Lpi2cClkselMux,
     LpspiClkselMux, LpuartClkselMux, OstimerClkselMux,
 };
-
-use super::{ClockError, Clocks, PoweredClock, WakeGuard};
-use crate::clocks::VddLevel;
-#[cfg(feature = "mcxa2xx")]
-use crate::pac::mrcc2xx as mrcc;
-#[cfg(feature = "mcxa5xx")]
-use crate::pac::mrcc5xx as mrcc;
 
 #[cfg(feature = "mcxa2xx")]
 mod mcxa2xx;

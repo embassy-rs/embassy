@@ -8,20 +8,12 @@ use config::{
     VddLevel,
 };
 use cortex_m::peripheral::SCB;
-use syscon::{
-    AhbclkdivUnstab, FrohfdivHalt, FrohfdivReset, FrohfdivUnstab, FrolfdivHalt, FrolfdivReset, FrolfdivUnstab,
-    Pll1clkdivHalt, Pll1clkdivReset, Pll1clkdivUnstab, Unlock,
-};
 
 use super::config;
 use super::types::{Clock, ClockError, Clocks, PoweredClock};
 use crate::chips::{ClockLimits, clock_limits};
 use crate::pac;
 use crate::pac::cmc::CkctrlCkmode;
-#[cfg(feature = "mcxa2xx")]
-use crate::pac::mrcc2xx::Mrcc;
-#[cfg(feature = "mcxa5xx")]
-use crate::pac::mrcc5xx::Mrcc;
 use crate::pac::scg::{
     Erefs, Fircacc, FircaccIe, FirccsrLk, Fircerr, FircerrIe, Fircsten, Range, Scs, SirccsrLk, Sircerr, Sircvld,
     SosccsrLk, Soscerr, Source, SpllLock, SpllcsrLk, Spllerr, Spllsten, TrimUnlock,
@@ -29,10 +21,10 @@ use crate::pac::scg::{
 use crate::pac::spc::{
     ActiveCfgBgmode, ActiveCfgCoreldoVddDs, ActiveCfgCoreldoVddLvl, LpCfgBgmode, LpCfgCoreldoVddLvl, Vsm,
 };
-#[cfg(feature = "mcxa2xx")]
-use crate::pac::syscon2xx as syscon;
-#[cfg(feature = "mcxa5xx")]
-use crate::pac::syscon5xx as syscon;
+use crate::pac::syscon::{
+    AhbclkdivUnstab, FrohfdivHalt, FrohfdivReset, FrohfdivUnstab, FrolfdivHalt, FrolfdivReset, FrolfdivUnstab,
+    Pll1clkdivHalt, Pll1clkdivReset, Pll1clkdivUnstab, Unlock,
+};
 
 /// The ClockOperator is a private helper type that contains the methods used
 /// during system clock initialization.
@@ -52,9 +44,9 @@ pub(super) struct ClockOperator<'a> {
     pub(super) sirc_forced: bool,
 
     // We hold on to stolen peripherals
-    pub(super) _mrcc0: Mrcc,
+    pub(super) _mrcc0: pac::mrcc::Mrcc,
     pub(super) scg0: pac::scg::Scg,
-    pub(super) syscon: syscon::Syscon,
+    pub(super) syscon: pac::syscon::Syscon,
     pub(super) vbat0: pac::vbat::Vbat,
     pub(super) spc0: pac::spc::Spc,
     pub(super) fmu0: pac::fmu::Fmu,
