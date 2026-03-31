@@ -1,1 +1,67 @@
-<mxfile host="app.diagrams.net" modified="2021-12-10T09:18:58.548Z" agent="5.0 (Macintosh)" etag="zuUk3bLZCCXvlBU683Ur" version="15.9.4" type="device"><diagram id="6eJnfHJiGOpK0Luz4X_S" name="Page-1">5VlNc9owEP01HJOxLdsxx0Bokpk0zZRM0p4ywl6wBmMRWWDIr6+EBf4QKQ6tIbQcPOittLLe7j5J0ELdyeKa4Wn4lQYQtSwjWLTQVcuy2rYrnhJYZoDjXWTAiJEgg8wc6JM3UKCh0BkJICl15JRGnEzLoE/jGHxewjBjNC13G9KoPOsUj0AD+j6OdPSZBDzMUM8xcvwGyChcz2wayjLB684KSEIc0LQAoV4LdRmlPPs2WXQhktytecnGfXnHunkxBjGvM+CeJzcOdB5/PL8MSTe9W8TG7ZmdeZnjaKYW3FuAP+OUqZfmyzUTjM7iAKQzs4U6aUg49KfYl9ZUhF5gIZ9EypyMgfuhagxJFHVpJHxKRyjA4A192YkzOoaCxfU9GAyFRV+bWu4cGIdFAVJrvQY6Ac6Wosva6irel5V2mofRXMcmLIRw3Q+rzBltXOfkii+K3w9w7WhcP+JkfOo829Zn49nVeNY4hji4lOIgWn6Ek4T4ZVrzGBgNkpzQGfNhd3VyzEbAd2cWBCUt00PGIMKczMvSto1/NfSBEvHKm1Cji3KokVkJYbYgNaooRRVH9i5H2Yo1R6t02Kxn/wy50DLEPG/JHHUjQXNnIMTPHfFV6DIkIPM19ECl/wwWkxcsepaJeNzhgdgQRUZBQt7wYGUyysmGIzKKZSaK/ACRPB1ZfERsQZfKMCFBIAeWE1FPq99Vg9of1Rvku1KNQq+dNX9UtZa+Fd1KPthsKjPnBseCgwZ3paHng7+1kAeeYztGM7sS8g6oli9P8/YrfvVf3O8/A3Y9f5oTdGZqtDeolrVJrkjZfvJp1dVPuxG5tNrlWIvD7znybNd01NPdUz1Rxa9nn+dOxdNuSky3JpClJZBTW0zvKSfD5SeS09oyWc7I9yvrAHK6dXL0f5X1Vg6cZsq6Un6ovecpCFX0wW7uFLSVHn3DtWXhPuMxnHztoWPWnn7RewBGpiEwLMf2OeY6wwc4yFy2u3avIywjhgMiCCyOWn2Ut756rRD74YxBYcQVYSJEhMpYppDkOr0jSB+7Qx7/VPQ575B/RT6do6qnXRE9ZO2pnm5VhquOGlZP/Q5p1T72XKaYyKXcipm//aOnH/eYCuyd7Oln513FauiyUpFgx9izLqvHo037QHXZ1kKPZF0Wfks48cLymiks0cz/i8iCkf+hg3q/AA==</diagram></mxfile>
+<mxfile host="Electron" agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/29.6.1 Chrome/142.0.7444.265 Electron/39.8.0 Safari/537.36" version="29.6.1">
+  <diagram id="6eJnfHJiGOpK0Luz4X_S" name="Page-1">
+    <mxGraphModel dx="984" dy="573" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="NtsH5eBTXW_fiCwLxn0I-4" parent="1" style="rounded=1;whiteSpace=wrap;html=1;sketch=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Executor" vertex="1">
+          <mxGeometry height="60" width="120" x="160" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="NtsH5eBTXW_fiCwLxn0I-5" parent="1" style="rounded=1;whiteSpace=wrap;html=1;sketch=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Task" vertex="1">
+          <mxGeometry height="60" width="120" x="420" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="NtsH5eBTXW_fiCwLxn0I-6" edge="1" parent="1" source="NtsH5eBTXW_fiCwLxn0I-4" style="endArrow=classic;html=1;rounded=0;sketch=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" target="NtsH5eBTXW_fiCwLxn0I-5" value="">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="370" y="310" as="sourcePoint" />
+            <mxPoint x="470" y="310" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="NtsH5eBTXW_fiCwLxn0I-7" connectable="0" parent="NtsH5eBTXW_fiCwLxn0I-6" style="edgeLabel;resizable=0;html=1;align=center;verticalAlign=middle;sketch=1;" value="1. &lt;br&gt;&lt;div&gt;Poll&lt;/div&gt;" vertex="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="NtsH5eBTXW_fiCwLxn0I-24" parent="1" style="rounded=1;whiteSpace=wrap;html=1;sketch=1;fillColor=#f8cecc;strokeColor=#b85450;" value="Interrupt Handler" vertex="1">
+          <mxGeometry height="60" width="120" x="160" y="380" as="geometry" />
+        </mxCell>
+        <mxCell id="_Vv9qaqc_6RYdrGvVvi3-1" edge="1" parent="1" source="NtsH5eBTXW_fiCwLxn0I-24" style="endArrow=classic;html=1;rounded=0;sketch=1;fillColor=#f8cecc;strokeColor=#b85450;" target="NtsH5eBTXW_fiCwLxn0I-4" value="">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="290" y="225.38461538461536" as="sourcePoint" />
+            <mxPoint x="430" y="284.61538461538464" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_Vv9qaqc_6RYdrGvVvi3-2" connectable="0" parent="_Vv9qaqc_6RYdrGvVvi3-1" style="edgeLabel;resizable=0;html=1;align=center;verticalAlign=middle;sketch=1;" value="5. &lt;br&gt;&lt;div&gt;Notify&lt;/div&gt;" vertex="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_Vv9qaqc_6RYdrGvVvi3-3" edge="1" parent="1" source="NtsH5eBTXW_fiCwLxn0I-24" style="endArrow=classic;html=1;rounded=0;sketch=1;fillColor=#f8cecc;strokeColor=#b85450;" target="_Vv9qaqc_6RYdrGvVvi3-5" value="">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="230" y="390" as="sourcePoint" />
+            <mxPoint x="390" y="410" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_Vv9qaqc_6RYdrGvVvi3-4" connectable="0" parent="_Vv9qaqc_6RYdrGvVvi3-3" style="edgeLabel;resizable=0;html=1;align=center;verticalAlign=middle;sketch=1;" value="4. Update" vertex="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_Vv9qaqc_6RYdrGvVvi3-5" parent="1" style="rounded=1;whiteSpace=wrap;html=1;sketch=1;fillColor=#f8cecc;strokeColor=#A9C4EB;gradientColor=#ffffff;fillStyle=hachure;gradientDirection=west;" value="Peripheral State" vertex="1">
+          <mxGeometry height="60" width="120" x="420" y="380" as="geometry" />
+        </mxCell>
+        <mxCell id="_Vv9qaqc_6RYdrGvVvi3-6" edge="1" parent="1" source="NtsH5eBTXW_fiCwLxn0I-5" style="endArrow=classic;html=1;rounded=0;sketch=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" target="_Vv9qaqc_6RYdrGvVvi3-5" value="">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="490" y="320" as="sourcePoint" />
+            <mxPoint x="630" y="320" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_Vv9qaqc_6RYdrGvVvi3-7" connectable="0" parent="_Vv9qaqc_6RYdrGvVvi3-6" style="edgeLabel;resizable=0;html=1;align=center;verticalAlign=middle;sketch=1;" value="2. &lt;br&gt;&lt;div&gt;Await I/O&lt;/div&gt;" vertex="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_Vv9qaqc_6RYdrGvVvi3-8" edge="1" parent="1" style="endArrow=classic;html=1;rounded=0;sketch=1;fillColor=#f8cecc;strokeColor=#b85450;" target="NtsH5eBTXW_fiCwLxn0I-24" value="">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="220" y="500" as="sourcePoint" />
+            <mxPoint x="230" y="230" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_Vv9qaqc_6RYdrGvVvi3-9" connectable="0" parent="_Vv9qaqc_6RYdrGvVvi3-8" style="edgeLabel;resizable=0;html=1;align=center;verticalAlign=middle;sketch=1;" value="3. Interrupt" vertex="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
