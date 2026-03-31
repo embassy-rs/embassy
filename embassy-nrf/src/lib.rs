@@ -206,6 +206,13 @@ pub mod uarte;
     feature = "nrf52840"
 ))]
 pub mod usb;
+#[cfg(any(
+    feature = "_nrf54l15-app",
+    feature = "_nrf54l10-app",
+    feature = "_nrf54l05-app",
+    feature = "_nrf54lm20-app"
+))]
+pub mod vpr;
 pub mod wdt;
 
 // This mod MUST go last, so that it sees all the `impl_foo!` macros
