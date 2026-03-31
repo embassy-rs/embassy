@@ -6,7 +6,7 @@ use embassy_usb_driver::host::{ChannelError, UsbChannel, UsbHostDriver, channel}
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
 
 use crate::bytes_to_setup;
-use crate::descriptor::{DescriptorIter, EndpointDescriptor, InterfaceDescriptor, descriptor_type};
+use crate::descriptor::ConfigurationDescriptor;
 
 /// CDC class code.
 const USB_CLASS_CDC: u8 = 0x02;
@@ -125,40 +125,28 @@ pub struct CdcAcmInfo {
 
 /// Find CDC ACM interfaces in a configuration descriptor.
 pub fn find_cdc_acm(config_desc: &[u8]) -> Option<CdcAcmInfo> {
+    let cfg = ConfigurationDescriptor::try_from_slice(config_desc).ok()?;
+
     let mut comm_iface: Option<u8> = None;
     let mut data_iface: Option<u8> = None;
     let mut bulk_in: Option<(u8, u16)> = None;
     let mut bulk_out: Option<(u8, u16)> = None;
-    let mut current_iface_class: u8 = 0;
 
-    for (desc_type, desc_data) in DescriptorIter::new(config_desc) {
-        match desc_type {
-            descriptor_type::INTERFACE => {
-                if let Some(iface) = InterfaceDescriptor::parse(desc_data) {
-                    current_iface_class = iface.interface_class;
-
-                    if iface.interface_class == USB_CLASS_CDC && iface.interface_subclass == CDC_SUBCLASS_ACM {
-                        comm_iface = Some(iface.interface_number);
-                    } else if iface.interface_class == USB_CLASS_CDC_DATA {
-                        data_iface = Some(iface.interface_number);
+    for iface in cfg.iter_interface() {
+        if iface.interface_class == USB_CLASS_CDC && iface.interface_subclass == CDC_SUBCLASS_ACM {
+            comm_iface = Some(iface.interface_number);
+        } else if iface.interface_class == USB_CLASS_CDC_DATA {
+            data_iface = Some(iface.interface_number);
+            for ep in iface.iter_endpoints() {
+                if ep.transfer_type() == 0x02 {
+                    // Bulk
+                    if ep.is_in() {
+                        bulk_in = Some((ep.endpoint_address, ep.max_packet_size));
+                    } else {
+                        bulk_out = Some((ep.endpoint_address, ep.max_packet_size));
                     }
                 }
             }
-            descriptor_type::ENDPOINT => {
-                if current_iface_class == USB_CLASS_CDC_DATA {
-                    if let Some(ep) = EndpointDescriptor::parse(desc_data) {
-                        if ep.transfer_type() == 0x02 {
-                            // Bulk
-                            if ep.is_in() {
-                                bulk_in = Some((ep.endpoint_address, ep.max_packet_size));
-                            } else {
-                                bulk_out = Some((ep.endpoint_address, ep.max_packet_size));
-                            }
-                        }
-                    }
-                }
-            }
-            _ => {}
         }
     }
 

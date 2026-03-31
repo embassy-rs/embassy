@@ -9,11 +9,12 @@ pub(crate) mod fmt;
 pub mod class;
 pub mod control;
 pub mod descriptor;
+pub mod handler;
 
 use embassy_usb_driver::host::{ChannelError, DeviceEvent, HostError, SetupPacket, UsbChannel, UsbHostDriver, channel};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType, Speed};
 
-use crate::descriptor::{ConfigDescriptor, DeviceDescriptor};
+use crate::descriptor::{ConfigurationDescriptor, DeviceDescriptor, USBDescriptor};
 
 /// Convert an 8-byte SETUP array to a [`SetupPacket`].
 pub(crate) fn bytes_to_setup(b: &[u8; 8]) -> SetupPacket {
@@ -147,8 +148,8 @@ impl<D: UsbHostDriver> UsbHost<D> {
             return Err(EnumerationError::InvalidDescriptor);
         }
 
-        let max_packet_size_0 = desc_buf[7];
-        trace!("EP0 max packet size: {}", max_packet_size_0);
+        let max_packet_size0 = desc_buf[7];
+        trace!("EP0 max packet size: {}", max_packet_size0);
 
         // Step 2: SET_ADDRESS
         let addr = self.next_address;
@@ -165,7 +166,7 @@ impl<D: UsbHostDriver> UsbHost<D> {
         let new_ep0_info = EndpointInfo {
             addr: EndpointAddress::from_parts(0, UsbDirection::In),
             ep_type: EndpointType::Control,
-            max_packet_size: max_packet_size_0 as u16,
+            max_packet_size: max_packet_size0 as u16,
             interval_ms: 0,
         };
         ch.retarget_channel(addr, &new_ep0_info, false)
@@ -181,7 +182,7 @@ impl<D: UsbHostDriver> UsbHost<D> {
             return Err(EnumerationError::InvalidDescriptor);
         }
 
-        let dev_desc = DeviceDescriptor::parse(&desc_buf).ok_or(EnumerationError::InvalidDescriptor)?;
+        let dev_desc = DeviceDescriptor::try_from_bytes(&desc_buf).map_err(|_| EnumerationError::InvalidDescriptor)?;
         info!(
             "Device: VID={:04x} PID={:04x} class={:02x}",
             dev_desc.vendor_id, dev_desc.product_id, dev_desc.device_class
@@ -195,8 +196,9 @@ impl<D: UsbHostDriver> UsbHost<D> {
             return Err(EnumerationError::InvalidDescriptor);
         }
 
-        let config_header = ConfigDescriptor::parse(&config_buf[..9]).ok_or(EnumerationError::InvalidDescriptor)?;
-        let total_len = config_header.total_length as usize;
+        let config_header = ConfigurationDescriptor::try_from_bytes(&config_buf[..9])
+            .map_err(|_| EnumerationError::InvalidDescriptor)?;
+        let total_len = config_header.total_len as usize;
 
         if total_len > config_buf.len() {
             return Err(EnumerationError::InvalidDescriptor);
@@ -209,10 +211,10 @@ impl<D: UsbHostDriver> UsbHost<D> {
         trace!("Config descriptor: {} bytes", n);
 
         // Step 5: SET_CONFIGURATION
-        let setup = bytes_to_setup(&control::set_configuration(config_header.config_value));
+        let setup = bytes_to_setup(&control::set_configuration(config_header.configuration_value));
         ch.control_out(&setup, &[]).await?;
 
-        info!("Device configured (config={})", config_header.config_value);
+        info!("Device configured (config={})", config_header.configuration_value);
 
         // Channel is released on drop
         drop(ch);

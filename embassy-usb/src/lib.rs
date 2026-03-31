@@ -14,12 +14,9 @@ pub use embassy_usb_driver as driver;
 
 mod builder;
 pub mod class;
+pub mod config_descriptor;
 pub mod control;
 pub mod descriptor;
-#[allow(dead_code, missing_docs, unused_variables)]
-pub(crate) mod handlers;
-#[allow(dead_code, missing_docs)]
-pub mod host;
 pub mod msos;
 pub mod types;
 
@@ -28,9 +25,9 @@ mod config {
     include!(concat!(env!("OUT_DIR"), "/config.rs"));
 }
 
+use config_descriptor::ConfigurationDescriptor;
 use embassy_futures::select::{Either, select};
 use heapless::Vec;
-use host::descriptor::ConfigurationDescriptor;
 
 pub use crate::builder::{Builder, Config, FunctionBuilder, InterfaceAltBuilder, InterfaceBuilder, UsbVersion};
 use crate::config::{MAX_HANDLER_COUNT, MAX_INTERFACE_COUNT};

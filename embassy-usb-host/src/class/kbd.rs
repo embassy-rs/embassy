@@ -1,41 +1,31 @@
-//! Host driver for basic keyboard HID inputs
+//! Host driver for HID boot-protocol keyboards.
+#![allow(missing_docs)]
 
 use core::num::NonZeroU8;
 
+use bitflags::bitflags;
 use embassy_usb_driver::host::{HostError, UsbChannel, UsbHostDriver, channel};
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType};
 
-use super::{EnumerationInfo, HandlerEvent, RegisterError, UsbHostHandler};
-use crate::host::ControlChannelExt;
-use crate::host::descriptor::{DEFAULT_MAX_DESCRIPTOR_SIZE, InterfaceDescriptor, USBDescriptor};
+use crate::control::ControlChannelExt;
+use crate::descriptor::{DEFAULT_MAX_DESCRIPTOR_SIZE, InterfaceDescriptor, USBDescriptor};
+use crate::handler::{EnumerationInfo, HandlerEvent, RegisterError, UsbHostHandler};
 
 #[repr(C)]
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct KeyStatusUpdate {
-    /// Bitfield of modifiers keys:
-    /// LeftControl
-    /// LeftShift
-    /// LeftAlt
-    /// Left GUI
-    /// RightControl
-    /// RightShift
-    /// RightAlt
-    /// Right GUI
+    /// Modifier keys bitmask (LeftCtrl, LeftShift, LeftAlt, LeftGUI, RightCtrl, RightShift, RightAlt, RightGUI).
     pub modifiers: u8,
-    /// Reserved for OEM.
-    /// Should be ignored.
+    /// Reserved (OEM).
     pub reserved: u8,
-    /// Keycodes of currently pressed keys.
-    /// 0 -> not pressed
-    /// 1 -> rollover
-    /// See "HID Usage Tables FOR Universal Serial Bus (USB)" for all values.
+    /// Keycodes of currently pressed keys (0 = not pressed, 1 = rollover).
     pub keypress: [Option<NonZeroU8>; 6],
 }
 
 impl KeyStatusUpdate {
     fn from_buffer_unchecked(value: [u8; 8]) -> Self {
-        // SAFETY: Option<NonZeroU8> is None when u8 = 0
+        // SAFETY: Option<NonZeroU8> is None when the u8 value is 0.
         unsafe { core::mem::transmute(value) }
     }
 }
@@ -46,7 +36,7 @@ pub enum KbdEvent {
     KeyStatusUpdate(KeyStatusUpdate),
 }
 
-/// Host side driver for HID boot keyboard
+/// Host-side HID boot-keyboard driver.
 pub struct KbdHandler<H: UsbHostDriver> {
     interrupt_channel: H::Channel<channel::Interrupt, channel::In>,
     control_channel: H::Channel<channel::Control, channel::InOut>,
@@ -56,8 +46,8 @@ impl<H: UsbHostDriver> UsbHostHandler for KbdHandler<H> {
     type PollEvent = KbdEvent;
     type Driver = H;
 
-    fn static_spec() -> super::StaticHandlerSpec {
-        super::StaticHandlerSpec { device_filter: None }
+    fn static_spec() -> crate::handler::StaticHandlerSpec {
+        crate::handler::StaticHandlerSpec { device_filter: None }
     }
 
     async fn try_register(bus: &H, enum_info: &EnumerationInfo) -> Result<Self, RegisterError> {
@@ -96,7 +86,9 @@ impl<H: UsbHostDriver> UsbHostHandler for KbdHandler<H> {
             .find(|v| v.ep_type() == EndpointType::Interrupt && v.ep_dir() == Direction::In)
             .ok_or(RegisterError::NoSupportedInterface)?;
 
-        configuration.set_configuration(&mut control_channel).await?;
+        control_channel
+            .set_configuration(configuration.configuration_value)
+            .await?;
 
         let interrupt_channel = bus.alloc_channel::<channel::Interrupt, channel::In>(
             enum_info.device_address,
@@ -130,11 +122,9 @@ impl<H: UsbHostDriver> UsbHostHandler for KbdHandler<H> {
 
     async fn wait_for_event(&mut self) -> Result<HandlerEvent<Self::PollEvent>, HostError> {
         let mut buffer = [0u8; 8];
-
         debug!("[kbd]: Requesting interrupt IN");
         self.interrupt_channel.request_in(&mut buffer[..]).await?;
         debug!("[kbd]: Got interrupt {:?}", buffer);
-
         Ok(HandlerEvent::HandlerEvent(KbdEvent::KeyStatusUpdate(
             KeyStatusUpdate::from_buffer_unchecked(buffer),
         )))
@@ -142,23 +132,18 @@ impl<H: UsbHostDriver> UsbHostHandler for KbdHandler<H> {
 }
 
 bitflags! {
-    /// Command keyboard state options
+    /// Keyboard LED state.
     pub struct KeyboardState: u8 {
-        /// Enables NumLock
-        const NUM_LOCK   = 1 << 0;
-        /// Enables CapsLock
-        const CAPS_LOCK     = 1 << 1;
-        /// Enables ScrollLock
-        const SCROLL_LOCK   = 1 << 2;
-        /// Enables Compose-mode
-        const COMPOSE = 1 << 3;
-        /// Enables Kana-mode
-        const KANA    = 1 << 4;
+        const NUM_LOCK    = 1 << 0;
+        const CAPS_LOCK   = 1 << 1;
+        const SCROLL_LOCK = 1 << 2;
+        const COMPOSE     = 1 << 3;
+        const KANA        = 1 << 4;
     }
 }
 
 impl<H: UsbHostDriver> KbdHandler<H> {
-    /// Sets the state of the keyboard
+    /// SET_REPORT — update keyboard LEDs.
     pub async fn set_state(&mut self, state: &KeyboardState) -> Result<(), HostError> {
         const SET_REPORT: u8 = 0x09;
         const OUTPUT_REPORT: u16 = 2 << 8;
@@ -168,6 +153,7 @@ impl<H: UsbHostDriver> KbdHandler<H> {
     }
 }
 
+/// HID class descriptor (type 0x21).
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct HIDDescriptor {
     pub len: u8,
@@ -175,26 +161,19 @@ pub struct HIDDescriptor {
     pub bcd_hid: u16,
     pub country_code: u8,
     pub num_descriptors: u8,
-
-    // num_descriptors determines how many pairs of descriptor_typeI/descriptor_lengthI follow.
     pub descriptor_type0: u8,
     pub descriptor_length0: u16,
 }
 
 impl USBDescriptor for HIDDescriptor {
-    const SIZE: usize = 9; // only valid for 1 descriptor
+    const SIZE: usize = 9;
     const DESC_TYPE: u8 = 33;
-
     type Error = ();
 
     fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
-        if bytes.len() < Self::SIZE {
+        if bytes.len() < Self::SIZE || bytes[1] != Self::DESC_TYPE {
             return Err(());
         }
-        if bytes[1] != Self::DESC_TYPE {
-            return Err(());
-        }
-
         Ok(Self {
             len: bytes[0],
             descriptor_type: bytes[1],

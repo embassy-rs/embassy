@@ -76,7 +76,7 @@ async fn main(_spawner: Spawner) {
             host.driver(),
             &config_buf[..config_len],
             addr,
-            dev_desc.max_packet_size_0 as u16,
+            dev_desc.max_packet_size0 as u16,
         ) {
             Ok(c) => c,
             Err(e) => {

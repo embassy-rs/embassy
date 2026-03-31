@@ -20,7 +20,10 @@ features = ["defmt"]
 
 [dependencies]
 embassy-usb-driver = { version = "0.2.0", path = "../embassy-usb-driver" }
+embassy-time = { version = "0.5.1", path = "../embassy-time" }
 embedded-io-async = "0.7.0"
+bitflags = "2.6.0"
+zerocopy = { version = "0.8.2", features = ["derive"] }
 
 defmt = { version = "1", optional = true }
 log = { version = "0.4.14", optional = true }

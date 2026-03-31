@@ -1,19 +1,20 @@
 //! Host driver for USB hubs.
+#![allow(missing_docs)]
 //!
-//! It has it's own enumerate implementation to deal with the deferred `bus_reset` and state/speed detection.
-//! It requires the usb-driver to implement/support `Interrupt` `ChannelIn` endpoints (which resolves a call to `[ChannelIn::read]`).
+//! Handles the deferred bus reset and port state/speed detection required for hub enumeration.
+//! Requires the USB driver to support Interrupt IN channels.
 
 use core::num::NonZeroU8;
 
+use bitflags::bitflags;
 use embassy_time::Timer;
 use embassy_usb_driver::host::{HostError, RequestType, SetupPacket, UsbChannel, UsbHostDriver, channel};
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
-use super::{EnumerationInfo, HandlerEvent, RegisterError, UsbHostHandler};
-use crate::control::Request;
-use crate::host::ControlChannelExt;
-use crate::host::descriptor::{DEFAULT_MAX_DESCRIPTOR_SIZE, InterfaceDescriptor, USBDescriptor};
+use crate::control::{CLEAR_FEATURE, ControlChannelExt, GET_STATUS, SET_FEATURE};
+use crate::descriptor::{DEFAULT_MAX_DESCRIPTOR_SIZE, InterfaceDescriptor, USBDescriptor};
+use crate::handler::{EnumerationInfo, HandlerEvent, RegisterError, UsbHostHandler};
 
 pub struct HubHandler<H: UsbHostDriver, const MAX_PORTS: usize> {
     interrupt_channel: H::Channel<channel::Interrupt, channel::In>,
@@ -35,12 +36,13 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> UsbHostHandler for HubHandler<H, 
     type PollEvent = HubEvent;
     type Driver = H;
 
-    fn static_spec() -> super::StaticHandlerSpec {
-        super::StaticHandlerSpec {
-            device_filter: Some(super::DeviceFilter {
+    fn static_spec() -> crate::handler::StaticHandlerSpec {
+        use crate::handler::{DeviceFilter, StaticHandlerSpec};
+        StaticHandlerSpec {
+            device_filter: Some(DeviceFilter {
                 base_class: Some(unsafe { NonZeroU8::new_unchecked(0x09) }), // Hub
                 sub_class: Some(0x00),
-                protocol: None, // 00 for FS, otherwise HS or higher
+                protocol: None,
             }),
         }
     }
@@ -101,11 +103,9 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> UsbHostHandler for HubHandler<H, 
             speed: enum_info.speed,
         };
 
-        // Power-On ports
         for port in 0..hub.desc.port_num {
             hub.port_feature(true, PortFeature::Power, port, 0).await?;
         }
-
         Timer::after_millis(hub.desc.power_on_delay as u64 * 2).await;
 
         Ok(hub)
@@ -113,50 +113,35 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> UsbHostHandler for HubHandler<H, 
 
     async fn wait_for_event(&mut self) -> Result<HandlerEvent<HubEvent>, HostError> {
         loop {
-            // Wait for status change
             let mut buf = [0u8; 16];
-            // 1 bit per port + 1 reserved
             let slice = &mut buf[..(self.desc.port_num as usize / 8) + 1];
             self.interrupt_channel.request_in(slice).await?;
 
             let mut hub_changes = HubInterrupt(slice);
             while let Some(port) = hub_changes.take_port_change() {
-                trace!(
-                    "HUB {}: port {} is changed, requesting status",
-                    self.device_address, port
-                );
+                trace!("HUB {}: port {} changed, requesting status", self.device_address, port);
 
-                // Get status
                 let (status, change) = self.get_port_status(port as u8).await?;
                 debug!(
                     "HUB {}: port {} status: {:?} change: {:?}",
                     self.device_address, port, status, change
                 );
 
-                // TODO: Overcurrent protection
-                // Clear reset change after reset
                 if change.contains(PortStatusChange::RESET) {
                     self.port_feature(false, PortFeature::ChangeReset, port, 0).await?;
                 }
 
                 if change.contains(PortStatusChange::CONNECT) {
-                    // Clear connect status change
                     self.port_feature(false, PortFeature::ChangeConnection, port, 0).await?;
                     match status.contains(PortStatus::CONNECTED) {
-                        // Device connected, perform bus reset and configure
                         true => {
-                            // Determine speed
                             let speed: Speed = status.into();
-
                             debug!(
-                                "HUB {}: Device connected to port {} with {:?} speed",
+                                "HUB {}: Device connected to port {} at {:?}",
                                 self.device_address, port, speed
                             );
-
-                            // User can now `enumerate_port`
                             return Ok(HandlerEvent::HandlerEvent(HubEvent::DeviceDetected { port, speed }));
                         }
-                        // Device disconnected, remove from registry
                         false => {
                             debug!("HUB {}: Device disconnected from port {}", self.device_address, port);
                             let device_ref = self.device_lut.get_mut(port as usize);
@@ -173,75 +158,55 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> UsbHostHandler for HubHandler<H, 
 }
 
 impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
-    async fn enumerate_port<'a>(
+    /// Reset a port and enumerate the device attached to it.
+    pub async fn enumerate_port(
         &mut self,
         port: u8,
         speed: Speed,
         new_device_address: u8,
     ) -> Result<EnumerationInfo, HostError> {
-        // NOTE: we probably could do this in the wait loop but it would require a arc mutex registry which seems unnecessary
         self.port_feature(true, PortFeature::Reset, port, 0).await?;
         Timer::after_millis(50).await;
         self.port_feature(false, PortFeature::ChangeReset, port, 0).await?;
 
         let ls_pre = matches!((speed, self.speed), (Speed::Low, Speed::Full | Speed::High));
-
         self.control_channel
             .enumerate_device(speed, new_device_address, ls_pre)
             .await
     }
 
-    /// Set/Clear PortFeature
-    ///
-    /// USB 2.0 Spec: 11.24.2.13,1
     async fn port_feature(&mut self, set: bool, feature: PortFeature, port: u8, selector: u8) -> Result<(), HostError> {
         let setup = SetupPacket {
             request_type: RequestType::OUT | RequestType::TYPE_CLASS | RequestType::RECIPIENT_OTHER,
-            request: if set {
-                Request::SET_FEATURE
-            } else {
-                Request::CLEAR_FEATURE
-            },
+            request: if set { SET_FEATURE } else { CLEAR_FEATURE },
             value: feature as u16,
             index: ((selector as u16) << 8) | (port + 1) as u16,
             length: 0,
         };
-
         self.control_channel.control_out(&setup, &[]).await?;
         Ok(())
     }
 
-    /// GetPortStatus
-    ///
-    /// USB 2.0 Spec: 11.24.2.7
     async fn get_port_status(&mut self, port: u8) -> Result<(PortStatus, PortStatusChange), HostError> {
         let setup = SetupPacket {
             request_type: RequestType::IN | RequestType::TYPE_CLASS | RequestType::RECIPIENT_OTHER,
-            request: Request::GET_STATUS,
+            request: GET_STATUS,
             value: 0,
             index: (port + 1) as u16,
             length: 4,
         };
-
         let mut buf = [0u16; 2];
-
         self.control_channel.control_in(&setup, buf.as_mut_bytes()).await?;
-
-        let status = PortStatus::from_bits_truncate(buf[0]);
-        let change = PortStatusChange::from_bits_truncate(buf[1]);
-
-        Ok((status, change))
+        Ok((
+            PortStatus::from_bits_truncate(buf[0]),
+            PortStatusChange::from_bits_truncate(buf[1]),
+        ))
     }
 }
 
-pub struct HubInterrupt<'a>(&'a mut [u8]);
+struct HubInterrupt<'a>(&'a mut [u8]);
 
-impl<'a> HubInterrupt<'a> {
-    fn is_hub_change(&self) -> bool {
-        // SAFETY: at least one byte is required by construction
-        (unsafe { self.0.get_unchecked(0) } & 1 != 0)
-    }
-
+impl HubInterrupt<'_> {
     fn take_port_change(&mut self) -> Option<u8> {
         self.0
             .iter_mut()
@@ -255,7 +220,7 @@ impl<'a> HubInterrupt<'a> {
     }
 }
 
-/// USB 2.0 Spec heading: 11.23.2.1
+/// USB 2.0 Spec 11.23.2.1
 #[derive(KnownLayout, FromBytes, Immutable, Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C)]
@@ -265,35 +230,27 @@ struct HubDescriptor {
     port_num: u8,
     characteristics0: u8,
     characteristics1: u8,
-    /// ms x 2
+    /// Power-on delay in units of 2ms.
     power_on_delay: u8,
-    /// Maximum controller current
     max_current: u8,
-    /// 8 + 8 bits per port, at max 127 ports => 32 bytes
     port_buf: [u8; 32],
 }
 
 impl USBDescriptor for HubDescriptor {
     const SIZE: usize = core::mem::size_of::<Self>();
-
     const DESC_TYPE: u8 = 0x29;
-
     type Error = ();
 
-    fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error>
-    where
-        Self: Sized,
-    {
+    fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
         let (byref, _) = Self::ref_from_prefix(bytes).map_err(|_| ())?;
         if byref.desc_type != Self::DESC_TYPE {
             return Err(());
         }
-
         Ok(byref.clone())
     }
 }
 
-/// USB 2.0 Spec: 11.24.2 Table 11-17
+#[allow(dead_code)]
 #[derive(Clone, Copy)]
 #[repr(u8)]
 enum PortFeature {
@@ -314,41 +271,52 @@ enum PortFeature {
 }
 
 bitflags! {
-    /// USB 2.0 Spec: 11.24.2.7.1
+    /// USB 2.0 Spec 11.24.2.7.1
     struct PortStatus: u16 {
         const CONNECTED   = 1 << 0;
         const ENABLED     = 1 << 1;
         const SUSPENDED   = 1 << 2;
         const OVERCURRENT = 1 << 3;
         const RESET       = 1 << 4;
-        // Reserved: 5..8
         const POWERED     = 1 << 8;
         const LOW_SPEED   = 1 << 9;
         const HIGH_SPEED  = 1 << 10;
         const TEST_MODE   = 1 << 11;
         const INDICATOR_CUSTOM_COLOR = 1 << 12;
-        // Reserved: 13..16
     }
 }
 
 bitflags! {
-    /// USB 2.0 Spec: 11.24.2.7.2
+    /// USB 2.0 Spec 11.24.2.7.2
     struct PortStatusChange: u16 {
         const CONNECT     = 1 << 0;
         const ENABLE      = 1 << 1;
         const SUSPEND     = 1 << 2;
         const OVERCURRENT = 1 << 3;
         const RESET       = 1 << 4;
-        // Reserved: 5..16
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for PortStatus {
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!(fmt, "PortStatus({=u16:b})", self.bits());
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for PortStatusChange {
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!(fmt, "PortStatusChange({=u16:b})", self.bits());
     }
 }
 
 impl From<PortStatus> for Speed {
     fn from(value: PortStatus) -> Self {
-        let ls = value.contains(PortStatus::LOW_SPEED);
-        let hs = value.contains(PortStatus::HIGH_SPEED);
-
-        match (ls, hs) {
+        match (
+            value.contains(PortStatus::LOW_SPEED),
+            value.contains(PortStatus::HIGH_SPEED),
+        ) {
             (true, _) => Speed::Low,
             (false, false) => Speed::Full,
             (false, true) => Speed::High,

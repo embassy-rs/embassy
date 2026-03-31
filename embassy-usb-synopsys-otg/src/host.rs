@@ -3,12 +3,12 @@
 use core::cell::UnsafeCell;
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use portable_atomic::{AtomicBool, AtomicU8, Ordering};
 use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::host::{ChannelError, DeviceEvent, HostError, SetupPacket, UsbChannel, UsbHostDriver, channel};
 use embassy_usb_driver::{EndpointInfo, EndpointType, Speed};
+use portable_atomic::{AtomicBool, AtomicU8, Ordering};
 
 use crate::PhyType;
 use crate::otg_v1::{Otg, vals};

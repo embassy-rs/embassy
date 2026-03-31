@@ -7,7 +7,7 @@ use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInf
 
 pub use super::hid_report::{ReportDescriptor, ReportField};
 use crate::bytes_to_setup;
-use crate::descriptor::{DescriptorIter, EndpointDescriptor, InterfaceDescriptor, descriptor_type};
+use crate::descriptor::ConfigurationDescriptor;
 
 /// HID class code.
 const USB_CLASS_HID: u8 = 0x03;
@@ -159,57 +159,40 @@ pub struct HidInfo {
 
 /// Find the first HID interface in a configuration descriptor.
 pub fn find_hid(config_desc: &[u8]) -> Option<HidInfo> {
-    let mut hid_iface: Option<u8> = None;
-    let mut report_desc_len: u16 = 0;
-    let mut interrupt_in: Option<(u8, u16)> = None;
-    let mut in_hid_iface = false;
+    let cfg = ConfigurationDescriptor::try_from_slice(config_desc).ok()?;
 
-    for (desc_type, desc_data) in DescriptorIter::new(config_desc) {
-        match desc_type {
-            descriptor_type::INTERFACE => {
-                if let Some(iface) = InterfaceDescriptor::parse(desc_data) {
-                    if iface.interface_class == USB_CLASS_HID {
-                        hid_iface = Some(iface.interface_number);
-                        in_hid_iface = true;
-                    } else {
-                        in_hid_iface = false;
-                    }
-                }
-            }
-            // HID class descriptor (type 0x21): extract the report descriptor length.
-            // Layout: bLength, bDescriptorType(0x21), bcdHID(2), bCountryCode,
-            //         bNumDescriptors, bDescriptorType(0x22), wDescriptorLength(2)
-            DESC_HID if in_hid_iface => {
-                if desc_data.len() >= 7 {
-                    report_desc_len = u16::from_le_bytes([desc_data[5], desc_data[6]]);
-                }
-            }
-            descriptor_type::ENDPOINT if in_hid_iface => {
-                if let Some(ep) = EndpointDescriptor::parse(desc_data) {
-                    if ep.transfer_type() == TRANSFER_INTERRUPT && ep.is_in() {
-                        interrupt_in = Some((ep.endpoint_address, ep.max_packet_size));
-                        in_hid_iface = false;
-                    }
-                }
-            }
-            _ => {}
+    for iface in cfg.iter_interface() {
+        if iface.interface_class != USB_CLASS_HID {
+            continue;
         }
 
-        if hid_iface.is_some() && interrupt_in.is_some() {
-            break;
-        }
-    }
+        // Extract report descriptor length from the HID class descriptor (type 0x21).
+        // Layout: bLength, bDescriptorType(0x21), bcdHID(2), bCountryCode,
+        //         bNumDescriptors, bDescriptorType(0x22), wDescriptorLength(2)
+        let report_desc_len = iface
+            .iter_descriptors()
+            .find_map(|(_, data)| {
+                if data.len() >= 7 && data[1] == DESC_HID {
+                    Some(u16::from_le_bytes([data[5], data[6]]))
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0);
 
-    if let (Some(iface), Some((ep, mps))) = (hid_iface, interrupt_in) {
-        Some(HidInfo {
-            interface_number: iface,
-            interrupt_in_ep: ep,
-            interrupt_in_mps: mps,
+        let ep = iface
+            .iter_endpoints()
+            .find(|ep| ep.transfer_type() == TRANSFER_INTERRUPT && ep.is_in())?;
+
+        return Some(HidInfo {
+            interface_number: iface.interface_number,
+            interrupt_in_ep: ep.endpoint_address,
+            interrupt_in_mps: ep.max_packet_size,
             report_descriptor_len: report_desc_len,
-        })
-    } else {
-        None
+        });
     }
+
+    None
 }
 
 /// HID host class driver error.

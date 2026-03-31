@@ -1,9 +1,11 @@
+//! Parsed USB descriptor types used by the device stack.
+#![allow(missing_docs)]
+
 use embassy_usb_driver::host::HostError;
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType};
 
 use crate::descriptor::descriptor_type;
 
-pub(crate) const DEFAULT_MAX_DESCRIPTOR_SIZE: usize = 512;
 pub type StringIndex = u8;
 
 #[derive(Debug)]
@@ -11,35 +13,6 @@ pub type StringIndex = u8;
 pub enum DescriptorError {
     BadDescriptorType,
     UnexpectedEndOfBuffer,
-}
-
-/// First 8 bytes of the DeviceDescriptor. This is used to figure out the `max_packet_size0` value to reconfigure channel 0.
-/// All USB devices support max_packet_size0=8 which is why the first 8 bytes of the descriptor can always be read.
-#[allow(missing_docs)]
-#[derive(Debug)]
-pub struct DeviceDescriptorPartial {
-    _padding: [u8; 7],
-    pub max_packet_size0: u8,
-}
-
-#[derive(Copy, Clone, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[allow(missing_docs)]
-pub struct DeviceDescriptor {
-    pub len: u8,
-    pub descriptor_type: u8,
-    pub bcd_usb: u16,
-    pub device_class: u8,
-    pub device_subclass: u8,
-    pub device_protocol: u8,
-    pub max_packet_size0: u8,
-    pub vendor_id: u16,
-    pub product_id: u16,
-    pub bcd_device: u16,
-    pub manufacturer: StringIndex,
-    pub product: StringIndex,
-    pub serial_number: StringIndex,
-    pub num_configurations: u8,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -93,59 +66,6 @@ pub trait USBDescriptor {
     fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error>
     where
         Self: Sized;
-}
-
-impl USBDescriptor for DeviceDescriptorPartial {
-    const SIZE: usize = 8;
-
-    const DESC_TYPE: u8 = descriptor_type::DEVICE;
-
-    type Error = ();
-
-    fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
-        if bytes.len() < Self::SIZE {
-            return Err(());
-        }
-        if bytes[1] != Self::DESC_TYPE {
-            return Err(());
-        }
-        Ok(Self {
-            _padding: [0; 7],
-            max_packet_size0: bytes[7],
-        })
-    }
-}
-
-impl USBDescriptor for DeviceDescriptor {
-    const SIZE: usize = 18;
-
-    const DESC_TYPE: u8 = descriptor_type::DEVICE;
-    type Error = ();
-
-    fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
-        if bytes.len() < Self::SIZE {
-            return Err(());
-        }
-        if bytes[1] != Self::DESC_TYPE {
-            return Err(());
-        }
-        Ok(Self {
-            len: bytes[0],
-            descriptor_type: bytes[1],
-            bcd_usb: u16::from_le_bytes([bytes[2], bytes[3]]),
-            device_class: bytes[4],
-            device_subclass: bytes[5],
-            device_protocol: bytes[6],
-            max_packet_size0: bytes[7],
-            vendor_id: u16::from_le_bytes([bytes[8], bytes[9]]),
-            product_id: u16::from_le_bytes([bytes[10], bytes[11]]),
-            bcd_device: u16::from_le_bytes([bytes[12], bytes[13]]),
-            manufacturer: bytes[14],
-            product: bytes[15],
-            serial_number: bytes[16],
-            num_configurations: bytes[17],
-        })
-    }
 }
 
 impl USBDescriptor for ConfigurationDescriptor<'_> {
@@ -249,12 +169,6 @@ impl<'a> ConfigurationDescriptor<'a> {
             offset: first_interface_offset,
             cfg_desc: self,
         }
-    }
-
-    fn buffer_sliced(&self) -> &[u8] {
-        // The configuration descriptor's own bytes are already consumed.
-        let end = self.total_len as usize - Self::SIZE;
-        &self.buffer[..end]
     }
 }
 
