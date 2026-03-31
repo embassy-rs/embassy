@@ -499,8 +499,6 @@ impl<'d, T: Instance> Ltdc<'d, T> {
             Err(Error::FifoUnderrun)
         } else if bits.terrif() {
             Err(Error::TransferError)
-        } else if bits.lif() {
-            panic!("line interrupt event is disabled")
         } else if bits.rrif() {
             // register reload flag is expected
             Ok(())
@@ -510,6 +508,34 @@ impl<'d, T: Instance> Ltdc<'d, T> {
 
         Self::clear_interrupt_flags();
         result
+    }
+
+    /// Get the total height including blanking.
+    pub fn total_height(&self) -> u16 {
+        T::regs().twcr().read().totalh()
+    }
+
+    /// Wait for a line interrupt to be generated for the specified position
+    pub async fn wait_line(&mut self, line: u16) {
+        T::regs().lipcr().write(|w| w.set_lipos(line));
+
+        poll_fn(|cx| {
+            if T::regs().isr().read().lif() {
+                T::regs().icr().write(|w| w.set_clif(Clif::CLEAR));
+                return Poll::Ready(());
+            }
+
+            LTDC_WAKER.register(cx.waker());
+
+            T::regs().icr().write(|w| w.set_clif(Clif::CLEAR));
+            T::regs().ier().modify(|w| w.set_lie(true));
+
+            T::Interrupt::unpend();
+            unsafe { T::Interrupt::enable() };
+
+            Poll::Pending
+        })
+        .await;
     }
 
     fn setup_clocks() {
@@ -534,16 +560,14 @@ impl<'d, T: Instance> Ltdc<'d, T> {
     fn clear_interrupt_flags() {
         T::regs().icr().write(|w| {
             w.set_cfuif(Cfuif::CLEAR);
-            w.set_clif(Clif::CLEAR);
             w.set_crrif(Crrif::CLEAR);
             w.set_cterrif(Cterrif::CLEAR);
         });
     }
 
     fn enable_interrupts(enable: bool) {
-        T::regs().ier().write(|w| {
+        T::regs().ier().modify(|w| {
             w.set_fuie(enable);
-            w.set_lie(false); // we are not interested in the line interrupt enable event
             w.set_rrie(enable);
             w.set_terrie(enable)
         });

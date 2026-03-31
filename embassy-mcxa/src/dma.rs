@@ -144,22 +144,10 @@ pub(crate) fn init() {
         w.set_gmrc(true);
     });
 
-    // REVISIT: This needs to be improved.
-    //
     // Enable all DMA request lines for non-secure access.
-    #[cfg(feature = "mcxa5xx")]
-    {
-        let ahbsc = crate::pac::AHBSC;
-        ahbsc.sec_gp_reg0().write(|w| w.0 = 0xffff_ffff);
-        ahbsc.sec_gp_reg1().write(|w| w.0 = 0xffff_ffff);
-        ahbsc.sec_gp_reg2().write(|w| w.0 = 0xffff_ffff);
-        ahbsc.sec_gp_reg3().write(|w| w.0 = 0xffff_ffff);
-        ahbsc.sec_gp_reg4().write(|w| w.0 = 0xffff_ffff);
-        ahbsc.sec_gp_reg5().write(|w| w.0 = 0xffff_ffff);
-        ahbsc.sec_gp_reg6().write(|w| w.0 = 0xffff_ffff);
-        ahbsc.sec_gp_reg7().write(|w| w.0 = 0xffff_ffff);
-        ahbsc.sec_gp_reg8().write(|w| w.0 = 0xffff_ffff);
-        ahbsc.sec_gp_reg9().write(|w| w.0 = 0xffff_ffff);
+    #[cfg(all(feature = "mcxa5xx", feature = "dma-ipd-req"))]
+    for sec_gp_i in 0..=9 {
+        crate::pac::AHBSC.sec_gp_reg(sec_gp_i).write(|w| w.0 = 0xffff_ffff);
     }
 }
 

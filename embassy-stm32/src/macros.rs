@@ -106,6 +106,29 @@ macro_rules! pin_trait_afio_impl {
     };
 }
 
+#[cfg(any(comp_u5, comp_v2, opamp))]
+macro_rules! analog_pin_trait {
+    ($signal:ident, $instance:path $(, $mode:path)?) => {
+        #[doc = concat!(stringify!($signal), " pin trait")]
+        pub trait $signal<T: $instance $(, M: $mode)?>: crate::gpio::Pin {
+            #[cfg(not(afio))]
+            #[doc = concat!("Get the channel number needed to use this pin as ", stringify!($signal))]
+            fn channel(&self) -> u8;
+        }
+    };
+}
+
+#[cfg(any(comp_u5, comp_v2, opamp))]
+macro_rules! analog_pin_trait_impl {
+    (crate::$mod:ident::$trait:ident$(<$mode:ident>)?, $instance:ident, $pin:ident, $channel:expr) => {
+        impl crate::$mod::$trait<crate::peripherals::$instance $(, crate::$mod::$mode)?> for crate::peripherals::$pin {
+            fn channel(&self) -> u8 {
+                $channel
+            }
+        }
+    };
+}
+
 #[allow(unused_macros)]
 macro_rules! sel_trait_impl {
     (crate::$mod:ident::$trait:ident$(<$mode:ident>)?, $instance:ident, $pin:ident, $sel:expr) => {

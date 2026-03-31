@@ -164,7 +164,7 @@ impl<'a> ops::DerefMut for RtcBorrow<'a> {
 /// RTC driver.
 pub struct Rtc {
     #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
-    epoch: chrono::DateTime<chrono::Utc>,
+    epoch: i64,
     _private: (),
 }
 
@@ -218,12 +218,12 @@ impl Rtc {
 
         let mut this = Self {
             #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
-            epoch: chrono::DateTime::from_timestamp_secs(0).unwrap(),
+            epoch: 0i64,
             _private: (),
         };
 
         let frequency = Self::frequency();
-        let async_psc = ((frequency.0 / rtc_config.frequency.0) - 1) as u8;
+        let async_psc = ((frequency / rtc_config.frequency) - 1) as u8;
         let sync_psc = (rtc_config.frequency.0 - 1) as u16;
 
         this.configure(async_psc, sync_psc);
@@ -238,15 +238,14 @@ impl Rtc {
         #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
         {
             this.enable_wakeup_line();
-            this.epoch = this.calc_epoch();
+            this.reset_epoch();
         }
 
         this
     }
 
     fn frequency() -> Hertz {
-        let freqs = unsafe { crate::rcc::get_freqs() };
-        freqs.rtc.to_hertz().unwrap()
+        unsafe { crate::rcc::get_freqs() }.rtc.to_hertz().unwrap()
     }
 
     /// Set the datetime to a new value.
@@ -290,9 +289,7 @@ impl Rtc {
         });
 
         #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
-        {
-            self.epoch = self.calc_epoch();
-        }
+        self.reset_epoch();
 
         Ok(())
     }
@@ -307,7 +304,10 @@ impl Rtc {
     pub fn set_daylight_savings(&mut self, daylight_savings: bool) {
         self.write(true, |rtc| {
             rtc.cr().modify(|w| w.set_bkp(daylight_savings));
-        })
+        });
+
+        #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
+        self.reset_epoch();
     }
 
     /// Number of backup registers of this instance.

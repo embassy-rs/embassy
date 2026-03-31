@@ -321,6 +321,25 @@ impl<'d, M: Mode> rand_core_09::RngCore for CcRng<'d, M> {
 
 impl<'d, M: Mode> rand_core_09::CryptoRng for CcRng<'d, M> {}
 
+impl<'d, M: Mode> rand_core_10::TryRng for CcRng<'d, M> {
+    type Error = core::convert::Infallible;
+
+    fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+        Ok(self.blocking_next_u32())
+    }
+
+    fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+        Ok(self.blocking_next_u64())
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Self::Error> {
+        self.blocking_fill_bytes(dest);
+        Ok(())
+    }
+}
+
+impl<'d, M: Mode> rand_core_10::TryCryptoRng for CcRng<'d, M> {}
+
 /// Peripheral static state
 pub(crate) struct State {
     inner: Mutex<RefCell<InnerState>>,

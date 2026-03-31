@@ -6,12 +6,15 @@
 use core::cell::RefCell;
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use embassy_stm32::peripherals::RNG;
+use embassy_stm32::aes::Aes;
+use embassy_stm32::mode::Blocking;
+use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph, RNG};
+use embassy_stm32::pka::Pka;
 use embassy_stm32::rng::Rng;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
-use crate::linklayer_plat::HARDWARE_RNG;
+use crate::linklayer_plat::{HARDWARE_AES, HARDWARE_PKA, HARDWARE_RNG};
 use crate::wba::error::BleError;
 use crate::wba::gap::Advertiser;
 use crate::wba::gap::connection::{
@@ -19,6 +22,7 @@ use crate::wba::gap::connection::{
     MAX_CONNECTIONS,
 };
 use crate::wba::gap::scanner::Scanner;
+use crate::wba::gap_init::{GapInitParams, init_gap_and_hal};
 use crate::wba::hci::command::CommandSender;
 use crate::wba::hci::event::{Event, EventParams, read_event};
 use crate::wba::hci::types::{Address, Handle, Status};
@@ -62,9 +66,38 @@ pub struct Ble {
 impl Ble {
     /// Create a new BLE instance
     ///
+    /// Requires hardware peripheral instances for RNG, AES, and PKA.
+    /// These are stored in statics so the BLE stack's `extern "C"` callbacks can access them.
+    ///
     /// Note: You must call `init()` before using other BLE functionality.
-    pub fn new(rng: &'static Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>) -> Self {
-        unsafe { HARDWARE_RNG.replace(rng) };
+    pub fn new(
+        rng: &'static Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>,
+        aes: &'static Mutex<CriticalSectionRawMutex, RefCell<Aes<'static, AesPeriph, Blocking>>>,
+        pka: &'static Mutex<CriticalSectionRawMutex, RefCell<Pka<'static, PkaPeriph>>>,
+    ) -> Self {
+        unsafe {
+            HARDWARE_RNG.replace(rng);
+            HARDWARE_AES.replace(aes);
+            HARDWARE_PKA.replace(pka);
+        }
+
+        Self {
+            cmd_sender: CommandSender::new(),
+            initialized: AtomicBool::new(false),
+            connections: ConnectionManager::new(),
+        }
+    }
+
+    /// Create a BLE instance for Direct Test Mode (DTM) only.
+    ///
+    /// Only RNG is required; AES and PKA are left unset. Use this for FCC DTM
+    /// (TX test, RX test, tone) where no pairing or crypto is used. Do not use
+    /// for full BLE (advertising, connections, GATT) as those require AES/PKA.
+    pub fn new_dtm(rng: &'static Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>) -> Self {
+        unsafe {
+            HARDWARE_RNG.replace(rng);
+            // HARDWARE_AES and HARDWARE_PKA remain None
+        }
 
         Self {
             cmd_sender: CommandSender::new(),
@@ -76,14 +109,22 @@ impl Ble {
     /// Initialize the BLE stack
     ///
     /// This function performs the following initialization steps:
-    /// 1. Resets the BLE controller
-    /// 2. Reads and logs the local version information
-    /// 3. Reads the BD address
-    /// 4. Sets the event mask
-    /// 5. Reads buffer sizes
-    /// 6. Reads supported features
+    /// 1. Initializes BLE host stack (BleStack_Init)
+    /// 2. Resets the BLE controller
+    /// 3. Reads and logs the local version information
+    /// 4. Reads the BD address
+    /// 5. Sets the event mask
+    /// 6. Reads buffer sizes
+    /// 7. Reads supported features
+    /// 8. Initializes GATT layer (aci_gatt_init) - MUST be before GAP!
+    /// 9. Initializes GAP and HAL (aci_gap_init, aci_hal_write_config_data, etc.)
     ///
     /// Must be called before any other BLE operations.
+    ///
+    /// # Initialization Order
+    ///
+    /// The order is critical: GATT initialization MUST happen before GAP initialization.
+    /// This matches ST's BLE_HeartRate example sequence.
     ///
     /// # Returns
     ///
@@ -102,6 +143,11 @@ impl Ble {
             defmt::error!("BLE stack initialization failed: 0x{:02X}", status);
             BleError::InitializationFailed
         })?;
+
+        // Register BLE tasks with the sequencer (required for BleStackCB_Process to work)
+        // This matches ST's APP_BLE_Init which calls:
+        //   UTIL_SEQ_RegTask(1U << CFG_TASK_BLE_HOST, UTIL_SEQ_RFU, BleStack_Process_BG);
+        crate::wba::runner::register_ble_tasks();
 
         #[cfg(feature = "defmt")]
         defmt::info!("Ble::init: BLE stack initialized, sending HCI reset");
@@ -191,6 +237,32 @@ impl Ble {
                 defmt::warn!("le_read_local_supported_features failed: {:?} (skipping)", e);
             }
         }
+
+        // 7. Initialize GATT layer (MUST be done BEFORE GAP initialization!)
+        // Per ST's BLE_HeartRate: aci_gatt_init() is called before aci_gap_init()
+        #[cfg(feature = "defmt")]
+        defmt::info!("Initializing GATT layer...");
+
+        // Call aci_gatt_init from gatt module
+        crate::wba::gatt::server::init_gatt_layer()?;
+
+        #[cfg(feature = "defmt")]
+        defmt::info!("GATT layer initialized");
+
+        // 8. Initialize GAP and HAL (AFTER GATT!)
+        // This is the critical step that ST's BLE_HeartRate does in Ble_Hci_Gap_Gatt_Init().
+        // It configures BD address, IR/ER keys, TX power, PHY, and initializes the GAP layer.
+        #[cfg(feature = "defmt")]
+        defmt::info!("Initializing GAP and HAL...");
+
+        // Use BD address we just read
+        let mut gap_params = GapInitParams::default();
+        gap_params.bd_addr.copy_from_slice(&bd_addr);
+
+        let _gap_handles = init_gap_and_hal(&gap_params)?;
+
+        #[cfg(feature = "defmt")]
+        defmt::info!("GAP and HAL initialized");
 
         self.initialized.store(true, Ordering::Release);
 

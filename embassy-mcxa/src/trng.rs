@@ -637,6 +637,25 @@ impl<'d, M: Mode> rand_core_09::RngCore for Trng<'d, M> {
 
 impl<'d, M: Mode> rand_core_09::CryptoRng for Trng<'d, M> {}
 
+impl<'d, M: Mode> rand_core_10::TryRng for Trng<'d, M> {
+    type Error = core::convert::Infallible;
+
+    fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+        Ok(self.blocking_next_u32())
+    }
+
+    fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+        Ok(self.blocking_next_u64())
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Self::Error> {
+        self.blocking_fill_bytes(dest);
+        Ok(())
+    }
+}
+
+impl<'d, M: Mode> rand_core_10::TryCryptoRng for Trng<'d, M> {}
+
 impl<'d, M: Mode> rand_core_06::block::BlockRngCore for Trng<'d, M> {
     type Item = u32;
     type Results = [Self::Item; BLOCK_SIZE];

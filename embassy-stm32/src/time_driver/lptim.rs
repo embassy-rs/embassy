@@ -271,11 +271,6 @@ impl super::LPTimeDriver for RtcDriver {
         trace!("resume_time");
         self.is_stopped.store(false, Ordering::Relaxed);
     }
-
-    /// Returns whether time is currently "stopped"
-    fn is_stopped(&self) -> bool {
-        self.is_stopped.load(Ordering::Relaxed)
-    }
 }
 
 impl Driver for RtcDriver {

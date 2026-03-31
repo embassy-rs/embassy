@@ -324,9 +324,8 @@ pub fn init_ble_stack() -> Result<(), u8> {
         #[cfg(feature = "defmt")]
         defmt::trace!("init_ble_stack: BleStack_Init succeeded");
 
-        // 4. Call ll_sys_dependencies_init after BleStack_Init
-        // This is required for deep sleep, background tasks, etc.
-        ll_sys_dependencies_init();
+        // Note: ll_sys_dependencies_init() is already called by ll_sys_ble_cntrl_init()
+        // which is invoked internally by BleStack_Init(). No need to call it again here.
 
         #[cfg(feature = "defmt")]
         defmt::info!("init_ble_stack: BLE stack initialized successfully");

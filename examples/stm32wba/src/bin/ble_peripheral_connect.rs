@@ -21,15 +21,20 @@ use core::cell::RefCell;
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::peripherals::RNG;
+use embassy_stm32::aes::{self, Aes};
+use embassy_stm32::mode::Blocking;
+use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph, RNG};
+use embassy_stm32::pka::{self, Pka};
 use embassy_stm32::rcc::{
-    AHB5Prescaler, AHBPrescaler, APBPrescaler, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale, mux,
+    AHB5Prescaler, AHBPrescaler, APBPrescaler, Hse, HsePrescaler, LsConfig, LseConfig, LseDrive, LseMode, PllDiv,
+    PllMul, PllPreDiv, PllSource, RtcClockSource, Sysclk, VoltageScale, mux,
 };
 use embassy_stm32::rng::{self, Rng};
-use embassy_stm32::{Config, bind_interrupts};
+use embassy_stm32::time::Hertz;
+use embassy_stm32::{Config, bind_interrupts, interrupt};
 use embassy_stm32_wpan::gap::{AdvData, AdvParams, AdvType, GapEvent};
 use embassy_stm32_wpan::gatt::{CharProperties, GattEventMask, GattServer, SecurityPermissions, ServiceType, Uuid};
-use embassy_stm32_wpan::{Ble, ble_runner};
+use embassy_stm32_wpan::{Ble, ble_runner, run_radio_high_isr, run_radio_sw_low_isr};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use static_cell::StaticCell;
@@ -37,7 +42,21 @@ use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<embassy_stm32::peripherals::RNG>;
+    AES => aes::InterruptHandler<AesPeriph>;
+    PKA => pka::InterruptHandler<PkaPeriph>;
 });
+
+// RADIO interrupt handler - required for BLE stack operation
+#[interrupt]
+unsafe fn RADIO() {
+    unsafe { run_radio_high_isr() };
+}
+
+// HASH interrupt handler - used as software low-priority interrupt for BLE
+#[interrupt]
+unsafe fn HASH() {
+    unsafe { run_radio_sw_low_isr() };
+}
 
 /// BLE runner task - drives the BLE stack sequencer
 #[embassy_executor::task]
@@ -48,6 +67,22 @@ async fn ble_runner_task() {
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let mut config = Config::default();
+
+    // Enable HSE (32 MHz external crystal) - REQUIRED for BLE radio
+    config.rcc.hse = Some(Hse {
+        prescaler: HsePrescaler::DIV1,
+    });
+
+    // Enable LSE (32.768 kHz external crystal) - REQUIRED for BLE radio sleep timer
+    config.rcc.ls = LsConfig {
+        rtc: RtcClockSource::LSE,
+        lsi: false,
+        lse: Some(LseConfig {
+            frequency: Hertz(32_768),
+            mode: LseMode::Oscillator(LseDrive::MediumLow),
+            peripherals_clocked: true,
+        }),
+    };
 
     // Configure PLL1 (required on WBA)
     config.rcc.pll1 = Some(embassy_stm32::rcc::Pll {
@@ -70,20 +105,37 @@ async fn main(spawner: Spawner) {
     config.rcc.mux.rngsel = mux::Rngsel::HSI;
 
     let p = embassy_stm32::init(config);
+
+    // Configure radio sleep timer to use LSE
+    {
+        use embassy_stm32::pac::RCC;
+        use embassy_stm32::pac::rcc::vals::Radiostsel;
+        RCC.bdcr().modify(|w| w.set_radiostsel(Radiostsel::LSE));
+    }
+
     info!("Embassy STM32WBA BLE Peripheral Connection Example");
 
-    // Initialize RNG (required by BLE stack)
-    static RNG: StaticCell<Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>> = StaticCell::new();
-    let rng = RNG.init(Mutex::new(RefCell::new(Rng::new(p.RNG, Irqs))));
-    info!("RNG initialized");
+    // Initialize hardware peripherals required by BLE stack
+    static RNG_INST: StaticCell<Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>> = StaticCell::new();
+    let rng = RNG_INST.init(Mutex::new(RefCell::new(Rng::new(p.RNG, Irqs))));
+
+    static AES_INST: StaticCell<Mutex<CriticalSectionRawMutex, RefCell<Aes<'static, AesPeriph, Blocking>>>> =
+        StaticCell::new();
+    let aes = AES_INST.init(Mutex::new(RefCell::new(Aes::new_blocking(p.AES, Irqs))));
+
+    static PKA_INST: StaticCell<Mutex<CriticalSectionRawMutex, RefCell<Pka<'static, PkaPeriph>>>> = StaticCell::new();
+    let pka = PKA_INST.init(Mutex::new(RefCell::new(Pka::new_blocking(p.PKA, Irqs))));
+
+    info!("Hardware peripherals initialized (RNG, AES, PKA)");
 
     // Initialize BLE stack
-    let mut ble = Ble::new(rng);
+    let mut ble = Ble::new(rng, aes, pka);
     ble.init().expect("BLE initialization failed");
     info!("BLE stack initialized");
 
     // Spawn the BLE runner task (required for proper BLE operation)
-    spawner.spawn(ble_runner_task().expect("Failed to create BLE runner task"));
+    spawner.spawn(ble_runner_task().expect("Failed to spawn BLE runner"));
+    embassy_futures::yield_now().await;
 
     // Initialize GATT server with a simple service
     let mut gatt = GattServer::new();

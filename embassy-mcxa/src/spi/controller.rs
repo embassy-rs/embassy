@@ -137,7 +137,7 @@ pub struct Spi<'d, M: IoMode> {
     _freq: u32,
     mode: M,
     _wg: Option<WakeGuard>,
-    _phantom: PhantomData<&'d M>,
+    _phantom: PhantomData<&'d mut M>,
 }
 
 impl<'d, M: IoMode> Spi<'d, M> {
