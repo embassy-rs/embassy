@@ -17,6 +17,7 @@ target = "thumbv7em-none-eabi"
 
 [dependencies]
 critical-section = "1.1"
+portable-atomic = { version = "1.5" }
 
 embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
 embassy-time = { version = "0.5.1", path = "../embassy-time" }
