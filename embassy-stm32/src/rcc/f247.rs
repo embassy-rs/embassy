@@ -1,6 +1,6 @@
 use stm32_metapac::flash::vals::Latency;
 
-#[cfg(any(stm32f4, stm32f7))]
+#[cfg(all(any(stm32f4, stm32f7), ltdc))]
 use crate::ltdc::LcdClockDiv;
 #[cfg(any(stm32f4, stm32f7))]
 use crate::pac::PWR;
@@ -108,7 +108,7 @@ pub struct Config {
     #[cfg(dsihost)]
     pub dsi: Option<DsiHostPllConfig>,
 
-    #[cfg(any(stm32f4, stm32f7))]
+    #[cfg(all(any(stm32f4, stm32f7), ltdc))]
     pub lcd_div: Option<LcdClockDiv>,
 
     pub ls: super::LsConfig,
@@ -142,7 +142,7 @@ impl Config {
             #[cfg(dsihost)]
             dsi: None,
 
-            #[cfg(any(stm32f4, stm32f7))]
+            #[cfg(all(any(stm32f4, stm32f7), ltdc))]
             lcd_div: None,
 
             ls: crate::rcc::LsConfig::new(),
@@ -211,7 +211,7 @@ pub(crate) unsafe fn init(config: Config) {
         }
     };
 
-    #[cfg(any(stm32f4, stm32f7))]
+    #[cfg(all(any(stm32f4, stm32f7), ltdc))]
     {
         if let Some(lcd_div) = config.lcd_div {
             use stm32_metapac::rcc::vals::Pllsaidivr;
