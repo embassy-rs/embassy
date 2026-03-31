@@ -32,9 +32,9 @@ async fn main(_spawner: Spawner) {
 
     // Create UART instance with DMA channels
     let mut lpuart = Lpuart::new_async_with_dma(
-        p.LPUART1, // Instance
-        p.P1_9,    // TX pin
-        p.P1_8,    // RX pin
+        p.LPUART1,  // Instance
+        p.P1_9,     // TX pin
+        p.P1_8,     // RX pin
         p.DMA0_CH0, // TX DMA channel
         p.DMA0_CH1, // RX DMA channel
         config,

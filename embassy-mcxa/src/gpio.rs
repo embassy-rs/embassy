@@ -14,8 +14,7 @@ use paste::paste;
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac::common::{RW, Reg};
 use crate::pac::gpio::{Irqc, Isf, Pdd, Pid, Ptco, Ptso};
-use crate::pac::port::Pcr;
-use crate::pac::port::{Dse, Ibe, Inv, Mux, Ode, Pe, Ps, Sre};
+use crate::pac::port::{Dse, Ibe, Inv, Mux, Ode, Pcr, Pe, Ps, Sre};
 
 struct BitIter(u32);
 
