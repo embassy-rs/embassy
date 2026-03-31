@@ -171,7 +171,7 @@ macro_rules! impl_pin {
                     self.set_pull(crate::gpio::Pull::Disabled);
                     self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
                     self.set_drive_strength(crate::gpio::DriveStrength::Double.into());
-                    self.set_function(crate::pac::port::vals::Mux::$fn);
+                    self.set_function(crate::pac::port::Mux::$fn);
                     self.set_enable_input_buffer(true);
                 }
             }

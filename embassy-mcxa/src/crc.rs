@@ -8,7 +8,7 @@ use paste::paste;
 use crate::clocks::periph_helpers::NoConfig;
 use crate::clocks::{Gate, enable_and_reset};
 use crate::pac;
-use crate::pac::crc::vals::{Fxor, Tcrc, Tot, Totr, Was};
+use crate::pac::crc::{Fxor, Tcrc, Tot, Totr, Was};
 
 /// CRC driver.
 pub struct Crc<'d, M> {

@@ -5,7 +5,7 @@ use core::sync::atomic::{AtomicU8, Ordering};
 use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
 use embassy_hal_internal::{Peri, PeripheralType};
 use maitake_sync::WaitCell;
-use nxp_pac::lpuart::vals::Dozeen;
+use nxp_pac::lpuart::Dozeen;
 use paste::paste;
 
 use crate::clocks::periph_helpers::{Div4, LpuartClockSel, LpuartConfig};
@@ -13,7 +13,7 @@ use crate::clocks::{ClockError, Gate, PoweredClock, WakeGuard, enable_and_reset}
 use crate::dma::DmaRequest;
 use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt::typelevel::Interrupt;
-use crate::pac::lpuart::vals::{
+use crate::pac::lpuart::{
     Idlecfg as IdleConfig, Ilt as IdleType, M as DataBits, Msbf as MsbFirst, Pt as Parity, Rst, Rxflush,
     Sbns as StopBits, Swap, Tc, Tdre, Txctsc as TxCtsConfig, Txctssrc as TxCtsSource, Txflush,
 };
@@ -418,25 +418,25 @@ fn has_rx_data_pending(info: &'static Info) -> bool {
 impl<T: SealedPin> sealed::Sealed for T {}
 
 pub trait TxPin<T: Instance>: Into<AnyPin> + sealed::Sealed + PeripheralType {
-    const MUX: crate::pac::port::vals::Mux;
+    const MUX: crate::pac::port::Mux;
     /// convert the pin to appropriate function for Lpuart Tx  usage
     fn as_tx(&self);
 }
 
 pub trait RxPin<T: Instance>: Into<AnyPin> + sealed::Sealed + PeripheralType {
-    const MUX: crate::pac::port::vals::Mux;
+    const MUX: crate::pac::port::Mux;
     /// convert the pin to appropriate function for Lpuart Rx  usage
     fn as_rx(&self);
 }
 
 pub trait CtsPin<T: Instance>: Into<AnyPin> + sealed::Sealed + PeripheralType {
-    const MUX: crate::pac::port::vals::Mux;
+    const MUX: crate::pac::port::Mux;
     /// convert the pin to appropriate function for Lpuart Cts usage
     fn as_cts(&self);
 }
 
 pub trait RtsPin<T: Instance>: Into<AnyPin> + sealed::Sealed + PeripheralType {
-    const MUX: crate::pac::port::vals::Mux;
+    const MUX: crate::pac::port::Mux;
     /// convert the pin to appropriate function for Lpuart Rts usage
     fn as_rts(&self);
 }
@@ -444,7 +444,7 @@ pub trait RtsPin<T: Instance>: Into<AnyPin> + sealed::Sealed + PeripheralType {
 macro_rules! impl_tx_pin {
     ($inst:ident, $pin:ident, $alt:ident) => {
         impl TxPin<crate::peripherals::$inst> for crate::peripherals::$pin {
-            const MUX: crate::pac::port::vals::Mux = crate::pac::port::vals::Mux::$alt;
+            const MUX: crate::pac::port::Mux = crate::pac::port::Mux::$alt;
             fn as_tx(&self) {
                 self.set_pull(crate::gpio::Pull::Disabled);
                 self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
@@ -459,7 +459,7 @@ macro_rules! impl_tx_pin {
 macro_rules! impl_rx_pin {
     ($inst:ident, $pin:ident, $alt:ident) => {
         impl RxPin<crate::peripherals::$inst> for crate::peripherals::$pin {
-            const MUX: crate::pac::port::vals::Mux = crate::pac::port::vals::Mux::$alt;
+            const MUX: crate::pac::port::Mux = crate::pac::port::Mux::$alt;
             fn as_rx(&self) {
                 self.set_pull(crate::gpio::Pull::Disabled);
                 self.set_function(<Self as RxPin<crate::peripherals::$inst>>::MUX);
@@ -472,7 +472,7 @@ macro_rules! impl_rx_pin {
 macro_rules! impl_cts_pin {
     ($inst:ident, $pin:ident, $alt:ident) => {
         impl CtsPin<crate::peripherals::$inst> for crate::peripherals::$pin {
-            const MUX: crate::pac::port::vals::Mux = crate::pac::port::vals::Mux::$alt;
+            const MUX: crate::pac::port::Mux = crate::pac::port::Mux::$alt;
             fn as_cts(&self) {
                 self.set_pull(crate::gpio::Pull::Disabled);
                 self.set_function(<Self as CtsPin<crate::peripherals::$inst>>::MUX);
@@ -485,7 +485,7 @@ macro_rules! impl_cts_pin {
 macro_rules! impl_rts_pin {
     ($inst:ident, $pin:ident, $alt:ident) => {
         impl RtsPin<crate::peripherals::$inst> for crate::peripherals::$pin {
-            const MUX: crate::pac::port::vals::Mux = crate::pac::port::vals::Mux::$alt;
+            const MUX: crate::pac::port::Mux = crate::pac::port::Mux::$alt;
             fn as_rts(&self) {
                 self.set_pull(crate::gpio::Pull::Disabled);
                 self.set_slew_rate(crate::gpio::SlewRate::Fast.into());

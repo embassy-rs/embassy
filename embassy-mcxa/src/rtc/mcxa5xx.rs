@@ -8,7 +8,7 @@ use maitake_sync::WaitCell;
 use crate::clocks::{WakeGuard, with_clocks};
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac;
-use crate::pac::rtc::vals::Swr;
+use crate::pac::rtc5xx::Swr;
 
 /// RTC interrupt handler.
 pub struct InterruptHandler<I: Instance> {
@@ -29,13 +29,13 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
 }
 
 struct Info {
-    regs: pac::rtc::Rtc,
+    regs: pac::rtc5xx::Rtc,
     wait_cell: WaitCell,
 }
 
 impl Info {
     #[inline(always)]
-    fn regs(&self) -> pac::rtc::Rtc {
+    fn regs(&self) -> pac::rtc5xx::Rtc {
         self.regs
     }
 
@@ -62,7 +62,7 @@ impl SealedInstance for crate::peripherals::RTC0 {
 }
 
 impl Instance for crate::peripherals::RTC0 {
-    type Interrupt = crate::interrupt::typelevel::RTC;
+    type Interrupt = crate::interrupt::typelevel::RTC0;
 }
 
 /// Month

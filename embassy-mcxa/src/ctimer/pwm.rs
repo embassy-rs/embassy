@@ -6,7 +6,7 @@ use embedded_hal_1::pwm::{Error, ErrorKind, ErrorType};
 
 use super::{AnyChannel, CTimer, CTimerChannel, Channel, Info, Instance, OutputPin};
 use crate::gpio::{AnyPin, SealedPin};
-use crate::pac::ctimer::vals::{Mri, Mrr, Mrrl, Mrs, Pwmen};
+use crate::pac::ctimer::{Mri, Mrr, Mrrl, Mrs, Pwmen};
 
 /// PWM error.
 #[derive(Debug)]

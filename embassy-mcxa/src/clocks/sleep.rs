@@ -8,10 +8,10 @@ use critical_section::CriticalSection;
 use super::CLOCKS;
 use super::types::{Clocks, PoweredClock};
 use crate::pac;
-use crate::pac::cmc::vals::CkctrlCkmode;
+use crate::pac::cmc::CkctrlCkmode;
 #[cfg(feature = "mcxa2xx")]
-use crate::pac::scg::vals::Fircvld;
-use crate::pac::scg::vals::{Sircvld, SpllLock};
+use crate::pac::scg::Fircvld;
+use crate::pac::scg::{Sircvld, SpllLock};
 
 /// Attempt to go to deep sleep if possible.
 ///

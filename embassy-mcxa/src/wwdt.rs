@@ -17,7 +17,7 @@ use crate::clocks::{ClockError, Gate, WakeGuard, enable_and_reset};
 use crate::interrupt::typelevel;
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac;
-use crate::pac::wwdt::vals::{Wden, Wdprotect, Wdreset};
+use crate::pac::wwdt::{Wden, Wdprotect, Wdreset};
 
 /// WWDT0 Error types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

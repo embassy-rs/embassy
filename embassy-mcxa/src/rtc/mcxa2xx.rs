@@ -5,11 +5,12 @@ use core::marker::PhantomData;
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::{Peri, PeripheralType};
 use maitake_sync::WaitCell;
+use nxp_pac::rtc2xx::TcrVal;
 
 use crate::clocks::{WakeGuard, with_clocks};
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac;
-use crate::pac::rtc::vals::{Swr, Tcr, Um};
+use crate::pac::rtc2xx::{Swr, Um};
 
 /// RTC interrupt handler.
 pub struct InterruptHandler<I: Instance> {
@@ -30,13 +31,13 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
 }
 
 struct Info {
-    regs: pac::rtc::Rtc,
+    regs: pac::rtc2xx::Rtc,
     wait_cell: WaitCell,
 }
 
 impl Info {
     #[inline(always)]
-    fn regs(&self) -> pac::rtc::Rtc {
+    fn regs(&self) -> pac::rtc2xx::Rtc {
         self.regs
     }
 
@@ -96,7 +97,7 @@ pub struct Config {
     #[allow(dead_code)]
     supervisor_access: bool,
     compensation_interval: u8,
-    compensation_time: Tcr,
+    compensation_time: TcrVal,
 }
 
 impl Default for Config {
@@ -106,7 +107,7 @@ impl Default for Config {
             update_mode: Um::UM_0,
             supervisor_access: false,
             compensation_interval: 0,
-            compensation_time: Tcr::TCR_0,
+            compensation_time: TcrVal::TCR_0,
         }
     }
 }

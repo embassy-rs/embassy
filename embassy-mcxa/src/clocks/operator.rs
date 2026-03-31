@@ -8,23 +8,22 @@ use config::{
     VddLevel,
 };
 use cortex_m::peripheral::SCB;
-use nxp_pac::syscon::vals::Unlock;
 
 use super::config;
 use super::types::{Clock, ClockError, Clocks, PoweredClock};
 use crate::chips::{ClockLimits, clock_limits};
 use crate::pac;
-use crate::pac::cmc::vals::CkctrlCkmode;
-use crate::pac::scg::vals::{
+use crate::pac::cmc::CkctrlCkmode;
+use crate::pac::scg::{
     Erefs, Fircacc, FircaccIe, FirccsrLk, Fircerr, FircerrIe, Fircsten, Range, Scs, SirccsrLk, Sircerr, Sircvld,
     SosccsrLk, Soscerr, Source, SpllLock, SpllcsrLk, Spllerr, Spllsten, TrimUnlock,
 };
-use crate::pac::spc::vals::{
+use crate::pac::spc::{
     ActiveCfgBgmode, ActiveCfgCoreldoVddDs, ActiveCfgCoreldoVddLvl, LpCfgBgmode, LpCfgCoreldoVddLvl, Vsm,
 };
-use crate::pac::syscon::vals::{
+use crate::pac::syscon::{
     AhbclkdivUnstab, FrohfdivHalt, FrohfdivReset, FrohfdivUnstab, FrolfdivHalt, FrolfdivReset, FrolfdivUnstab,
-    Pll1clkdivHalt, Pll1clkdivReset, Pll1clkdivUnstab,
+    Pll1clkdivHalt, Pll1clkdivReset, Pll1clkdivUnstab, Unlock,
 };
 
 /// The ClockOperator is a private helper type that contains the methods used
@@ -450,7 +449,7 @@ impl ClockOperator<'_> {
     #[cfg(all(feature = "mcxa5xx", feature = "unstable-osc32k", not(feature = "rosc-32k-as-gpio")))]
     pub(super) fn configure_osc32k_clocks(&mut self) -> Result<(), ClockError> {
         use config::{Osc32KCapSel, Osc32KCoarseGain, Osc32KMode};
-        use nxp_pac::vbat::vals::{
+        use nxp_pac::vbat::{
             CoarseAmpGain, ExtalCapSel, InitTrim, ModeEn, StatusaLdoRdy, StatusaOscRdy, SupplyDet, XtalCapSel,
         };
 
@@ -1439,11 +1438,11 @@ impl ClockOperator<'_> {
                     w.set_core_lvde(enable_bandgap);
                 });
 
-                (pac::spc::vals::LpCfgCoreldoVddDs::LOW, enable_bandgap)
+                (pac::spc::LpCfgCoreldoVddDs::LOW, enable_bandgap)
             }
             VddDriveStrength::Normal => {
                 // "If you specify normal drive strength, you must write a value to LP[BGMODE] that enables the bandgap."
-                (pac::spc::vals::LpCfgCoreldoVddDs::NORMAL, true)
+                (pac::spc::LpCfgCoreldoVddDs::NORMAL, true)
             }
         };
         let lvl = match self.config.vdd_power.low_power_mode.level {

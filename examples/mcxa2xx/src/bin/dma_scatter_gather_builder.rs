@@ -71,7 +71,7 @@ async fn main(_spawner: Spawner) {
     defmt::info!("  DST3: {=[?]}", dst3.as_slice());
 
     // Create DMA channel
-    let dma_ch0 = DmaChannel::new(p.DMA_CH0);
+    let dma_ch0 = DmaChannel::new(p.DMA0_CH0);
 
     defmt::info!("Building scatter-gather chain with builder API...");
 
