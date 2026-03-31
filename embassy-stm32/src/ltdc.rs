@@ -18,6 +18,61 @@ use crate::{Peri, peripherals, rcc};
 
 static LTDC_WAKER: AtomicWaker = AtomicWaker::new();
 
+/// LTDC Interface trait
+pub trait Interface {
+    /// Number of pins used by the interface
+    const PIN_COUNT: usize;
+
+    /// Pins type
+    type Pins<'d>;
+}
+
+/// RGB565 Interface
+pub struct Rgb565;
+
+/// RGB666 Interface
+pub struct Rgb666;
+
+/// RGB888 Interface
+pub struct Rgb888;
+
+/// LTDC DSI Interface
+pub struct DSI;
+
+impl Interface for Rgb565 {
+    const PIN_COUNT: usize = 20;
+    type Pins<'d> = [Flex<'d>; Self::PIN_COUNT];
+}
+impl Interface for Rgb666 {
+    const PIN_COUNT: usize = 22;
+    type Pins<'d> = [Flex<'d>; Self::PIN_COUNT];
+}
+impl Interface for Rgb888 {
+    const PIN_COUNT: usize = 28;
+    type Pins<'d> = [Flex<'d>; Self::PIN_COUNT];
+}
+
+impl Interface for DSI {
+    const PIN_COUNT: usize = 0;
+    type Pins<'d> = ();
+}
+
+/// LCD clock divider set in RCC Dedciated Clock Configuration Register
+#[cfg(any(stm32f4, stm32f7))]
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
+pub enum LcdClockDiv {
+    /// PLLSAI R / 2
+    Div2 = stm32_metapac::rcc::vals::Pllsaidivr::DIV2 as u8,
+    /// PLLSAI R / 4
+    Div4 = stm32_metapac::rcc::vals::Pllsaidivr::DIV4 as u8,
+    /// PLLSAI R / 8
+    Div8 = stm32_metapac::rcc::vals::Pllsaidivr::DIV8 as u8,
+    /// PLLSAI R / 16
+    Div16 = stm32_metapac::rcc::vals::Pllsaidivr::DIV16 as u8,
+}
+
 /// LTDC error
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -82,9 +137,10 @@ pub enum PolarityActive {
 }
 
 /// LTDC driver.
-pub struct Ltdc<'d, T: Instance> {
+pub struct Ltdc<'d, T: Instance, I: Interface = Rgb888> {
     _peri: Peri<'d, T>,
-    _pins: Option<[Flex<'d>; 27]>,
+    _pins: Option<I::Pins<'d>>,
+    _interface: PhantomData<I>,
 }
 
 /// LTDC interrupt handler.
@@ -208,17 +264,127 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     }
 }
 
-impl<'d, T: Instance> Ltdc<'d, T> {
-    // Create a new LTDC driver without specifying color and control pins. This is typically used if you want to drive a display though a DsiHost
-    /// Note: Full-Duplex modes are not supported at this time
-    pub fn new(peri: Peri<'d, T>) -> Self {
+impl<'d, T: Instance> Ltdc<'d, T, Rgb565> {
+    /// Create a new RGB565 LTDC instance
+    pub fn new_with_pins(
+        peri: Peri<'d, T>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        clk: Peri<'d, impl ClkPin<T>>,
+        hsync: Peri<'d, impl HsyncPin<T>>,
+        vsync: Peri<'d, impl VsyncPin<T>>,
+        de: Peri<'d, impl DePin<T>>,
+        b3: Peri<'d, impl B3Pin<T>>,
+        b4: Peri<'d, impl B4Pin<T>>,
+        b5: Peri<'d, impl B5Pin<T>>,
+        b6: Peri<'d, impl B6Pin<T>>,
+        b7: Peri<'d, impl B7Pin<T>>,
+        g2: Peri<'d, impl G2Pin<T>>,
+        g3: Peri<'d, impl G3Pin<T>>,
+        g4: Peri<'d, impl G4Pin<T>>,
+        g5: Peri<'d, impl G5Pin<T>>,
+        g6: Peri<'d, impl G6Pin<T>>,
+        g7: Peri<'d, impl G7Pin<T>>,
+        r3: Peri<'d, impl R3Pin<T>>,
+        r4: Peri<'d, impl R4Pin<T>>,
+        r5: Peri<'d, impl R5Pin<T>>,
+        r6: Peri<'d, impl R6Pin<T>>,
+        r7: Peri<'d, impl R7Pin<T>>,
+    ) -> Self {
         Self::setup_clocks();
+        let pins = [
+            new_pin!(clk, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(hsync, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(vsync, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(de, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(b3, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(b4, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(b5, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(b6, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(b7, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(g2, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(g3, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(g4, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(g5, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(g6, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(g7, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(r3, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(r4, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(r5, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(r6, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(r7, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+        ];
+
         Self {
             _peri: peri,
-            _pins: None,
+            _pins: Some(pins),
+            _interface: PhantomData,
         }
     }
+}
 
+impl<'d, T: Instance> Ltdc<'d, T, Rgb666> {
+    /// Create a new RGB666 LTDC instance
+    pub fn new_with_pins(
+        peri: Peri<'d, T>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        clk: Peri<'d, impl ClkPin<T>>,
+        hsync: Peri<'d, impl HsyncPin<T>>,
+        vsync: Peri<'d, impl VsyncPin<T>>,
+        de: Peri<'d, impl DePin<T>>,
+        b2: Peri<'d, impl B2Pin<T>>,
+        b3: Peri<'d, impl B3Pin<T>>,
+        b4: Peri<'d, impl B4Pin<T>>,
+        b5: Peri<'d, impl B5Pin<T>>,
+        b6: Peri<'d, impl B6Pin<T>>,
+        b7: Peri<'d, impl B7Pin<T>>,
+        g2: Peri<'d, impl G2Pin<T>>,
+        g3: Peri<'d, impl G3Pin<T>>,
+        g4: Peri<'d, impl G4Pin<T>>,
+        g5: Peri<'d, impl G5Pin<T>>,
+        g6: Peri<'d, impl G6Pin<T>>,
+        g7: Peri<'d, impl G7Pin<T>>,
+        r2: Peri<'d, impl R2Pin<T>>,
+        r3: Peri<'d, impl R3Pin<T>>,
+        r4: Peri<'d, impl R4Pin<T>>,
+        r5: Peri<'d, impl R5Pin<T>>,
+        r6: Peri<'d, impl R6Pin<T>>,
+        r7: Peri<'d, impl R7Pin<T>>,
+    ) -> Self {
+        Self::setup_clocks();
+        let pins = [
+            new_pin!(clk, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(hsync, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(vsync, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(de, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(b2, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(b3, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(b4, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(b5, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(b6, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(b7, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(g2, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(g3, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(g4, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(g5, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(g6, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(g7, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(r2, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(r3, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(r4, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(r5, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(r6, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(r7, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+        ];
+
+        Self {
+            _peri: peri,
+            _pins: Some(pins),
+            _interface: PhantomData,
+        }
+    }
+}
+
+impl<'d, T: Instance> Ltdc<'d, T, Rgb888> {
     /// Create a new LTDC driver. 8 pins per color channel for blue, green and red
     #[allow(clippy::too_many_arguments)]
     pub fn new_with_pins(
@@ -227,6 +393,7 @@ impl<'d, T: Instance> Ltdc<'d, T> {
         clk: Peri<'d, impl ClkPin<T>>,
         hsync: Peri<'d, impl HsyncPin<T>>,
         vsync: Peri<'d, impl VsyncPin<T>>,
+        de: Peri<'d, impl DePin<T>>,
         b0: Peri<'d, impl B0Pin<T>>,
         b1: Peri<'d, impl B1Pin<T>>,
         b2: Peri<'d, impl B2Pin<T>>,
@@ -257,6 +424,7 @@ impl<'d, T: Instance> Ltdc<'d, T> {
             new_pin!(clk, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
             new_pin!(hsync, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
             new_pin!(vsync, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            new_pin!(de, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
             new_pin!(b0, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
             new_pin!(b1, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
             new_pin!(b2, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
@@ -286,9 +454,24 @@ impl<'d, T: Instance> Ltdc<'d, T> {
         Self {
             _peri: peri,
             _pins: Some(pins),
+            _interface: PhantomData,
         }
     }
+}
 
+impl<'d, T: Instance> Ltdc<'d, T, DSI> {
+    /// Create a new LTDC instance for a DsiHost interface
+    pub fn new(peri: Peri<'d, T>) -> Self {
+        Self::setup_clocks();
+        Self {
+            _peri: peri,
+            _pins: None,
+            _interface: PhantomData,
+        }
+    }
+}
+
+impl<'d, T: Instance, I: Interface> Ltdc<'d, T, I> {
     /// Initialise and enable the display
     pub fn init(&mut self, config: &LtdcConfiguration) {
         use stm32_metapac::ltdc::vals::{Depol, Hspol, Pcpol, Vspol};
@@ -539,21 +722,6 @@ impl<'d, T: Instance> Ltdc<'d, T> {
     }
 
     fn setup_clocks() {
-        critical_section::with(|_cs| {
-            // RM says the pllsaidivr should only be changed when pllsai is off. But this could have other unintended side effects. So let's just give it a try like this.
-            // According to the debugger, this bit gets set, anyway.
-            #[cfg(stm32f7)]
-            crate::pac::RCC
-                .dckcfgr1()
-                .modify(|w| w.set_pllsaidivr(stm32_metapac::rcc::vals::Pllsaidivr::DIV2));
-
-            // It is set to RCC_PLLSAIDIVR_2 in ST's BSP example for the STM32469I-DISCO.
-            #[cfg(stm32f4)]
-            crate::pac::RCC
-                .dckcfgr()
-                .modify(|w| w.set_pllsaidivr(stm32_metapac::rcc::vals::Pllsaidivr::DIV2));
-        });
-
         rcc::enable_and_reset::<T>();
     }
 
@@ -582,7 +750,7 @@ impl<'d, T: Instance> Ltdc<'d, T> {
     }
 }
 
-impl<'d, T: Instance> Drop for Ltdc<'d, T> {
+impl<'d, T: Instance, I: Interface> Drop for Ltdc<'d, T, I> {
     fn drop(&mut self) {}
 }
 

@@ -1,5 +1,7 @@
 use stm32_metapac::flash::vals::Latency;
 
+#[cfg(stm32f4x9)]
+use crate::ltdc::LcdClockDiv;
 #[cfg(any(stm32f4, stm32f7))]
 use crate::pac::PWR;
 #[cfg(any(stm32f413, stm32f423, stm32f412))]
@@ -106,6 +108,9 @@ pub struct Config {
     #[cfg(dsihost)]
     pub dsi: Option<DsiHostPllConfig>,
 
+    #[cfg(any(stm32f4, stm32f7))]
+    pub lcd_div: Option<LcdClockDiv>,
+
     pub ls: super::LsConfig,
 
     /// Per-peripheral kernel clock selection muxes
@@ -136,6 +141,9 @@ impl Config {
 
             #[cfg(dsihost)]
             dsi: None,
+
+            #[cfg(any(stm32f4, stm32f7))]
+            lcd_div: None,
 
             ls: crate::rcc::LsConfig::new(),
 
@@ -202,6 +210,16 @@ pub(crate) unsafe fn init(config: Config) {
             Some(hse.freq)
         }
     };
+
+    #[cfg(any(stm32f4, stm32f7))]
+    {
+        if let Some(lcd_div) = config.lcd_div {
+            use stm32_metapac::rcc::vals::Pllsaidivr;
+
+            RCC.dckcfgr()
+                .modify(|w| w.set_pllsaidivr(Pllsaidivr::from_bits(lcd_div as u8)));
+        }
+    }
 
     // Configure PLLs.
     let pll_input = PllInput {
