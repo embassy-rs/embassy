@@ -21,6 +21,9 @@ DMA:
 ADC:
 - feat: stm32/adc: add `VrefInt::calibrated_value()` for additional chips
 
+COMP:
+- feat: stm32/comp: add support for comp_v1 (used on G0)
+
 ## 0.6.0 - 2026-03-10
 
 ADC:
