@@ -88,6 +88,8 @@ pub mod cryp;
 pub mod dac;
 #[cfg(dcmi)]
 pub mod dcmi;
+#[cfg(dma2d_v2)]
+pub mod dma2d;
 #[cfg(dsihost)]
 pub mod dsihost;
 #[cfg(dts)]
