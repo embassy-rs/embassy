@@ -20,7 +20,7 @@ pub enum Speed {
 
 impl Speed {
     /// Provides the default max_packet_size for a given port speed
-    pub const fn max_packet_size(&self) -> u16 {
+    pub const fn max_packet_size(self) -> u16 {
         match self {
             Speed::Low => 8,
             Speed::Full => 64,
@@ -134,18 +134,6 @@ pub struct EndpointInfo {
     pub max_packet_size: u16,
     /// Polling interval, in milliseconds.
     pub interval_ms: u8,
-}
-
-impl EndpointInfo {
-    /// Manually create an interface info (you should prefer deriving from parsed `EndpointDescriptor`s)
-    pub fn new(addr: EndpointAddress, ep_type: EndpointType, max_packet_size: u16) -> Self {
-        EndpointInfo {
-            addr,
-            ep_type,
-            max_packet_size,
-            interval_ms: 0,
-        }
-    }
 }
 
 /// Main USB driver trait.

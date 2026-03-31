@@ -277,7 +277,12 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
 
         self.retarget_channel(
             0,
-            &EndpointInfo::new(0.into(), EndpointType::Control, speed.max_packet_size()),
+            &EndpointInfo {
+                addr: 0.into(),
+                ep_type: EndpointType::Control,
+                max_packet_size: speed.max_packet_size(),
+                interval_ms: 0,
+            },
             ls_over_fs,
         )?;
 
@@ -308,7 +313,12 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
 
         self.retarget_channel(
             new_device_address,
-            &EndpointInfo::new(0.into(), EndpointType::Control, max_packet_size0 as u16),
+            &EndpointInfo {
+                addr: 0.into(),
+                ep_type: EndpointType::Control,
+                max_packet_size: max_packet_size0 as u16,
+                interval_ms: 0,
+            },
             ls_over_fs,
         )?;
 
@@ -353,7 +363,12 @@ pub trait UsbHostBusExt: UsbHostDriver {
     ) -> Result<EnumerationInfo, HostError> {
         let mut channel = self.alloc_channel::<Control, InOut>(
             0,
-            &EndpointInfo::new(0.into(), EndpointType::Control, speed.max_packet_size()),
+            &EndpointInfo {
+                addr: 0.into(),
+                ep_type: EndpointType::Control,
+                max_packet_size: speed.max_packet_size(),
+                interval_ms: 0,
+            },
             false,
         )?;
         channel.enumerate_device(speed, new_device_address, false).await

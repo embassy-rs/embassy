@@ -19,7 +19,7 @@ trait SealedInstance {
 
 /// USB peripheral instance.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + 'static {
+pub trait Instance: SealedInstance + crate::PeripheralType + 'static {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }

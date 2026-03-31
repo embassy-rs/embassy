@@ -50,14 +50,15 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> UsbHostHandler for HubHandler<H, 
     async fn try_register(bus: &H, enum_info: &EnumerationInfo) -> Result<Self, RegisterError> {
         let mut control_channel = bus.alloc_channel::<channel::Control, channel::InOut>(
             enum_info.device_address,
-            &EndpointInfo::new(
-                0.into(),
-                EndpointType::Control,
-                enum_info
+            &EndpointInfo {
+                addr: 0.into(),
+                ep_type: EndpointType::Control,
+                max_packet_size: enum_info
                     .device_desc
                     .max_packet_size0
                     .min(if enum_info.ls_over_fs { 8 } else { 64 }) as u16,
-            ),
+                interval_ms: 0,
+            },
             enum_info.ls_over_fs,
         )?;
 

@@ -53,11 +53,12 @@ impl<H: UsbHostDriver> UsbHostHandler for KbdHandler<H> {
     async fn try_register(bus: &H, enum_info: &EnumerationInfo) -> Result<Self, RegisterError> {
         let mut control_channel = bus.alloc_channel::<channel::Control, channel::InOut>(
             enum_info.device_address,
-            &EndpointInfo::new(
-                0.into(),
-                EndpointType::Control,
-                (enum_info.device_desc.max_packet_size0 as u16).min(enum_info.speed.max_packet_size()),
-            ),
+            &EndpointInfo {
+                addr: 0.into(),
+                ep_type: EndpointType::Control,
+                max_packet_size: (enum_info.device_desc.max_packet_size0 as u16).min(enum_info.speed.max_packet_size()),
+                interval_ms: 0,
+            },
             enum_info.ls_over_fs,
         )?;
 
