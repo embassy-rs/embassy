@@ -107,12 +107,13 @@ impl Buffer2D {
 /// DMA2D Pixel Format
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
 pub enum PixelFormat {
     /// ARGB8888 24-bit color with alpha
     Argb8888 = 0b0000,
     /// RGB888 24-bit color
     Rgb888 = 0b0001,
-    /// RGB555 16-bit color
+    /// RGB565 16-bit color
     Rgb565 = 0b0010,
     /// ARGB1555
     Argb1555 = 0b0011,
@@ -131,6 +132,7 @@ pub enum PixelFormat {
     /// 4-bit alpha
     A4 = 0b1010,
     /// YCbCr YUV
+    #[cfg(dma2d_v2)]
     YCbCr = 0b1011,
 }
 
@@ -149,6 +151,7 @@ impl PixelFormat {
             PixelFormat::L4 => 1,
             PixelFormat::A8 => 2,
             PixelFormat::A4 => 1,
+            #[cfg(dma2d_v2)]
             PixelFormat::YCbCr => 4,
         }
     }
@@ -165,6 +168,7 @@ impl PixelFormat {
             PixelFormat::AL44 => Some(1),
             PixelFormat::AL88 => Some(2),
             PixelFormat::A8 => Some(1),
+            #[cfg(dma2d_v2)]
             PixelFormat::YCbCr => Some(2),
             _ => None,
         }
@@ -185,6 +189,7 @@ impl Into<vals::FgpfccrCm> for PixelFormat {
             PixelFormat::L4 => vals::FgpfccrCm::L4,
             PixelFormat::A8 => vals::FgpfccrCm::A8,
             PixelFormat::A4 => vals::FgpfccrCm::A4,
+            #[cfg(dma2d_v2)]
             PixelFormat::YCbCr => vals::FgpfccrCm::YCB_CR,
         }
     }
@@ -204,6 +209,7 @@ impl Into<vals::BgpfccrCm> for PixelFormat {
             PixelFormat::L4 => vals::BgpfccrCm::L4,
             PixelFormat::A8 => vals::BgpfccrCm::A8,
             PixelFormat::A4 => vals::BgpfccrCm::A4,
+            #[cfg(dma2d_v2)]
             _ => panic!("YCbCr pixel format not supported for background buffer"),
         }
     }
@@ -258,24 +264,30 @@ impl Into<vals::BgpfccrAm> for AlphaMode {
 pub struct ColorConfig {
     /// Pixel format
     pub pixel_format: PixelFormat,
-    /// Invert alpha
-    pub alpha_invert: bool,
-    /// Swap red and blue channels
-    pub swap_red_blue: bool,
-    /// Swap output bytes
-    pub swap_bytes: bool,
     /// Alpha mode
     pub alpha_mode: AlphaMode,
+    /// Invert alpha
+    #[cfg(dma2d_v2)]
+    pub alpha_invert: bool,
+    /// Swap red and blue channels
+    #[cfg(dma2d_v2)]
+    pub swap_red_blue: bool,
+    /// Swap output bytes
+    #[cfg(dma2d_v2)]
+    pub swap_bytes: bool,
 }
 
 impl Default for ColorConfig {
     fn default() -> Self {
         Self {
             pixel_format: PixelFormat::Argb8888,
-            alpha_invert: false,
-            swap_red_blue: false,
-            swap_bytes: false,
             alpha_mode: AlphaMode::NoModify,
+            #[cfg(dma2d_v2)]
+            alpha_invert: false,
+            #[cfg(dma2d_v2)]
+            swap_red_blue: false,
+            #[cfg(dma2d_v2)]
+            swap_bytes: false,
         }
     }
 }
@@ -287,14 +299,17 @@ pub struct Dma2d<'d, T: Instance> {
 
 impl<'d, T: Instance> Dma2d<'d, T> {
     /// Create a Dma2d peripheral
-    pub fn new(_peri: Peri<'d, T>) -> Self {
+    pub fn new(
+        _peri: Peri<'d, T>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+    ) -> Self {
         rcc::enable_and_reset::<T>();
 
         Self { _peri: PhantomData }
     }
 
     /// Configure a Buffer2D
-    pub fn set_buffer(&mut self, kind: BufferKind, buffer: Buffer2D) {
+    pub fn set_buffer(&self, kind: BufferKind, buffer: &Buffer2D) {
         match kind {
             BufferKind::Foreground => {
                 T::regs().fgmar().write(|w| w.set_ma(buffer.ptr.as_ptr() as u32));
@@ -307,6 +322,10 @@ impl<'d, T: Instance> Dma2d<'d, T> {
             BufferKind::Output => {
                 T::regs().omar().write(|w| w.set_ma(buffer.ptr.as_ptr() as u32));
                 T::regs().oor().write(|w| w.set_lo(buffer.stride - buffer.width));
+                T::regs().nlr().write(|w| {
+                    w.set_pl(buffer.width);
+                    w.set_nl(buffer.height);
+                });
             }
         }
     }
@@ -339,10 +358,12 @@ impl<'d, T: Instance> Dma2d<'d, T> {
             BufferKind::Foreground => {
                 T::regs().fgpfccr().modify(|w| {
                     w.set_cm(config.pixel_format.into());
+                    #[cfg(dma2d_v2)]
                     w.set_ai(match config.alpha_invert {
                         true => vals::FgpfccrAi::INVERTED_ALPHA,
                         false => vals::FgpfccrAi::REGULAR_ALPHA,
                     });
+                    #[cfg(dma2d_v2)]
                     w.set_rbs(match config.swap_red_blue {
                         true => vals::FgpfccrRbs::SWAP,
                         false => vals::FgpfccrRbs::REGULAR,
@@ -353,10 +374,12 @@ impl<'d, T: Instance> Dma2d<'d, T> {
             BufferKind::Background => {
                 T::regs().bgpfccr().modify(|w| {
                     w.set_cm(config.pixel_format.into());
+                    #[cfg(dma2d_v2)]
                     w.set_ai(match config.alpha_invert {
                         true => vals::BgpfccrAi::INVERTED_ALPHA,
                         false => vals::BgpfccrAi::REGULAR_ALPHA,
                     });
+                    #[cfg(dma2d_v2)]
                     w.set_rbs(match config.swap_red_blue {
                         true => vals::BgpfccrRbs::SWAP,
                         false => vals::BgpfccrRbs::REGULAR,
@@ -367,14 +390,17 @@ impl<'d, T: Instance> Dma2d<'d, T> {
             BufferKind::Output => {
                 T::regs().opfccr().modify(|w| {
                     w.set_cm(config.pixel_format.into());
+                    #[cfg(dma2d_v2)]
                     w.set_ai(match config.alpha_invert {
                         true => vals::OpfccrAi::INVERTED_ALPHA,
                         false => vals::OpfccrAi::REGULAR_ALPHA,
                     });
+                    #[cfg(dma2d_v2)]
                     w.set_rbs(match config.swap_red_blue {
                         true => vals::OpfccrRbs::SWAP,
                         false => vals::OpfccrRbs::REGULAR,
                     });
+                    #[cfg(dma2d_v2)]
                     w.set_sb(match config.swap_bytes {
                         true => vals::Sb::SWAP_BYTES,
                         false => vals::Sb::REGULAR,
@@ -386,9 +412,29 @@ impl<'d, T: Instance> Dma2d<'d, T> {
 
     /// Fill the output buffer with a color into an output region
     pub async fn fill(&mut self, dest: &Region2D, color: u32) -> Result<(), Error> {
+        T::regs().opfccr().modify(|w| {
+            w.set_cm(dest.format.into());
+        });
+
         self.set_region(BufferKind::Output, dest);
+        #[cfg(dma2d_v2)]
         T::regs().ocolr().modify(|w| w.set_color(color));
+        #[cfg(dma2d_v1)]
+        T::regs().ocolr().modify(|w| w.0 = color);
         T::regs().cr().modify(|w| w.set_mode(vals::Mode::REGISTER_TO_MEMORY));
+        Self::transfer().await
+    }
+
+    /// Copy a source foreground buffer to a destination output buffer
+    pub async fn copy(&self, fg: &Buffer2D, output: &Buffer2D) -> Result<(), Error> {
+        // Set foreground CM to set the bits per pixel to copy
+        T::regs().fgpfccr().modify(|w| {
+            w.set_cm(fg.format.into());
+        });
+
+        self.set_buffer(BufferKind::Foreground, fg);
+        self.set_buffer(BufferKind::Output, output);
+        T::regs().cr().modify(|w| w.set_mode(vals::Mode::MEMORY_TO_MEMORY));
         Self::transfer().await
     }
 
@@ -402,6 +448,7 @@ impl<'d, T: Instance> Dma2d<'d, T> {
     /// will set the foreground RGB channels from the FGCOLR register.
     ///
     /// If None is provided as `bg_color`, the background defaults to black.
+    #[cfg(dma2d_v2)]
     pub async fn blit(
         &mut self,
         fg: &Region2D,
@@ -409,6 +456,10 @@ impl<'d, T: Instance> Dma2d<'d, T> {
         fg_color: Option<u32>,
         bg_color: Option<u32>,
     ) -> Result<(), Error> {
+        T::regs().fgpfccr().modify(|w| {
+            w.set_cm(fg.format.into());
+        });
+
         self.set_region(BufferKind::Foreground, fg);
         self.set_region(BufferKind::Output, dest);
 
@@ -422,6 +473,37 @@ impl<'d, T: Instance> Dma2d<'d, T> {
         T::regs()
             .cr()
             .modify(|w| w.set_mode(vals::Mode::MEMORY_TO_MEMORY_PFCBLENDING_FIXED_COLOR_BG));
+        Self::transfer().await
+    }
+
+    /// Blit using a fg and bg source
+    pub async fn blit_with(
+        &mut self,
+        fg: &Region2D,
+        bg: &Region2D,
+        output: &Region2D,
+        fg_color: Option<u32>,
+    ) -> Result<(), Error> {
+        T::regs().fgpfccr().modify(|w| {
+            w.set_cm(fg.format.into());
+        });
+
+        T::regs().bgpfccr().modify(|w| {
+            w.set_cm(bg.format.into());
+        });
+
+        self.set_region(BufferKind::Foreground, fg);
+        self.set_region(BufferKind::Background, bg);
+        self.set_region(BufferKind::Output, output);
+
+        if let Some(color) = fg_color {
+            // Set the foreground color for A8
+            T::regs().fgcolr().modify(|w| w.0 = color);
+        }
+
+        T::regs()
+            .cr()
+            .modify(|w| w.set_mode(vals::Mode::MEMORY_TO_MEMORY_PFCBLENDING));
         Self::transfer().await
     }
 
