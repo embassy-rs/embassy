@@ -309,7 +309,7 @@ impl Registers {
 
     /// Moves out of PoweredDownMode and into ConfigMode
     #[inline]
-    pub fn into_config_mode(self, _config: FdCanConfig) {
+    pub fn into_config_mode(&self, _config: FdCanConfig) {
         self.set_power_down_mode(false);
         self.enter_init_mode();
         self.reset_msg_ram();
