@@ -3,10 +3,6 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
-#[cfg(test)]
-#[macro_use]
-extern crate std;
-
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
@@ -14,9 +10,9 @@ pub use embassy_usb_driver as driver;
 
 mod builder;
 pub mod class;
-pub mod config_descriptor;
 pub mod control;
 pub mod descriptor;
+mod descriptor_reader;
 pub mod msos;
 pub mod types;
 
@@ -25,7 +21,6 @@ mod config {
     include!(concat!(env!("OUT_DIR"), "/config.rs"));
 }
 
-use config_descriptor::ConfigurationDescriptor;
 use embassy_futures::select::{Either, select};
 use heapless::Vec;
 
@@ -33,6 +28,7 @@ pub use crate::builder::{Builder, Config, FunctionBuilder, InterfaceAltBuilder, 
 use crate::config::{MAX_HANDLER_COUNT, MAX_INTERFACE_COUNT};
 use crate::control::{InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::descriptor::{descriptor_type, lang_id};
+use crate::descriptor_reader::foreach_endpoint;
 use crate::driver::{Bus, ControlPipe, Direction, Driver, EndpointAddress, Event};
 use crate::types::{InterfaceNumber, StringIndex};
 
@@ -536,16 +532,12 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                     self.device_state = UsbDeviceState::Configured;
 
                     // Enable all endpoints of selected alt settings.
-                    let cfg_desc = ConfigurationDescriptor::try_from_slice(self.config_descriptor).unwrap();
-                    cfg_desc.iter_interface().for_each(|iface| {
-                        iface.iter_endpoints().for_each(|ep| {
-                            let current_iface = &self.interfaces[iface.interface_number as usize];
-                            self.bus.endpoint_set_enabled(
-                                ep.endpoint_address.into(),
-                                current_iface.current_alt_setting == iface.alternate_setting,
-                            );
-                        })
-                    });
+                    foreach_endpoint(self.config_descriptor, |ep| {
+                        let iface = &self.interfaces[ep.interface.0 as usize];
+                        self.bus
+                            .endpoint_set_enabled(ep.ep_address, iface.current_alt_setting == ep.interface_alt);
+                    })
+                    .unwrap();
 
                     // Notify handlers.
                     for h in &mut self.handlers {
@@ -560,12 +552,10 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                         self.device_state = UsbDeviceState::Addressed;
 
                         // Disable all endpoints.
-                        let cfg_desc = ConfigurationDescriptor::try_from_slice(self.config_descriptor).unwrap();
-                        cfg_desc.iter_interface().for_each(|iface| {
-                            iface.iter_endpoints().for_each(|ep| {
-                                self.bus.endpoint_set_enabled(ep.endpoint_address.into(), false);
-                            })
-                        });
+                        foreach_endpoint(self.config_descriptor, |ep| {
+                            self.bus.endpoint_set_enabled(ep.ep_address, false);
+                        })
+                        .unwrap();
 
                         // Notify handlers.
                         for h in &mut self.handlers {
@@ -594,17 +584,13 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                         iface.current_alt_setting = new_altsetting;
 
                         // Enable/disable EPs of this interface as needed.
-                        let cfg_desc = ConfigurationDescriptor::try_from_slice(self.config_descriptor).unwrap();
-                        cfg_desc.iter_interface().for_each(|niface| {
-                            niface.iter_endpoints().for_each(|ep| {
-                                if niface.interface_number == iface_num.0 {
-                                    self.bus.endpoint_set_enabled(
-                                        ep.endpoint_address.into(),
-                                        iface.current_alt_setting == niface.alternate_setting,
-                                    );
-                                }
-                            })
-                        });
+                        foreach_endpoint(self.config_descriptor, |ep| {
+                            if ep.interface == iface_num {
+                                self.bus
+                                    .endpoint_set_enabled(ep.ep_address, iface.current_alt_setting == ep.interface_alt);
+                            }
+                        })
+                        .unwrap();
 
                         // TODO check it is valid (not out of range)
 
