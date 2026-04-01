@@ -5,22 +5,17 @@ use crate::{interrupt, pac};
 use core::marker::PhantomData;
 use embassy_hal_internal::{Peri, PeripheralType};
 
-/// VPR driver.
-///
-/// VPR is coprocessor available on several nRF54 microcontrollers.
+/// VPR coprocessor driver.
 pub struct Vpr<'d> {
-    r: pac::vpr::Vpr,
-    _phantom: PhantomData<&'d ()>,
+    regs: pac::vpr::Vpr,
+    _p: PhantomData<&'d ()>,
 }
 
 impl<'d> Vpr<'d> {
-    /// Create a new instance initializing the program counter.
-    pub fn new<T: Instance>(_vpr: Peri<'d, T>, address: u32) -> Result<Self, Error> {
-        let mut this = Self {
-            r: T::regs(),
-            _phantom: PhantomData,
-        };
-
+    /// Initialize the VPR coprocessor program counter.
+    ///
+    /// The address must be 8-byte aligned.
+    pub fn new<T: Instance>(_peri: Peri<'d, T>, address: u32) -> Result<Self, Error> {
         #[cfg(feature = "_s")]
         let spu = pac::SPU00_S;
 
@@ -33,36 +28,45 @@ impl<'d> Vpr<'d> {
             w.set_dmasec(true);
         });
 
-        this.reinit(address)?;
+        let mut this = Self {
+            regs: T::regs(),
+            _p: PhantomData,
+        };
 
+        this.init(address)?;
         Ok(this)
     }
 
-    fn bound_check(address: u32) -> Result<(), Error> {
+    /// Initialize the coprocessor program counter.
+    ///
+    /// If the coprocessor is already running, this will only take effect
+    /// on the next reset.
+    pub fn init(&mut self, address: u32) -> Result<(), Error> {
         if address % 8 != 0 {
             return Err(Error::NotAligned);
         }
 
+        self.regs.initpc().write_value(address);
         Ok(())
     }
 
-    /// Initializes the program counter which will take effect on a
-    /// core reset if the core is already running.
-    pub fn reinit(&mut self, address: u32) -> Result<(), Error> {
-        Self::bound_check(address)?;
-        self.r.initpc().write_value(address);
-        Ok(())
-    }
-
-    /// Start the coprocessor
+    /// Start the coprocessor.
+    ///
+    /// If the coprocessor is already running, this does nothing.
     pub fn start(&mut self) {
-        self.r.cpurun().write(|w| w.set_en(pac::vpr::vals::CpurunEn::RUNNING));
+        self.regs
+            .cpurun()
+            .write(|w| w.set_en(pac::vpr::vals::CpurunEn::RUNNING));
     }
-}
 
-impl<'d> Drop for Vpr<'d> {
-    fn drop(&mut self) {
-        //     self.r.cpurun().write(|w| w.set_en(pac::vpr::vals::CpurunEn::STOPPED))
+    /// Stop the coprocessor.
+    ///
+    /// If the coprocessor is already running, this will only take effect
+    /// on the next reset.
+    pub fn stop(&mut self) {
+        self.regs
+            .cpurun()
+            .write(|w| w.set_en(pac::vpr::vals::CpurunEn::STOPPED));
     }
 }
 

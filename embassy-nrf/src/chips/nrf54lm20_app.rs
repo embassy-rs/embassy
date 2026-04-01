@@ -516,6 +516,9 @@ embassy_hal_internal::peripherals! {
     WDT0,
     #[cfg(feature = "_s")]
     WDT1,
+
+    // VPR
+    VPR
 }
 
 impl_pin!(P0_00, 0, 0);
@@ -788,6 +791,8 @@ impl_saadc_input!(P1_14, 1, 14);
 
 #[cfg(feature = "_s")]
 impl_cracen!(CRACEN, CRACEN, CRACEN);
+
+impl_vpr!(VPR, VPR00, VPR00);
 
 embassy_hal_internal::interrupt_mod!(
     SWI00,
