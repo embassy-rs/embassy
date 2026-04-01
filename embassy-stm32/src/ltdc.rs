@@ -8,7 +8,7 @@ use core::task::Poll;
 
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
-use stm32_metapac::ltdc::regs::Dccr;
+use stm32_metapac::ltdc::regs::{Dccr, Isr};
 use stm32_metapac::ltdc::vals::{Bf1, Bf2, Cfuif, Clif, Crrif, Cterrif, Pf, Vbr};
 
 use crate::gpio::{AfType, Flex, OutputType, Speed};
@@ -633,6 +633,55 @@ impl<'d, T: Instance, I: Interface> Ltdc<'d, T, I> {
             }
             w.set_len(true);
         });
+    }
+
+    /// Set the framebuffer address for a layer, but do not update the shadow registers
+    pub fn init_buffer(&mut self, layer: LtdcLayer, frame_buffer_addr: *const ()) {
+        let layer = T::regs().layer(layer as usize);
+        layer.cfbar().modify(|w| w.set_cfbadd(frame_buffer_addr as u32));
+    }
+
+    /// Check Isr for error interrupts, and return an error if either FIFO underrun or AXI bus error has occurred.
+    #[inline(always)]
+    fn check_error_interrupt(&self, isr: Isr) -> Result<(), Error> {
+        if isr.fuif() {
+            T::regs().icr().write(|w| w.set_cfuif(Cfuif::CLEAR));
+            return Err(Error::FifoUnderrun);
+        }
+
+        if isr.terrif() {
+            T::regs().icr().write(|w| w.set_cterrif(Cterrif::CLEAR));
+            return Err(Error::TransferError);
+        }
+
+        Ok(())
+    }
+
+    /// Reload the shadow registers and wait for reload register or an error interrupt
+    pub async fn reload(&mut self) -> Result<(), Error> {
+        poll_fn(|cx| {
+            let isr = T::regs().isr().read();
+
+            if let Err(e) = self.check_error_interrupt(isr) {
+                return Poll::Ready(Err(e));
+            }
+
+            if isr.rrif() {
+                T::regs().icr().write(|w| w.set_crrif(Crrif::CLEAR));
+                return Poll::Ready(Ok(()));
+            }
+
+            LTDC_WAKER.register(cx.waker());
+            Self::enable_interrupts(true);
+
+            // configure a shadow reload for the next blanking period
+            T::regs().srcr().write(|w| {
+                w.set_vbr(Vbr::RELOAD);
+            });
+
+            Poll::Pending
+        })
+        .await
     }
 
     /// Set the current buffer. The async function will return when buffer has been completely copied to the LCD screen
