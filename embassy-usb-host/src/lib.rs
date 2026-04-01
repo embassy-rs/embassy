@@ -36,6 +36,8 @@ pub enum EnumerationError {
     Transfer(ChannelError),
     /// Invalid or unexpected descriptor received.
     InvalidDescriptor,
+    /// Configuration buffer too small
+    ConfigBufferTooSmall(usize),
     /// No free channel for EP0.
     NoChannel,
 }
@@ -61,6 +63,9 @@ impl core::fmt::Display for EnumerationError {
         match self {
             Self::Transfer(_e) => write!(f, "Transfer error during enumeration"),
             Self::InvalidDescriptor => write!(f, "Invalid descriptor"),
+            Self::ConfigBufferTooSmall(size) => {
+                write!(f, "Configuration buffer too small: device requires {} bytes", size)
+            }
             Self::NoChannel => write!(f, "No free channel"),
         }
     }
@@ -189,7 +194,7 @@ impl<D: UsbHostDriver> UsbHost<D> {
         let total_len = config_header.total_len as usize;
 
         if total_len > config_buf.len() {
-            return Err(EnumerationError::InvalidDescriptor);
+            return Err(EnumerationError::ConfigBufferTooSmall(total_len));
         }
 
         // Get full configuration descriptor.
