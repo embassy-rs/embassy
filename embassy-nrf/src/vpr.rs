@@ -40,6 +40,21 @@ impl<'d> Vpr<'d> {
         Ok(this)
     }
 
+    /// Load the provided program into RAM.
+    ///
+    /// Call `start()` to start the coprocessor.
+    pub fn load(&mut self, program: &[u8]) -> Result<(), Error> {
+        if self.regs.cpurun().read().en() == pac::vpr::vals::CpurunEn::RUNNING {
+            return Err(Error::Running);
+        }
+
+        unsafe {
+            copy_nonoverlapping(program.as_ptr(), self.address as *mut u8, program.len());
+        }
+
+        Ok(())
+    }
+
     /// Initialize the coprocessor program counter.
     ///
     /// If the coprocessor is already running, this will only take effect on the next reset.
@@ -82,6 +97,8 @@ impl<'d> Vpr<'d> {
 pub enum Error {
     /// Unaligned address
     NotAligned,
+    /// Core is already running
+    Running,
 }
 
 pub(crate) trait SealedInstance {
