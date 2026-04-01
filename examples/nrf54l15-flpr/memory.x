@@ -2,7 +2,6 @@
 MEMORY
 {
   /* NOTE 1 K = 1 KiBi = 1024 bytes */
-  FLASH : ORIGIN = 0x00020000, LENGTH = 128K /* coprocessor space */
   RAM : ORIGIN = 0x20020000, LENGTH = 128K - 512 /* coprocessor space */
 
   /* TODO: Figure out why this is necessary. If the heap is not specfied explicitly,
@@ -13,8 +12,8 @@ MEMORY
 
 
 
-REGION_ALIAS("REGION_TEXT", FLASH);
-REGION_ALIAS("REGION_RODATA", FLASH);
+REGION_ALIAS("REGION_TEXT", RAM);
+REGION_ALIAS("REGION_RODATA", RAM);
 REGION_ALIAS("REGION_DATA", RAM);
 REGION_ALIAS("REGION_BSS", RAM);
 REGION_ALIAS("REGION_STACK", RAM);
