@@ -1,13 +1,12 @@
 #![no_std]
 #![no_main]
 
-use panic_halt as _;
-use riscv_rt::entry;
-
 use embedded_hal::delay::DelayNs as _;
-use nrf_pac as pac;
 use pac::gpio::vals;
-use riscv::{self as _, delay::McycleDelay};
+use riscv::delay::McycleDelay;
+use riscv::{self as _};
+use riscv_rt::entry;
+use {nrf_pac as pac, panic_halt as _};
 
 #[entry]
 fn main() -> ! {

@@ -1,9 +1,11 @@
 //! VPR coprocessor control.
 #![macro_use]
 
-use crate::{interrupt, pac};
 use core::marker::PhantomData;
+
 use embassy_hal_internal::{Peri, PeripheralType};
+
+use crate::{interrupt, pac};
 
 /// VPR coprocessor driver.
 pub struct Vpr<'d> {
