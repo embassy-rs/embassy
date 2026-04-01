@@ -1,23 +1,23 @@
 //! VPR coprocessor control.
 #![macro_use]
 
-use core::marker::PhantomData;
-
-use embassy_hal_internal::{Peri, PeripheralType};
-
 use crate::{interrupt, pac};
+use core::marker::PhantomData;
+use core::ptr::copy_nonoverlapping;
+use embassy_hal_internal::{Peri, PeripheralType};
 
 /// VPR coprocessor driver.
 pub struct Vpr<'d> {
     regs: pac::vpr::Vpr,
     _p: PhantomData<&'d ()>,
+    address: *const u8,
 }
 
 impl<'d> Vpr<'d> {
     /// Initialize the VPR coprocessor program counter.
     ///
-    /// The address must be 8-byte aligned.
-    pub fn new<T: Instance>(_peri: Peri<'d, T>, address: u32) -> Result<Self, Error> {
+    /// The address must be an 8-byte aligned in RAM.
+    pub fn new<T: Instance>(_peri: Peri<'d, T>, address: *const u8) -> Result<Self, Error> {
         #[cfg(feature = "_s")]
         let spu = pac::SPU00_S;
 
@@ -32,6 +32,7 @@ impl<'d> Vpr<'d> {
 
         let mut this = Self {
             regs: T::regs(),
+            address,
             _p: PhantomData,
         };
 
@@ -41,13 +42,15 @@ impl<'d> Vpr<'d> {
 
     /// Initialize the coprocessor program counter.
     ///
-    /// If the coprocessor is already running, this will only take effect
-    /// on the next reset.
-    pub fn init(&mut self, address: u32) -> Result<(), Error> {
-        if address % 8 != 0 {
+    /// If the coprocessor is already running, this will only take effect on the next reset.
+    pub fn init(&mut self, address: *const u8) -> Result<(), Error> {
+        if address as u32 % 8 != 0 {
             return Err(Error::NotAligned);
         }
 
+        self.address = address;
+        let address = address as u32;
+        let address = address & 0x1FFF_FFFF;
         self.regs.initpc().write_value(address);
         Ok(())
     }

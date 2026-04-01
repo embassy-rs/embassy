@@ -15,8 +15,8 @@ async fn main(_s: Spawner) {
     let mut led = Output::new(p.P2_09, Level::Low, OutputDrive::Standard);
 
     // Corresponds to RISCV RAM slot in FLRP example.
-    const RISCV_ENTRY_ADDR: u32 = 0x00020000;
-    let mut vpr = unwrap!(vpr::Vpr::new(p.VPR, RISCV_ENTRY_ADDR));
+    const RISCV_ENTRY_ADDR: u32 = 0x20020000;
+    let mut vpr = unwrap!(vpr::Vpr::new(p.VPR, RISCV_ENTRY_ADDR as *const u8));
 
     info!("Start VPR core from address {:#010x}", RISCV_ENTRY_ADDR);
 
