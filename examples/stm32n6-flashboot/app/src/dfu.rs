@@ -53,7 +53,12 @@ fn send_byte(tx: &mut UartTx<'_, Blocking>, b: u8) {
 /// The XMODEM sender must already be running on the host before this is called.
 /// Returns the total number of firmware bytes written on success.
 pub fn receive_firmware(mut rx: UartRx<'_, Blocking>, mut tx: UartTx<'_, Blocking>) -> Result<usize, ()> {
-    info!("XMODEM: sending 'C', waiting for sender...");
+    unsafe extern "C" {
+        static __dfu_max_fw_size: u8;
+    }
+    let max_fw_size = core::ptr::addr_of!(__dfu_max_fw_size) as u32;
+
+    info!("XMODEM: waiting for sender (max fw size: {}K)...", max_fw_size / 1024);
 
     let mut chunk_buf = [0xFFu8; CHUNK_SIZE];
     let mut chunk_pos: usize = 0;
@@ -87,10 +92,15 @@ pub fn receive_firmware(mut rx: UartRx<'_, Blocking>, mut tx: UartTx<'_, Blockin
                             src += n;
 
                             if chunk_pos >= CHUNK_SIZE {
+                                if flash_offset + CHUNK_SIZE as u32 > max_fw_size {
+                                    info!("XMODEM: firmware too large (>{} bytes), aborting", max_fw_size);
+                                    return Err(());
+                                }
                                 flash_ops::write_dfu_chunk(flash_offset, &chunk_buf);
                                 flash_offset += CHUNK_SIZE as u32;
                                 chunk_pos = 0;
                                 chunk_buf = [0xFFu8; CHUNK_SIZE];
+                                info!("XMODEM: {}K written", flash_offset / 1024);
                             }
                         }
 
@@ -112,6 +122,10 @@ pub fn receive_firmware(mut rx: UartRx<'_, Blocking>, mut tx: UartTx<'_, Blockin
 
                 // Flush remaining data (padded with 0xFF already)
                 if chunk_pos > 0 {
+                    if flash_offset + chunk_pos as u32 > max_fw_size {
+                        info!("XMODEM: firmware too large (>{} bytes), aborting", max_fw_size);
+                        return Err(());
+                    }
                     flash_ops::write_dfu_chunk(flash_offset, &chunk_buf[..chunk_pos]);
                 }
 

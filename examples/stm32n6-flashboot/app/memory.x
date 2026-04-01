@@ -21,3 +21,7 @@ __bootloader_state_end = ORIGIN(BOOTLOADER_STATE) + LENGTH(BOOTLOADER_STATE) - O
 
 __bootloader_dfu_start = ORIGIN(DFU) - ORIGIN(BOOTLOADER);
 __bootloader_dfu_end = ORIGIN(DFU) + LENGTH(DFU) - ORIGIN(BOOTLOADER);
+
+/* Max firmware size for DFU overflow check: ACTIVE = DFU minus one 4K sector.
+ * embassy-boot reserves the extra sector for swap bookkeeping. */
+__dfu_max_fw_size = LENGTH(DFU) - 4K;
