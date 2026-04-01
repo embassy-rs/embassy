@@ -37,3 +37,4 @@ cargo test --manifest-path ./embassy-stm32/Cargo.toml --no-default-features --fe
 
 cargo test --manifest-path ./embassy-net-adin1110/Cargo.toml
 cargo test --manifest-path ./embassy-usb-dfu/Cargo.toml --features dfu
+cargo test --manifest-path ./embassy-usb-host/Cargo.toml

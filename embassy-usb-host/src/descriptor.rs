@@ -410,7 +410,7 @@ impl From<EndpointDescriptor> for EndpointInfo {
 mod test {
     use heapless::Vec;
 
-    use super::{ConfigurationDescriptor, EndpointDescriptor, USBDescriptor};
+    use super::{ConfigurationDescriptor, EndpointDescriptor};
 
     #[test]
     fn test_parse_extended_endpoint_descriptor() {
