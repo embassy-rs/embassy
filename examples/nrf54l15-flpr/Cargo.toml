@@ -14,6 +14,11 @@ embedded-hal = "1.0"
 riscv = { version = "0.12.1", features = ["critical-section-single-hart"] }
 riscv-rt = { version = "0.13.0", features = ["single-hart"] }
 
+[package.metadata.embassy]
+build = [
+    {group = "nightly"}
+]
+
 [patch.crates-io]
 # Patch needed to support RV32E
 riscv-rt = { git = "https://github.com/rust-embedded/riscv", rev = "fe6da179b437f23545a5db13ead28dc9855523a4" }
