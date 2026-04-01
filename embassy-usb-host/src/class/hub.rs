@@ -273,6 +273,7 @@ enum PortFeature {
 
 bitflags! {
     /// USB 2.0 Spec 11.24.2.7.1
+    #[derive(Debug)]
     struct PortStatus: u16 {
         const CONNECTED   = 1 << 0;
         const ENABLED     = 1 << 1;
@@ -289,6 +290,7 @@ bitflags! {
 
 bitflags! {
     /// USB 2.0 Spec 11.24.2.7.2
+    #[derive(Debug)]
     struct PortStatusChange: u16 {
         const CONNECT     = 1 << 0;
         const ENABLE      = 1 << 1;
