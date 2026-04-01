@@ -47,8 +47,12 @@ impl From<ChannelError> for EnumerationError {
 }
 
 impl From<HostError> for EnumerationError {
-    fn from(_: HostError) -> Self {
-        Self::NoChannel
+    fn from(e: HostError) -> Self {
+        match e {
+            HostError::ChannelError(e) => Self::Transfer(e),
+            HostError::InvalidDescriptor => Self::InvalidDescriptor,
+            _ => Self::NoChannel,
+        }
     }
 }
 
@@ -69,7 +73,9 @@ impl core::error::Error for EnumerationError {}
 /// Manages device connection, enumeration, and class driver binding.
 pub struct UsbHost<D: UsbHostDriver> {
     driver: D,
-    next_address: u8,
+    /// Bitmask of in-use USB device addresses (1–127).
+    /// Bit `n` of `addr_bitmap[n / 64]` is set when address `n` is assigned.
+    addr_bitmap: [u64; 2],
 }
 
 impl<D: UsbHostDriver> UsbHost<D> {
@@ -77,7 +83,29 @@ impl<D: UsbHostDriver> UsbHost<D> {
     pub fn new(driver: D) -> Self {
         Self {
             driver,
-            next_address: 1,
+            addr_bitmap: [0u64; 2],
+        }
+    }
+
+    /// Allocate the next free device address (1–127), marking it as in use.
+    fn alloc_address(&mut self) -> Option<u8> {
+        for addr in 1u8..=127 {
+            let word = (addr / 64) as usize;
+            let bit = addr % 64;
+            if self.addr_bitmap[word] & (1u64 << bit) == 0 {
+                self.addr_bitmap[word] |= 1u64 << bit;
+                return Some(addr);
+            }
+        }
+        None
+    }
+
+    /// Release a previously allocated device address.
+    pub fn free_address(&mut self, addr: u8) {
+        if addr >= 1 && addr <= 127 {
+            let word = (addr / 64) as usize;
+            let bit = addr % 64;
+            self.addr_bitmap[word] &= !(1u64 << bit);
         }
     }
 
@@ -124,8 +152,8 @@ impl<D: UsbHostDriver> UsbHost<D> {
         speed: Speed,
         config_buf: &mut [u8],
     ) -> Result<(DeviceDescriptor, u8, usize), EnumerationError> {
-        // Step 1: Get device descriptor (first 8 bytes) on address 0.
-        // Use the speed-specific default MPS for the initial control transfer.
+        use crate::control::ControlChannelExt;
+
         let ep0_info = EndpointInfo {
             addr: EndpointAddress::from_parts(0, UsbDirection::In),
             ep_type: EndpointType::Control,
@@ -138,57 +166,17 @@ impl<D: UsbHostDriver> UsbHost<D> {
             .alloc_channel::<channel::Control, channel::InOut>(0, &ep0_info, false)
             .map_err(|_| EnumerationError::NoChannel)?;
 
-        let mut desc_buf = [0u8; 18];
+        // Steps 1–3: GET_DESCRIPTOR (partial + full), SET_ADDRESS, retarget channel.
+        let addr = self.alloc_address().ok_or(EnumerationError::NoChannel)?;
+        let enum_info = ch.enumerate_device(speed, addr, false).await?;
+        let dev_desc = enum_info.device_desc;
 
-        // GET_DESCRIPTOR(Device, 8 bytes)
-        let setup = bytes_to_setup(&control::get_device_descriptor(8));
-        let n = ch.control_in(&setup, &mut desc_buf[..8]).await?;
-
-        if n < 8 {
-            return Err(EnumerationError::InvalidDescriptor);
-        }
-
-        let max_packet_size0 = desc_buf[7];
-        trace!("EP0 max packet size: {}", max_packet_size0);
-
-        // Step 2: SET_ADDRESS
-        let addr = self.next_address;
-        self.next_address = if self.next_address >= 127 {
-            1
-        } else {
-            self.next_address + 1
-        };
-
-        let setup = bytes_to_setup(&control::set_address(addr));
-        ch.control_out(&setup, &[]).await?;
-
-        // Retarget channel to new address and max packet size
-        let new_ep0_info = EndpointInfo {
-            addr: EndpointAddress::from_parts(0, UsbDirection::In),
-            ep_type: EndpointType::Control,
-            max_packet_size: max_packet_size0 as u16,
-            interval_ms: 0,
-        };
-        ch.retarget_channel(addr, &new_ep0_info, false)
-            .map_err(|_| EnumerationError::NoChannel)?;
-
-        trace!("Device assigned address {}", addr);
-
-        // Step 3: Get full device descriptor (18 bytes)
-        let setup = bytes_to_setup(&control::get_device_descriptor(18));
-        let n = ch.control_in(&setup, &mut desc_buf).await?;
-
-        if n < 18 {
-            return Err(EnumerationError::InvalidDescriptor);
-        }
-
-        let dev_desc = DeviceDescriptor::try_from_bytes(&desc_buf).map_err(|_| EnumerationError::InvalidDescriptor)?;
         info!(
             "Device: VID={:04x} PID={:04x} class={:02x}",
             dev_desc.vendor_id, dev_desc.product_id, dev_desc.device_class
         );
 
-        // Step 4: Get configuration descriptor header (9 bytes)
+        // Step 4: Get configuration descriptor header (9 bytes).
         let setup = bytes_to_setup(&control::get_config_descriptor(0, 9));
         let n = ch.control_in(&setup, &mut config_buf[..9]).await?;
 
@@ -204,19 +192,24 @@ impl<D: UsbHostDriver> UsbHost<D> {
             return Err(EnumerationError::InvalidDescriptor);
         }
 
-        // Get full configuration descriptor
+        // Get full configuration descriptor.
         let setup = bytes_to_setup(&control::get_config_descriptor(0, total_len as u16));
         let n = ch.control_in(&setup, &mut config_buf[..total_len]).await?;
 
+        // USB 2.0 §9.4.3: the device must return exactly total_len bytes for a full config descriptor.
+        if n != total_len {
+            return Err(EnumerationError::InvalidDescriptor);
+        }
+
         trace!("Config descriptor: {} bytes", n);
 
-        // Step 5: SET_CONFIGURATION
+        // Step 5: SET_CONFIGURATION.
         let setup = bytes_to_setup(&control::set_configuration(config_header.configuration_value));
         ch.control_out(&setup, &[]).await?;
 
         info!("Device configured (config={})", config_header.configuration_value);
 
-        // Channel is released on drop
+        // Channel is released on drop.
         drop(ch);
 
         Ok((dev_desc, addr, n))

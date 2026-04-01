@@ -4,8 +4,7 @@ use core::num::NonZeroU8;
 
 use embassy_time::Timer;
 pub use embassy_usb_driver::host::channel;
-use embassy_usb_driver::host::channel::{Control, InOut};
-use embassy_usb_driver::host::{ChannelError, HostError, RequestType, SetupPacket, UsbChannel, UsbHostDriver};
+use embassy_usb_driver::host::{ChannelError, HostError, RequestType, SetupPacket, UsbChannel};
 use embassy_usb_driver::{EndpointInfo, EndpointType, Speed};
 
 use crate::descriptor::{USBDescriptor, descriptor_type};
@@ -308,8 +307,14 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
                 }
             }
         };
+        // USB 2.0 §9.6.1: legal EP0 max packet sizes are 8, 16, 32, 64.
+        if !matches!(max_packet_size0, 8 | 16 | 32 | 64) {
+            return Err(HostError::InvalidDescriptor);
+        }
 
         self.device_set_address(new_device_address).await?;
+        // USB 2.0 §9.2.6.3: allow the device a 2ms recovery interval after SET_ADDRESS.
+        Timer::after_millis(2).await;
 
         self.retarget_channel(
             new_device_address,
@@ -352,27 +357,3 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
 }
 
 impl<D: channel::Direction, C> ControlChannelExt<D> for C where C: UsbChannel<channel::Control, D> {}
-
-/// Extension trait for [`UsbHostDriver`] providing a convenience enumeration method.
-pub trait UsbHostBusExt: UsbHostDriver {
-    /// Enumerate the root port device without selecting a configuration.
-    async fn enumerate_root_bare(
-        &mut self,
-        speed: Speed,
-        new_device_address: u8,
-    ) -> Result<EnumerationInfo, HostError> {
-        let mut channel = self.alloc_channel::<Control, InOut>(
-            0,
-            &EndpointInfo {
-                addr: 0.into(),
-                ep_type: EndpointType::Control,
-                max_packet_size: speed.max_packet_size(),
-                interval_ms: 0,
-            },
-            false,
-        )?;
-        channel.enumerate_device(speed, new_device_address, false).await
-    }
-}
-
-impl<C: UsbHostDriver> UsbHostBusExt for C {}

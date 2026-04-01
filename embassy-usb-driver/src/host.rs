@@ -320,7 +320,9 @@ impl Default for TimeoutConfig {
 ///  while others may only have a single channel which needs to be multiplexed in software, while others still use DMA request linked-lists.
 /// Any of these are compatible with the UsbChannel with varying degrees of sync primitives required.
 pub trait UsbChannel<T: channel::Type, D: channel::Direction> {
-    /// Send IN control request
+    /// Send IN control request.
+    ///
+    /// Returns the number of bytes received into `buf`.
     async fn control_in(&mut self, setup: &SetupPacket, buf: &mut [u8]) -> Result<usize, ChannelError>
     where
         T: channel::IsControl,
