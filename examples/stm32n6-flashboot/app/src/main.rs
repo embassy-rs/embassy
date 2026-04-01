@@ -27,11 +27,17 @@ async fn user_button_task(mut button: ExtiInput<'static, Async>, mut green_led: 
     loop {
         button.wait_for_rising_edge().await;
         info!("Button pressed — green LED on");
+        #[cfg(feature = "dk")]
         green_led.set_high();
+        #[cfg(feature = "nucleo")]
+        green_led.set_low();
 
         button.wait_for_falling_edge().await;
         info!("Button released — green LED off");
+        #[cfg(feature = "dk")]
         green_led.set_low();
+        #[cfg(feature = "nucleo")]
+        green_led.set_high();
     }
 }
 
@@ -81,7 +87,7 @@ async fn main(spawner: Spawner) {
         #[cfg(feature = "dk")]
         let mut green_led = Output::new(p.PO1, Level::Low, Speed::Low);
         #[cfg(feature = "nucleo")]
-        let mut green_led = Output::new(p.PG0, Level::Low, Speed::Low);
+        let mut green_led = Output::new(p.PG0, Level::High, Speed::Low);
 
         let mut uart_config = usart::Config::default();
         uart_config.parity = usart::Parity::ParityEven;
@@ -92,7 +98,10 @@ async fn main(spawner: Spawner) {
             Ok(size) => {
                 info!("DFU complete: {} bytes. Reset to apply.", size);
                 red_led.set_high();
+                #[cfg(feature = "dk")]
                 green_led.set_high();
+                #[cfg(feature = "nucleo")]
+                green_led.set_low();
             }
             Err(()) => {
                 info!("DFU failed. Reset to retry.");
@@ -113,7 +122,7 @@ async fn main(spawner: Spawner) {
     #[cfg(feature = "dk")]
     let green_led = Output::new(p.PO1, Level::Low, Speed::Low);
     #[cfg(feature = "nucleo")]
-    let green_led = Output::new(p.PG0, Level::Low, Speed::Low);
+    let green_led = Output::new(p.PG0, Level::High, Speed::Low);
 
     let user_button = ExtiInput::new(p.PC13, p.EXTI13, Pull::Down, Irqs);
     spawner.spawn(user_button_task(user_button, green_led).unwrap());
