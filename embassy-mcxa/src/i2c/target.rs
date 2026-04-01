@@ -1033,6 +1033,29 @@ impl<'d> AsyncEngine for I2c<'d, Async> {
             }
         }
 
+        // The controller may read more bytes than the buffer contains.
+        // Keep feeding zeros until the controller NACKs or sends STOP,
+        // otherwise the hardware clock-stretches indefinitely.
+        loop {
+            self.info
+                .wait_cell()
+                .wait_for(|| {
+                    self.enable_tx_ints();
+                    let ssr = self.info.regs().ssr().read();
+                    ssr.tdf() || ssr.sdf() || ssr.rsf()
+                })
+                .await
+                .map_err(|_| IOError::Other)?;
+
+            let ssr = self.info.regs().ssr().read();
+            if ssr.sdf() || ssr.rsf() {
+                self.reset_fifos();
+                break;
+            } else {
+                self.info.regs().stdr().write(|w| w.set_data(0x00));
+            }
+        }
+
         Ok(count)
     }
 
