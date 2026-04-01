@@ -235,17 +235,17 @@ pub enum AlphaMode {
     /// Do not modify alpha
     NoModify,
     /// Replace alpha
-    Replace,
+    Replace(u8),
     /// Multiply alpha
-    Multiply,
+    Multiply(u8),
 }
 
 impl Into<vals::FgpfccrAm> for AlphaMode {
     fn into(self) -> vals::FgpfccrAm {
         match self {
             AlphaMode::NoModify => vals::FgpfccrAm::NO_MODIFY,
-            AlphaMode::Replace => vals::FgpfccrAm::REPLACE,
-            AlphaMode::Multiply => vals::FgpfccrAm::MULTIPLY,
+            AlphaMode::Replace(_) => vals::FgpfccrAm::REPLACE,
+            AlphaMode::Multiply(_) => vals::FgpfccrAm::MULTIPLY,
         }
     }
 }
@@ -254,8 +254,8 @@ impl Into<vals::BgpfccrAm> for AlphaMode {
     fn into(self) -> vals::BgpfccrAm {
         match self {
             AlphaMode::NoModify => vals::BgpfccrAm::NO_MODIFY,
-            AlphaMode::Replace => vals::BgpfccrAm::REPLACE,
-            AlphaMode::Multiply => vals::BgpfccrAm::MULTIPLY,
+            AlphaMode::Replace(_) => vals::BgpfccrAm::REPLACE,
+            AlphaMode::Multiply(_) => vals::BgpfccrAm::MULTIPLY,
         }
     }
 }
@@ -369,6 +369,11 @@ impl<'d, T: Instance> Dma2d<'d, T> {
                         false => vals::FgpfccrRbs::REGULAR,
                     });
                     w.set_am(config.alpha_mode.into());
+
+                    w.set_alpha(match config.alpha_mode {
+                        AlphaMode::Replace(alpha) | AlphaMode::Multiply(alpha) => alpha,
+                        _ => 0,
+                    });
                 });
             }
             BufferKind::Background => {
@@ -385,6 +390,11 @@ impl<'d, T: Instance> Dma2d<'d, T> {
                         false => vals::BgpfccrRbs::REGULAR,
                     });
                     w.set_am(config.alpha_mode.into());
+
+                    w.set_alpha(match config.alpha_mode {
+                        AlphaMode::Replace(alpha) | AlphaMode::Multiply(alpha) => alpha,
+                        _ => 0,
+                    });
                 });
             }
             BufferKind::Output => {
