@@ -252,6 +252,9 @@ cyw43 = ["dep:cyw43"]
 
 stm32-hrtim = ["dep:stm32-hrtim"]
 
+## Enable USB host mode support
+usb-host = ["embassy-usb-synopsys-otg/host"]
+
 exti = []
 low-power = [ "time" ]
 low-power-debug-with-sleep = [ "low-power" ]

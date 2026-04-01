@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 # Change stm32f429zi to your chip name, if necessary.
-embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = ["defmt", "stm32f429zi", "unstable-pac", "memory-x", "time-driver-tim4", "exti", "chrono"] }
+embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = ["defmt", "stm32f429zi", "unstable-pac", "memory-x", "time-driver-tim4", "exti", "chrono", "usb-host"] }
 embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
 embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
@@ -15,6 +15,8 @@ embassy-usb = { version = "0.6.0", path = "../../embassy-usb", features = ["defm
 embassy-net = { version = "0.9.0", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet", ] }
 embassy-net-wiznet = { version = "0.3.0", path = "../../embassy-net-wiznet", features = ["defmt"] }
 embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
+embassy-usb-host = { version = "0.1.0", path = "../../embassy-usb-host", features = ["defmt"] }
+embassy-usb-driver = { version = "0.2.0", path = "../../embassy-usb-driver", features = ["defmt"] }
 
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"

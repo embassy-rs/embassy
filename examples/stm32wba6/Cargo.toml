@@ -6,7 +6,7 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]
-embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "stm32wba65ri", "time-driver-any", "memory-x", "exti"]  }
+embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "stm32wba65ri", "time-driver-any", "memory-x", "exti", "usb-host"]  }
 stm32-metapac = { version = "21", features = ["stm32wba65ri"] }
 embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", features = ["defmt", "stm32wba65ri"], optional = true }
 embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }
@@ -15,6 +15,8 @@ embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["de
 embassy-net = { version = "0.9.0", path = "../../embassy-net", features = ["defmt", "udp", "proto-ipv6", "medium-ieee802154", ], optional = true }
 embassy-usb = { version = "0.6.0", path = "../../embassy-usb", features = ["defmt"] }
 embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
+embassy-usb-host = { version = "0.1.0", path = "../../embassy-usb-host", features = ["defmt"] }
+embassy-usb-driver = { version = "0.2.0", path = "../../embassy-usb-driver", features = ["defmt"] }
 embedded-sdmmc = "0.9.0"
 embedded-hal-bus = "0.3.0"
 
@@ -63,6 +65,12 @@ required-features = ["ble"]
 [[bin]]
 name = "ble_central"
 required-features = ["ble"]
+
+[[bin]]
+name = "usb_host_serial"
+
+[[bin]]
+name = "usb_host_hid"
 
 [package.metadata.embassy]
 build = [

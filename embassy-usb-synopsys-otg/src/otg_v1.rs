@@ -1,4 +1,6 @@
 //! Register definitions for Synopsys DesignWare USB OTG core
+//! This core is well known for being poorly documented publicly, but register descriptions are available at:
+//!  https://www.intel.com/content/www/us/en/programmable/hps/agilex5/index_frames.html under USBOTG
 
 #![allow(missing_docs)]
 
@@ -108,292 +110,346 @@ impl Otg {
     }
     #[doc = "Control and status register"]
     #[inline(always)]
-    pub fn gotgctl(self) -> Reg<regs::Gotgctl, RW> {
+    pub const fn gotgctl(self) -> Reg<regs::Gotgctl, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0usize) as _) }
     }
     #[doc = "Interrupt register"]
     #[inline(always)]
-    pub fn gotgint(self) -> Reg<regs::Gotgint, RW> {
+    pub const fn gotgint(self) -> Reg<regs::Gotgint, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x04usize) as _) }
     }
     #[doc = "AHB configuration register"]
     #[inline(always)]
-    pub fn gahbcfg(self) -> Reg<regs::Gahbcfg, RW> {
+    pub const fn gahbcfg(self) -> Reg<regs::Gahbcfg, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x08usize) as _) }
     }
     #[doc = "USB configuration register"]
     #[inline(always)]
-    pub fn gusbcfg(self) -> Reg<regs::Gusbcfg, RW> {
+    pub const fn gusbcfg(self) -> Reg<regs::Gusbcfg, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0cusize) as _) }
     }
     #[doc = "Reset register"]
     #[inline(always)]
-    pub fn grstctl(self) -> Reg<regs::Grstctl, RW> {
+    pub const fn grstctl(self) -> Reg<regs::Grstctl, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x10usize) as _) }
     }
     #[doc = "Core interrupt register"]
     #[inline(always)]
-    pub fn gintsts(self) -> Reg<regs::Gintsts, RW> {
+    pub const fn gintsts(self) -> Reg<regs::Gintsts, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x14usize) as _) }
     }
     #[doc = "Interrupt mask register"]
     #[inline(always)]
-    pub fn gintmsk(self) -> Reg<regs::Gintmsk, RW> {
+    pub const fn gintmsk(self) -> Reg<regs::Gintmsk, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x18usize) as _) }
     }
     #[doc = "Receive status debug read register"]
     #[inline(always)]
-    pub fn grxstsr(self) -> Reg<regs::Grxsts, R> {
+    pub const fn grxstsr(self) -> Reg<regs::Grxsts, R> {
         unsafe { Reg::from_ptr(self.ptr.add(0x1cusize) as _) }
     }
     #[doc = "Status read and pop register"]
     #[inline(always)]
-    pub fn grxstsp(self) -> Reg<regs::Grxsts, R> {
+    pub const fn grxstsp(self) -> Reg<regs::Grxsts, R> {
         unsafe { Reg::from_ptr(self.ptr.add(0x20usize) as _) }
     }
     #[doc = "Receive FIFO size register"]
     #[inline(always)]
-    pub fn grxfsiz(self) -> Reg<regs::Grxfsiz, RW> {
+    pub const fn grxfsiz(self) -> Reg<regs::Grxfsiz, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x24usize) as _) }
     }
     #[doc = "Endpoint 0 transmit FIFO size register (device mode)"]
     #[inline(always)]
-    pub fn dieptxf0(self) -> Reg<regs::Fsiz, RW> {
+    pub const fn dieptxf0(self) -> Reg<regs::Fsiz, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x28usize) as _) }
     }
     #[doc = "Non-periodic transmit FIFO size register (host mode)"]
     #[inline(always)]
-    pub fn hnptxfsiz(self) -> Reg<regs::Fsiz, RW> {
+    pub const fn hnptxfsiz(self) -> Reg<regs::Fsiz, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x28usize) as _) }
     }
     #[doc = "Non-periodic transmit FIFO/queue status register (host mode)"]
     #[inline(always)]
-    pub fn hnptxsts(self) -> Reg<regs::Hnptxsts, R> {
+    pub const fn hnptxsts(self) -> Reg<regs::Hnptxsts, R> {
         unsafe { Reg::from_ptr(self.ptr.add(0x2cusize) as _) }
     }
     #[doc = "OTG I2C access register"]
     #[inline(always)]
-    pub fn gi2cctl(self) -> Reg<regs::Gi2cctl, RW> {
+    pub const fn gi2cctl(self) -> Reg<regs::Gi2cctl, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x30usize) as _) }
     }
     #[doc = "General core configuration register, for core_id 0x0000_1xxx"]
     #[inline(always)]
-    pub fn gccfg_v1(self) -> Reg<regs::GccfgV1, RW> {
+    pub const fn gccfg_v1(self) -> Reg<regs::GccfgV1, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x38usize) as _) }
     }
     #[doc = "General core configuration register, for core_id 0x0000_\\[23\\]xxx"]
     #[inline(always)]
-    pub fn gccfg_v2(self) -> Reg<regs::GccfgV2, RW> {
+    pub const fn gccfg_v2(self) -> Reg<regs::GccfgV2, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x38usize) as _) }
     }
     #[doc = "General core configuration register, for core_id 0x0000_5xxx"]
     #[inline(always)]
-    pub fn gccfg_v3(self) -> Reg<regs::GccfgV3, RW> {
+    pub const fn gccfg_v3(self) -> Reg<regs::GccfgV3, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x38usize) as _) }
     }
     #[doc = "Core ID register"]
     #[inline(always)]
-    pub fn cid(self) -> Reg<regs::Cid, RW> {
+    pub const fn cid(self) -> Reg<regs::Cid, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x3cusize) as _) }
+    }
+    #[doc = "Synopsis ID Register"]
+    #[inline(always)]
+    pub const fn snpsid(self) -> Reg<u32, R> {
+        unsafe { Reg::from_ptr(self.ptr.add(0x40usize) as _) }
+    }
+    // TODO: https://github.com/nfeske/dwc_otg/blob/177687793c884a9ffc2e5b08acf99cf75990a88c/dwc_otg/dwc_otg_regs.h#L724
+    #[doc = "User HW Config 1 register"]
+    #[inline(always)]
+    pub const fn hwcfg1(self) -> Reg<u32, R> {
+        unsafe { Reg::from_ptr(self.ptr.add(0x44usize) as _) }
+    }
+    #[doc = "User HW Config 2 register"]
+    #[inline(always)]
+    pub const fn hwcfg2(self) -> Reg<u32, R> {
+        unsafe { Reg::from_ptr(self.ptr.add(0x48usize) as _) }
+    }
+    #[doc = "User HW Config 3 register"]
+    #[inline(always)]
+    pub const fn hwcfg3(self) -> Reg<u32, R> {
+        unsafe { Reg::from_ptr(self.ptr.add(0x4cusize) as _) }
+    }
+    #[doc = "User HW Config 4 register"]
+    #[inline(always)]
+    pub const fn hwcfg4(self) -> Reg<u32, R> {
+        unsafe { Reg::from_ptr(self.ptr.add(0x50usize) as _) }
     }
     #[doc = "OTG core LPM configuration register"]
     #[inline(always)]
-    pub fn glpmcfg(self) -> Reg<regs::Glpmcfg, RW> {
+    pub const fn glpmcfg(self) -> Reg<regs::Glpmcfg, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x54usize) as _) }
+    }
+    #[doc = "Global PowerDn Register"]
+    #[inline(always)]
+    pub const fn gpwrdn(self) -> Reg<u32, RW> {
+        unsafe { Reg::from_ptr(self.ptr.add(0x58usize) as _) }
+    }
+    #[doc = "Global DFIFO SW Config Register"]
+    #[inline(always)]
+    pub const fn gdfifocfg(self) -> Reg<u32, RW> {
+        unsafe { Reg::from_ptr(self.ptr.add(0x5cusize) as _) }
+    }
+    #[doc = "ADP (Attach Detection Protocol) Control Register"]
+    #[inline(always)]
+    pub const fn adpctl(self) -> Reg<regs::AdpCtl, RW> {
+        unsafe { Reg::from_ptr(self.ptr.add(0x60usize) as _) }
     }
     #[doc = "Host periodic transmit FIFO size register"]
     #[inline(always)]
-    pub fn hptxfsiz(self) -> Reg<regs::Fsiz, RW> {
+    pub const fn hptxfsiz(self) -> Reg<regs::Fsiz, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0100usize) as _) }
     }
     #[doc = "Device IN endpoint transmit FIFO size register"]
     #[inline(always)]
-    pub fn dieptxf(self, n: usize) -> Reg<regs::Fsiz, RW> {
-        assert!(n < 7usize);
+    pub const fn dieptxf(self, n: usize) -> Reg<regs::Fsiz, RW> {
+        core::assert!(n < 7usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0104usize + n * 4usize) as _) }
     }
     #[doc = "Host configuration register"]
     #[inline(always)]
-    pub fn hcfg(self) -> Reg<regs::Hcfg, RW> {
+    pub const fn hcfg(self) -> Reg<regs::Hcfg, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0400usize) as _) }
     }
     #[doc = "Host frame interval register"]
     #[inline(always)]
-    pub fn hfir(self) -> Reg<regs::Hfir, RW> {
+    pub const fn hfir(self) -> Reg<regs::Hfir, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0404usize) as _) }
     }
     #[doc = "Host frame number/frame time remaining register"]
     #[inline(always)]
-    pub fn hfnum(self) -> Reg<regs::Hfnum, R> {
+    pub const fn hfnum(self) -> Reg<regs::Hfnum, R> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0408usize) as _) }
     }
     #[doc = "Periodic transmit FIFO/queue status register"]
     #[inline(always)]
-    pub fn hptxsts(self) -> Reg<regs::Hptxsts, RW> {
+    pub const fn hptxsts(self) -> Reg<regs::Hptxsts, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0410usize) as _) }
     }
     #[doc = "Host all channels interrupt register"]
     #[inline(always)]
-    pub fn haint(self) -> Reg<regs::Haint, R> {
+    pub const fn haint(self) -> Reg<regs::Haint, R> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0414usize) as _) }
+    }
+    #[doc = "Host Frame Scheduling List Register"]
+    #[inline(always)]
+    pub const fn hflbaddr(self) -> Reg<regs::Hflbaddr, RW> {
+        unsafe { Reg::from_ptr(self.ptr.add(0x41cusize) as _) }
     }
     #[doc = "Host all channels interrupt mask register"]
     #[inline(always)]
-    pub fn haintmsk(self) -> Reg<regs::Haintmsk, RW> {
+    pub const fn haintmsk(self) -> Reg<regs::Haintmsk, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0418usize) as _) }
     }
     #[doc = "Host port control and status register"]
     #[inline(always)]
-    pub fn hprt(self) -> Reg<regs::Hprt, RW> {
+    pub const fn hprt(self) -> Reg<regs::Hprt, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0440usize) as _) }
     }
     #[doc = "Host channel characteristics register"]
     #[inline(always)]
-    pub fn hcchar(self, n: usize) -> Reg<regs::Hcchar, RW> {
-        assert!(n < 12usize);
+    pub const fn hcchar(self, n: usize) -> Reg<regs::Hcchar, RW> {
+        core::assert!(n < 12usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0500usize + n * 32usize) as _) }
     }
     #[doc = "Host channel split control register"]
     #[inline(always)]
-    pub fn hcsplt(self, n: usize) -> Reg<u32, RW> {
-        assert!(n < 12usize);
+    pub const fn hcsplt(self, n: usize) -> Reg<u32, RW> {
+        core::assert!(n < 12usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0504usize + n * 32usize) as _) }
     }
     #[doc = "Host channel interrupt register"]
     #[inline(always)]
-    pub fn hcint(self, n: usize) -> Reg<regs::Hcint, RW> {
-        assert!(n < 12usize);
+    pub const fn hcint(self, n: usize) -> Reg<regs::Hcint, RW> {
+        core::assert!(n < 12usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0508usize + n * 32usize) as _) }
     }
     #[doc = "Host channel mask register"]
     #[inline(always)]
-    pub fn hcintmsk(self, n: usize) -> Reg<regs::Hcintmsk, RW> {
-        assert!(n < 12usize);
+    pub const fn hcintmsk(self, n: usize) -> Reg<regs::Hcintmsk, RW> {
+        core::assert!(n < 12usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x050cusize + n * 32usize) as _) }
     }
     #[doc = "Host channel transfer size register"]
     #[inline(always)]
-    pub fn hctsiz(self, n: usize) -> Reg<regs::Hctsiz, RW> {
-        assert!(n < 12usize);
+    pub const fn hctsiz(self, n: usize) -> Reg<regs::Hctsiz, RW> {
+        core::assert!(n < 12usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0510usize + n * 32usize) as _) }
     }
-    #[doc = "Host channel DMA address register"]
+    #[doc = "Host channel DMA address register (config for scatter/gather, ptr for buffer-dma)"]
     #[inline(always)]
-    pub fn hcdma(self, n: usize) -> Reg<u32, RW> {
-        assert!(n < 12usize);
+    pub const fn hcdma(self, n: usize) -> Reg<regs::Hcdma, RW> {
+        core::assert!(n < 12usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0514usize + n * 32usize) as _) }
+    }
+    #[doc = "Host channel DMA address register (addr buffer for current transfer; used to debug ddma)"]
+    #[inline(always)]
+    pub const fn hcdmab(self, n: usize) -> Reg<u32, RW> {
+        core::assert!(n < 12usize);
+        unsafe { Reg::from_ptr(self.ptr.add(0x051cusize + n * 32usize) as _) }
     }
     #[doc = "Device configuration register"]
     #[inline(always)]
-    pub fn dcfg(self) -> Reg<regs::Dcfg, RW> {
+    pub const fn dcfg(self) -> Reg<regs::Dcfg, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0800usize) as _) }
     }
     #[doc = "Device control register"]
     #[inline(always)]
-    pub fn dctl(self) -> Reg<regs::Dctl, RW> {
+    pub const fn dctl(self) -> Reg<regs::Dctl, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0804usize) as _) }
     }
     #[doc = "Device status register"]
     #[inline(always)]
-    pub fn dsts(self) -> Reg<regs::Dsts, R> {
+    pub const fn dsts(self) -> Reg<regs::Dsts, R> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0808usize) as _) }
     }
     #[doc = "Device IN endpoint common interrupt mask register"]
     #[inline(always)]
-    pub fn diepmsk(self) -> Reg<regs::Diepmsk, RW> {
+    pub const fn diepmsk(self) -> Reg<regs::Diepmsk, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0810usize) as _) }
     }
     #[doc = "Device OUT endpoint common interrupt mask register"]
     #[inline(always)]
-    pub fn doepmsk(self) -> Reg<regs::Doepmsk, RW> {
+    pub const fn doepmsk(self) -> Reg<regs::Doepmsk, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0814usize) as _) }
     }
     #[doc = "Device all endpoints interrupt register"]
     #[inline(always)]
-    pub fn daint(self) -> Reg<regs::Daint, R> {
+    pub const fn daint(self) -> Reg<regs::Daint, R> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0818usize) as _) }
     }
     #[doc = "All endpoints interrupt mask register"]
     #[inline(always)]
-    pub fn daintmsk(self) -> Reg<regs::Daintmsk, RW> {
+    pub const fn daintmsk(self) -> Reg<regs::Daintmsk, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x081cusize) as _) }
     }
     #[doc = "Device VBUS discharge time register"]
     #[inline(always)]
-    pub fn dvbusdis(self) -> Reg<regs::Dvbusdis, RW> {
+    pub const fn dvbusdis(self) -> Reg<regs::Dvbusdis, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0828usize) as _) }
     }
     #[doc = "Device VBUS pulsing time register"]
     #[inline(always)]
-    pub fn dvbuspulse(self) -> Reg<regs::Dvbuspulse, RW> {
+    pub const fn dvbuspulse(self) -> Reg<regs::Dvbuspulse, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x082cusize) as _) }
     }
     #[doc = "Device IN endpoint FIFO empty interrupt mask register"]
     #[inline(always)]
-    pub fn diepempmsk(self) -> Reg<regs::Diepempmsk, RW> {
+    pub const fn diepempmsk(self) -> Reg<regs::Diepempmsk, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0834usize) as _) }
     }
     #[doc = "Device IN endpoint control register"]
     #[inline(always)]
-    pub fn diepctl(self, n: usize) -> Reg<regs::Diepctl, RW> {
-        assert!(n < 16usize);
+    pub const fn diepctl(self, n: usize) -> Reg<regs::Diepctl, RW> {
+        core::assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0900usize + n * 32usize) as _) }
     }
     #[doc = "Device IN endpoint interrupt register"]
     #[inline(always)]
-    pub fn diepint(self, n: usize) -> Reg<regs::Diepint, RW> {
-        assert!(n < 16usize);
+    pub const fn diepint(self, n: usize) -> Reg<regs::Diepint, RW> {
+        core::assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0908usize + n * 32usize) as _) }
     }
     #[doc = "Device IN endpoint transfer size register"]
     #[inline(always)]
-    pub fn dieptsiz(self, n: usize) -> Reg<regs::Dieptsiz, RW> {
-        assert!(n < 16usize);
+    pub const fn dieptsiz(self, n: usize) -> Reg<regs::Dieptsiz, RW> {
+        core::assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0910usize + n * 32usize) as _) }
     }
     #[doc = "Device IN endpoint transmit FIFO status register"]
     #[inline(always)]
-    pub fn dtxfsts(self, n: usize) -> Reg<regs::Dtxfsts, R> {
-        assert!(n < 16usize);
+    pub const fn dtxfsts(self, n: usize) -> Reg<regs::Dtxfsts, R> {
+        core::assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0918usize + n * 32usize) as _) }
     }
     #[doc = "Device OUT endpoint control register"]
     #[inline(always)]
-    pub fn doepctl(self, n: usize) -> Reg<regs::Doepctl, RW> {
-        assert!(n < 16usize);
+    pub const fn doepctl(self, n: usize) -> Reg<regs::Doepctl, RW> {
+        core::assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0b00usize + n * 32usize) as _) }
     }
     #[doc = "Device OUT endpoint interrupt register"]
     #[inline(always)]
-    pub fn doepint(self, n: usize) -> Reg<regs::Doepint, RW> {
-        assert!(n < 16usize);
+    pub const fn doepint(self, n: usize) -> Reg<regs::Doepint, RW> {
+        core::assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0b08usize + n * 32usize) as _) }
     }
     #[doc = "Device OUT endpoint transfer size register"]
     #[inline(always)]
-    pub fn doeptsiz(self, n: usize) -> Reg<regs::Doeptsiz, RW> {
-        assert!(n < 16usize);
+    pub const fn doeptsiz(self, n: usize) -> Reg<regs::Doeptsiz, RW> {
+        core::assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0b10usize + n * 32usize) as _) }
     }
     #[doc = "Device OUT/IN endpoint DMA address register"]
     #[inline(always)]
-    pub fn doepdma(self, n: usize) -> Reg<u32, RW> {
-        assert!(n < 16usize);
+    pub const fn doepdma(self, n: usize) -> Reg<u32, RW> {
+        core::assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0b14usize + n * 32usize) as _) }
     }
     #[doc = "Power and clock gating control register"]
     #[inline(always)]
-    pub fn pcgcctl(self) -> Reg<regs::Pcgcctl, RW> {
+    pub const fn pcgcctl(self) -> Reg<regs::Pcgcctl, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0e00usize) as _) }
     }
     #[doc = "Device endpoint / host channel FIFO register"]
     #[inline(always)]
-    pub fn fifo(self, n: usize) -> Reg<regs::Fifo, RW> {
-        assert!(n < 16usize);
+    pub const fn fifo(self, n: usize) -> Reg<regs::Fifo, RW> {
+        core::assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x1000usize + n * 4096usize) as _) }
     }
 }
 pub mod regs {
+    use super::vals::FrameListLen;
+
     #[doc = "Core ID register"]
     #[repr(transparent)]
     #[derive(Copy, Clone, Eq, PartialEq)]
@@ -408,7 +464,7 @@ pub mod regs {
         #[doc = "Product ID field"]
         #[inline(always)]
         pub fn set_product_id(&mut self, val: u32) {
-            self.0 = (self.0 & !(0xffff_ffff << 0usize)) | (((val as u32) & 0xffff_ffff) << 0usize);
+            self.0 = val
         }
     }
     impl Default for Cid {
@@ -417,6 +473,160 @@ pub mod regs {
             Cid(0)
         }
     }
+
+    #[doc = "Core ID register"]
+    #[repr(transparent)]
+    #[derive(Copy, Clone, Eq, PartialEq)]
+    pub struct AdpCtl(pub u32);
+    impl AdpCtl {
+        #[doc = "Probe Discharge time (times for TADP_DSCHG)"]
+        #[inline(always)]
+        pub const fn prb_dschg(&self) -> u8 {
+            self.0 as u8 & 0b11
+        }
+        #[doc = "Probe Discharge time (times for TADP_DSCHG)"]
+        #[inline(always)]
+        pub fn set_prb_dschg(&mut self, val: u8) {
+            self.0 = (self.0 & !(0b11u32)) | ((val as u32) & 0b11);
+        }
+        #[doc = "Probe Delta (resolution for RTIM)"]
+        #[inline(always)]
+        pub const fn prb_delta(&self) -> u8 {
+            (self.0 >> 2) as u8 & 0b11
+        }
+        #[doc = "Probe Delta (resolution for RTIM)"]
+        #[inline(always)]
+        pub fn set_prb_delta(&mut self, val: u8) {
+            self.0 = (self.0 & !(0b11 << 2)) | (((val as u32) & 0b11) << 2usize);
+        }
+        #[doc = "Probe Period (TADP_PRD)"]
+        #[inline(always)]
+        pub const fn prb_per(&self) -> u8 {
+            (self.0 >> 4) as u8 & 0b11
+        }
+        #[doc = "Probe Period (TADP_PRD)"]
+        #[inline(always)]
+        pub fn set_prb_per(&mut self, val: u8) {
+            self.0 = (self.0 & !(0b11 << 4)) | (((val as u32) & 0b11) << 4usize);
+        }
+        #[doc = "Probe Period (TADP_PRD)"]
+        #[inline(always)]
+        pub const fn rtim(&self) -> u16 {
+            (self.0 >> 6) as u16 & 0x7ff
+        }
+        #[doc = "Probe Period (TADP_PRD)"]
+        #[inline(always)]
+        pub fn set_rtim(&mut self, val: u16) {
+            self.0 = (self.0 & !(0x7ff << 6)) | (((val as u32) & 0x7ff) << 6usize);
+        }
+        #[doc = "Enable Probe"]
+        #[inline(always)]
+        pub const fn enaprb(&self) -> bool {
+            (self.0 >> 17) & 0b1 != 0
+        }
+        #[doc = "Enable Probe"]
+        #[inline(always)]
+        pub fn set_enaprb(&mut self, val: bool) {
+            self.0 = (self.0 & !(0b1 << 17)) | ((val as u32) << 17usize);
+        }
+        #[doc = "Enable Sense"]
+        #[inline(always)]
+        pub const fn enasns(&self) -> bool {
+            (self.0 >> 18) & 0b1 != 0
+        }
+        #[doc = "Enable Sense"]
+        #[inline(always)]
+        pub fn set_enasns(&mut self, val: bool) {
+            self.0 = (self.0 & !(0b1 << 18)) | ((val as u32) << 18usize);
+        }
+        #[doc = "ADP Reset"]
+        #[inline(always)]
+        pub const fn adpres(&self) -> bool {
+            (self.0 >> 19) & 0b1 != 0
+        }
+        #[doc = "ADP Reset"]
+        #[inline(always)]
+        pub fn set_adpres(&mut self, val: bool) {
+            self.0 = (self.0 & !(0b1 << 19)) | ((val as u32) << 19usize);
+        }
+        #[doc = "ADP Enable"]
+        #[inline(always)]
+        pub const fn adpen(&self) -> bool {
+            (self.0 >> 20) & 0b1 != 0
+        }
+        #[doc = "ADP Enable"]
+        #[inline(always)]
+        pub fn set_adpen(&mut self, val: bool) {
+            self.0 = (self.0 & !(0b1 << 20)) | ((val as u32) << 20usize);
+        }
+        #[doc = "ADP Probe Interrupt Enable"]
+        #[inline(always)]
+        pub const fn adp_prb_int(&self) -> bool {
+            (self.0 >> 21) & 0b1 != 0
+        }
+        #[doc = "ADP Probe Interrupt Enable"]
+        #[inline(always)]
+        pub fn set_adp_prb_int(&mut self, val: bool) {
+            self.0 = (self.0 & !(0b1 << 21)) | ((val as u32) << 21usize);
+        }
+        #[doc = "ADP Sense Interrupt Enable"]
+        #[inline(always)]
+        pub const fn adp_sns_int(&self) -> bool {
+            (self.0 >> 22) & 0b1 != 0
+        }
+        #[doc = "ADP Sense Interrupt Enable"]
+        #[inline(always)]
+        pub fn set_adp_sns_int(&mut self, val: bool) {
+            self.0 = (self.0 & !(0b1 << 22)) | ((val as u32) << 22usize);
+        }
+        #[doc = "ADP Timeout Interrupt Enable"]
+        #[inline(always)]
+        pub const fn adp_tmout_int(&self) -> bool {
+            (self.0 >> 23) & 0b1 != 0
+        }
+        #[doc = "ADP Timeout Interrupt Enable"]
+        #[inline(always)]
+        pub fn set_adp_tmout_int(&mut self, val: bool) {
+            self.0 = (self.0 & !(0b1 << 23)) | ((val as u32) << 23usize);
+        }
+        #[doc = "ADP Probe Interrupt Mask"]
+        #[inline(always)]
+        pub const fn adp_prb_msk(&self) -> bool {
+            (self.0 >> 24) & 0b1 != 0
+        }
+        #[doc = "ADP Probe Interrupt Mask"]
+        #[inline(always)]
+        pub fn set_adp_prb_msk(&mut self, val: bool) {
+            self.0 = (self.0 & !(0b1 << 24)) | ((val as u32) << 24usize);
+        }
+        #[doc = "ADP Timeout Interrupt Mask"]
+        #[inline(always)]
+        pub const fn adp_tmout_msk(&self) -> bool {
+            (self.0 >> 25) & 0b1 != 0
+        }
+        #[doc = "ADP Timeout Interrupt Mask"]
+        #[inline(always)]
+        pub fn set_adp_tmout_msk(&mut self, val: bool) {
+            self.0 = (self.0 & !(0b1 << 25)) | ((val as u32) << 25usize);
+        }
+        #[doc = "Access Request"]
+        #[inline(always)]
+        pub const fn ar(&self) -> u8 {
+            (self.0 >> 26) as u8 & 0b11
+        }
+        #[doc = "Access Request"]
+        #[inline(always)]
+        pub fn set_ar(&mut self, val: u8) {
+            self.0 = (self.0 & !(0b11 << 26)) | ((val as u32) << 26usize);
+        }
+    }
+    impl Default for AdpCtl {
+        #[inline(always)]
+        fn default() -> AdpCtl {
+            AdpCtl(0)
+        }
+    }
+
     #[doc = "Device all endpoints interrupt register"]
     #[repr(transparent)]
     #[derive(Copy, Clone, Eq, PartialEq)]
@@ -800,15 +1010,15 @@ pub mod regs {
         pub fn set_sd0pid_sevnfrm(&mut self, val: bool) {
             self.0 = (self.0 & !(0x01 << 28usize)) | (((val as u32) & 0x01) << 28usize);
         }
-        #[doc = "SD1PID/SODDFRM"]
+        #[doc = "SODDFRM/SD1PID"]
         #[inline(always)]
-        pub const fn sd1pid_soddfrm(&self) -> bool {
+        pub const fn soddfrm_sd1pid(&self) -> bool {
             let val = (self.0 >> 29usize) & 0x01;
             val != 0
         }
-        #[doc = "SD1PID/SODDFRM"]
+        #[doc = "SODDFRM/SD1PID"]
         #[inline(always)]
-        pub fn set_sd1pid_soddfrm(&mut self, val: bool) {
+        pub fn set_soddfrm_sd1pid(&mut self, val: bool) {
             self.0 = (self.0 & !(0x01 << 29usize)) | (((val as u32) & 0x01) << 29usize);
         }
         #[doc = "EPDIS"]
@@ -1035,6 +1245,7 @@ pub mod regs {
         pub fn set_xfrsiz(&mut self, val: u32) {
             self.0 = (self.0 & !(0x0007_ffff << 0usize)) | (((val as u32) & 0x0007_ffff) << 0usize);
         }
+
         #[doc = "Packet count"]
         #[inline(always)]
         pub const fn pktcnt(&self) -> u16 {
@@ -1179,15 +1390,15 @@ pub mod regs {
         pub fn set_sd0pid_sevnfrm(&mut self, val: bool) {
             self.0 = (self.0 & !(0x01 << 28usize)) | (((val as u32) & 0x01) << 28usize);
         }
-        #[doc = "SD1PID/SODDFRM"]
+        #[doc = "SODDFRM"]
         #[inline(always)]
-        pub const fn sd1pid_soddfrm(&self) -> bool {
+        pub const fn soddfrm(&self) -> bool {
             let val = (self.0 >> 29usize) & 0x01;
             val != 0
         }
-        #[doc = "SD1PID/SODDFRM"]
+        #[doc = "SODDFRM"]
         #[inline(always)]
-        pub fn set_sd1pid_soddfrm(&mut self, val: bool) {
+        pub fn set_soddfrm(&mut self, val: bool) {
             self.0 = (self.0 & !(0x01 << 29usize)) | (((val as u32) & 0x01) << 29usize);
         }
         #[doc = "EPDIS"]
@@ -1526,7 +1737,7 @@ pub mod regs {
         #[doc = "Data"]
         #[inline(always)]
         pub fn set_data(&mut self, val: u32) {
-            self.0 = (self.0 & !(0xffff_ffff << 0usize)) | (((val as u32) & 0xffff_ffff) << 0usize);
+            self.0 = val
         }
     }
     impl Default for Fifo {
@@ -2647,6 +2858,18 @@ pub mod regs {
         pub fn set_datafsusp(&mut self, val: bool) {
             self.0 = (self.0 & !(0x01 << 22usize)) | (((val as u32) & 0x01) << 22usize);
         }
+        #[doc = "Reset detected"]
+        #[inline(always)]
+        pub const fn resetdet(&self) -> bool {
+            let val = (self.0 >> 23usize) & 0x01;
+            val != 0
+        }
+        #[doc = "Reset detected"]
+        #[inline(always)]
+        pub fn set_resetdet(&mut self, val: bool) {
+            self.0 = (self.0 & !(0x01 << 23usize)) | (((val as u32) & 0x01) << 23usize);
+        }
+
         #[doc = "Host port interrupt"]
         #[inline(always)]
         pub const fn hprtint(&self) -> bool {
@@ -3653,6 +3876,28 @@ pub mod regs {
             Haintmsk(0)
         }
     }
+    #[doc = "Host frame list base address"]
+    #[repr(transparent)]
+    #[derive(Copy, Clone, Eq, PartialEq)]
+    pub struct Hflbaddr(pub u32);
+    impl Hflbaddr {
+        #[doc = "Host frame list base address"]
+        #[inline(always)]
+        pub const fn hflbaddr(&self) -> u32 {
+            self.0
+        }
+        #[doc = "Host frame list base address"]
+        #[inline(always)]
+        pub fn set_hflbaddr(&mut self, val: u32) {
+            self.0 = val
+        }
+    }
+    impl Default for Hflbaddr {
+        #[inline(always)]
+        fn default() -> Hflbaddr {
+            Hflbaddr(0)
+        }
+    }
     #[doc = "Host channel characteristics register"]
     #[repr(transparent)]
     #[derive(Copy, Clone, Eq, PartialEq)]
@@ -3737,6 +3982,7 @@ pub mod regs {
         }
         #[doc = "Odd frame"]
         #[inline(always)]
+        /// Indicates to the USBOTG core that the (iso or intr) transaction must be performed on an odd (micro)frame
         pub const fn oddfrm(&self) -> bool {
             let val = (self.0 >> 29usize) & 0x01;
             val != 0
@@ -3801,6 +4047,38 @@ pub mod regs {
         #[inline(always)]
         pub fn set_fslss(&mut self, val: bool) {
             self.0 = (self.0 & !(0x01 << 2usize)) | (((val as u32) & 0x01) << 2usize);
+        }
+        #[doc = "Period scheduling enable"]
+        #[inline(always)]
+        pub fn set_perschedena(&mut self, val: bool) {
+            self.0 = (self.0 & !(0x01 << 26)) | ((val as u32) << 26);
+        }
+        #[doc = "Period scheduling enable"]
+        #[inline(always)]
+        pub fn perschedena(&self) -> bool {
+            let val = (self.0 >> 26) & 0x1;
+            val != 0
+        }
+        #[doc = "Descriptor DMA-mode enable (qtd)"]
+        #[inline(always)]
+        pub fn descdma(&self) -> bool {
+            (self.0 << 23) & 0x1 != 0
+        }
+        #[doc = "Descriptor DMA-mode enable (qtd)"]
+        #[inline(always)]
+        pub fn set_descdma(&mut self, val: bool) {
+            self.0 = (self.0 & !(0x1 << 23)) | (val as u32) << 23
+        }
+        #[doc = "Frame list length (x+3 pow 2)"]
+        #[inline(always)]
+        pub fn frlistlen(&self) -> FrameListLen {
+            let val = (self.0 << 24) & 0x2;
+            (val as u8).into()
+        }
+        #[doc = "Frame list length (x+3 pow 2)"]
+        #[inline(always)]
+        pub fn set_frlistlen(&mut self, val: FrameListLen) {
+            self.0 = (self.0 & !(0x2 << 24)) | ((val as u32) & 0x2) << 24
         }
     }
     impl Default for Hcfg {
@@ -4047,16 +4325,36 @@ pub mod regs {
     #[derive(Copy, Clone, Eq, PartialEq)]
     pub struct Hctsiz(pub u32);
     impl Hctsiz {
-        #[doc = "Transfer size"]
+        #[doc = "Transfer size for non-isochronuous/interrupt pipes"]
         #[inline(always)]
         pub const fn xfrsiz(&self) -> u32 {
             let val = (self.0 >> 0usize) & 0x0007_ffff;
             val as u32
         }
-        #[doc = "Transfer size"]
+        #[doc = "Transfer size for non-isochronuous/interrupt pipes"]
         #[inline(always)]
         pub fn set_xfrsiz(&mut self, val: u32) {
             self.0 = (self.0 & !(0x0007_ffff << 0usize)) | (((val as u32) & 0x0007_ffff) << 0usize);
+        }
+        #[doc = "NTD descriptor list length for isochronuous & interrupt pipes (xfersiz[15:8], note val+1 is actual length)"]
+        #[inline(always)]
+        pub const fn ntdl(&self) -> u8 {
+            (self.0 >> 8) as u8
+        }
+        #[doc = "NTD descriptor list length for isochronuous & interrupt pipes (xfrsiz[15:8], note val-1 is actual length)"]
+        #[inline(always)]
+        pub fn set_ntdl(&mut self, val: u8) {
+            self.0 = (self.0 & !(0xFF << 8)) | ((val as u32) << 8)
+        }
+        #[doc = "Schedule info for isochronuous & interrupt pipes (xfrsiz[7:0])"]
+        #[inline(always)]
+        pub const fn schedinfo(&self) -> u8 {
+            self.0 as u8
+        }
+        #[doc = "Schedule info for isochronuous & interrupt pipes (xfrsiz[7:0])"]
+        #[inline(always)]
+        pub fn set_schedinfo(&mut self, val: u8) {
+            self.0 = (self.0 & !(0xFF << 8)) | ((val as u32) << 8)
         }
         #[doc = "Packet count"]
         #[inline(always)]
@@ -4080,6 +4378,17 @@ pub mod regs {
         pub fn set_dpid(&mut self, val: u8) {
             self.0 = (self.0 & !(0x03 << 29usize)) | (((val as u32) & 0x03) << 29usize);
         }
+        #[doc = "Do Ping"]
+        #[inline(always)]
+        pub const fn doping(&self) -> bool {
+            let val = (self.0 >> 31usize) & 0x01;
+            val != 0
+        }
+        #[doc = "Do Ping"]
+        #[inline(always)]
+        pub fn set_doping(&mut self, val: bool) {
+            self.0 = (self.0 & !(0x01 << 31usize)) | (((val as u32) & 0x01) << 31usize);
+        }
     }
     impl Default for Hctsiz {
         #[inline(always)]
@@ -4087,6 +4396,40 @@ pub mod regs {
             Hctsiz(0)
         }
     }
+    #[doc = "Host channel DMA config register"]
+    #[repr(transparent)]
+    #[derive(Copy, Clone, Eq, PartialEq)]
+    pub struct Hcdma(pub u32);
+    impl Hcdma {
+        #[doc = "Current QTD (transfer descriptor) index"]
+        #[inline(always)]
+        pub const fn cqtd(&self) -> u8 {
+            ((self.0 >> 3) & 0x3F) as u8
+        }
+        #[doc = "Current QTD (transfer descriptor) index"]
+        #[inline(always)]
+        pub fn set_cqtd(&mut self, val: u8) {
+            self.0 = (self.0 & !(0x3f << 3)) | (val as u32 & 0x3F) << 3;
+        }
+        #[doc = "QTD list base address"]
+        #[inline(always)]
+        pub const fn qtdaddr(&self) -> u32 {
+            self.0 & 0xFFFFFE00
+        }
+        #[doc = "QTD list base address"]
+        #[inline(always)]
+        pub fn set_qtdaddr(&mut self, val: u32) {
+            core::debug_assert!(val & 0xFFFFFE00 == val, "QTD list needs to be 512 byte aligned");
+            self.0 = (self.0 & !0xFFFFFE00) | val;
+        }
+    }
+    impl Default for Hcdma {
+        #[inline(always)]
+        fn default() -> Hcdma {
+            Hcdma(0)
+        }
+    }
+
     #[doc = "Host frame interval register"]
     #[repr(transparent)]
     #[derive(Copy, Clone, Eq, PartialEq)]
@@ -4102,6 +4445,16 @@ pub mod regs {
         #[inline(always)]
         pub fn set_frivl(&mut self, val: u16) {
             self.0 = (self.0 & !(0xffff << 0usize)) | (((val as u32) & 0xffff) << 0usize);
+        }
+        #[doc = "Dynamic Loading Control"]
+        #[inline(always)]
+        pub const fn rldctrl(&self) -> bool {
+            (self.0 >> 16usize) & 0x1 != 0
+        }
+        #[doc = "Dynamic Loading Control"]
+        #[inline(always)]
+        pub fn set_rldctrl(&mut self, val: bool) {
+            self.0 = (self.0 & !(0b1 << 16usize)) | ((val as u32) << 16usize);
         }
     }
     impl Default for Hfir {
@@ -4222,7 +4575,7 @@ pub mod regs {
             let val = (self.0 >> 2usize) & 0x01;
             val != 0
         }
-        #[doc = "Port enable"]
+        #[doc = "Port enable (write 1 to disable)"]
         #[inline(always)]
         pub fn set_pena(&mut self, val: bool) {
             self.0 = (self.0 & !(0x01 << 2usize)) | (((val as u32) & 0x01) << 2usize);
@@ -4439,6 +4792,47 @@ pub mod vals {
     #[repr(u8)]
     #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
     #[allow(non_camel_case_types)]
+    pub enum FrameListLen {
+        LEN8 = 0x0,
+        LEN16 = 0x1,
+        LEN32 = 0x2,
+        LEN64 = 0x3,
+    }
+    impl FrameListLen {
+        #[inline(always)]
+        pub const fn from_bits(val: u8) -> FrameListLen {
+            unsafe { core::mem::transmute(val & 0x03) }
+        }
+        #[inline(always)]
+        pub const fn to_bits(self) -> u8 {
+            self as u8
+        }
+        #[inline(always)]
+        pub const fn as_value(self) -> u8 {
+            match self {
+                Self::LEN8 => 8,
+                Self::LEN16 => 16,
+                Self::LEN32 => 32,
+                Self::LEN64 => 64,
+            }
+        }
+    }
+    impl From<u8> for FrameListLen {
+        #[inline(always)]
+        fn from(val: u8) -> FrameListLen {
+            FrameListLen::from_bits(val)
+        }
+    }
+    impl From<FrameListLen> for u8 {
+        #[inline(always)]
+        fn from(val: FrameListLen) -> u8 {
+            FrameListLen::to_bits(val)
+        }
+    }
+
+    #[repr(u8)]
+    #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+    #[allow(non_camel_case_types)]
     pub enum Dpid {
         DATA0 = 0x0,
         DATA2 = 0x01,
@@ -4452,7 +4846,7 @@ pub mod vals {
         }
         #[inline(always)]
         pub const fn to_bits(self) -> u8 {
-            unsafe { core::mem::transmute(self) }
+            self as u8
         }
     }
     impl From<u8> for Dpid {
@@ -4517,7 +4911,7 @@ pub mod vals {
         }
         #[inline(always)]
         pub const fn to_bits(self) -> u8 {
-            unsafe { core::mem::transmute(self) }
+            self as u8
         }
     }
     impl From<u8> for Eptyp {
@@ -4552,7 +4946,7 @@ pub mod vals {
         }
         #[inline(always)]
         pub const fn to_bits(self) -> u8 {
-            unsafe { core::mem::transmute(self) }
+            self as u8
         }
     }
     impl From<u8> for Pfivl {
@@ -4600,7 +4994,7 @@ pub mod vals {
         }
         #[inline(always)]
         pub const fn to_bits(self) -> u8 {
-            unsafe { core::mem::transmute(self) }
+            self as u8
         }
     }
     impl From<u8> for Pktstsd {
@@ -4647,7 +5041,7 @@ pub mod vals {
         }
         #[inline(always)]
         pub const fn to_bits(self) -> u8 {
-            unsafe { core::mem::transmute(self) }
+            self as u8
         }
     }
     impl From<u8> for Pktstsh {
