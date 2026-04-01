@@ -153,6 +153,10 @@ fn main() {
                 cfgs.enable(format!("peri_{}", p.name.to_ascii_lowercase()));
             }
 
+            if p.name.starts_with("I2S") {
+                continue;
+            }
+
             match r.kind {
                 // handled above
                 "gpio" => {}
@@ -1488,6 +1492,17 @@ fn main() {
             let mut adc_pairs: BTreeMap<u8, (Option<Ident>, Option<Ident>)> = BTreeMap::new();
             let mut seen_lcd_seg_pins = HashSet::new();
 
+            if let Some(peri) = p.name.strip_prefix("I2S")
+                && peripheral_map.contains_key(format!("SPI{}", peri).as_str())
+            {
+                let spi_peri = format_ident!("SPI{}", peri);
+                let i2s_peri = format_ident!("I2S{}", peri);
+
+                g.extend(quote! {
+                    impl_i2_ext_instance!(#spi_peri, #i2s_peri);
+                });
+            }
+
             for pin in p.pins {
                 let mut key = (regs.kind, pin.signal);
 
@@ -2147,6 +2162,10 @@ fn main() {
 
     for p in METADATA.peripherals {
         if let Some(regs) = &p.registers {
+            if p.name.starts_with("I2S") {
+                continue;
+            }
+
             if regs.kind == "adc" {
                 let adc_num = p.name.strip_prefix("ADC").unwrap();
                 let mut adc_common = None;
