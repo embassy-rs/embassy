@@ -52,10 +52,7 @@ fn send_byte(tx: &mut UartTx<'_, Blocking>, b: u8) {
 ///
 /// The XMODEM sender must already be running on the host before this is called.
 /// Returns the total number of firmware bytes written on success.
-pub fn receive_firmware(
-    mut rx: UartRx<'_, Blocking>,
-    mut tx: UartTx<'_, Blocking>,
-) -> Result<usize, ()> {
+pub fn receive_firmware(mut rx: UartRx<'_, Blocking>, mut tx: UartTx<'_, Blocking>) -> Result<usize, ()> {
     info!("XMODEM: sending 'C', waiting for sender...");
 
     let mut chunk_buf = [0xFFu8; CHUNK_SIZE];
@@ -78,20 +75,14 @@ pub fn receive_firmware(
         match header {
             SOH | STX => {
                 let data_len = if header == SOH { 128 } else { 1024 };
-                match receive_packet(
-                    &mut rx,
-                    data_len,
-                    expected_seq,
-                    &mut pkt_buf,
-                ) {
+                match receive_packet(&mut rx, data_len, expected_seq, &mut pkt_buf) {
                     Ok(()) => {
                         // Write data into chunk buffer, flush when full
                         let mut src = 0;
                         while src < data_len {
                             let space = CHUNK_SIZE - chunk_pos;
                             let n = (data_len - src).min(space);
-                            chunk_buf[chunk_pos..chunk_pos + n]
-                                .copy_from_slice(&pkt_buf[src..src + n]);
+                            chunk_buf[chunk_pos..chunk_pos + n].copy_from_slice(&pkt_buf[src..src + n]);
                             chunk_pos += n;
                             src += n;
 

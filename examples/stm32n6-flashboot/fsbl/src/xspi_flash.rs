@@ -8,8 +8,8 @@ use core::cmp::min;
 
 use defmt::info;
 use embassy_stm32::mode::Blocking;
-use embassy_stm32::pac::xspi::vals::{CcrAbmode, CcrAdmode, CcrDmode, CcrImode, CcrIsize};
 use embassy_stm32::pac::XSPI2;
+use embassy_stm32::pac::xspi::vals::{CcrAbmode, CcrAdmode, CcrDmode, CcrImode, CcrIsize};
 use embassy_stm32::xspi::{AddressSize, DummyCycles, Instance, TransferConfig, Xspi, XspiWidth};
 
 const MEMORY_PAGE_SIZE: usize = 256;
