@@ -220,6 +220,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         // The async code will re-enable the interrupt when needed.
         T::disable_exti_interrupt();
         T::state().waker.wake();
+        T::clear_exti_pending();
     }
 }
 
