@@ -1,15 +1,18 @@
 //! Inter-IC Sound (I2S)
 
+#![macro_use]
+
 use embassy_futures::join::join;
 use stm32_metapac::spi::vals;
 
-use crate::Peri;
 use crate::dma::{ChannelAndRequest, ReadableRingBuffer, TransferOptions, WritableRingBuffer, ringbuffer};
 use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::mode::Async;
+use crate::pac::spi::Spi as Regs;
 use crate::spi::mode::Master;
 use crate::spi::{Config as SpiConfig, RegsExt as _, *};
 use crate::time::Hertz;
+use crate::{Peri, spi};
 
 /// I2S mode
 #[derive(Copy, Clone)]
@@ -777,4 +780,21 @@ fn reset_incompatible_bitfields<T: Instance>() {
     regs.txcrc().write(|w| w.0 = 0);
     regs.rxcrc().write(|w| w.0 = 0);
     regs.udrdr().write(|w| w.0 = 0);
+}
+
+/// Full-Duplex I2s Instance
+pub trait I2sSExtInstance: spi::Instance {
+    /// Ext regs
+    fn regs_ext() -> &'static Regs;
+}
+
+#[allow(unused_macros)]
+macro_rules! impl_i2_ext_instance {
+    ($spi:ident, $i2s:ident) => {
+        impl crate::i2s::I2sSExtInstance for crate::peripherals::$spi {
+            fn regs_ext() -> &'static crate::pac::spi::Spi {
+                &crate::pac::$i2s
+            }
+        }
+    };
 }
