@@ -2239,7 +2239,7 @@ fn main() {
         }
     }
 
-    for (ch_idx, ch) in METADATA.dma_channels.iter().enumerate() {
+    for ch in METADATA.dma_channels.iter() {
         let (dma_peri, _) = peripheral_map.get(ch.dma).unwrap();
         let stop_mode = dma_peri
             .rcc
@@ -2254,7 +2254,6 @@ fn main() {
         };
 
         let name = format_ident!("{}", ch.name);
-        let idx = ch_idx as u8;
 
         // Get the interrupt type for this DMA channel
         let irq_name = dma_ch_to_irq
@@ -2267,7 +2266,7 @@ fn main() {
         #[cfg(feature = "_dual-core")]
         let irq_pac = quote!(crate::pac::Interrupt::#irq_ident);
 
-        g.extend(quote!(dma_channel_impl!(#name, #idx, #irq_type);));
+        g.extend(quote!(dma_channel_impl!(#name, #irq_type);));
 
         let dma = format_ident!("{}", ch.dma);
         let ch_num = ch.channel as usize;
@@ -2327,6 +2326,16 @@ fn main() {
 
     g.extend(quote! {
         pub(crate) const DMA_CHANNELS: &[crate::dma::ChannelInfo] = &[#dmas];
+    });
+
+    let ch_names = METADATA.dma_channels.iter().map(|ch| format_ident!("{}", ch.name));
+    g.extend(quote! {
+        #[derive(Copy, Clone)]
+        #[repr(u8)]
+        #[allow(non_camel_case_types)]
+        pub(crate) enum DmaChannel {
+            #(#ch_names),*
+        }
     });
 
     // ========
