@@ -19,18 +19,21 @@ target = "thumbv7em-none-eabi"
 features = ["defmt"]
 
 [dependencies]
+embassy-usb = { version = "0.6.0", path = "../embassy-usb" }
 embassy-usb-driver = { version = "0.2.0", path = "../embassy-usb-driver" }
 embassy-time = { version = "0.5.1", path = "../embassy-time" }
 embedded-io-async = "0.7.0"
+aligned = "0.4"
 bitflags = "2.6.0"
+heapless = "0.9"
 zerocopy = { version = "0.8.2", features = ["derive"] }
 
 defmt = { version = "1", optional = true }
 log = { version = "0.4.14", optional = true }
 
 [dev-dependencies]
-heapless = "0.9.2"
+env_logger = "0.9"
 
 [features]
-defmt = ["dep:defmt", "embassy-usb-driver/defmt"]
+defmt = ["dep:defmt", "embassy-usb-driver/defmt", "heapless/defmt"]
 log = ["dep:log"]
