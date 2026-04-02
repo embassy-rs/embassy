@@ -10,6 +10,7 @@ use linked_list::Table;
 
 use super::word::{Word, WordSize};
 use super::{Channel, Dir, Request, STATE};
+use crate::_generated::DmaChannel;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac;
 use crate::pac::gpdma::vals;
@@ -146,15 +147,15 @@ pub(crate) unsafe fn init(cs: critical_section::CriticalSection, irq_priority: c
     crate::_generated::init_gpdma();
 }
 
-pub(crate) unsafe fn on_irq(id: u8) {
-    let info = super::info(id);
+pub(crate) unsafe fn on_irq(channel: DmaChannel) {
+    let info = super::info(channel);
     #[cfg(feature = "_dual-core")]
     {
         use embassy_hal_internal::interrupt::InterruptExt as _;
         info.irq.enable();
     }
 
-    let state = &STATE[id as usize];
+    let state = &STATE[channel as usize];
 
     let ch = info.dma.ch(info.num);
     let sr = ch.sr().read();
@@ -217,7 +218,7 @@ pub(crate) unsafe fn on_irq(id: u8) {
 
 impl<'d> Channel<'d> {
     fn info(&self) -> &'static super::ChannelInfo {
-        super::info(self.id)
+        super::info(self.channel)
     }
 
     fn get_remaining_transfers(&self) -> u16 {
@@ -316,7 +317,7 @@ impl<'d> Channel<'d> {
             w.set_suspie(true);
         });
 
-        let state = &STATE[self.id as usize];
+        let state = &STATE[self.channel as usize];
         state.lli_state.count.store(0, Ordering::Relaxed);
         state.lli_state.index.store(0, Ordering::Relaxed);
         state.lli_state.transfer_count.store(0, Ordering::Relaxed)
@@ -375,7 +376,7 @@ impl<'d> Channel<'d> {
             w.set_suspie(true);
         });
 
-        let state = &STATE[self.id as usize];
+        let state = &STATE[self.channel as usize];
         state.lli_state.count.store(ITEM_COUNT, Ordering::Relaxed);
         state.lli_state.index.store(0, Ordering::Relaxed);
         state
@@ -631,7 +632,7 @@ impl<'a, const ITEM_COUNT: usize> Unpin for LinkedListTransfer<'a, ITEM_COUNT> {
 impl<'a, const ITEM_COUNT: usize> Future for LinkedListTransfer<'a, ITEM_COUNT> {
     type Output = ();
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let state = &STATE[self.channel.id as usize];
+        let state = &STATE[self.channel.channel as usize];
         state.waker.register(cx.waker());
 
         if self.is_running() {
@@ -716,7 +717,7 @@ impl<'a> Unpin for Transfer<'a> {}
 impl<'a> Future for Transfer<'a> {
     type Output = ();
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let state = &STATE[self.channel.id as usize];
+        let state = &STATE[self.channel.channel as usize];
         state.waker.register(cx.waker());
 
         compiler_fence(Ordering::SeqCst);

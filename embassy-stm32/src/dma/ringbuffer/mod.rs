@@ -190,7 +190,7 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
         poll_fn(|cx| {
             dma.set_waker(cx.waker());
 
-            match self.read(dma, &mut buffer[read_data..buffer_len]) {
+            match self.read(dma, &mut buffer[read_data..]) {
                 Ok((len, remaining)) => {
                     read_data += len;
                     if read_data == buffer_len {
