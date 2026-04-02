@@ -593,16 +593,79 @@ impl<'d, const MAX_EP_COUNT: usize> Bus<'d, MAX_EP_COUNT> {
         self.instance.phy_type
     }
 
+    /// Applies a DWC2 core soft reset.
+    pub fn core_soft_reset(&mut self) {
+        let r = self.instance.regs;
+
+        // Wait for AHB idle
+        while !r.grstctl().read().ahbidl() {}
+
+        r.grstctl().write(|w| {
+            w.set_csrst(true);
+        });
+
+        // Wait until the reset done
+        loop {
+            let grstctl = r.grstctl().read();
+            if !grstctl.csrst() || grstctl.csrstdone() {
+                break;
+            }
+        }
+
+        // On synchronous-reset cores, CSRSTDONE is W1C. Preserve it in the writeback so it gets cleared.
+        r.grstctl().modify(|w| {
+            w.set_csrst(false);
+        });
+    }
+
     /// Configures the PHY as a device.
     pub fn configure_as_device(&mut self) {
         let r = self.instance.regs;
         let phy_type = self.instance.phy_type;
+
+        // Read PHY data width from GHWCFG4:
+        // 0 = 8-bit only, 1 = 16-bit only, 2 = software selectable (default to 8-bit)
+        let hw_width = r.hwcfg4().read().utmi_phy_data_width();
         r.gusbcfg().write(|w| {
             // Force device mode
             w.set_fdmod(true);
-            // Enable internal full-speed PHY
-            w.set_physel(phy_type.internal() && !phy_type.high_speed());
+
+            match phy_type {
+                PhyType::InternalFullSpeed => {
+                    // Select embedded FS PHY
+                    w.set_physel(true);
+                    w.set_ulpi_utmi_sel(false);
+                    w.set_phyif(false);
+                }
+                PhyType::InternalHighSpeed => {
+                    // Select UTMI+ PHY, determine data width from hardware
+                    w.set_physel(false);
+                    w.set_ulpi_utmi_sel(false);
+                    w.set_phyif(hw_width == 1);
+                    // Disable ULPI-specific settings
+                    w.set_ulpievbusd(false);
+                    w.set_ulpievbusi(false);
+                    w.set_ulpifsls(false);
+                    w.set_ulpicsm(false);
+                }
+                PhyType::ExternalFullSpeed | PhyType::ExternalHighSpeed => {
+                    // Select ULPI external PHY, single data rate
+                    w.set_physel(false);
+                    w.set_ulpi_utmi_sel(true);
+                    w.set_phyif(false);
+                    w.set_ddr_sel(false);
+                    // Disable external VBUS source
+                    w.set_ulpievbusd(false);
+                    w.set_ulpievbusi(false);
+                    // Disable ULPI FS/LS mode
+                    w.set_ulpifsls(false);
+                    w.set_ulpicsm(false);
+                }
+            }
         });
+
+        // Wait for device mode ready
+        while r.gintsts().read().cmod() {}
     }
 
     /// Applies configuration specific to
@@ -830,15 +893,28 @@ impl<'d, const MAX_EP_COUNT: usize> Bus<'d, MAX_EP_COUNT> {
             self.endpoint_set_enabled(EndpointAddress::from_parts(i, Direction::Out), false);
         }
     }
+
+    /// Initialize the device core once before polling for events.
+    pub fn init_device(&mut self) {
+        if !self.inited {
+            self.init();
+            self.inited = true;
+        }
+    }
+
+    /// Deinitialize tehe device
+    pub fn deinit_device(&mut self) {
+        if self.inited {
+            self.inited = false;
+        }
+    }
 }
 
 impl<'d, const MAX_EP_COUNT: usize> embassy_usb_driver::Bus for Bus<'d, MAX_EP_COUNT> {
     async fn poll(&mut self) -> Event {
         poll_fn(move |cx| {
             if !self.inited {
-                self.init();
-                self.inited = true;
-
+                self.init_device();
                 // If no vbus detection, just return a single PowerDetected event at startup.
                 if !self.config.vbus_detection {
                     return Poll::Ready(Event::PowerDetected);
