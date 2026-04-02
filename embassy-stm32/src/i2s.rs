@@ -920,9 +920,6 @@ fn reset_incompatible_bitfields<T: Instance>() {
     regs.udrdr().write(|w| w.0 = 0);
 }
 
-dma_trait!(RxDmaExt, I2sSExtInstance);
-pin_trait!(SdExtPin, I2sSExtInstance);
-
 /// Full-Duplex I2s Instance
 pub trait I2sSExtInstance: spi::Instance {
     /// Ext regs
