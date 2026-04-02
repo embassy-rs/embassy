@@ -1607,6 +1607,7 @@ impl State {
 
 peri_trait!();
 
+pin_trait!(SdExtPin, Instance);
 pin_trait!(SckPin, Instance, @A);
 pin_trait!(MosiPin, Instance, @A);
 pin_trait!(MisoPin, Instance, @A);
@@ -1617,6 +1618,7 @@ pin_trait!(WsPin, Instance, @A);
 pin_trait!(I2sSdPin, Instance, @A);
 dma_trait!(RxDma, Instance);
 dma_trait!(TxDma, Instance);
+dma_trait!(RxDmaExt, Instance);
 
 foreach_peripheral!(
     (spi, $inst:ident) => {
