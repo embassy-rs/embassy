@@ -559,8 +559,43 @@ impl<'d, const CH_COUNT: usize> UsbHostDriver for OtgHost<'d, CH_COUNT> {
 
     async fn bus_reset(&self) {
         let r = self.instance.regs;
+        let ch_count = self.instance.channel_count.min(CH_COUNT);
 
-        // Assert reset on the port
+        // Halt any still-active hardware channels left over from a
+        // previous session (e.g. interrupt endpoints that were polling
+        // when the device disconnected).
+        for ch in 0..ch_count {
+            let hcchar = r.hcchar(ch).read();
+            if hcchar.chena() {
+                r.hcchar(ch).modify(|w| {
+                    w.set_chena(true);
+                    w.set_chdis(true);
+                });
+            }
+        }
+
+        // Brief wait for channel halts to take effect.
+        embassy_time::Timer::after_millis(2).await;
+
+        // Clear all channel interrupts and mask them.
+        for ch in 0..ch_count {
+            r.hcint(ch).write_value(crate::otg_v1::regs::Hcint(0xFFFF_FFFF));
+        }
+        r.haintmsk().write(|w| w.set_haintm(0));
+
+        // Flush RX and TX FIFOs to discard any stale data from the
+        // previous device session.
+        r.grstctl().write(|w| {
+            w.set_rxfflsh(true);
+            w.set_txfflsh(true);
+            w.set_txfnum(0x10); // all TX FIFOs
+        });
+        while {
+            let x = r.grstctl().read();
+            x.rxfflsh() || x.txfflsh()
+        } {}
+
+        // Assert reset on the port.
         let safe_val = hprt_read_safe(r);
         r.hprt().write(|w| {
             w.0 = safe_val;
@@ -571,7 +606,7 @@ impl<'d, const CH_COUNT: usize> UsbHostDriver for OtgHost<'d, CH_COUNT> {
         // USB spec requires reset to be held for at least 10ms; use 50ms to be safe.
         embassy_time::Timer::after_millis(50).await;
 
-        // De-assert reset
+        // De-assert reset.
         let safe_val = hprt_read_safe(r);
         r.hprt().write(|w| {
             w.0 = safe_val;
@@ -652,9 +687,35 @@ unsafe impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Send
 
 impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Drop for Channel<T, D, CH_COUNT> {
     fn drop(&mut self) {
-        // Mark channel as free
+        let r = self.regs;
+        let ch = self.index;
+
+        // Request the hardware to halt this channel. We can't wait for
+        // completion (Drop is synchronous), but the halt ensures the
+        // controller stops issuing tokens for this endpoint. Any
+        // resulting CHH interrupt is harmless — we mask it below.
+        let hcchar = r.hcchar(ch).read();
+        if hcchar.chena() {
+            r.hcchar(ch).modify(|w| {
+                w.set_chena(true);
+                w.set_chdis(true);
+            });
+        }
+
+        // Mask this channel's interrupt so the ISR won't deliver stale
+        // results to whatever gets allocated at this index next.
+        critical_section::with(|_| {
+            r.haintmsk().modify(|w| {
+                w.set_haintm(w.haintm() & !(1 << ch));
+            });
+        });
+
+        // Clear any pending channel interrupts.
+        r.hcint(ch).write_value(crate::otg_v1::regs::Hcint(0xFFFF_FFFF));
+
         let state = unsafe { &*self.state };
-        state.channels[self.index].allocated.store(false, Ordering::Release);
+        state.channels[ch].result.store(CH_RESULT_NONE, Ordering::Release);
+        state.channels[ch].allocated.store(false, Ordering::Release);
     }
 }
 
@@ -666,6 +727,23 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Channel<T, 
     fn configure_channel(&self, dir_in: bool, ep_type: EndpointType, pktcnt: u16, xfrsiz: u32, dpid: u8) {
         let r = self.regs;
         let ch = self.index;
+
+        // The DWC2 does not auto-clear CHENA after transfer completion.
+        // If the channel is still active from a previous transfer, we
+        // must explicitly halt it and wait for the hardware to confirm
+        // (CHENA cleared) before reconfiguring. Without this, writing
+        // new HCCHAR/HCTSIZ while the channel is active causes undefined
+        // behavior — typically a permanent hang or stale interrupts.
+        if r.hcchar(ch).read().chena() {
+            r.hcchar(ch).modify(|w| {
+                w.set_chena(true);
+                w.set_chdis(true);
+            });
+            while r.hcchar(ch).read().chena() {
+                core::hint::spin_loop();
+            }
+            r.hcint(ch).write_value(crate::otg_v1::regs::Hcint(0xFFFF_FFFF));
+        }
 
         // Configure channel characteristics
         let is_periodic = matches!(ep_type, EndpointType::Interrupt | EndpointType::Isochronous);
