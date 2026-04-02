@@ -3,6 +3,9 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
+// must go first!
+mod fmt;
+
 pub mod chip;
 mod device;
 

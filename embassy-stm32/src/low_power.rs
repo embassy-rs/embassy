@@ -25,18 +25,18 @@
 //! executor is the preferred way to lower power consumption if you're using `async`, instead of calling `sleep()` directly.
 
 use core::mem;
-use core::sync::atomic::{Ordering, compiler_fence};
+use core::sync::atomic::{AtomicBool, Ordering, compiler_fence};
 
 use cortex_m::peripheral::SCB;
 use critical_section::CriticalSection;
 
-#[cfg(not(feature = "_lp-time-driver"))]
+#[cfg(all(feature = "rt", not(feature = "_lp-time-driver")))]
 use crate::interrupt;
 pub use crate::rcc::StopMode;
 use crate::rcc::get_stop_mode;
 use crate::time_driver::{LPTimeDriver, get_driver};
 
-#[cfg(not(any(stm32u0, feature = "_lp-time-driver")))]
+#[cfg(all(feature = "rt", not(any(stm32u0, feature = "_lp-time-driver"))))]
 foreach_interrupt! {
     (RTC, rtc, $block:ident, WKUP, $irq:ident) => {
         #[interrupt]
@@ -46,7 +46,7 @@ foreach_interrupt! {
     };
 }
 
-#[cfg(stm32u0)]
+#[cfg(all(feature = "rt", stm32u0))]
 foreach_interrupt! {
     (RTC, rtc, $block:ident, TAMP, $irq:ident) => {
         #[interrupt]
@@ -324,18 +324,17 @@ mod platform {
     }
 }
 
-unsafe fn on_wakeup_irq_or_event() {
-    if !get_driver().is_stopped() {
-        //trace!("low power: time driver not stopped!");
-        return;
-    }
+static STOP_ENTERED: AtomicBool = AtomicBool::new(false);
 
-    critical_section::with(|cs| {
+unsafe fn on_wakeup(cs: CriticalSection) {
+    if STOP_ENTERED.load(Ordering::Acquire) {
         platform::exit_stop(cs);
 
         get_driver().resume_time(cs);
         trace!("low power: resumed");
-    });
+    }
+
+    STOP_ENTERED.store(false, Ordering::Release);
 }
 
 fn configure_pwr(cs: CriticalSection) {
@@ -349,25 +348,24 @@ fn configure_pwr(cs: CriticalSection) {
     compiler_fence(Ordering::Acquire);
 
     let Some(stop_mode) = get_stop_mode(cs) else {
-        //trace!("low power: no stop mode available");
         return;
     };
 
     if get_driver().pause_time(cs).is_err() {
         warn!("low_power: failed to pause time, not entering stop");
-    }
-
-    if platform::enter_stop(cs, stop_mode).is_err() {
+    } else if platform::enter_stop(cs, stop_mode).is_err() {
         warn!("low_power: failed to enter stop");
+    } else {
+        #[cfg(stm32l0)]
+        trace!("low power: enter stop");
+        #[cfg(not(stm32l0))]
+        trace!("low power: enter stop: {}", stop_mode);
+
+        STOP_ENTERED.store(true, Ordering::Release);
+
+        #[cfg(not(feature = "low-power-debug-with-sleep"))]
+        get_scb().set_sleepdeep();
     }
-
-    #[cfg(stm32l0)]
-    trace!("low power: enter stop");
-    #[cfg(not(stm32l0))]
-    trace!("low power: enter stop: {}", stop_mode);
-
-    #[cfg(not(feature = "low-power-debug-with-sleep"))]
-    get_scb().set_sleepdeep();
 }
 
 /// Sleep with WFI, attempting to enter the deepest STOP mode possible.
@@ -391,5 +389,8 @@ pub unsafe fn sleep(cs: CriticalSection) {
     cortex_m::asm::dsb();
     cortex_m::asm::wfi();
 
-    on_wakeup_irq_or_event();
+    cortex_m::asm::isb();
+    cortex_m::asm::dsb();
+
+    on_wakeup(cs);
 }

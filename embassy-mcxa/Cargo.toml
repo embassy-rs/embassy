@@ -45,7 +45,7 @@ embedded-io = "0.7"
 embedded-io-async = { version = "0.7.0" }
 heapless = "0.9"
 maitake-sync = { version = "0.3.0", default-features = false, features = ["critical-section", "no-cache-pad"] }
-nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "cda54d1fbdfb8ebb94caca00470b6f754ac49426", features = ["rt"] }
+nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "e1800907450711cf70b38db7ac81f58bbc37a918", features = ["rt"] }
 nb = "1.1.0"
 paste = "1.0.15"
 
@@ -65,7 +65,7 @@ bbqueue = { version = "0.7.0", features = ["disable-cache-padding"] }
 grounded = { version = "0.2.1", features = ["cas", "critical-section"] }
 
 [features]
-default = ["rt", "swd-swo-as-gpio"]
+default = ["rt", "swd-swo-as-gpio", "dma-ipd-req"]
 
 # Base defmt feature enables core + panic handler
 # Use with one logger feature: defmt-rtt (preferred) or defmt-uart (fallback)
@@ -117,6 +117,13 @@ jtag-extras-as-gpio = []
 # possible to reset the device and reflash using probe-rs after enabling this
 # feature. Use at your own risk!
 dangerous-reset-as-gpio = []
+
+# Unmasks DMA IPD_REQ hardware lines in AHBSC during init. (only on MCXA5xx)
+#
+# If this feature is not set, something else is responsible for unmasking them
+# when driving DMA transfers from hardware peripheral requests.
+# This can either be another (trustzone secure) binary or from IFR0 CFPA Trustzone presets.
+dma-ipd-req = []
 
 # dummy feature to silence embassy-hal-internal lint
 #

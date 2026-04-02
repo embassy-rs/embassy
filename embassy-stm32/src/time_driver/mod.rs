@@ -36,9 +36,6 @@ pub(crate) trait LPTimeDriver {
 
     /// Resume the timer with the given offset
     fn resume_time(&self, cs: CriticalSection);
-
-    /// Returns whether time is currently stopped
-    fn is_stopped(&self) -> bool;
 }
 
 #[cfg_attr(feature = "_lp-time-driver", path = "lptim.rs")]

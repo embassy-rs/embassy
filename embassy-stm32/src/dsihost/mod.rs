@@ -11,6 +11,7 @@ use crate::dsihost::panel::DsiPanel;
 use crate::gpio::{AfType, Flex};
 use crate::interrupt::typelevel::Interrupt;
 use crate::peripherals::{self};
+use crate::rcc::dsi::DSI_CONFIG;
 use crate::rcc::{self, RccPeripheral};
 use crate::time::MaybeHertz;
 use crate::{Peri, block_for_us, interrupt};
@@ -93,6 +94,9 @@ pub struct DsiHost<'d, T: Instance> {
     /// TX escape clock frequency (20MHz max)
     /// Derived from pixel clock and TX Prescaler
     tx_escape_clock: MaybeHertz,
+
+    /// Timeout clock
+    timeout_clock: MaybeHertz,
 }
 
 impl<'d, T: Instance> DsiHost<'d, T> {
@@ -107,11 +111,31 @@ impl<'d, T: Instance> DsiHost<'d, T> {
             _te: Flex::new(te),
             lane_byte_clock: None.into(),
             tx_escape_clock: None.into(),
+            timeout_clock: None.into(),
         }
     }
 
     /// Enable the PLL and wait for the lock interrupt
-    async fn enable_wait_pll_lock(&self) {
+    async fn enable_pll(&self) {
+        let config = unsafe { DSI_CONFIG }.unwrap();
+
+        // Set the PLL configuration
+        T::regs().wrpcr().modify(|w| {
+            w.set_ndiv(config.ndiv);
+
+            #[cfg(dsihost_v1)]
+            {
+                w.set_idf(config.idf as u8);
+                w.set_odf(config.odf as u8);
+            }
+
+            #[cfg(dsihost_u5)]
+            {
+                w.set_idf(config.idf);
+                w.set_odf(config.odf);
+            }
+        });
+
         poll_fn(|cx| {
             let status = T::regs().wisr().read();
 
@@ -154,7 +178,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
         #[cfg(dsihost_v1)]
         self.enable_regulator().await;
 
-        self.enable_wait_pll_lock().await;
+        self.enable_pll().await;
 
         self.phy_init(phy_config);
 

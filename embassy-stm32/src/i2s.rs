@@ -1,15 +1,18 @@
 //! Inter-IC Sound (I2S)
 
+#![macro_use]
+
 use embassy_futures::join::join;
 use stm32_metapac::spi::vals;
 
-use crate::Peri;
 use crate::dma::{ChannelAndRequest, ReadableRingBuffer, TransferOptions, WritableRingBuffer, ringbuffer};
 use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::mode::Async;
+use crate::pac::spi::Spi as Regs;
 use crate::spi::mode::Master;
 use crate::spi::{Config as SpiConfig, RegsExt as _, *};
 use crate::time::Hertz;
+use crate::{Peri, spi};
 
 /// I2S mode
 #[derive(Copy, Clone)]
@@ -28,8 +31,7 @@ enum Function {
     Transmit,
     /// Receive audio data
     Receive,
-    #[cfg(any(spi_v4, spi_v5))]
-
+    #[cfg(any(spi_v4, spi_v5, spi_v2_i2s))]
     /// Transmit and Receive audio data
     FullDuplex,
 }
@@ -346,6 +348,38 @@ impl<'d, W: Word> I2S<'d, W> {
         )
     }
 
+    #[cfg(spi_v2_i2s)]
+    /// Create a transmitter driver.
+    pub fn new_full_duplex<T: I2sSExtInstance, D1: TxDma<T>, D2: RxDmaExt<T>, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        txsd: Peri<'d, if_afio!(impl MosiPin<T, A>)>,
+        rxsd: Peri<'d, if_afio!(impl SdExtPin<T, A>)>,
+        ws: Peri<'d, if_afio!(impl WsPin<T, A>)>,
+        ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
+        mck: Peri<'d, if_afio!(impl MckPin<T, A>)>,
+        txdma: Peri<'d, D1>,
+        txdma_buf: &'d mut [W],
+        rxdma: Peri<'d, D2>,
+        rxdma_buf: &'d mut [W],
+        _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
+        + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + 'd,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(txsd, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(rxsd, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            ws,
+            ck,
+            new_pin!(mck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_dma!(txdma, _irq).map(|d| (d, txdma_buf)),
+            new_dma!(rxdma, _irq).map(|d| (d, rxdma_buf)),
+            config,
+            Function::FullDuplex,
+        )
+    }
+
     #[cfg(any(spi_v4, spi_v5))]
     /// Create a full duplex driver.
     pub fn new_full_duplex<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
@@ -641,6 +675,10 @@ impl<'d, W: Word> I2S<'d, W> {
                 (Mode::Slave, Function::Receive) => I2scfg::SLAVE_RX,
                 #[cfg(any(spi_v4, spi_v5))]
                 (Mode::Slave, Function::FullDuplex) => I2scfg::SLAVE_FULL_DUPLEX,
+                #[cfg(spi_v2_i2s)]
+                (Mode::Master, Function::FullDuplex) => todo!(),
+                #[cfg(spi_v2_i2s)]
+                (Mode::Slave, Function::FullDuplex) => todo!(),
             });
         });
 
@@ -777,4 +815,24 @@ fn reset_incompatible_bitfields<T: Instance>() {
     regs.txcrc().write(|w| w.0 = 0);
     regs.rxcrc().write(|w| w.0 = 0);
     regs.udrdr().write(|w| w.0 = 0);
+}
+
+dma_trait!(RxDmaExt, I2sSExtInstance);
+pin_trait!(SdExtPin, I2sSExtInstance);
+
+/// Full-Duplex I2s Instance
+pub trait I2sSExtInstance: spi::Instance {
+    /// Ext regs
+    fn regs_ext() -> &'static Regs;
+}
+
+#[allow(unused_macros)]
+macro_rules! impl_i2_ext_instance {
+    ($spi:ident, $i2s:ident) => {
+        impl crate::i2s::I2sSExtInstance for crate::peripherals::$spi {
+            fn regs_ext() -> &'static crate::pac::spi::Spi {
+                &crate::pac::$i2s
+            }
+        }
+    };
 }

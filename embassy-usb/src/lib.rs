@@ -160,6 +160,30 @@ pub trait Handler {
         let _ = (index, lang_id);
         None
     }
+
+    /// Called when a GET_DESCRIPTOR control request is received, before the
+    /// descriptor is sent.
+    ///
+    /// This is an observer callback: it cannot influence the response.
+    /// The default implementation does nothing.
+    ///
+    /// `descriptor_type` and `index` are the high/low bytes of wValue.
+    /// `wlength` is the maximum number of bytes the host is willing to
+    /// receive.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// impl Handler for MyHandler {
+    ///     fn get_descriptor_requested(&mut self, descriptor_type: u8, _index: u8, wlength: u16) {
+    ///         // Log or collect per-request wLength for diagnostics
+    ///         if descriptor_type == 3 {
+    ///             self.string_wlengths.push(wlength);
+    ///         }
+    ///     }
+    /// }
+    /// ```
+    fn get_descriptor_requested(&mut self, _descriptor_type: u8, _index: u8, _wlength: u16) {}
 }
 
 struct Interface {
@@ -720,6 +744,10 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
 
     fn handle_get_descriptor<'a>(&'a mut self, req: Request, buf: &'a mut [u8]) -> InResponse<'a> {
         let (dtype, index) = req.descriptor_type_index();
+
+        for handler in &mut self.handlers {
+            handler.get_descriptor_requested(dtype, index, req.length);
+        }
 
         match dtype {
             descriptor_type::BOS => InResponse::Accepted(self.bos_descriptor),

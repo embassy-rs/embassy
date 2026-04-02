@@ -106,7 +106,7 @@ macro_rules! pin_trait_afio_impl {
     };
 }
 
-#[cfg(any(comp_u5, comp_v2, opamp))]
+#[cfg(any(comp_u5, comp_v1, comp_v2, opamp))]
 macro_rules! analog_pin_trait {
     ($signal:ident, $instance:path $(, $mode:path)?) => {
         #[doc = concat!(stringify!($signal), " pin trait")]
@@ -118,7 +118,7 @@ macro_rules! analog_pin_trait {
     };
 }
 
-#[cfg(any(comp_u5, comp_v2, opamp))]
+#[cfg(any(comp_u5, comp_v1, comp_v2, opamp))]
 macro_rules! analog_pin_trait_impl {
     (crate::$mod:ident::$trait:ident$(<$mode:ident>)?, $instance:ident, $pin:ident, $channel:expr) => {
         impl crate::$mod::$trait<crate::peripherals::$instance $(, crate::$mod::$mode)?> for crate::peripherals::$pin {

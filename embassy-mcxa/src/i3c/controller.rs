@@ -2,7 +2,7 @@
 
 use embassy_hal_internal::Peri;
 use embassy_hal_internal::drop::OnDrop;
-use nxp_pac::i3c::vals::{MdmactrlDmafb, MdmactrlDmatb};
+use nxp_pac::i3c::{MdmactrlDmafb, MdmactrlDmatb};
 
 use super::{Async, AsyncMode, Blocking, Dma, Info, Instance, InterruptHandler, Mode, SclPin, SdaPin};
 use crate::clocks::periph_helpers::{Div4, I3cClockSel, I3cConfig};
@@ -12,7 +12,7 @@ use crate::gpio::{AnyPin, SealedPin};
 pub use crate::i2c::controller::Speed;
 use crate::interrupt::typelevel;
 use crate::interrupt::typelevel::Interrupt;
-use crate::pac::i3c::vals::{
+use crate::pac::i3c::{
     Disto, Hkeep, Ibiresp, MctrlDir as I3cDir, MdatactrlRxtrig, MdatactrlTxtrig, Mstena, Request, State, Type,
 };
 

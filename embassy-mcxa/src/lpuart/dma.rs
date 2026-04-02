@@ -7,7 +7,7 @@ use crate::dma::{
     Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, DmaRequest, InvalidParameters, RingBuffer, TransferOptions,
 };
 use crate::gpio::AnyPin;
-use crate::pac::lpuart::vals::{Tc, Tdre};
+use crate::pac::lpuart::{Tc, Tdre};
 
 /// DMA mode.
 pub struct Dma<'d> {

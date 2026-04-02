@@ -60,7 +60,7 @@ pub mod aes;
 pub mod backup_sram;
 #[cfg(can)]
 pub mod can;
-#[cfg(any(comp_u5, comp_v2))]
+#[cfg(any(comp_u5, comp_v1, comp_v2))]
 pub mod comp;
 #[cfg(cordic)]
 pub mod cordic;
@@ -68,12 +68,12 @@ pub mod cordic;
 // Stub macros for COMP pin implementations when comp module is not compiled.
 // These are needed because build.rs generates macro calls for all chips with COMP,
 // but the actual macros are only defined in the comp module.
-#[cfg(all(comp, not(any(comp_u5, comp_v2))))]
+#[cfg(all(comp, not(any(comp_u5, comp_v1, comp_v2))))]
 #[allow(unused_macros)]
 macro_rules! impl_comp_inp_pin {
     ($inst:ident, $pin:ident, $ch:expr) => {};
 }
-#[cfg(all(comp, not(any(comp_u5, comp_v2))))]
+#[cfg(all(comp, not(any(comp_u5, comp_v1, comp_v2))))]
 #[allow(unused_macros)]
 macro_rules! impl_comp_inm_pin {
     ($inst:ident, $pin:ident, $ch:expr) => {};
@@ -88,6 +88,8 @@ pub mod cryp;
 pub mod dac;
 #[cfg(dcmi)]
 pub mod dcmi;
+#[cfg(dma2d)]
+pub mod dma2d;
 #[cfg(dsihost)]
 pub mod dsihost;
 #[cfg(dts)]
@@ -160,6 +162,13 @@ pub mod vrefbuf;
 pub mod wdg;
 #[cfg(xspi)]
 pub mod xspi;
+
+#[cfg(all(spi, not(any(spi_v1_i2s, spi_v2_i2s, spi_v3_i2s, spi_v4_i2s, spi_v5_i2s))))]
+/// Stub module for I2S
+pub mod i2s {
+    dma_trait!(RxDmaExt, crate::spi::Instance);
+    pin_trait!(SdExtPin, crate::spi::Instance);
+}
 
 #[cfg(feature = "_executor")]
 pub mod executor;
@@ -740,4 +749,16 @@ fn init_hw(config: Config) -> Peripherals {
 #[allow(unused)]
 pub(crate) fn block_for_us(us: u64) {
     cortex_m::asm::delay(unsafe { rcc::get_freqs().sys.to_hertz().unwrap().0 as u64 * us / 1_000_000 } as u32);
+}
+
+#[cfg(all(feature = "time", not(feature = "rt")))]
+#[unsafe(no_mangle)]
+extern "Rust" fn __embassy_time_queue_item_from_waker(_waker: &core::task::Waker) {
+    unimplemented!()
+}
+
+#[cfg(all(feature = "time", not(feature = "rt")))]
+#[unsafe(no_mangle)]
+extern "Rust" fn __try_embassy_time_queue_item_from_waker(_waker: &core::task::Waker) {
+    unimplemented!()
 }

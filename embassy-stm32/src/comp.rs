@@ -1,7 +1,8 @@
 //! Analog Comparator (COMP)
 //!
 //! This driver supports chips with the comp_u5 peripheral version
-//! (STM32WBA and STM32U5 series) and comp_v2 (STM32G4 series).
+//! (STM32WBA and STM32U5 series), comp_v1 (STM32G0 series) and
+//! comp_v2 (STM32G4 series).
 #![macro_use]
 
 use core::future::poll_fn;
@@ -25,13 +26,14 @@ pub enum PowerMode {
     /// Medium speed / medium power.
     MediumSpeed,
     /// Ultra-low power / very low speed.
+    #[cfg(any(comp_u5, comp_v2))]
     UltraLowPower,
 }
 
 /// Hysteresis level.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[cfg(comp_u5)]
+#[cfg(any(comp_u5, comp_v1))]
 pub enum Hysteresis {
     /// No hysteresis.
     None,
@@ -95,8 +97,11 @@ pub enum InvertingInput {
     /// External IO pin (INM1).
     InputPin,
     /// External IO pin (INM2).
-    #[cfg(comp_v2)]
+    #[cfg(any(comp_v1, comp_v2))]
     InputPin2,
+    /// External IO pin (INM3).
+    #[cfg(comp_v1)]
+    InputPin3,
 }
 
 /// Blanking source selection.
@@ -115,6 +120,18 @@ pub enum BlankingSource {
     Blank2,
     /// Timer blanking source 3 (check datasheet for specific timer mapping).
     Blank3,
+    /// Timer blanking source 4 (check datasheet for specific timer mapping).
+    #[cfg(any(comp_v1, comp_v2))]
+    Blank4,
+    /// Timer blanking source 5 (check datasheet for specific timer mapping).
+    #[cfg(any(comp_v1, comp_v2))]
+    Blank5,
+    /// Timer blanking source 6 (check datasheet for specific timer mapping).
+    #[cfg(comp_v2)]
+    Blank6,
+    /// Timer blanking source 7 (check datasheet for specific timer mapping).
+    #[cfg(comp_v2)]
+    Blank7,
 }
 
 /// Window mode configuration.
@@ -203,6 +220,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         // The async code will re-enable the interrupt when needed.
         T::disable_exti_interrupt();
         T::state().waker.wake();
+        T::clear_exti_pending();
     }
 }
 
@@ -262,10 +280,11 @@ impl<'d, T: Instance> Comp<'d, T> {
     }
 
     fn configure_raw(inp_channel: u8, inmsel: vals::Inm, config: Config) {
-        #[cfg(comp_u5)]
+        #[cfg(any(comp_u5, comp_v1))]
         let pwrmode = match config.power_mode {
             PowerMode::HighSpeed => vals::PowerMode::HIGH_SPEED,
             PowerMode::MediumSpeed => vals::PowerMode::MEDIUM_SPEED,
+            #[cfg(comp_u5)]
             PowerMode::UltraLowPower => vals::PowerMode::ULTRA_LOW,
         };
 
@@ -281,7 +300,7 @@ impl<'d, T: Instance> Comp<'d, T> {
             Hysteresis::Hyst70M => vals::Hysteresis::HYST70M,
         };
 
-        #[cfg(comp_u5)]
+        #[cfg(any(comp_u5, comp_v1))]
         let hyst = match config.hysteresis {
             Hysteresis::None => vals::Hysteresis::NONE,
             Hysteresis::Low => vals::Hysteresis::LOW,
@@ -294,20 +313,29 @@ impl<'d, T: Instance> Comp<'d, T> {
             OutputPolarity::Inverted => vals::Polarity::INVERTED,
         };
 
+        #[cfg(any(comp_u5, comp_v1, comp_v2))]
         let blanksel = match config.blanking_source {
             BlankingSource::None => vals::Blanking::NO_BLANKING,
             BlankingSource::Blank1 => vals::Blanking::BLANK1,
             BlankingSource::Blank2 => vals::Blanking::BLANK2,
             BlankingSource::Blank3 => vals::Blanking::BLANK3,
+            #[cfg(any(comp_v1, comp_v2))]
+            BlankingSource::Blank4 => vals::Blanking::BLANK4,
+            #[cfg(any(comp_v1, comp_v2))]
+            BlankingSource::Blank5 => vals::Blanking::BLANK5,
+            #[cfg(comp_v2)]
+            BlankingSource::Blank6 => vals::Blanking::BLANK6,
+            #[cfg(comp_v2)]
+            BlankingSource::Blank7 => vals::Blanking::BLANK7,
         };
 
-        #[cfg(comp_u5)]
+        #[cfg(any(comp_u5, comp_v1))]
         let winmode = match config.window_mode {
             WindowMode::Disabled => vals::WindowMode::THIS_INPSEL,
             WindowMode::Enabled => vals::WindowMode::OTHER_INPSEL,
         };
 
-        #[cfg(comp_u5)]
+        #[cfg(any(comp_u5, comp_v1))]
         let winout = match config.window_output {
             WindowOutput::OwnValue => vals::WindowOut::COMP1_VALUE,
             WindowOutput::XorValue => vals::WindowOut::COMP1_VALUE_XOR_COMP2_VALUE,
@@ -338,7 +366,7 @@ impl<'d, T: Instance> Comp<'d, T> {
             }
 
             w.set_en(true);
-            #[cfg(comp_u5)]
+            #[cfg(any(comp_u5, comp_v1))]
             {
                 w.set_pwrmode(pwrmode);
                 w.set_winmode(winmode);
@@ -353,9 +381,9 @@ impl<'d, T: Instance> Comp<'d, T> {
             InvertingInput::HalfVref => vals::Inm::HALF_VREF,
             InvertingInput::ThreeQuarterVref => vals::Inm::THREE_QUARTER_VREF,
             InvertingInput::Vref => vals::Inm::VREF,
-            #[cfg(comp_u5)]
+            #[cfg(any(comp_u5, comp_v1))]
             InvertingInput::Dac1 => vals::Inm::DAC1,
-            #[cfg(comp_u5)]
+            #[cfg(any(comp_u5, comp_v1))]
             InvertingInput::Dac2 => vals::Inm::DAC2,
             #[cfg(comp_v2)]
             InvertingInput::Dac1 => vals::Inm::DACA,
@@ -363,8 +391,10 @@ impl<'d, T: Instance> Comp<'d, T> {
             InvertingInput::Dac2 => vals::Inm::DACB,
 
             InvertingInput::InputPin => vals::Inm::INM1,
-            #[cfg(comp_v2)]
+            #[cfg(any(comp_v1, comp_v2))]
             InvertingInput::InputPin2 => vals::Inm::INM2,
+            #[cfg(comp_v1)]
+            InvertingInput::InputPin3 => vals::Inm::INM3,
         };
 
         Self::configure_raw(inp_channel, inmsel, config);
@@ -412,6 +442,14 @@ impl<'d, T: Instance> Comp<'d, T> {
             BlankingSource::Blank1 => vals::Blanking::BLANK1,
             BlankingSource::Blank2 => vals::Blanking::BLANK2,
             BlankingSource::Blank3 => vals::Blanking::BLANK3,
+            #[cfg(any(comp_v1, comp_v2))]
+            BlankingSource::Blank4 => vals::Blanking::BLANK4,
+            #[cfg(any(comp_v1, comp_v2))]
+            BlankingSource::Blank5 => vals::Blanking::BLANK5,
+            #[cfg(comp_v2)]
+            BlankingSource::Blank6 => vals::Blanking::BLANK6,
+            #[cfg(comp_v2)]
+            BlankingSource::Blank7 => vals::Blanking::BLANK7,
         };
 
         T::regs().csr().modify(|w| {
@@ -650,6 +688,19 @@ foreach_peripheral! {
     };
     (comp, COMP2) => {
         impl_comp!(COMP2, 18);
+    };
+}
+
+#[cfg(comp_v1)]
+foreach_peripheral! {
+    (comp, COMP1) => {
+        impl_comp!(COMP1, 17);
+    };
+    (comp, COMP2) => {
+        impl_comp!(COMP2, 18);
+    };
+    (comp, COMP3) => {
+        impl_comp!(COMP3, 20);
     };
 }
 
