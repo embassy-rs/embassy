@@ -116,7 +116,7 @@ mod tests {
                     start,
                     size
                 },
-                get_sector(address, crate::flash::get_flash_regions())
+                unwrap!(get_sector(address, crate::flash::get_flash_regions()))
             )
         };
 
@@ -149,7 +149,7 @@ mod tests {
                     start,
                     size
                 },
-                get_sector(address, crate::flash::get_flash_regions())
+                unwrap!(get_sector(address, crate::flash::get_flash_regions()))
             )
         };
 
