@@ -2,6 +2,8 @@
 
 #![macro_use]
 
+use core::ptr;
+
 use embassy_futures::join::join;
 use stm32_metapac::spi::vals;
 
@@ -236,6 +238,8 @@ pub struct I2S<'d, W: Word> {
     #[allow(dead_code)]
     mode: Mode,
     spi: Spi<'d, Async, Master>,
+    #[cfg(spi_v2_i2s)]
+    regs_ext: Option<&'static Regs>,
     _txsd: Option<Flex<'d>>,
     _rxsd: Option<Flex<'d>>,
     _ws: Option<Flex<'d>>,
@@ -260,6 +264,8 @@ impl<'d, W: Word> I2S<'d, W> {
     ) -> Self {
         Self::new_inner(
             peri,
+            #[cfg(spi_v2_i2s)]
+            None,
             new_pin!(sd, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             None,
             ws,
@@ -285,6 +291,8 @@ impl<'d, W: Word> I2S<'d, W> {
     ) -> Self {
         Self::new_inner(
             peri,
+            #[cfg(spi_v2_i2s)]
+            None,
             new_pin!(sd, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             None,
             ws,
@@ -311,6 +319,8 @@ impl<'d, W: Word> I2S<'d, W> {
     ) -> Self {
         Self::new_inner(
             peri,
+            #[cfg(spi_v2_i2s)]
+            None,
             None,
             new_pin!(sd, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             ws,
@@ -336,6 +346,8 @@ impl<'d, W: Word> I2S<'d, W> {
     ) -> Self {
         Self::new_inner(
             peri,
+            #[cfg(spi_v2_i2s)]
+            None,
             None,
             new_pin!(sd, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             ws,
@@ -368,6 +380,7 @@ impl<'d, W: Word> I2S<'d, W> {
     ) -> Self {
         Self::new_inner(
             peri,
+            Some(T::regs_ext()),
             new_pin!(txsd, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             new_pin!(rxsd, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             ws,
@@ -445,30 +458,54 @@ impl<'d, W: Word> I2S<'d, W> {
 
     /// Start I2S driver.
     pub fn start(&mut self) {
-        self.spi.info.regs.cr1().modify(|w| {
+        let regs_tx = self.regs_tx();
+        let regs_rx = self.regs_rx();
+
+        regs_tx.cr1().modify(|w| {
             w.set_spe(false);
         });
+
+        if !ptr::eq(regs_tx, regs_rx) {
+            regs_rx.cr1().modify(|w| {
+                w.set_spe(false);
+            });
+        }
+
         self.spi.set_word_size(W::CONFIG);
         if let Some(tx_ring_buffer) = &mut self.tx_ring_buffer {
             tx_ring_buffer.start();
 
-            set_txdmaen(self.spi.info.regs, true);
+            set_txdmaen(*regs_tx, true);
         }
         if let Some(rx_ring_buffer) = &mut self.rx_ring_buffer {
             rx_ring_buffer.start();
             // SPIv3 clears rxfifo on SPE=0
             #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
-            flush_rx_fifo(self.spi.info.regs);
+            flush_rx_fifo(*regs_rx);
 
-            set_rxdmaen(self.spi.info.regs, true);
+            set_rxdmaen(*regs_rx, true);
         }
-        self.spi.info.regs.cr1().modify(|w| {
+        regs_tx.cr1().modify(|w| {
             w.set_spe(true);
         });
+        if !ptr::eq(regs_tx, regs_rx) {
+            regs_rx.cr1().modify(|w| {
+                w.set_spe(true);
+            });
+        }
+
         #[cfg(any(spi_v1, spi_v2, spi_v3))]
-        self.spi.info.regs.i2scfgr().modify(|w| {
+        regs_tx.i2scfgr().modify(|w| {
             w.set_i2se(true);
         });
+
+        #[cfg(any(spi_v1, spi_v2, spi_v3))]
+        if !ptr::eq(regs_tx, regs_rx) {
+            regs_rx.i2scfgr().modify(|w| {
+                w.set_i2se(true);
+            });
+        }
+
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         self.spi.info.regs.cr1().modify(|w| {
             w.set_cstart(true);
@@ -491,13 +528,14 @@ impl<'d, W: Word> I2S<'d, W> {
 
     /// Stop I2S driver.
     pub async fn stop(&mut self) {
-        let regs = self.spi.info.regs;
+        let regs_tx = self.regs_tx();
+        let regs_rx = self.regs_rx();
 
         let tx_f = async {
             if let Some(tx_ring_buffer) = &mut self.tx_ring_buffer {
                 tx_ring_buffer.stop().await;
 
-                set_txdmaen(regs, false);
+                set_txdmaen(*regs_tx, false);
             }
         };
 
@@ -505,7 +543,7 @@ impl<'d, W: Word> I2S<'d, W> {
             if let Some(rx_ring_buffer) = &mut self.rx_ring_buffer {
                 rx_ring_buffer.stop().await;
 
-                set_rxdmaen(regs, false);
+                set_rxdmaen(*regs_rx, false);
             }
         };
 
@@ -514,17 +552,23 @@ impl<'d, W: Word> I2S<'d, W> {
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         {
             if let Mode::Master = self.mode {
-                regs.cr1().modify(|w| {
+                regs_tx.cr1().modify(|w| {
                     w.set_csusp(true);
                 });
 
-                while regs.cr1().read().cstart() {}
+                while regs_tx.cr1().read().cstart() {}
             }
         }
 
-        regs.cr1().modify(|w| {
+        regs_tx.cr1().modify(|w| {
             w.set_spe(false);
         });
+
+        if !ptr::eq(regs_tx, regs_rx) {
+            regs_rx.cr1().modify(|w| {
+                w.set_spe(false);
+            });
+        }
 
         self.clear();
     }
@@ -577,8 +621,25 @@ impl<'d, W: Word> I2S<'d, W> {
         }
     }
 
+    fn regs_tx(&self) -> &'static Regs {
+        &self.spi.info.regs
+    }
+
+    fn regs_rx(&self) -> &'static Regs {
+        #[cfg(spi_v2_i2s)]
+        {
+            self.regs_ext.unwrap_or(&self.spi.info.regs)
+        }
+
+        #[cfg(not(spi_v2_i2s))]
+        {
+            &self.spi.info.regs
+        }
+    }
+
     fn new_inner<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
+        #[cfg(spi_v2_i2s)] regs_ext: Option<&'static Regs>,
         txsd: Option<Flex<'d>>,
         rxsd: Option<Flex<'d>>,
         ws: Peri<'d, if_afio!(impl WsPin<T, A>)>,
@@ -682,6 +743,40 @@ impl<'d, W: Word> I2S<'d, W> {
             });
         });
 
+        #[cfg(spi_v2_i2s)]
+        // Configure I2SEXT peripheral identically, but in the opposite direction
+        // and always in slave mode.
+        if let Some(ext) = regs_ext {
+            ext.i2spr().modify(|w| {
+                w.set_i2sdiv(2);
+                w.set_odd(Odd::EVEN);
+                w.set_mckoe(false);
+            });
+
+            ext.i2scfgr().modify(|w| {
+                w.set_ckpol(config.clock_polarity.ckpol());
+
+                w.set_i2smod(true);
+
+                w.set_i2sstd(config.standard.i2sstd());
+                w.set_pcmsync(config.standard.pcmsync());
+
+                w.set_datlen(config.format.datlen());
+                w.set_chlen(config.format.chlen());
+
+                w.set_i2scfg(match (config.mode, function) {
+                    (Mode::Master, Function::Transmit) => I2scfg::SLAVE_RX,
+                    (Mode::Master, Function::Receive) => I2scfg::SLAVE_TX,
+                    (Mode::Slave, Function::Transmit) => I2scfg::SLAVE_RX,
+                    (Mode::Slave, Function::Receive) => I2scfg::SLAVE_TX,
+                    (Mode::Master, Function::FullDuplex) => todo!(),
+                    (Mode::Slave, Function::FullDuplex) => todo!(),
+                });
+
+                w.set_i2se(true);
+            });
+        }
+
         let mut opts = TransferOptions::default();
         opts.half_transfer_ir = true;
 
@@ -693,9 +788,23 @@ impl<'d, W: Word> I2S<'d, W> {
             vals::Chlen::BITS32 => 4,
         };
 
+        let regs_rx = {
+            #[cfg(spi_v2_i2s)]
+            {
+                regs_ext.unwrap_or(&regs)
+            }
+
+            #[cfg(not(spi_v2_i2s))]
+            {
+                regs
+            }
+        };
+
         Self {
             mode: config.mode,
             spi,
+            #[cfg(spi_v2_i2s)]
+            regs_ext: regs_ext,
             _txsd: txsd.map(|w| w.into()),
             _rxsd: rxsd.map(|w| w.into()),
             _ws: new_pin!(ws, AfType::output(OutputType::PushPull, config.gpio_speed)),
@@ -704,7 +813,7 @@ impl<'d, W: Word> I2S<'d, W> {
             tx_ring_buffer: txdma
                 .map(|(ch, buf)| unsafe { WritableRingBuffer::new(ch.channel, ch.request, regs.tx_ptr(), buf, opts) }),
             rx_ring_buffer: rxdma.map(|(ch, buf)| {
-                let mut rb = unsafe { ReadableRingBuffer::new(ch.channel, ch.request, regs.rx_ptr(), buf, opts) };
+                let mut rb = unsafe { ReadableRingBuffer::new(ch.channel, ch.request, regs_rx.rx_ptr(), buf, opts) };
                 rb.set_alignment(frame_words);
                 rb
             }),
