@@ -302,7 +302,7 @@ mod tests {
 
         if !cfg!(feature = "dual-bank") {
             let assert_sector = |snb: u8, index_in_bank: u8, start: u32, size: u32, address: u32| {
-                let sector = get_sector(address, crate::flash::get_flash_regions());
+                let sector = unwrap!(get_sector(address, crate::flash::get_flash_regions()));
                 assert_eq!(snb, sector.snb());
                 assert_eq!(
                     FlashSector {
@@ -329,7 +329,7 @@ mod tests {
             assert_sector(0x0B, 11, 0x080E_0000, LARGE_SECTOR_SIZE, 0x080F_FFFF);
         } else {
             let assert_sector = |snb: u8, bank: FlashBank, index_in_bank: u8, start: u32, size: u32, address: u32| {
-                let sector = get_sector(address, crate::flash::get_flash_regions());
+                let sector = unwrap!(get_sector(address, crate::flash::get_flash_regions()));
                 assert_eq!(snb, sector.snb());
                 assert_eq!(
                     FlashSector {
