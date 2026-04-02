@@ -134,64 +134,70 @@ fn main() {
         cfgs.enable("backup_sram")
     }
 
-    // compile a map of peripherals
-    let peripheral_map: BTreeMap<&str, &Peripheral> = METADATA.peripherals.iter().map(|p| (p.name, p)).collect();
+    // compile a map of peripherals with registers
+    let peripheral_map: HashMap<&str, (&Peripheral, &PeripheralRegisters)> = METADATA
+        .peripherals
+        .iter()
+        .filter_map(|p| Some((p.name, (p, p.registers.as_ref()?))))
+        .collect();
+
+    // compile a list of peripherals with registers
+    let peripheral_list: Vec<(&Peripheral, &PeripheralRegisters)> = METADATA
+        .peripherals
+        .iter()
+        .filter(|p| !p.name.starts_with("I2S"))
+        .filter_map(|p| Some((p, p.registers.as_ref()?)))
+        .collect();
 
     // generate one singleton per peripheral (with many exceptions...)
-    for p in METADATA.peripherals {
-        if let Some(r) = &p.registers {
-            if r.kind == "adccommon"
-                || r.kind == "sai"
-                || r.kind == "ucpd"
-                || r.kind == "otg"
-                || r.kind == "octospi"
-                || r.kind == "xspi"
-            {
-                // TODO: should we emit this for all peripherals? if so, we will need a list of all
-                // possible peripherals across all chips, so that we can declare the configs
-                // (replacing the hard-coded list of `peri_*` cfgs below)
-                cfgs.enable(format!("peri_{}", p.name.to_ascii_lowercase()));
-            }
+    for (p, r) in &peripheral_list {
+        if r.kind == "adccommon"
+            || r.kind == "sai"
+            || r.kind == "ucpd"
+            || r.kind == "otg"
+            || r.kind == "octospi"
+            || r.kind == "xspi"
+        {
+            // TODO: should we emit this for all peripherals? if so, we will need a list of all
+            // possible peripherals across all chips, so that we can declare the configs
+            // (replacing the hard-coded list of `peri_*` cfgs below)
+            cfgs.enable(format!("peri_{}", p.name.to_ascii_lowercase()));
+        }
 
-            if p.name.starts_with("I2S") {
-                continue;
-            }
+        match r.kind {
+            // handled above
+            "gpio" => {}
 
-            match r.kind {
-                // handled above
-                "gpio" => {}
+            // No singleton for these, the HAL handles them specially.
+            "exti" => {}
 
-                // No singleton for these, the HAL handles them specially.
-                "exti" => {}
-
-                // We *shouldn't* have singletons for these, but the HAL currently requires
-                // singletons, for using with RccPeripheral to enable/disable clocks to them.
-                "rcc" => {
-                    for pin in p.pins {
-                        if pin.signal.starts_with("MCO") {
-                            let name = pin.signal.replace('_', "").to_string();
-                            if !singletons.contains(&name) {
-                                cfgs.enable(name.to_ascii_lowercase());
-                                singletons.push(name);
-                            }
+            // We *shouldn't* have singletons for these, but the HAL currently requires
+            // singletons, for using with RccPeripheral to enable/disable clocks to them.
+            "rcc" => {
+                for pin in p.pins {
+                    if pin.signal.starts_with("MCO") {
+                        let name = pin.signal.replace('_', "").to_string();
+                        if !singletons.contains(&name) {
+                            cfgs.enable(name.to_ascii_lowercase());
+                            singletons.push(name);
                         }
                     }
-                    singletons.push(p.name.to_string());
                 }
-
-                "eth" => {
-                    singletons.push(p.name.to_string());
-                    singletons.push("ETH_SMA".to_string());
-                }
-                //"dbgmcu" => {}
-                //"syscfg" => {}
-                //"dma" => {}
-                //"bdma" => {}
-                //"dmamux" => {}
-
-                // For other peripherals, one singleton per peri
-                _ => singletons.push(p.name.to_string()),
+                singletons.push(p.name.to_string());
             }
+
+            "eth" => {
+                singletons.push(p.name.to_string());
+                singletons.push("ETH_SMA".to_string());
+            }
+            //"dbgmcu" => {}
+            //"syscfg" => {}
+            //"dma" => {}
+            //"bdma" => {}
+            //"dmamux" => {}
+
+            // For other peripherals, one singleton per peri
+            _ => singletons.push(p.name.to_string()),
         }
     }
 
@@ -223,7 +229,7 @@ fn main() {
         singletons.push(c.name.to_string());
     }
 
-    let mut pin_set = std::collections::HashSet::new();
+    let mut pin_set = HashSet::new();
     for p in METADATA.peripherals {
         for pin in p.pins {
             pin_set.insert(pin.pin);
@@ -333,7 +339,7 @@ fn main() {
     let time_driver_irq_decl = if !time_driver_singleton.is_empty() {
         cfgs.enable(format!("time_driver_{}", time_driver_singleton.to_lowercase()));
 
-        let Some(p) = peripheral_map.get(time_driver_singleton) else {
+        let Some((p, _)) = peripheral_map.get(time_driver_singleton) else {
             panic!("Tried to select {time_driver_singleton}, which is not available on this device");
         };
         let irqs: BTreeSet<_> = p
@@ -573,12 +579,7 @@ fn main() {
     // ========
     // Extract the rcc registers
 
-    let rcc_registers = METADATA
-        .peripherals
-        .iter()
-        .filter_map(|p| p.registers.as_ref())
-        .find(|r| r.kind == "rcc")
-        .unwrap();
+    let rcc_registers = peripheral_list.iter().find(|(_, r)| r.kind == "rcc").unwrap().1;
     let rcc_block = rcc_registers.ir.blocks.iter().find(|b| b.name == "Rcc").unwrap();
 
     // ========
@@ -1004,24 +1005,24 @@ fn main() {
     for kind in ["mdma", "dma", "bdma", "dmamux", "gpdma", "gpio"] {
         let mut gg = TokenStream::new();
 
-        for p in METADATA.peripherals {
-            if p.registers.is_some() && p.registers.as_ref().unwrap().kind == kind {
-                if let Some(rcc) = &p.rcc {
-                    let en = rcc.enable.as_ref().unwrap();
-                    let en_reg = format_ident!("{}", en.register.to_ascii_lowercase());
-                    let set_en_field = format_ident!("set_{}", en.field.to_ascii_lowercase());
+        for (p, r) in &peripheral_list {
+            if r.kind == kind
+                && let Some(rcc) = &p.rcc
+            {
+                let en = rcc.enable.as_ref().unwrap();
+                let en_reg = format_ident!("{}", en.register.to_ascii_lowercase());
+                let set_en_field = format_ident!("set_{}", en.field.to_ascii_lowercase());
+                gg.extend(quote! {
+                    crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(true));
+                });
+                // enable for both cores or if the primary core goes in stop mode devices become unavailable!
+                // particularly problematic for GPIOs and DMA
+                if chip_name.starts_with("stm32wl5") {
+                    // second core clock enable registers start with "c2"
+                    let en_reg = format_ident!("c2{}", en.register.to_ascii_lowercase());
                     gg.extend(quote! {
                         crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(true));
                     });
-                    // enable for both cores or if the primary core goes in stop mode devices become unavailable!
-                    // particularly problematic for GPIOs and DMA
-                    if chip_name.starts_with("stm32wl5") {
-                        // second core clock enable registers start with "c2"
-                        let en_reg = format_ident!("c2{}", en.register.to_ascii_lowercase());
-                        gg.extend(quote! {
-                            crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(true));
-                        });
-                    }
                 }
             }
         }
@@ -1481,297 +1482,294 @@ fn main() {
     // on other as additional functions where GPIO should be left in Analog mode.
     cfgs.declare("usb_alternate_function");
 
-    for p in METADATA.peripherals {
+    for (p, regs) in &peripheral_list {
         #[cfg(not(feature = "stm32-hrtim"))]
-        if let Some(reg) = &p.registers
-            && reg.kind == "hrtim"
-        {
+        if regs.kind == "hrtim" {
             // Only enable the hrtim peripheral if the stm32-hrtim feature is active
             continue;
         }
-        if let Some(regs) = &p.registers {
-            let mut adc_pairs: BTreeMap<u8, (Option<Ident>, Option<Ident>)> = BTreeMap::new();
-            let mut seen_lcd_seg_pins = HashSet::new();
 
-            if let Some(peri) = p.name.strip_prefix("I2S")
-                && peripheral_map.contains_key(format!("SPI{}", peri).as_str())
-            {
-                let spi_peri = format_ident!("SPI{}", peri);
-                let i2s_peri = format_ident!("I2S{}", peri);
+        let mut adc_pairs: BTreeMap<u8, (Option<Ident>, Option<Ident>)> = BTreeMap::new();
+        let mut seen_lcd_seg_pins = HashSet::new();
 
-                g.extend(quote! {
-                    impl_i2_ext_instance!(#spi_peri, #i2s_peri);
-                });
+        if let Some(peri) = p.name.strip_prefix("SPI")
+            && peripheral_map.contains_key(format!("I2S{}", peri).as_str())
+        {
+            let spi_peri = format_ident!("SPI{}", peri);
+            let i2s_peri = format_ident!("I2S{}", peri);
+
+            g.extend(quote! {
+                impl_i2_ext_instance!(#spi_peri, #i2s_peri);
+            });
+        }
+
+        for pin in p.pins {
+            let mut key = (regs.kind, pin.signal);
+
+            // LCD is special. There are so many pins!
+            if regs.kind == "lcd" {
+                key.1 = pin.signal.trim_end_matches(char::is_numeric);
+
+                if key.1 == "SEG" && !seen_lcd_seg_pins.insert(pin.pin) {
+                    // LCD has SEG pins multiplexed in the peripheral
+                    // This means we can see them twice. We need to skip those so we're not impl'ing the trait twice
+                    continue;
+                }
             }
 
-            for pin in p.pins {
-                let mut key = (regs.kind, pin.signal);
+            if let Some(tr) = signals.get(&key) {
+                let mut peri = format_ident!("{}", p.name);
 
-                // LCD is special. There are so many pins!
-                if regs.kind == "lcd" {
-                    key.1 = pin.signal.trim_end_matches(char::is_numeric);
-
-                    if key.1 == "SEG" && !seen_lcd_seg_pins.insert(pin.pin) {
-                        // LCD has SEG pins multiplexed in the peripheral
-                        // This means we can see them twice. We need to skip those so we're not impl'ing the trait twice
+                let pin_name = {
+                    // If we encounter a _C pin but the split_feature for this pin is not enabled, skip it
+                    if pin.pin.ends_with("_C") && !split_features.iter().any(|x| x.pin_name_with_c == pin.pin) {
                         continue;
+                    }
+
+                    format_ident!("{}", pin.pin)
+                };
+
+                let af = pin.af.unwrap_or(0);
+
+                // MCO is special
+                if pin.signal.starts_with("MCO") {
+                    peri = format_ident!("{}", pin.signal.replace('_', ""));
+                }
+
+                // OCTOSPIM is special
+                if p.name == "OCTOSPIM" {
+                    // Some chips have OCTOSPIM but not OCTOSPI2.
+                    if METADATA.peripherals.iter().any(|p| p.name == "OCTOSPI2") {
+                        peri = format_ident!("{}", "OCTOSPI2");
+                        g.extend(quote! {
+                            pin_trait_impl!(#tr, #peri, #pin_name, #af);
+                        });
+                    }
+                    peri = format_ident!("{}", "OCTOSPI1");
+                }
+
+                // XSPIM  is special
+                if p.name == "XSPIM" {
+                    if pin.signal.starts_with("P1") {
+                        peri = format_ident!("{}", "XSPI1");
+                    } else if pin.signal.starts_with("P2") {
+                        peri = format_ident!("{}", "XSPI2");
+                    } else {
+                        panic! {"malformed XSPIM pin: {:?}", pin}
                     }
                 }
 
-                if let Some(tr) = signals.get(&key) {
-                    let mut peri = format_ident!("{}", p.name);
+                // MDIO and MDC are special
+                if pin.signal == "MDIO" || pin.signal == "MDC" {
+                    peri = format_ident!("{}", "ETH_SMA");
+                }
 
-                    let pin_name = {
-                        // If we encounter a _C pin but the split_feature for this pin is not enabled, skip it
-                        if pin.pin.ends_with("_C") && !split_features.iter().any(|x| x.pin_name_with_c == pin.pin) {
-                            continue;
-                        }
+                // XSPI NCS pin to CSSEL mapping
+                if pin.signal.ends_with("NCS1") {
+                    g.extend(quote! {
+                        sel_trait_impl!(crate::xspi::NCSEither, #peri, #pin_name, 0);
+                    })
+                }
+                if pin.signal.ends_with("NCS2") {
+                    g.extend(quote! {
+                        sel_trait_impl!(crate::xspi::NCSEither, #peri, #pin_name, 1);
+                    })
+                }
 
-                        format_ident!("{}", pin.pin)
-                    };
-
-                    let af = pin.af.unwrap_or(0);
-
-                    // MCO is special
-                    if pin.signal.starts_with("MCO") {
-                        peri = format_ident!("{}", pin.signal.replace('_', ""));
+                // Many families have USB as an additional function, not an
+                // alternate function, where the pin must be left in analog
+                // mode and enabling AF will break USB.
+                if p.name.starts_with("USB") && (pin.signal == "DM" || pin.signal == "DP") {
+                    if pin.af.is_some() {
+                        cfgs.enable("usb_alternate_function");
                     }
+                }
 
-                    // OCTOSPIM is special
-                    if p.name == "OCTOSPIM" {
-                        // Some chips have OCTOSPIM but not OCTOSPI2.
-                        if METADATA.peripherals.iter().any(|p| p.name == "OCTOSPI2") {
-                            peri = format_ident!("{}", "OCTOSPI2");
-                            g.extend(quote! {
-                                pin_trait_impl!(#tr, #peri, #pin_name, #af);
-                            });
-                        }
-                        peri = format_ident!("{}", "OCTOSPI1");
-                    }
+                let pin_trait_impl = if let Some(afio) = &p.afio {
+                    let values = afio
+                        .values
+                        .iter()
+                        .filter(|v| v.pins.contains(&pin.pin))
+                        .map(|v| v.value)
+                        .collect::<Vec<_>>();
 
-                    // XSPIM  is special
-                    if p.name == "XSPIM" {
-                        if pin.signal.starts_with("P1") {
-                            peri = format_ident!("{}", "XSPI1");
-                        } else if pin.signal.starts_with("P2") {
-                            peri = format_ident!("{}", "XSPI2");
-                        } else {
-                            panic! {"malformed XSPIM pin: {:?}", pin}
-                        }
-                    }
-
-                    // MDIO and MDC are special
-                    if pin.signal == "MDIO" || pin.signal == "MDC" {
-                        peri = format_ident!("{}", "ETH_SMA");
-                    }
-
-                    // XSPI NCS pin to CSSEL mapping
-                    if pin.signal.ends_with("NCS1") {
-                        g.extend(quote! {
-                            sel_trait_impl!(crate::xspi::NCSEither, #peri, #pin_name, 0);
-                        })
-                    }
-                    if pin.signal.ends_with("NCS2") {
-                        g.extend(quote! {
-                            sel_trait_impl!(crate::xspi::NCSEither, #peri, #pin_name, 1);
-                        })
-                    }
-
-                    // Many families have USB as an additional function, not an
-                    // alternate function, where the pin must be left in analog
-                    // mode and enabling AF will break USB.
-                    if p.name.starts_with("USB") && (pin.signal == "DM" || pin.signal == "DP") {
-                        if pin.af.is_some() {
-                            cfgs.enable("usb_alternate_function");
-                        }
-                    }
-
-                    let pin_trait_impl = if let Some(afio) = &p.afio {
-                        let values = afio
-                            .values
-                            .iter()
-                            .filter(|v| v.pins.contains(&pin.pin))
-                            .map(|v| v.value)
-                            .collect::<Vec<_>>();
-
-                        if values.is_empty() {
-                            None
-                        } else {
-                            let reg = format_ident!("{}", afio.register.to_lowercase());
-                            let setter = format_ident!("set_{}", afio.field.to_lowercase());
-                            let type_and_values = if is_bool_field("AFIO", afio.register, afio.field) {
-                                let values = values.iter().map(|&v| v > 0);
-                                quote!(AfioRemapBool, [#(#values),*])
-                            } else {
-                                quote!(AfioRemap, [#(#values),*])
-                            };
-
-                            Some(quote! {
-                                pin_trait_afio_impl!(#tr, #peri, #pin_name, {#reg, #setter, #type_and_values});
-                            })
-                        }
+                    if values.is_empty() {
+                        None
                     } else {
-                        let peripherals_with_afio = [
-                            "CAN",
-                            "CEC",
-                            "ETH",
-                            "I2C",
-                            "SPI",
-                            "SUBGHZSPI",
-                            "USART",
-                            "UART",
-                            "LPUART",
-                            "TIM",
-                        ];
-                        let not_applicable = if peripherals_with_afio.iter().any(|&x| p.name.starts_with(x)) {
-                            quote!(, crate::gpio::AfioRemapNotApplicable)
+                        let reg = format_ident!("{}", afio.register.to_lowercase());
+                        let setter = format_ident!("set_{}", afio.field.to_lowercase());
+                        let type_and_values = if is_bool_field("AFIO", afio.register, afio.field) {
+                            let values = values.iter().map(|&v| v > 0);
+                            quote!(AfioRemapBool, [#(#values),*])
                         } else {
-                            quote!()
+                            quote!(AfioRemap, [#(#values),*])
                         };
 
-                        Some(quote!(pin_trait_impl!(#tr, #peri, #pin_name, #af #not_applicable);))
-                    };
-
-                    g.extend(pin_trait_impl);
-                }
-
-                // ADC is special
-                if regs.kind == "adc" {
-                    if p.rcc.is_none() {
-                        continue;
-                    }
-
-                    let peri = format_ident!("{}", p.name);
-                    let pin_name = {
-                        // If we encounter a _C pin but the split_feature for this pin is not enabled, skip it
-                        if pin.pin.ends_with("_C") && !split_features.iter().any(|x| x.pin_name_with_c == pin.pin) {
-                            continue;
-                        }
-                        format_ident!("{}", pin.pin)
-                    };
-
-                    // H7 has differential voltage measurements.
-                    let ch = parse_adc_pin_signal(pin.signal);
-                    if let Some((ch, false)) = ch {
-                        adc_pairs.entry(ch).or_insert((None, None)).0.replace(pin_name.clone());
-
-                        g.extend(quote! {
-                        impl_adc_pin!( #peri, #pin_name, #ch);
+                        Some(quote! {
+                            pin_trait_afio_impl!(#tr, #peri, #pin_name, {#reg, #setter, #type_and_values});
                         })
                     }
-                    if let Some((ch, true)) = ch {
-                        adc_pairs.entry(ch).or_insert((None, None)).1.replace(pin_name.clone());
-                    }
+                } else {
+                    let peripherals_with_afio = [
+                        "CAN",
+                        "CEC",
+                        "ETH",
+                        "I2C",
+                        "SPI",
+                        "SUBGHZSPI",
+                        "USART",
+                        "UART",
+                        "LPUART",
+                        "TIM",
+                    ];
+                    let not_applicable = if peripherals_with_afio.iter().any(|&x| p.name.starts_with(x)) {
+                        quote!(, crate::gpio::AfioRemapNotApplicable)
+                    } else {
+                        quote!()
+                    };
+
+                    Some(quote!(pin_trait_impl!(#tr, #peri, #pin_name, #af #not_applicable);))
+                };
+
+                g.extend(pin_trait_impl);
+            }
+
+            // ADC is special
+            if regs.kind == "adc" {
+                if p.rcc.is_none() {
+                    continue;
                 }
 
-                if regs.kind == "opamp" {
-                    let peri = format_ident!("{}", p.name);
-                    let pin_name = format_ident!("{}", pin.pin);
-                    if let Some(ch_str) = pin.signal.strip_prefix("VINP") {
-                        // Impl NonInvertingPin for VINP0, VINP1 etc.
-                        if let Ok(ch) = ch_str.parse::<u8>() {
+                let peri = format_ident!("{}", p.name);
+                let pin_name = {
+                    // If we encounter a _C pin but the split_feature for this pin is not enabled, skip it
+                    if pin.pin.ends_with("_C") && !split_features.iter().any(|x| x.pin_name_with_c == pin.pin) {
+                        continue;
+                    }
+                    format_ident!("{}", pin.pin)
+                };
+
+                // H7 has differential voltage measurements.
+                let ch = parse_adc_pin_signal(pin.signal);
+                if let Some((ch, false)) = ch {
+                    adc_pairs.entry(ch).or_insert((None, None)).0.replace(pin_name.clone());
+
+                    g.extend(quote! {
+                    impl_adc_pin!( #peri, #pin_name, #ch);
+                    })
+                }
+                if let Some((ch, true)) = ch {
+                    adc_pairs.entry(ch).or_insert((None, None)).1.replace(pin_name.clone());
+                }
+            }
+
+            if regs.kind == "opamp" {
+                let peri = format_ident!("{}", p.name);
+                let pin_name = format_ident!("{}", pin.pin);
+                if let Some(ch_str) = pin.signal.strip_prefix("VINP") {
+                    // Impl NonInvertingPin for VINP0, VINP1 etc.
+                    if let Ok(ch) = ch_str.parse::<u8>() {
+                        g.extend(quote! {
+                            analog_pin_trait_impl!(crate::opamp::NonInvertingPin, #peri, #pin_name, #ch);
+                        });
+                    }
+                } else if let Some(ch_str) = pin.signal.strip_prefix("VINM") {
+                    if let Ok(ch) = ch_str.parse::<u8>() {
+                        // Impl BiasPin for VINM0
+                        if ch == 0 {
                             g.extend(quote! {
-                                analog_pin_trait_impl!(crate::opamp::NonInvertingPin, #peri, #pin_name, #ch);
+                                analog_pin_trait_impl!(crate::opamp::BiasPin, #peri, #pin_name, 0);
                             });
                         }
-                    } else if let Some(ch_str) = pin.signal.strip_prefix("VINM") {
-                        if let Ok(ch) = ch_str.parse::<u8>() {
-                            // Impl BiasPin for VINM0
-                            if ch == 0 {
+
+                        // Impl InvertingPin for VINM0, VINM1 etc.
+                        g.extend(quote! {
+                            analog_pin_trait_impl!(crate::opamp::InvertingPin, #peri, #pin_name, #ch);
+                        });
+                    }
+                } else if pin.signal == "VOUT" {
+                    // Impl OutputPin for the VOUT pin
+                    g.extend(quote! {
+                        analog_pin_trait_impl!(crate::opamp::OutputPin, #peri, #pin_name, 0);
+                    });
+
+                    for adc in METADATA.peripherals {
+                        let Some(adc_regs) = &adc.registers else {
+                            continue;
+                        };
+                        if adc_regs.kind != "adc" || adc.rcc.is_none() {
+                            continue;
+                        }
+
+                        let adc_peri = format_ident!("{}", adc.name);
+                        for adc_pin in adc.pins {
+                            if adc_pin.pin != pin.pin {
+                                continue;
+                            }
+
+                            if let Some((ch, false)) = parse_adc_pin_signal(adc_pin.signal) {
                                 g.extend(quote! {
-                                    analog_pin_trait_impl!(crate::opamp::BiasPin, #peri, #pin_name, 0);
+                                    impl_opamp_external_output!( #peri, #adc_peri, #ch );
                                 });
                             }
-
-                            // Impl InvertingPin for VINM0, VINM1 etc.
-                            g.extend(quote! {
-                                analog_pin_trait_impl!(crate::opamp::InvertingPin, #peri, #pin_name, #ch);
-                            });
-                        }
-                    } else if pin.signal == "VOUT" {
-                        // Impl OutputPin for the VOUT pin
-                        g.extend(quote! {
-                            analog_pin_trait_impl!(crate::opamp::OutputPin, #peri, #pin_name, 0);
-                        });
-
-                        for adc in METADATA.peripherals {
-                            let Some(adc_regs) = &adc.registers else {
-                                continue;
-                            };
-                            if adc_regs.kind != "adc" || adc.rcc.is_none() {
-                                continue;
-                            }
-
-                            let adc_peri = format_ident!("{}", adc.name);
-                            for adc_pin in adc.pins {
-                                if adc_pin.pin != pin.pin {
-                                    continue;
-                                }
-
-                                if let Some((ch, false)) = parse_adc_pin_signal(adc_pin.signal) {
-                                    g.extend(quote! {
-                                        impl_opamp_external_output!( #peri, #adc_peri, #ch );
-                                    });
-                                }
-                            }
                         }
                     }
-                }
-
-                if regs.kind == "comp" && (regs.version == "u5" || regs.version == "v1" || regs.version == "v2") {
-                    let peri = format_ident!("{}", p.name);
-                    let pin_name = format_ident!("{}", pin.pin);
-                    // Check if this peripheral has numbered signals (e.g. INP0/INP1 from extra YAML).
-                    // If so, skip bare INP/INM to avoid duplicate trait impls.
-                    let has_numbered = p.pins.iter().any(|s| s.signal.starts_with("INP") && s.signal.len() > 3);
-                    if let Some(ch_str) = pin.signal.strip_prefix("INP") {
-                        let ch: u8 = match ch_str.parse() {
-                            Ok(ch) => ch,
-                            Err(_) if !has_numbered => 0, // bare "INP" on chips without numbered signals
-                            Err(_) => continue,           // skip bare "INP" when numbered signals exist
-                        };
-                        g.extend(quote! {
-                            analog_pin_trait_impl!(crate::comp::NonInvertingPin, #peri, #pin_name, #ch);
-                        });
-                    } else if let Some(ch_str) = pin.signal.strip_prefix("INM") {
-                        let ch: u8 = match ch_str.parse() {
-                            Ok(ch) => ch,
-                            Err(_) if !has_numbered => 0,
-                            Err(_) => continue,
-                        };
-                        g.extend(quote! {
-                            analog_pin_trait_impl!(crate::comp::InvertingPin, #peri, #pin_name, #ch);
-                        });
-                    }
-                }
-
-                if regs.kind == "spdifrx" {
-                    let peri = format_ident!("{}", p.name);
-                    let pin_name = format_ident!("{}", pin.pin);
-                    let af = pin.af.unwrap_or(0);
-                    let sel: u8 = pin.signal.strip_prefix("IN").unwrap().parse().unwrap();
-
-                    g.extend(quote! {
-                    impl_spdifrx_pin!( #peri, #pin_name, #af, #sel);
-                    })
                 }
             }
 
-            {
+            if regs.kind == "comp" && (regs.version == "u5" || regs.version == "v1" || regs.version == "v2") {
                 let peri = format_ident!("{}", p.name);
-
-                for (ch, (pin, npin)) in adc_pairs {
-                    let (pin_name, npin_name) = match (pin, npin) {
-                        (Some(pin), Some(npin)) => (pin, npin),
-                        _ => {
-                            continue;
-                        }
+                let pin_name = format_ident!("{}", pin.pin);
+                // Check if this peripheral has numbered signals (e.g. INP0/INP1 from extra YAML).
+                // If so, skip bare INP/INM to avoid duplicate trait impls.
+                let has_numbered = p.pins.iter().any(|s| s.signal.starts_with("INP") && s.signal.len() > 3);
+                if let Some(ch_str) = pin.signal.strip_prefix("INP") {
+                    let ch: u8 = match ch_str.parse() {
+                        Ok(ch) => ch,
+                        Err(_) if !has_numbered => 0, // bare "INP" on chips without numbered signals
+                        Err(_) => continue,           // skip bare "INP" when numbered signals exist
                     };
-
                     g.extend(quote! {
-                    impl_adc_pair!( #peri, #pin_name, #npin_name, #ch);
-                    })
+                        analog_pin_trait_impl!(crate::comp::NonInvertingPin, #peri, #pin_name, #ch);
+                    });
+                } else if let Some(ch_str) = pin.signal.strip_prefix("INM") {
+                    let ch: u8 = match ch_str.parse() {
+                        Ok(ch) => ch,
+                        Err(_) if !has_numbered => 0,
+                        Err(_) => continue,
+                    };
+                    g.extend(quote! {
+                        analog_pin_trait_impl!(crate::comp::InvertingPin, #peri, #pin_name, #ch);
+                    });
                 }
+            }
+
+            if regs.kind == "spdifrx" {
+                let peri = format_ident!("{}", p.name);
+                let pin_name = format_ident!("{}", pin.pin);
+                let af = pin.af.unwrap_or(0);
+                let sel: u8 = pin.signal.strip_prefix("IN").unwrap().parse().unwrap();
+
+                g.extend(quote! {
+                impl_spdifrx_pin!( #peri, #pin_name, #af, #sel);
+                })
+            }
+        }
+
+        {
+            let peri = format_ident!("{}", p.name);
+
+            for (ch, (pin, npin)) in adc_pairs {
+                let (pin_name, npin_name) = match (pin, npin) {
+                    (Some(pin), Some(npin)) => (pin, npin),
+                    _ => {
+                        continue;
+                    }
+                };
+
+                g.extend(quote! {
+                impl_adc_pair!( #peri, #pin_name, #npin_name, #ch);
+                })
             }
         }
     }
@@ -1857,102 +1855,96 @@ fn main() {
         }
     }
 
-    for p in METADATA.peripherals {
-        if let Some(regs) = &p.registers {
-            if p.name.starts_with("I2S") {
-                continue;
+    for (p, regs) in &peripheral_list {
+        for trigger in p.triggers {
+            let matches = trigger_expr.captures(trigger.signal).unwrap();
+            let signal = &matches[1];
+            let idx: u8 = (&matches[2]).parse().unwrap();
+
+            trigger_list.insert(trigger.source);
+
+            if let Some(tr) = triggers.get(&(regs.kind, signal)) {
+                let peri = format_ident!("{}", p.name);
+                let source = format_ident!("{}", trigger.source);
+                let idx = quote!(#idx);
+
+                g.extend(quote! {
+                    trigger_trait_impl!(#tr, #peri, #source, #idx);
+                });
             }
+        }
 
-            for trigger in p.triggers {
-                let matches = trigger_expr.captures(trigger.signal).unwrap();
-                let signal = &matches[1];
-                let idx: u8 = (&matches[2]).parse().unwrap();
+        let mut dupe = HashSet::new();
+        let mut dma_channels = vec![p.dma_channels.iter()];
 
-                trigger_list.insert(trigger.source);
+        if let Some(peri) = p.name.strip_prefix("SPI")
+            && let Some((i2s_peri, _)) = peripheral_map.get(format!("I2S{}", peri).as_str())
+        {
+            dma_channels.push(i2s_peri.dma_channels.iter());
+        }
 
-                if let Some(tr) = triggers.get(&(regs.kind, signal)) {
-                    let peri = format_ident!("{}", p.name);
-                    let source = format_ident!("{}", trigger.source);
-                    let idx = quote!(#idx);
+        for ch in dma_channels.iter_mut().flatten() {
+            if let Some(tr) = signals.get(&(regs.kind, ch.signal)) {
+                let peri = format_ident!("{}", p.name);
 
-                    g.extend(quote! {
-                        trigger_trait_impl!(#tr, #peri, #source, #idx);
-                    });
-                }
-            }
+                let channels = if let Some(channel) = &ch.channel {
+                    // Chip with DMA/BDMA, without DMAMUX
+                    vec![*channel]
+                } else if let Some(dmamux) = &ch.dmamux {
+                    // Chip with DMAMUX
+                    METADATA
+                        .dma_channels
+                        .iter()
+                        .filter(|ch| ch.dmamux == Some(*dmamux))
+                        .map(|ch| ch.name)
+                        .collect()
+                } else if let Some(dma) = &ch.dma {
+                    // Chip with GPDMA
+                    METADATA
+                        .dma_channels
+                        .iter()
+                        .filter(|ch| ch.dma == *dma)
+                        .map(|ch| ch.name)
+                        .collect()
+                } else {
+                    unreachable!();
+                };
 
-            let mut dupe = HashSet::new();
-            let mut dma_channels = vec![p.dma_channels.iter()];
+                for channel in channels {
+                    // Some chips have multiple request numbers for the same (peri, signal, channel) combos.
+                    // Ignore the dupes, picking the first one. Otherwise this causes conflicting trait impls
+                    let key = (ch.signal, channel.to_string());
+                    if !dupe.insert(key) {
+                        continue;
+                    }
 
-            if let Some(peri) = p.name.strip_prefix("SPI")
-                && let Some(i2s_peri) = peripheral_map.get(format!("I2S{}", peri).as_str())
-            {
-                dma_channels.push(i2s_peri.dma_channels.iter());
-            }
-
-            for ch in dma_channels.iter_mut().flatten() {
-                if let Some(tr) = signals.get(&(regs.kind, ch.signal)) {
-                    let peri = format_ident!("{}", p.name);
-
-                    let channels = if let Some(channel) = &ch.channel {
-                        // Chip with DMA/BDMA, without DMAMUX
-                        vec![*channel]
-                    } else if let Some(dmamux) = &ch.dmamux {
-                        // Chip with DMAMUX
-                        METADATA
-                            .dma_channels
-                            .iter()
-                            .filter(|ch| ch.dmamux == Some(*dmamux))
-                            .map(|ch| ch.name)
-                            .collect()
-                    } else if let Some(dma) = &ch.dma {
-                        // Chip with GPDMA
-                        METADATA
-                            .dma_channels
-                            .iter()
-                            .filter(|ch| ch.dma == *dma)
-                            .map(|ch| ch.name)
-                            .collect()
+                    let request = if let Some(request) = ch.request {
+                        let request = request as u8;
+                        quote!(#request)
                     } else {
-                        unreachable!();
+                        quote!(())
                     };
 
-                    for channel in channels {
-                        // Some chips have multiple request numbers for the same (peri, signal, channel) combos.
-                        // Ignore the dupes, picking the first one. Otherwise this causes conflicting trait impls
-                        let key = (ch.signal, channel.to_string());
-                        if !dupe.insert(key) {
-                            continue;
-                        }
+                    let mut remap = quote!();
+                    for remap_info in ch.remap {
+                        let register = format_ident!("{}", remap_info.register.to_lowercase());
+                        let setter = format_ident!("set_{}", remap_info.field.to_lowercase());
 
-                        let request = if let Some(request) = ch.request {
-                            let request = request as u8;
-                            quote!(#request)
+                        let value = if is_bool_field("SYSCFG", &remap_info.register, &remap_info.field) {
+                            let bool_value = format_ident!("{}", remap_info.value > 0);
+                            quote!(#bool_value)
                         } else {
-                            quote!(())
+                            let value = remap_info.value;
+                            quote!(#value.into())
                         };
 
-                        let mut remap = quote!();
-                        for remap_info in ch.remap {
-                            let register = format_ident!("{}", remap_info.register.to_lowercase());
-                            let setter = format_ident!("set_{}", remap_info.field.to_lowercase());
-
-                            let value = if is_bool_field("SYSCFG", &remap_info.register, &remap_info.field) {
-                                let bool_value = format_ident!("{}", remap_info.value > 0);
-                                quote!(#bool_value)
-                            } else {
-                                let value = remap_info.value;
-                                quote!(#value.into())
-                            };
-
-                            remap.extend(quote!(crate::pac::SYSCFG.#register().modify(|w| w.#setter(#value));));
-                        }
-
-                        let channel = format_ident!("{}", channel);
-                        g.extend(quote! {
-                            dma_trait_impl!(#tr, #peri, #channel, #request, {#remap});
-                        });
+                        remap.extend(quote!(crate::pac::SYSCFG.#register().modify(|w| w.#setter(#value));));
                     }
+
+                    let channel = format_ident!("{}", channel);
+                    g.extend(quote! {
+                        dma_trait_impl!(#tr, #peri, #channel, #request, {#remap});
+                    });
                 }
             }
         }
@@ -1983,12 +1975,10 @@ fn main() {
     // ========
     // Generate Div/Mul impls for RCC and ADC prescalers/dividers/multipliers.
     for (kind, psc_enums) in ["rcc", "adc", "adccommon"].iter().filter_map(|kind| {
-        METADATA
-            .peripherals
+        peripheral_list
             .iter()
-            .filter_map(|p| p.registers.as_ref())
-            .find(|r| r.kind == *kind)
-            .map(|r| (*kind, r.ir.enums))
+            .find(|(_, r)| r.kind == *kind)
+            .map(|(_, r)| (*kind, r.ir.enums))
     }) {
         for e in psc_enums.iter() {
             fn is_adc_name(e: &str) -> bool {
@@ -2114,7 +2104,7 @@ fn main() {
         flash_regions_table.push(row);
     }
 
-    let gpio_base = peripheral_map.get("GPIOA").unwrap().address as u32;
+    let gpio_base = peripheral_map.get("GPIOA").unwrap().0.address as u32;
     let gpio_stride = 0x400;
     let mut init_gpio_analog = TokenStream::new();
 
@@ -2174,41 +2164,35 @@ fn main() {
         });
     }
 
-    for p in METADATA.peripherals {
-        if let Some(regs) = &p.registers {
-            if p.name.starts_with("I2S") {
-                continue;
-            }
-
-            if regs.kind == "adc" {
-                let adc_num = p.name.strip_prefix("ADC").unwrap();
-                let mut adc_common = None;
-                for p2 in METADATA.peripherals {
-                    if let Some(common_nums) = p2.name.strip_prefix("ADC").and_then(|s| s.strip_suffix("_COMMON")) {
-                        if common_nums.contains(adc_num) {
-                            adc_common = Some(p2);
-                        }
+    for (p, regs) in &peripheral_list {
+        if regs.kind == "adc" {
+            let adc_num = p.name.strip_prefix("ADC").unwrap();
+            let mut adc_common = None;
+            for p2 in METADATA.peripherals {
+                if let Some(common_nums) = p2.name.strip_prefix("ADC").and_then(|s| s.strip_suffix("_COMMON")) {
+                    if common_nums.contains(adc_num) {
+                        adc_common = Some(p2);
                     }
                 }
-                let adc_common = adc_common.map(|p| p.name).unwrap_or("none");
-                let row = vec![p.name.to_string(), adc_common.to_string(), "adc".to_string()];
-                adc_table.push(row);
             }
-
-            for irq in p.interrupts {
-                let row = vec![
-                    p.name.to_string(),
-                    regs.kind.to_string(),
-                    regs.block.to_string(),
-                    irq.signal.to_string(),
-                    irq.interrupt.to_ascii_uppercase(),
-                ];
-                interrupts_table.push(row)
-            }
-
-            let row = vec![regs.kind.to_string(), p.name.to_string()];
-            peripherals_table.push(row);
+            let adc_common = adc_common.map(|p| p.name).unwrap_or("none");
+            let row = vec![p.name.to_string(), adc_common.to_string(), "adc".to_string()];
+            adc_table.push(row);
         }
+
+        for irq in p.interrupts {
+            let row = vec![
+                p.name.to_string(),
+                regs.kind.to_string(),
+                regs.block.to_string(),
+                irq.signal.to_string(),
+                irq.interrupt.to_ascii_uppercase(),
+            ];
+            interrupts_table.push(row)
+        }
+
+        let row = vec![regs.kind.to_string(), p.name.to_string()];
+        peripherals_table.push(row);
     }
 
     let mut dmas = TokenStream::new();
@@ -2220,30 +2204,28 @@ fn main() {
 
     let mut dma_irqs: BTreeMap<&str, Vec<String>> = BTreeMap::new();
 
-    for p in METADATA.peripherals {
-        if let Some(r) = &p.registers {
-            match r.kind {
-                "dma" | "bdma" | "gpdma" | "lpdma" => {
-                    for irq in p.interrupts {
-                        let ch_name = format!("{}_{}", p.name, irq.signal);
-                        let ch = METADATA.dma_channels.iter().find(|c| c.name == ch_name);
+    for (p, r) in &peripheral_list {
+        match r.kind {
+            "dma" | "bdma" | "gpdma" | "lpdma" => {
+                for irq in p.interrupts {
+                    let ch_name = format!("{}_{}", p.name, irq.signal);
+                    let ch = METADATA.dma_channels.iter().find(|c| c.name == ch_name);
 
-                        if ch.is_none() {
-                            continue;
-                        }
+                    if ch.is_none() {
+                        continue;
+                    }
 
-                        dma_irqs.entry(irq.interrupt).or_default().push(ch_name);
-                    }
+                    dma_irqs.entry(irq.interrupt).or_default().push(ch_name);
                 }
-                "mdma" => {
-                    for irq in p.interrupts {
-                        for c in METADATA.dma_channels.iter().filter(|c| c.name.starts_with("MDMA")) {
-                            dma_irqs.entry(irq.interrupt).or_default().push(c.name.to_string());
-                        }
-                    }
-                }
-                _ => (),
             }
+            "mdma" => {
+                for irq in p.interrupts {
+                    for c in METADATA.dma_channels.iter().filter(|c| c.name.starts_with("MDMA")) {
+                        dma_irqs.entry(irq.interrupt).or_default().push(c.name.to_string());
+                    }
+                }
+            }
+            _ => (),
         }
     }
 
@@ -2258,7 +2240,7 @@ fn main() {
     }
 
     for (ch_idx, ch) in METADATA.dma_channels.iter().enumerate() {
-        let dma_peri = peripheral_map.get(ch.dma).unwrap();
+        let (dma_peri, _) = peripheral_map.get(ch.dma).unwrap();
         let stop_mode = dma_peri
             .rcc
             .as_ref()
@@ -2350,14 +2332,12 @@ fn main() {
     // ========
     // Generate gpio_block() function
 
-    let gpio_base = METADATA.peripherals.iter().find(|p| p.name == "GPIOA").unwrap().address as usize;
+    let gpio_base = peripheral_map.get("GPIOA").unwrap().0.address as usize;
     let gpio_stride = 0x400 as usize;
 
-    for p in METADATA.peripherals {
-        if let Some(bi) = &p.registers {
-            if bi.kind == "gpio" {
-                assert_eq!(0, (p.address as usize - gpio_base) % gpio_stride);
-            }
+    for (p, bi) in &peripheral_list {
+        if bi.kind == "gpio" {
+            assert_eq!(0, (p.address as usize - gpio_base) % gpio_stride);
         }
     }
 
