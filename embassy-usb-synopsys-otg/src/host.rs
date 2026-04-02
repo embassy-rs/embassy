@@ -728,6 +728,23 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Channel<T, 
         let r = self.regs;
         let ch = self.index;
 
+        // The DWC2 does not auto-clear CHENA after transfer completion.
+        // If the channel is still active from a previous transfer, we
+        // must explicitly halt it and wait for the hardware to confirm
+        // (CHENA cleared) before reconfiguring. Without this, writing
+        // new HCCHAR/HCTSIZ while the channel is active causes undefined
+        // behavior — typically a permanent hang or stale interrupts.
+        if r.hcchar(ch).read().chena() {
+            r.hcchar(ch).modify(|w| {
+                w.set_chena(true);
+                w.set_chdis(true);
+            });
+            while r.hcchar(ch).read().chena() {
+                core::hint::spin_loop();
+            }
+            r.hcint(ch).write_value(crate::otg_v1::regs::Hcint(0xFFFF_FFFF));
+        }
+
         // Configure channel characteristics
         let is_periodic = matches!(ep_type, EndpointType::Interrupt | EndpointType::Isochronous);
         r.hcchar(ch).write(|w| {
