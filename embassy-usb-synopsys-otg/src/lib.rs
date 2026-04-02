@@ -625,7 +625,7 @@ impl<'d, const MAX_EP_COUNT: usize> Bus<'d, MAX_EP_COUNT> {
 
         // Read PHY data width from GHWCFG4:
         // 0 = 8-bit only, 1 = 16-bit only, 2 = software selectable (default to 8-bit)
-        let hw_width = r.ghwcfg4().read().utmi_phy_data_width();
+        let hw_width = r.hwcfg4().read().utmi_phy_data_width();
         r.gusbcfg().write(|w| {
             // Force device mode
             w.set_fdmod(true);

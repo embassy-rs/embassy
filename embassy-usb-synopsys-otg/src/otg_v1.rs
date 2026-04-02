@@ -211,7 +211,7 @@ impl Otg {
     }
     #[doc = "User HW Config 2 register"]
     #[inline(always)]
-    pub const fn hwcfg2(self) -> Reg<u32, R> {
+    pub const fn hwcfg2(self) -> Reg<regs::Ghwcfg2, R> {
         unsafe { Reg::from_ptr(self.ptr.add(0x48usize) as _) }
     }
     #[doc = "User HW Config 3 register"]
@@ -221,7 +221,7 @@ impl Otg {
     }
     #[doc = "User HW Config 4 register"]
     #[inline(always)]
-    pub const fn hwcfg4(self) -> Reg<u32, R> {
+    pub const fn hwcfg4(self) -> Reg<regs::Ghwcfg4, R> {
         unsafe { Reg::from_ptr(self.ptr.add(0x50usize) as _) }
     }
     #[doc = "OTG core LPM configuration register"]
