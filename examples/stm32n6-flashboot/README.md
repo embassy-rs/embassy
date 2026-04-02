@@ -6,7 +6,7 @@ Two-stage boot system (FSBL + application) for the STM32N6 using embassy-boot. S
 
 - [cargo-binutils](https://github.com/rust-embedded/cargo-binutils): `cargo install cargo-binutils`
 - [STM32CubeProgrammer](https://www.st.com/en/development-tools/stm32cubeprog.html) (provides the signing tool)
-- [probe-rs](https://probe.rs/): `cargo install probe-rs-tools`
+- [probe-rs](https://probe.rs/) **v0.32+** (not yet released — build from git master): `cargo install probe-rs-tools --git https://github.com/probe-rs/probe-rs`
 - [just](https://github.com/casey/just): `cargo install just`
 
 ## Supported Boards
@@ -23,7 +23,7 @@ Set both BOOT switches to LOW for serial NOR boot (boot config 6, default when O
 | Crate | Description |
 |-------|-------------|
 | `fsbl/` | First Stage Boot Loader — loaded by boot ROM into SRAM, enables debug access, configures clocks, initializes XSPI2 memory-mapped mode, then boots the app via embassy-boot |
-| `app/` | Application firmware — runs from memory-mapped external flash at `0x70100400`, demonstrates DFU update with `mark_booted()` |
+| `app/` | Application firmware — runs from memory-mapped external flash at `0x70100400`, with DFU update support (hold PE0 at reset for UART DFU, hold PE0 3s to confirm boot via `mark_booted()`) |
 
 ## Quick Start
 
@@ -52,7 +52,7 @@ External Flash (0x70000000, 128 MB):
 
 FSBL SRAM Layout:
   RAM:         0x34100000 - 0x34180400 (513K)
-  FLASH:       0x34180400 - 0x341BFC00 (507K)
+  FLASH:       0x34180400 - 0x341FF000 (507K)
 ```
 
 Each signed image has a 0x400 header, so application code starts at `ACTIVE + 0x400 = 0x70100400`.
@@ -70,10 +70,29 @@ Each signed image has a 0x400 header, so application code starts at `ACTIVE + 0x
 | `just debug-fsbl` | Flash FSBL and attach for debugging |
 | `just erase-state` | Erase STATE partition (reset boot state) |
 | `just trigger-swap` | Write SWAP_MAGIC to trigger DFU swap on next boot |
+| `just uart-dfu <port>` | Send firmware via XMODEM over UART (requires lrzsz) |
+| `just read-state` | Read STATE partition (debug) |
+| `just mark-booted` | Write BOOT_MAGIC to confirm boot from host |
+| `just clean` | Clean build artifacts |
 
 All recipes work with the `board` parameter, e.g. `just board=nucleo flash-all`.
 
 Recipes prefixed with `stm32-` (e.g. `just stm32-flash-all`) use STM32_Programmer_CLI instead of probe-rs, as a fallback if probe-rs cannot flash external flash.
+
+## UART DFU
+
+The application includes an XMODEM-CRC firmware receiver for cable-only DFU updates without a debug probe.
+
+**Pins:** USART1 — PE5 (TX), PE6 (RX), 115200 baud, 8E1 (even parity)
+
+**Workflow:**
+1. Build and sign the new firmware: `just sign-app`
+2. Start the XMODEM sender on the host **first**: `just uart-dfu /dev/tty.usbmodemXXXX`
+3. Reset the board while holding PE0 (tamper button) — the app enters DFU mode
+4. Firmware is received via XMODEM-CRC and written to the DFU partition
+5. After transfer completes, SWAP_MAGIC is written automatically — reset to boot new firmware
+
+Requires `lrzsz` (`sx` command): `brew install lrzsz` (macOS) or `apt install lrzsz` (Linux).
 
 ## Further Reading
 
