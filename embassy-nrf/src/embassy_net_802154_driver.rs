@@ -55,16 +55,16 @@ impl<'d> Runner<'d> {
             )
             .await
             {
-                Either3::First(Some(rx_buf)) => {
+                Either3::First(Some(mut rx_buf)) => {
                     let len = rx_buf.len().min(packet.len() as usize);
                     (&mut rx_buf[..len]).copy_from_slice(&*packet);
-                    rx_chan.rx_done(len);
+                    rx_buf.rx_done(len);
                 }
                 Either3::Second(tx_buf) => {
                     let len = tx_buf.len().min(Packet::CAPACITY as usize);
                     packet.copy_from_slice(&tx_buf[..len]);
                     self.radio.try_send(&mut packet).await.ok().unwrap();
-                    tx_chan.tx_done();
+                    tx_buf.tx_done();
                 }
                 _ => {}
             }

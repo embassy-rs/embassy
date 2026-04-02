@@ -117,7 +117,7 @@ async fn stream_handler<'d, T: usb::Instance + 'd>(
 
         if word_count * SAMPLE_SIZE == data_size {
             // Obtain a buffer from the channel
-            let samples = sender.send().await;
+            let mut samples = sender.send().await;
             samples.clear();
 
             for w in 0..word_count {
@@ -128,7 +128,7 @@ async fn stream_handler<'d, T: usb::Instance + 'd>(
                 samples.push(sample).unwrap();
             }
 
-            sender.send_done();
+            samples.send_done();
         } else {
             debug!("Invalid USB buffer size of {}, skipped.", data_size);
         }
@@ -139,11 +139,11 @@ async fn stream_handler<'d, T: usb::Instance + 'd>(
 #[embassy_executor::task]
 async fn audio_receiver_task(mut usb_audio_receiver: zerocopy_channel::Receiver<'static, NoopRawMutex, SampleBlock>) {
     loop {
-        let _samples = usb_audio_receiver.receive().await;
+        let samples = usb_audio_receiver.receive().await;
         // Use the samples, for example play back via the SAI peripheral.
 
         // Notify the channel that the buffer is now ready to be reused
-        usb_audio_receiver.receive_done();
+        samples.receive_done();
     }
 }
 

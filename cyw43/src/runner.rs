@@ -464,7 +464,9 @@ where
                 #[cfg(feature = "bluetooth")]
                 let bt_tx = async {
                     match &mut self.bt {
-                        Some(bt) => bt.tx_chan.receive().await,
+                        Some(bt) => {
+                            let _ = bt.tx_chan.receive().await;
+                        }
                         None => core::future::pending().await,
                     }
                 };
@@ -533,14 +535,14 @@ where
                         buf8[SdpcmHeader::SIZE + PADDING_SIZE..][..BdcHeader::SIZE]
                             .copy_from_slice(&bdc_header.to_bytes());
                         buf8[SdpcmHeader::SIZE + PADDING_SIZE + BdcHeader::SIZE..][..packet.len()]
-                            .copy_from_slice(packet);
+                            .copy_from_slice(&*packet);
 
                         let total_len = (total_len + 3) & !3; // round up to 4byte
 
                         trace!("    {:02x}", Bytes(&buf8[..total_len.min(48)]));
 
                         self.bus.wlan_write(&aligned_ref(&buf)[..total_len]).await;
-                        self.ch.tx_done();
+                        packet.tx_done();
                         self.check_status(&mut buf).await;
                     }
                     Either4::Third(_) => {
@@ -874,9 +876,9 @@ where
                 trace!("rx pkt {:02x}", Bytes(&packet[..packet.len().min(48)]));
 
                 match self.ch.try_rx_buf() {
-                    Some(buf) => {
+                    Some(mut buf) => {
                         buf[..packet.len()].copy_from_slice(packet);
-                        self.ch.rx_done(packet.len())
+                        buf.rx_done(packet.len())
                     }
                     None => warn!("failed to push rxd packet to the channel."),
                 }
