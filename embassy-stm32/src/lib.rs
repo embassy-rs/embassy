@@ -163,6 +163,13 @@ pub mod wdg;
 #[cfg(xspi)]
 pub mod xspi;
 
+#[cfg(all(spi, not(any(spi_v1_i2s, spi_v2_i2s, spi_v3_i2s, spi_v4_i2s, spi_v5_i2s))))]
+/// Stub module for I2S
+pub mod i2s {
+    dma_trait!(RxDmaExt, crate::spi::Instance);
+    pin_trait!(SdExtPin, crate::spi::Instance);
+}
+
 #[cfg(feature = "_executor")]
 pub mod executor;
 

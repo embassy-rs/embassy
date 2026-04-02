@@ -1077,6 +1077,7 @@ fn main() {
         (("spi", "I2S_SD"), quote!(crate::spi::I2sSdPin)),
         (("spi", "I2S_SDI"), quote!(crate::spi::I2sSdPin)),
         (("spi", "I2S_SDO"), quote!(crate::spi::I2sSdPin)),
+        (("spi", "I2S_ext_SD"), quote!(crate::i2s::SdExtPin)),
         (("i2c", "SDA"), quote!(crate::i2c::SdaPin)),
         (("i2c", "SCL"), quote!(crate::i2c::SclPin)),
         (("rcc", "MCO_1"), quote!(crate::rcc::McoPin)),
@@ -1794,6 +1795,7 @@ fn main() {
         (("sai", "B"), quote!(crate::sai::Dma<B>)),
         (("spi", "RX"), quote!(crate::spi::RxDma)),
         (("spi", "TX"), quote!(crate::spi::TxDma)),
+        (("spi", "EXT"), quote!(crate::i2s::RxDmaExt)),
         (("spdifrx", "RX"), quote!(crate::spdifrx::Dma)),
         (("i2c", "RX"), quote!(crate::i2c::RxDma)),
         (("i2c", "TX"), quote!(crate::i2c::TxDma)),
@@ -1857,6 +1859,10 @@ fn main() {
 
     for p in METADATA.peripherals {
         if let Some(regs) = &p.registers {
+            if p.name.starts_with("I2S") {
+                continue;
+            }
+
             for trigger in p.triggers {
                 let matches = trigger_expr.captures(trigger.signal).unwrap();
                 let signal = &matches[1];
@@ -1876,7 +1882,15 @@ fn main() {
             }
 
             let mut dupe = HashSet::new();
-            for ch in p.dma_channels {
+            let mut dma_channels = vec![p.dma_channels.iter()];
+
+            if let Some(peri) = p.name.strip_prefix("SPI")
+                && let Some(i2s_peri) = peripheral_map.get(format!("I2S{}", peri).as_str())
+            {
+                dma_channels.push(i2s_peri.dma_channels.iter());
+            }
+
+            for ch in dma_channels.iter_mut().flatten() {
                 if let Some(tr) = signals.get(&(regs.kind, ch.signal)) {
                     let peri = format_ident!("{}", p.name);
 
