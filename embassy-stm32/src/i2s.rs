@@ -33,7 +33,7 @@ enum Function {
     Transmit,
     /// Receive audio data
     Receive,
-    #[cfg(any(spi_v4, spi_v5, spi_v2_i2s))]
+    #[cfg(any(spi_v4, spi_v5))]
     /// Transmit and Receive audio data
     FullDuplex,
 }
@@ -389,7 +389,7 @@ impl<'d, W: Word> I2S<'d, W> {
             new_dma!(txdma, _irq).map(|d| (d, txdma_buf)),
             new_dma!(rxdma, _irq).map(|d| (d, rxdma_buf)),
             config,
-            Function::FullDuplex,
+            Function::Transmit,
         )
     }
 
@@ -736,10 +736,6 @@ impl<'d, W: Word> I2S<'d, W> {
                 (Mode::Slave, Function::Receive) => I2scfg::SLAVE_RX,
                 #[cfg(any(spi_v4, spi_v5))]
                 (Mode::Slave, Function::FullDuplex) => I2scfg::SLAVE_FULL_DUPLEX,
-                #[cfg(spi_v2_i2s)]
-                (Mode::Master, Function::FullDuplex) => todo!(),
-                #[cfg(spi_v2_i2s)]
-                (Mode::Slave, Function::FullDuplex) => todo!(),
             });
         });
 
@@ -769,8 +765,6 @@ impl<'d, W: Word> I2S<'d, W> {
                     (Mode::Master, Function::Receive) => I2scfg::SLAVE_TX,
                     (Mode::Slave, Function::Transmit) => I2scfg::SLAVE_RX,
                     (Mode::Slave, Function::Receive) => I2scfg::SLAVE_TX,
-                    (Mode::Master, Function::FullDuplex) => todo!(),
-                    (Mode::Slave, Function::FullDuplex) => todo!(),
                 });
 
                 w.set_i2se(true);
