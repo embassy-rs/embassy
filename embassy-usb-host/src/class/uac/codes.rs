@@ -395,7 +395,15 @@ pub mod control_selector {
 }
 
 pub mod format_type {
-    use bitflags::bitflags;
+
+    macro_rules! bitflags {
+        ($($tt:tt)*) => {
+            #[cfg(feature = "defmt")]
+            defmt::bitflags! { $($tt)* }
+            #[cfg(not(feature = "defmt"))]
+            bitflags::bitflags! { #[derive(Debug, Clone, PartialEq)] $($tt)* }
+        };
+    }
 
     pub const UNDEFINED: u8 = 0x00;
     pub const I: u8 = 0x01;
@@ -407,7 +415,6 @@ pub mod format_type {
     pub const EXT_III: u8 = 0x83;
 
     bitflags! {
-        #[derive(Debug, Copy, Clone, PartialEq)]
         pub struct Type1: u32 {
             const PCM = 1 << 0;
             const PCM8 = 1 << 1;
@@ -419,7 +426,7 @@ pub mod format_type {
         }
     }
     bitflags! {
-        #[derive(Debug, Copy, Clone, PartialEq)]
+
         pub struct Type2: u32 {
             const MPEG = 1 << 0;
             const AC_3 = 1 << 1;
@@ -431,16 +438,15 @@ pub mod format_type {
     }
 
     bitflags! {
-        #[derive(Debug, Copy, Clone, PartialEq)]
         pub struct Type3: u32 {
             const IEC61937_AC_3 = 1 << 0;
-            const IEC61937_MPEG_1_Layer1 = 1 << 1;
-            const IEC61937_MPEG_1_Layer2_3 = 1 << 2;
+            const IEC61937_MPEG_1_LAYER1 = 1 << 1;
+            const IEC61937_MPEG_1_LAYER2_3 = 1 << 2;
             const IEC61937_MPEG_2_NOEXT = 1 << 2;
             const IEC61937_MPEG_2_EXT = 1 << 3;
             const IEC61937_MPEG_2_AAC_ADTS = 1 << 4;
-            const IEC61937_MPEG_2_Layer1_LS = 1 << 5;
-            const IEC61937_MPEG_2_Layer2_3_LS = 1 << 6;
+            const IEC61937_MPEG_2_LAYER1_LS = 1 << 5;
+            const IEC61937_MPEG_2_LAYER2_3_LS = 1 << 6;
             const IEC61937_DTS_I = 1 << 7;
             const IEC61937_DTS_II = 1 << 8;
             const IEC61937_DTS_III = 1 << 9;
@@ -452,7 +458,6 @@ pub mod format_type {
     }
 
     bitflags! {
-        #[derive(Debug, Copy, Clone, PartialEq)]
         pub struct Type4: u32 {
             const PCM = 1 << 0;
             const PCM8 = 1 << 1;
@@ -463,13 +468,13 @@ pub mod format_type {
             const AC_3 = 1 << 6;
             const WMA = 1 << 7;
             const IEC61937_AC_3 = 1 << 8;
-            const IEC61937_MPEG_1_Layer1 = 1 << 9;
-            const IEC61937_MPEG_1_Layer2_3 = 1 << 10;
+            const IEC61937_MPEG_1_LAYER1 = 1 << 9;
+            const IEC61937_MPEG_1_LAYER2_3 = 1 << 10;
             const IEC61937_MPEG_2_NOEXT = 1 << 10;
             const IEC61937_MPEG_2_EXT = 1 << 11;
             const IEC61937_MPEG_2_AAC_ADTS = 1 << 12;
-            const IEC61937_MPEG_2_Layer1_LS = 1 << 13;
-            const IEC61937_MPEG_2_Layer2_3_LS = 1 << 14;
+            const IEC61937_MPEG_2_LAYER1_LS = 1 << 13;
+            const IEC61937_MPEG_2_LAYER2_3_LS = 1 << 14;
             const IEC61937_DTS_I = 1 << 15;
             const IEC61937_DTS_II = 1 << 16;
             const IEC61937_DTS_III = 1 << 17;
@@ -481,7 +486,8 @@ pub mod format_type {
         }
     }
 
-    #[derive(Debug, Clone, PartialEq, Copy)]
+    #[derive(Debug, Clone, PartialEq)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum Format {
         Type1(Type1),
         Type2(Type2),

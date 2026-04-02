@@ -2,7 +2,8 @@
 
 use core::iter::Peekable;
 
-use heapless::{Vec, index_map::FnvIndexMap};
+use heapless::Vec;
+use heapless::index_map::FnvIndexMap;
 
 use super::codes::*;
 use crate::descriptor::{ConfigurationDescriptor, EndpointDescriptor, StringIndex, USBDescriptor};
@@ -18,6 +19,7 @@ const MAX_TERMINAL_DESCRIPTORS: usize = 16;
 /// This struct contains all the interfaces that make up a USB Audio Class device,
 /// including the interface association descriptor, control interface, and streaming interfaces.
 #[derive(Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct AudioInterfaceCollection {
     /// Interface association descriptor that groups the audio interfaces together.
     pub interface_association_descriptor: InterfaceAssociationDescriptor,
@@ -29,6 +31,7 @@ pub struct AudioInterfaceCollection {
 
 /// Errors that can occur during audio interface parsing.
 #[derive(Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum AudioInterfaceError {
     /// A buffer is full and cannot accept more items.
     BufferFull(&'static str),
@@ -304,6 +307,7 @@ impl AudioInterfaceCollection {
 /// This descriptor is used to associate multiple interfaces that belong to the same function,
 /// such as an audio function with control and streaming interfaces.
 #[derive(Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct InterfaceAssociationDescriptor {
     /// First interface number in the association.
     pub first_interface: u8,
@@ -422,8 +426,26 @@ pub struct AudioControlInterface {
     pub terminal_descriptors: FnvIndexMap<u8, TerminalDescriptor, MAX_TERMINAL_DESCRIPTORS>,
 }
 
+// heapless::IndexMap does not implement `defmt::Format`; summarize maps by length.
+#[cfg(feature = "defmt")]
+impl defmt::Format for AudioControlInterface {
+    fn format(&self, fmt: defmt::Formatter<'_>) {
+        defmt::write!(
+            fmt,
+            "AudioControlInterface {{ interface_descriptors: {=?}, header_descriptor: {=?}, interrupt_endpoint_descriptor: {=?}, clock_descriptors_len: {=usize}, unit_descriptors_len: {=usize}, terminal_descriptors_len: {=usize} }}",
+            self.interface_descriptors,
+            self.header_descriptor,
+            self.interrupt_endpoint_descriptor,
+            self.clock_descriptors.len(),
+            self.unit_descriptors.len(),
+            self.terminal_descriptors.len(),
+        );
+    }
+}
+
 /// Audio control header descriptor containing version and category information.
 #[derive(Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct AudioControlHeaderDescriptor {
     /// Audio device class version (major, minor).
     pub audio_device_class: (u8, u8),
@@ -458,6 +480,7 @@ impl USBDescriptor for AudioControlHeaderDescriptor {
 
 /// Enumeration of clock descriptor types.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ClockDescriptor {
     /// Clock source descriptor.
     Source(ClockSourceDescriptor),
@@ -495,6 +518,7 @@ impl ClockDescriptor {
 
 /// Clock source descriptor defining an audio clock source.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ClockSourceDescriptor {
     /// Unique identifier for this clock source.
     pub clock_id: u8,
@@ -535,6 +559,7 @@ impl USBDescriptor for ClockSourceDescriptor {
 
 /// Clock selector descriptor for selecting between multiple clock sources.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ClockSelectorDescriptor {
     /// Unique identifier for this clock selector.
     pub clock_id: u8,
@@ -575,6 +600,7 @@ impl ClockSelectorDescriptor {
 
 /// Clock multiplier descriptor for frequency multiplication.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ClockMultiplierDescriptor {
     /// Unique identifier for this clock multiplier.
     pub clock_id: u8,
@@ -612,6 +638,7 @@ impl USBDescriptor for ClockMultiplierDescriptor {
 
 /// Enumeration of terminal descriptor types.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum TerminalDescriptor {
     /// Input terminal descriptor.
     Input(InputTerminalDescriptor),
@@ -669,6 +696,7 @@ impl TerminalDescriptor {
 
 /// Enumeration of terminal types as defined by the USB Audio Class specification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum TerminalType {
     /// Unknown terminal type with raw value.
     Unknown(u16),
@@ -815,6 +843,7 @@ fn terminal_type_from_u16(terminal_type: u16) -> TerminalType {
 
 /// Input terminal descriptor for audio input sources.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct InputTerminalDescriptor {
     /// Unique identifier for this input terminal.
     pub terminal_id: u8,
@@ -867,6 +896,7 @@ impl USBDescriptor for InputTerminalDescriptor {
 
 /// Output terminal descriptor for audio output destinations.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct OutputTerminalDescriptor {
     /// Unique identifier for this output terminal.
     pub terminal_id: u8,
@@ -913,6 +943,7 @@ impl USBDescriptor for OutputTerminalDescriptor {
 
 /// Enumeration of unit descriptor types for audio processing units.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum UnitDescriptor {
     /// Mixer unit with unit ID.
     Mixer(u8),
@@ -978,6 +1009,7 @@ impl UnitDescriptor {
 /// This struct contains the interface descriptors, class descriptor, endpoint descriptors,
 /// and format type descriptor for an audio streaming interface.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct AudioStreamingInterface {
     /// Interface descriptors for this streaming interface.
     pub interface_descriptors: Vec<InterfaceDescriptor, MAX_ALTERNATE_SETTINGS>,
@@ -996,6 +1028,7 @@ pub struct AudioStreamingInterface {
 
 /// Audio streaming class descriptor containing format and channel information.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct AudioStreamingClassDescriptor {
     /// Terminal link ID connecting to the control interface.
     pub terminal_link_id: u8,
@@ -1045,6 +1078,7 @@ impl USBDescriptor for AudioStreamingClassDescriptor {
 
 /// Audio-specific endpoint descriptor containing audio endpoint attributes.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct AudioEndpointDescriptor {
     /// Bitmap of endpoint attributes.
     pub attributes_bitmap: u8,
@@ -1082,6 +1116,7 @@ impl USBDescriptor for AudioEndpointDescriptor {
 
 /// Enumeration of format type descriptors for different audio formats.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FormatTypeDescriptor {
     /// Type I format (PCM, PCM8, etc.).
     I(FormatTypeI),
@@ -1182,6 +1217,7 @@ impl FormatTypeDescriptor {
 
 /// Type I format descriptor for PCM-like formats.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FormatTypeI {
     /// Size of each subslot in bytes.
     pub subslot_size: u8,
@@ -1191,6 +1227,7 @@ pub struct FormatTypeI {
 
 /// Type II format descriptor for compressed formats.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FormatTypeII {
     /// Maximum bit rate in bits per second.
     pub max_bit_rate: u16,
@@ -1200,6 +1237,7 @@ pub struct FormatTypeII {
 
 /// Type III format descriptor for IEC formats.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FormatTypeIII {
     /// Size of each subslot in bytes.
     pub subslot_size: u8,
@@ -1209,6 +1247,7 @@ pub struct FormatTypeIII {
 
 /// Extended Type I format descriptor.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FormatTypeExtendedI {
     /// Size of each subslot in bytes.
     pub subslot_size: u8,
@@ -1224,6 +1263,7 @@ pub struct FormatTypeExtendedI {
 
 /// Extended Type II format descriptor.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FormatTypeExtendedII {
     /// Maximum bit rate in bits per second.
     pub max_bit_rate: u16,
@@ -1237,6 +1277,7 @@ pub struct FormatTypeExtendedII {
 
 /// Extended Type III format descriptor.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FormatTypeExtendedIII {
     /// Size of each subslot in bytes.
     pub subslot_size: u8,

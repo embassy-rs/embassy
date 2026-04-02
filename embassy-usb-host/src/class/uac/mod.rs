@@ -74,6 +74,7 @@ pub struct UacHandler<H: UsbHostDriver> {
 
 /// Errors that can occur during UAC request handling.
 #[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum RequestError {
     /// The request failed due to a channel error.
     RequestFailed(ChannelError),
