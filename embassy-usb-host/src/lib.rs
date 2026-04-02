@@ -38,8 +38,10 @@ pub enum EnumerationError {
     InvalidDescriptor,
     /// Configuration buffer too small
     ConfigBufferTooSmall(usize),
-    /// No free channel for EP0.
+    /// No free channel for EP0 or no free device address.
     NoChannel,
+    /// The device did not respond to a control request after retries.
+    RequestFailed,
 }
 
 impl From<ChannelError> for EnumerationError {
@@ -53,6 +55,7 @@ impl From<HostError> for EnumerationError {
         match e {
             HostError::ChannelError(e) => Self::Transfer(e),
             HostError::InvalidDescriptor => Self::InvalidDescriptor,
+            HostError::RequestFailed => Self::RequestFailed,
             _ => Self::NoChannel,
         }
     }
@@ -66,7 +69,8 @@ impl core::fmt::Display for EnumerationError {
             Self::ConfigBufferTooSmall(size) => {
                 write!(f, "Configuration buffer too small: device requires {} bytes", size)
             }
-            Self::NoChannel => write!(f, "No free channel"),
+            Self::NoChannel => write!(f, "No free channel or no free device address"),
+            Self::RequestFailed => write!(f, "Device did not respond"),
         }
     }
 }
