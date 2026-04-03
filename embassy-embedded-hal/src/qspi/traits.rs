@@ -170,7 +170,8 @@
 //!   enough to "naturally" do the delay (very common if the delay is in the order of nanoseconds).
 
 use core::fmt::Debug;
-use embedded_hal_async::spi::ErrorType;
+pub use embedded_hal_async::spi::ErrorType;
+pub use embedded_hal_async::spi::Error;
 
 #[cfg(feature = "defmt")]
 use defmt;

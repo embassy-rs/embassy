@@ -9,27 +9,31 @@ use fixed::traits::ToFixed;
 use fixed::types::extra::U8;
 
 use crate::clocks::clk_sys_freq;
-use crate::gpio::Level;
+use crate::gpio::{Level, SlewRate};
 use crate::pio::{Common, Direction, Instance, LoadedProgram, Pin, PioPin, ShiftDirection, StateMachine};
 use crate::spi::{Async, Blocking, Config, Mode};
 use crate::{dma, interrupt};
 
-/// This struct represents a QSPI program loaded into pio instruction memory.
+/// This struct represents a set of QSPI program loaded into pio instruction memory.
 struct PioQspiProgram<'d, PIO: Instance> {
-    prg: LoadedProgram<'d, PIO>,
+    read: LoadedProgram<'d, PIO>,
+    write: LoadedProgram<'d, PIO>,
+    write_single_line: LoadedProgram<'d, PIO>,
     phase: Phase,
 }
 
 impl<'d, PIO: Instance> PioQspiProgram<'d, PIO> {
     /// Load the qspi program into the given pio
     pub fn new(common: &mut Common<'d, PIO>, phase: Phase) -> Self {
-        // These PIO programs are taken straight from the datasheet (3.6.1 in
+        // These PIO programs are adapted from the datasheet (3.6.1 in
         // RP2040 datasheet, 11.6.1 in RP2350 datasheet)
 
         // Pin assignments:
         // - SCK is side-set pin 0
-        // - MOSI is OUT pin 0
-        // - MISO is IN pin 0
+        // - QD0 is pin 0
+        // - QD1 is pin 1
+        // - QD2 is pin 2
+        // - QD3 is pin 3
         //
         // Auto-push and auto-pull must be enabled, and the serial frame size is set by
         // configuring the push/pull threshold. Shift left/right is fine, but you must
@@ -37,28 +41,68 @@ impl<'d, PIO: Instance> PioQspiProgram<'d, PIO> {
         // 8 or 16 bits by using the narrow store replication and narrow load byte
         // picking behavior of RP2040's IO fabric.
 
-        let prg = match phase {
+        match phase {
             Phase::CaptureOnFirstTransition => {
-                let prg = pio::pio_asm!(
+
+                // Clock phase = 0: data is captured on the leading edge of each SCK pulse, and
+                // transitions on the trailing edge, or some time before the first leading edge.
+
+                // TODO: might need to make read hang after completing to prevent clocking and
+                // reading rubbish
+                let read_prg = pio::pio_asm!(
                     r#"
+                        ; Use 1 bit for side-set for SCK
                         .side_set 1
 
-                        ; Clock phase = 0: data is captured on the leading edge of each SCK pulse, and
-                        ; transitions on the trailing edge, or some time before the first leading edge.
+                        ; Set all data pins to input
+                        set pindirs 0b0000 side 0
 
+                        .wrap_target
+                        out null, 4 side 0 [1]
+                        in pins, 4 side 1 [1]
+                        .wrap
+                    "#
+                );
+                let write_prg = pio::pio_asm!(
+                    r#"
+                        ; Use 1 bit for side-set for SCK
+                        .side_set 1
+
+                        ; Set all data pins to output
+                        set pindirs 0b1111 side 0
+
+                        .wrap_target
+                        out pins, 4 side 0 [1]  ; Stall here on empty (sideset proceeds even if
+                        nop side 1 [1]          ; instruction stalls, so we stall with SCK low)
+                        .wrap
+                    "#
+                );
+                let write_single_line_prg = pio::pio_asm!(
+                    r#"
+                        ; Use 1 bit for side-set for SCK
+                        .side_set 1
+
+                        ; Set QD0 pin to output
+                        set pindirs 0b0001 side 0
+
+                        .wrap_target
                         out pins, 1 side 0 [1] ; Stall here on empty (sideset proceeds even if
-                        in pins, 1  side 1 [1] ; instruction stalls, so we stall with SCK low)
+                        nop side 1 [1]         ; instruction stalls, so we stall with SCK low)
+                        .wrap
                     "#
                 );
 
-                common.load_program(&prg.program)
+                Self {
+                    read: common.load_program(&read_prg.program),
+                    write: common.load_program(&write_prg.program),
+                    write_single_line: common.load_program(&write_single_line_prg.program),
+                    phase,
+                }
             }
             Phase::CaptureOnSecondTransition => {
                 todo!()
             }
-        };
-
-        Self { prg, phase }
+        }
     }
 }
 
@@ -90,8 +134,10 @@ impl<'d, PIO: Instance, const SM: usize, M: Mode> Qspi<'d, PIO, SM, M> {
         pio: &mut Common<'d, PIO>,
         mut sm: StateMachine<'d, PIO, SM>,
         clk_pin: Peri<'d, impl PioPin>,
-        mosi_pin: Peri<'d, impl PioPin>,
-        miso_pin: Peri<'d, impl PioPin>,
+        qd0_pin: Peri<'d, impl PioPin>,
+        qd1_pin: Peri<'d, impl PioPin>,
+        qd2_pin: Peri<'d, impl PioPin>,
+        qd3_pin: Peri<'d, impl PioPin>,
         tx_dma: Option<dma::Channel<'d>>,
         rx_dma: Option<dma::Channel<'d>>,
         config: Config,
@@ -99,8 +145,10 @@ impl<'d, PIO: Instance, const SM: usize, M: Mode> Qspi<'d, PIO, SM, M> {
         let program = PioQspiProgram::new(pio, config.phase);
 
         let mut clk_pin = pio.make_pio_pin(clk_pin);
-        let mosi_pin = pio.make_pio_pin(mosi_pin);
-        let miso_pin = pio.make_pio_pin(miso_pin);
+        let mut qd0_pin = pio.make_pio_pin(qd0_pin);
+        let mut qd1_pin = pio.make_pio_pin(qd1_pin);
+        let mut qd2_pin = pio.make_pio_pin(qd2_pin);
+        let mut qd3_pin = pio.make_pio_pin(qd3_pin);
 
         if let Polarity::IdleHigh = config.polarity {
             clk_pin.set_output_inversion(true);
@@ -108,11 +156,20 @@ impl<'d, PIO: Instance, const SM: usize, M: Mode> Qspi<'d, PIO, SM, M> {
             clk_pin.set_output_inversion(false);
         }
 
+        clk_pin.set_slew_rate(SlewRate::Fast);
+
+        for pin in [&mut qd0_pin, &mut qd1_pin, &mut qd2_pin, &mut qd3_pin] {
+            pin.set_input_sync_bypass(true);
+            // pin.set_pull(Pull::Down);
+            // pin.set_schmitt(true);
+        }
+
         let mut cfg = crate::pio::Config::default();
 
-        cfg.use_program(&program.prg, &[&clk_pin]);
-        cfg.set_out_pins(&[&mosi_pin]);
-        cfg.set_in_pins(&[&miso_pin]);
+        cfg.use_program(&program.write_single_line, &[&clk_pin]);
+        cfg.set_in_pins(&[&qd0_pin, &qd1_pin, &qd2_pin, &qd3_pin]);
+        cfg.set_out_pins(&[&qd0_pin, &qd1_pin, &qd2_pin, &qd3_pin]);
+        cfg.set_set_pins(&[&qd0_pin, &qd1_pin, &qd2_pin, &qd3_pin]);
 
         cfg.shift_in.auto_fill = true;
         cfg.shift_in.direction = ShiftDirection::Left;
@@ -123,12 +180,13 @@ impl<'d, PIO: Instance, const SM: usize, M: Mode> Qspi<'d, PIO, SM, M> {
         cfg.shift_out.threshold = 8;
 
         cfg.clock_divider = calculate_clock_divider(config.frequency);
+        let bytes = cfg.clock_divider.to_le_bytes();
+        defmt::info!("clock divider: {:?}", bytes);
 
         sm.set_config(&cfg);
 
-        sm.set_pins(Level::Low, &[&clk_pin, &mosi_pin]);
-        sm.set_pin_dirs(Direction::Out, &[&clk_pin, &mosi_pin]);
-        sm.set_pin_dirs(Direction::In, &[&miso_pin]);
+        sm.set_pins(Level::Low, &[&clk_pin, &qd0_pin, &qd1_pin, &qd2_pin, &qd3_pin]);
+        sm.set_pin_dirs(Direction::Out, &[&clk_pin]);
 
         sm.set_enable(true);
 
@@ -227,11 +285,15 @@ impl<'d, PIO: Instance, const SM: usize, M: Mode> Qspi<'d, PIO, SM, M> {
             let old_program = self.program.take().unwrap();
 
             // SAFETY: the state machine is disabled while this happens
-            unsafe { pio.free_instr(old_program.prg.used_memory) };
+            unsafe {
+                pio.free_instr(old_program.read.used_memory);
+                pio.free_instr(old_program.write.used_memory);
+                pio.free_instr(old_program.write_single_line.used_memory);
+            };
 
             let new_program = PioQspiProgram::new(pio, config.phase);
 
-            self.cfg.use_program(&new_program.prg, &[&self.clk_pin]);
+            self.cfg.use_program(&new_program.write_single_line, &[&self.clk_pin]);
             self.program = Some(new_program);
         }
 
@@ -256,11 +318,13 @@ impl<'d, PIO: Instance, const SM: usize> Qspi<'d, PIO, SM, Blocking> {
         pio: &mut Common<'d, PIO>,
         sm: StateMachine<'d, PIO, SM>,
         clk: Peri<'d, impl PioPin>,
-        mosi: Peri<'d, impl PioPin>,
-        miso: Peri<'d, impl PioPin>,
+        qd0: Peri<'d, impl PioPin>,
+        qd1: Peri<'d, impl PioPin>,
+        qd2: Peri<'d, impl PioPin>,
+        qd3: Peri<'d, impl PioPin>,
         config: Config,
     ) -> Self {
-        Self::new_inner(pio, sm, clk, mosi, miso, None, None, config)
+        Self::new_inner(pio, sm, clk, qd0, qd1, qd2, qd3, None, None, config)
     }
 }
 
@@ -271,8 +335,10 @@ impl<'d, PIO: Instance, const SM: usize> Qspi<'d, PIO, SM, Async> {
         pio: &mut Common<'d, PIO>,
         sm: StateMachine<'d, PIO, SM>,
         clk: Peri<'d, impl PioPin>,
-        mosi: Peri<'d, impl PioPin>,
-        miso: Peri<'d, impl PioPin>,
+        qd0: Peri<'d, impl PioPin>,
+        qd1: Peri<'d, impl PioPin>,
+        qd2: Peri<'d, impl PioPin>,
+        qd3: Peri<'d, impl PioPin>,
         tx_dma: Peri<'d, TxDma>,
         rx_dma: Peri<'d, RxDma>,
         irq: impl interrupt::typelevel::Binding<TxDma::Interrupt, dma::InterruptHandler<TxDma>>
@@ -282,11 +348,29 @@ impl<'d, PIO: Instance, const SM: usize> Qspi<'d, PIO, SM, Async> {
     ) -> Self {
         let tx_dma_ch = dma::Channel::new(tx_dma, irq);
         let rx_dma_ch = dma::Channel::new(rx_dma, irq);
-        Self::new_inner(pio, sm, clk, mosi, miso, Some(tx_dma_ch), Some(rx_dma_ch), config)
+        Self::new_inner(
+            pio,
+            sm,
+            clk,
+            qd0,
+            qd1,
+            qd2,
+            qd3,
+            Some(tx_dma_ch),
+            Some(rx_dma_ch),
+            config,
+        )
     }
 
     /// Read data from QSPI using DMA.
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        self.sm.set_enable(false);
+        self.cfg
+            .use_program(&self.program.as_ref().unwrap().read, &[&self.clk_pin]);
+        self.sm.set_config(&self.cfg);
+        self.sm.clear_fifos();
+        self.sm.set_enable(true);
+
         let (rx, tx) = self.sm.rx_tx();
 
         let len = buffer.len();
@@ -298,22 +382,78 @@ impl<'d, PIO: Instance, const SM: usize> Qspi<'d, PIO, SM, Async> {
         let tx_transfer = tx.dma_push_zeros::<u8>(&mut tx_ch, len);
 
         join(tx_transfer, rx_transfer).await;
+        defmt::debug!("read: {}", &buffer);
 
         Ok(())
     }
 
     /// Write data to QSPI using DMA.
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        let (rx, tx) = self.sm.rx_tx();
+        self.sm.set_enable(false);
+        self.cfg
+            .use_program(&self.program.as_ref().unwrap().write, &[&self.clk_pin]);
+        self.sm.set_config(&self.cfg);
+        self.sm.set_enable(true);
 
-        let mut rx_ch = self.rx_dma.as_mut().unwrap().reborrow();
-        let rx_transfer = rx.dma_pull_discard::<u8>(&mut rx_ch, buffer.len());
+        let tx = self.sm.tx();
 
         let mut tx_ch = self.tx_dma.as_mut().unwrap().reborrow();
         let tx_transfer = tx.dma_push(&mut tx_ch, buffer, false);
 
-        join(tx_transfer, rx_transfer).await;
+        tx_transfer.await;
+        defmt::debug!("wrote: {}", &buffer);
 
         Ok(())
+    }
+
+    /// Write data using a single line to QSPI using DMA.
+    pub async fn write_single_line(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        self.sm.set_enable(false);
+        self.cfg
+            .use_program(&self.program.as_ref().unwrap().write_single_line, &[&self.clk_pin]);
+        self.sm.set_config(&self.cfg);
+        self.sm.set_enable(true);
+
+        let tx = self.sm.tx();
+
+        let mut tx_ch = self.tx_dma.as_mut().unwrap().reborrow();
+        let tx_transfer = tx.dma_push(&mut tx_ch, buffer, false);
+
+        tx_transfer.await;
+        defmt::debug!("wrote single line: {}", &buffer);
+
+        Ok(())
+    }
+}
+
+// HAL traits:
+
+impl embassy_embedded_hal::qspi::traits::Error for Error {
+    fn kind(&self) -> embedded_hal_1::spi::ErrorKind {
+        match *self {}
+    }
+}
+
+impl<'d, PIO: Instance, const SM: usize, M: Mode> embassy_embedded_hal::qspi::traits::ErrorType
+    for Qspi<'d, PIO, SM, M>
+{
+    type Error = Error;
+}
+
+impl<'d, PIO: Instance, const SM: usize> embassy_embedded_hal::qspi::traits::QspiBus<u8> for Qspi<'d, PIO, SM, Async> {
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    async fn read(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
+        self.read(words).await
+    }
+
+    async fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
+        self.write(words).await
+    }
+
+    async fn write_single_line(&mut self, words: &[u8]) -> Result<(), Self::Error> {
+        self.write_single_line(words).await
     }
 }
