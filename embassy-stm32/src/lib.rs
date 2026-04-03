@@ -176,7 +176,16 @@ pub(crate) mod _generated {
     include!(concat!(env!("OUT_DIR"), "/_generated.rs"));
 }
 
-pub use crate::_generated::{interrupt, triggers};
+pub use crate::_generated::interrupt;
+
+/// Generated list of triggers to use in the `timer`, `adc`, `dac`, and other modules.
+pub mod triggers {
+    #[allow(unused_imports)]
+    pub use crate::_generated::triggers::*;
+
+    /// Represents no trigger
+    pub struct NoTrigger;
+}
 
 /// Macro to bind interrupts to handlers.
 ///

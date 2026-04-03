@@ -81,8 +81,7 @@ async fn main(_spawner: Spawner) {
         &mut dma_buf,
         Irqs,
         sequence,
-        TIM1_TRGO2,         // Timer 1 TRGO2 as trigger source
-        Exten::RISING_EDGE, // Trigger on rising edge (can also use FALLING_EDGE or BOTH_EDGES)
+        Some((TIM1_TRGO2, Exten::RISING_EDGE)), // Timer 1 TRGO2 as trigger source and Trigger on rising edge (can also use FALLING_EDGE or BOTH_EDGES)
     );
 
     // Start ADC conversions and DMA transfer

@@ -99,8 +99,8 @@ impl AdcRegs for crate::pac::adc::Adc {
                 });
             }
             ConversionMode::Repeated(trigger) => {
-                match trigger.signal {
-                    u8::MAX => {
+                match trigger {
+                    None => {
                         // continuous conversions
                         self.cfgr1().modify(|reg| {
                             reg.set_discen(false);
@@ -110,7 +110,7 @@ impl AdcRegs for crate::pac::adc::Adc {
                             reg.set_ovrmod(Ovrmod::OVERWRITE);
                         });
                     }
-                    _ => {
+                    Some((signal, edge)) => {
                         self.cfgr1().modify(|reg| {
                             reg.set_discen(false);
                             reg.set_cont(false); // Triggered, not continuous
@@ -118,8 +118,8 @@ impl AdcRegs for crate::pac::adc::Adc {
                             reg.set_dmaen(true);
                             reg.set_ovrmod(Ovrmod::OVERWRITE);
                             // Configure trigger edge (rising, falling, or both)
-                            reg.set_exten(trigger.edge);
-                            reg.set_extsel(trigger.signal);
+                            reg.set_exten(edge);
+                            reg.set_extsel(signal);
                         });
 
                         // Regular conversions uses DMA so no need to generate interrupt

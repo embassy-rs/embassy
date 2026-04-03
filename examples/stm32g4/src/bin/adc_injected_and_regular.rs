@@ -107,11 +107,9 @@ async fn main(_spawner: embassy_executor::Spawner) {
         &mut readings,
         Irqs,
         regular_sequence,
-        TIM1_TRGO2,
-        Exten::RISING_EDGE,
+        Some((TIM1_TRGO2, Exten::RISING_EDGE)),
         injected_sequence,
-        TIM1_TRGO2,
-        Exten::RISING_EDGE,
+        (TIM1_TRGO2, Exten::RISING_EDGE),
         true,
     );
 

@@ -178,6 +178,24 @@ macro_rules! dma_trait_impl {
 
 // ====================
 
+#[allow(unused_macros)]
+macro_rules! trigger_trait_no_trigger_impl {
+    ($signal:ident, $instance:path, $mode:path) => {
+        impl<T: $instance, M: $mode> $signal<T, M> for crate::triggers::NoTrigger {
+            fn signal(&self) -> u8 {
+                unreachable!();
+            }
+        }
+    };
+    ($signal:ident, $instance:path) => {
+        impl<T: $instance> $signal<T> for crate::triggers::NoTrigger {
+            fn signal(&self) -> u8 {
+                unreachable!();
+            }
+        }
+    };
+}
+
 #[allow(unused)]
 macro_rules! trigger_trait {
     ($signal:ident, $instance:path$(, $mode:path)?) => {
@@ -188,6 +206,8 @@ macro_rules! trigger_trait {
             /// `embassy-stm32` always uses the "channel" and "request number" names.
             fn signal(&self) -> u8;
         }
+
+        trigger_trait_no_trigger_impl!($signal, $instance $(, $mode)?);
     };
 }
 

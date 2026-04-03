@@ -28,8 +28,7 @@ async fn main(_spawner: Spawner) {
         &mut adc_dma_buf,
         Irqs,
         [(p.PA0.degrade_adc(), SampleTime::CYCLES112)].into_iter(),
-        TIM1_CH1,
-        Exten::RISING_EDGE,
+        Some((TIM1_CH1, Exten::RISING_EDGE)),
     );
     adc_ring_buffered.start();
 
