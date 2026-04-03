@@ -3,7 +3,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::{Adc, AdcChannel, CONTINUOUS, SampleTime};
+use embassy_stm32::adc::{Adc, AdcChannel, SampleTime, trigger_none};
 use embassy_stm32::{Config, bind_interrupts, dma, peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -34,7 +34,7 @@ async fn main(_spawner: Spawner) {
         &mut adc_dma_buf,
         Irqs,
         [(adc_pin0, SampleTime::CYCLES640_5), (adc_pin1, SampleTime::CYCLES640_5)].into_iter(),
-        CONTINUOUS,
+        trigger_none(),
     );
 
     info!("starting measurement loop");

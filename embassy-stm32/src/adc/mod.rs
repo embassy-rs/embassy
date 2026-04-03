@@ -50,16 +50,17 @@ pub use crate::pac::adc::vals::Exten;
 pub use crate::pac::adc::vals::Res as Resolution;
 pub use crate::pac::adc::vals::SampleTime;
 use crate::peripherals;
+use crate::triggers::NoTrigger;
 
 dma_trait!(RxDma, Instance);
 
-/// Continuous Trigger
-pub struct CONTINUOUS;
+#[cfg(not(any(adc_v2, adc_g4, adc_g0, adc_c0)))]
+/// Trigger edge stub.
+pub struct Exten;
 
-impl<T: Instance> RegularTrigger<T> for CONTINUOUS {
-    fn signal(&self) -> u8 {
-        u8::MAX
-    }
+/// Type-checked representation of no trigger
+pub fn trigger_none<T>() -> Option<(NoTrigger, T)> {
+    None
 }
 
 /// Analog to Digital driver.
@@ -171,26 +172,18 @@ pub enum Averaging {
     Samples1024,
 }
 
-#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba, adc_c0))]
-pub(crate) struct Trigger {
-    #[cfg(any(adc_v2, adc_g4, adc_g0, adc_c0))]
-    signal: u8,
-    #[cfg(any(adc_v2, adc_g4, adc_g0, adc_c0))]
-    edge: Exten,
-}
-
 #[cfg(any(
     adc_v2, adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_wba, adc_c0
 ))]
 pub(crate) enum ConversionMode {
     // Should match the cfg on "read" below
     #[cfg(any(
-        adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_wba, adc_c0
+        adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_wba, adc_c0, adc_v2
     ))]
     Singular,
     // Should match the cfg on "into_ring_buffered" below
     #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba, adc_c0))]
-    Repeated(Trigger),
+    Repeated(Option<(u8, Exten)>),
 }
 
 impl<'d, T: Instance> Adc<'d, T> {
@@ -206,16 +199,9 @@ impl<'d, T: Instance> Adc<'d, T> {
         #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba))]
         channel.setup();
 
-        // Ensure no conversions are ongoing
         T::regs().stop();
-        #[cfg(any(adc_v2, adc_v3, adc_g0, adc_h7rs, adc_u0, adc_u3, adc_u5, adc_wba))]
-        T::regs().enable();
         T::regs().configure_sequence([((channel.channel(), channel.is_differential()), sample_time)].into_iter());
 
-        // On chips with differential channels, enable after configure_sequence to allow setting differential channels
-        //
-        // TODO: If hardware allows, enable after configure_sequence on all chips
-        #[cfg(any(adc_g4, adc_h5, adc_c0))]
         T::regs().enable();
         T::regs().convert();
 
@@ -223,7 +209,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     #[cfg(any(
-        adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_wba, adc_c0
+        adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_wba, adc_c0, adc_v2
     ))]
     /// Read one or multiple ADC regular channels using DMA.
     ///
@@ -280,17 +266,10 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         // Ensure no conversions are ongoing
         T::regs().stop();
-        #[cfg(any(adc_g0, adc_v3, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba))]
-        T::regs().enable();
-
         T::regs().configure_sequence(
             sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
         );
 
-        // On chips with differential channels, enable after configure_sequence to allow setting differential channels
-        //
-        // TODO: If hardware allows, enable after configure_sequence on all chips
-        #[cfg(any(adc_g4, adc_h5, adc_c0))]
         T::regs().enable();
         T::regs().configure_dma(ConversionMode::Singular);
 
@@ -340,8 +319,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         dma_buf: &'a mut [u16],
         irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
         sequence: impl ExactSizeIterator<Item = (AnyAdcChannel<'b, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
-        _trigger: impl RegularTrigger<T>,
-        #[cfg(any(adc_v2, adc_g4, adc_g0, adc_c0))] edge: Exten,
+        trigger: Option<(impl RegularTrigger<T>, Exten)>,
     ) -> RingBufferedAdc<'a, T> {
         let sequence_len = sequence.len();
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
@@ -356,28 +334,70 @@ impl<'d, T: Instance> Adc<'d, T> {
         );
         // Ensure no conversions are ongoing
         T::regs().stop();
-        #[cfg(any(adc_g0, adc_v3, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_c0))]
-        T::regs().enable();
-
         T::regs().configure_sequence(
             sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
         );
 
-        // On chips with differential channels, enable after configure_sequence to allow setting differential channels
-        //
-        // TODO: If hardware allows, enable after configure_sequence on all chips
-        #[cfg(any(adc_g4, adc_h5))]
         T::regs().enable();
-        T::regs().configure_dma(ConversionMode::Repeated(Trigger {
-            #[cfg(any(adc_v2, adc_g4, adc_g0, adc_c0))]
-            signal: _trigger.signal(),
-            #[cfg(any(adc_v2, adc_g4, adc_g0, adc_c0))]
-            edge,
-        }));
+        T::regs().configure_dma(ConversionMode::Repeated(trigger.map(|t| (t.0.signal(), t.1))));
 
         core::mem::forget(self);
 
         RingBufferedAdc::new(dma, irq, dma_buf, sequence_len)
+    }
+}
+
+#[cfg(any(
+    adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_g4, adc_c0, adc_wba
+))]
+impl<'d, T: DefaultInstance> Adc<'d, T> {
+    #[cfg(any(adc_v2, adc_g4))]
+    /// Configures ADC for both regular conversions with a ring-buffered DMA and injected conversions.
+    ///
+    /// # Parameters
+    /// - `dma`: The DMA peripheral to use for the ring-buffered ADC transfers.
+    /// - `dma_buf`: The buffer to store DMA-transferred samples for regular conversions.
+    /// - `regular_sequence`: The sequence of channels and their sample times for regular conversions.
+    /// - `regular_conversion_mode`: The mode for regular conversions (e.g., continuous or triggered).
+    /// - `injected_sequence`: An array of channels and sample times for injected conversions (length `N`).
+    /// - `injected_trigger`: The trigger source for injected conversions.
+    /// - `injected_interrupt`: Whether to enable the end-of-sequence interrupt for injected conversions.
+    ///
+    /// Injected conversions are typically used with interrupts. If ADC1 and ADC2 are used in dual mode,
+    /// it is recommended to enable interrupts only for the ADC whose sequence takes the longest to complete.
+    ///
+    /// # Returns
+    /// A tuple containing:
+    /// 1. `RingBufferedAdc<'a, T>` — the configured ADC for regular conversions using DMA.
+    /// 2. `InjectedAdc<T, N>` — the configured ADC for injected conversions.
+    ///
+    /// # Safety
+    /// This function is `unsafe` because it clones the ADC peripheral handle unchecked. Both the
+    /// `RingBufferedAdc` and `InjectedAdc` take ownership of the handle and drop it independently.
+    /// Ensure no other code concurrently accesses the same ADC instance in a conflicting way.
+    pub fn into_ring_buffered_and_injected<'a, 'b, const N: usize, D: RxDma<T>>(
+        self,
+        dma: embassy_hal_internal::Peri<'a, D>,
+        dma_buf: &'a mut [u16],
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
+        regular_sequence: impl ExactSizeIterator<Item = (AnyAdcChannel<'b, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
+        regular_trigger: Option<(impl RegularTrigger<T>, Exten)>,
+        injected_sequence: [(AnyAdcChannel<'b, T>, SampleTime); N],
+        injected_trigger: (impl InjectedTrigger<T>, Exten),
+        injected_interrupt: bool,
+    ) -> (RingBufferedAdc<'a, T>, InjectedAdc<'b, T, N>) {
+        unsafe {
+            (
+                Self {
+                    adc: self.adc.clone_unchecked(),
+                }
+                .into_ring_buffered(dma, dma_buf, _irq, regular_sequence, regular_trigger),
+                Self {
+                    adc: self.adc.clone_unchecked(),
+                }
+                .setup_injected_conversions(injected_sequence, injected_trigger, injected_interrupt),
+            )
+        }
     }
 }
 

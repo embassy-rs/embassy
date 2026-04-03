@@ -21,7 +21,7 @@
 
 use defmt::*;
 use embassy_stm32::adc::adc4::Calibration;
-use embassy_stm32::adc::{Adc, AdcChannel, CONTINUOUS, RingBufferedAdc, adc4};
+use embassy_stm32::adc::{Adc, AdcChannel, RingBufferedAdc, adc4, trigger_none};
 use embassy_stm32::peripherals::{ADC4, GPDMA1_CH1};
 use embassy_stm32::rcc::{
     AHB5Prescaler, AHBPrescaler, APBPrescaler, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale,
@@ -110,7 +110,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
             (temp_ch, adc4::SampleTime::CYCLES79_5),    // Channel 13 - Temperature
         ]
         .into_iter(),
-        CONTINUOUS,
+        trigger_none(),
     );
 
     info!("Ring buffer configured, starting continuous sampling...");

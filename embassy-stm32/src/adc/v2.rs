@@ -2,10 +2,7 @@ use core::mem;
 use core::sync::atomic::{Ordering, compiler_fence};
 
 use super::{AnyAdcChannel, ConversionMode, Temperature, Vbat, VrefInt, blocking_delay_us};
-use crate::adc::{
-    Adc, AdcRegs, BasicAdcRegs, InjectedTrigger, Instance, RegularTrigger, Resolution, RxDma, SampleTime,
-    SealedAdcChannel,
-};
+use crate::adc::{Adc, AdcRegs, InjectedTrigger, Instance, Resolution, SampleTime, SealedAdcChannel};
 use crate::pac::adc::vals;
 pub use crate::pac::adccommon::vals::Adcpre;
 use crate::time::Hertz;
@@ -13,6 +10,7 @@ use crate::{Peri, rcc};
 
 mod injected;
 pub use injected::InjectedAdc;
+use stm32_metapac::adc::vals::Exten;
 
 fn clear_interrupt_flags(r: crate::pac::adc::Adc) {
     r.sr().modify(|regs| {
@@ -148,56 +146,57 @@ impl super::AdcRegs for crate::pac::adc::Adc {
     }
 
     fn configure_dma(&self, conversion_mode: ConversionMode) {
-        match conversion_mode {
-            ConversionMode::Repeated(trigger) => {
-                let r = self;
-                // Clear all interrupts
-                r.sr().modify(|regs| {
-                    regs.set_eoc(false);
-                    regs.set_ovr(false);
-                    regs.set_strt(false);
-                });
+        let r = self;
+        // Clear all interrupts
+        r.sr().modify(|regs| {
+            regs.set_eoc(false);
+            regs.set_ovr(false);
+            regs.set_strt(false);
+        });
 
-                r.cr1().modify(|w| {
-                    // Enable interrupt for end of conversion
-                    w.set_eocie(true);
-                    // Enable interrupt for overrun
-                    w.set_ovrie(true);
-                    // Scanning conversions of multiple channels
-                    w.set_scan(true);
-                    // Continuous conversion mode
-                    w.set_discen(false);
-                });
+        r.cr1().modify(|w| {
+            // Enable interrupt for end of conversion
+            w.set_eocie(true);
+            // Enable interrupt for overrun
+            w.set_ovrie(true);
+            // Scanning conversions of multiple channels
+            w.set_scan(true);
+            // Continuous conversion mode
+            w.set_discen(false);
+        });
 
-                r.cr2().modify(|w| {
-                    // Enable DMA mode
-                    w.set_dma(true);
-                    // DMA requests are issues as long as DMA=1 and data are converted.
-                    w.set_dds(vals::Dds::CONTINUOUS);
-                    // EOC flag is set at the end of each conversion.
-                    w.set_eocs(vals::Eocs::EACH_CONVERSION);
-                });
+        r.cr2().modify(|w| {
+            // Enable DMA mode
+            w.set_dma(true);
+            // DMA requests are issues as long as DMA=1 and data are converted.
+            w.set_dds(match conversion_mode {
+                ConversionMode::Singular => vals::Dds::SINGLE,
+                ConversionMode::Repeated(_) => vals::Dds::CONTINUOUS,
+            });
+            // EOC flag is set at the end of each conversion.
+            w.set_eocs(vals::Eocs::EACH_CONVERSION);
+        });
 
-                match trigger.signal {
-                    u8::MAX => {
-                        // continuous conversion
-                        r.cr2().modify(|w| {
-                            // Enable continuous conversions
-                            w.set_cont(true);
-                        });
-                    }
-                    _ => {
-                        r.cr2().modify(|w| {
-                            // Disable continuous conversions
-                            w.set_cont(false);
-                            // Trigger detection edge
-                            w.set_exten(trigger.edge);
-                            // Trigger channel
-                            w.set_extsel(trigger.signal);
-                        })
-                    }
-                };
-            }
+        if let ConversionMode::Repeated(trigger) = conversion_mode {
+            match trigger {
+                None => {
+                    // continuous conversion
+                    r.cr2().modify(|w| {
+                        // Enable continuous conversions
+                        w.set_cont(true);
+                    });
+                }
+                Some((signal, edge)) => {
+                    r.cr2().modify(|w| {
+                        // Disable continuous conversions
+                        w.set_cont(false);
+                        // Trigger detection edge
+                        w.set_exten(edge);
+                        // Trigger channel
+                        w.set_extsel(signal);
+                    })
+                }
+            };
         }
     }
 
@@ -309,8 +308,7 @@ where
     pub fn setup_injected_conversions<'a, const N: usize>(
         self,
         sequence: [(AnyAdcChannel<'a, T>, SampleTime); N],
-        trigger: impl InjectedTrigger<T>,
-        edge: vals::Exten,
+        trigger: (impl InjectedTrigger<T>, Exten),
         interrupt: bool,
     ) -> InjectedAdc<'a, T, N> {
         assert!(N != 0, "Read sequence cannot be empty");
@@ -353,8 +351,8 @@ where
             w.set_jeocie(interrupt);
         });
         T::regs().cr2().modify(|w| {
-            w.set_jextsel(trigger.signal());
-            w.set_jexten(edge);
+            w.set_jextsel(trigger.0.signal());
+            w.set_jexten(trigger.1);
         });
 
         Self::start_injected_conversions();
@@ -362,68 +360,6 @@ where
         mem::forget(self);
 
         InjectedAdc::new(sequence) // InjectedAdc<'a, T, N> now borrows the channels
-    }
-
-    /// Configures ADC for both regular conversions with a ring-buffered DMA and injected conversions.
-    ///
-    /// # Parameters
-    /// - `dma`: The DMA peripheral to use for the ring-buffered ADC transfers.
-    /// - `dma_buf`: The buffer to store DMA-transferred samples for regular conversions.
-    /// - `regular_sequence`: The sequence of channels and their sample times for regular conversions.
-    /// - `regular_conversion_mode`: The mode for regular conversions (e.g., continuous or triggered).
-    /// - `injected_sequence`: An array of channels and sample times for injected conversions (length `N`).
-    /// - `injected_trigger`: The trigger source for injected conversions.
-    /// - `injected_interrupt`: Whether to enable the end-of-sequence interrupt for injected conversions.
-    ///
-    /// Injected conversions are typically used with interrupts. If ADC1 and ADC2 are used in dual mode,
-    /// it is recommended to enable interrupts only for the ADC whose sequence takes the longest to complete.
-    ///
-    /// # Returns
-    /// A tuple containing:
-    /// 1. `RingBufferedAdc<'a, T>` — the configured ADC for regular conversions using DMA.
-    /// 2. `InjectedAdc<T, N>` — the configured ADC for injected conversions.
-    ///
-    /// # Safety
-    /// This function is `unsafe` because it clones the ADC peripheral handle unchecked. Both the
-    /// `RingBufferedAdc` and `InjectedAdc` take ownership of the handle and drop it independently.
-    /// Ensure no other code concurrently accesses the same ADC instance in a conflicting way.
-    pub fn into_ring_buffered_and_injected<'a, 'b, const N: usize, D: RxDma<T>>(
-        self,
-        dma: Peri<'a, D>,
-        dma_buf: &'a mut [u16],
-        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
-        regular_sequence: impl ExactSizeIterator<Item = (AnyAdcChannel<'b, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
-        regular_trigger: impl RegularTrigger<T>,
-        regular_edge: vals::Exten,
-        injected_sequence: [(AnyAdcChannel<'b, T>, SampleTime); N],
-        injected_trigger: impl InjectedTrigger<T>,
-        injected_edge: vals::Exten,
-        injected_interrupt: bool,
-    ) -> (super::RingBufferedAdc<'a, T>, InjectedAdc<'b, T, N>) {
-        unsafe {
-            (
-                Self {
-                    adc: self.adc.clone_unchecked(),
-                }
-                .into_ring_buffered(
-                    dma,
-                    dma_buf,
-                    _irq,
-                    regular_sequence,
-                    regular_trigger,
-                    regular_edge,
-                ),
-                Self {
-                    adc: self.adc.clone_unchecked(),
-                }
-                .setup_injected_conversions(
-                    injected_sequence,
-                    injected_trigger,
-                    injected_edge,
-                    injected_interrupt,
-                ),
-            )
-        }
     }
 
     /// Stop injected conversions

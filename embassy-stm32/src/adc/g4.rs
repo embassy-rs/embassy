@@ -8,8 +8,8 @@ pub use pac::adc::vals::{Adcaldif, Adstp, Difsel, Dmacfg, Dmaen, Exten, Rovsm, T
 use pac::adc::vals::{Adcaldif, Difsel, Exten};
 pub use pac::adccommon::vals::{Dual, Presc};
 
-use super::{Adc, AnyAdcChannel, ConversionMode, Instance, Resolution, RxDma, SampleTime, blocking_delay_us};
-use crate::adc::{AdcRegs, BasicAdcRegs, InjectedTrigger, RegularTrigger, SealedAdcChannel};
+use super::{Adc, AnyAdcChannel, ConversionMode, Instance, Resolution, SampleTime, blocking_delay_us};
+use crate::adc::{AdcRegs, InjectedTrigger, SealedAdcChannel};
 use crate::pac::adc::regs::{Smpr, Smpr2, Sqr1, Sqr2, Sqr3, Sqr4};
 use crate::time::Hertz;
 use crate::{Peri, pac, rcc};
@@ -137,21 +137,21 @@ impl super::AdcRegs for crate::pac::adc::Adc {
         });
 
         if let ConversionMode::Repeated(trigger) = conversion_mode {
-            match trigger.signal {
-                u8::MAX => {
+            match trigger {
+                None => {
                     // continuous conversions
                     self.cfgr().modify(|reg| {
                         reg.set_cont(true);
                     });
                 }
-                _ => {
+                Some((signal, edge)) => {
                     self.cfgr().modify(|r| {
                         r.set_cont(false); // New trigger is needed for each sample to be read
                     });
 
                     self.cfgr().modify(|r| {
-                        r.set_extsel(trigger.signal);
-                        r.set_exten(trigger.edge);
+                        r.set_extsel(signal);
+                        r.set_exten(edge);
                     });
 
                     // Regular conversions uses DMA so no need to generate interrupt
@@ -396,8 +396,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     pub fn setup_injected_conversions<'a, const N: usize>(
         self,
         sequence: [(AnyAdcChannel<'a, T>, SampleTime); N],
-        trigger: impl InjectedTrigger<T>,
-        edge: Exten,
+        trigger: (impl InjectedTrigger<T>, Exten),
         interrupt: bool,
     ) -> InjectedAdc<'a, T, N> {
         assert!(N != 0, "Read sequence cannot be empty");
@@ -439,8 +438,8 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
         // Set external trigger for injected conversion sequence
         // Possible trigger values are seen in Table 167 in RM0440 Rev 9
         T::regs().jsqr().modify(|r| {
-            r.set_jextsel(trigger.signal());
-            r.set_jexten(edge);
+            r.set_jextsel(trigger.0.signal());
+            r.set_jexten(trigger.1);
         });
 
         // Enable end of injected sequence interrupt
@@ -449,68 +448,6 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
         Self::start_injected_conversions();
 
         InjectedAdc::new(sequence) // InjectedAdc<'a, T, N> now borrows the channels
-    }
-
-    /// Configures ADC for both regular conversions with a ring-buffered DMA and injected conversions.
-    ///
-    /// # Parameters
-    /// - `dma`: The DMA peripheral to use for the ring-buffered ADC transfers.
-    /// - `dma_buf`: The buffer to store DMA-transferred samples for regular conversions.
-    /// - `regular_sequence`: The sequence of channels and their sample times for regular conversions.
-    /// - `regular_conversion_mode`: The mode for regular conversions (e.g., continuous or triggered).
-    /// - `injected_sequence`: An array of channels and sample times for injected conversions (length `N`).
-    /// - `injected_trigger`: The trigger source for injected conversions.
-    /// - `injected_interrupt`: Whether to enable the end-of-sequence interrupt for injected conversions.
-    ///
-    /// Injected conversions are typically used with interrupts. If ADC1 and ADC2 are used in dual mode,
-    /// it is recommended to enable interrupts only for the ADC whose sequence takes the longest to complete.
-    ///
-    /// # Returns
-    /// A tuple containing:
-    /// 1. `RingBufferedAdc<'a, T>` — the configured ADC for regular conversions using DMA.
-    /// 2. `InjectedAdc<T, N>` — the configured ADC for injected conversions.
-    ///
-    /// # Safety
-    /// This function is `unsafe` because it clones the ADC peripheral handle unchecked. Both the
-    /// `RingBufferedAdc` and `InjectedAdc` take ownership of the handle and drop it independently.
-    /// Ensure no other code concurrently accesses the same ADC instance in a conflicting way.
-    pub fn into_ring_buffered_and_injected<'a, 'b, const N: usize, D: RxDma<T>>(
-        self,
-        dma: Peri<'a, D>,
-        dma_buf: &'a mut [u16],
-        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
-        regular_sequence: impl ExactSizeIterator<Item = (AnyAdcChannel<'b, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
-        regular_trigger: impl RegularTrigger<T>,
-        regular_edge: Exten,
-        injected_sequence: [(AnyAdcChannel<'b, T>, SampleTime); N],
-        injected_trigger: impl InjectedTrigger<T>,
-        injected_edge: Exten,
-        injected_interrupt: bool,
-    ) -> (super::RingBufferedAdc<'a, T>, InjectedAdc<'b, T, N>) {
-        unsafe {
-            (
-                Self {
-                    adc: self.adc.clone_unchecked(),
-                }
-                .into_ring_buffered(
-                    dma,
-                    dma_buf,
-                    _irq,
-                    regular_sequence,
-                    regular_trigger,
-                    regular_edge,
-                ),
-                Self {
-                    adc: self.adc.clone_unchecked(),
-                }
-                .setup_injected_conversions(
-                    injected_sequence,
-                    injected_trigger,
-                    injected_edge,
-                    injected_interrupt,
-                ),
-            )
-        }
     }
 
     /// Stop injected conversions

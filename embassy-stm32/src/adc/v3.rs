@@ -279,8 +279,8 @@ impl super::AdcRegs for crate::pac::adc::Adc {
                     });
                 }
                 #[cfg(adc_g0)]
-                match trigger.signal {
-                    u8::MAX => {
+                match trigger {
+                    None => {
                         // continuous conversions
                         regs.modify(|reg| {
                             reg.set_discen(false);
@@ -289,15 +289,15 @@ impl super::AdcRegs for crate::pac::adc::Adc {
                             reg.set_dmaen(true);
                         });
                     }
-                    _ => {
+                    Some((signal, edge)) => {
                         regs.modify(|reg| {
                             reg.set_discen(false);
                             reg.set_cont(false); // New trigger is needed for each sample to be read
                             reg.set_dmacfg(Dmacfg::CIRCULAR);
                             reg.set_dmaen(true);
                             // Configure trigger edge (rising, falling, or both)
-                            reg.set_exten(trigger.edge);
-                            reg.set_extsel(trigger.signal.into());
+                            reg.set_exten(edge);
+                            reg.set_extsel(signal.into());
                         });
 
                         // Regular conversions uses DMA so no need to generate interrupt

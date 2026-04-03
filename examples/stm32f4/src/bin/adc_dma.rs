@@ -3,7 +3,7 @@
 use cortex_m::singleton;
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::{Adc, AdcChannel, CONTINUOUS, Exten, RingBufferedAdc, SampleTime};
+use embassy_stm32::adc::{Adc, AdcChannel, RingBufferedAdc, SampleTime, trigger_none};
 use embassy_stm32::{Peripherals, bind_interrupts, dma, peripherals};
 use embassy_time::Instant;
 use {defmt_rtt as _, panic_probe as _};
@@ -37,8 +37,7 @@ async fn adc_task(mut p: Peripherals) {
             (p.PA2.degrade_adc(), SampleTime::CYCLES112),
         ]
         .into_iter(),
-        CONTINUOUS,
-        Exten::DISABLED,
+        trigger_none(),
     );
     let mut adc2: RingBufferedAdc<embassy_stm32::peripherals::ADC2> = adc2.into_ring_buffered(
         p.DMA2_CH2,
@@ -49,8 +48,7 @@ async fn adc_task(mut p: Peripherals) {
             (p.PA3.degrade_adc(), SampleTime::CYCLES112),
         ]
         .into_iter(),
-        CONTINUOUS,
-        Exten::DISABLED,
+        trigger_none(),
     );
 
     // Note that overrun is a big consideration in this implementation. Whatever task is running the adc.read() calls absolutely must circle back around
