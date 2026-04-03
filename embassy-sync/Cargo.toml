@@ -33,6 +33,9 @@ std = []
 turbowakers = []
 
 [dependencies]
+embassy-time = {version = "0.5.1", path = "../embassy-time"}
+embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver" }
+
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
 
