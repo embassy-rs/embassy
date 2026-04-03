@@ -201,18 +201,18 @@ impl super::AdcRegs for crate::pac::adc::Adc {
     }
 
     fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
-        self.cr2().modify(|reg| {
-            reg.set_adon(true);
-        });
-
         // Check the sequence is long enough
         self.sqr1().modify(|r| {
             r.set_l((sequence.len() - 1).try_into().unwrap());
         });
 
         for (i, ((ch, _), sample_time)) in sequence.enumerate() {
-            // Set the channel in the right sequence field.
-            self.sqr3().modify(|w| w.set_sq(i, ch));
+            match i {
+                0..=5 => self.sqr3().modify(|w| w.set_sq(i, ch)),
+                6..=11 => self.sqr2().modify(|w| w.set_sq(i - 6, ch)),
+                12..=15 => self.sqr1().modify(|w| w.set_sq(i - 12, ch)),
+                _ => unreachable!(),
+            }
 
             let sample_time = sample_time.into();
             if ch <= 9 {
