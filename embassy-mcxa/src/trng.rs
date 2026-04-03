@@ -80,6 +80,26 @@ impl<'d, M: Mode> Trng<'d, M> {
             w.set_run3_rng(config.run_length3_limit_range);
         });
 
+        self.info.regs().scr4l().write(|w| {
+            w.set_run4_max(config.run_length4_limit_max);
+            w.set_run4_rng(config.run_length4_limit_range);
+        });
+
+        self.info.regs().scr5l().write(|w| {
+            w.set_run5_max(config.run_length5_limit_max);
+            w.set_run5_rng(config.run_length5_limit_range);
+        });
+
+        self.info.regs().scr6pl().write(|w| {
+            w.set_run6p_max(config.run_length6_limit_max);
+            w.set_run6p_rng(config.run_length6_limit_range);
+        });
+
+        self.info
+            .regs()
+            .pkrmax()
+            .write(|w| w.set_pkr_max(config.poker_limit_max));
+
         self.info
             .regs()
             .frqmax()
@@ -90,10 +110,20 @@ impl<'d, M: Mode> Trng<'d, M> {
             .frqmin()
             .write(|w| w.set_frq_min(config.freq_counter_min));
 
+        self.info
+            .regs()
+            .sblim()
+            .write(|w| w.set_sb_lim(config.sparse_bit_limit));
+
         self.info.regs().scmisc().write(|w| {
             w.set_lrun_max(config.long_run_limit_max);
             w.set_rty_ct(config.retry_count);
         });
+
+        self.info
+            .regs()
+            .mctl()
+            .modify(|w| w.set_dis_slf_tst(config.self_test.into()));
 
         self.info.regs().sdctl().write(|w| {
             w.set_samp_size(config.sample_size);
@@ -184,147 +214,23 @@ impl<'d, M: Mode> Trng<'d, M> {
 }
 
 impl<'d> Trng<'d, Blocking> {
-    /// Instantiates a new TRNG peripheral driver with 128 samples of entropy.
-    pub fn new_blocking_128<T: Instance>(_peri: Peri<'d, T>) -> Self {
-        Self::new_inner(
-            _peri,
-            Config {
-                sample_size: 128,
-                retry_count: 1,
-                long_run_limit_max: 29,
-                monobit_limit_max: 94,
-                monobit_limit_range: 61,
-                run_length1_limit_max: 39,
-                run_length1_limit_range: 39,
-                run_length2_limit_max: 24,
-                run_length2_limit_range: 25,
-                run_length3_limit_max: 17,
-                run_length3_limit_range: 18,
-                ..Default::default()
-            },
-        )
-    }
-
-    /// Instantiates a new TRNG peripheral driver with  256 samples of entropy.
-    pub fn new_blocking_256<T: Instance>(_peri: Peri<'d, T>) -> Self {
-        Self::new_inner(
-            _peri,
-            Config {
-                sample_size: 256,
-                retry_count: 1,
-                long_run_limit_max: 31,
-                monobit_limit_max: 171,
-                monobit_limit_range: 86,
-                run_length1_limit_max: 63,
-                run_length1_limit_range: 56,
-                run_length2_limit_max: 38,
-                run_length2_limit_range: 38,
-                run_length3_limit_max: 25,
-                run_length3_limit_range: 26,
-                ..Default::default()
-            },
-        )
-    }
-
-    /// Instantiates a new TRNG peripheral driver with 512 samples of entropy.
-    pub fn new_blocking_512<T: Instance>(_peri: Peri<'d, T>) -> Self {
-        Self::new_inner(_peri, Default::default())
-    }
-
     /// Instantiates a new TRNG peripheral driver.
     ///
     /// NOTE: this constructor makes no attempt at validating the
     /// parameters. If you get this wrong, the security guarantees of
     /// the TRNG with regards to entropy may be violated
-    pub fn new_blocking_with_custom_config<T: Instance>(_peri: Peri<'d, T>, config: Config) -> Self {
+    pub fn new_blocking<T: Instance>(_peri: Peri<'d, T>, config: Config) -> Self {
         Self::new_inner(_peri, config)
     }
 }
 
 impl<'d> Trng<'d, Async> {
-    /// Instantiates a new TRNG peripheral driver with 128 samples of entropy.
-    pub fn new_128<T: Instance>(
-        _peri: Peri<'d, T>,
-        _irq: impl crate::interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-    ) -> Self {
-        let inst = Self::new_inner(
-            _peri,
-            Config {
-                sample_size: 128,
-                retry_count: 1,
-                long_run_limit_max: 29,
-                monobit_limit_max: 94,
-                monobit_limit_range: 61,
-                run_length1_limit_max: 39,
-                run_length1_limit_range: 39,
-                run_length2_limit_max: 24,
-                run_length2_limit_range: 25,
-                run_length3_limit_max: 17,
-                run_length3_limit_range: 18,
-                ..Default::default()
-            },
-        );
-
-        T::Interrupt::unpend();
-        INT_STAT.store(0, Ordering::Release);
-        unsafe {
-            T::Interrupt::enable();
-        }
-        inst
-    }
-
-    /// Instantiates a new TRNG peripheral driver with 256 samples of entropy.
-    pub fn new_256<T: Instance>(
-        _peri: Peri<'d, T>,
-        _irq: impl crate::interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-    ) -> Self {
-        let inst = Self::new_inner(
-            _peri,
-            Config {
-                sample_size: 256,
-                retry_count: 1,
-                long_run_limit_max: 31,
-                monobit_limit_max: 171,
-                monobit_limit_range: 86,
-                run_length1_limit_max: 63,
-                run_length1_limit_range: 56,
-                run_length2_limit_max: 38,
-                run_length2_limit_range: 38,
-                run_length3_limit_max: 25,
-                run_length3_limit_range: 26,
-                ..Default::default()
-            },
-        );
-
-        T::Interrupt::unpend();
-        INT_STAT.store(0, Ordering::Release);
-        unsafe {
-            T::Interrupt::enable();
-        }
-        inst
-    }
-
-    /// Instantiates a new TRNG peripheral driver with 512 samples of entropy.
-    pub fn new_512<T: Instance>(
-        _peri: Peri<'d, T>,
-        _irq: impl crate::interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-    ) -> Self {
-        let inst = Self::new_inner(_peri, Default::default());
-
-        T::Interrupt::unpend();
-        INT_STAT.store(0, Ordering::Release);
-        unsafe {
-            T::Interrupt::enable();
-        }
-        inst
-    }
-
     /// Instantiates a new TRNG peripheral driver.
     ///
     /// NOTE: this constructor makes no attempt at validating the
     /// parameters. If you get this wrong, the security guarantees of
     /// the TRNG with regards to entropy may be violated
-    pub fn new_with_custom_config<T: Instance>(
+    pub fn new_async<T: Instance>(
         _peri: Peri<'d, T>,
         _irq: impl crate::interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
@@ -493,6 +399,9 @@ pub struct Config {
     /// Length (in system clocks) of each Entropy sample taken.
     pub entropy_delay: u16,
 
+    /// Enable or disable internal self-tests.
+    pub self_test: SelfTest,
+
     /// Frequency Counter Maximum Limit
     pub freq_counter_max: u32,
 
@@ -523,6 +432,24 @@ pub struct Config {
     /// Statistical check run length 3 limit range
     pub run_length3_limit_range: u16,
 
+    /// Statistical check run length 4 limit max
+    pub run_length4_limit_max: u16,
+
+    /// Statistical check run length 4 limit range
+    pub run_length4_limit_range: u16,
+
+    /// Statistical check run length 5 limit max
+    pub run_length5_limit_max: u16,
+
+    /// Statistical check run length 5 limit range
+    pub run_length5_limit_range: u16,
+
+    /// Statistical check run length 6 limit max
+    pub run_length6_limit_max: u16,
+
+    /// Statistical check run length 6 limit range
+    pub run_length6_limit_range: u16,
+
     /// Retry count
     pub retry_count: u8,
 
@@ -532,6 +459,9 @@ pub struct Config {
     /// Sparse bit limit
     pub sparse_bit_limit: u16,
 
+    /// Poker limit max
+    pub poker_limit_max: u32,
+
     /// Oscillator mode
     pub osc_mode: OscMode,
 }
@@ -539,21 +469,29 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            sample_size: 512,
+            sample_size: 1024,
             entropy_delay: 32_000,
+            self_test: SelfTest::Enabled,
             freq_counter_max: 75_000,
             freq_counter_min: 30_000,
-            monobit_limit_max: 317,
-            monobit_limit_range: 122,
-            run_length1_limit_max: 107,
-            run_length1_limit_range: 80,
-            run_length2_limit_max: 62,
-            run_length2_limit_range: 55,
-            run_length3_limit_max: 39,
-            run_length3_limit_range: 39,
-            retry_count: 1,
+            monobit_limit_max: 596,
+            monobit_limit_range: 169,
+            run_length1_limit_max: 187,
+            run_length1_limit_range: 112,
+            run_length2_limit_max: 105,
+            run_length2_limit_range: 77,
+            run_length3_limit_max: 97,
+            run_length3_limit_range: 64,
+            run_length4_limit_max: 0,
+            run_length4_limit_range: 0,
+            run_length5_limit_max: 0,
+            run_length5_limit_range: 0,
+            run_length6_limit_max: 0,
+            run_length6_limit_range: 0,
+            retry_count: 2,
             long_run_limit_max: 32,
             sparse_bit_limit: 0,
+            poker_limit_max: 0,
             osc_mode: OscMode::DualOscs,
         }
     }
@@ -572,6 +510,27 @@ pub enum SampleSize {
 
     /// 512 bits
     _512,
+}
+
+/// Enable or disable internal self-tests.
+#[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum SelfTest {
+    /// Disabled.
+    Disabled,
+
+    /// Enabled.
+    Enabled,
+}
+
+impl From<SelfTest> for bool {
+    fn from(value: SelfTest) -> Self {
+        match value {
+            SelfTest::Disabled => true,
+            SelfTest::Enabled => false,
+        }
+    }
 }
 
 /// Oscillator mode.
