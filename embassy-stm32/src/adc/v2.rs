@@ -202,19 +202,17 @@ impl super::AdcRegs for crate::pac::adc::Adc {
     }
 
     fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
-        self.cr2().modify(|reg| {
-            reg.set_adon(true);
-        });
-
-        // Check the sequence is long enough
-        self.sqr1().modify(|r| {
-            r.set_l((sequence.len() - 1).try_into().unwrap());
-        });
+        self.cr2().modify(|reg| reg.set_adon(true));
+        self.sqr1()
+            .modify(|r| r.set_l((sequence.len() - 1).try_into().unwrap()));
 
         for (i, ((ch, _), sample_time)) in sequence.enumerate() {
-            // Set the channel in the right sequence field.
-            self.sqr3().modify(|w| w.set_sq(i, ch));
-
+            match i {
+                0..=5 => self.sqr3().modify(|w| w.set_sq(i, ch)),
+                6..=11 => self.sqr2().modify(|w| w.set_sq(i - 6, ch)),
+                12..=15 => self.sqr1().modify(|w| w.set_sq(i - 12, ch)),
+                _ => unreachable!(),
+            }
             let sample_time = sample_time.into();
             if ch <= 9 {
                 self.smpr2().modify(|reg| reg.set_smp(ch as _, sample_time));
@@ -279,6 +277,151 @@ where
 
         Vbat {}
     }
+
+    fn turn(&mut self, on: bool) {
+        T::regs().cr2().modify(|reg| reg.set_adon(on));
+    }
+
+    fn is_on(&self) -> bool {
+        T::regs().cr2().read().adon()
+    }
+
+    /// Read one or multiple ADC channels using DMA in a one-shot transfer.
+    ///
+    /// The ADC channel sequence is programmed on each call. If you need to read the
+    /// same sequence repeatedly without reprogramming it each time, use
+    /// [`into_seq_reader`](Self::into_seq_reader) instead.
+    ///
+    /// # Parameters
+    /// - `rx_dma`: The DMA channel to use for the transfer.
+    /// - `irq`: DMA interrupt binding.
+    /// - `sequence`: Iterator of channels and sample times. Maximum 16 entries.
+    /// - `readings`: Output buffer. Must have the same length as `sequence`.
+    ///
+    /// # Returns
+    /// `Ok(())` on success, `Err(())` if the sequence or buffer lengths are invalid.
+    ///
+    /// # Notes
+    /// - Depending on hardware limitations, this method may require channels to be passed
+    ///   in order. This method will panic if the hardware cannot deliver the requested
+    ///   configuration.
+    pub async fn read<'ch, 'r, D: RxDma<T>>(
+        &mut self,
+        rx_dma: Peri<'_, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>,
+        sequence: impl ExactSizeIterator<Item = (&'r mut AnyAdcChannel<'ch, T>, SampleTime)>,
+        readings: &mut [u16],
+    ) -> Result<(), ()>
+    where
+        'ch: 'r,
+    {
+        if !self.is_on() {
+            self.turn(true);
+        }
+
+        let len = sequence.len();
+        if len == 0 || len > 16 || len != readings.len() {
+            return Err(());
+        }
+
+        T::regs().configure_sequence(sequence.map(|(ch, st)| ((ch.channel(), false), st)));
+
+        let r = T::regs();
+
+        r.sr().modify(|reg| {
+            reg.set_eoc(false);
+            reg.set_ovr(false);
+            reg.set_strt(false);
+        });
+        r.cr1().modify(|w| {
+            w.set_scan(true);
+            w.set_discen(false);
+        });
+        r.cr2().modify(|w| {
+            w.set_dma(true);
+            w.set_cont(false);
+            w.set_dds(vals::Dds::SINGLE);
+            w.set_eocs(vals::Eocs::EACH_CONVERSION);
+        });
+
+        let request = rx_dma.request();
+        let mut dma_ch = crate::dma::Channel::new(rx_dma, irq);
+        let transfer = unsafe { dma_ch.read(request, T::regs().data(), readings, Default::default()) };
+
+        r.cr2().modify(|w| w.set_swstart(true));
+        transfer.await;
+
+        r.cr2().modify(|w| w.set_dma(false));
+        r.cr1().modify(|w| w.set_scan(false));
+        r.sr().modify(|reg| {
+            reg.set_eoc(false);
+            reg.set_ovr(false);
+            reg.set_strt(false);
+        });
+
+        Ok(())
+    }
+
+    /// Configure an ADC channel sequence once and return a [`SeqReader`] for repeated
+    /// DMA reads without reprogramming the sequence each time.
+    ///
+    /// Use [`read`](Self::read) instead if you only need a single one-shot transfer.
+    ///
+    /// # Parameters
+    /// - `rx_dma`: The DMA channel to use for transfers.
+    /// - `sequence`: Iterator of channels and sample times. Maximum 16 entries.
+    /// - `readings`: Output buffer. Must have the same length as `sequence`.
+    ///
+    /// # Returns
+    /// `Ok(SeqReader)` on success, `Err(())` if the sequence or buffer lengths are invalid.
+    ///
+    /// # Notes
+    /// - The channel sequence is programmed into the ADC once here and remains fixed
+    ///   for the lifetime of the returned [`SeqReader`].
+    /// - Depending on hardware limitations, this method may require channels to be passed
+    ///   in order. This method will panic if the hardware cannot deliver the requested
+    ///   configuration.
+    pub fn into_seq_reader<'reader, 'ch, RXDMA: RxDma<T>>(
+        &'reader mut self,
+        rx_dma: Peri<'reader, RXDMA>,
+        sequence: impl ExactSizeIterator<Item = (&'reader mut AnyAdcChannel<'ch, T>, SampleTime)>,
+        readings: &'reader mut [u16],
+    ) -> Result<SeqReader<'reader, 'd, T, RXDMA>, ()>
+    where
+        'ch: 'reader,
+    {
+        if !self.is_on() {
+            self.turn(true);
+        }
+
+        let len = sequence.len();
+        if len == 0 || len > 16 || len != readings.len() {
+            return Err(());
+        }
+
+        T::regs().configure_sequence(sequence.map(|(ch, st)| ((ch.channel(), false), st)));
+
+        let r = T::regs();
+
+        r.sr().modify(|reg| {
+            reg.set_eoc(false);
+            reg.set_ovr(false);
+            reg.set_strt(false);
+        });
+        r.cr1().modify(|w| {
+            w.set_scan(true);
+            w.set_discen(false);
+        });
+        r.cr2().modify(|w| {
+            w.set_dma(true);
+            w.set_cont(false);
+            w.set_dds(vals::Dds::CONTINUOUS);
+            w.set_eocs(vals::Eocs::EACH_CONVERSION);
+        });
+
+        Ok(SeqReader::new(self, readings, rx_dma))
+    }
+
     /// Configures the ADC for injected conversions.
     ///
     /// Injected conversions are separate from the regular conversion sequence and are typically
@@ -452,6 +595,64 @@ where
         }
     }
 }
+
+impl<'a, 'd, T: Instance<Regs = crate::pac::adc::Adc>, RXDMA: RxDma<T>> Drop for SeqReader<'a, 'd, T, RXDMA> {
+    fn drop(&mut self) {
+        let r = T::regs();
+        r.cr2().modify(|w| w.set_dma(false));
+        r.cr1().modify(|w| w.set_scan(false));
+    }
+}
+
+/// Holds a configured ADC channel sequence and DMA channel for repeated reads.
+///
+/// Unlike [`Adc::read`], this type programs the ADC channel sequence only once at
+/// construction and reuses it across multiple [`read`](SeqReader::read) calls,
+/// avoiding the per-call overhead of reprogramming the sequence registers.
+///
+/// Obtain via [`Adc::into_seq_reader`].
+pub struct SeqReader<'a, 'd, T: Instance<Regs = crate::pac::adc::Adc>, RXDMA: RxDma<T>> {
+    _adc: &'a mut Adc<'d, T>,
+    buf: &'a mut [u16],
+    rx_dma: Peri<'a, RXDMA>,
+}
+
+impl<'a, 'd, T: Instance<Regs = crate::pac::adc::Adc>, RXDMA: RxDma<T>> SeqReader<'a, 'd, T, RXDMA> {
+    fn new(adc: &'a mut Adc<'d, T>, buf: &'a mut [u16], rx_dma: Peri<'a, RXDMA>) -> Self {
+        Self { _adc: adc, buf, rx_dma }
+    }
+
+    /// Trigger one conversion of the pre-configured channel sequence and wait for it to complete.
+    ///
+    /// Returns a slice over the results in the same order as the sequence passed to
+    /// [`Adc::into_seq_reader`].
+    pub async fn read(
+        &mut self,
+        irq: impl crate::interrupt::typelevel::Binding<RXDMA::Interrupt, crate::dma::InterruptHandler<RXDMA>>,
+    ) -> Result<&[u16], ()> {
+        T::regs().sr().modify(|reg| {
+            reg.set_eoc(false);
+            reg.set_ovr(false);
+            reg.set_strt(false);
+        });
+
+        let request = self.rx_dma.request();
+        let mut dma_ch = crate::dma::Channel::new(self.rx_dma.reborrow(), irq);
+        let transfer = unsafe { dma_ch.read(request, T::regs().data(), &mut self.buf, Default::default()) };
+
+        T::regs().cr2().modify(|w| w.set_swstart(true));
+        transfer.await;
+
+        T::regs().sr().modify(|reg| {
+            reg.set_eoc(false);
+            reg.set_ovr(false);
+            reg.set_strt(false);
+        });
+
+        Ok(&self.buf[..])
+    }
+}
+
 impl<'a, T: Instance<Regs = crate::pac::adc::Adc>, const N: usize> InjectedAdc<'a, T, N> {
     /// Read sampled data from all injected ADC injected ranks
     /// Clear the JEOC and JSTRT flags to allow a new injected sequence
