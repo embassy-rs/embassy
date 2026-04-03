@@ -62,6 +62,7 @@ impl<const N: usize> MultiWakerRegistration<N> {
     }
 
     /// Schedule the waking of a waker.
+    #[cfg(feature = "schedule-wake")]
     pub fn wake_at(&mut self, time: embassy_time::Instant) {
         // heapless::Vec has no `drain()`, do it unsafely ourselves...
 

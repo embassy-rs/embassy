@@ -27,14 +27,15 @@ src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-sync/
 target = "thumbv7em-none-eabi"
 
 [features]
+schedule-wake = ["dep:embassy-time", "dep:embassy-time-driver"]
 defmt = ["dep:defmt"]
 log = ["dep:log"]
 std = []
 turbowakers = []
 
 [dependencies]
-embassy-time = {version = "0.5.1", path = "../embassy-time"}
-embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver" }
+embassy-time = {version = "0.5.1", path = "../embassy-time", optional = true}
+embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", optional = true}
 
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
