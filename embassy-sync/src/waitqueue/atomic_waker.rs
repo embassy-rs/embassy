@@ -76,6 +76,6 @@ impl AtomicWaker {
 
     /// Schedule the waking of a waker.
     pub fn wake_at(&mut self, time: embassy_time::Instant) {
-            self.waker.wake_at(time);
+        self.waker.wake_at(time);
     }
 }
