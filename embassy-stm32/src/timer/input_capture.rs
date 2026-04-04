@@ -2,6 +2,7 @@
 
 use core::future::Future;
 use core::marker::PhantomData;
+use core::mem::ManuallyDrop;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
@@ -145,58 +146,110 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
         self.inner.get_input_interrupt(channel)
     }
 
-    fn new_future(&self, channel: Channel, mode: InputCaptureMode, tisel: InputTISelection) -> InputCaptureFuture<T> {
-        // Configuration steps from ST RM0390 (STM32F446) chapter 17.3.5
-        // or ST RM0008 (STM32F103) chapter 15.3.5 Input capture mode
-        self.inner.set_input_ti_selection(channel, tisel);
-        self.inner.set_input_capture_mode(channel, mode);
-        self.inner.enable_channel(channel, true);
-        self.inner.clear_input_interrupt(channel);
-        self.inner.enable_input_interrupt(channel, true);
-
-        InputCaptureFuture {
-            channel,
-            phantom: PhantomData,
-        }
-    }
-
     /// Asynchronously wait until the pin sees a rising edge.
     pub async fn wait_for_rising_edge(&mut self, channel: Channel) -> T::Word {
-        self.new_future(channel, InputCaptureMode::Rising, InputTISelection::Normal)
-            .await
+        self.channel(channel).wait_for_rising_edge().await
     }
 
     /// Asynchronously wait until the pin sees a falling edge.
     pub async fn wait_for_falling_edge(&mut self, channel: Channel) -> T::Word {
-        self.new_future(channel, InputCaptureMode::Falling, InputTISelection::Normal)
-            .await
+        self.channel(channel).wait_for_falling_edge().await
     }
 
     /// Asynchronously wait until the pin sees any edge.
     pub async fn wait_for_any_edge(&mut self, channel: Channel) -> T::Word {
-        self.new_future(channel, InputCaptureMode::BothEdges, InputTISelection::Normal)
-            .await
+        self.channel(channel).wait_for_any_edge().await
     }
 
     /// Asynchronously wait until the (alternate) pin sees a rising edge.
     pub async fn wait_for_rising_edge_alternate(&mut self, channel: Channel) -> T::Word {
-        self.new_future(channel, InputCaptureMode::Rising, InputTISelection::Alternate)
-            .await
+        self.channel(channel).wait_for_rising_edge_alternate().await
     }
 
     /// Asynchronously wait until the (alternate) pin sees a falling edge.
     pub async fn wait_for_falling_edge_alternate(&mut self, channel: Channel) -> T::Word {
-        self.new_future(channel, InputCaptureMode::Falling, InputTISelection::Alternate)
-            .await
+        self.channel(channel).wait_for_falling_edge_alternate().await
     }
 
     /// Asynchronously wait until the (alternate) pin sees any edge.
     pub async fn wait_for_any_edge_alternate(&mut self, channel: Channel) -> T::Word {
-        self.new_future(channel, InputCaptureMode::BothEdges, InputTISelection::Alternate)
-            .await
+        self.channel(channel).wait_for_any_edge_alternate().await
     }
 
-    /// Capture a sequence of timer input edges into a buffer using DMA
+    /// Get a single channel.
+    ///
+    /// If you need to use multiple channels, use [`Self::split`].
+    pub fn channel(&mut self, channel: Channel) -> InputCaptureChannel<'_, T> {
+        InputCaptureChannel {
+            inner: unsafe { self.inner.clone_unchecked() },
+            channel,
+            _pin: None,
+        }
+    }
+
+    /// Channel 1
+    ///
+    /// This is just a convenience wrapper around [`Self::channel`].
+    ///
+    /// If you need to use multiple channels, use [`Self::split`].
+    pub fn ch1(&mut self) -> InputCaptureChannel<'_, T> {
+        self.channel(Channel::Ch1)
+    }
+
+    /// Channel 2
+    ///
+    /// This is just a convenience wrapper around [`Self::channel`].
+    ///
+    /// If you need to use multiple channels, use [`Self::split`].
+    pub fn ch2(&mut self) -> InputCaptureChannel<'_, T> {
+        self.channel(Channel::Ch2)
+    }
+
+    /// Channel 3
+    ///
+    /// This is just a convenience wrapper around [`Self::channel`].
+    ///
+    /// If you need to use multiple channels, use [`Self::split`].
+    pub fn ch3(&mut self) -> InputCaptureChannel<'_, T> {
+        self.channel(Channel::Ch3)
+    }
+
+    /// Channel 4
+    ///
+    /// This is just a convenience wrapper around [`Self::channel`].
+    ///
+    /// If you need to use multiple channels, use [`Self::split`].
+    pub fn ch4(&mut self) -> InputCaptureChannel<'_, T> {
+        self.channel(Channel::Ch4)
+    }
+
+    /// Splits an [`InputCapture`] into four capture channels.
+    pub fn split(self) -> InputCaptureChannels<'static, T>
+    where
+        // must be static because the timer will never be dropped/disabled
+        'd: 'static,
+    {
+        // without this, the timer would be disabled at the end of this function
+        let timer = ManuallyDrop::new(self.inner);
+
+        let ch = |channel, pin| InputCaptureChannel {
+            inner: unsafe { timer.clone_unchecked() },
+            channel,
+            _pin: pin,
+        };
+
+        InputCaptureChannels {
+            ch1: ch(Channel::Ch1, self._ch1),
+            ch2: ch(Channel::Ch2, self._ch2),
+            ch3: ch(Channel::Ch3, self._ch3),
+            ch4: ch(Channel::Ch4, self._ch4),
+        }
+    }
+
+    /// Capture a sequence of timer input edges into a buffer using DMA.
+    ///
+    /// Note: DMA capture is only available on `InputCapture`, not on the per-channel
+    /// [`InputCaptureChannel`] handles returned by [`Self::split`].
     pub async fn receive_waveform<M, D: super::Dma<T, M>>(
         &mut self,
         dma: Peri<'_, D>,
@@ -239,6 +292,124 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
         if !original_enable_state {
             self.disable(M::CHANNEL);
         }
+    }
+}
+
+/// A group of four [`InputCaptureChannel`]s, obtained from [`InputCapture::split`].
+pub struct InputCaptureChannels<'d, T: GeneralInstance4Channel> {
+    /// Channel 1
+    pub ch1: InputCaptureChannel<'d, T>,
+    /// Channel 2
+    pub ch2: InputCaptureChannel<'d, T>,
+    /// Channel 3
+    pub ch3: InputCaptureChannel<'d, T>,
+    /// Channel 4
+    pub ch4: InputCaptureChannel<'d, T>,
+}
+
+/// A single channel of an input capture-configured timer, obtained from
+/// [`InputCapture::split`], [`InputCapture::channel`], [`InputCapture::ch1`], etc.
+pub struct InputCaptureChannel<'d, T: GeneralInstance4Channel> {
+    inner: ManuallyDrop<Timer<'d, T>>,
+    channel: Channel,
+    _pin: Option<Flex<'d>>,
+}
+
+impl<'d, T: GeneralInstance4Channel> InputCaptureChannel<'d, T> {
+    /// Enable this channel.
+    pub fn enable(&mut self) {
+        self.inner.enable_channel(self.channel, true);
+    }
+
+    /// Disable this channel.
+    pub fn disable(&mut self) {
+        self.inner.enable_channel(self.channel, false);
+    }
+
+    /// Check whether this channel is enabled.
+    pub fn is_enabled(&self) -> bool {
+        self.inner.get_channel_enable_state(self.channel)
+    }
+
+    /// Set the input capture mode for this channel.
+    pub fn set_input_capture_mode(&mut self, mode: InputCaptureMode) {
+        self.inner.set_input_capture_mode(self.channel, mode);
+    }
+
+    /// Set input TI selection for this channel.
+    pub fn set_input_ti_selection(&mut self, tisel: InputTISelection) {
+        self.inner.set_input_ti_selection(self.channel, tisel);
+    }
+
+    /// Set the input capture filter for this channel.
+    pub fn set_input_capture_filter(&mut self, filter: FilterValue) {
+        self.inner.set_input_capture_filter(self.channel, filter);
+    }
+
+    /// Set the input capture prescaler for this channel.
+    pub fn set_input_capture_prescaler(&mut self, factor: u8) {
+        self.inner.set_input_capture_prescaler(self.channel, factor);
+    }
+
+    /// Get capture value for this channel.
+    pub fn get_capture_value(&self) -> T::Word {
+        self.inner.get_capture_value(self.channel)
+    }
+
+    /// Get input interrupt for this channel.
+    pub fn get_input_interrupt(&self) -> bool {
+        self.inner.get_input_interrupt(self.channel)
+    }
+
+    fn new_future(&self, mode: InputCaptureMode, tisel: InputTISelection) -> InputCaptureFuture<T> {
+        // Configuration steps from ST RM0390 (STM32F446) chapter 17.3.5
+        // or ST RM0008 (STM32F103) chapter 15.3.5 Input capture mode
+        self.inner.set_input_ti_selection(self.channel, tisel);
+        self.inner.set_input_capture_mode(self.channel, mode);
+        self.inner.enable_channel(self.channel, true);
+        self.inner.clear_input_interrupt(self.channel);
+        self.inner.enable_input_interrupt(self.channel, true);
+
+        InputCaptureFuture {
+            channel: self.channel,
+            phantom: PhantomData,
+        }
+    }
+
+    /// Asynchronously wait until the pin sees a rising edge.
+    pub async fn wait_for_rising_edge(&mut self) -> T::Word {
+        self.new_future(InputCaptureMode::Rising, InputTISelection::Normal)
+            .await
+    }
+
+    /// Asynchronously wait until the pin sees a falling edge.
+    pub async fn wait_for_falling_edge(&mut self) -> T::Word {
+        self.new_future(InputCaptureMode::Falling, InputTISelection::Normal)
+            .await
+    }
+
+    /// Asynchronously wait until the pin sees any edge.
+    pub async fn wait_for_any_edge(&mut self) -> T::Word {
+        self.new_future(InputCaptureMode::BothEdges, InputTISelection::Normal)
+            .await
+    }
+
+    /// Asynchronously wait until the (alternate) pin sees a rising edge.
+    pub async fn wait_for_rising_edge_alternate(&mut self) -> T::Word {
+        self.new_future(InputCaptureMode::Rising, InputTISelection::Alternate)
+            .await
+    }
+
+    /// Asynchronously wait until the (alternate) pin sees a falling edge.
+    pub async fn wait_for_falling_edge_alternate(&mut self) -> T::Word {
+        self.new_future(InputCaptureMode::Falling, InputTISelection::Alternate)
+            .await
+    }
+
+    /// Asynchronously wait until the (alternate) pin sees any edge.
+    pub async fn wait_for_any_edge_alternate(&mut self) -> T::Word {
+        self.new_future(InputCaptureMode::BothEdges, InputTISelection::Alternate)
+            .await
     }
 }
 
