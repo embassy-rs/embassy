@@ -26,14 +26,14 @@ pub mod blocking;
 const EXTI_COUNT: usize = 16;
 static EXTI_WAKERS: [AtomicWaker; EXTI_COUNT] = [const { AtomicWaker::new() }; EXTI_COUNT];
 
-#[cfg(feature = "_dual-core")]
+#[cfg(any(feature = "_dual-core", exti_w))]
 #[inline(always)]
 fn cpu_regs() -> pac::exti::Cpu {
     use crate::cpu::CoreId;
     EXTI.cpu(CoreId::current().to_index())
 }
 
-#[cfg(not(feature = "_dual-core"))]
+#[cfg(not(any(feature = "_dual-core", exti_w)))]
 #[inline(always)]
 fn cpu_regs() -> pac::exti::Exti {
     EXTI
