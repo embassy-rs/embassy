@@ -24,6 +24,9 @@ ADC:
 COMP:
 - feat: stm32/comp: add support for comp_v1 (used on G0)
 
+Timer:
+- feat: stm32/timer/input_capture: add per-channel split API for concurrent multi-channel capture
+
 ## 0.6.0 - 2026-03-10
 
 ADC:
