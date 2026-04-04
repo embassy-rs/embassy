@@ -20,11 +20,20 @@ mod _version;
 #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba, adc_c0))]
 mod ringbuffered;
 
+#[cfg(any(
+    adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_wba, adc_c0, adc_v2
+))]
+mod configured_sequence;
+
 use core::marker::PhantomData;
 
 #[allow(unused)]
 #[cfg(not(any(adc_f3v3, adc_wba)))]
 pub use _version::*;
+#[cfg(any(
+    adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_wba, adc_c0, adc_v2
+))]
+pub use configured_sequence::ConfiguredSequence;
 #[allow(unused)]
 use embassy_hal_internal::PeripheralType;
 #[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2))]
@@ -210,6 +219,11 @@ pub(crate) enum ConversionMode {
     // Should match the cfg on "into_ring_buffered" below
     #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba, adc_c0))]
     Repeated(Option<(u8, Exten)>),
+    // Should match the cfg on "configured_sequence" below
+    #[cfg(any(
+        adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_wba, adc_c0, adc_v2
+    ))]
+    ConfiguredSequence,
 }
 
 impl<'d, T: Instance> Adc<'d, T> {
@@ -310,6 +324,56 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         // Ensure conversions are finished.
         T::regs().stop();
+    }
+
+    #[cfg(any(
+        adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_wba, adc_c0, adc_v2
+    ))]
+    /// Configure an ADC channel sequence once and return a [`ConfiguredSequence`] for repeated
+    /// DMA reads without reprogramming the sequence each time.
+    ///
+    /// Use [`Adc::read`] instead if you only need a single one-shot transfer.
+    ///
+    /// # Parameters
+    /// - `rx_dma`: The DMA channel to use for transfers.
+    /// - `sequence`: Iterator of channels and sample times. Maximum 16 entries.
+    /// - `buf`: Output buffer. Must have at least as many entries as `sequence`.
+    ///
+    /// # Returns
+    /// A [`ConfiguredSequence`] whose [`read`](ConfiguredSequence::read) method triggers one
+    /// DMA conversion of the pre-configured sequence per call.
+    ///
+    /// # Notes
+    /// - The channel sequence is programmed into the ADC sequence registers once here and
+    ///   remains fixed for the lifetime of the returned [`ConfiguredSequence`].
+    pub fn configured_sequence<'adc, 'ch, D: RxDma<T>>(
+        &'adc mut self,
+        rx_dma: crate::Peri<'adc, D>,
+        sequence: impl ExactSizeIterator<Item = (&'adc mut AnyAdcChannel<'ch, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
+        buf: &'adc mut [u16],
+    ) -> ConfiguredSequence<'adc, 'd, T, D>
+    where
+        'ch: 'adc,
+    {
+        assert!(sequence.len() != 0, "Sequence cannot be empty");
+        assert!(sequence.len() <= 16, "Sequence cannot be more than 16 in length");
+        assert!(
+            buf.len() >= sequence.len(),
+            "Buffer must have at least as many entries as the sequence"
+        );
+
+        // Ensure no conversions are ongoing
+        T::regs().stop();
+        T::regs().configure_sequence(
+            sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
+        );
+
+        T::regs().enable();
+
+        // Configure DMA once, reused across all subsequent read() calls.
+        T::regs().configure_dma(ConversionMode::ConfiguredSequence);
+
+        ConfiguredSequence::new(self, rx_dma, buf)
     }
 
     #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba, adc_c0))]

@@ -254,6 +254,24 @@ impl AdcRegs for crate::pac::adc::Adc4 {
                     }
                 });
             }
+            ConversionMode::ConfiguredSequence => {
+                // Keep DMA armed between reads; cont=SINGLE limits ADC to one sequence per adstart.
+                self.cfgr1().modify(|reg| {
+                    reg.set_dmaen(true);
+                    reg.set_dmacfg(Dmacfg::CIRCULAR);
+                    reg.set_discen(false);
+                    #[cfg(stm32u5)]
+                    {
+                        reg.set_cont(false);
+                        reg.set_chselrmod(false);
+                    }
+                    #[cfg(stm32wba)]
+                    {
+                        reg.set_cont(Cont::SINGLE);
+                        reg.set_chselrmod(Chselrmod::ENABLE_INPUT);
+                    }
+                });
+            }
             #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
             ConversionMode::Repeated(_) => unreachable!(),
             #[cfg(stm32wba)]

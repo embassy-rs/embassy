@@ -98,6 +98,16 @@ impl AdcRegs for crate::pac::adc::Adc {
                     reg.set_ovrmod(Ovrmod::PRESERVE);
                 });
             }
+            ConversionMode::ConfiguredSequence => {
+                // Keep DMA armed between reads; cont=false limits ADC to one sequence per adstart.
+                self.cfgr1().modify(|reg| {
+                    reg.set_discen(false);
+                    reg.set_cont(false);
+                    reg.set_dmacfg(Dmacfg::DMA_CIRCULAR);
+                    reg.set_dmaen(true);
+                    reg.set_ovrmod(Ovrmod::PRESERVE);
+                });
+            }
             ConversionMode::Repeated(trigger) => {
                 match trigger {
                     None => {
