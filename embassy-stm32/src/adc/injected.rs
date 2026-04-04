@@ -1,22 +1,17 @@
 use core::marker::PhantomData;
 use core::sync::atomic::{Ordering, compiler_fence};
 
-#[allow(unused_imports)]
-use embassy_hal_internal::Peri;
-
-use super::{AdcRegs, AnyAdcChannel, SampleTime};
-use crate::adc::Adc;
-#[allow(unused_imports)]
-use crate::adc::Instance;
+use super::AnyAdcChannel;
+use crate::adc::{BasicAdcRegs, InjectedAdcRegs, Instance, SealedInjectedAdcRegs};
 
 /// Injected ADC sequence with owned channels.
-pub struct InjectedAdc<'a, T: Instance<Regs = crate::pac::adc::Adc>, const N: usize> {
-    _channels: [(AnyAdcChannel<'a, T>, SampleTime); N],
+pub struct InjectedAdc<'a, T: Instance<Regs: InjectedAdcRegs>, const N: usize> {
+    _channels: [(AnyAdcChannel<'a, T>, <T::Regs as BasicAdcRegs>::SampleTime); N],
     _phantom: PhantomData<T>,
 }
 
-impl<'a, T: Instance<Regs = crate::pac::adc::Adc>, const N: usize> InjectedAdc<'a, T, N> {
-    pub(crate) fn new(channels: [(AnyAdcChannel<'a, T>, SampleTime); N]) -> Self {
+impl<'a, T: Instance<Regs: InjectedAdcRegs>, const N: usize> InjectedAdc<'a, T, N> {
+    pub(crate) fn new(channels: [(AnyAdcChannel<'a, T>, <T::Regs as BasicAdcRegs>::SampleTime); N]) -> Self {
         Self {
             _channels: channels,
             _phantom: PhantomData,
@@ -24,21 +19,21 @@ impl<'a, T: Instance<Regs = crate::pac::adc::Adc>, const N: usize> InjectedAdc<'
     }
 
     pub fn stop_injected_conversions(&mut self) {
-        Adc::<T>::stop_injected_conversions()
+        T::regs().stop_injected();
     }
 
     pub fn start_injected_conversions(&mut self) {
-        Adc::<T>::start_injected_conversions()
+        T::regs().start_injected();
     }
 
-    pub fn read_injected_samples(&mut self) -> [u16; N] {
-        InjectedAdc::<T, N>::read_injected_data()
+    pub fn read_injected_samples(&mut self, data: &mut [u16; N]) {
+        T::regs().read_injected(&mut data[..]);
     }
 }
 
-impl<'a, T: Instance<Regs = crate::pac::adc::Adc>, const N: usize> Drop for InjectedAdc<'a, T, N> {
+impl<'a, T: Instance<Regs: InjectedAdcRegs>, const N: usize> Drop for InjectedAdc<'a, T, N> {
     fn drop(&mut self) {
-        T::regs().stop();
+        T::regs().stop_injected();
         compiler_fence(Ordering::SeqCst);
     }
 }
