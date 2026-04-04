@@ -1,8 +1,7 @@
-use core::mem;
 use core::sync::atomic::{Ordering, compiler_fence};
 
 use super::{AnyAdcChannel, ConversionMode, Temperature, Vbat, VrefInt, blocking_delay_us};
-use crate::adc::{Adc, AdcRegs, InjectedAdcTrigger, Instance, Resolution, SampleTime, SealedAdcChannel};
+use crate::adc::{Adc, AdcRegs, DefaultInstance, Instance, Resolution, SampleTime, SealedInjectedAdcRegs};
 use crate::pac::adc::vals;
 pub use crate::pac::adccommon::vals::Adcpre;
 use crate::time::Hertz;
@@ -23,7 +22,7 @@ pub const VREF_DEFAULT_MV: u32 = 3300;
 /// VREF voltage used for factory calibration of VREFINTCAL register.
 pub const VREF_CALIB_MV: u32 = 3300;
 
-const NR_INJECTED_RANKS: usize = 4;
+pub const NR_INJECTED_RANKS: usize = 4;
 
 impl super::SealedSpecialConverter<super::VrefInt> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 17;
@@ -80,7 +79,7 @@ pub struct AdcConfig {
     pub resolution: Option<Resolution>,
 }
 
-impl super::AdcRegs for crate::pac::adc::Adc {
+impl AdcRegs for crate::pac::adc::Adc {
     fn data(&self) -> *mut u16 {
         crate::pac::adc::Adc::dr(*self).as_ptr() as *mut u16
     }
@@ -223,10 +222,82 @@ impl super::AdcRegs for crate::pac::adc::Adc {
     }
 }
 
-impl<'d, T> Adc<'d, T>
-where
-    T: Instance<Regs = crate::pac::adc::Adc>,
-{
+impl SealedInjectedAdcRegs for crate::pac::adc::Adc {
+    fn configure_injected_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>) {
+        let len: u8 = sequence.len().try_into().unwrap();
+        self.cr1().modify(|w| w.set_jauto(false));
+        // Set injected sequence length
+        self.jsqr().modify(|w| w.set_jl(len - 1));
+
+        for (n, ((channel, _), sample_time)) in sequence.enumerate() {
+            let sample_time = sample_time.clone().into();
+            if channel <= 9 {
+                self.smpr2().modify(|reg| reg.set_smp(channel as _, sample_time));
+            } else {
+                self.smpr1().modify(|reg| reg.set_smp((channel - 10) as _, sample_time));
+            }
+
+            // On adc_v2/F4, injected JSQ rank field placement depends on the
+            // programmed sequence length (JL). ST's HAL uses:
+            //   shift = 5 * ((rank + 3) - sequence_len)
+            // with rank starting at 1.
+            let idx = n + (4usize - len as usize);
+
+            self.jsqr().modify(|w| w.set_jsq(idx, channel));
+        }
+    }
+
+    fn configure_injected_trigger(&self, trigger: (u8, vals::Exten), interrupt: bool) {
+        self.cr1().modify(|w| {
+            w.set_scan(true);
+            w.set_jdiscen(false);
+            w.set_jeocie(interrupt);
+        });
+        self.cr2().modify(|w| {
+            w.set_jextsel(trigger.0);
+            w.set_jexten(trigger.1);
+        });
+    }
+
+    fn start_injected(&self) {
+        self.sr().modify(|w| {
+            w.set_jeoc(false);
+            w.set_jstrt(false);
+        });
+
+        // On STM32F4 adc_v2, externally-triggered injected conversions are armed
+        // by JEXTEN and start on the next trigger event. JSWSTART is only valid
+        // for pure software-triggered injected conversions.
+        if self.cr2().read().jexten() == vals::Exten::DISABLED {
+            self.cr2().modify(|w| w.set_jswstart(true));
+        }
+    }
+
+    fn stop_injected(&self) {
+        // No true "abort injected conversion" primitive on adc_v2.
+        // Best practical stop: disable external injected triggering.
+        self.cr2().modify(|w| w.set_jexten(vals::Exten::DISABLED));
+        self.cr1().modify(|w| w.set_jeocie(false));
+        self.sr().modify(|w| {
+            w.set_jeoc(false);
+            w.set_jstrt(false);
+        });
+    }
+
+    fn read_injected(&self, data: &mut [u16]) {
+        for (i, d) in data.iter_mut().enumerate() {
+            *d = self.jdr(i).read().jdata();
+        }
+
+        // Clear JEOC and JSTRT
+        self.sr().modify(|w| {
+            w.set_jeoc(false);
+            w.set_jstrt(false);
+        });
+    }
+}
+
+impl<'d, T: DefaultInstance> Adc<'d, T> {
     pub fn new(adc: Peri<'d, T>) -> Self {
         Self::new_with_config(adc, Default::default())
     }
@@ -276,132 +347,6 @@ where
         });
 
         Vbat {}
-    }
-    /// Configures the ADC for injected conversions.
-    ///
-    /// Injected conversions are separate from the regular conversion sequence and are typically
-    /// triggered by software or an external event. This method sets up a fixed-length sequence of
-    /// injected channels with specified sample times, the trigger source, and whether the end-of-sequence
-    /// interrupt should be enabled.
-    ///
-    /// # Parameters
-    /// - `sequence`: An array of tuples containing the ADC channels and their sample times. The length
-    ///   `N` determines the number of injected ranks to configure (maximum 4 for STM32).
-    /// - `trigger`: The trigger source that starts the injected conversion sequence.
-    /// - `interrupt`: If `true`, enables the end-of-sequence (JEOS) interrupt for injected conversions.
-    ///
-    /// # Returns
-    /// An `InjectedAdc<T, N>` instance that represents the configured injected sequence. The returned
-    /// type encodes the sequence length `N` in its type, ensuring that reads return exactly `N` samples.
-    ///
-    /// # Panics
-    /// This function will panic if:
-    /// - `sequence` is empty.
-    /// - `sequence` length exceeds the maximum number of injected ranks (`NR_INJECTED_RANKS`).
-    ///
-    /// # Notes
-    /// - Injected conversions can run independently of regular ADC conversions.
-    /// - The order of channels in `sequence` determines the rank order in the injected sequence.
-    /// - Accessing samples beyond `N` will result in a panic; use the returned type
-    ///   `InjectedAdc<T, N>` to enforce bounds at compile time.
-    pub fn setup_injected_conversions<'a, const N: usize>(
-        self,
-        sequence: [(AnyAdcChannel<'a, T>, SampleTime); N],
-        trigger: InjectedAdcTrigger<T>,
-        interrupt: bool,
-    ) -> InjectedAdc<'a, T, N> {
-        assert!(N != 0, "Read sequence cannot be empty");
-        assert!(
-            N <= NR_INJECTED_RANKS,
-            "Read sequence cannot be more than {} in length",
-            NR_INJECTED_RANKS
-        );
-
-        T::regs().enable();
-
-        T::regs().cr1().modify(|w| w.set_jauto(false));
-        // Set injected sequence length
-        T::regs().jsqr().modify(|w| w.set_jl(N as u8 - 1));
-
-        for (n, (channel, sample_time)) in sequence.iter().enumerate() {
-            let sample_time = sample_time.clone().into();
-            if channel.channel() <= 9 {
-                T::regs()
-                    .smpr2()
-                    .modify(|reg| reg.set_smp(channel.channel() as _, sample_time));
-            } else {
-                T::regs()
-                    .smpr1()
-                    .modify(|reg| reg.set_smp((channel.channel() - 10) as _, sample_time));
-            }
-
-            // On adc_v2/F4, injected JSQ rank field placement depends on the
-            // programmed sequence length (JL). ST's HAL uses:
-            //   shift = 5 * ((rank + 3) - sequence_len)
-            // with rank starting at 1.
-            let idx = n + (4 - N);
-
-            T::regs().jsqr().modify(|w| w.set_jsq(idx, channel.channel()));
-        }
-
-        T::regs().cr1().modify(|w| {
-            w.set_scan(true);
-            w.set_jdiscen(false);
-            w.set_jeocie(interrupt);
-        });
-        T::regs().cr2().modify(|w| {
-            w.set_jextsel(trigger._trigger);
-            w.set_jexten(trigger._edge);
-        });
-
-        Self::start_injected_conversions();
-
-        mem::forget(self);
-
-        InjectedAdc::new(sequence) // InjectedAdc<'a, T, N> now borrows the channels
-    }
-
-    /// Stop injected conversions
-    pub(super) fn stop_injected_conversions() {
-        // No true "abort injected conversion" primitive on adc_v2.
-        // Best practical stop: disable external injected triggering.
-        T::regs().cr2().modify(|w| w.set_jexten(vals::Exten::DISABLED));
-        T::regs().cr1().modify(|w| w.set_jeocie(false));
-        T::regs().sr().modify(|w| {
-            w.set_jeoc(false);
-            w.set_jstrt(false);
-        });
-    }
-    /// Start injected ADC conversion
-    pub(super) fn start_injected_conversions() {
-        T::regs().sr().modify(|w| {
-            w.set_jeoc(false);
-            w.set_jstrt(false);
-        });
-
-        // On STM32F4 adc_v2, externally-triggered injected conversions are armed
-        // by JEXTEN and start on the next trigger event. JSWSTART is only valid
-        // for pure software-triggered injected conversions.
-        if T::regs().cr2().read().jexten() == vals::Exten::DISABLED {
-            T::regs().cr2().modify(|w| w.set_jswstart(true));
-        }
-    }
-}
-impl<'a, T: Instance<Regs = crate::pac::adc::Adc>, const N: usize> InjectedAdc<'a, T, N> {
-    /// Read sampled data from all injected ADC injected ranks
-    /// Clear the JEOC and JSTRT flags to allow a new injected sequence
-    pub(super) fn read_injected_data() -> [u16; N] {
-        let mut data = [0u16; N];
-        for i in 0..N {
-            data[i] = T::regs().jdr(i).read().jdata();
-        }
-
-        // Clear JEOC and JSTRT
-        T::regs().sr().modify(|w| {
-            w.set_jeoc(false);
-            w.set_jstrt(false);
-        });
-        data
     }
 }
 

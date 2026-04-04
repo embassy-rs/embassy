@@ -147,7 +147,8 @@ async fn main(_spawner: embassy_executor::Spawner) {
 unsafe fn ADC1_2() {
     critical_section::with(|cs| {
         if let Some(injected_adc) = ADC1_HANDLE.borrow(cs).borrow_mut().as_mut() {
-            let injected_data = injected_adc.read_injected_samples();
+            let mut injected_data = [0u16; 1];
+            injected_adc.read_injected_samples(&mut injected_data);
             info!("Injected reading of PA2: {}", injected_data[0]);
         }
     });
