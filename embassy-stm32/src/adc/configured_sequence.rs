@@ -1,7 +1,9 @@
+use core::sync::atomic::{Ordering, compiler_fence};
+
+use embassy_hal_internal::Peri;
+
 use super::AdcRegs;
 use crate::adc::{Instance, RxDma};
-use core::sync::atomic::{Ordering, compiler_fence};
-use embassy_hal_internal::Peri;
 
 /// An ADC with a pre-configured channel sequence for repeated DMA reads.
 ///
