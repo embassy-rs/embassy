@@ -396,8 +396,8 @@ pub fn init(config: Config) -> Peripherals {
 mod dual_core {
     use core::cell::UnsafeCell;
     use core::mem::MaybeUninit;
-    use core::sync::atomic::{AtomicUsize, Ordering};
 
+    use hsem::HardwareSemaphoreChannel;
     use rcc::Clocks;
 
     use super::*;
@@ -419,7 +419,6 @@ mod dual_core {
     /// This static must be placed in the same position for both cores. How and where this is done is left to the user.
     #[repr(C)]
     pub struct SharedData {
-        init_flag: AtomicUsize,
         clocks: UnsafeCell<MaybeUninit<Clocks>>,
         config: UnsafeCell<MaybeUninit<SharedConfig>>,
         #[cfg(feature = "low-power")]
@@ -427,8 +426,6 @@ mod dual_core {
     }
 
     unsafe impl Sync for SharedData {}
-
-    const INIT_DONE_FLAG: usize = 0xca11ab1e;
 
     /// Initialize the `embassy-stm32` HAL with the provided configuration.
     /// This function does the actual initialization of the hardware, in contrast to [init_secondary] or [try_init_secondary].
@@ -438,24 +435,36 @@ mod dual_core {
     ///
     /// This should only be called once at startup, otherwise it panics.
     ///
-    /// The `shared_data` is used to coordinate the init with the second core. Read the [SharedData] docs
-    /// for more information on its requirements.
+    /// A hardware semaphore is used to coordinate the init with the second core.
     pub fn init_primary(config: Config, shared_data: &'static MaybeUninit<SharedData>) -> Peripherals {
         let shared_data = unsafe { shared_data.assume_init_ref() };
 
-        // Write the flag as soon as possible. Reading this flag uninitialized in the `init_secondary`
-        // is maybe unsound? Unclear. If it is indeed unsound, writing it sooner doesn't fix it all,
-        // but improves the odds of it going right
-        shared_data.init_flag.store(0, Ordering::SeqCst);
+        // Enable hardware semaphore.
+        // Attempting to reset is a race condition, as the second core may be using HSEM and deadlock.
+        critical_section::with(|cs| {
+            rcc::enable_with_cs::<peripherals::HSEM>(cs);
+        });
+
+        #[cfg(stm32h7)]
+        {
+            use stm32_metapac::RCC;
+
+            use super::cpu::CoreId;
+
+            // Wait for secondary core clocks
+            match CoreId::current() {
+                CoreId::Core0 => while RCC.cr().read().d2ckrdy() == false {},
+                CoreId::Core1 => while RCC.cr().read().d1ckrdy() == false {},
+            }
+        }
 
         rcc::set_freqs_ptr(shared_data.clocks.get());
         #[cfg(feature = "low-power")]
         rcc::set_rcc_config_ptr(shared_data.rcc_config.get());
         let p = init_hw(config);
 
-        unsafe { *shared_data.config.get() }.write(config.into());
-
-        shared_data.init_flag.store(INIT_DONE_FLAG, Ordering::SeqCst);
+        let mut hsem = HardwareSemaphoreChannel::<'_, peripherals::HSEM>::new(1);
+        hsem.blocking_notify();
 
         p
     }
@@ -467,17 +476,17 @@ mod dual_core {
     ///
     /// This should only be called once at startup, otherwise it may panic.
     ///
-    /// The `shared_data` is used to coordinate the init with the second core. Read the [SharedData] docs
-    /// for more information on its requirements.
+    /// A hardware semaphore is used to coordinate the init with the second core.
     pub fn try_init_secondary(shared_data: &'static MaybeUninit<SharedData>) -> Option<Peripherals> {
+        critical_section::with(|cs| {
+            rcc::enable_with_cs::<peripherals::HSEM>(cs);
+        });
+
+        // Wait for the semaphore to be unlocked by the primary core
+        let mut hsem = HardwareSemaphoreChannel::<'_, peripherals::HSEM>::new(1);
+        hsem.blocking_listen();
+
         let shared_data = unsafe { shared_data.assume_init_ref() };
-
-        if shared_data.init_flag.load(Ordering::SeqCst) != INIT_DONE_FLAG {
-            return None;
-        }
-
-        // Separate load and store to support the CM0 of the STM32WL
-        shared_data.init_flag.store(0, Ordering::SeqCst);
 
         Some(init_secondary_hw(shared_data))
     }
@@ -519,7 +528,10 @@ mod dual_core {
                     config.gpdma_interrupt_priority,
                     #[cfg(mdma)]
                     config.mdma_interrupt_priority,
-                )
+                );
+
+                #[cfg(feature = "exti")]
+                exti::init(cs);
             }
 
             #[cfg(feature = "_time-driver")]
