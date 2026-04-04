@@ -86,6 +86,7 @@ perf-client = { path = "../perf-client" }
 
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
+dsp-fixedpoint = { version = "0.1.0", default-features = false }
 
 cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7.0"

@@ -31,6 +31,7 @@ heapless = { version = "0.9", default-features = false }
 critical-section = "1.1"
 micromath = "2.0.0"
 stm32-fmc = "0.4.0"
+dsp-fixedpoint = { version = "0.1.0", default-features = false }
 embedded-storage = "0.3.1"
 static_cell = "2"
 
