@@ -182,9 +182,6 @@ pub use crate::_generated::interrupt;
 pub mod triggers {
     #[allow(unused_imports)]
     pub use crate::_generated::triggers::*;
-
-    /// Represents no trigger
-    pub struct NoTrigger;
 }
 
 /// Macro to bind interrupts to handlers.

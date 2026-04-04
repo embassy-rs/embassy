@@ -2,7 +2,7 @@ use core::mem;
 use core::sync::atomic::{Ordering, compiler_fence};
 
 use super::{AnyAdcChannel, ConversionMode, Temperature, Vbat, VrefInt, blocking_delay_us};
-use crate::adc::{Adc, AdcRegs, InjectedTrigger, Instance, Resolution, SampleTime, SealedAdcChannel};
+use crate::adc::{Adc, AdcRegs, InjectedAdcTrigger, Instance, Resolution, SampleTime, SealedAdcChannel};
 use crate::pac::adc::vals;
 pub use crate::pac::adccommon::vals::Adcpre;
 use crate::time::Hertz;
@@ -10,7 +10,6 @@ use crate::{Peri, rcc};
 
 mod injected;
 pub use injected::InjectedAdc;
-use stm32_metapac::adc::vals::Exten;
 
 fn clear_interrupt_flags(r: crate::pac::adc::Adc) {
     r.sr().modify(|regs| {
@@ -308,7 +307,7 @@ where
     pub fn setup_injected_conversions<'a, const N: usize>(
         self,
         sequence: [(AnyAdcChannel<'a, T>, SampleTime); N],
-        trigger: (impl InjectedTrigger<T>, Exten),
+        trigger: InjectedAdcTrigger<T>,
         interrupt: bool,
     ) -> InjectedAdc<'a, T, N> {
         assert!(N != 0, "Read sequence cannot be empty");
@@ -351,8 +350,8 @@ where
             w.set_jeocie(interrupt);
         });
         T::regs().cr2().modify(|w| {
-            w.set_jextsel(trigger.0.signal());
-            w.set_jexten(trigger.1);
+            w.set_jextsel(trigger._trigger);
+            w.set_jexten(trigger._edge);
         });
 
         Self::start_injected_conversions();
