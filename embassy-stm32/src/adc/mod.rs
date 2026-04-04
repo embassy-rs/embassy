@@ -50,7 +50,6 @@ pub use crate::pac::adc::vals::Exten;
 pub use crate::pac::adc::vals::Res as Resolution;
 pub use crate::pac::adc::vals::SampleTime;
 use crate::peripherals;
-use crate::triggers::NoTrigger;
 
 dma_trait!(RxDma, Instance);
 
@@ -58,9 +57,36 @@ dma_trait!(RxDma, Instance);
 /// Trigger edge stub.
 pub struct Exten;
 
-/// Type-checked representation of no trigger
-pub fn trigger_none<T>() -> Option<(NoTrigger, T)> {
-    None
+pub struct RegularAdcTrigger<T: Instance> {
+    _trigger: u8,
+    _edge: Exten,
+    _typ: PhantomData<T>,
+}
+
+impl<T: Instance> RegularAdcTrigger<T> {
+    pub fn from(trigger: impl RegularTrigger<T>, edge: Exten) -> Option<Self> {
+        Some(Self {
+            _trigger: trigger.signal(),
+            _edge: edge,
+            _typ: PhantomData,
+        })
+    }
+}
+
+pub struct InjectedAdcTrigger<T: Instance> {
+    _trigger: u8,
+    _edge: Exten,
+    _typ: PhantomData<T>,
+}
+
+impl<T: Instance> InjectedAdcTrigger<T> {
+    pub fn from(trigger: impl InjectedTrigger<T>, edge: Exten) -> Self {
+        Self {
+            _trigger: trigger.signal(),
+            _edge: edge,
+            _typ: PhantomData,
+        }
+    }
 }
 
 /// Analog to Digital driver.
@@ -319,7 +345,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         dma_buf: &'a mut [u16],
         irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
         sequence: impl ExactSizeIterator<Item = (AnyAdcChannel<'b, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
-        trigger: Option<(impl RegularTrigger<T>, Exten)>,
+        trigger: Option<RegularAdcTrigger<T>>,
     ) -> RingBufferedAdc<'a, T> {
         let sequence_len = sequence.len();
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
@@ -339,7 +365,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         );
 
         T::regs().enable();
-        T::regs().configure_dma(ConversionMode::Repeated(trigger.map(|t| (t.0.signal(), t.1))));
+        T::regs().configure_dma(ConversionMode::Repeated(trigger.map(|t| (t._trigger, t._edge))));
 
         core::mem::forget(self);
 
@@ -381,9 +407,9 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         dma_buf: &'a mut [u16],
         _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
         regular_sequence: impl ExactSizeIterator<Item = (AnyAdcChannel<'b, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
-        regular_trigger: Option<(impl RegularTrigger<T>, Exten)>,
+        regular_trigger: Option<RegularAdcTrigger<T>>,
         injected_sequence: [(AnyAdcChannel<'b, T>, SampleTime); N],
-        injected_trigger: (impl InjectedTrigger<T>, Exten),
+        injected_trigger: InjectedAdcTrigger<T>,
         injected_interrupt: bool,
     ) -> (RingBufferedAdc<'a, T>, InjectedAdc<'b, T, N>) {
         unsafe {

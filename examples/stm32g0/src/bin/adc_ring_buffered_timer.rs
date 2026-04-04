@@ -13,7 +13,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::{Adc, AdcChannel as _, Clock, Presc, SampleTime};
+use embassy_stm32::adc::{Adc, AdcChannel as _, Clock, Presc, RegularAdcTrigger, SampleTime};
 use embassy_stm32::pac::adc::vals::Exten;
 use embassy_stm32::peripherals::DMA1_CH1;
 use embassy_stm32::time::Hertz;
@@ -81,7 +81,7 @@ async fn main(_spawner: Spawner) {
         &mut dma_buf,
         Irqs,
         sequence,
-        Some((TIM1_TRGO2, Exten::RISING_EDGE)), // Timer 1 TRGO2 as trigger source and Trigger on rising edge (can also use FALLING_EDGE or BOTH_EDGES)
+        RegularAdcTrigger::from(TIM1_TRGO2, Exten::RISING_EDGE), // Timer 1 TRGO2 as trigger source and Trigger on rising edge (can also use FALLING_EDGE or BOTH_EDGES)
     );
 
     // Start ADC conversions and DMA transfer

@@ -9,7 +9,9 @@
 use core::cell::RefCell;
 
 use defmt::info;
-use embassy_stm32::adc::{Adc, AdcChannel as _, Exten, InjectedAdc, SampleTime, VrefInt};
+use embassy_stm32::adc::{
+    Adc, AdcChannel as _, Exten, InjectedAdc, InjectedAdcTrigger, RegularAdcTrigger, SampleTime, VrefInt,
+};
 use embassy_stm32::interrupt::typelevel::{ADC1_2, Interrupt};
 use embassy_stm32::peripherals::ADC1;
 use embassy_stm32::time::Hertz;
@@ -107,9 +109,9 @@ async fn main(_spawner: embassy_executor::Spawner) {
         &mut readings,
         Irqs,
         regular_sequence,
-        Some((TIM1_TRGO2, Exten::RISING_EDGE)),
+        RegularAdcTrigger::from(TIM1_TRGO2, Exten::RISING_EDGE),
         injected_sequence,
-        (TIM1_TRGO2, Exten::RISING_EDGE),
+        InjectedAdcTrigger::from(TIM1_TRGO2, Exten::RISING_EDGE),
         true,
     );
 

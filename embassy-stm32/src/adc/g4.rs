@@ -9,7 +9,7 @@ use pac::adc::vals::{Adcaldif, Difsel, Exten};
 pub use pac::adccommon::vals::{Dual, Presc};
 
 use super::{Adc, AnyAdcChannel, ConversionMode, Instance, Resolution, SampleTime, blocking_delay_us};
-use crate::adc::{AdcRegs, InjectedTrigger, SealedAdcChannel};
+use crate::adc::{AdcRegs, InjectedAdcTrigger, SealedAdcChannel};
 use crate::pac::adc::regs::{Smpr, Smpr2, Sqr1, Sqr2, Sqr3, Sqr4};
 use crate::time::Hertz;
 use crate::{Peri, pac, rcc};
@@ -396,7 +396,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     pub fn setup_injected_conversions<'a, const N: usize>(
         self,
         sequence: [(AnyAdcChannel<'a, T>, SampleTime); N],
-        trigger: (impl InjectedTrigger<T>, Exten),
+        trigger: InjectedAdcTrigger<T>,
         interrupt: bool,
     ) -> InjectedAdc<'a, T, N> {
         assert!(N != 0, "Read sequence cannot be empty");
@@ -438,8 +438,8 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
         // Set external trigger for injected conversion sequence
         // Possible trigger values are seen in Table 167 in RM0440 Rev 9
         T::regs().jsqr().modify(|r| {
-            r.set_jextsel(trigger.0.signal());
-            r.set_jexten(trigger.1);
+            r.set_jextsel(trigger._trigger);
+            r.set_jexten(trigger._edge);
         });
 
         // Enable end of injected sequence interrupt

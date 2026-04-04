@@ -5,7 +5,7 @@ use cortex_m::prelude::_embedded_hal_blocking_delay_DelayUs;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::vals::Exten;
-use embassy_stm32::adc::{Adc, AdcChannel, SampleTime, Temperature, VrefInt};
+use embassy_stm32::adc::{Adc, AdcChannel, RegularAdcTrigger, SampleTime, Temperature, VrefInt};
 use embassy_stm32::triggers::TIM1_CH1;
 use embassy_stm32::{bind_interrupts, dma, peripherals};
 use embassy_time::{Delay, Timer};
@@ -28,7 +28,7 @@ async fn main(_spawner: Spawner) {
         &mut adc_dma_buf,
         Irqs,
         [(p.PA0.degrade_adc(), SampleTime::CYCLES112)].into_iter(),
-        Some((TIM1_CH1, Exten::RISING_EDGE)),
+        RegularAdcTrigger::from(TIM1_CH1, Exten::RISING_EDGE),
     );
     adc_ring_buffered.start();
 
