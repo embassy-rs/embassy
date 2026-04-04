@@ -161,6 +161,16 @@ impl AdcRegs for crate::pac::adc::Adc {
                     reg.set_dmngt(Dmngt::DMA_ONE_SHOT);
                 });
             }
+            ConversionMode::ConfiguredSequence => {
+                self.isr().modify(|reg| {
+                    reg.set_ovr(true);
+                });
+                // Keep DMA armed between reads; cont=false limits ADC to one sequence per adstart.
+                self.cfgr().modify(|reg| {
+                    reg.set_cont(false);
+                    reg.set_dmngt(Dmngt::DMA_CIRCULAR);
+                });
+            }
             #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
             _ => unreachable!(),
         }

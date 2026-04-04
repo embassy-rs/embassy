@@ -146,38 +146,46 @@ impl super::AdcRegs for crate::pac::adc::Adc {
 
     fn configure_dma(&self, conversion_mode: ConversionMode) {
         let r = self;
-        // Clear all interrupts
+
+        // Clear all status flags before configuring DMA.
         r.sr().modify(|regs| {
             regs.set_eoc(false);
             regs.set_ovr(false);
             regs.set_strt(false);
         });
-
+        let is_repeated = matches!(conversion_mode, ConversionMode::Repeated(_));
         r.cr1().modify(|w| {
-            // Enable interrupt for end of conversion
-            w.set_eocie(true);
-            // Enable interrupt for overrun
-            w.set_ovrie(true);
-            // Scanning conversions of multiple channels
+            // Enable end of conversion interrupt only in repeated mode.
+            w.set_eocie(is_repeated);
+            // Enable overrun interrupt only in repeated mode.
+            w.set_ovrie(is_repeated);
+            // Scanning conversions of multiple channels.
             w.set_scan(true);
-            // Continuous conversion mode
+            // Disable discontinuous mode.
             w.set_discen(false);
         });
 
         r.cr2().modify(|w| {
             // Enable DMA mode
             w.set_dma(true);
-            // DMA requests are issues as long as DMA=1 and data are converted.
             w.set_dds(match conversion_mode {
+                // SINGLE: DMA requests stop after the sequence completes (one-shot).
                 ConversionMode::Singular => vals::Dds::SINGLE,
+                // CONTINUOUS: DMA stays armed between reads; cont=false below limits
+                // the ADC to one sequence per SWSTART.
+                ConversionMode::ConfiguredSequence => vals::Dds::CONTINUOUS,
+                // CONTINUOUS: DMA requests keep being issued as long as DMA=1 and data are converted.
                 ConversionMode::Repeated(_) => vals::Dds::CONTINUOUS,
             });
             // EOC flag is set at the end of each conversion.
             w.set_eocs(vals::Eocs::EACH_CONVERSION);
         });
 
-        if let ConversionMode::Repeated(trigger) = conversion_mode {
-            match trigger {
+        match conversion_mode {
+            ConversionMode::Singular | ConversionMode::ConfiguredSequence => {
+                r.cr2().modify(|w| w.set_cont(false));
+            }
+            ConversionMode::Repeated(trigger) => match trigger {
                 None => {
                     // continuous conversion
                     r.cr2().modify(|w| {
@@ -195,7 +203,7 @@ impl super::AdcRegs for crate::pac::adc::Adc {
                         w.set_extsel(signal);
                     })
                 }
-            };
+            },
         }
     }
 

@@ -131,10 +131,16 @@ impl super::AdcRegs for crate::pac::adc::Adc {
             reg.set_discen(false); // Convert all channels for each trigger
             reg.set_dmacfg(match conversion_mode {
                 ConversionMode::Singular => Dmacfg::ONE_SHOT,
+                ConversionMode::ConfiguredSequence => Dmacfg::CIRCULAR,
                 ConversionMode::Repeated(_) => Dmacfg::CIRCULAR,
             });
             reg.set_dmaen(Dmaen::ENABLE);
         });
+
+        if matches!(conversion_mode, ConversionMode::ConfiguredSequence) {
+            // One sequence per adstart, DMA stays armed for the next call.
+            self.cfgr().modify(|reg| reg.set_cont(false));
+        }
 
         if let ConversionMode::Repeated(trigger) = conversion_mode {
             match trigger {
