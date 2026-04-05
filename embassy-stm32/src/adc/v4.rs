@@ -11,6 +11,7 @@ use super::{Adc, Averaging, Instance, Resolution, SampleTime, Temperature, Vbat,
 #[cfg(any(stm32u5, stm32u3))]
 use crate::adc::DefaultInstance;
 use crate::adc::{AdcRegs, ConversionMode};
+use crate::pac::adc::regs::{Sqr1, Sqr2, Sqr3, Sqr4};
 use crate::time::Hertz;
 use crate::{Peri, pac, rcc};
 
@@ -151,32 +152,28 @@ impl AdcRegs for crate::pac::adc::Adc {
     }
 
     fn configure_dma(&self, conversion_mode: ConversionMode) {
-        match conversion_mode {
-            ConversionMode::Singular => {
-                self.isr().modify(|reg| {
-                    reg.set_ovr(true);
-                });
-                self.cfgr().modify(|reg| {
-                    reg.set_cont(true);
-                    reg.set_dmngt(Dmngt::DMA_ONE_SHOT);
-                });
-            }
-            ConversionMode::ConfiguredSequence => {
-                self.isr().modify(|reg| {
-                    reg.set_ovr(true);
-                });
-                // Keep DMA armed between reads; cont=false limits ADC to one sequence per adstart.
-                self.cfgr().modify(|reg| {
-                    reg.set_cont(false);
-                    reg.set_dmngt(Dmngt::DMA_CIRCULAR);
-                });
-            }
-            #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
-            _ => unreachable!(),
-        }
+        self.isr().modify(|reg| {
+            reg.set_ovr(true);
+        });
+
+        self.cfgr().modify(|w| {
+            w.set_cont(false);
+            w.set_dmngt(match conversion_mode {
+                ConversionMode::Singular => Dmngt::DMA_ONE_SHOT,
+                _ => Dmngt::DMA_CIRCULAR,
+            });
+        });
     }
 
     fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
+        let mut sqr1 = Sqr1::default();
+        let mut sqr2 = Sqr2::default();
+        let mut sqr3 = Sqr3::default();
+        let mut sqr4 = Sqr4::default();
+
+        let mut smpr1 = self.smpr(0).read();
+        let mut smpr2 = self.smpr(1).read();
+
         // Set sequence length
         self.sqr1().modify(|w| {
             w.set_l(sequence.len() as u8 - 1);
@@ -186,9 +183,9 @@ impl AdcRegs for crate::pac::adc::Adc {
         for (i, ((channel, _), sample_time)) in sequence.enumerate() {
             let sample_time = sample_time.into();
             if channel <= 9 {
-                self.smpr(0).modify(|reg| reg.set_smp(channel as _, sample_time));
+                smpr1.set_smp(channel as _, sample_time);
             } else {
-                self.smpr(1).modify(|reg| reg.set_smp((channel - 10) as _, sample_time));
+                smpr2.set_smp((channel - 10) as _, sample_time);
             }
 
             #[cfg(any(stm32h7, stm32u5, stm32u3))]
@@ -199,28 +196,27 @@ impl AdcRegs for crate::pac::adc::Adc {
 
             match i {
                 0..=3 => {
-                    self.sqr1().modify(|w| {
-                        w.set_sq(i, channel);
-                    });
+                    sqr1.set_sq(i, channel);
                 }
                 4..=8 => {
-                    self.sqr2().modify(|w| {
-                        w.set_sq(i - 4, channel);
-                    });
+                    sqr2.set_sq(i - 4, channel);
                 }
                 9..=13 => {
-                    self.sqr3().modify(|w| {
-                        w.set_sq(i - 9, channel);
-                    });
+                    sqr3.set_sq(i - 9, channel);
                 }
                 14..=15 => {
-                    self.sqr4().modify(|w| {
-                        w.set_sq(i - 14, channel);
-                    });
+                    sqr4.set_sq(i - 14, channel);
                 }
                 _ => unreachable!(),
             }
         }
+
+        self.sqr1().write_value(sqr1);
+        self.sqr2().write_value(sqr2);
+        self.sqr3().write_value(sqr3);
+        self.sqr4().write_value(sqr4);
+        self.smpr(0).write_value(smpr1);
+        self.smpr(1).write_value(smpr2);
     }
 }
 
@@ -261,7 +257,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
 
     /// Create a new ADC driver.
     pub fn new(adc: Peri<'d, T>) -> Self {
-        rcc::enable_and_reset::<T>();
+        rcc::enable_and_reset_without_stop::<T>();
 
         #[cfg(not(stm32u3))]
         let prescaler = from_ker_ck(T::frequency());

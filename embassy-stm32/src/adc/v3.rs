@@ -256,77 +256,27 @@ impl super::AdcRegs for crate::pac::adc::Adc {
         #[cfg(any(adc_g0, adc_u0))]
         let regs = self.cfgr1();
 
-        match conversion_mode {
-            ConversionMode::Singular => {
-                regs.modify(|reg| {
-                    reg.set_discen(false);
-                    reg.set_cont(true);
-                    reg.set_dmacfg(Dmacfg::ONE_SHOT);
-                    reg.set_dmaen(true);
-                });
-            }
-            ConversionMode::ConfiguredSequence => {
-                regs.modify(|reg| {
-                    reg.set_discen(false);
-                    // Keep DMA armed between reads, cont=false limits ADC to one sequence per adstart.
-                    reg.set_cont(false);
-                    reg.set_dmacfg(Dmacfg::CIRCULAR);
-                    reg.set_dmaen(true);
-                });
-            }
+        regs.modify(|w| {
+            w.set_discen(false);
+            w.set_dmaen(true);
+            w.set_cont(false);
             #[cfg(any(adc_v3, adc_g0, adc_u0))]
-            ConversionMode::Repeated(trigger) => {
-                #[cfg(not(adc_g0))]
-                {
-                    let _ = trigger; // Suppress unused variable warning
-                    // For non-G0 variants, only continuous conversions are supported
-                    regs.modify(|reg| {
-                        reg.set_discen(false);
-                        reg.set_cont(true);
-                        reg.set_dmacfg(Dmacfg::CIRCULAR);
-                        reg.set_dmaen(true);
-                    });
-                }
-                #[cfg(adc_g0)]
-                match trigger {
-                    None => {
-                        // continuous conversions
-                        regs.modify(|reg| {
-                            reg.set_discen(false);
-                            reg.set_cont(true);
-                            reg.set_dmacfg(Dmacfg::CIRCULAR);
-                            reg.set_dmaen(true);
-                        });
-                    }
-                    Some((signal, edge)) => {
-                        regs.modify(|reg| {
-                            reg.set_discen(false);
-                            reg.set_cont(false); // New trigger is needed for each sample to be read
-                            reg.set_dmacfg(Dmacfg::CIRCULAR);
-                            reg.set_dmaen(true);
-                            // Configure trigger edge (rising, falling, or both)
-                            reg.set_exten(edge);
-                            reg.set_extsel(signal.into());
-                        });
+            w.set_cont(matches!(conversion_mode, ConversionMode::Repeated(None)));
+            w.set_dmacfg(match conversion_mode {
+                ConversionMode::Singular => Dmacfg::ONE_SHOT,
+                _ => Dmacfg::CIRCULAR,
+            });
 
-                        // Regular conversions uses DMA so no need to generate interrupt
-                        self.ier().modify(|r| r.set_eosie(false));
-                    }
-                }
+            #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba, adc_c0))]
+            if let ConversionMode::Repeated(Some((signal, _edge))) = conversion_mode {
+                #[cfg(adc_g0)]
+                w.set_exten(_edge);
+                w.set_extsel(signal.into());
             }
-        }
+        });
     }
 
     fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
-        #[cfg(adc_h5)]
-        self.cr().modify(|w| w.set_aden(false));
-
-        // Set sequence length
-        #[cfg(not(any(adc_g0, adc_u0)))]
-        self.sqr1().modify(|w| {
-            w.set_l(sequence.len() as u8 - 1);
-        });
-
         #[cfg(adc_g0)]
         {
             let mut sample_times = Vec::<SampleTime, SAMPLE_TIMES_CAPACITY>::new();
@@ -350,13 +300,57 @@ impl super::AdcRegs for crate::pac::adc::Adc {
                 })
             });
         }
-        #[cfg(not(adc_g0))]
+
+        #[cfg(adc_u0)]
         {
-            #[cfg(adc_u0)]
             let mut channel_mask = 0;
+            let mut sample_time: Self::SampleTime = SampleTime::CYCLES1_5;
+
+            // Configure channels and ranks
+            for (_i, ((channel, _is_differential), _sample_time)) in sequence.enumerate() {
+                assert!(
+                    sample_time == _sample_time || _i == 0,
+                    "U0 only supports one sample time for the sequence."
+                );
+
+                sample_time = _sample_time;
+                channel_mask |= 1 << channel;
+            }
+
+            self.smpr().modify(|reg| reg.set_smp1(sample_time.into()));
+
+            // On G0 and U0 enabled channels are sampled from 0 to last channel.
+            // It is possible to add up to 8 sequences if CHSELRMOD = 1.
+            // However for supporting more than 8 channels alternative CHSELRMOD = 0 approach is used.
+            self.chselr().modify(|reg| {
+                reg.set_chsel(channel_mask);
+            });
+        }
+
+        #[cfg(not(any(adc_g0, adc_u0)))]
+        {
+            use crate::pac::adc::regs::{Sqr1, Sqr2, Sqr3, Sqr4};
 
             #[cfg(adc_h5)]
             let mut difsel = 0u32;
+
+            let mut sqr1 = Sqr1::default();
+            let mut sqr2 = Sqr2::default();
+            let mut sqr3 = Sqr3::default();
+            let mut sqr4 = Sqr4::default();
+
+            cfg_if! {
+                if #[cfg(any(adc_h5, adc_h7rs))] {
+                    let mut smpr1 = self.smpr1().read();
+                    let mut smpr2 = self.smpr2().read();
+                } else {
+                    let mut smpr1 = self.smpr(0).read();
+                    let mut smpr2 = self.smpr(1).read();
+                }
+            }
+
+            // Set sequence length
+            sqr1.set_l(sequence.len() as u8 - 1);
 
             // Configure channels and ranks
             for (_i, ((channel, _is_differential), sample_time)) in sequence.enumerate() {
@@ -368,21 +362,9 @@ impl super::AdcRegs for crate::pac::adc::Adc {
                 }
 
                 // Configure channel
-                cfg_if! {
-                    if #[cfg(adc_u0)] {
-                        // On G0 and U6 all channels use the same sampling time.
-                        self.smpr().modify(|reg| reg.set_smp1(sample_time.into()));
-                    } else if #[cfg(any(adc_h5, adc_h7rs))] {
-                        match channel {
-                            0..=9 => self.smpr1().modify(|w| w.set_smp(channel as usize % 10, sample_time.into())),
-                            _ => self.smpr2().modify(|w| w.set_smp(channel as usize % 10, sample_time.into())),
-                        }
-                    } else {
-                        let sample_time = sample_time.into();
-                        self
-                            .smpr(channel as usize / 10)
-                            .modify(|reg| reg.set_smp(channel as usize % 10, sample_time));
-                    }
+                match channel {
+                    0..=9 => smpr1.set_smp(channel as usize % 10, sample_time.into()),
+                    _ => smpr2.set_smp(channel as usize % 10, sample_time.into()),
                 }
 
                 #[cfg(stm32h7)]
@@ -395,27 +377,18 @@ impl super::AdcRegs for crate::pac::adc::Adc {
                 }
 
                 // Each channel is sampled according to sequence
-                #[cfg(not(any(adc_g0, adc_u0)))]
                 match _i {
                     0..=3 => {
-                        self.sqr1().modify(|w| {
-                            w.set_sq(_i, channel);
-                        });
+                        sqr1.set_sq(_i, channel);
                     }
                     4..=8 => {
-                        self.sqr2().modify(|w| {
-                            w.set_sq(_i - 4, channel);
-                        });
+                        sqr2.set_sq(_i - 4, channel);
                     }
                     9..=13 => {
-                        self.sqr3().modify(|w| {
-                            w.set_sq(_i - 9, channel);
-                        });
+                        sqr3.set_sq(_i - 9, channel);
                     }
                     14..=15 => {
-                        self.sqr4().modify(|w| {
-                            w.set_sq(_i - 14, channel);
-                        });
+                        sqr4.set_sq(_i - 14, channel);
                     }
                     _ => unreachable!(),
                 }
@@ -424,23 +397,25 @@ impl super::AdcRegs for crate::pac::adc::Adc {
                 {
                     difsel |= (_is_differential as u32) << channel;
                 }
+            }
 
-                #[cfg(adc_u0)]
-                {
-                    channel_mask |= 1 << channel;
+            self.sqr1().write_value(sqr1);
+            self.sqr2().write_value(sqr2);
+            self.sqr3().write_value(sqr3);
+            self.sqr4().write_value(sqr4);
+
+            cfg_if! {
+                if #[cfg(any(adc_h5, adc_h7rs))] {
+                    self.smpr1().write_value(smpr1);
+                    self.smpr2().write_value(smpr2);
+                } else {
+                    self.smpr(0).write_value(smpr1);
+                    self.smpr(1).write_value(smpr2);
                 }
             }
 
             #[cfg(adc_h5)]
             self.difsel().write(|w| w.set_difsel(difsel));
-
-            // On G0 and U0 enabled channels are sampled from 0 to last channel.
-            // It is possible to add up to 8 sequences if CHSELRMOD = 1.
-            // However for supporting more than 8 channels alternative CHSELRMOD = 0 approach is used.
-            #[cfg(adc_u0)]
-            self.chselr().modify(|reg| {
-                reg.set_chsel(channel_mask);
-            });
         }
     }
 }
