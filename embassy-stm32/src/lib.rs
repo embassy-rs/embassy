@@ -397,7 +397,6 @@ mod dual_core {
     use core::cell::UnsafeCell;
     use core::mem::MaybeUninit;
 
-    use hsem::HardwareSemaphoreChannel;
     use rcc::Clocks;
 
     use super::*;
@@ -463,8 +462,7 @@ mod dual_core {
         rcc::set_rcc_config_ptr(shared_data.rcc_config.get());
         let p = init_hw(config);
 
-        let mut hsem = HardwareSemaphoreChannel::<'_, peripherals::HSEM>::new(1);
-        hsem.blocking_notify();
+        hsem::get_hsem(1).blocking_notify();
 
         p
     }
@@ -483,8 +481,7 @@ mod dual_core {
         });
 
         // Wait for the semaphore to be unlocked by the primary core
-        let mut hsem = HardwareSemaphoreChannel::<'_, peripherals::HSEM>::new(1);
-        hsem.blocking_listen();
+        hsem::get_hsem(1).blocking_listen();
 
         let shared_data = unsafe { shared_data.assume_init_ref() };
 

@@ -26,6 +26,8 @@ pub enum HsemError {
     LockFailed,
 }
 
+const CHANNELS: usize = 6;
+
 #[cfg(all(not(all(stm32wb, feature = "low-power")), not(all(stm32wl5x, feature = "low-power"))))]
 const PUB_CHANNELS: usize = 6;
 
@@ -89,7 +91,7 @@ pub struct HardwareSemaphoreChannel<'a, T: Instance> {
 
 impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
     pub(crate) const fn new(number: u8) -> Self {
-        core::assert!(number > 0 && number <= PUB_CHANNELS as u8);
+        core::assert!(number > 0 && number <= CHANNELS as u8);
 
         Self {
             index: number - 1,
@@ -396,28 +398,22 @@ impl<T: Instance> HardwareSemaphore<T> {
 
 #[cfg(all(any(stm32wb, stm32wl5x), feature = "low-power"))]
 pub(crate) fn init_hsem(cs: CriticalSection) {
+    use crate::rcc;
     rcc::enable_and_reset_with_cs::<crate::peripherals::HSEM>(cs);
 }
 
-#[cfg(any(all(stm32wb, feature = "low-power"), stm32wl5x))]
 pub(crate) const fn get_hsem<'a>(index: usize) -> HardwareSemaphoreChannel<'a, crate::peripherals::HSEM> {
-    match index {
-        #[cfg(any(stm32wb, stm32wl5x))]
-        3 => HardwareSemaphoreChannel::new(3),
-        #[cfg(stm32wb)]
-        4 => HardwareSemaphoreChannel::new(4),
-        _ => core::unreachable!(),
-    }
+    HardwareSemaphoreChannel::new(index as u8)
 }
 
 struct State {
-    wakers: [AtomicWaker; PUB_CHANNELS],
+    wakers: [AtomicWaker; CHANNELS],
 }
 
 impl State {
     const fn new() -> Self {
         Self {
-            wakers: [const { AtomicWaker::new() }; PUB_CHANNELS],
+            wakers: [const { AtomicWaker::new() }; CHANNELS],
         }
     }
 
