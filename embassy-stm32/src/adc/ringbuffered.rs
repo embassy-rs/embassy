@@ -10,13 +10,14 @@ use crate::adc::{Instance, RxDma};
 use crate::dma::Channel;
 #[allow(unused_imports)]
 use crate::dma::{ReadableRingBuffer, TransferOptions};
-use crate::rcc;
+use crate::rcc::WakeGuard;
 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct OverrunError;
 
 pub struct RingBufferedAdc<'d, T: Instance> {
     _phantom: PhantomData<T>,
+    _wake_guard: WakeGuard,
     ring_buf: ReadableRingBuffer<'d, u16>,
 }
 
@@ -55,6 +56,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
 
         Self {
             _phantom: PhantomData,
+            _wake_guard: T::RCC_INFO.wake_guard(),
             ring_buf,
         }
     }
@@ -217,6 +219,6 @@ impl<T: Instance> Drop for RingBufferedAdc<'_, T> {
         compiler_fence(Ordering::SeqCst);
 
         self.ring_buf.request_pause();
-        rcc::disable::<T>();
+        T::RCC_INFO.disable_without_stop();
     }
 }

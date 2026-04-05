@@ -1,12 +1,9 @@
-#[allow(unused)]
-use pac::adc::vals::{Adstp, Align, Ckmode, Dmacfg, Exten, Ovrmod, Ovsr};
-use pac::adccommon::vals::Presc;
-use stm32_metapac::adc::vals::{SampleTime, Scandir};
-
 use super::{Adc, Instance, Resolution, blocking_delay_us};
 use crate::adc::{AdcRegs, ConversionMode};
+use crate::pac::adc::vals::{Adstp, Align, Ckmode, Dmacfg, Exten, Ovrmod, SampleTime, Scandir};
+use crate::pac::adccommon::vals::Presc;
 use crate::time::Hertz;
-use crate::{Peri, pac, rcc};
+use crate::{Peri, rcc};
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
@@ -80,64 +77,35 @@ impl AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn configure_dma(&self, conversion_mode: super::ConversionMode) {
+    fn configure_dma(&self, conversion_mode: ConversionMode) {
         // Enable overrun control, so no new DMA requests will be generated until
         // previous DR values is read.
         self.isr().modify(|reg| {
             reg.set_ovr(true);
         });
 
-        match conversion_mode {
-            ConversionMode::Singular => {
-                // Set continuous mode with oneshot dma.
-                self.cfgr1().modify(|reg| {
-                    reg.set_discen(false);
-                    reg.set_cont(true);
-                    reg.set_dmacfg(Dmacfg::DMA_ONE_SHOT);
-                    reg.set_dmaen(true);
-                    reg.set_ovrmod(Ovrmod::PRESERVE);
-                });
-            }
-            ConversionMode::ConfiguredSequence => {
-                // Keep DMA armed between reads; cont=false limits ADC to one sequence per adstart.
-                self.cfgr1().modify(|reg| {
-                    reg.set_discen(false);
-                    reg.set_cont(false);
-                    reg.set_dmacfg(Dmacfg::DMA_CIRCULAR);
-                    reg.set_dmaen(true);
-                    reg.set_ovrmod(Ovrmod::PRESERVE);
-                });
-            }
-            ConversionMode::Repeated(trigger) => {
-                match trigger {
-                    None => {
-                        // continuous conversions
-                        self.cfgr1().modify(|reg| {
-                            reg.set_discen(false);
-                            reg.set_cont(true);
-                            reg.set_dmacfg(Dmacfg::DMA_CIRCULAR);
-                            reg.set_dmaen(true);
-                            reg.set_ovrmod(Ovrmod::OVERWRITE);
-                        });
-                    }
-                    Some((signal, edge)) => {
-                        self.cfgr1().modify(|reg| {
-                            reg.set_discen(false);
-                            reg.set_cont(false); // Triggered, not continuous
-                            reg.set_dmacfg(Dmacfg::DMA_CIRCULAR);
-                            reg.set_dmaen(true);
-                            reg.set_ovrmod(Ovrmod::OVERWRITE);
-                            // Configure trigger edge (rising, falling, or both)
-                            reg.set_exten(edge);
-                            reg.set_extsel(signal);
-                        });
+        self.cfgr1().modify(|w| {
+            w.set_discen(false);
+            w.set_dmacfg(match conversion_mode {
+                ConversionMode::Singular => Dmacfg::DMA_ONE_SHOT,
+                _ => Dmacfg::DMA_CIRCULAR,
+            });
+            w.set_dmaen(true);
+            w.set_ovrmod(match conversion_mode {
+                ConversionMode::Singular | ConversionMode::ConfiguredSequence => Ovrmod::PRESERVE,
+                _ => Ovrmod::OVERWRITE,
+            });
 
-                        // Regular conversions uses DMA so no need to generate interrupt
-                        self.ier().modify(|r| r.set_eosie(false));
-                    }
-                }
+            w.set_cont(matches!(
+                conversion_mode,
+                ConversionMode::Singular | ConversionMode::Repeated(None)
+            ));
+
+            if let ConversionMode::Repeated(Some((signal, edge))) = conversion_mode {
+                w.set_extsel(signal);
+                w.set_exten(edge);
             }
-        }
+        });
     }
 
     fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>) {
@@ -162,7 +130,7 @@ impl AdcRegs for crate::pac::adc::Adc {
                 needs_hw = needs_hw || channel > CHSELR_SQ_MAX_CHANNEL;
                 is_ordered_up = is_ordered_up && (channel > last_channel || i == 0);
                 is_ordered_down = is_ordered_down && (channel < last_channel || i == 0);
-                hw_channel_selection += 1 << channel;
+                hw_channel_selection |= 1 << channel;
                 last_channel = channel;
 
                 if !needs_hw {
@@ -224,7 +192,7 @@ impl AdcRegs for crate::pac::adc::Adc {
 impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     /// Create a new ADC driver.
     pub fn new(adc: Peri<'d, T>, resolution: Resolution) -> Self {
-        rcc::enable_and_reset::<T>();
+        rcc::enable_and_reset_without_stop::<T>();
 
         T::regs().cfgr2().modify(|w| w.set_ckmode(Ckmode::SYSCLK));
 

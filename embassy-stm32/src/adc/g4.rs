@@ -131,40 +131,16 @@ impl super::AdcRegs for crate::pac::adc::Adc {
             reg.set_discen(false); // Convert all channels for each trigger
             reg.set_dmacfg(match conversion_mode {
                 ConversionMode::Singular => Dmacfg::ONE_SHOT,
-                ConversionMode::ConfiguredSequence => Dmacfg::CIRCULAR,
-                ConversionMode::Repeated(_) => Dmacfg::CIRCULAR,
+                _ => Dmacfg::CIRCULAR,
             });
             reg.set_dmaen(Dmaen::ENABLE);
-        });
+            reg.set_cont(matches!(conversion_mode, ConversionMode::Repeated(None)));
 
-        if matches!(conversion_mode, ConversionMode::ConfiguredSequence) {
-            // One sequence per adstart, DMA stays armed for the next call.
-            self.cfgr().modify(|reg| reg.set_cont(false));
-        }
-
-        if let ConversionMode::Repeated(trigger) = conversion_mode {
-            match trigger {
-                None => {
-                    // continuous conversions
-                    self.cfgr().modify(|reg| {
-                        reg.set_cont(true);
-                    });
-                }
-                Some((signal, edge)) => {
-                    self.cfgr().modify(|r| {
-                        r.set_cont(false); // New trigger is needed for each sample to be read
-                    });
-
-                    self.cfgr().modify(|r| {
-                        r.set_extsel(signal);
-                        r.set_exten(edge);
-                    });
-
-                    // Regular conversions uses DMA so no need to generate interrupt
-                    self.ier().modify(|r| r.set_eosie(false));
-                }
+            if let ConversionMode::Repeated(Some((signal, edge))) = conversion_mode {
+                reg.set_extsel(signal);
+                reg.set_exten(edge);
             }
-        }
+        });
     }
 
     fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
@@ -302,7 +278,7 @@ impl SealedInjectedAdcRegs for crate::pac::adc::Adc {
 impl<'d, T: DefaultInstance> Adc<'d, T> {
     /// Create a new ADC driver.
     pub fn new(adc: Peri<'d, T>, config: AdcConfig) -> Self {
-        rcc::enable_and_reset::<T>();
+        rcc::enable_and_reset_without_stop::<T>();
 
         let prescaler = from_ker_ck(T::frequency());
 

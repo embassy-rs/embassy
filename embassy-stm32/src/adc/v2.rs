@@ -10,6 +10,8 @@ use crate::{Peri, rcc};
 mod injected;
 pub use injected::InjectedAdc;
 
+use crate::pac::adc::regs::{Sqr1, Sqr2, Sqr3};
+
 fn clear_interrupt_flags(r: crate::pac::adc::Adc) {
     r.sr().modify(|regs| {
         regs.set_eoc(false);
@@ -152,6 +154,7 @@ impl AdcRegs for crate::pac::adc::Adc {
             regs.set_ovr(false);
             regs.set_strt(false);
         });
+
         let is_repeated = matches!(conversion_mode, ConversionMode::Repeated(_));
         r.cr1().modify(|w| {
             // Enable end of conversion interrupt only in repeated mode.
@@ -170,63 +173,53 @@ impl AdcRegs for crate::pac::adc::Adc {
             w.set_dds(match conversion_mode {
                 // SINGLE: DMA requests stop after the sequence completes (one-shot).
                 ConversionMode::Singular => vals::Dds::SINGLE,
-                // CONTINUOUS: DMA stays armed between reads; cont=false below limits
-                // the ADC to one sequence per SWSTART.
-                ConversionMode::ConfiguredSequence => vals::Dds::CONTINUOUS,
+                // CONTINUOUS: DMA stays armed between reads; cont=false below limits the ADC to one sequence per SWSTART.
                 // CONTINUOUS: DMA requests keep being issued as long as DMA=1 and data are converted.
-                ConversionMode::Repeated(_) => vals::Dds::CONTINUOUS,
+                _ => vals::Dds::CONTINUOUS,
             });
             // EOC flag is set at the end of each conversion.
             w.set_eocs(vals::Eocs::EACH_CONVERSION);
-        });
+            w.set_cont(matches!(conversion_mode, ConversionMode::Repeated(None)));
 
-        match conversion_mode {
-            ConversionMode::Singular | ConversionMode::ConfiguredSequence => {
-                r.cr2().modify(|w| w.set_cont(false));
+            if let ConversionMode::Repeated(Some((signal, edge))) = conversion_mode {
+                w.set_extsel(signal);
+                w.set_exten(edge);
             }
-            ConversionMode::Repeated(trigger) => match trigger {
-                None => {
-                    // continuous conversion
-                    r.cr2().modify(|w| {
-                        // Enable continuous conversions
-                        w.set_cont(true);
-                    });
-                }
-                Some((signal, edge)) => {
-                    r.cr2().modify(|w| {
-                        // Disable continuous conversions
-                        w.set_cont(false);
-                        // Trigger detection edge
-                        w.set_exten(edge);
-                        // Trigger channel
-                        w.set_extsel(signal);
-                    })
-                }
-            },
-        }
+        });
     }
 
     fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
+        let mut sqr1 = Sqr1::default();
+        let mut sqr2 = Sqr2::default();
+        let mut sqr3 = Sqr3::default();
+
+        let mut smpr1 = self.smpr1().read();
+        let mut smpr2 = self.smpr2().read();
+
         // Check the sequence is long enough
-        self.sqr1().modify(|r| {
-            r.set_l((sequence.len() - 1).try_into().unwrap());
-        });
+        sqr1.set_l((sequence.len() - 1).try_into().unwrap());
 
         for (i, ((ch, _), sample_time)) in sequence.enumerate() {
             match i {
-                0..=5 => self.sqr3().modify(|w| w.set_sq(i, ch)),
-                6..=11 => self.sqr2().modify(|w| w.set_sq(i - 6, ch)),
-                12..=15 => self.sqr1().modify(|w| w.set_sq(i - 12, ch)),
+                0..=5 => sqr3.set_sq(i, ch),
+                6..=11 => sqr2.set_sq(i - 6, ch),
+                12..=15 => sqr1.set_sq(i - 12, ch),
                 _ => unreachable!(),
             }
 
             let sample_time = sample_time.into();
             if ch <= 9 {
-                self.smpr2().modify(|reg| reg.set_smp(ch as _, sample_time));
+                smpr2.set_smp(ch as _, sample_time);
             } else {
-                self.smpr1().modify(|reg| reg.set_smp((ch - 10) as _, sample_time));
+                smpr1.set_smp((ch - 10) as _, sample_time);
             }
         }
+
+        self.sqr1().write_value(sqr1);
+        self.sqr2().write_value(sqr2);
+        self.sqr3().write_value(sqr3);
+        self.smpr1().write_value(smpr1);
+        self.smpr2().write_value(smpr2);
     }
 }
 
@@ -311,7 +304,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
     }
 
     pub fn new_with_config(adc: Peri<'d, T>, config: AdcConfig) -> Self {
-        rcc::enable_and_reset::<T>();
+        rcc::enable_and_reset_without_stop::<T>();
 
         let presc = from_pclk2(T::frequency());
         T::common_regs().ccr().modify(|w| w.set_adcpre(presc));
