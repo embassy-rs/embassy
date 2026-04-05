@@ -402,6 +402,7 @@ pub(crate) fn init_hsem(cs: CriticalSection) {
     rcc::enable_and_reset_with_cs::<crate::peripherals::HSEM>(cs);
 }
 
+#[cfg(any(all(stm32wb, feature = "low-power"), feature = "_dual-core"))]
 pub(crate) const fn get_hsem<'a>(index: usize) -> HardwareSemaphoreChannel<'a, crate::peripherals::HSEM> {
     HardwareSemaphoreChannel::new(index as u8)
 }
