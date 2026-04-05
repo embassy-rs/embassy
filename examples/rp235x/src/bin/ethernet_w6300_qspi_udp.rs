@@ -54,9 +54,7 @@ async fn main(spawner: Spawner) {
 
     let mut rng = RoscRng;
     let mut spi_cfg = SpiConfig::default();
-    // spi_cfg.frequency = 15_000_000;
-    spi_cfg.frequency = 10_000_000;
-    // spi_cfg.frequency = 1_000_000;
+    spi_cfg.frequency = 25_000_000;
 
     let Pio { mut common, sm0, .. } = Pio::new(rp_peripherals.PIO0, Irqs);
 
