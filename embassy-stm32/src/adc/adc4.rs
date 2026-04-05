@@ -360,7 +360,7 @@ impl AdcRegs for crate::pac::adc::Adc4 {
 impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
     /// Create a new ADC driver.
     pub fn new_adc4(adc: Peri<'d, T>) -> Self {
-        rcc::enable_and_reset_without_stop::<T>();
+        rcc::enable_and_reset::<T>();
         let prescaler = from_ker_ck(T::frequency());
 
         T::regs().ccr().modify(|w| w.set_presc(prescaler));

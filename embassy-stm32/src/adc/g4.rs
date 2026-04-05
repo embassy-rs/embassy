@@ -278,7 +278,7 @@ impl SealedInjectedAdcRegs for crate::pac::adc::Adc {
 impl<'d, T: DefaultInstance> Adc<'d, T> {
     /// Create a new ADC driver.
     pub fn new(adc: Peri<'d, T>, config: AdcConfig) -> Self {
-        rcc::enable_and_reset_without_stop::<T>();
+        rcc::enable_and_reset::<T>();
 
         let prescaler = from_ker_ck(T::frequency());
 

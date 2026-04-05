@@ -672,7 +672,7 @@ impl<'d> Sdmmc<'d> {
         d7: Option<Flex<'d>>,
         config: Config,
     ) -> Self {
-        rcc::enable_and_reset_without_stop::<T>();
+        rcc::enable_and_reset::<T>();
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
@@ -1154,7 +1154,7 @@ impl<'d> Drop for Sdmmc<'d> {
     fn drop(&mut self) {
         // T::Interrupt::disable();
         self.on_drop();
-        self.info.rcc.disable_without_stop();
+        self.info.rcc.disable();
     }
 }
 

@@ -423,7 +423,7 @@ impl super::AdcRegs for crate::pac::adc::Adc {
 impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     /// Enable the voltage regulator
     fn init_regulator() {
-        rcc::enable_and_reset_without_stop::<T>();
+        rcc::enable_and_reset::<T>();
         T::regs().cr().modify(|reg| {
             #[cfg(not(any(adc_g0, adc_u0)))]
             reg.set_deeppwd(false);
@@ -693,6 +693,6 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
 impl<'d, T: Instance> Drop for Adc<'d, T> {
     fn drop(&mut self) {
         super::AdcRegs::stop(&T::regs());
-        <T as crate::rcc::SealedRccPeripheral>::RCC_INFO.disable_without_stop();
+        <T as crate::rcc::SealedRccPeripheral>::RCC_INFO.disable();
     }
 }

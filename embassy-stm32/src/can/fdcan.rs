@@ -12,7 +12,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use crate::can::fd::peripheral::Registers;
 use crate::gpio::{AfType, OutputType, Pull, SealedPin as _, Speed};
 use crate::interrupt::typelevel::Interrupt;
-use crate::rcc::{self, RccInfo, RccPeripheral, SealedRccPeripheral};
+use crate::rcc::{self, RccInfo, RccPeripheral, SealedRccPeripheral, WakeGuard};
 use crate::{Peri, interrupt, peripherals};
 
 pub(crate) mod fd;
@@ -278,6 +278,7 @@ impl<'d> CanConfigurator<'d> {
             _phantom: PhantomData,
             config: self.config,
             _mode: mode,
+            _wake_guard: self.info.rcc_info.wake_guard(),
             properties: Properties::new(&self.info),
             info: InfoRef::new(&self.info),
         }
@@ -304,6 +305,7 @@ pub struct Can<'d> {
     _phantom: PhantomData<&'d ()>,
     config: crate::can::fd::config::FdCanConfig,
     _mode: OperatingMode,
+    _wake_guard: WakeGuard,
     properties: Properties,
     info: InfoRef,
 }
@@ -367,11 +369,13 @@ impl<'d> Can<'d> {
                 _phantom: PhantomData,
                 config: self.config,
                 _mode: self._mode,
+                _wake_guard: self.info.rcc_info.wake_guard(),
                 info: TxInfoRef::new(&self.info),
             },
             CanRx {
                 _phantom: PhantomData,
                 _mode: self._mode,
+                _wake_guard: self.info.rcc_info.wake_guard(),
                 info: RxInfoRef::new(&self.info),
             },
             Properties {
@@ -385,6 +389,7 @@ impl<'d> Can<'d> {
             _phantom: PhantomData,
             config: tx.config,
             _mode: rx._mode,
+            _wake_guard: tx.info.rcc_info.wake_guard(),
             properties: Properties::new(&tx.info),
             info: InfoRef::new(&tx.info),
         }
@@ -430,6 +435,7 @@ pub type TxBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, Frame, 
 pub struct BufferedCan<'d, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> {
     _phantom: PhantomData<&'d ()>,
     _mode: OperatingMode,
+    _wake_guard: WakeGuard,
     tx_buf: &'static TxBuf<TX_BUF_SIZE>,
     rx_buf: &'static RxBuf<RX_BUF_SIZE>,
     properties: Properties,
@@ -446,6 +452,7 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCan<'d,
         BufferedCan {
             _phantom: PhantomData,
             _mode,
+            _wake_guard: info.rcc_info.wake_guard(),
             tx_buf,
             rx_buf,
             properties: Properties::new(info),
@@ -519,6 +526,7 @@ pub type BufferedFdCanReceiver = super::common::BufferedReceiver<'static, FdEnve
 pub struct BufferedCanFd<'d, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> {
     _phantom: PhantomData<&'d ()>,
     _mode: OperatingMode,
+    _wake_guard: WakeGuard,
     tx_buf: &'static TxFdBuf<TX_BUF_SIZE>,
     rx_buf: &'static RxFdBuf<RX_BUF_SIZE>,
     properties: Properties,
@@ -535,6 +543,7 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCanFd<'
         BufferedCanFd {
             _phantom: PhantomData,
             _mode,
+            _wake_guard: info.rcc_info.wake_guard(),
             tx_buf,
             rx_buf,
             properties: Properties::new(info),
@@ -596,6 +605,7 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCanFd<'
 pub struct CanRx<'d> {
     _phantom: PhantomData<&'d ()>,
     _mode: OperatingMode,
+    _wake_guard: WakeGuard,
     info: RxInfoRef,
 }
 
@@ -616,6 +626,7 @@ pub struct CanTx<'d> {
     _phantom: PhantomData<&'d ()>,
     config: crate::can::fd::config::FdCanConfig,
     _mode: OperatingMode,
+    _wake_guard: WakeGuard,
     info: TxInfoRef,
 }
 
