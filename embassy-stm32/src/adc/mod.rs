@@ -119,13 +119,13 @@ impl State {
     }
 }
 
-#[cfg(any(adc_f1, adc_f3v1, adc_f3v2))]
+#[cfg(any(adc_f3v1, adc_f3v2))]
 trait_set::trait_set! {
     pub trait DefaultInstance = Instance;
 }
 
 #[cfg(any(
-    adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_g4, adc_c0, adc_v1, adc_l0
+    adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_g4, adc_c0, adc_v1, adc_l0, adc_f1
 ))]
 trait_set::trait_set! {
     pub trait DefaultInstance = Instance<Regs = crate::pac::adc::Adc>;
@@ -141,7 +141,8 @@ pub trait BasicAdcRegs {
 }
 
 #[cfg(any(
-    adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_g4, adc_c0, adc_v1, adc_l0
+    adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_g4, adc_c0, adc_v1, adc_l0,
+    adc_f1
 ))]
 trait AdcRegs: BasicAdcRegs {
     const HAS_ERRATA: bool = false;
@@ -174,17 +175,17 @@ impl<T: SealedInjectedAdcRegs> InjectedAdcRegs for T {}
 pub trait BasicInstance {
     #[cfg(any(
         adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_g4, adc_c0, adc_v1,
-        adc_l0,
+        adc_l0, adc_f1
     ))]
     type Regs: AdcRegs;
 }
 
 trait SealedInstance: BasicInstance {
-    #[cfg(any(adc_f1, adc_f3v1, adc_f3v2))]
+    #[cfg(any(adc_f3v1, adc_f3v2))]
     fn regs() -> crate::pac::adc::Adc;
     #[cfg(any(
         adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_g4, adc_c0, adc_v1,
-        adc_l0,
+        adc_l0, adc_f1
     ))]
     fn regs() -> Self::Regs;
     #[cfg(not(any(adc_f1, adc_v1, adc_l0, adc_f3v3, adc_f3v2, adc_g0)))]
@@ -229,12 +230,13 @@ pub enum Averaging {
 
 #[cfg(any(
     adc_v2, adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_wba, adc_c0, adc_v1, adc_l0,
+    adc_f1
 ))]
 pub(crate) enum ConversionMode {
     // Should match the cfg on "read" below
     #[cfg(any(
         adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_wba, adc_c0, adc_v2, adc_v1,
-        adc_l0,
+        adc_l0, adc_f1,
     ))]
     Singular,
     // Should match the cfg on "into_ring_buffered" below
@@ -248,7 +250,7 @@ pub(crate) enum ConversionMode {
 }
 
 impl<'d, T: Instance> Adc<'d, T> {
-    #[cfg(any(adc_v1, adc_l0))]
+    #[cfg(any(adc_v1, adc_l0, adc_f1))]
     /// Read an ADC pin async using the irq handler.
     pub async fn irq_read(
         &mut self,
@@ -289,7 +291,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
     #[cfg(any(
         adc_v2, adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_u3, adc_u5, adc_v3, adc_v4, adc_wba, adc_c0,
-        adc_v1, adc_l0,
+        adc_v1, adc_l0, adc_f1,
     ))]
     /// Read an ADC pin.
     pub fn blocking_read(
@@ -318,7 +320,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
     #[cfg(any(
         adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_wba, adc_c0, adc_v2, adc_v1,
-        adc_l0,
+        adc_l0, adc_f1,
     ))]
     /// Read one or multiple ADC regular channels using DMA.
     ///
@@ -617,6 +619,7 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
 
 #[cfg(any(
     adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_g4, adc_c0, adc_v1, adc_l0,
+    adc_f1,
 ))]
 impl<'d, T: Instance> Drop for Adc<'d, T> {
     fn drop(&mut self) {
@@ -850,19 +853,21 @@ foreach_adc!(
         impl crate::adc::BasicInstance for peripherals::$inst {
             #[cfg(any(
                 adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_g4, adc_c0, adc_v1, adc_l0,
+                adc_f1
             ))]
             type Regs = crate::pac::adc::Adc;
         }
 
         impl crate::adc::SealedInstance for peripherals::$inst {
             #[cfg(any(
-                adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_g4, adc_c0
+                adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_g4, adc_c0, adc_f1, adc_v1,
+                adc_l0,
             ))]
             fn regs() -> Self::Regs {
                 crate::pac::$inst
             }
 
-            #[cfg(any(adc_f1, adc_f3v1, adc_f3v2, adc_v1, adc_l0))]
+            #[cfg(any(adc_f3v1, adc_f3v2))]
             fn regs() -> crate::pac::adc::Adc {
                 crate::pac::$inst
             }
