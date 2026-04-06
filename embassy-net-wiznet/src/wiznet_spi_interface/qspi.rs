@@ -7,7 +7,7 @@ impl<'a> From<WiznetSpiOperation<'a>> for qspi::traits::Operation<'a, u8> {
     fn from(value: WiznetSpiOperation<'a>) -> Self {
         match value {
             WiznetSpiOperation::Read(data) => qspi::traits::Operation::Read(data),
-            WiznetSpiOperation::Write(data)  => qspi::traits::Operation::Write(data),
+            WiznetSpiOperation::Write(data) => qspi::traits::Operation::Write(data),
             WiznetSpiOperation::WriteSingleLine(data) => qspi::traits::Operation::WriteSingleLine(data),
         }
     }

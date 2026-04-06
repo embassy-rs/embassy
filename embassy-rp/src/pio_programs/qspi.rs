@@ -43,7 +43,6 @@ impl<'d, PIO: Instance> PioQspiProgram<'d, PIO> {
 
         match phase {
             Phase::CaptureOnFirstTransition => {
-
                 // Clock phase = 0: data is captured on the leading edge of each SCK pulse, and
                 // transitions on the trailing edge, or some time before the first leading edge.
 
