@@ -126,26 +126,11 @@ impl AdcRegs for crate::pac::adc::Adc {
         compiler_fence(Ordering::SeqCst);
     }
 
-    fn convert(&self) {
-        // clear end of conversion flag
-        self.sr().modify(|reg| {
-            reg.set_eoc(false);
-        });
-
-        // Start conversion
-        self.cr2().modify(|reg| {
-            reg.set_swstart(true);
-        });
-
-        while self.sr().read().strt() == false {
-            // spin //wait for actual start
-        }
-        while self.sr().read().eoc() == false {
-            // spin //wait for finish
-        }
+    fn wait_done(&self) -> bool {
+        self.sr().read().eoc()
     }
 
-    fn configure_dma(&self, conversion_mode: ConversionMode) {
+    fn configure_dma(&self, conversion_mode: ConversionMode, dma: bool) {
         let r = self;
 
         // Clear all status flags before configuring DMA.
@@ -169,7 +154,7 @@ impl AdcRegs for crate::pac::adc::Adc {
 
         r.cr2().modify(|w| {
             // Enable DMA mode
-            w.set_dma(true);
+            w.set_dma(dma);
             w.set_dds(match conversion_mode {
                 // SINGLE: DMA requests stop after the sequence completes (one-shot).
                 ConversionMode::Singular => vals::Dds::SINGLE,

@@ -77,7 +77,7 @@ impl AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn configure_dma(&self, conversion_mode: ConversionMode) {
+    fn configure_dma(&self, conversion_mode: ConversionMode, dma: bool) {
         // Enable overrun control, so no new DMA requests will be generated until
         // previous DR values is read.
         self.isr().modify(|reg| {
@@ -85,12 +85,13 @@ impl AdcRegs for crate::pac::adc::Adc {
         });
 
         self.cfgr1().modify(|w| {
+            w.set_cont(!dma);
             w.set_discen(false);
             w.set_dmacfg(match conversion_mode {
                 ConversionMode::Singular => Dmacfg::DMA_ONE_SHOT,
                 _ => Dmacfg::DMA_CIRCULAR,
             });
-            w.set_dmaen(true);
+            w.set_dmaen(dma);
             w.set_ovrmod(match conversion_mode {
                 ConversionMode::Singular | ConversionMode::ConfiguredSequence => Ovrmod::PRESERVE,
                 _ => Ovrmod::OVERWRITE,
@@ -175,17 +176,8 @@ impl AdcRegs for crate::pac::adc::Adc {
         while !self.isr().read().ccrdy() {}
     }
 
-    fn convert(&self) {
-        // Set single conversion mode.
-        self.cfgr1().modify(|w| w.set_cont(false));
-
-        // Start conversion
-        self.cr().modify(|reg| {
-            reg.set_adstart(true);
-        });
-
-        // Waiting for End Of Conversion (EOC).
-        while !self.isr().read().eoc() {}
+    fn wait_done(&self) -> bool {
+        self.isr().read().eoc()
     }
 }
 
