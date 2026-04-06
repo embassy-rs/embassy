@@ -1,6 +1,6 @@
 //! Module for QSPI device error
-use embedded_hal_async::spi::{Error, ErrorKind};
 use core::fmt::{self, Debug, Display, Formatter};
+use embedded_hal_async::spi::{Error, ErrorKind};
 
 /// Error type for [`ExclusiveDevice`] operations.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
