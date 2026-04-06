@@ -151,6 +151,9 @@ pub struct AdcConfig {
 }
 
 impl super::AdcRegs for crate::pac::adc::Adc {
+    #[cfg(any(rcc_l4, rcc_g4))]
+    const HAS_ERRATA: bool = true;
+
     fn data(&self) -> *mut u16 {
         crate::pac::adc::Adc::dr(*self).as_ptr() as *mut u16
     }
@@ -185,6 +188,11 @@ impl super::AdcRegs for crate::pac::adc::Adc {
     }
 
     fn start(&self) {
+        self.isr().modify(|reg| {
+            reg.set_eos(true);
+            reg.set_eoc(true);
+        });
+
         self.cr().modify(|reg| {
             reg.set_adstart(true);
         });
@@ -209,27 +217,6 @@ impl super::AdcRegs for crate::pac::adc::Adc {
         self.cfgr1().modify(|reg| {
             reg.set_cont(false);
             reg.set_dmaen(false);
-        });
-    }
-
-    #[cfg(any(rcc_l4, rcc_g4))]
-    fn discard_first_value_if_required(&self) {
-        // Some models are affected by an erratum:
-        // If we perform conversions slower than 1 kHz, the first read ADC value can be
-        // corrupted, so we discard it and measure again.
-        //
-        // STM32L471xx: Section 2.7.3
-        // STM32G4: Section 2.7.3
-
-        while !self.isr().read().eos() {}
-
-        self.isr().modify(|reg| {
-            reg.set_eos(true);
-            reg.set_eoc(true);
-        });
-
-        self.cr().modify(|reg| {
-            reg.set_adstart(true);
         });
     }
 
@@ -683,11 +670,4 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
             + 30.0
     }
      */
-}
-
-impl<'d, T: Instance> Drop for Adc<'d, T> {
-    fn drop(&mut self) {
-        super::AdcRegs::stop(&T::regs());
-        <T as crate::rcc::SealedRccPeripheral>::RCC_INFO.disable();
-    }
 }

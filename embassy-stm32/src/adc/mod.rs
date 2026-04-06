@@ -58,7 +58,8 @@ pub use crate::pac::adc::vals::Exten;
 #[cfg(not(any(adc_f1, adc_f3v3)))]
 pub use crate::pac::adc::vals::Res as Resolution;
 pub use crate::pac::adc::vals::SampleTime;
-use crate::peripherals;
+#[allow(unused_imports)]
+use crate::{peripherals, rcc};
 
 dma_trait!(RxDma, Instance);
 
@@ -118,13 +119,13 @@ impl State {
     }
 }
 
-#[cfg(any(adc_f1, adc_f3v1, adc_f3v2, adc_v1, adc_l0))]
+#[cfg(any(adc_f1, adc_f3v1, adc_f3v2))]
 trait_set::trait_set! {
     pub trait DefaultInstance = Instance;
 }
 
 #[cfg(any(
-    adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_g4, adc_c0
+    adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_g4, adc_c0, adc_v1, adc_l0
 ))]
 trait_set::trait_set! {
     pub trait DefaultInstance = Instance<Regs = crate::pac::adc::Adc>;
@@ -140,13 +141,13 @@ pub trait BasicAdcRegs {
 }
 
 #[cfg(any(
-    adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_g4, adc_c0
+    adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_g4, adc_c0, adc_v1, adc_l0
 ))]
 trait AdcRegs: BasicAdcRegs {
+    const HAS_ERRATA: bool = false;
     fn enable(&self);
     fn start(&self);
     fn stop(&self);
-    fn discard_first_value_if_required(&self) {}
     fn wait_done(&self) -> bool;
     fn configure_dma(&self, conversion_mode: ConversionMode, dma: bool);
     fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>);
@@ -172,16 +173,18 @@ impl<T: SealedInjectedAdcRegs> InjectedAdcRegs for T {}
 #[allow(private_bounds)]
 pub trait BasicInstance {
     #[cfg(any(
-        adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_g4, adc_c0
+        adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_g4, adc_c0, adc_v1,
+        adc_l0,
     ))]
     type Regs: AdcRegs;
 }
 
 trait SealedInstance: BasicInstance {
-    #[cfg(any(adc_f1, adc_f3v1, adc_f3v2, adc_v1, adc_l0))]
+    #[cfg(any(adc_f1, adc_f3v1, adc_f3v2))]
     fn regs() -> crate::pac::adc::Adc;
     #[cfg(any(
-        adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_g4, adc_c0
+        adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_g4, adc_c0, adc_v1,
+        adc_l0,
     ))]
     fn regs() -> Self::Regs;
     #[cfg(not(any(adc_f1, adc_v1, adc_l0, adc_f3v3, adc_f3v2, adc_g0)))]
@@ -225,12 +228,13 @@ pub enum Averaging {
 }
 
 #[cfg(any(
-    adc_v2, adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_wba, adc_c0
+    adc_v2, adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_wba, adc_c0, adc_v1, adc_l0,
 ))]
 pub(crate) enum ConversionMode {
     // Should match the cfg on "read" below
     #[cfg(any(
-        adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_wba, adc_c0, adc_v2
+        adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_wba, adc_c0, adc_v2, adc_v1,
+        adc_l0,
     ))]
     Singular,
     // Should match the cfg on "into_ring_buffered" below
@@ -244,8 +248,48 @@ pub(crate) enum ConversionMode {
 }
 
 impl<'d, T: Instance> Adc<'d, T> {
+    #[cfg(any(adc_v1, adc_l0))]
+    /// Read an ADC pin async using the irq handler.
+    pub async fn irq_read(
+        &mut self,
+        channel: &mut impl AdcChannel<T>,
+        sample_time: <T::Regs as BasicAdcRegs>::SampleTime,
+    ) -> u16 {
+        use core::sync::atomic::{Ordering, compiler_fence};
+        use core::task::Poll;
+
+        use futures_util::future::poll_fn;
+
+        let _scoped_wake_guard = <T as crate::rcc::SealedRccPeripheral>::RCC_INFO.wake_guard();
+
+        #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba))]
+        channel.setup();
+
+        T::regs().stop();
+        T::regs().configure_sequence([((channel.channel(), channel.is_differential()), sample_time)].into_iter());
+
+        T::regs().enable();
+        T::regs().configure_dma(ConversionMode::Singular, false);
+        T::regs().start();
+
+        poll_fn(|cx| {
+            T::state().waker.register(cx.waker());
+
+            compiler_fence(Ordering::SeqCst);
+            if !T::regs().wait_done() {
+                Poll::Pending
+            } else {
+                Poll::Ready(())
+            }
+        })
+        .await;
+
+        unsafe { core::ptr::read_volatile(T::regs().data()) }
+    }
+
     #[cfg(any(
-        adc_v2, adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_u3, adc_u5, adc_v3, adc_v4, adc_wba, adc_c0
+        adc_v2, adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_u3, adc_u5, adc_v3, adc_v4, adc_wba, adc_c0,
+        adc_v1, adc_l0,
     ))]
     /// Read an ADC pin.
     pub fn blocking_read(
@@ -261,16 +305,20 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         T::regs().enable();
         T::regs().configure_dma(ConversionMode::Singular, false);
-        T::regs().start();
-        T::regs().discard_first_value_if_required();
 
-        while !T::regs().wait_done() {}
+        let i = if <T::Regs as AdcRegs>::HAS_ERRATA { 2 } else { 1 };
+        for _ in 0..i {
+            T::regs().start();
+
+            while !T::regs().wait_done() {}
+        }
 
         unsafe { core::ptr::read_volatile(T::regs().data()) }
     }
 
     #[cfg(any(
-        adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_wba, adc_c0, adc_v2
+        adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_wba, adc_c0, adc_v2, adc_v1,
+        adc_l0,
     ))]
     /// Read one or multiple ADC regular channels using DMA.
     ///
@@ -567,6 +615,17 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
     }
 }
 
+#[cfg(any(
+    adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_g4, adc_c0, adc_v1, adc_l0,
+))]
+impl<'d, T: Instance> Drop for Adc<'d, T> {
+    fn drop(&mut self) {
+        T::regs().stop();
+
+        rcc::disable::<T>();
+    }
+}
+
 pub(self) trait SpecialChannel {}
 
 /// Implemented for ADCs that have a special channel
@@ -790,7 +849,7 @@ foreach_adc!(
     ($inst:ident, $common_inst:ident, $clock:ident) => {
         impl crate::adc::BasicInstance for peripherals::$inst {
             #[cfg(any(
-                adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_g4, adc_c0
+                adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_g4, adc_c0, adc_v1, adc_l0,
             ))]
             type Regs = crate::pac::adc::Adc;
         }
