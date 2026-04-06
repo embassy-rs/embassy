@@ -3,6 +3,8 @@
 //! This module targets drivers that expect a STEP pulse input and a DIR level input,
 //! such as TMC2209 and similar.
 
+use core::mem::{self, MaybeUninit};
+
 use crate::gpio::{Level, Output, Pin as GpioPin};
 use crate::pio::{Common, Config, Direction, Instance, Irq, LoadedProgram, Pin as PioPinHandle, PioPin, StateMachine};
 use crate::pio_programs::clock_divider::calculate_pio_clock_divider;
@@ -240,13 +242,30 @@ impl<'d, T: Instance, const SM: usize> PioStepDir<'d, T, SM> {
     }
 
     /// Generate an exact number of STEP pulses and wait until completion.
+    ///
+    /// If this future is dropped before completion (e.g. cancelled via `select!`),
+    /// the PIO state machine is automatically reset and the STEP pin is driven low.
     pub async fn move_steps(&mut self, steps: u32) {
         if steps == 0 {
             return;
         }
 
         self.sm.tx().wait_push(steps).await;
+        let drop = OnDrop::new(|| {
+            self.sm.clear_fifos();
+            unsafe {
+                self.sm.exec_instr(
+                    pio::InstructionOperands::JMP {
+                        address: 0,
+                        condition: pio::JmpCondition::Always,
+                    }
+                    .encode(),
+                );
+            }
+            self.sm.set_pins(Level::Low, &[&self.step]);
+        });
         self.irq.wait().await;
+        drop.defuse();
     }
 
     /// Stop pulse generation immediately and clear the state machine FIFOs.
@@ -267,5 +286,25 @@ impl<'d, T: Instance, const SM: usize> PioStepDir<'d, T, SM> {
     /// Release owned resources.
     pub fn release(self) -> (Irq<'d, T, SM>, StateMachine<'d, T, SM>, PioPinHandle<'d, T>, Output<'d>) {
         (self.irq, self.sm, self.step, self.dir)
+    }
+}
+
+struct OnDrop<F: FnOnce()> {
+    f: MaybeUninit<F>,
+}
+
+impl<F: FnOnce()> OnDrop<F> {
+    pub fn new(f: F) -> Self {
+        Self { f: MaybeUninit::new(f) }
+    }
+
+    pub fn defuse(self) {
+        mem::forget(self)
+    }
+}
+
+impl<F: FnOnce()> Drop for OnDrop<F> {
+    fn drop(&mut self) {
+        unsafe { self.f.as_ptr().read()() }
     }
 }

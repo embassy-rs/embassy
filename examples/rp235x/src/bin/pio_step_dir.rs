@@ -30,8 +30,8 @@ async fn main(_spawner: Spawner) {
         mut common, irq0, sm0, ..
     } = Pio::new(p.PIO0, Irqs);
 
-    // the PioStepDirProgram has a default timing of 66 cycles, which is good for many applications, but you can also specify a different timing if needed
-    // let prg = PioStepDirProgram::new(&mut common); -> default timing of 66 cycles
+    // the PioStepDirProgram has a default timing of 68 cycles, which is good for many applications, but you can also specify a different timing if needed
+    // let prg = PioStepDirProgram::new(&mut common); -> default timing of 68 cycles
     // the timing determines how long the STEP pulse will be, and also affects the minimum frequency that can be achieved. The longer the pulse, the lower the minimum frequency.
     // here we specify the timing explicitly, other options are available in the StepPulseTiming enum
     let prg = PioStepDirProgram::new_with_timing(&mut common, StepPulseTiming::Cycles68);
