@@ -774,7 +774,7 @@ fn main() {
         }
     }
 
-    let mut refcount_idxs = HashMap::new();
+    let mut refcount_idxs = BTreeSet::new();
 
     for p in METADATA.peripherals {
         if !singletons.contains(&p.name.to_string()) {
@@ -825,11 +825,10 @@ fn main() {
 
             let needs_refcount = *rcc_field_count.get(&(en_reg.register, en_reg.field)).unwrap() > 1;
             let refcount_idx = if needs_refcount {
-                let next_refcount_idx = refcount_idxs.len() as u8;
-                let refcount_idx = *refcount_idxs
-                    .entry((en_reg.register, en_reg.field))
-                    .or_insert(next_refcount_idx);
-                quote! { Some(#refcount_idx) }
+                let refcount_idx = format_ident!("{}_{}", en_reg.register, en_reg.field);
+                let quoted = quote! { Some(RefcountIndex::#refcount_idx) };
+                refcount_idxs.insert(refcount_idx);
+                quoted
             } else {
                 quote! { None }
             };
@@ -877,8 +876,17 @@ fn main() {
     g.extend({
         let refcounts_len = refcount_idxs.len();
         let refcount_zeros: TokenStream = refcount_idxs.iter().map(|_| quote! { 0u8, }).collect();
+        let repr = (!refcount_idxs.is_empty()).then(|| quote! { #[repr(u8)] });
+        let refcount_idxs = refcount_idxs.iter();
         quote! {
             pub(crate) static mut REFCOUNTS: [u8; #refcounts_len] = [#refcount_zeros];
+
+            #repr
+            #[allow(non_camel_case_types)]
+            #[derive(Clone, Copy)]
+            pub(crate) enum RefcountIndex {
+                #(#refcount_idxs),*
+            }
         }
     });
 
