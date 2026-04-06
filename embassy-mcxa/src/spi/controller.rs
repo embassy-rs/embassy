@@ -566,7 +566,7 @@ impl<'d> Spi<'d, Dma<'d>> {
 
         // Wait for completion asynchronously
         core::future::poll_fn(|cx| {
-            self.mode.rx_dma.waker().register(cx.waker());
+            let _ = self.mode.rx_dma.wait_cell().poll_wait(cx);
             if self.mode.rx_dma.is_done() {
                 core::task::Poll::Ready(())
             } else {
@@ -627,7 +627,7 @@ impl<'d> Spi<'d, Dma<'d>> {
 
         // Wait for completion asynchronously
         core::future::poll_fn(|cx| {
-            self.mode.tx_dma.waker().register(cx.waker());
+            let _ = self.mode.tx_dma.wait_cell().poll_wait(cx);
             if self.mode.tx_dma.is_done() {
                 core::task::Poll::Ready(())
             } else {
@@ -697,7 +697,7 @@ impl<'d> Spi<'d, Dma<'d>> {
         // Wait for completion asynchronously
         let tx_transfer = async {
             core::future::poll_fn(|cx| {
-                self.mode.tx_dma.waker().register(cx.waker());
+                let _ = self.mode.tx_dma.wait_cell().poll_wait(cx);
 
                 if self.mode.tx_dma.is_done() {
                     core::task::Poll::Ready(())
@@ -725,7 +725,7 @@ impl<'d> Spi<'d, Dma<'d>> {
                 }
 
                 core::future::poll_fn(|cx| {
-                    self.mode.tx_dma.waker().register(cx.waker());
+                    let _ = self.mode.tx_dma.wait_cell().poll_wait(cx);
 
                     if self.mode.tx_dma.is_done() {
                         core::task::Poll::Ready(())
@@ -740,7 +740,7 @@ impl<'d> Spi<'d, Dma<'d>> {
         };
 
         let rx_transfer = core::future::poll_fn(|cx| {
-            self.mode.rx_dma.waker().register(cx.waker());
+            let _ = self.mode.rx_dma.wait_cell().poll_wait(cx);
             if self.mode.rx_dma.is_done() {
                 core::task::Poll::Ready(())
             } else {
@@ -828,7 +828,7 @@ impl<'d> Spi<'d, Dma<'d>> {
 
         // Wait for completion asynchronously
         let tx_transfer = core::future::poll_fn(|cx| {
-            self.mode.tx_dma.waker().register(cx.waker());
+            let _ = self.mode.tx_dma.wait_cell().poll_wait(cx);
             if self.mode.tx_dma.is_done() {
                 core::task::Poll::Ready(())
             } else {
@@ -837,7 +837,7 @@ impl<'d> Spi<'d, Dma<'d>> {
         });
 
         let rx_transfer = core::future::poll_fn(|cx| {
-            self.mode.rx_dma.waker().register(cx.waker());
+            let _ = self.mode.rx_dma.wait_cell().poll_wait(cx);
             if self.mode.rx_dma.is_done() {
                 core::task::Poll::Ready(())
             } else {
