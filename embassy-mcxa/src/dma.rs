@@ -112,7 +112,7 @@ use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering, fence};
 use core::task::{Context, Poll};
 
 use embassy_hal_internal::{Peri, PeripheralType};
-use embassy_sync::waitqueue::AtomicWaker;
+use maitake_sync::WaitCell;
 
 use crate::clocks::enable_and_reset;
 use crate::clocks::periph_helpers::NoConfig;
@@ -1337,8 +1337,8 @@ impl DmaChannel<'_> {
         t.tcd_csr().modify(|w| w.set_start(Start::CHANNEL_STARTED));
     }
 
-    /// Get the waker for this channel
-    pub(crate) fn waker(&self) -> &'static AtomicWaker {
+    /// Get the wait cell for this channel
+    pub(crate) fn wait_cell(&self) -> &'static WaitCell {
         &STATES[self.channel.index()].waker
     }
 
@@ -1501,37 +1501,28 @@ struct Tcd {
 }
 
 struct State {
-    /// Waker for transfer complete interrupt
-    waker: AtomicWaker,
-    /// Waker for half-transfer interrupt
-    half_waker: AtomicWaker,
+    /// WaitCell for transfer complete interrupt
+    waker: WaitCell,
+    /// WaitCell for half-transfer interrupt
+    half_waker: WaitCell,
 }
 
 impl State {
     const fn new() -> Self {
         Self {
-            waker: AtomicWaker::new(),
-            half_waker: AtomicWaker::new(),
+            waker: WaitCell::new(),
+            half_waker: WaitCell::new(),
         }
     }
 }
 
-static STATES: [State; 8] = [
-    State::new(),
-    State::new(),
-    State::new(),
-    State::new(),
-    State::new(),
-    State::new(),
-    State::new(),
-    State::new(),
-];
+static STATES: [State; 8] = [const { State::new() }; 8];
 
-pub(crate) fn waker(idx: usize) -> &'static AtomicWaker {
+pub(crate) fn waker(idx: usize) -> &'static WaitCell {
     &STATES[idx].waker
 }
 
-pub(crate) fn half_waker(idx: usize) -> &'static AtomicWaker {
+pub(crate) fn half_waker(idx: usize) -> &'static WaitCell {
     &STATES[idx].half_waker
 }
 
@@ -1599,7 +1590,7 @@ impl<'a> Transfer<'a> {
             let state = &STATES[self.channel.index()];
 
             // Register the half-transfer waker
-            state.half_waker.register(cx.waker());
+            let _ = state.half_waker.poll_wait(cx);
 
             // Check if there's an error
             let t = self.channel.tcd();
@@ -1795,8 +1786,7 @@ impl<'a> Future for Transfer<'a> {
     type Output = Result<(), TransferErrors>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let state = &STATES[self.channel.index()];
-        state.waker.register(cx.waker());
+        let _ = STATES[self.channel.index()].waker.poll_wait(cx);
 
         if self.channel.is_done() {
             // Ensure all DMA writes are visible before returning
@@ -1996,8 +1986,8 @@ impl<'channel, 'buf, W: Word> RingBuffer<'channel, 'buf, W> {
 
             // Register wakers for both half and complete interrupts
             let state = &STATES[self.channel.index()];
-            state.waker.register(cx.waker());
-            state.half_waker.register(cx.waker());
+            let _ = state.waker.poll_wait(cx);
+            let _ = state.half_waker.poll_wait(cx);
 
             // Check again after registering waker (avoid race)
             let n = self.read_immediate(dst);
