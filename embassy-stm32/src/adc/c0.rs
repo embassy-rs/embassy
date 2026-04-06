@@ -192,7 +192,7 @@ impl AdcRegs for crate::pac::adc::Adc {
 impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     /// Create a new ADC driver.
     pub fn new(adc: Peri<'d, T>, resolution: Resolution) -> Self {
-        rcc::enable_and_reset_without_stop::<T>();
+        rcc::enable_and_reset::<T>();
 
         T::regs().cfgr2().modify(|w| w.set_ckmode(Ckmode::SYSCLK));
 

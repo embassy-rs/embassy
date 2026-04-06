@@ -66,7 +66,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         adc: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
-        rcc::enable_and_reset_without_stop::<T>();
+        rcc::enable_and_reset::<T>();
 
         // Delay 1μs when using HSI14 as the ADC clock.
         //
@@ -264,6 +264,6 @@ impl<'d, T: Instance> Drop for Adc<'d, T> {
         Self::teardown_adc();
         Self::teardown_awd();
 
-        <T as crate::rcc::SealedRccPeripheral>::RCC_INFO.disable_without_stop();
+        <T as crate::rcc::SealedRccPeripheral>::RCC_INFO.disable();
     }
 }

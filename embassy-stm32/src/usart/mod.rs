@@ -575,7 +575,7 @@ impl<'d, M: Mode> UartTx<'d, M> {
         let state = self.state;
         state.tx_rx_refcount.store(1, Ordering::Relaxed);
 
-        info.rcc.enable_and_reset_without_stop();
+        info.rcc.enable_and_reset();
 
         info.regs.cr3().modify(|w| {
             w.set_ctse(self.cts.is_some());
@@ -1018,7 +1018,7 @@ impl<'d, M: Mode> UartRx<'d, M> {
             .eager_reads
             .store(config.eager_reads.unwrap_or(0), Ordering::Relaxed);
 
-        info.rcc.enable_and_reset_without_stop();
+        info.rcc.enable_and_reset();
 
         info.regs.cr3().write(|w| {
             w.set_rtse(self.rts.is_some());
@@ -1152,7 +1152,7 @@ fn drop_tx_rx(info: &Info, state: &State) {
         refcount == 1
     });
     if is_last_drop {
-        info.rcc.disable_without_stop();
+        info.rcc.disable();
     }
 }
 
@@ -1530,7 +1530,7 @@ impl<'d, M: Mode> Uart<'d, M> {
             .eager_reads
             .store(config.eager_reads.unwrap_or(0), Ordering::Relaxed);
 
-        info.rcc.enable_and_reset_without_stop();
+        info.rcc.enable_and_reset();
 
         info.regs.cr3().write(|w| {
             w.set_rtse(self.rx.rts.is_some());

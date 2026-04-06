@@ -303,7 +303,7 @@ impl Ipcc {
         + 'd,
         _config: Config,
     ) -> Self {
-        rcc::enable_and_reset_without_stop::<IPCC>();
+        rcc::enable_and_reset::<IPCC>();
         IPCC::set_cpu2(_config.c2_boot);
 
         Self::init(_config);
@@ -325,7 +325,7 @@ impl Ipcc {
         _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::IPCC_C2_RX_C2_TX, InterruptHandler> + 'd,
         _config: Config,
     ) -> Self {
-        rcc::enable_and_reset_without_stop::<IPCC>();
+        rcc::enable_and_reset::<IPCC>();
 
         Self::init(_config);
 

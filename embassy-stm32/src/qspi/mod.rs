@@ -126,7 +126,7 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
         config: Config,
         fsel: FlashSelection,
     ) -> Self {
-        rcc::enable_and_reset_without_stop::<T>();
+        rcc::enable_and_reset::<T>();
 
         while T::REGS.sr().read().busy() {}
 

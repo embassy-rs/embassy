@@ -304,7 +304,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
     }
 
     pub fn new_with_config(adc: Peri<'d, T>, config: AdcConfig) -> Self {
-        rcc::enable_and_reset_without_stop::<T>();
+        rcc::enable_and_reset::<T>();
 
         let presc = from_pclk2(T::frequency());
         T::common_regs().ccr().modify(|w| w.set_adcpre(presc));

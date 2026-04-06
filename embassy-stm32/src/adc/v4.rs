@@ -257,7 +257,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
 
     /// Create a new ADC driver.
     pub fn new(adc: Peri<'d, T>) -> Self {
-        rcc::enable_and_reset_without_stop::<T>();
+        rcc::enable_and_reset::<T>();
 
         #[cfg(not(stm32u3))]
         let prescaler = from_ker_ck(T::frequency());

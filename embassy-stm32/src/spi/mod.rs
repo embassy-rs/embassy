@@ -253,7 +253,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         let cpol = config.raw_polarity();
         let lsbfirst = config.raw_byte_order();
 
-        self.info.rcc.enable_and_reset_without_stop();
+        self.info.rcc.enable_and_reset();
 
         /*
         - Software NSS management (SSM = 1)
@@ -1192,7 +1192,7 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
 
 impl<'d, M: PeriMode, CM: CommunicationMode> Drop for Spi<'d, M, CM> {
     fn drop(&mut self) {
-        self.info.rcc.disable_without_stop();
+        self.info.rcc.disable();
     }
 }
 

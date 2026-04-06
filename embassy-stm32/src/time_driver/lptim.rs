@@ -61,7 +61,7 @@ impl RtcDriver {
         let r = regs_lptim();
 
         // we want this to increment the stop mode counter (some lp timer can't do STOP2)
-        rcc::enable_and_reset_without_stop::<T>();
+        rcc::enable_and_reset::<T>();
 
         let timer_freq = T::frequency();
 
