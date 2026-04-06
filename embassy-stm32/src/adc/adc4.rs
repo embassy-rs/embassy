@@ -1,8 +1,7 @@
 #[cfg(stm32u5)]
 use pac::adc::vals::{Adc4Dmacfg as Dmacfg, Adc4Exten as Exten, Adc4OversamplingRatio as OversamplingRatio};
-#[allow(unused)]
 #[cfg(stm32wba)]
-use pac::adc::vals::{Chselrmod, Cont, Dmacfg, Exten, OversamplingRatio, Ovss, Smpsel};
+use pac::adc::vals::{Dmacfg, Exten, OversamplingRatio, Ovss, Smpsel};
 
 use super::blocking_delay_us;
 use crate::adc::{AdcRegs, ConversionMode, Instance};
@@ -13,7 +12,7 @@ pub use crate::pac::adc::regs::Chselr;
 #[cfg(stm32u5)]
 pub use crate::pac::adc::vals::{Adc4Presc as Presc, Adc4Res as Resolution, Adc4SampleTime as SampleTime};
 #[cfg(stm32wba)]
-pub use crate::pac::adc::vals::{Presc, Res as Resolution, SampleTime};
+pub use crate::pac::adc::vals::{Extsel, Presc, Res as Resolution, SampleTime};
 use crate::time::Hertz;
 use crate::{Peri, pac, rcc};
 
@@ -228,7 +227,7 @@ impl AdcRegs for crate::pac::adc::Adc4 {
         });
     }
 
-    fn configure_dma(&self, conversion_mode: ConversionMode) {
+    fn configure_dma(&self, conversion_mode: ConversionMode, dma: bool) {
         // Clear overrun and conversion flags
         self.isr().modify(|reg| {
             reg.set_ovr(true);
@@ -236,64 +235,27 @@ impl AdcRegs for crate::pac::adc::Adc4 {
             reg.set_eoc(true);
         });
 
-        match conversion_mode {
-            ConversionMode::Singular => {
-                self.cfgr1().modify(|reg| {
-                    reg.set_dmaen(true);
-                    reg.set_dmacfg(Dmacfg::ONE_SHOT);
-                    reg.set_discen(false);
-                    #[cfg(stm32u5)]
-                    {
-                        reg.set_cont(false);
-                        reg.set_chselrmod(false);
-                    }
-                    #[cfg(stm32wba)]
-                    {
-                        reg.set_cont(Cont::SINGLE);
-                        reg.set_chselrmod(Chselrmod::ENABLE_INPUT);
-                    }
-                });
-            }
-            ConversionMode::ConfiguredSequence => {
-                // Keep DMA armed between reads; cont=SINGLE limits ADC to one sequence per adstart.
-                self.cfgr1().modify(|reg| {
-                    reg.set_dmaen(true);
-                    reg.set_dmacfg(Dmacfg::CIRCULAR);
-                    reg.set_discen(false);
-                    #[cfg(stm32u5)]
-                    {
-                        reg.set_cont(false);
-                        reg.set_chselrmod(false);
-                    }
-                    #[cfg(stm32wba)]
-                    {
-                        reg.set_cont(Cont::SINGLE);
-                        reg.set_chselrmod(Chselrmod::ENABLE_INPUT);
-                    }
-                });
-            }
-            #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
-            ConversionMode::Repeated(_) => unreachable!(),
+        self.cfgr1().modify(|reg| {
+            reg.set_dmaen(dma);
+            reg.set_dmacfg(match conversion_mode {
+                ConversionMode::Singular => Dmacfg::ONE_SHOT,
+                _ => Dmacfg::CIRCULAR,
+            });
+            reg.set_discen(false);
+            reg.set_cont(false);
+            reg.set_chselrmod(false);
+
             #[cfg(stm32wba)]
-            ConversionMode::Repeated(_mode) => {
-                // Configure for circular DMA with continuous conversion
-                self.cfgr1().modify(|reg| {
-                    reg.set_dmaen(true);
-                    reg.set_dmacfg(Dmacfg::CIRCULAR); // Enable circular DMA mode
-                    reg.set_cont(Cont::CONTINUOUS); // Enable continuous conversion
-                    reg.set_discen(false); // Disable discontinuous mode
-                    reg.set_chselrmod(Chselrmod::ENABLE_INPUT);
-                });
+            if let ConversionMode::Repeated(Some((trigger, _edge))) = conversion_mode {
+                reg.set_extsel(Extsel::from(trigger));
             }
-        }
+        });
     }
 
     fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
         let mut prev_channel: i16 = -1;
-        #[cfg(stm32wba)]
-        self.chselr().write_value(Chselr(0_u32));
-        #[cfg(stm32u5)]
-        self.chselrmod0().write_value(Chselr(0_u32));
+        let mut chselr = Chselr::default();
+        let mut smpr = self.smpr().read();
 
         #[cfg(stm32wba)]
         let mut first_sample_time: Option<SampleTime> = None;
@@ -303,57 +265,41 @@ impl AdcRegs for crate::pac::adc::Adc4 {
             // We use SMP1 for all channels with the first channel's sample time.
             // For STM32U5: Each channel can have its own sample time.
             #[cfg(stm32u5)]
-            self.smpr().modify(|w| {
-                w.set_smp(_i, sample_time);
-            });
+            smpr.set_smp(_i, sample_time);
 
             #[cfg(stm32wba)]
             {
                 // Set SMP1 (index 0) with the first channel's sample time, use it for all channels
                 if first_sample_time.is_none() {
                     first_sample_time = Some(sample_time);
-                    self.smpr().modify(|w| {
-                        w.set_smp(0, sample_time); // Index 0 = SMP1
-                    });
+                    smpr.set_smp(0, sample_time); // Index 0 = SMP1
                 }
                 // Set SMPSEL for this channel to use SMP1
-                self.smpr().modify(|w| {
-                    w.set_smpsel(channel as usize, Smpsel::SMP1);
-                });
+                smpr.set_smpsel(channel as usize, Smpsel::SMP1);
             }
 
             let channel_num = channel;
             if channel_num as i16 <= prev_channel {
-                return;
+                break;
             };
             prev_channel = channel_num as i16;
 
             #[cfg(stm32wba)]
-            self.chselr().modify(|w| {
-                w.set_chsel0(channel as usize, true);
-            });
+            chselr.set_chsel0(channel as usize, true);
+
             #[cfg(stm32u5)]
-            self.chselrmod0().modify(|w| {
-                w.set_chsel(channel as usize, true);
-            });
+            chselr.set_chsel(channel as usize, true);
         }
+
+        self.smpr().write_value(smpr);
+        #[cfg(stm32wba)]
+        self.chselr().write_value(chselr);
+        #[cfg(stm32u5)]
+        self.chselrmod0().write_value(chselr);
     }
 
-    fn convert(&self) {
-        // Reset interrupts
-        self.isr().modify(|reg| {
-            reg.set_eos(true);
-            reg.set_eoc(true);
-        });
-
-        // Start conversion
-        self.cr().modify(|reg| {
-            reg.set_adstart(true);
-        });
-
-        while !self.isr().read().eos() {
-            // spin
-        }
+    fn wait_done(&self) -> bool {
+        self.isr().read().eos()
     }
 }
 
@@ -397,16 +343,10 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
 
         // single conversion mode, software trigger
         T::regs().cfgr1().modify(|w| {
-            #[cfg(stm32u5)]
             w.set_cont(false);
-            #[cfg(stm32wba)]
-            w.set_cont(Cont::SINGLE);
             w.set_discen(false);
             w.set_exten(Exten::DISABLED);
-            #[cfg(stm32u5)]
             w.set_chselrmod(false);
-            #[cfg(stm32wba)]
-            w.set_chselrmod(Chselrmod::ENABLE_INPUT);
         });
 
         // only use one channel at the moment

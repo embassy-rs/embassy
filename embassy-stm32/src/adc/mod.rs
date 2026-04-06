@@ -146,8 +146,9 @@ trait AdcRegs: BasicAdcRegs {
     fn enable(&self);
     fn start(&self);
     fn stop(&self);
-    fn convert(&self);
-    fn configure_dma(&self, conversion_mode: ConversionMode);
+    fn discard_first_value_if_required(&self) {}
+    fn wait_done(&self) -> bool;
+    fn configure_dma(&self, conversion_mode: ConversionMode, dma: bool);
     fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>);
     fn data(&self) -> *mut u16;
 }
@@ -259,7 +260,11 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().configure_sequence([((channel.channel(), channel.is_differential()), sample_time)].into_iter());
 
         T::regs().enable();
-        T::regs().convert();
+        T::regs().configure_dma(ConversionMode::Singular, false);
+        T::regs().start();
+        T::regs().discard_first_value_if_required();
+
+        while !T::regs().wait_done() {}
 
         unsafe { core::ptr::read_volatile(T::regs().data()) }
     }
@@ -327,7 +332,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         );
 
         T::regs().enable();
-        T::regs().configure_dma(ConversionMode::Singular);
+        T::regs().configure_dma(ConversionMode::Singular, true);
 
         let request = rx_dma.request();
         let mut dma_channel = crate::dma::Channel::new(rx_dma, irq);
@@ -387,7 +392,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().enable();
 
         // Configure DMA once, reused across all subsequent read() calls.
-        T::regs().configure_dma(ConversionMode::ConfiguredSequence);
+        T::regs().configure_dma(ConversionMode::ConfiguredSequence, true);
 
         ConfiguredSequence::new(self, rx_dma, buf)
     }
@@ -445,7 +450,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         );
 
         T::regs().enable();
-        T::regs().configure_dma(ConversionMode::Repeated(trigger.map(|t| (t._trigger, t._edge))));
+        T::regs().configure_dma(ConversionMode::Repeated(trigger.map(|t| (t._trigger, t._edge))), true);
 
         core::mem::forget(self);
 

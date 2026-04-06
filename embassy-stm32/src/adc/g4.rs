@@ -106,23 +106,11 @@ impl super::AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn convert(&self) {
-        self.isr().modify(|reg| {
-            reg.set_eos(true);
-            reg.set_eoc(true);
-        });
-
-        // Start conversion
-        self.cr().modify(|reg| {
-            reg.set_adstart(true);
-        });
-
-        while !self.isr().read().eos() {
-            // spin
-        }
+    fn wait_done(&self) -> bool {
+        self.isr().read().eos()
     }
 
-    fn configure_dma(&self, conversion_mode: ConversionMode) {
+    fn configure_dma(&self, conversion_mode: ConversionMode, dma: bool) {
         self.isr().modify(|reg| {
             reg.set_ovr(true);
         });
@@ -133,7 +121,10 @@ impl super::AdcRegs for crate::pac::adc::Adc {
                 ConversionMode::Singular => Dmacfg::ONE_SHOT,
                 _ => Dmacfg::CIRCULAR,
             });
-            reg.set_dmaen(Dmaen::ENABLE);
+            reg.set_dmaen(match dma {
+                true => Dmaen::ENABLE,
+                false => Dmaen::DISABLE,
+            });
             reg.set_cont(matches!(conversion_mode, ConversionMode::Repeated(None)));
 
             if let ConversionMode::Repeated(Some((signal, edge))) = conversion_mode {

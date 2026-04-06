@@ -212,38 +212,33 @@ impl super::AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    /// Perform a single conversion.
-    fn convert(&self) {
+    #[cfg(any(rcc_l4, rcc_g4))]
+    fn discard_first_value_if_required(&self) {
         // Some models are affected by an erratum:
         // If we perform conversions slower than 1 kHz, the first read ADC value can be
         // corrupted, so we discard it and measure again.
         //
         // STM32L471xx: Section 2.7.3
         // STM32G4: Section 2.7.3
-        #[cfg(any(rcc_l4, rcc_g4))]
-        let len = 2;
 
-        #[cfg(not(any(rcc_l4, rcc_g4)))]
-        let len = 1;
+        while !self.isr().read().eos() {}
 
-        for _ in 0..len {
-            self.isr().modify(|reg| {
-                reg.set_eos(true);
-                reg.set_eoc(true);
-            });
+        self.isr().modify(|reg| {
+            reg.set_eos(true);
+            reg.set_eoc(true);
+        });
 
-            // Start conversion
-            self.cr().modify(|reg| {
-                reg.set_adstart(true);
-            });
-
-            while !self.isr().read().eos() {
-                // spin
-            }
-        }
+        self.cr().modify(|reg| {
+            reg.set_adstart(true);
+        });
     }
 
-    fn configure_dma(&self, conversion_mode: ConversionMode) {
+    /// Perform a single conversion.
+    fn wait_done(&self) -> bool {
+        self.isr().read().eos()
+    }
+
+    fn configure_dma(&self, conversion_mode: ConversionMode, dma: bool) {
         // Set continuous mode with oneshot dma.
         // Clear overrun flag before starting transfer.
         self.isr().modify(|reg| {
@@ -258,7 +253,7 @@ impl super::AdcRegs for crate::pac::adc::Adc {
 
         regs.modify(|w| {
             w.set_discen(false);
-            w.set_dmaen(true);
+            w.set_dmaen(dma);
             w.set_cont(false);
             #[cfg(any(adc_v3, adc_g0, adc_u0))]
             w.set_cont(matches!(conversion_mode, ConversionMode::Repeated(None)));
