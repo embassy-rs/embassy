@@ -1,7 +1,7 @@
 use core::sync::atomic::{Ordering, compiler_fence};
 
 use super::{AnyAdcChannel, ConversionMode, Temperature, Vbat, VrefInt, blocking_delay_us};
-use crate::adc::{Adc, AdcRegs, DefaultInstance, Instance, Resolution, SampleTime, SealedInjectedAdcRegs};
+use crate::adc::{Adc, AdcRegs, DefaultInstance, Resolution, SampleTime, SealedInjectedAdcRegs};
 use crate::pac::adc::vals;
 pub use crate::pac::adccommon::vals::Adcpre;
 use crate::time::Hertz;
@@ -333,13 +333,5 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         });
 
         Vbat {}
-    }
-}
-
-impl<'d, T: Instance> Drop for Adc<'d, T> {
-    fn drop(&mut self) {
-        T::regs().stop();
-
-        rcc::disable::<T>();
     }
 }
