@@ -84,13 +84,13 @@ impl super::SealedChip for W6300 {
     ) -> Result<(), SPI::Error> {
         let spi_mode_bits: u8 = spi_mode_instruction_bits(&SPI::SPI_TYPE);
         let instruction_phase = [(address.0 as u8) | spi_mode_bits];
-        let address_phase = address.1.to_be_bytes();
-        let dummy_phase = [0u8];
+        let address_offset = address.1.to_be_bytes();
+        // Combine address offset with dummy for performance
+        let address_and_dummy = [address_offset[0], address_offset[1], 0u8];
 
         let operations = [
             WiznetSpiOperation::WriteSingleLine(&instruction_phase),
-            WiznetSpiOperation::Write(&address_phase),
-            WiznetSpiOperation::Write(&dummy_phase),
+            WiznetSpiOperation::Write(&address_and_dummy),
             WiznetSpiOperation::Read(data),
         ];
         spi.transaction(operations).await
@@ -105,13 +105,13 @@ impl super::SealedChip for W6300 {
         let spi_mode_bits: u8 = spi_mode_instruction_bits(&SPI::SPI_TYPE);
         // Set the SPI Mode and Write Access bits
         let instruction_phase = [(address.0 as u8) | spi_mode_bits | WRITE_ACCESS_BIT];
-        let address_phase = address.1.to_be_bytes();
-        let dummy_phase = [0u8];
+        let address_offset = address.1.to_be_bytes();
+        // Combine address offset with dummy for performance
+        let address_and_dummy = [address_offset[0], address_offset[1], 0u8];
 
         let operations = [
             WiznetSpiOperation::WriteSingleLine(&instruction_phase),
-            WiznetSpiOperation::Write(&address_phase),
-            WiznetSpiOperation::Write(&dummy_phase),
+            WiznetSpiOperation::Write(&address_and_dummy),
             WiznetSpiOperation::Write(data),
         ];
         spi.transaction(operations).await
