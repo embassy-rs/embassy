@@ -55,7 +55,7 @@ async fn main(_spawner: Spawner) {
     pwm.set_mms2(Mms2::UPDATE);
 
     // Configure ADC with DMA ring buffer
-    let adc = Adc::new(p.ADC1, Resolution::BITS12);
+    let mut adc = Adc::new(p.ADC1, Resolution::BITS12);
 
     // Setup channels to measure
     let mut vrefint = adc.enable_vrefint();
