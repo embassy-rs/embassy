@@ -66,7 +66,7 @@ impl super::SealedChip for W6300 {
     // Note: Bit 7 is MAC filter. On the W5500 this is normally turned ON however the W6300 will not successfully retrieve an IP address with this enabled. Disabling for now and will have live with the extra noise.
     const SOCKET_MODE_VALUE: u8 = 0b0000_0111;
 
-    const BUF_SIZE: u16 = 0x1000;
+    const BUF_SIZE: u16 = 0x8000;
     const AUTO_WRAP: bool = true;
 
     fn rx_addr(addr: u16) -> Self::Address {
