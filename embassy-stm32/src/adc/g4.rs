@@ -408,47 +408,47 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
 
 #[cfg(stm32g4)]
 mod g4 {
-    use crate::adc::{SealedSpecialConverter, Temperature, Vbat, VrefInt};
+    use crate::adc::{ConverterFor, Temperature, Vbat, VrefInt};
 
-    impl SealedSpecialConverter<Temperature> for crate::peripherals::ADC1 {
+    impl ConverterFor<Temperature> for crate::peripherals::ADC1 {
         const CHANNEL: u8 = 16;
     }
 
-    impl SealedSpecialConverter<VrefInt> for crate::peripherals::ADC1 {
+    impl ConverterFor<VrefInt> for crate::peripherals::ADC1 {
         const CHANNEL: u8 = 18;
     }
 
-    impl SealedSpecialConverter<Vbat> for crate::peripherals::ADC1 {
+    impl ConverterFor<Vbat> for crate::peripherals::ADC1 {
         const CHANNEL: u8 = 17;
     }
 
     #[cfg(peri_adc3_common)]
-    impl SealedSpecialConverter<VrefInt> for crate::peripherals::ADC3 {
+    impl ConverterFor<VrefInt> for crate::peripherals::ADC3 {
         const CHANNEL: u8 = 18;
     }
 
     #[cfg(peri_adc3_common)]
-    impl SealedSpecialConverter<Vbat> for crate::peripherals::ADC3 {
+    impl ConverterFor<Vbat> for crate::peripherals::ADC3 {
         const CHANNEL: u8 = 17;
     }
 
     #[cfg(not(stm32g4x1))]
-    impl SealedSpecialConverter<VrefInt> for crate::peripherals::ADC4 {
+    impl ConverterFor<VrefInt> for crate::peripherals::ADC4 {
         const CHANNEL: u8 = 18;
     }
 
     #[cfg(not(stm32g4x1))]
-    impl SealedSpecialConverter<Temperature> for crate::peripherals::ADC5 {
+    impl ConverterFor<Temperature> for crate::peripherals::ADC5 {
         const CHANNEL: u8 = 4;
     }
 
     #[cfg(not(stm32g4x1))]
-    impl SealedSpecialConverter<VrefInt> for crate::peripherals::ADC5 {
+    impl ConverterFor<VrefInt> for crate::peripherals::ADC5 {
         const CHANNEL: u8 = 18;
     }
 
     #[cfg(not(stm32g4x1))]
-    impl SealedSpecialConverter<Vbat> for crate::peripherals::ADC5 {
+    impl ConverterFor<Vbat> for crate::peripherals::ADC5 {
         const CHANNEL: u8 = 17;
     }
 }
@@ -456,13 +456,13 @@ mod g4 {
 // TODO this should look at each ADC individually and impl the correct channels
 #[cfg(stm32h7)]
 mod h7 {
-    impl<T: Instance> SealedSpecialConverter<Temperature> for T {
+    impl<T: Instance> ConverterFor<Temperature> for T {
         const CHANNEL: u8 = 18;
     }
-    impl<T: Instance> SealedSpecialConverter<VrefInt> for T {
+    impl<T: Instance> ConverterFor<VrefInt> for T {
         const CHANNEL: u8 = 19;
     }
-    impl<T: Instance> SealedSpecialConverter<Vbat> for T {
+    impl<T: Instance> ConverterFor<Vbat> for T {
         // TODO this should be 14 for H7a/b/35
         const CHANNEL: u8 = 17;
     }

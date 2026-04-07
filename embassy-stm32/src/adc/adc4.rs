@@ -123,23 +123,23 @@ impl Calibration {
     }
 }
 
-impl super::SealedSpecialConverter<super::VrefInt> for crate::peripherals::ADC4 {
+impl super::ConverterFor<super::VrefInt> for crate::peripherals::ADC4 {
     const CHANNEL: u8 = 0;
 }
 
-impl super::SealedSpecialConverter<super::Temperature> for crate::peripherals::ADC4 {
+impl super::ConverterFor<super::Temperature> for crate::peripherals::ADC4 {
     const CHANNEL: u8 = 13;
 }
 
-impl super::SealedSpecialConverter<super::Vcore> for crate::peripherals::ADC4 {
+impl super::ConverterFor<super::Vcore> for crate::peripherals::ADC4 {
     const CHANNEL: u8 = 12;
 }
 
-impl super::SealedSpecialConverter<super::Vbat> for crate::peripherals::ADC4 {
+impl super::ConverterFor<super::Vbat> for crate::peripherals::ADC4 {
     const CHANNEL: u8 = 14;
 }
 
-impl super::SealedSpecialConverter<super::Dac> for crate::peripherals::ADC4 {
+impl super::ConverterFor<super::Dac> for crate::peripherals::ADC4 {
     const CHANNEL: u8 = 21;
 }
 

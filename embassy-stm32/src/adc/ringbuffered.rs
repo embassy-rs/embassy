@@ -1,4 +1,3 @@
-use core::marker::PhantomData;
 use core::sync::atomic::{Ordering, compiler_fence};
 
 #[allow(unused_imports)]
@@ -10,19 +9,22 @@ use crate::adc::{Instance, RxDma};
 use crate::dma::Channel;
 #[allow(unused_imports)]
 use crate::dma::{ReadableRingBuffer, TransferOptions};
-use crate::rcc::{self, WakeGuard};
+use crate::rcc::{RccInfo, WakeGuard};
 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct OverrunError;
 
-pub struct RingBufferedAdc<'d, T: Instance> {
-    _phantom: PhantomData<T>,
-    _wake_guard: WakeGuard,
+#[allow(private_bounds)]
+pub struct RingBufferedAdc<'d, R: AdcRegs> {
+    regs: R,
+    info: RccInfo,
     ring_buf: ReadableRingBuffer<'d, u16>,
+    _wake_guard: WakeGuard,
 }
 
-impl<'d, T: Instance> RingBufferedAdc<'d, T> {
-    pub(crate) fn new<D: RxDma<T>>(
+#[allow(private_bounds)]
+impl<'d, R: AdcRegs> RingBufferedAdc<'d, R> {
+    pub(crate) fn new<T: Instance<Regs = R>, D: RxDma<T>>(
         dma: Peri<'d, D>,
         irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         dma_buf: &'d mut [u16],
@@ -55,7 +57,8 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
         ring_buf.set_alignment(sequence_len);
 
         Self {
-            _phantom: PhantomData,
+            regs: T::regs(),
+            info: T::RCC_INFO,
             _wake_guard: T::RCC_INFO.wake_guard(),
             ring_buf,
         }
@@ -66,7 +69,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
         compiler_fence(Ordering::SeqCst);
         self.ring_buf.start();
 
-        T::regs().start();
+        self.regs.start();
     }
 
     pub fn stop(&mut self) {
@@ -212,13 +215,13 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
     }
 }
 
-impl<T: Instance> Drop for RingBufferedAdc<'_, T> {
+impl<R: AdcRegs> Drop for RingBufferedAdc<'_, R> {
     fn drop(&mut self) {
-        T::regs().stop(true);
+        self.regs.stop(true);
 
         compiler_fence(Ordering::SeqCst);
 
         self.ring_buf.request_pause();
-        rcc::disable::<T>();
+        self.info.disable();
     }
 }

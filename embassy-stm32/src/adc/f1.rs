@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use stm32_metapac::adc::regs::{Sqr1, Sqr2, Sqr3};
+use stm32_metapac::adc::regs::{Smpr1, Smpr2, Sqr1, Sqr2, Sqr3};
 
 use super::blocking_delay_us;
 use crate::adc::{Adc, AdcRegs, ConversionMode, DefaultInstance, Instance, SampleTime, VrefInt};
@@ -28,11 +28,11 @@ impl<T: DefaultInstance> interrupt::typelevel::Handler<T::Interrupt> for Interru
     }
 }
 
-impl<T: Instance> super::SealedSpecialConverter<VrefInt> for T {
+impl<T: Instance> super::ConverterFor<VrefInt> for T {
     const CHANNEL: u8 = 17;
 }
 
-impl<T: Instance> super::SealedSpecialConverter<super::Temperature> for T {
+impl<T: Instance> super::ConverterFor<super::Temperature> for T {
     const CHANNEL: u8 = 16;
 }
 
@@ -110,8 +110,8 @@ impl AdcRegs for crate::pac::adc::Adc {
         let mut sqr2 = Sqr2::default();
         let mut sqr3 = Sqr3::default();
 
-        let mut smpr1 = self.smpr1().read();
-        let mut smpr2 = self.smpr2().read();
+        let mut smpr1 = Smpr1::default();
+        let mut smpr2 = Smpr2::default();
 
         // Check the sequence is long enough
         sqr1.set_l((sequence.len() - 1).try_into().unwrap());

@@ -26,21 +26,21 @@ pub const VREF_CALIB_MV: u32 = 3300;
 
 pub const NR_INJECTED_RANKS: usize = 4;
 
-impl super::SealedSpecialConverter<super::VrefInt> for crate::peripherals::ADC1 {
+impl super::ConverterFor<super::VrefInt> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 17;
 }
 
 #[cfg(any(stm32f2, stm32f40x, stm32f41x))]
-impl super::SealedSpecialConverter<super::Temperature> for crate::peripherals::ADC1 {
+impl super::ConverterFor<super::Temperature> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 16;
 }
 
 #[cfg(not(any(stm32f2, stm32f40x, stm32f41x)))]
-impl super::SealedSpecialConverter<super::Temperature> for crate::peripherals::ADC1 {
+impl super::ConverterFor<super::Temperature> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 18;
 }
 
-impl super::SealedSpecialConverter<super::Vbat> for crate::peripherals::ADC1 {
+impl super::ConverterFor<super::Vbat> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 18;
 }
 

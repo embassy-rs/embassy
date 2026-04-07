@@ -7,7 +7,7 @@
 #[cfg(not(any(adc_f3v3, adc_wba)))]
 #[cfg_attr(adc_f1, path = "f1.rs")]
 #[cfg_attr(adc_f3v1, path = "f3.rs")]
-#[cfg_attr(adc_f3v2, path = "f3_v1_1.rs")]
+#[cfg_attr(adc_f3v2, path = "l1.rs")]
 #[cfg_attr(adc_v1, path = "v1.rs")]
 #[cfg_attr(adc_l0, path = "v1.rs")]
 #[cfg_attr(adc_v2, path = "v2.rs")]
@@ -385,17 +385,15 @@ impl<'d, T: Instance> Adc<'d, T> {
         &'adc mut self,
         rx_dma: crate::Peri<'adc, D>,
         sequence: impl ExactSizeIterator<Item = (&'adc mut AnyAdcChannel<'ch, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
-        buf: &'adc mut [u16],
-    ) -> ConfiguredSequence<'adc, 'd, T, D>
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
+    ) -> ConfiguredSequence<'adc, T::Regs>
     where
         'ch: 'adc,
     {
         assert!(sequence.len() != 0, "Sequence cannot be empty");
         assert!(sequence.len() <= 16, "Sequence cannot be more than 16 in length");
-        assert!(
-            buf.len() >= sequence.len(),
-            "Buffer must have at least as many entries as the sequence"
-        );
+
+        let len = sequence.len();
 
         // Ensure no conversions are ongoing
         T::regs().stop(false);
@@ -408,7 +406,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         // Configure DMA once, reused across all subsequent read() calls.
         T::regs().configure_dma(ConversionMode::ConfiguredSequence, true);
 
-        ConfiguredSequence::new(self, rx_dma, buf)
+        ConfiguredSequence::new(self, rx_dma, len, irq)
     }
 
     #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba, adc_c0))]
@@ -445,7 +443,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
         sequence: impl ExactSizeIterator<Item = (AnyAdcChannel<'b, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
         trigger: Option<RegularAdcTrigger<T>>,
-    ) -> RingBufferedAdc<'a, T> {
+    ) -> RingBufferedAdc<'a, T::Regs> {
         let sequence_len = sequence.len();
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
         assert!(sequence_len != 0, "Asynchronous read sequence cannot be empty");
@@ -565,7 +563,7 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
         injected_sequence: [(AnyAdcChannel<'b, T>, <T::Regs as BasicAdcRegs>::SampleTime); N],
         injected_trigger: InjectedAdcTrigger<T>,
         injected_interrupt: bool,
-    ) -> (RingBufferedAdc<'a, T>, InjectedAdc<'b, T, N>) {
+    ) -> (RingBufferedAdc<'a, T::Regs>, InjectedAdc<'b, T, N>) {
         unsafe {
             (
                 Self {
@@ -593,17 +591,17 @@ impl<'d, T: Instance> Drop for Adc<'d, T> {
 pub(self) trait SpecialChannel {}
 
 /// Implemented for ADCs that have a special channel
-trait SealedSpecialConverter<T: SpecialChannel + Sized> {
+trait ConverterFor<T: SpecialChannel + Sized> {
     const CHANNEL: u8;
 }
 
 #[allow(private_bounds)]
-pub trait SpecialConverter<T: SpecialChannel + Sized>: SealedSpecialConverter<T> {}
+pub trait SpecialConverter<T: SpecialChannel + Sized>: ConverterFor<T> {}
 
-impl<C: SpecialChannel + Sized, T: SealedSpecialConverter<C>> SpecialConverter<C> for T {}
+impl<C: SpecialChannel + Sized, T: ConverterFor<C>> SpecialConverter<C> for T {}
 
-impl<C: SpecialChannel, T: Instance + SealedSpecialConverter<C>> AdcChannel<T> for C {}
-impl<C: SpecialChannel, T: Instance + SealedSpecialConverter<C>> SealedAdcChannel<T> for C {
+impl<C: SpecialChannel, T: Instance + ConverterFor<C>> AdcChannel<T> for C {}
+impl<C: SpecialChannel, T: Instance + ConverterFor<C>> SealedAdcChannel<T> for C {
     fn channel(&self) -> u8 {
         T::CHANNEL
     }

@@ -31,49 +31,49 @@ const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(55);
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(48);
 
 #[cfg(stm32g4)]
-impl<T: Instance> super::SealedSpecialConverter<super::VrefInt> for T {
+impl<T: Instance> super::ConverterFor<super::VrefInt> for T {
     const CHANNEL: u8 = 18;
 }
 #[cfg(stm32g4)]
-impl<T: Instance> super::SealedSpecialConverter<super::Temperature> for T {
+impl<T: Instance> super::ConverterFor<super::Temperature> for T {
     const CHANNEL: u8 = 16;
 }
 
 #[cfg(stm32h7)]
-impl<T: Instance> super::SealedSpecialConverter<super::VrefInt> for T {
+impl<T: Instance> super::ConverterFor<super::VrefInt> for T {
     const CHANNEL: u8 = 19;
 }
 #[cfg(stm32h7)]
-impl<T: Instance> super::SealedSpecialConverter<super::Temperature> for T {
+impl<T: Instance> super::ConverterFor<super::Temperature> for T {
     const CHANNEL: u8 = 18;
 }
 
 // TODO this should be 14 for H7a/b/35
 #[cfg(not(any(stm32u5, stm32u3)))]
-impl<T: Instance> super::SealedSpecialConverter<super::Vbat> for T {
+impl<T: Instance> super::ConverterFor<super::Vbat> for T {
     const CHANNEL: u8 = 17;
 }
 
 #[cfg(any(stm32u5, stm32u3))]
-impl<T: DefaultInstance> super::SealedSpecialConverter<super::VrefInt> for T {
+impl<T: DefaultInstance> super::ConverterFor<super::VrefInt> for T {
     const CHANNEL: u8 = 0;
 }
 #[cfg(stm32u5)]
-impl<T: DefaultInstance> super::SealedSpecialConverter<super::Temperature> for T {
+impl<T: DefaultInstance> super::ConverterFor<super::Temperature> for T {
     const CHANNEL: u8 = 19;
 }
 #[cfg(stm32u5)]
-impl<T: DefaultInstance> super::SealedSpecialConverter<super::Vbat> for T {
+impl<T: DefaultInstance> super::ConverterFor<super::Vbat> for T {
     const CHANNEL: u8 = 18;
 }
 
 #[cfg(stm32u3)]
-impl<T: DefaultInstance> super::SealedSpecialConverter<super::Vbat> for T {
+impl<T: DefaultInstance> super::ConverterFor<super::Vbat> for T {
     const CHANNEL: u8 = 16;
 }
 
 #[cfg(stm32u3)]
-impl<T: DefaultInstance> super::SealedSpecialConverter<super::Temperature> for T {
+impl<T: DefaultInstance> super::ConverterFor<super::Temperature> for T {
     const CHANNEL: u8 = 17;
 }
 
