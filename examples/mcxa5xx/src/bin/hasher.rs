@@ -24,7 +24,7 @@ async fn main(_spawner: Spawner) {
     defmt::info!("SGI example");
 
     // Take DMA channel ownership, will use for DMA copy.
-    let mut dma_ch0 = DmaChannel::new(p.DMA_CH0.reborrow());
+    let mut dma_ch0 = DmaChannel::new(p.DMA0_CH0.reborrow());
 
     const MAX_LEN: usize = 32 * 1024;
     let mut input_data = [0u8; MAX_LEN];
