@@ -35,7 +35,7 @@ impl<const N: usize> MultiWakerRegistration<N> {
             self.wake();
         }
 
-        if self.wakers.push(w.clone()).is_err() {
+        if self.wakers.push(w.clone()).is_err() && N == 0 {
             // This can't happen unless N=0
             // (Either `wakers` wasn't full, or it was in which case `wake()` empied it)
             panic!("tried to push a waker to a zero-length MultiWakerRegistration")
