@@ -155,4 +155,3 @@ macro_rules! bind_interrupts {
         $($t)*
     }
 }
-

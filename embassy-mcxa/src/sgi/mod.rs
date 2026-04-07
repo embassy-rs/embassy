@@ -233,7 +233,7 @@ impl<'d> Sgi<'d, Blocking> {
 impl<'d, M: Mode> Sgi<'d, M> {
     /// Reads SGI status register.
     #[inline(always)]
-    fn status(&self) -> pac_sgi::regs::SgiStatus {
+    fn status(&self) -> pac_sgi::SgiStatus {
         self.info.regs().sgi_status().read()
     }
 
@@ -470,7 +470,7 @@ impl<'d, M: Mode> Sgi<'d, M> {
     /// SGI instance error (encompasses internal (e.g. PRNG) errors and usage errors like invalid commands or data).
     pub(crate) fn sgi_error(&self) -> Result<(), SgiError> {
         let status = self.status();
-        if status.error() != pac_sgi::vals::Error::NO_ERROR {
+        if status.error() != pac_sgi::Error::NO_ERROR {
             self.clear_errors(); // Clear errors after reading
             return Err(SgiError::HardwareError);
         }
