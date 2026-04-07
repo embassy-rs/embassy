@@ -11,15 +11,10 @@ nrf-pac = { version = "0.3.0", features = ["nrf54l15-flpr"] }
 panic-halt = "1.0"
 embedded-hal = "1.0"
 
-riscv = { version = "0.12.1", features = ["critical-section-single-hart"] }
-riscv-rt = { version = "0.13.0", features = ["single-hart"] }
+riscv = { version = "0.16.0", features = ["critical-section-single-hart"] }
+riscv-rt = { version = "0.17.1", features = ["single-hart"] }
 
 [package.metadata.embassy]
 build = [
-    {group = "nightly"}
+    {group = "nightly", target = "riscv32emc-unknown-none-elf", "build-std" = ["core", "compiler_builtins"]}
 ]
-
-[patch.crates-io]
-# Patch needed to support RV32E
-riscv-rt = { git = "https://github.com/rust-embedded/riscv", rev = "fe6da179b437f23545a5db13ead28dc9855523a4" }
-riscv = { git = "https://github.com/rust-embedded/riscv", rev = "fe6da179b437f23545a5db13ead28dc9855523a4" }
