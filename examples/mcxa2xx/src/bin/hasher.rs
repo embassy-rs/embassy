@@ -2,12 +2,19 @@
 #![no_main]
 
 use embassy_executor::Spawner;
+use hal::bind_interrupts;
 use hal::config::Config;
 use hal::dma::DmaChannel;
+use hal::peripherals::SGI0;
 use hal::sgi::hash::{BlockingHasher, DmaHasher, HashSize, StreamingHasher};
+use hal::sgi::{InterruptHandler, Sgi};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 // Note: SGI is identical among all MCXA MCUs.
+
+bind_interrupts!(struct Irqs {
+    SGI => InterruptHandler<SGI0>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -28,7 +35,7 @@ async fn main(_spawner: Spawner) {
 
     let mut hash_result: [u8; 64] = [0u8; 64];
 
-    let mut blocking_hasher = BlockingHasher::new(p.SGI0.reborrow());
+    let mut blocking_hasher = BlockingHasher::new(Sgi::new_blocking(p.SGI0.reborrow()).unwrap());
 
     // Hash blocking will block until complete, max input size limited to 512 bytes.
     match blocking_hasher.hash_blocking(HashSize::Sha384, &input_data[..308], &mut hash_result) {
@@ -71,14 +78,8 @@ async fn main(_spawner: Spawner) {
 
     defmt::info!("Hash output streaming: {=[u8]:x}", &hash_result[..64]);
 
-    match DmaHasher::start_and_finalize(
-        p.SGI0.reborrow(),
-        &mut dma_ch0,
-        HashSize::Sha384,
-        &input_data,
-        &mut hash_result[..48],
-    )
-    .await
+    let sgi = Sgi::new(p.SGI0.reborrow(), Irqs).unwrap();
+    match DmaHasher::start_and_finalize(sgi, &mut dma_ch0, HashSize::Sha384, &input_data, &mut hash_result[..48]).await
     {
         Ok(()) => defmt::info!("DMA Async Hash output: {=[u8]:x}", &hash_result[..48]),
         Err(e) => defmt::error!("DMA Hashing failed: {:?}", defmt::Debug2Format(&e)),
