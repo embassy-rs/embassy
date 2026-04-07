@@ -1,6 +1,11 @@
 // Hash functionality using SGI hardware
 
-use super::sgi::{Config as SgiConfig, SGIError, Sgi, SgiInterrupt};
+use core::sync::atomic::{Ordering, compiler_fence};
+
+use embassy_hal_internal::Peri;
+
+use super::{Async, Blocking, Sgi, SgiError};
+use crate::peripherals;
 
 /// Maximum SHA-384/512 block size in bytes.
 pub const MAX_BLOCK_SIZE: usize = 128;
@@ -9,43 +14,50 @@ pub const MAX_BLOCK_SIZE: usize = 128;
 pub const SGI_HASH_OUTPUT_SIZE: u32 = 64;
 
 use crate::dma::{DmaChannel, Transfer};
-use crate::{Peri, peripherals};
 
 const SHA384_DIGEST_LEN: usize = 48;
 const SHA512_DIGEST_LEN: usize = 64;
 
-#[inline(always)]
-fn required_digest_len(hash_size: HashSize) -> Result<usize, SGIError> {
-    match hash_size {
-        HashSize::Sha384 => Ok(SHA384_DIGEST_LEN),
-        HashSize::Sha512 => Ok(SHA512_DIGEST_LEN),
-    }
-}
-
+/// Two supported hash sizes: SHA-384 and SHA-512 (both CNSA 2.0 compliant).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HashSize {
     Sha384,
     Sha512,
 }
 
+impl From<HashSize> for usize {
+    fn from(size: HashSize) -> usize {
+        match size {
+            HashSize::Sha384 => SHA384_DIGEST_LEN,
+            HashSize::Sha512 => SHA512_DIGEST_LEN,
+        }
+    }
+}
+
+/// Mode of operation for SGI hash commands. Auto mode allows the FIFO to be managed by SGI itself, pacing the transfer of data from FIFO
+/// to internal registers automatically. Normal mode requires manual management of the FIFO by the driver, limited to one block per invocation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HashMode {
     Auto,
     Normal,
 }
 
+/// Whether to initialize the hash state with the default IV (first block) or to continue from a previous hash state (streaming mode).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HashInit {
     NoInit,
     Init,
 }
 
+/// Whether to reload a previously computed hash state into the SGI engine before processing the current block. This is used for chaining multiple blocks together in streaming mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HashReload {
     NoReload,
     Reload,
 }
 
+/// Little vs. Big endian byte order for input and output data to/from SGI. Used as Little Endian for DMA transfers and big Endian for instruction driven transfers.
+/// Outputs are always in big endian format for hashing operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ByteOrder {
     BigEndian,
@@ -101,18 +113,29 @@ impl SgiShaCtx {
             first_block: true,
         }
     }
+
+    fn zeroize(&mut self) {
+        // SAFETY: all-zeros is a valid bit pattern for SgiShaCtx — enum first variants have
+        // discriminant 0, bool false = 0, numeric fields = 0, byte arrays = 0.
+        unsafe { core::ptr::write_volatile(self as *mut Self, core::mem::zeroed()) };
+        compiler_fence(Ordering::SeqCst);
+    }
+}
+
+impl Drop for SgiShaCtx {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
 }
 
 // Controller.rs-style DMA hasher state.
 
 /// SGI SHA2 DMA helper state.
 ///
-/// SGI singleton ownership is enforced by the `Sgi` constructor consuming the Embassy `Peri` token.
-/// The `start_and_finalize` function takes ownership of the SGI peripheral token and a DMA channel,
-/// starts the hash operation, and returns a future that resolves when the operation is complete and
-/// the final hash is written to the provided output buffer.
+/// The caller is responsible for creating the `Sgi<'d, Async>` instance (which enforces
+/// the interrupt binding at the type level) and passing it here.
 pub struct DmaHasher<'a, 'd> {
-    peri: Peri<'d, peripherals::SGI0>,
+    sgi: Sgi<'d, Async>,
     transfer: Option<Transfer<'a>>,
     options: HashOptions,
     remainder: [u8; MAX_BLOCK_SIZE],
@@ -128,14 +151,14 @@ impl<'a, 'd> DmaHasher<'a, 'd> {
     /// software-starts the eDMA channel, awaits DMA and SGI completion,
     /// and writes the final digest into `hash_result`.
     pub async fn start_and_finalize(
-        peri: Peri<'d, peripherals::SGI0>,
+        sgi: Sgi<'d, Async>,
         dma_ch: &'a mut DmaChannel<'d>,
         hash_size: HashSize,
         input: &[u8],
         hash_result: &mut [u8],
-    ) -> Result<(), SGIError> {
+    ) -> Result<(), SgiError> {
         let mut state = Self {
-            peri,
+            sgi,
             transfer: None,
             options: HashOptions {
                 hash_size,
@@ -153,47 +176,37 @@ impl<'a, 'd> DmaHasher<'a, 'd> {
             total_input_len: input.len(),
         };
 
-        let digest_len = required_digest_len(state.options.hash_size)?;
+        let digest_len: usize = state.options.hash_size.into();
         if hash_result.len() < digest_len {
-            return Err(SGIError::BufferTooSmall);
+            return Err(SgiError::BufferTooSmall);
         }
 
-        let mut sgi = Sgi::new(
-            state.peri.reborrow(),
-            SgiConfig {
-                interrupt: SgiInterrupt::AsyncEnabled,
-            },
-        )
-        .map_err(|_| SGIError::HardwareError)?;
-
-        // We can only process data in chunks of "blocks" i.e. 128 bytes.
-        let remainder_len = input.len() % MAX_BLOCK_SIZE;
-        let dma_len_bytes = (input.len() / MAX_BLOCK_SIZE) * MAX_BLOCK_SIZE;
+        // Split input into full 128 bytes blocks (DMA path) and a trailing remainder.
+        let chunks = input.chunks_exact(MAX_BLOCK_SIZE);
+        let remainder = chunks.remainder();
+        let dma_len_bytes = chunks.len() * MAX_BLOCK_SIZE;
         state.processed_bytes = dma_len_bytes;
 
-        if remainder_len > 0 {
-            let remainder_start = input.len().checked_sub(remainder_len).ok_or(SGIError::InvalidSize)?;
-            let src = input.get(remainder_start..).ok_or(SGIError::InvalidSize)?;
-            let dst = state.remainder.get_mut(..remainder_len).ok_or(SGIError::InvalidSize)?;
-            dst.copy_from_slice(src);
+        if !remainder.is_empty() {
+            state.remainder[..remainder.len()].copy_from_slice(remainder);
         }
 
         if dma_len_bytes > 0 {
-            let dma_input = input.get(..dma_len_bytes).ok_or(SGIError::InvalidSize)?;
-            sgi.init_sgi_sha(state.options)?;
+            let dma_input = &input[..dma_len_bytes];
+            state.sgi.init_sgi_sha(state.options)?;
 
             // Arm operation-done interrupt before starting the hash operation.
-            sgi.enable_operation_done_interrupt();
-            sgi.start_sgi_hash(state.options, dma_input)?;
-            state.transfer = Some(sgi.fill_sha2_fifo_dma_start(dma_ch, dma_input, dma_len_bytes)?);
+            state.sgi.enable_operation_done_interrupt();
+            state.sgi.start_sgi_hash(state.options, dma_input)?;
+            state.transfer = Some(state.sgi.fill_sha2_fifo_dma_start(dma_ch, dma_input, dma_len_bytes)?);
 
             // After starting, subsequent operations must not auto-init unless re-init'd.
             state.options.init = HashInit::NoInit;
         }
 
         if let Some(transfer) = state.transfer.take() {
-            transfer.await.map_err(|_| SGIError::DmaError)?;
-            sgi.wait_sha2_complete_irq().await?;
+            transfer.await.map_err(|_| SgiError::DmaError)?;
+            state.sgi.wait_sha2_complete_irq().await?;
         }
 
         let final_remainder_len = state.total_input_len - state.processed_bytes;
@@ -201,18 +214,18 @@ impl<'a, 'd> DmaHasher<'a, 'd> {
         let final_remainder = state
             .remainder
             .get(..final_remainder_len)
-            .ok_or(SGIError::InvalidSize)?;
+            .ok_or(SgiError::InvalidSize)?;
         let padded_len = match create_padded_message(final_remainder, &mut padded) {
             Some(padded_len) => padded_len,
             None => {
                 #[cfg(feature = "defmt")]
                 defmt::error!("Failed to create padded message");
-                return Err(SGIError::BufferTooSmall);
+                return Err(SgiError::BufferTooSmall);
             }
         };
 
         if padded_len == 0 || padded_len > MAX_BLOCK_SIZE * 2 || (padded_len % MAX_BLOCK_SIZE) != 0 {
-            return Err(SGIError::InvalidSize);
+            return Err(SgiError::InvalidSize);
         }
 
         // IMPORTANT: total length is the total length of the original message, not just the remainder, since the SGI engine needs this for padding and length encoding in the final block(s).
@@ -220,12 +233,12 @@ impl<'a, 'd> DmaHasher<'a, 'd> {
         let length_field_offset = padded_len - 16;
         let length_field = padded
             .get_mut(length_field_offset..length_field_offset + 16)
-            .ok_or(SGIError::InvalidSize)?;
+            .ok_or(SgiError::InvalidSize)?;
         length_field.copy_from_slice(&bit_len.to_be_bytes());
 
         if state.processed_bytes > 0 {
-            sgi.update_partial_output(state.options, &mut state.prev_result)?;
-            sgi.sgi_hash_reload(state.options, &state.prev_result)?;
+            state.sgi.update_partial_output(state.options, &mut state.prev_result)?;
+            state.sgi.sgi_hash_reload(state.options, &state.prev_result)?;
             state.options.init = HashInit::NoInit;
         } else {
             state.options.init = HashInit::Init;
@@ -236,33 +249,59 @@ impl<'a, 'd> DmaHasher<'a, 'd> {
         // be in Big-Endian format.
         state.options.byte_order = ByteOrder::BigEndian;
 
-        sgi.enable_operation_done_interrupt();
-        sgi.init_sgi_sha(state.options)?;
-        sgi.start_sgi_hash(state.options, &padded)?;
-        sgi.fill_sha2_fifo(state.options, &padded, padded_len)?;
+        state.sgi.enable_operation_done_interrupt();
+        state.sgi.init_sgi_sha(state.options)?;
+        state.sgi.start_sgi_hash(state.options, &padded)?;
+        state.sgi.fill_sha2_fifo(state.options, &padded, padded_len)?;
 
-        sgi.wait_sha2_complete_irq().await?;
-        sgi.read_hash_output(state.options, hash_result)?;
+        state.sgi.wait_sha2_complete_irq().await?;
+        state.sgi.read_hash_output(state.options, hash_result)?;
+
+        state.zeroize();
 
         Ok(())
+    }
+
+    fn zeroize(&mut self) {
+        volatile_zeroize(&mut self.remainder);
+        volatile_zeroize(&mut self.prev_result);
+        // SAFETY: pointers are valid references to fields of `self`.
+        unsafe {
+            core::ptr::write_volatile(&mut self.processed_bytes as *mut usize, 0);
+            core::ptr::write_volatile(&mut self.total_input_len as *mut usize, 0);
+        }
+        compiler_fence(Ordering::SeqCst);
+    }
+}
+
+// Zero a byte buffer in a way the compiler can't optimize away.
+#[inline(never)]
+fn volatile_zeroize(buf: &mut [u8]) {
+    for byte in buf.iter_mut() {
+        // SAFETY: `byte` is a valid reference to a single `u8` part of `buf`.
+        unsafe { core::ptr::write_volatile(byte as *mut u8, 0) };
+    }
+}
+
+impl Drop for DmaHasher<'_, '_> {
+    fn drop(&mut self) {
+        self.zeroize();
     }
 }
 
 /// Blocking Hash instance that provides a simple interface for hashing data with SGI in a blocking manner, input size limited to 512 bytes.
-/// Holds an SGI0 peri instance.
-
 pub struct BlockingHasher<'d> {
-    peri: Peri<'d, peripherals::SGI0>,
+    sgi: Sgi<'d, Blocking>,
 }
 
 impl<'d> BlockingHasher<'d> {
-    pub fn new(peri: Peri<'d, peripherals::SGI0>) -> Self {
-        Self { peri }
+    pub fn new(sgi: Sgi<'d, Blocking>) -> Self {
+        Self { sgi }
     }
 
     /// Hash the provided input in one blocking call and write the digest into `hash_result`.
-    pub fn hash_blocking(&mut self, hash_size: HashSize, input: &[u8], hash_result: &mut [u8]) -> Result<(), SGIError> {
-        let mut sgi = Sgi::new_blocking(self.peri.reborrow()).map_err(|_| SGIError::HardwareError)?;
+    pub fn hash_blocking(&mut self, hash_size: HashSize, input: &[u8], hash_result: &mut [u8]) -> Result<(), SgiError> {
+        let sgi = &mut self.sgi;
 
         let options = HashOptions {
             hash_size: hash_size,
@@ -272,15 +311,15 @@ impl<'d> BlockingHasher<'d> {
             byte_order: ByteOrder::BigEndian,
         };
 
-        let digest_len = required_digest_len(options.hash_size)?;
+        let digest_len: usize = options.hash_size.into();
 
         if hash_result.len() < digest_len {
-            return Err(SGIError::BufferTooSmall);
+            return Err(SgiError::BufferTooSmall);
         }
 
-        let required_total_len = calculate_padded_length(input.len()).ok_or(SGIError::InvalidSize)?;
+        let required_total_len = calculate_padded_length(input.len()).ok_or(SgiError::InvalidSize)?;
         if required_total_len > MAX_BLOCK_SIZE * 5 {
-            return Err(SGIError::BufferTooSmall);
+            return Err(SgiError::BufferTooSmall);
         }
 
         let mut hash_buffer = [0u8; MAX_BLOCK_SIZE * 5];
@@ -298,7 +337,7 @@ impl<'d> BlockingHasher<'d> {
         if len == 0 || len > MAX_BLOCK_SIZE * 5 || len % 128 != 0 {
             #[cfg(feature = "defmt")]
             defmt::error!("Padded message length is not multiple of 128 bytes");
-            return Err(SGIError::InvalidSize);
+            return Err(SgiError::InvalidSize);
         }
 
         sgi.init_sgi_sha(options)?;
@@ -361,7 +400,7 @@ fn process_multi_block_update<'d>(
     hasher: &mut StreamingHasher,
     peri: &mut Sgi<'d>,
     input: &[u8],
-) -> Result<(), SGIError> {
+) -> Result<(), SgiError> {
     // Considered copying via a DMA buffer, but it still doesn't solve the issue of having to wait
     // until the context partial hash state is updated (DMA + IRQ isn't really better than just
     // blocking and doing it in the same thread).
@@ -392,7 +431,7 @@ fn process_single_block_update<'d>(
     hasher: &mut StreamingHasher,
     peri: &mut Sgi<'d>,
     input: &[u8],
-) -> Result<(), SGIError> {
+) -> Result<(), SgiError> {
     let input_len = input.len() as usize;
     let mut overflows_block = false;
     let mut write_bytes = 0;
@@ -404,7 +443,7 @@ fn process_single_block_update<'d>(
             .ctx
             .curr_block
             .get_mut(hasher.ctx.curr_block_ptr..block_end)
-            .ok_or(SGIError::InvalidSize)?
+            .ok_or(SgiError::InvalidSize)?
             .copy_from_slice(input);
         hasher.ctx.curr_block_ptr += input_len;
         hasher.ctx.curr_block_ptr = hasher.ctx.curr_block_ptr % MAX_BLOCK_SIZE; // Wrap around if we exceed block size, but we won't process until we have a full block;
@@ -415,8 +454,8 @@ fn process_single_block_update<'d>(
             .ctx
             .curr_block
             .get_mut(hasher.ctx.curr_block_ptr..)
-            .ok_or(SGIError::InvalidSize)?;
-        let input_prefix = input.get(..space_left).ok_or(SGIError::InvalidSize)?;
+            .ok_or(SgiError::InvalidSize)?;
+        let input_prefix = input.get(..space_left).ok_or(SgiError::InvalidSize)?;
         curr_block_tail.copy_from_slice(input_prefix);
         write_bytes = input_len - space_left;
         overflows_block = true;
@@ -428,7 +467,7 @@ fn process_single_block_update<'d>(
             .ctx
             .curr_block
             .get_mut(hasher.ctx.curr_block_ptr..block_end)
-            .ok_or(SGIError::InvalidSize)?
+            .ok_or(SgiError::InvalidSize)?
             .copy_from_slice(input);
         hasher.ctx.curr_block_ptr = 0; // Reset pointer for the next block
     }
@@ -461,9 +500,9 @@ fn process_single_block_update<'d>(
             .ctx
             .curr_block
             .get_mut(..write_bytes)
-            .ok_or(SGIError::InvalidSize)?;
+            .ok_or(SgiError::InvalidSize)?;
         // This overflow path only writes the leftover suffix, so `write_bytes` cannot exceed `input.len()`.
-        let input_suffix = input.get(input.len() - write_bytes..).ok_or(SGIError::InvalidSize)?;
+        let input_suffix = input.get(input.len() - write_bytes..).ok_or(SgiError::InvalidSize)?;
         curr_block_prefix.copy_from_slice(input_suffix);
         hasher.ctx.curr_block_ptr = write_bytes;
     }
@@ -477,7 +516,7 @@ pub struct StreamingHasher {
 impl StreamingHasher {
     /// Create and initialize a streaming hasher with the specified hash size and mode.
     /// Leave `hash_mode` as `None` unless there are very specific performance or memory concerns.
-    pub fn new(hash_size: HashSize, hash_mode: Option<HashMode>) -> Result<Self, SGIError> {
+    pub fn new(hash_size: HashSize, hash_mode: Option<HashMode>) -> Result<Self, SgiError> {
         let mut hasher = Self { ctx: SgiShaCtx::new() };
         hasher.ctx.options.hash_size = hash_size;
 
@@ -492,19 +531,19 @@ impl StreamingHasher {
 
     /// Update the hash state with the provided input data. This can be called multiple times to process streaming data. Input limit per call is maximum 512 bytes,
     /// but it's recommended to keep it to 128 bytes (one block) for better performance and to avoid auto mode FIFO filling which can be slower.
-    pub fn update<'d>(&mut self, peri: Peri<'d, peripherals::SGI0>, input: &[u8]) -> Result<(), SGIError> {
-        let mut sgi = Sgi::new_blocking(peri).map_err(|_| SGIError::HardwareError)?;
+    pub fn update<'d>(&mut self, peri: Peri<'d, peripherals::SGI0>, input: &[u8]) -> Result<(), SgiError> {
+        let mut sgi = Sgi::new_blocking(peri).map_err(|_| SgiError::HardwareError)?;
         let input_len = input.len() as usize;
         if input_len > MAX_BLOCK_SIZE * 4 || input_len == 0 {
-            return Err(SGIError::InvalidSize);
+            return Err(SgiError::InvalidSize);
             // 512 bytes seems like a reasonable upper limit for UPDATE calls that are > 128 bytes,
             // since this will require auto mode FIFO filling.
         }
         if self.ctx.curr_block_ptr > MAX_BLOCK_SIZE {
-            return Err(SGIError::InvalidSize);
+            return Err(SgiError::InvalidSize);
         }
 
-        self.ctx.total_len = self.ctx.total_len.checked_add(input_len).ok_or(SGIError::InvalidSize)?;
+        self.ctx.total_len = self.ctx.total_len.checked_add(input_len).ok_or(SgiError::InvalidSize)?;
 
         if input_len > MAX_BLOCK_SIZE {
             let mut copy_buffer = [0u8; MAX_BLOCK_SIZE * 4]; // Temporary buffer to hold chunks of the input that fit within the block size, max 512 bytes.
@@ -531,7 +570,7 @@ impl StreamingHasher {
                 .ctx
                 .processed_len
                 .checked_add(copy_len)
-                .ok_or(SGIError::InvalidSize)?;
+                .ok_or(SgiError::InvalidSize)?;
             let unprocessed_input_len = input_len - (copy_len - self.ctx.curr_block_ptr); // Calculate how much input is left after processing the copy buffer
             self.ctx.curr_block_ptr = unprocessed_input_len; // Set the current block pointer to the remaining unprocessed input length.
 
@@ -544,13 +583,13 @@ impl StreamingHasher {
 
             let remaining_input_start = input_len
                 .checked_sub(unprocessed_input_len)
-                .ok_or(SGIError::InvalidSize)?;
-            let remaining_input = input.get(remaining_input_start..).ok_or(SGIError::InvalidSize)?;
+                .ok_or(SgiError::InvalidSize)?;
+            let remaining_input = input.get(remaining_input_start..).ok_or(SgiError::InvalidSize)?;
             let curr_block_prefix = self
                 .ctx
                 .curr_block
                 .get_mut(..self.ctx.curr_block_ptr)
-                .ok_or(SGIError::InvalidSize)?;
+                .ok_or(SgiError::InvalidSize)?;
             curr_block_prefix.copy_from_slice(remaining_input); // Copy the remaining unprocessed input into the current block buffer for future processing
             self.ctx.options.op_mode = curr_op_mode; // Restore original mode after processing large input
             return Ok(());
@@ -559,8 +598,8 @@ impl StreamingHasher {
     }
 
     /// Finalize the hash and write the digest into `hash_result`. This should be called after all update() calls are done. It will process any remaining data in the current block buffer, add padding, and produce the final hash output.
-    pub fn finalize<'d>(&mut self, peri: Peri<'d, peripherals::SGI0>, hash_result: &mut [u8]) -> Result<(), SGIError> {
-        let mut sgi = Sgi::new_blocking(peri).map_err(|_| SGIError::HardwareError)?;
+    pub fn finalize<'d>(&mut self, peri: Peri<'d, peripherals::SGI0>, hash_result: &mut [u8]) -> Result<(), SgiError> {
+        let mut sgi = Sgi::new_blocking(peri).map_err(|_| SgiError::HardwareError)?;
         const MAX_FINAL_BUFFER_SIZE: usize = 256;
 
         let mut hash_buffer = [0u8; MAX_FINAL_BUFFER_SIZE]; // Buffer to hold the final block with padding, max size is 256 bytes to accommodate padding
@@ -568,29 +607,29 @@ impl StreamingHasher {
             .ctx
             .total_len
             .checked_sub(self.ctx.processed_len)
-            .ok_or(SGIError::InvalidSize)?;
+            .ok_or(SgiError::InvalidSize)?;
 
         if remaining_data_len > 0 {
             if remaining_data_len > MAX_BLOCK_SIZE {
-                return Err(SGIError::InvalidSize); // Can't have more than 128 bytes of unprocessed data for SHA-384/512, since that's the block size
+                return Err(SgiError::InvalidSize); // Can't have more than 128 bytes of unprocessed data for SHA-384/512, since that's the block size
             }
             // Process the remaining data in the current block buffer
             let remaining_curr_block = self
                 .ctx
                 .curr_block
                 .get(..remaining_data_len)
-                .ok_or(SGIError::InvalidSize)?;
-            let hash_buffer_prefix = hash_buffer.get_mut(..remaining_data_len).ok_or(SGIError::InvalidSize)?;
+                .ok_or(SgiError::InvalidSize)?;
+            let hash_buffer_prefix = hash_buffer.get_mut(..remaining_data_len).ok_or(SgiError::InvalidSize)?;
             hash_buffer_prefix.copy_from_slice(remaining_curr_block);
         }
 
-        let padded_total_len = calculate_padded_length(self.ctx.total_len).ok_or(SGIError::InvalidSize)?;
+        let padded_total_len = calculate_padded_length(self.ctx.total_len).ok_or(SgiError::InvalidSize)?;
         let final_block_len = padded_total_len
             .checked_sub(self.ctx.processed_len)
-            .ok_or(SGIError::InvalidSize)?; // Calculate how many bytes are in the final block (including padding)
+            .ok_or(SgiError::InvalidSize)?; // Calculate how many bytes are in the final block (including padding)
 
         if remaining_data_len > final_block_len {
-            return Err(SGIError::InvalidSize); // Remaining data can't exceed the final block length, otherwise we would need to process another block before finalizing
+            return Err(SgiError::InvalidSize); // Remaining data can't exceed the final block length, otherwise we would need to process another block before finalizing
         }
 
         #[cfg(feature = "defmt")]
@@ -603,21 +642,21 @@ impl StreamingHasher {
         );
 
         if final_block_len > MAX_FINAL_BUFFER_SIZE {
-            return Err(SGIError::InvalidSize); // Final block cannot be larger than 144 bytes, any less fits in a block and any more would exceed the max padding size for a final block.
+            return Err(SgiError::InvalidSize); // Final block cannot be larger than 144 bytes, any less fits in a block and any more would exceed the max padding size for a final block.
         }
 
-        let digest_len = required_digest_len(self.ctx.options.hash_size)?;
+        let digest_len: usize = self.ctx.options.hash_size.into();
         if hash_result.len() < digest_len {
-            return Err(SGIError::BufferTooSmall);
+            return Err(SgiError::BufferTooSmall);
         }
 
-        *hash_buffer.get_mut(remaining_data_len).ok_or(SGIError::InvalidSize)? = 0x80; // Add the '1' bit padding immediately after the message data in the final block
-        let len_offset = final_block_len.checked_sub(16).ok_or(SGIError::InvalidSize)?; // The last 16 bytes of the final block are reserved for the length
+        *hash_buffer.get_mut(remaining_data_len).ok_or(SgiError::InvalidSize)? = 0x80; // Add the '1' bit padding immediately after the message data in the final block
+        let len_offset = final_block_len.checked_sub(16).ok_or(SgiError::InvalidSize)?; // The last 16 bytes of the final block are reserved for the length
         // total_len widens from `usize` to `u128`, so multiplying by 8 cannot overflow.
         let bit_len = (self.ctx.total_len as u128) * 8;
         let len_field = hash_buffer
             .get_mut(len_offset..len_offset + 16)
-            .ok_or(SGIError::InvalidSize)?;
+            .ok_or(SgiError::InvalidSize)?;
         len_field.copy_from_slice(&bit_len.to_be_bytes());
 
         let mut fifo_start = 0; // We will fill the FIFO starting from the beginning of the hash_buffer which contains the final block with padding
@@ -688,6 +727,9 @@ impl StreamingHasher {
         }
 
         sgi.read_hash_output(self.ctx.options, hash_result)?;
+
+        self.ctx.zeroize();
+
         Ok(())
     }
 }
