@@ -574,20 +574,20 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     }
 
     #[cfg(adc_u0)]
-    pub fn enable_auto_off(&self) {
+    pub fn enable_auto_off(&mut self) {
         T::regs().cfgr1().modify(|reg| {
             reg.set_autoff(true);
         });
     }
 
     #[cfg(adc_u0)]
-    pub fn disable_auto_off(&self) {
+    pub fn disable_auto_off(&mut self) {
         T::regs().cfgr1().modify(|reg| {
             reg.set_autoff(false);
         });
     }
 
-    pub fn enable_vrefint(&self) -> VrefInt {
+    pub fn enable_vrefint(&mut self) -> VrefInt {
         #[cfg(not(any(adc_g0, adc_u0)))]
         T::common_regs().ccr().modify(|reg| {
             reg.set_vrefen(true);
@@ -604,7 +604,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
         VrefInt {}
     }
 
-    pub fn enable_temperature(&self) -> Temperature {
+    pub fn enable_temperature(&mut self) -> Temperature {
         cfg_if! {
             if #[cfg(any(adc_g0, adc_u0))] {
                 T::regs().ccr().modify(|reg| {
@@ -624,7 +624,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
         Temperature {}
     }
 
-    pub fn enable_vbat(&self) -> Vbat {
+    pub fn enable_vbat(&mut self) -> Vbat {
         cfg_if! {
             if #[cfg(any(adc_g0, adc_u0))] {
                 T::regs().ccr().modify(|reg| {
@@ -644,7 +644,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
         Vbat {}
     }
 
-    pub fn disable_vbat(&self) {
+    pub fn disable_vbat(&mut self) {
         cfg_if! {
             if #[cfg(any(adc_g0, adc_u0))] {
                 T::regs().ccr().modify(|reg| {

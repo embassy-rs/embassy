@@ -191,13 +191,13 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         }
     }
 
-    pub fn enable_vref(&self) -> super::VrefInt {
+    pub fn enable_vref(&mut self) -> super::VrefInt {
         T::common_regs().ccr().modify(|w| w.set_vrefen(true));
 
         super::VrefInt {}
     }
 
-    pub fn enable_temperature(&self) -> super::Temperature {
+    pub fn enable_temperature(&mut self) -> super::Temperature {
         T::common_regs().ccr().modify(|w| w.set_tsen(true));
 
         super::Temperature {}

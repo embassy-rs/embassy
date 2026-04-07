@@ -320,7 +320,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     }
 
     /// Enable reading the voltage reference internal channel.
-    pub fn enable_vrefint(&self) -> VrefInt {
+    pub fn enable_vrefint(&mut self) -> VrefInt {
         T::common_regs().ccr().modify(|reg| {
             reg.set_vrefen(true);
         });
@@ -329,7 +329,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     }
 
     /// Enable reading the temperature internal channel.
-    pub fn enable_temperature(&self) -> Temperature {
+    pub fn enable_temperature(&mut self) -> Temperature {
         T::common_regs().ccr().modify(|reg| {
             reg.set_vsenseen(true);
         });
@@ -338,7 +338,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     }
 
     /// Enable reading the vbat internal channel.
-    pub fn enable_vbat(&self) -> Vbat {
+    pub fn enable_vbat(&mut self) -> Vbat {
         T::common_regs().ccr().modify(|reg| {
             reg.set_vbaten(true);
         });

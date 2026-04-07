@@ -187,14 +187,14 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         }
     }
 
-    pub fn enable_vref(&self) -> super::VrefInt {
+    pub fn enable_vref(&mut self) -> super::VrefInt {
         T::regs().cr2().modify(|reg| {
             reg.set_tsvrefe(true);
         });
         super::VrefInt {}
     }
 
-    pub fn enable_temperature(&self) -> super::Temperature {
+    pub fn enable_temperature(&mut self) -> super::Temperature {
         T::regs().cr2().modify(|reg| {
             reg.set_tsvrefe(true);
         });

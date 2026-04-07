@@ -238,7 +238,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     }
 
     /// Enable reading the voltage reference internal channel.
-    pub fn enable_vrefint(&self) -> super::VrefInt {
+    pub fn enable_vrefint(&mut self) -> super::VrefInt {
         T::common_regs().ccr().modify(|reg| {
             reg.set_vrefen(true);
         });
@@ -247,7 +247,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     }
 
     /// Enable reading the temperature internal channel.
-    pub fn enable_temperature(&self) -> super::Temperature {
+    pub fn enable_temperature(&mut self) -> super::Temperature {
         debug!("Ensure that sample time is set to more than temperature sensor T_start from the datasheet!");
         T::common_regs().ccr().modify(|reg| {
             reg.set_tsen(true);

@@ -357,7 +357,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
     }
 
     /// Enable reading the voltage reference internal channel.
-    pub fn enable_vrefint(&self) -> super::VrefInt
+    pub fn enable_vrefint(&mut self) -> super::VrefInt
     where
         T: super::SpecialConverter<super::VrefInt>,
     {
@@ -369,7 +369,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
     }
 
     /// Enable reading the temperature internal channel.
-    pub fn enable_temperature(&self) -> super::Temperature
+    pub fn enable_temperature(&mut self) -> super::Temperature
     where
         T: super::SpecialConverter<super::Temperature>,
     {
@@ -381,7 +381,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
     }
 
     /// Enable reading the vbat internal channel.
-    pub fn enable_vbat(&self) -> super::Vbat
+    pub fn enable_vbat(&mut self) -> super::Vbat
     where
         T: super::SpecialConverter<super::Vbat>,
     {
