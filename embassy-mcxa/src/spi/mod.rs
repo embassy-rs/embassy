@@ -86,18 +86,23 @@ impl_instance!(0, 1);
 #[cfg(feature = "mcxa5xx")]
 impl_instance!(2, 3, 4, 5);
 
+trait SealedSpiPin<Instance> {}
+
 /// MOSI pin trait.
-pub trait MosiPin<Instance>: GpioPin + sealed::Sealed + PeripheralType {
+#[allow(private_bounds)]
+pub trait MosiPin<Instance>: GpioPin + SealedSpiPin<Instance> + PeripheralType {
     fn mux(&self);
 }
 
 /// MISO pin trait.
-pub trait MisoPin<Instance>: GpioPin + sealed::Sealed + PeripheralType {
+#[allow(private_bounds)]
+pub trait MisoPin<Instance>: GpioPin + SealedSpiPin<Instance> + PeripheralType {
     fn mux(&self);
 }
 
 /// SCK pin trait.
-pub trait SckPin<Instance>: GpioPin + sealed::Sealed + PeripheralType {
+#[allow(private_bounds)]
+pub trait SckPin<Instance>: GpioPin + SealedSpiPin<Instance> + PeripheralType {
     fn mux(&self);
 }
 
@@ -133,7 +138,7 @@ impl AsyncMode for Dma<'_> {}
 
 macro_rules! impl_pin {
     ($pin:ident, $peri:ident, $fn:ident, $trait:ident) => {
-        impl sealed::Sealed for crate::peripherals::$pin {}
+        impl SealedSpiPin<crate::peripherals::$peri> for crate::peripherals::$pin {}
 
         impl $trait<crate::peripherals::$peri> for crate::peripherals::$pin {
             fn mux(&self) {
@@ -186,6 +191,15 @@ mod mcxa5xx {
     impl_pin!(P3_4, LPSPI4, MUX3, MosiPin);
     impl_pin!(P3_3, LPSPI4, MUX3, SckPin);
     impl_pin!(P3_2, LPSPI4, MUX3, MisoPin);
+    impl_pin!(P3_7, LPSPI3, MUX7, SckPin);
+    impl_pin!(P3_8, LPSPI3, MUX7, MosiPin);
+    impl_pin!(P3_9, LPSPI3, MUX7, MisoPin);
+    impl_pin!(P3_14, LPSPI3, MUX7, MisoPin);
+    impl_pin!(P3_15, LPSPI3, MUX7, MosiPin);
+    impl_pin!(P3_16, LPSPI3, MUX7, SckPin);
+    impl_pin!(P3_20, LPSPI3, MUX7, MosiPin);
+    impl_pin!(P3_21, LPSPI3, MUX7, SckPin);
+    impl_pin!(P3_22, LPSPI3, MUX7, MisoPin);
 
     impl_pin!(P4_3, LPSPI2, MUX8, SckPin);
     impl_pin!(P4_4, LPSPI2, MUX8, MisoPin);
