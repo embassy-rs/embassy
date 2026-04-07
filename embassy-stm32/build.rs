@@ -1864,6 +1864,10 @@ fn main() {
     }
 
     for (p, regs) in &peripheral_list {
+        if regs.kind == "adc" && regs.version == "f3v3" {
+            continue;
+        }
+
         for trigger in p.triggers {
             let matches = trigger_expr.captures(trigger.signal).unwrap();
             let signal = &matches[1];

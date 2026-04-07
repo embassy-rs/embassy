@@ -99,7 +99,7 @@ impl AdcRegs for crate::pac::adc::Adc {
         self.cr().modify(|reg| reg.set_adstart(true));
     }
 
-    fn stop(&self) {
+    fn stop(&self, _disable: bool) {
         // Stop conversion
         while self.cr().read().addis() {}
 
@@ -247,7 +247,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
     /// Later reads will enable the ADC again, but internal measurement paths
     /// such as VREFINT or temperature sensing may need to be re-enabled.
     pub fn power_down(&mut self) {
-        T::regs().stop();
+        T::regs().stop(false);
 
         let r = T::regs();
         if r.cr().read().aden() {

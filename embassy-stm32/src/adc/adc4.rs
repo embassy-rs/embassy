@@ -209,7 +209,7 @@ impl AdcRegs for crate::pac::adc::Adc4 {
         });
     }
 
-    fn stop(&self) {
+    fn stop(&self, _disable: bool) {
         let cr = self.cr().read();
         if cr.adstart() {
             self.cr().modify(|w| w.set_adstp(true));

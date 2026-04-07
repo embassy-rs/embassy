@@ -119,14 +119,7 @@ impl State {
     }
 }
 
-#[cfg(any(adc_f3v1, adc_f3v2))]
-trait_set::trait_set! {
-    pub trait DefaultInstance = Instance;
-}
-
-#[cfg(any(
-    adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_g4, adc_c0, adc_v1, adc_l0, adc_f1
-))]
+#[cfg(not(adc_wba))]
 trait_set::trait_set! {
     pub trait DefaultInstance = Instance<Regs = crate::pac::adc::Adc>;
 }
@@ -140,15 +133,11 @@ pub trait BasicAdcRegs {
     type SampleTime: Copy;
 }
 
-#[cfg(any(
-    adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_g4, adc_c0, adc_v1, adc_l0,
-    adc_f1
-))]
 trait AdcRegs: BasicAdcRegs {
     const HAS_ERRATA: bool = false;
     fn enable(&self);
     fn start(&self);
-    fn stop(&self);
+    fn stop(&self, disable: bool);
     fn wait_done(&self) -> bool;
     fn configure_dma(&self, conversion_mode: ConversionMode, dma: bool);
     fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>);
@@ -156,7 +145,7 @@ trait AdcRegs: BasicAdcRegs {
 }
 
 #[cfg(any(adc_v2, adc_g4))]
-trait SealedInjectedAdcRegs: AdcRegs {
+trait InjectedRegs: AdcRegs {
     fn configure_injected_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>);
     fn configure_injected_trigger(&self, trigger: (u8, Exten), interrupt: bool);
     fn start_injected(&self);
@@ -166,27 +155,17 @@ trait SealedInjectedAdcRegs: AdcRegs {
 
 #[cfg(any(adc_v2, adc_g4))]
 #[allow(private_bounds)]
-pub trait InjectedAdcRegs: SealedInjectedAdcRegs {}
+pub trait InjectedAdcRegs: InjectedRegs {}
 
 #[cfg(any(adc_v2, adc_g4))]
-impl<T: SealedInjectedAdcRegs> InjectedAdcRegs for T {}
+impl<T: InjectedRegs> InjectedAdcRegs for T {}
 
 #[allow(private_bounds)]
 pub trait BasicInstance {
-    #[cfg(any(
-        adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_g4, adc_c0, adc_v1,
-        adc_l0, adc_f1
-    ))]
     type Regs: AdcRegs;
 }
 
 trait SealedInstance: BasicInstance {
-    #[cfg(any(adc_f3v1, adc_f3v2))]
-    fn regs() -> crate::pac::adc::Adc;
-    #[cfg(any(
-        adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_g4, adc_c0, adc_v1,
-        adc_l0, adc_f1
-    ))]
     fn regs() -> Self::Regs;
     #[cfg(not(any(adc_f1, adc_v1, adc_l0, adc_f3v3, adc_f3v2, adc_g0)))]
     #[allow(unused)]
@@ -228,16 +207,8 @@ pub enum Averaging {
     Samples1024,
 }
 
-#[cfg(any(
-    adc_v2, adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_wba, adc_c0, adc_v1, adc_l0,
-    adc_f1
-))]
 pub(crate) enum ConversionMode {
     // Should match the cfg on "read" below
-    #[cfg(any(
-        adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_wba, adc_c0, adc_v2, adc_v1,
-        adc_l0, adc_f1,
-    ))]
     Singular,
     // Should match the cfg on "into_ring_buffered" below
     #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba, adc_c0))]
@@ -249,8 +220,9 @@ pub(crate) enum ConversionMode {
     ConfiguredSequence,
 }
 
+#[cfg(not(adc_f3v3))]
 impl<'d, T: Instance> Adc<'d, T> {
-    #[cfg(any(adc_v1, adc_l0, adc_f1))]
+    #[cfg(any(adc_v1, adc_l0, adc_f1, adc_f3v1, adc_f3v2))]
     /// Read an ADC pin async using the irq handler.
     pub async fn irq_read(
         &mut self,
@@ -267,7 +239,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba))]
         channel.setup();
 
-        T::regs().stop();
+        T::regs().stop(false);
         T::regs().configure_sequence([((channel.channel(), channel.is_differential()), sample_time)].into_iter());
 
         T::regs().enable();
@@ -289,10 +261,6 @@ impl<'d, T: Instance> Adc<'d, T> {
         unsafe { core::ptr::read_volatile(T::regs().data()) }
     }
 
-    #[cfg(any(
-        adc_v2, adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_u3, adc_u5, adc_v3, adc_v4, adc_wba, adc_c0,
-        adc_v1, adc_l0, adc_f1,
-    ))]
     /// Read an ADC pin.
     pub fn blocking_read(
         &mut self,
@@ -302,7 +270,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba))]
         channel.setup();
 
-        T::regs().stop();
+        T::regs().stop(false);
         T::regs().configure_sequence([((channel.channel(), channel.is_differential()), sample_time)].into_iter());
 
         T::regs().enable();
@@ -318,10 +286,6 @@ impl<'d, T: Instance> Adc<'d, T> {
         unsafe { core::ptr::read_volatile(T::regs().data()) }
     }
 
-    #[cfg(any(
-        adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_wba, adc_c0, adc_v2, adc_v1,
-        adc_l0, adc_f1,
-    ))]
     /// Read one or multiple ADC regular channels using DMA.
     ///
     /// `readings` must have a length that is a multiple of the length of the `sequence` iterator.
@@ -376,7 +340,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         );
 
         // Ensure no conversions are ongoing
-        T::regs().stop();
+        T::regs().stop(false);
         T::regs().configure_sequence(
             sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
         );
@@ -394,7 +358,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         transfer.await;
 
         // Ensure conversions are finished.
-        T::regs().stop();
+        T::regs().stop(false);
     }
 
     #[cfg(any(
@@ -434,7 +398,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         );
 
         // Ensure no conversions are ongoing
-        T::regs().stop();
+        T::regs().stop(false);
         T::regs().configure_sequence(
             sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
         );
@@ -494,7 +458,7 @@ impl<'d, T: Instance> Adc<'d, T> {
             "DMA buffer length must be a multiple of the scan sequence length"
         );
         // Ensure no conversions are ongoing
-        T::regs().stop();
+        T::regs().stop(false);
         T::regs().configure_sequence(
             sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
         );
@@ -617,13 +581,10 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
     }
 }
 
-#[cfg(any(
-    adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_g4, adc_c0, adc_v1, adc_l0,
-    adc_f1,
-))]
+#[cfg(not(adc_f3v3))]
 impl<'d, T: Instance> Drop for Adc<'d, T> {
     fn drop(&mut self) {
-        T::regs().stop();
+        T::regs().stop(true);
 
         rcc::disable::<T>();
     }
@@ -847,37 +808,24 @@ foreach_adc!(
     };
 );
 
-#[cfg(not(any(adc_u5, adc_wba)))]
+#[cfg(not(any(adc_u5, adc_wba, adc_f3v3)))]
 foreach_adc!(
     ($inst:ident, $common_inst:ident, $clock:ident) => {
         impl crate::adc::BasicInstance for peripherals::$inst {
-            #[cfg(any(
-                adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_g4, adc_c0, adc_v1, adc_l0,
-                adc_f1
-            ))]
             type Regs = crate::pac::adc::Adc;
         }
 
         impl crate::adc::SealedInstance for peripherals::$inst {
-            #[cfg(any(
-                adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_g4, adc_c0, adc_f1, adc_v1,
-                adc_l0,
-            ))]
             fn regs() -> Self::Regs {
                 crate::pac::$inst
             }
 
-            #[cfg(any(adc_f3v1, adc_f3v2))]
-            fn regs() -> crate::pac::adc::Adc {
-                crate::pac::$inst
-            }
-
-            #[cfg(not(any(adc_f1, adc_v1, adc_l0, adc_f3v3, adc_f3v2, adc_g0, adc_u5, adc_wba)))]
+            #[cfg(not(any(adc_f1, adc_v1, adc_l0, adc_f3v2, adc_g0, adc_u5, adc_wba)))]
             fn common_regs() -> crate::pac::adccommon::AdcCommon {
                 return crate::pac::$common_inst
             }
 
-            #[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2))]
+            #[cfg(any(adc_f1, adc_f3v1, adc_f3v2, adc_v1, adc_l0))]
             fn state() -> &'static State {
                 static STATE: State = State::new();
                 &STATE

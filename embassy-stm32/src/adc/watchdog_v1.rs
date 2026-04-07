@@ -44,7 +44,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         low_threshold: u16,
         high_threshold: u16,
     ) -> AnalogWatchdog<'_, 'd, T> {
-        T::regs().stop();
+        T::regs().stop(false);
 
         AnalogWatchdog::new_inner(self, channels, low_threshold, high_threshold)
     }
@@ -116,7 +116,7 @@ impl<'adc, 'd, T: DefaultInstance> AnalogWatchdog<'adc, 'd, T> {
         })
         .await;
 
-        T::regs().stop();
+        T::regs().stop(false);
         sample
     }
 
@@ -184,6 +184,6 @@ impl<'adc, 'd, T: DefaultInstance> AnalogWatchdog<'adc, 'd, T> {
 
 impl<'adc, 'd, T: DefaultInstance> Drop for AnalogWatchdog<'adc, 'd, T> {
     fn drop(&mut self) {
-        T::regs().stop();
+        T::regs().stop(false);
     }
 }

@@ -1,12 +1,9 @@
-use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::task::Poll;
 
-use embassy_futures::yield_now;
-use embassy_time::Instant;
+use stm32_metapac::adc::regs::{Sqr1, Sqr2, Sqr3, Sqr4, Sqr5};
 
 use super::Resolution;
-use crate::adc::{Adc, AdcChannel, Instance, SampleTime};
+use crate::adc::{Adc, AdcRegs, ConversionMode, DefaultInstance, Instance, SampleTime, Temperature, VrefInt};
 use crate::interrupt::typelevel::Interrupt;
 use crate::time::Hertz;
 use crate::{Peri, interrupt, rcc};
@@ -38,7 +35,7 @@ pub struct InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+impl<T: DefaultInstance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         if T::regs().sr().read().eoc() {
             T::regs().cr1().modify(|w| w.set_eocie(false));
@@ -50,41 +47,12 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     }
 }
 
-fn update_vref<T: Instance>(op: i8) {
-    static VREF_STATUS: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
-
-    if op > 0 {
-        if VREF_STATUS.fetch_add(1, core::sync::atomic::Ordering::SeqCst) == 0 {
-            T::regs().ccr().modify(|w| w.set_tsvrefe(true));
-        }
-    } else {
-        if VREF_STATUS.fetch_sub(1, core::sync::atomic::Ordering::SeqCst) == 1 {
-            T::regs().ccr().modify(|w| w.set_tsvrefe(false));
-        }
-    }
+impl<T: Instance> super::SealedSpecialConverter<VrefInt> for T {
+    const CHANNEL: u8 = 17;
 }
 
-pub struct Vref<T: Instance>(core::marker::PhantomData<T>);
-impl<T: Instance> AdcChannel<T> for Vref<T> {}
-impl<T: Instance> super::SealedAdcChannel<T> for Vref<T> {
-    fn channel(&self) -> u8 {
-        17
-    }
-}
-
-impl<T: Instance> Vref<T> {
-    /// The value that vref would be if vdda was at 3000mv
-    pub fn calibrated_value(&self) -> u16 {
-        crate::pac::VREFINTCAL.data().read()
-    }
-
-    pub async fn calibrate(&mut self, adc: &mut Adc<'_, T>) -> Calibration {
-        let vref_val = adc.read(self, SampleTime::from(0)).await;
-        Calibration {
-            vref_cal: self.calibrated_value(),
-            vref_val,
-        }
-    }
+impl<T: Instance> super::SealedSpecialConverter<Temperature> for T {
+    const CHANNEL: u8 = 16;
 }
 
 pub struct Calibration {
@@ -117,27 +85,121 @@ impl Calibration {
     }
 }
 
-impl<T: Instance> Drop for Vref<T> {
-    fn drop(&mut self) {
-        update_vref::<T>(-1)
+impl AdcRegs for crate::pac::adc::Adc {
+    fn data(&self) -> *mut u16 {
+        crate::pac::adc::Adc::dr(*self).as_ptr() as *mut u16
+    }
+
+    fn enable(&self) {
+        if !(self.sr().read().adons() || self.cr2().read().adon()) {
+            self.cr2().modify(|w| w.set_adon(true));
+
+            while !self.sr().read().adons() {}
+        }
+
+        // Wait for "sample ready"
+        while self.sr().read().rcnr() {}
+    }
+
+    fn start(&self) {
+        self.cr1().modify(|w| {
+            w.set_eocie(true);
+            w.set_scan(false);
+        });
+
+        self.cr2().modify(|w| {
+            w.set_swstart(true);
+            w.set_cont(false);
+        });
+    }
+
+    fn stop(&self, disable: bool) {
+        if self.cr2().read().adon() {
+            while !self.csr().read().adons1() {}
+        }
+
+        self.cr2().modify(|w| w.set_adon(false));
+
+        while self.csr().read().adons1() {}
+
+        if disable {
+            while !self.sr().read().adons() {}
+
+            self.cr2().modify(|w| w.set_adon(false));
+        }
+    }
+
+    fn wait_done(&self) -> bool {
+        self.sr().read().eoc()
+    }
+
+    fn configure_dma(&self, _conversion_mode: ConversionMode, dma: bool) {
+        // Clear all status flags before configuring DMA.
+        self.sr().modify(|w| {
+            w.set_eoc(false);
+            w.set_ovr(true);
+        });
+
+        self.cr1().modify(|w| {
+            // Enable end of conversion interrupt only in repeated mode.
+            w.set_eocie(true);
+        });
+
+        self.cr2().modify(|w| {
+            w.set_dma(dma);
+            w.set_cont(false);
+        });
+    }
+
+    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
+        let mut sqr1 = Sqr1::default();
+        let mut sqr2 = Sqr2::default();
+        let mut sqr3 = Sqr3::default();
+        let mut sqr4 = Sqr4::default();
+        let mut sqr5 = Sqr5::default();
+
+        let mut smpr0 = self.smpr0().read();
+        let mut smpr1 = self.smpr1().read();
+        let mut smpr2 = self.smpr2().read();
+        let mut smpr3 = self.smpr3().read();
+
+        // Check the sequence is long enough
+        sqr1.set_l((sequence.len() - 1).try_into().unwrap());
+
+        for (i, ((ch, _), sample_time)) in sequence.enumerate() {
+            match i {
+                0..=5 => sqr5.set_sq(i, ch),
+                6..=11 => sqr4.set_sq(i - 6, ch),
+                12..=15 => sqr3.set_sq(i - 12, ch),
+                18..=23 => sqr2.set_sq(i - 18, ch),
+                24..=27 => sqr1.set_sq(i - 24, ch),
+                _ => unreachable!(),
+            }
+
+            let sample_time = sample_time.into();
+            match ch {
+                0..=9 => smpr3.set_smp(ch as _, sample_time),
+                10..=19 => smpr2.set_smp(ch as usize - 10, sample_time),
+                20..=29 => smpr1.set_smp(ch as usize - 20, sample_time),
+                30..=31 => smpr0.set_smp(ch as usize - 30, sample_time),
+                _ => panic!("Invalid channel to sample"),
+            }
+        }
+
+        self.sqr1().write_value(sqr1);
+        self.sqr2().write_value(sqr2);
+        self.sqr3().write_value(sqr3);
+        self.sqr4().write_value(sqr4);
+        self.sqr5().write_value(sqr5);
+
+        self.smpr0().write_value(smpr0);
+        self.smpr1().write_value(smpr1);
+        self.smpr2().write_value(smpr2);
+        self.smpr3().write_value(smpr3);
     }
 }
 
-pub struct Temperature<T: Instance>(core::marker::PhantomData<T>);
-impl<T: Instance> AdcChannel<T> for Temperature<T> {}
-impl<T: Instance> super::SealedAdcChannel<T> for Temperature<T> {
-    fn channel(&self) -> u8 {
-        16
-    }
-}
-
-impl<T: Instance> Drop for Temperature<T> {
-    fn drop(&mut self) {
-        update_vref::<T>(-1)
-    }
-}
-
-impl<'d, T: Instance> Adc<'d, T> {
+impl<'d, T: DefaultInstance> Adc<'d, T> {
     pub fn new(
         adc: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
@@ -161,195 +223,24 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     pub async fn set_resolution(&mut self, res: Resolution) {
-        let was_on = Self::is_on();
-        if was_on {
-            self.stop_adc().await;
-        }
-
+        T::regs().stop(false);
         T::regs().cr1().modify(|w| w.set_res(res.into()));
-
-        if was_on {
-            self.start_adc().await;
-        }
     }
 
     pub fn resolution(&self) -> Resolution {
         T::regs().cr1().read().res()
     }
 
-    pub fn enable_vref(&self) -> Vref<T> {
-        update_vref::<T>(1);
-
-        Vref(core::marker::PhantomData)
-    }
-
-    pub fn enable_temperature(&self) -> Temperature<T> {
+    pub fn enable_vref(&self) -> VrefInt {
         T::regs().ccr().modify(|w| w.set_tsvrefe(true));
 
-        Temperature::<T>(core::marker::PhantomData)
+        VrefInt {}
     }
 
-    /// Perform a single conversion.
-    async fn convert(&mut self) -> u16 {
-        let was_on = Self::is_on();
+    pub fn enable_temperature(&self) -> Temperature {
+        T::regs().ccr().modify(|w| w.set_tsvrefe(true));
 
-        if !was_on {
-            self.start_adc().await;
-        }
-
-        self.wait_sample_ready().await;
-
-        T::regs().sr().write(|_| {});
-        T::regs().cr1().modify(|w| {
-            w.set_eocie(true);
-            w.set_scan(false);
-        });
-        T::regs().cr2().modify(|w| {
-            w.set_swstart(true);
-            w.set_cont(false);
-        }); // swstart cleared by HW
-
-        let res = poll_fn(|cx| {
-            T::state().waker.register(cx.waker());
-
-            if T::regs().sr().read().eoc() {
-                let res = T::regs().dr().read().rdata();
-                Poll::Ready(res)
-            } else {
-                Poll::Pending
-            }
-        })
-        .await;
-
-        if !was_on {
-            self.stop_adc().await;
-        }
-
-        res
-    }
-
-    #[inline(always)]
-    fn is_on() -> bool {
-        T::regs().sr().read().adons() || T::regs().cr2().read().adon()
-    }
-
-    pub async fn start_adc(&self) {
-        //defmt::trace!("Turn ADC on");
-        T::regs().cr2().modify(|w| w.set_adon(true));
-        //defmt::trace!("Waiting for ADC to turn on");
-
-        let mut t = Instant::now();
-
-        while !T::regs().sr().read().adons() {
-            yield_now().await;
-            if t.elapsed() > embassy_time::Duration::from_millis(1000) {
-                t = Instant::now();
-                //defmt::trace!("ADC still not on");
-            }
-        }
-
-        //defmt::trace!("ADC on");
-    }
-
-    pub async fn stop_adc(&self) {
-        if T::regs().cr2().read().adon() {
-            //defmt::trace!("ADC should be on, wait for it to start");
-            while !T::regs().csr().read().adons1() {
-                yield_now().await;
-            }
-        }
-
-        //defmt::trace!("Turn ADC off");
-
-        T::regs().cr2().modify(|w| w.set_adon(false));
-
-        //defmt::trace!("Waiting for ADC to turn off");
-
-        while T::regs().csr().read().adons1() {
-            yield_now().await;
-        }
-    }
-
-    pub async fn read(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) -> u16 {
-        self.set_sample_time(channel, sample_time).await;
-        self.set_sample_sequence(&[channel.channel()]).await;
-        self.convert().await
-    }
-
-    async fn wait_sample_ready(&self) {
-        //trace!("Waiting for sample channel to be ready");
-        while T::regs().sr().read().rcnr() {
-            yield_now().await;
-        }
-    }
-
-    pub async fn set_sample_time(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) {
-        if Self::get_channel_sample_time(channel.channel()) != sample_time {
-            self.stop_adc().await;
-            unsafe {
-                Self::set_channel_sample_time(channel.channel(), sample_time);
-            }
-            self.start_adc().await;
-        }
-    }
-
-    pub fn get_sample_time(&self, channel: &impl AdcChannel<T>) -> SampleTime {
-        Self::get_channel_sample_time(channel.channel())
-    }
-
-    /// Sets the channel sample time
-    ///
-    /// ## SAFETY:
-    /// - ADON == 0 i.e ADC must not be enabled when this is called.
-    unsafe fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
-        let sample_time = sample_time.into();
-
-        match ch {
-            0..=9 => T::regs().smpr3().modify(|reg| reg.set_smp(ch as _, sample_time)),
-            10..=19 => T::regs()
-                .smpr2()
-                .modify(|reg| reg.set_smp(ch as usize - 10, sample_time)),
-            20..=29 => T::regs()
-                .smpr1()
-                .modify(|reg| reg.set_smp(ch as usize - 20, sample_time)),
-            30..=31 => T::regs()
-                .smpr0()
-                .modify(|reg| reg.set_smp(ch as usize - 30, sample_time)),
-            _ => panic!("Invalid channel to sample"),
-        }
-    }
-
-    fn get_channel_sample_time(ch: u8) -> SampleTime {
-        match ch {
-            0..=9 => T::regs().smpr3().read().smp(ch as _),
-            10..=19 => T::regs().smpr2().read().smp(ch as usize - 10),
-            20..=29 => T::regs().smpr1().read().smp(ch as usize - 20),
-            30..=31 => T::regs().smpr0().read().smp(ch as usize - 30),
-            _ => panic!("Invalid channel to sample"),
-        }
-        .into()
-    }
-
-    /// Sets the sequence to sample the ADC. Must be less than 28 elements.
-    async fn set_sample_sequence(&self, sequence: &[u8]) {
-        assert!(sequence.len() <= 28);
-        let mut iter = sequence.iter();
-        T::regs().sqr1().modify(|w| w.set_l((sequence.len() - 1) as _));
-        for (idx, ch) in iter.by_ref().take(6).enumerate() {
-            T::regs().sqr5().modify(|w| w.set_sq(idx, *ch));
-        }
-        for (idx, ch) in iter.by_ref().take(6).enumerate() {
-            T::regs().sqr4().modify(|w| w.set_sq(idx, *ch));
-        }
-        for (idx, ch) in iter.by_ref().take(6).enumerate() {
-            T::regs().sqr3().modify(|w| w.set_sq(idx, *ch));
-        }
-        for (idx, ch) in iter.by_ref().take(6).enumerate() {
-            T::regs().sqr2().modify(|w| w.set_sq(idx, *ch));
-        }
-        for (idx, ch) in iter.by_ref().take(4).enumerate() {
-            T::regs().sqr1().modify(|w| w.set_sq(idx, *ch));
-        }
+        Temperature {}
     }
 
     fn get_res_clks(res: Resolution) -> u32 {
@@ -394,15 +285,5 @@ impl<'d, T: Instance> Adc<'d, T> {
         let res_clks = Self::get_res_clks(res);
         let sample_clks = Self::get_sample_time_clks(sample_time);
         (res_clks + sample_clks) * 1_000_000 / Self::freq().0
-    }
-}
-
-impl<'d, T: Instance> Drop for Adc<'d, T> {
-    fn drop(&mut self) {
-        while !T::regs().sr().read().adons() {}
-
-        T::regs().cr2().modify(|w| w.set_adon(false));
-
-        rcc::disable::<T>();
     }
 }
