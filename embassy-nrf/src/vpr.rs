@@ -20,12 +20,7 @@ impl<'d> Vpr<'d> {
     ///
     /// The address must be an 8-byte aligned in RAM.
     pub fn new<T: Instance>(_peri: Peri<'d, T>, address: *const u8) -> Result<Self, Error> {
-        #[cfg(feature = "_s")]
-        let spu = pac::SPU00_S;
-
-        #[cfg(feature = "_ns")]
-        let spu = pac::SPU00_NS;
-
+        let spu = pac::SPU00;
         let flpr_index = 12;
         spu.periph(flpr_index).perm().write(|w| {
             w.set_secattr(true);

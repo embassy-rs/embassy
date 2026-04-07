@@ -206,11 +206,14 @@ pub mod uarte;
     feature = "nrf52840"
 ))]
 pub mod usb;
-#[cfg(any(
-    feature = "_nrf54l15-app",
-    feature = "_nrf54l10-app",
-    feature = "_nrf54l05-app",
-    feature = "_nrf54lm20-app"
+#[cfg(all(
+    any(
+        feature = "_nrf54l15-app",
+        feature = "_nrf54l10-app",
+        feature = "_nrf54l05-app",
+        feature = "_nrf54lm20-app"
+    ),
+    feature = "_s"
 ))]
 pub mod vpr;
 pub mod wdt;

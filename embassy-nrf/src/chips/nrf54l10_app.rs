@@ -696,6 +696,7 @@ impl_saadc_input!(P1_14, 1, 14);
 #[cfg(feature = "_s")]
 impl_cracen!(CRACEN, CRACEN, CRACEN);
 
+#[cfg(feature = "_s")]
 impl_vpr!(VPR, VPR00, VPR00);
 
 embassy_hal_internal::interrupt_mod!(
