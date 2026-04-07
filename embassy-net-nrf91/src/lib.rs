@@ -656,7 +656,7 @@ impl StateInner {
                     9 => match (msg.id >> 16) & 0xFFF {
                         // IP receive notification
                         1 => {
-                            if let Some(buf) = ch.try_rx_buf() {
+                            if let Some(mut buf) = ch.try_rx_buf() {
                                 let mut len = msg.data_len;
                                 if len > buf.len() {
                                     warn!("truncating rx'd packet from {} to {} bytes", len, buf.len());
@@ -665,7 +665,7 @@ impl StateInner {
                                 fence(Ordering::SeqCst); // synchronize volatile accesses with the nonvolatile copy_nonoverlapping.
                                 unsafe { ptr::copy_nonoverlapping(msg.data, buf.as_mut_ptr(), len) }
                                 fence(Ordering::SeqCst); // synchronize volatile accesses with the nonvolatile copy_nonoverlapping.
-                                ch.rx_done(len);
+                                buf.rx_done(len);
                             }
                             false
                         }
@@ -970,10 +970,10 @@ impl<'a> Runner<'a> {
                     msg.id = 0x7006_0004; // IP send
                     msg.param_len = 12;
                     msg.param[4..8].copy_from_slice(&fd.to_le_bytes());
-                    if let Err(e) = state.send_message(&mut msg, buf) {
+                    if let Err(e) = state.send_message(&mut msg, &buf) {
                         warn!("tx failed: {:?}", e);
                     }
-                    self.ch.tx_done();
+                    buf.tx_done();
                 }
             }
 

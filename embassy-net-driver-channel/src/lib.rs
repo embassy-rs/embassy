@@ -7,6 +7,7 @@ mod fmt;
 
 use core::cell::RefCell;
 use core::mem::MaybeUninit;
+use core::ops::{Deref, DerefMut};
 use core::task::{Context, Poll};
 
 pub use embassy_net_driver as driver;
@@ -79,6 +80,69 @@ pub struct TxRunner<'d, const MTU: usize> {
     tx_chan: zerocopy_channel::Receiver<'d, NoopRawMutex, PacketBuf<MTU>>,
 }
 
+/// A slot for an inbound packet.
+pub struct RxSlot<'a, const MTU: usize>(zerocopy_channel::SendSlot<'a, NoopRawMutex, PacketBuf<MTU>>);
+
+impl<'a, const MTU: usize> From<zerocopy_channel::SendSlot<'a, NoopRawMutex, PacketBuf<MTU>>> for RxSlot<'a, MTU> {
+    fn from(value: zerocopy_channel::SendSlot<'a, NoopRawMutex, PacketBuf<MTU>>) -> Self {
+        Self(value)
+    }
+}
+
+impl<const MTU: usize> Deref for RxSlot<'_, MTU> {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0.buf
+    }
+}
+
+impl<const MTU: usize> DerefMut for RxSlot<'_, MTU> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0.buf
+    }
+}
+
+impl<const MTU: usize> RxSlot<'_, MTU> {
+    /// Mark packet of `len` bytes as pushed to the inbound channel.
+    pub fn rx_done(mut self, len: usize) {
+        self.0.len = len;
+        self.0.send_done();
+    }
+}
+
+/// A slot for an outbound packet.
+pub struct TxSlot<'a, const MTU: usize>(zerocopy_channel::ReceiveSlot<'a, NoopRawMutex, PacketBuf<MTU>>);
+
+impl<const MTU: usize> Deref for TxSlot<'_, MTU> {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        let len = self.0.len;
+        &self.0.buf[..len]
+    }
+}
+
+impl<const MTU: usize> DerefMut for TxSlot<'_, MTU> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        let len = self.0.len;
+        &mut self.0.buf[..len]
+    }
+}
+
+impl<const MTU: usize> TxSlot<'_, MTU> {
+    /// Mark outbound packet as processed.
+    pub fn tx_done(self) {
+        self.0.receive_done();
+    }
+}
+
+impl<'a, const MTU: usize> From<zerocopy_channel::ReceiveSlot<'a, NoopRawMutex, PacketBuf<MTU>>> for TxSlot<'a, MTU> {
+    fn from(value: zerocopy_channel::ReceiveSlot<'a, NoopRawMutex, PacketBuf<MTU>>) -> Self {
+        Self(value)
+    }
+}
+
 impl<'d, const MTU: usize> Runner<'d, MTU> {
     /// Split the runner into separate runners for controlling state, rx and tx.
     pub fn split(self) -> (StateRunner<'d>, RxRunner<'d, MTU>, TxRunner<'d, MTU>) {
@@ -125,56 +189,40 @@ impl<'d, const MTU: usize> Runner<'d, MTU> {
         });
     }
 
-    /// Wait until there is space for more inbound packets and return a slice they can be copied into.
-    pub async fn rx_buf(&mut self) -> &mut [u8] {
-        let p = self.rx_chan.send().await;
-        &mut p.buf
+    /// Wait until there is space for more inbound packets and return a slot.
+    pub async fn rx_buf(&mut self) -> RxSlot<'_, MTU> {
+        self.rx_chan.send().await.into()
     }
 
     /// Check if there is space for more inbound packets right now.
-    pub fn try_rx_buf(&mut self) -> Option<&mut [u8]> {
-        let p = self.rx_chan.try_send()?;
-        Some(&mut p.buf)
+    pub fn try_rx_buf(&mut self) -> Option<RxSlot<'_, MTU>> {
+        self.rx_chan.try_send().map(Into::into)
     }
 
     /// Polling the inbound channel if there is space for packets.
-    pub fn poll_rx_buf(&mut self, cx: &mut Context) -> Poll<&mut [u8]> {
+    pub fn poll_rx_buf(&'_ mut self, cx: &mut Context) -> Poll<RxSlot<'_, MTU>> {
         match self.rx_chan.poll_send(cx) {
-            Poll::Ready(p) => Poll::Ready(&mut p.buf),
+            Poll::Ready(slot) => Poll::Ready(slot.into()),
             Poll::Pending => Poll::Pending,
         }
     }
 
-    /// Mark packet of len bytes as pushed to the inbound channel.
-    pub fn rx_done(&mut self, len: usize) {
-        let p = self.rx_chan.try_send().unwrap();
-        p.len = len;
-        self.rx_chan.send_done();
-    }
-
-    /// Wait until there is space for more outbound packets and return a slice they can be copied into.
-    pub async fn tx_buf(&mut self) -> &mut [u8] {
-        let p = self.tx_chan.receive().await;
-        &mut p.buf[..p.len]
+    /// Wait until there is space for more outbound packets and return a slot.
+    pub async fn tx_buf(&mut self) -> TxSlot<'_, MTU> {
+        self.tx_chan.receive().await.into()
     }
 
     /// Check if there is space for more outbound packets right now.
-    pub fn try_tx_buf(&mut self) -> Option<&mut [u8]> {
-        let p = self.tx_chan.try_receive()?;
-        Some(&mut p.buf[..p.len])
+    pub fn try_tx_buf(&mut self) -> Option<TxSlot<'_, MTU>> {
+        self.tx_chan.try_receive().map(Into::into)
     }
 
     /// Polling the outbound channel if there is space for packets.
-    pub fn poll_tx_buf(&mut self, cx: &mut Context) -> Poll<&mut [u8]> {
+    pub fn poll_tx_buf(&mut self, cx: &mut Context) -> Poll<TxSlot<'_, MTU>> {
         match self.tx_chan.poll_receive(cx) {
-            Poll::Ready(p) => Poll::Ready(&mut p.buf[..p.len]),
+            Poll::Ready(slot) => Poll::Ready(slot.into()),
             Poll::Pending => Poll::Pending,
         }
-    }
-
-    /// Mark outbound packet as copied.
-    pub fn tx_done(&mut self) {
-        self.tx_chan.receive_done();
     }
 }
 
@@ -199,58 +247,42 @@ impl<'d> StateRunner<'d> {
 }
 
 impl<'d, const MTU: usize> RxRunner<'d, MTU> {
-    /// Wait until there is space for more inbound packets and return a slice they can be copied into.
-    pub async fn rx_buf(&mut self) -> &mut [u8] {
-        let p = self.rx_chan.send().await;
-        &mut p.buf
+    /// Wait until there is space for more inbound packets and return a slot.
+    pub async fn rx_buf(&mut self) -> RxSlot<'_, MTU> {
+        self.rx_chan.send().await.into()
     }
 
     /// Check if there is space for more inbound packets right now.
-    pub fn try_rx_buf(&mut self) -> Option<&mut [u8]> {
-        let p = self.rx_chan.try_send()?;
-        Some(&mut p.buf)
+    pub fn try_rx_buf(&mut self) -> Option<RxSlot<'_, MTU>> {
+        self.rx_chan.try_send().map(Into::into)
     }
 
     /// Polling the inbound channel if there is space for packets.
-    pub fn poll_rx_buf(&mut self, cx: &mut Context) -> Poll<&mut [u8]> {
+    pub fn poll_rx_buf(&mut self, cx: &mut Context) -> Poll<RxSlot<'_, MTU>> {
         match self.rx_chan.poll_send(cx) {
-            Poll::Ready(p) => Poll::Ready(&mut p.buf),
+            Poll::Ready(slot) => Poll::Ready(slot.into()),
             Poll::Pending => Poll::Pending,
         }
-    }
-
-    /// Mark packet of len bytes as pushed to the inbound channel.
-    pub fn rx_done(&mut self, len: usize) {
-        let p = self.rx_chan.try_send().unwrap();
-        p.len = len;
-        self.rx_chan.send_done();
     }
 }
 
 impl<'d, const MTU: usize> TxRunner<'d, MTU> {
-    /// Wait until there is space for more outbound packets and return a slice they can be copied into.
-    pub async fn tx_buf(&mut self) -> &mut [u8] {
-        let p = self.tx_chan.receive().await;
-        &mut p.buf[..p.len]
+    /// Wait until there is space for more outbound packets and return a slot.
+    pub async fn tx_buf(&mut self) -> TxSlot<'_, MTU> {
+        self.tx_chan.receive().await.into()
     }
 
     /// Check if there is space for more outbound packets right now.
-    pub fn try_tx_buf(&mut self) -> Option<&mut [u8]> {
-        let p = self.tx_chan.try_receive()?;
-        Some(&mut p.buf[..p.len])
+    pub fn try_tx_buf(&mut self) -> Option<TxSlot<'_, MTU>> {
+        self.tx_chan.try_receive().map(Into::into)
     }
 
     /// Polling the outbound channel if there is space for packets.
-    pub fn poll_tx_buf(&mut self, cx: &mut Context) -> Poll<&mut [u8]> {
+    pub fn poll_tx_buf(&mut self, cx: &mut Context) -> Poll<TxSlot<'_, MTU>> {
         match self.tx_chan.poll_receive(cx) {
-            Poll::Ready(p) => Poll::Ready(&mut p.buf[..p.len]),
+            Poll::Ready(slot) => Poll::Ready(slot.into()),
             Poll::Pending => Poll::Pending,
         }
-    }
-
-    /// Mark outbound packet as copied.
-    pub fn tx_done(&mut self) {
-        self.tx_chan.receive_done();
     }
 }
 
@@ -381,9 +413,10 @@ impl<'a, const MTU: usize> embassy_net_driver::RxToken for RxToken<'a, MTU> {
         F: FnOnce(&mut [u8]) -> R,
     {
         // NOTE(unwrap): we checked the queue wasn't full when creating the token.
-        let pkt = unwrap!(self.rx.try_receive());
-        let r = f(&mut pkt.buf[..pkt.len]);
-        self.rx.receive_done();
+        let mut pkt = unwrap!(self.rx.try_receive());
+        let len = pkt.len;
+        let r = f(&mut pkt.buf[..len]);
+        pkt.receive_done();
         r
     }
 }
@@ -401,10 +434,10 @@ impl<'a, const MTU: usize> embassy_net_driver::TxToken for TxToken<'a, MTU> {
         F: FnOnce(&mut [u8]) -> R,
     {
         // NOTE(unwrap): we checked the queue wasn't full when creating the token.
-        let pkt = unwrap!(self.tx.try_send());
+        let mut pkt = unwrap!(self.tx.try_send());
         let r = f(&mut pkt.buf[..len]);
         pkt.len = len;
-        self.tx.send_done();
+        pkt.send_done();
         r
     }
 }

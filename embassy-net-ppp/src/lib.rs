@@ -103,7 +103,7 @@ impl<'d> Runner<'d> {
                 Either::First(r) => {
                     needs_poll = false;
 
-                    let (buf, rx_data) = r?;
+                    let (mut buf, rx_data) = r?;
                     let n = ppp.consume(rx_data, &mut rx_buf);
                     rw.consume(n);
 
@@ -112,7 +112,7 @@ impl<'d> Runner<'d> {
                         PPPoSAction::Received(rg) => {
                             let pkt = &rx_buf[rg];
                             buf[..pkt.len()].copy_from_slice(pkt);
-                            rx_chan.rx_done(pkt.len());
+                            buf.rx_done(pkt.len());
                         }
                         PPPoSAction::Transmit(n) => rw.write_all(&tx_buf[..n]).await.map_err(RunError::Write)?,
                     }
@@ -136,11 +136,11 @@ impl<'d> Runner<'d> {
                     }
                 }
                 Either::Second(pkt) => {
-                    match ppp.send(pkt, &mut tx_buf) {
+                    match ppp.send(&pkt, &mut tx_buf) {
                         Ok(n) => rw.write_all(&tx_buf[..n]).await.map_err(RunError::Write)?,
                         Err(BufferFullError) => unreachable!(),
                     }
-                    tx_chan.tx_done();
+                    pkt.tx_done();
                 }
             }
         }
