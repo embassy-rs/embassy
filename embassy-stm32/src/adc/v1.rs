@@ -257,7 +257,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
     }
 
     #[cfg(not(adc_l0))]
-    pub fn enable_vbat(&self) -> Vbat {
+    pub fn enable_vbat(&mut self) -> Vbat {
         // SMP must be ≥ 56 ADC clock cycles when using HSI14.
         //
         // 6.3.20 Vbat monitoring characteristics
@@ -266,7 +266,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         Vbat
     }
 
-    pub fn enable_vref(&self) -> VrefInt {
+    pub fn enable_vref(&mut self) -> VrefInt {
         // Table 28. Embedded internal reference voltage
         // tstart = 10μs
         T::regs().ccr().modify(|reg| reg.set_vrefen(true));
@@ -274,7 +274,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         VrefInt
     }
 
-    pub fn enable_temperature(&self) -> Temperature {
+    pub fn enable_temperature(&mut self) -> Temperature {
         // SMP must be ≥ 56 ADC clock cycles when using HSI14.
         //
         // 6.3.19 Temperature sensor characteristics
@@ -286,12 +286,12 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
     }
 
     #[cfg(adc_l0)]
-    pub fn enable_auto_off(&self) {
+    pub fn enable_auto_off(&mut self) {
         T::regs().cfgr1().modify(|reg| reg.set_autoff(true));
     }
 
     #[cfg(adc_l0)]
-    pub fn disable_auto_off(&self) {
+    pub fn disable_auto_off(&mut self) {
         T::regs().cfgr1().modify(|reg| reg.set_autoff(false));
     }
 

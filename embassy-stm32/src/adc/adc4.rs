@@ -365,7 +365,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
     }
 
     /// Enable reading the voltage reference internal channel.
-    pub fn enable_vrefint_adc4(&self) -> super::VrefInt {
+    pub fn enable_vrefint_adc4(&mut self) -> super::VrefInt {
         T::regs().ccr().modify(|w| {
             w.set_vrefen(true);
         });
@@ -374,7 +374,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
     }
 
     /// Enable reading the temperature internal channel.
-    pub fn enable_temperature_adc4(&self) -> super::Temperature {
+    pub fn enable_temperature_adc4(&mut self) -> super::Temperature {
         T::regs().ccr().modify(|w| {
             w.set_vsensesel(true);
         });
@@ -384,7 +384,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
 
     /// Enable reading the vbat internal channel.
     #[cfg(stm32u5)]
-    pub fn enable_vbat_adc4(&self) -> super::Vbat {
+    pub fn enable_vbat_adc4(&mut self) -> super::Vbat {
         T::regs().ccr().modify(|w| {
             w.set_vbaten(true);
         });
@@ -399,7 +399,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
 
     /// Enable reading the vbat internal channel.
     #[cfg(stm32u5)]
-    pub fn enable_dac_channel_adc4(&self, dac: DacChannel) -> super::Dac {
+    pub fn enable_dac_channel_adc4(&mut self, dac: DacChannel) -> super::Dac {
         let mux;
         match dac {
             DacChannel::OUT1 => mux = false,

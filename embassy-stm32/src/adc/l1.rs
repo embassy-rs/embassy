@@ -231,13 +231,13 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         T::regs().cr1().read().res()
     }
 
-    pub fn enable_vref(&self) -> VrefInt {
+    pub fn enable_vref(&mut self) -> VrefInt {
         T::regs().ccr().modify(|w| w.set_tsvrefe(true));
 
         VrefInt {}
     }
 
-    pub fn enable_temperature(&self) -> Temperature {
+    pub fn enable_temperature(&mut self) -> Temperature {
         T::regs().ccr().modify(|w| w.set_tsvrefe(true));
 
         Temperature {}

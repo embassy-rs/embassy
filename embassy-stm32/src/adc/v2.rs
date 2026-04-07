@@ -304,7 +304,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
 
     /// Enables internal voltage reference and returns [VrefInt], which can be used in
     /// [Adc::read_internal()] to perform conversion.
-    pub fn enable_vrefint(&self) -> VrefInt {
+    pub fn enable_vrefint(&mut self) -> VrefInt {
         T::common_regs().ccr().modify(|reg| {
             reg.set_tsvrefe(true);
         });
@@ -317,7 +317,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
     ///
     /// On STM32F42 and STM32F43 this can not be used together with [Vbat]. If both are enabled,
     /// temperature sensor will return vbat value.
-    pub fn enable_temperature(&self) -> Temperature {
+    pub fn enable_temperature(&mut self) -> Temperature {
         T::common_regs().ccr().modify(|reg| {
             reg.set_tsvrefe(true);
         });
@@ -327,7 +327,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
 
     /// Enables vbat input and returns [Vbat], which can be used in
     /// [Adc::read_internal()] to perform conversion.
-    pub fn enable_vbat(&self) -> Vbat {
+    pub fn enable_vbat(&mut self) -> Vbat {
         T::common_regs().ccr().modify(|reg| {
             reg.set_vbate(true);
         });
