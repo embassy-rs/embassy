@@ -13,6 +13,7 @@ use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     DMA2_STREAM2 => dma::InterruptHandler<peripherals::DMA2_CH2>;
+    DMA2_STREAM0 => dma::InterruptHandler<peripherals::DMA2_CH0>;
 });
 
 #[embassy_executor::main]
@@ -41,6 +42,26 @@ async fn main(_spawner: Spawner) {
 
     // Startup delay can be combined to the maximum of either
     delay.delay_us(Temperature::start_time_us().max(VrefInt::start_time_us()));
+
+    {
+        let mut first_pin = p.PA0.degrade_adc();
+        let mut second_pin = p.PA2.degrade_adc();
+
+        let mut configured_sequence = adc.configured_sequence(
+            p.DMA2_CH0,
+            [
+                (&mut first_pin, SampleTime::CYCLES112),
+                (&mut second_pin, SampleTime::CYCLES112),
+            ]
+            .into_iter(),
+            Irqs,
+        );
+
+        let mut buf = [0u16; 4];
+
+        configured_sequence.read(&mut buf[..2]).await;
+        configured_sequence.read(&mut buf[2..]).await;
+    }
 
     let vrefint_sample = adc.blocking_read(&mut vrefint, SampleTime::CYCLES112);
 

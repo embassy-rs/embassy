@@ -42,21 +42,21 @@ impl<T: DefaultInstance> interrupt::typelevel::Handler<T::Interrupt> for Interru
 }
 
 #[cfg(not(adc_l0))]
-impl super::SealedSpecialConverter<super::Vbat> for crate::peripherals::ADC1 {
+impl super::ConverterFor<super::Vbat> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 18;
 }
 
-impl super::SealedSpecialConverter<super::VrefInt> for crate::peripherals::ADC1 {
+impl super::ConverterFor<super::VrefInt> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 17;
 }
 
 #[cfg(adc_l0)]
-impl super::SealedSpecialConverter<super::Temperature> for crate::peripherals::ADC1 {
+impl super::ConverterFor<super::Temperature> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 18;
 }
 
 #[cfg(not(adc_l0))]
-impl super::SealedSpecialConverter<super::Temperature> for crate::peripherals::ADC1 {
+impl super::ConverterFor<super::Temperature> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 16;
 }
 

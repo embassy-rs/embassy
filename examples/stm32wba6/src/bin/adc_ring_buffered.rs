@@ -22,7 +22,7 @@
 use defmt::*;
 use embassy_stm32::adc::adc4::Calibration;
 use embassy_stm32::adc::{Adc, AdcChannel, RingBufferedAdc, adc4};
-use embassy_stm32::peripherals::{ADC4, GPDMA1_CH1};
+use embassy_stm32::peripherals::GPDMA1_CH1;
 use embassy_stm32::rcc::{
     AHB5Prescaler, AHBPrescaler, APBPrescaler, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale,
 };
@@ -100,7 +100,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     // Create the ring-buffered ADC with continuous mode
     // Channels must be in ascending order for ADC4
     // CYCLES79_5 (1.66 µs) - longest available sample time for internal channels
-    let mut ring_adc: RingBufferedAdc<ADC4> = adc.into_ring_buffered(
+    let mut ring_adc: RingBufferedAdc<_> = adc.into_ring_buffered(
         p.GPDMA1_CH1,
         unsafe { &mut *core::ptr::addr_of_mut!(DMA_BUF) },
         Irqs,

@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use stm32_metapac::adc::regs::{Sqr1, Sqr2, Sqr3, Sqr4, Sqr5};
+use stm32_metapac::adc::regs::{Smpr0, Smpr1, Smpr2, Smpr3, Sqr1, Sqr2, Sqr3, Sqr4, Sqr5};
 
 use super::Resolution;
 use crate::adc::{Adc, AdcRegs, ConversionMode, DefaultInstance, Instance, SampleTime, Temperature, VrefInt};
@@ -47,11 +47,11 @@ impl<T: DefaultInstance> interrupt::typelevel::Handler<T::Interrupt> for Interru
     }
 }
 
-impl<T: Instance> super::SealedSpecialConverter<VrefInt> for T {
+impl<T: Instance> super::ConverterFor<VrefInt> for T {
     const CHANNEL: u8 = 17;
 }
 
-impl<T: Instance> super::SealedSpecialConverter<Temperature> for T {
+impl<T: Instance> super::ConverterFor<Temperature> for T {
     const CHANNEL: u8 = 16;
 }
 
@@ -158,10 +158,10 @@ impl AdcRegs for crate::pac::adc::Adc {
         let mut sqr4 = Sqr4::default();
         let mut sqr5 = Sqr5::default();
 
-        let mut smpr0 = self.smpr0().read();
-        let mut smpr1 = self.smpr1().read();
-        let mut smpr2 = self.smpr2().read();
-        let mut smpr3 = self.smpr3().read();
+        let mut smpr0 = Smpr0::default();
+        let mut smpr1 = Smpr1::default();
+        let mut smpr2 = Smpr2::default();
+        let mut smpr3 = Smpr3::default();
 
         // Check the sequence is long enough
         sqr1.set_l((sequence.len() - 1).try_into().unwrap());
