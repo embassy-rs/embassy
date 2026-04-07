@@ -15,14 +15,14 @@
 mod mcxa2xx_exclusive {
     pub mod flash;
 
-    pub use crate::chips::mcxa2xx::{Peripherals, init, interrupt, peripherals};
+    pub use crate::chips::mcxa2xx::init;
 }
 
 /// Module for MCXA5xx-specific HAL drivers
 #[cfg(feature = "mcxa5xx")]
 #[path = "."]
 mod mcxa5xx_exclusive {
-    pub use crate::chips::mcxa5xx::{Peripherals, init, interrupt, peripherals};
+    pub use crate::chips::mcxa5xx::init;
 }
 
 /// Module for HAL drivers supported by all chips
@@ -60,6 +60,24 @@ pub use mcxa2xx_exclusive::*;
 pub use mcxa5xx_exclusive::*;
 
 pub(crate) mod chips;
+
+// This must go last, so that it sees all the impl_foo! macros defined earlier.
+pub(crate) mod _generated {
+    #![allow(dead_code)]
+    #![allow(unused_imports)]
+    #![allow(non_snake_case)]
+    #![allow(missing_docs)]
+
+    use crate::gpio::{AnyPin, GpioPin, Pull, SealedPin};
+    use crate::impl_pin;
+    use crate::pac::common::{RW, Reg};
+    use crate::pac::gpio::{Pdd, Pid};
+    use crate::pac::port::{Dse, Ibe, Mux, Pcr, Sre};
+
+    include!(concat!(env!("OUT_DIR"), "/_generated.rs"));
+}
+
+pub use crate::_generated::{interrupt, Peripherals, peripherals};
 
 // Re-export interrupt traits and types
 // Re-export Peri and PeripheralType to allow applications to express Peri types and requirements.
