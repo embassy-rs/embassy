@@ -9,7 +9,7 @@ use pac::adc::vals::{Adcaldif, Difsel, Exten};
 pub use pac::adccommon::vals::{Dual, Presc};
 
 use super::{Adc, AnyAdcChannel, ConversionMode, Resolution, SampleTime, blocking_delay_us};
-use crate::adc::{AdcRegs, DefaultInstance, SealedInjectedAdcRegs};
+use crate::adc::{AdcRegs, DefaultInstance, InjectedRegs};
 use crate::pac::adc::regs::{Smpr, Smpr2, Sqr1, Sqr2, Sqr3, Sqr4};
 use crate::time::Hertz;
 use crate::{Peri, pac, rcc};
@@ -89,7 +89,7 @@ impl super::AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn stop(&self) {
+    fn stop(&self, _disable: bool) {
         if self.cr().read().adstart() && !self.cr().read().addis() {
             self.cr().modify(|reg| {
                 reg.set_adstp(Adstp::STOP);
@@ -200,7 +200,7 @@ impl super::AdcRegs for crate::pac::adc::Adc {
     }
 }
 
-impl SealedInjectedAdcRegs for crate::pac::adc::Adc {
+impl InjectedRegs for crate::pac::adc::Adc {
     fn configure_injected_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>) {
         let len: u8 = sequence.len().try_into().unwrap();
         self.jsqr().modify(|w| w.set_jl(len - 1));

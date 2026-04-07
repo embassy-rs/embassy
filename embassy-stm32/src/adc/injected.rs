@@ -2,7 +2,7 @@ use core::marker::PhantomData;
 use core::sync::atomic::{Ordering, compiler_fence};
 
 use super::AnyAdcChannel;
-use crate::adc::{BasicAdcRegs, InjectedAdcRegs, Instance, SealedInjectedAdcRegs};
+use crate::adc::{BasicAdcRegs, InjectedAdcRegs, InjectedRegs, Instance};
 
 /// Injected ADC sequence with owned channels.
 pub struct InjectedAdc<'a, T: Instance<Regs: InjectedAdcRegs>, const N: usize> {

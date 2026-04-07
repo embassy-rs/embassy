@@ -1,7 +1,7 @@
 use core::sync::atomic::{Ordering, compiler_fence};
 
 use super::{AnyAdcChannel, ConversionMode, Temperature, Vbat, VrefInt, blocking_delay_us};
-use crate::adc::{Adc, AdcRegs, DefaultInstance, Resolution, SampleTime, SealedInjectedAdcRegs};
+use crate::adc::{Adc, AdcRegs, DefaultInstance, InjectedRegs, Resolution, SampleTime};
 use crate::pac::adc::vals;
 pub use crate::pac::adccommon::vals::Adcpre;
 use crate::time::Hertz;
@@ -101,7 +101,7 @@ impl AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn stop(&self) {
+    fn stop(&self, _disable: bool) {
         let r = self;
 
         // Stop ADC
@@ -208,7 +208,7 @@ impl AdcRegs for crate::pac::adc::Adc {
     }
 }
 
-impl SealedInjectedAdcRegs for crate::pac::adc::Adc {
+impl InjectedRegs for crate::pac::adc::Adc {
     fn configure_injected_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>) {
         let len: u8 = sequence.len().try_into().unwrap();
         self.cr1().modify(|w| w.set_jauto(false));

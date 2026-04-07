@@ -53,7 +53,7 @@ impl<'adc, 'd, T: Instance, D: RxDma<T>> ConfiguredSequence<'adc, 'd, T, D> {
 
 impl<T: Instance, D: RxDma<T>> Drop for ConfiguredSequence<'_, '_, T, D> {
     fn drop(&mut self) {
-        T::regs().stop();
+        T::regs().stop(false);
         compiler_fence(Ordering::SeqCst);
     }
 }

@@ -12,7 +12,7 @@ pub use pac::adc::vals::{Ovsr, Ovss, Presc};
 #[allow(unused_imports)]
 use super::SealedAdcChannel;
 use super::{Adc, Averaging, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt, blocking_delay_us};
-use crate::adc::ConversionMode;
+use crate::adc::{AdcRegs, ConversionMode};
 use crate::{Peri, pac, rcc};
 
 /// Default VREF voltage used for sample conversion to millivolts.
@@ -198,7 +198,7 @@ impl super::AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn stop(&self) {
+    fn stop(&self, _disable: bool) {
         // Ensure conversions are finished.
         if self.cr().read().adstart() && !self.cr().read().addis() {
             self.cr().modify(|reg| {
@@ -563,7 +563,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     /// This stops ADC operation and may reduce power consumption.
     /// A later read will enable it automatically.
     pub fn power_down(&mut self) {
-        super::AdcRegs::stop(&T::regs());
+        T::regs().stop(false);
 
         if T::regs().cr().read().aden() {
             T::regs().cr().modify(|reg| {

@@ -51,7 +51,7 @@ async fn main(_spawner: Spawner) {
     dac.set(Value::Bit8(0));
     // Now wait a little to obtain a stable value
     Timer::after_millis(30).await;
-    let offset = adc.read(&mut adc_pin, SampleTime::from_bits(0)).await;
+    let offset = adc.irq_read(&mut adc_pin, SampleTime::from_bits(0)).await;
 
     for v in 0..=255 {
         // First set the DAC output value
@@ -63,7 +63,7 @@ async fn main(_spawner: Spawner) {
 
         // Need to steal the peripherals here because PA4 is obviously in use already
         let measured = adc
-            .read(
+            .irq_read(
                 &mut unsafe { embassy_stm32::Peripherals::steal() }.PA4,
                 SampleTime::from_bits(0),
             )

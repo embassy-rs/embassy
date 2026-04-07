@@ -1,9 +1,10 @@
-use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::task::Poll;
+
+use stm32_metapac::adc::regs::{Sqr1, Sqr2, Sqr3};
+use stm32_metapac::adc::vals::{Advregen, Dmacfg};
 
 use super::blocking_delay_us;
-use crate::adc::{Adc, AdcChannel, Instance, SampleTime, VrefInt};
+use crate::adc::{Adc, AdcRegs, ConversionMode, DefaultInstance, Instance, SampleTime, VrefInt};
 use crate::interrupt::typelevel::Interrupt;
 use crate::time::Hertz;
 use crate::{Peri, interrupt, rcc};
@@ -17,7 +18,7 @@ pub struct InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+impl<T: DefaultInstance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         if T::regs().isr().read().eoc() {
             T::regs().ier().modify(|w| w.set_eocie(false));
@@ -37,18 +38,117 @@ impl<T: Instance> super::SealedSpecialConverter<super::Temperature> for T {
     const CHANNEL: u8 = 16;
 }
 
-impl<'d, T: Instance> Adc<'d, T> {
+impl AdcRegs for crate::pac::adc::Adc {
+    fn data(&self) -> *mut u16 {
+        crate::pac::adc::Adc::dr(*self).as_ptr() as *mut u16
+    }
+
+    fn enable(&self) {
+        // Enable the adc
+        self.cr().modify(|w| w.set_aden(true));
+
+        // Wait until the adc is ready
+        while !self.isr().read().adrdy() {}
+    }
+
+    fn start(&self) {
+        self.isr().modify(|reg| {
+            reg.set_eos(true);
+            reg.set_eoc(true);
+        });
+
+        self.cr().modify(|reg| {
+            reg.set_adstart(true);
+        });
+    }
+
+    fn stop(&self, disable: bool) {
+        self.cr().modify(|w| w.set_adstp(true));
+
+        while self.cr().read().adstp() {}
+
+        self.cr().modify(|w| w.set_addis(true));
+
+        while self.cr().read().aden() {}
+
+        // Disable the adc regulator
+        if disable {
+            self.cr().modify(|w| w.set_advregen(Advregen::INTERMEDIATE));
+            self.cr().modify(|w| w.set_advregen(Advregen::DISABLED));
+        }
+    }
+
+    fn wait_done(&self) -> bool {
+        self.isr().read().eoc()
+    }
+
+    fn configure_dma(&self, conversion_mode: ConversionMode, dma: bool) {
+        // Clear all status flags before configuring DMA.
+        self.isr().modify(|w| {
+            w.set_eoc(false);
+            w.set_ovr(true);
+        });
+
+        self.ier().modify(|w| {
+            // Enable end of conversion interrupt only in repeated mode.
+            w.set_eocie(true);
+        });
+
+        self.cfgr().modify(|w| {
+            w.set_discen(false);
+            w.set_dmaen(dma);
+            w.set_cont(false);
+            w.set_dmacfg(match conversion_mode {
+                ConversionMode::Singular => Dmacfg::ONE_SHOT,
+            });
+        });
+    }
+
+    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
+        let mut sqr1 = Sqr1::default();
+        let mut sqr2 = Sqr2::default();
+        let mut sqr3 = Sqr3::default();
+
+        let mut smpr1 = self.smpr1().read();
+        let mut smpr2 = self.smpr2().read();
+
+        // Check the sequence is long enough
+        sqr1.set_l((sequence.len() - 1).try_into().unwrap());
+
+        for (i, ((ch, _), sample_time)) in sequence.enumerate() {
+            match i {
+                0..=5 => sqr1.set_sq(i, ch),
+                6..=11 => sqr2.set_sq(i - 6, ch),
+                12..=15 => sqr3.set_sq(i - 12, ch),
+                _ => unreachable!(),
+            }
+
+            let sample_time = sample_time.into();
+            if ch <= 9 {
+                smpr1.set_smp(ch as _, sample_time);
+            } else {
+                smpr2.set_smp((ch - 10) as _, sample_time);
+            }
+        }
+
+        self.sqr1().write_value(sqr1);
+        self.sqr2().write_value(sqr2);
+        self.sqr3().write_value(sqr3);
+        self.smpr1().write_value(smpr1);
+        self.smpr2().write_value(smpr2);
+    }
+}
+
+impl<'d, T: DefaultInstance> Adc<'d, T> {
     pub fn new(
         adc: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
-        use crate::pac::adc::vals;
-
         rcc::enable_and_reset::<T>();
 
         // Enable the adc regulator
-        T::regs().cr().modify(|w| w.set_advregen(vals::Advregen::INTERMEDIATE));
-        T::regs().cr().modify(|w| w.set_advregen(vals::Advregen::ENABLED));
+        T::regs().cr().modify(|w| w.set_advregen(Advregen::INTERMEDIATE));
+        T::regs().cr().modify(|w| w.set_advregen(Advregen::ENABLED));
 
         // Wait for the regulator to stabilize
         blocking_delay_us(10);
@@ -65,10 +165,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         blocking_delay_us((1_000_000 * 4) / Self::freq().0 as u64 + 1);
 
         // Enable the adc
-        T::regs().cr().modify(|w| w.set_aden(true));
-
-        // Wait until the adc is ready
-        while !T::regs().isr().read().adrdy() {}
+        T::regs().enable();
 
         T::Interrupt::unpend();
         unsafe {
@@ -104,64 +201,5 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::common_regs().ccr().modify(|w| w.set_tsen(true));
 
         super::Temperature {}
-    }
-
-    /// Perform a single conversion.
-    async fn convert(&mut self) -> u16 {
-        T::regs().isr().write(|_| {});
-        T::regs().ier().modify(|w| w.set_eocie(true));
-        T::regs().cr().modify(|w| w.set_adstart(true));
-
-        poll_fn(|cx| {
-            T::state().waker.register(cx.waker());
-
-            if T::regs().isr().read().eoc() {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        })
-        .await;
-
-        T::regs().isr().write(|_| {});
-
-        T::regs().dr().read().rdata()
-    }
-
-    pub async fn read(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) -> u16 {
-        Self::set_channel_sample_time(channel.channel(), sample_time);
-
-        // Configure the channel to sample
-        T::regs().sqr1().write(|w| w.set_sq(0, channel.channel()));
-        self.convert().await
-    }
-
-    fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
-        let sample_time = sample_time.into();
-        if ch <= 9 {
-            T::regs().smpr1().modify(|reg| reg.set_smp(ch as _, sample_time));
-        } else {
-            T::regs().smpr2().modify(|reg| reg.set_smp((ch - 10) as _, sample_time));
-        }
-    }
-}
-
-impl<'d, T: Instance> Drop for Adc<'d, T> {
-    fn drop(&mut self) {
-        use crate::pac::adc::vals;
-
-        T::regs().cr().modify(|w| w.set_adstp(true));
-
-        while T::regs().cr().read().adstp() {}
-
-        T::regs().cr().modify(|w| w.set_addis(true));
-
-        while T::regs().cr().read().aden() {}
-
-        // Disable the adc regulator
-        T::regs().cr().modify(|w| w.set_advregen(vals::Advregen::INTERMEDIATE));
-        T::regs().cr().modify(|w| w.set_advregen(vals::Advregen::DISABLED));
-
-        rcc::disable::<T>();
     }
 }
