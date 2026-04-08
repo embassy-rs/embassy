@@ -227,7 +227,7 @@ impl AdcRegs for crate::pac::adc::Adc4 {
         });
     }
 
-    fn configure_dma(&self, conversion_mode: ConversionMode, dma: bool) {
+    fn configure_dma(&self, conversion_mode: ConversionMode) {
         // Clear overrun and conversion flags
         self.isr().modify(|reg| {
             reg.set_ovr(true);
@@ -236,11 +236,8 @@ impl AdcRegs for crate::pac::adc::Adc4 {
         });
 
         self.cfgr1().modify(|reg| {
-            reg.set_dmaen(dma);
-            reg.set_dmacfg(match conversion_mode {
-                ConversionMode::Singular => Dmacfg::ONE_SHOT,
-                _ => Dmacfg::CIRCULAR,
-            });
+            reg.set_dmaen(!matches!(conversion_mode, ConversionMode::NoDma));
+            reg.set_dmacfg(Dmacfg::CIRCULAR);
             reg.set_discen(false);
             reg.set_cont(false);
             reg.set_chselrmod(false);

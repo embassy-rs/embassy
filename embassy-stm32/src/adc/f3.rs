@@ -82,7 +82,7 @@ impl AdcRegs for crate::pac::adc::Adc {
         self.isr().read().eoc()
     }
 
-    fn configure_dma(&self, conversion_mode: ConversionMode, dma: bool) {
+    fn configure_dma(&self, conversion_mode: ConversionMode) {
         // Clear all status flags before configuring DMA.
         self.isr().modify(|w| {
             w.set_eoc(false);
@@ -96,11 +96,14 @@ impl AdcRegs for crate::pac::adc::Adc {
 
         self.cfgr().modify(|w| {
             w.set_discen(false);
-            w.set_dmaen(dma);
-            w.set_cont(false);
-            w.set_dmacfg(match conversion_mode {
-                ConversionMode::Singular => Dmacfg::ONE_SHOT,
-            });
+            w.set_dmaen(!matches!(conversion_mode, ConversionMode::NoDma));
+            w.set_cont(matches!(conversion_mode, ConversionMode::Repeated(None)));
+            w.set_dmacfg(Dmacfg::CIRCULAR);
+
+            if let ConversionMode::Repeated(Some((trigger, edge))) = conversion_mode {
+                w.set_extsel(trigger);
+                w.set_exten(edge);
+            }
         });
     }
 

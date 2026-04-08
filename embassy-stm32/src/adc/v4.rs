@@ -139,17 +139,16 @@ impl AdcRegs for crate::pac::adc::Adc {
         self.isr().read().eos()
     }
 
-    fn configure_dma(&self, conversion_mode: ConversionMode, dma: bool) {
+    fn configure_dma(&self, conversion_mode: ConversionMode) {
         self.isr().modify(|reg| {
             reg.set_ovr(true);
         });
 
         self.cfgr().modify(|w| {
             w.set_cont(false);
-            w.set_dmngt(match (conversion_mode, dma) {
-                (ConversionMode::Singular, true) => Dmngt::DMA_ONE_SHOT,
-                (_, false) => Dmngt::from_bits(0),
-                (_, true) => Dmngt::DMA_CIRCULAR,
+            w.set_dmngt(match conversion_mode {
+                ConversionMode::NoDma => Dmngt::from_bits(0),
+                _ => Dmngt::DMA_CIRCULAR,
             });
         });
     }

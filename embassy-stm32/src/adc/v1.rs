@@ -128,7 +128,7 @@ impl AdcRegs for crate::pac::adc::Adc {
         self.isr().read().eoc()
     }
 
-    fn configure_dma(&self, conversion_mode: ConversionMode, dma: bool) {
+    fn configure_dma(&self, conversion_mode: ConversionMode) {
         // Clear all interrupts
         self.isr().modify(|regs| {
             regs.set_eoc(false);
@@ -147,11 +147,9 @@ impl AdcRegs for crate::pac::adc::Adc {
             // Disable discontinuous mode
             w.set_discen(false);
             // Enable DMA mode
-            w.set_dmaen(dma);
+            w.set_dmaen(!matches!(conversion_mode, ConversionMode::NoDma));
             // DMA requests are issues as long as DMA=1 and data are converted.
-            w.set_cont(match conversion_mode {
-                ConversionMode::Singular => false,
-            });
+            w.set_cont(false);
         });
     }
 

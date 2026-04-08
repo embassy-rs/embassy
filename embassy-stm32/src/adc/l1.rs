@@ -133,7 +133,7 @@ impl AdcRegs for crate::pac::adc::Adc {
         self.sr().read().eoc()
     }
 
-    fn configure_dma(&self, _conversion_mode: ConversionMode, dma: bool) {
+    fn configure_dma(&self, conversion_mode: ConversionMode) {
         // Clear all status flags before configuring DMA.
         self.sr().modify(|w| {
             w.set_eoc(false);
@@ -146,7 +146,7 @@ impl AdcRegs for crate::pac::adc::Adc {
         });
 
         self.cr2().modify(|w| {
-            w.set_dma(dma);
+            w.set_dma(!matches!(conversion_mode, ConversionMode::NoDma));
             w.set_cont(false);
         });
     }
