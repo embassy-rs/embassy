@@ -13,7 +13,7 @@ use embassy_stm32::adc::{
     Adc, AdcChannel as _, Exten, InjectedAdc, InjectedAdcTrigger, RegularAdcTrigger, SampleTime, VrefInt,
 };
 use embassy_stm32::interrupt::typelevel::{ADC1_2, Interrupt};
-use embassy_stm32::peripherals::ADC1;
+use embassy_stm32::pac::adc::Adc as AdcRegs;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::complementary_pwm::{ComplementaryPwm, Mms2};
 use embassy_stm32::timer::low_level::CountingMode;
@@ -23,7 +23,7 @@ use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
-static ADC1_HANDLE: CriticalSectionMutex<RefCell<Option<InjectedAdc<ADC1, 1>>>> =
+static ADC1_HANDLE: CriticalSectionMutex<RefCell<Option<InjectedAdc<AdcRegs>>>> =
     CriticalSectionMutex::new(RefCell::new(None));
 
 bind_interrupts!(struct Irqs {
