@@ -13,9 +13,7 @@
 #[cfg(feature = "mcxa2xx")]
 #[path = "."]
 mod mcxa2xx_exclusive {
-    pub mod adc;
     pub mod flash; // TODO: Add dummy driver to metadata
-    pub mod i3c;
 
     pub use crate::chips::mcxa2xx::init;
 }
