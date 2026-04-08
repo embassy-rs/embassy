@@ -501,7 +501,7 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
         sequence: [(AnyAdcChannel<'a, T>, <T::Regs as BasicAdcRegs>::SampleTime); N],
         trigger: InjectedAdcTrigger<T>,
         interrupt: bool,
-    ) -> InjectedAdc<'a, T, N> {
+    ) -> InjectedAdc<'a, T::Regs> {
         assert!(N != 0, "Read sequence cannot be empty");
         assert!(
             N <= NR_INJECTED_RANKS,
@@ -559,7 +559,7 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
         injected_sequence: [(AnyAdcChannel<'b, T>, <T::Regs as BasicAdcRegs>::SampleTime); N],
         injected_trigger: InjectedAdcTrigger<T>,
         injected_interrupt: bool,
-    ) -> (RingBufferedAdc<'a, T::Regs>, InjectedAdc<'b, T, N>) {
+    ) -> (RingBufferedAdc<'a, T::Regs>, InjectedAdc<'b, T::Regs>) {
         unsafe {
             (
                 Self {
