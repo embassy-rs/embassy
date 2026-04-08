@@ -200,44 +200,6 @@ impl<'d, PIO: Instance, const SM: usize, M: Mode> Qspi<'d, PIO, SM, M> {
         }
     }
 
-    fn blocking_read_u8(&mut self) -> Result<u8, Error> {
-        while self.sm.rx().empty() {}
-        let value = self.sm.rx().pull() as u8;
-
-        Ok(value)
-    }
-
-    fn blocking_write_u8(&mut self, v: u8) -> Result<(), Error> {
-        let value = u32::from_be_bytes([v, 0, 0, 0]);
-
-        while !self.sm.tx().try_push(value) {}
-
-        // need to clear here for flush to work correctly
-        self.sm.tx().stalled();
-
-        Ok(())
-    }
-
-    /// Read data from QSPI blocking execution until done.
-    pub fn blocking_read(&mut self, data: &mut [u8]) -> Result<(), Error> {
-        for v in data {
-            self.blocking_write_u8(0)?;
-            *v = self.blocking_read_u8()?;
-        }
-        self.flush()?;
-        Ok(())
-    }
-
-    /// Write data to QSPI blocking execution until done.
-    pub fn blocking_write(&mut self, data: &[u8]) -> Result<(), Error> {
-        for v in data {
-            self.blocking_write_u8(*v)?;
-            let _ = self.blocking_read_u8()?;
-        }
-        self.flush()?;
-        Ok(())
-    }
-
     /// Block execution until QSPI is done.
     pub fn flush(&mut self) -> Result<(), Error> {
         // Wait for all words in the FIFO to have been pulled by the SM
