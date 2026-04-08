@@ -44,20 +44,9 @@ impl<const N: usize> MultiWakerRegistration<N> {
 
     /// Wake all registered wakers. This clears the buffer
     pub fn wake(&mut self) {
-        // heapless::Vec has no `drain()`, do it unsafely ourselves...
-
-        // First set length to 0, without dropping the contents.
-        // This is necessary for soundness: if wake() panics and we're using panic=unwind.
-        // Setting len=0 upfront ensures other code can't observe the vec in an inconsistent state.
-        // (it'll leak wakers, but that's not UB)
-        let len = self.wakers.len();
-        unsafe { self.wakers.set_len(0) }
-
-        for i in 0..len {
-            // Move a waker out of the vec.
-            let waker = unsafe { self.wakers.as_mut_ptr().add(i).read() };
+        for w in self.wakers.drain(..) {
             // Wake it by value, which consumes (drops) it.
-            waker.wake();
+            w.wake();
         }
     }
 }
