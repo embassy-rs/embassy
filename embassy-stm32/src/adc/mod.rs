@@ -17,7 +17,7 @@
 #[cfg_attr(adc_c0, path = "c0.rs")]
 mod _version;
 
-#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba, adc_c0))]
+#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba, adc_c0, adc_f3v1))]
 mod ringbuffered;
 
 #[cfg(any(
@@ -38,7 +38,7 @@ pub use configured_sequence::ConfiguredSequence;
 use embassy_hal_internal::PeripheralType;
 #[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2))]
 use embassy_sync::waitqueue::AtomicWaker;
-#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba, adc_c0))]
+#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba, adc_c0, adc_f3v1))]
 pub use ringbuffered::RingBufferedAdc;
 
 #[cfg(adc_u5)]
@@ -53,7 +53,7 @@ pub mod adc4;
 #[allow(unused)]
 pub(self) use crate::block_for_us as blocking_delay_us;
 pub use crate::pac::adc::vals;
-#[cfg(any(adc_v2, adc_g4, adc_g0, adc_c0))]
+#[cfg(any(adc_v2, adc_g4, adc_g0, adc_c0, adc_f3v1))]
 pub use crate::pac::adc::vals::Exten;
 #[cfg(not(any(adc_f1, adc_f3v3)))]
 pub use crate::pac::adc::vals::Res as Resolution;
@@ -63,7 +63,7 @@ use crate::{peripherals, rcc};
 
 dma_trait!(RxDma, Instance);
 
-#[cfg(not(any(adc_v2, adc_g4, adc_g0, adc_c0)))]
+#[cfg(not(any(adc_v2, adc_g4, adc_g0, adc_c0, adc_f3v1)))]
 /// Trigger edge stub.
 pub struct Exten;
 
@@ -139,7 +139,7 @@ trait AdcRegs: BasicAdcRegs {
     fn start(&self);
     fn stop(&self, disable: bool);
     fn wait_done(&self) -> bool;
-    fn configure_dma(&self, conversion_mode: ConversionMode, dma: bool);
+    fn configure_dma(&self, conversion_mode: ConversionMode);
     fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>);
     fn data(&self) -> *mut u16;
 }
@@ -208,16 +208,12 @@ pub enum Averaging {
 }
 
 pub(crate) enum ConversionMode {
-    // Should match the cfg on "read" below
+    NoDma,
     Singular,
     // Should match the cfg on "into_ring_buffered" below
-    #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba, adc_c0))]
+    #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba, adc_c0, adc_f3v1))]
     Repeated(Option<(u8, Exten)>),
     // Should match the cfg on "configured_sequence" below
-    #[cfg(any(
-        adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_wba, adc_c0, adc_v2
-    ))]
-    ConfiguredSequence,
 }
 
 #[cfg(not(adc_f3v3))]
@@ -243,7 +239,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().configure_sequence([((channel.channel(), channel.is_differential()), sample_time)].into_iter());
 
         T::regs().enable();
-        T::regs().configure_dma(ConversionMode::Singular, false);
+        T::regs().configure_dma(ConversionMode::NoDma);
         T::regs().start();
 
         poll_fn(|cx| {
@@ -274,7 +270,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().configure_sequence([((channel.channel(), channel.is_differential()), sample_time)].into_iter());
 
         T::regs().enable();
-        T::regs().configure_dma(ConversionMode::Singular, false);
+        T::regs().configure_dma(ConversionMode::NoDma);
 
         let i = if <T::Regs as AdcRegs>::HAS_ERRATA { 2 } else { 1 };
         for _ in 0..i {
@@ -346,7 +342,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         );
 
         T::regs().enable();
-        T::regs().configure_dma(ConversionMode::Singular, true);
+        T::regs().configure_dma(ConversionMode::Singular);
 
         let request = rx_dma.request();
         let mut dma_channel = crate::dma::Channel::new(rx_dma, irq);
@@ -404,12 +400,12 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().enable();
 
         // Configure DMA once, reused across all subsequent read() calls.
-        T::regs().configure_dma(ConversionMode::ConfiguredSequence, true);
+        T::regs().configure_dma(ConversionMode::Singular);
 
         ConfiguredSequence::new(self, rx_dma, len, irq)
     }
 
-    #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba, adc_c0))]
+    #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba, adc_c0, adc_f3v1))]
     /// Configures the ADC to use a DMA ring buffer for continuous data acquisition.
     ///
     /// Use the [`Self::read`] method to retrieve measurements from the DMA ring buffer. The read buffer
@@ -462,7 +458,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         );
 
         T::regs().enable();
-        T::regs().configure_dma(ConversionMode::Repeated(trigger.map(|t| (t._trigger, t._edge))), true);
+        T::regs().configure_dma(ConversionMode::Repeated(trigger.map(|t| (t._trigger, t._edge))));
 
         core::mem::forget(self);
 

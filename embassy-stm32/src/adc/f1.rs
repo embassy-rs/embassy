@@ -81,7 +81,7 @@ impl AdcRegs for crate::pac::adc::Adc {
         self.sr().read().eoc()
     }
 
-    fn configure_dma(&self, _conversion_mode: ConversionMode, dma: bool) {
+    fn configure_dma(&self, conversion_mode: ConversionMode) {
         // Clear all status flags before configuring DMA.
         self.sr().modify(|regs| {
             regs.set_eoc(false);
@@ -99,7 +99,7 @@ impl AdcRegs for crate::pac::adc::Adc {
 
         self.cr2().modify(|w| {
             // Enable DMA mode
-            w.set_dma(dma);
+            w.set_dma(!matches!(conversion_mode, ConversionMode::NoDma));
             // EOC flag is set at the end of each conversion.
             w.set_cont(false);
         });

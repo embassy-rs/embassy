@@ -225,7 +225,7 @@ impl super::AdcRegs for crate::pac::adc::Adc {
         self.isr().read().eos()
     }
 
-    fn configure_dma(&self, conversion_mode: ConversionMode, dma: bool) {
+    fn configure_dma(&self, conversion_mode: ConversionMode) {
         // Set continuous mode with oneshot dma.
         // Clear overrun flag before starting transfer.
         self.isr().modify(|reg| {
@@ -240,14 +240,11 @@ impl super::AdcRegs for crate::pac::adc::Adc {
 
         regs.modify(|w| {
             w.set_discen(false);
-            w.set_dmaen(dma);
+            w.set_dmaen(!matches!(conversion_mode, ConversionMode::NoDma));
             w.set_cont(false);
             #[cfg(any(adc_v3, adc_g0, adc_u0))]
             w.set_cont(matches!(conversion_mode, ConversionMode::Repeated(None)));
-            w.set_dmacfg(match conversion_mode {
-                ConversionMode::Singular => Dmacfg::ONE_SHOT,
-                _ => Dmacfg::CIRCULAR,
-            });
+            w.set_dmacfg(Dmacfg::CIRCULAR);
 
             #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba, adc_c0))]
             if let ConversionMode::Repeated(Some((signal, _edge))) = conversion_mode {
