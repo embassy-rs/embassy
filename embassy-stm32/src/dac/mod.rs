@@ -333,13 +333,13 @@ impl<'d> DacChannel<'d, Async> {
         // Initiate the correct type of DMA transfer depending on what data is passed
         let tx_f = match data {
             ValueArray::Bit8(buf) => unsafe {
-                dma.write(buf, self.info.regs.dhr8r(self.idx).as_ptr() as *mut u8, tx_options)
+                dma.write_raw(buf, self.info.regs.dhr8r(self.idx).as_ptr() as *mut u32, tx_options)
             },
             ValueArray::Bit12Left(buf) => unsafe {
-                dma.write(buf, self.info.regs.dhr12l(self.idx).as_ptr() as *mut u16, tx_options)
+                dma.write_raw(buf, self.info.regs.dhr12l(self.idx).as_ptr() as *mut u32, tx_options)
             },
             ValueArray::Bit12Right(buf) => unsafe {
-                dma.write(buf, self.info.regs.dhr12r(self.idx).as_ptr() as *mut u16, tx_options)
+                dma.write_raw(buf, self.info.regs.dhr12r(self.idx).as_ptr() as *mut u32, tx_options)
             },
         };
 
