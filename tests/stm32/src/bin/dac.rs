@@ -31,11 +31,21 @@ async fn main(_spawner: Spawner) {
     let mut adc_pin = unsafe { core::ptr::read(&dac_pin) };
 
     let mut dac = DacChannel::new_blocking(dac, dac_pin);
+
+    #[cfg(not(feature = "stm32g491re"))]
     let mut adc = Adc::new(adc);
+
+    #[cfg(feature = "stm32g491re")]
+    let mut adc = Adc::new(adc, Default::default());
 
     #[cfg(feature = "stm32h755zi")]
     let normalization_factor = 256;
-    #[cfg(any(feature = "stm32f429zi", feature = "stm32f446re", feature = "stm32g071rb"))]
+    #[cfg(any(
+        feature = "stm32f429zi",
+        feature = "stm32f446re",
+        feature = "stm32g071rb",
+        feature = "stm32g491re"
+    ))]
     let normalization_factor: i32 = 16;
 
     dac.set(Value::Bit8(0));
