@@ -216,6 +216,24 @@ pub(crate) enum ConversionMode {
     // Should match the cfg on "configured_sequence" below
 }
 
+const fn check_dma_len(sequence_len: usize, dma_len: usize) {
+    core::assert!(sequence_len != 0, "Asynchronous read sequence cannot be empty");
+    core::assert!(
+        dma_len % sequence_len == 0,
+        "Readings length must be a multiple of sequence length"
+    );
+    #[cfg(not(adc_v3))]
+    core::assert!(
+        dma_len == sequence_len,
+        "Readings length must be equal to sequence length"
+    );
+    #[cfg(adc_v2)]
+    core::assert!(
+        sequence_len <= 16,
+        "Asynchronous read sequence cannot be more than 16 in length"
+    );
+}
+
 #[cfg(not(adc_f3v3))]
 impl<'d, T: Instance> Adc<'d, T> {
     #[cfg(any(adc_v1, adc_l0, adc_f1, adc_f3v1, adc_f3v2))]
@@ -316,6 +334,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// in order or require the sequence to have the same sample time for all channnels, depending
     /// on the number and properties of the channels in the sequence. This method will panic if
     /// the hardware cannot deliver the requested configuration.
+    #[inline]
     pub async fn read<'a, 'b: 'a, D: RxDma<T>>(
         &mut self,
         rx_dma: embassy_hal_internal::Peri<'a, D>,
@@ -325,15 +344,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     ) {
         let _scoped_wake_guard = <T as crate::rcc::SealedRccPeripheral>::RCC_INFO.wake_guard();
 
-        assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
-        assert!(
-            readings.len() % sequence.len() == 0,
-            "Readings length must be a multiple of sequence length"
-        );
-        assert!(
-            sequence.len() <= 16,
-            "Asynchronous read sequence cannot be more than 16 in length"
-        );
+        check_dma_len(sequence.len(), readings.len());
 
         // Ensure no conversions are ongoing
         T::regs().stop(false);
@@ -386,8 +397,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     where
         'ch: 'adc,
     {
-        assert!(sequence.len() != 0, "Sequence cannot be empty");
-        assert!(sequence.len() <= 16, "Sequence cannot be more than 16 in length");
+        check_dma_len(sequence.len(), sequence.len());
 
         let len = sequence.len();
 

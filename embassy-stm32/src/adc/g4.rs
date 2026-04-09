@@ -104,6 +104,8 @@ impl super::AdcRegs for crate::pac::adc::Adc {
             reg.set_cont(false);
             reg.set_dmaen(Dmaen::DISABLE);
         });
+
+        self.cr().modify(|w| w.set_aden(false));
     }
 
     fn wait_done(&self) -> bool {
@@ -132,8 +134,6 @@ impl super::AdcRegs for crate::pac::adc::Adc {
     }
 
     fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
-        self.cr().modify(|w| w.set_aden(false));
-
         #[cfg(stm32g4)]
         let mut difsel = DifselReg::default();
         let mut smpr = Smpr::default();
