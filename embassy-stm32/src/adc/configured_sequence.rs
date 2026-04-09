@@ -3,7 +3,7 @@ use core::sync::atomic::{Ordering, compiler_fence};
 use embassy_hal_internal::Peri;
 
 use super::AdcRegs;
-use crate::adc::{Instance, RxDma};
+use crate::adc::{Instance, RxDma, check_dma_len};
 use crate::dma::Channel;
 use crate::rcc::RccInfo;
 
@@ -54,10 +54,7 @@ impl<'adc, R: AdcRegs> ConfiguredSequence<'adc, R> {
     pub async fn read(&mut self, buf: &mut [u16]) {
         let _scoped_wake_guard = self.info.wake_guard();
 
-        assert!(
-            buf.len() >= self.len,
-            "Buffer must have at least as many entries as the sequence"
-        );
+        check_dma_len(self.len, buf.len());
 
         let transfer = unsafe {
             self.channel
