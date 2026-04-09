@@ -230,6 +230,7 @@ default = ["rt"]
 
 ## Enable `stm32-metapac`'s `rt` feature
 rt = ["stm32-metapac/rt"]
+test = ["embassy-time?/generic-queue-8"]
 
 ## Use [`defmt`](https://docs.rs/defmt/latest/defmt/) for logging
 defmt = [
