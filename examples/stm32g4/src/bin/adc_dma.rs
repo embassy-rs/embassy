@@ -8,7 +8,7 @@ use embassy_stm32::{Config, bind_interrupts, dma, peripherals};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
-static mut DMA_BUF: [u16; 2] = [0; 2];
+static mut DMA_BUF: [u16; 8] = [0; 8];
 
 bind_interrupts!(struct Irqs {
     DMA1_CHANNEL1 => dma::InterruptHandler<peripherals::DMA1_CH1>;
@@ -44,7 +44,7 @@ async fn main(_spawner: Spawner) {
     let mut vrefint_channel = vrefint.degrade_adc();
     let mut pa0 = p.PA0.degrade_adc();
 
-    loop {
+    for _ in 0..5 {
         adc.read(
             dma.reborrow(),
             Irqs,
@@ -57,10 +57,15 @@ async fn main(_spawner: Spawner) {
         )
         .await;
 
-        let vrefint = read_buffer[0];
-        let measured = read_buffer[1];
-        info!("vrefint: {}", vrefint);
-        info!("measured: {}", measured);
+        for buf in read_buffer.chunks(2) {
+            let vrefint = buf[0];
+            let measured = buf[1];
+            info!("vrefint: {}", vrefint);
+            info!("measured: {}", measured);
+        }
+
         Timer::after_millis(500).await;
     }
+
+    cortex_m::asm::bkpt();
 }

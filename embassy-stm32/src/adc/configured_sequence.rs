@@ -54,7 +54,7 @@ impl<'adc, R: AdcRegs> ConfiguredSequence<'adc, R> {
     pub async fn read(&mut self, buf: &mut [u16]) {
         let _scoped_wake_guard = self.info.wake_guard();
 
-        check_dma_len(self.len, buf.len());
+        check_dma_len(self.len, Some(buf.len()), true);
 
         let transfer = unsafe {
             self.channel
