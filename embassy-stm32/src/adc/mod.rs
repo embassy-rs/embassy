@@ -216,22 +216,29 @@ pub(crate) enum ConversionMode {
     // Should match the cfg on "configured_sequence" below
 }
 
-const fn check_dma_len(sequence_len: usize, dma_len: usize) {
+const fn check_dma_len(sequence_len: usize, dma_len: Option<usize>, configured_sequence: bool) {
     core::assert!(sequence_len != 0, "Asynchronous read sequence cannot be empty");
-    core::assert!(
-        dma_len % sequence_len == 0,
-        "Readings length must be a multiple of sequence length"
-    );
-    #[cfg(not(adc_v3))]
-    core::assert!(
-        dma_len == sequence_len,
-        "Readings length must be equal to sequence length"
-    );
     #[cfg(adc_v2)]
     core::assert!(
         sequence_len <= 16,
         "Asynchronous read sequence cannot be more than 16 in length"
     );
+    if let Some(dma_len) = dma_len {
+        core::assert!(dma_len != 0 && dma_len <= 0xFFFF);
+
+        core::assert!(
+            dma_len % sequence_len == 0,
+            "Readings length must be a multiple of sequence length"
+        );
+        #[cfg(not(adc_v3))]
+        core::assert!(
+            dma_len == sequence_len || !configured_sequence,
+            "Readings length must be equal to sequence length"
+        );
+
+        #[cfg(adc_v3)]
+        let _ = configured_sequence;
+    }
 }
 
 #[cfg(not(adc_f3v3))]
@@ -344,7 +351,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     ) {
         let _scoped_wake_guard = <T as crate::rcc::SealedRccPeripheral>::RCC_INFO.wake_guard();
 
-        check_dma_len(sequence.len(), readings.len());
+        check_dma_len(sequence.len(), Some(readings.len()), false);
 
         // Ensure no conversions are ongoing
         T::regs().stop(false);
@@ -353,6 +360,11 @@ impl<'d, T: Instance> Adc<'d, T> {
         );
 
         T::regs().enable();
+
+        #[cfg(adc_g4)]
+        T::regs().configure_dma(ConversionMode::Repeated(None));
+
+        #[cfg(not(adc_g4))]
         T::regs().configure_dma(ConversionMode::Singular);
 
         let request = rx_dma.request();
@@ -397,7 +409,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     where
         'ch: 'adc,
     {
-        check_dma_len(sequence.len(), sequence.len());
+        check_dma_len(sequence.len(), None, false);
 
         let len = sequence.len();
 
@@ -451,16 +463,9 @@ impl<'d, T: Instance> Adc<'d, T> {
         trigger: Option<RegularAdcTrigger<T>>,
     ) -> RingBufferedAdc<'a, T::Regs> {
         let sequence_len = sequence.len();
-        assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
-        assert!(sequence_len != 0, "Asynchronous read sequence cannot be empty");
-        assert!(
-            sequence_len <= 16,
-            "Asynchronous read sequence cannot be more than 16 in length"
-        );
-        assert!(
-            dma_buf.len() % sequence_len == 0,
-            "DMA buffer length must be a multiple of the scan sequence length"
-        );
+
+        check_dma_len(sequence_len, Some(dma_buf.len()), false);
+
         // Ensure no conversions are ongoing
         T::regs().stop(false);
         T::regs().configure_sequence(
