@@ -10,6 +10,8 @@ pub use embedded_hal_02::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode, Phase, Pola
 
 use crate::Peri;
 use crate::dma::{ChannelAndRequest, word};
+#[cfg(feature = "cyw43")]
+use crate::exti::ExtiInput;
 use crate::gpio::{AfType, Flex, OutputType, Pull, SealedPin as _, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::spi::{Spi as Regs, regs, vals};
@@ -1419,6 +1421,34 @@ fn write_word<W: Word>(regs: Regs, tx_word: W) -> Result<(), Error> {
         regs.cr1().modify(|reg| reg.set_cstart(true));
     }
     Ok(())
+}
+
+#[cfg(feature = "cyw43")]
+/// Cyw43 Spi Bus
+pub struct SpiBusCyw43<'d> {
+    /// Spi Bus
+    pub spi: Spi<'d, Async, Master>,
+    /// Spi Pin
+    pub pin: ExtiInput<'d, Async>,
+}
+
+#[cfg(feature = "cyw43")]
+impl<'d> cyw43::SpiBusCyw43 for SpiBusCyw43<'d> {
+    async fn cmd_read(&mut self, write: u32, read: &mut [u32]) -> u32 {
+        let _ = self.spi.transfer(&mut read[..], &[write]).await;
+
+        0u32
+    }
+
+    async fn cmd_write(&mut self, write: &[u32]) -> u32 {
+        let _ = self.spi.write(write).await;
+
+        0u32
+    }
+
+    async fn wait_for_event(&mut self) {
+        self.pin.wait_for_high().await
+    }
 }
 
 // Note: It is not possible to impl these traits generically in embedded-hal 0.2 due to a conflict with
