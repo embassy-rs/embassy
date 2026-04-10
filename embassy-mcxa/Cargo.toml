@@ -44,6 +44,7 @@ embedded-hal-async = { version = "1.0" }
 embedded-hal-nb = { version = "1.0" }
 embedded-io = "0.7"
 embedded-io-async = { version = "0.7.0" }
+embedded-mcu-hal = { version = "0.1.0", optional = true }
 embedded-storage = "0.3.1"
 
 # Custom executor support
@@ -71,6 +72,9 @@ default = ["rt", "swd-swo-as-gpio", "dma-ipd-req"]
 # Base defmt feature enables core + panic handler
 # Use with one logger feature: defmt-rtt (preferred) or defmt-uart (fallback)
 defmt = ["dep:defmt", "nxp-pac/defmt"]
+
+# Enable optional embedded-mcu-hal traits
+embedded-mcu-hal = ["dep:embedded-mcu-hal"]
 
 unstable-pac = []
 
@@ -147,7 +151,6 @@ unstable-osc32k = []
 #
 mcxa2xx = ["nxp-pac/mcxa256"]
 mcxa5xx = ["nxp-pac/mcxa577"]
-embedded-mcu-hal = ["dep:embedded-mcu-hal"]
 
 [dev-dependencies]
 embassy-executor = { version = "0.10.0", path = "../embassy-executor", features = ["platform-cortex-m", "executor-interrupt", "executor-thread"] }
