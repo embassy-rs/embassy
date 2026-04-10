@@ -45,7 +45,7 @@ embedded-io = "0.7"
 embedded-io-async = { version = "0.7.0" }
 heapless = "0.9"
 maitake-sync = { version = "0.3.0", default-features = false, features = ["critical-section", "no-cache-pad"] }
-nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "a1afbffe39fc8f9297d876501b7b39c6a4721672", features = ["rt"] }
+nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "d8e2507cd418c22b47072440c281ac1f3a74564e", features = ["rt"] }
 nb = "1.1.0"
 paste = "1.0.15"
 
@@ -65,7 +65,7 @@ bbqueue = { version = "0.7.0", features = ["disable-cache-padding"] }
 grounded = { version = "0.2.1", features = ["cas", "critical-section"] }
 
 [build-dependencies]
-nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "a1afbffe39fc8f9297d876501b7b39c6a4721672", default-features = false, features = ["metadata"] }
+nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "d8e2507cd418c22b47072440c281ac1f3a74564e", default-features = false, features = ["metadata"] }
 proc-macro2 = "1.0.106"
 quote = "1.0.45"
 regex = "1.12.3"
