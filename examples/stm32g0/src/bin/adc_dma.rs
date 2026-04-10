@@ -38,6 +38,7 @@ async fn main(_spawner: Spawner) {
                 (&mut pa0, SampleTime::CYCLES160_5),
             ]
             .into_iter(),
+            None,
             &mut read_buffer,
         )
         .await;

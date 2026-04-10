@@ -98,6 +98,7 @@ async fn adc_task<'a, T, D, I>(
             dma.reborrow(),
             irq,
             [(&mut pin1, SampleTime::CYCLES2_5), (&mut pin2, SampleTime::CYCLES2_5)].into_iter(),
+            None,
             &mut buffer[0..2],
         )
         .await;
