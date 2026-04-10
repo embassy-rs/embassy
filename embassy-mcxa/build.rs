@@ -8,7 +8,32 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use regex::Regex;
 
+use build_common::CfgSet;
+
+mod build_common;
+
 fn main() {
+    let mut cfgs = CfgSet::new();
+    build_common::set_target_cfgs(&mut cfgs);
+
+    // TODO: Declare all possible driver cfgs. Needs extra info in pac metadata
+
+    // Enable all drivers for this chip
+    for peripheral in METADATA.peripherals {
+        if peripheral.driver_name.is_empty() {
+            continue;
+        }
+
+        let cfg_name = match peripheral.driver_name.split_once("::") {
+            Some((path, _block)) => path,
+            None => peripheral.driver_name,
+        }.replace("/", "_");
+
+        cfgs.enable(&cfg_name);
+        // Temporary until todo above is removed
+        cfgs.declare(&cfg_name);
+    }
+
     let get_regex_num = |string, regex: &Regex| {
         regex
             .captures(string)

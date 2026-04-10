@@ -13,7 +13,7 @@
 #[cfg(feature = "mcxa2xx")]
 #[path = "."]
 mod mcxa2xx_exclusive {
-    pub mod flash;
+    pub mod flash; // TODO: Add dummy driver to metadata
 
     pub use crate::chips::mcxa2xx::init;
 }
@@ -25,35 +25,51 @@ mod mcxa5xx_exclusive {
     pub use crate::chips::mcxa5xx::init;
 }
 
-/// Module for HAL drivers supported by all chips
-#[path = "."]
-mod all_chips {
-    pub mod adc;
-    pub mod cdog;
-    pub mod clkout;
-    pub mod clocks;
-    pub mod config;
-    pub mod crc;
-    pub mod ctimer;
-    pub mod dma;
-    #[cfg(feature = "executor-platform")]
-    pub mod executor;
-    pub mod gpio;
-    pub mod i2c;
-    pub mod i3c;
-    pub mod inputmux;
-    pub mod lpuart;
-    pub mod ostimer;
-    pub mod perf_counters;
-    pub mod reset_reason;
-    pub mod rtc;
-    pub mod spi;
-    pub mod trng;
-    pub mod wwdt;
-}
+#[cfg(mcxa_ADC)]
+pub mod adc;
+#[cfg(mcxa_CDOG)]
+pub mod cdog;
+#[cfg(any(mcxa_MRCC5xx, mcxa_MRCC2xx))]
+pub mod clkout; // TODO: Add dummy driver to metadata
+#[cfg(any(mcxa_MRCC5xx, mcxa_MRCC2xx))]
+pub mod clocks;
+pub mod config;
+#[cfg(mcxa_CRC)]
+pub mod crc;
+#[cfg(mcxa_CTIMER)]
+pub mod ctimer;
+#[cfg(mcxa_DMA)]
+pub mod dma;
+#[cfg(feature = "executor-platform")]
+pub mod executor;
+#[cfg(mcxa_GPIO)]
+pub mod gpio;
+#[cfg(mcxa_LPI2C)]
+pub mod i2c;
+#[cfg(mcxa_I3C)]
+pub mod i3c;
+#[cfg(mcxa_INPUTMUX)]
+pub mod inputmux;
+#[cfg(mcxa_LPUART)]
+pub mod lpuart;
+#[cfg(mcxa_OSTIMER)]
+pub mod ostimer;
+pub mod perf_counters;
+#[cfg(mcxa_CMC)]
+pub mod reset_reason;
+#[cfg(mcxa_RTC5xx)]
+#[path ="rtc/mcxa5xx.rs"]
+pub mod rtc;
+#[cfg(mcxa_RTC2xx)]
+#[path ="rtc/mcxa2xx.rs"]
+pub mod rtc;
+#[cfg(mcxa_LPSPI)]
+pub mod spi;
+#[cfg(mcxa_TRNG)]
+pub mod trng;
+#[cfg(mcxa_WWDT)]
+pub mod wwdt;
 
-#[allow(unused_imports)]
-pub use all_chips::*;
 #[cfg(feature = "mcxa2xx")]
 pub use mcxa2xx_exclusive::*;
 #[cfg(feature = "mcxa5xx")]
