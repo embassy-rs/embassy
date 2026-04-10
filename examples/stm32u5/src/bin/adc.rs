@@ -83,6 +83,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
             (&mut degraded12, adc::SampleTime::CYCLES160_5),
         ]
         .into_iter(),
+        None,
         &mut measurements,
     )
     .await;
@@ -108,6 +109,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
             (&mut degraded41, adc4::SampleTime::CYCLES1_5),
         ]
         .into_iter(),
+        None,
         &mut measurements,
     )
     .await;

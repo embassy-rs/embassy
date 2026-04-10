@@ -47,8 +47,14 @@ async fn main(_spawner: Spawner) {
             (&mut temp, SampleTime::CYCLES12_5),
             (&mut pin0, SampleTime::CYCLES12_5),
         ];
-        adc.read(dma.reborrow(), Irqs, channels_sequence.into_iter(), &mut read_buffer)
-            .await;
+        adc.read(
+            dma.reborrow(),
+            Irqs,
+            channels_sequence.into_iter(),
+            None,
+            &mut read_buffer,
+        )
+        .await;
         // Values are ordered according to hardware ADC channel number!
         info!(
             "DMA ADC read in set: vref = {}, temp = {}, pin0 = {}.",
