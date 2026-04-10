@@ -31,49 +31,49 @@ const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(55);
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(48);
 
 #[cfg(stm32g4)]
-impl<T: Instance> super::SealedSpecialConverter<super::VrefInt> for T {
+impl<T: Instance> super::ConverterFor<super::VrefInt> for T {
     const CHANNEL: u8 = 18;
 }
 #[cfg(stm32g4)]
-impl<T: Instance> super::SealedSpecialConverter<super::Temperature> for T {
+impl<T: Instance> super::ConverterFor<super::Temperature> for T {
     const CHANNEL: u8 = 16;
 }
 
 #[cfg(stm32h7)]
-impl<T: Instance> super::SealedSpecialConverter<super::VrefInt> for T {
+impl<T: Instance> super::ConverterFor<super::VrefInt> for T {
     const CHANNEL: u8 = 19;
 }
 #[cfg(stm32h7)]
-impl<T: Instance> super::SealedSpecialConverter<super::Temperature> for T {
+impl<T: Instance> super::ConverterFor<super::Temperature> for T {
     const CHANNEL: u8 = 18;
 }
 
 // TODO this should be 14 for H7a/b/35
 #[cfg(not(any(stm32u5, stm32u3)))]
-impl<T: Instance> super::SealedSpecialConverter<super::Vbat> for T {
+impl<T: Instance> super::ConverterFor<super::Vbat> for T {
     const CHANNEL: u8 = 17;
 }
 
 #[cfg(any(stm32u5, stm32u3))]
-impl<T: DefaultInstance> super::SealedSpecialConverter<super::VrefInt> for T {
+impl<T: DefaultInstance> super::ConverterFor<super::VrefInt> for T {
     const CHANNEL: u8 = 0;
 }
 #[cfg(stm32u5)]
-impl<T: DefaultInstance> super::SealedSpecialConverter<super::Temperature> for T {
+impl<T: DefaultInstance> super::ConverterFor<super::Temperature> for T {
     const CHANNEL: u8 = 19;
 }
 #[cfg(stm32u5)]
-impl<T: DefaultInstance> super::SealedSpecialConverter<super::Vbat> for T {
+impl<T: DefaultInstance> super::ConverterFor<super::Vbat> for T {
     const CHANNEL: u8 = 18;
 }
 
 #[cfg(stm32u3)]
-impl<T: DefaultInstance> super::SealedSpecialConverter<super::Vbat> for T {
+impl<T: DefaultInstance> super::ConverterFor<super::Vbat> for T {
     const CHANNEL: u8 = 16;
 }
 
 #[cfg(stm32u3)]
-impl<T: DefaultInstance> super::SealedSpecialConverter<super::Temperature> for T {
+impl<T: DefaultInstance> super::ConverterFor<super::Temperature> for T {
     const CHANNEL: u8 = 17;
 }
 
@@ -139,17 +139,16 @@ impl AdcRegs for crate::pac::adc::Adc {
         self.isr().read().eos()
     }
 
-    fn configure_dma(&self, conversion_mode: ConversionMode, dma: bool) {
+    fn configure_dma(&self, conversion_mode: ConversionMode) {
         self.isr().modify(|reg| {
             reg.set_ovr(true);
         });
 
         self.cfgr().modify(|w| {
             w.set_cont(false);
-            w.set_dmngt(match (conversion_mode, dma) {
-                (ConversionMode::Singular, true) => Dmngt::DMA_ONE_SHOT,
-                (_, false) => Dmngt::from_bits(0),
-                (_, true) => Dmngt::DMA_CIRCULAR,
+            w.set_dmngt(match conversion_mode {
+                ConversionMode::NoDma => Dmngt::from_bits(0),
+                _ => Dmngt::DMA_CIRCULAR,
             });
         });
     }
@@ -320,7 +319,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     }
 
     /// Enable reading the voltage reference internal channel.
-    pub fn enable_vrefint(&self) -> VrefInt {
+    pub fn enable_vrefint(&mut self) -> VrefInt {
         T::common_regs().ccr().modify(|reg| {
             reg.set_vrefen(true);
         });
@@ -329,7 +328,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     }
 
     /// Enable reading the temperature internal channel.
-    pub fn enable_temperature(&self) -> Temperature {
+    pub fn enable_temperature(&mut self) -> Temperature {
         T::common_regs().ccr().modify(|reg| {
             reg.set_vsenseen(true);
         });
@@ -338,7 +337,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     }
 
     /// Enable reading the vbat internal channel.
-    pub fn enable_vbat(&self) -> Vbat {
+    pub fn enable_vbat(&mut self) -> Vbat {
         T::common_regs().ccr().modify(|reg| {
             reg.set_vbaten(true);
         });

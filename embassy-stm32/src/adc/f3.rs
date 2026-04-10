@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use stm32_metapac::adc::regs::{Sqr1, Sqr2, Sqr3};
+use stm32_metapac::adc::regs::{Smpr1, Smpr2, Sqr1, Sqr2, Sqr3};
 use stm32_metapac::adc::vals::{Advregen, Dmacfg};
 
 use super::blocking_delay_us;
@@ -30,11 +30,11 @@ impl<T: DefaultInstance> interrupt::typelevel::Handler<T::Interrupt> for Interru
     }
 }
 
-impl<T: Instance> super::SealedSpecialConverter<VrefInt> for T {
+impl<T: Instance> super::ConverterFor<VrefInt> for T {
     const CHANNEL: u8 = 18;
 }
 
-impl<T: Instance> super::SealedSpecialConverter<super::Temperature> for T {
+impl<T: Instance> super::ConverterFor<super::Temperature> for T {
     const CHANNEL: u8 = 16;
 }
 
@@ -82,7 +82,7 @@ impl AdcRegs for crate::pac::adc::Adc {
         self.isr().read().eoc()
     }
 
-    fn configure_dma(&self, conversion_mode: ConversionMode, dma: bool) {
+    fn configure_dma(&self, conversion_mode: ConversionMode) {
         // Clear all status flags before configuring DMA.
         self.isr().modify(|w| {
             w.set_eoc(false);
@@ -96,11 +96,14 @@ impl AdcRegs for crate::pac::adc::Adc {
 
         self.cfgr().modify(|w| {
             w.set_discen(false);
-            w.set_dmaen(dma);
-            w.set_cont(false);
-            w.set_dmacfg(match conversion_mode {
-                ConversionMode::Singular => Dmacfg::ONE_SHOT,
-            });
+            w.set_dmaen(!matches!(conversion_mode, ConversionMode::NoDma));
+            w.set_cont(matches!(conversion_mode, ConversionMode::Repeated(None)));
+            w.set_dmacfg(Dmacfg::CIRCULAR);
+
+            if let ConversionMode::Repeated(Some((trigger, edge))) = conversion_mode {
+                w.set_extsel(trigger);
+                w.set_exten(edge);
+            }
         });
     }
 
@@ -109,8 +112,8 @@ impl AdcRegs for crate::pac::adc::Adc {
         let mut sqr2 = Sqr2::default();
         let mut sqr3 = Sqr3::default();
 
-        let mut smpr1 = self.smpr1().read();
-        let mut smpr2 = self.smpr2().read();
+        let mut smpr1 = Smpr1::default();
+        let mut smpr2 = Smpr2::default();
 
         // Check the sequence is long enough
         sqr1.set_l((sequence.len() - 1).try_into().unwrap());
@@ -191,13 +194,13 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         }
     }
 
-    pub fn enable_vref(&self) -> super::VrefInt {
+    pub fn enable_vref(&mut self) -> super::VrefInt {
         T::common_regs().ccr().modify(|w| w.set_vrefen(true));
 
         super::VrefInt {}
     }
 
-    pub fn enable_temperature(&self) -> super::Temperature {
+    pub fn enable_temperature(&mut self) -> super::Temperature {
         T::common_regs().ccr().modify(|w| w.set_tsen(true));
 
         super::Temperature {}

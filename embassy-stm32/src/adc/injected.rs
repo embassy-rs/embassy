@@ -2,38 +2,47 @@ use core::marker::PhantomData;
 use core::sync::atomic::{Ordering, compiler_fence};
 
 use super::AnyAdcChannel;
-use crate::adc::{BasicAdcRegs, InjectedAdcRegs, InjectedRegs, Instance};
+use crate::adc::{BasicAdcRegs, InjectedAdcRegs, Instance};
 
 /// Injected ADC sequence with owned channels.
-pub struct InjectedAdc<'a, T: Instance<Regs: InjectedAdcRegs>, const N: usize> {
-    _channels: [(AnyAdcChannel<'a, T>, <T::Regs as BasicAdcRegs>::SampleTime); N],
-    _phantom: PhantomData<T>,
+pub struct InjectedAdc<'d, R: InjectedAdcRegs> {
+    regs: R,
+    len: usize,
+    _typ: PhantomData<&'d mut ()>,
 }
 
-impl<'a, T: Instance<Regs: InjectedAdcRegs>, const N: usize> InjectedAdc<'a, T, N> {
-    pub(crate) fn new(channels: [(AnyAdcChannel<'a, T>, <T::Regs as BasicAdcRegs>::SampleTime); N]) -> Self {
+impl<'d, R: InjectedAdcRegs> InjectedAdc<'d, R> {
+    pub(crate) fn new<T: Instance<Regs = R>, const N: usize>(
+        _channels: [(AnyAdcChannel<'d, T>, <T::Regs as BasicAdcRegs>::SampleTime); N],
+    ) -> Self {
         Self {
-            _channels: channels,
-            _phantom: PhantomData,
+            regs: T::regs(),
+            len: N,
+            _typ: PhantomData,
         }
     }
 
     pub fn stop_injected_conversions(&mut self) {
-        T::regs().stop_injected();
+        self.regs.stop_injected();
     }
 
     pub fn start_injected_conversions(&mut self) {
-        T::regs().start_injected();
+        self.regs.start_injected();
     }
 
-    pub fn read_injected_samples(&mut self, data: &mut [u16; N]) {
-        T::regs().read_injected(&mut data[..]);
+    pub fn read_injected_samples(&mut self, buf: &mut [u16]) {
+        assert!(
+            buf.len() == self.len,
+            "Buffer must have as many entries as the sequence"
+        );
+
+        self.regs.read_injected(buf);
     }
 }
 
-impl<'a, T: Instance<Regs: InjectedAdcRegs>, const N: usize> Drop for InjectedAdc<'a, T, N> {
+impl<'d, R: InjectedAdcRegs> Drop for InjectedAdc<'d, R> {
     fn drop(&mut self) {
-        T::regs().stop_injected();
+        self.regs.stop_injected();
         compiler_fence(Ordering::SeqCst);
     }
 }

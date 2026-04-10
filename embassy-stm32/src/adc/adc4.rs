@@ -123,23 +123,23 @@ impl Calibration {
     }
 }
 
-impl super::SealedSpecialConverter<super::VrefInt> for crate::peripherals::ADC4 {
+impl super::ConverterFor<super::VrefInt> for crate::peripherals::ADC4 {
     const CHANNEL: u8 = 0;
 }
 
-impl super::SealedSpecialConverter<super::Temperature> for crate::peripherals::ADC4 {
+impl super::ConverterFor<super::Temperature> for crate::peripherals::ADC4 {
     const CHANNEL: u8 = 13;
 }
 
-impl super::SealedSpecialConverter<super::Vcore> for crate::peripherals::ADC4 {
+impl super::ConverterFor<super::Vcore> for crate::peripherals::ADC4 {
     const CHANNEL: u8 = 12;
 }
 
-impl super::SealedSpecialConverter<super::Vbat> for crate::peripherals::ADC4 {
+impl super::ConverterFor<super::Vbat> for crate::peripherals::ADC4 {
     const CHANNEL: u8 = 14;
 }
 
-impl super::SealedSpecialConverter<super::Dac> for crate::peripherals::ADC4 {
+impl super::ConverterFor<super::Dac> for crate::peripherals::ADC4 {
     const CHANNEL: u8 = 21;
 }
 
@@ -227,7 +227,7 @@ impl AdcRegs for crate::pac::adc::Adc4 {
         });
     }
 
-    fn configure_dma(&self, conversion_mode: ConversionMode, dma: bool) {
+    fn configure_dma(&self, conversion_mode: ConversionMode) {
         // Clear overrun and conversion flags
         self.isr().modify(|reg| {
             reg.set_ovr(true);
@@ -236,11 +236,8 @@ impl AdcRegs for crate::pac::adc::Adc4 {
         });
 
         self.cfgr1().modify(|reg| {
-            reg.set_dmaen(dma);
-            reg.set_dmacfg(match conversion_mode {
-                ConversionMode::Singular => Dmacfg::ONE_SHOT,
-                _ => Dmacfg::CIRCULAR,
-            });
+            reg.set_dmaen(!matches!(conversion_mode, ConversionMode::NoDma));
+            reg.set_dmacfg(Dmacfg::CIRCULAR);
             reg.set_discen(false);
             reg.set_cont(false);
             reg.set_chselrmod(false);
@@ -365,7 +362,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
     }
 
     /// Enable reading the voltage reference internal channel.
-    pub fn enable_vrefint_adc4(&self) -> super::VrefInt {
+    pub fn enable_vrefint_adc4(&mut self) -> super::VrefInt {
         T::regs().ccr().modify(|w| {
             w.set_vrefen(true);
         });
@@ -374,7 +371,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
     }
 
     /// Enable reading the temperature internal channel.
-    pub fn enable_temperature_adc4(&self) -> super::Temperature {
+    pub fn enable_temperature_adc4(&mut self) -> super::Temperature {
         T::regs().ccr().modify(|w| {
             w.set_vsensesel(true);
         });
@@ -384,7 +381,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
 
     /// Enable reading the vbat internal channel.
     #[cfg(stm32u5)]
-    pub fn enable_vbat_adc4(&self) -> super::Vbat {
+    pub fn enable_vbat_adc4(&mut self) -> super::Vbat {
         T::regs().ccr().modify(|w| {
             w.set_vbaten(true);
         });
@@ -399,7 +396,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
 
     /// Enable reading the vbat internal channel.
     #[cfg(stm32u5)]
-    pub fn enable_dac_channel_adc4(&self, dac: DacChannel) -> super::Dac {
+    pub fn enable_dac_channel_adc4(&mut self, dac: DacChannel) -> super::Dac {
         let mux;
         match dac {
             DacChannel::OUT1 => mux = false,

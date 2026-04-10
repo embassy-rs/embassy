@@ -18,11 +18,11 @@ const CHSELR_SQ_SIZE: usize = 8;
 const CHSELR_SQ_MAX_CHANNEL: u8 = 14;
 const CHSELR_SQ_SEQUENCE_END_MARKER: u8 = 0b1111;
 
-impl<T: Instance> super::SealedSpecialConverter<super::VrefInt> for T {
+impl<T: Instance> super::ConverterFor<super::VrefInt> for T {
     const CHANNEL: u8 = 10;
 }
 
-impl<T: Instance> super::SealedSpecialConverter<super::Temperature> for T {
+impl<T: Instance> super::ConverterFor<super::Temperature> for T {
     const CHANNEL: u8 = 9;
 }
 
@@ -77,7 +77,7 @@ impl AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn configure_dma(&self, conversion_mode: ConversionMode, dma: bool) {
+    fn configure_dma(&self, conversion_mode: ConversionMode) {
         // Enable overrun control, so no new DMA requests will be generated until
         // previous DR values is read.
         self.isr().modify(|reg| {
@@ -85,22 +85,14 @@ impl AdcRegs for crate::pac::adc::Adc {
         });
 
         self.cfgr1().modify(|w| {
-            w.set_cont(!dma);
+            w.set_cont(matches!(conversion_mode, ConversionMode::Repeated(None)));
             w.set_discen(false);
-            w.set_dmacfg(match conversion_mode {
-                ConversionMode::Singular => Dmacfg::DMA_ONE_SHOT,
-                _ => Dmacfg::DMA_CIRCULAR,
-            });
-            w.set_dmaen(dma);
+            w.set_dmacfg(Dmacfg::DMA_CIRCULAR);
+            w.set_dmaen(!matches!(conversion_mode, ConversionMode::NoDma));
             w.set_ovrmod(match conversion_mode {
-                ConversionMode::Singular | ConversionMode::ConfiguredSequence => Ovrmod::PRESERVE,
+                ConversionMode::Singular => Ovrmod::PRESERVE,
                 _ => Ovrmod::OVERWRITE,
             });
-
-            w.set_cont(matches!(
-                conversion_mode,
-                ConversionMode::Singular | ConversionMode::Repeated(None)
-            ));
 
             if let ConversionMode::Repeated(Some((signal, edge))) = conversion_mode {
                 w.set_extsel(signal);
@@ -110,8 +102,7 @@ impl AdcRegs for crate::pac::adc::Adc {
     }
 
     fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>) {
-        // TODO: get sequencer working
-        let mut needs_hw = sequence.len() == 1 || sequence.len() > CHSELR_SQ_SIZE || true;
+        let mut needs_hw = sequence.len() == 1 || sequence.len() > CHSELR_SQ_SIZE;
         let mut is_ordered_up = true;
         let mut is_ordered_down = true;
 
@@ -238,7 +229,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     }
 
     /// Enable reading the voltage reference internal channel.
-    pub fn enable_vrefint(&self) -> super::VrefInt {
+    pub fn enable_vrefint(&mut self) -> super::VrefInt {
         T::common_regs().ccr().modify(|reg| {
             reg.set_vrefen(true);
         });
@@ -247,7 +238,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     }
 
     /// Enable reading the temperature internal channel.
-    pub fn enable_temperature(&self) -> super::Temperature {
+    pub fn enable_temperature(&mut self) -> super::Temperature {
         debug!("Ensure that sample time is set to more than temperature sensor T_start from the datasheet!");
         T::common_regs().ccr().modify(|reg| {
             reg.set_tsen(true);

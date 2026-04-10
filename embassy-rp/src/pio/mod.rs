@@ -1462,12 +1462,37 @@ trait SealedInstance {
 
     #[inline]
     fn state() -> &'static State {
-        static STATE: State = State {
-            users: AtomicU8::new(0),
-            used_pins: AtomicU64::new(0),
-        };
+        match Self::PIO_NO {
+            0 => {
+                static STATE_0: State = State {
+                    users: AtomicU8::new(0),
+                    used_pins: AtomicU64::new(0),
+                };
 
-        &STATE
+                &STATE_0
+            }
+            1 => {
+                static STATE_1: State = State {
+                    users: AtomicU8::new(0),
+                    used_pins: AtomicU64::new(0),
+                };
+
+                &STATE_1
+            }
+            #[cfg(feature = "_rp235x")]
+            2 => {
+                static STATE_2: State = State {
+                    users: AtomicU8::new(0),
+                    used_pins: AtomicU64::new(0),
+                };
+
+                &STATE_2
+            }
+            #[cfg(feature = "_rp235x")]
+            _ => panic!("Invalid PIO_NO: {}, expected one of 0,1,2", Self::PIO_NO),
+            #[cfg(not(feature = "_rp235x"))]
+            _ => panic!("Invalid PIO_NO: {}, expected one of 0,1", Self::PIO_NO),
+        }
     }
 }
 

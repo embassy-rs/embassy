@@ -42,21 +42,21 @@ impl<T: DefaultInstance> interrupt::typelevel::Handler<T::Interrupt> for Interru
 }
 
 #[cfg(not(adc_l0))]
-impl super::SealedSpecialConverter<super::Vbat> for crate::peripherals::ADC1 {
+impl super::ConverterFor<super::Vbat> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 18;
 }
 
-impl super::SealedSpecialConverter<super::VrefInt> for crate::peripherals::ADC1 {
+impl super::ConverterFor<super::VrefInt> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 17;
 }
 
 #[cfg(adc_l0)]
-impl super::SealedSpecialConverter<super::Temperature> for crate::peripherals::ADC1 {
+impl super::ConverterFor<super::Temperature> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 18;
 }
 
 #[cfg(not(adc_l0))]
-impl super::SealedSpecialConverter<super::Temperature> for crate::peripherals::ADC1 {
+impl super::ConverterFor<super::Temperature> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 16;
 }
 
@@ -128,7 +128,7 @@ impl AdcRegs for crate::pac::adc::Adc {
         self.isr().read().eoc()
     }
 
-    fn configure_dma(&self, conversion_mode: ConversionMode, dma: bool) {
+    fn configure_dma(&self, conversion_mode: ConversionMode) {
         // Clear all interrupts
         self.isr().modify(|regs| {
             regs.set_eoc(false);
@@ -147,11 +147,9 @@ impl AdcRegs for crate::pac::adc::Adc {
             // Disable discontinuous mode
             w.set_discen(false);
             // Enable DMA mode
-            w.set_dmaen(dma);
+            w.set_dmaen(!matches!(conversion_mode, ConversionMode::NoDma));
             // DMA requests are issues as long as DMA=1 and data are converted.
-            w.set_cont(match conversion_mode {
-                ConversionMode::Singular => false,
-            });
+            w.set_cont(false);
         });
     }
 
@@ -257,7 +255,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
     }
 
     #[cfg(not(adc_l0))]
-    pub fn enable_vbat(&self) -> Vbat {
+    pub fn enable_vbat(&mut self) -> Vbat {
         // SMP must be ≥ 56 ADC clock cycles when using HSI14.
         //
         // 6.3.20 Vbat monitoring characteristics
@@ -266,7 +264,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         Vbat
     }
 
-    pub fn enable_vref(&self) -> VrefInt {
+    pub fn enable_vref(&mut self) -> VrefInt {
         // Table 28. Embedded internal reference voltage
         // tstart = 10μs
         T::regs().ccr().modify(|reg| reg.set_vrefen(true));
@@ -274,7 +272,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         VrefInt
     }
 
-    pub fn enable_temperature(&self) -> Temperature {
+    pub fn enable_temperature(&mut self) -> Temperature {
         // SMP must be ≥ 56 ADC clock cycles when using HSI14.
         //
         // 6.3.19 Temperature sensor characteristics
@@ -286,12 +284,12 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
     }
 
     #[cfg(adc_l0)]
-    pub fn enable_auto_off(&self) {
+    pub fn enable_auto_off(&mut self) {
         T::regs().cfgr1().modify(|reg| reg.set_autoff(true));
     }
 
     #[cfg(adc_l0)]
-    pub fn disable_auto_off(&self) {
+    pub fn disable_auto_off(&mut self) {
         T::regs().cfgr1().modify(|reg| reg.set_autoff(false));
     }
 

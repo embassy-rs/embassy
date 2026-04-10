@@ -30,53 +30,53 @@ pub const VREF_CALIB_MV: u32 = 3300;
 const SAMPLE_TIMES_CAPACITY: usize = 2;
 
 #[cfg(adc_g0)]
-impl<T: Instance> super::SealedSpecialConverter<super::VrefInt> for T {
+impl<T: Instance> super::ConverterFor<super::VrefInt> for T {
     const CHANNEL: u8 = 13;
 }
 #[cfg(any(adc_h5, adc_h7rs))]
-impl<T: Instance> super::SealedSpecialConverter<super::VrefInt> for T {
+impl<T: Instance> super::ConverterFor<super::VrefInt> for T {
     const CHANNEL: u8 = 17;
 }
 #[cfg(adc_u0)]
-impl<T: Instance> super::SealedSpecialConverter<super::VrefInt> for T {
+impl<T: Instance> super::ConverterFor<super::VrefInt> for T {
     const CHANNEL: u8 = 12;
 }
 #[cfg(not(any(adc_g0, adc_h5, adc_h7rs, adc_u0)))]
-impl<T: Instance> super::SealedSpecialConverter<super::VrefInt> for T {
+impl<T: Instance> super::ConverterFor<super::VrefInt> for T {
     const CHANNEL: u8 = 0;
 }
 
 #[cfg(adc_g0)]
-impl<T: Instance> super::SealedSpecialConverter<super::Temperature> for T {
+impl<T: Instance> super::ConverterFor<super::Temperature> for T {
     const CHANNEL: u8 = 12;
 }
 #[cfg(any(adc_h5, adc_h7rs))]
-impl<T: Instance> super::SealedSpecialConverter<super::Temperature> for T {
+impl<T: Instance> super::ConverterFor<super::Temperature> for T {
     const CHANNEL: u8 = 16;
 }
 #[cfg(adc_u0)]
-impl<T: Instance> super::SealedSpecialConverter<super::Temperature> for T {
+impl<T: Instance> super::ConverterFor<super::Temperature> for T {
     const CHANNEL: u8 = 11;
 }
 #[cfg(not(any(adc_g0, adc_h5, adc_h7rs, adc_u0)))]
-impl<T: Instance> super::SealedSpecialConverter<super::Temperature> for T {
+impl<T: Instance> super::ConverterFor<super::Temperature> for T {
     const CHANNEL: u8 = 17;
 }
 
 #[cfg(adc_g0)]
-impl<T: Instance> super::SealedSpecialConverter<super::Vbat> for T {
+impl<T: Instance> super::ConverterFor<super::Vbat> for T {
     const CHANNEL: u8 = 14;
 }
 #[cfg(any(adc_h5, adc_h7rs))]
-impl<T: Instance> super::SealedSpecialConverter<super::Vbat> for T {
+impl<T: Instance> super::ConverterFor<super::Vbat> for T {
     const CHANNEL: u8 = 16;
 }
 #[cfg(adc_u0)]
-impl<T: Instance> super::SealedSpecialConverter<super::Vbat> for T {
+impl<T: Instance> super::ConverterFor<super::Vbat> for T {
     const CHANNEL: u8 = 13;
 }
 #[cfg(not(any(adc_g0, adc_h5, adc_h7rs, adc_u0)))]
-impl<T: Instance> super::SealedSpecialConverter<super::Vbat> for T {
+impl<T: Instance> super::ConverterFor<super::Vbat> for T {
     const CHANNEL: u8 = 18;
 }
 
@@ -225,7 +225,7 @@ impl super::AdcRegs for crate::pac::adc::Adc {
         self.isr().read().eos()
     }
 
-    fn configure_dma(&self, conversion_mode: ConversionMode, dma: bool) {
+    fn configure_dma(&self, conversion_mode: ConversionMode) {
         // Set continuous mode with oneshot dma.
         // Clear overrun flag before starting transfer.
         self.isr().modify(|reg| {
@@ -240,14 +240,11 @@ impl super::AdcRegs for crate::pac::adc::Adc {
 
         regs.modify(|w| {
             w.set_discen(false);
-            w.set_dmaen(dma);
+            w.set_dmaen(!matches!(conversion_mode, ConversionMode::NoDma));
             w.set_cont(false);
             #[cfg(any(adc_v3, adc_g0, adc_u0))]
             w.set_cont(matches!(conversion_mode, ConversionMode::Repeated(None)));
-            w.set_dmacfg(match conversion_mode {
-                ConversionMode::Singular => Dmacfg::ONE_SHOT,
-                _ => Dmacfg::CIRCULAR,
-            });
+            w.set_dmacfg(Dmacfg::CIRCULAR);
 
             #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba, adc_c0))]
             if let ConversionMode::Repeated(Some((signal, _edge))) = conversion_mode {
@@ -574,20 +571,20 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     }
 
     #[cfg(adc_u0)]
-    pub fn enable_auto_off(&self) {
+    pub fn enable_auto_off(&mut self) {
         T::regs().cfgr1().modify(|reg| {
             reg.set_autoff(true);
         });
     }
 
     #[cfg(adc_u0)]
-    pub fn disable_auto_off(&self) {
+    pub fn disable_auto_off(&mut self) {
         T::regs().cfgr1().modify(|reg| {
             reg.set_autoff(false);
         });
     }
 
-    pub fn enable_vrefint(&self) -> VrefInt {
+    pub fn enable_vrefint(&mut self) -> VrefInt {
         #[cfg(not(any(adc_g0, adc_u0)))]
         T::common_regs().ccr().modify(|reg| {
             reg.set_vrefen(true);
@@ -604,7 +601,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
         VrefInt {}
     }
 
-    pub fn enable_temperature(&self) -> Temperature {
+    pub fn enable_temperature(&mut self) -> Temperature {
         cfg_if! {
             if #[cfg(any(adc_g0, adc_u0))] {
                 T::regs().ccr().modify(|reg| {
@@ -624,7 +621,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
         Temperature {}
     }
 
-    pub fn enable_vbat(&self) -> Vbat {
+    pub fn enable_vbat(&mut self) -> Vbat {
         cfg_if! {
             if #[cfg(any(adc_g0, adc_u0))] {
                 T::regs().ccr().modify(|reg| {
@@ -644,7 +641,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
         Vbat {}
     }
 
-    pub fn disable_vbat(&self) {
+    pub fn disable_vbat(&mut self) {
         cfg_if! {
             if #[cfg(any(adc_g0, adc_u0))] {
                 T::regs().ccr().modify(|reg| {

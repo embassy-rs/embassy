@@ -3,7 +3,9 @@ use core::sync::atomic::{Ordering, compiler_fence};
 use embassy_hal_internal::Peri;
 
 use super::AdcRegs;
-use crate::adc::{Instance, RxDma};
+use crate::adc::{Instance, RxDma, check_dma_len};
+use crate::dma::Channel;
+use crate::rcc::RccInfo;
 
 /// An ADC with a pre-configured channel sequence for repeated DMA reads.
 ///
@@ -13,15 +15,30 @@ use crate::adc::{Instance, RxDma};
 /// overhead of reprogramming the sequence registers.
 ///
 /// Obtain via [`Adc::configured_sequence`].
-pub struct ConfiguredSequence<'adc, 'd, T: Instance, D: RxDma<T>> {
-    _adc: &'adc mut super::Adc<'d, T>,
-    rx_dma: Peri<'adc, D>,
-    buf: &'adc mut [u16],
+#[allow(private_bounds)]
+pub struct ConfiguredSequence<'adc, R: AdcRegs> {
+    regs: R,
+    info: RccInfo,
+    len: usize,
+    request: u8,
+    channel: Channel<'adc>,
 }
 
-impl<'adc, 'd, T: Instance, D: RxDma<T>> ConfiguredSequence<'adc, 'd, T, D> {
-    pub(crate) fn new(adc: &'adc mut super::Adc<'d, T>, rx_dma: Peri<'adc, D>, buf: &'adc mut [u16]) -> Self {
-        Self { _adc: adc, rx_dma, buf }
+#[allow(private_bounds)]
+impl<'adc, R: AdcRegs> ConfiguredSequence<'adc, R> {
+    pub(crate) fn new<'d, T: Instance<Regs = R>, D: RxDma<T>>(
+        _adc: &'adc mut super::Adc<'d, T>,
+        rx_dma: Peri<'adc, D>,
+        len: usize,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'adc,
+    ) -> Self {
+        Self {
+            regs: T::regs(),
+            info: T::RCC_INFO,
+            len,
+            request: rx_dma.request(),
+            channel: Channel::new(rx_dma, irq),
+        }
     }
 
     /// Trigger one DMA conversion of the pre-configured channel sequence and
@@ -34,26 +51,24 @@ impl<'adc, 'd, T: Instance, D: RxDma<T>> ConfiguredSequence<'adc, 'd, T, D> {
     /// [`Adc::configured_sequence`]. The hardware is configured so that
     /// DMA stays armed between calls while the ADC runs only one sequence per
     /// [`start`](AdcRegs::start) call.
-    pub async fn read(
-        &mut self,
-        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>,
-    ) -> &[u16] {
-        let _scoped_wake_guard = <T as crate::rcc::SealedRccPeripheral>::RCC_INFO.wake_guard();
+    pub async fn read(&mut self, buf: &mut [u16]) {
+        let _scoped_wake_guard = self.info.wake_guard();
 
-        let request = self.rx_dma.request();
-        let mut dma_channel = crate::dma::Channel::new(self.rx_dma.reborrow(), irq);
-        let transfer = unsafe { dma_channel.read(request, T::regs().data(), self.buf, Default::default()) };
+        check_dma_len(self.len, Some(buf.len()), true);
 
-        T::regs().start();
+        let transfer = unsafe {
+            self.channel
+                .read(self.request, self.regs.data(), buf, Default::default())
+        };
+
+        self.regs.start();
         transfer.await;
-
-        &self.buf[..]
     }
 }
 
-impl<T: Instance, D: RxDma<T>> Drop for ConfiguredSequence<'_, '_, T, D> {
+impl<R: AdcRegs> Drop for ConfiguredSequence<'_, R> {
     fn drop(&mut self) {
-        T::regs().stop(false);
+        self.regs.stop(false);
         compiler_fence(Ordering::SeqCst);
     }
 }

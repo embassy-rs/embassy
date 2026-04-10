@@ -128,6 +128,7 @@ define_peris!(
 define_peris!(
     UART = USART1, UART_TX = PC4, UART_RX = PC5, UART_TX_DMA = DMA1_CH1, UART_RX_DMA = DMA1_CH2,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH1, SPI_RX_DMA = DMA1_CH2,
+    ADC = ADC2, DAC = DAC1, DAC_PIN = PA4,
     @irq UART = {
         USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>;
         DMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH1>;
@@ -663,6 +664,7 @@ pub fn config() -> Config {
             divq: Some(PllQDiv::DIV8), // 42.5 Mhz for fdcan.
             divr: Some(PllRDiv::DIV2), // Main system clock at 170 MHz
         });
+        config.rcc.mux.adc12sel = mux::Adcsel::SYS;
         config.rcc.mux.fdcansel = mux::Fdcansel::PLL1_Q;
         config.rcc.sys = Sysclk::PLL1_R;
     }

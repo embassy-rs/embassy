@@ -13,7 +13,7 @@ use embassy_stm32::adc::{
     Adc, AdcChannel as _, Exten, InjectedAdc, InjectedAdcTrigger, RegularAdcTrigger, SampleTime, VrefInt,
 };
 use embassy_stm32::interrupt::typelevel::{ADC1_2, Interrupt};
-use embassy_stm32::peripherals::ADC1;
+use embassy_stm32::pac::adc::Adc as AdcRegs;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::complementary_pwm::{ComplementaryPwm, Mms2};
 use embassy_stm32::timer::low_level::CountingMode;
@@ -23,7 +23,7 @@ use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
-static ADC1_HANDLE: CriticalSectionMutex<RefCell<Option<InjectedAdc<ADC1, 1>>>> =
+static ADC1_HANDLE: CriticalSectionMutex<RefCell<Option<InjectedAdc<AdcRegs>>>> =
     CriticalSectionMutex::new(RefCell::new(None));
 
 bind_interrupts!(struct Irqs {
@@ -78,7 +78,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     pwm.set_mms2(Mms2::UPDATE);
 
     // Configure regular conversions with DMA
-    let adc1 = Adc::new(p.ADC1, Default::default());
+    let mut adc1 = Adc::new(p.ADC1, Default::default());
 
     let vrefint = adc1.enable_vrefint();
 

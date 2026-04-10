@@ -11,6 +11,7 @@ mod injected;
 pub use injected::InjectedAdc;
 
 use crate::pac::adc::regs::{Sqr1, Sqr2, Sqr3};
+use crate::pac::adc::vals::Dds;
 
 fn clear_interrupt_flags(r: crate::pac::adc::Adc) {
     r.sr().modify(|regs| {
@@ -26,21 +27,21 @@ pub const VREF_CALIB_MV: u32 = 3300;
 
 pub const NR_INJECTED_RANKS: usize = 4;
 
-impl super::SealedSpecialConverter<super::VrefInt> for crate::peripherals::ADC1 {
+impl super::ConverterFor<super::VrefInt> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 17;
 }
 
 #[cfg(any(stm32f2, stm32f40x, stm32f41x))]
-impl super::SealedSpecialConverter<super::Temperature> for crate::peripherals::ADC1 {
+impl super::ConverterFor<super::Temperature> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 16;
 }
 
 #[cfg(not(any(stm32f2, stm32f40x, stm32f41x)))]
-impl super::SealedSpecialConverter<super::Temperature> for crate::peripherals::ADC1 {
+impl super::ConverterFor<super::Temperature> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 18;
 }
 
-impl super::SealedSpecialConverter<super::Vbat> for crate::peripherals::ADC1 {
+impl super::ConverterFor<super::Vbat> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 18;
 }
 
@@ -130,7 +131,7 @@ impl AdcRegs for crate::pac::adc::Adc {
         self.sr().read().eoc()
     }
 
-    fn configure_dma(&self, conversion_mode: ConversionMode, dma: bool) {
+    fn configure_dma(&self, conversion_mode: ConversionMode) {
         let r = self;
 
         // Clear all status flags before configuring DMA.
@@ -154,14 +155,8 @@ impl AdcRegs for crate::pac::adc::Adc {
 
         r.cr2().modify(|w| {
             // Enable DMA mode
-            w.set_dma(dma);
-            w.set_dds(match conversion_mode {
-                // SINGLE: DMA requests stop after the sequence completes (one-shot).
-                ConversionMode::Singular => vals::Dds::SINGLE,
-                // CONTINUOUS: DMA stays armed between reads; cont=false below limits the ADC to one sequence per SWSTART.
-                // CONTINUOUS: DMA requests keep being issued as long as DMA=1 and data are converted.
-                _ => vals::Dds::CONTINUOUS,
-            });
+            w.set_dma(!matches!(conversion_mode, ConversionMode::NoDma));
+            w.set_dds(Dds::CONTINUOUS);
             // EOC flag is set at the end of each conversion.
             w.set_eocs(vals::Eocs::EACH_CONVERSION);
             w.set_cont(matches!(conversion_mode, ConversionMode::Repeated(None)));
@@ -304,7 +299,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
 
     /// Enables internal voltage reference and returns [VrefInt], which can be used in
     /// [Adc::read_internal()] to perform conversion.
-    pub fn enable_vrefint(&self) -> VrefInt {
+    pub fn enable_vrefint(&mut self) -> VrefInt {
         T::common_regs().ccr().modify(|reg| {
             reg.set_tsvrefe(true);
         });
@@ -317,7 +312,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
     ///
     /// On STM32F42 and STM32F43 this can not be used together with [Vbat]. If both are enabled,
     /// temperature sensor will return vbat value.
-    pub fn enable_temperature(&self) -> Temperature {
+    pub fn enable_temperature(&mut self) -> Temperature {
         T::common_regs().ccr().modify(|reg| {
             reg.set_tsvrefe(true);
         });
@@ -327,7 +322,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
 
     /// Enables vbat input and returns [Vbat], which can be used in
     /// [Adc::read_internal()] to perform conversion.
-    pub fn enable_vbat(&self) -> Vbat {
+    pub fn enable_vbat(&mut self) -> Vbat {
         T::common_regs().ccr().modify(|reg| {
             reg.set_vbate(true);
         });
