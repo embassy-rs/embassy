@@ -1435,13 +1435,18 @@ pub struct SpiBusCyw43<'d> {
 #[cfg(feature = "cyw43")]
 impl<'d> cyw43::SpiBusCyw43 for SpiBusCyw43<'d> {
     async fn cmd_read(&mut self, write: u32, read: &mut [u32]) -> u32 {
-        let _ = self.spi.transfer(&mut read[..], &[write]).await;
+        let _ = self.spi.write(&[write]).await;
+        let _ = self.spi.read(&mut read[..]).await;
+
+        // TODO: handle status
 
         0u32
     }
 
     async fn cmd_write(&mut self, write: &[u32]) -> u32 {
         let _ = self.spi.write(write).await;
+
+        // TODO: handle status
 
         0u32
     }
