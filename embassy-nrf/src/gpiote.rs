@@ -83,9 +83,9 @@ pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
         for &p in ports {
             // Enable latched detection
             #[cfg(all(feature = "_s", not(feature = "_nrf54l")))]
-            p.detectmode_sec().write(|w| w.set_detectmode(Detectmode::LDETECT));
+            p.detectmode_sec().write(|w| w.set_detectmode(Detectmode::Ldetect));
             #[cfg(any(not(feature = "_s"), all(feature = "_s", feature = "_nrf54l")))]
-            p.detectmode().write(|w| w.set_detectmode(Detectmode::LDETECT));
+            p.detectmode().write(|w| w.set_detectmode(Detectmode::Ldetect));
             // Clear latch
             p.latch().write(|w| w.0 = 0xFFFFFFFF)
         }
@@ -226,14 +226,14 @@ unsafe fn handle_gpiote_interrupt(g: pac::gpiote::Gpiote) {
             let inp = p.in_().read();
             for pin in 0..32 {
                 let fired = match p.pin_cnf(pin as usize).read().sense() {
-                    Sense::HIGH => inp.pin(pin),
-                    Sense::LOW => !inp.pin(pin),
+                    Sense::High => inp.pin(pin),
+                    Sense::Low => !inp.pin(pin),
                     _ => false,
                 };
 
                 if fired {
                     PORT_WAKERS[port * 32 + pin as usize].wake();
-                    p.pin_cnf(pin as usize).modify(|w| w.set_sense(Sense::DISABLED));
+                    p.pin_cnf(pin as usize).modify(|w| w.set_sense(Sense::Disabled));
                 }
             }
         }
@@ -242,7 +242,7 @@ unsafe fn handle_gpiote_interrupt(g: pac::gpiote::Gpiote) {
         for (port, &p) in ports.iter().enumerate() {
             let bits = p.latch().read().0;
             for pin in BitIter(bits) {
-                p.pin_cnf(pin as usize).modify(|w| w.set_sense(Sense::DISABLED));
+                p.pin_cnf(pin as usize).modify(|w| w.set_sense(Sense::Disabled));
                 PORT_WAKERS[port * 32 + pin as usize].wake();
             }
             p.latch().write(|w| w.0 = bits);
@@ -287,7 +287,7 @@ impl<'d> Drop for InputChannel<'d> {
     fn drop(&mut self) {
         let g = self.ch.regs();
         let num = self.ch.number();
-        g.config(num).write(|w| w.set_mode(Mode::DISABLED));
+        g.config(num).write(|w| w.set_mode(Mode::Disabled));
         g.intenclr(INTNUM).write(|w| w.0 = 1 << num);
     }
 }
@@ -323,12 +323,12 @@ impl<'d> InputChannel<'d> {
         let g = ch.regs();
         let num = ch.number();
         g.config(num).write(|w| {
-            w.set_mode(Mode::EVENT);
+            w.set_mode(Mode::Event);
             match polarity {
-                InputChannelPolarity::HiToLo => w.set_polarity(Polarity::HI_TO_LO),
-                InputChannelPolarity::LoToHi => w.set_polarity(Polarity::LO_TO_HI),
-                InputChannelPolarity::None => w.set_polarity(Polarity::NONE),
-                InputChannelPolarity::Toggle => w.set_polarity(Polarity::TOGGLE),
+                InputChannelPolarity::HiToLo => w.set_polarity(Polarity::HiToLo),
+                InputChannelPolarity::LoToHi => w.set_polarity(Polarity::LoToHi),
+                InputChannelPolarity::None => w.set_polarity(Polarity::None),
+                InputChannelPolarity::Toggle => w.set_polarity(Polarity::Toggle),
             };
             #[cfg(any(feature = "nrf52833", feature = "nrf52840", feature = "_nrf5340",))]
             w.set_port(match pin.pin.pin.port() {
@@ -458,7 +458,7 @@ impl<'d> Drop for OutputChannel<'d> {
     fn drop(&mut self) {
         let g = self.ch.regs();
         let num = self.ch.number();
-        g.config(num).write(|w| w.set_mode(Mode::DISABLED));
+        g.config(num).write(|w| w.set_mode(Mode::Disabled));
         g.intenclr(INTNUM).write(|w| w.0 = 1 << num);
     }
 }
@@ -497,15 +497,15 @@ impl<'d> OutputChannel<'d> {
         let num = ch.number();
 
         g.config(num).write(|w| {
-            w.set_mode(Mode::TASK);
+            w.set_mode(Mode::Task);
             match pin.is_set_high() {
-                true => w.set_outinit(Outinit::HIGH),
-                false => w.set_outinit(Outinit::LOW),
+                true => w.set_outinit(Outinit::High),
+                false => w.set_outinit(Outinit::Low),
             };
             match polarity {
-                OutputChannelPolarity::Set => w.set_polarity(Polarity::HI_TO_LO),
-                OutputChannelPolarity::Clear => w.set_polarity(Polarity::LO_TO_HI),
-                OutputChannelPolarity::Toggle => w.set_polarity(Polarity::TOGGLE),
+                OutputChannelPolarity::Set => w.set_polarity(Polarity::HiToLo),
+                OutputChannelPolarity::Clear => w.set_polarity(Polarity::LoToHi),
+                OutputChannelPolarity::Toggle => w.set_polarity(Polarity::Toggle),
             };
             #[cfg(any(feature = "nrf52833", feature = "nrf52840", feature = "_nrf5340"))]
             w.set_port(match pin.pin.pin.port() {
@@ -582,7 +582,7 @@ impl<'a> Unpin for PortInputFuture<'a> {}
 
 impl<'a> Drop for PortInputFuture<'a> {
     fn drop(&mut self) {
-        self.pin.conf().modify(|w| w.set_sense(Sense::DISABLED));
+        self.pin.conf().modify(|w| w.set_sense(Sense::Disabled));
     }
 }
 
@@ -592,7 +592,7 @@ impl<'a> Future for PortInputFuture<'a> {
     fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         PORT_WAKERS[self.pin.pin_port() as usize].register(cx.waker());
 
-        if self.pin.conf().read().sense() == Sense::DISABLED {
+        if self.pin.conf().read().sense() == Sense::Disabled {
             Poll::Ready(())
         } else {
             Poll::Pending
@@ -630,13 +630,13 @@ impl<'d> Input<'d> {
 impl<'d> Flex<'d> {
     /// Wait until the pin is high. If it is already high, return immediately.
     pub async fn wait_for_high(&mut self) {
-        self.pin.conf().modify(|w| w.set_sense(Sense::HIGH));
+        self.pin.conf().modify(|w| w.set_sense(Sense::High));
         PortInputFuture::new(self.pin.reborrow()).await
     }
 
     /// Wait until the pin is low. If it is already low, return immediately.
     pub async fn wait_for_low(&mut self) {
-        self.pin.conf().modify(|w| w.set_sense(Sense::LOW));
+        self.pin.conf().modify(|w| w.set_sense(Sense::Low));
         PortInputFuture::new(self.pin.reborrow()).await
     }
 
@@ -655,9 +655,9 @@ impl<'d> Flex<'d> {
     /// Wait for the pin to undergo any transition, i.e low to high OR high to low.
     pub async fn wait_for_any_edge(&mut self) {
         if self.is_high() {
-            self.pin.conf().modify(|w| w.set_sense(Sense::LOW));
+            self.pin.conf().modify(|w| w.set_sense(Sense::Low));
         } else {
-            self.pin.conf().modify(|w| w.set_sense(Sense::HIGH));
+            self.pin.conf().modify(|w| w.set_sense(Sense::High));
         }
         PortInputFuture::new(self.pin.reborrow()).await
     }
