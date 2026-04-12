@@ -152,7 +152,6 @@ impl AdcRegs for crate::pac::adc::Adc {
         }
 
         self.smpr().modify(|w| {
-            w.smpsel(0);
             w.set_smp1(sample_time);
         });
 
