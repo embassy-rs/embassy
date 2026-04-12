@@ -139,7 +139,7 @@ impl<'d, V: VbusDetect> Bus<'d, V> {
         let phy = self.usb_regs.phy();
 
         phy.overridevalues().write(|w| {
-            w.set_id(pac::usbhs::vals::Id::DEVICE);
+            w.set_id(pac::usbhs::vals::Id::Device);
         });
         phy.inputoverride().write(|w| {
             w.set_vbusvalid(true);
@@ -185,7 +185,7 @@ impl<'d, V: VbusDetect> embassy_usb_driver::Bus for Bus<'d, V> {
         trace!("USBHS enable");
         self.start_xo24m();
         self.usb_regs.phy().clock().modify(|w| {
-            w.set_fsel(pac::usbhs::vals::Fsel::CLOCK24000KHZ);
+            w.set_fsel(pac::usbhs::vals::Fsel::Clock24000kHz);
         });
         self.usb_regs.enable().write(|w| {
             w.set_core(true);
@@ -334,8 +334,8 @@ impl Instance for crate::peripherals::USBHS {
 
 fn current_hclk() -> u32 {
     match pac::OSCILLATORS.pll().currentfreq().read().currentfreq() {
-        pac::oscillators::vals::Currentfreq::CK128M => 128_000_000,
-        pac::oscillators::vals::Currentfreq::CK64M => 64_000_000,
+        pac::oscillators::vals::Currentfreq::Ck128m => 128_000_000,
+        pac::oscillators::vals::Currentfreq::Ck64m => 64_000_000,
         _ => unreachable!(),
     }
 }

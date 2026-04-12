@@ -68,7 +68,7 @@ fn rtc() -> pac::rtc::Rtc {
 /// a new period start has raced us between reading `period` and `counter`, so we assume the `counter` value
 /// corresponds to the next period.
 ///
-/// `period` is a 32bit integer, so It overflows on 2^32 * 2^23 / 32768 seconds of uptime, which is 34865
+/// `period` is a _32bit integer, so It overflows on 2^32 * 2^23 / 32768 seconds of uptime, which is 34865
 /// years. For comparison, flash memory like the one containing your firmware is usually rated to retain
 /// data for only 10-20 years. 34865 years is long enough!
 #[cfg(not(feature = "_grtc"))]
@@ -88,7 +88,7 @@ fn syscounter() -> u64 {
         let countl: u32 = r.syscounter(0).syscounterl().read();
         let counth = r.syscounter(0).syscounterh().read();
 
-        if counth.busy() == Busy::READY && !counth.overflow() {
+        if counth.busy() == Busy::Ready && !counth.overflow() {
             let counth: u32 = counth.value();
             let count = countl as u64 | ((counth as u64) << 32);
             r.syscounter(0).active().write(|w| w.set_active(false));
