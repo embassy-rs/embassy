@@ -170,11 +170,12 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> UsbHostHandler for HubHandler<H, 
 }
 
 impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
+    #[allow(dead_code)]
     async fn hub_feature(&mut self, set: bool, feature: HubFeature) -> Result<(), HostError> {
         let setup = SetupPacket {
             request_type: RequestType::OUT | RequestType::TYPE_CLASS | RequestType::RECIPIENT_DEVICE,
             request: if set { SET_FEATURE } else { CLEAR_FEATURE },
-            value: 0,
+            value: feature as u16,
             index: 0,
             length: 0,
         };
@@ -325,6 +326,20 @@ bitflags! {
     struct HubStatusChange: u16 {
         const LOCAL_POWER = 1 << 0;
         const OVERCURRENT = 1 << 1;
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for HubStatus {
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!(fmt, "HubStatus({=u16:b})", self.bits());
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for HubStatusChange {
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!(fmt, "HubStatusChange({=u16:b})", self.bits());
     }
 }
 
