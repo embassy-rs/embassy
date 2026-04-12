@@ -259,19 +259,19 @@ async fn main(spawner: Spawner) {
             freq: embassy_stm32::time::Hertz::mhz(25),
             mode: HseMode::Oscillator,
         });
-        config.rcc.pll_src = PllSource::HSE;
+        config.rcc.pll_src = PllSource::Hse;
         config.rcc.pll = Some(Pll {
-            prediv: PllPreDiv::DIV25,
-            mul: PllMul::MUL336,
-            divp: Some(PllPDiv::DIV2), // ((8 MHz / 4) * 168) / 2 = 168 Mhz.
-            divq: Some(PllQDiv::DIV7), // ((8 MHz / 4) * 168) / 7 = 48 Mhz.
+            prediv: PllPreDiv::Div25,
+            mul: PllMul::Mul336,
+            divp: Some(PllPDiv::Div2), // ((8 MHz / 4) * 168) / 2 = 168 Mhz.
+            divq: Some(PllQDiv::Div7), // ((8 MHz / 4) * 168) / 7 = 48 Mhz.
             divr: None,
         });
-        config.rcc.ahb_pre = AHBPrescaler::DIV1;
-        config.rcc.apb1_pre = APBPrescaler::DIV4;
-        config.rcc.apb2_pre = APBPrescaler::DIV2;
-        config.rcc.sys = Sysclk::PLL1_P;
-        config.rcc.mux.clk48sel = mux::Clk48sel::PLL1_Q;
+        config.rcc.ahb_pre = AHBPrescaler::Div1;
+        config.rcc.apb1_pre = APBPrescaler::Div4;
+        config.rcc.apb2_pre = APBPrescaler::Div2;
+        config.rcc.sys = Sysclk::Pll1P;
+        config.rcc.mux.clk48sel = mux::Clk48sel::Pll1Q;
     }
     let p = embassy_stm32::init(config);
 
@@ -346,11 +346,11 @@ async fn main(spawner: Spawner) {
     // Run a timer for counting between SOF interrupts.
     let mut tim2 = timer::low_level::Timer::new(p.TIM2);
     tim2.set_tick_freq(Hertz(FEEDBACK_COUNTER_TICK_RATE));
-    tim2.set_trigger_source(timer::low_level::TriggerSource::ITR1); // The USB SOF signal.
+    tim2.set_trigger_source(timer::low_level::TriggerSource::Itr1); // The USB SOF signal.
 
     tim2.set_input_ti_selection(TIMER_CHANNEL, timer::low_level::InputTISelection::TRC);
     tim2.set_input_capture_prescaler(TIMER_CHANNEL, 0);
-    tim2.set_input_capture_filter(TIMER_CHANNEL, timer::low_level::FilterValue::FCK_INT_N2);
+    tim2.set_input_capture_filter(TIMER_CHANNEL, timer::low_level::FilterValue::FckIntN2);
 
     // Reset all interrupt flags.
     tim2.regs_gp32().sr().write(|r| r.0 = 0);

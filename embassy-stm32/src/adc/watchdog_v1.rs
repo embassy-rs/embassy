@@ -64,14 +64,14 @@ impl<'adc, 'd, T: DefaultInstance> AnalogWatchdog<'adc, 'd, T> {
                 });
                 T::regs().cfgr1().modify(|w| {
                     w.set_awdch(ch);
-                    w.set_awdsgl(Awdsgl::SINGLE_CHANNEL)
+                    w.set_awdsgl(Awdsgl::SingleChannel)
                 });
             }
             WatchdogChannels::Multiple(ch) => {
                 T::regs().chselr().modify(|w| w.0 = ch.into());
                 T::regs().cfgr1().modify(|w| {
                     w.set_awdch(0);
-                    w.set_awdsgl(Awdsgl::ALL_CHANNELS)
+                    w.set_awdsgl(Awdsgl::AllChannels)
                 });
             }
         }
@@ -96,8 +96,8 @@ impl<'adc, 'd, T: DefaultInstance> AnalogWatchdog<'adc, 'd, T> {
 
         assert!(
             match T::regs().cfgr1().read().awdsgl() {
-                Awdsgl::SINGLE_CHANNEL => T::regs().cfgr1().read().awdch() != 0,
-                Awdsgl::ALL_CHANNELS => T::regs().cfgr1().read().awdch() == 0,
+                Awdsgl::SingleChannel => T::regs().cfgr1().read().awdch() != 0,
+                Awdsgl::AllChannels => T::regs().cfgr1().read().awdch() == 0,
             },
             "`set_channel` should be called before `monitor`",
         );
@@ -127,14 +127,14 @@ impl<'adc, 'd, T: DefaultInstance> AnalogWatchdog<'adc, 'd, T> {
 
         // Verify that the thresholds are in the correct bit positions according to alignment and resolution
         let threshold_mask = match (T::regs().cfgr1().read().align(), T::regs().cfgr1().read().res()) {
-            (Align::LEFT, Res::BITS6) => 0x00FC,
-            (Align::LEFT, Res::BITS8) => 0xFF00,
-            (Align::LEFT, Res::BITS10) => 0xFFC0,
-            (Align::LEFT, Res::BITS12) => 0xFFF0,
-            (Align::RIGHT, Res::BITS6) => 0x003F,
-            (Align::RIGHT, Res::BITS8) => 0x00FF,
-            (Align::RIGHT, Res::BITS10) => 0x03FF,
-            (Align::RIGHT, Res::BITS12) => 0x0FFF,
+            (Align::Left, Res::Bits6) => 0x00FC,
+            (Align::Left, Res::Bits8) => 0xFF00,
+            (Align::Left, Res::Bits10) => 0xFFC0,
+            (Align::Left, Res::Bits12) => 0xFFF0,
+            (Align::Right, Res::Bits6) => 0x003F,
+            (Align::Right, Res::Bits8) => 0x00FF,
+            (Align::Right, Res::Bits10) => 0x03FF,
+            (Align::Right, Res::Bits12) => 0x0FFF,
         };
         assert!(
             high_threshold & !threshold_mask == 0,

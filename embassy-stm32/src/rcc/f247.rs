@@ -125,8 +125,8 @@ impl Config {
         Self {
             hsi: true,
             hse: None,
-            sys: Sysclk::HSI,
-            pll_src: PllSource::HSI,
+            sys: Sysclk::Hsi,
+            pll_src: PllSource::Hsi,
             #[cfg(any(stm32f412, stm32f413, stm32f423))]
             external_i2s_clock: None,
             pll: None,
@@ -135,9 +135,9 @@ impl Config {
             #[cfg(any(stm32f446, stm32f427, stm32f437, stm32f4x9, stm32f7))]
             pllsai: None,
 
-            ahb_pre: AHBPrescaler::DIV1,
-            apb1_pre: APBPrescaler::DIV1,
-            apb2_pre: APBPrescaler::DIV1,
+            ahb_pre: AHBPrescaler::Div1,
+            apb1_pre: APBPrescaler::Div1,
+            apb2_pre: APBPrescaler::Div1,
 
             #[cfg(dsihost)]
             dsi: None,
@@ -165,7 +165,7 @@ pub(crate) unsafe fn init(config: Config) {
     // TODO: check real clock speed before set VOS
     #[cfg(any(stm32f4, stm32f7))]
     if config.pll.is_some() {
-        PWR.cr1().modify(|w| w.set_vos(crate::pac::pwr::vals::Vos::SCALE1));
+        PWR.cr1().modify(|w| w.set_vos(crate::pac::pwr::vals::Vos::Scale1));
     }
 
     // always enable overdrive for now. Make it configurable in the future.
@@ -183,8 +183,8 @@ pub(crate) unsafe fn init(config: Config) {
     while !RCC.cr().read().hsirdy() {}
 
     // Use the HSI clock as system clock during the actual clock setup
-    RCC.cfgr().modify(|w| w.set_sw(Sysclk::HSI));
-    while RCC.cfgr().read().sws() != Sysclk::HSI {}
+    RCC.cfgr().modify(|w| w.set_sw(Sysclk::Hsi));
+    while RCC.cfgr().read().sws() != Sysclk::Hsi {}
 
     // Configure HSI
     let hsi = match config.hsi {
@@ -260,9 +260,9 @@ pub(crate) unsafe fn init(config: Config) {
 
     // Configure sysclk
     let sys = match config.sys {
-        Sysclk::HSI => unwrap!(hsi),
-        Sysclk::HSE => unwrap!(hse),
-        Sysclk::PLL1_P => unwrap!(pll.p),
+        Sysclk::Hsi => unwrap!(hsi),
+        Sysclk::Hse => unwrap!(hse),
+        Sysclk::Pll1P => unwrap!(pll.p),
         _ => unreachable!(),
     };
 
@@ -279,30 +279,30 @@ pub(crate) unsafe fn init(config: Config) {
 
     #[cfg(stm32f2)]
     let latency = match (config.voltage, hclk.0) {
-        (VoltageScale::Range3, ..=16_000_000) => Latency::WS0,
-        (VoltageScale::Range3, ..=32_000_000) => Latency::WS1,
-        (VoltageScale::Range3, ..=48_000_000) => Latency::WS2,
-        (VoltageScale::Range3, ..=64_000_000) => Latency::WS3,
-        (VoltageScale::Range3, ..=80_000_000) => Latency::WS4,
-        (VoltageScale::Range3, ..=96_000_000) => Latency::WS5,
-        (VoltageScale::Range3, ..=112_000_000) => Latency::WS6,
-        (VoltageScale::Range3, ..=120_000_000) => Latency::WS7,
-        (VoltageScale::Range2, ..=18_000_000) => Latency::WS0,
-        (VoltageScale::Range2, ..=36_000_000) => Latency::WS1,
-        (VoltageScale::Range2, ..=54_000_000) => Latency::WS2,
-        (VoltageScale::Range2, ..=72_000_000) => Latency::WS3,
-        (VoltageScale::Range2, ..=90_000_000) => Latency::WS4,
-        (VoltageScale::Range2, ..=108_000_000) => Latency::WS5,
-        (VoltageScale::Range2, ..=120_000_000) => Latency::WS6,
-        (VoltageScale::Range1, ..=24_000_000) => Latency::WS0,
-        (VoltageScale::Range1, ..=48_000_000) => Latency::WS1,
-        (VoltageScale::Range1, ..=72_000_000) => Latency::WS2,
-        (VoltageScale::Range1, ..=96_000_000) => Latency::WS3,
-        (VoltageScale::Range1, ..=120_000_000) => Latency::WS4,
-        (VoltageScale::Range0, ..=30_000_000) => Latency::WS0,
-        (VoltageScale::Range0, ..=60_000_000) => Latency::WS1,
-        (VoltageScale::Range0, ..=90_000_000) => Latency::WS2,
-        (VoltageScale::Range0, ..=120_000_000) => Latency::WS3,
+        (VoltageScale::Range3, ..=16_000_000) => Latency::Ws0,
+        (VoltageScale::Range3, ..=32_000_000) => Latency::Ws1,
+        (VoltageScale::Range3, ..=48_000_000) => Latency::Ws2,
+        (VoltageScale::Range3, ..=64_000_000) => Latency::Ws3,
+        (VoltageScale::Range3, ..=80_000_000) => Latency::Ws4,
+        (VoltageScale::Range3, ..=96_000_000) => Latency::Ws5,
+        (VoltageScale::Range3, ..=112_000_000) => Latency::Ws6,
+        (VoltageScale::Range3, ..=120_000_000) => Latency::Ws7,
+        (VoltageScale::Range2, ..=18_000_000) => Latency::Ws0,
+        (VoltageScale::Range2, ..=36_000_000) => Latency::Ws1,
+        (VoltageScale::Range2, ..=54_000_000) => Latency::Ws2,
+        (VoltageScale::Range2, ..=72_000_000) => Latency::Ws3,
+        (VoltageScale::Range2, ..=90_000_000) => Latency::Ws4,
+        (VoltageScale::Range2, ..=108_000_000) => Latency::Ws5,
+        (VoltageScale::Range2, ..=120_000_000) => Latency::Ws6,
+        (VoltageScale::Range1, ..=24_000_000) => Latency::Ws0,
+        (VoltageScale::Range1, ..=48_000_000) => Latency::Ws1,
+        (VoltageScale::Range1, ..=72_000_000) => Latency::Ws2,
+        (VoltageScale::Range1, ..=96_000_000) => Latency::Ws3,
+        (VoltageScale::Range1, ..=120_000_000) => Latency::Ws4,
+        (VoltageScale::Range0, ..=30_000_000) => Latency::Ws0,
+        (VoltageScale::Range0, ..=60_000_000) => Latency::Ws1,
+        (VoltageScale::Range0, ..=90_000_000) => Latency::Ws2,
+        (VoltageScale::Range0, ..=120_000_000) => Latency::Ws3,
         _ => unreachable!(),
     };
 
@@ -430,13 +430,13 @@ fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput) -> Pll
 
     #[cfg(not(any(stm32f412, stm32f413, stm32f423)))]
     let pll_src = match input.source {
-        PllSource::HSE => input.hse,
-        PllSource::HSI => input.hsi,
+        PllSource::Hse => input.hse,
+        PllSource::Hsi => input.hsi,
     };
     #[cfg(any(stm32f412, stm32f413, stm32f423))]
     let pll_src = match (input.source, input.external) {
-        (PllSource::HSE, None) => input.hse,
-        (PllSource::HSI, None) => input.hsi,
+        (PllSource::Hse, None) => input.hse,
+        (PllSource::Hsi, None) => input.hsi,
         (_, Some(ext)) => Some(ext),
     };
 
@@ -492,8 +492,8 @@ fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput) -> Pll
             #[cfg(any(stm32f412, stm32f413, stm32f423))]
             {
                 let plli2ssource = match input.external {
-                    Some(_) => Plli2sSource::EXTERNAL,
-                    None => Plli2sSource::HSE_HSI,
+                    Some(_) => Plli2sSource::External,
+                    None => Plli2sSource::HseHsi,
                 };
                 w.set_plli2ssrc(plli2ssource);
             }

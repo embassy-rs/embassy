@@ -1638,18 +1638,18 @@ fn find_and_set_brr(r: Regs, kind: Kind, kernel_clock: Hertz, baudrate: u32) -> 
 
     #[cfg(usart_v4)]
     static DIVS: [(u16, vals::Presc); 12] = [
-        (1, vals::Presc::DIV1),
-        (2, vals::Presc::DIV2),
-        (4, vals::Presc::DIV4),
-        (6, vals::Presc::DIV6),
-        (8, vals::Presc::DIV8),
-        (10, vals::Presc::DIV10),
-        (12, vals::Presc::DIV12),
-        (16, vals::Presc::DIV16),
-        (32, vals::Presc::DIV32),
-        (64, vals::Presc::DIV64),
-        (128, vals::Presc::DIV128),
-        (256, vals::Presc::DIV256),
+        (1, vals::Presc::Div1),
+        (2, vals::Presc::Div2),
+        (4, vals::Presc::Div4),
+        (6, vals::Presc::Div6),
+        (8, vals::Presc::Div8),
+        (10, vals::Presc::Div10),
+        (12, vals::Presc::Div12),
+        (16, vals::Presc::Div16),
+        (32, vals::Presc::Div32),
+        (64, vals::Presc::Div64),
+        (128, vals::Presc::Div128),
+        (256, vals::Presc::Div256),
     ];
 
     let (mul, brr_min, brr_max) = match kind {
@@ -1779,10 +1779,10 @@ fn configure(
 
     r.cr2().write(|w| {
         w.set_stop(match config.stop_bits {
-            StopBits::STOP0P5 => vals::Stop::STOP0P5,
-            StopBits::STOP1 => vals::Stop::STOP1,
-            StopBits::STOP1P5 => vals::Stop::STOP1P5,
-            StopBits::STOP2 => vals::Stop::STOP2,
+            StopBits::STOP0P5 => vals::Stop::Stop0p5,
+            StopBits::STOP1 => vals::Stop::Stop1,
+            StopBits::STOP1P5 => vals::Stop::Stop1p5,
+            StopBits::STOP2 => vals::Stop::Stop2,
         });
 
         #[cfg(any(usart_v3, usart_v4))]
@@ -1799,106 +1799,105 @@ fn configure(
         w.set_hdsel(config.duplex.is_half());
     });
 
-    r.cr1().write(|w| {
-        // enable uart
-        w.set_ue(true);
+    let mut w: crate::pac::usart::regs::Cr1 = Default::default();
+    // enable uart
+    w.set_ue(true);
 
-        if config.duplex.is_half() {
-            // The te and re bits will be set by write, read and flush methods.
-            // Receiver should be enabled by default for Half-Duplex.
-            w.set_te(false);
-            w.set_re(true);
+    if config.duplex.is_half() {
+        // The te and re bits will be set by write, read and flush methods.
+        // Receiver should be enabled by default for Half-Duplex.
+        w.set_te(false);
+        w.set_re(true);
+    } else {
+        // enable transceiver
+        w.set_te(enable_tx);
+        // enable receiver
+        w.set_re(enable_rx);
+    }
+
+    #[cfg(not(any(usart_v1, usart_v2)))]
+    if dem {
+        w.set_deat(if over8 {
+            config.de_assertion_time / 2
         } else {
-            // enable transceiver
-            w.set_te(enable_tx);
-            // enable receiver
-            w.set_re(enable_rx);
-        }
+            config.de_assertion_time
+        });
+        w.set_dedt(if over8 {
+            config.de_assertion_time / 2
+        } else {
+            config.de_assertion_time
+        });
+    }
 
-        #[cfg(not(any(usart_v1, usart_v2)))]
-        if dem {
-            w.set_deat(if over8 {
-                config.de_assertion_time / 2
-            } else {
-                config.de_assertion_time
-            });
-            w.set_dedt(if over8 {
-                config.de_assertion_time / 2
-            } else {
-                config.de_assertion_time
-            });
-        }
-
-        // configure word size and parity, since the parity bit is inserted into the MSB position,
-        // it increases the effective word size
-        match (config.parity, config.data_bits) {
-            (Parity::ParityNone, DataBits::DataBits8) => {
-                trace!("USART: m0: 8 data bits, no parity");
-                w.set_m0(vals::M0::BIT8);
-                #[cfg(any(usart_v3, usart_v4))]
-                w.set_m1(vals::M1::M0);
-                w.set_pce(false);
-            }
-            (Parity::ParityNone, DataBits::DataBits9) => {
-                trace!("USART: m0: 9 data bits, no parity");
-                w.set_m0(vals::M0::BIT9);
-                #[cfg(any(usart_v3, usart_v4))]
-                w.set_m1(vals::M1::M0);
-                w.set_pce(false);
-            }
+    // configure word size and parity, since the parity bit is inserted into the MSB position,
+    // it increases the effective word size
+    match (config.parity, config.data_bits) {
+        (Parity::ParityNone, DataBits::DataBits8) => {
+            trace!("USART: m0: 8 data bits, no parity");
+            w.set_m0(vals::M0::Bit8);
             #[cfg(any(usart_v3, usart_v4))]
-            (Parity::ParityNone, DataBits::DataBits7) => {
-                trace!("USART: m0: 7 data bits, no parity");
-                w.set_m0(vals::M0::BIT8);
-                w.set_m1(vals::M1::BIT7);
-                w.set_pce(false);
-            }
-            (Parity::ParityEven, DataBits::DataBits8) => {
-                trace!("USART: m0: 8 data bits, even parity");
-                w.set_m0(vals::M0::BIT9);
-                #[cfg(any(usart_v3, usart_v4))]
-                w.set_m1(vals::M1::M0);
-                w.set_pce(true);
-                w.set_ps(vals::Ps::EVEN);
-            }
-            (Parity::ParityEven, DataBits::DataBits7) => {
-                trace!("USART: m0: 7 data bits, even parity");
-                w.set_m0(vals::M0::BIT8);
-                #[cfg(any(usart_v3, usart_v4))]
-                w.set_m1(vals::M1::M0);
-                w.set_pce(true);
-                w.set_ps(vals::Ps::EVEN);
-            }
-            (Parity::ParityOdd, DataBits::DataBits8) => {
-                trace!("USART: m0: 8 data bits, odd parity");
-                w.set_m0(vals::M0::BIT9);
-                #[cfg(any(usart_v3, usart_v4))]
-                w.set_m1(vals::M1::M0);
-                w.set_pce(true);
-                w.set_ps(vals::Ps::ODD);
-            }
-            (Parity::ParityOdd, DataBits::DataBits7) => {
-                trace!("USART: m0: 7 data bits, odd parity");
-                w.set_m0(vals::M0::BIT8);
-                #[cfg(any(usart_v3, usart_v4))]
-                w.set_m1(vals::M1::M0);
-                w.set_pce(true);
-                w.set_ps(vals::Ps::ODD);
-            }
-            _ => {
-                return Err(ConfigError::DataParityNotSupported);
-            }
+            w.set_m1(vals::M1::M0);
+            w.set_pce(false);
         }
-        #[cfg(not(usart_v1))]
-        w.set_over8(vals::Over8::from_bits(over8 as _));
-        #[cfg(usart_v4)]
-        {
-            trace!("USART: set_fifoen: true (usart_v4)");
-            w.set_fifoen(true);
+        (Parity::ParityNone, DataBits::DataBits9) => {
+            trace!("USART: m0: 9 data bits, no parity");
+            w.set_m0(vals::M0::Bit9);
+            #[cfg(any(usart_v3, usart_v4))]
+            w.set_m1(vals::M1::M0);
+            w.set_pce(false);
         }
+        #[cfg(any(usart_v3, usart_v4))]
+        (Parity::ParityNone, DataBits::DataBits7) => {
+            trace!("USART: m0: 7 data bits, no parity");
+            w.set_m0(vals::M0::Bit8);
+            w.set_m1(vals::M1::Bit7);
+            w.set_pce(false);
+        }
+        (Parity::ParityEven, DataBits::DataBits8) => {
+            trace!("USART: m0: 8 data bits, even parity");
+            w.set_m0(vals::M0::Bit9);
+            #[cfg(any(usart_v3, usart_v4))]
+            w.set_m1(vals::M1::M0);
+            w.set_pce(true);
+            w.set_ps(vals::Ps::Even);
+        }
+        (Parity::ParityEven, DataBits::DataBits7) => {
+            trace!("USART: m0: 7 data bits, even parity");
+            w.set_m0(vals::M0::Bit8);
+            #[cfg(any(usart_v3, usart_v4))]
+            w.set_m1(vals::M1::M0);
+            w.set_pce(true);
+            w.set_ps(vals::Ps::Even);
+        }
+        (Parity::ParityOdd, DataBits::DataBits8) => {
+            trace!("USART: m0: 8 data bits, odd parity");
+            w.set_m0(vals::M0::Bit9);
+            #[cfg(any(usart_v3, usart_v4))]
+            w.set_m1(vals::M1::M0);
+            w.set_pce(true);
+            w.set_ps(vals::Ps::Odd);
+        }
+        (Parity::ParityOdd, DataBits::DataBits7) => {
+            trace!("USART: m0: 7 data bits, odd parity");
+            w.set_m0(vals::M0::Bit8);
+            #[cfg(any(usart_v3, usart_v4))]
+            w.set_m1(vals::M1::M0);
+            w.set_pce(true);
+            w.set_ps(vals::Ps::Odd);
+        }
+        _ => {
+            return Err(ConfigError::DataParityNotSupported);
+        }
+    }
+    #[cfg(not(usart_v1))]
+    w.set_over8(vals::Over8::from_bits(over8 as _));
+    #[cfg(usart_v4)]
+    {
+        trace!("USART: set_fifoen: true (usart_v4)");
+        w.set_fifoen(true);
+    }
 
-        Ok(())
-    })?;
+    r.cr1().write_value(w);
 
     Ok(())
 }

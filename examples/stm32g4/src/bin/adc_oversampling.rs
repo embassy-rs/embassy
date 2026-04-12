@@ -19,16 +19,16 @@ async fn main(_spawner: Spawner) {
     {
         use embassy_stm32::rcc::*;
         config.rcc.pll = Some(Pll {
-            source: PllSource::HSI,
-            prediv: PllPreDiv::DIV4,
-            mul: PllMul::MUL85,
+            source: PllSource::Hsi,
+            prediv: PllPreDiv::Div4,
+            mul: PllMul::Mul85,
             divp: None,
             divq: None,
             // Main system clock at 170 MHz
-            divr: Some(PllRDiv::DIV2),
+            divr: Some(PllRDiv::Div2),
         });
-        config.rcc.mux.adc12sel = mux::Adcsel::SYS;
-        config.rcc.sys = Sysclk::PLL1_R;
+        config.rcc.mux.adc12sel = mux::Adcsel::Sys;
+        config.rcc.sys = Sysclk::Pll1R;
     }
     let mut p = embassy_stm32::init(config);
 
@@ -47,12 +47,12 @@ async fn main(_spawner: Spawner) {
     // 0x07 oversampling ratio X256
     config.oversampling_ratio = Some(0x03); // ratio X3
     config.oversampling_shift = Some(0b0000); // no shift
-    config.oversampling_mode = Some((Rovsm::RESUMED, Trovs::AUTOMATIC, true));
+    config.oversampling_mode = Some((Rovsm::Resumed, Trovs::Automatic, true));
 
     let mut adc = Adc::new(p.ADC1, config);
 
     loop {
-        let measured = adc.blocking_read(&mut p.PA0, SampleTime::CYCLES6_5);
+        let measured = adc.blocking_read(&mut p.PA0, SampleTime::Cycles65);
         info!("data: 0x{:X}", measured); //max 0xFFF0 -> 65520
         Timer::after_millis(500).await;
     }

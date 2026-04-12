@@ -29,13 +29,13 @@ impl<T: Instance> super::ConverterFor<super::Temperature> for T {
 fn from_ker_ck(frequency: Hertz) -> Presc {
     let raw_prescaler = rcc::raw_prescaler(frequency.0, MAX_ADC_CLK_FREQ.0);
     match raw_prescaler {
-        0 => Presc::DIV1,
-        1 => Presc::DIV2,
-        2..=3 => Presc::DIV4,
-        4..=5 => Presc::DIV6,
-        6..=7 => Presc::DIV8,
-        8..=9 => Presc::DIV10,
-        10..=11 => Presc::DIV12,
+        0 => Presc::Div1,
+        1 => Presc::Div2,
+        2..=3 => Presc::Div4,
+        4..=5 => Presc::Div6,
+        6..=7 => Presc::Div8,
+        8..=9 => Presc::Div10,
+        10..=11 => Presc::Div12,
         _ => unimplemented!(),
     }
 }
@@ -64,7 +64,7 @@ impl AdcRegs for crate::pac::adc::Adc {
     fn stop(&self, _disable: bool) {
         if self.cr().read().adstart() && !self.cr().read().addis() {
             self.cr().modify(|reg| {
-                reg.set_adstp(Adstp::STOP);
+                reg.set_adstp(Adstp::Stop);
             });
             while self.cr().read().adstart() {}
         }
@@ -87,11 +87,11 @@ impl AdcRegs for crate::pac::adc::Adc {
         self.cfgr1().modify(|w| {
             w.set_cont(matches!(conversion_mode, ConversionMode::Repeated(None)));
             w.set_discen(false);
-            w.set_dmacfg(Dmacfg::DMA_CIRCULAR);
+            w.set_dmacfg(Dmacfg::DmaCircular);
             w.set_dmaen(!matches!(conversion_mode, ConversionMode::NoDma));
             w.set_ovrmod(match conversion_mode {
-                ConversionMode::Singular => Ovrmod::PRESERVE,
-                _ => Ovrmod::OVERWRITE,
+                ConversionMode::Singular => Ovrmod::Preserve,
+                _ => Ovrmod::Overwrite,
             });
 
             if let ConversionMode::Repeated(Some((signal, edge))) = conversion_mode {
@@ -109,7 +109,7 @@ impl AdcRegs for crate::pac::adc::Adc {
         let sequence_len = sequence.len();
         let mut hw_channel_selection: u32 = 0;
         let mut last_channel: u8 = 0;
-        let mut sample_time: Self::SampleTime = SampleTime::CYCLES2_5;
+        let mut sample_time: Self::SampleTime = SampleTime::Cycles25;
 
         self.chselr_sq().write(|w| {
             for (i, ((channel, _), _sample_time)) in sequence.enumerate() {
@@ -157,8 +157,8 @@ impl AdcRegs for crate::pac::adc::Adc {
 
         self.cfgr1().modify(|reg| {
             reg.set_chselrmod(!needs_hw);
-            reg.set_align(Align::RIGHT);
-            reg.set_scandir(if is_ordered_up { Scandir::UP } else { Scandir::BACK });
+            reg.set_align(Align::Right);
+            reg.set_scandir(if is_ordered_up { Scandir::Up } else { Scandir::Back });
         });
 
         // Trigger and wait for the channel selection procedure to complete.
@@ -176,7 +176,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     pub fn new(adc: Peri<'d, T>, resolution: Resolution) -> Self {
         rcc::enable_and_reset::<T>();
 
-        T::regs().cfgr2().modify(|w| w.set_ckmode(Ckmode::SYSCLK));
+        T::regs().cfgr2().modify(|w| w.set_ckmode(Ckmode::Sysclk));
 
         let prescaler = from_ker_ck(T::frequency());
         T::common_regs().ccr().modify(|w| w.set_presc(prescaler));
@@ -220,8 +220,8 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
         // single conversion mode, software trigger
         T::regs().cfgr1().modify(|w| {
             w.set_cont(false);
-            w.set_exten(Exten::DISABLED);
-            w.set_align(Align::RIGHT);
+            w.set_exten(Exten::Disabled);
+            w.set_align(Align::Right);
         });
 
         Self { adc }

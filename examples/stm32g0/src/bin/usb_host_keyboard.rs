@@ -36,17 +36,17 @@ async fn main(_spawner: Spawner) {
             // PLLR = 240 MHz / 4 = 60 MHz (sysclk)
             // PLLQ = 240 MHz / 5 = 48 MHz (USB)
             Pll {
-                source: PllSource::HSE,
-                prediv: PllPreDiv::DIV2,
-                mul: PllMul::MUL60,
+                source: PllSource::Hse,
+                prediv: PllPreDiv::Div2,
+                mul: PllMul::Mul60,
                 divp: None,
-                divq: Some(PllQDiv::DIV5),
-                divr: Some(PllRDiv::DIV4),
+                divq: Some(PllQDiv::Div5),
+                divr: Some(PllRDiv::Div4),
             },
         );
-        config.rcc.sys = Sysclk::PLL1_R;
+        config.rcc.sys = Sysclk::Pll1R;
         config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true });
-        config.rcc.mux.usbsel = mux::Usbsel::PLL1_Q;
+        config.rcc.mux.usbsel = mux::Usbsel::Pll1Q;
     }
 
     let p = embassy_stm32::init(config);
@@ -54,7 +54,7 @@ async fn main(_spawner: Spawner) {
     // Configure clock out (MCO = PLL1_Q)
     pac::RCC
         .cfgr()
-        .modify(|w: &mut pac::rcc::regs::Cfgr| w.set_mco1sel(Mcosel::PLL1_Q));
+        .modify(|w: &mut pac::rcc::regs::Cfgr| w.set_mco1sel(Mcosel::Pll1Q));
     let mut mco = embassy_stm32::gpio::Flex::new(p.PA9);
     mco.set_as_af_unchecked(0, AfType::output(OutputType::PushPull, Speed::High));
 

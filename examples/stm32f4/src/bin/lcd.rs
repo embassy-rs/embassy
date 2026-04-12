@@ -40,26 +40,26 @@ async fn main(_spawner: Spawner) {
             freq: Hertz(8_000_000),
             mode: HseMode::Oscillator,
         });
-        config.rcc.pll_src = PllSource::HSE;
+        config.rcc.pll_src = PllSource::Hse;
         config.rcc.pll = Some(Pll {
-            prediv: PllPreDiv::DIV8,
-            mul: PllMul::MUL360,
-            divp: Some(PllPDiv::DIV2), // 8mhz / 8 * 360 / 2 = 180Mhz.
-            divq: Some(PllQDiv::DIV7),
+            prediv: PllPreDiv::Div8,
+            mul: PllMul::Mul360,
+            divp: Some(PllPDiv::Div2), // 8mhz / 8 * 360 / 2 = 180Mhz.
+            divq: Some(PllQDiv::Div7),
             divr: None,
         });
-        config.rcc.ahb_pre = AHBPrescaler::DIV1;
-        config.rcc.apb1_pre = APBPrescaler::DIV4;
-        config.rcc.apb2_pre = APBPrescaler::DIV2;
-        config.rcc.sys = Sysclk::PLL1_P;
+        config.rcc.ahb_pre = AHBPrescaler::Div1;
+        config.rcc.apb1_pre = APBPrescaler::Div4;
+        config.rcc.apb2_pre = APBPrescaler::Div2;
+        config.rcc.sys = Sysclk::Pll1P;
 
         // Configure SAI PLL for LTDC
         config.rcc.pllsai = Some(Pll {
-            prediv: PllPreDiv::DIV8,
-            mul: PllMul::MUL192,
+            prediv: PllPreDiv::Div8,
+            mul: PllMul::Mul192,
             divp: None,
             divq: None,
-            divr: Some(PllRDiv::DIV4), // 8mhz / 8 * 192 / 4 = 48MHz
+            divr: Some(PllRDiv::Div4), // 8mhz / 8 * 192 / 4 = 48MHz
         });
 
         // Set LCD dot clock divisor to 8
@@ -130,7 +130,7 @@ async fn main(_spawner: Spawner) {
     ltdc.init_layer(
         &LtdcLayerConfig {
             layer: ltdc::LtdcLayer::Layer1,
-            pixel_format: ltdc::PixelFormat::RGB565,
+            pixel_format: ltdc::PixelFormat::Rgb565,
             window_x0: 0,
             window_x1: WIDTH as u16,
             window_y0: 0,

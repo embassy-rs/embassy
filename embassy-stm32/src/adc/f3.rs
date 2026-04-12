@@ -73,8 +73,8 @@ impl AdcRegs for crate::pac::adc::Adc {
 
         // Disable the adc regulator
         if disable {
-            self.cr().modify(|w| w.set_advregen(Advregen::INTERMEDIATE));
-            self.cr().modify(|w| w.set_advregen(Advregen::DISABLED));
+            self.cr().modify(|w| w.set_advregen(Advregen::Intermediate));
+            self.cr().modify(|w| w.set_advregen(Advregen::Disabled));
         }
     }
 
@@ -98,7 +98,7 @@ impl AdcRegs for crate::pac::adc::Adc {
             w.set_discen(false);
             w.set_dmaen(!matches!(conversion_mode, ConversionMode::NoDma));
             w.set_cont(matches!(conversion_mode, ConversionMode::Repeated(None)));
-            w.set_dmacfg(Dmacfg::CIRCULAR);
+            w.set_dmacfg(Dmacfg::Circular);
 
             if let ConversionMode::Repeated(Some((trigger, edge))) = conversion_mode {
                 w.set_extsel(trigger);
@@ -150,8 +150,8 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         rcc::enable_and_reset::<T>();
 
         // Enable the adc regulator
-        T::regs().cr().modify(|w| w.set_advregen(Advregen::INTERMEDIATE));
-        T::regs().cr().modify(|w| w.set_advregen(Advregen::ENABLED));
+        T::regs().cr().modify(|w| w.set_advregen(Advregen::Intermediate));
+        T::regs().cr().modify(|w| w.set_advregen(Advregen::Enabled));
 
         // Wait for the regulator to stabilize
         blocking_delay_us(10);
@@ -184,13 +184,13 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
 
     pub fn sample_time_for_us(&self, us: u32) -> SampleTime {
         match us * Self::freq().0 / 1_000_000 {
-            0..=1 => SampleTime::CYCLES1_5,
-            2..=4 => SampleTime::CYCLES4_5,
-            5..=7 => SampleTime::CYCLES7_5,
-            8..=19 => SampleTime::CYCLES19_5,
-            20..=61 => SampleTime::CYCLES61_5,
-            62..=181 => SampleTime::CYCLES181_5,
-            _ => SampleTime::CYCLES601_5,
+            0..=1 => SampleTime::Cycles15,
+            2..=4 => SampleTime::Cycles45,
+            5..=7 => SampleTime::Cycles75,
+            8..=19 => SampleTime::Cycles195,
+            20..=61 => SampleTime::Cycles615,
+            62..=181 => SampleTime::Cycles1815,
+            _ => SampleTime::Cycles6015,
         }
     }
 

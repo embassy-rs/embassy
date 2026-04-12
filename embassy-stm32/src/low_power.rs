@@ -63,13 +63,13 @@ use crate::pac::pwr::vals::Lpms;
 impl Into<Lpms> for StopMode {
     fn into(self) -> Lpms {
         match self {
-            StopMode::Stop1 => Lpms::STOP1,
+            StopMode::Stop1 => Lpms::Stop1,
             #[cfg(not(stm32wba))]
-            StopMode::Standby | StopMode::Stop2 => Lpms::STOP2,
+            StopMode::Standby | StopMode::Stop2 => Lpms::Stop2,
             #[cfg(stm32wba)]
             // WBA STOP2 is auto-entered by hardware when LPMS=STOP0 and
             // the 2.4 GHz radio is in deep sleep. It's not a separate LPMS value.
-            StopMode::Standby | StopMode::Stop2 => Lpms::STOP0,
+            StopMode::Standby | StopMode::Stop2 => Lpms::Stop0,
         }
     }
 }
@@ -125,15 +125,15 @@ mod platform {
 
             // Set SW to HSI
             RCC.cfgr().modify(|w| {
-                w.set_sw(Sw::HSI);
+                w.set_sw(Sw::Hsi);
             });
 
             // Wait for SWS to report HSI
-            while !RCC.cfgr().read().sws().eq(&Sw::HSI) {}
+            while !RCC.cfgr().read().sws().eq(&Sw::Hsi) {}
 
             // Set SMPSSEL to HSI
             RCC.smpscr().modify(|w| {
-                w.set_smpssel(Smps::HSI);
+                w.set_smpssel(Smps::Hsi);
             });
 
             Ok(sem3_mutex)
@@ -172,15 +172,15 @@ mod platform {
         #[cfg(stm32h5)]
         crate::pac::PWR.pmcr().modify(|v| {
             use crate::pac::pwr::vals;
-            v.set_lpms(vals::Lpms::STOP);
-            v.set_svos(vals::Svos::SCALE3);
+            v.set_lpms(vals::Lpms::Stop);
+            v.set_svos(vals::Svos::Scale3);
         });
 
         #[cfg(stm32l0)]
         {
             use crate::pac::pwr::vals::Pdds;
             crate::pac::PWR.cr().modify(|w| {
-                w.set_pdds(Pdds::STOP_MODE);
+                w.set_pdds(Pdds::StopMode);
                 w.set_cwuf(true);
             });
         }

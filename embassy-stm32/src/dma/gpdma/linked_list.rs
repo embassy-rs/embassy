@@ -93,8 +93,8 @@ impl LinearItem {
 
         let mut tr2 = regs::ChTr2(0);
         tr2.set_dreq(match dir {
-            Dir::MemoryToPeripheral => Dreq::DESTINATION_PERIPHERAL,
-            Dir::PeripheralToMemory => Dreq::SOURCE_PERIPHERAL,
+            Dir::MemoryToPeripheral => Dreq::DestinationPeripheral,
+            Dir::PeripheralToMemory => Dreq::SourcePeripheral,
             Dir::MemoryToMemory => panic!("memory-to-memory transfers are not valid for LinearItem"),
         });
         tr2.set_reqsel(request);

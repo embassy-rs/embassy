@@ -1151,7 +1151,7 @@ fn afio_registers_set_remap() {
 
 fn set_afio_registers(bool_val: bool, num_val: u8) {
     AFIO.mapr().modify(|w| {
-        w.set_swj_cfg(embassy_stm32::pac::afio::vals::SwjCfg::NO_OP);
+        w.set_swj_cfg(embassy_stm32::pac::afio::vals::SwjCfg::NoOp);
         w.set_can1_remap(num_val);
         w.set_can2_remap(bool_val);
         w.set_eth_remap(bool_val);
