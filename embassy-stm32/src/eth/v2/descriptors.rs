@@ -74,9 +74,9 @@ impl<'a> TDesRing<'a> {
         // Initialize the pointers in the DMA engine. (There will be a memory barrier later
         // before the DMA engine is enabled.)
         let dma = ETH.ethernet_dma();
-        dma.dmactx_dlar().write(|w| w.0 = descriptors.as_mut_ptr() as u32);
-        dma.dmactx_rlr().write(|w| w.set_tdrl((descriptors.len() as u16) - 1));
-        dma.dmactx_dtpr().write(|w| w.0 = 0);
+        dma.dmac_tx_dlar().write(|w| w.0 = descriptors.as_mut_ptr() as u32);
+        dma.dmac_tx_rlr().write(|w| w.set_tdrl((descriptors.len() as u16) - 1));
+        dma.dmac_tx_dtpr().write(|w| w.0 = 0);
 
         Self {
             descriptors,
@@ -121,7 +121,9 @@ impl<'a> TDesRing<'a> {
 
         // signal DMA it can try again.
         // See issue #2129
-        ETH.ethernet_dma().dmactx_dtpr().write(|w| w.0 = &td as *const _ as u32);
+        ETH.ethernet_dma()
+            .dmac_tx_dtpr()
+            .write(|w| w.0 = &td as *const _ as u32);
 
         self.index = (self.index + 1) % self.descriptors.len();
     }
@@ -193,9 +195,9 @@ impl<'a> RDesRing<'a> {
         }
 
         let dma = ETH.ethernet_dma();
-        dma.dmacrx_dlar().write(|w| w.0 = descriptors.as_mut_ptr() as u32);
-        dma.dmacrx_rlr().write(|w| w.set_rdrl((descriptors.len() as u16) - 1));
-        dma.dmacrx_dtpr().write(|w| w.0 = 0);
+        dma.dmac_rx_dlar().write(|w| w.0 = descriptors.as_mut_ptr() as u32);
+        dma.dmac_rx_rlr().write(|w| w.set_rdrl((descriptors.len() as u16) - 1));
+        dma.dmac_rx_dtpr().write(|w| w.0 = 0);
 
         Self {
             descriptors,
@@ -245,7 +247,9 @@ impl<'a> RDesRing<'a> {
 
         // signal DMA it can try again.
         // See issue #2129
-        ETH.ethernet_dma().dmacrx_dtpr().write(|w| w.0 = &rd as *const _ as u32);
+        ETH.ethernet_dma()
+            .dmac_rx_dtpr()
+            .write(|w| w.0 = &rd as *const _ as u32);
 
         // Increment index.
         self.index = (self.index + 1) % self.descriptors.len();

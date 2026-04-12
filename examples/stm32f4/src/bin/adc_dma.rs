@@ -33,8 +33,8 @@ async fn adc_task(mut p: Peripherals) {
         adc_data,
         Irqs,
         [
-            (p.PA0.degrade_adc(), SampleTime::CYCLES112),
-            (p.PA2.degrade_adc(), SampleTime::CYCLES112),
+            (p.PA0.degrade_adc(), SampleTime::Cycles112),
+            (p.PA2.degrade_adc(), SampleTime::Cycles112),
         ]
         .into_iter(),
         None,
@@ -44,8 +44,8 @@ async fn adc_task(mut p: Peripherals) {
         adc_data2,
         Irqs,
         [
-            (p.PA1.degrade_adc(), SampleTime::CYCLES112),
-            (p.PA3.degrade_adc(), SampleTime::CYCLES112),
+            (p.PA1.degrade_adc(), SampleTime::Cycles112),
+            (p.PA3.degrade_adc(), SampleTime::Cycles112),
         ]
         .into_iter(),
         None,

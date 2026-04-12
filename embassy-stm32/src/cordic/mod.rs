@@ -136,9 +136,9 @@ impl<'d, T: Instance> SetConfig for Cordic<'d, T> {
             v.set_func(vals::Func::from_bits(Function::Cos as u8));
             v.set_precision(vals::Precision::from_bits(Precision::Iters4 as u8));
             v.set_scale(vals::Scale::from_bits(Scale::Arg1Res1 as u8));
-            v.set_nargs(vals::Num::NUM2);
-            v.set_argsize(vals::Size::BITS32);
-            v.set_ressize(vals::Size::BITS32);
+            v.set_nargs(vals::Num::Num2);
+            v.set_argsize(vals::Size::Bits32);
+            v.set_ressize(vals::Size::Bits32);
         });
         self.peri.write_argument(0x0u32);
         self.peri.write_argument(0x7FFFFFFFu32);
@@ -149,10 +149,10 @@ impl<'d, T: Instance> SetConfig for Cordic<'d, T> {
             v.set_func(vals::Func::from_bits(config.function as u8));
             v.set_precision(vals::Precision::from_bits(config.precision as u8));
             v.set_scale(vals::Scale::from_bits(config.scale as u8));
-            v.set_nargs(vals::Num::NUM1);
-            v.set_nres(vals::Num::NUM2);
-            v.set_argsize(vals::Size::BITS32);
-            v.set_ressize(vals::Size::BITS32);
+            v.set_nargs(vals::Num::Num1);
+            v.set_nres(vals::Num::Num2);
+            v.set_argsize(vals::Size::Bits32);
+            v.set_ressize(vals::Size::Bits32);
         });
 
         // Changing NRES or other CSR fields above can re-assert RRDY if secondary
@@ -188,15 +188,15 @@ impl<'d, T: Instance> Cordic<'d, T> {
         // Restore CSR to 32-bit state matching current `Config`
         T::regs().csr().modify(|v| {
             v.set_nargs(match arg_count {
-                AccessCount::One => vals::Num::NUM1,
-                AccessCount::Two => vals::Num::NUM2,
+                AccessCount::One => vals::Num::Num1,
+                AccessCount::Two => vals::Num::Num2,
             });
             v.set_nres(match res_count {
-                AccessCount::One => vals::Num::NUM1,
-                AccessCount::Two => vals::Num::NUM2,
+                AccessCount::One => vals::Num::Num1,
+                AccessCount::Two => vals::Num::Num2,
             });
-            v.set_argsize(vals::Size::BITS32);
-            v.set_ressize(vals::Size::BITS32);
+            v.set_argsize(vals::Size::Bits32);
+            v.set_ressize(vals::Size::Bits32);
         });
 
         Cordic32 {
@@ -210,10 +210,10 @@ impl<'d, T: Instance> Cordic<'d, T> {
     pub fn q1_16<'a>(&'a mut self) -> Cordic16<'d, 'a, T> {
         // In q1.15 mode, 1 write/read to access 2 arguments/results
         T::regs().csr().modify(|v| {
-            v.set_nargs(vals::Num::NUM1);
-            v.set_nres(vals::Num::NUM1);
-            v.set_argsize(vals::Size::BITS16);
-            v.set_ressize(vals::Size::BITS16);
+            v.set_nargs(vals::Num::Num1);
+            v.set_nres(vals::Num::Num1);
+            v.set_argsize(vals::Size::Bits16);
+            v.set_ressize(vals::Size::Bits16);
         });
 
         Cordic16 { inner: self }
@@ -249,12 +249,12 @@ impl<'d, 'a, T: Instance> Cordic32<'d, 'a, T> {
     pub fn set_access_counts(&mut self, arg_count: AccessCount, res_count: AccessCount) {
         T::regs().csr().modify(|v| {
             v.set_nargs(match arg_count {
-                AccessCount::One => vals::Num::NUM1,
-                AccessCount::Two => vals::Num::NUM2,
+                AccessCount::One => vals::Num::Num1,
+                AccessCount::Two => vals::Num::Num2,
             });
             v.set_nres(match res_count {
-                AccessCount::One => vals::Num::NUM1,
-                AccessCount::Two => vals::Num::NUM2,
+                AccessCount::One => vals::Num::Num1,
+                AccessCount::Two => vals::Num::Num2,
             });
         });
 

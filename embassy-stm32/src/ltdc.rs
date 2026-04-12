@@ -64,13 +64,13 @@ impl Interface for DSI {
 #[repr(u8)]
 pub enum LcdClockDiv {
     /// PLLSAI R / 2
-    Div2 = stm32_metapac::rcc::vals::Pllsaidivr::DIV2 as u8,
+    Div2 = stm32_metapac::rcc::vals::Pllsaidivr::Div2 as u8,
     /// PLLSAI R / 4
-    Div4 = stm32_metapac::rcc::vals::Pllsaidivr::DIV4 as u8,
+    Div4 = stm32_metapac::rcc::vals::Pllsaidivr::Div4 as u8,
     /// PLLSAI R / 8
-    Div8 = stm32_metapac::rcc::vals::Pllsaidivr::DIV8 as u8,
+    Div8 = stm32_metapac::rcc::vals::Pllsaidivr::Div8 as u8,
     /// PLLSAI R / 16
-    Div16 = stm32_metapac::rcc::vals::Pllsaidivr::DIV16 as u8,
+    Div16 = stm32_metapac::rcc::vals::Pllsaidivr::Div16 as u8,
 }
 
 /// LTDC error
@@ -185,21 +185,21 @@ pub struct LtdcLayerConfig {
 #[cfg(not(ltdc_v1_3))]
 pub enum PixelFormat {
     /// ARGB8888
-    ARGB8888 = Pf::ARGB8888 as u8,
+    Argb8888 = Pf::Argb8888 as u8,
     /// RGB888
-    RGB888 = Pf::RGB888 as u8,
+    Rgb888 = Pf::Rgb888 as u8,
     /// RGB565
-    RGB565 = Pf::RGB565 as u8,
+    Rgb565 = Pf::Rgb565 as u8,
     /// ARGB1555
-    ARGB1555 = Pf::ARGB1555 as u8,
+    Argb1555 = Pf::Argb1555 as u8,
     /// ARGB4444
-    ARGB4444 = Pf::ARGB4444 as u8,
+    Argb4444 = Pf::Argb4444 as u8,
     /// L8 (8-bit luminance)
     L8 = Pf::L8 as u8,
     /// AL44 (4-bit alpha, 4-bit luminance
-    AL44 = Pf::AL44 as u8,
+    Al44 = Pf::Al44 as u8,
     /// AL88 (8-bit alpha, 8-bit luminance)
-    AL88 = Pf::AL88 as u8,
+    Al88 = Pf::Al88 as u8,
 }
 /// Pixel format
 #[repr(u8)]
@@ -208,21 +208,21 @@ pub enum PixelFormat {
 #[cfg(ltdc_v1_3)]
 pub enum PixelFormat {
     /// ARGB8888
-    ARGB8888 = Pf::ARGB8888 as u8,
+    ARGB8888 = Pf::Argb8888 as u8,
     /// ABGR8888
-    ABGR8888 = Pf::ABGR8888 as u8,
+    ABGR8888 = Pf::Abgr8888 as u8,
     /// RGBA8888
-    RGBA8888 = Pf::RGBA8888 as u8,
+    RGBA8888 = Pf::Rgba8888 as u8,
     /// BGRA8888
-    BGRA8888 = Pf::BGRA8888 as u8,
+    BGRA8888 = Pf::Bgra8888 as u8,
     /// RGB565
-    RGB565 = Pf::RGB565 as u8,
+    RGB565 = Pf::Rgb565 as u8,
     /// BGR565
-    BGR565 = Pf::BGR565 as u8,
+    BGR565 = Pf::Bgr565 as u8,
     /// RGB888
-    RGB888 = Pf::RGB888 as u8,
+    RGB888 = Pf::Rgb888 as u8,
     /// Flexible
-    FLEXIBLE = Pf::FLEXIBLE as u8,
+    FLEXIBLE = Pf::Flexible as u8,
 }
 
 impl PixelFormat {
@@ -230,10 +230,10 @@ impl PixelFormat {
     pub fn bytes_per_pixel(&self) -> usize {
         #[cfg(not(ltdc_v1_3))]
         match self {
-            PixelFormat::ARGB8888 => 4,
-            PixelFormat::RGB888 => 3,
-            PixelFormat::RGB565 | PixelFormat::ARGB4444 | PixelFormat::ARGB1555 | PixelFormat::AL88 => 2,
-            PixelFormat::AL44 | PixelFormat::L8 => 1,
+            PixelFormat::Argb8888 => 4,
+            PixelFormat::Rgb888 => 3,
+            PixelFormat::Rgb565 | PixelFormat::Argb4444 | PixelFormat::Argb1555 | PixelFormat::Al88 => 2,
+            PixelFormat::Al44 | PixelFormat::L8 => 1,
         }
         #[cfg(ltdc_v1_3)]
         match self {
@@ -483,23 +483,23 @@ impl<'d, T: Instance, I: Interface> Ltdc<'d, T, I> {
         // configure the HS, VS, DE and PC polarity
         ltdc.gcr().modify(|w| {
             w.set_hspol(match config.h_sync_polarity {
-                PolarityActive::ActiveHigh => Hspol::ACTIVE_HIGH,
-                PolarityActive::ActiveLow => Hspol::ACTIVE_LOW,
+                PolarityActive::ActiveHigh => Hspol::ActiveHigh,
+                PolarityActive::ActiveLow => Hspol::ActiveLow,
             });
 
             w.set_vspol(match config.v_sync_polarity {
-                PolarityActive::ActiveHigh => Vspol::ACTIVE_HIGH,
-                PolarityActive::ActiveLow => Vspol::ACTIVE_LOW,
+                PolarityActive::ActiveHigh => Vspol::ActiveHigh,
+                PolarityActive::ActiveLow => Vspol::ActiveLow,
             });
 
             w.set_depol(match config.data_enable_polarity {
-                PolarityActive::ActiveHigh => Depol::ACTIVE_HIGH,
-                PolarityActive::ActiveLow => Depol::ACTIVE_LOW,
+                PolarityActive::ActiveHigh => Depol::ActiveHigh,
+                PolarityActive::ActiveLow => Depol::ActiveLow,
             });
 
             w.set_pcpol(match config.pixel_clock_polarity {
-                PolarityEdge::RisingEdge => Pcpol::RISING_EDGE,
-                PolarityEdge::FallingEdge => Pcpol::FALLING_EDGE,
+                PolarityEdge::RisingEdge => Pcpol::RisingEdge,
+                PolarityEdge::FallingEdge => Pcpol::FallingEdge,
             });
         });
 
@@ -605,8 +605,8 @@ impl<'d, T: Instance, I: Interface> Ltdc<'d, T, I> {
 
         // set the blending factors.
         layer.bfcr().modify(|w| {
-            w.set_bf1(Bf1::PIXEL);
-            w.set_bf2(Bf2::PIXEL);
+            w.set_bf1(Bf1::Pixel);
+            w.set_bf2(Bf2::Pixel);
         });
 
         // calculate framebuffer pixel size in bytes
@@ -645,12 +645,12 @@ impl<'d, T: Instance, I: Interface> Ltdc<'d, T, I> {
     #[inline(always)]
     fn check_error_interrupt(&self, isr: Isr) -> Result<(), Error> {
         if isr.fuif() {
-            T::regs().icr().write(|w| w.set_cfuif(Cfuif::CLEAR));
+            T::regs().icr().write(|w| w.set_cfuif(Cfuif::Clear));
             return Err(Error::FifoUnderrun);
         }
 
         if isr.terrif() {
-            T::regs().icr().write(|w| w.set_cterrif(Cterrif::CLEAR));
+            T::regs().icr().write(|w| w.set_cterrif(Cterrif::Clear));
             return Err(Error::TransferError);
         }
 
@@ -667,7 +667,7 @@ impl<'d, T: Instance, I: Interface> Ltdc<'d, T, I> {
             }
 
             if isr.rrif() {
-                T::regs().icr().write(|w| w.set_crrif(Crrif::CLEAR));
+                T::regs().icr().write(|w| w.set_crrif(Crrif::Clear));
                 return Poll::Ready(Ok(()));
             }
 
@@ -676,7 +676,7 @@ impl<'d, T: Instance, I: Interface> Ltdc<'d, T, I> {
 
             // configure a shadow reload for the next blanking period
             T::regs().srcr().write(|w| {
-                w.set_vbr(Vbr::RELOAD);
+                w.set_vbr(Vbr::Reload);
             });
 
             Poll::Pending
@@ -709,7 +709,7 @@ impl<'d, T: Instance, I: Interface> Ltdc<'d, T, I> {
 
                 // configure a shadow reload for the next blanking period
                 T::regs().srcr().write(|w| {
-                    w.set_vbr(Vbr::RELOAD);
+                    w.set_vbr(Vbr::Reload);
                 });
 
                 // need to check condition after register to avoid a race
@@ -753,13 +753,13 @@ impl<'d, T: Instance, I: Interface> Ltdc<'d, T, I> {
 
         poll_fn(|cx| {
             if T::regs().isr().read().lif() {
-                T::regs().icr().write(|w| w.set_clif(Clif::CLEAR));
+                T::regs().icr().write(|w| w.set_clif(Clif::Clear));
                 return Poll::Ready(());
             }
 
             LTDC_WAKER.register(cx.waker());
 
-            T::regs().icr().write(|w| w.set_clif(Clif::CLEAR));
+            T::regs().icr().write(|w| w.set_clif(Clif::Clear));
             T::regs().ier().modify(|w| w.set_lie(true));
 
             T::Interrupt::unpend();
@@ -776,9 +776,9 @@ impl<'d, T: Instance, I: Interface> Ltdc<'d, T, I> {
 
     fn clear_interrupt_flags() {
         T::regs().icr().write(|w| {
-            w.set_cfuif(Cfuif::CLEAR);
-            w.set_crrif(Crrif::CLEAR);
-            w.set_cterrif(Cterrif::CLEAR);
+            w.set_cfuif(Cfuif::Clear);
+            w.set_crrif(Crrif::Clear);
+            w.set_cterrif(Cterrif::Clear);
         });
     }
 

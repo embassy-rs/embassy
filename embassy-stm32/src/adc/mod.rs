@@ -876,18 +876,18 @@ macro_rules! impl_adc_pair {
 pub const fn resolution_to_max_count(res: Resolution) -> u32 {
     match res {
         #[cfg(adc_v4)]
-        Resolution::BITS16 => (1 << 16) - 1,
+        Resolution::Bits16 => (1 << 16) - 1,
         #[cfg(any(adc_v4, adc_u5))]
-        Resolution::BITS14 => (1 << 14) - 1,
+        Resolution::Bits14 => (1 << 14) - 1,
         #[cfg(adc_v4)]
-        Resolution::BITS14V => (1 << 14) - 1,
+        Resolution::Bits14v => (1 << 14) - 1,
         #[cfg(adc_v4)]
-        Resolution::BITS12V => (1 << 12) - 1,
-        Resolution::BITS12 => (1 << 12) - 1,
-        Resolution::BITS10 => (1 << 10) - 1,
-        Resolution::BITS8 => (1 << 8) - 1,
+        Resolution::Bits12v => (1 << 12) - 1,
+        Resolution::Bits12 => (1 << 12) - 1,
+        Resolution::Bits10 => (1 << 10) - 1,
+        Resolution::Bits8 => (1 << 8) - 1,
         #[cfg(any(adc_v1, adc_v2, adc_v3, adc_l0, adc_c0, adc_g0, adc_f3v1, adc_f3v2, adc_h5))]
-        Resolution::BITS6 => (1 << 6) - 1,
+        Resolution::Bits6 => (1 << 6) - 1,
         #[allow(unreachable_patterns)]
         _ => core::unreachable!(),
     }

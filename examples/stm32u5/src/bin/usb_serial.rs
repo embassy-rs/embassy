@@ -25,17 +25,17 @@ async fn main(_spawner: Spawner) {
         use embassy_stm32::rcc::*;
         config.rcc.hsi = true;
         config.rcc.pll1 = Some(Pll {
-            source: PllSource::HSI, // 16 MHz
-            prediv: PllPreDiv::DIV1,
-            mul: PllMul::MUL10,
+            source: PllSource::Hsi, // 16 MHz
+            prediv: PllPreDiv::Div1,
+            mul: PllMul::Mul10,
             divp: None,
             divq: None,
-            divr: Some(PllDiv::DIV1), // 160 MHz
+            divr: Some(PllDiv::Div1), // 160 MHz
         });
-        config.rcc.sys = Sysclk::PLL1_R;
-        config.rcc.voltage_range = VoltageScale::RANGE1;
+        config.rcc.sys = Sysclk::Pll1R;
+        config.rcc.voltage_range = VoltageScale::Range1;
         config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true }); // needed for USB
-        config.rcc.mux.iclksel = mux::Iclksel::HSI48; // USB uses ICLK
+        config.rcc.mux.iclksel = mux::Iclksel::Hsi48; // USB uses ICLK
     }
 
     let p = embassy_stm32::init(config);

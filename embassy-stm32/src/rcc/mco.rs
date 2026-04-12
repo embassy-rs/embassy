@@ -52,7 +52,7 @@ use crate::{Peri, peripherals};
 #[cfg(any(stm32f1, rcc_f0v1, rcc_f3v1, rcc_f37))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub enum McoPrescaler {
-    DIV1,
+    Div1,
 }
 
 pub(crate) trait SealedMcoInstance {}
@@ -132,7 +132,7 @@ pub struct McoConfig {
 impl Default for McoConfig {
     fn default() -> Self {
         Self {
-            prescaler: McoPrescaler::DIV1,
+            prescaler: McoPrescaler::Div1,
             speed: Speed::VeryHigh,
         }
     }

@@ -233,7 +233,7 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
 
         // Enable memory mapped mode
         reg.cr().modify(|r| {
-            r.set_fmode(crate::ospi::vals::FunctionalMode::MEMORY_MAPPED);
+            r.set_fmode(crate::ospi::vals::FunctionalMode::MemoryMapped);
             r.set_tcen(false);
         });
         Ok(())
@@ -244,7 +244,7 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
         let reg = T::REGS;
 
         reg.cr().modify(|r| {
-            r.set_fmode(crate::ospi::vals::FunctionalMode::INDIRECT_WRITE);
+            r.set_fmode(crate::ospi::vals::FunctionalMode::IndirectWrite);
             r.set_abort(true);
             r.set_dmaen(false);
             r.set_en(false);
@@ -401,8 +401,8 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
 
         T::REGS.tcr().modify(|w| {
             w.set_sshift(match config.sample_shifting {
-                true => vals::SampleShift::HALF_CYCLE,
-                false => vals::SampleShift::NONE,
+                true => vals::SampleShift::HalfCycle,
+                false => vals::SampleShift::None,
             });
             w.set_dhqc(config.delay_hold_quarter_cycle);
         });
@@ -451,7 +451,7 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
         }
 
         T::REGS.cr().modify(|w| {
-            w.set_fmode(vals::FunctionalMode::INDIRECT_WRITE);
+            w.set_fmode(vals::FunctionalMode::IndirectWrite);
         });
 
         // Configure alternate bytes
@@ -584,10 +584,8 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
         let current_instruction = T::REGS.ir().read().instruction();
 
         // For a indirect read transaction, the transaction begins when the instruction/address is set
-        T::REGS
-            .cr()
-            .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECT_READ));
-        if T::REGS.ccr().read().admode() == vals::PhaseMode::NONE {
+        T::REGS.cr().modify(|v| v.set_fmode(vals::FunctionalMode::IndirectRead));
+        if T::REGS.ccr().read().admode() == vals::PhaseMode::None {
             T::REGS.ir().write(|v| v.set_instruction(current_instruction));
         } else {
             T::REGS.ar().write(|v| v.set_address(current_address));
@@ -622,7 +620,7 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
 
         T::REGS
             .cr()
-            .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECT_WRITE));
+            .modify(|v| v.set_fmode(vals::FunctionalMode::IndirectWrite));
 
         for idx in 0..buf.len() {
             while !T::REGS.sr().read().ftf() {}
@@ -684,8 +682,8 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
 
         T::REGS.tcr().modify(|w| {
             w.set_sshift(match config.sample_shifting {
-                true => vals::SampleShift::HALF_CYCLE,
-                false => vals::SampleShift::NONE,
+                true => vals::SampleShift::HalfCycle,
+                false => vals::SampleShift::None,
             });
             w.set_dhqc(config.delay_hold_quarter_cycle);
         });
@@ -1168,10 +1166,8 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         let current_instruction = T::REGS.ir().read().instruction();
 
         // For a indirect read transaction, the transaction begins when the instruction/address is set
-        T::REGS
-            .cr()
-            .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECT_READ));
-        if T::REGS.ccr().read().admode() == vals::PhaseMode::NONE {
+        T::REGS.cr().modify(|v| v.set_fmode(vals::FunctionalMode::IndirectRead));
+        if T::REGS.ccr().read().admode() == vals::PhaseMode::None {
             T::REGS.ir().write(|v| v.set_instruction(current_instruction));
         } else {
             T::REGS.ar().write(|v| v.set_address(current_address));
@@ -1208,7 +1204,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         self.configure_command(&transaction, Some(transfer_size_bytes))?;
         T::REGS
             .cr()
-            .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECT_WRITE));
+            .modify(|v| v.set_fmode(vals::FunctionalMode::IndirectWrite));
 
         // TODO: implement this using a LinkedList DMA to offload the whole transfer off the CPU.
         for chunk in buf.chunks(0xFFFF / W::size().bytes()) {
@@ -1245,10 +1241,8 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         let current_instruction = T::REGS.ir().read().instruction();
 
         // For a indirect read transaction, the transaction begins when the instruction/address is set
-        T::REGS
-            .cr()
-            .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECT_READ));
-        if T::REGS.ccr().read().admode() == vals::PhaseMode::NONE {
+        T::REGS.cr().modify(|v| v.set_fmode(vals::FunctionalMode::IndirectRead));
+        if T::REGS.ccr().read().admode() == vals::PhaseMode::None {
             T::REGS.ir().write(|v| v.set_instruction(current_instruction));
         } else {
             T::REGS.ar().write(|v| v.set_address(current_address));
@@ -1285,7 +1279,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         self.configure_command(&transaction, Some(transfer_size_bytes))?;
         T::REGS
             .cr()
-            .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECT_WRITE));
+            .modify(|v| v.set_fmode(vals::FunctionalMode::IndirectWrite));
 
         // TODO: implement this using a LinkedList DMA to offload the whole transfer off the CPU.
         for chunk in buf.chunks(0xFFFF / W::size().bytes()) {

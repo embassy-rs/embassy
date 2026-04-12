@@ -20,8 +20,8 @@ static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
 async fn async_main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
     config.rcc.ls = embassy_stm32::rcc::LsConfig::default_lsi();
-    config.rcc.msi = Some(embassy_stm32::rcc::MSIRange::RANGE4M);
-    config.rcc.sys = embassy_stm32::rcc::Sysclk::MSI;
+    config.rcc.msi = Some(embassy_stm32::rcc::MSIRange::Range4m);
+    config.rcc.sys = embassy_stm32::rcc::Sysclk::Msi;
     #[cfg(feature = "defmt-serial")]
     {
         // disable debug during sleep to reduce power consumption since we are

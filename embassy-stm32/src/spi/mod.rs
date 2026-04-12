@@ -119,30 +119,30 @@ impl Default for Config {
 impl Config {
     fn raw_phase(&self) -> vals::Cpha {
         match self.mode.phase {
-            Phase::CaptureOnSecondTransition => vals::Cpha::SECOND_EDGE,
-            Phase::CaptureOnFirstTransition => vals::Cpha::FIRST_EDGE,
+            Phase::CaptureOnSecondTransition => vals::Cpha::SecondEdge,
+            Phase::CaptureOnFirstTransition => vals::Cpha::FirstEdge,
         }
     }
 
     fn raw_polarity(&self) -> vals::Cpol {
         match self.mode.polarity {
-            Polarity::IdleHigh => vals::Cpol::IDLE_HIGH,
-            Polarity::IdleLow => vals::Cpol::IDLE_LOW,
+            Polarity::IdleHigh => vals::Cpol::IdleHigh,
+            Polarity::IdleLow => vals::Cpol::IdleLow,
         }
     }
 
     fn raw_byte_order(&self) -> vals::Lsbfirst {
         match self.bit_order {
-            BitOrder::LsbFirst => vals::Lsbfirst::LSBFIRST,
-            BitOrder::MsbFirst => vals::Lsbfirst::MSBFIRST,
+            BitOrder::LsbFirst => vals::Lsbfirst::LsbFirst,
+            BitOrder::MsbFirst => vals::Lsbfirst::MsbFirst,
         }
     }
 
     #[cfg(any(spi_v4, spi_v5, spi_v6))]
     fn raw_nss_polarity(&self) -> vals::Ssiop {
         match self.nss_polarity {
-            SlaveSelectPolarity::ActiveHigh => vals::Ssiop::ACTIVE_HIGH,
-            SlaveSelectPolarity::ActiveLow => vals::Ssiop::ACTIVE_LOW,
+            SlaveSelectPolarity::ActiveHigh => vals::Ssiop::ActiveHigh,
+            SlaveSelectPolarity::ActiveLow => vals::Ssiop::ActiveLow,
         }
     }
 
@@ -189,17 +189,17 @@ pub mod mode {
     impl SealedMode for Master {}
     impl CommunicationMode for Master {
         #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
-        const MASTER: vals::Mstr = vals::Mstr::MASTER;
+        const MASTER: vals::Mstr = vals::Mstr::Master;
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
-        const MASTER: vals::Master = vals::Master::MASTER;
+        const MASTER: vals::Master = vals::Master::Master;
     }
 
     impl SealedMode for Slave {}
     impl CommunicationMode for Slave {
         #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
-        const MASTER: vals::Mstr = vals::Mstr::SLAVE;
+        const MASTER: vals::Mstr = vals::Mstr::Slave;
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
-        const MASTER: vals::Master = vals::Master::SLAVE;
+        const MASTER: vals::Master = vals::Master::Slave;
     }
 }
 use mode::{CommunicationMode, Master, Slave};
@@ -279,7 +279,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         let regs = self.info.regs;
         #[cfg(any(spi_v1, spi_v2))]
         {
-            let ssoe = CM::MASTER == vals::Mstr::MASTER && !config.nss_output_disable;
+            let ssoe = CM::MASTER == vals::Mstr::Master && !config.nss_output_disable;
             regs.cr2().modify(|w| {
                 w.set_ssoe(ssoe);
             });
@@ -291,20 +291,20 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
                 w.set_br(br);
                 w.set_spe(true);
                 w.set_lsbfirst(lsbfirst);
-                w.set_ssi(CM::MASTER == vals::Mstr::MASTER);
+                w.set_ssi(CM::MASTER == vals::Mstr::Master);
                 w.set_ssm(ssm);
                 w.set_crcen(false);
-                w.set_bidimode(vals::Bidimode::UNIDIRECTIONAL);
+                w.set_bidimode(vals::Bidimode::Unidirectional);
                 // we're doing "fake rxonly", by actually writing one
                 // byte to TXDR for each byte we want to receive. if we
                 // set OUTPUTDISABLED here, this hangs.
-                w.set_rxonly(vals::Rxonly::FULL_DUPLEX);
+                w.set_rxonly(vals::Rxonly::FullDuplex);
                 w.set_dff(<u8 as SealedWord>::CONFIG)
             });
         }
         #[cfg(spi_v3)]
         {
-            let ssoe = CM::MASTER == vals::Mstr::MASTER && !config.nss_output_disable;
+            let ssoe = CM::MASTER == vals::Mstr::Master && !config.nss_output_disable;
             regs.cr2().modify(|w| {
                 let (ds, frxth) = <u8 as SealedWord>::CONFIG;
                 w.set_frxth(frxth);
@@ -318,16 +318,16 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
                 w.set_mstr(CM::MASTER);
                 w.set_br(br);
                 w.set_lsbfirst(lsbfirst);
-                w.set_ssi(CM::MASTER == vals::Mstr::MASTER);
+                w.set_ssi(CM::MASTER == vals::Mstr::Master);
                 w.set_ssm(ssm);
                 w.set_crcen(false);
-                w.set_bidimode(vals::Bidimode::UNIDIRECTIONAL);
+                w.set_bidimode(vals::Bidimode::Unidirectional);
                 w.set_spe(true);
             });
         }
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         {
-            let ssoe = CM::MASTER == vals::Master::MASTER && !config.nss_output_disable;
+            let ssoe = CM::MASTER == vals::Master::Master && !config.nss_output_disable;
             let ssiop = config.raw_nss_polarity();
             regs.ifcr().write(|w| w.0 = 0xffff_ffff);
             regs.cfg2().modify(|w| {
@@ -337,8 +337,8 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
                 w.set_lsbfirst(lsbfirst);
                 w.set_ssm(ssm);
                 w.set_master(CM::MASTER);
-                w.set_comm(vals::Comm::FULL_DUPLEX);
-                w.set_ssom(vals::Ssom::ASSERTED);
+                w.set_comm(vals::Comm::FullDuplex);
+                w.set_ssom(vals::Ssom::Asserted);
                 w.set_midi(0);
                 w.set_mssi(0);
                 w.set_afcntr(true);
@@ -348,7 +348,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
                 w.set_crcen(false);
                 w.set_mbr(br);
                 w.set_dsize(<u8 as SealedWord>::CONFIG);
-                w.set_fthlv(vals::Fthlv::ONE_FRAME);
+                w.set_fthlv(vals::Fthlv::OneFrame);
             });
             regs.cr2().modify(|w| {
                 w.set_tsize(0);
@@ -433,9 +433,9 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
     #[cfg(any(spi_v1, spi_v2, spi_v3))]
     pub fn set_direction(&mut self, dir: Option<Direction>) {
         let (bidimode, bidioe) = match dir {
-            Some(Direction::Transmit) => (vals::Bidimode::BIDIRECTIONAL, vals::Bidioe::TRANSMIT),
-            Some(Direction::Receive) => (vals::Bidimode::BIDIRECTIONAL, vals::Bidioe::RECEIVE),
-            None => (vals::Bidimode::UNIDIRECTIONAL, vals::Bidioe::TRANSMIT),
+            Some(Direction::Transmit) => (vals::Bidimode::Bidirectional, vals::Bidioe::Transmit),
+            Some(Direction::Receive) => (vals::Bidimode::Bidirectional, vals::Bidioe::Receive),
+            None => (vals::Bidimode::Unidirectional, vals::Bidioe::Transmit),
         };
 
         let was_enabled = self.info.regs.cr1().read().spe();
@@ -478,18 +478,18 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         let ssoe = cfg.ssoe();
 
-        let polarity = if cfg.cpol() == vals::Cpol::IDLE_LOW {
+        let polarity = if cfg.cpol() == vals::Cpol::IdleLow {
             Polarity::IdleLow
         } else {
             Polarity::IdleHigh
         };
-        let phase = if cfg.cpha() == vals::Cpha::FIRST_EDGE {
+        let phase = if cfg.cpha() == vals::Cpha::FirstEdge {
             Phase::CaptureOnFirstTransition
         } else {
             Phase::CaptureOnSecondTransition
         };
 
-        let bit_order = if cfg.lsbfirst() == vals::Lsbfirst::LSBFIRST {
+        let bit_order = if cfg.lsbfirst() == vals::Lsbfirst::LsbFirst {
             BitOrder::LsbFirst
         } else {
             BitOrder::MsbFirst
@@ -511,7 +511,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         let nss_output_disable = !ssoe || cfg.ssm();
 
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
-        let nss_polarity = if cfg.ssiop() == vals::Ssiop::ACTIVE_LOW {
+        let nss_polarity = if cfg.ssiop() == vals::Ssiop::ActiveLow {
             SlaveSelectPolarity::ActiveLow
         } else {
             SlaveSelectPolarity::ActiveHigh
@@ -1000,24 +1000,29 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
 
         self.set_word_size(W::CONFIG);
 
-        let comm = regs.cfg2().modify(|w| {
+        let comm = {
+            let mut w = regs.cfg2().read();
             let prev = w.comm();
-            w.set_comm(vals::Comm::RECEIVER);
+            w.set_comm(vals::Comm::Receiver);
+            regs.cfg2().write_value(w);
             prev
-        });
+        };
 
         #[cfg(spi_v4)]
-        let i2scfg = regs.i2scfgr().modify(|w| {
-            w.i2smod().then(|| {
+        let i2scfg = {
+            let mut w = regs.i2scfgr().read();
+            let r = w.i2smod().then(|| {
                 let prev = w.i2scfg();
                 w.set_i2scfg(match prev {
-                    vals::I2scfg::SLAVE_RX | vals::I2scfg::SLAVE_FULL_DUPLEX => vals::I2scfg::SLAVE_RX,
-                    vals::I2scfg::MASTER_RX | vals::I2scfg::MASTER_FULL_DUPLEX => vals::I2scfg::MASTER_RX,
+                    vals::I2scfg::SlaveRx | vals::I2scfg::SlaveFullDuplex => vals::I2scfg::SlaveRx,
+                    vals::I2scfg::MasterRx | vals::I2scfg::MasterFullDuplex => vals::I2scfg::MasterRx,
                     _ => panic!("unsupported configuration"),
                 });
                 prev
-            })
-        });
+            });
+            regs.i2scfgr().write_value(w);
+            r
+        };
 
         let rx_src = regs.rx_ptr();
 
@@ -1219,14 +1224,14 @@ fn compute_baud_rate(kernel_clock: Hertz, freq: Hertz) -> Br {
 
 fn compute_frequency(kernel_clock: Hertz, br: Br) -> Hertz {
     let div: u16 = match br {
-        Br::DIV2 => 2,
-        Br::DIV4 => 4,
-        Br::DIV8 => 8,
-        Br::DIV16 => 16,
-        Br::DIV32 => 32,
-        Br::DIV64 => 64,
-        Br::DIV128 => 128,
-        Br::DIV256 => 256,
+        Br::Div2 => 2,
+        Br::Div4 => 4,
+        Br::Div8 => 8,
+        Br::Div16 => 16,
+        Br::Div32 => 32,
+        Br::Div64 => 64,
+        Br::Div128 => 128,
+        Br::Div256 => 256,
     };
 
     kernel_clock / div
@@ -1529,8 +1534,8 @@ mod word_impl {
 
     pub type Config = vals::Dff;
 
-    impl_word!(u8, vals::Dff::BITS8);
-    impl_word!(u16, vals::Dff::BITS16);
+    impl_word!(u8, vals::Dff::Bits8);
+    impl_word!(u16, vals::Dff::Bits16);
 }
 
 #[cfg(spi_v3)]
@@ -1539,19 +1544,19 @@ mod word_impl {
 
     pub type Config = (vals::Ds, vals::Frxth);
 
-    impl_word!(word::U4, (vals::Ds::BITS4, vals::Frxth::QUARTER));
-    impl_word!(word::U5, (vals::Ds::BITS5, vals::Frxth::QUARTER));
-    impl_word!(word::U6, (vals::Ds::BITS6, vals::Frxth::QUARTER));
-    impl_word!(word::U7, (vals::Ds::BITS7, vals::Frxth::QUARTER));
-    impl_word!(u8, (vals::Ds::BITS8, vals::Frxth::QUARTER));
-    impl_word!(word::U9, (vals::Ds::BITS9, vals::Frxth::HALF));
-    impl_word!(word::U10, (vals::Ds::BITS10, vals::Frxth::HALF));
-    impl_word!(word::U11, (vals::Ds::BITS11, vals::Frxth::HALF));
-    impl_word!(word::U12, (vals::Ds::BITS12, vals::Frxth::HALF));
-    impl_word!(word::U13, (vals::Ds::BITS13, vals::Frxth::HALF));
-    impl_word!(word::U14, (vals::Ds::BITS14, vals::Frxth::HALF));
-    impl_word!(word::U15, (vals::Ds::BITS15, vals::Frxth::HALF));
-    impl_word!(u16, (vals::Ds::BITS16, vals::Frxth::HALF));
+    impl_word!(word::U4, (vals::Ds::Bits4, vals::Frxth::Quarter));
+    impl_word!(word::U5, (vals::Ds::Bits5, vals::Frxth::Quarter));
+    impl_word!(word::U6, (vals::Ds::Bits6, vals::Frxth::Quarter));
+    impl_word!(word::U7, (vals::Ds::Bits7, vals::Frxth::Quarter));
+    impl_word!(u8, (vals::Ds::Bits8, vals::Frxth::Quarter));
+    impl_word!(word::U9, (vals::Ds::Bits9, vals::Frxth::Half));
+    impl_word!(word::U10, (vals::Ds::Bits10, vals::Frxth::Half));
+    impl_word!(word::U11, (vals::Ds::Bits11, vals::Frxth::Half));
+    impl_word!(word::U12, (vals::Ds::Bits12, vals::Frxth::Half));
+    impl_word!(word::U13, (vals::Ds::Bits13, vals::Frxth::Half));
+    impl_word!(word::U14, (vals::Ds::Bits14, vals::Frxth::Half));
+    impl_word!(word::U15, (vals::Ds::Bits15, vals::Frxth::Half));
+    impl_word!(u16, (vals::Ds::Bits16, vals::Frxth::Half));
 }
 
 #[cfg(any(spi_v4, spi_v5, spi_v6))]

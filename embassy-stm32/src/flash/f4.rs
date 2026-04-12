@@ -45,7 +45,7 @@ pub(crate) unsafe fn enable_write() {
 
     pac::FLASH.cr().write(|w| {
         w.set_pg(true);
-        w.set_psize(pac::flash::vals::Psize::PSIZE32);
+        w.set_psize(pac::flash::vals::Psize::Psize32);
         w.set_eopie(true);
         w.set_errie(true);
     });
@@ -66,7 +66,7 @@ pub(crate) unsafe fn enable_blocking_write() {
 
     pac::FLASH.cr().write(|w| {
         w.set_pg(true);
-        w.set_psize(pac::flash::vals::Psize::PSIZE32);
+        w.set_psize(pac::flash::vals::Psize::Psize32);
     });
 }
 
@@ -283,9 +283,9 @@ fn pa12_is_output_pull_low() -> bool {
     use pac::GPIOA;
     use pac::gpio::vals;
     const PIN: usize = 12;
-    GPIOA.moder().read().moder(PIN) == vals::Moder::OUTPUT
-        && GPIOA.pupdr().read().pupdr(PIN) == vals::Pupdr::PULL_DOWN
-        && GPIOA.odr().read().odr(PIN) == vals::Odr::LOW
+    GPIOA.moder().read().moder(PIN) == vals::Moder::Output
+        && GPIOA.pupdr().read().pupdr(PIN) == vals::Pupdr::PullDown
+        && GPIOA.odr().read().odr(PIN) == vals::Odr::Low
 }
 
 #[cfg(test)]

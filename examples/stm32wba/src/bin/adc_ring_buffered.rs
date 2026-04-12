@@ -40,22 +40,22 @@ async fn main(_spawner: embassy_executor::Spawner) {
     // Configure RCC with PLL1 - required for ADC4 clock
     let mut config = Config::default();
     config.rcc.pll1 = Some(embassy_stm32::rcc::Pll {
-        source: PllSource::HSI,
-        prediv: PllPreDiv::DIV1,  // PLLM = 1 → HSI / 1 = 16 MHz
-        mul: PllMul::MUL30,       // PLLN = 30 → 16 MHz * 30 = 480 MHz VCO
-        divr: Some(PllDiv::DIV5), // PLLR = 5 → 96 MHz (Sysclk)
+        source: PllSource::Hsi,
+        prediv: PllPreDiv::Div1,  // PLLM = 1 → HSI / 1 = 16 MHz
+        mul: PllMul::Mul30,       // PLLN = 30 → 16 MHz * 30 = 480 MHz VCO
+        divr: Some(PllDiv::Div5), // PLLR = 5 → 96 MHz (Sysclk)
         divq: None,
-        divp: Some(PllDiv::DIV30), // PLLP = 30 → 16 MHz (ADC4 clock source)
+        divp: Some(PllDiv::Div30), // PLLP = 30 → 16 MHz (ADC4 clock source)
         frac: Some(0),
     });
 
-    config.rcc.ahb_pre = AHBPrescaler::DIV1;
-    config.rcc.apb1_pre = APBPrescaler::DIV1;
-    config.rcc.apb2_pre = APBPrescaler::DIV1;
-    config.rcc.apb7_pre = APBPrescaler::DIV1;
-    config.rcc.ahb5_pre = AHB5Prescaler::DIV4;
-    config.rcc.voltage_scale = VoltageScale::RANGE1;
-    config.rcc.sys = Sysclk::PLL1_R;
+    config.rcc.ahb_pre = AHBPrescaler::Div1;
+    config.rcc.apb1_pre = APBPrescaler::Div1;
+    config.rcc.apb2_pre = APBPrescaler::Div1;
+    config.rcc.apb7_pre = APBPrescaler::Div1;
+    config.rcc.ahb5_pre = AHB5Prescaler::Div4;
+    config.rcc.voltage_scale = VoltageScale::Range1;
+    config.rcc.sys = Sysclk::Pll1R;
 
     let p = embassy_stm32::init(config);
 
@@ -71,10 +71,10 @@ async fn main(_spawner: embassy_executor::Spawner) {
     // Initialize ADC4 with appropriate settings
     // Samples128 averaging with CYCLES12_5 = 5000 samples/sec per channel
     let mut adc = Adc::new_adc4(p.ADC4);
-    adc.set_resolution_adc4(adc4::Resolution::BITS12);
+    adc.set_resolution_adc4(adc4::Resolution::Bits12);
     adc.set_averaging_adc4(adc4::Averaging::Samples128);
 
-    let max_count = adc4::resolution_to_max_count(adc4::Resolution::BITS12);
+    let max_count = adc4::resolution_to_max_count(adc4::Resolution::Bits12);
 
     // Enable internal channels
     let mut vrefint = adc.enable_vrefint_adc4();
@@ -101,9 +101,9 @@ async fn main(_spawner: embassy_executor::Spawner) {
         unsafe { &mut *core::ptr::addr_of_mut!(DMA_BUF) },
         Irqs,
         [
-            (vrefint_ch, adc4::SampleTime::CYCLES12_5), // Channel 0
-            (vcore_ch, adc4::SampleTime::CYCLES12_5),   // Channel 12
-            (temp_ch, adc4::SampleTime::CYCLES12_5),    // Channel 13
+            (vrefint_ch, adc4::SampleTime::Cycles125), // Channel 0
+            (vcore_ch, adc4::SampleTime::Cycles125),   // Channel 12
+            (temp_ch, adc4::SampleTime::Cycles125),    // Channel 13
         ]
         .into_iter(),
         None,

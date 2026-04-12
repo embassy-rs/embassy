@@ -22,14 +22,14 @@ async fn main(_spawner: Spawner) {
         use embassy_stm32::rcc::*;
         config.rcc.hsi = true;
         config.rcc.pll = Some(Pll {
-            source: PllSource::HSI,
+            source: PllSource::Hsi,
             divp: None,
             divq: None,
-            divr: Some(PllRDiv::DIV2),
-            prediv: PllPreDiv::DIV1,
-            mul: PllMul::MUL15,
+            divr: Some(PllRDiv::Div2),
+            prediv: PllPreDiv::Div1,
+            mul: PllMul::Mul15,
         });
-        config.rcc.sys = Sysclk::PLL1_R;
+        config.rcc.sys = Sysclk::Pll1R;
     }
     let p = embassy_stm32::init(config);
 

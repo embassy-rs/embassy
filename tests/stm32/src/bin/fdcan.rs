@@ -46,7 +46,7 @@ fn options() -> (Config, TestOptions) {
         freq: embassy_stm32::time::Hertz(25_000_000),
         mode: rcc::HseMode::Oscillator,
     });
-    c.rcc.mux.fdcansel = rcc::mux::Fdcansel::HSE;
+    c.rcc.mux.fdcansel = rcc::mux::Fdcansel::Hse;
     (
         c,
         TestOptions {
@@ -65,7 +65,7 @@ fn options() -> (Config, TestOptions) {
         freq: embassy_stm32::time::Hertz(25_000_000),
         mode: rcc::HseMode::Oscillator,
     });
-    c.rcc.mux.fdcansel = rcc::mux::Fdcansel::HSE;
+    c.rcc.mux.fdcansel = rcc::mux::Fdcansel::Hse;
     (
         c,
         TestOptions {

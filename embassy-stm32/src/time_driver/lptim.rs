@@ -70,14 +70,14 @@ impl RtcDriver {
         // let psc = timer_freq.0 / TICK_HZ as u32 - 1;
         let psc = timer_freq.0 / TICK_HZ as u32;
         let psc = match psc {
-            128 => vals::Presc::DIV128,
-            64 => vals::Presc::DIV64,
-            32 => vals::Presc::DIV32,
-            16 => vals::Presc::DIV16,
-            8 => vals::Presc::DIV8,
-            4 => vals::Presc::DIV4,
-            2 => vals::Presc::DIV2,
-            1 => vals::Presc::DIV1,
+            128 => vals::Presc::Div128,
+            64 => vals::Presc::Div64,
+            32 => vals::Presc::Div32,
+            16 => vals::Presc::Div16,
+            8 => vals::Presc::Div8,
+            4 => vals::Presc::Div4,
+            2 => vals::Presc::Div2,
+            1 => vals::Presc::Div1,
             // TODO: we could compute the valid TICK_HZ for the valid prescalers to include in the panic message
             _ => panic!("Invalid prescaler: {} for timer frequency: {}Hz", psc, timer_freq.0),
         };

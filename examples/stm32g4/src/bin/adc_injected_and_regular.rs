@@ -44,15 +44,15 @@ async fn main(_spawner: embassy_executor::Spawner) {
     {
         use embassy_stm32::rcc::*;
         config.rcc.pll = Some(Pll {
-            source: PllSource::HSI,
-            prediv: PllPreDiv::DIV4,
-            mul: PllMul::MUL85,
+            source: PllSource::Hsi,
+            prediv: PllPreDiv::Div4,
+            mul: PllMul::Mul85,
             divp: None,
             divq: None,
-            divr: Some(PllRDiv::DIV2),
+            divr: Some(PllRDiv::Div2),
         });
-        config.rcc.mux.adc12sel = mux::Adcsel::SYS;
-        config.rcc.sys = Sysclk::PLL1_R;
+        config.rcc.mux.adc12sel = mux::Adcsel::Sys;
+        config.rcc.sys = Sysclk::Pll1R;
     }
     let p = embassy_stm32::init(config);
 
@@ -75,7 +75,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     pwm.set_master_output_enable(false);
     // Mms2 is used to configure which timer event that is connected to tim1_trgo2.
     // In this case we use the update event of the timer.
-    pwm.set_mms2(Mms2::UPDATE);
+    pwm.set_mms2(Mms2::Update);
 
     // Configure regular conversions with DMA
     let mut adc1 = Adc::new(p.ADC1, Default::default());
@@ -87,17 +87,13 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     let vrefint_channel = VREFINT.init(vrefint).degrade_adc();
     let pa0 = PC1.init(p.PC1).degrade_adc();
-    let regular_sequence = [
-        (vrefint_channel, SampleTime::CYCLES247_5),
-        (pa0, SampleTime::CYCLES247_5),
-    ]
-    .into_iter();
+    let regular_sequence = [(vrefint_channel, SampleTime::Cycles2475), (pa0, SampleTime::Cycles2475)].into_iter();
 
     // Configurations of Injected ADC measurements
     static PA2: StaticCell<Peri<'static, peripherals::PA2>> = StaticCell::new();
 
     let pa2 = PA2.init(p.PA2).degrade_adc();
-    let injected_sequence = [(pa2, SampleTime::CYCLES247_5)];
+    let injected_sequence = [(pa2, SampleTime::Cycles2475)];
 
     // Configure DMA for retrieving regular ADC measurements
     let dma1_ch1 = p.DMA1_CH1;
@@ -109,9 +105,9 @@ async fn main(_spawner: embassy_executor::Spawner) {
         &mut readings,
         Irqs,
         regular_sequence,
-        RegularAdcTrigger::from(TIM1_TRGO2, Exten::RISING_EDGE),
+        RegularAdcTrigger::from(TIM1_TRGO2, Exten::RisingEdge),
         injected_sequence,
-        InjectedAdcTrigger::from(TIM1_TRGO2, Exten::RISING_EDGE),
+        InjectedAdcTrigger::from(TIM1_TRGO2, Exten::RisingEdge),
         true,
     );
 
