@@ -33,7 +33,7 @@ async fn main(_spawner: Spawner) {
     // config.address = target::Address::Range(0x20..0x30);
 
     let mut target =
-        target::I2c::new_async_with_dma(p.LPI2C3, p.P3_27, p.P3_28, p.DMA0_CH0, p.DMA0_CH1, Irqs, config).unwrap();
+        target::I2c::new_async_with_dma(p.LPI2C3, p.P3_27, p.P3_20, p.DMA0_CH0, p.DMA0_CH1, Irqs, config).unwrap();
     let mut buf = [0u8; 256];
 
     loop {

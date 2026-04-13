@@ -16,6 +16,7 @@ pub mod target;
 pub(crate) mod sealed {
     /// Seal a trait
     pub trait Sealed {}
+    pub trait SealedPin<Instance> {}
 }
 
 trait SealedInstance: Gate<MrccPeriphConfig = Lpi2cConfig> {
@@ -87,27 +88,27 @@ macro_rules! impl_instance {
 impl_instance!(0, 1, 2, 3);
 
 /// SCL pin trait.
-pub trait SclPin<Instance>: GpioPin + sealed::Sealed + PeripheralType {
+pub trait SclPin<Instance>: GpioPin + sealed::SealedPin<Instance> + PeripheralType {
     fn mux(&self);
 }
 
 /// SDA pin trait.
-pub trait SdaPin<Instance>: GpioPin + sealed::Sealed + PeripheralType {
+pub trait SdaPin<Instance>: GpioPin + sealed::SealedPin<Instance> + PeripheralType {
     fn mux(&self);
 }
 
 /// SCLS pin trait. (SCL secondary)
-pub trait SclsPin<Instance>: GpioPin + sealed::Sealed + PeripheralType {
+pub trait SclsPin<Instance>: GpioPin + sealed::SealedPin<Instance> + PeripheralType {
     fn mux(&self);
 }
 
 /// SDAS pin trait. (SDA secondary)
-pub trait SdasPin<Instance>: GpioPin + sealed::Sealed + PeripheralType {
+pub trait SdasPin<Instance>: GpioPin + sealed::SealedPin<Instance> + PeripheralType {
     fn mux(&self);
 }
 
 /// HREQ pin trait. (Host request)
-pub trait HreqPin<Instance>: GpioPin + sealed::Sealed + PeripheralType {
+pub trait HreqPin<Instance>: GpioPin + sealed::SealedPin<Instance> + PeripheralType {
     fn mux(&self);
 }
 
@@ -145,7 +146,7 @@ impl AsyncMode for Dma<'_> {}
 #[macro_export]
 macro_rules! impl_lpi2c_pin {
     ($pin:ident, $peri:ident, $fn:ident, $trait:ident) => {
-        impl crate::i2c::sealed::Sealed for crate::peripherals::$pin {}
+        impl crate::i2c::sealed::SealedPin<crate::peripherals::$peri> for crate::peripherals::$pin {}
 
         impl crate::i2c::$trait<crate::peripherals::$peri> for crate::peripherals::$pin {
             fn mux(&self) {

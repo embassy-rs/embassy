@@ -77,14 +77,13 @@ pub use mcxa5xx_exclusive::*;
 
 pub(crate) mod chips;
 
-// This must go last, so that it sees all the impl_foo! macros defined earlier.
 pub(crate) mod _generated {
     #![allow(dead_code)]
     #![allow(unused_imports)]
     #![allow(non_snake_case)]
     #![allow(missing_docs)]
 
-    use crate::{impl_adc_pin, impl_gpio_pin, impl_clkout_pin, impl_lpi2c_pin};
+    use crate::{impl_adc_pin, impl_gpio_pin, impl_clkout_pin, impl_lpi2c_pin, impl_i3c_pin};
     include!(concat!(env!("OUT_DIR"), "/_generated.rs"));
 }
 

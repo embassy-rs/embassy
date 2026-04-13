@@ -44,6 +44,7 @@ fn main() {
         generate_adc_pin_impls(),
         generate_clkout_impls(),
         generate_lpi2c_pin_impls(),
+        generate_i3c_pin_impls(),
     ];
 
     let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
@@ -196,6 +197,27 @@ fn generate_lpi2c_pin_impls() -> TokenStream {
                 let mux = format_ident!("MUX{}", pin.alt);
                 generated.extend(quote! {
                     impl_lpi2c_pin!(#pin_name, #lpi2c_name, #mux, #signal_pin);
+                });
+            }
+        }
+    }
+
+    generated
+}
+
+fn generate_i3c_pin_impls() -> TokenStream {
+    let mut generated = TokenStream::new();
+
+    let i3c_regex = Regex::new(r"^I3C\d+").unwrap();
+    for i3c in METADATA.peripherals.iter().filter(|p| i3c_regex.is_match(p.name)) {
+        let i3c_name = format_ident!("{}", i3c.name);
+        for signal in i3c.signals {
+            let signal_pin = format_ident!("{}Pin", ccase!(pascal, signal.name));
+            for pin in signal.pins {
+                let pin_name = format_ident!("{}", pin.pin);
+                let mux = format_ident!("MUX{}", pin.alt);
+                generated.extend(quote! {
+                    impl_i3c_pin!(#pin_name, #i3c_name, #mux, #signal_pin);
                 });
             }
         }

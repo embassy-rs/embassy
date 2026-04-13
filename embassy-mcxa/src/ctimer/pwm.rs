@@ -735,7 +735,6 @@ mod mcxa5xx {
     impl_valid_match!(CTIMER3, CTIMER3_CH1, P3_27, 1);
     impl_valid_match!(CTIMER3, CTIMER3_CH2, P2_10, 2);
     impl_valid_match!(CTIMER3, CTIMER3_CH2, P2_18, 2);
-    impl_valid_match!(CTIMER3, CTIMER3_CH2, P3_28, 2);
     impl_valid_match!(CTIMER3, CTIMER3_CH3, P2_11, 3);
     impl_valid_match!(CTIMER3, CTIMER3_CH3, P2_19, 3);
     #[cfg(feature = "dangerous-reset-as-gpio")]

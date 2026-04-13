@@ -500,8 +500,6 @@ mod mcxa5xx {
     impl_input_pin!(P3_25, MUX4);
     impl_input_pin!(P3_26, MUX4);
     impl_input_pin!(P3_27, MUX4);
-    impl_input_pin!(P3_28, MUX4);
-    impl_input_pin!(P3_29, MUX4);
 
     impl_input_pin!(P4_6, MUX4);
     impl_input_pin!(P4_7, MUX4);
@@ -588,13 +586,6 @@ mod mcxa5xx {
     impl_output_pin!(P3_20, CTIMER2, MUX4);
     impl_output_pin!(P3_21, CTIMER2, MUX4);
     impl_output_pin!(P3_27, CTIMER3, MUX5);
-    impl_output_pin!(P3_28, CTIMER3, MUX5);
-    #[cfg(feature = "dangerous-reset-as-gpio")]
-    impl_output_pin!(P3_29, CTIMER3, MUX5);
-    #[cfg(feature = "sosc-as-gpio")]
-    impl_output_pin!(P3_30, CTIMER0, MUX4);
-    #[cfg(feature = "sosc-as-gpio")]
-    impl_output_pin!(P3_31, CTIMER0, MUX4);
 
     impl_output_pin!(P4_2, CTIMER4, MUX4);
     impl_output_pin!(P4_3, CTIMER4, MUX4);
