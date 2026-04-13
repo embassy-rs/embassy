@@ -58,10 +58,10 @@ pub mod perf_counters;
 #[cfg(mcxa_CMC)]
 pub mod reset_reason;
 #[cfg(mcxa_RTC5xx)]
-#[path ="rtc/mcxa5xx.rs"]
+#[path = "rtc/mcxa5xx.rs"]
 pub mod rtc;
 #[cfg(mcxa_RTC2xx)]
-#[path ="rtc/mcxa2xx.rs"]
+#[path = "rtc/mcxa2xx.rs"]
 pub mod rtc;
 #[cfg(mcxa_LPSPI)]
 pub mod spi;
@@ -84,16 +84,9 @@ pub(crate) mod _generated {
     #![allow(non_snake_case)]
     #![allow(missing_docs)]
 
-    use crate::gpio::{AnyPin, GpioPin, Pull, SealedPin};
-    use crate::impl_pin;
-    use crate::pac::common::{RW, Reg};
-    use crate::pac::gpio::{Pdd, Pid};
-    use crate::pac::port::{Dse, Ibe, Mux, Pcr, Sre};
-
+    use crate::{impl_adc_pin, impl_gpio_pin};
     include!(concat!(env!("OUT_DIR"), "/_generated.rs"));
 }
-
-pub use crate::_generated::{interrupt, Peripherals, peripherals};
 
 // Re-export interrupt traits and types
 // Re-export Peri and PeripheralType to allow applications to express Peri types and requirements.
@@ -102,6 +95,8 @@ pub use embassy_hal_internal::{Peri, PeripheralType};
 pub use nxp_pac as pac;
 #[cfg(not(feature = "unstable-pac"))]
 pub(crate) use nxp_pac as pac;
+
+pub use crate::_generated::{Peripherals, interrupt, peripherals};
 
 const HALS_SELECTED: usize = const { cfg!(feature = "mcxa2xx") as usize + cfg!(feature = "mcxa5xx") as usize };
 

@@ -40,6 +40,7 @@ fn main() {
         generate_interrupt_mod_call(),
         generate_dma_requests_enum(),
         generate_gpio_pin_impls(),
+        generate_adc_pin_impls(),
     ];
 
     let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
@@ -125,8 +126,32 @@ fn generate_gpio_pin_impls() -> TokenStream {
             let pin_num = proc_macro2::Literal::u32_unsuffixed(s.name.parse().unwrap());
 
             generated.extend(quote! {
-                impl_pin!(#pin, #gpio_num, #pin_num, #peripheral);
+                impl_gpio_pin!(#pin, #gpio_num, #pin_num, #peripheral);
             });
+        }
+    }
+
+    generated
+}
+
+fn generate_adc_pin_impls() -> TokenStream {
+    let mut generated = TokenStream::new();
+
+    let adc_regex = Regex::new(r"^ADC\d+").unwrap();
+    let adc_channel_regex = Regex::new(r"(?:^A)(\d+)").unwrap();
+    for adc in METADATA.peripherals.iter().filter(|p| adc_regex.is_match(p.name)) {
+        let adc_name = format_ident!("{}", adc.name);
+        for signal in adc.signals {
+            let channel: u8 = get_regex_num(signal.name, &adc_channel_regex)
+                .expect(&format!("Could not get ADC channel from: {}", signal.name))
+                .try_into()
+                .unwrap();
+            for pin in signal.pins {
+                let pin_name = format_ident!("{}", pin.pin);
+                generated.extend(quote! {
+                    impl_adc_pin!(#pin_name, #adc_name, #channel);
+                });
+            }
         }
     }
 
