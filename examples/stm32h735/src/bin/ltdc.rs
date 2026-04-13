@@ -317,41 +317,41 @@ mod rcc_setup {
         config.rcc.hsi = None;
         config.rcc.csi = false;
         config.rcc.pll1 = Some(Pll {
-            source: PllSource::HSE,
-            prediv: PllPreDiv::DIV5, // PLL_M
-            mul: PllMul::MUL104,     // PLL_N
-            divp: Some(PllDiv::DIV1),
-            divq: Some(PllDiv::DIV4),
-            divr: Some(PllDiv::DIV2),
+            source: PllSource::Hse,
+            prediv: PllPreDiv::Div5, // PLL_M
+            mul: PllMul::Mul104,     // PLL_N
+            divp: Some(PllDiv::Div1),
+            divq: Some(PllDiv::Div4),
+            divr: Some(PllDiv::Div2),
         });
         // numbers adapted from Drivers/BSP/STM32H735G-DK/stm32h735g_discovery_ospi.c
         // MX_OSPI_ClockConfig
         config.rcc.pll2 = Some(Pll {
-            source: PllSource::HSE,
-            prediv: PllPreDiv::DIV5, // PLL_M
-            mul: PllMul::MUL80,      // PLL_N
-            divp: Some(PllDiv::DIV5),
-            divq: Some(PllDiv::DIV2),
-            divr: Some(PllDiv::DIV2),
+            source: PllSource::Hse,
+            prediv: PllPreDiv::Div5, // PLL_M
+            mul: PllMul::Mul80,      // PLL_N
+            divp: Some(PllDiv::Div5),
+            divq: Some(PllDiv::Div2),
+            divr: Some(PllDiv::Div2),
         });
         // numbers adapted from Drivers/BSP/STM32H735G-DK/stm32h735g_discovery_lcd.c
         // MX_LTDC_ClockConfig
         config.rcc.pll3 = Some(Pll {
-            source: PllSource::HSE,
-            prediv: PllPreDiv::DIV5, // PLL_M
-            mul: PllMul::MUL160,     // PLL_N
-            divp: Some(PllDiv::DIV2),
-            divq: Some(PllDiv::DIV2),
-            divr: Some(PllDiv::DIV83),
+            source: PllSource::Hse,
+            prediv: PllPreDiv::Div5, // PLL_M
+            mul: PllMul::Mul160,     // PLL_N
+            divp: Some(PllDiv::Div2),
+            divq: Some(PllDiv::Div2),
+            divr: Some(PllDiv::Div83),
         });
         config.rcc.voltage_scale = VoltageScale::Scale0;
         config.rcc.supply_config = SupplyConfig::DirectSMPS;
-        config.rcc.sys = Sysclk::PLL1_P;
-        config.rcc.ahb_pre = AHBPrescaler::DIV2;
-        config.rcc.apb1_pre = APBPrescaler::DIV2;
-        config.rcc.apb2_pre = APBPrescaler::DIV2;
-        config.rcc.apb3_pre = APBPrescaler::DIV2;
-        config.rcc.apb4_pre = APBPrescaler::DIV2;
+        config.rcc.sys = Sysclk::Pll1P;
+        config.rcc.ahb_pre = AHBPrescaler::Div2;
+        config.rcc.apb1_pre = APBPrescaler::Div2;
+        config.rcc.apb2_pre = APBPrescaler::Div2;
+        config.rcc.apb3_pre = APBPrescaler::Div2;
+        config.rcc.apb4_pre = APBPrescaler::Div2;
         embassy_stm32::init(config)
     }
 }

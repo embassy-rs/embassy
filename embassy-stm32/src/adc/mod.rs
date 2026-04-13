@@ -17,28 +17,17 @@
 #[cfg_attr(adc_c0, path = "c0.rs")]
 mod _version;
 
-#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba, adc_c0, adc_f3v1))]
-mod ringbuffered;
-
-#[cfg(any(
-    adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_wba, adc_c0, adc_v2
-))]
 mod configured_sequence;
+mod ringbuffered;
 
 use core::marker::PhantomData;
 
 #[allow(unused)]
 #[cfg(not(any(adc_f3v3, adc_wba)))]
 pub use _version::*;
-#[cfg(any(
-    adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_wba, adc_c0, adc_v2
-))]
 pub use configured_sequence::ConfiguredSequence;
-#[allow(unused)]
-use embassy_hal_internal::PeripheralType;
 #[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2))]
 use embassy_sync::waitqueue::AtomicWaker;
-#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba, adc_c0, adc_f3v1))]
 pub use ringbuffered::RingBufferedAdc;
 
 #[cfg(adc_u5)]
@@ -49,6 +38,8 @@ use crate::pac::adc::vals::SampleTime as Adc4SampleTime;
 #[cfg(any(adc_u5, adc_wba))]
 #[path = "adc4.rs"]
 pub mod adc4;
+
+use embassy_hal_internal::drop::OnDrop;
 
 #[allow(unused)]
 pub(self) use crate::block_for_us as blocking_delay_us;
@@ -210,10 +201,8 @@ pub enum Averaging {
 pub(crate) enum ConversionMode {
     NoDma,
     Singular,
-    // Should match the cfg on "into_ring_buffered" below
-    #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba, adc_c0, adc_f3v1))]
+    #[allow(dead_code)]
     Repeated(Option<(u8, Exten)>),
-    // Should match the cfg on "configured_sequence" below
 }
 
 const fn check_dma_len(sequence_len: usize, dma_len: Option<usize>, configured_sequence: bool) {
@@ -347,6 +336,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         rx_dma: embassy_hal_internal::Peri<'a, D>,
         irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
         sequence: impl ExactSizeIterator<Item = (&'a mut AnyAdcChannel<'b, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
+        trigger: Option<RegularAdcTrigger<T>>,
         readings: &mut [u16],
     ) {
         let _scoped_wake_guard = <T as crate::rcc::SealedRccPeripheral>::RCC_INFO.wake_guard();
@@ -361,28 +351,21 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         T::regs().enable();
 
-        #[cfg(adc_g4)]
-        T::regs().configure_dma(ConversionMode::Repeated(None));
-
-        #[cfg(not(adc_g4))]
-        T::regs().configure_dma(ConversionMode::Singular);
+        // Use repeated mode and use the dma to stop the transfer
+        T::regs().configure_dma(ConversionMode::Repeated(trigger.map(|t| (t._trigger, t._edge))));
 
         let request = rx_dma.request();
         let mut dma_channel = crate::dma::Channel::new(rx_dma, irq);
         let transfer = unsafe { dma_channel.read(request, T::regs().data(), readings, Default::default()) };
 
+        // Ensure conversions are finished, even in the event of dropping the future
+        let _stop_adc = OnDrop::new(|| T::regs().stop(false));
         T::regs().start();
 
         // Wait for conversion sequence to finish.
         transfer.await;
-
-        // Ensure conversions are finished.
-        T::regs().stop(false);
     }
 
-    #[cfg(any(
-        adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_wba, adc_c0, adc_v2
-    ))]
     /// Configure an ADC channel sequence once and return a [`ConfiguredSequence`] for repeated
     /// DMA reads without reprogramming the sequence each time.
     ///
@@ -427,7 +410,6 @@ impl<'d, T: Instance> Adc<'d, T> {
         ConfiguredSequence::new(self, rx_dma, len, irq)
     }
 
-    #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba, adc_c0, adc_f3v1))]
     /// Configures the ADC to use a DMA ring buffer for continuous data acquisition.
     ///
     /// Use the [`Self::read`] method to retrieve measurements from the DMA ring buffer. The read buffer
@@ -661,19 +643,6 @@ pub struct Dac;
 impl SpecialChannel for Dac {}
 
 /// ADC instance.
-#[cfg(not(any(
-    adc_f1, adc_v1, adc_l0, adc_v2, adc_v3, adc_v4, adc_g4, adc_f3v1, adc_f3v2, adc_g0, adc_u0, adc_h5, adc_h7rs,
-    adc_u5, adc_u3, adc_c0, adc_wba,
-)))]
-#[allow(private_bounds)]
-pub trait Instance: SealedInstance + crate::PeripheralType {
-    type Interrupt: crate::interrupt::typelevel::Interrupt;
-}
-/// ADC instance.
-#[cfg(any(
-    adc_f1, adc_v1, adc_l0, adc_v2, adc_v3, adc_v4, adc_g4, adc_f3v1, adc_f3v2, adc_g0, adc_u0, adc_h5, adc_h7rs,
-    adc_u5, adc_u3, adc_c0, adc_wba,
-))]
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + crate::PeripheralType + crate::rcc::RccPeripheral {
     type Interrupt: crate::interrupt::typelevel::Interrupt;
@@ -907,18 +876,18 @@ macro_rules! impl_adc_pair {
 pub const fn resolution_to_max_count(res: Resolution) -> u32 {
     match res {
         #[cfg(adc_v4)]
-        Resolution::BITS16 => (1 << 16) - 1,
+        Resolution::Bits16 => (1 << 16) - 1,
         #[cfg(any(adc_v4, adc_u5))]
-        Resolution::BITS14 => (1 << 14) - 1,
+        Resolution::Bits14 => (1 << 14) - 1,
         #[cfg(adc_v4)]
-        Resolution::BITS14V => (1 << 14) - 1,
+        Resolution::Bits14v => (1 << 14) - 1,
         #[cfg(adc_v4)]
-        Resolution::BITS12V => (1 << 12) - 1,
-        Resolution::BITS12 => (1 << 12) - 1,
-        Resolution::BITS10 => (1 << 10) - 1,
-        Resolution::BITS8 => (1 << 8) - 1,
+        Resolution::Bits12v => (1 << 12) - 1,
+        Resolution::Bits12 => (1 << 12) - 1,
+        Resolution::Bits10 => (1 << 10) - 1,
+        Resolution::Bits8 => (1 << 8) - 1,
         #[cfg(any(adc_v1, adc_v2, adc_v3, adc_l0, adc_c0, adc_g0, adc_f3v1, adc_f3v2, adc_h5))]
-        Resolution::BITS6 => (1 << 6) - 1,
+        Resolution::Bits6 => (1 << 6) - 1,
         #[allow(unreachable_patterns)]
         _ => core::unreachable!(),
     }

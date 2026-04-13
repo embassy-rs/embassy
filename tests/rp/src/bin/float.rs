@@ -18,7 +18,7 @@ async fn main(_spawner: Spawner) {
 
     pac::BUSCTRL
         .perfsel(0)
-        .write(|r| r.set_perfsel(pac::busctrl::vals::Perfsel::ROM));
+        .write(|r| r.set_perfsel(pac::busctrl::vals::Perfsel::Rom));
 
     for i in 0..=360 {
         let rad_f = (i as f32) * PI_F / 180.0;

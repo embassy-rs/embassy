@@ -120,8 +120,8 @@ impl<'d> SequencePwm<'d> {
                     Level::High => pin.set_high(),
                 }
                 pin.conf().write(|w| {
-                    w.set_dir(gpiovals::Dir::OUTPUT);
-                    w.set_input(gpiovals::Input::DISCONNECT);
+                    w.set_dir(gpiovals::Dir::Output);
+                    w.set_input(gpiovals::Input::Disconnect);
                     convert_drive(w, drive);
                 });
             }
@@ -141,12 +141,12 @@ impl<'d> SequencePwm<'d> {
 
         r.decoder().write(|w| {
             w.set_load(vals::Load::from_bits(config.sequence_load as u8));
-            w.set_mode(vals::Mode::REFRESH_COUNT);
+            w.set_mode(vals::Mode::RefreshCount);
         });
 
         r.mode().write(|w| match config.counter_mode {
-            CounterMode::UpAndDown => w.set_updown(vals::Updown::UP_AND_DOWN),
-            CounterMode::Up => w.set_updown(vals::Updown::UP),
+            CounterMode::UpAndDown => w.set_updown(vals::Updown::UpAndDown),
+            CounterMode::Up => w.set_updown(vals::Updown::Up),
         });
         r.prescaler()
             .write(|w| w.set_prescaler(vals::Prescaler::from_bits(config.prescaler as u8)));
@@ -778,8 +778,8 @@ impl<'d> SimplePwm<'d> {
                     Level::High => pin.set_high(),
                 }
                 pin.conf().write(|w| {
-                    w.set_dir(gpiovals::Dir::OUTPUT);
-                    w.set_input(gpiovals::Input::DISCONNECT);
+                    w.set_dir(gpiovals::Dir::Output);
+                    w.set_input(gpiovals::Input::Disconnect);
                     convert_drive(w, drive);
                 });
             }
@@ -808,17 +808,17 @@ impl<'d> SimplePwm<'d> {
         pwmseq(r, 0).enddelay().write(|w| w.0 = 0);
 
         r.decoder().write(|w| {
-            w.set_load(vals::Load::INDIVIDUAL);
-            w.set_mode(vals::Mode::REFRESH_COUNT);
+            w.set_load(vals::Load::Individual);
+            w.set_mode(vals::Mode::RefreshCount);
         });
         r.mode().write(|w| match config.counter_mode {
-            CounterMode::UpAndDown => w.set_updown(vals::Updown::UP_AND_DOWN),
-            CounterMode::Up => w.set_updown(vals::Updown::UP),
+            CounterMode::UpAndDown => w.set_updown(vals::Updown::UpAndDown),
+            CounterMode::Up => w.set_updown(vals::Updown::Up),
         });
         r.prescaler()
             .write(|w| w.set_prescaler(vals::Prescaler::from_bits(config.prescaler as u8)));
         r.countertop().write(|w| w.set_countertop(config.max_duty));
-        r.loop_().write(|w| w.set_cnt(vals::LoopCnt::DISABLED));
+        r.loop_().write(|w| w.set_cnt(vals::LoopCnt::Disabled));
 
         pwm
     }

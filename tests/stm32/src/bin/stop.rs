@@ -56,7 +56,7 @@ async fn async_main(spawner: Spawner) {
     #[cfg(any(feature = "stm32h563zi", feature = "stm32h503rb"))]
     {
         use embassy_stm32::rcc::HSIPrescaler;
-        config.rcc.hsi = Some(HSIPrescaler::DIV4); // 64 MHz HSI will need a /4
+        config.rcc.hsi = Some(HSIPrescaler::Div4); // 64 MHz HSI will need a /4
     }
 
     let p = init_with_config(config);

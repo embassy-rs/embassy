@@ -68,10 +68,10 @@ fn from_pclk2(freq: Hertz) -> Adcpre {
     const MAX_FREQUENCY: Hertz = Hertz(36_000_000);
     let raw_div = rcc::raw_prescaler(freq.0, MAX_FREQUENCY.0);
     match raw_div {
-        0..=1 => Adcpre::DIV2,
-        2..=3 => Adcpre::DIV4,
-        4..=5 => Adcpre::DIV6,
-        6..=7 => Adcpre::DIV8,
+        0..=1 => Adcpre::Div2,
+        2..=3 => Adcpre::Div4,
+        4..=5 => Adcpre::Div6,
+        6..=7 => Adcpre::Div8,
         _ => panic!("Selected PCLK2 frequency is too high for ADC with largest possible prescaler."),
     }
 }
@@ -156,9 +156,9 @@ impl AdcRegs for crate::pac::adc::Adc {
         r.cr2().modify(|w| {
             // Enable DMA mode
             w.set_dma(!matches!(conversion_mode, ConversionMode::NoDma));
-            w.set_dds(Dds::CONTINUOUS);
+            w.set_dds(Dds::Continuous);
             // EOC flag is set at the end of each conversion.
-            w.set_eocs(vals::Eocs::EACH_CONVERSION);
+            w.set_eocs(vals::Eocs::EachConversion);
             w.set_cont(matches!(conversion_mode, ConversionMode::Repeated(None)));
 
             if let ConversionMode::Repeated(Some((signal, edge))) = conversion_mode {
@@ -249,7 +249,7 @@ impl InjectedRegs for crate::pac::adc::Adc {
         // On STM32F4 adc_v2, externally-triggered injected conversions are armed
         // by JEXTEN and start on the next trigger event. JSWSTART is only valid
         // for pure software-triggered injected conversions.
-        if self.cr2().read().jexten() == vals::Exten::DISABLED {
+        if self.cr2().read().jexten() == vals::Exten::Disabled {
             self.cr2().modify(|w| w.set_jswstart(true));
         }
     }
@@ -257,7 +257,7 @@ impl InjectedRegs for crate::pac::adc::Adc {
     fn stop_injected(&self) {
         // No true "abort injected conversion" primitive on adc_v2.
         // Best practical stop: disable external injected triggering.
-        self.cr2().modify(|w| w.set_jexten(vals::Exten::DISABLED));
+        self.cr2().modify(|w| w.set_jexten(vals::Exten::Disabled));
         self.cr1().modify(|w| w.set_jeocie(false));
         self.sr().modify(|w| {
             w.set_jeoc(false);

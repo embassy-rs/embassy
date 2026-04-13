@@ -203,7 +203,7 @@ async fn new_internal<'a>(
     power
         .ltemodem()
         .startn()
-        .write(|w| w.set_startn(pac::power::vals::Startn::START));
+        .write(|w| w.set_startn(pac::power::vals::Startn::Start));
 
     unsafe { NVIC::unmask(pac::Interrupt::IPC) };
 

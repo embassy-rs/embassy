@@ -274,7 +274,7 @@ impl Rtc {
                 w.set_mnu(mnu);
                 w.set_st(st);
                 w.set_su(su);
-                w.set_pm(Ampm::AM);
+                w.set_pm(Ampm::Am);
             });
 
             rtc.dr().write(|w| {

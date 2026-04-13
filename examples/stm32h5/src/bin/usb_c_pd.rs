@@ -28,7 +28,7 @@ enum CableOrientation {
 async fn wait_attached<T: ucpd::Instance>(cc_phy: &mut CcPhy<'_, T>) -> CableOrientation {
     loop {
         let (cc1, cc2) = cc_phy.vstate();
-        if cc1 == CcVState::LOWEST && cc2 == CcVState::LOWEST {
+        if cc1 == CcVState::Lowest && cc2 == CcVState::Lowest {
             // Detached, wait until attached by monitoring the CC lines.
             cc_phy.wait_for_vstate_change().await;
             continue;
@@ -45,8 +45,8 @@ async fn wait_attached<T: ucpd::Instance>(cc_phy: &mut CcPhy<'_, T>) -> CableOri
 
         // State was stable for the complete debounce period, check orientation.
         return match (cc1, cc2) {
-            (_, CcVState::LOWEST) => CableOrientation::Normal,  // CC1 connected
-            (CcVState::LOWEST, _) => CableOrientation::Flipped, // CC2 connected
+            (_, CcVState::Lowest) => CableOrientation::Normal,  // CC1 connected
+            (CcVState::Lowest, _) => CableOrientation::Flipped, // CC2 connected
             _ => CableOrientation::DebugAccessoryMode,          // Both connected (special cable)
         };
     }
@@ -74,11 +74,11 @@ async fn main(_spawner: Spawner) {
     let cc_sel = match cable_orientation {
         CableOrientation::Normal => {
             info!("Starting PD communication on CC1 pin");
-            CcSel::CC1
+            CcSel::Cc1
         }
         CableOrientation::Flipped => {
             info!("Starting PD communication on CC2 pin");
-            CcSel::CC2
+            CcSel::Cc2
         }
         CableOrientation::DebugAccessoryMode => panic!("No PD communication in DAM"),
     };

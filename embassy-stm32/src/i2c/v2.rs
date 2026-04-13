@@ -15,14 +15,14 @@ use crate::pac::i2c;
 impl From<AddrMask> for Oamsk {
     fn from(value: AddrMask) -> Self {
         match value {
-            AddrMask::NOMASK => Oamsk::NO_MASK,
-            AddrMask::MASK1 => Oamsk::MASK1,
-            AddrMask::MASK2 => Oamsk::MASK2,
-            AddrMask::MASK3 => Oamsk::MASK3,
-            AddrMask::MASK4 => Oamsk::MASK4,
-            AddrMask::MASK5 => Oamsk::MASK5,
-            AddrMask::MASK6 => Oamsk::MASK6,
-            AddrMask::MASK7 => Oamsk::MASK7,
+            AddrMask::NOMASK => Oamsk::NoMask,
+            AddrMask::MASK1 => Oamsk::Mask1,
+            AddrMask::MASK2 => Oamsk::Mask2,
+            AddrMask::MASK3 => Oamsk::Mask3,
+            AddrMask::MASK4 => Oamsk::Mask4,
+            AddrMask::MASK5 => Oamsk::Mask5,
+            AddrMask::MASK6 => Oamsk::Mask6,
+            AddrMask::MASK7 => Oamsk::Mask7,
         }
     }
 }
@@ -30,8 +30,8 @@ impl From<AddrMask> for Oamsk {
 impl Address {
     pub(super) fn add_mode(&self) -> stm32_metapac::i2c::vals::Addmode {
         match self {
-            Address::SevenBit(_) => stm32_metapac::i2c::vals::Addmode::BIT7,
-            Address::TenBit(_) => stm32_metapac::i2c::vals::Addmode::BIT10,
+            Address::SevenBit(_) => stm32_metapac::i2c::vals::Addmode::Bit7,
+            Address::TenBit(_) => stm32_metapac::i2c::vals::Addmode::Bit10,
         }
     }
 }
@@ -96,9 +96,9 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     #[inline]
     fn to_reload(reload: bool) -> i2c::vals::Reload {
         if reload {
-            i2c::vals::Reload::NOT_COMPLETED
+            i2c::vals::Reload::NotCompleted
         } else {
-            i2c::vals::Reload::COMPLETED
+            i2c::vals::Reload::Completed
         }
     }
 
@@ -175,7 +175,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         info.regs.cr2().modify(|w| {
             w.set_sadd(address.addr() << 1);
             w.set_add10(address.add_mode());
-            w.set_dir(i2c::vals::Dir::READ);
+            w.set_dir(i2c::vals::Dir::Read);
             w.set_nbytes(length as u8);
             w.set_start(true);
             w.set_autoend(stop.autoend());
@@ -216,7 +216,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         info.regs.cr2().modify(|w| {
             w.set_sadd(address.addr() << 1);
             w.set_add10(address.add_mode());
-            w.set_dir(i2c::vals::Dir::WRITE);
+            w.set_dir(i2c::vals::Dir::Write);
             w.set_nbytes(length as u8);
             w.set_start(true);
             w.set_autoend(stop.autoend());
@@ -1576,13 +1576,13 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
             Address::SevenBit(addr) => self.info.regs.oar1().write(|reg| {
                 reg.set_oa1en(false);
                 reg.set_oa1((addr << 1) as u16);
-                reg.set_oa1mode(Addmode::BIT7);
+                reg.set_oa1mode(Addmode::Bit7);
                 reg.set_oa1en(true);
             }),
             Address::TenBit(addr) => self.info.regs.oar1().write(|reg| {
                 reg.set_oa1en(false);
                 reg.set_oa1(addr);
-                reg.set_oa1mode(Addmode::BIT10);
+                reg.set_oa1mode(Addmode::Bit10);
                 reg.set_oa1en(true);
             }),
         }
@@ -1620,9 +1620,9 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
         assert!(length < 256);
 
         let reload = if reload {
-            i2c::vals::Reload::NOT_COMPLETED
+            i2c::vals::Reload::NotCompleted
         } else {
-            i2c::vals::Reload::COMPLETED
+            i2c::vals::Reload::Completed
         };
 
         info.regs.cr2().modify(|w| {
@@ -1850,14 +1850,14 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
         let isr = self.info.regs.isr().read();
 
         match isr.dir() {
-            i2c::vals::Dir::WRITE => {
+            i2c::vals::Dir::Write => {
                 trace!("DIR: write");
                 Ok(SlaveCommand {
                     kind: SlaveCommandKind::Write,
                     address: self.determine_matched_address()?,
                 })
             }
-            i2c::vals::Dir::READ => {
+            i2c::vals::Dir::Read => {
                 trace!("DIR: read");
                 Ok(SlaveCommand {
                     kind: SlaveCommandKind::Read,
@@ -2172,8 +2172,8 @@ enum Stop {
 impl Stop {
     fn autoend(&self) -> i2c::vals::Autoend {
         match self {
-            Stop::Software => i2c::vals::Autoend::SOFTWARE,
-            Stop::Automatic => i2c::vals::Autoend::AUTOMATIC,
+            Stop::Software => i2c::vals::Autoend::Software,
+            Stop::Automatic => i2c::vals::Autoend::Automatic,
         }
     }
 }

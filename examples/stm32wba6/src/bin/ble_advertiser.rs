@@ -70,12 +70,12 @@ async fn main(spawner: Spawner) {
 
     // Enable HSE (32 MHz external crystal) - REQUIRED for BLE radio
     config.rcc.hse = Some(Hse {
-        prescaler: HsePrescaler::DIV1,
+        prescaler: HsePrescaler::Div1,
     });
 
     // Enable LSE (32.768 kHz external crystal) - REQUIRED for BLE radio sleep timer
     config.rcc.ls = LsConfig {
-        rtc: RtcClockSource::LSE,
+        rtc: RtcClockSource::Lse,
         lsi: false,
         lse: Some(LseConfig {
             frequency: Hertz(32_768),
@@ -86,25 +86,25 @@ async fn main(spawner: Spawner) {
 
     // Configure PLL1 (required on WBA)
     config.rcc.pll1 = Some(embassy_stm32::rcc::Pll {
-        source: PllSource::HSI,
-        prediv: PllPreDiv::DIV1,  // PLLM = 1 → HSI / 1 = 16 MHz
-        mul: PllMul::MUL30,       // PLLN = 30 → 16 MHz * 30 = 480 MHz VCO
-        divr: Some(PllDiv::DIV5), // PLLR = 5 → 96 MHz (Sysclk)
+        source: PllSource::Hsi,
+        prediv: PllPreDiv::Div1,  // PLLM = 1 → HSI / 1 = 16 MHz
+        mul: PllMul::Mul30,       // PLLN = 30 → 16 MHz * 30 = 480 MHz VCO
+        divr: Some(PllDiv::Div5), // PLLR = 5 → 96 MHz (Sysclk)
         divq: None,
-        divp: Some(PllDiv::DIV30), // PLLP = 30 → 16 MHz (required for SAI)
+        divp: Some(PllDiv::Div30), // PLLP = 30 → 16 MHz (required for SAI)
         frac: Some(0),
     });
 
-    config.rcc.ahb_pre = AHBPrescaler::DIV1;
-    config.rcc.apb1_pre = APBPrescaler::DIV1;
-    config.rcc.apb2_pre = APBPrescaler::DIV1;
-    config.rcc.apb7_pre = APBPrescaler::DIV1;
-    config.rcc.ahb5_pre = AHB5Prescaler::DIV4;
-    config.rcc.voltage_scale = VoltageScale::RANGE1;
-    config.rcc.sys = Sysclk::PLL1_R;
+    config.rcc.ahb_pre = AHBPrescaler::Div1;
+    config.rcc.apb1_pre = APBPrescaler::Div1;
+    config.rcc.apb2_pre = APBPrescaler::Div1;
+    config.rcc.apb7_pre = APBPrescaler::Div1;
+    config.rcc.ahb5_pre = AHB5Prescaler::Div4;
+    config.rcc.voltage_scale = VoltageScale::Range1;
+    config.rcc.sys = Sysclk::Pll1R;
 
     // Configure RNG clock source to HSI (required for WBA)
-    config.rcc.mux.rngsel = mux::Rngsel::HSI;
+    config.rcc.mux.rngsel = mux::Rngsel::Hsi;
 
     let p = embassy_stm32::init(config);
 
@@ -114,7 +114,7 @@ async fn main(spawner: Spawner) {
         use embassy_stm32::pac::RCC;
         use embassy_stm32::pac::rcc::vals::Radiostsel;
         RCC.ecscr1().modify(|w| w.set_hsetrim(0x0C));
-        RCC.bdcr().modify(|w| w.set_radiostsel(Radiostsel::LSE));
+        RCC.bdcr().modify(|w| w.set_radiostsel(Radiostsel::Lse));
     }
 
     info!("Embassy STM32WBA6 BLE Advertiser Example");

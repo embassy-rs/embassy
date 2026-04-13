@@ -19,7 +19,7 @@ async fn main(_spawner: Spawner) {
 
     // This is needed for `probe-rs run` to be able to catch the panic message
     // in the WDT interrupt. The core resets 2 ticks after firing the interrupt.
-    config.action_during_debug_halt = HaltConfig::PAUSE;
+    config.action_during_debug_halt = HaltConfig::Pause;
 
     // The nrf54l15 has two watchdogs. Only one (WDT) is available in non-secure (ns) mode, as the
     // other is reserved for the secure (s) environment. In secure mode, both are available as WDT0

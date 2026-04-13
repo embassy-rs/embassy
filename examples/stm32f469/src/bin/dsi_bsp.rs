@@ -35,33 +35,33 @@ static FERRIS_IMAGE: &[u8; 1536000] = include_bytes!("ferris.bin");
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
-    config.rcc.sys = Sysclk::PLL1_P;
-    config.rcc.ahb_pre = AHBPrescaler::DIV1;
-    config.rcc.apb1_pre = APBPrescaler::DIV4;
-    config.rcc.apb2_pre = APBPrescaler::DIV2;
+    config.rcc.sys = Sysclk::Pll1P;
+    config.rcc.ahb_pre = AHBPrescaler::Div1;
+    config.rcc.apb1_pre = APBPrescaler::Div4;
+    config.rcc.apb2_pre = APBPrescaler::Div2;
 
     // HSE is on and ready
     config.rcc.hse = Some(Hse {
         freq: mhz(8),
         mode: HseMode::Oscillator,
     });
-    config.rcc.pll_src = PllSource::HSE;
+    config.rcc.pll_src = PllSource::Hse;
 
     config.rcc.pll = Some(Pll {
-        prediv: PllPreDiv::DIV8, // PLLM
-        mul: PllMul::MUL360,     // PLLN
-        divp: Some(PllPDiv::DIV2),
-        divq: Some(PllQDiv::DIV7), // was DIV4, but STM BSP example uses 7
-        divr: Some(PllRDiv::DIV6),
+        prediv: PllPreDiv::Div8, // PLLM
+        mul: PllMul::Mul360,     // PLLN
+        divp: Some(PllPDiv::Div2),
+        divq: Some(PllQDiv::Div7), // was DIV4, but STM BSP example uses 7
+        divr: Some(PllRDiv::Div6),
     });
 
     // This seems to be working, the values in the RCC.PLLSAICFGR are correct according to the debugger. Also on and ready according to CR
     config.rcc.pllsai = Some(Pll {
-        prediv: PllPreDiv::DIV8,   // Actually ignored
-        mul: PllMul::MUL384,       // PLLN
+        prediv: PllPreDiv::Div8,   // Actually ignored
+        mul: PllMul::Mul384,       // PLLN
         divp: None,                // PLLP
         divq: None,                // PLLQ
-        divr: Some(PllRDiv::DIV7), // PLLR (Sai actually has special clockdiv register)
+        divr: Some(PllRDiv::Div7), // PLLR (Sai actually has special clockdiv register)
     });
 
     let p = embassy_stm32::init(config);
@@ -363,20 +363,20 @@ async fn main(_spawner: Spawner) {
     const _PCPOLARITY: bool = false; // LTDC_PCPOLARITY_IPC == 0
 
     const LTDC_DE_POLARITY: Depol = if !DE_POLARITY {
-        Depol::ACTIVE_LOW
+        Depol::ActiveLow
     } else {
-        Depol::ACTIVE_HIGH
+        Depol::ActiveHigh
     };
     const LTDC_VS_POLARITY: Vspol = if !VS_POLARITY {
-        Vspol::ACTIVE_HIGH
+        Vspol::ActiveHigh
     } else {
-        Vspol::ACTIVE_LOW
+        Vspol::ActiveLow
     };
 
     const LTDC_HS_POLARITY: Hspol = if !HS_POLARITY {
-        Hspol::ACTIVE_HIGH
+        Hspol::ActiveHigh
     } else {
-        Hspol::ACTIVE_LOW
+        Hspol::ActiveLow
     };
 
     /* Timing Configuration */
@@ -397,7 +397,7 @@ async fn main(_spawner: Spawner) {
         w.set_hspol(LTDC_HS_POLARITY);
         w.set_vspol(LTDC_VS_POLARITY);
         w.set_depol(LTDC_DE_POLARITY);
-        w.set_pcpol(Pcpol::RISING_EDGE);
+        w.set_pcpol(Pcpol::RisingEdge);
     });
 
     // Set Synchronization size
@@ -521,7 +521,7 @@ async fn main(_spawner: Spawner) {
     const WINDOW_X1: u16 = LCD_X_SIZE; // 480 for ferris
     const WINDOW_Y0: u16 = 0;
     const WINDOW_Y1: u16 = LCD_Y_SIZE; // 800 for ferris
-    const PIXEL_FORMAT: Pf = Pf::ARGB8888;
+    const PIXEL_FORMAT: Pf = Pf::Argb8888;
     //const FBStartAdress: u16 = FB_Address;
     const ALPHA: u8 = 255;
     const ALPHA0: u8 = 0;
@@ -532,9 +532,9 @@ async fn main(_spawner: Spawner) {
     const IMAGE_HEIGHT: u16 = LCD_Y_SIZE; // 800 for ferris
 
     const PIXEL_SIZE: u8 = match PIXEL_FORMAT {
-        Pf::ARGB8888 => 4,
-        Pf::RGB888 => 3,
-        Pf::ARGB4444 | Pf::RGB565 | Pf::ARGB1555 | Pf::AL88 => 2,
+        Pf::Argb8888 => 4,
+        Pf::Rgb888 => 3,
+        Pf::Argb4444 | Pf::Rgb565 | Pf::Argb1555 | Pf::Al88 => 2,
         _ => 1,
     };
 
@@ -566,8 +566,8 @@ async fn main(_spawner: Spawner) {
 
     // Specifies the blending factors
     LTDC.layer(0).bfcr().write(|w| {
-        w.set_bf1(Bf1::CONSTANT);
-        w.set_bf2(Bf2::CONSTANT);
+        w.set_bf1(Bf1::Constant);
+        w.set_bf2(Bf2::Constant);
     });
 
     // Configure the color frame buffer start address
@@ -588,7 +588,7 @@ async fn main(_spawner: Spawner) {
     LTDC.layer(0).cr().modify(|w| w.set_len(true));
 
     //LTDC->SRCR = LTDC_SRCR_IMR;
-    LTDC.srcr().modify(|w| w.set_imr(Imr::RELOAD));
+    LTDC.srcr().modify(|w| w.set_imr(Imr::Reload));
 
     block_for(Duration::from_millis(5000));
 

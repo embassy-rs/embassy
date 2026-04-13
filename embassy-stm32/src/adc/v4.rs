@@ -81,13 +81,13 @@ impl<T: DefaultInstance> super::ConverterFor<super::Temperature> for T {
 fn from_ker_ck(frequency: Hertz) -> Presc {
     let raw_prescaler = rcc::raw_prescaler(frequency.0, MAX_ADC_CLK_FREQ.0);
     match raw_prescaler {
-        0 => Presc::DIV1,
-        1 => Presc::DIV2,
-        2..=3 => Presc::DIV4,
-        4..=5 => Presc::DIV6,
-        6..=7 => Presc::DIV8,
-        8..=9 => Presc::DIV10,
-        10..=11 => Presc::DIV12,
+        0 => Presc::Div1,
+        1 => Presc::Div2,
+        2..=3 => Presc::Div4,
+        4..=5 => Presc::Div6,
+        6..=7 => Presc::Div8,
+        8..=9 => Presc::Div10,
+        10..=11 => Presc::Div12,
         _ => unimplemented!(),
     }
 }
@@ -123,7 +123,7 @@ impl AdcRegs for crate::pac::adc::Adc {
     fn stop(&self, _disable: bool) {
         if self.cr().read().adstart() && !self.cr().read().addis() {
             self.cr().modify(|reg| {
-                reg.set_adstp(Adstp::STOP);
+                reg.set_adstp(Adstp::Stop);
             });
             while self.cr().read().adstart() {}
         }
@@ -148,7 +148,7 @@ impl AdcRegs for crate::pac::adc::Adc {
             w.set_cont(false);
             w.set_dmngt(match conversion_mode {
                 ConversionMode::NoDma => Dmngt::from_bits(0),
-                _ => Dmngt::DMA_CIRCULAR,
+                _ => Dmngt::DmaCircular,
             });
         });
     }
@@ -179,7 +179,7 @@ impl AdcRegs for crate::pac::adc::Adc {
             #[cfg(any(stm32h7, stm32u5, stm32u3))]
             {
                 self.cfgr2().modify(|w| w.set_lshift(0));
-                self.pcsel().modify(|w| w.set_pcsel(channel as _, Pcsel::PRESELECTED));
+                self.pcsel().modify(|w| w.set_pcsel(channel as _, Pcsel::Preselected));
             }
 
             match i {
@@ -269,13 +269,13 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
         #[cfg(stm32h7)]
         {
             let boost = if frequency < Hertz::khz(6_250) {
-                Boost::LT6_25
+                Boost::Lt625
             } else if frequency < Hertz::khz(12_500) {
-                Boost::LT12_5
+                Boost::Lt125
             } else if frequency < Hertz::mhz(25) {
-                Boost::LT25
+                Boost::Lt25
             } else {
-                Boost::LT50
+                Boost::Lt50
             };
             T::regs().cr().modify(|w| w.set_boost(boost));
         }
@@ -290,14 +290,14 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
         #[cfg(not(stm32u3))]
         T::regs().difsel().modify(|w| {
             for n in 0..20 {
-                w.set_difsel(n, Difsel::SINGLE_ENDED);
+                w.set_difsel(n, Difsel::SingleEnded);
             }
         });
 
         #[cfg(not(stm32u3))]
         T::regs().cr().modify(|w| {
             #[cfg(not(adc_u5))]
-            w.set_adcaldif(Adcaldif::SINGLE_ENDED);
+            w.set_adcaldif(Adcaldif::SingleEnded);
             w.set_adcallin(true);
         });
 
@@ -312,7 +312,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
         // single conversion mode, software trigger
         T::regs().cfgr().modify(|w| {
             w.set_cont(false);
-            w.set_exten(Exten::DISABLED);
+            w.set_exten(Exten::Disabled);
         });
 
         Self { adc }

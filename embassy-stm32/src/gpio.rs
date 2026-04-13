@@ -59,25 +59,25 @@ impl<'d> Flex<'d> {
                 let cnf = match pull {
                     Pull::Up => {
                         r.bsrr().write(|w| w.set_bs(n, true));
-                        vals::CnfIn::PULL
+                        vals::CnfIn::Pull
                     }
                     Pull::Down => {
                         r.bsrr().write(|w| w.set_br(n, true));
-                        vals::CnfIn::PULL
+                        vals::CnfIn::Pull
                     }
-                    Pull::None => vals::CnfIn::FLOATING,
+                    Pull::None => vals::CnfIn::Floating,
                 };
 
                 r.cr(n / 8).modify(|w| {
-                    w.set_mode(n % 8, vals::Mode::INPUT);
+                    w.set_mode(n % 8, vals::Mode::Input);
                     w.set_cnf_in(n % 8, cnf);
                 });
             }
             #[cfg(gpio_v2)]
             {
                 r.pupdr().modify(|w| w.set_pupdr(n, pull.to_pupdr()));
-                r.otyper().modify(|w| w.set_ot(n, vals::Ot::PUSH_PULL));
-                r.moder().modify(|w| w.set_moder(n, vals::Moder::INPUT));
+                r.otyper().modify(|w| w.set_ot(n, vals::Ot::PushPull));
+                r.moder().modify(|w| w.set_moder(n, vals::Moder::Input));
             }
         });
     }
@@ -97,15 +97,15 @@ impl<'d> Flex<'d> {
             {
                 r.cr(n / 8).modify(|w| {
                     w.set_mode(n % 8, speed.to_mode());
-                    w.set_cnf_out(n % 8, vals::CnfOut::PUSH_PULL);
+                    w.set_cnf_out(n % 8, vals::CnfOut::PushPull);
                 });
             }
             #[cfg(gpio_v2)]
             {
-                r.pupdr().modify(|w| w.set_pupdr(n, vals::Pupdr::FLOATING));
-                r.otyper().modify(|w| w.set_ot(n, vals::Ot::PUSH_PULL));
+                r.pupdr().modify(|w| w.set_pupdr(n, vals::Pupdr::Floating));
+                r.otyper().modify(|w| w.set_ot(n, vals::Ot::PushPull));
                 r.ospeedr().modify(|w| w.set_ospeedr(n, speed.to_ospeedr()));
-                r.moder().modify(|w| w.set_moder(n, vals::Moder::OUTPUT));
+                r.moder().modify(|w| w.set_moder(n, vals::Moder::Output));
             }
         });
     }
@@ -127,7 +127,7 @@ impl<'d> Flex<'d> {
             let r = self.pin.block();
             let n = self.pin.pin() as usize;
             r.cr(n / 8).modify(|w| w.set_mode(n % 8, speed.to_mode()));
-            r.cr(n / 8).modify(|w| w.set_cnf_out(n % 8, vals::CnfOut::OPEN_DRAIN));
+            r.cr(n / 8).modify(|w| w.set_cnf_out(n % 8, vals::CnfOut::OpenDrain));
         });
 
         #[cfg(gpio_v2)]
@@ -145,9 +145,9 @@ impl<'d> Flex<'d> {
             let r = self.pin.block();
             let n = self.pin.pin() as usize;
             r.pupdr().modify(|w| w.set_pupdr(n, pull.to_pupdr()));
-            r.otyper().modify(|w| w.set_ot(n, vals::Ot::OPEN_DRAIN));
+            r.otyper().modify(|w| w.set_ot(n, vals::Ot::OpenDrain));
             r.ospeedr().modify(|w| w.set_ospeedr(n, speed.to_ospeedr()));
-            r.moder().modify(|w| w.set_moder(n, vals::Moder::OUTPUT));
+            r.moder().modify(|w| w.set_moder(n, vals::Moder::Output));
         });
     }
 
@@ -186,7 +186,7 @@ impl<'d> Flex<'d> {
     #[inline]
     pub fn is_low(&self) -> bool {
         let state = self.pin.block().idr().read().idr(self.pin.pin() as _);
-        state == vals::Idr::LOW
+        state == vals::Idr::Low
     }
 
     /// Get the current pin input level.
@@ -205,7 +205,7 @@ impl<'d> Flex<'d> {
     #[inline]
     pub fn is_set_low(&self) -> bool {
         let state = self.pin.block().odr().read().odr(self.pin.pin() as _);
-        state == vals::Odr::LOW
+        state == vals::Odr::Low
     }
 
     /// Get the current output level.
@@ -272,9 +272,9 @@ impl Pull {
     #[cfg(gpio_v2)]
     const fn to_pupdr(self) -> vals::Pupdr {
         match self {
-            Pull::None => vals::Pupdr::FLOATING,
-            Pull::Up => vals::Pupdr::PULL_UP,
-            Pull::Down => vals::Pupdr::PULL_DOWN,
+            Pull::None => vals::Pupdr::Floating,
+            Pull::Up => vals::Pupdr::PullUp,
+            Pull::Down => vals::Pupdr::PullDown,
         }
     }
 }
@@ -304,20 +304,20 @@ impl Speed {
     #[cfg(gpio_v1)]
     const fn to_mode(self) -> vals::Mode {
         match self {
-            Speed::Low => vals::Mode::OUTPUT2MHZ,
-            Speed::Medium => vals::Mode::OUTPUT10MHZ,
-            Speed::VeryHigh => vals::Mode::OUTPUT50MHZ,
+            Speed::Low => vals::Mode::Output2mhz,
+            Speed::Medium => vals::Mode::Output10mhz,
+            Speed::VeryHigh => vals::Mode::Output50mhz,
         }
     }
 
     #[cfg(gpio_v2)]
     const fn to_ospeedr(self: Speed) -> vals::Ospeedr {
         match self {
-            Speed::Low => vals::Ospeedr::LOW_SPEED,
-            Speed::Medium => vals::Ospeedr::MEDIUM_SPEED,
+            Speed::Low => vals::Ospeedr::LowSpeed,
+            Speed::Medium => vals::Ospeedr::MediumSpeed,
             #[cfg(not(syscfg_f0))]
-            Speed::High => vals::Ospeedr::HIGH_SPEED,
-            Speed::VeryHigh => vals::Ospeedr::VERY_HIGH_SPEED,
+            Speed::High => vals::Ospeedr::HighSpeed,
+            Speed::VeryHigh => vals::Ospeedr::VeryHighSpeed,
         }
     }
 }
@@ -570,16 +570,16 @@ impl OutputType {
     #[cfg(gpio_v1)]
     const fn to_cnf_out(self) -> vals::CnfOut {
         match self {
-            OutputType::PushPull => vals::CnfOut::ALT_PUSH_PULL,
-            OutputType::OpenDrain => vals::CnfOut::ALT_OPEN_DRAIN,
+            OutputType::PushPull => vals::CnfOut::AltPushPull,
+            OutputType::OpenDrain => vals::CnfOut::AltOpenDrain,
         }
     }
 
     #[cfg(gpio_v2)]
     const fn to_ot(self) -> vals::Ot {
         match self {
-            OutputType::PushPull => vals::Ot::PUSH_PULL,
-            OutputType::OpenDrain => vals::Ot::OPEN_DRAIN,
+            OutputType::PushPull => vals::Ot::PushPull,
+            OutputType::OpenDrain => vals::Ot::OpenDrain,
         }
     }
 }
@@ -598,11 +598,11 @@ impl AfType {
     /// Input with optional pullup or pulldown.
     pub const fn input(pull: Pull) -> Self {
         let cnf_in = match pull {
-            Pull::Up | Pull::Down => vals::CnfIn::PULL,
-            Pull::None => vals::CnfIn::FLOATING,
+            Pull::Up | Pull::Down => vals::CnfIn::Pull,
+            Pull::None => vals::CnfIn::Floating,
         };
         Self {
-            mode: vals::Mode::INPUT,
+            mode: vals::Mode::Input,
             cnf: cnf_in.to_bits(),
             pull,
         }
@@ -655,8 +655,8 @@ impl AfType {
     pub const fn input(pull: Pull) -> Self {
         Self {
             pupdr: pull.to_pupdr(),
-            ot: vals::Ot::PUSH_PULL,
-            ospeedr: vals::Ospeedr::LOW_SPEED,
+            ot: vals::Ot::PushPull,
+            ospeedr: vals::Ospeedr::LowSpeed,
         }
     }
 
@@ -686,7 +686,7 @@ fn set_as_af(pin_port: PinNumber, af_num: u8, af_type: AfType) {
     r.pupdr().modify(|w| w.set_pupdr(n, af_type.pupdr));
     r.otyper().modify(|w| w.set_ot(n, af_type.ot));
     r.ospeedr().modify(|w| w.set_ospeedr(n, af_type.ospeedr));
-    r.moder().modify(|w| w.set_moder(n, vals::Moder::ALTERNATE));
+    r.moder().modify(|w| w.set_moder(n, vals::Moder::Alternate));
 }
 
 #[inline(never)]
@@ -707,15 +707,15 @@ pub(crate) fn set_as_analog(pin_port: PinNumber) {
 
     #[cfg(gpio_v1)]
     r.cr(n / 8).modify(|w| {
-        w.set_mode(n % 8, vals::Mode::INPUT);
-        w.set_cnf_in(n % 8, vals::CnfIn::ANALOG);
+        w.set_mode(n % 8, vals::Mode::Input);
+        w.set_cnf_in(n % 8, vals::CnfIn::Analog);
     });
 
     #[cfg(gpio_v2)]
     {
         #[cfg(any(stm32l47x, stm32l48x))]
         r.ascr().modify(|w| w.set_asc(n, true));
-        r.moder().modify(|w| w.set_moder(n, vals::Moder::ANALOG));
+        r.moder().modify(|w| w.set_moder(n, vals::Moder::Analog));
     }
 }
 
@@ -727,10 +727,10 @@ fn get_pull(pin_port: PinNumber) -> Pull {
 
     #[cfg(gpio_v1)]
     return match r.cr(n / 8).read().mode(n % 8) {
-        vals::Mode::INPUT => match r.cr(n / 8).read().cnf_in(n % 8) {
-            vals::CnfIn::PULL => match r.odr().read().odr(n) {
-                vals::Odr::LOW => Pull::Down,
-                vals::Odr::HIGH => Pull::Up,
+        vals::Mode::Input => match r.cr(n / 8).read().cnf_in(n % 8) {
+            vals::CnfIn::Pull => match r.odr().read().odr(n) {
+                vals::Odr::Low => Pull::Down,
+                vals::Odr::High => Pull::Up,
             },
             _ => Pull::None,
         },
@@ -739,9 +739,9 @@ fn get_pull(pin_port: PinNumber) -> Pull {
 
     #[cfg(gpio_v2)]
     return match r.pupdr().read().pupdr(n) {
-        vals::Pupdr::FLOATING => Pull::None,
-        vals::Pupdr::PULL_DOWN => Pull::Down,
-        vals::Pupdr::PULL_UP => Pull::Up,
+        vals::Pupdr::Floating => Pull::None,
+        vals::Pupdr::PullDown => Pull::Down,
+        vals::Pupdr::PullUp => Pull::Up,
         vals::Pupdr::_RESERVED_3 => Pull::None,
     };
 }
@@ -981,10 +981,10 @@ impl From<SwjCfg> for crate::pac::afio::vals::SwjCfg {
     #[inline(always)]
     fn from(value: SwjCfg) -> Self {
         match value {
-            SwjCfg::SwdAndJtag => crate::pac::afio::vals::SwjCfg::RESET,
-            SwjCfg::SwdAndJtagNoRst => crate::pac::afio::vals::SwjCfg::NO_JNT_RST,
-            SwjCfg::SwdOnly => crate::pac::afio::vals::SwjCfg::JTAG_DISABLE,
-            SwjCfg::Disabled => crate::pac::afio::vals::SwjCfg::DISABLE,
+            SwjCfg::SwdAndJtag => crate::pac::afio::vals::SwjCfg::Reset,
+            SwjCfg::SwdAndJtagNoRst => crate::pac::afio::vals::SwjCfg::NoJntRst,
+            SwjCfg::SwdOnly => crate::pac::afio::vals::SwjCfg::JtagDisable,
+            SwjCfg::Disabled => crate::pac::afio::vals::SwjCfg::Disable,
         }
     }
 }

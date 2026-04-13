@@ -57,7 +57,7 @@ async fn dac_task1(tim: Peri<'static, TIM6>, mut dac: DacChannel<'static, Async>
 
     let tim = Timer::new(tim);
     tim.regs_basic().arr().modify(|w| w.set_arr(reload as u16 - 1));
-    tim.regs_basic().cr2().modify(|w| w.set_mms(Mms::UPDATE));
+    tim.regs_basic().cr2().modify(|w| w.set_mms(Mms::Update));
     tim.regs_basic().cr1().modify(|w| {
         w.set_opm(false);
         w.set_cen(true);
@@ -94,7 +94,7 @@ async fn dac_task2(tim: Peri<'static, TIM7>, mut dac: DacChannel<'static, Async>
 
     let tim = Timer::new(tim);
     tim.regs_basic().arr().modify(|w| w.set_arr(reload as u16 - 1));
-    tim.regs_basic().cr2().modify(|w| w.set_mms(Mms::UPDATE));
+    tim.regs_basic().cr2().modify(|w| w.set_mms(Mms::Update));
     tim.regs_basic().cr1().modify(|w| {
         w.set_opm(false);
         w.set_cen(true);
