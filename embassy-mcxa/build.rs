@@ -1,14 +1,14 @@
+use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::{env, fs};
 
+use build_common::CfgSet;
 use nxp_pac::metadata::METADATA;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use regex::Regex;
-
-use build_common::CfgSet;
 
 mod build_common;
 
@@ -27,7 +27,8 @@ fn main() {
         let cfg_name = match peripheral.driver_name.split_once("::") {
             Some((path, _block)) => path,
             None => peripheral.driver_name,
-        }.replace("/", "_");
+        }
+        .replace("/", "_");
 
         cfgs.enable(&cfg_name);
         // Temporary until todo above is removed
@@ -119,6 +120,45 @@ fn main() {
             });
         }
     }
+
+    // Generate DMA request enum
+    let mut dma_requests = HashMap::new();
+    for dma_mux in METADATA.peripherals.iter().flat_map(|p| p.dma_muxing) {
+        dma_requests.insert(dma_mux.signal, dma_mux.request);
+    }
+    let mut sorted_dma_requests = dma_requests.into_iter().collect::<Vec<_>>();
+    sorted_dma_requests.sort_unstable_by_key(|(_, request)| *request);
+    let enum_variants = sorted_dma_requests.into_iter().map(|(name, value)| {
+        use convert_case::ccase;
+        let name = format_ident!("{}", ccase!(pascal, name));
+        quote! { #name = #value }
+    });
+    generated.extend(quote! {
+        /// DMA request sources
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+        #[repr(u8)]
+        #[allow(dead_code)]
+        pub enum DmaRequest {
+            #(#enum_variants),*
+        }
+
+        impl DmaRequest {
+            /// Convert enumerated value into a raw integer
+            pub const fn number(self) -> u8 {
+                self as u8
+            }
+
+            /// Convert a raw integer into an enumerated value
+            ///
+            /// ## SAFETY
+            ///
+            /// The given number MUST be one of the defined variant, e.g. a number
+            /// derived from [`Self::number()`], otherwise it is immediate undefined behavior.
+            pub unsafe fn from_number_unchecked(num: u8) -> Self {
+                unsafe { core::mem::transmute(num) }
+            }
+        }
+    });
 
     let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let out_file = out_dir.join("_generated.rs");

@@ -72,8 +72,8 @@ macro_rules! impl_instance {
                         = crate::clocks::periph_helpers::Lpi2cInstance::[<Lpi2c $n>];
                     const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_i2c $n>];
                     const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_i2c $n _wake>];
-                    const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<LPI2C $n Tx>];
-                    const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<LPI2C $n Rx>];
+                    const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpi2C $n Tx>];
+                    const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpi2C $n Rx>];
                 }
 
                 impl Instance for crate::peripherals::[<LPI2C $n>] {

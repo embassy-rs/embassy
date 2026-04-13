@@ -69,8 +69,8 @@ macro_rules! impl_instance {
                         = crate::clocks::periph_helpers::LpspiInstance::[<Lpspi $n>];
                     const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_spi $n>];
                     const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_spi $n _wake>];
-                    const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<LPSPI $n Tx>];
-                    const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<LPSPI $n Rx>];
+                    const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpspi $n Tx>];
+                    const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpspi $n Rx>];
                 }
 
                 impl Instance for crate::peripherals::[<LPSPI $n>] {

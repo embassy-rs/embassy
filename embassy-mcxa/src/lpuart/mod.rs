@@ -155,8 +155,8 @@ macro_rules! impl_instance {
 
                     const CLOCK_INSTANCE: crate::clocks::periph_helpers::LpuartInstance
                         = crate::clocks::periph_helpers::LpuartInstance::[<Lpuart $n>];
-                    const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<LPUART $n Tx>];
-                    const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<LPUART $n Rx>];
+                    const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpuart $n Tx>];
+                    const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpuart $n Rx>];
                     const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_lpuart $n>];
                     const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_lpuart $n _wake>];
                 }
