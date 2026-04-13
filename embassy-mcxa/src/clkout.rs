@@ -227,10 +227,10 @@ fn disable_clkout() {
     mrcc.mrcc_clkout_clksel().write(|w| w.0 = 0b111);
 }
 
-mod sealed {
+pub(crate) mod sealed {
     use embassy_hal_internal::PeripheralType;
 
-    use crate::gpio::{GpioPin, Pull, SealedPin};
+    use crate::gpio::GpioPin;
 
     /// Sealed marker trait for clockout pins
     pub trait ClockOutPin: GpioPin + PeripheralType {
@@ -238,12 +238,15 @@ mod sealed {
         fn mux(&self);
     }
 
-    macro_rules! impl_pin {
+    #[macro_export]
+    macro_rules! impl_clkout_pin {
         ($pin:ident, $func:ident) => {
-            impl ClockOutPin for crate::peripherals::$pin {
+            impl crate::clkout::sealed::ClockOutPin for crate::peripherals::$pin {
                 fn mux(&self) {
+                    use crate::gpio::SealedPin;
+
                     self.set_function(crate::pac::port::Mux::$func);
-                    self.set_pull(Pull::Disabled);
+                    self.set_pull(crate::gpio::Pull::Disabled);
 
                     // TODO: we may want to expose these as options to allow the slew rate
                     // and drive strength for clocks if they are particularly high speed.
@@ -254,15 +257,4 @@ mod sealed {
             }
         };
     }
-
-    // TODO: 5xx reference manual states that P0_6 and P3_8 are clkout pins (Table 352), but the pinmux
-    // table doesn't list which alt mode corresponds with clkout (Table 340)
-    #[cfg(feature = "mcxa2xx")]
-    #[cfg(feature = "jtag-extras-as-gpio")]
-    impl_pin!(P0_6, MUX12);
-    #[cfg(feature = "mcxa2xx")]
-    impl_pin!(P3_8, MUX12);
-
-    impl_pin!(P3_6, MUX1);
-    impl_pin!(P4_2, MUX1);
 }

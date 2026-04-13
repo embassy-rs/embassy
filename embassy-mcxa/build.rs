@@ -41,6 +41,7 @@ fn main() {
         generate_dma_requests_enum(),
         generate_gpio_pin_impls(),
         generate_adc_pin_impls(),
+        generate_clkout_impls(),
     ];
 
     let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
@@ -150,6 +151,28 @@ fn generate_adc_pin_impls() -> TokenStream {
                 let pin_name = format_ident!("{}", pin.pin);
                 generated.extend(quote! {
                     impl_adc_pin!(#pin_name, #adc_name, #channel);
+                });
+            }
+        }
+    }
+
+    generated
+}
+
+fn generate_clkout_impls() -> TokenStream {
+    let mut generated = TokenStream::new();
+
+    for adc in METADATA
+        .peripherals
+        .iter()
+        .filter(|p| p.name.to_ascii_lowercase() == "clkout")
+    {
+        for signal in adc.signals {
+            for pin in signal.pins {
+                let pin_name = format_ident!("{}", pin.pin);
+                let mux = format_ident!("MUX{}", pin.alt);
+                generated.extend(quote! {
+                    impl_clkout_pin!(#pin_name, #mux);
                 });
             }
         }
