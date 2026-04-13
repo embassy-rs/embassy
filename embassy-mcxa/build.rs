@@ -35,12 +35,20 @@ fn main() {
         cfgs.declare(&cfg_name);
     }
 
-    let get_regex_num = |string, regex: &Regex| {
-        regex
-            .captures(string)
-            .map(|cap| cap.extract::<1>().1[0].parse::<u32>().unwrap())
-    };
+    let generated = [
+        generate_peripherals_call(),
+        generate_interrupt_mod_call(),
+        generate_dma_requests_enum(),
+        generate_gpio_pin_impls(),
+    ];
 
+    let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
+    let out_file = out_dir.join("_generated.rs");
+    fs::write(&out_file, generated.into_iter().collect::<TokenStream>().to_string()).unwrap();
+    rustfmt(&out_file);
+}
+
+fn generate_peripherals_call() -> TokenStream {
     let mut singletons: Vec<String> = Vec::new();
     // Add pins
     singletons.extend(METADATA.pins.iter().map(|pin| pin.name.to_owned()));
@@ -76,31 +84,32 @@ fn main() {
 
     // TODO: Remove singletons for pins with dual-use based on feature flags
 
-    let mut generated = TokenStream::new();
-
     // Output the singletons
     let singleton_tokens: Vec<_> = singletons.iter().map(|s| format_ident!("{}", s)).collect();
 
-    generated.extend(quote! {
+    quote! {
         embassy_hal_internal::peripherals!(#(#singleton_tokens),*);
-    });
+    }
+}
 
-    // Output the interrupts
-
+fn generate_interrupt_mod_call() -> TokenStream {
     let mut irqs = Vec::new();
     for (name, _) in METADATA.interrupts {
         irqs.push(format_ident!("{}", name));
     }
 
-    generated.extend(quote! {
+    quote! {
         embassy_hal_internal::interrupt_mod!(
             #(
                 #irqs,
             )*
         );
-    });
+    }
+}
 
-    // Impl gpio pins
+fn generate_gpio_pin_impls() -> TokenStream {
+    let mut generated = TokenStream::new();
+
     let gpio_regex = Regex::new(r"(?i:^GPIO)(\d+)").unwrap();
     for (gpio_num, gpio_peripheral) in METADATA
         .peripherals
@@ -121,7 +130,10 @@ fn main() {
         }
     }
 
-    // Generate DMA request enum
+    generated
+}
+
+fn generate_dma_requests_enum() -> TokenStream {
     let mut dma_requests = HashMap::new();
     for dma_mux in METADATA.peripherals.iter().flat_map(|p| p.dma_muxing) {
         dma_requests.insert(dma_mux.signal, dma_mux.request);
@@ -133,7 +145,7 @@ fn main() {
         let name = format_ident!("{}", ccase!(pascal, name));
         quote! { #name = #value }
     });
-    generated.extend(quote! {
+    quote! {
         /// DMA request sources
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
         #[repr(u8)]
@@ -158,12 +170,7 @@ fn main() {
                 unsafe { core::mem::transmute(num) }
             }
         }
-    });
-
-    let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
-    let out_file = out_dir.join("_generated.rs");
-    fs::write(&out_file, generated.to_string()).unwrap();
-    rustfmt(&out_file);
+    }
 }
 
 /// rustfmt a given path.
@@ -184,4 +191,10 @@ fn rustfmt(path: impl AsRef<Path>) {
             }
         }
     }
+}
+
+fn get_regex_num(string: &str, regex: &Regex) -> Option<u32> {
+    regex
+        .captures(string)
+        .map(|cap| cap.extract::<1>().1[0].parse::<u32>().unwrap())
 }
