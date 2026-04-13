@@ -240,14 +240,14 @@ impl RtcDriver {
             r.waketime().write(|w| w.set_value(4));
             r.mode().modify(|w| {
                 w.set_syscounteren(true);
-                w.set_autoen(Autoen::CPU_ACTIVE);
+                w.set_autoen(Autoen::CpuActive);
             });
 
             // 5. Wait for SYSCOUNTER readiness
             r.syscounter(DOMAIN_IDX).active().write(|w| w.set_active(true));
             loop {
                 let _ = r.syscounter(DOMAIN_IDX).syscounterl().read();
-                if r.syscounter(DOMAIN_IDX).syscounterh().read().busy() == Busy::READY {
+                if r.syscounter(DOMAIN_IDX).syscounterh().read().busy() == Busy::Ready {
                     break;
                 }
             }
