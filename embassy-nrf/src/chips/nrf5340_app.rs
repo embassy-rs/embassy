@@ -484,14 +484,14 @@ impl_ppi_group!(PPI_GROUP3, DPPIC, 3);
 impl_ppi_group!(PPI_GROUP4, DPPIC, 4);
 impl_ppi_group!(PPI_GROUP5, DPPIC, 5);
 
-impl_saadc_input!(P0_04, ANALOG_INPUT0);
-impl_saadc_input!(P0_05, ANALOG_INPUT1);
-impl_saadc_input!(P0_06, ANALOG_INPUT2);
-impl_saadc_input!(P0_07, ANALOG_INPUT3);
-impl_saadc_input!(P0_25, ANALOG_INPUT4);
-impl_saadc_input!(P0_26, ANALOG_INPUT5);
-impl_saadc_input!(P0_27, ANALOG_INPUT6);
-impl_saadc_input!(P0_28, ANALOG_INPUT7);
+impl_saadc_input!(P0_04, AnalogInput0);
+impl_saadc_input!(P0_05, AnalogInput1);
+impl_saadc_input!(P0_06, AnalogInput2);
+impl_saadc_input!(P0_07, AnalogInput3);
+impl_saadc_input!(P0_25, AnalogInput4);
+impl_saadc_input!(P0_26, AnalogInput5);
+impl_saadc_input!(P0_27, AnalogInput6);
+impl_saadc_input!(P0_28, AnalogInput7);
 
 impl_egu!(EGU0, EGU0, EGU0);
 impl_egu!(EGU1, EGU1, EGU1);

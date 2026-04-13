@@ -219,10 +219,10 @@ pub enum Priority {
 impl From<Priority> for pac::dma::vals::Pl {
     fn from(value: Priority) -> Self {
         match value {
-            Priority::Low => pac::dma::vals::Pl::LOW,
-            Priority::Medium => pac::dma::vals::Pl::MEDIUM,
-            Priority::High => pac::dma::vals::Pl::HIGH,
-            Priority::VeryHigh => pac::dma::vals::Pl::VERY_HIGH,
+            Priority::Low => pac::dma::vals::Pl::Low,
+            Priority::Medium => pac::dma::vals::Pl::Medium,
+            Priority::High => pac::dma::vals::Pl::High,
+            Priority::VeryHigh => pac::dma::vals::Pl::VeryHigh,
         }
     }
 }
@@ -231,10 +231,10 @@ impl From<Priority> for pac::dma::vals::Pl {
 impl From<Priority> for pac::bdma::vals::Pl {
     fn from(value: Priority) -> Self {
         match value {
-            Priority::Low => pac::bdma::vals::Pl::LOW,
-            Priority::Medium => pac::bdma::vals::Pl::MEDIUM,
-            Priority::High => pac::bdma::vals::Pl::HIGH,
-            Priority::VeryHigh => pac::bdma::vals::Pl::VERY_HIGH,
+            Priority::Low => pac::bdma::vals::Pl::Low,
+            Priority::Medium => pac::bdma::vals::Pl::Medium,
+            Priority::High => pac::bdma::vals::Pl::High,
+            Priority::VeryHigh => pac::bdma::vals::Pl::VeryHigh,
         }
     }
 }
@@ -250,9 +250,9 @@ mod dma_only {
     impl From<WordSize> for vals::Size {
         fn from(raw: WordSize) -> Self {
             match raw {
-                WordSize::OneByte => Self::BITS8,
-                WordSize::TwoBytes => Self::BITS16,
-                WordSize::FourBytes => Self::BITS32,
+                WordSize::OneByte => Self::Bits8,
+                WordSize::TwoBytes => Self::Bits16,
+                WordSize::FourBytes => Self::Bits32,
                 WordSize::EightBytes => unimplemented!(),
             }
         }
@@ -261,9 +261,9 @@ mod dma_only {
     impl From<Dir> for vals::Dir {
         fn from(raw: Dir) -> Self {
             match raw {
-                Dir::MemoryToPeripheral => Self::MEMORY_TO_PERIPHERAL,
-                Dir::PeripheralToMemory => Self::PERIPHERAL_TO_MEMORY,
-                Dir::MemoryToMemory => Self::MEMORY_TO_MEMORY,
+                Dir::MemoryToPeripheral => Self::MemoryToPeripheral,
+                Dir::PeripheralToMemory => Self::PeripheralToMemory,
+                Dir::MemoryToMemory => Self::MemoryToMemory,
             }
         }
     }
@@ -293,10 +293,10 @@ mod dma_only {
     impl From<Burst> for vals::Burst {
         fn from(burst: Burst) -> Self {
             match burst {
-                Burst::Single => vals::Burst::SINGLE,
-                Burst::Incr4 => vals::Burst::INCR4,
-                Burst::Incr8 => vals::Burst::INCR8,
-                Burst::Incr16 => vals::Burst::INCR16,
+                Burst::Single => vals::Burst::Single,
+                Burst::Incr4 => vals::Burst::Incr4,
+                Burst::Incr8 => vals::Burst::Incr8,
+                Burst::Incr16 => vals::Burst::Incr16,
                 _ => unimplemented!("invalid burst size"),
             }
         }
@@ -315,8 +315,8 @@ mod dma_only {
     impl From<FlowControl> for vals::Pfctrl {
         fn from(flow: FlowControl) -> Self {
             match flow {
-                FlowControl::Dma => vals::Pfctrl::DMA,
-                FlowControl::Peripheral => vals::Pfctrl::PERIPHERAL,
+                FlowControl::Dma => vals::Pfctrl::Dma,
+                FlowControl::Peripheral => vals::Pfctrl::Peripheral,
             }
         }
     }
@@ -338,10 +338,10 @@ mod dma_only {
     impl From<FifoThreshold> for vals::Fth {
         fn from(value: FifoThreshold) -> Self {
             match value {
-                FifoThreshold::Quarter => vals::Fth::QUARTER,
-                FifoThreshold::Half => vals::Fth::HALF,
-                FifoThreshold::ThreeQuarters => vals::Fth::THREE_QUARTERS,
-                FifoThreshold::Full => vals::Fth::FULL,
+                FifoThreshold::Quarter => vals::Fth::Quarter,
+                FifoThreshold::Half => vals::Fth::Half,
+                FifoThreshold::ThreeQuarters => vals::Fth::ThreeQuarters,
+                FifoThreshold::Full => vals::Fth::Full,
             }
         }
     }
@@ -367,10 +367,10 @@ mod mdma_only {
     impl From<WordSize> for vals::Wordsize {
         fn from(raw: WordSize) -> Self {
             match raw {
-                WordSize::OneByte => Self::BYTE,
-                WordSize::TwoBytes => Self::HALF_WORD,
-                WordSize::FourBytes => Self::WORD,
-                WordSize::EightBytes => Self::DOUBLE_WORD,
+                WordSize::OneByte => Self::Byte,
+                WordSize::TwoBytes => Self::HalfWord,
+                WordSize::FourBytes => Self::Word,
+                WordSize::EightBytes => Self::DoubleWord,
             }
         }
     }
@@ -378,14 +378,14 @@ mod mdma_only {
     impl From<Burst> for vals::Burst {
         fn from(burst: Burst) -> Self {
             match burst {
-                Burst::Single => vals::Burst::SINGLE,
-                Burst::Incr4 => vals::Burst::INCR4,
-                Burst::Incr8 => vals::Burst::INCR8,
-                Burst::Incr16 => vals::Burst::INCR16,
-                Burst::Incr32 => vals::Burst::INCR32,
-                Burst::Incr64 => vals::Burst::INCR64,
-                Burst::Incr128 => vals::Burst::INCR128,
-                Burst::Incr256 => vals::Burst::INCR256,
+                Burst::Single => vals::Burst::Single,
+                Burst::Incr4 => vals::Burst::Incr4,
+                Burst::Incr8 => vals::Burst::Incr8,
+                Burst::Incr16 => vals::Burst::Incr16,
+                Burst::Incr32 => vals::Burst::Incr32,
+                Burst::Incr64 => vals::Burst::Incr64,
+                Burst::Incr128 => vals::Burst::Incr128,
+                Burst::Incr256 => vals::Burst::Incr256,
             }
         }
     }
@@ -393,10 +393,10 @@ mod mdma_only {
     impl From<Priority> for pac::mdma::vals::Pl {
         fn from(value: Priority) -> Self {
             match value {
-                Priority::Low => pac::mdma::vals::Pl::LOW,
-                Priority::Medium => pac::mdma::vals::Pl::MEDIUM,
-                Priority::High => pac::mdma::vals::Pl::HIGH,
-                Priority::VeryHigh => pac::mdma::vals::Pl::VERY_HIGH,
+                Priority::Low => pac::mdma::vals::Pl::Low,
+                Priority::Medium => pac::mdma::vals::Pl::Medium,
+                Priority::High => pac::mdma::vals::Pl::High,
+                Priority::VeryHigh => pac::mdma::vals::Pl::VeryHigh,
             }
         }
     }
@@ -411,9 +411,9 @@ mod bdma_only {
     impl From<WordSize> for vals::Size {
         fn from(raw: WordSize) -> Self {
             match raw {
-                WordSize::OneByte => Self::BITS8,
-                WordSize::TwoBytes => Self::BITS16,
-                WordSize::FourBytes => Self::BITS32,
+                WordSize::OneByte => Self::Bits8,
+                WordSize::TwoBytes => Self::Bits16,
+                WordSize::FourBytes => Self::Bits32,
                 WordSize::EightBytes => unimplemented!(),
             }
         }
@@ -422,9 +422,9 @@ mod bdma_only {
     impl From<Dir> for vals::Dir {
         fn from(raw: Dir) -> Self {
             match raw {
-                Dir::MemoryToPeripheral => Self::FROM_MEMORY,
-                Dir::PeripheralToMemory => Self::FROM_PERIPHERAL,
-                Dir::MemoryToMemory => Self::FROM_MEMORY,
+                Dir::MemoryToPeripheral => Self::FromMemory,
+                Dir::PeripheralToMemory => Self::FromPeripheral,
+                Dir::MemoryToMemory => Self::FromMemory,
             }
         }
     }
@@ -544,16 +544,16 @@ impl<'d> Channel<'d> {
                 ch.fcr().write(|w| {
                     if let Some(fth) = options.fifo_threshold {
                         // FIFO mode
-                        w.set_dmdis(pac::dma::vals::Dmdis::DISABLED);
+                        w.set_dmdis(pac::dma::vals::Dmdis::Disabled);
                         w.set_fth(fth.into());
                     } else if mem_size != peri_size {
                         // force FIFO mode if msize != psize
                         // packing/unpacking doesn't work in direct mode.
-                        w.set_dmdis(pac::dma::vals::Dmdis::DISABLED);
+                        w.set_dmdis(pac::dma::vals::Dmdis::Disabled);
                         w.set_fth(FifoThreshold::Half.into());
                     } else {
                         // Direct mode
-                        w.set_dmdis(pac::dma::vals::Dmdis::ENABLED);
+                        w.set_dmdis(pac::dma::vals::Dmdis::Enabled);
                     }
                 });
                 ch.cr().write(|w| {
@@ -688,13 +688,13 @@ impl<'d> Channel<'d> {
                 }
 
                 let (sinc, dinc) = match (incr_mem, dir) {
-                    (Increment::None, _) => (Incmode::FIXED, Incmode::FIXED),
-                    (Increment::Both, _) => (Incmode::INCREMENT, Incmode::INCREMENT),
-                    (_, Dir::MemoryToMemory) => (Incmode::INCREMENT, Incmode::INCREMENT),
-                    (Increment::Peripheral, Dir::PeripheralToMemory) => (Incmode::INCREMENT, Incmode::FIXED),
-                    (Increment::Peripheral, Dir::MemoryToPeripheral) => (Incmode::FIXED, Incmode::INCREMENT),
-                    (Increment::Memory, Dir::PeripheralToMemory) => (Incmode::FIXED, Incmode::INCREMENT),
-                    (Increment::Memory, Dir::MemoryToPeripheral) => (Incmode::INCREMENT, Incmode::FIXED),
+                    (Increment::None, _) => (Incmode::Fixed, Incmode::Fixed),
+                    (Increment::Both, _) => (Incmode::Increment, Incmode::Increment),
+                    (_, Dir::MemoryToMemory) => (Incmode::Increment, Incmode::Increment),
+                    (Increment::Peripheral, Dir::PeripheralToMemory) => (Incmode::Increment, Incmode::Fixed),
+                    (Increment::Peripheral, Dir::MemoryToPeripheral) => (Incmode::Fixed, Incmode::Increment),
+                    (Increment::Memory, Dir::PeripheralToMemory) => (Incmode::Fixed, Incmode::Increment),
+                    (Increment::Memory, Dir::MemoryToPeripheral) => (Incmode::Increment, Incmode::Fixed),
                 };
 
                 ch.tcr().write(|w| {
@@ -719,7 +719,7 @@ impl<'d> Channel<'d> {
                     };
                     if dir == Dir::MemoryToMemory {
                         w.set_swrm(dir == Dir::MemoryToMemory);
-                        w.set_trgm(Trgm::REPEATED);
+                        w.set_trgm(Trgm::Repeated);
                     }
                 });
 
@@ -735,9 +735,9 @@ impl<'d> Channel<'d> {
 
                 let get_bus = |addr: u32| {
                     if MEMORY_REGION_ITCM.contains(&addr) || MEMORY_REGION_DTCM.contains(&addr) {
-                        Bus::AHB
+                        Bus::Ahb
                     } else {
-                        Bus::SYSTEM
+                        Bus::System
                     }
                 };
 

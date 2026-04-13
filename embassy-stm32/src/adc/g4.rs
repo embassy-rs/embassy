@@ -33,13 +33,13 @@ const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(50);
 fn from_ker_ck(frequency: Hertz) -> Presc {
     let raw_prescaler = rcc::raw_prescaler(frequency.0, MAX_ADC_CLK_FREQ.0);
     match raw_prescaler {
-        0 => Presc::DIV1,
-        1 => Presc::DIV2,
-        2..=3 => Presc::DIV4,
-        4..=5 => Presc::DIV6,
-        6..=7 => Presc::DIV8,
-        8..=9 => Presc::DIV10,
-        10..=11 => Presc::DIV12,
+        0 => Presc::Div1,
+        1 => Presc::Div2,
+        2..=3 => Presc::Div4,
+        4..=5 => Presc::Div6,
+        6..=7 => Presc::Div8,
+        8..=9 => Presc::Div10,
+        10..=11 => Presc::Div12,
         _ => unimplemented!(),
     }
 }
@@ -92,7 +92,7 @@ impl super::AdcRegs for crate::pac::adc::Adc {
     fn stop(&self, _disable: bool) {
         if self.cr().read().adstart() && !self.cr().read().addis() {
             self.cr().modify(|reg| {
-                reg.set_adstp(Adstp::STOP);
+                reg.set_adstp(Adstp::Stop);
             });
             // The software must poll ADSTART until the bit is reset before assuming the
             // ADC is completely stopped
@@ -102,8 +102,10 @@ impl super::AdcRegs for crate::pac::adc::Adc {
         // Disable dma control and continuous conversion, if enabled
         self.cfgr().modify(|reg| {
             reg.set_cont(false);
-            reg.set_dmaen(Dmaen::DISABLE);
+            reg.set_dmaen(Dmaen::Disable);
         });
+
+        self.cr().modify(|w| w.set_aden(false));
     }
 
     fn wait_done(&self) -> bool {
@@ -117,10 +119,10 @@ impl super::AdcRegs for crate::pac::adc::Adc {
 
         self.cfgr().modify(|reg| {
             reg.set_discen(false); // Convert all channels for each trigger
-            reg.set_dmacfg(Dmacfg::CIRCULAR);
+            reg.set_dmacfg(Dmacfg::Circular);
             reg.set_dmaen(match conversion_mode {
-                ConversionMode::NoDma => Dmaen::DISABLE,
-                _ => Dmaen::ENABLE,
+                ConversionMode::NoDma => Dmaen::Disable,
+                _ => Dmaen::Enable,
             });
             reg.set_cont(matches!(conversion_mode, ConversionMode::Repeated(None)));
 
@@ -132,8 +134,6 @@ impl super::AdcRegs for crate::pac::adc::Adc {
     }
 
     fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
-        self.cr().modify(|w| w.set_aden(false));
-
         #[cfg(stm32g4)]
         let mut difsel = DifselReg::default();
         let mut smpr = Smpr::default();
@@ -177,9 +177,9 @@ impl super::AdcRegs for crate::pac::adc::Adc {
                     difsel.set_difsel(
                         ch.into(),
                         if is_differential {
-                            Difsel::DIFFERENTIAL
+                            Difsel::Differential
                         } else {
-                            Difsel::SINGLE_ENDED
+                            Difsel::SingleEnded
                         },
                     );
                 }
@@ -255,7 +255,7 @@ impl InjectedRegs for crate::pac::adc::Adc {
     fn stop_injected(&self) {
         if self.cr().read().adstart() && !self.cr().read().addis() {
             self.cr().modify(|reg| {
-                reg.set_jadstp(Adstp::STOP);
+                reg.set_jadstp(Adstp::Stop);
             });
             // The software must poll JADSTART until the bit is reset before assuming the
             // ADC is completely stopped
@@ -301,12 +301,12 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
 
         T::regs().difsel().modify(|w| {
             for n in 0..18 {
-                w.set_difsel(n, Difsel::SINGLE_ENDED);
+                w.set_difsel(n, Difsel::SingleEnded);
             }
         });
 
         T::regs().cr().modify(|w| {
-            w.set_adcaldif(Adcaldif::SINGLE_ENDED);
+            w.set_adcaldif(Adcaldif::SingleEnded);
         });
 
         T::regs().cr().modify(|w| w.set_adcal(true));
@@ -316,7 +316,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         blocking_delay_us(20);
 
         T::regs().cr().modify(|w| {
-            w.set_adcaldif(Adcaldif::DIFFERENTIAL);
+            w.set_adcaldif(Adcaldif::Differential);
         });
 
         T::regs().cr().modify(|w| w.set_adcal(true));
@@ -330,7 +330,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         // single conversion mode, software trigger
         T::regs().cfgr().modify(|w| {
             w.set_cont(false);
-            w.set_exten(Exten::DISABLED);
+            w.set_exten(Exten::Disabled);
         });
 
         if let Some(dual) = config.dual_mode {

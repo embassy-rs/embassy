@@ -166,10 +166,10 @@ pub enum Averaging {
 
 pub const fn resolution_to_max_count(res: Resolution) -> u32 {
     match res {
-        Resolution::BITS12 => (1 << 12) - 1,
-        Resolution::BITS10 => (1 << 10) - 1,
-        Resolution::BITS8 => (1 << 8) - 1,
-        Resolution::BITS6 => (1 << 6) - 1,
+        Resolution::Bits12 => (1 << 12) - 1,
+        Resolution::Bits10 => (1 << 10) - 1,
+        Resolution::Bits8 => (1 << 8) - 1,
+        Resolution::Bits6 => (1 << 6) - 1,
         #[allow(unreachable_patterns)]
         _ => core::unreachable!(),
     }
@@ -178,13 +178,13 @@ pub const fn resolution_to_max_count(res: Resolution) -> u32 {
 fn from_ker_ck(frequency: Hertz) -> Presc {
     let raw_prescaler = rcc::raw_prescaler(frequency.0, MAX_ADC_CLK_FREQ.0);
     match raw_prescaler {
-        0 => Presc::DIV1,
-        1 => Presc::DIV2,
-        2..=3 => Presc::DIV4,
-        4..=5 => Presc::DIV6,
-        6..=7 => Presc::DIV8,
-        8..=9 => Presc::DIV10,
-        10..=11 => Presc::DIV12,
+        0 => Presc::Div1,
+        1 => Presc::Div2,
+        2..=3 => Presc::Div4,
+        4..=5 => Presc::Div6,
+        6..=7 => Presc::Div8,
+        8..=9 => Presc::Div10,
+        10..=11 => Presc::Div12,
         _ => unimplemented!(),
     }
 }
@@ -237,7 +237,7 @@ impl AdcRegs for crate::pac::adc::Adc4 {
 
         self.cfgr1().modify(|reg| {
             reg.set_dmaen(!matches!(conversion_mode, ConversionMode::NoDma));
-            reg.set_dmacfg(Dmacfg::CIRCULAR);
+            reg.set_dmacfg(Dmacfg::Circular);
             reg.set_discen(false);
             reg.set_cont(false);
             reg.set_chselrmod(false);
@@ -272,7 +272,7 @@ impl AdcRegs for crate::pac::adc::Adc4 {
                     smpr.set_smp(0, sample_time); // Index 0 = SMP1
                 }
                 // Set SMPSEL for this channel to use SMP1
-                smpr.set_smpsel(channel as usize, Smpsel::SMP1);
+                smpr.set_smpsel(channel as usize, Smpsel::Smp1);
             }
 
             let channel_num = channel;
@@ -342,7 +342,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
         T::regs().cfgr1().modify(|w| {
             w.set_cont(false);
             w.set_discen(false);
-            w.set_exten(Exten::DISABLED);
+            w.set_exten(Exten::Disabled);
             w.set_chselrmod(false);
         });
 
@@ -354,7 +354,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
             }
             #[cfg(stm32wba)]
             for i in 0..14 {
-                w.set_smpsel(i, Smpsel::SMP1);
+                w.set_smpsel(i, Smpsel::Smp1);
             }
         });
 
@@ -415,15 +415,15 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
     #[cfg(stm32u5)]
     pub fn set_averaging_adc4(&mut self, averaging: Averaging) {
         let (enable, samples, right_shift) = match averaging {
-            Averaging::Disabled => (false, OversamplingRatio::OVERSAMPLE2X, 0),
-            Averaging::Samples2 => (true, OversamplingRatio::OVERSAMPLE2X, 1),
-            Averaging::Samples4 => (true, OversamplingRatio::OVERSAMPLE4X, 2),
-            Averaging::Samples8 => (true, OversamplingRatio::OVERSAMPLE8X, 3),
-            Averaging::Samples16 => (true, OversamplingRatio::OVERSAMPLE16X, 4),
-            Averaging::Samples32 => (true, OversamplingRatio::OVERSAMPLE32X, 5),
-            Averaging::Samples64 => (true, OversamplingRatio::OVERSAMPLE64X, 6),
-            Averaging::Samples128 => (true, OversamplingRatio::OVERSAMPLE128X, 7),
-            Averaging::Samples256 => (true, OversamplingRatio::OVERSAMPLE256X, 8),
+            Averaging::Disabled => (false, OversamplingRatio::Oversample2x, 0),
+            Averaging::Samples2 => (true, OversamplingRatio::Oversample2x, 1),
+            Averaging::Samples4 => (true, OversamplingRatio::Oversample4x, 2),
+            Averaging::Samples8 => (true, OversamplingRatio::Oversample8x, 3),
+            Averaging::Samples16 => (true, OversamplingRatio::Oversample16x, 4),
+            Averaging::Samples32 => (true, OversamplingRatio::Oversample32x, 5),
+            Averaging::Samples64 => (true, OversamplingRatio::Oversample64x, 6),
+            Averaging::Samples128 => (true, OversamplingRatio::Oversample128x, 7),
+            Averaging::Samples256 => (true, OversamplingRatio::Oversample256x, 8),
         };
 
         T::regs().cfgr2().modify(|w| {
@@ -435,15 +435,15 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
     #[cfg(stm32wba)]
     pub fn set_averaging_adc4(&mut self, averaging: Averaging) {
         let (enable, samples, right_shift) = match averaging {
-            Averaging::Disabled => (false, OversamplingRatio::OVERSAMPLE2X, Ovss::SHIFT0),
-            Averaging::Samples2 => (true, OversamplingRatio::OVERSAMPLE2X, Ovss::SHIFT1),
-            Averaging::Samples4 => (true, OversamplingRatio::OVERSAMPLE4X, Ovss::SHIFT2),
-            Averaging::Samples8 => (true, OversamplingRatio::OVERSAMPLE8X, Ovss::SHIFT3),
-            Averaging::Samples16 => (true, OversamplingRatio::OVERSAMPLE16X, Ovss::SHIFT4),
-            Averaging::Samples32 => (true, OversamplingRatio::OVERSAMPLE32X, Ovss::SHIFT5),
-            Averaging::Samples64 => (true, OversamplingRatio::OVERSAMPLE64X, Ovss::SHIFT6),
-            Averaging::Samples128 => (true, OversamplingRatio::OVERSAMPLE128X, Ovss::SHIFT7),
-            Averaging::Samples256 => (true, OversamplingRatio::OVERSAMPLE256X, Ovss::SHIFT8),
+            Averaging::Disabled => (false, OversamplingRatio::Oversample2x, Ovss::Shift0),
+            Averaging::Samples2 => (true, OversamplingRatio::Oversample2x, Ovss::Shift1),
+            Averaging::Samples4 => (true, OversamplingRatio::Oversample4x, Ovss::Shift2),
+            Averaging::Samples8 => (true, OversamplingRatio::Oversample8x, Ovss::Shift3),
+            Averaging::Samples16 => (true, OversamplingRatio::Oversample16x, Ovss::Shift4),
+            Averaging::Samples32 => (true, OversamplingRatio::Oversample32x, Ovss::Shift5),
+            Averaging::Samples64 => (true, OversamplingRatio::Oversample64x, Ovss::Shift6),
+            Averaging::Samples128 => (true, OversamplingRatio::Oversample128x, Ovss::Shift7),
+            Averaging::Samples256 => (true, OversamplingRatio::Oversample256x, Ovss::Shift8),
         };
 
         T::regs().cfgr2().modify(|w| {

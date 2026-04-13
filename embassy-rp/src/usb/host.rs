@@ -314,7 +314,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
         );
         if Self::is_interrupt_in() {
             self.ep_control().write(|w| {
-                w.set_endpoint_type(EpControlEndpointType::INTERRUPT);
+                w.set_endpoint_type(EpControlEndpointType::Interrupt);
                 w.set_interrupt_per_buff(true);
 
                 // FIXME: host_poll_interval (bits 16:25)
@@ -349,10 +349,10 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
                 w.set_buffer_address(self.buf.addr);
 
                 let epty = match E::ep_type() {
-                    EndpointType::Control => EpControlEndpointType::CONTROL,
-                    EndpointType::Isochronous => EpControlEndpointType::ISOCHRONOUS,
-                    EndpointType::Bulk => EpControlEndpointType::BULK,
-                    EndpointType::Interrupt => EpControlEndpointType::INTERRUPT,
+                    EndpointType::Control => EpControlEndpointType::Control,
+                    EndpointType::Isochronous => EpControlEndpointType::Isochronous,
+                    EndpointType::Bulk => EpControlEndpointType::Bulk,
+                    EndpointType::Interrupt => EpControlEndpointType::Interrupt,
                 };
 
                 w.set_endpoint_type(epty);

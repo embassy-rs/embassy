@@ -19,22 +19,22 @@ async fn main(_spawner: Spawner) {
             mode: HseMode::Oscillator,
         });
         config.rcc.pll1 = Some(Pll {
-            source: PllSource::HSE,
-            prediv: PllPreDiv::DIV3,
-            mul: PllMul::MUL150,
-            divp: Some(PllDiv::DIV2),
+            source: PllSource::Hse,
+            prediv: PllPreDiv::Div3,
+            mul: PllMul::Mul150,
+            divp: Some(PllDiv::Div2),
             divq: None,
             divr: None,
             divs: None,
             divt: None,
         });
-        config.rcc.sys = Sysclk::PLL1_P; // 600 Mhz
-        config.rcc.ahb_pre = AHBPrescaler::DIV2; // 300 Mhz
-        config.rcc.apb1_pre = APBPrescaler::DIV2; // 150 Mhz
-        config.rcc.apb2_pre = APBPrescaler::DIV2; // 150 Mhz
-        config.rcc.apb4_pre = APBPrescaler::DIV2; // 150 Mhz
-        config.rcc.apb5_pre = APBPrescaler::DIV2; // 150 Mhz
-        config.rcc.voltage_scale = VoltageScale::HIGH;
+        config.rcc.sys = Sysclk::Pll1P; // 600 Mhz
+        config.rcc.ahb_pre = AHBPrescaler::Div2; // 300 Mhz
+        config.rcc.apb1_pre = APBPrescaler::Div2; // 150 Mhz
+        config.rcc.apb2_pre = APBPrescaler::Div2; // 150 Mhz
+        config.rcc.apb4_pre = APBPrescaler::Div2; // 150 Mhz
+        config.rcc.apb5_pre = APBPrescaler::Div2; // 150 Mhz
+        config.rcc.voltage_scale = VoltageScale::High;
     }
     let p = embassy_stm32::init(config);
     info!("Hello World!");

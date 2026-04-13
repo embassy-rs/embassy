@@ -77,7 +77,7 @@ macro_rules! pin_trait_impl {
 macro_rules! pin_trait_afio_impl {
     (@set mapr, $setter:ident, $val:expr) => {
         crate::pac::AFIO.mapr().modify(|w| {
-            w.set_swj_cfg(crate::pac::afio::vals::SwjCfg::NO_OP);
+            w.set_swj_cfg(crate::pac::afio::vals::SwjCfg::NoOp);
             w.$setter($val);
         });
     };

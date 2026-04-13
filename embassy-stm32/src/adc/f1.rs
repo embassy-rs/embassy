@@ -176,14 +176,14 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
 
     pub fn sample_time_for_us(&self, us: u32) -> SampleTime {
         match us * Self::freq().0 / 1_000_000 {
-            0..=1 => SampleTime::CYCLES1_5,
-            2..=7 => SampleTime::CYCLES7_5,
-            8..=13 => SampleTime::CYCLES13_5,
-            14..=28 => SampleTime::CYCLES28_5,
-            29..=41 => SampleTime::CYCLES41_5,
-            42..=55 => SampleTime::CYCLES55_5,
-            56..=71 => SampleTime::CYCLES71_5,
-            _ => SampleTime::CYCLES239_5,
+            0..=1 => SampleTime::Cycles15,
+            2..=7 => SampleTime::Cycles75,
+            8..=13 => SampleTime::Cycles135,
+            14..=28 => SampleTime::Cycles285,
+            29..=41 => SampleTime::Cycles415,
+            42..=55 => SampleTime::Cycles555,
+            56..=71 => SampleTime::Cycles715,
+            _ => SampleTime::Cycles2395,
         }
     }
 

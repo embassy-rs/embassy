@@ -134,9 +134,9 @@ impl RtcDriver {
         r.arr().write(|w| w.set_arr(u16::MAX));
 
         // Set URS, generate update and clear URS
-        r.cr1().modify(|w| w.set_urs(vals::Urs::COUNTER_ONLY));
+        r.cr1().modify(|w| w.set_urs(vals::Urs::CounterOnly));
         r.egr().write(|w| w.set_ug(true));
-        r.cr1().modify(|w| w.set_urs(vals::Urs::ANY_EVENT));
+        r.cr1().modify(|w| w.set_urs(vals::Urs::AnyEvent));
 
         // Mid-way point
         r.ccr(0).write(|w| w.set_ccr(0x8000));

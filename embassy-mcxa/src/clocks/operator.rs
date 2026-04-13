@@ -1505,7 +1505,7 @@ impl ClockOperator<'_> {
             }
         }
 
-        // NOTE: calling `` still marks the core peripherals as taken. See
+        // NOTE: calling `cortex_m::Peripherals::steal()` still marks the core peripherals as taken. See
         // https://github.com/embassy-rs/embassy/issues/5563 for discussion. Since this
         // is a ZST, transmuting from `()` is reasonable.
         let mut scb: SCB = unsafe { core::mem::transmute(()) };

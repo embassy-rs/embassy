@@ -28,8 +28,8 @@ async fn main(_spawner: Spawner) {
         p.DMA2_CH2,
         &mut adc_dma_buf,
         Irqs,
-        [(p.PA0.degrade_adc(), SampleTime::CYCLES112)].into_iter(),
-        RegularAdcTrigger::from(TIM1_CH1, Exten::RISING_EDGE),
+        [(p.PA0.degrade_adc(), SampleTime::Cycles112)].into_iter(),
+        RegularAdcTrigger::from(TIM1_CH1, Exten::RisingEdge),
     );
     adc_ring_buffered.start();
 
@@ -50,8 +50,8 @@ async fn main(_spawner: Spawner) {
         let mut configured_sequence = adc.configured_sequence(
             p.DMA2_CH0,
             [
-                (&mut first_pin, SampleTime::CYCLES112),
-                (&mut second_pin, SampleTime::CYCLES112),
+                (&mut first_pin, SampleTime::Cycles112),
+                (&mut second_pin, SampleTime::Cycles112),
             ]
             .into_iter(),
             Irqs,
@@ -63,7 +63,7 @@ async fn main(_spawner: Spawner) {
         configured_sequence.read(&mut buf[2..]).await;
     }
 
-    let vrefint_sample = adc.blocking_read(&mut vrefint, SampleTime::CYCLES112);
+    let vrefint_sample = adc.blocking_read(&mut vrefint, SampleTime::Cycles112);
 
     let convert_to_millivolts = |sample| {
         // From http://www.st.com/resource/en/datasheet/DM00071990.pdf
@@ -90,16 +90,16 @@ async fn main(_spawner: Spawner) {
 
     loop {
         // Read pin
-        let v = adc.blocking_read(&mut pin, SampleTime::CYCLES112);
+        let v = adc.blocking_read(&mut pin, SampleTime::Cycles112);
         info!("PC1: {} ({} mV)", v, convert_to_millivolts(v));
 
         // Read internal temperature
-        let v = adc.blocking_read(&mut temp, SampleTime::CYCLES112);
+        let v = adc.blocking_read(&mut temp, SampleTime::Cycles112);
         let celcius = convert_to_celcius(v);
         info!("Internal temp: {} ({} C)", v, celcius);
 
         // Read internal voltage reference
-        let v = adc.blocking_read(&mut vrefint, SampleTime::CYCLES112);
+        let v = adc.blocking_read(&mut vrefint, SampleTime::Cycles112);
         info!("VrefInt: {}", v);
 
         Timer::after_millis(100).await;

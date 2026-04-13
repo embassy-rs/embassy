@@ -12,12 +12,12 @@ use {nrf_pac as pac, panic_halt as _};
 fn main() -> ! {
     let port1 = pac::P1_S;
     port1.pin_cnf(10).write(|w| {
-        w.set_dir(vals::Dir::OUTPUT);
-        w.set_input(vals::Input::DISCONNECT);
-        w.set_pull(vals::Pull::DISABLED);
+        w.set_dir(vals::Dir::Output);
+        w.set_input(vals::Input::Disconnect);
+        w.set_pull(vals::Pull::Disabled);
         w.set_drive0(vals::Drive::S);
         w.set_drive1(vals::Drive::S);
-        w.set_sense(vals::Sense::DISABLED);
+        w.set_sense(vals::Sense::Disabled);
     });
 
     // 32 MHz seems to be the correct frequency for the RISCV core,

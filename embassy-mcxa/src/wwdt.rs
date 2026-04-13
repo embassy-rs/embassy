@@ -6,6 +6,8 @@
 //!
 //! The FRO12M provides a 1 MHz clock (clk_1m) used as WWDT0 independant clock source. This clock is / 4 by an internal fixed divider.
 
+#[cfg(feature = "embedded-mcu-hal")]
+use core::convert::Infallible;
 use core::marker::PhantomData;
 
 use embassy_hal_internal::{Peri, PeripheralType};
@@ -263,3 +265,13 @@ impl_instance!(0);
 
 #[cfg(feature = "mcxa5xx")]
 impl_instance!(1);
+
+#[cfg(feature = "embedded-mcu-hal")]
+impl embedded_mcu_hal::watchdog::Watchdog for Watchdog<'_> {
+    type Error = Infallible;
+
+    fn feed(&mut self) -> Result<(), Self::Error> {
+        Self::feed(self);
+        Ok(())
+    }
+}

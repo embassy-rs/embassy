@@ -401,10 +401,10 @@ pub unsafe extern "C" fn ll_sys_sleep_clock_source_selection() {
 
     let radiostsel = RCC.bdcr().read().radiostsel();
     let slp_clk_src = match radiostsel {
-        Radiostsel::LSE => link_layer::_SLPTMR_SRC_TYPE_E_RTC_SLPTMR as u8,
+        Radiostsel::Lse => link_layer::_SLPTMR_SRC_TYPE_E_RTC_SLPTMR as u8,
         Radiostsel::_RESERVED_2 => link_layer::_SLPTMR_SRC_TYPE_E_RCO_SLPTMR as u8, // LSI
-        Radiostsel::HSE => link_layer::_SLPTMR_SRC_TYPE_E_CRYSTAL_OSCILLATOR_SLPTMR as u8,
-        Radiostsel::DISABLE => panic!("Radio sleep timer clock not configured (RADIOSTSEL=DISABLE)"),
+        Radiostsel::Hse => link_layer::_SLPTMR_SRC_TYPE_E_CRYSTAL_OSCILLATOR_SLPTMR as u8,
+        Radiostsel::Disable => panic!("Radio sleep timer clock not configured (RADIOSTSEL=DISABLE)"),
     };
 
     let mut frequency: u16 = 0;

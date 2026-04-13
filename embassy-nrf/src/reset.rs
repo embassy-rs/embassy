@@ -7,7 +7,7 @@ use nrf_pac::reset::regs::Resetreas;
 #[cfg(not(feature = "_nrf5340-net"))]
 use nrf_pac::reset::vals::Forceoff;
 
-use crate::chip::pac::RESET;
+use crate::pac::RESET;
 
 bitflags! {
     #[derive(Debug, Copy, Clone, PartialEq)]
@@ -66,17 +66,17 @@ pub fn clear_reasons() {
 /// Returns if the network core is held in reset
 #[cfg(not(feature = "_nrf5340-net"))]
 pub fn network_core_held() -> bool {
-    RESET.network().forceoff().read().forceoff() == Forceoff::HOLD
+    RESET.network().forceoff().read().forceoff() == Forceoff::Hold
 }
 
 /// Releases the network core from the FORCEOFF state
 #[cfg(not(feature = "_nrf5340-net"))]
 pub fn release_network_core() {
-    RESET.network().forceoff().write(|w| w.set_forceoff(Forceoff::RELEASE));
+    RESET.network().forceoff().write(|w| w.set_forceoff(Forceoff::Release));
 }
 
 /// Holds the network core in the FORCEOFF state
 #[cfg(not(feature = "_nrf5340-net"))]
 pub fn hold_network_core() {
-    RESET.network().forceoff().write(|w| w.set_forceoff(Forceoff::HOLD));
+    RESET.network().forceoff().write(|w| w.set_forceoff(Forceoff::Hold));
 }

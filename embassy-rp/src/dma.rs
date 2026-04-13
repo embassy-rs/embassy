@@ -244,7 +244,7 @@ impl<'d> Channel<'d> {
             W::size(),
             true,
             true,
-            vals::TreqSel::PERMANENT,
+            vals::TreqSel::Permanent,
             false,
         );
         Transfer::new(self.reborrow())
@@ -323,21 +323,21 @@ pub trait Word: SealedWord {
 impl SealedWord for u8 {}
 impl Word for u8 {
     fn size() -> vals::DataSize {
-        vals::DataSize::SIZE_BYTE
+        vals::DataSize::SizeByte
     }
 }
 
 impl SealedWord for u16 {}
 impl Word for u16 {
     fn size() -> vals::DataSize {
-        vals::DataSize::SIZE_HALFWORD
+        vals::DataSize::SizeHalfword
     }
 }
 
 impl SealedWord for u32 {}
 impl Word for u32 {
     fn size() -> vals::DataSize {
-        vals::DataSize::SIZE_WORD
+        vals::DataSize::SizeWord
     }
 }
 

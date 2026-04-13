@@ -142,7 +142,7 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
 
             // This typically makes no sense for a slave, but it is used to
             // tune spike suppression, according to the datasheet.
-            w.set_speed(pac::i2c::vals::Speed::FAST);
+            w.set_speed(pac::i2c::vals::Speed::Fast);
 
             // Generate stop interrupts for general calls
             // This also causes stop interrupts for other devices on the bus but those will not be

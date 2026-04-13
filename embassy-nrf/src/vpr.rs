@@ -6,6 +6,7 @@ use core::ptr::copy_nonoverlapping;
 
 use embassy_hal_internal::{Peri, PeripheralType};
 
+use crate::pac::spu::vals::Dmasec;
 use crate::{interrupt, pac};
 
 /// VPR coprocessor driver.
@@ -24,7 +25,7 @@ impl<'d> Vpr<'d> {
         let flpr_index = 12;
         spu.periph(flpr_index).perm().write(|w| {
             w.set_secattr(true);
-            w.set_dmasec(true);
+            w.set_dmasec(Dmasec::Secure);
         });
 
         let mut this = Self {
@@ -41,7 +42,7 @@ impl<'d> Vpr<'d> {
     ///
     /// Call `start()` to start the coprocessor.
     pub fn load(&mut self, program: &[u8]) -> Result<(), Error> {
-        if self.regs.cpurun().read().en() == pac::vpr::vals::CpurunEn::RUNNING {
+        if self.regs.cpurun().read().en() == pac::vpr::vals::CpurunEn::Running {
             return Err(Error::Running);
         }
 
@@ -72,7 +73,7 @@ impl<'d> Vpr<'d> {
     pub fn start(&mut self) {
         self.regs
             .cpurun()
-            .write(|w| w.set_en(pac::vpr::vals::CpurunEn::RUNNING));
+            .write(|w| w.set_en(pac::vpr::vals::CpurunEn::Running));
     }
 
     /// Stop the coprocessor.
@@ -82,7 +83,7 @@ impl<'d> Vpr<'d> {
     pub fn stop(&mut self) {
         self.regs
             .cpurun()
-            .write(|w| w.set_en(pac::vpr::vals::CpurunEn::STOPPED));
+            .write(|w| w.set_en(pac::vpr::vals::CpurunEn::Stopped));
     }
 }
 
