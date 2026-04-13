@@ -7,13 +7,13 @@ use paste::paste;
 use crate::clocks::Gate;
 use crate::clocks::periph_helpers::Lpi2cConfig;
 use crate::dma::{DmaChannel, DmaRequest};
-use crate::gpio::{GpioPin, SealedPin};
+use crate::gpio::GpioPin;
 use crate::{interrupt, pac};
 
 pub mod controller;
 pub mod target;
 
-mod sealed {
+pub(crate) mod sealed {
     /// Seal a trait
     pub trait Sealed {}
 }
@@ -96,6 +96,21 @@ pub trait SdaPin<Instance>: GpioPin + sealed::Sealed + PeripheralType {
     fn mux(&self);
 }
 
+/// SCLS pin trait. (SCL secondary)
+pub trait SclsPin<Instance>: GpioPin + sealed::Sealed + PeripheralType {
+    fn mux(&self);
+}
+
+/// SDAS pin trait. (SDA secondary)
+pub trait SdasPin<Instance>: GpioPin + sealed::Sealed + PeripheralType {
+    fn mux(&self);
+}
+
+/// HREQ pin trait. (Host request)
+pub trait HreqPin<Instance>: GpioPin + sealed::Sealed + PeripheralType {
+    fn mux(&self);
+}
+
 /// Driver mode.
 #[allow(private_bounds)]
 pub trait Mode: sealed::Sealed {}
@@ -126,12 +141,15 @@ impl sealed::Sealed for Dma<'_> {}
 impl Mode for Dma<'_> {}
 impl AsyncMode for Dma<'_> {}
 
-macro_rules! impl_pin {
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_lpi2c_pin {
     ($pin:ident, $peri:ident, $fn:ident, $trait:ident) => {
-        impl sealed::Sealed for crate::peripherals::$pin {}
+        impl crate::i2c::sealed::Sealed for crate::peripherals::$pin {}
 
-        impl $trait<crate::peripherals::$peri> for crate::peripherals::$pin {
+        impl crate::i2c::$trait<crate::peripherals::$peri> for crate::peripherals::$pin {
             fn mux(&self) {
+                use crate::gpio::SealedPin;
                 self.set_pull(crate::gpio::Pull::Disabled);
                 self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
                 self.set_drive_strength(crate::gpio::DriveStrength::Double.into());
@@ -140,77 +158,4 @@ macro_rules! impl_pin {
             }
         }
     };
-}
-
-#[cfg(feature = "mcxa2xx")]
-mod mcxa2xx {
-    use super::*;
-
-    impl_pin!(P0_16, LPI2C0, MUX2, SdaPin);
-    impl_pin!(P0_17, LPI2C0, MUX2, SclPin);
-    impl_pin!(P0_18, LPI2C0, MUX2, SclPin);
-    impl_pin!(P0_19, LPI2C0, MUX2, SdaPin);
-    impl_pin!(P1_0, LPI2C1, MUX3, SdaPin);
-    impl_pin!(P1_1, LPI2C1, MUX3, SclPin);
-    impl_pin!(P1_2, LPI2C1, MUX3, SdaPin);
-    impl_pin!(P1_3, LPI2C1, MUX3, SclPin);
-    impl_pin!(P1_8, LPI2C2, MUX3, SdaPin);
-    impl_pin!(P1_9, LPI2C2, MUX3, SclPin);
-    impl_pin!(P1_10, LPI2C2, MUX3, SdaPin);
-    impl_pin!(P1_11, LPI2C2, MUX3, SclPin);
-    impl_pin!(P1_12, LPI2C1, MUX2, SdaPin);
-    impl_pin!(P1_13, LPI2C1, MUX2, SclPin);
-    impl_pin!(P1_14, LPI2C1, MUX2, SclPin);
-    impl_pin!(P1_15, LPI2C1, MUX2, SdaPin);
-
-    #[cfg(feature = "sosc-as-gpio")]
-    impl_pin!(P1_30, LPI2C0, MUX3, SdaPin);
-    #[cfg(feature = "sosc-as-gpio")]
-    impl_pin!(P1_31, LPI2C0, MUX3, SclPin);
-
-    impl_pin!(P3_27, LPI2C3, MUX2, SclPin);
-    impl_pin!(P3_28, LPI2C3, MUX2, SdaPin);
-    // impl_pin!(P3_29, LPI2C3, MUX2, HreqPin); What is this HREQ pin?
-    impl_pin!(P3_30, LPI2C3, MUX2, SclPin);
-    impl_pin!(P3_31, LPI2C3, MUX2, SdaPin);
-    impl_pin!(P4_2, LPI2C2, MUX2, SdaPin);
-    impl_pin!(P4_3, LPI2C0, MUX2, SclPin);
-    impl_pin!(P4_4, LPI2C2, MUX2, SdaPin);
-    impl_pin!(P4_5, LPI2C0, MUX2, SclPin);
-    // impl_pin!(P4_6, LPI2C0, MUX2, HreqPin); What is this HREQ pin?
-}
-
-#[cfg(feature = "mcxa5xx")]
-mod mcxa5xx {
-    use super::*;
-
-    impl_pin!(P0_16, LPI2C0, MUX2, SdaPin);
-    impl_pin!(P0_17, LPI2C0, MUX2, SclPin);
-    impl_pin!(P0_18, LPI2C0, MUX2, SclPin);
-    impl_pin!(P0_19, LPI2C0, MUX2, SdaPin);
-    #[cfg(feature = "sosc-as-gpio")]
-    impl_pin!(P1_30, LPI2C0, MUX3, SdaPin);
-    #[cfg(feature = "sosc-as-gpio")]
-    impl_pin!(P1_31, LPI2C0, MUX3, SclPin);
-
-    impl_pin!(P1_0, LPI2C1, MUX3, SdaPin);
-    impl_pin!(P1_1, LPI2C1, MUX3, SclPin);
-    impl_pin!(P1_12, LPI2C1, MUX2, SdaPin);
-    impl_pin!(P1_13, LPI2C1, MUX2, SclPin);
-    impl_pin!(P1_14, LPI2C1, MUX2, SclPin);
-    impl_pin!(P1_15, LPI2C1, MUX2, SdaPin);
-
-    impl_pin!(P1_8, LPI2C2, MUX3, SdaPin);
-    impl_pin!(P1_9, LPI2C2, MUX3, SclPin);
-    impl_pin!(P4_2, LPI2C2, MUX2, SdaPin);
-    impl_pin!(P4_3, LPI2C2, MUX2, SclPin);
-    impl_pin!(P4_4, LPI2C2, MUX2, SdaPin);
-    impl_pin!(P4_5, LPI2C2, MUX2, SclPin);
-
-    impl_pin!(P3_20, LPI2C3, MUX2, SdaPin);
-    impl_pin!(P3_21, LPI2C3, MUX2, SclPin);
-    impl_pin!(P3_27, LPI2C3, MUX2, SclPin);
-    impl_pin!(P3_28, LPI2C3, MUX2, SdaPin);
-    impl_pin!(P3_30, LPI2C3, MUX2, SclPin);
-    impl_pin!(P3_31, LPI2C3, MUX2, SdaPin);
 }

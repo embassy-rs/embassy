@@ -238,6 +238,7 @@ pub(crate) mod sealed {
         fn mux(&self);
     }
 
+    #[doc(hidden)]
     #[macro_export]
     macro_rules! impl_clkout_pin {
         ($pin:ident, $func:ident) => {

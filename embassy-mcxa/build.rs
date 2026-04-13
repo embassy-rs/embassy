@@ -5,6 +5,7 @@ use std::process::Command;
 use std::{env, fs};
 
 use build_common::CfgSet;
+use convert_case::ccase;
 use nxp_pac::metadata::METADATA;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -42,6 +43,7 @@ fn main() {
         generate_gpio_pin_impls(),
         generate_adc_pin_impls(),
         generate_clkout_impls(),
+        generate_lpi2c_pin_impls(),
     ];
 
     let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
@@ -162,17 +164,38 @@ fn generate_adc_pin_impls() -> TokenStream {
 fn generate_clkout_impls() -> TokenStream {
     let mut generated = TokenStream::new();
 
-    for adc in METADATA
+    for clkout in METADATA
         .peripherals
         .iter()
         .filter(|p| p.name.to_ascii_lowercase() == "clkout")
     {
-        for signal in adc.signals {
+        for signal in clkout.signals {
             for pin in signal.pins {
                 let pin_name = format_ident!("{}", pin.pin);
                 let mux = format_ident!("MUX{}", pin.alt);
                 generated.extend(quote! {
                     impl_clkout_pin!(#pin_name, #mux);
+                });
+            }
+        }
+    }
+
+    generated
+}
+
+fn generate_lpi2c_pin_impls() -> TokenStream {
+    let mut generated = TokenStream::new();
+
+    let lpi2c_regex = Regex::new(r"^LPI2C\d+").unwrap();
+    for lpi2c in METADATA.peripherals.iter().filter(|p| lpi2c_regex.is_match(p.name)) {
+        let lpi2c_name = format_ident!("{}", lpi2c.name);
+        for signal in lpi2c.signals {
+            let signal_pin = format_ident!("{}Pin", ccase!(pascal, signal.name));
+            for pin in signal.pins {
+                let pin_name = format_ident!("{}", pin.pin);
+                let mux = format_ident!("MUX{}", pin.alt);
+                generated.extend(quote! {
+                    impl_lpi2c_pin!(#pin_name, #lpi2c_name, #mux, #signal_pin);
                 });
             }
         }
