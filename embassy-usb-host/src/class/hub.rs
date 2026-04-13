@@ -420,14 +420,47 @@ impl From<PortStatus> for Speed {
 }
 
 #[cfg(test)]
-pub mod test {
+pub mod tests {
     use super::HubInterrupt;
 
     #[test]
-    fn test_take_multibyte_port_changes() {
-        let mut buf: [u8; _] = [0b1111_1110, 0b0000_0000, 0b1010_1010];
+    fn test_hub_interrupt_0() {
+        let mut buf: [u8; _] = [];
         let mut changes = HubInterrupt(&mut buf);
         assert_eq!(changes.take_hub_change(), false);
+        assert_eq!(changes.take_port_change(), None);
+    }
+
+    #[test]
+    fn test_hub_interrupt_1_empty() {
+        let mut buf: [u8; _] = [0b0000_0000];
+        let mut changes = HubInterrupt(&mut buf);
+        assert_eq!(changes.take_hub_change(), false);
+        assert_eq!(changes.take_port_change(), None);
+    }
+
+    #[test]
+    fn test_hub_interrupt_1_hub() {
+        let mut buf: [u8; _] = [0b0000_0001];
+        let mut changes = HubInterrupt(&mut buf);
+        assert_eq!(changes.take_hub_change(), true);
+        assert_eq!(changes.take_port_change(), None);
+    }
+
+    #[test]
+    fn test_hub_interrupt_1_port() {
+        let mut buf: [u8; _] = [0b0000_0010];
+        let mut changes = HubInterrupt(&mut buf);
+        assert_eq!(changes.take_hub_change(), false);
+        assert_eq!(changes.take_port_change(), Some(0));
+        assert_eq!(changes.take_port_change(), None);
+    }
+
+    #[test]
+    fn test_hub_interrupt_1_full() {
+        let mut buf: [u8; _] = [0b1111_1111];
+        let mut changes = HubInterrupt(&mut buf);
+        assert_eq!(changes.take_hub_change(), true);
         assert_eq!(changes.take_port_change(), Some(0));
         assert_eq!(changes.take_port_change(), Some(1));
         assert_eq!(changes.take_port_change(), Some(2));
@@ -435,23 +468,16 @@ pub mod test {
         assert_eq!(changes.take_port_change(), Some(4));
         assert_eq!(changes.take_port_change(), Some(5));
         assert_eq!(changes.take_port_change(), Some(6));
-        // empty byte
-        assert_eq!(changes.take_port_change(), Some(16));
-        assert_eq!(changes.take_port_change(), Some(18));
-        assert_eq!(changes.take_port_change(), Some(20));
-        assert_eq!(changes.take_port_change(), Some(22));
         assert_eq!(changes.take_port_change(), None);
     }
 
     #[test]
-    fn test_take_hub_and_port_changes() {
-        let mut buf: [u8; _] = [0b0101_0101, 0b0000_0001];
+    fn test_hub_interrupt_3_hub_empty_port() {
+        let mut buf: [u8; _] = [0b0000_0001, 0b0000_0000, 0b1000_0000];
         let mut changes = HubInterrupt(&mut buf);
         assert_eq!(changes.take_hub_change(), true);
-        assert_eq!(changes.take_port_change(), Some(1));
-        assert_eq!(changes.take_port_change(), Some(3));
-        assert_eq!(changes.take_port_change(), Some(5));
-        assert_eq!(changes.take_port_change(), Some(7));
+        // empty byte
+        assert_eq!(changes.take_port_change(), Some(22));
         assert_eq!(changes.take_port_change(), None);
     }
 }
