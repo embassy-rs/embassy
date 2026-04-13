@@ -163,6 +163,9 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
         // Return early if there are no bytes to transmit and no START to send.
         // If send_start is true the empty check is handled after the address phase.
         if write_buffer.is_empty() && !frame.send_start() {
+            if frame.send_stop() {
+                self.info.regs.cr1().modify(|reg| reg.set_stop(true));
+            }
             return Ok(());
         }
 
@@ -406,6 +409,9 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         // Return early if there are no bytes to transmit and no START to send.
         // If send_start is true the empty check is handled after the address phase.
         if write_buffer.is_empty() && !frame.send_start() {
+            if frame.send_stop() {
+                self.info.regs.cr1().modify(|reg| reg.set_stop(true));
+            }
             return Ok(());
         }
 
