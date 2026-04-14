@@ -1,34 +1,12 @@
-//! USB host handler trait and device enumeration helpers.
+//! USB host device enumeration helpers.
 #![allow(missing_docs)]
-
-use core::num::NonZeroU8;
 
 use embassy_usb_driver::Speed;
 use embassy_usb_driver::host::channel::{self, IsIn, IsOut};
-use embassy_usb_driver::host::{HostError, UsbChannel, UsbHostDriver};
+use embassy_usb_driver::host::{HostError, UsbChannel};
 
 use crate::control::ControlChannelExt;
 use crate::descriptor::{ConfigurationDescriptor, DeviceDescriptor, USBDescriptor};
-
-/// A non-exhaustive filter applied before calling [`UsbHostHandler::try_register`].
-pub struct DeviceFilter {
-    /// Device base-class; `None` or `0` means class is defined at the interface level.
-    pub base_class: Option<NonZeroU8>,
-    pub sub_class: Option<u8>,
-    pub protocol: Option<u8>,
-}
-
-/// Static specification returned by [`UsbHostHandler::static_spec`].
-pub struct StaticHandlerSpec {
-    /// Optional pre-filter — avoids calling `try_register` for clearly mismatched devices.
-    pub device_filter: Option<DeviceFilter>,
-}
-
-impl StaticHandlerSpec {
-    pub fn new(device_filter: Option<DeviceFilter>) -> Self {
-        StaticHandlerSpec { device_filter }
-    }
-}
 
 /// Information obtained through preliminary enumeration.
 #[derive(Debug)]
@@ -151,29 +129,4 @@ impl From<HostError> for RegisterError {
     fn from(value: HostError) -> Self {
         RegisterError::HostError(value)
     }
-}
-
-/// A USB host-side class driver.
-///
-/// Implemented by class drivers (HID, CDC-ACM, Hub, …). The host calls
-/// [`try_register`](UsbHostHandler::try_register) after enumeration; on success the driver owns
-/// the relevant channels and events are polled via [`wait_for_event`](UsbHostHandler::wait_for_event).
-pub trait UsbHostHandler: Sized {
-    type Driver: UsbHostDriver;
-    type PollEvent;
-
-    fn static_spec() -> StaticHandlerSpec;
-
-    async fn try_register(bus: &Self::Driver, enum_info: &EnumerationInfo) -> Result<Self, RegisterError>;
-
-    async fn wait_for_event(&mut self) -> Result<HandlerEvent<Self::PollEvent>, HostError>;
-}
-
-/// Extension of [`UsbHostHandler`] that supports suspension (dropping channels) and resumption.
-pub trait UsbResumableHandler: UsbHostHandler {
-    type UsbResumeInfo;
-
-    async fn try_resume(bus: &Self::Driver, resume_info: Self::UsbResumeInfo) -> Result<Self, ()>;
-
-    async fn try_suspend(self, bus: &mut Self::Driver) -> Self::UsbResumeInfo;
 }
