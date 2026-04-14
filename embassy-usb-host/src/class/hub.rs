@@ -128,22 +128,26 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> UsbHostHandler for HubHandler<H, 
                     self.device_address, status, change
                 );
 
-                // FIXME clear unknown changes? add an event?
+                if !change.is_empty() {
+                    return Err(HostError::Other("Unhandled hub status change"));
+                }
             }
             while let Some(port) = hub_changes.take_port_change() {
                 trace!("HUB {}: port {} changed, requesting status", self.device_address, port);
 
-                let (status, change) = self.get_port_status(port).await?;
+                let (status, mut change) = self.get_port_status(port).await?;
                 debug!(
                     "HUB {}: port {} status: {:?} change: {:?}",
                     self.device_address, port, status, change
                 );
 
                 if change.contains(PortStatusChange::RESET) {
+                    change.toggle(PortStatusChange::RESET);
                     self.port_feature(false, PortFeature::ChangeReset, port, 0).await?;
                 }
 
                 if change.contains(PortStatusChange::CONNECT) {
+                    change.toggle(PortStatusChange::CONNECT);
                     self.port_feature(false, PortFeature::ChangeConnection, port, 0).await?;
                     match status.contains(PortStatus::CONNECTED) {
                         true => {
@@ -163,6 +167,10 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> UsbHostHandler for HubHandler<H, 
                             }));
                         }
                     }
+                }
+
+                if !change.is_empty() {
+                    return Err(HostError::Other("Unhandled port status change"));
                 }
             }
         }
