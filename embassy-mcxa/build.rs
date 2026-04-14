@@ -254,6 +254,8 @@ fn generate_ctimer_pin_impls() -> TokenStream {
     let mut generated = TokenStream::new();
 
     let ctimer_regex = Regex::new(r"^CTIMER\d+").unwrap();
+    let match_channel_regex = Regex::new(r"(?:^MAT)(\d+)").unwrap();
+
     for ctimer in METADATA.peripherals.iter().filter(|p| ctimer_regex.is_match(p.name)) {
         let ctimer_name = format_ident!("{}", ctimer.name);
 
@@ -269,11 +271,16 @@ fn generate_ctimer_pin_impls() -> TokenStream {
                     let mux = format_ident!("MUX{}", pin.alt);
                     inp_pins.insert(pin_name, mux);
                 }
-            } else if signal.name.starts_with("MAT") {
+            } else if let Some(match_index) = get_regex_num(signal.name, &match_channel_regex) {
                 for pin in signal.pins {
                     let pin_name = format_ident!("{}", pin.pin);
                     let mux = format_ident!("MUX{}", pin.alt);
-                    mat_pins.insert(pin_name, mux);
+                    mat_pins.insert(pin_name.clone(), mux);
+
+                    let ctimer_channel = format_ident!("{}_CH{}", ctimer_name, match_index);
+                    generated.extend(quote! {
+                        impl_ctimer_match!(#ctimer_name, #ctimer_channel, #pin_name);
+                    });
                 }
             } else {
                 unreachable!()
