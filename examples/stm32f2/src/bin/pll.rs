@@ -23,24 +23,24 @@ async fn main(_spawner: Spawner) {
             mode: HseMode::Bypass,
         });
         // PLL uses HSE as the clock source
-        config.rcc.pll_src = PllSource::HSE;
+        config.rcc.pll_src = PllSource::Hse;
         config.rcc.pll = Some(Pll {
             // 8 MHz clock source / 8 = 1 MHz PLL input
             prediv: unwrap!(PllPreDiv::try_from(8)),
             // 1 MHz PLL input * 240 = 240 MHz PLL VCO
             mul: unwrap!(PllMul::try_from(240)),
             // 240 MHz PLL VCO / 2 = 120 MHz main PLL output
-            divp: Some(PllPDiv::DIV2),
+            divp: Some(PllPDiv::Div2),
             // 240 MHz PLL VCO / 5 = 48 MHz PLL48 output
-            divq: Some(PllQDiv::DIV5),
+            divq: Some(PllQDiv::Div5),
             divr: None,
         });
         // System clock comes from PLL (= the 120 MHz main PLL output)
-        config.rcc.sys = Sysclk::PLL1_P;
+        config.rcc.sys = Sysclk::Pll1P;
         // 120 MHz / 4 = 30 MHz APB1 frequency
-        config.rcc.apb1_pre = APBPrescaler::DIV4;
+        config.rcc.apb1_pre = APBPrescaler::Div4;
         // 120 MHz / 2 = 60 MHz APB2 frequency
-        config.rcc.apb2_pre = APBPrescaler::DIV2;
+        config.rcc.apb2_pre = APBPrescaler::Div2;
     }
 
     let _p = embassy_stm32::init(config);

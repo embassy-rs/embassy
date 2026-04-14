@@ -245,23 +245,23 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
 
     fn get_res_clks(res: Resolution) -> u32 {
         match res {
-            Resolution::BITS12 => 12,
-            Resolution::BITS10 => 11,
-            Resolution::BITS8 => 9,
-            Resolution::BITS6 => 7,
+            Resolution::Bits12 => 12,
+            Resolution::Bits10 => 11,
+            Resolution::Bits8 => 9,
+            Resolution::Bits6 => 7,
         }
     }
 
     fn get_sample_time_clks(sample_time: SampleTime) -> u32 {
         match sample_time {
-            SampleTime::CYCLES4 => 4,
-            SampleTime::CYCLES9 => 9,
-            SampleTime::CYCLES16 => 16,
-            SampleTime::CYCLES24 => 24,
-            SampleTime::CYCLES48 => 48,
-            SampleTime::CYCLES96 => 96,
-            SampleTime::CYCLES192 => 192,
-            SampleTime::CYCLES384 => 384,
+            SampleTime::Cycles4 => 4,
+            SampleTime::Cycles9 => 9,
+            SampleTime::Cycles16 => 16,
+            SampleTime::Cycles24 => 24,
+            SampleTime::Cycles48 => 48,
+            SampleTime::Cycles96 => 96,
+            SampleTime::Cycles192 => 192,
+            SampleTime::Cycles384 => 384,
         }
     }
 
@@ -270,14 +270,14 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         let us_clks = us * Self::freq().0 / 1_000_000;
         let clks = us_clks.saturating_sub(res_clks);
         match clks {
-            0..=4 => SampleTime::CYCLES4,
-            5..=9 => SampleTime::CYCLES9,
-            10..=16 => SampleTime::CYCLES16,
-            17..=24 => SampleTime::CYCLES24,
-            25..=48 => SampleTime::CYCLES48,
-            49..=96 => SampleTime::CYCLES96,
-            97..=192 => SampleTime::CYCLES192,
-            193.. => SampleTime::CYCLES384,
+            0..=4 => SampleTime::Cycles4,
+            5..=9 => SampleTime::Cycles9,
+            10..=16 => SampleTime::Cycles16,
+            17..=24 => SampleTime::Cycles24,
+            25..=48 => SampleTime::Cycles48,
+            49..=96 => SampleTime::Cycles96,
+            97..=192 => SampleTime::Cycles192,
+            193.. => SampleTime::Cycles384,
         }
     }
 

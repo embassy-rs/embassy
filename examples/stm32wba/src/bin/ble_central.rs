@@ -75,12 +75,12 @@ async fn main(spawner: Spawner) {
 
     // Enable HSE (32 MHz external crystal) - REQUIRED for BLE radio
     config.rcc.hse = Some(Hse {
-        prescaler: HsePrescaler::DIV1,
+        prescaler: HsePrescaler::Div1,
     });
 
     // Enable LSE (32.768 kHz external crystal) - REQUIRED for BLE radio sleep timer
     config.rcc.ls = LsConfig {
-        rtc: RtcClockSource::LSE,
+        rtc: RtcClockSource::Lse,
         lsi: false,
         lse: Some(LseConfig {
             frequency: Hertz(32_768),
@@ -91,23 +91,23 @@ async fn main(spawner: Spawner) {
 
     // Configure PLL1 (required on WBA)
     config.rcc.pll1 = Some(embassy_stm32::rcc::Pll {
-        source: PllSource::HSI,
-        prediv: PllPreDiv::DIV1,
-        mul: PllMul::MUL30,
-        divr: Some(PllDiv::DIV5),
+        source: PllSource::Hsi,
+        prediv: PllPreDiv::Div1,
+        mul: PllMul::Mul30,
+        divr: Some(PllDiv::Div5),
         divq: None,
-        divp: Some(PllDiv::DIV30),
+        divp: Some(PllDiv::Div30),
         frac: Some(0),
     });
 
-    config.rcc.ahb_pre = AHBPrescaler::DIV1;
-    config.rcc.apb1_pre = APBPrescaler::DIV1;
-    config.rcc.apb2_pre = APBPrescaler::DIV1;
-    config.rcc.apb7_pre = APBPrescaler::DIV1;
-    config.rcc.ahb5_pre = AHB5Prescaler::DIV4;
-    config.rcc.voltage_scale = VoltageScale::RANGE1;
-    config.rcc.sys = Sysclk::PLL1_R;
-    config.rcc.mux.rngsel = mux::Rngsel::HSI;
+    config.rcc.ahb_pre = AHBPrescaler::Div1;
+    config.rcc.apb1_pre = APBPrescaler::Div1;
+    config.rcc.apb2_pre = APBPrescaler::Div1;
+    config.rcc.apb7_pre = APBPrescaler::Div1;
+    config.rcc.ahb5_pre = AHB5Prescaler::Div4;
+    config.rcc.voltage_scale = VoltageScale::Range1;
+    config.rcc.sys = Sysclk::Pll1R;
+    config.rcc.mux.rngsel = mux::Rngsel::Hsi;
 
     let p = embassy_stm32::init(config);
 
@@ -115,7 +115,7 @@ async fn main(spawner: Spawner) {
     {
         use embassy_stm32::pac::RCC;
         use embassy_stm32::pac::rcc::vals::Radiostsel;
-        RCC.bdcr().modify(|w| w.set_radiostsel(Radiostsel::LSE));
+        RCC.bdcr().modify(|w| w.set_radiostsel(Radiostsel::Lse));
     }
 
     info!("Embassy STM32WBA BLE Central Example");

@@ -30,15 +30,15 @@ async fn main(_spawner: Spawner) {
 
         // PLL2: 8 MHz / 5 = 1.6 MHz * 192 = 307.2 MHz / 25 = 12.288 MHz
         config.rcc.pll2 = Some(Pll {
-            source: PllSource::HSE,
-            prediv: PllPreDiv::DIV5,
-            mul: PllMul::MUL192,
-            divp: Some(PllDiv::DIV25),
+            source: PllSource::Hse,
+            prediv: PllPreDiv::Div5,
+            mul: PllMul::Mul192,
+            divp: Some(PllDiv::Div25),
             divq: None,
             divr: None,
         });
 
-        config.rcc.mux.sai1sel = mux::Saisel::PLL2_P;
+        config.rcc.mux.sai1sel = mux::Saisel::Pll2P;
     }
     let p = embassy_stm32::init(config);
 
@@ -55,7 +55,7 @@ async fn main(_spawner: Spawner) {
     sai_config.data_size = DataSize::Data32; // 32 bits
     sai_config.frame_length = 64; // 2 channels * 32 bits
     sai_config.frame_sync_active_level_length = word::U7(32); // Active level length
-    sai_config.master_clock_divider = MasterClockDivider::DIV1;
+    sai_config.master_clock_divider = MasterClockDivider::Div1;
     sai_config.clock_strobe = ClockStrobe::Rising;
     sai_config.frame_sync_offset = FrameSyncOffset::BeforeFirstBit;
     sai_config.frame_sync_polarity = FrameSyncPolarity::ActiveHigh;

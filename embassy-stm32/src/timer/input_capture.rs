@@ -87,7 +87,7 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
         this.inner.set_counting_mode(counting_mode);
         this.inner.set_tick_freq(freq);
         for ch in [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4] {
-            this.inner.set_input_capture_filter(ch, FilterValue::NO_FILTER);
+            this.inner.set_input_capture_filter(ch, FilterValue::NoFilter);
             this.inner.set_input_capture_prescaler(ch, 0);
         }
         this.inner.enable_outputs(); // Required for advanced timers, see GeneralInstance4Channel for details

@@ -16,26 +16,26 @@ async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     // Fine-tune PLL1 dividers/multipliers
     config.rcc.pll1 = Some(embassy_stm32::rcc::Pll {
-        source: PllSource::HSI,
-        prediv: PllPreDiv::DIV1,  // PLLM = 1 → HSI / 1 = 16 MHz
-        mul: PllMul::MUL30,       // PLLN = 30 → 16 MHz * 30 = 480 MHz VCO
-        divr: Some(PllDiv::DIV5), // PLLR = 5 → 96 MHz (Sysclk)
+        source: PllSource::Hsi,
+        prediv: PllPreDiv::Div1,  // PLLM = 1 → HSI / 1 = 16 MHz
+        mul: PllMul::Mul30,       // PLLN = 30 → 16 MHz * 30 = 480 MHz VCO
+        divr: Some(PllDiv::Div5), // PLLR = 5 → 96 MHz (Sysclk)
         // divq: Some(PllDiv::DIV10), // PLLQ = 10 → 48 MHz (NOT USED)
         divq: None,
-        divp: Some(PllDiv::DIV30), // PLLP = 30 → 16 MHz (USBOTG)
+        divp: Some(PllDiv::Div30), // PLLP = 30 → 16 MHz (USBOTG)
         frac: Some(0),             // Fractional part (enabled)
     });
 
-    config.rcc.ahb_pre = AHBPrescaler::DIV1;
-    config.rcc.apb1_pre = APBPrescaler::DIV1;
-    config.rcc.apb2_pre = APBPrescaler::DIV1;
-    config.rcc.apb7_pre = APBPrescaler::DIV1;
-    config.rcc.ahb5_pre = AHB5Prescaler::DIV4;
+    config.rcc.ahb_pre = AHBPrescaler::Div1;
+    config.rcc.apb1_pre = APBPrescaler::Div1;
+    config.rcc.apb2_pre = APBPrescaler::Div1;
+    config.rcc.apb7_pre = APBPrescaler::Div1;
+    config.rcc.ahb5_pre = AHB5Prescaler::Div4;
 
     // voltage scale for max performance
-    config.rcc.voltage_scale = VoltageScale::RANGE1;
+    config.rcc.voltage_scale = VoltageScale::Range1;
     // route PLL1_P into the USB‐OTG‐HS block
-    config.rcc.sys = Sysclk::PLL1_R;
+    config.rcc.sys = Sysclk::Pll1R;
 
     let p = embassy_stm32::init(config);
     info!("Hello World!");

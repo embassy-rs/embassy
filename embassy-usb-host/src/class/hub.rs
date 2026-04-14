@@ -14,7 +14,7 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 use crate::control::{CLEAR_FEATURE, ControlChannelExt, GET_STATUS, SET_FEATURE};
 use crate::descriptor::{DEFAULT_MAX_DESCRIPTOR_SIZE, InterfaceDescriptor, USBDescriptor};
-use crate::handler::{EnumerationInfo, HandlerEvent, RegisterError, UsbHostHandler};
+use crate::handler::{EnumerationInfo, HandlerEvent, RegisterError};
 
 pub struct HubHandler<H: UsbHostDriver, const MAX_PORTS: usize> {
     interrupt_channel: H::Channel<channel::Interrupt, channel::In>,
@@ -32,22 +32,9 @@ pub enum HubEvent {
     DeviceRemoved { address: Option<NonZeroU8>, port: u8 },
 }
 
-impl<H: UsbHostDriver, const MAX_PORTS: usize> UsbHostHandler for HubHandler<H, MAX_PORTS> {
-    type PollEvent = HubEvent;
-    type Driver = H;
-
-    fn static_spec() -> crate::handler::StaticHandlerSpec {
-        use crate::handler::{DeviceFilter, StaticHandlerSpec};
-        StaticHandlerSpec {
-            device_filter: Some(DeviceFilter {
-                base_class: Some(unsafe { NonZeroU8::new_unchecked(0x09) }), // Hub
-                sub_class: Some(0x00),
-                protocol: None,
-            }),
-        }
-    }
-
-    async fn try_register(bus: &H, enum_info: &EnumerationInfo) -> Result<Self, RegisterError> {
+impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
+    /// Attempt to register a hub handler for the given device.
+    pub async fn try_register(bus: &H, enum_info: &EnumerationInfo) -> Result<Self, RegisterError> {
         let mut control_channel = bus.alloc_channel::<channel::Control, channel::InOut>(
             enum_info.device_address,
             &EndpointInfo {
@@ -112,7 +99,8 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> UsbHostHandler for HubHandler<H, 
         Ok(hub)
     }
 
-    async fn wait_for_event(&mut self) -> Result<HandlerEvent<HubEvent>, HostError> {
+    /// Wait for a hub port status change event.
+    pub async fn wait_for_event(&mut self) -> Result<HandlerEvent<HubEvent>, HostError> {
         loop {
             let mut buf = [0u8; 16];
             let slice = &mut buf[..(self.desc.port_num as usize / 8) + 1];
@@ -175,9 +163,7 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> UsbHostHandler for HubHandler<H, 
             }
         }
     }
-}
 
-impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
     #[allow(dead_code)]
     async fn hub_feature(&mut self, set: bool, feature: HubFeature) -> Result<(), HostError> {
         let setup = SetupPacket {

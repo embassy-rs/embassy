@@ -178,19 +178,19 @@ impl PixelFormat {
 impl Into<vals::FgpfccrCm> for PixelFormat {
     fn into(self) -> vals::FgpfccrCm {
         match self {
-            PixelFormat::Argb8888 => vals::FgpfccrCm::ARGB8888,
-            PixelFormat::Rgb888 => vals::FgpfccrCm::RGB888,
-            PixelFormat::Rgb565 => vals::FgpfccrCm::RGB565,
-            PixelFormat::Argb1555 => vals::FgpfccrCm::ARGB1555,
-            PixelFormat::Argb4444 => vals::FgpfccrCm::ARGB4444,
+            PixelFormat::Argb8888 => vals::FgpfccrCm::Argb8888,
+            PixelFormat::Rgb888 => vals::FgpfccrCm::Rgb888,
+            PixelFormat::Rgb565 => vals::FgpfccrCm::Rgb565,
+            PixelFormat::Argb1555 => vals::FgpfccrCm::Argb1555,
+            PixelFormat::Argb4444 => vals::FgpfccrCm::Argb4444,
             PixelFormat::L8 => vals::FgpfccrCm::L8,
-            PixelFormat::AL44 => vals::FgpfccrCm::AL44,
-            PixelFormat::AL88 => vals::FgpfccrCm::AL88,
+            PixelFormat::AL44 => vals::FgpfccrCm::Al44,
+            PixelFormat::AL88 => vals::FgpfccrCm::Al88,
             PixelFormat::L4 => vals::FgpfccrCm::L4,
             PixelFormat::A8 => vals::FgpfccrCm::A8,
             PixelFormat::A4 => vals::FgpfccrCm::A4,
             #[cfg(dma2d_v2)]
-            PixelFormat::YCbCr => vals::FgpfccrCm::YCB_CR,
+            PixelFormat::YCbCr => vals::FgpfccrCm::YCbCr,
         }
     }
 }
@@ -198,14 +198,14 @@ impl Into<vals::FgpfccrCm> for PixelFormat {
 impl Into<vals::BgpfccrCm> for PixelFormat {
     fn into(self) -> vals::BgpfccrCm {
         match self {
-            PixelFormat::Argb8888 => vals::BgpfccrCm::ARGB8888,
-            PixelFormat::Rgb888 => vals::BgpfccrCm::RGB888,
-            PixelFormat::Rgb565 => vals::BgpfccrCm::RGB565,
-            PixelFormat::Argb1555 => vals::BgpfccrCm::ARGB1555,
-            PixelFormat::Argb4444 => vals::BgpfccrCm::ARGB4444,
+            PixelFormat::Argb8888 => vals::BgpfccrCm::Argb8888,
+            PixelFormat::Rgb888 => vals::BgpfccrCm::Rgb888,
+            PixelFormat::Rgb565 => vals::BgpfccrCm::Rgb565,
+            PixelFormat::Argb1555 => vals::BgpfccrCm::Argb1555,
+            PixelFormat::Argb4444 => vals::BgpfccrCm::Argb4444,
             PixelFormat::L8 => vals::BgpfccrCm::L8,
-            PixelFormat::AL44 => vals::BgpfccrCm::AL44,
-            PixelFormat::AL88 => vals::BgpfccrCm::AL88,
+            PixelFormat::AL44 => vals::BgpfccrCm::Al44,
+            PixelFormat::AL88 => vals::BgpfccrCm::Al88,
             PixelFormat::L4 => vals::BgpfccrCm::L4,
             PixelFormat::A8 => vals::BgpfccrCm::A8,
             PixelFormat::A4 => vals::BgpfccrCm::A4,
@@ -218,11 +218,11 @@ impl Into<vals::BgpfccrCm> for PixelFormat {
 impl Into<vals::OpfccrCm> for PixelFormat {
     fn into(self) -> vals::OpfccrCm {
         match self {
-            PixelFormat::Argb8888 => vals::OpfccrCm::ARGB8888,
-            PixelFormat::Rgb888 => vals::OpfccrCm::RGB888,
-            PixelFormat::Rgb565 => vals::OpfccrCm::RGB565,
-            PixelFormat::Argb1555 => vals::OpfccrCm::ARGB1555,
-            PixelFormat::Argb4444 => vals::OpfccrCm::ARGB4444,
+            PixelFormat::Argb8888 => vals::OpfccrCm::Argb8888,
+            PixelFormat::Rgb888 => vals::OpfccrCm::Rgb888,
+            PixelFormat::Rgb565 => vals::OpfccrCm::Rgb565,
+            PixelFormat::Argb1555 => vals::OpfccrCm::Argb1555,
+            PixelFormat::Argb4444 => vals::OpfccrCm::Argb4444,
             _ => panic!("Selected output pixel format not supported"),
         }
     }
@@ -243,9 +243,9 @@ pub enum AlphaMode {
 impl Into<vals::FgpfccrAm> for AlphaMode {
     fn into(self) -> vals::FgpfccrAm {
         match self {
-            AlphaMode::NoModify => vals::FgpfccrAm::NO_MODIFY,
-            AlphaMode::Replace(_) => vals::FgpfccrAm::REPLACE,
-            AlphaMode::Multiply(_) => vals::FgpfccrAm::MULTIPLY,
+            AlphaMode::NoModify => vals::FgpfccrAm::NoModify,
+            AlphaMode::Replace(_) => vals::FgpfccrAm::Replace,
+            AlphaMode::Multiply(_) => vals::FgpfccrAm::Multiply,
         }
     }
 }
@@ -253,9 +253,9 @@ impl Into<vals::FgpfccrAm> for AlphaMode {
 impl Into<vals::BgpfccrAm> for AlphaMode {
     fn into(self) -> vals::BgpfccrAm {
         match self {
-            AlphaMode::NoModify => vals::BgpfccrAm::NO_MODIFY,
-            AlphaMode::Replace(_) => vals::BgpfccrAm::REPLACE,
-            AlphaMode::Multiply(_) => vals::BgpfccrAm::MULTIPLY,
+            AlphaMode::NoModify => vals::BgpfccrAm::NoModify,
+            AlphaMode::Replace(_) => vals::BgpfccrAm::Replace,
+            AlphaMode::Multiply(_) => vals::BgpfccrAm::Multiply,
         }
     }
 }
@@ -360,13 +360,13 @@ impl<'d, T: Instance> Dma2d<'d, T> {
                     w.set_cm(config.pixel_format.into());
                     #[cfg(dma2d_v2)]
                     w.set_ai(match config.alpha_invert {
-                        true => vals::FgpfccrAi::INVERTED_ALPHA,
-                        false => vals::FgpfccrAi::REGULAR_ALPHA,
+                        true => vals::FgpfccrAi::InvertedAlpha,
+                        false => vals::FgpfccrAi::RegularAlpha,
                     });
                     #[cfg(dma2d_v2)]
                     w.set_rbs(match config.swap_red_blue {
-                        true => vals::FgpfccrRbs::SWAP,
-                        false => vals::FgpfccrRbs::REGULAR,
+                        true => vals::FgpfccrRbs::Swap,
+                        false => vals::FgpfccrRbs::Regular,
                     });
                     w.set_am(config.alpha_mode.into());
 
@@ -381,13 +381,13 @@ impl<'d, T: Instance> Dma2d<'d, T> {
                     w.set_cm(config.pixel_format.into());
                     #[cfg(dma2d_v2)]
                     w.set_ai(match config.alpha_invert {
-                        true => vals::BgpfccrAi::INVERTED_ALPHA,
-                        false => vals::BgpfccrAi::REGULAR_ALPHA,
+                        true => vals::BgpfccrAi::InvertedAlpha,
+                        false => vals::BgpfccrAi::RegularAlpha,
                     });
                     #[cfg(dma2d_v2)]
                     w.set_rbs(match config.swap_red_blue {
-                        true => vals::BgpfccrRbs::SWAP,
-                        false => vals::BgpfccrRbs::REGULAR,
+                        true => vals::BgpfccrRbs::Swap,
+                        false => vals::BgpfccrRbs::Regular,
                     });
                     w.set_am(config.alpha_mode.into());
 
@@ -402,18 +402,18 @@ impl<'d, T: Instance> Dma2d<'d, T> {
                     w.set_cm(config.pixel_format.into());
                     #[cfg(dma2d_v2)]
                     w.set_ai(match config.alpha_invert {
-                        true => vals::OpfccrAi::INVERTED_ALPHA,
-                        false => vals::OpfccrAi::REGULAR_ALPHA,
+                        true => vals::OpfccrAi::InvertedAlpha,
+                        false => vals::OpfccrAi::RegularAlpha,
                     });
                     #[cfg(dma2d_v2)]
                     w.set_rbs(match config.swap_red_blue {
-                        true => vals::OpfccrRbs::SWAP,
-                        false => vals::OpfccrRbs::REGULAR,
+                        true => vals::OpfccrRbs::Swap,
+                        false => vals::OpfccrRbs::Regular,
                     });
                     #[cfg(dma2d_v2)]
                     w.set_sb(match config.swap_bytes {
-                        true => vals::Sb::SWAP_BYTES,
-                        false => vals::Sb::REGULAR,
+                        true => vals::Sb::SwapBytes,
+                        false => vals::Sb::Regular,
                     });
                 });
             }
@@ -431,7 +431,7 @@ impl<'d, T: Instance> Dma2d<'d, T> {
         T::regs().ocolr().modify(|w| w.set_color(color));
         #[cfg(dma2d_v1)]
         T::regs().ocolr().modify(|w| w.0 = color);
-        T::regs().cr().modify(|w| w.set_mode(vals::Mode::REGISTER_TO_MEMORY));
+        T::regs().cr().modify(|w| w.set_mode(vals::Mode::RegisterToMemory));
         Self::transfer().await
     }
 
@@ -444,7 +444,7 @@ impl<'d, T: Instance> Dma2d<'d, T> {
 
         self.set_buffer(BufferKind::Foreground, fg);
         self.set_buffer(BufferKind::Output, output);
-        T::regs().cr().modify(|w| w.set_mode(vals::Mode::MEMORY_TO_MEMORY));
+        T::regs().cr().modify(|w| w.set_mode(vals::Mode::MemoryToMemory));
         Self::transfer().await
     }
 
@@ -482,7 +482,7 @@ impl<'d, T: Instance> Dma2d<'d, T> {
 
         T::regs()
             .cr()
-            .modify(|w| w.set_mode(vals::Mode::MEMORY_TO_MEMORY_PFCBLENDING_FIXED_COLOR_BG));
+            .modify(|w| w.set_mode(vals::Mode::MemoryToMemoryPfcBlendingFixedColorBg));
         Self::transfer().await
     }
 
@@ -513,7 +513,7 @@ impl<'d, T: Instance> Dma2d<'d, T> {
 
         T::regs()
             .cr()
-            .modify(|w| w.set_mode(vals::Mode::MEMORY_TO_MEMORY_PFCBLENDING));
+            .modify(|w| w.set_mode(vals::Mode::MemoryToMemoryPfcBlending));
         Self::transfer().await
     }
 
@@ -523,12 +523,12 @@ impl<'d, T: Instance> Dma2d<'d, T> {
             let isr = T::regs().isr().read();
 
             if isr.teif() {
-                T::regs().ifcr().modify(|w| w.set_cteif(vals::Cteif::CLEAR));
+                T::regs().ifcr().modify(|w| w.set_cteif(vals::Cteif::Clear));
                 return Poll::Ready(Err(Error::TransferError));
             }
 
             if isr.ceif() {
-                T::regs().ifcr().modify(|w| w.set_cceif(vals::Cceif::CLEAR));
+                T::regs().ifcr().modify(|w| w.set_cceif(vals::Cceif::Clear));
                 return Poll::Ready(Err(Error::ConfigError));
             }
 
@@ -539,7 +539,7 @@ impl<'d, T: Instance> Dma2d<'d, T> {
                     w.set_ceie(false);
                 });
 
-                T::regs().ifcr().modify(|w| w.set_ctcif(vals::Ctcif::CLEAR));
+                T::regs().ifcr().modify(|w| w.set_ctcif(vals::Ctcif::Clear));
 
                 Poll::Ready(Ok(()))
             } else {
@@ -551,7 +551,7 @@ impl<'d, T: Instance> Dma2d<'d, T> {
                     // Enable transfer error interrupt
                     w.set_teie(true);
                     w.set_ceie(true);
-                    w.set_start(stm32_metapac::dma2d::vals::CrStart::START);
+                    w.set_start(stm32_metapac::dma2d::vals::CrStart::Start);
                 });
                 Poll::Pending
             }

@@ -158,7 +158,7 @@ impl AdcRegs for crate::pac::adc::Adc {
         let mut is_ordered_down = true;
 
         let mut last_channel: u8 = 0;
-        let mut sample_time: Self::SampleTime = SampleTime::CYCLES1_5;
+        let mut sample_time: Self::SampleTime = SampleTime::Cycles15;
 
         self.chselr().write(|w| {
             for (i, ((channel, _), _sample_time)) in sequence.enumerate() {
@@ -183,9 +183,9 @@ impl AdcRegs for crate::pac::adc::Adc {
 
         self.cfgr1().modify(|w| {
             w.set_scandir(if is_ordered_up {
-                Scandir::UPWARD
+                Scandir::Upward
             } else {
-                Scandir::BACKWARD
+                Scandir::Backward
             })
         });
     }
@@ -206,7 +206,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
 
         // set default PCKL/2 on L0s because HSI is disabled in the default clock config
         #[cfg(adc_l0)]
-        T::regs().cfgr2().modify(|reg| reg.set_ckmode(Ckmode::PCLK_DIV2));
+        T::regs().cfgr2().modify(|reg| reg.set_ckmode(Ckmode::PclkDiv2));
 
         // A.7.1 ADC calibration code example
         T::regs().cfgr1().modify(|reg| reg.set_dmaen(false));

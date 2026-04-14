@@ -1,10 +1,12 @@
 //! I3C Controller driver.
 
+use core::marker::PhantomData;
+
 use embassy_hal_internal::Peri;
 use embassy_hal_internal::drop::OnDrop;
 use nxp_pac::i3c::{MdmactrlDmafb, MdmactrlDmatb};
 
-use super::{Async, AsyncMode, Blocking, Dma, Info, Instance, InterruptHandler, Mode, SclPin, SdaPin};
+use super::{Async, AsyncMode, Blocking, Dma, Info, Instance, Mode, SclPin, SdaPin};
 use crate::clocks::periph_helpers::{Div4, I3cClockSel, I3cConfig};
 use crate::clocks::{ClockError, PoweredClock, WakeGuard, enable_and_reset};
 use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, TransferOptions};
@@ -174,6 +176,39 @@ impl Default for ClockConfig {
 fn calculate_error(cur_freq: u32, desired_freq: u32) -> u32 {
     let delta = cur_freq.abs_diff(desired_freq);
     delta * 100 / desired_freq
+}
+
+/// DAA device information
+#[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct DeviceInfo {
+    /// Vendor ID
+    pub vid: u16,
+
+    /// Part number
+    pub partno: u32,
+
+    /// Bus Characteristics Register
+    pub bcr: u8,
+
+    /// Device Characteristics Register
+    pub dcr: u8,
+
+    /// Dynamic address
+    pub addr: u8,
+}
+
+impl DeviceInfo {
+    // Create a new Device Info
+    pub const fn new() -> Self {
+        Self {
+            vid: 0,
+            partno: 0,
+            bcr: 0,
+            dcr: 0,
+            addr: 0,
+        }
+    }
 }
 
 /// I3C controller driver.
@@ -362,6 +397,21 @@ impl<'d, M: Mode> I3c<'d, M> {
         });
     }
 
+    fn clear_errors(&self) {
+        self.info.regs().merrwarn().write(|w| {
+            w.set_urun(true);
+            w.set_nack(true);
+            w.set_wrabt(true);
+            w.set_hpar(true);
+            w.set_hcrc(true);
+            w.set_oread(true);
+            w.set_owrite(true);
+            w.set_msgerr(true);
+            w.set_invreq(true);
+            w.set_timeout(true);
+        });
+    }
+
     fn blocking_wait_for_ctrldone(&self) {
         while !self.info.regs().mstatus().read().mctrldone() {}
     }
@@ -542,6 +592,86 @@ impl<'d, M: Mode> I3c<'d, M> {
 
     // Public API: Blocking
 
+    /// Reset dynamic address assignment
+    pub fn blocking_reset_daa(&mut self) -> Result<(), IOError> {
+        self.blocking_write(0x7e, &[0x06], BusType::I3cSdr)
+    }
+
+    /// DAA sequence
+    pub fn daa(&mut self, devices: &mut [DeviceInfo], starting_address: u8) -> Result<(), IOError> {
+        let mut address = starting_address;
+
+        if address == 0 || address >= 0x7e || (address as usize) + devices.len() >= 0x7e {
+            return Err(IOError::AddressOutOfRange(address));
+        }
+
+        // Check if the bus is already in use.
+        if self.info.regs().mstatus().read().state() != State::IDLE {
+            return Err(IOError::Other);
+        }
+
+        self.clear_errors();
+        self.clear_flags();
+
+        // Start DAA sequence
+        self.info.regs().mctrl().write(|w| {
+            w.set_request(Request::PROCESSDAA);
+        });
+
+        // Here
+        for device in devices {
+            // Wait for controller event
+            loop {
+                let s = self.info.regs().mstatus().read();
+
+                if s.errwarn() {
+                    return self.status();
+                }
+
+                if s.complete() {
+                    return Err(IOError::Other);
+                }
+
+                if s.mctrldone() && s.state() == State::DAA {
+                    break;
+                }
+            }
+
+            // Read exactly 8 bytes from the RX FIFO: PID[6] + BCR + DCR
+            let mut buf = [0u8; 8];
+            for b in &mut buf {
+                while self.info.regs().mdatactrl().read().rxempty() {}
+                *b = self.info.regs().mrdatab().read().value();
+            }
+
+            // Decode data
+            let vid = (((buf[0] as u16) << 8) | (buf[1] as u16)) >> 1;
+            let partno = ((buf[2] as u32) << 24) | (buf[3] as u32) << 16 | (buf[4] as u32) << 8 | (buf[5] as u32);
+            let bcr = buf[6];
+            let dcr = buf[7];
+
+            // Update the device data
+            device.vid = vid;
+            device.partno = partno;
+            device.bcr = bcr;
+            device.dcr = dcr;
+            device.addr = address;
+
+            // Write DA
+            self.info.regs().mwdatab().write(|w| w.set_value(address));
+
+            // Trigger DAA processing
+            self.info.regs().mctrl().write(|w| w.set_request(Request::PROCESSDAA));
+
+            address += 1;
+        }
+
+        self.clear_flags();
+        self.clear_errors();
+
+        Ok(())
+    }
+
     /// Read from address into buffer blocking caller until done.
     pub fn blocking_read(&mut self, address: u8, read: &mut [u8], bus_type: BusType) -> Result<(), IOError> {
         self.blocking_read_internal(address, read, bus_type, SendStop::Yes)
@@ -562,6 +692,30 @@ impl<'d, M: Mode> I3c<'d, M> {
     ) -> Result<(), IOError> {
         self.blocking_write_internal(address, write, bus_type, SendStop::No)?;
         self.blocking_read_internal(address, read, bus_type, SendStop::Yes)
+    }
+
+    /// Execute a series of I3C operations (reads/writes) with
+    /// repeated start conditions.
+    pub fn blocking_transaction(&mut self, operations: &mut [Operation<'_>], bus_type: BusType) -> Result<(), IOError> {
+        let Some((last, rest)) = operations.split_last_mut() else {
+            return Ok(());
+        };
+
+        for op in rest {
+            match op {
+                Operation::Read { address, buf } => {
+                    self.blocking_read_internal(*address, buf, bus_type, SendStop::No)?
+                }
+                Operation::Write { address, buf } => {
+                    self.blocking_write_internal(*address, buf, bus_type, SendStop::No)?
+                }
+            }
+        }
+
+        match last {
+            Operation::Read { address, buf } => self.blocking_read_internal(*address, buf, bus_type, SendStop::Yes),
+            Operation::Write { address, buf } => self.blocking_write_internal(*address, buf, bus_type, SendStop::Yes),
+        }
     }
 }
 
@@ -1108,6 +1262,46 @@ where
         <Self as AsyncEngine>::async_write_internal(self, address, write, bus_type, SendStop::No).await?;
         <Self as AsyncEngine>::async_read_internal(self, address, read, bus_type, SendStop::Yes).await
     }
+
+    /// Asynchronously execute a series of I3C operations
+    /// (reads/writes) with repeated start conditions.
+    pub async fn async_transaction<'a>(
+        &'a mut self,
+        operations: &'a mut [Operation<'a>],
+        bus_type: BusType,
+    ) -> Result<(), IOError> {
+        let Some((last, rest)) = operations.split_last_mut() else {
+            return Ok(());
+        };
+
+        for op in rest {
+            match op {
+                Operation::Read { address, buf } => {
+                    <Self as AsyncEngine>::async_read_internal(self, *address, buf, bus_type, SendStop::No).await?
+                }
+                Operation::Write { address, buf } => {
+                    <Self as AsyncEngine>::async_write_internal(self, *address, buf, bus_type, SendStop::No).await?
+                }
+            }
+        }
+
+        match last {
+            Operation::Read { address, buf } => {
+                <Self as AsyncEngine>::async_read_internal(self, *address, buf, bus_type, SendStop::Yes).await
+            }
+            Operation::Write { address, buf } => {
+                <Self as AsyncEngine>::async_write_internal(self, *address, buf, bus_type, SendStop::Yes).await
+            }
+        }
+    }
+}
+
+/// I3c Operation.
+///
+/// Several operations can be combined as part of a single transaction.
+pub enum Operation<'a> {
+    Read { address: u8, buf: &'a mut [u8] },
+    Write { address: u8, buf: &'a [u8] },
 }
 
 impl<'d, M: Mode> Drop for I3c<'d, M> {
@@ -1253,6 +1447,42 @@ where
             embedded_hal_async::i2c::Operation::Write(buf) => {
                 <Self as AsyncEngine>::async_write_internal(self, address, buf, BusType::I2c, SendStop::Yes).await
             }
+        }
+    }
+}
+
+/// I3C interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let status = T::info().regs().mintmasked().read();
+        T::PERF_INT_INCR();
+
+        if status.nowmaster()
+            || status.complete()
+            || status.mctrldone()
+            || status.slvstart()
+            || status.errwarn()
+            || status.rxpend()
+            || status.txnotfull()
+            || status.ibiwon()
+        {
+            T::info().regs().mintclr().write(|w| {
+                w.set_nowmaster(true);
+                w.set_complete(true);
+                w.set_mctrldone(true);
+                w.set_slvstart(true);
+                w.set_errwarn(true);
+                w.set_rxpend(true);
+                w.set_txnotfull(true);
+                w.set_ibiwon(true);
+            });
+
+            T::PERF_INT_WAKE_INCR();
+            T::info().wait_cell().wake();
         }
     }
 }

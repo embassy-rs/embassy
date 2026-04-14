@@ -194,7 +194,7 @@ impl<'d, T: Instance> Saes<'d, T, Blocking> {
         {
             let rcc = pac::RCC;
             if !rcc.ahb2enr().read().rngen() {
-                rcc.ccipr2().modify(|w| w.set_rngsel(pac::rcc::vals::Rngsel::HSI));
+                rcc.ccipr2().modify(|w| w.set_rngsel(pac::rcc::vals::Rngsel::Hsi));
                 rcc.ahb2enr().modify(|w| w.set_rngen(true));
                 pac::RNG.cr().modify(|w| w.set_rngen(true));
                 // Brief settle delay (~100 µs at 96 MHz) before SAES tries to read from RNG
@@ -243,7 +243,7 @@ impl<'d, T: Instance> Saes<'d, T, Async> {
         {
             let rcc = pac::RCC;
             if !rcc.ahb2enr().read().rngen() {
-                rcc.ccipr2().modify(|w| w.set_rngsel(pac::rcc::vals::Rngsel::HSI));
+                rcc.ccipr2().modify(|w| w.set_rngsel(pac::rcc::vals::Rngsel::Hsi));
                 rcc.ahb2enr().modify(|w| w.set_rngen(true));
                 pac::RNG.cr().modify(|w| w.set_rngen(true));
                 cortex_m::asm::delay(10_000);
@@ -332,8 +332,8 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
         // Configure key size
         let keysize = cipher.key_size();
         let keysize_val = match keysize {
-            KeySize::Bits128 => pac::saes::vals::Keysize::BITS128,
-            KeySize::Bits256 => pac::saes::vals::Keysize::BITS256,
+            KeySize::Bits128 => pac::saes::vals::Keysize::Bits128,
+            KeySize::Bits256 => pac::saes::vals::Keysize::Bits256,
         };
         p.cr().modify(|w| w.set_keysize(keysize_val));
         // Changing KEYSIZE may trigger a new RNG mask fetch (BUSY=1) inside SAES,
@@ -346,8 +346,8 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
 
         // Set direction
         let mode_val = match dir {
-            Direction::Encrypt => pac::saes::vals::Mode::ENCRYPTION,
-            Direction::Decrypt => pac::saes::vals::Mode::DECRYPTION,
+            Direction::Encrypt => pac::saes::vals::Mode::Encryption,
+            Direction::Decrypt => pac::saes::vals::Mode::Decryption,
         };
         p.cr().modify(|w| w.set_mode(mode_val));
 
@@ -379,7 +379,7 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
         // CTR, GCM, and CCM use the encryption key schedule in both directions - no derivation.
         let needs_key_derivation = dir == Direction::Decrypt && matches!(cipher.chmod_bits(), 0 | 1);
         if needs_key_derivation {
-            p.cr().modify(|w| w.set_mode(pac::saes::vals::Mode::KEY_DERIVATION));
+            p.cr().modify(|w| w.set_mode(pac::saes::vals::Mode::KeyDerivation));
             p.cr().modify(|w| w.set_en(true));
             // Wait for CCF (computation complete), not BUSY
             while !p.isr().read().ccf() {}
@@ -430,7 +430,7 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
     pub fn share_key_with(&mut self, target: KeyShareTarget) {
         let p = T::regs();
         let kshareid_val = match target {
-            KeyShareTarget::AES => pac::saes::vals::Kshareid::AES,
+            KeyShareTarget::AES => pac::saes::vals::Kshareid::Aes,
         };
         p.cr().modify(|w| w.set_kshareid(kshareid_val));
     }

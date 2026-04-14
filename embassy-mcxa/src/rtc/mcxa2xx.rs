@@ -4,6 +4,8 @@ use core::marker::PhantomData;
 
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::{Peri, PeripheralType};
+#[cfg(feature = "embedded-mcu-hal")]
+use embedded_mcu_hal::time::{Datetime, DatetimeClock, DatetimeClockError, DatetimeFields, Month};
 use maitake_sync::WaitCell;
 use nxp_pac::rtc2xx::TcrVal;
 
@@ -239,6 +241,7 @@ pub fn convert_seconds_to_datetime(seconds: u32) -> DateTime {
 pub struct Rtc<'a> {
     _inst: core::marker::PhantomData<&'a mut ()>,
     info: &'static Info,
+    _freq: u32,
     _wg: Option<WakeGuard>,
 }
 
@@ -263,6 +266,7 @@ impl<'a> Rtc<'a> {
         let mut inst = Self {
             info,
             _inst: PhantomData,
+            _freq: clk.frequency,
             _wg: WakeGuard::for_power(&clk.power),
         };
 
@@ -272,11 +276,7 @@ impl<'a> Rtc<'a> {
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
-        Self {
-            _inst: core::marker::PhantomData,
-            info,
-            _wg: WakeGuard::for_power(&clk.power),
-        }
+        inst
     }
 
     fn set_configuration(&mut self, config: &Config) {
@@ -484,6 +484,57 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
             T::PERF_INT_WAKE_INCR();
             T::info().wait_cell().wake();
         }
+    }
+}
+
+#[cfg(feature = "embedded-mcu-hal")]
+impl<'a> DatetimeClock for Rtc<'a> {
+    fn now(&self) -> Result<Datetime, DatetimeClockError> {
+        let dt = self.get_datetime();
+        let month = match dt.month {
+            1 => Month::January,
+            2 => Month::February,
+            3 => Month::March,
+            4 => Month::April,
+            5 => Month::May,
+            6 => Month::June,
+            7 => Month::July,
+            8 => Month::August,
+            9 => Month::September,
+            10 => Month::October,
+            11 => Month::November,
+            12 => Month::December,
+            _ => return Err(DatetimeClockError::UnsupportedDatetime),
+        };
+
+        let fields = DatetimeFields {
+            year: dt.year,
+            month: month,
+            day: dt.day,
+            hour: dt.hour,
+            minute: dt.minute,
+            second: dt.second,
+            nanosecond: 0,
+        };
+
+        Datetime::new(fields).map_err(|_| DatetimeClockError::UnsupportedDatetime)
+    }
+
+    fn set(&mut self, datetime: Datetime) -> Result<(), DatetimeClockError> {
+        let dt = DateTime {
+            year: datetime.year(),
+            month: datetime.month() as u8,
+            day: datetime.day(),
+            hour: datetime.hour(),
+            minute: datetime.minute(),
+            second: datetime.second(),
+        };
+        self.set_datetime(dt);
+        Ok(())
+    }
+
+    fn resolution_hz(&self) -> u32 {
+        self._freq
     }
 }
 

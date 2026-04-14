@@ -8,15 +8,15 @@ use crate::rtc::{RtcTimeProvider, SealedInstance};
 
 fn wucksel_compute_min(val: u32, rtc_hz: u32) -> (Wucksel, u32) {
     *[
-        (Wucksel::DIV2, 2),
-        (Wucksel::DIV4, 4),
-        (Wucksel::DIV8, 8),
-        (Wucksel::DIV16, 16),
-        (Wucksel::CLOCK_SPARE, rtc_hz),
+        (Wucksel::Div2, 2),
+        (Wucksel::Div4, 4),
+        (Wucksel::Div8, 8),
+        (Wucksel::Div16, 16),
+        (Wucksel::ClockSpare, rtc_hz),
     ]
     .iter()
     .find(|(_, psc)| *psc as u32 > val)
-    .unwrap_or(&(Wucksel::CLOCK_SPARE, rtc_hz))
+    .unwrap_or(&(Wucksel::ClockSpare, rtc_hz))
 }
 
 impl Rtc {
@@ -54,7 +54,7 @@ impl Rtc {
 
             #[cfg(rtc_v3)]
             {
-                regs.scr().write(|w| w.set_cwutf(crate::pac::rtc::vals::Calrf::CLEAR));
+                regs.scr().write(|w| w.set_cwutf(crate::pac::rtc::vals::Calrf::Clear));
                 while !regs.icsr().read().wutwf() {}
             }
 
@@ -85,7 +85,7 @@ impl Rtc {
                 #[cfg(rtc_v2)]
                 regs.isr().modify(|w| w.set_wutf(false));
                 #[cfg(rtc_v3)]
-                regs.scr().write(|w| w.set_cwutf(crate::pac::rtc::vals::Calrf::CLEAR));
+                regs.scr().write(|w| w.set_cwutf(crate::pac::rtc::vals::Calrf::Clear));
 
                 // Check RM for EXTI and/or NVIC section, "Event event input mapping" or "EXTI interrupt/event mapping" or something similar,
                 // there is a table for every "Event input" / "EXTI Line".

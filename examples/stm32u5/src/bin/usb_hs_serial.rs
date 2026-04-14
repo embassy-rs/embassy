@@ -29,16 +29,16 @@ async fn main(_spawner: Spawner) {
             mode: HseMode::Oscillator,
         });
         config.rcc.pll1 = Some(Pll {
-            source: PllSource::HSE,
-            prediv: PllPreDiv::DIV2,   // HSE / 2 = 8MHz
-            mul: PllMul::MUL60,        // 8MHz * 60 = 480MHz
-            divr: Some(PllDiv::DIV3),  // 480MHz / 3 = 160MHz (sys_ck)
-            divq: Some(PllDiv::DIV10), // 480MHz / 10 = 48MHz (USB)
-            divp: Some(PllDiv::DIV15), // 480MHz / 15 = 32MHz (USBOTG)
+            source: PllSource::Hse,
+            prediv: PllPreDiv::Div2,   // HSE / 2 = 8MHz
+            mul: PllMul::Mul60,        // 8MHz * 60 = 480MHz
+            divr: Some(PllDiv::Div3),  // 480MHz / 3 = 160MHz (sys_ck)
+            divq: Some(PllDiv::Div10), // 480MHz / 10 = 48MHz (USB)
+            divp: Some(PllDiv::Div15), // 480MHz / 15 = 32MHz (USBOTG)
         });
-        config.rcc.mux.otghssel = mux::Otghssel::PLL1_P;
-        config.rcc.voltage_range = VoltageScale::RANGE1;
-        config.rcc.sys = Sysclk::PLL1_R;
+        config.rcc.mux.otghssel = mux::Otghssel::Pll1P;
+        config.rcc.voltage_range = VoltageScale::Range1;
+        config.rcc.sys = Sysclk::Pll1R;
     }
 
     let p = embassy_stm32::init(config);

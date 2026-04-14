@@ -108,23 +108,23 @@ impl<'d> Crc<'d> {
         PAC_CRC.cr().write(|w| {
             // configure reverse output
             w.set_rev_out(match self._config.reverse_out {
-                true => vals::RevOut::REVERSED,
-                false => vals::RevOut::NORMAL,
+                true => vals::RevOut::Reversed,
+                false => vals::RevOut::Normal,
             });
             // configure reverse input
             w.set_rev_in(match self._config.reverse_in {
-                InputReverseConfig::None => vals::RevIn::NORMAL,
-                InputReverseConfig::Byte => vals::RevIn::BYTE,
-                InputReverseConfig::Halfword => vals::RevIn::HALF_WORD,
-                InputReverseConfig::Word => vals::RevIn::WORD,
+                InputReverseConfig::None => vals::RevIn::Normal,
+                InputReverseConfig::Byte => vals::RevIn::Byte,
+                InputReverseConfig::Halfword => vals::RevIn::HalfWord,
+                InputReverseConfig::Word => vals::RevIn::Word,
             });
             // configure the polynomial.
             #[cfg(crc_v3)]
             w.set_polysize(match self._config.poly_size {
-                PolySize::Width7 => vals::Polysize::POLYSIZE7,
-                PolySize::Width8 => vals::Polysize::POLYSIZE8,
-                PolySize::Width16 => vals::Polysize::POLYSIZE16,
-                PolySize::Width32 => vals::Polysize::POLYSIZE32,
+                PolySize::Width7 => vals::Polysize::Polysize7,
+                PolySize::Width8 => vals::Polysize::Polysize8,
+                PolySize::Width16 => vals::Polysize::Polysize16,
+                PolySize::Width32 => vals::Polysize::Polysize32,
             });
         });
     }

@@ -244,7 +244,7 @@ impl super::AdcRegs for crate::pac::adc::Adc {
             w.set_cont(false);
             #[cfg(any(adc_v3, adc_g0, adc_u0))]
             w.set_cont(matches!(conversion_mode, ConversionMode::Repeated(None)));
-            w.set_dmacfg(Dmacfg::CIRCULAR);
+            w.set_dmacfg(Dmacfg::Circular);
 
             #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba, adc_c0))]
             if let ConversionMode::Repeated(Some((signal, _edge))) = conversion_mode {
@@ -283,7 +283,7 @@ impl super::AdcRegs for crate::pac::adc::Adc {
         #[cfg(adc_u0)]
         {
             let mut channel_mask = 0;
-            let mut sample_time: Self::SampleTime = SampleTime::CYCLES1_5;
+            let mut sample_time: Self::SampleTime = SampleTime::Cycles15;
 
             // Configure channels and ranks
             for (_i, ((channel, _is_differential), _sample_time)) in sequence.enumerate() {
@@ -543,9 +543,9 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
             Clock::Async { div } => T::regs().ccr().modify(|reg| reg.set_presc(div)),
             Clock::Sync { div } => T::regs().cfgr2().modify(|reg| {
                 reg.set_ckmode(match div {
-                    CkModePclk::DIV1 => Ckmode::PCLK,
-                    CkModePclk::DIV2 => Ckmode::PCLK_DIV2,
-                    CkModePclk::DIV4 => Ckmode::PCLK_DIV4,
+                    CkModePclk::DIV1 => Ckmode::Pclk,
+                    CkModePclk::DIV2 => Ckmode::PclkDiv2,
+                    CkModePclk::DIV4 => Ckmode::PclkDiv4,
                 })
             }),
         }

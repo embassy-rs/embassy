@@ -26,7 +26,7 @@ use core::marker::PhantomData;
 #[cfg(not(any(adc_f3v3, adc_wba)))]
 pub use _version::*;
 pub use configured_sequence::ConfiguredSequence;
-#[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2))]
+#[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2, adc_u5, adc_wba))]
 use embassy_sync::waitqueue::AtomicWaker;
 pub use ringbuffered::RingBufferedAdc;
 
@@ -110,6 +110,27 @@ impl State {
     }
 }
 
+/// ADC state for U5/WBA with per-AWD trigger flags for the analog watchdog driver.
+#[cfg(any(adc_u5, adc_wba))]
+pub struct State {
+    pub waker: AtomicWaker,
+    pub awd_triggered: [core::sync::atomic::AtomicBool; 3],
+}
+
+#[cfg(any(adc_u5, adc_wba))]
+impl State {
+    pub const fn new() -> Self {
+        Self {
+            waker: AtomicWaker::new(),
+            awd_triggered: [
+                core::sync::atomic::AtomicBool::new(false),
+                core::sync::atomic::AtomicBool::new(false),
+                core::sync::atomic::AtomicBool::new(false),
+            ],
+        }
+    }
+}
+
 #[cfg(not(adc_wba))]
 trait_set::trait_set! {
     pub trait DefaultInstance = Instance<Regs = crate::pac::adc::Adc>;
@@ -161,7 +182,7 @@ trait SealedInstance: BasicInstance {
     #[cfg(not(any(adc_f1, adc_v1, adc_l0, adc_f3v3, adc_f3v2, adc_g0)))]
     #[allow(unused)]
     fn common_regs() -> crate::pac::adccommon::AdcCommon;
-    #[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2))]
+    #[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2, adc_u5, adc_wba))]
     fn state() -> &'static State;
 }
 
@@ -719,6 +740,11 @@ foreach_adc!(
             fn common_regs() -> crate::pac::adccommon::AdcCommon {
                 return crate::pac::$common_inst
             }
+
+            fn state() -> &'static State {
+                static STATE: State = State::new();
+                &STATE
+            }
         }
 
         impl crate::adc::Instance for peripherals::ADC4 {
@@ -758,6 +784,11 @@ foreach_adc!(
             fn common_regs() -> crate::pac::adccommon::AdcCommon {
                 return crate::pac::$common_inst
             }
+
+            fn state() -> &'static State {
+                static STATE: State = State::new();
+                &STATE
+            }
         }
 
         impl crate::adc::Instance for peripherals::ADC4 {
@@ -777,6 +808,11 @@ foreach_adc!(
 
             fn common_regs() -> crate::pac::adccommon::AdcCommon {
                 return crate::pac::$common_inst
+            }
+
+            fn state() -> &'static State {
+                static STATE: State = State::new();
+                &STATE
             }
         }
 
@@ -876,18 +912,18 @@ macro_rules! impl_adc_pair {
 pub const fn resolution_to_max_count(res: Resolution) -> u32 {
     match res {
         #[cfg(adc_v4)]
-        Resolution::BITS16 => (1 << 16) - 1,
+        Resolution::Bits16 => (1 << 16) - 1,
         #[cfg(any(adc_v4, adc_u5))]
-        Resolution::BITS14 => (1 << 14) - 1,
+        Resolution::Bits14 => (1 << 14) - 1,
         #[cfg(adc_v4)]
-        Resolution::BITS14V => (1 << 14) - 1,
+        Resolution::Bits14v => (1 << 14) - 1,
         #[cfg(adc_v4)]
-        Resolution::BITS12V => (1 << 12) - 1,
-        Resolution::BITS12 => (1 << 12) - 1,
-        Resolution::BITS10 => (1 << 10) - 1,
-        Resolution::BITS8 => (1 << 8) - 1,
+        Resolution::Bits12v => (1 << 12) - 1,
+        Resolution::Bits12 => (1 << 12) - 1,
+        Resolution::Bits10 => (1 << 10) - 1,
+        Resolution::Bits8 => (1 << 8) - 1,
         #[cfg(any(adc_v1, adc_v2, adc_v3, adc_l0, adc_c0, adc_g0, adc_f3v1, adc_f3v2, adc_h5))]
-        Resolution::BITS6 => (1 << 6) - 1,
+        Resolution::Bits6 => (1 << 6) - 1,
         #[allow(unreachable_patterns)]
         _ => core::unreachable!(),
     }

@@ -21,7 +21,7 @@ async fn main(_spawner: Spawner) {
     info!("ADC STM32C0 example.");
 
     // We need to set certain sample time to be able to read temp sensor.
-    let mut adc = Adc::new(p.ADC1, Resolution::BITS12);
+    let mut adc = Adc::new(p.ADC1, Resolution::Bits12);
     let mut temperature = adc.enable_temperature();
     let mut vrefint = adc.enable_vrefint();
 
@@ -34,18 +34,18 @@ async fn main(_spawner: Spawner) {
 
     for _ in 0..5 {
         info!("============================");
-        let blocking_temp = adc.blocking_read(&mut temp, SampleTime::CYCLES12_5);
-        let blocking_vref = adc.blocking_read(&mut vref, SampleTime::CYCLES12_5);
-        let blocing_pin0 = adc.blocking_read(&mut pin0, SampleTime::CYCLES12_5);
+        let blocking_temp = adc.blocking_read(&mut temp, SampleTime::Cycles125);
+        let blocking_vref = adc.blocking_read(&mut vref, SampleTime::Cycles125);
+        let blocing_pin0 = adc.blocking_read(&mut pin0, SampleTime::Cycles125);
         info!(
             "Blocking ADC read: vref = {}, temp = {}, pin0 = {}.",
             blocking_vref, blocking_temp, blocing_pin0
         );
 
         let channels_sequence: [(&mut AnyAdcChannel<ADC1>, SampleTime); 3] = [
-            (&mut vref, SampleTime::CYCLES12_5),
-            (&mut temp, SampleTime::CYCLES12_5),
-            (&mut pin0, SampleTime::CYCLES12_5),
+            (&mut vref, SampleTime::Cycles125),
+            (&mut temp, SampleTime::Cycles125),
+            (&mut pin0, SampleTime::Cycles125),
         ];
         adc.read(
             dma.reborrow(),

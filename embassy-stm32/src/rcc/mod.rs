@@ -623,20 +623,20 @@ pub(crate) fn init_rcc(_cs: CriticalSection, config: Config) {
             #[cfg(time_driver_lptim1)]
             {
                 match config.mux.lptim1sel {
-                    Lptimsel::PCLK1 => {
+                    Lptimsel::Pclk1 => {
                         // set it to LSI
-                        config.mux.lptim1sel = Lptimsel::LSI;
+                        config.mux.lptim1sel = Lptimsel::Lsi;
                         config.ls.lsi = true;
                     }
-                    Lptimsel::LSI => {
+                    Lptimsel::Lsi => {
                         // ok but insure the lsi is enabled
                         config.ls.lsi = true;
                     }
-                    Lptimsel::HSI => {
+                    Lptimsel::Hsi => {
                         // ok but insure the hsi is enabled
                         config.hsi = true;
                     }
-                    Lptimsel::LSE => {
+                    Lptimsel::Lse => {
                         // ok but insure the lse is configured with peripherals_clocked = true!!!
                         if let Some(mut lse_config) = config.ls.lse {
                             lse_config.peripherals_clocked = true;

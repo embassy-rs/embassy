@@ -123,10 +123,10 @@ static EP_OUT_WAKERS: [AtomicWaker; EP_COUNT] = [NEW_AW; EP_COUNT];
 
 fn convert_type(t: EndpointType) -> EpType {
     match t {
-        EndpointType::Bulk => EpType::BULK,
-        EndpointType::Control => EpType::CONTROL,
-        EndpointType::Interrupt => EpType::INTERRUPT,
-        EndpointType::Isochronous => EpType::ISO,
+        EndpointType::Bulk => EpType::Bulk,
+        EndpointType::Control => EpType::Control,
+        EndpointType::Interrupt => EpType::Interrupt,
+        EndpointType::Isochronous => EpType::Iso,
     }
 }
 
@@ -494,9 +494,9 @@ impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D,
 
             let stat = self.reg().read().stat_tx();
             match stat {
-                Stat::DISABLED => Poll::Ready(Ok(())),
-                Stat::STALL => Poll::Ready(Err(ChannelError::Stall)),
-                Stat::NAK | Stat::VALID => Poll::Pending,
+                Stat::Disabled => Poll::Ready(Ok(())),
+                Stat::Stall => Poll::Ready(Err(ChannelError::Stall)),
+                Stat::Nak | Stat::Valid => Poll::Pending,
             }
         })
         .await
@@ -532,7 +532,7 @@ impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D,
 
             let stat = self.reg().read().stat_rx();
             match stat {
-                Stat::DISABLED => {
+                Stat::Disabled => {
                     // Data available for read
                     let idest = &mut buf[count..];
                     let n = self.read_data(idest)?;
@@ -547,12 +547,12 @@ impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D,
                         Poll::Pending
                     }
                 }
-                Stat::STALL => {
+                Stat::Stall => {
                     // error
                     Poll::Ready(Err(ChannelError::Stall))
                 }
-                Stat::NAK => Poll::Pending,
-                Stat::VALID => {
+                Stat::Nak => Poll::Pending,
+                Stat::Valid => {
                     // not started yet? Try again
                     Poll::Pending
                 }

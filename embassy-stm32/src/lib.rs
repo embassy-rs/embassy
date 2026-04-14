@@ -593,7 +593,7 @@ fn init_hw(config: Config) -> Peripherals {
             crate::pac::RCC.miscenr().read(); // volatile read
             crate::pac::DBGMCU
                 .cr()
-                .modify(|w| w.set_dbgclken(stm32_metapac::dbgmcu::vals::Dbgclken::B_0X1));
+                .modify(|w| w.set_dbgclken(stm32_metapac::dbgmcu::vals::Dbgclken::B0x1));
             crate::pac::DBGMCU.cr().read();
         }
 
@@ -656,9 +656,9 @@ fn init_hw(config: Config) -> Peripherals {
             use crate::pac::pwr::vals;
             crate::pac::PWR.svmcr().modify(|w| {
                 w.set_io2sv(if config.enable_independent_io_supply {
-                    vals::Io2sv::B_0X1
+                    vals::Io2sv::B0x1
                 } else {
-                    vals::Io2sv::B_0X0
+                    vals::Io2sv::B0x0
                 });
             });
         }

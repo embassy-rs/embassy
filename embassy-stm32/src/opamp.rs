@@ -92,7 +92,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         out_pin.set_as_analog();
 
         #[cfg(opamp_v5)]
-        let vm_sel = VmSel::OUTPUT;
+        let vm_sel = VmSel::Output;
         #[cfg(not(opamp_v5))]
         let vm_sel = VmSel::from_bits(0b11);
 
@@ -127,18 +127,18 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         out_pin.set_as_analog();
 
         #[cfg(opamp_v5)]
-        let vm_sel = VmSel::PGA;
+        let vm_sel = VmSel::Pga;
         #[cfg(not(opamp_v5))]
         let vm_sel = VmSel::from_bits(0b10);
 
         #[cfg(opamp_v5)]
         let pga_gain = match gain {
-            OpAmpGain::Mul2 => PgaGain::GAIN2,
-            OpAmpGain::Mul4 => PgaGain::GAIN4,
-            OpAmpGain::Mul8 => PgaGain::GAIN8,
-            OpAmpGain::Mul16 => PgaGain::GAIN16,
-            OpAmpGain::Mul32 => PgaGain::GAIN32,
-            OpAmpGain::Mul64 => PgaGain::GAIN64,
+            OpAmpGain::Mul2 => PgaGain::Gain2,
+            OpAmpGain::Mul4 => PgaGain::Gain4,
+            OpAmpGain::Mul8 => PgaGain::Gain8,
+            OpAmpGain::Mul16 => PgaGain::Gain16,
+            OpAmpGain::Mul32 => PgaGain::Gain32,
+            OpAmpGain::Mul64 => PgaGain::Gain64,
         };
         #[cfg(not(opamp_v5))]
         let pga_gain = PgaGain::from_bits(match gain {
@@ -185,17 +185,17 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         out_pin.set_as_analog();
 
         let pga_gain = match gain {
-            OpAmpGain::Mul2 => PgaGain::GAIN2_INPUT_VINM0,
-            OpAmpGain::Mul4 => PgaGain::GAIN4_INPUT_VINM0,
-            OpAmpGain::Mul8 => PgaGain::GAIN8_INPUT_VINM0,
-            OpAmpGain::Mul16 => PgaGain::GAIN16_INPUT_VINM0,
-            OpAmpGain::Mul32 => PgaGain::GAIN32_INPUT_VINM0,
-            OpAmpGain::Mul64 => PgaGain::GAIN64_INPUT_VINM0,
+            OpAmpGain::Mul2 => PgaGain::Gain2InputVinm0,
+            OpAmpGain::Mul4 => PgaGain::Gain4InputVinm0,
+            OpAmpGain::Mul8 => PgaGain::Gain8InputVinm0,
+            OpAmpGain::Mul16 => PgaGain::Gain16InputVinm0,
+            OpAmpGain::Mul32 => PgaGain::Gain32InputVinm0,
+            OpAmpGain::Mul64 => PgaGain::Gain64InputVinm0,
         };
 
         T::regs().csr().modify(|w| {
             w.set_vp_sel(VpSel::from_bits(in_pin.channel()));
-            w.set_vm_sel(VmSel::PGA);
+            w.set_vm_sel(VmSel::Pga);
             w.set_pga_gain(pga_gain);
             w.set_opaintoen(false);
             w.set_opampen(true);
@@ -218,8 +218,8 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         T::regs().csr().modify(|w| {
             use crate::pac::opamp::vals::*;
 
-            w.set_vm_sel(VmSel::OUTPUT);
-            w.set_vp_sel(VpSel::DAC3_CH1);
+            w.set_vm_sel(VmSel::Output);
+            w.set_vp_sel(VpSel::Dac3Ch1);
             w.set_opaintoen(false);
             w.set_opampen(true);
         });
@@ -244,7 +244,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
 
         T::regs().csr().modify(|w| {
             w.set_vp_sel(VpSel::from_bits(pin.channel()));
-            w.set_vm_sel(VmSel::OUTPUT);
+            w.set_vm_sel(VmSel::Output);
             #[cfg(opamp_v5)]
             w.set_opaintoen(true);
             w.set_opampen(true);
@@ -270,17 +270,17 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         pin.set_as_analog();
 
         let pga_gain = match gain {
-            OpAmpGain::Mul2 => PgaGain::GAIN2,
-            OpAmpGain::Mul4 => PgaGain::GAIN4,
-            OpAmpGain::Mul8 => PgaGain::GAIN8,
-            OpAmpGain::Mul16 => PgaGain::GAIN16,
-            OpAmpGain::Mul32 => PgaGain::GAIN32,
-            OpAmpGain::Mul64 => PgaGain::GAIN64,
+            OpAmpGain::Mul2 => PgaGain::Gain2,
+            OpAmpGain::Mul4 => PgaGain::Gain4,
+            OpAmpGain::Mul8 => PgaGain::Gain8,
+            OpAmpGain::Mul16 => PgaGain::Gain16,
+            OpAmpGain::Mul32 => PgaGain::Gain32,
+            OpAmpGain::Mul64 => PgaGain::Gain64,
         };
 
         T::regs().csr().modify(|w| {
             w.set_vp_sel(VpSel::from_bits(pin.channel()));
-            w.set_vm_sel(VmSel::PGA);
+            w.set_vm_sel(VmSel::Pga);
             w.set_pga_gain(pga_gain);
             w.set_opaintoen(true);
             w.set_opampen(true);
@@ -310,17 +310,17 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         bias_pin.set_as_analog();
 
         let pga_gain = match gain {
-            OpAmpGain::Mul2 => PgaGain::GAIN2_INPUT_VINM0,
-            OpAmpGain::Mul4 => PgaGain::GAIN4_INPUT_VINM0,
-            OpAmpGain::Mul8 => PgaGain::GAIN8_INPUT_VINM0,
-            OpAmpGain::Mul16 => PgaGain::GAIN16_INPUT_VINM0,
-            OpAmpGain::Mul32 => PgaGain::GAIN32_INPUT_VINM0,
-            OpAmpGain::Mul64 => PgaGain::GAIN64_INPUT_VINM0,
+            OpAmpGain::Mul2 => PgaGain::Gain2InputVinm0,
+            OpAmpGain::Mul4 => PgaGain::Gain4InputVinm0,
+            OpAmpGain::Mul8 => PgaGain::Gain8InputVinm0,
+            OpAmpGain::Mul16 => PgaGain::Gain16InputVinm0,
+            OpAmpGain::Mul32 => PgaGain::Gain32InputVinm0,
+            OpAmpGain::Mul64 => PgaGain::Gain64InputVinm0,
         };
 
         T::regs().csr().modify(|w| {
             w.set_vp_sel(VpSel::from_bits(in_pin.channel()));
-            w.set_vm_sel(VmSel::PGA);
+            w.set_vm_sel(VmSel::Pga);
             w.set_pga_gain(pga_gain);
             w.set_opaintoen(true);
             w.set_opampen(true);
@@ -347,7 +347,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
 
         T::regs().csr().modify(|w| {
             use crate::pac::opamp::vals::*;
-            w.set_vp_sel(VpSel::DAC3_CH1); // Actually DAC3_CHx
+            w.set_vp_sel(VpSel::Dac3Ch1); // Actually DAC3_CHx
             w.set_vm_sel(VmSel::from_bits(m_pin.channel()));
             w.set_opaintoen(true);
             w.set_opampen(true);
@@ -377,7 +377,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
 
         T::regs().csr().modify(|w| {
             use crate::pac::opamp::vals::*;
-            w.set_vp_sel(VpSel::DAC3_CH1); // Actually DAC3_CHx
+            w.set_vp_sel(VpSel::Dac3Ch1); // Actually DAC3_CHx
             w.set_vm_sel(VmSel::from_bits(m_pin.channel()));
             w.set_opaintoen(false);
             w.set_opampen(true);
@@ -490,8 +490,8 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         let mut high = 31;
 
         let calsel = match pair {
-            OpAmpDifferentialPair::P => Calsel::PERCENT10,
-            OpAmpDifferentialPair::N => Calsel::PERCENT90,
+            OpAmpDifferentialPair::P => Calsel::Percent10,
+            OpAmpDifferentialPair::N => Calsel::Percent90,
         };
 
         T::regs().csr().modify(|w| {

@@ -302,21 +302,17 @@ impl<'d> AonTimer<'d> {
             ClockSource::Xosc => {
                 powman.xosc_freq_khz_int().write(|w| {
                     w.0 = (config.clock_freq_khz & 0xFFFF) | POWMAN_PASSWORD;
-                    *w
                 });
                 powman.xosc_freq_khz_frac().write(|w| {
                     w.0 = POWMAN_PASSWORD;
-                    *w
                 });
             }
             ClockSource::Lposc => {
                 powman.lposc_freq_khz_int().write(|w| {
                     w.0 = (config.clock_freq_khz & 0xFFFF) | POWMAN_PASSWORD;
-                    *w
                 });
                 powman.lposc_freq_khz_frac().write(|w| {
                     w.0 = POWMAN_PASSWORD;
-                    *w
                 });
             }
         }
@@ -342,7 +338,6 @@ impl<'d> AonTimer<'d> {
                 ClockSource::Xosc => w.set_use_xosc(true),
             }
             w.set_run(true);
-            *w
         });
     }
 
@@ -354,7 +349,6 @@ impl<'d> AonTimer<'d> {
         powman.timer().modify(|w| {
             w.0 = (w.0 & 0x0000FFFF) | POWMAN_PASSWORD;
             w.set_run(false);
-            *w
         });
     }
 
@@ -397,19 +391,15 @@ impl<'d> AonTimer<'d> {
         let powman = pac::POWMAN;
         powman.set_time_15to0().write(|w| {
             w.0 = ((value_ms & 0xFFFF) as u32) | POWMAN_PASSWORD;
-            *w
         });
         powman.set_time_31to16().write(|w| {
             w.0 = (((value_ms >> 16) & 0xFFFF) as u32) | POWMAN_PASSWORD;
-            *w
         });
         powman.set_time_47to32().write(|w| {
             w.0 = (((value_ms >> 32) & 0xFFFF) as u32) | POWMAN_PASSWORD;
-            *w
         });
         powman.set_time_63to48().write(|w| {
             w.0 = (((value_ms >> 48) & 0xFFFF) as u32) | POWMAN_PASSWORD;
-            *w
         });
     }
 
@@ -477,19 +467,15 @@ impl<'d> AonTimer<'d> {
         let powman = pac::POWMAN;
         powman.alarm_time_15to0().write(|w| {
             w.0 = ((value & 0xFFFF) as u32) | POWMAN_PASSWORD;
-            *w
         });
         powman.alarm_time_31to16().write(|w| {
             w.0 = (((value >> 16) & 0xFFFF) as u32) | POWMAN_PASSWORD;
-            *w
         });
         powman.alarm_time_47to32().write(|w| {
             w.0 = (((value >> 32) & 0xFFFF) as u32) | POWMAN_PASSWORD;
-            *w
         });
         powman.alarm_time_63to48().write(|w| {
             w.0 = (((value >> 48) & 0xFFFF) as u32) | POWMAN_PASSWORD;
-            *w
         });
     }
 
@@ -505,7 +491,6 @@ impl<'d> AonTimer<'d> {
         powman.timer().modify(|w| {
             w.0 = (w.0 & 0x0000FFFF) | POWMAN_PASSWORD;
             w.set_alarm(true); // Write 1 to clear
-            *w
         });
     }
 
@@ -515,7 +500,6 @@ impl<'d> AonTimer<'d> {
         powman.timer().modify(|w| {
             w.0 = (w.0 & 0x0000FFFF) | POWMAN_PASSWORD;
             w.set_alarm_enab(false);
-            *w
         });
     }
 
@@ -525,7 +509,6 @@ impl<'d> AonTimer<'d> {
         powman.timer().modify(|w| {
             w.0 = (w.0 & 0x0000FFFF) | POWMAN_PASSWORD;
             w.set_alarm_enab(true);
-            *w
         });
     }
 
@@ -545,7 +528,6 @@ impl<'d> AonTimer<'d> {
         powman.timer().modify(|w| {
             w.0 = (w.0 & 0x0000FFFF) | POWMAN_PASSWORD;
             w.set_pwrup_on_alarm(true);
-            *w
         });
     }
 
@@ -561,7 +543,6 @@ impl<'d> AonTimer<'d> {
         powman.timer().modify(|w| {
             w.0 = (w.0 & 0x0000FFFF) | POWMAN_PASSWORD;
             w.set_pwrup_on_alarm(false);
-            *w
         });
     }
 
@@ -713,7 +694,6 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::POWMAN_IRQ_TIMER> for I
         powman.timer().modify(|w| {
             w.0 = (w.0 & 0x0000FFFF) | POWMAN_PASSWORD;
             w.set_alarm_enab(false);
-            *w
         });
 
         powman.intr().modify(|w| w.set_timer(true));
