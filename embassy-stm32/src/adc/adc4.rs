@@ -506,7 +506,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
         })
     }
 
-    /// Initialize an analog watchdog.
+    /// Enable an analog watchdog and return a guard.
     ///
     /// `watchdog` selects which of the three hardware watchdogs to use. `channels` controls which
     /// ADC channels are monitored; see [`WatchdogChannels`] for which variants are valid for each
@@ -514,25 +514,32 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
     /// the currently configured resolution. The watchdog fires when a sample falls **outside**
     /// `[low_threshold, high_threshold]`.
     ///
+    /// The returned [`AnalogWatchdog`] does **not** borrow the ADC, so you may use the ADC for
+    /// DMA or other operations while the watchdog is active.  Call [`AnalogWatchdog::wait`] to
+    /// detect threshold crossings concurrently, or [`AnalogWatchdog::monitor`] for self-contained
+    /// single-pin monitoring (which temporarily borrows the ADC).
+    ///
+    /// Dropping the guard disables the watchdog and its interrupt.
+    ///
     /// # Panics
     ///
     /// Panics if `low_threshold > high_threshold`, or if a channel selection variant is used that
     /// is not supported by the chosen watchdog (e.g., [`WatchdogChannels::All`] with AWD2/AWD3,
     /// or [`WatchdogChannels::Channels`] with AWD1).
     #[must_use]
-    pub fn init_watchdog(
+    pub fn enable_watchdog(
         &mut self,
         watchdog: WatchdogIndex,
         channels: WatchdogChannels,
         low_threshold: u16,
         high_threshold: u16,
-    ) -> AnalogWatchdog<'_, 'd, T> {
+    ) -> AnalogWatchdog<T> {
         assert!(
             low_threshold <= high_threshold,
             "low_threshold must be <= high_threshold"
         );
         let index = watchdog.index();
         AnalogWatchdog::<T>::setup_awd(watchdog, channels, low_threshold, high_threshold);
-        AnalogWatchdog::new(self, index)
+        AnalogWatchdog::new(index)
     }
 }

@@ -5,6 +5,7 @@
 compile_error!("watchdog_adc4 is only valid for stm32wba and stm32u5 targets");
 
 use core::future::poll_fn;
+use core::marker::PhantomData;
 use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
@@ -45,7 +46,7 @@ impl WatchdogIndex {
     }
 }
 
-/// Channel selection passed into [`Adc::init_watchdog`].
+/// Channel selection passed into [`Adc::enable_watchdog`].
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum WatchdogChannels {
@@ -65,36 +66,39 @@ pub enum WatchdogChannels {
 }
 
 /// A driver for an ADC analog watchdog.
-pub struct AnalogWatchdog<'adc, 'd, T: Instance<Regs = crate::pac::adc::Adc4>> {
-    _adc: &'adc mut Adc<'d, T>,
+///
+/// Created by [`Adc::enable_watchdog`].  Does **not** borrow the [`Adc`] — you may hold this
+/// guard while performing DMA or other ADC operations concurrently and call [`Self::wait`] to
+/// detect when a monitored channel leaves the threshold window.
+///
+/// For self-contained single-pin monitoring that drives its own continuous conversion, use
+/// [`Self::monitor`], which temporarily borrows the [`Adc`].
+///
+/// Dropping the guard disables the watchdog and its interrupt.
+pub struct AnalogWatchdog<T: Instance<Regs = crate::pac::adc::Adc4>> {
     index: usize,
     /// True when [`Self::monitor`] started a continuous conversion that must be stopped in Drop.
     stop_on_drop: bool,
+    _phantom: PhantomData<T>,
 }
 
-impl<'adc, 'd, T: Instance<Regs = crate::pac::adc::Adc4>> AnalogWatchdog<'adc, 'd, T> {
-    pub(crate) fn new(adc: &'adc mut Adc<'d, T>, index: usize) -> Self {
+impl<T: Instance<Regs = crate::pac::adc::Adc4>> AnalogWatchdog<T> {
+    pub(crate) fn new(index: usize) -> Self {
         Self {
-            _adc: adc,
             index,
             stop_on_drop: false,
+            _phantom: PhantomData,
         }
     }
 
     /// Wait for the watchdog to trigger.
     ///
-    /// The watchdog is configured in [`Adc::init_watchdog`].
+    /// The watchdog is configured in [`Adc::enable_watchdog`].
     ///
     /// This method assumes conversions are already being performed externally (for example by DMA
     /// or another task running concurrently).  For typical single-pin monitoring driven entirely
     /// by the watchdog driver, prefer [`Self::monitor`].
-    ///
-    /// # Warning
-    ///
-    /// Do **not** call [`Self::monitor`] while an external DMA or task has active conversions and
-    /// you are simultaneously using `wait_for_trigger`.  [`Self::monitor`] stops any in-progress
-    /// conversion when it starts, which would abort the DMA transfer.
-    pub async fn wait_for_trigger(&mut self) {
+    pub async fn wait(&mut self) {
         self.start_awd();
         let index = self.index;
 
@@ -112,23 +116,26 @@ impl<'adc, 'd, T: Instance<Regs = crate::pac::adc::Adc4>> AnalogWatchdog<'adc, '
 
     /// Continuously convert `channel` and return the first result that trips the analog watchdog.
     ///
-    /// Thresholds and watchdog channel selection are configured in [`Adc::init_watchdog`].  When
+    /// Thresholds and watchdog channel selection are configured in [`Adc::enable_watchdog`].  When
     /// using [`WatchdogChannels::Single`], pass the same physical channel here.
     ///
     /// For AWD2/AWD3 with a [`WatchdogChannels::Channels`] bitmask, pass any one of the monitored
     /// channels here; the watchdog will fire when **any** of them leaves the threshold window.
     ///
-    /// # Warning
-    ///
-    /// This method stops any in-progress ADC conversion before starting its own continuous
-    /// conversion.  Do **not** call it while DMA or another task has active conversions — use
-    /// [`Self::wait_for_trigger`] instead.
+    /// This method takes exclusive access to the [`Adc`] for the duration of the operation
+    /// because it stops any in-progress conversion and starts its own.  For concurrent use
+    /// with DMA, use [`Self::wait`] instead.
     ///
     /// # Cancel safety
     ///
     /// If this future is dropped before it resolves, the ongoing continuous conversion is stopped
-    /// and continuous mode is cleared in [`Drop`].
-    pub async fn monitor(&mut self, channel: &mut impl AdcChannel<T>, sample_time: super::SampleTime) -> u16 {
+    /// and continuous mode is cleared when the [`AnalogWatchdog`] guard is dropped.
+    pub async fn monitor(
+        &mut self,
+        _adc: &mut Adc<'_, T>,
+        channel: &mut impl AdcChannel<T>,
+        sample_time: super::SampleTime,
+    ) -> u16 {
         let _scoped_wake_guard = <T as crate::rcc::SealedRccPeripheral>::RCC_INFO.wake_guard();
 
         channel.setup();
@@ -361,7 +368,7 @@ impl<'adc, 'd, T: Instance<Regs = crate::pac::adc::Adc4>> AnalogWatchdog<'adc, '
     }
 }
 
-impl<'adc, 'd, T: Instance<Regs = crate::pac::adc::Adc4>> Drop for AnalogWatchdog<'adc, 'd, T> {
+impl<T: Instance<Regs = crate::pac::adc::Adc4>> Drop for AnalogWatchdog<T> {
     fn drop(&mut self) {
         // Always disable the interrupt and watchdog enable/channel bits.
         T::regs().ier().modify(|w| w.set_awdie(self.index, false));
