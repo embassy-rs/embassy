@@ -160,6 +160,15 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
         timeout: Timeout,
         frame: FrameOptions,
     ) -> Result<(), Error> {
+        // Return early if there are no bytes to transmit and no START to send.
+        // If send_start is true the empty check is handled after the address phase.
+        if write_buffer.is_empty() && !frame.send_start() {
+            if frame.send_stop() {
+                self.info.regs.cr1().modify(|reg| reg.set_stop(true));
+            }
+            return Ok(());
+        }
+
         if frame.send_start() {
             // Send a START condition
 
@@ -189,6 +198,14 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
 
             // Clear condition by reading SR2
             let _ = self.info.regs.sr2().read();
+
+            // Return early if there are no bytes to transmit.
+            if write_buffer.is_empty() {
+                if frame.send_stop() {
+                    self.info.regs.cr1().modify(|w| w.set_stop(true));
+                }
+                return Ok(());
+            }
         }
 
         // Send bytes
@@ -389,6 +406,15 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
 
 impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     async fn write_frame(&mut self, address: u8, write_buffer: &[u8], frame: FrameOptions) -> Result<(), Error> {
+        // Return early if there are no bytes to transmit and no START to send.
+        // If send_start is true the empty check is handled after the address phase.
+        if write_buffer.is_empty() && !frame.send_start() {
+            if frame.send_stop() {
+                self.info.regs.cr1().modify(|reg| reg.set_stop(true));
+            }
+            return Ok(());
+        }
+
         self.info.regs.cr2().modify(|w| {
             // Note: Do not enable the ITBUFEN bit in the I2C_CR2 register if DMA is used for
             // reception.
@@ -470,6 +496,15 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
             // Clear condition by reading SR2
             self.info.regs.sr2().read();
+
+            // Return early if there are no bytes to transmit.
+            if write_buffer.is_empty() {
+                if frame.send_stop() {
+                    self.info.regs.cr1().modify(|w| w.set_stop(true));
+                }
+                drop(on_drop);
+                return Ok(());
+            }
         }
 
         let dma_transfer = unsafe {
