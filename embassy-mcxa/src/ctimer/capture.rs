@@ -168,7 +168,7 @@ impl<'d> Capture<'d> {
     ///
     /// Upon `Drop`, the external `pin` will be placed into `Disabled`
     /// state.
-    pub fn new_with_input_pin<T: Instance, CH: CTimerChannel<T>, PIN: InputPin>(
+    pub fn new_with_input_pin<T: Instance, CH: CTimerChannel<T>, PIN: InputPin<T>>(
         ctimer: CTimer<'d>,
         ch: Peri<'d, CH>,
         pin: Peri<'d, PIN>,

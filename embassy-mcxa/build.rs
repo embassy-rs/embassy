@@ -6,6 +6,7 @@ use std::{env, fs};
 
 use build_common::CfgSet;
 use convert_case::ccase;
+use indexmap::IndexMap;
 use nxp_pac::metadata::METADATA;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -46,6 +47,7 @@ fn main() {
         generate_lpi2c_pin_impls(),
         generate_i3c_pin_impls(),
         generate_spi_pin_impls(),
+        generate_ctimer_pin_impls(),
     ];
 
     let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
@@ -242,6 +244,51 @@ fn generate_spi_pin_impls() -> TokenStream {
                     impl_spi_pin!(#pin_name, #spi_name, #mux, #signal_pin);
                 });
             }
+        }
+    }
+
+    generated
+}
+
+fn generate_ctimer_pin_impls() -> TokenStream {
+    let mut generated = TokenStream::new();
+
+    let ctimer_regex = Regex::new(r"^CTIMER\d+").unwrap();
+    for ctimer in METADATA.peripherals.iter().filter(|p| ctimer_regex.is_match(p.name)) {
+        let ctimer_name = format_ident!("{}", ctimer.name);
+
+        let mut inp_pins = IndexMap::new();
+        let mut mat_pins = IndexMap::new();
+
+        // There are multiple INPn and MATn signals
+        // And they share pins. We don't use that, so we need to filter out duplicates to prevent duplicate trait impls
+        for signal in ctimer.signals {
+            if signal.name.starts_with("INP") {
+                for pin in signal.pins {
+                    let pin_name = format_ident!("{}", pin.pin);
+                    let mux = format_ident!("MUX{}", pin.alt);
+                    inp_pins.insert(pin_name, mux);
+                }
+            } else if signal.name.starts_with("MAT") {
+                for pin in signal.pins {
+                    let pin_name = format_ident!("{}", pin.pin);
+                    let mux = format_ident!("MUX{}", pin.alt);
+                    mat_pins.insert(pin_name, mux);
+                }
+            } else {
+                unreachable!()
+            }
+        }
+
+        for (pin_name, mux) in inp_pins {
+            generated.extend(quote! {
+                impl_ctimer_input_pin!(#pin_name, #ctimer_name, #mux);
+            });
+        }
+        for (pin_name, mux) in mat_pins {
+            generated.extend(quote! {
+                impl_ctimer_output_pin!(#pin_name, #ctimer_name, #mux);
+            });
         }
     }
 
