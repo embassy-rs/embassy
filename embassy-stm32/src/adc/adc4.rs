@@ -1,3 +1,5 @@
+use core::marker::PhantomData;
+
 #[cfg(stm32u5)]
 use pac::adc::vals::{Adc4Dmacfg as Dmacfg, Adc4Exten as Exten, Adc4OversamplingRatio as OversamplingRatio};
 #[cfg(stm32wba)]
@@ -14,9 +16,58 @@ pub use crate::pac::adc::vals::{Adc4Presc as Presc, Adc4Res as Resolution, Adc4S
 #[cfg(stm32wba)]
 pub use crate::pac::adc::vals::{Extsel, Presc, Res as Resolution, SampleTime};
 use crate::time::Hertz;
-use crate::{Peri, pac, rcc};
+use crate::{Peri, interrupt, pac, rcc};
+
+mod watchdog_adc4;
+pub use watchdog_adc4::{AnalogWatchdog, WatchdogChannels, WatchdogIndex};
 
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(55);
+
+/// Interrupt handler.
+pub struct InterruptHandler<T: Instance<Regs = crate::pac::adc::Adc4>> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance<Regs = crate::pac::adc::Adc4>> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let isr = T::regs().isr().read();
+        let ier = T::regs().ier().read();
+
+        if ier.eocie() && isr.eoc() {
+            T::regs().ier().modify(|w| w.set_eocie(false));
+        } else if ier.eosie() && isr.eos() {
+            T::regs().ier().modify(|w| w.set_eosie(false));
+        } else if (0..3).any(|i| ier.awdie(i) && isr.awd(i)) {
+            // Disable AWDIE + clear ISR flag to deassert the interrupt line.
+            T::regs().ier().modify(|w| {
+                for i in 0..3 {
+                    if ier.awdie(i) && isr.awd(i) {
+                        w.set_awdie(i, false);
+                    }
+                }
+            });
+            T::regs().isr().write(|w| {
+                for i in 0..3 {
+                    if isr.awd(i) {
+                        w.set_awd(i, true);
+                    }
+                }
+            });
+            // Read-back flushes the write buffer (Cortex-M pattern).
+            let _ = T::regs().isr().read();
+            // Signal the driver via atomic flags (ISR flag is now cleared).
+            for i in 0..3 {
+                if ier.awdie(i) && isr.awd(i) {
+                    T::state().awd_triggered[i].store(true, core::sync::atomic::Ordering::Release);
+                }
+            }
+        } else {
+            return;
+        }
+
+        T::state().waker.wake();
+    }
+}
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
@@ -228,8 +279,10 @@ impl AdcRegs for crate::pac::adc::Adc4 {
     }
 
     fn configure_dma(&self, conversion_mode: ConversionMode) {
-        // Clear overrun and conversion flags
-        self.isr().modify(|reg| {
+        // Clear overrun and conversion flags.
+        // ISR is W1C (write-1-to-clear): use write(), not modify(), to avoid
+        // accidentally clearing other set flags (e.g. ADRDY) via read-modify-write.
+        self.isr().write(|reg| {
             reg.set_ovr(true);
             reg.set_eos(true);
             reg.set_eoc(true);
@@ -451,5 +504,42 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
             w.set_ovss(right_shift);
             w.set_ovse(enable)
         })
+    }
+
+    /// Enable an analog watchdog and return a guard.
+    ///
+    /// `watchdog` selects which of the three hardware watchdogs to use. `channels` controls which
+    /// ADC channels are monitored; see [`WatchdogChannels`] for which variants are valid for each
+    /// watchdog. `low_threshold` and `high_threshold` are raw ADC counts in `[0, 2^N − 1]` for
+    /// the currently configured resolution. The watchdog fires when a sample falls **outside**
+    /// `[low_threshold, high_threshold]`.
+    ///
+    /// The returned [`AnalogWatchdog`] does **not** borrow the ADC, so you may use the ADC for
+    /// DMA or other operations while the watchdog is active.  Call [`AnalogWatchdog::wait`] to
+    /// detect threshold crossings concurrently, or [`AnalogWatchdog::monitor`] for self-contained
+    /// single-pin monitoring (which temporarily borrows the ADC).
+    ///
+    /// Dropping the guard disables the watchdog and its interrupt.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `low_threshold > high_threshold`, or if a channel selection variant is used that
+    /// is not supported by the chosen watchdog (e.g., [`WatchdogChannels::All`] with AWD2/AWD3,
+    /// or [`WatchdogChannels::Channels`] with AWD1).
+    #[must_use]
+    pub fn enable_watchdog(
+        &mut self,
+        watchdog: WatchdogIndex,
+        channels: WatchdogChannels,
+        low_threshold: u16,
+        high_threshold: u16,
+    ) -> AnalogWatchdog<T> {
+        assert!(
+            low_threshold <= high_threshold,
+            "low_threshold must be <= high_threshold"
+        );
+        let index = watchdog.index();
+        AnalogWatchdog::<T>::setup_awd(watchdog, channels, low_threshold, high_threshold);
+        AnalogWatchdog::new(index)
     }
 }
