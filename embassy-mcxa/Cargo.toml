@@ -44,11 +44,6 @@ embedded-hal-async = { version = "1.0" }
 embedded-hal-nb = { version = "1.0" }
 embedded-io = "0.7"
 embedded-io-async = { version = "0.7.0" }
-heapless = "0.9"
-maitake-sync = { version = "0.3.0", default-features = false, features = ["critical-section", "no-cache-pad"] }
-nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "338c048d07c12643db6cf691387eca1753926d85", features = ["rt"] }
-nb = "1.1.0"
-paste = "1.0.15"
 embedded-mcu-hal = { version = "0.1.0", optional = true }
 embedded-storage = "0.3.1"
 
@@ -64,7 +59,7 @@ grounded = { version = "0.2.1", features = ["cas", "critical-section"] }
 heapless = "0.9"
 maitake-sync = { version = "0.3.0", default-features = false, features = ["critical-section", "no-cache-pad"] }
 nb = "1.1.0"
-nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "b644ff07f59805b1fb362eee45a2de7becf29172", features = ["rt"] }
+nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "338c048d07c12643db6cf691387eca1753926d85", features = ["rt"] }
 paste = "1.0.15"
 
 rand-core-06 = { package = "rand_core", version = "0.6" }
