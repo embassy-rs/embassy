@@ -48,6 +48,7 @@ fn main() {
         generate_i3c_pin_impls(),
         generate_spi_pin_impls(),
         generate_ctimer_pin_impls(),
+        generate_lpuart_pin_impls(),
     ];
 
     let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
@@ -296,6 +297,27 @@ fn generate_ctimer_pin_impls() -> TokenStream {
             generated.extend(quote! {
                 impl_ctimer_output_pin!(#pin_name, #ctimer_name, #mux);
             });
+        }
+    }
+
+    generated
+}
+
+fn generate_lpuart_pin_impls() -> TokenStream {
+    let mut generated = TokenStream::new();
+
+    let lpuart_regex = Regex::new(r"^LPUART\d+").unwrap();
+    for lpuart in METADATA.peripherals.iter().filter(|p| lpuart_regex.is_match(p.name)) {
+        let lpuart_name = format_ident!("{}", lpuart.name);
+        for signal in lpuart.signals {
+            let signal_name = format_ident!("{}", signal.name);
+            for pin in signal.pins {
+                let pin_name = format_ident!("{}", pin.pin);
+                let mux = format_ident!("MUX{}", pin.alt);
+                generated.extend(quote! {
+                    impl_lpuart_pin!(#lpuart_name, #pin_name, #mux, #signal_name);
+                });
+            }
         }
     }
 

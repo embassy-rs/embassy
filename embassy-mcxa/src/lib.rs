@@ -85,7 +85,7 @@ pub(crate) mod _generated {
 
     use crate::{
         impl_adc_pin, impl_clkout_pin, impl_ctimer_input_pin, impl_ctimer_match, impl_ctimer_output_pin, impl_gpio_pin,
-        impl_i3c_pin, impl_lpi2c_pin, impl_spi_pin,
+        impl_i3c_pin, impl_lpi2c_pin, impl_lpuart_pin, impl_spi_pin,
     };
     include!(concat!(env!("OUT_DIR"), "/_generated.rs"));
 }
