@@ -60,6 +60,7 @@ heapless = "0.9"
 maitake-sync = { version = "0.3.0", default-features = false, features = ["critical-section", "no-cache-pad"] }
 nb = "1.1.0"
 nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "b644ff07f59805b1fb362eee45a2de7becf29172", features = ["rt"] }
+nxp-pac-flexspi = { package = "nxp-pac", git = "https://github.com/embassy-rs/nxp-pac.git", rev = "c2f056f666c766563c7a22cb48d5f7a199714d7f", default-features = false, features = ["mcxa577"], optional = true }
 paste = "1.0.15"
 
 rand-core-06 = { package = "rand_core", version = "0.6" }
@@ -71,7 +72,7 @@ default = ["rt", "swd-swo-as-gpio", "dma-ipd-req"]
 
 # Base defmt feature enables core + panic handler
 # Use with one logger feature: defmt-rtt (preferred) or defmt-uart (fallback)
-defmt = ["dep:defmt", "nxp-pac/defmt"]
+defmt = ["dep:defmt", "nxp-pac/defmt", "nxp-pac-flexspi?/defmt"]
 
 # Enable optional embedded-mcu-hal traits
 embedded-mcu-hal = ["dep:embedded-mcu-hal"]
@@ -150,7 +151,7 @@ unstable-osc32k = []
 # Chip family selection
 #
 mcxa2xx = ["nxp-pac/mcxa256"]
-mcxa5xx = ["nxp-pac/mcxa577"]
+mcxa5xx = ["nxp-pac/mcxa577", "dep:nxp-pac-flexspi"]
 
 [dev-dependencies]
 embassy-executor = { version = "0.10.0", path = "../embassy-executor", features = ["platform-cortex-m", "executor-interrupt", "executor-thread"] }

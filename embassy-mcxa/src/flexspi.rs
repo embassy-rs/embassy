@@ -20,18 +20,19 @@ use core::task::Poll;
 use embassy_futures::yield_now;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
+use nxp_pac_flexspi as pac;
 
 use crate::clocks::periph_helpers::{Div4, FlexspiClockSel, FlexspiConfig as FlexspiClockConfig};
 use crate::clocks::{ClockError, PoweredClock, WakeGuard, enable_and_reset};
 use crate::dma::{Channel, DmaChannel, TransferOptions};
 use crate::gpio::{AnyPin, DriveStrength, GpioPin, Pull, SlewRate};
 use crate::interrupt::typelevel::{Handler, Interrupt};
-use crate::pac::flexspi::Flexspi as Regs;
-use crate::pac::flexspi::regs::{
+use pac::flexspi::Flexspi as Regs;
+use pac::flexspi::regs::{
     Ahbcr, Ahbrxbuf0cr0, Flsha1cr0, Flshcr1, Flshcr2, Flshcr4, Intr, Ipcmd, Ipcr0, Ipcr1, Iprxfcr, Iptxfcr, Lut, Lutcr,
     Lutkey, Mcr0, Tfdr,
 };
-use crate::{interrupt, pac};
+use crate::interrupt;
 
 const MAX_PAGE_SIZE: usize = 256;
 const MAX_PAGE_WORDS: usize = MAX_PAGE_SIZE / 4;
@@ -259,7 +260,7 @@ mod sealed {
         crate::clocks::Gate<MrccPeriphConfig = crate::clocks::periph_helpers::FlexspiConfig>
     {
         fn info() -> &'static super::Info;
-        fn regs() -> crate::pac::flexspi::Flexspi;
+        fn regs() -> super::Regs;
         const CLOCK_INSTANCE: crate::clocks::periph_helpers::FlexspiInstance;
     }
 }
@@ -320,15 +321,15 @@ macro_rules! impl_instance {
         impl sealed::Instance for crate::peripherals::$type {
             fn info() -> &'static Info {
                 static INFO: Info = Info {
-                    regs: crate::pac::$type,
+                    regs: pac::$type,
                     pending_events: AtomicU32::new(0),
                     waker: AtomicWaker::new(),
                 };
                 &INFO
             }
 
-            fn regs() -> crate::pac::flexspi::Flexspi {
-                crate::pac::$type
+            fn regs() -> Regs {
+                pac::$type
             }
 
             const CLOCK_INSTANCE: crate::clocks::periph_helpers::FlexspiInstance =
@@ -348,7 +349,7 @@ pub trait Pin<T: Instance>: GpioPin + sealed::Sealed + PeripheralType {
         self.set_pull(Pull::Disabled);
         self.set_slew_rate(SlewRate::Fast.into());
         self.set_drive_strength(DriveStrength::Double.into());
-        self.set_function(crate::pac::port::vals::Mux::MUX9);
+        self.set_function(crate::pac::port::Mux::MUX9);
         self.set_enable_input_buffer(true);
     }
 }
