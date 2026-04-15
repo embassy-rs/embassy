@@ -121,10 +121,10 @@ impl Default for BbqConfig {
         Self {
             baudrate_bps: 115_200u32,
             parity_mode: None,
-            data_bits_count: DataBits::DATA8,
-            msb_first: MsbFirst::LSB_FIRST,
-            stop_bits_count: StopBits::ONE,
-            rx_idle_config: IdleConfig::IDLE_1,
+            data_bits_count: DataBits::Data8,
+            msb_first: MsbFirst::LsbFirst,
+            stop_bits_count: StopBits::One,
+            rx_idle_config: IdleConfig::Idle1,
             power: PoweredClock::AlwaysEnabled,
             source: LpuartClockSel::FroLfDiv,
             div: Div4::no_div(),
@@ -1318,7 +1318,7 @@ impl BbqState {
         // immediately retrigger an interrupt.
         //
         // TODO: I'm not sure this actually ever happens, this is a defensive check
-        while info.regs.stat().read().tc() == Tc::COMPLETE {}
+        while info.regs.stat().read().tc() == Tc::Complete {}
 
         true
     }
@@ -1515,7 +1515,7 @@ unsafe fn handler(info: &'static Info, state: &'static BbqState) {
         // try to do this a bit earlier if the DMA completes but we haven't yet
         // drained the TX fifo yet.
         let txie_set = ctrl.tcie();
-        let tc_complete = regs.stat().read().tc() == Tc::COMPLETE;
+        let tc_complete = regs.stat().read().tc() == Tc::Complete;
         let txgr_present = (tx_state & STATE_TXGR_ACTIVE) != 0;
 
         let tx_did_finish = txie_set && tc_complete && txgr_present;

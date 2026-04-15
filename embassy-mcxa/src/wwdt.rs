@@ -146,23 +146,23 @@ impl<'d> Watchdog<'d> {
     /// Enable the watchdog timer.
     /// Function is blocking until the watchdog is actually started.
     fn enable(&self) {
-        self.info.regs().mod_().modify(|w| w.set_wden(Wden::RUN));
+        self.info.regs().mod_().modify(|w| w.set_wden(Wden::Run));
         while self.info.regs().tc().read().count() == 0xFF {}
     }
 
     /// Set the watchdog protection mode to flexible.
     fn set_flexible_mode(&self) {
-        self.info.regs().mod_().modify(|w| w.set_wdprotect(Wdprotect::FLEXIBLE));
+        self.info.regs().mod_().modify(|w| w.set_wdprotect(Wdprotect::Flexible));
     }
 
     /// Enable interrupt mode.
     fn enable_interrupt(&self) {
-        self.info.regs().mod_().modify(|w| w.set_wdreset(Wdreset::INTERRUPT));
+        self.info.regs().mod_().modify(|w| w.set_wdreset(Wdreset::Interrupt));
     }
 
     /// Enable reset mode.
     fn enable_reset(&self) {
-        self.info.regs().mod_().modify(|w| w.set_wdreset(Wdreset::RESET));
+        self.info.regs().mod_().modify(|w| w.set_wdreset(Wdreset::Reset));
     }
 
     /// Set the timeout value in clock cycles.

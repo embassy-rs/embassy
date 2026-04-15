@@ -12,7 +12,7 @@ use crate::clocks::{Gate, enable_and_reset};
 use crate::interrupt::typelevel;
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac;
-use crate::pac::trng::{IntStatus, IntStatusEntVal, TrngEntCtl};
+use crate::pac::trng::{IntStatus, TrngEntCtl};
 
 const BLOCK_SIZE: usize = 8;
 
@@ -266,7 +266,7 @@ impl<'d> Trng<'d, Async> {
 
                 let status = IntStatus(status);
 
-                if status.ent_val() == IntStatusEntVal::ENT_VAL_VALID {
+                if status.ent_val() {
                     Some(Ok(()))
                 } else if status.frq_ct_fail() {
                     Some(Err(Error::FrequencyCountFail))
@@ -551,9 +551,9 @@ pub enum OscMode {
 impl From<OscMode> for TrngEntCtl {
     fn from(value: OscMode) -> Self {
         match value {
-            OscMode::SingleOsc1 => Self::TRNG_ENT_CTL_SINGLE_OSC1,
-            OscMode::DualOscs => Self::TRNG_ENT_CTL_DUAL_OSCS,
-            OscMode::SingleOsc2 => Self::TRNG_ENT_CTL_SINGLE_OSC2,
+            OscMode::SingleOsc1 => Self::TrngEntCtlSingleOsc1,
+            OscMode::DualOscs => Self::TrngEntCtlDualOscs,
+            OscMode::SingleOsc2 => Self::TrngEntCtlSingleOsc2,
         }
     }
 }

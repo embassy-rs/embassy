@@ -12,7 +12,7 @@ use crate::clocks::{ClockError, Gate, PoweredClock, WakeGuard, enable_and_reset}
 use crate::gpio::{AnyPin, GpioPin, SealedPin};
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac::adc::{
-    Avgs, CalAvgs, CalRdy, CalReq, Calofs, Cmpen, Dozen, Gcc0rdy, HptExdi, Loop as HwLoop, Mode as ConvMode, Next,
+    Avgs, CalAvgs, CalRdy, CalReq, Calofs, Cmpen, Dozen, Gcc0Rdy, HptExdi, Loop as HwLoop, Mode as ConvMode, Next,
     Pwrsel, Refsel, Rst, Rstfifo0, Sts, Tcmd, Tpri, Tprictrl,
 };
 use crate::pac::port::Mux;
@@ -100,11 +100,11 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             enable_in_doze_mode: true,
-            calibration_average_mode: CalAvgs::NO_AVERAGE,
+            calibration_average_mode: CalAvgs::NoAverage,
             power_pre_enabled: false,
             power_up_delay: 0x80,
             reference_voltage_source: Default::default(),
-            power_level_mode: Pwrsel::LOWEST,
+            power_level_mode: Pwrsel::Lowest,
             trigger_priority_policy: TriggerPriorityPolicy::ConvPreemptImmediatelyNotAutoResumed,
             conv_pause_delay: None,
             power: PoweredClock::NormalEnabledDeepSleepDisabled,
@@ -168,9 +168,9 @@ pub enum Compare {
 impl Compare {
     fn cmp_en(&self) -> Cmpen {
         match self {
-            Compare::Disabled => Cmpen::DISABLED_ALWAYS_STORE_RESULT,
-            Compare::StoreIf(_) => Cmpen::COMPARE_RESULT_STORE_IF_TRUE,
-            Compare::SkipUntil(_) => Cmpen::COMPARE_RESULT_KEEP_CONVERTING_UNTIL_TRUE_STORE_IF_TRUE,
+            Compare::Disabled => Cmpen::DisabledAlwaysStoreResult,
+            Compare::StoreIf(_) => Cmpen::CompareResultStoreIfTrue,
+            Compare::SkipUntil(_) => Cmpen::CompareResultKeepConvertingUntilTrueStoreIfTrue,
         }
     }
 
@@ -321,10 +321,10 @@ impl Default for CommandConfig {
     fn default() -> Self {
         Self {
             chained_command: None,
-            averaging: Avgs::NO_AVERAGE,
-            sample_time: Sts::SAMPLE_3P5,
+            averaging: Avgs::NoAverage,
+            sample_time: Sts::Sample3p5,
             compare: Compare::Disabled,
-            resolution: ConvMode::DATA_12_BITS,
+            resolution: ConvMode::Data12Bits,
             wait_for_trigger: false,
         }
     }
@@ -350,7 +350,7 @@ impl Default for Trigger {
         Trigger {
             target_command_id: CommandId::Cmd1,
             delay_power: 0,
-            priority: Tpri::HIGHEST_PRIORITY,
+            priority: Tpri::HighestPriority,
             enable_hardware_trigger: false,
             resync: false,
             synchronous: false,
@@ -470,7 +470,7 @@ impl<'a> Adc<'a, Async> {
                 // Enable the interrupts. They get disabled in the interrupt handler
                 self.info.regs().ie().write(|reg| {
                     reg.set_fwmie0(true);
-                    reg.set_tcomp_ie(TcompIe::ALL_TRIGGER_COMPLETES_ENABLED);
+                    reg.set_tcomp_ie(TcompIe::AllTriggerCompletesEnabled);
                 });
 
                 match self.try_get_conversion() {
@@ -494,7 +494,7 @@ impl<'a> Adc<'a, Async> {
                 // Enable the interrupts. They get disabled in the interrupt handler
                 self.info.regs().ie().write(|reg| {
                     reg.set_fwmie0(true);
-                    reg.set_tcomp_ie(TcompIe::ALL_TRIGGER_COMPLETES_ENABLED);
+                    reg.set_tcomp_ie(TcompIe::AllTriggerCompletesEnabled);
                 });
 
                 match self.try_get_conversion() {
@@ -536,7 +536,7 @@ impl<'a, M: Mode> Adc<'a, M> {
         self.info
             .regs()
             .ctrl()
-            .modify(|w| w.set_rstfifo0(Rstfifo0::TRIGGER_RESET));
+            .modify(|w| w.set_rstfifo0(Rstfifo0::TriggerReset));
     }
 
     /// Get conversion result from FIFO.
@@ -547,7 +547,7 @@ impl<'a, M: Mode> Adc<'a, M> {
     /// - [Error::FifoPending] if the FIFO is empty, but the adc is active
     pub fn try_get_conversion(&mut self) -> Result<Conversion, Error> {
         if self.info.regs().fctrl0().read().fcount() == 0 {
-            if self.info.regs().stat().read().adc_active() == AdcActive::BUSY {
+            if self.info.regs().stat().read().adc_active() == AdcActive::Busy {
                 return Err(Error::FifoPending);
             }
             return Err(Error::FifoEmpty);
@@ -597,10 +597,10 @@ impl<'a, M: Mode> Adc<'a, M> {
         let adc = info.regs();
 
         /* Reset the module. */
-        adc.ctrl().modify(|w| w.set_rst(Rst::HELD_IN_RESET));
-        adc.ctrl().modify(|w| w.set_rst(Rst::RELEASED_FROM_RESET));
+        adc.ctrl().modify(|w| w.set_rst(Rst::HeldInReset));
+        adc.ctrl().modify(|w| w.set_rst(Rst::ReleasedFromReset));
 
-        adc.ctrl().modify(|w| w.set_rstfifo0(Rstfifo0::TRIGGER_RESET));
+        adc.ctrl().modify(|w| w.set_rstfifo0(Rstfifo0::TriggerReset));
 
         /* Disable the module before setting configuration. */
         adc.ctrl().modify(|w| w.set_adcen(false));
@@ -608,9 +608,9 @@ impl<'a, M: Mode> Adc<'a, M> {
         /* Configure the module generally. */
         adc.ctrl().modify(|w| {
             w.set_dozen(if config.enable_in_doze_mode {
-                Dozen::ENABLED
+                Dozen::Enabled
             } else {
-                Dozen::DISABLED
+                Dozen::Disabled
             })
         });
 
@@ -626,11 +626,11 @@ impl<'a, M: Mode> Adc<'a, M> {
             w.set_tprictrl(match config.trigger_priority_policy {
                 TriggerPriorityPolicy::ConvPreemptSoftlyNotAutoResumed
                 | TriggerPriorityPolicy::ConvPreemptSoftlyAutoRestarted
-                | TriggerPriorityPolicy::ConvPreemptSoftlyAutoResumed => Tprictrl::FINISH_CURRENT_ON_PRIORITY,
+                | TriggerPriorityPolicy::ConvPreemptSoftlyAutoResumed => Tprictrl::FinishCurrentOnPriority,
                 TriggerPriorityPolicy::ConvPreemptSubsequentlyNotAutoResumed
                 | TriggerPriorityPolicy::ConvPreemptSubsequentlyAutoRestarted
-                | TriggerPriorityPolicy::ConvPreemptSubsequentlyAutoResumed => Tprictrl::FINISH_SEQUENCE_ON_PRIORITY,
-                _ => Tprictrl::ABORT_CURRENT_ON_PRIORITY,
+                | TriggerPriorityPolicy::ConvPreemptSubsequentlyAutoResumed => Tprictrl::FinishSequenceOnPriority,
+                _ => Tprictrl::AbortCurrentOnPriority,
             });
             w.set_tres(matches!(
                 config.trigger_priority_policy,
@@ -649,8 +649,8 @@ impl<'a, M: Mode> Adc<'a, M> {
                     | TriggerPriorityPolicy::TriggerPriorityExceptionDisabled
             ));
             w.set_hpt_exdi(match config.trigger_priority_policy {
-                TriggerPriorityPolicy::TriggerPriorityExceptionDisabled => HptExdi::DISABLED,
-                _ => HptExdi::ENABLED,
+                TriggerPriorityPolicy::TriggerPriorityExceptionDisabled => HptExdi::Disabled,
+                _ => HptExdi::Enabled,
             });
         });
 
@@ -730,10 +730,10 @@ impl<'a, M: Mode> Adc<'a, M> {
         self.info
             .regs()
             .ctrl()
-            .modify(|w| w.set_calofs(Calofs::OFFSET_CALIBRATION_REQUEST_PENDING));
+            .modify(|w| w.set_calofs(Calofs::OffsetCalibrationRequestPending));
 
         // Wait for calibration to complete (polling status register)
-        while self.info.regs().stat().read().cal_rdy() == CalRdy::NOT_SET {}
+        while self.info.regs().stat().read().cal_rdy() == CalRdy::NotSet {}
     }
 
     /// Calculate gain conversion result from gain adjustment factor.
@@ -766,9 +766,9 @@ impl<'a, M: Mode> Adc<'a, M> {
         self.info
             .regs()
             .ctrl()
-            .modify(|w| w.set_cal_req(CalReq::CALIBRATION_REQUEST_PENDING));
+            .modify(|w| w.set_cal_req(CalReq::CalibrationRequestPending));
 
-        while self.info.regs().gcc0().read().rdy() == Gcc0rdy::GAIN_CAL_NOT_VALID {}
+        while self.info.regs().gcc0().read().rdy() == Gcc0Rdy::GainCalNotValid {}
 
         let mut gcca = self.info.regs().gcc0().read().gain_cal() as u32;
         if gcca & 0x8000 != 0 {
@@ -783,7 +783,7 @@ impl<'a, M: Mode> Adc<'a, M> {
         self.info.regs().gcr0().modify(|w| w.set_rdy(true));
 
         // Wait for calibration to complete (polling status register)
-        while self.info.regs().stat().read().cal_rdy() == CalRdy::NOT_SET {}
+        while self.info.regs().stat().read().cal_rdy() == CalRdy::NotSet {}
     }
 }
 
@@ -816,7 +816,7 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
         T::info()
             .regs()
             .stat()
-            .write(|reg| reg.set_tcomp_int(TcompInt::COMPLETION_DETECTED));
+            .write(|reg| reg.set_tcomp_int(TcompInt::CompletionDetected));
         T::info().wait_cell().wake();
     }
 }
@@ -920,7 +920,7 @@ impl<T> AnyAdcPin<T> {
             pin.set_pull(crate::gpio::Pull::Disabled);
             pin.set_slew_rate(crate::gpio::SlewRate::Fast.into());
             pin.set_drive_strength(crate::gpio::DriveStrength::Normal.into());
-            pin.set_function(Mux::MUX0);
+            pin.set_function(Mux::Mux0);
         }
     }
 

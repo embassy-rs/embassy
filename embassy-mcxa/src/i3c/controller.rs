@@ -100,9 +100,9 @@ pub enum BusType {
 impl From<BusType> for Type {
     fn from(value: BusType) -> Self {
         match value {
-            BusType::I3cSdr => Self::I3C,
-            BusType::I2c => Self::I2C,
-            BusType::I3cDdr => Self::DDR,
+            BusType::I3cSdr => Self::I3c,
+            BusType::I2c => Self::I2c,
+            BusType::I3cDdr => Self::Ddr,
         }
     }
 }
@@ -118,8 +118,8 @@ enum Dir {
 impl From<Dir> for I3cDir {
     fn from(value: Dir) -> Self {
         match value {
-            Dir::Write => Self::DIRWRITE,
-            Dir::Read => Self::DIRREAD,
+            Dir::Write => Self::Dirwrite,
+            Dir::Read => Self::Dirread,
         }
     }
 }
@@ -263,8 +263,8 @@ impl<'d, M: Mode> I3c<'d, M> {
             w.set_flushtb(true);
             w.set_flushfb(true);
             w.set_unlock(true);
-            w.set_txtrig(MdatactrlTxtrig::FULL_OR_LESS);
-            w.set_rxtrig(MdatactrlRxtrig::NOT_EMPTY);
+            w.set_txtrig(MdatactrlTxtrig::FullOrLess);
+            w.set_rxtrig(MdatactrlRxtrig::NotEmpty);
         });
 
         let (ppbaud, odbaud, i2cbaud) = self.calculate_baud_rate_params(config)?;
@@ -273,9 +273,9 @@ impl<'d, M: Mode> I3c<'d, M> {
             w.set_ppbaud(ppbaud as u8);
             w.set_odbaud(odbaud as u8);
             w.set_i2cbaud(i2cbaud as u8);
-            w.set_mstena(Mstena::MASTER_ON);
-            w.set_disto(Disto::ENABLE);
-            w.set_hkeep(Hkeep::NONE);
+            w.set_mstena(Mstena::MasterOn);
+            w.set_disto(Disto::Enable);
+            w.set_hkeep(Hkeep::None);
             w.set_odstop(false);
             w.set_odhpp(true);
         });
@@ -473,9 +473,9 @@ impl<'d, M: Mode> I3c<'d, M> {
             w.set_addr(address);
             w.set_rdterm(len);
             w.set_type_(bus_type.into());
-            w.set_request(Request::EMITSTARTADDR);
+            w.set_request(Request::Emitstartaddr);
             w.set_dir(dir.into());
-            w.set_ibiresp(Ibiresp::ACK);
+            w.set_ibiresp(Ibiresp::Ack);
         });
 
         self.blocking_wait_for_ctrldone();
@@ -489,7 +489,7 @@ impl<'d, M: Mode> I3c<'d, M> {
     /// waiting for the FIFO to become empty ensuring the command was
     /// sent.
     fn blocking_stop(&self, bus_type: BusType) -> Result<(), IOError> {
-        if self.info.regs().mstatus().read().state() != State::NORMACT {
+        if self.info.regs().mstatus().read().state() != State::Normact {
             Err(IOError::InvalidRequest)
         } else {
             // NOTE: Section 41.3.2.1 states that "when sending STOP
@@ -500,7 +500,7 @@ impl<'d, M: Mode> I3c<'d, M> {
                 .mconfig()
                 .modify(|w| w.set_odstop(bus_type == BusType::I2c));
             self.info.regs().mctrl().write(|w| {
-                w.set_request(Request::EMITSTOP);
+                w.set_request(Request::Emitstop);
                 w.set_type_(bus_type.into())
             });
             self.blocking_wait_for_ctrldone();
@@ -606,7 +606,7 @@ impl<'d, M: Mode> I3c<'d, M> {
         }
 
         // Check if the bus is already in use.
-        if self.info.regs().mstatus().read().state() != State::IDLE {
+        if self.info.regs().mstatus().read().state() != State::Idle {
             return Err(IOError::Other);
         }
 
@@ -615,7 +615,7 @@ impl<'d, M: Mode> I3c<'d, M> {
 
         // Start DAA sequence
         self.info.regs().mctrl().write(|w| {
-            w.set_request(Request::PROCESSDAA);
+            w.set_request(Request::Processdaa);
         });
 
         // Here
@@ -632,7 +632,7 @@ impl<'d, M: Mode> I3c<'d, M> {
                     return Err(IOError::Other);
                 }
 
-                if s.mctrldone() && s.state() == State::DAA {
+                if s.mctrldone() && s.state() == State::Daa {
                     break;
                 }
             }
@@ -661,7 +661,7 @@ impl<'d, M: Mode> I3c<'d, M> {
             self.info.regs().mwdatab().write(|w| w.set_value(address));
 
             // Trigger DAA processing
-            self.info.regs().mctrl().write(|w| w.set_request(Request::PROCESSDAA));
+            self.info.regs().mctrl().write(|w| w.set_request(Request::Processdaa));
 
             address += 1;
         }
@@ -930,7 +930,7 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
             self.info
                 .regs()
                 .mdmactrl()
-                .modify(|w| w.set_dmafb(MdmactrlDmafb::NOT_USED));
+                .modify(|w| w.set_dmafb(MdmactrlDmafb::NotUsed));
         });
 
         for chunk in read.chunks_mut(MAX_CHUNK_SIZE) {
@@ -960,7 +960,7 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
                 self.info
                     .regs()
                     .mdmactrl()
-                    .modify(|w| w.set_dmafb(MdmactrlDmafb::ENABLE));
+                    .modify(|w| w.set_dmafb(MdmactrlDmafb::Enable));
 
                 // Enable DMA channel request
                 self.mode.rx_dma.enable_request();
@@ -983,7 +983,7 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
             self.info
                 .regs()
                 .mdmactrl()
-                .modify(|w| w.set_dmafb(MdmactrlDmafb::NOT_USED));
+                .modify(|w| w.set_dmafb(MdmactrlDmafb::NotUsed));
             unsafe {
                 self.mode.rx_dma.disable_request();
                 self.mode.rx_dma.clear_done();
@@ -1013,7 +1013,7 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
             self.info
                 .regs()
                 .mdmactrl()
-                .modify(|w| w.set_dmatb(MdmactrlDmatb::NOT_USED));
+                .modify(|w| w.set_dmatb(MdmactrlDmatb::NotUsed));
         });
 
         self.async_start(address, bus_type, Dir::Write, 0).await?;
@@ -1065,7 +1065,7 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
                 self.info
                     .regs()
                     .mdmactrl()
-                    .modify(|w| w.set_dmatb(MdmactrlDmatb::ENABLE));
+                    .modify(|w| w.set_dmatb(MdmactrlDmatb::Enable));
 
                 // Enable DMA channel request
                 self.mode.tx_dma.enable_request();
@@ -1088,7 +1088,7 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
             self.info
                 .regs()
                 .mdmactrl()
-                .modify(|w| w.set_dmatb(MdmactrlDmatb::NOT_USED));
+                .modify(|w| w.set_dmatb(MdmactrlDmatb::NotUsed));
             unsafe {
                 self.mode.tx_dma.disable_request();
                 self.mode.tx_dma.clear_done();
@@ -1193,9 +1193,9 @@ where
             w.set_addr(address);
             w.set_rdterm(len);
             w.set_type_(bus_type.into());
-            w.set_request(Request::EMITSTARTADDR);
+            w.set_request(Request::Emitstartaddr);
             w.set_dir(dir.into());
-            w.set_ibiresp(Ibiresp::ACK);
+            w.set_ibiresp(Ibiresp::Ack);
         });
 
         self.async_wait_for_ctrldone().await?;
@@ -1209,7 +1209,7 @@ where
     /// waiting for the FIFO to become empty ensuring the command was
     /// sent.
     async fn async_stop(&self, bus_type: BusType) -> Result<(), IOError> {
-        if self.info.regs().mstatus().read().state() != State::NORMACT {
+        if self.info.regs().mstatus().read().state() != State::Normact {
             Err(IOError::InvalidRequest)
         } else {
             // NOTE: Section 41.3.2.1 states that "when sending STOP
@@ -1221,7 +1221,7 @@ where
                 .modify(|w| w.set_odstop(bus_type == BusType::I2c));
 
             self.info.regs().mctrl().write(|w| {
-                w.set_request(Request::EMITSTOP);
+                w.set_request(Request::Emitstop);
                 w.set_type_(bus_type.into());
             });
             self.async_wait_for_ctrldone().await?;
@@ -1254,7 +1254,7 @@ where
         self.status()?;
 
         // Only proceed if the bus is in SLVREQ state.
-        if self.info.regs().mstatus().read().state() != State::SLVREQ {
+        if self.info.regs().mstatus().read().state() != State::Slvreq {
             return Err(IOError::Other);
         }
 
@@ -1263,8 +1263,8 @@ where
 
         // Step 3: Issue AUTO_IBI with ACK — hardware handles the IBI protocol handshake.
         self.info.regs().mctrl().write(|w| {
-            w.set_request(Request::AUTOIBI);
-            w.set_ibiresp(Ibiresp::ACK);
+            w.set_request(Request::Autoibi);
+            w.set_ibiresp(Ibiresp::Ack);
         });
 
         // Step 4: Wait for IBIWON — the IBI has been accepted and the address header received.
@@ -1289,7 +1289,7 @@ where
 
         // Step 5: For normal IBIs (not Hot-Join or Controller-Request), drain the RX FIFO payload.
         let mut payload_len = 0;
-        if ibi_type == Ibitype::IBI && !buf.is_empty() {
+        if ibi_type == Ibitype::Ibi && !buf.is_empty() {
             'read: for byte in buf.iter_mut() {
                 loop {
                     // Drain available RX FIFO bytes.

@@ -33,14 +33,14 @@ impl<'d, M: Mode> Crc<'d, M> {
             w.set_fxor(config.complement_out.into());
             w.set_totr(config.reflect_out.into());
             w.set_tot(config.reflect_in.into());
-            w.set_was(Was::DATA);
+            w.set_was(Was::Data);
             w.set_tcrc(width);
         });
 
         self.info.regs().gpoly32().write(|w| *w = config.polynomial);
-        self.info.regs().ctrl().modify(|w| w.set_was(Was::SEED));
+        self.info.regs().ctrl().modify(|w| w.set_was(Was::Seed));
         self.info.regs().data32().write(|w| *w = config.seed);
-        self.info.regs().ctrl().modify(|w| w.set_was(Was::DATA));
+        self.info.regs().ctrl().modify(|w| w.set_was(Was::Data));
     }
 
     /// Read the computed CRC value
@@ -361,7 +361,7 @@ fn read_u16(regs: crate::pac::crc::Crc) -> u16 {
     let ctrl = regs.ctrl().read();
 
     // if transposition is enabled, result sits in the upper 16 bits
-    if matches!(ctrl.totr(), Totr::BYTS_TRNPS | Totr::BYTS_BTS_TRNPS) {
+    if matches!(ctrl.totr(), Totr::BytsTrnps | Totr::BytsBtsTrnps) {
         (regs.data32().read() >> 16) as u16
     } else {
         regs.data16().read()
@@ -718,8 +718,8 @@ pub enum Reflect {
 impl From<Reflect> for Tot {
     fn from(value: Reflect) -> Tot {
         match value {
-            Reflect::No => Tot::BYTS_TRNPS,
-            Reflect::Yes => Tot::BYTS_BTS_TRNPS,
+            Reflect::No => Tot::BytsTrnps,
+            Reflect::Yes => Tot::BytsBtsTrnps,
         }
     }
 }
@@ -727,8 +727,8 @@ impl From<Reflect> for Tot {
 impl From<Reflect> for Totr {
     fn from(value: Reflect) -> Totr {
         match value {
-            Reflect::No => Totr::NOTRNPS,
-            Reflect::Yes => Totr::BYTS_BTS_TRNPS,
+            Reflect::No => Totr::Notrnps,
+            Reflect::Yes => Totr::BytsBtsTrnps,
         }
     }
 }
@@ -743,8 +743,8 @@ pub enum Complement {
 impl From<Complement> for Fxor {
     fn from(value: Complement) -> Fxor {
         match value {
-            Complement::No => Fxor::NOXOR,
-            Complement::Yes => Fxor::INVERT,
+            Complement::No => Fxor::Noxor,
+            Complement::Yes => Fxor::Invert,
         }
     }
 }
