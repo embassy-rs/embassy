@@ -179,7 +179,7 @@ impl Default for Config {
 
 pub(crate) unsafe fn init(config: Config) {
     // Configure the clock to a safe default state before starting configuration:
-    
+
     // 1 - Set power mode to Range1
     PWR.vosr().modify(|w| w.set_vos(VoltageScale::Range1));
     while !PWR.vosr().read().vosrdy() {}
@@ -341,9 +341,7 @@ pub(crate) unsafe fn init(config: Config) {
         }
     }
 
-    let hsi = config.hsi.then(|| {
-        HSI_FREQ
-    });
+    let hsi = config.hsi.then(|| HSI_FREQ);
 
     let hse = config.hse.map(|hse| {
         // Check frequency limits per RM456 § 11.4.10
@@ -414,7 +412,6 @@ pub(crate) unsafe fn init(config: Config) {
     };
     assert!(hclk <= hclk_max);
 
-
     // Do we need the EPOD booster to reach the target clock speed per § 10.5.4?
     if sys_clk >= Hertz::mhz(55) {
         // Enable the booster
@@ -475,7 +472,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     // now that flash WS, VOS and HPRE are configured, the system can switch the clock source
     RCC.cfgr1().modify(|w| w.set_sw(config.sys));
-    while RCC.cfgr1().read().sws() != config.sys {}   
+    while RCC.cfgr1().read().sws() != config.sys {}
 
     let (pclk1, pclk1_tim) = super::util::calc_pclk(hclk, config.apb1_pre);
     let (pclk2, pclk2_tim) = super::util::calc_pclk(hclk, config.apb2_pre);
