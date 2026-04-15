@@ -288,7 +288,7 @@ where
 {
     const TYPE: BusType = BusType::Sdio;
 
-    async fn init(&mut self, _bluetooth_enabled: bool) {
+    async fn init(&mut self, _bluetooth_enabled: bool) -> Result<(), ()> {
         // whd_bus_sdio_init
 
         // set up backplane
@@ -303,7 +303,7 @@ where
         .await
         {
             debug!("timeout while setting up the backplane");
-            return;
+            return Err(());
         }
 
         debug!("backplane is up");
@@ -330,7 +330,7 @@ where
         .await
         {
             debug!("timeout while setting block size");
-            return;
+            return Err(());
         }
 
         self.write8(FUNC_BUS, SDIOD_CCCR_BLKSIZE_0, SDIO_64B_BLOCK as u8).await;
@@ -367,8 +367,10 @@ where
         .await
         {
             debug!("timeout while waiting for backplane to be ready");
-            return;
+            return Err(());
         }
+
+        Ok(())
     }
 
     async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) {

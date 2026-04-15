@@ -5,7 +5,7 @@ use cyw43::aligned_bytes;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
-use embassy_stm32::gpio::{Level, Output, Pull, Speed};
+use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::sdmmc::Sdmmc;
 use embassy_stm32::sdmmc::sdio::SerialDataInterface;
 use embassy_stm32::time::mhz;
@@ -58,18 +58,20 @@ async fn main(spawner: Spawner) {
     }
     let p = embassy_stm32::init(config);
 
+    // let mut pwr = Output::new(p.PA6, Level::Low, Speed::High);
+    // let mut wl_reg = Output::new(p.PB0, Level::Low, Speed::High);
     let mut wl_reg = Output::new(p.PD0, Level::Low, Speed::High);
     let mut _bt_reg = Output::new(p.PG3, Level::Low, Speed::High);
     let mut _sdio_reset = Output::new(p.PD11, Level::Low, Speed::High);
 
     let _wl_wake_host = ExtiInput::new(p.PD1, p.EXTI1, Pull::Down, Irqs);
 
-    // let sdio_clk = Input::new(unsafe { p.PC12.clone_unchecked() }, Pull::None);
-    // let sdio_cmd = Input::new(unsafe { p.PD2.clone_unchecked() }, Pull::None);
-    // let sdio_data0 = Input::new(unsafe { p.PC8.clone_unchecked() }, Pull::None);
-    // let sdio_data1 = Input::new(unsafe { p.PC9.clone_unchecked() }, Pull::None);
-    // let sdio_data2 = Input::new(unsafe { p.PC10.clone_unchecked() }, Pull::None);
-    // let sdio_data3 = Input::new(unsafe { p.PC11.clone_unchecked() }, Pull::None);
+    let sdio_clk = Input::new(unsafe { p.PC12.clone_unchecked() }, Pull::None);
+    let sdio_cmd = Input::new(unsafe { p.PD2.clone_unchecked() }, Pull::None);
+    let sdio_data0 = Input::new(unsafe { p.PC8.clone_unchecked() }, Pull::None);
+    let sdio_data1 = Input::new(unsafe { p.PC9.clone_unchecked() }, Pull::None);
+    let sdio_data2 = Input::new(unsafe { p.PC10.clone_unchecked() }, Pull::None);
+    let sdio_data3 = Input::new(unsafe { p.PC11.clone_unchecked() }, Pull::None);
 
     let fw = aligned_bytes!("../../../../cyw43-firmware/43439A0.bin");
     let clm = aligned_bytes!("../../../../cyw43-firmware/43439A0_clm.bin");
@@ -88,51 +90,46 @@ async fn main(spawner: Spawner) {
     );
 
     {
-        // let _out1 = Output::new(p.PC12.reborrow(), Level::Low, Speed::High);
-        // let _out2 = Output::new(p.PD2.reborrow(), Level::High, Speed::High);
-        // let _out3 = Output::new(p.PC8.reborrow(), Level::High, Speed::High);
-        // let _out4 = Output::new(p.PC9.reborrow(), Level::High, Speed::High);
-        // let _out5 = Output::new(p.PC10.reborrow(), Level::High, Speed::High);
-        // let _out6 = Output::new(p.PC11.reborrow(), Level::High, Speed::High);
+        if sdio_clk.is_high() {
+            trace!("sdio_clk is high");
+        } else {
+            trace!("sdio_clk is not high");
+        }
+        if sdio_cmd.is_high() {
+            trace!("sdio_cmd is high");
+        } else {
+            trace!("sdio_cmd is not high");
+        }
 
-        //        if sdio_clk.is_high() {
-        //            trace!("sdio_clk is high");
-        //        } else {
-        //            trace!("sdio_clk is not high");
-        //        }
-        //        if sdio_cmd.is_high() {
-        //            trace!("sdio_cmd is high");
-        //        } else {
-        //            trace!("sdio_cmd is not high");
-        //        }
-        //
-        //        if sdio_data0.is_high() {
-        //            trace!("sdio_data0 is high");
-        //        } else {
-        //            trace!("sdio_data0 is not high");
-        //        }
-        //        if sdio_data1.is_high() {
-        //            trace!("sdio_data1 is high");
-        //        } else {
-        //            trace!("sdio_data1 is not high");
-        //        }
-        //
-        //        if sdio_data2.is_high() {
-        //            trace!("sdio_data2 is high");
-        //        } else {
-        //            trace!("sdio_data2 is not high");
-        //        }
-        //
-        //        if sdio_data3.is_high() {
-        //            trace!("sdio_data3 is high");
-        //        } else {
-        //            trace!("sdio_data3 is not high");
-        //        }
+        if sdio_data0.is_high() {
+            trace!("sdio_data0 is high");
+        } else {
+            trace!("sdio_data0 is not high");
+        }
+        if sdio_data1.is_high() {
+            trace!("sdio_data1 is high");
+        } else {
+            trace!("sdio_data1 is not high");
+        }
+
+        if sdio_data2.is_high() {
+            trace!("sdio_data2 is high");
+        } else {
+            trace!("sdio_data2 is not high");
+        }
+
+        if sdio_data3.is_high() {
+            trace!("sdio_data3 is high");
+        } else {
+            trace!("sdio_data3 is not high");
+        }
 
         trace!("WL_REG off/on");
+        // pwr.set_low();
         wl_reg.set_low();
         Timer::after_millis(250).await;
         wl_reg.set_high();
+        // pwr.set_high();
         Timer::after_millis(10).await;
     }
 
