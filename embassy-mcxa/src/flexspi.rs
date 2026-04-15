@@ -1,4 +1,16 @@
 //! FlexSPI NOR flash driver for MCXA5xx.
+//!
+//! This module provides blocking, interrupt-driven async, and DMA-backed
+//! async access to `FLEXSPI0` on MCXA5xx devices.
+//!
+//! The driver is configured with a user-provided [`FlashConfig`] that
+//! describes the flash geometry and LUT command sequences, allowing the
+//! transport layer to be reused across compatible NOR flash devices.
+//!
+//! Current scope:
+//! - MCXA5xx only
+//! - `FLEXSPI0` only
+//! - NOR flash style IP-command workflows, as used by the MCXA577 examples
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
