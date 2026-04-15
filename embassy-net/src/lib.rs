@@ -961,10 +961,12 @@ impl Inner {
             self.apply_static_config()
         }
 
-        if let Some(poll_at) = self.iface.poll_at(timestamp, &mut self.sockets) {
-            let t = pin!(Timer::at(instant_from_smoltcp(poll_at)));
-            if t.poll(cx).is_ready() {
-                cx.waker().wake_by_ref();
+        if self.link_up {
+            if let Some(poll_at) = self.iface.poll_at(timestamp, &mut self.sockets) {
+                let t = pin!(Timer::at(instant_from_smoltcp(poll_at)));
+                if t.poll(cx).is_ready() {
+                    cx.waker().wake_by_ref();
+                }
             }
         }
     }

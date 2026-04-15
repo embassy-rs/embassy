@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Avoid looping forever if the network interface is down.
+
 ## 0.9.0 - 2026-03-10
 
 - raw: Removed unnecessary Driver type parameter from `RawSocket::new`
