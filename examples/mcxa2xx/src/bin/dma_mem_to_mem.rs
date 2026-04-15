@@ -51,7 +51,7 @@ async fn main(_spawner: Spawner) {
     defmt::info!("Configuring DMA with Embassy-style API...");
 
     // Create DMA channel
-    let mut dma_ch0 = DmaChannel::new(p.DMA_CH0);
+    let mut dma_ch0 = DmaChannel::new(p.DMA0_CH0);
 
     // Configure transfer options
     let options = TransferOptions::COMPLETE_INTERRUPT;

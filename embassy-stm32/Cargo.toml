@@ -176,6 +176,7 @@ embedded-storage-async = { version = "0.4.1" }
 
 rand-core-06 = { package = "rand_core", version = "0.6" }
 rand-core-09 = { package = "rand_core", version = "0.9" }
+rand-core-10 = { package = "rand_core", version = "0.10" }
 
 
 defmt = { version = "1.0.1", optional = true }
@@ -184,6 +185,7 @@ cortex-m-rt = ">=0.6.15,<0.8"
 cortex-m = "0.7.6"
 futures-util = { version = "0.3.30", default-features = false }
 sdio-host = "0.9.0"
+dsp-fixedpoint = { version = "0.1.0", default-features = false }
 critical-section = "1.1"
 
 vcell = "0.1.3"
@@ -206,12 +208,12 @@ block-device-driver = { version = "0.2" }
 aligned = "0.4.3"
 heapless = "0.9.1"
 
-stm32-metapac = { version = "21" }
-# stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-21b543f6cab91a2966c0a4247e418d73a87a4ae7" }
+# stm32-metapac = { version = "21" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-5f15bbfaf37bd6a6330fec66a3a39de0042d64ac" }
 
 [build-dependencies]
-stm32-metapac = { version = "21", default-features = false, features = ["metadata"]}
-# stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-21b543f6cab91a2966c0a4247e418d73a87a4ae7", default-features = false, features = ["metadata"] }
+# stm32-metapac = { version = "21", default-features = false, features = ["metadata"]}
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-5f15bbfaf37bd6a6330fec66a3a39de0042d64ac", default-features = false, features = ["metadata"] }
 
 proc-macro2 = "1.0.36"
 quote = "1.0.15"
@@ -228,6 +230,7 @@ default = ["rt"]
 
 ## Enable `stm32-metapac`'s `rt` feature
 rt = ["stm32-metapac/rt"]
+test = ["embassy-time?/generic-queue-8"]
 
 ## Use [`defmt`](https://docs.rs/defmt/latest/defmt/) for logging
 defmt = [
@@ -251,8 +254,11 @@ cyw43 = ["dep:cyw43"]
 
 stm32-hrtim = ["dep:stm32-hrtim"]
 
+## Enable USB host mode support
+usb-host = ["embassy-usb-synopsys-otg/host"]
+
 exti = []
-low-power = [ "time", "chrono" ]
+low-power = [ "time" ]
 low-power-debug-with-sleep = [ "low-power" ]
 low-power-defmt-flush = [ "defmt" ]
 

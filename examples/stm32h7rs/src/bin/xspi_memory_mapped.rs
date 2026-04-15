@@ -1,8 +1,15 @@
 #![no_main]
 #![no_std]
 
-//! For Nucleo STM32H7S3L8 MB1737, has MX25UW25645GXDI00
+//! This example is intended for the Nucleo STM32H7S3L8 MB1737, which has a
+//! Macronix MX25UW25645GXDI00 flash chip installed on XSPI2, powered at 1.8 V.
 //!
+//! IMPORTANT: this example use HSLV (high-speed, low-voltage) mode for XSPI2,
+//!            to which the flash is connected, to achieve the maximum flash
+//!            bus speeds in STR communication mode. This is safe on the Nucleo
+//!            board, which is factory-wired for a fixed 1.8 V on VDD_XSPI2.
+//!            For other boards, this may not be so, and may be destructive!
+//!            See the notes in the RCC config below for more details.
 
 use core::cmp::min;
 
@@ -11,6 +18,8 @@ use embassy_executor::Spawner;
 use embassy_stm32::Config;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::mode::Blocking;
+use embassy_stm32::rcc::mux::Xspisel;
+use embassy_stm32::rcc::{get_corrected_comp_vals, set_and_enable_comp_vals};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::xspi::{
     AddressSize, ChipSelectHighTime, DummyCycles, FIFOThresholdLevel, Instance, MemorySize, MemoryType, TransferConfig,
@@ -25,27 +34,86 @@ async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     {
         use embassy_stm32::rcc::*;
+
+        // CSI is required for HSLV and the compensation cells.
+        config.rcc.csi = true;
+
+        // Run from the external, 24 MHz crystal oscillator.
         config.rcc.hse = Some(Hse {
             freq: Hertz(24_000_000),
             mode: HseMode::Oscillator,
         });
+
         config.rcc.pll1 = Some(Pll {
-            source: PllSource::HSE,
-            prediv: PllPreDiv::DIV3,
-            mul: PllMul::MUL150,
-            divp: Some(PllDiv::DIV2),
+            source: PllSource::Hse,
+            prediv: PllPreDiv::Div3,
+            mul: PllMul::Mul150,      // 24 MHz / 3 * 150 = 1200 MHz.
+            divp: Some(PllDiv::Div2), // 600 MHz PLLCLK for SYSCLK.
             divq: None,
             divr: None,
             divs: None,
             divt: None,
         });
-        config.rcc.sys = Sysclk::PLL1_P; // 600 Mhz
-        config.rcc.ahb_pre = AHBPrescaler::DIV2; // 300 Mhz
-        config.rcc.apb1_pre = APBPrescaler::DIV2; // 150 Mhz
-        config.rcc.apb2_pre = APBPrescaler::DIV2; // 150 Mhz
-        config.rcc.apb4_pre = APBPrescaler::DIV2; // 150 Mhz
-        config.rcc.apb5_pre = APBPrescaler::DIV2; // 150 Mhz
-        config.rcc.voltage_scale = VoltageScale::HIGH;
+
+        // PLL2_S will be used as the clock source for XSPI2.
+        // A signal with a 50 % duty-cycle is required. The PLL always has a
+        // 50% duty-cycle output on post-dividers divs and divt when VCOH is
+        // selected (PLLxVCOSEL = 0). This should be so, for the given
+        // configuration. However, the uncertainty can be readily avoided by
+        // generating double the required frequency, and then post-dividing
+        // by 2 in the XSPI peripheral.
+        // For bus clk of 133 MHZ: 24 MHz / 4 * 133 / 3 = 266 MHz (and then /2 in XSPI)
+        //                200 MHz: 24 MHz / 6 * 200 / 2 = 400 MHz (and then /2 in XSPI)
+        config.rcc.pll2 = Some(Pll {
+            source: PllSource::Hse,
+            prediv: PllPreDiv::Div6,
+            mul: PllMul::Mul200, // 24 MHz / 6 * 200 = 800 MHz
+            divp: None,
+            divq: None,
+            divr: None,
+            divs: Some(PllDivSt::Div2), // 400 MHz for XSPI2.
+            divt: None,
+        });
+
+        // XSPI2 uses PLL2S as its clock source. This allows for more flexible
+        // clock rates.
+        config.rcc.mux.xspi2sel = Xspisel::Pll2S;
+
+        // Run the core and internal busses at full speed.
+        config.rcc.sys = Sysclk::Pll1P; // 600 Mhz
+        config.rcc.ahb_pre = AHBPrescaler::Div2; // 300 Mhz
+        config.rcc.apb1_pre = APBPrescaler::Div2; // 150 Mhz
+        config.rcc.apb2_pre = APBPrescaler::Div2; // 150 Mhz
+        config.rcc.apb4_pre = APBPrescaler::Div2; // 150 Mhz
+        config.rcc.apb5_pre = APBPrescaler::Div2; // 150 Mhz
+        config.rcc.voltage_scale = VoltageScale::High;
+
+        // Enable HSLV mode to allow high-speed operation at low supply voltage.
+        // The STM32H7RS has three power domains where HSLV mode is applicable:
+        // - XSPI1 I/Os supplied from VDDXSPI1
+        // - XSPI2 I/Os supplied from VDDXSPI2.
+        // - General I/Os supplied from VDD.
+        //
+        // IMPORTANT: Only enable HSLV mode when the specific power domain VDD is
+        //            below 2.7 V. Enabling when VDD is > 2.7 V may be destructive!
+        //            (RM0477, p.551, Ch. 8.5.10 "SBS I/O compensation cell control
+        //            and status register (SBS_CCCSR)")
+        //
+        // IMPORTANT: JP5 selects all VDD domains EXCEPT XSPI. (Assuming the
+        //            factory-default solder bridges are installed.)
+        //            Make sure the jumper is in the correct position BEFORE
+        //            enabling hslv_io!
+        config.rcc.hslv_xspi1 = false; // NUCLEO-H7S3L8: SB20 to VDD (default).
+        config.rcc.hslv_xspi2 = true; // NUCLEO-H7S3L8: SB34 to 1.8 V (default).
+        config.rcc.hslv_io = false; // NUCLEO-H7S3L8: JP5 (user VDD selection) to 1.8 V or 3.3 V.
+
+        // Selectively enable the compensation cell for the XSPI peripherals.
+        // - The XSPI compensation cell auto-tune will fail (and time-out) if no
+        //   active device is connected to the selected XSPI port.
+        // - The GPIO compensation cell is always enabled, as it can auto-tune
+        //   irregardless of connected devices.
+        config.rcc.comp_xspi1 = false; // NUCLEO-H7S3L8: not connected.
+        config.rcc.comp_xspi2 = true; // NUCLEO-H7S3L8: MX25UW25645GXDI00 flash.
     }
 
     // Initialize peripherals
@@ -60,11 +128,12 @@ async fn main(_spawner: Spawner) {
         free_running_clock: false,
         clock_mode: false,
         wrap_size: WrapSize::None,
-        // 300 MHz clock / (3 + 1) = 75 MHz. This is above the max for READ instructions so the
-        // FAST READ must be used. The nucleo board's flash  can run at up to 133 MHz in SPI mode
-        // and 200 MHz in OPI mode. This clock prescaler must be even otherwise the clock will not
-        // have symmetric high and low times.
-        // The clock can also be fed by one of the PLLs to allow for more flexible clock rates.
+        // 400 MHz clock / (3 + 1) = 100 MHz. This is above the maximum for
+        // READ instructions so the FAST READ must be used. The nucleo board's
+        // flash can run at up to 133 MHz in SPI mode and 200 MHz in OPI mode.
+        // This clock prescaler must be even, otherwise the clock will not have
+        // symmetric high and low times. (Note: one is internally added to the
+        // clock_prescaler value defined here.)
         clock_prescaler: 3,
         sample_shifting: false,
         chip_select_boundary: 0,
@@ -79,11 +148,41 @@ async fn main(_spawner: Spawner) {
     // Note: Enabling data cache can cause issues with DMA transfers.
     cor.SCB.enable_dcache(&mut cor.CPUID);
 
-    let xspi = embassy_stm32::xspi::Xspi::new_blocking_xspi(
-        p.XSPI2, p.PN6, p.PN2, p.PN3, p.PN4, p.PN5, p.PN8, p.PN9, p.PN10, p.PN11, p.PN1, spi_config,
+    // Work-around the errata isse with automatic compensation cell tuning.
+    // - Read the corrected, auto-tune values at around 30°C ambient and store
+    //   in non-volatile memory.
+    // - Apply these values at boot, before attempting high-speed operations.
+    //
+    // ES0596, p. 12, Ch 2.2.15 "I/O compensation could alter duty-cycle of high-frequency output signal"
+    // <https://community.st.com/t5/stm32-mcus-products/stm32h7s7l8h6h-xspi-instability/td-p/749315>
+    //
+    // Note: applying the errata to the GPIO compensation cell, as is done here,
+    //       seems to improve this as well, judging by a signal on the MCO output
+    //       pin, although it is not explicitly stated in the errata.
+    //
+    // Note: these steps are already done in the RCC initialization code.
+    //       They are made explicit here, to show how to use the convenience
+    //       functions, and to remind the user that this must be implemented
+    //       in real-world projects that operate at high I/O speeds, over wider
+    //       temperature ranges.
+    let cv = get_corrected_comp_vals();
+    info!("Compensation Cells - Corrected Tuning Values:");
+    info!("- XSPI1: NMOS {:#04X}   PMOS {:#04X}", cv.octo1_nsrc, cv.octo1_psrc);
+    info!("- XSPI2: NNOS {:#04X}   PMOS {:#04X}", cv.octo2_nsrc, cv.octo2_psrc);
+    info!("- GPIO:  NMOS {:#04X}   PMOS {:#04X}", cv.io_nsrc, cv.io_psrc);
+    set_and_enable_comp_vals(&cv);
+
+    let xspi = embassy_stm32::xspi::Xspi::new_blocking_xspi_dqs(
+        p.XSPI2, p.PN6, p.PN2, p.PN3, p.PN4, p.PN5, p.PN8, p.PN9, p.PN10, p.PN11, p.PN1, p.PN0, spi_config,
     );
 
     let mut flash = SpiFlashMemory::new(xspi);
+    info!("Starting in SPI mode with 100 MHz XSPI bus clock.");
+
+    // With higher flash clock speeds, the first read_id() returns all zeros,
+    // or a hardfault occurs. A short wait (>15µs) resolves this. (This may be
+    // due to the flash initialization not having completed yet.)
+    Timer::after_micros(50).await;
 
     let flash_id = flash.read_id();
     info!("FLASH ID: {=[u8]:x}", flash_id);
@@ -91,7 +190,8 @@ async fn main(_spawner: Spawner) {
     // Erase the first sector
     flash.erase_sector(0);
 
-    // Write some data into the flash. This writes more than one page to test that functionality.
+    // Write some data into the flash. This writes more than one page to test
+    // that functionality.
     let mut wr_buf = [0u8; 512];
     let base_number: u8 = 0x90;
     for i in 0..512 {
@@ -127,7 +227,14 @@ async fn main(_spawner: Spawner) {
     let flash_id = flash.read_id();
     info!("FLASH ID: {=[u8]:x}", flash_id);
 
+    // Change to OPI mode. This allows for higher XSPI bus clock speeds.
     let mut flash = flash.into_octo();
+    info!("Entered OPI mode.");
+
+    // Change the bus clock to 200 MHz.
+    // 400 MHz / (1 + 1) = 200 MHz (Even ratio: 1+1 = 2)
+    flash.xspi.set_clock_prescaler(1);
+    info!("XSPI clock prescaler set to /2 -> 200 MHz bus clock");
 
     Timer::after_millis(100).await;
 
@@ -161,15 +268,22 @@ async fn main(_spawner: Spawner) {
     flash.disable_mm();
     info!("Disabled memory mapped mode in OPI mode");
 
-    // Reset back to SPI mode
+    // Change the bus clock to 100 MHz in preparation for re-entering SPI mode.
+    // 400 MHz / (3 + 1) = 100 MHz (Even ratio: 3+1 = 4)
+    flash.xspi.set_clock_prescaler(3);
+    info!("XSPI clock prescaler set to /4 -> 100 MHz bus clock");
+
+    // Reset back to SPI mode.
     let mut flash = flash.into_spi();
+    info!("Re-entered SPI mode");
+
     let flash_id = flash.read_id();
     info!("FLASH ID back in SPI mode: {=[u8]:x}", flash_id);
 
     info!("DONE");
 
-    // Output pin PE3
-    let mut led = Output::new(p.PE3, Level::Low, Speed::Low);
+    // Output pin PD10 = LD1 (green).
+    let mut led = Output::new(p.PD10, Level::Low, Speed::Low);
 
     loop {
         led.toggle();

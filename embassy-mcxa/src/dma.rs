@@ -112,15 +112,15 @@ use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering, fence};
 use core::task::{Context, Poll};
 
 use embassy_hal_internal::{Peri, PeripheralType};
-use embassy_sync::waitqueue::AtomicWaker;
+use maitake_sync::WaitCell;
 
 use crate::clocks::enable_and_reset;
 use crate::clocks::periph_helpers::NoConfig;
 use crate::dma::sealed::SealedChannel;
-use crate::pac::dma::vals::Halt;
-use crate::pac::edma_0_tcd::regs::{TcdAttr, TcdBiterElinkno, TcdCiterElinkno, TcdCsr};
-use crate::pac::edma_0_tcd::vals::{
-    Bwc, Dpa, Dreq, Ecp, Esg, Size, Start, TcdNbytesMloffnoDmloe, TcdNbytesMloffnoSmloe,
+use crate::pac::dma::Halt;
+use crate::pac::edma_tcd::{
+    Bwc, Dpa, Dreq, Ecp, Esg, Size, Start, TcdAttr, TcdBiterElinkno, TcdCiterElinkno, TcdCsr, TcdNbytesMloffnoDmloe,
+    TcdNbytesMloffnoSmloe,
 };
 use crate::pac::{self, Interrupt};
 use crate::peripherals::DMA0;
@@ -144,22 +144,10 @@ pub(crate) fn init() {
         w.set_gmrc(true);
     });
 
-    // REVISIT: This needs to be improved.
-    //
     // Enable all DMA request lines for non-secure access.
-    #[cfg(feature = "mcxa5xx")]
-    {
-        let ahbsc = crate::pac::AHBSC;
-        ahbsc.sec_gp_reg0().write(|w| w.0 = 0xffff_ffff);
-        ahbsc.sec_gp_reg1().write(|w| w.0 = 0xffff_ffff);
-        ahbsc.sec_gp_reg2().write(|w| w.0 = 0xffff_ffff);
-        ahbsc.sec_gp_reg3().write(|w| w.0 = 0xffff_ffff);
-        ahbsc.sec_gp_reg4().write(|w| w.0 = 0xffff_ffff);
-        ahbsc.sec_gp_reg5().write(|w| w.0 = 0xffff_ffff);
-        ahbsc.sec_gp_reg6().write(|w| w.0 = 0xffff_ffff);
-        ahbsc.sec_gp_reg7().write(|w| w.0 = 0xffff_ffff);
-        ahbsc.sec_gp_reg8().write(|w| w.0 = 0xffff_ffff);
-        ahbsc.sec_gp_reg9().write(|w| w.0 = 0xffff_ffff);
+    #[cfg(all(feature = "mcxa5xx", feature = "dma-ipd-req"))]
+    for sec_gp_i in 0..=9 {
+        crate::pac::AHBSC.sec_gp_reg(sec_gp_i).write(|w| w.0 = 0xffff_ffff);
     }
 }
 
@@ -601,14 +589,14 @@ macro_rules! impl_channel {
     };
 }
 
-impl_channel!(DMA_CH0, 0, DMA_CH0);
-impl_channel!(DMA_CH1, 1, DMA_CH1);
-impl_channel!(DMA_CH2, 2, DMA_CH2);
-impl_channel!(DMA_CH3, 3, DMA_CH3);
-impl_channel!(DMA_CH4, 4, DMA_CH4);
-impl_channel!(DMA_CH5, 5, DMA_CH5);
-impl_channel!(DMA_CH6, 6, DMA_CH6);
-impl_channel!(DMA_CH7, 7, DMA_CH7);
+impl_channel!(DMA0_CH0, 0, DMA0_CH0);
+impl_channel!(DMA0_CH1, 1, DMA0_CH1);
+impl_channel!(DMA0_CH2, 2, DMA0_CH2);
+impl_channel!(DMA0_CH3, 3, DMA0_CH3);
+impl_channel!(DMA0_CH4, 4, DMA0_CH4);
+impl_channel!(DMA0_CH5, 5, DMA0_CH5);
+impl_channel!(DMA0_CH6, 6, DMA0_CH6);
+impl_channel!(DMA0_CH7, 7, DMA0_CH7);
 
 /// Parameters used to configure a 'typical' DMA transfer in [DmaChannel::setup_typical].
 struct DmaTransferParameters<WSRC: Word, WDST: Word> {
@@ -671,9 +659,9 @@ impl DmaChannel<'_> {
 
     /// Return a reference to the underlying TCD register block.
     #[inline]
-    pub(crate) fn tcd(&self) -> pac::edma_0_tcd::Tcd {
+    pub(crate) fn tcd(&self) -> pac::edma_tcd::Tcd {
         // Safety: MCXA276 has a single eDMA instance
-        pac::EDMA_0_TCD0.tcd(self.channel.index())
+        pac::EDMA_0_TCD.tcd(self.channel.index())
     }
 
     /// set a manual callback to be called AFTER the DMA interrupt is processed. Will be called in the DMA interrupt
@@ -700,7 +688,7 @@ impl DmaChannel<'_> {
         self.tcd().tcd_daddr().read().daddr()
     }
 
-    fn clear_tcd(t: &pac::edma_0_tcd::Tcd) {
+    fn clear_tcd(t: &pac::edma_tcd::Tcd) {
         // Full TCD reset following NXP SDK pattern (EDMA_TcdResetExt).
         // Reset ALL TCD registers to 0 to clear any stale configuration from
         // previous transfers. This is critical when reusing a channel.
@@ -717,13 +705,13 @@ impl DmaChannel<'_> {
     }
 
     #[inline]
-    fn set_major_loop_ct_elinkno(t: &pac::edma_0_tcd::Tcd, count: u16) {
+    fn set_major_loop_ct_elinkno(t: &pac::edma_tcd::Tcd, count: u16) {
         t.tcd_biter_elinkno().write(|w| w.set_biter(count));
         t.tcd_citer_elinkno().write(|w| w.set_citer(count));
     }
 
     #[inline]
-    fn set_major_loop_nbytes_without_minor(t: &pac::edma_0_tcd::Tcd, count: u32) {
+    fn set_major_loop_nbytes_without_minor(t: &pac::edma_tcd::Tcd, count: u32) {
         t.tcd_nbytes_mloffno().write(|w| {
             w.set_smloe(TcdNbytesMloffnoSmloe::OFFSET_NOT_APPLIED);
             w.set_dmloe(TcdNbytesMloffnoDmloe::OFFSET_NOT_APPLIED);
@@ -732,44 +720,44 @@ impl DmaChannel<'_> {
     }
 
     #[inline]
-    fn set_no_final_adjustments(t: &pac::edma_0_tcd::Tcd) {
+    fn set_no_final_adjustments(t: &pac::edma_tcd::Tcd) {
         // No source/dest adjustment after major loop
         t.tcd_slast_sda().write(|w| w.set_slast_sda(0));
         t.tcd_dlast_sga().write(|w| w.set_dlast_sga(0));
     }
 
     #[inline]
-    fn set_source_ptr<T>(t: &pac::edma_0_tcd::Tcd, p: *const T) {
+    fn set_source_ptr<T>(t: &pac::edma_tcd::Tcd, p: *const T) {
         t.tcd_saddr().write(|w| w.set_saddr(p as u32));
     }
 
     #[inline]
-    fn set_source_increment(t: &pac::edma_0_tcd::Tcd, sz: WordSize) {
+    fn set_source_increment(t: &pac::edma_tcd::Tcd, sz: WordSize) {
         t.tcd_soff().write(|w| w.set_soff(sz.bytes() as u16));
     }
 
     #[inline]
-    fn set_source_fixed(t: &pac::edma_0_tcd::Tcd) {
+    fn set_source_fixed(t: &pac::edma_tcd::Tcd) {
         t.tcd_soff().write(|w| w.set_soff(0));
     }
 
     #[inline]
-    fn set_dest_ptr<T>(t: &pac::edma_0_tcd::Tcd, p: *mut T) {
+    fn set_dest_ptr<T>(t: &pac::edma_tcd::Tcd, p: *mut T) {
         t.tcd_daddr().write(|w| w.set_daddr(p as u32));
     }
 
     #[inline]
-    fn set_dest_increment(t: &pac::edma_0_tcd::Tcd, sz: WordSize) {
+    fn set_dest_increment(t: &pac::edma_tcd::Tcd, sz: WordSize) {
         t.tcd_doff().write(|w| w.set_doff(sz.bytes() as u16));
     }
 
     #[inline]
-    fn set_dest_fixed(t: &pac::edma_0_tcd::Tcd) {
+    fn set_dest_fixed(t: &pac::edma_tcd::Tcd) {
         t.tcd_doff().write(|w| w.set_doff(0));
     }
 
     #[inline]
-    fn set_fixed_priority(t: &pac::edma_0_tcd::Tcd, p: Priority) {
+    fn set_fixed_priority(t: &pac::edma_tcd::Tcd, p: Priority) {
         t.ch_pri().write(|w| {
             w.set_dpa(Dpa::SUSPEND);
             w.set_ecp(Ecp::SUSPEND);
@@ -778,7 +766,7 @@ impl DmaChannel<'_> {
     }
 
     #[inline]
-    fn reset_channel_state(t: &pac::edma_0_tcd::Tcd) {
+    fn reset_channel_state(t: &pac::edma_tcd::Tcd) {
         // CSR: Resets to all zeroes (disabled), "done" is cleared by writing 1
         t.ch_csr().write(|w| w.set_done(true));
         // ES: Resets to all zeroes (disabled), "err" is cleared by writing 1
@@ -1349,8 +1337,8 @@ impl DmaChannel<'_> {
         t.tcd_csr().modify(|w| w.set_start(Start::CHANNEL_STARTED));
     }
 
-    /// Get the waker for this channel
-    pub(crate) fn waker(&self) -> &'static AtomicWaker {
+    /// Get the wait cell for this channel
+    pub(crate) fn wait_cell(&self) -> &'static WaitCell {
         &STATES[self.channel.index()].waker
     }
 
@@ -1513,37 +1501,28 @@ struct Tcd {
 }
 
 struct State {
-    /// Waker for transfer complete interrupt
-    waker: AtomicWaker,
-    /// Waker for half-transfer interrupt
-    half_waker: AtomicWaker,
+    /// WaitCell for transfer complete interrupt
+    waker: WaitCell,
+    /// WaitCell for half-transfer interrupt
+    half_waker: WaitCell,
 }
 
 impl State {
     const fn new() -> Self {
         Self {
-            waker: AtomicWaker::new(),
-            half_waker: AtomicWaker::new(),
+            waker: WaitCell::new(),
+            half_waker: WaitCell::new(),
         }
     }
 }
 
-static STATES: [State; 8] = [
-    State::new(),
-    State::new(),
-    State::new(),
-    State::new(),
-    State::new(),
-    State::new(),
-    State::new(),
-    State::new(),
-];
+static STATES: [State; 8] = [const { State::new() }; 8];
 
-pub(crate) fn waker(idx: usize) -> &'static AtomicWaker {
+pub(crate) fn waker(idx: usize) -> &'static WaitCell {
     &STATES[idx].waker
 }
 
-pub(crate) fn half_waker(idx: usize) -> &'static AtomicWaker {
+pub(crate) fn half_waker(idx: usize) -> &'static WaitCell {
     &STATES[idx].half_waker
 }
 
@@ -1611,7 +1590,7 @@ impl<'a> Transfer<'a> {
             let state = &STATES[self.channel.index()];
 
             // Register the half-transfer waker
-            state.half_waker.register(cx.waker());
+            let _ = state.half_waker.poll_wait(cx);
 
             // Check if there's an error
             let t = self.channel.tcd();
@@ -1807,8 +1786,7 @@ impl<'a> Future for Transfer<'a> {
     type Output = Result<(), TransferErrors>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let state = &STATES[self.channel.index()];
-        state.waker.register(cx.waker());
+        let _ = STATES[self.channel.index()].waker.poll_wait(cx);
 
         if self.channel.is_done() {
             // Ensure all DMA writes are visible before returning
@@ -2008,8 +1986,8 @@ impl<'channel, 'buf, W: Word> RingBuffer<'channel, 'buf, W> {
 
             // Register wakers for both half and complete interrupts
             let state = &STATES[self.channel.index()];
-            state.waker.register(cx.waker());
-            state.half_waker.register(cx.waker());
+            let _ = state.waker.poll_wait(cx);
+            let _ = state.half_waker.poll_wait(cx);
 
             // Check again after registering waker (avoid race)
             let n = self.read_immediate(dst);
@@ -2362,7 +2340,7 @@ pub struct ScatterGatherResult {
 /// Must be called from the correct DMA channel interrupt context.
 unsafe fn on_interrupt(ch_index: usize) {
     crate::perf_counters::incr_interrupt_edma0();
-    let edma = &pac::EDMA_0_TCD0;
+    let edma = &pac::EDMA_0_TCD;
     let t = edma.tcd(ch_index);
 
     // Read TCD CSR to determine interrupt source
@@ -2416,14 +2394,14 @@ macro_rules! impl_dma_interrupt_handler {
 
 use crate::pac::interrupt;
 
-impl_dma_interrupt_handler!(DMA_CH0, 0);
-impl_dma_interrupt_handler!(DMA_CH1, 1);
-impl_dma_interrupt_handler!(DMA_CH2, 2);
-impl_dma_interrupt_handler!(DMA_CH3, 3);
-impl_dma_interrupt_handler!(DMA_CH4, 4);
-impl_dma_interrupt_handler!(DMA_CH5, 5);
-impl_dma_interrupt_handler!(DMA_CH6, 6);
-impl_dma_interrupt_handler!(DMA_CH7, 7);
+impl_dma_interrupt_handler!(DMA0_CH0, 0);
+impl_dma_interrupt_handler!(DMA0_CH1, 1);
+impl_dma_interrupt_handler!(DMA0_CH2, 2);
+impl_dma_interrupt_handler!(DMA0_CH3, 3);
+impl_dma_interrupt_handler!(DMA0_CH4, 4);
+impl_dma_interrupt_handler!(DMA0_CH5, 5);
+impl_dma_interrupt_handler!(DMA0_CH6, 6);
+impl_dma_interrupt_handler!(DMA0_CH7, 7);
 
 // TODO(AJM): This is a gross, gross hack. This implements optional callbacks
 // for DMA completion interrupts. This should go away once we switch to

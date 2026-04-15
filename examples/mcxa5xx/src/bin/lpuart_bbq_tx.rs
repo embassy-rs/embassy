@@ -97,7 +97,7 @@ async fn main(_spawner: Spawner) {
     let tx_buf = TX_BUF.take();
 
     // Create UART instance with DMA channels
-    let dma_channel = DmaChannel::new(p.DMA_CH0);
+    let dma_channel = DmaChannel::new(p.DMA0_CH0);
     let parts = BbqHalfParts::new_tx_half(p.LPUART5, Irqs, p.P0_25, tx_buf, dma_channel);
     let mut lpuart = LpuartBbqTx::new(parts, config).unwrap();
     let mut to_knock = [0u8; 16];

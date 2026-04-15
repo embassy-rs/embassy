@@ -160,6 +160,15 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
         timeout: Timeout,
         frame: FrameOptions,
     ) -> Result<(), Error> {
+        // Return early if there are no bytes to transmit and no START to send.
+        // If send_start is true the empty check is handled after the address phase.
+        if write_buffer.is_empty() && !frame.send_start() {
+            if frame.send_stop() {
+                self.info.regs.cr1().modify(|reg| reg.set_stop(true));
+            }
+            return Ok(());
+        }
+
         if frame.send_start() {
             // Send a START condition
 
@@ -189,6 +198,14 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
 
             // Clear condition by reading SR2
             let _ = self.info.regs.sr2().read();
+
+            // Return early if there are no bytes to transmit.
+            if write_buffer.is_empty() {
+                if frame.send_stop() {
+                    self.info.regs.cr1().modify(|w| w.set_stop(true));
+                }
+                return Ok(());
+            }
         }
 
         // Send bytes
@@ -389,6 +406,15 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
 
 impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     async fn write_frame(&mut self, address: u8, write_buffer: &[u8], frame: FrameOptions) -> Result<(), Error> {
+        // Return early if there are no bytes to transmit and no START to send.
+        // If send_start is true the empty check is handled after the address phase.
+        if write_buffer.is_empty() && !frame.send_start() {
+            if frame.send_stop() {
+                self.info.regs.cr1().modify(|reg| reg.set_stop(true));
+            }
+            return Ok(());
+        }
+
         self.info.regs.cr2().modify(|w| {
             // Note: Do not enable the ITBUFEN bit in the I2C_CR2 register if DMA is used for
             // reception.
@@ -470,6 +496,15 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
             // Clear condition by reading SR2
             self.info.regs.sr2().read();
+
+            // Return early if there are no bytes to transmit.
+            if write_buffer.is_empty() {
+                if frame.send_stop() {
+                    self.info.regs.cr1().modify(|w| w.set_stop(true));
+                }
+                drop(on_drop);
+                return Ok(());
+            }
         }
 
         let dma_transfer = unsafe {
@@ -765,8 +800,8 @@ enum Mode {
 impl Mode {
     fn f_s(&self) -> i2c::vals::FS {
         match self {
-            Mode::Fast => i2c::vals::FS::FAST,
-            Mode::Standard => i2c::vals::FS::STANDARD,
+            Mode::Fast => i2c::vals::FS::Fast,
+            Mode::Standard => i2c::vals::FS::Standard,
         }
     }
 }
@@ -779,8 +814,8 @@ enum Duty {
 impl Duty {
     fn duty(&self) -> i2c::vals::Duty {
         match self {
-            Duty::Duty2_1 => i2c::vals::Duty::DUTY2_1,
-            Duty::Duty16_9 => i2c::vals::Duty::DUTY16_9,
+            Duty::Duty2_1 => i2c::vals::Duty::Duty21,
+            Duty::Duty16_9 => i2c::vals::Duty::Duty169,
         }
     }
 }
@@ -893,13 +928,13 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
                 self.info.regs.oar1().write(|reg| {
                     let hw_addr = (addr as u16) << 1; // Address in bits [7:1]
                     reg.set_add(hw_addr);
-                    reg.set_addmode(i2c::vals::Addmode::BIT7);
+                    reg.set_addmode(i2c::vals::Addmode::Bit7);
                 });
             }
             Address::TenBit(addr) => {
                 self.info.regs.oar1().write(|reg| {
                     reg.set_add(addr);
-                    reg.set_addmode(i2c::vals::Addmode::BIT10);
+                    reg.set_addmode(i2c::vals::Addmode::Bit10);
                 });
             }
         }
@@ -912,7 +947,7 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
     fn configure_secondary_address(&mut self, addr: u8) {
         self.info.regs.oar2().write(|reg| {
             reg.set_add2(addr);
-            reg.set_endual(i2c::vals::Endual::DUAL);
+            reg.set_endual(i2c::vals::Endual::Dual);
         });
     }
 
@@ -920,7 +955,7 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
     fn configure_default_primary_address(&mut self) {
         self.info.regs.oar1().write(|reg| {
             reg.set_add(0); // Reserved address, safe to use
-            reg.set_addmode(i2c::vals::Addmode::BIT7);
+            reg.set_addmode(i2c::vals::Addmode::Bit7);
         });
         self.info.regs.oar1().modify(|reg| reg.0 |= 1 << 14);
     }
@@ -928,7 +963,7 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
     /// Disable secondary address when not needed
     fn disable_secondary_address(&mut self) {
         self.info.regs.oar2().write(|reg| {
-            reg.set_endual(i2c::vals::Endual::SINGLE);
+            reg.set_endual(i2c::vals::Endual::Single);
         });
     }
 }
@@ -1253,7 +1288,7 @@ impl<'d, M: PeriMode> I2c<'d, M, MultiMaster> {
         } else if sr2.dualf() {
             // OA2 (secondary address) was matched
             let oar2 = info.regs.oar2().read();
-            if oar2.endual() != i2c::vals::Endual::DUAL {
+            if oar2.endual() != i2c::vals::Endual::Dual {
                 return Err(Error::Bus); // Hardware inconsistency
             }
             Ok(Address::SevenBit(oar2.add2()))
@@ -1261,11 +1296,11 @@ impl<'d, M: PeriMode> I2c<'d, M, MultiMaster> {
             // OA1 (primary address) was matched
             let oar1 = info.regs.oar1().read();
             match oar1.addmode() {
-                i2c::vals::Addmode::BIT7 => {
+                i2c::vals::Addmode::Bit7 => {
                     let addr = (oar1.add() >> 1) as u8;
                     Ok(Address::SevenBit(addr))
                 }
-                i2c::vals::Addmode::BIT10 => Ok(Address::TenBit(oar1.add())),
+                i2c::vals::Addmode::Bit10 => Ok(Address::TenBit(oar1.add())),
             }
         }
     }

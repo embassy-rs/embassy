@@ -55,7 +55,7 @@ pub(crate) fn init_hsi48(config: Hsi48Config) -> Hertz {
         rcc::enable_and_reset::<crate::peripherals::CRS>();
 
         CRS.cfgr().modify(|w| {
-            w.set_syncsrc(Syncsrc::USB);
+            w.set_syncsrc(Syncsrc::Usb);
         });
 
         // These are the correct settings for standard USB operation. If other settings

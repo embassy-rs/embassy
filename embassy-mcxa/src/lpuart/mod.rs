@@ -1,10 +1,11 @@
+use core::cmp::Reverse;
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicU8, Ordering};
 
 use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
 use embassy_hal_internal::{Peri, PeripheralType};
 use maitake_sync::WaitCell;
-use nxp_pac::lpuart::vals::Dozeen;
+use nxp_pac::lpuart::Dozeen;
 use paste::paste;
 
 use crate::clocks::periph_helpers::{Div4, LpuartClockSel, LpuartConfig};
@@ -12,7 +13,7 @@ use crate::clocks::{ClockError, Gate, PoweredClock, WakeGuard, enable_and_reset}
 use crate::dma::DmaRequest;
 use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt::typelevel::Interrupt;
-use crate::pac::lpuart::vals::{
+use crate::pac::lpuart::{
     Idlecfg as IdleConfig, Ilt as IdleType, M as DataBits, Msbf as MsbFirst, Pt as Parity, Rst, Rxflush,
     Sbns as StopBits, Swap, Tc, Tdre, Txctsc as TxCtsConfig, Txctssrc as TxCtsSource, Txflush,
 };
@@ -325,42 +326,39 @@ fn enable_transceiver(info: &'static Info, enable_tx: bool, enable_rx: bool) {
     });
 }
 
+// Calculate the best OSR and SBR values for the desired baud rate and
+// source clock frequency. The calculation is biased towards lowest
+// possible diff and highest possible OSR value. A larger OSR favors
+// better noise tolerance, so in case of a tie, we break the tie by
+// largest OSR.
+//
+// Note that we compute and return OSR+1, the
+// caller is responsible for subtracting 1 when writing to the
+// register, as the hardware expects OSR-1.
 fn calculate_baudrate(baudrate: u32, src_clock_hz: u32) -> Result<(u8, u16), Error> {
-    let mut baud_diff = baudrate;
-    let mut osr = 0u8;
-    let mut sbr = 0u16;
+    (4..=32)
+        .flat_map(|osr| {
+            // Ideal SBR
+            let ideal_sbr = (src_clock_hz / (baudrate * osr)) as i32;
 
-    // Try OSR values from 4 to 32
-    for osr_temp in 4u8..=32u8 {
-        // Calculate SBR: (srcClock_Hz * 2 / (baudRate * osr) + 1) / 2
-        let sbr_calc = ((src_clock_hz * 2) / (baudrate * osr_temp as u32)).div_ceil(2);
+            // Search through a small window around the ideal SBR to
+            // find the best match.
+            (-2..=2i32).filter_map(move |delta| {
+                let sbr = ideal_sbr + delta;
 
-        let sbr_temp = if sbr_calc == 0 {
-            1
-        } else if sbr_calc > 0x1FFF {
-            0x1FFF
-        } else {
-            sbr_calc as u16
-        };
-
-        // Calculate actual baud rate
-        let calculated_baud = src_clock_hz / (osr_temp as u32 * sbr_temp as u32);
-
-        let temp_diff = calculated_baud.abs_diff(baudrate);
-
-        if temp_diff <= baud_diff {
-            baud_diff = temp_diff;
-            osr = osr_temp;
-            sbr = sbr_temp;
-        }
-    }
-
-    // Check if baud rate difference is within 3%
-    if baud_diff > (baudrate / 100) * 3 {
-        return Err(Error::UnsupportedBaudrate);
-    }
-
-    Ok((osr, sbr))
+                if (1..=0x1fff).contains(&sbr) {
+                    let sbr = sbr as u32;
+                    let calculated_baud = src_clock_hz / (osr * sbr);
+                    let diff = calculated_baud.abs_diff(baudrate);
+                    (diff <= (baudrate / 100) * 3).then_some((diff, osr, sbr))
+                } else {
+                    None
+                }
+            })
+        })
+        .min_by_key(|&(diff, osr, _)| (diff, Reverse(osr)))
+        .map(|(_, osr, sbr)| (osr as u8, sbr as u16))
+        .ok_or(Error::UnsupportedBaudrate)
 }
 
 /// Wait for all transmit operations to complete
@@ -420,25 +418,25 @@ fn has_rx_data_pending(info: &'static Info) -> bool {
 impl<T: SealedPin> sealed::Sealed for T {}
 
 pub trait TxPin<T: Instance>: Into<AnyPin> + sealed::Sealed + PeripheralType {
-    const MUX: crate::pac::port::vals::Mux;
+    const MUX: crate::pac::port::Mux;
     /// convert the pin to appropriate function for Lpuart Tx  usage
     fn as_tx(&self);
 }
 
 pub trait RxPin<T: Instance>: Into<AnyPin> + sealed::Sealed + PeripheralType {
-    const MUX: crate::pac::port::vals::Mux;
+    const MUX: crate::pac::port::Mux;
     /// convert the pin to appropriate function for Lpuart Rx  usage
     fn as_rx(&self);
 }
 
 pub trait CtsPin<T: Instance>: Into<AnyPin> + sealed::Sealed + PeripheralType {
-    const MUX: crate::pac::port::vals::Mux;
+    const MUX: crate::pac::port::Mux;
     /// convert the pin to appropriate function for Lpuart Cts usage
     fn as_cts(&self);
 }
 
 pub trait RtsPin<T: Instance>: Into<AnyPin> + sealed::Sealed + PeripheralType {
-    const MUX: crate::pac::port::vals::Mux;
+    const MUX: crate::pac::port::Mux;
     /// convert the pin to appropriate function for Lpuart Rts usage
     fn as_rts(&self);
 }
@@ -446,7 +444,7 @@ pub trait RtsPin<T: Instance>: Into<AnyPin> + sealed::Sealed + PeripheralType {
 macro_rules! impl_tx_pin {
     ($inst:ident, $pin:ident, $alt:ident) => {
         impl TxPin<crate::peripherals::$inst> for crate::peripherals::$pin {
-            const MUX: crate::pac::port::vals::Mux = crate::pac::port::vals::Mux::$alt;
+            const MUX: crate::pac::port::Mux = crate::pac::port::Mux::$alt;
             fn as_tx(&self) {
                 self.set_pull(crate::gpio::Pull::Disabled);
                 self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
@@ -461,7 +459,7 @@ macro_rules! impl_tx_pin {
 macro_rules! impl_rx_pin {
     ($inst:ident, $pin:ident, $alt:ident) => {
         impl RxPin<crate::peripherals::$inst> for crate::peripherals::$pin {
-            const MUX: crate::pac::port::vals::Mux = crate::pac::port::vals::Mux::$alt;
+            const MUX: crate::pac::port::Mux = crate::pac::port::Mux::$alt;
             fn as_rx(&self) {
                 self.set_pull(crate::gpio::Pull::Disabled);
                 self.set_function(<Self as RxPin<crate::peripherals::$inst>>::MUX);
@@ -474,7 +472,7 @@ macro_rules! impl_rx_pin {
 macro_rules! impl_cts_pin {
     ($inst:ident, $pin:ident, $alt:ident) => {
         impl CtsPin<crate::peripherals::$inst> for crate::peripherals::$pin {
-            const MUX: crate::pac::port::vals::Mux = crate::pac::port::vals::Mux::$alt;
+            const MUX: crate::pac::port::Mux = crate::pac::port::Mux::$alt;
             fn as_cts(&self) {
                 self.set_pull(crate::gpio::Pull::Disabled);
                 self.set_function(<Self as CtsPin<crate::peripherals::$inst>>::MUX);
@@ -487,7 +485,7 @@ macro_rules! impl_cts_pin {
 macro_rules! impl_rts_pin {
     ($inst:ident, $pin:ident, $alt:ident) => {
         impl RtsPin<crate::peripherals::$inst> for crate::peripherals::$pin {
-            const MUX: crate::pac::port::vals::Mux = crate::pac::port::vals::Mux::$alt;
+            const MUX: crate::pac::port::Mux = crate::pac::port::Mux::$alt;
             fn as_rts(&self) {
                 self.set_pull(crate::gpio::Pull::Disabled);
                 self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
@@ -840,7 +838,7 @@ pub struct LpuartTx<'a, M: Mode> {
     mode: M,
     _tx_pins: TxPins<'a>,
     _wg: Option<WakeGuard>,
-    _phantom: PhantomData<&'a ()>,
+    _phantom: PhantomData<&'a mut ()>,
 }
 
 /// Lpuart Rx driver.
@@ -850,7 +848,7 @@ pub struct LpuartRx<'a, M: Mode> {
     mode: M,
     _rx_pins: RxPins<'a>,
     _wg: Option<WakeGuard>,
-    _phantom: PhantomData<&'a ()>,
+    _phantom: PhantomData<&'a mut ()>,
 }
 
 fn disable_peripheral(info: &'static Info) {

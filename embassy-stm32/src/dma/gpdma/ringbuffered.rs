@@ -17,7 +17,7 @@ struct DmaCtrlImpl<'a>(Channel<'a>);
 
 impl<'a> DmaCtrl for DmaCtrlImpl<'a> {
     fn get_remaining_transfers(&self) -> usize {
-        let state = &STATE[self.0.id as usize];
+        let state = &STATE[self.0.channel as usize];
         let current_remaining = self.0.get_remaining_transfers() as usize;
 
         let lli_count = state.lli_state.count.load(Ordering::Acquire);
@@ -36,13 +36,13 @@ impl<'a> DmaCtrl for DmaCtrlImpl<'a> {
     }
 
     fn reset_complete_count(&mut self) -> usize {
-        let state = &STATE[self.0.id as usize];
+        let state = &STATE[self.0.channel as usize];
 
         state.complete_count.swap(0, Ordering::AcqRel)
     }
 
     fn set_waker(&mut self, waker: &Waker) {
-        STATE[self.0.id as usize].waker.register(waker);
+        STATE[self.0.channel as usize].waker.register(waker);
     }
 }
 

@@ -5,6 +5,7 @@
 //! - Scanning (observer role)
 //! - Connection management (central/peripheral roles)
 
+pub mod aci_gap;
 pub mod advertiser;
 pub mod connection;
 pub mod scanner;

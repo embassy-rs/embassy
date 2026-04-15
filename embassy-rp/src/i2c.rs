@@ -588,7 +588,7 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
 
                 while !p.ic_raw_intr_stat().read().stop_det() {}
 
-                p.ic_clr_stop_det().read().clr_stop_det();
+                p.ic_clr_stop_det().read();
             }
 
             // Note the hardware issues a STOP automatically on an abort

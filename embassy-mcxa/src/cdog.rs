@@ -12,7 +12,7 @@ use embassy_hal_internal::Peri;
 use embassy_hal_internal::interrupt::InterruptExt;
 
 use crate::interrupt::typelevel::{self, Handler};
-use crate::pac::cdog::vals::{Ctrl, DebugHaltCtrl, IrqPause, LockCtrl};
+use crate::pac::cdog::{Ctrl, DebugHaltCtrl, IrqPause, LockCtrl};
 use crate::pac::{self};
 use crate::peripherals::CDOG0;
 

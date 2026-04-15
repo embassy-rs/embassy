@@ -8,7 +8,7 @@ use embassy_futures::join::join;
 use embassy_hal_internal::Peri;
 use embassy_hal_internal::drop::OnDrop;
 pub use embedded_hal_1::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode, Phase, Polarity};
-use nxp_pac::lpspi::vals::{Cpha, Cpol, Lsbf, Master, Mbf, Outcfg, Pcspol, Pincfg, Prescale, Rrf, Rtf, Rxmsk, Txmsk};
+use nxp_pac::lpspi::{Cpha, Cpol, Lsbf, Master, Mbf, Outcfg, Pcspol, Pincfg, Prescale, Rrf, Rtf, Rxmsk, Txmsk};
 
 use super::{Async, AsyncMode, Blocking, Dma, Info, Instance, MisoPin, Mode as IoMode, MosiPin, SckPin};
 use crate::clocks::periph_helpers::{Div4, LpspiClockSel, LpspiConfig};
@@ -137,7 +137,7 @@ pub struct Spi<'d, M: IoMode> {
     _freq: u32,
     mode: M,
     _wg: Option<WakeGuard>,
-    _phantom: PhantomData<&'d M>,
+    _phantom: PhantomData<&'d mut M>,
 }
 
 impl<'d, M: IoMode> Spi<'d, M> {
@@ -566,7 +566,7 @@ impl<'d> Spi<'d, Dma<'d>> {
 
         // Wait for completion asynchronously
         core::future::poll_fn(|cx| {
-            self.mode.rx_dma.waker().register(cx.waker());
+            let _ = self.mode.rx_dma.wait_cell().poll_wait(cx);
             if self.mode.rx_dma.is_done() {
                 core::task::Poll::Ready(())
             } else {
@@ -627,7 +627,7 @@ impl<'d> Spi<'d, Dma<'d>> {
 
         // Wait for completion asynchronously
         core::future::poll_fn(|cx| {
-            self.mode.tx_dma.waker().register(cx.waker());
+            let _ = self.mode.tx_dma.wait_cell().poll_wait(cx);
             if self.mode.tx_dma.is_done() {
                 core::task::Poll::Ready(())
             } else {
@@ -697,7 +697,7 @@ impl<'d> Spi<'d, Dma<'d>> {
         // Wait for completion asynchronously
         let tx_transfer = async {
             core::future::poll_fn(|cx| {
-                self.mode.tx_dma.waker().register(cx.waker());
+                let _ = self.mode.tx_dma.wait_cell().poll_wait(cx);
 
                 if self.mode.tx_dma.is_done() {
                     core::task::Poll::Ready(())
@@ -725,7 +725,7 @@ impl<'d> Spi<'d, Dma<'d>> {
                 }
 
                 core::future::poll_fn(|cx| {
-                    self.mode.tx_dma.waker().register(cx.waker());
+                    let _ = self.mode.tx_dma.wait_cell().poll_wait(cx);
 
                     if self.mode.tx_dma.is_done() {
                         core::task::Poll::Ready(())
@@ -740,7 +740,7 @@ impl<'d> Spi<'d, Dma<'d>> {
         };
 
         let rx_transfer = core::future::poll_fn(|cx| {
-            self.mode.rx_dma.waker().register(cx.waker());
+            let _ = self.mode.rx_dma.wait_cell().poll_wait(cx);
             if self.mode.rx_dma.is_done() {
                 core::task::Poll::Ready(())
             } else {
@@ -828,7 +828,7 @@ impl<'d> Spi<'d, Dma<'d>> {
 
         // Wait for completion asynchronously
         let tx_transfer = core::future::poll_fn(|cx| {
-            self.mode.tx_dma.waker().register(cx.waker());
+            let _ = self.mode.tx_dma.wait_cell().poll_wait(cx);
             if self.mode.tx_dma.is_done() {
                 core::task::Poll::Ready(())
             } else {
@@ -837,7 +837,7 @@ impl<'d> Spi<'d, Dma<'d>> {
         });
 
         let rx_transfer = core::future::poll_fn(|cx| {
-            self.mode.rx_dma.waker().register(cx.waker());
+            let _ = self.mode.rx_dma.wait_cell().poll_wait(cx);
             if self.mode.rx_dma.is_done() {
                 core::task::Poll::Ready(())
             } else {

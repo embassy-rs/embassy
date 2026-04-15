@@ -21,8 +21,8 @@
 
 use defmt::*;
 use embassy_stm32::adc::adc4::Calibration;
-use embassy_stm32::adc::{Adc, AdcChannel, CONTINUOUS, RingBufferedAdc, adc4};
-use embassy_stm32::peripherals::{ADC4, GPDMA1_CH1};
+use embassy_stm32::adc::{Adc, AdcChannel, RingBufferedAdc, adc4};
+use embassy_stm32::peripherals::GPDMA1_CH1;
 use embassy_stm32::rcc::{
     AHB5Prescaler, AHBPrescaler, APBPrescaler, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale,
 };
@@ -43,22 +43,22 @@ async fn main(_spawner: embassy_executor::Spawner) {
     // Configure RCC with PLL1 - required for ADC4 clock
     let mut config = Config::default();
     config.rcc.pll1 = Some(embassy_stm32::rcc::Pll {
-        source: PllSource::HSI,
-        prediv: PllPreDiv::DIV1,  // PLLM = 1 → HSI / 1 = 16 MHz
-        mul: PllMul::MUL30,       // PLLN = 30 → 16 MHz * 30 = 480 MHz VCO
-        divr: Some(PllDiv::DIV5), // PLLR = 5 → 96 MHz (Sysclk)
+        source: PllSource::Hsi,
+        prediv: PllPreDiv::Div1,  // PLLM = 1 → HSI / 1 = 16 MHz
+        mul: PllMul::Mul30,       // PLLN = 30 → 16 MHz * 30 = 480 MHz VCO
+        divr: Some(PllDiv::Div5), // PLLR = 5 → 96 MHz (Sysclk)
         divq: None,
-        divp: Some(PllDiv::DIV30), // PLLP = 30 → 16 MHz (ADC4 clock source)
+        divp: Some(PllDiv::Div30), // PLLP = 30 → 16 MHz (ADC4 clock source)
         frac: Some(0),
     });
 
-    config.rcc.ahb_pre = AHBPrescaler::DIV1;
-    config.rcc.apb1_pre = APBPrescaler::DIV1;
-    config.rcc.apb2_pre = APBPrescaler::DIV1;
-    config.rcc.apb7_pre = APBPrescaler::DIV1;
-    config.rcc.ahb5_pre = AHB5Prescaler::DIV4;
-    config.rcc.voltage_scale = VoltageScale::RANGE1;
-    config.rcc.sys = Sysclk::PLL1_R;
+    config.rcc.ahb_pre = AHBPrescaler::Div1;
+    config.rcc.apb1_pre = APBPrescaler::Div1;
+    config.rcc.apb2_pre = APBPrescaler::Div1;
+    config.rcc.apb7_pre = APBPrescaler::Div1;
+    config.rcc.ahb5_pre = AHB5Prescaler::Div4;
+    config.rcc.voltage_scale = VoltageScale::Range1;
+    config.rcc.sys = Sysclk::Pll1R;
 
     let p = embassy_stm32::init(config);
 
@@ -74,19 +74,20 @@ async fn main(_spawner: embassy_executor::Spawner) {
     // Initialize ADC4 with appropriate settings
     // Maximum averaging (Samples256) with longest sample time for best accuracy
     let mut adc = Adc::new_adc4(p.ADC4);
-    adc.set_resolution_adc4(adc4::Resolution::BITS12);
+    adc.set_resolution_adc4(adc4::Resolution::Bits12);
     adc.set_averaging_adc4(adc4::Averaging::Samples256);
 
-    let max_count = adc4::resolution_to_max_count(adc4::Resolution::BITS12);
+    let max_count = adc4::resolution_to_max_count(adc4::Resolution::Bits12);
 
     // Enable internal channels
-    let vrefint = adc.enable_vrefint_adc4();
-    let temperature = adc.enable_temperature_adc4();
-    let vcore = adc.enable_vcore_adc4();
+    let mut vrefint = adc.enable_vrefint_adc4();
+    let mut temperature = adc.enable_temperature_adc4();
+    let mut vcore = adc.enable_vcore_adc4();
 
     // Degrade to AnyAdcChannel for use with DMA
     // IMPORTANT: Order matters for ADC4 - must be ascending channel numbers
     // VrefInt: Channel 0, VCORE: Channel 12, Temperature: Channel 13
+
     let vrefint_ch = vrefint.degrade_adc();
     let vcore_ch = vcore.degrade_adc();
     let temp_ch = temperature.degrade_adc();
@@ -99,17 +100,17 @@ async fn main(_spawner: embassy_executor::Spawner) {
     // Create the ring-buffered ADC with continuous mode
     // Channels must be in ascending order for ADC4
     // CYCLES79_5 (1.66 µs) - longest available sample time for internal channels
-    let mut ring_adc: RingBufferedAdc<ADC4> = adc.into_ring_buffered(
+    let mut ring_adc: RingBufferedAdc<_> = adc.into_ring_buffered(
         p.GPDMA1_CH1,
         unsafe { &mut *core::ptr::addr_of_mut!(DMA_BUF) },
         Irqs,
         [
-            (vrefint_ch, adc4::SampleTime::CYCLES79_5), // Channel 0 - VREFINT
-            (vcore_ch, adc4::SampleTime::CYCLES79_5),   // Channel 12 - VCORE
-            (temp_ch, adc4::SampleTime::CYCLES79_5),    // Channel 13 - Temperature
+            (vrefint_ch, adc4::SampleTime::Cycles795), // Channel 0 - VREFINT
+            (vcore_ch, adc4::SampleTime::Cycles795),   // Channel 12 - VCORE
+            (temp_ch, adc4::SampleTime::Cycles795),    // Channel 13 - Temperature
         ]
         .into_iter(),
-        CONTINUOUS,
+        None,
     );
 
     info!("Ring buffer configured, starting continuous sampling...");

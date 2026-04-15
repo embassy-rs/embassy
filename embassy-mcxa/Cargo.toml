@@ -28,6 +28,7 @@ flavors = [
 ]
 
 [dependencies]
+bbqueue = { version = "0.7.0", features = ["disable-cache-padding"] }
 cortex-m = { version = "0.7", features = ["critical-section-single-core", "inline-asm"] }
 # If you would like "device" to be an optional feature, please open an issue.
 cortex-m-rt = { version = "0.7", features = ["device"] }
@@ -43,11 +44,8 @@ embedded-hal-async = { version = "1.0" }
 embedded-hal-nb = { version = "1.0" }
 embedded-io = "0.7"
 embedded-io-async = { version = "0.7.0" }
-heapless = "0.9"
-maitake-sync = { version = "0.3.0", default-features = false, features = ["critical-section", "no-cache-pad"] }
-nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "c2f056f666c766563c7a22cb48d5f7a199714d7f", features = ["rt"] }
-nb = "1.1.0"
-paste = "1.0.15"
+embedded-mcu-hal = { version = "0.2.0", optional = true }
+embedded-storage = "0.3.1"
 
 # Custom executor support
 embassy-executor = { version = "0.10.0", path = "../embassy-executor" }
@@ -57,18 +55,26 @@ embassy-time = { version = "0.5.1", path = "../embassy-time" }
 embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", features = ["tick-hz-1_000_000"] }
 embassy-time-queue-utils = { version = "0.3.0", path = "../embassy-time-queue-utils" }
 
+grounded = { version = "0.2.1", features = ["cas", "critical-section"] }
+heapless = "0.9"
+maitake-sync = { version = "0.3.0", default-features = false, features = ["critical-section", "no-cache-pad"] }
+nb = "1.1.0"
+nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "b644ff07f59805b1fb362eee45a2de7becf29172", features = ["rt"] }
+paste = "1.0.15"
+
 rand-core-06 = { package = "rand_core", version = "0.6" }
 rand-core-09 = { package = "rand_core", version = "0.9" }
-embedded-storage = "0.3.1"
-bbqueue = { version = "0.7.0", features = ["disable-cache-padding"] }
-grounded = { version = "0.2.1", features = ["cas", "critical-section"] }
+rand-core-10 = { package = "rand_core", version = "0.10" }
 
 [features]
-default = ["rt", "swd-swo-as-gpio"]
+default = ["rt", "swd-swo-as-gpio", "dma-ipd-req"]
 
 # Base defmt feature enables core + panic handler
 # Use with one logger feature: defmt-rtt (preferred) or defmt-uart (fallback)
 defmt = ["dep:defmt", "nxp-pac/defmt"]
+
+# Enable optional embedded-mcu-hal traits
+embedded-mcu-hal = ["dep:embedded-mcu-hal"]
 
 unstable-pac = []
 
@@ -116,6 +122,13 @@ jtag-extras-as-gpio = []
 # possible to reset the device and reflash using probe-rs after enabling this
 # feature. Use at your own risk!
 dangerous-reset-as-gpio = []
+
+# Unmasks DMA IPD_REQ hardware lines in AHBSC during init. (only on MCXA5xx)
+#
+# If this feature is not set, something else is responsible for unmasking them
+# when driving DMA transfers from hardware peripheral requests.
+# This can either be another (trustzone secure) binary or from IFR0 CFPA Trustzone presets.
+dma-ipd-req = []
 
 # dummy feature to silence embassy-hal-internal lint
 #

@@ -1,8 +1,9 @@
+use core::marker::PhantomData;
+
 #[cfg(stm32u5)]
 use pac::adc::vals::{Adc4Dmacfg as Dmacfg, Adc4Exten as Exten, Adc4OversamplingRatio as OversamplingRatio};
-#[allow(unused)]
 #[cfg(stm32wba)]
-use pac::adc::vals::{Chselrmod, Cont, Dmacfg, Exten, OversamplingRatio, Ovss, Smpsel};
+use pac::adc::vals::{Dmacfg, Exten, OversamplingRatio, Ovss, Smpsel};
 
 use super::blocking_delay_us;
 use crate::adc::{AdcRegs, ConversionMode, Instance};
@@ -13,11 +14,60 @@ pub use crate::pac::adc::regs::Chselr;
 #[cfg(stm32u5)]
 pub use crate::pac::adc::vals::{Adc4Presc as Presc, Adc4Res as Resolution, Adc4SampleTime as SampleTime};
 #[cfg(stm32wba)]
-pub use crate::pac::adc::vals::{Presc, Res as Resolution, SampleTime};
+pub use crate::pac::adc::vals::{Extsel, Presc, Res as Resolution, SampleTime};
 use crate::time::Hertz;
-use crate::{Peri, pac, rcc};
+use crate::{Peri, interrupt, pac, rcc};
+
+mod watchdog_adc4;
+pub use watchdog_adc4::{AnalogWatchdog, WatchdogChannels, WatchdogIndex};
 
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(55);
+
+/// Interrupt handler.
+pub struct InterruptHandler<T: Instance<Regs = crate::pac::adc::Adc4>> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance<Regs = crate::pac::adc::Adc4>> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let isr = T::regs().isr().read();
+        let ier = T::regs().ier().read();
+
+        if ier.eocie() && isr.eoc() {
+            T::regs().ier().modify(|w| w.set_eocie(false));
+        } else if ier.eosie() && isr.eos() {
+            T::regs().ier().modify(|w| w.set_eosie(false));
+        } else if (0..3).any(|i| ier.awdie(i) && isr.awd(i)) {
+            // Disable AWDIE + clear ISR flag to deassert the interrupt line.
+            T::regs().ier().modify(|w| {
+                for i in 0..3 {
+                    if ier.awdie(i) && isr.awd(i) {
+                        w.set_awdie(i, false);
+                    }
+                }
+            });
+            T::regs().isr().write(|w| {
+                for i in 0..3 {
+                    if isr.awd(i) {
+                        w.set_awd(i, true);
+                    }
+                }
+            });
+            // Read-back flushes the write buffer (Cortex-M pattern).
+            let _ = T::regs().isr().read();
+            // Signal the driver via atomic flags (ISR flag is now cleared).
+            for i in 0..3 {
+                if ier.awdie(i) && isr.awd(i) {
+                    T::state().awd_triggered[i].store(true, core::sync::atomic::Ordering::Release);
+                }
+            }
+        } else {
+            return;
+        }
+
+        T::state().waker.wake();
+    }
+}
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
@@ -124,23 +174,23 @@ impl Calibration {
     }
 }
 
-impl super::SealedSpecialConverter<super::VrefInt> for crate::peripherals::ADC4 {
+impl super::ConverterFor<super::VrefInt> for crate::peripherals::ADC4 {
     const CHANNEL: u8 = 0;
 }
 
-impl super::SealedSpecialConverter<super::Temperature> for crate::peripherals::ADC4 {
+impl super::ConverterFor<super::Temperature> for crate::peripherals::ADC4 {
     const CHANNEL: u8 = 13;
 }
 
-impl super::SealedSpecialConverter<super::Vcore> for crate::peripherals::ADC4 {
+impl super::ConverterFor<super::Vcore> for crate::peripherals::ADC4 {
     const CHANNEL: u8 = 12;
 }
 
-impl super::SealedSpecialConverter<super::Vbat> for crate::peripherals::ADC4 {
+impl super::ConverterFor<super::Vbat> for crate::peripherals::ADC4 {
     const CHANNEL: u8 = 14;
 }
 
-impl super::SealedSpecialConverter<super::Dac> for crate::peripherals::ADC4 {
+impl super::ConverterFor<super::Dac> for crate::peripherals::ADC4 {
     const CHANNEL: u8 = 21;
 }
 
@@ -167,10 +217,10 @@ pub enum Averaging {
 
 pub const fn resolution_to_max_count(res: Resolution) -> u32 {
     match res {
-        Resolution::BITS12 => (1 << 12) - 1,
-        Resolution::BITS10 => (1 << 10) - 1,
-        Resolution::BITS8 => (1 << 8) - 1,
-        Resolution::BITS6 => (1 << 6) - 1,
+        Resolution::Bits12 => (1 << 12) - 1,
+        Resolution::Bits10 => (1 << 10) - 1,
+        Resolution::Bits8 => (1 << 8) - 1,
+        Resolution::Bits6 => (1 << 6) - 1,
         #[allow(unreachable_patterns)]
         _ => core::unreachable!(),
     }
@@ -179,13 +229,13 @@ pub const fn resolution_to_max_count(res: Resolution) -> u32 {
 fn from_ker_ck(frequency: Hertz) -> Presc {
     let raw_prescaler = rcc::raw_prescaler(frequency.0, MAX_ADC_CLK_FREQ.0);
     match raw_prescaler {
-        0 => Presc::DIV1,
-        1 => Presc::DIV2,
-        2..=3 => Presc::DIV4,
-        4..=5 => Presc::DIV6,
-        6..=7 => Presc::DIV8,
-        8..=9 => Presc::DIV10,
-        10..=11 => Presc::DIV12,
+        0 => Presc::Div1,
+        1 => Presc::Div2,
+        2..=3 => Presc::Div4,
+        4..=5 => Presc::Div6,
+        6..=7 => Presc::Div8,
+        8..=9 => Presc::Div10,
+        10..=11 => Presc::Div12,
         _ => unimplemented!(),
     }
 }
@@ -210,7 +260,7 @@ impl AdcRegs for crate::pac::adc::Adc4 {
         });
     }
 
-    fn stop(&self) {
+    fn stop(&self, _disable: bool) {
         let cr = self.cr().read();
         if cr.adstart() {
             self.cr().modify(|w| w.set_adstp(true));
@@ -229,53 +279,33 @@ impl AdcRegs for crate::pac::adc::Adc4 {
     }
 
     fn configure_dma(&self, conversion_mode: ConversionMode) {
-        // Clear overrun and conversion flags
-        self.isr().modify(|reg| {
+        // Clear overrun and conversion flags.
+        // ISR is W1C (write-1-to-clear): use write(), not modify(), to avoid
+        // accidentally clearing other set flags (e.g. ADRDY) via read-modify-write.
+        self.isr().write(|reg| {
             reg.set_ovr(true);
             reg.set_eos(true);
             reg.set_eoc(true);
         });
 
-        match conversion_mode {
-            ConversionMode::Singular => {
-                self.cfgr1().modify(|reg| {
-                    reg.set_dmaen(true);
-                    reg.set_dmacfg(Dmacfg::ONE_SHOT);
-                    reg.set_discen(false);
-                    #[cfg(stm32u5)]
-                    {
-                        reg.set_cont(false);
-                        reg.set_chselrmod(false);
-                    }
-                    #[cfg(stm32wba)]
-                    {
-                        reg.set_cont(Cont::SINGLE);
-                        reg.set_chselrmod(Chselrmod::ENABLE_INPUT);
-                    }
-                });
-            }
-            #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
-            ConversionMode::Repeated(_) => unreachable!(),
+        self.cfgr1().modify(|reg| {
+            reg.set_dmaen(!matches!(conversion_mode, ConversionMode::NoDma));
+            reg.set_dmacfg(Dmacfg::Circular);
+            reg.set_discen(false);
+            reg.set_cont(false);
+            reg.set_chselrmod(false);
+
             #[cfg(stm32wba)]
-            ConversionMode::Repeated(_mode) => {
-                // Configure for circular DMA with continuous conversion
-                self.cfgr1().modify(|reg| {
-                    reg.set_dmaen(true);
-                    reg.set_dmacfg(Dmacfg::CIRCULAR); // Enable circular DMA mode
-                    reg.set_cont(Cont::CONTINUOUS); // Enable continuous conversion
-                    reg.set_discen(false); // Disable discontinuous mode
-                    reg.set_chselrmod(Chselrmod::ENABLE_INPUT);
-                });
+            if let ConversionMode::Repeated(Some((trigger, _edge))) = conversion_mode {
+                reg.set_extsel(Extsel::from(trigger));
             }
-        }
+        });
     }
 
     fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
         let mut prev_channel: i16 = -1;
-        #[cfg(stm32wba)]
-        self.chselr().write_value(Chselr(0_u32));
-        #[cfg(stm32u5)]
-        self.chselrmod0().write_value(Chselr(0_u32));
+        let mut chselr = Chselr::default();
+        let mut smpr = self.smpr().read();
 
         #[cfg(stm32wba)]
         let mut first_sample_time: Option<SampleTime> = None;
@@ -285,57 +315,41 @@ impl AdcRegs for crate::pac::adc::Adc4 {
             // We use SMP1 for all channels with the first channel's sample time.
             // For STM32U5: Each channel can have its own sample time.
             #[cfg(stm32u5)]
-            self.smpr().modify(|w| {
-                w.set_smp(_i, sample_time);
-            });
+            smpr.set_smp(_i, sample_time);
 
             #[cfg(stm32wba)]
             {
                 // Set SMP1 (index 0) with the first channel's sample time, use it for all channels
                 if first_sample_time.is_none() {
                     first_sample_time = Some(sample_time);
-                    self.smpr().modify(|w| {
-                        w.set_smp(0, sample_time); // Index 0 = SMP1
-                    });
+                    smpr.set_smp(0, sample_time); // Index 0 = SMP1
                 }
                 // Set SMPSEL for this channel to use SMP1
-                self.smpr().modify(|w| {
-                    w.set_smpsel(channel as usize, Smpsel::SMP1);
-                });
+                smpr.set_smpsel(channel as usize, Smpsel::Smp1);
             }
 
             let channel_num = channel;
             if channel_num as i16 <= prev_channel {
-                return;
+                break;
             };
             prev_channel = channel_num as i16;
 
             #[cfg(stm32wba)]
-            self.chselr().modify(|w| {
-                w.set_chsel0(channel as usize, true);
-            });
+            chselr.set_chsel0(channel as usize, true);
+
             #[cfg(stm32u5)]
-            self.chselrmod0().modify(|w| {
-                w.set_chsel(channel as usize, true);
-            });
+            chselr.set_chsel(channel as usize, true);
         }
+
+        self.smpr().write_value(smpr);
+        #[cfg(stm32wba)]
+        self.chselr().write_value(chselr);
+        #[cfg(stm32u5)]
+        self.chselrmod0().write_value(chselr);
     }
 
-    fn convert(&self) {
-        // Reset interrupts
-        self.isr().modify(|reg| {
-            reg.set_eos(true);
-            reg.set_eoc(true);
-        });
-
-        // Start conversion
-        self.cr().modify(|reg| {
-            reg.set_adstart(true);
-        });
-
-        while !self.isr().read().eos() {
-            // spin
-        }
+    fn wait_done(&self) -> bool {
+        self.isr().read().eos()
     }
 }
 
@@ -379,16 +393,10 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
 
         // single conversion mode, software trigger
         T::regs().cfgr1().modify(|w| {
-            #[cfg(stm32u5)]
             w.set_cont(false);
-            #[cfg(stm32wba)]
-            w.set_cont(Cont::SINGLE);
             w.set_discen(false);
-            w.set_exten(Exten::DISABLED);
-            #[cfg(stm32u5)]
+            w.set_exten(Exten::Disabled);
             w.set_chselrmod(false);
-            #[cfg(stm32wba)]
-            w.set_chselrmod(Chselrmod::ENABLE_INPUT);
         });
 
         // only use one channel at the moment
@@ -399,7 +407,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
             }
             #[cfg(stm32wba)]
             for i in 0..14 {
-                w.set_smpsel(i, Smpsel::SMP1);
+                w.set_smpsel(i, Smpsel::Smp1);
             }
         });
 
@@ -407,7 +415,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
     }
 
     /// Enable reading the voltage reference internal channel.
-    pub fn enable_vrefint_adc4(&self) -> super::VrefInt {
+    pub fn enable_vrefint_adc4(&mut self) -> super::VrefInt {
         T::regs().ccr().modify(|w| {
             w.set_vrefen(true);
         });
@@ -416,7 +424,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
     }
 
     /// Enable reading the temperature internal channel.
-    pub fn enable_temperature_adc4(&self) -> super::Temperature {
+    pub fn enable_temperature_adc4(&mut self) -> super::Temperature {
         T::regs().ccr().modify(|w| {
             w.set_vsensesel(true);
         });
@@ -426,7 +434,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
 
     /// Enable reading the vbat internal channel.
     #[cfg(stm32u5)]
-    pub fn enable_vbat_adc4(&self) -> super::Vbat {
+    pub fn enable_vbat_adc4(&mut self) -> super::Vbat {
         T::regs().ccr().modify(|w| {
             w.set_vbaten(true);
         });
@@ -441,7 +449,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
 
     /// Enable reading the vbat internal channel.
     #[cfg(stm32u5)]
-    pub fn enable_dac_channel_adc4(&self, dac: DacChannel) -> super::Dac {
+    pub fn enable_dac_channel_adc4(&mut self, dac: DacChannel) -> super::Dac {
         let mux;
         match dac {
             DacChannel::OUT1 => mux = false,
@@ -460,15 +468,15 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
     #[cfg(stm32u5)]
     pub fn set_averaging_adc4(&mut self, averaging: Averaging) {
         let (enable, samples, right_shift) = match averaging {
-            Averaging::Disabled => (false, OversamplingRatio::OVERSAMPLE2X, 0),
-            Averaging::Samples2 => (true, OversamplingRatio::OVERSAMPLE2X, 1),
-            Averaging::Samples4 => (true, OversamplingRatio::OVERSAMPLE4X, 2),
-            Averaging::Samples8 => (true, OversamplingRatio::OVERSAMPLE8X, 3),
-            Averaging::Samples16 => (true, OversamplingRatio::OVERSAMPLE16X, 4),
-            Averaging::Samples32 => (true, OversamplingRatio::OVERSAMPLE32X, 5),
-            Averaging::Samples64 => (true, OversamplingRatio::OVERSAMPLE64X, 6),
-            Averaging::Samples128 => (true, OversamplingRatio::OVERSAMPLE128X, 7),
-            Averaging::Samples256 => (true, OversamplingRatio::OVERSAMPLE256X, 8),
+            Averaging::Disabled => (false, OversamplingRatio::Oversample2x, 0),
+            Averaging::Samples2 => (true, OversamplingRatio::Oversample2x, 1),
+            Averaging::Samples4 => (true, OversamplingRatio::Oversample4x, 2),
+            Averaging::Samples8 => (true, OversamplingRatio::Oversample8x, 3),
+            Averaging::Samples16 => (true, OversamplingRatio::Oversample16x, 4),
+            Averaging::Samples32 => (true, OversamplingRatio::Oversample32x, 5),
+            Averaging::Samples64 => (true, OversamplingRatio::Oversample64x, 6),
+            Averaging::Samples128 => (true, OversamplingRatio::Oversample128x, 7),
+            Averaging::Samples256 => (true, OversamplingRatio::Oversample256x, 8),
         };
 
         T::regs().cfgr2().modify(|w| {
@@ -480,15 +488,15 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
     #[cfg(stm32wba)]
     pub fn set_averaging_adc4(&mut self, averaging: Averaging) {
         let (enable, samples, right_shift) = match averaging {
-            Averaging::Disabled => (false, OversamplingRatio::OVERSAMPLE2X, Ovss::SHIFT0),
-            Averaging::Samples2 => (true, OversamplingRatio::OVERSAMPLE2X, Ovss::SHIFT1),
-            Averaging::Samples4 => (true, OversamplingRatio::OVERSAMPLE4X, Ovss::SHIFT2),
-            Averaging::Samples8 => (true, OversamplingRatio::OVERSAMPLE8X, Ovss::SHIFT3),
-            Averaging::Samples16 => (true, OversamplingRatio::OVERSAMPLE16X, Ovss::SHIFT4),
-            Averaging::Samples32 => (true, OversamplingRatio::OVERSAMPLE32X, Ovss::SHIFT5),
-            Averaging::Samples64 => (true, OversamplingRatio::OVERSAMPLE64X, Ovss::SHIFT6),
-            Averaging::Samples128 => (true, OversamplingRatio::OVERSAMPLE128X, Ovss::SHIFT7),
-            Averaging::Samples256 => (true, OversamplingRatio::OVERSAMPLE256X, Ovss::SHIFT8),
+            Averaging::Disabled => (false, OversamplingRatio::Oversample2x, Ovss::Shift0),
+            Averaging::Samples2 => (true, OversamplingRatio::Oversample2x, Ovss::Shift1),
+            Averaging::Samples4 => (true, OversamplingRatio::Oversample4x, Ovss::Shift2),
+            Averaging::Samples8 => (true, OversamplingRatio::Oversample8x, Ovss::Shift3),
+            Averaging::Samples16 => (true, OversamplingRatio::Oversample16x, Ovss::Shift4),
+            Averaging::Samples32 => (true, OversamplingRatio::Oversample32x, Ovss::Shift5),
+            Averaging::Samples64 => (true, OversamplingRatio::Oversample64x, Ovss::Shift6),
+            Averaging::Samples128 => (true, OversamplingRatio::Oversample128x, Ovss::Shift7),
+            Averaging::Samples256 => (true, OversamplingRatio::Oversample256x, Ovss::Shift8),
         };
 
         T::regs().cfgr2().modify(|w| {
@@ -496,5 +504,42 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
             w.set_ovss(right_shift);
             w.set_ovse(enable)
         })
+    }
+
+    /// Enable an analog watchdog and return a guard.
+    ///
+    /// `watchdog` selects which of the three hardware watchdogs to use. `channels` controls which
+    /// ADC channels are monitored; see [`WatchdogChannels`] for which variants are valid for each
+    /// watchdog. `low_threshold` and `high_threshold` are raw ADC counts in `[0, 2^N − 1]` for
+    /// the currently configured resolution. The watchdog fires when a sample falls **outside**
+    /// `[low_threshold, high_threshold]`.
+    ///
+    /// The returned [`AnalogWatchdog`] does **not** borrow the ADC, so you may use the ADC for
+    /// DMA or other operations while the watchdog is active.  Call [`AnalogWatchdog::wait`] to
+    /// detect threshold crossings concurrently, or [`AnalogWatchdog::monitor`] for self-contained
+    /// single-pin monitoring (which temporarily borrows the ADC).
+    ///
+    /// Dropping the guard disables the watchdog and its interrupt.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `low_threshold > high_threshold`, or if a channel selection variant is used that
+    /// is not supported by the chosen watchdog (e.g., [`WatchdogChannels::All`] with AWD2/AWD3,
+    /// or [`WatchdogChannels::Channels`] with AWD1).
+    #[must_use]
+    pub fn enable_watchdog(
+        &mut self,
+        watchdog: WatchdogIndex,
+        channels: WatchdogChannels,
+        low_threshold: u16,
+        high_threshold: u16,
+    ) -> AnalogWatchdog<T> {
+        assert!(
+            low_threshold <= high_threshold,
+            "low_threshold must be <= high_threshold"
+        );
+        let index = watchdog.index();
+        AnalogWatchdog::<T>::setup_awd(watchdog, channels, low_threshold, high_threshold);
+        AnalogWatchdog::new(index)
     }
 }

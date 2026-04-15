@@ -10,6 +10,10 @@ use crate::pac::{FLASH, PWR, RCC};
 #[cfg(all(peri_usb_otg_hs))]
 pub use crate::pac::{SYSCFG, syscfg::vals::Usbrefcksel};
 use crate::rcc::LSI_FREQ;
+#[cfg(dsihost)]
+use crate::rcc::dsi;
+#[cfg(dsihost)]
+pub use crate::rcc::dsi::{DsiHostPllConfig, DsiPllInput, DsiPllNdiv, DsiPllOutput};
 use crate::time::Hertz;
 
 /// HSI speed
@@ -125,6 +129,9 @@ pub struct Config {
     pub apb2_pre: APBPrescaler,
     pub apb3_pre: APBPrescaler,
 
+    #[cfg(dsihost)]
+    pub dsi: Option<DsiHostPllConfig>,
+
     /// The voltage range influences the maximum clock frequencies for different parts of the
     /// device. In particular, system clocks exceeding 110 MHz require `RANGE1`, and system clocks
     /// exceeding 55 MHz require at least `RANGE2`.
@@ -141,20 +148,22 @@ pub struct Config {
 impl Config {
     pub const fn new() -> Self {
         Self {
-            msis: Some(Msirange::RANGE_4MHZ),
-            msik: Some(Msirange::RANGE_4MHZ),
+            msis: Some(Msirange::Range4mhz),
+            msik: Some(Msirange::Range4mhz),
             hse: None,
             hsi: false,
             hsi48: Some(crate::rcc::Hsi48Config::new()),
             pll1: None,
             pll2: None,
             pll3: None,
-            sys: Sysclk::MSIS,
-            ahb_pre: AHBPrescaler::DIV1,
-            apb1_pre: APBPrescaler::DIV1,
-            apb2_pre: APBPrescaler::DIV1,
-            apb3_pre: APBPrescaler::DIV1,
-            voltage_range: VoltageScale::RANGE1,
+            sys: Sysclk::Msis,
+            ahb_pre: AHBPrescaler::Div1,
+            apb1_pre: APBPrescaler::Div1,
+            apb2_pre: APBPrescaler::Div1,
+            apb3_pre: APBPrescaler::Div1,
+            #[cfg(dsihost)]
+            dsi: None,
+            voltage_range: VoltageScale::Range1,
             ls: crate::rcc::LsConfig::new(),
             mux: super::mux::ClockMux::default(),
             auto_calibration: MsiAutoCalibration::default(),
@@ -211,7 +220,7 @@ pub(crate) unsafe fn init(config: Config) {
     let mut msis = config.msis.map(|range| {
         // Check MSI output per RM0456 § 11.4.10
         match config.voltage_range {
-            VoltageScale::RANGE4 => {
+            VoltageScale::Range4 => {
                 assert!(msirange_to_hertz(range).0 <= 24_000_000);
             }
             _ => {}
@@ -227,7 +236,7 @@ pub(crate) unsafe fn init(config: Config) {
 
         RCC.icscr1().modify(|w| {
             w.set_msisrange(range);
-            w.set_msirgsel(Msirgsel::ICSCR1);
+            w.set_msirgsel(Msirgsel::Icscr1);
         });
         RCC.cr().write(|w| {
             w.set_msipllen(false);
@@ -237,7 +246,7 @@ pub(crate) unsafe fn init(config: Config) {
             (lse_calibration_freq, config.auto_calibration.base_mode())
         {
             // Enable the MSIS auto-calibration feature
-            RCC.cr().modify(|w| w.set_msipllsel(Msipllsel::MSIS));
+            RCC.cr().modify(|w| w.set_msipllsel(Msipllsel::Msis));
             RCC.cr().modify(|w| w.set_msipllen(true));
             calculate_calibrated_msi_frequency(range, freq)
         } else {
@@ -250,7 +259,7 @@ pub(crate) unsafe fn init(config: Config) {
     let mut msik = config.msik.map(|range| {
         // Check MSI output per RM0456 § 11.4.10
         match config.voltage_range {
-            VoltageScale::RANGE4 => {
+            VoltageScale::Range4 => {
                 assert!(msirange_to_hertz(range).0 <= 24_000_000);
             }
             _ => {}
@@ -266,7 +275,7 @@ pub(crate) unsafe fn init(config: Config) {
 
         RCC.icscr1().modify(|w| {
             w.set_msikrange(range);
-            w.set_msirgsel(Msirgsel::ICSCR1);
+            w.set_msirgsel(Msirgsel::Icscr1);
         });
         RCC.cr().modify(|w| {
             w.set_msikon(true);
@@ -275,7 +284,7 @@ pub(crate) unsafe fn init(config: Config) {
             (lse_calibration_freq, config.auto_calibration.base_mode())
         {
             // Enable the MSIK auto-calibration feature
-            RCC.cr().modify(|w| w.set_msipllsel(Msipllsel::MSIK));
+            RCC.cr().modify(|w| w.set_msipllsel(Msipllsel::Msik));
             RCC.cr().modify(|w| w.set_msipllen(true));
             calculate_calibrated_msi_frequency(range, freq)
         } else {
@@ -304,7 +313,7 @@ pub(crate) unsafe fn init(config: Config) {
         // Check if Fast mode should be used
         if config.auto_calibration.is_fast() {
             RCC.cr().modify(|w| {
-                w.set_msipllfast(Msipllfast::FAST);
+                w.set_msipllfast(Msipllfast::Fast);
             });
         }
     }
@@ -319,10 +328,10 @@ pub(crate) unsafe fn init(config: Config) {
     let hse = config.hse.map(|hse| {
         // Check frequency limits per RM456 § 11.4.10
         match config.voltage_range {
-            VoltageScale::RANGE1 | VoltageScale::RANGE2 | VoltageScale::RANGE3 => {
+            VoltageScale::Range1 | VoltageScale::Range2 | VoltageScale::Range3 => {
                 assert!(hse.freq.0 <= 50_000_000);
             }
-            VoltageScale::RANGE4 => {
+            VoltageScale::Range4 => {
                 assert!(hse.freq.0 <= 25_000_000);
             }
         }
@@ -332,8 +341,8 @@ pub(crate) unsafe fn init(config: Config) {
             w.set_hseon(true);
             w.set_hsebyp(hse.mode != HseMode::Oscillator);
             w.set_hseext(match hse.mode {
-                HseMode::Oscillator | HseMode::Bypass => Hseext::ANALOG,
-                HseMode::BypassDigital => Hseext::DIGITAL,
+                HseMode::Oscillator | HseMode::Bypass => Hseext::Analog,
+                HseMode::BypassDigital => Hseext::Digital,
             });
         });
         while !RCC.cr().read().hserdy() {}
@@ -377,10 +386,10 @@ pub(crate) unsafe fn init(config: Config) {
     );
 
     let sys_clk = match config.sys {
-        Sysclk::HSE => hse.unwrap(),
-        Sysclk::HSI => hsi.unwrap(),
-        Sysclk::MSIS => msis.unwrap(),
-        Sysclk::PLL1_R => pll1.r.unwrap(),
+        Sysclk::Hse => hse.unwrap(),
+        Sysclk::Hsi => hsi.unwrap(),
+        Sysclk::Msis => msis.unwrap(),
+        Sysclk::Pll1R => pll1.r.unwrap(),
     };
 
     // Do we need the EPOD booster to reach the target clock speed per § 10.5.4?
@@ -394,7 +403,7 @@ pub(crate) unsafe fn init(config: Config) {
     // Calculate and set the flash wait states
     let wait_states = match config.voltage_range {
         // VOS 1 range VCORE 1.26V - 1.40V
-        VoltageScale::RANGE1 => match sys_clk.0 {
+        VoltageScale::Range1 => match sys_clk.0 {
             ..=32_000_000 => 0,
             ..=64_000_000 => 1,
             ..=96_000_000 => 2,
@@ -402,20 +411,20 @@ pub(crate) unsafe fn init(config: Config) {
             _ => 4,
         },
         // VOS 2 range VCORE 1.15V - 1.26V
-        VoltageScale::RANGE2 => match sys_clk.0 {
+        VoltageScale::Range2 => match sys_clk.0 {
             ..=30_000_000 => 0,
             ..=60_000_000 => 1,
             ..=90_000_000 => 2,
             _ => 3,
         },
         // VOS 3 range VCORE 1.05V - 1.15V
-        VoltageScale::RANGE3 => match sys_clk.0 {
+        VoltageScale::Range3 => match sys_clk.0 {
             ..=24_000_000 => 0,
             ..=48_000_000 => 1,
             _ => 2,
         },
         // VOS 4 range VCORE 0.95V - 1.05V
-        VoltageScale::RANGE4 => match sys_clk.0 {
+        VoltageScale::Range4 => match sys_clk.0 {
             ..=12_000_000 => 0,
             _ => 1,
         },
@@ -441,10 +450,10 @@ pub(crate) unsafe fn init(config: Config) {
     let hclk = sys_clk / config.ahb_pre;
 
     let hclk_max = match config.voltage_range {
-        VoltageScale::RANGE1 => Hertz::mhz(160),
-        VoltageScale::RANGE2 => Hertz::mhz(110),
-        VoltageScale::RANGE3 => Hertz::mhz(55),
-        VoltageScale::RANGE4 => Hertz::mhz(25),
+        VoltageScale::Range1 => Hertz::mhz(160),
+        VoltageScale::Range2 => Hertz::mhz(110),
+        VoltageScale::Range3 => Hertz::mhz(55),
+        VoltageScale::Range4 => Hertz::mhz(25),
     };
     assert!(hclk <= hclk_max);
 
@@ -456,26 +465,26 @@ pub(crate) unsafe fn init(config: Config) {
 
     #[cfg(all(stm32u5, peri_usb_otg_hs))]
     let usb_refck = match config.mux.otghssel {
-        Otghssel::HSE => hse,
-        Otghssel::HSE_DIV_2 => hse.map(|hse_val| hse_val / 2u8),
-        Otghssel::PLL1_P => pll1.p,
-        Otghssel::PLL1_P_DIV_2 => pll1.p.map(|pll1p_val| pll1p_val / 2u8),
+        Otghssel::Hse => hse,
+        Otghssel::HseDiv2 => hse.map(|hse_val| hse_val / 2u8),
+        Otghssel::Pll1P => pll1.p,
+        Otghssel::Pll1PDiv2 => pll1.p.map(|pll1p_val| pll1p_val / 2u8),
     };
     #[cfg(all(stm32u5, peri_usb_otg_hs))]
     let usb_refck_sel = match usb_refck {
         Some(clk_val) => match clk_val {
-            Hertz(16_000_000) => Usbrefcksel::MHZ16,
-            Hertz(19_200_000) => Usbrefcksel::MHZ19_2,
-            Hertz(20_000_000) => Usbrefcksel::MHZ20,
-            Hertz(24_000_000) => Usbrefcksel::MHZ24,
-            Hertz(26_000_000) => Usbrefcksel::MHZ26,
-            Hertz(32_000_000) => Usbrefcksel::MHZ32,
+            Hertz(16_000_000) => Usbrefcksel::Mhz16,
+            Hertz(19_200_000) => Usbrefcksel::Mhz192,
+            Hertz(20_000_000) => Usbrefcksel::Mhz20,
+            Hertz(24_000_000) => Usbrefcksel::Mhz24,
+            Hertz(26_000_000) => Usbrefcksel::Mhz26,
+            Hertz(32_000_000) => Usbrefcksel::Mhz32,
             _ => panic!(
                 "cannot select OTG_HS reference clock with source frequency of {}, must be one of 16, 19.2, 20, 24, 26, 32 MHz",
                 clk_val
             ),
         },
-        None => Usbrefcksel::MHZ24,
+        None => Usbrefcksel::Mhz24,
     };
     #[cfg(all(stm32u5, peri_usb_otg_hs))]
     SYSCFG.otghsphycr().modify(|w| {
@@ -526,7 +535,7 @@ pub(crate) unsafe fn init(config: Config) {
         pll3_r: pll3.r,
 
         #[cfg(dsihost)]
-        dsi_phy: None, // DSI PLL clock not supported, don't call `RccPeripheral::frequency()` in the drivers
+        dsi_phy: config.dsi.map(|config| dsi::configure_pll(hse, config)),
 
         // TODO
         audioclk: None,
@@ -536,22 +545,22 @@ pub(crate) unsafe fn init(config: Config) {
 
 fn msirange_to_hertz(range: Msirange) -> Hertz {
     match range {
-        Msirange::RANGE_48MHZ => Hertz(48_000_000),
-        Msirange::RANGE_24MHZ => Hertz(24_000_000),
-        Msirange::RANGE_16MHZ => Hertz(16_000_000),
-        Msirange::RANGE_12MHZ => Hertz(12_000_000),
-        Msirange::RANGE_4MHZ => Hertz(4_000_000),
-        Msirange::RANGE_2MHZ => Hertz(2_000_000),
-        Msirange::RANGE_1_33MHZ => Hertz(1_330_000),
-        Msirange::RANGE_1MHZ => Hertz(1_000_000),
-        Msirange::RANGE_3_072MHZ => Hertz(3_072_000),
-        Msirange::RANGE_1_536MHZ => Hertz(1_536_000),
-        Msirange::RANGE_1_024MHZ => Hertz(1_024_000),
-        Msirange::RANGE_768KHZ => Hertz(768_000),
-        Msirange::RANGE_400KHZ => Hertz(400_000),
-        Msirange::RANGE_200KHZ => Hertz(200_000),
-        Msirange::RANGE_133KHZ => Hertz(133_000),
-        Msirange::RANGE_100KHZ => Hertz(100_000),
+        Msirange::Range48mhz => Hertz(48_000_000),
+        Msirange::Range24mhz => Hertz(24_000_000),
+        Msirange::Range16mhz => Hertz(16_000_000),
+        Msirange::Range12mhz => Hertz(12_000_000),
+        Msirange::Range4mhz => Hertz(4_000_000),
+        Msirange::Range2mhz => Hertz(2_000_000),
+        Msirange::Range133mhz => Hertz(1_330_000),
+        Msirange::Range1mhz => Hertz(1_000_000),
+        Msirange::Range3072mhz => Hertz(3_072_000),
+        Msirange::Range1536mhz => Hertz(1_536_000),
+        Msirange::Range1024mhz => Hertz(1_024_000),
+        Msirange::Range768khz => Hertz(768_000),
+        Msirange::Range400khz => Hertz(400_000),
+        Msirange::Range200khz => Hertz(200_000),
+        Msirange::Range133khz => Hertz(133_000),
+        Msirange::Range100khz => Hertz(100_000),
     }
 }
 
@@ -588,10 +597,10 @@ fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput, voltag
     let Some(pll) = config else { return PllOutput::default() };
 
     let src_freq = match pll.source {
-        PllSource::DISABLE => panic!("must not select PLL source as DISABLE"),
-        PllSource::HSE => unwrap!(input.hse),
-        PllSource::HSI => unwrap!(input.hsi),
-        PllSource::MSIS => unwrap!(input.msi),
+        PllSource::Disable => panic!("must not select PLL source as DISABLE"),
+        PllSource::Hse => unwrap!(input.hse),
+        PllSource::Hsi => unwrap!(input.hsi),
+        PllSource::Msis => unwrap!(input.msi),
     };
 
     // Calculate the reference clock, which is the source divided by m
@@ -601,10 +610,10 @@ fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput, voltag
 
     // Check PLL clocks per RM0456 § 11.4.10
     let (vco_min, vco_max, out_max) = match voltage_range {
-        VoltageScale::RANGE1 => (Hertz::mhz(128), Hertz::mhz(544), Hertz::mhz(208)),
-        VoltageScale::RANGE2 => (Hertz::mhz(128), Hertz::mhz(544), Hertz::mhz(110)),
-        VoltageScale::RANGE3 => (Hertz::mhz(128), Hertz::mhz(330), Hertz::mhz(55)),
-        VoltageScale::RANGE4 => panic!("PLL is unavailable in voltage range 4"),
+        VoltageScale::Range1 => (Hertz::mhz(128), Hertz::mhz(544), Hertz::mhz(208)),
+        VoltageScale::Range2 => (Hertz::mhz(128), Hertz::mhz(544), Hertz::mhz(110)),
+        VoltageScale::Range3 => (Hertz::mhz(128), Hertz::mhz(330), Hertz::mhz(55)),
+        VoltageScale::Range4 => panic!("PLL is unavailable in voltage range 4"),
     };
 
     // Calculate the PLL VCO clock
@@ -628,14 +637,14 @@ fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput, voltag
     };
     divr.write(|w| {
         w.set_plln(pll.mul);
-        w.set_pllp(pll.divp.unwrap_or(PllDiv::DIV1));
-        w.set_pllq(pll.divq.unwrap_or(PllDiv::DIV1));
-        w.set_pllr(pll.divr.unwrap_or(PllDiv::DIV1));
+        w.set_pllp(pll.divp.unwrap_or(PllDiv::Div1));
+        w.set_pllq(pll.divq.unwrap_or(PllDiv::Div1));
+        w.set_pllr(pll.divr.unwrap_or(PllDiv::Div1));
     });
 
     let input_range = match ref_freq.0 {
-        ..=8_000_000 => Pllrge::FREQ_4TO8MHZ,
-        _ => Pllrge::FREQ_8TO16MHZ,
+        ..=8_000_000 => Pllrge::Freq4to8mhz,
+        _ => Pllrge::Freq8to16mhz,
     };
 
     macro_rules! write_fields {
@@ -656,9 +665,9 @@ fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput, voltag
             if r.unwrap() >= Hertz::mhz(55) {
                 // source_clk can be up to 50 MHz, so there's just a few cases:
                 let mboost = match src_freq.0 {
-                    ..=16_000_000 => Pllmboost::DIV1, // Bypass, giving EPOD 4-16 MHz
-                    ..=32_000_000 => Pllmboost::DIV2, // Divide by 2, giving EPOD 8-16 MHz
-                    _ => Pllmboost::DIV4,             // Divide by 4, giving EPOD 8-12.5 MHz
+                    ..=16_000_000 => Pllmboost::Div1, // Bypass, giving EPOD 4-16 MHz
+                    ..=32_000_000 => Pllmboost::Div2, // Divide by 2, giving EPOD 8-16 MHz
+                    _ => Pllmboost::Div4,             // Divide by 4, giving EPOD 8-12.5 MHz
                 };
                 w.set_pllmboost(mboost);
             }

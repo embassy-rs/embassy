@@ -68,8 +68,8 @@ impl Default for Config {
     /// Default configuration for single channel sampling.
     fn default() -> Self {
         Self {
-            resolution: Resolution::_12BIT,
-            oversample: Oversample::BYPASS,
+            resolution: Resolution::_12bit,
+            oversample: Oversample::Bypass,
         }
     }
 }
@@ -99,13 +99,13 @@ impl<'d> ChannelConfig<'d> {
     /// Default configuration for single ended channel sampling.
     pub fn single_ended(input: impl Input + 'd) -> Self {
         Self {
-            reference: Reference::INTERNAL,
+            reference: Reference::Internal,
             #[cfg(not(feature = "_nrf54l"))]
-            gain: Gain::GAIN1_6,
+            gain: Gain::Gain1_6,
             #[cfg(feature = "_nrf54l")]
-            gain: Gain::GAIN2_8,
+            gain: Gain::Gain2_8,
             #[cfg(not(feature = "_nrf54l"))]
-            resistor: Resistor::BYPASS,
+            resistor: Resistor::Bypass,
             time: Time::_10US,
             p_channel: input.degrade_saadc(),
             n_channel: None,
@@ -114,13 +114,13 @@ impl<'d> ChannelConfig<'d> {
     /// Default configuration for differential channel sampling.
     pub fn differential(p_input: impl Input + 'd, n_input: impl Input + 'd) -> Self {
         Self {
-            reference: Reference::INTERNAL,
+            reference: Reference::Internal,
             #[cfg(not(feature = "_nrf54l"))]
-            gain: Gain::GAIN1_6,
+            gain: Gain::Gain1_6,
             #[cfg(feature = "_nrf54l")]
-            gain: Gain::GAIN2_8,
+            gain: Gain::Gain2_8,
             #[cfg(not(feature = "_nrf54l"))]
-            resistor: Resistor::BYPASS,
+            resistor: Resistor::Bypass,
             time: Time::_10US,
             p_channel: p_input.degrade_saadc(),
             n_channel: Some(n_input.degrade_saadc()),
@@ -188,19 +188,19 @@ impl<'d, const N: usize> Saadc<'d, N> {
                 #[cfg(feature = "_nrf54l")]
                 w.set_tconv(7); // 7 is the default from the Nordic C driver
                 w.set_mode(match cc.n_channel {
-                    None => vals::ConfigMode::SE,
-                    Some(_) => vals::ConfigMode::DIFF,
+                    None => vals::ConfigMode::Se,
+                    Some(_) => vals::ConfigMode::Diff,
                 });
                 #[cfg(not(feature = "_nrf54l"))]
                 w.set_resp(cc.resistor.into());
                 #[cfg(not(feature = "_nrf54l"))]
-                w.set_resn(vals::Resn::BYPASS);
+                w.set_resn(vals::Resn::Bypass);
                 #[cfg(not(feature = "_nrf54lm20"))]
-                w.set_burst(!matches!(oversample, Oversample::BYPASS));
+                w.set_burst(!matches!(oversample, Oversample::Bypass));
             });
             #[cfg(feature = "_nrf54lm20")]
             r.burst()
-                .write(|w| w.set_burst(!matches!(oversample, Oversample::BYPASS)));
+                .write(|w| w.set_burst(!matches!(oversample, Oversample::Bypass)));
         }
 
         // Disable all events interrupts
@@ -377,13 +377,13 @@ impl<'d, const N: usize> Saadc<'d, N> {
             Some(sr) => {
                 r.samplerate().write(|w| {
                     w.set_cc(sr);
-                    w.set_mode(vals::SamplerateMode::TIMERS);
+                    w.set_mode(vals::SamplerateMode::Timers);
                 });
                 r.tasks_sample().write_value(1); // Need to kick-start the internal timer
             }
             None => r.samplerate().write(|w| {
                 w.set_cc(0);
-                w.set_mode(vals::SamplerateMode::TASK);
+                w.set_mode(vals::SamplerateMode::Task);
             }),
         }
 
@@ -510,13 +510,13 @@ impl<'d, const N: usize> Drop for Saadc<'d, N> {
         for i in 0..N {
             #[cfg(not(feature = "_nrf54l"))]
             {
-                r.ch(i).pselp().write(|w| w.set_pselp(InputChannel::NC));
-                r.ch(i).pseln().write(|w| w.set_pseln(InputChannel::NC));
+                r.ch(i).pselp().write(|w| w.set_pselp(InputChannel::Nc));
+                r.ch(i).pseln().write(|w| w.set_pseln(InputChannel::Nc));
             }
             #[cfg(feature = "_nrf54l")]
             {
-                r.ch(i).pselp().write(|w| w.set_connect(vals::PselpConnect::NC));
-                r.ch(i).pseln().write(|w| w.set_connect(vals::PselnConnect::NC));
+                r.ch(i).pselp().write(|w| w.set_connect(vals::PselpConnect::Nc));
+                r.ch(i).pseln().write(|w| w.set_connect(vals::PselnConnect::Nc));
             }
         }
     }
@@ -526,14 +526,14 @@ impl<'d, const N: usize> Drop for Saadc<'d, N> {
 impl From<Gain> for vals::Gain {
     fn from(gain: Gain) -> Self {
         match gain {
-            Gain::GAIN1_6 => vals::Gain::GAIN1_6,
-            Gain::GAIN1_5 => vals::Gain::GAIN1_5,
-            Gain::GAIN1_4 => vals::Gain::GAIN1_4,
-            Gain::GAIN1_3 => vals::Gain::GAIN1_3,
-            Gain::GAIN1_2 => vals::Gain::GAIN1_2,
-            Gain::GAIN1 => vals::Gain::GAIN1,
-            Gain::GAIN2 => vals::Gain::GAIN2,
-            Gain::GAIN4 => vals::Gain::GAIN4,
+            Gain::Gain1_6 => vals::Gain::Gain16,
+            Gain::Gain1_5 => vals::Gain::Gain15,
+            Gain::Gain1_4 => vals::Gain::Gain14,
+            Gain::Gain1_3 => vals::Gain::Gain13,
+            Gain::Gain1_2 => vals::Gain::Gain12,
+            Gain::Gain1 => vals::Gain::Gain1,
+            Gain::Gain2 => vals::Gain::Gain2,
+            Gain::Gain4 => vals::Gain::Gain4,
         }
     }
 }
@@ -542,14 +542,14 @@ impl From<Gain> for vals::Gain {
 impl From<Gain> for vals::Gain {
     fn from(gain: Gain) -> Self {
         match gain {
-            Gain::GAIN2_8 => vals::Gain::GAIN2_8,
-            Gain::GAIN2_7 => vals::Gain::GAIN2_7,
-            Gain::GAIN2_6 => vals::Gain::GAIN2_6,
-            Gain::GAIN2_5 => vals::Gain::GAIN2_5,
-            Gain::GAIN2_4 => vals::Gain::GAIN2_4,
-            Gain::GAIN2_3 => vals::Gain::GAIN2_3,
-            Gain::GAIN1 => vals::Gain::GAIN1,
-            Gain::GAIN2 => vals::Gain::GAIN2,
+            Gain::Gain2_8 => vals::Gain::Gain28,
+            Gain::Gain2_7 => vals::Gain::Gain27,
+            Gain::Gain2_6 => vals::Gain::Gain26,
+            Gain::Gain2_5 => vals::Gain::Gain25,
+            Gain::Gain2_4 => vals::Gain::Gain24,
+            Gain::Gain2_3 => vals::Gain::Gain23,
+            Gain::Gain1 => vals::Gain::Gain1,
+            Gain::Gain2 => vals::Gain::Gain2,
         }
     }
 }
@@ -560,21 +560,21 @@ impl From<Gain> for vals::Gain {
 #[derive(Clone, Copy)]
 pub enum Gain {
     /// 1/6
-    GAIN1_6 = 0,
+    Gain1_6 = 0,
     /// 1/5
-    GAIN1_5 = 1,
+    Gain1_5 = 1,
     /// 1/4
-    GAIN1_4 = 2,
+    Gain1_4 = 2,
     /// 1/3
-    GAIN1_3 = 3,
+    Gain1_3 = 3,
     /// 1/2
-    GAIN1_2 = 4,
+    Gain1_2 = 4,
     /// 1
-    GAIN1 = 5,
+    Gain1 = 5,
     /// 2
-    GAIN2 = 6,
+    Gain2 = 6,
     /// 4
-    GAIN4 = 7,
+    Gain4 = 7,
 }
 
 /// Gain control
@@ -583,31 +583,31 @@ pub enum Gain {
 #[derive(Clone, Copy)]
 pub enum Gain {
     /// 2/8
-    GAIN2_8 = 0,
+    Gain2_8 = 0,
     /// 2/7
-    GAIN2_7 = 1,
+    Gain2_7 = 1,
     /// 2/6
-    GAIN2_6 = 2,
+    Gain2_6 = 2,
     /// 2/5
-    GAIN2_5 = 3,
+    Gain2_5 = 3,
     /// 2/4
-    GAIN2_4 = 4,
+    Gain2_4 = 4,
     /// 2/3
-    GAIN2_3 = 5,
+    Gain2_3 = 5,
     /// 1
-    GAIN1 = 6,
+    Gain1 = 6,
     /// 2
-    GAIN2 = 7,
+    Gain2 = 7,
 }
 
 impl From<Reference> for vals::Refsel {
     fn from(reference: Reference) -> Self {
         match reference {
-            Reference::INTERNAL => vals::Refsel::INTERNAL,
+            Reference::Internal => vals::Refsel::Internal,
             #[cfg(not(feature = "_nrf54l"))]
-            Reference::VDD1_4 => vals::Refsel::VDD1_4,
+            Reference::VDD1_4 => vals::Refsel::Vdd14,
             #[cfg(feature = "_nrf54l")]
-            Reference::EXTERNAL => vals::Refsel::EXTERNAL,
+            Reference::External => vals::Refsel::External,
         }
     }
 }
@@ -617,23 +617,23 @@ impl From<Reference> for vals::Refsel {
 #[derive(Clone, Copy)]
 pub enum Reference {
     /// Internal reference (0.6 V)
-    INTERNAL = 0,
+    Internal = 0,
     #[cfg(not(feature = "_nrf54l"))]
     /// VDD/4 as reference
     VDD1_4 = 1,
     /// PADC_EXT_REF_1V2 as reference
     #[cfg(feature = "_nrf54l")]
-    EXTERNAL = 1,
+    External = 1,
 }
 
 #[cfg(not(feature = "_nrf54l"))]
 impl From<Resistor> for vals::Resp {
     fn from(resistor: Resistor) -> Self {
         match resistor {
-            Resistor::BYPASS => vals::Resp::BYPASS,
-            Resistor::PULLDOWN => vals::Resp::PULLDOWN,
-            Resistor::PULLUP => vals::Resp::PULLUP,
-            Resistor::VDD1_2 => vals::Resp::VDD1_2,
+            Resistor::Bypass => vals::Resp::Bypass,
+            Resistor::Pulldown => vals::Resp::Pulldown,
+            Resistor::Pullup => vals::Resp::Pullup,
+            Resistor::Vdd1_2 => vals::Resp::Vdd12,
         }
     }
 }
@@ -644,25 +644,25 @@ impl From<Resistor> for vals::Resp {
 #[cfg(not(feature = "_nrf54l"))]
 pub enum Resistor {
     /// Bypass resistor ladder
-    BYPASS = 0,
+    Bypass = 0,
     /// Pull-down to GND
-    PULLDOWN = 1,
+    Pulldown = 1,
     /// Pull-up to VDD
-    PULLUP = 2,
+    Pullup = 2,
     /// Set input at VDD/2
-    VDD1_2 = 3,
+    Vdd1_2 = 3,
 }
 
 #[cfg(not(feature = "_nrf54l"))]
 impl From<Time> for vals::Tacq {
     fn from(time: Time) -> Self {
         match time {
-            Time::_3US => vals::Tacq::_3US,
-            Time::_5US => vals::Tacq::_5US,
-            Time::_10US => vals::Tacq::_10US,
-            Time::_15US => vals::Tacq::_15US,
-            Time::_20US => vals::Tacq::_20US,
-            Time::_40US => vals::Tacq::_40US,
+            Time::_3US => vals::Tacq::_3us,
+            Time::_5US => vals::Tacq::_5us,
+            Time::_10US => vals::Tacq::_10us,
+            Time::_15US => vals::Tacq::_15us,
+            Time::_20US => vals::Tacq::_20us,
+            Time::_40US => vals::Tacq::_40us,
         }
     }
 }
@@ -702,15 +702,15 @@ pub enum Time {
 impl From<Oversample> for vals::Oversample {
     fn from(oversample: Oversample) -> Self {
         match oversample {
-            Oversample::BYPASS => vals::Oversample::BYPASS,
-            Oversample::OVER2X => vals::Oversample::OVER2X,
-            Oversample::OVER4X => vals::Oversample::OVER4X,
-            Oversample::OVER8X => vals::Oversample::OVER8X,
-            Oversample::OVER16X => vals::Oversample::OVER16X,
-            Oversample::OVER32X => vals::Oversample::OVER32X,
-            Oversample::OVER64X => vals::Oversample::OVER64X,
-            Oversample::OVER128X => vals::Oversample::OVER128X,
-            Oversample::OVER256X => vals::Oversample::OVER256X,
+            Oversample::Bypass => vals::Oversample::Bypass,
+            Oversample::Over2x => vals::Oversample::Over2x,
+            Oversample::Over4x => vals::Oversample::Over4x,
+            Oversample::Over8x => vals::Oversample::Over8x,
+            Oversample::Over16x => vals::Oversample::Over16x,
+            Oversample::Over32x => vals::Oversample::Over32x,
+            Oversample::Over64x => vals::Oversample::Over64x,
+            Oversample::Over128x => vals::Oversample::Over128x,
+            Oversample::Over256x => vals::Oversample::Over256x,
         }
     }
 }
@@ -720,32 +720,32 @@ impl From<Oversample> for vals::Oversample {
 #[derive(Clone, Copy)]
 pub enum Oversample {
     /// Bypass oversampling
-    BYPASS = 0,
+    Bypass = 0,
     /// Oversample 2x
-    OVER2X = 1,
+    Over2x = 1,
     /// Oversample 4x
-    OVER4X = 2,
+    Over4x = 2,
     /// Oversample 8x
-    OVER8X = 3,
+    Over8x = 3,
     /// Oversample 16x
-    OVER16X = 4,
+    Over16x = 4,
     /// Oversample 32x
-    OVER32X = 5,
+    Over32x = 5,
     /// Oversample 64x
-    OVER64X = 6,
+    Over64x = 6,
     /// Oversample 128x
-    OVER128X = 7,
+    Over128x = 7,
     /// Oversample 256x
-    OVER256X = 8,
+    Over256x = 8,
 }
 
 impl From<Resolution> for vals::Val {
     fn from(resolution: Resolution) -> Self {
         match resolution {
-            Resolution::_8BIT => vals::Val::_8BIT,
-            Resolution::_10BIT => vals::Val::_10BIT,
-            Resolution::_12BIT => vals::Val::_12BIT,
-            Resolution::_14BIT => vals::Val::_14BIT,
+            Resolution::_8bit => vals::Val::_8bit,
+            Resolution::_10bit => vals::Val::_10bit,
+            Resolution::_12bit => vals::Val::_12bit,
+            Resolution::_14bit => vals::Val::_14bit,
         }
     }
 }
@@ -755,13 +755,13 @@ impl From<Resolution> for vals::Val {
 #[derive(Clone, Copy)]
 pub enum Resolution {
     /// 8 bits
-    _8BIT = 0,
+    _8bit = 0,
     /// 10 bits
-    _10BIT = 1,
+    _10bit = 1,
     /// 12 bits
-    _12BIT = 2,
+    _12bit = 2,
     /// 14 bits
-    _14BIT = 3,
+    _14bit = 3,
 }
 
 pub(crate) trait SealedInput {
@@ -915,7 +915,7 @@ macro_rules! impl_saadc_input {
 #[cfg(feature = "_nrf54l")]
 macro_rules! impl_saadc_input {
     ($pin:ident, $port:expr, $ain:expr) => {
-        impl_saadc_input!(@local, crate::Peri<'_, crate::peripherals::$pin>, $port, $ain, AVDD, ANALOG_INPUT);
+        impl_saadc_input!(@local, crate::Peri<'_, crate::peripherals::$pin>, $port, $ain, Avdd, AnalogInput);
     };
     (@local, $pin:ty, $port:expr, $ain:expr, $internal:ident, $connect:ident) => {
         impl crate::saadc::SealedInput for $pin {
@@ -946,11 +946,11 @@ pub struct VddInput;
 impl_peripheral!(VddInput);
 #[cfg(not(feature = "_nrf54l"))]
 #[cfg(not(feature = "_nrf91"))]
-impl_saadc_input!(@local, VddInput, VDD);
+impl_saadc_input!(@local, VddInput, Vdd);
 #[cfg(feature = "_nrf91")]
-impl_saadc_input!(@local, VddInput, VDD_GPIO);
+impl_saadc_input!(@local, VddInput, VddGpio);
 #[cfg(feature = "_nrf54l")]
-impl_saadc_input!(@local, VddInput, 0, 0, VDD, INTERNAL);
+impl_saadc_input!(@local, VddInput, 0, 0, Vdd, Internal);
 
 /// A dummy `Input` pin implementation for SAADC peripheral sampling from the
 /// VDDH / 5 voltage.
@@ -961,22 +961,22 @@ pub struct VddhDiv5Input;
 impl_peripheral!(VddhDiv5Input);
 
 #[cfg(any(feature = "_nrf5340-app", feature = "nrf52833", feature = "nrf52840"))]
-impl_saadc_input!(@local, VddhDiv5Input, VDDHDIV5);
+impl_saadc_input!(@local, VddhDiv5Input, Vddhdiv5);
 
 /// A dummy `Input` pin implementation for SAADC peripheral sampling from the
-/// AVDD internal voltage of the nrf54l chip family.
+/// Avdd internal voltage of the nrf54l chip family.
 #[cfg(feature = "_nrf54l")]
 pub struct AVddInput;
 #[cfg(feature = "_nrf54l")]
 embassy_hal_internal::impl_peripheral!(AVddInput);
 #[cfg(feature = "_nrf54l")]
-impl_saadc_input!(@local, AVddInput, 0, 0, AVDD, INTERNAL);
+impl_saadc_input!(@local, AVddInput, 0, 0, Avdd, Internal);
 
 /// A dummy `Input` pin implementation for SAADC peripheral sampling from the
-/// DVDD internal voltage of the nrf54l chip family.
+/// Dvdd internal voltage of the nrf54l chip family.
 #[cfg(feature = "_nrf54l")]
 pub struct DVddInput;
 #[cfg(feature = "_nrf54l")]
 embassy_hal_internal::impl_peripheral!(DVddInput);
 #[cfg(feature = "_nrf54l")]
-impl_saadc_input!(@local, DVddInput, 0, 0, DVDD, INTERNAL);
+impl_saadc_input!(@local, DVddInput, 0, 0, Dvdd, Internal);

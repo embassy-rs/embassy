@@ -130,7 +130,7 @@ pub(super) async unsafe fn erase_sectored(base: u32, from: u32, to: u32) -> Resu
 
     let mut address = start_address;
     while address < end_address {
-        let sector = get_sector(address, regions);
+        let sector = get_sector(address, regions)?;
         trace!("Erasing sector: {:?}", sector);
 
         family::clear_all_err();

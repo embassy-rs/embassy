@@ -10,7 +10,9 @@ use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time_driver::{Driver, TICK_HZ};
 use embassy_time_queue_utils::Queue;
-use stm32_metapac::timer::{TimGp16, regs};
+use stm32_metapac::timer::TimGp16;
+#[cfg(feature = "rt")]
+use stm32_metapac::timer::regs;
 
 use super::AlarmState;
 use crate::interrupt::typelevel::Interrupt;
@@ -132,9 +134,9 @@ impl RtcDriver {
         r.arr().write(|w| w.set_arr(u16::MAX));
 
         // Set URS, generate update and clear URS
-        r.cr1().modify(|w| w.set_urs(vals::Urs::COUNTER_ONLY));
+        r.cr1().modify(|w| w.set_urs(vals::Urs::CounterOnly));
         r.egr().write(|w| w.set_ug(true));
-        r.cr1().modify(|w| w.set_urs(vals::Urs::ANY_EVENT));
+        r.cr1().modify(|w| w.set_urs(vals::Urs::AnyEvent));
 
         // Mid-way point
         r.ccr(0).write(|w| w.set_ccr(0x8000));
@@ -161,6 +163,7 @@ impl RtcDriver {
         regs_gp16().cr1().modify(|w| w.set_cen(true));
     }
 
+    #[cfg(feature = "rt")]
     pub(crate) fn on_interrupt(&self) {
         let r = regs_gp16();
 
@@ -190,6 +193,7 @@ impl RtcDriver {
         })
     }
 
+    #[cfg(feature = "rt")]
     fn next_period(&self) {
         let r = regs_gp16();
 
@@ -336,10 +340,6 @@ impl super::LPTimeDriver for RtcDriver {
         );
 
         regs_gp16().cr1().modify(|w| w.set_cen(true));
-    }
-
-    fn is_stopped(&self) -> bool {
-        !regs_gp16().cr1().read().cen()
     }
 }
 

@@ -118,19 +118,19 @@ pub enum MckFreq {
 
 impl MckFreq {
     const REGISTER_VALUES: &'static [vals::Mckfreq] = &[
-        vals::Mckfreq::_32MDIV8,
-        vals::Mckfreq::_32MDIV10,
-        vals::Mckfreq::_32MDIV11,
-        vals::Mckfreq::_32MDIV15,
-        vals::Mckfreq::_32MDIV16,
-        vals::Mckfreq::_32MDIV21,
-        vals::Mckfreq::_32MDIV23,
-        vals::Mckfreq::_32MDIV30,
-        vals::Mckfreq::_32MDIV31,
-        vals::Mckfreq::_32MDIV32,
-        vals::Mckfreq::_32MDIV42,
-        vals::Mckfreq::_32MDIV63,
-        vals::Mckfreq::_32MDIV125,
+        vals::Mckfreq::_32mdiv8,
+        vals::Mckfreq::_32mdiv10,
+        vals::Mckfreq::_32mdiv11,
+        vals::Mckfreq::_32mdiv15,
+        vals::Mckfreq::_32mdiv16,
+        vals::Mckfreq::_32mdiv21,
+        vals::Mckfreq::_32mdiv23,
+        vals::Mckfreq::_32mdiv30,
+        vals::Mckfreq::_32mdiv31,
+        vals::Mckfreq::_32mdiv32,
+        vals::Mckfreq::_32mdiv42,
+        vals::Mckfreq::_32mdiv63,
+        vals::Mckfreq::_32mdiv125,
     ];
 
     const FREQUENCIES: &'static [u32] = &[
@@ -333,8 +333,8 @@ pub enum Align {
 impl From<Align> for vals::Align {
     fn from(variant: Align) -> Self {
         match variant {
-            Align::Left => vals::Align::LEFT,
-            Align::Right => vals::Align::RIGHT,
+            Align::Left => vals::Align::Left,
+            Align::Right => vals::Align::Right,
         }
     }
 }
@@ -351,8 +351,8 @@ pub enum Format {
 impl From<Format> for vals::Format {
     fn from(variant: Format) -> Self {
         match variant {
-            Format::I2S => vals::Format::I2S,
-            Format::Aligned => vals::Format::ALIGNED,
+            Format::I2S => vals::Format::I2s,
+            Format::Aligned => vals::Format::Aligned,
         }
     }
 }
@@ -536,13 +536,13 @@ impl<'d> I2S<'d> {
         let c = self.r.config();
         match &self.master_clock {
             Some(MasterClock { freq, ratio }) => {
-                c.mode().write(|w| w.set_mode(vals::Mode::MASTER));
+                c.mode().write(|w| w.set_mode(vals::Mode::Master));
                 c.mcken().write(|w| w.set_mcken(true));
                 c.mckfreq().write(|w| w.set_mckfreq(freq.to_register_value()));
                 c.ratio().write(|w| w.set_ratio(ratio.to_register_value()));
             }
             None => {
-                c.mode().write(|w| w.set_mode(vals::Mode::SLAVE));
+                c.mode().write(|w| w.set_mode(vals::Mode::Slave));
             }
         };
 

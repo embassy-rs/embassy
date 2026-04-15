@@ -40,15 +40,15 @@ async fn main(_spawner: Spawner) {
             freq: mhz(12),
             mode: HseMode::Oscillator,
         });
-        device_config.rcc.pll_src = PllSource::HSE;
+        device_config.rcc.pll_src = PllSource::Hse;
         device_config.rcc.pll = Some(Pll {
-            prediv: PllPreDiv::DIV6,
-            mul: PllMul::MUL80,
-            divp: Some(PllPDiv::DIV8),
+            prediv: PllPreDiv::Div6,
+            mul: PllMul::Mul80,
+            divp: Some(PllPDiv::Div8),
             divq: None,
             divr: None,
         });
-        device_config.rcc.sys = Sysclk::PLL1_P;
+        device_config.rcc.sys = Sysclk::Pll1P;
     }
 
     let mut dp = embassy_stm32::init(device_config);

@@ -22,7 +22,7 @@ async fn main(_spawner: Spawner) {
     let mut pin = p.PB1;
 
     let mut vrefint = adc.enable_vref();
-    let vrefint_sample = adc.read(&mut vrefint, SampleTime::CYCLES13_5).await;
+    let vrefint_sample = adc.irq_read(&mut vrefint, SampleTime::Cycles135).await;
     let convert_to_millivolts = |sample| {
         // From http://www.st.com/resource/en/datasheet/CD00161566.pdf
         // 5.3.4 Embedded reference voltage
@@ -32,7 +32,7 @@ async fn main(_spawner: Spawner) {
     };
 
     loop {
-        let v = adc.read(&mut pin, SampleTime::CYCLES13_5).await;
+        let v = adc.irq_read(&mut pin, SampleTime::Cycles135).await;
         info!("--> {} - {} mV", v, convert_to_millivolts(v));
         Timer::after_millis(100).await;
     }

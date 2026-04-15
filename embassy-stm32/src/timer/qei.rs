@@ -50,9 +50,9 @@ pub enum QeiMode {
 impl From<QeiMode> for Sms {
     fn from(mode: QeiMode) -> Self {
         match mode {
-            QeiMode::Mode1 => Sms::ENCODER_MODE_1,
-            QeiMode::Mode2 => Sms::ENCODER_MODE_2,
-            QeiMode::Mode3 => Sms::ENCODER_MODE_3,
+            QeiMode::Mode1 => Sms::EncoderMode1,
+            QeiMode::Mode2 => Sms::EncoderMode2,
+            QeiMode::Mode3 => Sms::EncoderMode3,
         }
     }
 }
@@ -104,8 +104,8 @@ impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
 
         // Configure TxC1 and TxC2 as captures
         r.ccmr_input(0).modify(|w| {
-            w.set_ccs(0, vals::CcmrInputCcs::TI4);
-            w.set_ccs(1, vals::CcmrInputCcs::TI4);
+            w.set_ccs(0, vals::CcmrInputCcs::Ti4);
+            w.set_ccs(1, vals::CcmrInputCcs::Ti4);
         });
 
         // enable and configure to capture on rising edge
@@ -134,8 +134,8 @@ impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
     /// Get direction.
     pub fn read_direction(&self) -> Direction {
         match self.inner.regs_gp16().cr1().read().dir() {
-            vals::Dir::DOWN => Direction::Downcounting,
-            vals::Dir::UP => Direction::Upcounting,
+            vals::Dir::Down => Direction::Downcounting,
+            vals::Dir::Up => Direction::Upcounting,
         }
     }
 
