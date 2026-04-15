@@ -178,9 +178,32 @@ impl Default for Config {
 }
 
 pub(crate) unsafe fn init(config: Config) {
-    // Set the requested power mode
-    PWR.vosr().modify(|w| w.set_vos(config.voltage_range));
+    // Configure the clock to a safe default state before starting configuration:
+    
+    // 1 - Set power mode to Range1
+    PWR.vosr().modify(|w| w.set_vos(VoltageScale::Range1));
     while !PWR.vosr().read().vosrdy() {}
+
+    //2 - set flash WS to 4
+    FLASH.acr().modify(|w| {
+        w.set_latency(4);
+    });
+
+    // 3 - enable HSI
+    // HSI is the preferred source for a safe clock setup since its value is fixed and it is available on all MCus
+    RCC.cr().modify(|w| w.set_hsion(true));
+    while !RCC.cr().read().hsirdy() {}
+
+    // 4 - set sysclock to HSI
+    RCC.cfgr1().modify(|w| w.set_sw(Sysclk::Hsi));
+    while RCC.cfgr1().read().sws() != Sysclk::Hsi {}
+
+    // 5 - set HPRE to div1 (not strictly necessary, but at this point it is a safe operation and there is no need to keep AHB prescalers)
+    RCC.cfgr2().modify(|w| {
+        w.set_hpre(AHBPrescaler::Div1);
+    });
+
+    // now configuration can proceed without issues:
 
     let lse_calibration_freq = if config.auto_calibration != MsiAutoCalibration::Disabled {
         // LSE must be configured and peripherals clocked for MSI auto-calibration
@@ -319,9 +342,6 @@ pub(crate) unsafe fn init(config: Config) {
     }
 
     let hsi = config.hsi.then(|| {
-        RCC.cr().modify(|w| w.set_hsion(true));
-        while !RCC.cr().read().hsirdy() {}
-
         HSI_FREQ
     });
 
@@ -352,16 +372,6 @@ pub(crate) unsafe fn init(config: Config) {
 
     let hsi48 = config.hsi48.map(super::init_hsi48);
 
-    // There's a possibility that a bootloader that ran before us has configured the system clock
-    // source to be PLL1_R. In that case we'd get forever stuck on (de)configuring PLL1 as the chip
-    // prohibits disabling PLL1 when it's used as a source for system clock. Change the system
-    // clock source to MSIS which doesn't suffer from this conflict. The correct source per the
-    // provided config is then set further down.
-    // See https://github.com/embassy-rs/embassy/issues/5072
-    let default_system_clock_source = Config::default().sys;
-    RCC.cfgr1().modify(|w| w.set_sw(default_system_clock_source));
-    while RCC.cfgr1().read().sws() != default_system_clock_source {}
-
     let pll_input = PllInput { hse, hsi, msi: msis };
     let pll1 = config.pll1.map_or_else(
         || {
@@ -385,6 +395,8 @@ pub(crate) unsafe fn init(config: Config) {
         |c| init_pll(PllInstance::Pll3, Some(c), &pll_input, config.voltage_range),
     );
 
+    // Verify that sysclk is valid before attempting to change the clock source
+    // This ensures that, even in case of an error, the clock remains in a safe state
     let sys_clk = match config.sys {
         Sysclk::Hse => hse.unwrap(),
         Sysclk::Hsi => hsi.unwrap(),
@@ -392,12 +404,28 @@ pub(crate) unsafe fn init(config: Config) {
         Sysclk::Pll1R => pll1.r.unwrap(),
     };
 
+    let hclk = sys_clk / config.ahb_pre;
+
+    let hclk_max = match config.voltage_range {
+        VoltageScale::Range1 => Hertz::mhz(160),
+        VoltageScale::Range2 => Hertz::mhz(110),
+        VoltageScale::Range3 => Hertz::mhz(55),
+        VoltageScale::Range4 => Hertz::mhz(25),
+    };
+    assert!(hclk <= hclk_max);
+
+
     // Do we need the EPOD booster to reach the target clock speed per § 10.5.4?
     if sys_clk >= Hertz::mhz(55) {
         // Enable the booster
         PWR.vosr().modify(|w| w.set_boosten(true));
         while !PWR.vosr().read().boostrdy() {}
     }
+
+    // modifying flash WS and VOS here is safe because the clock has already been set to HSI
+    // Set the requested power mode
+    PWR.vosr().modify(|w| w.set_vos(config.voltage_range));
+    while !PWR.vosr().read().vosrdy() {}
 
     // The clock source is ready
     // Calculate and set the flash wait states
@@ -429,13 +457,10 @@ pub(crate) unsafe fn init(config: Config) {
             _ => 1,
         },
     };
+
     FLASH.acr().modify(|w| {
         w.set_latency(wait_states);
     });
-
-    // Switch the system clock source
-    RCC.cfgr1().modify(|w| w.set_sw(config.sys));
-    while RCC.cfgr1().read().sws() != config.sys {}
 
     // Configure the bus prescalers
     RCC.cfgr2().modify(|w| {
@@ -443,19 +468,14 @@ pub(crate) unsafe fn init(config: Config) {
         w.set_ppre1(config.apb1_pre);
         w.set_ppre2(config.apb2_pre);
     });
+
     RCC.cfgr3().modify(|w| {
         w.set_ppre3(config.apb3_pre);
     });
 
-    let hclk = sys_clk / config.ahb_pre;
-
-    let hclk_max = match config.voltage_range {
-        VoltageScale::Range1 => Hertz::mhz(160),
-        VoltageScale::Range2 => Hertz::mhz(110),
-        VoltageScale::Range3 => Hertz::mhz(55),
-        VoltageScale::Range4 => Hertz::mhz(25),
-    };
-    assert!(hclk <= hclk_max);
+    // now that flash WS, VOS and HPRE are configured, the system can switch the clock source
+    RCC.cfgr1().modify(|w| w.set_sw(config.sys));
+    while RCC.cfgr1().read().sws() != config.sys {}   
 
     let (pclk1, pclk1_tim) = super::util::calc_pclk(hclk, config.apb1_pre);
     let (pclk2, pclk2_tim) = super::util::calc_pclk(hclk, config.apb2_pre);
