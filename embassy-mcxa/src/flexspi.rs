@@ -21,18 +21,18 @@ use embassy_futures::yield_now;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use nxp_pac_flexspi as pac;
-
-use crate::clocks::periph_helpers::{Div4, FlexspiClockSel, FlexspiConfig as FlexspiClockConfig};
-use crate::clocks::{ClockError, PoweredClock, WakeGuard, enable_and_reset};
-use crate::dma::{Channel, DmaChannel, TransferOptions};
-use crate::gpio::{AnyPin, DriveStrength, GpioPin, Pull, SlewRate};
-use crate::interrupt::typelevel::{Handler, Interrupt};
 use pac::flexspi::Flexspi as Regs;
 use pac::flexspi::regs::{
     Ahbcr, Ahbrxbuf0cr0, Flsha1cr0, Flshcr1, Flshcr2, Flshcr4, Intr, Ipcmd, Ipcr0, Ipcr1, Iprxfcr, Iptxfcr, Lut, Lutcr,
     Lutkey, Mcr0, Tfdr,
 };
+
+use crate::clocks::periph_helpers::{Div4, FlexspiClockSel, FlexspiConfig as FlexspiClockConfig};
+use crate::clocks::{ClockError, PoweredClock, WakeGuard, enable_and_reset};
+use crate::dma::{Channel, DmaChannel, TransferOptions};
+use crate::gpio::{AnyPin, DriveStrength, GpioPin, Pull, SlewRate};
 use crate::interrupt;
+use crate::interrupt::typelevel::{Handler, Interrupt};
 
 const MAX_PAGE_SIZE: usize = 256;
 const MAX_PAGE_WORDS: usize = MAX_PAGE_SIZE / 4;
