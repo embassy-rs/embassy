@@ -44,7 +44,7 @@ pub(crate) enum BusType {
 pub(crate) trait SealedBus {
     const TYPE: BusType;
 
-    async fn init(&mut self, bluetooth_enabled: bool);
+    async fn init(&mut self, bluetooth_enabled: bool) -> Result<(), ()>;
     async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>);
     async fn wlan_write(&mut self, buf: &Aligned<A4, [u8]>);
     #[allow(unused)]
@@ -133,7 +133,7 @@ where
         nvram: &Aligned<A4, [u8]>,
         bt_fw: Option<&[u8]>,
     ) -> Result<(), ()> {
-        self.bus.init(bt_fw.is_some()).await;
+        self.bus.init(bt_fw.is_some()).await?;
 
         // Init ALP (Active Low Power) clock
         debug!("init alp");
