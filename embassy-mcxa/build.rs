@@ -18,7 +18,18 @@ fn main() {
     let mut cfgs = CfgSet::new();
     build_common::set_target_cfgs(&mut cfgs);
 
-    // TODO: Declare all possible driver cfgs. Needs extra info in pac metadata
+    fn driver_to_cfg_name(name: &str) -> String {
+        match name.split_once("::") {
+            Some((path, _block)) => path,
+            None => name,
+        }
+        .replace("/", "_")
+    }
+
+    // Declare all drivers in nxp-pac (used or unused)
+    for peripheral in nxp_pac::metadata::META_PERIPHERALS {
+        cfgs.declare(&driver_to_cfg_name(peripheral));
+    }
 
     // Enable all drivers for this chip
     for peripheral in METADATA.peripherals {
@@ -26,15 +37,7 @@ fn main() {
             continue;
         }
 
-        let cfg_name = match peripheral.driver_name.split_once("::") {
-            Some((path, _block)) => path,
-            None => peripheral.driver_name,
-        }
-        .replace("/", "_");
-
-        cfgs.enable(&cfg_name);
-        // Temporary until todo above is removed
-        cfgs.declare(&cfg_name);
+        cfgs.enable(&driver_to_cfg_name(peripheral.driver_name));
     }
 
     let generated = [
