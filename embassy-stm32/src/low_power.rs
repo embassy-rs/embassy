@@ -352,9 +352,9 @@ fn configure_pwr(cs: CriticalSection) {
     };
 
     if get_driver().pause_time(cs).is_err() {
-        warn!("low_power: failed to pause time, not entering stop");
+        trace!("low_power: failed to pause time, not entering stop");
     } else if platform::enter_stop(cs, stop_mode).is_err() {
-        warn!("low_power: failed to enter stop");
+        trace!("low_power: failed to enter stop");
     } else {
         #[cfg(stm32l0)]
         trace!("low power: enter stop");
