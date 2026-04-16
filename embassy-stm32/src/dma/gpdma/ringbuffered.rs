@@ -35,8 +35,7 @@ impl<'a> DmaCtrlImpl<'a> {
     }
 
     /// Compute remaining transfers from hardware and LLI state.
-    /// Must be called with interrupts disabled (inside a critical section).
-    fn compute_remaining(&self) -> usize {
+    fn compute_remaining(&self, _cs: critical_section::CriticalSection) -> usize {
         let state = &STATE[self.channel.channel as usize];
         let lli_count = state.lli_state.count.load(Ordering::Relaxed);
 
@@ -69,9 +68,9 @@ impl<'a> DmaCtrl for DmaCtrlImpl<'a> {
         // Snapshot complete_count and BNDT atomically by disabling interrupts.
         // This prevents the DMA ISR from modifying complete_count or lli_index
         // between the two reads, eliminating the race that causes DmaUnsynced.
-        critical_section::with(|_| {
+        critical_section::with(|cs| {
             let count = state.complete_count.swap(0, Ordering::AcqRel);
-            self.cached_remaining = self.compute_remaining();
+            self.cached_remaining = self.compute_remaining(cs);
             count
         })
     }
