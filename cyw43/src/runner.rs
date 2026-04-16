@@ -14,7 +14,7 @@ use crate::ioctl::{IoctlState, IoctlType, PendingIoctl};
 pub use crate::spi::SpiBusCyw43;
 use crate::structs::*;
 use crate::util::{aligned_mut, aligned_ref, slice8_mut, slice16_mut, try_until};
-use crate::{CHIP, Core, MTU, events};
+use crate::{Chip, ChipId, Core, MTU, events};
 
 #[cfg(feature = "firmware-logs")]
 struct LogState {
@@ -73,9 +73,10 @@ pub trait Bus: SealedBus {}
 impl<T: SealedBus> Bus for T {}
 
 /// Driver communicating with the WiFi chip.
-pub struct Runner<'a, BUS> {
+pub struct Runner<'a, BUS, CHIP: Chip> {
     ch: ch::Runner<'a, MTU>,
     pub(crate) bus: BUS,
+    _chip: CHIP,
 
     ioctl_state: &'a IoctlState,
     ioctl_id: u16,
@@ -96,13 +97,15 @@ pub struct Runner<'a, BUS> {
     pub(crate) bt: Option<crate::bluetooth::BtRunner<'a>>,
 }
 
-impl<'a, BUS> Runner<'a, BUS>
+impl<'a, BUS, CHIP> Runner<'a, BUS, CHIP>
 where
     BUS: Bus,
+    CHIP: Chip,
 {
     pub(crate) fn new(
         ch: ch::Runner<'a, MTU>,
         bus: BUS,
+        chip: CHIP,
         ioctl_state: &'a IoctlState,
         events: &'a Events,
         secure_network: &'a AtomicBool,
@@ -111,6 +114,7 @@ where
         Self {
             ch,
             bus,
+            _chip: chip,
             ioctl_state,
             ioctl_id: 0,
             sdpcm_seq: 0,
@@ -133,6 +137,11 @@ where
         nvram: &Aligned<A4, [u8]>,
         bt_fw: Option<&[u8]>,
     ) -> Result<(), ()> {
+        match CHIP::ID {
+            ChipId::C43439 => debug!("using cyw43439"),
+            ChipId::C4373 => debug!("using cyw43437"),
+        }
+
         self.bus.init(bt_fw.is_some()).await?;
 
         // Init ALP (Active Low Power) clock
@@ -254,10 +263,10 @@ where
         self.core_reset(Core::SOCSRAM).await;
 
         // this is 4343x specific stuff: Disable remap for SRAM_3
-        self.bus.bp_write32(CHIP.socsram_base_address + 0x10, 3).await;
-        self.bus.bp_write32(CHIP.socsram_base_address + 0x44, 0).await;
+        self.bus.bp_write32(CHIP::INFO.socsram_base_address + 0x10, 3).await;
+        self.bus.bp_write32(CHIP::INFO.socsram_base_address + 0x44, 0).await;
 
-        let ram_addr = CHIP.atcm_ram_base_address;
+        let ram_addr = CHIP::INFO.atcm_ram_base_address;
 
         debug!("loading fw");
         self.bus.bp_write(ram_addr, wifi_fw).await;
@@ -266,13 +275,13 @@ where
         // Round up to 4 bytes.
         let nvram_len = (nvram.len() + 3) / 4 * 4;
         self.bus
-            .bp_write(ram_addr + CHIP.chip_ram_size - 4 - nvram_len as u32, nvram)
+            .bp_write(ram_addr + CHIP::INFO.chip_ram_size - 4 - nvram_len as u32, nvram)
             .await;
 
         let nvram_len_words = nvram_len as u32 / 4;
         let nvram_len_magic = (!nvram_len_words << 16) | nvram_len_words;
         self.bus
-            .bp_write32(ram_addr + CHIP.chip_ram_size - 4, nvram_len_magic)
+            .bp_write32(ram_addr + CHIP::INFO.chip_ram_size - 4, nvram_len_magic)
             .await;
 
         // Start core!
@@ -287,13 +296,13 @@ where
         // "Set up the interrupt mask and enable interrupts"
         debug!("setup interrupt mask");
         self.bus
-            .bp_write32(CHIP.sdiod_core_base_address + SDIO_INT_HOST_MASK, I_HMB_SW_MASK)
+            .bp_write32(CHIP::INFO.sdiod_core_base_address + SDIO_INT_HOST_MASK, I_HMB_SW_MASK)
             .await;
 
         match BUS::TYPE {
             BusType::Sdio => {
                 self.bus
-                    .bp_write8(CHIP.sdiod_core_base_address + SDIO_FUNCTION_INT_MASK, 2 | 1)
+                    .bp_write8(CHIP::INFO.sdiod_core_base_address + SDIO_FUNCTION_INT_MASK, 2 | 1)
                     .await;
 
                 // "Lower F2 Watermark to avoid DMA Hang in F2 when SD Clock is stopped."
@@ -308,7 +317,7 @@ where
                 if bt_fw.is_some() {
                     debug!("bluetooth setup interrupt mask");
                     self.bus
-                        .bp_write32(CHIP.sdiod_core_base_address + SDIO_INT_HOST_MASK, I_HMB_FC_CHANGE)
+                        .bp_write32(CHIP::INFO.sdiod_core_base_address + SDIO_INT_HOST_MASK, I_HMB_FC_CHANGE)
                         .await;
                 }
 
@@ -401,7 +410,7 @@ where
     async fn log_init(&mut self) {
         // Initialize shared memory for logging.
 
-        let addr = CHIP.atcm_ram_base_address + CHIP.chip_ram_size - 4 - CHIP.socram_srmem_size;
+        let addr = CHIP::INFO.atcm_ram_base_address + CHIP::INFO.chip_ram_size - 4 - CHIP::INFO.socram_srmem_size;
         let shared_addr = self.bus.bp_read32(addr).await;
         debug!("shared_addr {:08x}", shared_addr);
 
@@ -566,7 +575,7 @@ where
                     BusType::Sdio => {
                         // whd_bus_sdio_poke_wlan
                         self.bus
-                            .bp_write32(CHIP.sdiod_core_base_address + SDIO_TO_SB_MAILBOX, SMB_DEV_INT)
+                            .bp_write32(CHIP::INFO.sdiod_core_base_address + SDIO_TO_SB_MAILBOX, SMB_DEV_INT)
                             .await;
                     }
                     BusType::Spi => {}
@@ -585,17 +594,20 @@ where
                 self.check_status(buf).await;
 
                 // whd_bus_sdio_packet_available_to_read
-                let irq = self.bus.bp_read32(CHIP.sdiod_core_base_address + SDIO_INT_STATUS).await;
+                let irq = self
+                    .bus
+                    .bp_read32(CHIP::INFO.sdiod_core_base_address + SDIO_INT_STATUS)
+                    .await;
                 if irq & I_HMB_HOST_INT == 0 {
                     // return;
                 }
 
                 let hmb_data = self
                     .bus
-                    .bp_read32(CHIP.sdiod_core_base_address + SDIO_TO_HOST_MAILBOX_DATA)
+                    .bp_read32(CHIP::INFO.sdiod_core_base_address + SDIO_TO_HOST_MAILBOX_DATA)
                     .await;
                 self.bus
-                    .bp_write32(CHIP.sdiod_core_base_address + SDIO_TO_SB_MAILBOX, SMB_INT_ACK)
+                    .bp_write32(CHIP::INFO.sdiod_core_base_address + SDIO_TO_SB_MAILBOX, SMB_INT_ACK)
                     .await;
 
                 trace!("hmb ack");
@@ -607,7 +619,7 @@ where
                 if irq & HOSTINTMASK != 0 {
                     trace!("clear irq");
                     self.bus
-                        .bp_write32(CHIP.sdiod_core_base_address + SDIO_INT_STATUS, irq & HOSTINTMASK)
+                        .bp_write32(CHIP::INFO.sdiod_core_base_address + SDIO_INT_STATUS, irq & HOSTINTMASK)
                         .await;
                 }
             }
@@ -943,7 +955,7 @@ where
     }
 
     async fn core_disable(&mut self, core: Core) {
-        let base = core.base_addr();
+        let base = CHIP::base_addr(core);
 
         // Dummy read?
         let _ = self.bus.bp_read8(base + AI_RESETCTRL_OFFSET).await;
@@ -968,7 +980,7 @@ where
     async fn core_reset(&mut self, core: Core) {
         self.core_disable(core).await;
 
-        let base = core.base_addr();
+        let base = CHIP::base_addr(core);
         self.bus
             .bp_write8(base + AI_IOCTRL_OFFSET, AI_IOCTRL_BIT_FGC | AI_IOCTRL_BIT_CLOCK_EN)
             .await;
@@ -987,7 +999,7 @@ where
     }
 
     async fn core_is_up(&mut self, core: Core) -> bool {
-        let base = core.base_addr();
+        let base = CHIP::base_addr(core);
 
         let io = self.bus.bp_read8(base + AI_IOCTRL_OFFSET).await;
         if io & (AI_IOCTRL_BIT_FGC | AI_IOCTRL_BIT_CLOCK_EN) != AI_IOCTRL_BIT_CLOCK_EN {

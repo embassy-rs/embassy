@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-use cyw43::aligned_bytes;
+use cyw43::{Cyw43439, aligned_bytes};
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
@@ -20,7 +20,9 @@ bind_interrupts!(struct Irqs {
 });
 
 #[embassy_executor::task]
-async fn cyw43_task(runner: cyw43::Runner<'static, cyw43::SdioBus<SerialDataInterface<'static, 'static>>>) -> ! {
+async fn cyw43_task(
+    runner: cyw43::Runner<'static, cyw43::SdioBus<SerialDataInterface<'static, 'static>>, Cyw43439>,
+) -> ! {
     runner.run().await
 }
 
