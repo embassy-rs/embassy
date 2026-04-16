@@ -160,21 +160,27 @@ async fn main(_spawner: Spawner) {
         let _test_usart = async |usart: &mut BufferedUart<'_>| -> Result<(), Error> {
             let (mut writer, mut reader) = usart.split_ref();
 
-            let data = [0xC0, 0xDE];
+            const LEN: usize = 24;
+            let n = 5;
+            let mut tx_buf = [0; LEN];
+            let mut rx_buf = [0; LEN];
+            for i in 0..LEN {
+                tx_buf[i] = (i ^ n) as u8;
+            }
+
             let mut ok = false;
             while !ok {
                 join(
                     async {
-                        let mut buf = [0; 2];
-
-                        reader.read(&mut buf).await.unwrap();
-                        ok = buf == data;
+                        reader.read(&mut rx_buf).await.unwrap();
                     },
                     async {
-                        writer.write_all(&data).await.unwrap();
+                        writer.write_all(&tx_buf).await.unwrap();
                     },
                 )
                 .await;
+
+                ok = rx_buf == tx_buf;
             }
 
             Ok(())
