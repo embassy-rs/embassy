@@ -14,6 +14,7 @@
 use core::cmp::min;
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
 use embassy_stm32::gpio::{Level, Output, Speed};
@@ -26,7 +27,7 @@ use embassy_stm32::xspi::{
     WrapSize, Xspi, XspiWidth,
 };
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -219,7 +220,7 @@ async fn main(_spawner: Spawner) {
 
     let second_u32 = unsafe { *(0x70000004 as *const u32) };
     assert_eq!(second_u32, 0x97969594);
-    info!("second_u32 {:08x}", first_u32);
+    info!("second_u32 {:08x}", second_u32);
 
     flash.disable_mm();
     info!("Disabled memory mapped mode");
@@ -264,7 +265,7 @@ async fn main(_spawner: Spawner) {
     info!("first_u32 {:08x}", first_u32);
     let second_u32 = unsafe { *(0x70000004 as *const u32) };
     assert_eq!(second_u32, 0x97969594);
-    info!("second_u32 {:08x}", first_u32);
+    info!("second_u32 {:08x}", second_u32);
     flash.disable_mm();
     info!("Disabled memory mapped mode in OPI mode");
 
