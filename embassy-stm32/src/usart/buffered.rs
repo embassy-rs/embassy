@@ -32,6 +32,10 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 }
 
 unsafe fn on_interrupt(r: Regs, state: &'static State) {
+    if state.tx_rx_refcount.load(Ordering::Relaxed) == 0 {
+        return;
+    }
+
     // RX
     let sr_val = sr(r).read();
     // On v1 & v2, reading DR clears the rxne, error and idle interrupt
