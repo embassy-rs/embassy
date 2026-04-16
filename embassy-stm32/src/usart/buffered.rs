@@ -60,16 +60,22 @@ unsafe fn on_interrupt(r: Regs, state: &'static State) {
     if sr_val.ore() {
         warn!("Overrun error");
     }
+
+    // RX
     if sr_val.rxne() {
         let mut rx_writer = state.rx_buf.writer();
-        let buf = rx_writer.push_slice();
-        if !buf.is_empty() {
-            if let Some(byte) = dr {
-                buf[0] = byte;
-                rx_writer.push_done(1);
-            }
-        } else {
-            // FIXME: Should we disable any further RX interrupts when the buffer becomes full.
+        let mut rx_iter = rx_writer.iter();
+        if let Some(data) = dr
+            && let Some(byte) = rx_iter.next()
+        {
+            *byte = data;
+        }
+
+        #[cfg(usart_v4)]
+        while sr(r).read().rxne()
+            && let Some(byte) = rx_iter.next()
+        {
+            *byte = rdr(r).read_volatile();
         }
 
         let eager = state.eager_reads.load(Ordering::Relaxed);
@@ -109,27 +115,44 @@ unsafe fn on_interrupt(r: Regs, state: &'static State) {
     // TX
     if sr(r).read().txe() {
         let mut tx_reader = state.tx_buf.reader();
-        let buf = tx_reader.pop_slice();
-        if !buf.is_empty() {
+        let mut tx_iter = tx_reader.iter();
+        if tx_iter.size_hint().0 > 0 {
+            #[cfg(any(usart_v1, usart_v2, usart_v3))]
             r.cr1().modify(|w| {
                 w.set_txeie(true);
             });
 
-            // Enable transmission complete interrupt when last byte is going to be sent out.
-            if buf.len() == 1 {
-                r.cr1().modify(|w| {
-                    w.set_tcie(true);
-                });
-            }
+            #[cfg(usart_v4)]
+            r.cr3().modify(|w| {
+                w.set_txftie(true);
+            });
 
             half_duplex_set_rx_tx_before_write(&r, state.half_duplex_readback.load(Ordering::Relaxed));
 
-            tdr(r).write_volatile(buf[0].into());
-            tx_reader.pop_done(1);
-        } else {
+            while sr(r).read().txe()
+                && let Some(byte) = tx_iter.next()
+            {
+                // Enable transmission complete interrupt when last byte is going to be sent out.
+                if matches!(tx_iter.size_hint(), (0, Some(0))) {
+                    r.cr1().modify(|w| {
+                        w.set_tcie(true);
+                    });
+                }
+
+                tdr(r).write_volatile(byte.into());
+            }
+        }
+
+        if matches!(tx_iter.size_hint(), (0, Some(0))) {
             // Disable interrupt until we have something to transmit again.
+            #[cfg(any(usart_v1, usart_v2, usart_v3))]
             r.cr1().modify(|w| {
                 w.set_txeie(false);
+            });
+
+            #[cfg(usart_v4)]
+            r.cr3().modify(|w| {
+                w.set_txftie(false);
             });
         }
     }
@@ -491,12 +514,16 @@ impl<'d> BufferedUart<'d> {
             #[cfg(not(any(usart_v1, usart_v2)))]
             w.set_dem(self.tx.de.is_some());
             w.set_hdsel(config.duplex.is_half());
+            #[cfg(usart_v4)]
+            w.set_txftcfg(config.fifo_threshold);
         });
         configure(info, self.rx.kernel_clock, &config, true, true)?;
 
         info.regs.cr1().modify(|w| {
             w.set_rxneie(true);
             w.set_idleie(true);
+            #[cfg(usart_v4)]
+            w.set_txeie(false);
 
             if config.duplex.is_half() {
                 // The te and re bits will be set by write, read and flush methods.
