@@ -268,6 +268,10 @@ pub struct Config {
     #[cfg(not(any(usart_v1, usart_v2)))]
     pub de_deassertion_time: u8,
 
+    #[cfg(usart_v4)]
+    /// Fifo threshold
+    pub fifo_threshold: u8,
+
     // private: set by new_half_duplex, not by the user.
     duplex: Duplex,
 }
@@ -317,6 +321,8 @@ impl Default for Config {
             de_assertion_time: 0,
             #[cfg(not(any(usart_v1, usart_v2)))]
             de_deassertion_time: 0,
+            #[cfg(usart_v4)]
+            fifo_threshold: 6,
             duplex: Duplex::Full,
         }
     }
