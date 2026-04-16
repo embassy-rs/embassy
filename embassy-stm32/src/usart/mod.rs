@@ -269,8 +269,12 @@ pub struct Config {
     pub de_deassertion_time: u8,
 
     #[cfg(usart_v4)]
-    /// Fifo threshold
-    pub fifo_threshold: u8,
+    /// Transmit FIFO thereshold: number of bytes that must be free for the buffered irq handler to run.
+    pub tx_fifo_threshold: u8,
+
+    #[cfg(usart_v4)]
+    /// Receive FIFO thereshold: number of bytes that must be available for the buffered irq handler to run.
+    pub rx_fifo_threshold: u8,
 
     // private: set by new_half_duplex, not by the user.
     duplex: Duplex,
@@ -322,7 +326,9 @@ impl Default for Config {
             #[cfg(not(any(usart_v1, usart_v2)))]
             de_deassertion_time: 0,
             #[cfg(usart_v4)]
-            fifo_threshold: 6,
+            tx_fifo_threshold: 6,
+            #[cfg(usart_v4)]
+            rx_fifo_threshold: 4,
             duplex: Duplex::Full,
         }
     }

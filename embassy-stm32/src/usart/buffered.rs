@@ -64,18 +64,20 @@ unsafe fn on_interrupt(r: Regs, state: &'static State) {
     // RX
     if sr_val.rxne() {
         let mut rx_writer = state.rx_buf.writer();
-        let mut rx_iter = rx_writer.iter();
-        if let Some(data) = dr
-            && let Some(byte) = rx_iter.next()
         {
-            *byte = data;
-        }
+            let mut rx_iter = rx_writer.iter();
+            if let Some(data) = dr
+                && let Some(byte) = rx_iter.next()
+            {
+                *byte = data;
+            }
 
-        #[cfg(usart_v4)]
-        while sr(r).read().rxne()
-            && let Some(byte) = rx_iter.next()
-        {
-            *byte = rdr(r).read_volatile();
+            #[cfg(usart_v4)]
+            while sr(r).read().rxne()
+                && let Some(byte) = rx_iter.next()
+            {
+                *byte = rdr(r).read_volatile();
+            }
         }
 
         let eager = state.eager_reads.load(Ordering::Relaxed);
@@ -515,7 +517,17 @@ impl<'d> BufferedUart<'d> {
             w.set_dem(self.tx.de.is_some());
             w.set_hdsel(config.duplex.is_half());
             #[cfg(usart_v4)]
-            w.set_txftcfg(config.fifo_threshold);
+            w.set_rxftie(true);
+            #[cfg(usart_v4)]
+            w.set_txftcfg(config.tx_fifo_threshold);
+            #[cfg(usart_v4)]
+            w.set_rxftcfg(
+                match config.eager_reads {
+                    None | Some(0) => u8::MAX,
+                    Some(x) => x as u8,
+                }
+                .min(config.rx_fifo_threshold),
+            );
         });
         configure(info, self.rx.kernel_clock, &config, true, true)?;
 
@@ -524,6 +536,8 @@ impl<'d> BufferedUart<'d> {
             w.set_idleie(true);
             #[cfg(usart_v4)]
             w.set_txeie(false);
+            #[cfg(usart_v4)]
+            w.set_rxneie(false);
 
             if config.duplex.is_half() {
                 // The te and re bits will be set by write, read and flush methods.
