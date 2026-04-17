@@ -313,6 +313,9 @@ impl<'a> Writer<'a> {
     /// Return an iterator that can be used to iterate over the ringbufffer,
     /// consuming the bytes as it iterates. This uses local variables to cache
     /// buffer position, allowing the compiler to optimize the iterator.
+    ///
+    /// Note that this iterator is a fused iterator, meaning that once it is
+    /// exhausted, it can no longer be used to write to the buffer.
     pub fn iter<'b>(&'b mut self) -> WriterIterator<'a, 'b> {
         let [(d0, l0), (d1, l1)] = self.push_bufs();
         let bufs = unsafe { [slice::from_raw_parts_mut(d0, l0), slice::from_raw_parts_mut(d1, l1)] };
@@ -460,6 +463,9 @@ impl<'a> Reader<'a> {
     /// Return an iterator that can be used to iterate over the ringbufffer,
     /// consuming the bytes as it iterates. This uses local variables to cache
     /// buffer position, allowing the compiler to optimize the iterator.
+    ///
+    /// Note that this iterator is a fused iterator, meaning that once it is
+    /// exhausted, it can no longer be used to read the buffer.
     pub fn iter<'b>(&'b mut self) -> ReaderIterator<'a, 'b> {
         let (data, len) = self.pop_buf();
         let buf = unsafe { slice::from_raw_parts_mut(data, len) };
@@ -477,16 +483,6 @@ pub struct ReaderIterator<'a, 'b> {
     reader: &'b mut Reader<'a>,
     buf: &'b mut [u8],
     i: usize,
-}
-
-impl<'a, 'b> ReaderIterator<'a, 'b> {
-    fn reset_buf(&mut self) {
-        self.reader.pop_done(self.i);
-        self.i = 0;
-
-        let (data, len) = self.reader.pop_buf();
-        self.buf = unsafe { slice::from_raw_parts_mut(data, len) };
-    }
 }
 
 impl<'a, 'b> Iterator for ReaderIterator<'a, 'b> {
@@ -507,7 +503,11 @@ impl<'a, 'b> Iterator for ReaderIterator<'a, 'b> {
         }
 
         if item.is_some() && self.i == self.buf.len() {
-            self.reset_buf();
+            self.reader.pop_done(self.i);
+            self.i = 0;
+
+            let (data, len) = self.reader.pop_buf();
+            self.buf = unsafe { slice::from_raw_parts_mut(data, len) };
         }
 
         item
@@ -519,7 +519,7 @@ impl<'a, 'b> FusedIterator for ReaderIterator<'a, 'b> {}
 impl<'a, 'b> Drop for ReaderIterator<'a, 'b> {
     fn drop(&mut self) {
         if self.i > 0 {
-            self.reset_buf();
+            self.reader.pop_done(self.i);
         }
     }
 }
