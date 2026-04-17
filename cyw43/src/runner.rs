@@ -114,12 +114,7 @@ where
             .fold(0u32, |acc, &b| acc.wrapping_mul(33).wrapping_add(u32::from(b)))
     }
 
-    async fn verify_download_samples(
-        &mut self,
-        label: &str,
-        addr: u32,
-        data: &[u8],
-    ) -> Result<(), ()> {
+    async fn verify_download_samples(&mut self, label: &str, addr: u32, data: &[u8]) -> Result<(), ()> {
         const SAMPLE_LEN: usize = 16;
         const CHECKSUM_LEN: usize = 64;
 
@@ -342,9 +337,7 @@ where
 
         let chip_id = match BUS::TYPE {
             BusType::Spi => self.bus.bp_read16(CHIPCOMMON_BASE_ADDRESS).await,
-            BusType::Sdio => {
-                self.read_chip_id_sdio().await
-            }
+            BusType::Sdio => self.read_chip_id_sdio().await,
         };
 
         debug!("chip ID: {}", chip_id);
@@ -473,12 +466,7 @@ where
 
                 debug!(
                     "F2 timeout state: IOEN={:02x} IORDY={:02x} INTEN={:02x} FN_INT_MASK={:02x} HOST_INT_MASK={:08x} CLOCK_CSR={:02x}",
-                    ioen,
-                    iordy,
-                    inten,
-                    fn_int_mask,
-                    host_int_mask,
-                    clock_csr,
+                    ioen, iordy, inten, fn_int_mask, host_int_mask, clock_csr,
                 );
             }
             return Err(());
@@ -486,11 +474,7 @@ where
         Ok(())
     }
 
-    async fn init_cyw4373_sdio(
-        &mut self,
-        wifi_fw: &Aligned<A4, [u8]>,
-        nvram: &Aligned<A4, [u8]>,
-    ) -> Result<(), ()> {
+    async fn init_cyw4373_sdio(&mut self, wifi_fw: &Aligned<A4, [u8]>, nvram: &Aligned<A4, [u8]>) -> Result<(), ()> {
         let ram_addr = CHIP::INFO.atcm_ram_base_address;
 
         // Hold the WLAN ARM core CPU-halted while streaming firmware into ATCM RAM.
@@ -588,7 +572,11 @@ where
                 tick as u32 * 100,
                 iordy,
                 shared_ptr,
-                if fw_progressed { "FW wrote shared_addr" } else { "still NVRAM magic" },
+                if fw_progressed {
+                    "FW wrote shared_addr"
+                } else {
+                    "still NVRAM magic"
+                },
                 clock_csr,
             );
             Timer::after_millis(100).await;
@@ -611,12 +599,7 @@ where
 
             debug!(
                 "F2 timeout state: IOEN={:02x} IORDY={:02x} INTEN={:02x} FN_INT_MASK={:02x} HOST_INT_MASK={:08x} CLOCK_CSR={:02x}",
-                ioen,
-                iordy,
-                inten,
-                fn_int_mask,
-                host_int_mask,
-                clock_csr,
+                ioen, iordy, inten, fn_int_mask, host_int_mask, clock_csr,
             );
             return Err(());
         }
@@ -649,7 +632,11 @@ where
             .await;
 
         self.bus
-            .write8(FUNC_BUS, SDIOD_CCCR_INTEN, (INTR_CTL_MASTER_EN | INTR_CTL_FUNC2_EN) as u8)
+            .write8(
+                FUNC_BUS,
+                SDIOD_CCCR_INTEN,
+                (INTR_CTL_MASTER_EN | INTR_CTL_FUNC2_EN) as u8,
+            )
             .await;
 
         self.bus.read8(FUNC_BUS, SDIOD_CCCR_IORDY).await;
@@ -1265,7 +1252,8 @@ where
 
         self.bus.bp_write8(base + AI_IOCTRL_OFFSET, 0).await;
         let _ = self.bus.bp_read8(base + AI_IOCTRL_OFFSET).await;
-        self.wait_for_core_wrapper_idle(base, "core_disable: after ioctrl=0").await;
+        self.wait_for_core_wrapper_idle(base, "core_disable: after ioctrl=0")
+            .await;
 
         block_for(Duration::from_millis(1));
 
@@ -1291,12 +1279,16 @@ where
         let base = CHIP::base_addr(core);
         self.log_core_wrapper_state(core, "core_reset: after disable").await;
         self.bus
-            .bp_write8(base + AI_IOCTRL_OFFSET, bits | AI_IOCTRL_BIT_FGC | AI_IOCTRL_BIT_CLOCK_EN)
+            .bp_write8(
+                base + AI_IOCTRL_OFFSET,
+                bits | AI_IOCTRL_BIT_FGC | AI_IOCTRL_BIT_CLOCK_EN,
+            )
             .await;
         let _ = self.bus.bp_read8(base + AI_IOCTRL_OFFSET).await;
         self.wait_for_core_wrapper_idle(base, "core_reset: after ioctrl fgc+clock")
             .await;
-        self.log_core_wrapper_state(core, "core_reset: forced gated clock").await;
+        self.log_core_wrapper_state(core, "core_reset: forced gated clock")
+            .await;
 
         // WHD retries the RESET deassert a few times while waiting for the core
         // wrapper to acknowledge. Mirror that behavior instead of assuming a
@@ -1355,5 +1347,4 @@ where
 
         true
     }
-
 }

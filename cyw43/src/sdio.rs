@@ -444,7 +444,8 @@ where
             // A timed-out partial F2 read leaves the same packet pending forever.
             // Mirror WHD's abort path so the device can reset its F2 read state.
             self.write8(FUNC_BUS, SDIOD_CCCR_IOABORT, FUNC_WLAN as u8).await;
-            self.write8(FUNC_BACKPLANE, REG_BACKPLANE_FRAME_CONTROL, SFC_RF_TERM).await;
+            self.write8(FUNC_BACKPLANE, REG_BACKPLANE_FRAME_CONTROL, SFC_RF_TERM)
+                .await;
             return false;
         }
         true

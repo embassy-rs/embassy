@@ -61,7 +61,9 @@ async fn sdio_init_with_retry(
 }
 
 #[embassy_executor::task]
-async fn cyw43_task(runner: cyw43::Runner<'static, cyw43::SdioBus<SerialDataInterface<'static, 'static>>, cyw43::Cyw4373>) -> ! {
+async fn cyw43_task(
+    runner: cyw43::Runner<'static, cyw43::SdioBus<SerialDataInterface<'static, 'static>>, cyw43::Cyw4373>,
+) -> ! {
     runner.run().await
 }
 
