@@ -292,7 +292,7 @@ impl AdcRegs for crate::pac::adc::Adc4 {
             reg.set_dmaen(!matches!(conversion_mode, ConversionMode::NoDma));
             reg.set_dmacfg(Dmacfg::Circular);
             reg.set_discen(false);
-            reg.set_cont(false);
+            reg.set_cont(matches!(conversion_mode, ConversionMode::Repeated(None)));
             reg.set_chselrmod(false);
 
             #[cfg(stm32wba)]
