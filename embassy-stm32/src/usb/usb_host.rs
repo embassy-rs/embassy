@@ -619,7 +619,7 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         &mut self,
         addr: u8,
         endpoint: &embassy_usb_driver::EndpointInfo,
-        _pre: bool,
+        _split: Option<embassy_usb_driver::host::SplitInfo>,
     ) -> Result<(), embassy_usb_driver::host::HostError> {
         trace!(
             "retarget_channel: addr: {:?} ep_type: {:?} index: {}",
@@ -676,7 +676,7 @@ impl<'d, I: Instance> UsbHostDriver for UsbHost<'d, I> {
         &self,
         addr: u8,
         endpoint: &embassy_usb_driver::EndpointInfo,
-        pre: bool,
+        split: Option<embassy_usb_driver::host::SplitInfo>,
     ) -> Result<Self::Channel<T, D>, embassy_usb_driver::host::HostError> {
         let new_index = if T::ep_type() == EndpointType::Control {
             // Only a single control channel is available
@@ -733,7 +733,7 @@ impl<'d, I: Instance> UsbHostDriver for UsbHost<'d, I> {
             endpoint.max_packet_size,
         );
 
-        channel.retarget_channel(addr, endpoint, pre)?;
+        channel.retarget_channel(addr, endpoint, split)?;
         Ok(channel)
     }
 

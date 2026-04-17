@@ -2,7 +2,7 @@
 //!
 //! This driver can communicate with USB HID devices (keyboards, mice, gamepads, etc.).
 
-use embassy_usb_driver::host::{ChannelError, UsbChannel, UsbHostDriver, channel};
+use embassy_usb_driver::host::{ChannelError, SplitInfo, UsbChannel, UsbHostDriver, channel};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
 
 pub use super::hid_report::{ReportDescriptor, ReportField};
@@ -240,7 +240,13 @@ impl<D: UsbHostDriver> HidHost<D> {
     ///
     /// Parses the config descriptor to find the HID interface and its interrupt IN endpoint,
     /// then allocates the necessary channels.
-    pub fn new(driver: &D, config_desc: &[u8], device_address: u8, max_packet_size_0: u16) -> Result<Self, HidError> {
+    pub fn new(
+        driver: &D,
+        config_desc: &[u8],
+        device_address: u8,
+        split: Option<SplitInfo>,
+        max_packet_size_0: u16,
+    ) -> Result<Self, HidError> {
         let info = find_hid(config_desc).ok_or(HidError::NoInterface)?;
 
         let ctrl_ep_info = EndpointInfo {
@@ -258,10 +264,10 @@ impl<D: UsbHostDriver> HidHost<D> {
         };
 
         let ctrl_ch = driver
-            .alloc_channel::<channel::Control, channel::InOut>(device_address, &ctrl_ep_info, false)
+            .alloc_channel::<channel::Control, channel::InOut>(device_address, &ctrl_ep_info, split)
             .map_err(|_| HidError::NoChannel)?;
         let in_ch = driver
-            .alloc_channel::<channel::Interrupt, channel::In>(device_address, &in_ep_info, false)
+            .alloc_channel::<channel::Interrupt, channel::In>(device_address, &in_ep_info, split)
             .map_err(|_| HidError::NoChannel)?;
 
         Ok(Self {

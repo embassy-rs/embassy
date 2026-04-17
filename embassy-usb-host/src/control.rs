@@ -5,7 +5,7 @@ use core::num::NonZeroU8;
 use embassy_time::Timer;
 use embassy_usb::control::Request;
 pub use embassy_usb_driver::host::channel;
-use embassy_usb_driver::host::{ChannelError, HostError, UsbChannel};
+use embassy_usb_driver::host::{ChannelError, HostError, SplitInfo, UsbChannel};
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
 
 use crate::descriptor::{USBDescriptor, descriptor_type};
@@ -390,7 +390,7 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
         &mut self,
         speed: Speed,
         new_device_address: u8,
-        ls_over_fs: bool,
+        split: Option<SplitInfo>,
     ) -> Result<EnumerationInfo, HostError>
     where
         D: channel::IsIn + channel::IsOut,
@@ -405,7 +405,7 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
                 max_packet_size: speed.max_packet_size(),
                 interval_ms: 0,
             },
-            ls_over_fs,
+            split,
         )?;
 
         trace!("[enum] Getting max_packet_size for new device");
@@ -447,7 +447,7 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
                 max_packet_size: max_packet_size0 as u16,
                 interval_ms: 0,
             },
-            ls_over_fs,
+            split,
         )?;
 
         let retries = 5;
@@ -472,7 +472,7 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
 
         Ok(EnumerationInfo {
             device_address: new_device_address,
-            ls_over_fs,
+            split,
             speed,
             device_desc,
         })

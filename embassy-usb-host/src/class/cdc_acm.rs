@@ -2,7 +2,7 @@
 //!
 //! This driver can communicate with USB CDC ACM devices (virtual serial ports).
 
-use embassy_usb_driver::host::{ChannelError, UsbChannel, UsbHostDriver, channel};
+use embassy_usb_driver::host::{ChannelError, SplitInfo, UsbChannel, UsbHostDriver, channel};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
 
 use crate::control::SetupPacket;
@@ -184,6 +184,7 @@ impl<D: UsbHostDriver> CdcAcmHost<D> {
         driver: &D,
         config_desc: &[u8],
         device_address: u8,
+        split: Option<SplitInfo>,
         max_packet_size_0: u16,
     ) -> Result<Self, CdcAcmError> {
         let info = find_cdc_acm(config_desc).ok_or(CdcAcmError::NoInterface)?;
@@ -210,13 +211,13 @@ impl<D: UsbHostDriver> CdcAcmHost<D> {
         };
 
         let ctrl_ch = driver
-            .alloc_channel::<channel::Control, channel::InOut>(device_address, &ctrl_ep_info, false)
+            .alloc_channel::<channel::Control, channel::InOut>(device_address, &ctrl_ep_info, split)
             .map_err(|_| CdcAcmError::NoChannel)?;
         let in_ch = driver
-            .alloc_channel::<channel::Bulk, channel::In>(device_address, &in_ep_info, false)
+            .alloc_channel::<channel::Bulk, channel::In>(device_address, &in_ep_info, split)
             .map_err(|_| CdcAcmError::NoChannel)?;
         let out_ch = driver
-            .alloc_channel::<channel::Bulk, channel::Out>(device_address, &out_ep_info, false)
+            .alloc_channel::<channel::Bulk, channel::Out>(device_address, &out_ep_info, split)
             .map_err(|_| CdcAcmError::NoChannel)?;
 
         Ok(Self {

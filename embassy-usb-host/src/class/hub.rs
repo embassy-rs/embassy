@@ -9,7 +9,7 @@ use core::num::NonZeroU8;
 use bitflags::bitflags;
 use embassy_time::Timer;
 use embassy_usb::control::Request;
-use embassy_usb_driver::host::{HostError, UsbChannel, UsbHostDriver, channel};
+use embassy_usb_driver::host::{HostError, SplitInfo, UsbChannel, UsbHostDriver, channel};
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
 use zerocopy::{FromBytes, Immutable, KnownLayout};
 
@@ -36,6 +36,7 @@ pub enum HubEvent {
 impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
     /// Attempt to register a hub handler for the given device.
     pub async fn try_register(bus: &H, enum_info: &EnumerationInfo) -> Result<Self, RegisterError> {
+        let ls_over_fs = enum_info.split.map(|s| s.device_speed() == Speed::Low).unwrap_or(false);
         let mut control_channel = bus.alloc_channel::<channel::Control, channel::InOut>(
             enum_info.device_address,
             &EndpointInfo {
@@ -44,10 +45,10 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
                 max_packet_size: enum_info
                     .device_desc
                     .max_packet_size0
-                    .min(if enum_info.ls_over_fs { 8 } else { 64 }) as u16,
+                    .min(if ls_over_fs { 8 } else { 64 }) as u16,
                 interval_ms: 0,
             },
-            enum_info.ls_over_fs,
+            enum_info.split,
         )?;
 
         let mut cfg_desc_buf = [0u8; DEFAULT_MAX_DESCRIPTOR_SIZE];
@@ -78,7 +79,7 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
         let interrupt_channel = bus.alloc_channel::<channel::Interrupt, channel::In>(
             enum_info.device_address,
             &interrupt_ep.into(),
-            enum_info.ls_over_fs,
+            enum_info.split,
         )?;
 
         let desc = control_channel.request_descriptor::<HubDescriptor, 64>(0, true).await?;
@@ -217,9 +218,12 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
         Timer::after_millis(50).await;
         self.port_feature(false, PortFeature::ChangeReset, port, 0).await?;
 
-        let ls_pre = matches!((speed, self.speed), (Speed::Low, Speed::Full | Speed::High));
+        // Legacy PRE / low-speed-through-a-hub: everything else is not yet
+        // supported by any of the HAL drivers.
+        let split = matches!((speed, self.speed), (Speed::Low, Speed::Full | Speed::High))
+            .then(|| SplitInfo::new(self.device_address, port + 1, speed));
         self.control_channel
-            .enumerate_device(speed, new_device_address, ls_pre)
+            .enumerate_device(speed, new_device_address, split)
             .await
     }
 

@@ -66,7 +66,7 @@
 //!
 //! [MS-GIPUSB]: https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gipusb/
 
-use embassy_usb_driver::host::{ChannelError, UsbChannel, UsbHostDriver, channel};
+use embassy_usb_driver::host::{ChannelError, SplitInfo, UsbChannel, UsbHostDriver, channel};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
 
 use crate::descriptor::ConfigurationDescriptor;
@@ -501,6 +501,7 @@ impl<D: UsbHostDriver, DEV: GipDevice> GipHost<D, DEV> {
         driver: &D,
         config_desc: &[u8],
         device_address: u8,
+        split: Option<SplitInfo>,
         vendor_id: u16,
         product_id: u16,
     ) -> Result<Self, GipError> {
@@ -523,10 +524,10 @@ impl<D: UsbHostDriver, DEV: GipDevice> GipHost<D, DEV> {
         };
 
         let in_ch = driver
-            .alloc_channel::<channel::Interrupt, channel::In>(device_address, &in_ep_info, false)
+            .alloc_channel::<channel::Interrupt, channel::In>(device_address, &in_ep_info, split)
             .map_err(|_| GipError::NoChannel)?;
         let out_ch = driver
-            .alloc_channel::<channel::Interrupt, channel::Out>(device_address, &out_ep_info, false)
+            .alloc_channel::<channel::Interrupt, channel::Out>(device_address, &out_ep_info, split)
             .map_err(|_| GipError::NoChannel)?;
 
         let mut host = Self {

@@ -161,12 +161,12 @@ impl<D: UsbHostDriver> UsbHost<D> {
 
         let mut ch = self
             .driver
-            .alloc_channel::<channel::Control, channel::InOut>(0, &ep0_info, false)
+            .alloc_channel::<channel::Control, channel::InOut>(0, &ep0_info, None)
             .map_err(|_| EnumerationError::NoChannel)?;
 
         // Steps 1–3: GET_DESCRIPTOR (partial + full), SET_ADDRESS, retarget channel.
         let addr = self.alloc_address().ok_or(EnumerationError::NoChannel)?;
-        let enum_info = ch.enumerate_device(speed, addr, false).await?;
+        let enum_info = ch.enumerate_device(speed, addr, None).await?;
         let dev_desc = enum_info.device_desc;
 
         info!(
