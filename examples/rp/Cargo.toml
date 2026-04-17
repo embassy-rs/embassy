@@ -14,7 +14,7 @@ embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["de
 embassy-rp = { version = "0.10.0", path = "../../embassy-rp", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp2040"] }
 embassy-usb = { version = "0.6.0", path = "../../embassy-usb", features = ["defmt"] }
 embassy-usb-host = { version = "0.1.0", path = "../../embassy-usb-host", features = ["defmt"] }
-embassy-usb-driver = { version = "0.2.0", path = "../../embassy-usb-driver" }
+embassy-usb-driver = { version = "0.2.1", path = "../../embassy-usb-driver" }
 embassy-net = { version = "0.9.1", path = "../../embassy-net", features = ["defmt", "icmp", "tcp", "udp", "raw", "dhcpv4", "medium-ethernet", "dns", "proto-ipv4", "proto-ipv6", "multicast"] }
 embassy-net-wiznet = { version = "0.3.0", path = "../../embassy-net-wiznet", features = ["defmt"] }
 embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
