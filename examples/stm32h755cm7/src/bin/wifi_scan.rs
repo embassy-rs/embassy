@@ -112,9 +112,9 @@ async fn main(spawner: Spawner) {
     trace!("WL_REG_ON low, pre-power delay");
     Timer::after_millis(100).await;
 
-    let fw = aligned_bytes!("../../cyw43-firmware/4373A0.bin");
-    let clm = aligned_bytes!("../../cyw43-firmware/4373A0_clm.bin");
-    let nvram = aligned_bytes!("../../cyw43-firmware/nvram_murata_2bc.bin");
+    let fw = aligned_bytes!("../../../../cyw43-firmware/4373A0.bin");
+    let clm = aligned_bytes!("../../../../cyw43-firmware/4373A0_clm.bin");
+    let nvram = aligned_bytes!("../../../../cyw43-firmware/nvram_murata_2bc.bin");
     info!(
         "CYW43 debug pair: module=MURATA-2BC chip=CYW4373 fw=4373A0.bin({} B) clm=4373A0_clm.bin({} B) nvram=nvram_murata_2bc.bin({} B)",
         fw.len(),
