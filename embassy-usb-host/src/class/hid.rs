@@ -2,12 +2,13 @@
 //!
 //! This driver can communicate with USB HID devices (keyboards, mice, gamepads, etc.).
 
-use embassy_usb_driver::host::{ChannelError, SplitInfo, UsbChannel, UsbHostDriver, channel};
+use embassy_usb_driver::host::{ChannelError, UsbChannel, UsbHostDriver, channel};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
 
 pub use super::hid_report::{ReportDescriptor, ReportField};
 use crate::control::SetupPacket;
 use crate::descriptor::ConfigurationDescriptor;
+use crate::handler::EnumerationInfo;
 
 /// HID class code.
 const USB_CLASS_HID: u8 = 0x03;
@@ -240,19 +241,13 @@ impl<D: UsbHostDriver> HidHost<D> {
     ///
     /// Parses the config descriptor to find the HID interface and its interrupt IN endpoint,
     /// then allocates the necessary channels.
-    pub fn new(
-        driver: &D,
-        config_desc: &[u8],
-        device_address: u8,
-        split: Option<SplitInfo>,
-        max_packet_size_0: u16,
-    ) -> Result<Self, HidError> {
+    pub fn new(driver: &D, config_desc: &[u8], enum_info: &EnumerationInfo) -> Result<Self, HidError> {
         let info = find_hid(config_desc).ok_or(HidError::NoInterface)?;
 
         let ctrl_ep_info = EndpointInfo {
             addr: EndpointAddress::from_parts(0, UsbDirection::In),
             ep_type: EndpointType::Control,
-            max_packet_size: max_packet_size_0,
+            max_packet_size: enum_info.device_desc.max_packet_size0 as u16,
             interval_ms: 0,
         };
 
@@ -262,6 +257,9 @@ impl<D: UsbHostDriver> HidHost<D> {
             max_packet_size: info.interrupt_in_mps,
             interval_ms: 0,
         };
+
+        let device_address = enum_info.device_address;
+        let split = enum_info.split;
 
         let ctrl_ch = driver
             .alloc_channel::<channel::Control, channel::InOut>(device_address, &ctrl_ep_info, split)

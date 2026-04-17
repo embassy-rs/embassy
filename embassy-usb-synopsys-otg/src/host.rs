@@ -1101,7 +1101,12 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> UsbChannel<
         Ok(())
     }
 
-    fn retarget_channel(&mut self, addr: u8, endpoint: &EndpointInfo, _split: Option<SplitInfo>) -> Result<(), HostError> {
+    fn retarget_channel(
+        &mut self,
+        addr: u8,
+        endpoint: &EndpointInfo,
+        _split: Option<SplitInfo>,
+    ) -> Result<(), HostError> {
         self.device_address = addr;
         self.ep_number = endpoint.addr.index() as u8;
         self.max_packet_size = endpoint.max_packet_size;

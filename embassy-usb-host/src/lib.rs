@@ -15,7 +15,8 @@ use embassy_usb_driver::host::{ChannelError, DeviceEvent, HostError, UsbChannel,
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType, Speed};
 
 use crate::control::SetupPacket;
-use crate::descriptor::{ConfigurationDescriptor, DeviceDescriptor, USBDescriptor};
+use crate::descriptor::{ConfigurationDescriptor, USBDescriptor};
+use crate::handler::EnumerationInfo;
 
 /// USB host enumeration error.
 #[derive(Debug)]
@@ -144,12 +145,12 @@ impl<D: UsbHostDriver> UsbHost<D> {
     /// 4. Get configuration descriptor
     /// 5. SET_CONFIGURATION
     ///
-    /// Returns the device descriptor, assigned address, and bytes written to config_buf.
+    /// Returns the [`EnumerationInfo`] for the device and bytes written to `config_buf`.
     pub async fn enumerate(
         &mut self,
         speed: Speed,
         config_buf: &mut [u8],
-    ) -> Result<(DeviceDescriptor, u8, usize), EnumerationError> {
+    ) -> Result<(EnumerationInfo, usize), EnumerationError> {
         use crate::control::ControlChannelExt;
 
         let ep0_info = EndpointInfo {
@@ -167,7 +168,7 @@ impl<D: UsbHostDriver> UsbHost<D> {
         // Steps 1–3: GET_DESCRIPTOR (partial + full), SET_ADDRESS, retarget channel.
         let addr = self.alloc_address().ok_or(EnumerationError::NoChannel)?;
         let enum_info = ch.enumerate_device(speed, addr, None).await?;
-        let dev_desc = enum_info.device_desc;
+        let dev_desc = &enum_info.device_desc;
 
         info!(
             "Device: VID={:04x} PID={:04x} class={:02x}",
@@ -210,6 +211,6 @@ impl<D: UsbHostDriver> UsbHost<D> {
         // Channel is released on drop.
         drop(ch);
 
-        Ok((dev_desc, addr, n))
+        Ok((enum_info, n))
     }
 }
