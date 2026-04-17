@@ -563,11 +563,7 @@ impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D,
 }
 
 impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<'d, I, D, T> {
-    async fn control_in(
-        &mut self,
-        setup: &embassy_usb_driver::host::SetupPacket,
-        buf: &mut [u8],
-    ) -> Result<usize, ChannelError>
+    async fn control_in(&mut self, setup: &[u8; 8], buf: &mut [u8]) -> Result<usize, ChannelError>
     where
         T: channel::IsControl,
         D: channel::IsIn,
@@ -579,7 +575,7 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         epr_val.set_setup(true);
         epr0.write_value(epr_val);
 
-        self.write(&setup.to_bytes(), false).await?;
+        self.write(setup, false).await?;
 
         // data stage
         let count = self.read(buf).await?;
@@ -593,11 +589,7 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         Ok(count)
     }
 
-    async fn control_out(
-        &mut self,
-        setup: &embassy_usb_driver::host::SetupPacket,
-        buf: &[u8],
-    ) -> Result<(), ChannelError>
+    async fn control_out(&mut self, setup: &[u8; 8], buf: &[u8]) -> Result<(), ChannelError>
     where
         T: channel::IsControl,
         D: channel::IsOut,
@@ -608,7 +600,7 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         let mut epr_val = invariant(epr0.read());
         epr_val.set_setup(true);
         epr0.write_value(epr_val);
-        self.write(&setup.to_bytes(), false).await?;
+        self.write(setup, false).await?;
 
         if buf.is_empty() {
             // do nothing

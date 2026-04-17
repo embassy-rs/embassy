@@ -41,12 +41,11 @@ use core::task::Poll;
 use aligned::{A4, Aligned};
 use embassy_time::{Duration, Instant, Timer};
 use embassy_usb::control::Request;
-use embassy_usb_driver::host::{
-    ChannelError, ControlType, HostError, Recipient, RequestType, SetupPacket, UsbChannel, UsbHostDriver, channel,
-};
+use embassy_usb_driver::host::{ChannelError, HostError, UsbChannel, UsbHostDriver, channel};
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
 use heapless::{String, Vec};
 
+use crate::control::{ControlType, Recipient, RequestType, SetupPacket};
 use crate::descriptor::DEFAULT_MAX_DESCRIPTOR_SIZE;
 use crate::handler::{EnumerationInfo, RegisterError};
 
@@ -179,7 +178,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
             length: 0,
         };
         control_channel
-            .control_out(&packet, &mut [])
+            .control_out(&packet.to_bytes(), &mut [])
             .await
             .map_err(|e| RegisterError::HostError(HostError::ChannelError(e)))?;
         debug!(
@@ -323,7 +322,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
         let mut buf = Aligned::<A4, _>([0; 4]);
 
         self.control_channel
-            .control_in(&packet, buf.as_mut_slice())
+            .control_in(&packet.to_bytes(), buf.as_mut_slice())
             .await
             .map_err(|e| RequestError::RequestFailed(e))?;
 
@@ -353,7 +352,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
 
         let mut length_buf = Aligned::<A4, _>([0; 2]);
         self.control_channel
-            .control_in(&packet, length_buf.as_mut_slice())
+            .control_in(&packet.to_bytes(), length_buf.as_mut_slice())
             .await
             .map_err(|e| RequestError::RequestFailed(e))?;
 
@@ -377,7 +376,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
 
         let mut buf = Aligned::<A4, _>([0; MAX_STRING_BUF_SIZE]);
         self.control_channel
-            .control_in(&packet, &mut buf.as_mut_slice()[..total_length as usize])
+            .control_in(&packet.to_bytes(), &mut buf.as_mut_slice()[..total_length as usize])
             .await
             .map_err(|e| RequestError::RequestFailed(e))?;
 
@@ -427,7 +426,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
         let mut buf = Aligned::<A4, _>([0; 1]);
 
         self.control_channel
-            .control_in(&packet, buf.as_mut_slice())
+            .control_in(&packet.to_bytes(), buf.as_mut_slice())
             .await
             .map_err(|e| RequestError::RequestFailed(e))?;
 
@@ -461,7 +460,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
         let mut buf = Aligned::<A4, _>([0; 2]);
 
         self.control_channel
-            .control_in(&packet, buf.as_mut_slice())
+            .control_in(&packet.to_bytes(), buf.as_mut_slice())
             .await
             .map_err(|e| RequestError::RequestFailed(e))?;
 
@@ -495,7 +494,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
         let mut buf = Aligned::<A4, _>([0; 4]);
 
         self.control_channel
-            .control_in(&packet, buf.as_mut_slice())
+            .control_in(&packet.to_bytes(), buf.as_mut_slice())
             .await
             .map_err(|e| RequestError::RequestFailed(e))?;
 
@@ -529,7 +528,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
         let mut buf = Aligned::<A4, _>([0; size_of::<Layout1ParameterBlock>()]);
 
         self.control_channel
-            .control_in(&packet, buf.as_mut_slice())
+            .control_in(&packet.to_bytes(), buf.as_mut_slice())
             .await
             .map_err(|e| RequestError::RequestFailed(e))?;
 
@@ -565,7 +564,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
         let mut buf = Aligned::<A4, _>([0; size_of::<Layout2ParameterBlock>()]);
 
         self.control_channel
-            .control_in(&packet, buf.as_mut_slice())
+            .control_in(&packet.to_bytes(), buf.as_mut_slice())
             .await
             .map_err(|e| RequestError::RequestFailed(e))?;
 
@@ -601,7 +600,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
         let mut buf = Aligned::<A4, _>([0; size_of::<Layout3ParameterBlock>()]);
 
         self.control_channel
-            .control_in(&packet, buf.as_mut_slice())
+            .control_in(&packet.to_bytes(), buf.as_mut_slice())
             .await
             .map_err(|e| RequestError::RequestFailed(e))?;
 

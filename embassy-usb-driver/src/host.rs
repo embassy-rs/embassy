@@ -2,7 +2,7 @@
 
 use core::time::Duration;
 
-use crate::{Direction, EndpointInfo, EndpointType, Speed};
+use crate::{EndpointInfo, EndpointType, Speed};
 
 /// Errors returned by [`ChannelOut::write`] and [`ChannelIn::read`]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -25,166 +25,6 @@ pub enum ChannelError {
 
     /// Device disconnected
     Disconnected,
-}
-
-/// Recipient of a USB control request.
-///
-/// This is the 5-bit Recipient sub-field of `bmRequestType`
-/// (USB 2.0 spec Table 9-2, bits 4..0). The discriminant of each variant
-/// matches the on-wire value.
-#[repr(u8)]
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Recipient {
-    /// The request is intended for the entire device.
-    Device = 0,
-    /// The request is intended for an interface.
-    Interface = 1,
-    /// The request is intended for an endpoint.
-    Endpoint = 2,
-    /// The recipient of the request is unspecified.
-    Other = 3,
-    /// Any reserved recipient value (4..=31).
-    Reserved = 4,
-}
-
-/// Type of a USB control request.
-///
-/// This is the 2-bit Type sub-field of `bmRequestType`
-/// (USB 2.0 spec Table 9-2, bits 6..5). The discriminant of each variant
-/// matches the on-wire value.
-#[repr(u8)]
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum ControlType {
-    /// A standard USB request (USB 2.0 spec §9.4).
-    Standard = 0,
-    /// A class-specific request.
-    Class = 1,
-    /// A vendor-specific request.
-    Vendor = 2,
-    /// Reserved.
-    Reserved = 3,
-}
-
-/// USB control request type (`bmRequestType`).
-///
-/// Encodes the three sub-fields of `bmRequestType` (USB 2.0 spec Table 9-2):
-/// direction (bit 7), type (bits 6..5) and recipient (bits 4..0). Construct
-/// by specifying all three sub-fields; encode/decode the wire byte with
-/// [`to_bits`](Self::to_bits) and [`from_bits`](Self::from_bits).
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct RequestType {
-    /// Transfer direction (IN = device→host, OUT = host→device).
-    pub direction: Direction,
-    /// Whether this is a standard, class, vendor, or reserved request.
-    pub control_type: ControlType,
-    /// Recipient of the request.
-    pub recipient: Recipient,
-}
-
-impl RequestType {
-    /// Construct a new [`RequestType`] from its three sub-fields.
-    pub const fn new(direction: Direction, control_type: ControlType, recipient: Recipient) -> Self {
-        Self {
-            direction,
-            control_type,
-            recipient,
-        }
-    }
-
-    /// Construct a device-to-host (IN) [`RequestType`].
-    pub const fn device_to_host(control_type: ControlType, recipient: Recipient) -> Self {
-        Self::new(Direction::In, control_type, recipient)
-    }
-
-    /// Construct a host-to-device (OUT) [`RequestType`].
-    pub const fn host_to_device(control_type: ControlType, recipient: Recipient) -> Self {
-        Self::new(Direction::Out, control_type, recipient)
-    }
-
-    /// Encode this request type to its wire-format `bmRequestType` byte.
-    pub const fn to_bits(self) -> u8 {
-        let d = match self.direction {
-            Direction::Out => 0,
-            Direction::In => 1 << 7,
-        };
-        let t = (self.control_type as u8) << 5;
-        let r = self.recipient as u8;
-        d | t | r
-    }
-
-    /// Decode a wire-format `bmRequestType` byte.
-    ///
-    /// Reserved type values decode to [`ControlType::Reserved`]; reserved
-    /// recipient values (4..=31) decode to [`Recipient::Reserved`].
-    pub const fn from_bits(b: u8) -> Self {
-        let direction = if b & 0x80 != 0 { Direction::In } else { Direction::Out };
-        let control_type = match (b >> 5) & 0b11 {
-            0 => ControlType::Standard,
-            1 => ControlType::Class,
-            2 => ControlType::Vendor,
-            _ => ControlType::Reserved,
-        };
-        let recipient = match b & 0b1_1111 {
-            0 => Recipient::Device,
-            1 => Recipient::Interface,
-            2 => Recipient::Endpoint,
-            3 => Recipient::Other,
-            _ => Recipient::Reserved,
-        };
-        Self {
-            direction,
-            control_type,
-            recipient,
-        }
-    }
-}
-
-/// USB Control Setup Packet
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub struct SetupPacket {
-    /// Request characteristics: direction, type, recipient.
-    /// See [`RequestType`] for details.
-    /// Called `bmRequestType` in USB spec (Table 9-2).
-    pub request_type: RequestType,
-    /// Request code.
-    /// See Table 9-3 of USB spec for standard ones.
-    /// Called `bRequest` in USB spec (Table 9-2).
-    pub request: u8,
-    /// Use depending on request field.
-    /// Called `wValue` in USB spec (Table 9-2).
-    pub value: u16,
-    /// Use depending on request field.
-    /// Called `wIndex` in USB spec (Table 9-2).
-    pub index: u16,
-    /// Number of bytes to transfer in data stage if there is one.
-    /// Called `wLength` in USB spec (Table 9-2).
-    pub length: u16,
-}
-
-impl SetupPacket {
-    /// Serialize this SETUP packet to its 8-byte wire format.
-    ///
-    /// Multi-byte fields are emitted in little-endian order, as required by
-    /// USB 2.0 spec §8.1.
-    pub const fn to_bytes(self) -> [u8; 8] {
-        let v = self.value.to_le_bytes();
-        let i = self.index.to_le_bytes();
-        let l = self.length.to_le_bytes();
-        [
-            self.request_type.to_bits(),
-            self.request,
-            v[0],
-            v[1],
-            i[0],
-            i[1],
-            l[0],
-            l[1],
-        ]
-    }
 }
 
 /// Device has been attached/detached
@@ -400,14 +240,17 @@ impl Default for TimeoutConfig {
 pub trait UsbChannel<T: channel::Type, D: channel::Direction> {
     /// Send IN control request.
     ///
+    /// `setup` is the 8-byte wire-format SETUP packet (see USB 2.0 spec §9.3).
     /// Returns the number of bytes received into `buf`.
-    async fn control_in(&mut self, setup: &SetupPacket, buf: &mut [u8]) -> Result<usize, ChannelError>
+    async fn control_in(&mut self, setup: &[u8; 8], buf: &mut [u8]) -> Result<usize, ChannelError>
     where
         T: channel::IsControl,
         D: channel::IsIn;
 
     /// Send OUT control request
-    async fn control_out(&mut self, setup: &SetupPacket, buf: &[u8]) -> Result<(), ChannelError>
+    ///
+    /// `setup` is the 8-byte wire-format SETUP packet (see USB 2.0 spec §9.3).
+    async fn control_out(&mut self, setup: &[u8; 8], buf: &[u8]) -> Result<(), ChannelError>
     where
         T: channel::IsControl,
         D: channel::IsOut;
