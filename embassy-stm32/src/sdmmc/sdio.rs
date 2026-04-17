@@ -4,6 +4,8 @@ use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
 use aligned::{A4, Aligned};
+#[cfg(feature = "time")]
+use embassy_time::Timer;
 use sdio_host::common_cmd::{R1, Resp, cmd};
 use sdio_host::sd::{BusWidth, OCR, RCA, SD};
 use sdio_host::{Cmd, sd_cmd};
@@ -108,8 +110,30 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
         // the SDMMC_CK frequency must be no more than 400 kHz.
         self.sdmmc.init_idle()?;
 
-        // Get IO OCR
-        let _ocr: OCR<SD> = self.sdmmc.cmd(io_send_op_cond(false, 0x0), false, false)?.into();
+        // Retry CMD5 (IO_SEND_OP_COND) up to 500 times with 1 ms delays, matching the
+        // Infineon/Cypress WHD driver (SDIO_ENUMERATION_TRIES / SDIO_RETRY_DELAY_MS).
+        // The SDMMC peripheral stays POWER_ON throughout so the card clock keeps running,
+        // which is required for SDIO chips (e.g. CYW4373) that need the clock during
+        // their internal power-up sequence before they can ACK CMD5.
+        let _ocr: OCR<SD> = {
+            let mut result = Err(Error::Timeout);
+            for _ in 0..500u16 {
+                match self.sdmmc.cmd(io_send_op_cond(false, 0x0), false, false) {
+                    Ok(r) => {
+                        result = Ok(r);
+                        break;
+                    }
+                    Err(Error::Timeout) => {
+                        #[cfg(feature = "time")]
+                        Timer::after_millis(1).await;
+                        #[cfg(not(feature = "time"))]
+                        crate::block_for_us(1000);
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+            result?.into()
+        };
 
         // UDB-based SDIO does not support io volt switch sequence
 

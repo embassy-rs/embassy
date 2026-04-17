@@ -5,7 +5,7 @@ use core::default::Default;
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::slice;
-use core::sync::atomic::{Ordering, fence};
+use core::sync::atomic::{AtomicBool, Ordering, fence};
 use core::task::Poll;
 
 use aligned::{A4, Aligned};
@@ -25,6 +25,8 @@ use crate::pac::sdmmc::Sdmmc as RegBlock;
 use crate::rcc::{self, RccInfo, RccPeripheral, SealedRccPeripheral};
 use crate::time::Hertz;
 use crate::{block_for_us, interrupt, peripherals};
+
+static SDMMC_CMD_TIMEOUT_DUMPED: AtomicBool = AtomicBool::new(false);
 
 /// Module for SD and EMMC cards
 pub mod sd;
@@ -780,7 +782,11 @@ impl<'d> Sdmmc<'d> {
         self.wait_idle();
         self.clear_interrupt_flags();
 
-        regs.dlenr().write(|w| w.set_datalength(size_of_val(buffer) as u32));
+        // Use buffer.len() not size_of_val: Aligned<A4, [u8]> is #[repr(C)]
+        // with alignment 4, so size_of_val rounds up to a multiple of 4.
+        // This causes DLEN to exceed the CMD53 byte count for non-4-aligned
+        // sizes, resulting in data timeouts.
+        regs.dlenr().write(|w| w.set_datalength(buffer.len() as u32));
 
         // SAFETY: No other functions use the dma
         #[cfg(sdmmc_v1)]
@@ -840,7 +846,7 @@ impl<'d> Sdmmc<'d> {
         self.wait_idle();
         self.clear_interrupt_flags();
 
-        regs.dlenr().write(|w| w.set_datalength(size_of_val(buffer) as u32));
+        regs.dlenr().write(|w| w.set_datalength(buffer.len() as u32));
 
         // SAFETY: No other functions use the dma
         #[cfg(sdmmc_v1)]
@@ -911,6 +917,27 @@ impl<'d> Sdmmc<'d> {
         block_for_us((74_000_000 / SD_INIT_FREQ.0) as u64);
 
         self.cmd(common_cmd::idle(), true, false)
+    }
+
+    /// Start the SDMMC clock at 400 kHz without performing any card initialization.
+    ///
+    /// Call this before asserting the Wi-Fi module's WL_REG_ON (power enable) so that
+    /// the SDMMC clock is already toggling when the module powers up.  SDIO chips such
+    /// as the CYW4373 require the host clock to be present during their power-up
+    /// sequence before they will respond to CMD5 (IO_SEND_OP_COND).
+    ///
+    /// This matches the Infineon STM32 PAL behaviour in `_stm32_sdio_enable_hw_block`
+    /// (stm32_cyhal_sdio.c), which calls `SDMMC_PowerState_ON` followed by a 74-cycle
+    /// wait *before* `_cybsp_wifi_reset_wifi_chip` asserts WL_REG_ON.
+    pub fn start_clocks(&mut self) -> Result<(), Error> {
+        let regs = self.info.regs;
+        self.clkcr_set_clkdiv(SD_INIT_FREQ, BusWidth::One)?;
+        regs.dtimer()
+            .write(|w| w.set_datatime(self.config.data_transfer_timeout));
+        regs.power().modify(|w| w.set_pwrctrl(PowerCtrl::On as u8));
+        // Wait the mandatory ≥74 cycles (SD spec §6.4.1)
+        block_for_us((74_000_000 / SD_INIT_FREQ.0) as u64);
+        Ok(())
     }
 
     /// Sets the CLKDIV field in CLKCR. Updates clock field in self
@@ -1042,6 +1069,30 @@ impl<'d> Sdmmc<'d> {
 
         if status.ctimeout() {
             trace!("ctimeout: {}", cmd.cmd);
+            if !SDMMC_CMD_TIMEOUT_DUMPED.swap(true, Ordering::Relaxed) {
+                #[cfg(sdmmc_v2)]
+                trace!(
+                    "sdmmc timeout snapshot: cmd={} arg={:08x} star={:08x} cmdr={:08x} dlenr={:08x} dctrl={:08x} idmactrlr={:08x} idmabase0r={:08x}",
+                    cmd.cmd,
+                    regs.argr().read().0,
+                    regs.star().read().0,
+                    regs.cmdr().read().0,
+                    regs.dlenr().read().0,
+                    regs.dctrl().read().0,
+                    regs.idmactrlr().read().0,
+                    regs.idmabase0r().read().0,
+                );
+                #[cfg(sdmmc_v1)]
+                trace!(
+                    "sdmmc timeout snapshot: cmd={} arg={:08x} star={:08x} cmdr={:08x} dlenr={:08x} dctrl={:08x}",
+                    cmd.cmd,
+                    regs.argr().read().0,
+                    regs.star().read().0,
+                    regs.cmdr().read().0,
+                    regs.dlenr().read().0,
+                    regs.dctrl().read().0,
+                );
+            }
 
             return Err(Error::Timeout);
         } else if check_crc && status.ccrcfail() {

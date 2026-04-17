@@ -113,7 +113,17 @@ impl SdpcmHeader {
             return None;
         }
 
-        let sdpcm_packet = &mut sdpcm_packet[(sdpcm_header.header_length as usize - Self::SIZE)..];
+        let header_length = sdpcm_header.header_length as usize;
+        if header_length < Self::SIZE {
+            warn!("sdpcm header_length too short: {}", header_length);
+            return None;
+        }
+        if header_length > packet_len {
+            warn!("sdpcm header_length beyond packet: {}", header_length);
+            return None;
+        }
+
+        let sdpcm_packet = &mut sdpcm_packet[(header_length - Self::SIZE)..];
         Some((sdpcm_header, sdpcm_packet))
     }
 }

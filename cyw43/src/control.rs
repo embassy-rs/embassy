@@ -226,7 +226,7 @@ impl<'a> Control<'a> {
         let mac_addr = self.address().await;
         debug!("mac addr: {:02x}", Bytes(&mac_addr));
 
-        let country = countries::WORLD_WIDE_XX;
+        let country = countries::UNITED_STATES;
         let country_info = CountryInfo {
             country_abbrev: [country.code[0], country.code[1], 0, 0],
             country_code: [country.code[0], country.code[1], 0, 0],

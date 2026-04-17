@@ -37,6 +37,7 @@ enum Word {
 }
 
 const BLOCK_SIZE: usize = BACKPLANE_MAX_TRANSFER_SIZE;
+const SDIO_DEBUG_INIT_CLOCK_HZ: u32 = 12_500_000;
 
 fn cmd53_arg(write: bool, func: u32, addr: u32, mode: Mode, len: usize) -> u32 {
     let (len, block_mode) = match mode {
@@ -115,6 +116,7 @@ impl<const SIZE: usize, T: SdioBusCyw43<SIZE>> SdioBusCyw43<SIZE> for &mut T {
 /// Doc
 pub struct SdioBus<SDIO> {
     backplane_window: u32,
+    wlan_bus_prepared: bool,
     sdio: SDIO,
 }
 
@@ -125,7 +127,59 @@ where
     pub(crate) fn new(sdio: SDIO) -> Self {
         Self {
             backplane_window: 0xAAAA_AAAA,
+            wlan_bus_prepared: false,
             sdio,
+        }
+    }
+
+    async fn prepare_wlan_bus_if_needed(&mut self) {
+        if self.wlan_bus_prepared {
+            return;
+        }
+
+        let wakeup_ctrl = self.read8(FUNC_BACKPLANE, REG_BACKPLANE_WAKEUP_CTRL).await;
+        self.write8(
+            FUNC_BACKPLANE,
+            REG_BACKPLANE_WAKEUP_CTRL,
+            wakeup_ctrl | SBSDIO_WCTRL_WL_WAKE_TILL_ALP_AVAIL,
+        )
+        .await;
+
+        self.write8(
+            FUNC_BUS,
+            SDIOD_CCCR_BRCM_CARDCAP,
+            SDIOD_CCCR_BRCM_CARDCAP_CMD_NODEC as u8,
+        )
+        .await;
+
+        let sleep_csr = self.read8(FUNC_BACKPLANE, REG_BACKPLANE_SLEEP_CSR).await;
+        if sleep_csr & SBSDIO_SLPCSR_KEEP_WL_KSO as u8 == 0 {
+            self.write8(
+                FUNC_BACKPLANE,
+                REG_BACKPLANE_SLEEP_CSR,
+                sleep_csr | SBSDIO_SLPCSR_KEEP_WL_KSO as u8,
+            )
+            .await;
+        }
+
+        self.wlan_bus_prepared = true;
+    }
+
+    async fn ensure_wlan_bus_awake(&mut self) {
+        if !self.wlan_bus_prepared {
+            return;
+        }
+
+        self.write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, BACKPLANE_HT_AVAIL_REQ)
+            .await;
+
+        if !try_until(
+            async || self.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & BACKPLANE_HT_AVAIL_REQ << 3 != 0,
+            Duration::from_millis(5),
+        )
+        .await
+        {
+            debug!("timeout while requesting HT clock before SDIO access");
         }
     }
 
@@ -246,22 +300,27 @@ where
         }
     }
 
-    async fn cmd53_read(&mut self, func: u32, mut addr: u32, buf: &mut Aligned<A4, [u8]>) {
-        let byte_part = size_of_val(buf) % BLOCK_SIZE;
-        let block_part = size_of_val(buf) - byte_part;
+    async fn cmd53_read(&mut self, func: u32, mut addr: u32, buf: &mut Aligned<A4, [u8]>) -> bool {
+        let mut ok = true;
+        // Use buf.len() (Deref to [u8]) not size_of_val, which rounds up to
+        // the Aligned<A4, _> alignment (4 bytes) and would over-index short slices.
+        let data_len = buf.len();
+        let byte_part = data_len % BLOCK_SIZE;
+        let block_part = data_len - byte_part;
 
         if block_part > 0 {
             let buf = &mut buf[..block_part];
 
             if self
                 .sdio
-                .cmd53_block_read(cmd53_arg(false, func, addr, Mode::Block, buf.len()), unsafe {
-                    slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut _, size_of_val(buf) / BLOCK_SIZE)
+                .cmd53_block_read(cmd53_arg(false, func, addr, Mode::Block, block_part), unsafe {
+                    slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut _, block_part / BLOCK_SIZE)
                 })
                 .await
                 .is_err()
             {
                 debug!("cmd53 block read failed");
+                ok = false;
             }
 
             addr += block_part as u32;
@@ -276,9 +335,12 @@ where
                 .await
                 .is_err()
             {
-                debug!("cmd53 byte read failed (size: {})", size_of_val(buf));
+                debug!("cmd53 byte read failed (size: {})", buf.len());
+                ok = false;
             }
         }
+
+        ok
     }
 }
 
@@ -348,16 +410,14 @@ where
         )
         .await;
 
-        self.sdio.set_bus_to_high_speed(25_000_000).unwrap();
+        // Keep the bus conservative during bring-up so firmware download and
+        // early boot are not conflated with signal-integrity/timing issues.
+        self.sdio.set_bus_to_high_speed(SDIO_DEBUG_INIT_CLOCK_HZ).unwrap();
 
-        // enable more than 25MHz bus
-        let reg = self.read8(FUNC_BUS, SDIOD_CCCR_SPEED_CONTROL).await as u32;
-        if reg & 1 != 0 {
-            self.write8(FUNC_BUS, SDIOD_CCCR_SPEED_CONTROL, (reg | SDIO_SPEED_EHS) as u8)
-                .await;
-
-            self.sdio.set_bus_to_high_speed(50_000_000).unwrap();
-        }
+        // Note: high-speed (50 MHz) is intentionally NOT enabled here.
+        // For debug we also stay below 25 MHz for the whole init path. If the
+        // failure disappears at 12.5 MHz, the problem is much more likely to be
+        // electrical/timing related than a pure firmware sequencing bug.
 
         // Wait till the backplane is ready
         if !try_until(
@@ -373,16 +433,31 @@ where
         Ok(())
     }
 
-    async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) {
-        self.cmd53_read(FUNC_WLAN, 0, buf).await;
+    async fn prepare_wlan_bus(&mut self) {
+        self.prepare_wlan_bus_if_needed().await;
+    }
+
+    async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) -> bool {
+        self.ensure_wlan_bus_awake().await;
+        if !self.cmd53_read(FUNC_WLAN, 0, buf).await {
+            buf.fill(0);
+            // A timed-out partial F2 read leaves the same packet pending forever.
+            // Mirror WHD's abort path so the device can reset its F2 read state.
+            self.write8(FUNC_BUS, SDIOD_CCCR_IOABORT, FUNC_WLAN as u8).await;
+            self.write8(FUNC_BACKPLANE, REG_BACKPLANE_FRAME_CONTROL, SFC_RF_TERM).await;
+            return false;
+        }
+        true
     }
 
     async fn wlan_write(&mut self, buf: &Aligned<A4, [u8]>) {
+        self.ensure_wlan_bus_awake().await;
         self.cmd53_write(FUNC_WLAN, 0, buf).await;
     }
 
     #[allow(unused)]
     async fn bp_read(&mut self, mut addr: u32, mut data: &mut [u8]) {
+        self.ensure_wlan_bus_awake().await;
         trace!("bp_read addr = {:08x}, len = {}", addr, data.len());
 
         // It seems the HW force-aligns the addr
@@ -406,7 +481,8 @@ where
 
             self.backplane_set_window(addr).await;
 
-            self.cmd53_read(FUNC_BACKPLANE, addr & BACKPLANE_ADDRESS_MASK as u32, buf)
+            let _ = self
+                .cmd53_read(FUNC_BACKPLANE, addr & BACKPLANE_ADDRESS_MASK as u32, buf)
                 .await;
 
             // Advance ptr.
@@ -419,6 +495,7 @@ where
 
     /// A.K.A. cyw43_download_resource
     async fn bp_write(&mut self, mut addr: u32, data: &[u8]) {
+        self.ensure_wlan_bus_awake().await;
         trace!("bp_write addr = {:08x}, len = {}", addr, data.len());
 
         // It seems the HW force-aligns the addr
@@ -490,26 +567,38 @@ where
     }
 
     async fn read16(&mut self, func: u32, addr: u32) -> u16 {
+        if matches!(func, FUNC_BACKPLANE | FUNC_WLAN) {
+            self.ensure_wlan_bus_awake().await;
+        }
         let mut val = [0u32];
-        self.cmd53_read(func, addr, &mut aligned_mut(&mut val)[..2]).await;
+        let _ = self.cmd53_read(func, addr, &mut aligned_mut(&mut val)[..2]).await;
 
         u16::from_be_bytes(val[0].to_be_bytes()[..2].try_into().unwrap())
     }
 
     #[allow(unused)]
     async fn write16(&mut self, func: u32, addr: u32, val: u16) {
+        if matches!(func, FUNC_BACKPLANE | FUNC_WLAN) {
+            self.ensure_wlan_bus_awake().await;
+        }
         self.cmd53_write(func, addr, &aligned_ref(&[val as u32])[..2]).await;
     }
 
     async fn read32(&mut self, func: u32, addr: u32) -> u32 {
+        if matches!(func, FUNC_BACKPLANE | FUNC_WLAN) {
+            self.ensure_wlan_bus_awake().await;
+        }
         let mut val = [0u32];
-        self.cmd53_read(func, addr, &mut aligned_mut(&mut val)).await;
+        let _ = self.cmd53_read(func, addr, &mut aligned_mut(&mut val)).await;
 
         val[0]
     }
 
     #[allow(unused)]
     async fn write32(&mut self, func: u32, addr: u32, val: u32) {
+        if matches!(func, FUNC_BACKPLANE | FUNC_WLAN) {
+            self.ensure_wlan_bus_awake().await;
+        }
         self.cmd53_write(func, addr, &aligned_ref(&[val])).await;
     }
 

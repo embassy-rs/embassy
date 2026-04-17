@@ -246,7 +246,7 @@ where
         Ok(())
     }
 
-    async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) {
+    async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) -> bool {
         let len_in_u8 = buf.len() as u32;
         let buf = slice32_mut(buf);
 
@@ -254,6 +254,7 @@ where
         let len_in_u32 = (len_in_u8 as usize + 3) / 4;
 
         self.status = self.spi.cmd_read(cmd, &mut buf[..len_in_u32]).await;
+        true
     }
 
     async fn wlan_write(&mut self, buf: &Aligned<A4, [u8]>) {

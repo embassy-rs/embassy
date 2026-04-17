@@ -77,7 +77,7 @@ pub(crate) struct ChipInfo {
 
 const WRAPPER_REGISTER_OFFSET: u32 = 0x100000;
 
-/// Marker trait type
+/// Marker trait for chip types supported by this driver.
 #[allow(private_bounds)]
 pub trait Chip: SealedChip {}
 
@@ -102,7 +102,7 @@ trait SealedChip {
     }
 }
 
-/// doc
+/// CYW43439 Wi-Fi + Bluetooth combo chip (used on Raspberry Pi Pico W).
 pub struct Cyw43439;
 
 impl SealedChip for Cyw43439 {
@@ -133,7 +133,7 @@ impl SealedChip for Cyw43439 {
     };
 }
 
-/// doc
+/// CYW4373 Wi-Fi + Bluetooth combo chip (Murata LBAD0ZZ1DZ / 2BC module).
 pub struct Cyw4373;
 
 impl SealedChip for Cyw4373 {
@@ -323,7 +323,7 @@ where
     (device, control, runner)
 }
 
-/// Create a new instance of the CYW43 driver.
+/// Create a new instance of the CYW43 driver over SDIO (CYW43439).
 ///
 /// Returns a handle to the network device, control handle and a runner for driving the low level
 /// stack.
@@ -333,6 +333,19 @@ pub async fn new_sdio<'a, SDIO>(
     firmware: &Aligned<A4, [u8]>,
     nvram: &Aligned<A4, [u8]>,
 ) -> (NetDriver<'a>, Control<'a>, Runner<'a, SdioBus<SDIO>, Cyw43439>)
+where
+    SDIO: SdioBusCyw43<64>,
+{
+    try_new_sdio(state, sdio, firmware, nvram).await.unwrap()
+}
+
+/// Create a new instance of the CYW43 SDIO driver (CYW43439), returning an error on init failure.
+pub async fn try_new_sdio<'a, SDIO>(
+    state: &'a mut State,
+    sdio: SDIO,
+    firmware: &Aligned<A4, [u8]>,
+    nvram: &Aligned<A4, [u8]>,
+) -> Result<(NetDriver<'a>, Control<'a>, Runner<'a, SdioBus<SDIO>, Cyw43439>), ()>
 where
     SDIO: SdioBusCyw43<64>,
 {
@@ -350,7 +363,7 @@ where
         None,
     );
 
-    runner.init(firmware, nvram, None).await.unwrap();
+    runner.init(firmware, nvram, None).await?;
     let control = Control::new(
         state_ch,
         &state.net.events,
@@ -358,7 +371,42 @@ where
         &state.net.secure_network,
     );
 
-    (device, control, runner)
+    Ok((device, control, runner))
+}
+
+/// Create a new instance of the CYW4373 SDIO driver, returning an error on init failure.
+pub async fn try_new_sdio_4373<'a, SDIO>(
+    state: &'a mut State,
+    sdio: SDIO,
+    firmware: &Aligned<A4, [u8]>,
+    nvram: &Aligned<A4, [u8]>,
+) -> Result<(NetDriver<'a>, Control<'a>, Runner<'a, SdioBus<SDIO>, Cyw4373>), ()>
+where
+    SDIO: SdioBusCyw43<64>,
+{
+    let (ch_runner, device) = ch::new(&mut state.net.ch, ch::driver::HardwareAddress::Ethernet([0; 6]));
+    let state_ch = ch_runner.state_runner();
+
+    let mut runner = Runner::new(
+        ch_runner,
+        SdioBus::new(sdio),
+        Cyw4373,
+        &state.ioctl_state,
+        &state.net.events,
+        &state.net.secure_network,
+        #[cfg(feature = "bluetooth")]
+        None,
+    );
+
+    runner.init(firmware, nvram, None).await?;
+    let control = Control::new(
+        state_ch,
+        &state.net.events,
+        &state.ioctl_state,
+        &state.net.secure_network,
+    );
+
+    Ok((device, control, runner))
 }
 
 /// Create a new instance of the CYW43 driver.
