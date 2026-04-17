@@ -482,6 +482,7 @@ pub struct ReaderIterator<'a, 'b> {
 impl<'a, 'b> ReaderIterator<'a, 'b> {
     fn reset_buf(&mut self) {
         self.reader.pop_done(self.i);
+        self.i = 0;
 
         let (data, len) = self.reader.pop_buf();
         self.buf = unsafe { slice::from_raw_parts_mut(data, len) };
