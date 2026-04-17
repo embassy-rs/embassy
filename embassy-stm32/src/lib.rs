@@ -439,10 +439,7 @@ mod dual_core {
         let shared_data = unsafe { shared_data.assume_init_ref() };
 
         // Enable hardware semaphore.
-        // Attempting to reset is a race condition, as the second core may be using HSEM and deadlock.
-        critical_section::with(|cs| {
-            rcc::enable_with_cs::<peripherals::HSEM>(cs);
-        });
+        critical_section::with(|cs| crate::hsem::init_hsem(cs));
 
         #[cfg(stm32h7)]
         {
