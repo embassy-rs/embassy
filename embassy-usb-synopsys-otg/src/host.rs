@@ -1060,7 +1060,7 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> UsbChannel<
         T: channel::IsControl,
         D: channel::IsIn,
     {
-        self.do_control_in(setup.as_bytes(), buf).await
+        self.do_control_in(&setup.to_bytes(), buf).await
     }
 
     async fn control_out(&mut self, setup: &SetupPacket, buf: &[u8]) -> Result<(), ChannelError>
@@ -1068,7 +1068,7 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> UsbChannel<
         T: channel::IsControl,
         D: channel::IsOut,
     {
-        self.do_control_out(setup.as_bytes(), buf).await
+        self.do_control_out(&setup.to_bytes(), buf).await
     }
 
     async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError>

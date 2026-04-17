@@ -20,7 +20,7 @@ use crate::descriptor::{ConfigurationDescriptor, DeviceDescriptor, USBDescriptor
 pub(crate) fn bytes_to_setup(b: &[u8; 8]) -> SetupPacket {
     use embassy_usb_driver::host::RequestType;
     SetupPacket {
-        request_type: RequestType::from_bits_truncate(b[0]),
+        request_type: RequestType::from_bits(b[0]),
         request: b[1],
         value: u16::from_le_bytes([b[2], b[3]]),
         index: u16::from_le_bytes([b[4], b[5]]),

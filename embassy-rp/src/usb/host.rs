@@ -390,7 +390,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
         assert!(E::ep_type() == EndpointType::Control);
         let dpram = T::dpram();
         dpram.setup_packet_low().write(|w| {
-            w.set_bmrequesttype(setup.request_type.bits());
+            w.set_bmrequesttype(setup.request_type.to_bits());
             w.set_brequest(setup.request);
             w.set_wvalue(setup.value);
         });

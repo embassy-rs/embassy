@@ -4,7 +4,7 @@ use core::num::NonZeroU8;
 
 use embassy_time::Timer;
 pub use embassy_usb_driver::host::channel;
-use embassy_usb_driver::host::{ChannelError, HostError, RequestType, SetupPacket, UsbChannel};
+use embassy_usb_driver::host::{ChannelError, ControlType, HostError, Recipient, RequestType, SetupPacket, UsbChannel};
 use embassy_usb_driver::{EndpointInfo, EndpointType, Speed};
 
 use crate::descriptor::{USBDescriptor, descriptor_type};
@@ -140,12 +140,12 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
         let mut buf = [0u8; SIZE];
         let value = ((T::DESC_TYPE as u16) << 8) | index as u16;
         let ty = if class {
-            RequestType::TYPE_CLASS
+            ControlType::Class
         } else {
-            RequestType::TYPE_STANDARD
+            ControlType::Standard
         };
         let packet = SetupPacket {
-            request_type: RequestType::IN | ty | RequestType::RECIPIENT_DEVICE,
+            request_type: RequestType::device_to_host(ty, Recipient::Device),
             request: GET_DESCRIPTOR,
             value,
             index: 0,
@@ -163,7 +163,7 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
     {
         let value = ((desc_type as u16) << 8) | index as u16;
         let packet = SetupPacket {
-            request_type: RequestType::IN | RequestType::TYPE_STANDARD | RequestType::RECIPIENT_DEVICE,
+            request_type: RequestType::device_to_host(ControlType::Standard, Recipient::Device),
             request: GET_DESCRIPTOR,
             value,
             index: 0,
@@ -183,7 +183,7 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
     {
         let value = (T::DESC_TYPE as u16) << 8;
         let packet = SetupPacket {
-            request_type: RequestType::IN | RequestType::TYPE_STANDARD | RequestType::RECIPIENT_INTERFACE,
+            request_type: RequestType::device_to_host(ControlType::Standard, Recipient::Interface),
             request: GET_DESCRIPTOR,
             value,
             index: interface_num as u16,
@@ -198,7 +198,7 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
         D: channel::IsIn,
     {
         let packet = SetupPacket {
-            request_type: RequestType::IN | RequestType::TYPE_STANDARD | RequestType::RECIPIENT_DEVICE,
+            request_type: RequestType::device_to_host(ControlType::Standard, Recipient::Device),
             request: GET_CONFIGURATION,
             value: 0,
             index: 0,
@@ -215,7 +215,7 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
         D: channel::IsOut,
     {
         let packet = SetupPacket {
-            request_type: RequestType::OUT | RequestType::TYPE_STANDARD | RequestType::RECIPIENT_DEVICE,
+            request_type: RequestType::host_to_device(ControlType::Standard, Recipient::Device),
             request: SET_CONFIGURATION,
             value: config_no as u16,
             index: 0,
@@ -234,7 +234,7 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
         D: channel::IsOut,
     {
         let packet = SetupPacket {
-            request_type: RequestType::OUT | RequestType::TYPE_STANDARD | RequestType::RECIPIENT_DEVICE,
+            request_type: RequestType::host_to_device(ControlType::Standard, Recipient::Device),
             request: SET_ADDRESS,
             value: new_addr as u16,
             index: 0,
@@ -250,7 +250,7 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
         D: channel::IsOut,
     {
         let packet = SetupPacket {
-            request_type: RequestType::OUT | RequestType::TYPE_CLASS | RequestType::RECIPIENT_INTERFACE,
+            request_type: RequestType::host_to_device(ControlType::Class, Recipient::Interface),
             request,
             value,
             index,

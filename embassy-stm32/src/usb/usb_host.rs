@@ -579,7 +579,7 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         epr_val.set_setup(true);
         epr0.write_value(epr_val);
 
-        self.write(setup.as_bytes(), false).await?;
+        self.write(&setup.to_bytes(), false).await?;
 
         // data stage
         let count = self.read(buf).await?;
@@ -608,7 +608,7 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         let mut epr_val = invariant(epr0.read());
         epr_val.set_setup(true);
         epr0.write_value(epr_val);
-        self.write(setup.as_bytes(), false).await?;
+        self.write(&setup.to_bytes(), false).await?;
 
         if buf.is_empty() {
             // do nothing
