@@ -46,7 +46,7 @@ pub(crate) trait SealedBus {
 
     async fn init(&mut self, bluetooth_enabled: bool) -> Result<(), ()>;
     async fn prepare_wlan_bus(&mut self) {}
-    async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) -> bool;
+    async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) -> Result<(), ()>;
     async fn wlan_write(&mut self, buf: &Aligned<A4, [u8]>);
     #[allow(unused)]
     async fn bp_read(&mut self, addr: u32, data: &mut [u8]);
@@ -103,18 +103,18 @@ where
     BUS: Bus,
     CHIP: Chip,
 {
-    async fn bp_read_bytes<const N: usize>(&mut self, addr: u32) -> Aligned<A4, [u8; N]> {
-        let mut buf = Aligned([0; N]);
-        self.bus.bp_read(addr, &mut buf[..]).await;
-        buf
-    }
-
-    fn sample_checksum(data: &[u8]) -> u32 {
-        data.iter()
-            .fold(0u32, |acc, &b| acc.wrapping_mul(33).wrapping_add(u32::from(b)))
-    }
-
     async fn verify_download_samples(&mut self, label: &str, addr: u32, data: &[u8]) -> Result<(), ()> {
+        async fn bp_read_bytes<BUS: Bus, const N: usize>(bus: &mut BUS, addr: u32) -> Aligned<A4, [u8; N]> {
+            let mut buf = Aligned([0; N]);
+            bus.bp_read(addr, &mut buf[..]).await;
+            buf
+        }
+
+        fn sample_checksum(data: &[u8]) -> u32 {
+            data.iter()
+                .fold(0u32, |acc, &b| acc.wrapping_mul(33).wrapping_add(u32::from(b)))
+        }
+
         const SAMPLE_LEN: usize = 16;
         const CHECKSUM_LEN: usize = 64;
 
@@ -138,15 +138,15 @@ where
         }
 
         for &offset in &offsets[..offset_count] {
-            let actual = self.bp_read_bytes::<SAMPLE_LEN>(addr + offset as u32).await;
+            let actual = bp_read_bytes::<BUS, SAMPLE_LEN>(&mut self.bus, addr + offset as u32).await;
             let expected = &data[offset..offset + SAMPLE_LEN];
             let ok = &actual[..] == expected;
             debug!(
                 "{} sample @{:08x} checksum exp={:08x} got={:08x} match={}",
                 label,
                 addr + offset as u32,
-                Self::sample_checksum(expected),
-                Self::sample_checksum(&actual[..]),
+                sample_checksum(expected),
+                sample_checksum(&actual[..]),
                 ok,
             );
             if !ok {
@@ -168,8 +168,8 @@ where
                 .await;
             let expected = &data[offset..offset + checksum_span];
             let actual = &actual[..checksum_span];
-            let exp_sum = Self::sample_checksum(expected);
-            let got_sum = Self::sample_checksum(actual);
+            let exp_sum = sample_checksum(expected);
+            let got_sum = sample_checksum(actual);
             debug!(
                 "{} chunk checksum @{:08x} len={} exp={:08x} got={:08x} match={}",
                 label,
@@ -342,13 +342,10 @@ where
 
         debug!("chip ID: {}", chip_id);
 
+        // TODO: validate chip ID matches compiled chip ID
         match CHIP::ID {
-            ChipId::C4373 if matches!(BUS::TYPE, BusType::Sdio) => {
-                self.init_cyw4373_sdio(wifi_fw, nvram).await?;
-            }
-            _ => {
-                self.init_legacy(wifi_fw, nvram, bt_fw).await?;
-            }
+            ChipId::C4373 => self.init_cyw4373(wifi_fw, nvram).await?,
+            ChipId::C43439 => self.init_cyw43439(wifi_fw, nvram, bt_fw).await?,
         }
 
         #[cfg(feature = "firmware-logs")]
@@ -364,7 +361,7 @@ where
         Ok(())
     }
 
-    async fn init_legacy(
+    async fn init_cyw43439(
         &mut self,
         wifi_fw: &Aligned<A4, [u8]>,
         nvram: &Aligned<A4, [u8]>,
@@ -474,7 +471,7 @@ where
         Ok(())
     }
 
-    async fn init_cyw4373_sdio(&mut self, wifi_fw: &Aligned<A4, [u8]>, nvram: &Aligned<A4, [u8]>) -> Result<(), ()> {
+    async fn init_cyw4373(&mut self, wifi_fw: &Aligned<A4, [u8]>, nvram: &Aligned<A4, [u8]>) -> Result<(), ()> {
         let ram_addr = CHIP::INFO.atcm_ram_base_address;
 
         // Hold the WLAN ARM core CPU-halted while streaming firmware into ATCM RAM.
@@ -931,7 +928,7 @@ where
 
                     if status & STATUS_F2_PKT_AVAILABLE != 0 {
                         let len = (status & STATUS_F2_PKT_LEN_MASK) >> STATUS_F2_PKT_LEN_SHIFT;
-                        if !self.bus.wlan_read(&mut aligned_mut(buf)[..len as usize]).await {
+                        if self.bus.wlan_read(&mut aligned_mut(buf)[..len as usize]).await.is_err() {
                             debug!("spi wlan_read failed");
                             break;
                         }
@@ -942,7 +939,7 @@ where
                     }
                 }
                 BusType::Sdio => {
-                    if !self.bus.wlan_read(&mut aligned_mut(&mut buf[..1])).await {
+                    if !self.bus.wlan_read(&mut aligned_mut(&mut buf[..1])).await.is_err() {
                         debug!("failed to read sdio hwtag");
                         break;
                     }
@@ -964,6 +961,7 @@ where
                             .bus
                             .wlan_read(&mut aligned_mut(&mut buf[1..])[..len - INITIAL_READ as usize])
                             .await
+                            .is_err()
                         {
                             debug!("failed to read sdio payload, len={}", len);
                             break;

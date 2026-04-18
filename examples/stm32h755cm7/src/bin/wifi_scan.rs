@@ -164,11 +164,6 @@ async fn main(spawner: Spawner) {
     let sdmmc = SDMMC.init(sdmmc);
     let state = STATE.init(cyw43::State::new());
 
-    // SDMMC host clock **before** `WL_REG_ON` high (same idea as `cyhal_sdio_init` /
-    // `SDMMC_PowerState_ON` before `_cybsp_wifi_reset_wifi_chip` in the Cube/WHD path).
-    trace!("start SDMMC clock (WL_REG_ON still low)");
-    unwrap!(sdmmc.start_clocks());
-
     trace!("WL_REG_ON high, wait for PMU before SDIO");
     wl_reg.set_high();
     Timer::after_millis(500).await;
