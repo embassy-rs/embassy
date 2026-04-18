@@ -207,6 +207,7 @@ pub(crate) const SDIOD_CCCR_BLKSIZE_0: u32 = 0x10;
 pub(crate) const SDIOD_CCCR_SPEED_CONTROL: u32 = 0x13;
 pub(crate) const SDIOD_CCCR_BRCM_CARDCAP: u32 = 0xf0;
 pub(crate) const SDIOD_SEP_INT_CTL: u32 = 0xf2;
+pub(crate) const SDIOD_CCCR_IOABORT: u32 = 0x06;
 pub(crate) const SDIOD_CCCR_F1BLKSIZE_0: u32 = 0x110;
 pub(crate) const SDIOD_CCCR_F2BLKSIZE_0: u32 = 0x210;
 pub(crate) const SDIOD_CCCR_F2BLKSIZE_1: u32 = 0x211;
@@ -228,6 +229,8 @@ pub(crate) const SEP_INTR_CTL_POL: u32 = 0x04; // out-of-band interrupt polarity
 
 pub(crate) const CHIPCOMMON_BASE_ADDRESS: u32 = 0x18000000;
 pub(crate) const SDIO_BASE_ADDRESS: u32 = 0x18002000;
+
+pub(crate) const SFC_RF_TERM: u8 = 1 << 0;
 
 // Security type (authentication and encryption types are combined using bit mask)
 #[allow(non_camel_case_types)]
