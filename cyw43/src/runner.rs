@@ -278,87 +278,61 @@ where
         }
     }
 
-    pub(crate) async fn init(
-        &mut self,
-        wifi_fw: &Aligned<A4, [u8]>,
-        nvram: &Aligned<A4, [u8]>,
-        bt_fw: Option<&[u8]>,
-    ) -> Result<(), ()> {
-        match CHIP::ID {
-            ChipId::C43439 => debug!("using cyw43439"),
-            ChipId::C4373 => debug!("using cyw43437"),
+    async fn read_chip_id_sdio(&mut self) -> u16 {
+        self.bus.write8(FUNC_BACKPLANE, SDIO_PULL_UP, 0).await;
+        self.bus
+            .write8(FUNC_BUS, SDIOD_CCCR_IOEN, SDIO_FUNC_ENABLE_1 as u8)
+            .await;
+
+        self.bus
+            .write8(
+                FUNC_BUS,
+                SDIOD_CCCR_INTEN,
+                (INTR_CTL_MASTER_EN | INTR_CTL_FUNC1_EN | INTR_CTL_FUNC2_EN) as u8,
+            )
+            .await;
+
+        self.bus
+            .write8(
+                FUNC_BUS,
+                SDIOD_CCCR_IOEN,
+                (SDIO_FUNC_ENABLE_1 | SDIO_FUNC_ENABLE_2) as u8,
+            )
+            .await;
+
+        self.bus
+            .write8(
+                FUNC_BUS,
+                SDIOD_CCCR_INTEN,
+                (INTR_CTL_MASTER_EN | INTR_CTL_FUNC2_EN) as u8,
+            )
+            .await;
+
+        self.bus.read8(FUNC_BUS, SDIOD_CCCR_IORDY).await;
+
+        let reg = self.bus.read8(FUNC_BUS, SDIOD_CCCR_BRCM_CARDCAP).await;
+        if reg & SDIOD_CCCR_BRCM_CARDCAP_SECURE_MODE as u8 != 0 {
+            debug!("chip supports bootloader handshake");
+
+            let devctrl = self.bus.read8(FUNC_BACKPLANE, SBSDIO_DEVICE_CTL).await;
+            self.bus
+                .write8(
+                    FUNC_BACKPLANE,
+                    SBSDIO_DEVICE_CTL,
+                    devctrl | SBSDIO_DEVCTL_ADDR_RST as u8,
+                )
+                .await;
+
+            let addr_low = self.bus.read8(FUNC_BACKPLANE, SBSDIO_FUNC1_SBADDRLOW).await as u32;
+            let addr_mid = self.bus.read8(FUNC_BACKPLANE, SBSDIO_FUNC1_SBADDRMID).await as u32;
+            let addr_high = self.bus.read8(FUNC_BACKPLANE, SBSDIO_FUNC1_SBADDRHIGH).await as u32;
+            let reg_addr = ((addr_low << 8) | (addr_mid << 16) | (addr_high << 24)) + SDIO_CORE_CHIPID_REG;
+
+            self.bus.write8(FUNC_BACKPLANE, SBSDIO_DEVICE_CTL, devctrl).await;
+            self.bus.bp_read16(reg_addr).await
+        } else {
+            self.bus.bp_read16(CHIPCOMMON_BASE_ADDRESS).await
         }
-
-        self.bus.init(bt_fw.is_some()).await?;
-
-        // Init ALP (Active Low Power) clock
-        debug!("init alp");
-        match BUS::TYPE {
-            BusType::Spi => {
-                self.bus
-                    .write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, BACKPLANE_ALP_AVAIL_REQ)
-                    .await;
-
-                // Not present in whd driver
-                debug!("set f2 watermark");
-                self.bus
-                    .write8(FUNC_BACKPLANE, REG_BACKPLANE_FUNCTION2_WATERMARK, 0x10)
-                    .await;
-                let watermark = self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_FUNCTION2_WATERMARK).await;
-                debug!("watermark = {:02x}", watermark);
-                assert!(watermark == 0x10);
-            }
-            BusType::Sdio => {
-                self.bus
-                    .write8(
-                        FUNC_BACKPLANE,
-                        REG_BACKPLANE_CHIP_CLOCK_CSR,
-                        BACKPLANE_FORCE_HW_CLKREQ_OFF | BACKPLANE_ALP_AVAIL_REQ | BACKPLANE_FORCE_ALP,
-                    )
-                    .await;
-            }
-        }
-
-        debug!("waiting for clock...");
-        if !try_until(
-            async || self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & BACKPLANE_ALP_AVAIL != 0,
-            Duration::from_millis(100),
-        )
-        .await
-        {
-            debug!("timeout while waiting for alp clock!");
-            return Err(());
-        }
-        debug!("clock ok");
-
-        // clear request for ALP
-        debug!("clear request for ALP");
-        self.bus.write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, 0).await;
-
-        let chip_id = match BUS::TYPE {
-            BusType::Spi => self.bus.bp_read16(CHIPCOMMON_BASE_ADDRESS).await,
-            BusType::Sdio => self.read_chip_id_sdio().await,
-        };
-
-        debug!("chip ID: {}", chip_id);
-
-        // TODO: validate chip ID matches compiled chip ID
-        match CHIP::ID {
-            ChipId::C4373 => self.init_cyw4373(wifi_fw, nvram).await?,
-            ChipId::C43439 => self.init_cyw43439(wifi_fw, nvram, bt_fw).await?,
-        }
-
-        #[cfg(feature = "firmware-logs")]
-        self.log_init().await;
-
-        #[cfg(feature = "bluetooth")]
-        if let Some(bt_fw) = bt_fw {
-            self.bt.as_mut().unwrap().init_bluetooth(&mut self.bus, bt_fw).await;
-        }
-
-        debug!("cyw43 runner init done");
-
-        Ok(())
     }
 
     async fn init_cyw43439(
@@ -381,6 +355,7 @@ where
         self.bus.bp_write(ram_addr, wifi_fw).await;
 
         debug!("loading nvram");
+        // Round up to 4 bytes.
         let nvram_len = (nvram.len() + 3) / 4 * 4;
         self.bus
             .bp_write(ram_addr + CHIP::INFO.chip_ram_size - 4 - nvram_len as u32, nvram)
@@ -393,12 +368,15 @@ where
             .await;
 
         debug!("starting up core...");
+        // Start core!
         self.core_reset(Core::WLAN).await;
         assert!(self.core_is_up(Core::WLAN).await);
 
+        // wait until HT clock is available; takes about 29ms
         debug!("waiting for HT clock...");
         while self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 == 0 {}
 
+        // "Set up the interrupt mask and enable interrupts"
         debug!("setup interrupt mask");
         self.bus
             .bp_write32(CHIP::INFO.sdiod_core_base_address + SDIO_INT_HOST_MASK, I_HMB_SW_MASK)
@@ -410,10 +388,13 @@ where
                     .bp_write8(CHIP::INFO.sdiod_core_base_address + SDIO_FUNCTION_INT_MASK, 2 | 1)
                     .await;
 
+                // "Lower F2 Watermark to avoid DMA Hang in F2 when SD Clock is stopped."
+                // Sounds scary...
                 self.bus
                     .write8(FUNC_BACKPLANE, REG_BACKPLANE_FUNCTION2_WATERMARK, SDIO_F2_WATERMARK)
                     .await;
             }
+
             BusType::Spi => {
                 // Set up the interrupt mask and enable interrupts
                 if bt_fw.is_some() {
@@ -606,61 +587,87 @@ where
         Ok(())
     }
 
-    async fn read_chip_id_sdio(&mut self) -> u16 {
-        self.bus.write8(FUNC_BACKPLANE, SDIO_PULL_UP, 0).await;
-        self.bus
-            .write8(FUNC_BUS, SDIOD_CCCR_IOEN, SDIO_FUNC_ENABLE_1 as u8)
-            .await;
-
-        self.bus
-            .write8(
-                FUNC_BUS,
-                SDIOD_CCCR_INTEN,
-                (INTR_CTL_MASTER_EN | INTR_CTL_FUNC1_EN | INTR_CTL_FUNC2_EN) as u8,
-            )
-            .await;
-
-        self.bus
-            .write8(
-                FUNC_BUS,
-                SDIOD_CCCR_IOEN,
-                (SDIO_FUNC_ENABLE_1 | SDIO_FUNC_ENABLE_2) as u8,
-            )
-            .await;
-
-        self.bus
-            .write8(
-                FUNC_BUS,
-                SDIOD_CCCR_INTEN,
-                (INTR_CTL_MASTER_EN | INTR_CTL_FUNC2_EN) as u8,
-            )
-            .await;
-
-        self.bus.read8(FUNC_BUS, SDIOD_CCCR_IORDY).await;
-
-        let reg = self.bus.read8(FUNC_BUS, SDIOD_CCCR_BRCM_CARDCAP).await;
-        if reg & SDIOD_CCCR_BRCM_CARDCAP_SECURE_MODE as u8 != 0 {
-            debug!("chip supports bootloader handshake");
-
-            let devctrl = self.bus.read8(FUNC_BACKPLANE, SBSDIO_DEVICE_CTL).await;
-            self.bus
-                .write8(
-                    FUNC_BACKPLANE,
-                    SBSDIO_DEVICE_CTL,
-                    devctrl | SBSDIO_DEVCTL_ADDR_RST as u8,
-                )
-                .await;
-
-            let addr_low = self.bus.read8(FUNC_BACKPLANE, SBSDIO_FUNC1_SBADDRLOW).await as u32;
-            let addr_mid = self.bus.read8(FUNC_BACKPLANE, SBSDIO_FUNC1_SBADDRMID).await as u32;
-            let addr_high = self.bus.read8(FUNC_BACKPLANE, SBSDIO_FUNC1_SBADDRHIGH).await as u32;
-            let reg_addr = ((addr_low << 8) | (addr_mid << 16) | (addr_high << 24)) + SDIO_CORE_CHIPID_REG;
-
-            self.bus.write8(FUNC_BACKPLANE, SBSDIO_DEVICE_CTL, devctrl).await;
-            self.bus.bp_read16(reg_addr).await
-        } else {
-            self.bus.bp_read16(CHIPCOMMON_BASE_ADDRESS).await
+    pub(crate) async fn init(
+        &mut self,
+        wifi_fw: &Aligned<A4, [u8]>,
+        nvram: &Aligned<A4, [u8]>,
+        bt_fw: Option<&[u8]>,
+    ) -> Result<(), ()> {
+        match CHIP::ID {
+            ChipId::C43439 => debug!("using cyw43439"),
+            ChipId::C4373 => debug!("using cyw43437"),
         }
+
+        self.bus.init(bt_fw.is_some()).await?;
+
+        // Init ALP (Active Low Power) clock
+        debug!("init alp");
+        match BUS::TYPE {
+            BusType::Spi => {
+                self.bus
+                    .write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, BACKPLANE_ALP_AVAIL_REQ)
+                    .await;
+
+                // Not present in whd driver
+                debug!("set f2 watermark");
+                self.bus
+                    .write8(FUNC_BACKPLANE, REG_BACKPLANE_FUNCTION2_WATERMARK, 0x10)
+                    .await;
+                let watermark = self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_FUNCTION2_WATERMARK).await;
+                debug!("watermark = {:02x}", watermark);
+                assert!(watermark == 0x10);
+            }
+            BusType::Sdio => {
+                self.bus
+                    .write8(
+                        FUNC_BACKPLANE,
+                        REG_BACKPLANE_CHIP_CLOCK_CSR,
+                        BACKPLANE_FORCE_HW_CLKREQ_OFF | BACKPLANE_ALP_AVAIL_REQ | BACKPLANE_FORCE_ALP,
+                    )
+                    .await;
+            }
+        }
+
+        debug!("waiting for clock...");
+        if !try_until(
+            async || self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & BACKPLANE_ALP_AVAIL != 0,
+            Duration::from_millis(100),
+        )
+        .await
+        {
+            debug!("timeout while waiting for alp clock!");
+            return Err(());
+        }
+        debug!("clock ok");
+
+        // clear request for ALP
+        debug!("clear request for ALP");
+        self.bus.write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, 0).await;
+
+        let chip_id = match BUS::TYPE {
+            BusType::Spi => self.bus.bp_read16(CHIPCOMMON_BASE_ADDRESS).await,
+            BusType::Sdio => self.read_chip_id_sdio().await,
+        };
+
+        debug!("chip ID: {}", chip_id);
+
+        // TODO: validate chip ID matches compiled chip ID
+        match CHIP::ID {
+            ChipId::C4373 => self.init_cyw4373(wifi_fw, nvram).await?,
+            ChipId::C43439 => self.init_cyw43439(wifi_fw, nvram, bt_fw).await?,
+        }
+
+        #[cfg(feature = "firmware-logs")]
+        self.log_init().await;
+
+        #[cfg(feature = "bluetooth")]
+        if let Some(bt_fw) = bt_fw {
+            self.bt.as_mut().unwrap().init_bluetooth(&mut self.bus, bt_fw).await;
+        }
+
+        debug!("cyw43 runner init done");
+
+        Ok(())
     }
 
     #[cfg(feature = "firmware-logs")]
