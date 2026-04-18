@@ -168,7 +168,11 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
     #[allow(dead_code)]
     async fn hub_feature(&mut self, set: bool, feature: HubFeature) -> Result<(), HostError> {
         let setup = SetupPacket {
-            request_type: RequestType::host_to_device(ControlType::Class, Recipient::Device),
+            request_type: RequestType {
+                direction: Direction::Out,
+                control_type: ControlType::Class,
+                recipient: Recipient::Device,
+            },
             request: if set {
                 Request::SET_FEATURE
             } else {
@@ -184,7 +188,11 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
 
     async fn get_hub_status(&mut self) -> Result<(HubStatus, HubStatusChange), HostError> {
         let setup = SetupPacket {
-            request_type: RequestType::device_to_host(ControlType::Class, Recipient::Device),
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Class,
+                recipient: Recipient::Device,
+            },
             request: Request::GET_STATUS,
             value: 0,
             index: 0,
@@ -219,7 +227,11 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
 
     async fn port_feature(&mut self, set: bool, feature: PortFeature, port: u8, selector: u8) -> Result<(), HostError> {
         let setup = SetupPacket {
-            request_type: RequestType::host_to_device(ControlType::Class, Recipient::Other),
+            request_type: RequestType {
+                direction: Direction::Out,
+                control_type: ControlType::Class,
+                recipient: Recipient::Other,
+            },
             request: if set {
                 Request::SET_FEATURE
             } else {
@@ -235,7 +247,11 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
 
     async fn get_port_status(&mut self, port: u8) -> Result<(PortStatus, PortStatusChange), HostError> {
         let setup = SetupPacket {
-            request_type: RequestType::device_to_host(ControlType::Class, Recipient::Other),
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Class,
+                recipient: Recipient::Other,
+            },
             request: Request::GET_STATUS,
             value: 0,
             index: (port + 1) as u16,

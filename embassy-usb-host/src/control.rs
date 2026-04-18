@@ -54,9 +54,7 @@ pub enum ControlType {
 /// USB control request type (`bmRequestType`).
 ///
 /// Encodes the three sub-fields of `bmRequestType` (USB 2.0 spec Table 9-2):
-/// direction (bit 7), type (bits 6..5) and recipient (bits 4..0). Construct
-/// by specifying all three sub-fields; encode/decode the wire byte with
-/// [`to_bits`](Self::to_bits) and [`from_bits`](Self::from_bits).
+/// direction (bit 7), type (bits 6..5) and recipient (bits 4..0).
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct RequestType {
@@ -69,25 +67,6 @@ pub struct RequestType {
 }
 
 impl RequestType {
-    /// Construct a new [`RequestType`] from its three sub-fields.
-    pub const fn new(direction: Direction, control_type: ControlType, recipient: Recipient) -> Self {
-        Self {
-            direction,
-            control_type,
-            recipient,
-        }
-    }
-
-    /// Construct a device-to-host (IN) [`RequestType`].
-    pub const fn device_to_host(control_type: ControlType, recipient: Recipient) -> Self {
-        Self::new(Direction::In, control_type, recipient)
-    }
-
-    /// Construct a host-to-device (OUT) [`RequestType`].
-    pub const fn host_to_device(control_type: ControlType, recipient: Recipient) -> Self {
-        Self::new(Direction::Out, control_type, recipient)
-    }
-
     /// Encode this request type to its wire-format `bmRequestType` byte.
     pub const fn to_bits(self) -> u8 {
         let d = match self.direction {
@@ -180,13 +159,16 @@ impl SetupPacket {
     ///
     /// `class` selects Standard (`false`) vs Class (`true`) request type.
     pub const fn get_descriptor(class: bool, desc_type: u8, index: u8, max_len: u16) -> Self {
-        let control_type = if class {
-            ControlType::Class
-        } else {
-            ControlType::Standard
-        };
         Self {
-            request_type: RequestType::device_to_host(control_type, Recipient::Device),
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: if class {
+                    ControlType::Class
+                } else {
+                    ControlType::Standard
+                },
+                recipient: Recipient::Device,
+            },
             request: Request::GET_DESCRIPTOR,
             value: ((desc_type as u16) << 8) | index as u16,
             index: 0,
@@ -209,7 +191,11 @@ impl SetupPacket {
     /// Used for interface-owned descriptors such as the HID Report Descriptor.
     pub const fn get_interface_descriptor(desc_type: u8, interface: u16, max_len: u16) -> Self {
         Self {
-            request_type: RequestType::device_to_host(ControlType::Standard, Recipient::Interface),
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Standard,
+                recipient: Recipient::Interface,
+            },
             request: Request::GET_DESCRIPTOR,
             value: (desc_type as u16) << 8,
             index: interface,
@@ -227,7 +213,11 @@ impl SetupPacket {
     /// Build a SET_ADDRESS SETUP packet.
     pub const fn set_address(address: u8) -> Self {
         Self {
-            request_type: RequestType::host_to_device(ControlType::Standard, Recipient::Device),
+            request_type: RequestType {
+                direction: Direction::Out,
+                control_type: ControlType::Standard,
+                recipient: Recipient::Device,
+            },
             request: Request::SET_ADDRESS,
             value: address as u16,
             index: 0,
@@ -238,7 +228,11 @@ impl SetupPacket {
     /// Build a SET_CONFIGURATION SETUP packet.
     pub const fn set_configuration(config_value: u8) -> Self {
         Self {
-            request_type: RequestType::host_to_device(ControlType::Standard, Recipient::Device),
+            request_type: RequestType {
+                direction: Direction::Out,
+                control_type: ControlType::Standard,
+                recipient: Recipient::Device,
+            },
             request: Request::SET_CONFIGURATION,
             value: config_value as u16,
             index: 0,
@@ -249,7 +243,11 @@ impl SetupPacket {
     /// Build a GET_CONFIGURATION SETUP packet.
     pub const fn get_configuration() -> Self {
         Self {
-            request_type: RequestType::device_to_host(ControlType::Standard, Recipient::Device),
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Standard,
+                recipient: Recipient::Device,
+            },
             request: Request::GET_CONFIGURATION,
             value: 0,
             index: 0,
@@ -262,7 +260,11 @@ impl SetupPacket {
     /// Pass `length = 0` for requests with no data stage.
     pub const fn class_interface_out(request: u8, value: u16, interface: u16, length: u16) -> Self {
         Self {
-            request_type: RequestType::host_to_device(ControlType::Class, Recipient::Interface),
+            request_type: RequestType {
+                direction: Direction::Out,
+                control_type: ControlType::Class,
+                recipient: Recipient::Interface,
+            },
             request,
             value,
             index: interface,
@@ -273,7 +275,11 @@ impl SetupPacket {
     /// Build a class-specific interface request SETUP packet, device-to-host.
     pub const fn class_interface_in(request: u8, value: u16, interface: u16, length: u16) -> Self {
         Self {
-            request_type: RequestType::device_to_host(ControlType::Class, Recipient::Interface),
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Class,
+                recipient: Recipient::Interface,
+            },
             request,
             value,
             index: interface,

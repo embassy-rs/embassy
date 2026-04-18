@@ -171,7 +171,11 @@ impl<H: UsbHostDriver> UacHandler<H> {
         let input_terminal_id = output_interface.class_descriptor.terminal_link_id;
         // Select the correct alternate setting
         let packet = SetupPacket {
-            request_type: RequestType::host_to_device(ControlType::Standard, Recipient::Interface),
+            request_type: RequestType {
+                direction: Direction::Out,
+                control_type: ControlType::Standard,
+                recipient: Recipient::Interface,
+            },
             request: Request::SET_INTERFACE,
             value: streaming_interface.alternate_setting as u16,
             index: streaming_interface.interface_number as u16,
@@ -312,7 +316,11 @@ impl<H: UsbHostDriver> UacHandler<H> {
     /// Returns the language ID as a 16-bit value, or an error if the request fails.
     pub async fn get_supported_language(&mut self) -> Result<u16, RequestError> {
         let packet = SetupPacket {
-            request_type: RequestType::device_to_host(ControlType::Standard, Recipient::Device),
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Standard,
+                recipient: Recipient::Device,
+            },
             request: Request::GET_DESCRIPTOR,
             value: 0x0300, // String descriptor at index 0x00
             index: 0x00,
@@ -343,7 +351,11 @@ impl<H: UsbHostDriver> UacHandler<H> {
     ) -> Result<String<MAX_STRING_LENGTH>, RequestError> {
         // First, get just the length
         let packet = SetupPacket {
-            request_type: RequestType::device_to_host(ControlType::Standard, Recipient::Device),
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Standard,
+                recipient: Recipient::Device,
+            },
             request: Request::GET_DESCRIPTOR,
             value: (0x03 << 8) | index as u16,
             index: lang_id,
@@ -367,7 +379,11 @@ impl<H: UsbHostDriver> UacHandler<H> {
 
         // Now get the full string with the correct length
         let packet = SetupPacket {
-            request_type: RequestType::device_to_host(ControlType::Standard, Recipient::Device),
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Standard,
+                recipient: Recipient::Device,
+            },
             request: Request::GET_DESCRIPTOR,
             value: (0x03 << 8) | index as u16,
             index: lang_id,
@@ -416,7 +432,11 @@ impl<H: UsbHostDriver> UacHandler<H> {
         interface: u8,
     ) -> Result<u8, RequestError> {
         let packet = SetupPacket {
-            request_type: RequestType::device_to_host(ControlType::Class, Recipient::Interface),
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Class,
+                recipient: Recipient::Interface,
+            },
             request: codes::request_code::CUR,
             value: (channel as u16) << 8 | control_selector as u16,
             index: (entity as u16) << 8 | interface as u16,
@@ -450,7 +470,11 @@ impl<H: UsbHostDriver> UacHandler<H> {
         interface: u8,
     ) -> Result<u16, RequestError> {
         let packet = SetupPacket {
-            request_type: RequestType::device_to_host(ControlType::Class, Recipient::Interface),
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Class,
+                recipient: Recipient::Interface,
+            },
             request: codes::request_code::CUR,
             value: (channel as u16) << 8 | control_selector,
             index: (entity as u16) << 8 | interface as u16,
@@ -484,7 +508,11 @@ impl<H: UsbHostDriver> UacHandler<H> {
         interface: u8,
     ) -> Result<u32, RequestError> {
         let packet = SetupPacket {
-            request_type: RequestType::device_to_host(ControlType::Class, Recipient::Interface),
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Class,
+                recipient: Recipient::Interface,
+            },
             request: codes::request_code::CUR,
             value: (channel as u16) << 8 | control_selector,
             index: (entity as u16) << 8 | interface as u16,
@@ -518,7 +546,11 @@ impl<H: UsbHostDriver> UacHandler<H> {
         interface: u8,
     ) -> Result<Layout1ParameterBlock, RequestError> {
         let packet = SetupPacket {
-            request_type: RequestType::device_to_host(ControlType::Class, Recipient::Interface),
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Class,
+                recipient: Recipient::Interface,
+            },
             request: codes::request_code::RANGE,
             value: (channel as u16) << 8 | control_selector,
             index: (entity as u16) << 8 | interface as u16,
@@ -554,7 +586,11 @@ impl<H: UsbHostDriver> UacHandler<H> {
         interface: u8,
     ) -> Result<Layout2ParameterBlock, RequestError> {
         let packet = SetupPacket {
-            request_type: RequestType::device_to_host(ControlType::Class, Recipient::Interface),
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Class,
+                recipient: Recipient::Interface,
+            },
             request: codes::request_code::RANGE,
             value: (channel as u16) << 8 | control_selector,
             index: (entity as u16) << 8 | interface as u16,
@@ -590,7 +626,11 @@ impl<H: UsbHostDriver> UacHandler<H> {
         interface: u8,
     ) -> Result<Layout3ParameterBlock, RequestError> {
         let packet = SetupPacket {
-            request_type: RequestType::device_to_host(ControlType::Class, Recipient::Interface),
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Class,
+                recipient: Recipient::Interface,
+            },
             request: codes::request_code::RANGE,
             value: (channel as u16) << 8 | control_selector,
             index: (entity as u16) << 8 | interface as u16,
