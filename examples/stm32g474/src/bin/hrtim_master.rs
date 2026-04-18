@@ -4,11 +4,12 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::Speed;
-use embassy_stm32::hrtim::stm32_hrtim::compare_register::HrCompareRegister;
-use embassy_stm32::hrtim::stm32_hrtim::output::{self, HrOutput};
-use embassy_stm32::hrtim::stm32_hrtim::timer::{HrSlaveTimer, HrTimer};
-use embassy_stm32::hrtim::stm32_hrtim::{HrPwmAdvExt, MasterPreloadSource, PreloadSource};
-use embassy_stm32::hrtim::{self, HrControltExt, HrPwmBuilderExt};
+use embassy_stm32::hrtim;
+use embassy_stm32::hrtim::stm32_hrtim::{HrControltExt, HrPwmBuilderExt, Parts};
+use stm32_hrtim::compare_register::HrCompareRegister;
+use stm32_hrtim::output::{self, HrOutput};
+use stm32_hrtim::timer::{HrSlaveTimer, HrTimer};
+use stm32_hrtim::{HrPwmAdvExt, MasterPreloadSource, PreloadSource};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -50,9 +51,9 @@ async fn main(_spawner: Spawner) {
         speed: Speed::Low,
     };
 
-    let prescaler = hrtim::Pscl4;
+    let prescaler = stm32_hrtim::Pscl4;
 
-    let hrtim::Parts {
+    let Parts {
         control,
         master,
         timc,

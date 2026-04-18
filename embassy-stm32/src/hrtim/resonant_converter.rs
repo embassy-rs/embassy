@@ -1,88 +1,60 @@
 //! Variable-frequency resonant converter driver.
-//!
-//! This implementation of a resonsant converter is appropriate for a half or full bridge,
-//! but does not include secondary rectification, which is appropriate for applications
-//! with a low-voltage on the secondary side.
-use stm32_hrtim::control::HrPwmControl;
-pub use stm32_hrtim::deadtime::DeadtimeConfig;
-use stm32_hrtim::output::{HrOutput, Output1Pin, Output2Pin};
-use stm32_hrtim::timer::{HrTim, HrTimer};
-use stm32_hrtim::{HrParts, HrPwmAdvExt, HrPwmBuilder, HrtimPrescaler, InterleavedMode, PreloadSource, capture};
 
-use crate::hrtim::HrPwmBuilderExt;
-use crate::peripherals::HRTIM1;
-use crate::rcc::SealedRccPeripheral;
+use core::marker::PhantomData;
+
+use super::{AdvancedChannel, Instance};
 use crate::time::Hertz;
 
 /// Variable-frequency resonant converter driver.
-pub struct ResonantConverter<TIM, PSCL> {
-    timer: HrParts<TIM, PSCL>,
+///
+/// This implementation of a resonsant converter is appropriate for a half or full bridge,
+/// but does not include secondary rectification, which is appropriate for applications
+/// with a low-voltage on the secondary side.
+pub struct ResonantConverter<T: Instance, C: AdvancedChannel<T>> {
+    timer: PhantomData<T>,
+    channel: PhantomData<C>,
     min_period: u16,
     max_period: u16,
 }
 
-impl<TIM: HrPwmAdvExt, PSCL: HrtimPrescaler> ResonantConverter<TIM, PSCL>
-where
-    TIM: stm32_hrtim::timer::InstanceX + HrPwmAdvExt<PreloadSource = PreloadSource>,
-    HrTim<TIM, PSCL, capture::NoDma, capture::NoDma>: HrTimer,
-{
+impl<T: Instance, C: AdvancedChannel<T>> ResonantConverter<T, C> {
     /// Create a new variable-frequency resonant converter driver.
-    pub fn new<P1, P2>(
-        timer: TIM,
-        pin1: P1,
-        pin2: P2,
-        prescaler: PSCL,
-        min_frequency: Hertz,
-        max_frequency: Hertz,
-        hr_control: &mut HrPwmControl,
-        deadtime_cfg: DeadtimeConfig,
-    ) -> Self
-    where
-        P1: Output1Pin<TIM>,
-        P2: Output2Pin<TIM>,
-        HrPwmBuilder<TIM, PSCL, PreloadSource, P1, P2>: HrPwmBuilderExt<TIM, PSCL, P1, P2>,
-    {
-        let f_min = min_frequency.0;
+    pub fn new(_channel: C, min_frequency: Hertz, max_frequency: Hertz) -> Self {
+        C::set_channel_frequency(C::index(), min_frequency);
 
-        let timer_f = HRTIM1::frequency().0;
+        // Always enable preload
+        T::regs().tim(C::index()).cr().modify(|w| {
+            w.set_preen(true);
+            w.set_repu(true);
 
-        let psc_min = (timer_f / f_min) / (u16::MAX as u32 / 32);
-        let psc = PSCL::VALUE as u32;
-        assert!(
-            psc >= psc_min,
-            "Prescaler set too low to be able to reach target frequency"
-        );
+            w.set_cont(true);
+            w.set_half(true);
+        });
 
-        let timer_f = 32 * (timer_f / psc);
-        let max_period: u16 = (timer_f / f_min) as u16;
+        // Enable timer outputs
+        T::regs().oenr().modify(|w| {
+            w.set_t1oen(C::index(), true);
+            w.set_t2oen(C::index(), true);
+        });
 
-        let mut timer = timer
-            .pwm_advanced(pin1, pin2)
-            .prescaler(prescaler)
-            .period(max_period)
-            .preload(PreloadSource::OnRepetitionUpdate)
-            .interleaved_mode(InterleavedMode::Dual)
-            // Dead-time generator can be used in this case because the primary fets
-            // of a resonant converter are always complementary
-            .deadtime(deadtime_cfg)
-            .finalize(hr_control);
+        // Dead-time generator can be used in this case because the primary fets
+        // of a resonant converter are always complementary
+        T::regs().tim(C::index()).outr().modify(|w| w.set_dten(true));
 
-        // Set output 1 to active on a period event
-        timer.out1.enable_set_event(&timer.timer);
-
-        // Set output 1 to inactive on a compare 1 event
-        timer.out1.enable_rst_event(&timer.cr1);
-
-        timer.out1.enable();
-        timer.out2.enable();
-
+        let max_period = T::regs().tim(C::index()).per().read().per();
         let min_period = max_period * (min_frequency.0 / max_frequency.0) as u16;
 
         Self {
-            timer,
+            timer: PhantomData,
+            channel: PhantomData,
             min_period: min_period,
             max_period: max_period,
         }
+    }
+
+    /// Set the dead time as a proportion of the maximum compare value
+    pub fn set_dead_time(&mut self, value: u16) {
+        C::set_channel_dead_time(C::index(), value);
     }
 
     /// Set the timer period.
@@ -90,7 +62,7 @@ where
         assert!(period < self.max_period);
         assert!(period > self.min_period);
 
-        self.timer.timer.set_period(period);
+        T::regs().tim(C::index()).per().modify(|w| w.set_per(period));
     }
 
     /// Get the minimum compare value of a duty cycle

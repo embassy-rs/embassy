@@ -128,13 +128,12 @@ impl<SM: StationManagement> Phy for GenericPhy<SM> {
         cx.waker().wake_by_ref();
 
         #[cfg(feature = "time")]
-        {
-            if matches!(self.timer.poll_unpin(cx), Poll::Ready(())) {
-                self.timer = Timer::after(self.poll_interval);
-                let _ = self.timer.poll_unpin(cx);
-            } else {
-                return None;
-            }
+        if matches!(self.timer.poll_unpin(cx), Poll::Ready(())) {
+            self.timer = Timer::after(self.poll_interval);
+
+            let _ = self.timer.poll_unpin(cx);
+        } else {
+            return None;
         }
 
         let bsr = self.sm.smi_read(self.phy_addr, PHY_REG_BSR);
