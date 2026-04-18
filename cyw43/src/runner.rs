@@ -279,11 +279,14 @@ where
     }
 
     async fn read_chip_id_sdio(&mut self) -> u16 {
+        // Disable the extra sdio pull-ups
+        // self.bus.write8(FUNC_BACKPLANE, SDIO_PULL_UP, 0).await;
         self.bus.write8(FUNC_BACKPLANE, SDIO_PULL_UP, 0).await;
         self.bus
             .write8(FUNC_BUS, SDIOD_CCCR_IOEN, SDIO_FUNC_ENABLE_1 as u8)
             .await;
 
+        // Enable f1 and f2
         self.bus
             .write8(
                 FUNC_BUS,
@@ -292,6 +295,10 @@ where
             )
             .await;
 
+        // Enable out-of-band interrupt signal
+        // whd_bus_sdio_init_oob_intr
+
+        // Note: only GPIO0 using rising edge is currently supported
         self.bus
             .write8(
                 FUNC_BUS,
@@ -300,6 +307,7 @@ where
             )
             .await;
 
+        // Enable f2 interrupt only
         self.bus
             .write8(
                 FUNC_BUS,
@@ -315,6 +323,7 @@ where
             debug!("chip supports bootloader handshake");
 
             let devctrl = self.bus.read8(FUNC_BACKPLANE, SBSDIO_DEVICE_CTL).await;
+
             self.bus
                 .write8(
                     FUNC_BACKPLANE,
@@ -326,6 +335,7 @@ where
             let addr_low = self.bus.read8(FUNC_BACKPLANE, SBSDIO_FUNC1_SBADDRLOW).await as u32;
             let addr_mid = self.bus.read8(FUNC_BACKPLANE, SBSDIO_FUNC1_SBADDRMID).await as u32;
             let addr_high = self.bus.read8(FUNC_BACKPLANE, SBSDIO_FUNC1_SBADDRHIGH).await as u32;
+
             let reg_addr = ((addr_low << 8) | (addr_mid << 16) | (addr_high << 24)) + SDIO_CORE_CHIPID_REG;
 
             self.bus.write8(FUNC_BACKPLANE, SBSDIO_DEVICE_CTL, devctrl).await;
@@ -341,8 +351,9 @@ where
         nvram: &Aligned<A4, [u8]>,
         bt_fw: Option<&[u8]>,
     ) -> Result<(), ()> {
+        // Upload firmware.
         self.core_disable(Core::WLAN).await;
-        self.core_disable(Core::SOCSRAM).await;
+        self.core_disable(Core::SOCSRAM).await; // TODO: is this needed if we reset right after?
         self.core_reset(Core::SOCSRAM).await;
 
         // this is 4343x specific stuff: Disable remap for SRAM_3
@@ -367,8 +378,8 @@ where
             .bp_write32(ram_addr + CHIP::INFO.chip_ram_size - 4, nvram_len_magic)
             .await;
 
-        debug!("starting up core...");
         // Start core!
+        debug!("starting up core...");
         self.core_reset(Core::WLAN).await;
         assert!(self.core_is_up(Core::WLAN).await);
 
@@ -428,27 +439,54 @@ where
         .await
         {
             debug!("timeout while waiting for function 2 to be ready");
-            if let BusType::Sdio = BUS::TYPE {
-                let ioen = self.bus.read8(FUNC_BUS, SDIOD_CCCR_IOEN).await;
-                let iordy = self.bus.read8(FUNC_BUS, SDIOD_CCCR_IORDY).await;
-                let inten = self.bus.read8(FUNC_BUS, SDIOD_CCCR_INTEN).await;
-                let fn_int_mask = self
-                    .bus
-                    .bp_read8(CHIP::INFO.sdiod_core_base_address + SDIO_FUNCTION_INT_MASK)
-                    .await;
-                let host_int_mask = self
-                    .bus
-                    .bp_read32(CHIP::INFO.sdiod_core_base_address + SDIO_INT_HOST_MASK)
-                    .await;
-                let clock_csr = self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await;
-
-                debug!(
-                    "F2 timeout state: IOEN={:02x} IORDY={:02x} INTEN={:02x} FN_INT_MASK={:02x} HOST_INT_MASK={:08x} CLOCK_CSR={:02x}",
-                    ioen, iordy, inten, fn_int_mask, host_int_mask, clock_csr,
-                );
-            }
             return Err(());
         }
+
+        match BUS::TYPE {
+            BusType::Sdio => {
+                self.bus
+                    .write8(FUNC_BACKPLANE, SDIO_SLEEP_CSR, SBSDIO_SLPCSR_KEEP_WL_KS as u8)
+                    .await;
+
+                self.bus
+                    .write8(FUNC_BACKPLANE, SDIO_SLEEP_CSR, SBSDIO_SLPCSR_KEEP_WL_KS as u8)
+                    .await;
+
+                assert!(self.bus.read8(FUNC_BACKPLANE, SDIO_SLEEP_CSR).await & SBSDIO_SLPCSR_KEEP_WL_KS as u8 != 0);
+            }
+            BusType::Spi => {}
+        }
+
+        // Some random configs related to sleep.
+        // These aren't needed if we don't want to sleep the bus.
+        // TODO do we need to sleep the bus to read the irq line, due to
+        // being on the same pin as MOSI/MISO?
+
+        /*
+        let mut val = self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_WAKEUP_CTRL).await;
+        val |= 0x02; // WAKE_TILL_HT_AVAIL
+        self.bus.write8(FUNC_BACKPLANE, REG_BACKPLANE_WAKEUP_CTRL, val).await;
+        self.bus.write8(FUNC_BUS, 0xF0, 0x08).await; // SDIOD_CCCR_BRCM_CARDCAP.CMD_NODEC = 1
+        self.bus.write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, 0x02).await; // SBSDIO_FORCE_HT
+
+        let mut val = self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_SLEEP_CSR).await;
+        val |= 0x01; // SBSDIO_SLPCSR_KEEP_SDIO_ON
+        self.bus.write8(FUNC_BACKPLANE, REG_BACKPLANE_SLEEP_CSR, val).await;
+         */
+
+        // clear pulls
+        debug!("clear pad pulls");
+        self.bus.write8(FUNC_BACKPLANE, REG_BACKPLANE_PULL_UP, 0).await;
+        let _ = self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_PULL_UP).await;
+
+        // start HT clock
+        self.bus
+            .write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, 0x10)
+            .await; // SBSDIO_HT_AVAIL_REQ
+        debug!("waiting for HT clock...");
+        while self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 == 0 {}
+        debug!("clock ok");
+
         Ok(())
     }
 

@@ -153,11 +153,11 @@ where
         .await;
 
         let sleep_csr = self.read8(FUNC_BACKPLANE, REG_BACKPLANE_SLEEP_CSR).await;
-        if sleep_csr & SBSDIO_SLPCSR_KEEP_WL_KSO as u8 == 0 {
+        if sleep_csr & SBSDIO_SLPCSR_KEEP_WL_KS as u8 == 0 {
             self.write8(
                 FUNC_BACKPLANE,
                 REG_BACKPLANE_SLEEP_CSR,
-                sleep_csr | SBSDIO_SLPCSR_KEEP_WL_KSO as u8,
+                sleep_csr | SBSDIO_SLPCSR_KEEP_WL_KS as u8,
             )
             .await;
         }

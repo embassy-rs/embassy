@@ -78,7 +78,6 @@ pub(crate) const SDIO_TO_SB_MAILBOX: u32 = 0x40;
 pub(crate) const SDIO_TO_SB_MAILBOX_DATA: u32 = 0x48;
 pub(crate) const SDIO_TO_HOST_MAILBOX_DATA: u32 = 0x4C;
 pub(crate) const SDIO_SLEEP_CSR: u32 = 0x1001F;
-pub(crate) const SBSDIO_SLPCSR_KEEP_WL_KSO: u32 = 1 << 0;
 pub(crate) const SBSDIO_SLPCSR_KEEP_WL_KS: u32 = 1 << 0;
 pub(crate) const SBSDIO_SLPCSR_WL_DEVON: u32 = 1 << 1;
 
@@ -92,8 +91,8 @@ pub(crate) const BUS_SD_DATA_WIDTH_MASK: u32 = 0x03;
 pub(crate) const BUS_SD_DATA_WIDTH_4BIT: u32 = 0x02;
 pub(crate) const SDIO_SPEED_EHS: u32 = 0x02;
 pub(crate) const SDIOD_CCCR_BRCM_CARDCAP_SECURE_MODE: u32 = 0x80;
-pub(crate) const SDIOD_CCCR_BRCM_CARDCAP_CMD_NODEC: u32 = 0x08;
 pub(crate) const SBSDIO_DEVICE_CTL: u32 = 0x10009;
+pub(crate) const SDIOD_CCCR_BRCM_CARDCAP_CMD_NODEC: u32 = 0x08;
 pub(crate) const SBSDIO_DEVCTL_ADDR_RST: u32 = 0x40;
 pub(crate) const SDIO_CORE_CHIPID_REG: u32 = 0x330;
 
