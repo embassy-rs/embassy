@@ -323,7 +323,8 @@ where
     (device, control, runner)
 }
 
-/// Create a new instance of the CYW43 driver over SDIO (CYW43439).
+#[deprecated(note = "please use `new_43439_sdio` instead")]
+/// Create a new instance of the CYW43 driver.
 ///
 /// Returns a handle to the network device, control handle and a runner for driving the low level
 /// stack.
@@ -336,11 +337,14 @@ pub async fn new_sdio<'a, SDIO>(
 where
     SDIO: SdioBusCyw43<64>,
 {
-    try_new_sdio(state, sdio, firmware, nvram).await.unwrap()
+    new_43439_sdio(state, sdio, firmware, nvram).await.unwrap()
 }
 
-/// Create a new instance of the CYW43 SDIO driver (CYW43439), returning an error on init failure.
-pub async fn try_new_sdio<'a, SDIO>(
+/// Create a new instance of the CYW43 driver.
+///
+/// Returns a handle to the network device, control handle and a runner for driving the low level
+/// stack.
+pub async fn new_43439_sdio<'a, SDIO>(
     state: &'a mut State,
     sdio: SDIO,
     firmware: &Aligned<A4, [u8]>,
@@ -375,7 +379,7 @@ where
 }
 
 /// Create a new instance of the CYW4373 SDIO driver, returning an error on init failure.
-pub async fn try_new_sdio_4373<'a, SDIO>(
+pub async fn new_4373_sdio<'a, SDIO>(
     state: &'a mut State,
     sdio: SDIO,
     firmware: &Aligned<A4, [u8]>,

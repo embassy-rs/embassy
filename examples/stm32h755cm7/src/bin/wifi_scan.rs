@@ -180,7 +180,7 @@ async fn main(spawner: Spawner) {
 
     info!("new sdio");
 
-    let (_net_device, mut control, runner) = match cyw43::try_new_sdio_4373(state, sdio, fw, nvram).await {
+    let (_net_device, mut control, runner) = match cyw43::new_4373_sdio(state, sdio, fw, nvram).await {
         Ok(parts) => parts,
         Err(()) => {
             error!("CYW43 init failed while waiting for WLAN/F2 readiness");

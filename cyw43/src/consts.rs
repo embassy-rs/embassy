@@ -79,6 +79,7 @@ pub(crate) const SDIO_TO_SB_MAILBOX_DATA: u32 = 0x48;
 pub(crate) const SDIO_TO_HOST_MAILBOX_DATA: u32 = 0x4C;
 pub(crate) const SDIO_SLEEP_CSR: u32 = 0x1001F;
 pub(crate) const SBSDIO_SLPCSR_KEEP_WL_KSO: u32 = 1 << 0;
+pub(crate) const SBSDIO_SLPCSR_KEEP_WL_KS: u32 = 1 << 0;
 pub(crate) const SBSDIO_SLPCSR_WL_DEVON: u32 = 1 << 1;
 
 pub(crate) const SMB_DEV_INT: u32 = 1 << 3;
@@ -226,7 +227,6 @@ pub(crate) const SDIO_FUNC_READY_2: u32 = 0x04;
 pub(crate) const SDIO_64B_BLOCK: u32 = 64;
 pub(crate) const SDIO_CHIP_CLOCK_CSR: u32 = 0x1000e;
 pub(crate) const SDIO_PULL_UP: u32 = 0x1000f;
-
 
 // SDIOD_SEP_INT_CTL bits
 pub(crate) const SEP_INTR_CTL_MASK: u32 = 0x01; // out-of-band interrupt mask
