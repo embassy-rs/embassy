@@ -103,7 +103,36 @@ where
     BUS: Bus,
     CHIP: Chip,
 {
-    async fn verify_download_samples(&mut self, label: &str, addr: u32, data: &[u8]) -> Result<(), ()> {
+    pub(crate) fn new(
+        ch: ch::Runner<'a, MTU>,
+        bus: BUS,
+        chip: CHIP,
+        ioctl_state: &'a IoctlState,
+        events: &'a Events,
+        secure_network: &'a AtomicBool,
+        #[cfg(feature = "bluetooth")] bt: Option<crate::bluetooth::BtRunner<'a>>,
+    ) -> Self {
+        Self {
+            ch,
+            bus,
+            _chip: chip,
+            ioctl_state,
+            ioctl_id: 0,
+            sdpcm_seq: 0,
+            sdpcm_seq_max: 1,
+            events,
+            secure_network,
+            join_ok: false,
+            key_exchange_ok: false,
+            auth_ok: false,
+            #[cfg(feature = "firmware-logs")]
+            log: LogState::default(),
+            #[cfg(feature = "bluetooth")]
+            bt,
+        }
+    }
+
+    async fn verify_download(&mut self, label: &str, addr: u32, data: &[u8]) -> Result<(), ()> {
         async fn bp_read_bytes<BUS: Bus, const N: usize>(bus: &mut BUS, addr: u32) -> Aligned<A4, [u8; N]> {
             let mut buf = Aligned([0; N]);
             bus.bp_read(addr, &mut buf[..]).await;
@@ -188,7 +217,7 @@ where
         Ok(())
     }
 
-    async fn write_reset_instruction_for_cr4(&mut self, wifi_fw: &[u8]) -> Result<(), ()> {
+    async fn write_reset_instruction(&mut self, wifi_fw: &[u8]) -> Result<(), ()> {
         if wifi_fw.len() < 4 {
             debug!("FW image too small to extract reset instruction");
             return Err(());
@@ -215,20 +244,22 @@ where
         Ok(())
     }
 
-    async fn wait_for_core_wrapper_idle(&mut self, base: u32, context: &str) {
-        if !try_until(
-            async || self.bus.bp_read8(base + AI_RESETSTATUS_OFFSET).await == 0,
-            Duration::from_millis(10),
-        )
-        .await
-        {
-            let resetstatus = self.bus.bp_read8(base + AI_RESETSTATUS_OFFSET).await;
-            debug!(
-                "{}: AI_RESETSTATUS @{:08x} stayed nonzero ({:02x})",
-                context,
-                base + AI_RESETSTATUS_OFFSET,
-                resetstatus,
-            );
+    async fn wait_for_core_idle(&mut self, base: u32, context: &str) {
+        if matches!(CHIP::ID, ChipId::C4373) {
+            if !try_until(
+                async || self.bus.bp_read8(base + AI_RESETSTATUS_OFFSET).await == 0,
+                Duration::from_millis(10),
+            )
+            .await
+            {
+                let resetstatus = self.bus.bp_read8(base + AI_RESETSTATUS_OFFSET).await;
+                debug!(
+                    "{}: AI_RESETSTATUS @{:08x} stayed nonzero ({:02x})",
+                    context,
+                    base + AI_RESETSTATUS_OFFSET,
+                    resetstatus,
+                );
+            }
         }
     }
 
@@ -247,35 +278,6 @@ where
             base + AI_RESETSTATUS_OFFSET,
             resetstatus,
         );
-    }
-
-    pub(crate) fn new(
-        ch: ch::Runner<'a, MTU>,
-        bus: BUS,
-        chip: CHIP,
-        ioctl_state: &'a IoctlState,
-        events: &'a Events,
-        secure_network: &'a AtomicBool,
-        #[cfg(feature = "bluetooth")] bt: Option<crate::bluetooth::BtRunner<'a>>,
-    ) -> Self {
-        Self {
-            ch,
-            bus,
-            _chip: chip,
-            ioctl_state,
-            ioctl_id: 0,
-            sdpcm_seq: 0,
-            sdpcm_seq_max: 1,
-            events,
-            secure_network,
-            join_ok: false,
-            key_exchange_ok: false,
-            auth_ok: false,
-            #[cfg(feature = "firmware-logs")]
-            log: LogState::default(),
-            #[cfg(feature = "bluetooth")]
-            bt,
-        }
     }
 
     async fn read_chip_id_sdio(&mut self) -> u16 {
@@ -354,7 +356,7 @@ where
         // Upload firmware.
         self.core_disable(Core::WLAN).await;
         self.core_disable(Core::SOCSRAM).await; // TODO: is this needed if we reset right after?
-        self.core_reset(Core::SOCSRAM).await;
+        self.core_reset(Core::SOCSRAM, false).await;
 
         // this is 4343x specific stuff: Disable remap for SRAM_3
         self.bus.bp_write32(CHIP::INFO.socsram_base_address + 0x10, 3).await;
@@ -380,7 +382,7 @@ where
 
         // Start core!
         debug!("starting up core...");
-        self.core_reset(Core::WLAN).await;
+        self.core_reset(Core::WLAN, false).await;
         assert!(self.core_is_up(Core::WLAN).await);
 
         // wait until HT clock is available; takes about 29ms
@@ -499,18 +501,18 @@ where
         // prevented from executing until core_reset() clears the CPUHALT bit.
         // Using core_disable() instead (IOCTRL=0, RESETCTRL=1) gates the clock OFF
         // and causes the bp_write to 0x160000 to hang indefinitely.
-        self.core_reset_with_cpuhalt(Core::WLAN).await;
+        self.core_reset(Core::WLAN, true).await;
 
         debug!("loading fw");
         self.bus.bp_write(ram_addr, wifi_fw).await;
-        self.verify_download_samples("FW", ram_addr, wifi_fw).await?;
-        self.write_reset_instruction_for_cr4(wifi_fw).await?;
+        self.verify_download("FW", ram_addr, wifi_fw).await?;
+        self.write_reset_instruction(wifi_fw).await?;
 
         debug!("loading nvram");
         let nvram_len = (nvram.len() + 3) / 4 * 4;
         let nvram_addr = ram_addr + CHIP::INFO.chip_ram_size - 4 - nvram_len as u32;
         self.bus.bp_write(nvram_addr, nvram).await;
-        self.verify_download_samples("NVRAM", nvram_addr, nvram).await?;
+        self.verify_download("NVRAM", nvram_addr, nvram).await?;
 
         let nvram_len_words = nvram_len as u32 / 4;
         let nvram_len_magic = (!nvram_len_words << 16) | nvram_len_words;
@@ -544,7 +546,7 @@ where
         );
 
         debug!("starting up core...");
-        self.core_reset(Core::WLAN).await;
+        self.core_reset(Core::WLAN, false).await;
         assert!(self.core_is_up(Core::WLAN).await);
 
         debug!("waiting for HT clock...");
@@ -1283,7 +1285,7 @@ where
 
     async fn core_disable(&mut self, core: Core) {
         let base = CHIP::base_addr(core);
-        self.wait_for_core_wrapper_idle(base, "core_disable: pre-read").await;
+        self.wait_for_core_idle(base, "core_disable: pre-read").await;
 
         // Dummy read?
         let _ = self.bus.bp_read8(base + AI_RESETCTRL_OFFSET).await;
@@ -1296,8 +1298,7 @@ where
 
         self.bus.bp_write8(base + AI_IOCTRL_OFFSET, 0).await;
         let _ = self.bus.bp_read8(base + AI_IOCTRL_OFFSET).await;
-        self.wait_for_core_wrapper_idle(base, "core_disable: after ioctrl=0")
-            .await;
+        self.wait_for_core_idle(base, "core_disable: after ioctrl=0").await;
 
         block_for(Duration::from_millis(1));
 
@@ -1305,19 +1306,22 @@ where
             .bp_write8(base + AI_RESETCTRL_OFFSET, AI_RESETCTRL_BIT_RESET)
             .await;
         let _ = self.bus.bp_read8(base + AI_RESETCTRL_OFFSET).await;
-        self.wait_for_core_wrapper_idle(base, "core_disable: after reset assert")
-            .await;
+        self.wait_for_core_idle(base, "core_disable: after reset assert").await;
 
         // WHD holds the core in reset briefly before programming IOCTRL.
         Timer::after_millis(10).await;
         self.log_core_wrapper_state(core, "core_disable done").await;
     }
 
-    async fn core_reset(&mut self, core: Core) {
-        self.core_reset_inner(core, 0).await;
-    }
-
-    async fn core_reset_inner(&mut self, core: Core, bits: u8) {
+    /// Reset a core while possibly keeping its CPU halted (CPUHALT bit set in IOCTRL).
+    ///
+    /// Used for CYW4373: the WLAN ARM core must be held in reset (CPU halted)
+    /// while firmware is streamed into ATCM RAM, so it does not begin executing
+    /// before the image is complete.  A plain `core_reset` clears CPUHALT and
+    /// would start the CPU immediately.
+    ///
+    /// Mirrors `whd_reset_core(core, SICF_CPUHALT, SICF_CPUHALT)` in the C WHD driver.
+    async fn core_reset(&mut self, core: Core, halt_cpu: bool) {
         self.core_disable(core).await;
 
         let base = CHIP::base_addr(core);
@@ -1325,11 +1329,15 @@ where
         self.bus
             .bp_write8(
                 base + AI_IOCTRL_OFFSET,
-                bits | AI_IOCTRL_BIT_FGC | AI_IOCTRL_BIT_CLOCK_EN,
+                if halt_cpu {
+                    AI_IOCTRL_BIT_CPUHALT | AI_IOCTRL_BIT_FGC | AI_IOCTRL_BIT_CLOCK_EN
+                } else {
+                    AI_IOCTRL_BIT_FGC | AI_IOCTRL_BIT_CLOCK_EN
+                },
             )
             .await;
         let _ = self.bus.bp_read8(base + AI_IOCTRL_OFFSET).await;
-        self.wait_for_core_wrapper_idle(base, "core_reset: after ioctrl fgc+clock")
+        self.wait_for_core_idle(base, "core_reset: after ioctrl fgc+clock")
             .await;
         self.log_core_wrapper_state(core, "core_reset: forced gated clock")
             .await;
@@ -1340,8 +1348,7 @@ where
         for _ in 0..10 {
             self.bus.bp_write8(base + AI_RESETCTRL_OFFSET, 0).await;
             let _ = self.bus.bp_read8(base + AI_RESETCTRL_OFFSET).await;
-            self.wait_for_core_wrapper_idle(base, "core_reset: during reset deassert")
-                .await;
+            self.wait_for_core_idle(base, "core_reset: during reset deassert").await;
 
             if self.bus.bp_read8(base + AI_RESETCTRL_OFFSET).await & AI_RESETCTRL_BIT_RESET == 0 {
                 break;
@@ -1352,26 +1359,20 @@ where
         self.log_core_wrapper_state(core, "core_reset: reset deasserted").await;
 
         self.bus
-            .bp_write8(base + AI_IOCTRL_OFFSET, bits | AI_IOCTRL_BIT_CLOCK_EN)
+            .bp_write8(
+                base + AI_IOCTRL_OFFSET,
+                if halt_cpu {
+                    AI_IOCTRL_BIT_CPUHALT | AI_IOCTRL_BIT_CLOCK_EN
+                } else {
+                    AI_IOCTRL_BIT_CLOCK_EN
+                },
+            )
             .await;
         let _ = self.bus.bp_read8(base + AI_IOCTRL_OFFSET).await;
-        self.wait_for_core_wrapper_idle(base, "core_reset: after final ioctrl")
-            .await;
+        self.wait_for_core_idle(base, "core_reset: after final ioctrl").await;
 
         Timer::after_millis(1).await;
         self.log_core_wrapper_state(core, "core_reset done").await;
-    }
-
-    /// Reset a core while keeping its CPU halted (CPUHALT bit set in IOCTRL).
-    ///
-    /// Used for CYW4373: the WLAN ARM core must be held in reset (CPU halted)
-    /// while firmware is streamed into ATCM RAM, so it does not begin executing
-    /// before the image is complete.  A plain `core_reset` clears CPUHALT and
-    /// would start the CPU immediately.
-    ///
-    /// Mirrors `whd_reset_core(core, SICF_CPUHALT, SICF_CPUHALT)` in the C WHD driver.
-    async fn core_reset_with_cpuhalt(&mut self, core: Core) {
-        self.core_reset_inner(core, AI_IOCTRL_BIT_CPUHALT).await;
     }
 
     async fn core_is_up(&mut self, core: Core) -> bool {
