@@ -957,7 +957,7 @@ where
                     trace!("pkt ready...");
                     let len = len as usize;
                     if len > INITIAL_READ as usize {
-                        if !self
+                        if self
                             .bus
                             .wlan_read(&mut aligned_mut(&mut buf[1..])[..len - INITIAL_READ as usize])
                             .await

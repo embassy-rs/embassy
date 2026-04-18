@@ -266,8 +266,9 @@ where
     }
 
     async fn cmd53_write(&mut self, func: u32, mut addr: u32, buf: &Aligned<A4, [u8]>) {
-        let byte_part = size_of_val(buf) % BLOCK_SIZE;
-        let block_part = size_of_val(buf) - byte_part;
+        // Use buf.len() (Deref to [u8]) not size_of_val, which rounds up to 4 bytes.
+        let byte_part = buf.len() % BLOCK_SIZE;
+        let block_part = buf.len() - byte_part;
 
         if block_part > 0 {
             let buf = &buf[..block_part];
@@ -301,11 +302,9 @@ where
     }
 
     async fn cmd53_read(&mut self, func: u32, mut addr: u32, buf: &mut Aligned<A4, [u8]>) -> Result<(), ()> {
-        // Use buf.len() (Deref to [u8]) not size_of_val, which rounds up to
-        // the Aligned<A4, _> alignment (4 bytes) and would over-index short slices.
-        let data_len = buf.len();
-        let byte_part = data_len % BLOCK_SIZE;
-        let block_part = data_len - byte_part;
+        // Use buf.len() (Deref to [u8]) not size_of_val, which rounds up to 4 bytes.
+        let byte_part = buf.len() % BLOCK_SIZE;
+        let block_part = buf.len() - byte_part;
 
         if block_part > 0 {
             let buf = &mut buf[..block_part];
@@ -440,7 +439,7 @@ where
 
     async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) -> Result<(), ()> {
         self.ensure_wlan_bus_awake().await;
-        if !self.cmd53_read(FUNC_WLAN, 0, buf).await.is_err() {
+        if self.cmd53_read(FUNC_WLAN, 0, buf).await.is_err() {
             buf.fill(0);
             // A timed-out partial F2 read leaves the same packet pending forever.
             // Mirror WHD's abort path so the device can reset its F2 read state.
