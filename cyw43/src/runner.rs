@@ -45,7 +45,7 @@ pub(crate) trait SealedBus {
     const TYPE: BusType;
 
     async fn init(&mut self, bluetooth_enabled: bool) -> Result<(), ()>;
-    async fn prepare_wlan_bus(&mut self) {}
+    fn init_complete(&mut self);
     async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) -> Result<(), ()>;
     async fn wlan_write(&mut self, buf: &Aligned<A4, [u8]>);
     #[allow(unused)]
@@ -622,7 +622,35 @@ where
             return Err(());
         }
 
-        self.bus.prepare_wlan_bus().await;
+        let wakeup_ctrl = self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_WAKEUP_CTRL).await;
+        self.bus
+            .write8(
+                FUNC_BACKPLANE,
+                REG_BACKPLANE_WAKEUP_CTRL,
+                wakeup_ctrl | SBSDIO_WCTRL_WL_WAKE_TILL_ALP_AVAIL,
+            )
+            .await;
+
+        self.bus
+            .write8(
+                FUNC_BUS,
+                SDIOD_CCCR_BRCM_CARDCAP,
+                SDIOD_CCCR_BRCM_CARDCAP_CMD_NODEC as u8,
+            )
+            .await;
+
+        let sleep_csr = self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_SLEEP_CSR).await;
+        if sleep_csr & SBSDIO_SLPCSR_KEEP_WL_KS as u8 == 0 {
+            self.bus
+                .write8(
+                    FUNC_BACKPLANE,
+                    REG_BACKPLANE_SLEEP_CSR,
+                    sleep_csr | SBSDIO_SLPCSR_KEEP_WL_KS as u8,
+                )
+                .await;
+        }
+
+        self.bus.init_complete();
 
         Ok(())
     }

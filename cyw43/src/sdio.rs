@@ -116,7 +116,7 @@ impl<const SIZE: usize, T: SdioBusCyw43<SIZE>> SdioBusCyw43<SIZE> for &mut T {
 /// Doc
 pub struct SdioBus<SDIO> {
     backplane_window: u32,
-    wlan_bus_prepared: bool,
+    bus_initialized: bool,
     sdio: SDIO,
 }
 
@@ -127,46 +127,13 @@ where
     pub(crate) fn new(sdio: SDIO) -> Self {
         Self {
             backplane_window: 0xAAAA_AAAA,
-            wlan_bus_prepared: false,
+            bus_initialized: false,
             sdio,
         }
     }
 
-    async fn prepare_wlan_bus_if_needed(&mut self) {
-        if self.wlan_bus_prepared {
-            return;
-        }
-
-        let wakeup_ctrl = self.read8(FUNC_BACKPLANE, REG_BACKPLANE_WAKEUP_CTRL).await;
-        self.write8(
-            FUNC_BACKPLANE,
-            REG_BACKPLANE_WAKEUP_CTRL,
-            wakeup_ctrl | SBSDIO_WCTRL_WL_WAKE_TILL_ALP_AVAIL,
-        )
-        .await;
-
-        self.write8(
-            FUNC_BUS,
-            SDIOD_CCCR_BRCM_CARDCAP,
-            SDIOD_CCCR_BRCM_CARDCAP_CMD_NODEC as u8,
-        )
-        .await;
-
-        let sleep_csr = self.read8(FUNC_BACKPLANE, REG_BACKPLANE_SLEEP_CSR).await;
-        if sleep_csr & SBSDIO_SLPCSR_KEEP_WL_KS as u8 == 0 {
-            self.write8(
-                FUNC_BACKPLANE,
-                REG_BACKPLANE_SLEEP_CSR,
-                sleep_csr | SBSDIO_SLPCSR_KEEP_WL_KS as u8,
-            )
-            .await;
-        }
-
-        self.wlan_bus_prepared = true;
-    }
-
     async fn ensure_wlan_bus_awake(&mut self) {
-        if !self.wlan_bus_prepared {
+        if !self.bus_initialized {
             return;
         }
 
@@ -433,8 +400,8 @@ where
         Ok(())
     }
 
-    async fn prepare_wlan_bus(&mut self) {
-        self.prepare_wlan_bus_if_needed().await;
+    fn init_complete(&mut self) {
+        self.bus_initialized = true;
     }
 
     async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) -> Result<(), ()> {
