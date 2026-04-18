@@ -846,6 +846,7 @@ impl<'d> Sdmmc<'d> {
         self.wait_idle();
         self.clear_interrupt_flags();
 
+        // Use buffer.len() not size_of_val: see comment in prepare_datapath_read.
         regs.dlenr().write(|w| w.set_datalength(buffer.len() as u32));
 
         // SAFETY: No other functions use the dma
