@@ -281,7 +281,6 @@ where
     async fn read_chip_id_sdio(&mut self) -> u16 {
         // Disable the extra sdio pull-ups
         // self.bus.write8(FUNC_BACKPLANE, SDIO_PULL_UP, 0).await;
-        self.bus.write8(FUNC_BACKPLANE, SDIO_PULL_UP, 0).await;
         self.bus
             .write8(FUNC_BUS, SDIOD_CCCR_IOEN, SDIO_FUNC_ENABLE_1 as u8)
             .await;
@@ -339,6 +338,7 @@ where
             let reg_addr = ((addr_low << 8) | (addr_mid << 16) | (addr_high << 24)) + SDIO_CORE_CHIPID_REG;
 
             self.bus.write8(FUNC_BACKPLANE, SBSDIO_DEVICE_CTL, devctrl).await;
+
             self.bus.bp_read16(reg_addr).await
         } else {
             self.bus.bp_read16(CHIPCOMMON_BASE_ADDRESS).await
@@ -984,7 +984,7 @@ where
                     }
                 }
                 BusType::Sdio => {
-                    if !self.bus.wlan_read(&mut aligned_mut(&mut buf[..1])).await.is_err() {
+                    if self.bus.wlan_read(&mut aligned_mut(&mut buf[..1])).await.is_err() {
                         debug!("failed to read sdio hwtag");
                         break;
                     }
@@ -1051,6 +1051,7 @@ where
 
                 if cdc_header.id == self.ioctl_id {
                     if cdc_header.status != 0 {
+                        // TODO: propagate error instead
                         warn!("IOCTL error {}", cdc_header.status as i32);
                     }
 
