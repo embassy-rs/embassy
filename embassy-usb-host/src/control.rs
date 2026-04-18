@@ -60,8 +60,10 @@ pub enum ControlType {
 pub struct RequestType {
     /// Transfer direction (IN = device→host, OUT = host→device).
     pub direction: Direction,
+
     /// Whether this is a standard, class, vendor, or reserved request.
     pub control_type: ControlType,
+
     /// Recipient of the request.
     pub recipient: Recipient,
 }
@@ -109,25 +111,28 @@ impl RequestType {
 ///
 /// Convenience type for building SETUP packets; serialize with
 /// [`SetupPacket::to_bytes`] before passing to a USB driver.
+///
+/// Setup data format is described in USB spec Table 9-2.
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct SetupPacket {
-    /// Request characteristics: direction, type, recipient.
+    /// `bmRequestType` - Request characteristics: direction, type, recipient.
+    ///
     /// See [`RequestType`] for details.
-    /// Called `bmRequestType` in USB spec (Table 9-2).
     pub request_type: RequestType,
-    /// Request code.
+
+    /// `bRequest` - Request code.
+    ///
     /// See Table 9-3 of USB spec for standard ones.
-    /// Called `bRequest` in USB spec (Table 9-2).
     pub request: u8,
-    /// Use depending on request field.
-    /// Called `wValue` in USB spec (Table 9-2).
+
+    /// `wValue` - Use depending on request field.
     pub value: u16,
-    /// Use depending on request field.
-    /// Called `wIndex` in USB spec (Table 9-2).
+
+    /// `wIndex` - Use depending on request field.
     pub index: u16,
-    /// Number of bytes to transfer in data stage if there is one.
-    /// Called `wLength` in USB spec (Table 9-2).
+
+    /// `wLength` - Number of bytes to transfer in data stage if there is one.
     pub length: u16,
 }
 
