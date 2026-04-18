@@ -188,8 +188,8 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
         let mut buf = [0u16; 2];
         self.control_channel.control_in(&setup, buf.as_mut_bytes()).await?;
         Ok((
-            HubStatus::from_bits_truncate(buf[0]),
-            HubStatusChange::from_bits_truncate(buf[1]),
+            HubStatus::from_bits_truncate(u16::from_le(buf[0])),
+            HubStatusChange::from_bits_truncate(u16::from_le(buf[1])),
         ))
     }
 
@@ -233,8 +233,8 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
         let mut buf = [0u16; 2];
         self.control_channel.control_in(&setup, buf.as_mut_bytes()).await?;
         Ok((
-            PortStatus::from_bits_truncate(buf[0]),
-            PortStatusChange::from_bits_truncate(buf[1]),
+            PortStatus::from_bits_truncate(u16::from_le(buf[0])),
+            PortStatusChange::from_bits_truncate(u16::from_le(buf[1])),
         ))
     }
 }
