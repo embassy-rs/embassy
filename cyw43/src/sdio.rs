@@ -37,7 +37,7 @@ enum Word {
 }
 
 const BLOCK_SIZE: usize = BACKPLANE_MAX_TRANSFER_SIZE;
-const SDIO_DEBUG_INIT_CLOCK_HZ: u32 = 12_500_000;
+const SDIO_INIT_CLOCK_HZ: u32 = 25_000_000;
 
 fn cmd53_arg(write: bool, func: u32, addr: u32, mode: Mode, len: usize) -> u32 {
     let (len, block_mode) = match mode {
@@ -410,9 +410,10 @@ where
         )
         .await;
 
-        // Keep the bus conservative during bring-up so firmware download and
-        // early boot are not conflated with signal-integrity/timing issues.
-        self.sdio.set_bus_to_high_speed(SDIO_DEBUG_INIT_CLOCK_HZ).unwrap();
+        // Match the C WHD driver: default to 25 MHz after SDIO enumeration.
+        // The C driver only switches to 50 MHz after a successful CCCR High Speed
+        // handshake (SDIO_CMD52_CCCR_SPEED_SELECT_RESP_HS_SELECTED).
+        self.sdio.set_bus_to_high_speed(SDIO_INIT_CLOCK_HZ).unwrap();
 
         // Note: high-speed (50 MHz) is intentionally NOT enabled here.
         // For debug we also stay below 25 MHz for the whole init path. If the

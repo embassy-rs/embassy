@@ -919,27 +919,6 @@ impl<'d> Sdmmc<'d> {
         self.cmd(common_cmd::idle(), true, false)
     }
 
-    /// Start the SDMMC clock at 400 kHz without performing any card initialization.
-    ///
-    /// Call this before asserting the Wi-Fi module's WL_REG_ON (power enable) so that
-    /// the SDMMC clock is already toggling when the module powers up.  SDIO chips such
-    /// as the CYW4373 require the host clock to be present during their power-up
-    /// sequence before they will respond to CMD5 (IO_SEND_OP_COND).
-    ///
-    /// This matches the Infineon STM32 PAL behaviour in `_stm32_sdio_enable_hw_block`
-    /// (stm32_cyhal_sdio.c), which calls `SDMMC_PowerState_ON` followed by a 74-cycle
-    /// wait *before* `_cybsp_wifi_reset_wifi_chip` asserts WL_REG_ON.
-    pub fn start_clocks(&mut self) -> Result<(), Error> {
-        let regs = self.info.regs;
-        self.clkcr_set_clkdiv(SD_INIT_FREQ, BusWidth::One)?;
-        regs.dtimer()
-            .write(|w| w.set_datatime(self.config.data_transfer_timeout));
-        regs.power().modify(|w| w.set_pwrctrl(PowerCtrl::On as u8));
-        // Wait the mandatory ≥74 cycles (SD spec §6.4.1)
-        block_for_us((74_000_000 / SD_INIT_FREQ.0) as u64);
-        Ok(())
-    }
-
     /// Sets the CLKDIV field in CLKCR. Updates clock field in self
     fn clkcr_set_clkdiv(&mut self, freq: Hertz, width: BusWidth) -> Result<(), Error> {
         let regs = self.info.regs;

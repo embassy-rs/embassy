@@ -42,7 +42,7 @@ async fn sdio_init_with_retry(
     for i in 0..10u8 {
         // SAFETY: see doc comment above.
         let r: &'static mut Sdmmc<'static> = unsafe { &mut *(sdmmc as *mut _) };
-        match SerialDataInterface::new(r, mhz(50)).await {
+        match SerialDataInterface::new(r, mhz(25)).await {
             Ok(sdio) => {
                 if i > 0 {
                     info!("SDIO ready after {} outer retries", i);
@@ -162,14 +162,13 @@ async fn main(spawner: Spawner) {
     let sdmmc = SDMMC.init(sdmmc);
     let state = STATE.init(cyw43::State::new());
 
-    // SDMMC host clock **before** `WL_REG_ON` high (same idea as `cyhal_sdio_init` /
-    // `SDMMC_PowerState_ON` before `_cybsp_wifi_reset_wifi_chip` in the Cube/WHD path).
-    trace!("start SDMMC clock (WL_REG_ON still low)");
-    unwrap!(sdmmc.start_clocks());
-
+    // C WHD sequence: WL_REG_ON high first, then SDIO init starts the clock.
+    // _cybsp_wifi_reset_wifi_chip() asserts WL_REG_ON, then _cybsp_wifi_sdio_init_bus()
+    // calls cyhal_sdio_init() which powers on the SDMMC peripheral and starts the clock.
+    // WLAN_CBUCK_DISCHARGE_MS = 10, WLAN_POWER_UP_DELAY_MS = 250 in the C project.
     trace!("WL_REG_ON high, wait for PMU before SDIO");
     wl_reg.set_high();
-    Timer::after_millis(500).await;
+    Timer::after_millis(250).await;
 
     let sdio = match sdio_init_with_retry(sdmmc).await {
         Ok(sdio) => sdio,
