@@ -46,6 +46,7 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::ETH> for InterruptHandl
 /// Ethernet driver.
 pub struct Ethernet<'d, T: Instance, P: Phy> {
     _peri: Peri<'d, T>,
+    pub(crate) link_state: LinkState,
     pub(crate) tx: TDesRing<'d>,
     pub(crate) rx: RDesRing<'d>,
 
@@ -299,6 +300,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             _pins: pins,
             phy: phy,
             mac_addr,
+            link_state: LinkState::Down,
             tx: TDesRing::new(&mut queue.tx_desc, &mut queue.tx_buf),
             rx: RDesRing::new(&mut queue.rx_desc, &mut queue.rx_buf),
         };
