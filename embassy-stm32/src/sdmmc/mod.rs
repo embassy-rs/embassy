@@ -905,18 +905,26 @@ impl<'d> Sdmmc<'d> {
         regs.idmactrlr().modify(|w| w.set_idmaen(false));
     }
 
-    fn init_idle(&mut self) -> Result<CommandResponse<Rz>, Error> {
+    /// Start SDMMC_CK at 400 kHz and assert peripheral power, without sending CMD0.
+    ///
+    /// Some SDIO Wi‑Fi modules (e.g. Murata Type 2BC on certain carrier boards) need
+    /// the host clock to be toggling **while** the module's regulator enable (`WL_REG_ON`)
+    /// ramps, before they will answer `CMD5` (`IO_SEND_OP_COND`). Cube/WHD often enables
+    /// the SDMMC block before asserting `WL_REG_ON`. Call this before your power-enable
+    /// GPIO if enumeration times out when power is asserted first.
+    pub fn start_clocks(&mut self) -> Result<(), Error> {
         let regs = self.info.regs;
-
         self.clkcr_set_clkdiv(SD_INIT_FREQ, BusWidth::One)?;
         regs.dtimer()
             .write(|w| w.set_datatime(self.config.data_transfer_timeout));
-
         regs.power().modify(|w| w.set_pwrctrl(PowerCtrl::On as u8));
-
-        // Wait 74 cycles
+        // SD spec: ≥74 clock cycles at init frequency before card I/O
         block_for_us((74_000_000 / SD_INIT_FREQ.0) as u64);
+        Ok(())
+    }
 
+    fn init_idle(&mut self) -> Result<CommandResponse<Rz>, Error> {
+        self.start_clocks()?;
         self.cmd(common_cmd::idle(), true, false)
     }
 
@@ -1048,7 +1056,11 @@ impl<'d> Sdmmc<'d> {
         }
 
         if status.ctimeout() {
-            trace!("ctimeout: {}", cmd.cmd);
+            // CMD5 is retried hundreds of times during SDIO power-up; logging each attempt
+            // floods defmt at TRACE and hides useful lines.
+            if cmd.cmd != 5 {
+                trace!("ctimeout: {}", cmd.cmd);
+            }
             if !SDMMC_CMD_TIMEOUT_DUMPED.swap(true, Ordering::Relaxed) {
                 #[cfg(sdmmc_v2)]
                 trace!(

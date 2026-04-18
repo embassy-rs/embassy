@@ -162,10 +162,14 @@ async fn main(spawner: Spawner) {
     let sdmmc = SDMMC.init(sdmmc);
     let state = STATE.init(cyw43::State::new());
 
-    // C WHD sequence: WL_REG_ON high first, then SDIO init starts the clock.
-    // _cybsp_wifi_reset_wifi_chip() asserts WL_REG_ON, then _cybsp_wifi_sdio_init_bus()
-    // calls cyhal_sdio_init() which powers on the SDMMC peripheral and starts the clock.
-    // WLAN_CBUCK_DISCHARGE_MS = 10, WLAN_POWER_UP_DELAY_MS = 250 in the C project.
+    // Murata 2BC / CYW4373 on **some** STM32 carriers (incl. many M.2 adapters) needs
+    // SDMMC_CK running *before* `WL_REG_ON` so the module can complete internal reset
+    // and answer `CMD5`. Pure "C order" (power first) works on Nucleo + some boards but
+    // times out on others — if you see endless `CMD5` timeouts, verify `PG8`/`PD0` and
+    // SDIO pin mux against your schematic **and** keep this clock-first step.
+    trace!("start SDMMC clock (WL_REG_ON still low)");
+    unwrap!(sdmmc.start_clocks());
+
     trace!("WL_REG_ON high, wait for PMU before SDIO");
     wl_reg.set_high();
     Timer::after_millis(250).await;
