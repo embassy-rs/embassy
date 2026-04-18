@@ -9,7 +9,7 @@ use core::num::NonZeroU8;
 use bitflags::bitflags;
 use embassy_time::Timer;
 use embassy_usb::control::Request;
-use embassy_usb_driver::host::{HostError, SplitInfo, UsbChannel, UsbHostDriver, channel};
+use embassy_usb_driver::host::{HostError, SplitInfo, SplitSpeed, UsbChannel, UsbHostDriver, channel};
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
 use zerocopy::{FromBytes, Immutable, KnownLayout};
 
@@ -36,7 +36,10 @@ pub enum HubEvent {
 impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
     /// Attempt to register a hub handler for the given device.
     pub async fn try_register(bus: &H, enum_info: &EnumerationInfo) -> Result<Self, RegisterError> {
-        let ls_over_fs = enum_info.split.map(|s| s.device_speed() == Speed::Low).unwrap_or(false);
+        let ls_over_fs = enum_info
+            .split
+            .map(|s| s.device_speed() == SplitSpeed::Low)
+            .unwrap_or(false);
         let mut control_channel = bus.alloc_channel::<channel::Control, channel::InOut>(
             enum_info.device_address,
             &EndpointInfo {
@@ -218,10 +221,12 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
         Timer::after_millis(50).await;
         self.port_feature(false, PortFeature::ChangeReset, port, 0).await?;
 
-        // Legacy PRE / low-speed-through-a-hub: everything else is not yet
-        // supported by any of the HAL drivers.
-        let split = matches!((speed, self.speed), (Speed::Low, Speed::Full | Speed::High))
-            .then(|| SplitInfo::new(self.device_address, port + 1, speed));
+        let split_speed = match (speed, self.speed) {
+            (Speed::Low, Speed::Full | Speed::High) => Some(SplitSpeed::Low),
+            (Speed::Full, Speed::High) => Some(SplitSpeed::Full),
+            _ => None,
+        };
+        let split = split_speed.map(|ss| SplitInfo::new(self.device_address, port + 1, ss));
         self.control_channel
             .enumerate_device(speed, new_device_address, split)
             .await

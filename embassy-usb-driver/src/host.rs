@@ -4,6 +4,20 @@ use core::time::Duration;
 
 use crate::{EndpointInfo, EndpointType, Speed};
 
+/// Speed of a low- or full-speed device reached through split transactions
+/// (USB 2.0 §11.14) or a `PRE` prefix (USB 1.1 §11.8.6).
+///
+/// High-speed devices are not valid split targets; split metadata only applies
+/// to devices operating at low or full speed behind a hub.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum SplitSpeed {
+    /// 1.5 Mbit/s
+    Low,
+    /// 12 Mbit/s
+    Full,
+}
+
 /// Per-channel information necessary to encode a split-transaction token
 /// (USB 2.0 §11.14) or a legacy full-speed `PRE` packet (USB 1.1 §11.8.6).
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -11,7 +25,7 @@ use crate::{EndpointInfo, EndpointType, Speed};
 pub struct SplitInfo {
     hub_addr: u8,
     port: u8,
-    device_speed: Speed,
+    device_speed: SplitSpeed,
 }
 
 impl SplitInfo {
@@ -19,9 +33,9 @@ impl SplitInfo {
     ///
     /// `hub_addr` is the USB address of the hub that owns the Transaction
     /// Translator; `port` is the 1-based port number on that hub where the
-    /// target device is attached; `device_speed` is the speed of the target
-    /// device, which must be [`Speed::Low`] or [`Speed::Full`].
-    pub const fn new(hub_addr: u8, port: u8, device_speed: Speed) -> Self {
+    /// target device is attached; `device_speed` is the speed of that target
+    /// device ([`SplitSpeed::Low`] or [`SplitSpeed::Full`] only).
+    pub const fn new(hub_addr: u8, port: u8, device_speed: SplitSpeed) -> Self {
         Self {
             hub_addr,
             port,
@@ -39,8 +53,8 @@ impl SplitInfo {
         self.port
     }
 
-    /// Speed of the target device.
-    pub const fn device_speed(self) -> Speed {
+    /// Speed of the split target device (low or full only).
+    pub const fn device_speed(self) -> SplitSpeed {
         self.device_speed
     }
 }

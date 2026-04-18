@@ -5,7 +5,7 @@ use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::host::{
-    ChannelError, DeviceEvent, HostError, SplitInfo, TimeoutConfig, UsbChannel, UsbHostDriver, channel,
+    ChannelError, DeviceEvent, HostError, SplitInfo, SplitSpeed, TimeoutConfig, UsbChannel, UsbHostDriver, channel,
 };
 use embassy_usb_driver::{EndpointInfo, EndpointType, Speed};
 
@@ -13,7 +13,7 @@ use embassy_usb_driver::{EndpointInfo, EndpointType, Speed};
 /// full-speed only controller. USB 1.1 §11.8.6: PRE is required when the
 /// target device is low-speed and reached through a (full-speed) hub.
 fn split_to_pre(split: Option<SplitInfo>) -> bool {
-    matches!(split, Some(s) if s.device_speed() == Speed::Low)
+    matches!(split, Some(s) if s.device_speed() == SplitSpeed::Low)
 }
 use rp_pac::usb_dpram::vals::EpControlEndpointType;
 
