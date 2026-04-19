@@ -314,11 +314,22 @@ impl Default for TimeoutConfig {
 
 /// ## Virtual USB Channels
 /// These contain the required information to send a packet correctly to a device endpoint.
-/// The information is carried with the channel on creation (see [`UsbHostDriver::alloc_channel`]) and can be changed with [`UsbChannel::retarget_channel`].
+/// The information is carried with the channel on creation (see [`UsbHostDriver::alloc_channel`]).
 ///
 /// It is up to the HAL's driver how to implement concurrent requests, some hardware IP may allow for multiple hardware channels
 ///  while others may only have a single channel which needs to be multiplexed in software, while others still use DMA request linked-lists.
 /// Any of these are compatible with the UsbChannel with varying degrees of sync primitives required.
+///
+/// ### NAK handling
+/// Implementations must retry on NAK if appropriate for the transfer type.
+/// - For **control** and **bulk** transfers, the implementation should retry indefinitely or until a timeout occurs.
+/// - For **interrupt** transfers, a NAK indicates no data is available; the implementation should poll again at the next interval.
+///
+/// ### Cancellation
+/// All transfer methods (`control_in`, `control_out`, `request_in`, `request_out`) are asynchronous.
+/// If the returned future is dropped before completion, the implementation should make a best effort
+/// to cancel the transfer on the bus. If the transfer has already started, the implementation must
+/// ensure that the channel state remains consistent for future requests.
 pub trait UsbChannel<T: channel::Type, D: channel::Direction> {
     /// Send IN control request.
     ///
@@ -334,9 +345,6 @@ pub trait UsbChannel<T: channel::Type, D: channel::Direction> {
         T: channel::IsControl,
         D: channel::IsOut;
 
-    /// Retargets channel to a new endpoint, may error if the underlying driver runs out of resources
-    fn retarget_channel(&mut self, addr: u8, endpoint: &EndpointInfo, pre: bool) -> Result<(), HostError>;
-
     /// Send IN request of type other from control
     /// For interrupt channels this will return the result of the next successful interrupt poll
     async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError>
@@ -350,5 +358,7 @@ pub trait UsbChannel<T: channel::Type, D: channel::Direction> {
         D: channel::IsOut;
 
     /// Configure the timeouts of this channel.
-    fn set_timeout(&mut self, timeout: TimeoutConfig);
+    fn set_timeout(&mut self, timeout: TimeoutConfig)
+    where
+        T: channel::IsControl;
 }

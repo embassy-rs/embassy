@@ -593,13 +593,6 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
         Ok(())
     }
 
-    fn retarget_channel(&mut self, addr: u8, endpoint: &EndpointInfo, pre: bool) -> Result<(), HostError> {
-        self.pre = pre;
-        self.dev_addr = addr;
-        self.max_packet_size = endpoint.max_packet_size;
-        Ok(())
-    }
-
     async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError>
     where
         D: channel::IsIn,
@@ -688,7 +681,10 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
         res
     }
 
-    fn set_timeout(&mut self, _: TimeoutConfig) {
+    fn set_timeout(&mut self, _: TimeoutConfig)
+    where
+        E: channel::IsControl,
+    {
         // Not yet implemented for RP2040.
     }
 }

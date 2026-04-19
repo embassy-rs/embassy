@@ -22,7 +22,6 @@ pub struct HubHandler<H: UsbHostDriver, const MAX_PORTS: usize> {
     desc: HubDescriptor,
     device_address: u8,
     device_lut: [Option<NonZeroU8>; MAX_PORTS],
-    speed: Speed,
 }
 
 #[derive(Debug)]
@@ -88,7 +87,6 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
             desc,
             device_address: enum_info.device_address,
             device_lut: [None; MAX_PORTS],
-            speed: enum_info.speed,
         };
 
         for port in 0..hub.desc.port_num {
@@ -191,23 +189,6 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
             HubStatus::from_bits_truncate(buf[0]),
             HubStatusChange::from_bits_truncate(buf[1]),
         ))
-    }
-
-    /// Reset a port and enumerate the device attached to it.
-    pub async fn enumerate_port(
-        &mut self,
-        port: u8,
-        speed: Speed,
-        new_device_address: u8,
-    ) -> Result<EnumerationInfo, HostError> {
-        self.port_feature(true, PortFeature::Reset, port, 0).await?;
-        Timer::after_millis(50).await;
-        self.port_feature(false, PortFeature::ChangeReset, port, 0).await?;
-
-        let ls_pre = matches!((speed, self.speed), (Speed::Low, Speed::Full | Speed::High));
-        self.control_channel
-            .enumerate_device(speed, new_device_address, ls_pre)
-            .await
     }
 
     async fn port_feature(&mut self, set: bool, feature: PortFeature, port: u8, selector: u8) -> Result<(), HostError> {

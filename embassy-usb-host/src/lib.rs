@@ -147,7 +147,6 @@ impl<D: UsbHostDriver> UsbHost<D> {
     }
 
     /// Enumerate a connected device.
-    ///
     /// Performs the standard enumeration sequence:
     /// 1. Get device descriptor (first 8 bytes) to learn EP0 max packet size
     /// 2. SET_ADDRESS to assign a unique address
@@ -161,7 +160,12 @@ impl<D: UsbHostDriver> UsbHost<D> {
         speed: Speed,
         config_buf: &mut [u8],
     ) -> Result<(DeviceDescriptor, u8, usize), EnumerationError> {
+        use embassy_time::Timer;
+
         use crate::control::ControlChannelExt;
+        use crate::descriptor::DeviceDescriptorPartial;
+
+        let addr = self.alloc_address().ok_or(EnumerationError::NoChannel)?;
 
         let ep0_info = EndpointInfo {
             addr: EndpointAddress::from_parts(0, UsbDirection::In),
@@ -175,10 +179,69 @@ impl<D: UsbHostDriver> UsbHost<D> {
             .alloc_channel::<channel::Control, channel::InOut>(0, &ep0_info, false)
             .map_err(|_| EnumerationError::NoChannel)?;
 
-        // Steps 1–3: GET_DESCRIPTOR (partial + full), SET_ADDRESS, retarget channel.
-        let addr = self.alloc_address().ok_or(EnumerationError::NoChannel)?;
-        let enum_info = ch.enumerate_device(speed, addr, false).await?;
-        let dev_desc = enum_info.device_desc;
+        trace!("[enum] Getting max_packet_size for new device");
+        let max_packet_size0 = {
+            let mut max_retries = 10;
+            loop {
+                match ch
+                    .request_descriptor::<DeviceDescriptorPartial, { DeviceDescriptorPartial::SIZE }>(0, false)
+                    .await
+                {
+                    Ok(desc) => break desc.max_packet_size0,
+                    Err(e) => {
+                        warn!("Request descriptor error: {:?}, retries: {}", e, max_retries);
+                        if max_retries > 0 {
+                            max_retries -= 1;
+                            Timer::after_millis(1).await;
+                            continue;
+                        } else {
+                            return Err(e.into());
+                        }
+                    }
+                }
+            }
+        };
+        // USB 2.0 §9.6.1: legal EP0 max packet sizes are 8, 16, 32, 64.
+        if !matches!(max_packet_size0, 8 | 16 | 32 | 64) {
+            return Err(EnumerationError::InvalidDescriptor);
+        }
+
+        ch.device_set_address(addr).await?;
+        // USB 2.0 §9.2.6.3: allow the device a 2ms recovery interval after SET_ADDRESS.
+        Timer::after_millis(2).await;
+
+        // Drop channel to re-allocate with new address and correct max_packet_size.
+        drop(ch);
+
+        let ep0_info = EndpointInfo {
+            addr: EndpointAddress::from_parts(0, UsbDirection::In),
+            ep_type: EndpointType::Control,
+            max_packet_size: max_packet_size0 as u16,
+            interval_ms: 0,
+        };
+
+        let mut ch = self
+            .driver
+            .alloc_channel::<channel::Control, channel::InOut>(addr, &ep0_info, false)
+            .map_err(|_| EnumerationError::NoChannel)?;
+
+        let retries = 5;
+        let dev_desc = async {
+            for _ in 0..retries {
+                match ch
+                    .request_descriptor::<DeviceDescriptor, { DeviceDescriptor::SIZE }>(0, false)
+                    .await
+                {
+                    Err(HostError::ChannelError(ChannelError::Timeout)) => {
+                        Timer::after_millis(1).await;
+                        continue;
+                    }
+                    v => return v,
+                }
+            }
+            Err(HostError::ChannelError(ChannelError::Timeout))
+        }
+        .await?;
 
         info!(
             "Device: VID={:04x} PID={:04x} class={:02x}",

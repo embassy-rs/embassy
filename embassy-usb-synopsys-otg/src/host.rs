@@ -626,7 +626,6 @@ impl<'d, const CH_COUNT: usize> UsbHostDriver for OtgHost<'d, CH_COUNT> {
     ) -> Result<Self::Channel<T, D>, HostError> {
         let ep_number = endpoint.addr.index() as u8;
         let max_packet_size = endpoint.max_packet_size;
-        let ep_type = endpoint.ep_type;
 
         // Read device speed from port_speed atomic (stored by ISR)
         let speed_code = self.instance.state.port_speed.load(Ordering::Acquire);
@@ -651,7 +650,6 @@ impl<'d, const CH_COUNT: usize> UsbHostDriver for OtgHost<'d, CH_COUNT> {
                     index: i,
                     device_address: addr,
                     ep_number,
-                    ep_type,
                     max_packet_size,
                     is_low_speed,
                     data_toggle: false,
@@ -675,7 +673,6 @@ pub struct Channel<T: channel::Type, D: channel::Direction, const CH_COUNT: usiz
     index: usize,
     device_address: u8,
     ep_number: u8,
-    ep_type: EndpointType,
     max_packet_size: u16,
     is_low_speed: bool,
     data_toggle: bool,
@@ -1101,15 +1098,10 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> UsbChannel<
         Ok(())
     }
 
-    fn retarget_channel(&mut self, addr: u8, endpoint: &EndpointInfo, _pre: bool) -> Result<(), HostError> {
-        self.device_address = addr;
-        self.ep_number = endpoint.addr.index() as u8;
-        self.max_packet_size = endpoint.max_packet_size;
-        self.ep_type = endpoint.ep_type;
-        Ok(())
-    }
-
-    fn set_timeout(&mut self, _timeout: embassy_usb_driver::host::TimeoutConfig) {
+    fn set_timeout(&mut self, _timeout: embassy_usb_driver::host::TimeoutConfig)
+    where
+        T: channel::IsControl,
+    {
         // Hardware timeouts; no-op
     }
 }
