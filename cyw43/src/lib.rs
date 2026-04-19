@@ -358,7 +358,7 @@ where
 
     let mut runner = Runner::new(
         ch_runner,
-        SdioBus::new(sdio),
+        SdioBus::new(sdio, 50_000_000),
         Cyw43439,
         &state.ioctl_state,
         &state.net.events,
@@ -393,7 +393,7 @@ where
 
     let mut runner = Runner::new(
         ch_runner,
-        SdioBus::new(sdio),
+        SdioBus::new(sdio, 12_500_000),
         Cyw4373,
         &state.ioctl_state,
         &state.net.events,
