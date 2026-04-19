@@ -1,6 +1,6 @@
 //! WebUSB API capability implementation.
 //!
-//! See https://wicg.github.io/webusb
+//! See <https://wicg.github.io/webusb>
 
 use core::mem::MaybeUninit;
 
@@ -131,7 +131,7 @@ impl<'d> State<'d> {
 /// WebUSB capability implementation.
 ///
 /// WebUSB is a W3C standard that allows a web page to communicate with USB devices.
-/// See See https://wicg.github.io/webusb for more information and the browser API.
+/// See <https://wicg.github.io/webusb> for more information and the browser API.
 /// This implementation provides one read and one write endpoint.
 pub struct WebUsb<'d, D: Driver<'d>> {
     _driver: core::marker::PhantomData<&'d D>,

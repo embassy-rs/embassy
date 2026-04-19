@@ -622,7 +622,7 @@ pub(crate) unsafe fn init(config: Config) {
     let hclk = {
         let d1cpre_clk = sys / config.d1c_pre;
         assert!(d1cpre_clk <= d1cpre_clk_max);
-        sys / config.ahb_pre
+        d1cpre_clk / config.ahb_pre
     };
     #[cfg(stm32h5)]
     let hclk = sys / config.ahb_pre;

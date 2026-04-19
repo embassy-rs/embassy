@@ -212,8 +212,9 @@ where
     }
 
     async fn cmd53_write(&mut self, func: u32, mut addr: u32, buf: &Aligned<A4, [u8]>) {
-        let byte_part = size_of_val(buf) % BLOCK_SIZE;
-        let block_part = size_of_val(buf) - byte_part;
+        // Use buf.len() (Deref to [u8]) not size_of_val, which rounds up to 4 bytes.
+        let byte_part = buf.len() % BLOCK_SIZE;
+        let block_part = buf.len() - byte_part;
 
         if block_part > 0 {
             let buf = &buf[..block_part];
@@ -246,23 +247,26 @@ where
         }
     }
 
-    async fn cmd53_read(&mut self, func: u32, mut addr: u32, buf: &mut Aligned<A4, [u8]>) {
-        let byte_part = size_of_val(buf) % BLOCK_SIZE;
-        let block_part = size_of_val(buf) - byte_part;
+    async fn cmd53_read(&mut self, func: u32, mut addr: u32, buf: &mut Aligned<A4, [u8]>) -> Result<(), ()> {
+        // Use buf.len() (Deref to [u8]) not size_of_val, which rounds up to 4 bytes.
+        let byte_part = buf.len() % BLOCK_SIZE;
+        let block_part = buf.len() - byte_part;
 
         if block_part > 0 {
             let buf = &mut buf[..block_part];
 
-            if self
+            let res = self
                 .sdio
-                .cmd53_block_read(cmd53_arg(false, func, addr, Mode::Block, buf.len()), unsafe {
-                    slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut _, size_of_val(buf) / BLOCK_SIZE)
+                .cmd53_block_read(cmd53_arg(false, func, addr, Mode::Block, block_part), unsafe {
+                    slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut _, block_part / BLOCK_SIZE)
                 })
-                .await
-                .is_err()
-            {
+                .await;
+
+            if res.is_err() {
                 debug!("cmd53 block read failed");
             }
+
+            res.map_err(|_| ())?;
 
             addr += block_part as u32;
         }
@@ -270,15 +274,19 @@ where
         if byte_part > 0 {
             let buf = &mut buf[block_part..];
 
-            if self
+            let res = self
                 .sdio
                 .cmd53_byte_read(cmd53_arg(false, func, addr, Mode::Byte, buf.len()), buf)
-                .await
-                .is_err()
-            {
-                debug!("cmd53 byte read failed (size: {})", size_of_val(buf));
+                .await;
+
+            if res.is_err() {
+                debug!("cmd53 byte read failed (size: {})", buf.len());
             }
+
+            res.map_err(|_| ())?;
         }
+
+        Ok(())
     }
 }
 
@@ -373,8 +381,18 @@ where
         Ok(())
     }
 
-    async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) {
-        self.cmd53_read(FUNC_WLAN, 0, buf).await;
+    async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) -> Result<(), ()> {
+        if self.cmd53_read(FUNC_WLAN, 0, buf).await.is_err() {
+            buf.fill(0);
+            // A timed-out partial F2 read leaves the same packet pending forever.
+            // Mirror WHD's abort path so the device can reset its F2 read state.
+            self.write8(FUNC_BUS, SDIOD_CCCR_IOABORT, FUNC_WLAN as u8).await;
+            self.write8(FUNC_BACKPLANE, REG_BACKPLANE_FRAME_CONTROL, SFC_RF_TERM)
+                .await;
+            Err(())
+        } else {
+            Ok(())
+        }
     }
 
     async fn wlan_write(&mut self, buf: &Aligned<A4, [u8]>) {
@@ -406,7 +424,8 @@ where
 
             self.backplane_set_window(addr).await;
 
-            self.cmd53_read(FUNC_BACKPLANE, addr & BACKPLANE_ADDRESS_MASK as u32, buf)
+            let _ = self
+                .cmd53_read(FUNC_BACKPLANE, addr & BACKPLANE_ADDRESS_MASK as u32, buf)
                 .await;
 
             // Advance ptr.
@@ -491,7 +510,7 @@ where
 
     async fn read16(&mut self, func: u32, addr: u32) -> u16 {
         let mut val = [0u32];
-        self.cmd53_read(func, addr, &mut aligned_mut(&mut val)[..2]).await;
+        let _ = self.cmd53_read(func, addr, &mut aligned_mut(&mut val)[..2]).await;
 
         u16::from_be_bytes(val[0].to_be_bytes()[..2].try_into().unwrap())
     }
@@ -503,7 +522,7 @@ where
 
     async fn read32(&mut self, func: u32, addr: u32) -> u32 {
         let mut val = [0u32];
-        self.cmd53_read(func, addr, &mut aligned_mut(&mut val)).await;
+        let _ = self.cmd53_read(func, addr, &mut aligned_mut(&mut val)).await;
 
         val[0]
     }

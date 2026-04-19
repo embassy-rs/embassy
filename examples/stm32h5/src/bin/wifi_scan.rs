@@ -145,7 +145,7 @@ async fn main(spawner: Spawner) {
 
     info!("new sdio");
 
-    let (_net_device, mut control, runner) = cyw43::new_sdio(state, sdio, fw, nvram).await;
+    let (_net_device, mut control, runner) = cyw43::new_43439_sdio(state, sdio, fw, nvram).await.unwrap();
 
     info!("spawn task");
 

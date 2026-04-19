@@ -231,8 +231,7 @@ impl<F: Future + 'static> TaskStorage<F> {
     /// NRVO optimizations.
     ///
     /// This function will fail if the task is already spawned and has not finished running.
-    /// In this case, the error is delayed: a "poisoned" SpawnToken is returned, which will
-    /// cause [`Spawner::spawn()`](super::Spawner::spawn) to return the error.
+    /// In this case, [`SpawnError::Busy`] is returned.
     ///
     /// Once the task has finished running, you may spawn it again. It is allowed to spawn it
     /// on a different executor.
@@ -381,8 +380,7 @@ impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
     /// See [`TaskStorage::spawn()`] for details.
     ///
     /// This will loop over the pool and spawn the task in the first storage that
-    /// is currently free. If none is free, a "poisoned" SpawnToken is returned,
-    /// which will cause [`Spawner::spawn()`](super::Spawner::spawn) to return the error.
+    /// is currently free. If none is free, [`SpawnError::Busy`] is returned.
     pub fn spawn(&'static self, future: impl FnOnce() -> F) -> Result<SpawnToken<impl Sized>, SpawnError> {
         self.spawn_impl::<F>(future)
     }

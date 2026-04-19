@@ -780,7 +780,9 @@ impl<'d> Sdmmc<'d> {
         self.wait_idle();
         self.clear_interrupt_flags();
 
-        regs.dlenr().write(|w| w.set_datalength(size_of_val(buffer) as u32));
+        // Use buffer.len() not size_of_val: Aligned<A4, [u8]> is #[repr(C)]
+        // with alignment 4, so size_of_val rounds up to a multiple of 4.
+        regs.dlenr().write(|w| w.set_datalength(buffer.len() as u32));
 
         // SAFETY: No other functions use the dma
         #[cfg(sdmmc_v1)]
@@ -840,7 +842,9 @@ impl<'d> Sdmmc<'d> {
         self.wait_idle();
         self.clear_interrupt_flags();
 
-        regs.dlenr().write(|w| w.set_datalength(size_of_val(buffer) as u32));
+        // Use buffer.len() not size_of_val: Aligned<A4, [u8]> is #[repr(C)]
+        // with alignment 4, so size_of_val rounds up to a multiple of 4.
+        regs.dlenr().write(|w| w.set_datalength(buffer.len() as u32));
 
         // SAFETY: No other functions use the dma
         #[cfg(sdmmc_v1)]

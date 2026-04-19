@@ -1,6 +1,8 @@
 //! Generic SMI Ethernet PHY
 
 use core::task::Context;
+#[cfg(feature = "time")]
+use core::task::Poll;
 
 #[cfg(feature = "time")]
 use embassy_time::{Duration, Timer};
@@ -49,6 +51,8 @@ pub struct GenericPhy<SM: StationManagement> {
     sm: SM,
     #[cfg(feature = "time")]
     poll_interval: Duration,
+    #[cfg(feature = "time")]
+    timer: Timer,
 }
 
 impl<SM: StationManagement> GenericPhy<SM> {
@@ -63,6 +67,8 @@ impl<SM: StationManagement> GenericPhy<SM> {
             sm,
             #[cfg(feature = "time")]
             poll_interval: Duration::from_millis(500),
+            #[cfg(feature = "time")]
+            timer: Timer::after_ticks(0),
         }
     }
 
@@ -76,6 +82,8 @@ impl<SM: StationManagement> GenericPhy<SM> {
             phy_addr: 0xFF,
             #[cfg(feature = "time")]
             poll_interval: Duration::from_millis(500),
+            #[cfg(feature = "time")]
+            timer: Timer::after_ticks(0),
         }
     }
 }
@@ -115,26 +123,32 @@ impl<SM: StationManagement> Phy for GenericPhy<SM> {
         );
     }
 
-    fn poll_link(&mut self, cx: &mut Context) -> bool {
+    fn poll_link(&mut self, cx: &mut Context) -> Option<bool> {
         #[cfg(not(feature = "time"))]
         cx.waker().wake_by_ref();
 
         #[cfg(feature = "time")]
-        let _ = Timer::after(self.poll_interval).poll_unpin(cx);
+        if matches!(self.timer.poll_unpin(cx), Poll::Ready(())) {
+            self.timer = Timer::after(self.poll_interval);
+
+            let _ = self.timer.poll_unpin(cx);
+        } else {
+            return None;
+        }
 
         let bsr = self.sm.smi_read(self.phy_addr, PHY_REG_BSR);
 
         // No link without autonegotiate
         if bsr & PHY_REG_BSR_ANDONE == 0 {
-            return false;
+            return Some(false);
         }
         // No link if link is down
         if bsr & PHY_REG_BSR_UP == 0 {
-            return false;
+            return Some(false);
         }
 
         // Got link
-        true
+        Some(true)
     }
 }
 
