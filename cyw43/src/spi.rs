@@ -246,8 +246,6 @@ where
         Ok(())
     }
 
-    fn init_complete(&mut self) {}
-
     async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) -> Result<(), ()> {
         let len_in_u8 = buf.len() as u32;
         let buf = slice32_mut(buf);

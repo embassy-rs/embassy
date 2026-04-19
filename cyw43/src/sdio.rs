@@ -116,7 +116,6 @@ impl<const SIZE: usize, T: SdioBusCyw43<SIZE>> SdioBusCyw43<SIZE> for &mut T {
 /// Doc
 pub struct SdioBus<SDIO> {
     backplane_window: u32,
-    bus_initialized: bool,
     sdio: SDIO,
 }
 
@@ -127,26 +126,7 @@ where
     pub(crate) fn new(sdio: SDIO) -> Self {
         Self {
             backplane_window: 0xAAAA_AAAA,
-            bus_initialized: false,
             sdio,
-        }
-    }
-
-    async fn ensure_wlan_bus_awake(&mut self) {
-        if !self.bus_initialized {
-            return;
-        }
-
-        self.write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, BACKPLANE_HT_AVAIL_REQ)
-            .await;
-
-        if !try_until(
-            async || self.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & BACKPLANE_HT_AVAIL_REQ << 3 != 0,
-            Duration::from_millis(5),
-        )
-        .await
-        {
-            debug!("timeout while requesting HT clock before SDIO access");
         }
     }
 
@@ -400,12 +380,7 @@ where
         Ok(())
     }
 
-    fn init_complete(&mut self) {
-        self.bus_initialized = true;
-    }
-
     async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) -> Result<(), ()> {
-        self.ensure_wlan_bus_awake().await;
         if self.cmd53_read(FUNC_WLAN, 0, buf).await.is_err() {
             buf.fill(0);
             // A timed-out partial F2 read leaves the same packet pending forever.
@@ -420,7 +395,6 @@ where
     }
 
     async fn wlan_write(&mut self, buf: &Aligned<A4, [u8]>) {
-        self.ensure_wlan_bus_awake().await;
         self.cmd53_write(FUNC_WLAN, 0, buf).await;
     }
 

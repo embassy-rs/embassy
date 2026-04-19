@@ -45,7 +45,6 @@ pub(crate) trait SealedBus {
     const TYPE: BusType;
 
     async fn init(&mut self, bluetooth_enabled: bool) -> Result<(), ()>;
-    fn init_complete(&mut self);
     async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) -> Result<(), ()>;
     async fn wlan_write(&mut self, buf: &Aligned<A4, [u8]>);
     #[allow(unused)]
@@ -278,6 +277,30 @@ where
             base + AI_RESETSTATUS_OFFSET,
             resetstatus,
         );
+    }
+
+    async fn wake_bus(bus: &mut BUS) {
+        bus.write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, BACKPLANE_HT_AVAIL_REQ)
+            .await;
+
+        if !try_until(
+            async || bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & BACKPLANE_HT_AVAIL_REQ << 3 != 0,
+            Duration::from_millis(5),
+        )
+        .await
+        {
+            debug!("timeout while requesting HT clock before SDIO access");
+        }
+    }
+
+    async fn wlan_read(bus: &mut BUS, buf: &mut Aligned<A4, [u8]>) -> Result<(), ()> {
+        Self::wake_bus(bus).await;
+        bus.wlan_read(buf).await
+    }
+
+    async fn wlan_write(bus: &mut BUS, buf: &Aligned<A4, [u8]>) {
+        Self::wake_bus(bus).await;
+        bus.wlan_write(buf).await
     }
 
     async fn read_chip_id_sdio(&mut self) -> u16 {
@@ -650,8 +673,6 @@ where
                 .await;
         }
 
-        self.bus.init_complete();
-
         Ok(())
     }
 
@@ -882,7 +903,7 @@ where
 
                         trace!("    {:02x}", Bytes(&buf8[..total_len.min(48)]));
 
-                        self.bus.wlan_write(&aligned_ref(&buf)[..total_len]).await;
+                        Self::wlan_write(&mut self.bus, &aligned_ref(&buf)[..total_len]).await;
                         packet.tx_done();
                         self.check_status(&mut buf).await;
                     }
@@ -1003,7 +1024,10 @@ where
 
                     if status & STATUS_F2_PKT_AVAILABLE != 0 {
                         let len = (status & STATUS_F2_PKT_LEN_MASK) >> STATUS_F2_PKT_LEN_SHIFT;
-                        if self.bus.wlan_read(&mut aligned_mut(buf)[..len as usize]).await.is_err() {
+                        if Self::wlan_read(&mut self.bus, &mut aligned_mut(buf)[..len as usize])
+                            .await
+                            .is_err()
+                        {
                             debug!("spi wlan_read failed");
                             break;
                         }
@@ -1014,7 +1038,10 @@ where
                     }
                 }
                 BusType::Sdio => {
-                    if self.bus.wlan_read(&mut aligned_mut(&mut buf[..1])).await.is_err() {
+                    if Self::wlan_read(&mut self.bus, &mut aligned_mut(&mut buf[..1]))
+                        .await
+                        .is_err()
+                    {
                         debug!("failed to read sdio hwtag");
                         break;
                     }
@@ -1308,7 +1335,7 @@ where
         let total_len = (total_len + 3) & !3; // round up to 4byte,
         trace!("    {:02x}", Bytes(&buf8[..total_len.min(48)]));
 
-        self.bus.wlan_write(&aligned_ref(buf)[..total_len]).await;
+        Self::wlan_write(&mut self.bus, &aligned_ref(buf)[..total_len]).await;
     }
 
     async fn core_disable(&mut self, core: Core) {
