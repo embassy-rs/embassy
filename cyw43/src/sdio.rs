@@ -536,38 +536,24 @@ where
     }
 
     async fn read16(&mut self, func: u32, addr: u32) -> u16 {
-        if matches!(func, FUNC_BACKPLANE | FUNC_WLAN) {
-            self.ensure_wlan_bus_awake().await;
-        }
         let mut val = [0u32];
         let _ = self.cmd53_read(func, addr, &mut aligned_mut(&mut val)[..2]).await;
 
         u16::from_be_bytes(val[0].to_be_bytes()[..2].try_into().unwrap())
     }
 
-    #[allow(unused)]
     async fn write16(&mut self, func: u32, addr: u32, val: u16) {
-        if matches!(func, FUNC_BACKPLANE | FUNC_WLAN) {
-            self.ensure_wlan_bus_awake().await;
-        }
         self.cmd53_write(func, addr, &aligned_ref(&[val as u32])[..2]).await;
     }
 
     async fn read32(&mut self, func: u32, addr: u32) -> u32 {
-        if matches!(func, FUNC_BACKPLANE | FUNC_WLAN) {
-            self.ensure_wlan_bus_awake().await;
-        }
         let mut val = [0u32];
         let _ = self.cmd53_read(func, addr, &mut aligned_mut(&mut val)).await;
 
         val[0]
     }
 
-    #[allow(unused)]
     async fn write32(&mut self, func: u32, addr: u32, val: u32) {
-        if matches!(func, FUNC_BACKPLANE | FUNC_WLAN) {
-            self.ensure_wlan_bus_awake().await;
-        }
         self.cmd53_write(func, addr, &aligned_ref(&[val])).await;
     }
 
