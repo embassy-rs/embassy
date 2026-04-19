@@ -27,88 +27,6 @@ pub enum ChannelError {
     Disconnected,
 }
 
-macro_rules! bitflags {
-    ($($tt:tt)*) => {
-        #[cfg(feature = "defmt")]
-        defmt::bitflags! { $($tt)* }
-        #[cfg(not(feature = "defmt"))]
-        bitflags::bitflags! { $($tt)* }
-    };
-}
-
-bitflags! {
-    #[cfg_attr(not(feature = "defmt"), derive(Copy, Clone, Eq, PartialEq, Debug))]
-    /// RequestType bitfields for the setup packet.
-    ///
-    /// This type encodes three separate multi-bit fields packed into a single byte
-    /// (USB 2.0 spec Table 9-2):
-    /// - **Recipient** (bits 0–4): `RECIPIENT_DEVICE`, `RECIPIENT_INTERFACE`, `RECIPIENT_ENDPOINT`, `RECIPIENT_OTHER`
-    /// - **Type** (bits 5–6): `TYPE_STANDARD`, `TYPE_CLASS`, `TYPE_VENDOR`, `TYPE_RESERVED`
-    /// - **Direction** (bit 7): `OUT`, `IN`
-    ///
-    /// Combine exactly one value from each group with `|`. Do **not** OR values
-    /// within the same group (e.g. `RECIPIENT_INTERFACE | RECIPIENT_ENDPOINT` is invalid).
-    pub struct RequestType: u8 {
-        // Recipient
-        /// The request is intended for the entire device.
-        const RECIPIENT_DEVICE    = 0;
-        /// The request is intended for an interface.
-        const RECIPIENT_INTERFACE = 1;
-        /// The request is intended for an endpoint.
-        const RECIPIENT_ENDPOINT  = 2;
-        /// The recipient of the request is unspecified.
-        const RECIPIENT_OTHER     = 3;
-
-        // Type
-        /// The request is a standard USB request.
-        const TYPE_STANDARD = 0 << 5;
-        /// The request is a class-specific request.
-        const TYPE_CLASS    = 1 << 5;
-        /// The request is a vendor-specific request.
-        const TYPE_VENDOR   = 2 << 5;
-        /// Reserved.
-        const TYPE_RESERVED = 3 << 5;
-
-        // Direction
-        /// The request will send data to the device.
-        const OUT = 0 << 7;
-        /// The request expects to receive data from the device.
-        const IN  = 1 << 7;
-    }
-}
-
-/// USB Control Setup Packet
-#[repr(C)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub struct SetupPacket {
-    /// Request characteristics: direction, type, recipient.
-    /// See RequestType type for details.
-    /// Called bmRequestType in USB spec (Table 9-2).
-    pub request_type: RequestType,
-    /// Request code.
-    /// See Table 9-3 of USB spec for standard ones.
-    /// Called bRequest in USB spec (Table 9-2).
-    pub request: u8,
-    /// Use depending on request field.
-    /// Called wValue in USB spec (Table 9-2).
-    pub value: u16,
-    /// Use depending on request field.
-    /// Called wIndex in USB spec (Table 9-2).
-    pub index: u16,
-    /// Number of bytes to transfer in data stage if there is one.
-    /// Called wLength in USB spec (Table 9-2).
-    pub length: u16,
-}
-
-impl SetupPacket {
-    /// Get a reference to the underlying bytes of the setup packet.
-    pub fn as_bytes(&self) -> &[u8] {
-        // Safe because we know that the size of SetupPacket is 8 bytes.
-        unsafe { core::slice::from_raw_parts(self as *const _ as *const u8, core::mem::size_of::<Self>()) }
-    }
-}
-
 /// Device has been attached/detached
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -322,14 +240,17 @@ impl Default for TimeoutConfig {
 pub trait UsbChannel<T: channel::Type, D: channel::Direction> {
     /// Send IN control request.
     ///
+    /// `setup` is the 8-byte wire-format SETUP packet (see USB 2.0 spec §9.3).
     /// Returns the number of bytes received into `buf`.
-    async fn control_in(&mut self, setup: &SetupPacket, buf: &mut [u8]) -> Result<usize, ChannelError>
+    async fn control_in(&mut self, setup: &[u8; 8], buf: &mut [u8]) -> Result<usize, ChannelError>
     where
         T: channel::IsControl,
         D: channel::IsIn;
 
     /// Send OUT control request
-    async fn control_out(&mut self, setup: &SetupPacket, buf: &[u8]) -> Result<(), ChannelError>
+    ///
+    /// `setup` is the 8-byte wire-format SETUP packet (see USB 2.0 spec §9.3).
+    async fn control_out(&mut self, setup: &[u8; 8], buf: &[u8]) -> Result<(), ChannelError>
     where
         T: channel::IsControl,
         D: channel::IsOut;

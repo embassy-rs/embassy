@@ -5,7 +5,7 @@ use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::host::{
-    ChannelError, DeviceEvent, HostError, SetupPacket, TimeoutConfig, UsbChannel, UsbHostDriver, channel,
+    ChannelError, DeviceEvent, HostError, TimeoutConfig, UsbChannel, UsbHostDriver, channel,
 };
 use embassy_usb_driver::{EndpointInfo, EndpointType, Speed};
 use rp_pac::usb_dpram::vals::EpControlEndpointType;
@@ -386,17 +386,20 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
     /// Copy setup packet to buffer and set SETUP transaction
     ///
     /// Set PID = 1 for next transaction
-    fn set_setup_packet(&mut self, setup: &SetupPacket) {
+    fn set_setup_packet(&mut self, setup: &[u8; 8]) {
         assert!(E::ep_type() == EndpointType::Control);
         let dpram = T::dpram();
+        let value = u16::from_le_bytes([setup[2], setup[3]]);
+        let index = u16::from_le_bytes([setup[4], setup[5]]);
+        let length = u16::from_le_bytes([setup[6], setup[7]]);
         dpram.setup_packet_low().write(|w| {
-            w.set_bmrequesttype(setup.request_type.bits());
-            w.set_brequest(setup.request);
-            w.set_wvalue(setup.value);
+            w.set_bmrequesttype(setup[0]);
+            w.set_brequest(setup[1]);
+            w.set_wvalue(value);
         });
         dpram.setup_packet_high().write(|w| {
-            w.set_windex(setup.index);
-            w.set_wlength(setup.length);
+            w.set_windex(index);
+            w.set_wlength(length);
         });
         T::regs().sie_ctrl().modify(|w| {
             w.set_send_data(false);
@@ -504,7 +507,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
     /// Send SETUP packet
     ///
     /// WARNING: This flips PID
-    async fn send_setup(&mut self, setup: &SetupPacket) -> Result<(), ChannelError> {
+    async fn send_setup(&mut self, setup: &[u8; 8]) -> Result<(), ChannelError> {
         // Wait transfer buffer to be free
         self.wait_ready_for_transaction().await;
 
@@ -549,19 +552,21 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
 }
 
 impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> for Channel<'d, T, E, D> {
-    async fn control_in(&mut self, setup: &SetupPacket, buf: &mut [u8]) -> Result<usize, ChannelError>
+    async fn control_in(&mut self, setup: &[u8; 8], buf: &mut [u8]) -> Result<usize, ChannelError>
     where
         E: channel::IsControl,
         D: channel::IsIn,
     {
         trace!("CONTROL IN: {:?}", setup);
+        let length = u16::from_le_bytes([setup[6], setup[7]]) as usize;
+
         // Setup stage
         // TODO: Whole transaction error handling?
         self.send_setup(setup).await?;
 
         // Data stage
-        let read = if setup.length > 0 {
-            self.request_in(&mut buf[..setup.length as usize]).await?
+        let read = if length > 0 {
+            self.request_in(&mut buf[..length]).await?
         } else {
             0
         };
@@ -572,19 +577,21 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
         Ok(read)
     }
 
-    async fn control_out(&mut self, setup: &SetupPacket, buf: &[u8]) -> Result<(), ChannelError>
+    async fn control_out(&mut self, setup: &[u8; 8], buf: &[u8]) -> Result<(), ChannelError>
     where
         E: channel::IsControl,
         D: channel::IsOut,
     {
         trace!("CONTROL OUT: {:?}", setup);
+        let length = u16::from_le_bytes([setup[6], setup[7]]) as usize;
+
         // Setup stage
         // TODO: Whole transaction error handling?
         self.send_setup(setup).await?;
 
         // Data stage
-        if setup.length > 0 {
-            self.request_out(&buf[..setup.length as usize], false).await?;
+        if length > 0 {
+            self.request_out(&buf[..length], false).await?;
         }
 
         // Status stage

@@ -8,11 +8,12 @@ use core::num::NonZeroU8;
 
 use bitflags::bitflags;
 use embassy_time::Timer;
-use embassy_usb_driver::host::{HostError, RequestType, SetupPacket, UsbChannel, UsbHostDriver, channel};
+use embassy_usb::control::Request;
+use embassy_usb_driver::host::{HostError, UsbChannel, UsbHostDriver, channel};
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
 use zerocopy::{FromBytes, Immutable, KnownLayout};
 
-use crate::control::{CLEAR_FEATURE, ControlChannelExt, GET_STATUS, SET_FEATURE};
+use crate::control::{ControlChannelExt, ControlType, Recipient, RequestType, SetupPacket};
 use crate::descriptor::{DEFAULT_MAX_DESCRIPTOR_SIZE, InterfaceDescriptor, USBDescriptor};
 use crate::handler::{EnumerationInfo, HandlerEvent, RegisterError};
 
@@ -167,26 +168,38 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
     #[allow(dead_code)]
     async fn hub_feature(&mut self, set: bool, feature: HubFeature) -> Result<(), HostError> {
         let setup = SetupPacket {
-            request_type: RequestType::OUT | RequestType::TYPE_CLASS | RequestType::RECIPIENT_DEVICE,
-            request: if set { SET_FEATURE } else { CLEAR_FEATURE },
+            request_type: RequestType {
+                direction: Direction::Out,
+                control_type: ControlType::Class,
+                recipient: Recipient::Device,
+            },
+            request: if set {
+                Request::SET_FEATURE
+            } else {
+                Request::CLEAR_FEATURE
+            },
             value: feature as u16,
             index: 0,
             length: 0,
         };
-        self.control_channel.control_out(&setup, &[]).await?;
+        self.control_channel.control_out(&setup.to_bytes(), &[]).await?;
         Ok(())
     }
 
     async fn get_hub_status(&mut self) -> Result<(HubStatus, HubStatusChange), HostError> {
         let setup = SetupPacket {
-            request_type: RequestType::IN | RequestType::TYPE_CLASS | RequestType::RECIPIENT_DEVICE,
-            request: GET_STATUS,
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Class,
+                recipient: Recipient::Device,
+            },
+            request: Request::GET_STATUS,
             value: 0,
             index: 0,
             length: 4,
         };
         let mut buf = [0u8; 4];
-        self.control_channel.control_in(&setup, &mut buf).await?;
+        self.control_channel.control_in(&setup.to_bytes(), &mut buf).await?;
         Ok((
             HubStatus::from_bits_truncate(u16::from_le_bytes(buf[..2].try_into().unwrap())),
             HubStatusChange::from_bits_truncate(u16::from_le_bytes(buf[2..].try_into().unwrap())),
@@ -212,26 +225,38 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
 
     async fn port_feature(&mut self, set: bool, feature: PortFeature, port: u8, selector: u8) -> Result<(), HostError> {
         let setup = SetupPacket {
-            request_type: RequestType::OUT | RequestType::TYPE_CLASS | RequestType::RECIPIENT_OTHER,
-            request: if set { SET_FEATURE } else { CLEAR_FEATURE },
+            request_type: RequestType {
+                direction: Direction::Out,
+                control_type: ControlType::Class,
+                recipient: Recipient::Other,
+            },
+            request: if set {
+                Request::SET_FEATURE
+            } else {
+                Request::CLEAR_FEATURE
+            },
             value: feature as u16,
             index: ((selector as u16) << 8) | (port + 1) as u16,
             length: 0,
         };
-        self.control_channel.control_out(&setup, &[]).await?;
+        self.control_channel.control_out(&setup.to_bytes(), &[]).await?;
         Ok(())
     }
 
     async fn get_port_status(&mut self, port: u8) -> Result<(PortStatus, PortStatusChange), HostError> {
         let setup = SetupPacket {
-            request_type: RequestType::IN | RequestType::TYPE_CLASS | RequestType::RECIPIENT_OTHER,
-            request: GET_STATUS,
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Class,
+                recipient: Recipient::Other,
+            },
+            request: Request::GET_STATUS,
             value: 0,
             index: (port + 1) as u16,
             length: 4,
         };
         let mut buf = [0u8; 4];
-        self.control_channel.control_in(&setup, &mut buf).await?;
+        self.control_channel.control_in(&setup.to_bytes(), &mut buf).await?;
         Ok((
             PortStatus::from_bits_truncate(u16::from_le_bytes(buf[..2].try_into().unwrap())),
             PortStatusChange::from_bits_truncate(u16::from_le_bytes(buf[2..].try_into().unwrap())),

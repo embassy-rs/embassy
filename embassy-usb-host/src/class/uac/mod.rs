@@ -41,10 +41,11 @@ use core::task::Poll;
 use aligned::{A4, Aligned};
 use embassy_time::{Duration, Instant, Timer};
 use embassy_usb::control::Request;
-use embassy_usb_driver::host::{ChannelError, HostError, RequestType, SetupPacket, UsbChannel, UsbHostDriver, channel};
+use embassy_usb_driver::host::{ChannelError, HostError, UsbChannel, UsbHostDriver, channel};
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
 use heapless::{String, Vec};
 
+use crate::control::{ControlType, Recipient, RequestType, SetupPacket};
 use crate::descriptor::DEFAULT_MAX_DESCRIPTOR_SIZE;
 use crate::handler::{EnumerationInfo, RegisterError};
 
@@ -170,14 +171,18 @@ impl<H: UsbHostDriver> UacHandler<H> {
         let input_terminal_id = output_interface.class_descriptor.terminal_link_id;
         // Select the correct alternate setting
         let packet = SetupPacket {
-            request_type: RequestType::OUT | RequestType::TYPE_STANDARD | RequestType::RECIPIENT_INTERFACE,
+            request_type: RequestType {
+                direction: Direction::Out,
+                control_type: ControlType::Standard,
+                recipient: Recipient::Interface,
+            },
             request: Request::SET_INTERFACE,
             value: streaming_interface.alternate_setting as u16,
             index: streaming_interface.interface_number as u16,
             length: 0,
         };
         control_channel
-            .control_out(&packet, &mut [])
+            .control_out(&packet.to_bytes(), &mut [])
             .await
             .map_err(|e| RegisterError::HostError(HostError::ChannelError(e)))?;
         debug!(
@@ -311,7 +316,11 @@ impl<H: UsbHostDriver> UacHandler<H> {
     /// Returns the language ID as a 16-bit value, or an error if the request fails.
     pub async fn get_supported_language(&mut self) -> Result<u16, RequestError> {
         let packet = SetupPacket {
-            request_type: RequestType::IN | RequestType::TYPE_STANDARD | RequestType::RECIPIENT_DEVICE,
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Standard,
+                recipient: Recipient::Device,
+            },
             request: Request::GET_DESCRIPTOR,
             value: 0x0300, // String descriptor at index 0x00
             index: 0x00,
@@ -321,7 +330,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
         let mut buf = Aligned::<A4, _>([0; 4]);
 
         self.control_channel
-            .control_in(&packet, buf.as_mut_slice())
+            .control_in(&packet.to_bytes(), buf.as_mut_slice())
             .await
             .map_err(|e| RequestError::RequestFailed(e))?;
 
@@ -342,7 +351,11 @@ impl<H: UsbHostDriver> UacHandler<H> {
     ) -> Result<String<MAX_STRING_LENGTH>, RequestError> {
         // First, get just the length
         let packet = SetupPacket {
-            request_type: RequestType::IN | RequestType::TYPE_STANDARD | RequestType::RECIPIENT_DEVICE,
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Standard,
+                recipient: Recipient::Device,
+            },
             request: Request::GET_DESCRIPTOR,
             value: (0x03 << 8) | index as u16,
             index: lang_id,
@@ -351,7 +364,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
 
         let mut length_buf = Aligned::<A4, _>([0; 2]);
         self.control_channel
-            .control_in(&packet, length_buf.as_mut_slice())
+            .control_in(&packet.to_bytes(), length_buf.as_mut_slice())
             .await
             .map_err(|e| RequestError::RequestFailed(e))?;
 
@@ -366,7 +379,11 @@ impl<H: UsbHostDriver> UacHandler<H> {
 
         // Now get the full string with the correct length
         let packet = SetupPacket {
-            request_type: RequestType::IN | RequestType::TYPE_STANDARD | RequestType::RECIPIENT_DEVICE,
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Standard,
+                recipient: Recipient::Device,
+            },
             request: Request::GET_DESCRIPTOR,
             value: (0x03 << 8) | index as u16,
             index: lang_id,
@@ -375,7 +392,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
 
         let mut buf = Aligned::<A4, _>([0; MAX_STRING_BUF_SIZE]);
         self.control_channel
-            .control_in(&packet, &mut buf.as_mut_slice()[..total_length as usize])
+            .control_in(&packet.to_bytes(), &mut buf.as_mut_slice()[..total_length as usize])
             .await
             .map_err(|e| RequestError::RequestFailed(e))?;
 
@@ -415,7 +432,11 @@ impl<H: UsbHostDriver> UacHandler<H> {
         interface: u8,
     ) -> Result<u8, RequestError> {
         let packet = SetupPacket {
-            request_type: RequestType::IN | RequestType::TYPE_CLASS | RequestType::RECIPIENT_INTERFACE,
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Class,
+                recipient: Recipient::Interface,
+            },
             request: codes::request_code::CUR,
             value: (channel as u16) << 8 | control_selector as u16,
             index: (entity as u16) << 8 | interface as u16,
@@ -425,7 +446,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
         let mut buf = Aligned::<A4, _>([0; 1]);
 
         self.control_channel
-            .control_in(&packet, buf.as_mut_slice())
+            .control_in(&packet.to_bytes(), buf.as_mut_slice())
             .await
             .map_err(|e| RequestError::RequestFailed(e))?;
 
@@ -449,7 +470,11 @@ impl<H: UsbHostDriver> UacHandler<H> {
         interface: u8,
     ) -> Result<u16, RequestError> {
         let packet = SetupPacket {
-            request_type: RequestType::IN | RequestType::TYPE_CLASS | RequestType::RECIPIENT_INTERFACE,
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Class,
+                recipient: Recipient::Interface,
+            },
             request: codes::request_code::CUR,
             value: (channel as u16) << 8 | control_selector,
             index: (entity as u16) << 8 | interface as u16,
@@ -459,7 +484,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
         let mut buf = Aligned::<A4, _>([0; 2]);
 
         self.control_channel
-            .control_in(&packet, buf.as_mut_slice())
+            .control_in(&packet.to_bytes(), buf.as_mut_slice())
             .await
             .map_err(|e| RequestError::RequestFailed(e))?;
 
@@ -483,7 +508,11 @@ impl<H: UsbHostDriver> UacHandler<H> {
         interface: u8,
     ) -> Result<u32, RequestError> {
         let packet = SetupPacket {
-            request_type: RequestType::IN | RequestType::TYPE_CLASS | RequestType::RECIPIENT_INTERFACE,
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Class,
+                recipient: Recipient::Interface,
+            },
             request: codes::request_code::CUR,
             value: (channel as u16) << 8 | control_selector,
             index: (entity as u16) << 8 | interface as u16,
@@ -493,7 +522,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
         let mut buf = Aligned::<A4, _>([0; 4]);
 
         self.control_channel
-            .control_in(&packet, buf.as_mut_slice())
+            .control_in(&packet.to_bytes(), buf.as_mut_slice())
             .await
             .map_err(|e| RequestError::RequestFailed(e))?;
 
@@ -517,7 +546,11 @@ impl<H: UsbHostDriver> UacHandler<H> {
         interface: u8,
     ) -> Result<Layout1ParameterBlock, RequestError> {
         let packet = SetupPacket {
-            request_type: RequestType::IN | RequestType::TYPE_CLASS | RequestType::RECIPIENT_INTERFACE,
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Class,
+                recipient: Recipient::Interface,
+            },
             request: codes::request_code::RANGE,
             value: (channel as u16) << 8 | control_selector,
             index: (entity as u16) << 8 | interface as u16,
@@ -527,7 +560,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
         let mut buf = Aligned::<A4, _>([0; size_of::<Layout1ParameterBlock>()]);
 
         self.control_channel
-            .control_in(&packet, buf.as_mut_slice())
+            .control_in(&packet.to_bytes(), buf.as_mut_slice())
             .await
             .map_err(|e| RequestError::RequestFailed(e))?;
 
@@ -553,7 +586,11 @@ impl<H: UsbHostDriver> UacHandler<H> {
         interface: u8,
     ) -> Result<Layout2ParameterBlock, RequestError> {
         let packet = SetupPacket {
-            request_type: RequestType::IN | RequestType::TYPE_CLASS | RequestType::RECIPIENT_INTERFACE,
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Class,
+                recipient: Recipient::Interface,
+            },
             request: codes::request_code::RANGE,
             value: (channel as u16) << 8 | control_selector,
             index: (entity as u16) << 8 | interface as u16,
@@ -563,7 +600,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
         let mut buf = Aligned::<A4, _>([0; size_of::<Layout2ParameterBlock>()]);
 
         self.control_channel
-            .control_in(&packet, buf.as_mut_slice())
+            .control_in(&packet.to_bytes(), buf.as_mut_slice())
             .await
             .map_err(|e| RequestError::RequestFailed(e))?;
 
@@ -589,7 +626,11 @@ impl<H: UsbHostDriver> UacHandler<H> {
         interface: u8,
     ) -> Result<Layout3ParameterBlock, RequestError> {
         let packet = SetupPacket {
-            request_type: RequestType::IN | RequestType::TYPE_CLASS | RequestType::RECIPIENT_INTERFACE,
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Class,
+                recipient: Recipient::Interface,
+            },
             request: codes::request_code::RANGE,
             value: (channel as u16) << 8 | control_selector,
             index: (entity as u16) << 8 | interface as u16,
@@ -599,7 +640,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
         let mut buf = Aligned::<A4, _>([0; size_of::<Layout3ParameterBlock>()]);
 
         self.control_channel
-            .control_in(&packet, buf.as_mut_slice())
+            .control_in(&packet.to_bytes(), buf.as_mut_slice())
             .await
             .map_err(|e| RequestError::RequestFailed(e))?;
 

@@ -11,22 +11,11 @@ pub mod control;
 pub mod descriptor;
 pub mod handler;
 
-use embassy_usb_driver::host::{ChannelError, DeviceEvent, HostError, SetupPacket, UsbChannel, UsbHostDriver, channel};
+use embassy_usb_driver::host::{ChannelError, DeviceEvent, HostError, UsbChannel, UsbHostDriver, channel};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType, Speed};
 
+use crate::control::SetupPacket;
 use crate::descriptor::{ConfigurationDescriptor, DeviceDescriptor, USBDescriptor};
-
-/// Convert an 8-byte SETUP array to a [`SetupPacket`].
-pub(crate) fn bytes_to_setup(b: &[u8; 8]) -> SetupPacket {
-    use embassy_usb_driver::host::RequestType;
-    SetupPacket {
-        request_type: RequestType::from_bits_truncate(b[0]),
-        request: b[1],
-        value: u16::from_le_bytes([b[2], b[3]]),
-        index: u16::from_le_bytes([b[4], b[5]]),
-        length: u16::from_le_bytes([b[6], b[7]]),
-    }
-}
 
 /// USB host enumeration error.
 #[derive(Debug)]
@@ -186,8 +175,8 @@ impl<D: UsbHostDriver> UsbHost<D> {
         );
 
         // Step 4: Get configuration descriptor header (9 bytes).
-        let setup = bytes_to_setup(&control::get_config_descriptor(0, 9));
-        let n = ch.control_in(&setup, &mut config_buf[..9]).await?;
+        let setup = SetupPacket::get_config_descriptor(0, 9);
+        let n = ch.control_in(&setup.to_bytes(), &mut config_buf[..9]).await?;
 
         if n < 9 {
             return Err(EnumerationError::InvalidDescriptor);
@@ -202,8 +191,8 @@ impl<D: UsbHostDriver> UsbHost<D> {
         }
 
         // Get full configuration descriptor.
-        let setup = bytes_to_setup(&control::get_config_descriptor(0, total_len as u16));
-        let n = ch.control_in(&setup, &mut config_buf[..total_len]).await?;
+        let setup = SetupPacket::get_config_descriptor(0, total_len as u16);
+        let n = ch.control_in(&setup.to_bytes(), &mut config_buf[..total_len]).await?;
 
         // USB 2.0 §9.4.3: the device must return exactly total_len bytes for a full config descriptor.
         if n != total_len {
@@ -213,8 +202,8 @@ impl<D: UsbHostDriver> UsbHost<D> {
         trace!("Config descriptor: {} bytes", n);
 
         // Step 5: SET_CONFIGURATION.
-        let setup = bytes_to_setup(&control::set_configuration(config_header.configuration_value));
-        ch.control_out(&setup, &[]).await?;
+        let setup = SetupPacket::set_configuration(config_header.configuration_value);
+        ch.control_out(&setup.to_bytes(), &[]).await?;
 
         info!("Device configured (config={})", config_header.configuration_value);
 
