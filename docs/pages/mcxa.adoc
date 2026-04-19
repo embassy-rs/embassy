@@ -24,3 +24,7 @@ The following peripherals have a HAL implementation at present
 * CTIMER
 * CRC
 * DMA
+* FlexSPI (MCXA5xx)
+
+FlexSPI support currently targets MCXA5xx devices and the `FLEXSPI0`
+peripheral.

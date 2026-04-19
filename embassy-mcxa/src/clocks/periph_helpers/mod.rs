@@ -9,6 +9,8 @@
 
 use super::{ClockError, Clocks, PoweredClock, WakeGuard};
 use crate::clocks::VddLevel;
+#[cfg(feature = "mcxa5xx")]
+use crate::pac::mrcc::FlexspiClkselMux;
 use crate::pac::mrcc::{
     AdcClkselMux, ClkdivHalt, ClkdivReset, ClkdivUnstab, CtimerClkselMux, FclkClkselMux, Lpi2cClkselMux,
     LpspiClkselMux, LpuartClkselMux, OstimerClkselMux,
@@ -433,6 +435,65 @@ impl SPConfHelper for OsTimerConfig {
                 PreEnableParts::empty()
             }
         })
+    }
+}
+
+//
+// FlexSPI
+//
+
+/// Selectable clocks for `FlexSPI` peripherals.
+#[cfg(feature = "mcxa5xx")]
+#[derive(Debug, Clone, Copy)]
+pub enum FlexspiClockSel {
+    /// Gated FRO_HF / FIRC clock.
+    FroHf,
+    /// PLL1 clock after its divider.
+    Pll1ClkDiv,
+}
+
+/// Which instance of the `FlexSPI` peripheral is this?
+#[cfg(feature = "mcxa5xx")]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum FlexspiInstance {
+    /// Instance 0.
+    Flexspi0,
+}
+
+/// Top level configuration for `FlexSPI` instances.
+#[cfg(feature = "mcxa5xx")]
+pub struct FlexspiConfig {
+    /// Power state required for this peripheral.
+    pub power: PoweredClock,
+    /// Clock source.
+    pub source: FlexspiClockSel,
+    /// Clock divisor.
+    pub div: Div4,
+    /// Which instance is this?
+    pub(crate) instance: FlexspiInstance,
+}
+
+#[cfg(feature = "mcxa5xx")]
+impl SPConfHelper for FlexspiConfig {
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
+        let mrcc0 = crate::pac::MRCC0;
+
+        let (clkdiv, clksel) = match self.instance {
+            FlexspiInstance::Flexspi0 => (mrcc0.mrcc_flexspi0_clkdiv(), mrcc0.mrcc_flexspi0_clksel()),
+        };
+
+        let (freq, variant) = match self.source {
+            FlexspiClockSel::FroHf => (
+                clocks.ensure_fro_hf_active(&self.power)?,
+                FlexspiClkselMux::I1_CLKROOT_FIRC_GATED,
+            ),
+            FlexspiClockSel::Pll1ClkDiv => (
+                clocks.ensure_pll1_clk_div_active(&self.power)?,
+                FlexspiClkselMux::I6_CLKROOT_SPLL,
+            ),
+        };
+
+        apply_div4!(self, clksel, clkdiv, variant, freq)
     }
 }
 

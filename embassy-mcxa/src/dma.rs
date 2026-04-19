@@ -1040,7 +1040,7 @@ impl DmaChannel<'_> {
         options: TransferOptions,
     ) -> Result<Transfer<'_>, InvalidParameters> {
         unsafe { self.setup_write_to_peripheral(buf, peri_addr, false, options)? };
-        Ok(Transfer::new(self.reborrow()))
+        Ok(unsafe { self.start_transfer() })
     }
 
     /// Read data from a peripheral register to memory.
@@ -1065,7 +1065,7 @@ impl DmaChannel<'_> {
         options: TransferOptions,
     ) -> Result<Transfer<'_>, InvalidParameters> {
         unsafe { self.setup_read_from_peripheral(peri_addr, buf, false, options)? };
-        Ok(Transfer::new(self.reborrow()))
+        Ok(unsafe { self.start_transfer() })
     }
 
     /// Configure a memory-to-peripheral DMA transfer without starting it.
@@ -1644,7 +1644,7 @@ impl<'a> Transfer<'a> {
 ///
 /// Each error variant can be queried separately, or all errors can be iterated by using [TransferErrors::into_iter].
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct TransferErrors(u8);
 
 /// Iterator to extract all [TransferError]s using [TransferErrors::into_iter].

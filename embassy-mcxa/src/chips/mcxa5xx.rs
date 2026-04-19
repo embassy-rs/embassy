@@ -86,6 +86,8 @@ mod inner_periph {
         // Need more work on the DMA driver before we can enable this
         // EDMA0_TCD1,
 
+        FLEXSPI0,
+
         // EIM0,
         // EQDC0,
         // EQDC1,
@@ -405,6 +407,8 @@ mod inner_interrupt {
         // FREQME0,
         // GLIKEY0,
 
+        FLEXSPI0,
+
         GPIO0,
         GPIO1,
         GPIO2,
@@ -719,8 +723,8 @@ pub(crate) mod peripheral_gating {
 
     use crate::clocks::Gate;
     use crate::clocks::periph_helpers::{
-        AdcConfig, CTimerConfig, Clk1MConfig, I3cConfig, Lpi2cConfig, LpspiConfig, LpuartConfig, NoConfig,
-        OsTimerConfig,
+        AdcConfig, CTimerConfig, Clk1MConfig, FlexspiConfig, I3cConfig, Lpi2cConfig, LpspiConfig, LpuartConfig,
+        NoConfig, OsTimerConfig,
     };
     use crate::{impl_cc_gate, pac};
 
@@ -787,6 +791,7 @@ pub(crate) mod peripheral_gating {
     impl_cc_gate!(LPSPI3, mrcc_glb_acc1, mrcc_glb_rst1, lpspi3, LpspiConfig);
     impl_cc_gate!(LPSPI4, mrcc_glb_acc1, mrcc_glb_rst1, lpspi4, LpspiConfig);
     impl_cc_gate!(LPSPI5, mrcc_glb_acc1, mrcc_glb_rst1, lpspi5, LpspiConfig);
+    impl_cc_gate!(FLEXSPI0, mrcc_glb_cc2, mrcc_glb_rst2, flexspi0, FlexspiConfig);
 
     impl_cc_gate!(WWDT0, mrcc_glb_acc0, wwdt0, Clk1MConfig);
     impl_cc_gate!(WWDT1, mrcc_glb_acc0, wwdt1, Clk1MConfig);
