@@ -280,16 +280,20 @@ where
     }
 
     async fn wake_bus(bus: &mut BUS) {
-        bus.write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, BACKPLANE_HT_AVAIL_REQ)
-            .await;
+        if matches!(BUS::TYPE, BusType::Sdio) {
+            bus.write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, BACKPLANE_HT_AVAIL_REQ)
+                .await;
 
-        if !try_until(
-            async || bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & BACKPLANE_HT_AVAIL_REQ << 3 != 0,
-            Duration::from_millis(5),
-        )
-        .await
-        {
-            debug!("timeout while requesting HT clock before SDIO access");
+            if !try_until(
+                async || {
+                    bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & BACKPLANE_HT_AVAIL_REQ << 3 != 0
+                },
+                Duration::from_millis(5),
+            )
+            .await
+            {
+                debug!("timeout while requesting HT clock before SDIO access");
+            }
         }
     }
 
