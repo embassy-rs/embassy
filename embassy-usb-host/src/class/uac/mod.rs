@@ -110,7 +110,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
                 max_packet_size: (enum_info.device_desc.max_packet_size0 as u16).min(enum_info.speed.max_packet_size()),
                 interval_ms: 0,
             },
-            enum_info.ls_over_fs,
+            enum_info.split,
         )?;
 
         let mut cfg_desc_buf = [0u8; DEFAULT_MAX_DESCRIPTOR_SIZE];
@@ -194,7 +194,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
             output_channel = Some(host.alloc_channel::<channel::Isochronous, channel::Out>(
                 enum_info.device_address,
                 &output_interface.endpoint_descriptor.unwrap().into(),
-                false,
+                enum_info.split,
             )?);
         }
         if streaming_interface.num_endpoints > 1 {
@@ -202,7 +202,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
                 feedback_channel = Some(host.alloc_channel::<channel::Isochronous, channel::In>(
                     enum_info.device_address,
                     &feedback_endpoint.into(),
-                    false,
+                    enum_info.split,
                 )?);
             }
         }

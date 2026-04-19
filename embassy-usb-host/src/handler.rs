@@ -3,18 +3,21 @@
 
 use embassy_usb_driver::Speed;
 use embassy_usb_driver::host::channel::{self, IsIn, IsOut};
-use embassy_usb_driver::host::{HostError, UsbChannel};
+use embassy_usb_driver::host::{HostError, SplitInfo, UsbChannel};
 
 use crate::control::ControlChannelExt;
 use crate::descriptor::{ConfigurationDescriptor, DeviceDescriptor, USBDescriptor};
 
 /// Information obtained through preliminary enumeration.
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct EnumerationInfo {
     /// Assigned device address.
     pub device_address: u8,
-    /// Low-speed device connected via a full-speed or higher hub.
-    pub ls_over_fs: bool,
+    /// Split-transaction routing, when this device is behind a hub that
+    /// requires splits (HS host reaching LS/FS device through a HS hub, or
+    /// FS host reaching LS device through a FS hub). `None` for a device
+    /// attached directly to the host at its native speed.
+    pub split: Option<SplitInfo>,
     /// Negotiated speed.
     pub speed: Speed,
     /// Parsed device descriptor.

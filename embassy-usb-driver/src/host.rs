@@ -4,6 +4,61 @@ use core::time::Duration;
 
 use crate::{EndpointInfo, EndpointType, Speed};
 
+/// Speed of a low- or full-speed device reached through split transactions
+/// (USB 2.0 §11.14) or a `PRE` prefix (USB 1.1 §11.8.6).
+///
+/// High-speed devices are not valid split targets; split metadata only applies
+/// to devices operating at low or full speed behind a hub.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum SplitSpeed {
+    /// 1.5 Mbit/s
+    Low,
+    /// 12 Mbit/s
+    Full,
+}
+
+/// Per-channel information necessary to encode a split-transaction token
+/// (USB 2.0 §11.14) or a legacy full-speed `PRE` packet (USB 1.1 §11.8.6).
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct SplitInfo {
+    hub_addr: u8,
+    port: u8,
+    device_speed: SplitSpeed,
+}
+
+impl SplitInfo {
+    /// Create a new [`SplitInfo`].
+    ///
+    /// `hub_addr` is the USB address of the hub that owns the Transaction
+    /// Translator; `port` is the 1-based port number on that hub where the
+    /// target device is attached; `device_speed` is the speed of that target
+    /// device ([`SplitSpeed::Low`] or [`SplitSpeed::Full`] only).
+    pub const fn new(hub_addr: u8, port: u8, device_speed: SplitSpeed) -> Self {
+        Self {
+            hub_addr,
+            port,
+            device_speed,
+        }
+    }
+
+    /// USB address of the hub that owns the Transaction Translator.
+    pub const fn hub_addr(self) -> u8 {
+        self.hub_addr
+    }
+
+    /// 1-based port number on the hub where the target device is attached.
+    pub const fn port(self) -> u8 {
+        self.port
+    }
+
+    /// Speed of the split target device (low or full only).
+    pub const fn device_speed(self) -> SplitSpeed {
+        self.device_speed
+    }
+}
+
 /// Errors returned by [`UsbChannel`] operations.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -79,16 +134,20 @@ pub trait UsbHostDriver: Sized {
     /// Issue a bus reset.
     async fn bus_reset(&self);
 
-    /// Allocate channel for communication with device
+    /// Allocate channel for communication with device.
     ///
-    /// This can be a scarce resource, for one-off requests please scope the channel so it's dropped after completion
+    /// This can be a scarce resource, for one-off requests please scope the channel so it's dropped after completion.
     ///
-    /// `pre` - device is low-speed and communication is going through hub, so send PRE packet
+    /// `split` - when `Some`, every transfer on this channel is routed as a
+    /// split transaction through the specified hub's TT (USB 2.0 §11.14), or
+    /// as a legacy PRE packet on full-speed controllers (USB 1.1 §11.8.6).
+    /// Pass `None` when the device is reached directly (host at the same
+    /// speed as the device, or the device is high-speed).
     fn alloc_channel<T: channel::Type, D: channel::Direction>(
         &self,
         addr: u8,
         endpoint: &EndpointInfo,
-        pre: bool,
+        split: Option<SplitInfo>,
     ) -> Result<Self::Channel<T, D>, HostError>;
 }
 
@@ -255,8 +314,15 @@ pub trait UsbChannel<T: channel::Type, D: channel::Direction> {
         T: channel::IsControl,
         D: channel::IsOut;
 
-    /// Retargets channel to a new endpoint, may error if the underlying driver runs out of resources
-    fn retarget_channel(&mut self, addr: u8, endpoint: &EndpointInfo, pre: bool) -> Result<(), HostError>;
+    /// Retargets channel to a new endpoint, may error if the underlying driver runs out of resources.
+    ///
+    /// See [`UsbHostDriver::alloc_channel`] for the meaning of `split`.
+    fn retarget_channel(
+        &mut self,
+        addr: u8,
+        endpoint: &EndpointInfo,
+        split: Option<SplitInfo>,
+    ) -> Result<(), HostError>;
 
     /// Send IN request of type other from control
     /// For interrupt channels this will return the result of the next successful interrupt poll

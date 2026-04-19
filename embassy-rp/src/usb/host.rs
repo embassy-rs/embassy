@@ -5,9 +5,16 @@ use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::host::{
-    ChannelError, DeviceEvent, HostError, TimeoutConfig, UsbChannel, UsbHostDriver, channel,
+    ChannelError, DeviceEvent, HostError, SplitInfo, SplitSpeed, TimeoutConfig, UsbChannel, UsbHostDriver, channel,
 };
 use embassy_usb_driver::{EndpointInfo, EndpointType, Speed};
+
+/// Reduce a [`SplitInfo`] to the legacy "emit PRE packet" bit used by this
+/// full-speed only controller. USB 1.1 §11.8.6: PRE is required when the
+/// target device is low-speed and reached through a (full-speed) hub.
+fn split_to_pre(split: Option<SplitInfo>) -> bool {
+    matches!(split, Some(s) if s.device_speed() == SplitSpeed::Low)
+}
 use rp_pac::usb_dpram::vals::EpControlEndpointType;
 
 use super::{BUS_WAKER, DPRAM_DATA_OFFSET, EP_IN_WAKERS, EP_MEMORY, EndpointBuffer, Instance};
@@ -600,8 +607,13 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
         Ok(())
     }
 
-    fn retarget_channel(&mut self, addr: u8, endpoint: &EndpointInfo, pre: bool) -> Result<(), HostError> {
-        self.pre = pre;
+    fn retarget_channel(
+        &mut self,
+        addr: u8,
+        endpoint: &EndpointInfo,
+        split: Option<SplitInfo>,
+    ) -> Result<(), HostError> {
+        self.pre = split_to_pre(split);
         self.dev_addr = addr;
         self.max_packet_size = endpoint.max_packet_size;
         Ok(())
@@ -763,8 +775,9 @@ impl<'d, T: Instance> UsbHostDriver for Driver<'d, T> {
         &self,
         dev_addr: u8,
         endpoint: &EndpointInfo,
-        pre: bool,
+        split: Option<SplitInfo>,
     ) -> Result<Self::Channel<E, D>, HostError> {
+        let pre = split_to_pre(split);
         if E::ep_type() == EndpointType::Interrupt {
             let alloc = self.allocated_pipes.load(Ordering::Acquire);
             let free_index = (1..16)
