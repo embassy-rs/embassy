@@ -4,7 +4,7 @@ use core::time::Duration;
 
 use crate::{EndpointInfo, EndpointType, Speed};
 
-/// Errors returned by [`ChannelOut::write`] and [`ChannelIn::read`]
+/// Errors returned by [`UsbChannel`] operations.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ChannelError {
@@ -176,7 +176,7 @@ pub trait UsbHostDriver: Sized {
 
 /// Type-level channel markers for endpoint type and direction.
 ///
-/// These structs and traits are used as generic parameters on [`UsbChannel`](super::UsbChannel)
+/// These structs and traits are used as generic parameters on [`UsbChannel`]
 /// to statically enforce correct endpoint type and direction at compile time.
 ///
 /// All marker traits are sealed — they cannot be implemented outside this crate.
