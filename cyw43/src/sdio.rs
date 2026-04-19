@@ -424,9 +424,7 @@ where
         self.cmd53_write(FUNC_WLAN, 0, buf).await;
     }
 
-    #[allow(unused)]
-    async fn bp_read(&mut self, mut addr: u32, mut data: &mut [u8]) {
-        self.ensure_wlan_bus_awake().await;
+    async fn bp_read(&mut self, mut addr: u32, data: &mut [u8]) {
         trace!("bp_read addr = {:08x}, len = {}", addr, data.len());
 
         // It seems the HW force-aligns the addr
@@ -464,7 +462,6 @@ where
 
     /// A.K.A. cyw43_download_resource
     async fn bp_write(&mut self, mut addr: u32, data: &[u8]) {
-        self.ensure_wlan_bus_awake().await;
         trace!("bp_write addr = {:08x}, len = {}", addr, data.len());
 
         // It seems the HW force-aligns the addr
