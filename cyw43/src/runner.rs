@@ -131,16 +131,195 @@ where
         }
     }
 
+    async fn verify_download(&mut self, label: &str, addr: u32, data: &[u8]) -> Result<(), ()> {
+        async fn bp_read_bytes<BUS: Bus, const N: usize>(bus: &mut BUS, addr: u32) -> Aligned<A4, [u8; N]> {
+            let mut buf = Aligned([0; N]);
+            bus.bp_read(addr, &mut buf[..]).await;
+            buf
+        }
+
+        fn sample_checksum(data: &[u8]) -> u32 {
+            data.iter()
+                .fold(0u32, |acc, &b| acc.wrapping_mul(33).wrapping_add(u32::from(b)))
+        }
+
+        const SAMPLE_LEN: usize = 16;
+        const CHECKSUM_LEN: usize = 64;
+
+        if data.len() < SAMPLE_LEN {
+            debug!("{} verify skipped: image too small ({} bytes)", label, data.len());
+            return Ok(());
+        }
+
+        let mut offsets = [0usize; 4];
+        let mut offset_count = 0usize;
+        for candidate in [
+            0usize,
+            (data.len() / 3) & !3usize,
+            ((data.len() * 2) / 3) & !3usize,
+            (data.len() - SAMPLE_LEN) & !3usize,
+        ] {
+            if !offsets[..offset_count].contains(&candidate) {
+                offsets[offset_count] = candidate;
+                offset_count += 1;
+            }
+        }
+
+        for &offset in &offsets[..offset_count] {
+            let actual = bp_read_bytes::<BUS, SAMPLE_LEN>(&mut self.bus, addr + offset as u32).await;
+            let expected = &data[offset..offset + SAMPLE_LEN];
+            let ok = &actual[..] == expected;
+            debug!(
+                "{} sample @{:08x} checksum exp={:08x} got={:08x} match={}",
+                label,
+                addr + offset as u32,
+                sample_checksum(expected),
+                sample_checksum(&actual[..]),
+                ok,
+            );
+            if !ok {
+                debug!("{} expected {:02x}", label, Bytes(expected));
+                debug!("{} actual   {:02x}", label, Bytes(&actual[..]));
+                return Err(());
+            }
+        }
+
+        let checksum_span = data.len().min(CHECKSUM_LEN);
+        for &offset in &[
+            0usize,
+            ((data.len() / 2).saturating_sub(checksum_span / 2)) & !3usize,
+            (data.len().saturating_sub(checksum_span)) & !3usize,
+        ] {
+            let mut actual: Aligned<A4, [u8; CHECKSUM_LEN]> = Aligned([0; CHECKSUM_LEN]);
+            self.bus
+                .bp_read(addr + offset as u32, &mut actual[..checksum_span])
+                .await;
+            let expected = &data[offset..offset + checksum_span];
+            let actual = &actual[..checksum_span];
+            let exp_sum = sample_checksum(expected);
+            let got_sum = sample_checksum(actual);
+            debug!(
+                "{} chunk checksum @{:08x} len={} exp={:08x} got={:08x} match={}",
+                label,
+                addr + offset as u32,
+                checksum_span,
+                exp_sum,
+                got_sum,
+                exp_sum == got_sum,
+            );
+            if exp_sum != got_sum || actual != expected {
+                debug!("{} chunk verify failed @{:08x}", label, addr + offset as u32);
+                return Err(());
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn write_reset_instruction(&mut self, wifi_fw: &[u8]) -> Result<(), ()> {
+        if wifi_fw.len() < 4 {
+            debug!("FW image too small to extract reset instruction");
+            return Err(());
+        }
+
+        // CR4-based chips boot firmware from ATCM, but still expect the first
+        // reset instruction to be mirrored at backplane address 0. WHD's SDIO
+        // path writes this word explicitly after the firmware download.
+        let reset_instr = u32::from_le_bytes([wifi_fw[0], wifi_fw[1], wifi_fw[2], wifi_fw[3]]);
+        self.bus.bp_write32(0, reset_instr).await;
+
+        let reset_instr_rb = self.bus.bp_read32(0).await;
+        debug!(
+            "reset instruction @00000000 = {:08x} readback={:08x} match={}",
+            reset_instr,
+            reset_instr_rb,
+            reset_instr_rb == reset_instr,
+        );
+        if reset_instr_rb != reset_instr {
+            debug!("reset instruction write FAILED");
+            return Err(());
+        }
+
+        Ok(())
+    }
+
+    async fn wait_for_core_idle(&mut self, base: u32, context: &str) {
+        if matches!(CHIP::ID, ChipId::C4373) {
+            if !try_until(
+                async || self.bus.bp_read8(base + AI_RESETSTATUS_OFFSET).await == 0,
+                Duration::from_millis(10),
+            )
+            .await
+            {
+                let resetstatus = self.bus.bp_read8(base + AI_RESETSTATUS_OFFSET).await;
+                debug!(
+                    "{}: AI_RESETSTATUS @{:08x} stayed nonzero ({:02x})",
+                    context,
+                    base + AI_RESETSTATUS_OFFSET,
+                    resetstatus,
+                );
+            }
+        }
+    }
+
+    async fn log_core_wrapper_state(&mut self, core: Core, label: &str) {
+        let base = CHIP::base_addr(core);
+        let ioctrl = self.bus.bp_read8(base + AI_IOCTRL_OFFSET).await;
+        let resetctrl = self.bus.bp_read8(base + AI_RESETCTRL_OFFSET).await;
+        let resetstatus = self.bus.bp_read8(base + AI_RESETSTATUS_OFFSET).await;
+        debug!(
+            "{}: IOCTRL[{:08x}]={:02x} RESETCTRL[{:08x}]={:02x} RESETSTATUS[{:08x}]={:02x}",
+            label,
+            base + AI_IOCTRL_OFFSET,
+            ioctrl,
+            base + AI_RESETCTRL_OFFSET,
+            resetctrl,
+            base + AI_RESETSTATUS_OFFSET,
+            resetstatus,
+        );
+    }
+
+    async fn wake_bus(bus: &mut BUS) {
+        if matches!(BUS::TYPE, BusType::Sdio) {
+            bus.write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, BACKPLANE_HT_AVAIL_REQ)
+                .await;
+
+            if !try_until(
+                async || {
+                    bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & BACKPLANE_HT_AVAIL_REQ << 3 != 0
+                },
+                Duration::from_millis(5),
+            )
+            .await
+            {
+                debug!("timeout while requesting HT clock before SDIO access");
+            }
+        }
+    }
+
+    async fn wlan_read(bus: &mut BUS, buf: &mut Aligned<A4, [u8]>) -> Result<(), ()> {
+        Self::wake_bus(bus).await;
+        bus.wlan_read(buf).await
+    }
+
+    async fn wlan_write(bus: &mut BUS, buf: &Aligned<A4, [u8]>) {
+        Self::wake_bus(bus).await;
+        bus.wlan_write(buf).await
+    }
+
     async fn read_chip_id_sdio(&mut self) -> u16 {
         // Disable the extra sdio pull-ups
         // self.bus.write8(FUNC_BACKPLANE, SDIO_PULL_UP, 0).await;
+        self.bus
+            .write8(FUNC_BUS, SDIOD_CCCR_IOEN, SDIO_FUNC_ENABLE_1 as u8)
+            .await;
 
         // Enable f1 and f2
         self.bus
             .write8(
                 FUNC_BUS,
-                SDIOD_CCCR_IOEN,
-                (SDIO_FUNC_ENABLE_1 | SDIO_FUNC_ENABLE_2) as u8,
+                SDIOD_CCCR_INTEN,
+                (INTR_CTL_MASTER_EN | INTR_CTL_FUNC1_EN | INTR_CTL_FUNC2_EN) as u8,
             )
             .await;
 
@@ -151,8 +330,8 @@ where
         self.bus
             .write8(
                 FUNC_BUS,
-                SDIOD_SEP_INT_CTL,
-                (SEP_INTR_CTL_MASK | SEP_INTR_CTL_EN | SEP_INTR_CTL_POL) as u8,
+                SDIOD_CCCR_IOEN,
+                (SDIO_FUNC_ENABLE_1 | SDIO_FUNC_ENABLE_2) as u8,
             )
             .await;
 
@@ -204,7 +383,7 @@ where
         // Upload firmware.
         self.core_disable(Core::WLAN).await;
         self.core_disable(Core::SOCSRAM).await; // TODO: is this needed if we reset right after?
-        self.core_reset(Core::SOCSRAM).await;
+        self.core_reset(Core::SOCSRAM, false).await;
 
         // this is 4343x specific stuff: Disable remap for SRAM_3
         self.bus.bp_write32(CHIP::INFO.socsram_base_address + 0x10, 3).await;
@@ -230,7 +409,7 @@ where
 
         // Start core!
         debug!("starting up core...");
-        self.core_reset(Core::WLAN).await;
+        self.core_reset(Core::WLAN, false).await;
         assert!(self.core_is_up(Core::WLAN).await);
 
         // wait until HT clock is available; takes about 29ms
@@ -349,14 +528,18 @@ where
         // prevented from executing until core_reset() clears the CPUHALT bit.
         // Using core_disable() instead (IOCTRL=0, RESETCTRL=1) gates the clock OFF
         // and causes the bp_write to 0x160000 to hang indefinitely.
+        self.core_reset(Core::WLAN, true).await;
 
         debug!("loading fw");
         self.bus.bp_write(ram_addr, wifi_fw).await;
+        self.verify_download("FW", ram_addr, wifi_fw).await?;
+        self.write_reset_instruction(wifi_fw).await?;
 
         debug!("loading nvram");
         let nvram_len = (nvram.len() + 3) / 4 * 4;
         let nvram_addr = ram_addr + CHIP::INFO.chip_ram_size - 4 - nvram_len as u32;
         self.bus.bp_write(nvram_addr, nvram).await;
+        self.verify_download("NVRAM", nvram_addr, nvram).await?;
 
         let nvram_len_words = nvram_len as u32 / 4;
         let nvram_len_magic = (!nvram_len_words << 16) | nvram_len_words;
@@ -390,7 +573,7 @@ where
         );
 
         debug!("starting up core...");
-        self.core_reset(Core::WLAN).await;
+        self.core_reset(Core::WLAN, false).await;
         assert!(self.core_is_up(Core::WLAN).await);
 
         debug!("waiting for HT clock...");
@@ -464,6 +647,34 @@ where
                 ioen, iordy, inten, fn_int_mask, host_int_mask, clock_csr,
             );
             return Err(());
+        }
+
+        let wakeup_ctrl = self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_WAKEUP_CTRL).await;
+        self.bus
+            .write8(
+                FUNC_BACKPLANE,
+                REG_BACKPLANE_WAKEUP_CTRL,
+                wakeup_ctrl | SBSDIO_WCTRL_WL_WAKE_TILL_ALP_AVAIL,
+            )
+            .await;
+
+        self.bus
+            .write8(
+                FUNC_BUS,
+                SDIOD_CCCR_BRCM_CARDCAP,
+                SDIOD_CCCR_BRCM_CARDCAP_CMD_NODEC as u8,
+            )
+            .await;
+
+        let sleep_csr = self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_SLEEP_CSR).await;
+        if sleep_csr & SBSDIO_SLPCSR_KEEP_WL_KS as u8 == 0 {
+            self.bus
+                .write8(
+                    FUNC_BACKPLANE,
+                    REG_BACKPLANE_SLEEP_CSR,
+                    sleep_csr | SBSDIO_SLPCSR_KEEP_WL_KS as u8,
+                )
+                .await;
         }
 
         Ok(())
@@ -696,7 +907,7 @@ where
 
                         trace!("    {:02x}", Bytes(&buf8[..total_len.min(48)]));
 
-                        self.bus.wlan_write(&aligned_ref(&buf)[..total_len]).await;
+                        Self::wlan_write(&mut self.bus, &aligned_ref(&buf)[..total_len]).await;
                         packet.tx_done();
                         self.check_status(&mut buf).await;
                     }
@@ -736,36 +947,49 @@ where
     async fn handle_irq(&mut self, buf: &mut [u32; 512]) {
         match BUS::TYPE {
             BusType::Sdio => {
-                // TODO: get irqs working
-                self.check_status(buf).await;
-
-                // whd_bus_sdio_packet_available_to_read
                 let irq = self
                     .bus
                     .bp_read32(CHIP::INFO.sdiod_core_base_address + SDIO_INT_STATUS)
                     .await;
-                if irq & I_HMB_HOST_INT == 0 {
-                    // return;
-                }
 
-                let hmb_data = self
-                    .bus
-                    .bp_read32(CHIP::INFO.sdiod_core_base_address + SDIO_TO_HOST_MAILBOX_DATA)
-                    .await;
-                self.bus
-                    .bp_write32(CHIP::INFO.sdiod_core_base_address + SDIO_TO_SB_MAILBOX, SMB_INT_ACK)
-                    .await;
+                let mut irq = irq;
+                if irq & I_HMB_HOST_INT != 0 {
+                    let hmb_data = self
+                        .bus
+                        .bp_read32(CHIP::INFO.sdiod_core_base_address + SDIO_TO_HOST_MAILBOX_DATA)
+                        .await;
+                    if hmb_data != 0 {
+                        self.bus
+                            .bp_write32(CHIP::INFO.sdiod_core_base_address + SDIO_TO_SB_MAILBOX, SMB_INT_ACK)
+                            .await;
+                        trace!("hmb ack");
+                    }
 
-                trace!("hmb ack");
-                if hmb_data & I_HMB_DATA_FWHALT != 0 {
-                    debug!("hmb data fault");
-                }
+                    if hmb_data & I_HMB_DATA_FWHALT != 0 {
+                        debug!("hmb data fault");
+                    }
 
-                // Clear irq must be done here to avoid a race
-                if irq & HOSTINTMASK != 0 {
-                    trace!("clear irq");
                     self.bus
-                        .bp_write32(CHIP::INFO.sdiod_core_base_address + SDIO_INT_STATUS, irq & HOSTINTMASK)
+                        .bp_write32(CHIP::INFO.sdiod_core_base_address + SDIO_INT_STATUS, I_HMB_HOST_INT)
+                        .await;
+                    irq &= !I_HMB_HOST_INT;
+                }
+
+                if irq & FRAME_AVAILABLE_MASK != 0 {
+                    self.check_status(buf).await;
+                }
+
+                // Clear all observed interrupt bits after consuming available frames.
+                // Previous code only cleared `irq & HOSTINTMASK` (0xF0), which left
+                // CYW4373-specific bits (e.g. bit 17 = 0x20000) permanently set,
+                // causing an infinite poll loop with no forward progress.
+                // Writing the full `irq` (with I_HMB_HOST_INT already masked out by
+                // its handler above) is safe: INT_STATUS is write-1-to-clear, so we
+                // only clear the bits we actually read at the top of this function.
+                if irq != 0 {
+                    trace!("clear irq {:08x}", irq);
+                    self.bus
+                        .bp_write32(CHIP::INFO.sdiod_core_base_address + SDIO_INT_STATUS, irq)
                         .await;
                 }
             }
@@ -804,7 +1028,13 @@ where
 
                     if status & STATUS_F2_PKT_AVAILABLE != 0 {
                         let len = (status & STATUS_F2_PKT_LEN_MASK) >> STATUS_F2_PKT_LEN_SHIFT;
-                        let _ = self.bus.wlan_read(&mut aligned_mut(buf)[..len as usize]).await;
+                        if Self::wlan_read(&mut self.bus, &mut aligned_mut(buf)[..len as usize])
+                            .await
+                            .is_err()
+                        {
+                            debug!("spi wlan_read failed");
+                            break;
+                        }
                         trace!("rx {:02x}", Bytes(&slice8_mut(buf)[..(len as usize).min(48)]));
                         self.rx(&mut slice8_mut(buf)[..len as usize]);
                     } else {
@@ -812,7 +1042,13 @@ where
                     }
                 }
                 BusType::Sdio => {
-                    let _ = self.bus.wlan_read(&mut aligned_mut(&mut buf[..1])).await;
+                    if Self::wlan_read(&mut self.bus, &mut aligned_mut(&mut buf[..1]))
+                        .await
+                        .is_err()
+                    {
+                        debug!("failed to read sdio hwtag");
+                        break;
+                    }
                     let (len, len_inv) = {
                         let hwtag = slice16_mut(&mut buf[..1]);
 
@@ -827,10 +1063,15 @@ where
                     trace!("pkt ready...");
                     let len = len as usize;
                     if len > INITIAL_READ as usize {
-                        let _ = self
+                        if self
                             .bus
                             .wlan_read(&mut aligned_mut(&mut buf[1..])[..len - INITIAL_READ as usize])
-                            .await;
+                            .await
+                            .is_err()
+                        {
+                            debug!("failed to read sdio payload, len={}", len);
+                            break;
+                        }
                     } else {
                         // TODO: investigate this condition
                         trace!("no extra space required");
@@ -872,7 +1113,7 @@ where
                 if cdc_header.id == self.ioctl_id {
                     if cdc_header.status != 0 {
                         // TODO: propagate error instead
-                        panic!("IOCTL error {}", cdc_header.status as i32);
+                        warn!("IOCTL error {}", cdc_header.status as i32);
                     }
 
                     self.ioctl_state.ioctl_done(response);
@@ -1098,11 +1339,12 @@ where
         let total_len = (total_len + 3) & !3; // round up to 4byte,
         trace!("    {:02x}", Bytes(&buf8[..total_len.min(48)]));
 
-        self.bus.wlan_write(&aligned_ref(buf)[..total_len]).await;
+        Self::wlan_write(&mut self.bus, &aligned_ref(buf)[..total_len]).await;
     }
 
     async fn core_disable(&mut self, core: Core) {
         let base = CHIP::base_addr(core);
+        self.wait_for_core_idle(base, "core_disable: pre-read").await;
 
         // Dummy read?
         let _ = self.bus.bp_read8(base + AI_RESETCTRL_OFFSET).await;
@@ -1115,6 +1357,7 @@ where
 
         self.bus.bp_write8(base + AI_IOCTRL_OFFSET, 0).await;
         let _ = self.bus.bp_read8(base + AI_IOCTRL_OFFSET).await;
+        self.wait_for_core_idle(base, "core_disable: after ioctrl=0").await;
 
         block_for(Duration::from_millis(1));
 
@@ -1122,27 +1365,73 @@ where
             .bp_write8(base + AI_RESETCTRL_OFFSET, AI_RESETCTRL_BIT_RESET)
             .await;
         let _ = self.bus.bp_read8(base + AI_RESETCTRL_OFFSET).await;
+        self.wait_for_core_idle(base, "core_disable: after reset assert").await;
+
+        // WHD holds the core in reset briefly before programming IOCTRL.
+        Timer::after_millis(10).await;
+        self.log_core_wrapper_state(core, "core_disable done").await;
     }
 
-    async fn core_reset(&mut self, core: Core) {
+    /// Reset a core while possibly keeping its CPU halted (CPUHALT bit set in IOCTRL).
+    ///
+    /// Used for CYW4373: the WLAN ARM core must be held in reset (CPU halted)
+    /// while firmware is streamed into ATCM RAM, so it does not begin executing
+    /// before the image is complete.  A plain `core_reset` clears CPUHALT and
+    /// would start the CPU immediately.
+    ///
+    /// Mirrors `whd_reset_core(core, SICF_CPUHALT, SICF_CPUHALT)` in the C WHD driver.
+    async fn core_reset(&mut self, core: Core, halt_cpu: bool) {
         self.core_disable(core).await;
 
         let base = CHIP::base_addr(core);
+        self.log_core_wrapper_state(core, "core_reset: after disable").await;
         self.bus
-            .bp_write8(base + AI_IOCTRL_OFFSET, AI_IOCTRL_BIT_FGC | AI_IOCTRL_BIT_CLOCK_EN)
+            .bp_write8(
+                base + AI_IOCTRL_OFFSET,
+                if halt_cpu {
+                    AI_IOCTRL_BIT_CPUHALT | AI_IOCTRL_BIT_FGC | AI_IOCTRL_BIT_CLOCK_EN
+                } else {
+                    AI_IOCTRL_BIT_FGC | AI_IOCTRL_BIT_CLOCK_EN
+                },
+            )
             .await;
         let _ = self.bus.bp_read8(base + AI_IOCTRL_OFFSET).await;
+        self.wait_for_core_idle(base, "core_reset: after ioctrl fgc+clock")
+            .await;
+        self.log_core_wrapper_state(core, "core_reset: forced gated clock")
+            .await;
 
-        self.bus.bp_write8(base + AI_RESETCTRL_OFFSET, 0).await;
+        // WHD retries the RESET deassert a few times while waiting for the core
+        // wrapper to acknowledge. Mirror that behavior instead of assuming a
+        // single write always sticks.
+        for _ in 0..10 {
+            self.bus.bp_write8(base + AI_RESETCTRL_OFFSET, 0).await;
+            let _ = self.bus.bp_read8(base + AI_RESETCTRL_OFFSET).await;
+            self.wait_for_core_idle(base, "core_reset: during reset deassert").await;
+
+            if self.bus.bp_read8(base + AI_RESETCTRL_OFFSET).await & AI_RESETCTRL_BIT_RESET == 0 {
+                break;
+            }
+        }
 
         Timer::after_millis(1).await;
+        self.log_core_wrapper_state(core, "core_reset: reset deasserted").await;
 
         self.bus
-            .bp_write8(base + AI_IOCTRL_OFFSET, AI_IOCTRL_BIT_CLOCK_EN)
+            .bp_write8(
+                base + AI_IOCTRL_OFFSET,
+                if halt_cpu {
+                    AI_IOCTRL_BIT_CPUHALT | AI_IOCTRL_BIT_CLOCK_EN
+                } else {
+                    AI_IOCTRL_BIT_CLOCK_EN
+                },
+            )
             .await;
         let _ = self.bus.bp_read8(base + AI_IOCTRL_OFFSET).await;
+        self.wait_for_core_idle(base, "core_reset: after final ioctrl").await;
 
         Timer::after_millis(1).await;
+        self.log_core_wrapper_state(core, "core_reset done").await;
     }
 
     async fn core_is_up(&mut self, core: Core) -> bool {

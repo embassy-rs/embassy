@@ -115,6 +115,7 @@ impl<const SIZE: usize, T: SdioBusCyw43<SIZE>> SdioBusCyw43<SIZE> for &mut T {
 /// Doc
 pub struct SdioBus<SDIO> {
     backplane_window: u32,
+    max_f: u32,
     sdio: SDIO,
 }
 
@@ -122,9 +123,10 @@ impl<SDIO> SdioBus<SDIO>
 where
     SDIO: SdioBusCyw43<BLOCK_SIZE>,
 {
-    pub(crate) fn new(sdio: SDIO) -> Self {
+    pub(crate) fn new(sdio: SDIO, max_f: u32) -> Self {
         Self {
             backplane_window: 0xAAAA_AAAA,
+            max_f,
             sdio,
         }
     }
@@ -356,15 +358,21 @@ where
         )
         .await;
 
-        self.sdio.set_bus_to_high_speed(25_000_000).unwrap();
+        self.sdio
+            .set_bus_to_high_speed(self.max_f.clamp(0, 25_000_000))
+            .unwrap();
 
-        // enable more than 25MHz bus
-        let reg = self.read8(FUNC_BUS, SDIOD_CCCR_SPEED_CONTROL).await as u32;
-        if reg & 1 != 0 {
-            self.write8(FUNC_BUS, SDIOD_CCCR_SPEED_CONTROL, (reg | SDIO_SPEED_EHS) as u8)
-                .await;
+        if self.max_f > 25_000_000 {
+            // enable more than 25MHz bus
+            let reg = self.read8(FUNC_BUS, SDIOD_CCCR_SPEED_CONTROL).await as u32;
+            if reg & 1 != 0 {
+                self.write8(FUNC_BUS, SDIOD_CCCR_SPEED_CONTROL, (reg | SDIO_SPEED_EHS) as u8)
+                    .await;
 
-            self.sdio.set_bus_to_high_speed(50_000_000).unwrap();
+                self.sdio
+                    .set_bus_to_high_speed(self.max_f.clamp(0, 50_000_000))
+                    .unwrap();
+            }
         }
 
         // Wait till the backplane is ready
@@ -399,8 +407,7 @@ where
         self.cmd53_write(FUNC_WLAN, 0, buf).await;
     }
 
-    #[allow(unused)]
-    async fn bp_read(&mut self, mut addr: u32, mut data: &mut [u8]) {
+    async fn bp_read(&mut self, mut addr: u32, data: &mut [u8]) {
         trace!("bp_read addr = {:08x}, len = {}", addr, data.len());
 
         // It seems the HW force-aligns the addr
@@ -515,7 +522,6 @@ where
         u16::from_be_bytes(val[0].to_be_bytes()[..2].try_into().unwrap())
     }
 
-    #[allow(unused)]
     async fn write16(&mut self, func: u32, addr: u32, val: u16) {
         self.cmd53_write(func, addr, &aligned_ref(&[val as u32])[..2]).await;
     }
@@ -527,7 +533,6 @@ where
         val[0]
     }
 
-    #[allow(unused)]
     async fn write32(&mut self, func: u32, addr: u32, val: u32) {
         self.cmd53_write(func, addr, &aligned_ref(&[val])).await;
     }
