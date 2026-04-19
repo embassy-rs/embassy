@@ -37,7 +37,6 @@ enum Word {
 }
 
 const BLOCK_SIZE: usize = BACKPLANE_MAX_TRANSFER_SIZE;
-const SDIO_DEBUG_INIT_CLOCK_HZ: u32 = 12_500_000;
 
 fn cmd53_arg(write: bool, func: u32, addr: u32, mode: Mode, len: usize) -> u32 {
     let (len, block_mode) = match mode {
@@ -116,6 +115,7 @@ impl<const SIZE: usize, T: SdioBusCyw43<SIZE>> SdioBusCyw43<SIZE> for &mut T {
 /// Doc
 pub struct SdioBus<SDIO> {
     backplane_window: u32,
+    max_f: u32,
     sdio: SDIO,
 }
 
@@ -123,9 +123,10 @@ impl<SDIO> SdioBus<SDIO>
 where
     SDIO: SdioBusCyw43<BLOCK_SIZE>,
 {
-    pub(crate) fn new(sdio: SDIO) -> Self {
+    pub(crate) fn new(sdio: SDIO, max_f: u32) -> Self {
         Self {
             backplane_window: 0xAAAA_AAAA,
+            max_f,
             sdio,
         }
     }
@@ -357,14 +358,22 @@ where
         )
         .await;
 
-        // Keep the bus conservative during bring-up so firmware download and
-        // early boot are not conflated with signal-integrity/timing issues.
-        self.sdio.set_bus_to_high_speed(SDIO_DEBUG_INIT_CLOCK_HZ).unwrap();
+        self.sdio
+            .set_bus_to_high_speed(self.max_f.clamp(0, 25_000_000))
+            .unwrap();
 
-        // Note: high-speed (50 MHz) is intentionally NOT enabled here.
-        // For debug we also stay below 25 MHz for the whole init path. If the
-        // failure disappears at 12.5 MHz, the problem is much more likely to be
-        // electrical/timing related than a pure firmware sequencing bug.
+        if self.max_f > 25_000_000 {
+            // enable more than 25MHz bus
+            let reg = self.read8(FUNC_BUS, SDIOD_CCCR_SPEED_CONTROL).await as u32;
+            if reg & 1 != 0 {
+                self.write8(FUNC_BUS, SDIOD_CCCR_SPEED_CONTROL, (reg | SDIO_SPEED_EHS) as u8)
+                    .await;
+
+                self.sdio
+                    .set_bus_to_high_speed(self.max_f.clamp(0, 50_000_000))
+                    .unwrap();
+            }
+        }
 
         // Wait till the backplane is ready
         if !try_until(
