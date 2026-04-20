@@ -477,6 +477,8 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
 
 impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     async fn write_frame(&mut self, address: Address, write_buffer: &[u8], frame: FrameOptions) -> Result<(), Error> {
+        let timeout = self.timeout();
+
         // Return early if there are no bytes to transmit and no START to send.
         // If send_start is true the empty check is handled after the address phase.
         if write_buffer.is_empty() && !frame.send_start() {
@@ -516,23 +518,24 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             });
 
             // Wait until START condition was generated
-            poll_fn(|cx| {
-                self.state.waker.register(cx.waker());
+            timeout
+                .with(poll_fn(|cx| {
+                    self.state.waker.register(cx.waker());
 
-                match Self::check_and_clear_error_flags(self.info) {
-                    Err(e) => Poll::Ready(Err(e)),
-                    Ok(sr1) => {
-                        if sr1.start() {
-                            Poll::Ready(Ok(()))
-                        } else {
-                            // When pending, (re-)enable interrupts to wake us up.
-                            Self::enable_interrupts(self.info);
-                            Poll::Pending
+                    match Self::check_and_clear_error_flags(self.info) {
+                        Err(e) => Poll::Ready(Err(e)),
+                        Ok(sr1) => {
+                            if sr1.start() {
+                                Poll::Ready(Ok(()))
+                            } else {
+                                // When pending, (re-)enable interrupts to wake us up.
+                                Self::enable_interrupts(self.info);
+                                Poll::Pending
+                            }
                         }
                     }
-                }
-            })
-            .await?;
+                }))
+                .await?;
 
             // Check if we were the ones to generate START
             if self.info.regs.cr1().read().start() || !self.info.regs.sr2().read().msl() {
@@ -544,25 +547,26 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
             if matches!(address, Address::TenBit(_)) || address.is_reserved_range() {
                 // Wait for ADD10
-                poll_fn(|cx| {
-                    self.state.waker.register(cx.waker());
+                timeout
+                    .with(poll_fn(|cx| {
+                        self.state.waker.register(cx.waker());
 
-                    match Self::check_and_clear_error_flags(self.info) {
-                        Err(e) => {
-                            self.info.regs.cr1().modify(|reg| reg.set_stop(true));
-                            Poll::Ready(Err(e))
-                        }
-                        Ok(sr1) => {
-                            if sr1.add10() {
-                                Poll::Ready(Ok(()))
-                            } else {
-                                Self::enable_interrupts(self.info);
-                                Poll::Pending
+                        match Self::check_and_clear_error_flags(self.info) {
+                            Err(e) => {
+                                self.info.regs.cr1().modify(|reg| reg.set_stop(true));
+                                Poll::Ready(Err(e))
+                            }
+                            Ok(sr1) => {
+                                if sr1.add10() {
+                                    Poll::Ready(Ok(()))
+                                } else {
+                                    Self::enable_interrupts(self.info);
+                                    Poll::Pending
+                                }
                             }
                         }
-                    }
-                })
-                .await?;
+                    }))
+                    .await?;
 
                 // Write second byte: addr[7:0] for 10-bit, first data byte for reserved-range 7-bit
                 match address {
@@ -580,26 +584,27 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             }
 
             // Wait for ADDR
-            poll_fn(|cx| {
-                self.state.waker.register(cx.waker());
+            timeout
+                .with(poll_fn(|cx| {
+                    self.state.waker.register(cx.waker());
 
-                match Self::check_and_clear_error_flags(self.info) {
-                    Err(e) => {
-                        trace!("I2C master: address not acknowledged, send stop");
-                        self.info.regs.cr1().modify(|reg| reg.set_stop(true));
-                        Poll::Ready(Err(e))
-                    }
-                    Ok(sr1) => {
-                        if sr1.addr() {
-                            Poll::Ready(Ok(()))
-                        } else {
-                            Self::enable_interrupts(self.info);
-                            Poll::Pending
+                    match Self::check_and_clear_error_flags(self.info) {
+                        Err(e) => {
+                            trace!("I2C master: address not acknowledged, send stop");
+                            self.info.regs.cr1().modify(|reg| reg.set_stop(true));
+                            Poll::Ready(Err(e))
+                        }
+                        Ok(sr1) => {
+                            if sr1.addr() {
+                                Poll::Ready(Ok(()))
+                            } else {
+                                Self::enable_interrupts(self.info);
+                                Poll::Pending
+                            }
                         }
                     }
-                }
-            })
-            .await?;
+                }))
+                .await?;
 
             // Clear condition by reading SR2
             self.info.regs.sr2().read();
@@ -656,23 +661,24 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         //
         // 18.3.8 "Master transmitter: In the interrupt routine after the EOT interrupt, disable DMA
         // requests then wait for a BTF event before programming the Stop condition."
-        poll_fn(|cx| {
-            self.state.waker.register(cx.waker());
+        timeout
+            .with(poll_fn(|cx| {
+                self.state.waker.register(cx.waker());
 
-            match Self::check_and_clear_error_flags(self.info) {
-                Err(e) => Poll::Ready(Err(e)),
-                Ok(sr1) => {
-                    if sr1.btf() {
-                        Poll::Ready(Ok(()))
-                    } else {
-                        // When pending, (re-)enable interrupts to wake us up.
-                        Self::enable_interrupts(self.info);
-                        Poll::Pending
+                match Self::check_and_clear_error_flags(self.info) {
+                    Err(e) => Poll::Ready(Err(e)),
+                    Ok(sr1) => {
+                        if sr1.btf() {
+                            Poll::Ready(Ok(()))
+                        } else {
+                            // When pending, (re-)enable interrupts to wake us up.
+                            Self::enable_interrupts(self.info);
+                            Poll::Pending
+                        }
                     }
                 }
-            }
-        })
-        .await?;
+            }))
+            .await?;
 
         if frame.send_stop() {
             self.info.regs.cr1().modify(|w| {
@@ -711,6 +717,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
         // Some branches below depend on whether the buffer contains only a single byte.
         let single_byte = read_buffer.len() == 1;
+        let timeout = self.timeout();
 
         self.info.regs.cr2().modify(|w| {
             // Note: Do not enable the ITBUFEN bit in the I2C_CR2 register if DMA is used for
@@ -743,23 +750,24 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             });
 
             // Wait until START condition was generated
-            poll_fn(|cx| {
-                self.state.waker.register(cx.waker());
+            timeout
+                .with(poll_fn(|cx| {
+                    self.state.waker.register(cx.waker());
 
-                match Self::check_and_clear_error_flags(self.info) {
-                    Err(e) => Poll::Ready(Err(e)),
-                    Ok(sr1) => {
-                        if sr1.start() {
-                            Poll::Ready(Ok(()))
-                        } else {
-                            // When pending, (re-)enable interrupts to wake us up.
-                            Self::enable_interrupts(self.info);
-                            Poll::Pending
+                    match Self::check_and_clear_error_flags(self.info) {
+                        Err(e) => Poll::Ready(Err(e)),
+                        Ok(sr1) => {
+                            if sr1.start() {
+                                Poll::Ready(Ok(()))
+                            } else {
+                                // When pending, (re-)enable interrupts to wake us up.
+                                Self::enable_interrupts(self.info);
+                                Poll::Pending
+                            }
                         }
                     }
-                }
-            })
-            .await?;
+                }))
+                .await?;
 
             // Check if we were the ones to generate START
             if self.info.regs.cr1().read().start() || !self.info.regs.sr2().read().msl() {
@@ -771,49 +779,51 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                 self.info.regs.dr().write(|reg| reg.set_dr(address.write_header()));
 
                 // Wait for ADD10
-                poll_fn(|cx| {
-                    self.state.waker.register(cx.waker());
+                timeout
+                    .with(poll_fn(|cx| {
+                        self.state.waker.register(cx.waker());
 
-                    match Self::check_and_clear_error_flags(self.info) {
-                        Err(e) => {
-                            self.info.regs.cr1().modify(|reg| reg.set_stop(true));
-                            Poll::Ready(Err(e))
-                        }
-                        Ok(sr1) => {
-                            if sr1.add10() {
-                                Poll::Ready(Ok(()))
-                            } else {
-                                Self::enable_interrupts(self.info);
-                                Poll::Pending
+                        match Self::check_and_clear_error_flags(self.info) {
+                            Err(e) => {
+                                self.info.regs.cr1().modify(|reg| reg.set_stop(true));
+                                Poll::Ready(Err(e))
+                            }
+                            Ok(sr1) => {
+                                if sr1.add10() {
+                                    Poll::Ready(Ok(()))
+                                } else {
+                                    Self::enable_interrupts(self.info);
+                                    Poll::Pending
+                                }
                             }
                         }
-                    }
-                })
-                .await?;
+                    }))
+                    .await?;
 
                 // Write second address byte
                 self.info.regs.dr().write(|reg| reg.set_dr(addr as u8));
 
                 // Wait for ADDR
-                poll_fn(|cx| {
-                    self.state.waker.register(cx.waker());
+                timeout
+                    .with(poll_fn(|cx| {
+                        self.state.waker.register(cx.waker());
 
-                    match Self::check_and_clear_error_flags(self.info) {
-                        Err(e) => {
-                            self.info.regs.cr1().modify(|reg| reg.set_stop(true));
-                            Poll::Ready(Err(e))
-                        }
-                        Ok(sr1) => {
-                            if sr1.addr() {
-                                Poll::Ready(Ok(()))
-                            } else {
-                                Self::enable_interrupts(self.info);
-                                Poll::Pending
+                        match Self::check_and_clear_error_flags(self.info) {
+                            Err(e) => {
+                                self.info.regs.cr1().modify(|reg| reg.set_stop(true));
+                                Poll::Ready(Err(e))
+                            }
+                            Ok(sr1) => {
+                                if sr1.addr() {
+                                    Poll::Ready(Ok(()))
+                                } else {
+                                    Self::enable_interrupts(self.info);
+                                    Poll::Pending
+                                }
                             }
                         }
-                    }
-                })
-                .await?;
+                    }))
+                    .await?;
 
                 // Clear ADDR
                 self.info.regs.sr2().read();
@@ -825,22 +835,23 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                 });
 
                 // Wait for SB
-                poll_fn(|cx| {
-                    self.state.waker.register(cx.waker());
+                timeout
+                    .with(poll_fn(|cx| {
+                        self.state.waker.register(cx.waker());
 
-                    match Self::check_and_clear_error_flags(self.info) {
-                        Err(e) => Poll::Ready(Err(e)),
-                        Ok(sr1) => {
-                            if sr1.start() {
-                                Poll::Ready(Ok(()))
-                            } else {
-                                Self::enable_interrupts(self.info);
-                                Poll::Pending
+                        match Self::check_and_clear_error_flags(self.info) {
+                            Err(e) => Poll::Ready(Err(e)),
+                            Ok(sr1) => {
+                                if sr1.start() {
+                                    Poll::Ready(Ok(()))
+                                } else {
+                                    Self::enable_interrupts(self.info);
+                                    Poll::Pending
+                                }
                             }
                         }
-                    }
-                })
-                .await?;
+                    }))
+                    .await?;
 
                 if self.info.regs.cr1().read().start() || !self.info.regs.sr2().read().msl() {
                     return Err(Error::Arbitration);
@@ -854,26 +865,27 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             }
 
             // Wait for ADDR
-            poll_fn(|cx| {
-                self.state.waker.register(cx.waker());
+            timeout
+                .with(poll_fn(|cx| {
+                    self.state.waker.register(cx.waker());
 
-                match Self::check_and_clear_error_flags(self.info) {
-                    Err(e) => {
-                        trace!("I2C master: address not acknowledged, send stop");
-                        self.info.regs.cr1().modify(|reg| reg.set_stop(true));
-                        Poll::Ready(Err(e))
-                    }
-                    Ok(sr1) => {
-                        if sr1.addr() {
-                            Poll::Ready(Ok(()))
-                        } else {
-                            Self::enable_interrupts(self.info);
-                            Poll::Pending
+                    match Self::check_and_clear_error_flags(self.info) {
+                        Err(e) => {
+                            trace!("I2C master: address not acknowledged, send stop");
+                            self.info.regs.cr1().modify(|reg| reg.set_stop(true));
+                            Poll::Ready(Err(e))
+                        }
+                        Ok(sr1) => {
+                            if sr1.addr() {
+                                Poll::Ready(Ok(()))
+                            } else {
+                                Self::enable_interrupts(self.info);
+                                Poll::Pending
+                            }
                         }
                     }
-                }
-            })
-            .await?;
+                }))
+                .await?;
 
             // 18.3.8: When a single byte must be received: the NACK must be programmed during EV6
             // event, i.e. program ACK=0 when ADDR=1, before clearing ADDR flag.
