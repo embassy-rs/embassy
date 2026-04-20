@@ -705,6 +705,10 @@ impl<'d, T: Instance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D> for Chann
     fn set_timeout(&mut self, _: TimeoutConfig) {
         // Not yet implemented for RP2040.
     }
+
+    fn reset_data_toggle(&mut self) {
+        self.pid = false;
+    }
 }
 
 // TODO: channel should have reference to `allocated_pipes`
@@ -755,6 +759,15 @@ impl<'d, T: Instance> UsbHostDriver for Driver<'d, T> {
             }
         })
         .await;
+
+        // Per the `UsbHostDriver` contract, drive a bus reset before
+        // reporting the attach so the device transitions from the Powered
+        // into the Default state (USB 2.0 §9.1.2). RP2040 is full-speed
+        // only, so no chirp handshake occurs and the speed observed before
+        // reset is authoritative after reset — no re-read is needed.
+        if matches!(ev, DeviceEvent::Connected(_)) {
+            self.bus_reset().await;
+        }
         ev
     }
 

@@ -132,6 +132,12 @@ impl<D: UsbHostDriver> UsbHost<D> {
                     // Spurious disconnect before connect; try again.
                     continue;
                 }
+                _ => {
+                    // Overcurrent, remote-wakeup, or any future variant that
+                    // isn't a fresh connection: keep waiting for a real
+                    // Connected event.
+                    continue;
+                }
             }
         }
     }

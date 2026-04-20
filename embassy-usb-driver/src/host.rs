@@ -62,6 +62,7 @@ impl SplitInfo {
 /// Errors returned by [`UsbPipe`] operations.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum PipeError {
     /// The packet is too long to fit in the buffer.
     BufferOverflow,
@@ -91,16 +92,22 @@ pub enum PipeError {
 /// Device has been attached/detached
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum DeviceEvent {
     /// Indicates a root-device has become attached
     Connected(Speed),
+
     /// Indicates that a device has been detached
     Disconnected,
+
+    /// Root port overcurrent protection tripped.
+    Overcurrent,
 }
 
 /// Indicates type of error of Host interface
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum HostError {
     /// A pipe-level transfer error occurred.
     PipeError(PipeError),
@@ -132,12 +139,18 @@ pub trait UsbHostDriver: Sized {
     /// Pipe implementation of this UsbHostDriver
     type Pipe<T: pipe::Type, D: pipe::Direction>: UsbPipe<T, D>;
 
-    /// Wait for device connect or disconnect
+    /// Wait for a root-port attach/detach.
     ///
-    /// When connected, this function must issue a bus reset before the speed is reported
+    /// On attach, the implementation must drive a bus reset to completion
+    /// before returning and must report the speed that the device settled
+    /// on after reset.
     async fn wait_for_device_event(&self) -> DeviceEvent;
 
-    /// Issue a bus reset.
+    /// Force a bus reset on the root port.
+    ///
+    /// Invalidates every pipe currently allocated against addresses other
+    /// than 0. Used to recover from a misbehaving device or to force
+    /// re-enumeration without unplug.
     async fn bus_reset(&self);
 
     /// Allocate pipe for communication with device.
@@ -220,6 +233,12 @@ pub mod pipe {
     #[diagnostic::on_unimplemented(message = "This is not an INTERRUPT pipe")]
     pub trait IsInterrupt: sealed::Sealed {}
     impl IsInterrupt for Interrupt {}
+
+    /// Trait bound satisfied only by [`Bulk`] or [`Interrupt`] pipes.
+    #[diagnostic::on_unimplemented(message = "This is not a BULK or INTERRUPT pipe")]
+    pub trait IsBulkOrInterrupt: sealed::Sealed {}
+    impl IsBulkOrInterrupt for Bulk {}
+    impl IsBulkOrInterrupt for Interrupt {}
 
     /// Marker trait for the transfer direction of a pipe.
     pub trait Direction: sealed::Sealed {
@@ -357,4 +376,18 @@ pub trait UsbPipe<T: pipe::Type, D: pipe::Direction> {
     fn set_timeout(&mut self, timeout: TimeoutConfig)
     where
         T: pipe::IsControl;
+
+    /// Reset the host-side data toggle on this pipe to DATA0.
+    ///
+    /// The caller must invoke this method after:
+    ///
+    /// - `CLEAR_FEATURE(ENDPOINT_HALT)` successfully clears a functional
+    ///   stall on this endpoint.
+    /// - `SET_CONFIGURATION` succeeds (all non-control endpoints on the
+    ///   affected interfaces must be reset).
+    /// - `SET_INTERFACE` succeeds (all non-control endpoints on the
+    ///   affected interface must be reset).
+    fn reset_data_toggle(&mut self)
+    where
+        T: pipe::IsBulkOrInterrupt;
 }
