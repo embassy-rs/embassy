@@ -70,7 +70,7 @@ async fn async_main(_spawner: Spawner) {
     loop {
         let mut buffer = [0; 2];
         // read the temperature register of the onboard lm75
-        match i2c.read(0x48, &mut buffer).await {
+        match i2c.read(0x48u8, &mut buffer).await {
             Ok(_) => info!("--> {:?}", buffer),
             Err(e) => info!("--> Error: {:?}", e),
         }
