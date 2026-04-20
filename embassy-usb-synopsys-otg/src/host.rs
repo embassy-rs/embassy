@@ -6,7 +6,7 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
-use embassy_usb_driver::host::{ChannelError, DeviceEvent, HostError, SetupPacket, UsbChannel, UsbHostDriver, channel};
+use embassy_usb_driver::host::{ChannelError, DeviceEvent, HostError, SplitInfo, UsbChannel, UsbHostDriver, channel};
 use embassy_usb_driver::{EndpointInfo, EndpointType, Speed};
 use portable_atomic::{AtomicBool, AtomicU8, Ordering};
 
@@ -622,7 +622,7 @@ impl<'d, const CH_COUNT: usize> UsbHostDriver for OtgHost<'d, CH_COUNT> {
         &self,
         addr: u8,
         endpoint: &EndpointInfo,
-        _pre: bool,
+        _split: Option<SplitInfo>,
     ) -> Result<Self::Channel<T, D>, HostError> {
         let ep_number = endpoint.addr.index() as u8;
         let max_packet_size = endpoint.max_packet_size;
@@ -1052,20 +1052,20 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Channel<T, 
 }
 
 impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> UsbChannel<T, D> for Channel<T, D, CH_COUNT> {
-    async fn control_in(&mut self, setup: &SetupPacket, buf: &mut [u8]) -> Result<usize, ChannelError>
+    async fn control_in(&mut self, setup: &[u8; 8], buf: &mut [u8]) -> Result<usize, ChannelError>
     where
         T: channel::IsControl,
         D: channel::IsIn,
     {
-        self.do_control_in(setup.as_bytes(), buf).await
+        self.do_control_in(setup, buf).await
     }
 
-    async fn control_out(&mut self, setup: &SetupPacket, buf: &[u8]) -> Result<(), ChannelError>
+    async fn control_out(&mut self, setup: &[u8; 8], buf: &[u8]) -> Result<(), ChannelError>
     where
         T: channel::IsControl,
         D: channel::IsOut,
     {
-        self.do_control_out(setup.as_bytes(), buf).await
+        self.do_control_out(setup, buf).await
     }
 
     async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError>
@@ -1098,10 +1098,19 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> UsbChannel<
         Ok(())
     }
 
-    fn set_timeout(&mut self, _timeout: embassy_usb_driver::host::TimeoutConfig)
-    where
-        T: channel::IsControl,
-    {
+    fn retarget_channel(
+        &mut self,
+        addr: u8,
+        endpoint: &EndpointInfo,
+        _split: Option<SplitInfo>,
+    ) -> Result<(), HostError> {
+        self.device_address = addr;
+        self.ep_number = endpoint.addr.index() as u8;
+        self.max_packet_size = endpoint.max_packet_size;
+        Ok(())
+    }
+
+    fn set_timeout(&mut self, _timeout: embassy_usb_driver::host::TimeoutConfig) {
         // Hardware timeouts; no-op
     }
 }

@@ -70,6 +70,7 @@ use embassy_usb_driver::host::{ChannelError, UsbChannel, UsbHostDriver, channel}
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
 
 use crate::descriptor::ConfigurationDescriptor;
+use crate::handler::EnumerationInfo;
 
 // ── GIP USB interface identifiers ────────────────────────────────────────────
 
@@ -497,13 +498,9 @@ impl<D: UsbHostDriver, DEV: GipDevice> GipHost<D, DEV> {
     /// - [`GipError::NoInterface`] if no GIP interface is found.
     /// - [`GipError::NoChannel`] if channels cannot be allocated.
     /// - [`GipError::Transfer`] if a handshake transfer fails.
-    pub async fn try_register(
-        driver: &D,
-        config_desc: &[u8],
-        device_address: u8,
-        vendor_id: u16,
-        product_id: u16,
-    ) -> Result<Self, GipError> {
+    pub async fn try_register(driver: &D, config_desc: &[u8], enum_info: &EnumerationInfo) -> Result<Self, GipError> {
+        let vendor_id = enum_info.device_desc.vendor_id;
+        let product_id = enum_info.device_desc.product_id;
         let device = DEV::try_new(vendor_id, product_id).ok_or(GipError::UnsupportedDevice)?;
 
         let info = find_gip(config_desc).ok_or(GipError::NoInterface)?;
@@ -522,11 +519,14 @@ impl<D: UsbHostDriver, DEV: GipDevice> GipHost<D, DEV> {
             interval_ms: info.interrupt_out_interval,
         };
 
+        let device_address = enum_info.device_address;
+        let split = enum_info.split;
+
         let in_ch = driver
-            .alloc_channel::<channel::Interrupt, channel::In>(device_address, &in_ep_info, false)
+            .alloc_channel::<channel::Interrupt, channel::In>(device_address, &in_ep_info, split)
             .map_err(|_| GipError::NoChannel)?;
         let out_ch = driver
-            .alloc_channel::<channel::Interrupt, channel::Out>(device_address, &out_ep_info, false)
+            .alloc_channel::<channel::Interrupt, channel::Out>(device_address, &out_ep_info, split)
             .map_err(|_| GipError::NoChannel)?;
 
         let mut host = Self {

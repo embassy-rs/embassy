@@ -743,9 +743,9 @@ mod host_impl {
             &self,
             addr: u8,
             endpoint: &embassy_usb_driver::EndpointInfo,
-            pre: bool,
+            split: Option<embassy_usb_driver::host::SplitInfo>,
         ) -> Result<Self::Channel<Ty, D>, embassy_usb_driver::host::HostError> {
-            self.inner.alloc_channel(addr, endpoint, pre)
+            self.inner.alloc_channel(addr, endpoint, split)
         }
     }
 }

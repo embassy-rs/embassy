@@ -11,22 +11,12 @@ pub mod control;
 pub mod descriptor;
 pub mod handler;
 
-use embassy_usb_driver::host::{ChannelError, DeviceEvent, HostError, SetupPacket, UsbChannel, UsbHostDriver, channel};
-use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType, Speed};
+use embassy_usb_driver::host::{ChannelError, DeviceEvent, HostError, UsbChannel, UsbHostDriver, channel};
+use embassy_usb_driver::{EndpointInfo, EndpointType, Speed};
 
-use crate::descriptor::{ConfigurationDescriptor, DeviceDescriptor, USBDescriptor};
-
-/// Convert an 8-byte SETUP array to a [`SetupPacket`].
-pub(crate) fn bytes_to_setup(b: &[u8; 8]) -> SetupPacket {
-    use embassy_usb_driver::host::RequestType;
-    SetupPacket {
-        request_type: RequestType::from_bits_truncate(b[0]),
-        request: b[1],
-        value: u16::from_le_bytes([b[2], b[3]]),
-        index: u16::from_le_bytes([b[4], b[5]]),
-        length: u16::from_le_bytes([b[6], b[7]]),
-    }
-}
+use crate::control::{ControlChannelExt, SetupPacket};
+use crate::descriptor::{ConfigurationDescriptor, USBDescriptor};
+use crate::handler::EnumerationInfo;
 
 /// USB host enumeration error.
 #[derive(Debug)]
@@ -154,21 +144,14 @@ impl<D: UsbHostDriver> UsbHost<D> {
     /// 4. Get configuration descriptor
     /// 5. SET_CONFIGURATION
     ///
-    /// Returns the device descriptor, assigned address, and bytes written to config_buf.
+    /// Returns the [`EnumerationInfo`] for the device and bytes written to `config_buf`.
     pub async fn enumerate(
         &mut self,
         speed: Speed,
         config_buf: &mut [u8],
-    ) -> Result<(DeviceDescriptor, u8, usize), EnumerationError> {
-        use embassy_time::Timer;
-
-        use crate::control::ControlChannelExt;
-        use crate::descriptor::DeviceDescriptorPartial;
-
-        let addr = self.alloc_address().ok_or(EnumerationError::NoChannel)?;
-
+    ) -> Result<(EnumerationInfo, usize), EnumerationError> {
         let ep0_info = EndpointInfo {
-            addr: EndpointAddress::from_parts(0, UsbDirection::In),
+            addr: 0.into(),
             ep_type: EndpointType::Control,
             max_packet_size: speed.max_packet_size(),
             interval_ms: 0,
@@ -176,72 +159,13 @@ impl<D: UsbHostDriver> UsbHost<D> {
 
         let mut ch = self
             .driver
-            .alloc_channel::<channel::Control, channel::InOut>(0, &ep0_info, false)
+            .alloc_channel::<channel::Control, channel::InOut>(0, &ep0_info, None)
             .map_err(|_| EnumerationError::NoChannel)?;
 
-        trace!("[enum] Getting max_packet_size for new device");
-        let max_packet_size0 = {
-            let mut max_retries = 10;
-            loop {
-                match ch
-                    .request_descriptor::<DeviceDescriptorPartial, { DeviceDescriptorPartial::SIZE }>(0, false)
-                    .await
-                {
-                    Ok(desc) => break desc.max_packet_size0,
-                    Err(e) => {
-                        warn!("Request descriptor error: {:?}, retries: {}", e, max_retries);
-                        if max_retries > 0 {
-                            max_retries -= 1;
-                            Timer::after_millis(1).await;
-                            continue;
-                        } else {
-                            return Err(e.into());
-                        }
-                    }
-                }
-            }
-        };
-        // USB 2.0 §9.6.1: legal EP0 max packet sizes are 8, 16, 32, 64.
-        if !matches!(max_packet_size0, 8 | 16 | 32 | 64) {
-            return Err(EnumerationError::InvalidDescriptor);
-        }
-
-        ch.device_set_address(addr).await?;
-        // USB 2.0 §9.2.6.3: allow the device a 2ms recovery interval after SET_ADDRESS.
-        Timer::after_millis(2).await;
-
-        // Drop channel to re-allocate with new address and correct max_packet_size.
-        drop(ch);
-
-        let ep0_info = EndpointInfo {
-            addr: EndpointAddress::from_parts(0, UsbDirection::In),
-            ep_type: EndpointType::Control,
-            max_packet_size: max_packet_size0 as u16,
-            interval_ms: 0,
-        };
-
-        let mut ch = self
-            .driver
-            .alloc_channel::<channel::Control, channel::InOut>(addr, &ep0_info, false)
-            .map_err(|_| EnumerationError::NoChannel)?;
-
-        let retries = 5;
-        let dev_desc = async {
-            for _ in 0..retries {
-                match ch
-                    .request_descriptor::<DeviceDescriptor, { DeviceDescriptor::SIZE }>(0, false)
-                    .await
-                {
-                    Err(HostError::ChannelError(ChannelError::Timeout)) => {
-                        Timer::after_millis(1).await;
-                        continue;
-                    }
-                    v => return v,
-                }
-            }
-            Err(HostError::ChannelError(ChannelError::Timeout))
-        }
-        .await?;
+        // Steps 1–3: GET_DESCRIPTOR (partial + full), SET_ADDRESS, retarget channel.
+        let addr = self.alloc_address().ok_or(EnumerationError::NoChannel)?;
+        let enum_info = ch.enumerate_device(speed, addr, None).await?;
+        let dev_desc = &enum_info.device_desc;
 
         info!(
             "Device: VID={:04x} PID={:04x} class={:02x}",
@@ -249,8 +173,9 @@ impl<D: UsbHostDriver> UsbHost<D> {
         );
 
         // Step 4: Get configuration descriptor header (9 bytes).
-        let setup = bytes_to_setup(&control::get_config_descriptor(0, 9));
-        let n = ch.control_in(&setup, &mut config_buf[..9]).await?;
+        let n = ch
+            .control_in(&SetupPacket::get_config_descriptor(0, 9).to_bytes(), &mut config_buf[..9])
+            .await?;
 
         if n < 9 {
             return Err(EnumerationError::InvalidDescriptor);
@@ -265,8 +190,12 @@ impl<D: UsbHostDriver> UsbHost<D> {
         }
 
         // Get full configuration descriptor.
-        let setup = bytes_to_setup(&control::get_config_descriptor(0, total_len as u16));
-        let n = ch.control_in(&setup, &mut config_buf[..total_len]).await?;
+        let n = ch
+            .control_in(
+                &SetupPacket::get_config_descriptor(0, total_len as u16).to_bytes(),
+                &mut config_buf[..total_len],
+            )
+            .await?;
 
         // USB 2.0 §9.4.3: the device must return exactly total_len bytes for a full config descriptor.
         if n != total_len {
@@ -276,14 +205,17 @@ impl<D: UsbHostDriver> UsbHost<D> {
         trace!("Config descriptor: {} bytes", n);
 
         // Step 5: SET_CONFIGURATION.
-        let setup = bytes_to_setup(&control::set_configuration(config_header.configuration_value));
-        ch.control_out(&setup, &[]).await?;
+        ch.control_out(
+            &SetupPacket::set_configuration(config_header.configuration_value).to_bytes(),
+            &[],
+        )
+        .await?;
 
         info!("Device configured (config={})", config_header.configuration_value);
 
         // Channel is released on drop.
         drop(ch);
 
-        Ok((dev_desc, addr, n))
+        Ok((enum_info, n))
     }
 }

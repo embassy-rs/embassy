@@ -565,7 +565,7 @@ impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D,
 impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<'d, I, D, T> {
     async fn control_in(
         &mut self,
-        setup: &embassy_usb_driver::host::SetupPacket,
+        setup: &[u8; 8],
         buf: &mut [u8],
     ) -> Result<usize, ChannelError>
     where
@@ -579,7 +579,7 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         epr_val.set_setup(true);
         epr0.write_value(epr_val);
 
-        self.write(setup.as_bytes(), false).await?;
+        self.write(setup, false).await?;
 
         // data stage
         let count = self.read(buf).await?;
@@ -595,7 +595,7 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
 
     async fn control_out(
         &mut self,
-        setup: &embassy_usb_driver::host::SetupPacket,
+        setup: &[u8; 8],
         buf: &[u8],
     ) -> Result<(), ChannelError>
     where
@@ -608,7 +608,7 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         let mut epr_val = invariant(epr0.read());
         epr_val.set_setup(true);
         epr0.write_value(epr_val);
-        self.write(setup.as_bytes(), false).await?;
+        self.write(setup, false).await?;
 
         if buf.is_empty() {
             // do nothing
@@ -622,6 +622,31 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
 
         Ok(())
     }
+
+    fn retarget_channel(
+        &mut self,
+        addr: u8,
+        endpoint: &embassy_usb_driver::EndpointInfo,
+        _split: Option<embassy_usb_driver::host::SplitInfo>,
+    ) -> Result<(), embassy_usb_driver::host::HostError> {
+        trace!(
+            "retarget_channel: addr: {:?} ep_type: {:?} index: {}",
+            addr, endpoint.ep_type, self.index
+        );
+        let eptype = endpoint.ep_type;
+        let index = self.index;
+
+        // configure channel register
+        let epr_reg = I::regs().epr(index);
+        let mut epr = invariant(epr_reg.read());
+        epr.set_devaddr(addr);
+        epr.set_ep_type(convert_type(eptype));
+        epr.set_ea(index as _);
+        epr_reg.write_value(epr);
+
+        Ok(())
+    }
+
 
     async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError>
     where
@@ -637,10 +662,7 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         self.write(buf, ensure_transaction_end).await
     }
 
-    fn set_timeout(&mut self, _: TimeoutConfig)
-    where
-        T: channel::IsControl,
-    {
+    fn set_timeout(&mut self, _: TimeoutConfig) {
         //TODO: Implement.
     }
 }
@@ -663,7 +685,7 @@ impl<'d, I: Instance> UsbHostDriver for UsbHost<'d, I> {
         &self,
         addr: u8,
         endpoint: &embassy_usb_driver::EndpointInfo,
-        _pre: bool,
+        split: Option<embassy_usb_driver::host::SplitInfo>,
     ) -> Result<Self::Channel<T, D>, embassy_usb_driver::host::HostError> {
         let new_index = if T::ep_type() == EndpointType::Control {
             // Only a single control channel is available
@@ -720,13 +742,16 @@ impl<'d, I: Instance> UsbHostDriver for UsbHost<'d, I> {
         epr.set_ea(new_index as _);
         epr_reg.write_value(epr);
 
-        Ok(Channel::new(
+        let mut channel = Channel::<I, D, T>::new(
             new_index as usize,
             buffer_in,
             buffer_out,
             endpoint.max_packet_size,
             endpoint.max_packet_size,
-        ))
+        );
+
+        channel.retarget_channel(addr, endpoint, split)?;
+        Ok(channel)
     }
 
     async fn bus_reset(&self) {

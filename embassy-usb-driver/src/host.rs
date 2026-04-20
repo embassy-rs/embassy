@@ -4,15 +4,76 @@ use core::time::Duration;
 
 use crate::{EndpointInfo, EndpointType, Speed};
 
-/// Errors returned by [`ChannelOut::write`] and [`ChannelIn::read`]
+/// Speed of a low- or full-speed device reached through split transactions
+/// (USB 2.0 §11.14) or a `PRE` prefix (USB 1.1 §11.8.6).
+///
+/// High-speed devices are not valid split targets; split metadata only applies
+/// to devices operating at low or full speed behind a hub.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum SplitSpeed {
+    /// 1.5 Mbit/s
+    Low,
+    /// 12 Mbit/s
+    Full,
+}
+
+/// Per-channel information necessary to encode a split-transaction token
+/// (USB 2.0 §11.14) or a legacy full-speed `PRE` packet (USB 1.1 §11.8.6).
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct SplitInfo {
+    hub_addr: u8,
+    port: u8,
+    device_speed: SplitSpeed,
+}
+
+impl SplitInfo {
+    /// Create a new [`SplitInfo`].
+    ///
+    /// `hub_addr` is the USB address of the hub that owns the Transaction
+    /// Translator; `port` is the 1-based port number on that hub where the
+    /// target device is attached; `device_speed` is the speed of that target
+    /// device ([`SplitSpeed::Low`] or [`SplitSpeed::Full`] only).
+    pub const fn new(hub_addr: u8, port: u8, device_speed: SplitSpeed) -> Self {
+        Self {
+            hub_addr,
+            port,
+            device_speed,
+        }
+    }
+
+    /// USB address of the hub that owns the Transaction Translator.
+    pub const fn hub_addr(self) -> u8 {
+        self.hub_addr
+    }
+
+    /// 1-based port number on the hub where the target device is attached.
+    pub const fn port(self) -> u8 {
+        self.port
+    }
+
+    /// Speed of the split target device (low or full only).
+    pub const fn device_speed(self) -> SplitSpeed {
+        self.device_speed
+    }
+}
+
+/// Errors returned by [`UsbChannel`] operations.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ChannelError {
     /// The packet is too long to fit in the buffer.
     BufferOverflow,
 
-    /// Response from device/bus was not interpretable (Crc, Babble)
+    /// CRC or other hardware-level framing error.
     BadResponse,
+
+    /// The device sent more data than expected (babble).
+    Babble,
+
+    /// Data toggle sequence mismatch detected.
+    DataToggleError,
 
     /// Transaction was canceled
     Canceled,
@@ -25,88 +86,6 @@ pub enum ChannelError {
 
     /// Device disconnected
     Disconnected,
-}
-
-macro_rules! bitflags {
-    ($($tt:tt)*) => {
-        #[cfg(feature = "defmt")]
-        defmt::bitflags! { $($tt)* }
-        #[cfg(not(feature = "defmt"))]
-        bitflags::bitflags! { $($tt)* }
-    };
-}
-
-bitflags! {
-    #[cfg_attr(not(feature = "defmt"), derive(Copy, Clone, Eq, PartialEq, Debug))]
-    /// RequestType bitfields for the setup packet.
-    ///
-    /// This type encodes three separate multi-bit fields packed into a single byte
-    /// (USB 2.0 spec Table 9-2):
-    /// - **Recipient** (bits 0–4): `RECIPIENT_DEVICE`, `RECIPIENT_INTERFACE`, `RECIPIENT_ENDPOINT`, `RECIPIENT_OTHER`
-    /// - **Type** (bits 5–6): `TYPE_STANDARD`, `TYPE_CLASS`, `TYPE_VENDOR`, `TYPE_RESERVED`
-    /// - **Direction** (bit 7): `OUT`, `IN`
-    ///
-    /// Combine exactly one value from each group with `|`. Do **not** OR values
-    /// within the same group (e.g. `RECIPIENT_INTERFACE | RECIPIENT_ENDPOINT` is invalid).
-    pub struct RequestType: u8 {
-        // Recipient
-        /// The request is intended for the entire device.
-        const RECIPIENT_DEVICE    = 0;
-        /// The request is intended for an interface.
-        const RECIPIENT_INTERFACE = 1;
-        /// The request is intended for an endpoint.
-        const RECIPIENT_ENDPOINT  = 2;
-        /// The recipient of the request is unspecified.
-        const RECIPIENT_OTHER     = 3;
-
-        // Type
-        /// The request is a standard USB request.
-        const TYPE_STANDARD = 0 << 5;
-        /// The request is a class-specific request.
-        const TYPE_CLASS    = 1 << 5;
-        /// The request is a vendor-specific request.
-        const TYPE_VENDOR   = 2 << 5;
-        /// Reserved.
-        const TYPE_RESERVED = 3 << 5;
-
-        // Direction
-        /// The request will send data to the device.
-        const OUT = 0 << 7;
-        /// The request expects to receive data from the device.
-        const IN  = 1 << 7;
-    }
-}
-
-/// USB Control Setup Packet
-#[repr(C)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub struct SetupPacket {
-    /// Request characteristics: direction, type, recipient.
-    /// See RequestType type for details.
-    /// Called bmRequestType in USB spec (Table 9-2).
-    pub request_type: RequestType,
-    /// Request code.
-    /// See Table 9-3 of USB spec for standard ones.
-    /// Called bRequest in USB spec (Table 9-2).
-    pub request: u8,
-    /// Use depending on request field.
-    /// Called wValue in USB spec (Table 9-2).
-    pub value: u16,
-    /// Use depending on request field.
-    /// Called wIndex in USB spec (Table 9-2).
-    pub index: u16,
-    /// Number of bytes to transfer in data stage if there is one.
-    /// Called wLength in USB spec (Table 9-2).
-    pub length: u16,
-}
-
-impl SetupPacket {
-    /// Get a reference to the underlying bytes of the setup packet.
-    pub fn as_bytes(&self) -> &[u8] {
-        // Safe because we know that the size of SetupPacket is 8 bytes.
-        unsafe { core::slice::from_raw_parts(self as *const _ as *const u8, core::mem::size_of::<Self>()) }
-    }
 }
 
 /// Device has been attached/detached
@@ -161,22 +140,26 @@ pub trait UsbHostDriver: Sized {
     /// Issue a bus reset.
     async fn bus_reset(&self);
 
-    /// Allocate channel for communication with device
+    /// Allocate channel for communication with device.
     ///
-    /// This can be a scarce resource, for one-off requests please scope the channel so it's dropped after completion
+    /// This can be a scarce resource, for one-off requests please scope the channel so it's dropped after completion.
     ///
-    /// `pre` - device is low-speed and communication is going through hub, so send PRE packet
+    /// `split` - when `Some`, every transfer on this channel is routed as a
+    /// split transaction through the specified hub's TT (USB 2.0 §11.14), or
+    /// as a legacy PRE packet on full-speed controllers (USB 1.1 §11.8.6).
+    /// Pass `None` when the device is reached directly (host at the same
+    /// speed as the device, or the device is high-speed).
     fn alloc_channel<T: channel::Type, D: channel::Direction>(
         &self,
         addr: u8,
         endpoint: &EndpointInfo,
-        pre: bool,
+        split: Option<SplitInfo>,
     ) -> Result<Self::Channel<T, D>, HostError>;
 }
 
 /// Type-level channel markers for endpoint type and direction.
 ///
-/// These structs and traits are used as generic parameters on [`UsbChannel`](super::UsbChannel)
+/// These structs and traits are used as generic parameters on [`UsbChannel`]
 /// to statically enforce correct endpoint type and direction at compile time.
 ///
 /// All marker traits are sealed — they cannot be implemented outside this crate.
@@ -322,28 +305,43 @@ impl Default for TimeoutConfig {
 ///
 /// ### NAK handling
 /// Implementations must retry on NAK if appropriate for the transfer type.
-/// - For **control** and **bulk** transfers, the implementation should retry indefinitely or until a timeout occurs.
+/// - For **control** transfers, the implementation should retry until the configurable timeout expires (see [`UsbChannel::set_timeout`]).
+/// - For **bulk** transfers, the implementation must retry indefinitely. Use `embassy_time::with_timeout` around the future to impose a deadline; dropping the future must abort the transfer.
 /// - For **interrupt** transfers, a NAK indicates no data is available; the implementation should poll again at the next interval.
+///
+/// ### Data toggle
+/// Implementations are responsible for maintaining the data toggle sequence for bulk and interrupt endpoints.
+/// The toggle is initialized to DATA0 when the channel is allocated and should advance after each successful transfer.
 ///
 /// ### Cancellation
 /// All transfer methods (`control_in`, `control_out`, `request_in`, `request_out`) are asynchronous.
-/// If the returned future is dropped before completion, the implementation should make a best effort
-/// to cancel the transfer on the bus. If the transfer has already started, the implementation must
-/// ensure that the channel state remains consistent for future requests.
+/// If the returned future is dropped before completion, the implementation must abort the in-progress
+/// transfer and leave the channel in a consistent state for future requests.
 pub trait UsbChannel<T: channel::Type, D: channel::Direction> {
     /// Send IN control request.
     ///
     /// Returns the number of bytes received into `buf`.
-    async fn control_in(&mut self, setup: &SetupPacket, buf: &mut [u8]) -> Result<usize, ChannelError>
+    async fn control_in(&mut self, setup: &[u8; 8], buf: &mut [u8]) -> Result<usize, ChannelError>
     where
         T: channel::IsControl,
         D: channel::IsIn;
 
     /// Send OUT control request
-    async fn control_out(&mut self, setup: &SetupPacket, buf: &[u8]) -> Result<(), ChannelError>
+    async fn control_out(&mut self, setup: &[u8; 8], buf: &[u8]) -> Result<(), ChannelError>
     where
         T: channel::IsControl,
         D: channel::IsOut;
+
+    /// Retargets channel to a new endpoint, may error if the underlying driver runs out of resources.
+    ///
+    /// See [`UsbHostDriver::alloc_channel`] for the meaning of `split`.
+    fn retarget_channel(
+        &mut self,
+        addr: u8,
+        endpoint: &EndpointInfo,
+        split: Option<SplitInfo>,
+    ) -> Result<(), HostError>;
+
 
     /// Send IN request of type other from control
     /// For interrupt channels this will return the result of the next successful interrupt poll
@@ -358,7 +356,5 @@ pub trait UsbChannel<T: channel::Type, D: channel::Direction> {
         D: channel::IsOut;
 
     /// Configure the timeouts of this channel.
-    fn set_timeout(&mut self, timeout: TimeoutConfig)
-    where
-        T: channel::IsControl;
+    fn set_timeout(&mut self, timeout: TimeoutConfig);
 }
