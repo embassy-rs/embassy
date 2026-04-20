@@ -10,6 +10,7 @@ use crate::descriptor::{ConfigurationDescriptor, DeviceDescriptor, USBDescriptor
 
 /// Information obtained through preliminary enumeration.
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct EnumerationInfo {
     /// Assigned device address.
     pub device_address: u8,
