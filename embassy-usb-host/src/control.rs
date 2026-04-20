@@ -160,6 +160,20 @@ impl SetupPacket {
         ]
     }
 
+    /// Deserialize a wire format SETUP packet.
+    ///
+    /// Multi-byte fields are interpreted in little-endian order, as required by
+    /// USB 2.0 spec §8.1.
+    pub const fn from_bytes(wire: [u8; 8]) -> Self {
+        Self {
+            request_type: RequestType::from_bits(wire[0]),
+            request: wire[1],
+            value: u16::from_le_bytes([wire[2], wire[3]]),
+            index: u16::from_le_bytes([wire[4], wire[5]]),
+            length: u16::from_le_bytes([wire[6], wire[7]]),
+        }
+    }
+
     /// Build a GET_DESCRIPTOR SETUP packet delivered to the Device recipient.
     ///
     /// `class` selects Standard (`false`) vs Class (`true`) request type.
@@ -480,3 +494,39 @@ pub trait ControlPipeExt<D: pipe::Direction>: UsbPipe<pipe::Control, D> {
 }
 
 impl<D: pipe::Direction, C> ControlPipeExt<D> for C where C: UsbPipe<pipe::Control, D> {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn roundtrip_setup_packet() {
+        let directions = [Direction::In, Direction::Out];
+        let control_types = [ControlType::Standard, ControlType::Class, ControlType::Vendor];
+        let recipients = [
+            Recipient::Device,
+            Recipient::Interface,
+            Recipient::Endpoint,
+            Recipient::Other,
+        ];
+        for direction in directions {
+            for control_type in control_types {
+                for recipient in recipients {
+                    let setup = SetupPacket {
+                        request_type: RequestType {
+                            direction,
+                            control_type,
+                            recipient,
+                        },
+                        request: 0x11,
+                        value: 0x2233,
+                        index: 0x4455,
+                        length: 0x6677,
+                    };
+                    let bytes = setup.to_bytes();
+                    assert!(setup == SetupPacket::from_bytes(bytes));
+                }
+            }
+        }
+    }
+}
