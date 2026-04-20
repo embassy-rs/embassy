@@ -10,6 +10,7 @@ use crate::descriptor::{ConfigurationDescriptor, DeviceDescriptor, USBDescriptor
 
 /// Information obtained through preliminary enumeration.
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct EnumerationInfo {
     /// Assigned device address.
     pub device_address: u8,
@@ -112,7 +113,7 @@ impl EnumerationInfo {
     }
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum HandlerEvent<T> {
     NoChange,
@@ -120,7 +121,7 @@ pub enum HandlerEvent<T> {
     HandlerEvent(T),
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum RegisterError {
     NoSupportedInterface,
