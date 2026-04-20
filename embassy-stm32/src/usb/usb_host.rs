@@ -723,14 +723,6 @@ impl<'d, I: Instance> UsbHostDriver for UsbHost<'d, I> {
             None
         };
 
-        // configure channel register
-        let epr_reg = I::regs().epr(new_index as usize);
-        let mut epr = invariant(epr_reg.read());
-        epr.set_devaddr(addr);
-        epr.set_ep_type(convert_type(endpoint.ep_type));
-        epr.set_ea(new_index as _);
-        epr_reg.write_value(epr);
-
         let mut channel = Channel::<I, D, T>::new(
             new_index as usize,
             buffer_in,
