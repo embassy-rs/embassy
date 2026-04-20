@@ -2,7 +2,7 @@
 //!
 //! This driver can communicate with USB CDC ACM devices (virtual serial ports).
 
-use embassy_usb_driver::host::{ChannelError, UsbChannel, UsbHostDriver, channel};
+use embassy_usb_driver::host::{PipeError, UsbHostDriver, UsbPipe, pipe};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
 
 use crate::control::SetupPacket;
@@ -66,15 +66,15 @@ impl LineCoding {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum CdcAcmError {
     /// Transfer error.
-    Transfer(ChannelError),
+    Transfer(PipeError),
     /// No matching CDC ACM interface found in the device.
     NoInterface,
-    /// Failed to allocate a channel.
-    NoChannel,
+    /// Failed to allocate a pipe.
+    NoPipe,
 }
 
-impl From<ChannelError> for CdcAcmError {
-    fn from(e: ChannelError) -> Self {
+impl From<PipeError> for CdcAcmError {
+    fn from(e: PipeError) -> Self {
         Self::Transfer(e)
     }
 }
@@ -84,7 +84,7 @@ impl core::fmt::Display for CdcAcmError {
         match self {
             Self::Transfer(_e) => write!(f, "Transfer error"),
             Self::NoInterface => write!(f, "No CDC ACM interface found"),
-            Self::NoChannel => write!(f, "No free channel"),
+            Self::NoPipe => write!(f, "No free pipe"),
         }
     }
 }
@@ -95,13 +95,13 @@ impl embedded_io_async::Error for CdcAcmError {
     fn kind(&self) -> embedded_io_async::ErrorKind {
         match self {
             Self::Transfer(e) => match e {
-                ChannelError::Disconnected => embedded_io_async::ErrorKind::NotConnected,
-                ChannelError::BufferOverflow => embedded_io_async::ErrorKind::OutOfMemory,
-                ChannelError::Timeout => embedded_io_async::ErrorKind::TimedOut,
+                PipeError::Disconnected => embedded_io_async::ErrorKind::NotConnected,
+                PipeError::BufferOverflow => embedded_io_async::ErrorKind::OutOfMemory,
+                PipeError::Timeout => embedded_io_async::ErrorKind::TimedOut,
                 _ => embedded_io_async::ErrorKind::Other,
             },
             Self::NoInterface => embedded_io_async::ErrorKind::NotFound,
-            Self::NoChannel => embedded_io_async::ErrorKind::OutOfMemory,
+            Self::NoPipe => embedded_io_async::ErrorKind::OutOfMemory,
         }
     }
 }
@@ -171,9 +171,9 @@ pub fn find_cdc_acm(config_desc: &[u8]) -> Option<CdcAcmInfo> {
 ///
 /// Provides read/write access to a CDC ACM (virtual serial port) USB device.
 pub struct CdcAcmHost<D: UsbHostDriver> {
-    ctrl_ch: D::Channel<channel::Control, channel::InOut>,
-    in_ch: D::Channel<channel::Bulk, channel::In>,
-    out_ch: D::Channel<channel::Bulk, channel::Out>,
+    ctrl_ch: D::Pipe<pipe::Control, pipe::InOut>,
+    in_ch: D::Pipe<pipe::Bulk, pipe::In>,
+    out_ch: D::Pipe<pipe::Bulk, pipe::Out>,
     comm_interface: u8,
 }
 
@@ -209,14 +209,14 @@ impl<D: UsbHostDriver> CdcAcmHost<D> {
         let split = enum_info.split;
 
         let ctrl_ch = driver
-            .alloc_channel::<channel::Control, channel::InOut>(device_address, &ctrl_ep_info, split)
-            .map_err(|_| CdcAcmError::NoChannel)?;
+            .alloc_pipe::<pipe::Control, pipe::InOut>(device_address, &ctrl_ep_info, split)
+            .map_err(|_| CdcAcmError::NoPipe)?;
         let in_ch = driver
-            .alloc_channel::<channel::Bulk, channel::In>(device_address, &in_ep_info, split)
-            .map_err(|_| CdcAcmError::NoChannel)?;
+            .alloc_pipe::<pipe::Bulk, pipe::In>(device_address, &in_ep_info, split)
+            .map_err(|_| CdcAcmError::NoPipe)?;
         let out_ch = driver
-            .alloc_channel::<channel::Bulk, channel::Out>(device_address, &out_ep_info, split)
-            .map_err(|_| CdcAcmError::NoChannel)?;
+            .alloc_pipe::<pipe::Bulk, pipe::Out>(device_address, &out_ep_info, split)
+            .map_err(|_| CdcAcmError::NoPipe)?;
 
         Ok(Self {
             ctrl_ch,

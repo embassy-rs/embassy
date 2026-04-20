@@ -11,7 +11,7 @@ pub mod control;
 pub mod descriptor;
 pub mod handler;
 
-use embassy_usb_driver::host::{ChannelError, DeviceEvent, HostError, UsbChannel, UsbHostDriver, channel};
+use embassy_usb_driver::host::{DeviceEvent, HostError, PipeError, UsbHostDriver, UsbPipe, pipe};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType, Speed};
 
 use crate::control::SetupPacket;
@@ -23,19 +23,19 @@ use crate::handler::EnumerationInfo;
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum EnumerationError {
     /// Transfer failed during enumeration.
-    Transfer(ChannelError),
+    Transfer(PipeError),
     /// Invalid or unexpected descriptor received.
     InvalidDescriptor,
     /// Configuration buffer too small
     ConfigBufferTooSmall(usize),
-    /// No free channel for EP0 or no free device address.
-    NoChannel,
+    /// No free pipe for EP0 or no free device address.
+    NoPipe,
     /// The device did not respond to a control request after retries.
     RequestFailed,
 }
 
-impl From<ChannelError> for EnumerationError {
-    fn from(e: ChannelError) -> Self {
+impl From<PipeError> for EnumerationError {
+    fn from(e: PipeError) -> Self {
         Self::Transfer(e)
     }
 }
@@ -43,10 +43,10 @@ impl From<ChannelError> for EnumerationError {
 impl From<HostError> for EnumerationError {
     fn from(e: HostError) -> Self {
         match e {
-            HostError::ChannelError(e) => Self::Transfer(e),
+            HostError::PipeError(e) => Self::Transfer(e),
             HostError::InvalidDescriptor => Self::InvalidDescriptor,
             HostError::RequestFailed => Self::RequestFailed,
-            _ => Self::NoChannel,
+            _ => Self::NoPipe,
         }
     }
 }
@@ -59,7 +59,7 @@ impl core::fmt::Display for EnumerationError {
             Self::ConfigBufferTooSmall(size) => {
                 write!(f, "Configuration buffer too small: device requires {} bytes", size)
             }
-            Self::NoChannel => write!(f, "No free channel or no free device address"),
+            Self::NoPipe => write!(f, "No free pipe or no free device address"),
             Self::RequestFailed => write!(f, "Device did not respond"),
         }
     }
@@ -151,7 +151,7 @@ impl<D: UsbHostDriver> UsbHost<D> {
         speed: Speed,
         config_buf: &mut [u8],
     ) -> Result<(EnumerationInfo, usize), EnumerationError> {
-        use crate::control::ControlChannelExt;
+        use crate::control::ControlPipeExt;
 
         let ep0_info = EndpointInfo {
             addr: EndpointAddress::from_parts(0, UsbDirection::In),
@@ -162,11 +162,11 @@ impl<D: UsbHostDriver> UsbHost<D> {
 
         let mut ch = self
             .driver
-            .alloc_channel::<channel::Control, channel::InOut>(0, &ep0_info, None)
-            .map_err(|_| EnumerationError::NoChannel)?;
+            .alloc_pipe::<pipe::Control, pipe::InOut>(0, &ep0_info, None)
+            .map_err(|_| EnumerationError::NoPipe)?;
 
-        // Steps 1–3: GET_DESCRIPTOR (partial + full), SET_ADDRESS, retarget channel.
-        let addr = self.alloc_address().ok_or(EnumerationError::NoChannel)?;
+        // Steps 1–3: GET_DESCRIPTOR (partial + full), SET_ADDRESS, retarget pipe.
+        let addr = self.alloc_address().ok_or(EnumerationError::NoPipe)?;
         let enum_info = ch.enumerate_device(speed, addr, None).await?;
         let dev_desc = &enum_info.device_desc;
 
@@ -208,7 +208,7 @@ impl<D: UsbHostDriver> UsbHost<D> {
 
         info!("Device configured (config={})", config_header.configuration_value);
 
-        // Channel is released on drop.
+        // Pipe is released on drop.
         drop(ch);
 
         Ok((enum_info, n))

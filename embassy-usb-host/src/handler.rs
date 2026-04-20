@@ -2,10 +2,10 @@
 #![allow(missing_docs)]
 
 use embassy_usb_driver::Speed;
-use embassy_usb_driver::host::channel::{self, IsIn, IsOut};
-use embassy_usb_driver::host::{HostError, SplitInfo, UsbChannel};
+use embassy_usb_driver::host::pipe::{self, IsIn, IsOut};
+use embassy_usb_driver::host::{HostError, SplitInfo, UsbPipe};
 
-use crate::control::ControlChannelExt;
+use crate::control::ControlPipeExt;
 use crate::descriptor::{ConfigurationDescriptor, DeviceDescriptor, USBDescriptor};
 
 /// Information obtained through preliminary enumeration.
@@ -26,7 +26,7 @@ pub struct EnumerationInfo {
 
 impl EnumerationInfo {
     /// Retrieves the active device configuration, or sets the default if none is active.
-    pub async fn active_config_or_set_default<'a, D: IsIn + IsOut, C: UsbChannel<channel::Control, D>>(
+    pub async fn active_config_or_set_default<'a, D: IsIn + IsOut, C: UsbPipe<pipe::Control, D>>(
         &self,
         channel: &mut C,
         cfg_desc_buf: &'a mut [u8],
@@ -42,7 +42,7 @@ impl EnumerationInfo {
     }
 
     /// Retrieves the active device configuration, or `None` if none is active.
-    pub async fn get_active_configuration<'a, D: IsIn, C: UsbChannel<channel::Control, D>>(
+    pub async fn get_active_configuration<'a, D: IsIn, C: UsbPipe<pipe::Control, D>>(
         &self,
         channel: &mut C,
         cfg_desc_buf: &'a mut [u8],
@@ -80,7 +80,7 @@ impl EnumerationInfo {
     }
 
     /// Retrieve a device configuration by index.
-    pub async fn get_configuration<'a, D: channel::IsIn, C: UsbChannel<channel::Control, D>>(
+    pub async fn get_configuration<'a, D: pipe::IsIn, C: UsbPipe<pipe::Control, D>>(
         &self,
         index: u8,
         channel: &mut C,

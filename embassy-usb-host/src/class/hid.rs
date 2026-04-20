@@ -2,7 +2,7 @@
 //!
 //! This driver can communicate with USB HID devices (keyboards, mice, gamepads, etc.).
 
-use embassy_usb_driver::host::{ChannelError, UsbChannel, UsbHostDriver, channel};
+use embassy_usb_driver::host::{PipeError, UsbHostDriver, UsbPipe, pipe};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
 
 pub use super::hid_report::{ReportDescriptor, ReportField};
@@ -201,15 +201,15 @@ pub fn find_hid(config_desc: &[u8]) -> Option<HidInfo> {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum HidError {
     /// Transfer error.
-    Transfer(ChannelError),
+    Transfer(PipeError),
     /// No matching HID interface found in the device.
     NoInterface,
-    /// Failed to allocate a channel.
-    NoChannel,
+    /// Failed to allocate a pipe.
+    NoPipe,
 }
 
-impl From<ChannelError> for HidError {
-    fn from(e: ChannelError) -> Self {
+impl From<PipeError> for HidError {
+    fn from(e: PipeError) -> Self {
         Self::Transfer(e)
     }
 }
@@ -219,7 +219,7 @@ impl core::fmt::Display for HidError {
         match self {
             Self::Transfer(_e) => write!(f, "Transfer error"),
             Self::NoInterface => write!(f, "No HID interface found"),
-            Self::NoChannel => write!(f, "No free channel"),
+            Self::NoPipe => write!(f, "No free pipe"),
         }
     }
 }
@@ -230,8 +230,8 @@ impl core::error::Error for HidError {}
 ///
 /// Provides report reading and optional class request access to a USB HID device.
 pub struct HidHost<D: UsbHostDriver> {
-    ctrl_ch: D::Channel<channel::Control, channel::InOut>,
-    in_ch: D::Channel<channel::Interrupt, channel::In>,
+    ctrl_ch: D::Pipe<pipe::Control, pipe::InOut>,
+    in_ch: D::Pipe<pipe::Interrupt, pipe::In>,
     interface: u8,
     report_descriptor_len: u16,
 }
@@ -262,11 +262,11 @@ impl<D: UsbHostDriver> HidHost<D> {
         let split = enum_info.split;
 
         let ctrl_ch = driver
-            .alloc_channel::<channel::Control, channel::InOut>(device_address, &ctrl_ep_info, split)
-            .map_err(|_| HidError::NoChannel)?;
+            .alloc_pipe::<pipe::Control, pipe::InOut>(device_address, &ctrl_ep_info, split)
+            .map_err(|_| HidError::NoPipe)?;
         let in_ch = driver
-            .alloc_channel::<channel::Interrupt, channel::In>(device_address, &in_ep_info, split)
-            .map_err(|_| HidError::NoChannel)?;
+            .alloc_pipe::<pipe::Interrupt, pipe::In>(device_address, &in_ep_info, split)
+            .map_err(|_| HidError::NoPipe)?;
 
         Ok(Self {
             ctrl_ch,
@@ -310,7 +310,7 @@ impl<D: UsbHostDriver> HidHost<D> {
         let setup = SetupPacket::class_interface_out(SET_IDLE, value, self.interface as u16, 0);
         match self.ctrl_ch.control_out(&setup.to_bytes(), &[]).await {
             Ok(_) => Ok(()),
-            Err(ChannelError::Stall) => Ok(()),
+            Err(PipeError::Stall) => Ok(()),
             Err(e) => Err(HidError::Transfer(e)),
         }
     }

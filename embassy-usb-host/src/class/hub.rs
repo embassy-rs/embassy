@@ -2,24 +2,24 @@
 #![allow(missing_docs)]
 //!
 //! Handles the deferred bus reset and port state/speed detection required for hub enumeration.
-//! Requires the USB driver to support Interrupt IN channels.
+//! Requires the USB driver to support Interrupt IN pipes.
 
 use core::num::NonZeroU8;
 
 use bitflags::bitflags;
 use embassy_time::Timer;
 use embassy_usb::control::Request;
-use embassy_usb_driver::host::{HostError, SplitInfo, SplitSpeed, UsbChannel, UsbHostDriver, channel};
+use embassy_usb_driver::host::{HostError, SplitInfo, SplitSpeed, UsbHostDriver, UsbPipe, pipe};
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
 use zerocopy::{FromBytes, Immutable, KnownLayout};
 
-use crate::control::{ControlChannelExt, ControlType, Recipient, RequestType, SetupPacket};
+use crate::control::{ControlPipeExt, ControlType, Recipient, RequestType, SetupPacket};
 use crate::descriptor::{DEFAULT_MAX_DESCRIPTOR_SIZE, InterfaceDescriptor, USBDescriptor};
 use crate::handler::{EnumerationInfo, HandlerEvent, RegisterError};
 
 pub struct HubHandler<H: UsbHostDriver, const MAX_PORTS: usize> {
-    interrupt_channel: H::Channel<channel::Interrupt, channel::In>,
-    control_channel: H::Channel<channel::Control, channel::InOut>,
+    interrupt_channel: H::Pipe<pipe::Interrupt, pipe::In>,
+    control_channel: H::Pipe<pipe::Control, pipe::InOut>,
     desc: HubDescriptor,
     device_address: u8,
     device_lut: [Option<NonZeroU8>; MAX_PORTS],
@@ -40,7 +40,7 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
             .split
             .map(|s| s.device_speed() == SplitSpeed::Low)
             .unwrap_or(false);
-        let mut control_channel = bus.alloc_channel::<channel::Control, channel::InOut>(
+        let mut control_channel = bus.alloc_pipe::<pipe::Control, pipe::InOut>(
             enum_info.device_address,
             &EndpointInfo {
                 addr: 0.into(),
@@ -79,7 +79,7 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
             .find(|v| v.ep_type() == EndpointType::Interrupt && v.ep_dir() == Direction::In)
             .ok_or(RegisterError::NoSupportedInterface)?;
 
-        let interrupt_channel = bus.alloc_channel::<channel::Interrupt, channel::In>(
+        let interrupt_channel = bus.alloc_pipe::<pipe::Interrupt, pipe::In>(
             enum_info.device_address,
             &interrupt_ep.into(),
             enum_info.split,
