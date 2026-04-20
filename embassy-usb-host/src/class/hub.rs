@@ -16,6 +16,7 @@ use zerocopy::{FromBytes, Immutable, KnownLayout};
 use crate::control::{ControlPipeExt, ControlType, Recipient, RequestType, SetupPacket};
 use crate::descriptor::{DEFAULT_MAX_DESCRIPTOR_SIZE, InterfaceDescriptor, USBDescriptor};
 use crate::handler::{BusRoute, EnumerationInfo, HandlerEvent, RegisterError};
+use crate::{EnumerationError, UsbHost};
 
 pub struct HubHandler<H: UsbHostDriver, const MAX_PORTS: usize> {
     interrupt_channel: H::Pipe<pipe::Interrupt, pipe::In>,
@@ -167,61 +168,6 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
         }
     }
 
-    /// Reset the given downstream port and derive the [`BusRoute`] that
-    /// should be used to enumerate the device attached to it.
-    ///
-    /// `port` is the 0-based port index as reported by
-    /// [`HubEvent::DeviceDetected`]. `speed` is the device speed reported in
-    /// that same event.
-    ///
-    /// On return, the attached device is in the Default state (address 0,
-    /// port Enabled). The caller must invoke [`crate::UsbHost::enumerate`]
-    /// with the returned route promptly (within ~10 ms, USB 2.0 §9.2.6.3)
-    /// before the device's Default-state timer expires.
-    ///
-    /// The returned route is computed per USB 2.0 §11.14:
-    ///
-    /// - If this hub is itself reached through a split transaction (e.g. a
-    ///   full-speed hub behind a high-speed hub's Transaction Translator),
-    ///   the child inherits the parent's TT address and port, with the
-    ///   `device_speed` updated to match the attached device. This is
-    ///   correct because the topmost high-speed hub in the chain owns the TT
-    ///   that services the entire subtree below it.
-    /// - Otherwise, if this hub introduces a speed mismatch with the child
-    ///   (HS hub with an LS/FS child, or FS hub with an LS child, where the
-    ///   latter uses the legacy `PRE` prefix on full-speed buses), a new
-    ///   [`SplitInfo`] is constructed pointing at this hub.
-    /// - Otherwise the child is reached directly at its native speed.
-    pub async fn reset_port(&mut self, port: u8, speed: Speed) -> Result<BusRoute, HostError> {
-        self.port_feature(true, PortFeature::Reset, port, 0).await?;
-        // USB 2.0 §7.1.7.5: TDRSTR ≥ 10 ms. Match the 50 ms margin used in similar drivers.
-        Timer::after_millis(50).await;
-        self.port_feature(false, PortFeature::ChangeReset, port, 0).await?;
-
-        let route = match self.route.split() {
-            Some(parent_split) => {
-                let ss = match speed {
-                    Speed::Low => SplitSpeed::Low,
-                    Speed::Full => SplitSpeed::Full,
-                    Speed::High => return Err(HostError::Other("high-speed device behind non-HS hub")),
-                };
-                BusRoute::Translated(SplitInfo::new(parent_split.hub_addr(), parent_split.port(), ss))
-            }
-            None => {
-                let split_speed = match (speed, self.route.device_speed()) {
-                    (Speed::Low, Speed::Full | Speed::High) => Some(SplitSpeed::Low),
-                    (Speed::Full, Speed::High) => Some(SplitSpeed::Full),
-                    _ => None,
-                };
-                match split_speed {
-                    Some(ss) => BusRoute::Translated(SplitInfo::new(self.device_address, port + 1, ss)),
-                    None => BusRoute::Direct(speed),
-                }
-            }
-        };
-        Ok(route)
-    }
-
     #[allow(dead_code)]
     async fn hub_feature(&mut self, set: bool, feature: HubFeature) -> Result<(), HostError> {
         let setup = SetupPacket {
@@ -261,6 +207,54 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
             HubStatus::from_bits_truncate(u16::from_le_bytes(buf[..2].try_into().unwrap())),
             HubStatusChange::from_bits_truncate(u16::from_le_bytes(buf[2..].try_into().unwrap())),
         ))
+    }
+
+    /// Reset a port and enumerate the device attached to it.
+    pub async fn enumerate_port(
+        &mut self,
+        bus: &mut UsbHost<H>,
+        config_buffer: &mut [u8],
+        port: u8,
+        speed: Speed,
+    ) -> Result<(EnumerationInfo, usize), EnumerationError> {
+        self.port_feature(true, PortFeature::Reset, port, 0).await?;
+        // USB 2.0 §7.1.7.5: TDRSTR ≥ 10 ms. Match the 50 ms margin used in similar drivers.
+        Timer::after_millis(50).await;
+        self.port_feature(false, PortFeature::ChangeReset, port, 0).await?;
+
+        let route = match self.route.split() {
+            Some(parent_split) => match speed {
+                Speed::Low => BusRoute::Translated(SplitInfo::new(
+                    parent_split.hub_addr(),
+                    parent_split.port(),
+                    SplitSpeed::Low,
+                )),
+                Speed::Full => BusRoute::Translated(SplitInfo::new(
+                    parent_split.hub_addr(),
+                    parent_split.port(),
+                    SplitSpeed::Full,
+                )),
+                Speed::High => BusRoute::Direct(speed),
+            },
+            None => {
+                let split_speed = match (speed, self.route.device_speed()) {
+                    (Speed::Low, Speed::Full | Speed::High) => Some(SplitSpeed::Low),
+                    (Speed::Full, Speed::High) => Some(SplitSpeed::Full),
+                    _ => None,
+                };
+                match split_speed {
+                    Some(ss) => BusRoute::Translated(SplitInfo::new(self.device_address, port + 1, ss)),
+                    None => BusRoute::Direct(speed),
+                }
+            }
+        };
+
+        let (info, config_len) = bus.enumerate(route, config_buffer).await?;
+
+        // Store the device address in the LUT for later retrieval on disconnect.
+        self.device_lut[port as usize] = NonZeroU8::new(info.device_address);
+
+        Ok((info, config_len))
     }
 
     async fn port_feature(&mut self, set: bool, feature: PortFeature, port: u8, selector: u8) -> Result<(), HostError> {
