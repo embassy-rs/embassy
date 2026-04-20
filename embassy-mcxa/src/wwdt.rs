@@ -241,23 +241,21 @@ impl Info {
 unsafe impl Sync for Info {}
 
 macro_rules! impl_instance {
-    ($($n:literal);*) => {
-        $(
-            paste!{
-                impl SealedInstance for crate::peripherals::[<WWDT $n>] {
-                    fn info() -> &'static Info {
-                        static INFO: Info = Info {
-                            regs: pac::[<WWDT $n>],
-                        };
-                        &INFO
-                    }
-                }
-
-                impl Instance for crate::peripherals::[<WWDT $n>] {
-                    type Interrupt = crate::interrupt::typelevel::[<WWDT $n>];
+    ($n:literal) => {
+        paste! {
+            impl SealedInstance for crate::peripherals::[<WWDT $n>] {
+                fn info() -> &'static Info {
+                    static INFO: Info = Info {
+                        regs: pac::[<WWDT $n>],
+                    };
+                    &INFO
                 }
             }
-        )*
+
+            impl Instance for crate::peripherals::[<WWDT $n>] {
+                type Interrupt = crate::interrupt::typelevel::[<WWDT $n>];
+            }
+        }
     };
 }
 

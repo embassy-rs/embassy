@@ -95,29 +95,31 @@ trait SealedInstance {
 }
 
 macro_rules! impl_instance {
-    ($($n:expr),*) => {
-        $(
-            paste!{
-                impl SealedInstance for crate::peripherals::[<GPIO $n>] {
-                    fn info() -> &'static Info {
-                        static INFO: Info =  Info {
-                            gpio: crate::pac::[<GPIO $n>],
-                            port_index: $n,
-                        };
-                        &INFO
-                    }
-                const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_gpio $n _wake>];
+    ($n:expr) => {
+        paste! {
+            impl SealedInstance for crate::peripherals::[<GPIO $n>] {
+                fn info() -> &'static Info {
+                    static INFO: Info =  Info {
+                        gpio: crate::pac::[<GPIO $n>],
+                        port_index: $n,
+                    };
+                    &INFO
                 }
-
-                impl Instance for crate::peripherals::[<GPIO $n>] {
-                    type Interrupt = crate::interrupt::typelevel::[<GPIO $n>];
-                }
+            const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_gpio $n _wake>];
             }
-        )*
+
+            impl Instance for crate::peripherals::[<GPIO $n>] {
+                type Interrupt = crate::interrupt::typelevel::[<GPIO $n>];
+            }
+        }
     };
 }
 
-impl_instance!(0, 1, 2, 3, 4);
+impl_instance!(0);
+impl_instance!(1);
+impl_instance!(2);
+impl_instance!(3);
+impl_instance!(4);
 #[cfg(feature = "mcxa5xx")]
 impl_instance!(5);
 

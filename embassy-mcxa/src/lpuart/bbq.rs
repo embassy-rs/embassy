@@ -1404,30 +1404,32 @@ pub trait BbqInstance: Instance {
 }
 
 macro_rules! impl_instance {
-    ($($n:expr);* $(;)?) => {
-        $(
-            paste!{
-                #[allow(private_interfaces)]
-                impl BbqInstance for crate::peripherals::[<LPUART $n>] {
-                    fn bbq_state() -> &'static BbqState {
-                        static STATE: BbqState = BbqState::new();
-                        &STATE
-                    }
+    ($n:expr) => {
+        paste! {
+            #[allow(private_interfaces)]
+            impl BbqInstance for crate::peripherals::[<LPUART $n>] {
+                fn bbq_state() -> &'static BbqState {
+                    static STATE: BbqState = BbqState::new();
+                    &STATE
+                }
 
-                    fn dma_rx_complete_cb() {
-                        let state = Self::bbq_state();
-                        // Mark the DMA as complete
-                        state.state.fetch_or(STATE_RXDMA_COMPLETE, Ordering::AcqRel);
-                        // Pend the UART interrupt to handle the switchover
-                        Self::Interrupt::pend();
-                    }
+                fn dma_rx_complete_cb() {
+                    let state = Self::bbq_state();
+                    // Mark the DMA as complete
+                    state.state.fetch_or(STATE_RXDMA_COMPLETE, Ordering::AcqRel);
+                    // Pend the UART interrupt to handle the switchover
+                    Self::Interrupt::pend();
                 }
             }
-        )*
+        }
     };
 }
 
-impl_instance!(0; 1; 2; 3; 4);
+impl_instance!(0);
+impl_instance!(1);
+impl_instance!(2);
+impl_instance!(3);
+impl_instance!(4);
 
 #[cfg(feature = "mcxa5xx")]
 impl_instance!(5);

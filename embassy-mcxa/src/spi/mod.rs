@@ -55,38 +55,43 @@ impl Info {
 unsafe impl Sync for Info {}
 
 macro_rules! impl_instance {
-    ($($n:expr),*) => {
-        $(
-            paste!{
-                impl SealedInstance for crate::peripherals::[<LPSPI $n>] {
-                    fn info() -> &'static Info {
-                        static INFO: Info = Info {
-                            regs: pac::[<LPSPI $n>],
-                            wait_cell: WaitCell::new(),
-                        };
-                        &INFO
-                    }
-
-                    const CLOCK_INSTANCE: crate::clocks::periph_helpers::LpspiInstance
-                        = crate::clocks::periph_helpers::LpspiInstance::[<Lpspi $n>];
-                    const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_spi $n>];
-                    const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_spi $n _wake>];
-                    const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpspi $n Tx>];
-                    const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpspi $n Rx>];
+    ($n:expr) => {
+        paste! {
+            impl SealedInstance for crate::peripherals::[<LPSPI $n>] {
+                fn info() -> &'static Info {
+                    static INFO: Info = Info {
+                        regs: pac::[<LPSPI $n>],
+                        wait_cell: WaitCell::new(),
+                    };
+                    &INFO
                 }
 
-                impl Instance for crate::peripherals::[<LPSPI $n>] {
-                    type Interrupt = crate::interrupt::typelevel::[<LPSPI $n>];
-                }
+                const CLOCK_INSTANCE: crate::clocks::periph_helpers::LpspiInstance
+                    = crate::clocks::periph_helpers::LpspiInstance::[<Lpspi $n>];
+                const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_spi $n>];
+                const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_spi $n _wake>];
+                const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpspi $n Tx>];
+                const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpspi $n Rx>];
             }
-        )*
+
+            impl Instance for crate::peripherals::[<LPSPI $n>] {
+                type Interrupt = crate::interrupt::typelevel::[<LPSPI $n>];
+            }
+        }
     };
 }
 
-impl_instance!(0, 1);
+impl_instance!(0);
+impl_instance!(1);
 
 #[cfg(feature = "mcxa5xx")]
-impl_instance!(2, 3, 4, 5);
+impl_instance!(2);
+#[cfg(feature = "mcxa5xx")]
+impl_instance!(3);
+#[cfg(feature = "mcxa5xx")]
+impl_instance!(4);
+#[cfg(feature = "mcxa5xx")]
+impl_instance!(5);
 
 /// MOSI or data pin 0 during parallel data transfers pin trait.
 #[allow(private_bounds)]

@@ -862,31 +862,30 @@ pub trait Instance: SealedInstance + PeripheralType {
 }
 
 macro_rules! impl_instance {
-    ($($n:expr),*) => {
-        $(
-            paste!{
-                impl SealedInstance for crate::peripherals::[<ADC $n>] {
-                    fn info() -> &'static Info {
-                        static INFO: Info =
-                        Info {
-                            regs: pac::[<ADC $n>],
-                            wait_cell: WaitCell::new(),
-                        };
-                        &INFO
-                    }
-
-                    const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_adc $n>];
+    ($n:expr) => {
+        paste! {
+            impl SealedInstance for crate::peripherals::[<ADC $n>] {
+                fn info() -> &'static Info {
+                    static INFO: Info =
+                    Info {
+                        regs: pac::[<ADC $n>],
+                        wait_cell: WaitCell::new(),
+                    };
+                    &INFO
                 }
 
-                impl Instance for crate::peripherals::[<ADC $n>] {
-                    type Interrupt = crate::interrupt::typelevel::[<ADC $n>];
-                }
+                const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_adc $n>];
             }
-        )*
+
+            impl Instance for crate::peripherals::[<ADC $n>] {
+                type Interrupt = crate::interrupt::typelevel::[<ADC $n>];
+            }
+        }
     };
 }
 
-impl_instance!(0, 1);
+impl_instance!(0);
+impl_instance!(1);
 
 /// Trait implemented by any possible ADC pin
 pub trait AdcPin<T: Instance>: sealed::SealedAdcPin<T> + GpioPin + PeripheralType {

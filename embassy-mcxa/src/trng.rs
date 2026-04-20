@@ -668,27 +668,25 @@ impl Info {
 unsafe impl Sync for Info {}
 
 macro_rules! impl_instance {
-    ($($n:literal),*) => {
-        $(
-            paste!{
-                impl SealedInstance for crate::peripherals::[<TRNG $n>] {
-                    fn info() -> &'static Info {
-                        static INFO: Info = Info {
-                            regs: pac::[<TRNG $n>],
-                            wait_cell: WaitCell::new(),
-                        };
-                        &INFO
-                    }
-
-                    const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_trng $n>];
-                    const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_trng $n _wake>];
+    ($n:literal) => {
+        paste! {
+            impl SealedInstance for crate::peripherals::[<TRNG $n>] {
+                fn info() -> &'static Info {
+                    static INFO: Info = Info {
+                        regs: pac::[<TRNG $n>],
+                        wait_cell: WaitCell::new(),
+                    };
+                    &INFO
                 }
 
-                impl Instance for crate::peripherals::[<TRNG $n>] {
-                    type Interrupt = crate::interrupt::typelevel::[<TRNG $n>];
-                }
+                const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_trng $n>];
+                const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_trng $n _wake>];
             }
-        )*
+
+            impl Instance for crate::peripherals::[<TRNG $n>] {
+                type Interrupt = crate::interrupt::typelevel::[<TRNG $n>];
+            }
+        }
     };
 }
 

@@ -53,36 +53,38 @@ impl Info {
 }
 
 macro_rules! impl_instance {
-    ($($n:literal);*) => {
-        $(
-            paste! {
-                impl SealedInstance for crate::peripherals::[<I3C $n>] {
-                    fn info() -> &'static Info {
-                        static INFO: Info = Info {
-                            regs: pac::[<I3C $n>],
-                            wait_cell: WaitCell::new(),
-                        };
-                        &INFO
-                    }
-
-                    const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<I3C $n Tx>];
-                    const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<I3C $n Rx>];
-                    const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_i3c $n>];
-                    const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_i3c $n _wake>];
+    ($n:literal) => {
+        paste! {
+            impl SealedInstance for crate::peripherals::[<I3C $n>] {
+                fn info() -> &'static Info {
+                    static INFO: Info = Info {
+                        regs: pac::[<I3C $n>],
+                        wait_cell: WaitCell::new(),
+                    };
+                    &INFO
                 }
 
-                impl Instance for crate::peripherals::[<I3C $n>] {
-                    type Interrupt = crate::interrupt::typelevel::[<I3C $n>];
-                }
+                const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<I3C $n Tx>];
+                const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<I3C $n Rx>];
+                const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_i3c $n>];
+                const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_i3c $n _wake>];
             }
-        )*
+
+            impl Instance for crate::peripherals::[<I3C $n>] {
+                type Interrupt = crate::interrupt::typelevel::[<I3C $n>];
+            }
+        }
     };
 }
 
 impl_instance!(0);
 
 #[cfg(feature = "mcxa5xx")]
-impl_instance!(1; 2; 3);
+impl_instance!(1);
+#[cfg(feature = "mcxa5xx")]
+impl_instance!(2);
+#[cfg(feature = "mcxa5xx")]
+impl_instance!(3);
 
 /// SCL pin trait.
 pub trait SclPin<T: Instance>: GpioPin + sealed::Sealed + PeripheralType {

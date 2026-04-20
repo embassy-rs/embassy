@@ -57,35 +57,36 @@ impl Info {
 unsafe impl Sync for Info {}
 
 macro_rules! impl_instance {
-    ($($n:literal),*) => {
-        $(
-            paste!{
-                impl SealedInstance for crate::peripherals::[<LPI2C $n>] {
-                    fn info() -> &'static Info {
-                        static INFO: Info = Info {
-                            regs: pac::[<LPI2C $n>],
-                            wait_cell: WaitCell::new(),
-                        };
-                        &INFO
-                    }
-
-                    const CLOCK_INSTANCE: crate::clocks::periph_helpers::Lpi2cInstance
-                        = crate::clocks::periph_helpers::Lpi2cInstance::[<Lpi2c $n>];
-                    const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_i2c $n>];
-                    const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_i2c $n _wake>];
-                    const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpi2C $n Tx>];
-                    const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpi2C $n Rx>];
+    ($n:literal) => {
+        paste! {
+            impl SealedInstance for crate::peripherals::[<LPI2C $n>] {
+                fn info() -> &'static Info {
+                    static INFO: Info = Info {
+                        regs: pac::[<LPI2C $n>],
+                        wait_cell: WaitCell::new(),
+                    };
+                    &INFO
                 }
 
-                impl Instance for crate::peripherals::[<LPI2C $n>] {
-                    type Interrupt = crate::interrupt::typelevel::[<LPI2C $n>];
-                }
+                const CLOCK_INSTANCE: crate::clocks::periph_helpers::Lpi2cInstance
+                    = crate::clocks::periph_helpers::Lpi2cInstance::[<Lpi2c $n>];
+                const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_i2c $n>];
+                const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_i2c $n _wake>];
+                const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpi2C $n Tx>];
+                const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpi2C $n Rx>];
             }
-        )*
+
+            impl Instance for crate::peripherals::[<LPI2C $n>] {
+                type Interrupt = crate::interrupt::typelevel::[<LPI2C $n>];
+            }
+        }
     };
 }
 
-impl_instance!(0, 1, 2, 3);
+impl_instance!(0);
+impl_instance!(1);
+impl_instance!(2);
+impl_instance!(3);
 
 /// SCL pin trait.
 pub trait SclPin<Instance>: GpioPin + sealed::SealedPin<Instance> + PeripheralType {

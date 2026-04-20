@@ -135,50 +135,45 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
 }
 
 macro_rules! impl_instance {
-    ($($n:expr);* $(;)?) => {
-        $(
-            paste!{
-                impl SealedInstance for crate::peripherals::[<LPUART $n>] {
-                    fn info() -> &'static Info {
-                        static INFO: Info = Info {
-                            regs: pac::[<LPUART $n>],
-                            int_disable: crate::interrupt::typelevel::[<LPUART $n>]::disable,
-                            mrcc_disable: crate::clocks::disable::<crate::peripherals::[<LPUART $n>]>,
-                        };
-                        &INFO
-                    }
-
-                    fn state() -> &'static State {
-                        static STATE: State = State::new();
-                        &STATE
-                    }
-
-                    const CLOCK_INSTANCE: crate::clocks::periph_helpers::LpuartInstance
-                        = crate::clocks::periph_helpers::LpuartInstance::[<Lpuart $n>];
-                    const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpuart $n Tx>];
-                    const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpuart $n Rx>];
-                    const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_lpuart $n>];
-                    const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_lpuart $n _wake>];
+    ($n:expr) => {
+        paste! {
+            impl SealedInstance for crate::peripherals::[<LPUART $n>] {
+                fn info() -> &'static Info {
+                    static INFO: Info = Info {
+                        regs: pac::[<LPUART $n>],
+                        int_disable: crate::interrupt::typelevel::[<LPUART $n>]::disable,
+                        mrcc_disable: crate::clocks::disable::<crate::peripherals::[<LPUART $n>]>,
+                    };
+                    &INFO
                 }
 
-                impl Instance for crate::peripherals::[<LPUART $n>] {
-                    type Interrupt = crate::interrupt::typelevel::[<LPUART $n>];
-
+                fn state() -> &'static State {
+                    static STATE: State = State::new();
+                    &STATE
                 }
+
+                const CLOCK_INSTANCE: crate::clocks::periph_helpers::LpuartInstance
+                    = crate::clocks::periph_helpers::LpuartInstance::[<Lpuart $n>];
+                const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpuart $n Tx>];
+                const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpuart $n Rx>];
+                const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_lpuart $n>];
+                const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_lpuart $n _wake>];
             }
-        )*
+
+            impl Instance for crate::peripherals::[<LPUART $n>] {
+                type Interrupt = crate::interrupt::typelevel::[<LPUART $n>];
+
+            }
+        }
     };
 }
 
-// DMA request sources are now type-safe via associated types.
-// The request source numbers are defined in src/dma.rs:
-// LPUART0: RX=21, TX=22 -> Lpuart0RxRequest, Lpuart0TxRequest
-// LPUART1: RX=23, TX=24 -> Lpuart1RxRequest, Lpuart1TxRequest
-// LPUART2: RX=25, TX=26 -> Lpuart2RxRequest, Lpuart2TxRequest
-// LPUART3: RX=27, TX=28 -> Lpuart3RxRequest, Lpuart3TxRequest
-// LPUART4: RX=29, TX=30 -> Lpuart4RxRequest, Lpuart4TxRequest
-// LPUART5: RX=31, TX=32 -> Lpuart5RxRequest, Lpuart5TxRequest
-impl_instance!(0; 1; 2; 3; 4; 5);
+impl_instance!(0);
+impl_instance!(1);
+impl_instance!(2);
+impl_instance!(3);
+impl_instance!(4);
+impl_instance!(5);
 
 /// Perform software reset on the LPUART peripheral
 fn perform_software_reset(info: &'static Info) {

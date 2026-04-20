@@ -771,21 +771,19 @@ impl Info {
 unsafe impl Sync for Info {}
 
 macro_rules! impl_instance {
-    ($($n:literal),*) => {
-        $(
-            paste!{
-                impl SealedInstance for crate::peripherals::[<CRC $n>] {
-                    fn info() -> &'static Info {
-                        static INFO: Info = Info {
-                            regs: pac::[<CRC $n>],
-                        };
-                        &INFO
-                    }
+    ($n:literal) => {
+        paste! {
+            impl SealedInstance for crate::peripherals::[<CRC $n>] {
+                fn info() -> &'static Info {
+                    static INFO: Info = Info {
+                        regs: pac::[<CRC $n>],
+                    };
+                    &INFO
                 }
-
-                impl Instance for crate::peripherals::[<CRC $n>] {}
             }
-        )*
+
+            impl Instance for crate::peripherals::[<CRC $n>] {}
+        }
     };
 }
 

@@ -147,36 +147,36 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
 }
 
 macro_rules! impl_instance {
-    ($peri:ident, $clock:ident, $perf:ident) => {
-        impl SealedInstance for crate::peripherals::$peri {
-            fn info() -> &'static Info {
-                static INFO: Info = Info {
-                    regs: pac::$peri,
-                    wait_cell: WaitCell::new(),
-                    irq_flags: const { AtomicU8::new(0) },
-                };
-                &INFO
+    ($n:literal) => {
+        paste! {
+            impl SealedInstance for crate::peripherals::[<CTIMER $n>] {
+                fn info() -> &'static Info {
+                    static INFO: Info = Info {
+                        regs: pac::[<CTIMER $n>],
+                        wait_cell: WaitCell::new(),
+                        irq_flags: const { AtomicU8::new(0) },
+                    };
+                    &INFO
+                }
+
+                const CLOCK_INSTANCE: crate::clocks::periph_helpers::CTimerInstance =
+                    crate::clocks::periph_helpers::CTimerInstance::[<CTimer $n>];
+                    const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_ctimer $n>];
+                    const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_ctimer $n _wake>];
             }
 
-            const CLOCK_INSTANCE: crate::clocks::periph_helpers::CTimerInstance =
-                crate::clocks::periph_helpers::CTimerInstance::$clock;
-            paste! {
-                const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_ $perf>];
-                const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_ $perf _wake>];
+            impl Instance for crate::peripherals::[<CTIMER $n>] {
+                type Interrupt = crate::interrupt::typelevel::[<CTIMER $n>];
             }
-        }
-
-        impl Instance for crate::peripherals::$peri {
-            type Interrupt = crate::interrupt::typelevel::$peri;
         }
     };
 }
 
-impl_instance!(CTIMER0, CTimer0, ctimer0);
-impl_instance!(CTIMER1, CTimer1, ctimer1);
-impl_instance!(CTIMER2, CTimer2, ctimer2);
-impl_instance!(CTIMER3, CTimer3, ctimer3);
-impl_instance!(CTIMER4, CTimer4, ctimer4);
+impl_instance!(0);
+impl_instance!(1);
+impl_instance!(2);
+impl_instance!(3);
+impl_instance!(4);
 
 trait SealedCTimerChannel<T: Instance> {
     fn number(&self) -> Channel;
