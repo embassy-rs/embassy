@@ -234,6 +234,12 @@ pub mod pipe {
     pub trait IsInterrupt: sealed::Sealed {}
     impl IsInterrupt for Interrupt {}
 
+    /// Trait bound satisfied only by [`Bulk`] or [`Interrupt`] pipes.
+    #[diagnostic::on_unimplemented(message = "This is not a BULK or INTERRUPT pipe")]
+    pub trait IsBulkOrInterrupt: sealed::Sealed {}
+    impl IsBulkOrInterrupt for Bulk {}
+    impl IsBulkOrInterrupt for Interrupt {}
+
     /// Marker trait for the transfer direction of a pipe.
     pub trait Direction: sealed::Sealed {
         /// Returns `true` if this direction supports IN (device-to-host) transfers.
@@ -381,9 +387,7 @@ pub trait UsbPipe<T: pipe::Type, D: pipe::Direction> {
     ///   affected interfaces must be reset).
     /// - `SET_INTERFACE` succeeds (all non-control endpoints on the
     ///   affected interface must be reset).
-    ///
-    /// This method has no effect on control pipes, where the toggle is
-    /// determined by each transfer's setup/data/status stage and is
-    /// therefore not caller-managed.
-    fn reset_data_toggle(&mut self);
+    fn reset_data_toggle(&mut self)
+    where
+        T: pipe::IsBulkOrInterrupt;
 }
