@@ -1,14 +1,13 @@
-use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::task::Poll;
 
 #[cfg(adc_l0)]
 use stm32_metapac::adc::vals::Ckmode;
+use stm32_metapac::adc::vals::Scandir;
 
 #[cfg(not(adc_l0))]
 use super::Vbat;
 use super::{Temperature, VrefInt, blocking_delay_us};
-use crate::adc::{Adc, AdcChannel, Instance, Resolution, SampleTime};
+use crate::adc::{Adc, AdcRegs, ConversionMode, DefaultInstance, Resolution, SampleTime};
 use crate::interrupt::typelevel::Interrupt;
 use crate::{Peri, interrupt, rcc};
 
@@ -19,11 +18,11 @@ pub const VDDA_CALIB_MV: u32 = 3300;
 pub const VREF_INT: u32 = 1230;
 
 /// Interrupt handler.
-pub struct InterruptHandler<T: Instance> {
+pub struct InterruptHandler<T: DefaultInstance> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+impl<T: DefaultInstance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         let isr = T::regs().isr().read();
         let ier = T::regs().ier().read();
@@ -43,30 +42,161 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 }
 
 #[cfg(not(adc_l0))]
-impl super::SealedSpecialConverter<super::Vbat> for crate::peripherals::ADC1 {
+impl super::ConverterFor<super::Vbat> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 18;
 }
 
-impl super::SealedSpecialConverter<super::VrefInt> for crate::peripherals::ADC1 {
+impl super::ConverterFor<super::VrefInt> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 17;
 }
 
 #[cfg(adc_l0)]
-impl super::SealedSpecialConverter<super::Temperature> for crate::peripherals::ADC1 {
+impl super::ConverterFor<super::Temperature> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 18;
 }
 
 #[cfg(not(adc_l0))]
-impl super::SealedSpecialConverter<super::Temperature> for crate::peripherals::ADC1 {
+impl super::ConverterFor<super::Temperature> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 16;
 }
 
-impl<'d, T: Instance> Adc<'d, T> {
+impl AdcRegs for crate::pac::adc::Adc {
+    fn data(&self) -> *mut u16 {
+        crate::pac::adc::Adc::dr(*self).as_ptr() as *mut u16
+    }
+
+    fn enable(&self) {
+        #[cfg(adc_l0)]
+        if self.cfgr1().read().autoff() {
+            // In AUTOFF mode the ADC wakes automatically when conversion starts,
+            // so waiting for ADRDY here can stall instead of helping.
+            return;
+        }
+
+        // A.7.2 ADC enable sequence code example
+        while self.cr().read().addis() {}
+
+        if !self.cr().read().aden() {
+            if self.isr().read().adrdy() {
+                self.isr().modify(|reg| reg.set_adrdy(true));
+            }
+            self.cr().modify(|reg| reg.set_aden(true));
+            while !self.isr().read().adrdy() {
+                // ES0233, 2.4.3 ADEN bit cannot be set immediately after the ADC calibration
+                // Workaround: keep setting ADEN until ADRDY goes high.
+                self.cr().modify(|reg| reg.set_aden(true));
+            }
+        }
+    }
+
+    fn start(&self) {
+        self.isr().write(|reg| {
+            reg.set_eoc(true);
+            reg.set_eosmp(true);
+        });
+
+        // Begin ADC conversions
+        self.cr().modify(|reg| reg.set_adstart(true));
+    }
+
+    fn stop(&self, _disable: bool) {
+        // Stop conversion
+        while self.cr().read().addis() {}
+
+        // A.7.3 ADC disable code example
+        if self.cr().read().adstart() {
+            self.cr().modify(|reg| reg.set_adstp(true));
+            while self.cr().read().adstp() {}
+        }
+
+        self.cfgr1().modify(|w| w.set_cont(false));
+
+        // Disable AWD interrupt
+        self.ier().modify(|w| w.set_awdie(false));
+
+        // Clear AWD interrupt flag
+        while self.isr().read().awd() {
+            self.isr().modify(|regs| {
+                regs.set_awd(true);
+            })
+        }
+
+        self.cfgr1().modify(|w| w.set_awden(false));
+    }
+
+    fn wait_done(&self) -> bool {
+        self.isr().read().eoc()
+    }
+
+    fn configure_dma(&self, conversion_mode: ConversionMode) {
+        // Clear all interrupts
+        self.isr().modify(|regs| {
+            regs.set_eoc(false);
+            regs.set_eosmp(true);
+            regs.set_ovr(false);
+        });
+
+        self.ier().modify(|w| {
+            // Enable interrupt for end of conversion
+            w.set_eocie(true);
+            // Enable interrupt for overrun
+            w.set_ovrie(true);
+        });
+
+        self.cfgr1().modify(|w| {
+            // Disable discontinuous mode
+            w.set_discen(false);
+            // Enable DMA mode
+            w.set_dmaen(!matches!(conversion_mode, ConversionMode::NoDma));
+            // DMA requests are issues as long as DMA=1 and data are converted.
+            w.set_cont(false);
+        });
+    }
+
+    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
+        let mut is_ordered_up = true;
+        let mut is_ordered_down = true;
+
+        let mut last_channel: u8 = 0;
+        let mut sample_time: Self::SampleTime = SampleTime::Cycles15;
+
+        self.chselr().write(|w| {
+            for (i, ((channel, _), _sample_time)) in sequence.enumerate() {
+                assert!(
+                    sample_time == _sample_time || i == 0,
+                    "F0/L0 only supports one sample time for the sequence."
+                );
+
+                sample_time = _sample_time;
+                is_ordered_up = is_ordered_up && (channel > last_channel || i == 0);
+                is_ordered_down = is_ordered_down && (channel < last_channel || i == 0);
+                last_channel = channel;
+
+                w.set_chsel_x(channel.into(), true);
+            }
+        });
+
+        assert!(
+            is_ordered_up || is_ordered_down,
+            "F0/L0 channels must be passed in order.",
+        );
+
+        self.cfgr1().modify(|w| {
+            w.set_scandir(if is_ordered_up {
+                Scandir::Upward
+            } else {
+                Scandir::Backward
+            })
+        });
+    }
+}
+
+impl<'d, T: DefaultInstance> Adc<'d, T> {
     pub fn new(
         adc: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
-        rcc::enable_and_reset_without_stop::<T>();
+        rcc::enable_and_reset::<T>();
 
         // Delay 1μs when using HSI14 as the ADC clock.
         //
@@ -76,7 +206,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         // set default PCKL/2 on L0s because HSI is disabled in the default clock config
         #[cfg(adc_l0)]
-        T::regs().cfgr2().modify(|reg| reg.set_ckmode(Ckmode::PCLK_DIV2));
+        T::regs().cfgr2().modify(|reg| reg.set_ckmode(Ckmode::PclkDiv2));
 
         // A.7.1 ADC calibration code example
         T::regs().cfgr1().modify(|reg| reg.set_dmaen(false));
@@ -99,7 +229,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         let s = Self { adc };
 
-        s.enable();
+        T::regs().enable();
 
         T::Interrupt::unpend();
         unsafe {
@@ -109,43 +239,23 @@ impl<'d, T: Instance> Adc<'d, T> {
         s
     }
 
-    fn enable(&self) {
-        #[cfg(adc_l0)]
-        if T::regs().cfgr1().read().autoff() {
-            // In AUTOFF mode the ADC wakes automatically when conversion starts,
-            // so waiting for ADRDY here can stall instead of helping.
-            return;
-        }
-
-        // A.7.2 ADC enable sequence code example
-
-        while T::regs().cr().read().addis() {}
-
-        if !T::regs().cr().read().aden() {
-            if T::regs().isr().read().adrdy() {
-                T::regs().isr().modify(|reg| reg.set_adrdy(true));
-            }
-            T::regs().cr().modify(|reg| reg.set_aden(true));
-            while !T::regs().isr().read().adrdy() {
-                // ES0233, 2.4.3 ADEN bit cannot be set immediately after the ADC calibration
-                // Workaround: keep setting ADEN until ADRDY goes high.
-                T::regs().cr().modify(|reg| reg.set_aden(true));
-            }
-        }
-    }
-
     /// Power down the ADC.
     ///
     /// This stops ADC operation and powers down ADC-specific circuitry.
     /// Later reads will enable the ADC again, but internal measurement paths
     /// such as VREFINT or temperature sensing may need to be re-enabled.
     pub fn power_down(&mut self) {
-        self.stop_watchdog();
-        Self::teardown_adc();
+        T::regs().stop(false);
+
+        let r = T::regs();
+        if r.cr().read().aden() {
+            r.cr().modify(|reg| reg.set_addis(true));
+            while r.cr().read().aden() {}
+        }
     }
 
     #[cfg(not(adc_l0))]
-    pub fn enable_vbat(&self) -> Vbat {
+    pub fn enable_vbat(&mut self) -> Vbat {
         // SMP must be ≥ 56 ADC clock cycles when using HSI14.
         //
         // 6.3.20 Vbat monitoring characteristics
@@ -154,7 +264,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         Vbat
     }
 
-    pub fn enable_vref(&self) -> VrefInt {
+    pub fn enable_vref(&mut self) -> VrefInt {
         // Table 28. Embedded internal reference voltage
         // tstart = 10μs
         T::regs().ccr().modify(|reg| reg.set_vrefen(true));
@@ -162,7 +272,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         VrefInt
     }
 
-    pub fn enable_temperature(&self) -> Temperature {
+    pub fn enable_temperature(&mut self) -> Temperature {
         // SMP must be ≥ 56 ADC clock cycles when using HSI14.
         //
         // 6.3.19 Temperature sensor characteristics
@@ -174,12 +284,12 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     #[cfg(adc_l0)]
-    pub fn enable_auto_off(&self) {
+    pub fn enable_auto_off(&mut self) {
         T::regs().cfgr1().modify(|reg| reg.set_autoff(true));
     }
 
     #[cfg(adc_l0)]
-    pub fn disable_auto_off(&self) {
+    pub fn disable_auto_off(&mut self) {
         T::regs().cfgr1().modify(|reg| reg.set_autoff(false));
     }
 
@@ -191,79 +301,5 @@ impl<'d, T: Instance> Adc<'d, T> {
     pub fn set_ckmode(&mut self, ckmode: Ckmode) {
         // set ADC clock mode
         T::regs().cfgr2().modify(|reg| reg.set_ckmode(ckmode));
-    }
-
-    pub async fn read(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) -> u16 {
-        let _scoped_wake_guard = <T as crate::rcc::SealedRccPeripheral>::RCC_INFO.wake_guard();
-        self.enable();
-
-        let ch_num = channel.channel();
-        channel.setup();
-
-        // A.7.5 Single conversion sequence code example - Software trigger
-        T::regs().chselr().write(|reg| reg.set_chsel_x(ch_num as usize, true));
-        T::regs().smpr().modify(|reg| reg.set_smp(sample_time.into()));
-
-        self.convert().await
-    }
-
-    async fn convert(&mut self) -> u16 {
-        T::regs().isr().modify(|reg| {
-            reg.set_eoc(true);
-            reg.set_eosmp(true);
-        });
-
-        T::regs().ier().modify(|w| w.set_eocie(true));
-        T::regs().cr().modify(|reg| reg.set_adstart(true));
-
-        poll_fn(|cx| {
-            T::state().waker.register(cx.waker());
-
-            if T::regs().isr().read().eoc() {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        })
-        .await;
-
-        T::regs().dr().read().data()
-    }
-
-    fn teardown_adc() {
-        // A.7.3 ADC disable code example
-        if T::regs().cr().read().adstart() {
-            T::regs().cr().modify(|reg| reg.set_adstp(true));
-            while T::regs().cr().read().adstp() {}
-        }
-
-        if T::regs().cr().read().aden() {
-            T::regs().cr().modify(|reg| reg.set_addis(true));
-            while T::regs().cr().read().aden() {}
-        }
-
-        T::regs().ccr().modify(|reg| {
-            reg.set_vrefen(false);
-            reg.set_tsen(false);
-            #[cfg(not(adc_l0))]
-            reg.set_vbaten(false);
-        });
-
-        if T::regs().isr().read().adrdy() {
-            T::regs().isr().modify(|reg| reg.set_adrdy(true));
-        }
-
-        #[cfg(adc_l0)]
-        T::regs().cr().modify(|reg| reg.set_advregen(false));
-    }
-}
-
-impl<'d, T: Instance> Drop for Adc<'d, T> {
-    fn drop(&mut self) {
-        self.stop_watchdog();
-        Self::teardown_adc();
-        Self::teardown_awd();
-
-        <T as crate::rcc::SealedRccPeripheral>::RCC_INFO.disable_without_stop();
     }
 }

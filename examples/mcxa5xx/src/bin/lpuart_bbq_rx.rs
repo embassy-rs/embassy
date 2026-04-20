@@ -111,7 +111,7 @@ async fn main(_spawner: Spawner) {
     let rx_buf = RX_BUF.take();
 
     // Create UART instance with DMA channels
-    let dma = DmaChannel::new(p.DMA_CH0);
+    let dma = DmaChannel::new(p.DMA0_CH0);
     let mut parts = BbqHalfParts::new_rx_half_async(p.LPUART5, Irqs, p.P0_24, rx_buf, dma);
     let mut red = Output::new(p.P2_14, Level::High, DriveStrength::Normal, SlewRate::Fast);
     let mut debug = Output::new(p.P5_8, Level::High, DriveStrength::Normal, SlewRate::Fast);

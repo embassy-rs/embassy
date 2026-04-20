@@ -111,7 +111,7 @@ impl<'d> Rramc<'d, Unbuffered> {
     fn enable_write(&self) {
         Self::regs().config().write(|w| {
             w.set_wen(true);
-            w.set_writebufsize(pac::rramc::vals::Writebufsize::UNBUFFERED)
+            w.set_writebufsize(pac::rramc::vals::Writebufsize::Unbuffered)
         });
     }
 }

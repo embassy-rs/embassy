@@ -1,15 +1,20 @@
 //! Inter-IC Sound (I2S)
 
+#![macro_use]
+
+use core::ptr;
+
 use embassy_futures::join::join;
 use stm32_metapac::spi::vals;
 
-use crate::Peri;
 use crate::dma::{ChannelAndRequest, ReadableRingBuffer, TransferOptions, WritableRingBuffer, ringbuffer};
 use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::mode::Async;
+use crate::pac::spi::Spi as Regs;
 use crate::spi::mode::Master;
 use crate::spi::{Config as SpiConfig, RegsExt as _, *};
 use crate::time::Hertz;
+use crate::{Peri, spi};
 
 /// I2S mode
 #[derive(Copy, Clone)]
@@ -29,7 +34,6 @@ enum Function {
     /// Receive audio data
     Receive,
     #[cfg(any(spi_v4, spi_v5))]
-
     /// Transmit and Receive audio data
     FullDuplex,
 }
@@ -76,18 +80,18 @@ impl From<ringbuffer::Error> for Error {
 impl Standard {
     const fn i2sstd(&self) -> vals::I2sstd {
         match self {
-            Standard::Philips => vals::I2sstd::PHILIPS,
-            Standard::MsbFirst => vals::I2sstd::MSB,
-            Standard::LsbFirst => vals::I2sstd::LSB,
-            Standard::PcmLongSync => vals::I2sstd::PCM,
-            Standard::PcmShortSync => vals::I2sstd::PCM,
+            Standard::Philips => vals::I2sstd::Philips,
+            Standard::MsbFirst => vals::I2sstd::Msb,
+            Standard::LsbFirst => vals::I2sstd::Lsb,
+            Standard::PcmLongSync => vals::I2sstd::Pcm,
+            Standard::PcmShortSync => vals::I2sstd::Pcm,
         }
     }
 
     const fn pcmsync(&self) -> vals::Pcmsync {
         match self {
-            Standard::PcmLongSync => vals::Pcmsync::LONG,
-            _ => vals::Pcmsync::SHORT,
+            Standard::PcmLongSync => vals::Pcmsync::Long,
+            _ => vals::Pcmsync::Short,
         }
     }
 }
@@ -108,19 +112,19 @@ pub enum Format {
 impl Format {
     const fn datlen(&self) -> vals::Datlen {
         match self {
-            Format::Data16Channel16 => vals::Datlen::BITS16,
-            Format::Data16Channel32 => vals::Datlen::BITS16,
-            Format::Data24Channel32 => vals::Datlen::BITS24,
-            Format::Data32Channel32 => vals::Datlen::BITS32,
+            Format::Data16Channel16 => vals::Datlen::Bits16,
+            Format::Data16Channel32 => vals::Datlen::Bits16,
+            Format::Data24Channel32 => vals::Datlen::Bits24,
+            Format::Data32Channel32 => vals::Datlen::Bits32,
         }
     }
 
     const fn chlen(&self) -> vals::Chlen {
         match self {
-            Format::Data16Channel16 => vals::Chlen::BITS16,
-            Format::Data16Channel32 => vals::Chlen::BITS32,
-            Format::Data24Channel32 => vals::Chlen::BITS32,
-            Format::Data32Channel32 => vals::Chlen::BITS32,
+            Format::Data16Channel16 => vals::Chlen::Bits16,
+            Format::Data16Channel32 => vals::Chlen::Bits32,
+            Format::Data24Channel32 => vals::Chlen::Bits32,
+            Format::Data32Channel32 => vals::Chlen::Bits32,
         }
     }
 }
@@ -137,8 +141,8 @@ pub enum ClockPolarity {
 impl ClockPolarity {
     const fn ckpol(&self) -> vals::Ckpol {
         match self {
-            ClockPolarity::IdleHigh => vals::Ckpol::IDLE_HIGH,
-            ClockPolarity::IdleLow => vals::Ckpol::IDLE_LOW,
+            ClockPolarity::IdleHigh => vals::Ckpol::IdleHigh,
+            ClockPolarity::IdleLow => vals::Ckpol::IdleLow,
         }
     }
 }
@@ -234,6 +238,8 @@ pub struct I2S<'d, W: Word> {
     #[allow(dead_code)]
     mode: Mode,
     spi: Spi<'d, Async, Master>,
+    #[cfg(spi_v2_i2s)]
+    regs_ext: Option<&'static Regs>,
     _txsd: Option<Flex<'d>>,
     _rxsd: Option<Flex<'d>>,
     _ws: Option<Flex<'d>>,
@@ -258,6 +264,8 @@ impl<'d, W: Word> I2S<'d, W> {
     ) -> Self {
         Self::new_inner(
             peri,
+            #[cfg(spi_v2_i2s)]
+            None,
             new_pin!(sd, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             None,
             ws,
@@ -283,6 +291,8 @@ impl<'d, W: Word> I2S<'d, W> {
     ) -> Self {
         Self::new_inner(
             peri,
+            #[cfg(spi_v2_i2s)]
+            None,
             new_pin!(sd, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             None,
             ws,
@@ -309,6 +319,8 @@ impl<'d, W: Word> I2S<'d, W> {
     ) -> Self {
         Self::new_inner(
             peri,
+            #[cfg(spi_v2_i2s)]
+            None,
             None,
             new_pin!(sd, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             ws,
@@ -334,6 +346,8 @@ impl<'d, W: Word> I2S<'d, W> {
     ) -> Self {
         Self::new_inner(
             peri,
+            #[cfg(spi_v2_i2s)]
+            None,
             None,
             new_pin!(sd, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             ws,
@@ -343,6 +357,39 @@ impl<'d, W: Word> I2S<'d, W> {
             new_dma!(rxdma, _irq).map(|d| (d, rxdma_buf)),
             config,
             Function::Receive,
+        )
+    }
+
+    #[cfg(spi_v2_i2s)]
+    /// Create a transmitter driver.
+    pub fn new_full_duplex<T: I2sSExtInstance, D1: TxDma<T>, D2: RxDmaExt<T>, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        txsd: Peri<'d, if_afio!(impl MosiPin<T, A>)>,
+        rxsd: Peri<'d, if_afio!(impl SdExtPin<T, A>)>,
+        ws: Peri<'d, if_afio!(impl WsPin<T, A>)>,
+        ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
+        mck: Peri<'d, if_afio!(impl MckPin<T, A>)>,
+        txdma: Peri<'d, D1>,
+        txdma_buf: &'d mut [W],
+        rxdma: Peri<'d, D2>,
+        rxdma_buf: &'d mut [W],
+        _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
+        + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + 'd,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            Some(T::regs_ext()),
+            new_pin!(txsd, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(rxsd, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            ws,
+            ck,
+            new_pin!(mck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_dma!(txdma, _irq).map(|d| (d, txdma_buf)),
+            new_dma!(rxdma, _irq).map(|d| (d, rxdma_buf)),
+            config,
+            Function::Transmit,
         )
     }
 
@@ -411,30 +458,54 @@ impl<'d, W: Word> I2S<'d, W> {
 
     /// Start I2S driver.
     pub fn start(&mut self) {
-        self.spi.info.regs.cr1().modify(|w| {
+        let regs_tx = self.regs_tx();
+        let regs_rx = self.regs_rx();
+
+        regs_tx.cr1().modify(|w| {
             w.set_spe(false);
         });
+
+        if !ptr::eq(regs_tx, regs_rx) {
+            regs_rx.cr1().modify(|w| {
+                w.set_spe(false);
+            });
+        }
+
         self.spi.set_word_size(W::CONFIG);
         if let Some(tx_ring_buffer) = &mut self.tx_ring_buffer {
             tx_ring_buffer.start();
 
-            set_txdmaen(self.spi.info.regs, true);
+            set_txdmaen(*regs_tx, true);
         }
         if let Some(rx_ring_buffer) = &mut self.rx_ring_buffer {
             rx_ring_buffer.start();
             // SPIv3 clears rxfifo on SPE=0
             #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
-            flush_rx_fifo(self.spi.info.regs);
+            flush_rx_fifo(*regs_rx);
 
-            set_rxdmaen(self.spi.info.regs, true);
+            set_rxdmaen(*regs_rx, true);
         }
-        self.spi.info.regs.cr1().modify(|w| {
+        regs_tx.cr1().modify(|w| {
             w.set_spe(true);
         });
+        if !ptr::eq(regs_tx, regs_rx) {
+            regs_rx.cr1().modify(|w| {
+                w.set_spe(true);
+            });
+        }
+
         #[cfg(any(spi_v1, spi_v2, spi_v3))]
-        self.spi.info.regs.i2scfgr().modify(|w| {
+        regs_tx.i2scfgr().modify(|w| {
             w.set_i2se(true);
         });
+
+        #[cfg(any(spi_v1, spi_v2, spi_v3))]
+        if !ptr::eq(regs_tx, regs_rx) {
+            regs_rx.i2scfgr().modify(|w| {
+                w.set_i2se(true);
+            });
+        }
+
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         self.spi.info.regs.cr1().modify(|w| {
             w.set_cstart(true);
@@ -457,13 +528,14 @@ impl<'d, W: Word> I2S<'d, W> {
 
     /// Stop I2S driver.
     pub async fn stop(&mut self) {
-        let regs = self.spi.info.regs;
+        let regs_tx = self.regs_tx();
+        let regs_rx = self.regs_rx();
 
         let tx_f = async {
             if let Some(tx_ring_buffer) = &mut self.tx_ring_buffer {
                 tx_ring_buffer.stop().await;
 
-                set_txdmaen(regs, false);
+                set_txdmaen(*regs_tx, false);
             }
         };
 
@@ -471,7 +543,7 @@ impl<'d, W: Word> I2S<'d, W> {
             if let Some(rx_ring_buffer) = &mut self.rx_ring_buffer {
                 rx_ring_buffer.stop().await;
 
-                set_rxdmaen(regs, false);
+                set_rxdmaen(*regs_rx, false);
             }
         };
 
@@ -480,17 +552,23 @@ impl<'d, W: Word> I2S<'d, W> {
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         {
             if let Mode::Master = self.mode {
-                regs.cr1().modify(|w| {
+                regs_tx.cr1().modify(|w| {
                     w.set_csusp(true);
                 });
 
-                while regs.cr1().read().cstart() {}
+                while regs_tx.cr1().read().cstart() {}
             }
         }
 
-        regs.cr1().modify(|w| {
+        regs_tx.cr1().modify(|w| {
             w.set_spe(false);
         });
+
+        if !ptr::eq(regs_tx, regs_rx) {
+            regs_rx.cr1().modify(|w| {
+                w.set_spe(false);
+            });
+        }
 
         self.clear();
     }
@@ -543,8 +621,25 @@ impl<'d, W: Word> I2S<'d, W> {
         }
     }
 
+    fn regs_tx(&self) -> &'static Regs {
+        &self.spi.info.regs
+    }
+
+    fn regs_rx(&self) -> &'static Regs {
+        #[cfg(spi_v2_i2s)]
+        {
+            self.regs_ext.unwrap_or(&self.spi.info.regs)
+        }
+
+        #[cfg(not(spi_v2_i2s))]
+        {
+            &self.spi.info.regs
+        }
+    }
+
     fn new_inner<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
+        #[cfg(spi_v2_i2s)] regs_ext: Option<&'static Regs>,
         txsd: Option<Flex<'d>>,
         rxsd: Option<Flex<'d>>,
         ws: Peri<'d, if_afio!(impl WsPin<T, A>)>,
@@ -614,8 +709,8 @@ impl<'d, W: Word> I2S<'d, W> {
         clk_reg.modify(|w| {
             w.set_i2sdiv(div);
             w.set_odd(match odd {
-                true => Odd::ODD,
-                false => Odd::EVEN,
+                true => Odd::Odd,
+                false => Odd::Even,
             });
 
             w.set_mckoe(config.master_clock);
@@ -633,16 +728,48 @@ impl<'d, W: Word> I2S<'d, W> {
             w.set_chlen(config.format.chlen());
 
             w.set_i2scfg(match (config.mode, function) {
-                (Mode::Master, Function::Transmit) => I2scfg::MASTER_TX,
-                (Mode::Master, Function::Receive) => I2scfg::MASTER_RX,
+                (Mode::Master, Function::Transmit) => I2scfg::MasterTx,
+                (Mode::Master, Function::Receive) => I2scfg::MasterRx,
                 #[cfg(any(spi_v4, spi_v5))]
-                (Mode::Master, Function::FullDuplex) => I2scfg::MASTER_FULL_DUPLEX,
-                (Mode::Slave, Function::Transmit) => I2scfg::SLAVE_TX,
-                (Mode::Slave, Function::Receive) => I2scfg::SLAVE_RX,
+                (Mode::Master, Function::FullDuplex) => I2scfg::MasterFullDuplex,
+                (Mode::Slave, Function::Transmit) => I2scfg::SlaveTx,
+                (Mode::Slave, Function::Receive) => I2scfg::SlaveRx,
                 #[cfg(any(spi_v4, spi_v5))]
-                (Mode::Slave, Function::FullDuplex) => I2scfg::SLAVE_FULL_DUPLEX,
+                (Mode::Slave, Function::FullDuplex) => I2scfg::SlaveFullDuplex,
             });
         });
+
+        #[cfg(spi_v2_i2s)]
+        // Configure I2SEXT peripheral identically, but in the opposite direction
+        // and always in slave mode.
+        if let Some(ext) = regs_ext {
+            ext.i2spr().modify(|w| {
+                w.set_i2sdiv(2);
+                w.set_odd(Odd::Even);
+                w.set_mckoe(false);
+            });
+
+            ext.i2scfgr().modify(|w| {
+                w.set_ckpol(config.clock_polarity.ckpol());
+
+                w.set_i2smod(true);
+
+                w.set_i2sstd(config.standard.i2sstd());
+                w.set_pcmsync(config.standard.pcmsync());
+
+                w.set_datlen(config.format.datlen());
+                w.set_chlen(config.format.chlen());
+
+                w.set_i2scfg(match (config.mode, function) {
+                    (Mode::Master, Function::Transmit) => I2scfg::SlaveRx,
+                    (Mode::Master, Function::Receive) => I2scfg::SlaveTx,
+                    (Mode::Slave, Function::Transmit) => I2scfg::SlaveRx,
+                    (Mode::Slave, Function::Receive) => I2scfg::SlaveTx,
+                });
+
+                w.set_i2se(true);
+            });
+        }
 
         let mut opts = TransferOptions::default();
         opts.half_transfer_ir = true;
@@ -651,13 +778,27 @@ impl<'d, W: Word> I2S<'d, W> {
         // 16-bit channel width: 1 half-word per channel × 2 channels = 2
         // 32-bit channel width: 2 half-words per channel × 2 channels = 4
         let frame_words = match config.format.chlen() {
-            vals::Chlen::BITS16 => 2,
-            vals::Chlen::BITS32 => 4,
+            vals::Chlen::Bits16 => 2,
+            vals::Chlen::Bits32 => 4,
+        };
+
+        let regs_rx = {
+            #[cfg(spi_v2_i2s)]
+            {
+                regs_ext.unwrap_or(&regs)
+            }
+
+            #[cfg(not(spi_v2_i2s))]
+            {
+                regs
+            }
         };
 
         Self {
             mode: config.mode,
             spi,
+            #[cfg(spi_v2_i2s)]
+            regs_ext: regs_ext,
             _txsd: txsd.map(|w| w.into()),
             _rxsd: rxsd.map(|w| w.into()),
             _ws: new_pin!(ws, AfType::output(OutputType::PushPull, config.gpio_speed)),
@@ -666,7 +807,7 @@ impl<'d, W: Word> I2S<'d, W> {
             tx_ring_buffer: txdma
                 .map(|(ch, buf)| unsafe { WritableRingBuffer::new(ch.channel, ch.request, regs.tx_ptr(), buf, opts) }),
             rx_ring_buffer: rxdma.map(|(ch, buf)| {
-                let mut rb = unsafe { ReadableRingBuffer::new(ch.channel, ch.request, regs.rx_ptr(), buf, opts) };
+                let mut rb = unsafe { ReadableRingBuffer::new(ch.channel, ch.request, regs_rx.rx_ptr(), buf, opts) };
                 rb.set_alignment(frame_words);
                 rb
             }),
@@ -777,4 +918,21 @@ fn reset_incompatible_bitfields<T: Instance>() {
     regs.txcrc().write(|w| w.0 = 0);
     regs.rxcrc().write(|w| w.0 = 0);
     regs.udrdr().write(|w| w.0 = 0);
+}
+
+/// Full-Duplex I2s Instance
+pub trait I2sSExtInstance: spi::Instance {
+    /// Ext regs
+    fn regs_ext() -> &'static Regs;
+}
+
+#[allow(unused_macros)]
+macro_rules! impl_i2_ext_instance {
+    ($spi:ident, $i2s:ident) => {
+        impl crate::i2s::I2sSExtInstance for crate::peripherals::$spi {
+            fn regs_ext() -> &'static crate::pac::spi::Spi {
+                &crate::pac::$i2s
+            }
+        }
+    };
 }

@@ -12,7 +12,7 @@ use crate::clocks::config::VddLevel;
 pub use crate::clocks::periph_helpers::Div4;
 use crate::clocks::{ClockError, PoweredClock, WakeGuard, with_clocks};
 use crate::gpio::{AnyPin, SealedPin};
-use crate::pac::mrcc::vals::{ClkdivHalt, ClkdivReset, ClkdivUnstab, ClkoutClkselMux as Mux};
+use crate::pac::mrcc::{ClkdivHalt, ClkdivReset, ClkdivUnstab, ClkoutClkselMux as Mux};
 use crate::peripherals::CLKOUT;
 
 /// A peripheral representing the CLKOUT pseudo-peripheral
@@ -242,7 +242,7 @@ mod sealed {
         ($pin:ident, $func:ident) => {
             impl ClockOutPin for crate::peripherals::$pin {
                 fn mux(&self) {
-                    self.set_function(crate::pac::port::vals::Mux::$func);
+                    self.set_function(crate::pac::port::Mux::$func);
                     self.set_pull(Pull::Disabled);
 
                     // TODO: we may want to expose these as options to allow the slew rate

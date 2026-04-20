@@ -10,6 +10,7 @@ use linked_list::Table;
 
 use super::word::{Word, WordSize};
 use super::{Channel, Dir, Request, STATE};
+use crate::_generated::DmaChannel;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac;
 use crate::pac::gpdma::vals;
@@ -53,10 +54,10 @@ pub enum Priority {
 impl From<Priority> for pac::gpdma::vals::Prio {
     fn from(value: Priority) -> Self {
         match value {
-            Priority::Low => pac::gpdma::vals::Prio::LOW_WITH_LOWH_WEIGHT,
-            Priority::Medium => pac::gpdma::vals::Prio::LOW_WITH_MID_WEIGHT,
-            Priority::High => pac::gpdma::vals::Prio::LOW_WITH_HIGH_WEIGHT,
-            Priority::VeryHigh => pac::gpdma::vals::Prio::HIGH,
+            Priority::Low => pac::gpdma::vals::Prio::LowWithLowhWeight,
+            Priority::Medium => pac::gpdma::vals::Prio::LowWithMidWeight,
+            Priority::High => pac::gpdma::vals::Prio::LowWithHighWeight,
+            Priority::VeryHigh => pac::gpdma::vals::Prio::High,
         }
     }
 }
@@ -87,9 +88,9 @@ impl Default for TransferOptions {
 impl From<WordSize> for vals::Dw {
     fn from(raw: WordSize) -> Self {
         match raw {
-            WordSize::OneByte => Self::BYTE,
-            WordSize::TwoBytes => Self::HALF_WORD,
-            WordSize::FourBytes => Self::WORD,
+            WordSize::OneByte => Self::Byte,
+            WordSize::TwoBytes => Self::HalfWord,
+            WordSize::FourBytes => Self::Word,
             _ => panic!("Invalid word size"),
         }
     }
@@ -98,9 +99,9 @@ impl From<WordSize> for vals::Dw {
 impl From<vals::Dw> for WordSize {
     fn from(raw: vals::Dw) -> Self {
         match raw {
-            vals::Dw::BYTE => Self::OneByte,
-            vals::Dw::HALF_WORD => Self::TwoBytes,
-            vals::Dw::WORD => Self::FourBytes,
+            vals::Dw::Byte => Self::OneByte,
+            vals::Dw::HalfWord => Self::TwoBytes,
+            vals::Dw::Word => Self::FourBytes,
             _ => panic!("Invalid word size"),
         }
     }
@@ -146,15 +147,15 @@ pub(crate) unsafe fn init(cs: critical_section::CriticalSection, irq_priority: c
     crate::_generated::init_gpdma();
 }
 
-pub(crate) unsafe fn on_irq(id: u8) {
-    let info = super::info(id);
+pub(crate) unsafe fn on_irq(channel: DmaChannel) {
+    let info = super::info(channel);
     #[cfg(feature = "_dual-core")]
     {
         use embassy_hal_internal::interrupt::InterruptExt as _;
         info.irq.enable();
     }
 
-    let state = &STATE[id as usize];
+    let state = &STATE[channel as usize];
 
     let ch = info.dma.ch(info.num);
     let sr = ch.sr().read();
@@ -217,7 +218,7 @@ pub(crate) unsafe fn on_irq(id: u8) {
 
 impl<'d> Channel<'d> {
     fn info(&self) -> &'static super::ChannelInfo {
-        super::info(self.id)
+        super::info(self.channel)
     }
 
     fn get_remaining_transfers(&self) -> u16 {
@@ -274,20 +275,20 @@ impl<'d> Channel<'d> {
             w.set_sinc(dir == Dir::MemoryToPeripheral && incr_mem);
             w.set_dinc(dir == Dir::PeripheralToMemory && incr_mem);
             w.set_dap(match dir {
-                Dir::MemoryToPeripheral => vals::Ap::PORT1, // Destination is peripheral on AHB for HPDMA
-                Dir::PeripheralToMemory => vals::Ap::PORT0, // Destination is memory on AXI for HPDMA
+                Dir::MemoryToPeripheral => vals::Ap::Port1, // Destination is peripheral on AHB for HPDMA
+                Dir::PeripheralToMemory => vals::Ap::Port0, // Destination is memory on AXI for HPDMA
                 Dir::MemoryToMemory => panic!("memory-to-memory transfers not implemented for GPDMA"),
             });
             w.set_sap(match dir {
-                Dir::MemoryToPeripheral => vals::Ap::PORT0, // Source is memory on AXI for HPDMA
-                Dir::PeripheralToMemory => vals::Ap::PORT1, // Source is peripheral on AHB for HPDMA
+                Dir::MemoryToPeripheral => vals::Ap::Port0, // Source is memory on AXI for HPDMA
+                Dir::PeripheralToMemory => vals::Ap::Port1, // Source is peripheral on AHB for HPDMA
                 Dir::MemoryToMemory => panic!("memory-to-memory transfers not implemented for GPDMA"),
             });
         });
         ch.tr2().write(|w| {
             w.set_dreq(match dir {
-                Dir::MemoryToPeripheral => vals::Dreq::DESTINATION_PERIPHERAL,
-                Dir::PeripheralToMemory => vals::Dreq::SOURCE_PERIPHERAL,
+                Dir::MemoryToPeripheral => vals::Dreq::DestinationPeripheral,
+                Dir::PeripheralToMemory => vals::Dreq::SourcePeripheral,
                 Dir::MemoryToMemory => panic!("memory-to-memory transfers not implemented for GPDMA"),
             });
             w.set_reqsel(request);
@@ -316,7 +317,7 @@ impl<'d> Channel<'d> {
             w.set_suspie(true);
         });
 
-        let state = &STATE[self.id as usize];
+        let state = &STATE[self.channel as usize];
         state.lli_state.count.store(0, Ordering::Relaxed);
         state.lli_state.index.store(0, Ordering::Relaxed);
         state.lli_state.transfer_count.store(0, Ordering::Relaxed)
@@ -375,7 +376,7 @@ impl<'d> Channel<'d> {
             w.set_suspie(true);
         });
 
-        let state = &STATE[self.id as usize];
+        let state = &STATE[self.channel as usize];
         state.lli_state.count.store(ITEM_COUNT, Ordering::Relaxed);
         state.lli_state.index.store(0, Ordering::Relaxed);
         state
@@ -631,7 +632,7 @@ impl<'a, const ITEM_COUNT: usize> Unpin for LinkedListTransfer<'a, ITEM_COUNT> {
 impl<'a, const ITEM_COUNT: usize> Future for LinkedListTransfer<'a, ITEM_COUNT> {
     type Output = ();
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let state = &STATE[self.channel.id as usize];
+        let state = &STATE[self.channel.channel as usize];
         state.waker.register(cx.waker());
 
         if self.is_running() {
@@ -716,7 +717,7 @@ impl<'a> Unpin for Transfer<'a> {}
 impl<'a> Future for Transfer<'a> {
     type Output = ();
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let state = &STATE[self.channel.id as usize];
+        let state = &STATE[self.channel.channel as usize];
         state.waker.register(cx.waker());
 
         compiler_fence(Ordering::SeqCst);

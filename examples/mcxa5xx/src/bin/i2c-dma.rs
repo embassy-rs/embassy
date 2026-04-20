@@ -28,7 +28,7 @@ async fn main(_spawner: Spawner) {
 
     let mut config = controller::Config::default();
     config.speed = Speed::Standard;
-    let mut i2c = I2c::new_async_with_dma(p.LPI2C3, p.P3_21, p.P3_20, p.DMA_CH0, p.DMA_CH1, Irqs, config).unwrap();
+    let mut i2c = I2c::new_async_with_dma(p.LPI2C3, p.P3_21, p.P3_20, p.DMA0_CH0, p.DMA0_CH1, Irqs, config).unwrap();
     let mut buf = [0u8; 2];
 
     loop {

@@ -19,16 +19,16 @@ async fn main(_spawner: Spawner) {
         use embassy_stm32::rcc::*;
         config.rcc.hsi = true;
         config.rcc.pll = Some(Pll {
-            source: PllSource::HSI, // 16 MHz
-            prediv: PllPreDiv::DIV1,
-            mul: PllMul::MUL7, // 16 * 7 = 112 MHz
+            source: PllSource::Hsi, // 16 MHz
+            prediv: PllPreDiv::Div1,
+            mul: PllMul::Mul7, // 16 * 7 = 112 MHz
             divp: None,
             divq: None,
-            divr: Some(PllRDiv::DIV2), // 112 / 2 = 56 MHz
+            divr: Some(PllRDiv::Div2), // 112 / 2 = 56 MHz
         });
-        config.rcc.sys = Sysclk::PLL1_R;
+        config.rcc.sys = Sysclk::Pll1R;
         config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: false }); // needed for RNG
-        config.rcc.mux.clk48sel = Clk48sel::HSI48; // needed for RNG (or use MSI or PLLQ if you want)
+        config.rcc.mux.clk48sel = Clk48sel::Hsi48; // needed for RNG (or use MSI or PLLQ if you want)
     }
 
     let p = embassy_stm32::init(config);

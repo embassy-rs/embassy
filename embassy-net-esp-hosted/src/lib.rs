@@ -212,7 +212,7 @@ where
                     tx_buf[0..12].copy_from_slice(&header.to_bytes());
                 }
                 Either4::Second(packet) => {
-                    tx_buf[12..][..packet.len()].copy_from_slice(packet);
+                    tx_buf[12..][..packet.len()].copy_from_slice(&packet);
 
                     let mut header = PayloadHeader {
                         if_type_and_num: InterfaceType::Sta as _,
@@ -228,7 +228,7 @@ where
                     header.checksum = checksum(&tx_buf[..12 + packet.len()]);
                     tx_buf[0..12].copy_from_slice(&header.to_bytes());
 
-                    self.ch.tx_done();
+                    packet.tx_done();
                 }
                 Either4::Third(()) => {
                     tx_buf[..PayloadHeader::SIZE].fill(0);
@@ -283,9 +283,9 @@ where
         match if_type_and_num & 0x0f {
             // STA
             0 => match self.ch.try_rx_buf() {
-                Some(buf) => {
+                Some(mut buf) => {
                     buf[..payload.len()].copy_from_slice(payload);
-                    self.ch.rx_done(payload.len())
+                    buf.rx_done(payload.len())
                 }
                 None => warn!("failed to push rxd packet to the channel."),
             },

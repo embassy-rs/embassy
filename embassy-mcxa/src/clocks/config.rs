@@ -3,7 +3,7 @@
 //! This module holds configuration types used for the system clocks. For
 //! configuration of individual peripherals, see [`super::periph_helpers`].
 
-use nxp_pac::scg::vals::FreqSel;
+use nxp_pac::scg::FreqSel;
 
 use super::PoweredClock;
 

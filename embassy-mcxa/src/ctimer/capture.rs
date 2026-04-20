@@ -6,7 +6,7 @@ use core::ops::{Add, Sub};
 use core::sync::atomic::Ordering;
 
 use embassy_hal_internal::Peri;
-use nxp_pac::ctimer::vals::{Capfe, Capi, Capre};
+use nxp_pac::ctimer::{Capfe, Capi, Capre};
 
 use super::{AnyChannel, CTimer, CTimerChannel, Channel, Info, InputPin, Instance};
 use crate::clocks::WakeGuard;

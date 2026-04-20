@@ -12,7 +12,7 @@ bind_interrupts!(struct Irqs {
     DMA1_CHANNEL2_3 => dma::InterruptHandler<peripherals::DMA1_CH2>, dma::InterruptHandler<peripherals::DMA1_CH3>;
 });
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     let mut usart = Uart::new(p.USART1, p.PB7, p.PB6, p.DMA1_CH2, p.DMA1_CH3, Irqs, Config::default()).unwrap();

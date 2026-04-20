@@ -1,7 +1,5 @@
 //! I3C Support
 
-use core::marker::PhantomData;
-
 use embassy_hal_internal::PeripheralType;
 use maitake_sync::WaitCell;
 use paste::paste;
@@ -13,40 +11,6 @@ use crate::gpio::{GpioPin, SealedPin};
 use crate::{interrupt, pac};
 
 pub mod controller;
-
-/// I3C interrupt handler.
-pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
-}
-
-impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
-    unsafe fn on_interrupt() {
-        let status = T::info().regs().mintmasked().read();
-        T::PERF_INT_INCR();
-
-        if status.nowmaster()
-            || status.complete()
-            || status.mctrldone()
-            || status.slvstart()
-            || status.errwarn()
-            || status.rxpend()
-            || status.txnotfull()
-        {
-            T::info().regs().mintclr().write(|w| {
-                w.set_nowmaster(true);
-                w.set_complete(true);
-                w.set_mctrldone(true);
-                w.set_slvstart(true);
-                w.set_errwarn(true);
-                w.set_rxpend(true);
-                w.set_txnotfull(true);
-            });
-
-            T::PERF_INT_WAKE_INCR();
-            T::info().wait_cell().wake();
-        }
-    }
-}
 
 mod sealed {
     /// Seal a trait
@@ -171,7 +135,7 @@ macro_rules! impl_pin {
                     self.set_pull(crate::gpio::Pull::Disabled);
                     self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
                     self.set_drive_strength(crate::gpio::DriveStrength::Double.into());
-                    self.set_function(crate::pac::port::vals::Mux::$fn);
+                    self.set_function(crate::pac::port::Mux::$fn);
                     self.set_enable_input_buffer(true);
                 }
             }

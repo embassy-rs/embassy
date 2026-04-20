@@ -29,6 +29,7 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::{Peri, PeripheralType};
 
+use crate::_generated::DmaChannel;
 use crate::interrupt;
 
 /// The direction of a DMA transfer.
@@ -66,7 +67,7 @@ pub type Request = ();
 
 /// DMA channel driver
 pub struct Channel<'d> {
-    pub(crate) id: u8,
+    pub(crate) channel: DmaChannel,
     phantom: PhantomData<&'d ()>,
 }
 
@@ -77,7 +78,7 @@ impl<'d> Channel<'d> {
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, crate::dma::InterruptHandler<T>> + 'd,
     ) -> Self {
         Self {
-            id: T::ID,
+            channel: T::CHANNEL,
             phantom: PhantomData,
         }
     }
@@ -85,21 +86,21 @@ impl<'d> Channel<'d> {
     /// Reborrow the channel, allowing it to be used in multiple places.
     pub fn reborrow(&mut self) -> Channel<'_> {
         Channel {
-            id: self.id,
+            channel: self.channel,
             phantom: PhantomData,
         }
     }
 
     pub(crate) unsafe fn clone_unchecked(&self) -> Channel<'d> {
         Channel {
-            id: self.id,
+            channel: self.channel,
             phantom: PhantomData,
         }
     }
 }
 
 pub(crate) trait SealedChannelInstance {
-    const ID: u8;
+    const CHANNEL: DmaChannel;
 }
 
 /// DMA channel.
@@ -117,14 +118,14 @@ pub struct InterruptHandler<T: ChannelInstance> {
 
 impl<T: ChannelInstance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        on_irq(T::ID)
+        on_irq(T::CHANNEL)
     }
 }
 
 macro_rules! dma_channel_impl {
-    ($channel_peri:ident, $index:expr, $irq:ty) => {
+    ($channel_peri:ident, $irq:ty) => {
         impl crate::dma::SealedChannelInstance for crate::peripherals::$channel_peri {
-            const ID: u8 = $index;
+            const CHANNEL: crate::_generated::DmaChannel = crate::_generated::DmaChannel::$channel_peri;
         }
 
         impl crate::dma::ChannelInstance for crate::peripherals::$channel_peri {
@@ -136,8 +137,8 @@ macro_rules! dma_channel_impl {
 const CHANNEL_COUNT: usize = crate::_generated::DMA_CHANNELS.len();
 static STATE: [ChannelState; CHANNEL_COUNT] = [ChannelState::NEW; CHANNEL_COUNT];
 
-pub(crate) fn info(id: u8) -> &'static ChannelInfo {
-    &crate::_generated::DMA_CHANNELS[id as usize]
+pub(crate) fn info(channel: DmaChannel) -> &'static ChannelInfo {
+    &crate::_generated::DMA_CHANNELS[channel as usize]
 }
 
 // safety: must be called only once at startup

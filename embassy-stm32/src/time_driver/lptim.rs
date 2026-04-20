@@ -61,7 +61,7 @@ impl RtcDriver {
         let r = regs_lptim();
 
         // we want this to increment the stop mode counter (some lp timer can't do STOP2)
-        rcc::enable_and_reset_without_stop::<T>();
+        rcc::enable_and_reset::<T>();
 
         let timer_freq = T::frequency();
 
@@ -70,14 +70,14 @@ impl RtcDriver {
         // let psc = timer_freq.0 / TICK_HZ as u32 - 1;
         let psc = timer_freq.0 / TICK_HZ as u32;
         let psc = match psc {
-            128 => vals::Presc::DIV128,
-            64 => vals::Presc::DIV64,
-            32 => vals::Presc::DIV32,
-            16 => vals::Presc::DIV16,
-            8 => vals::Presc::DIV8,
-            4 => vals::Presc::DIV4,
-            2 => vals::Presc::DIV2,
-            1 => vals::Presc::DIV1,
+            128 => vals::Presc::Div128,
+            64 => vals::Presc::Div64,
+            32 => vals::Presc::Div32,
+            16 => vals::Presc::Div16,
+            8 => vals::Presc::Div8,
+            4 => vals::Presc::Div4,
+            2 => vals::Presc::Div2,
+            1 => vals::Presc::Div1,
             // TODO: we could compute the valid TICK_HZ for the valid prescalers to include in the panic message
             _ => panic!("Invalid prescaler: {} for timer frequency: {}Hz", psc, timer_freq.0),
         };
@@ -270,11 +270,6 @@ impl super::LPTimeDriver for RtcDriver {
     fn resume_time(&self, _cs: CriticalSection) {
         trace!("resume_time");
         self.is_stopped.store(false, Ordering::Relaxed);
-    }
-
-    /// Returns whether time is currently "stopped"
-    fn is_stopped(&self) -> bool {
-        self.is_stopped.load(Ordering::Relaxed)
     }
 }
 

@@ -3,7 +3,7 @@
 
 use embassy_executor::Spawner;
 use embassy_mcxa::adc::{AnyAdcPin, Command, CommandConfig, CommandId, Trigger};
-use embassy_mcxa::pac::adc::vals::{Avgs, Mode, Sts};
+use embassy_mcxa::pac::adc::{Avgs, Mode, Sts};
 use embassy_mcxa::{bind_interrupts, peripherals};
 use embassy_time::{Duration, Ticker};
 use hal::adc::{self, Adc};

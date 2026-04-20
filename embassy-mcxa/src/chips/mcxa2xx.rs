@@ -69,14 +69,14 @@ mod inner_periph {
 
         DBGMAILBOX,
         DMA0,
-        DMA_CH0,
-        DMA_CH1,
-        DMA_CH2,
-        DMA_CH3,
-        DMA_CH4,
-        DMA_CH5,
-        DMA_CH6,
-        DMA_CH7,
+        DMA0_CH0,
+        DMA0_CH1,
+        DMA0_CH2,
+        DMA0_CH3,
+        DMA0_CH4,
+        DMA0_CH5,
+        DMA0_CH6,
+        DMA0_CH7,
         EDMA0_TCD0,
         EIM0,
         EQDC0,
@@ -379,14 +379,14 @@ mod inner_interrupt {
         CTIMER3,
         CTIMER4,
         DAC0,
-        DMA_CH0,
-        DMA_CH1,
-        DMA_CH2,
-        DMA_CH3,
-        DMA_CH4,
-        DMA_CH5,
-        DMA_CH6,
-        DMA_CH7,
+        DMA0_CH0,
+        DMA0_CH1,
+        DMA0_CH2,
+        DMA0_CH3,
+        DMA0_CH4,
+        DMA0_CH5,
+        DMA0_CH6,
+        DMA0_CH7,
         EQDC0_COMPARE,
         EQDC0_HOME,
         EQDC0_INDEX,
@@ -534,9 +534,8 @@ mod gpio_impls {
     use crate::gpio::{AnyPin, GpioPin, Pull, SealedPin};
     use crate::impl_pin;
     use crate::pac::common::{RW, Reg};
-    use crate::pac::gpio::vals::{Pdd, Pid};
-    use crate::pac::port::regs::Pcr;
-    use crate::pac::port::vals::{Dse, Ibe, Mux, Sre};
+    use crate::pac::gpio::{Pdd, Pid};
+    use crate::pac::port::{Dse, Ibe, Mux, Pcr, Sre};
 
     #[cfg(feature = "swd-as-gpio")]
     impl_pin!(P0_0, 0, 0, GPIO0);

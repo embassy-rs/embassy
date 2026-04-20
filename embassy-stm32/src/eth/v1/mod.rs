@@ -46,6 +46,7 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::ETH> for InterruptHandl
 /// Ethernet driver.
 pub struct Ethernet<'d, T: Instance, P: Phy> {
     _peri: Peri<'d, T>,
+    pub(crate) link_state: LinkState,
     pub(crate) tx: TDesRing<'d>,
     pub(crate) rx: RDesRing<'d>,
 
@@ -224,7 +225,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             // Must be done prior to enabling peripheral clock
             AFIO.mapr().modify(|w| {
                 w.set_mii_rmii_sel(rmii_mii_sel);
-                w.set_swj_cfg(crate::pac::afio::vals::SwjCfg::NO_OP);
+                w.set_swj_cfg(crate::pac::afio::vals::SwjCfg::NoOp);
             });
 
             RCC.ahbenr().modify(|w| {
@@ -254,10 +255,10 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         while dma.dmabmr().read().sr() {}
 
         mac.maccr().modify(|w| {
-            w.set_ifg(Ifg::IFG96); // inter frame gap 96 bit times
-            w.set_apcs(Apcs::STRIP); // automatic padding and crc stripping
-            w.set_fes(Fes::FES100); // fast ethernet speed
-            w.set_dm(Dm::FULL_DUPLEX); // full duplex
+            w.set_ifg(Ifg::Ifg96); // inter frame gap 96 bit times
+            w.set_apcs(Apcs::Strip); // automatic padding and crc stripping
+            w.set_fes(Fes::Fes100); // fast ethernet speed
+            w.set_dm(Dm::FullDuplex); // full duplex
             // TODO: Carrier sense ? ECRSFD
         });
 
@@ -284,12 +285,12 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
 
         // Transfer and Forward, Receive and Forward
         dma.dmaomr().modify(|w| {
-            w.set_tsf(Tsf::STORE_FORWARD);
-            w.set_rsf(Rsf::STORE_FORWARD);
+            w.set_tsf(Tsf::StoreForward);
+            w.set_rsf(Rsf::StoreForward);
         });
 
         dma.dmabmr().modify(|w| {
-            w.set_pbl(Pbl::PBL32) // programmable burst length - 32 ?
+            w.set_pbl(Pbl::Pbl32) // programmable burst length - 32 ?
         });
 
         // TODO MTU size setting not found for v1 ethernet, check if correct
@@ -299,6 +300,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             _pins: pins,
             phy: phy,
             mac_addr,
+            link_state: LinkState::Down,
             tx: TDesRing::new(&mut queue.tx_desc, &mut queue.tx_buf),
             rx: RDesRing::new(&mut queue.rx_desc, &mut queue.rx_buf),
         };
@@ -313,9 +315,9 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             w.set_te(true);
         });
         dma.dmaomr().modify(|w| {
-            w.set_ftf(Ftf::FLUSH); // flush transmit fifo (queue)
-            w.set_st(St::STARTED); // start transmitting channel
-            w.set_sr(DmaomrSr::STARTED); // start receiving channel
+            w.set_ftf(Ftf::Flush); // flush transmit fifo (queue)
+            w.set_st(St::Started); // start transmitting channel
+            w.set_sr(DmaomrSr::Started); // start receiving channel
         });
 
         this.rx.demand_poll();
@@ -392,7 +394,7 @@ impl<'d, T: Instance, P: Phy> Drop for Ethernet<'d, T, P> {
         let mac = T::regs().ethernet_mac();
 
         // Disable the TX DMA and wait for any previous transmissions to be completed
-        dma.dmaomr().modify(|w| w.set_st(St::STOPPED));
+        dma.dmaomr().modify(|w| w.set_st(St::Stopped));
 
         // Disable MAC transmitter and receiver
         mac.maccr().modify(|w| {
@@ -400,6 +402,6 @@ impl<'d, T: Instance, P: Phy> Drop for Ethernet<'d, T, P> {
             w.set_te(false);
         });
 
-        dma.dmaomr().modify(|w| w.set_sr(DmaomrSr::STOPPED));
+        dma.dmaomr().modify(|w| w.set_sr(DmaomrSr::Stopped));
     }
 }

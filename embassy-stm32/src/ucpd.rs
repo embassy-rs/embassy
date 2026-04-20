@@ -147,7 +147,7 @@ impl<'d, T: Instance> Ucpd<'d, T> {
             // "The receiver is designed to work in the clock frequency range from 6 to 18 MHz.
             // However, the optimum performance is ensured in the range from 6 to 12 MHz"
             // UCPD is driven by HSI16 (16MHz internal oscillator), which we need to divide by 2.
-            w.set_psc_usbpdclk(PscUsbpdclk::DIV2);
+            w.set_psc_usbpdclk(PscUsbpdclk::Div2);
 
             // Prescaler to produce a target half-bit frequency of 600kHz which is required
             // to produce transmit with a nominal nominal bit rate of 300Kbps+-10% using
@@ -232,9 +232,6 @@ impl<'d, T: Instance> Ucpd<'d, T> {
     {
         let r = T::REGS;
 
-        // TODO: Currently only SOP messages are supported.
-        r.tx_ordsetr().write(|w| w.set_txordset(0b10001_11000_11000_11000));
-
         // Enable the receiver on one of the two CC lines.
         r.cr().modify(|w| w.set_phyccsel(cc_sel));
 
@@ -271,7 +268,7 @@ impl<'d, T: Instance> Drop for CcPhy<'d, T> {
         r.cr().modify(|w| {
             w.set_cc1tcdis(true);
             w.set_cc2tcdis(true);
-            w.set_ccenable(Ccenable::DISABLED);
+            w.set_ccenable(Ccenable::Disabled);
         });
 
         // Check if the PdPhy part was dropped already.
@@ -291,9 +288,9 @@ impl<'d, T: Instance> CcPhy<'d, T> {
     pub fn set_pull(&mut self, cc_pull: CcPull) {
         T::REGS.cr().modify(|w| {
             w.set_anamode(if cc_pull == CcPull::Sink {
-                Anamode::SINK
+                Anamode::Sink
             } else {
-                Anamode::SOURCE
+                Anamode::Source
             });
             w.set_anasubmode(match cc_pull {
                 CcPull::SourceDefaultUsb => 1,
@@ -302,9 +299,9 @@ impl<'d, T: Instance> CcPhy<'d, T> {
                 _ => 0,
             });
             w.set_ccenable(if cc_pull == CcPull::Disabled {
-                Ccenable::DISABLED
+                Ccenable::Disabled
             } else {
-                Ccenable::BOTH
+                Ccenable::Both
             });
         });
 
@@ -392,7 +389,7 @@ impl<'d, T: Instance> CcPhy<'d, T> {
     }
 }
 
-/// Receive SOP.
+/// Start of Packet.
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Sop {
@@ -406,6 +403,18 @@ pub enum Sop {
     SopPrimeDebug,
     /// SOP''_Debug
     SopDoublePrimeDebug,
+}
+
+impl Sop {
+    fn value(&self) -> u32 {
+        match self {
+            Sop::Sop => 0b10001_11000_11000_11000,
+            Sop::SopPrime => 0b00110_00110_11000_11000,
+            Sop::SopDoublePrime => 0b00110_11000_00110_11000,
+            Sop::SopPrimeDebug => 0b00110_11001_11001_11000,
+            Sop::SopDoublePrimeDebug => 0b10001_00110_11001_11000,
+        }
+    }
 }
 
 /// Receive Error.
@@ -527,12 +536,12 @@ impl<'d, T: Instance> PdPhy<'d, T> {
         }
 
         let sop = match r.rx_ordsetr().read().rxordset() {
-            Rxordset::SOP => Sop::Sop,
-            Rxordset::SOP_PRIME => Sop::SopPrime,
-            Rxordset::SOP_DOUBLE_PRIME => Sop::SopDoublePrime,
-            Rxordset::SOP_PRIME_DEBUG => Sop::SopPrimeDebug,
-            Rxordset::SOP_DOUBLE_PRIME_DEBUG => Sop::SopDoublePrimeDebug,
-            Rxordset::CABLE_RESET => return Err(RxError::HardReset),
+            Rxordset::Sop => Sop::Sop,
+            Rxordset::SopPrime => Sop::SopPrime,
+            Rxordset::SopDoublePrime => Sop::SopDoublePrime,
+            Rxordset::SopPrimeDebug => Sop::SopPrimeDebug,
+            Rxordset::SopDoublePrimeDebug => Sop::SopDoublePrimeDebug,
+            Rxordset::CableReset => return Err(RxError::HardReset),
             // Extension headers are not supported
             _ => unreachable!(),
         };
@@ -544,8 +553,13 @@ impl<'d, T: Instance> PdPhy<'d, T> {
         T::REGS.imr().modify(|w| w.set_rxmsgendie(enable));
     }
 
-    /// Transmits a PD message.
+    /// Transmits an SOP PD message.
     pub async fn transmit(&mut self, buf: &[u8]) -> Result<(), TxError> {
+        self.transmit_with_sop(Sop::Sop, buf).await
+    }
+
+    /// Transmits a PD message with a given SOP.
+    pub async fn transmit_with_sop(&mut self, sop: Sop, buf: &[u8]) -> Result<(), TxError> {
         let r = T::REGS;
 
         // When a previous transmission was dropped before it had finished it
@@ -563,6 +577,8 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             w.set_txmsgsentcf(true);
         });
 
+        r.tx_ordsetr().write(|w| w.set_txordset(sop.value()));
+
         // Start the DMA and let it do its thing in the background.
         let _dma = unsafe {
             self.tx_dma
@@ -572,7 +588,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
         // Configure and start the transmission.
         r.tx_payszr().write(|w| w.set_txpaysz(buf.len() as _));
         r.cr().modify(|w| {
-            w.set_txmode(Txmode::PACKET);
+            w.set_txmode(Txmode::Packet);
             w.set_txsend(true);
         });
 

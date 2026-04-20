@@ -4,12 +4,15 @@ use core::marker::PhantomData;
 
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::{Peri, PeripheralType};
+#[cfg(feature = "embedded-mcu-hal")]
+use embedded_mcu_hal::time::{Datetime, DatetimeClock, DatetimeClockError, DatetimeFields, Month};
 use maitake_sync::WaitCell;
+use nxp_pac::rtc2xx::TcrVal;
 
 use crate::clocks::{WakeGuard, with_clocks};
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac;
-use crate::pac::rtc::vals::{Swr, Tcr, Um};
+use crate::pac::rtc2xx::{Swr, Um};
 
 /// RTC interrupt handler.
 pub struct InterruptHandler<I: Instance> {
@@ -30,13 +33,13 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
 }
 
 struct Info {
-    regs: pac::rtc::Rtc,
+    regs: pac::rtc2xx::Rtc,
     wait_cell: WaitCell,
 }
 
 impl Info {
     #[inline(always)]
-    fn regs(&self) -> pac::rtc::Rtc {
+    fn regs(&self) -> pac::rtc2xx::Rtc {
         self.regs
     }
 
@@ -96,7 +99,7 @@ pub struct Config {
     #[allow(dead_code)]
     supervisor_access: bool,
     compensation_interval: u8,
-    compensation_time: Tcr,
+    compensation_time: TcrVal,
 }
 
 impl Default for Config {
@@ -106,7 +109,7 @@ impl Default for Config {
             update_mode: Um::UM_0,
             supervisor_access: false,
             compensation_interval: 0,
-            compensation_time: Tcr::TCR_0,
+            compensation_time: TcrVal::TCR_0,
         }
     }
 }
@@ -238,6 +241,7 @@ pub fn convert_seconds_to_datetime(seconds: u32) -> DateTime {
 pub struct Rtc<'a> {
     _inst: core::marker::PhantomData<&'a mut ()>,
     info: &'static Info,
+    _freq: u32,
     _wg: Option<WakeGuard>,
 }
 
@@ -262,6 +266,7 @@ impl<'a> Rtc<'a> {
         let mut inst = Self {
             info,
             _inst: PhantomData,
+            _freq: clk.frequency,
             _wg: WakeGuard::for_power(&clk.power),
         };
 
@@ -271,11 +276,7 @@ impl<'a> Rtc<'a> {
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
-        Self {
-            _inst: core::marker::PhantomData,
-            info,
-            _wg: WakeGuard::for_power(&clk.power),
-        }
+        inst
     }
 
     fn set_configuration(&mut self, config: &Config) {
@@ -483,6 +484,57 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
             T::PERF_INT_WAKE_INCR();
             T::info().wait_cell().wake();
         }
+    }
+}
+
+#[cfg(feature = "embedded-mcu-hal")]
+impl<'a> DatetimeClock for Rtc<'a> {
+    fn now(&self) -> Result<Datetime, DatetimeClockError> {
+        let dt = self.get_datetime();
+        let month = match dt.month {
+            1 => Month::January,
+            2 => Month::February,
+            3 => Month::March,
+            4 => Month::April,
+            5 => Month::May,
+            6 => Month::June,
+            7 => Month::July,
+            8 => Month::August,
+            9 => Month::September,
+            10 => Month::October,
+            11 => Month::November,
+            12 => Month::December,
+            _ => return Err(DatetimeClockError::UnsupportedDatetime),
+        };
+
+        let fields = DatetimeFields {
+            year: dt.year,
+            month: month,
+            day: dt.day,
+            hour: dt.hour,
+            minute: dt.minute,
+            second: dt.second,
+            nanosecond: 0,
+        };
+
+        Datetime::new(fields).map_err(|_| DatetimeClockError::UnsupportedDatetime)
+    }
+
+    fn set(&mut self, datetime: Datetime) -> Result<(), DatetimeClockError> {
+        let dt = DateTime {
+            year: datetime.year(),
+            month: datetime.month() as u8,
+            day: datetime.day(),
+            hour: datetime.hour(),
+            minute: datetime.minute(),
+            second: datetime.second(),
+        };
+        self.set_datetime(dt);
+        Ok(())
+    }
+
+    fn resolution_hz(&self) -> u32 {
+        self._freq
     }
 }
 

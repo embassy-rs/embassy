@@ -111,6 +111,7 @@ impl Dac {
         dac.gcr().write(|w| {
             w.set_dacrfs(Dacrfs::VREFH0);
             w.set_fifoen(Fifoen::BUFFER_MODE);
+            // TODO: This enum is inverted in the pac
             w.set_buf_en(BufEn::NO_USE_BUF);
             w.set_buf_spd_ctrl(BufSpdCtrl::LLP_MODE);
             w.set_trgsel(Trgsel::HARDWARE);

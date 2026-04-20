@@ -331,6 +331,7 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
             inner: &mut driver,
             cx: None,
             medium,
+            tx_exhausted: false,
         },
         instant_to_smoltcp(Instant::now()),
     );
@@ -874,8 +875,10 @@ impl Inner {
             cx: Some(cx),
             inner: driver,
             medium,
+            tx_exhausted: false,
         };
         self.iface.poll(timestamp, &mut smoldev, &mut self.sockets);
+        let tx_exhausted = smoldev.tx_exhausted;
 
         // Update link up
         let old_link_up = self.link_up;
@@ -961,7 +964,9 @@ impl Inner {
             self.apply_static_config()
         }
 
-        if let Some(poll_at) = self.iface.poll_at(timestamp, &mut self.sockets) {
+        if let Some(poll_at) = self.iface.poll_at(timestamp, &mut self.sockets)
+            && !tx_exhausted
+        {
             let t = pin!(Timer::at(instant_from_smoltcp(poll_at)));
             if t.poll(cx).is_ready() {
                 cx.waker().wake_by_ref();

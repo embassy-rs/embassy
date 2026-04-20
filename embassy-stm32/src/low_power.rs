@@ -25,18 +25,18 @@
 //! executor is the preferred way to lower power consumption if you're using `async`, instead of calling `sleep()` directly.
 
 use core::mem;
-use core::sync::atomic::{Ordering, compiler_fence};
+use core::sync::atomic::{AtomicBool, Ordering, compiler_fence};
 
 use cortex_m::peripheral::SCB;
 use critical_section::CriticalSection;
 
-#[cfg(not(feature = "_lp-time-driver"))]
+#[cfg(all(feature = "rt", not(feature = "_lp-time-driver")))]
 use crate::interrupt;
 pub use crate::rcc::StopMode;
 use crate::rcc::get_stop_mode;
 use crate::time_driver::{LPTimeDriver, get_driver};
 
-#[cfg(not(any(stm32u0, feature = "_lp-time-driver")))]
+#[cfg(all(feature = "rt", not(any(stm32u0, feature = "_lp-time-driver"))))]
 foreach_interrupt! {
     (RTC, rtc, $block:ident, WKUP, $irq:ident) => {
         #[interrupt]
@@ -46,7 +46,7 @@ foreach_interrupt! {
     };
 }
 
-#[cfg(stm32u0)]
+#[cfg(all(feature = "rt", stm32u0))]
 foreach_interrupt! {
     (RTC, rtc, $block:ident, TAMP, $irq:ident) => {
         #[interrupt]
@@ -63,13 +63,13 @@ use crate::pac::pwr::vals::Lpms;
 impl Into<Lpms> for StopMode {
     fn into(self) -> Lpms {
         match self {
-            StopMode::Stop1 => Lpms::STOP1,
+            StopMode::Stop1 => Lpms::Stop1,
             #[cfg(not(stm32wba))]
-            StopMode::Standby | StopMode::Stop2 => Lpms::STOP2,
+            StopMode::Standby | StopMode::Stop2 => Lpms::Stop2,
             #[cfg(stm32wba)]
             // WBA STOP2 is auto-entered by hardware when LPMS=STOP0 and
             // the 2.4 GHz radio is in deep sleep. It's not a separate LPMS value.
-            StopMode::Standby | StopMode::Stop2 => Lpms::STOP0,
+            StopMode::Standby | StopMode::Stop2 => Lpms::Stop0,
         }
     }
 }
@@ -85,25 +85,17 @@ mod platform {
         fn enter_stop_stm32wb(
             _cs: CriticalSection<'_>,
         ) -> Result<crate::hsem::HardwareSemaphoreMutex<'_, crate::peripherals::HSEM>, ()> {
-            use core::task::Poll;
-
-            use embassy_futures::poll_once;
-
             use crate::hsem::get_hsem;
             use crate::pac::rcc::vals::{Smps, Sw};
             use crate::pac::{PWR, RCC};
 
             trace!("low power: trying to get sem3");
 
-            let sem3_mutex = match poll_once(get_hsem(3).lock(0)) {
-                Poll::Pending => None,
-                Poll::Ready(mutex) => Some(mutex),
-            }
-            .ok_or(())?;
+            let sem3_mutex = get_hsem(3).try_fast_lock_with_interrupt().ok_or(())?;
 
             trace!("low power: got sem3");
 
-            let sem4_mutex = get_hsem(4).try_lock(0);
+            let sem4_mutex = get_hsem(4).try_fast_lock();
             if let Some(sem4_mutex) = sem4_mutex {
                 trace!("low power: got sem4");
 
@@ -125,15 +117,15 @@ mod platform {
 
             // Set SW to HSI
             RCC.cfgr().modify(|w| {
-                w.set_sw(Sw::HSI);
+                w.set_sw(Sw::Hsi);
             });
 
             // Wait for SWS to report HSI
-            while !RCC.cfgr().read().sws().eq(&Sw::HSI) {}
+            while !RCC.cfgr().read().sws().eq(&Sw::Hsi) {}
 
             // Set SMPSSEL to HSI
             RCC.smpscr().modify(|w| {
-                w.set_smpssel(Smps::HSI);
+                w.set_smpssel(Smps::Hsi);
             });
 
             Ok(sem3_mutex)
@@ -172,15 +164,15 @@ mod platform {
         #[cfg(stm32h5)]
         crate::pac::PWR.pmcr().modify(|v| {
             use crate::pac::pwr::vals;
-            v.set_lpms(vals::Lpms::STOP);
-            v.set_svos(vals::Svos::SCALE3);
+            v.set_lpms(vals::Lpms::Stop);
+            v.set_svos(vals::Svos::Scale3);
         });
 
         #[cfg(stm32l0)]
         {
             use crate::pac::pwr::vals::Pdds;
             crate::pac::PWR.cr().modify(|w| {
-                w.set_pdds(Pdds::STOP_MODE);
+                w.set_pdds(Pdds::StopMode);
                 w.set_cwuf(true);
             });
         }
@@ -324,18 +316,17 @@ mod platform {
     }
 }
 
-unsafe fn on_wakeup_irq_or_event() {
-    if !get_driver().is_stopped() {
-        //trace!("low power: time driver not stopped!");
-        return;
-    }
+static STOP_ENTERED: AtomicBool = AtomicBool::new(false);
 
-    critical_section::with(|cs| {
+unsafe fn on_wakeup(cs: CriticalSection) {
+    if STOP_ENTERED.load(Ordering::Acquire) {
         platform::exit_stop(cs);
 
         get_driver().resume_time(cs);
         trace!("low power: resumed");
-    });
+    }
+
+    STOP_ENTERED.store(false, Ordering::Release);
 }
 
 fn configure_pwr(cs: CriticalSection) {
@@ -349,25 +340,24 @@ fn configure_pwr(cs: CriticalSection) {
     compiler_fence(Ordering::Acquire);
 
     let Some(stop_mode) = get_stop_mode(cs) else {
-        //trace!("low power: no stop mode available");
         return;
     };
 
     if get_driver().pause_time(cs).is_err() {
-        warn!("low_power: failed to pause time, not entering stop");
+        trace!("low_power: failed to pause time, not entering stop");
+    } else if platform::enter_stop(cs, stop_mode).is_err() {
+        trace!("low_power: failed to enter stop");
+    } else {
+        #[cfg(stm32l0)]
+        trace!("low power: enter stop");
+        #[cfg(not(stm32l0))]
+        trace!("low power: enter stop: {}", stop_mode);
+
+        STOP_ENTERED.store(true, Ordering::Release);
+
+        #[cfg(not(feature = "low-power-debug-with-sleep"))]
+        get_scb().set_sleepdeep();
     }
-
-    if platform::enter_stop(cs, stop_mode).is_err() {
-        warn!("low_power: failed to enter stop");
-    }
-
-    #[cfg(stm32l0)]
-    trace!("low power: enter stop");
-    #[cfg(not(stm32l0))]
-    trace!("low power: enter stop: {}", stop_mode);
-
-    #[cfg(not(feature = "low-power-debug-with-sleep"))]
-    get_scb().set_sleepdeep();
 }
 
 /// Sleep with WFI, attempting to enter the deepest STOP mode possible.
@@ -391,5 +381,8 @@ pub unsafe fn sleep(cs: CriticalSection) {
     cortex_m::asm::dsb();
     cortex_m::asm::wfi();
 
-    on_wakeup_irq_or_event();
+    cortex_m::asm::isb();
+    cortex_m::asm::dsb();
+
+    on_wakeup(cs);
 }

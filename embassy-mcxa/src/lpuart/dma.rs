@@ -7,7 +7,7 @@ use crate::dma::{
     Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, DmaRequest, InvalidParameters, RingBuffer, TransferOptions,
 };
 use crate::gpio::AnyPin;
-use crate::pac::lpuart::vals::{Tc, Tdre};
+use crate::pac::lpuart::{Tc, Tdre};
 
 /// DMA mode.
 pub struct Dma<'d> {
@@ -187,7 +187,7 @@ impl<'a> LpuartTx<'a, Dma<'a>> {
 
         // Wait for completion asynchronously
         core::future::poll_fn(|cx| {
-            guard.dma.waker().register(cx.waker());
+            let _ = guard.dma.wait_cell().poll_wait(cx);
             if guard.dma.is_done() {
                 core::task::Poll::Ready(())
             } else {
@@ -313,7 +313,7 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
 
         // Wait for completion asynchronously
         core::future::poll_fn(|cx| {
-            guard.dma.waker().register(cx.waker());
+            let _ = guard.dma.wait_cell().poll_wait(cx);
             if guard.dma.is_done() {
                 core::task::Poll::Ready(())
             } else {

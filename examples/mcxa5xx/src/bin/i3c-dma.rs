@@ -6,8 +6,7 @@ use embassy_time::Timer;
 use hal::bind_interrupts;
 use hal::clocks::config::Div8;
 use hal::config::Config;
-use hal::i3c::InterruptHandler;
-use hal::i3c::controller::{self, BusType, I3c};
+use hal::i3c::controller::{self, BusType, I3c, InterruptHandler};
 use hal::peripherals::I3C0;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
@@ -27,7 +26,7 @@ async fn main(_spawner: Spawner) {
     defmt::info!("I3C example");
 
     let config = controller::Config::default();
-    let mut i3c = I3c::new_async_with_dma(p.I3C0, p.P0_21, p.P0_20, p.DMA_CH0, p.DMA_CH1, Irqs, config).unwrap();
+    let mut i3c = I3c::new_async_with_dma(p.I3C0, p.P0_21, p.P0_20, p.DMA0_CH0, p.DMA0_CH1, Irqs, config).unwrap();
     let mut buf = [0u8; 2];
 
     loop {
