@@ -1,42 +1,23 @@
-//! USB host handler trait and device enumeration helpers.
+//! USB host device enumeration helpers.
 #![allow(missing_docs)]
 
-use core::num::NonZeroU8;
-
 use embassy_usb_driver::Speed;
-use embassy_usb_driver::host::channel::{self, IsIn, IsOut};
-use embassy_usb_driver::host::{HostError, UsbChannel, UsbHostDriver};
+use embassy_usb_driver::host::pipe::{self, IsIn, IsOut};
+use embassy_usb_driver::host::{HostError, SplitInfo, UsbPipe};
 
-use crate::control::ControlChannelExt;
+use crate::control::ControlPipeExt;
 use crate::descriptor::{ConfigurationDescriptor, DeviceDescriptor, USBDescriptor};
 
-/// A non-exhaustive filter applied before calling [`UsbHostHandler::try_register`].
-pub struct DeviceFilter {
-    /// Device base-class; `None` or `0` means class is defined at the interface level.
-    pub base_class: Option<NonZeroU8>,
-    pub sub_class: Option<u8>,
-    pub protocol: Option<u8>,
-}
-
-/// Static specification returned by [`UsbHostHandler::static_spec`].
-pub struct StaticHandlerSpec {
-    /// Optional pre-filter — avoids calling `try_register` for clearly mismatched devices.
-    pub device_filter: Option<DeviceFilter>,
-}
-
-impl StaticHandlerSpec {
-    pub fn new(device_filter: Option<DeviceFilter>) -> Self {
-        StaticHandlerSpec { device_filter }
-    }
-}
-
 /// Information obtained through preliminary enumeration.
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct EnumerationInfo {
     /// Assigned device address.
     pub device_address: u8,
-    /// Low-speed device connected via a full-speed or higher hub.
-    pub ls_over_fs: bool,
+    /// Split-transaction routing, when this device is behind a hub that
+    /// requires splits (HS host reaching LS/FS device through a HS hub, or
+    /// FS host reaching LS device through a FS hub). `None` for a device
+    /// attached directly to the host at its native speed.
+    pub split: Option<SplitInfo>,
     /// Negotiated speed.
     pub speed: Speed,
     /// Parsed device descriptor.
@@ -45,7 +26,7 @@ pub struct EnumerationInfo {
 
 impl EnumerationInfo {
     /// Retrieves the active device configuration, or sets the default if none is active.
-    pub async fn active_config_or_set_default<'a, D: IsIn + IsOut, C: UsbChannel<channel::Control, D>>(
+    pub async fn active_config_or_set_default<'a, D: IsIn + IsOut, C: UsbPipe<pipe::Control, D>>(
         &self,
         channel: &mut C,
         cfg_desc_buf: &'a mut [u8],
@@ -61,7 +42,7 @@ impl EnumerationInfo {
     }
 
     /// Retrieves the active device configuration, or `None` if none is active.
-    pub async fn get_active_configuration<'a, D: IsIn, C: UsbChannel<channel::Control, D>>(
+    pub async fn get_active_configuration<'a, D: IsIn, C: UsbPipe<pipe::Control, D>>(
         &self,
         channel: &mut C,
         cfg_desc_buf: &'a mut [u8],
@@ -99,7 +80,7 @@ impl EnumerationInfo {
     }
 
     /// Retrieve a device configuration by index.
-    pub async fn get_configuration<'a, D: channel::IsIn, C: UsbChannel<channel::Control, D>>(
+    pub async fn get_configuration<'a, D: pipe::IsIn, C: UsbPipe<pipe::Control, D>>(
         &self,
         index: u8,
         channel: &mut C,
@@ -151,29 +132,4 @@ impl From<HostError> for RegisterError {
     fn from(value: HostError) -> Self {
         RegisterError::HostError(value)
     }
-}
-
-/// A USB host-side class driver.
-///
-/// Implemented by class drivers (HID, CDC-ACM, Hub, …). The host calls
-/// [`try_register`](UsbHostHandler::try_register) after enumeration; on success the driver owns
-/// the relevant channels and events are polled via [`wait_for_event`](UsbHostHandler::wait_for_event).
-pub trait UsbHostHandler: Sized {
-    type Driver: UsbHostDriver;
-    type PollEvent;
-
-    fn static_spec() -> StaticHandlerSpec;
-
-    async fn try_register(bus: &Self::Driver, enum_info: &EnumerationInfo) -> Result<Self, RegisterError>;
-
-    async fn wait_for_event(&mut self) -> Result<HandlerEvent<Self::PollEvent>, HostError>;
-}
-
-/// Extension of [`UsbHostHandler`] that supports suspension (dropping channels) and resumption.
-pub trait UsbResumableHandler: UsbHostHandler {
-    type UsbResumeInfo;
-
-    async fn try_resume(bus: &Self::Driver, resume_info: Self::UsbResumeInfo) -> Result<Self, ()>;
-
-    async fn try_suspend(self, bus: &mut Self::Driver) -> Self::UsbResumeInfo;
 }

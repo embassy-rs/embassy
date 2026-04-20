@@ -38,6 +38,7 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::ETH> for InterruptHandl
 pub struct Ethernet<'d, T: Instance, P: Phy> {
     _peri: Peri<'d, T>,
     _wake_guard: WakeGuard,
+    pub(crate) link_state: LinkState,
     pub(crate) tx: TDesRing<'d>,
     pub(crate) rx: RDesRing<'d>,
     _pins: Pins<'d>,
@@ -296,6 +297,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             _pins: pins,
             phy,
             mac_addr,
+            link_state: LinkState::Down,
         };
 
         fence(Ordering::SeqCst);

@@ -155,7 +155,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
 embassy-time = { version = "0.5.1", path = "../embassy-time", optional = true }
 embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", optional = true }
-embassy-time-queue-utils = { version = "0.3.0", path = "../embassy-time-queue-utils", optional = true }
+embassy-time-queue-utils = { version = "0.3.1", path = "../embassy-time-queue-utils", optional = true }
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-hal-internal = { version = "0.5.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-4"] }
 embassy-embedded-hal = { version = "0.6.0", path = "../embassy-embedded-hal", default-features = false }
@@ -209,11 +209,11 @@ aligned = "0.4.3"
 heapless = "0.9.1"
 
 # stm32-metapac = { version = "21" }
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-5f15bbfaf37bd6a6330fec66a3a39de0042d64ac" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-10af491da4af2cf36f885e8a244139ddb97296c4" }
 
 [build-dependencies]
 # stm32-metapac = { version = "21", default-features = false, features = ["metadata"]}
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-5f15bbfaf37bd6a6330fec66a3a39de0042d64ac", default-features = false, features = ["metadata"] }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-10af491da4af2cf36f885e8a244139ddb97296c4", default-features = false, features = ["metadata"] }
 
 proc-macro2 = "1.0.36"
 quote = "1.0.15"
@@ -673,14 +673,14 @@ stm32f303ze = [ "stm32-metapac/stm32f303ze" ]
 stm32f318c8 = [ "stm32-metapac/stm32f318c8" ]
 stm32f318k8 = [ "stm32-metapac/stm32f318k8" ]
 stm32f328c8 = [ "stm32-metapac/stm32f328c8" ]
-stm32f334c4 = [ "stm32-metapac/stm32f334c4", "stm32-hrtim", "stm32-hrtim/stm32f334" ]
-stm32f334c6 = [ "stm32-metapac/stm32f334c6", "stm32-hrtim", "stm32-hrtim/stm32f334" ]
-stm32f334c8 = [ "stm32-metapac/stm32f334c8", "stm32-hrtim", "stm32-hrtim/stm32f334" ]
-stm32f334k4 = [ "stm32-metapac/stm32f334k4", "stm32-hrtim", "stm32-hrtim/stm32f334" ]
-stm32f334k6 = [ "stm32-metapac/stm32f334k6", "stm32-hrtim", "stm32-hrtim/stm32f334" ]
-stm32f334k8 = [ "stm32-metapac/stm32f334k8", "stm32-hrtim", "stm32-hrtim/stm32f334" ]
-stm32f334r6 = [ "stm32-metapac/stm32f334r6", "stm32-hrtim", "stm32-hrtim/stm32f334" ]
-stm32f334r8 = [ "stm32-metapac/stm32f334r8", "stm32-hrtim", "stm32-hrtim/stm32f334" ]
+stm32f334c4 = [ "stm32-metapac/stm32f334c4", "stm32-hrtim?/stm32f334" ]
+stm32f334c6 = [ "stm32-metapac/stm32f334c6", "stm32-hrtim?/stm32f334" ]
+stm32f334c8 = [ "stm32-metapac/stm32f334c8", "stm32-hrtim?/stm32f334" ]
+stm32f334k4 = [ "stm32-metapac/stm32f334k4", "stm32-hrtim?/stm32f334" ]
+stm32f334k6 = [ "stm32-metapac/stm32f334k6", "stm32-hrtim?/stm32f334" ]
+stm32f334k8 = [ "stm32-metapac/stm32f334k8", "stm32-hrtim?/stm32f334" ]
+stm32f334r6 = [ "stm32-metapac/stm32f334r6", "stm32-hrtim?/stm32f334" ]
+stm32f334r8 = [ "stm32-metapac/stm32f334r8", "stm32-hrtim?/stm32f334" ]
 stm32f358cc = [ "stm32-metapac/stm32f358cc" ]
 stm32f358rc = [ "stm32-metapac/stm32f358rc" ]
 stm32f358vc = [ "stm32-metapac/stm32f358vc" ]
@@ -1086,36 +1086,36 @@ stm32g473re = [ "stm32-metapac/stm32g473re" ]
 stm32g473vb = [ "stm32-metapac/stm32g473vb" ]
 stm32g473vc = [ "stm32-metapac/stm32g473vc" ]
 stm32g473ve = [ "stm32-metapac/stm32g473ve" ]
-stm32g474cb = [ "stm32-metapac/stm32g474cb", "stm32-hrtim", "stm32-hrtim/stm32g474" ]
-stm32g474cc = [ "stm32-metapac/stm32g474cc", "stm32-hrtim", "stm32-hrtim/stm32g474" ]
-stm32g474ce = [ "stm32-metapac/stm32g474ce", "stm32-hrtim", "stm32-hrtim/stm32g474" ]
-stm32g474mb = [ "stm32-metapac/stm32g474mb", "stm32-hrtim", "stm32-hrtim/stm32g474" ]
-stm32g474mc = [ "stm32-metapac/stm32g474mc", "stm32-hrtim", "stm32-hrtim/stm32g474" ]
-stm32g474me = [ "stm32-metapac/stm32g474me", "stm32-hrtim", "stm32-hrtim/stm32g474" ]
-stm32g474pb = [ "stm32-metapac/stm32g474pb", "stm32-hrtim", "stm32-hrtim/stm32g474" ]
-stm32g474pc = [ "stm32-metapac/stm32g474pc", "stm32-hrtim", "stm32-hrtim/stm32g474" ]
-stm32g474pe = [ "stm32-metapac/stm32g474pe", "stm32-hrtim", "stm32-hrtim/stm32g474" ]
-stm32g474qb = [ "stm32-metapac/stm32g474qb", "stm32-hrtim", "stm32-hrtim/stm32g474" ]
-stm32g474qc = [ "stm32-metapac/stm32g474qc", "stm32-hrtim", "stm32-hrtim/stm32g474" ]
-stm32g474qe = [ "stm32-metapac/stm32g474qe", "stm32-hrtim", "stm32-hrtim/stm32g474" ]
-stm32g474rb = [ "stm32-metapac/stm32g474rb", "stm32-hrtim", "stm32-hrtim/stm32g474" ]
-stm32g474rc = [ "stm32-metapac/stm32g474rc", "stm32-hrtim", "stm32-hrtim/stm32g474" ]
-stm32g474re = [ "stm32-metapac/stm32g474re", "stm32-hrtim", "stm32-hrtim/stm32g474" ]
-stm32g474vb = [ "stm32-metapac/stm32g474vb", "stm32-hrtim", "stm32-hrtim/stm32g474" ]
-stm32g474vc = [ "stm32-metapac/stm32g474vc", "stm32-hrtim", "stm32-hrtim/stm32g474" ]
-stm32g474ve = [ "stm32-metapac/stm32g474ve", "stm32-hrtim", "stm32-hrtim/stm32g474" ]
+stm32g474cb = [ "stm32-metapac/stm32g474cb", "stm32-hrtim?/stm32g474" ]
+stm32g474cc = [ "stm32-metapac/stm32g474cc", "stm32-hrtim?/stm32g474" ]
+stm32g474ce = [ "stm32-metapac/stm32g474ce", "stm32-hrtim?/stm32g474" ]
+stm32g474mb = [ "stm32-metapac/stm32g474mb", "stm32-hrtim?/stm32g474" ]
+stm32g474mc = [ "stm32-metapac/stm32g474mc", "stm32-hrtim?/stm32g474" ]
+stm32g474me = [ "stm32-metapac/stm32g474me", "stm32-hrtim?/stm32g474" ]
+stm32g474pb = [ "stm32-metapac/stm32g474pb", "stm32-hrtim?/stm32g474" ]
+stm32g474pc = [ "stm32-metapac/stm32g474pc", "stm32-hrtim?/stm32g474" ]
+stm32g474pe = [ "stm32-metapac/stm32g474pe", "stm32-hrtim?/stm32g474" ]
+stm32g474qb = [ "stm32-metapac/stm32g474qb", "stm32-hrtim?/stm32g474" ]
+stm32g474qc = [ "stm32-metapac/stm32g474qc", "stm32-hrtim?/stm32g474" ]
+stm32g474qe = [ "stm32-metapac/stm32g474qe", "stm32-hrtim?/stm32g474" ]
+stm32g474rb = [ "stm32-metapac/stm32g474rb", "stm32-hrtim?/stm32g474" ]
+stm32g474rc = [ "stm32-metapac/stm32g474rc", "stm32-hrtim?/stm32g474" ]
+stm32g474re = [ "stm32-metapac/stm32g474re", "stm32-hrtim?/stm32g474" ]
+stm32g474vb = [ "stm32-metapac/stm32g474vb", "stm32-hrtim?/stm32g474" ]
+stm32g474vc = [ "stm32-metapac/stm32g474vc", "stm32-hrtim?/stm32g474" ]
+stm32g474ve = [ "stm32-metapac/stm32g474ve", "stm32-hrtim?/stm32g474" ]
 stm32g483ce = [ "stm32-metapac/stm32g483ce" ]
 stm32g483me = [ "stm32-metapac/stm32g483me" ]
 stm32g483pe = [ "stm32-metapac/stm32g483pe" ]
 stm32g483qe = [ "stm32-metapac/stm32g483qe" ]
 stm32g483re = [ "stm32-metapac/stm32g483re" ]
 stm32g483ve = [ "stm32-metapac/stm32g483ve" ]
-stm32g484ce = [ "stm32-metapac/stm32g484ce", "stm32-hrtim", "stm32-hrtim/stm32g484" ]
-stm32g484me = [ "stm32-metapac/stm32g484me", "stm32-hrtim", "stm32-hrtim/stm32g484" ]
-stm32g484pe = [ "stm32-metapac/stm32g484pe", "stm32-hrtim", "stm32-hrtim/stm32g484" ]
-stm32g484qe = [ "stm32-metapac/stm32g484qe", "stm32-hrtim", "stm32-hrtim/stm32g484" ]
-stm32g484re = [ "stm32-metapac/stm32g484re", "stm32-hrtim", "stm32-hrtim/stm32g484" ]
-stm32g484ve = [ "stm32-metapac/stm32g484ve", "stm32-hrtim", "stm32-hrtim/stm32g484" ]
+stm32g484ce = [ "stm32-metapac/stm32g484ce", "stm32-hrtim?/stm32g484" ]
+stm32g484me = [ "stm32-metapac/stm32g484me", "stm32-hrtim?/stm32g484" ]
+stm32g484pe = [ "stm32-metapac/stm32g484pe", "stm32-hrtim?/stm32g484" ]
+stm32g484qe = [ "stm32-metapac/stm32g484qe", "stm32-hrtim?/stm32g484" ]
+stm32g484re = [ "stm32-metapac/stm32g484re", "stm32-hrtim?/stm32g484" ]
+stm32g484ve = [ "stm32-metapac/stm32g484ve", "stm32-hrtim?/stm32g484" ]
 stm32g491cc = [ "stm32-metapac/stm32g491cc" ]
 stm32g491ce = [ "stm32-metapac/stm32g491ce" ]
 stm32g491kc = [ "stm32-metapac/stm32g491kc" ]

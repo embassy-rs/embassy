@@ -85,25 +85,17 @@ mod platform {
         fn enter_stop_stm32wb(
             _cs: CriticalSection<'_>,
         ) -> Result<crate::hsem::HardwareSemaphoreMutex<'_, crate::peripherals::HSEM>, ()> {
-            use core::task::Poll;
-
-            use embassy_futures::poll_once;
-
             use crate::hsem::get_hsem;
             use crate::pac::rcc::vals::{Smps, Sw};
             use crate::pac::{PWR, RCC};
 
             trace!("low power: trying to get sem3");
 
-            let sem3_mutex = match poll_once(get_hsem(3).lock(0)) {
-                Poll::Pending => None,
-                Poll::Ready(mutex) => Some(mutex),
-            }
-            .ok_or(())?;
+            let sem3_mutex = get_hsem(3).try_fast_lock_with_interrupt().ok_or(())?;
 
             trace!("low power: got sem3");
 
-            let sem4_mutex = get_hsem(4).try_lock(0);
+            let sem4_mutex = get_hsem(4).try_fast_lock();
             if let Some(sem4_mutex) = sem4_mutex {
                 trace!("low power: got sem4");
 
@@ -352,9 +344,9 @@ fn configure_pwr(cs: CriticalSection) {
     };
 
     if get_driver().pause_time(cs).is_err() {
-        warn!("low_power: failed to pause time, not entering stop");
+        trace!("low_power: failed to pause time, not entering stop");
     } else if platform::enter_stop(cs, stop_mode).is_err() {
-        warn!("low_power: failed to enter stop");
+        trace!("low_power: failed to enter stop");
     } else {
         #[cfg(stm32l0)]
         trace!("low power: enter stop");

@@ -4,13 +4,13 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::Speed;
-use embassy_stm32::hrtim::stm32_hrtim::compare_register::HrCompareRegister;
-use embassy_stm32::hrtim::stm32_hrtim::output::HrOutput;
-use embassy_stm32::hrtim::stm32_hrtim::timer::HrTimer;
-use embassy_stm32::hrtim::stm32_hrtim::{HrParts, HrPwmAdvExt, PreloadSource};
-use embassy_stm32::hrtim::{HrControltExt, HrPwmBuilderExt, Parts};
+use embassy_stm32::hrtim::stm32_hrtim::{HrControltExt, HrPwmBuilderExt, Parts};
 use embassy_stm32::{Config, hrtim};
 use embassy_time::Timer;
+use stm32_hrtim::compare_register::HrCompareRegister;
+use stm32_hrtim::output::HrOutput;
+use stm32_hrtim::timer::HrTimer;
+use stm32_hrtim::{HrParts, HrPwmAdvExt, PreloadSource};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -46,7 +46,7 @@ async fn main(_spawner: Spawner) {
 
     // ...with a prescaler of 4 this gives us a HrTimer with a tick rate of 960MHz
     // With max the max period set, this would be 960MHz/2^16 ~= 14.6kHz...
-    let prescaler = hrtim::Pscl4;
+    let prescaler = stm32_hrtim::Pscl4;
 
     let Parts { control, tima, .. } = p.HRTIM1.hr_control();
     let (control, ..) = control.wait_for_calibration();

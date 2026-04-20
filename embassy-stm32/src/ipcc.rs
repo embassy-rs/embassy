@@ -26,8 +26,8 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::IPCC_C1_RX> for Receive
 
         trace!("ipcc: rx interrupt");
         // Status register gives channel occupied status. For rx, use the other.
-        let sr = regs.cpu(core.other().to_index()).sr().read();
-        regs.cpu(core.to_index()).mr().modify(|w| {
+        let sr = regs.cpu(core.other().to_index().into()).sr().read();
+        regs.cpu(core.to_index().into()).mr().modify(|w| {
             for index in 0..5 {
                 if sr.chf(index as usize) {
                     // If bit is set to 1 then interrupt is disabled; we want to disable the interrupt
@@ -53,8 +53,8 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::IPCC_C1_TX> for Transmi
 
         trace!("ipcc: rx interrupt");
         // Status register gives channel occupied status. For tx, use cpu0.
-        let sr = regs.cpu(core.to_index()).sr().read();
-        regs.cpu(core.to_index()).mr().modify(|w| {
+        let sr = regs.cpu(core.to_index().into()).sr().read();
+        regs.cpu(core.to_index().into()).mr().modify(|w| {
             for index in 0..5 {
                 if !sr.chf(index as usize) {
                     // If bit is set to 1 then interrupt is disabled; we want to disable the interrupt
@@ -79,11 +79,11 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::IPCC_C2_RX_C2_TX> for I
         let core = CoreId::current();
 
         // Status register gives channel occupied status. For rx, use the other.
-        let rx_sr = regs.cpu(core.other().to_index()).sr().read();
+        let rx_sr = regs.cpu(core.other().to_index().into()).sr().read();
         // Status register gives channel occupied status. For tx, use cpu0.
-        let tx_sr = regs.cpu(core.to_index()).sr().read();
+        let tx_sr = regs.cpu(core.to_index().into()).sr().read();
 
-        regs.cpu(core.to_index()).mr().modify(|w| {
+        regs.cpu(core.to_index().into()).mr().modify(|w| {
             for index in 0..5 {
                 if rx_sr.chf(index as usize) {
                     // If bit is set to 1 then interrupt is disabled; we want to disable the interrupt
@@ -149,7 +149,7 @@ impl<'a> IpccTxChannel<'a> {
         fence(Ordering::Release);
 
         trace!("ipcc: ch {}: send data", self.index as u8);
-        regs.cpu(core.to_index())
+        regs.cpu(core.to_index().into())
             .scr()
             .write(|w| w.set_chs(self.index as usize, true));
     }
@@ -161,7 +161,7 @@ impl<'a> IpccTxChannel<'a> {
         let core = CoreId::current();
 
         // This is a race, but is nice for debugging
-        if regs.cpu(core.to_index()).sr().read().chf(self.index as usize) {
+        if regs.cpu(core.to_index().into()).sr().read().chf(self.index as usize) {
             trace!("ipcc: ch {}: wait for tx free", self.index as u8);
         }
 
@@ -169,17 +169,17 @@ impl<'a> IpccTxChannel<'a> {
             IPCC::state().tx_waker_for(self.index).register(cx.waker());
             // If bit is set to 1 then interrupt is disabled; we want to enable the interrupt
             critical_section::with(|_| {
-                regs.cpu(core.to_index())
+                regs.cpu(core.to_index().into())
                     .mr()
                     .modify(|w| w.set_chfm(self.index as usize, false))
             });
 
             compiler_fence(Ordering::SeqCst);
 
-            if !regs.cpu(core.to_index()).sr().read().chf(self.index as usize) {
+            if !regs.cpu(core.to_index().into()).sr().read().chf(self.index as usize) {
                 // If bit is set to 1 then interrupt is disabled; we want to disable the interrupt
                 critical_section::with(|_| {
-                    regs.cpu(core.to_index())
+                    regs.cpu(core.to_index().into())
                         .mr()
                         .modify(|w| w.set_chfm(self.index as usize, true))
                 });
@@ -217,7 +217,12 @@ impl<'a> IpccRxChannel<'a> {
 
         loop {
             // This is a race, but is nice for debugging
-            if !regs.cpu(core.other().to_index()).sr().read().chf(self.index as usize) {
+            if !regs
+                .cpu(core.other().to_index().into())
+                .sr()
+                .read()
+                .chf(self.index as usize)
+            {
                 trace!("ipcc: ch {}: wait for rx occupied", self.index as u8);
             }
 
@@ -225,17 +230,22 @@ impl<'a> IpccRxChannel<'a> {
                 IPCC::state().rx_waker_for(self.index).register(cx.waker());
                 // If bit is set to 1 then interrupt is disabled; we want to enable the interrupt
                 critical_section::with(|_| {
-                    regs.cpu(core.to_index())
+                    regs.cpu(core.to_index().into())
                         .mr()
                         .modify(|w| w.set_chom(self.index as usize, false))
                 });
 
                 compiler_fence(Ordering::SeqCst);
 
-                if regs.cpu(core.other().to_index()).sr().read().chf(self.index as usize) {
+                if regs
+                    .cpu(core.other().to_index().into())
+                    .sr()
+                    .read()
+                    .chf(self.index as usize)
+                {
                     // If bit is set to 1 then interrupt is disabled; we want to disable the interrupt
                     critical_section::with(|_| {
-                        regs.cpu(core.to_index())
+                        regs.cpu(core.to_index().into())
                             .mr()
                             .modify(|w| w.set_chom(self.index as usize, true))
                     });
@@ -255,7 +265,7 @@ impl<'a> IpccRxChannel<'a> {
             trace!("ipcc: ch {}: clear rx", self.index as u8);
             compiler_fence(Ordering::SeqCst);
             // If the channel is clear and the read function returns none, fetch more data
-            regs.cpu(core.to_index())
+            regs.cpu(core.to_index().into())
                 .scr()
                 .write(|w| w.set_chc(self.index as usize, true));
             match ret {
@@ -343,7 +353,7 @@ impl Ipcc {
         let regs = IPCC::regs();
         let core = CoreId::current();
 
-        regs.cpu(core.to_index()).cr().modify(|w| {
+        regs.cpu(core.to_index().into()).cr().modify(|w| {
             w.set_rxoie(true);
             w.set_txfie(true);
         });

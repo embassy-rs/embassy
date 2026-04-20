@@ -307,10 +307,6 @@ impl super::LPTimeDriver for RtcDriver {
 
         let time_until_next_alarm = self.time_until_next_alarm(cs);
         if time_until_next_alarm < self.min_stop_pause.borrow(cs).get() {
-            trace!(
-                "time_until_next_alarm < self.min_stop_pause ({})",
-                time_until_next_alarm
-            );
             Err(())
         } else {
             self.rtc

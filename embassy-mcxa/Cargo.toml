@@ -44,7 +44,7 @@ embedded-hal-async = { version = "1.0" }
 embedded-hal-nb = { version = "1.0" }
 embedded-io = "0.7"
 embedded-io-async = { version = "0.7.0" }
-embedded-mcu-hal = { version = "0.1.0", optional = true }
+embedded-mcu-hal = { version = "0.2.0", optional = true }
 embedded-storage = "0.3.1"
 
 # Custom executor support
@@ -53,7 +53,7 @@ embassy-executor = { version = "0.10.0", path = "../embassy-executor" }
 # `time` dependencies
 embassy-time = { version = "0.5.1", path = "../embassy-time" }
 embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", features = ["tick-hz-1_000_000"] }
-embassy-time-queue-utils = { version = "0.3.0", path = "../embassy-time-queue-utils" }
+embassy-time-queue-utils = { version = "0.3.1", path = "../embassy-time-queue-utils" }
 
 grounded = { version = "0.2.1", features = ["cas", "critical-section"] }
 heapless = "0.9"

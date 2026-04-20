@@ -2,9 +2,9 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::sync::atomic::{AtomicBool, Ordering, compiler_fence};
 use core::task::Poll;
 
-#[cfg(all(any(stm32wb, stm32wl5x), feature = "low-power"))]
 use critical_section::CriticalSection;
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
@@ -16,6 +16,7 @@ use interrupt::typelevel::Interrupt;
 // which is not yet supported by this code.
 use crate::Peri;
 use crate::cpu::CoreId;
+use crate::peripherals::HSEM;
 use crate::rcc::RccPeripheral;
 use crate::{interrupt, pac};
 
@@ -44,23 +45,52 @@ pub struct HardwareSemaphoreInterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for HardwareSemaphoreInterruptHandler<T> {
     unsafe fn on_interrupt() {
-        // Disable interrupts to defer clear to poll_fn
-        // otherwise the handler is called again on return
-        T::Interrupt::disable();
-
+        let core = CoreId::current();
         // Get pending semaphore bits from masked ISR for the current core
-        let mut pending = T::regs().misr(CoreId::current().to_index()).read().0;
+        let mut pending = T::regs().misr(core.to_index().into()).read().0;
 
-        while pending != 0 {
-            // Index of lowest set bit
-            let n = pending.trailing_zeros() as u8;
+        T::regs().icr(core.to_index().into()).write(|w| {
+            while pending != 0 {
+                // Index of lowest set bit
+                let n = pending.trailing_zeros() as u8;
 
-            // Clear lowest set bit.
-            // Safe when pending != 0 enforced by while predicate
-            pending &= pending - 1;
+                // Clear lowest set bit.
+                // Safe when pending != 0 enforced by while predicate
+                pending &= pending - 1;
 
-            T::state().waker_for(n).wake();
+                w.set_isc(n.into(), true);
+                T::state().flag_for(n).store(true, Ordering::Release);
+                T::state().waker_for(n).wake();
+            }
+        });
+    }
+}
+
+struct ActiveInterrupt<T: Instance> {
+    core: CoreId,
+    index: u8,
+    _marker: PhantomData<T>,
+}
+
+impl<T: Instance> ActiveInterrupt<T> {
+    pub fn new(core: CoreId, index: u8) -> Self {
+        T::regs()
+            .ier(core.to_index().into())
+            .modify(|w| w.set_ise(index.into(), true));
+
+        Self {
+            core,
+            index,
+            _marker: PhantomData,
         }
+    }
+}
+
+impl<T: Instance> Drop for ActiveInterrupt<T> {
+    fn drop(&mut self) {
+        T::regs()
+            .ier(self.core.to_index().into())
+            .modify(|w| w.set_ise(self.index.into(), false));
     }
 }
 
@@ -107,30 +137,17 @@ impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
             return lock;
         }
 
-        let core_index = CoreId::current().to_index();
+        let _scoped_wake_guard = T::RCC_INFO.wake_guard();
+        let core = CoreId::current();
 
-        poll_fn(|cx| match self.try_fast_lock() {
-            Some(lock) => {
-                self.enable_interrupt(core_index, false);
-                self.clear_interrupt(core_index);
-                Poll::Ready(lock)
-            }
-            None => {
-                self.clear_interrupt(core_index);
+        let _irq = self.clear_and_enable_interupt(core);
+        poll_fn(|cx| {
+            T::state().waker_for(self.index).register(cx.waker());
 
-                if let Some(lock) = self.try_fast_lock() {
-                    return Poll::Ready(lock);
-                }
-
-                T::state().waker_for(self.index).register(cx.waker());
-
-                T::Interrupt::unpend();
-                unsafe {
-                    T::Interrupt::enable();
-                }
-                self.enable_interrupt(core_index, true);
-
-                Poll::Pending
+            compiler_fence(Ordering::SeqCst);
+            match self.try_fast_lock() {
+                Some(lock) => Poll::Ready(lock),
+                None => Poll::Pending,
             }
         })
         .await
@@ -145,44 +162,21 @@ impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
     ///   - If the lock fails, register the waker and enable interrupt in IER
     ///
     pub async fn lock(&mut self, process_id: u8) -> HardwareSemaphoreMutex<'a, T> {
-        let _scoped_wake_guard = T::RCC_INFO.wake_guard();
-
-        // Try to acquire the lock and return if it succeeds
         if let Some(lock) = self.try_lock(process_id) {
             return lock;
         }
 
-        let core_index = CoreId::current().to_index();
+        let _scoped_wake_guard = T::RCC_INFO.wake_guard();
+        let core = CoreId::current();
 
-        self.clear_interrupt(core_index);
+        let _irq = self.clear_and_enable_interupt(core);
+        poll_fn(|cx| {
+            T::state().waker_for(self.index).register(cx.waker());
 
-        // Try to lock again otherwise register the waker and enable interrupts
-        poll_fn(|cx| match self.try_lock(process_id) {
-            Some(mutex) => {
-                self.enable_interrupt(core_index, false);
-                self.clear_interrupt(core_index);
-                Poll::Ready(mutex)
-            }
-            None => {
-                // If we were woken by an interrupt and the lock failed to acquire, clear
-                // interrupt flags and attempt to lock again before re-registering the waker
-                // RM0399 Rev4 page 559
-                self.clear_interrupt(core_index);
-
-                if let Some(lock) = self.try_lock(process_id) {
-                    return Poll::Ready(lock);
-                }
-
-                T::state().waker_for(self.index).register(cx.waker());
-
-                self.enable_interrupt(core_index, true);
-
-                T::Interrupt::unpend();
-                unsafe {
-                    T::Interrupt::enable();
-                }
-
-                Poll::Pending
+            compiler_fence(Ordering::SeqCst);
+            match self.try_lock(process_id) {
+                Some(lock) => Poll::Ready(lock),
+                None => Poll::Pending,
             }
         })
         .await
@@ -206,49 +200,61 @@ impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
 
     /// Blocking poll for semaphore interrupt flag
     pub fn blocking_listen(&mut self) {
-        let core_index = CoreId::current().to_index();
-        self.clear_interrupt(core_index);
-        self.enable_interrupt(core_index, true);
+        let core = CoreId::current();
+
+        T::state().flag_for(core.to_index()).store(false, Ordering::Release);
+
+        let _irq = self.clear_and_enable_interupt(core);
         // Wait for the semaphore interrupt flag
-        while !T::regs().misr(core_index).read().misf(self.index as usize) {}
-        self.enable_interrupt(core_index, false);
-        self.clear_interrupt(core_index);
+        while !T::state().flag_for(core.to_index()).load(Ordering::Relaxed) {}
     }
 
     /// Asynchronous listen for a notification interrupt when this semaphore channel is unlocked
     pub async fn listen(&mut self) {
-        let core_index = CoreId::current().to_index();
+        let _scoped_wake_guard = T::RCC_INFO.wake_guard();
+        let core = CoreId::current();
+
+        T::state().flag_for(core.to_index()).store(false, Ordering::Release);
+
+        let _irq = self.clear_and_enable_interupt(core);
+        // Wait for the semaphore interrupt flag
         poll_fn(|cx| {
-            if T::regs().isr(core_index).read().isf(self.index as usize) {
-                self.enable_interrupt(core_index, false);
-                self.clear_interrupt(core_index);
-                return Poll::Ready(());
-            }
             T::state().waker_for(self.index).register(cx.waker());
-            self.enable_interrupt(core_index, true);
-            T::Interrupt::unpend();
-            unsafe {
-                T::Interrupt::enable();
+
+            compiler_fence(Ordering::SeqCst);
+
+            if T::state().flag_for(core.to_index()).load(Ordering::Acquire) {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
             }
-            Poll::Pending
         })
-        .await
+        .await;
     }
 
-    /// Enable interrupts for this semaphore
-    #[inline(always)]
-    fn enable_interrupt(&self, core_index: usize, enable: bool) {
+    /// Clear interrupts for this semaphore and return an active interrupt
+    #[inline]
+    fn clear_and_enable_interupt(&self, core: CoreId) -> ActiveInterrupt<T> {
         T::regs()
-            .ier(core_index)
-            .modify(|w| w.set_ise(self.index as usize, enable));
+            .icr(core.to_index().into())
+            .write(|w| w.set_isc(self.index.into(), true));
+
+        ActiveInterrupt::new(core, self.index)
     }
 
-    /// Clear interrupt flag for this semaphore
-    #[inline(always)]
-    fn clear_interrupt(&self, core_index: usize) {
-        T::regs()
-            .icr(core_index)
-            .write(|w| w.set_isc(self.index as usize, true));
+    #[cfg(all(stm32wb, feature = "low-power"))]
+    /// Try to fast lock a semaphore, and leave the irq enabled if it fails
+    pub(crate) fn try_fast_lock_with_interrupt(&mut self) -> Option<HardwareSemaphoreMutex<'a, T>> {
+        let core = CoreId::current();
+        let _irq = self.clear_and_enable_interupt(core);
+
+        let res = self.try_fast_lock();
+
+        if res.is_none() {
+            core::mem::forget(_irq);
+        }
+
+        res
     }
 
     /// Try to lock the semaphore
@@ -342,8 +348,7 @@ impl<T: Instance> HardwareSemaphore<T> {
         _peripheral: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, HardwareSemaphoreInterruptHandler<T>> + 'd,
     ) -> Self {
-        // Do not attempt to reset the HSEM, as a race condition and deadlock can occur between cores
-        // It is assumed the HSEM is already initialized during `init_primary()`
+        critical_section::with(|cs| init_hsem(cs));
 
         HardwareSemaphore { _type: PhantomData }
     }
@@ -396,10 +401,15 @@ impl<T: Instance> HardwareSemaphore<T> {
     }
 }
 
-#[cfg(all(any(stm32wb, stm32wl5x), feature = "low-power"))]
 pub(crate) fn init_hsem(cs: CriticalSection) {
-    use crate::rcc;
-    rcc::enable_and_reset_with_cs::<crate::peripherals::HSEM>(cs);
+    // Do not attempt to reset the HSEM, as a race condition and deadlock can occur between cores
+    // It is assumed the HSEM is already initialized during `init_primary()`
+    crate::rcc::enable_with_cs::<HSEM>(cs);
+
+    <HSEM as Instance>::Interrupt::unpend();
+    unsafe {
+        <HSEM as Instance>::Interrupt::enable();
+    }
 }
 
 #[cfg(any(all(stm32wb, feature = "low-power"), feature = "_dual-core"))]
@@ -408,6 +418,7 @@ pub(crate) const fn get_hsem<'a>(index: usize) -> HardwareSemaphoreChannel<'a, c
 }
 
 struct State {
+    flags: [AtomicBool; CHANNELS],
     wakers: [AtomicWaker; CHANNELS],
 }
 
@@ -415,11 +426,16 @@ impl State {
     const fn new() -> Self {
         Self {
             wakers: [const { AtomicWaker::new() }; CHANNELS],
+            flags: [const { AtomicBool::new(false) }; CHANNELS],
         }
     }
 
     const fn waker_for(&self, index: u8) -> &AtomicWaker {
         &self.wakers[index as usize]
+    }
+
+    const fn flag_for(&self, index: u8) -> &AtomicBool {
+        &self.flags[index as usize]
     }
 }
 
@@ -447,7 +463,7 @@ impl SealedInstance for crate::peripherals::HSEM {
 }
 
 foreach_interrupt!(
-    ($inst:ident, hsem, $block:ident, $signal_name:ident, $irq:ident) => {
+    ($inst:ident, hsem, $block:ident, GLOBAL, $irq:ident) => {
         impl Instance for crate::peripherals::$inst {
             type Interrupt = crate::interrupt::typelevel::$irq;
         }

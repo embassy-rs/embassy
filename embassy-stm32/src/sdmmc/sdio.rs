@@ -4,6 +4,8 @@ use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
 use aligned::{A4, Aligned};
+#[cfg(feature = "time")]
+use embassy_time::{Duration, Ticker};
 use sdio_host::common_cmd::{R1, Resp, cmd};
 use sdio_host::sd::{BusWidth, OCR, RCA, SD};
 use sdio_host::{Cmd, sd_cmd};
@@ -109,7 +111,24 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
         self.sdmmc.init_idle()?;
 
         // Get IO OCR
-        let _ocr: OCR<SD> = self.sdmmc.cmd(io_send_op_cond(false, 0x0), false, false)?.into();
+        #[cfg(feature = "time")]
+        let mut ticker = Ticker::every(Duration::from_millis(1));
+        let mut i = 0;
+
+        let _ocr: OCR<SD> = loop {
+            match self.sdmmc.cmd(io_send_op_cond(false, 0x0), false, false) {
+                Ok(r) => break Ok(r),
+                Err(Error::Timeout) if i == 500 => break Err(Error::Timeout),
+                Err(Error::Timeout) => {
+                    i += 1;
+
+                    #[cfg(feature = "time")]
+                    ticker.next().await;
+                }
+                Err(e) => break Err(e),
+            }
+        }?
+        .into();
 
         // UDB-based SDIO does not support io volt switch sequence
 

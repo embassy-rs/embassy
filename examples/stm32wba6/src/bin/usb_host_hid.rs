@@ -61,7 +61,7 @@ async fn main(_spawner: Spawner) {
         let mut config_buf = [0u8; 256];
         let result = host.enumerate(speed, &mut config_buf).await;
 
-        let (dev_desc, addr, config_len) = match result {
+        let (enum_info, config_len) = match result {
             Ok(r) => r,
             Err(e) => {
                 error!("Enumeration failed: {:?}", e);
@@ -71,16 +71,11 @@ async fn main(_spawner: Spawner) {
 
         info!(
             "Enumerated: VID={:04x} PID={:04x} addr={}",
-            dev_desc.vendor_id, dev_desc.product_id, addr
+            enum_info.device_desc.vendor_id, enum_info.device_desc.product_id, enum_info.device_address
         );
 
         // Try to create a HID host driver
-        let mut hid = match HidHost::new(
-            host.driver(),
-            &config_buf[..config_len],
-            addr,
-            dev_desc.max_packet_size0 as u16,
-        ) {
+        let mut hid = match HidHost::new(host.driver(), &config_buf[..config_len], &enum_info) {
             Ok(h) => h,
             Err(e) => {
                 error!("HID init failed: {:?}", e);

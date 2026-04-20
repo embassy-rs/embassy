@@ -11,41 +11,31 @@ pub mod control;
 pub mod descriptor;
 pub mod handler;
 
-use embassy_usb_driver::host::{ChannelError, DeviceEvent, HostError, SetupPacket, UsbChannel, UsbHostDriver, channel};
+use embassy_usb_driver::host::{DeviceEvent, HostError, PipeError, UsbHostDriver, UsbPipe, pipe};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType, Speed};
 
-use crate::descriptor::{ConfigurationDescriptor, DeviceDescriptor, USBDescriptor};
-
-/// Convert an 8-byte SETUP array to a [`SetupPacket`].
-pub(crate) fn bytes_to_setup(b: &[u8; 8]) -> SetupPacket {
-    use embassy_usb_driver::host::RequestType;
-    SetupPacket {
-        request_type: RequestType::from_bits_truncate(b[0]),
-        request: b[1],
-        value: u16::from_le_bytes([b[2], b[3]]),
-        index: u16::from_le_bytes([b[4], b[5]]),
-        length: u16::from_le_bytes([b[6], b[7]]),
-    }
-}
+use crate::control::SetupPacket;
+use crate::descriptor::{ConfigurationDescriptor, USBDescriptor};
+use crate::handler::EnumerationInfo;
 
 /// USB host enumeration error.
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum EnumerationError {
     /// Transfer failed during enumeration.
-    Transfer(ChannelError),
+    Transfer(PipeError),
     /// Invalid or unexpected descriptor received.
     InvalidDescriptor,
     /// Configuration buffer too small
     ConfigBufferTooSmall(usize),
-    /// No free channel for EP0 or no free device address.
-    NoChannel,
+    /// No free pipe for EP0 or no free device address.
+    NoPipe,
     /// The device did not respond to a control request after retries.
     RequestFailed,
 }
 
-impl From<ChannelError> for EnumerationError {
-    fn from(e: ChannelError) -> Self {
+impl From<PipeError> for EnumerationError {
+    fn from(e: PipeError) -> Self {
         Self::Transfer(e)
     }
 }
@@ -53,10 +43,10 @@ impl From<ChannelError> for EnumerationError {
 impl From<HostError> for EnumerationError {
     fn from(e: HostError) -> Self {
         match e {
-            HostError::ChannelError(e) => Self::Transfer(e),
+            HostError::PipeError(e) => Self::Transfer(e),
             HostError::InvalidDescriptor => Self::InvalidDescriptor,
             HostError::RequestFailed => Self::RequestFailed,
-            _ => Self::NoChannel,
+            _ => Self::NoPipe,
         }
     }
 }
@@ -69,7 +59,7 @@ impl core::fmt::Display for EnumerationError {
             Self::ConfigBufferTooSmall(size) => {
                 write!(f, "Configuration buffer too small: device requires {} bytes", size)
             }
-            Self::NoChannel => write!(f, "No free channel or no free device address"),
+            Self::NoPipe => write!(f, "No free pipe or no free device address"),
             Self::RequestFailed => write!(f, "Device did not respond"),
         }
     }
@@ -155,13 +145,13 @@ impl<D: UsbHostDriver> UsbHost<D> {
     /// 4. Get configuration descriptor
     /// 5. SET_CONFIGURATION
     ///
-    /// Returns the device descriptor, assigned address, and bytes written to config_buf.
+    /// Returns the [`EnumerationInfo`] for the device and bytes written to `config_buf`.
     pub async fn enumerate(
         &mut self,
         speed: Speed,
         config_buf: &mut [u8],
-    ) -> Result<(DeviceDescriptor, u8, usize), EnumerationError> {
-        use crate::control::ControlChannelExt;
+    ) -> Result<(EnumerationInfo, usize), EnumerationError> {
+        use crate::control::ControlPipeExt;
 
         let ep0_info = EndpointInfo {
             addr: EndpointAddress::from_parts(0, UsbDirection::In),
@@ -172,13 +162,13 @@ impl<D: UsbHostDriver> UsbHost<D> {
 
         let mut ch = self
             .driver
-            .alloc_channel::<channel::Control, channel::InOut>(0, &ep0_info, false)
-            .map_err(|_| EnumerationError::NoChannel)?;
+            .alloc_pipe::<pipe::Control, pipe::InOut>(0, &ep0_info, None)
+            .map_err(|_| EnumerationError::NoPipe)?;
 
-        // Steps 1–3: GET_DESCRIPTOR (partial + full), SET_ADDRESS, retarget channel.
-        let addr = self.alloc_address().ok_or(EnumerationError::NoChannel)?;
-        let enum_info = ch.enumerate_device(speed, addr, false).await?;
-        let dev_desc = enum_info.device_desc;
+        // Steps 1–3: GET_DESCRIPTOR (partial + full), SET_ADDRESS, retarget pipe.
+        let addr = self.alloc_address().ok_or(EnumerationError::NoPipe)?;
+        let enum_info = ch.enumerate_device(speed, addr, None).await?;
+        let dev_desc = &enum_info.device_desc;
 
         info!(
             "Device: VID={:04x} PID={:04x} class={:02x}",
@@ -186,8 +176,8 @@ impl<D: UsbHostDriver> UsbHost<D> {
         );
 
         // Step 4: Get configuration descriptor header (9 bytes).
-        let setup = bytes_to_setup(&control::get_config_descriptor(0, 9));
-        let n = ch.control_in(&setup, &mut config_buf[..9]).await?;
+        let setup = SetupPacket::get_config_descriptor(0, 9);
+        let n = ch.control_in(&setup.to_bytes(), &mut config_buf[..9]).await?;
 
         if n < 9 {
             return Err(EnumerationError::InvalidDescriptor);
@@ -202,8 +192,8 @@ impl<D: UsbHostDriver> UsbHost<D> {
         }
 
         // Get full configuration descriptor.
-        let setup = bytes_to_setup(&control::get_config_descriptor(0, total_len as u16));
-        let n = ch.control_in(&setup, &mut config_buf[..total_len]).await?;
+        let setup = SetupPacket::get_config_descriptor(0, total_len as u16);
+        let n = ch.control_in(&setup.to_bytes(), &mut config_buf[..total_len]).await?;
 
         // USB 2.0 §9.4.3: the device must return exactly total_len bytes for a full config descriptor.
         if n != total_len {
@@ -213,14 +203,14 @@ impl<D: UsbHostDriver> UsbHost<D> {
         trace!("Config descriptor: {} bytes", n);
 
         // Step 5: SET_CONFIGURATION.
-        let setup = bytes_to_setup(&control::set_configuration(config_header.configuration_value));
-        ch.control_out(&setup, &[]).await?;
+        let setup = SetupPacket::set_configuration(config_header.configuration_value);
+        ch.control_out(&setup.to_bytes(), &[]).await?;
 
         info!("Device configured (config={})", config_header.configuration_value);
 
-        // Channel is released on drop.
+        // Pipe is released on drop.
         drop(ch);
 
-        Ok((dev_desc, addr, n))
+        Ok((enum_info, n))
     }
 }

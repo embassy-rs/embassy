@@ -7,9 +7,7 @@ use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Duration, Instant, Timer};
-use embassy_usb_driver::host::{
-    ChannelError, DeviceEvent, HostError, TimeoutConfig, UsbChannel, UsbHostDriver, channel,
-};
+use embassy_usb_driver::host::{DeviceEvent, HostError, PipeError, TimeoutConfig, UsbHostDriver, UsbPipe, pipe};
 use embassy_usb_driver::{EndpointType, Speed};
 use stm32_metapac::common::{RW, Reg};
 use stm32_metapac::usb::regs::Epr;
@@ -365,7 +363,7 @@ impl<'d, I: Instance> UsbHost<'d, I> {
 }
 
 /// USB endpoint. Only implements single buffer mode.
-pub struct Channel<'d, I: Instance, D: channel::Direction, T: channel::Type> {
+pub struct Channel<'d, I: Instance, D: pipe::Direction, T: pipe::Type> {
     _phantom: PhantomData<(&'d mut I, D, T)>,
     /// Register index (there are 8 in total)
     index: usize,
@@ -376,7 +374,7 @@ pub struct Channel<'d, I: Instance, D: channel::Direction, T: channel::Type> {
     buf_out: Option<EndpointBuffer<I>>,
 }
 
-impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D, T> {
+impl<'d, I: Instance, D: pipe::Direction, T: pipe::Type> Channel<'d, I, D, T> {
     fn new(
         index: usize,
         buf_in: Option<EndpointBuffer<I>>,
@@ -444,12 +442,12 @@ impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D,
         epr.write_value(epr_val);
     }
 
-    fn read_data(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError> {
+    fn read_data(&mut self, buf: &mut [u8]) -> Result<usize, PipeError> {
         let index = self.index;
         let rx_len = btable::read_out_len::<I>(index) as usize & 0x3FF;
         trace!("rx_len = {}", rx_len);
         if rx_len > buf.len() {
-            return Err(ChannelError::BufferOverflow);
+            return Err(PipeError::BufferOverflow);
         }
         self.buf_in.as_mut().unwrap().read(&mut buf[..rx_len]);
         Ok(rx_len)
@@ -464,7 +462,7 @@ impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D,
     }
 
     //TODO: Emit a zero length packet when ensure_transaction_end is true and the packet is of max size
-    async fn write(&mut self, buf: &[u8], _ensure_transaction_end: bool) -> Result<(), ChannelError> {
+    async fn write(&mut self, buf: &[u8], _ensure_transaction_end: bool) -> Result<(), PipeError> {
         self.write_data(buf);
 
         let index = self.index;
@@ -483,26 +481,26 @@ impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D,
             let istr = regs.istr().read();
             if !istr.dcon_stat() {
                 self.disable_tx();
-                return Poll::Ready(Err(ChannelError::Disconnected));
+                return Poll::Ready(Err(PipeError::Disconnected));
             }
 
             if t0.elapsed() > Duration::from_millis(timeout_ms as u64) {
                 // Timeout, we need to stop the current transaction.
                 self.disable_tx();
-                return Poll::Ready(Err(ChannelError::Timeout));
+                return Poll::Ready(Err(PipeError::Timeout));
             }
 
             let stat = self.reg().read().stat_tx();
             match stat {
                 Stat::Disabled => Poll::Ready(Ok(())),
-                Stat::Stall => Poll::Ready(Err(ChannelError::Stall)),
+                Stat::Stall => Poll::Ready(Err(PipeError::Stall)),
                 Stat::Nak | Stat::Valid => Poll::Pending,
             }
         })
         .await
     }
 
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError> {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, PipeError> {
         let index = self.index;
 
         let timeout_ms = 1000;
@@ -522,12 +520,12 @@ impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D,
             let istr = regs.istr().read();
             if !istr.dcon_stat() {
                 self.disable_rx();
-                return Poll::Ready(Err(ChannelError::Disconnected));
+                return Poll::Ready(Err(PipeError::Disconnected));
             }
 
             if t0.elapsed() > Duration::from_millis(timeout_ms as u64) {
                 self.disable_rx();
-                return Poll::Ready(Err(ChannelError::Timeout));
+                return Poll::Ready(Err(PipeError::Timeout));
             }
 
             let stat = self.reg().read().stat_rx();
@@ -549,7 +547,7 @@ impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D,
                 }
                 Stat::Stall => {
                     // error
-                    Poll::Ready(Err(ChannelError::Stall))
+                    Poll::Ready(Err(PipeError::Stall))
                 }
                 Stat::Nak => Poll::Pending,
                 Stat::Valid => {
@@ -562,15 +560,11 @@ impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D,
     }
 }
 
-impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<'d, I, D, T> {
-    async fn control_in(
-        &mut self,
-        setup: &embassy_usb_driver::host::SetupPacket,
-        buf: &mut [u8],
-    ) -> Result<usize, ChannelError>
+impl<'d, I: Instance, T: pipe::Type, D: pipe::Direction> UsbPipe<T, D> for Channel<'d, I, D, T> {
+    async fn control_in(&mut self, setup: &[u8; 8], buf: &mut [u8]) -> Result<usize, PipeError>
     where
-        T: channel::IsControl,
-        D: channel::IsIn,
+        T: pipe::IsControl,
+        D: pipe::IsIn,
     {
         let epr0 = I::regs().epr(0);
 
@@ -579,7 +573,7 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         epr_val.set_setup(true);
         epr0.write_value(epr_val);
 
-        self.write(setup.as_bytes(), false).await?;
+        self.write(setup, false).await?;
 
         // data stage
         let count = self.read(buf).await?;
@@ -593,14 +587,10 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         Ok(count)
     }
 
-    async fn control_out(
-        &mut self,
-        setup: &embassy_usb_driver::host::SetupPacket,
-        buf: &[u8],
-    ) -> Result<(), ChannelError>
+    async fn control_out(&mut self, setup: &[u8; 8], buf: &[u8]) -> Result<(), PipeError>
     where
-        T: channel::IsControl,
-        D: channel::IsOut,
+        T: pipe::IsControl,
+        D: pipe::IsOut,
     {
         let epr0 = I::regs().epr(0);
 
@@ -608,7 +598,7 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         let mut epr_val = invariant(epr0.read());
         epr_val.set_setup(true);
         epr0.write_value(epr_val);
-        self.write(setup.as_bytes(), false).await?;
+        self.write(setup, false).await?;
 
         if buf.is_empty() {
             // do nothing
@@ -623,14 +613,14 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         Ok(())
     }
 
-    fn retarget_channel(
+    fn retarget_pipe(
         &mut self,
         addr: u8,
         endpoint: &embassy_usb_driver::EndpointInfo,
-        _pre: bool,
+        _split: Option<embassy_usb_driver::host::SplitInfo>,
     ) -> Result<(), embassy_usb_driver::host::HostError> {
         trace!(
-            "retarget_channel: addr: {:?} ep_type: {:?} index: {}",
+            "retarget_pipe: addr: {:?} ep_type: {:?} index: {}",
             addr, endpoint.ep_type, self.index
         );
         let eptype = endpoint.ep_type;
@@ -647,16 +637,16 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         Ok(())
     }
 
-    async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError>
+    async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, PipeError>
     where
-        D: channel::IsIn,
+        D: pipe::IsIn,
     {
         self.read(buf).await
     }
 
-    async fn request_out(&mut self, buf: &[u8], ensure_transaction_end: bool) -> Result<(), ChannelError>
+    async fn request_out(&mut self, buf: &[u8], ensure_transaction_end: bool) -> Result<(), PipeError>
     where
-        D: channel::IsOut,
+        D: pipe::IsOut,
     {
         self.write(buf, ensure_transaction_end).await
     }
@@ -666,7 +656,7 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
     }
 }
 
-impl<'d, I: Instance, T: channel::Type, D: channel::Direction> Drop for Channel<'d, I, D, T> {
+impl<'d, I: Instance, T: pipe::Type, D: pipe::Direction> Drop for Channel<'d, I, D, T> {
     fn drop(&mut self) {
         critical_section::with(|_| {
             ALLOCATED_PIPES.store(
@@ -678,14 +668,14 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> Drop for Channel<
 }
 
 impl<'d, I: Instance> UsbHostDriver for UsbHost<'d, I> {
-    type Channel<T: channel::Type, D: channel::Direction> = Channel<'d, I, D, T>;
+    type Pipe<T: pipe::Type, D: pipe::Direction> = Channel<'d, I, D, T>;
 
-    fn alloc_channel<T: channel::Type, D: channel::Direction>(
+    fn alloc_pipe<T: pipe::Type, D: pipe::Direction>(
         &self,
         addr: u8,
         endpoint: &embassy_usb_driver::EndpointInfo,
-        pre: bool,
-    ) -> Result<Self::Channel<T, D>, embassy_usb_driver::host::HostError> {
+        split: Option<embassy_usb_driver::host::SplitInfo>,
+    ) -> Result<Self::Pipe<T, D>, embassy_usb_driver::host::HostError> {
         let new_index = if T::ep_type() == EndpointType::Control {
             // Only a single control channel is available
             0
@@ -696,7 +686,7 @@ impl<'d, I: Instance> UsbHostDriver for UsbHost<'d, I> {
                 // Ignore index 0
                 let new_index = (pipes | 1).trailing_ones();
                 if new_index as usize >= USB_MAX_PIPES {
-                    Err(HostError::OutOfChannels)
+                    Err(HostError::OutOfPipes)
                 } else {
                     ALLOCATED_PIPES.store(pipes | 1 << new_index, Ordering::Relaxed);
                     Ok(new_index)
@@ -741,7 +731,7 @@ impl<'d, I: Instance> UsbHostDriver for UsbHost<'d, I> {
             endpoint.max_packet_size,
         );
 
-        channel.retarget_channel(addr, endpoint, pre)?;
+        channel.retarget_pipe(addr, endpoint, split)?;
         Ok(channel)
     }
 

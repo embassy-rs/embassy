@@ -5,6 +5,8 @@ use stm32_metapac::rcc::vals::Xspisel;
 
 use crate::pac;
 #[cfg(stm32h7rs)]
+use crate::pac::flash::regs::Optkeyr;
+#[cfg(stm32h7rs)]
 pub use crate::pac::rcc::vals::Plldivst as PllDivSt;
 pub use crate::pac::rcc::vals::{
     Hsidiv as HSIPrescaler, Plldiv as PllDiv, Pllm as PllPreDiv, Plln as PllMul, Pllsrc as PllSource, Sw as Sysclk,
@@ -238,6 +240,28 @@ pub struct Config {
 
     /// Per-peripheral kernel clock selection muxes
     pub mux: super::mux::ClockMux,
+
+    /// Enable HSLV mode for XSPI1.
+    /// CAUTION: enabling when VDD_XSPI1 > 2.7 V may be destructive!
+    #[cfg(stm32h7rs)]
+    pub hslv_xspi1: bool,
+    /// Enable HSLV mode for XSPI2.
+    /// CAUTION: enabling when VDD_XSPI2 > 2.7 V may be destructive!
+    #[cfg(stm32h7rs)]
+    pub hslv_xspi2: bool,
+    /// Enable HSLV mode for I/O pins.
+    /// CAUTION: enabling when VDD > 2.7 V may be destructive!
+    #[cfg(stm32h7rs)]
+    pub hslv_io: bool,
+
+    /// Enable the compensation cell for XSPI1.
+    /// Enabling with no active device connected will fail with time-out.
+    #[cfg(stm32h7rs)]
+    pub comp_xspi1: bool,
+    /// Enable the compensation cell for XSPI2.
+    /// Enabling with no active device connected will fail with time-out.
+    #[cfg(stm32h7rs)]
+    pub comp_xspi2: bool,
 }
 
 impl Config {
@@ -279,6 +303,18 @@ impl Config {
             supply_config: SupplyConfig::LDO,
 
             mux: super::mux::ClockMux::default(),
+
+            #[cfg(stm32h7rs)]
+            hslv_xspi1: false,
+            #[cfg(stm32h7rs)]
+            hslv_xspi2: false,
+            #[cfg(stm32h7rs)]
+            hslv_io: false,
+
+            #[cfg(stm32h7rs)]
+            comp_xspi1: false,
+            #[cfg(stm32h7rs)]
+            comp_xspi2: false,
         }
     }
 }
@@ -586,7 +622,7 @@ pub(crate) unsafe fn init(config: Config) {
     let hclk = {
         let d1cpre_clk = sys / config.d1c_pre;
         assert!(d1cpre_clk <= d1cpre_clk_max);
-        sys / config.ahb_pre
+        d1cpre_clk / config.ahb_pre
     };
     #[cfg(stm32h5)]
     let hclk = sys / config.ahb_pre;
@@ -711,8 +747,8 @@ pub(crate) unsafe fn init(config: Config) {
         super::disable_hsi48();
     }
 
-    // IO compensation cell - Requires CSI clock and SYSCFG
-    #[cfg(any(stm32h7))] // TODO h5, h7rs
+    // IO compensation cell(s) - Requires CSI clock and SYSCFG
+    #[cfg(any(stm32h7))] // TODO h5
     if csi.is_some() {
         // Enable the compensation cell, using back-bias voltage code
         // provide by the cell.
@@ -724,6 +760,110 @@ pub(crate) unsafe fn init(config: Config) {
             })
         });
         while !pac::SYSCFG.cccsr().read().rdy() {}
+    }
+    #[cfg(any(stm32h7rs))]
+    if csi.is_some() {
+        // The CSI oscillator must be enabled for this to work.
+        // (RM0477, p.362, Ch. 7.5.2 "Oscillators description".)
+
+        // SBS peripheral clock is required by the compensation cells.
+        RCC.apb4enr().modify(|w| w.set_syscfgen(true));
+
+        // Unlock flash OPTCR, when required, to be able to configure HSLV
+        // (high-speed, low-voltage) mode for the required I/O domains.
+        // The original state of the lock bits will be restored when done.
+        // Note: this also avoids double-unlocking, which is not permitted.
+        // (RM0477, p.581, Ch. 10.3.16: High-speed low-voltage mode)
+        let original_lock_state = FLASH.optcr().read().optlock();
+        let original_opt_pg_state = FLASH.optcr().read().pg_opt();
+        if original_lock_state {
+            FLASH.optkeyr().write_value(Optkeyr(0x08192A3B));
+            FLASH.optkeyr().write_value(Optkeyr(0x4C5D6E7F));
+        }
+        if !original_opt_pg_state {
+            // Enable write access to the option bits.
+            FLASH.optcr().modify(|w| w.set_pg_opt(true));
+            while FLASH.sr().read().busy() {}
+        }
+
+        // Set the HSLV option bits to enable HSLV mode configuratrion for all
+        // three domains. (RM0477, p.272, 5.9.33 "FLASH option byte word 1
+        // status register programming")
+        FLASH.obw1srp().modify(|w| {
+            w.set_octo1_hslv(true);
+            w.set_octo2_hslv(true);
+            w.set_vddio_hslv(true);
+        });
+        while FLASH.sr().read().busy() {}
+
+        // Restore the original state of the optlock and pg_opt bits. This is
+        // effectively a no-op if no state change was originally required.
+        FLASH.optcr().modify(|w| {
+            w.set_pg_opt(original_opt_pg_state);
+            w.set_optlock(original_lock_state);
+        });
+        while FLASH.sr().read().busy() {}
+
+        // Configure the HSLV mode domains and I/O compensation cells.
+        pac::SYSCFG.cccsr().modify(|w| {
+            w.set_octo1_iohslv(config.hslv_xspi1);
+            w.set_octo2_iohslv(config.hslv_xspi2);
+            w.set_iohslv(config.hslv_io);
+
+            // Enable the compensation cells, using automatic compensation at
+            // first. Note that an errata applies, which is handled below.
+            w.set_octo1_comp_codesel(false);
+            w.set_octo2_comp_codesel(false);
+            w.set_comp_codesel(false);
+
+            w.set_octo1_comp_en(config.comp_xspi1);
+            w.set_octo2_comp_en(config.comp_xspi2);
+            w.set_comp_en(true);
+        });
+
+        // Wait for the compensation cells to stabilize.
+        // Note: this may never happen for XSPI ports that have no active
+        //       device connected to them. A basic polling time-out is added
+        //       as fall-back, with a diagnostic message.
+        const COMP_POLL_MAX: u32 = 10000; // Enough for maxed-out clocks.
+        let mut poll_cnt = 0;
+        while config.comp_xspi1 && !pac::SYSCFG.cccsr().read().octo1_comp_rdy() && poll_cnt < COMP_POLL_MAX {
+            poll_cnt += 1;
+        }
+        if poll_cnt == COMP_POLL_MAX {
+            warn!("XSPI1 compensation cell ready-flag time-out.");
+        }
+        poll_cnt = 0;
+        while config.comp_xspi2 && !pac::SYSCFG.cccsr().read().octo2_comp_rdy() && poll_cnt < COMP_POLL_MAX {
+            poll_cnt += 1
+        }
+        if poll_cnt == COMP_POLL_MAX {
+            warn!("XSPI2 compensation cell ready-flag time-out.");
+        }
+        while !pac::SYSCFG.cccsr().read().comp_rdy() {}
+
+        // Now the I/O compensation and HSLV mode are configured, there are
+        // still issues with the automatic tuning of the I/O compensation, when
+        // operating over a wider temperature range. A work-around is required,
+        // as explained in the errata:
+        // - Read the auto-tune values at around 30°C ambient and store in non-
+        //   volatile storage. The values should have a correction applied.
+        // - Apply these stored, correct values at boot.
+        //
+        // The fix is applied here, assuming a sufficiently-constant ambient
+        // temperature, but the user should still do the calibration step and
+        // apply the correct values, before attempting high-speed peripheral
+        // access in real-world applications.
+        //
+        // (ES0596, p. 12, Ch 2.2.15 "I/O compensation could alter duty-cycle of high-frequency output signal")
+        // <https://community.st.com/t5/stm32-mcus-products/stm32h7s7l8h6h-xspi-instability/td-p/749315>
+        //
+        // Note: applying the errata to the GPIO compensation cell, as is done
+        //       here, seems to improve this as well, judging by a signal on
+        //       the MCO output pin, although it is not explicitly stated in
+        //       the errata.
+        let ccv = get_corrected_comp_vals();
+        set_and_enable_comp_vals(&ccv);
     }
 
     config.mux.init();
@@ -1122,4 +1262,70 @@ fn flash_setup(clk: Hertz, vos: VoltageScale) {
         w.set_latency(latency);
     });
     while FLASH.acr().read().latency() != latency {}
+}
+
+/// Compensation cell calibration values. The N-MOS and P-MOS transistors slew
+/// rate compensation factors are stored for the three different compensation
+/// cells available in the STM32H7RS family.
+#[cfg(stm32h7rs)]
+pub struct CompVals {
+    /// XSPI1 N-MOS transistors slew-rate compensation value [0-15].
+    pub octo1_nsrc: u8,
+    /// XSPI1 P-MOS transistors slew-rate compensation value [0-15].
+    pub octo1_psrc: u8,
+    /// XSPI2 N-MOS transistors slew-rate compensation value [0-15].
+    pub octo2_nsrc: u8,
+    /// XSPI2 P-MOS transistors slew-rate compensation value [0-15].
+    pub octo2_psrc: u8,
+    /// GPIO N-MOS transistors slew-rate compensation value [0-15].
+    pub io_nsrc: u8,
+    /// GPIO P-MOS transistors slew-rate compensation value [0-15].
+    pub io_psrc: u8,
+}
+
+/// Obtain the auto-tuned, slew-rate compensation values for the different
+/// compensation cells. The errata corrections are applied. Following the
+/// errata, these values should be obtained once during production, around
+/// 30°C MCU temperature, for each individual board, and stored in non-volatile
+/// memory for future use. The stored values should then be applied at power-up
+/// to guarantee stable, high-speed operation of the XSPI busses, and other
+/// high-speed I/O. While ST does not discuss the application to the GPIO pins
+/// in general in the errata, applying the errata compensation to those as well
+/// seems to improve the waveform symmetry (eg: MCO).
+/// (ES0596, p. 12, Ch 2.2.15 "I/O compensation could alter duty-cycle of
+/// high-frequency output signal")
+#[cfg(stm32h7rs)]
+pub fn get_corrected_comp_vals() -> CompVals {
+    let ccvalr = pac::SYSCFG.ccvalr().read();
+    return CompVals {
+        octo1_nsrc: ccvalr.octo1_nsrc().saturating_add(2),
+        octo1_psrc: ccvalr.octo1_psrc().saturating_sub(2),
+        octo2_nsrc: ccvalr.octo2_nsrc().saturating_add(2),
+        octo2_psrc: ccvalr.octo2_psrc().saturating_sub(2),
+        io_nsrc: ccvalr.octo2_nsrc().saturating_add(2),
+        io_psrc: ccvalr.octo2_psrc().saturating_sub(2),
+    };
+}
+
+/// Apply static slew-rate compensation values to all compensation cells, and
+/// enable them. These should be the corrected values outlined in the errata.
+/// (ES0596, p. 12, Ch 2.2.15 "I/O compensation could alter duty-cycle of
+/// high-frequency output signal")
+#[cfg(stm32h7rs)]
+pub fn set_and_enable_comp_vals(cv: &CompVals) {
+    pac::SYSCFG.ccswvalr().modify(|w| {
+        // Set the corrected, constant compensation values manually.
+        w.set_octo1_sw_nsrc(cv.octo1_nsrc);
+        w.set_octo1_sw_psrc(cv.octo1_psrc);
+        w.set_octo2_sw_nsrc(cv.octo2_nsrc);
+        w.set_octo2_sw_psrc(cv.octo2_psrc);
+        w.set_sw_nsrc(cv.io_nsrc);
+        w.set_sw_psrc(cv.io_psrc);
+    });
+    pac::SYSCFG.cccsr().modify(|w| {
+        // Switch to use the constant, manual compensation values.
+        w.set_octo1_comp_codesel(true);
+        w.set_octo2_comp_codesel(true);
+        w.set_comp_codesel(true);
+    });
 }

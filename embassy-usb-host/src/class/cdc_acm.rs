@@ -2,11 +2,12 @@
 //!
 //! This driver can communicate with USB CDC ACM devices (virtual serial ports).
 
-use embassy_usb_driver::host::{ChannelError, UsbChannel, UsbHostDriver, channel};
+use embassy_usb_driver::host::{PipeError, UsbHostDriver, UsbPipe, pipe};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
 
-use crate::bytes_to_setup;
+use crate::control::SetupPacket;
 use crate::descriptor::ConfigurationDescriptor;
+use crate::handler::EnumerationInfo;
 
 /// CDC class code.
 const USB_CLASS_CDC: u8 = 0x02;
@@ -65,15 +66,15 @@ impl LineCoding {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum CdcAcmError {
     /// Transfer error.
-    Transfer(ChannelError),
+    Transfer(PipeError),
     /// No matching CDC ACM interface found in the device.
     NoInterface,
-    /// Failed to allocate a channel.
-    NoChannel,
+    /// Failed to allocate a pipe.
+    NoPipe,
 }
 
-impl From<ChannelError> for CdcAcmError {
-    fn from(e: ChannelError) -> Self {
+impl From<PipeError> for CdcAcmError {
+    fn from(e: PipeError) -> Self {
         Self::Transfer(e)
     }
 }
@@ -83,7 +84,7 @@ impl core::fmt::Display for CdcAcmError {
         match self {
             Self::Transfer(_e) => write!(f, "Transfer error"),
             Self::NoInterface => write!(f, "No CDC ACM interface found"),
-            Self::NoChannel => write!(f, "No free channel"),
+            Self::NoPipe => write!(f, "No free pipe"),
         }
     }
 }
@@ -94,13 +95,13 @@ impl embedded_io_async::Error for CdcAcmError {
     fn kind(&self) -> embedded_io_async::ErrorKind {
         match self {
             Self::Transfer(e) => match e {
-                ChannelError::Disconnected => embedded_io_async::ErrorKind::NotConnected,
-                ChannelError::BufferOverflow => embedded_io_async::ErrorKind::OutOfMemory,
-                ChannelError::Timeout => embedded_io_async::ErrorKind::TimedOut,
+                PipeError::Disconnected => embedded_io_async::ErrorKind::NotConnected,
+                PipeError::BufferOverflow => embedded_io_async::ErrorKind::OutOfMemory,
+                PipeError::Timeout => embedded_io_async::ErrorKind::TimedOut,
                 _ => embedded_io_async::ErrorKind::Other,
             },
             Self::NoInterface => embedded_io_async::ErrorKind::NotFound,
-            Self::NoChannel => embedded_io_async::ErrorKind::OutOfMemory,
+            Self::NoPipe => embedded_io_async::ErrorKind::OutOfMemory,
         }
     }
 }
@@ -170,9 +171,9 @@ pub fn find_cdc_acm(config_desc: &[u8]) -> Option<CdcAcmInfo> {
 ///
 /// Provides read/write access to a CDC ACM (virtual serial port) USB device.
 pub struct CdcAcmHost<D: UsbHostDriver> {
-    ctrl_ch: D::Channel<channel::Control, channel::InOut>,
-    in_ch: D::Channel<channel::Bulk, channel::In>,
-    out_ch: D::Channel<channel::Bulk, channel::Out>,
+    ctrl_ch: D::Pipe<pipe::Control, pipe::InOut>,
+    in_ch: D::Pipe<pipe::Bulk, pipe::In>,
+    out_ch: D::Pipe<pipe::Bulk, pipe::Out>,
     comm_interface: u8,
 }
 
@@ -180,18 +181,13 @@ impl<D: UsbHostDriver> CdcAcmHost<D> {
     /// Create a new CDC ACM host driver.
     ///
     /// Parses the config descriptor to find CDC ACM endpoints and allocates channels.
-    pub fn new(
-        driver: &D,
-        config_desc: &[u8],
-        device_address: u8,
-        max_packet_size_0: u16,
-    ) -> Result<Self, CdcAcmError> {
+    pub fn new(driver: &D, config_desc: &[u8], enum_info: &EnumerationInfo) -> Result<Self, CdcAcmError> {
         let info = find_cdc_acm(config_desc).ok_or(CdcAcmError::NoInterface)?;
 
         let ctrl_ep_info = EndpointInfo {
             addr: EndpointAddress::from_parts(0, UsbDirection::In),
             ep_type: EndpointType::Control,
-            max_packet_size: max_packet_size_0,
+            max_packet_size: enum_info.device_desc.max_packet_size0 as u16,
             interval_ms: 0,
         };
 
@@ -209,15 +205,18 @@ impl<D: UsbHostDriver> CdcAcmHost<D> {
             interval_ms: 0,
         };
 
+        let device_address = enum_info.device_address;
+        let split = enum_info.split;
+
         let ctrl_ch = driver
-            .alloc_channel::<channel::Control, channel::InOut>(device_address, &ctrl_ep_info, false)
-            .map_err(|_| CdcAcmError::NoChannel)?;
+            .alloc_pipe::<pipe::Control, pipe::InOut>(device_address, &ctrl_ep_info, split)
+            .map_err(|_| CdcAcmError::NoPipe)?;
         let in_ch = driver
-            .alloc_channel::<channel::Bulk, channel::In>(device_address, &in_ep_info, false)
-            .map_err(|_| CdcAcmError::NoChannel)?;
+            .alloc_pipe::<pipe::Bulk, pipe::In>(device_address, &in_ep_info, split)
+            .map_err(|_| CdcAcmError::NoPipe)?;
         let out_ch = driver
-            .alloc_channel::<channel::Bulk, channel::Out>(device_address, &out_ep_info, false)
-            .map_err(|_| CdcAcmError::NoChannel)?;
+            .alloc_pipe::<pipe::Bulk, pipe::Out>(device_address, &out_ep_info, split)
+            .map_err(|_| CdcAcmError::NoPipe)?;
 
         Ok(Self {
             ctrl_ch,
@@ -230,20 +229,17 @@ impl<D: UsbHostDriver> CdcAcmHost<D> {
     /// Set the line coding (baud rate, data bits, parity, stop bits).
     pub async fn set_line_coding(&mut self, coding: &LineCoding) -> Result<(), CdcAcmError> {
         let data = coding.to_bytes();
-        let setup_bytes =
-            crate::control::class_interface_out_with_data(REQ_SET_LINE_CODING, 0, self.comm_interface as u16, 7);
-        let setup = bytes_to_setup(&setup_bytes);
-        self.ctrl_ch.control_out(&setup, &data).await?;
+        let setup =
+            SetupPacket::class_interface_out(REQ_SET_LINE_CODING, 0, self.comm_interface as u16, data.len() as u16);
+        self.ctrl_ch.control_out(&setup.to_bytes(), &data).await?;
         Ok(())
     }
 
     /// Set the control line state (DTR, RTS).
     pub async fn set_control_line_state(&mut self, dtr: bool, rts: bool) -> Result<(), CdcAcmError> {
         let value = (dtr as u16) | ((rts as u16) << 1);
-        let setup_bytes =
-            crate::control::class_interface_out(REQ_SET_CONTROL_LINE_STATE, value, self.comm_interface as u16);
-        let setup = bytes_to_setup(&setup_bytes);
-        self.ctrl_ch.control_out(&setup, &[]).await?;
+        let setup = SetupPacket::class_interface_out(REQ_SET_CONTROL_LINE_STATE, value, self.comm_interface as u16, 0);
+        self.ctrl_ch.control_out(&setup.to_bytes(), &[]).await?;
         Ok(())
     }
 

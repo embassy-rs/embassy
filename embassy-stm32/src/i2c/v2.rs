@@ -567,21 +567,27 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     //  Blocking public API
 
     /// Blocking read.
-    pub fn blocking_read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Error> {
+    pub fn blocking_read(&mut self, address: impl Into<Address>, read: &mut [u8]) -> Result<(), Error> {
         self.read_internal(address.into(), read, false, self.timeout())
         // Automatic Stop
     }
 
     /// Blocking write.
-    pub fn blocking_write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
+    pub fn blocking_write(&mut self, address: impl Into<Address>, write: &[u8]) -> Result<(), Error> {
         self.write_internal(address.into(), write, true, self.timeout())
     }
 
     /// Blocking write, restart, read.
-    pub fn blocking_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
+    pub fn blocking_write_read(
+        &mut self,
+        address: impl Into<Address>,
+        write: &[u8],
+        read: &mut [u8],
+    ) -> Result<(), Error> {
+        let address = address.into();
         let timeout = self.timeout();
-        self.write_internal(address.into(), write, false, timeout)?;
-        self.read_internal(address.into(), read, true, timeout)
+        self.write_internal(address, write, false, timeout)?;
+        self.read_internal(address, read, true, timeout)
         // Automatic Stop
     }
 
@@ -590,7 +596,11 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     /// Consecutive operations of same type are merged. See [transaction contract] for details.
     ///
     /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
-    pub fn blocking_transaction(&mut self, addr: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
+    pub fn blocking_transaction(
+        &mut self,
+        addr: impl Into<Address>,
+        operations: &mut [Operation<'_>],
+    ) -> Result<(), Error> {
         if operations.is_empty() {
             return Err(Error::ZeroLengthTransfer);
         }
@@ -1134,14 +1144,15 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     //  Async public API
 
     /// Write.
-    pub async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
+    pub async fn write(&mut self, address: impl Into<Address>, write: &[u8]) -> Result<(), Error> {
         let _scoped_wake_guard = self.info.rcc.wake_guard();
+        let address = address.into();
         let timeout = self.timeout();
         if write.is_empty() {
-            self.write_internal(address.into(), write, true, timeout)
+            self.write_internal(address, write, true, timeout)
         } else {
             timeout
-                .with(self.write_dma_internal(address.into(), write, true, true, true, false, timeout))
+                .with(self.write_dma_internal(address, write, true, true, true, false, timeout))
                 .await
         }
     }
@@ -1181,34 +1192,41 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     }
 
     /// Read.
-    pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
+    pub async fn read(&mut self, address: impl Into<Address>, buffer: &mut [u8]) -> Result<(), Error> {
         let _scoped_wake_guard = self.info.rcc.wake_guard();
+        let address = address.into();
         let timeout = self.timeout();
 
         if buffer.is_empty() {
-            self.read_internal(address.into(), buffer, false, timeout)
+            self.read_internal(address, buffer, false, timeout)
         } else {
-            let fut = self.read_dma_internal(address.into(), buffer, false, timeout);
+            let fut = self.read_dma_internal(address, buffer, false, timeout);
             timeout.with(fut).await
         }
     }
 
     /// Write, restart, read.
-    pub async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
+    pub async fn write_read(
+        &mut self,
+        address: impl Into<Address>,
+        write: &[u8],
+        read: &mut [u8],
+    ) -> Result<(), Error> {
         let _scoped_wake_guard = self.info.rcc.wake_guard();
+        let address = address.into();
         let timeout = self.timeout();
 
         if write.is_empty() {
-            self.write_internal(address.into(), write, false, timeout)?;
+            self.write_internal(address, write, false, timeout)?;
         } else {
-            let fut = self.write_dma_internal(address.into(), write, true, true, false, false, timeout);
+            let fut = self.write_dma_internal(address, write, true, true, false, false, timeout);
             timeout.with(fut).await?;
         }
 
         if read.is_empty() {
-            self.read_internal(address.into(), read, true, timeout)?;
+            self.read_internal(address, read, true, timeout)?;
         } else {
-            let fut = self.read_dma_internal(address.into(), read, true, timeout);
+            let fut = self.read_dma_internal(address, read, true, timeout);
             timeout.with(fut).await?;
         }
 
@@ -1220,7 +1238,11 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     /// Consecutive operations of same type are merged. See [transaction contract] for details.
     ///
     /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
-    pub async fn transaction(&mut self, addr: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
+    pub async fn transaction(
+        &mut self,
+        addr: impl Into<Address>,
+        operations: &mut [Operation<'_>],
+    ) -> Result<(), Error> {
         let _scoped_wake_guard = self.info.rcc.wake_guard();
         if operations.is_empty() {
             return Err(Error::ZeroLengthTransfer);
