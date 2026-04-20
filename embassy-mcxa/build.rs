@@ -24,6 +24,7 @@ fn main() {
             None => name,
         }
         .replace("/", "_")
+        .to_lowercase()
     }
 
     // Declare all drivers in nxp-pac (used or unused)

@@ -25,49 +25,49 @@ mod mcxa5xx_exclusive {
     pub use crate::chips::mcxa5xx::init;
 }
 
-#[cfg(mcxa_ADC)]
+#[cfg(mcxa_adc)]
 pub mod adc;
-#[cfg(mcxa_CDOG)]
+#[cfg(mcxa_cdog)]
 pub mod cdog;
-#[cfg(any(mcxa_MRCC5xx, mcxa_MRCC2xx))]
+#[cfg(any(mcxa_mrcc5xx, mcxa_mrcc2xx))]
 pub mod clkout; // TODO: Add dummy driver to metadata
-#[cfg(any(mcxa_MRCC5xx, mcxa_MRCC2xx))]
+#[cfg(any(mcxa_mrcc5xx, mcxa_mrcc2xx))]
 pub mod clocks;
 pub mod config;
-#[cfg(mcxa_CRC)]
+#[cfg(mcxa_crc)]
 pub mod crc;
-#[cfg(mcxa_CTIMER)]
+#[cfg(mcxa_ctimer)]
 pub mod ctimer;
-#[cfg(mcxa_DMA)]
+#[cfg(mcxa_dma)]
 pub mod dma;
 #[cfg(feature = "executor-platform")]
 pub mod executor;
-#[cfg(mcxa_GPIO)]
+#[cfg(mcxa_gpio)]
 pub mod gpio;
-#[cfg(mcxa_LPI2C)]
+#[cfg(mcxa_lpi2c)]
 pub mod i2c;
-#[cfg(mcxa_I3C)]
+#[cfg(mcxa_i3c)]
 pub mod i3c;
-#[cfg(mcxa_INPUTMUX)]
+#[cfg(mcxa_inputmux)]
 pub mod inputmux;
-#[cfg(mcxa_LPUART)]
+#[cfg(mcxa_lpuart)]
 pub mod lpuart;
-#[cfg(mcxa_OSTIMER)]
+#[cfg(mcxa_ostimer)]
 pub mod ostimer;
 pub mod perf_counters;
-#[cfg(mcxa_CMC)]
+#[cfg(mcxa_cmc)]
 pub mod reset_reason;
-#[cfg(mcxa_RTC5xx)]
+#[cfg(mcxa_rtc5xx)]
 #[path = "rtc/mcxa5xx.rs"]
 pub mod rtc;
-#[cfg(mcxa_RTC2xx)]
+#[cfg(mcxa_rtc2xx)]
 #[path = "rtc/mcxa2xx.rs"]
 pub mod rtc;
-#[cfg(mcxa_LPSPI)]
+#[cfg(mcxa_lpspi)]
 pub mod spi;
-#[cfg(mcxa_TRNG)]
+#[cfg(mcxa_trng)]
 pub mod trng;
-#[cfg(mcxa_WWDT)]
+#[cfg(mcxa_wwdt)]
 pub mod wwdt;
 
 #[cfg(feature = "mcxa2xx")]
