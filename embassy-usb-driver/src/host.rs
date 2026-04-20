@@ -94,8 +94,12 @@ pub enum PipeError {
 pub enum DeviceEvent {
     /// Indicates a root-device has become attached
     Connected(Speed),
+
     /// Indicates that a device has been detached
     Disconnected,
+
+    /// Root port overcurrent protection tripped.
+    Overcurrent,
 }
 
 /// Indicates type of error of Host interface
@@ -132,12 +136,18 @@ pub trait UsbHostDriver: Sized {
     /// Pipe implementation of this UsbHostDriver
     type Pipe<T: pipe::Type, D: pipe::Direction>: UsbPipe<T, D>;
 
-    /// Wait for device connect or disconnect
+    /// Wait for a root-port attach/detach.
     ///
-    /// When connected, this function must issue a bus reset before the speed is reported
+    /// On attach, the implementation must drive a bus reset to completion
+    /// before returning and must report the speed that the device settled
+    /// on after reset.
     async fn wait_for_device_event(&self) -> DeviceEvent;
 
-    /// Issue a bus reset.
+    /// Force a bus reset on the root port.
+    ///
+    /// Invalidates every pipe currently allocated against addresses other
+    /// than 0. Used to recover from a misbehaving device or to force
+    /// re-enumeration without unplug.
     async fn bus_reset(&self);
 
     /// Allocate pipe for communication with device.

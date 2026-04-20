@@ -467,10 +467,13 @@ impl<'d, const CH_COUNT: usize> UsbHostDriver for OtgHost<'d, CH_COUNT> {
                 state.port_waker.register(cx.waker());
 
                 let ev = state.port_event.load(Ordering::Acquire);
-                if ev & (PORT_EVENT_DISCONNECTED | PORT_EVENT_OVERCURRENT) != 0 {
-                    state
-                        .port_event
-                        .fetch_and(!(PORT_EVENT_DISCONNECTED | PORT_EVENT_OVERCURRENT), Ordering::AcqRel);
+                if ev & PORT_EVENT_OVERCURRENT != 0 {
+                    state.port_event.fetch_and(!PORT_EVENT_OVERCURRENT, Ordering::AcqRel);
+                    return Poll::Ready(PORT_EVENT_OVERCURRENT);
+                }
+
+                if ev & PORT_EVENT_DISCONNECTED != 0 {
+                    state.port_event.fetch_and(!PORT_EVENT_DISCONNECTED, Ordering::AcqRel);
                     // Wake all channels to signal disconnection
                     for ch in &state.channels {
                         if ch.allocated.load(Ordering::Relaxed) {
@@ -478,6 +481,7 @@ impl<'d, const CH_COUNT: usize> UsbHostDriver for OtgHost<'d, CH_COUNT> {
                             ch.waker.wake();
                         }
                     }
+
                     return Poll::Ready(PORT_EVENT_DISCONNECTED);
                 }
                 if ev & PORT_EVENT_CONNECTED != 0 {
@@ -501,10 +505,12 @@ impl<'d, const CH_COUNT: usize> UsbHostDriver for OtgHost<'d, CH_COUNT> {
                 state.port_waker.register(cx.waker());
 
                 let ev = state.port_event.load(Ordering::Acquire);
-                if ev & (PORT_EVENT_DISCONNECTED | PORT_EVENT_OVERCURRENT) != 0 {
-                    state
-                        .port_event
-                        .fetch_and(!(PORT_EVENT_DISCONNECTED | PORT_EVENT_OVERCURRENT), Ordering::AcqRel);
+                if ev & PORT_EVENT_OVERCURRENT != 0 {
+                    state.port_event.fetch_and(!PORT_EVENT_OVERCURRENT, Ordering::AcqRel);
+                    return Poll::Ready(PORT_EVENT_OVERCURRENT);
+                }
+                if ev & PORT_EVENT_DISCONNECTED != 0 {
+                    state.port_event.fetch_and(!PORT_EVENT_DISCONNECTED, Ordering::AcqRel);
                     for ch in &state.channels {
                         if ch.allocated.load(Ordering::Relaxed) {
                             ch.result.store(CH_RESULT_HALTED, Ordering::Release);
@@ -549,6 +555,10 @@ impl<'d, const CH_COUNT: usize> UsbHostDriver for OtgHost<'d, CH_COUNT> {
 
                     return DeviceEvent::Connected(speed);
                 }
+                PORT_EVENT_OVERCURRENT => {
+                    return DeviceEvent::Overcurrent;
+                }
+
                 _ => {
                     // Disconnected while waiting for enable; loop and wait again.
                     return DeviceEvent::Disconnected;
