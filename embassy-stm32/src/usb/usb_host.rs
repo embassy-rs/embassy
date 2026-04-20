@@ -716,7 +716,7 @@ impl<'d, I: Instance> UsbHostDriver for UsbHost<'d, I> {
             None
         };
 
-        let mut channel = Channel::<I, D, T>::new(
+        let channel = Channel::<I, D, T>::new(
             new_index as usize,
             buffer_in,
             buffer_out,

@@ -11,13 +11,13 @@ pub mod control;
 pub mod descriptor;
 pub mod handler;
 
-pub use embassy_usb_driver::host::{SplitInfo, SplitSpeed};
-pub use crate::handler::BusRoute;
 use embassy_usb_driver::host::{DeviceEvent, HostError, PipeError, UsbHostDriver, UsbPipe, pipe};
+pub use embassy_usb_driver::host::{SplitInfo, SplitSpeed};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType, Speed};
 
 use crate::control::{ControlPipeExt, SetupPacket};
 use crate::descriptor::{ConfigurationDescriptor, DeviceDescriptor, USBDescriptor};
+pub use crate::handler::BusRoute;
 use crate::handler::EnumerationInfo;
 
 /// USB host enumeration error.

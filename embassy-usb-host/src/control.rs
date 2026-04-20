@@ -2,14 +2,12 @@
 
 use core::num::NonZeroU8;
 
-use embassy_time::Timer;
 use embassy_usb::control::Request;
+use embassy_usb_driver::Direction;
 pub use embassy_usb_driver::host::pipe;
-use embassy_usb_driver::host::{HostError, PipeError, SplitInfo, UsbPipe};
-use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
+use embassy_usb_driver::host::{HostError, UsbPipe};
 
 use crate::descriptor::{USBDescriptor, descriptor_type};
-use crate::handler::EnumerationInfo;
 
 /// Recipient of a USB control request.
 ///
