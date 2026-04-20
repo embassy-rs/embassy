@@ -350,5 +350,7 @@ pub trait UsbPipe<T: pipe::Type, D: pipe::Direction> {
         D: pipe::IsOut;
 
     /// Configure the timeouts of this pipe.
-    fn set_timeout(&mut self, timeout: TimeoutConfig);
+    fn set_timeout(&mut self, timeout: TimeoutConfig)
+    where
+        T: pipe::IsControl;
 }
