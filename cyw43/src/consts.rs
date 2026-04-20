@@ -68,7 +68,7 @@ pub(crate) const REG_BACKPLANE_READ_FRAME_BC_HIGH: u32 = 0x1001C;
 pub(crate) const REG_BACKPLANE_WAKEUP_CTRL: u32 = 0x1001E;
 pub(crate) const REG_BACKPLANE_SLEEP_CSR: u32 = 0x1001F;
 
-pub(crate) const I_HMB_SW_MASK: u32 = 0x000000f0;
+pub(crate) const I_HMB_SW_MASK: u32 = 0xF0;
 pub(crate) const I_HMB_FC_CHANGE: u32 = 1 << 5;
 pub(crate) const FRAME_AVAILABLE_MASK: u32 = I_HMB_SW_MASK;
 pub(crate) const SDIO_INT_STATUS: u32 = 0x20;
@@ -86,7 +86,7 @@ pub(crate) const SMB_INT_ACK: u32 = 1 << 1;
 pub(crate) const I_HMB_HOST_INT: u32 = 1 << 7;
 pub(crate) const I_HMB_DATA_FWHALT: u32 = 0x0010;
 
-pub(crate) const HOSTINTMASK: u32 = 0x000000F0;
+pub(crate) const HOSTINTMASK: u32 = I_HMB_SW_MASK;
 pub(crate) const BUS_SD_DATA_WIDTH_MASK: u32 = 0x03;
 pub(crate) const BUS_SD_DATA_WIDTH_4BIT: u32 = 0x02;
 pub(crate) const SDIO_SPEED_EHS: u32 = 0x02;
@@ -228,9 +228,9 @@ pub(crate) const SDIO_CHIP_CLOCK_CSR: u32 = 0x1000e;
 pub(crate) const SDIO_PULL_UP: u32 = 0x1000f;
 
 // SDIOD_SEP_INT_CTL bits
-pub(crate) const SEP_INTR_CTL_MASK: u32 = 0x01; // out-of-band interrupt mask
-pub(crate) const SEP_INTR_CTL_EN: u32 = 0x02; // out-of-band interrupt output enable
-pub(crate) const SEP_INTR_CTL_POL: u32 = 0x04; // out-of-band interrupt polarity
+pub(crate) const SEP_INTR_CTL_MASK: u8 = 0x01; // out-of-band interrupt mask
+pub(crate) const SEP_INTR_CTL_EN: u8 = 0x02; // out-of-band interrupt output enable
+pub(crate) const SEP_INTR_CTL_POL: u8 = 0x04; // out-of-band interrupt polarity
 
 pub(crate) const CHIPCOMMON_BASE_ADDRESS: u32 = 0x18000000;
 pub(crate) const SDIO_BASE_ADDRESS: u32 = 0x18002000;
