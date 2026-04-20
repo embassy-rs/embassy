@@ -11,7 +11,7 @@ use embassy_time::Timer;
 use embassy_usb::control::Request;
 use embassy_usb_driver::host::{HostError, SplitInfo, SplitSpeed, UsbChannel, UsbHostDriver, channel};
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
-use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
+use zerocopy::{FromBytes, Immutable, KnownLayout};
 
 use crate::control::{ControlChannelExt, ControlType, Recipient, RequestType, SetupPacket};
 use crate::descriptor::{DEFAULT_MAX_DESCRIPTOR_SIZE, InterfaceDescriptor, USBDescriptor};
@@ -203,13 +203,11 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
             index: 0,
             length: 4,
         };
-        let mut buf = [0u16; 2];
-        self.control_channel
-            .control_in(&setup.to_bytes(), buf.as_mut_bytes())
-            .await?;
+        let mut buf = [0u8; 4];
+        self.control_channel.control_in(&setup.to_bytes(), &mut buf).await?;
         Ok((
-            HubStatus::from_bits_truncate(buf[0]),
-            HubStatusChange::from_bits_truncate(buf[1]),
+            HubStatus::from_bits_truncate(u16::from_le_bytes(buf[..2].try_into().unwrap())),
+            HubStatusChange::from_bits_truncate(u16::from_le_bytes(buf[2..].try_into().unwrap())),
         ))
     }
 
@@ -267,13 +265,11 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
             index: (port + 1) as u16,
             length: 4,
         };
-        let mut buf = [0u16; 2];
-        self.control_channel
-            .control_in(&setup.to_bytes(), buf.as_mut_bytes())
-            .await?;
+        let mut buf = [0u8; 4];
+        self.control_channel.control_in(&setup.to_bytes(), &mut buf).await?;
         Ok((
-            PortStatus::from_bits_truncate(buf[0]),
-            PortStatusChange::from_bits_truncate(buf[1]),
+            PortStatus::from_bits_truncate(u16::from_le_bytes(buf[..2].try_into().unwrap())),
+            PortStatusChange::from_bits_truncate(u16::from_le_bytes(buf[2..].try_into().unwrap())),
         ))
     }
 }
