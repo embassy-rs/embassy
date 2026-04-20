@@ -58,7 +58,12 @@ impl Address {
             Address::TenBit(addr) => *addr,
         }
     }
+}
 
+// These methods are only used by the v1 software address sequencing (v2 handles
+// 10-bit addressing in hardware). Gated so v2-only builds don't trigger dead_code.
+#[cfg(any(i2c_v1, test))]
+impl Address {
     /// Wire byte for the write address phase (first byte after START).
     ///
     /// - 7-bit: `addr << 1` (R/W = 0)
