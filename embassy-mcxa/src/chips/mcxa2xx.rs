@@ -13,6 +13,8 @@ mod inner_periph {
         ADC0,
         ADC1,
 
+        DAC0,
+
         AOI0,
         AOI1,
 
@@ -717,7 +719,7 @@ pub(crate) mod peripheral_gating {
 
     use crate::clocks::Gate;
     use crate::clocks::periph_helpers::{
-        AdcConfig, CTimerConfig, Clk1MConfig, I3cConfig, Lpi2cConfig, LpspiConfig, LpuartConfig, NoConfig,
+        AdcConfig, CTimerConfig, Clk1MConfig, DacConfig, I3cConfig, Lpi2cConfig, LpspiConfig, LpuartConfig, NoConfig,
         OsTimerConfig,
     };
     use crate::{impl_cc_gate, pac};
@@ -739,6 +741,8 @@ pub(crate) mod peripheral_gating {
     // clocks do not match their needs.
     impl_cc_gate!(ADC0, mrcc_glb_cc1, mrcc_glb_rst1, adc0, AdcConfig);
     impl_cc_gate!(ADC1, mrcc_glb_cc1, mrcc_glb_rst1, adc1, AdcConfig);
+
+    impl_cc_gate!(DAC0, mrcc_glb_cc1, mrcc_glb_rst1, dac0, DacConfig);
 
     impl_cc_gate!(I3C0, mrcc_glb_cc0, mrcc_glb_rst0, i3c0, I3cConfig);
     impl_cc_gate!(CTIMER0, mrcc_glb_cc0, mrcc_glb_rst0, ctimer0, CTimerConfig);

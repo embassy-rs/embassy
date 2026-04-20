@@ -35,6 +35,7 @@ mod all_chips {
     pub mod config;
     pub mod crc;
     pub mod ctimer;
+    pub mod dac;
     pub mod dma;
     #[cfg(feature = "executor-platform")]
     pub mod executor;
