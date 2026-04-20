@@ -130,6 +130,21 @@ pub trait SdaPin<T: Instance>: GpioPin + sealed::Sealed + PeripheralType {
     fn mux(&self);
 }
 
+/// SDA1 pin (for I3C multi-lane) trait.
+pub trait Sda1Pin<T: Instance>: GpioPin + sealed::Sealed + PeripheralType {
+    fn mux(&self);
+}
+
+/// SDA2 pin (for I3C multi-lane) trait.
+pub trait Sda2Pin<T: Instance>: GpioPin + sealed::Sealed + PeripheralType {
+    fn mux(&self);
+}
+
+/// SDA3 pin (for I3C multi-lane) trait.
+pub trait Sda3Pin<T: Instance>: GpioPin + sealed::Sealed + PeripheralType {
+    fn mux(&self);
+}
+
 /// PUR pin trait. (Pull up resistance)
 pub trait PurPin<T: Instance>: GpioPin + sealed::Sealed + PeripheralType {
     fn mux(&self);

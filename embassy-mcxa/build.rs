@@ -18,7 +18,18 @@ fn main() {
     let mut cfgs = CfgSet::new();
     build_common::set_target_cfgs(&mut cfgs);
 
-    // TODO: Declare all possible driver cfgs. Needs extra info in pac metadata
+    fn driver_to_cfg_name(name: &str) -> String {
+        match name.split_once("::") {
+            Some((path, _block)) => path,
+            None => name,
+        }
+        .replace("/", "_")
+    }
+
+    // Declare all drivers in nxp-pac (used or unused)
+    for peripheral in nxp_pac::metadata::META_PERIPHERALS {
+        cfgs.declare(&driver_to_cfg_name(peripheral));
+    }
 
     // Enable all drivers for this chip
     for peripheral in METADATA.peripherals {
@@ -26,15 +37,7 @@ fn main() {
             continue;
         }
 
-        let cfg_name = match peripheral.driver_name.split_once("::") {
-            Some((path, _block)) => path,
-            None => peripheral.driver_name,
-        }
-        .replace("/", "_");
-
-        cfgs.enable(&cfg_name);
-        // Temporary until todo above is removed
-        cfgs.declare(&cfg_name);
+        cfgs.enable(&driver_to_cfg_name(peripheral.driver_name));
     }
 
     let generated = [
@@ -58,11 +61,34 @@ fn main() {
 }
 
 fn generate_peripherals_call() -> TokenStream {
-    let mut singletons: Vec<String> = Vec::new();
+    struct Singleton {
+        name: String,
+        feature: Option<String>,
+    }
+
+    impl Singleton {
+        pub fn just_name(name: impl ToString) -> Self {
+            Self {
+                name: name.to_string(),
+                feature: None,
+            }
+        }
+    }
+
+    let mut singletons: Vec<Singleton> = Vec::new();
     // Add pins
-    singletons.extend(METADATA.pins.iter().map(|pin| pin.name.to_owned()));
+    singletons.extend(METADATA.pins.iter().map(|pin| Singleton {
+        name: pin.name.to_owned(),
+        feature: pin.feature.map(|str| str.to_owned()),
+    }));
+
     // Add peripherals
-    singletons.extend(METADATA.peripherals.iter().map(|peripheral| peripheral.name.to_owned()));
+    singletons.extend(
+        METADATA
+            .peripherals
+            .iter()
+            .map(|peripheral| Singleton::just_name(peripheral.name)),
+    );
 
     // Add DMA channels
     let dma_regex = Regex::new(r"(?i:^DMA)(\d+)").unwrap();
@@ -75,7 +101,7 @@ fn generate_peripherals_call() -> TokenStream {
         let channels_num = get_regex_num(dma_peripheral.driver_name, &dma_channels_regex).unwrap();
 
         for channel in 0..channels_num {
-            singletons.push(format!("DMA{dma_num}_CH{channel}"));
+            singletons.push(Singleton::just_name(format!("DMA{dma_num}_CH{channel}")));
         }
     }
 
@@ -87,14 +113,22 @@ fn generate_peripherals_call() -> TokenStream {
         .filter_map(|p| get_regex_num(p.name, &ctimer_regex))
     {
         for num in 0..4 {
-            singletons.push(format!("CTIMER{ctimer_num}_CH{num}"));
+            singletons.push(Singleton::just_name(format!("CTIMER{ctimer_num}_CH{num}")));
         }
     }
 
-    // TODO: Remove singletons for pins with dual-use based on feature flags
-
     // Output the singletons
-    let singleton_tokens: Vec<_> = singletons.iter().map(|s| format_ident!("{}", s)).collect();
+    let singleton_tokens: Vec<_> = singletons
+        .iter()
+        .map(|s| {
+            let feature = s
+                .feature
+                .as_ref()
+                .map_or(TokenStream::default(), |feature| quote! { #[cfg(feature = #feature)] });
+            let name = format_ident!("{}", s.name);
+            quote! { #feature #name }
+        })
+        .collect();
 
     quote! {
         embassy_hal_internal::peripherals!(#(#singleton_tokens),*);
@@ -116,6 +150,17 @@ fn generate_interrupt_mod_call() -> TokenStream {
     }
 }
 
+fn pin_feature_gate(pin_name: &str) -> TokenStream {
+    let pin = METADATA
+        .pins
+        .iter()
+        .find(|pin| pin.name == pin_name)
+        .expect(&format!("Failed to find pin {pin_name}"));
+    pin.feature
+        .as_ref()
+        .map_or(TokenStream::default(), |feature| quote! { #[cfg(feature = #feature)] })
+}
+
 fn generate_gpio_pin_impls() -> TokenStream {
     let mut generated = TokenStream::new();
 
@@ -132,8 +177,10 @@ fn generate_gpio_pin_impls() -> TokenStream {
             assert_eq!(s.pins.len(), 1, "Each gpio signal should only have 1 pin: {s:?}");
             let pin = format_ident!("{}", s.pins[0].pin);
             let pin_num = proc_macro2::Literal::u32_unsuffixed(s.name.parse().unwrap());
+            let feature_gate = pin_feature_gate(s.pins[0].pin);
 
             generated.extend(quote! {
+                #feature_gate
                 impl_gpio_pin!(#pin, #gpio_num, #pin_num, #peripheral);
             });
         }
@@ -156,7 +203,10 @@ fn generate_adc_pin_impls() -> TokenStream {
                 .unwrap();
             for pin in signal.pins {
                 let pin_name = format_ident!("{}", pin.pin);
+                let feature_gate = pin_feature_gate(pin.pin);
+
                 generated.extend(quote! {
+                    #feature_gate
                     impl_adc_pin!(#pin_name, #adc_name, #channel);
                 });
             }
@@ -178,7 +228,10 @@ fn generate_clkout_impls() -> TokenStream {
             for pin in signal.pins {
                 let pin_name = format_ident!("{}", pin.pin);
                 let mux = format_ident!("MUX{}", pin.alt);
+                let feature_gate = pin_feature_gate(pin.pin);
+
                 generated.extend(quote! {
+                    #feature_gate
                     impl_clkout_pin!(#pin_name, #mux);
                 });
             }
@@ -199,7 +252,10 @@ fn generate_lpi2c_pin_impls() -> TokenStream {
             for pin in signal.pins {
                 let pin_name = format_ident!("{}", pin.pin);
                 let mux = format_ident!("MUX{}", pin.alt);
+                let feature_gate = pin_feature_gate(pin.pin);
+
                 generated.extend(quote! {
+                    #feature_gate
                     impl_lpi2c_pin!(#pin_name, #lpi2c_name, #mux, #signal_pin);
                 });
             }
@@ -220,7 +276,10 @@ fn generate_i3c_pin_impls() -> TokenStream {
             for pin in signal.pins {
                 let pin_name = format_ident!("{}", pin.pin);
                 let mux = format_ident!("MUX{}", pin.alt);
+                let feature_gate = pin_feature_gate(pin.pin);
+
                 generated.extend(quote! {
+                    #feature_gate
                     impl_i3c_pin!(#pin_name, #i3c_name, #mux, #signal_pin);
                 });
             }
@@ -241,7 +300,10 @@ fn generate_spi_pin_impls() -> TokenStream {
             for pin in signal.pins {
                 let pin_name = format_ident!("{}", pin.pin);
                 let mux = format_ident!("MUX{}", pin.alt);
+                let feature_gate = pin_feature_gate(pin.pin);
+
                 generated.extend(quote! {
+                    #feature_gate
                     impl_spi_pin!(#pin_name, #spi_name, #mux, #signal_pin);
                 });
             }
@@ -276,10 +338,13 @@ fn generate_ctimer_pin_impls() -> TokenStream {
                 for pin in signal.pins {
                     let pin_name = format_ident!("{}", pin.pin);
                     let mux = format_ident!("MUX{}", pin.alt);
+                    let feature_gate = pin_feature_gate(pin.pin);
+
                     mat_pins.insert(pin_name.clone(), mux);
 
                     let ctimer_channel = format_ident!("{}_CH{}", ctimer_name, match_index);
                     generated.extend(quote! {
+                        #feature_gate
                         impl_ctimer_match!(#ctimer_name, #ctimer_channel, #pin_name);
                     });
                 }
@@ -289,12 +354,16 @@ fn generate_ctimer_pin_impls() -> TokenStream {
         }
 
         for (pin_name, mux) in inp_pins {
+            let feature_gate = pin_feature_gate(&pin_name.to_string());
             generated.extend(quote! {
+                #feature_gate
                 impl_ctimer_input_pin!(#pin_name, #ctimer_name, #mux);
             });
         }
         for (pin_name, mux) in mat_pins {
+            let feature_gate = pin_feature_gate(&pin_name.to_string());
             generated.extend(quote! {
+                #feature_gate
                 impl_ctimer_output_pin!(#pin_name, #ctimer_name, #mux);
             });
         }
@@ -314,7 +383,10 @@ fn generate_lpuart_pin_impls() -> TokenStream {
             for pin in signal.pins {
                 let pin_name = format_ident!("{}", pin.pin);
                 let mux = format_ident!("MUX{}", pin.alt);
+                let feature_gate = pin_feature_gate(pin.pin);
+
                 generated.extend(quote! {
+                    #feature_gate
                     impl_lpuart_pin!(#lpuart_name, #pin_name, #mux, #signal_name);
                 });
             }
