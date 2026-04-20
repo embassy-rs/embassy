@@ -183,8 +183,8 @@ impl_instance!(0; 1; 2; 3; 4; 5);
 /// Perform software reset on the LPUART peripheral
 fn perform_software_reset(info: &'static Info) {
     // Software reset - set and clear RST bit (Global register)
-    info.regs().global().write(|w| w.set_rst(Rst::RESET));
-    info.regs().global().write(|w| w.set_rst(Rst::NO_EFFECT));
+    info.regs().global().write(|w| w.set_rst(Rst::Reset));
+    info.regs().global().write(|w| w.set_rst(Rst::NoEffect));
 }
 
 /// Disable both transmitter and receiver
@@ -240,18 +240,18 @@ fn configure_control_settings(info: &'static Info, config: &Config) {
         // gating is used, or if the device never goes to deep sleep at all (e.g.
         // in WfeUngated configuration). For now, let's not touch this unless we
         // actually need to, e.g. *forcing* the lpuart to sleep!
-        w.set_dozeen(Dozeen::ENABLED);
+        w.set_dozeen(Dozeen::Enabled);
 
         // Data bits configuration
         match config.data_bits_count {
-            DataBits::DATA8 => {
+            DataBits::Data8 => {
                 if config.parity_mode.is_some() {
-                    w.set_m(DataBits::DATA9); // 8 data + 1 parity = 9 bits
+                    w.set_m(DataBits::Data9); // 8 data + 1 parity = 9 bits
                 } else {
-                    w.set_m(DataBits::DATA8); // 8 data bits only
+                    w.set_m(DataBits::Data8); // 8 data bits only
                 }
             }
-            DataBits::DATA9 => w.set_m(DataBits::DATA9),
+            DataBits::Data9 => w.set_m(DataBits::Data9),
         };
 
         // Idle configuration
@@ -260,9 +260,9 @@ fn configure_control_settings(info: &'static Info, config: &Config) {
 
         // Swap TXD/RXD if configured
         if config.swap_txd_rxd {
-            w.set_swap(Swap::SWAP);
+            w.set_swap(Swap::Swap);
         } else {
-            w.set_swap(Swap::STANDARD);
+            w.set_swap(Swap::Standard);
         }
     });
 }
@@ -283,8 +283,8 @@ fn configure_fifo(info: &'static Info, config: &Config) {
 
     // Flush FIFOs
     info.regs().fifo().modify(|w| {
-        w.set_txflush(Txflush::TXFIFO_RST);
-        w.set_rxflush(Rxflush::RXFIFO_RST);
+        w.set_txflush(Txflush::TxfifoRst);
+        w.set_rxflush(Rxflush::RxfifoRst);
     });
 }
 
@@ -367,7 +367,7 @@ fn wait_for_tx_complete(info: &'static Info) {
     }
 
     // Wait for last character to shift out (TC = Transmission Complete)
-    while info.regs().stat().read().tc() == Tc::ACTIVE {
+    while info.regs().stat().read().tc() == Tc::Active {
         // Wait for transmission to complete
     }
 }
@@ -598,15 +598,15 @@ impl Default for Config {
         Self {
             baudrate_bps: 115_200u32,
             parity_mode: None,
-            data_bits_count: DataBits::DATA8,
-            msb_first: MsbFirst::LSB_FIRST,
-            stop_bits_count: StopBits::ONE,
+            data_bits_count: DataBits::Data8,
+            msb_first: MsbFirst::LsbFirst,
+            stop_bits_count: StopBits::One,
             tx_fifo_watermark: 0,
             rx_fifo_watermark: 1,
-            tx_cts_source: TxCtsSource::CTS,
-            tx_cts_config: TxCtsConfig::START,
-            rx_idle_type: IdleType::FROM_START,
-            rx_idle_config: IdleConfig::IDLE_1,
+            tx_cts_source: TxCtsSource::Cts,
+            tx_cts_config: TxCtsConfig::Start,
+            rx_idle_type: IdleType::FromStart,
+            rx_idle_config: IdleConfig::Idle1,
             swap_txd_rxd: false,
             power: PoweredClock::NormalEnabledDeepSleepDisabled,
             source: LpuartClockSel::FroLfDiv,

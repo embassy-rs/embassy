@@ -228,7 +228,7 @@ fn generate_clkout_impls() -> TokenStream {
         for signal in clkout.signals {
             for pin in signal.pins {
                 let pin_name = format_ident!("{}", pin.pin);
-                let mux = format_ident!("MUX{}", pin.alt);
+                let mux = format_ident!("Mux{}", pin.alt);
                 let feature_gate = pin_feature_gate(pin.pin);
 
                 generated.extend(quote! {
@@ -252,7 +252,7 @@ fn generate_lpi2c_pin_impls() -> TokenStream {
             let signal_pin = format_ident!("{}Pin", ccase!(pascal, signal.name));
             for pin in signal.pins {
                 let pin_name = format_ident!("{}", pin.pin);
-                let mux = format_ident!("MUX{}", pin.alt);
+                let mux = format_ident!("Mux{}", pin.alt);
                 let feature_gate = pin_feature_gate(pin.pin);
 
                 generated.extend(quote! {
@@ -276,7 +276,7 @@ fn generate_i3c_pin_impls() -> TokenStream {
             let signal_pin = format_ident!("{}Pin", ccase!(pascal, signal.name));
             for pin in signal.pins {
                 let pin_name = format_ident!("{}", pin.pin);
-                let mux = format_ident!("MUX{}", pin.alt);
+                let mux = format_ident!("Mux{}", pin.alt);
                 let feature_gate = pin_feature_gate(pin.pin);
 
                 generated.extend(quote! {
@@ -300,7 +300,7 @@ fn generate_spi_pin_impls() -> TokenStream {
             let signal_pin = format_ident!("{}Pin", ccase!(pascal, signal.name));
             for pin in signal.pins {
                 let pin_name = format_ident!("{}", pin.pin);
-                let mux = format_ident!("MUX{}", pin.alt);
+                let mux = format_ident!("Mux{}", pin.alt);
                 let feature_gate = pin_feature_gate(pin.pin);
 
                 generated.extend(quote! {
@@ -332,13 +332,13 @@ fn generate_ctimer_pin_impls() -> TokenStream {
             if signal.name.starts_with("INP") {
                 for pin in signal.pins {
                     let pin_name = format_ident!("{}", pin.pin);
-                    let mux = format_ident!("MUX{}", pin.alt);
+                    let mux = format_ident!("Mux{}", pin.alt);
                     inp_pins.insert(pin_name, mux);
                 }
             } else if let Some(match_index) = get_regex_num(signal.name, &match_channel_regex) {
                 for pin in signal.pins {
                     let pin_name = format_ident!("{}", pin.pin);
-                    let mux = format_ident!("MUX{}", pin.alt);
+                    let mux = format_ident!("Mux{}", pin.alt);
                     let feature_gate = pin_feature_gate(pin.pin);
 
                     mat_pins.insert(pin_name.clone(), mux);
@@ -383,7 +383,7 @@ fn generate_lpuart_pin_impls() -> TokenStream {
             let signal_name = format_ident!("{}", signal.name);
             for pin in signal.pins {
                 let pin_name = format_ident!("{}", pin.pin);
-                let mux = format_ident!("MUX{}", pin.alt);
+                let mux = format_ident!("Mux{}", pin.alt);
                 let feature_gate = pin_feature_gate(pin.pin);
 
                 generated.extend(quote! {

@@ -95,15 +95,15 @@ macro_rules! apply_div4 {
         // Set up clkdiv
         $divreg.modify(|w| {
             w.set_div($conf.div.into_bits());
-            w.set_halt(ClkdivHalt::OFF);
-            w.set_reset(ClkdivReset::OFF);
+            w.set_halt(ClkdivHalt::Off);
+            w.set_reset(ClkdivReset::Off);
         });
         $divreg.modify(|w| {
-            w.set_halt(ClkdivHalt::ON);
-            w.set_reset(ClkdivReset::ON);
+            w.set_halt(ClkdivHalt::On);
+            w.set_reset(ClkdivReset::On);
         });
 
-        while $divreg.read().unstab() == ClkdivUnstab::OFF {}
+        while $divreg.read().unstab() == ClkdivUnstab::Off {}
 
         Ok(PreEnableParts {
             freq: $freq / $conf.div.into_divisor(),
@@ -248,35 +248,30 @@ impl SPConfHelper for AdcConfig {
         let (freq, variant) = match self.source {
             AdcClockSel::FroLfDiv => {
                 let freq = clocks.ensure_fro_lf_div_active(&self.power)?;
-
                 // TODO: fix PAC names for consistency
                 #[cfg(feature = "mcxa2xx")]
-                let mux = AdcClkselMux::CLKROOT_FUNC_0;
+                let mux = AdcClkselMux::ClkrootFunc0;
                 #[cfg(feature = "mcxa5xx")]
-                let mux = AdcClkselMux::I0_CLKROOT_SIRC_DIV;
+                let mux = AdcClkselMux::I0ClkrootSircDiv;
 
                 (freq, mux)
             }
             AdcClockSel::FroHf => {
                 let freq = clocks.ensure_fro_hf_active(&self.power)?;
-
-                // TODO: fix PAC names for consistency
                 #[cfg(feature = "mcxa2xx")]
-                let mux = AdcClkselMux::CLKROOT_FUNC_1;
+                let mux = AdcClkselMux::ClkrootFunc1;
                 #[cfg(feature = "mcxa5xx")]
-                let mux = AdcClkselMux::I1_CLKROOT_FIRC_GATED;
+                let mux = AdcClkselMux::I1ClkrootFircGated;
 
                 (freq, mux)
             }
             #[cfg(not(feature = "sosc-as-gpio"))]
             AdcClockSel::ClkIn => {
                 let freq = clocks.ensure_clk_in_active(&self.power)?;
-
-                // TODO: fix PAC names for consistency
                 #[cfg(feature = "mcxa2xx")]
-                let mux = AdcClkselMux::CLKROOT_FUNC_3;
+                let mux = AdcClkselMux::ClkrootFunc3;
                 #[cfg(feature = "mcxa5xx")]
-                let mux = AdcClkselMux::I3_CLKROOT_SOSC;
+                let mux = AdcClkselMux::I3ClkrootSosc;
 
                 (freq, mux)
             }
@@ -288,23 +283,19 @@ impl SPConfHelper for AdcConfig {
             // }
             AdcClockSel::Clk1M => {
                 let freq = clocks.ensure_clk_1m_active(&self.power)?;
-
-                // TODO: fix PAC names for consistency
                 #[cfg(feature = "mcxa2xx")]
-                let mux = AdcClkselMux::CLKROOT_FUNC_5;
+                let mux = AdcClkselMux::ClkrootFunc5;
                 #[cfg(feature = "mcxa5xx")]
-                let mux = AdcClkselMux::I5_CLKROOT_1M;
+                let mux = AdcClkselMux::I5Clkroot1m;
 
                 (freq, mux)
             }
             AdcClockSel::Pll1ClkDiv => {
                 let freq = clocks.ensure_pll1_clk_div_active(&self.power)?;
-
-                // TODO: fix PAC names for consistency
                 #[cfg(feature = "mcxa2xx")]
-                let mux = AdcClkselMux::CLKROOT_FUNC_6;
+                let mux = AdcClkselMux::ClkrootFunc6;
                 #[cfg(feature = "mcxa5xx")]
-                let mux = AdcClkselMux::I6_CLKROOT_SPLL_DIV;
+                let mux = AdcClkselMux::I6ClkrootSpllDiv;
 
                 (freq, mux)
             }
@@ -314,8 +305,8 @@ impl SPConfHelper for AdcConfig {
                     w.set_mux(AdcClkselMux::_RESERVED_7)
                 });
                 mrcc0.mrcc_adc_clkdiv().modify(|w| {
-                    w.set_reset(ClkdivReset::ON);
-                    w.set_halt(ClkdivHalt::ON);
+                    w.set_reset(ClkdivReset::On);
+                    w.set_halt(ClkdivHalt::On);
                 });
                 return Ok(PreEnableParts::empty());
             }
@@ -387,9 +378,9 @@ impl SPConfHelper for OsTimerConfig {
             OstimerClockSel::Clk16kVddCore => {
                 // TODO: fix PAC names for consistency
                 #[cfg(feature = "mcxa2xx")]
-                let mux = OstimerClkselMux::CLKROOT_16K;
+                let mux = OstimerClkselMux::Clkroot16k;
                 #[cfg(feature = "mcxa5xx")]
-                let mux = OstimerClkselMux::I0_CLKROOT_16K;
+                let mux = OstimerClkselMux::I0Clkroot16k;
 
                 let freq = clocks.ensure_clk_16k_vdd_core_active(&self.power)?;
                 mrcc0.mrcc_ostimer0_clksel().write(|w| w.set_mux(mux));
@@ -402,9 +393,9 @@ impl SPConfHelper for OsTimerConfig {
                 let freq = clocks.ensure_clk_1m_active(&self.power)?;
                 // TODO: fix PAC names for consistency
                 #[cfg(feature = "mcxa2xx")]
-                let mux = OstimerClkselMux::CLKROOT_1M;
+                let mux = OstimerClkselMux::Clkroot1m;
                 #[cfg(feature = "mcxa5xx")]
-                let mux = OstimerClkselMux::I2_CLKROOT_1M;
+                let mux = OstimerClkselMux::I2Clkroot1m;
 
                 mrcc0.mrcc_ostimer0_clksel().write(|w| w.set_mux(mux));
                 PreEnableParts {
@@ -507,9 +498,9 @@ impl SPConfHelper for LpspiConfig {
 
                 // TODO: fix PAC names for consistency
                 #[cfg(feature = "mcxa2xx")]
-                let mux = LpspiClkselMux::CLKROOT_FUNC_0;
+                let mux = LpspiClkselMux::ClkrootFunc0;
                 #[cfg(feature = "mcxa5xx")]
-                let mux = LpspiClkselMux::I0_CLKROOT_FUNC_0;
+                let mux = LpspiClkselMux::I0ClkrootFunc0;
 
                 (freq, mux)
             }
@@ -518,9 +509,9 @@ impl SPConfHelper for LpspiConfig {
 
                 // TODO: fix PAC names for consistency
                 #[cfg(feature = "mcxa2xx")]
-                let mux = LpspiClkselMux::CLKROOT_FUNC_2;
+                let mux = LpspiClkselMux::ClkrootFunc2;
                 #[cfg(feature = "mcxa5xx")]
-                let mux = LpspiClkselMux::I2_CLKROOT_FUNC_2;
+                let mux = LpspiClkselMux::I2ClkrootFunc2;
 
                 (freq, mux)
             }
@@ -530,9 +521,9 @@ impl SPConfHelper for LpspiConfig {
 
                 // TODO: fix PAC names for consistency
                 #[cfg(feature = "mcxa2xx")]
-                let mux = LpspiClkselMux::CLKROOT_FUNC_3;
+                let mux = LpspiClkselMux::ClkrootFunc3;
                 #[cfg(feature = "mcxa5xx")]
-                let mux = LpspiClkselMux::I3_CLKROOT_FUNC_3;
+                let mux = LpspiClkselMux::I3ClkrootFunc3;
 
                 (freq, mux)
             }
@@ -541,9 +532,9 @@ impl SPConfHelper for LpspiConfig {
 
                 // TODO: fix PAC names for consistency
                 #[cfg(feature = "mcxa2xx")]
-                let mux = LpspiClkselMux::CLKROOT_FUNC_5;
+                let mux = LpspiClkselMux::ClkrootFunc5;
                 #[cfg(feature = "mcxa5xx")]
-                let mux = LpspiClkselMux::I5_CLKROOT_FUNC_5;
+                let mux = LpspiClkselMux::I5ClkrootFunc5;
 
                 (freq, mux)
             }
@@ -552,9 +543,9 @@ impl SPConfHelper for LpspiConfig {
 
                 // TODO: fix PAC names for consistency
                 #[cfg(feature = "mcxa2xx")]
-                let mux = LpspiClkselMux::CLKROOT_FUNC_6;
+                let mux = LpspiClkselMux::ClkrootFunc6;
                 #[cfg(feature = "mcxa5xx")]
-                let mux = LpspiClkselMux::I6_CLKROOT_FUNC_6;
+                let mux = LpspiClkselMux::I6ClkrootFunc6;
 
                 (freq, mux)
             }
@@ -562,8 +553,8 @@ impl SPConfHelper for LpspiConfig {
                 // no ClkrootFunc7, just write manually for now
                 clksel.write(|w| w.0 = 0b111);
                 clkdiv.modify(|w| {
-                    w.set_reset(ClkdivReset::OFF);
-                    w.set_halt(ClkdivHalt::OFF);
+                    w.set_reset(ClkdivReset::Off);
+                    w.set_halt(ClkdivHalt::Off);
                 });
                 return Ok(PreEnableParts::empty());
             }
@@ -655,58 +646,45 @@ impl SPConfHelper for I3cConfig {
         let (freq, variant) = match self.source {
             I3cClockSel::FroLfDiv => {
                 let freq = clocks.ensure_fro_lf_div_active(&self.power)?;
-
-                // TODO: fix PAC names for consistency
                 #[cfg(feature = "mcxa2xx")]
-                let mux = FclkClkselMux::CLKROOT_FUNC_0;
+                let mux = FclkClkselMux::ClkrootFunc0;
                 #[cfg(feature = "mcxa5xx")]
-                let mux = FclkClkselMux::I0_CLKROOT_FUNC_0;
+                let mux = FclkClkselMux::I0ClkrootFunc0;
 
                 (freq, mux)
             }
             I3cClockSel::FroHfDiv => {
                 let freq = clocks.ensure_fro_hf_div_active(&self.power)?;
-
-                // TODO: fix PAC names for consistency
                 #[cfg(feature = "mcxa2xx")]
-                let mux = FclkClkselMux::CLKROOT_FUNC_2;
+                let mux = FclkClkselMux::ClkrootFunc2;
                 #[cfg(feature = "mcxa5xx")]
-                let mux = FclkClkselMux::I2_CLKROOT_FUNC_2;
+                let mux = FclkClkselMux::I2ClkrootFunc2;
 
                 (freq, mux)
             }
             #[cfg(not(feature = "sosc-as-gpio"))]
             I3cClockSel::ClkIn => {
                 let freq = clocks.ensure_clk_in_active(&self.power)?;
-
-                // TODO: fix PAC names for consistency
                 #[cfg(feature = "mcxa2xx")]
-                let mux = FclkClkselMux::CLKROOT_FUNC_3;
+                let mux = FclkClkselMux::ClkrootFunc3;
                 #[cfg(feature = "mcxa5xx")]
-                let mux = FclkClkselMux::I3_CLKROOT_FUNC_3;
+                let mux = FclkClkselMux::I3ClkrootFunc3;
 
                 (freq, mux)
             }
             I3cClockSel::Clk1M => {
                 let freq = clocks.ensure_clk_1m_active(&self.power)?;
-
-                // TODO: fix PAC names for consistency
                 #[cfg(feature = "mcxa2xx")]
-                let mux = FclkClkselMux::CLKROOT_FUNC_5;
+                let mux = FclkClkselMux::ClkrootFunc5;
                 #[cfg(feature = "mcxa5xx")]
-                let mux = FclkClkselMux::I5_CLKROOT_FUNC_5;
+                let mux = FclkClkselMux::I5ClkrootFunc5;
 
                 (freq, mux)
             }
             #[cfg(feature = "mcxa5xx")]
             I3cClockSel::Pll1ClkDiv => {
                 let freq = clocks.ensure_pll1_clk_div_active(&self.power)?;
-
-                // TODO: fix PAC names for consistency
-                #[cfg(feature = "mcxa2xx")]
-                let mux = FclkClkselMux::CLKROOT_FUNC_6;
-                #[cfg(feature = "mcxa5xx")]
-                let mux = FclkClkselMux::I6_CLKROOT_FUNC_6;
+                let mux = FclkClkselMux::I6ClkrootFunc6;
 
                 (freq, mux)
             }
@@ -714,8 +692,8 @@ impl SPConfHelper for I3cConfig {
                 // no ClkrootFunc7, just write manually for now
                 clksel.write(|w| w.0 = 0b111);
                 clkdiv.modify(|w| {
-                    w.set_reset(ClkdivReset::OFF);
-                    w.set_halt(ClkdivHalt::OFF);
+                    w.set_reset(ClkdivReset::Off);
+                    w.set_halt(ClkdivHalt::Off);
                 });
                 return Ok(PreEnableParts::empty());
             }
@@ -802,23 +780,19 @@ impl SPConfHelper for Lpi2cConfig {
         let (freq, variant) = match self.source {
             Lpi2cClockSel::FroLfDiv => {
                 let freq = clocks.ensure_fro_lf_div_active(&self.power)?;
-
-                // TODO: fix PAC names for consistency
                 #[cfg(feature = "mcxa2xx")]
-                let mux = Lpi2cClkselMux::CLKROOT_FUNC_0;
+                let mux = Lpi2cClkselMux::ClkrootFunc0;
                 #[cfg(feature = "mcxa5xx")]
-                let mux = Lpi2cClkselMux::I0_CLKROOT_FUNC_0;
+                let mux = Lpi2cClkselMux::I0ClkrootFunc0;
 
                 (freq, mux)
             }
             Lpi2cClockSel::FroHfDiv => {
                 let freq = clocks.ensure_fro_hf_div_active(&self.power)?;
-
-                // TODO: fix PAC names for consistency
                 #[cfg(feature = "mcxa2xx")]
-                let mux = Lpi2cClkselMux::CLKROOT_FUNC_2;
+                let mux = Lpi2cClkselMux::ClkrootFunc2;
                 #[cfg(feature = "mcxa5xx")]
-                let mux = Lpi2cClkselMux::I2_CLKROOT_FUNC_2;
+                let mux = Lpi2cClkselMux::I2ClkrootFunc2;
 
                 (freq, mux)
             }
@@ -826,30 +800,28 @@ impl SPConfHelper for Lpi2cConfig {
             #[cfg(not(feature = "sosc-as-gpio"))]
             Lpi2cClockSel::ClkIn => {
                 let freq = clocks.ensure_clk_in_active(&self.power)?;
-                (freq, Lpi2cClkselMux::CLKROOT_FUNC_3)
+                (freq, Lpi2cClkselMux::ClkrootFunc3)
             }
             Lpi2cClockSel::Clk1M => {
                 let freq = clocks.ensure_clk_1m_active(&self.power)?;
-
-                // TODO: fix PAC names for consistency
                 #[cfg(feature = "mcxa2xx")]
-                let mux = Lpi2cClkselMux::CLKROOT_FUNC_5;
+                let mux = Lpi2cClkselMux::ClkrootFunc5;
                 #[cfg(feature = "mcxa5xx")]
-                let mux = Lpi2cClkselMux::I5_CLKROOT_FUNC_5;
+                let mux = Lpi2cClkselMux::I5ClkrootFunc5;
 
                 (freq, mux)
             }
             #[cfg(feature = "mcxa2xx")]
             Lpi2cClockSel::Pll1ClkDiv => {
                 let freq = clocks.ensure_pll1_clk_div_active(&self.power)?;
-                (freq, Lpi2cClkselMux::CLKROOT_FUNC_6)
+                (freq, Lpi2cClkselMux::ClkrootFunc6)
             }
             Lpi2cClockSel::None => {
                 // no ClkrootFunc7, just write manually for now
                 clksel.write(|w| w.0 = 0b111);
                 clkdiv.modify(|w| {
-                    w.set_reset(ClkdivReset::OFF);
-                    w.set_halt(ClkdivHalt::OFF);
+                    w.set_reset(ClkdivReset::Off);
+                    w.set_halt(ClkdivHalt::Off);
                 });
                 return Ok(PreEnableParts::empty());
             }
@@ -962,35 +934,32 @@ impl SPConfHelper for LpuartConfig {
         let (freq, variant) = match self.source {
             LpuartClockSel::FroLfDiv => {
                 let freq = clocks.ensure_fro_lf_div_active(&self.power)?;
-
                 // TODO: fix PAC names for consistency
                 #[cfg(feature = "mcxa2xx")]
-                let mux = LpuartClkselMux::CLKROOT_FUNC_0;
+                let mux = LpuartClkselMux::ClkrootFunc0;
                 #[cfg(feature = "mcxa5xx")]
-                let mux = LpuartClkselMux::I0_CLKROOT_SIRC_DIV;
+                let mux = LpuartClkselMux::I0ClkrootSircDiv;
 
                 (freq, mux)
             }
             LpuartClockSel::FroHfDiv => {
                 let freq = clocks.ensure_fro_hf_div_active(&self.power)?;
-
                 // TODO: fix PAC names for consistency
                 #[cfg(feature = "mcxa2xx")]
-                let mux = LpuartClkselMux::CLKROOT_FUNC_2;
+                let mux = LpuartClkselMux::ClkrootFunc2;
                 #[cfg(feature = "mcxa5xx")]
-                let mux = LpuartClkselMux::I2_CLKROOT_FIRC_DIV;
+                let mux = LpuartClkselMux::I2ClkrootFircDiv;
 
                 (freq, mux)
             }
             #[cfg(not(feature = "sosc-as-gpio"))]
             LpuartClockSel::ClkIn => {
                 let freq = clocks.ensure_clk_in_active(&self.power)?;
-
                 // TODO: fix PAC names for consistency
                 #[cfg(feature = "mcxa2xx")]
-                let mux = LpuartClkselMux::CLKROOT_FUNC_3;
+                let mux = LpuartClkselMux::ClkrootFunc3;
                 #[cfg(feature = "mcxa5xx")]
-                let mux = LpuartClkselMux::I3_CLKROOT_SOSC;
+                let mux = LpuartClkselMux::I3ClkrootSosc;
 
                 (freq, mux)
             }
@@ -1000,7 +969,7 @@ impl SPConfHelper for LpuartConfig {
 
                 // TODO: fix PAC names for consistency
                 #[cfg(feature = "mcxa2xx")]
-                let mux = LpuartClkselMux::CLKROOT_FUNC_4;
+                let mux = LpuartClkselMux::ClkrootFunc4;
                 // #[cfg(feature = "mcxa5xx")]
                 // let mux = LpuartClkselMux::I4_CLKROOT_LPOSC;
 
@@ -1008,23 +977,21 @@ impl SPConfHelper for LpuartConfig {
             }
             LpuartClockSel::Clk1M => {
                 let freq = clocks.ensure_clk_1m_active(&self.power)?;
-
                 // TODO: fix PAC names for consistency
                 #[cfg(feature = "mcxa2xx")]
-                let mux = LpuartClkselMux::CLKROOT_FUNC_5;
+                let mux = LpuartClkselMux::ClkrootFunc5;
                 #[cfg(feature = "mcxa5xx")]
-                let mux = LpuartClkselMux::I5_CLKROOT_1M;
+                let mux = LpuartClkselMux::I5Clkroot1m;
 
                 (freq, mux)
             }
             LpuartClockSel::Pll1ClkDiv => {
                 let freq = clocks.ensure_pll1_clk_div_active(&self.power)?;
-
                 // TODO: fix PAC names for consistency
                 #[cfg(feature = "mcxa2xx")]
-                let mux = LpuartClkselMux::CLKROOT_FUNC_6;
+                let mux = LpuartClkselMux::ClkrootFunc6;
                 #[cfg(feature = "mcxa5xx")]
-                let mux = LpuartClkselMux::I6_CLKROOT_SPLL_DIV;
+                let mux = LpuartClkselMux::I6ClkrootSpllDiv;
 
                 (freq, mux)
             }
@@ -1032,8 +999,8 @@ impl SPConfHelper for LpuartConfig {
                 // no ClkrootFunc7, just write manually for now
                 clksel.write(|w| w.set_mux(LpuartClkselMux::_RESERVED_7));
                 clkdiv.modify(|w| {
-                    w.set_reset(ClkdivReset::ON);
-                    w.set_halt(ClkdivHalt::ON);
+                    w.set_reset(ClkdivReset::On);
+                    w.set_halt(ClkdivHalt::On);
                 });
                 return Ok(PreEnableParts::empty());
             }
@@ -1143,35 +1110,32 @@ impl SPConfHelper for CTimerConfig {
         let (freq, variant) = match self.source {
             CTimerClockSel::FroLfDiv => {
                 let freq = clocks.ensure_fro_lf_div_active(&self.power)?;
-
                 // TODO: fix PAC names for consistency
                 #[cfg(feature = "mcxa2xx")]
-                let mux = CtimerClkselMux::CLKROOT_FUNC_0;
+                let mux = CtimerClkselMux::ClkrootFunc0;
                 #[cfg(feature = "mcxa5xx")]
-                let mux = CtimerClkselMux::I0_CLKROOT_SIRC_DIV;
+                let mux = CtimerClkselMux::I0ClkrootSircDiv;
 
                 (freq, mux)
             }
             CTimerClockSel::FroHfDiv => {
                 let freq = clocks.ensure_fro_hf_div_active(&self.power)?;
-
                 // TODO: fix PAC names for consistency
                 #[cfg(feature = "mcxa2xx")]
-                let mux = CtimerClkselMux::CLKROOT_FUNC_1;
+                let mux = CtimerClkselMux::ClkrootFunc1;
                 #[cfg(feature = "mcxa5xx")]
-                let mux = CtimerClkselMux::I1_CLKROOT_FIRC_GATED;
+                let mux = CtimerClkselMux::I1ClkrootFircGated;
 
                 (freq, mux)
             }
             #[cfg(not(feature = "sosc-as-gpio"))]
             CTimerClockSel::ClkIn => {
                 let freq = clocks.ensure_clk_in_active(&self.power)?;
-
                 // TODO: fix PAC names for consistency
                 #[cfg(feature = "mcxa2xx")]
-                let mux = CtimerClkselMux::CLKROOT_FUNC_3;
+                let mux = CtimerClkselMux::ClkrootFunc3;
                 #[cfg(feature = "mcxa5xx")]
-                let mux = CtimerClkselMux::I3_CLKROOT_SOSC;
+                let mux = CtimerClkselMux::I3ClkrootSosc;
 
                 (freq, mux)
             }
@@ -1181,7 +1145,7 @@ impl SPConfHelper for CTimerConfig {
 
                 // TODO: fix PAC names for consistency
                 #[cfg(feature = "mcxa2xx")]
-                let mux = CtimerClkselMux::CLKROOT_FUNC_4;
+                let mux = CtimerClkselMux::ClkrootFunc4;
                 // TODO: MCXA5xx uses "LPOSC", which can either be clk_16k or clk_32k.
                 // We do not support this yet.
                 // #[cfg(feature = "mcxa5xx")]
@@ -1191,23 +1155,21 @@ impl SPConfHelper for CTimerConfig {
             }
             CTimerClockSel::Clk1M => {
                 let freq = clocks.ensure_clk_1m_active(&self.power)?;
-
                 // TODO: fix PAC names for consistency
                 #[cfg(feature = "mcxa2xx")]
-                let mux = CtimerClkselMux::CLKROOT_FUNC_5;
+                let mux = CtimerClkselMux::ClkrootFunc5;
                 #[cfg(feature = "mcxa5xx")]
-                let mux = CtimerClkselMux::I5_CLKROOT_1M;
+                let mux = CtimerClkselMux::I5Clkroot1m;
 
                 (freq, mux)
             }
             CTimerClockSel::Pll1ClkDiv => {
                 let freq = clocks.ensure_pll1_clk_div_active(&self.power)?;
-
                 // TODO: fix PAC names for consistency
                 #[cfg(feature = "mcxa2xx")]
-                let mux = CtimerClkselMux::CLKROOT_FUNC_6;
+                let mux = CtimerClkselMux::ClkrootFunc6;
                 #[cfg(feature = "mcxa5xx")]
-                let mux = CtimerClkselMux::I6_CLKROOT_SPLL_DIV;
+                let mux = CtimerClkselMux::I6ClkrootSpllDiv;
 
                 (freq, mux)
             }
@@ -1215,8 +1177,8 @@ impl SPConfHelper for CTimerConfig {
                 // no ClkrootFunc7, just write manually for now
                 clksel.write(|w| w.set_mux(CtimerClkselMux::_RESERVED_7));
                 clkdiv.modify(|w| {
-                    w.set_reset(ClkdivReset::ON);
-                    w.set_halt(ClkdivHalt::ON)
+                    w.set_reset(ClkdivReset::On);
+                    w.set_halt(ClkdivHalt::On)
                 });
                 return Ok(PreEnableParts::empty());
             }

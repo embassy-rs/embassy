@@ -35,7 +35,7 @@ async fn main(_spawner: Spawner) {
     let commands = &[Command::new_single(
         p.P2_4,
         CommandConfig {
-            resolution: Mode::DATA_16_BITS,
+            resolution: Mode::Data16Bits,
             ..Default::default()
         },
     )];

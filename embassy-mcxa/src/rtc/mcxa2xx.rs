@@ -7,7 +7,6 @@ use embassy_hal_internal::{Peri, PeripheralType};
 #[cfg(feature = "embedded-mcu-hal")]
 use embedded_mcu_hal::time::{Datetime, DatetimeClock, DatetimeClockError, DatetimeFields, Month};
 use maitake_sync::WaitCell;
-use nxp_pac::rtc2xx::TcrVal;
 
 use crate::clocks::{WakeGuard, with_clocks};
 use crate::interrupt::typelevel::{Handler, Interrupt};
@@ -99,17 +98,17 @@ pub struct Config {
     #[allow(dead_code)]
     supervisor_access: bool,
     compensation_interval: u8,
-    compensation_time: TcrVal,
+    compensation_time: u8,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             wakeup_select: false,
-            update_mode: Um::UM_0,
+            update_mode: Um::Um0,
             supervisor_access: false,
             compensation_interval: 0,
-            compensation_time: TcrVal::TCR_0,
+            compensation_time: 0,
         }
     }
 }
@@ -280,8 +279,8 @@ impl<'a> Rtc<'a> {
     }
 
     fn set_configuration(&mut self, config: &Config) {
-        self.info.regs().cr().modify(|w| w.set_swr(Swr::SWR_1));
-        self.info.regs().cr().modify(|w| w.set_swr(Swr::SWR_0));
+        self.info.regs().cr().modify(|w| w.set_swr(Swr::Swr1));
+        self.info.regs().cr().modify(|w| w.set_swr(Swr::Swr0));
         self.info.regs().tsr().write(|w| w.0 = 1);
 
         self.info.regs().cr().modify(|w| w.set_um(config.update_mode));

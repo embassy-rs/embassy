@@ -29,10 +29,10 @@ async fn main(_spawner: Spawner) {
         2,
         CommandConfig {
             chained_command: None,
-            averaging: Avgs::AVERAGE_1024,  // Max average
-            sample_time: Sts::SAMPLE_131P5, // Max sample time
+            averaging: Avgs::Average1024,  // Max average
+            sample_time: Sts::Sample131p5, // Max sample time
             compare: adc::Compare::Disabled,
-            resolution: Mode::DATA_16_BITS,
+            resolution: Mode::Data16Bits,
             wait_for_trigger: false,
         },
     )

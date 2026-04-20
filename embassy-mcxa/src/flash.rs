@@ -256,16 +256,16 @@ fn speculation_buffer_clear() {
     let val = nvm.read();
 
     // Only proceed if MBECC error reporting is enabled for both inst and data
-    if val.dis_mbecc_err_inst() == DisMbeccErrInst::ENABLE && val.dis_mbecc_err_data() == DisMbeccErrData::ENABLE {
+    if val.dis_mbecc_err_inst() == DisMbeccErrInst::Enable && val.dis_mbecc_err_data() == DisMbeccErrData::Enable {
         // Toggle flash speculation disable
-        if val.dis_flash_spec() == DisFlashSpec::ENABLE {
-            nvm.modify(|w| w.set_dis_flash_spec(DisFlashSpec::DISABLE));
-            nvm.modify(|w| w.set_dis_flash_spec(DisFlashSpec::ENABLE));
+        if val.dis_flash_spec() == DisFlashSpec::Enable {
+            nvm.modify(|w| w.set_dis_flash_spec(DisFlashSpec::Disable));
+            nvm.modify(|w| w.set_dis_flash_spec(DisFlashSpec::Enable));
         }
         // Toggle data speculation disable
-        if nvm.read().dis_data_spec() == DisDataSpec::ENABLE {
-            nvm.modify(|w| w.set_dis_data_spec(DisDataSpec::DISABLE));
-            nvm.modify(|w| w.set_dis_data_spec(DisDataSpec::ENABLE));
+        if nvm.read().dis_data_spec() == DisDataSpec::Enable {
+            nvm.modify(|w| w.set_dis_data_spec(DisDataSpec::Disable));
+            nvm.modify(|w| w.set_dis_data_spec(DisDataSpec::Enable));
         }
     }
 }
@@ -275,8 +275,8 @@ fn speculation_buffer_clear() {
 #[inline]
 fn lpcac_clear() {
     let lpcac = pac::SYSCON.lpcac_ctrl();
-    if lpcac.read().dis_lpcac() == DisLpcac::ENABLE {
-        lpcac.modify(|w| w.set_clr_lpcac(ClrLpcac::DISABLE));
+    if lpcac.read().dis_lpcac() == DisLpcac::Enable {
+        lpcac.modify(|w| w.set_clr_lpcac(ClrLpcac::Disable));
     }
 }
 
