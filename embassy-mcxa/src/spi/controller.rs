@@ -1165,22 +1165,22 @@ impl<'d> AsyncEngine for Spi<'d, Dma<'d>> {
 /// Baud = src_hz / (prescaler.divisor() * (SCKDIV + 2))
 pub(super) fn compute_baud_params(src_hz: u32, baud_hz: u32) -> (Prescale, u8) {
     if baud_hz == 0 {
-        return (Prescale::Divideby1, 0);
+        return (Prescale::DivideBy1, 0);
     }
 
     let prescalers = [
-        Prescale::Divideby1,
-        Prescale::Divideby2,
-        Prescale::Divideby4,
-        Prescale::Divideby8,
-        Prescale::Divideby16,
-        Prescale::Divideby32,
-        Prescale::Divideby64,
-        Prescale::Divideby128,
+        Prescale::DivideBy1,
+        Prescale::DivideBy2,
+        Prescale::DivideBy4,
+        Prescale::DivideBy8,
+        Prescale::DivideBy16,
+        Prescale::DivideBy32,
+        Prescale::DivideBy64,
+        Prescale::DivideBy128,
     ];
 
     let (prescaler, div, _) = prescalers.iter().fold(
-        (Prescale::Divideby1, 0u8, u32::MAX),
+        (Prescale::DivideBy1, 0u8, u32::MAX),
         |(best_pre, best_div, best_err), &prescaler| {
             let divisor: u32 = 1 << (prescaler as u8);
             let denom = divisor.saturating_mul(baud_hz);
