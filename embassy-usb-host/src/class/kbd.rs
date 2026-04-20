@@ -4,10 +4,10 @@
 use core::num::NonZeroU8;
 
 use bitflags::bitflags;
-use embassy_usb_driver::host::{HostError, UsbChannel, UsbHostDriver, channel};
+use embassy_usb_driver::host::{HostError, UsbHostDriver, UsbPipe, pipe};
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType};
 
-use crate::control::ControlChannelExt;
+use crate::control::ControlPipeExt;
 use crate::descriptor::{DEFAULT_MAX_DESCRIPTOR_SIZE, InterfaceDescriptor, USBDescriptor};
 use crate::handler::{EnumerationInfo, HandlerEvent, RegisterError};
 
@@ -38,14 +38,14 @@ pub enum KbdEvent {
 
 /// Host-side HID boot-keyboard driver.
 pub struct KbdHandler<H: UsbHostDriver> {
-    interrupt_channel: H::Channel<channel::Interrupt, channel::In>,
-    control_channel: H::Channel<channel::Control, channel::InOut>,
+    interrupt_channel: H::Pipe<pipe::Interrupt, pipe::In>,
+    control_channel: H::Pipe<pipe::Control, pipe::InOut>,
 }
 
 impl<H: UsbHostDriver> KbdHandler<H> {
     /// Attempt to register a keyboard handler for the given device.
     pub async fn try_register(bus: &H, enum_info: &EnumerationInfo) -> Result<Self, RegisterError> {
-        let mut control_channel = bus.alloc_channel::<channel::Control, channel::InOut>(
+        let mut control_channel = bus.alloc_pipe::<pipe::Control, pipe::InOut>(
             enum_info.device_address,
             &EndpointInfo {
                 addr: 0.into(),
@@ -85,7 +85,7 @@ impl<H: UsbHostDriver> KbdHandler<H> {
             .set_configuration(configuration.configuration_value)
             .await?;
 
-        let interrupt_channel = bus.alloc_channel::<channel::Interrupt, channel::In>(
+        let interrupt_channel = bus.alloc_pipe::<pipe::Interrupt, pipe::In>(
             enum_info.device_address,
             &interrupt_ep.into(),
             enum_info.split,

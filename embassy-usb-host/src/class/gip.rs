@@ -66,7 +66,7 @@
 //!
 //! [MS-GIPUSB]: https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gipusb/
 
-use embassy_usb_driver::host::{ChannelError, UsbChannel, UsbHostDriver, channel};
+use embassy_usb_driver::host::{PipeError, UsbHostDriver, UsbPipe, pipe};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
 
 use crate::descriptor::ConfigurationDescriptor;
@@ -181,17 +181,17 @@ pub enum GipEvent {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum GipError {
     /// USB transfer error.
-    Transfer(ChannelError),
+    Transfer(PipeError),
     /// No GIP interface found in the configuration descriptor.
     NoInterface,
-    /// No free USB channel available.
-    NoChannel,
+    /// No free USB pipe available.
+    NoPipe,
     /// The [`GipDevice`] implementation rejected this VID/PID.
     UnsupportedDevice,
 }
 
-impl From<ChannelError> for GipError {
-    fn from(e: ChannelError) -> Self {
+impl From<PipeError> for GipError {
+    fn from(e: PipeError) -> Self {
         Self::Transfer(e)
     }
 }
@@ -201,7 +201,7 @@ impl core::fmt::Display for GipError {
         match self {
             Self::Transfer(_e) => write!(f, "Transfer error"),
             Self::NoInterface => write!(f, "No GIP interface found"),
-            Self::NoChannel => write!(f, "No free channel"),
+            Self::NoPipe => write!(f, "No free pipe"),
             Self::UnsupportedDevice => write!(f, "Unsupported GIP device"),
         }
     }
@@ -473,8 +473,8 @@ impl GipDevice for XboxOneSGamepad {
 /// 2. Poll for events with [`GipHost::poll`].
 /// 3. Optionally send rumble with [`GipHost::set_rumble`].
 pub struct GipHost<D: UsbHostDriver, DEV: GipDevice> {
-    in_ch: D::Channel<channel::Interrupt, channel::In>,
-    out_ch: D::Channel<channel::Interrupt, channel::Out>,
+    in_ch: D::Pipe<pipe::Interrupt, pipe::In>,
+    out_ch: D::Pipe<pipe::Interrupt, pipe::Out>,
     seq: u8,
     device: DEV,
 }
@@ -485,7 +485,7 @@ impl<D: UsbHostDriver, DEV: GipDevice> GipHost<D, DEV> {
     /// Performs the full setup sequence:
     /// 1. Validates the device via [`GipDevice::try_new`].
     /// 2. Locates the GIP data interface in the configuration descriptor.
-    /// 3. Allocates interrupt IN and OUT channels.
+    /// 3. Allocates interrupt IN and OUT pipes.
     /// 4. Completes the GIP handshake: waits for the device's Hello
     ///    message, responds with [`GipDevice::init_packets`], and drains
     ///    remaining handshake traffic until the controller is active.
@@ -496,7 +496,7 @@ impl<D: UsbHostDriver, DEV: GipDevice> GipHost<D, DEV> {
     ///
     /// - [`GipError::UnsupportedDevice`] if [`GipDevice::try_new`] returns `None`.
     /// - [`GipError::NoInterface`] if no GIP interface is found.
-    /// - [`GipError::NoChannel`] if channels cannot be allocated.
+    /// - [`GipError::NoPipe`] if pipes cannot be allocated.
     /// - [`GipError::Transfer`] if a handshake transfer fails.
     pub async fn try_register(driver: &D, config_desc: &[u8], enum_info: &EnumerationInfo) -> Result<Self, GipError> {
         let vendor_id = enum_info.device_desc.vendor_id;
@@ -523,11 +523,11 @@ impl<D: UsbHostDriver, DEV: GipDevice> GipHost<D, DEV> {
         let split = enum_info.split;
 
         let in_ch = driver
-            .alloc_channel::<channel::Interrupt, channel::In>(device_address, &in_ep_info, split)
-            .map_err(|_| GipError::NoChannel)?;
+            .alloc_pipe::<pipe::Interrupt, pipe::In>(device_address, &in_ep_info, split)
+            .map_err(|_| GipError::NoPipe)?;
         let out_ch = driver
-            .alloc_channel::<channel::Interrupt, channel::Out>(device_address, &out_ep_info, split)
-            .map_err(|_| GipError::NoChannel)?;
+            .alloc_pipe::<pipe::Interrupt, pipe::Out>(device_address, &out_ep_info, split)
+            .map_err(|_| GipError::NoPipe)?;
 
         let mut host = Self {
             in_ch,

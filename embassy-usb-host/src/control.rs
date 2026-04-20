@@ -1,11 +1,11 @@
-//! Standard USB control request builders and the `ControlChannelExt` trait.
+//! Standard USB control request builders and the `ControlPipeExt` trait.
 
 use core::num::NonZeroU8;
 
 use embassy_time::Timer;
 use embassy_usb::control::Request;
-pub use embassy_usb_driver::host::channel;
-use embassy_usb_driver::host::{ChannelError, HostError, SplitInfo, UsbChannel};
+pub use embassy_usb_driver::host::pipe;
+use embassy_usb_driver::host::{HostError, PipeError, SplitInfo, UsbPipe};
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
 
 use crate::descriptor::{USBDescriptor, descriptor_type};
@@ -293,10 +293,10 @@ impl SetupPacket {
     }
 }
 
-// ── ControlChannelExt ──────────────────────────────────────────────────────────
+// ── ControlPipeExt ─────────────────────────────────────────────────────────────
 
-/// Extension trait providing higher-level control request methods on a USB control channel.
-pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control, D> {
+/// Extension trait providing higher-level control request methods on a USB control pipe.
+pub trait ControlPipeExt<D: pipe::Direction>: UsbPipe<pipe::Control, D> {
     /// Request and parse a fixed-size descriptor.
     async fn request_descriptor<T: USBDescriptor, const SIZE: usize>(
         &mut self,
@@ -304,7 +304,7 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
         class: bool,
     ) -> Result<T, HostError>
     where
-        D: channel::IsIn,
+        D: pipe::IsIn,
     {
         let mut buf = [0u8; SIZE];
         let setup = SetupPacket::get_descriptor(class, T::DESC_TYPE, index, SIZE as u16);
@@ -316,12 +316,12 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
     /// Request the raw bytes of a descriptor by type and index.
     async fn request_descriptor_bytes(&mut self, desc_type: u8, index: u8, buf: &mut [u8]) -> Result<usize, HostError>
     where
-        D: channel::IsIn,
+        D: pipe::IsIn,
     {
         let setup = SetupPacket::get_descriptor(false, desc_type, index, buf.len() as u16);
         self.control_in(&setup.to_bytes(), buf)
             .await
-            .map_err(HostError::ChannelError)
+            .map_err(HostError::PipeError)
     }
 
     /// Request the raw bytes of a class-specific interface descriptor.
@@ -331,18 +331,18 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
         buf: &mut [u8],
     ) -> Result<usize, HostError>
     where
-        D: channel::IsIn,
+        D: pipe::IsIn,
     {
         let setup = SetupPacket::get_interface_descriptor(T::DESC_TYPE, interface_num as u16, buf.len() as u16);
         self.control_in(&setup.to_bytes(), buf)
             .await
-            .map_err(HostError::ChannelError)
+            .map_err(HostError::PipeError)
     }
 
     /// GET_CONFIGURATION — returns the active configuration value, or `None` if unconfigured.
     async fn active_configuration_value(&mut self) -> Result<Option<NonZeroU8>, HostError>
     where
-        D: channel::IsIn,
+        D: pipe::IsIn,
     {
         let setup = SetupPacket::get_configuration();
         let mut buf = [0u8; 1];
@@ -353,7 +353,7 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
     /// SET_CONFIGURATION.
     async fn set_configuration(&mut self, config_no: u8) -> Result<(), HostError>
     where
-        D: channel::IsOut,
+        D: pipe::IsOut,
     {
         let setup = SetupPacket::set_configuration(config_no);
         self.control_out(&setup.to_bytes(), &[]).await?;
@@ -366,7 +366,7 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
     /// Breaks host channel state; use only during enumeration.
     async fn device_set_address(&mut self, new_addr: u8) -> Result<(), HostError>
     where
-        D: channel::IsOut,
+        D: pipe::IsOut,
     {
         let setup = SetupPacket::set_address(new_addr);
         self.control_out(&setup.to_bytes(), &[]).await?;
@@ -376,7 +376,7 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
     /// Class + Interface OUT request (no data stage).
     async fn class_request_out(&mut self, request: u8, value: u16, index: u16, buf: &[u8]) -> Result<(), HostError>
     where
-        D: channel::IsOut,
+        D: pipe::IsOut,
     {
         let setup = SetupPacket::class_interface_out(request, value, index, buf.len() as u16);
         self.control_out(&setup.to_bytes(), buf).await?;
@@ -393,11 +393,11 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
         split: Option<SplitInfo>,
     ) -> Result<EnumerationInfo, HostError>
     where
-        D: channel::IsIn + channel::IsOut,
+        D: pipe::IsIn + pipe::IsOut,
     {
         use crate::descriptor::DeviceDescriptorPartial;
 
-        self.retarget_channel(
+        self.retarget_pipe(
             0,
             &EndpointInfo {
                 addr: 0.into(),
@@ -439,7 +439,7 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
         // USB 2.0 §9.2.6.3: allow the device a 2ms recovery interval after SET_ADDRESS.
         Timer::after_millis(2).await;
 
-        self.retarget_channel(
+        self.retarget_pipe(
             new_device_address,
             &EndpointInfo {
                 addr: 0.into(),
@@ -457,14 +457,14 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
                     .request_descriptor::<crate::descriptor::DeviceDescriptor, { crate::descriptor::DeviceDescriptor::SIZE }>(0, false)
                     .await
                 {
-                    Err(HostError::ChannelError(ChannelError::Timeout)) => {
+                    Err(HostError::PipeError(PipeError::Timeout)) => {
                         Timer::after_millis(1).await;
                         continue;
                     }
                     v => return v,
                 }
             }
-            Err(HostError::ChannelError(ChannelError::Timeout))
+            Err(HostError::PipeError(PipeError::Timeout))
         }
         .await?;
 
@@ -479,4 +479,4 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
     }
 }
 
-impl<D: channel::Direction, C> ControlChannelExt<D> for C where C: UsbChannel<channel::Control, D> {}
+impl<D: pipe::Direction, C> ControlPipeExt<D> for C where C: UsbPipe<pipe::Control, D> {}

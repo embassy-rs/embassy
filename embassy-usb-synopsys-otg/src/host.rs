@@ -6,7 +6,7 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
-use embassy_usb_driver::host::{ChannelError, DeviceEvent, HostError, SplitInfo, UsbChannel, UsbHostDriver, channel};
+use embassy_usb_driver::host::{DeviceEvent, HostError, PipeError, SplitInfo, UsbHostDriver, UsbPipe, pipe};
 use embassy_usb_driver::{EndpointInfo, EndpointType, Speed};
 use portable_atomic::{AtomicBool, AtomicU8, Ordering};
 
@@ -450,7 +450,7 @@ impl<'d, const CH_COUNT: usize> OtgHost<'d, CH_COUNT> {
 }
 
 impl<'d, const CH_COUNT: usize> UsbHostDriver for OtgHost<'d, CH_COUNT> {
-    type Channel<T: channel::Type, D: channel::Direction> = Channel<T, D, CH_COUNT>;
+    type Pipe<T: pipe::Type, D: pipe::Direction> = Channel<T, D, CH_COUNT>;
 
     async fn wait_for_device_event(&self) -> DeviceEvent {
         // Lazily initialize the host hardware on first call.
@@ -618,12 +618,12 @@ impl<'d, const CH_COUNT: usize> UsbHostDriver for OtgHost<'d, CH_COUNT> {
         embassy_time::Timer::after_millis(20).await;
     }
 
-    fn alloc_channel<T: channel::Type, D: channel::Direction>(
+    fn alloc_pipe<T: pipe::Type, D: pipe::Direction>(
         &self,
         addr: u8,
         endpoint: &EndpointInfo,
         _split: Option<SplitInfo>,
-    ) -> Result<Self::Channel<T, D>, HostError> {
+    ) -> Result<Self::Pipe<T, D>, HostError> {
         let ep_number = endpoint.addr.index() as u8;
         let max_packet_size = endpoint.max_packet_size;
 
@@ -658,14 +658,14 @@ impl<'d, const CH_COUNT: usize> UsbHostDriver for OtgHost<'d, CH_COUNT> {
             }
         }
 
-        Err(HostError::OutOfChannels)
+        Err(HostError::OutOfPipes)
     }
 }
 
 /// A USB host channel for performing transfers.
 ///
 /// The channel is automatically released when dropped.
-pub struct Channel<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> {
+pub struct Channel<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> {
     regs: Otg,
     /// Raw pointer to avoid lifetime dependency on OtgHost.
     /// SAFETY: The HostState is always in a static or lives for 'd which outlives all channels.
@@ -680,9 +680,9 @@ pub struct Channel<T: channel::Type, D: channel::Direction, const CH_COUNT: usiz
 }
 
 // SAFETY: Channel access to HostState is through atomics only.
-unsafe impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Send for Channel<T, D, CH_COUNT> {}
+unsafe impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Send for Channel<T, D, CH_COUNT> {}
 
-impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Drop for Channel<T, D, CH_COUNT> {
+impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Drop for Channel<T, D, CH_COUNT> {
     fn drop(&mut self) {
         let r = self.regs;
         let ch = self.index;
@@ -716,7 +716,7 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Drop for Ch
     }
 }
 
-impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Channel<T, D, CH_COUNT> {
+impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Channel<T, D, CH_COUNT> {
     fn state(&self) -> &HostState<CH_COUNT> {
         unsafe { &*self.state }
     }
@@ -784,7 +784,7 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Channel<T, 
             w.set_dterrm(true);
         });
 
-        // Enable this channel in HAINTMSK (critical section guards the RMW against concurrent alloc_channel)
+        // Enable this channel in HAINTMSK (critical section guards the RMW against concurrent alloc_pipe)
         critical_section::with(|_| {
             r.haintmsk().modify(|w| {
                 w.set_haintm(w.haintm() | (1 << ch));
@@ -874,22 +874,22 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Channel<T, 
         .await
     }
 
-    fn result_to_error(result: u8) -> Result<(), ChannelError> {
+    fn result_to_error(result: u8) -> Result<(), PipeError> {
         match result {
             CH_RESULT_COMPLETE => Ok(()),
-            CH_RESULT_STALL => Err(ChannelError::Stall),
+            CH_RESULT_STALL => Err(PipeError::Stall),
             CH_RESULT_NAK => Ok(()), // NAK is not an error, just retry
-            CH_RESULT_TXERR => Err(ChannelError::BadResponse),
-            CH_RESULT_BBERR => Err(ChannelError::BadResponse),
-            CH_RESULT_FRMOR => Err(ChannelError::BadResponse),
-            CH_RESULT_DTERR => Err(ChannelError::BadResponse),
-            CH_RESULT_HALTED => Err(ChannelError::Disconnected),
-            _ => Err(ChannelError::BadResponse),
+            CH_RESULT_TXERR => Err(PipeError::BadResponse),
+            CH_RESULT_BBERR => Err(PipeError::BadResponse),
+            CH_RESULT_FRMOR => Err(PipeError::BadResponse),
+            CH_RESULT_DTERR => Err(PipeError::BadResponse),
+            CH_RESULT_HALTED => Err(PipeError::Disconnected),
+            _ => Err(PipeError::BadResponse),
         }
     }
 
     /// Execute an OUT transfer on this channel, retrying on NAK up to [`NAK_RETRY_LIMIT`] times.
-    async fn do_out_transfer(&mut self, ep_type: EndpointType, data: &[u8], dpid: u8) -> Result<(), ChannelError> {
+    async fn do_out_transfer(&mut self, ep_type: EndpointType, data: &[u8], dpid: u8) -> Result<(), PipeError> {
         let pktcnt = if data.is_empty() {
             1
         } else {
@@ -906,7 +906,7 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Channel<T, 
             if result == CH_RESULT_NAK {
                 nak_retries += 1;
                 if nak_retries >= NAK_RETRY_LIMIT {
-                    return Err(ChannelError::Timeout);
+                    return Err(PipeError::Timeout);
                 }
                 yield_now().await;
                 continue;
@@ -916,7 +916,7 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Channel<T, 
     }
 
     /// Execute an IN transfer on this channel, retrying on NAK up to [`NAK_RETRY_LIMIT`] times.
-    async fn do_in_transfer(&mut self, ep_type: EndpointType, buf: &mut [u8], dpid: u8) -> Result<usize, ChannelError> {
+    async fn do_in_transfer(&mut self, ep_type: EndpointType, buf: &mut [u8], dpid: u8) -> Result<usize, PipeError> {
         // For interrupt/isochronous endpoints, only request one packet per transfer.
         // The device sends at most one packet per (micro)frame.
         let is_periodic = matches!(ep_type, EndpointType::Interrupt | EndpointType::Isochronous);
@@ -962,7 +962,7 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Channel<T, 
                     // and polling should continue indefinitely.
                     nak_retries += 1;
                     if nak_retries >= NAK_RETRY_LIMIT {
-                        return Err(ChannelError::Timeout);
+                        return Err(PipeError::Timeout);
                     }
                 }
                 yield_now().await;
@@ -975,7 +975,7 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Channel<T, 
     }
 
     /// Perform a control IN transfer (SETUP -> DATA IN -> STATUS OUT).
-    async fn do_control_in(&mut self, setup: &[u8], buf: &mut [u8]) -> Result<usize, ChannelError> {
+    async fn do_control_in(&mut self, setup: &[u8], buf: &mut [u8]) -> Result<usize, PipeError> {
         // SETUP phase
         self.do_out_transfer(EndpointType::Control, setup, vals::Dpid::SETUP.to_bits())
             .await?;
@@ -1009,7 +1009,7 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Channel<T, 
     }
 
     /// Perform a control OUT transfer (SETUP -> DATA OUT -> STATUS IN).
-    async fn do_control_out(&mut self, setup: &[u8], data: &[u8]) -> Result<(), ChannelError> {
+    async fn do_control_out(&mut self, setup: &[u8], data: &[u8]) -> Result<(), PipeError> {
         // SETUP phase
         self.do_out_transfer(EndpointType::Control, setup, vals::Dpid::SETUP.to_bits())
             .await?;
@@ -1051,26 +1051,26 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> Channel<T, 
     }
 }
 
-impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> UsbChannel<T, D> for Channel<T, D, CH_COUNT> {
-    async fn control_in(&mut self, setup: &[u8; 8], buf: &mut [u8]) -> Result<usize, ChannelError>
+impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> UsbPipe<T, D> for Channel<T, D, CH_COUNT> {
+    async fn control_in(&mut self, setup: &[u8; 8], buf: &mut [u8]) -> Result<usize, PipeError>
     where
-        T: channel::IsControl,
-        D: channel::IsIn,
+        T: pipe::IsControl,
+        D: pipe::IsIn,
     {
         self.do_control_in(setup, buf).await
     }
 
-    async fn control_out(&mut self, setup: &[u8; 8], buf: &[u8]) -> Result<(), ChannelError>
+    async fn control_out(&mut self, setup: &[u8; 8], buf: &[u8]) -> Result<(), PipeError>
     where
-        T: channel::IsControl,
-        D: channel::IsOut,
+        T: pipe::IsControl,
+        D: pipe::IsOut,
     {
         self.do_control_out(setup, buf).await
     }
 
-    async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError>
+    async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, PipeError>
     where
-        D: channel::IsIn,
+        D: pipe::IsIn,
     {
         let dpid = if self.data_toggle {
             vals::Dpid::DATA1
@@ -1083,9 +1083,9 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> UsbChannel<
         Ok(n)
     }
 
-    async fn request_out(&mut self, buf: &[u8], _ensure_transaction_end: bool) -> Result<(), ChannelError>
+    async fn request_out(&mut self, buf: &[u8], _ensure_transaction_end: bool) -> Result<(), PipeError>
     where
-        D: channel::IsOut,
+        D: pipe::IsOut,
     {
         let dpid = if self.data_toggle {
             vals::Dpid::DATA1
@@ -1098,7 +1098,7 @@ impl<T: channel::Type, D: channel::Direction, const CH_COUNT: usize> UsbChannel<
         Ok(())
     }
 
-    fn retarget_channel(
+    fn retarget_pipe(
         &mut self,
         addr: u8,
         endpoint: &EndpointInfo,
