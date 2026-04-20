@@ -174,7 +174,7 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
     async fn hub_feature(&mut self, set: bool, feature: HubFeature) -> Result<(), HostError> {
         let setup = SetupPacket {
             request_type: RequestType {
-                direction: embassy_usb_driver::Direction::Out,
+                direction: Direction::Out,
                 control_type: ControlType::Class,
                 recipient: Recipient::Device,
             },
@@ -194,7 +194,7 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
     async fn get_hub_status(&mut self) -> Result<(HubStatus, HubStatusChange), HostError> {
         let setup = SetupPacket {
             request_type: RequestType {
-                direction: embassy_usb_driver::Direction::In,
+                direction: Direction::In,
                 control_type: ControlType::Class,
                 recipient: Recipient::Device,
             },
@@ -238,7 +238,7 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
     async fn port_feature(&mut self, set: bool, feature: PortFeature, port: u8, selector: u8) -> Result<(), HostError> {
         let setup = SetupPacket {
             request_type: RequestType {
-                direction: embassy_usb_driver::Direction::Out,
+                direction: Direction::Out,
                 control_type: ControlType::Class,
                 recipient: Recipient::Other,
             },
@@ -258,7 +258,7 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
     async fn get_port_status(&mut self, port: u8) -> Result<(PortStatus, PortStatusChange), HostError> {
         let setup = SetupPacket {
             request_type: RequestType {
-                direction: embassy_usb_driver::Direction::In,
+                direction: Direction::In,
                 control_type: ControlType::Class,
                 recipient: Recipient::Other,
             },

@@ -172,7 +172,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
         // Select the correct alternate setting
         let packet = SetupPacket {
             request_type: RequestType {
-                direction: embassy_usb_driver::Direction::Out,
+                direction: Direction::Out,
                 control_type: ControlType::Standard,
                 recipient: Recipient::Interface,
             },
@@ -317,7 +317,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
     pub async fn get_supported_language(&mut self) -> Result<u16, RequestError> {
         let packet = SetupPacket {
             request_type: RequestType {
-                direction: embassy_usb_driver::Direction::In,
+                direction: Direction::In,
                 control_type: ControlType::Standard,
                 recipient: Recipient::Device,
             },
@@ -352,7 +352,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
         // First, get just the length
         let packet = SetupPacket {
             request_type: RequestType {
-                direction: embassy_usb_driver::Direction::In,
+                direction: Direction::In,
                 control_type: ControlType::Standard,
                 recipient: Recipient::Device,
             },
@@ -380,7 +380,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
         // Now get the full string with the correct length
         let packet = SetupPacket {
             request_type: RequestType {
-                direction: embassy_usb_driver::Direction::In,
+                direction: Direction::In,
                 control_type: ControlType::Standard,
                 recipient: Recipient::Device,
             },
@@ -433,7 +433,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
     ) -> Result<u8, RequestError> {
         let packet = SetupPacket {
             request_type: RequestType {
-                direction: embassy_usb_driver::Direction::In,
+                direction: Direction::In,
                 control_type: ControlType::Class,
                 recipient: Recipient::Interface,
             },
@@ -471,7 +471,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
     ) -> Result<u16, RequestError> {
         let packet = SetupPacket {
             request_type: RequestType {
-                direction: embassy_usb_driver::Direction::In,
+                direction: Direction::In,
                 control_type: ControlType::Class,
                 recipient: Recipient::Interface,
             },
@@ -509,7 +509,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
     ) -> Result<u32, RequestError> {
         let packet = SetupPacket {
             request_type: RequestType {
-                direction: embassy_usb_driver::Direction::In,
+                direction: Direction::In,
                 control_type: ControlType::Class,
                 recipient: Recipient::Interface,
             },
@@ -547,7 +547,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
     ) -> Result<Layout1ParameterBlock, RequestError> {
         let packet = SetupPacket {
             request_type: RequestType {
-                direction: embassy_usb_driver::Direction::In,
+                direction: Direction::In,
                 control_type: ControlType::Class,
                 recipient: Recipient::Interface,
             },
@@ -587,7 +587,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
     ) -> Result<Layout2ParameterBlock, RequestError> {
         let packet = SetupPacket {
             request_type: RequestType {
-                direction: embassy_usb_driver::Direction::In,
+                direction: Direction::In,
                 control_type: ControlType::Class,
                 recipient: Recipient::Interface,
             },
@@ -627,7 +627,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
     ) -> Result<Layout3ParameterBlock, RequestError> {
         let packet = SetupPacket {
             request_type: RequestType {
-                direction: embassy_usb_driver::Direction::In,
+                direction: Direction::In,
                 control_type: ControlType::Class,
                 recipient: Recipient::Interface,
             },

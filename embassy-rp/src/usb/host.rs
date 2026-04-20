@@ -396,14 +396,17 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
     fn set_setup_packet(&mut self, setup: &[u8; 8]) {
         assert!(E::ep_type() == EndpointType::Control);
         let dpram = T::dpram();
+        let value = u16::from_le_bytes([setup[2], setup[3]]);
+        let index = u16::from_le_bytes([setup[4], setup[5]]);
+        let length = u16::from_le_bytes([setup[6], setup[7]]);
         dpram.setup_packet_low().write(|w| {
             w.set_bmrequesttype(setup[0]);
             w.set_brequest(setup[1]);
-            w.set_wvalue(u16::from_le_bytes([setup[2], setup[3]]));
+            w.set_wvalue(value);
         });
         dpram.setup_packet_high().write(|w| {
-            w.set_windex(u16::from_le_bytes([setup[4], setup[5]]));
-            w.set_wlength(u16::from_le_bytes([setup[6], setup[7]]));
+            w.set_windex(index);
+            w.set_wlength(length);
         });
         T::regs().sie_ctrl().modify(|w| {
             w.set_send_data(false);
@@ -561,15 +564,16 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
         E: channel::IsControl,
         D: channel::IsIn,
     {
-        trace!("CONTROL IN");
-        let length = u16::from_le_bytes([setup[6], setup[7]]);
+        trace!("CONTROL IN: {:?}", setup);
+        let length = u16::from_le_bytes([setup[6], setup[7]]) as usize;
+
         // Setup stage
         // TODO: Whole transaction error handling?
         self.send_setup(setup).await?;
 
         // Data stage
         let read = if length > 0 {
-            self.request_in(&mut buf[..length as usize]).await?
+            self.request_in(&mut buf[..length]).await?
         } else {
             0
         };
@@ -585,15 +589,16 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
         E: channel::IsControl,
         D: channel::IsOut,
     {
-        trace!("CONTROL OUT");
-        let length = u16::from_le_bytes([setup[6], setup[7]]);
+        trace!("CONTROL OUT: {:?}", setup);
+        let length = u16::from_le_bytes([setup[6], setup[7]]) as usize;
+
         // Setup stage
         // TODO: Whole transaction error handling?
         self.send_setup(setup).await?;
 
         // Data stage
         if length > 0 {
-            self.request_out(&buf[..length as usize], false).await?;
+            self.request_out(&buf[..length], false).await?;
         }
 
         // Status stage

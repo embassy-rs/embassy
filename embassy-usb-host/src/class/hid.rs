@@ -291,8 +291,11 @@ impl<D: UsbHostDriver> HidHost<D> {
     /// excess is unused.
     pub async fn fetch_report_descriptor<'a>(&mut self, buf: &'a mut [u8]) -> Result<&'a [u8], HidError> {
         let len = (self.report_descriptor_len as usize).min(buf.len()) as u16;
-        let setup = SetupPacket::get_hid_report_descriptor(self.interface, len).to_bytes();
-        let n = self.ctrl_ch.control_in(&setup, &mut buf[..len as usize]).await?;
+        let setup = SetupPacket::get_hid_report_descriptor(self.interface, len);
+        let n = self
+            .ctrl_ch
+            .control_in(&setup.to_bytes(), &mut buf[..len as usize])
+            .await?;
         Ok(&buf[..n])
     }
 
@@ -304,8 +307,8 @@ impl<D: UsbHostDriver> HidHost<D> {
     /// A STALL is treated as success per the HID specification.
     pub async fn set_idle(&mut self, report_id: u8, idle_duration: u8) -> Result<(), HidError> {
         let value = (idle_duration as u16) << 8 | report_id as u16;
-        let setup = SetupPacket::class_interface_out(SET_IDLE, value, self.interface as u16, 0).to_bytes();
-        match self.ctrl_ch.control_out(&setup, &[]).await {
+        let setup = SetupPacket::class_interface_out(SET_IDLE, value, self.interface as u16, 0);
+        match self.ctrl_ch.control_out(&setup.to_bytes(), &[]).await {
             Ok(_) => Ok(()),
             Err(ChannelError::Stall) => Ok(()),
             Err(e) => Err(HidError::Transfer(e)),
@@ -314,9 +317,8 @@ impl<D: UsbHostDriver> HidHost<D> {
 
     /// Set the protocol (boot or report).
     pub async fn set_protocol(&mut self, protocol: u8) -> Result<(), HidError> {
-        let setup =
-            SetupPacket::class_interface_out(SET_PROTOCOL, protocol as u16, self.interface as u16, 0).to_bytes();
-        self.ctrl_ch.control_out(&setup, &[]).await?;
+        let setup = SetupPacket::class_interface_out(SET_PROTOCOL, protocol as u16, self.interface as u16, 0);
+        self.ctrl_ch.control_out(&setup.to_bytes(), &[]).await?;
         Ok(())
     }
 
@@ -357,9 +359,8 @@ impl<D: UsbHostDriver> HidHost<D> {
     /// Returns the number of bytes received.
     pub async fn get_report(&mut self, report_type: u8, report_id: u8, buf: &mut [u8]) -> Result<usize, HidError> {
         let value = (report_type as u16) << 8 | report_id as u16;
-        let setup =
-            SetupPacket::class_interface_in(GET_REPORT, value, self.interface as u16, buf.len() as u16).to_bytes();
-        let n = self.ctrl_ch.control_in(&setup, buf).await?;
+        let setup = SetupPacket::class_interface_in(GET_REPORT, value, self.interface as u16, buf.len() as u16);
+        let n = self.ctrl_ch.control_in(&setup.to_bytes(), buf).await?;
         Ok(n)
     }
 }
