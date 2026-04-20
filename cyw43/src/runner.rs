@@ -15,7 +15,7 @@ use crate::ioctl::{IoctlState, IoctlType, PendingIoctl};
 pub use crate::spi::SpiBusCyw43;
 use crate::structs::*;
 use crate::util::{aligned_mut, aligned_ref, slice8_mut, slice16_mut, try_until};
-use crate::{Chip, ChipId, Core, MTU, events, sdio};
+use crate::{Chip, ChipId, Core, MTU, WithContext, events, sdio};
 
 #[cfg(feature = "firmware-logs")]
 struct LogState {
@@ -52,7 +52,7 @@ pub(crate) trait SealedBus {
     const TYPE: BusType;
     type Config;
 
-    async fn init<'a>(&mut self, bluetooth_enabled: bool, config: &'a Self::Config) -> Result<BusConfig<'a>, ()>;
+    async fn init<'a>(&mut self, bluetooth: bool, config: &'a Self::Config) -> crate::Result<BusConfig<'a>>;
     async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) -> Result<(), ()>;
     async fn wlan_write(&mut self, buf: &Aligned<A4, [u8]>);
     #[allow(unused)]
@@ -84,30 +84,32 @@ pub(crate) trait SealedBus {
 pub trait Bus: SealedBus {}
 impl<T: SealedBus> Bus for T {}
 
-async fn wake_bus(bus: &mut impl Bus) {
+async fn wake_bus(bus: &mut impl Bus) -> crate::Result<()> {
     if matches!(bus.bus_type(), BusType::Sdio) {
         bus.write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, BACKPLANE_HT_AVAIL_REQ)
             .await;
 
-        if !try_until(
+        try_until(
             async || bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & BACKPLANE_HT_AVAIL_REQ << 3 != 0,
             Duration::from_millis(5),
+            "timeout while requesting HT clock before SDIO access",
         )
-        .await
-        {
-            debug!("timeout while requesting HT clock before SDIO access");
-        }
+        .await?;
     }
+
+    Ok(())
 }
 
-async fn wlan_read(bus: &mut impl Bus, buf: &mut Aligned<A4, [u8]>) -> Result<(), ()> {
-    wake_bus(bus).await;
-    bus.wlan_read(buf).await
+async fn wlan_read(bus: &mut impl Bus, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()> {
+    wake_bus(bus).await?;
+    bus.wlan_read(buf).await.map_err(|_| crate::Error)
 }
 
-async fn wlan_write(bus: &mut impl Bus, buf: &Aligned<A4, [u8]>) {
-    wake_bus(bus).await;
-    bus.wlan_write(buf).await
+async fn wlan_write(bus: &mut impl Bus, buf: &Aligned<A4, [u8]>) -> crate::Result<()> {
+    wake_bus(bus).await?;
+    bus.wlan_write(buf).await;
+
+    Ok(())
 }
 
 /// Driver communicating with the WiFi chip.
@@ -169,7 +171,7 @@ where
         }
     }
 
-    async fn verify_download(&mut self, label: &str, addr: u32, data: &[u8]) -> Result<(), ()> {
+    async fn verify_download(&mut self, label: &str, addr: u32, data: &[u8]) -> crate::Result<()> {
         async fn bp_read_bytes<BUS: Bus, const N: usize>(bus: &mut BUS, addr: u32) -> Aligned<A4, [u8; N]> {
             let mut buf = Aligned([0; N]);
             bus.bp_read(addr, &mut buf[..]).await;
@@ -218,7 +220,8 @@ where
             if !ok {
                 debug!("{} expected {:02x}", label, Bytes(expected));
                 debug!("{} actual   {:02x}", label, Bytes(&actual[..]));
-                return Err(());
+
+                return Err(crate::Error);
             }
         }
 
@@ -247,17 +250,16 @@ where
             );
             if exp_sum != got_sum || actual != expected {
                 debug!("{} chunk verify failed @{:08x}", label, addr + offset as u32);
-                return Err(());
+                return Err(crate::Error);
             }
         }
 
         Ok(())
     }
 
-    async fn write_reset_instruction(&mut self, wifi_fw: &[u8]) -> Result<(), ()> {
+    async fn write_reset_instruction(&mut self, wifi_fw: &[u8]) -> crate::Result<()> {
         if wifi_fw.len() < 4 {
-            debug!("FW image too small to extract reset instruction");
-            return Err(());
+            return Err(crate::Error).with_ctx("FW image too small to extract reset instruction");
         }
 
         // CR4-based chips boot firmware from ATCM, but still expect the first
@@ -274,8 +276,7 @@ where
             reset_instr_rb == reset_instr,
         );
         if reset_instr_rb != reset_instr {
-            debug!("reset instruction write FAILED");
-            return Err(());
+            return Err(crate::Error).with_ctx("reset instruction write FAILED");
         }
 
         Ok(())
@@ -356,7 +357,7 @@ where
         }
     }
 
-    async fn init_cyw43439(&mut self) -> Result<(), ()> {
+    async fn init_cyw43439(&mut self) -> crate::Result<()> {
         if matches!(self.bus.bus_type(), BusType::Sdio) {
             self.bus
                 .write8(FUNC_BACKPLANE, SDIO_SLEEP_CSR, SBSDIO_SLPCSR_KEEP_WL_KS as u8)
@@ -396,13 +397,22 @@ where
             .write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, 0x10)
             .await; // SBSDIO_HT_AVAIL_REQ
         debug!("waiting for HT clock...");
+        // TODO: investiate why this does not work
+
+        // try_until(
+        //     async || self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 == 0,
+        //     Duration::from_millis(500),
+        //     "timeout waiting for HT clock",
+        // )
+        // .await?;
+
         while self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 == 0 {}
         debug!("clock ok");
 
         Ok(())
     }
 
-    async fn init_cyw4373(&mut self) -> Result<(), ()> {
+    async fn init_cyw4373(&mut self) -> crate::Result<()> {
         let wakeup_ctrl = self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_WAKEUP_CTRL).await;
         self.bus
             .write8(
@@ -440,7 +450,7 @@ where
         nvram: &Aligned<A4, [u8]>,
         bt_fw: Option<&[u8]>,
         config: &BUS::Config,
-    ) -> Result<(), ()> {
+    ) -> crate::Result<()> {
         match self.chip.id() {
             ChipId::C43439 => debug!("using cyw43439"),
             ChipId::C4373 => debug!("using cyw43437"),
@@ -483,15 +493,13 @@ where
         }
 
         debug!("waiting for clock...");
-        if !try_until(
+        try_until(
             async || self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & BACKPLANE_ALP_AVAIL != 0,
             Duration::from_millis(100),
+            "timeout while waiting for alp clock!",
         )
-        .await
-        {
-            debug!("timeout while waiting for alp clock!");
-            return Err(());
-        }
+        .await?;
+
         debug!("clock ok");
 
         // clear request for ALP
@@ -552,8 +560,7 @@ where
             magic_rb == nvram_len_magic,
         );
         if magic_rb != nvram_len_magic {
-            debug!("NVRAM magic write FAILED — firmware cannot find NVRAM");
-            return Err(());
+            return Err(crate::Error).with_ctx("NVRAM magic write FAILED — firmware cannot find NVRAM");
         }
 
         // Also read back the first 4 bytes of the NVRAM area to confirm the
@@ -573,16 +580,12 @@ where
         }
 
         debug!("waiting for HT clock...");
-        if !try_until(
+        try_until(
             async || self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 == 0,
             Duration::from_millis(500),
+            "Timeout waiting for HT clock",
         )
-        .await
-        {
-            warn!("Timeout waiting for HT clock");
-
-            return Err(());
-        }
+        .await?;
 
         // "Set up the interrupt mask and enable interrupts"
         debug!("setup interrupt mask");
@@ -629,18 +632,15 @@ where
 
         // wait for F2 to be ready
         debug!("waiting for F2 to be ready...");
-        if !try_until(
+        try_until(
             async || match self.bus.bus_type() {
                 BusType::Sdio => self.bus.read8(FUNC_BUS, SDIOD_CCCR_IORDY).await as u32 & SDIO_FUNC_READY_2 != 0,
                 BusType::Spi => self.bus.read32(FUNC_BUS, REG_BUS_STATUS).await & STATUS_F2_RX_READY != 0,
             },
             Duration::from_millis(1000),
+            "timeout while waiting for function 2 to be ready",
         )
-        .await
-        {
-            debug!("timeout while waiting for function 2 to be ready");
-            return Err(());
-        }
+        .await?;
 
         match self.chip.id() {
             ChipId::C4373 => self.init_cyw4373().await?,
@@ -804,7 +804,7 @@ where
 
                         trace!("    {:02x}", Bytes(&buf8[..total_len.min(48)]));
 
-                        wlan_write(&mut self.bus, &aligned_ref(&buf)[..total_len]).await;
+                        let _ = wlan_write(&mut self.bus, &aligned_ref(&buf)[..total_len]).await;
                         packet.tx_done();
                         self.check_status(&mut buf).await;
                     }
@@ -1231,6 +1231,6 @@ where
         let total_len = (total_len + 3) & !3; // round up to 4byte,
         trace!("    {:02x}", Bytes(&buf8[..total_len.min(48)]));
 
-        wlan_write(&mut self.bus, &aligned_ref(buf)[..total_len]).await;
+        let _ = wlan_write(&mut self.bus, &aligned_ref(buf)[..total_len]).await;
     }
 }

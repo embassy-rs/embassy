@@ -24,6 +24,7 @@ mod spi;
 mod structs;
 mod util;
 
+use core::result;
 use core::sync::atomic::AtomicBool;
 
 pub use aligned::{A4, Aligned};
@@ -41,6 +42,29 @@ pub use crate::spi::{SpiBus, SpiBusCyw43};
 pub use crate::structs::BssInfo;
 
 const MTU: usize = 1514;
+
+/// cyw43 Error type
+#[derive(Debug)]
+pub struct Error;
+
+type Result<T> = result::Result<T, Error>;
+
+trait WithContext: Sized {
+    #[allow(dead_code)]
+    #[track_caller]
+    fn ctx(self) -> Self {
+        self.with_ctx("_")
+    }
+
+    #[track_caller]
+    fn with_ctx(self, ctx: &'static str) -> Self {
+        error!("- {}", ctx);
+
+        self
+    }
+}
+
+impl<T> WithContext for Result<T> {}
 
 #[allow(unused)]
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -470,7 +494,7 @@ pub async fn new_43439_sdio<'a, SDIO>(
     sdio: SDIO,
     firmware: &Aligned<A4, [u8]>,
     nvram: &Aligned<A4, [u8]>,
-) -> Result<(NetDriver<'a>, Control<'a>, Runner<'a, SdioBus<SDIO>, Cyw43439>), ()>
+) -> Result<(NetDriver<'a>, Control<'a>, Runner<'a, SdioBus<SDIO>, Cyw43439>)>
 where
     SDIO: SdioBusCyw43<64>,
 {
@@ -510,7 +534,7 @@ pub async fn new_4373_sdio<'a, SDIO>(
     sdio: SDIO,
     firmware: &Aligned<A4, [u8]>,
     nvram: &Aligned<A4, [u8]>,
-) -> Result<(NetDriver<'a>, Control<'a>, Runner<'a, SdioBus<SDIO>, Cyw4373>), ()>
+) -> Result<(NetDriver<'a>, Control<'a>, Runner<'a, SdioBus<SDIO>, Cyw4373>)>
 where
     SDIO: SdioBusCyw43<64>,
 {

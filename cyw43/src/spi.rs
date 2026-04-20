@@ -154,7 +154,7 @@ where
     const TYPE: BusType = BusType::Spi;
     type Config = ();
 
-    async fn init<'a>(&mut self, bluetooth_enabled: bool, config: &'a ()) -> Result<BusConfig<'a>, ()> {
+    async fn init<'a>(&mut self, bluetooth_enabled: bool, config: &'a ()) -> crate::Result<BusConfig<'a>> {
         fn cmp<R: Eq>(left: R, right: R) -> Result<(), ()> {
             if left == right { Ok(()) } else { Err(()) }
         }
@@ -178,7 +178,7 @@ where
         self.write32_swapped(FUNC_BUS, REG_BUS_TEST_RW, TEST_PATTERN).await;
         let val = self.read32_swapped(FUNC_BUS, REG_BUS_TEST_RW).await;
         trace!("{:#x}", val);
-        cmp(val, TEST_PATTERN)?;
+        cmp(val, TEST_PATTERN).map_err(|_| crate::Error)?;
 
         trace!("read REG_BUS_CTRL");
         let val = self.read32_swapped(FUNC_BUS, REG_BUS_CTRL).await;
@@ -208,13 +208,13 @@ where
         trace!("read REG_BUS_TEST_RO");
         let val = self.read32(FUNC_BUS, REG_BUS_TEST_RO).await;
         trace!("{:#x}", val);
-        cmp(val, FEEDBEAD)?;
+        cmp(val, FEEDBEAD).map_err(|_| crate::Error)?;
 
         // TODO: C doesn't do this? i doubt it messes anything up
         trace!("read REG_BUS_TEST_RW");
         let val = self.read32(FUNC_BUS, REG_BUS_TEST_RW).await;
         trace!("{:#x}", val);
-        cmp(val, TEST_PATTERN)?;
+        cmp(val, TEST_PATTERN).map_err(|_| crate::Error)?;
 
         trace!("write SPI_RESP_DELAY_F1 CYW43_BACKPLANE_READ_PAD_LEN_BYTES");
         self.write8(FUNC_BUS, SPI_RESP_DELAY_F1, WHD_BUS_SPI_BACKPLANE_READ_PADD_SIZE)

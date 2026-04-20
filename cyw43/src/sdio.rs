@@ -302,23 +302,20 @@ where
     const TYPE: BusType = BusType::Sdio;
     type Config = Config;
 
-    async fn init<'a>(&mut self, _bluetooth_enabled: bool, config: &'a Config) -> Result<BusConfig<'a>, ()> {
+    async fn init<'a>(&mut self, _bluetooth_enabled: bool, config: &'a Config) -> crate::Result<BusConfig<'a>> {
         // whd_bus_sdio_init
 
         // set up backplane
-        if !try_until(
+        try_until(
             async || {
                 self.write8(FUNC_BUS, SDIOD_CCCR_IOEN, SDIO_FUNC_ENABLE_1 as u8).await;
 
                 self.read8(FUNC_BUS, SDIOD_CCCR_IOEN).await as u32 == SDIO_FUNC_ENABLE_1
             },
             Duration::from_millis(500),
+            "timeout while setting up the backplane",
         )
-        .await
-        {
-            debug!("timeout while setting up the backplane");
-            return Err(());
-        }
+        .await?;
 
         debug!("backplane is up");
 
@@ -333,19 +330,16 @@ where
         .await;
 
         // Set the block size
-        if !try_until(
+        try_until(
             async || {
                 self.write8(FUNC_BUS, SDIOD_CCCR_BLKSIZE_0, SDIO_64B_BLOCK as u8).await;
 
                 self.read8(FUNC_BUS, SDIOD_CCCR_BLKSIZE_0).await as u32 == SDIO_64B_BLOCK
             },
             Duration::from_millis(500),
+            "timeout while setting block size",
         )
-        .await
-        {
-            debug!("timeout while setting block size");
-            return Err(());
-        }
+        .await?;
 
         self.write8(FUNC_BUS, SDIOD_CCCR_BLKSIZE_0, SDIO_64B_BLOCK as u8).await;
         self.write8(FUNC_BUS, SDIOD_CCCR_F1BLKSIZE_0, SDIO_64B_BLOCK as u8)
@@ -380,15 +374,12 @@ where
         }
 
         // Wait till the backplane is ready
-        if !try_until(
+        try_until(
             async || self.read8(FUNC_BUS, SDIOD_CCCR_IORDY).await as u32 & SDIO_FUNC_READY_1 != 0,
             Duration::from_millis(500),
+            "timeout while waiting for backplane to be ready",
         )
-        .await
-        {
-            debug!("timeout while waiting for backplane to be ready");
-            return Err(());
-        }
+        .await?;
 
         Ok(BusConfig::Sdio(config))
     }

@@ -192,6 +192,16 @@ macro_rules! unwrap {
     };
 }
 
+#[cfg(feature = "defmt")]
+trait_set::trait_set! {
+    pub trait Debuggable = Debug + defmt::Format;
+}
+
+#[cfg(not(feature = "defmt"))]
+trait_set::trait_set! {
+    pub trait Debuggable = Debug;
+}
+
 #[cfg(not(feature = "defmt"))]
 #[collapse_debuginfo(yes)]
 macro_rules! unwrap {
