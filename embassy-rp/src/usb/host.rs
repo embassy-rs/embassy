@@ -607,13 +607,6 @@ impl<'d, T: Instance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D> for Chann
         Ok(())
     }
 
-    fn retarget_pipe(&mut self, addr: u8, endpoint: &EndpointInfo, split: Option<SplitInfo>) -> Result<(), HostError> {
-        self.pre = split_to_pre(split);
-        self.dev_addr = addr;
-        self.max_packet_size = endpoint.max_packet_size;
-        Ok(())
-    }
-
     async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, PipeError>
     where
         D: pipe::IsIn,

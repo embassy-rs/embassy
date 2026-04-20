@@ -6,8 +6,8 @@ use embassy_executor::Spawner;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::HostDriver;
 use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
-use embassy_usb_host::UsbHost;
 use embassy_usb_host::class::cdc_acm::{CdcAcmHost, LineCoding};
+use embassy_usb_host::{BusRoute, UsbHost};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -56,7 +56,7 @@ async fn main(_spawner: Spawner) {
 
         // Enumerate the device
         let mut config_buf = [0u8; 256];
-        let result = host.enumerate(speed, &mut config_buf).await;
+        let result = host.enumerate(BusRoute::Direct(speed), &mut config_buf).await;
 
         let (enum_info, config_len) = match result {
             Ok(r) => r,

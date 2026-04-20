@@ -11,11 +11,13 @@ pub mod control;
 pub mod descriptor;
 pub mod handler;
 
+pub use embassy_usb_driver::host::{SplitInfo, SplitSpeed};
+pub use crate::handler::BusRoute;
 use embassy_usb_driver::host::{DeviceEvent, HostError, PipeError, UsbHostDriver, UsbPipe, pipe};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType, Speed};
 
-use crate::control::SetupPacket;
-use crate::descriptor::{ConfigurationDescriptor, USBDescriptor};
+use crate::control::{ControlPipeExt, SetupPacket};
+use crate::descriptor::{ConfigurationDescriptor, DeviceDescriptor, USBDescriptor};
 use crate::handler::EnumerationInfo;
 
 /// USB host enumeration error.
@@ -151,30 +153,109 @@ impl<D: UsbHostDriver> UsbHost<D> {
     /// 4. Get configuration descriptor
     /// 5. SET_CONFIGURATION
     ///
+    /// `route` describes how the device is reached on the bus (directly at
+    /// its native speed, or via split transactions / legacy `PRE` through a
+    /// hub's transaction translator).
+    ///
+    /// # Preconditions
+    ///
+    /// The caller must have placed the device into the default (address 0)
+    /// state *before* calling this method. For a root-port device that
+    /// means an upstream bus reset has completed; for a hub-attached
+    /// device, the parent hub's port reset must have completed and
+    /// [`BusRoute::Translated`] must carry the appropriate [`SplitInfo`].
+    ///
     /// Returns the [`EnumerationInfo`] for the device and bytes written to `config_buf`.
+    ///
+    /// [`SplitInfo`]: embassy_usb_driver::host::SplitInfo
     pub async fn enumerate(
         &mut self,
-        speed: Speed,
+        route: BusRoute,
         config_buf: &mut [u8],
     ) -> Result<(EnumerationInfo, usize), EnumerationError> {
-        use crate::control::ControlPipeExt;
+        use embassy_time::Timer;
+
+        use crate::descriptor::DeviceDescriptorPartial;
+
+        let addr = self.alloc_address().ok_or(EnumerationError::NoPipe)?;
 
         let ep0_info = EndpointInfo {
             addr: EndpointAddress::from_parts(0, UsbDirection::In),
             ep_type: EndpointType::Control,
-            max_packet_size: speed.max_packet_size(),
+            max_packet_size: route.device_speed().max_packet_size(),
             interval_ms: 0,
         };
 
         let mut ch = self
             .driver
-            .alloc_pipe::<pipe::Control, pipe::InOut>(0, &ep0_info, None)
+            .alloc_pipe::<pipe::Control, pipe::InOut>(0, &ep0_info, route.split())
             .map_err(|_| EnumerationError::NoPipe)?;
 
-        // Steps 1–3: GET_DESCRIPTOR (partial + full), SET_ADDRESS, retarget pipe.
-        let addr = self.alloc_address().ok_or(EnumerationError::NoPipe)?;
-        let enum_info = ch.enumerate_device(speed, addr, None).await?;
-        let dev_desc = &enum_info.device_desc;
+        trace!("[enum] Getting max_packet_size for new device");
+        let max_packet_size0 = {
+            let mut max_retries = 10;
+            loop {
+                match ch
+                    .request_descriptor::<DeviceDescriptorPartial, { DeviceDescriptorPartial::SIZE }>(0, false)
+                    .await
+                {
+                    Ok(desc) => break desc.max_packet_size0,
+                    Err(e) => {
+                        warn!("Request descriptor error: {:?}, retries: {}", e, max_retries);
+                        if max_retries > 0 {
+                            max_retries -= 1;
+                            Timer::after_millis(1).await;
+                            continue;
+                        } else {
+                            self.free_address(addr);
+                            return Err(e.into());
+                        }
+                    }
+                }
+            }
+        };
+        // USB 2.0 §9.6.1: legal EP0 max packet sizes are 8, 16, 32, 64.
+        if !matches!(max_packet_size0, 8 | 16 | 32 | 64) {
+            self.free_address(addr);
+            return Err(EnumerationError::InvalidDescriptor);
+        }
+
+        ch.device_set_address(addr).await?;
+        // USB 2.0 §9.2.6.3: allow the device a 2ms recovery interval after SET_ADDRESS.
+        Timer::after_millis(2).await;
+
+        // Drop pipe to re-allocate with new address and correct max_packet_size.
+        drop(ch);
+
+        let ep0_info = EndpointInfo {
+            addr: EndpointAddress::from_parts(0, UsbDirection::In),
+            ep_type: EndpointType::Control,
+            max_packet_size: max_packet_size0 as u16,
+            interval_ms: 0,
+        };
+
+        let mut ch = self
+            .driver
+            .alloc_pipe::<pipe::Control, pipe::InOut>(addr, &ep0_info, route.split())
+            .map_err(|_| EnumerationError::NoPipe)?;
+
+        let retries = 5;
+        let dev_desc = async {
+            for _ in 0..retries {
+                match ch
+                    .request_descriptor::<DeviceDescriptor, { DeviceDescriptor::SIZE }>(0, false)
+                    .await
+                {
+                    Err(HostError::PipeError(PipeError::Timeout)) => {
+                        Timer::after_millis(1).await;
+                        continue;
+                    }
+                    v => return v,
+                }
+            }
+            Err(HostError::PipeError(PipeError::Timeout))
+        }
+        .await?;
 
         info!(
             "Device: VID={:04x} PID={:04x} class={:02x}",
@@ -186,6 +267,7 @@ impl<D: UsbHostDriver> UsbHost<D> {
         let n = ch.control_in(&setup.to_bytes(), &mut config_buf[..9]).await?;
 
         if n < 9 {
+            self.free_address(addr);
             return Err(EnumerationError::InvalidDescriptor);
         }
 
@@ -194,6 +276,7 @@ impl<D: UsbHostDriver> UsbHost<D> {
         let total_len = config_header.total_len as usize;
 
         if total_len > config_buf.len() {
+            self.free_address(addr);
             return Err(EnumerationError::ConfigBufferTooSmall(total_len));
         }
 
@@ -203,6 +286,7 @@ impl<D: UsbHostDriver> UsbHost<D> {
 
         // USB 2.0 §9.4.3: the device must return exactly total_len bytes for a full config descriptor.
         if n != total_len {
+            self.free_address(addr);
             return Err(EnumerationError::InvalidDescriptor);
         }
 
@@ -217,6 +301,13 @@ impl<D: UsbHostDriver> UsbHost<D> {
         // Pipe is released on drop.
         drop(ch);
 
-        Ok((enum_info, n))
+        Ok((
+            EnumerationInfo {
+                device_address: addr,
+                route,
+                device_desc: dev_desc,
+            },
+            n,
+        ))
     }
 }

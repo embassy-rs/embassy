@@ -9,7 +9,7 @@ use core::num::NonZeroU8;
 use bitflags::bitflags;
 use embassy_time::Timer;
 use embassy_usb::control::Request;
-use embassy_usb_driver::host::{HostError, SplitInfo, SplitSpeed, UsbHostDriver, UsbPipe, pipe};
+use embassy_usb_driver::host::{HostError, SplitSpeed, UsbHostDriver, UsbPipe, pipe};
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
 use zerocopy::{FromBytes, Immutable, KnownLayout};
 
@@ -36,10 +36,7 @@ pub enum HubEvent {
 impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
     /// Attempt to register a hub handler for the given device.
     pub async fn try_register(bus: &H, enum_info: &EnumerationInfo) -> Result<Self, RegisterError> {
-        let ls_over_fs = enum_info
-            .split
-            .map(|s| s.device_speed() == SplitSpeed::Low)
-            .unwrap_or(false);
+        let ls_over_fs = matches!(enum_info.split(), Some(s) if s.device_speed() == SplitSpeed::Low);
         let mut control_channel = bus.alloc_pipe::<pipe::Control, pipe::InOut>(
             enum_info.device_address,
             &EndpointInfo {
@@ -51,7 +48,7 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
                     .min(if ls_over_fs { 8 } else { 64 }) as u16,
                 interval_ms: 0,
             },
-            enum_info.split,
+            enum_info.split(),
         )?;
 
         let mut cfg_desc_buf = [0u8; DEFAULT_MAX_DESCRIPTOR_SIZE];
@@ -82,7 +79,7 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
         let interrupt_channel = bus.alloc_pipe::<pipe::Interrupt, pipe::In>(
             enum_info.device_address,
             &interrupt_ep.into(),
-            enum_info.split,
+            enum_info.split(),
         )?;
 
         let desc = control_channel.request_descriptor::<HubDescriptor, 64>(0, true).await?;
@@ -93,7 +90,7 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
             desc,
             device_address: enum_info.device_address,
             device_lut: [None; MAX_PORTS],
-            speed: enum_info.speed,
+            speed: enum_info.speed(),
         };
 
         for port in 0..hub.desc.port_num {
@@ -209,28 +206,6 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
             HubStatus::from_bits_truncate(u16::from_le_bytes(buf[..2].try_into().unwrap())),
             HubStatusChange::from_bits_truncate(u16::from_le_bytes(buf[2..].try_into().unwrap())),
         ))
-    }
-
-    /// Reset a port and enumerate the device attached to it.
-    pub async fn enumerate_port(
-        &mut self,
-        port: u8,
-        speed: Speed,
-        new_device_address: u8,
-    ) -> Result<EnumerationInfo, HostError> {
-        self.port_feature(true, PortFeature::Reset, port, 0).await?;
-        Timer::after_millis(50).await;
-        self.port_feature(false, PortFeature::ChangeReset, port, 0).await?;
-
-        let split_speed = match (speed, self.speed) {
-            (Speed::Low, Speed::Full | Speed::High) => Some(SplitSpeed::Low),
-            (Speed::Full, Speed::High) => Some(SplitSpeed::Full),
-            _ => None,
-        };
-        let split = split_speed.map(|ss| SplitInfo::new(self.device_address, port + 1, ss));
-        self.control_channel
-            .enumerate_device(speed, new_device_address, split)
-            .await
     }
 
     async fn port_feature(&mut self, set: bool, feature: PortFeature, port: u8, selector: u8) -> Result<(), HostError> {

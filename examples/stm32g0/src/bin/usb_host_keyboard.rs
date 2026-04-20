@@ -8,8 +8,8 @@ use embassy_stm32::i2c::{self, I2c};
 use embassy_stm32::time::mhz;
 use embassy_stm32::{Config, bind_interrupts, dma, pac, peripherals, usb};
 use embassy_time::Timer;
-use embassy_usb_host::UsbHost;
 use embassy_usb_host::class::hid::HidHost;
+use embassy_usb_host::{BusRoute, UsbHost};
 use {defmt_rtt as _, panic_probe as _};
 
 pub use crate::pac::rcc::vals::Mcosel;
@@ -86,7 +86,7 @@ async fn main(_spawner: Spawner) {
         info!("Device connected at speed {:?}", speed);
 
         let mut config_buf = [0u8; 256];
-        let result = host.enumerate(speed, &mut config_buf).await;
+        let result = host.enumerate(BusRoute::Direct(speed), &mut config_buf).await;
 
         let (enum_info, config_len) = match result {
             Ok(r) => r,

@@ -1108,13 +1108,6 @@ impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> UsbPipe<T, D> for
         Ok(())
     }
 
-    fn retarget_pipe(&mut self, addr: u8, endpoint: &EndpointInfo, _split: Option<SplitInfo>) -> Result<(), HostError> {
-        self.device_address = addr;
-        self.ep_number = endpoint.addr.index() as u8;
-        self.max_packet_size = endpoint.max_packet_size;
-        Ok(())
-    }
-
     fn set_timeout(&mut self, _timeout: embassy_usb_driver::host::TimeoutConfig) {
         // Hardware timeouts; no-op
     }

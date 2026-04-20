@@ -50,10 +50,11 @@ impl<H: UsbHostDriver> KbdHandler<H> {
             &EndpointInfo {
                 addr: 0.into(),
                 ep_type: EndpointType::Control,
-                max_packet_size: (enum_info.device_desc.max_packet_size0 as u16).min(enum_info.speed.max_packet_size()),
+                max_packet_size: (enum_info.device_desc.max_packet_size0 as u16)
+                    .min(enum_info.speed().max_packet_size()),
                 interval_ms: 0,
             },
-            enum_info.split,
+            enum_info.split(),
         )?;
 
         let mut cfg_desc_buf = [0u8; DEFAULT_MAX_DESCRIPTOR_SIZE];
@@ -88,7 +89,7 @@ impl<H: UsbHostDriver> KbdHandler<H> {
         let interrupt_channel = bus.alloc_pipe::<pipe::Interrupt, pipe::In>(
             enum_info.device_address,
             &interrupt_ep.into(),
-            enum_info.split,
+            enum_info.split(),
         )?;
 
         debug!("[kbd]: Setting PROTOCOL & idle");
