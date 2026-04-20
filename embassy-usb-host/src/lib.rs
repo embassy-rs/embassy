@@ -189,7 +189,10 @@ impl<D: UsbHostDriver> UsbHost<D> {
         let mut ch = self
             .driver
             .alloc_pipe::<pipe::Control, pipe::InOut>(0, &ep0_info, route.split())
-            .map_err(|_| EnumerationError::NoPipe)?;
+            .map_err(|_| {
+                self.free_address(addr);
+                EnumerationError::NoPipe
+            })?;
 
         trace!("[enum] Getting max_packet_size for new device");
         let max_packet_size0 = {
@@ -237,7 +240,10 @@ impl<D: UsbHostDriver> UsbHost<D> {
         let mut ch = self
             .driver
             .alloc_pipe::<pipe::Control, pipe::InOut>(addr, &ep0_info, route.split())
-            .map_err(|_| EnumerationError::NoPipe)?;
+            .map_err(|_| {
+                self.free_address(addr);
+                EnumerationError::NoPipe
+            })?;
 
         let retries = 5;
         let dev_desc = async {
@@ -264,7 +270,10 @@ impl<D: UsbHostDriver> UsbHost<D> {
 
         // Step 4: Get configuration descriptor header (9 bytes).
         let setup = SetupPacket::get_config_descriptor(0, 9);
-        let n = ch.control_in(&setup.to_bytes(), &mut config_buf[..9]).await?;
+        let n = ch
+            .control_in(&setup.to_bytes(), &mut config_buf[..9])
+            .await
+            .inspect_err(|_| self.free_address(addr))?;
 
         if n < 9 {
             self.free_address(addr);
@@ -294,7 +303,9 @@ impl<D: UsbHostDriver> UsbHost<D> {
 
         // Step 5: SET_CONFIGURATION.
         let setup = SetupPacket::set_configuration(config_header.configuration_value);
-        ch.control_out(&setup.to_bytes(), &[]).await?;
+        ch.control_out(&setup.to_bytes(), &[])
+            .await
+            .inspect_err(|_| self.free_address(addr))?;
 
         info!("Device configured (config={})", config_header.configuration_value);
 
