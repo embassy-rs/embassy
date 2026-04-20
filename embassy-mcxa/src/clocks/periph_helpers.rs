@@ -14,20 +14,6 @@ use crate::pac::mrcc::{
     LpspiClkselMux, LpuartClkselMux, OstimerClkselMux,
 };
 
-#[cfg(feature = "mcxa2xx")]
-mod mcxa2xx;
-
-#[allow(unused_imports)]
-#[cfg(feature = "mcxa2xx")]
-pub use mcxa2xx::*;
-
-#[cfg(feature = "mcxa5xx")]
-mod mcxa5xx;
-
-#[allow(unused_imports)]
-#[cfg(feature = "mcxa5xx")]
-pub use mcxa5xx::*;
-
 #[must_use]
 pub struct PreEnableParts {
     /// The frequency fed into the peripheral, taking into account the selected

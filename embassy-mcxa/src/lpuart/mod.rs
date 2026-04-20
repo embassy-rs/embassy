@@ -155,8 +155,8 @@ macro_rules! impl_instance {
 
                     const CLOCK_INSTANCE: crate::clocks::periph_helpers::LpuartInstance
                         = crate::clocks::periph_helpers::LpuartInstance::[<Lpuart $n>];
-                    const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<LPUART $n Tx>];
-                    const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<LPUART $n Rx>];
+                    const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpuart $n Tx>];
+                    const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpuart $n Rx>];
                     const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_lpuart $n>];
                     const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_lpuart $n _wake>];
                 }
@@ -178,9 +178,7 @@ macro_rules! impl_instance {
 // LPUART3: RX=27, TX=28 -> Lpuart3RxRequest, Lpuart3TxRequest
 // LPUART4: RX=29, TX=30 -> Lpuart4RxRequest, Lpuart4TxRequest
 // LPUART5: RX=31, TX=32 -> Lpuart5RxRequest, Lpuart5TxRequest
-impl_instance!(0; 1; 2; 3; 4);
-#[cfg(feature = "mcxa5xx")]
-impl_instance!(5);
+impl_instance!(0; 1; 2; 3; 4; 5);
 
 /// Perform software reset on the LPUART peripheral
 fn perform_software_reset(info: &'static Info) {
@@ -441,212 +439,58 @@ pub trait RtsPin<T: Instance>: Into<AnyPin> + sealed::Sealed + PeripheralType {
     fn as_rts(&self);
 }
 
-macro_rules! impl_tx_pin {
-    ($inst:ident, $pin:ident, $alt:ident) => {
-        impl TxPin<crate::peripherals::$inst> for crate::peripherals::$pin {
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_lpuart_pin {
+    ($inst:ident, $pin:ident, $alt:ident, TXD) => {
+        impl crate::lpuart::TxPin<crate::peripherals::$inst> for crate::peripherals::$pin {
             const MUX: crate::pac::port::Mux = crate::pac::port::Mux::$alt;
             fn as_tx(&self) {
+                use crate::gpio::SealedPin;
                 self.set_pull(crate::gpio::Pull::Disabled);
                 self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
                 self.set_drive_strength(crate::gpio::DriveStrength::Normal.into());
-                self.set_function(<Self as TxPin<crate::peripherals::$inst>>::MUX);
+                self.set_function(<Self as crate::lpuart::TxPin<crate::peripherals::$inst>>::MUX);
                 self.set_enable_input_buffer(false);
             }
         }
     };
-}
-
-macro_rules! impl_rx_pin {
-    ($inst:ident, $pin:ident, $alt:ident) => {
-        impl RxPin<crate::peripherals::$inst> for crate::peripherals::$pin {
+    ($inst:ident, $pin:ident, $alt:ident, RXD) => {
+        impl crate::lpuart::RxPin<crate::peripherals::$inst> for crate::peripherals::$pin {
             const MUX: crate::pac::port::Mux = crate::pac::port::Mux::$alt;
             fn as_rx(&self) {
+                use crate::gpio::SealedPin;
                 self.set_pull(crate::gpio::Pull::Disabled);
-                self.set_function(<Self as RxPin<crate::peripherals::$inst>>::MUX);
+                self.set_function(<Self as crate::lpuart::RxPin<crate::peripherals::$inst>>::MUX);
                 self.set_enable_input_buffer(true);
             }
         }
     };
-}
-
-macro_rules! impl_cts_pin {
-    ($inst:ident, $pin:ident, $alt:ident) => {
-        impl CtsPin<crate::peripherals::$inst> for crate::peripherals::$pin {
+    ($inst:ident, $pin:ident, $alt:ident, CTS_B) => {
+        impl crate::lpuart::CtsPin<crate::peripherals::$inst> for crate::peripherals::$pin {
             const MUX: crate::pac::port::Mux = crate::pac::port::Mux::$alt;
             fn as_cts(&self) {
+                use crate::gpio::SealedPin;
                 self.set_pull(crate::gpio::Pull::Disabled);
-                self.set_function(<Self as CtsPin<crate::peripherals::$inst>>::MUX);
+                self.set_function(<Self as crate::lpuart::CtsPin<crate::peripherals::$inst>>::MUX);
                 self.set_enable_input_buffer(true);
             }
         }
     };
-}
-
-macro_rules! impl_rts_pin {
-    ($inst:ident, $pin:ident, $alt:ident) => {
-        impl RtsPin<crate::peripherals::$inst> for crate::peripherals::$pin {
+    ($inst:ident, $pin:ident, $alt:ident, RTS_B) => {
+        impl crate::lpuart::RtsPin<crate::peripherals::$inst> for crate::peripherals::$pin {
             const MUX: crate::pac::port::Mux = crate::pac::port::Mux::$alt;
             fn as_rts(&self) {
+                use crate::gpio::SealedPin;
                 self.set_pull(crate::gpio::Pull::Disabled);
                 self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
                 self.set_drive_strength(crate::gpio::DriveStrength::Normal.into());
-                self.set_function(<Self as RtsPin<crate::peripherals::$inst>>::MUX);
+                self.set_function(<Self as crate::lpuart::RtsPin<crate::peripherals::$inst>>::MUX);
                 self.set_enable_input_buffer(false);
             }
         }
     };
 }
-
-// LPUART 0
-#[cfg(feature = "jtag-extras-as-gpio")]
-impl_tx_pin!(LPUART0, P0_3, MUX2);
-impl_tx_pin!(LPUART0, P0_21, MUX3);
-impl_tx_pin!(LPUART0, P2_1, MUX2);
-#[cfg(feature = "mcxa5xx")]
-impl_tx_pin!(LPUART0, P4_9, MUX2);
-
-#[cfg(feature = "swd-swo-as-gpio")]
-impl_rx_pin!(LPUART0, P0_2, MUX2);
-impl_rx_pin!(LPUART0, P0_20, MUX3);
-impl_rx_pin!(LPUART0, P2_0, MUX2);
-#[cfg(feature = "mcxa5xx")]
-impl_rx_pin!(LPUART0, P4_8, MUX2);
-
-#[cfg(feature = "swd-as-gpio")]
-impl_cts_pin!(LPUART0, P0_1, MUX2);
-impl_cts_pin!(LPUART0, P0_23, MUX3);
-impl_cts_pin!(LPUART0, P2_3, MUX2);
-#[cfg(feature = "mcxa5xx")]
-impl_cts_pin!(LPUART0, P4_11, MUX2);
-
-#[cfg(feature = "swd-as-gpio")]
-impl_rts_pin!(LPUART0, P0_0, MUX2);
-impl_rts_pin!(LPUART0, P0_22, MUX3);
-impl_rts_pin!(LPUART0, P2_2, MUX2);
-#[cfg(feature = "mcxa5xx")]
-impl_rts_pin!(LPUART0, P4_10, MUX2);
-
-// LPUART 1
-impl_tx_pin!(LPUART1, P1_9, MUX2);
-impl_tx_pin!(LPUART1, P2_13, MUX3);
-impl_tx_pin!(LPUART1, P3_9, MUX3);
-impl_tx_pin!(LPUART1, P3_21, MUX3);
-
-impl_rx_pin!(LPUART1, P1_8, MUX2);
-impl_rx_pin!(LPUART1, P2_12, MUX3);
-impl_rx_pin!(LPUART1, P3_8, MUX3);
-impl_rx_pin!(LPUART1, P3_20, MUX3);
-
-impl_cts_pin!(LPUART1, P1_11, MUX2);
-impl_cts_pin!(LPUART1, P2_17, MUX3);
-impl_cts_pin!(LPUART1, P3_11, MUX3);
-impl_cts_pin!(LPUART1, P3_23, MUX3);
-
-impl_rts_pin!(LPUART1, P1_10, MUX2);
-impl_rts_pin!(LPUART1, P2_15, MUX3);
-impl_rts_pin!(LPUART1, P2_16, MUX3);
-impl_rts_pin!(LPUART1, P3_10, MUX3);
-#[cfg(feature = "mcxa5xx")]
-impl_rts_pin!(LPUART1, P3_22, MUX3);
-
-// LPUART 2
-impl_tx_pin!(LPUART2, P1_5, MUX3);
-impl_tx_pin!(LPUART2, P1_13, MUX3);
-impl_tx_pin!(LPUART2, P2_2, MUX3);
-impl_tx_pin!(LPUART2, P2_10, MUX3);
-impl_tx_pin!(LPUART2, P3_15, MUX2);
-
-impl_rx_pin!(LPUART2, P1_4, MUX3);
-impl_rx_pin!(LPUART2, P1_12, MUX3);
-impl_rx_pin!(LPUART2, P2_3, MUX3);
-impl_rx_pin!(LPUART2, P2_11, MUX3);
-impl_rx_pin!(LPUART2, P3_14, MUX2);
-
-impl_cts_pin!(LPUART2, P1_7, MUX3);
-impl_cts_pin!(LPUART2, P1_15, MUX3);
-impl_cts_pin!(LPUART2, P2_4, MUX3);
-impl_cts_pin!(LPUART2, P3_13, MUX2);
-
-impl_rts_pin!(LPUART2, P1_6, MUX3);
-impl_rts_pin!(LPUART2, P1_14, MUX3);
-impl_rts_pin!(LPUART2, P2_5, MUX3);
-impl_rts_pin!(LPUART2, P3_12, MUX2);
-
-// LPUART 3
-impl_tx_pin!(LPUART3, P3_1, MUX3);
-impl_tx_pin!(LPUART3, P3_12, MUX3);
-impl_tx_pin!(LPUART3, P4_5, MUX3);
-
-impl_rx_pin!(LPUART3, P3_0, MUX3);
-impl_rx_pin!(LPUART3, P3_13, MUX3);
-impl_rx_pin!(LPUART3, P4_2, MUX3);
-
-impl_cts_pin!(LPUART3, P3_7, MUX3);
-impl_cts_pin!(LPUART3, P3_14, MUX3);
-impl_cts_pin!(LPUART3, P4_6, MUX3);
-
-impl_rts_pin!(LPUART3, P3_6, MUX3);
-impl_rts_pin!(LPUART3, P3_15, MUX3);
-impl_rts_pin!(LPUART3, P4_7, MUX3);
-
-// LPUART 4
-impl_tx_pin!(LPUART4, P2_7, MUX3);
-impl_tx_pin!(LPUART4, P3_19, MUX2);
-impl_tx_pin!(LPUART4, P3_27, MUX3);
-impl_tx_pin!(LPUART4, P4_3, MUX3);
-
-impl_rx_pin!(LPUART4, P2_6, MUX3);
-impl_rx_pin!(LPUART4, P3_18, MUX2);
-#[cfg(feature = "mcxa2xx")]
-impl_rx_pin!(LPUART4, P3_28, MUX3);
-impl_rx_pin!(LPUART4, P4_4, MUX3);
-
-impl_cts_pin!(LPUART4, P2_0, MUX3);
-impl_cts_pin!(LPUART4, P3_17, MUX2);
-#[cfg(feature = "mcxa2xx")]
-impl_cts_pin!(LPUART4, P3_31, MUX3);
-
-impl_rts_pin!(LPUART4, P2_1, MUX3);
-impl_rts_pin!(LPUART4, P3_16, MUX2);
-#[cfg(feature = "mcxa2xx")]
-impl_rts_pin!(LPUART4, P3_30, MUX3);
-
-// LPUART 5
-#[cfg(feature = "mcxa5xx")]
-impl_tx_pin!(LPUART5, P0_25, MUX8);
-#[cfg(feature = "mcxa5xx")]
-impl_tx_pin!(LPUART5, P1_10, MUX8);
-#[cfg(feature = "mcxa5xx")]
-impl_tx_pin!(LPUART5, P1_17, MUX8);
-#[cfg(feature = "mcxa5xx")]
-impl_tx_pin!(LPUART5, P3_10, MUX8);
-
-#[cfg(feature = "mcxa5xx")]
-impl_rx_pin!(LPUART5, P0_24, MUX8);
-#[cfg(feature = "mcxa5xx")]
-impl_rx_pin!(LPUART5, P1_11, MUX8);
-#[cfg(feature = "mcxa5xx")]
-impl_rx_pin!(LPUART5, P1_16, MUX8);
-#[cfg(feature = "mcxa5xx")]
-impl_rx_pin!(LPUART5, P3_11, MUX8);
-
-#[cfg(feature = "mcxa5xx")]
-impl_cts_pin!(LPUART5, P0_27, MUX8);
-#[cfg(feature = "mcxa5xx")]
-impl_cts_pin!(LPUART5, P1_12, MUX8);
-#[cfg(feature = "mcxa5xx")]
-impl_cts_pin!(LPUART5, P1_19, MUX8);
-#[cfg(feature = "mcxa5xx")]
-impl_cts_pin!(LPUART5, P3_8, MUX8);
-
-#[cfg(feature = "mcxa5xx")]
-impl_rts_pin!(LPUART5, P0_26, MUX8);
-#[cfg(feature = "mcxa5xx")]
-impl_rts_pin!(LPUART5, P1_13, MUX8);
-#[cfg(feature = "mcxa5xx")]
-impl_rts_pin!(LPUART5, P1_18, MUX8);
-#[cfg(feature = "mcxa5xx")]
-impl_rts_pin!(LPUART5, P3_9, MUX8);
 
 /// LPUART error types
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]

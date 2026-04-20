@@ -10,7 +10,7 @@ use embassy_hal_internal::drop::OnDrop;
 pub use embedded_hal_1::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode, Phase, Polarity};
 use nxp_pac::lpspi::{Cpha, Cpol, Lsbf, Master, Mbf, Outcfg, Pcspol, Pincfg, Prescale, Rrf, Rtf, Rxmsk, Txmsk};
 
-use super::{Async, AsyncMode, Blocking, Dma, Info, Instance, MisoPin, Mode as IoMode, MosiPin, SckPin};
+use super::{Async, AsyncMode, Blocking, Dma, Info, Instance, Mode as IoMode, SckPin, SdiPin, SdoPin};
 use crate::clocks::periph_helpers::{Div4, LpspiClockSel, LpspiConfig};
 use crate::clocks::{ClockError, PoweredClock, WakeGuard, enable_and_reset};
 use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, TransferOptions};
@@ -364,8 +364,8 @@ impl<'d> Spi<'d, Blocking> {
     pub fn new_blocking<T: Instance>(
         _peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T> + 'd>,
-        mosi: Peri<'d, impl MosiPin<T> + 'd>,
-        miso: Peri<'d, impl MisoPin<T> + 'd>,
+        mosi: Peri<'d, impl SdiPin<T> + 'd>,
+        miso: Peri<'d, impl SdoPin<T> + 'd>,
         config: Config,
     ) -> Result<Self, SetupError> {
         sck.mux();
@@ -383,7 +383,7 @@ impl<'d> Spi<'d, Blocking> {
     pub fn new_blocking_txonly<T: Instance>(
         _peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T> + 'd>,
-        mosi: Peri<'d, impl MosiPin<T> + 'd>,
+        mosi: Peri<'d, impl SdiPin<T> + 'd>,
         config: Config,
     ) -> Result<Self, SetupError> {
         sck.mux();
@@ -399,7 +399,7 @@ impl<'d> Spi<'d, Blocking> {
     pub fn new_blocking_rxonly<T: Instance>(
         _peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T> + 'd>,
-        miso: Peri<'d, impl MisoPin<T> + 'd>,
+        miso: Peri<'d, impl SdoPin<T> + 'd>,
         config: Config,
     ) -> Result<Self, SetupError> {
         sck.mux();
@@ -417,8 +417,8 @@ impl<'d> Spi<'d, Async> {
     pub fn new_async<T: Instance>(
         _peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T> + 'd>,
-        mosi: Peri<'d, impl MosiPin<T> + 'd>,
-        miso: Peri<'d, impl MisoPin<T> + 'd>,
+        mosi: Peri<'d, impl SdiPin<T> + 'd>,
+        miso: Peri<'d, impl SdoPin<T> + 'd>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Result<Self, SetupError> {
@@ -440,7 +440,7 @@ impl<'d> Spi<'d, Async> {
     pub fn new_async_txonly<T: Instance>(
         _peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T> + 'd>,
-        mosi: Peri<'d, impl MosiPin<T> + 'd>,
+        mosi: Peri<'d, impl SdiPin<T> + 'd>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Result<Self, SetupError> {
@@ -460,7 +460,7 @@ impl<'d> Spi<'d, Async> {
     pub fn new_async_rxonly<T: Instance>(
         _peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T> + 'd>,
-        miso: Peri<'d, impl MisoPin<T> + 'd>,
+        miso: Peri<'d, impl SdoPin<T> + 'd>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Result<Self, SetupError> {
@@ -482,8 +482,8 @@ impl<'d> Spi<'d, Dma<'d>> {
     pub fn new_async_with_dma<T: Instance>(
         _peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T> + 'd>,
-        mosi: Peri<'d, impl MosiPin<T> + 'd>,
-        miso: Peri<'d, impl MisoPin<T> + 'd>,
+        mosi: Peri<'d, impl SdiPin<T> + 'd>,
+        miso: Peri<'d, impl SdoPin<T> + 'd>,
         tx_dma: Peri<'d, impl Channel>,
         rx_dma: Peri<'d, impl Channel>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
