@@ -342,7 +342,6 @@ pub trait UsbChannel<T: channel::Type, D: channel::Direction> {
         split: Option<SplitInfo>,
     ) -> Result<(), HostError>;
 
-
     /// Send IN request of type other from control
     /// For interrupt channels this will return the result of the next successful interrupt poll
     async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError>

@@ -174,7 +174,10 @@ impl<D: UsbHostDriver> UsbHost<D> {
 
         // Step 4: Get configuration descriptor header (9 bytes).
         let n = ch
-            .control_in(&SetupPacket::get_config_descriptor(0, 9).to_bytes(), &mut config_buf[..9])
+            .control_in(
+                &SetupPacket::get_config_descriptor(0, 9).to_bytes(),
+                &mut config_buf[..9],
+            )
             .await?;
 
         if n < 9 {

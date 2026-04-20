@@ -229,8 +229,7 @@ impl<D: UsbHostDriver> CdcAcmHost<D> {
     /// Set the line coding (baud rate, data bits, parity, stop bits).
     pub async fn set_line_coding(&mut self, coding: &LineCoding) -> Result<(), CdcAcmError> {
         let data = coding.to_bytes();
-        let setup =
-            SetupPacket::class_interface_out(REQ_SET_LINE_CODING, 0, self.comm_interface as u16, 7).to_bytes();
+        let setup = SetupPacket::class_interface_out(REQ_SET_LINE_CODING, 0, self.comm_interface as u16, 7).to_bytes();
         self.ctrl_ch.control_out(&setup, &data).await?;
         Ok(())
     }
@@ -238,9 +237,8 @@ impl<D: UsbHostDriver> CdcAcmHost<D> {
     /// Set the control line state (DTR, RTS).
     pub async fn set_control_line_state(&mut self, dtr: bool, rts: bool) -> Result<(), CdcAcmError> {
         let value = (dtr as u16) | ((rts as u16) << 1);
-        let setup =
-            SetupPacket::class_interface_out(REQ_SET_CONTROL_LINE_STATE, value, self.comm_interface as u16, 0)
-                .to_bytes();
+        let setup = SetupPacket::class_interface_out(REQ_SET_CONTROL_LINE_STATE, value, self.comm_interface as u16, 0)
+            .to_bytes();
         self.ctrl_ch.control_out(&setup, &[]).await?;
         Ok(())
     }

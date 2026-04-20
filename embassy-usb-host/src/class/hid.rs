@@ -314,7 +314,8 @@ impl<D: UsbHostDriver> HidHost<D> {
 
     /// Set the protocol (boot or report).
     pub async fn set_protocol(&mut self, protocol: u8) -> Result<(), HidError> {
-        let setup = SetupPacket::class_interface_out(SET_PROTOCOL, protocol as u16, self.interface as u16, 0).to_bytes();
+        let setup =
+            SetupPacket::class_interface_out(SET_PROTOCOL, protocol as u16, self.interface as u16, 0).to_bytes();
         self.ctrl_ch.control_out(&setup, &[]).await?;
         Ok(())
     }

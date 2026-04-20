@@ -42,11 +42,10 @@ use aligned::{A4, Aligned};
 use embassy_time::{Duration, Instant, Timer};
 use embassy_usb::control::Request;
 use embassy_usb_driver::host::{ChannelError, HostError, UsbChannel, UsbHostDriver, channel};
-
-use crate::control::{ControlType, Recipient, RequestType, SetupPacket};
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
 use heapless::{String, Vec};
 
+use crate::control::{ControlType, Recipient, RequestType, SetupPacket};
 use crate::descriptor::DEFAULT_MAX_DESCRIPTOR_SIZE;
 use crate::handler::{EnumerationInfo, RegisterError};
 

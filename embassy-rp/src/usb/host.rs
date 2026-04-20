@@ -614,7 +614,6 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
         Ok(())
     }
 
-
     async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError>
     where
         D: channel::IsIn,

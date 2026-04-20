@@ -563,11 +563,7 @@ impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D,
 }
 
 impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<'d, I, D, T> {
-    async fn control_in(
-        &mut self,
-        setup: &[u8; 8],
-        buf: &mut [u8],
-    ) -> Result<usize, ChannelError>
+    async fn control_in(&mut self, setup: &[u8; 8], buf: &mut [u8]) -> Result<usize, ChannelError>
     where
         T: channel::IsControl,
         D: channel::IsIn,
@@ -593,11 +589,7 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         Ok(count)
     }
 
-    async fn control_out(
-        &mut self,
-        setup: &[u8; 8],
-        buf: &[u8],
-    ) -> Result<(), ChannelError>
+    async fn control_out(&mut self, setup: &[u8; 8], buf: &[u8]) -> Result<(), ChannelError>
     where
         T: channel::IsControl,
         D: channel::IsOut,
@@ -646,7 +638,6 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
 
         Ok(())
     }
-
 
     async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError>
     where
