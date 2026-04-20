@@ -736,10 +736,7 @@ mod host_impl {
             self.inner.bus_reset().await
         }
 
-        fn alloc_pipe<
-            Ty: embassy_usb_driver::host::pipe::Type,
-            D: embassy_usb_driver::host::pipe::Direction,
-        >(
+        fn alloc_pipe<Ty: embassy_usb_driver::host::pipe::Type, D: embassy_usb_driver::host::pipe::Direction>(
             &self,
             addr: u8,
             endpoint: &embassy_usb_driver::EndpointInfo,

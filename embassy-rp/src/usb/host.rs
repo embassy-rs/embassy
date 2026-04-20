@@ -607,12 +607,7 @@ impl<'d, T: Instance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D> for Chann
         Ok(())
     }
 
-    fn retarget_pipe(
-        &mut self,
-        addr: u8,
-        endpoint: &EndpointInfo,
-        split: Option<SplitInfo>,
-    ) -> Result<(), HostError> {
+    fn retarget_pipe(&mut self, addr: u8, endpoint: &EndpointInfo, split: Option<SplitInfo>) -> Result<(), HostError> {
         self.pre = split_to_pre(split);
         self.dev_addr = addr;
         self.max_packet_size = endpoint.max_packet_size;
@@ -780,9 +775,7 @@ impl<'d, T: Instance> UsbHostDriver for Driver<'d, T> {
         let pre = split_to_pre(split);
         if E::ep_type() == EndpointType::Interrupt {
             let alloc = self.allocated_pipes.load(Ordering::Acquire);
-            let free_index = (1..16)
-                .find(|i| alloc & (1 << i) == 0)
-                .ok_or(HostError::OutOfPipes)? as u8;
+            let free_index = (1..16).find(|i| alloc & (1 << i) == 0).ok_or(HostError::OutOfPipes)? as u8;
 
             self.allocated_pipes.store(alloc | 1 << free_index, Ordering::Release);
             // Use fixed layout

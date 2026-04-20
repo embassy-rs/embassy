@@ -7,9 +7,7 @@ use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Duration, Instant, Timer};
-use embassy_usb_driver::host::{
-    DeviceEvent, HostError, PipeError, TimeoutConfig, UsbHostDriver, UsbPipe, pipe,
-};
+use embassy_usb_driver::host::{DeviceEvent, HostError, PipeError, TimeoutConfig, UsbHostDriver, UsbPipe, pipe};
 use embassy_usb_driver::{EndpointType, Speed};
 use stm32_metapac::common::{RW, Reg};
 use stm32_metapac::usb::regs::Epr;
