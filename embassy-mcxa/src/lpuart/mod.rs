@@ -134,7 +134,9 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
-macro_rules! impl_instance {
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_lpuart_instance {
     ($n:expr) => {
         paste! {
             impl SealedInstance for crate::peripherals::[<LPUART $n>] {
@@ -162,18 +164,19 @@ macro_rules! impl_instance {
 
             impl Instance for crate::peripherals::[<LPUART $n>] {
                 type Interrupt = crate::interrupt::typelevel::[<LPUART $n>];
-
             }
+
+            crate::impl_lpuart_bbq_instance!($n);
         }
     };
 }
 
-impl_instance!(0);
-impl_instance!(1);
-impl_instance!(2);
-impl_instance!(3);
-impl_instance!(4);
-impl_instance!(5);
+impl_lpuart_instance!(0);
+impl_lpuart_instance!(1);
+impl_lpuart_instance!(2);
+impl_lpuart_instance!(3);
+impl_lpuart_instance!(4);
+impl_lpuart_instance!(5);
 
 /// Perform software reset on the LPUART peripheral
 fn perform_software_reset(info: &'static Info) {

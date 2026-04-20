@@ -52,7 +52,9 @@ impl Info {
     }
 }
 
-macro_rules! impl_instance {
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_i3c_instance {
     ($n:literal) => {
         paste! {
             impl SealedInstance for crate::peripherals::[<I3C $n>] {
@@ -77,14 +79,14 @@ macro_rules! impl_instance {
     };
 }
 
-impl_instance!(0);
+impl_i3c_instance!(0);
 
 #[cfg(feature = "mcxa5xx")]
-impl_instance!(1);
+impl_i3c_instance!(1);
 #[cfg(feature = "mcxa5xx")]
-impl_instance!(2);
+impl_i3c_instance!(2);
 #[cfg(feature = "mcxa5xx")]
-impl_instance!(3);
+impl_i3c_instance!(3);
 
 /// SCL pin trait.
 pub trait SclPin<T: Instance>: GpioPin + sealed::Sealed + PeripheralType {

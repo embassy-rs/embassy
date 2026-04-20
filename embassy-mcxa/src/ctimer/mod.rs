@@ -146,7 +146,9 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
-macro_rules! impl_instance {
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_ctimer_instance {
     ($n:literal) => {
         paste! {
             impl SealedInstance for crate::peripherals::[<CTIMER $n>] {
@@ -172,11 +174,11 @@ macro_rules! impl_instance {
     };
 }
 
-impl_instance!(0);
-impl_instance!(1);
-impl_instance!(2);
-impl_instance!(3);
-impl_instance!(4);
+impl_ctimer_instance!(0);
+impl_ctimer_instance!(1);
+impl_ctimer_instance!(2);
+impl_ctimer_instance!(3);
+impl_ctimer_instance!(4);
 
 trait SealedCTimerChannel<T: Instance> {
     fn number(&self) -> Channel;

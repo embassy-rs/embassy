@@ -56,7 +56,9 @@ impl Info {
 
 unsafe impl Sync for Info {}
 
-macro_rules! impl_instance {
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_lpi2c_instance {
     ($n:literal) => {
         paste! {
             impl SealedInstance for crate::peripherals::[<LPI2C $n>] {
@@ -83,10 +85,10 @@ macro_rules! impl_instance {
     };
 }
 
-impl_instance!(0);
-impl_instance!(1);
-impl_instance!(2);
-impl_instance!(3);
+impl_lpi2c_instance!(0);
+impl_lpi2c_instance!(1);
+impl_lpi2c_instance!(2);
+impl_lpi2c_instance!(3);
 
 /// SCL pin trait.
 pub trait SclPin<Instance>: GpioPin + sealed::SealedPin<Instance> + PeripheralType {

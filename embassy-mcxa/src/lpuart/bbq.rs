@@ -15,7 +15,6 @@ use embassy_hal_internal::Peri;
 use grounded::uninit::GroundedCell;
 use maitake_sync::WaitCell;
 use nxp_pac::lpuart::Tc;
-use paste::paste;
 
 use super::{DataBits, IdleConfig, Info, MsbFirst, Parity, RxPin, StopBits, TxPin, TxPins};
 use crate::clocks::periph_helpers::{Div4, LpuartClockSel};
@@ -1082,18 +1081,18 @@ pub struct BbqInterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
 
-const STATE_UNINIT: u32 = 0b0000_0000_0000_0000_0000_0000_0000_0000;
-const STATE_INITING: u32 = 0b0000_0000_0000_0000_0000_0000_0000_0001;
-const STATE_INITED: u32 = 0b0000_0000_0000_0000_0000_0000_0000_0011;
-const STATE_RXGR_ACTIVE: u32 = 0b0000_0000_0000_0000_0000_0000_0000_0100;
-const STATE_TXGR_ACTIVE: u32 = 0b0000_0000_0000_0000_0000_0000_0000_1000;
-const STATE_RXDMA_PRESENT: u32 = 0b0000_0000_0000_0000_0000_0000_0001_0000;
-const STATE_TXDMA_PRESENT: u32 = 0b0000_0000_0000_0000_0000_0000_0010_0000;
-const STATE_RXDMA_COMPLETE: u32 = 0b0000_0000_0000_0000_0000_0000_0100_0000;
-const STATE_RXDMA_MODE_MAXFRAME: u32 = 0b0000_0000_0000_0000_0000_0000_1000_0000;
-const STATE_RXGR_LEN_MASK: u32 = 0b1111_1111_1111_1111_0000_0000_0000_0000;
+pub(crate) const STATE_UNINIT: u32 = 0b0000_0000_0000_0000_0000_0000_0000_0000;
+pub(crate) const STATE_INITING: u32 = 0b0000_0000_0000_0000_0000_0000_0000_0001;
+pub(crate) const STATE_INITED: u32 = 0b0000_0000_0000_0000_0000_0000_0000_0011;
+pub(crate) const STATE_RXGR_ACTIVE: u32 = 0b0000_0000_0000_0000_0000_0000_0000_0100;
+pub(crate) const STATE_TXGR_ACTIVE: u32 = 0b0000_0000_0000_0000_0000_0000_0000_1000;
+pub(crate) const STATE_RXDMA_PRESENT: u32 = 0b0000_0000_0000_0000_0000_0000_0001_0000;
+pub(crate) const STATE_TXDMA_PRESENT: u32 = 0b0000_0000_0000_0000_0000_0000_0010_0000;
+pub(crate) const STATE_RXDMA_COMPLETE: u32 = 0b0000_0000_0000_0000_0000_0000_0100_0000;
+pub(crate) const STATE_RXDMA_MODE_MAXFRAME: u32 = 0b0000_0000_0000_0000_0000_0000_1000_0000;
+pub(crate) const STATE_RXGR_LEN_MASK: u32 = 0b1111_1111_1111_1111_0000_0000_0000_0000;
 
-struct BbqState {
+pub(crate) struct BbqState {
     /// 0bGGGG_GGGG_GGGG_GGGG_xxxx_xxxx_MDTR_PCAI
     ///                                        ^^--> 0b00: uninit, 0b01: initing, 0b11 init'd.
     ///                                       ^----> 0b0: No Rx grant, 0b1: Rx grant active
@@ -1103,7 +1102,7 @@ struct BbqState {
     ///                                  ^---------> 0b0: Rx DMA not complete, 0b1: Rx DMA complete
     ///                                 ^----------> 0b0: RxMode "Efficiency", 0b1: RxMode "Max Frame"
     ///   ^^^^_^^^^_^^^^_^^^^----------------------> 16-bit: RX Grant size
-    state: AtomicU32,
+    pub(crate) state: AtomicU32,
 
     /// The "outgoing" bbqueue buffer
     ///
@@ -1144,7 +1143,7 @@ struct BbqState {
 }
 
 impl BbqState {
-    const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
             state: AtomicU32::new(0),
             tx_queue: GroundedCell::uninit(),
@@ -1403,20 +1402,22 @@ pub trait BbqInstance: Instance {
     fn dma_rx_complete_cb();
 }
 
-macro_rules! impl_instance {
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_lpuart_bbq_instance {
     ($n:expr) => {
-        paste! {
+        paste::paste! {
             #[allow(private_interfaces)]
-            impl BbqInstance for crate::peripherals::[<LPUART $n>] {
-                fn bbq_state() -> &'static BbqState {
-                    static STATE: BbqState = BbqState::new();
+            impl crate::lpuart::bbq::BbqInstance for crate::peripherals::[<LPUART $n>] {
+                fn bbq_state() -> &'static crate::lpuart::bbq::BbqState {
+                    static STATE: crate::lpuart::bbq::BbqState = crate::lpuart::bbq::BbqState::new();
                     &STATE
                 }
 
                 fn dma_rx_complete_cb() {
                     let state = Self::bbq_state();
                     // Mark the DMA as complete
-                    state.state.fetch_or(STATE_RXDMA_COMPLETE, Ordering::AcqRel);
+                    state.state.fetch_or(crate::lpuart::bbq::STATE_RXDMA_COMPLETE, Ordering::AcqRel);
                     // Pend the UART interrupt to handle the switchover
                     Self::Interrupt::pend();
                 }
@@ -1424,15 +1425,6 @@ macro_rules! impl_instance {
         }
     };
 }
-
-impl_instance!(0);
-impl_instance!(1);
-impl_instance!(2);
-impl_instance!(3);
-impl_instance!(4);
-
-#[cfg(feature = "mcxa5xx")]
-impl_instance!(5);
 
 // Basically the on_interrupt handler, but as a free function so it doesn't get
 // monomorphized.

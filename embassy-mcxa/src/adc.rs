@@ -861,7 +861,9 @@ pub trait Instance: SealedInstance + PeripheralType {
     type Interrupt: Interrupt;
 }
 
-macro_rules! impl_instance {
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_adc_instance {
     ($n:expr) => {
         paste! {
             impl SealedInstance for crate::peripherals::[<ADC $n>] {
@@ -884,8 +886,8 @@ macro_rules! impl_instance {
     };
 }
 
-impl_instance!(0);
-impl_instance!(1);
+impl_adc_instance!(0);
+impl_adc_instance!(1);
 
 /// Trait implemented by any possible ADC pin
 pub trait AdcPin<T: Instance>: sealed::SealedAdcPin<T> + GpioPin + PeripheralType {

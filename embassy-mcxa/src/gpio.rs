@@ -94,7 +94,9 @@ trait SealedInstance {
     const PERF_INT_INCR: fn();
 }
 
-macro_rules! impl_instance {
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_gpio_instance {
     ($n:expr) => {
         paste! {
             impl SealedInstance for crate::peripherals::[<GPIO $n>] {
@@ -115,13 +117,13 @@ macro_rules! impl_instance {
     };
 }
 
-impl_instance!(0);
-impl_instance!(1);
-impl_instance!(2);
-impl_instance!(3);
-impl_instance!(4);
+impl_gpio_instance!(0);
+impl_gpio_instance!(1);
+impl_gpio_instance!(2);
+impl_gpio_instance!(3);
+impl_gpio_instance!(4);
 #[cfg(feature = "mcxa5xx")]
-impl_instance!(5);
+impl_gpio_instance!(5);
 
 pub struct InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,

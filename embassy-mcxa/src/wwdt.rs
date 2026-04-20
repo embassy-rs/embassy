@@ -240,7 +240,9 @@ impl Info {
 
 unsafe impl Sync for Info {}
 
-macro_rules! impl_instance {
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_wwdt_instance {
     ($n:literal) => {
         paste! {
             impl SealedInstance for crate::peripherals::[<WWDT $n>] {
@@ -259,10 +261,10 @@ macro_rules! impl_instance {
     };
 }
 
-impl_instance!(0);
+impl_wwdt_instance!(0);
 
 #[cfg(feature = "mcxa5xx")]
-impl_instance!(1);
+impl_wwdt_instance!(1);
 
 #[cfg(feature = "embedded-mcu-hal")]
 impl embedded_mcu_hal::watchdog::Watchdog for Watchdog<'_> {
