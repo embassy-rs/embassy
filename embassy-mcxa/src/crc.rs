@@ -3,7 +3,6 @@
 use core::marker::PhantomData;
 
 use embassy_hal_internal::{Peri, PeripheralType};
-use paste::paste;
 
 use crate::clocks::periph_helpers::NoConfig;
 use crate::clocks::{Gate, enable_and_reset};
@@ -749,7 +748,7 @@ impl From<Complement> for Fxor {
     }
 }
 
-trait SealedInstance: Gate<MrccPeriphConfig = NoConfig> {
+pub(crate) trait SealedInstance: Gate<MrccPeriphConfig = NoConfig> {
     fn info() -> &'static Info;
 }
 
@@ -757,8 +756,8 @@ trait SealedInstance: Gate<MrccPeriphConfig = NoConfig> {
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + PeripheralType + 'static + Send {}
 
-struct Info {
-    regs: pac::crc::Crc,
+pub(crate) struct Info {
+    pub(crate) regs: pac::crc::Crc,
 }
 
 impl Info {
@@ -774,19 +773,17 @@ unsafe impl Sync for Info {}
 #[macro_export]
 macro_rules! impl_crc_instance {
     ($n:literal) => {
-        paste! {
-            impl SealedInstance for crate::peripherals::[<CRC $n>] {
-                fn info() -> &'static Info {
-                    static INFO: Info = Info {
-                        regs: pac::[<CRC $n>],
+        paste::paste! {
+            impl crate::crc::SealedInstance for crate::peripherals::[<CRC $n>] {
+                fn info() -> &'static crate::crc::Info {
+                    static INFO: crate::crc::Info = crate::crc::Info {
+                        regs: crate::pac::[<CRC $n>],
                     };
                     &INFO
                 }
             }
 
-            impl Instance for crate::peripherals::[<CRC $n>] {}
+            impl crate::crc::Instance for crate::peripherals::[<CRC $n>] {}
         }
     };
 }
-
-impl_crc_instance!(0);

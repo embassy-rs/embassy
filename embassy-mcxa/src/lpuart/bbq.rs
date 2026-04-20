@@ -1415,9 +1415,11 @@ macro_rules! impl_lpuart_bbq_instance {
                 }
 
                 fn dma_rx_complete_cb() {
+                    use crate::_generated::interrupt::typelevel::Interrupt;
+
                     let state = Self::bbq_state();
                     // Mark the DMA as complete
-                    state.state.fetch_or(crate::lpuart::bbq::STATE_RXDMA_COMPLETE, Ordering::AcqRel);
+                    state.state.fetch_or(crate::lpuart::bbq::STATE_RXDMA_COMPLETE, core::sync::atomic::Ordering::AcqRel);
                     // Pend the UART interrupt to handle the switchover
                     Self::Interrupt::pend();
                 }

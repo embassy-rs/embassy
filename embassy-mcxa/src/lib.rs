@@ -84,10 +84,71 @@ pub(crate) mod _generated {
     #![allow(missing_docs)]
 
     use crate::{
-        impl_adc_pin, impl_clkout_pin, impl_ctimer_input_pin, impl_ctimer_match, impl_ctimer_output_pin, impl_gpio_pin,
-        impl_i3c_pin, impl_lpi2c_pin, impl_lpuart_pin, impl_spi_pin,
+        impl_adc_instance, impl_adc_pin, impl_clkout_pin, impl_crc_instance, impl_ctimer_input_pin,
+        impl_ctimer_instance, impl_ctimer_match, impl_ctimer_output_pin, impl_gpio_instance, impl_gpio_pin,
+        impl_i3c_instance, impl_i3c_pin, impl_lpi2c_instance, impl_lpi2c_pin, impl_lpspi_instance,
+        impl_lpuart_instance, impl_lpuart_pin, impl_spi_pin, impl_trng_instance, impl_wwdt_instance,
     };
     include!(concat!(env!("OUT_DIR"), "/_generated.rs"));
+
+    impl_adc_instance!(0);
+    impl_adc_instance!(1);
+
+    impl_crc_instance!(0);
+
+    impl_gpio_instance!(0);
+    impl_gpio_instance!(1);
+    impl_gpio_instance!(2);
+    impl_gpio_instance!(3);
+    impl_gpio_instance!(4);
+    #[cfg(feature = "mcxa5xx")]
+    impl_gpio_instance!(5);
+
+    impl_trng_instance!(0);
+
+    impl_wwdt_instance!(0);
+
+    #[cfg(feature = "mcxa5xx")]
+    impl_wwdt_instance!(1);
+
+    impl_ctimer_instance!(0);
+    impl_ctimer_instance!(1);
+    impl_ctimer_instance!(2);
+    impl_ctimer_instance!(3);
+    impl_ctimer_instance!(4);
+
+    impl_lpi2c_instance!(0);
+    impl_lpi2c_instance!(1);
+    impl_lpi2c_instance!(2);
+    impl_lpi2c_instance!(3);
+
+    impl_i3c_instance!(0);
+
+    #[cfg(feature = "mcxa5xx")]
+    impl_i3c_instance!(1);
+    #[cfg(feature = "mcxa5xx")]
+    impl_i3c_instance!(2);
+    #[cfg(feature = "mcxa5xx")]
+    impl_i3c_instance!(3);
+
+    impl_lpuart_instance!(0);
+    impl_lpuart_instance!(1);
+    impl_lpuart_instance!(2);
+    impl_lpuart_instance!(3);
+    impl_lpuart_instance!(4);
+    impl_lpuart_instance!(5);
+
+    impl_lpspi_instance!(0);
+    impl_lpspi_instance!(1);
+
+    #[cfg(feature = "mcxa5xx")]
+    impl_lpspi_instance!(2);
+    #[cfg(feature = "mcxa5xx")]
+    impl_lpspi_instance!(3);
+    #[cfg(feature = "mcxa5xx")]
+    impl_lpspi_instance!(4);
+    #[cfg(feature = "mcxa5xx")]
+    impl_lpspi_instance!(5);
 }
 
 // Re-export interrupt traits and types

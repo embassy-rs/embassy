@@ -5,7 +5,6 @@ use core::sync::atomic::AtomicU8;
 
 use embassy_hal_internal::{Peri, PeripheralType};
 use maitake_sync::WaitCell;
-use paste::paste;
 
 use crate::clocks::periph_helpers::{CTimerClockSel, CTimerConfig, Div4};
 use crate::clocks::{ClockError, Gate, PoweredClock, WakeGuard, enable_and_reset};
@@ -105,10 +104,10 @@ impl<'d> CTimer<'d> {
     }
 }
 
-struct Info {
-    regs: pac::ctimer::Ctimer,
-    wait_cell: WaitCell,
-    irq_flags: AtomicU8,
+pub(crate) struct Info {
+    pub(crate) regs: pac::ctimer::Ctimer,
+    pub(crate) wait_cell: WaitCell,
+    pub(crate) irq_flags: AtomicU8,
 }
 
 impl Info {
@@ -130,7 +129,7 @@ impl Info {
 
 unsafe impl Sync for Info {}
 
-trait SealedInstance: Gate<MrccPeriphConfig = CTimerConfig> {
+pub(crate) trait SealedInstance: Gate<MrccPeriphConfig = CTimerConfig> {
     fn info() -> &'static Info;
 
     /// Clock instance
@@ -150,13 +149,13 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
 #[macro_export]
 macro_rules! impl_ctimer_instance {
     ($n:literal) => {
-        paste! {
-            impl SealedInstance for crate::peripherals::[<CTIMER $n>] {
-                fn info() -> &'static Info {
-                    static INFO: Info = Info {
-                        regs: pac::[<CTIMER $n>],
-                        wait_cell: WaitCell::new(),
-                        irq_flags: const { AtomicU8::new(0) },
+        paste::paste! {
+            impl crate::ctimer::SealedInstance for crate::peripherals::[<CTIMER $n>] {
+                fn info() -> &'static crate::ctimer::Info {
+                    static INFO: crate::ctimer::Info = crate::ctimer::Info {
+                        regs: crate::pac::[<CTIMER $n>],
+                        wait_cell: maitake_sync::WaitCell::new(),
+                        irq_flags: core::sync::atomic::AtomicU8::new(0),
                     };
                     &INFO
                 }
@@ -167,18 +166,12 @@ macro_rules! impl_ctimer_instance {
                     const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_ctimer $n _wake>];
             }
 
-            impl Instance for crate::peripherals::[<CTIMER $n>] {
+            impl crate::ctimer::Instance for crate::peripherals::[<CTIMER $n>] {
                 type Interrupt = crate::interrupt::typelevel::[<CTIMER $n>];
             }
         }
     };
 }
-
-impl_ctimer_instance!(0);
-impl_ctimer_instance!(1);
-impl_ctimer_instance!(2);
-impl_ctimer_instance!(3);
-impl_ctimer_instance!(4);
 
 trait SealedCTimerChannel<T: Instance> {
     fn number(&self) -> Channel;

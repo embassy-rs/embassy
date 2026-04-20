@@ -2,7 +2,6 @@
 
 use embassy_hal_internal::PeripheralType;
 use maitake_sync::WaitCell;
-use paste::paste;
 
 use crate::clocks::Gate;
 use crate::clocks::periph_helpers::I3cConfig;
@@ -17,7 +16,7 @@ pub(crate) mod sealed {
     pub trait Sealed {}
 }
 
-trait SealedInstance: Gate<MrccPeriphConfig = I3cConfig> {
+pub(crate) trait SealedInstance: Gate<MrccPeriphConfig = I3cConfig> {
     fn info() -> &'static Info;
 
     const PERF_INT_INCR: fn();
@@ -33,9 +32,9 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
-struct Info {
-    regs: pac::i3c::I3c,
-    wait_cell: WaitCell,
+pub(crate) struct Info {
+    pub(crate) regs: pac::i3c::I3c,
+    pub(crate) wait_cell: WaitCell,
 }
 
 unsafe impl Sync for Info {}
@@ -56,12 +55,12 @@ impl Info {
 #[macro_export]
 macro_rules! impl_i3c_instance {
     ($n:literal) => {
-        paste! {
-            impl SealedInstance for crate::peripherals::[<I3C $n>] {
-                fn info() -> &'static Info {
-                    static INFO: Info = Info {
-                        regs: pac::[<I3C $n>],
-                        wait_cell: WaitCell::new(),
+        paste::paste! {
+            impl crate::i3c::SealedInstance for crate::peripherals::[<I3C $n>] {
+                fn info() -> &'static crate::i3c::Info {
+                    static INFO: crate::i3c::Info = crate::i3c::Info {
+                        regs: crate::pac::[<I3C $n>],
+                        wait_cell: maitake_sync::WaitCell::new(),
                     };
                     &INFO
                 }
@@ -72,21 +71,12 @@ macro_rules! impl_i3c_instance {
                 const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_i3c $n _wake>];
             }
 
-            impl Instance for crate::peripherals::[<I3C $n>] {
+            impl crate::i3c::Instance for crate::peripherals::[<I3C $n>] {
                 type Interrupt = crate::interrupt::typelevel::[<I3C $n>];
             }
         }
     };
 }
-
-impl_i3c_instance!(0);
-
-#[cfg(feature = "mcxa5xx")]
-impl_i3c_instance!(1);
-#[cfg(feature = "mcxa5xx")]
-impl_i3c_instance!(2);
-#[cfg(feature = "mcxa5xx")]
-impl_i3c_instance!(3);
 
 /// SCL pin trait.
 pub trait SclPin<T: Instance>: GpioPin + sealed::Sealed + PeripheralType {

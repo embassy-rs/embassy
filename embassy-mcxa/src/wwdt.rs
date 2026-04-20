@@ -12,7 +12,6 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_time::Duration;
-use paste::paste;
 
 use crate::clocks::periph_helpers::Clk1MConfig;
 use crate::clocks::{ClockError, Gate, WakeGuard, enable_and_reset};
@@ -216,7 +215,7 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
     }
 }
 
-trait SealedInstance: Gate<MrccPeriphConfig = Clk1MConfig> {
+pub(crate) trait SealedInstance: Gate<MrccPeriphConfig = Clk1MConfig> {
     fn info() -> &'static Info;
 }
 
@@ -227,8 +226,8 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     type Interrupt: typelevel::Interrupt;
 }
 
-struct Info {
-    regs: pac::wwdt::Wwdt,
+pub(crate) struct Info {
+    pub(crate) regs: pac::wwdt::Wwdt,
 }
 
 impl Info {
@@ -244,27 +243,22 @@ unsafe impl Sync for Info {}
 #[macro_export]
 macro_rules! impl_wwdt_instance {
     ($n:literal) => {
-        paste! {
-            impl SealedInstance for crate::peripherals::[<WWDT $n>] {
-                fn info() -> &'static Info {
-                    static INFO: Info = Info {
-                        regs: pac::[<WWDT $n>],
+        paste::paste! {
+            impl crate::wwdt::SealedInstance for crate::peripherals::[<WWDT $n>] {
+                fn info() -> &'static crate::wwdt::Info {
+                    static INFO: crate::wwdt::Info = crate::wwdt::Info {
+                        regs: crate::pac::[<WWDT $n>],
                     };
                     &INFO
                 }
             }
 
-            impl Instance for crate::peripherals::[<WWDT $n>] {
+            impl crate::wwdt::Instance for crate::peripherals::[<WWDT $n>] {
                 type Interrupt = crate::interrupt::typelevel::[<WWDT $n>];
             }
         }
     };
 }
-
-impl_wwdt_instance!(0);
-
-#[cfg(feature = "mcxa5xx")]
-impl_wwdt_instance!(1);
 
 #[cfg(feature = "embedded-mcu-hal")]
 impl embedded_mcu_hal::watchdog::Watchdog for Watchdog<'_> {

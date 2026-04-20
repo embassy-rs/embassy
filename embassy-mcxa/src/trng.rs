@@ -5,7 +5,6 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use embassy_hal_internal::{Peri, PeripheralType};
 use maitake_sync::WaitCell;
-use paste::paste;
 
 use crate::clocks::periph_helpers::NoConfig;
 use crate::clocks::{Gate, enable_and_reset};
@@ -634,7 +633,7 @@ impl<'d, M: Mode> rand_core_09::block::BlockRngCore for Trng<'d, M> {
 
 impl<'d, M: Mode> rand_core_09::block::CryptoBlockRng for Trng<'d, M> {}
 
-trait SealedInstance: Gate<MrccPeriphConfig = NoConfig> {
+pub(crate) trait SealedInstance: Gate<MrccPeriphConfig = NoConfig> {
     fn info() -> &'static Info;
 
     const PERF_INT_INCR: fn();
@@ -648,9 +647,9 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     type Interrupt: typelevel::Interrupt;
 }
 
-struct Info {
-    regs: pac::trng::Trng,
-    wait_cell: WaitCell,
+pub(crate) struct Info {
+    pub(crate) regs: pac::trng::Trng,
+    pub(crate) wait_cell: WaitCell,
 }
 
 impl Info {
@@ -671,12 +670,12 @@ unsafe impl Sync for Info {}
 #[macro_export]
 macro_rules! impl_trng_instance {
     ($n:literal) => {
-        paste! {
-            impl SealedInstance for crate::peripherals::[<TRNG $n>] {
-                fn info() -> &'static Info {
-                    static INFO: Info = Info {
-                        regs: pac::[<TRNG $n>],
-                        wait_cell: WaitCell::new(),
+        paste::paste! {
+            impl crate::trng::SealedInstance for crate::peripherals::[<TRNG $n>] {
+                fn info() -> &'static crate::trng::Info {
+                    static INFO: crate::trng::Info = crate::trng::Info {
+                        regs: crate::pac::[<TRNG $n>],
+                        wait_cell: maitake_sync::WaitCell::new(),
                     };
                     &INFO
                 }
@@ -685,11 +684,9 @@ macro_rules! impl_trng_instance {
                 const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_trng $n _wake>];
             }
 
-            impl Instance for crate::peripherals::[<TRNG $n>] {
+            impl crate::trng::Instance for crate::peripherals::[<TRNG $n>] {
                 type Interrupt = crate::interrupt::typelevel::[<TRNG $n>];
             }
         }
     };
 }
-
-impl_trng_instance!(0);
