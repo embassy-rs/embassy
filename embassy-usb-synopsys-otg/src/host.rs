@@ -880,9 +880,9 @@ impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Channel<T, D, CH_
             CH_RESULT_STALL => Err(PipeError::Stall),
             CH_RESULT_NAK => Ok(()), // NAK is not an error, just retry
             CH_RESULT_TXERR => Err(PipeError::BadResponse),
-            CH_RESULT_BBERR => Err(PipeError::BadResponse),
+            CH_RESULT_BBERR => Err(PipeError::Babble),
             CH_RESULT_FRMOR => Err(PipeError::BadResponse),
-            CH_RESULT_DTERR => Err(PipeError::BadResponse),
+            CH_RESULT_DTERR => Err(PipeError::DataToggleError),
             CH_RESULT_HALTED => Err(PipeError::Disconnected),
             _ => Err(PipeError::BadResponse),
         }
