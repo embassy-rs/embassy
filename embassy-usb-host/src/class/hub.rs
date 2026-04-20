@@ -107,7 +107,8 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
     /// Wait for a hub port status change event.
     pub async fn wait_for_event(&mut self) -> Result<HandlerEvent<HubEvent>, HostError> {
         loop {
-            let mut buf = [0u8; 16];
+            // 1 hub + maximum of 255 ports (USB 2.0 Spec 11.12.3 and 11.23.2.1)
+            let mut buf = [0u8; (1 + 255) / u8::BITS as usize];
             let slice = &mut buf[..(self.desc.port_num as usize / 8) + 1];
             self.interrupt_channel.request_in(slice).await?;
 
