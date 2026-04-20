@@ -278,19 +278,23 @@ pub mod pipe {
     impl IsOut for InOut {}
 }
 
-/// Specify the timeout of a pipe
+/// Timeouts applied to a control pipe's NAK-retry behaviour.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub struct TimeoutConfig {
-    /// Maximum response timeout for transactions with a Data Stage
+    /// Maximum response timeout for transactions with a Data Stage.
     pub data_timeout: Duration,
-    /// Maximum response timeout for transactions without a data stage
-    pub standard_timeout: Duration,
+
+    /// Maximum response timeout for transactions without a Data Stage.
+    pub no_data_timeout: Duration,
 }
 
 impl Default for TimeoutConfig {
     fn default() -> Self {
         TimeoutConfig {
             data_timeout: Duration::from_millis(500),
-            standard_timeout: Duration::from_millis(50),
+            no_data_timeout: Duration::from_millis(50),
         }
     }
 }
