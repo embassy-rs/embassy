@@ -654,6 +654,23 @@ impl<'d, I: Instance, T: pipe::Type, D: pipe::Direction> UsbPipe<T, D> for Chann
     fn set_timeout(&mut self, _: TimeoutConfig) {
         //TODO: Implement.
     }
+
+    fn reset_data_toggle(&mut self) {
+        // On STM32 PMA USB, DTOG_RX and DTOG_TX are toggle-on-write-1: writing
+        // a 1 flips the bit, writing a 0 leaves it unchanged. To clear both
+        // to 0 (DATA0), read the current values and write them back — a
+        // currently-1 bit will toggle to 0, a currently-0 bit will be left
+        // alone. `invariant()` preserves CTR_* and clears STAT_* toggle
+        // fields; we then set the DTOG fields explicitly.
+        let epr = self.reg();
+        let current = epr.read();
+        let dtog_rx = current.dtog_rx();
+        let dtog_tx = current.dtog_tx();
+        let mut new = invariant(current);
+        new.set_dtog_rx(dtog_rx);
+        new.set_dtog_tx(dtog_tx);
+        epr.write_value(new);
+    }
 }
 
 impl<'d, I: Instance, T: pipe::Type, D: pipe::Direction> Drop for Channel<'d, I, D, T> {

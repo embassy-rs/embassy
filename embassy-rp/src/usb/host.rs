@@ -705,6 +705,10 @@ impl<'d, T: Instance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D> for Chann
     fn set_timeout(&mut self, _: TimeoutConfig) {
         // Not yet implemented for RP2040.
     }
+
+    fn reset_data_toggle(&mut self) {
+        self.pid = false;
+    }
 }
 
 // TODO: channel should have reference to `allocated_pipes`

@@ -370,4 +370,20 @@ pub trait UsbPipe<T: pipe::Type, D: pipe::Direction> {
     fn set_timeout(&mut self, timeout: TimeoutConfig)
     where
         T: pipe::IsControl;
+
+    /// Reset the host-side data toggle on this pipe to DATA0.
+    ///
+    /// The caller must invoke this method after:
+    ///
+    /// - `CLEAR_FEATURE(ENDPOINT_HALT)` successfully clears a functional
+    ///   stall on this endpoint.
+    /// - `SET_CONFIGURATION` succeeds (all non-control endpoints on the
+    ///   affected interfaces must be reset).
+    /// - `SET_INTERFACE` succeeds (all non-control endpoints on the
+    ///   affected interface must be reset).
+    ///
+    /// This method has no effect on control pipes, where the toggle is
+    /// determined by each transfer's setup/data/status stage and is
+    /// therefore not caller-managed.
+    fn reset_data_toggle(&mut self);
 }

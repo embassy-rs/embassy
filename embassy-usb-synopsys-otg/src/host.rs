@@ -1118,6 +1118,10 @@ impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> UsbPipe<T, D> for
     fn set_timeout(&mut self, _timeout: embassy_usb_driver::host::TimeoutConfig) {
         // Hardware timeouts; no-op
     }
+
+    fn reset_data_toggle(&mut self) {
+        self.data_toggle = false;
+    }
 }
 
 /// Dpid extension for SETUP token.
