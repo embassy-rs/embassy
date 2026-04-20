@@ -113,7 +113,7 @@ impl EnumerationInfo {
     }
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum HandlerEvent<T> {
     NoChange,
@@ -121,7 +121,7 @@ pub enum HandlerEvent<T> {
     HandlerEvent(T),
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum RegisterError {
     NoSupportedInterface,
