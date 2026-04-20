@@ -62,6 +62,7 @@ impl SplitInfo {
 /// Errors returned by [`UsbPipe`] operations.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum PipeError {
     /// The packet is too long to fit in the buffer.
     BufferOverflow,
@@ -91,6 +92,7 @@ pub enum PipeError {
 /// Device has been attached/detached
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum DeviceEvent {
     /// Indicates a root-device has become attached
     Connected(Speed),
@@ -105,6 +107,7 @@ pub enum DeviceEvent {
 /// Indicates type of error of Host interface
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum HostError {
     /// A pipe-level transfer error occurred.
     PipeError(PipeError),
