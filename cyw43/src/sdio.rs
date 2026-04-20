@@ -4,7 +4,7 @@ use aligned::{A4, Aligned};
 use embassy_time::{Duration, Timer};
 
 use crate::consts::*;
-use crate::runner::{BusType, SealedBus};
+use crate::runner::{BusConfig, BusType, SealedBus};
 use crate::util::{aligned_mut, aligned_ref, slice32_mut, slice32_ref, try_until};
 
 // macro_rules! ALIGN_UINT {
@@ -112,10 +112,14 @@ impl<const SIZE: usize, T: SdioBusCyw43<SIZE>> SdioBusCyw43<SIZE> for &mut T {
     }
 }
 
+pub struct Config {
+    pub max_f: u32,
+    pub out_of_band_irq: bool,
+}
+
 /// Doc
 pub struct SdioBus<SDIO> {
     backplane_window: u32,
-    max_f: u32,
     sdio: SDIO,
 }
 
@@ -123,10 +127,9 @@ impl<SDIO> SdioBus<SDIO>
 where
     SDIO: SdioBusCyw43<BLOCK_SIZE>,
 {
-    pub(crate) fn new(sdio: SDIO, max_f: u32) -> Self {
+    pub(crate) fn new(sdio: SDIO) -> Self {
         Self {
             backplane_window: 0xAAAA_AAAA,
-            max_f,
             sdio,
         }
     }
@@ -297,8 +300,9 @@ where
     SDIO: SdioBusCyw43<64>,
 {
     const TYPE: BusType = BusType::Sdio;
+    type Config = Config;
 
-    async fn init(&mut self, _bluetooth_enabled: bool) -> Result<(), ()> {
+    async fn init<'a>(&mut self, _bluetooth_enabled: bool, config: &'a Config) -> Result<BusConfig<'a>, ()> {
         // whd_bus_sdio_init
 
         // set up backplane
@@ -359,10 +363,10 @@ where
         .await;
 
         self.sdio
-            .set_bus_to_high_speed(self.max_f.clamp(0, 25_000_000))
+            .set_bus_to_high_speed(config.max_f.clamp(0, 25_000_000))
             .unwrap();
 
-        if self.max_f > 25_000_000 {
+        if config.max_f > 25_000_000 {
             // enable more than 25MHz bus
             let reg = self.read8(FUNC_BUS, SDIOD_CCCR_SPEED_CONTROL).await as u32;
             if reg & 1 != 0 {
@@ -370,7 +374,7 @@ where
                     .await;
 
                 self.sdio
-                    .set_bus_to_high_speed(self.max_f.clamp(0, 50_000_000))
+                    .set_bus_to_high_speed(config.max_f.clamp(0, 50_000_000))
                     .unwrap();
             }
         }
@@ -386,7 +390,7 @@ where
             return Err(());
         }
 
-        Ok(())
+        Ok(BusConfig::Sdio(config))
     }
 
     async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) -> Result<(), ()> {

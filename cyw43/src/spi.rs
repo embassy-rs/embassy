@@ -5,7 +5,7 @@ use embedded_hal_1::digital::OutputPin;
 use futures::FutureExt;
 
 use crate::consts::*;
-use crate::runner::{BusType, SealedBus};
+use crate::runner::{BusConfig, BusType, SealedBus};
 use crate::util::{slice8_mut, slice32_mut, slice32_ref};
 
 /// Custom Spi Trait that _only_ supports the bus operation of the cyw43
@@ -152,8 +152,9 @@ where
     SPI: SpiBusCyw43,
 {
     const TYPE: BusType = BusType::Spi;
+    type Config = ();
 
-    async fn init(&mut self, bluetooth_enabled: bool) -> Result<(), ()> {
+    async fn init<'a>(&mut self, bluetooth_enabled: bool, config: &'a ()) -> Result<BusConfig<'a>, ()> {
         fn cmp<R: Eq>(left: R, right: R) -> Result<(), ()> {
             if left == right { Ok(()) } else { Err(()) }
         }
@@ -243,7 +244,7 @@ where
         }
         self.write16(FUNC_BUS, REG_BUS_INTERRUPT_ENABLE, val).await;
 
-        Ok(())
+        Ok(BusConfig::Spi(config))
     }
 
     async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) -> Result<(), ()> {
