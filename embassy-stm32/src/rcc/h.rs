@@ -1334,7 +1334,7 @@ pub fn set_and_enable_comp_vals(cv: &CompVals) {
 ///
 /// The STM32 RCC peripheral implements the ability for the CPU to detect why a reset
 /// occurred.
-#[cfg(all(stm32h7, not(stm32h7rs)))]
+#[cfg(rcc_h7rm0433)]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ResetReason {
@@ -1351,12 +1351,12 @@ pub enum ResetReason {
     Unknown(u32),
 }
 
-#[cfg(all(stm32h7, not(stm32h7rs)))]
+#[cfg(rcc_h7rm0433)]
 impl ResetReason {
     /// Read and clear the reason the core thinks the reset occurred.
     pub fn read_clear() -> ResetReason {
-        let rsr = RCC.rcc_rsr().read();
-        RCC.rcc_rsr().modify(|w| w.set_rmvf(true));
+        let rsr = RCC.rsr().read();
+        RCC.rsr().modify(|w| w.set_rmvf(true));
 
         // Refer to Reference Manual (RM0433, Rev 8, Table 56).
         match (
