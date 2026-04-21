@@ -725,7 +725,7 @@ impl<'d, T: Instance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D> for Chann
 impl<'d, T: Instance> UsbHostDriver for Driver<'d, T> {
     type Pipe<E: pipe::Type, D: pipe::Direction> = Channel<'d, T, E, D>;
 
-    async fn wait_for_device_event(&self) -> DeviceEvent {
+    async fn wait_for_device_event(&mut self) -> DeviceEvent {
         let is_connected = |status: u8| match status {
             0b01 | 0b10 => true,
             _ => false,
@@ -771,7 +771,7 @@ impl<'d, T: Instance> UsbHostDriver for Driver<'d, T> {
         ev
     }
 
-    async fn bus_reset(&self) {
+    async fn bus_reset(&mut self) {
         T::regs().sie_ctrl().modify(|w| {
             w.set_reset_bus(true);
         });

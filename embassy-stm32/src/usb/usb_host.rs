@@ -752,7 +752,7 @@ impl<'d, I: Instance> UsbHostDriver for UsbHost<'d, I> {
         Ok(channel)
     }
 
-    async fn bus_reset(&self) {
+    async fn bus_reset(&mut self) {
         let regs = I::regs();
 
         trace!("Bus reset");
@@ -770,7 +770,7 @@ impl<'d, I: Instance> UsbHostDriver for UsbHost<'d, I> {
         });
     }
 
-    async fn wait_for_device_event(&self) -> embassy_usb_driver::host::DeviceEvent {
+    async fn wait_for_device_event(&mut self) -> embassy_usb_driver::host::DeviceEvent {
         // TODO: which event do we expect?
         self.wait_for_device_connect().await
     }
