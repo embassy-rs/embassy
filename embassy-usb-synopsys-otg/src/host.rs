@@ -675,8 +675,6 @@ impl<'d, const CH_COUNT: usize> UsbHostDriver<'d> for OtgHost<'d, CH_COUNT> {
 /// The channel is automatically released when dropped.
 pub struct Channel<'d, T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> {
     regs: Otg,
-    /// Raw pointer to avoid lifetime dependency on OtgHost.
-    /// SAFETY: The HostState is always in a static or lives for 'd which outlives all channels.
     state: &'d HostState<CH_COUNT>,
     index: usize,
     device_address: u8,
@@ -687,7 +685,7 @@ pub struct Channel<'d, T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize>
     phantom: PhantomData<(T, D)>,
 }
 
-// SAFETY: Channel access to HostState is through atomics only.
+// SAFETY: Channel only accesses its own state in the shared HostState.
 unsafe impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Send for Channel<'_, T, D, CH_COUNT> {}
 
 impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Drop for Channel<'_, T, D, CH_COUNT> {
