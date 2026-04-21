@@ -6,8 +6,9 @@ use embassy_executor::Spawner;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::HostDriver;
 use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_usb_host::class::cdc_acm::{CdcAcmHost, LineCoding};
-use embassy_usb_host::{BusRoute, UsbHost};
+use embassy_usb_host::{BusRoute, BusState};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -46,17 +47,18 @@ async fn main(_spawner: Spawner) {
     // Create the host driver (FS mode)
     let driver = HostDriver::new_fs_host(p.USB_OTG_FS, Irqs, p.PA12, p.PA11);
 
-    let mut host = UsbHost::new(driver);
+    static BUS_STATE: BusState<CriticalSectionRawMutex> = BusState::new();
+    let (mut bus_ctrl, bus) = embassy_usb_host::bus(driver, &BUS_STATE);
     info!("USB host initialized, waiting for device...");
 
     loop {
         // Wait for a device to connect
-        let speed = host.wait_for_connection().await;
+        let speed = bus_ctrl.wait_for_connection().await;
         info!("Device connected at speed {:?}", speed);
 
         // Enumerate the device
         let mut config_buf = [0u8; 256];
-        let result = host.enumerate(BusRoute::Direct(speed), &mut config_buf).await;
+        let result = bus.enumerate(BusRoute::Direct(speed), &mut config_buf).await;
 
         let (enum_info, config_len) = match result {
             Ok(r) => r,
@@ -72,7 +74,7 @@ async fn main(_spawner: Spawner) {
         );
 
         // Try to create a CDC ACM host driver
-        let mut cdc = match CdcAcmHost::new(host.driver(), &config_buf[..config_len], &enum_info) {
+        let mut cdc = match CdcAcmHost::new(bus, &config_buf[..config_len], &enum_info) {
             Ok(c) => c,
             Err(e) => {
                 error!("CDC ACM init failed: {:?}", e);

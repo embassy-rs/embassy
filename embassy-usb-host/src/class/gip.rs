@@ -36,7 +36,7 @@
 //! use embassy_usb_host::class::gip::{GipHost, XboxOneSGamepad, GipEvent, RumbleCommand};
 //!
 //! let mut gip = GipHost::<_, XboxOneSGamepad>::try_register(
-//!     host.driver(),
+//!     bus,
 //!     &config_buf[..config_len],
 //!     addr,
 //!     dev_desc.vendor_id,
@@ -66,7 +66,7 @@
 //!
 //! [MS-GIPUSB]: https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gipusb/
 
-use embassy_usb_driver::host::{PipeError, UsbHostDriver, UsbPipe, pipe};
+use embassy_usb_driver::host::{PipeError, UsbHostAllocator, UsbPipe, pipe};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
 
 use crate::descriptor::ConfigurationDescriptor;
@@ -472,15 +472,15 @@ impl GipDevice for XboxOneSGamepad {
 /// 1. Register with [`GipHost::try_register`] after USB enumeration.
 /// 2. Poll for events with [`GipHost::poll`].
 /// 3. Optionally send rumble with [`GipHost::set_rumble`].
-pub struct GipHost<'d, D: UsbHostDriver<'d>, DEV: GipDevice> {
-    in_ch: D::Pipe<pipe::Interrupt, pipe::In>,
-    out_ch: D::Pipe<pipe::Interrupt, pipe::Out>,
+pub struct GipHost<'d, A: UsbHostAllocator<'d>, DEV: GipDevice> {
+    in_ch: A::Pipe<pipe::Interrupt, pipe::In>,
+    out_ch: A::Pipe<pipe::Interrupt, pipe::Out>,
     seq: u8,
     device: DEV,
     _phantom: core::marker::PhantomData<&'d ()>,
 }
 
-impl<'d, D: UsbHostDriver<'d>, DEV: GipDevice> GipHost<'d, D, DEV> {
+impl<'d, A: UsbHostAllocator<'d>, DEV: GipDevice> GipHost<'d, A, DEV> {
     /// Create and initialize a GIP host driver.
     ///
     /// Performs the full setup sequence:
@@ -499,7 +499,7 @@ impl<'d, D: UsbHostDriver<'d>, DEV: GipDevice> GipHost<'d, D, DEV> {
     /// - [`GipError::NoInterface`] if no GIP interface is found.
     /// - [`GipError::NoPipe`] if pipes cannot be allocated.
     /// - [`GipError::Transfer`] if a handshake transfer fails.
-    pub async fn try_register(driver: &D, config_desc: &[u8], enum_info: &EnumerationInfo) -> Result<Self, GipError> {
+    pub async fn try_register(alloc: A, config_desc: &[u8], enum_info: &EnumerationInfo) -> Result<Self, GipError> {
         let vendor_id = enum_info.device_desc.vendor_id;
         let product_id = enum_info.device_desc.product_id;
         let device = DEV::try_new(vendor_id, product_id).ok_or(GipError::UnsupportedDevice)?;
@@ -523,10 +523,10 @@ impl<'d, D: UsbHostDriver<'d>, DEV: GipDevice> GipHost<'d, D, DEV> {
         let device_address = enum_info.device_address;
         let split = enum_info.split();
 
-        let in_ch = driver
+        let in_ch = alloc
             .alloc_pipe::<pipe::Interrupt, pipe::In>(device_address, &in_ep_info, split)
             .map_err(|_| GipError::NoPipe)?;
-        let out_ch = driver
+        let out_ch = alloc
             .alloc_pipe::<pipe::Interrupt, pipe::Out>(device_address, &out_ep_info, split)
             .map_err(|_| GipError::NoPipe)?;
 

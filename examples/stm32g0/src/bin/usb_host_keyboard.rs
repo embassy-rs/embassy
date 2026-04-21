@@ -7,9 +7,10 @@ use embassy_stm32::gpio::{AfType, Level, Output, OutputType, Speed};
 use embassy_stm32::i2c::{self, I2c};
 use embassy_stm32::time::mhz;
 use embassy_stm32::{Config, bind_interrupts, dma, pac, peripherals, usb};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time::Timer;
 use embassy_usb_host::class::hid::HidHost;
-use embassy_usb_host::{BusRoute, UsbHost};
+use embassy_usb_host::{BusRoute, BusState};
 use {defmt_rtt as _, panic_probe as _};
 
 pub use crate::pac::rcc::vals::Mcosel;
@@ -78,15 +79,16 @@ async fn main(_spawner: Spawner) {
     let mut usbhost = usb::UsbHost::new(p.USB, Irqs, p.PA12, p.PA11);
     usbhost.start();
 
-    let mut host = UsbHost::new(usbhost);
+    static BUS_STATE: BusState<CriticalSectionRawMutex> = BusState::new();
+    let (mut bus_ctrl, bus) = embassy_usb_host::bus(usbhost, &BUS_STATE);
     info!("USB host initialized, waiting for device...");
 
     loop {
-        let speed = host.wait_for_connection().await;
+        let speed = bus_ctrl.wait_for_connection().await;
         info!("Device connected at speed {:?}", speed);
 
         let mut config_buf = [0u8; 256];
-        let result = host.enumerate(BusRoute::Direct(speed), &mut config_buf).await;
+        let result = bus.enumerate(BusRoute::Direct(speed), &mut config_buf).await;
 
         let (enum_info, config_len) = match result {
             Ok(r) => r,
@@ -101,7 +103,7 @@ async fn main(_spawner: Spawner) {
             enum_info.device_desc.vendor_id, enum_info.device_desc.product_id, enum_info.device_address
         );
 
-        let mut hid = match HidHost::new(host.driver(), &config_buf[..config_len], &enum_info) {
+        let mut hid = match HidHost::new(bus, &config_buf[..config_len], &enum_info) {
             Ok(h) => h,
             Err(e) => {
                 error!("HID init failed: {:?}", e);

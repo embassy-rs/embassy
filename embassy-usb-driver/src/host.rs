@@ -133,12 +133,51 @@ impl From<PipeError> for HostError {
     }
 }
 
-/// Async USB Host Driver trait.
+/// Pipe allocator trait for USB host drivers.
 ///
-/// To be implemented by the HAL.
-pub trait UsbHostDriver<'d>: Sized {
-    /// Pipe implementation of this UsbHostDriver
+/// Implementations are expected to back allocator state with `'d`-lifetime
+/// storage (typically statics or user-provided `&'d` buffers), not with
+/// fields on the controller struct. This lets [`UsbHostController::allocator`]
+/// hand out lightweight handles that do not re-borrow the controller.
+pub trait UsbHostAllocator<'d>: Sized {
+    /// Pipe implementation produced by this allocator.
     type Pipe<T: pipe::Type, D: pipe::Direction>: UsbPipe<T, D> + 'd;
+
+    /// Allocate a pipe for communication with a device endpoint.
+    ///
+    /// This can be a scarce resource; for one-off requests please scope the
+    /// pipe so that it is dropped after completion.
+    ///
+    /// `split` — when `Some`, every transfer on this pipe is routed as a
+    /// split transaction through the specified hub's TT (USB 2.0 §11.14), or
+    /// as a legacy `PRE` packet on full-speed controllers (USB 1.1 §11.8.6).
+    /// Pass `None` when the device is reached directly (host at the same
+    /// speed as the device, or the device is high-speed).
+    fn alloc_pipe<T: pipe::Type, D: pipe::Direction>(
+        &self,
+        addr: u8,
+        endpoint: &EndpointInfo,
+        split: Option<SplitInfo>,
+    ) -> Result<Self::Pipe<T, D>, HostError>;
+}
+
+/// Main USB host controller trait.
+///
+/// Covers the bus-level operations that must be serialised on a single
+/// controller instance (root-port event waiting, bus reset). Pipe allocation
+/// lives on the companion [`UsbHostAllocator`] trait.
+///
+/// Implemented by the HAL.
+pub trait UsbHostController<'d>: Sized {
+    /// Pipe allocator associated with this controller.
+    type Allocator: UsbHostAllocator<'d>;
+
+    /// Return an allocator handle.
+    ///
+    /// Callers may keep the handle and use it to allocate pipes concurrently
+    /// with [`wait_for_device_event`](Self::wait_for_device_event)
+    /// or [`bus_reset`](Self::bus_reset).
+    fn allocator(&self) -> Self::Allocator;
 
     /// Wait for a root-port attach/detach.
     ///
@@ -153,22 +192,6 @@ pub trait UsbHostDriver<'d>: Sized {
     /// than 0. Used to recover from a misbehaving device or to force
     /// re-enumeration without unplug.
     async fn bus_reset(&mut self);
-
-    /// Allocate pipe for communication with device.
-    ///
-    /// This can be a scarce resource, for one-off requests please scope the pipe so it's dropped after completion.
-    ///
-    /// `split` - when `Some`, every transfer on this pipe is routed as a
-    /// split transaction through the specified hub's TT (USB 2.0 §11.14), or
-    /// as a legacy PRE packet on full-speed controllers (USB 1.1 §11.8.6).
-    /// Pass `None` when the device is reached directly (host at the same
-    /// speed as the device, or the device is high-speed).
-    fn alloc_pipe<T: pipe::Type, D: pipe::Direction>(
-        &self,
-        addr: u8,
-        endpoint: &EndpointInfo,
-        split: Option<SplitInfo>,
-    ) -> Result<Self::Pipe<T, D>, HostError>;
 }
 
 /// Type-level pipe markers for endpoint type and direction.
@@ -321,7 +344,7 @@ impl Default for TimeoutConfig {
 
 /// ## USB Pipes
 /// These contain the required information to send a packet correctly to a device endpoint.
-/// The information is carried with the pipe on creation (see [`UsbHostDriver::alloc_pipe`]).
+/// The information is carried with the pipe on creation (see [`UsbHostAllocator::alloc_pipe`]).
 ///
 /// It is up to the HAL's driver how to implement concurrent requests, some hardware IP may allow for multiple hardware channels
 ///  while others may only have a single channel which needs to be multiplexed in software, while others still use DMA request linked-lists.

@@ -5,7 +5,8 @@ use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::host::{
-    DeviceEvent, HostError, PipeError, SplitInfo, SplitSpeed, TimeoutConfig, UsbHostDriver, UsbPipe, pipe,
+    DeviceEvent, HostError, PipeError, SplitInfo, SplitSpeed, TimeoutConfig, UsbHostAllocator, UsbHostController,
+    UsbPipe, pipe,
 };
 use embassy_usb_driver::{EndpointInfo, EndpointType, Speed};
 
@@ -31,13 +32,17 @@ const MAIN_BUFFER_SIZE: usize = 1024;
 /// 0 means None
 static CURRENT_CHANNEL: AtomicUsize = AtomicUsize::new(0);
 
+/// Bitset of allocated interrupt pipes (shared between driver and allocator).
+static ALLOCATED_PIPES: AtomicU16 = AtomicU16::new(0);
+
+/// Next 'allocated' non-interrupt channel index (shared between driver and allocator).
+///
+/// Seeded in [`Driver::new`]; indexes 1-15 are reserved for interrupt endpoints.
+static CHANNEL_INDEX: AtomicUsize = AtomicUsize::new(16);
+
 /// RP2040 USB host driver handle.
 pub struct Driver<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
-    /// Bitset of allocated interrupt pipes
-    allocated_pipes: AtomicU16,
-    /// Index for next 'allocated' channel
-    channel_index: AtomicUsize,
 }
 
 impl<'d, T: Instance> Driver<'d, T> {
@@ -91,12 +96,11 @@ impl<'d, T: Instance> Driver<'d, T> {
         // Initialize the bus so that it signals that power is available
         BUS_WAKER.wake();
 
-        Self {
-            phantom: PhantomData,
-            allocated_pipes: AtomicU16::new(0),
-            // 1-15 are reserved for interrupt EPs
-            channel_index: AtomicUsize::new(16),
-        }
+        // Reset allocator state. Indices 1-15 are reserved for interrupt EPs.
+        ALLOCATED_PIPES.store(0, Ordering::Relaxed);
+        CHANNEL_INDEX.store(16, Ordering::Relaxed);
+
+        Self { phantom: PhantomData }
     }
 }
 
@@ -715,8 +719,67 @@ impl<'d, T: Instance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D> for Chann
 //     }
 // }
 
-impl<'d, T: Instance> UsbHostDriver<'d> for Driver<'d, T> {
+/// Pipe allocator handle for [`Driver`].
+///
+/// Obtained from [`UsbHostController::allocator`]. All state is stored in
+/// module-level `static`s, so this handle is a zero-sized marker and can
+/// be freely copied and held by class drivers independently of the
+/// controller's `&mut` borrow.
+pub struct Allocator<'d, T: Instance> {
+    phantom: PhantomData<&'d T>,
+}
+
+impl<'d, T: Instance> Clone for Allocator<'d, T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<'d, T: Instance> Copy for Allocator<'d, T> {}
+
+impl<'d, T: Instance> UsbHostAllocator<'d> for Allocator<'d, T> {
     type Pipe<E: pipe::Type, D: pipe::Direction> = Channel<'d, T, E, D>;
+
+    fn alloc_pipe<E: pipe::Type, D: pipe::Direction>(
+        &self,
+        dev_addr: u8,
+        endpoint: &EndpointInfo,
+        split: Option<SplitInfo>,
+    ) -> Result<Self::Pipe<E, D>, HostError> {
+        let pre = split_to_pre(split);
+        if E::ep_type() == EndpointType::Interrupt {
+            let alloc = ALLOCATED_PIPES.load(Ordering::Acquire);
+            let free_index = (1..16).find(|i| alloc & (1 << i) == 0).ok_or(HostError::OutOfPipes)? as u8;
+
+            ALLOCATED_PIPES.store(alloc | 1 << free_index, Ordering::Release);
+            // Use fixed layout
+            let addr = DPRAM_DATA_OFFSET + MAIN_BUFFER_SIZE as u16 + free_index as u16 * 64;
+
+            Ok(Channel::new(free_index as _, addr, 64, endpoint, dev_addr, pre))
+        } else {
+            let index = critical_section::with(|_| {
+                let old_val = CHANNEL_INDEX.load(Ordering::Relaxed);
+                CHANNEL_INDEX.store(old_val + 1, Ordering::Relaxed);
+                old_val
+            });
+            Ok(Channel::new(
+                index,
+                DPRAM_DATA_OFFSET,
+                MAIN_BUFFER_SIZE as u16,
+                endpoint,
+                dev_addr,
+                pre,
+            ))
+        }
+    }
+}
+
+impl<'d, T: Instance> UsbHostController<'d> for Driver<'d, T> {
+    type Allocator = Allocator<'d, T>;
+
+    fn allocator(&self) -> Self::Allocator {
+        Allocator { phantom: PhantomData }
+    }
 
     async fn wait_for_device_event(&mut self) -> DeviceEvent {
         let is_connected = |status: u8| match status {
@@ -753,7 +816,7 @@ impl<'d, T: Instance> UsbHostDriver<'d> for Driver<'d, T> {
         })
         .await;
 
-        // Per the `UsbHostDriver` contract, drive a bus reset before
+        // Per the `UsbHostController` contract, drive a bus reset before
         // reporting the attach so the device transitions from the Powered
         // into the Default state (USB 2.0 §9.1.2). RP2040 is full-speed
         // only, so no chirp handshake occurs and the speed observed before
@@ -770,39 +833,6 @@ impl<'d, T: Instance> UsbHostDriver<'d> for Driver<'d, T> {
         });
 
         embassy_time::Timer::after_millis(50).await;
-    }
-
-    fn alloc_pipe<E: pipe::Type, D: pipe::Direction>(
-        &self,
-        dev_addr: u8,
-        endpoint: &EndpointInfo,
-        split: Option<SplitInfo>,
-    ) -> Result<Self::Pipe<E, D>, HostError> {
-        let pre = split_to_pre(split);
-        if E::ep_type() == EndpointType::Interrupt {
-            let alloc = self.allocated_pipes.load(Ordering::Acquire);
-            let free_index = (1..16).find(|i| alloc & (1 << i) == 0).ok_or(HostError::OutOfPipes)? as u8;
-
-            self.allocated_pipes.store(alloc | 1 << free_index, Ordering::Release);
-            // Use fixed layout
-            let addr = DPRAM_DATA_OFFSET + MAIN_BUFFER_SIZE as u16 + free_index as u16 * 64;
-
-            Ok(Channel::new(free_index as _, addr, 64, endpoint, dev_addr, pre))
-        } else {
-            let index = critical_section::with(|_| {
-                let old_val = self.channel_index.load(Ordering::Relaxed);
-                self.channel_index.store(old_val + 1, Ordering::Relaxed);
-                old_val
-            });
-            Ok(Channel::new(
-                index,
-                DPRAM_DATA_OFFSET,
-                MAIN_BUFFER_SIZE as u16,
-                endpoint,
-                dev_addr,
-                pre,
-            ))
-        }
     }
 }
 

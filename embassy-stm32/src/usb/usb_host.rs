@@ -7,7 +7,9 @@ use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Duration, Instant, Timer};
-use embassy_usb_driver::host::{DeviceEvent, HostError, PipeError, TimeoutConfig, UsbHostDriver, UsbPipe, pipe};
+use embassy_usb_driver::host::{
+    DeviceEvent, HostError, PipeError, TimeoutConfig, UsbHostAllocator, UsbHostController, UsbPipe, pipe,
+};
 use embassy_usb_driver::{EndpointType, Speed};
 use stm32_metapac::common::{RW, Reg};
 use stm32_metapac::usb::regs::Epr;
@@ -313,18 +315,6 @@ impl<'d, I: Instance> UsbHost<'d, I> {
         let istr = regs.istr().read();
 
         istr.0
-    }
-
-    fn alloc_channel_mem(&self, len: u16) -> Result<u16, ()> {
-        assert!(len as usize % USBRAM_ALIGN == 0);
-        let addr = EP_MEM_FREE.load(Ordering::Relaxed);
-        if addr + len > USBRAM_SIZE as _ {
-            // panic!("Endpoint memory full");
-            error!("Endpoint memory full");
-            return Err(());
-        }
-        EP_MEM_FREE.store(addr + len, Ordering::Relaxed);
-        Ok(addr)
     }
 
     async fn wait_for_device_connect(&self) -> DeviceEvent {
@@ -660,7 +650,36 @@ impl<'d, I: Instance, T: pipe::Type, D: pipe::Direction> Drop for Channel<'d, I,
     }
 }
 
-impl<'d, I: Instance> UsbHostDriver<'d> for UsbHost<'d, I> {
+/// Pipe allocator handle for [`UsbHost`].
+///
+/// Obtained from [`UsbHostController::allocator`]. All state is stored in
+/// module-level `static`s, so this handle is a zero-sized marker and can
+/// be freely copied and held by class drivers independently of the
+/// controller's `&mut` borrow.
+pub struct Allocator<'d, I: Instance> {
+    _phantom: PhantomData<&'d I>,
+}
+
+impl<'d, I: Instance> Clone for Allocator<'d, I> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<'d, I: Instance> Copy for Allocator<'d, I> {}
+
+fn alloc_channel_mem(len: u16) -> Result<u16, ()> {
+    assert!(len as usize % USBRAM_ALIGN == 0);
+    let addr = EP_MEM_FREE.load(Ordering::Relaxed);
+    if addr + len > USBRAM_SIZE as _ {
+        error!("Endpoint memory full");
+        return Err(());
+    }
+    EP_MEM_FREE.store(addr + len, Ordering::Relaxed);
+    Ok(addr)
+}
+
+impl<'d, I: Instance> UsbHostAllocator<'d> for Allocator<'d, I> {
     type Pipe<T: pipe::Type, D: pipe::Direction> = Channel<'d, I, D, T>;
 
     fn alloc_pipe<T: pipe::Type, D: pipe::Direction>(
@@ -691,7 +710,7 @@ impl<'d, I: Instance> UsbHostDriver<'d> for UsbHost<'d, I> {
 
         let buffer_in = if D::is_in() {
             let (len, len_bits) = calc_receive_len_bits(max_packet_size);
-            let Ok(buffer_addr) = self.alloc_channel_mem(len) else {
+            let Ok(buffer_addr) = alloc_channel_mem(len) else {
                 return Err(HostError::OutOfSlots);
             };
 
@@ -704,7 +723,7 @@ impl<'d, I: Instance> UsbHostDriver<'d> for UsbHost<'d, I> {
 
         let buffer_out = if D::is_out() {
             let len = align_len_up(max_packet_size);
-            let Ok(buffer_addr) = self.alloc_channel_mem(len) else {
+            let Ok(buffer_addr) = alloc_channel_mem(len) else {
                 return Err(HostError::OutOfSlots);
             };
 
@@ -733,6 +752,14 @@ impl<'d, I: Instance> UsbHostDriver<'d> for UsbHost<'d, I> {
         epr_reg.write_value(epr);
 
         Ok(channel)
+    }
+}
+
+impl<'d, I: Instance> UsbHostController<'d> for UsbHost<'d, I> {
+    type Allocator = Allocator<'d, I>;
+
+    fn allocator(&self) -> Self::Allocator {
+        Allocator { _phantom: PhantomData }
     }
 
     async fn bus_reset(&mut self) {

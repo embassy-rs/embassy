@@ -11,7 +11,13 @@ pub mod control;
 pub mod descriptor;
 pub mod handler;
 
-use embassy_usb_driver::host::{DeviceEvent, HostError, PipeError, UsbHostDriver, UsbPipe, pipe};
+use core::cell::RefCell;
+use core::marker::PhantomData;
+
+use embassy_sync::blocking_mutex::Mutex as BlockingMutex;
+use embassy_sync::blocking_mutex::raw::RawMutex;
+use embassy_sync::mutex::Mutex as AsyncMutex;
+use embassy_usb_driver::host::{DeviceEvent, HostError, PipeError, UsbHostAllocator, UsbHostController, UsbPipe, pipe};
 pub use embassy_usb_driver::host::{SplitInfo, SplitSpeed};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType, Speed};
 
@@ -69,62 +75,103 @@ impl core::fmt::Display for EnumerationError {
 
 impl core::error::Error for EnumerationError {}
 
-/// USB host controller.
+/// Shared bus-wide state used by a [`BusHandle`].
 ///
-/// Manages device connection, enumeration, and class driver binding.
-pub struct UsbHost<'d, D: UsbHostDriver<'d>> {
-    driver: D,
-    /// Bitmask of in-use USB device addresses (1–127).
-    /// Bit `n` of `addr_bitmap[n / 64]` is set when address `n` is assigned.
-    addr_bitmap: [u64; 2],
-    _phantom: core::marker::PhantomData<&'d ()>,
+/// Holds the in-use USB device addresses (1–127) and an async mutex used to
+/// serialise enumerations on a single bus.
+pub struct BusState<M: RawMutex> {
+    addr_bitmap: BlockingMutex<M, RefCell<[u64; 2]>>,
+    enum_lock: AsyncMutex<M, ()>,
 }
 
-impl<'d, D: UsbHostDriver<'d>> UsbHost<'d, D> {
-    /// Create a new USB host from a driver.
-    pub fn new(driver: D) -> Self {
+impl<M: RawMutex> BusState<M> {
+    /// Create new, empty bus state.
+    pub const fn new() -> Self {
         Self {
-            driver,
-            addr_bitmap: [0u64; 2],
-            _phantom: core::marker::PhantomData,
+            addr_bitmap: BlockingMutex::new(RefCell::new([0u64; 2])),
+            enum_lock: AsyncMutex::new(()),
         }
     }
 
-    /// Allocate the next free device address (1–127), marking it as in use.
-    fn alloc_address(&mut self) -> Option<u8> {
-        for addr in 1u8..=127 {
-            let word = (addr / 64) as usize;
-            let bit = addr % 64;
-            if self.addr_bitmap[word] & (1u64 << bit) == 0 {
-                self.addr_bitmap[word] |= 1u64 << bit;
-                return Some(addr);
+    /// Allocate the next free device address (1–127),
+    /// marking it as in use.
+    ///
+    /// Returns `None` when every address in the 1–127 range is already
+    /// taken.
+    fn alloc_address(&self) -> Option<u8> {
+        self.addr_bitmap.lock(|b| {
+            let mut b = b.borrow_mut();
+            for addr in 1u8..=127 {
+                let word = (addr / 64) as usize;
+                let bit = addr % 64;
+                if b[word] & (1u64 << bit) == 0 {
+                    b[word] |= 1u64 << bit;
+                    return Some(addr);
+                }
             }
-        }
-        None
+            None
+        })
     }
 
     /// Release a previously allocated device address.
-    pub fn free_address(&mut self, addr: u8) {
+    ///
+    /// No-op if the address is out of range or was not marked as in use.
+    pub fn free_address(&self, addr: u8) {
         if addr >= 1 && addr <= 127 {
-            let word = (addr / 64) as usize;
-            let bit = addr % 64;
-            self.addr_bitmap[word] &= !(1u64 << bit);
+            self.addr_bitmap.lock(|b| {
+                let mut b = b.borrow_mut();
+                let word = (addr / 64) as usize;
+                let bit = addr % 64;
+                b[word] &= !(1u64 << bit);
+            });
         }
     }
+}
 
-    /// Get a reference to the underlying driver.
-    pub fn driver(&self) -> &D {
+impl<M: RawMutex> Default for BusState<M> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Bus-level controller for a single root USB controller.
+///
+/// Owns the [`UsbHostController`] implementation and exposes the
+/// bus-wide operations that must be serialised against each other
+/// (root-port event waiting, bus reset).
+///
+/// Pipe allocation and device enumeration live on the companion
+/// [`BusHandle`] returned alongside a `BusController` by the [`bus`]
+/// constructor.
+pub struct BusController<'d, C: UsbHostController<'d>> {
+    driver: C,
+    _phantom: PhantomData<&'d ()>,
+}
+
+impl<'d, C: UsbHostController<'d>> BusController<'d, C> {
+    /// Get a reference to the underlying controller.
+    pub fn controller(&self) -> &C {
         &self.driver
     }
 
-    /// Get a mutable reference to the underlying driver.
-    pub fn driver_mut(&mut self) -> &mut D {
+    /// Get a mutable reference to the underlying controller.
+    pub fn controller_mut(&mut self) -> &mut C {
         &mut self.driver
     }
 
-    /// Wait for a device to connect.
+    /// Wait for a root-port attach/detach.
+    ///
+    /// On attach, the implementation drives a bus reset to completion
+    /// before returning and reports the speed the device settled on.
+    pub async fn wait_for_device_event(&mut self) -> DeviceEvent {
+        self.driver.wait_for_device_event().await
+    }
+
+    /// Wait for a device to connect on the root port.
     ///
     /// Issues a bus reset internally and returns the detected speed.
+    /// Spurious disconnects, overcurrent events, and other non-attach
+    /// events are silently absorbed.
     pub async fn wait_for_connection(&mut self) -> Speed {
         loop {
             match self.driver.wait_for_device_event().await {
@@ -132,18 +179,53 @@ impl<'d, D: UsbHostDriver<'d>> UsbHost<'d, D> {
                     info!("USB device connected, speed: {:?}", speed);
                     return speed;
                 }
-                DeviceEvent::Disconnected => {
-                    // Spurious disconnect before connect; try again.
-                    continue;
-                }
-                _ => {
-                    // Overcurrent, remote-wakeup, or any future variant that
-                    // isn't a fresh connection: keep waiting for a real
-                    // Connected event.
-                    continue;
-                }
+                DeviceEvent::Disconnected => continue,
+                _ => continue,
             }
         }
+    }
+}
+
+/// Shareable handle for pipe allocation and device enumeration.
+///
+/// A `BusHandle` bundles a [`UsbHostAllocator`] produced by a
+/// [`UsbHostController`] with a reference to the bus-wide
+/// [`BusState`].
+///
+/// `BusHandle` itself implements [`UsbHostAllocator`] by forwarding to
+/// its inner allocator, so it can be passed directly to class driver
+/// constructors.
+pub struct BusHandle<'d, A: UsbHostAllocator<'d>, M: RawMutex> {
+    alloc: A,
+    state: &'d BusState<M>,
+    _phantom: core::marker::PhantomData<&'d ()>,
+}
+
+impl<'d, A: UsbHostAllocator<'d> + Copy, M: RawMutex> Clone for BusHandle<'d, A, M> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<'d, A: UsbHostAllocator<'d> + Copy, M: RawMutex> Copy for BusHandle<'d, A, M> {}
+
+impl<'d, A: UsbHostAllocator<'d>, M: RawMutex> BusHandle<'d, A, M> {
+    /// Borrow the inner pipe allocator.
+    pub fn allocator(&self) -> &A {
+        &self.alloc
+    }
+
+    /// Borrow the shared bus state.
+    pub fn state(&self) -> &'d BusState<M> {
+        self.state
+    }
+
+    /// Release a previously allocated device address.
+    ///
+    /// Equivalent to `self.state().free_address(addr)`. Must be called
+    /// by application code when a device is removed.
+    pub fn free_address(&self, addr: u8) {
+        self.state.free_address(addr);
     }
 
     /// Enumerate a connected device.
@@ -155,23 +237,28 @@ impl<'d, D: UsbHostDriver<'d>> UsbHost<'d, D> {
     /// 4. Get configuration descriptor
     /// 5. SET_CONFIGURATION
     ///
-    /// `route` describes how the device is reached on the bus (directly at
-    /// its native speed, or via split transactions / legacy `PRE` through a
-    /// hub's transaction translator).
+    /// `route` describes how the device is reached on the bus (directly
+    /// at its native speed, or via split transactions / legacy `PRE`
+    /// through a hub's transaction translator).
+    ///
+    /// Enumerations are serialised bus-wide through the
+    /// [`BusState`]'s enumeration mutex.
     ///
     /// # Preconditions
     ///
-    /// The caller must have placed the device into the default (address 0)
-    /// state *before* calling this method. For a root-port device that
-    /// means an upstream bus reset has completed; for a hub-attached
-    /// device, the parent hub's port reset must have completed and
-    /// [`BusRoute::Translated`] must carry the appropriate [`SplitInfo`].
+    /// The caller must have placed the device into the default
+    /// (address 0) state *before* calling this method. For a root-port
+    /// device that means an upstream bus reset has completed; for a
+    /// hub-attached device, the parent hub's port reset must have
+    /// completed and [`BusRoute::Translated`] must carry the
+    /// appropriate [`SplitInfo`].
     ///
-    /// Returns the [`EnumerationInfo`] for the device and bytes written to `config_buf`.
+    /// Returns the [`EnumerationInfo`] for the device and the number of
+    /// bytes written to `config_buf`.
     ///
     /// [`SplitInfo`]: embassy_usb_driver::host::SplitInfo
     pub async fn enumerate(
-        &mut self,
+        &self,
         route: BusRoute,
         config_buf: &mut [u8],
     ) -> Result<(EnumerationInfo, usize), EnumerationError> {
@@ -179,7 +266,11 @@ impl<'d, D: UsbHostDriver<'d>> UsbHost<'d, D> {
 
         use crate::descriptor::DeviceDescriptorPartial;
 
-        let addr = self.alloc_address().ok_or(EnumerationError::NoPipe)?;
+        // Serialise enumerations against other concurrent callers on
+        // the same bus: the default (address 0) state is bus-global.
+        let _enum_guard = self.state.enum_lock.lock().await;
+
+        let addr = self.state.alloc_address().ok_or(EnumerationError::NoPipe)?;
 
         let ep0_info = EndpointInfo {
             addr: EndpointAddress::from_parts(0, UsbDirection::In),
@@ -189,10 +280,10 @@ impl<'d, D: UsbHostDriver<'d>> UsbHost<'d, D> {
         };
 
         let mut ch = self
-            .driver
+            .alloc
             .alloc_pipe::<pipe::Control, pipe::InOut>(0, &ep0_info, route.split())
             .map_err(|_| {
-                self.free_address(addr);
+                self.state.free_address(addr);
                 EnumerationError::NoPipe
             })?;
 
@@ -212,7 +303,7 @@ impl<'d, D: UsbHostDriver<'d>> UsbHost<'d, D> {
                             Timer::after_millis(1).await;
                             continue;
                         } else {
-                            self.free_address(addr);
+                            self.state.free_address(addr);
                             return Err(e.into());
                         }
                     }
@@ -221,7 +312,7 @@ impl<'d, D: UsbHostDriver<'d>> UsbHost<'d, D> {
         };
         // USB 2.0 §9.6.1: legal EP0 max packet sizes are 8, 16, 32, 64.
         if !matches!(max_packet_size0, 8 | 16 | 32 | 64) {
-            self.free_address(addr);
+            self.state.free_address(addr);
             return Err(EnumerationError::InvalidDescriptor);
         }
 
@@ -240,10 +331,10 @@ impl<'d, D: UsbHostDriver<'d>> UsbHost<'d, D> {
         };
 
         let mut ch = self
-            .driver
+            .alloc
             .alloc_pipe::<pipe::Control, pipe::InOut>(addr, &ep0_info, route.split())
             .map_err(|_| {
-                self.free_address(addr);
+                self.state.free_address(addr);
                 EnumerationError::NoPipe
             })?;
 
@@ -275,10 +366,10 @@ impl<'d, D: UsbHostDriver<'d>> UsbHost<'d, D> {
         let n = ch
             .control_in(&setup.to_bytes(), &mut config_buf[..9])
             .await
-            .inspect_err(|_| self.free_address(addr))?;
+            .inspect_err(|_| self.state.free_address(addr))?;
 
         if n < 9 {
-            self.free_address(addr);
+            self.state.free_address(addr);
             return Err(EnumerationError::InvalidDescriptor);
         }
 
@@ -287,7 +378,7 @@ impl<'d, D: UsbHostDriver<'d>> UsbHost<'d, D> {
         let total_len = config_header.total_len as usize;
 
         if total_len > config_buf.len() {
-            self.free_address(addr);
+            self.state.free_address(addr);
             return Err(EnumerationError::ConfigBufferTooSmall(total_len));
         }
 
@@ -297,7 +388,7 @@ impl<'d, D: UsbHostDriver<'d>> UsbHost<'d, D> {
 
         // USB 2.0 §9.4.3: the device must return exactly total_len bytes for a full config descriptor.
         if n != total_len {
-            self.free_address(addr);
+            self.state.free_address(addr);
             return Err(EnumerationError::InvalidDescriptor);
         }
 
@@ -307,7 +398,7 @@ impl<'d, D: UsbHostDriver<'d>> UsbHost<'d, D> {
         let setup = SetupPacket::set_configuration(config_header.configuration_value);
         ch.control_out(&setup.to_bytes(), &[])
             .await
-            .inspect_err(|_| self.free_address(addr))?;
+            .inspect_err(|_| self.state.free_address(addr))?;
 
         info!("Device configured (config={})", config_header.configuration_value);
 
@@ -323,4 +414,42 @@ impl<'d, D: UsbHostDriver<'d>> UsbHost<'d, D> {
             n,
         ))
     }
+}
+
+impl<'d, A: UsbHostAllocator<'d>, M: RawMutex> UsbHostAllocator<'d> for BusHandle<'d, A, M> {
+    type Pipe<T: pipe::Type, D: pipe::Direction> = A::Pipe<T, D>;
+
+    fn alloc_pipe<T: pipe::Type, D: pipe::Direction>(
+        &self,
+        addr: u8,
+        endpoint: &EndpointInfo,
+        split: Option<SplitInfo>,
+    ) -> Result<Self::Pipe<T, D>, HostError> {
+        self.alloc.alloc_pipe::<T, D>(addr, endpoint, split)
+    }
+}
+
+/// Split a [`UsbHostController`] into a bus controller / bus handle pair.
+///
+/// The returned [`BusController`] drives root-port events and bus
+/// resets. The [`BusHandle`] owns pipe allocation and device enumeration
+/// and can be freely shared, handed to class drivers, hub handlers, or
+/// other concurrent tasks while the controller task is blocked inside
+/// [`wait_for_device_event`](BusController::wait_for_device_event).
+pub fn bus<'d, C: UsbHostController<'d>, M: RawMutex>(
+    driver: C,
+    state: &'d BusState<M>,
+) -> (BusController<'d, C>, BusHandle<'d, C::Allocator, M>) {
+    let alloc = driver.allocator();
+    (
+        BusController {
+            driver,
+            _phantom: PhantomData,
+        },
+        BusHandle {
+            alloc,
+            state,
+            _phantom: core::marker::PhantomData,
+        },
+    )
 }

@@ -7,20 +7,21 @@
 use core::num::NonZeroU8;
 
 use bitflags::bitflags;
+use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_time::Timer;
 use embassy_usb::control::Request;
-use embassy_usb_driver::host::{HostError, SplitInfo, SplitSpeed, UsbHostDriver, UsbPipe, pipe};
+use embassy_usb_driver::host::{HostError, SplitInfo, SplitSpeed, UsbHostAllocator, UsbPipe, pipe};
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
 use zerocopy::{FromBytes, Immutable, KnownLayout};
 
 use crate::control::{ControlPipeExt, ControlType, Recipient, RequestType, SetupPacket};
 use crate::descriptor::{DEFAULT_MAX_DESCRIPTOR_SIZE, InterfaceDescriptor, USBDescriptor};
 use crate::handler::{BusRoute, EnumerationInfo, HandlerEvent, RegisterError};
-use crate::{EnumerationError, UsbHost};
+use crate::{BusHandle, EnumerationError};
 
-pub struct HubHandler<'d, H: UsbHostDriver<'d>, const MAX_PORTS: usize> {
-    interrupt_channel: H::Pipe<pipe::Interrupt, pipe::In>,
-    control_channel: H::Pipe<pipe::Control, pipe::InOut>,
+pub struct HubHandler<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> {
+    interrupt_channel: A::Pipe<pipe::Interrupt, pipe::In>,
+    control_channel: A::Pipe<pipe::Control, pipe::InOut>,
     desc: HubDescriptor,
     device_address: u8,
     device_lut: [Option<NonZeroU8>; MAX_PORTS],
@@ -35,11 +36,11 @@ pub enum HubEvent {
     DeviceRemoved { address: Option<NonZeroU8>, port: u8 },
 }
 
-impl<'d, H: UsbHostDriver<'d>, const MAX_PORTS: usize> HubHandler<'d, H, MAX_PORTS> {
+impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_PORTS> {
     /// Attempt to register a hub handler for the given device.
-    pub async fn try_register(bus: &H, enum_info: &EnumerationInfo) -> Result<Self, RegisterError> {
+    pub async fn try_register(alloc: A, enum_info: &EnumerationInfo) -> Result<Self, RegisterError> {
         let ls_over_fs = matches!(enum_info.split(), Some(s) if s.device_speed() == SplitSpeed::Low);
-        let mut control_channel = bus.alloc_pipe::<pipe::Control, pipe::InOut>(
+        let mut control_channel = alloc.alloc_pipe::<pipe::Control, pipe::InOut>(
             enum_info.device_address,
             &EndpointInfo {
                 addr: 0.into(),
@@ -78,7 +79,7 @@ impl<'d, H: UsbHostDriver<'d>, const MAX_PORTS: usize> HubHandler<'d, H, MAX_POR
             .find(|v| v.ep_type() == EndpointType::Interrupt && v.ep_dir() == Direction::In)
             .ok_or(RegisterError::NoSupportedInterface)?;
 
-        let interrupt_channel = bus.alloc_pipe::<pipe::Interrupt, pipe::In>(
+        let interrupt_channel = alloc.alloc_pipe::<pipe::Interrupt, pipe::In>(
             enum_info.device_address,
             &interrupt_ep.into(),
             enum_info.split(),
@@ -214,9 +215,9 @@ impl<'d, H: UsbHostDriver<'d>, const MAX_PORTS: usize> HubHandler<'d, H, MAX_POR
     /// Reset a port and enumerate the device attached to it.
     ///
     /// `port` and `speed` are the 0-based port index and device speed as
-    /// reported by [`HubEvent::DeviceDetected`]. `bus` is the USB host to
-    /// use for enumeration, and it must be the same bus that this hub is
-    /// registered on.
+    /// reported by [`HubEvent::DeviceDetected`]. `bus` is the [`BusHandle`]
+    /// to use for enumeration, and it must be the same bus that this hub
+    /// is registered on.
     ///
     /// Returns the [`EnumerationInfo`] for the device and bytes written
     /// to `config_buffer`.
@@ -235,9 +236,9 @@ impl<'d, H: UsbHostDriver<'d>, const MAX_PORTS: usize> HubHandler<'d, H, MAX_POR
     ///   latter uses the legacy `PRE` prefix on full-speed buses), a new
     ///   [`SplitInfo`] is constructed pointing at this hub.
     /// - Otherwise the child is reached directly at its native speed.
-    pub async fn enumerate_port(
+    pub async fn enumerate_port<M: RawMutex>(
         &mut self,
-        bus: &mut UsbHost<'d, H>,
+        bus: &BusHandle<'d, A, M>,
         config_buffer: &mut [u8],
         port: u8,
         speed: Speed,
