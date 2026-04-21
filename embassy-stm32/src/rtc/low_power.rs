@@ -94,7 +94,7 @@ impl Rtc {
                 #[cfg(any(exti_v1, stm32h7, stm32wb))]
                 crate::pac::EXTI
                     .pr(0)
-                    .modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
+                    .write(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
 
                 <RTC as crate::rtc::SealedInstance>::WakeupInterrupt::unpend();
             });
