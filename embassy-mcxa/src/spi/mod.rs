@@ -1,7 +1,6 @@
 //! LPSPI driver
 use embassy_hal_internal::PeripheralType;
 use maitake_sync::WaitCell;
-use paste::paste;
 
 use crate::clocks::Gate;
 use crate::clocks::periph_helpers::LpspiConfig;
@@ -17,7 +16,7 @@ pub(crate) mod sealed {
     pub trait SealedSpiPin<Instance> {}
 }
 
-trait SealedInstance: Gate<MrccPeriphConfig = LpspiConfig> {
+pub(crate) trait SealedInstance: Gate<MrccPeriphConfig = LpspiConfig> {
     fn info() -> &'static Info;
 
     /// Clock instance
@@ -35,9 +34,9 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
-struct Info {
-    regs: pac::lpspi::Lpspi,
-    wait_cell: WaitCell,
+pub(crate) struct Info {
+    pub(crate) regs: pac::lpspi::Lpspi,
+    pub(crate) wait_cell: WaitCell,
 }
 
 impl Info {
@@ -54,39 +53,34 @@ impl Info {
 
 unsafe impl Sync for Info {}
 
-macro_rules! impl_instance {
-    ($($n:expr),*) => {
-        $(
-            paste!{
-                impl SealedInstance for crate::peripherals::[<LPSPI $n>] {
-                    fn info() -> &'static Info {
-                        static INFO: Info = Info {
-                            regs: pac::[<LPSPI $n>],
-                            wait_cell: WaitCell::new(),
-                        };
-                        &INFO
-                    }
-
-                    const CLOCK_INSTANCE: crate::clocks::periph_helpers::LpspiInstance
-                        = crate::clocks::periph_helpers::LpspiInstance::[<Lpspi $n>];
-                    const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_spi $n>];
-                    const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_spi $n _wake>];
-                    const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpspi $n Tx>];
-                    const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpspi $n Rx>];
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_lpspi_instance {
+    ($n:expr) => {
+        paste::paste! {
+            impl crate::spi::SealedInstance for crate::peripherals::[<LPSPI $n>] {
+                fn info() -> &'static crate::spi::Info {
+                    static INFO: crate::spi::Info = crate::spi::Info {
+                        regs: crate::pac::[<LPSPI $n>],
+                        wait_cell: maitake_sync::WaitCell::new(),
+                    };
+                    &INFO
                 }
 
-                impl Instance for crate::peripherals::[<LPSPI $n>] {
-                    type Interrupt = crate::interrupt::typelevel::[<LPSPI $n>];
-                }
+                const CLOCK_INSTANCE: crate::clocks::periph_helpers::LpspiInstance
+                    = crate::clocks::periph_helpers::LpspiInstance::[<Lpspi $n>];
+                const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_spi $n>];
+                const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_spi $n _wake>];
+                const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpspi $n Tx>];
+                const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpspi $n Rx>];
             }
-        )*
+
+            impl crate::spi::Instance for crate::peripherals::[<LPSPI $n>] {
+                type Interrupt = crate::interrupt::typelevel::[<LPSPI $n>];
+            }
+        }
     };
 }
-
-impl_instance!(0, 1);
-
-#[cfg(feature = "mcxa5xx")]
-impl_instance!(2, 3, 4, 5);
 
 /// MOSI or data pin 0 during parallel data transfers pin trait.
 #[allow(private_bounds)]

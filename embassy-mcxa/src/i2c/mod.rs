@@ -2,7 +2,6 @@
 
 use embassy_hal_internal::PeripheralType;
 use maitake_sync::WaitCell;
-use paste::paste;
 
 use crate::clocks::Gate;
 use crate::clocks::periph_helpers::Lpi2cConfig;
@@ -19,7 +18,7 @@ pub(crate) mod sealed {
     pub trait SealedPin<Instance> {}
 }
 
-trait SealedInstance: Gate<MrccPeriphConfig = Lpi2cConfig> {
+pub(crate) trait SealedInstance: Gate<MrccPeriphConfig = Lpi2cConfig> {
     fn info() -> &'static Info;
 
     /// Clock instance
@@ -37,9 +36,9 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
-struct Info {
-    regs: pac::lpi2c::Lpi2c,
-    wait_cell: WaitCell,
+pub(crate) struct Info {
+    pub(crate) regs: pac::lpi2c::Lpi2c,
+    pub(crate) wait_cell: WaitCell,
 }
 
 impl Info {
@@ -56,36 +55,34 @@ impl Info {
 
 unsafe impl Sync for Info {}
 
-macro_rules! impl_instance {
-    ($($n:literal),*) => {
-        $(
-            paste!{
-                impl SealedInstance for crate::peripherals::[<LPI2C $n>] {
-                    fn info() -> &'static Info {
-                        static INFO: Info = Info {
-                            regs: pac::[<LPI2C $n>],
-                            wait_cell: WaitCell::new(),
-                        };
-                        &INFO
-                    }
-
-                    const CLOCK_INSTANCE: crate::clocks::periph_helpers::Lpi2cInstance
-                        = crate::clocks::periph_helpers::Lpi2cInstance::[<Lpi2c $n>];
-                    const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_i2c $n>];
-                    const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_i2c $n _wake>];
-                    const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpi2C $n Tx>];
-                    const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpi2C $n Rx>];
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_lpi2c_instance {
+    ($n:literal) => {
+        paste::paste! {
+            impl crate::i2c::SealedInstance for crate::peripherals::[<LPI2C $n>] {
+                fn info() -> &'static crate::i2c::Info {
+                    static INFO: crate::i2c::Info = crate::i2c::Info {
+                        regs: crate::pac::[<LPI2C $n>],
+                        wait_cell: maitake_sync::WaitCell::new(),
+                    };
+                    &INFO
                 }
 
-                impl Instance for crate::peripherals::[<LPI2C $n>] {
-                    type Interrupt = crate::interrupt::typelevel::[<LPI2C $n>];
-                }
+                const CLOCK_INSTANCE: crate::clocks::periph_helpers::Lpi2cInstance
+                    = crate::clocks::periph_helpers::Lpi2cInstance::[<Lpi2c $n>];
+                const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_i2c $n>];
+                const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_i2c $n _wake>];
+                const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpi2C $n Tx>];
+                const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpi2C $n Rx>];
             }
-        )*
+
+            impl crate::i2c::Instance for crate::peripherals::[<LPI2C $n>] {
+                type Interrupt = crate::interrupt::typelevel::[<LPI2C $n>];
+            }
+        }
     };
 }
-
-impl_instance!(0, 1, 2, 3);
 
 /// SCL pin trait.
 pub trait SclPin<Instance>: GpioPin + sealed::SealedPin<Instance> + PeripheralType {

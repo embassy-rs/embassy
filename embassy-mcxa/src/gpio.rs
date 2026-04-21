@@ -9,7 +9,6 @@ use core::pin::pin;
 
 use embassy_hal_internal::{Peri, PeripheralType};
 use maitake_sync::WaitMap;
-use paste::paste;
 
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac::common::{RW, Reg};
@@ -44,7 +43,7 @@ pub trait Instance: SealedInstance + PeripheralType {
     type Interrupt: Interrupt;
 }
 
-struct Info {
+pub(crate) struct Info {
     pub port_index: usize,
     pub gpio: crate::pac::gpio::Gpio,
 }
@@ -89,37 +88,33 @@ pub trait HasGpioInstance: GpioPin {
     ) -> Peri<'p, AnyPin>;
 }
 
-trait SealedInstance {
+pub(crate) trait SealedInstance {
     fn info() -> &'static Info;
     const PERF_INT_INCR: fn();
 }
 
-macro_rules! impl_instance {
-    ($($n:expr),*) => {
-        $(
-            paste!{
-                impl SealedInstance for crate::peripherals::[<GPIO $n>] {
-                    fn info() -> &'static Info {
-                        static INFO: Info =  Info {
-                            gpio: crate::pac::[<GPIO $n>],
-                            port_index: $n,
-                        };
-                        &INFO
-                    }
-                const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_gpio $n _wake>];
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_gpio_instance {
+    ($n:expr) => {
+        paste::paste! {
+            impl crate::gpio::SealedInstance for crate::peripherals::[<GPIO $n>] {
+                fn info() -> &'static crate::gpio::Info {
+                    static INFO: crate::gpio::Info =  crate::gpio::Info {
+                        gpio: crate::pac::[<GPIO $n>],
+                        port_index: $n,
+                    };
+                    &INFO
                 }
-
-                impl Instance for crate::peripherals::[<GPIO $n>] {
-                    type Interrupt = crate::interrupt::typelevel::[<GPIO $n>];
-                }
+            const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_gpio $n _wake>];
             }
-        )*
+
+            impl crate::gpio::Instance for crate::peripherals::[<GPIO $n>] {
+                type Interrupt = crate::interrupt::typelevel::[<GPIO $n>];
+            }
+        }
     };
 }
-
-impl_instance!(0, 1, 2, 3, 4);
-#[cfg(feature = "mcxa5xx")]
-impl_instance!(5);
 
 pub struct InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,

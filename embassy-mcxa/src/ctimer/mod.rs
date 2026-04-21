@@ -5,7 +5,6 @@ use core::sync::atomic::AtomicU8;
 
 use embassy_hal_internal::{Peri, PeripheralType};
 use maitake_sync::WaitCell;
-use paste::paste;
 
 use crate::clocks::periph_helpers::{CTimerClockSel, CTimerConfig, Div4};
 use crate::clocks::{ClockError, Gate, PoweredClock, WakeGuard, enable_and_reset};
@@ -105,10 +104,10 @@ impl<'d> CTimer<'d> {
     }
 }
 
-struct Info {
-    regs: pac::ctimer::Ctimer,
-    wait_cell: WaitCell,
-    irq_flags: AtomicU8,
+pub(crate) struct Info {
+    pub(crate) regs: pac::ctimer::Ctimer,
+    pub(crate) wait_cell: WaitCell,
+    pub(crate) irq_flags: AtomicU8,
 }
 
 impl Info {
@@ -130,7 +129,7 @@ impl Info {
 
 unsafe impl Sync for Info {}
 
-trait SealedInstance: Gate<MrccPeriphConfig = CTimerConfig> {
+pub(crate) trait SealedInstance: Gate<MrccPeriphConfig = CTimerConfig> {
     fn info() -> &'static Info;
 
     /// Clock instance
@@ -146,39 +145,40 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
-macro_rules! impl_instance {
-    ($peri:ident, $clock:ident, $perf:ident) => {
-        impl SealedInstance for crate::peripherals::$peri {
-            fn info() -> &'static Info {
-                static INFO: Info = Info {
-                    regs: pac::$peri,
-                    wait_cell: WaitCell::new(),
-                    irq_flags: const { AtomicU8::new(0) },
-                };
-                &INFO
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_ctimer_instance {
+    ($n:literal) => {
+        paste::paste! {
+            impl crate::ctimer::SealedInstance for crate::peripherals::[<CTIMER $n>] {
+                fn info() -> &'static crate::ctimer::Info {
+                    static INFO: crate::ctimer::Info = crate::ctimer::Info {
+                        regs: crate::pac::[<CTIMER $n>],
+                        wait_cell: maitake_sync::WaitCell::new(),
+                        irq_flags: core::sync::atomic::AtomicU8::new(0),
+                    };
+                    &INFO
+                }
+
+                const CLOCK_INSTANCE: crate::clocks::periph_helpers::CTimerInstance =
+                    crate::clocks::periph_helpers::CTimerInstance::[<CTimer $n>];
+                    const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_ctimer $n>];
+                    const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_ctimer $n _wake>];
             }
 
-            const CLOCK_INSTANCE: crate::clocks::periph_helpers::CTimerInstance =
-                crate::clocks::periph_helpers::CTimerInstance::$clock;
-            paste! {
-                const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_ $perf>];
-                const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_ $perf _wake>];
+            impl crate::ctimer::Instance for crate::peripherals::[<CTIMER $n>] {
+                type Interrupt = crate::interrupt::typelevel::[<CTIMER $n>];
             }
-        }
 
-        impl Instance for crate::peripherals::$peri {
-            type Interrupt = crate::interrupt::typelevel::$peri;
+            crate::impl_ctimer_channel!([<CTIMER $n _CH0>], [<CTIMER $n>], Zero);
+            crate::impl_ctimer_channel!([<CTIMER $n _CH1>], [<CTIMER $n>], One);
+            crate::impl_ctimer_channel!([<CTIMER $n _CH2>], [<CTIMER $n>], Two);
+            crate::impl_ctimer_channel!([<CTIMER $n _CH3>], [<CTIMER $n>], Three);
         }
     };
 }
 
-impl_instance!(CTIMER0, CTimer0, ctimer0);
-impl_instance!(CTIMER1, CTimer1, ctimer1);
-impl_instance!(CTIMER2, CTimer2, ctimer2);
-impl_instance!(CTIMER3, CTimer3, ctimer3);
-impl_instance!(CTIMER4, CTimer4, ctimer4);
-
-trait SealedCTimerChannel<T: Instance> {
+pub(crate) trait SealedCTimerChannel<T: Instance> {
     fn number(&self) -> Channel;
 }
 
@@ -189,51 +189,27 @@ pub trait CTimerChannel<T: Instance>:
 {
 }
 
-macro_rules! impl_channel {
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_ctimer_channel {
     ($ch:ident, $peri:ident, $n:ident) => {
-        impl SealedCTimerChannel<crate::peripherals::$peri> for crate::peripherals::$ch {
+        impl crate::ctimer::SealedCTimerChannel<crate::peripherals::$peri> for crate::peripherals::$ch {
             #[inline(always)]
-            fn number(&self) -> Channel {
-                Channel::$n
+            fn number(&self) -> crate::ctimer::Channel {
+                crate::ctimer::Channel::$n
             }
         }
 
-        impl CTimerChannel<crate::peripherals::$peri> for crate::peripherals::$ch {}
+        impl crate::ctimer::CTimerChannel<crate::peripherals::$peri> for crate::peripherals::$ch {}
 
-        impl From<crate::peripherals::$ch> for AnyChannel {
+        impl From<crate::peripherals::$ch> for crate::ctimer::AnyChannel {
             fn from(value: crate::peripherals::$ch) -> Self {
-                Self {
-                    number: value.number(),
-                }
+                use crate::ctimer::SealedCTimerChannel;
+                Self::new(value.number())
             }
         }
     };
 }
-
-impl_channel!(CTIMER0_CH0, CTIMER0, Zero);
-impl_channel!(CTIMER0_CH1, CTIMER0, One);
-impl_channel!(CTIMER0_CH2, CTIMER0, Two);
-impl_channel!(CTIMER0_CH3, CTIMER0, Three);
-
-impl_channel!(CTIMER1_CH0, CTIMER1, Zero);
-impl_channel!(CTIMER1_CH1, CTIMER1, One);
-impl_channel!(CTIMER1_CH2, CTIMER1, Two);
-impl_channel!(CTIMER1_CH3, CTIMER1, Three);
-
-impl_channel!(CTIMER2_CH0, CTIMER2, Zero);
-impl_channel!(CTIMER2_CH1, CTIMER2, One);
-impl_channel!(CTIMER2_CH2, CTIMER2, Two);
-impl_channel!(CTIMER2_CH3, CTIMER2, Three);
-
-impl_channel!(CTIMER3_CH0, CTIMER3, Zero);
-impl_channel!(CTIMER3_CH1, CTIMER3, One);
-impl_channel!(CTIMER3_CH2, CTIMER3, Two);
-impl_channel!(CTIMER3_CH3, CTIMER3, Three);
-
-impl_channel!(CTIMER4_CH0, CTIMER4, Zero);
-impl_channel!(CTIMER4_CH1, CTIMER4, One);
-impl_channel!(CTIMER4_CH2, CTIMER4, Two);
-impl_channel!(CTIMER4_CH3, CTIMER4, Three);
 
 /// Type-erase CTIMER channel
 pub struct AnyChannel {
@@ -241,6 +217,10 @@ pub struct AnyChannel {
 }
 
 impl AnyChannel {
+    pub(crate) const fn new(number: Channel) -> Self {
+        Self { number }
+    }
+
     fn number(&self) -> Channel {
         self.number
     }

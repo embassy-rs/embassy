@@ -163,6 +163,7 @@ pub(crate) mod peripheral_gating {
     impl_cc_gate!(LPI2C1, mrcc_glb_acc0, mrcc_glb_rst0, lpi2c1, Lpi2cConfig);
     impl_cc_gate!(LPI2C2, mrcc_glb_acc0, mrcc_glb_rst0, lpi2c2, Lpi2cConfig);
     impl_cc_gate!(LPI2C3, mrcc_glb_acc0, mrcc_glb_rst0, lpi2c3, Lpi2cConfig);
+    impl_cc_gate!(LPI2C4, mrcc_glb_acc0, mrcc_glb_rst0, lpi2c4, Lpi2cConfig);
 
     impl_cc_gate!(LPSPI0, mrcc_glb_acc1, mrcc_glb_rst1, lpspi0, LpspiConfig);
     impl_cc_gate!(LPSPI1, mrcc_glb_acc1, mrcc_glb_rst1, lpspi1, LpspiConfig);

@@ -750,6 +750,9 @@ pub enum Lpi2cInstance {
     Lpi2c2,
     /// Instance 3
     Lpi2c3,
+    #[cfg(feature = "mcxa5xx")]
+    /// Instance 4
+    Lpi2c4,
 }
 
 /// Top level configuration for `Lpi2c` instances.
@@ -775,6 +778,8 @@ impl SPConfHelper for Lpi2cConfig {
             Lpi2cInstance::Lpi2c1 => (mrcc0.mrcc_lpi2c1_clkdiv(), mrcc0.mrcc_lpi2c1_clksel()),
             Lpi2cInstance::Lpi2c2 => (mrcc0.mrcc_lpi2c2_clkdiv(), mrcc0.mrcc_lpi2c2_clksel()),
             Lpi2cInstance::Lpi2c3 => (mrcc0.mrcc_lpi2c3_clkdiv(), mrcc0.mrcc_lpi2c3_clksel()),
+            #[cfg(feature = "mcxa5xx")]
+            Lpi2cInstance::Lpi2c4 => (mrcc0.mrcc_lpi2c4_clkdiv(), mrcc0.mrcc_lpi2c4_clksel()),
         };
 
         let (freq, variant) = match self.source {

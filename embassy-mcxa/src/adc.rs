@@ -5,7 +5,6 @@ use core::ops::{Deref, RangeInclusive};
 use embassy_hal_internal::{Peri, PeripheralType};
 use maitake_sync::WaitCell;
 use nxp_pac::adc::{AdcActive, TcompIe, TcompInt};
-use paste::paste;
 
 use crate::clocks::periph_helpers::{AdcClockSel, AdcConfig, Div4, PreEnableParts};
 use crate::clocks::{ClockError, Gate, PoweredClock, WakeGuard, enable_and_reset};
@@ -829,9 +828,9 @@ pub(crate) mod sealed {
     pub trait SealedAdcPin<T: super::Instance> {}
 }
 
-struct Info {
-    regs: pac::adc::Adc,
-    wait_cell: WaitCell,
+pub(crate) struct Info {
+    pub(crate) regs: pac::adc::Adc,
+    pub(crate) wait_cell: WaitCell,
 }
 
 unsafe impl Sync for Info {}
@@ -848,7 +847,7 @@ impl Info {
     }
 }
 
-trait SealedInstance: Gate<MrccPeriphConfig = AdcConfig> {
+pub(crate) trait SealedInstance: Gate<MrccPeriphConfig = AdcConfig> {
     fn info() -> &'static Info;
 
     const PERF_INT_INCR: fn();
@@ -861,32 +860,30 @@ pub trait Instance: SealedInstance + PeripheralType {
     type Interrupt: Interrupt;
 }
 
-macro_rules! impl_instance {
-    ($($n:expr),*) => {
-        $(
-            paste!{
-                impl SealedInstance for crate::peripherals::[<ADC $n>] {
-                    fn info() -> &'static Info {
-                        static INFO: Info =
-                        Info {
-                            regs: pac::[<ADC $n>],
-                            wait_cell: WaitCell::new(),
-                        };
-                        &INFO
-                    }
-
-                    const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_adc $n>];
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_adc_instance {
+    ($n:expr) => {
+        paste::paste! {
+            impl crate::adc::SealedInstance for crate::peripherals::[<ADC $n>] {
+                fn info() -> &'static crate::adc::Info {
+                    static INFO: crate::adc::Info =
+                    crate::adc::Info {
+                        regs: crate::pac::[<ADC $n>],
+                        wait_cell: maitake_sync::WaitCell::new(),
+                    };
+                    &INFO
                 }
 
-                impl Instance for crate::peripherals::[<ADC $n>] {
-                    type Interrupt = crate::interrupt::typelevel::[<ADC $n>];
-                }
+                const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_adc $n>];
             }
-        )*
+
+            impl crate::adc::Instance for crate::peripherals::[<ADC $n>] {
+                type Interrupt = crate::interrupt::typelevel::[<ADC $n>];
+            }
+        }
     };
 }
-
-impl_instance!(0, 1);
 
 /// Trait implemented by any possible ADC pin
 pub trait AdcPin<T: Instance>: sealed::SealedAdcPin<T> + GpioPin + PeripheralType {
