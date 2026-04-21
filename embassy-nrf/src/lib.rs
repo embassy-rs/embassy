@@ -1208,6 +1208,11 @@ pub fn init(config: config::Config) -> Peripherals {
     r.events_lfclkstarted().write_value(0);
     r.tasks_lfclkstart().write_value(1);
     while r.events_lfclkstarted().read() == 0 {}
+    // Clear the event after consuming it so downstream peripherals (e.g. MPSL)
+    // that also wait on LFCLKSTARTED see a fresh event rather than the stale one
+    // left by this init path. The anomaly-140 workaround path above already does
+    // this correctly; align the main path to match.
+    r.events_lfclkstarted().write_value(0);
 
     #[cfg(not(any(feature = "_nrf5340", feature = "_nrf91", feature = "_nrf54l")))]
     {
