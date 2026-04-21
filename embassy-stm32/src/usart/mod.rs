@@ -39,37 +39,34 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 }
 
 unsafe fn on_interrupt(r: Regs, s: &'static State) {
-    let (sr, cr1, cr3) = (sr(r).read(), r.cr1().read(), r.cr3().read());
+    let (sr, mut cr1, mut cr3) = (sr(r).read(), r.cr1().read(), r.cr3().read());
 
     let has_errors = (sr.pe() && cr1.peie()) || ((sr.fe() || sr.ne() || sr.ore()) && cr3.eie());
     if has_errors {
         // clear all interrupts and DMA Rx Request
-        r.cr1().modify(|w| {
-            // disable RXNE interrupt
-            w.set_rxneie(false);
-            // disable parity interrupt
-            w.set_peie(false);
-            // disable idle line interrupt
-            w.set_idleie(false);
-        });
-        r.cr3().modify(|w| {
-            // disable Error Interrupt: (Frame error, Noise error, Overrun error)
-            w.set_eie(false);
-            // disable DMA Rx Request
-            w.set_dmar(false);
-        });
+        // disable RXNE interrupt
+        cr1.set_rxneie(false);
+        // disable parity interrupt
+        cr1.set_peie(false);
+        // disable idle line interrupt
+        cr1.set_idleie(false);
+        // disable Error Interrupt: (Frame error, Noise error, Overrun error)
+        cr3.set_eie(false);
+        // disable DMA Rx Request
+        cr3.set_dmar(false);
+
+        r.cr1().write_value(cr1);
+        r.cr3().write_value(cr3);
     } else if cr1.idleie() && sr.idle() {
-        // IDLE detected: no more data will come
-        r.cr1().modify(|w| {
-            // disable idle line detection
-            w.set_idleie(false);
-        });
+        // disable idle line detection
+        cr1.set_idleie(false);
+
+        r.cr1().write_value(cr1);
     } else if cr1.tcie() && sr.tc() {
-        // Transmission complete detected
-        r.cr1().modify(|w| {
-            // disable Transmission complete interrupt
-            w.set_tcie(false);
-        });
+        // disable Transmission complete interrupt
+        cr1.set_tcie(false);
+
+        r.cr1().write_value(cr1);
     } else if cr1.rxneie() {
         // We cannot check the RXNE flag as it is auto-cleared by the DMA controller
 
@@ -649,9 +646,11 @@ impl<'d, M: Mode> UartTx<'d, M> {
 async fn flush(info: &Info, state: &State) -> Result<(), Error> {
     let r = info.regs;
     if r.cr1().read().te() && !sr(r).read().tc() {
-        r.cr1().modify(|w| {
-            // enable Transmission Complete interrupt
-            w.set_tcie(true);
+        critical_section::with(|_| {
+            r.cr1().modify(|w| {
+                // enable Transmission Complete interrupt
+                w.set_tcie(true);
+            })
         });
 
         compiler_fence(Ordering::SeqCst);
