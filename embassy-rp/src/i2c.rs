@@ -5,11 +5,13 @@ use core::future;
 use core::marker::PhantomData;
 use core::task::Poll;
 
+use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
+use embassy_time::Timer;
 use pac::i2c;
 
-use crate::gpio::AnyPin;
+use crate::gpio::{AnyPin, Pin, SealedPin};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::{interrupt, pac, peripherals};
 
@@ -41,6 +43,10 @@ pub enum Error {
     InvalidWriteBufferLength,
     /// Target i2c address is out of range
     AddressOutOfRange(u16),
+    /// SDA is being held low
+    SDAHeldLow,
+    /// SCL is being held low
+    SCLHeldLow,
     /// Target i2c address is reserved
     #[deprecated = "embassy_rp no longer prevents accesses to reserved addresses."]
     AddressReserved(u16),
@@ -88,9 +94,10 @@ impl Default for Config {
 pub const FIFO_SIZE: u8 = 16;
 
 /// I2C driver.
-#[derive(Debug)]
 pub struct I2c<'d, T: Instance, M: Mode> {
     phantom: PhantomData<(&'d mut T, M)>,
+    sda: Peri<'d, AnyPin>,
+    scl: Peri<'d, AnyPin>,
 }
 
 impl<'d, T: Instance> I2c<'d, T, Blocking> {
@@ -159,6 +166,15 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
 
         let mut abort_reason = Ok(());
 
+        // Cancel-safety
+        let on_drop = OnDrop::new(|| {
+            // Abort
+            p.ic_enable().write(|w| {
+                w.set_abort(true);
+                w.set_enable(true);
+            });
+        });
+
         while remaining > 0 {
             // Waggle SCK - basically the same as write
             let tx_fifo_space = Self::tx_fifo_capacity();
@@ -226,7 +242,9 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
             };
         }
 
-        self.wait_stop_det(abort_reason, send_stop).await
+        let res = self.wait_stop_det(abort_reason, send_stop).await;
+        on_drop.defuse();
+        res
     }
 
     async fn write_async_internal(
@@ -237,6 +255,15 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
         let p = T::regs();
 
         let mut bytes = bytes.into_iter().peekable();
+
+        // Cancel-safety
+        let on_drop = OnDrop::new(|| {
+            // Abort
+            p.ic_enable().write(|w| {
+                w.set_abort(true);
+                w.set_enable(true);
+            });
+        });
 
         let res = 'xmit: loop {
             let tx_fifo_space = Self::tx_fifo_capacity();
@@ -285,7 +312,9 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
             }
         };
 
-        self.wait_stop_det(res, send_stop).await
+        let res = self.wait_stop_det(res, send_stop).await;
+        on_drop.defuse();
+        res
     }
 
     /// Helper to wait for a stop bit, for both tx and rx. If we had an abort,
@@ -329,7 +358,7 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
 
     /// Read from address into buffer asynchronously.
     pub async fn read_async(&mut self, addr: impl Into<u16>, buffer: &mut [u8]) -> Result<(), Error> {
-        Self::setup(addr.into())?;
+        self.setup_with_recovery(addr.into()).await?;
         self.read_async_internal(buffer, true, true).await
     }
 
@@ -339,7 +368,7 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
         addr: impl Into<u16>,
         bytes: impl IntoIterator<Item = u8>,
     ) -> Result<(), Error> {
-        Self::setup(addr.into())?;
+        self.setup_with_recovery(addr.into()).await?;
         self.write_async_internal(bytes, true).await
     }
 
@@ -350,7 +379,7 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
         bytes: impl IntoIterator<Item = u8>,
         buffer: &mut [u8],
     ) -> Result<(), Error> {
-        Self::setup(addr.into())?;
+        self.setup_with_recovery(addr.into()).await?;
         self.write_async_internal(bytes, false).await?;
         self.read_async_internal(buffer, true, true).await
     }
@@ -399,7 +428,11 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
         set_up_i2c_pin(&scl, config.scl_pullup);
         set_up_i2c_pin(&sda, config.sda_pullup);
 
-        let mut me = Self { phantom: PhantomData };
+        let mut me = Self {
+            phantom: PhantomData,
+            scl: scl.into(),
+            sda: sda.into(),
+        };
 
         if let Err(e) = me.set_config_inner(&config) {
             panic!("Error configuring i2c: {:?}", e);
@@ -473,16 +506,86 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
         Ok(())
     }
 
-    fn setup(addr: u16) -> Result<(), Error> {
+    fn is_scl_low(&self) -> bool {
+        self.scl.sio_in().read() & (1 << (self.scl.pin() % 32)) == 0
+    }
+
+    fn is_sda_low(&self) -> bool {
+        self.sda.sio_in().read() & (1 << (self.sda.pin() % 32)) == 0
+    }
+
+    fn setup(&self, addr: u16, ignore_lockup: bool) -> Result<(), Error> {
         if addr >= 0x80 {
             return Err(Error::AddressOutOfRange(addr));
         }
 
         let p = T::regs();
         p.ic_enable().write(|w| w.set_enable(false));
+
+        if !ignore_lockup {
+            if self.is_sda_low() {
+                return Err(Error::SDAHeldLow);
+            }
+            if self.is_scl_low() {
+                return Err(Error::SCLHeldLow);
+            }
+        }
+
         p.ic_tar().write(|w| w.set_ic_tar(addr));
         p.ic_enable().write(|w| w.set_enable(true));
         Ok(())
+    }
+
+    async fn setup_with_recovery(&mut self, addr: u16) -> Result<(), Error> {
+        let setup_result = self.setup(addr, false);
+        if setup_result == Err(Error::SDAHeldLow) {
+            #[cfg(feature = "defmt")]
+            defmt::warn!("SDA held low, attempting recovery");
+            // Cancel safety
+            let on_drop = OnDrop::new(|| {
+                // Set back to i2c mode
+                self.scl.gpio().ctrl().write(|w| w.set_funcsel(3));
+                self.sda.gpio().ctrl().write(|w| w.set_funcsel(3));
+            });
+
+            let scl_pin_bit = 1 << (self.scl.pin() % 32);
+            let sda_pin_bit = 1 << (self.sda.pin() % 32);
+            // Set low and flip between input for high and output for low
+            self.scl.sio_out().value_clr().write_value(scl_pin_bit);
+            self.sda.sio_out().value_clr().write_value(sda_pin_bit);
+            self.scl.sio_oe().value_clr().write_value(scl_pin_bit); // Input => High
+            self.sda.sio_oe().value_clr().write_value(sda_pin_bit); // Input => High
+            // Switch to sio mode
+            self.scl.gpio().ctrl().write(|w| w.set_funcsel(0x05));
+            self.sda.gpio().ctrl().write(|w| w.set_funcsel(0x05));
+            // Attempt automatic recovery
+            for _ in 0..9 {
+                self.scl.sio_oe().value_set().write_value(scl_pin_bit); // Low
+                Timer::after_micros(5).await;
+                self.scl.sio_oe().value_clr().write_value(scl_pin_bit); // High
+                Timer::after_micros(5).await;
+                if !self.is_sda_low() {
+                    // Recovery successful
+                    #[cfg(feature = "defmt")]
+                    defmt::warn!("SDA recovered");
+                    break;
+                }
+            }
+            if !self.is_sda_low() {
+                // Send a stop
+                self.sda.sio_oe().value_set().write_value(sda_pin_bit); // Low
+                Timer::after_micros(5).await;
+                self.sda.sio_oe().value_clr().write_value(sda_pin_bit); // High
+                Timer::after_micros(5).await;
+            }
+            // Reset gpio config
+            drop(on_drop);
+
+            self.read_and_clear_abort_reason().ok();
+            self.setup(addr, false)
+        } else {
+            setup_result
+        }
     }
 
     #[inline]
@@ -606,20 +709,20 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
 
     /// Read from address into buffer blocking caller until done.
     pub fn blocking_read(&mut self, address: impl Into<u16>, read: &mut [u8]) -> Result<(), Error> {
-        Self::setup(address.into())?;
+        self.setup(address.into(), true)?;
         self.read_blocking_internal(read, true, true)
         // Automatic Stop
     }
 
     /// Write to address from buffer blocking caller until done.
     pub fn blocking_write(&mut self, address: impl Into<u16>, write: &[u8]) -> Result<(), Error> {
-        Self::setup(address.into())?;
+        self.setup(address.into(), true)?;
         self.write_blocking_internal(write, true)
     }
 
     /// Write to address from bytes and read from address into buffer blocking caller until done.
     pub fn blocking_write_read(&mut self, address: impl Into<u16>, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
-        Self::setup(address.into())?;
+        self.setup(address.into(), true)?;
         self.write_blocking_internal(write, false)?;
         self.read_blocking_internal(read, true, true)
         // Automatic Stop
@@ -658,7 +761,7 @@ impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::i2c::Transactional for
         address: u8,
         operations: &mut [embedded_hal_02::blocking::i2c::Operation<'_>],
     ) -> Result<(), Self::Error> {
-        Self::setup(address.into())?;
+        self.setup(address.into(), false)?;
         for i in 0..operations.len() {
             let last = i == operations.len() - 1;
             match &mut operations[i] {
@@ -684,6 +787,8 @@ impl embedded_hal_1::i2c::Error for Error {
             Self::InvalidReadBufferLength => embedded_hal_1::i2c::ErrorKind::Other,
             Self::InvalidWriteBufferLength => embedded_hal_1::i2c::ErrorKind::Other,
             Self::AddressOutOfRange(_) => embedded_hal_1::i2c::ErrorKind::Other,
+            Self::SDAHeldLow => embedded_hal_1::i2c::ErrorKind::Bus,
+            Self::SCLHeldLow => embedded_hal_1::i2c::ErrorKind::Bus,
             #[allow(deprecated)]
             Self::AddressReserved(_) => embedded_hal_1::i2c::ErrorKind::Other,
         }
@@ -712,7 +817,7 @@ impl<'d, T: Instance, M: Mode> embedded_hal_1::i2c::I2c for I2c<'d, T, M> {
         address: u8,
         operations: &mut [embedded_hal_1::i2c::Operation<'_>],
     ) -> Result<(), Self::Error> {
-        Self::setup(address.into())?;
+        self.setup(address.into(), false)?;
         for i in 0..operations.len() {
             let last = i == operations.len() - 1;
             match &mut operations[i] {
@@ -751,7 +856,7 @@ where
         let addr: u16 = address.into();
 
         if !operations.is_empty() {
-            Self::setup(addr)?;
+            self.setup_with_recovery(addr).await?;
         }
         let mut iterator = operations.iter_mut();
 
