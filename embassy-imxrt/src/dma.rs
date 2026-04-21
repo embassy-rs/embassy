@@ -7,8 +7,7 @@ use core::task::{Context, Poll};
 
 use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
-use pac::dma0::channel::cfg::Periphreqen;
-use pac::dma0::channel::xfercfg::{Dstinc, Srcinc, Width};
+use pac::dma::vals::{Dstinc, Srcinc, Width};
 
 use crate::clocks::enable_and_reset;
 use crate::interrupt::InterruptExt;
@@ -21,47 +20,51 @@ pub(crate) const MAX_CHUNK_SIZE: usize = 1024;
 #[cfg(feature = "rt")]
 #[interrupt]
 fn DMA0() {
-    let reg = unsafe { crate::pac::Dma0::steal() };
+    let reg = crate::pac::DMA0;
 
-    if reg.intstat().read().activeerrint().bit() {
-        let err = reg.errint0().read().bits();
+    if reg.intstat().read().activeerrint() {
+        let err = reg.errint0().read().0;
 
         for channel in BitIter(err) {
             error!("DMA error interrupt on channel {}!", channel);
-            reg.errint0().write(|w| unsafe { w.err().bits(1 << channel) });
+            reg.errint0().write(|w| w.set_channel(channel as usize, true));
             CHANNEL_WAKERS[channel as usize].wake();
         }
     }
 
-    if reg.intstat().read().activeint().bit() {
-        let ia = reg.inta0().read().bits();
+    if reg.intstat().read().activeint() {
+        let ia = reg.inta0().read().0;
 
         for channel in BitIter(ia) {
-            reg.inta0().write(|w| unsafe { w.ia().bits(1 << channel) });
+            reg.inta0().write(|w| w.set_channel(channel as usize, true));
             CHANNEL_WAKERS[channel as usize].wake();
         }
     }
 }
 
 /// Initialize DMA controllers (DMA0 only, for now)
+///
+/// # Safety
+///
+/// Must be called exactly once during system initialization.
 pub(crate) unsafe fn init() {
-    let sysctl0 = crate::pac::Sysctl0::steal();
-    let dmactl0 = crate::pac::Dma0::steal();
+    let sysctl0 = crate::pac::SYSCTL0;
+    let dmactl0 = crate::pac::DMA0;
 
     enable_and_reset::<DMA0>();
 
     interrupt::DMA0.disable();
     interrupt::DMA0.set_priority(interrupt::Priority::P3);
 
-    dmactl0.ctrl().modify(|_, w| w.enable().set_bit());
+    dmactl0.ctrl().modify(|w| w.set_enable(true));
 
     // Set channel descriptor SRAM base address
     // Descriptor base must be 1K aligned
     let descriptor_base = core::ptr::addr_of!(DESCRIPTORS.descs) as u32;
-    dmactl0.srambase().write(|w| w.bits(descriptor_base));
+    dmactl0.srambase().write(|w| w.set_offset(descriptor_base));
 
     // Ensure AHB priority it highest (M4 == DMAC0)
-    sysctl0.ahbmatrixprior().modify(|_, w| w.m4().bits(0));
+    sysctl0.ahbmatrixprior().modify(|w| w.set_m4(0));
 
     interrupt::DMA0.unpend();
     interrupt::DMA0.enable();
@@ -69,7 +72,9 @@ pub(crate) unsafe fn init() {
 
 /// DMA read.
 ///
-/// SAFETY: Slice must point to a valid location reachable by DMA.
+/// # Safety
+///
+/// Slice must point to a valid location reachable by DMA.
 pub unsafe fn read<'a, C: Channel, W: Word>(ch: Peri<'a, C>, from: *const W, to: *mut [W]) -> Transfer<'a, C> {
     let count = (to.len().div_ceil(W::size() as usize) - 1) as isize;
 
@@ -87,7 +92,9 @@ pub unsafe fn read<'a, C: Channel, W: Word>(ch: Peri<'a, C>, from: *const W, to:
 
 /// DMA write.
 ///
-/// SAFETY: Slice must point to a valid location reachable by DMA.
+/// # Safety
+///
+/// Slice must point to a valid location reachable by DMA.
 pub unsafe fn write<'a, C: Channel, W: Word>(ch: Peri<'a, C>, from: *const [W], to: *mut W) -> Transfer<'a, C> {
     let count = (from.len().div_ceil(W::size() as usize) - 1) as isize;
 
@@ -105,7 +112,9 @@ pub unsafe fn write<'a, C: Channel, W: Word>(ch: Peri<'a, C>, from: *const [W], 
 
 /// DMA copy between slices.
 ///
-/// SAFETY: Slices must point to locations reachable by DMA.
+/// # Safety
+///
+/// Slices must point to locations reachable by DMA.
 pub unsafe fn copy<'a, C: Channel, W: Word>(ch: Peri<'a, C>, from: &[W], to: &mut [W]) -> Transfer<'a, C> {
     let from_len = from.len();
     let to_len = to.len();
@@ -125,6 +134,7 @@ pub unsafe fn copy<'a, C: Channel, W: Word>(ch: Peri<'a, C>, from: &[W], to: &mu
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn copy_inner<'a, C: Channel>(
     ch: Peri<'a, C>,
     from: *const u32,
@@ -144,53 +154,39 @@ fn copy_inner<'a, C: Channel>(
 
     compiler_fence(Ordering::SeqCst);
 
-    p.errint0().write(|w| unsafe { w.err().bits(1 << ch.number()) });
-    p.inta0().write(|w| unsafe { w.ia().bits(1 << ch.number()) });
+    p.errint0().write(|w| w.set_channel(ch.number() as usize, true));
+    p.inta0().write(|w| w.set_channel(ch.number() as usize, true));
 
-    p.channel(ch.number().into()).cfg().write(|w| {
-        unsafe { w.chpriority().bits(0) }
-            .periphreqen()
-            .variant(match periph {
-                false => Periphreqen::Disabled,
-                true => Periphreqen::Enabled,
-            })
-            .hwtrigen()
-            .clear_bit()
+    p.channel(ch.number() as usize).cfg().write(|w| {
+        w.set_chpriority(0);
+        w.set_periphreqen(periph);
+        w.set_hwtrigen(false);
     });
 
-    p.intenset0().write(|w| unsafe { w.inten().bits(1 << ch.number()) });
+    p.intenset0().write(|w| w.set_channel(ch.number() as usize, true));
 
-    p.channel(ch.number().into()).xfercfg().write(|w| {
-        unsafe { w.xfercount().bits(count as u16) }
-            .cfgvalid()
-            .set_bit()
-            .clrtrig()
-            .set_bit()
-            .reload()
-            .clear_bit()
-            .setinta()
-            .set_bit()
-            .width()
-            .variant(width)
-            .srcinc()
-            .variant(match incr_read {
-                false => Srcinc::NoIncrement,
-                true => Srcinc::WidthX1,
-                // REVISIT: what about WidthX2 and WidthX4?
-            })
-            .dstinc()
-            .variant(match incr_write {
-                false => Dstinc::NoIncrement,
-                true => Dstinc::WidthX1,
-                // REVISIT: what about WidthX2 and WidthX4?
-            })
+    p.channel(ch.number() as usize).xfercfg().write(|w| {
+        w.set_xfercount(count as u16);
+        w.set_cfgvalid(true);
+        w.set_clrtrig(true);
+        w.set_reload(false);
+        w.set_setinta(true);
+        w.set_width(width);
+        w.set_srcinc(match incr_read {
+            false => Srcinc::NO_INCREMENT,
+            true => Srcinc::WIDTH_X_1,
+            // REVISIT: what about WidthX2 and WidthX4?
+        });
+        w.set_dstinc(match incr_write {
+            false => Dstinc::NO_INCREMENT,
+            true => Dstinc::WIDTH_X_1,
+            // REVISIT: what about WidthX2 and WidthX4?
+        });
     });
 
-    p.enableset0().write(|w| unsafe { w.ena().bits(1 << ch.number()) });
+    p.enableset0().write(|w| w.set_channel(ch.number() as usize, true));
 
-    p.channel(ch.number().into())
-        .xfercfg()
-        .modify(|_, w| w.swtrig().set_bit());
+    p.channel(ch.number() as usize).xfercfg().modify(|w| w.set_swtrig(true));
 
     compiler_fence(Ordering::SeqCst);
 
@@ -211,28 +207,21 @@ impl<'a, C: Channel> Transfer<'a, C> {
     pub(crate) fn abort(&mut self) -> usize {
         let p = self.channel.regs();
 
-        p.abort0().write(|w| w.channel(self.channel.number()).set_bit());
-        while p.busy0().read().bsy().bits() & (1 << self.channel.number()) != 0 {}
+        p.abort0()
+            .write(|w| w.set_channel(self.channel.number() as usize, true));
+        while p.busy0().read().channel(self.channel.number() as usize) {}
 
         p.enableclr0()
-            .write(|w| unsafe { w.clr().bits(1 << self.channel.number()) });
+            .write(|w| w.set_channel(self.channel.number() as usize, true));
 
         let width: u8 = p
-            .channel(self.channel.number().into())
+            .channel(self.channel.number() as usize)
             .xfercfg()
             .read()
             .width()
-            .variant()
-            .unwrap()
             .into();
 
-        let count = p
-            .channel(self.channel.number().into())
-            .xfercfg()
-            .read()
-            .xfercount()
-            .bits()
-            + 1;
+        let count = p.channel(self.channel.number() as usize).xfercfg().read().xfercount() + 1;
 
         usize::from(count) * usize::from(width)
     }
@@ -253,7 +242,13 @@ impl<'a, C: Channel> Future for Transfer<'a, C> {
         // wake will deregister the waker.
         CHANNEL_WAKERS[self.channel.number() as usize].register(cx.waker());
 
-        if self.channel.regs().active0().read().act().bits() & (1 << self.channel.number()) == 0 {
+        if !self
+            .channel
+            .regs()
+            .active0()
+            .read()
+            .channel(self.channel.number() as usize)
+        {
             Poll::Ready(())
         } else {
             Poll::Pending
@@ -306,8 +301,8 @@ pub trait Channel: PeripheralType + Sealed + Into<AnyChannel> + Sized + 'static 
     fn number(&self) -> u8;
 
     /// Channel registry block.
-    fn regs(&self) -> &'static pac::dma0::RegisterBlock {
-        unsafe { &*crate::pac::Dma0::ptr() }
+    fn regs(&self) -> pac::dma::Dma {
+        crate::pac::DMA0
     }
 }
 
@@ -324,7 +319,7 @@ pub trait Word: Sealed {
 impl Sealed for u8 {}
 impl Word for u8 {
     fn width() -> Width {
-        Width::Bit8
+        Width::BIT_8
     }
 
     fn size() -> isize {
@@ -335,7 +330,7 @@ impl Word for u8 {
 impl Sealed for u16 {}
 impl Word for u16 {
     fn width() -> Width {
-        Width::Bit16
+        Width::BIT_16
     }
 
     fn size() -> isize {
@@ -346,7 +341,7 @@ impl Word for u16 {
 impl Sealed for u32 {}
 impl Word for u32 {
     fn width() -> Width {
-        Width::Bit32
+        Width::BIT_32
     }
 
     fn size() -> isize {

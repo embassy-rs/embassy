@@ -9,6 +9,10 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::clocks::{SysconPeripheral, enable_and_reset};
 use crate::interrupt::typelevel::Interrupt;
+use crate::pac::trng::vals::{
+    IntCtrlEntVal, IntCtrlFrqCtFail, IntCtrlHwErr, IntMaskEntVal, IntMaskFrqCtFail, IntMaskHwErr, IntStatusEntVal,
+    IntStatusFrqCtFail, IntStatusHwErr,
+};
 use crate::{Peri, PeripheralType, interrupt, peripherals};
 
 static RNG_WAKER: AtomicWaker = AtomicWaker::new();
@@ -37,17 +41,14 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let regs = T::info().regs;
         let int_status = regs.int_status().read();
 
-        if int_status.ent_val().bit_is_set()
-            || int_status.hw_err().bit_is_set()
-            || int_status.frq_ct_fail().bit_is_set()
+        if int_status.ent_val() == IntStatusEntVal::ENT_VAL_1
+            || int_status.hw_err() == IntStatusHwErr::HW_ERR_1
+            || int_status.frq_ct_fail() == IntStatusFrqCtFail::FRQ_CT_FAIL_1
         {
-            regs.int_ctrl().modify(|_, w| {
-                w.ent_val()
-                    .ent_val_0()
-                    .hw_err()
-                    .hw_err_0()
-                    .frq_ct_fail()
-                    .frq_ct_fail_0()
+            regs.int_ctrl().modify(|w| {
+                w.set_ent_val(IntCtrlEntVal::ENT_VAL_0);
+                w.set_hw_err(IntCtrlHwErr::HW_ERR_0);
+                w.set_frq_ct_fail(IntCtrlFrqCtFail::FRQ_CT_FAIL_0);
             });
             RNG_WAKER.wake();
         }
@@ -82,7 +83,10 @@ impl<'d> Rng<'d> {
 
     /// Reset the RNG.
     pub fn reset(&mut self) {
-        self.info.regs.mctl().write(|w| w.rst_def().set_bit().prgm().set_bit());
+        self.info.regs.mctl().write(|w| {
+            w.set_rst_def(true);
+            w.set_prgm(true);
+        });
     }
 
     /// Fill the given slice with random values.
@@ -103,7 +107,7 @@ impl<'d> Rng<'d> {
             // Check if already ready.
             // TODO: Is this necessary? Could we just check once after
             // the waker has been registered?
-            if self.info.regs.int_status().read().ent_val().bit_is_set() {
+            if self.info.regs.int_status().read().ent_val() == IntStatusEntVal::ENT_VAL_1 {
                 return Poll::Ready(Ok(()));
             }
 
@@ -114,11 +118,11 @@ impl<'d> Rng<'d> {
             let mctl = self.info.regs.mctl().read();
 
             // Check again if interrupt fired
-            if mctl.ent_val().bit_is_set() {
+            if mctl.ent_val() {
                 Poll::Ready(Ok(()))
-            } else if mctl.err().bit_is_set() {
+            } else if mctl.err() {
                 Poll::Ready(Err(Error::HwError))
-            } else if mctl.fct_fail().bit_is_set() {
+            } else if mctl.fct_fail() {
                 Poll::Ready(Err(Error::FreqCountFail))
             } else {
                 Poll::Pending
@@ -128,17 +132,17 @@ impl<'d> Rng<'d> {
 
         let bits = self.info.regs.mctl().read();
 
-        if bits.ent_val().bit_is_set() {
+        if bits.ent_val() {
             let mut entropy = [0; 16];
 
             for (i, item) in entropy.iter_mut().enumerate() {
-                *item = self.info.regs.ent(i).read().bits();
+                *item = self.info.regs.ent(i).read().ent();
             }
 
             // Read MCTL after reading ENT15
             let _ = self.info.regs.mctl().read();
 
-            if entropy.iter().any(|e| *e == 0) {
+            if entropy.contains(&0) {
                 return Err(Error::SeedError);
             }
 
@@ -155,34 +159,25 @@ impl<'d> Rng<'d> {
 
     fn mask_interrupts(&mut self) {
         self.info.regs.int_mask().write(|w| {
-            w.ent_val()
-                .ent_val_0()
-                .hw_err()
-                .hw_err_0()
-                .frq_ct_fail()
-                .frq_ct_fail_0()
+            w.set_ent_val(IntMaskEntVal::ENT_VAL_0);
+            w.set_hw_err(IntMaskHwErr::HW_ERR_0);
+            w.set_frq_ct_fail(IntMaskFrqCtFail::FRQ_CT_FAIL_0);
         });
     }
 
     fn unmask_interrupts(&mut self) {
-        self.info.regs.int_mask().modify(|_, w| {
-            w.ent_val()
-                .ent_val_1()
-                .hw_err()
-                .hw_err_1()
-                .frq_ct_fail()
-                .frq_ct_fail_1()
+        self.info.regs.int_mask().modify(|w| {
+            w.set_ent_val(IntMaskEntVal::ENT_VAL_1);
+            w.set_hw_err(IntMaskHwErr::HW_ERR_1);
+            w.set_frq_ct_fail(IntMaskFrqCtFail::FRQ_CT_FAIL_1);
         });
     }
 
     fn enable_interrupts(&mut self) {
         self.info.regs.int_ctrl().write(|w| {
-            w.ent_val()
-                .ent_val_1()
-                .hw_err()
-                .hw_err_1()
-                .frq_ct_fail()
-                .frq_ct_fail_1()
+            w.set_ent_val(IntCtrlEntVal::ENT_VAL_1);
+            w.set_hw_err(IntCtrlHwErr::HW_ERR_1);
+            w.set_frq_ct_fail(IntCtrlFrqCtFail::FRQ_CT_FAIL_1);
         });
     }
 
@@ -190,15 +185,15 @@ impl<'d> Rng<'d> {
         self.mask_interrupts();
 
         // Switch TRNG to programming mode
-        self.info.regs.mctl().modify(|_, w| w.prgm().set_bit());
+        self.info.regs.mctl().modify(|w| w.set_prgm(true));
 
         self.enable_interrupts();
 
         // Switch TRNG to Run Mode
-        self.info
-            .regs
-            .mctl()
-            .modify(|_, w| w.trng_acc().set_bit().prgm().clear_bit());
+        self.info.regs.mctl().modify(|w| {
+            w.set_trng_acc(true);
+            w.set_prgm(false);
+        });
     }
 
     /// Generate a random u32
@@ -278,7 +273,7 @@ impl<'d> rand_core_10::TryRng for Rng<'d> {
 impl<'d> rand_core_10::TryCryptoRng for Rng<'d> {}
 
 struct Info {
-    regs: crate::pac::Trng,
+    regs: crate::pac::trng::Trng,
 }
 
 trait SealedInstance {
@@ -298,9 +293,6 @@ impl Instance for peripherals::RNG {
 
 impl SealedInstance for peripherals::RNG {
     fn info() -> Info {
-        // SAFETY: safe from single executor
-        Info {
-            regs: unsafe { crate::pac::Trng::steal() },
-        }
+        Info { regs: crate::pac::TRNG }
     }
 }
