@@ -17,11 +17,11 @@
 //! | `gtzc_wba`  | WBA           | Full   | Yes   | Yes  | No    |
 //! | `gtzc_v1`   | U5 / H5       | Full   | Yes   | Yes  | Yes   |
 //! | `gtzc_h503` | H503          | PrivOnly| Yes  | No   | BKPSRAM|
-//! | `gtzc_l5`   | L5            | Full   | Yes   | Yes  | No    |
 //!
 //! # Usage
 //!
-//! All GTZC configuration must be performed from the Secure world. After setup, call
+//! All GTZC configuration must be performed from the Secure world. **Enable the GTZC
+//! clock first** via [`enable_clock()`], then configure MPCBB/TZIC, and finally call
 //! [`lock()`] to prevent Non-Secure code from modifying the configuration.
 //!
 //! MPCBB and TZIC instances are accessed via chip-specific PAC constants
@@ -30,6 +30,9 @@
 //!
 //! ```no_run
 //! use embassy_stm32::{gtzc, pac};
+//!
+//! // Enable GTZC clock before any register access.
+//! unsafe { gtzc::enable_clock(); }
 //!
 //! // Configure SRAM1 blocks as Non-Secure (wba or v1)
 //! let mpcbb1 = unsafe { gtzc::Mpcbb::new(pac::GTZC_MPCBB1) };
@@ -47,6 +50,36 @@
 use crate::pac;
 
 // ────────────────────────────────────────────────────────────────────────────
+// Clock enable
+// ────────────────────────────────────────────────────────────────────────────
+
+/// Enable the GTZC peripheral clock.
+///
+/// Must be called before accessing any GTZC register (TZSC, MPCBB, TZIC).
+/// Failing to enable the clock causes hard faults on GTZC register reads/writes.
+///
+/// # Safety
+/// Must be called from the Secure world.
+// WBA and U5 use `gtzc1en`; H5 (rcc_h5) names the same bit `tzsc1en`.
+// H503 (rcc_h50) has no software clock gate for GTZC — always-on.
+#[cfg(any(gtzc_wba, all(gtzc_v1, not(stm32h5))))]
+pub unsafe fn enable_clock() {
+    pac::RCC.ahb1enr().modify(|r| r.set_gtzc1en(true));
+}
+
+/// Enable the GTZC peripheral clock.
+///
+/// Must be called before accessing any GTZC register (TZSC, MPCBB, TZIC).
+/// Failing to enable the clock causes hard faults on GTZC register reads/writes.
+///
+/// # Safety
+/// Must be called from the Secure world.
+#[cfg(all(gtzc_v1, stm32h5))]
+pub unsafe fn enable_clock() {
+    pac::RCC.ahb1enr().modify(|r| r.set_tzsc1en(true));
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // MPCBB — Memory Protection Controller Block-Based
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -54,6 +87,8 @@ use crate::pac;
 ///
 /// Controls security and privilege attributes of individual 512-byte SRAM blocks.
 /// Each `seccfgr` / `privcfgr` register covers 32 contiguous blocks (= 16 KiB).
+/// Every 32 blocks form one **superblock** that can be independently locked via
+/// [`lock_superblock`].
 ///
 /// Obtain a wrapper via [`Mpcbb::new`] with the chip-specific PAC constant for
 /// the desired SRAM, e.g., `pac::GTZC_MPCBB1`, `pac::GTZC_MPCBB2`, etc.
@@ -87,6 +122,69 @@ impl Mpcbb {
     #[inline]
     pub fn is_locked(&self) -> bool {
         self.inner.cr().read().glock()
+    }
+
+    /// Lock a single superblock (32 blocks = 16 KiB).
+    ///
+    /// `superblock` is a 0-based superblock index within this MPCBB. Each call locks
+    /// one bit in the CFGLOCK register; the lock is cleared only by hardware reset.
+    ///
+    /// Note: each bit in CFGLOCK corresponds to one 16 KiB superblock. On WBA, the
+    /// CFGLOCK register holds all superblock lock bits as a packed bitmask.
+    #[inline]
+    pub fn lock_superblock(&self, superblock: usize) {
+        self.inner
+            .cfglock()
+            .modify(|r| r.set_splck(r.splck() | (1u32 << superblock)));
+    }
+
+    /// Lock the superblocks indicated by `mask`.
+    ///
+    /// Each bit `n` in `mask` corresponds to superblock `n`. Bits already set are
+    /// unaffected (lock is one-way).
+    #[inline]
+    pub fn lock_superblocks(&self, mask: u32) {
+        self.inner.cfglock().modify(|r| r.set_splck(r.splck() | mask));
+    }
+
+    /// Returns the current superblock lock bitmask from CFGLOCK.
+    #[inline]
+    pub fn superblock_lock_mask(&self) -> u32 {
+        self.inner.cfglock().read().splck()
+    }
+
+    /// Configure the Secure Read/Write Illegal Access Disable (SRWILADIS) bit.
+    ///
+    /// When `true`, illegal accesses **from the Secure world** to Secure MPCBB blocks
+    /// do **not** generate a TZIC interrupt or flag. This is useful to suppress
+    /// spurious Secure-world self-access violations during initialization.
+    ///
+    /// Default after reset: `false` (all illegal accesses generate TZIC events).
+    #[inline]
+    pub fn set_srwiladis(&self, disabled: bool) {
+        self.inner.cr().modify(|r| r.set_srwiladis(disabled));
+    }
+
+    /// Returns the current SRWILADIS setting.
+    #[inline]
+    pub fn srwiladis(&self) -> bool {
+        self.inner.cr().read().srwiladis()
+    }
+
+    /// Configure the Inverted Security State (INVSECSTATE) bit.
+    ///
+    /// When `true`, the security polarity of all blocks in this MPCBB is inverted:
+    /// a `seccfgr` bit of `0` means Secure, and `1` means Non-Secure. This is
+    /// an advanced option that is rarely needed; leave `false` for normal operation.
+    #[inline]
+    pub fn set_invsecstate(&self, inverted: bool) {
+        self.inner.cr().modify(|r| r.set_invsecstate(inverted));
+    }
+
+    /// Returns the current INVSECSTATE setting.
+    #[inline]
+    pub fn invsecstate(&self) -> bool {
+        self.inner.cr().read().invsecstate()
     }
 
     /// Set the security attribute of a single 512-byte block.
@@ -156,8 +254,9 @@ impl Mpcbb {
     ///
     /// `n_regs` is the number of 32-block registers that cover this SRAM.
     /// Calculate as `sram_size_bytes.div_ceil(16 * 1024)`. For example:
-    /// - 448 KiB SRAM (WBA65 SRAM1) → `n_regs = 14`
-    /// - 64 KiB SRAM (WBA65 SRAM2) → `n_regs = 4`
+    /// - 448 KiB SRAM (WBA65 SRAM1) → `n_regs = 28`
+    /// - 64 KiB SRAM (WBA65 SRAM2)  → `n_regs = 4`
+    /// - 16 KiB SRAM (WBA65 SRAM6)  → `n_regs = 1`
     pub fn set_all_secure(&self, n_regs: usize, secure: bool) {
         let bits = if secure { 0xFFFF_FFFF } else { 0 };
         for n in 0..n_regs {
