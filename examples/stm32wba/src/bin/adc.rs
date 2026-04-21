@@ -20,17 +20,17 @@ async fn main(_spawner: embassy_executor::Spawner) {
     let mut adc4 = Adc::new_adc4(p.ADC4);
     let mut adc4_pin1 = p.PA0; // A4
     let mut adc4_pin2 = p.PA1; // A5
-    adc4.set_resolution_adc4(adc4::Resolution::BITS12);
+    adc4.set_resolution_adc4(adc4::Resolution::Bits12);
     adc4.set_averaging_adc4(adc4::Averaging::Samples256);
 
-    let max4 = adc4::resolution_to_max_count(adc4::Resolution::BITS12);
+    let max4 = adc4::resolution_to_max_count(adc4::Resolution::Bits12);
 
     // **** ADC4 blocking read ****
-    let raw: u16 = adc4.blocking_read(&mut adc4_pin1, adc4::SampleTime::CYCLES1_5);
+    let raw: u16 = adc4.blocking_read(&mut adc4_pin1, adc4::SampleTime::Cycles15);
     let volt: f32 = 3.0 * raw as f32 / max4 as f32;
     info!("Read adc4 pin 1 {}", volt);
 
-    let raw: u16 = adc4.blocking_read(&mut adc4_pin2, adc4::SampleTime::CYCLES1_5);
+    let raw: u16 = adc4.blocking_read(&mut adc4_pin2, adc4::SampleTime::Cycles15);
     let volt: f32 = 3.3 * raw as f32 / max4 as f32;
     info!("Read adc4 pin 2 {}", volt);
 
@@ -44,10 +44,11 @@ async fn main(_spawner: embassy_executor::Spawner) {
         p.GPDMA1_CH1.reborrow(),
         Irqs,
         [
-            (&mut degraded42, SampleTime::CYCLES12_5),
-            (&mut degraded41, SampleTime::CYCLES12_5),
+            (&mut degraded42, SampleTime::Cycles125),
+            (&mut degraded41, SampleTime::Cycles125),
         ]
         .into_iter(),
+        None,
         &mut measurements,
     )
     .await;

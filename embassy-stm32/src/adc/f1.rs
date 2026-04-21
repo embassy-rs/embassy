@@ -1,9 +1,9 @@
-use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::task::Poll;
+
+use stm32_metapac::adc::regs::{Smpr1, Smpr2, Sqr1, Sqr2, Sqr3};
 
 use super::blocking_delay_us;
-use crate::adc::{Adc, AdcChannel, Instance, SampleTime, VrefInt};
+use crate::adc::{Adc, AdcRegs, ConversionMode, DefaultInstance, Instance, SampleTime, VrefInt};
 use crate::interrupt::typelevel::Interrupt;
 use crate::interrupt::{self};
 use crate::time::Hertz;
@@ -19,7 +19,7 @@ pub struct InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+impl<T: DefaultInstance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         if T::regs().sr().read().eoc() {
             T::regs().cr1().modify(|w| w.set_eocie(false)); // End of Convert interrupt disable
@@ -28,15 +28,119 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     }
 }
 
-impl<T: Instance> super::SealedSpecialConverter<VrefInt> for T {
+impl<T: Instance> super::ConverterFor<VrefInt> for T {
     const CHANNEL: u8 = 17;
 }
 
-impl<T: Instance> super::SealedSpecialConverter<super::Temperature> for T {
+impl<T: Instance> super::ConverterFor<super::Temperature> for T {
     const CHANNEL: u8 = 16;
 }
 
-impl<'d, T: Instance> Adc<'d, T> {
+impl AdcRegs for crate::pac::adc::Adc {
+    fn data(&self) -> *mut u16 {
+        crate::pac::adc::Adc::dr(*self).as_ptr() as *mut u16
+    }
+
+    fn enable(&self) {
+        self.cr2().modify(|reg| {
+            reg.set_adon(true);
+        });
+
+        blocking_delay_us(3);
+    }
+
+    fn start(&self) {
+        self.sr().write(|reg| {
+            reg.set_eoc(false);
+        });
+
+        // Begin ADC conversions
+        self.cr2().modify(|reg| {
+            reg.set_swstart(true);
+        });
+    }
+
+    fn stop(&self, _disable: bool) {
+        // Stop ADC
+        self.cr2().modify(|reg| {
+            // Stop ADC
+            reg.set_swstart(false);
+            // Stop ADC
+            reg.set_adon(false);
+            // Stop DMA
+            reg.set_dma(false);
+        });
+
+        self.cr1().modify(|w| {
+            // Disable interrupt for end of conversion
+            w.set_eocie(false);
+        });
+    }
+
+    fn wait_done(&self) -> bool {
+        self.sr().read().eoc()
+    }
+
+    fn configure_dma(&self, conversion_mode: ConversionMode) {
+        // Clear all status flags before configuring DMA.
+        self.sr().modify(|regs| {
+            regs.set_eoc(false);
+            regs.set_strt(false);
+        });
+
+        self.cr1().modify(|w| {
+            // Enable end of conversion interrupt only in repeated mode.
+            w.set_eocie(true);
+            // Scanning conversions of multiple channels.
+            w.set_scan(true);
+            // Disable discontinuous mode.
+            w.set_discen(false);
+        });
+
+        self.cr2().modify(|w| {
+            // Enable DMA mode
+            w.set_dma(!matches!(conversion_mode, ConversionMode::NoDma));
+            // EOC flag is set at the end of each conversion.
+            w.set_cont(false);
+        });
+    }
+
+    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
+        let mut sqr1 = Sqr1::default();
+        let mut sqr2 = Sqr2::default();
+        let mut sqr3 = Sqr3::default();
+
+        let mut smpr1 = Smpr1::default();
+        let mut smpr2 = Smpr2::default();
+
+        // Check the sequence is long enough
+        sqr1.set_l((sequence.len() - 1).try_into().unwrap());
+
+        for (i, ((ch, _), sample_time)) in sequence.enumerate() {
+            match i {
+                0..=5 => sqr1.set_sq(i, ch),
+                6..=11 => sqr2.set_sq(i - 6, ch),
+                12..=15 => sqr3.set_sq(i - 12, ch),
+                _ => unreachable!(),
+            }
+
+            let sample_time = sample_time.into();
+            if ch <= 9 {
+                smpr1.set_smp(ch as _, sample_time);
+            } else {
+                smpr2.set_smp((ch - 10) as _, sample_time);
+            }
+        }
+
+        self.sqr1().write_value(sqr1);
+        self.sqr2().write_value(sqr2);
+        self.sqr3().write_value(sqr3);
+        self.smpr1().write_value(smpr1);
+        self.smpr2().write_value(smpr2);
+    }
+}
+
+impl<'d, T: DefaultInstance> Adc<'d, T> {
     pub fn new(adc: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
         T::regs().cr2().modify(|reg| reg.set_adon(true));
@@ -72,87 +176,28 @@ impl<'d, T: Instance> Adc<'d, T> {
 
     pub fn sample_time_for_us(&self, us: u32) -> SampleTime {
         match us * Self::freq().0 / 1_000_000 {
-            0..=1 => SampleTime::CYCLES1_5,
-            2..=7 => SampleTime::CYCLES7_5,
-            8..=13 => SampleTime::CYCLES13_5,
-            14..=28 => SampleTime::CYCLES28_5,
-            29..=41 => SampleTime::CYCLES41_5,
-            42..=55 => SampleTime::CYCLES55_5,
-            56..=71 => SampleTime::CYCLES71_5,
-            _ => SampleTime::CYCLES239_5,
+            0..=1 => SampleTime::Cycles15,
+            2..=7 => SampleTime::Cycles75,
+            8..=13 => SampleTime::Cycles135,
+            14..=28 => SampleTime::Cycles285,
+            29..=41 => SampleTime::Cycles415,
+            42..=55 => SampleTime::Cycles555,
+            56..=71 => SampleTime::Cycles715,
+            _ => SampleTime::Cycles2395,
         }
     }
 
-    pub fn enable_vref(&self) -> super::VrefInt {
+    pub fn enable_vref(&mut self) -> super::VrefInt {
         T::regs().cr2().modify(|reg| {
             reg.set_tsvrefe(true);
         });
         super::VrefInt {}
     }
 
-    pub fn enable_temperature(&self) -> super::Temperature {
+    pub fn enable_temperature(&mut self) -> super::Temperature {
         T::regs().cr2().modify(|reg| {
             reg.set_tsvrefe(true);
         });
         super::Temperature {}
-    }
-
-    /// Perform a single conversion.
-    async fn convert(&mut self) -> u16 {
-        T::regs().cr2().modify(|reg| {
-            reg.set_adon(true);
-            reg.set_swstart(true);
-        });
-        T::regs().cr1().modify(|w| w.set_eocie(true));
-
-        poll_fn(|cx| {
-            T::state().waker.register(cx.waker());
-
-            if !T::regs().cr2().read().swstart() && T::regs().sr().read().eoc() {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        })
-        .await;
-
-        T::regs().dr().read().0 as u16
-    }
-
-    pub async fn read(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) -> u16 {
-        Self::set_channel_sample_time(channel.channel(), sample_time);
-        T::regs().cr1().modify(|reg| {
-            reg.set_scan(false);
-            reg.set_discen(false);
-        });
-        T::regs().sqr1().modify(|reg| reg.set_l(0));
-
-        T::regs().cr2().modify(|reg| {
-            reg.set_cont(false);
-            reg.set_exttrig(true);
-            reg.set_swstart(false);
-            reg.set_extsel(7); // SWSTART
-        });
-
-        // Configure the channel to sample
-        T::regs().sqr3().write(|reg| reg.set_sq(0, channel.channel()));
-        self.convert().await
-    }
-
-    fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
-        let sample_time = sample_time.into();
-        if ch <= 9 {
-            T::regs().smpr2().modify(|reg| reg.set_smp(ch as _, sample_time));
-        } else {
-            T::regs().smpr1().modify(|reg| reg.set_smp((ch - 10) as _, sample_time));
-        }
-    }
-}
-
-impl<'d, T: Instance> Drop for Adc<'d, T> {
-    fn drop(&mut self) {
-        T::regs().cr2().modify(|reg| reg.set_adon(false));
-
-        rcc::disable::<T>();
     }
 }

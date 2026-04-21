@@ -1,6 +1,6 @@
 [package]
 name = "embassy-rp"
-version = "0.9.0"
+version = "0.10.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Embassy Hardware Abstraction Layer (HAL) for the Raspberry Pi RP2040 or RP235x microcontroller"
@@ -65,6 +65,12 @@ unstable-pac = []
 
 ## Enable the timer for use with `embassy-time` with a 1MHz tick rate.
 time-driver = ["dep:embassy-time-driver", "embassy-time-driver?/tick-hz-1_000_000", "dep:embassy-time-queue-utils"]
+
+## Enable the thread-mode executor.
+executor-thread = ["dep:embassy-executor", "dep:embassy-executor-macros"]
+
+## Enable the interrupt-mode executor.
+executor-interrupt = ["dep:embassy-executor", "dep:embassy-executor-macros"]
 
 ## Enable ROM function cache. This will store the address of a ROM function when first used, improving performance of subsequent calls.
 rom-func-cache = []
@@ -155,14 +161,16 @@ _test = []
 binary-info = ["rt", "dep:rp-binary-info", "rp-binary-info?/binary-info"]
 
 [dependencies]
-embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
-embassy-time-driver = { version = "0.2.1", path = "../embassy-time-driver", optional = true }
-embassy-time-queue-utils = { version = "0.3.0", path = "../embassy-time-queue-utils", optional = true }
-embassy-time = { version = "0.5.0", path = "../embassy-time" }
+embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
+embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", optional = true }
+embassy-time-queue-utils = { version = "0.3.1", path = "../embassy-time-queue-utils", optional = true }
+embassy-time = { version = "0.5.1", path = "../embassy-time" }
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
-embassy-hal-internal = { version = "0.4.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-2"] }
-embassy-embedded-hal = { version = "0.5.0", path = "../embassy-embedded-hal" }
+embassy-hal-internal = { version = "0.5.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-2"] }
+embassy-embedded-hal = { version = "0.6.0", path = "../embassy-embedded-hal" }
 embassy-usb-driver = { version = "0.2.0", path = "../embassy-usb-driver" }
+embassy-executor = { version = "0.10.0", path = "../embassy-executor", optional = true }
+embassy-executor-macros = { version = "0.8.0", path = "../embassy-executor-macros", optional = true }
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
 nb = "1.1.0"
@@ -177,7 +185,7 @@ embedded-storage = { version = "0.3" }
 embedded-storage-async = { version = "0.4.1" }
 fixed = "1.28.0"
 
-rp-pac = { version = "7.0.0" }
+rp-pac = { git = "https://github.com/embassy-rs/rp-pac", rev = "c2e27609b021c444f634673155318977d7f0bdf6" }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
@@ -186,6 +194,7 @@ embedded-hal-nb = { version = "1.0" }
 
 rand-core-06 = { package = "rand_core", version = "0.6" }
 rand-core-09 = { package = "rand_core", version = "0.9" }
+rand-core-10 = { package = "rand_core", version = "0.10" }
 
 pio = { version = "0.3" }
 rp2040-boot2 = "0.3"
@@ -195,5 +204,5 @@ rp-binary-info = { version = "0.1.0", optional = true }
 smart-leds = "0.4.0"
 
 [dev-dependencies]
-embassy-executor = { version = "0.9.0", path = "../embassy-executor", features = ["arch-std", "executor-thread"] }
+embassy-executor = { version = "0.10.0", path = "../embassy-executor", features = ["platform-std", "executor-thread"] }
 static_cell = { version = "2" }

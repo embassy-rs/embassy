@@ -468,9 +468,9 @@ impl<'d, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, SPI, INT, RST> {
                                 // Note: rx_chan.rx_buf() channel don´t accept new request
                                 //       when the tx_chan is full. So these will be handled
                                 //       automaticly.
-                                Either::First(frame) => match self.mac.read_fifo(frame).await {
+                                Either::First(mut frame) => match self.mac.read_fifo(&mut frame).await {
                                     Ok(n) => {
-                                        rx_chan.rx_done(n);
+                                        frame.rx_done(n);
                                     }
                                     Err(e) => match e {
                                         AdinError::PACKET_TOO_BIG => {
@@ -489,10 +489,10 @@ impl<'d, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, SPI, INT, RST> {
                                         }
                                     },
                                 },
-                                Either::Second(frame) => {
+                                Either::Second(mut frame) => {
                                     // Handle frames that needs to transmit to the wire.
-                                    self.mac.write_fifo(frame).await.unwrap();
-                                    tx_chan.tx_done();
+                                    self.mac.write_fifo(&mut frame).await.unwrap();
+                                    frame.tx_done();
                                 }
                             }
                             status1 = Status1(self.mac.read_reg(sr::STATUS1).await.unwrap());
@@ -583,10 +583,10 @@ impl<'d, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, SPI, INT, RST> {
                         self.mac.write_reg(sr::STATUS0, 0xFFF).await.unwrap();
                         self.mac.write_reg(sr::STATUS1, status1_clr.0).await.unwrap();
                     }
-                    Either::Second(packet) => {
+                    Either::Second(mut packet) => {
                         // Handle frames that needs to transmit to the wire.
-                        self.mac.write_fifo(packet).await.unwrap();
-                        tx_chan.tx_done();
+                        self.mac.write_fifo(&mut packet).await.unwrap();
+                        packet.tx_done();
                     }
                 }
             }

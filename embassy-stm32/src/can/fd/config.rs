@@ -299,8 +299,8 @@ pub enum TxBufferMode {
 impl From<TxBufferMode> for crate::pac::can::vals::Tfqm {
     fn from(value: TxBufferMode) -> Self {
         match value {
-            TxBufferMode::Priority => Self::QUEUE,
-            TxBufferMode::Fifo => Self::FIFO,
+            TxBufferMode::Priority => Self::Queue,
+            TxBufferMode::Fifo => Self::Fifo,
         }
     }
 }
@@ -308,8 +308,8 @@ impl From<TxBufferMode> for crate::pac::can::vals::Tfqm {
 impl From<crate::pac::can::vals::Tfqm> for TxBufferMode {
     fn from(value: crate::pac::can::vals::Tfqm) -> Self {
         match value {
-            crate::pac::can::vals::Tfqm::QUEUE => Self::Priority,
-            crate::pac::can::vals::Tfqm::FIFO => Self::Fifo,
+            crate::pac::can::vals::Tfqm::Queue => Self::Priority,
+            crate::pac::can::vals::Tfqm::Fifo => Self::Fifo,
         }
     }
 }

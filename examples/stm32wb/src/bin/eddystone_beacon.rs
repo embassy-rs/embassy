@@ -26,7 +26,7 @@ bind_interrupts!(struct Irqs{
 
 const BLE_GAP_DEVICE_NAME_LENGTH: u8 = 7;
 
-#[embassy_executor::main(executor = "embassy_stm32::Executor", entry = "cortex_m_rt::entry")]
+#[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     /*
         How to make this work:
@@ -57,7 +57,7 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let config = Config::default();
-    let mbox = TlMbox::init(p.IPCC, Irqs, config).await;
+    let mbox = TlMbox::init(p.IPCC, Irqs, config).await.unwrap();
     let mut sys = mbox.sys_subsystem;
     let mut ble = mbox.ble_subsystem;
 

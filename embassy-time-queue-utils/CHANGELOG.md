@@ -8,7 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.3.1 - 2026-04-16
+
 - Fixed an issue where never-ending timers were not correctly removed from the timer queue
+- Both integrated and generic queue implementations are available for use, independent of their respective features.
+- Added `queue_integrated::Queue::schedule_wake_queue_item` to support timer queue item storage outside of embassy executor tasks.
 
 ## 0.3.0 - 2025-08-26
 

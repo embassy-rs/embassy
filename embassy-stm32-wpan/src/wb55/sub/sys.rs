@@ -90,8 +90,7 @@ impl<'a> Sys<'a> {
     }
 
     pub async fn shci_c2_fus_getstate(&mut self) -> Result<ShciFusGetStateErrorCode, ()> {
-        self.write_and_get_response(ShciOpcode::FusStartWirelessStack, &[])
-            .await
+        self.write_and_get_response(ShciOpcode::FusGetState, &[]).await
     }
 
     /// Send a request to CPU2 to start the wireless stack

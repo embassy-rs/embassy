@@ -9,6 +9,7 @@ use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use futures_util::FutureExt;
 
+use crate::exti::low_level::read_pending;
 use crate::gpio::{AnyPin, ExtiPin, Flex, Input, Level, Pin as GpioPin, PinNumber, Pull};
 use crate::interrupt::Interrupt as InterruptEnum;
 use crate::interrupt::typelevel::{Binding, Handler, Interrupt as InterruptType};
@@ -25,17 +26,15 @@ pub mod blocking;
 const EXTI_COUNT: usize = 16;
 static EXTI_WAKERS: [AtomicWaker; EXTI_COUNT] = [const { AtomicWaker::new() }; EXTI_COUNT];
 
-#[cfg(all(exti_w, feature = "_core-cm0p"))]
+#[cfg(any(feature = "_dual-core", exti_w))]
+#[inline(always)]
 fn cpu_regs() -> pac::exti::Cpu {
-    EXTI.cpu(1)
+    use crate::cpu::CoreId;
+    EXTI.cpu(CoreId::current().to_index().into())
 }
 
-#[cfg(all(exti_w, not(feature = "_core-cm0p")))]
-fn cpu_regs() -> pac::exti::Cpu {
-    EXTI.cpu(0)
-}
-
-#[cfg(not(exti_w))]
+#[cfg(not(any(feature = "_dual-core", exti_w)))]
+#[inline(always)]
 fn cpu_regs() -> pac::exti::Exti {
     EXTI
 }
@@ -56,15 +55,8 @@ fn exticr_regs() -> pac::afio::Afio {
 }
 
 unsafe fn on_irq() {
-    cfg_no_rpr_fpr! {
-        let bits = EXTI.pr(0).read().0;
-    }
-    cfg_has_rpr_fpr! {
-        let bits = EXTI.rpr(0).read().0 | EXTI.fpr(0).read().0;
-    }
-
     // We don't handle or change any EXTI lines above 16.
-    let bits = bits & 0x0000FFFF;
+    let bits = read_pending() & 0x0000FFFF;
 
     // Mask all the channels that fired.
     cpu_regs().imr(0).modify(|w| w.0 &= !bits);
@@ -76,9 +68,6 @@ unsafe fn on_irq() {
 
     // Clear pending
     low_level::clear_exti_pending_mask(bits);
-
-    #[cfg(feature = "low-power")]
-    crate::low_power::Executor::on_wakeup_irq_or_event();
 }
 
 struct BitIter(u32);

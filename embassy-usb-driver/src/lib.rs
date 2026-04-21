@@ -4,6 +4,31 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
+pub mod host;
+
+/// Speed of a device or port
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Speed {
+    /// 1.5 Mbit/s
+    Low,
+    /// 12 Mbit/s
+    Full,
+    /// 480 Mbit/s
+    High,
+}
+
+impl Speed {
+    /// Provides the default max_packet_size for a given port speed
+    pub const fn max_packet_size(self) -> u16 {
+        match self {
+            Speed::Low => 8,
+            Speed::Full => 64,
+            Speed::High => 64, // USB 2.0 spec requires 64 for high-speed control EP0
+        }
+    }
+}
+
 /// Direction of USB traffic. Note that in the USB standard the direction is always indicated from
 /// the perspective of the host, which is backward for devices, but the standard directions are used
 /// for consistency.
@@ -222,6 +247,8 @@ pub trait Bus {
 }
 
 /// Endpoint trait, common for OUT and IN.
+/// Endpoint is a buffer on a device that stores rx/tx data.
+/// Endpoint can be thought of as one end of a pipe/channel.
 pub trait Endpoint {
     /// Get the endpoint address
     fn info(&self) -> &EndpointInfo;

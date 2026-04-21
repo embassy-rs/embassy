@@ -109,6 +109,8 @@ where
     }
 
     /// Future that completes when this Signal has been signaled, taking the value out of the signal.
+    ///
+    /// The returned Future is cancel-safe. No value will be lost even if it isn't polled to completion.
     pub fn wait(&self) -> impl Future<Output = T> + '_ {
         poll_fn(move |cx| self.poll_wait(cx))
     }

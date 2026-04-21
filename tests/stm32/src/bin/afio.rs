@@ -49,7 +49,11 @@ bind_interrupts!(struct Irqs {
     DMA2_CHANNEL2 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA2_CH2>;
 });
 
-#[embassy_executor::main]
+#[cfg_attr(
+    feature = "stop",
+    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
+)]
+#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
 async fn main(_spawner: Spawner) {
     let mut p = init();
     info!("Hello World!");
@@ -1147,7 +1151,7 @@ fn afio_registers_set_remap() {
 
 fn set_afio_registers(bool_val: bool, num_val: u8) {
     AFIO.mapr().modify(|w| {
-        w.set_swj_cfg(embassy_stm32::pac::afio::vals::SwjCfg::NO_OP);
+        w.set_swj_cfg(embassy_stm32::pac::afio::vals::SwjCfg::NoOp);
         w.set_can1_remap(num_val);
         w.set_can2_remap(bool_val);
         w.set_eth_remap(bool_val);

@@ -27,7 +27,9 @@ const WIFI_NETWORK: &str = "EmbassyTestWPA2";
 const WIFI_PASSWORD: &str = "V8YxhKt5CdIAJFud";
 
 #[embassy_executor::task]
-async fn wifi_task(runner: cyw43::Runner<'static, SpiBus<Output<'static>, PioSpi<'static, PIO0, 0>>>) -> ! {
+async fn wifi_task(
+    runner: cyw43::Runner<'static, SpiBus<Output<'static>, PioSpi<'static, PIO0, 0>>, cyw43::Cyw43439>,
+) -> ! {
     runner.run().await
 }
 

@@ -1519,7 +1519,7 @@ impl<'d, T: Instance> Pka<'d, T> {
 
                 if !was_rng_enabled {
                     // Configure RNG clock source to HSI (required for PKA)
-                    rcc.ccipr2().modify(|w| w.set_rngsel(Rngsel::HSI));
+                    rcc.ccipr2().modify(|w| w.set_rngsel(Rngsel::Hsi));
 
                     // Enable RNG clock
                     rcc.ahb2enr().modify(|w| w.set_rngen(true));

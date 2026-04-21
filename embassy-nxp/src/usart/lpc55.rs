@@ -696,7 +696,7 @@ impl<'d, M: Mode> Usart<'d, M> {
         // DMA-related settings
         registers.fifocfg().modify(|w| {
             w.set_dmatx(false);
-            w.set_dmatx(false);
+            w.set_dmarx(false);
         });
 
         // Enabling USART
@@ -704,9 +704,13 @@ impl<'d, M: Mode> Usart<'d, M> {
             w.set_enabletx(true);
             w.set_enablerx(true);
         });
-        registers.cfg().modify(|w| w.set_enable(true));
+        registers.cfg().modify(|w| {
+            w.set_enable(true);
+        });
 
-        registers.fifointenset().modify(|w| w.set_rxerr(true));
+        registers.fifointenset().modify(|w| {
+            w.set_rxerr(true);
+        });
 
         // Drain RX FIFO in case it still has some unrelevant data
         while registers.fifostat().read().rxnotempty() {
@@ -887,22 +891,63 @@ macro_rules! impl_usart_instance {
     };
 }
 
+#[cfg(has_usart_txd_pins)]
 pub(crate) trait SealedTxPin<T: Instance>: crate::gpio::Pin {
     fn pin_func(&self) -> PioFunc;
 }
 
+#[cfg(has_usart_rxd_pins)]
 pub(crate) trait SealedRxPin<T: Instance>: crate::gpio::Pin {
     fn pin_func(&self) -> PioFunc;
 }
 
+#[cfg(has_usart_cts_pins)]
+pub(crate) trait SealedCtsPin<T: Instance>: crate::gpio::Pin {
+    // TODO(wt): This needs to be wired up in the usart driver.
+    #[allow(unused)]
+    fn pin_func(&self) -> PioFunc;
+}
+
+#[cfg(has_usart_rts_pins)]
+pub(crate) trait SealedRtsPin<T: Instance>: crate::gpio::Pin {
+    // TODO(wt): This needs to be wired up in the usart driver.
+    #[allow(unused)]
+    fn pin_func(&self) -> PioFunc;
+}
+
+#[cfg(has_usart_sck_pins)]
+pub(crate) trait SealedSckPin<T: Instance>: crate::gpio::Pin {
+    // TODO(wt): This needs to be wired up in the usart driver.
+    #[allow(unused)]
+    fn pin_func(&self) -> PioFunc;
+}
+
 /// Trait for TX pins.
+#[cfg(has_usart_txd_pins)]
 #[allow(private_bounds)]
 pub trait TxPin<T: Instance>: SealedTxPin<T> + crate::gpio::Pin {}
 
 /// Trait for RX pins.
+#[cfg(has_usart_rxd_pins)]
 #[allow(private_bounds)]
 pub trait RxPin<T: Instance>: SealedRxPin<T> + crate::gpio::Pin {}
 
+/// Trait for Cts pins.
+#[cfg(has_usart_cts_pins)]
+#[allow(private_bounds)]
+pub trait CtsPin<T: Instance>: SealedCtsPin<T> + crate::gpio::Pin {}
+
+/// Trait for Rts pins.
+#[cfg(has_usart_rts_pins)]
+#[allow(private_bounds)]
+pub trait RtsPin<T: Instance>: SealedRtsPin<T> + crate::gpio::Pin {}
+
+/// Trait for Sck pins.
+#[cfg(has_usart_sck_pins)]
+#[allow(private_bounds)]
+pub trait SckPin<T: Instance>: SealedSckPin<T> + crate::gpio::Pin {}
+
+#[cfg(has_usart_txd_pins)]
 macro_rules! impl_usart_txd_pin {
     ($pin:ident, $instance:ident, $func: ident) => {
         impl crate::usart::SealedTxPin<crate::peripherals::$instance> for crate::peripherals::$pin {
@@ -916,6 +961,7 @@ macro_rules! impl_usart_txd_pin {
     };
 }
 
+#[cfg(has_usart_rxd_pins)]
 macro_rules! impl_usart_rxd_pin {
     ($pin:ident, $instance:ident, $func: ident) => {
         impl crate::usart::SealedRxPin<crate::peripherals::$instance> for crate::peripherals::$pin {
@@ -926,6 +972,48 @@ macro_rules! impl_usart_rxd_pin {
         }
 
         impl crate::usart::RxPin<crate::peripherals::$instance> for crate::peripherals::$pin {}
+    };
+}
+
+#[cfg(has_usart_cts_pins)]
+macro_rules! impl_usart_cts_pin {
+    ($pin:ident, $instance:ident, $func: ident) => {
+        impl crate::usart::SealedCtsPin<crate::peripherals::$instance> for crate::peripherals::$pin {
+            fn pin_func(&self) -> crate::pac::iocon::vals::PioFunc {
+                use crate::pac::iocon::vals::PioFunc;
+                PioFunc::$func
+            }
+        }
+
+        impl crate::usart::CtsPin<crate::peripherals::$instance> for crate::peripherals::$pin {}
+    };
+}
+
+#[cfg(has_usart_rts_pins)]
+macro_rules! impl_usart_rts_pin {
+    ($pin:ident, $instance:ident, $func: ident) => {
+        impl crate::usart::SealedRtsPin<crate::peripherals::$instance> for crate::peripherals::$pin {
+            fn pin_func(&self) -> crate::pac::iocon::vals::PioFunc {
+                use crate::pac::iocon::vals::PioFunc;
+                PioFunc::$func
+            }
+        }
+
+        impl crate::usart::RtsPin<crate::peripherals::$instance> for crate::peripherals::$pin {}
+    };
+}
+
+#[cfg(has_usart_sck_pins)]
+macro_rules! impl_usart_sck_pin {
+    ($pin:ident, $instance:ident, $func: ident) => {
+        impl crate::usart::SealedSckPin<crate::peripherals::$instance> for crate::peripherals::$pin {
+            fn pin_func(&self) -> crate::pac::iocon::vals::PioFunc {
+                use crate::pac::iocon::vals::PioFunc;
+                PioFunc::$func
+            }
+        }
+
+        impl crate::usart::SckPin<crate::peripherals::$instance> for crate::peripherals::$pin {}
     };
 }
 

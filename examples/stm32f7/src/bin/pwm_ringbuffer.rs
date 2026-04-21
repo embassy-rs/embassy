@@ -31,18 +31,18 @@ async fn main(_spawner: Spawner) {
             freq: Hertz(8_000_000),
             mode: HseMode::Bypass,
         });
-        config.rcc.pll_src = PllSource::HSE;
+        config.rcc.pll_src = PllSource::Hse;
         config.rcc.pll = Some(Pll {
-            prediv: PllPreDiv::DIV4,
-            mul: PllMul::MUL200,
-            divp: Some(PllPDiv::DIV2), // 8mhz / 4 * 200 / 2 = 200Mhz
-            divq: Some(PllQDiv::DIV4), // 8mhz / 4 * 200 / 4 = 100Mhz
+            prediv: PllPreDiv::Div4,
+            mul: PllMul::Mul200,
+            divp: Some(PllPDiv::Div2), // 8mhz / 4 * 200 / 2 = 200Mhz
+            divq: Some(PllQDiv::Div4), // 8mhz / 4 * 200 / 4 = 100Mhz
             divr: None,
         });
-        config.rcc.ahb_pre = AHBPrescaler::DIV1;
-        config.rcc.apb1_pre = APBPrescaler::DIV4;
-        config.rcc.apb2_pre = APBPrescaler::DIV2;
-        config.rcc.sys = Sysclk::PLL1_P;
+        config.rcc.ahb_pre = AHBPrescaler::Div1;
+        config.rcc.apb1_pre = APBPrescaler::Div4;
+        config.rcc.apb2_pre = APBPrescaler::Div2;
+        config.rcc.sys = Sysclk::Pll1P;
     }
     let p = embassy_stm32::init(config);
 
@@ -59,14 +59,17 @@ async fn main(_spawner: Spawner) {
         Default::default(),
     );
 
-    // Use channel 1 for static PWM at 50%
-    let mut ch1 = pwm.ch1();
-    ch1.enable();
-    ch1.set_duty_cycle_fraction(1, 2);
-    info!("Channel 1 (PE9/D6): Static 50% duty cycle");
+    let max_duty = {
+        // Use channel 1 for static PWM at 50%
+        let mut ch1 = pwm.ch1();
+        ch1.enable();
+        ch1.set_duty_cycle_fraction(1, 2);
+        info!("Channel 1 (PE9/D6): Static 50% duty cycle");
 
-    // Get max duty from channel 1 before converting channel 2
-    let max_duty = ch1.max_duty_cycle();
+        // Get max duty from channel 1 before converting channel 2
+        ch1.max_duty_cycle()
+    };
+
     info!("PWM max duty: {}", max_duty);
 
     // Create a DMA ring buffer for channel 2
@@ -87,7 +90,7 @@ async fn main(_spawner: Spawner) {
     }
 
     // Convert channel 2 to ring-buffered PWM
-    let mut ring_pwm = pwm.ch1().into_ring_buffered_channel(p.DMA2_CH5, dma_buffer, Irqs);
+    let mut ring_pwm = pwm.ch2().into_ring_buffered_channel(p.DMA2_CH5, dma_buffer, Irqs);
 
     info!("Ring buffer capacity: {}", ring_pwm.capacity());
 

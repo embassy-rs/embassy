@@ -122,7 +122,7 @@ struct I2CDropGuard<'d> {
 }
 impl<'d> Drop for I2CDropGuard<'d> {
     fn drop(&mut self) {
-        self.info.rcc.disable_without_stop();
+        self.info.rcc.disable();
     }
 }
 
@@ -221,7 +221,7 @@ impl<'d, M: Mode> I2c<'d, M, Master> {
     }
 
     fn enable_and_init(&mut self, config: Config) {
-        self.info.rcc.enable_and_reset_without_stop();
+        self.info.rcc.enable_and_reset();
         self.init(config);
     }
 }

@@ -79,18 +79,18 @@ async fn main(spawner: Spawner) {
         use embassy_stm32::rcc::*;
         // 80Mhz clock (Source: 8 / SrcDiv: 1 * PllMul 20 / ClkDiv 2)
         // 80MHz highest frequency for flash 0 wait.
-        config.rcc.sys = Sysclk::PLL1_R;
+        config.rcc.sys = Sysclk::Pll1R;
         config.rcc.hse = Some(Hse {
             freq: Hertz::mhz(8),
             mode: HseMode::Oscillator,
         });
         config.rcc.pll = Some(Pll {
-            source: PllSource::HSE,
-            prediv: PllPreDiv::DIV1,
-            mul: PllMul::MUL20,
+            source: PllSource::Hse,
+            prediv: PllPreDiv::Div1,
+            mul: PllMul::Mul20,
             divp: None,
             divq: None,
-            divr: Some(PllRDiv::DIV2), // sysclk 80Mhz clock (8 / 1 * 20 / 2)
+            divr: Some(PllRDiv::Div2), // sysclk 80Mhz clock (8 / 1 * 20 / 2)
         });
         config.rcc.hsi48 = Some(Default::default()); // needed for RNG
     }

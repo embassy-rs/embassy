@@ -17,16 +17,16 @@ async fn main(_spawner: Spawner) {
     info!("Adc oversample test");
 
     let mut config = AdcConfig::default();
-    config.clock = Some(Clock::Async { div: Presc::DIV1 });
-    config.oversampling_ratio = Some(Ovsr::MUL16);
-    config.oversampling_shift = Some(Ovss::NO_SHIFT);
+    config.clock = Some(Clock::Async { div: Presc::Div1 });
+    config.oversampling_ratio = Some(Ovsr::Mul16);
+    config.oversampling_shift = Some(Ovss::NoShift);
     config.oversampling_enable = Some(true);
 
     let mut adc = Adc::new_with_config(p.ADC1, config);
     let mut pin = p.PA1;
 
     loop {
-        let v = adc.blocking_read(&mut pin, SampleTime::CYCLES1_5);
+        let v = adc.blocking_read(&mut pin, SampleTime::Cycles15);
         info!("--> {} ", v); //max 65520 = 0xFFF0
         Timer::after_millis(100).await;
     }

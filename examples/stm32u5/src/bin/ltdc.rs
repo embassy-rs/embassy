@@ -77,15 +77,15 @@ async fn main(spawner: Spawner) {
     };
 
     info!("init ltdc");
-    let mut ltdc_de = Output::new(p.PD6, Level::Low, Speed::High);
     let mut ltdc_disp_ctrl = Output::new(p.PE4, Level::Low, Speed::High);
     let mut ltdc_bl_ctrl = Output::new(p.PE6, Level::Low, Speed::High);
-    let mut ltdc = Ltdc::new_with_pins(
+    let mut ltdc = Ltdc::<_, ltdc::Rgb888>::new_with_pins(
         p.LTDC, // PERIPHERAL
         Irqs,   // IRQS
         p.PD3,  // CLK
         p.PE0,  // HSYNC
         p.PD13, // VSYNC
+        p.PD6,  // DE
         p.PB9,  // B0
         p.PB2,  // B1
         p.PD14, // B2
@@ -112,7 +112,6 @@ async fn main(spawner: Spawner) {
         p.PD12, // R7
     );
     ltdc.init(&ltdc_config);
-    ltdc_de.set_low();
     ltdc_bl_ctrl.set_high();
     ltdc_disp_ctrl.set_high();
 
@@ -329,23 +328,23 @@ mod rcc_setup {
             mode: rcc::HseMode::Oscillator,
         });
         config.rcc.pll1 = Some(rcc::Pll {
-            source: rcc::PllSource::HSE,
-            prediv: rcc::PllPreDiv::DIV1,
-            mul: rcc::PllMul::MUL10,
+            source: rcc::PllSource::Hse,
+            prediv: rcc::PllPreDiv::Div1,
+            mul: rcc::PllMul::Mul10,
             divp: None,
             divq: None,
-            divr: Some(rcc::PllDiv::DIV1),
+            divr: Some(rcc::PllDiv::Div1),
         });
-        config.rcc.sys = rcc::Sysclk::PLL1_R; // 160 Mhz
+        config.rcc.sys = rcc::Sysclk::Pll1R; // 160 Mhz
         config.rcc.pll3 = Some(rcc::Pll {
-            source: rcc::PllSource::HSE,
-            prediv: rcc::PllPreDiv::DIV4, // PLL_M
-            mul: rcc::PllMul::MUL125,     // PLL_N
+            source: rcc::PllSource::Hse,
+            prediv: rcc::PllPreDiv::Div4, // PLL_M
+            mul: rcc::PllMul::Mul125,     // PLL_N
             divp: None,
             divq: None,
-            divr: Some(rcc::PllDiv::DIV20),
+            divr: Some(rcc::PllDiv::Div20),
         });
-        config.rcc.mux.ltdcsel = rcc::mux::Ltdcsel::PLL3_R; // 25 MHz
+        config.rcc.mux.ltdcsel = rcc::mux::Ltdcsel::Pll3R; // 25 MHz
         embassy_stm32::init(config)
     }
 }

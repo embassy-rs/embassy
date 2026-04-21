@@ -10,11 +10,11 @@ use embassy_time::Timer;
 use panic_probe as _;
 use static_cell::StaticCell;
 
-#[embassy_executor::main(executor = "embassy_stm32::Executor", entry = "cortex_m_rt::entry")]
+#[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn async_main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
-    config.rcc.msi = Some(embassy_stm32::rcc::MSIRange::RANGE4M);
-    config.rcc.sys = embassy_stm32::rcc::Sysclk::MSI;
+    config.rcc.msi = Some(embassy_stm32::rcc::MSIRange::Range4m);
+    config.rcc.sys = embassy_stm32::rcc::Sysclk::Msi;
     #[cfg(feature = "defmt-serial")]
     {
         // enable HSI clock
@@ -24,7 +24,7 @@ async fn async_main(_spawner: Spawner) {
         config.enable_debug_during_sleep = false;
         // if we are using defmt-serial on LPUART1, we need to use HSI for the clock
         // so that its registers are preserved during STOP modes.
-        config.rcc.mux.lpuart1sel = embassy_stm32::pac::rcc::vals::Lpuart1sel::HSI;
+        config.rcc.mux.lpuart1sel = embassy_stm32::pac::rcc::vals::Lpuart1sel::Hsi;
     }
     // Initialize STM32WL peripherals (use default config like wio-e5-async example)
     let p = embassy_stm32::init(config);

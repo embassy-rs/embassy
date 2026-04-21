@@ -31,26 +31,26 @@ async fn main(spawner: Spawner) -> ! {
     let mut config = Config::default();
     {
         use embassy_stm32::rcc::*;
-        config.rcc.hsi = Some(HSIPrescaler::DIV1);
+        config.rcc.hsi = Some(HSIPrescaler::Div1);
         config.rcc.csi = true;
         config.rcc.hsi48 = Some(Default::default()); // needed for RNG
         config.rcc.pll1 = Some(Pll {
-            source: PllSource::HSI,
-            prediv: PllPreDiv::DIV4,
-            mul: PllMul::MUL50,
-            divp: Some(PllDiv::DIV2),
+            source: PllSource::Hsi,
+            prediv: PllPreDiv::Div4,
+            mul: PllMul::Mul50,
+            divp: Some(PllDiv::Div2),
             divq: None,
             divr: None,
             divs: None,
             divt: None,
         });
-        config.rcc.sys = Sysclk::PLL1_P; // 400 Mhz
-        config.rcc.ahb_pre = AHBPrescaler::DIV2; // 200 Mhz
-        config.rcc.apb1_pre = APBPrescaler::DIV2; // 100 Mhz
-        config.rcc.apb2_pre = APBPrescaler::DIV2; // 100 Mhz
-        config.rcc.apb4_pre = APBPrescaler::DIV2; // 100 Mhz
-        config.rcc.apb5_pre = APBPrescaler::DIV2; // 100 Mhz
-        config.rcc.voltage_scale = VoltageScale::HIGH;
+        config.rcc.sys = Sysclk::Pll1P; // 400 Mhz
+        config.rcc.ahb_pre = AHBPrescaler::Div2; // 200 Mhz
+        config.rcc.apb1_pre = APBPrescaler::Div2; // 100 Mhz
+        config.rcc.apb2_pre = APBPrescaler::Div2; // 100 Mhz
+        config.rcc.apb4_pre = APBPrescaler::Div2; // 100 Mhz
+        config.rcc.apb5_pre = APBPrescaler::Div2; // 100 Mhz
+        config.rcc.voltage_scale = VoltageScale::High;
     }
     let p = embassy_stm32::init(config);
     info!("Hello World!");

@@ -1,6 +1,6 @@
 // required-features: rng, cordic
 
-// Test Cordic driver, with Q1.31 format, Sin function, at 24 iterations (aka PRECISION = 6), using DMA transfer
+// Test Cordic driver, with Q1.31 format, Sin function, at 24 iterations (aka PRECISION = 6)
 
 #![no_std]
 #![no_main]
@@ -8,8 +8,8 @@
 #[path = "../common.rs"]
 mod common;
 use common::*;
+use dsp_fixedpoint::Q32;
 use embassy_executor::Spawner;
-use embassy_stm32::cordic::utils;
 use embassy_stm32::{cordic, rng};
 use num_traits::Float;
 use {defmt_rtt as _, panic_probe as _};
@@ -19,11 +19,15 @@ use {defmt_rtt as _, panic_probe as _};
 const INPUT_U32_COUNT: usize = 9;
 const INPUT_U8_COUNT: usize = 4 * INPUT_U32_COUNT;
 
-// Assume first calculation needs 2 arguments, the reset needs 1 argument.
-// And all calculation generate 2 results.
+// Assume first calculation needs 2 arguments, the rest needs 1 argument.
+// And all calculations generate 2 results.
 const OUTPUT_LENGTH: usize = (INPUT_U32_COUNT - 1) * 2;
 
-#[embassy_executor::main]
+#[cfg_attr(
+    feature = "stop",
+    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
+)]
+#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
 async fn main(_spawner: Spawner) {
     let dp = init();
 
@@ -41,26 +45,35 @@ async fn main(_spawner: Spawner) {
     defmt::unwrap!(rng.async_fill_bytes(&mut input_buf_u8).await);
 
     // convert every [u8; 4] to a u32, for a Q1.31 value
-    let mut input_q1_31 = unsafe { core::mem::transmute::<[u8; INPUT_U8_COUNT], [u32; INPUT_U32_COUNT]>(input_buf_u8) };
+    let mut input_q1_31 =
+        unsafe { core::mem::transmute::<[u8; INPUT_U8_COUNT], [Q32<31>; INPUT_U32_COUNT]>(input_buf_u8) };
 
     // ARG2 for Sin function should be inside [0, 1], set MSB to 0 of a Q1.31 value, will make sure it's no less than 0.
-    input_q1_31[1] &= !(1u32 << 31);
+    input_q1_31[1] &= Q32::new(!(1u32 << 31) as i32);
 
     //
     // CORDIC calculation
     //
 
-    let mut output_q1_31 = [0u32; OUTPUT_LENGTH];
+    let mut output_q1_31 = [Q32::<31>::new(0); OUTPUT_LENGTH];
 
-    // setup Cordic driver
+    // setup Cordic driver with 2-arg, 2-result config for the initial call
     let mut cordic = cordic::Cordic::new(
         dp.CORDIC,
-        defmt::unwrap!(cordic::Config::new(
+        &defmt::unwrap!(cordic::Config::new(
             cordic::Function::Sin,
             Default::default(),
             Default::default(),
         )),
     );
+
+    let mut cordic_32 = cordic.q1_31(cordic::AccessCount::Two, cordic::AccessCount::Two);
+
+    // calculate first result using blocking mode (2 args: ARG1 + ARG2)
+    let cnt0 = defmt::unwrap!(cordic_32.blocking_calc(&input_q1_31[..2], &mut output_q1_31));
+
+    // switch to 1-arg mode without resetting ARG2
+    cordic_32.set_access_counts(cordic::AccessCount::One, cordic::AccessCount::Two);
 
     #[cfg(feature = "stm32g491re")]
     let (mut write_dma, mut read_dma) = (dp.DMA1_CH4, dp.DMA1_CH5);
@@ -73,20 +86,15 @@ async fn main(_spawner: Spawner) {
     ))]
     let (mut write_dma, mut read_dma) = (dp.GPDMA1_CH0, dp.GPDMA1_CH1);
 
-    // calculate first result using blocking mode
-    let cnt0 = defmt::unwrap!(cordic.blocking_calc_32bit(&input_q1_31[..2], &mut output_q1_31, false, false));
-
-    // calculate rest results using async mode
+    // calculate rest results using async mode (1 arg, reusing ARG2)
     let cnt1 = defmt::unwrap!(
-        cordic
-            .async_calc_32bit(
+        cordic_32
+            .async_calc(
                 write_dma.reborrow(),
                 read_dma.reborrow(),
                 irq,
                 &input_q1_31[2..],
                 &mut output_q1_31[cnt0..],
-                true,
-                false,
             )
             .await
     );
@@ -97,7 +105,7 @@ async fn main(_spawner: Spawner) {
     let mut cordic_result_f64 = [0.0f64; OUTPUT_LENGTH];
 
     for (f64_val, u32_val) in cordic_result_f64.iter_mut().zip(output_q1_31) {
-        *f64_val = utils::q1_31_to_f64(u32_val);
+        *f64_val = u32_val.as_f64();
     }
 
     //
@@ -106,7 +114,7 @@ async fn main(_spawner: Spawner) {
 
     let mut software_result_f64 = [0.0f64; OUTPUT_LENGTH];
 
-    let arg2 = utils::q1_31_to_f64(input_q1_31[1]);
+    let arg2 = input_q1_31[1].as_f64();
 
     for (&arg1, res) in input_q1_31
         .iter()
@@ -114,7 +122,7 @@ async fn main(_spawner: Spawner) {
         .filter_map(|(idx, val)| if idx != 1 { Some(val) } else { None })
         .zip(software_result_f64.chunks_mut(2))
     {
-        let arg1 = utils::q1_31_to_f64(arg1);
+        let arg1 = arg1.as_f64();
 
         let (raw_res1, raw_res2) = (arg1 * core::f64::consts::PI).sin_cos();
         (res[0], res[1]) = (raw_res1 * arg2, raw_res2 * arg2);

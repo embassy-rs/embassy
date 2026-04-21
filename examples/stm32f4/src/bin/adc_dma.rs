@@ -3,7 +3,7 @@
 use cortex_m::singleton;
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::{Adc, AdcChannel, CONTINUOUS, Exten, RingBufferedAdc, SampleTime};
+use embassy_stm32::adc::{Adc, AdcChannel, RingBufferedAdc, SampleTime};
 use embassy_stm32::{Peripherals, bind_interrupts, dma, peripherals};
 use embassy_time::Instant;
 use {defmt_rtt as _, panic_probe as _};
@@ -20,7 +20,7 @@ async fn main(spawner: Spawner) {
 }
 
 #[embassy_executor::task]
-async fn adc_task(p: Peripherals) {
+async fn adc_task(mut p: Peripherals) {
     const ADC_BUF_SIZE: usize = 1024;
     let adc_data: &mut [u16; ADC_BUF_SIZE] = singleton!(ADCDAT : [u16; ADC_BUF_SIZE] = [0u16; ADC_BUF_SIZE]).unwrap();
     let adc_data2: &mut [u16; ADC_BUF_SIZE] = singleton!(ADCDAT2 : [u16; ADC_BUF_SIZE] = [0u16; ADC_BUF_SIZE]).unwrap();
@@ -28,29 +28,27 @@ async fn adc_task(p: Peripherals) {
     let adc = Adc::new_with_config(p.ADC1, Default::default());
     let adc2 = Adc::new_with_config(p.ADC2, Default::default());
 
-    let mut adc: RingBufferedAdc<embassy_stm32::peripherals::ADC1> = adc.into_ring_buffered(
+    let mut adc: RingBufferedAdc<_> = adc.into_ring_buffered(
         p.DMA2_CH0,
         adc_data,
         Irqs,
         [
-            (p.PA0.degrade_adc(), SampleTime::CYCLES112),
-            (p.PA2.degrade_adc(), SampleTime::CYCLES112),
+            (p.PA0.degrade_adc(), SampleTime::Cycles112),
+            (p.PA2.degrade_adc(), SampleTime::Cycles112),
         ]
         .into_iter(),
-        CONTINUOUS,
-        Exten::DISABLED,
+        None,
     );
-    let mut adc2: RingBufferedAdc<embassy_stm32::peripherals::ADC2> = adc2.into_ring_buffered(
+    let mut adc2: RingBufferedAdc<_> = adc2.into_ring_buffered(
         p.DMA2_CH2,
         adc_data2,
         Irqs,
         [
-            (p.PA1.degrade_adc(), SampleTime::CYCLES112),
-            (p.PA3.degrade_adc(), SampleTime::CYCLES112),
+            (p.PA1.degrade_adc(), SampleTime::Cycles112),
+            (p.PA3.degrade_adc(), SampleTime::Cycles112),
         ]
         .into_iter(),
-        CONTINUOUS,
-        Exten::DISABLED,
+        None,
     );
 
     // Note that overrun is a big consideration in this implementation. Whatever task is running the adc.read() calls absolutely must circle back around

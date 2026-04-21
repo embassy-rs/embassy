@@ -41,7 +41,7 @@ async fn run_net(mut runner: embassy_net::Runner<'static, Driver<'static>>) -> !
     runner.run().await
 }
 
-#[embassy_executor::main(executor = "embassy_stm32::Executor", entry = "cortex_m_rt::entry")]
+#[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(spawner: Spawner) {
     /*
         How to make this work:
@@ -72,7 +72,7 @@ async fn main(spawner: Spawner) {
     info!("Hello World!");
 
     let config = Config::default();
-    let mut mbox = TlMbox::init(p.IPCC, Irqs, config).await;
+    let mut mbox = TlMbox::init(p.IPCC, Irqs, config).await.unwrap();
 
     spawner.spawn(run_mm_queue(mbox.mm_subsystem).unwrap());
 

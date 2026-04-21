@@ -15,11 +15,11 @@ async fn main(_spawner: Spawner) {
 
     let config = {
         let mut config = McoConfig::default();
-        config.prescaler = McoPrescaler::DIV1;
+        config.prescaler = McoPrescaler::Div1;
         config
     };
 
-    let _mco = Mco::new(p.MCO, p.PA8, McoSource::HSI, config);
+    let _mco = Mco::new(p.MCO, p.PA8, McoSource::Hsi, config);
 
     let mut led = Output::new(p.PB14, Level::High, Speed::Low);
 

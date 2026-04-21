@@ -8,8 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.7.0 - 2026-03-10
+
 - Reset WPA security before creating secure AP
+- Add `get_rssi()` to `Controller`
+- Implement link state monitoring
+- Always unsubscribe to cyw43 events (fix event leak)
+- Add SDIO support for STM32
+- Allow specifying nvram, get LWB+ working
+- Improve join handling with better error reporting
+- Replace `num_enum` dependency with internal macro
 - Bump bt-hci to 0.8.0.
+- Update to embedded-io 0.7
+- Update embassy-sync to 0.8.0
+- Update embassy-net-driver-channel to 0.4.0
 
 ## 0.6.0 - 2025-11-27
 

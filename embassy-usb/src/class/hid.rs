@@ -5,8 +5,6 @@ use core::ops::Range;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 #[cfg(feature = "usbd-hid")]
-use ssmarshal::serialize;
-#[cfg(feature = "usbd-hid")]
 use usbd_hid::descriptor::AsInputReport;
 
 use crate::control::{InResponse, OutResponse, Recipient, Request, RequestType};
@@ -149,6 +147,7 @@ impl<'d> State<'d> {
 pub struct HidReaderWriter<'d, D: Driver<'d>, const READ_N: usize, const WRITE_N: usize> {
     reader: HidReader<'d, D, READ_N>,
     writer: HidWriter<'d, D, WRITE_N>,
+    interface_number: InterfaceNumber,
 }
 
 fn build<'d, D: Driver<'d>>(
@@ -156,7 +155,7 @@ fn build<'d, D: Driver<'d>>(
     state: &'d mut State<'d>,
     config: Config<'d>,
     with_out_endpoint: bool,
-) -> (Option<D::EndpointOut>, D::EndpointIn, &'d AtomicUsize) {
+) -> (Option<D::EndpointOut>, D::EndpointIn, &'d AtomicUsize, InterfaceNumber) {
     let len = config.report_descriptor.len();
 
     let mut func = builder.function(USB_CLASS_HID, config.hid_subclass as u8, config.hid_boot_protocol as u8);
@@ -205,7 +204,7 @@ fn build<'d, D: Driver<'d>>(
     ));
     builder.handler(control);
 
-    (ep_out, ep_in, &state.out_report_offset)
+    (ep_out, ep_in, &state.out_report_offset, if_num)
 }
 
 impl<'d, D: Driver<'d>, const READ_N: usize, const WRITE_N: usize> HidReaderWriter<'d, D, READ_N, WRITE_N> {
@@ -215,7 +214,7 @@ impl<'d, D: Driver<'d>, const READ_N: usize, const WRITE_N: usize> HidReaderWrit
     /// HID reports, consider using [`HidWriter::new`] instead, which allocates an IN endpoint only.
     ///
     pub fn new(builder: &mut Builder<'d, D>, state: &'d mut State<'d>, config: Config<'d>) -> Self {
-        let (ep_out, ep_in, offset) = build(builder, state, config, true);
+        let (ep_out, ep_in, offset, if_num) = build(builder, state, config, true);
 
         Self {
             reader: HidReader {
@@ -223,6 +222,7 @@ impl<'d, D: Driver<'d>, const READ_N: usize, const WRITE_N: usize> HidReaderWrit
                 offset,
             },
             writer: HidWriter { ep_in },
+            interface_number: if_num,
         }
     }
 
@@ -253,6 +253,11 @@ impl<'d, D: Driver<'d>, const READ_N: usize, const WRITE_N: usize> HidReaderWrit
     /// See [`HidReader::read`].
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, ReadError> {
         self.reader.read(buf).await
+    }
+
+    /// Get the HID's interface number.
+    pub const fn interface_number(&self) -> u8 {
+        self.interface_number.0
     }
 }
 
@@ -304,7 +309,7 @@ impl<'d, D: Driver<'d>, const N: usize> HidWriter<'d, D, N> {
     /// of CPU on the device & bandwidth on the bus. A value of 10 is reasonable for
     /// high performance uses, and a value of 255 is good for best-effort usecases.
     pub fn new(builder: &mut Builder<'d, D>, state: &'d mut State<'d>, config: Config<'d>) -> Self {
-        let (ep_out, ep_in, _offset) = build(builder, state, config, false);
+        let (ep_out, ep_in, _offset, _) = build(builder, state, config, false);
 
         assert!(ep_out.is_none());
 
@@ -320,7 +325,7 @@ impl<'d, D: Driver<'d>, const N: usize> HidWriter<'d, D, N> {
     #[cfg(feature = "usbd-hid")]
     pub async fn write_serialize<IR: AsInputReport>(&mut self, r: &IR) -> Result<(), EndpointError> {
         let mut buf: [u8; N] = [0; N];
-        let Ok(size) = serialize(&mut buf, r) else {
+        let Ok(size) = r.serialize(&mut buf) else {
             return Err(EndpointError::BufferOverflow);
         };
         self.write(&buf[0..size]).await

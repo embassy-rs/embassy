@@ -12,8 +12,8 @@ export CARGO_TARGET_DIR=/ci/cache/target
 export PATH=$CARGO_HOME/bin:$PATH
 mv rust-toolchain-nightly.toml rust-toolchain.toml
 
-cargo install --git https://github.com/embassy-rs/cargo-embassy-devtool --locked --rev 786e8e05ef2de5fc1421a4fcd50e79c5dd2d3e4d
-cargo install --git https://github.com/embassy-rs/docserver --locked --rev 92a9d9e63c539df0b8d84107f9155473e48e723f
+cargo install --git https://github.com/embassy-rs/cargo-embassy-devtool --locked --rev 7d6d61819cb5a54bd6fe7da88359c7949142932a
+cargo install --git https://github.com/embassy-rs/docserver --locked --rev e16c30dcc60a41641fd73bd4ad1a8c4bd57d792d
 
 cargo embassy-devtool doc -o webroot
 

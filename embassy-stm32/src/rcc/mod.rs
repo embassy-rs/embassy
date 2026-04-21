@@ -14,6 +14,9 @@ use critical_section::CriticalSection;
 #[cfg(any(mco, mco1, mco2))]
 pub use mco::*;
 
+#[cfg(dsihost)]
+pub(crate) mod dsi;
+
 #[cfg(crs)]
 mod hsi48;
 #[cfg(crs)]
@@ -35,6 +38,7 @@ mod _version;
 pub use _version::*;
 use stm32_metapac::RCC;
 
+use crate::_generated::RefcountIndex;
 pub use crate::_generated::{Clocks, mux};
 use crate::time::Hertz;
 
@@ -103,7 +107,7 @@ pub(crate) unsafe fn set_freqs(freqs: Clocks) {
 #[cfg(not(feature = "_dual-core"))]
 /// Safety: Reads a mutable global.
 pub(crate) unsafe fn get_freqs() -> &'static Clocks {
-    (*core::ptr::addr_of_mut!(CLOCK_FREQS)).assume_init_ref()
+    (*&raw const CLOCK_FREQS).assume_init_ref()
 }
 
 #[cfg(feature = "_dual-core")]
@@ -126,13 +130,13 @@ pub(crate) unsafe fn get_rcc_config() -> Option<Config> {
 
 #[cfg(all(feature = "low-power", not(feature = "_dual-core")))]
 /// Safety: Sets a mutable global.
-pub(crate) unsafe fn set_rcc_config(config: Option<Config>) {
+unsafe fn set_rcc_config(config: Option<Config>) {
     RCC_CONFIG = config;
 }
 
 #[cfg(all(feature = "low-power", feature = "_dual-core"))]
 /// Safety: Sets a mutable global.
-pub(crate) unsafe fn set_rcc_config(config: Option<Config>) {
+unsafe fn set_rcc_config(config: Option<Config>) {
     RCC_CONFIG_PTR
         .load(core::sync::atomic::Ordering::SeqCst)
         .write(MaybeUninit::new(config));
@@ -145,6 +149,32 @@ pub fn clocks<'a>(_rcc: &'a crate::Peri<'a, crate::peripherals::RCC>) -> &'a Clo
     // The clocks could be modified again by `reinit()`, but reinit
     // (for this reason) requires an exclusive reference to `Peri<RCC>`.
     unsafe { get_freqs() }
+}
+
+#[cfg(feature = "low-power")]
+/// Get the current stop mode
+pub fn get_stop_mode(_cs: CriticalSection) -> Option<StopMode> {
+    // If rcc config is not set, then we're not ready to stop
+    unsafe { get_rcc_config()? };
+
+    // We cannot enter standby because we will lose program state.
+    if unsafe { REFCOUNT_STOP2 == 0 && REFCOUNT_STOP1 == 0 } {
+        Some(StopMode::Stop2)
+    } else if unsafe { REFCOUNT_STOP1 == 0 } {
+        Some(StopMode::Stop1)
+    } else {
+        //trace!("low power: not ready to stop (refcount_stop1: {})", unsafe {
+        //    REFCOUNT_STOP1
+        //});
+        None
+    }
+}
+
+#[cfg(feature = "low-power")]
+#[allow(dead_code)]
+pub(crate) unsafe fn reset_stop_refcount(_cs: CriticalSection) {
+    REFCOUNT_STOP2 = 0;
+    REFCOUNT_STOP1 = 0;
 }
 
 #[cfg(feature = "low-power")]
@@ -195,9 +225,8 @@ pub(crate) struct RccInfo {
     /// Position of the xxxEN bit within the xxxENR register (0..=31).
     enable_bit: u8,
     /// If this peripheral shares the same xxxRSTR bit and xxxEN bit with other peripherals, we
-    /// maintain a refcount in `crate::_generated::REFCOUNTS` at this index. If the bit is not
-    /// shared, this is 0xff (we don't use an `Option` to save one byte of storage).
-    refcount_idx_or_0xff: u8,
+    /// maintain a refcount in `crate::_generated::REFCOUNTS` at this index.
+    refcount_idx: Option<RefcountIndex>,
     /// Stop mode of the peripheral, used to maintain `REFCOUNT_STOP1` and `REFCOUNT_STOP2`.
     #[cfg(feature = "low-power")]
     stop_mode: StopMode,
@@ -219,16 +248,33 @@ pub enum StopMode {
     Standby,
 }
 
+#[cfg(feature = "low-power")]
+impl StopMode {
+    /// Return whether this stop mode is at least another stop mode.
+    pub const fn at_least(&self, other: StopMode) -> bool {
+        match other {
+            Self::Stop1 => true,
+            Self::Stop2 => match *self {
+                Self::Stop2 | Self::Standby => true,
+                _ => false,
+            },
+            Self::Standby => match *self {
+                Self::Standby => true,
+                _ => false,
+            },
+        }
+    }
+}
+
 impl RccInfo {
     /// Safety:
     /// - `reset_offset_and_bit`, if set, must correspond to valid xxxRST bit
     /// - `enable_offset_and_bit` must correspond to valid xxxEN bit
-    /// - `refcount_idx`, if set, must correspond to valid refcount in `_generated::REFCOUNTS`
     /// - `stop_mode` must be valid
     pub(crate) const unsafe fn new(
         reset_offset_and_bit: Option<(u8, u8)>,
         enable_offset_and_bit: (u8, u8),
-        refcount_idx: Option<u8>,
+        refcount_idx: Option<RefcountIndex>,
         #[cfg(feature = "low-power")] stop_mode: StopMode,
     ) -> Self {
         let (reset_offset_or_0xff, reset_bit) = match reset_offset_and_bit {
@@ -236,38 +282,25 @@ impl RccInfo {
             None => (0xff, 0xff),
         };
         let (enable_offset, enable_bit) = enable_offset_and_bit;
-        let refcount_idx_or_0xff = match refcount_idx {
-            Some(idx) => idx,
-            None => 0xff,
-        };
         Self {
             reset_offset_or_0xff,
             reset_bit,
             enable_offset,
             enable_bit,
-            refcount_idx_or_0xff,
+            refcount_idx,
             #[cfg(feature = "low-power")]
             stop_mode,
         }
     }
 
     // TODO: should this be `unsafe`?
-    pub(crate) fn enable_and_reset_with_cs(&self, cs: CriticalSection) {
-        if self.refcount_idx_or_0xff != 0xff {
-            let refcount_idx = self.refcount_idx_or_0xff as usize;
-
-            // Use .get_mut instead of []-operator so that we control how bounds checks happen.
-            // Otherwise, core::fmt will be pulled in here in order to format the integer in the
-            // out-of-bounds error.
-            if let Some(refcount) =
-                unsafe { (*core::ptr::addr_of_mut!(crate::_generated::REFCOUNTS)).get_mut(refcount_idx) }
-            {
-                *refcount += 1;
-                if *refcount > 1 {
-                    return;
-                }
-            } else {
-                panic!("refcount_idx out of bounds: {}", refcount_idx)
+    pub(crate) fn enable_and_reset_with_cs(&self, cs: CriticalSection) -> Result<(), ()> {
+        if let Some(refcount_idx) = self.refcount_idx {
+            let refcount_idx = refcount_idx as usize;
+            let refcount = unsafe { &mut (*&raw mut crate::_generated::REFCOUNTS)[refcount_idx] };
+            *refcount += 1;
+            if *refcount > 1 {
+                return Err(());
             }
         }
 
@@ -297,6 +330,8 @@ impl RccInfo {
         }
 
         self.enable_with_cs(cs);
+
+        Ok(())
     }
 
     // TODO: should this be `unsafe`?
@@ -340,22 +375,13 @@ impl RccInfo {
     }
 
     // TODO: should this be `unsafe`?
-    pub(crate) fn disable_with_cs(&self, _cs: CriticalSection) {
-        if self.refcount_idx_or_0xff != 0xff {
-            let refcount_idx = self.refcount_idx_or_0xff as usize;
-
-            // Use .get_mut instead of []-operator so that we control how bounds checks happen.
-            // Otherwise, core::fmt will be pulled in here in order to format the integer in the
-            // out-of-bounds error.
-            if let Some(refcount) =
-                unsafe { (*core::ptr::addr_of_mut!(crate::_generated::REFCOUNTS)).get_mut(refcount_idx) }
-            {
-                *refcount -= 1;
-                if *refcount > 0 {
-                    return;
-                }
-            } else {
-                panic!("refcount_idx out of bounds: {}", refcount_idx)
+    pub(crate) fn disable_with_cs(&self, _cs: CriticalSection) -> Result<(), ()> {
+        if let Some(refcount_idx) = self.refcount_idx {
+            let refcount_idx = refcount_idx as usize;
+            let refcount = unsafe { &mut (*&raw mut crate::_generated::REFCOUNTS)[refcount_idx] };
+            *refcount -= 1;
+            if *refcount > 0 {
+                return Err(());
             }
         }
 
@@ -376,12 +402,8 @@ impl RccInfo {
             }
             trace!("rcc: disabled 0x{:x}:{}", self.enable_offset, self.enable_bit);
         }
-    }
 
-    #[allow(dead_code)]
-    pub(crate) fn increment_stop_refcount_with_cs(&self, _cs: CriticalSection) {
-        #[cfg(feature = "low-power")]
-        increment_stop_refcount(_cs, self.stop_mode);
+        Ok(())
     }
 
     #[allow(dead_code)]
@@ -394,18 +416,6 @@ impl RccInfo {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn increment_stop_refcount(&self) {
-        #[cfg(feature = "low-power")]
-        critical_section::with(|cs| self.increment_stop_refcount_with_cs(cs))
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn decrement_stop_refcount_with_cs(&self, _cs: CriticalSection) {
-        #[cfg(feature = "low-power")]
-        decrement_stop_refcount(_cs, self.stop_mode);
-    }
-
-    #[allow(dead_code)]
     fn decrement_minimum_stop_refcount_with_cs(&self, _cs: CriticalSection) {
         #[cfg(all(any(stm32wl, stm32wb), feature = "low-power"))]
         match self.stop_mode {
@@ -414,43 +424,24 @@ impl RccInfo {
         }
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn decrement_stop_refcount(&self) {
-        #[cfg(feature = "low-power")]
-        critical_section::with(|cs| self.decrement_stop_refcount_with_cs(cs))
-    }
-
     // TODO: should this be `unsafe`?
     pub(crate) fn enable_and_reset(&self) {
-        critical_section::with(|cs| {
-            self.enable_and_reset_with_cs(cs);
-            self.increment_stop_refcount_with_cs(cs);
-        })
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn enable_and_reset_without_stop(&self) {
-        critical_section::with(|cs| {
-            self.enable_and_reset_with_cs(cs);
+        let _: Result<(), ()> = critical_section::with(|cs| {
+            self.enable_and_reset_with_cs(cs)?;
             self.increment_minimum_stop_refcount_with_cs(cs);
-        })
+
+            Ok(())
+        });
     }
 
     // TODO: should this be `unsafe`?
     pub(crate) fn disable(&self) {
-        critical_section::with(|cs| {
-            self.disable_with_cs(cs);
-            self.decrement_stop_refcount_with_cs(cs);
-        })
-    }
-
-    // TODO: should this be `unsafe`?
-    #[allow(dead_code)]
-    pub(crate) fn disable_without_stop(&self) {
-        critical_section::with(|cs| {
-            self.disable_with_cs(cs);
+        let _: Result<(), ()> = critical_section::with(|cs| {
+            self.disable_with_cs(cs)?;
             self.decrement_minimum_stop_refcount_with_cs(cs);
-        })
+
+            Ok(())
+        });
     }
 
     #[allow(dead_code)]
@@ -553,7 +544,7 @@ pub fn frequency<T: RccPeripheral>() -> Hertz {
 /// Peripheral must not be in use.
 // TODO: should this be `unsafe`?
 pub fn enable_and_reset_with_cs<T: RccPeripheral>(cs: CriticalSection) {
-    T::RCC_INFO.enable_and_reset_with_cs(cs);
+    let _ = T::RCC_INFO.enable_and_reset_with_cs(cs);
 }
 
 /// Enables and clears the reset for peripheral `T`.
@@ -572,7 +563,7 @@ pub fn enable_with_cs<T: RccPeripheral>(cs: CriticalSection) {
 /// Peripheral must not be in use.
 // TODO: should this be `unsafe`?
 pub fn disable_with_cs<T: RccPeripheral>(cs: CriticalSection) {
-    T::RCC_INFO.disable_with_cs(cs);
+    let _ = T::RCC_INFO.disable_with_cs(cs);
 }
 
 /// Enables and resets peripheral `T`.
@@ -583,16 +574,6 @@ pub fn disable_with_cs<T: RccPeripheral>(cs: CriticalSection) {
 // TODO: should this be `unsafe`?
 pub fn enable_and_reset<T: RccPeripheral>() {
     T::RCC_INFO.enable_and_reset();
-}
-
-/// Enables and resets peripheral `T` without incrementing the stop refcount.
-///
-/// # Safety
-///
-/// Peripheral must not be in use.
-// TODO: should this be `unsafe`?
-pub fn enable_and_reset_without_stop<T: RccPeripheral>() {
-    T::RCC_INFO.enable_and_reset_without_stop();
 }
 
 /// Disables peripheral `T`.
@@ -615,7 +596,20 @@ pub fn disable<T: RccPeripheral>() {
 /// This should only be called after `init`.
 #[cfg(not(feature = "_dual-core"))]
 pub fn reinit(config: Config, _rcc: &'_ mut crate::Peri<'_, crate::peripherals::RCC>) {
-    critical_section::with(|cs| init_rcc(cs, config))
+    critical_section::with(|cs| {
+        init_rcc(cs, config);
+
+        // must be after rcc init
+        #[cfg(feature = "_time-driver")]
+        crate::time_driver::init(cs);
+    })
+}
+
+#[cfg(feature = "low-power")]
+#[allow(dead_code)]
+/// Re-initialize the `embassy-stm32` clock configuration with the saved configuration.
+pub(crate) fn reinit_saved(_cs: CriticalSection) {
+    unsafe { init(get_rcc_config().unwrap()) };
 }
 
 pub(crate) fn init_rcc(_cs: CriticalSection, config: Config) {
@@ -629,20 +623,20 @@ pub(crate) fn init_rcc(_cs: CriticalSection, config: Config) {
             #[cfg(time_driver_lptim1)]
             {
                 match config.mux.lptim1sel {
-                    Lptimsel::PCLK1 => {
+                    Lptimsel::Pclk1 => {
                         // set it to LSI
-                        config.mux.lptim1sel = Lptimsel::LSI;
+                        config.mux.lptim1sel = Lptimsel::Lsi;
                         config.ls.lsi = true;
                     }
-                    Lptimsel::LSI => {
+                    Lptimsel::Lsi => {
                         // ok but insure the lsi is enabled
                         config.ls.lsi = true;
                     }
-                    Lptimsel::HSI => {
+                    Lptimsel::Hsi => {
                         // ok but insure the hsi is enabled
                         config.hsi = true;
                     }
-                    Lptimsel::LSE => {
+                    Lptimsel::Lse => {
                         // ok but insure the lse is configured with peripherals_clocked = true!!!
                         if let Some(mut lse_config) = config.ls.lse {
                             lse_config.peripherals_clocked = true;
@@ -712,19 +706,8 @@ pub(crate) fn init_rcc(_cs: CriticalSection, config: Config) {
 
         init(config);
 
-        // must be after rcc init
-        #[cfg(feature = "_time-driver")]
-        crate::time_driver::init(_cs);
-
         #[cfg(feature = "low-power")]
-        {
-            set_rcc_config(Some(config));
-            #[cfg(not(feature = "_lp-time-driver"))]
-            {
-                REFCOUNT_STOP2 = 0;
-                REFCOUNT_STOP1 = 0;
-            }
-        }
+        set_rcc_config(Some(config));
     }
 }
 

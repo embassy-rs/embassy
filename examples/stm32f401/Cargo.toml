@@ -6,13 +6,13 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]
-embassy-stm32 = { version = "0.5.0", path = "../../embassy-stm32", features = ["defmt", "stm32f401re", "unstable-pac", "memory-x", "time-driver-tim4", "exti", "chrono"] }
-embassy-sync = { version = "0.7.2", path = "../../embassy-sync", features = ["defmt"] }
-embassy-executor = { version = "0.9.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
-embassy-time = { version = "0.5.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
-embassy-usb = { version = "0.5.1", path = "../../embassy-usb", features = ["defmt" ] }
-embassy-net = { version = "0.8.0", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet", ] }
-embassy-net-wiznet = { version = "0.2.1", path = "../../embassy-net-wiznet", features = ["defmt"] }
+embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = ["defmt", "stm32f401re", "unstable-pac", "memory-x", "time-driver-tim4", "exti", "chrono"] }
+embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }
+embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
+embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
+embassy-usb = { version = "0.6.0", path = "../../embassy-usb", features = ["defmt" ] }
+embassy-net = { version = "0.9.1", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet", ] }
+embassy-net-wiznet = { version = "0.3.0", path = "../../embassy-net-wiznet", features = ["defmt"] }
 embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
 
 defmt = "1.0.1"
@@ -31,7 +31,7 @@ critical-section = "1.1"
 nb = "1.0.0"
 embedded-storage = "0.3.1"
 micromath = "2.0.0"
-usbd-hid = "0.9.0"
+usbd-hid = "0.10.0"
 static_cell = "2"
 chrono = { version = "^0.4", default-features = false}
 

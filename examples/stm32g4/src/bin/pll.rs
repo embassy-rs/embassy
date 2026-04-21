@@ -14,15 +14,15 @@ async fn main(_spawner: Spawner) {
         use embassy_stm32::rcc::*;
         config.rcc.hsi = true;
         config.rcc.pll = Some(Pll {
-            source: PllSource::HSI,
-            prediv: PllPreDiv::DIV4,
-            mul: PllMul::MUL85,
+            source: PllSource::Hsi,
+            prediv: PllPreDiv::Div4,
+            mul: PllMul::Mul85,
             divp: None,
             divq: None,
             // Main system clock at 170 MHz
-            divr: Some(PllRDiv::DIV2),
+            divr: Some(PllRDiv::Div2),
         });
-        config.rcc.sys = Sysclk::PLL1_R;
+        config.rcc.sys = Sysclk::Pll1R;
     }
     let _p = embassy_stm32::init(config);
     info!("Hello World!");

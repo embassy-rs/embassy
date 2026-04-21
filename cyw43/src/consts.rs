@@ -68,8 +68,9 @@ pub(crate) const REG_BACKPLANE_READ_FRAME_BC_HIGH: u32 = 0x1001C;
 pub(crate) const REG_BACKPLANE_WAKEUP_CTRL: u32 = 0x1001E;
 pub(crate) const REG_BACKPLANE_SLEEP_CSR: u32 = 0x1001F;
 
-pub(crate) const I_HMB_SW_MASK: u32 = 0x000000f0;
+pub(crate) const I_HMB_SW_MASK: u32 = 0xF0;
 pub(crate) const I_HMB_FC_CHANGE: u32 = 1 << 5;
+pub(crate) const FRAME_AVAILABLE_MASK: u32 = I_HMB_SW_MASK;
 pub(crate) const SDIO_INT_STATUS: u32 = 0x20;
 pub(crate) const SDIO_INT_HOST_MASK: u32 = 0x24;
 pub(crate) const SDIO_FUNCTION_INT_MASK: u32 = 0x34;
@@ -78,18 +79,20 @@ pub(crate) const SDIO_TO_SB_MAILBOX_DATA: u32 = 0x48;
 pub(crate) const SDIO_TO_HOST_MAILBOX_DATA: u32 = 0x4C;
 pub(crate) const SDIO_SLEEP_CSR: u32 = 0x1001F;
 pub(crate) const SBSDIO_SLPCSR_KEEP_WL_KS: u32 = 1 << 0;
+pub(crate) const SBSDIO_SLPCSR_WL_DEVON: u32 = 1 << 1;
 
 pub(crate) const SMB_DEV_INT: u32 = 1 << 3;
 pub(crate) const SMB_INT_ACK: u32 = 1 << 1;
 pub(crate) const I_HMB_HOST_INT: u32 = 1 << 7;
 pub(crate) const I_HMB_DATA_FWHALT: u32 = 0x0010;
 
-pub(crate) const HOSTINTMASK: u32 = 0x000000F0;
+pub(crate) const HOSTINTMASK: u32 = I_HMB_SW_MASK;
 pub(crate) const BUS_SD_DATA_WIDTH_MASK: u32 = 0x03;
 pub(crate) const BUS_SD_DATA_WIDTH_4BIT: u32 = 0x02;
 pub(crate) const SDIO_SPEED_EHS: u32 = 0x02;
 pub(crate) const SDIOD_CCCR_BRCM_CARDCAP_SECURE_MODE: u32 = 0x80;
 pub(crate) const SBSDIO_DEVICE_CTL: u32 = 0x10009;
+pub(crate) const SDIOD_CCCR_BRCM_CARDCAP_CMD_NODEC: u32 = 0x08;
 pub(crate) const SBSDIO_DEVCTL_ADDR_RST: u32 = 0x40;
 pub(crate) const SDIO_CORE_CHIPID_REG: u32 = 0x330;
 
@@ -111,6 +114,8 @@ pub(crate) const BACKPLANE_ALP_AVAIL: u8 = 0x40;
 pub(crate) const BACKPLANE_FORCE_HW_CLKREQ_OFF: u8 = 0x20;
 pub(crate) const BACKPLANE_FORCE_ALP: u8 = 0x01;
 pub(crate) const BACKPLANE_FORCE_HT: u32 = 0x02;
+pub(crate) const BACKPLANE_HT_AVAIL_REQ: u8 = 0x10;
+pub(crate) const SBSDIO_WCTRL_WL_WAKE_TILL_ALP_AVAIL: u8 = 1 << 0;
 
 // Broadcom AMBA (Advanced Microcontroller Bus Architecture) Interconnect
 // (AI) pub (crate) constants
@@ -207,6 +212,7 @@ pub(crate) const SDIOD_CCCR_BLKSIZE_0: u32 = 0x10;
 pub(crate) const SDIOD_CCCR_SPEED_CONTROL: u32 = 0x13;
 pub(crate) const SDIOD_CCCR_BRCM_CARDCAP: u32 = 0xf0;
 pub(crate) const SDIOD_SEP_INT_CTL: u32 = 0xf2;
+pub(crate) const SDIOD_CCCR_IOABORT: u32 = 0x06;
 pub(crate) const SDIOD_CCCR_F1BLKSIZE_0: u32 = 0x110;
 pub(crate) const SDIOD_CCCR_F2BLKSIZE_0: u32 = 0x210;
 pub(crate) const SDIOD_CCCR_F2BLKSIZE_1: u32 = 0x211;
@@ -222,12 +228,14 @@ pub(crate) const SDIO_CHIP_CLOCK_CSR: u32 = 0x1000e;
 pub(crate) const SDIO_PULL_UP: u32 = 0x1000f;
 
 // SDIOD_SEP_INT_CTL bits
-pub(crate) const SEP_INTR_CTL_MASK: u32 = 0x01; // out-of-band interrupt mask
-pub(crate) const SEP_INTR_CTL_EN: u32 = 0x02; // out-of-band interrupt output enable
-pub(crate) const SEP_INTR_CTL_POL: u32 = 0x04; // out-of-band interrupt polarity
+pub(crate) const SEP_INTR_CTL_MASK: u8 = 0x01; // out-of-band interrupt mask
+pub(crate) const SEP_INTR_CTL_EN: u8 = 0x02; // out-of-band interrupt output enable
+pub(crate) const SEP_INTR_CTL_POL: u8 = 0x04; // out-of-band interrupt polarity
 
 pub(crate) const CHIPCOMMON_BASE_ADDRESS: u32 = 0x18000000;
 pub(crate) const SDIO_BASE_ADDRESS: u32 = 0x18002000;
+
+pub(crate) const SFC_RF_TERM: u8 = 1 << 0;
 
 // Security type (authentication and encryption types are combined using bit mask)
 #[allow(non_camel_case_types)]

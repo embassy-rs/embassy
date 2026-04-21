@@ -136,15 +136,15 @@ static CLOCKS: Clocks = Clocks {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PeriClkSrc {
     /// SYS.
-    Sys = ClkPeriCtrlAuxsrc::CLK_SYS as _,
+    Sys = ClkPeriCtrlAuxsrc::ClkSys as _,
     /// PLL SYS.
-    PllSys = ClkPeriCtrlAuxsrc::CLKSRC_PLL_SYS as _,
+    PllSys = ClkPeriCtrlAuxsrc::ClksrcPllSys as _,
     /// PLL USB.
-    PllUsb = ClkPeriCtrlAuxsrc::CLKSRC_PLL_USB as _,
+    PllUsb = ClkPeriCtrlAuxsrc::ClksrcPllUsb as _,
     /// ROSC.
-    Rosc = ClkPeriCtrlAuxsrc::ROSC_CLKSRC_PH as _,
+    Rosc = ClkPeriCtrlAuxsrc::RoscClksrcPh as _,
     /// XOSC.
-    Xosc = ClkPeriCtrlAuxsrc::XOSC_CLKSRC as _,
+    Xosc = ClkPeriCtrlAuxsrc::XoscClksrc as _,
     // See above re gpin handling being commented out
     // Gpin0 = ClkPeriCtrlAuxsrc::CLKSRC_GPIN0 as _ ,
     // Gpin1 = ClkPeriCtrlAuxsrc::CLKSRC_GPIN1 as _ ,
@@ -623,13 +623,13 @@ impl ClockConfig {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum RoscRange {
     /// Low range.
-    Low = pac::rosc::vals::FreqRange::LOW.0,
+    Low = pac::rosc::vals::FreqRange::Low.to_bits(),
     /// Medium range (1.33x low)
-    Medium = pac::rosc::vals::FreqRange::MEDIUM.0,
+    Medium = pac::rosc::vals::FreqRange::Medium.to_bits(),
     /// High range (2x low)
-    High = pac::rosc::vals::FreqRange::HIGH.0,
+    High = pac::rosc::vals::FreqRange::High.to_bits(),
     /// Too high. Should not be used.
-    TooHigh = pac::rosc::vals::FreqRange::TOOHIGH.0,
+    TooHigh = pac::rosc::vals::FreqRange::Toohigh.to_bits(),
 }
 
 /// On-chip ring oscillator configuration.
@@ -785,13 +785,13 @@ pub struct SysClkConfig {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum UsbClkSrc {
     /// PLL USB.
-    PllUsb = ClkUsbCtrlAuxsrc::CLKSRC_PLL_USB as _,
+    PllUsb = ClkUsbCtrlAuxsrc::ClksrcPllUsb as _,
     /// PLL SYS.
-    PllSys = ClkUsbCtrlAuxsrc::CLKSRC_PLL_SYS as _,
+    PllSys = ClkUsbCtrlAuxsrc::ClksrcPllSys as _,
     /// ROSC.
-    Rosc = ClkUsbCtrlAuxsrc::ROSC_CLKSRC_PH as _,
+    Rosc = ClkUsbCtrlAuxsrc::RoscClksrcPh as _,
     /// XOSC.
-    Xosc = ClkUsbCtrlAuxsrc::XOSC_CLKSRC as _,
+    Xosc = ClkUsbCtrlAuxsrc::XoscClksrc as _,
     // See above re gpin handling being commented out
     // Gpin0 = ClkUsbCtrlAuxsrc::CLKSRC_GPIN0 as _ ,
     // Gpin1 = ClkUsbCtrlAuxsrc::CLKSRC_GPIN1 as _ ,
@@ -814,13 +814,13 @@ pub struct UsbClkConfig {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum AdcClkSrc {
     /// PLL USB.
-    PllUsb = ClkAdcCtrlAuxsrc::CLKSRC_PLL_USB as _,
+    PllUsb = ClkAdcCtrlAuxsrc::ClksrcPllUsb as _,
     /// PLL SYS.
-    PllSys = ClkAdcCtrlAuxsrc::CLKSRC_PLL_SYS as _,
+    PllSys = ClkAdcCtrlAuxsrc::ClksrcPllSys as _,
     /// ROSC.
-    Rosc = ClkAdcCtrlAuxsrc::ROSC_CLKSRC_PH as _,
+    Rosc = ClkAdcCtrlAuxsrc::RoscClksrcPh as _,
     /// XOSC.
-    Xosc = ClkAdcCtrlAuxsrc::XOSC_CLKSRC as _,
+    Xosc = ClkAdcCtrlAuxsrc::XoscClksrc as _,
     // See above re gpin handling being commented out
     // Gpin0 = ClkAdcCtrlAuxsrc::CLKSRC_GPIN0 as _ ,
     // Gpin1 = ClkAdcCtrlAuxsrc::CLKSRC_GPIN1 as _ ,
@@ -844,13 +844,13 @@ pub struct AdcClkConfig {
 #[cfg(feature = "rp2040")]
 pub enum RtcClkSrc {
     /// PLL USB.
-    PllUsb = ClkRtcCtrlAuxsrc::CLKSRC_PLL_USB as _,
+    PllUsb = ClkRtcCtrlAuxsrc::ClksrcPllUsb as _,
     /// PLL SYS.
-    PllSys = ClkRtcCtrlAuxsrc::CLKSRC_PLL_SYS as _,
+    PllSys = ClkRtcCtrlAuxsrc::ClksrcPllSys as _,
     /// ROSC.
-    Rosc = ClkRtcCtrlAuxsrc::ROSC_CLKSRC_PH as _,
+    Rosc = ClkRtcCtrlAuxsrc::RoscClksrcPh as _,
     /// XOSC.
-    Xosc = ClkRtcCtrlAuxsrc::XOSC_CLKSRC as _,
+    Xosc = ClkRtcCtrlAuxsrc::XoscClksrc as _,
     // See above re gpin handling being commented out
     // Gpin0 = ClkRtcCtrlAuxsrc::CLKSRC_GPIN0 as _ ,
     // Gpin1 = ClkRtcCtrlAuxsrc::CLKSRC_GPIN1 as _ ,
@@ -989,12 +989,12 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         .write_value(pac::clocks::regs::ClkSysResusCtrl(0));
 
     // Before we touch PLLs, switch sys and ref cleanly away from their aux sources.
-    c.clk_sys_ctrl().modify(|w| w.set_src(ClkSysCtrlSrc::CLK_REF));
+    c.clk_sys_ctrl().modify(|w| w.set_src(ClkSysCtrlSrc::ClkRef));
     #[cfg(feature = "rp2040")]
     while c.clk_sys_selected().read() != 1 {}
     #[cfg(feature = "_rp235x")]
     while c.clk_sys_selected().read() != pac::clocks::regs::ClkSysSelected(1) {}
-    c.clk_ref_ctrl().modify(|w| w.set_src(ClkRefCtrlSrc::ROSC_CLKSRC_PH));
+    c.clk_ref_ctrl().modify(|w| w.set_src(ClkRefCtrlSrc::RoscClksrcPh));
     #[cfg(feature = "rp2040")]
     while c.clk_ref_selected().read() != 1 {}
     #[cfg(feature = "_rp235x")]
@@ -1048,7 +1048,6 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             vreg.vreg().modify(|w| {
                 w.0 = (w.0 & 0x0000FFFF) | (0x5AFE << 16); // Set the password
                 w.set_vsel(target_vsel);
-                *w
             });
 
             // Wait for the voltage to stabilize. Use the provided delay or default based on voltage
@@ -1116,12 +1115,12 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         let div = config.ref_clk.div as u32;
         assert!(div >= 1 && div <= 4);
         match config.ref_clk.src {
-            RefClkSrc::Xosc => (Src::XOSC_CLKSRC, Aux::CLKSRC_PLL_USB, xosc_freq / div),
-            RefClkSrc::Rosc => (Src::ROSC_CLKSRC_PH, Aux::CLKSRC_PLL_USB, rosc_freq / div),
-            RefClkSrc::PllUsb => (Src::CLKSRC_CLK_REF_AUX, Aux::CLKSRC_PLL_USB, pll_usb_freq / div),
+            RefClkSrc::Xosc => (Src::XoscClksrc, Aux::ClksrcPllUsb, xosc_freq / div),
+            RefClkSrc::Rosc => (Src::RoscClksrcPh, Aux::ClksrcPllUsb, rosc_freq / div),
+            RefClkSrc::PllUsb => (Src::ClksrcClkRefAux, Aux::ClksrcPllUsb, pll_usb_freq / div),
             // See above re gpin handling being commented out
-            // RefClkSrc::Gpin0 => (Src::CLKSRC_CLK_REF_AUX, Aux::CLKSRC_GPIN0, gpin0_freq / div),
-            // RefClkSrc::Gpin1 => (Src::CLKSRC_CLK_REF_AUX, Aux::CLKSRC_GPIN1, gpin1_freq / div),
+            // RefClkSrc::Gpin0 => (Src::ClksrcClkRefAux, Aux::CLKSRC_GPIN0, gpin0_freq / div),
+            // RefClkSrc::Gpin1 => (Src::ClksrcClkRefAux, Aux::CLKSRC_GPIN1, gpin1_freq / div),
         }
     };
     assert!(clk_ref_freq != 0);
@@ -1159,26 +1158,26 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     let (sys_src, sys_aux, clk_sys_freq) = {
         use {ClkSysCtrlAuxsrc as Aux, ClkSysCtrlSrc as Src};
         let (src, aux, freq) = match config.sys_clk.src {
-            SysClkSrc::Ref => (Src::CLK_REF, Aux::CLKSRC_PLL_SYS, clk_ref_freq),
-            SysClkSrc::PllSys => (Src::CLKSRC_CLK_SYS_AUX, Aux::CLKSRC_PLL_SYS, pll_sys_freq),
-            SysClkSrc::PllUsb => (Src::CLKSRC_CLK_SYS_AUX, Aux::CLKSRC_PLL_USB, pll_usb_freq),
-            SysClkSrc::Rosc => (Src::CLKSRC_CLK_SYS_AUX, Aux::ROSC_CLKSRC, rosc_freq),
-            SysClkSrc::Xosc => (Src::CLKSRC_CLK_SYS_AUX, Aux::XOSC_CLKSRC, xosc_freq),
+            SysClkSrc::Ref => (Src::ClkRef, Aux::ClksrcPllSys, clk_ref_freq),
+            SysClkSrc::PllSys => (Src::ClksrcClkSysAux, Aux::ClksrcPllSys, pll_sys_freq),
+            SysClkSrc::PllUsb => (Src::ClksrcClkSysAux, Aux::ClksrcPllUsb, pll_usb_freq),
+            SysClkSrc::Rosc => (Src::ClksrcClkSysAux, Aux::RoscClksrc, rosc_freq),
+            SysClkSrc::Xosc => (Src::ClksrcClkSysAux, Aux::XoscClksrc, xosc_freq),
             // See above re gpin handling being commented out
-            // SysClkSrc::Gpin0 => (Src::CLKSRC_CLK_SYS_AUX, Aux::CLKSRC_GPIN0, gpin0_freq),
-            // SysClkSrc::Gpin1 => (Src::CLKSRC_CLK_SYS_AUX, Aux::CLKSRC_GPIN1, gpin1_freq),
+            // SysClkSrc::Gpin0 => (Src::ClksrcClkSysAux, Aux::CLKSRC_GPIN0, gpin0_freq),
+            // SysClkSrc::Gpin1 => (Src::ClksrcClkSysAux, Aux::CLKSRC_GPIN1, gpin1_freq),
         };
         let div = config.sys_clk.div_int as u64 * 256 + config.sys_clk.div_frac as u64;
         (src, aux, ((freq as u64 * 256) / div) as u32)
     };
     assert!(clk_sys_freq != 0);
     CLOCKS.sys.store(clk_sys_freq, Ordering::Relaxed);
-    if sys_src != ClkSysCtrlSrc::CLK_REF {
-        c.clk_sys_ctrl().write(|w| w.set_src(ClkSysCtrlSrc::CLK_REF));
+    if sys_src != ClkSysCtrlSrc::ClkRef {
+        c.clk_sys_ctrl().write(|w| w.set_src(ClkSysCtrlSrc::ClkRef));
         #[cfg(feature = "rp2040")]
-        while c.clk_sys_selected().read() != (1 << ClkSysCtrlSrc::CLK_REF as u32) {}
+        while c.clk_sys_selected().read() != (1 << ClkSysCtrlSrc::ClkRef as u32) {}
         #[cfg(feature = "_rp235x")]
-        while c.clk_sys_selected().read() != pac::clocks::regs::ClkSysSelected(1 << ClkSysCtrlSrc::CLK_REF as u32) {}
+        while c.clk_sys_selected().read() != pac::clocks::regs::ClkSysSelected(1 << ClkSysCtrlSrc::ClkRef as u32) {}
     }
     c.clk_sys_ctrl().write(|w| {
         w.set_auxsrc(sys_aux);
@@ -1317,7 +1316,7 @@ fn configure_rosc(config: RoscConfig) -> u32 {
     let p = pac::ROSC;
 
     p.freqa().write(|w| {
-        w.set_passwd(pac::rosc::vals::Passwd::PASS);
+        w.set_passwd(pac::rosc::vals::Passwd::Pass);
         w.set_ds0(config.drive_strength[0]);
         w.set_ds1(config.drive_strength[1]);
         w.set_ds2(config.drive_strength[2]);
@@ -1325,7 +1324,7 @@ fn configure_rosc(config: RoscConfig) -> u32 {
     });
 
     p.freqb().write(|w| {
-        w.set_passwd(pac::rosc::vals::Passwd::PASS);
+        w.set_passwd(pac::rosc::vals::Passwd::Pass);
         w.set_ds4(config.drive_strength[4]);
         w.set_ds5(config.drive_strength[5]);
         w.set_ds6(config.drive_strength[6]);
@@ -1333,12 +1332,14 @@ fn configure_rosc(config: RoscConfig) -> u32 {
     });
 
     p.div().write(|w| {
-        w.set_div(pac::rosc::vals::Div(config.div + pac::rosc::vals::Div::PASS.0));
+        w.set_div(pac::rosc::vals::Div::from_bits(
+            config.div + pac::rosc::vals::Div::Pass.to_bits(),
+        ));
     });
 
     p.ctrl().write(|w| {
-        w.set_enable(pac::rosc::vals::Enable::ENABLE);
-        w.set_freq_range(pac::rosc::vals::FreqRange(config.range as u16));
+        w.set_enable(pac::rosc::vals::Enable::Enable);
+        w.set_freq_range(pac::rosc::vals::FreqRange::from_bits(config.range as u16));
     });
 
     config.hz
@@ -1459,8 +1460,8 @@ fn start_xosc(crystal_hz: u32, delay_multiplier: u32) {
     let startup_delay = (((crystal_hz / 1000) * delay_multiplier) + 128) / 256;
     pac::XOSC.startup().write(|w| w.set_delay(startup_delay as u16));
     pac::XOSC.ctrl().write(|w| {
-        w.set_freq_range(pac::xosc::vals::CtrlFreqRange::_1_15MHZ);
-        w.set_enable(pac::xosc::vals::Enable::ENABLE);
+        w.set_freq_range(pac::xosc::vals::CtrlFreqRange::_115mhz);
+        w.set_enable(pac::xosc::vals::Enable::Enable);
     });
     while !pac::XOSC.status().read().stable() {}
 }
@@ -1511,7 +1512,6 @@ fn configure_pll(p: pac::pll::Pll, input_freq: u32, config: PllConfig) -> Result
         w.set_vcopd(true); // Power down the VCO
         w.set_postdivpd(true); // Power down the post divider
         w.set_dsmpd(true); // Disable fractional mode
-        *w
     });
 
     // Short delay after powering down
@@ -1529,7 +1529,6 @@ fn configure_pll(p: pac::pll::Pll, input_freq: u32, config: PllConfig) -> Result
         w.set_vcopd(false); // Power up the VCO
         w.set_postdivpd(true); // Keep post divider powered down during initial lock
         w.set_dsmpd(true); // Disable fractional mode (simpler configuration)
-        *w
     });
 
     // 5. Wait for PLL to lock with a timeout
@@ -1551,7 +1550,6 @@ fn configure_pll(p: pac::pll::Pll, input_freq: u32, config: PllConfig) -> Result
     // 7. Enable the post divider output
     p.pwr().modify(|w| {
         w.set_postdivpd(false); // Power up post divider
-        *w
     });
 
     // Final delay to ensure everything is stable
@@ -1568,15 +1566,20 @@ pub trait GpinPin: crate::gpio::Pin {
 }
 
 macro_rules! impl_gpinpin {
-    ($name:ident, $pin_num:expr, $gpin_num:expr) => {
+    ($name:ident, $gpin_num:expr) => {
         impl GpinPin for crate::peripherals::$name {
             const NR: usize = $gpin_num;
         }
     };
 }
 
-impl_gpinpin!(PIN_20, 20, 0);
-impl_gpinpin!(PIN_22, 22, 1);
+#[cfg(feature = "_rp235x")]
+impl_gpinpin!(PIN_12, 0);
+#[cfg(feature = "_rp235x")]
+impl_gpinpin!(PIN_14, 1);
+
+impl_gpinpin!(PIN_20, 0);
+impl_gpinpin!(PIN_22, 1);
 
 /// General purpose clock input driver.
 pub struct Gpin<'d, T: GpinPin> {
@@ -1612,7 +1615,7 @@ impl<'d, T: GpinPin> Drop for Gpin<'d, T> {
         self.gpin
             .gpio()
             .ctrl()
-            .write(|w| w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::NULL as _));
+            .write(|w| w.set_funcsel(pac::io::vals::Gpio0CtrlFuncsel::Null as _));
     }
 }
 
@@ -1632,6 +1635,11 @@ macro_rules! impl_gpoutpin {
     };
 }
 
+#[cfg(feature = "_rp235x")]
+impl_gpoutpin!(PIN_13, 0);
+#[cfg(feature = "_rp235x")]
+impl_gpoutpin!(PIN_15, 1);
+
 impl_gpoutpin!(PIN_21, 0);
 impl_gpoutpin!(PIN_23, 1);
 impl_gpoutpin!(PIN_24, 2);
@@ -1641,30 +1649,30 @@ impl_gpoutpin!(PIN_25, 3);
 #[repr(u8)]
 pub enum GpoutSrc {
     /// Sys PLL.
-    PllSys = ClkGpoutCtrlAuxsrc::CLKSRC_PLL_SYS as _,
+    PllSys = ClkGpoutCtrlAuxsrc::ClksrcPllSys as _,
     // See above re gpin handling being commented out
     // Gpin0 = ClkGpoutCtrlAuxsrc::CLKSRC_GPIN0 as _ ,
     // Gpin1 = ClkGpoutCtrlAuxsrc::CLKSRC_GPIN1 as _ ,
     /// USB PLL.
-    PllUsb = ClkGpoutCtrlAuxsrc::CLKSRC_PLL_USB as _,
+    PllUsb = ClkGpoutCtrlAuxsrc::ClksrcPllUsb as _,
     /// ROSC.
-    Rosc = ClkGpoutCtrlAuxsrc::ROSC_CLKSRC as _,
+    Rosc = ClkGpoutCtrlAuxsrc::RoscClksrc as _,
     /// XOSC.
-    Xosc = ClkGpoutCtrlAuxsrc::XOSC_CLKSRC as _,
+    Xosc = ClkGpoutCtrlAuxsrc::XoscClksrc as _,
     /// LPOSC.
     #[cfg(feature = "_rp235x")]
-    Lposc = ClkGpoutCtrlAuxsrc::LPOSC_CLKSRC as _,
+    Lposc = ClkGpoutCtrlAuxsrc::LposcClksrc as _,
     /// SYS.
-    Sys = ClkGpoutCtrlAuxsrc::CLK_SYS as _,
+    Sys = ClkGpoutCtrlAuxsrc::ClkSys as _,
     /// USB.
-    Usb = ClkGpoutCtrlAuxsrc::CLK_USB as _,
+    Usb = ClkGpoutCtrlAuxsrc::ClkUsb as _,
     /// ADC.
-    Adc = ClkGpoutCtrlAuxsrc::CLK_ADC as _,
+    Adc = ClkGpoutCtrlAuxsrc::ClkAdc as _,
     /// RTC.
     #[cfg(feature = "rp2040")]
-    Rtc = ClkGpoutCtrlAuxsrc::CLK_RTC as _,
+    Rtc = ClkGpoutCtrlAuxsrc::ClkRtc as _,
     /// REF.
-    Ref = ClkGpoutCtrlAuxsrc::CLK_REF as _,
+    Ref = ClkGpoutCtrlAuxsrc::ClkRef as _,
 }
 
 /// General purpose clock output driver.
@@ -1740,17 +1748,17 @@ impl<'d, T: GpoutPin> Gpout<'d, T> {
         let src = c.clk_gpout_ctrl(self.gpout.number()).read().auxsrc();
 
         let base = match src {
-            ClkGpoutCtrlAuxsrc::CLKSRC_PLL_SYS => pll_sys_freq(),
+            ClkGpoutCtrlAuxsrc::ClksrcPllSys => pll_sys_freq(),
             // See above re gpin handling being commented out
             // ClkGpoutCtrlAuxsrc::CLKSRC_GPIN0 => gpin0_freq(),
             // ClkGpoutCtrlAuxsrc::CLKSRC_GPIN1 => gpin1_freq(),
-            ClkGpoutCtrlAuxsrc::CLKSRC_PLL_USB => pll_usb_freq(),
-            ClkGpoutCtrlAuxsrc::ROSC_CLKSRC => rosc_freq(),
-            ClkGpoutCtrlAuxsrc::XOSC_CLKSRC => xosc_freq(),
-            ClkGpoutCtrlAuxsrc::CLK_SYS => clk_sys_freq(),
-            ClkGpoutCtrlAuxsrc::CLK_USB => clk_usb_freq(),
-            ClkGpoutCtrlAuxsrc::CLK_ADC => clk_adc_freq(),
-            ClkGpoutCtrlAuxsrc::CLK_REF => clk_ref_freq(),
+            ClkGpoutCtrlAuxsrc::ClksrcPllUsb => pll_usb_freq(),
+            ClkGpoutCtrlAuxsrc::RoscClksrc => rosc_freq(),
+            ClkGpoutCtrlAuxsrc::XoscClksrc => xosc_freq(),
+            ClkGpoutCtrlAuxsrc::ClkSys => clk_sys_freq(),
+            ClkGpoutCtrlAuxsrc::ClkUsb => clk_usb_freq(),
+            ClkGpoutCtrlAuxsrc::ClkAdc => clk_adc_freq(),
+            ClkGpoutCtrlAuxsrc::ClkRef => clk_ref_freq(),
             _ => unreachable!(),
         };
 
@@ -1769,7 +1777,7 @@ impl<'d, T: GpoutPin> Drop for Gpout<'d, T> {
         self.gpout
             .gpio()
             .ctrl()
-            .write(|w| w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::NULL as _));
+            .write(|w| w.set_funcsel(pac::io::vals::Gpio0CtrlFuncsel::Null as _));
     }
 }
 
@@ -1845,6 +1853,25 @@ impl rand_core_09::RngCore for RoscRng {
 
 impl rand_core_09::CryptoRng for RoscRng {}
 
+impl rand_core_10::TryRng for RoscRng {
+    type Error = core::convert::Infallible;
+
+    fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+        Ok(self.next_u32())
+    }
+
+    fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+        Ok(self.next_u64())
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Self::Error> {
+        self.fill_bytes(dest);
+        Ok(())
+    }
+}
+
+impl rand_core_10::TryCryptoRng for RoscRng {}
+
 /// Enter the `DORMANT` sleep state. This will stop *all* internal clocks
 /// and can only be exited through resets, dormant-wake GPIO interrupts,
 /// and RTC interrupts. If RTC is clocked from an internal clock source
@@ -1864,11 +1891,11 @@ pub fn dormant_sleep() {
         reg: Reg<T, RW>,
         f: F,
     ) -> Set<T, impl Fn()> {
-        reg.modify(|w| {
-            let old = *w;
-            let after = f(w);
-            Set(reg, old, after)
-        })
+        let old = reg.read();
+        let mut val = old;
+        let after = f(&mut val);
+        reg.write_value(val);
+        Set(reg, old, after)
     }
 
     fn set<T: Copy, F: FnOnce(&mut T)>(reg: Reg<T, RW>, f: F) -> Set<T, impl Fn()> {
@@ -1891,11 +1918,11 @@ pub fn dormant_sleep() {
     // to the slowest frequency to minimize that impact.
     let _configure_rosc = (
         set(pac::ROSC.ctrl(), |w| {
-            w.set_enable(pac::rosc::vals::Enable::ENABLE);
-            w.set_freq_range(pac::rosc::vals::FreqRange::LOW);
+            w.set_enable(pac::rosc::vals::Enable::Enable);
+            w.set_freq_range(pac::rosc::vals::FreqRange::Low);
         }),
         // div=32
-        set(pac::ROSC.div(), |w| w.set_div(pac::rosc::vals::Div(0xaa0))),
+        set(pac::ROSC.div(), |w| w.set_div(pac::rosc::vals::Div::from_bits(0xaa0))),
     );
     while !pac::ROSC.status().read().stable() {}
     // switch over to rosc as the system clock source. this will change clock sources for
@@ -1903,10 +1930,10 @@ pub fn dormant_sleep() {
     // speed up by enough to worry about (unless it's clocked from gpin, which we don't
     // support anyway).
     let _switch_clk_ref = set(pac::CLOCKS.clk_ref_ctrl(), |w| {
-        w.set_src(pac::clocks::vals::ClkRefCtrlSrc::ROSC_CLKSRC_PH);
+        w.set_src(pac::clocks::vals::ClkRefCtrlSrc::RoscClksrcPh);
     });
     let _switch_clk_sys = set(pac::CLOCKS.clk_sys_ctrl(), |w| {
-        w.set_src(pac::clocks::vals::ClkSysCtrlSrc::CLK_REF);
+        w.set_src(pac::clocks::vals::ClkSysCtrlSrc::ClkRef);
     });
     // oscillator dormancy does not power down plls, we have to do that ourselves. we'll
     // restore them to their prior glory when woken though since the system may be clocked
@@ -1926,9 +1953,9 @@ pub fn dormant_sleep() {
     // dormancy only stops the oscillator we're telling to go dormant, the other remains
     // running. nothing can use xosc at this point any more. not doing this costs an 200µA.
     let _stop_xosc = set_with_post_restore(pac::XOSC.ctrl(), |w| {
-        let wake = w.enable() == pac::xosc::vals::Enable::ENABLE;
+        let wake = w.enable() == pac::xosc::vals::Enable::Enable;
         if wake {
-            w.set_enable(pac::xosc::vals::Enable::DISABLE);
+            w.set_enable(pac::xosc::vals::Enable::Disable);
         }
         move || while wake && !pac::XOSC.status().read().stable() {}
     });

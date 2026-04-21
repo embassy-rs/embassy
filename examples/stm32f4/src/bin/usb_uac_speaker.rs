@@ -23,6 +23,7 @@ bind_interrupts!(struct Irqs {
     OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
 });
 
+const TIMER_CHANNEL: timer::Channel = timer::Channel::Ch1;
 static TIMER: Mutex<CriticalSectionRawMutex, RefCell<Option<timer::low_level::Timer<peripherals::TIM2>>>> =
     Mutex::new(RefCell::new(None));
 
@@ -98,6 +99,7 @@ async fn feedback_handler<'d, T: usb::Instance + 'd>(
         packet.push((value >> 16) as u8).unwrap();
 
         feedback.write_packet(&packet).await?;
+        debug!("feedback sent {}", value);
     }
 }
 
@@ -114,7 +116,7 @@ async fn stream_handler<'d, T: usb::Instance + 'd>(
 
         if word_count * SAMPLE_SIZE == data_size {
             // Obtain a buffer from the channel
-            let samples = sender.send().await;
+            let mut samples = sender.send().await;
             samples.clear();
 
             for w in 0..word_count {
@@ -125,7 +127,7 @@ async fn stream_handler<'d, T: usb::Instance + 'd>(
                 samples.push(sample).unwrap();
             }
 
-            sender.send_done();
+            samples.send_done();
         } else {
             debug!("Invalid USB buffer size of {}, skipped.", data_size);
         }
@@ -136,11 +138,11 @@ async fn stream_handler<'d, T: usb::Instance + 'd>(
 #[embassy_executor::task]
 async fn audio_receiver_task(mut usb_audio_receiver: zerocopy_channel::Receiver<'static, NoopRawMutex, SampleBlock>) {
     loop {
-        let _samples = usb_audio_receiver.receive().await;
+        let samples = usb_audio_receiver.receive().await;
         // Use the samples, for example play back via the SAI peripheral.
 
         // Notify the channel that the buffer is now ready to be reused
-        usb_audio_receiver.receive_done();
+        samples.receive_done();
     }
 }
 
@@ -221,14 +223,10 @@ fn TIM2() {
     static FRAME_COUNT: Mutex<CriticalSectionRawMutex, Cell<usize>> = Mutex::new(Cell::new(0));
 
     critical_section::with(|cs| {
-        // Read timer counter.
-        let timer = TIMER.borrow(cs).borrow().as_ref().unwrap().regs_gp32();
-
-        let status = timer.sr().read();
-
-        const CHANNEL_INDEX: usize = 0;
-        if status.ccif(CHANNEL_INDEX) {
-            let ticks = timer.ccr(CHANNEL_INDEX).read();
+        let mut guard = TIMER.borrow(cs).borrow_mut();
+        let timer = guard.as_mut().unwrap();
+        if timer.get_input_interrupt(TIMER_CHANNEL) {
+            let ticks = timer.get_capture_value(TIMER_CHANNEL);
 
             let frame_count = FRAME_COUNT.borrow(cs);
             let last_ticks = LAST_TICKS.borrow(cs);
@@ -239,10 +237,9 @@ fn TIM2() {
                 FEEDBACK_SIGNAL.signal(ticks.wrapping_sub(last_ticks.get()));
                 last_ticks.set(ticks);
             }
+            // Clear trigger interrupt flag.
+            timer.clear_input_interrupt(TIMER_CHANNEL);
         };
-
-        // Clear trigger interrupt flag.
-        timer.sr().modify(|r| r.set_tif(false));
     });
 }
 
@@ -259,22 +256,22 @@ async fn main(spawner: Spawner) {
     {
         use embassy_stm32::rcc::*;
         config.rcc.hse = Some(Hse {
-            freq: Hertz(8_000_000),
-            mode: HseMode::Bypass,
+            freq: embassy_stm32::time::Hertz::mhz(25),
+            mode: HseMode::Oscillator,
         });
-        config.rcc.pll_src = PllSource::HSE;
+        config.rcc.pll_src = PllSource::Hse;
         config.rcc.pll = Some(Pll {
-            prediv: PllPreDiv::DIV4,
-            mul: PllMul::MUL168,
-            divp: Some(PllPDiv::DIV2), // ((8 MHz / 4) * 168) / 2 = 168 Mhz.
-            divq: Some(PllQDiv::DIV7), // ((8 MHz / 4) * 168) / 7 = 48 Mhz.
+            prediv: PllPreDiv::Div25,
+            mul: PllMul::Mul336,
+            divp: Some(PllPDiv::Div2), // ((8 MHz / 4) * 168) / 2 = 168 Mhz.
+            divq: Some(PllQDiv::Div7), // ((8 MHz / 4) * 168) / 7 = 48 Mhz.
             divr: None,
         });
-        config.rcc.ahb_pre = AHBPrescaler::DIV1;
-        config.rcc.apb1_pre = APBPrescaler::DIV4;
-        config.rcc.apb2_pre = APBPrescaler::DIV2;
-        config.rcc.sys = Sysclk::PLL1_P;
-        config.rcc.mux.clk48sel = mux::Clk48sel::PLL1_Q;
+        config.rcc.ahb_pre = AHBPrescaler::Div1;
+        config.rcc.apb1_pre = APBPrescaler::Div4;
+        config.rcc.apb2_pre = APBPrescaler::Div2;
+        config.rcc.sys = Sysclk::Pll1P;
+        config.rcc.mux.clk48sel = mux::Clk48sel::Pll1Q;
     }
     let p = embassy_stm32::init(config);
 
@@ -349,12 +346,11 @@ async fn main(spawner: Spawner) {
     // Run a timer for counting between SOF interrupts.
     let mut tim2 = timer::low_level::Timer::new(p.TIM2);
     tim2.set_tick_freq(Hertz(FEEDBACK_COUNTER_TICK_RATE));
-    tim2.set_trigger_source(timer::low_level::TriggerSource::ITR1); // The USB SOF signal.
+    tim2.set_trigger_source(timer::low_level::TriggerSource::Itr1); // The USB SOF signal.
 
-    const TIMER_CHANNEL: timer::Channel = timer::Channel::Ch1;
     tim2.set_input_ti_selection(TIMER_CHANNEL, timer::low_level::InputTISelection::TRC);
     tim2.set_input_capture_prescaler(TIMER_CHANNEL, 0);
-    tim2.set_input_capture_filter(TIMER_CHANNEL, timer::low_level::FilterValue::FCK_INT_N2);
+    tim2.set_input_capture_filter(TIMER_CHANNEL, timer::low_level::FilterValue::FckIntN2);
 
     // Reset all interrupt flags.
     tim2.regs_gp32().sr().write(|r| r.0 = 0);

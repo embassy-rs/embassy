@@ -12,7 +12,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use crate::can::fd::peripheral::Registers;
 use crate::gpio::{AfType, OutputType, Pull, SealedPin as _, Speed};
 use crate::interrupt::typelevel::Interrupt;
-use crate::rcc::{self, RccInfo, RccPeripheral, SealedRccPeripheral};
+use crate::rcc::{self, RccInfo, RccPeripheral, SealedRccPeripheral, WakeGuard};
 use crate::{Peri, interrupt, peripherals};
 
 pub(crate) mod fd;
@@ -174,7 +174,6 @@ pub struct CanConfigurator<'d> {
     config: crate::can::fd::config::FdCanConfig,
     /// Reference to internals.
     properties: Properties,
-    periph_clock: crate::time::Hertz,
     info: InfoRef,
 }
 
@@ -215,7 +214,6 @@ impl<'d> CanConfigurator<'d> {
             _phantom: PhantomData,
             config,
             properties: Properties::new(T::info()),
-            periph_clock: T::frequency(),
             info: InfoRef::new(info),
         }
     }
@@ -237,7 +235,7 @@ impl<'d> CanConfigurator<'d> {
 
     /// Configures the bit timings calculated from supplied bitrate.
     pub fn set_bitrate(&mut self, bitrate: u32) {
-        let bit_timing = util::calc_can_timings(self.periph_clock, bitrate).unwrap();
+        let bit_timing = util::calc_can_timings(self.properties.kernel_input_clock(), bitrate).unwrap();
 
         let nbtr = crate::can::fd::config::NominalBitTiming {
             sync_jump_width: bit_timing.sync_jump_width,
@@ -250,7 +248,7 @@ impl<'d> CanConfigurator<'d> {
 
     /// Configures the bit timings for VBR data calculated from supplied bitrate. This also sets confit to allow can FD and VBR
     pub fn set_fd_data_bitrate(&mut self, bitrate: u32, transceiver_delay_compensation: bool) {
-        let bit_timing = util::calc_can_timings(self.periph_clock, bitrate).unwrap();
+        let bit_timing = util::calc_can_timings(self.properties.kernel_input_clock(), bitrate).unwrap();
         // Note, used existing calcluation for normal(non-VBR) bitrate, appears to work for 250k/1M
         let nbtr = crate::can::fd::config::DataBitTiming {
             transceiver_delay_compensation,
@@ -265,7 +263,11 @@ impl<'d> CanConfigurator<'d> {
 
     /// Start in mode.
     pub fn start(self, mode: OperatingMode) -> Can<'d> {
-        let ns_per_timer_tick = calc_ns_per_timer_tick(&self.info, self.periph_clock, self.config.frame_transmit);
+        let ns_per_timer_tick = calc_ns_per_timer_tick(
+            &self.info,
+            self.properties.kernel_input_clock(),
+            self.config.frame_transmit,
+        );
         self.info.state.lock(|s| {
             let mut state = s.borrow_mut();
             state.ns_per_timer_tick = ns_per_timer_tick;
@@ -276,6 +278,7 @@ impl<'d> CanConfigurator<'d> {
             _phantom: PhantomData,
             config: self.config,
             _mode: mode,
+            _wake_guard: self.info.rcc_info.wake_guard(),
             properties: Properties::new(&self.info),
             info: InfoRef::new(&self.info),
         }
@@ -302,6 +305,7 @@ pub struct Can<'d> {
     _phantom: PhantomData<&'d ()>,
     config: crate::can::fd::config::FdCanConfig,
     _mode: OperatingMode,
+    _wake_guard: WakeGuard,
     properties: Properties,
     info: InfoRef,
 }
@@ -365,11 +369,13 @@ impl<'d> Can<'d> {
                 _phantom: PhantomData,
                 config: self.config,
                 _mode: self._mode,
+                _wake_guard: self.info.rcc_info.wake_guard(),
                 info: TxInfoRef::new(&self.info),
             },
             CanRx {
                 _phantom: PhantomData,
                 _mode: self._mode,
+                _wake_guard: self.info.rcc_info.wake_guard(),
                 info: RxInfoRef::new(&self.info),
             },
             Properties {
@@ -383,6 +389,7 @@ impl<'d> Can<'d> {
             _phantom: PhantomData,
             config: tx.config,
             _mode: rx._mode,
+            _wake_guard: tx.info.rcc_info.wake_guard(),
             properties: Properties::new(&tx.info),
             info: InfoRef::new(&tx.info),
         }
@@ -405,6 +412,17 @@ impl<'d> Can<'d> {
     ) -> BufferedCanFd<'d, TX_BUF_SIZE, RX_BUF_SIZE> {
         BufferedCanFd::new(&self.info, self._mode, tx_buf, rxb)
     }
+
+    /// Switch into config mode for re-configuration
+    pub fn into_config_mode(self) -> CanConfigurator<'d> {
+        self.info.regs.into_config_mode(self.config);
+        CanConfigurator {
+            _phantom: PhantomData,
+            config: self.config,
+            properties: self.properties,
+            info: self.info,
+        }
+    }
 }
 
 /// User supplied buffer for RX Buffering
@@ -417,6 +435,7 @@ pub type TxBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, Frame, 
 pub struct BufferedCan<'d, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> {
     _phantom: PhantomData<&'d ()>,
     _mode: OperatingMode,
+    _wake_guard: WakeGuard,
     tx_buf: &'static TxBuf<TX_BUF_SIZE>,
     rx_buf: &'static RxBuf<RX_BUF_SIZE>,
     properties: Properties,
@@ -433,6 +452,7 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCan<'d,
         BufferedCan {
             _phantom: PhantomData,
             _mode,
+            _wake_guard: info.rcc_info.wake_guard(),
             tx_buf,
             rx_buf,
             properties: Properties::new(info),
@@ -506,6 +526,7 @@ pub type BufferedFdCanReceiver = super::common::BufferedReceiver<'static, FdEnve
 pub struct BufferedCanFd<'d, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> {
     _phantom: PhantomData<&'d ()>,
     _mode: OperatingMode,
+    _wake_guard: WakeGuard,
     tx_buf: &'static TxFdBuf<TX_BUF_SIZE>,
     rx_buf: &'static RxFdBuf<RX_BUF_SIZE>,
     properties: Properties,
@@ -522,6 +543,7 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCanFd<'
         BufferedCanFd {
             _phantom: PhantomData,
             _mode,
+            _wake_guard: info.rcc_info.wake_guard(),
             tx_buf,
             rx_buf,
             properties: Properties::new(info),
@@ -583,6 +605,7 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCanFd<'
 pub struct CanRx<'d> {
     _phantom: PhantomData<&'d ()>,
     _mode: OperatingMode,
+    _wake_guard: WakeGuard,
     info: RxInfoRef,
 }
 
@@ -603,6 +626,7 @@ pub struct CanTx<'d> {
     _phantom: PhantomData<&'d ()>,
     config: crate::can::fd::config::FdCanConfig,
     _mode: OperatingMode,
+    _wake_guard: WakeGuard,
     info: TxInfoRef,
 }
 
@@ -831,6 +855,11 @@ impl Properties {
         }
     }
 
+    /// Get the CAN subsystem kernel clock input (fdcan_ck) used for bit timing
+    pub fn kernel_input_clock(&self) -> crate::time::Hertz {
+        (self.info.periph_clock)()
+    }
+
     /// Set a standard address CAN filter in the specified slot in FDCAN memory.
     #[inline]
     pub fn set_standard_filter(&self, slot: StandardFilterSlot, filter: StandardFilter) {
@@ -917,6 +946,7 @@ pub(crate) struct Info {
     interrupt0: crate::interrupt::Interrupt,
     _interrupt1: crate::interrupt::Interrupt,
     pub(crate) tx_waker: fn(),
+    periph_clock: fn() -> crate::time::Hertz,
     state: SharedState,
     rcc_info: RccInfo,
 }
@@ -992,6 +1022,7 @@ macro_rules! impl_fdcan {
                     interrupt0: crate::_generated::peripheral_interrupts::$inst::IT0::IRQ,
                     _interrupt1: crate::_generated::peripheral_interrupts::$inst::IT1::IRQ,
                     tx_waker: crate::_generated::peripheral_interrupts::$inst::IT0::pend,
+                    periph_clock: peripherals::$inst::frequency,
                     state: embassy_sync::blocking_mutex::Mutex::new(core::cell::RefCell::new(State::new())),
                     rcc_info: crate::peripherals::$inst::RCC_INFO,
                 };

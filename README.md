@@ -165,5 +165,5 @@ Unless you explicitly state otherwise, any contribution intentionally submitted
 for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
 dual licensed as above, without any additional terms or conditions.
 
-[1]: https://github.com/embassy-rs/embassy/wiki/Getting-Started
+[1]: https://embassy-rs.github.io/embassy-book/embassy/dev/getting_started.html
 [2]: https://github.com/embassy-rs/embassy/wiki/Running-the-Examples

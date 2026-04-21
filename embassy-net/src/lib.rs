@@ -71,6 +71,20 @@ const MAX_QUERIES: usize = 4;
 #[cfg(feature = "dhcpv4-hostname")]
 const MAX_HOSTNAME_LEN: usize = 32;
 
+/// Error returned by `try_*` socket methods.
+///
+/// `WouldBlock` indicates the operation would block (e.g. no data available,
+/// send buffer full). `Other` wraps the socket-specific error type for any
+/// other failure.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum TryError<T> {
+    /// The operation would block; try again later.
+    WouldBlock,
+    /// A socket-specific error occurred.
+    Other(T),
+}
+
 /// Memory resources needed for a network stack.
 pub struct StackResources<const SOCK: usize> {
     sockets: MaybeUninit<[SocketStorage<'static>; SOCK]>,
@@ -220,6 +234,16 @@ impl Config {
             ipv6: ConfigV6::None,
         }
     }
+
+    /// Slaac configuration with dynamic addressing.
+    #[cfg(feature = "slaac")]
+    pub const fn slaac() -> Self {
+        Self {
+            #[cfg(feature = "proto-ipv4")]
+            ipv4: ConfigV4::None,
+            ipv6: ConfigV6::Slaac,
+        }
+    }
 }
 
 /// Network stack IPv4 configuration.
@@ -247,6 +271,9 @@ pub enum ConfigV6 {
     None,
     /// Use a static IPv6 address configuration.
     Static(StaticConfigV6),
+    /// Use SLAAC for IPv6 address configuration.
+    #[cfg(feature = "slaac")]
+    Slaac,
 }
 
 /// Network stack runner.
@@ -280,6 +307,8 @@ pub(crate) struct Inner {
     static_v4: Option<StaticConfigV4>,
     #[cfg(feature = "proto-ipv6")]
     static_v6: Option<StaticConfigV6>,
+    #[cfg(feature = "slaac")]
+    slaac: bool,
     #[cfg(feature = "dhcpv4")]
     dhcp_socket: Option<SocketHandle>,
     #[cfg(feature = "dns")]
@@ -304,13 +333,19 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
     let (hardware_address, medium) = to_smoltcp_hardware_address(driver.hardware_address());
     let mut iface_cfg = smoltcp::iface::Config::new(hardware_address);
     iface_cfg.random_seed = random_seed;
+    #[cfg(feature = "slaac")]
+    {
+        iface_cfg.slaac = matches!(config.ipv6, ConfigV6::Slaac);
+    }
 
-    let iface = Interface::new(
+    #[allow(unused_mut)]
+    let mut iface = Interface::new(
         iface_cfg,
         &mut DriverAdapter {
             inner: &mut driver,
             cx: None,
             medium,
+            tx_exhausted: false,
         },
         instant_to_smoltcp(Instant::now()),
     );
@@ -345,6 +380,8 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
         static_v4: None,
         #[cfg(feature = "proto-ipv6")]
         static_v6: None,
+        #[cfg(feature = "slaac")]
+        slaac: false,
         #[cfg(feature = "dhcpv4")]
         dhcp_socket: None,
         #[cfg(feature = "dns")]
@@ -486,7 +523,7 @@ impl<'d> Stack<'d> {
                 Poll::Ready(())
             } else {
                 // If the config is not up, we register a waker that is woken up
-                // when a config is applied (static or DHCP).
+                // when a config is applied (static, slaac or DHCP).
                 trace!("Waiting for config up");
 
                 self.with_mut(|i| {
@@ -651,6 +688,14 @@ impl<'d> Stack<'d> {
 }
 
 impl Inner {
+    #[cfg(feature = "slaac")]
+    fn get_link_local_address(&self) -> IpCidr {
+        let ll_prefix = Ipv6Cidr::new(Ipv6Cidr::LINK_LOCAL_PREFIX.address(), 64);
+        Ipv6Cidr::from_link_prefix(&ll_prefix, self.hardware_address)
+            .unwrap()
+            .into()
+    }
+
     #[allow(clippy::absurd_extreme_comparisons)]
     pub fn get_local_port(&mut self) -> u16 {
         let res = self.next_local_port;
@@ -719,9 +764,15 @@ impl Inner {
 
     #[cfg(feature = "proto-ipv6")]
     pub fn set_config_v6(&mut self, config: ConfigV6) {
+        #[cfg(feature = "slaac")]
+        {
+            self.slaac = matches!(config, ConfigV6::Slaac);
+        }
         self.static_v6 = match config {
             ConfigV6::None => None,
             ConfigV6::Static(c) => Some(c),
+            #[cfg(feature = "slaac")]
+            ConfigV6::Slaac => None,
         };
     }
 
@@ -758,7 +809,7 @@ impl Inner {
             debug!("   Default gateway: {:?}", config.gateway);
 
             unwrap!(addrs.push(IpCidr::Ipv6(config.address)).ok());
-            gateway_v6 = config.gateway.into();
+            gateway_v6 = config.gateway;
             #[cfg(feature = "dns")]
             for s in &config.dns_servers {
                 debug!("   DNS server:      {:?}", s);
@@ -769,7 +820,18 @@ impl Inner {
         }
 
         // Apply addresses
-        self.iface.update_ip_addrs(|a| *a = addrs);
+        self.iface.update_ip_addrs(|a| {
+            *a = addrs;
+        });
+
+        // Add the link local-address
+        #[cfg(feature = "slaac")]
+        {
+            let ll_address = self.get_link_local_address();
+            self.iface.update_ip_addrs(|a| {
+                let _ = a.push(ll_address);
+            })
+        }
 
         // Apply gateways
         #[cfg(feature = "proto-ipv4")]
@@ -827,8 +889,10 @@ impl Inner {
             cx: Some(cx),
             inner: driver,
             medium,
+            tx_exhausted: false,
         };
         self.iface.poll(timestamp, &mut smoldev, &mut self.sockets);
+        let tx_exhausted = smoldev.tx_exhausted;
 
         // Update link up
         let old_link_up = self.link_up;
@@ -840,42 +904,83 @@ impl Inner {
             self.state_waker.wake();
         }
 
-        #[cfg(feature = "dhcpv4")]
-        if let Some(dhcp_handle) = self.dhcp_socket {
-            let socket = self.sockets.get_mut::<dhcpv4::Socket>(dhcp_handle);
+        #[allow(unused_mut)]
+        let mut configure = false;
 
-            let configure = if self.link_up {
-                if old_link_up != self.link_up {
+        #[cfg(feature = "dhcpv4")]
+        {
+            configure |= if let Some(dhcp_handle) = self.dhcp_socket {
+                let socket = self.sockets.get_mut::<dhcpv4::Socket>(dhcp_handle);
+
+                if self.link_up {
+                    if old_link_up != self.link_up {
+                        socket.reset();
+                    }
+                    match socket.poll() {
+                        None => false,
+                        Some(dhcpv4::Event::Deconfigured) => {
+                            self.static_v4 = None;
+                            true
+                        }
+                        Some(dhcpv4::Event::Configured(config)) => {
+                            self.static_v4 = Some(StaticConfigV4 {
+                                address: config.address,
+                                gateway: config.router,
+                                dns_servers: config.dns_servers,
+                            });
+                            true
+                        }
+                    }
+                } else if old_link_up {
                     socket.reset();
+                    self.static_v4 = None;
+                    true
+                } else {
+                    false
                 }
-                match socket.poll() {
-                    None => false,
-                    Some(dhcpv4::Event::Deconfigured) => {
-                        self.static_v4 = None;
-                        true
-                    }
-                    Some(dhcpv4::Event::Configured(config)) => {
-                        self.static_v4 = Some(StaticConfigV4 {
-                            address: config.address,
-                            gateway: config.router,
-                            dns_servers: config.dns_servers,
-                        });
-                        true
-                    }
-                }
-            } else if old_link_up {
-                socket.reset();
-                self.static_v4 = None;
-                true
             } else {
                 false
-            };
-            if configure {
-                self.apply_static_config()
             }
         }
 
-        if let Some(poll_at) = self.iface.poll_at(timestamp, &mut self.sockets) {
+        #[cfg(feature = "slaac")]
+        if self.slaac && self.iface.slaac_updated_at() == timestamp {
+            let ipv6_address = self.iface.ip_addrs().iter().find_map(|addr| match addr {
+                IpCidr::Ipv6(ip6_address) if !Ipv6Cidr::LINK_LOCAL_PREFIX.contains_addr(&ip6_address.address()) => {
+                    Some(ip6_address)
+                }
+                _ => None,
+            });
+            self.static_v6 = if let Some(address) = ipv6_address {
+                let gateway = self
+                    .iface
+                    .routes()
+                    .get_default_ipv6_route()
+                    .map(|r| match r.via_router {
+                        IpAddress::Ipv6(gateway) => Some(gateway),
+                        #[cfg(feature = "proto-ipv4")]
+                        _ => None,
+                    })
+                    .flatten();
+                let config = StaticConfigV6 {
+                    address: *address,
+                    gateway,
+                    dns_servers: Vec::new(), // RDNSS not (yet) supported by smoltcp.
+                };
+                Some(config)
+            } else {
+                None
+            };
+            configure = true;
+        }
+
+        if configure {
+            self.apply_static_config()
+        }
+
+        if let Some(poll_at) = self.iface.poll_at(timestamp, &mut self.sockets)
+            && !tx_exhausted
+        {
             let t = pin!(Timer::at(instant_from_smoltcp(poll_at)));
             if t.poll(cx).is_ready() {
                 cx.waker().wake_by_ref();

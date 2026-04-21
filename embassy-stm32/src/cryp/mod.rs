@@ -1085,7 +1085,7 @@ impl<'d, T: Instance, M: Mode> Cryp<'d, T, M> {
         T::regs().init(1).ivrr().write_value(u32::from_be_bytes(iv_word));
 
         // Flush in/out FIFOs
-        T::regs().cr().modify(|w| w.fflush());
+        T::regs().cr().modify(|w| w.set_fflush(true));
 
         ctx.cipher.init_phase_blocking(T::regs(), self);
 
@@ -1150,7 +1150,7 @@ impl<'d, T: Instance, M: Mode> Cryp<'d, T, M> {
                 ctx.aad_complete = true;
                 T::regs().cr().modify(|w| w.set_crypen(false));
                 T::regs().cr().modify(|w| w.set_gcm_ccmph(2));
-                T::regs().cr().modify(|w| w.fflush());
+                T::regs().cr().modify(|w| w.set_fflush(true));
             } else {
                 // Just return because we don't yet have a full block to process.
                 return;
@@ -1185,7 +1185,7 @@ impl<'d, T: Instance, M: Mode> Cryp<'d, T, M> {
             ctx.aad_complete = true;
             T::regs().cr().modify(|w| w.set_crypen(false));
             T::regs().cr().modify(|w| w.set_gcm_ccmph(2));
-            T::regs().cr().modify(|w| w.fflush());
+            T::regs().cr().modify(|w| w.set_fflush(true));
         }
 
         self.store_context(ctx);
@@ -1219,7 +1219,7 @@ impl<'d, T: Instance, M: Mode> Cryp<'d, T, M> {
                 ctx.aad_complete = true;
                 T::regs().cr().modify(|w| w.set_crypen(false));
                 T::regs().cr().modify(|w| w.set_gcm_ccmph(2));
-                T::regs().cr().modify(|w| w.fflush());
+                T::regs().cr().modify(|w| w.set_fflush(true));
                 T::regs().cr().modify(|w| w.set_crypen(true));
             }
         }
@@ -1554,7 +1554,7 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
         T::regs().init(1).ivrr().write_value(u32::from_be_bytes(iv_word));
 
         // Flush in/out FIFOs
-        T::regs().cr().modify(|w| w.fflush());
+        T::regs().cr().modify(|w| w.set_fflush(true));
 
         ctx.cipher.init_phase(T::regs(), self).await;
 
@@ -1618,7 +1618,7 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
                 ctx.aad_complete = true;
                 T::regs().cr().modify(|w| w.set_crypen(false));
                 T::regs().cr().modify(|w| w.set_gcm_ccmph(2));
-                T::regs().cr().modify(|w| w.fflush());
+                T::regs().cr().modify(|w| w.set_fflush(true));
             } else {
                 // Just return because we don't yet have a full block to process.
                 return;
@@ -1658,7 +1658,7 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
             ctx.aad_complete = true;
             T::regs().cr().modify(|w| w.set_crypen(false));
             T::regs().cr().modify(|w| w.set_gcm_ccmph(2));
-            T::regs().cr().modify(|w| w.fflush());
+            T::regs().cr().modify(|w| w.set_fflush(true));
         }
 
         self.store_context(ctx);
@@ -1692,7 +1692,7 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
                 ctx.aad_complete = true;
                 T::regs().cr().modify(|w| w.set_crypen(false));
                 T::regs().cr().modify(|w| w.set_gcm_ccmph(2));
-                T::regs().cr().modify(|w| w.fflush());
+                T::regs().cr().modify(|w| w.set_fflush(true));
                 T::regs().cr().modify(|w| w.set_crypen(true));
             }
         }

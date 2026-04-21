@@ -1,11 +1,11 @@
 #![no_std]
 #![no_main]
 
-use cyw43::aligned_bytes;
+use cyw43::{Cyw43439, aligned_bytes};
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
-use embassy_stm32::gpio::{Level, Output, Pull, Speed};
+use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::sdmmc::Sdmmc;
 use embassy_stm32::sdmmc::sdio::SerialDataInterface;
 use embassy_stm32::time::mhz;
@@ -20,7 +20,9 @@ bind_interrupts!(struct Irqs {
 });
 
 #[embassy_executor::task]
-async fn cyw43_task(runner: cyw43::Runner<'static, cyw43::SdioBus<SerialDataInterface<'static, 'static>>>) -> ! {
+async fn cyw43_task(
+    runner: cyw43::Runner<'static, cyw43::SdioBus<SerialDataInterface<'static, 'static>>, Cyw43439>,
+) -> ! {
     runner.run().await
 }
 
@@ -30,46 +32,48 @@ async fn main(spawner: Spawner) {
     let mut config = Config::default();
     {
         use embassy_stm32::rcc::*;
-        config.rcc.hsi = Some(HSIPrescaler::DIV1);
+        config.rcc.hsi = Some(HSIPrescaler::Div1);
         config.rcc.csi = true;
         config.rcc.pll1 = Some(Pll {
-            source: PllSource::HSI,
-            prediv: PllPreDiv::DIV4,
-            mul: PllMul::MUL25,
-            divp: Some(PllDiv::DIV2),
-            divq: Some(PllDiv::DIV4), // SPI1 cksel defaults to pll1_q
+            source: PllSource::Hsi,
+            prediv: PllPreDiv::Div4,
+            mul: PllMul::Mul25,
+            divp: Some(PllDiv::Div2),
+            divq: Some(PllDiv::Div4), // SPI1 cksel defaults to pll1_q
             divr: None,
         });
         config.rcc.pll2 = Some(Pll {
-            source: PllSource::HSI,
-            prediv: PllPreDiv::DIV4,
-            mul: PllMul::MUL25,
+            source: PllSource::Hsi,
+            prediv: PllPreDiv::Div4,
+            mul: PllMul::Mul25,
             divp: None,
             divq: None,
-            divr: Some(PllDiv::DIV4), // 100mhz
+            divr: Some(PllDiv::Div4), // 100mhz
         });
-        config.rcc.sys = Sysclk::PLL1_P; // 200 Mhz
-        config.rcc.ahb_pre = AHBPrescaler::DIV1; // 200 Mhz
-        config.rcc.apb1_pre = APBPrescaler::DIV2; // 100 Mhz
-        config.rcc.apb2_pre = APBPrescaler::DIV2; // 100 Mhz
-        config.rcc.apb3_pre = APBPrescaler::DIV2; // 100 Mhz
+        config.rcc.sys = Sysclk::Pll1P; // 200 Mhz
+        config.rcc.ahb_pre = AHBPrescaler::Div1; // 200 Mhz
+        config.rcc.apb1_pre = APBPrescaler::Div2; // 100 Mhz
+        config.rcc.apb2_pre = APBPrescaler::Div2; // 100 Mhz
+        config.rcc.apb3_pre = APBPrescaler::Div2; // 100 Mhz
         config.rcc.voltage_scale = VoltageScale::Scale1;
-        config.rcc.mux.adcdacsel = mux::Adcdacsel::PLL2_R;
+        config.rcc.mux.adcdacsel = mux::Adcdacsel::Pll2R;
     }
     let p = embassy_stm32::init(config);
 
+    // let mut pwr = Output::new(p.PA6, Level::Low, Speed::High);
+    // let mut wl_reg = Output::new(p.PB0, Level::Low, Speed::High);
     let mut wl_reg = Output::new(p.PD0, Level::Low, Speed::High);
     let mut _bt_reg = Output::new(p.PG3, Level::Low, Speed::High);
     let mut _sdio_reset = Output::new(p.PD11, Level::Low, Speed::High);
 
     let _wl_wake_host = ExtiInput::new(p.PD1, p.EXTI1, Pull::Down, Irqs);
 
-    // let sdio_clk = Input::new(unsafe { p.PC12.clone_unchecked() }, Pull::None);
-    // let sdio_cmd = Input::new(unsafe { p.PD2.clone_unchecked() }, Pull::None);
-    // let sdio_data0 = Input::new(unsafe { p.PC8.clone_unchecked() }, Pull::None);
-    // let sdio_data1 = Input::new(unsafe { p.PC9.clone_unchecked() }, Pull::None);
-    // let sdio_data2 = Input::new(unsafe { p.PC10.clone_unchecked() }, Pull::None);
-    // let sdio_data3 = Input::new(unsafe { p.PC11.clone_unchecked() }, Pull::None);
+    let sdio_clk = Input::new(unsafe { p.PC12.clone_unchecked() }, Pull::None);
+    let sdio_cmd = Input::new(unsafe { p.PD2.clone_unchecked() }, Pull::None);
+    let sdio_data0 = Input::new(unsafe { p.PC8.clone_unchecked() }, Pull::None);
+    let sdio_data1 = Input::new(unsafe { p.PC9.clone_unchecked() }, Pull::None);
+    let sdio_data2 = Input::new(unsafe { p.PC10.clone_unchecked() }, Pull::None);
+    let sdio_data3 = Input::new(unsafe { p.PC11.clone_unchecked() }, Pull::None);
 
     let fw = aligned_bytes!("../../../../cyw43-firmware/43439A0.bin");
     let clm = aligned_bytes!("../../../../cyw43-firmware/43439A0_clm.bin");
@@ -88,51 +92,46 @@ async fn main(spawner: Spawner) {
     );
 
     {
-        // let _out1 = Output::new(p.PC12.reborrow(), Level::Low, Speed::High);
-        // let _out2 = Output::new(p.PD2.reborrow(), Level::High, Speed::High);
-        // let _out3 = Output::new(p.PC8.reborrow(), Level::High, Speed::High);
-        // let _out4 = Output::new(p.PC9.reborrow(), Level::High, Speed::High);
-        // let _out5 = Output::new(p.PC10.reborrow(), Level::High, Speed::High);
-        // let _out6 = Output::new(p.PC11.reborrow(), Level::High, Speed::High);
+        if sdio_clk.is_high() {
+            trace!("sdio_clk is high");
+        } else {
+            trace!("sdio_clk is not high");
+        }
+        if sdio_cmd.is_high() {
+            trace!("sdio_cmd is high");
+        } else {
+            trace!("sdio_cmd is not high");
+        }
 
-        //        if sdio_clk.is_high() {
-        //            trace!("sdio_clk is high");
-        //        } else {
-        //            trace!("sdio_clk is not high");
-        //        }
-        //        if sdio_cmd.is_high() {
-        //            trace!("sdio_cmd is high");
-        //        } else {
-        //            trace!("sdio_cmd is not high");
-        //        }
-        //
-        //        if sdio_data0.is_high() {
-        //            trace!("sdio_data0 is high");
-        //        } else {
-        //            trace!("sdio_data0 is not high");
-        //        }
-        //        if sdio_data1.is_high() {
-        //            trace!("sdio_data1 is high");
-        //        } else {
-        //            trace!("sdio_data1 is not high");
-        //        }
-        //
-        //        if sdio_data2.is_high() {
-        //            trace!("sdio_data2 is high");
-        //        } else {
-        //            trace!("sdio_data2 is not high");
-        //        }
-        //
-        //        if sdio_data3.is_high() {
-        //            trace!("sdio_data3 is high");
-        //        } else {
-        //            trace!("sdio_data3 is not high");
-        //        }
+        if sdio_data0.is_high() {
+            trace!("sdio_data0 is high");
+        } else {
+            trace!("sdio_data0 is not high");
+        }
+        if sdio_data1.is_high() {
+            trace!("sdio_data1 is high");
+        } else {
+            trace!("sdio_data1 is not high");
+        }
+
+        if sdio_data2.is_high() {
+            trace!("sdio_data2 is high");
+        } else {
+            trace!("sdio_data2 is not high");
+        }
+
+        if sdio_data3.is_high() {
+            trace!("sdio_data3 is high");
+        } else {
+            trace!("sdio_data3 is not high");
+        }
 
         trace!("WL_REG off/on");
+        // pwr.set_low();
         wl_reg.set_low();
         Timer::after_millis(250).await;
         wl_reg.set_high();
+        // pwr.set_high();
         Timer::after_millis(10).await;
     }
 
@@ -146,7 +145,7 @@ async fn main(spawner: Spawner) {
 
     info!("new sdio");
 
-    let (_net_device, mut control, runner) = cyw43::new_sdio(state, sdio, fw, nvram).await;
+    let (_net_device, mut control, runner) = cyw43::new_43439_sdio(state, sdio, fw, nvram).await.unwrap();
 
     info!("spawn task");
 

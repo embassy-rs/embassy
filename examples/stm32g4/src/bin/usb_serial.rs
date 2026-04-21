@@ -28,16 +28,16 @@ async fn main(_spawner: Spawner) {
             mode: HseMode::Oscillator,
         });
         config.rcc.pll = Some(Pll {
-            source: PllSource::HSE,
-            prediv: PllPreDiv::DIV2,
-            mul: PllMul::MUL72,
+            source: PllSource::Hse,
+            prediv: PllPreDiv::Div2,
+            mul: PllMul::Mul72,
             divp: None,
-            divq: Some(PllQDiv::DIV6), // 48mhz
-            divr: Some(PllRDiv::DIV2), // Main system clock at 144 MHz
+            divq: Some(PllQDiv::Div6), // 48mhz
+            divr: Some(PllRDiv::Div2), // Main system clock at 144 MHz
         });
-        config.rcc.sys = Sysclk::PLL1_R;
+        config.rcc.sys = Sysclk::Pll1R;
         config.rcc.boost = true; // BOOST!
-        config.rcc.mux.clk48sel = mux::Clk48sel::HSI48;
+        config.rcc.mux.clk48sel = mux::Clk48sel::Hsi48;
         //config.rcc.mux.clk48sel = mux::Clk48sel::PLL1_Q; // uncomment to use PLL1_Q instead.
     }
     let p = embassy_stm32::init(config);

@@ -250,6 +250,12 @@ pub trait Cipher<'c> {
         0 // NO_SWAP for all modes - handles NIST vectors correctly with from_be_bytes/to_be_bytes
     }
 
+    /// Returns the raw CHMOD field value for this cipher mode.
+    /// Used by peripheral drivers (e.g. SAES) that need the raw mode bits without a PAC type.
+    fn chmod_bits(&self) -> u8 {
+        0 // ECB default
+    }
+
     /// Performs any key preparation within the processor, if necessary.
     fn prepare_key(&self, _p: pac::aes::Aes, _dir: Direction) {}
 
@@ -381,6 +387,10 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesEcb<'c, KEY_SIZE> {
         });
     }
 
+    fn chmod_bits(&self) -> u8 {
+        0
+    }
+
     fn prepare_key(&self, p: pac::aes::Aes, dir: Direction) {
         // For ECB decryption, need to prepare key (RM Section 26.4.6 steps 2-7)
         if dir == Direction::Decrypt {
@@ -430,6 +440,10 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesCbc<'c, KEY_SIZE> {
         p.cr().modify(|w| {
             w.set_chmod(pac::aes::vals::Chmod::from_bits(1));
         });
+    }
+
+    fn chmod_bits(&self) -> u8 {
+        1
     }
 
     // Uses default datatype() = 0 (NO_SWAP) for NIST vector compatibility
@@ -485,6 +499,10 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesCtr<'c, KEY_SIZE> {
         });
     }
 
+    fn chmod_bits(&self) -> u8 {
+        2
+    }
+
     // Uses default datatype() = 0 (NO_SWAP) for NIST vector compatibility
 }
 
@@ -525,6 +543,10 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesGcm<'c, KEY_SIZE> {
         p.cr().modify(|w| {
             w.set_chmod(pac::aes::vals::Chmod::from_bits(3));
         });
+    }
+
+    fn chmod_bits(&self) -> u8 {
+        3
     }
 
     fn init_phase_blocking<T: Instance, M: Mode>(&self, p: pac::aes::Aes, _aes: &Aes<T, M>) {
@@ -638,6 +660,10 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesGmac<'c, KEY_SIZE> {
         });
     }
 
+    fn chmod_bits(&self) -> u8 {
+        3
+    }
+
     fn init_phase_blocking<T: Instance, M: Mode>(&self, p: pac::aes::Aes, _aes: &Aes<T, M>) {
         // Same init phase as GCM - compute hash key H
         p.cr().modify(|w| w.set_en(true));
@@ -742,6 +768,10 @@ impl<'c, const KEY_SIZE: usize, const IV_SIZE: usize, const TAG_SIZE: usize> Cip
         p.cr().modify(|w| {
             w.set_chmod(pac::aes::vals::Chmod::from_bits(4));
         });
+    }
+
+    fn chmod_bits(&self) -> u8 {
+        4
     }
 
     fn init_phase_blocking<T: Instance, M: Mode>(&self, p: pac::aes::Aes, _aes: &Aes<T, M>) {

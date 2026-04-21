@@ -59,8 +59,8 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             timeout_ticks: 32768, // 1 second
-            action_during_debug_halt: HaltConfig::RUN,
-            action_during_sleep: SleepConfig::RUN,
+            action_during_debug_halt: HaltConfig::Run,
+            action_during_sleep: SleepConfig::Run,
         }
     }
 }
@@ -189,7 +189,7 @@ impl WatchdogHandle {
     #[inline]
     pub fn pet(&mut self) {
         let r = self.regs();
-        r.rr(self.rr_index()).write(|w| w.set_rr(vals::Rr::RELOAD));
+        r.rr(self.rr_index()).write(|w| w.set_rr(vals::Rr::Reload));
     }
 
     /// Has this handle been pet within the current window?
