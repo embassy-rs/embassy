@@ -316,45 +316,25 @@ impl<'d, M: Mode> Sgi<'d, M> {
 
     /// Helper that maps normal mode datain/keyin registers writes to an index.
     #[inline(always)]
-    fn write_fifo_word_normal(&self, word_index: usize, word: u32) {
-        match word_index {
-            0 => self.info.regs().sgi_datin0a().write(|w| w.set_datin0a(word)),
-            1 => self.info.regs().sgi_datin0b().write(|w| w.set_datin0b(word)),
-            2 => self.info.regs().sgi_datin0c().write(|w| w.set_datin0c(word)),
-            3 => self.info.regs().sgi_datin0d().write(|w| w.set_datin0d(word)),
-            4 => self.info.regs().sgi_datin1a().write(|w| w.set_datin1a(word)),
-            5 => self.info.regs().sgi_datin1b().write(|w| w.set_datin1b(word)),
-            6 => self.info.regs().sgi_datin1c().write(|w| w.set_datin1c(word)),
-            7 => self.info.regs().sgi_datin1d().write(|w| w.set_datin1d(word)),
-            8 => self.info.regs().sgi_datin2a().write(|w| w.set_datin2a(word)),
-            9 => self.info.regs().sgi_datin2b().write(|w| w.set_datin2b(word)),
-            10 => self.info.regs().sgi_datin2c().write(|w| w.set_datin2c(word)),
-            11 => self.info.regs().sgi_datin2d().write(|w| w.set_datin2d(word)),
-            12 => self.info.regs().sgi_datin3a().write(|w| w.set_datin3a(word)),
-            13 => self.info.regs().sgi_datin3b().write(|w| w.set_datin3b(word)),
-            14 => self.info.regs().sgi_datin3c().write(|w| w.set_datin3c(word)),
-            15 => self.info.regs().sgi_datin3d().write(|w| w.set_datin3d(word)),
-            16 => self.info.regs().sgi_key0a().write(|w| w.set_key0a(word)),
-            17 => self.info.regs().sgi_key0b().write(|w| w.set_key0b(word)),
-            18 => self.info.regs().sgi_key0c().write(|w| w.set_key0c(word)),
-            19 => self.info.regs().sgi_key0d().write(|w| w.set_key0d(word)),
-            20 => self.info.regs().sgi_key1a().write(|w| w.set_key1a(word)),
-            21 => self.info.regs().sgi_key1b().write(|w| w.set_key1b(word)),
-            22 => self.info.regs().sgi_key1c().write(|w| w.set_key1c(word)),
-            23 => self.info.regs().sgi_key1d().write(|w| w.set_key1d(word)),
-            24 => self.info.regs().sgi_key2a().write(|w| w.set_key2a(word)),
-            25 => self.info.regs().sgi_key2b().write(|w| w.set_key2b(word)),
-            26 => self.info.regs().sgi_key2c().write(|w| w.set_key2c(word)),
-            27 => self.info.regs().sgi_key2d().write(|w| w.set_key2d(word)),
-            28 => self.info.regs().sgi_key3a().write(|w| w.set_key3a(word)),
-            29 => self.info.regs().sgi_key3b().write(|w| w.set_key3b(word)),
-            30 => self.info.regs().sgi_key3c().write(|w| w.set_key3c(word)),
-            31 => self.info.regs().sgi_key3d().write(|w| w.set_key3d(word)),
-            _ => {
-                // Caller bounds word_index.
-                unsafe { core::hint::unreachable_unchecked() }
-            }
+    fn write_fifo_word_normal(&self, word_index: usize, word: u32) -> Result<(), SgiError> {
+        // SGI Manual FIFO filling utilizez both data (4 banks x 4 words) and key (8 banks (4 used here) x 4 words) registers,
+        // so we map the first 16 words to datain and the next 16 words to keyin.
+        if word_index < 16 {
+            //datin bank 0-3, 4 words each
+            let bank = word_index / 4;
+            let slot = 3 - (word_index % 4); // A-D words are swapped in the HW, so we reverse the slot order here to match the expected order in the SGI manual.
+            self.info.regs().datin(bank).word(slot).write_value(word);
+        } else if word_index < 32 {
+            //keyin banks 0-3, 4 words each;
+            let key_index = word_index - 16;
+            let bank = key_index / 4;
+            let slot = 3 - (key_index % 4); // A-D words are swapped in the HW, so we reverse the slot order here to match the expected order in the SGI manual.
+            self.info.regs().key(bank).word(slot).write_value(word);
+        } else {
+            return Err(SgiError::InvalidSize);
         }
+
+        Ok(())
     }
 
     /// CPU driven FIFO filling for normal mode. Caller is responsible for starting the operation after filling the FIFO, and ensuring data size does not exceed FIFO capacity.
@@ -369,7 +349,7 @@ impl<'d, M: Mode> Sgi<'d, M> {
         }
         for (i, chunk) in data.chunks_exact(4).enumerate() {
             let word = u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
-            self.write_fifo_word_normal(i, word);
+            self.write_fifo_word_normal(i, word)?;
         }
         Ok(())
     }
@@ -470,7 +450,7 @@ impl<'d, M: Mode> Sgi<'d, M> {
     /// SGI instance error (encompasses internal (e.g. PRNG) errors and usage errors like invalid commands or data).
     pub(crate) fn sgi_error(&self) -> Result<(), SgiError> {
         let status = self.status();
-        if status.error() != pac_sgi::Error::NO_ERROR {
+        if status.error() != pac_sgi::Error::NoError {
             self.clear_errors(); // Clear errors after reading
             return Err(SgiError::HardwareError);
         }
@@ -508,11 +488,11 @@ impl<'d, M: Mode> Sgi<'d, M> {
     fn read_dataout_block(&self, output: &mut [u8], idx: usize) -> Result<(), SgiError> {
         const TOTAL_DATAOUT_REGS: usize = 4; // DATOUTA, DATOUTB, DATOUTC, DATOUTD
         let words = [
-            self.info.regs().sgi_datouta().read().datouta(),
-            self.info.regs().sgi_datoutb().read().datoutb(),
-            self.info.regs().sgi_datoutc().read().datoutc(),
-            self.info.regs().sgi_datoutd().read().datoutd(),
-        ];
+            self.info.regs().datout().word(3).read(),
+            self.info.regs().datout().word(2).read(),
+            self.info.regs().datout().word(1).read(),
+            self.info.regs().datout().word(0).read(),
+        ]; // Order is reversed in hardware, so we read in reverse order to match the expected output format.
 
         for (i, word) in words.into_iter().take(TOTAL_DATAOUT_REGS).enumerate() {
             output[idx + (i * 4)..idx + (i * 4) + 4].copy_from_slice(&word.to_be_bytes());
