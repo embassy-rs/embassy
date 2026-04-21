@@ -324,3 +324,40 @@ impl<'d, D: UsbHostDriver<'d>> UsbHost<'d, D> {
         ))
     }
 }
+
+#[cfg(all(test, feature = "defmt"))]
+mod tests {
+    //! Provide defmt stuff for tests.
+
+    extern crate std;
+
+    #[unsafe(no_mangle)]
+    fn _defmt_acquire() {}
+
+    #[unsafe(no_mangle)]
+    fn _defmt_flush() {}
+
+    #[unsafe(no_mangle)]
+    fn _defmt_release() {}
+
+    /// Writes bytes as a simple hex line: "xx xx xx xx  xx xx xx xx  xx..."
+    #[unsafe(no_mangle)]
+    fn _defmt_write(bytes: &[u8]) {
+        for (i, b) in bytes.into_iter().enumerate() {
+            if i > 0 {
+                if i.is_multiple_of(4) {
+                    std::print!("  ");
+                } else {
+                    std::print!(" ");
+                }
+            }
+            std::print!("{:02x}", b);
+        }
+        std::println!("");
+    }
+
+    #[unsafe(no_mangle)]
+    fn _defmt_timestamp(_fmt: defmt::Formatter<'_>) {
+        std::println!("{:?}", std::time::Instant::now());
+    }
+}

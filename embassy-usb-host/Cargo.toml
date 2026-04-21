@@ -37,3 +37,9 @@ env_logger = "0.9"
 [features]
 defmt = ["dep:defmt", "embassy-usb-driver/defmt", "heapless/defmt"]
 log = ["dep:log"]
+
+[package.metadata.cargo-all-features]
+skip_feature_sets = [
+    # these features are mutually exclusive
+    ["log", "defmt"],
+]
