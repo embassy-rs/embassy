@@ -24,7 +24,7 @@ heapless = { version = "0.9", default-features = false }
 nb = "1.0.0"
 embedded-storage = "0.3.1"
 static_cell = "2"
-stm32-hrtim = { version = "0.2.0", features = ["stm32f334"] }
+stm32-hrtim = "0.2.0"
 
 [package.metadata.embassy]
 build = [
