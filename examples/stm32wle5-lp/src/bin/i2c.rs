@@ -19,17 +19,17 @@ bind_interrupts!(struct Irqs{
     DMA1_CHANNEL7 => dma::InterruptHandler<peripherals::DMA1_CH7>;
 });
 
-#[embassy_executor::main(executor = "embassy_stm32::Executor", entry = "cortex_m_rt::entry")]
+#[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn async_main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
     // enable HSI clock
     config.rcc.hsi = true;
     // enable LSI clock for RTC
     config.rcc.ls = embassy_stm32::rcc::LsConfig::default_lsi();
-    config.rcc.msi = Some(embassy_stm32::rcc::MSIRange::RANGE4M);
-    config.rcc.sys = embassy_stm32::rcc::Sysclk::MSI;
+    config.rcc.msi = Some(embassy_stm32::rcc::MSIRange::Range4m);
+    config.rcc.sys = embassy_stm32::rcc::Sysclk::Msi;
     // enable ADC with HSI clock
-    config.rcc.mux.i2c2sel = embassy_stm32::pac::rcc::vals::I2c2sel::HSI;
+    config.rcc.mux.i2c2sel = embassy_stm32::pac::rcc::vals::I2c2sel::Hsi;
     #[cfg(feature = "defmt-serial")]
     {
         // disable debug during sleep to reduce power consumption since we are
@@ -37,7 +37,7 @@ async fn async_main(_spawner: Spawner) {
         config.enable_debug_during_sleep = false;
         // if we are using defmt-serial on LPUART1, we need to use HSI for the clock
         // so that its registers are preserved during STOP modes.
-        config.rcc.mux.lpuart1sel = embassy_stm32::pac::rcc::vals::Lpuart1sel::HSI;
+        config.rcc.mux.lpuart1sel = embassy_stm32::pac::rcc::vals::Lpuart1sel::Hsi;
     }
     // Initialize STM32WL peripherals (use default config like wio-e5-async example)
     let p = embassy_stm32::init(config);
@@ -70,7 +70,7 @@ async fn async_main(_spawner: Spawner) {
     loop {
         let mut buffer = [0; 2];
         // read the temperature register of the onboard lm75
-        match i2c.read(0x48, &mut buffer).await {
+        match i2c.read(0x48u8, &mut buffer).await {
             Ok(_) => info!("--> {:?}", buffer),
             Err(e) => info!("--> Error: {:?}", e),
         }

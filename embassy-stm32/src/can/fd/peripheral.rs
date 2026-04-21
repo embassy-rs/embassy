@@ -309,7 +309,7 @@ impl Registers {
 
     /// Moves out of PoweredDownMode and into ConfigMode
     #[inline]
-    pub fn into_config_mode(self, _config: FdCanConfig) {
+    pub fn into_config_mode(&self, _config: FdCanConfig) {
         self.set_power_down_mode(false);
         self.enter_init_mode();
         self.reset_msg_ram();
@@ -366,7 +366,7 @@ impl Registers {
         #[cfg(not(can_fdcan_h7))]
         self.regs
             .tscc()
-            .write(|w| w.set_tss(stm32_metapac::can::vals::Tss::INCREMENT));
+            .write(|w| w.set_tss(stm32_metapac::can::vals::Tss::Increment));
         #[cfg(can_fdcan_h7)]
         self.regs.tscc().write(|w| w.set_tss(0x01));
 
@@ -526,9 +526,9 @@ impl Registers {
 
         #[cfg(not(can_fdcan_h7))]
         let (tcp, tss) = match select {
-            TimestampSource::None => (0, stm32_metapac::can::vals::Tss::ZERO),
-            TimestampSource::Prescaler(p) => (p as u8, stm32_metapac::can::vals::Tss::INCREMENT),
-            TimestampSource::FromTIM3 => (0, stm32_metapac::can::vals::Tss::EXTERNAL),
+            TimestampSource::None => (0, stm32_metapac::can::vals::Tss::Zero),
+            TimestampSource::Prescaler(p) => (p as u8, stm32_metapac::can::vals::Tss::Increment),
+            TimestampSource::FromTIM3 => (0, stm32_metapac::can::vals::Tss::External),
         };
 
         self.regs.tscc().write(|w| {
@@ -542,14 +542,14 @@ impl Registers {
     #[inline]
     pub fn set_global_filter(&self, filter: GlobalFilter) {
         let anfs = match filter.handle_standard_frames {
-            crate::can::fd::config::NonMatchingFilter::IntoRxFifo0 => stm32_metapac::can::vals::Anfs::ACCEPT_FIFO_0,
-            crate::can::fd::config::NonMatchingFilter::IntoRxFifo1 => stm32_metapac::can::vals::Anfs::ACCEPT_FIFO_1,
-            crate::can::fd::config::NonMatchingFilter::Reject => stm32_metapac::can::vals::Anfs::REJECT,
+            crate::can::fd::config::NonMatchingFilter::IntoRxFifo0 => stm32_metapac::can::vals::Anfs::AcceptFifo0,
+            crate::can::fd::config::NonMatchingFilter::IntoRxFifo1 => stm32_metapac::can::vals::Anfs::AcceptFifo1,
+            crate::can::fd::config::NonMatchingFilter::Reject => stm32_metapac::can::vals::Anfs::Reject,
         };
         let anfe = match filter.handle_extended_frames {
-            crate::can::fd::config::NonMatchingFilter::IntoRxFifo0 => stm32_metapac::can::vals::Anfe::ACCEPT_FIFO_0,
-            crate::can::fd::config::NonMatchingFilter::IntoRxFifo1 => stm32_metapac::can::vals::Anfe::ACCEPT_FIFO_1,
-            crate::can::fd::config::NonMatchingFilter::Reject => stm32_metapac::can::vals::Anfe::REJECT,
+            crate::can::fd::config::NonMatchingFilter::IntoRxFifo0 => stm32_metapac::can::vals::Anfe::AcceptFifo0,
+            crate::can::fd::config::NonMatchingFilter::IntoRxFifo1 => stm32_metapac::can::vals::Anfe::AcceptFifo1,
+            crate::can::fd::config::NonMatchingFilter::Reject => stm32_metapac::can::vals::Anfe::Reject,
         };
 
         self.regs.rxgfc().modify(|w| {

@@ -21,23 +21,38 @@
 //!
 //! # Example
 //!
-//! ```no_run
+//! ```rust,no_run
+//! #![no_std]
+//! #![no_main]
+//!
+//! # use panic_halt as _;
+//! use embassy_executor::Spawner;
+//! use embassy_mcxa::clocks::config::Div8;
+//! use embassy_mcxa::config::Config;
 //! use embassy_mcxa::flash::Flash;
 //! use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
 //!
-//! let mut flash = Flash::new();
+//! #[embassy_executor::main]
+//! async fn main(_spawner: Spawner) {
+//!     let mut config = Config::default();
+//!     config.clock_cfg.sirc.fro_lf_div = Div8::from_divisor(1);
 //!
-//! // Erase a sector at offset 0xFE000 (near the end of 1 MB flash)
-//! flash.erase(0xFE000, 0x10_0000).unwrap();
+//!     let p = embassy_mcxa::init(config);
 //!
-//! // Program 128 bytes at that offset (must be a multiple of 16-byte phrase size)
-//! let data = [0xABu8; 128];
-//! flash.write(0xFE000, &data).unwrap();
+//!     let mut flash = Flash::new().unwrap();
 //!
-//! // Read back
-//! let mut buf = [0u8; 128];
-//! flash.read(0xFE000, &mut buf).unwrap();
-//! assert_eq!(buf, data);
+//!     // Erase a sector at offset 0xFE000 (near the end of 1 MB flash)
+//!     flash.erase(0xFE000, 0x10_0000).unwrap();
+//!
+//!     // Program 128 bytes at that offset (must be a multiple of 16-byte phrase size)
+//!     let data = [0xABu8; 128];
+//!     flash.write(0xFE000, &data).unwrap();
+//!
+//!     // Read back
+//!     let mut buf = [0u8; 128];
+//!     flash.read(0xFE000, &mut buf).unwrap();
+//! }
+//!
 //! ```
 
 use core::slice;
@@ -45,7 +60,7 @@ use core::slice;
 use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
 
 use crate::pac;
-use crate::pac::syscon::vals::{ClrLpcac, DisDataSpec, DisFlashSpec, DisLpcac, DisMbeccErrData, DisMbeccErrInst};
+use crate::pac::syscon::{ClrLpcac, DisDataSpec, DisFlashSpec, DisLpcac, DisMbeccErrData, DisMbeccErrInst};
 
 // ---------------------------------------------------------------------------
 // Flash geometry constants
@@ -241,16 +256,16 @@ fn speculation_buffer_clear() {
     let val = nvm.read();
 
     // Only proceed if MBECC error reporting is enabled for both inst and data
-    if val.dis_mbecc_err_inst() == DisMbeccErrInst::ENABLE && val.dis_mbecc_err_data() == DisMbeccErrData::ENABLE {
+    if val.dis_mbecc_err_inst() == DisMbeccErrInst::Enable && val.dis_mbecc_err_data() == DisMbeccErrData::Enable {
         // Toggle flash speculation disable
-        if val.dis_flash_spec() == DisFlashSpec::ENABLE {
-            nvm.modify(|w| w.set_dis_flash_spec(DisFlashSpec::DISABLE));
-            nvm.modify(|w| w.set_dis_flash_spec(DisFlashSpec::ENABLE));
+        if val.dis_flash_spec() == DisFlashSpec::Enable {
+            nvm.modify(|w| w.set_dis_flash_spec(DisFlashSpec::Disable));
+            nvm.modify(|w| w.set_dis_flash_spec(DisFlashSpec::Enable));
         }
         // Toggle data speculation disable
-        if nvm.read().dis_data_spec() == DisDataSpec::ENABLE {
-            nvm.modify(|w| w.set_dis_data_spec(DisDataSpec::DISABLE));
-            nvm.modify(|w| w.set_dis_data_spec(DisDataSpec::ENABLE));
+        if nvm.read().dis_data_spec() == DisDataSpec::Enable {
+            nvm.modify(|w| w.set_dis_data_spec(DisDataSpec::Disable));
+            nvm.modify(|w| w.set_dis_data_spec(DisDataSpec::Enable));
         }
     }
 }
@@ -260,8 +275,8 @@ fn speculation_buffer_clear() {
 #[inline]
 fn lpcac_clear() {
     let lpcac = pac::SYSCON.lpcac_ctrl();
-    if lpcac.read().dis_lpcac() == DisLpcac::ENABLE {
-        lpcac.modify(|w| w.set_clr_lpcac(ClrLpcac::DISABLE));
+    if lpcac.read().dis_lpcac() == DisLpcac::Enable {
+        lpcac.modify(|w| w.set_clr_lpcac(ClrLpcac::Disable));
     }
 }
 

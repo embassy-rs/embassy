@@ -5,7 +5,7 @@ use embedded_hal_1::digital::OutputPin;
 use futures::FutureExt;
 
 use crate::consts::*;
-use crate::runner::{BusType, SealedBus};
+use crate::runner::{BusConfig, BusType, SealedBus};
 use crate::util::{slice8_mut, slice32_mut, slice32_ref};
 
 /// Custom Spi Trait that _only_ supports the bus operation of the cyw43
@@ -152,8 +152,13 @@ where
     SPI: SpiBusCyw43,
 {
     const TYPE: BusType = BusType::Spi;
+    type Config = ();
 
-    async fn init(&mut self, bluetooth_enabled: bool) {
+    async fn init<'a>(&mut self, bluetooth_enabled: bool, config: &'a ()) -> crate::Result<BusConfig<'a>> {
+        fn cmp<R: Eq>(left: R, right: R) -> Result<(), ()> {
+            if left == right { Ok(()) } else { Err(()) }
+        }
+
         // Reset
         trace!("WL_REG off/on");
         self.pwr.set_low().unwrap();
@@ -173,7 +178,7 @@ where
         self.write32_swapped(FUNC_BUS, REG_BUS_TEST_RW, TEST_PATTERN).await;
         let val = self.read32_swapped(FUNC_BUS, REG_BUS_TEST_RW).await;
         trace!("{:#x}", val);
-        assert_eq!(val, TEST_PATTERN);
+        cmp(val, TEST_PATTERN).map_err(|_| crate::Error)?;
 
         trace!("read REG_BUS_CTRL");
         let val = self.read32_swapped(FUNC_BUS, REG_BUS_CTRL).await;
@@ -203,13 +208,13 @@ where
         trace!("read REG_BUS_TEST_RO");
         let val = self.read32(FUNC_BUS, REG_BUS_TEST_RO).await;
         trace!("{:#x}", val);
-        assert_eq!(val, FEEDBEAD);
+        cmp(val, FEEDBEAD).map_err(|_| crate::Error)?;
 
         // TODO: C doesn't do this? i doubt it messes anything up
         trace!("read REG_BUS_TEST_RW");
         let val = self.read32(FUNC_BUS, REG_BUS_TEST_RW).await;
         trace!("{:#x}", val);
-        assert_eq!(val, TEST_PATTERN);
+        cmp(val, TEST_PATTERN).map_err(|_| crate::Error)?;
 
         trace!("write SPI_RESP_DELAY_F1 CYW43_BACKPLANE_READ_PAD_LEN_BYTES");
         self.write8(FUNC_BUS, SPI_RESP_DELAY_F1, WHD_BUS_SPI_BACKPLANE_READ_PADD_SIZE)
@@ -238,9 +243,11 @@ where
             val = val | IRQ_F1_INTR;
         }
         self.write16(FUNC_BUS, REG_BUS_INTERRUPT_ENABLE, val).await;
+
+        Ok(BusConfig::Spi(config))
     }
 
-    async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) {
+    async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) -> Result<(), ()> {
         let len_in_u8 = buf.len() as u32;
         let buf = slice32_mut(buf);
 
@@ -248,6 +255,8 @@ where
         let len_in_u32 = (len_in_u8 as usize + 3) / 4;
 
         self.status = self.spi.cmd_read(cmd, &mut buf[..len_in_u32]).await;
+
+        Ok(())
     }
 
     async fn wlan_write(&mut self, buf: &Aligned<A4, [u8]>) {

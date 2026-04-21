@@ -47,8 +47,8 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            parity: Parity::EXCLUDED,
-            baudrate: Baudrate::BAUD115200,
+            parity: Parity::Excluded,
+            baudrate: Baudrate::Baud115200,
         }
     }
 }
@@ -115,13 +115,17 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 
         let endrx = r.events_dma().rx().end().read();
         let error = r.events_error().read();
-        if endrx != 0 || error != 0 {
+        let rxto = r.events_rxto().read();
+        if endrx != 0 || error != 0 || rxto != 0 {
             s.rx_waker.wake();
             if endrx != 0 {
                 r.intenclr().write(|w| w.set_dmarxend(true));
             }
             if error != 0 {
                 r.intenclr().write(|w| w.set_error(true));
+            }
+            if rxto != 0 {
+                r.intenclr().write(|w| w.set_rxto(true));
             }
         }
         if r.events_dma().tx().end().read() != 0 {
@@ -153,6 +157,7 @@ pub struct UarteRx<'d> {
     r: pac::uarte::Uarte,
     state: &'static State,
     _p: PhantomData<&'d ()>,
+    rx_on: bool,
 }
 
 impl<'d> Uarte<'d> {
@@ -208,7 +213,7 @@ impl<'d> Uarte<'d> {
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
-        r.enable().write(|w| w.set_enable(vals::Enable::ENABLED));
+        r.enable().write(|w| w.set_enable(vals::Enable::Enabled));
 
         let s = T::state();
         s.tx_rx_refcount.store(2, Ordering::Relaxed);
@@ -223,6 +228,7 @@ impl<'d> Uarte<'d> {
                 r: T::regs(),
                 state: T::state(),
                 _p: PhantomData {},
+                rx_on: false,
             },
         }
     }
@@ -265,6 +271,11 @@ impl<'d> Uarte<'d> {
         self.rx.read(buffer).await
     }
 
+    /// Flush the RX FIFO to RAM without activating the receiver.
+    pub async fn flush_rx(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+        self.rx.flush_rx(buffer).await
+    }
+
     /// Write all bytes in the buffer.
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         self.tx.write(buffer).await
@@ -278,6 +289,11 @@ impl<'d> Uarte<'d> {
     /// Read bytes until the buffer is filled.
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         self.rx.blocking_read(buffer)
+    }
+
+    /// Flush the RX FIFO to RAM without activating the receiver.
+    pub fn blocking_flush_rx(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+        self.rx.blocking_flush_rx(buffer)
     }
 
     /// Write all bytes in the buffer.
@@ -294,10 +310,10 @@ impl<'d> Uarte<'d> {
 pub(crate) fn configure_tx_pins(r: pac::uarte::Uarte, txd: Peri<'_, AnyPin>, cts: Option<Peri<'_, AnyPin>>) {
     txd.set_high();
     txd.conf().write(|w| {
-        w.set_dir(gpiovals::Dir::OUTPUT);
-        w.set_input(gpiovals::Input::DISCONNECT);
+        w.set_dir(gpiovals::Dir::Output);
+        w.set_input(gpiovals::Input::Disconnect);
         #[cfg(not(feature = "_nrf54l"))]
-        w.set_drive(gpiovals::Drive::H0H1);
+        w.set_drive(gpiovals::Drive::H0h1);
         #[cfg(feature = "_nrf54l")]
         {
             w.set_drive0(gpiovals::Drive::H);
@@ -308,10 +324,10 @@ pub(crate) fn configure_tx_pins(r: pac::uarte::Uarte, txd: Peri<'_, AnyPin>, cts
 
     if let Some(pin) = &cts {
         pin.conf().write(|w| {
-            w.set_dir(gpiovals::Dir::INPUT);
-            w.set_input(gpiovals::Input::CONNECT);
+            w.set_dir(gpiovals::Dir::Input);
+            w.set_input(gpiovals::Input::Connect);
             #[cfg(not(feature = "_nrf54l"))]
-            w.set_drive(gpiovals::Drive::H0H1);
+            w.set_drive(gpiovals::Drive::H0h1);
             #[cfg(feature = "_nrf54l")]
             {
                 w.set_drive0(gpiovals::Drive::H);
@@ -324,10 +340,10 @@ pub(crate) fn configure_tx_pins(r: pac::uarte::Uarte, txd: Peri<'_, AnyPin>, cts
 
 pub(crate) fn configure_rx_pins(r: pac::uarte::Uarte, rxd: Peri<'_, AnyPin>, rts: Option<Peri<'_, AnyPin>>) {
     rxd.conf().write(|w| {
-        w.set_dir(gpiovals::Dir::INPUT);
-        w.set_input(gpiovals::Input::CONNECT);
+        w.set_dir(gpiovals::Dir::Input);
+        w.set_input(gpiovals::Input::Connect);
         #[cfg(not(feature = "_nrf54l"))]
-        w.set_drive(gpiovals::Drive::H0H1);
+        w.set_drive(gpiovals::Drive::H0h1);
         #[cfg(feature = "_nrf54l")]
         {
             w.set_drive0(gpiovals::Drive::H);
@@ -339,10 +355,10 @@ pub(crate) fn configure_rx_pins(r: pac::uarte::Uarte, rxd: Peri<'_, AnyPin>, rts
     if let Some(pin) = &rts {
         pin.set_high();
         pin.conf().write(|w| {
-            w.set_dir(gpiovals::Dir::OUTPUT);
-            w.set_input(gpiovals::Input::DISCONNECT);
+            w.set_dir(gpiovals::Dir::Output);
+            w.set_input(gpiovals::Input::Disconnect);
             #[cfg(not(feature = "_nrf54l"))]
-            w.set_drive(gpiovals::Drive::H0H1);
+            w.set_drive(gpiovals::Drive::H0h1);
             #[cfg(feature = "_nrf54l")]
             {
                 w.set_drive0(gpiovals::Drive::H);
@@ -358,7 +374,7 @@ pub(crate) fn configure(r: pac::uarte::Uarte, config: Config, hardware_flow_cont
         w.set_hwfc(hardware_flow_control);
         w.set_parity(config.parity);
         #[cfg(feature = "_nrf54l")]
-        w.set_framesize(vals::Framesize::_8BIT);
+        w.set_framesize(vals::Framesize::_8bit);
         #[cfg(feature = "_nrf54l")]
         w.set_frametimeout(true);
     });
@@ -416,7 +432,7 @@ impl<'d> UarteTx<'d> {
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
-        r.enable().write(|w| w.set_enable(vals::Enable::ENABLED));
+        r.enable().write(|w| w.set_enable(vals::Enable::Enabled));
 
         let s = T::state();
         s.tx_rx_refcount.store(1, Ordering::Relaxed);
@@ -609,7 +625,7 @@ impl<'d> UarteRx<'d> {
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
-        r.enable().write(|w| w.set_enable(vals::Enable::ENABLED));
+        r.enable().write(|w| w.set_enable(vals::Enable::Enabled));
 
         let s = T::state();
         s.tx_rx_refcount.store(1, Ordering::Relaxed);
@@ -618,6 +634,7 @@ impl<'d> UarteRx<'d> {
             r: T::regs(),
             state: T::state(),
             _p: PhantomData {},
+            rx_on: false,
         }
     }
 
@@ -695,7 +712,6 @@ impl<'d> UarteRx<'d> {
                 w.set_dmarxend(true);
                 w.set_error(true);
             });
-            r.events_rxto().write_value(0);
             r.events_error().write_value(0);
             r.tasks_dma().rx().stop().write_value(1);
 
@@ -707,6 +723,8 @@ impl<'d> UarteRx<'d> {
         r.dma().rx().ptr().write_value(ptr as u32);
         r.dma().rx().maxcnt().write(|w| w.set_maxcnt(len as _));
 
+        self.rx_on = true;
+        r.events_rxto().write_value(0);
         r.events_dma().rx().end().write_value(0);
         r.events_error().write_value(0);
         r.intenset().write(|w| {
@@ -776,6 +794,181 @@ impl<'d> UarteRx<'d> {
 
         self.check_and_clear_errors()
     }
+
+    /// Stop the receiver.
+    ///
+    /// This function waits for the receiver to stop (as indicated by a `RXTO` event).
+    ///
+    /// Note that the receiver may still receive up to 4 bytes while being stopped.
+    /// You can use [`Self::flush_rx()`] to remove the data from the internal RX FIFO
+    /// without re-activating the receiver.
+    pub async fn stop_rx(&mut self) {
+        let r = self.r;
+        let s = self.state;
+
+        // If the future is dropped, disable the RXTO interrupt.
+        let drop = OnDrop::new(move || {
+            r.intenclr().write(|w| {
+                w.set_rxto(true);
+            });
+        });
+
+        // Enable the interrupt.
+        // NOTE: Do not clear the RXTO bit: we use it as a status bit to see if the receiver is off.
+        // We only clear it when we start the receiver.
+        r.intenset().write(|w| {
+            w.set_rxto(true);
+        });
+
+        compiler_fence(Ordering::SeqCst);
+
+        // Trigger the STOPRX task.
+        trace!("stop_rx");
+        r.tasks_dma().rx().stop().write_value(1);
+
+        // Wait for the RXTO bit.
+        poll_fn(|cx| {
+            s.rx_waker.register(cx.waker());
+
+            if !self.rx_on || r.events_rxto().read() != 0 {
+                return Poll::Ready(());
+            }
+            Poll::Pending
+        })
+        .await;
+
+        compiler_fence(Ordering::SeqCst);
+
+        // Clear the rx_on flag and disable the interrupt.
+        self.rx_on = false;
+        r.intenclr().write(|w| {
+            w.set_rxto(true);
+        });
+
+        drop.defuse();
+    }
+
+    /// Stop the receiver.
+    ///
+    /// This function waits for the receiver to stop (as indicated by a `RXTO` event).
+    ///
+    /// Note that the receiver may still receive up to 4 bytes while being stopped.
+    /// You can use [`Self::blocking_flush_rx()`] to remove the data from the internal RX FIFO
+    /// without re-activating the receiver.
+    pub fn blocking_stop_rx(&mut self) {
+        let r = self.r;
+
+        compiler_fence(Ordering::SeqCst);
+
+        // Trigger the STOPRX task.
+        // NOTE: Do not clear the RXTO bit: we use it as a status bit to see if the receiver is off.
+        // We only clear it when we start the receiver.
+        trace!("stop_rx");
+        r.tasks_dma().rx().stop().write_value(1);
+
+        // Wait for the RXTO bit.
+        while self.rx_on && r.events_rxto().read() == 0 {}
+        self.rx_on = false;
+
+        compiler_fence(Ordering::SeqCst);
+
+        self.rx_on = false;
+    }
+
+    /// Flush the RX FIFO to RAM without activating the receiver.
+    pub async fn flush_rx(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        if buffer.len() > EASY_DMA_SIZE {
+            return Err(Error::BufferTooLong);
+        }
+
+        let ptr = buffer.as_ptr();
+        let len = buffer.len();
+
+        let r = self.r;
+        let s = self.state;
+
+        let drop = OnDrop::new(move || {
+            trace!("flush_rx drop: stopping");
+
+            r.intenclr().write(|w| {
+                w.set_dmarxend(true);
+            });
+            r.tasks_dma().rx().stop().write_value(1);
+
+            while r.events_dma().rx().end().read() == 0 {}
+
+            trace!("flush_rx drop: stopped");
+        });
+
+        r.dma().rx().ptr().write_value(ptr as u32);
+        r.dma().rx().maxcnt().write(|w| w.set_maxcnt(len as _));
+
+        r.events_dma().rx().end().write_value(0);
+        r.intenset().write(|w| {
+            w.set_dmarxend(true);
+        });
+
+        compiler_fence(Ordering::SeqCst);
+
+        trace!("flush_rx");
+        r.tasks_flushrx().write_value(1);
+
+        poll_fn(|cx| {
+            s.rx_waker.register(cx.waker());
+
+            if r.events_dma().rx().end().read() != 0 {
+                return Poll::Ready(());
+            }
+            Poll::Pending
+        })
+        .await;
+
+        compiler_fence(Ordering::SeqCst);
+        r.events_dma().rx().ready().write_value(0);
+        let amount = r.dma().rx().amount().read().amount();
+        drop.defuse();
+
+        Ok(amount as usize)
+    }
+
+    /// Flush the RX FIFO to RAM without activating the receiver.
+    pub fn blocking_flush_rx(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        if buffer.len() > EASY_DMA_SIZE {
+            return Err(Error::BufferTooLong);
+        }
+
+        let ptr = buffer.as_ptr();
+        let len = buffer.len();
+
+        let r = self.r;
+
+        r.dma().rx().ptr().write_value(ptr as u32);
+        r.dma().rx().maxcnt().write(|w| w.set_maxcnt(len as _));
+
+        r.events_dma().rx().end().write_value(0);
+        r.intenclr().write(|w| {
+            w.set_dmarxend(true);
+        });
+
+        compiler_fence(Ordering::SeqCst);
+
+        trace!("flush_rx");
+        r.tasks_flushrx().write_value(1);
+
+        while r.events_dma().rx().end().read() == 0 {}
+
+        compiler_fence(Ordering::SeqCst);
+        r.events_dma().rx().ready().write_value(0);
+
+        let amount = r.dma().rx().amount().read().amount();
+        Ok(amount as usize)
+    }
 }
 
 impl<'a> Drop for UarteRx<'a> {
@@ -821,6 +1014,38 @@ impl<'d> UarteRxWithIdle<'d> {
         self.rx.blocking_read(buffer)
     }
 
+    /// Stop the receiver.
+    ///
+    /// This function waits for the receiver to stop (as indicated by a `RXTO` event).
+    ///
+    /// Note that the receiver may still receive up to 4 bytes while being stopped.
+    /// You can use [`Self::flush_rx()`] to remove the data from the internal RX FIFO
+    /// without re-activating the receiver.
+    pub async fn stop_rx(&mut self) {
+        self.rx.stop_rx().await
+    }
+
+    /// Stop the receiver.
+    ///
+    /// This function waits for the receiver to stop (as indicated by a `RXTO` event).
+    ///
+    /// Note that the receiver may still receive up to 4 bytes while being stopped.
+    /// You can use [`Self::blocking_flush_rx()`] to remove the data from the internal RX FIFO
+    /// without re-activating the receiver.
+    pub fn blocking_stop_rx(&mut self) {
+        self.rx.blocking_stop_rx()
+    }
+
+    /// Flush the RX FIFO to RAM without activating the receiver.
+    pub async fn flush_rx(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+        self.rx.flush_rx(buffer).await
+    }
+
+    /// Flush the RX FIFO to RAM without activating the receiver.
+    pub fn blocking_flush_rx(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+        self.rx.blocking_flush_rx(buffer)
+    }
+
     /// Read bytes until the buffer is filled, or the line becomes idle.
     ///
     /// Returns the amount of bytes read.
@@ -847,7 +1072,6 @@ impl<'d> UarteRxWithIdle<'d> {
                 w.set_dmarxend(true);
                 w.set_error(true);
             });
-            r.events_rxto().write_value(0);
             r.events_error().write_value(0);
             r.tasks_dma().rx().stop().write_value(1);
 
@@ -857,6 +1081,8 @@ impl<'d> UarteRxWithIdle<'d> {
         r.dma().rx().ptr().write_value(ptr as u32);
         r.dma().rx().maxcnt().write(|w| w.set_maxcnt(len as _));
 
+        self.rx.rx_on = true;
+        r.events_rxto().write_value(0);
         r.events_dma().rx().end().write_value(0);
         r.events_error().write_value(0);
         r.intenset().write(|w| {
@@ -915,6 +1141,8 @@ impl<'d> UarteRxWithIdle<'d> {
         r.dma().rx().ptr().write_value(ptr as u32);
         r.dma().rx().maxcnt().write(|w| w.set_maxcnt(len as _));
 
+        self.rx.rx_on = true;
+        r.events_rxto().write_value(0);
         r.events_dma().rx().end().write_value(0);
         r.events_error().write_value(0);
         r.intenclr().write(|w| {
@@ -961,7 +1189,7 @@ pub(crate) fn apply_workaround_for_enable_anomaly(r: pac::uarte::Uarte) {
     // NB Safety: This is taken from Nordic's driver -
     // https://github.com/NordicSemiconductor/nrfx/blob/master/drivers/src/nrfx_uarte.c#L197
     if unsafe { core::ptr::read_volatile(rxenable_reg) } == 1 {
-        r.enable().write(|w| w.set_enable(vals::Enable::ENABLED));
+        r.enable().write(|w| w.set_enable(vals::Enable::Enabled));
         r.tasks_dma().rx().stop().write_value(1);
 
         let mut workaround_succeded = false;
@@ -994,7 +1222,7 @@ pub(crate) fn apply_workaround_for_enable_anomaly(r: pac::uarte::Uarte) {
         // write back the bits we just read to clear them
         let errors = r.errorsrc().read();
         r.errorsrc().write_value(errors);
-        r.enable().write(|w| w.set_enable(vals::Enable::DISABLED));
+        r.enable().write(|w| w.set_enable(vals::Enable::Disabled));
     }
 }
 
@@ -1002,7 +1230,7 @@ pub(crate) fn drop_tx_rx(r: pac::uarte::Uarte, s: &State) {
     if s.tx_rx_refcount.fetch_sub(1, Ordering::Relaxed) == 1 {
         // Finally we can disable, and we do so for the peripheral
         // i.e. not just rx concerns.
-        r.enable().write(|w| w.set_enable(vals::Enable::DISABLED));
+        r.enable().write(|w| w.set_enable(vals::Enable::Disabled));
 
         gpio::deconfigure_pin(r.psel().rxd().read());
         gpio::deconfigure_pin(r.psel().txd().read());

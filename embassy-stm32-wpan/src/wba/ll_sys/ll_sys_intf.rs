@@ -169,7 +169,6 @@ unsafe extern "C" fn ll_sys_request_temperature() {
 unsafe extern "C" fn ll_sys_bg_process() {
     if emngr_can_mcu_sleep() == 0 {
         emngr_handle_all_events();
-
         HostStack_Process();
     }
 

@@ -92,7 +92,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         out_pin.set_as_analog();
 
         #[cfg(opamp_v5)]
-        let vm_sel = VmSel::OUTPUT;
+        let vm_sel = VmSel::Output;
         #[cfg(not(opamp_v5))]
         let vm_sel = VmSel::from_bits(0b11);
 
@@ -127,18 +127,18 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         out_pin.set_as_analog();
 
         #[cfg(opamp_v5)]
-        let vm_sel = VmSel::PGA;
+        let vm_sel = VmSel::Pga;
         #[cfg(not(opamp_v5))]
         let vm_sel = VmSel::from_bits(0b10);
 
         #[cfg(opamp_v5)]
         let pga_gain = match gain {
-            OpAmpGain::Mul2 => PgaGain::GAIN2,
-            OpAmpGain::Mul4 => PgaGain::GAIN4,
-            OpAmpGain::Mul8 => PgaGain::GAIN8,
-            OpAmpGain::Mul16 => PgaGain::GAIN16,
-            OpAmpGain::Mul32 => PgaGain::GAIN32,
-            OpAmpGain::Mul64 => PgaGain::GAIN64,
+            OpAmpGain::Mul2 => PgaGain::Gain2,
+            OpAmpGain::Mul4 => PgaGain::Gain4,
+            OpAmpGain::Mul8 => PgaGain::Gain8,
+            OpAmpGain::Mul16 => PgaGain::Gain16,
+            OpAmpGain::Mul32 => PgaGain::Gain32,
+            OpAmpGain::Mul64 => PgaGain::Gain64,
         };
         #[cfg(not(opamp_v5))]
         let pga_gain = PgaGain::from_bits(match gain {
@@ -185,17 +185,17 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         out_pin.set_as_analog();
 
         let pga_gain = match gain {
-            OpAmpGain::Mul2 => PgaGain::GAIN2_INPUT_VINM0,
-            OpAmpGain::Mul4 => PgaGain::GAIN4_INPUT_VINM0,
-            OpAmpGain::Mul8 => PgaGain::GAIN8_INPUT_VINM0,
-            OpAmpGain::Mul16 => PgaGain::GAIN16_INPUT_VINM0,
-            OpAmpGain::Mul32 => PgaGain::GAIN32_INPUT_VINM0,
-            OpAmpGain::Mul64 => PgaGain::GAIN64_INPUT_VINM0,
+            OpAmpGain::Mul2 => PgaGain::Gain2InputVinm0,
+            OpAmpGain::Mul4 => PgaGain::Gain4InputVinm0,
+            OpAmpGain::Mul8 => PgaGain::Gain8InputVinm0,
+            OpAmpGain::Mul16 => PgaGain::Gain16InputVinm0,
+            OpAmpGain::Mul32 => PgaGain::Gain32InputVinm0,
+            OpAmpGain::Mul64 => PgaGain::Gain64InputVinm0,
         };
 
         T::regs().csr().modify(|w| {
             w.set_vp_sel(VpSel::from_bits(in_pin.channel()));
-            w.set_vm_sel(VmSel::PGA);
+            w.set_vm_sel(VmSel::Pga);
             w.set_pga_gain(pga_gain);
             w.set_opaintoen(false);
             w.set_opampen(true);
@@ -218,8 +218,8 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         T::regs().csr().modify(|w| {
             use crate::pac::opamp::vals::*;
 
-            w.set_vm_sel(VmSel::OUTPUT);
-            w.set_vp_sel(VpSel::DAC3_CH1);
+            w.set_vm_sel(VmSel::Output);
+            w.set_vp_sel(VpSel::Dac3Ch1);
             w.set_opaintoen(false);
             w.set_opampen(true);
         });
@@ -244,7 +244,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
 
         T::regs().csr().modify(|w| {
             w.set_vp_sel(VpSel::from_bits(pin.channel()));
-            w.set_vm_sel(VmSel::OUTPUT);
+            w.set_vm_sel(VmSel::Output);
             #[cfg(opamp_v5)]
             w.set_opaintoen(true);
             w.set_opampen(true);
@@ -270,17 +270,17 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         pin.set_as_analog();
 
         let pga_gain = match gain {
-            OpAmpGain::Mul2 => PgaGain::GAIN2,
-            OpAmpGain::Mul4 => PgaGain::GAIN4,
-            OpAmpGain::Mul8 => PgaGain::GAIN8,
-            OpAmpGain::Mul16 => PgaGain::GAIN16,
-            OpAmpGain::Mul32 => PgaGain::GAIN32,
-            OpAmpGain::Mul64 => PgaGain::GAIN64,
+            OpAmpGain::Mul2 => PgaGain::Gain2,
+            OpAmpGain::Mul4 => PgaGain::Gain4,
+            OpAmpGain::Mul8 => PgaGain::Gain8,
+            OpAmpGain::Mul16 => PgaGain::Gain16,
+            OpAmpGain::Mul32 => PgaGain::Gain32,
+            OpAmpGain::Mul64 => PgaGain::Gain64,
         };
 
         T::regs().csr().modify(|w| {
             w.set_vp_sel(VpSel::from_bits(pin.channel()));
-            w.set_vm_sel(VmSel::PGA);
+            w.set_vm_sel(VmSel::Pga);
             w.set_pga_gain(pga_gain);
             w.set_opaintoen(true);
             w.set_opampen(true);
@@ -310,17 +310,17 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         bias_pin.set_as_analog();
 
         let pga_gain = match gain {
-            OpAmpGain::Mul2 => PgaGain::GAIN2_INPUT_VINM0,
-            OpAmpGain::Mul4 => PgaGain::GAIN4_INPUT_VINM0,
-            OpAmpGain::Mul8 => PgaGain::GAIN8_INPUT_VINM0,
-            OpAmpGain::Mul16 => PgaGain::GAIN16_INPUT_VINM0,
-            OpAmpGain::Mul32 => PgaGain::GAIN32_INPUT_VINM0,
-            OpAmpGain::Mul64 => PgaGain::GAIN64_INPUT_VINM0,
+            OpAmpGain::Mul2 => PgaGain::Gain2InputVinm0,
+            OpAmpGain::Mul4 => PgaGain::Gain4InputVinm0,
+            OpAmpGain::Mul8 => PgaGain::Gain8InputVinm0,
+            OpAmpGain::Mul16 => PgaGain::Gain16InputVinm0,
+            OpAmpGain::Mul32 => PgaGain::Gain32InputVinm0,
+            OpAmpGain::Mul64 => PgaGain::Gain64InputVinm0,
         };
 
         T::regs().csr().modify(|w| {
             w.set_vp_sel(VpSel::from_bits(in_pin.channel()));
-            w.set_vm_sel(VmSel::PGA);
+            w.set_vm_sel(VmSel::Pga);
             w.set_pga_gain(pga_gain);
             w.set_opaintoen(true);
             w.set_opampen(true);
@@ -347,7 +347,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
 
         T::regs().csr().modify(|w| {
             use crate::pac::opamp::vals::*;
-            w.set_vp_sel(VpSel::DAC3_CH1); // Actually DAC3_CHx
+            w.set_vp_sel(VpSel::Dac3Ch1); // Actually DAC3_CHx
             w.set_vm_sel(VmSel::from_bits(m_pin.channel()));
             w.set_opaintoen(true);
             w.set_opampen(true);
@@ -377,7 +377,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
 
         T::regs().csr().modify(|w| {
             use crate::pac::opamp::vals::*;
-            w.set_vp_sel(VpSel::DAC3_CH1); // Actually DAC3_CHx
+            w.set_vp_sel(VpSel::Dac3Ch1); // Actually DAC3_CHx
             w.set_vm_sel(VmSel::from_bits(m_pin.channel()));
             w.set_opaintoen(false);
             w.set_opampen(true);
@@ -490,8 +490,8 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         let mut high = 31;
 
         let calsel = match pair {
-            OpAmpDifferentialPair::P => Calsel::PERCENT10,
-            OpAmpDifferentialPair::N => Calsel::PERCENT90,
+            OpAmpDifferentialPair::P => Calsel::Percent10,
+            OpAmpDifferentialPair::N => Calsel::Percent90,
         };
 
         T::regs().csr().modify(|w| {
@@ -568,41 +568,21 @@ pub(crate) trait SealedInstance {
     fn regs() -> crate::pac::opamp::Opamp;
 }
 
-pub(crate) trait SealedNonInvertingPin<T: Instance> {
-    fn channel(&self) -> u8;
-}
-
-pub(crate) trait SealedInvertingPin<T: Instance> {
-    #[allow(unused)]
-    fn channel(&self) -> u8;
-}
-
-pub(crate) trait SealedBiasPin<T: Instance> {}
-
-pub(crate) trait SealedOutputPin<T: Instance> {}
+analog_pin_trait!(NonInvertingPin, Instance);
+analog_pin_trait!(InvertingPin, Instance);
+analog_pin_trait!(BiasPin, Instance);
+analog_pin_trait!(OutputPin, Instance);
 
 /// Opamp instance trait.
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + PeripheralType + 'static {}
-/// Non-inverting pin trait.
-#[allow(private_bounds)]
-pub trait NonInvertingPin<T: Instance>: SealedNonInvertingPin<T> {}
-/// Inverting pin trait.
-#[allow(private_bounds)]
-pub trait InvertingPin<T: Instance>: SealedInvertingPin<T> {}
-/// Bias pin trait.
-#[allow(private_bounds)]
-pub trait BiasPin<T: Instance>: SealedBiasPin<T> {}
-/// Output pin trait.
-#[allow(private_bounds)]
-pub trait OutputPin<T: Instance>: SealedOutputPin<T> {}
 
 macro_rules! impl_opamp_external_output {
     ($inst:ident, $adc:ident, $ch:expr) => {
         foreach_adc!(
             ($adc, $common_inst:ident, $adc_clock:ident) => {
                 impl<'d> crate::adc::SealedAdcChannel<crate::peripherals::$adc>
-                    for OpAmpOutput<'d, crate::peripherals::$inst>
+                    for crate::opamp::OpAmpOutput<'d, crate::peripherals::$inst>
                 {
                     fn channel(&self) -> u8 {
                         $ch
@@ -610,40 +590,13 @@ macro_rules! impl_opamp_external_output {
                 }
 
                 impl<'d> crate::adc::AdcChannel<crate::peripherals::$adc>
-                    for OpAmpOutput<'d, crate::peripherals::$inst>
+                    for crate::opamp::OpAmpOutput<'d, crate::peripherals::$inst>
                 {
                 }
             };
         );
     };
 }
-
-foreach_peripheral!(
-    (opamp, OPAMP1) => {
-        impl_opamp_external_output!(OPAMP1, ADC1, 3);
-    };
-    (opamp, OPAMP2) => {
-        impl_opamp_external_output!(OPAMP2, ADC2, 3);
-    };
-    (opamp, OPAMP3) => {
-        impl_opamp_external_output!(OPAMP3, ADC1, 12);
-        impl_opamp_external_output!(OPAMP3, ADC3, 1);
-    };
-    // OPAMP4 only in STM32G4 Cat 3 devices
-    (opamp, OPAMP4) => {
-        impl_opamp_external_output!(OPAMP4, ADC1, 11);
-        impl_opamp_external_output!(OPAMP4, ADC4, 3);
-    };
-    // OPAMP5 only in STM32G4 Cat 3 devices
-    (opamp, OPAMP5) => {
-        impl_opamp_external_output!(OPAMP5, ADC5, 1);
-    };
-    // OPAMP6 only in STM32G4 Cat 3/4 devices
-    (opamp, OPAMP6) => {
-        impl_opamp_external_output!(OPAMP6, ADC1, 14);
-        impl_opamp_external_output!(OPAMP6, ADC2, 14);
-    };
-);
 
 #[cfg(opamp_v5)]
 macro_rules! impl_opamp_internal_output {
@@ -716,44 +669,5 @@ foreach_peripheral! {
 
         impl Instance for crate::peripherals::$inst {
         }
-    };
-}
-
-#[allow(unused_macros)]
-macro_rules! impl_opamp_vp_pin {
-    ($inst:ident, $pin:ident, $ch:expr) => {
-        impl crate::opamp::NonInvertingPin<peripherals::$inst> for crate::peripherals::$pin {}
-        impl crate::opamp::SealedNonInvertingPin<peripherals::$inst> for crate::peripherals::$pin {
-            fn channel(&self) -> u8 {
-                $ch
-            }
-        }
-    };
-}
-
-#[allow(unused_macros)]
-macro_rules! impl_opamp_vn_pin {
-    ($inst:ident, $pin:ident, $ch:expr) => {
-        impl crate::opamp::InvertingPin<peripherals::$inst> for crate::peripherals::$pin {}
-        impl crate::opamp::SealedInvertingPin<peripherals::$inst> for crate::peripherals::$pin {
-            fn channel(&self) -> u8 {
-                $ch
-            }
-        }
-    };
-}
-
-#[allow(unused_macros)]
-macro_rules! impl_opamp_bias_pin {
-    ($inst:ident, $pin:ident, $ch:expr) => {
-        impl crate::opamp::BiasPin<peripherals::$inst> for crate::peripherals::$pin {}
-        impl crate::opamp::SealedBiasPin<peripherals::$inst> for crate::peripherals::$pin {}
-    };
-}
-#[allow(unused_macros)]
-macro_rules! impl_opamp_vout_pin {
-    ($inst:ident, $pin:ident) => {
-        impl crate::opamp::OutputPin<peripherals::$inst> for crate::peripherals::$pin {}
-        impl crate::opamp::SealedOutputPin<peripherals::$inst> for crate::peripherals::$pin {}
     };
 }

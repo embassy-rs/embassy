@@ -1,6 +1,6 @@
 [package]
 name = "embassy-net"
-version = "0.8.0"
+version = "0.9.1"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Async TCP/IP network stack for embedded systems"
@@ -19,7 +19,9 @@ build = [
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "multicast", "proto-ipv4", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dhcpv4", "dns", "medium-ethernet", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dhcpv4", "dhcpv4-hostname", "dns", "medium-ethernet", "tcp", "udp"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dhcpv4", "dhcpv4-hostname", "dns", "medium-ethernet", "slaac", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "proto-ipv6", "tcp", "udp"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "proto-ipv6", "slaac", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ieee802154", "proto-ipv6", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "medium-ieee802154", "proto-ipv6", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "proto-ipv4", "proto-ipv6", "tcp", "udp"]},
@@ -65,6 +67,8 @@ packet-trace = []
 
 ## Enable ICMP support
 icmp = ["smoltcp/socket-icmp"]
+## ICMP echo request auto reply
+auto-icmp-echo-reply = ["smoltcp/auto-icmp-echo-reply"]
 ## Enable UDP support
 udp = ["smoltcp/socket-udp"]
 ## Enable Raw support
@@ -91,6 +95,8 @@ medium-ip = ["smoltcp/medium-ip"]
 medium-ieee802154 = ["smoltcp/medium-ieee802154"]
 ## Enable multicast support (for both ipv4 and/or ipv6 if enabled)
 multicast = ["smoltcp/multicast"]
+## Enable stateless address autoconfiguration for ipv6
+slaac = ["proto-ipv6", "multicast", "smoltcp/proto-ipv6-slaac"]
 ## Enable smoltcp std feature (necessary if using "managed" crate std feature)
 std = ["smoltcp/std"]
 ## Enable smoltcp alloc feature (necessary if using "managed" crate alloc feature)
@@ -101,14 +107,14 @@ alloc = ["smoltcp/alloc"]
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
 
-smoltcp = {  git = "https://github.com/smoltcp-rs/smoltcp", rev = "52b224a0f30e007826f5d95beb9449f5b5894701", default-features = false, features = [
+smoltcp = {  version = "0.13.0", default-features = false, features = [
   "socket",
   "async",
 ] }
 
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
-embassy-time = { version = "0.5.0", path = "../embassy-time" }
-embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
+embassy-time = { version = "0.5.1", path = "../embassy-time" }
+embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
 embedded-io-async = { version = "0.7.0" }
 
 managed = { version = "0.8.0", default-features = false, features = [ "map" ] }

@@ -103,14 +103,14 @@ pub enum Mode {
 impl Mode {
     fn mode(&self) -> dac::vals::Mode {
         match self {
-            Mode::NormalExternalBuffered => dac::vals::Mode::NORMAL_EXT_BUFEN,
-            Mode::NormalBothBuffered => dac::vals::Mode::NORMAL_EXT_INT_BUFEN,
-            Mode::NormalExternalUnbuffered => dac::vals::Mode::NORMAL_EXT_BUFDIS,
-            Mode::NormalInternalUnbuffered => dac::vals::Mode::NORMAL_INT_BUFDIS,
-            Mode::SampleHoldExternalBuffered => dac::vals::Mode::SAMPHOLD_EXT_BUFEN,
-            Mode::SampleHoldBothBuffered => dac::vals::Mode::SAMPHOLD_EXT_INT_BUFEN,
-            Mode::SampleHoldBothUnbuffered => dac::vals::Mode::SAMPHOLD_EXT_INT_BUFDIS,
-            Mode::SampleHoldInternalUnbuffered => dac::vals::Mode::SAMPHOLD_INT_BUFDIS,
+            Mode::NormalExternalBuffered => dac::vals::Mode::NormalExtBufen,
+            Mode::NormalBothBuffered => dac::vals::Mode::NormalExtIntBufen,
+            Mode::NormalExternalUnbuffered => dac::vals::Mode::NormalExtBufdis,
+            Mode::NormalInternalUnbuffered => dac::vals::Mode::NormalIntBufdis,
+            Mode::SampleHoldExternalBuffered => dac::vals::Mode::SampholdExtBufen,
+            Mode::SampleHoldBothBuffered => dac::vals::Mode::SampholdExtIntBufen,
+            Mode::SampleHoldBothUnbuffered => dac::vals::Mode::SampholdExtIntBufdis,
+            Mode::SampleHoldInternalUnbuffered => dac::vals::Mode::SampholdIntBufdis,
         }
     }
 }
@@ -224,7 +224,7 @@ impl<'d> DacChannel<'d, Async> {
             #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
             Mode::NormalExternalBuffered,
             #[cfg(stm32g4)]
-            vals::Wave::DISABLED,
+            vals::Wave::Disabled,
             #[cfg(stm32g4)]
             None,
         )
@@ -250,7 +250,7 @@ impl<'d> DacChannel<'d, Async> {
             #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
             Mode::NormalExternalBuffered,
             #[cfg(stm32g4)]
-            vals::Wave::DISABLED,
+            vals::Wave::Disabled,
             #[cfg(stm32g4)]
             None,
         )
@@ -275,7 +275,7 @@ impl<'d> DacChannel<'d, Async> {
             new_dma!(dma, _irq),
             Mode::NormalInternalUnbuffered,
             #[cfg(stm32g4)]
-            vals::Wave::DISABLED,
+            vals::Wave::Disabled,
             #[cfg(stm32g4)]
             None,
         )
@@ -301,7 +301,7 @@ impl<'d> DacChannel<'d, Async> {
             new_dma!(dma, _irq),
             Mode::NormalInternalUnbuffered,
             #[cfg(stm32g4)]
-            vals::Wave::DISABLED,
+            vals::Wave::Disabled,
             #[cfg(stm32g4)]
             None,
         )
@@ -333,13 +333,13 @@ impl<'d> DacChannel<'d, Async> {
         // Initiate the correct type of DMA transfer depending on what data is passed
         let tx_f = match data {
             ValueArray::Bit8(buf) => unsafe {
-                dma.write(buf, self.info.regs.dhr8r(self.idx).as_ptr() as *mut u8, tx_options)
+                dma.write_raw(buf, self.info.regs.dhr8r(self.idx).as_ptr() as *mut u32, tx_options)
             },
             ValueArray::Bit12Left(buf) => unsafe {
-                dma.write(buf, self.info.regs.dhr12l(self.idx).as_ptr() as *mut u16, tx_options)
+                dma.write_raw(buf, self.info.regs.dhr12l(self.idx).as_ptr() as *mut u32, tx_options)
             },
             ValueArray::Bit12Right(buf) => unsafe {
-                dma.write(buf, self.info.regs.dhr12r(self.idx).as_ptr() as *mut u16, tx_options)
+                dma.write_raw(buf, self.info.regs.dhr12r(self.idx).as_ptr() as *mut u32, tx_options)
             },
         };
 
@@ -370,7 +370,7 @@ impl<'d> DacChannel<'d, Blocking> {
             #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
             Mode::NormalExternalBuffered,
             #[cfg(stm32g4)]
-            vals::Wave::DISABLED,
+            vals::Wave::Disabled,
             #[cfg(stm32g4)]
             None,
         )
@@ -394,7 +394,7 @@ impl<'d> DacChannel<'d, Blocking> {
             None,
             Mode::NormalInternalUnbuffered,
             #[cfg(stm32g4)]
-            vals::Wave::DISABLED,
+            vals::Wave::Disabled,
             #[cfg(stm32g4)]
             None,
         )
@@ -419,7 +419,7 @@ impl<'d> DacChannel<'d, Blocking> {
             Some(reset_trigger.signal()),
             None,
             Mode::NormalExternalBuffered,
-            vals::Wave::SAWTOOTH,
+            vals::Wave::Sawtooth,
             Some(step_trigger.signal()),
         )
     }
@@ -443,7 +443,7 @@ impl<'d> DacChannel<'d, Blocking> {
             Some(reset_trigger.signal()),
             None,
             Mode::NormalInternalUnbuffered,
-            vals::Wave::SAWTOOTH,
+            vals::Wave::Sawtooth,
             Some(step_trigger.signal()),
         )
     }

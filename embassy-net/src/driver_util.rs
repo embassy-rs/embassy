@@ -12,6 +12,7 @@ where
     pub cx: Option<&'d mut Context<'c>>,
     pub inner: &'d mut T,
     pub medium: Medium,
+    pub tx_exhausted: bool,
 }
 
 impl<'d, 'c, T> phy::Device for DriverAdapter<'d, 'c, T>
@@ -35,7 +36,11 @@ where
 
     /// Construct a transmit token.
     fn transmit(&mut self, _timestamp: Instant) -> Option<Self::TxToken<'_>> {
-        self.inner.transmit(unwrap!(self.cx.as_deref_mut())).map(TxTokenAdapter)
+        let token = self.inner.transmit(unwrap!(self.cx.as_deref_mut())).map(TxTokenAdapter);
+
+        self.tx_exhausted = token.is_none();
+
+        token
     }
 
     /// Get a description of device capabilities.

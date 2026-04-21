@@ -25,7 +25,7 @@ fi
 hashtime restore /ci/cache/filetime.json || true
 hashtime save /ci/cache/filetime.json
 
-cargo install --git https://github.com/embassy-rs/cargo-embassy-devtool --locked --rev 786e8e05ef2de5fc1421a4fcd50e79c5dd2d3e4d
+cargo install --git https://github.com/embassy-rs/cargo-embassy-devtool --locked --rev 7d6d61819cb5a54bd6fe7da88359c7949142932a
 
 ./ci-xtensa.sh
 

@@ -2,7 +2,6 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_time::Timer;
 use hal::clocks::config::Div8;
 use hal::config::Config;
 use hal::i2c::controller::{self, I2c, Speed};
@@ -27,9 +26,5 @@ async fn main(_spawner: Spawner) {
         if result.is_ok() {
             defmt::info!("Device found at addr {:02x}", addr);
         }
-    }
-
-    loop {
-        Timer::after_secs(10).await;
     }
 }

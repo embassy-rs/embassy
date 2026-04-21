@@ -14,14 +14,13 @@ use bbqueue::traits::storage::Storage;
 use embassy_hal_internal::Peri;
 use grounded::uninit::GroundedCell;
 use maitake_sync::WaitCell;
-use nxp_pac::lpuart::vals::Tc;
-use paste::paste;
+use nxp_pac::lpuart::Tc;
 
 use super::{DataBits, IdleConfig, Info, MsbFirst, Parity, RxPin, StopBits, TxPin, TxPins};
 use crate::clocks::periph_helpers::{Div4, LpuartClockSel};
 use crate::clocks::{PoweredClock, WakeGuard};
-use crate::dma::{DMA_MAX_TRANSFER_SIZE, DmaChannel, DmaRequest, EnableInterrupt};
-use crate::gpio::AnyPin;
+use crate::dma::{DMA_MAX_TRANSFER_SIZE, DmaChannel, DmaRequest, InvalidParameters, TransferOptions};
+use crate::gpio::{AnyPin, HasGpioInstance, PeriGpioExt};
 use crate::interrupt::typelevel::{Binding, Handler, Interrupt};
 use crate::lpuart::{Instance, RxPins};
 
@@ -38,6 +37,14 @@ pub enum BbqError {
     /// Requested an [`RxMode::MaxFrame`] too large for the provided buffer
     MaxFrameTooLarge,
 }
+
+impl core::fmt::Display for BbqError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        <Self as core::fmt::Debug>::fmt(self, f)
+    }
+}
+
+impl core::error::Error for BbqError {}
 
 /// RX Reception mode
 #[derive(Debug, Clone, Copy, Default)]
@@ -113,10 +120,10 @@ impl Default for BbqConfig {
         Self {
             baudrate_bps: 115_200u32,
             parity_mode: None,
-            data_bits_count: DataBits::DATA8,
-            msb_first: MsbFirst::LSB_FIRST,
-            stop_bits_count: StopBits::ONE,
-            rx_idle_config: IdleConfig::IDLE_1,
+            data_bits_count: DataBits::Data8,
+            msb_first: MsbFirst::LsbFirst,
+            stop_bits_count: StopBits::One,
+            rx_idle_config: IdleConfig::Idle1,
             power: PoweredClock::AlwaysEnabled,
             source: LpuartClockSel::FroLfDiv,
             div: Div4::no_div(),
@@ -207,7 +214,7 @@ pub struct BbqHalfParts {
     // type erasure
     which: WhichHalf,
     dma_req: u8,
-    mux: crate::pac::port::vals::Mux,
+    mux: crate::pac::port::Mux,
     info: &'static Info,
     state: &'static BbqState,
     vtable: BbqVtable,
@@ -224,9 +231,9 @@ pub struct BbqParts {
 
     // type erasure
     tx_dma_req: u8,
-    tx_mux: crate::pac::port::vals::Mux,
+    tx_mux: crate::pac::port::Mux,
     rx_dma_req: u8,
-    rx_mux: crate::pac::port::vals::Mux,
+    rx_mux: crate::pac::port::Mux,
     info: &'static Info,
     state: &'static BbqState,
     vtable: BbqVtable,
@@ -258,6 +265,22 @@ impl BbqParts {
             state: T::bbq_state(),
             vtable: BbqVtable::for_lpuart::<T>(),
         })
+    }
+
+    /// Access a borrow of the contained RX pin
+    pub fn rx_pin(&mut self) -> Peri<'_, AnyPin> {
+        self.rx_pin.reborrow()
+    }
+
+    /// Access a borrow of the contained TX pin
+    pub fn tx_pin(&mut self) -> Peri<'_, AnyPin> {
+        self.tx_pin.reborrow()
+    }
+
+    /// Access a borrow of both the RX and TX pin (in that order)
+    pub fn pins(&mut self) -> (Peri<'_, AnyPin>, Peri<'_, AnyPin>) {
+        let Self { tx_pin, rx_pin, .. } = self;
+        (rx_pin.reborrow(), tx_pin.reborrow())
     }
 }
 
@@ -297,6 +320,30 @@ impl BbqHalfParts {
             buffer,
             dma_ch: dma_ch.into(),
             pin: tx_pin.into(),
+            mux: P::MUX,
+            info: T::info(),
+            state: T::bbq_state(),
+            dma_req: T::RX_DMA_REQUEST.number(),
+            vtable: BbqVtable::for_lpuart::<T>(),
+            which: WhichHalf::Rx,
+        }
+    }
+
+    /// Setup Rx half while binding GPIO to the gpio pin.
+    /// This allows later use of async functions on the pin.
+    pub fn new_rx_half_async<T: BbqInstance, P: RxPin<T> + HasGpioInstance>(
+        _inner: Peri<'static, T>,
+        irq: impl Binding<T::Interrupt, BbqInterruptHandler<T>>
+        + Binding<<P::Instance as crate::gpio::Instance>::Interrupt, crate::gpio::InterruptHandler<P::Instance>>
+        + 'static,
+        tx_pin: Peri<'static, P>,
+        buffer: &'static mut [u8],
+        dma_ch: impl Into<DmaChannel<'static>>,
+    ) -> Self {
+        Self {
+            buffer,
+            dma_ch: dma_ch.into(),
+            pin: tx_pin.degrade_async(irq),
             mux: P::MUX,
             info: T::info(),
             state: T::bbq_state(),
@@ -424,6 +471,12 @@ impl LpuartBbq {
         self.tx.blocking_flush();
     }
 
+    /// Borrow split parts.
+    pub fn split_ref(&mut self) -> (&mut LpuartBbqRx, &mut LpuartBbqTx) {
+        let Self { tx, rx } = self;
+        (rx, tx)
+    }
+
     /// Teardown the LpuartBbq, retrieving the original parts
     pub fn teardown(self) -> BbqParts {
         let Self { tx, rx } = self;
@@ -452,7 +505,7 @@ pub struct LpuartBbqTx {
     state: &'static BbqState,
     info: &'static Info,
     vtable: BbqVtable,
-    mux: crate::pac::port::vals::Mux,
+    mux: crate::pac::port::Mux,
     _tx_pins: TxPins<'static>,
     _wg: Option<WakeGuard>,
 }
@@ -682,11 +735,37 @@ impl LpuartBbqTx {
     }
 }
 
+use embedded_io_async::ErrorType;
+impl embedded_io_async::Error for BbqError {
+    fn kind(&self) -> embedded_io::ErrorKind {
+        match self {
+            BbqError::Basic(error) => error.kind(),
+            BbqError::Busy => embedded_io::ErrorKind::Other,
+            BbqError::WrongParts => embedded_io::ErrorKind::Other,
+            BbqError::MaxFrameTooLarge => embedded_io::ErrorKind::OutOfMemory,
+        }
+    }
+}
+impl ErrorType for LpuartBbqTx {
+    type Error = BbqError;
+}
+
+impl embedded_io_async::Write for LpuartBbqTx {
+    fn write(&mut self, buf: &[u8]) -> impl Future<Output = Result<usize, Self::Error>> {
+        self.write(buf)
+    }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        self.flush().await;
+        Ok(())
+    }
+}
+
 pub struct LpuartBbqRx {
     state: &'static BbqState,
     info: &'static Info,
     vtable: BbqVtable,
-    mux: crate::pac::port::vals::Mux,
+    mux: crate::pac::port::Mux,
     _rx_pins: RxPins<'static>,
     _wg: Option<WakeGuard>,
 }
@@ -964,6 +1043,16 @@ impl LpuartBbqRx {
     }
 }
 
+impl embedded_io_async::ErrorType for LpuartBbqRx {
+    type Error = BbqError;
+}
+
+impl embedded_io_async::Read for LpuartBbqRx {
+    fn read(&mut self, buf: &mut [u8]) -> impl Future<Output = Result<usize, Self::Error>> {
+        self.read(buf)
+    }
+}
+
 // A wrapper type representing a `&'static mut [u8]` buffer
 struct Container {
     ptr: NonNull<u8>,
@@ -992,18 +1081,18 @@ pub struct BbqInterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
 
-const STATE_UNINIT: u32 = 0b0000_0000_0000_0000_0000_0000_0000_0000;
-const STATE_INITING: u32 = 0b0000_0000_0000_0000_0000_0000_0000_0001;
-const STATE_INITED: u32 = 0b0000_0000_0000_0000_0000_0000_0000_0011;
-const STATE_RXGR_ACTIVE: u32 = 0b0000_0000_0000_0000_0000_0000_0000_0100;
-const STATE_TXGR_ACTIVE: u32 = 0b0000_0000_0000_0000_0000_0000_0000_1000;
-const STATE_RXDMA_PRESENT: u32 = 0b0000_0000_0000_0000_0000_0000_0001_0000;
-const STATE_TXDMA_PRESENT: u32 = 0b0000_0000_0000_0000_0000_0000_0010_0000;
-const STATE_RXDMA_COMPLETE: u32 = 0b0000_0000_0000_0000_0000_0000_0100_0000;
-const STATE_RXDMA_MODE_MAXFRAME: u32 = 0b0000_0000_0000_0000_0000_0000_1000_0000;
-const STATE_RXGR_LEN_MASK: u32 = 0b1111_1111_1111_1111_0000_0000_0000_0000;
+pub(crate) const STATE_UNINIT: u32 = 0b0000_0000_0000_0000_0000_0000_0000_0000;
+pub(crate) const STATE_INITING: u32 = 0b0000_0000_0000_0000_0000_0000_0000_0001;
+pub(crate) const STATE_INITED: u32 = 0b0000_0000_0000_0000_0000_0000_0000_0011;
+pub(crate) const STATE_RXGR_ACTIVE: u32 = 0b0000_0000_0000_0000_0000_0000_0000_0100;
+pub(crate) const STATE_TXGR_ACTIVE: u32 = 0b0000_0000_0000_0000_0000_0000_0000_1000;
+pub(crate) const STATE_RXDMA_PRESENT: u32 = 0b0000_0000_0000_0000_0000_0000_0001_0000;
+pub(crate) const STATE_TXDMA_PRESENT: u32 = 0b0000_0000_0000_0000_0000_0000_0010_0000;
+pub(crate) const STATE_RXDMA_COMPLETE: u32 = 0b0000_0000_0000_0000_0000_0000_0100_0000;
+pub(crate) const STATE_RXDMA_MODE_MAXFRAME: u32 = 0b0000_0000_0000_0000_0000_0000_1000_0000;
+pub(crate) const STATE_RXGR_LEN_MASK: u32 = 0b1111_1111_1111_1111_0000_0000_0000_0000;
 
-struct BbqState {
+pub(crate) struct BbqState {
     /// 0bGGGG_GGGG_GGGG_GGGG_xxxx_xxxx_MDTR_PCAI
     ///                                        ^^--> 0b00: uninit, 0b01: initing, 0b11 init'd.
     ///                                       ^----> 0b0: No Rx grant, 0b1: Rx grant active
@@ -1013,7 +1102,7 @@ struct BbqState {
     ///                                  ^---------> 0b0: Rx DMA not complete, 0b1: Rx DMA complete
     ///                                 ^----------> 0b0: RxMode "Efficiency", 0b1: RxMode "Max Frame"
     ///   ^^^^_^^^^_^^^^_^^^^----------------------> 16-bit: RX Grant size
-    state: AtomicU32,
+    pub(crate) state: AtomicU32,
 
     /// The "outgoing" bbqueue buffer
     ///
@@ -1054,7 +1143,7 @@ struct BbqState {
 }
 
 impl BbqState {
-    const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
             state: AtomicU32::new(0),
             tx_queue: GroundedCell::uninit(),
@@ -1207,7 +1296,11 @@ impl BbqState {
             // the transfer completes.
             let max_len = (&*self.tx_queue.get()).capacity() / 4;
             let len = rgr.len().min(max_len).min(DMA_MAX_TRANSFER_SIZE);
-            txdma.setup_write_to_peripheral(&rgr[..len], peri_addr, EnableInterrupt::Yes);
+            if let Err(InvalidParameters) =
+                txdma.setup_write_to_peripheral(&rgr[..len], peri_addr, false, TransferOptions::COMPLETE_INTERRUPT)
+            {
+                return false;
+            }
 
             // Enable the DMA transfer
             info.regs().baud().modify(|w| w.set_tdmae(true));
@@ -1224,7 +1317,7 @@ impl BbqState {
         // immediately retrigger an interrupt.
         //
         // TODO: I'm not sure this actually ever happens, this is a defensive check
-        while info.regs.stat().read().tc() == Tc::COMPLETE {}
+        while info.regs.stat().read().tc() == Tc::Complete {}
 
         true
     }
@@ -1279,7 +1372,11 @@ impl BbqState {
             rxdma.set_request_source(source);
 
             let peri_addr = info.regs().data().as_ptr().cast::<u8>();
-            rxdma.setup_read_from_peripheral(peri_addr, &mut wgr, EnableInterrupt::Yes);
+            if let Err(InvalidParameters) =
+                rxdma.setup_read_from_peripheral(peri_addr, &mut wgr, false, TransferOptions::COMPLETE_INTERRUPT)
+            {
+                return false;
+            }
 
             // Enable the DMA transfer
             info.regs().baud().modify(|w| w.set_rdmae(true));
@@ -1305,31 +1402,31 @@ pub trait BbqInstance: Instance {
     fn dma_rx_complete_cb();
 }
 
-macro_rules! impl_instance {
-    ($($n:expr);* $(;)?) => {
-        $(
-            paste!{
-                #[allow(private_interfaces)]
-                impl BbqInstance for crate::peripherals::[<LPUART $n>] {
-                    fn bbq_state() -> &'static BbqState {
-                        static STATE: BbqState = BbqState::new();
-                        &STATE
-                    }
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_lpuart_bbq_instance {
+    ($n:expr) => {
+        paste::paste! {
+            #[allow(private_interfaces)]
+            impl crate::lpuart::bbq::BbqInstance for crate::peripherals::[<LPUART $n>] {
+                fn bbq_state() -> &'static crate::lpuart::bbq::BbqState {
+                    static STATE: crate::lpuart::bbq::BbqState = crate::lpuart::bbq::BbqState::new();
+                    &STATE
+                }
 
-                    fn dma_rx_complete_cb() {
-                        let state = Self::bbq_state();
-                        // Mark the DMA as complete
-                        state.state.fetch_or(STATE_RXDMA_COMPLETE, Ordering::AcqRel);
-                        // Pend the UART interrupt to handle the switchover
-                        Self::Interrupt::pend();
-                    }
+                fn dma_rx_complete_cb() {
+                    use crate::_generated::interrupt::typelevel::Interrupt;
+
+                    let state = Self::bbq_state();
+                    // Mark the DMA as complete
+                    state.state.fetch_or(crate::lpuart::bbq::STATE_RXDMA_COMPLETE, core::sync::atomic::Ordering::AcqRel);
+                    // Pend the UART interrupt to handle the switchover
+                    Self::Interrupt::pend();
                 }
             }
-        )*
+        }
     };
 }
-
-impl_instance!(0; 1; 2; 3; 4);
 
 // Basically the on_interrupt handler, but as a free function so it doesn't get
 // monomorphized.
@@ -1345,7 +1442,7 @@ unsafe fn handler(info: &'static Info, state: &'static BbqState) {
     // For now, we just clear + discard errors if they occur.
     let or = stat.or();
     let pf = stat.pf();
-    let fe = stat.pf();
+    let fe = stat.fe();
     let nf = stat.nf();
     let idle = stat.idle();
     regs.stat().modify(|w| {
@@ -1414,7 +1511,7 @@ unsafe fn handler(info: &'static Info, state: &'static BbqState) {
         // try to do this a bit earlier if the DMA completes but we haven't yet
         // drained the TX fifo yet.
         let txie_set = ctrl.tcie();
-        let tc_complete = regs.stat().read().tc() == Tc::COMPLETE;
+        let tc_complete = regs.stat().read().tc() == Tc::Complete;
         let txgr_present = (tx_state & STATE_TXGR_ACTIVE) != 0;
 
         let tx_did_finish = txie_set && tc_complete && txgr_present;
@@ -1467,7 +1564,7 @@ impl<T: BbqInstance> Handler<T::Interrupt> for BbqInterruptHandler<T> {
 
 use crate::gpio::SealedPin;
 
-fn any_as_tx(pin: &Peri<'_, AnyPin>, mux: crate::pac::port::vals::Mux) {
+fn any_as_tx(pin: &Peri<'_, AnyPin>, mux: crate::pac::port::Mux) {
     pin.set_pull(crate::gpio::Pull::Disabled);
     pin.set_slew_rate(crate::gpio::SlewRate::Fast.into());
     pin.set_drive_strength(crate::gpio::DriveStrength::Normal.into());
@@ -1475,7 +1572,7 @@ fn any_as_tx(pin: &Peri<'_, AnyPin>, mux: crate::pac::port::vals::Mux) {
     pin.set_enable_input_buffer(false);
 }
 
-fn any_as_rx(pin: &Peri<'_, AnyPin>, mux: crate::pac::port::vals::Mux) {
+fn any_as_rx(pin: &Peri<'_, AnyPin>, mux: crate::pac::port::Mux) {
     pin.set_pull(crate::gpio::Pull::Disabled);
     pin.set_function(mux);
     pin.set_enable_input_buffer(true);

@@ -1,0 +1,39 @@
+[package]
+name = "embassy-usb-host"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Async USB host stack for embedded devices in Rust."
+keywords = ["embedded", "async", "usb", "hal", "embedded-hal"]
+categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-usb-host"
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-usb-host-v$VERSION/embassy-usb-host/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-usb-host/src/"
+features = ["defmt"]
+target = "thumbv7em-none-eabi"
+
+[package.metadata.docs.rs]
+features = ["defmt"]
+
+[dependencies]
+embassy-usb = { version = "0.6.0", path = "../embassy-usb" }
+embassy-usb-driver = { version = "0.2.0", path = "../embassy-usb-driver" }
+embassy-time = { version = "0.5.1", path = "../embassy-time" }
+embedded-io-async = "0.7.0"
+aligned = "0.4"
+bitflags = "2.6.0"
+heapless = "0.9"
+zerocopy = { version = "0.8.2", features = ["derive"] }
+
+defmt = { version = "1", optional = true }
+log = { version = "0.4.14", optional = true }
+
+[dev-dependencies]
+env_logger = "0.9"
+
+[features]
+defmt = ["dep:defmt", "embassy-usb-driver/defmt", "heapless/defmt"]
+log = ["dep:log"]

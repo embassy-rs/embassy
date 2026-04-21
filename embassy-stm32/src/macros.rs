@@ -45,11 +45,11 @@ macro_rules! pin_trait {
         #[doc = concat!(stringify!($signal), " pin trait")]
         pub trait $signal<T: $instance $(, M: $mode)? $(, #[cfg(afio)] $afio)?>: crate::gpio::Pin {
             #[cfg(not(afio))]
-            #[doc = concat!("Get the AF number needed to use this pin as ", stringify!($signal))]
+            #[doc = concat!("Get the AF number needed to use this pin as `", stringify!($signal),"`.")]
             fn af_num(&self) -> u8;
 
             #[cfg(afio)]
-            #[doc = concat!("Configures AFIO_MAPR to use this pin as ", stringify!($signal))]
+            #[doc = concat!("Configures AFIO_MAPR to use this pin as `", stringify!($signal),"`.")]
             fn afio_remap(&self);
         }
     };
@@ -77,7 +77,7 @@ macro_rules! pin_trait_impl {
 macro_rules! pin_trait_afio_impl {
     (@set mapr, $setter:ident, $val:expr) => {
         crate::pac::AFIO.mapr().modify(|w| {
-            w.set_swj_cfg(crate::pac::afio::vals::SwjCfg::NO_OP);
+            w.set_swj_cfg(crate::pac::afio::vals::SwjCfg::NoOp);
             w.$setter($val);
         });
     };
@@ -106,6 +106,29 @@ macro_rules! pin_trait_afio_impl {
     };
 }
 
+#[cfg(any(comp_u5, comp_v1, comp_v2, opamp))]
+macro_rules! analog_pin_trait {
+    ($signal:ident, $instance:path $(, $mode:path)?) => {
+        #[doc = concat!(stringify!($signal), " pin trait")]
+        pub trait $signal<T: $instance $(, M: $mode)?>: crate::gpio::Pin {
+            #[cfg(not(afio))]
+            #[doc = concat!("Get the channel number needed to use this pin as `", stringify!($signal),"`.")]
+            fn channel(&self) -> u8;
+        }
+    };
+}
+
+#[cfg(any(comp_u5, comp_v1, comp_v2, opamp))]
+macro_rules! analog_pin_trait_impl {
+    (crate::$mod:ident::$trait:ident$(<$mode:ident>)?, $instance:ident, $pin:ident, $channel:expr) => {
+        impl crate::$mod::$trait<crate::peripherals::$instance $(, crate::$mod::$mode)?> for crate::peripherals::$pin {
+            fn channel(&self) -> u8 {
+                $channel
+            }
+        }
+    };
+}
+
 #[allow(unused_macros)]
 macro_rules! sel_trait_impl {
     (crate::$mod:ident::$trait:ident$(<$mode:ident>)?, $instance:ident, $pin:ident, $sel:expr) => {
@@ -123,7 +146,7 @@ macro_rules! dma_trait {
     ($signal:ident, $instance:path$(, $mode:path)?) => {
         #[doc = concat!(stringify!($signal), " DMA request trait")]
         pub trait $signal<T: $instance $(, M: $mode)?>: crate::dma::ChannelInstance {
-            #[doc = concat!("Get the DMA request number needed to use this channel as", stringify!($signal))]
+            #[doc = concat!("Get the DMA request number needed to use this channel as `", stringify!($signal),"`.")]
             /// Note: in some chips, ST calls this the "channel", and calls channels "streams".
             /// `embassy-stm32` always uses the "channel" and "request number" names.
             fn request(&self) -> crate::dma::Request;
@@ -160,7 +183,7 @@ macro_rules! trigger_trait {
     ($signal:ident, $instance:path$(, $mode:path)?) => {
         #[doc = concat!(stringify!($signal), " trigger trait")]
         pub trait $signal<T: $instance $(, M: $mode)?>  {
-            #[doc = concat!("Get the signal number needed to use this trigger as", stringify!($signal))]
+            #[doc = concat!("Get the signal number needed to use this trigger as `", stringify!($signal),"`.")]
             /// Note: in some chips, ST calls this the "channel", and calls channels "streams".
             /// `embassy-stm32` always uses the "channel" and "request number" names.
             fn signal(&self) -> u8;

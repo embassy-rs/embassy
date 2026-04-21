@@ -6,21 +6,26 @@
 //!
 //! The FRO12M provides a 1 MHz clock (clk_1m) used as WWDT0 independant clock source. This clock is / 4 by an internal fixed divider.
 
+#[cfg(feature = "embedded-mcu-hal")]
+use core::convert::Infallible;
 use core::marker::PhantomData;
 
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_time::Duration;
-use paste::paste;
 
+use crate::clocks::periph_helpers::Clk1MConfig;
+use crate::clocks::{ClockError, Gate, WakeGuard, enable_and_reset};
 use crate::interrupt::typelevel;
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac;
-use crate::pac::wwdt::vals::{Wden, Wdprotect, Wdreset};
+use crate::pac::wwdt::{Wden, Wdprotect, Wdreset};
 
 /// WWDT0 Error types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
+    /// Clock configuration error.
+    ClockSetup(ClockError),
     TimeoutTooSmall,
     TimeoutTooLarge,
     WarningTooLarge,
@@ -47,6 +52,7 @@ impl Default for Config {
 pub struct Watchdog<'d> {
     info: &'static Info,
     _phantom: PhantomData<&'d mut ()>,
+    _wg: Option<WakeGuard>,
 }
 
 impl<'d> Watchdog<'d> {
@@ -64,24 +70,15 @@ impl<'d> Watchdog<'d> {
         _irq: impl crate::interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Result<Self, Error> {
+        let parts = unsafe { enable_and_reset::<T>(&Clk1MConfig).map_err(Error::ClockSetup)? };
+
         let watchdog = Self {
             info: T::info(),
             _phantom: PhantomData,
+            _wg: parts.wake_guard,
         };
 
-        let base_frequency = crate::clocks::with_clocks(|clocks| {
-            // Ensure clk_1m is active at the required power level
-            clocks.ensure_clk_1m_active(&crate::clocks::PoweredClock::NormalEnabledDeepSleepDisabled)
-        })
-        .expect("Clocks not initialized")
-        .expect("clk_1m not enabled or not at required power level");
-
-        let frequency = base_frequency / 4;
-
-        // Enable WATCHDOG clock by writing to mrcc register
-        // Can't use enable_and_reset API here because WWDT doesn't have a reset signal.
-        pac::MRCC0.mrcc_glb_cc0().modify(|w| w.set_wwdt0(true));
-
+        let frequency = parts.freq / 4;
         let timeout_cycles = (frequency as u64 * config.timeout.as_micros()) / 1_000_000;
 
         // Ensure the value fits in u32 and is within valid range
@@ -148,23 +145,23 @@ impl<'d> Watchdog<'d> {
     /// Enable the watchdog timer.
     /// Function is blocking until the watchdog is actually started.
     fn enable(&self) {
-        self.info.regs().mod_().modify(|w| w.set_wden(Wden::RUN));
+        self.info.regs().mod_().modify(|w| w.set_wden(Wden::Run));
         while self.info.regs().tc().read().count() == 0xFF {}
     }
 
     /// Set the watchdog protection mode to flexible.
     fn set_flexible_mode(&self) {
-        self.info.regs().mod_().modify(|w| w.set_wdprotect(Wdprotect::FLEXIBLE));
+        self.info.regs().mod_().modify(|w| w.set_wdprotect(Wdprotect::Flexible));
     }
 
     /// Enable interrupt mode.
     fn enable_interrupt(&self) {
-        self.info.regs().mod_().modify(|w| w.set_wdreset(Wdreset::INTERRUPT));
+        self.info.regs().mod_().modify(|w| w.set_wdreset(Wdreset::Interrupt));
     }
 
     /// Enable reset mode.
     fn enable_reset(&self) {
-        self.info.regs().mod_().modify(|w| w.set_wdreset(Wdreset::RESET));
+        self.info.regs().mod_().modify(|w| w.set_wdreset(Wdreset::Reset));
     }
 
     /// Set the timeout value in clock cycles.
@@ -218,7 +215,7 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
     }
 }
 
-trait SealedInstance {
+pub(crate) trait SealedInstance: Gate<MrccPeriphConfig = Clk1MConfig> {
     fn info() -> &'static Info;
 }
 
@@ -229,8 +226,8 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     type Interrupt: typelevel::Interrupt;
 }
 
-struct Info {
-    regs: pac::wwdt::Wwdt,
+pub(crate) struct Info {
+    pub(crate) regs: pac::wwdt::Wwdt,
 }
 
 impl Info {
@@ -242,28 +239,33 @@ impl Info {
 
 unsafe impl Sync for Info {}
 
-macro_rules! impl_instance {
-    ($($n:literal);*) => {
-        $(
-            paste!{
-                impl SealedInstance for crate::peripherals::[<WWDT $n>] {
-                    fn info() -> &'static Info {
-                        static INFO: Info = Info {
-                            regs: pac::[<WWDT $n>],
-                        };
-                        &INFO
-                    }
-                }
-
-                impl Instance for crate::peripherals::[<WWDT $n>] {
-                    type Interrupt = crate::interrupt::typelevel::[<WWDT $n>];
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_wwdt_instance {
+    ($n:literal) => {
+        paste::paste! {
+            impl crate::wwdt::SealedInstance for crate::peripherals::[<WWDT $n>] {
+                fn info() -> &'static crate::wwdt::Info {
+                    static INFO: crate::wwdt::Info = crate::wwdt::Info {
+                        regs: crate::pac::[<WWDT $n>],
+                    };
+                    &INFO
                 }
             }
-        )*
+
+            impl crate::wwdt::Instance for crate::peripherals::[<WWDT $n>] {
+                type Interrupt = crate::interrupt::typelevel::[<WWDT $n>];
+            }
+        }
     };
 }
 
-impl_instance!(0);
+#[cfg(feature = "embedded-mcu-hal")]
+impl embedded_mcu_hal::watchdog::Watchdog for Watchdog<'_> {
+    type Error = Infallible;
 
-#[cfg(feature = "mcxa5xx")]
-impl_instance!(1);
+    fn feed(&mut self) -> Result<(), Self::Error> {
+        Self::feed(self);
+        Ok(())
+    }
+}

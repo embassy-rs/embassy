@@ -575,14 +575,14 @@ macro_rules! impl_instance {
 impl_instance!(
     SPI0,
     Spi0,
-    pac::dma::vals::TreqSel::SPI0_TX,
-    pac::dma::vals::TreqSel::SPI0_RX
+    pac::dma::vals::TreqSel::Spi0Tx,
+    pac::dma::vals::TreqSel::Spi0Rx
 );
 impl_instance!(
     SPI1,
     Spi1,
-    pac::dma::vals::TreqSel::SPI1_TX,
-    pac::dma::vals::TreqSel::SPI1_RX
+    pac::dma::vals::TreqSel::Spi1Tx,
+    pac::dma::vals::TreqSel::Spi1Rx
 );
 
 /// CLK pin.

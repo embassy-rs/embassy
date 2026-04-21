@@ -2,13 +2,16 @@
 
 use core::marker::PhantomData;
 
+pub use super::low_level::FilterValue;
 use super::low_level::{CountingMode, OutputPolarity, RoundTo, Timer};
 use super::simple_pwm::PwmPin;
 use super::{AdvancedInstance4Channel, Ch1, Ch2, Ch3, Ch4, Channel, TimerComplementaryPin};
 use crate::Peri;
 use crate::dma::word::Word;
 use crate::gpio::{AfType, Flex, OutputType};
-pub use crate::pac::timer::vals::{Ccds, Ckd, Mms2, Ossi, Ossr};
+pub use crate::pac::timer::vals::{
+    Bkinp as BreakComparatorPolarity, Bkp as BreakInputPolarity, Ccds, Ckd, Mms2, Ossi, Ossr,
+};
 use crate::time::Hertz;
 use crate::timer::TimerChannel;
 use crate::timer::low_level::OutputCompareMode;
@@ -199,6 +202,151 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.get_moe()
     }
 
+    /// Enable/disable break input 1.
+    ///
+    /// When enabled, an active level on the break input forces all timer
+    /// outputs to their safe state (configured by OSSI/OSSR and OIS/OISN).
+    /// This provides hardware-level overcurrent protection for motor drives.
+    pub fn set_break_enable(&mut self, enable: bool) {
+        self.inner.set_break_enable(enable);
+    }
+
+    /// Get break input 1 enable state.
+    pub fn get_break_enable(&self) -> bool {
+        self.inner.get_break_enable()
+    }
+
+    /// Set break input 1 polarity.
+    pub fn set_break_polarity(&mut self, polarity: BreakInputPolarity) {
+        self.inner.set_break_polarity(polarity);
+    }
+
+    /// Get break input 1 polarity.
+    pub fn get_break_polarity(&self) -> BreakInputPolarity {
+        self.inner.get_break_polarity()
+    }
+
+    /// Set break input 1 digital filter.
+    ///
+    /// The filter rejects glitches shorter than the configured number of
+    /// clock cycles, preventing false break events from noise on the pin.
+    pub fn set_break_filter(&mut self, filter: FilterValue) {
+        self.inner.set_break_filter(filter);
+    }
+
+    /// Get break input 1 digital filter.
+    pub fn get_break_filter(&self) -> FilterValue {
+        self.inner.get_break_filter()
+    }
+
+    /// Enable/disable break input 2.
+    pub fn set_break2_enable(&mut self, enable: bool) {
+        self.inner.set_break2_enable(enable);
+    }
+
+    /// Get break input 2 enable state.
+    pub fn get_break2_enable(&self) -> bool {
+        self.inner.get_break2_enable()
+    }
+
+    /// Set break input 2 polarity.
+    pub fn set_break2_polarity(&mut self, polarity: BreakInputPolarity) {
+        self.inner.set_break2_polarity(polarity);
+    }
+
+    /// Get break input 2 polarity.
+    pub fn get_break2_polarity(&self) -> BreakInputPolarity {
+        self.inner.get_break2_polarity()
+    }
+
+    /// Set break input 2 digital filter.
+    pub fn set_break2_filter(&mut self, filter: FilterValue) {
+        self.inner.set_break2_filter(filter);
+    }
+
+    /// Get break input 2 digital filter.
+    pub fn get_break2_filter(&self) -> FilterValue {
+        self.inner.get_break2_filter()
+    }
+
+    /// Enable/disable automatic output enable (AOE).
+    ///
+    /// When enabled, the MOE bit is automatically set at the next update
+    /// event after a break event, allowing the outputs to resume. When
+    /// disabled, MOE can only be re-enabled by software after a break.
+    pub fn set_automatic_output_enable(&mut self, enable: bool) {
+        self.inner.set_automatic_output_enable(enable);
+    }
+
+    /// Get automatic output enable (AOE) state.
+    pub fn get_automatic_output_enable(&self) -> bool {
+        self.inner.get_automatic_output_enable()
+    }
+
+    /// Enable/disable comparator output as break input 1 source.
+    ///
+    /// Routes the internal comparator output directly to the break input,
+    /// no GPIO pin needed. `comp_index` is 0-based (0=COMP1, 1=COMP2, etc.).
+    /// Multiple comparators can be enabled simultaneously (OR'd together).
+    pub fn set_break_comparator_enable(&mut self, comp_index: usize, enable: bool) {
+        self.inner.set_break_comparator_enable(comp_index, enable);
+    }
+
+    /// Get comparator break input 1 enable state.
+    pub fn get_break_comparator_enable(&self, comp_index: usize) -> bool {
+        self.inner.get_break_comparator_enable(comp_index)
+    }
+
+    /// Set comparator break input 1 polarity.
+    pub fn set_break_comparator_polarity(&mut self, comp_index: usize, polarity: BreakComparatorPolarity) {
+        self.inner.set_break_comparator_polarity(comp_index, polarity);
+    }
+
+    /// Get comparator break input 1 polarity.
+    pub fn get_break_comparator_polarity(&self, comp_index: usize) -> BreakComparatorPolarity {
+        self.inner.get_break_comparator_polarity(comp_index)
+    }
+
+    /// Enable/disable the external BKIN pin as break input 1 source.
+    pub fn set_break_input_pin_enable(&mut self, enable: bool) {
+        self.inner.set_break_input_pin_enable(enable);
+    }
+
+    /// Get external BKIN pin enable state.
+    pub fn get_break_input_pin_enable(&self) -> bool {
+        self.inner.get_break_input_pin_enable()
+    }
+
+    /// Enable/disable comparator output as break input 2 source.
+    pub fn set_break2_comparator_enable(&mut self, comp_index: usize, enable: bool) {
+        self.inner.set_break2_comparator_enable(comp_index, enable);
+    }
+
+    /// Get comparator break input 2 enable state.
+    pub fn get_break2_comparator_enable(&self, comp_index: usize) -> bool {
+        self.inner.get_break2_comparator_enable(comp_index)
+    }
+
+    /// Set comparator break input 2 polarity.
+    pub fn set_break2_comparator_polarity(&mut self, comp_index: usize, polarity: BreakComparatorPolarity) {
+        self.inner.set_break2_comparator_polarity(comp_index, polarity);
+    }
+
+    /// Get comparator break input 2 polarity.
+    pub fn get_break2_comparator_polarity(&self, comp_index: usize) -> BreakComparatorPolarity {
+        self.inner.get_break2_comparator_polarity(comp_index)
+    }
+
+    /// Enable/disable the external BK2IN pin as break input 2 source.
+    pub fn set_break2_input_pin_enable(&mut self, enable: bool) {
+        self.inner.set_break2_input_pin_enable(enable);
+    }
+
+    /// Get external BK2IN pin enable state.
+    pub fn get_break2_input_pin_enable(&self) -> bool {
+        self.inner.get_break2_input_pin_enable()
+    }
+
     /// Set Master Slave Mode 2
     pub fn set_mms2(&mut self, mms2: Mms2) {
         self.inner.set_mms2_selection(mms2);
@@ -361,7 +509,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.enable_channel(channel, true);
         self.inner.enable_channel(C::CHANNEL, true);
         self.inner.clamp_compare_value::<W>(channel);
-        self.inner.set_cc_dma_selection(Ccds::ON_UPDATE);
+        self.inner.set_cc_dma_selection(Ccds::OnUpdate);
         self.inner.set_cc_dma_enable_state(C::CHANNEL, true);
         self.inner.setup_channel_update_dma(dma, irq, channel, duty).await;
         self.inner.set_cc_dma_enable_state(C::CHANNEL, false);
@@ -509,14 +657,14 @@ fn compute_dead_time_value(value: u16) -> (Ckd, u8) {
     */
 
     let mut error = u16::MAX;
-    let mut ckd = Ckd::DIV1;
+    let mut ckd = Ckd::Div1;
     let mut bits = 0u8;
 
-    for this_ckd in [Ckd::DIV1, Ckd::DIV2, Ckd::DIV4] {
+    for this_ckd in [Ckd::Div1, Ckd::Div2, Ckd::Div4] {
         let outdiv = match this_ckd {
-            Ckd::DIV1 => 1,
-            Ckd::DIV2 => 2,
-            Ckd::DIV4 => 4,
+            Ckd::Div1 => 1,
+            Ckd::Div2 => 2,
+            Ckd::Div4 => 4,
             _ => unreachable!(),
         };
 
@@ -574,32 +722,32 @@ mod tests {
         let fn_results = [
             TestRun {
                 value: 1,
-                ckd: Ckd::DIV1,
+                ckd: Ckd::Div1,
                 bits: 1,
             },
             TestRun {
                 value: 125,
-                ckd: Ckd::DIV1,
+                ckd: Ckd::Div1,
                 bits: 125,
             },
             TestRun {
                 value: 245,
-                ckd: Ckd::DIV1,
+                ckd: Ckd::Div1,
                 bits: 64 + 245 / 2,
             },
             TestRun {
                 value: 255,
-                ckd: Ckd::DIV2,
+                ckd: Ckd::Div2,
                 bits: 127,
             },
             TestRun {
                 value: 400,
-                ckd: Ckd::DIV1,
+                ckd: Ckd::Div1,
                 bits: 210,
             },
             TestRun {
                 value: 600,
-                ckd: Ckd::DIV4,
+                ckd: Ckd::Div4,
                 bits: 64 + (600u16 / 8) as u8,
             },
         ];

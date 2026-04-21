@@ -93,8 +93,8 @@ impl LinearItem {
 
         let mut tr2 = regs::ChTr2(0);
         tr2.set_dreq(match dir {
-            Dir::MemoryToPeripheral => Dreq::DESTINATION_PERIPHERAL,
-            Dir::PeripheralToMemory => Dreq::SOURCE_PERIPHERAL,
+            Dir::MemoryToPeripheral => Dreq::DestinationPeripheral,
+            Dir::PeripheralToMemory => Dreq::SourcePeripheral,
             Dir::MemoryToMemory => panic!("memory-to-memory transfers are not valid for LinearItem"),
         });
         tr2.set_reqsel(request);
@@ -163,6 +163,26 @@ impl<const ITEM_COUNT: usize> Table<ITEM_COUNT> {
         assert!(!items.is_empty());
 
         Self { items }
+    }
+
+    /// Create a single-LLI circular linked-list table.
+    ///
+    /// Uses one linked-list item covering the entire buffer, linked to itself.
+    /// This avoids multi-LLI race conditions in position tracking while still
+    /// providing half-transfer and transfer-complete interrupts for wakeups.
+    pub unsafe fn new_circular<W: Word>(
+        request: Request,
+        peri_addr: *mut W,
+        buffer: &mut [W],
+        direction: Dir,
+    ) -> Table<1> {
+        let item = match direction {
+            Dir::MemoryToPeripheral => LinearItem::new_write(request, &buffer[..], peri_addr),
+            Dir::PeripheralToMemory => LinearItem::new_read(request, peri_addr, &mut buffer[..]),
+            Dir::MemoryToMemory => panic!("memory-to-memory transfers are not valid for LinearItem"),
+        };
+
+        Table::new([item])
     }
 
     /// Create a ping-pong linked-list table.

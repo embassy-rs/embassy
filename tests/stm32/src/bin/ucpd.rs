@@ -40,13 +40,13 @@ async fn source(
 
     // Wait for default sink.
     debug!("source: wait for sink");
-    wait_for_vstate(ucpd.cc_phy(), CcVState::LOW).await;
+    wait_for_vstate(ucpd.cc_phy(), CcVState::Low).await;
 
     // Advertise a higher current by changing the pull-up resistor.
     debug!("source: sink detected, setting 3.0A current pull-up");
     ucpd.cc_phy().set_pull(CcPull::Source3_0A);
 
-    let (_, mut pd_phy) = ucpd.split_pd_phy(rx_dma, tx_dma, Irqs, CcSel::CC1);
+    let (_, mut pd_phy) = ucpd.split_pd_phy(rx_dma, tx_dma, Irqs, CcSel::Cc1);
 
     // Listen for an incoming message
     debug!("source: wait for message from sink");
@@ -77,7 +77,7 @@ async fn sink(
 
     // Wait for default source.
     debug!("sink: waiting for default vstate");
-    wait_for_vstate(ucpd.cc_phy(), CcVState::LOW).await;
+    wait_for_vstate(ucpd.cc_phy(), CcVState::Low).await;
 
     // Wait higher current pull-up.
     //debug!("sink: source default vstate detected, waiting for 3.0A vstate");
@@ -86,7 +86,7 @@ async fn sink(
     // TODO: not working yet, why? no idea, replace with timer for now
     Timer::after_millis(100).await;
 
-    let (_, mut pd_phy) = ucpd.split_pd_phy(rx_dma, tx_dma, Irqs, CcSel::CC1);
+    let (_, mut pd_phy) = ucpd.split_pd_phy(rx_dma, tx_dma, Irqs, CcSel::Cc1);
 
     // Send message
     debug!("sink: sending message");
@@ -104,7 +104,11 @@ async fn sink(
     unwrap!(pd_phy.transmit_hardreset().await);
 }
 
-#[embassy_executor::main]
+#[cfg_attr(
+    feature = "stop",
+    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
+)]
+#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
 async fn main(_spawner: Spawner) {
     let p = init();
     info!("Hello World!");

@@ -66,7 +66,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             mode: MODE_0,
-            bit_order: BitOrder::MSB_FIRST,
+            bit_order: BitOrder::MsbFirst,
             orc: 0x00,
             def: 0x00,
             auto_acquire: true,
@@ -173,26 +173,26 @@ impl<'d> Spis<'d> {
         let r = T::regs();
 
         // Configure pins.
-        cs.conf().write(|w| w.set_input(gpiovals::Input::CONNECT));
+        cs.conf().write(|w| w.set_input(gpiovals::Input::Connect));
         r.psel().csn().write_value(cs.psel_bits());
         if let Some(sck) = &sck {
-            sck.conf().write(|w| w.set_input(gpiovals::Input::CONNECT));
+            sck.conf().write(|w| w.set_input(gpiovals::Input::Connect));
             r.psel().sck().write_value(sck.psel_bits());
         }
         if let Some(mosi) = &mosi {
-            mosi.conf().write(|w| w.set_input(gpiovals::Input::CONNECT));
+            mosi.conf().write(|w| w.set_input(gpiovals::Input::Connect));
             r.psel().mosi().write_value(mosi.psel_bits());
         }
         if let Some(miso) = &miso {
             miso.conf().write(|w| {
-                w.set_dir(gpiovals::Dir::OUTPUT);
+                w.set_dir(gpiovals::Dir::Output);
                 convert_drive(w, config.miso_drive);
             });
             r.psel().miso().write_value(miso.psel_bits());
         }
 
         // Enable SPIS instance.
-        r.enable().write(|w| w.set_enable(vals::Enable::ENABLED));
+        r.enable().write(|w| w.set_enable(vals::Enable::Enabled));
 
         let mut spis = Self {
             r: T::regs(),
@@ -456,7 +456,7 @@ impl<'d> Drop for Spis<'d> {
 
         // Disable
         let r = self.r;
-        r.enable().write(|w| w.set_enable(vals::Enable::DISABLED));
+        r.enable().write(|w| w.set_enable(vals::Enable::Disabled));
 
         gpio::deconfigure_pin(r.psel().sck().read());
         gpio::deconfigure_pin(r.psel().csn().read());
@@ -521,20 +521,20 @@ impl<'d> SetConfig for Spis<'d> {
             w.set_order(config.bit_order);
             match mode {
                 MODE_0 => {
-                    w.set_cpol(vals::Cpol::ACTIVE_HIGH);
-                    w.set_cpha(vals::Cpha::LEADING);
+                    w.set_cpol(vals::Cpol::ActiveHigh);
+                    w.set_cpha(vals::Cpha::Leading);
                 }
                 MODE_1 => {
-                    w.set_cpol(vals::Cpol::ACTIVE_HIGH);
-                    w.set_cpha(vals::Cpha::TRAILING);
+                    w.set_cpol(vals::Cpol::ActiveHigh);
+                    w.set_cpha(vals::Cpha::Trailing);
                 }
                 MODE_2 => {
-                    w.set_cpol(vals::Cpol::ACTIVE_LOW);
-                    w.set_cpha(vals::Cpha::LEADING);
+                    w.set_cpol(vals::Cpol::ActiveLow);
+                    w.set_cpha(vals::Cpha::Leading);
                 }
                 MODE_3 => {
-                    w.set_cpol(vals::Cpol::ACTIVE_LOW);
-                    w.set_cpha(vals::Cpha::TRAILING);
+                    w.set_cpol(vals::Cpol::ActiveLow);
+                    w.set_cpha(vals::Cpha::Trailing);
                 }
             }
         });

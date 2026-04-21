@@ -8,7 +8,7 @@ publish = false
 [dependencies]
 cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7"
-stm32-metapac = { version = "19", features = ["stm32l475vg"] }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-5f15bbfaf37bd6a6330fec66a3a39de0042d64ac", features = ["stm32l475vg"] }
 
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"

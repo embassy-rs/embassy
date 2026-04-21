@@ -10,7 +10,7 @@ use embassy_mcxa::gpio::Output;
 use hal::adc::{self, Adc};
 use hal::clocks::config::Div8;
 use hal::config::Config;
-use hal::pac::adc::vals::Mode;
+use hal::pac::adc::Mode;
 use hal::peripherals::ADC0;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
@@ -38,7 +38,7 @@ async fn main(_spawner: Spawner) {
         let commands = &[Command::new_single(
             p.P2_4.reborrow(),
             CommandConfig {
-                resolution: Mode::DATA_16_BITS,
+                resolution: Mode::Data16Bits,
                 compare: adc::Compare::StoreIf(adc::CompareFunction::GreaterThan(0x8000)),
                 ..Default::default()
             },
@@ -65,6 +65,9 @@ async fn main(_spawner: Spawner) {
 
         output.set_high();
 
+        // Await for the GPIO pin voltage to rise
+        embassy_time::Timer::after_millis(1).await;
+
         defmt::info!("High, Some");
         // Output is high, so a trigger should result in a store to fifo
         adc.do_software_trigger(0b0001).unwrap();
@@ -79,7 +82,7 @@ async fn main(_spawner: Spawner) {
         let commands = &[Command::new_single(
             p.P2_4.reborrow(),
             CommandConfig {
-                resolution: Mode::DATA_16_BITS,
+                resolution: Mode::Data16Bits,
                 compare: adc::Compare::SkipUntil(adc::CompareFunction::GreaterThan(0x8000)),
                 ..Default::default()
             },
@@ -108,6 +111,10 @@ async fn main(_spawner: Spawner) {
         defmt::info!("High, Some");
         // Set output high, and we should get a value without new trigger
         output.set_high();
+
+        // Await for the GPIO pin voltage to rise
+        embassy_time::Timer::after_millis(1).await;
+
         assert!(adc.wait_get_conversion().await.is_some());
     }
 

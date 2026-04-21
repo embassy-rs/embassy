@@ -3,7 +3,7 @@ use core::task::Poll;
 
 use stm32_metapac::adc::vals::{Align, Awdsgl, Res, SampleTime};
 
-use crate::adc::{Adc, AdcChannel, Instance};
+use crate::adc::{Adc, AdcChannel, AdcRegs, DefaultInstance};
 
 /// This enum is passed into `Adc::init_watchdog` to specify the channels for the watchdog to monitor
 pub enum WatchdogChannels {
@@ -28,14 +28,35 @@ impl WatchdogChannels {
     }
 }
 
-impl<'d, T: Instance> Adc<'d, T> {
+/// Analog Watchdog
+pub struct AnalogWatchdog<'adc, 'd, T: DefaultInstance> {
+    _adc: &'adc mut super::Adc<'d, T>,
+}
+
+impl<'d, T: DefaultInstance> Adc<'d, T> {
     /// Configure the analog window watchdog to monitor one or more ADC channels
     ///
     /// `high_threshold` and `low_threshold` are expressed in the same way as ADC results. The format
     /// depends on the values of CFGR1.ALIGN and CFGR1.RES.
-    pub fn init_watchdog(&mut self, channels: WatchdogChannels, low_threshold: u16, high_threshold: u16) {
-        Self::stop_awd();
+    pub fn init_watchdog(
+        &mut self,
+        channels: WatchdogChannels,
+        low_threshold: u16,
+        high_threshold: u16,
+    ) -> AnalogWatchdog<'_, 'd, T> {
+        T::regs().stop(false);
 
+        AnalogWatchdog::new_inner(self, channels, low_threshold, high_threshold)
+    }
+}
+
+impl<'adc, 'd, T: DefaultInstance> AnalogWatchdog<'adc, 'd, T> {
+    fn new_inner(
+        _adc: &'adc mut super::Adc<'d, T>,
+        channels: WatchdogChannels,
+        low_threshold: u16,
+        high_threshold: u16,
+    ) -> Self {
         match channels {
             WatchdogChannels::Single(ch) => {
                 T::regs().chselr().modify(|w| {
@@ -43,35 +64,40 @@ impl<'d, T: Instance> Adc<'d, T> {
                 });
                 T::regs().cfgr1().modify(|w| {
                     w.set_awdch(ch);
-                    w.set_awdsgl(Awdsgl::SINGLE_CHANNEL)
+                    w.set_awdsgl(Awdsgl::SingleChannel)
                 });
             }
             WatchdogChannels::Multiple(ch) => {
                 T::regs().chselr().modify(|w| w.0 = ch.into());
                 T::regs().cfgr1().modify(|w| {
                     w.set_awdch(0);
-                    w.set_awdsgl(Awdsgl::ALL_CHANNELS)
+                    w.set_awdsgl(Awdsgl::AllChannels)
                 });
             }
         }
 
         Self::set_watchdog_thresholds(low_threshold, high_threshold);
         Self::setup_awd();
+
+        Self { _adc }
     }
 
     /// Monitor the voltage on the selected channels; return when it crosses the thresholds.
     ///
     /// ```rust,ignore
     /// // Wait for pin to go high
-    /// adc.init_watchdog(WatchdogChannels::from_channel(&pin), 0, 0x07F);
-    /// let v_high = adc.monitor_watchdog().await;
+    /// let wd = adc.init_watchdog(WatchdogChannels::from_channel(&pin), 0, 0x07F);
+    /// let v_high = wd.monitor().await;
     /// info!("ADC sample is high {}", v_high);
     /// ```
-    pub async fn monitor_watchdog(&mut self, sample_time: SampleTime) -> u16 {
+    pub async fn monitor(&mut self, sample_time: SampleTime) -> u16 {
+        let _scoped_wake_guard = <T as crate::rcc::SealedRccPeripheral>::RCC_INFO.wake_guard();
+        T::regs().enable();
+
         assert!(
             match T::regs().cfgr1().read().awdsgl() {
-                Awdsgl::SINGLE_CHANNEL => T::regs().cfgr1().read().awdch() != 0,
-                Awdsgl::ALL_CHANNELS => T::regs().cfgr1().read().awdch() == 0,
+                Awdsgl::SingleChannel => T::regs().cfgr1().read().awdch() != 0,
+                Awdsgl::AllChannels => T::regs().cfgr1().read().awdch() == 0,
             },
             "`set_channel` should be called before `monitor`",
         );
@@ -90,13 +116,8 @@ impl<'d, T: Instance> Adc<'d, T> {
         })
         .await;
 
-        self.stop_watchdog();
+        T::regs().stop(false);
         sample
-    }
-
-    /// Stop monitoring the selected channels
-    pub fn stop_watchdog(&mut self) {
-        Self::stop_awd();
     }
 
     fn set_watchdog_thresholds(low_threshold: u16, high_threshold: u16) {
@@ -106,14 +127,14 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         // Verify that the thresholds are in the correct bit positions according to alignment and resolution
         let threshold_mask = match (T::regs().cfgr1().read().align(), T::regs().cfgr1().read().res()) {
-            (Align::LEFT, Res::BITS6) => 0x00FC,
-            (Align::LEFT, Res::BITS8) => 0xFF00,
-            (Align::LEFT, Res::BITS10) => 0xFFC0,
-            (Align::LEFT, Res::BITS12) => 0xFFF0,
-            (Align::RIGHT, Res::BITS6) => 0x003F,
-            (Align::RIGHT, Res::BITS8) => 0x00FF,
-            (Align::RIGHT, Res::BITS10) => 0x03FF,
-            (Align::RIGHT, Res::BITS12) => 0x0FFF,
+            (Align::Left, Res::Bits6) => 0x00FC,
+            (Align::Left, Res::Bits8) => 0xFF00,
+            (Align::Left, Res::Bits10) => 0xFFC0,
+            (Align::Left, Res::Bits12) => 0xFFF0,
+            (Align::Right, Res::Bits6) => 0x003F,
+            (Align::Right, Res::Bits8) => 0x00FF,
+            (Align::Right, Res::Bits10) => 0x03FF,
+            (Align::Right, Res::Bits12) => 0x0FFF,
         };
         assert!(
             high_threshold & !threshold_mask == 0,
@@ -159,30 +180,10 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().cfgr1().modify(|w| w.set_cont(true));
         T::regs().cr().modify(|w| w.set_adstart(true));
     }
+}
 
-    fn stop_awd() {
-        // Stop conversion
-        while T::regs().cr().read().addis() {}
-        if T::regs().cr().read().adstart() {
-            T::regs().cr().write(|x| x.set_adstp(true));
-            while T::regs().cr().read().adstp() {}
-        }
-        T::regs().cfgr1().modify(|w| w.set_cont(false));
-
-        // Disable AWD interrupt
-        assert!(!T::regs().cr().read().adstart());
-        T::regs().ier().modify(|w| w.set_awdie(false));
-
-        // Clear AWD interrupt flag
-        while T::regs().isr().read().awd() {
-            T::regs().isr().modify(|regs| {
-                regs.set_awd(true);
-            })
-        }
-    }
-
-    pub(crate) fn teardown_awd() {
-        Self::stop_awd();
-        T::regs().cfgr1().modify(|w| w.set_awden(false));
+impl<'adc, 'd, T: DefaultInstance> Drop for AnalogWatchdog<'adc, 'd, T> {
+    fn drop(&mut self) {
+        T::regs().stop(false);
     }
 }

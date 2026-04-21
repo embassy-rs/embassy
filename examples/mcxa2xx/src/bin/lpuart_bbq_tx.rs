@@ -35,10 +35,10 @@ const SIZE: usize = 4096;
 static TX_BUF: ConstStaticCell<[u8; SIZE]> = ConstStaticCell::new([0u8; SIZE]);
 
 #[cfg_attr(
-    feature = "custom-executor",
+    feature = "executor-platform",
     embassy_executor::main(executor = "embassy_mcxa::executor::Executor", entry = "cortex_m_rt::entry")
 )]
-#[cfg_attr(not(feature = "custom-executor"), embassy_executor::main)]
+#[cfg_attr(not(feature = "executor-platform"), embassy_executor::main)]
 async fn main(_spawner: Spawner) {
     let mut cfg = hal::config::Config::default();
 
@@ -47,7 +47,7 @@ async fn main(_spawner: Spawner) {
     fcfg.frequency = FircFreqSel::Mhz180;
     fcfg.power = PoweredClock::NormalEnabledDeepSleepDisabled;
     fcfg.fro_hf_enabled = true;
-    fcfg.clk_45m_enabled = false;
+    fcfg.clk_hf_fundamental_enabled = false;
     fcfg.fro_hf_div = Some(const { Div8::from_divisor(4).unwrap() });
     cfg.clock_cfg.firc = Some(fcfg);
 
@@ -97,7 +97,7 @@ async fn main(_spawner: Spawner) {
     let tx_buf = TX_BUF.take();
 
     // Create UART instance with DMA channels
-    let dma_channel = DmaChannel::new(p.DMA_CH0);
+    let dma_channel = DmaChannel::new(p.DMA0_CH0);
     let parts = BbqHalfParts::new_tx_half(p.LPUART3, Irqs, p.P4_5, tx_buf, dma_channel);
     let mut lpuart = LpuartBbqTx::new(parts, config).unwrap();
     let mut to_knock = [0u8; 16];
@@ -109,7 +109,7 @@ async fn main(_spawner: Spawner) {
 
     let mut red = Output::new(p.P3_18, Level::High, DriveStrength::Normal, SlewRate::Fast);
 
-    #[cfg(feature = "custom-executor")]
+    #[cfg(feature = "executor-platform")]
     embassy_mcxa::executor::set_executor_debug_gpio(p.P4_2);
 
     loop {

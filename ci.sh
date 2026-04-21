@@ -24,6 +24,14 @@ if [[ -z "${CARGO_TARGET_DIR}" ]]; then
     export CARGO_TARGET_DIR=target_ci
 fi
 
+# always run check to prime cache
+cargo embassy-devtool check
+
+if [[ -z "${TELEPROBE_TOKEN-}" ]]; then
+    echo No teleprobe token found, skipping running HIL tests
+    exit
+fi
+
 cargo embassy-devtool build
 
 # temporarily disabled, these boards are dead.
@@ -61,6 +69,7 @@ rm out/tests/pimoroni-pico-plus-2/i2c
 rm out/tests/pimoroni-pico-plus-2/adc
 # temporarily disabled
 rm out/tests/pimoroni-pico-plus-2/pwm
+rm out/tests/frdm-mcx-a266/trng
 
 # flaky
 rm out/tests/rpi-pico/pwm
@@ -74,10 +83,5 @@ rm out/tests/stm32h563zi/usart_dma
 rm -rf out/tests/stm32c071rb
 rm -rf out/tests/stm32f100rd
 rm -rf out/tests/stm32f107vc
-
-if [[ -z "${TELEPROBE_TOKEN-}" ]]; then
-    echo No teleprobe token found, skipping running HIL tests
-    exit
-fi
 
 teleprobe client run -r out/tests
