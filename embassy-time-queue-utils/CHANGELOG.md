@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.3.2 - 2026-04-21
+
 - By default, enabling a `generic-queue-*` feature disables the integrated timers. Integrated timers
   can be enabled alongside the generic queue by using the `integrated-timers` feature.
 
