@@ -450,7 +450,7 @@ impl<'d, const CH_COUNT: usize> OtgHost<'d, CH_COUNT> {
 }
 
 impl<'d, const CH_COUNT: usize> UsbHostDriver<'d> for OtgHost<'d, CH_COUNT> {
-    type Pipe<T: pipe::Type, D: pipe::Direction> = Channel<T, D, CH_COUNT>;
+    type Pipe<T: pipe::Type, D: pipe::Direction> = Channel<'d, T, D, CH_COUNT>;
 
     async fn wait_for_device_event(&mut self) -> DeviceEvent {
         // Lazily initialize the host hardware on first call.
@@ -654,9 +654,7 @@ impl<'d, const CH_COUNT: usize> UsbHostDriver<'d> for OtgHost<'d, CH_COUNT> {
 
                 return Ok(Channel {
                     regs: self.instance.regs,
-                    // SAFETY: state is behind a &'d reference which outlives all channels.
-                    // Channel release is atomic via Drop.
-                    state: self.instance.state as *const _ as *const HostState<CH_COUNT>,
+                    state: self.instance.state,
                     index: i,
                     device_address: addr,
                     ep_number,
@@ -675,11 +673,11 @@ impl<'d, const CH_COUNT: usize> UsbHostDriver<'d> for OtgHost<'d, CH_COUNT> {
 /// A USB host channel for performing transfers.
 ///
 /// The channel is automatically released when dropped.
-pub struct Channel<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> {
+pub struct Channel<'d, T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> {
     regs: Otg,
     /// Raw pointer to avoid lifetime dependency on OtgHost.
     /// SAFETY: The HostState is always in a static or lives for 'd which outlives all channels.
-    state: *const HostState<CH_COUNT>,
+    state: &'d HostState<CH_COUNT>,
     index: usize,
     device_address: u8,
     ep_number: u8,
@@ -690,9 +688,9 @@ pub struct Channel<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> {
 }
 
 // SAFETY: Channel access to HostState is through atomics only.
-unsafe impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Send for Channel<T, D, CH_COUNT> {}
+unsafe impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Send for Channel<'_, T, D, CH_COUNT> {}
 
-impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Drop for Channel<T, D, CH_COUNT> {
+impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Drop for Channel<'_, T, D, CH_COUNT> {
     fn drop(&mut self) {
         let r = self.regs;
         let ch = self.index;
@@ -720,17 +718,12 @@ impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Drop for Channel<
         // Clear any pending channel interrupts.
         r.hcint(ch).write_value(crate::otg_v1::regs::Hcint(0xFFFF_FFFF));
 
-        let state = unsafe { &*self.state };
-        state.channels[ch].result.store(CH_RESULT_NONE, Ordering::Release);
-        state.channels[ch].allocated.store(false, Ordering::Release);
+        self.state.channels[ch].result.store(CH_RESULT_NONE, Ordering::Release);
+        self.state.channels[ch].allocated.store(false, Ordering::Release);
     }
 }
 
-impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Channel<T, D, CH_COUNT> {
-    fn state(&self) -> &HostState<CH_COUNT> {
-        unsafe { &*self.state }
-    }
-
+impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Channel<'_, T, D, CH_COUNT> {
     fn configure_channel(&self, dir_in: bool, ep_type: EndpointType, pktcnt: u16, xfrsiz: u32, dpid: u8) {
         let r = self.regs;
         let ch = self.index;
@@ -805,9 +798,7 @@ impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Channel<T, D, CH_
         r.hcint(ch).write_value(crate::otg_v1::regs::Hcint(0xFFFF_FFFF));
 
         // Clear result
-        self.state().channels[ch]
-            .result
-            .store(CH_RESULT_NONE, Ordering::Release);
+        self.state.channels[ch].result.store(CH_RESULT_NONE, Ordering::Release);
     }
 
     fn enable_channel(&self) {
@@ -847,7 +838,7 @@ impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Channel<T, D, CH_
     }
 
     fn setup_rx_buffer(&self, buf: &mut [u8]) {
-        let ch_state = &self.state().channels[self.index];
+        let ch_state = &self.state.channels[self.index];
         unsafe {
             *ch_state.rx_buffer.get() = buf.as_mut_ptr();
             *ch_state.rx_count.get() = 0;
@@ -856,7 +847,7 @@ impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Channel<T, D, CH_
     }
 
     fn clear_rx_buffer(&self) {
-        let ch_state = &self.state().channels[self.index];
+        let ch_state = &self.state.channels[self.index];
         unsafe {
             *ch_state.rx_buffer.get() = core::ptr::null_mut();
             *ch_state.rx_count.get() = 0;
@@ -865,12 +856,12 @@ impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Channel<T, D, CH_
     }
 
     fn rx_count(&self) -> usize {
-        unsafe { *self.state().channels[self.index].rx_count.get() }
+        unsafe { *self.state.channels[self.index].rx_count.get() }
     }
 
     async fn wait_for_result(&self) -> u8 {
         poll_fn(|cx| {
-            let ch_state = &self.state().channels[self.index];
+            let ch_state = &self.state.channels[self.index];
             ch_state.waker.register(cx.waker());
 
             let result = ch_state.result.load(Ordering::Acquire);
@@ -1061,7 +1052,7 @@ impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Channel<T, D, CH_
     }
 }
 
-impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> UsbPipe<T, D> for Channel<T, D, CH_COUNT> {
+impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> UsbPipe<T, D> for Channel<'_, T, D, CH_COUNT> {
     async fn control_in(&mut self, setup: &[u8; 8], buf: &mut [u8]) -> Result<usize, PipeError>
     where
         T: pipe::IsControl,
