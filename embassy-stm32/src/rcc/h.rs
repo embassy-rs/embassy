@@ -1355,8 +1355,8 @@ pub enum ResetReason {
 impl ResetReason {
     /// Read and clear the reason the core thinks the reset occurred.
     pub fn read_clear() -> ResetReason {
-        let rsr = RCC.c1_rsr().read();
-        RCC.c1_rsr().modify(|w| w.set_rmvf(true));
+        let rsr = RCC.rcc_rsr().read();
+        RCC.rcc_rsr().modify(|w| w.set_rmvf(true));
 
         // Refer to Reference Manual (RM0433, Rev 8, Table 56).
         match (
@@ -1369,7 +1369,7 @@ impl ResetReason {
             rsr.borrstf(),
             rsr.d2rstf(),
             rsr.d1rstf(),
-            rsr.cpurstf()
+            rsr.cpurstf(),
         ) {
             (false, false, false, false, true, true, true, true, true, true) => ResetReason::PowerOnReset,
             (false, false, false, false, false, true, false, false, false, true) => ResetReason::PinReset,
@@ -1381,7 +1381,7 @@ impl ResetReason {
             (false, false, false, false, false, false, false, false, true, false) => ResetReason::D1ExitStandby,
             (false, false, false, false, false, false, false, true, false, false) => ResetReason::D2ExitStandby,
             (true, false, false, false, false, true, false, false, false, true) => ResetReason::D1ErroneousStandby,
-            _ => ResetReason::Unknown(rsr.0)
+            _ => ResetReason::Unknown(rsr.0),
         }
     }
 }
