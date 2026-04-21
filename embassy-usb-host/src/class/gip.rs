@@ -472,14 +472,15 @@ impl GipDevice for XboxOneSGamepad {
 /// 1. Register with [`GipHost::try_register`] after USB enumeration.
 /// 2. Poll for events with [`GipHost::poll`].
 /// 3. Optionally send rumble with [`GipHost::set_rumble`].
-pub struct GipHost<D: UsbHostDriver, DEV: GipDevice> {
+pub struct GipHost<'d, D: UsbHostDriver<'d>, DEV: GipDevice> {
     in_ch: D::Pipe<pipe::Interrupt, pipe::In>,
     out_ch: D::Pipe<pipe::Interrupt, pipe::Out>,
     seq: u8,
     device: DEV,
+    _phantom: core::marker::PhantomData<&'d ()>,
 }
 
-impl<D: UsbHostDriver, DEV: GipDevice> GipHost<D, DEV> {
+impl<'d, D: UsbHostDriver<'d>, DEV: GipDevice> GipHost<'d, D, DEV> {
     /// Create and initialize a GIP host driver.
     ///
     /// Performs the full setup sequence:
@@ -534,6 +535,7 @@ impl<D: UsbHostDriver, DEV: GipDevice> GipHost<D, DEV> {
             out_ch,
             seq: 1,
             device,
+            _phantom: core::marker::PhantomData,
         };
 
         host.init_device().await?;

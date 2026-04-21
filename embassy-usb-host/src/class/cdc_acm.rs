@@ -170,14 +170,15 @@ pub fn find_cdc_acm(config_desc: &[u8]) -> Option<CdcAcmInfo> {
 /// CDC ACM host driver.
 ///
 /// Provides read/write access to a CDC ACM (virtual serial port) USB device.
-pub struct CdcAcmHost<D: UsbHostDriver> {
+pub struct CdcAcmHost<'d, D: UsbHostDriver<'d>> {
     ctrl_ch: D::Pipe<pipe::Control, pipe::InOut>,
     in_ch: D::Pipe<pipe::Bulk, pipe::In>,
     out_ch: D::Pipe<pipe::Bulk, pipe::Out>,
     comm_interface: u8,
+    _phantom: core::marker::PhantomData<&'d ()>,
 }
 
-impl<D: UsbHostDriver> CdcAcmHost<D> {
+impl<'d, D: UsbHostDriver<'d>> CdcAcmHost<'d, D> {
     /// Create a new CDC ACM host driver.
     ///
     /// Parses the config descriptor to find CDC ACM endpoints and allocates channels.
@@ -223,6 +224,7 @@ impl<D: UsbHostDriver> CdcAcmHost<D> {
             in_ch,
             out_ch,
             comm_interface: info.comm_interface,
+            _phantom: core::marker::PhantomData,
         })
     }
 
@@ -256,17 +258,17 @@ impl<D: UsbHostDriver> CdcAcmHost<D> {
     }
 }
 
-impl<D: UsbHostDriver> embedded_io_async::ErrorType for CdcAcmHost<D> {
+impl<'d, D: UsbHostDriver<'d>> embedded_io_async::ErrorType for CdcAcmHost<'d, D> {
     type Error = CdcAcmError;
 }
 
-impl<D: UsbHostDriver> embedded_io_async::Read for CdcAcmHost<D> {
+impl<'d, D: UsbHostDriver<'d>> embedded_io_async::Read for CdcAcmHost<'d, D> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         CdcAcmHost::read(self, buf).await
     }
 }
 
-impl<D: UsbHostDriver> embedded_io_async::Write for CdcAcmHost<D> {
+impl<'d, D: UsbHostDriver<'d>> embedded_io_async::Write for CdcAcmHost<'d, D> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         CdcAcmHost::write(self, buf).await
     }

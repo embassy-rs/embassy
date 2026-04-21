@@ -18,13 +18,14 @@ use crate::descriptor::{DEFAULT_MAX_DESCRIPTOR_SIZE, InterfaceDescriptor, USBDes
 use crate::handler::{BusRoute, EnumerationInfo, HandlerEvent, RegisterError};
 use crate::{EnumerationError, UsbHost};
 
-pub struct HubHandler<H: UsbHostDriver, const MAX_PORTS: usize> {
+pub struct HubHandler<'d, H: UsbHostDriver<'d>, const MAX_PORTS: usize> {
     interrupt_channel: H::Pipe<pipe::Interrupt, pipe::In>,
     control_channel: H::Pipe<pipe::Control, pipe::InOut>,
     desc: HubDescriptor,
     device_address: u8,
     device_lut: [Option<NonZeroU8>; MAX_PORTS],
     route: BusRoute,
+    _phantom: core::marker::PhantomData<&'d ()>,
 }
 
 #[derive(Debug)]
@@ -34,7 +35,7 @@ pub enum HubEvent {
     DeviceRemoved { address: Option<NonZeroU8>, port: u8 },
 }
 
-impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
+impl<'d, H: UsbHostDriver<'d>, const MAX_PORTS: usize> HubHandler<'d, H, MAX_PORTS> {
     /// Attempt to register a hub handler for the given device.
     pub async fn try_register(bus: &H, enum_info: &EnumerationInfo) -> Result<Self, RegisterError> {
         let ls_over_fs = matches!(enum_info.split(), Some(s) if s.device_speed() == SplitSpeed::Low);
@@ -92,6 +93,7 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
             device_address: enum_info.device_address,
             device_lut: [None; MAX_PORTS],
             route: enum_info.route,
+            _phantom: core::marker::PhantomData,
         };
 
         for port in 0..hub.desc.port_num {
@@ -235,7 +237,7 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
     /// - Otherwise the child is reached directly at its native speed.
     pub async fn enumerate_port(
         &mut self,
-        bus: &mut UsbHost<H>,
+        bus: &mut UsbHost<'d, H>,
         config_buffer: &mut [u8],
         port: u8,
         speed: Speed,

@@ -134,10 +134,11 @@ impl From<PipeError> for HostError {
 }
 
 /// Async USB Host Driver trait.
+///
 /// To be implemented by the HAL.
-pub trait UsbHostDriver: Sized {
+pub trait UsbHostDriver<'d>: Sized {
     /// Pipe implementation of this UsbHostDriver
-    type Pipe<T: pipe::Type, D: pipe::Direction>: UsbPipe<T, D>;
+    type Pipe<T: pipe::Type, D: pipe::Direction>: UsbPipe<T, D> + 'd;
 
     /// Wait for a root-port attach/detach.
     ///
@@ -184,7 +185,7 @@ pub mod pipe {
     }
 
     /// Marker trait for the endpoint transfer type of a pipe.
-    pub trait Type: sealed::Sealed {
+    pub trait Type: sealed::Sealed + 'static {
         /// Returns the [`EndpointType`] this marker represents.
         fn ep_type() -> EndpointType;
     }
@@ -226,22 +227,22 @@ pub mod pipe {
 
     /// Trait bound satisfied only by [`Control`] pipes.
     #[diagnostic::on_unimplemented(message = "This is not a CONTROL pipe")]
-    pub trait IsControl: sealed::Sealed {}
+    pub trait IsControl: Type {}
     impl IsControl for Control {}
 
     /// Trait bound satisfied only by [`Interrupt`] pipes.
     #[diagnostic::on_unimplemented(message = "This is not an INTERRUPT pipe")]
-    pub trait IsInterrupt: sealed::Sealed {}
+    pub trait IsInterrupt: Type {}
     impl IsInterrupt for Interrupt {}
 
     /// Trait bound satisfied only by [`Bulk`] or [`Interrupt`] pipes.
     #[diagnostic::on_unimplemented(message = "This is not a BULK or INTERRUPT pipe")]
-    pub trait IsBulkOrInterrupt: sealed::Sealed {}
+    pub trait IsBulkOrInterrupt: Type {}
     impl IsBulkOrInterrupt for Bulk {}
     impl IsBulkOrInterrupt for Interrupt {}
 
     /// Marker trait for the transfer direction of a pipe.
-    pub trait Direction: sealed::Sealed {
+    pub trait Direction: sealed::Sealed + 'static {
         /// Returns `true` if this direction supports IN (device-to-host) transfers.
         fn is_in() -> bool;
         /// Returns `true` if this direction supports OUT (host-to-device) transfers.

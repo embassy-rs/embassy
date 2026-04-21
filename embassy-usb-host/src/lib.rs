@@ -72,19 +72,21 @@ impl core::error::Error for EnumerationError {}
 /// USB host controller.
 ///
 /// Manages device connection, enumeration, and class driver binding.
-pub struct UsbHost<D: UsbHostDriver> {
+pub struct UsbHost<'d, D: UsbHostDriver<'d>> {
     driver: D,
     /// Bitmask of in-use USB device addresses (1–127).
     /// Bit `n` of `addr_bitmap[n / 64]` is set when address `n` is assigned.
     addr_bitmap: [u64; 2],
+    _phantom: core::marker::PhantomData<&'d ()>,
 }
 
-impl<D: UsbHostDriver> UsbHost<D> {
+impl<'d, D: UsbHostDriver<'d>> UsbHost<'d, D> {
     /// Create a new USB host from a driver.
     pub fn new(driver: D) -> Self {
         Self {
             driver,
             addr_bitmap: [0u64; 2],
+            _phantom: core::marker::PhantomData,
         }
     }
 
