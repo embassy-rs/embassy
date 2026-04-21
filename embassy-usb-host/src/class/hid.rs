@@ -229,14 +229,15 @@ impl core::error::Error for HidError {}
 /// HID host driver.
 ///
 /// Provides report reading and optional class request access to a USB HID device.
-pub struct HidHost<D: UsbHostDriver> {
+pub struct HidHost<'d, D: UsbHostDriver<'d>> {
     ctrl_ch: D::Pipe<pipe::Control, pipe::InOut>,
     in_ch: D::Pipe<pipe::Interrupt, pipe::In>,
     interface: u8,
     report_descriptor_len: u16,
+    _phantom: core::marker::PhantomData<&'d ()>,
 }
 
-impl<D: UsbHostDriver> HidHost<D> {
+impl<'d, D: UsbHostDriver<'d>> HidHost<'d, D> {
     /// Create a new HID host driver.
     ///
     /// Parses the config descriptor to find the HID interface and its interrupt IN endpoint,
@@ -273,6 +274,7 @@ impl<D: UsbHostDriver> HidHost<D> {
             in_ch,
             interface: info.interface_number,
             report_descriptor_len: info.report_descriptor_len,
+            _phantom: core::marker::PhantomData,
         })
     }
 

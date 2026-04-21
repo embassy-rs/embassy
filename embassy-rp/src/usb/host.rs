@@ -715,7 +715,7 @@ impl<'d, T: Instance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D> for Chann
 //     }
 // }
 
-impl<'d, T: Instance> UsbHostDriver for Driver<'d, T> {
+impl<'d, T: Instance> UsbHostDriver<'d> for Driver<'d, T> {
     type Pipe<E: pipe::Type, D: pipe::Direction> = Channel<'d, T, E, D>;
 
     async fn wait_for_device_event(&mut self) -> DeviceEvent {

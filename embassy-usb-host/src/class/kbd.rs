@@ -37,12 +37,13 @@ pub enum KbdEvent {
 }
 
 /// Host-side HID boot-keyboard driver.
-pub struct KbdHandler<H: UsbHostDriver> {
+pub struct KbdHandler<'d, H: UsbHostDriver<'d>> {
     interrupt_channel: H::Pipe<pipe::Interrupt, pipe::In>,
     control_channel: H::Pipe<pipe::Control, pipe::InOut>,
+    _phantom: core::marker::PhantomData<&'d ()>,
 }
 
-impl<H: UsbHostDriver> KbdHandler<H> {
+impl<'d, H: UsbHostDriver<'d>> KbdHandler<'d, H> {
     /// Attempt to register a keyboard handler for the given device.
     pub async fn try_register(bus: &H, enum_info: &EnumerationInfo) -> Result<Self, RegisterError> {
         let mut control_channel = bus.alloc_pipe::<pipe::Control, pipe::InOut>(
@@ -113,6 +114,7 @@ impl<H: UsbHostDriver> KbdHandler<H> {
         Ok(KbdHandler {
             interrupt_channel,
             control_channel,
+            _phantom: core::marker::PhantomData,
         })
     }
 

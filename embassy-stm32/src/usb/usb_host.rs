@@ -660,7 +660,7 @@ impl<'d, I: Instance, T: pipe::Type, D: pipe::Direction> Drop for Channel<'d, I,
     }
 }
 
-impl<'d, I: Instance> UsbHostDriver for UsbHost<'d, I> {
+impl<'d, I: Instance> UsbHostDriver<'d> for UsbHost<'d, I> {
     type Pipe<T: pipe::Type, D: pipe::Direction> = Channel<'d, I, D, T>;
 
     fn alloc_pipe<T: pipe::Type, D: pipe::Direction>(

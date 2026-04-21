@@ -449,7 +449,7 @@ impl<'d, const CH_COUNT: usize> OtgHost<'d, CH_COUNT> {
     }
 }
 
-impl<'d, const CH_COUNT: usize> UsbHostDriver for OtgHost<'d, CH_COUNT> {
+impl<'d, const CH_COUNT: usize> UsbHostDriver<'d> for OtgHost<'d, CH_COUNT> {
     type Pipe<T: pipe::Type, D: pipe::Direction> = Channel<T, D, CH_COUNT>;
 
     async fn wait_for_device_event(&mut self) -> DeviceEvent {
