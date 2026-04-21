@@ -169,11 +169,16 @@ macro_rules! impl_ctimer_instance {
             impl crate::ctimer::Instance for crate::peripherals::[<CTIMER $n>] {
                 type Interrupt = crate::interrupt::typelevel::[<CTIMER $n>];
             }
+
+            crate::impl_ctimer_channel!([<CTIMER $n _CH0>], [<CTIMER $n>], Zero);
+            crate::impl_ctimer_channel!([<CTIMER $n _CH1>], [<CTIMER $n>], One);
+            crate::impl_ctimer_channel!([<CTIMER $n _CH2>], [<CTIMER $n>], Two);
+            crate::impl_ctimer_channel!([<CTIMER $n _CH3>], [<CTIMER $n>], Three);
         }
     };
 }
 
-trait SealedCTimerChannel<T: Instance> {
+pub(crate) trait SealedCTimerChannel<T: Instance> {
     fn number(&self) -> Channel;
 }
 
@@ -184,51 +189,27 @@ pub trait CTimerChannel<T: Instance>:
 {
 }
 
-macro_rules! impl_channel {
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_ctimer_channel {
     ($ch:ident, $peri:ident, $n:ident) => {
-        impl SealedCTimerChannel<crate::peripherals::$peri> for crate::peripherals::$ch {
+        impl crate::ctimer::SealedCTimerChannel<crate::peripherals::$peri> for crate::peripherals::$ch {
             #[inline(always)]
-            fn number(&self) -> Channel {
-                Channel::$n
+            fn number(&self) -> crate::ctimer::Channel {
+                crate::ctimer::Channel::$n
             }
         }
 
-        impl CTimerChannel<crate::peripherals::$peri> for crate::peripherals::$ch {}
+        impl crate::ctimer::CTimerChannel<crate::peripherals::$peri> for crate::peripherals::$ch {}
 
-        impl From<crate::peripherals::$ch> for AnyChannel {
+        impl From<crate::peripherals::$ch> for crate::ctimer::AnyChannel {
             fn from(value: crate::peripherals::$ch) -> Self {
-                Self {
-                    number: value.number(),
-                }
+                use crate::ctimer::SealedCTimerChannel;
+                Self::new(value.number())
             }
         }
     };
 }
-
-impl_channel!(CTIMER0_CH0, CTIMER0, Zero);
-impl_channel!(CTIMER0_CH1, CTIMER0, One);
-impl_channel!(CTIMER0_CH2, CTIMER0, Two);
-impl_channel!(CTIMER0_CH3, CTIMER0, Three);
-
-impl_channel!(CTIMER1_CH0, CTIMER1, Zero);
-impl_channel!(CTIMER1_CH1, CTIMER1, One);
-impl_channel!(CTIMER1_CH2, CTIMER1, Two);
-impl_channel!(CTIMER1_CH3, CTIMER1, Three);
-
-impl_channel!(CTIMER2_CH0, CTIMER2, Zero);
-impl_channel!(CTIMER2_CH1, CTIMER2, One);
-impl_channel!(CTIMER2_CH2, CTIMER2, Two);
-impl_channel!(CTIMER2_CH3, CTIMER2, Three);
-
-impl_channel!(CTIMER3_CH0, CTIMER3, Zero);
-impl_channel!(CTIMER3_CH1, CTIMER3, One);
-impl_channel!(CTIMER3_CH2, CTIMER3, Two);
-impl_channel!(CTIMER3_CH3, CTIMER3, Three);
-
-impl_channel!(CTIMER4_CH0, CTIMER4, Zero);
-impl_channel!(CTIMER4_CH1, CTIMER4, One);
-impl_channel!(CTIMER4_CH2, CTIMER4, Two);
-impl_channel!(CTIMER4_CH3, CTIMER4, Three);
 
 /// Type-erase CTIMER channel
 pub struct AnyChannel {
@@ -236,6 +217,10 @@ pub struct AnyChannel {
 }
 
 impl AnyChannel {
+    pub(crate) const fn new(number: Channel) -> Self {
+        Self { number }
+    }
+
     fn number(&self) -> Channel {
         self.number
     }
