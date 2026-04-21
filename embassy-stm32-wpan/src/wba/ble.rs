@@ -255,9 +255,10 @@ impl Ble {
         #[cfg(feature = "defmt")]
         defmt::info!("Initializing GAP and HAL...");
 
-        // Use BD address we just read
+        // Derive a stable random static address from the chip's unique ID.
+        let uid = embassy_stm32::uid::uid();
         let mut gap_params = GapInitParams::default();
-        gap_params.bd_addr.copy_from_slice(&bd_addr);
+        gap_params.bd_addr.copy_from_slice(&uid[0..6]);
 
         let _gap_handles = init_gap_and_hal(&gap_params)?;
 
