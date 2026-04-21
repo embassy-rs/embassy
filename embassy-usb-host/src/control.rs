@@ -2,14 +2,12 @@
 
 use core::num::NonZeroU8;
 
-use embassy_time::Timer;
 use embassy_usb::control::Request;
+use embassy_usb_driver::Direction;
 pub use embassy_usb_driver::host::pipe;
-use embassy_usb_driver::host::{HostError, PipeError, SplitInfo, UsbPipe};
-use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
+use embassy_usb_driver::host::{HostError, UsbPipe};
 
 use crate::descriptor::{USBDescriptor, descriptor_type};
-use crate::handler::EnumerationInfo;
 
 /// Recipient of a USB control request.
 ///
@@ -395,101 +393,6 @@ pub trait ControlPipeExt<D: pipe::Direction>: UsbPipe<pipe::Control, D> {
         let setup = SetupPacket::class_interface_out(request, value, index, buf.len() as u16);
         self.control_out(&setup.to_bytes(), buf).await?;
         Ok(())
-    }
-
-    /// Enumerate the currently pending device and return an [`EnumerationInfo`].
-    ///
-    /// The device must have been reset immediately before this call.
-    async fn enumerate_device(
-        &mut self,
-        speed: Speed,
-        new_device_address: u8,
-        split: Option<SplitInfo>,
-    ) -> Result<EnumerationInfo, HostError>
-    where
-        D: pipe::IsIn + pipe::IsOut,
-    {
-        use crate::descriptor::DeviceDescriptorPartial;
-
-        self.retarget_pipe(
-            0,
-            &EndpointInfo {
-                addr: 0.into(),
-                ep_type: EndpointType::Control,
-                max_packet_size: speed.max_packet_size(),
-                interval_ms: 0,
-            },
-            split,
-        )?;
-
-        trace!("[enum] Getting max_packet_size for new device");
-        let max_packet_size0 = {
-            let mut max_retries = 10;
-            loop {
-                match self
-                    .request_descriptor::<DeviceDescriptorPartial, { DeviceDescriptorPartial::SIZE }>(0, false)
-                    .await
-                {
-                    Ok(desc) => break desc.max_packet_size0,
-                    Err(e) => {
-                        warn!("Request descriptor error: {:?}, retries: {}", e, max_retries);
-                        if max_retries > 0 {
-                            max_retries -= 1;
-                            Timer::after_millis(1).await;
-                            continue;
-                        } else {
-                            return Err(HostError::RequestFailed);
-                        }
-                    }
-                }
-            }
-        };
-        // USB 2.0 §9.6.1: legal EP0 max packet sizes are 8, 16, 32, 64.
-        if !matches!(max_packet_size0, 8 | 16 | 32 | 64) {
-            return Err(HostError::InvalidDescriptor);
-        }
-
-        self.device_set_address(new_device_address).await?;
-        // USB 2.0 §9.2.6.3: allow the device a 2ms recovery interval after SET_ADDRESS.
-        Timer::after_millis(2).await;
-
-        self.retarget_pipe(
-            new_device_address,
-            &EndpointInfo {
-                addr: 0.into(),
-                ep_type: EndpointType::Control,
-                max_packet_size: max_packet_size0 as u16,
-                interval_ms: 0,
-            },
-            split,
-        )?;
-
-        let retries = 5;
-        let device_desc = async {
-            for _ in 0..retries {
-                match self
-                    .request_descriptor::<crate::descriptor::DeviceDescriptor, { crate::descriptor::DeviceDescriptor::SIZE }>(0, false)
-                    .await
-                {
-                    Err(HostError::PipeError(PipeError::Timeout)) => {
-                        Timer::after_millis(1).await;
-                        continue;
-                    }
-                    v => return v,
-                }
-            }
-            Err(HostError::PipeError(PipeError::Timeout))
-        }
-        .await?;
-
-        trace!("Device Descriptor: {:?}", device_desc);
-
-        Ok(EnumerationInfo {
-            device_address: new_device_address,
-            split,
-            speed,
-            device_desc,
-        })
     }
 }
 

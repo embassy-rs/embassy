@@ -355,11 +355,6 @@ pub trait UsbPipe<T: pipe::Type, D: pipe::Direction> {
         T: pipe::IsControl,
         D: pipe::IsOut;
 
-    /// Retargets pipe to a new endpoint, may error if the underlying driver runs out of resources.
-    ///
-    /// See [`UsbHostDriver::alloc_pipe`] for the meaning of `split`.
-    fn retarget_pipe(&mut self, addr: u8, endpoint: &EndpointInfo, split: Option<SplitInfo>) -> Result<(), HostError>;
-
     /// Send IN request of type other from control
     /// For interrupt pipes this will return the result of the next successful interrupt poll
     async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, PipeError>

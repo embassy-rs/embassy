@@ -206,7 +206,7 @@ impl<D: UsbHostDriver> CdcAcmHost<D> {
         };
 
         let device_address = enum_info.device_address;
-        let split = enum_info.split;
+        let split = enum_info.split();
 
         let ctrl_ch = driver
             .alloc_pipe::<pipe::Control, pipe::InOut>(device_address, &ctrl_ep_info, split)

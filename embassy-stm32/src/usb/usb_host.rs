@@ -613,30 +613,6 @@ impl<'d, I: Instance, T: pipe::Type, D: pipe::Direction> UsbPipe<T, D> for Chann
         Ok(())
     }
 
-    fn retarget_pipe(
-        &mut self,
-        addr: u8,
-        endpoint: &embassy_usb_driver::EndpointInfo,
-        _split: Option<embassy_usb_driver::host::SplitInfo>,
-    ) -> Result<(), embassy_usb_driver::host::HostError> {
-        trace!(
-            "retarget_pipe: addr: {:?} ep_type: {:?} index: {}",
-            addr, endpoint.ep_type, self.index
-        );
-        let eptype = endpoint.ep_type;
-        let index = self.index;
-
-        // configure channel register
-        let epr_reg = I::regs().epr(index);
-        let mut epr = invariant(epr_reg.read());
-        epr.set_devaddr(addr);
-        epr.set_ep_type(convert_type(eptype));
-        epr.set_ea(index as _);
-        epr_reg.write_value(epr);
-
-        Ok(())
-    }
-
     async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, PipeError>
     where
         D: pipe::IsIn,
@@ -691,7 +667,7 @@ impl<'d, I: Instance> UsbHostDriver for UsbHost<'d, I> {
         &self,
         addr: u8,
         endpoint: &embassy_usb_driver::EndpointInfo,
-        split: Option<embassy_usb_driver::host::SplitInfo>,
+        _split: Option<embassy_usb_driver::host::SplitInfo>,
     ) -> Result<Self::Pipe<T, D>, embassy_usb_driver::host::HostError> {
         let new_index = if T::ep_type() == EndpointType::Control {
             // Only a single control channel is available
@@ -740,7 +716,7 @@ impl<'d, I: Instance> UsbHostDriver for UsbHost<'d, I> {
             None
         };
 
-        let mut channel = Channel::<I, D, T>::new(
+        let channel = Channel::<I, D, T>::new(
             new_index as usize,
             buffer_in,
             buffer_out,
@@ -748,7 +724,14 @@ impl<'d, I: Instance> UsbHostDriver for UsbHost<'d, I> {
             endpoint.max_packet_size,
         );
 
-        channel.retarget_pipe(addr, endpoint, split)?;
+        // configure channel register
+        let epr_reg = I::regs().epr(new_index as usize);
+        let mut epr = invariant(epr_reg.read());
+        epr.set_devaddr(addr);
+        epr.set_ep_type(convert_type(endpoint.ep_type));
+        epr.set_ea(new_index as _);
+        epr_reg.write_value(epr);
+
         Ok(channel)
     }
 

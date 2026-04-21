@@ -520,7 +520,7 @@ impl<D: UsbHostDriver, DEV: GipDevice> GipHost<D, DEV> {
         };
 
         let device_address = enum_info.device_address;
-        let split = enum_info.split;
+        let split = enum_info.split();
 
         let in_ch = driver
             .alloc_pipe::<pipe::Interrupt, pipe::In>(device_address, &in_ep_info, split)
