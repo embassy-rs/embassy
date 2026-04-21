@@ -1329,3 +1329,59 @@ pub fn set_and_enable_comp_vals(cv: &CompVals) {
         w.set_comp_codesel(true);
     });
 }
+
+/// CPU Reset Sources
+///
+/// The STM32 RCC peripheral implements the ability for the CPU to detect why a reset
+/// occurred.
+#[cfg(rcc_h7rm0433)]
+#[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum ResetReason {
+    PowerOnReset,
+    PinReset,
+    BrownoutReset,
+    SysReset,
+    CpuReset,
+    Wwdg1Reset,
+    Iwdg1Reset,
+    D1ExitStandby,
+    D2ExitStandby,
+    D1ErroneousStandby,
+    Unknown(u32),
+}
+
+#[cfg(rcc_h7rm0433)]
+impl ResetReason {
+    /// Read and clear the reason the core thinks the reset occurred.
+    pub fn read_clear() -> ResetReason {
+        let rsr = RCC.rsr().read();
+        RCC.rsr().modify(|w| w.set_rmvf(true));
+
+        // Refer to Reference Manual (RM0433, Rev 8, Table 56).
+        match (
+            rsr.lpwrrstf(),
+            rsr.wwdg1rstf(),
+            rsr.iwdg1rstf(),
+            rsr.sftrstf(),
+            rsr.porrstf(),
+            rsr.pinrstf(),
+            rsr.borrstf(),
+            rsr.d2rstf(),
+            rsr.d1rstf(),
+            rsr.cpurstf(),
+        ) {
+            (false, false, false, false, true, true, true, true, true, true) => ResetReason::PowerOnReset,
+            (false, false, false, false, false, true, false, false, false, true) => ResetReason::PinReset,
+            (false, false, false, false, false, true, true, false, false, true) => ResetReason::BrownoutReset,
+            (false, false, false, true, false, true, false, false, false, true) => ResetReason::SysReset,
+            (false, false, false, false, false, false, false, false, false, true) => ResetReason::CpuReset,
+            (false, true, false, false, false, true, false, false, false, true) => ResetReason::Wwdg1Reset,
+            (false, false, true, false, false, true, false, false, false, true) => ResetReason::Iwdg1Reset,
+            (false, false, false, false, false, false, false, false, true, false) => ResetReason::D1ExitStandby,
+            (false, false, false, false, false, false, false, true, false, false) => ResetReason::D2ExitStandby,
+            (true, false, false, false, false, true, false, false, false, true) => ResetReason::D1ErroneousStandby,
+            _ => ResetReason::Unknown(rsr.0),
+        }
+    }
+}
