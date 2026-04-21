@@ -210,6 +210,29 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
     }
 
     /// Reset a port and enumerate the device attached to it.
+    ///
+    /// `port` and `speed` are the 0-based port index and device speed as
+    /// reported by [`HubEvent::DeviceDetected`]. `bus` is the USB host to
+    /// use for enumeration, and it must be the same bus that this hub is
+    /// registered on.
+    ///
+    /// Returns the [`EnumerationInfo`] for the device and bytes written
+    /// to `config_buffer`.
+    ///
+    /// The route included in the [`EnumerationInfo`] is computed per
+    /// USB 2.0 §11.14:
+    ///
+    /// - If this hub is itself reached through a split transaction (e.g. a
+    ///   full-speed hub behind a high-speed hub's Transaction Translator),
+    ///   the child inherits the parent's TT address and port, with the
+    ///   `device_speed` updated to match the attached device. This is
+    ///   correct because the topmost high-speed hub in the chain owns the TT
+    ///   that services the entire subtree below it.
+    /// - Otherwise, if this hub introduces a speed mismatch with the child
+    ///   (HS hub with an LS/FS child, or FS hub with an LS child, where the
+    ///   latter uses the legacy `PRE` prefix on full-speed buses), a new
+    ///   [`SplitInfo`] is constructed pointing at this hub.
+    /// - Otherwise the child is reached directly at its native speed.
     pub async fn enumerate_port(
         &mut self,
         bus: &mut UsbHost<H>,
