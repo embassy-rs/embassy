@@ -144,14 +144,14 @@ pub trait UsbHostDriver: Sized {
     /// On attach, the implementation must drive a bus reset to completion
     /// before returning and must report the speed that the device settled
     /// on after reset.
-    async fn wait_for_device_event(&self) -> DeviceEvent;
+    async fn wait_for_device_event(&mut self) -> DeviceEvent;
 
     /// Force a bus reset on the root port.
     ///
     /// Invalidates every pipe currently allocated against addresses other
     /// than 0. Used to recover from a misbehaving device or to force
     /// re-enumeration without unplug.
-    async fn bus_reset(&self);
+    async fn bus_reset(&mut self);
 
     /// Allocate pipe for communication with device.
     ///

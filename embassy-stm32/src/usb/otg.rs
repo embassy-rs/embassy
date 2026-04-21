@@ -728,11 +728,11 @@ mod host_impl {
         type Pipe<Ty: embassy_usb_driver::host::pipe::Type, D: embassy_usb_driver::host::pipe::Direction> =
             <OtgHostDriver<'d, MAX_HOST_CH_COUNT> as embassy_usb_driver::host::UsbHostDriver>::Pipe<Ty, D>;
 
-        async fn wait_for_device_event(&self) -> embassy_usb_driver::host::DeviceEvent {
+        async fn wait_for_device_event(&mut self) -> embassy_usb_driver::host::DeviceEvent {
             self.inner.wait_for_device_event().await
         }
 
-        async fn bus_reset(&self) {
+        async fn bus_reset(&mut self) {
             self.inner.bus_reset().await
         }
 
