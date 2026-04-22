@@ -1,0 +1,19 @@
+error[E0277]: `*mut ()` cannot be shared between threads safely
+ --> tests/ui/pubsub_send/immediate_publisher_noop_mutex.rs:8:82
+  |
+8 |     let _imm: SendDynImmediatePublisher<'_, u32> = channel.immediate_publisher().into();
+  |                                                                                  ^^^^ `*mut ()` cannot be shared between threads safely
+  |
+  = help: within `NoopRawMutex`, the trait `Sync` is not implemented for `*mut ()`
+note: required because it appears within the type `PhantomData<*mut ()>`
+ --> $RUST/core/src/marker.rs
+  |
+  | pub struct PhantomData<T: PointeeSized>;
+  |            ^^^^^^^^^^^
+note: required because it appears within the type `NoopRawMutex`
+ --> src/blocking_mutex/raw.rs
+  |
+  | pub struct NoopRawMutex {
+  |            ^^^^^^^^^^^^
+  = note: required for `SendDynImmediatePublisher<'_, u32>` to implement `From<ImmediatePublisher<'_, NoopRawMutex, u32, 4, 4, 4>>`
+  = note: required for `ImmediatePublisher<'_, NoopRawMutex, u32, 4, 4, 4>` to implement `Into<SendDynImmediatePublisher<'_, u32>>`

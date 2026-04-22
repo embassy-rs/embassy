@@ -106,6 +106,39 @@ impl<'a, T: Clone> DerefMut for DynPublisher<'a, T> {
     }
 }
 
+/// A publisher that holds a dynamic reference to the channel.
+/// This version can be sent between threads but can only be created if the underlying mutex is Send + Sync.
+pub struct SendDynPublisher<'a, T: Clone>(pub(super) Pub<'a, dyn PubSubBehavior<T> + 'a, T>);
+
+unsafe impl<'a, T: Clone + Send> Send for SendDynPublisher<'a, T> {}
+unsafe impl<'a, T: Clone + Send> Sync for SendDynPublisher<'a, T> {}
+
+impl<'a, T: Clone> Deref for SendDynPublisher<'a, T> {
+    type Target = Pub<'a, dyn PubSubBehavior<T> + 'a, T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<'a, T: Clone> DerefMut for SendDynPublisher<'a, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<'a, M, T, const CAP: usize, const SUBS: usize, const PUBS: usize> From<Publisher<'a, M, T, CAP, SUBS, PUBS>>
+    for SendDynPublisher<'a, T>
+where
+    M: RawMutex + Send + Sync,
+    T: Clone,
+{
+    fn from(p: Publisher<'a, M, T, CAP, SUBS, PUBS>) -> Self {
+        let p = core::mem::ManuallyDrop::new(p);
+        Self(Pub::new(p.0.channel))
+    }
+}
+
 /// A publisher that holds a generic reference to the channel
 #[derive(Debug)]
 pub struct Publisher<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize>(
@@ -204,6 +237,38 @@ impl<'a, T: Clone> Deref for DynImmediatePublisher<'a, T> {
 impl<'a, T: Clone> DerefMut for DynImmediatePublisher<'a, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+/// An immediate publisher that holds a dynamic reference to the channel.
+/// This version can be sent between threads but can only be created if the underlying mutex is Send + Sync.
+pub struct SendDynImmediatePublisher<'a, T: Clone>(pub(super) ImmediatePub<'a, dyn PubSubBehavior<T> + 'a, T>);
+
+unsafe impl<'a, T: Clone + Send> Send for SendDynImmediatePublisher<'a, T> {}
+unsafe impl<'a, T: Clone + Send> Sync for SendDynImmediatePublisher<'a, T> {}
+
+impl<'a, T: Clone> Deref for SendDynImmediatePublisher<'a, T> {
+    type Target = ImmediatePub<'a, dyn PubSubBehavior<T> + 'a, T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<'a, T: Clone> DerefMut for SendDynImmediatePublisher<'a, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<'a, M, T, const CAP: usize, const SUBS: usize, const PUBS: usize>
+    From<ImmediatePublisher<'a, M, T, CAP, SUBS, PUBS>> for SendDynImmediatePublisher<'a, T>
+where
+    M: RawMutex + Send + Sync,
+    T: Clone,
+{
+    fn from(p: ImmediatePublisher<'a, M, T, CAP, SUBS, PUBS>) -> Self {
+        Self(ImmediatePub::new(p.0.channel))
     }
 }
 
