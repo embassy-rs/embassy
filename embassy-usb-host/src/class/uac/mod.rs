@@ -18,7 +18,7 @@
 //!
 //! ```rust,ignore
 //! // Register a UAC device
-//! let handler = UacHandler::try_register(host, enum_info).await?;
+//! let handler = UacHandler::try_register(&bus, enum_info).await?;
 //!
 //! // Get current sampling frequency
 //! let freq = handler.get_sampling_freq(terminal_id).await?;
@@ -41,7 +41,7 @@ use core::task::Poll;
 use aligned::{A4, Aligned};
 use embassy_time::{Duration, Instant, Timer};
 use embassy_usb::control::Request;
-use embassy_usb_driver::host::{HostError, PipeError, UsbHostDriver, UsbPipe, pipe};
+use embassy_usb_driver::host::{HostError, PipeError, UsbHostAllocator, UsbPipe, pipe};
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
 use heapless::{String, Vec};
 
@@ -59,15 +59,15 @@ const MAX_STRING_LENGTH: usize = 127;
 ///
 /// This struct manages the USB pipes and interface descriptors required to interact with
 /// a UAC device, including control, output, and feedback pipes.
-pub struct UacHandler<'d, H: UsbHostDriver<'d>> {
+pub struct UacHandler<'d, A: UsbHostAllocator<'d>> {
     /// Collection of audio interface descriptors parsed from the device configuration.
     pub interface_collection: descriptors::AudioInterfaceCollection,
     /// Control pipe for sending standard and class-specific requests.
-    pub control_channel: H::Pipe<pipe::Control, pipe::InOut>,
+    pub control_channel: A::Pipe<pipe::Control, pipe::InOut>,
     /// Output pipe for isochronous audio streaming (if available).
-    pub output_channel: Option<H::Pipe<pipe::Isochronous, pipe::Out>>,
+    pub output_channel: Option<A::Pipe<pipe::Isochronous, pipe::Out>>,
     /// Feedback pipe for isochronous feedback endpoint (if available).
-    pub feedback_channel: Option<H::Pipe<pipe::Isochronous, pipe::In>>,
+    pub feedback_channel: Option<A::Pipe<pipe::Isochronous, pipe::In>>,
     input_terminal_id: u8,
     output_interface_idx: usize,
     speed: Speed,
@@ -88,14 +88,14 @@ pub enum RequestError {
     NoSupportedInterface,
 }
 
-impl<'d, H: UsbHostDriver<'d>> UacHandler<'d, H> {
+impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
     /// Attempts to register a UAC device and allocate necessary pipes.
     ///
     /// This method parses the device's configuration, finds a suitable streaming interface,
     /// and allocates output and feedback pipes as needed.
     ///
     /// Returns a new [`UacHandler`] on success, or a [`RegisterError`] if registration fails.
-    pub async fn try_register(host: &H, enum_info: EnumerationInfo) -> Result<Self, RegisterError> {
+    pub async fn try_register(alloc: &A, enum_info: EnumerationInfo) -> Result<Self, RegisterError> {
         // Steps taken:
         // 1. Find the first streaming interface with an output endpoint
         // 2. Connect it to its terminal to find the sampling frequency
@@ -103,7 +103,7 @@ impl<'d, H: UsbHostDriver<'d>> UacHandler<'d, H> {
         // 4. Select the right alternate setting for the interface with a SET_INTERFACE request
         // 5. Allocate up the output pipe and the corresponding feedback pipe, store on Self
 
-        let mut control_channel = host.alloc_pipe::<pipe::Control, pipe::InOut>(
+        let mut control_channel = alloc.alloc_pipe::<pipe::Control, pipe::InOut>(
             enum_info.device_address,
             &EndpointInfo {
                 addr: 0.into(),
@@ -193,7 +193,7 @@ impl<'d, H: UsbHostDriver<'d>> UacHandler<'d, H> {
         );
 
         if streaming_interface.num_endpoints > 0 {
-            output_channel = Some(host.alloc_pipe::<pipe::Isochronous, pipe::Out>(
+            output_channel = Some(alloc.alloc_pipe::<pipe::Isochronous, pipe::Out>(
                 enum_info.device_address,
                 &output_interface.endpoint_descriptor.unwrap().into(),
                 enum_info.split(),
@@ -201,7 +201,7 @@ impl<'d, H: UsbHostDriver<'d>> UacHandler<'d, H> {
         }
         if streaming_interface.num_endpoints > 1 {
             if let Some(feedback_endpoint) = output_interface.feedback_endpoint_descriptor {
-                feedback_channel = Some(host.alloc_pipe::<pipe::Isochronous, pipe::In>(
+                feedback_channel = Some(alloc.alloc_pipe::<pipe::Isochronous, pipe::In>(
                     enum_info.device_address,
                     &feedback_endpoint.into(),
                     enum_info.split(),
@@ -224,7 +224,7 @@ impl<'d, H: UsbHostDriver<'d>> UacHandler<'d, H> {
     /// Returns a [`UacOut`] object for audio output streaming.
     ///
     /// Returns an error if the output or feedback pipe is not allocated or if the interface is unsupported.
-    pub async fn output(&mut self) -> Result<UacOut<'d, H>, RequestError> {
+    pub async fn output(&mut self) -> Result<UacOut<'d, A>, RequestError> {
         if self.output_channel.is_none() {
             error!("[UAC] Output pipe not allocated");
             return Err(RequestError::DeviceDisconnected);
@@ -271,7 +271,7 @@ impl<'d, H: UsbHostDriver<'d>> UacHandler<'d, H> {
                 _ => 1000.0,
             };
 
-        Ok(UacOut::<'d, H> {
+        Ok(UacOut::<'d, A> {
             output_channel: self.output_channel.take().unwrap(),
             feedback_channel: self.feedback_channel.take(),
             speed: self.speed,
@@ -661,11 +661,11 @@ impl<'d, H: UsbHostDriver<'d>> UacHandler<'d, H> {
 ///
 /// This struct manages the output and feedback pipes for isochronous audio streaming,
 /// as well as timing and format information required for correct streaming.
-pub struct UacOut<'d, H: UsbHostDriver<'d>> {
+pub struct UacOut<'d, A: UsbHostAllocator<'d>> {
     /// Output pipe for isochronous audio streaming.
-    pub output_channel: H::Pipe<pipe::Isochronous, pipe::Out>,
+    pub output_channel: A::Pipe<pipe::Isochronous, pipe::Out>,
     /// Feedback pipe for isochronous feedback endpoint.
-    pub feedback_channel: Option<H::Pipe<pipe::Isochronous, pipe::In>>,
+    pub feedback_channel: Option<A::Pipe<pipe::Isochronous, pipe::In>>,
     speed: Speed,
     samples_per_microframe: f32,
     microframes_per_microsecond: f32,
@@ -684,7 +684,7 @@ enum LockDelay {
     Samples(u16),
 }
 
-impl<'d, H: UsbHostDriver<'d>> UacOut<'d, H> {
+impl<'d, A: UsbHostAllocator<'d>> UacOut<'d, A> {
     /// Starts the output audio stream, invoking the provided callback to fill each packet.
     ///
     /// The callback is called repeatedly with a mutable buffer for each packet to be sent.

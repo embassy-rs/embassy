@@ -5,7 +5,8 @@ use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::host::{
-    DeviceEvent, HostError, PipeError, SplitInfo, SplitSpeed, TimeoutConfig, UsbHostDriver, UsbPipe, pipe,
+    DeviceEvent, HostError, PipeError, SplitInfo, SplitSpeed, TimeoutConfig, UsbHostAllocator, UsbHostController,
+    UsbPipe, pipe,
 };
 use embassy_usb_driver::{EndpointInfo, EndpointType, Speed};
 
@@ -26,21 +27,54 @@ use crate::{Peri, RegExt};
 
 const MAIN_BUFFER_SIZE: usize = 1024;
 
-/// Current channel with ongoing transfer
-///
-/// 0 means None
-static CURRENT_CHANNEL: AtomicUsize = AtomicUsize::new(0);
+/// Per-instance state shared between [`Driver`], [`Allocator`] and [`Channel`].
+pub struct HostState {
+    /// Current channel with ongoing non-interrupt transfer. `0` means None.
+    current_channel: AtomicUsize,
+    /// Bitset of allocated interrupt pipes.
+    allocated_pipes: AtomicU16,
+    /// Next 'allocated' non-interrupt channel index. Indexes 1-15 are reserved for
+    /// interrupt endpoints, so allocation starts at 16.
+    channel_index: AtomicUsize,
+}
+
+impl HostState {
+    /// Create a new, reset host state.
+    pub const fn new() -> Self {
+        Self {
+            current_channel: AtomicUsize::new(0),
+            allocated_pipes: AtomicU16::new(0),
+            channel_index: AtomicUsize::new(16),
+        }
+    }
+
+    fn reset(&self) {
+        self.current_channel.store(0, Ordering::Relaxed);
+        self.allocated_pipes.store(0, Ordering::Relaxed);
+        self.channel_index.store(16, Ordering::Relaxed);
+    }
+}
+
+/// Sealed extension of [`Instance`] exposing the per-peripheral [`HostState`].
+#[allow(private_bounds)]
+pub trait SealedHostInstance: Instance {
+    #[doc(hidden)]
+    fn host_state() -> &'static HostState;
+}
+
+impl SealedHostInstance for crate::peripherals::USB {
+    fn host_state() -> &'static HostState {
+        static STATE: HostState = HostState::new();
+        &STATE
+    }
+}
 
 /// RP2040 USB host driver handle.
 pub struct Driver<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
-    /// Bitset of allocated interrupt pipes
-    allocated_pipes: AtomicU16,
-    /// Index for next 'allocated' channel
-    channel_index: AtomicUsize,
 }
 
-impl<'d, T: Instance> Driver<'d, T> {
+impl<'d, T: SealedHostInstance> Driver<'d, T> {
     /// Create a new USB driver.
     pub fn new(_usb: Peri<'d, USB>, _irq: impl Binding<T::Interrupt, InterruptHandler<T>>) -> Self {
         let regs = T::regs();
@@ -91,12 +125,10 @@ impl<'d, T: Instance> Driver<'d, T> {
         // Initialize the bus so that it signals that power is available
         BUS_WAKER.wake();
 
-        Self {
-            phantom: PhantomData,
-            allocated_pipes: AtomicU16::new(0),
-            // 1-15 are reserved for interrupt EPs
-            channel_index: AtomicUsize::new(16),
-        }
+        // Reset per-instance allocator state.
+        T::host_state().reset();
+
+        Self { phantom: PhantomData }
     }
 }
 
@@ -161,7 +193,7 @@ impl<'d, T: Instance, E: pipe::Type, D: pipe::Direction> Channel<'d, T, E, D> {
 type BufferControlReg = rp_pac::common::Reg<rp_pac::usb_dpram::regs::EpBufferControl, rp_pac::common::RW>;
 type EpControlReg = rp_pac::common::Reg<rp_pac::usb_dpram::regs::EpControl, rp_pac::common::RW>;
 type AddrControlReg = rp_pac::common::Reg<rp_pac::usb::regs::AddrEndpX, rp_pac::common::RW>;
-impl<'d, T: Instance, E: pipe::Type, D: pipe::Direction> Channel<'d, T, E, D> {
+impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T, E, D> {
     /// Get channel waker
     fn waker(&self) -> &AtomicWaker {
         if Self::is_interrupt_in() {
@@ -231,7 +263,7 @@ impl<'d, T: Instance, E: pipe::Type, D: pipe::Direction> Channel<'d, T, E, D> {
         if Self::is_interrupt_in() {
             true
         } else {
-            let sel = CURRENT_CHANNEL.load(Ordering::Relaxed);
+            let sel = T::host_state().current_channel.load(Ordering::Relaxed);
             sel == self.index || sel == 0
         }
     }
@@ -343,7 +375,7 @@ impl<'d, T: Instance, E: pipe::Type, D: pipe::Direction> Channel<'d, T, E, D> {
                 w.set_intep_preamble(self.pre)
             });
         } else {
-            CURRENT_CHANNEL.store(self.index, Ordering::Relaxed);
+            T::host_state().current_channel.store(self.index, Ordering::Relaxed);
 
             T::regs().addr_endp().write(|w| {
                 w.set_address(self.dev_addr);
@@ -376,7 +408,7 @@ impl<'d, T: Instance, E: pipe::Type, D: pipe::Direction> Channel<'d, T, E, D> {
         // If this channel is selected
         if self.is_ready_for_transaction() {
             if !Self::is_interrupt_in() {
-                CURRENT_CHANNEL.store(0, Ordering::Relaxed);
+                T::host_state().current_channel.store(0, Ordering::Relaxed);
             }
 
             self.ep_control().modify(|w| {
@@ -558,7 +590,7 @@ impl<'d, T: Instance, E: pipe::Type, D: pipe::Direction> Channel<'d, T, E, D> {
     }
 }
 
-impl<'d, T: Instance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D> for Channel<'d, T, E, D> {
+impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D> for Channel<'d, T, E, D> {
     async fn control_in(&mut self, setup: &[u8; 8], buf: &mut [u8]) -> Result<usize, PipeError>
     where
         E: pipe::IsControl,
@@ -715,8 +747,68 @@ impl<'d, T: Instance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D> for Chann
 //     }
 // }
 
-impl<'d, T: Instance> UsbHostDriver<'d> for Driver<'d, T> {
+/// Pipe allocator handle for [`Driver`].
+pub struct Allocator<'d, T: Instance> {
+    phantom: PhantomData<&'d T>,
+}
+
+impl<'d, T: Instance> Clone for Allocator<'d, T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<'d, T: Instance> Copy for Allocator<'d, T> {}
+
+impl<'d, T: SealedHostInstance> UsbHostAllocator<'d> for Allocator<'d, T> {
     type Pipe<E: pipe::Type, D: pipe::Direction> = Channel<'d, T, E, D>;
+
+    fn alloc_pipe<E: pipe::Type, D: pipe::Direction>(
+        &self,
+        dev_addr: u8,
+        endpoint: &EndpointInfo,
+        split: Option<SplitInfo>,
+    ) -> Result<Self::Pipe<E, D>, HostError> {
+        let state = T::host_state();
+        let pre = split_to_pre(split);
+        if E::ep_type() == EndpointType::Interrupt {
+            let free_index = critical_section::with(|_| {
+                let alloc = state.allocated_pipes.load(Ordering::Relaxed);
+                if let Some(idx) = (1..16).find(|i| alloc & (1 << i) == 0) {
+                    state.allocated_pipes.store(alloc | (1 << idx), Ordering::Relaxed);
+                    Ok(idx as u8)
+                } else {
+                    Err(HostError::OutOfPipes)
+                }
+            })?;
+            // Use fixed layout
+            let addr = DPRAM_DATA_OFFSET + MAIN_BUFFER_SIZE as u16 + free_index as u16 * 64;
+
+            Ok(Channel::new(free_index as _, addr, 64, endpoint, dev_addr, pre))
+        } else {
+            let index = critical_section::with(|_| {
+                let old = state.channel_index.load(Ordering::Relaxed);
+                state.channel_index.store(old + 1, Ordering::Relaxed);
+                old
+            });
+            Ok(Channel::new(
+                index,
+                DPRAM_DATA_OFFSET,
+                MAIN_BUFFER_SIZE as u16,
+                endpoint,
+                dev_addr,
+                pre,
+            ))
+        }
+    }
+}
+
+impl<'d, T: SealedHostInstance> UsbHostController<'d> for Driver<'d, T> {
+    type Allocator = Allocator<'d, T>;
+
+    fn allocator(&self) -> Self::Allocator {
+        Allocator { phantom: PhantomData }
+    }
 
     async fn wait_for_device_event(&mut self) -> DeviceEvent {
         let is_connected = |status: u8| match status {
@@ -753,7 +845,7 @@ impl<'d, T: Instance> UsbHostDriver<'d> for Driver<'d, T> {
         })
         .await;
 
-        // Per the `UsbHostDriver` contract, drive a bus reset before
+        // Per the `UsbHostController` contract, drive a bus reset before
         // reporting the attach so the device transitions from the Powered
         // into the Default state (USB 2.0 §9.1.2). RP2040 is full-speed
         // only, so no chirp handshake occurs and the speed observed before
@@ -770,39 +862,6 @@ impl<'d, T: Instance> UsbHostDriver<'d> for Driver<'d, T> {
         });
 
         embassy_time::Timer::after_millis(50).await;
-    }
-
-    fn alloc_pipe<E: pipe::Type, D: pipe::Direction>(
-        &self,
-        dev_addr: u8,
-        endpoint: &EndpointInfo,
-        split: Option<SplitInfo>,
-    ) -> Result<Self::Pipe<E, D>, HostError> {
-        let pre = split_to_pre(split);
-        if E::ep_type() == EndpointType::Interrupt {
-            let alloc = self.allocated_pipes.load(Ordering::Acquire);
-            let free_index = (1..16).find(|i| alloc & (1 << i) == 0).ok_or(HostError::OutOfPipes)? as u8;
-
-            self.allocated_pipes.store(alloc | 1 << free_index, Ordering::Release);
-            // Use fixed layout
-            let addr = DPRAM_DATA_OFFSET + MAIN_BUFFER_SIZE as u16 + free_index as u16 * 64;
-
-            Ok(Channel::new(free_index as _, addr, 64, endpoint, dev_addr, pre))
-        } else {
-            let index = critical_section::with(|_| {
-                let old_val = self.channel_index.load(Ordering::Relaxed);
-                self.channel_index.store(old_val + 1, Ordering::Relaxed);
-                old_val
-            });
-            Ok(Channel::new(
-                index,
-                DPRAM_DATA_OFFSET,
-                MAIN_BUFFER_SIZE as u16,
-                endpoint,
-                dev_addr,
-                pre,
-            ))
-        }
     }
 }
 

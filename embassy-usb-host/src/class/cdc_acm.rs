@@ -2,7 +2,7 @@
 //!
 //! This driver can communicate with USB CDC ACM devices (virtual serial ports).
 
-use embassy_usb_driver::host::{PipeError, UsbHostDriver, UsbPipe, pipe};
+use embassy_usb_driver::host::{PipeError, UsbHostAllocator, UsbPipe, pipe};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
 
 use crate::control::SetupPacket;
@@ -170,19 +170,19 @@ pub fn find_cdc_acm(config_desc: &[u8]) -> Option<CdcAcmInfo> {
 /// CDC ACM host driver.
 ///
 /// Provides read/write access to a CDC ACM (virtual serial port) USB device.
-pub struct CdcAcmHost<'d, D: UsbHostDriver<'d>> {
-    ctrl_ch: D::Pipe<pipe::Control, pipe::InOut>,
-    in_ch: D::Pipe<pipe::Bulk, pipe::In>,
-    out_ch: D::Pipe<pipe::Bulk, pipe::Out>,
+pub struct CdcAcmHost<'d, A: UsbHostAllocator<'d>> {
+    ctrl_ch: A::Pipe<pipe::Control, pipe::InOut>,
+    in_ch: A::Pipe<pipe::Bulk, pipe::In>,
+    out_ch: A::Pipe<pipe::Bulk, pipe::Out>,
     comm_interface: u8,
     _phantom: core::marker::PhantomData<&'d ()>,
 }
 
-impl<'d, D: UsbHostDriver<'d>> CdcAcmHost<'d, D> {
+impl<'d, A: UsbHostAllocator<'d>> CdcAcmHost<'d, A> {
     /// Create a new CDC ACM host driver.
     ///
     /// Parses the config descriptor to find CDC ACM endpoints and allocates channels.
-    pub fn new(driver: &D, config_desc: &[u8], enum_info: &EnumerationInfo) -> Result<Self, CdcAcmError> {
+    pub fn new(alloc: &A, config_desc: &[u8], enum_info: &EnumerationInfo) -> Result<Self, CdcAcmError> {
         let info = find_cdc_acm(config_desc).ok_or(CdcAcmError::NoInterface)?;
 
         let ctrl_ep_info = EndpointInfo {
@@ -209,13 +209,13 @@ impl<'d, D: UsbHostDriver<'d>> CdcAcmHost<'d, D> {
         let device_address = enum_info.device_address;
         let split = enum_info.split();
 
-        let ctrl_ch = driver
+        let ctrl_ch = alloc
             .alloc_pipe::<pipe::Control, pipe::InOut>(device_address, &ctrl_ep_info, split)
             .map_err(|_| CdcAcmError::NoPipe)?;
-        let in_ch = driver
+        let in_ch = alloc
             .alloc_pipe::<pipe::Bulk, pipe::In>(device_address, &in_ep_info, split)
             .map_err(|_| CdcAcmError::NoPipe)?;
-        let out_ch = driver
+        let out_ch = alloc
             .alloc_pipe::<pipe::Bulk, pipe::Out>(device_address, &out_ep_info, split)
             .map_err(|_| CdcAcmError::NoPipe)?;
 
@@ -258,17 +258,17 @@ impl<'d, D: UsbHostDriver<'d>> CdcAcmHost<'d, D> {
     }
 }
 
-impl<'d, D: UsbHostDriver<'d>> embedded_io_async::ErrorType for CdcAcmHost<'d, D> {
+impl<'d, A: UsbHostAllocator<'d>> embedded_io_async::ErrorType for CdcAcmHost<'d, A> {
     type Error = CdcAcmError;
 }
 
-impl<'d, D: UsbHostDriver<'d>> embedded_io_async::Read for CdcAcmHost<'d, D> {
+impl<'d, A: UsbHostAllocator<'d>> embedded_io_async::Read for CdcAcmHost<'d, A> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         CdcAcmHost::read(self, buf).await
     }
 }
 
-impl<'d, D: UsbHostDriver<'d>> embedded_io_async::Write for CdcAcmHost<'d, D> {
+impl<'d, A: UsbHostAllocator<'d>> embedded_io_async::Write for CdcAcmHost<'d, A> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         CdcAcmHost::write(self, buf).await
     }

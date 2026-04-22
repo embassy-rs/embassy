@@ -21,6 +21,7 @@ features = ["defmt"]
 [dependencies]
 embassy-usb = { version = "0.6.0", path = "../embassy-usb" }
 embassy-usb-driver = { version = "0.2.0", path = "../embassy-usb-driver" }
+embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
 embassy-time = { version = "0.5.1", path = "../embassy-time" }
 embedded-io-async = "0.7.0"
 aligned = "0.4"

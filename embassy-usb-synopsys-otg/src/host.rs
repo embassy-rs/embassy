@@ -6,7 +6,9 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
-use embassy_usb_driver::host::{DeviceEvent, HostError, PipeError, SplitInfo, UsbHostDriver, UsbPipe, pipe};
+use embassy_usb_driver::host::{
+    DeviceEvent, HostError, PipeError, SplitInfo, UsbHostAllocator, UsbHostController, UsbPipe, pipe,
+};
 use embassy_usb_driver::{EndpointInfo, EndpointType, Speed};
 use portable_atomic::{AtomicBool, AtomicU8, Ordering};
 
@@ -449,8 +451,78 @@ impl<'d, const CH_COUNT: usize> OtgHost<'d, CH_COUNT> {
     }
 }
 
-impl<'d, const CH_COUNT: usize> UsbHostDriver<'d> for OtgHost<'d, CH_COUNT> {
+/// Pipe allocator handle for [`OtgHost`].
+///
+/// Obtained from [`UsbHostController::allocator`]. Holds only `Copy` handles
+/// to the controller's `'d`-borrowed state, so it can be freely copied and
+/// retained by class drivers independently of the controller's `&mut` borrow.
+pub struct OtgHostAllocator<'d, const CH_COUNT: usize> {
+    regs: Otg,
+    state: &'d HostState<CH_COUNT>,
+    channel_count: usize,
+}
+
+impl<'d, const CH_COUNT: usize> Clone for OtgHostAllocator<'d, CH_COUNT> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<'d, const CH_COUNT: usize> Copy for OtgHostAllocator<'d, CH_COUNT> {}
+
+impl<'d, const CH_COUNT: usize> UsbHostAllocator<'d> for OtgHostAllocator<'d, CH_COUNT> {
     type Pipe<T: pipe::Type, D: pipe::Direction> = Channel<'d, T, D, CH_COUNT>;
+
+    fn alloc_pipe<T: pipe::Type, D: pipe::Direction>(
+        &self,
+        addr: u8,
+        endpoint: &EndpointInfo,
+        _split: Option<SplitInfo>,
+    ) -> Result<Self::Pipe<T, D>, HostError> {
+        let ep_number = endpoint.addr.index() as u8;
+        let max_packet_size = endpoint.max_packet_size;
+
+        // Read device speed from port_speed atomic (stored by ISR)
+        let speed_code = self.state.port_speed.load(Ordering::Acquire);
+        let is_low_speed = speed_code == 1;
+
+        // Find a free channel using atomic CAS
+        for i in 0..self.channel_count.min(CH_COUNT) {
+            if self.state.channels[i]
+                .allocated
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
+                .is_ok()
+            {
+                self.state.channels[i].result.store(CH_RESULT_NONE, Ordering::Release);
+
+                return Ok(Channel {
+                    regs: self.regs,
+                    state: self.state,
+                    index: i,
+                    device_address: addr,
+                    ep_number,
+                    max_packet_size,
+                    is_low_speed,
+                    data_toggle: false,
+                    phantom: PhantomData,
+                });
+            }
+        }
+
+        Err(HostError::OutOfPipes)
+    }
+}
+
+impl<'d, const CH_COUNT: usize> UsbHostController<'d> for OtgHost<'d, CH_COUNT> {
+    type Allocator = OtgHostAllocator<'d, CH_COUNT>;
+
+    fn allocator(&self) -> Self::Allocator {
+        OtgHostAllocator {
+            regs: self.instance.regs,
+            state: self.instance.state,
+            channel_count: self.instance.channel_count,
+        }
+    }
 
     async fn wait_for_device_event(&mut self) -> DeviceEvent {
         // Lazily initialize the host hardware on first call.
@@ -626,47 +698,6 @@ impl<'d, const CH_COUNT: usize> UsbHostDriver<'d> for OtgHost<'d, CH_COUNT> {
 
         // Wait for the device to recover after reset de-assertion.
         embassy_time::Timer::after_millis(20).await;
-    }
-
-    fn alloc_pipe<T: pipe::Type, D: pipe::Direction>(
-        &self,
-        addr: u8,
-        endpoint: &EndpointInfo,
-        _split: Option<SplitInfo>,
-    ) -> Result<Self::Pipe<T, D>, HostError> {
-        let ep_number = endpoint.addr.index() as u8;
-        let max_packet_size = endpoint.max_packet_size;
-
-        // Read device speed from port_speed atomic (stored by ISR)
-        let speed_code = self.instance.state.port_speed.load(Ordering::Acquire);
-        let is_low_speed = speed_code == 1;
-
-        // Find a free channel using atomic CAS
-        for i in 0..self.instance.channel_count.min(CH_COUNT) {
-            if self.instance.state.channels[i]
-                .allocated
-                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
-                .is_ok()
-            {
-                self.instance.state.channels[i]
-                    .result
-                    .store(CH_RESULT_NONE, Ordering::Release);
-
-                return Ok(Channel {
-                    regs: self.instance.regs,
-                    state: self.instance.state,
-                    index: i,
-                    device_address: addr,
-                    ep_number,
-                    max_packet_size,
-                    is_low_speed,
-                    data_toggle: false,
-                    phantom: PhantomData,
-                });
-            }
-        }
-
-        Err(HostError::OutOfPipes)
     }
 }
 
@@ -862,9 +893,8 @@ impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Channel<'_, T, D,
             let ch_state = &self.state.channels[self.index];
             ch_state.waker.register(cx.waker());
 
-            let result = ch_state.result.load(Ordering::Acquire);
+            let result = ch_state.result.swap(CH_RESULT_NONE, Ordering::AcqRel);
             if result != CH_RESULT_NONE {
-                ch_state.result.store(CH_RESULT_NONE, Ordering::Release);
                 Poll::Ready(result)
             } else {
                 Poll::Pending
