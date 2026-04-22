@@ -210,11 +210,9 @@ where
     async fn cmd52(&mut self, write: bool, func: u32, addr: u32, val: u8) -> u8 {
         let arg: u32 = (write as u32) << 31 | func << 28 | (addr & 0x1ffff) << 9 | (val as u32 & 0xff);
 
-        let result = self.sdio.cmd52(arg).await.unwrap_or(u16::MAX) as u8;
+        // default is zero, which will block try_until loops with a != 0 condition
 
-        // trace!("cmd52: 0x{:08x} 0x{:08x}", arg, result);
-
-        result
+        self.sdio.cmd52(arg).await.unwrap_or_default() as u8
     }
 
     async fn cmd53_write(&mut self, func: u32, mut addr: u32, buf: &Aligned<A4, [u8]>) -> crate::Result<()> {
@@ -386,8 +384,8 @@ where
         }
     }
 
-    async fn wlan_write(&mut self, buf: &Aligned<A4, [u8]>) {
-        let _ = self.cmd53_write(FUNC_WLAN, 0, buf).await;
+    async fn wlan_write(&mut self, buf: &Aligned<A4, [u8]>) -> crate::Result<()> {
+        self.cmd53_write(FUNC_WLAN, 0, buf).await
     }
 
     async fn bp_read(&mut self, mut addr: u32, data: &mut [u8]) -> crate::Result<()> {

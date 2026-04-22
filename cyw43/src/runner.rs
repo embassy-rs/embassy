@@ -56,8 +56,7 @@ pub(crate) trait SealedBus {
 
     async fn init<'a>(&mut self, bluetooth: bool, config: &'a Self::Config) -> crate::Result<BusConfig<'a>>;
     async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()>;
-    async fn wlan_write(&mut self, buf: &Aligned<A4, [u8]>);
-    #[allow(unused)]
+    async fn wlan_write(&mut self, buf: &Aligned<A4, [u8]>) -> crate::Result<()>;
     async fn bp_read(&mut self, addr: u32, data: &mut [u8]) -> crate::Result<()>;
     async fn bp_write(&mut self, addr: u32, data: &[u8]) -> crate::Result<()>;
     async fn bp_read8(&mut self, addr: u32) -> u8;
@@ -104,14 +103,12 @@ async fn wake_bus(bus: &mut impl Bus) -> crate::Result<()> {
 
 async fn wlan_read(bus: &mut impl Bus, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()> {
     wake_bus(bus).await?;
-    bus.wlan_read(buf).await.map_err(|_| crate::Error)
+    bus.wlan_read(buf).await.ctx("wlan_read failed")
 }
 
 async fn wlan_write(bus: &mut impl Bus, buf: &Aligned<A4, [u8]>) -> crate::Result<()> {
     wake_bus(bus).await?;
-    bus.wlan_write(buf).await;
-
-    Ok(())
+    bus.wlan_write(buf).await.ctx("wlan_write failed")
 }
 
 /// Driver communicating with the WiFi chip.

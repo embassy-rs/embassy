@@ -13,17 +13,15 @@ pub async fn check_device_core_is_up(bus: &mut impl Bus, chip: impl Chip, core: 
 
     let io = bus.bp_read8(base + AI_IOCTRL_OFFSET).await;
     if io & (AI_IOCTRL_BIT_FGC | AI_IOCTRL_BIT_CLOCK_EN) != AI_IOCTRL_BIT_CLOCK_EN {
-        debug!("device_core_is_up: returning false due to bad ioctrl {:02x}", io);
-        return Err(crate::Error);
+        return err!("device_core_is_up: returning false due to bad ioctrl {:02x}", io);
     }
 
     let r = bus.bp_read8(base + AI_RESETCTRL_OFFSET).await;
     if r & (AI_RESETCTRL_BIT_RESET) != 0 {
-        debug!("device_core_is_up: returning false due to bad resetctrl {:02x}", r);
-        return Err(crate::Error);
+        return err!("device_core_is_up: returning false due to bad resetctrl {:02x}", r);
     }
 
-    return Ok(());
+    Ok(())
 }
 
 /// Resets the core identified by the provided coreId
@@ -95,11 +93,7 @@ pub async fn reset_core(
 
     match reset_state {
         0 => Ok(()),
-        _ => {
-            debug!("reset_core: failed to take core out of reset {:02x}", reset_state);
-
-            Err(crate::Error)
-        }
+        _ => err!("reset_core: failed to take core out of reset {:02x}", reset_state),
     }
 }
 
