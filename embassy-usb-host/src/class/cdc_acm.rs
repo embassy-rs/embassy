@@ -182,7 +182,7 @@ impl<'d, A: UsbHostAllocator<'d>> CdcAcmHost<'d, A> {
     /// Create a new CDC ACM host driver.
     ///
     /// Parses the config descriptor to find CDC ACM endpoints and allocates channels.
-    pub fn new(alloc: A, config_desc: &[u8], enum_info: &EnumerationInfo) -> Result<Self, CdcAcmError> {
+    pub fn new(alloc: &A, config_desc: &[u8], enum_info: &EnumerationInfo) -> Result<Self, CdcAcmError> {
         let info = find_cdc_acm(config_desc).ok_or(CdcAcmError::NoInterface)?;
 
         let ctrl_ep_info = EndpointInfo {

@@ -18,7 +18,7 @@
 //!
 //! ```rust,ignore
 //! // Register a UAC device
-//! let handler = UacHandler::try_register(host, enum_info).await?;
+//! let handler = UacHandler::try_register(&host, enum_info).await?;
 //!
 //! // Get current sampling frequency
 //! let freq = handler.get_sampling_freq(terminal_id).await?;
@@ -95,7 +95,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
     /// and allocates output and feedback pipes as needed.
     ///
     /// Returns a new [`UacHandler`] on success, or a [`RegisterError`] if registration fails.
-    pub async fn try_register(alloc: A, enum_info: EnumerationInfo) -> Result<Self, RegisterError> {
+    pub async fn try_register(alloc: &A, enum_info: EnumerationInfo) -> Result<Self, RegisterError> {
         // Steps taken:
         // 1. Find the first streaming interface with an output endpoint
         // 2. Connect it to its terminal to find the sampling frequency

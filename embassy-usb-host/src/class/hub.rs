@@ -7,7 +7,6 @@
 use core::num::NonZeroU8;
 
 use bitflags::bitflags;
-use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_time::Timer;
 use embassy_usb::control::Request;
 use embassy_usb_driver::host::{HostError, SplitInfo, SplitSpeed, UsbHostAllocator, UsbPipe, pipe};
@@ -20,13 +19,13 @@ use crate::handler::{BusRoute, EnumerationInfo, HandlerEvent, RegisterError};
 use crate::{BusHandle, EnumerationError};
 
 pub struct HubHandler<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> {
+    bus: BusHandle<'d, A>,
     interrupt_channel: A::Pipe<pipe::Interrupt, pipe::In>,
     control_channel: A::Pipe<pipe::Control, pipe::InOut>,
     desc: HubDescriptor,
     device_address: u8,
     device_lut: [Option<NonZeroU8>; MAX_PORTS],
     route: BusRoute,
-    _phantom: core::marker::PhantomData<&'d ()>,
 }
 
 #[derive(Debug)]
@@ -38,9 +37,9 @@ pub enum HubEvent {
 
 impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_PORTS> {
     /// Attempt to register a hub handler for the given device.
-    pub async fn try_register(alloc: A, enum_info: &EnumerationInfo) -> Result<Self, RegisterError> {
+    pub async fn try_register(bus: &BusHandle<'d, A>, enum_info: &EnumerationInfo) -> Result<Self, RegisterError> {
         let ls_over_fs = matches!(enum_info.split(), Some(s) if s.device_speed() == SplitSpeed::Low);
-        let mut control_channel = alloc.alloc_pipe::<pipe::Control, pipe::InOut>(
+        let mut control_channel = bus.alloc_pipe::<pipe::Control, pipe::InOut>(
             enum_info.device_address,
             &EndpointInfo {
                 addr: 0.into(),
@@ -79,7 +78,7 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
             .find(|v| v.ep_type() == EndpointType::Interrupt && v.ep_dir() == Direction::In)
             .ok_or(RegisterError::NoSupportedInterface)?;
 
-        let interrupt_channel = alloc.alloc_pipe::<pipe::Interrupt, pipe::In>(
+        let interrupt_channel = bus.alloc_pipe::<pipe::Interrupt, pipe::In>(
             enum_info.device_address,
             &interrupt_ep.into(),
             enum_info.split(),
@@ -88,13 +87,13 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
         let desc = control_channel.request_descriptor::<HubDescriptor, 64>(0, true).await?;
 
         let mut hub = HubHandler {
+            bus: bus.clone(),
             interrupt_channel,
             control_channel,
             desc,
             device_address: enum_info.device_address,
             device_lut: [None; MAX_PORTS],
             route: enum_info.route,
-            _phantom: core::marker::PhantomData,
         };
 
         for port in 0..hub.desc.port_num {
@@ -215,9 +214,8 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
     /// Reset a port and enumerate the device attached to it.
     ///
     /// `port` and `speed` are the 0-based port index and device speed as
-    /// reported by [`HubEvent::DeviceDetected`]. `bus` is the [`BusHandle`]
-    /// to use for enumeration, and it must be the same bus that this hub
-    /// is registered on.
+    /// reported by [`HubEvent::DeviceDetected`]. Enumeration uses the
+    /// [`BusHandle`] the hub was registered with.
     ///
     /// Returns the [`EnumerationInfo`] for the device and bytes written
     /// to `config_buffer`.
@@ -236,9 +234,8 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
     ///   latter uses the legacy `PRE` prefix on full-speed buses), a new
     ///   [`SplitInfo`] is constructed pointing at this hub.
     /// - Otherwise the child is reached directly at its native speed.
-    pub async fn enumerate_port<M: RawMutex>(
+    pub async fn enumerate_port(
         &mut self,
-        bus: &BusHandle<'d, A, M>,
         config_buffer: &mut [u8],
         port: u8,
         speed: Speed,
@@ -275,7 +272,7 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
             }
         };
 
-        let (info, config_len) = bus.enumerate(route, config_buffer).await?;
+        let (info, config_len) = self.bus.enumerate(route, config_buffer).await?;
 
         // Store the device address in the LUT for later retrieval on disconnect.
         self.device_lut[port as usize] = NonZeroU8::new(info.device_address);

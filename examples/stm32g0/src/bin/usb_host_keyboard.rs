@@ -7,7 +7,6 @@ use embassy_stm32::gpio::{AfType, Level, Output, OutputType, Speed};
 use embassy_stm32::i2c::{self, I2c};
 use embassy_stm32::time::mhz;
 use embassy_stm32::{Config, bind_interrupts, dma, pac, peripherals, usb};
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time::Timer;
 use embassy_usb_host::class::hid::HidHost;
 use embassy_usb_host::{BusRoute, BusState};
@@ -79,7 +78,7 @@ async fn main(_spawner: Spawner) {
     let mut usbhost = usb::UsbHost::new(p.USB, Irqs, p.PA12, p.PA11);
     usbhost.start();
 
-    static BUS_STATE: BusState<CriticalSectionRawMutex> = BusState::new();
+    static BUS_STATE: BusState = BusState::new();
     let (mut bus_ctrl, bus) = embassy_usb_host::bus(usbhost, &BUS_STATE);
     info!("USB host initialized, waiting for device...");
 
@@ -103,7 +102,7 @@ async fn main(_spawner: Spawner) {
             enum_info.device_desc.vendor_id, enum_info.device_desc.product_id, enum_info.device_address
         );
 
-        let mut hid = match HidHost::new(bus, &config_buf[..config_len], &enum_info) {
+        let mut hid = match HidHost::new(&bus, &config_buf[..config_len], &enum_info) {
             Ok(h) => h,
             Err(e) => {
                 error!("HID init failed: {:?}", e);

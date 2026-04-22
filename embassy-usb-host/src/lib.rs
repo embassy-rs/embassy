@@ -15,7 +15,7 @@ use core::cell::RefCell;
 use core::marker::PhantomData;
 
 use embassy_sync::blocking_mutex::Mutex as BlockingMutex;
-use embassy_sync::blocking_mutex::raw::RawMutex;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex as AsyncMutex;
 use embassy_usb_driver::host::{DeviceEvent, HostError, PipeError, UsbHostAllocator, UsbHostController, UsbPipe, pipe};
 pub use embassy_usb_driver::host::{SplitInfo, SplitSpeed};
@@ -79,12 +79,12 @@ impl core::error::Error for EnumerationError {}
 ///
 /// Holds the in-use USB device addresses (1–127) and an async mutex used to
 /// serialise enumerations on a single bus.
-pub struct BusState<M: RawMutex> {
-    addr_bitmap: BlockingMutex<M, RefCell<[u64; 2]>>,
-    enum_lock: AsyncMutex<M, ()>,
+pub struct BusState {
+    addr_bitmap: BlockingMutex<CriticalSectionRawMutex, RefCell<[u64; 2]>>,
+    enum_lock: AsyncMutex<CriticalSectionRawMutex, ()>,
 }
 
-impl<M: RawMutex> BusState<M> {
+impl BusState {
     /// Create new, empty bus state.
     pub const fn new() -> Self {
         Self {
@@ -128,7 +128,7 @@ impl<M: RawMutex> BusState<M> {
     }
 }
 
-impl<M: RawMutex> Default for BusState<M> {
+impl Default for BusState {
     fn default() -> Self {
         Self::new()
     }
@@ -195,28 +195,15 @@ impl<'d, C: UsbHostController<'d>> BusController<'d, C> {
 /// `BusHandle` itself implements [`UsbHostAllocator`] by forwarding to
 /// its inner allocator, so it can be passed directly to class driver
 /// constructors.
-pub struct BusHandle<'d, A: UsbHostAllocator<'d>, M: RawMutex> {
+#[derive(Clone)]
+pub struct BusHandle<'d, A: UsbHostAllocator<'d>> {
     alloc: A,
-    state: &'d BusState<M>,
-    _phantom: core::marker::PhantomData<&'d ()>,
+    state: &'d BusState,
 }
 
-impl<'d, A: UsbHostAllocator<'d> + Copy, M: RawMutex> Clone for BusHandle<'d, A, M> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<'d, A: UsbHostAllocator<'d> + Copy, M: RawMutex> Copy for BusHandle<'d, A, M> {}
-
-impl<'d, A: UsbHostAllocator<'d>, M: RawMutex> BusHandle<'d, A, M> {
-    /// Borrow the inner pipe allocator.
-    pub fn allocator(&self) -> &A {
-        &self.alloc
-    }
-
+impl<'d, A: UsbHostAllocator<'d>> BusHandle<'d, A> {
     /// Borrow the shared bus state.
-    pub fn state(&self) -> &'d BusState<M> {
+    pub fn state(&self) -> &'d BusState {
         self.state
     }
 
@@ -416,7 +403,7 @@ impl<'d, A: UsbHostAllocator<'d>, M: RawMutex> BusHandle<'d, A, M> {
     }
 }
 
-impl<'d, A: UsbHostAllocator<'d>, M: RawMutex> UsbHostAllocator<'d> for BusHandle<'d, A, M> {
+impl<'d, A: UsbHostAllocator<'d>> UsbHostAllocator<'d> for BusHandle<'d, A> {
     type Pipe<T: pipe::Type, D: pipe::Direction> = A::Pipe<T, D>;
 
     fn alloc_pipe<T: pipe::Type, D: pipe::Direction>(
@@ -436,20 +423,16 @@ impl<'d, A: UsbHostAllocator<'d>, M: RawMutex> UsbHostAllocator<'d> for BusHandl
 /// and can be freely shared, handed to class drivers, hub handlers, or
 /// other concurrent tasks while the controller task is blocked inside
 /// [`wait_for_device_event`](BusController::wait_for_device_event).
-pub fn bus<'d, C: UsbHostController<'d>, M: RawMutex>(
+pub fn bus<'d, C: UsbHostController<'d>>(
     driver: C,
-    state: &'d BusState<M>,
-) -> (BusController<'d, C>, BusHandle<'d, C::Allocator, M>) {
+    state: &'d BusState,
+) -> (BusController<'d, C>, BusHandle<'d, C::Allocator>) {
     let alloc = driver.allocator();
     (
         BusController {
             driver,
             _phantom: PhantomData,
         },
-        BusHandle {
-            alloc,
-            state,
-            _phantom: core::marker::PhantomData,
-        },
+        BusHandle { alloc, state },
     )
 }

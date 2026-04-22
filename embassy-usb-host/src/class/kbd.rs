@@ -45,7 +45,7 @@ pub struct KbdHandler<'d, A: UsbHostAllocator<'d>> {
 
 impl<'d, A: UsbHostAllocator<'d>> KbdHandler<'d, A> {
     /// Attempt to register a keyboard handler for the given device.
-    pub async fn try_register(alloc: A, enum_info: &EnumerationInfo) -> Result<Self, RegisterError> {
+    pub async fn try_register(alloc: &A, enum_info: &EnumerationInfo) -> Result<Self, RegisterError> {
         let mut control_channel = alloc.alloc_pipe::<pipe::Control, pipe::InOut>(
             enum_info.device_address,
             &EndpointInfo {

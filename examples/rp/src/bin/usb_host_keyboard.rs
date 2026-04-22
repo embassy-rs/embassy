@@ -5,7 +5,6 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::USB;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_usb_host::class::hid::HidHost;
 use embassy_usb_host::{BusRoute, BusState};
 use {defmt_rtt as _, panic_probe as _};
@@ -20,7 +19,7 @@ async fn main(_spawner: Spawner) {
 
     let driver = embassy_rp::usb::host::Driver::new(p.USB, Irqs);
 
-    static BUS_STATE: BusState<CriticalSectionRawMutex> = BusState::new();
+    static BUS_STATE: BusState = BusState::new();
     let (mut bus_ctrl, bus) = embassy_usb_host::bus(driver, &BUS_STATE);
 
     info!("USB host initialized, waiting for device...");
@@ -45,7 +44,7 @@ async fn main(_spawner: Spawner) {
             enum_info.device_desc.vendor_id, enum_info.device_desc.product_id, enum_info.device_address
         );
 
-        let mut hid = match HidHost::new(bus, &config_buf[..config_len], &enum_info) {
+        let mut hid = match HidHost::new(&bus, &config_buf[..config_len], &enum_info) {
             Ok(h) => h,
             Err(e) => {
                 error!("HID init failed: {:?}", e);

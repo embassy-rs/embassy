@@ -36,7 +36,7 @@
 //! use embassy_usb_host::class::gip::{GipHost, XboxOneSGamepad, GipEvent, RumbleCommand};
 //!
 //! let mut gip = GipHost::<_, XboxOneSGamepad>::try_register(
-//!     bus,
+//!     &bus,
 //!     &config_buf[..config_len],
 //!     addr,
 //!     dev_desc.vendor_id,
@@ -499,7 +499,7 @@ impl<'d, A: UsbHostAllocator<'d>, DEV: GipDevice> GipHost<'d, A, DEV> {
     /// - [`GipError::NoInterface`] if no GIP interface is found.
     /// - [`GipError::NoPipe`] if pipes cannot be allocated.
     /// - [`GipError::Transfer`] if a handshake transfer fails.
-    pub async fn try_register(alloc: A, config_desc: &[u8], enum_info: &EnumerationInfo) -> Result<Self, GipError> {
+    pub async fn try_register(alloc: &A, config_desc: &[u8], enum_info: &EnumerationInfo) -> Result<Self, GipError> {
         let vendor_id = enum_info.device_desc.vendor_id;
         let product_id = enum_info.device_desc.product_id;
         let device = DEV::try_new(vendor_id, product_id).ok_or(GipError::UnsupportedDevice)?;

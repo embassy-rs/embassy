@@ -242,7 +242,7 @@ impl<'d, A: UsbHostAllocator<'d>> HidHost<'d, A> {
     ///
     /// Parses the config descriptor to find the HID interface and its interrupt IN endpoint,
     /// then allocates the necessary channels.
-    pub fn new(alloc: A, config_desc: &[u8], enum_info: &EnumerationInfo) -> Result<Self, HidError> {
+    pub fn new(alloc: &A, config_desc: &[u8], enum_info: &EnumerationInfo) -> Result<Self, HidError> {
         let info = find_hid(config_desc).ok_or(HidError::NoInterface)?;
 
         let ctrl_ep_info = EndpointInfo {

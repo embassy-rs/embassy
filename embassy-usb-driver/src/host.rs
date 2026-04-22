@@ -137,9 +137,8 @@ impl From<PipeError> for HostError {
 ///
 /// Implementations are expected to back allocator state with `'d`-lifetime
 /// storage (typically statics or user-provided `&'d` buffers), not with
-/// fields on the controller struct. This lets [`UsbHostController::allocator`]
-/// hand out lightweight handles that do not re-borrow the controller.
-pub trait UsbHostAllocator<'d>: Sized {
+/// fields on the controller struct.
+pub trait UsbHostAllocator<'d>: Sized + Clone {
     /// Pipe implementation produced by this allocator.
     type Pipe<T: pipe::Type, D: pipe::Direction>: UsbPipe<T, D> + 'd;
 
