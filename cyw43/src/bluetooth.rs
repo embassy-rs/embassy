@@ -260,7 +260,7 @@ impl<'a> BtRunner<'a> {
             assert!(dest_start_addr % 4 == 0);
             assert!(dest_end_addr % 4 == 0);
             assert!(aligned_data_buffer_index % 4 == 0);
-            bus.bp_write(dest_start_addr, buffer_to_write).await;
+            let _ = bus.bp_write(dest_start_addr, buffer_to_write).await;
         }
     }
 
@@ -377,7 +377,7 @@ impl<'a> BtRunner<'a> {
 
         // Write header
         let addr = self.addr + BTSDIO_OFFSET_HOST_WRITE_BUF + self.h2b_write_pointer;
-        bus.bp_write(addr, &header).await;
+        let _ = bus.bp_write(addr, &header).await;
         self.h2b_write_pointer = (self.h2b_write_pointer + 4) % BTSDIO_FWBUF_SIZE;
 
         // Write payload.
@@ -386,13 +386,13 @@ impl<'a> BtRunner<'a> {
             // wraparound
             let n = BTSDIO_FWBUF_SIZE - self.h2b_write_pointer;
             let addr = self.addr + BTSDIO_OFFSET_HOST_WRITE_BUF + self.h2b_write_pointer;
-            bus.bp_write(addr, &payload[..n as usize]).await;
+            let _ = bus.bp_write(addr, &payload[..n as usize]).await;
             let addr = self.addr + BTSDIO_OFFSET_HOST_WRITE_BUF;
-            bus.bp_write(addr, &payload[n as usize..]).await;
+            let _ = bus.bp_write(addr, &payload[n as usize..]).await;
         } else {
             // no wraparound
             let addr = self.addr + BTSDIO_OFFSET_HOST_WRITE_BUF + self.h2b_write_pointer;
-            bus.bp_write(addr, payload).await;
+            let _ = bus.bp_write(addr, payload).await;
         }
         self.h2b_write_pointer = (self.h2b_write_pointer + payload.len() as u32) % BTSDIO_FWBUF_SIZE;
 
@@ -431,7 +431,7 @@ impl<'a> BtRunner<'a> {
                 // read header
                 let mut header = [0u8; 4];
                 let addr = self.addr + BTSDIO_OFFSET_HOST_READ_BUF + self.b2h_read_pointer;
-                bus.bp_read(addr, &mut header).await;
+                let _ = bus.bp_read(addr, &mut header).await;
 
                 // calc length
                 let len = header[0] as u32 | ((header[1]) as u32) << 8 | ((header[2]) as u32) << 16;
@@ -451,13 +451,13 @@ impl<'a> BtRunner<'a> {
                     // wraparound
                     let n = BTSDIO_FWBUF_SIZE - self.b2h_read_pointer;
                     let addr = self.addr + BTSDIO_OFFSET_HOST_READ_BUF + self.b2h_read_pointer;
-                    bus.bp_read(addr, &mut payload[..n as usize]).await;
+                    let _ = bus.bp_read(addr, &mut payload[..n as usize]).await;
                     let addr = self.addr + BTSDIO_OFFSET_HOST_READ_BUF;
-                    bus.bp_read(addr, &mut payload[n as usize..]).await;
+                    let _ = bus.bp_read(addr, &mut payload[n as usize..]).await;
                 } else {
                     // no wraparound
                     let addr = self.addr + BTSDIO_OFFSET_HOST_READ_BUF + self.b2h_read_pointer;
-                    bus.bp_read(addr, payload).await;
+                    let _ = bus.bp_read(addr, payload).await;
                 }
                 self.b2h_read_pointer = (self.b2h_read_pointer + payload.len() as u32) % BTSDIO_FWBUF_SIZE;
                 bus.bp_write32(self.addr + BTSDIO_OFFSET_BT2HOST_OUT, self.b2h_read_pointer)

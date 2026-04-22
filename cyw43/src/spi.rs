@@ -247,7 +247,7 @@ where
         Ok(BusConfig::Spi(config))
     }
 
-    async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) -> Result<(), ()> {
+    async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()> {
         let len_in_u8 = buf.len() as u32;
         let buf = slice32_mut(buf);
 
@@ -271,7 +271,7 @@ where
     }
 
     #[allow(unused)]
-    async fn bp_read(&mut self, mut addr: u32, mut data: &mut [u8]) {
+    async fn bp_read(&mut self, mut addr: u32, mut data: &mut [u8]) -> crate::Result<()> {
         trace!("bp_read addr = {:08x}", addr);
 
         // It seems the HW force-aligns the addr
@@ -304,9 +304,11 @@ where
             addr += len as u32;
             data = &mut data[len..];
         }
+
+        Ok(())
     }
 
-    async fn bp_write(&mut self, mut addr: u32, mut data: &[u8]) {
+    async fn bp_write(&mut self, mut addr: u32, mut data: &[u8]) -> crate::Result<()> {
         trace!("bp_write addr = {:08x}", addr);
 
         // It seems the HW force-aligns the addr
@@ -336,6 +338,8 @@ where
             addr += len as u32;
             data = &data[len..];
         }
+
+        Ok(())
     }
 
     async fn bp_read8(&mut self, addr: u32) -> u8 {

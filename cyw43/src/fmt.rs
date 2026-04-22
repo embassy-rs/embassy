@@ -184,6 +184,15 @@ macro_rules! error {
     };
 }
 
+#[collapse_debuginfo(yes)]
+macro_rules! err {
+    ($s:literal $(, $x:expr)* $(,)?) => {{
+        error!($s $(, $x)*);
+
+        Err(crate::Error)
+    }};
+}
+
 #[cfg(feature = "defmt")]
 #[collapse_debuginfo(yes)]
 macro_rules! unwrap {
