@@ -696,13 +696,17 @@ impl<'d, I: Instance> Copy for Allocator<'d, I> {}
 
 fn alloc_channel_mem(state: &HostState, len: u16) -> Result<u16, ()> {
     assert!(len as usize % USBRAM_ALIGN == 0);
-    let addr = state.ep_mem_free.load(Ordering::Relaxed);
-    if addr + len > USBRAM_SIZE as _ {
-        error!("Endpoint memory full");
-        return Err(());
-    }
-    state.ep_mem_free.store(addr + len, Ordering::Relaxed);
-    Ok(addr)
+    // Bump-allocate a contiguous range under a critical section so concurrent
+    // allocations from copies of the allocator can't clobber each other.
+    critical_section::with(|_| {
+        let addr = state.ep_mem_free.load(Ordering::Relaxed);
+        if addr + len > USBRAM_SIZE as _ {
+            error!("Endpoint memory full");
+            return Err(());
+        }
+        state.ep_mem_free.store(addr + len, Ordering::Relaxed);
+        Ok(addr)
+    })
 }
 
 impl<'d, I: SealedHostInstance> UsbHostAllocator<'d> for Allocator<'d, I> {

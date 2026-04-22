@@ -893,9 +893,8 @@ impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Channel<'_, T, D,
             let ch_state = &self.state.channels[self.index];
             ch_state.waker.register(cx.waker());
 
-            let result = ch_state.result.load(Ordering::Acquire);
+            let result = ch_state.result.swap(CH_RESULT_NONE, Ordering::AcqRel);
             if result != CH_RESULT_NONE {
-                ch_state.result.store(CH_RESULT_NONE, Ordering::Release);
                 Poll::Ready(result)
             } else {
                 Poll::Pending

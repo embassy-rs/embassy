@@ -772,19 +772,24 @@ impl<'d, T: SealedHostInstance> UsbHostAllocator<'d> for Allocator<'d, T> {
         let state = T::host_state();
         let pre = split_to_pre(split);
         if E::ep_type() == EndpointType::Interrupt {
-            let alloc = state.allocated_pipes.load(Ordering::Acquire);
-            let free_index = (1..16).find(|i| alloc & (1 << i) == 0).ok_or(HostError::OutOfPipes)? as u8;
-
-            state.allocated_pipes.store(alloc | 1 << free_index, Ordering::Release);
+            let free_index = critical_section::with(|_| {
+                let alloc = state.allocated_pipes.load(Ordering::Relaxed);
+                if let Some(idx) = (1..16).find(|i| alloc & (1 << i) == 0) {
+                    state.allocated_pipes.store(alloc | (1 << idx), Ordering::Relaxed);
+                    Ok(idx as u8)
+                } else {
+                    Err(HostError::OutOfPipes)
+                }
+            })?;
             // Use fixed layout
             let addr = DPRAM_DATA_OFFSET + MAIN_BUFFER_SIZE as u16 + free_index as u16 * 64;
 
             Ok(Channel::new(free_index as _, addr, 64, endpoint, dev_addr, pre))
         } else {
             let index = critical_section::with(|_| {
-                let old_val = state.channel_index.load(Ordering::Relaxed);
-                state.channel_index.store(old_val + 1, Ordering::Relaxed);
-                old_val
+                let old = state.channel_index.load(Ordering::Relaxed);
+                state.channel_index.store(old + 1, Ordering::Relaxed);
+                old
             });
             Ok(Channel::new(
                 index,
