@@ -92,11 +92,7 @@ pub(crate) fn round_up(x: u32, a: u32) -> u32 {
     ((x + a - 1) / a) * a
 }
 
-pub(crate) async fn try_until(
-    mut func: impl AsyncFnMut() -> bool,
-    duration: Duration,
-    ctx: &'static str,
-) -> crate::Result<()> {
+pub(crate) async fn try_until(mut func: impl AsyncFnMut() -> bool, duration: Duration) -> crate::Result<()> {
     let tick = Duration::from_millis(1);
     let mut ticker = Ticker::every(tick);
     let ticks = duration.as_ticks() / tick.as_ticks();
@@ -109,5 +105,5 @@ pub(crate) async fn try_until(
         ticker.next().await;
     }
 
-    Err(crate::Error).with_ctx(ctx)
+    Err(crate::Error)
 }

@@ -5,10 +5,10 @@ use embassy_time::{Duration, Timer};
 use crate::consts::*;
 use crate::runner::Bus;
 use crate::util::try_until;
-use crate::{Chip, ChipId, Core};
+use crate::{Chip, ChipId, Core, WithContext};
 
 /// Returns `true` is the core identified by the provided coreId is up, otherwise `false`
-pub async fn device_core_is_up(bus: &mut impl Bus, chip: impl Chip, core: Core) -> crate::Result<()> {
+pub async fn check_device_core_is_up(bus: &mut impl Bus, chip: impl Chip, core: Core) -> crate::Result<()> {
     let base = chip.base_addr(core);
 
     let io = bus.bp_read8(base + AI_IOCTRL_OFFSET).await;
@@ -40,9 +40,9 @@ pub async fn reset_core(
         try_until(
             async || bus.bp_read8(base + AI_RESETSTATUS_OFFSET).await != 0,
             Duration::from_millis(300),
-            "timeout while waiting for backplane idle",
         )
         .await
+        .ctx("timeout while waiting for backplane idle")
     }
 
     // ensure there are no pending backplane operations

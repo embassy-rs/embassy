@@ -7,7 +7,9 @@ use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::LinkState;
 use embassy_time::Duration;
 
-use crate::chip::{chip_specific_socsram_init, device_core_is_up, disable_device_core, reset_core, reset_device_core};
+use crate::chip::{
+    check_device_core_is_up, chip_specific_socsram_init, disable_device_core, reset_core, reset_device_core,
+};
 use crate::consts::*;
 use crate::events::{Event, Events, Status};
 use crate::fmt::Bytes;
@@ -53,11 +55,11 @@ pub(crate) trait SealedBus {
     type Config;
 
     async fn init<'a>(&mut self, bluetooth: bool, config: &'a Self::Config) -> crate::Result<BusConfig<'a>>;
-    async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) -> Result<(), ()>;
+    async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()>;
     async fn wlan_write(&mut self, buf: &Aligned<A4, [u8]>);
     #[allow(unused)]
-    async fn bp_read(&mut self, addr: u32, data: &mut [u8]);
-    async fn bp_write(&mut self, addr: u32, data: &[u8]);
+    async fn bp_read(&mut self, addr: u32, data: &mut [u8]) -> crate::Result<()>;
+    async fn bp_write(&mut self, addr: u32, data: &[u8]) -> crate::Result<()>;
     async fn bp_read8(&mut self, addr: u32) -> u8;
     async fn bp_write8(&mut self, addr: u32, val: u8);
     async fn bp_read16(&mut self, addr: u32) -> u16;
@@ -92,9 +94,9 @@ async fn wake_bus(bus: &mut impl Bus) -> crate::Result<()> {
         try_until(
             async || bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & BACKPLANE_HT_AVAIL_REQ << 3 != 0,
             Duration::from_millis(5),
-            "timeout while requesting HT clock before SDIO access",
         )
-        .await?;
+        .await
+        .ctx("timeout while requesting HT clock before SDIO access")?;
     }
 
     Ok(())
@@ -113,9 +115,9 @@ async fn wlan_write(bus: &mut impl Bus, buf: &Aligned<A4, [u8]>) -> crate::Resul
 }
 
 /// Driver communicating with the WiFi chip.
-pub struct Runner<'a, BUS, CHIP: Chip> {
+pub struct Runner<'a, BUS: Bus, CHIP: Chip> {
     ch: ch::Runner<'a, MTU>,
-    pub(crate) bus: BUS,
+    bus: BUS,
     chip: CHIP,
 
     ioctl_state: &'a IoctlState,
@@ -137,11 +139,7 @@ pub struct Runner<'a, BUS, CHIP: Chip> {
     pub(crate) bt: Option<crate::bluetooth::BtRunner<'a>>,
 }
 
-impl<'a, BUS, CHIP> Runner<'a, BUS, CHIP>
-where
-    BUS: Bus,
-    CHIP: Chip,
-{
+impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
     pub(crate) fn new(
         ch: ch::Runner<'a, MTU>,
         bus: BUS,
@@ -172,10 +170,13 @@ where
     }
 
     async fn verify_download(&mut self, label: &str, addr: u32, data: &[u8]) -> crate::Result<()> {
-        async fn bp_read_bytes<BUS: Bus, const N: usize>(bus: &mut BUS, addr: u32) -> Aligned<A4, [u8; N]> {
+        async fn bp_read_bytes<BUS: Bus, const N: usize>(
+            bus: &mut BUS,
+            addr: u32,
+        ) -> crate::Result<Aligned<A4, [u8; N]>> {
             let mut buf = Aligned([0; N]);
-            bus.bp_read(addr, &mut buf[..]).await;
-            buf
+            bus.bp_read(addr, &mut buf[..]).await?;
+            Ok(buf)
         }
 
         fn sample_checksum(data: &[u8]) -> u32 {
@@ -206,7 +207,7 @@ where
         }
 
         for &offset in &offsets[..offset_count] {
-            let actual = bp_read_bytes::<BUS, SAMPLE_LEN>(&mut self.bus, addr + offset as u32).await;
+            let actual = bp_read_bytes::<BUS, SAMPLE_LEN>(&mut self.bus, addr + offset as u32).await?;
             let expected = &data[offset..offset + SAMPLE_LEN];
             let ok = &actual[..] == expected;
             debug!(
@@ -218,10 +219,12 @@ where
                 ok,
             );
             if !ok {
-                debug!("{} expected {:02x}", label, Bytes(expected));
-                debug!("{} actual   {:02x}", label, Bytes(&actual[..]));
-
-                return Err(crate::Error);
+                return err!(
+                    "{} expected: {:02x} acutal: {:02x}",
+                    label,
+                    Bytes(expected),
+                    Bytes(&actual[..])
+                );
             }
         }
 
@@ -234,7 +237,7 @@ where
             let mut actual: Aligned<A4, [u8; CHECKSUM_LEN]> = Aligned([0; CHECKSUM_LEN]);
             self.bus
                 .bp_read(addr + offset as u32, &mut actual[..checksum_span])
-                .await;
+                .await?;
             let expected = &data[offset..offset + checksum_span];
             let actual = &actual[..checksum_span];
             let exp_sum = sample_checksum(expected);
@@ -248,9 +251,9 @@ where
                 got_sum,
                 exp_sum == got_sum,
             );
+
             if exp_sum != got_sum || actual != expected {
-                debug!("{} chunk verify failed @{:08x}", label, addr + offset as u32);
-                return Err(crate::Error);
+                return err!("{} chunk verify failed @{:08x}", label, addr + offset as u32);
             }
         }
 
@@ -259,7 +262,7 @@ where
 
     async fn write_reset_instruction(&mut self, wifi_fw: &[u8]) -> crate::Result<()> {
         if wifi_fw.len() < 4 {
-            return Err(crate::Error).with_ctx("FW image too small to extract reset instruction");
+            return err!("FW image too small to extract reset instruction");
         }
 
         // CR4-based chips boot firmware from ATCM, but still expect the first
@@ -276,7 +279,7 @@ where
             reset_instr_rb == reset_instr,
         );
         if reset_instr_rb != reset_instr {
-            return Err(crate::Error).with_ctx("reset instruction write FAILED");
+            return err!("reset instruction write FAILED");
         }
 
         Ok(())
@@ -397,16 +400,14 @@ where
             .write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, 0x10)
             .await; // SBSDIO_HT_AVAIL_REQ
         debug!("waiting for HT clock...");
-        // TODO: investiate why this does not work
 
-        // try_until(
-        //     async || self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 == 0,
-        //     Duration::from_millis(500),
-        //     "timeout waiting for HT clock",
-        // )
-        // .await?;
+        try_until(
+            async || self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 != 0,
+            Duration::from_millis(500),
+        )
+        .await
+        .ctx("timeout waiting for HT clock")?;
 
-        while self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 == 0 {}
         debug!("clock ok");
 
         Ok(())
@@ -496,9 +497,9 @@ where
         try_until(
             async || self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & BACKPLANE_ALP_AVAIL != 0,
             Duration::from_millis(100),
-            "timeout while waiting for alp clock!",
         )
-        .await?;
+        .await
+        .ctx("timeout while waiting for alp clock!")?;
 
         debug!("clock ok");
 
@@ -529,7 +530,7 @@ where
         }
 
         debug!("loading fw");
-        self.bus.bp_write(ram_addr, wifi_fw).await;
+        self.bus.bp_write(ram_addr, wifi_fw).await.ctx("failed to write fw")?;
         self.verify_download("FW", ram_addr, wifi_fw).await?;
         if ram_addr != 0 {
             self.write_reset_instruction(wifi_fw).await?;
@@ -538,7 +539,10 @@ where
         debug!("loading nvram");
         let nvram_len = (nvram.len() + 3) / 4 * 4;
         let nvram_addr = ram_addr + self.chip.chip_ram_size() - 4 - nvram_len as u32;
-        self.bus.bp_write(nvram_addr, nvram).await;
+        self.bus
+            .bp_write(nvram_addr, nvram)
+            .await
+            .ctx("failed to write nvram")?;
         self.verify_download("NVRAM", nvram_addr, nvram).await?;
 
         let nvram_len_words = nvram_len as u32 / 4;
@@ -560,7 +564,7 @@ where
             magic_rb == nvram_len_magic,
         );
         if magic_rb != nvram_len_magic {
-            return Err(crate::Error).with_ctx("NVRAM magic write FAILED — firmware cannot find NVRAM");
+            return err!("NVRAM magic write FAILED — firmware cannot find NVRAM");
         }
 
         // Also read back the first 4 bytes of the NVRAM area to confirm the
@@ -576,16 +580,16 @@ where
             reset_core(&mut self.bus, self.chip, Core::WLAN, false, false).await?;
         } else {
             reset_device_core(&mut self.bus, self.chip, Core::WLAN, false).await?;
-            device_core_is_up(&mut self.bus, self.chip, Core::WLAN).await?;
+            check_device_core_is_up(&mut self.bus, self.chip, Core::WLAN).await?;
         }
 
         debug!("waiting for HT clock...");
         try_until(
-            async || self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 == 0,
+            async || self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 != 0,
             Duration::from_millis(500),
-            "Timeout waiting for HT clock",
         )
-        .await?;
+        .await
+        .ctx("Timeout waiting for HT clock")?;
 
         // "Set up the interrupt mask and enable interrupts"
         debug!("setup interrupt mask");
@@ -638,9 +642,9 @@ where
                 BusType::Spi => self.bus.read32(FUNC_BUS, REG_BUS_STATUS).await & STATUS_F2_RX_READY != 0,
             },
             Duration::from_millis(1000),
-            "timeout while waiting for function 2 to be ready",
         )
-        .await?;
+        .await
+        .ctx("timeout while waiting for function 2 to be ready")?;
 
         match self.chip.id() {
             ChipId::C4373 => self.init_cyw4373().await?,
@@ -669,7 +673,7 @@ where
         debug!("shared_addr {:08x}", shared_addr);
 
         let mut shared: Aligned<A4, [u8; _]> = Aligned([0; SharedMemData::SIZE]);
-        self.bus.bp_read(shared_addr, &mut shared[..]).await;
+        let _ = self.bus.bp_read(shared_addr, &mut shared[..]).await;
         let shared = SharedMemData::from_bytes(&shared);
 
         self.log.addr = shared.console_addr + 8;
@@ -679,7 +683,7 @@ where
     async fn log_read(&mut self) {
         // Read log struct
         let mut log: Aligned<A4, [u8; _]> = Aligned([0; SharedMemLog::SIZE]);
-        self.bus.bp_read(self.log.addr, &mut log[..]).await;
+        let _ = self.bus.bp_read(self.log.addr, &mut log[..]).await;
         let log = SharedMemLog::from_bytes(&log);
 
         let idx = log.idx as usize;
@@ -692,7 +696,7 @@ where
         // Read entire buf for now. We could read only what we need, but then we
         // run into annoying alignment issues in `bp_read`.
         let mut buf: Aligned<A4, [u8; _]> = Aligned([0; 0x400]);
-        self.bus.bp_read(log.buf, &mut buf[..]).await;
+        let _ = self.bus.bp_read(log.buf, &mut buf[..]).await;
 
         while self.log.last_idx != idx as usize {
             let b = buf[self.log.last_idx];

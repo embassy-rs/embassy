@@ -50,21 +50,19 @@ pub struct Error;
 type Result<T> = result::Result<T, Error>;
 
 trait WithContext: Sized {
-    #[allow(dead_code)]
     #[track_caller]
-    fn ctx(self) -> Self {
-        self.with_ctx("_")
-    }
+    fn ctx(self, context: &'static str) -> Self;
+}
 
-    #[track_caller]
-    fn with_ctx(self, ctx: &'static str) -> Self {
-        error!("- {}", ctx);
+impl<T> WithContext for Result<T> {
+    fn ctx(self, context: &'static str) -> Self {
+        if self.is_err() {
+            error!("- {}", context);
+        }
 
         self
     }
 }
-
-impl<T> WithContext for Result<T> {}
 
 #[allow(unused)]
 #[derive(Clone, Copy, PartialEq, Eq)]
