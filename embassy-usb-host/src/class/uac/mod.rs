@@ -18,7 +18,7 @@
 //!
 //! ```rust,ignore
 //! // Register a UAC device
-//! let handler = UacHandler::try_register(&host, enum_info).await?;
+//! let handler = UacHandler::try_register(&bus, enum_info).await?;
 //!
 //! // Get current sampling frequency
 //! let freq = handler.get_sampling_freq(terminal_id).await?;
