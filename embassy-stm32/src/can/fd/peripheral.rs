@@ -385,7 +385,7 @@ impl Registers {
         });
 
         self.set_data_bit_timing(config.dbtr);
-        self.set_transmitter_delay_compensation(config.dbtr);
+        self.set_transceiver_delay_compensation(config.dbtr);
         self.set_nominal_bit_timing(config.nbtr);
         self.set_automatic_retransmit(config.automatic_retransmit);
         self.set_transmit_pause(config.transmit_pause);
@@ -455,7 +455,7 @@ impl Registers {
     }
 
     #[inline]
-    pub fn set_transmitter_delay_compensation(&self, btr: DataBitTiming) {
+    pub fn set_transceiver_delay_compensation(&self, btr: DataBitTiming) {
         self.regs.tdcr().write(|w| {
             w.set_tdco(btr.tdco());
             w.set_tdcf(btr.tdcf());
