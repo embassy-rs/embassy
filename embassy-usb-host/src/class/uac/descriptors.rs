@@ -4,11 +4,9 @@ use heapless::Vec;
 use heapless::index_map::FnvIndexMap;
 
 use super::codes::*;
-use crate::descriptor::{
-    ConfigurationDescriptor, DescriptorVisitor, EndpointDescriptor, StringIndex, USBDescriptor,
-};
-use crate::descriptor::descriptor_type::{CS_INTERFACE, CS_ENDPOINT, INTERFACE_ASSOCIATION};
 use crate::descriptor::InterfaceDescriptor as GenericInterfaceDescriptor;
+use crate::descriptor::descriptor_type::{CS_ENDPOINT, CS_INTERFACE, INTERFACE_ASSOCIATION};
+use crate::descriptor::{ConfigurationDescriptor, DescriptorVisitor, EndpointDescriptor, StringIndex, USBDescriptor};
 
 const MAX_AUDIO_STREAMING_INTERFACES: usize = 16;
 const MAX_ALTERNATE_SETTINGS: usize = 4;
@@ -90,13 +88,16 @@ impl<'a> DescriptorVisitor<'a> for AudioCollectionBuilder {
         }
 
         if iface.interface_class != interface::AUDIO {
-            return Ok(true);  // ignore
+            return Ok(true); // ignore
         }
 
         match iface.interface_subclass {
             interface::subclass::AUDIOCONTROL => {
                 if iface.interface_protocol != function_protocol::AF_VERSION_02_00 {
-                    debug!("Skipping interface with unsupported protocol: {:#04x}", iface.interface_protocol);
+                    debug!(
+                        "Skipping interface with unsupported protocol: {:#04x}",
+                        iface.interface_protocol
+                    );
                     return Ok(true);
                 }
                 if self.control.is_some() {
@@ -108,12 +109,14 @@ impl<'a> DescriptorVisitor<'a> for AudioCollectionBuilder {
             }
             interface::subclass::AUDIOSTREAMING => {
                 if iface.interface_protocol != function_protocol::AF_VERSION_02_00 {
-                    debug!("Skipping interface with unsupported protocol: {:#04x}", iface.interface_protocol);
+                    debug!(
+                        "Skipping interface with unsupported protocol: {:#04x}",
+                        iface.interface_protocol
+                    );
                     return Ok(true);
                 }
                 // Same interface number = alternate setting of the pending group
-                let is_alternate = self.interfaces.first().map(|i| i.interface_number)
-                    == Some(iface.interface_number);
+                let is_alternate = self.interfaces.first().map(|i| i.interface_number) == Some(iface.interface_number);
                 if is_alternate {
                     self.interfaces
                         .push(InterfaceDescriptor::from(iface))
@@ -130,7 +133,11 @@ impl<'a> DescriptorVisitor<'a> for AudioCollectionBuilder {
         Ok(true)
     }
 
-    fn on_endpoint(&mut self, iface: &GenericInterfaceDescriptor<'a>, ep: &EndpointDescriptor) -> Result<bool, Self::Error> {
+    fn on_endpoint(
+        &mut self,
+        iface: &GenericInterfaceDescriptor<'a>,
+        ep: &EndpointDescriptor,
+    ) -> Result<bool, Self::Error> {
         match iface.interface_subclass {
             interface::subclass::AUDIOSTREAMING => {
                 if let Some(si) = self.streaming.last_mut() {
@@ -185,7 +192,9 @@ impl<'a> DescriptorVisitor<'a> for AudioCollectionBuilder {
                                 trace!("Found Audio Streaming Class Descriptor: {:?}", class_desc.format);
                                 self.streaming
                                     .push(AudioStreamingInterface::new(interfaces, class_desc))
-                                    .map_err(|_| AudioInterfaceError::BufferFull("Too many audio streaming interfaces"))?;
+                                    .map_err(|_| {
+                                        AudioInterfaceError::BufferFull("Too many audio streaming interfaces")
+                                    })?;
                                 return Ok(true);
                             }
                         }
@@ -979,7 +988,10 @@ pub struct AudioStreamingInterface {
 }
 
 impl AudioStreamingInterface {
-    fn new(interfaces: Vec<InterfaceDescriptor, MAX_ALTERNATE_SETTINGS>, class_desc: AudioStreamingClassDescriptor) -> Self {
+    fn new(
+        interfaces: Vec<InterfaceDescriptor, MAX_ALTERNATE_SETTINGS>,
+        class_desc: AudioStreamingClassDescriptor,
+    ) -> Self {
         Self {
             interface_descriptors: interfaces,
             class_descriptor: class_desc,

@@ -524,7 +524,11 @@ mod test {
             Ok(true)
         }
 
-        fn on_endpoint(&mut self, _iface: &InterfaceDescriptor<'a>, e: &EndpointDescriptor) -> Result<bool, Self::Error> {
+        fn on_endpoint(
+            &mut self,
+            _iface: &InterfaceDescriptor<'a>,
+            e: &EndpointDescriptor,
+        ) -> Result<bool, Self::Error> {
             assert!(!self.interfaces.is_empty());
             let _ = self.interfaces.last_mut().unwrap().endpoints.push(*e);
             Ok(true)
