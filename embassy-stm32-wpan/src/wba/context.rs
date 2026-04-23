@@ -38,7 +38,7 @@ use aligned::{A8, Aligned};
 // sees a normal C function call, which is exactly what this is (just on a different stack).
 #[cfg(target_arch = "arm")]
 #[unsafe(naked)]
-pub unsafe extern "C" fn context_switch_asm(save: *mut u32, load: *const u32) {
+unsafe extern "C" fn context_switch_asm(save: *mut u32, load: *const u32) {
     core::arch::naked_asm!(
         "push {{r4-r11, lr}}",
         "str sp, [r0]",
@@ -166,14 +166,8 @@ impl ContextManager {
                 self.do_switch(self.runner_sp.get(), self.task_sp.get());
                 // Returns here when task yields
             }
-            ContextManagerState::Running => {
-                #[cfg(feature = "defmt")]
-                defmt::warn!("sequencer_resume called while already running");
-            }
-            ContextManagerState::Stopped => {
-                #[cfg(feature = "defmt")]
-                defmt::warn!("sequencer_resume called after stop");
-            }
+            ContextManagerState::Running => warn!("sequencer_resume called while already running"),
+            ContextManagerState::Stopped => warn!("sequencer_resume called after stop"),
         }
     }
 
@@ -186,7 +180,7 @@ impl ContextManager {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     fn do_switch(&'static self, save_sp: *mut u32, restore_sp: *mut u32) {
         #[cfg(target_arch = "arm")]
         unsafe {

@@ -22,6 +22,7 @@
 //! security.set_authentication_requirements(params)?;
 //! ```
 
+use crate::ble::Runtime;
 use crate::wba::error::BleError;
 use crate::wba::hci::types::Status;
 
@@ -382,12 +383,16 @@ impl PairingFailureReason {
 /// Manages BLE security including pairing, bonding, and encryption.
 pub struct SecurityManager {
     initialized: bool,
+    _runtime: Runtime,
 }
 
 impl SecurityManager {
     /// Create a new Security Manager
-    pub fn new() -> Self {
-        Self { initialized: false }
+    pub fn new(_runtime: Runtime) -> Self {
+        Self {
+            initialized: false,
+            _runtime,
+        }
     }
 
     /// Set authentication requirements
@@ -545,12 +550,6 @@ impl SecurityManager {
     /// Check if security has been initialized
     pub fn is_initialized(&self) -> bool {
         self.initialized
-    }
-}
-
-impl Default for SecurityManager {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

@@ -38,7 +38,9 @@
 //! }
 //! ```
 
+use core::future::poll_fn;
 use core::sync::atomic::{AtomicBool, Ordering};
+use core::task::Poll;
 
 use embassy_futures::select::{Either, select};
 use embassy_sync::waitqueue::AtomicWaker;
@@ -77,8 +79,7 @@ unsafe extern "C" {
 unsafe extern "C" fn ble_stack_process_bg() {
     let result = BleStack_Process();
 
-    #[cfg(feature = "defmt")]
-    defmt::trace!("BleStack_Process called, result={}", result);
+    trace!("BleStack_Process called, result={}", result);
 
     if result == BLE_SLEEPMODE_RUNNING {
         // More work to do - re-queue
@@ -94,14 +95,14 @@ fn ble_stack_cb_process() {
 /// Whether the link layer init has been completed
 static LL_INIT_COMPLETED: AtomicBool = AtomicBool::new(false);
 
-/// Whether runner init has been completed
-// static RUNNER_INIT_COMPLETED: AtomicBool = AtomicBool::new(false);
-
 /// Whether ble init has been completed
-// static BLE_INIT_COMPLETED: AtomicBool = AtomicBool::new(false);
+pub(crate) static BLE_INIT_COMPLETED: AtomicBool = AtomicBool::new(false);
+
+/// Ble runner task initialized
+pub(crate) static RUNNER_INIT: AtomicBool = AtomicBool::new(false);
 
 /// Ble init waker
-// static BLE_INIT_WAKER: AtomicWaker = AtomicWaker::new();
+pub(crate) static BLE_INIT_WAKER: AtomicWaker = AtomicWaker::new();
 
 /// Signal to wake the runner loop (set by radio ISR and event callbacks)
 pub(crate) static BLE_WAKER: AtomicWaker = AtomicWaker::new();
@@ -113,8 +114,7 @@ pub(crate) static BLE_WAKER: AtomicWaker = AtomicWaker::new();
 pub fn register_ble_tasks() {
     util_seq::UTIL_SEQ_RegTask(TASK_BLE_HOST_MASK, 0, Some(ble_stack_process_bg));
 
-    #[cfg(feature = "defmt")]
-    defmt::trace!(
+    trace!(
         "Registered BleStack_Process_BG as sequencer task (mask=0x{:08X})",
         TASK_BLE_HOST_MASK
     );
@@ -128,8 +128,7 @@ pub fn schedule_ble_host_task() {
     ble_stack_cb_process();
     BLE_WAKER.wake();
 
-    #[cfg(feature = "defmt")]
-    defmt::trace!("BLE Host task scheduled");
+    trace!("BLE Host task scheduled");
 }
 
 /// BLE stack runner function
@@ -161,6 +160,8 @@ pub fn schedule_ble_host_task() {
 pub async fn ble_runner() -> ! {
     info!("BLE runner started");
 
+    RUNNER_INIT.store(true, Ordering::Release);
+
     // Mark that the runner has started (BLE init is now done via init_ble_stack())
     if !LL_INIT_COMPLETED.load(Ordering::Acquire) {
         trace!("BLE runner: first run, initializing sequencer context");
@@ -172,6 +173,19 @@ pub async fn ble_runner() -> ! {
 
         trace!("BLE runner: sequencer context initialized");
     }
+
+    poll_fn(|cx| {
+        BLE_INIT_WAKER.register(cx.waker());
+
+        if BLE_INIT_COMPLETED.load(Ordering::Acquire) {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
+    })
+    .await;
+
+    info!("BLE runner execution started");
 
     // Schedule the initial tasks and kick the BLE stack.
     // BLE init and GAP setup happened before the runner started, so there may be

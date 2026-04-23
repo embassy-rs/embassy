@@ -237,13 +237,12 @@ async fn main(spawner: Spawner) {
     let (uart_tx, uart_rx) = uart.split();
     info!("USART1 initialized (115200 baud, PB12=TX, PA8=RX)");
 
-    // Initialize BLE stack
-    let mut ble = Ble::new(rng, aes, pka, Irqs);
-    ble.init().expect("BLE initialization failed");
-    info!("BLE stack initialized");
-
     // Spawn the BLE runner task
     spawner.spawn(ble_runner_task().expect("Failed to create BLE runner task"));
+
+    // Initialize BLE stack
+    let (mut ble, runtime) = Ble::new(rng, aes, pka, Irqs).await.expect("BLE initialization failed");
+    info!("BLE stack initialized");
 
     // Give the BLE runner a chance to start processing
     // This is needed because BLE operations require BleStack_Process to run
@@ -255,8 +254,7 @@ async fn main(spawner: Spawner) {
     spawner.spawn(uart_writer_task(uart_tx).expect("Failed to create UART writer task"));
 
     // Initialize GATT server with Nordic UART Service
-    let mut gatt = GattServer::new();
-    gatt.init().expect("GATT initialization failed");
+    let mut gatt = GattServer::new(runtime);
 
     // Add NUS Service (128-bit UUID)
     let service_uuid = Uuid::from_u128_le(NUS_SERVICE_UUID);

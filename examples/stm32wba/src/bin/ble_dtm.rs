@@ -122,8 +122,7 @@ async fn main(_spawner: Spawner) {
     info!("Hardware peripherals initialized (RNG)");
 
     // Initialize BLE-DTM stack
-    let mut ble = Ble::new_dtm(rng, Irqs);
-    ble.dtm_init().expect("DTM init failed");
+    let mut ble = Ble::new_dtm(rng, Irqs).expect("DTM init failed");
 
     // DTM packet interval is 625 µs (1 BLE slot) per Vol 6, Part F, Section 4.1.6.
     // Expected packets = duration_s × (1_000_000 µs/s ÷ 625 µs/packet) = duration_s × 1600.
@@ -143,7 +142,8 @@ async fn main(_spawner: Spawner) {
                 expected, DTM_TEST_DURATION_SECS
             );
 
-            le_transmitter_test(DTM_CHANNEL, DTM_DATA_LENGTH, DtmPacketPayload::Prbs9).expect("DTM TX start failed");
+            le_transmitter_test(&mut ble, DTM_CHANNEL, DTM_DATA_LENGTH, DtmPacketPayload::Prbs9)
+                .expect("DTM TX start failed");
 
             Timer::after_secs(DTM_TEST_DURATION_SECS).await;
 
@@ -164,7 +164,7 @@ async fn main(_spawner: Spawner) {
                 expected, DTM_TEST_DURATION_SECS
             );
 
-            le_receiver_test(DTM_CHANNEL).expect("DTM RX start failed");
+            le_receiver_test(&mut ble, DTM_CHANNEL).expect("DTM RX start failed");
 
             Timer::after_secs(DTM_TEST_DURATION_SECS).await;
 
