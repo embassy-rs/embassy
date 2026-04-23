@@ -450,7 +450,7 @@ impl From<EndpointDescriptor> for EndpointInfo {
     }
 }
 
-//#[cfg(test)]
+#[cfg(test)]
 mod test {
     use heapless::Vec;
 
