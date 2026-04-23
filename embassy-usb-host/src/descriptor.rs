@@ -169,7 +169,7 @@ impl<'a> ConfigurationDescriptor<'a> {
     }
 
     /// Iterate over all raw descriptors in this Configuration.
-    pub fn iter_descriptors(&self) -> RawDescriptorIterator<'_> {
+    pub fn iter_descriptors(&self) -> RawDescriptorIterator<'a> {
         RawDescriptorIterator {
             buf: self.buffer,
             offset: 0,
@@ -195,9 +195,12 @@ impl<'a> ConfigurationDescriptor<'a> {
     }
 
     /// Iterate over all descriptors of this Configuration, passing to Visitor callbacks.
-    pub fn visit_descriptors<V: DescriptorVisitor<'a>>(&'a self, visitor: &mut V) {
-        visitor.on_configuration(self);
-
+    /// Returns `Ok(())` on completion (including early stop via `Ok(false)`), or `Err(e)` on error.
+    pub fn visit_descriptors<V: DescriptorVisitor<'a>>(&self, visitor: &mut V) -> Result<(), V::Error> {
+        if !visitor.on_configuration(self)? {
+            return Ok(());
+        }
+        let mut current_iface: Option<InterfaceDescriptor<'a>> = None;
         for (_, bytes) in self.iter_descriptors() {
             if bytes.len() < 2 {
                 continue;
@@ -205,34 +208,53 @@ impl<'a> ConfigurationDescriptor<'a> {
             match bytes[1] {
                 descriptor_type::INTERFACE => {
                     if let Ok(iface) = InterfaceDescriptor::try_from_bytes(bytes) {
-                        visitor.on_interface(&iface);
+                        current_iface = Some(iface);
+                        if !visitor.on_interface(&iface)? {
+                            return Ok(());
+                        }
                     }
                 }
                 descriptor_type::ENDPOINT => {
-                    if let Ok(ep) = EndpointDescriptor::try_from_bytes(bytes) {
-                        visitor.on_endpoint(&ep);
+                    if let (Some(iface), Ok(ep)) = (current_iface.as_ref(), EndpointDescriptor::try_from_bytes(bytes)) {
+                        if !visitor.on_endpoint(iface, &ep)? {
+                            return Ok(());
+                        }
                     }
                 }
                 _ => {
-                    visitor.on_other(bytes);
+                    if !visitor.on_other(current_iface.as_ref(), bytes)? {
+                        return Ok(());
+                    }
                 }
             }
         }
+        Ok(())
     }
 }
 
-/// Callback-based visitor for a configuration's descriptor tree.                                                                                                                   
-/// Implement only the methods you care about.                                                                                                                                      
+/// Callback-based visitor for a configuration's descriptor tree.
+/// Implement only the methods you care about.
+/// Return `Ok(false)` to stop iteration early without an error, or `Err(e)` to stop with one.
 pub trait DescriptorVisitor<'a> {
-    fn on_configuration(&mut self, _c: &ConfigurationDescriptor<'a>) {}
+    type Error;
 
-    fn on_interface(&mut self, _i: &InterfaceDescriptor<'a>) {}
+    fn on_configuration(&mut self, _c: &ConfigurationDescriptor<'a>) -> Result<bool, Self::Error> {
+        Ok(true)
+    }
 
-    fn on_endpoint(&mut self, _e: &EndpointDescriptor) {}
+    fn on_interface(&mut self, _i: &InterfaceDescriptor<'a>) -> Result<bool, Self::Error> {
+        Ok(true)
+    }
 
-    /// Catches every sub-descriptor that isn't an endpoint:                                                                                                                        
-    /// CS_INTERFACE, CS_ENDPOINT, HID, vendor-specific, etc.                                                                                                                       
-    fn on_other(&mut self, _raw: &[u8]) {}
+    fn on_endpoint(&mut self, _iface: &InterfaceDescriptor<'a>, _e: &EndpointDescriptor) -> Result<bool, Self::Error> {
+        Ok(true)
+    }
+
+    /// Catches every sub-descriptor that isn't an interface or endpoint:
+    /// CS_INTERFACE, CS_ENDPOINT, HID, vendor-specific, etc.
+    fn on_other(&mut self, _iface: Option<&InterfaceDescriptor<'a>>, _raw: &[u8]) -> Result<bool, Self::Error> {
+        Ok(true)
+    }
 }
 
 /// USB Interface Descriptor with a reference to the trailing sub-descriptor buffer.
@@ -335,6 +357,9 @@ impl<'a> Iterator for RawDescriptorIterator<'a> {
         }
         let pre = self.offset;
         let len = self.buf[pre] as usize;
+        if len == 0 {
+            return None;
+        }
         self.offset += len;
         if self.offset > self.buf.len() {
             return None;
@@ -482,27 +507,33 @@ mod test {
     }
 
     impl<'a> DescriptorVisitor<'a> for TestVisitor<'a> {
-        fn on_configuration(&mut self, c: &ConfigurationDescriptor<'a>) {
+        type Error = core::convert::Infallible;
+
+        fn on_configuration(&mut self, c: &ConfigurationDescriptor<'a>) -> Result<bool, Self::Error> {
             assert!(self.configuration.is_none());
             self.configuration = Some(*c);
+            Ok(true)
         }
 
-        fn on_interface(&mut self, i: &InterfaceDescriptor<'a>) {
+        fn on_interface(&mut self, i: &InterfaceDescriptor<'a>) -> Result<bool, Self::Error> {
             assert!(self.configuration.is_some());
             let _ = self.interfaces.push(TestInterface {
                 interface: *i,
                 endpoints: Vec::new(),
             });
+            Ok(true)
         }
 
-        fn on_endpoint(&mut self, e: &EndpointDescriptor) {
+        fn on_endpoint(&mut self, _iface: &InterfaceDescriptor<'a>, e: &EndpointDescriptor) -> Result<bool, Self::Error> {
             assert!(!self.interfaces.is_empty());
             let _ = self.interfaces.last_mut().unwrap().endpoints.push(*e);
+            Ok(true)
         }
 
-        fn on_other(&mut self, d: &[u8]) {
+        fn on_other(&mut self, _iface: Option<&InterfaceDescriptor<'a>>, d: &[u8]) -> Result<bool, Self::Error> {
             assert!(self.configuration.is_some());
             let _ = self.others.push(Vec::from_slice(d).unwrap_or_default());
+            Ok(true)
         }
     }
 
