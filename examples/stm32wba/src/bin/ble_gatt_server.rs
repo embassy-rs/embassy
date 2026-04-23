@@ -139,23 +139,19 @@ async fn main(spawner: Spawner) {
 
     info!("Hardware peripherals initialized (RNG, AES, PKA)");
 
-    // Initialize BLE stack
-    let mut ble = Ble::new(rng, aes, pka, Irqs);
-    ble.init().expect("BLE initialization failed");
-    info!("BLE stack initialized");
-
     // Spawn the BLE runner task BEFORE starting advertising
     // The runner continuously executes the sequencer, which is needed for
     // advertising and other BLE operations to work properly
     spawner.spawn(ble_runner_task().expect("Failed to create BLE runner task"));
 
-    // Give the runner a chance to start
-    embassy_futures::yield_now().await;
     info!("BLE runner spawned");
 
+    // Initialize BLE stack
+    let (mut ble, runtime) = Ble::new(rng, aes, pka, Irqs).await.expect("BLE initialization failed");
+    info!("BLE stack initialized");
+
     // Initialize GATT server
-    let mut gatt = GattServer::new();
-    gatt.init().expect("GATT initialization failed");
+    let mut gatt = GattServer::new(runtime);
 
     // Create custom service
     let service_uuid = Uuid::from_u16(CUSTOM_SERVICE_UUID);

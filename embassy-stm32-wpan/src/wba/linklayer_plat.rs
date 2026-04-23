@@ -94,7 +94,8 @@ use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time::{Duration, Instant, block_for};
 
-use super::bindings::{link_layer, mac};
+use crate::bindings::{link_layer, mac};
+use crate::runner;
 
 // RADIO interrupt numbers for STM32WBA
 // RADIO interrupt is position 66
@@ -582,7 +583,7 @@ pub(crate) unsafe fn run_radio_high_isr() {
         cb();
     }
     // Wake the BLE runner task to process any resulting events
-    super::runner::on_radio_interrupt();
+    runner::on_radio_interrupt();
 }
 
 pub(crate) unsafe fn run_radio_sw_low_isr() {
@@ -599,7 +600,7 @@ pub(crate) unsafe fn run_radio_sw_low_isr() {
     }
 
     // Wake the BLE runner task to process any resulting events
-    super::runner::on_radio_interrupt();
+    runner::on_radio_interrupt();
 }
 
 // /**

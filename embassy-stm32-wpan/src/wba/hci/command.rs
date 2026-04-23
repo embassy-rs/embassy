@@ -4,7 +4,8 @@
 //! These functions are synchronous and return a status code immediately, which simplifies
 //! the implementation compared to packet-based HCI.
 
-use super::types::{AdvFilterPolicy, AdvType, OwnAddressType};
+use crate::Ble;
+use crate::hci::types;
 use crate::wba::bindings::ble;
 use crate::wba::ble::VersionInfo;
 use crate::wba::error::BleError;
@@ -280,12 +281,12 @@ impl CommandSender {
         &self,
         interval_min: u16,
         interval_max: u16,
-        adv_type: AdvType,
-        own_addr_type: OwnAddressType,
+        adv_type: types::AdvType,
+        own_addr_type: types::OwnAddressType,
         peer_addr_type: u8,
         peer_addr: &[u8; 6],
         channel_map: u8,
-        filter_policy: AdvFilterPolicy,
+        filter_policy: types::AdvFilterPolicy,
     ) -> Result<(), BleError> {
         unsafe {
             let status = hci_le_set_advertising_parameters(
@@ -350,7 +351,7 @@ impl CommandSender {
         scan_type: u8,
         scan_interval: u16,
         scan_window: u16,
-        own_addr_type: OwnAddressType,
+        own_addr_type: types::OwnAddressType,
         filter_policy: u8,
     ) -> Result<(), BleError> {
         unsafe {
@@ -519,7 +520,7 @@ impl CommandSender {
         use_filter_accept_list: bool,
         peer_addr_type: u8,
         peer_addr: &[u8; 6],
-        own_addr_type: OwnAddressType,
+        own_addr_type: types::OwnAddressType,
         interval_min: u16,
         interval_max: u16,
         latency: u16,
@@ -582,7 +583,7 @@ impl Default for CommandSender {
 ///
 /// `rx_channel`: 0–39. Frequency = 2402 + (2 × N) MHz.
 /// Call `le_test_end()` to stop and read the received packet count.
-pub fn le_receiver_test(rx_channel: u8) -> Result<(), BleError> {
+pub fn le_receiver_test(_ble: &mut Ble, rx_channel: u8) -> Result<(), BleError> {
     let status = unsafe { hci_le_receiver_test(rx_channel) };
     if status == BLE_STATUS_SUCCESS {
         Ok(())
@@ -594,7 +595,12 @@ pub fn le_receiver_test(rx_channel: u8) -> Result<(), BleError> {
 /// Start a DTM receiver test with PHY selection (v2).
 ///
 /// `modulation_index`: 0x00 = standard, 0x01 = stable.
-pub fn le_receiver_test_v2(rx_channel: u8, phy: super::types::DtmRxPhy, modulation_index: u8) -> Result<(), BleError> {
+pub fn le_receiver_test_v2(
+    _ble: &mut Ble,
+    rx_channel: u8,
+    phy: super::types::DtmRxPhy,
+    modulation_index: u8,
+) -> Result<(), BleError> {
     let status = unsafe { hci_le_receiver_test_v2(rx_channel, phy as u8, modulation_index) };
     if status == BLE_STATUS_SUCCESS {
         Ok(())
@@ -608,30 +614,32 @@ pub fn le_receiver_test_v2(rx_channel: u8, phy: super::types::DtmRxPhy, modulati
 /// `tx_channel`: 0–39. Frequency = 2402 + (2 × N) MHz.
 /// `test_data_length`: payload bytes per packet, 0–255.
 pub fn le_transmitter_test(
+    _ble: &mut Ble,
     tx_channel: u8,
     test_data_length: u8,
-    packet_payload: super::types::DtmPacketPayload,
+    packet_payload: types::DtmPacketPayload,
 ) -> Result<(), BleError> {
     let status = unsafe { hci_le_transmitter_test(tx_channel, test_data_length, packet_payload as u8) };
     if status == BLE_STATUS_SUCCESS {
         Ok(())
     } else {
-        Err(BleError::CommandFailed(super::types::Status::from_u8(status)))
+        Err(BleError::CommandFailed(types::Status::from_u8(status)))
     }
 }
 
 /// Start a DTM transmitter test with PHY selection (v2).
 pub fn le_transmitter_test_v2(
+    _ble: &mut Ble,
     tx_channel: u8,
     test_data_length: u8,
-    packet_payload: super::types::DtmPacketPayload,
-    phy: super::types::DtmTxPhy,
+    packet_payload: types::DtmPacketPayload,
+    phy: types::DtmTxPhy,
 ) -> Result<(), BleError> {
     let status = unsafe { hci_le_transmitter_test_v2(tx_channel, test_data_length, packet_payload as u8, phy as u8) };
     if status == BLE_STATUS_SUCCESS {
         Ok(())
     } else {
-        Err(BleError::CommandFailed(super::types::Status::from_u8(status)))
+        Err(BleError::CommandFailed(types::Status::from_u8(status)))
     }
 }
 

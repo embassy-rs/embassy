@@ -120,18 +120,15 @@ async fn main(spawner: Spawner) {
 
     info!("Hardware peripherals initialized (RNG, AES, PKA)");
 
-    // Initialize BLE stack
-    let mut ble = Ble::new(rng, aes, pka, Irqs);
-    ble.init().expect("BLE initialization failed");
-    info!("BLE stack initialized");
-
     // Spawn the BLE runner task (required for proper BLE operation)
     spawner.spawn(ble_runner_task().expect("Failed to spawn BLE runner"));
-    embassy_futures::yield_now().await;
+
+    // Initialize BLE stack
+    let (mut ble, runtime) = Ble::new(rng, aes, pka, Irqs).await.expect("BLE initialization failed");
+    info!("BLE stack initialized");
 
     // Initialize GATT server with a simple service
-    let mut gatt = GattServer::new();
-    gatt.init().expect("GATT initialization failed");
+    let mut gatt = GattServer::new(runtime);
 
     // Create a simple service for demonstration
     let service_uuid = Uuid::from_u16(0x180F); // Battery Service UUID

@@ -4,8 +4,9 @@
 //! and provides access to GAP functionality including connection management.
 
 use core::cell::RefCell;
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::Ordering;
 
+use embassy_futures::yield_now;
 use embassy_stm32::aes::Aes;
 use embassy_stm32::interrupt;
 use embassy_stm32::mode::Blocking;
@@ -17,7 +18,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
 use crate::gatt::server::init_gatt_layer;
 use crate::linklayer_plat::{HARDWARE_AES, HARDWARE_PKA, HARDWARE_RNG, run_radio_high_isr, run_radio_sw_low_isr};
-use crate::runner::register_ble_tasks;
+use crate::runner::{BLE_INIT_COMPLETED, BLE_INIT_WAKER, RUNNER_INIT, register_ble_tasks};
 use crate::wba::error::BleError;
 use crate::wba::gap::Advertiser;
 use crate::wba::gap::connection::{
@@ -47,6 +48,12 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::HASH> for LowInterruptH
     unsafe fn on_interrupt() {
         run_radio_sw_low_isr();
     }
+}
+
+/// Represents an active BLE runtime
+#[derive(Debug, Clone, Copy)]
+pub struct Runtime {
+    _private: (),
 }
 
 /// Main BLE interface
@@ -80,7 +87,6 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::HASH> for LowInterruptH
 /// ```
 pub struct Ble {
     cmd_sender: CommandSender,
-    initialized: AtomicBool,
     connections: ConnectionManager<MAX_CONNECTIONS>,
 }
 
@@ -91,46 +97,40 @@ impl Ble {
     /// These are stored in statics so the BLE stack's `extern "C"` callbacks can access them.
     ///
     /// Note: You must call `init()` before using other BLE functionality.
-    pub fn new(
+    pub async fn new(
         rng: &'static Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>,
         aes: &'static Mutex<CriticalSectionRawMutex, RefCell<Aes<'static, AesPeriph, Blocking>>>,
         pka: &'static Mutex<CriticalSectionRawMutex, RefCell<Pka<'static, PkaPeriph>>>,
         _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::RADIO, HighInterruptHandler>
         + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
-    ) -> Self {
+    ) -> Result<(Self, Runtime), BleError> {
         unsafe {
             HARDWARE_RNG.replace(rng);
             HARDWARE_AES.replace(aes);
             HARDWARE_PKA.replace(pka);
         }
 
-        Self {
-            cmd_sender: CommandSender::new(),
-            initialized: AtomicBool::new(false),
-            connections: ConnectionManager::new(),
-        }
-    }
+        yield_now().await;
+        yield_now().await;
 
-    /// Create a BLE instance for Direct Test Mode (DTM) only.
-    ///
-    /// Only RNG is required; AES and PKA are left unset. Use this for FCC DTM
-    /// (TX test, RX test, tone) where no pairing or crypto is used. Do not use
-    /// for full BLE (advertising, connections, GATT) as those require AES/PKA.
-    pub fn new_dtm(
-        rng: &'static Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>,
-        _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::RADIO, HighInterruptHandler>
-        + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
-    ) -> Self {
-        unsafe {
-            HARDWARE_RNG.replace(rng);
-            // HARDWARE_AES and HARDWARE_PKA remain None
+        if !RUNNER_INIT.load(Ordering::Acquire) {
+            return Err(BleError::NotInitialized);
         }
 
-        Self {
+        let mut this = Self {
             cmd_sender: CommandSender::new(),
-            initialized: AtomicBool::new(false),
             connections: ConnectionManager::new(),
-        }
+        };
+
+        this.init()?;
+
+        BLE_INIT_COMPLETED.store(true, Ordering::Release);
+        BLE_INIT_WAKER.wake();
+
+        yield_now().await;
+        yield_now().await;
+
+        Ok((this, Runtime { _private: () }))
     }
 
     /// Initialize the BLE stack
@@ -157,11 +157,7 @@ impl Ble {
     ///
     /// - `Ok(())` if initialization succeeded
     /// - `Err(BleError)` if any initialization step failed
-    pub fn init(&mut self) -> Result<(), BleError> {
-        if self.initialized.load(Ordering::Acquire) {
-            return Ok(());
-        }
-
+    fn init(&mut self) -> Result<(), BleError> {
         // 0. Initialize the BLE stack using BleStack_Init
         // This properly initializes the BLE host stack including memory management,
         // which is required before ll_intf_init can work properly.
@@ -173,7 +169,7 @@ impl Ble {
         // Register BLE tasks with the sequencer (required for BleStackCB_Process to work)
         // This matches ST's APP_BLE_Init which calls:
         //   UTIL_SEQ_RegTask(1U << CFG_TASK_BLE_HOST, UTIL_SEQ_RFU, BleStack_Process_BG);
-        crate::wba::runner::register_ble_tasks();
+        register_ble_tasks();
 
         info!("Ble::init: BLE stack initialized, sending HCI reset");
 
@@ -260,16 +256,38 @@ impl Ble {
 
         info!("GAP and HAL initialized");
 
-        self.initialized.store(true, Ordering::Release);
-
         info!("BLE stack initialized successfully");
 
         Ok(())
     }
 
-    /// Check if the BLE stack is initialized
-    pub fn is_initialized(&self) -> bool {
-        self.initialized.load(Ordering::Acquire)
+    /// Create a BLE instance for Direct Test Mode (DTM) only.
+    ///
+    /// Only RNG is required; AES and PKA are left unset. Use this for FCC DTM
+    /// (TX test, RX test, tone) where no pairing or crypto is used. Do not use
+    /// for full BLE (advertising, connections, GATT) as those require AES/PKA.
+    ///
+    /// Performs the minimum initialization required before issuing DTM commands
+    /// (HCI_LE_Transmitter_Test, HCI_LE_Receiver_Test, HCI_LE_Test_End).
+    /// Does not initialize GATT or GAP — those layers are not used in DTM.
+    pub fn new_dtm(
+        rng: &'static Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>,
+        _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::RADIO, HighInterruptHandler>
+        + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
+    ) -> Result<Self, BleError> {
+        unsafe {
+            HARDWARE_RNG.replace(rng);
+            // HARDWARE_AES and HARDWARE_PKA remain None
+        }
+
+        let mut this = Self {
+            cmd_sender: CommandSender::new(),
+            connections: ConnectionManager::new(),
+        };
+
+        this.dtm_init()?;
+
+        Ok(this)
     }
 
     /// Initialize the BLE stack for Direct Test Mode (DTM) only.
@@ -277,13 +295,7 @@ impl Ble {
     /// Performs the minimum initialization required before issuing DTM commands
     /// (HCI_LE_Transmitter_Test, HCI_LE_Receiver_Test, HCI_LE_Test_End).
     /// Does not initialize GATT or GAP — those layers are not used in DTM.
-    ///
-    /// Must be used with `Ble::new_dtm()`.
-    pub fn dtm_init(&mut self) -> Result<(), BleError> {
-        if self.is_initialized() {
-            return Ok(());
-        }
-
+    fn dtm_init(&mut self) -> Result<(), BleError> {
         init_ble_stack().map_err(|_| BleError::InitializationFailed)?;
         register_ble_tasks();
 
@@ -305,7 +317,6 @@ impl Ble {
             warn!("le_set_event_mask failed: {:?}", e);
         }
 
-        self.initialized.store(true, Ordering::Release);
         info!("BLE stack initialized for DTM");
 
         Ok(())
@@ -320,10 +331,6 @@ impl Ble {
     ///
     /// - `address`: 6-byte random address
     pub fn set_random_address(&self, address: Address) -> Result<(), BleError> {
-        if !self.initialized.load(Ordering::Acquire) {
-            return Err(BleError::NotInitialized);
-        }
-
         self.cmd_sender.le_set_random_address(&address.0)
     }
 
@@ -391,10 +398,6 @@ impl Ble {
     /// - `handle`: Connection handle to disconnect
     /// - `reason`: Reason for disconnection
     pub fn disconnect(&self, handle: Handle, reason: DisconnectReason) -> Result<(), BleError> {
-        if !self.initialized.load(Ordering::Acquire) {
-            return Err(BleError::NotInitialized);
-        }
-
         self.cmd_sender.disconnect(handle.as_u16(), reason.as_u8())
     }
 
@@ -407,10 +410,6 @@ impl Ble {
     ///
     /// - `params`: Connection initiation parameters
     pub fn connect(&self, params: &ConnectionInitParams) -> Result<(), BleError> {
-        if !self.initialized.load(Ordering::Acquire) {
-            return Err(BleError::NotInitialized);
-        }
-
         self.cmd_sender.le_create_connection(
             params.scan_interval,
             params.scan_window,
@@ -429,10 +428,6 @@ impl Ble {
 
     /// Cancel an ongoing connection attempt
     pub fn cancel_connect(&self) -> Result<(), BleError> {
-        if !self.initialized.load(Ordering::Acquire) {
-            return Err(BleError::NotInitialized);
-        }
-
         self.cmd_sender.le_create_connection_cancel()
     }
 
@@ -453,10 +448,6 @@ impl Ble {
         latency: u16,
         supervision_timeout: u16,
     ) -> Result<(), BleError> {
-        if !self.initialized.load(Ordering::Acquire) {
-            return Err(BleError::NotInitialized);
-        }
-
         self.cmd_sender.le_connection_update(
             handle.as_u16(),
             interval_min,
@@ -474,10 +465,6 @@ impl Ble {
     ///
     /// Tuple of (tx_phy, rx_phy)
     pub fn read_phy(&self, handle: Handle) -> Result<(LePhy, LePhy), BleError> {
-        if !self.initialized.load(Ordering::Acquire) {
-            return Err(BleError::NotInitialized);
-        }
-
         let (tx, rx) = self.cmd_sender.le_read_phy(handle.as_u16())?;
         Ok((LePhy::from_u8(tx), LePhy::from_u8(rx)))
     }

@@ -245,8 +245,7 @@ pub fn init_gap_and_hal(params: &GapInitParams) -> Result<GapHandles, BleError> 
             additional_records.as_ptr(),
         );
         if status != BLE_STATUS_SUCCESS {
-            #[cfg(feature = "defmt")]
-            defmt::warn!("aci_hal_write_config_data (GAP_ADD_REC_NBR) failed: 0x{:02X}", status);
+            warn!("aci_hal_write_config_data (GAP_ADD_REC_NBR) failed: 0x{:02X}", status);
         }
 
         // 2. Write BD address
@@ -256,13 +255,11 @@ pub fn init_gap_and_hal(params: &GapInitParams) -> Result<GapHandles, BleError> 
             params.bd_addr.as_ptr(),
         );
         if status != BLE_STATUS_SUCCESS {
-            #[cfg(feature = "defmt")]
-            defmt::error!("aci_hal_write_config_data (PUBADDR) failed: 0x{:02X}", status);
+            error!("aci_hal_write_config_data (PUBADDR) failed: 0x{:02X}", status);
             return Err(BleError::CommandFailed(Status::from_u8(status)));
         }
 
-        #[cfg(feature = "defmt")]
-        defmt::info!(
+        info!(
             "BD Address configured: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
             params.bd_addr[5],
             params.bd_addr[4],
@@ -275,22 +272,19 @@ pub fn init_gap_and_hal(params: &GapInitParams) -> Result<GapHandles, BleError> 
         // 3. Write IR (Identity Root) value
         let status = aci_hal_write_config_data(CONFIG_DATA_IR_OFFSET, CONFIG_DATA_IR_LEN, params.ir_value.as_ptr());
         if status != BLE_STATUS_SUCCESS {
-            #[cfg(feature = "defmt")]
-            defmt::warn!("aci_hal_write_config_data (IR) failed: 0x{:02X}", status);
+            warn!("aci_hal_write_config_data (IR) failed: 0x{:02X}", status);
         }
 
         // 4. Write ER (Encryption Root) value
         let status = aci_hal_write_config_data(CONFIG_DATA_ER_OFFSET, CONFIG_DATA_ER_LEN, params.er_value.as_ptr());
         if status != BLE_STATUS_SUCCESS {
-            #[cfg(feature = "defmt")]
-            defmt::warn!("aci_hal_write_config_data (ER) failed: 0x{:02X}", status);
+            warn!("aci_hal_write_config_data (ER) failed: 0x{:02X}", status);
         }
 
         // 5. Set TX power level
         let status = aci_hal_set_tx_power_level(1, params.tx_power);
         if status != BLE_STATUS_SUCCESS {
-            #[cfg(feature = "defmt")]
-            defmt::warn!("aci_hal_set_tx_power_level failed: 0x{:02X}", status);
+            warn!("aci_hal_set_tx_power_level failed: 0x{:02X}", status);
         }
 
         // 6. Initialize GAP layer
@@ -308,17 +302,13 @@ pub fn init_gap_and_hal(params: &GapInitParams) -> Result<GapHandles, BleError> 
         );
 
         if status != BLE_STATUS_SUCCESS {
-            #[cfg(feature = "defmt")]
-            defmt::error!("aci_gap_init failed: 0x{:02X}", status);
+            error!("aci_gap_init failed: 0x{:02X}", status);
             return Err(BleError::CommandFailed(Status::from_u8(status)));
         }
 
-        #[cfg(feature = "defmt")]
-        defmt::info!(
+        info!(
             "GAP initialized - service: 0x{:04X}, name: 0x{:04X}, appearance: 0x{:04X}",
-            gap_service_handle,
-            gap_dev_name_char_handle,
-            gap_appearance_char_handle
+            gap_service_handle, gap_dev_name_char_handle, gap_appearance_char_handle
         );
 
         // 7. Update device name characteristic
@@ -330,8 +320,7 @@ pub fn init_gap_and_hal(params: &GapInitParams) -> Result<GapHandles, BleError> 
             params.device_name.as_ptr(),
         );
         if status != BLE_STATUS_SUCCESS {
-            #[cfg(feature = "defmt")]
-            defmt::warn!("aci_gatt_update_char_value (device name) failed: 0x{:02X}", status);
+            warn!("aci_gatt_update_char_value (device name) failed: 0x{:02X}", status);
         }
 
         // 8. Update appearance characteristic
@@ -344,8 +333,7 @@ pub fn init_gap_and_hal(params: &GapInitParams) -> Result<GapHandles, BleError> 
             appearance_bytes.as_ptr(),
         );
         if status != BLE_STATUS_SUCCESS {
-            #[cfg(feature = "defmt")]
-            defmt::warn!("aci_gatt_update_char_value (appearance) failed: 0x{:02X}", status);
+            warn!("aci_gatt_update_char_value (appearance) failed: 0x{:02X}", status);
         }
 
         // 9. Set default PHY
@@ -355,15 +343,13 @@ pub fn init_gap_and_hal(params: &GapInitParams) -> Result<GapHandles, BleError> 
             params.phy_prefs.rx_phys,
         );
         if status != BLE_STATUS_SUCCESS {
-            #[cfg(feature = "defmt")]
-            defmt::warn!("hci_le_set_default_phy failed: 0x{:02X}", status);
+            warn!("hci_le_set_default_phy failed: 0x{:02X}", status);
         }
 
         // 10. Set IO capability
         let status = aci_gap_set_io_capability(params.io_capability as u8);
         if status != BLE_STATUS_SUCCESS {
-            #[cfg(feature = "defmt")]
-            defmt::warn!("aci_gap_set_io_capability failed: 0x{:02X}", status);
+            warn!("aci_gap_set_io_capability failed: 0x{:02X}", status);
         }
 
         // 11. Set authentication requirements
@@ -379,12 +365,10 @@ pub fn init_gap_and_hal(params: &GapInitParams) -> Result<GapHandles, BleError> 
             params.security.identity_address_type,
         );
         if status != BLE_STATUS_SUCCESS {
-            #[cfg(feature = "defmt")]
-            defmt::warn!("aci_gap_set_authentication_requirement failed: 0x{:02X}", status);
+            warn!("aci_gap_set_authentication_requirement failed: 0x{:02X}", status);
         }
 
-        #[cfg(feature = "defmt")]
-        defmt::info!("GAP and HAL configuration completed successfully");
+        info!("GAP and HAL configuration completed successfully");
 
         Ok(GapHandles {
             gap_service_handle,

@@ -131,17 +131,15 @@ async fn main(spawner: Spawner) {
 
     info!("Hardware peripherals initialized (RNG, AES, PKA)");
 
-    // Initialize BLE stack
-    let mut ble = Ble::new(rng, aes, pka, Irqs);
-    ble.init().expect("BLE initialization failed");
-    info!("BLE stack initialized");
-
     // Spawn the BLE runner task (required for proper BLE operation)
     spawner.spawn(ble_runner_task().expect("Failed to spawn BLE runner"));
-    embassy_futures::yield_now().await;
+
+    // Initialize BLE stack
+    let (mut ble, runtime) = Ble::new(rng, aes, pka, Irqs).await.expect("BLE initialization failed");
+    info!("BLE stack initialized");
 
     // ===== Configure Security =====
-    let mut security = SecurityManager::new();
+    let mut security = SecurityManager::new(runtime);
 
     // Configure security parameters:
     // - Enable bonding (store keys)
@@ -164,8 +162,7 @@ async fn main(spawner: Spawner) {
         .expect("Failed to enable address resolution");
 
     // Initialize GATT server
-    let mut gatt = GattServer::new();
-    gatt.init().expect("GATT initialization failed");
+    let mut gatt = GattServer::new(runtime);
 
     // Create a service with a secure characteristic
     let service_uuid = Uuid::from_u16(SECURE_SERVICE_UUID);
