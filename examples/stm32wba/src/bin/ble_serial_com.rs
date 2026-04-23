@@ -41,14 +41,14 @@ use embassy_stm32::rcc::{
 use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usart::{self, BufferedUart, BufferedUartRx, BufferedUartTx, Config as UartConfig};
-use embassy_stm32::{Config, bind_interrupts, interrupt, peripherals};
+use embassy_stm32::{Config, bind_interrupts, peripherals};
 use embassy_stm32_wpan::gap::{AdvData, AdvParams, AdvType, GapEvent};
 use embassy_stm32_wpan::gatt::{
     CHAR_VALUE_HANDLE_OFFSET, CccdValue, CharProperties, CharacteristicHandle, GattEventMask, GattServer,
     SecurityPermissions, ServiceHandle, ServiceType, Uuid, is_cccd_handle, is_value_handle,
 };
 use embassy_stm32_wpan::hci::event::EventParams;
-use embassy_stm32_wpan::{Ble, ble_runner, run_radio_high_isr, run_radio_sw_low_isr};
+use embassy_stm32_wpan::{Ble, HighInterruptHandler, LowInterruptHandler, ble_runner};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
@@ -62,20 +62,9 @@ bind_interrupts!(struct Irqs {
     AES => aes::InterruptHandler<AesPeriph>;
     PKA => pka::InterruptHandler<PkaPeriph>;
     USART1 => usart::BufferedInterruptHandler<peripherals::USART1>;
+    RADIO => HighInterruptHandler;
+    HASH => LowInterruptHandler;
 });
-
-// RADIO interrupt handler - required for BLE stack operation
-#[cortex_m_rt::interrupt]
-unsafe fn RADIO() {
-    unsafe { run_radio_high_isr() };
-}
-
-// HASH interrupt handler - used as software low-priority interrupt for BLE
-// (ST repurposes the HASH peripheral interrupt for BLE stack software interrupt)
-#[cortex_m_rt::interrupt]
-unsafe fn HASH() {
-    unsafe { run_radio_sw_low_isr() };
-}
 
 /// BLE runner task - drives the BLE stack sequencer
 #[embassy_executor::task]
@@ -248,13 +237,12 @@ async fn main(spawner: Spawner) {
     let (uart_tx, uart_rx) = uart.split();
     info!("USART1 initialized (115200 baud, PB12=TX, PA8=RX)");
 
-    // Initialize BLE stack
-    let mut ble = Ble::new(rng, aes, pka);
-    ble.init().expect("BLE initialization failed");
-    info!("BLE stack initialized");
-
     // Spawn the BLE runner task
     spawner.spawn(ble_runner_task().expect("Failed to create BLE runner task"));
+
+    // Initialize BLE stack
+    let (mut ble, runtime) = Ble::new(rng, aes, pka, Irqs).await.expect("BLE initialization failed");
+    info!("BLE stack initialized");
 
     // Give the BLE runner a chance to start processing
     // This is needed because BLE operations require BleStack_Process to run
@@ -266,8 +254,7 @@ async fn main(spawner: Spawner) {
     spawner.spawn(uart_writer_task(uart_tx).expect("Failed to create UART writer task"));
 
     // Initialize GATT server with Nordic UART Service
-    let mut gatt = GattServer::new();
-    gatt.init().expect("GATT initialization failed");
+    let mut gatt = GattServer::new(runtime);
 
     // Add NUS Service (128-bit UUID)
     let service_uuid = Uuid::from_u128_le(NUS_SERVICE_UUID);

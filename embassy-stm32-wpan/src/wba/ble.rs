@@ -4,9 +4,11 @@
 //! and provides access to GAP functionality including connection management.
 
 use core::cell::RefCell;
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::Ordering;
 
+use embassy_futures::yield_now;
 use embassy_stm32::aes::Aes;
+use embassy_stm32::interrupt;
 use embassy_stm32::mode::Blocking;
 use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph, RNG};
 use embassy_stm32::pka::Pka;
@@ -14,8 +16,9 @@ use embassy_stm32::rng::Rng;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
-use crate::linklayer_plat::{HARDWARE_AES, HARDWARE_PKA, HARDWARE_RNG};
-use crate::runner::register_ble_tasks;
+use crate::gatt::server::init_gatt_layer;
+use crate::linklayer_plat::{HARDWARE_AES, HARDWARE_PKA, HARDWARE_RNG, run_radio_high_isr, run_radio_sw_low_isr};
+use crate::runner::{BLE_INIT_COMPLETED, BLE_INIT_WAKER, RUNNER_INIT, register_ble_tasks};
 use crate::wba::error::BleError;
 use crate::wba::gap::Advertiser;
 use crate::wba::gap::connection::{
@@ -28,6 +31,30 @@ use crate::wba::hci::command::CommandSender;
 use crate::wba::hci::event::{Event, EventParams, read_event};
 use crate::wba::hci::types::{Address, Handle, Status};
 use crate::wba::ll_sys::init_ble_stack;
+
+/// High interrupt handler.
+pub struct HighInterruptHandler {}
+
+impl interrupt::typelevel::Handler<interrupt::typelevel::RADIO> for HighInterruptHandler {
+    unsafe fn on_interrupt() {
+        run_radio_high_isr();
+    }
+}
+
+/// Low interrupt handler.
+pub struct LowInterruptHandler {}
+
+impl interrupt::typelevel::Handler<interrupt::typelevel::HASH> for LowInterruptHandler {
+    unsafe fn on_interrupt() {
+        run_radio_sw_low_isr();
+    }
+}
+
+/// Represents an active BLE runtime
+#[derive(Debug, Clone, Copy)]
+pub struct Runtime {
+    _private: (),
+}
 
 /// Main BLE interface
 ///
@@ -60,7 +87,6 @@ use crate::wba::ll_sys::init_ble_stack;
 /// ```
 pub struct Ble {
     cmd_sender: CommandSender,
-    initialized: AtomicBool,
     connections: ConnectionManager<MAX_CONNECTIONS>,
 }
 
@@ -71,40 +97,40 @@ impl Ble {
     /// These are stored in statics so the BLE stack's `extern "C"` callbacks can access them.
     ///
     /// Note: You must call `init()` before using other BLE functionality.
-    pub fn new(
+    pub async fn new(
         rng: &'static Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>,
         aes: &'static Mutex<CriticalSectionRawMutex, RefCell<Aes<'static, AesPeriph, Blocking>>>,
         pka: &'static Mutex<CriticalSectionRawMutex, RefCell<Pka<'static, PkaPeriph>>>,
-    ) -> Self {
+        _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::RADIO, HighInterruptHandler>
+        + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
+    ) -> Result<(Self, Runtime), BleError> {
         unsafe {
             HARDWARE_RNG.replace(rng);
             HARDWARE_AES.replace(aes);
             HARDWARE_PKA.replace(pka);
         }
 
-        Self {
-            cmd_sender: CommandSender::new(),
-            initialized: AtomicBool::new(false),
-            connections: ConnectionManager::new(),
-        }
-    }
+        yield_now().await;
+        yield_now().await;
 
-    /// Create a BLE instance for Direct Test Mode (DTM) only.
-    ///
-    /// Only RNG is required; AES and PKA are left unset. Use this for FCC DTM
-    /// (TX test, RX test, tone) where no pairing or crypto is used. Do not use
-    /// for full BLE (advertising, connections, GATT) as those require AES/PKA.
-    pub fn new_dtm(rng: &'static Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>) -> Self {
-        unsafe {
-            HARDWARE_RNG.replace(rng);
-            // HARDWARE_AES and HARDWARE_PKA remain None
+        if !RUNNER_INIT.load(Ordering::Acquire) {
+            return Err(BleError::NotInitialized);
         }
 
-        Self {
+        let mut this = Self {
             cmd_sender: CommandSender::new(),
-            initialized: AtomicBool::new(false),
             connections: ConnectionManager::new(),
-        }
+        };
+
+        this.init()?;
+
+        BLE_INIT_COMPLETED.store(true, Ordering::Release);
+        BLE_INIT_WAKER.wake();
+
+        yield_now().await;
+        yield_now().await;
+
+        Ok((this, Runtime { _private: () }))
     }
 
     /// Initialize the BLE stack
@@ -131,35 +157,29 @@ impl Ble {
     ///
     /// - `Ok(())` if initialization succeeded
     /// - `Err(BleError)` if any initialization step failed
-    pub fn init(&mut self) -> Result<(), BleError> {
-        if self.initialized.load(Ordering::Acquire) {
-            return Ok(());
-        }
-
+    fn init(&mut self) -> Result<(), BleError> {
         // 0. Initialize the BLE stack using BleStack_Init
         // This properly initializes the BLE host stack including memory management,
         // which is required before ll_intf_init can work properly.
         init_ble_stack().map_err(|status| {
-            #[cfg(feature = "defmt")]
-            defmt::error!("BLE stack initialization failed: 0x{:02X}", status);
+            error!("BLE stack initialization failed: 0x{:02X}", status);
             BleError::InitializationFailed
         })?;
 
         // Register BLE tasks with the sequencer (required for BleStackCB_Process to work)
         // This matches ST's APP_BLE_Init which calls:
         //   UTIL_SEQ_RegTask(1U << CFG_TASK_BLE_HOST, UTIL_SEQ_RFU, BleStack_Process_BG);
-        crate::wba::runner::register_ble_tasks();
+        register_ble_tasks();
 
-        #[cfg(feature = "defmt")]
-        defmt::info!("Ble::init: BLE stack initialized, sending HCI reset");
+        info!("Ble::init: BLE stack initialized, sending HCI reset");
 
         // 1. Reset BLE controller
         self.cmd_sender.reset()?;
 
         // 2. Read local version information
         let version = self.cmd_sender.read_local_version()?;
-        #[cfg(feature = "defmt")]
-        defmt::info!(
+
+        info!(
             "BLE Controller: HCI Version {}.{}, Revision: 0x{:04X}, LMP Version: {}.{}, Manufacturer: 0x{:04X}",
             version.hci_version >> 4,
             version.hci_version & 0x0F,
@@ -171,90 +191,61 @@ impl Ble {
 
         // 3. Read BD address
         let bd_addr = self.cmd_sender.read_bd_addr()?;
-        #[cfg(feature = "defmt")]
-        defmt::info!(
+
+        info!(
             "BD Address: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
-            bd_addr[5],
-            bd_addr[4],
-            bd_addr[3],
-            bd_addr[2],
-            bd_addr[1],
-            bd_addr[0]
+            bd_addr[5], bd_addr[4], bd_addr[3], bd_addr[2], bd_addr[1], bd_addr[0]
         );
 
         // 4. Set event mask (enable all events)
         // Note: The ST BLE stack handles event masks internally, so these calls
         // may not be needed. Skip if they fail with UnknownCommand.
-        #[cfg(feature = "defmt")]
-        defmt::info!("Calling set_event_mask...");
+
+        info!("Calling set_event_mask...");
         if let Err(e) = self.cmd_sender.set_event_mask(0xFFFF_FFFF_FFFF_FFFF) {
-            #[cfg(feature = "defmt")]
-            defmt::warn!("set_event_mask failed: {:?} (may be handled internally)", e);
+            warn!("set_event_mask failed: {:?} (may be handled internally)", e);
         } else {
-            #[cfg(feature = "defmt")]
-            defmt::info!("set_event_mask OK");
+            info!("set_event_mask OK");
         }
 
-        #[cfg(feature = "defmt")]
-        defmt::info!("Calling le_set_event_mask...");
+        info!("Calling le_set_event_mask...");
         if let Err(e) = self.cmd_sender.le_set_event_mask(0xFFFF_FFFF_FFFF_FFFF) {
-            #[cfg(feature = "defmt")]
-            defmt::warn!("le_set_event_mask failed: {:?} (may be handled internally)", e);
+            warn!("le_set_event_mask failed: {:?} (may be handled internally)", e);
         } else {
-            #[cfg(feature = "defmt")]
-            defmt::info!("le_set_event_mask OK");
+            info!("le_set_event_mask OK");
         }
 
         // 5. Read buffer sizes (optional - skip if not available)
-        #[cfg(feature = "defmt")]
-        defmt::info!("Calling le_read_buffer_size...");
+        info!("Calling le_read_buffer_size...");
         match self.cmd_sender.le_read_buffer_size() {
-            Ok((acl_len, acl_num, iso_len, iso_num)) => {
-                #[cfg(feature = "defmt")]
-                defmt::info!(
-                    "Buffer sizes - ACL: {} bytes x {} packets, ISO: {} bytes x {} packets",
-                    acl_len,
-                    acl_num,
-                    iso_len,
-                    iso_num
-                );
-            }
-            Err(e) => {
-                #[cfg(feature = "defmt")]
-                defmt::warn!("le_read_buffer_size failed: {:?} (skipping)", e);
-            }
+            Ok((acl_len, acl_num, iso_len, iso_num)) => info!(
+                "Buffer sizes - ACL: {} bytes x {} packets, ISO: {} bytes x {} packets",
+                acl_len, acl_num, iso_len, iso_num
+            ),
+            Err(e) => warn!("le_read_buffer_size failed: {:?} (skipping)", e),
         }
 
         // 6. Read supported features (optional - skip if not available)
-        #[cfg(feature = "defmt")]
-        defmt::info!("Calling le_read_local_supported_features...");
+        info!("Calling le_read_local_supported_features...");
         match self.cmd_sender.le_read_local_supported_features() {
-            Ok(features) => {
-                #[cfg(feature = "defmt")]
-                defmt::info!("Supported LE features: {=[u8]:#02X}", features);
-            }
-            Err(e) => {
-                #[cfg(feature = "defmt")]
-                defmt::warn!("le_read_local_supported_features failed: {:?} (skipping)", e);
-            }
+            Ok(features) => info!("Supported LE features: {=[u8]:#02X}", features),
+            Err(e) => warn!("le_read_local_supported_features failed: {:?} (skipping)", e),
         }
 
         // 7. Initialize GATT layer (MUST be done BEFORE GAP initialization!)
         // Per ST's BLE_HeartRate: aci_gatt_init() is called before aci_gap_init()
-        #[cfg(feature = "defmt")]
-        defmt::info!("Initializing GATT layer...");
+        info!("Initializing GATT layer...");
 
         // Call aci_gatt_init from gatt module
-        crate::wba::gatt::server::init_gatt_layer()?;
+        init_gatt_layer()?;
 
-        #[cfg(feature = "defmt")]
-        defmt::info!("GATT layer initialized");
+        info!("GATT layer initialized");
 
         // 8. Initialize GAP and HAL (AFTER GATT!)
         // This is the critical step that ST's BLE_HeartRate does in Ble_Hci_Gap_Gatt_Init().
         // It configures BD address, IR/ER keys, TX power, PHY, and initializes the GAP layer.
-        #[cfg(feature = "defmt")]
-        defmt::info!("Initializing GAP and HAL...");
+
+        info!("Initializing GAP and HAL...");
 
         // Derive a stable random static address from the chip's unique ID.
         let uid = embassy_stm32::uid::uid();
@@ -263,20 +254,40 @@ impl Ble {
 
         let _gap_handles = init_gap_and_hal(&gap_params)?;
 
-        #[cfg(feature = "defmt")]
-        defmt::info!("GAP and HAL initialized");
+        info!("GAP and HAL initialized");
 
-        self.initialized.store(true, Ordering::Release);
-
-        #[cfg(feature = "defmt")]
-        defmt::info!("BLE stack initialized successfully");
+        info!("BLE stack initialized successfully");
 
         Ok(())
     }
 
-    /// Check if the BLE stack is initialized
-    pub fn is_initialized(&self) -> bool {
-        self.initialized.load(Ordering::Acquire)
+    /// Create a BLE instance for Direct Test Mode (DTM) only.
+    ///
+    /// Only RNG is required; AES and PKA are left unset. Use this for FCC DTM
+    /// (TX test, RX test, tone) where no pairing or crypto is used. Do not use
+    /// for full BLE (advertising, connections, GATT) as those require AES/PKA.
+    ///
+    /// Performs the minimum initialization required before issuing DTM commands
+    /// (HCI_LE_Transmitter_Test, HCI_LE_Receiver_Test, HCI_LE_Test_End).
+    /// Does not initialize GATT or GAP — those layers are not used in DTM.
+    pub fn new_dtm(
+        rng: &'static Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>,
+        _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::RADIO, HighInterruptHandler>
+        + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
+    ) -> Result<Self, BleError> {
+        unsafe {
+            HARDWARE_RNG.replace(rng);
+            // HARDWARE_AES and HARDWARE_PKA remain None
+        }
+
+        let mut this = Self {
+            cmd_sender: CommandSender::new(),
+            connections: ConnectionManager::new(),
+        };
+
+        this.dtm_init()?;
+
+        Ok(this)
     }
 
     /// Initialize the BLE stack for Direct Test Mode (DTM) only.
@@ -284,21 +295,15 @@ impl Ble {
     /// Performs the minimum initialization required before issuing DTM commands
     /// (HCI_LE_Transmitter_Test, HCI_LE_Receiver_Test, HCI_LE_Test_End).
     /// Does not initialize GATT or GAP — those layers are not used in DTM.
-    ///
-    /// Must be used with `Ble::new_dtm()`.
-    pub fn dtm_init(&mut self) -> Result<(), BleError> {
-        if self.is_initialized() {
-            return Ok(());
-        }
-
+    fn dtm_init(&mut self) -> Result<(), BleError> {
         init_ble_stack().map_err(|_| BleError::InitializationFailed)?;
         register_ble_tasks();
 
         self.cmd_sender.reset()?;
 
         let version = self.cmd_sender.read_local_version()?;
-        #[cfg(feature = "defmt")]
-        defmt::info!(
+
+        info!(
             "BLE Controller: HCI Version {}.{}, Manufacturer: 0x{:04X}",
             version.hci_version >> 4,
             version.hci_version & 0x0F,
@@ -306,17 +311,14 @@ impl Ble {
         );
 
         if let Err(e) = self.cmd_sender.set_event_mask(0xFFFF_FFFF_FFFF_FFFF) {
-            #[cfg(feature = "defmt")]
-            defmt::warn!("set_event_mask failed: {:?}", e);
+            warn!("set_event_mask failed: {:?}", e);
         }
         if let Err(e) = self.cmd_sender.le_set_event_mask(0xFFFF_FFFF_FFFF_FFFF) {
-            #[cfg(feature = "defmt")]
-            defmt::warn!("le_set_event_mask failed: {:?}", e);
+            warn!("le_set_event_mask failed: {:?}", e);
         }
 
-        self.initialized.store(true, Ordering::Release);
-        #[cfg(feature = "defmt")]
-        defmt::info!("BLE stack initialized for DTM");
+        info!("BLE stack initialized for DTM");
+
         Ok(())
     }
 
@@ -329,10 +331,6 @@ impl Ble {
     ///
     /// - `address`: 6-byte random address
     pub fn set_random_address(&self, address: Address) -> Result<(), BleError> {
-        if !self.initialized.load(Ordering::Acquire) {
-            return Err(BleError::NotInitialized);
-        }
-
         self.cmd_sender.le_set_random_address(&address.0)
     }
 
@@ -400,10 +398,6 @@ impl Ble {
     /// - `handle`: Connection handle to disconnect
     /// - `reason`: Reason for disconnection
     pub fn disconnect(&self, handle: Handle, reason: DisconnectReason) -> Result<(), BleError> {
-        if !self.initialized.load(Ordering::Acquire) {
-            return Err(BleError::NotInitialized);
-        }
-
         self.cmd_sender.disconnect(handle.as_u16(), reason.as_u8())
     }
 
@@ -416,10 +410,6 @@ impl Ble {
     ///
     /// - `params`: Connection initiation parameters
     pub fn connect(&self, params: &ConnectionInitParams) -> Result<(), BleError> {
-        if !self.initialized.load(Ordering::Acquire) {
-            return Err(BleError::NotInitialized);
-        }
-
         self.cmd_sender.le_create_connection(
             params.scan_interval,
             params.scan_window,
@@ -438,10 +428,6 @@ impl Ble {
 
     /// Cancel an ongoing connection attempt
     pub fn cancel_connect(&self) -> Result<(), BleError> {
-        if !self.initialized.load(Ordering::Acquire) {
-            return Err(BleError::NotInitialized);
-        }
-
         self.cmd_sender.le_create_connection_cancel()
     }
 
@@ -462,10 +448,6 @@ impl Ble {
         latency: u16,
         supervision_timeout: u16,
     ) -> Result<(), BleError> {
-        if !self.initialized.load(Ordering::Acquire) {
-            return Err(BleError::NotInitialized);
-        }
-
         self.cmd_sender.le_connection_update(
             handle.as_u16(),
             interval_min,
@@ -483,10 +465,6 @@ impl Ble {
     ///
     /// Tuple of (tx_phy, rx_phy)
     pub fn read_phy(&self, handle: Handle) -> Result<(LePhy, LePhy), BleError> {
-        if !self.initialized.load(Ordering::Acquire) {
-            return Err(BleError::NotInitialized);
-        }
-
         let (tx, rx) = self.cmd_sender.le_read_phy(handle.as_u16())?;
         Ok((LePhy::from_u8(tx), LePhy::from_u8(rx)))
     }

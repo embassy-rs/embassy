@@ -406,8 +406,7 @@ pub extern "C" fn UTIL_SEQ_PauseTask(task_mask: u32) {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn UTIL_SEQ_SetEvt(event_mask: u32) {
-    #[cfg(feature = "defmt")]
-    defmt::trace!("UTIL_SEQ_SetEvt: mask=0x{:08X}", event_mask);
+    trace!("UTIL_SEQ_SetEvt: mask=0x{:08X}", event_mask);
 
     SEQUENCER.events.fetch_or(event_mask, Ordering::Release);
     SEQUENCER.seq_pend();
@@ -440,16 +439,14 @@ pub extern "C" fn UTIL_SEQ_IsEvtPend() -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn UTIL_SEQ_Init() {
     // Sequencer is initialized statically in our implementation
-    #[cfg(feature = "defmt")]
-    defmt::trace!("UTIL_SEQ_Init called (no-op in Embassy implementation)");
+    trace!("UTIL_SEQ_Init called (no-op in Embassy implementation)");
 }
 
 /// Deinitialize the sequencer (matches ST's API)
 #[unsafe(no_mangle)]
 pub extern "C" fn UTIL_SEQ_DeInit() {
     // No-op in our implementation
-    #[cfg(feature = "defmt")]
-    defmt::trace!("UTIL_SEQ_DeInit called (no-op in Embassy implementation)");
+    trace!("UTIL_SEQ_DeInit called (no-op in Embassy implementation)");
 }
 
 /// Idle function called when sequencer has no work
@@ -478,8 +475,7 @@ pub extern "C" fn UTIL_SEQ_PostIdle() {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn UTIL_SEQ_WaitEvt(event_mask: u32) {
-    #[cfg(feature = "defmt")]
-    defmt::trace!("UTIL_SEQ_WaitEvt: mask=0x{:08X}", event_mask);
+    trace!("UTIL_SEQ_WaitEvt: mask=0x{:08X}", event_mask);
 
     // Store the current task index (we may be called from a task or outside any task)
     let current_task_idx = SEQUENCER.current_task_idx.load(Ordering::Acquire);
@@ -501,13 +497,10 @@ pub extern "C" fn UTIL_SEQ_WaitEvt(event_mask: u32) {
         let current = SEQUENCER.events.load(Ordering::Acquire);
         if (current & event_mask) == event_mask {
             SEQUENCER.events.fetch_and(!event_mask, Ordering::AcqRel);
-            #[cfg(feature = "defmt")]
-            defmt::trace!("UTIL_SEQ_WaitEvt: event received");
+            trace!("UTIL_SEQ_WaitEvt: event received");
             break;
         }
-
-        #[cfg(feature = "defmt")]
-        defmt::trace!(
+        trace!(
             "UTIL_SEQ_WaitEvt: waiting (in_seq_ctx={}, current_task={})",
             SEQUENCER.context.in_task_context(),
             current_task_idx

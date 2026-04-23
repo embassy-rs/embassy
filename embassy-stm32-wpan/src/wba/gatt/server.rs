@@ -6,6 +6,7 @@ use super::types::{
     CharProperties, CharacteristicHandle, GattEventMask, SecurityPermissions, ServiceHandle, ServiceType, Uuid,
     UuidType,
 };
+use crate::ble::Runtime;
 use crate::wba::bindings::ble;
 use crate::wba::error::BleError;
 
@@ -112,32 +113,15 @@ pub(crate) fn init_gatt_layer() -> Result<(), BleError> {
 ///
 /// Provides methods for creating and managing GATT services and characteristics.
 pub struct GattServer {
-    initialized: bool,
+    _runtime: Runtime,
 }
 
 impl GattServer {
     /// Create a new GATT server instance
     ///
     /// Note: You must call `init()` before adding services or characteristics.
-    pub fn new() -> Self {
-        Self { initialized: false }
-    }
-
-    /// Initialize the GATT server instance
-    ///
-    /// Note: The global GATT layer (aci_gatt_init) is now initialized automatically
-    /// by Ble::init(). This method just marks this GattServer instance as initialized.
-    ///
-    /// Must be called before using any GATT features on this instance.
-    pub fn init(&mut self) -> Result<(), BleError> {
-        if self.initialized {
-            return Ok(());
-        }
-
-        // The actual aci_gatt_init() is now called in Ble::init() before GAP initialization
-        // This maintains the correct ST initialization order: GATT before GAP
-        self.initialized = true;
-        Ok(())
+    pub const fn new(_runtime: Runtime) -> Self {
+        Self { _runtime }
     }
 
     /// Add a service to the GATT database
@@ -164,10 +148,6 @@ impl GattServer {
         service_type: ServiceType,
         max_attribute_records: u8,
     ) -> Result<ServiceHandle, BleError> {
-        if !self.initialized {
-            return Err(BleError::NotInitialized);
-        }
-
         let mut service_handle: u16 = 0;
 
         unsafe {
@@ -243,10 +223,6 @@ impl GattServer {
         encryption_key_size: u8,
         is_variable: bool,
     ) -> Result<CharacteristicHandle, BleError> {
-        if !self.initialized {
-            return Err(BleError::NotInitialized);
-        }
-
         let mut char_handle: u16 = 0;
 
         unsafe {
@@ -310,10 +286,6 @@ impl GattServer {
         offset: u8,
         value: &[u8],
     ) -> Result<(), BleError> {
-        if !self.initialized {
-            return Err(BleError::NotInitialized);
-        }
-
         if value.len() > 255 {
             return Err(BleError::InvalidParameter);
         }
@@ -341,10 +313,6 @@ impl GattServer {
     ///
     /// - `service_handle`: Handle of the service to delete
     pub fn delete_service(&mut self, service_handle: ServiceHandle) -> Result<(), BleError> {
-        if !self.initialized {
-            return Err(BleError::NotInitialized);
-        }
-
         unsafe {
             let status = ble::aci_gatt_del_service(service_handle.0);
 
@@ -367,10 +335,6 @@ impl GattServer {
         service_handle: ServiceHandle,
         char_handle: CharacteristicHandle,
     ) -> Result<(), BleError> {
-        if !self.initialized {
-            return Err(BleError::NotInitialized);
-        }
-
         unsafe {
             let status = ble::aci_gatt_del_char(service_handle.0, char_handle.0);
 
@@ -411,10 +375,6 @@ impl GattServer {
         char_handle: CharacteristicHandle,
         value: &[u8],
     ) -> Result<(), BleError> {
-        if !self.initialized {
-            return Err(BleError::NotInitialized);
-        }
-
         if value.len() > 251 {
             return Err(BleError::InvalidParameter);
         }
@@ -469,10 +429,6 @@ impl GattServer {
         char_handle: CharacteristicHandle,
         value: &[u8],
     ) -> Result<(), BleError> {
-        if !self.initialized {
-            return Err(BleError::NotInitialized);
-        }
-
         if value.len() > 251 {
             return Err(BleError::InvalidParameter);
         }
@@ -508,10 +464,6 @@ impl GattServer {
     ///
     /// Number of bytes read on success
     pub fn read_value(&self, attr_handle: u16, buffer: &mut [u8]) -> Result<usize, BleError> {
-        if !self.initialized {
-            return Err(BleError::NotInitialized);
-        }
-
         unsafe {
             let mut value_length: u16 = 0;
             let mut value_offset: u16 = 0;
@@ -541,10 +493,6 @@ impl GattServer {
     ///
     /// - `mask`: Bitmask of events to enable (use GattEventMaskBits constants)
     pub fn set_event_mask(&self, mask: u32) -> Result<(), BleError> {
-        if !self.initialized {
-            return Err(BleError::NotInitialized);
-        }
-
         unsafe {
             let status = aci_gatt_set_event_mask(mask);
 
@@ -554,11 +502,5 @@ impl GattServer {
                 Err(BleError::CommandFailed(crate::wba::hci::types::Status::from_u8(status)))
             }
         }
-    }
-}
-
-impl Default for GattServer {
-    fn default() -> Self {
-        Self::new()
     }
 }

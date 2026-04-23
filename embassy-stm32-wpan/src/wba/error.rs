@@ -6,7 +6,7 @@ use super::hci::types::Status;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum BleError {
-    /// BLE stack not initialized
+    /// BLE stack not initialized or runner not initialized
     NotInitialized,
 
     /// BLE stack initialization failed
