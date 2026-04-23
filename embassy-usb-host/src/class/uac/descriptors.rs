@@ -4,9 +4,11 @@ use heapless::Vec;
 use heapless::index_map::FnvIndexMap;
 
 use super::codes::*;
-use crate::descriptor::InterfaceDescriptor as GenericInterfaceDescriptor;
 use crate::descriptor::descriptor_type::{CS_ENDPOINT, CS_INTERFACE, INTERFACE_ASSOCIATION};
-use crate::descriptor::{ConfigurationDescriptor, DescriptorVisitor, EndpointDescriptor, StringIndex, USBDescriptor};
+use crate::descriptor::{
+    ConfigurationDescriptor, DescriptorVisitor, EndpointDescriptor, InterfaceDescriptor as GenericInterfaceDescriptor,
+    StringIndex, USBDescriptor,
+};
 
 const MAX_AUDIO_STREAMING_INTERFACES: usize = 16;
 const MAX_ALTERNATE_SETTINGS: usize = 4;
