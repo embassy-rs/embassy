@@ -227,9 +227,9 @@ pub trait DescriptorVisitor<'a> {
     fn on_configuration(&mut self, _c: &ConfigurationDescriptor<'a>) {}
 
     fn on_interface(&mut self, _i: &InterfaceDescriptor<'a>) {}
-    
+
     fn on_endpoint(&mut self, _e: &EndpointDescriptor) {}
-    
+
     /// Catches every sub-descriptor that isn't an endpoint:                                                                                                                        
     /// CS_INTERFACE, CS_ENDPOINT, HID, vendor-specific, etc.                                                                                                                       
     fn on_other(&mut self, _raw: &[u8]) {}
@@ -578,7 +578,7 @@ mod test {
         assert_eq!(cfg.num_interfaces, 2);
         assert_eq!(v.interfaces.len(), 2);
         assert_eq!(v.interfaces[0].interface.interface_class, 1);
-        assert_eq!(v.interfaces[0].endpoints.len(), 0);       
+        assert_eq!(v.interfaces[0].endpoints.len(), 0);
         assert_eq!(v.interfaces[1].endpoints.len(), 2);
         assert_eq!(v.interfaces[1].endpoints[0].attributes, 2);
         assert_eq!(v.interfaces[1].endpoints[0].endpoint_address, 0x02);
