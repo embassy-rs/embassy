@@ -67,7 +67,7 @@ impl Registers {
     ///
     /// Automatic retransmission is enabled by default.
     pub fn set_automatic_retransmit(&self, enabled: bool) {
-        self.0.mcr().modify(|reg| reg.set_nart(enabled));
+        self.0.mcr().modify(|reg| reg.set_nart(!enabled));
     }
 
     /// Enables or disables loopback mode: Internally connects the TX and RX
