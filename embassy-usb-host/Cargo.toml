@@ -35,6 +35,8 @@ block-device-driver = { version = "0.2.0", optional = true }
 
 [dev-dependencies]
 env_logger = "0.9"
+# Enable critical-section implementation for std, for tests
+critical-section = { version = "1.1", features = ["std"] }
 
 [features]
 defmt = ["dep:defmt", "embassy-usb-driver/defmt", "heapless/defmt"]

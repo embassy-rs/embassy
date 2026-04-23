@@ -1258,3 +1258,200 @@ fn write16_cdb(lba: u64, blocks: u32) -> [u8; 16] {
         0,
     ]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ----------------------------------------------------------------------
+    // find_msc
+    // ----------------------------------------------------------------------
+
+    /// Single MSC/SCSI/BBB interface, bulk IN (0x81, mps 64) + bulk OUT (0x01, mps 64).
+    #[rustfmt::skip]
+    const CFG_SIMPLE_MSC: [u8; 32] = [
+        9, 0x02, 32, 0, 1, 1, 0, 0x80, 50,
+        9, 0x04, 0, 0, 2, 0x08, 0x06, 0x50, 0,
+        7, 0x05, 0x81, 0x02, 0x40, 0x00, 0,
+        7, 0x05, 0x01, 0x02, 0x40, 0x00, 0,
+    ];
+
+    #[test]
+    fn find_msc_simple() {
+        let info = find_msc(&CFG_SIMPLE_MSC).unwrap();
+        assert_eq!(info.interface, 0);
+        assert_eq!(info.bulk_in_ep, 0x81);
+        assert_eq!(info.bulk_in_mps, 64);
+        assert_eq!(info.bulk_out_ep, 0x01);
+        assert_eq!(info.bulk_out_mps, 64);
+    }
+
+    #[test]
+    fn find_msc_rejects_non_matching_interface() {
+        // Empty / header-only.
+        assert!(find_msc(&[]).is_none());
+
+        // HID interface, no MSC anywhere.
+        #[rustfmt::skip]
+        let hid: [u8; 25] = [
+            9, 0x02, 25, 0, 1, 1, 0, 0x80, 50,
+            9, 0x04, 0, 0, 1, 0x03, 0x01, 0x01, 0,
+            7, 0x05, 0x81, 0x03, 0x08, 0x00, 10,
+        ];
+        assert!(find_msc(&hid).is_none());
+
+        // MSC class but wrong subclass (UFI), wrong protocol (CBI), or non-zero alt.
+        for (offset, value) in [(6, 0x08), (7, 0x01), (3, 1)] {
+            let mut cfg = CFG_SIMPLE_MSC;
+            cfg[9 + offset] = value;
+            assert!(find_msc(&cfg).is_none());
+        }
+    }
+
+    #[test]
+    fn find_msc_requires_both_bulk_endpoints() {
+        // Only bulk OUT.
+        #[rustfmt::skip]
+        let out_only: [u8; 25] = [
+            9, 0x02, 25, 0, 1, 1, 0, 0x80, 50,
+            9, 0x04, 0, 0, 1, 0x08, 0x06, 0x50, 0,
+            7, 0x05, 0x01, 0x02, 0x40, 0x00, 0,
+        ];
+        assert!(find_msc(&out_only).is_none());
+
+        // Only bulk IN.
+        #[rustfmt::skip]
+        let in_only: [u8; 25] = [
+            9, 0x02, 25, 0, 1, 1, 0, 0x80, 50,
+            9, 0x04, 0, 0, 1, 0x08, 0x06, 0x50, 0,
+            7, 0x05, 0x81, 0x02, 0x40, 0x00, 0,
+        ];
+        assert!(find_msc(&in_only).is_none());
+
+        // Interrupt endpoints only (not bulk).
+        #[rustfmt::skip]
+        let intr: [u8; 32] = [
+            9, 0x02, 32, 0, 1, 1, 0, 0x80, 50,
+            9, 0x04, 0, 0, 2, 0x08, 0x06, 0x50, 0,
+            7, 0x05, 0x81, 0x03, 0x08, 0x00, 10,
+            7, 0x05, 0x01, 0x03, 0x08, 0x00, 10,
+        ];
+        assert!(find_msc(&intr).is_none());
+    }
+
+    #[test]
+    fn find_msc_skips_preceding_interfaces() {
+        // Composite: iface 0 = HID, iface 1 alt 1 = MSC (ignored because alt != 0),
+        // iface 1 alt 0 = MSC (selected).
+        #[rustfmt::skip]
+        let cfg: [u8; 71] = [
+            9, 0x02, 71, 0, 2, 1, 0, 0x80, 50,
+            9, 0x04, 0, 0, 1, 0x03, 0x01, 0x01, 0,
+            7, 0x05, 0x82, 0x03, 0x08, 0x00, 10,
+            9, 0x04, 1, 1, 2, 0x08, 0x06, 0x50, 0,
+            7, 0x05, 0x83, 0x02, 0x20, 0x00, 0,
+            7, 0x05, 0x03, 0x02, 0x20, 0x00, 0,
+            9, 0x04, 1, 0, 2, 0x08, 0x06, 0x50, 0,
+            7, 0x05, 0x81, 0x02, 0x40, 0x00, 0,
+            7, 0x05, 0x01, 0x02, 0x40, 0x00, 0,
+        ];
+        let info = find_msc(&cfg).unwrap();
+        assert_eq!(info.interface, 1);
+        assert_eq!(info.bulk_in_ep, 0x81);
+        assert_eq!(info.bulk_in_mps, 64);
+        assert_eq!(info.bulk_out_ep, 0x01);
+    }
+
+    // ----------------------------------------------------------------------
+    // chunk_blocks
+    // ----------------------------------------------------------------------
+
+    #[test]
+    fn chunk_blocks_prefers_read10_while_lba_fits_u32() {
+        // Small chunk passes through verbatim.
+        assert_eq!(chunk_blocks(0, 1), (1, true));
+        // Clamped to u16::MAX even for huge remaining counts and high LBA.
+        assert_eq!(chunk_blocks(0, u16::MAX as u64), (u16::MAX as u32, true));
+        assert_eq!(chunk_blocks(0, u64::MAX), (u16::MAX as u32, true));
+        assert_eq!(chunk_blocks(u32::MAX as u64, u64::MAX), (u16::MAX as u32, true));
+    }
+
+    #[test]
+    fn chunk_blocks_falls_back_to_read16_above_u32_max() {
+        assert_eq!(chunk_blocks(u32::MAX as u64 + 1, 100), (100, false));
+        assert_eq!(chunk_blocks(u64::MAX - 10, u64::MAX), (u32::MAX, false));
+    }
+
+    // ----------------------------------------------------------------------
+    // check_block_args
+    // ----------------------------------------------------------------------
+
+    const CAP_1K_512: BlockCapacity = BlockCapacity {
+        block_count: 1000,
+        block_size: 512,
+    };
+
+    #[test]
+    fn check_block_args_accepts_aligned_in_range() {
+        assert_eq!(check_block_args(0, 512, &CAP_1K_512).unwrap(), (512, 1));
+        assert_eq!(check_block_args(0, 10 * 512, &CAP_1K_512).unwrap(), (512, 10));
+        // Exact fit at end of device.
+        assert_eq!(check_block_args(999, 512, &CAP_1K_512).unwrap(), (512, 1));
+    }
+
+    #[test]
+    fn check_block_args_rejects_unaligned() {
+        for bytes in [0, 511, 513] {
+            assert!(matches!(
+                check_block_args(0, bytes, &CAP_1K_512),
+                Err(MscError::Unaligned)
+            ));
+        }
+    }
+
+    #[test]
+    fn check_block_args_rejects_out_of_range() {
+        for (lba, bytes) in [(1000, 512), (999, 1024), (u64::MAX, 512)] {
+            assert!(matches!(
+                check_block_args(lba, bytes, &CAP_1K_512),
+                Err(MscError::OutOfRange)
+            ));
+        }
+    }
+
+    // ----------------------------------------------------------------------
+    // CDB encoders
+    // ----------------------------------------------------------------------
+
+    #[test]
+    fn read_write_10_cdb_encoding() {
+        let expected = [0, 0, 0x12, 0x34, 0x56, 0x78, 0, 0x12, 0x34, 0];
+        for (op, cdb) in [
+            (SCSI_READ_10, read10_cdb(0x1234_5678, 0x1234)),
+            (SCSI_WRITE_10, write10_cdb(0x1234_5678, 0x1234)),
+        ] {
+            let mut want = expected;
+            want[0] = op;
+            assert_eq!(cdb, want);
+        }
+    }
+
+    #[test]
+    fn read_write_16_cdb_encoding() {
+        #[rustfmt::skip]
+        let expected = [
+            0, 0,
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
+            0xDE, 0xAD, 0xBE, 0xEF,
+            0, 0,
+        ];
+        for (op, cdb) in [
+            (SCSI_READ_16, read16_cdb(0x0123_4567_89AB_CDEF, 0xDEAD_BEEF)),
+            (SCSI_WRITE_16, write16_cdb(0x0123_4567_89AB_CDEF, 0xDEAD_BEEF)),
+        ] {
+            let mut want = expected;
+            want[0] = op;
+            assert_eq!(cdb, want);
+        }
+    }
+}
