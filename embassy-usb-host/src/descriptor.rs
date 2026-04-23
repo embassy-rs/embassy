@@ -10,6 +10,10 @@ pub mod descriptor_type {
     pub const CONFIGURATION: u8 = 0x02;
     pub const INTERFACE: u8 = 0x04;
     pub const ENDPOINT: u8 = 0x05;
+
+    pub const INTERFACE_ASSOCIATION: u8 = 0x0B;
+    pub const CS_INTERFACE: u8 = 0x24;
+    pub const CS_ENDPOINT: u8 = 0x25;
 }
 
 pub type StringIndex = u8;
@@ -189,6 +193,46 @@ impl<'a> ConfigurationDescriptor<'a> {
             cfg_desc: self,
         }
     }
+
+    /// Iterate over all descriptors of this Configuration, passing to Visitor callbacks.
+    pub fn visit_descriptors<V: DescriptorVisitor<'a>>(&'a self, visitor: &mut V) {
+        visitor.on_configuration(self);
+
+        for (_, bytes) in self.iter_descriptors() {
+            if bytes.len() < 2 {
+                continue;
+            }
+            match bytes[1] {
+                descriptor_type::INTERFACE => {
+                    if let Ok(iface) = InterfaceDescriptor::try_from_bytes(bytes) {
+                        visitor.on_interface(&iface);
+                    }
+                }
+                descriptor_type::ENDPOINT => {
+                    if let Ok(ep) = EndpointDescriptor::try_from_bytes(bytes) {
+                        visitor.on_endpoint(&ep);
+                    }
+                }
+                _ => {
+                    visitor.on_other(bytes);
+                }
+            }
+        }
+    }
+}
+
+/// Callback-based visitor for a configuration's descriptor tree.                                                                                                                   
+/// Implement only the methods you care about.                                                                                                                                      
+pub trait DescriptorVisitor<'a> {
+    fn on_configuration(&mut self, _c: &ConfigurationDescriptor<'a>) {}
+
+    fn on_interface(&mut self, _i: &InterfaceDescriptor<'a>) {}
+    
+    fn on_endpoint(&mut self, _e: &EndpointDescriptor) {}
+    
+    /// Catches every sub-descriptor that isn't an endpoint:                                                                                                                        
+    /// CS_INTERFACE, CS_ENDPOINT, HID, vendor-specific, etc.                                                                                                                       
+    fn on_other(&mut self, _raw: &[u8]) {}
 }
 
 /// USB Interface Descriptor with a reference to the trailing sub-descriptor buffer.
@@ -406,11 +450,61 @@ impl From<EndpointDescriptor> for EndpointInfo {
     }
 }
 
-#[cfg(test)]
+//#[cfg(test)]
 mod test {
     use heapless::Vec;
 
-    use super::{ConfigurationDescriptor, EndpointDescriptor};
+    use super::{ConfigurationDescriptor, DescriptorVisitor, EndpointDescriptor, InterfaceDescriptor};
+
+    struct TestInterface<'a> {
+        interface: InterfaceDescriptor<'a>,
+        endpoints: Vec<EndpointDescriptor, 4>,
+    }
+
+    const MAX_INTERFACES: usize = 4;
+    const MAX_DESCRIPTOR_SIZE: usize = 256;
+    const MAX_OTHERS: usize = 8;
+
+    struct TestVisitor<'a> {
+        configuration: Option<ConfigurationDescriptor<'a>>,
+        interfaces: Vec<TestInterface<'a>, MAX_INTERFACES>,
+        others: Vec<Vec<u8, MAX_DESCRIPTOR_SIZE>, MAX_OTHERS>,
+    }
+
+    impl<'a> Default for TestVisitor<'a> {
+        fn default() -> Self {
+            Self {
+                configuration: None,
+                interfaces: Vec::new(),
+                others: Vec::new(),
+            }
+        }
+    }
+
+    impl<'a> DescriptorVisitor<'a> for TestVisitor<'a> {
+        fn on_configuration(&mut self, c: &ConfigurationDescriptor<'a>) {
+            assert!(self.configuration.is_none());
+            self.configuration = Some(*c);
+        }
+
+        fn on_interface(&mut self, i: &InterfaceDescriptor<'a>) {
+            assert!(self.configuration.is_some());
+            let _ = self.interfaces.push(TestInterface {
+                interface: *i,
+                endpoints: Vec::new(),
+            });
+        }
+
+        fn on_endpoint(&mut self, e: &EndpointDescriptor) {
+            assert!(!self.interfaces.is_empty());
+            let _ = self.interfaces.last_mut().unwrap().endpoints.push(*e);
+        }
+
+        fn on_other(&mut self, d: &[u8]) {
+            assert!(self.configuration.is_some());
+            let _ = self.others.push(Vec::from_slice(d).unwrap_or_default());
+        }
+    }
 
     #[test]
     fn test_parse_extended_endpoint_descriptor() {
@@ -464,5 +558,31 @@ mod test {
             9u8, 33, 16, 1, 0, 1, 34, 39, 0, 7, 5, 131, 3, 64, 0, 1, 7, 5, 3, 3, 64, 0, 1,
         ];
         assert_eq!(interface1.buffer.len(), interface1_buffer_ref.len());
+    }
+
+    #[test]
+    fn test_parse_visit_midi_descriptor() {
+        let desc_bytes = [
+            9, 2, 101, 0, 2, 1, 0, 128, 50, 9, 4, 0, 0, 0, 1, 1, 0, 0, 9, 36, 1, 0, 1, 9, 0, 1, 1, 9, 4, 1, 0, 2, 1, 3,
+            0, 0, 7, 36, 1, 0, 1, 65, 0, 6, 36, 2, 1, 1, 0, 6, 36, 2, 2, 2, 0, 9, 36, 3, 1, 3, 1, 2, 1, 0, 9, 36, 3, 2,
+            4, 1, 1, 1, 0, 9, 5, 2, 2, 32, 0, 0, 0, 0, 5, 37, 1, 1, 1, 9, 5, 129, 2, 32, 0, 0, 0, 0, 5, 37, 1, 1, 3,
+        ];
+
+        let cfg = ConfigurationDescriptor::try_from_slice(desc_bytes.as_slice()).unwrap();
+        assert_eq!(cfg.num_interfaces, 2);
+
+        let mut v = TestVisitor::default();
+        cfg.visit_descriptors(&mut v);
+
+        assert!(v.configuration.is_some());
+        assert_eq!(cfg.num_interfaces, 2);
+        assert_eq!(v.interfaces.len(), 2);
+        assert_eq!(v.interfaces[0].interface.interface_class, 1);
+        assert_eq!(v.interfaces[0].endpoints.len(), 0);       
+        assert_eq!(v.interfaces[1].endpoints.len(), 2);
+        assert_eq!(v.interfaces[1].endpoints[0].attributes, 2);
+        assert_eq!(v.interfaces[1].endpoints[0].endpoint_address, 0x02);
+        assert_eq!(v.interfaces[1].endpoints[1].endpoint_address, 0x81);
+        assert_eq!(v.others.len(), 8);
     }
 }
