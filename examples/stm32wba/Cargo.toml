@@ -47,6 +47,11 @@ required-features = ["ble"]
 name = "ble_gatt_server"
 required-features = ["ble"]
 
+[[bin]]
+name = "ble_dtm"
+required-features = ["ble"]
+
+
 [profile.release]
 debug = 2
 
