@@ -110,6 +110,11 @@ pub enum MscError {
     NoSuchLun,
     /// CDB length must be in `1..=16`.
     InvalidCdb,
+    /// The LUN's reported block size does not match the size requested
+    /// by the caller (e.g. the `SIZE` generic on a
+    /// [`block_device_driver::BlockDevice`] impl).
+    #[cfg(feature = "block-device-driver")]
+    BlockSizeMismatch,
 }
 
 impl From<PipeError> for MscError {
@@ -132,6 +137,8 @@ impl core::fmt::Display for MscError {
             Self::OutOfRange => write!(f, "LBA out of range"),
             Self::NoSuchLun => write!(f, "No such LUN"),
             Self::InvalidCdb => write!(f, "Invalid CDB length"),
+            #[cfg(feature = "block-device-driver")]
+            Self::BlockSizeMismatch => write!(f, "Block size mismatch"),
         }
     }
 }
@@ -1079,6 +1086,89 @@ where
         let cdb = [SCSI_SYNCHRONIZE_CACHE_10, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         self.run(&cdb, DataDir::None).await?;
         Ok(())
+    }
+
+    /// Wrap this LUN as a [`block_device_driver::BlockDevice`].
+    ///
+    /// `ALIGN` selects the alignment of the caller's block buffers
+    /// (must divide `SIZE`). The `SIZE` const generic on the trait
+    /// impl is the block size in bytes; it is checked against the
+    /// LUN's reported block size on every call and
+    /// [`MscError::BlockSizeMismatch`] is returned on mismatch.
+    #[cfg(feature = "block-device-driver")]
+    pub fn as_block_device<ALIGN>(&mut self) -> MscBlockDevice<'_, 'dev, 'd, A, M, ALIGN>
+    where
+        ALIGN: aligned::Alignment,
+    {
+        MscBlockDevice {
+            lun: self,
+            _align: PhantomData,
+        }
+    }
+}
+
+// --------------------------------------------------------------------------
+// block-device-driver integration.
+// --------------------------------------------------------------------------
+
+/// [`block_device_driver::BlockDevice`] adapter for an [`MscLun`].
+///
+/// Constructed by [`MscLun::as_block_device`]. The `ALIGN` type
+/// parameter picks the buffer alignment required by the caller (for
+/// example the DMA alignment of the downstream consumer). The
+/// `BlockDevice` trait is implemented for every `SIZE` — the LUN's
+/// reported block size is validated on every call.
+#[cfg(feature = "block-device-driver")]
+pub struct MscBlockDevice<'lun, 'dev, 'd, A, M, ALIGN>
+where
+    A: UsbHostAllocator<'d>,
+    M: RawMutex,
+    ALIGN: aligned::Alignment,
+{
+    lun: &'lun mut MscLun<'dev, 'd, A, M>,
+    _align: PhantomData<fn() -> ALIGN>,
+}
+
+#[cfg(feature = "block-device-driver")]
+impl<'lun, 'dev, 'd, A, M, ALIGN, const SIZE: usize> block_device_driver::BlockDevice<SIZE>
+    for MscBlockDevice<'lun, 'dev, 'd, A, M, ALIGN>
+where
+    A: UsbHostAllocator<'d>,
+    M: RawMutex,
+    ALIGN: aligned::Alignment,
+{
+    type Error = MscError;
+    type Align = ALIGN;
+
+    async fn read(
+        &mut self,
+        block_address: u32,
+        data: &mut [aligned::Aligned<ALIGN, [u8; SIZE]>],
+    ) -> Result<(), MscError> {
+        let cap = self.lun.capacity().await?;
+        if cap.block_size as usize != SIZE {
+            return Err(MscError::BlockSizeMismatch);
+        }
+        let bytes = block_device_driver::blocks_to_slice_mut(data);
+        self.lun.read_blocks(block_address as u64, bytes).await
+    }
+
+    async fn write(
+        &mut self,
+        block_address: u32,
+        data: &[aligned::Aligned<ALIGN, [u8; SIZE]>],
+    ) -> Result<(), MscError> {
+        let cap = self.lun.capacity().await?;
+        if cap.block_size as usize != SIZE {
+            return Err(MscError::BlockSizeMismatch);
+        }
+        let bytes = block_device_driver::blocks_to_slice(data);
+        self.lun.write_blocks(block_address as u64, bytes).await
+    }
+
+    async fn size(&mut self) -> Result<u64, MscError> {
+        let cap = self.lun.capacity().await?;
+        Ok(cap.block_count.saturating_mul(cap.block_size as u64))
     }
 }
 
