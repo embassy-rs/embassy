@@ -6,16 +6,15 @@ license = "MIT OR Apache-2.0"
 description = "Collection of utilities to use `embedded-hal` and `embedded-storage` traits with Embassy."
 repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/embassy-embedded-hal"
-categories = [
-    "embedded",
-    "no-std",
-    "asynchronous",
-]
+categories = ["embedded", "no-std", "asynchronous"]
 
 [package.metadata.embassy]
 build = [
-    {target = "thumbv7em-none-eabi", features = []},
-    {target = "thumbv7em-none-eabi", features = ["time"]},
+    { target = "thumbv7em-none-eabi", features = [
+    ] },
+    { target = "thumbv7em-none-eabi", features = [
+        "time",
+    ] },
 ]
 
 
@@ -47,3 +46,7 @@ defmt = { version = "1.0.1", optional = true }
 [dev-dependencies]
 critical-section = { version = "1.1.1", features = ["std"] }
 futures-test = "0.3.17"
+
+[patch.crates-io]
+embedded-hal = { git = "https://github.com/rust-embedded/embedded-hal" }
+embedded-hal-async = { git = "https://github.com/rust-embedded/embedded-hal" }
