@@ -30,7 +30,7 @@ use embassy_stm32::time::Hertz;
 use embassy_stm32::{Config, bind_interrupts, exti, interrupt};
 use embassy_stm32_wpan::hci::command::{le_receiver_test, le_test_end, le_transmitter_test};
 use embassy_stm32_wpan::hci::types::DtmPacketPayload;
-use embassy_stm32_wpan::{Ble, run_radio_high_isr, run_radio_sw_low_isr};
+use embassy_stm32_wpan::{Ble, HighInterruptHandler, LowInterruptHandler};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time::Timer;
@@ -52,19 +52,9 @@ const DTM_TEST_DURATION_SECS: u64 = 10;
 bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<RNG>;
     EXTI13 => exti::InterruptHandler<interrupt::typelevel::EXTI13>;
+    RADIO => HighInterruptHandler;
+    HASH => LowInterruptHandler;
 });
-
-// RADIO interrupt handler - required for BLE stack operation
-#[interrupt]
-unsafe fn RADIO() {
-    unsafe { run_radio_high_isr() };
-}
-
-// HASH interrupt handler - used as software low-priority interrupt for BLE
-#[interrupt]
-unsafe fn HASH() {
-    unsafe { run_radio_sw_low_isr() };
-}
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -132,7 +122,7 @@ async fn main(_spawner: Spawner) {
     info!("Hardware peripherals initialized (RNG)");
 
     // Initialize BLE-DTM stack
-    let mut ble = Ble::new_dtm(rng);
+    let mut ble = Ble::new_dtm(rng, Irqs);
     ble.dtm_init().expect("DTM init failed");
 
     // DTM packet interval is 625 µs (1 BLE slot) per Vol 6, Part F, Section 4.1.6.

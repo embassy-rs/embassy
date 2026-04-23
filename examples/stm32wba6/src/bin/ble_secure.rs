@@ -33,14 +33,14 @@ use embassy_stm32::rcc::{
 };
 use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{Config, bind_interrupts, interrupt};
+use embassy_stm32::{Config, bind_interrupts};
 use embassy_stm32_wpan::gap::{AdvData, AdvParams, AdvType, GapEvent};
 use embassy_stm32_wpan::gatt::{CharProperties, GattEventMask, GattServer, SecurityPermissions, ServiceType, Uuid};
 use embassy_stm32_wpan::hci::event::EventParams;
 use embassy_stm32_wpan::security::{
     PairingFailureReason, PairingStatus, SecureConnectionsSupport, SecurityManager, SecurityParams,
 };
-use embassy_stm32_wpan::{Ble, ble_runner, run_radio_high_isr, run_radio_sw_low_isr};
+use embassy_stm32_wpan::{Ble, HighInterruptHandler, LowInterruptHandler, ble_runner};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use static_cell::StaticCell;
@@ -50,24 +50,14 @@ bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<RNG>;
     AES => aes::InterruptHandler<AES>;
     PKA => pka::InterruptHandler<PKA>;
+    RADIO => HighInterruptHandler;
+    HASH => LowInterruptHandler;
 });
 
 /// Custom service UUID
 const SECURE_SERVICE_UUID: u16 = 0xABCD;
 /// Characteristic that requires encryption
 const SECURE_CHAR_UUID: u16 = 0xABCE;
-
-// RADIO interrupt handler - required for BLE stack operation
-#[interrupt]
-unsafe fn RADIO() {
-    unsafe { run_radio_high_isr() };
-}
-
-// HASH interrupt handler - used as software low-priority interrupt for BLE
-#[interrupt]
-unsafe fn HASH() {
-    unsafe { run_radio_sw_low_isr() };
-}
 
 /// BLE runner task - drives the BLE stack sequencer
 #[embassy_executor::task]
@@ -142,7 +132,7 @@ async fn main(spawner: Spawner) {
     info!("Hardware peripherals initialized (RNG, AES, PKA)");
 
     // Initialize BLE stack
-    let mut ble = Ble::new(rng, aes, pka);
+    let mut ble = Ble::new(rng, aes, pka, Irqs);
     ble.init().expect("BLE initialization failed");
     info!("BLE stack initialized");
 

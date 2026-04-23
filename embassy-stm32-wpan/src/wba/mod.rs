@@ -16,8 +16,8 @@ pub mod security;
 pub mod util_seq;
 
 // Re-export main types
-pub use ble::{Ble, VersionInfo};
+pub use ble::{Ble, HighInterruptHandler, LowInterruptHandler, VersionInfo};
 pub use error::BleError;
 pub use gap_init::{GapInitParams, GapRole, IoCapability, PhyPrefs, SecurityParams};
-pub use linklayer_plat::{run_radio_high_isr, run_radio_sw_low_isr, set_nvm_base_address};
+pub use linklayer_plat::set_nvm_base_address;
 pub use runner::ble_runner;

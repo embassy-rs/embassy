@@ -7,6 +7,7 @@ use core::cell::RefCell;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use embassy_stm32::aes::Aes;
+use embassy_stm32::interrupt;
 use embassy_stm32::mode::Blocking;
 use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph, RNG};
 use embassy_stm32::pka::Pka;
@@ -14,7 +15,7 @@ use embassy_stm32::rng::Rng;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
-use crate::linklayer_plat::{HARDWARE_AES, HARDWARE_PKA, HARDWARE_RNG};
+use crate::linklayer_plat::{HARDWARE_AES, HARDWARE_PKA, HARDWARE_RNG, run_radio_high_isr, run_radio_sw_low_isr};
 use crate::runner::register_ble_tasks;
 use crate::wba::error::BleError;
 use crate::wba::gap::Advertiser;
@@ -28,6 +29,24 @@ use crate::wba::hci::command::CommandSender;
 use crate::wba::hci::event::{Event, EventParams, read_event};
 use crate::wba::hci::types::{Address, Handle, Status};
 use crate::wba::ll_sys::init_ble_stack;
+
+/// High interrupt handler.
+pub struct HighInterruptHandler {}
+
+impl interrupt::typelevel::Handler<interrupt::typelevel::RADIO> for HighInterruptHandler {
+    unsafe fn on_interrupt() {
+        run_radio_high_isr();
+    }
+}
+
+/// Low interrupt handler.
+pub struct LowInterruptHandler {}
+
+impl interrupt::typelevel::Handler<interrupt::typelevel::HASH> for LowInterruptHandler {
+    unsafe fn on_interrupt() {
+        run_radio_sw_low_isr();
+    }
+}
 
 /// Main BLE interface
 ///
@@ -75,6 +94,8 @@ impl Ble {
         rng: &'static Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>,
         aes: &'static Mutex<CriticalSectionRawMutex, RefCell<Aes<'static, AesPeriph, Blocking>>>,
         pka: &'static Mutex<CriticalSectionRawMutex, RefCell<Pka<'static, PkaPeriph>>>,
+        _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::RADIO, HighInterruptHandler>
+        + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
     ) -> Self {
         unsafe {
             HARDWARE_RNG.replace(rng);
@@ -94,7 +115,11 @@ impl Ble {
     /// Only RNG is required; AES and PKA are left unset. Use this for FCC DTM
     /// (TX test, RX test, tone) where no pairing or crypto is used. Do not use
     /// for full BLE (advertising, connections, GATT) as those require AES/PKA.
-    pub fn new_dtm(rng: &'static Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>) -> Self {
+    pub fn new_dtm(
+        rng: &'static Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>,
+        _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::RADIO, HighInterruptHandler>
+        + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
+    ) -> Self {
         unsafe {
             HARDWARE_RNG.replace(rng);
             // HARDWARE_AES and HARDWARE_PKA remain None

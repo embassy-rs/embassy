@@ -590,7 +590,7 @@ fn set_basepri_max(value: u8) {
     }
 }
 
-pub unsafe fn run_radio_high_isr() {
+pub(crate) unsafe fn run_radio_high_isr() {
     trace!("RADIO ISR: callback={:?}", load_callback(&RADIO_CALLBACK).is_some());
     if let Some(cb) = load_callback(&RADIO_CALLBACK) {
         cb();
@@ -599,7 +599,7 @@ pub unsafe fn run_radio_high_isr() {
     super::runner::on_radio_interrupt();
 }
 
-pub unsafe fn run_radio_sw_low_isr() {
+pub(crate) unsafe fn run_radio_sw_low_isr() {
     trace!(
         "HASH ISR (sw low): callback={:?}",
         load_callback(&LOW_ISR_CALLBACK).is_some()
