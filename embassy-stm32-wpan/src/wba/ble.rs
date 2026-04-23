@@ -15,6 +15,7 @@ use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
 use crate::linklayer_plat::{HARDWARE_AES, HARDWARE_PKA, HARDWARE_RNG};
+use crate::runner::register_ble_tasks;
 use crate::wba::error::BleError;
 use crate::wba::gap::Advertiser;
 use crate::wba::gap::connection::{
@@ -276,6 +277,47 @@ impl Ble {
     /// Check if the BLE stack is initialized
     pub fn is_initialized(&self) -> bool {
         self.initialized.load(Ordering::Acquire)
+    }
+
+    /// Initialize the BLE stack for Direct Test Mode (DTM) only.
+    ///
+    /// Performs the minimum initialization required before issuing DTM commands
+    /// (HCI_LE_Transmitter_Test, HCI_LE_Receiver_Test, HCI_LE_Test_End).
+    /// Does not initialize GATT or GAP — those layers are not used in DTM.
+    ///
+    /// Must be used with `Ble::new_dtm()`.
+    pub fn dtm_init(&mut self) -> Result<(), BleError> {
+        if self.is_initialized() {
+            return Ok(());
+        }
+
+        init_ble_stack().map_err(|_| BleError::InitializationFailed)?;
+        register_ble_tasks();
+
+        self.cmd_sender.reset()?;
+
+        let version = self.cmd_sender.read_local_version()?;
+        #[cfg(feature = "defmt")]
+        defmt::info!(
+            "BLE Controller: HCI Version {}.{}, Manufacturer: 0x{:04X}",
+            version.hci_version >> 4,
+            version.hci_version & 0x0F,
+            version.manufacturer_name
+        );
+
+        if let Err(e) = self.cmd_sender.set_event_mask(0xFFFF_FFFF_FFFF_FFFF) {
+            #[cfg(feature = "defmt")]
+            defmt::warn!("set_event_mask failed: {:?}", e);
+        }
+        if let Err(e) = self.cmd_sender.le_set_event_mask(0xFFFF_FFFF_FFFF_FFFF) {
+            #[cfg(feature = "defmt")]
+            defmt::warn!("le_set_event_mask failed: {:?}", e);
+        }
+
+        self.initialized.store(true, Ordering::Release);
+        #[cfg(feature = "defmt")]
+        defmt::info!("BLE stack initialized for DTM");
+        Ok(())
     }
 
     /// Set a random address for the device
