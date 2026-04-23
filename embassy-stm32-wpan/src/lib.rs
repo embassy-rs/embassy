@@ -18,6 +18,9 @@
 // #![warn(missing_docs)]
 #![allow(static_mut_refs)] // TODO: Fix
 
+// This mod MUST go first, so that the others see its macros.
+pub(crate) mod fmt;
+
 #[cfg(feature = "wb55")]
 mod wb55;
 

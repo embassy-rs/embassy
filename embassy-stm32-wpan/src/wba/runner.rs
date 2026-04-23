@@ -94,6 +94,15 @@ fn ble_stack_cb_process() {
 /// Whether the link layer init has been completed
 static LL_INIT_COMPLETED: AtomicBool = AtomicBool::new(false);
 
+/// Whether runner init has been completed
+// static RUNNER_INIT_COMPLETED: AtomicBool = AtomicBool::new(false);
+
+/// Whether ble init has been completed
+// static BLE_INIT_COMPLETED: AtomicBool = AtomicBool::new(false);
+
+/// Ble init waker
+// static BLE_INIT_WAKER: AtomicWaker = AtomicWaker::new();
+
 /// Signal to wake the runner loop (set by radio ISR and event callbacks)
 pub(crate) static BLE_WAKER: AtomicWaker = AtomicWaker::new();
 
@@ -150,21 +159,18 @@ pub fn schedule_ble_host_task() {
 /// }
 /// ```
 pub async fn ble_runner() -> ! {
-    #[cfg(feature = "defmt")]
-    defmt::info!("BLE runner started");
+    info!("BLE runner started");
 
     // Mark that the runner has started (BLE init is now done via init_ble_stack())
     if !LL_INIT_COMPLETED.load(Ordering::Acquire) {
-        #[cfg(feature = "defmt")]
-        defmt::trace!("BLE runner: first run, initializing sequencer context");
+        trace!("BLE runner: first run, initializing sequencer context");
 
         // Do one context switch to initialize the sequencer
         util_seq::seq_resume();
 
         LL_INIT_COMPLETED.store(true, Ordering::Release);
 
-        #[cfg(feature = "defmt")]
-        defmt::trace!("BLE runner: sequencer context initialized");
+        trace!("BLE runner: sequencer context initialized");
     }
 
     // Schedule the initial tasks and kick the BLE stack.
