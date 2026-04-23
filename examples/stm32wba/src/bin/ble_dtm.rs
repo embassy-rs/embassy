@@ -6,10 +6,14 @@
 //!  - Change DTM_MODE to DtmMode::Tx on one board, DtmMode::Rx on the other
 //!  - Both boards must use the same DTM_CHANNEL
 //!  - Flash both, observe defmt logs
-//!  - TX board logs packet count while running
-//!  - RX board reports received packet count after DTM_TEST_DURATION_SECS
+//!  - Press USER button (B1) on each board when ready to start
+//!  - RX board reports received packet count and PER after DTM_TEST_DURATION_SECS
 //!
 //! Hardware: STM32WBA55CG (Nucleo-WBA55CG)
+//!
+//! Note: The BLE runner task is not needed for DTM. DTM commands are synchronous
+//! HCI calls handled directly by the controller. The RADIO and HASH interrupt
+//! handlers are sufficient to drive the link layer.
 
 #![no_std]
 #![no_main]
@@ -18,15 +22,15 @@ use core::cell::RefCell;
 
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_stm32::exti::ExtiInput;
+use embassy_stm32::gpio::Pull;
 use embassy_stm32::peripherals::RNG;
 use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{Config, bind_interrupts, interrupt};
-use embassy_stm32_wpan::hci::command::{
-    aci_hal_tx_test_packet_number, le_receiver_test, le_test_end, le_transmitter_test,
-};
+use embassy_stm32::{Config, bind_interrupts, exti, interrupt};
+use embassy_stm32_wpan::hci::command::{le_receiver_test, le_test_end, le_transmitter_test};
 use embassy_stm32_wpan::hci::types::DtmPacketPayload;
-use embassy_stm32_wpan::{Ble, ble_runner, run_radio_high_isr, run_radio_sw_low_isr};
+use embassy_stm32_wpan::{Ble, run_radio_high_isr, run_radio_sw_low_isr};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time::Timer;
@@ -34,7 +38,6 @@ use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 // ---- Test configuration ----
-// Change these to configure the test
 #[allow(dead_code)]
 enum DtmMode {
     Tx,
@@ -48,6 +51,7 @@ const DTM_TEST_DURATION_SECS: u64 = 10;
 
 bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<RNG>;
+    EXTI13 => exti::InterruptHandler<interrupt::typelevel::EXTI13>;
 });
 
 // RADIO interrupt handler - required for BLE stack operation
@@ -62,14 +66,8 @@ unsafe fn HASH() {
     unsafe { run_radio_sw_low_isr() };
 }
 
-/// BLE runner task - drives the BLE stack sequencer
-#[embassy_executor::task]
-async fn ble_runner_task() {
-    ble_runner().await
-}
-
 #[embassy_executor::main]
-async fn main(spawner: Spawner) {
+async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     {
         use embassy_stm32::rcc::*;
@@ -116,9 +114,18 @@ async fn main(spawner: Spawner) {
         RCC.bdcr().modify(|w| w.set_radiostsel(Radiostsel::Lse));
     }
 
-    info!("Embassy STM32WBA BLE DTM (Direct Test Mode) Example");
+    let mut button = ExtiInput::new(p.PC13, p.EXTI13, Pull::Up, Irqs);
 
-    // Initialize hardware peripherals required
+    info!("Embassy STM32WBA BLE DTM Example");
+    match DTM_MODE {
+        DtmMode::Tx => info!("Mode: TX"),
+        DtmMode::Rx => info!("Mode: RX"),
+    }
+
+    info!("Press USER button (B1) to start...");
+    button.wait_for_falling_edge().await;
+    info!("Button pressed — initialising BLE");
+
     static RNG_INST: StaticCell<Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>> = StaticCell::new();
     let rng = RNG_INST.init(Mutex::new(RefCell::new(Rng::new(p.RNG, Irqs))));
 
@@ -128,40 +135,43 @@ async fn main(spawner: Spawner) {
     let mut ble = Ble::new_dtm(rng);
     ble.dtm_init().expect("DTM init failed");
 
-    // Spawn the BLE runner task (required for proper BLE operation)
-    spawner.spawn(ble_runner_task().expect("Failed to spawn BLE runner"));
-    embassy_futures::yield_now().await;
+    // DTM packet interval is 625 µs (1 BLE slot) per Vol 6, Part F, Section 4.1.6.
+    // Expected packets = duration_s × (1_000_000 µs/s ÷ 625 µs/packet) = duration_s × 1600.
+    let expected: u32 = DTM_TEST_DURATION_SECS as u32 * 1_000_000 / 625;
 
     match DTM_MODE {
         DtmMode::Tx => {
+            let freq_mhz = 2402 + 2 * DTM_CHANNEL as u32;
             info!(
-                "Starting DTM TX on channel {} ({}MHz), {} byte payload, PRBS9",
-                DTM_CHANNEL,
-                2402 + 2 * DTM_CHANNEL as u32,
-                DTM_DATA_LENGTH
+                "DTM TX: channel {} ({}MHz), {} byte payload, PRBS9, {}s",
+                DTM_CHANNEL, freq_mhz, DTM_DATA_LENGTH, DTM_TEST_DURATION_SECS
+            );
+            // BLE spec Vol 6 Part F §3.4.2: TX packet count is always 0 by spec.
+            // Expected rate: ~1600 packets/s (625 µs interval).
+            info!(
+                "Expected ~{} packets over {}s (~1600 packets/s at 625us interval)",
+                expected, DTM_TEST_DURATION_SECS
             );
 
             le_transmitter_test(DTM_CHANNEL, DTM_DATA_LENGTH, DtmPacketPayload::Prbs9).expect("DTM TX start failed");
 
-            for elapsed in 1..=DTM_TEST_DURATION_SECS {
-                Timer::after_secs(1).await;
-                match aci_hal_tx_test_packet_number() {
-                    Ok(n) => info!("  {}s: {} TX packets sent", elapsed, n),
-                    Err(e) => warn!("  packet count unavailable: {:?}", e),
-                }
-            }
+            Timer::after_secs(DTM_TEST_DURATION_SECS).await;
 
             match le_test_end() {
-                Ok(_) => info!("DTM TX test ended"),
+                Ok(_) => info!("DTM TX test ended after {}s", DTM_TEST_DURATION_SECS),
                 Err(e) => error!("le_test_end failed: {:?}", e),
             }
         }
 
         DtmMode::Rx => {
+            let freq_mhz = 2402 + 2 * DTM_CHANNEL as u32;
             info!(
-                "Starting DTM RX on channel {} ({}MHz)",
-                DTM_CHANNEL,
-                2402 + 2 * DTM_CHANNEL as u32
+                "DTM RX: channel {} ({}MHz), {}s",
+                DTM_CHANNEL, freq_mhz, DTM_TEST_DURATION_SECS
+            );
+            info!(
+                "Expected ~{} packets over {}s (~1600 packets/s at 625us interval)",
+                expected, DTM_TEST_DURATION_SECS
             );
 
             le_receiver_test(DTM_CHANNEL).expect("DTM RX start failed");
@@ -169,7 +179,23 @@ async fn main(spawner: Spawner) {
             Timer::after_secs(DTM_TEST_DURATION_SECS).await;
 
             match le_test_end() {
-                Ok(n) => info!("DTM RX test ended: {} packets received", n),
+                Ok(received) => {
+                    let received = received as u32;
+                    // Packet Error Rate = lost / expected × 100
+                    // lost = expected − received (clamped to 0 if received > expected)
+                    let lost = expected.saturating_sub(received);
+                    let per_pct = lost * 100 / expected;
+                    let per_frac = (lost * 10000 / expected) % 100;
+                    info!("--- DTM RX Results ---");
+                    info!("  Expected : {} packets", expected);
+                    info!("  Received : {} packets", received);
+                    info!("  Lost     : {} packets", lost);
+                    info!("  PER      : {}.{:02}%  (lost/expected × 100)", per_pct, per_frac);
+                    info!(
+                        "  Math     : {} / {} × 100 = {}.{:02}%",
+                        lost, expected, per_pct, per_frac
+                    );
+                }
                 Err(e) => error!("le_test_end failed: {:?}", e),
             }
         }
