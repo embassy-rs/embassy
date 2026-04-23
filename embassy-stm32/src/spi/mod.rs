@@ -1376,11 +1376,6 @@ fn finish_dma(regs: Regs) {
     #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
     while regs.sr().read().bsy() {}
 
-    // Disable the spi peripheral
-    regs.cr1().modify(|w| {
-        w.set_spe(false);
-    });
-
     // The peripheral automatically disables the DMA stream on completion without error,
     // but it does not clear the RXDMAEN/TXDMAEN flag in CR2.
     #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
