@@ -123,6 +123,25 @@ unsafe extern "C" {
 
     #[link_name = "HCI_LE_SET_DATA_LENGTH"]
     fn hci_le_set_data_length(connection_handle: u16, tx_octets: u16, tx_time: u16) -> tBleStatus;
+
+    // DTM — Direct Test Mode commands
+    #[link_name = "HCI_LE_RECEIVER_TEST"]
+    fn hci_le_receiver_test(rx_channel: u8) -> tBleStatus;
+
+    #[link_name = "HCI_LE_RECEIVER_TEST_V2"]
+    fn hci_le_receiver_test_v2(rx_channel: u8, phy: u8, modulation_index: u8) -> tBleStatus;
+
+    #[link_name = "HCI_LE_TRANSMITTER_TEST"]
+    fn hci_le_transmitter_test(tx_channel: u8, test_data_length: u8, packet_payload: u8) -> tBleStatus;
+
+    #[link_name = "HCI_LE_TRANSMITTER_TEST_V2"]
+    fn hci_le_transmitter_test_v2(tx_channel: u8, test_data_length: u8, packet_payload: u8, phy: u8) -> tBleStatus;
+
+    #[link_name = "HCI_LE_TEST_END"]
+    fn hci_le_test_end(num_packets: *mut u16) -> tBleStatus;
+
+    #[link_name = "ACI_HAL_LE_TX_TEST_PACKET_NUMBER"]
+    fn aci_hal_le_tx_test_packet_number(num_packets: *mut u32) -> tBleStatus;
 }
 
 /// BLE Success status code
@@ -556,5 +575,90 @@ impl CommandSender {
 impl Default for CommandSender {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Start a DTM receiver test on the given channel (v1, 1M PHY).
+///
+/// `rx_channel`: 0–39. Frequency = 2402 + (2 × N) MHz.
+/// Call `le_test_end()` to stop and read the received packet count.
+pub fn le_receiver_test(rx_channel: u8) -> Result<(), BleError> {
+    let status = unsafe { hci_le_receiver_test(rx_channel) };
+    if status == BLE_STATUS_SUCCESS {
+        Ok(())
+    } else {
+        Err(BleError::CommandFailed(super::types::Status::from_u8(status)))
+    }
+}
+
+/// Start a DTM receiver test with PHY selection (v2).
+///
+/// `modulation_index`: 0x00 = standard, 0x01 = stable.
+pub fn le_receiver_test_v2(rx_channel: u8, phy: super::types::DtmRxPhy, modulation_index: u8) -> Result<(), BleError> {
+    let status = unsafe { hci_le_receiver_test_v2(rx_channel, phy as u8, modulation_index) };
+    if status == BLE_STATUS_SUCCESS {
+        Ok(())
+    } else {
+        Err(BleError::CommandFailed(super::types::Status::from_u8(status)))
+    }
+}
+
+/// Start a DTM transmitter test (v1, 1M PHY).
+///
+/// `tx_channel`: 0–39. Frequency = 2402 + (2 × N) MHz.
+/// `test_data_length`: payload bytes per packet, 0–255.
+pub fn le_transmitter_test(
+    tx_channel: u8,
+    test_data_length: u8,
+    packet_payload: super::types::DtmPacketPayload,
+) -> Result<(), BleError> {
+    let status = unsafe { hci_le_transmitter_test(tx_channel, test_data_length, packet_payload as u8) };
+    if status == BLE_STATUS_SUCCESS {
+        Ok(())
+    } else {
+        Err(BleError::CommandFailed(super::types::Status::from_u8(status)))
+    }
+}
+
+/// Start a DTM transmitter test with PHY selection (v2).
+pub fn le_transmitter_test_v2(
+    tx_channel: u8,
+    test_data_length: u8,
+    packet_payload: super::types::DtmPacketPayload,
+    phy: super::types::DtmTxPhy,
+) -> Result<(), BleError> {
+    let status = unsafe { hci_le_transmitter_test_v2(tx_channel, test_data_length, packet_payload as u8, phy as u8) };
+    if status == BLE_STATUS_SUCCESS {
+        Ok(())
+    } else {
+        Err(BleError::CommandFailed(super::types::Status::from_u8(status)))
+    }
+}
+
+/// End a DTM test and return the received packet count.
+///
+/// For a **receiver** test: returns the number of packets received.
+/// For a **transmitter** test: always returns 0 (per BLE spec Vol 4 Part E §7.8.30).
+pub fn le_test_end() -> Result<u16, BleError> {
+    let mut num_packets: u16 = 0;
+    let status = unsafe { hci_le_test_end(&mut num_packets) };
+    if status == BLE_STATUS_SUCCESS {
+        Ok(num_packets)
+    } else {
+        Err(BleError::CommandFailed(super::types::Status::from_u8(status)))
+    }
+}
+
+/// Read the number of TX packets sent during an active transmitter test.
+///
+/// ST proprietary command. Call this while the test is running to monitor
+/// progress without ending the test.
+pub fn aci_hal_tx_test_packet_number() -> Result<u32, BleError> {
+    let mut num_packets: u32 = 0;
+    let status = unsafe { aci_hal_le_tx_test_packet_number(&mut num_packets) };
+    if status == BLE_STATUS_SUCCESS {
+        Ok(num_packets)
+    } else {
+        Err(BleError::CommandFailed(super::types::Status::from_u8(status)))
     }
 }
