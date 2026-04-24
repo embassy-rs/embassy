@@ -274,6 +274,38 @@ pub trait DescriptorVisitor<'a> {
     }
 }
 
+/// [`A DescriptorVisitor`] that just logs the descriptors to the debug stream
+pub struct ShowDescriptors;
+
+impl<'a> DescriptorVisitor<'a> for ShowDescriptors {
+    type Error = core::convert::Infallible;
+
+    fn on_configuration(&mut self, c: &ConfigurationDescriptor) -> bool {
+        debug!("{:?}", c);
+        true
+    }
+    fn on_interface(&mut self, i: &InterfaceDescriptor) -> bool {
+        debug!("  {:?}", i);
+        true
+    }
+    fn on_endpoint(&mut self, _i: &InterfaceDescriptor, e: &EndpointDescriptor) -> bool {
+        debug!("    {:?}", e);
+        true
+    }
+    fn on_other(&mut self, _i: Option<&InterfaceDescriptor>, d: &[u8]) -> Result<bool, Self::Error> {
+        let dlen = d[0];
+        let dtype = d[1];
+        let domain = match dtype & 0x60 {
+            0x00 => "standard",
+            0x20 => "class",
+            0x40 => "vendor",
+            _ => "reserved",
+        };
+        debug!("  {} type 0x{:02X} len {}", domain, dtype, dlen);
+        Ok(true)
+    }
+}
+
 /// USB Interface Descriptor with a reference to the trailing sub-descriptor buffer.
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -497,6 +529,7 @@ mod test {
     use heapless::Vec;
 
     use super::{ConfigurationDescriptor, DescriptorVisitor, EndpointDescriptor, InterfaceDescriptor};
+    use crate::descriptor::ShowDescriptors;
 
     struct TestInterface<'a> {
         interface: InterfaceDescriptor<'a>,
@@ -610,6 +643,8 @@ mod test {
 
     #[test]
     fn test_parse_visit_midi_descriptor() {
+        let _ = env_logger::builder().is_test(true).try_init();
+
         let desc_bytes = [
             9, 2, 101, 0, 2, 1, 0, 128, 50, 9, 4, 0, 0, 0, 1, 1, 0, 0, 9, 36, 1, 0, 1, 9, 0, 1, 1, 9, 4, 1, 0, 2, 1, 3,
             0, 0, 7, 36, 1, 0, 1, 65, 0, 6, 36, 2, 1, 1, 0, 6, 36, 2, 2, 2, 0, 9, 36, 3, 1, 3, 1, 2, 1, 0, 9, 36, 3, 2,
@@ -632,5 +667,8 @@ mod test {
         assert_eq!(v.interfaces[1].endpoints[0].endpoint_address, 0x02);
         assert_eq!(v.interfaces[1].endpoints[1].endpoint_address, 0x81);
         assert_eq!(v.others.len(), 8);
+
+        let mut sv = ShowDescriptors {};
+        cfg.visit_descriptors(&mut sv).unwrap();
     }
 }

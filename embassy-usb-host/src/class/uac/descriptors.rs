@@ -1293,7 +1293,7 @@ mod test {
     #[test]
     fn test_parse() {
         // Initialize logger
-        env_logger::init();
+        let _ = env_logger::try_init();
 
         let mut buffer: [u8; 512] = [0; 512];
         let descriptors = [
