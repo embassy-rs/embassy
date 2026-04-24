@@ -104,9 +104,6 @@ pub(crate) static RUNNER_INIT: AtomicBool = AtomicBool::new(false);
 /// Ble init waker
 pub(crate) static BLE_INIT_WAKER: AtomicWaker = AtomicWaker::new();
 
-/// Signal to wake the runner loop (set by radio ISR and event callbacks)
-pub(crate) static BLE_WAKER: AtomicWaker = AtomicWaker::new();
-
 /// Register BLE stack tasks with the sequencer.
 ///
 /// Registers BleStack_Process_BG as a sequencer task, matching the C pattern:
@@ -126,7 +123,6 @@ pub fn register_ble_tasks() {
 /// Call this after HCI events arrive or whenever BLE stack processing is needed.
 pub fn schedule_ble_host_task() {
     ble_stack_cb_process();
-    BLE_WAKER.wake();
 
     trace!("BLE Host task scheduled");
 }

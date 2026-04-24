@@ -20,10 +20,20 @@ struct PacketBuffer<const N: usize> {
 }
 
 impl<const N: usize> PacketBuffer<N> {
+    /// Create a new `PacketBuffer`
+    pub const fn new() -> Self {
+        Self {
+            start: 0,
+            wrap: 0,
+            end: 0,
+            buffer: [0u8; N],
+        }
+    }
+
     /// Write a packet with a given length. This method will
     /// return `None` if there is not enough space available.
     #[allow(dead_code)]
-    pub fn write_packet<'a>(&'a mut self, len: u16) -> Option<&'a mut [u8]> {
+    pub fn try_write_packet<'a>(&'a mut self, len: u16) -> Option<&'a mut [u8]> {
         let header = len.to_le_bytes();
         let size: usize = len as usize + size_of::<u16>();
         let needs_wrap = self.end + size > N;
@@ -57,7 +67,7 @@ impl<const N: usize> PacketBuffer<N> {
     /// Read a packet with a given length. This method will
     /// return `None` if there is nothing to read
     #[allow(dead_code)]
-    pub fn read_packet<'a>(&'a mut self) -> Option<&'a [u8]> {
+    pub fn try_read_packet<'a>(&'a mut self) -> Option<&'a [u8]> {
         if self.start == 0 && self.end == 0 {
             None
         } else {
@@ -72,6 +82,10 @@ impl<const N: usize> PacketBuffer<N> {
             let buf = unsafe { slice::from_raw_parts(buf.as_ptr(), len.into()) };
 
             self.start += size;
+            if self.start == self.wrap {
+                // Move start to buffer len to allow use of the full buffer space
+                self.start = N;
+            }
             if self.start == self.end {
                 // Reset only in the empty condition in order to disambiguate buffer full
                 self.start = 0;
