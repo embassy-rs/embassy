@@ -10,6 +10,7 @@ pub mod linklayer_plat;
 pub mod ll_sys;
 pub mod ll_sys_if;
 pub mod mac_sys_if;
+pub mod packet_buffer;
 pub mod power_table;
 pub mod runner;
 pub mod security;
