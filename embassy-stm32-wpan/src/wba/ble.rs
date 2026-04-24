@@ -261,6 +261,38 @@ impl Ble {
         Ok(())
     }
 
+    /// Fully tear down the BLE stack so that `Ble::new()` can be safely called again.
+    ///
+    /// Terminates all connections, resets the HCI controller (which resets the radio
+    /// hardware to its initial state), and zeroes the host stack memory buffers so
+    /// `init_ble_stack()` can reinitialize cleanly on the next `Ble::new()` call.
+    ///
+    /// After this returns, call `Ble::new().await` to reinitialize, then rebuild
+    /// any GATT services and restart advertising.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(())` on success
+    /// - `Err(BleError)` if the HCI reset failed
+    pub fn deinit(&mut self) -> Result<(), BleError> {
+        // Terminate all active connections cleanly
+        for conn in self.connections.iter() {
+            // 0x16 = "local host terminated connection"
+            let _ = self.cmd_sender.disconnect(conn.handle.0, 0x16);
+        }
+
+        // Reset the HCI controller — this resets the radio hardware to its
+        // initial state, which is required before re-calling init_ble_stack().
+        self.cmd_sender.reset()?;
+
+        // Zero host stack buffers and reset the one-time LL init guard so
+        // init_ble_stack() → BleStack_Init() can run cleanly on next Ble::new().
+        crate::wba::ll_sys::reset_ble_stack();
+
+        self.is_advertising = false;
+        Ok(())
+    }
+
     /// Create a BLE instance for Direct Test Mode (DTM) only.
     ///
     /// Only RNG is required; AES and PKA are left unset. Use this for FCC DTM
@@ -397,32 +429,11 @@ impl Ble {
         crate::wba::gap::advertiser::update_scan_rsp_data(&self.cmd_sender, &scan_rsp_data)
     }
 
-    /// Prepare the BLE stack for Direct Test Mode (DTM).
-    ///
-    /// Stops any active advertising and terminates all connections so the
-    /// link layer is idle and ready to accept DTM commands. After this
-    /// returns, issue DTM commands via `dtm_transmit()` or `dtm_receive()`,
-    /// then call `dtm_end()` to retrieve results and `start_advertising()`
-    /// to resume normal BLE operation.
-    ///
-    /// # Returns
-    ///
-    /// - `Ok(())` if the LL is now idle and ready for DTM
-    /// - `Err(BleError)` if stopping advertising or disconnecting failed
-    pub async fn prepare_for_dtm(&mut self) -> Result<(), BleError> {
-        self.stop_advertising().await?;
-
-        for conn in self.connections.iter() {
-            // 0x16 = "local host terminated connection"
-            let _ = self.cmd_sender.disconnect(conn.handle.0, 0x16);
-        }
-        Ok(())
-    }
 
     /// Start a DTM transmitter test on the given channel.
     ///
     /// Transmits test packets continuously until `dtm_end()` is called.
-    /// Must call `prepare_for_dtm()` first to ensure the LL is idle.
+    /// Call `Ble::deinit()` then `Ble::new_dtm()` first to ensure the LL is idle.
     ///
     /// `channel`: 0–39, maps to 2402 + (2 × N) MHz.
     /// `length`: payload bytes per packet, 0–255.
@@ -439,7 +450,7 @@ impl Ble {
     /// Start a DTM receiver test on the given channel.
     ///
     /// Counts received test packets until `dtm_end()` is called.
-    /// Must call `prepare_for_dtm()` first to ensure the LL is idle.
+    /// Call `Ble::deinit()` then `Ble::new_dtm()` first to ensure the LL is idle.
     ///
     /// `channel`: 0–39, maps to 2402 + (2 × N) MHz.
     pub fn dtm_receive(&mut self, channel: u8) -> Result<(), BleError> {

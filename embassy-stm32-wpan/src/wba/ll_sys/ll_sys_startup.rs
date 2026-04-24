@@ -52,6 +52,8 @@ use crate::bindings::mac::ST_MAC_preInit;
  */
 static mut MISSED_HCI_EVENT_FLAG: u8 = 0;
 
+static mut IS_LL_INITIALIZED: u8 = 0;
+
 // static void ll_sys_dependencies_init(void);
 // #if SUPPORT_BLE
 
@@ -367,7 +369,6 @@ unsafe extern "C" fn ll_sys_thread_init() {
  * @retval None
  */
 unsafe fn ll_sys_dependencies_init() {
-    static mut IS_LL_INITIALIZED: u8 = 0;
     let dp_slp_status: ll_sys_status_t;
 
     #[cfg(feature = "defmt")]
@@ -405,4 +406,20 @@ unsafe fn ll_sys_dependencies_init() {
     ll_sys_config_params();
     #[cfg(feature = "defmt")]
     defmt::trace!("ll_sys_dependencies_init: ll_sys_config_params done");
+}
+
+/// Reset all BLE host stack state so that `init_ble_stack()` can safely run again.
+///
+/// Zeros the static memory buffers passed to `BleStack_Init()` and resets
+/// `IS_LL_INITIALIZED` so `ll_sys_dependencies_init()` re-registers the link
+/// layer background task on the next call. Must only be called after the BLE
+/// controller has been reset via `HCI_Reset`.
+#[cfg(feature = "wba_ble")]
+pub(crate) fn reset_ble_stack() {
+    unsafe {
+        IS_LL_INITIALIZED = 0;
+        ble_buffers::DYN_ALLOC_BUFFER.0.fill(0);
+        ble_buffers::GATT_BUFFER.0.fill(0);
+        ble_buffers::NVM_CACHE_BUFFER.0.fill(0);
+    }
 }
