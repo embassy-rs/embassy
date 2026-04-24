@@ -185,7 +185,7 @@ async fn main(spawner: Spawner) {
     // Start advertising
     ble.start_advertising(adv_params, adv_data, None)
                 .await
-        .expect("Failed to start advertising")
+        .expect("Failed to start advertising");
 
     info!("BLE advertising started!");
     info!("Device is visible as 'Embassy-WBA6'");
