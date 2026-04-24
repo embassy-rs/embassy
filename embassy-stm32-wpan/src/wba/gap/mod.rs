@@ -6,12 +6,11 @@
 //! - Connection management (central/peripheral roles)
 
 pub mod aci_gap;
-pub mod advertiser;
+pub(crate) mod advertiser;
 pub mod connection;
 pub mod scanner;
 pub mod types;
 
-pub use advertiser::Advertiser;
 pub use connection::{
     Connection, ConnectionInitParams, ConnectionManager, ConnectionParams, ConnectionRole, DisconnectReason, GapEvent,
     LePhy, MAX_CONNECTIONS,

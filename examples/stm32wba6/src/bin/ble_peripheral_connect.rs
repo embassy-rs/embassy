@@ -175,9 +175,8 @@ async fn main(spawner: Spawner) {
 
     // Start advertising
     {
-        let mut advertiser = ble.advertiser();
-        advertiser
-            .start(adv_params.clone(), adv_data.clone(), None)
+        ble.start_advertising(adv_params.clone(), adv_data.clone(), None)
+            .await
             .expect("Failed to start advertising");
     }
 
@@ -236,7 +235,7 @@ async fn main(spawner: Spawner) {
                     // Restart advertising after disconnection.
                     // Advertising parameters are still configured, just re-enable.
                     info!("Restarting advertising...");
-                    match embassy_stm32_wpan::hci::command::le_set_advertising_enable(true) {
+                    match ble.start_advertising(adv_params.clone(), adv_data.clone(), None).await {
                         Ok(()) => info!("Advertising restarted"),
                         Err(e) => error!("Failed to restart advertising: {:?}", e),
                     }

@@ -20,16 +20,16 @@ use crate::gatt::server::init_gatt_layer;
 use crate::linklayer_plat::{HARDWARE_AES, HARDWARE_PKA, HARDWARE_RNG, run_radio_high_isr, run_radio_sw_low_isr};
 use crate::runner::{BLE_INIT_COMPLETED, BLE_INIT_WAKER, RUNNER_INIT, register_ble_tasks};
 use crate::wba::error::BleError;
-use crate::wba::gap::Advertiser;
 use crate::wba::gap::connection::{
     Connection, ConnectionInitParams, ConnectionManager, ConnectionRole, DisconnectReason, GapEvent, LePhy,
     MAX_CONNECTIONS,
 };
 use crate::wba::gap::scanner::Scanner;
+use crate::wba::gap::types::{AdvData, AdvParams};
 use crate::wba::gap_init::{GapInitParams, init_gap_and_hal};
 use crate::wba::hci::command::CommandSender;
 use crate::wba::hci::event::{Event, EventParams, read_event};
-use crate::wba::hci::types::{Address, Handle, Status};
+use crate::wba::hci::types::{Address, DtmPacketPayload, Handle, Status};
 use crate::wba::ll_sys::init_ble_stack;
 
 /// High interrupt handler.
@@ -65,10 +65,8 @@ pub struct Runtime {
 /// ```no_run
 /// use embassy_stm32_wpan::wba::{Ble, gap::{AdvData, AdvParams}};
 ///
-/// let mut ble = Ble::new();
-///
-/// // Initialize BLE stack
-/// ble.init().await.unwrap();
+/// // Initialize BLE stack (runner must be spawned first)
+/// let (mut ble, runtime) = Ble::new(rng, aes, pka, irqs).await.unwrap();
 ///
 /// // Create advertising data
 /// let mut adv_data = AdvData::new();
@@ -76,8 +74,7 @@ pub struct Runtime {
 /// adv_data.add_name("MyDevice").unwrap();
 ///
 /// // Start advertising
-/// let mut advertiser = ble.advertiser();
-/// advertiser.start(AdvParams::default(), adv_data, None).unwrap();
+/// ble.start_advertising(AdvParams::default(), adv_data, None).await.unwrap();
 ///
 /// // Event loop
 /// loop {
@@ -88,6 +85,7 @@ pub struct Runtime {
 pub struct Ble {
     cmd_sender: CommandSender,
     connections: ConnectionManager<MAX_CONNECTIONS>,
+    is_advertising: bool,
 }
 
 impl Ble {
@@ -120,6 +118,7 @@ impl Ble {
         let mut this = Self {
             cmd_sender: CommandSender::new(),
             connections: ConnectionManager::new(),
+            is_advertising: false,
         };
 
         this.init()?;
@@ -261,6 +260,38 @@ impl Ble {
         Ok(())
     }
 
+    /// Fully tear down the BLE stack so that `Ble::new()` can be safely called again.
+    ///
+    /// Terminates all connections, resets the HCI controller (which resets the radio
+    /// hardware to its initial state), and zeroes the host stack memory buffers so
+    /// `init_ble_stack()` can reinitialize cleanly on the next `Ble::new()` call.
+    ///
+    /// After this returns, call `Ble::new().await` to reinitialize, then rebuild
+    /// any GATT services and restart advertising.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(())` on success
+    /// - `Err(BleError)` if the HCI reset failed
+    pub fn deinit(&mut self) -> Result<(), BleError> {
+        // Terminate all active connections cleanly
+        for conn in self.connections.iter() {
+            // 0x16 = "local host terminated connection"
+            let _ = self.cmd_sender.disconnect(conn.handle.0, 0x16);
+        }
+
+        // Reset the HCI controller — this resets the radio hardware to its
+        // initial state, which is required before re-calling init_ble_stack().
+        self.cmd_sender.reset()?;
+
+        // Zero host stack buffers and reset the one-time LL init guard so
+        // init_ble_stack() → BleStack_Init() can run cleanly on next Ble::new().
+        crate::wba::ll_sys::reset_ble_stack();
+
+        self.is_advertising = false;
+        Ok(())
+    }
+
     /// Create a BLE instance for Direct Test Mode (DTM) only.
     ///
     /// Only RNG is required; AES and PKA are left unset. Use this for FCC DTM
@@ -283,6 +314,7 @@ impl Ble {
         let mut this = Self {
             cmd_sender: CommandSender::new(),
             connections: ConnectionManager::new(),
+            is_advertising: false,
         };
 
         this.dtm_init()?;
@@ -322,6 +354,110 @@ impl Ble {
         Ok(())
     }
 
+    /// /// Start advertising
+    ///
+    /// # Parameters
+    ///
+    /// - `params`: Advertising parameters (interval, type, address type, etc.)
+    /// - `adv_data`: Advertising data (up to 31 bytes)
+    /// - `scan_rsp_data`: Optional scan response data (up to 31 bytes)
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(())` if advertising started successfully
+    /// - `Err(BleError)` if an error occurred
+    ///
+    /// # Notes
+    ///
+    /// This function will stop any ongoing advertising before starting new advertising.
+    pub async fn start_advertising(
+        &mut self,
+        params: AdvParams,
+        adv_data: AdvData,
+        scan_rsp_data: Option<AdvData>,
+    ) -> Result<(), BleError> {
+        if self.is_advertising {
+            self.stop_advertising().await?;
+        }
+
+        // Configure host-stack advertising parameters and data
+        crate::wba::gap::advertiser::configure(&params, &adv_data, scan_rsp_data.as_ref())?;
+
+        // Enable LL advertising
+        self.cmd_sender.le_set_advertise_enable(true)?;
+        yield_now().await;
+
+        self.is_advertising = true;
+        Ok(())
+    }
+
+    /// Stop advertising
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(())` if advertising stopped successfully
+    /// - `Err(BleError)` if an error occurred
+    pub async fn stop_advertising(&mut self) -> Result<(), BleError> {
+        if !self.is_advertising {
+            return Ok(());
+        }
+
+        // Disable LL advertising
+        self.cmd_sender.le_set_advertise_enable(false)?;
+        yield_now().await;
+
+        // Remove advertising configuration from the host stack
+        crate::wba::gap::advertiser::unconfigure()?;
+
+        self.is_advertising = false;
+        Ok(())
+    }
+
+    /// Check if currently advertising
+    pub fn is_advertising(&self) -> bool {
+        self.is_advertising
+    }
+
+    /// Update advertising data without stopping advertising.
+    pub fn update_adv_data(&mut self, adv_data: AdvData) -> Result<(), BleError> {
+        crate::wba::gap::advertiser::update_adv_data(&self.cmd_sender, &adv_data)
+    }
+
+    /// Update scan response data without stopping advertising.
+    pub fn update_scan_rsp_data(&mut self, scan_rsp_data: AdvData) -> Result<(), BleError> {
+        crate::wba::gap::advertiser::update_scan_rsp_data(&self.cmd_sender, &scan_rsp_data)
+    }
+
+    /// Start a DTM transmitter test on the given channel.
+    ///
+    /// Transmits test packets continuously until `dtm_end()` is called.
+    /// Call `Ble::deinit()` then `Ble::new_dtm()` first to ensure the LL is idle.
+    ///
+    /// `channel`: 0–39, maps to 2402 + (2 × N) MHz.
+    /// `length`: payload bytes per packet, 0–255.
+    /// `payload`: bit pattern to transmit.
+    pub fn dtm_transmit(&mut self, channel: u8, length: u8, payload: DtmPacketPayload) -> Result<(), BleError> {
+        crate::wba::hci::command::le_transmitter_test(self, channel, length, payload)
+    }
+
+    /// Start a DTM receiver test on the given channel.
+    ///
+    /// Counts received test packets until `dtm_end()` is called.
+    /// Call `Ble::deinit()` then `Ble::new_dtm()` first to ensure the LL is idle.
+    ///
+    /// `channel`: 0–39, maps to 2402 + (2 × N) MHz.
+    pub fn dtm_receive(&mut self, channel: u8) -> Result<(), BleError> {
+        crate::wba::hci::command::le_receiver_test(self, channel)
+    }
+
+    /// End a DTM test and return the received packet count.
+    ///
+    /// For a receiver test: returns the number of packets received.
+    /// For a transmitter test: always returns 0 per BLE spec Vol 4 Part E §7.8.30.
+    pub fn dtm_end(&mut self) -> Result<u16, BleError> {
+        crate::wba::hci::command::le_test_end()
+    }
+
     /// Set a random address for the device
     ///
     /// This must be called before advertising with OwnAddressType::Random.
@@ -339,19 +475,6 @@ impl Ble {
     /// This allows direct access to HCI commands for advanced use cases.
     pub fn command_sender(&self) -> &CommandSender {
         &self.cmd_sender
-    }
-
-    /// Create an advertiser
-    ///
-    /// # Returns
-    ///
-    /// An `Advertiser` instance that can be used to start/stop BLE advertising.
-    ///
-    /// # Note
-    ///
-    /// The BLE stack must be initialized before creating an advertiser.
-    pub fn advertiser(&self) -> Advertiser<'_> {
-        Advertiser::new(&self.cmd_sender)
     }
 
     /// Create a scanner
@@ -509,6 +632,8 @@ impl Ble {
                             stored_conn.update_phy(LePhy::from_u8(tx_phy), LePhy::from_u8(rx_phy));
                         }
                     }
+                    // LL stops advertising automatically on connection
+                    self.is_advertising = false;
                     Some(GapEvent::Connected(conn))
                 } else {
                     None
@@ -547,6 +672,8 @@ impl Ble {
                             stored_conn.update_phy(LePhy::from_u8(tx_phy), LePhy::from_u8(rx_phy));
                         }
                     }
+                    // LL stops advertising automatically on connection
+                    self.is_advertising = false;
                     Some(GapEvent::Connected(conn))
                 } else {
                     None
