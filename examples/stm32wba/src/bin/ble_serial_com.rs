@@ -329,6 +329,7 @@ async fn main(spawner: Spawner) {
         let mut advertiser = ble.advertiser();
         advertiser
             .start(adv_params.clone(), adv_data.clone(), Some(scan_rsp.clone()))
+            .await
             .expect("Failed to start advertising");
     }
 
