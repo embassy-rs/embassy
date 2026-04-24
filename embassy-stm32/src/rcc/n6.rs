@@ -586,7 +586,7 @@ fn enable_low_power_peripherals() {
         w.set_csilpen(true);
         w.set_venclpen(true);
         w.set_gfxtimlpen(true);
-        w.set_dcmilpen(true);
+        w.set_dcmipplpen(true);
         w.set_ltdclpen(true);
     });
 
@@ -1327,6 +1327,7 @@ pub(crate) unsafe fn init(config: Config) {
         hclk3: Some(clocks.ahb),
         hclk4: Some(clocks.ahb),
         hclk5: Some(clocks.ahb),
+        hclku: None,
         pclk1: Some(clocks.apb1),
         pclk2: Some(clocks.apb2),
         pclk1_tim: Some(clocks.pclk_tim),

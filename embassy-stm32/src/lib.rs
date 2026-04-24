@@ -140,7 +140,12 @@ pub mod rtc;
 pub mod saes;
 #[cfg(sai)]
 pub mod sai;
-#[cfg(sdmmc)]
+// TODO: sdmmc_v3 (STM32N6) has a structurally different register block (fifothrr
+// replacing fifor, idmabar/idmabaser/idmalar replacing `id`, `ver` removed, and
+// many field-level diffs). Proper v3 support needs a dedicated port; until then
+// the driver is gated to v1/v2 only and the generated pin-trait impls for v3
+// are suppressed in `build.rs`.
+#[cfg(any(sdmmc_v1, sdmmc_v2))]
 pub mod sdmmc;
 #[cfg(spdifrx)]
 pub mod spdifrx;
