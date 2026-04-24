@@ -326,9 +326,7 @@ async fn main(spawner: Spawner) {
 
     // Start advertising
     {
-        let mut advertiser = ble.advertiser();
-        advertiser
-            .start(adv_params.clone(), adv_data.clone(), Some(scan_rsp.clone()))
+        ble.start_advertising(adv_params.clone(), adv_data.clone(), Some(scan_rsp.clone()))
             .await
             .expect("Failed to start advertising");
     }
@@ -377,10 +375,7 @@ async fn main(spawner: Spawner) {
                     state.tx_notifications_enabled = false;
 
                     // Restart advertising
-                    let mut advertiser = ble.advertiser();
-                    let _ = advertiser
-                        .start(adv_params.clone(), adv_data.clone(), Some(scan_rsp.clone()))
-                        .await;
+                    ble.start_advertising(adv_params.clone(), adv_data.clone(), Some(scan_rsp.clone())).await.expect("Failed to start advertising");
                     info!("Advertising restarted");
                 }
                 _ => {}

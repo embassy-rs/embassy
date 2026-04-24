@@ -212,9 +212,7 @@ async fn main(spawner: Spawner) {
 
     // Start advertising
     {
-        let mut advertiser = ble.advertiser();
-        advertiser
-            .start(adv_params.clone(), create_adv_data(), None)
+        ble.start_advertising(adv_params.clone(), create_adv_data(), None)
             .await
             .expect("Failed to start advertising");
     }
@@ -253,8 +251,8 @@ async fn main(spawner: Spawner) {
                     info!("  Handle: 0x{:04X}, Reason: 0x{:02X}", handle.0, reason);
 
                     // Restart advertising
-                    let mut advertiser = ble.advertiser();
-                    let _ = advertiser.start(adv_params.clone(), create_adv_data(), None).await;
+                    ble.start_advertising.start(adv_params.clone(), create_adv_data(), None).await
+            .expect("Failed to start advertising");
                     info!("Advertising restarted");
                 }
 

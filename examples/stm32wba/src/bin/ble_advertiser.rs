@@ -122,7 +122,7 @@ async fn main(spawner: Spawner) {
     spawner.spawn(ble_runner_task().expect("Failed to spawn BLE runner"));
 
     // Initialize BLE stack
-    let (ble, runtime) = Ble::new(rng, aes, pka, Irqs).await.expect("BLE initialization failed");
+    let (mut ble, runtime) = Ble::new(rng, aes, pka, Irqs).await.expect("BLE initialization failed");
     info!("BLE stack initialized");
 
     // Initialize GATT server
@@ -180,9 +180,7 @@ async fn main(spawner: Spawner) {
     };
 
     // Start advertising
-    let mut advertiser = ble.advertiser();
-    advertiser
-        .start(adv_params, adv_data, None)
+    ble.start_advertising(adv_params, adv_data, None)
         .await
         .expect("Failed to start advertising");
 

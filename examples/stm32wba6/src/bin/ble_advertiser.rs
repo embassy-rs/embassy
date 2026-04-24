@@ -183,11 +183,9 @@ async fn main(spawner: Spawner) {
     };
 
     // Start advertising
-    let mut advertiser = ble.advertiser();
-    advertiser
-        .start(adv_params, adv_data, None)
+    ble.start_advertising(adv_params, adv_data, None)
                 .await
-        .expect("Failed to start advertising");
+        .expect("Failed to start advertising")
 
     info!("BLE advertising started!");
     info!("Device is visible as 'Embassy-WBA6'");
