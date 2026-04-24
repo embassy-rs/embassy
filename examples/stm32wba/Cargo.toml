@@ -51,6 +51,10 @@ required-features = ["ble"]
 name = "ble_dtm"
 required-features = ["ble"]
 
+[[bin]]
+name = "ble_dtm_runtime"
+required-features = ["ble"]
+
 
 [profile.release]
 debug = 2
