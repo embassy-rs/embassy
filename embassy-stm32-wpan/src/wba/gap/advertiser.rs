@@ -4,7 +4,7 @@ use embassy_futures::yield_now;
 
 use super::types::{AdvData, AdvParams, AdvType};
 use crate::wba::error::BleError;
-use crate::wba::hci::command::{CommandSender, le_set_advertising_enable};
+use crate::wba::hci::command::CommandSender;
 
 /// BLE Advertiser
 ///
@@ -106,7 +106,7 @@ impl<'d> Advertiser<'d> {
             service_uuid_bytes,
         )?;
 
-        le_set_advertising_enable(true)?;
+        self.cmd.le_set_advertise_enable(true)?;
         yield_now().await;
 
         self.is_advertising = true;
@@ -125,7 +125,7 @@ impl<'d> Advertiser<'d> {
             return Ok(());
         }
 
-        le_set_advertising_enable(false)?;
+        self.cmd.le_set_advertise_enable(false)?;
         yield_now().await;
 
         // Use aci_gap_set_non_discoverable - the high-level ACI command
