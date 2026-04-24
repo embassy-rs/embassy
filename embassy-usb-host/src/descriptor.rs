@@ -28,6 +28,16 @@ pub enum DescriptorError {
     UnexpectedEndOfBuffer,
 }
 
+/// Error returned by [`ConfigurationDescriptor::visit_descriptors`].
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum VisitError<E> {
+    /// An interface or endpoint descriptor in the configuration buffer was malformed.
+    BadDescriptor,
+    /// The visitor itself returned an error.
+    Visitor(E),
+}
+
 /// Trait for fixed-size USB descriptors that can be parsed from a byte slice.
 pub trait USBDescriptor {
     const SIZE: usize;
@@ -195,9 +205,9 @@ impl<'a> ConfigurationDescriptor<'a> {
     }
 
     /// Iterate over all descriptors of this Configuration, passing to Visitor callbacks.
-    /// Returns `Ok(())` on completion (including early stop via `Ok(false)`), or `Err(e)` on error.
-    pub fn visit_descriptors<V: DescriptorVisitor<'a>>(&self, visitor: &mut V) -> Result<(), V::Error> {
-        if !visitor.on_configuration(self)? {
+    /// Returns `Ok(())` on completion (including early stop), or `Err(e)` on error.
+    pub fn visit_descriptors<V: DescriptorVisitor<'a>>(&self, visitor: &mut V) -> Result<(), VisitError<V::Error>> {
+        if !visitor.on_configuration(self) {
             return Ok(());
         }
         let mut current_iface: Option<InterfaceDescriptor<'a>> = None;
@@ -207,22 +217,25 @@ impl<'a> ConfigurationDescriptor<'a> {
             }
             match bytes[1] {
                 descriptor_type::INTERFACE => {
-                    if let Ok(iface) = InterfaceDescriptor::try_from_bytes(bytes) {
-                        current_iface = Some(iface);
-                        if !visitor.on_interface(&iface)? {
-                            return Ok(());
-                        }
+                    let iface = InterfaceDescriptor::try_from_bytes(bytes).map_err(|_| VisitError::BadDescriptor)?;
+                    current_iface = Some(iface);
+                    if !visitor.on_interface(&iface) {
+                        return Ok(());
                     }
                 }
                 descriptor_type::ENDPOINT => {
-                    if let (Some(iface), Ok(ep)) = (current_iface.as_ref(), EndpointDescriptor::try_from_bytes(bytes)) {
-                        if !visitor.on_endpoint(iface, &ep)? {
+                    let ep = EndpointDescriptor::try_from_bytes(bytes).map_err(|_| VisitError::BadDescriptor)?;
+                    if let Some(iface) = current_iface.as_ref() {
+                        if !visitor.on_endpoint(iface, &ep) {
                             return Ok(());
                         }
                     }
                 }
                 _ => {
-                    if !visitor.on_other(current_iface.as_ref(), bytes)? {
+                    if !visitor
+                        .on_other(current_iface.as_ref(), bytes)
+                        .map_err(VisitError::Visitor)?
+                    {
                         return Ok(());
                     }
                 }
@@ -233,25 +246,29 @@ impl<'a> ConfigurationDescriptor<'a> {
 }
 
 /// Callback-based visitor for a configuration's descriptor tree.
+///
 /// Implement only the methods you care about.
-/// Return `Ok(false)` to stop iteration early without an error, or `Err(e)` to stop with one.
 pub trait DescriptorVisitor<'a> {
     type Error;
 
-    fn on_configuration(&mut self, _c: &ConfigurationDescriptor<'a>) -> Result<bool, Self::Error> {
-        Ok(true)
+    /// Return `false` to stop iteration early
+    fn on_configuration(&mut self, _c: &ConfigurationDescriptor<'a>) -> bool {
+        true
     }
 
-    fn on_interface(&mut self, _i: &InterfaceDescriptor<'a>) -> Result<bool, Self::Error> {
-        Ok(true)
+    /// Return `false` to stop iteration early
+    fn on_interface(&mut self, _i: &InterfaceDescriptor<'a>) -> bool {
+        true
     }
 
-    fn on_endpoint(&mut self, _iface: &InterfaceDescriptor<'a>, _e: &EndpointDescriptor) -> Result<bool, Self::Error> {
-        Ok(true)
+    /// Return `false` to stop iteration early
+    fn on_endpoint(&mut self, _iface: &InterfaceDescriptor<'a>, _e: &EndpointDescriptor) -> bool {
+        true
     }
 
     /// Catches every sub-descriptor that isn't an interface or endpoint:
     /// CS_INTERFACE, CS_ENDPOINT, HID, vendor-specific, etc.
+    /// Return `Ok(false)` to stop iteration early without an error, or `Err(e)` to stop with one.
     fn on_other(&mut self, _iface: Option<&InterfaceDescriptor<'a>>, _raw: &[u8]) -> Result<bool, Self::Error> {
         Ok(true)
     }
@@ -509,29 +526,25 @@ mod test {
     impl<'a> DescriptorVisitor<'a> for TestVisitor<'a> {
         type Error = core::convert::Infallible;
 
-        fn on_configuration(&mut self, c: &ConfigurationDescriptor<'a>) -> Result<bool, Self::Error> {
+        fn on_configuration(&mut self, c: &ConfigurationDescriptor<'a>) -> bool {
             assert!(self.configuration.is_none());
             self.configuration = Some(*c);
-            Ok(true)
+            true
         }
 
-        fn on_interface(&mut self, i: &InterfaceDescriptor<'a>) -> Result<bool, Self::Error> {
+        fn on_interface(&mut self, i: &InterfaceDescriptor<'a>) -> bool {
             assert!(self.configuration.is_some());
             let _ = self.interfaces.push(TestInterface {
                 interface: *i,
                 endpoints: Vec::new(),
             });
-            Ok(true)
+            true
         }
 
-        fn on_endpoint(
-            &mut self,
-            _iface: &InterfaceDescriptor<'a>,
-            e: &EndpointDescriptor,
-        ) -> Result<bool, Self::Error> {
+        fn on_endpoint(&mut self, _iface: &InterfaceDescriptor<'a>, e: &EndpointDescriptor) -> bool {
             assert!(!self.interfaces.is_empty());
             let _ = self.interfaces.last_mut().unwrap().endpoints.push(*e);
-            Ok(true)
+            true
         }
 
         fn on_other(&mut self, _iface: Option<&InterfaceDescriptor<'a>>, d: &[u8]) -> Result<bool, Self::Error> {
@@ -607,7 +620,7 @@ mod test {
         assert_eq!(cfg.num_interfaces, 2);
 
         let mut v = TestVisitor::default();
-        cfg.visit_descriptors(&mut v);
+        cfg.visit_descriptors(&mut v).unwrap();
 
         assert!(v.configuration.is_some());
         assert_eq!(cfg.num_interfaces, 2);

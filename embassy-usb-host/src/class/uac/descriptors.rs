@@ -7,7 +7,7 @@ use super::codes::*;
 use crate::descriptor::descriptor_type::{CS_ENDPOINT, CS_INTERFACE, INTERFACE_ASSOCIATION};
 use crate::descriptor::{
     ConfigurationDescriptor, DescriptorVisitor, EndpointDescriptor, InterfaceDescriptor as GenericInterfaceDescriptor,
-    StringIndex, USBDescriptor,
+    StringIndex, USBDescriptor, VisitError,
 };
 
 const MAX_AUDIO_STREAMING_INTERFACES: usize = 16;
@@ -56,6 +56,7 @@ struct AudioCollectionBuilder {
     interfaces: Vec<InterfaceDescriptor, MAX_ALTERNATE_SETTINGS>,
     control: Option<AudioControlInterface>,
     streaming: Vec<AudioStreamingInterface, MAX_AUDIO_STREAMING_INTERFACES>,
+    error: Option<AudioInterfaceError>,
 }
 
 impl AudioCollectionBuilder {
@@ -65,10 +66,14 @@ impl AudioCollectionBuilder {
             interfaces: Vec::new(),
             control: None,
             streaming: Vec::new(),
+            error: None,
         }
     }
 
     fn build(self) -> Result<AudioInterfaceCollection, AudioInterfaceError> {
+        if let Some(e) = self.error {
+            return Err(e);
+        }
         Ok(AudioInterfaceCollection {
             interface_association_descriptor: self.iad.ok_or(AudioInterfaceError::NoAudioConfiguration)?,
             control_interface: self.control.ok_or(AudioInterfaceError::MissingControlInterface)?,
@@ -80,17 +85,17 @@ impl AudioCollectionBuilder {
 impl<'a> DescriptorVisitor<'a> for AudioCollectionBuilder {
     type Error = AudioInterfaceError;
 
-    fn on_interface(&mut self, iface: &GenericInterfaceDescriptor<'a>) -> Result<bool, Self::Error> {
+    fn on_interface(&mut self, iface: &GenericInterfaceDescriptor<'a>) -> bool {
         let Some(ref iad) = self.iad else {
-            return Ok(true);
+            return true;
         };
 
         if iface.interface_number >= iad.first_interface + iad.num_interfaces {
-            return Ok(false); // stop iteration
+            return false; // stop iteration
         }
 
         if iface.interface_class != interface::AUDIO {
-            return Ok(true); // ignore
+            return true; // ignore
         }
 
         if iface.interface_protocol != function_protocol::AF_VERSION_02_00 {
@@ -98,17 +103,18 @@ impl<'a> DescriptorVisitor<'a> for AudioCollectionBuilder {
                 "Skipping interface with unsupported protocol: {:#04x}",
                 iface.interface_protocol
             );
-            return Ok(true);
+            return true;
         }
 
         match iface.interface_subclass {
             interface::subclass::AUDIOCONTROL => {
                 if self.control.is_some() {
                     warn!("Audio Control Interface already parsed, skipping");
-                    return Ok(true);
+                    return true;
                 }
                 if !self.interfaces.is_empty() {
-                    return Err(AudioInterfaceError::MissingAudioStreamingClassDescriptor);
+                    self.error = Some(AudioInterfaceError::MissingAudioStreamingClassDescriptor);
+                    return false;
                 }
                 trace!("Processing Audio Control Interface");
                 self.interfaces = Vec::from_slice(&[InterfaceDescriptor::from(iface)]).unwrap();
@@ -119,16 +125,18 @@ impl<'a> DescriptorVisitor<'a> for AudioCollectionBuilder {
                     .first()
                     .is_some_and(|i| i.interface_number == iface.interface_number);
                 if is_alternate {
-                    self.interfaces
-                        .push(InterfaceDescriptor::from(iface))
-                        .map_err(|_| AudioInterfaceError::BufferFull("Too many interfaces"))?;
-                    return Ok(true);
+                    if self.interfaces.push(InterfaceDescriptor::from(iface)).is_err() {
+                        self.error = Some(AudioInterfaceError::BufferFull("Too many interfaces"));
+                        return false;
+                    }
+                    return true;
                 }
                 if !self.interfaces.is_empty() {
-                    return Err(match self.interfaces[0].interface_subclass {
+                    self.error = Some(match self.interfaces[0].interface_subclass {
                         interface::subclass::AUDIOCONTROL => AudioInterfaceError::MissingControlInterfaceHeader,
                         _ => AudioInterfaceError::MissingAudioStreamingClassDescriptor,
                     });
+                    return false;
                 }
                 trace!("Processing Audio Streaming Interface");
                 self.interfaces = Vec::from_slice(&[InterfaceDescriptor::from(iface)]).unwrap();
@@ -137,14 +145,10 @@ impl<'a> DescriptorVisitor<'a> for AudioCollectionBuilder {
                 trace!("Skipping unknown audio subclass: {:#04x}", iface.interface_subclass);
             }
         }
-        Ok(true)
+        true
     }
 
-    fn on_endpoint(
-        &mut self,
-        iface: &GenericInterfaceDescriptor<'a>,
-        ep: &EndpointDescriptor,
-    ) -> Result<bool, Self::Error> {
+    fn on_endpoint(&mut self, iface: &GenericInterfaceDescriptor<'a>, ep: &EndpointDescriptor) -> bool {
         match iface.interface_subclass {
             interface::subclass::AUDIOSTREAMING => {
                 if let Some(si) = self.streaming.last_mut() {
@@ -162,7 +166,7 @@ impl<'a> DescriptorVisitor<'a> for AudioCollectionBuilder {
             }
             _ => {}
         }
-        Ok(true)
+        true
     }
 
     fn on_other(&mut self, _iface: Option<&GenericInterfaceDescriptor<'a>>, raw: &[u8]) -> Result<bool, Self::Error> {
@@ -239,7 +243,10 @@ impl AudioInterfaceCollection {
     /// Returns an [`AudioInterfaceCollection`] on success, or an [`AudioInterfaceError`] if parsing fails.
     pub fn try_from_configuration(cfg: &ConfigurationDescriptor) -> Result<Self, AudioInterfaceError> {
         let mut builder = AudioCollectionBuilder::new();
-        cfg.visit_descriptors(&mut builder)?;
+        cfg.visit_descriptors(&mut builder).map_err(|e| match e {
+            VisitError::BadDescriptor => AudioInterfaceError::InvalidDescriptor,
+            VisitError::Visitor(e) => e,
+        })?;
         builder.build()
     }
 }
