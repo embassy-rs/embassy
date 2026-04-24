@@ -7,7 +7,7 @@
 //! - Button can be pressed again to run another test
 //!
 //! This contrasts with ble_dtm.rs which uses new_dtm() for a dedicated
-//! DTM-only device. This example shows prepare_for_dtm() / dtm_end() / ble_deinit()
+//! DTM-only device. This example shows prepare_for_dtm() / dtm_end() / deinit()
 //! for devices that need both normal BLE and RF testing capability.
 //!
 //! Hardware: STM32WBA55CG (Nucleo-WBA55CG)
@@ -182,9 +182,9 @@ async fn main(spawner: Spawner) {
             Either::Second(_) => {
                 info!("Button pressed — entering DTM mode");
 
-                // ble_deinit terminates connections and advertising via hci_reset(),
+                // deinit terminates connections and advertising via hci_reset(),
                 // leaving the LL in a clean idle state regardless of current BLE state.
-                ble.ble_deinit().expect("ble_deinit failed");
+                ble.deinit().expect("deinit failed");
 
                 // Initialize a minimal DTM-only instance (no GAP/GATT needed for DTM)
                 let mut dtm_ble = Ble::new_dtm(rng, Irqs).expect("DTM init failed");
@@ -193,12 +193,12 @@ async fn main(spawner: Spawner) {
                 // Deinit the DTM instance — resets radio hardware so PhyStartClbr
                 // succeeds when advertising is configured after full BLE reinit.
                 info!("DTM done — reinitializing BLE stack");
-                dtm_ble.ble_deinit().expect("ble_deinit after DTM failed");
+                dtm_ble.deinit().expect("deinit after DTM failed");
 
                 let (new_ble, runtime) = Ble::new(rng, aes, pka, Irqs).await.expect("BLE reinit failed");
                 ble = new_ble;
 
-                // Rebuild GATT services (cleared by hci_reset inside ble_deinit)
+                // Rebuild GATT services (cleared by hci_reset inside deinit)
                 let mut gatt = GattServer::new(runtime);
                 let service_handle = gatt
                     .add_service(Uuid::from_u16(0x180F), ServiceType::Primary, 4)
