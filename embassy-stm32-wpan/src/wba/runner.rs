@@ -203,12 +203,6 @@ pub async fn ble_runner() -> ! {
         }
     }
 
-    // Re-issue LE advertising enable to the LL.
-    // ACI_GAP_SET_DISCOVERABLE configures parameters but does not enable
-    // advertising in the LL on WBA6. This is safe to call even if advertising
-    // wasn't set up (it will just return an error which we ignore).
-    let _ = super::hci::command::le_set_advertising_enable(true);
-
     // Run the sequencer once more to process any LL events from the enable
     util_seq::UTIL_SEQ_SetTask(TASK_LINK_LAYER_MASK, 0);
     util_seq::seq_resume();
@@ -241,3 +235,4 @@ pub async fn ble_runner() -> ! {
 pub fn on_radio_interrupt() {
     util_seq::seq_pend();
 }
+

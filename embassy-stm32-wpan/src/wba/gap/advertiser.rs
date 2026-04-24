@@ -1,8 +1,10 @@
 //! GAP Advertiser implementation
 
+use embassy_futures::yield_now;
+
 use super::types::{AdvData, AdvParams, AdvType};
 use crate::wba::error::BleError;
-use crate::wba::hci::command::CommandSender;
+use crate::wba::hci::command::{CommandSender, le_set_advertising_enable};
 
 /// BLE Advertiser
 ///
@@ -54,7 +56,7 @@ impl<'d> Advertiser<'d> {
     /// # Notes
     ///
     /// This function will stop any ongoing advertising before starting new advertising.
-    pub fn start(
+    pub async fn start(
         &mut self,
         params: AdvParams,
         adv_data: AdvData,
@@ -62,7 +64,7 @@ impl<'d> Advertiser<'d> {
     ) -> Result<(), BleError> {
         // Stop advertising if already advertising
         if self.is_advertising {
-            self.stop()?;
+            self.stop().await?;
         }
 
         // Validate advertising data length
@@ -104,6 +106,9 @@ impl<'d> Advertiser<'d> {
             service_uuid_bytes,
         )?;
 
+        le_set_advertising_enable(true)?;
+        yield_now().await;
+
         self.is_advertising = true;
 
         Ok(())
@@ -115,13 +120,17 @@ impl<'d> Advertiser<'d> {
     ///
     /// - `Ok(())` if advertising stopped successfully
     /// - `Err(BleError)` if an error occurred
-    pub fn stop(&mut self) -> Result<(), BleError> {
+    pub async fn stop(&mut self) -> Result<(), BleError> {
         if !self.is_advertising {
             return Ok(());
         }
 
+        le_set_advertising_enable(false)?;
+        yield_now().await;
+
         // Use aci_gap_set_non_discoverable - the high-level ACI command
         super::aci_gap::set_non_discoverable()?;
+
         self.is_advertising = false;
 
         Ok(())

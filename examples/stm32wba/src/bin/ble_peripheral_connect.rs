@@ -176,6 +176,7 @@ async fn main(spawner: Spawner) {
         let mut advertiser = ble.advertiser();
         advertiser
             .start(adv_params.clone(), adv_data.clone(), None)
+            .await
             .expect("Failed to start advertising");
     }
 
@@ -234,7 +235,7 @@ async fn main(spawner: Spawner) {
                     // Restart advertising after disconnection
                     info!("Restarting advertising...");
                     let mut advertiser = ble.advertiser();
-                    if let Err(e) = advertiser.start(adv_params.clone(), adv_data.clone(), None) {
+                    if let Err(e) = advertiser.start(adv_params.clone(), adv_data.clone(), None).await {
                         error!("Failed to restart advertising: {:?}", e);
                     } else {
                         info!("Advertising restarted");
