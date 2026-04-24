@@ -235,4 +235,3 @@ pub async fn ble_runner() -> ! {
 pub fn on_radio_interrupt() {
     util_seq::seq_pend();
 }
-

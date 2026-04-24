@@ -377,7 +377,9 @@ async fn main(spawner: Spawner) {
 
                     // Restart advertising
                     let mut advertiser = ble.advertiser();
-                    let _ = advertiser.start(adv_params.clone(), adv_data.clone(), Some(scan_rsp.clone())).await;
+                    let _ = advertiser
+                        .start(adv_params.clone(), adv_data.clone(), Some(scan_rsp.clone()))
+                        .await;
                     info!("Advertising restarted");
                 }
                 _ => {}
