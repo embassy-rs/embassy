@@ -7,11 +7,10 @@
 #![no_main]
 
 use defmt::*;
-use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, AdcChannel, SampleTime, adc4};
 use embassy_stm32::{bind_interrupts, peripherals};
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     ADC4 => adc4::InterruptHandler<peripherals::ADC4>;
