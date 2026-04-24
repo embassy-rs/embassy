@@ -29,6 +29,7 @@
 use core::cell::RefCell;
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::aes::{self, Aes};
 use embassy_stm32::mode::Blocking;
@@ -53,8 +54,8 @@ use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embedded_io_async::{Read, Write};
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 // Interrupt bindings
 bind_interrupts!(struct Irqs {

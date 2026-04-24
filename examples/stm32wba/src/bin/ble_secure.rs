@@ -22,6 +22,7 @@
 use core::cell::RefCell;
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::aes::{self, Aes};
 use embassy_stm32::mode::Blocking;
@@ -43,8 +44,8 @@ use embassy_stm32_wpan::security::{
 use embassy_stm32_wpan::{Ble, HighInterruptHandler, LowInterruptHandler, ble_runner};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<embassy_stm32::peripherals::RNG>;
@@ -213,6 +214,7 @@ async fn main(spawner: Spawner) {
         let mut advertiser = ble.advertiser();
         advertiser
             .start(adv_params.clone(), create_adv_data(), None)
+            .await
             .expect("Failed to start advertising");
     }
 
