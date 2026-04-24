@@ -20,16 +20,16 @@ use crate::gatt::server::init_gatt_layer;
 use crate::linklayer_plat::{HARDWARE_AES, HARDWARE_PKA, HARDWARE_RNG, run_radio_high_isr, run_radio_sw_low_isr};
 use crate::runner::{BLE_INIT_COMPLETED, BLE_INIT_WAKER, RUNNER_INIT, register_ble_tasks};
 use crate::wba::error::BleError;
-use crate::wba::gap::types::{AdvData, AdvParams};
-use crate::wba::hci::types::DtmPacketPayload;
 use crate::wba::gap::connection::{
     Connection, ConnectionInitParams, ConnectionManager, ConnectionRole, DisconnectReason, GapEvent, LePhy,
     MAX_CONNECTIONS,
 };
 use crate::wba::gap::scanner::Scanner;
+use crate::wba::gap::types::{AdvData, AdvParams};
 use crate::wba::gap_init::{GapInitParams, init_gap_and_hal};
 use crate::wba::hci::command::CommandSender;
 use crate::wba::hci::event::{Event, EventParams, read_event};
+use crate::wba::hci::types::DtmPacketPayload;
 use crate::wba::hci::types::{Address, Handle, Status};
 use crate::wba::ll_sys::init_ble_stack;
 
@@ -429,7 +429,6 @@ impl Ble {
         crate::wba::gap::advertiser::update_scan_rsp_data(&self.cmd_sender, &scan_rsp_data)
     }
 
-
     /// Start a DTM transmitter test on the given channel.
     ///
     /// Transmits test packets continuously until `dtm_end()` is called.
@@ -438,12 +437,7 @@ impl Ble {
     /// `channel`: 0–39, maps to 2402 + (2 × N) MHz.
     /// `length`: payload bytes per packet, 0–255.
     /// `payload`: bit pattern to transmit.
-    pub fn dtm_transmit(
-        &mut self,
-        channel: u8,
-        length: u8,
-        payload: DtmPacketPayload,
-    ) -> Result<(), BleError> {
+    pub fn dtm_transmit(&mut self, channel: u8, length: u8, payload: DtmPacketPayload) -> Result<(), BleError> {
         crate::wba::hci::command::le_transmitter_test(self, channel, length, payload)
     }
 
@@ -483,7 +477,6 @@ impl Ble {
     pub fn command_sender(&self) -> &CommandSender {
         &self.cmd_sender
     }
-
 
     /// Create a scanner
     ///

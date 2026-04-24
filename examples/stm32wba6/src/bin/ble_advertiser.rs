@@ -184,7 +184,7 @@ async fn main(spawner: Spawner) {
 
     // Start advertising
     ble.start_advertising(adv_params, adv_data, None)
-                .await
+        .await
         .expect("Failed to start advertising");
 
     info!("BLE advertising started!");

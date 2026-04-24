@@ -195,9 +195,7 @@ async fn main(spawner: Spawner) {
                 info!("DTM done — reinitializing BLE stack");
                 dtm_ble.ble_deinit().expect("ble_deinit after DTM failed");
 
-                let (new_ble, runtime) = Ble::new(rng, aes, pka, Irqs)
-                    .await
-                    .expect("BLE reinit failed");
+                let (new_ble, runtime) = Ble::new(rng, aes, pka, Irqs).await.expect("BLE reinit failed");
                 ble = new_ble;
 
                 // Rebuild GATT services (cleared by hci_reset inside ble_deinit)
@@ -207,9 +205,14 @@ async fn main(spawner: Spawner) {
                     .expect("Failed to add service");
                 let char_handle = gatt
                     .add_characteristic(
-                        service_handle, Uuid::from_u16(0x2A19), 1,
+                        service_handle,
+                        Uuid::from_u16(0x2A19),
+                        1,
                         CharProperties::READ | CharProperties::NOTIFY,
-                        SecurityPermissions::NONE, GattEventMask::ATTRIBUTE_MODIFIED, 0, false,
+                        SecurityPermissions::NONE,
+                        GattEventMask::ATTRIBUTE_MODIFIED,
+                        0,
+                        false,
                     )
                     .expect("Failed to add characteristic");
                 gatt.update_characteristic_value(service_handle, char_handle, 0, &[100])

@@ -375,7 +375,9 @@ async fn main(spawner: Spawner) {
                     state.tx_notifications_enabled = false;
 
                     // Restart advertising
-                    ble.start_advertising(adv_params.clone(), adv_data.clone(), Some(scan_rsp.clone())).await.expect("Failed to start advertising");
+                    ble.start_advertising(adv_params.clone(), adv_data.clone(), Some(scan_rsp.clone()))
+                        .await
+                        .expect("Failed to start advertising");
                     info!("Advertising restarted");
                 }
                 _ => {}
