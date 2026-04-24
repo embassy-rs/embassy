@@ -84,10 +84,14 @@ pub mod cpu;
 pub mod crc;
 #[cfg(cryp)]
 pub mod cryp;
+#[cfg(csi)]
+pub mod csi;
 #[cfg(dac)]
 pub mod dac;
 #[cfg(dcmi)]
 pub mod dcmi;
+#[cfg(dcmipp)]
+pub mod dcmipp;
 #[cfg(dma2d)]
 pub mod dma2d;
 #[cfg(dsihost)]

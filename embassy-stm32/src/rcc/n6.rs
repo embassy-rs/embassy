@@ -1327,7 +1327,11 @@ pub(crate) unsafe fn init(config: Config) {
         hclk3: Some(clocks.ahb),
         hclk4: Some(clocks.ahb),
         hclk5: Some(clocks.ahb),
-        hclku: None,
+        // hclku is the USB / SDMMC kernel-clock option in RM0486 Table 72. It
+        // shares the same max frequency (200 MHz) as hclk1..5 and has no
+        // dedicated prescaler in `RCC_*` — derived from sys through the
+        // common AHB prescaler.
+        hclku: Some(clocks.ahb),
         pclk1: Some(clocks.apb1),
         pclk2: Some(clocks.apb2),
         pclk1_tim: Some(clocks.pclk_tim),
