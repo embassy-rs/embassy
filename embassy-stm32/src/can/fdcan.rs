@@ -868,6 +868,17 @@ impl Properties {
         (self.info.periph_clock)()
     }
 
+    /// Get the CAN peripheral's timestamp counter period in nanoseconds per tick.
+    ///
+    /// Useful when the `time` feature is disabled and `Envelope.ts` / `FdEnvelope.ts`
+    /// are exposed as raw `u16` hardware counter values. Multiply the counter delta
+    /// by this value to obtain elapsed nanoseconds.
+    ///
+    /// Returns 0 before the peripheral is configured via [`CanConfigurator::start`].
+    pub fn ns_per_timer_tick(&self) -> u64 {
+        self.info.state.lock(|s| s.borrow().ns_per_timer_tick)
+    }
+
     /// Set a standard address CAN filter in the specified slot in FDCAN memory.
     #[inline]
     pub fn set_standard_filter(&self, slot: StandardFilterSlot, filter: StandardFilter) {
