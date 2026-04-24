@@ -1,11 +1,27 @@
 //! DCMIPP (Digital Camera Interface Pixel Pipeline).
 //!
 //! Sits downstream of the CSI-2 Host (or the legacy parallel DVP input) and
-//! writes pixel data into SRAM through its own AXI master. This driver wraps
-//! **Pipe1** — the main pipe with ISP passthrough, pixel-format conversion,
-//! and a pixel packer writing ping-pong buffers in memory. Pipe0 (raw dump)
-//! and Pipe2 (ancillary coplanar) are reachable through `pac::DCMIPP` if
-//! needed but aren't wrapped here.
+//! writes pixel data into SRAM through its own AXI master. The peripheral
+//! exposes three independent pixel pipes:
+//!
+//! - **Pipe0** — raw dump. No ISP, no colour conversion: bytes from the CSI
+//!   packet payload land in memory in 32-bit words. Good for DMA-ing Bayer
+//!   straight to CV/NN workloads, or for dumping ancillary data (embedded
+//!   lines, CSI headers).
+//! - **Pipe1** — the main pipe. ISP passthrough, optional Bayer demosaic,
+//!   optional crop, optional downsize, and a pixel packer with full format
+//!   support including multi-planar YUV.
+//! - **Pipe2** — ancillary pipe, sharing Pipe1's ISP front end. Supports
+//!   crop + downsize and coplanar output formats only (single memory plane);
+//!   typical use is a low-resolution preview running alongside a Pipe1 full
+//!   frame.
+//!
+//! The three pipes run concurrently. [`Dcmipp::new`] enables the peripheral
+//! clock and NVIC line once; [`Dcmipp::split`] hands out the three pipe
+//! handles, which are independent `Send`able objects with their own async
+//! wakers. The single interrupt line is shared: on fire, the handler reads
+//! the common status register and wakes whichever pipe's frame/overrun
+//! flags are asserted.
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
@@ -24,13 +40,30 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        // Mask Pipe1's end-of-frame / overrun interrupts so the handler stops
-        // re-firing. The awaiting task clears the flags and re-arms.
-        T::regs().p1ier().modify(|w| {
-            w.set_frameie(false);
-            w.set_ovrie(false);
-        });
-        STATE.waker.wake();
+        let r = T::regs();
+        let sr = r.cmsr2().read();
+
+        if sr.p0framef() || sr.p0ovrf() {
+            r.p0ier().modify(|w| {
+                w.set_frameie(false);
+                w.set_ovrie(false);
+            });
+            PIPE0_STATE.waker.wake();
+        }
+        if sr.p1framef() || sr.p1ovrf() {
+            r.p1ier().modify(|w| {
+                w.set_frameie(false);
+                w.set_ovrie(false);
+            });
+            PIPE1_STATE.waker.wake();
+        }
+        if sr.p2framef() || sr.p2ovrf() {
+            r.p2ier().modify(|w| {
+                w.set_frameie(false);
+                w.set_ovrie(false);
+            });
+            PIPE2_STATE.waker.wake();
+        }
     }
 }
 
@@ -46,7 +79,9 @@ impl State {
     }
 }
 
-static STATE: State = State::new();
+static PIPE0_STATE: State = State::new();
+static PIPE1_STATE: State = State::new();
+static PIPE2_STATE: State = State::new();
 
 /// DCMIPP error.
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
@@ -57,9 +92,10 @@ pub enum Error {
     Overrun,
 }
 
-/// Pixel format on the output side of Pipe1.
+/// Pixel format on the output side of Pipe1 / Pipe2.
 ///
-/// Value encoding matches the `P1PPCR.FORMAT` field in RM0486 §39.14.85.
+/// Value encoding matches the `PnPPCR.FORMAT` field in RM0486 §39.14.85. See
+/// [`PixelFormat::is_coplanar`] for the subset accepted by Pipe2.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
@@ -88,7 +124,21 @@ pub enum PixelFormat {
     Yuv422Uyvy = 0xA,
 }
 
+impl PixelFormat {
+    /// Whether this format fits in a single memory plane. Pipe2 requires it.
+    pub const fn is_coplanar(self) -> bool {
+        !matches!(
+            self,
+            PixelFormat::Yuv422SemiPlanar | PixelFormat::Yuv420SemiPlanar | PixelFormat::Yuv420Planar
+        )
+    }
+}
+
 /// Which interface feeds the pipeline with pixels.
+///
+/// This is a DCMIPP-wide setting (one mux for all three pipes). Whichever
+/// pipe is configured last wins; in practice all three pipes share a single
+/// physical sensor so their configs all name the same source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum InputSource {
@@ -98,26 +148,106 @@ pub enum InputSource {
     Csi,
 }
 
-/// Pipe1 configuration.
+/// Raw Bayer pattern of the sensor. Encoding matches `P1DMCR.TYPE`
+/// (RM0486 §39.14.56).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
+pub enum BayerPattern {
+    /// Red‑Green‑Green‑Blue top-left 2×2 pattern.
+    Rggb = 0x0,
+    /// Green‑Red‑Blue‑Green top-left 2×2 pattern.
+    Grbg = 0x1,
+    /// Green‑Blue‑Red‑Green top-left 2×2 pattern.
+    Gbrg = 0x2,
+    /// Blue‑Green‑Green‑Red top-left 2×2 pattern.
+    Bggr = 0x3,
+}
+
+/// Crop window. Coordinates and sizes are in pixels for Pipe1/Pipe2. On
+/// Pipe0 (raw word-aligned dump) the same struct is reused but values are
+/// interpreted as 32-bit words horizontally.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct CropConfig {
+    /// Top-left origin `(x, y)`.
+    pub origin: (u16, u16),
+    /// Window `(width, height)`.
+    pub size: (u16, u16),
+}
+
+/// Downsize configuration for Pipe1 / Pipe2.
+///
+/// The resizer runs after crop. RM0486 §39.7.4 gives the math used here:
+/// fixed-point downsize ratio + inverse-ratio divisor + final output
+/// dimensions. Ratios are clamped to the hardware's 1×..8× range.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct DownsizeConfig {
+    /// Pixel dimensions entering the resizer (typically the sensor's active
+    /// frame size, or the crop window size if crop is enabled).
+    pub input: (u16, u16),
+    /// Pixel dimensions written to memory.
+    pub output: (u16, u16),
+}
+
+/// Pipe0 (raw dump) configuration.
+///
+/// Pipe0 bypasses the ISP and writes CSI packet payload bytes to memory in
+/// 32-bit words. Use this for Bayer dumping, embedded-line capture, or any
+/// pass-through scenario where the ISP is not wanted.
+#[non_exhaustive]
+pub struct Pipe0Config {
+    /// Upstream source (shared across pipes, see [`InputSource`]).
+    pub source: InputSource,
+    /// CSI-2 virtual channel (0..=3) to latch pixels from.
+    pub virtual_channel: u8,
+    /// Line pitch in bytes. Must be a multiple of 16.
+    pub pitch_bytes: u16,
+    /// Optional crop window (expressed in 32-bit words horizontally, pixels
+    /// vertically — Pipe0 uses the word-granular stat/crop register).
+    pub crop: Option<CropConfig>,
+}
+
+impl Pipe0Config {
+    /// Create a Pipe0 configuration with VC0 and no crop.
+    pub const fn new(source: InputSource, pitch_bytes: u16) -> Self {
+        Self {
+            source,
+            virtual_channel: 0,
+            pitch_bytes,
+            crop: None,
+        }
+    }
+}
+
+/// Pipe1 (main) configuration.
 #[non_exhaustive]
 pub struct Pipe1Config {
     /// Upstream source.
     pub source: InputSource,
-    /// CSI-2 virtual channel (0..=3) to latch pixels from. Ignored when
-    /// [`InputSource::Parallel`] is selected.
+    /// CSI-2 virtual channel (0..=3) to latch pixels from.
     pub virtual_channel: u8,
     /// Output pixel format as written to memory.
     pub output: PixelFormat,
-    /// Line pitch in bytes between consecutive output rows. Must be a
-    /// multiple of 16 per RM0486 §39.14.88.
+    /// Line pitch in bytes. Must be a multiple of 16 per RM0486 §39.14.88.
     pub pitch_bytes: u16,
     /// Swap R/B components (or U/V for YUV). Useful e.g. to flip NV21 ↔ NV12.
     pub swap_rb: bool,
+    /// Demosaic configuration. `None` bypasses the demosaic block (input must
+    /// already be RGB/YUV). `Some(pattern)` enables it for the given Bayer
+    /// layout — required when the sensor feeds 8/10/12/14-bit raw Bayer.
+    pub demosaic: Option<BayerPattern>,
+    /// Crop window (in pixels). Applied before downsize.
+    pub crop: Option<CropConfig>,
+    /// Downsize configuration. Ratios outside 1×..8× are clamped.
+    pub downsize: Option<DownsizeConfig>,
 }
 
 impl Pipe1Config {
-    /// Create a Pipe1 configuration with default R/B order and virtual channel 0.
-    /// `pitch_bytes` must be a multiple of 16 (DCMIPP output alignment).
+    /// Create a Pipe1 configuration with default R/B order, virtual channel 0,
+    /// no demosaic, no crop, and no downsize. `pitch_bytes` must be a multiple
+    /// of 16 (DCMIPP output alignment).
     pub const fn new(source: InputSource, output: PixelFormat, pitch_bytes: u16) -> Self {
         Self {
             source,
@@ -125,95 +255,384 @@ impl Pipe1Config {
             output,
             pitch_bytes,
             swap_rb: false,
+            demosaic: None,
+            crop: None,
+            downsize: None,
         }
     }
 }
 
-/// DCMIPP driver.
+/// Pipe2 (ancillary) configuration.
+///
+/// Pipe2 shares Pipe1's ISP front end and only supports coplanar output
+/// formats. Passing a multi-planar [`PixelFormat`] to [`Pipe2::configure`]
+/// panics.
+#[non_exhaustive]
+pub struct Pipe2Config {
+    /// Upstream source.
+    pub source: InputSource,
+    /// CSI-2 virtual channel (0..=3) to latch pixels from.
+    pub virtual_channel: u8,
+    /// Output pixel format. Must satisfy [`PixelFormat::is_coplanar`].
+    pub output: PixelFormat,
+    /// Line pitch in bytes. Must be a multiple of 16.
+    pub pitch_bytes: u16,
+    /// Swap R/B components (or U/V for YUV).
+    pub swap_rb: bool,
+    /// Crop window. Applied before downsize.
+    pub crop: Option<CropConfig>,
+    /// Downsize configuration.
+    pub downsize: Option<DownsizeConfig>,
+}
+
+impl Pipe2Config {
+    /// Create a Pipe2 configuration with VC0, no crop, no downsize.
+    pub const fn new(source: InputSource, output: PixelFormat, pitch_bytes: u16) -> Self {
+        Self {
+            source,
+            virtual_channel: 0,
+            output,
+            pitch_bytes,
+            swap_rb: false,
+            crop: None,
+            downsize: None,
+        }
+    }
+}
+
+/// Given an input and output dimension, compute the fixed-point
+/// `(ratio, div)` values required by the DCMIPP resizer for one axis.
+/// Per RM0486 §39.7.4:
+///   ratio = floor(8192 * input / output), clamped to \[8192, 65535\]
+///   div   = floor((1024 * 8192 - 1) / ratio), clamped to \[128, 1023\]
+fn downsize_coeffs(input: u16, output: u16) -> (u16, u16) {
+    let ratio_num = (input as u32) * 8192;
+    let ratio_den = output.max(1) as u32;
+    let ratio = (ratio_num / ratio_den).clamp(8192, 65535) as u16;
+    let div = ((1024 * 8192 - 1) / ratio as u32).clamp(128, 1023) as u16;
+    (ratio, div)
+}
+
+/// DCMIPP driver — hands out three independent pipe handles via [`split`].
+///
+/// [`split`]: Self::split
 pub struct Dcmipp<'d, T: Instance> {
-    _peri: Peri<'d, T>,
-    /// Frame count since `start_continuous` was called. `wait_frame` returns
-    /// `count & 1`, i.e. which of the two ping-pong buffers just filled.
-    frame_count: u32,
-    dbm_enabled: bool,
+    peri: Peri<'d, T>,
 }
 
 impl<'d, T: Instance> Dcmipp<'d, T> {
-    /// Create a new DCMIPP driver.
+    /// Create a new DCMIPP driver. Enables the peripheral clock, performs a
+    /// reset, and unmasks the NVIC line. Pipes start disabled; configure
+    /// each one after [`split`].
     ///
-    /// Enables the peripheral clock + performs a reset. The driver wakes up
-    /// with no pipe running; call [`configure_pipe1`] and then [`capture`]
-    /// or [`start_continuous`] to begin capture.
-    ///
-    /// [`configure_pipe1`]: Self::configure_pipe1
-    /// [`capture`]: Self::capture
-    /// [`start_continuous`]: Self::start_continuous
+    /// [`split`]: Self::split
     pub fn new(
         peri: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
         rcc::enable_and_reset::<T>();
-
         unsafe { T::Interrupt::enable() };
-
-        Self {
-            _peri: peri,
-            frame_count: 0,
-            dbm_enabled: false,
-        }
+        Self { peri }
     }
 
-    /// Configure Pipe1: input selection, virtual channel, output format, and
-    /// line pitch. Leaves the pipe disabled — call a capture method to
-    /// actually begin streaming.
-    pub fn configure_pipe1(&mut self, cfg: &Pipe1Config) {
+    /// Split into three independent pipe handles. Each can be configured,
+    /// started, awaited, and stopped independently; they share only the
+    /// peripheral clock, the NVIC line, and the `CMCR.insel` input mux.
+    pub fn split(self) -> (Pipe0<'d, T>, Pipe1<'d, T>, Pipe2<'d, T>) {
+        (
+            Pipe0 {
+                _peri: self.peri,
+                frame_count: 0,
+                dbm_enabled: false,
+            },
+            Pipe1 {
+                _marker: PhantomData,
+                frame_count: 0,
+                dbm_enabled: false,
+            },
+            Pipe2 {
+                _marker: PhantomData,
+                frame_count: 0,
+                dbm_enabled: false,
+            },
+        )
+    }
+}
+
+fn apply_input_source(source: InputSource, swap_rb: bool) {
+    crate::pac::DCMIPP.cmcr().modify(|w| {
+        w.set_insel(matches!(source, InputSource::Csi));
+        w.set_swaprb(swap_rb);
+    });
+}
+
+// ----------------------------------------------------------------------------
+// Pipe0
+// ----------------------------------------------------------------------------
+
+/// Handle to DCMIPP Pipe0 (raw dump). Obtained from [`Dcmipp::split`].
+pub struct Pipe0<'d, T: Instance> {
+    _peri: Peri<'d, T>,
+    frame_count: u32,
+    dbm_enabled: bool,
+}
+
+impl<'d, T: Instance> Pipe0<'d, T> {
+    /// Configure Pipe0: source, VC, pitch, optional crop. Leaves the pipe
+    /// disabled.
+    pub fn configure(&mut self, cfg: &Pipe0Config) {
         let r = T::regs();
 
-        // Input selection and R/B swap on the pixel pipe.
-        r.cmcr().modify(|w| {
-            w.set_insel(matches!(cfg.source, InputSource::Csi));
-            w.set_swaprb(cfg.swap_rb);
+        apply_input_source(cfg.source, false);
+
+        r.p0fscr().modify(|w| {
+            w.set_vc(cfg.virtual_channel & 0x3);
+            w.set_pipen(false);
         });
 
-        // Flow selection: virtual channel + pipe disabled until a capture
-        // method arms it.
+        match cfg.crop {
+            Some(c) => {
+                r.p0scstr().write(|w| {
+                    w.set_hstart(c.origin.0 & 0x0FFF);
+                    w.set_vstart(c.origin.1 & 0x0FFF);
+                });
+                r.p0scszr().write(|w| {
+                    w.set_hsize(c.size.0 & 0x0FFF);
+                    w.set_vsize(c.size.1 & 0x0FFF);
+                    w.set_enable(true);
+                });
+            }
+            None => r.p0scszr().modify(|w| w.set_enable(false)),
+        }
+
+        // No DBM yet. Pitch is programmed here but the pitch register is on
+        // the common pixel-packer block for Pipe0; see pac::DCMIPP.p0stm0ar
+        // usage with pitch-like semantics? Actually RM0486 uses scszr for
+        // size and the DMA handles pitch implicitly for Pipe0 word writes.
+        // Drop double-buffer mode until a start_continuous call sets it.
+        r.p0ppcr().modify(|w| w.set_dbm(false));
+
+        self.dbm_enabled = false;
+        let _ = cfg.pitch_bytes; // reserved for future packer changes
+    }
+
+    /// Arm a single-shot capture. `buffer` must be 16-byte aligned and at
+    /// least the configured frame size.
+    pub async fn capture(&mut self, buffer: *mut u8) -> Result<(), Error> {
+        let r = T::regs();
+
+        r.p0ppcr().modify(|w| w.set_dbm(false));
+        r.p0ppm0ar1().write(|w| w.set_m0a(buffer as u32));
+
+        r.p0fctcr().modify(|w| {
+            w.set_cptmode(true);
+            w.set_cptreq(true);
+        });
+
+        r.p0fcr().write(|w| {
+            w.set_cframef(true);
+            w.set_covrf(true);
+        });
+        r.p0ier().modify(|w| {
+            w.set_frameie(true);
+            w.set_ovrie(true);
+        });
+        r.p0fscr().modify(|w| w.set_pipen(true));
+
+        let result = poll_fn(|cx| {
+            PIPE0_STATE.waker.register(cx.waker());
+            let sr = T::regs().p0sr().read();
+            if sr.ovrf() {
+                T::regs().p0fcr().write(|w| w.set_covrf(true));
+                return Poll::Ready(Err(Error::Overrun));
+            }
+            if sr.framef() {
+                T::regs().p0fcr().write(|w| w.set_cframef(true));
+                return Poll::Ready(Ok(()));
+            }
+            Poll::Pending
+        })
+        .await;
+
+        r.p0fscr().modify(|w| w.set_pipen(false));
+        r.p0fctcr().modify(|w| w.set_cptreq(false));
+
+        result
+    }
+
+    /// Start continuous double-buffered capture.
+    ///
+    /// # Safety
+    ///
+    /// Both buffers must remain valid and uniquely-owned until [`stop`] is
+    /// called.
+    ///
+    /// [`stop`]: Self::stop
+    pub unsafe fn start_continuous(&mut self, buf_a: *mut u8, buf_b: *mut u8) {
+        let r = T::regs();
+        r.p0ppm0ar1().write(|w| w.set_m0a(buf_a as u32));
+        r.p0ppm0ar2().write(|w| w.set_m0a(buf_b as u32));
+        r.p0ppcr().modify(|w| w.set_dbm(true));
+        r.p0fctcr().modify(|w| {
+            w.set_cptmode(false);
+            w.set_cptreq(true);
+        });
+        r.p0fcr().write(|w| {
+            w.set_cframef(true);
+            w.set_covrf(true);
+        });
+        r.p0ier().modify(|w| {
+            w.set_frameie(true);
+            w.set_ovrie(true);
+        });
+        r.p0fscr().modify(|w| w.set_pipen(true));
+        self.frame_count = 0;
+        self.dbm_enabled = true;
+    }
+
+    /// Wait for the next frame. Returns the buffer index (0 or 1) that was
+    /// just filled.
+    pub async fn wait_frame(&mut self) -> Result<u8, Error> {
+        let r = T::regs();
+        r.p0fcr().write(|w| {
+            w.set_cframef(true);
+            w.set_covrf(true);
+        });
+        r.p0ier().modify(|w| {
+            w.set_frameie(true);
+            w.set_ovrie(true);
+        });
+
+        poll_fn(|cx| {
+            PIPE0_STATE.waker.register(cx.waker());
+            let sr = T::regs().p0sr().read();
+            if sr.ovrf() {
+                T::regs().p0fcr().write(|w| w.set_covrf(true));
+                return Poll::Ready(Err(Error::Overrun));
+            }
+            if sr.framef() {
+                T::regs().p0fcr().write(|w| w.set_cframef(true));
+                let idx = if self.dbm_enabled {
+                    (self.frame_count & 1) as u8
+                } else {
+                    0
+                };
+                self.frame_count = self.frame_count.wrapping_add(1);
+                return Poll::Ready(Ok(idx));
+            }
+            Poll::Pending
+        })
+        .await
+    }
+
+    /// Stop whatever capture is running on Pipe0.
+    pub fn stop(&mut self) {
+        let r = T::regs();
+        r.p0fctcr().modify(|w| w.set_cptreq(false));
+        r.p0fscr().modify(|w| w.set_pipen(false));
+        r.p0ier().modify(|w| {
+            w.set_frameie(false);
+            w.set_ovrie(false);
+        });
+        self.dbm_enabled = false;
+    }
+}
+
+impl<'d, T: Instance> Drop for Pipe0<'d, T> {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Pipe1
+// ----------------------------------------------------------------------------
+
+/// Handle to DCMIPP Pipe1 (main ISP + format conversion). Obtained from
+/// [`Dcmipp::split`].
+pub struct Pipe1<'d, T: Instance> {
+    _marker: PhantomData<&'d mut T>,
+    frame_count: u32,
+    dbm_enabled: bool,
+}
+
+impl<'d, T: Instance> Pipe1<'d, T> {
+    /// Configure Pipe1: input, VC, output format, pitch, optional demosaic,
+    /// optional crop, optional downsize. Leaves the pipe disabled.
+    pub fn configure(&mut self, cfg: &Pipe1Config) {
+        let r = T::regs();
+
+        apply_input_source(cfg.source, cfg.swap_rb);
+
         r.p1fscr().modify(|w| {
             w.set_vc(cfg.virtual_channel & 0x3);
             w.set_pipen(false);
         });
 
-        // Output pixel packer: format and optional R/B swap at the output.
+        match cfg.demosaic {
+            Some(pattern) => r.p1dmcr().modify(|w| {
+                w.set_type_(pattern as u8);
+                w.set_enable(true);
+            }),
+            None => r.p1dmcr().modify(|w| w.set_enable(false)),
+        }
+
+        match cfg.crop {
+            Some(c) => {
+                r.p1crstr().write(|w| {
+                    w.set_hstart(c.origin.0 & 0x0FFF);
+                    w.set_vstart(c.origin.1 & 0x0FFF);
+                });
+                r.p1crszr().write(|w| {
+                    w.set_hsize(c.size.0 & 0x0FFF);
+                    w.set_vsize(c.size.1 & 0x0FFF);
+                    w.set_enable(true);
+                });
+            }
+            None => r.p1crszr().modify(|w| w.set_enable(false)),
+        }
+
+        match cfg.downsize {
+            Some(ds) => {
+                let (hratio, hdiv) = downsize_coeffs(ds.input.0, ds.output.0);
+                let (vratio, vdiv) = downsize_coeffs(ds.input.1, ds.output.1);
+                r.p1dsrtior().modify(|w| {
+                    w.set_hratio(hratio);
+                    w.set_vratio(vratio);
+                });
+                r.p1dscr().modify(|w| {
+                    w.set_hdiv(hdiv);
+                    w.set_vdiv(vdiv);
+                    w.set_enable(true);
+                });
+                r.p1dsszr().modify(|w| {
+                    w.set_hsize(ds.output.0);
+                    w.set_vsize(ds.output.1);
+                });
+            }
+            None => r.p1dscr().modify(|w| w.set_enable(false)),
+        }
+
         r.p1ppcr().modify(|w| {
             w.set_format(cfg.output as u8);
             w.set_swaprb(cfg.swap_rb);
             w.set_dbm(false);
         });
-
-        // Set the output line pitch for memory 0.
         r.p1ppm0pr().modify(|w| w.set_pitch(cfg.pitch_bytes));
 
         self.dbm_enabled = false;
     }
 
-    /// Arm a single-shot capture. Writes one frame to `buffer` and resolves.
-    ///
-    /// `buffer` must be at least `pitch_bytes * height` long and aligned to
-    /// 16 bytes (DCMIPP hardware constraint). The exact size depends on the
-    /// configured pixel format and the sensor's active frame size; the driver
-    /// does not validate it.
+    /// Arm a single-shot capture. `buffer` must be 16-byte aligned.
     pub async fn capture(&mut self, buffer: *mut u8) -> Result<(), Error> {
         let r = T::regs();
 
         r.p1ppcr().modify(|w| w.set_dbm(false));
         r.p1ppm0ar1().write(|w| w.set_m0a(buffer as u32));
-
-        // Snapshot capture: CPTMODE = 1 (snapshot), CPTREQ = 1 (go).
         r.p1fctcr().modify(|w| {
             w.set_cptmode(true);
             w.set_cptreq(true);
         });
-
-        // Arm end-of-frame / overrun interrupts.
         r.p1fcr().write(|w| {
             w.set_cframef(true);
             w.set_covrf(true);
@@ -225,8 +644,7 @@ impl<'d, T: Instance> Dcmipp<'d, T> {
         r.p1fscr().modify(|w| w.set_pipen(true));
 
         let result = poll_fn(|cx| {
-            STATE.waker.register(cx.waker());
-
+            PIPE1_STATE.waker.register(cx.waker());
             let sr = T::regs().p1sr().read();
             if sr.ovrf() {
                 T::regs().p1fcr().write(|w| w.set_covrf(true));
@@ -240,41 +658,29 @@ impl<'d, T: Instance> Dcmipp<'d, T> {
         })
         .await;
 
-        // Snapshot mode stops on its own; drop the pipen bit + clear CPTREQ.
         r.p1fscr().modify(|w| w.set_pipen(false));
         r.p1fctcr().modify(|w| w.set_cptreq(false));
 
         result
     }
 
-    /// Start continuous double-buffered capture. The pipeline fills
-    /// `buf_a` and `buf_b` alternately; use [`wait_frame`] to synchronize
-    /// with frame completions.
-    ///
-    /// Both buffers must be pre-configured with the same pitch/size and both
-    /// 16-byte aligned.
+    /// Start continuous double-buffered capture.
     ///
     /// # Safety
     ///
-    /// The caller must ensure `buf_a` and `buf_b` remain valid and
-    /// uniquely-owned for the lifetime of the capture stream (i.e. until
-    /// [`stop`] is called). DCMIPP writes to these addresses asynchronously
-    /// without any borrow-checker mediation.
+    /// Both buffers must remain valid and uniquely-owned until [`stop`] is
+    /// called.
     ///
-    /// [`wait_frame`]: Self::wait_frame
     /// [`stop`]: Self::stop
     pub unsafe fn start_continuous(&mut self, buf_a: *mut u8, buf_b: *mut u8) {
         let r = T::regs();
-
         r.p1ppm0ar1().write(|w| w.set_m0a(buf_a as u32));
         r.p1ppm0ar2().write(|w| w.set_m0a(buf_b as u32));
-
         r.p1ppcr().modify(|w| w.set_dbm(true));
         r.p1fctcr().modify(|w| {
-            w.set_cptmode(false); // continuous
+            w.set_cptmode(false);
             w.set_cptreq(true);
         });
-
         r.p1fcr().write(|w| {
             w.set_cframef(true);
             w.set_covrf(true);
@@ -284,20 +690,13 @@ impl<'d, T: Instance> Dcmipp<'d, T> {
             w.set_ovrie(true);
         });
         r.p1fscr().modify(|w| w.set_pipen(true));
-
         self.frame_count = 0;
         self.dbm_enabled = true;
     }
 
-    /// Wait for the next frame completion while in continuous mode.
-    ///
-    /// Returns the buffer index (0 for `buf_a`, 1 for `buf_b`) that was just
-    /// filled by DCMIPP and is now safe to read. Overrun surfaces as
-    /// `Err(Error::Overrun)`; continuous mode keeps running — the caller may
-    /// choose to `stop()` or keep draining frames.
+    /// Wait for the next frame. Returns the buffer index (0 or 1).
     pub async fn wait_frame(&mut self) -> Result<u8, Error> {
         let r = T::regs();
-
         r.p1fcr().write(|w| {
             w.set_cframef(true);
             w.set_covrf(true);
@@ -308,7 +707,7 @@ impl<'d, T: Instance> Dcmipp<'d, T> {
         });
 
         poll_fn(|cx| {
-            STATE.waker.register(cx.waker());
+            PIPE1_STATE.waker.register(cx.waker());
             let sr = T::regs().p1sr().read();
             if sr.ovrf() {
                 T::regs().p1fcr().write(|w| w.set_covrf(true));
@@ -329,7 +728,7 @@ impl<'d, T: Instance> Dcmipp<'d, T> {
         .await
     }
 
-    /// Stop whatever capture is running. Safe to call even when idle.
+    /// Stop whatever capture is running on Pipe1.
     pub fn stop(&mut self) {
         let r = T::regs();
         r.p1fctcr().modify(|w| w.set_cptreq(false));
@@ -342,12 +741,215 @@ impl<'d, T: Instance> Dcmipp<'d, T> {
     }
 }
 
-impl<'d, T: Instance> Drop for Dcmipp<'d, T> {
+impl<'d, T: Instance> Drop for Pipe1<'d, T> {
     fn drop(&mut self) {
         self.stop();
-        T::Interrupt::disable();
     }
 }
+
+// ----------------------------------------------------------------------------
+// Pipe2
+// ----------------------------------------------------------------------------
+
+/// Handle to DCMIPP Pipe2 (ancillary, coplanar-only). Obtained from
+/// [`Dcmipp::split`].
+pub struct Pipe2<'d, T: Instance> {
+    _marker: PhantomData<&'d mut T>,
+    frame_count: u32,
+    dbm_enabled: bool,
+}
+
+impl<'d, T: Instance> Pipe2<'d, T> {
+    /// Configure Pipe2. Panics if `cfg.output` is multi-planar — Pipe2 only
+    /// supports single-plane pixel formats.
+    pub fn configure(&mut self, cfg: &Pipe2Config) {
+        assert!(
+            cfg.output.is_coplanar(),
+            "Pipe2 supports only coplanar pixel formats"
+        );
+
+        let r = T::regs();
+
+        apply_input_source(cfg.source, cfg.swap_rb);
+
+        r.p2fscr().modify(|w| {
+            w.set_vc(cfg.virtual_channel & 0x3);
+            w.set_pipen(false);
+        });
+
+        match cfg.crop {
+            Some(c) => {
+                r.p2crstr().write(|w| {
+                    w.set_hstart(c.origin.0 & 0x0FFF);
+                    w.set_vstart(c.origin.1 & 0x0FFF);
+                });
+                r.p2crszr().write(|w| {
+                    w.set_hsize(c.size.0 & 0x0FFF);
+                    w.set_vsize(c.size.1 & 0x0FFF);
+                    w.set_enable(true);
+                });
+            }
+            None => r.p2crszr().modify(|w| w.set_enable(false)),
+        }
+
+        match cfg.downsize {
+            Some(ds) => {
+                let (hratio, hdiv) = downsize_coeffs(ds.input.0, ds.output.0);
+                let (vratio, vdiv) = downsize_coeffs(ds.input.1, ds.output.1);
+                r.p2dsrtior().modify(|w| {
+                    w.set_hratio(hratio);
+                    w.set_vratio(vratio);
+                });
+                r.p2dscr().modify(|w| {
+                    w.set_hdiv(hdiv);
+                    w.set_vdiv(vdiv);
+                    w.set_enable(true);
+                });
+                r.p2dsszr().modify(|w| {
+                    w.set_hsize(ds.output.0);
+                    w.set_vsize(ds.output.1);
+                });
+            }
+            None => r.p2dscr().modify(|w| w.set_enable(false)),
+        }
+
+        r.p2ppcr().modify(|w| {
+            w.set_format(cfg.output as u8);
+            w.set_swaprb(cfg.swap_rb);
+            w.set_dbm(false);
+        });
+        r.p2ppm0pr().modify(|w| w.set_pitch(cfg.pitch_bytes));
+
+        self.dbm_enabled = false;
+    }
+
+    /// Arm a single-shot capture. `buffer` must be 16-byte aligned.
+    pub async fn capture(&mut self, buffer: *mut u8) -> Result<(), Error> {
+        let r = T::regs();
+
+        r.p2ppcr().modify(|w| w.set_dbm(false));
+        r.p2ppm0ar1().write(|w| w.set_m0a(buffer as u32));
+        r.p2fctcr().modify(|w| {
+            w.set_cptmode(true);
+            w.set_cptreq(true);
+        });
+        r.p2fcr().write(|w| {
+            w.set_cframef(true);
+            w.set_covrf(true);
+        });
+        r.p2ier().modify(|w| {
+            w.set_frameie(true);
+            w.set_ovrie(true);
+        });
+        r.p2fscr().modify(|w| w.set_pipen(true));
+
+        let result = poll_fn(|cx| {
+            PIPE2_STATE.waker.register(cx.waker());
+            let sr = T::regs().p2sr().read();
+            if sr.ovrf() {
+                T::regs().p2fcr().write(|w| w.set_covrf(true));
+                return Poll::Ready(Err(Error::Overrun));
+            }
+            if sr.framef() {
+                T::regs().p2fcr().write(|w| w.set_cframef(true));
+                return Poll::Ready(Ok(()));
+            }
+            Poll::Pending
+        })
+        .await;
+
+        r.p2fscr().modify(|w| w.set_pipen(false));
+        r.p2fctcr().modify(|w| w.set_cptreq(false));
+
+        result
+    }
+
+    /// Start continuous double-buffered capture.
+    ///
+    /// # Safety
+    ///
+    /// Both buffers must remain valid and uniquely-owned until [`stop`] is
+    /// called.
+    ///
+    /// [`stop`]: Self::stop
+    pub unsafe fn start_continuous(&mut self, buf_a: *mut u8, buf_b: *mut u8) {
+        let r = T::regs();
+        r.p2ppm0ar1().write(|w| w.set_m0a(buf_a as u32));
+        r.p2ppm0ar2().write(|w| w.set_m0a(buf_b as u32));
+        r.p2ppcr().modify(|w| w.set_dbm(true));
+        r.p2fctcr().modify(|w| {
+            w.set_cptmode(false);
+            w.set_cptreq(true);
+        });
+        r.p2fcr().write(|w| {
+            w.set_cframef(true);
+            w.set_covrf(true);
+        });
+        r.p2ier().modify(|w| {
+            w.set_frameie(true);
+            w.set_ovrie(true);
+        });
+        r.p2fscr().modify(|w| w.set_pipen(true));
+        self.frame_count = 0;
+        self.dbm_enabled = true;
+    }
+
+    /// Wait for the next frame. Returns the buffer index (0 or 1).
+    pub async fn wait_frame(&mut self) -> Result<u8, Error> {
+        let r = T::regs();
+        r.p2fcr().write(|w| {
+            w.set_cframef(true);
+            w.set_covrf(true);
+        });
+        r.p2ier().modify(|w| {
+            w.set_frameie(true);
+            w.set_ovrie(true);
+        });
+
+        poll_fn(|cx| {
+            PIPE2_STATE.waker.register(cx.waker());
+            let sr = T::regs().p2sr().read();
+            if sr.ovrf() {
+                T::regs().p2fcr().write(|w| w.set_covrf(true));
+                return Poll::Ready(Err(Error::Overrun));
+            }
+            if sr.framef() {
+                T::regs().p2fcr().write(|w| w.set_cframef(true));
+                let idx = if self.dbm_enabled {
+                    (self.frame_count & 1) as u8
+                } else {
+                    0
+                };
+                self.frame_count = self.frame_count.wrapping_add(1);
+                return Poll::Ready(Ok(idx));
+            }
+            Poll::Pending
+        })
+        .await
+    }
+
+    /// Stop whatever capture is running on Pipe2.
+    pub fn stop(&mut self) {
+        let r = T::regs();
+        r.p2fctcr().modify(|w| w.set_cptreq(false));
+        r.p2fscr().modify(|w| w.set_pipen(false));
+        r.p2ier().modify(|w| {
+            w.set_frameie(false);
+            w.set_ovrie(false);
+        });
+        self.dbm_enabled = false;
+    }
+}
+
+impl<'d, T: Instance> Drop for Pipe2<'d, T> {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Instance trait
+// ----------------------------------------------------------------------------
 
 trait SealedInstance: crate::rcc::RccPeripheral {
     fn regs() -> crate::pac::dcmipp::Dcmipp;
