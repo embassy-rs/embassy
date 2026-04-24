@@ -125,7 +125,7 @@ async fn main(spawner: Spawner) {
     spawner.spawn(ble_runner_task().expect("Failed to spawn BLE runner"));
 
     // Initialize BLE stack
-    let (ble, runtime) = Ble::new(rng, aes, pka, Irqs).await.expect("BLE initialization failed");
+    let (mut ble, runtime) = Ble::new(rng, aes, pka, Irqs).await.expect("BLE initialization failed");
     info!("BLE stack initialized");
 
     // Initialize GATT server
