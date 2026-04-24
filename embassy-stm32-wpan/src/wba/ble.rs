@@ -29,8 +29,7 @@ use crate::wba::gap::types::{AdvData, AdvParams};
 use crate::wba::gap_init::{GapInitParams, init_gap_and_hal};
 use crate::wba::hci::command::CommandSender;
 use crate::wba::hci::event::{Event, EventParams, read_event};
-use crate::wba::hci::types::DtmPacketPayload;
-use crate::wba::hci::types::{Address, Handle, Status};
+use crate::wba::hci::types::{Address, DtmPacketPayload, Handle, Status};
 use crate::wba::ll_sys::init_ble_stack;
 
 /// High interrupt handler.
