@@ -858,6 +858,11 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, In> {
         .await;
         trace!("wait_enabled IN OK");
     }
+
+    fn is_enabled(&self) -> bool {
+        let index = self.info.addr.index();
+        T::regs().epr(index).read().stat_tx() != Stat::DISABLED
+    }
 }
 
 impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, Out> {
@@ -879,6 +884,11 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, Out> {
         })
         .await;
         trace!("wait_enabled OUT OK");
+    }
+
+    fn is_enabled(&self) -> bool {
+        let index = self.info.addr.index();
+        T::regs().epr(index).read().stat_rx() != Stat::DISABLED
     }
 }
 
