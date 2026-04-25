@@ -126,17 +126,11 @@ impl DrawTarget for Framebuffer<'_> {
 
         // Slow path: partial clipping. Fall back to draw_iter with explicit Pixels so
         // we don't have to reimplement clipping logic.
-        self.draw_iter(
-            colors
-                .into_iter()
-                .enumerate()
-                .take((aw * ah) as usize)
-                .map(|(i, c)| {
-                    let x = ax + (i as i32) % aw;
-                    let y = ay + (i as i32) / aw;
-                    Pixel(embedded_graphics_core::geometry::Point::new(x, y), c)
-                }),
-        )
+        self.draw_iter(colors.into_iter().enumerate().take((aw * ah) as usize).map(|(i, c)| {
+            let x = ax + (i as i32) % aw;
+            let y = ay + (i as i32) / aw;
+            Pixel(embedded_graphics_core::geometry::Point::new(x, y), c)
+        }))
     }
 
     fn clear(&mut self, color: Self::Color) -> Result<(), Self::Error> {

@@ -161,10 +161,7 @@ const INCK_24MHZ: &[Reg] = &[
 ];
 
 /// 30 fps frame-length / line-length pair (BSP `framerate_30fps_regs`).
-const FRAMERATE_30FPS: &[Reg] = &[
-    (0x3030, 0x94),
-    (0x3031, 0x11),
-];
+const FRAMERATE_30FPS: &[Reg] = &[(0x3030, 0x94), (0x3031, 0x11)];
 
 /// IMX335 sensor driver.
 ///
@@ -266,10 +263,7 @@ impl<'d> Imx335<'d> {
             match self.write_reg(addr, val) {
                 Ok(()) => {}
                 Err(_) => {
-                    defmt::error!(
-                        "imx335: NACK at table[{}] reg=0x{:04x} val=0x{:02x}",
-                        i, addr, val
-                    );
+                    defmt::error!("imx335: NACK at table[{}] reg=0x{:04x} val=0x{:02x}", i, addr, val);
                     nacks += 1;
                 }
             }

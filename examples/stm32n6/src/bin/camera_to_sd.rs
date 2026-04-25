@@ -20,21 +20,20 @@ use embassy_futures::block_on;
 use embassy_futures::select::{Either3, select3};
 use embassy_stm32::csi::{self, Csi, LaneCount};
 use embassy_stm32::dcmipp::{
-    self, BayerPattern, ChannelGains, Dcmipp, DownsizeConfig, InputSource, PixelFormat as DcmippPixelFormat,
-    Pipe1Config, Pipe1,
+    self, BayerPattern, ChannelGains, Dcmipp, DownsizeConfig, InputSource, Pipe1, Pipe1Config,
+    PixelFormat as DcmippPixelFormat,
 };
 use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::gpio::{Level, Output, Pull, Speed};
 use embassy_stm32::i2c::I2c;
 use embassy_stm32::ltdc::{self, Ltdc, LtdcLayer, LtdcLayerConfig, PixelFormat};
-use embassy_stm32::pac;
 use embassy_stm32::peripherals::DCMIPP;
 use embassy_stm32::rcc::mux::{Dcmippsel, Ltdcsel};
 use embassy_stm32::rcc::{CpuClk, IcConfig, Icint, Icsel, Pll, Plldivm, Pllpdiv, Pllsel, SysClk};
 use embassy_stm32::sdmmc::Sdmmc;
 use embassy_stm32::sdmmc::sd::{Addressable, Card, CmdBlock, DataBlock, StorageDevice};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{Config, bind_interrupts, interrupt, peripherals};
+use embassy_stm32::{Config, bind_interrupts, interrupt, pac, peripherals};
 use embassy_time::Timer;
 use embedded_sdmmc::{Block, BlockCount, BlockDevice, BlockIdx, Mode, TimeSource, Timestamp, VolumeIdx, VolumeManager};
 use {defmt_rtt as _, panic_probe as _};
@@ -101,16 +100,17 @@ async fn main(_spawner: Spawner) {
     let mut panel = Rk050Hr18c::new(p.PE1, p.PQ3, p.PQ6);
     panel.power_on().await;
     let mut ltdc = Ltdc::<_, ltdc::Rgb888>::new_with_pins(
-        p.LTDC, Irqs, p.PB13, p.PB14, p.PE11, p.PG13,
-        p.PG15, p.PA7, p.PB2, p.PG6, p.PH3, p.PH6, p.PA8, p.PA2,
-        p.PG12, p.PG1, p.PA1, p.PA0, p.PB15, p.PB12, p.PB11, p.PG8,
-        p.PG0, p.PD9, p.PD15, p.PB4, p.PH4, p.PA15, p.PG11, p.PD8,
+        p.LTDC, Irqs, p.PB13, p.PB14, p.PE11, p.PG13, p.PG15, p.PA7, p.PB2, p.PG6, p.PH3, p.PH6, p.PA8, p.PA2, p.PG12,
+        p.PG1, p.PA1, p.PA0, p.PB15, p.PB12, p.PB11, p.PG8, p.PG0, p.PD9, p.PD15, p.PB4, p.PH4, p.PA15, p.PG11, p.PD8,
     );
     ltdc.init(&LTDC_CONFIG);
     let layer_config = LtdcLayerConfig {
         pixel_format: PixelFormat::RGB565,
         layer: LtdcLayer::Layer1,
-        window_x0: 0, window_x1: WIDTH, window_y0: 0, window_y1: HEIGHT,
+        window_x0: 0,
+        window_x1: WIDTH,
+        window_y0: 0,
+        window_y1: HEIGHT,
     };
     ltdc.init_layer(&layer_config, None);
     ltdc.init_buffer(LtdcLayer::Layer1, FB0_BASE as *const ());
@@ -123,16 +123,14 @@ async fn main(_spawner: Spawner) {
     // enough that we get an error only when the card is genuinely dead.
     let mut sd_cfg = embassy_stm32::sdmmc::Config::default();
     sd_cfg.data_transfer_timeout = 200_000_000;
-    let mut sd = Sdmmc::new_4bit(
-        p.SDMMC2, Irqs,
-        p.PC2, p.PC3, p.PC4, p.PC5, p.PC0, p.PE4,
-        sd_cfg,
-    );
+    let mut sd = Sdmmc::new_4bit(p.SDMMC2, Irqs, p.PC2, p.PC3, p.PC4, p.PC5, p.PC0, p.PE4, sd_cfg);
     let mut cmd_block = CmdBlock::new();
     let mut sd_state = match StorageDevice::new_sd_card(&mut sd, &mut cmd_block, Hertz(24_000_000)).await {
         Ok(storage) => {
             info!("sd: card ready, {} blocks", storage.card().size());
-            let block_dev = EmbassyBlockDevice { inner: RefCell::new(storage) };
+            let block_dev = EmbassyBlockDevice {
+                inner: RefCell::new(storage),
+            };
             let mut volume_mgr: VolumeManager<_, _> = VolumeManager::new(block_dev, FixedTime);
             let next_idx = scan_next_index(&mut volume_mgr);
             info!("next image index = {}", next_idx);
@@ -228,9 +226,8 @@ async fn save_current_frame<'a, 'b>(
 
     let snap_addr = if last_idx == 0 { FB0_BASE } else { FB1_BASE };
     info!("save: using FB at 0x{:08x}", snap_addr);
-    let snap_slice: &[u16] = unsafe {
-        core::slice::from_raw_parts(snap_addr as *const u16, WIDTH as usize * HEIGHT as usize)
-    };
+    let snap_slice: &[u16] =
+        unsafe { core::slice::from_raw_parts(snap_addr as *const u16, WIDTH as usize * HEIGHT as usize) };
 
     match write_bmp_to_sd(volume_mgr, file_idx, snap_slice) {
         Ok(()) => info!("saved IMG{:04}.BMP", file_idx),
@@ -320,9 +317,7 @@ fn write_bmp_to_sd<'a, 'b>(
     Ok(())
 }
 
-fn scan_next_index<'a, 'b>(
-    volume_mgr: &mut VolumeManager<EmbassyBlockDevice<'a, 'b>, FixedTime>,
-) -> u32 {
+fn scan_next_index<'a, 'b>(volume_mgr: &mut VolumeManager<EmbassyBlockDevice<'a, 'b>, FixedTime>) -> u32 {
     let mut max: i64 = -1;
     let res: Result<(), embedded_sdmmc::Error<embassy_stm32::sdmmc::Error>> = (|| {
         let volume = volume_mgr.open_volume(VolumeIdx(0))?;
@@ -365,11 +360,7 @@ impl<'a, 'b> BlockDevice for EmbassyBlockDevice<'a, 'b> {
             // DataBlock is repr-transparent over [u32; 128] = 512 bytes.
             // SAFETY: same size, properly aligned.
             unsafe {
-                core::ptr::copy_nonoverlapping(
-                    data.0.as_ptr() as *const u8,
-                    block.contents.as_mut_ptr(),
-                    512,
-                );
+                core::ptr::copy_nonoverlapping(data.0.as_ptr() as *const u8, block.contents.as_mut_ptr(), 512);
             }
         }
         Ok(())
@@ -380,11 +371,7 @@ impl<'a, 'b> BlockDevice for EmbassyBlockDevice<'a, 'b> {
         for (i, block) in blocks.iter().enumerate() {
             let mut data = DataBlock([0u32; 128]);
             unsafe {
-                core::ptr::copy_nonoverlapping(
-                    block.contents.as_ptr(),
-                    data.0.as_mut_ptr() as *mut u8,
-                    512,
-                );
+                core::ptr::copy_nonoverlapping(block.contents.as_ptr(), data.0.as_mut_ptr() as *mut u8, 512);
             }
             block_on(inner.write_block(start_block_idx.0 + i as u32, &data))?;
         }
@@ -425,8 +412,14 @@ fn rcc_config() -> Config {
         divp1: Pllpdiv::Div1,
         divp2: Pllpdiv::Div1,
     });
-    config.rcc.ic1 = Some(IcConfig { source: Icsel::Pll1, divider: Icint::Div1 });
-    let sys_ic = IcConfig { source: Icsel::Pll1, divider: Icint::Div4 };
+    config.rcc.ic1 = Some(IcConfig {
+        source: Icsel::Pll1,
+        divider: Icint::Div1,
+    });
+    let sys_ic = IcConfig {
+        source: Icsel::Pll1,
+        divider: Icint::Div4,
+    };
     config.rcc.ic2 = Some(sys_ic);
     config.rcc.ic6 = Some(sys_ic);
     config.rcc.ic11 = Some(sys_ic);
@@ -434,38 +427,61 @@ fn rcc_config() -> Config {
     config.rcc.sys = SysClk::Ic2;
 
     config.rcc.pll4 = Some(Pll::Bypass { source: Pllsel::Hsi });
-    config.rcc.ic16 = Some(IcConfig { source: Icsel::Pll4, divider: Icint::Div2 });
+    config.rcc.ic16 = Some(IcConfig {
+        source: Icsel::Pll4,
+        divider: Icint::Div2,
+    });
     config.rcc.mux.ltdcsel = Ltdcsel::Ic16;
 
-    config.rcc.ic17 = Some(IcConfig { source: Icsel::Pll1, divider: Icint::Div3 });
+    config.rcc.ic17 = Some(IcConfig {
+        source: Icsel::Pll1,
+        divider: Icint::Div3,
+    });
     config.rcc.mux.dcmippsel = Dcmippsel::Ic17;
 
-    config.rcc.ic18 = Some(IcConfig { source: Icsel::Pll1, divider: Icint::Div60 });
+    config.rcc.ic18 = Some(IcConfig {
+        source: Icsel::Pll1,
+        divider: Icint::Div60,
+    });
     config
 }
 
 fn enable_all_sram() {
     pac::RCC.memenr().modify(|w| {
-        w.set_axisram1en(true); w.set_axisram2en(true);
-        w.set_axisram3en(true); w.set_axisram4en(true);
-        w.set_axisram5en(true); w.set_axisram6en(true);
-        w.set_ahbsram1en(true); w.set_ahbsram2en(true);
+        w.set_axisram1en(true);
+        w.set_axisram2en(true);
+        w.set_axisram3en(true);
+        w.set_axisram4en(true);
+        w.set_axisram5en(true);
+        w.set_axisram6en(true);
+        w.set_ahbsram1en(true);
+        w.set_ahbsram2en(true);
         w.set_bkpsramen(true);
     });
 }
 
 fn promote_axi_masters_to_secure() {
-    pac::RIFSC.risc_seccfgr(2).modify(|w| { w.set_cfg(29, true); });
-    pac::RIFSC.risc_privcfgr(2).modify(|w| { w.set_cfg(29, true); });
+    pac::RIFSC.risc_seccfgr(2).modify(|w| {
+        w.set_cfg(29, true);
+    });
+    pac::RIFSC.risc_privcfgr(2).modify(|w| {
+        w.set_cfg(29, true);
+    });
     pac::RIFSC.risc_seccfgr(3).modify(|w| {
-        w.set_cfg(5, true); w.set_cfg(7, true); w.set_cfg(8, true);
+        w.set_cfg(5, true);
+        w.set_cfg(7, true);
+        w.set_cfg(8, true);
     });
     pac::RIFSC.risc_privcfgr(3).modify(|w| {
-        w.set_cfg(5, true); w.set_cfg(7, true); w.set_cfg(8, true);
+        w.set_cfg(5, true);
+        w.set_cfg(7, true);
+        w.set_cfg(8, true);
     });
     for master in [8usize, 9, 10, 11] {
         pac::RIFSC.rimc_attr(master).modify(|w| {
-            w.set_mcid(1); w.set_msec(true); w.set_mpriv(true);
+            w.set_mcid(1);
+            w.set_msec(true);
+            w.set_mpriv(true);
         });
     }
 }

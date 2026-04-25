@@ -27,13 +27,12 @@ use defmt::info;
 use embassy_executor::Spawner;
 use embassy_stm32::dma2d::{self, Dma2d};
 use embassy_stm32::ltdc::{self, Ltdc, LtdcLayer, LtdcLayerConfig, PixelFormat};
-use embassy_stm32::pac;
 use embassy_stm32::rcc::mux::Ltdcsel;
 use embassy_stm32::rcc::{CpuClk, IcConfig, Icint, Icsel, Pll, Plldivm, Pllpdiv, Pllsel, SysClk};
-use embassy_stm32::{Config, bind_interrupts, peripherals};
+use embassy_stm32::{Config, bind_interrupts, pac, peripherals};
 use embassy_time::Instant;
+use embedded_graphics::mono_font::ascii::{FONT_6X10, FONT_10X20};
 use embedded_graphics::mono_font::{MonoTextStyle, MonoTextStyleBuilder};
-use embedded_graphics::mono_font::ascii::{FONT_10X20, FONT_6X10};
 use embedded_graphics::pixelcolor::Rgb565;
 use embedded_graphics::pixelcolor::raw::RawU16;
 use embedded_graphics::prelude::*;
@@ -145,15 +144,7 @@ impl DrawTarget for Dma2dFb<'_, '_> {
 /// Blocking DMA2D register-to-memory fill of an RGB565 rectangle. Polls `CR.START`.
 /// Assumes the DMA2D peripheral has already been enabled (`Dma2d::new` does this) and
 /// its master attributes have been promoted for SRAM writes.
-fn dma2d_r2m_fill_rgb565(
-    fb_ptr: *mut u16,
-    stride: u16,
-    x: u16,
-    y: u16,
-    width: u16,
-    height: u16,
-    color_rgb565: u16,
-) {
+fn dma2d_r2m_fill_rgb565(fb_ptr: *mut u16, stride: u16, x: u16, y: u16, width: u16, height: u16, color_rgb565: u16) {
     use pac::dma2d::vals;
 
     let r = pac::DMA2D;
@@ -233,8 +224,7 @@ async fn main(_spawner: Spawner) {
 
     // Full 24-bit RGB888 LTDC pin mapping from UM3300 §8.3.
     let mut ltdc = Ltdc::<_, ltdc::Rgb888>::new_with_pins(
-        p.LTDC, Irqs,
-        p.PB13, // CLK
+        p.LTDC, Irqs, p.PB13, // CLK
         p.PB14, // HSYNC
         p.PE11, // VSYNC
         p.PG13, // DE
@@ -259,10 +249,8 @@ async fn main(_spawner: Spawner) {
 
     // Safety: FB0 / FB1 live in AXISRAM3..6 (non-secure alias). `memory.x` doesn't
     // reference those banks, and each slice is only accessed through its own Framebuffer.
-    let fb0_slice: &'static mut [u16] =
-        unsafe { core::slice::from_raw_parts_mut(FB0_BASE as *mut u16, FB_PIXELS) };
-    let fb1_slice: &'static mut [u16] =
-        unsafe { core::slice::from_raw_parts_mut(FB1_BASE as *mut u16, FB_PIXELS) };
+    let fb0_slice: &'static mut [u16] = unsafe { core::slice::from_raw_parts_mut(FB0_BASE as *mut u16, FB_PIXELS) };
+    let fb1_slice: &'static mut [u16] = unsafe { core::slice::from_raw_parts_mut(FB1_BASE as *mut u16, FB_PIXELS) };
     let mut fb0 = Framebuffer::new(fb0_slice, WIDTH, HEIGHT);
     let mut fb1 = Framebuffer::new(fb1_slice, WIDTH, HEIGHT);
     fb0.fill(BG);
@@ -290,8 +278,14 @@ async fn main(_spawner: Spawner) {
         .text_color(Rgb565::new(28, 56, 28))
         .background_color(BG)
         .build();
-    let right_align = TextStyleBuilder::new().alignment(Alignment::Right).baseline(Baseline::Middle).build();
-    let left_mid = TextStyleBuilder::new().alignment(Alignment::Left).baseline(Baseline::Middle).build();
+    let right_align = TextStyleBuilder::new()
+        .alignment(Alignment::Right)
+        .baseline(Baseline::Middle)
+        .build();
+    let left_mid = TextStyleBuilder::new()
+        .alignment(Alignment::Left)
+        .baseline(Baseline::Middle)
+        .build();
 
     let boot = Instant::now();
     let mut ball_x: i32 = 120;
@@ -386,9 +380,14 @@ fn render_frame(
         .into_styled(PrimitiveStyle::with_fill(TITLE_BG))
         .draw(fb)
         .unwrap();
-    Text::with_text_style("embassy-stm32  \u{00b7}  STM32N6 LTDC demo", Point::new(16, 24), *title_font, left_mid)
-        .draw(fb)
-        .unwrap();
+    Text::with_text_style(
+        "embassy-stm32  \u{00b7}  STM32N6 LTDC demo",
+        Point::new(16, 24),
+        *title_font,
+        left_mid,
+    )
+    .draw(fb)
+    .unwrap();
 
     let mut buf: String<48> = String::new();
     let secs = boot.elapsed().as_secs();
@@ -423,14 +422,22 @@ fn render_frame(
         .unwrap();
     let cx = 560;
     let cy = row_y + 32;
-    Triangle::new(Point::new(cx, cy - 32), Point::new(cx - 32, cy), Point::new(cx, cy + 32))
-        .into_styled(PrimitiveStyle::with_fill(Rgb565::YELLOW))
-        .draw(fb)
-        .unwrap();
-    Triangle::new(Point::new(cx, cy - 32), Point::new(cx + 32, cy), Point::new(cx, cy + 32))
-        .into_styled(PrimitiveStyle::with_fill(Rgb565::new(31, 40, 0)))
-        .draw(fb)
-        .unwrap();
+    Triangle::new(
+        Point::new(cx, cy - 32),
+        Point::new(cx - 32, cy),
+        Point::new(cx, cy + 32),
+    )
+    .into_styled(PrimitiveStyle::with_fill(Rgb565::YELLOW))
+    .draw(fb)
+    .unwrap();
+    Triangle::new(
+        Point::new(cx, cy - 32),
+        Point::new(cx + 32, cy),
+        Point::new(cx, cy + 32),
+    )
+    .into_styled(PrimitiveStyle::with_fill(Rgb565::new(31, 40, 0)))
+    .draw(fb)
+    .unwrap();
     Rectangle::new(Point::new(680, row_y), Size::new(80, 64))
         .into_styled(
             PrimitiveStyleBuilder::new()
@@ -443,7 +450,13 @@ fn render_frame(
         .unwrap();
 
     let label_y = row_y + 80;
-    for (label, x) in [("circle", 62), ("triangle", 228), ("rect", 380), ("diamond", 548), ("outline", 704)] {
+    for (label, x) in [
+        ("circle", 62),
+        ("triangle", 228),
+        ("rect", 380),
+        ("diamond", 548),
+        ("outline", 704),
+    ] {
         Text::new(label, Point::new(x, label_y), *small_font).draw(fb).unwrap();
     }
 

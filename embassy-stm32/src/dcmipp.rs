@@ -878,10 +878,7 @@ impl<'d, T: Instance> Pipe2<'d, T> {
     /// Configure Pipe2. Panics if `cfg.output` is multi-planar — Pipe2 only
     /// supports single-plane pixel formats.
     pub fn configure(&mut self, cfg: &Pipe2Config) {
-        assert!(
-            cfg.output.is_coplanar(),
-            "Pipe2 supports only coplanar pixel formats"
-        );
+        assert!(cfg.output.is_coplanar(), "Pipe2 supports only coplanar pixel formats");
 
         let r = T::regs();
 
