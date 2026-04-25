@@ -57,7 +57,7 @@ async fn main(spawner: Spawner) {
     spi_cfg.frequency = 25_000_000;
 
     let Pio {
-        mut common, sm0, irq0, ..
+        mut common, sm0, ..
     } = Pio::new(rp_peripherals.PIO0, Irqs);
 
     let clk = rp_peripherals.PIN_17;
@@ -69,7 +69,6 @@ async fn main(spawner: Spawner) {
     let qspi = Qspi::new(
         &mut common,
         sm0,
-        irq0,
         clk,
         qspi_0,
         qspi_1,
