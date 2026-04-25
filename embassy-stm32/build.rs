@@ -1523,13 +1523,6 @@ fn main() {
             });
         }
 
-        // sdmmc_v3 (STM32N6) is not yet supported by embassy-stm32's `sdmmc` module.
-        // Skip emitting `pin_trait_impl!(crate::sdmmc::...)` for it so the generated
-        // code still compiles; the module itself is also cfg-gated to v1/v2 only.
-        if regs.kind == "sdmmc" && regs.version == "v3" {
-            continue;
-        }
-
         for pin in p.pins {
             let mut key = (regs.kind, pin.signal);
 
