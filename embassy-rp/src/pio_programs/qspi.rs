@@ -15,9 +15,10 @@ use crate::{dma, interrupt};
 
 /// This struct represents a set of QSPI program loaded into pio instruction memory.
 struct PioQspiProgram<'d, PIO: Instance> {
-    read: LoadedProgram<'d, PIO>,
-    write: LoadedProgram<'d, PIO>,
-    write_single_line: LoadedProgram<'d, PIO>,
+    prg: LoadedProgram<'d, PIO>,
+    read_entry: u8,
+    write_entry: u8,
+    write_single_line_entry: u8,
     phase: Phase,
 }
 
@@ -47,79 +48,73 @@ impl<'d, PIO: Instance> PioQspiProgram<'d, PIO> {
 
                 // TODO: might need to make read hang after completing to prevent clocking and
                 // reading rubbish
-                let read_prg = pio::pio_asm!(
+                let prg = pio::pio_asm!(
                     r#"
                         ; Use 1 bit for side-set for SCK
                         .side_set 1
 
+                        public read_entry:
                             ; Set all data pins to input
                             set pindirs 0b0000 side 0
 
-                        .wrap_target
                             ; Read (num_nibbles_to_read - 1) from output shift register
                             out x, 32 side 0
 
-                        read_nibble:
-                            nop side 0 [1]
-                            in pins, 4 side 1
-                            jmp x-- read_nibble side 1
+                            read_nibble:
+                                nop side 0 [1]
+                                in pins, 4 side 1
+                                jmp x-- read_nibble side 1
 
-                            ; Set irq to indicate operation complete
-                            irq set 0 rel side 0
-                        .wrap
-                    "#
-                );
-                let write_prg = pio::pio_asm!(
-                    r#"
-                        ; Use 1 bit for side-set for SCK
-                        .side_set 1
+                                ; Set irq to indicate operation complete
+                                irq set 0 rel side 0
+                            jmp nothing side 0
 
+                        public write_entry:
                             ; Set all data pins to output
                             set pindirs 0b1111 side 0
 
-                        .wrap_target
                             ; Read (num_nibbles_to_write - 1) from output shift register
                             out x, 32 side 0
 
-                        write_nibble:
-                            ; Side set proceeds even if instruction stalls, so we stall with SCK low
-                            out pins, 4 side 0 [1]
-                            nop side 1
-                            jmp x-- write_nibble side 1
+                            write_nibble:
+                                ; Side set proceeds even if instruction stalls, so we stall with SCK low
+                                out pins, 4 side 0 [1]
+                                nop side 1
+                                jmp x-- write_nibble side 1
 
-                            ; Set irq to indicate operation complete
-                            irq set 0 rel side 0
-                        .wrap
-                    "#
-                );
-                let write_single_line_prg = pio::pio_asm!(
-                    r#"
-                        ; Use 1 bit for side-set for SCK
-                        .side_set 1
+                                ; Set irq to indicate operation complete
+                                irq set 0 rel side 0
+                            jmp nothing side 0
 
+                        public write_single_line_entry:
                             ; Set QD0 pin to output
                             set pindirs 0b0001 side 0
 
-                        .wrap_target
                             ; Read (num_bits_to_write - 1) from output shift register
                             out x, 32 side 0
 
-                        write_bit:
-                            ; Side set proceeds even if instruction stalls, so we stall with SCK low
-                            out pins, 1 side 0 [1]
-                            nop side 1
-                            jmp x-- write_bit side 1
+                            write_bit:
+                                ; Side set proceeds even if instruction stalls, so we stall with SCK low
+                                out pins, 1 side 0 [1]
+                                nop side 1
+                                jmp x-- write_bit side 1
 
-                            ; Set irq to indicate operation complete
-                            irq set 0 rel side 0
+                                ; Set irq to indicate operation complete
+                                irq set 0 rel side 0
+                            jmp nothing side 0
+
+                        nothing:
+                        .wrap_target
+                            nop side 0
                         .wrap
                     "#
                 );
 
                 Self {
-                    read: common.load_program(&read_prg.program),
-                    write: common.load_program(&write_prg.program),
-                    write_single_line: common.load_program(&write_single_line_prg.program),
+                    prg: common.load_program(&prg.program),
+                    read_entry: prg.public_defines.read_entry as u8,
+                    write_entry: prg.public_defines.write_entry as u8,
+                    write_single_line_entry: prg.public_defines.write_single_line_entry as u8,
                     phase,
                 }
             }
@@ -193,7 +188,7 @@ impl<'d, PIO: Instance, const SM: usize, M: Mode> Qspi<'d, PIO, SM, M> {
 
         let mut cfg = crate::pio::Config::default();
 
-        cfg.use_program(&program.write_single_line, &[&clk_pin]);
+        cfg.use_program(&program.prg, &[&clk_pin]);
         cfg.set_in_pins(&[&qd0_pin, &qd1_pin, &qd2_pin, &qd3_pin]);
         cfg.set_out_pins(&[&qd0_pin, &qd1_pin, &qd2_pin, &qd3_pin]);
         cfg.set_set_pins(&[&qd0_pin, &qd1_pin, &qd2_pin, &qd3_pin]);
@@ -287,14 +282,12 @@ impl<'d, PIO: Instance, const SM: usize, M: Mode> Qspi<'d, PIO, SM, M> {
 
             // SAFETY: the state machine is disabled while this happens
             unsafe {
-                pio.free_instr(old_program.read.used_memory);
-                pio.free_instr(old_program.write.used_memory);
-                pio.free_instr(old_program.write_single_line.used_memory);
+                pio.free_instr(old_program.prg.used_memory);
             };
 
             let new_program = PioQspiProgram::new(pio, config.phase);
 
-            self.cfg.use_program(&new_program.write_single_line, &[&self.clk_pin]);
+            self.cfg.use_program(&new_program.prg, &[&self.clk_pin]);
             self.program = Some(new_program);
         }
 
@@ -370,11 +363,10 @@ impl<'d, PIO: Instance, const SM: usize> Qspi<'d, PIO, SM, Async> {
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         self.async_flush().await;
 
-        self.sm.set_enable(false);
-        self.cfg
-            .use_program(&self.program.as_ref().unwrap().read, &[&self.clk_pin]);
-        self.sm.set_config(&self.cfg);
-        self.sm.set_enable(true);
+        // jump to read
+        unsafe {
+            self.sm.exec_jmp(self.program.as_ref().unwrap().read_entry);
+        }
 
         self.operation_unflushed = true;
 
@@ -396,11 +388,10 @@ impl<'d, PIO: Instance, const SM: usize> Qspi<'d, PIO, SM, Async> {
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         self.async_flush().await;
 
-        self.sm.set_enable(false);
-        self.cfg
-            .use_program(&self.program.as_ref().unwrap().write, &[&self.clk_pin]);
-        self.sm.set_config(&self.cfg);
-        self.sm.set_enable(true);
+        // jump to write
+        unsafe {
+            self.sm.exec_jmp(self.program.as_ref().unwrap().write_entry);
+        }
 
         self.operation_unflushed = true;
 
@@ -422,11 +413,10 @@ impl<'d, PIO: Instance, const SM: usize> Qspi<'d, PIO, SM, Async> {
     pub async fn write_single_line(&mut self, buffer: &[u8]) -> Result<(), Error> {
         self.async_flush().await;
 
-        self.sm.set_enable(false);
-        self.cfg
-            .use_program(&self.program.as_ref().unwrap().write_single_line, &[&self.clk_pin]);
-        self.sm.set_config(&self.cfg);
-        self.sm.set_enable(true);
+        // jump to write
+        unsafe {
+            self.sm.exec_jmp(self.program.as_ref().unwrap().write_single_line_entry);
+        }
 
         self.operation_unflushed = true;
 
