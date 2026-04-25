@@ -20,7 +20,9 @@ pub struct TryLockError;
 struct State {
     readers: usize,
     writer: bool,
-    waker: WakerRegistration,
+    waiting_writers: usize,
+    read_waker: WakerRegistration,
+    write_waker: WakerRegistration,
 }
 
 /// Async read-write lock.
@@ -61,7 +63,9 @@ where
             state: BlockingMutex::new(RefCell::new(State {
                 readers: 0,
                 writer: false,
-                waker: WakerRegistration::new(),
+                waiting_writers: 0,
+                read_waker: WakerRegistration::new(),
+                write_waker: WakerRegistration::new(),
             })),
         }
     }
@@ -79,8 +83,8 @@ where
         poll_fn(|cx| {
             let ready = self.state.lock(|s| {
                 let mut s = s.borrow_mut();
-                if s.writer {
-                    s.waker.register(cx.waker());
+                if s.writer || s.waiting_writers > 0 {
+                    s.read_waker.register(cx.waker());
                     false
                 } else {
                     s.readers += 1;
@@ -100,13 +104,21 @@ where
     ///
     /// This will wait for the lock to be available if it's already locked for reading or writing.
     pub fn write(&self) -> impl Future<Output = RwLockWriteGuard<'_, M, T>> {
-        poll_fn(|cx| {
+        let mut waiting = false;
+        poll_fn(move |cx| {
             let ready = self.state.lock(|s| {
                 let mut s = s.borrow_mut();
                 if s.writer || s.readers > 0 {
-                    s.waker.register(cx.waker());
+                    if !waiting {
+                        s.waiting_writers += 1;
+                        waiting = true;
+                    }
+                    s.write_waker.register(cx.waker());
                     false
                 } else {
+                    if waiting {
+                        s.waiting_writers -= 1;
+                    }
                     s.writer = true;
                     true
                 }
@@ -230,7 +242,11 @@ where
             let mut s = unwrap!(s.try_borrow_mut());
             s.readers -= 1;
             if s.readers == 0 {
-                s.waker.wake();
+                if s.waiting_writers > 0 {
+                    s.write_waker.wake();
+                } else {
+                    s.read_waker.wake();
+                }
             }
         })
     }
@@ -294,7 +310,11 @@ where
         self.rwlock.state.lock(|s| {
             let mut s = unwrap!(s.try_borrow_mut());
             s.writer = false;
-            s.waker.wake();
+            if s.waiting_writers > 0 {
+                s.write_waker.wake();
+            } else {
+                s.read_waker.wake();
+            }
         })
     }
 }
