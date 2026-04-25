@@ -191,6 +191,28 @@ pub struct DownsizeConfig {
     pub output: (u16, u16),
 }
 
+/// Per-channel multiplicative gain applied through the Pipe1 colour-
+/// conversion matrix as a diagonal. `1.0` is pass-through. The hardware
+/// encodes each coefficient as 11-bit signed two's complement with a
+/// scale of `256 = 1.0` (matches the ST ISP middleware's `To_CConv_Reg`).
+/// The effective positive range is therefore ~`0.0..3.99`; values
+/// outside saturate.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct ChannelGains {
+    /// Red gain.
+    pub r: f32,
+    /// Green gain.
+    pub g: f32,
+    /// Blue gain.
+    pub b: f32,
+}
+
+impl ChannelGains {
+    /// Identity (1.0, 1.0, 1.0).
+    pub const IDENTITY: Self = Self { r: 1.0, g: 1.0, b: 1.0 };
+}
+
 /// Pipe0 (raw dump) configuration.
 ///
 /// Pipe0 bypasses the ISP and writes CSI packet payload bytes to memory in
@@ -228,6 +250,11 @@ pub struct Pipe1Config {
     pub source: InputSource,
     /// CSI-2 virtual channel (0..=3) to latch pixels from.
     pub virtual_channel: u8,
+    /// CSI-2 data type ID to filter the incoming stream (e.g. `0x2B` for
+    /// RAW10, `0x24` for RGB888). Ignored when `source` is
+    /// [`InputSource::Parallel`]. Defaults to `0x2B` (RAW10) — the most
+    /// common Bayer-sensor format.
+    pub csi_data_type: u8,
     /// Output pixel format as written to memory.
     pub output: PixelFormat,
     /// Line pitch in bytes. Must be a multiple of 16 per RM0486 §39.14.88.
@@ -246,12 +273,13 @@ pub struct Pipe1Config {
 
 impl Pipe1Config {
     /// Create a Pipe1 configuration with default R/B order, virtual channel 0,
-    /// no demosaic, no crop, and no downsize. `pitch_bytes` must be a multiple
-    /// of 16 (DCMIPP output alignment).
+    /// RAW10 CSI data type, no demosaic, no crop, and no downsize.
+    /// `pitch_bytes` must be a multiple of 16 (DCMIPP output alignment).
     pub const fn new(source: InputSource, output: PixelFormat, pitch_bytes: u16) -> Self {
         Self {
             source,
             virtual_channel: 0,
+            csi_data_type: 0x2B,
             output,
             pitch_bytes,
             swap_rb: false,
@@ -359,10 +387,15 @@ impl<'d, T: Instance> Dcmipp<'d, T> {
     }
 }
 
-fn apply_input_source(source: InputSource, swap_rb: bool) {
+fn apply_input_source(source: InputSource, _swap_rb: bool) {
+    // CMCR.swaprb is the *common* R/B swap that runs before each pipe.
+    // The per-pipe `Pipe1Config::swap_rb` flag drives the output packer's
+    // own swap (P1PPCR.swaprb). Setting both swaps cancels them out, so
+    // the common one is left cleared and only the packer-side swap is
+    // user-controlled.
     crate::pac::DCMIPP.cmcr().modify(|w| {
         w.set_insel(matches!(source, InputSource::Csi));
-        w.set_swaprb(swap_rb);
+        w.set_swaprb(false);
     });
 }
 
@@ -564,8 +597,13 @@ impl<'d, T: Instance> Pipe1<'d, T> {
 
         apply_input_source(cfg.source, cfg.swap_rb);
 
+        // P1FSCR drives the CSI ingress filter for this pipe: pick the VC
+        // and the data type to latch. DTMODE=0 = "match DTIDA only" (BSP
+        // `DCMIPP_DTMODE_DTIDA`).
         r.p1fscr().modify(|w| {
             w.set_vc(cfg.virtual_channel & 0x3);
+            w.set_dtmode(0);
+            w.set_dtida(cfg.csi_data_type & 0x3F);
             w.set_pipen(false);
         });
 
@@ -738,6 +776,83 @@ impl<'d, T: Instance> Pipe1<'d, T> {
             w.set_ovrie(false);
         });
         self.dbm_enabled = false;
+    }
+
+    /// Program the colour-conversion matrix as a diagonal gain matrix and
+    /// enable it. Off-diagonal coefficients and the offset column are
+    /// zeroed. Re-callable while streaming — the new matrix latches at
+    /// the next frame boundary.
+    pub fn set_color_gains(&mut self, gains: ChannelGains) {
+        let r = T::regs();
+        // BSP `To_CConv_Reg` encoding: scale by 256, store as 11-bit
+        // signed two's complement. Positive values clamp at +1023 so the
+        // sign bit (bit 10) stays clear; negative gains aren't useful for
+        // a WB diagonal so we floor at 0.
+        let encode = |g: f32| -> u16 {
+            let v = (g * 256.0 + 0.5) as i32;
+            v.clamp(0, 0x3FF) as u16
+        };
+        let rr = encode(gains.r);
+        let gg = encode(gains.g);
+        let bb = encode(gains.b);
+        // Diagonal coefficients live in different registers per row:
+        //   rr → P1CCRR1.rr   (row R, col R)
+        //   gg → P1CCGR1.gg   (row G, col G)
+        //   bb → P1CCBR2.bb   (row B, col B)
+        // The other six off-diagonals + three offset columns are zeroed
+        // by `write` to keep the matrix purely diagonal.
+        r.p1ccrr1().write(|w| w.set_rr(rr));
+        r.p1ccrr2().write(|_| {});
+        r.p1ccgr1().write(|w| w.set_gg(gg));
+        r.p1ccgr2().write(|_| {});
+        r.p1ccbr1().write(|_| {});
+        r.p1ccbr2().write(|w| w.set_bb(bb));
+        r.p1cccr().write(|w| w.set_enable(true));
+    }
+
+    /// Configure the three statistics extractors to compute the per-frame
+    /// mean of the post-demosaic R, G, B channels over the full Pipe1
+    /// output rectangle. Call once before streaming starts; the hardware
+    /// then refreshes the result registers at every end-of-frame.
+    pub fn enable_rgb_stats(&mut self, width: u16, height: u16) {
+        let r = T::regs();
+        r.p1ststr().write(|w| {
+            w.set_hstart(0);
+            w.set_vstart(0);
+        });
+        r.p1stszr().write(|w| {
+            w.set_hsize(width & 0x0FFF);
+            w.set_vsize(height & 0x0FFF);
+            w.set_cropen(true);
+        });
+        // src: 4 = post-demosaic R, 5 = G, 6 = B (BSP `IS_DCMIPP_STAT_*`).
+        // mode = 0 (mean), bins = 0 (don't care for mean).
+        r.p1st1cr().write(|w| {
+            w.set_src(4);
+            w.set_enable(true);
+        });
+        r.p1st2cr().write(|w| {
+            w.set_src(5);
+            w.set_enable(true);
+        });
+        r.p1st3cr().write(|w| {
+            w.set_src(6);
+            w.set_enable(true);
+        });
+    }
+
+    /// Read the most recently latched per-channel means (`P1ST{1,2,3}SR.accu`).
+    /// Returns `(mean_r, mean_g, mean_b)`. Each value is the channel sum
+    /// over the configured stats window divided by 256, per the metapac
+    /// register description. Call only after `enable_rgb_stats` and at
+    /// least one captured frame.
+    pub fn read_rgb_means(&self) -> (u32, u32, u32) {
+        let r = T::regs();
+        (
+            r.p1st1sr().read().accu(),
+            r.p1st2sr().read().accu(),
+            r.p1st3sr().read().accu(),
+        )
     }
 }
 

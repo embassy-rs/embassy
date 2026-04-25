@@ -122,26 +122,32 @@ pub enum Error {
 pub struct Config {
     /// Number of data lanes in use.
     pub lanes: LaneCount,
-    /// Nominal data rate per lane in Mbps. Used to compute the D-PHY
-    /// high-speed frequency band (`PFCR.HSFR`), and recorded for downstream
-    /// bandwidth / watchdog calculations.
+    /// Nominal data rate per lane in Mbps. Used to look up the D-PHY band
+    /// table (`PFCR.HSFR` + the Synopsys oscillator target).
     pub data_rate_mbps: u32,
     /// Virtual channels to start together as one stream. Bit `n` enables VC
     /// `n` (0..=3). Defaults to `0b0001` (VC0 only).
     pub virtual_channels: u8,
     /// Configuration-clock frequency in MHz feeding the D-PHY test/control
-    /// interface. Drives `PFCR.CCFR = round((F − 17) × 4)`. Defaults to
-    /// 24 MHz (the HSI_DIV default on the N6).
+    /// interface. Recorded but unused — the BSP-correct CCFR value is
+    /// hard-coded to 0x28 (matches the Synopsys D-PHY reference) so this
+    /// field is not driven into the register today.
     pub config_clock_mhz: u32,
     /// Override for the D-PHY high-speed frequency-range band
-    /// (`PFCR.HSFR`, 7 bits). `None` uses the linear approximation
-    /// documented at the module level.
+    /// (`PFCR.HSFR`, 7 bits). `None` looks up the band from
+    /// `data_rate_mbps`.
     pub hs_freq_range_override: Option<u8>,
+    /// `VCxCFGR1.CDTFT` — common data-type format for every enabled VC.
+    /// Encodes the bits-per-pixel of the incoming stream:
+    ///   0=6, 1=7, 2=8, 3=10, 4=12, 5=14, 6=16. Defaults to 3 (RAW10),
+    ///   the most common Bayer sensor format.
+    pub data_type_format: u8,
 }
 
 impl Config {
     /// Create a configuration with the given lane count and per-lane data
-    /// rate. Defaults: VC0 only, 24 MHz config clock, HSFR auto-derived.
+    /// rate. Defaults: VC0 only, 24 MHz config clock, HSFR auto-derived,
+    /// 10 bits-per-pixel (RAW10).
     pub const fn new(lanes: LaneCount, data_rate_mbps: u32) -> Self {
         Self {
             lanes,
@@ -149,6 +155,7 @@ impl Config {
             virtual_channels: 0b0001,
             config_clock_mhz: 24,
             hs_freq_range_override: None,
+            data_type_format: 3,
         }
     }
 }
@@ -178,58 +185,120 @@ impl<'d, T: Instance> Csi<'d, T> {
 
         let r = T::regs();
 
-        // Step 1: release the D-PHY digital section from reset.
-        r.prcr().modify(|w| w.set_pen(true));
-
-        // Step 2: D-PHY frequency configuration.
-        let hsfr = match config.hs_freq_range_override {
-            Some(v) => v & 0x7F,
-            None => hsfr_from_mbps(config.data_rate_mbps),
+        // Pick the Synopsys D-PHY band entry for this data rate. The
+        // hsfreqrange + osc_freq_target values come straight from the ST
+        // BSP (RM0486 §40 references the Synopsys D-PHY internal table).
+        let band = match config.hs_freq_range_override {
+            Some(v) => SnpsBand {
+                hs_freq_range: v & 0x7F,
+                osc_freq_target: 460,
+            },
+            None => snps_band_for_mbps(config.data_rate_mbps),
         };
-        let ccfr = ccfr_from_mhz(config.config_clock_mhz);
-        r.pfcr().modify(|w| {
-            w.set_dld(false); // data lane 0 in Rx mode
-            w.set_ccfr(ccfr);
-            w.set_hsfr(hsfr);
-        });
 
-        // Step 3: disable the D-PHY test interface (reset-mode write).
-        r.ptcr0().modify(|w| {
-            w.set_trsen(false);
-            w.set_tcken(false);
-        });
+        // Disable CSI before reconfiguring.
+        r.cr().modify(|w| w.set_csien(false));
 
-        // Step 4: lane merger — 1 or 2 lanes, straight mapping (D0→0, D1→1).
+        // Lane merger: 1 or 2 lanes, straight D0/D1 mapping.
         r.lmcfgr().modify(|w| {
             w.set_lanenb(config.lanes.as_u8());
             w.set_dl0map(1);
             w.set_dl1map(2);
         });
 
-        // Step 5: per-VC configuration. Enable ALLDT for every VC in the
-        // mask so all data types are forwarded; callers that want finer
-        // filtering can clear ALLDT and set per-DT bits through pac::CSI.
-        for bit in 0..4u8 {
-            if config.virtual_channels & (1 << bit) != 0 {
-                match bit {
-                    0 => r.vc0cfgr1().modify(|w| w.set_alldt(true)),
-                    1 => r.vc1cfgr1().modify(|w| w.set_alldt(true)),
-                    2 => r.vc2cfgr1().modify(|w| w.set_alldt(true)),
-                    3 => r.vc3cfgr1().modify(|w| w.set_alldt(true)),
-                    _ => {}
-                }
-            }
-        }
+        // Re-enable CSI so the D-PHY config sequence below can drive
+        // the test interface.
+        r.cr().modify(|w| w.set_csien(true));
 
-        // Step 6: power up the PHY and enable clock + data lanes.
-        r.pcr().modify(|w| {
+        // ---- D-PHY init sequence (BSP §HAL_DCMIPP_CSI_SetConfig) ----
+        // Hold the D-PHY in reset.
+        r.prcr().modify(|w| w.set_pen(false));
+
+        // Disable lanes during config.
+        r.pcr().write(|w| {
             w.set_pwrdown(false);
+            w.set_clen(false);
+            w.set_dl0en(false);
+            w.set_dl1en(false);
+        });
+
+        // 15 ns testclk pulse before any test-interface write. We pulse
+        // through PTCR0.TCKEN; one register write at 100 MHz APB is
+        // ≥10 ns, which is sufficient.
+        r.ptcr0().write(|w| w.set_tcken(true));
+        r.ptcr0().write(|w| w.0 = 0);
+
+        // Initial PFCR with HSFR but no DLD yet.
+        r.pfcr().write(|w| {
+            w.set_ccfr(0x28); // BSP-fixed value (matches Synopsys table)
+            w.set_hsfr(band.hs_freq_range);
+        });
+
+        // Synopsys D-PHY internal-register writes via the testbench
+        // interface. RM0486 §40.5.7 / Synopsys "DesignWare D-PHY" doc:
+        //   reg 0x08 = 0x38      deskew_polarity
+        //   reg 0xE4 = 0x11      DLL prog enable + counter_for_des_en
+        //   reg 0xE3 = osc_hi    DLL target oscillator high byte
+        //   reg 0xE3 = osc_lo    DLL target oscillator low  byte
+        write_phy_reg::<T>(0x00, 0x08, 0x38);
+        write_phy_reg::<T>(0x00, 0xE4, 0x11);
+        write_phy_reg::<T>(0x00, 0xE3, (band.osc_freq_target >> 8) as u8);
+        write_phy_reg::<T>(0x00, 0xE3, band.osc_freq_target as u8);
+
+        // Final PFCR: same HSFR, hardcoded CCFR=0x28, DLD=1 (D0 RX dir).
+        r.pfcr().write(|w| {
+            w.set_ccfr(0x28);
+            w.set_hsfr(band.hs_freq_range);
+            w.set_dld(true);
+        });
+
+        // Enable lanes; PWRDOWN bit is set per BSP (the metapac field is
+        // named "Power down" but on this IP it functions as the Synopsys
+        // shutdownz active-high enable — leaving it cleared keeps the PHY
+        // in shutdown).
+        r.pcr().write(|w| {
+            w.set_pwrdown(true);
             w.set_clen(true);
             w.set_dl0en(true);
             w.set_dl1en(matches!(config.lanes, LaneCount::Two));
         });
 
+        // Per-VC: ALLDT=true and CDTFT=data_type_format for each enabled
+        // VC. CDTFT is required — without it the CSI ingress can't decode
+        // the bit-width of the incoming pixels and DCMIPP receives nothing.
+        let cdtft = config.data_type_format & 0x1F;
+        for bit in 0..4u8 {
+            if config.virtual_channels & (1 << bit) != 0 {
+                match bit {
+                    0 => r.vc0cfgr1().write(|w| {
+                        w.set_alldt(true);
+                        w.set_cdtft(cdtft);
+                    }),
+                    1 => r.vc1cfgr1().write(|w| {
+                        w.set_alldt(true);
+                        w.set_cdtft(cdtft);
+                    }),
+                    2 => r.vc2cfgr1().write(|w| {
+                        w.set_alldt(true);
+                        w.set_cdtft(cdtft);
+                    }),
+                    3 => r.vc3cfgr1().write(|w| {
+                        w.set_alldt(true);
+                        w.set_cdtft(cdtft);
+                    }),
+                    _ => {}
+                }
+            }
+        }
+
+        // Release the D-PHY from reset.
+        r.prcr().modify(|w| w.set_pen(true));
+        // Clear PMCR (drop any forced Tx/Rx-mode requests).
+        r.pmcr().write(|w| w.0 = 0);
+
         unsafe { T::Interrupt::enable() };
+
+        let _ = config.config_clock_mhz; // CCFR is hardcoded per BSP
 
         Self {
             _peri: peri,
@@ -343,27 +412,127 @@ impl<'d, T: Instance> Csi<'d, T> {
     }
 }
 
-/// Config-clock frequency to `PFCR.CCFR`, 6-bit field clamped to 0..=0x3F.
-/// Formula: `round((F_MHz − 17) × 4)`.
-const fn ccfr_from_mhz(mhz: u32) -> u8 {
-    let signed = mhz as i32 - 17;
-    let scaled = signed * 4;
-    if scaled < 0 {
-        0
-    } else if scaled > 0x3F {
-        0x3F
-    } else {
-        scaled as u8
+/// Synopsys D-PHY band parameters for a given data rate.
+struct SnpsBand {
+    hs_freq_range: u8,
+    osc_freq_target: u16,
+}
+
+/// Synopsys D-PHY band table (RM0486 §40 / DesignWare D-PHY datasheet).
+/// Entries cover 80..2500 Mbps in coarse steps; we pick the closest band
+/// at or above the requested rate. Mirrors `SNPS_Freqs` in the ST BSP
+/// (`stm32n6xx_hal_dcmipp.c` v1.3.0).
+fn snps_band_for_mbps(mbps: u32) -> SnpsBand {
+    // (rate_mbps, hs_freq_range, osc_freq_target).
+    const T: &[(u32, u8, u16)] = &[
+        (80, 0x00, 460),
+        (90, 0x10, 460),
+        (100, 0x20, 460),
+        (110, 0x30, 460),
+        (120, 0x01, 460),
+        (130, 0x11, 460),
+        (140, 0x21, 460),
+        (150, 0x31, 460),
+        (160, 0x02, 460),
+        (170, 0x12, 460),
+        (180, 0x22, 460),
+        (190, 0x32, 460),
+        (205, 0x03, 460),
+        (220, 0x13, 460),
+        (235, 0x23, 460),
+        (250, 0x33, 460),
+        (275, 0x04, 460),
+        (300, 0x14, 460),
+        (325, 0x25, 460),
+        (350, 0x35, 460),
+        (400, 0x05, 460),
+        (450, 0x16, 460),
+        (500, 0x26, 460),
+        (550, 0x37, 460),
+        (600, 0x07, 460),
+        (650, 0x18, 460),
+        (700, 0x28, 460),
+        (750, 0x39, 460),
+        (800, 0x09, 460),
+        (850, 0x19, 460),
+        (900, 0x29, 460),
+        (950, 0x3A, 460),
+        (1000, 0x0A, 460),
+        (1050, 0x1A, 460),
+        (1100, 0x2A, 460),
+        (1150, 0x3B, 460),
+        (1200, 0x0B, 460),
+        (1250, 0x1B, 460),
+        (1300, 0x2B, 460),
+        (1350, 0x3C, 460),
+        (1400, 0x0C, 460),
+        (1450, 0x1C, 460),
+        (1500, 0x2C, 460),
+        (1550, 0x3D, 285),
+        (1600, 0x0D, 295),
+        (1650, 0x1D, 304),
+        (1700, 0x2E, 313),
+        (1750, 0x3E, 322),
+        (1800, 0x0E, 331),
+        (1850, 0x1E, 341),
+        (1900, 0x2F, 350),
+        (1950, 0x3F, 359),
+        (2000, 0x0F, 368),
+        (2050, 0x40, 377),
+        (2100, 0x41, 387),
+        (2150, 0x42, 396),
+        (2200, 0x43, 405),
+        (2250, 0x44, 414),
+        (2300, 0x45, 423),
+        (2350, 0x46, 432),
+        (2400, 0x47, 442),
+        (2450, 0x48, 451),
+        (2500, 0x49, 460),
+    ];
+    let mut best = T[0];
+    for &entry in T {
+        best = entry;
+        if entry.0 >= mbps {
+            break;
+        }
+    }
+    SnpsBand {
+        hs_freq_range: best.1,
+        osc_freq_target: best.2,
     }
 }
 
-/// Data-rate to `PFCR.HSFR`, 7-bit band selector clamped to 0..=0x7F. Uses
-/// the linear approximation `(mbps − 80) / 40` documented at the module
-/// level; override via `Config::hs_freq_range_override` if the sensor PLL
-/// targets a specific published band.
-const fn hsfr_from_mbps(mbps: u32) -> u8 {
-    let m = if mbps < 80 { 0 } else { (mbps - 80) / 40 };
-    if m > 0x7F { 0x7F } else { m as u8 }
+/// Synopsys D-PHY testbench register write (RM0486 §40 §"D-PHY internal
+/// registers" / DesignWare D-PHY user guide §5.2.3.2). Writes a 12-bit
+/// register address (split into MSB nibble + LSB byte) and an 8-bit value
+/// through the test-interface clock/data signals on PTCR0/PTCR1.
+fn write_phy_reg<T: Instance>(reg_msb: u8, reg_lsb: u8, val: u8) {
+    let r = T::regs();
+    // Phase A: latch the 4-bit testcode MSBs.
+    r.ptcr1().write(|w| w.set_twm(true));
+    r.ptcr0().write(|w| w.set_tcken(true));
+    r.ptcr1().write(|w| w.set_twm(true));
+    r.ptcr0().write(|w| w.0 = 0);
+    r.ptcr1().write(|w| w.0 = 0);
+
+    r.ptcr1().write(|w| w.set_tdi(reg_msb));
+    r.ptcr0().write(|w| w.set_tcken(true));
+
+    // Phase B: latch the 8-bit testcode LSBs.
+    r.ptcr0().write(|w| w.0 = 0);
+    r.ptcr1().write(|w| w.set_twm(true));
+    r.ptcr0().write(|w| w.set_tcken(true));
+    r.ptcr1().write(|w| {
+        w.set_twm(true);
+        w.set_tdi(reg_lsb);
+    });
+    r.ptcr0().write(|w| w.0 = 0);
+    r.ptcr1().write(|w| w.0 = 0);
+
+    // Phase C: latch the 8-bit data value.
+    r.ptcr1().write(|w| w.set_tdi(val));
+    r.ptcr0().write(|w| w.set_tcken(true));
+    r.ptcr0().write(|w| w.0 = 0);
 }
 
 impl<'d, T: Instance> Drop for Csi<'d, T> {
