@@ -36,6 +36,7 @@ hmac = "0.12.1"
 sha2 = { version = "0.10.9", default-features = false }
 embedded-graphics-core = "0.4.0"
 embedded-graphics = "0.8.1"
+embedded-sdmmc = { version = "0.9.0", default-features = false }
 
 
 # cargo build/run
