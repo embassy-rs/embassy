@@ -2,7 +2,6 @@
 
 use core::marker::PhantomData;
 
-use embassy_futures::join::join;
 use embassy_hal_internal::Peri;
 use embedded_hal_02::spi::{Phase, Polarity};
 use fixed::traits::ToFixed;
@@ -58,31 +57,56 @@ impl<'d, PIO: Instance> PioQspiProgram<'d, PIO> {
                             ; Set all data pins to input
                             set pindirs 0b0000 side 0
 
+                            ; Read (num_nibbles_to_read - 1) from output shift register
+                            out x, 32 side 0
+
                             read_nibble:
-                                nop side 0
-                                out null, 4 side 0
+                                nop side 0 [1]
                                 in pins, 4 side 1
-                                jmp read_nibble side 1
+                                jmp x-- read_nibble side 1
+
+                                ; Set irq to indicate operation complete
+                                irq set 0 rel side 0
+                            jmp nothing side 0
 
                         public write_entry:
                             ; Set all data pins to output
                             set pindirs 0b1111 side 0
 
+                            ; Read (num_nibbles_to_write - 1) from output shift register
+                            out x, 32 side 0
+
                             write_nibble:
                                 ; Side set proceeds even if instruction stalls, so we stall with SCK low
                                 out pins, 4 side 0 [1]
-                                in null, 4 side 1
-                                jmp write_nibble side 1
+                                nop side 1
+                                jmp x-- write_nibble side 1
+
+                                ; Set irq to indicate operation complete
+                                irq set 0 rel side 0
+                            jmp nothing side 0
 
                         public write_single_line_entry:
                             ; Set QD0 pin to output
                             set pindirs 0b0001 side 0
 
+                            ; Read (num_bits_to_write - 1) from output shift register
+                            out x, 32 side 0
+
                             write_bit:
                                 ; Side set proceeds even if instruction stalls, so we stall with SCK low
                                 out pins, 1 side 0 [1]
-                                in null, 1 side 1
-                                jmp write_bit side 1
+                                nop side 1
+                                jmp x-- write_bit side 1
+
+                                ; Set irq to indicate operation complete
+                                irq set 0 rel side 0
+                            jmp nothing side 0
+
+                        nothing:
+                        .wrap_target
+                            nop side 0
+                        .wrap
                     "#
                 );
 
@@ -115,11 +139,13 @@ pub enum Error {
 /// desired.
 pub struct Qspi<'d, PIO: Instance, const SM: usize, M: Mode> {
     sm: StateMachine<'d, PIO, SM>,
+    pio_irq: Irq<'d, PIO, SM>,
     cfg: crate::pio::Config<'d, PIO>,
     program: Option<PioQspiProgram<'d, PIO>>,
     clk_pin: Pin<'d, PIO>,
     tx_dma: Option<dma::Channel<'d>>,
     rx_dma: Option<dma::Channel<'d>>,
+    operation_unflushed: bool,
     phantom: PhantomData<M>,
 }
 
@@ -128,6 +154,7 @@ impl<'d, PIO: Instance, const SM: usize, M: Mode> Qspi<'d, PIO, SM, M> {
     fn new_inner(
         pio: &mut Common<'d, PIO>,
         mut sm: StateMachine<'d, PIO, SM>,
+        pio_irq: Irq<'d, PIO, SM>,
         clk_pin: Peri<'d, impl PioPin>,
         qd0_pin: Peri<'d, impl PioPin>,
         qd1_pin: Peri<'d, impl PioPin>,
@@ -187,11 +214,13 @@ impl<'d, PIO: Instance, const SM: usize, M: Mode> Qspi<'d, PIO, SM, M> {
 
         Self {
             sm,
+            pio_irq,
             program: Some(program),
             cfg,
             clk_pin,
             tx_dma,
             rx_dma,
+            operation_unflushed: false,
             phantom: PhantomData,
         }
     }
@@ -205,6 +234,15 @@ impl<'d, PIO: Instance, const SM: usize, M: Mode> Qspi<'d, PIO, SM, M> {
         while !self.sm.tx().stalled() {}
 
         Ok(())
+    }
+
+    /// Wait for QSPI operation to complete
+    pub async fn async_flush(&mut self) {
+        if self.operation_unflushed {
+            // IRQ fires when operation finished
+            self.pio_irq.wait().await;
+            self.operation_unflushed = false;
+        }
     }
 
     /// Set QSPI frequency.
@@ -273,6 +311,7 @@ impl<'d, PIO: Instance, const SM: usize> Qspi<'d, PIO, SM, Blocking> {
     pub fn new_blocking(
         pio: &mut Common<'d, PIO>,
         sm: StateMachine<'d, PIO, SM>,
+        pio_irq: Irq<'d, PIO, SM>,
         clk: Peri<'d, impl PioPin>,
         qd0: Peri<'d, impl PioPin>,
         qd1: Peri<'d, impl PioPin>,
@@ -280,7 +319,7 @@ impl<'d, PIO: Instance, const SM: usize> Qspi<'d, PIO, SM, Blocking> {
         qd3: Peri<'d, impl PioPin>,
         config: Config,
     ) -> Self {
-        Self::new_inner(pio, sm, clk, qd0, qd1, qd2, qd3, None, None, config)
+        Self::new_inner(pio, sm, pio_irq, clk, qd0, qd1, qd2, qd3, None, None, config)
     }
 }
 
@@ -290,6 +329,7 @@ impl<'d, PIO: Instance, const SM: usize> Qspi<'d, PIO, SM, Async> {
     pub fn new<TxDma: dma::ChannelInstance, RxDma: dma::ChannelInstance>(
         pio: &mut Common<'d, PIO>,
         sm: StateMachine<'d, PIO, SM>,
+        pio_irq: Irq<'d, PIO, SM>,
         clk: Peri<'d, impl PioPin>,
         qd0: Peri<'d, impl PioPin>,
         qd1: Peri<'d, impl PioPin>,
@@ -307,6 +347,7 @@ impl<'d, PIO: Instance, const SM: usize> Qspi<'d, PIO, SM, Async> {
         Self::new_inner(
             pio,
             sm,
+            pio_irq,
             clk,
             qd0,
             qd1,
@@ -320,23 +361,24 @@ impl<'d, PIO: Instance, const SM: usize> Qspi<'d, PIO, SM, Async> {
 
     /// Read data from QSPI using DMA.
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        self.async_flush().await;
+
         // jump to read
         unsafe {
             self.sm.exec_jmp(self.program.as_ref().unwrap().read_entry);
         }
 
+        self.operation_unflushed = true;
+
         let (rx, tx) = self.sm.rx_tx();
 
-        let len = buffer.len();
-
-        // push zeros for synchronization
-        let mut tx_ch = self.tx_dma.as_mut().unwrap().reborrow();
-        let tx_transfer = tx.dma_push_zeros::<u8>(&mut tx_ch, len);
+        let num_nibbles: u32 = 2 * (buffer.len() as u32);
+        tx.wait_push(num_nibbles - 1).await;
 
         let mut rx_ch = self.rx_dma.as_mut().unwrap().reborrow();
         let rx_transfer = rx.dma_pull(&mut rx_ch, buffer, false);
 
-        join(tx_transfer, rx_transfer).await;
+        rx_transfer.await;
         defmt::debug!("read: {}", &buffer);
 
         Ok(())
@@ -344,21 +386,24 @@ impl<'d, PIO: Instance, const SM: usize> Qspi<'d, PIO, SM, Async> {
 
     /// Write data to QSPI using DMA.
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        self.async_flush().await;
+
         // jump to write
         unsafe {
             self.sm.exec_jmp(self.program.as_ref().unwrap().write_entry);
         }
 
-        let (rx, tx) = self.sm.rx_tx();
+        self.operation_unflushed = true;
 
-        // receive zeros for synchronization
-        let mut rx_ch = self.rx_dma.as_mut().unwrap().reborrow();
-        let rx_transfer = rx.dma_pull_discard::<u8>(&mut rx_ch, buffer.len());
+        let tx = self.sm.tx();
+
+        let num_nibbles: u32 = 2 * (buffer.len() as u32);
+        tx.wait_push(num_nibbles - 1).await;
 
         let mut tx_ch = self.tx_dma.as_mut().unwrap().reborrow();
         let tx_transfer = tx.dma_push(&mut tx_ch, buffer, false);
 
-        join(tx_transfer, rx_transfer).await;
+        tx_transfer.await;
         defmt::debug!("wrote: {}", &buffer);
 
         Ok(())
@@ -366,21 +411,24 @@ impl<'d, PIO: Instance, const SM: usize> Qspi<'d, PIO, SM, Async> {
 
     /// Write data using a single line to QSPI using DMA.
     pub async fn write_single_line(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        self.async_flush().await;
+
         // jump to write
         unsafe {
             self.sm.exec_jmp(self.program.as_ref().unwrap().write_single_line_entry);
         }
 
-        let (rx, tx) = self.sm.rx_tx();
+        self.operation_unflushed = true;
 
-        // receive zeros for synchronization
-        let mut rx_ch = self.rx_dma.as_mut().unwrap().reborrow();
-        let rx_transfer = rx.dma_pull_discard::<u8>(&mut rx_ch, buffer.len());
+        let tx = self.sm.tx();
+
+        let num_bits: u32 = 8 * (buffer.len() as u32);
+        tx.wait_push(num_bits - 1).await;
 
         let mut tx_ch = self.tx_dma.as_mut().unwrap().reborrow();
         let tx_transfer = tx.dma_push(&mut tx_ch, buffer, false);
 
-        join(tx_transfer, rx_transfer).await;
+        tx_transfer.await;
         defmt::debug!("wrote single line: {}", &buffer);
 
         Ok(())
@@ -403,6 +451,7 @@ impl<'d, PIO: Instance, const SM: usize, M: Mode> embassy_embedded_hal::qspi::tr
 
 impl<'d, PIO: Instance, const SM: usize> embassy_embedded_hal::qspi::traits::QspiBus<u8> for Qspi<'d, PIO, SM, Async> {
     async fn flush(&mut self) -> Result<(), Self::Error> {
+        self.async_flush().await;
         Ok(())
     }
 
