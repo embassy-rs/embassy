@@ -6,6 +6,18 @@
 // Allow functions with too many args - we have a lot of HAL constructors like this for now
 #![allow(clippy::too_many_arguments)]
 
+/// Module for MCXA1xx-specific HAL drivers
+///
+/// NOTE: *for now*, some items are here because we haven't validated them on the MCXA5xx yet.
+/// This note will be removed when the two reach parity.
+#[cfg(feature = "mcxa1xx")]
+#[path = "."]
+mod mcxa1xx_exclusive {
+    pub mod flash;
+
+    pub use crate::chips::mcxa1xx::init;
+}
+
 /// Module for MCXA2xx-specific HAL drivers
 ///
 /// NOTE: *for now*, some items are here because we haven't validated them on the MCXA5xx yet.
@@ -29,9 +41,9 @@ mod mcxa5xx_exclusive {
 pub mod adc;
 #[cfg(mcxa_cdog)]
 pub mod cdog;
-#[cfg(any(mcxa_mrcc5xx, mcxa_mrcc2xx))]
+#[cfg(any(mcxa_mrcc5xx, mcxa_mrcc2xx, mcxa_mrcc1xx))]
 pub mod clkout; // TODO: Add dummy driver to metadata
-#[cfg(any(mcxa_mrcc5xx, mcxa_mrcc2xx))]
+#[cfg(any(mcxa_mrcc5xx, mcxa_mrcc2xx, mcxa_mrcc1xx))]
 pub mod clocks;
 pub mod config;
 #[cfg(mcxa_crc)]
@@ -70,6 +82,9 @@ pub mod trng;
 #[cfg(mcxa_wwdt)]
 pub mod wwdt;
 
+
+#[cfg(feature = "mcxa1xx")]
+pub use mcxa1xx_exclusive::*;
 #[cfg(feature = "mcxa2xx")]
 pub use mcxa2xx_exclusive::*;
 #[cfg(feature = "mcxa5xx")]
@@ -96,7 +111,7 @@ pub(crate) use nxp_pac as pac;
 
 pub use crate::_generated::{Peripherals, interrupt, peripherals};
 
-const HALS_SELECTED: usize = const { cfg!(feature = "mcxa2xx") as usize + cfg!(feature = "mcxa5xx") as usize };
+const HALS_SELECTED: usize = const { cfg!(feature = "mcxa1xx") as usize + cfg!(feature = "mcxa2xx") as usize + cfg!(feature = "mcxa5xx") as usize };
 
 /// Ensure exactly one chip feature is set.
 #[doc(hidden)]

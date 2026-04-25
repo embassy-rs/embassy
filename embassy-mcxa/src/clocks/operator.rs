@@ -21,9 +21,16 @@ use crate::pac::scg::{
 use crate::pac::spc::{
     ActiveCfgBgmode, ActiveCfgCoreldoVddDs, ActiveCfgCoreldoVddLvl, LpCfgBgmode, LpCfgCoreldoVddLvl, Vsm,
 };
+
+#[cfg(not(feature = "mcxa1xx"))]
 use crate::pac::syscon::{
     AhbclkdivUnstab, FrohfdivHalt, FrohfdivReset, FrohfdivUnstab, FrolfdivHalt, FrolfdivReset, FrolfdivUnstab,
     Pll1clkdivHalt, Pll1clkdivReset, Pll1clkdivUnstab, Unlock,
+};
+
+#[cfg(feature = "mcxa1xx")]
+use crate::pac::syscon::{
+    AhbclkdivUnstab, Unlock,
 };
 
 /// The ClockOperator is a private helper type that contains the methods used
@@ -99,7 +106,7 @@ impl ClockOperator<'_> {
         // * Firc is enabled and default -> nop
         #[cfg(feature = "mcxa2xx")]
         let default_freq = FircFreqSel::Mhz45;
-        #[cfg(feature = "mcxa5xx")]
+        #[cfg(any(feature = "mcxa5xx", feature = "mcxa1xx"))]
         let default_freq = FircFreqSel::Mhz48;
         let is_default = self.config.firc.as_ref().is_some_and(|c| c.frequency == default_freq);
 
@@ -255,12 +262,15 @@ impl ClockOperator<'_> {
             }
 
             // Halt and reset the div; then set our desired div.
+            #[cfg(not(feature = "mcxa1xx"))]
             self.syscon.frohfdiv().write(|w| {
                 w.set_halt(FrohfdivHalt::Halt);
                 w.set_reset(FrohfdivReset::Asserted);
                 w.set_div(d.into_bits());
             });
             // Then unhalt it, and reset it
+
+            #[cfg(not(feature = "mcxa1xx"))]
             self.syscon.frohfdiv().write(|w| {
                 w.set_halt(FrohfdivHalt::Run);
                 w.set_reset(FrohfdivReset::Released);
@@ -268,6 +278,7 @@ impl ClockOperator<'_> {
             });
 
             // Wait for clock to stabilize
+            #[cfg(not(feature = "mcxa1xx"))]
             while self.syscon.frohfdiv().read().unstab() == FrohfdivUnstab::Ongoing {}
 
             // Store off the clock info
@@ -349,12 +360,14 @@ impl ClockOperator<'_> {
             }
 
             // Halt and reset the div; then set our desired div.
+            #[cfg(not(feature = "mcxa1xx"))]
             self.syscon.frolfdiv().write(|w| {
                 w.set_halt(FrolfdivHalt::Halt);
                 w.set_reset(FrolfdivReset::Asserted);
                 w.set_div(d.into_bits());
             });
             // Then unhalt it, and reset it
+            #[cfg(not(feature = "mcxa1xx"))]
             self.syscon.frolfdiv().modify(|w| {
                 w.set_halt(FrolfdivHalt::Run);
                 w.set_reset(FrolfdivReset::Released);
@@ -362,6 +375,7 @@ impl ClockOperator<'_> {
             });
 
             // Wait for clock to stabilize
+            #[cfg(not(feature = "mcxa1xx"))]
             while self.syscon.frolfdiv().read().unstab() == FrolfdivUnstab::Ongoing {}
 
             // Store off the clock info
@@ -808,6 +822,7 @@ impl ClockOperator<'_> {
         Ok(())
     }
 
+    #[cfg(not(feature = "mcxa1xx"))]
     pub(super) fn configure_spll(&mut self) -> Result<(), ClockError> {
         // # Vocab
         //

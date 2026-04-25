@@ -483,7 +483,7 @@ pub enum FircFreqSel {
 }
 
 /// Selected FIRC frequency
-#[cfg(feature = "mcxa5xx")]
+#[cfg(any(feature = "mcxa5xx", feature = "mcxa1xx"))]
 #[derive(Debug, PartialEq)]
 pub enum FircFreqSel {
     /// 48MHz Output
@@ -510,7 +510,7 @@ impl FircFreqSel {
         }
     }
 
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(any(feature = "mcxa5xx", feature = "mcxa1xx"))]
     pub(crate) fn to_freq_and_sel(&self) -> (u32, FreqSel) {
         match self {
             FircFreqSel::Mhz48 => {
@@ -670,7 +670,7 @@ impl Default for FircConfig {
         FircConfig {
             #[cfg(feature = "mcxa2xx")]
             frequency: FircFreqSel::Mhz45,
-            #[cfg(feature = "mcxa5xx")]
+            #[cfg(any(feature = "mcxa5xx", feature = "mcxa1xx"))]
             frequency: FircFreqSel::Mhz48,
             power: PoweredClock::NormalEnabledDeepSleepDisabled,
             fro_hf_enabled: true,
@@ -703,7 +703,7 @@ impl Default for ClocksConfig {
             firc: Some(FircConfig {
                 #[cfg(feature = "mcxa2xx")]
                 frequency: FircFreqSel::Mhz45,
-                #[cfg(feature = "mcxa5xx")]
+                #[cfg(any(feature = "mcxa5xx", feature = "mcxa1xx"))]
                 frequency: FircFreqSel::Mhz48,
                 power: PoweredClock::NormalEnabledDeepSleepDisabled,
                 fro_hf_enabled: true,

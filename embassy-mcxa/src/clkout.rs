@@ -34,7 +34,7 @@ pub enum ClockOutSel {
     #[cfg(not(feature = "sosc-as-gpio"))]
     ClkIn,
     /// 16KHz oscillator
-    #[cfg(feature = "mcxa2xx")]
+    #[cfg(any(feature = "mcxa2xx", feature = "mcxa1xx"))]
     Clk16K,
     /// Either the 16K or 32K oscillator, depending on settings
     #[cfg(feature = "mcxa5xx")]
@@ -137,7 +137,8 @@ impl Drop for ClockOut<'_> {
 /// Check whether the given clock selection is valid
 fn check_sel(sel: ClockOutSel, level: PoweredClock, divisor: u32) -> Result<(u32, Mux, Option<WakeGuard>), ClockError> {
     let res = with_clocks(|c| {
-        #[cfg(feature = "mcxa2xx")]
+        
+        #[cfg(any(feature = "mcxa2xx", feature = "mcxa1xx"))]
         let (freq, mux, fmax, expected) = {
             let (freq, mux) = match sel {
                 ClockOutSel::Fro12M => (c.ensure_fro_hf_active(&level)?, Mux::Clkroot12m),
@@ -145,7 +146,10 @@ fn check_sel(sel: ClockOutSel, level: PoweredClock, divisor: u32) -> Result<(u32
                 #[cfg(not(feature = "sosc-as-gpio"))]
                 ClockOutSel::ClkIn => (c.ensure_clk_in_active(&level)?, Mux::ClkrootSosc),
                 ClockOutSel::Clk16K => (c.ensure_clk_16k_vdd_core_active(&level)?, Mux::Clkroot16k),
+                
+                #[cfg(not(feature = "mcxa1xx"))]
                 ClockOutSel::Pll1Clk => (c.ensure_pll1_clk_active(&level)?, Mux::ClkrootSpll),
+                
                 ClockOutSel::SlowClk => (c.ensure_slow_clk_active(&level)?, Mux::ClkrootSlow),
             };
             let expected = freq / divisor;
