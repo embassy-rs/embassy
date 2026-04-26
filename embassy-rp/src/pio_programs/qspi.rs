@@ -57,6 +57,7 @@ impl<'d, PIO: Instance> PioQspiProgram<'d, PIO> {
                             ; Set all data pins to input
                             set pindirs 0b0000 side 0
 
+                        read_n_nibbles:
                             ; Read (num_nibbles_to_read - 1) from output shift register
                             out x, 32 side 0
 
@@ -67,12 +68,13 @@ impl<'d, PIO: Instance> PioQspiProgram<'d, PIO> {
 
                                 ; Set irq to indicate operation complete
                                 irq set 0 rel side 0
-                            jmp nothing side 0
+                            jmp read_n_nibbles side 0
 
                         public write_entry:
                             ; Set all data pins to output
                             set pindirs 0b1111 side 0
 
+                        write_n_nibbles:
                             ; Read (num_nibbles_to_write - 1) from output shift register
                             out x, 32 side 0
 
@@ -84,12 +86,13 @@ impl<'d, PIO: Instance> PioQspiProgram<'d, PIO> {
 
                                 ; Set irq to indicate operation complete
                                 irq set 0 rel side 0
-                            jmp nothing side 0
+                            jmp write_n_nibbles side 0
 
                         public write_single_line_entry:
                             ; Set QD0 pin to output
                             set pindirs 0b0001 side 0
 
+                        write_single_line_n_nibbles:
                             ; Read (num_bits_to_write - 1) from output shift register
                             out x, 32 side 0
 
@@ -101,12 +104,7 @@ impl<'d, PIO: Instance> PioQspiProgram<'d, PIO> {
 
                                 ; Set irq to indicate operation complete
                                 irq set 0 rel side 0
-                            jmp nothing side 0
-
-                        nothing:
-                        .wrap_target
-                            nop side 0
-                        .wrap
+                            jmp write_single_line_n_nibbles side 0
                     "#
                 );
 
