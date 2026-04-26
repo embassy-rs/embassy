@@ -109,6 +109,52 @@ impl Default for Config {
     }
 }
 
+/// SRAM page power-down configuration for Stop modes (Stop 0, Stop 1).
+///
+/// Each field controls whether a particular SRAM region is powered down
+/// (content lost) or retained when the MCU enters a Stop mode. Powering
+/// down unused SRAM pages reduces Stop-mode current consumption.
+///
+/// All pages default to retained (`false`), preserving backward compatibility.
+#[derive(Clone, Copy)]
+pub struct StopModeSramConfig {
+    /// SRAM1 page 0 power-down in Stop modes.
+    pub sram1_page0: bool,
+    /// SRAM1 page 1 power-down in Stop modes.
+    pub sram1_page1: bool,
+    /// SRAM1 page 2 power-down in Stop modes.
+    pub sram1_page2: bool,
+    /// SRAM1 page 3 power-down in Stop modes.
+    pub sram1_page3: bool,
+    /// SRAM2 power-down in Stop modes.
+    pub sram2: bool,
+    /// SRAM1 pages 5-7 (192KB) power-down in Stop modes.
+    /// Only present on WBA6x variants with 256KB SRAM.
+    pub sram1_pages567: bool,
+    /// ICACHE SRAM power-down in Stop modes.
+    pub icache_sram: bool,
+    /// OTG (USB) SRAM power-down in Stop modes.
+    pub otg_sram: bool,
+    /// PKA SRAM power-down in Stop modes.
+    pub pka_sram: bool,
+}
+
+impl Default for StopModeSramConfig {
+    fn default() -> Self {
+        Self {
+            sram1_page0: false,
+            sram1_page1: false,
+            sram1_page2: false,
+            sram1_page3: false,
+            sram2: false,
+            sram1_pages567: false,
+            icache_sram: false,
+            otg_sram: false,
+            pka_sram: false,
+        }
+    }
+}
+
 fn hsi_enable() {
     RCC.cr().modify(|w| w.set_hsion(true));
     while !RCC.cr().read().hsirdy() {}
@@ -194,7 +240,7 @@ pub(crate) unsafe fn init(config: Config) {
     while FLASH.acr().read().latency() != flash_latency {}
 
     // Set sram wait states
-    let _sram_latency = match config.voltage_scale {
+    let sram_latency = match config.voltage_scale {
         VoltageScale::Range1 => 0,
         VoltageScale::Range2 => match sys_clk.0 {
             ..=12_000_000 => 0,
@@ -202,7 +248,10 @@ pub(crate) unsafe fn init(config: Config) {
             _ => 2,
         },
     };
-    // TODO: Set the SRAM wait states
+    crate::pac::RCC.ahb1enr().modify(|w| w.set_ramcfgen(true));
+    cortex_m::asm::dsb();
+    crate::pac::RAMCFG.m1cr().modify(|w| w.set_wsc(sram_latency));
+    crate::pac::RAMCFG.m2cr().modify(|w| w.set_wsc(sram_latency));
 
     RCC.cfgr1().modify(|w| {
         w.set_sw(config.sys);
