@@ -9,13 +9,15 @@ mod fmt;
 pub mod chip;
 mod device;
 
+pub mod wiznet_spi_interface;
+
 use embassy_futures::select::{Either3, select3};
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::LinkState;
 use embassy_time::{Duration, Ticker, Timer};
 use embedded_hal::digital::OutputPin;
 use embedded_hal_async::digital::Wait;
-use embedded_hal_async::spi::SpiDevice;
+use wiznet_spi_interface::WiznetSpiBus;
 
 use crate::chip::Chip;
 pub use crate::device::InitError;
@@ -53,15 +55,15 @@ impl<const N_RX: usize, const N_TX: usize> State<N_RX, N_TX> {
 /// Background runner for the driver.
 ///
 /// You must call `.run()` in a background task for the driver to operate.
-pub struct Runner<'d, C: Chip, SPI: SpiDevice, INT: Wait, RST: OutputPin> {
-    mac: WiznetDevice<C, SPI>,
+pub struct Runner<'d, C: Chip, WizInterface: WiznetSpiBus, INT: Wait, RST: OutputPin> {
+    mac: WiznetDevice<C, WizInterface>,
     ch: ch::Runner<'d, MTU>,
     int: INT,
     _reset: RST,
 }
 
 /// You must call this in a background task for the driver to operate.
-impl<'d, C: Chip, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, C, SPI, INT, RST> {
+impl<'d, C: Chip, WizInterface: WiznetSpiBus, INT: Wait, RST: OutputPin> Runner<'d, C, WizInterface, INT, RST> {
     /// Run the driver.
     pub async fn run(mut self) -> ! {
         let (state_chan, mut rx_chan, mut tx_chan) = self.ch.split();
@@ -103,13 +105,21 @@ impl<'d, C: Chip, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, C, SPI, 
 /// This returns two structs:
 /// - a `Device` that you must pass to the `embassy-net` stack.
 /// - a `Runner`. You must call `.run()` on it in a background task.
-pub async fn new<'a, const N_RX: usize, const N_TX: usize, C: Chip, SPI: SpiDevice, INT: Wait, RST: OutputPin>(
+pub async fn new<
+    'a,
+    const N_RX: usize,
+    const N_TX: usize,
+    C: Chip,
+    WizInterface: WiznetSpiBus,
+    INT: Wait,
+    RST: OutputPin,
+>(
     mac_addr: [u8; 6],
     state: &'a mut State<N_RX, N_TX>,
-    spi_dev: SPI,
+    spi_dev: WizInterface,
     int: INT,
     mut reset: RST,
-) -> Result<(Device<'a>, Runner<'a, C, SPI, INT, RST>), InitError<SPI::Error>> {
+) -> Result<(Device<'a>, Runner<'a, C, WizInterface, INT, RST>), InitError<WizInterface::Error>> {
     // Reset the chip.
     reset.set_low().ok();
     // Ensure the reset is registered.

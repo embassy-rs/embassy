@@ -1,4 +1,4 @@
-use embedded_hal_async::spi::{Operation, SpiDevice};
+use crate::wiznet_spi_interface::{WiznetSpiBus, WiznetSpiOperation};
 
 #[repr(u8)]
 pub enum RegisterBlock {
@@ -54,29 +54,35 @@ impl super::SealedChip for W6100 {
         (RegisterBlock::TxBuf, addr)
     }
 
-    async fn bus_read<SPI: SpiDevice>(
+    async fn bus_read<SPI: WiznetSpiBus>(
         spi: &mut SPI,
         address: Self::Address,
         data: &mut [u8],
     ) -> Result<(), SPI::Error> {
         let address_phase = address.1.to_be_bytes();
         let control_phase = [(address.0 as u8) << 3];
-        let operations = &mut [
-            Operation::Write(&address_phase),
-            Operation::Write(&control_phase),
-            Operation::TransferInPlace(data),
+
+        let operations = [
+            WiznetSpiOperation::Write(&address_phase),
+            WiznetSpiOperation::Write(&control_phase),
+            WiznetSpiOperation::Read(data),
         ];
         spi.transaction(operations).await
     }
 
-    async fn bus_write<SPI: SpiDevice>(spi: &mut SPI, address: Self::Address, data: &[u8]) -> Result<(), SPI::Error> {
+    async fn bus_write<SPI: WiznetSpiBus>(
+        spi: &mut SPI,
+        address: Self::Address,
+        data: &[u8],
+    ) -> Result<(), SPI::Error> {
         let address_phase = address.1.to_be_bytes();
         let control_phase = [(address.0 as u8) << 3 | 0b0000_0100];
         let data_phase = data;
-        let operations = &mut [
-            Operation::Write(&address_phase[..]),
-            Operation::Write(&control_phase),
-            Operation::Write(&data_phase),
+
+        let operations = [
+            WiznetSpiOperation::Write(&address_phase[..]),
+            WiznetSpiOperation::Write(&control_phase),
+            WiznetSpiOperation::Write(&data_phase),
         ];
         spi.transaction(operations).await
     }
