@@ -618,88 +618,71 @@ pub(crate) fn init_rcc(_cs: CriticalSection, config: Config) {
         // TODO: how to share this config from the secondary core thats using a lp timer? (right now its not detected as missing!)
         #[cfg(feature = "_lp-time-driver")]
         let config = {
-            use crate::pac::rcc::vals::Lptimsel;
             let mut config = config;
+
+            // Ensure the LPTIM clock source is suitable for use as a time
+            // driver during STOP mode.  If the default APB clock is selected,
+            // switch to LSI; otherwise verify that the chosen source is enabled.
+            //
+            // STM32WBA uses per-timer mux enums (Lptim1sel / Lptim2sel) while
+            // other families share a single Lptimsel enum.
+            macro_rules! ensure_lptim_clk {
+                ($field:ident, $Sel:path, $pclk:pat) => {
+                    match config.mux.$field {
+                        $pclk => {
+                            config.mux.$field = <$Sel>::Lsi;
+                            config.ls.lsi = true;
+                        }
+                        <$Sel>::Lsi => {
+                            config.ls.lsi = true;
+                        }
+                        <$Sel>::Hsi => {
+                            config.hsi = true;
+                        }
+                        <$Sel>::Lse => {
+                            if let Some(mut lse_config) = config.ls.lse {
+                                lse_config.peripherals_clocked = true;
+                                config.ls.lse = Some(lse_config);
+                            } else {
+                                panic!("LSE is not not configured, but selected for time_driver!!!");
+                            }
+                        }
+                        #[allow(unreachable_patterns)]
+                        _ => {}
+                    }
+                };
+            }
+
             #[cfg(time_driver_lptim1)]
             {
-                match config.mux.lptim1sel {
-                    Lptimsel::Pclk1 => {
-                        // set it to LSI
-                        config.mux.lptim1sel = Lptimsel::Lsi;
-                        config.ls.lsi = true;
-                    }
-                    Lptimsel::Lsi => {
-                        // ok but insure the lsi is enabled
-                        config.ls.lsi = true;
-                    }
-                    Lptimsel::Hsi => {
-                        // ok but insure the hsi is enabled
-                        config.hsi = true;
-                    }
-                    Lptimsel::Lse => {
-                        // ok but insure the lse is configured with peripherals_clocked = true!!!
-                        if let Some(mut lse_config) = config.ls.lse {
-                            lse_config.peripherals_clocked = true;
-                            config.ls.lse = Some(lse_config);
-                        } else {
-                            panic!("LSE is not not configured, but selected for time_driver!!!");
-                        }
-                    }
+                #[cfg(not(stm32wba))]
+                {
+                    use crate::pac::rcc::vals::Lptimsel;
+                    ensure_lptim_clk!(lptim1sel, Lptimsel, Lptimsel::Pclk1);
+                }
+                #[cfg(stm32wba)]
+                {
+                    use crate::pac::rcc::vals::Lptim1sel;
+                    ensure_lptim_clk!(lptim1sel, Lptim1sel, Lptim1sel::Pclk7);
                 }
             }
             #[cfg(time_driver_lptim2)]
             {
-                match config.mux.lptim2sel {
-                    Lptimsel::PCLK1 => {
-                        // set it to LSI
-                        config.mux.lptim2sel = Lptimsel::LSI;
-                        config.ls.lsi = true;
-                    }
-                    Lptimsel::LSI => {
-                        // ok but insure the lsi is enabled
-                        config.ls.lsi = true;
-                    }
-                    Lptimsel::HSI => {
-                        // ok but insure the hsi is enabled
-                        config.hsi = true;
-                    }
-                    Lptimsel::LSE => {
-                        // ok but insure the lse is configured with peripherals_clocked = true!!!
-                        if let Some(mut lse_config) = config.ls.lse {
-                            lse_config.peripherals_clocked = true;
-                            config.ls.lse = Some(lse_config);
-                        } else {
-                            panic!("LSE is not not configured, but selected for time_driver!!!");
-                        }
-                    }
+                #[cfg(not(stm32wba))]
+                {
+                    use crate::pac::rcc::vals::Lptimsel;
+                    ensure_lptim_clk!(lptim2sel, Lptimsel, Lptimsel::Pclk1);
+                }
+                #[cfg(stm32wba)]
+                {
+                    use crate::pac::rcc::vals::Lptim2sel;
+                    ensure_lptim_clk!(lptim2sel, Lptim2sel, Lptim2sel::Pclk1);
                 }
             }
             #[cfg(time_driver_lptim3)]
             {
-                match config.mux.lptim3sel {
-                    Lptimsel::PCLK1 => {
-                        // set it to LSI
-                        config.mux.lptim3sel = Lptimsel::LSI;
-                        config.ls.lsi = true;
-                    }
-                    Lptimsel::LSI => {
-                        // ok but insure the lsi is enabled
-                        config.ls.lsi = true;
-                    }
-                    Lptimsel::HSI => {
-                        // ok but insure the hsi is enabled
-                        config.hsi = true;
-                    }
-                    Lptimsel::LSE => {
-                        // ok but insure the lse is configured with peripherals_clocked = true!!!
-                        if let Some(mut lse_config) = config.ls.lse {
-                            lse_config.peripherals_clocked = true;
-                            config.ls.lse = Some(lse_config);
-                        } else {
-                            panic!("LSE is not not configured, but selected for time_driver!!!");
-                        }
-                    }
-                }
+                use crate::pac::rcc::vals::Lptimsel;
+                ensure_lptim_clk!(lptim3sel, Lptimsel, Lptimsel::Pclk1);
             }
             config
         };
