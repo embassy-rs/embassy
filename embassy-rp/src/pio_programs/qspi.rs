@@ -16,9 +16,9 @@ use crate::{dma, interrupt};
 /// This struct represents a set of QSPI program loaded into pio instruction memory.
 struct PioQspiProgram<'d, PIO: Instance> {
     prg: LoadedProgram<'d, PIO>,
-    read_entry: u8,
-    write_entry: u8,
-    write_single_line_entry: u8,
+    read_jmp: u16,
+    write_jmp: u16,
+    write_single_line_jmp: u16,
     phase: Phase,
 }
 
@@ -110,11 +110,27 @@ impl<'d, PIO: Instance> PioQspiProgram<'d, PIO> {
                     "#
                 );
 
+                let read_jmp = pio::InstructionOperands::JMP {
+                    address: prg.public_defines.read_entry as u8,
+                    condition: pio::JmpCondition::Always,
+                }
+                .encode();
+                let write_jmp = pio::InstructionOperands::JMP {
+                    address: prg.public_defines.write_entry as u8,
+                    condition: pio::JmpCondition::Always,
+                }
+                .encode();
+                let write_single_line_jmp = pio::InstructionOperands::JMP {
+                    address: prg.public_defines.write_single_line_entry as u8,
+                    condition: pio::JmpCondition::Always,
+                }
+                .encode();
+
                 Self {
                     prg: common.load_program(&prg.program),
-                    read_entry: prg.public_defines.read_entry as u8,
-                    write_entry: prg.public_defines.write_entry as u8,
-                    write_single_line_entry: prg.public_defines.write_single_line_entry as u8,
+                    read_jmp,
+                    write_jmp,
+                    write_single_line_jmp,
                     phase,
                 }
             }
@@ -365,7 +381,7 @@ impl<'d, PIO: Instance, const SM: usize> Qspi<'d, PIO, SM, Async> {
 
         // jump to read
         unsafe {
-            self.sm.exec_jmp(self.program.as_ref().unwrap().read_entry);
+            self.sm.exec_instr(self.program.as_ref().unwrap().read_jmp);
         }
 
         self.operation_unflushed = true;
@@ -390,7 +406,7 @@ impl<'d, PIO: Instance, const SM: usize> Qspi<'d, PIO, SM, Async> {
 
         // jump to write
         unsafe {
-            self.sm.exec_jmp(self.program.as_ref().unwrap().write_entry);
+            self.sm.exec_instr(self.program.as_ref().unwrap().write_jmp);
         }
 
         self.operation_unflushed = true;
@@ -415,7 +431,7 @@ impl<'d, PIO: Instance, const SM: usize> Qspi<'d, PIO, SM, Async> {
 
         // jump to write
         unsafe {
-            self.sm.exec_jmp(self.program.as_ref().unwrap().write_single_line_entry);
+            self.sm.exec_instr(self.program.as_ref().unwrap().write_single_line_jmp);
         }
 
         self.operation_unflushed = true;
