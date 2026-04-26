@@ -373,7 +373,8 @@ impl<'d, PIO: Instance, const SM: usize> Qspi<'d, PIO, SM, Async> {
         let (rx, tx) = self.sm.rx_tx();
 
         let num_nibbles: u32 = 2 * (buffer.len() as u32);
-        tx.wait_push(num_nibbles - 1).await;
+        // force push to FIFO since it will be empty after flush
+        tx.push(num_nibbles - 1);
 
         let mut rx_ch = self.rx_dma.as_mut().unwrap().reborrow();
         let rx_transfer = rx.dma_pull(&mut rx_ch, buffer, false);
@@ -398,7 +399,8 @@ impl<'d, PIO: Instance, const SM: usize> Qspi<'d, PIO, SM, Async> {
         let tx = self.sm.tx();
 
         let num_nibbles: u32 = 2 * (buffer.len() as u32);
-        tx.wait_push(num_nibbles - 1).await;
+        // force push to FIFO since it will be empty after flush
+        tx.push(num_nibbles - 1);
 
         let mut tx_ch = self.tx_dma.as_mut().unwrap().reborrow();
         let tx_transfer = tx.dma_push(&mut tx_ch, buffer, false);
@@ -423,7 +425,8 @@ impl<'d, PIO: Instance, const SM: usize> Qspi<'d, PIO, SM, Async> {
         let tx = self.sm.tx();
 
         let num_bits: u32 = 8 * (buffer.len() as u32);
-        tx.wait_push(num_bits - 1).await;
+        // force push to FIFO since it will be empty after flush
+        tx.push(num_bits - 1);
 
         let mut tx_ch = self.tx_dma.as_mut().unwrap().reborrow();
         let tx_transfer = tx.dma_push(&mut tx_ch, buffer, false);
