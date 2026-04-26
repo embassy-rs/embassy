@@ -18,8 +18,8 @@ use crate::descriptor::{DEFAULT_MAX_DESCRIPTOR_SIZE, InterfaceDescriptor, USBDes
 use crate::handler::{BusRoute, EnumerationInfo, HandlerEvent, RegisterError};
 use crate::{BusHandle, EnumerationError};
 
-pub struct HubHandler<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> {
-    bus: BusHandle<'d, A>,
+pub struct HubHandler<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize, const MAX: u8 = 127> {
+    bus: BusHandle<'d, A, MAX>,
     interrupt_channel: A::Pipe<pipe::Interrupt, pipe::In>,
     control_channel: A::Pipe<pipe::Control, pipe::InOut>,
     desc: HubDescriptor,
@@ -35,9 +35,9 @@ pub enum HubEvent {
     DeviceRemoved { address: Option<NonZeroU8>, port: u8 },
 }
 
-impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_PORTS> {
+impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize, const MAX: u8> HubHandler<'d, A, MAX_PORTS, MAX> {
     /// Attempt to register a hub handler for the given device.
-    pub async fn try_register(bus: &BusHandle<'d, A>, enum_info: &EnumerationInfo) -> Result<Self, RegisterError> {
+    pub async fn try_register(bus: &BusHandle<'d, A, MAX>, enum_info: &EnumerationInfo) -> Result<Self, RegisterError> {
         let ls_over_fs = matches!(enum_info.split(), Some(s) if s.device_speed() == SplitSpeed::Low);
         let mut control_channel = bus.alloc_pipe::<pipe::Control, pipe::InOut>(
             enum_info.device_address,

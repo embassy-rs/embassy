@@ -131,7 +131,7 @@ impl<const MAX: u8> BusState<MAX> {
     }
 }
 
-impl Default for BusState {
+impl<const MAX: u8> Default for BusState<MAX> {
     fn default() -> Self {
         Self::new()
     }
@@ -199,14 +199,14 @@ impl<'d, C: UsbHostController<'d>> BusController<'d, C> {
 /// its inner allocator, so it can be passed directly to class driver
 /// constructors.
 #[derive(Clone)]
-pub struct BusHandle<'d, A: UsbHostAllocator<'d>> {
+pub struct BusHandle<'d, A: UsbHostAllocator<'d>, const MAX: u8 = 127> {
     alloc: A,
-    state: &'d BusState,
+    state: &'d BusState<MAX>,
 }
 
-impl<'d, A: UsbHostAllocator<'d>> BusHandle<'d, A> {
+impl<'d, A: UsbHostAllocator<'d>, const MAX: u8> BusHandle<'d, A, MAX> {
     /// Borrow the shared bus state.
-    pub fn state(&self) -> &'d BusState {
+    pub fn state(&self) -> &'d BusState<MAX> {
         self.state
     }
 
@@ -406,7 +406,7 @@ impl<'d, A: UsbHostAllocator<'d>> BusHandle<'d, A> {
     }
 }
 
-impl<'d, A: UsbHostAllocator<'d>> UsbHostAllocator<'d> for BusHandle<'d, A> {
+impl<'d, A: UsbHostAllocator<'d>, const MAX: u8> UsbHostAllocator<'d> for BusHandle<'d, A, MAX> {
     type Pipe<T: pipe::Type, D: pipe::Direction> = A::Pipe<T, D>;
 
     fn alloc_pipe<T: pipe::Type, D: pipe::Direction>(
@@ -426,10 +426,10 @@ impl<'d, A: UsbHostAllocator<'d>> UsbHostAllocator<'d> for BusHandle<'d, A> {
 /// and can be freely shared, handed to class drivers, hub handlers, or
 /// other concurrent tasks while the controller task is blocked inside
 /// [`wait_for_device_event`](BusController::wait_for_device_event).
-pub fn bus<'d, C: UsbHostController<'d>>(
+pub fn bus<'d, C: UsbHostController<'d>, const MAX: u8>(
     driver: C,
-    state: &'d BusState,
-) -> (BusController<'d, C>, BusHandle<'d, C::Allocator>) {
+    state: &'d BusState<MAX>,
+) -> (BusController<'d, C>, BusHandle<'d, C::Allocator, MAX>) {
     let alloc = driver.allocator();
     (
         BusController {
