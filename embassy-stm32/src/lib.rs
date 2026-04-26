@@ -711,11 +711,43 @@ fn init_hw(config: Config) -> Peripherals {
                 });
 
                 let sram = &config.stop_mode_sram;
-                w.set_sram1pds(0, if sram.sram1_page0 { vals::Srampds::PoweredOff } else { vals::Srampds::PoweredOn });
-                w.set_sram1pds(1, if sram.sram1_page1 { vals::Srampds::PoweredOff } else { vals::Srampds::PoweredOn });
-                w.set_sram1pds(2, if sram.sram1_page2 { vals::Srampds::PoweredOff } else { vals::Srampds::PoweredOn });
-                w.set_sram1pds(3, if sram.sram1_page3 { vals::Srampds::PoweredOff } else { vals::Srampds::PoweredOn });
-                w.set_sram2pds1(if sram.sram2 { vals::Srampds::PoweredOff } else { vals::Srampds::PoweredOn });
+                w.set_sram1pds(
+                    0,
+                    if sram.sram1_page0 {
+                        vals::Srampds::PoweredOff
+                    } else {
+                        vals::Srampds::PoweredOn
+                    },
+                );
+                w.set_sram1pds(
+                    1,
+                    if sram.sram1_page1 {
+                        vals::Srampds::PoweredOff
+                    } else {
+                        vals::Srampds::PoweredOn
+                    },
+                );
+                w.set_sram1pds(
+                    2,
+                    if sram.sram1_page2 {
+                        vals::Srampds::PoweredOff
+                    } else {
+                        vals::Srampds::PoweredOn
+                    },
+                );
+                w.set_sram1pds(
+                    3,
+                    if sram.sram1_page3 {
+                        vals::Srampds::PoweredOff
+                    } else {
+                        vals::Srampds::PoweredOn
+                    },
+                );
+                w.set_sram2pds1(if sram.sram2 {
+                    vals::Srampds::PoweredOff
+                } else {
+                    vals::Srampds::PoweredOn
+                });
                 w.set_sram1pds567(if sram.sram1_pages567 {
                     vals::Sram1pds567::PoweredOff
                 } else {
@@ -726,8 +758,16 @@ fn init_hw(config: Config) -> Peripherals {
                 } else {
                     vals::Icrampds::Retained
                 });
-                w.set_prampds(if sram.otg_sram { vals::Prampds::B0x1 } else { vals::Prampds::B0x0 });
-                w.set_pkarampds(if sram.pka_sram { vals::Pkarampds::B0x1 } else { vals::Pkarampds::B0x0 });
+                w.set_prampds(if sram.otg_sram {
+                    vals::Prampds::B0x1
+                } else {
+                    vals::Prampds::B0x0
+                });
+                w.set_pkarampds(if sram.pka_sram {
+                    vals::Pkarampds::B0x1
+                } else {
+                    vals::Pkarampds::B0x0
+                });
             });
         }
         #[cfg(any(stm32u5, stm32u3))]
