@@ -52,6 +52,8 @@ impl<'d, PIO: Instance> PioQspiProgram<'d, PIO> {
                     r#"
                         ; Use 1 bit for side-set for SCK
                         .side_set 1
+                        ; Set irq to indicate ready for new operation
+                        irq set 0 rel side 0
 
                         public read_entry:
                             ; Set all data pins to input
@@ -66,7 +68,7 @@ impl<'d, PIO: Instance> PioQspiProgram<'d, PIO> {
                                 in pins, 4 side 1
                                 jmp x-- read_nibble side 1
 
-                                ; Set irq to indicate operation complete
+                                ; Set irq to indicate ready for new operation
                                 irq set 0 rel side 0
                             jmp read_n_nibbles side 0
 
@@ -84,7 +86,7 @@ impl<'d, PIO: Instance> PioQspiProgram<'d, PIO> {
                                 nop side 1
                                 jmp x-- write_nibble side 1
 
-                                ; Set irq to indicate operation complete
+                                ; Set irq to indicate ready for new operation
                                 irq set 0 rel side 0
                             jmp write_n_nibbles side 0
 
@@ -102,7 +104,7 @@ impl<'d, PIO: Instance> PioQspiProgram<'d, PIO> {
                                 nop side 1
                                 jmp x-- write_bit side 1
 
-                                ; Set irq to indicate operation complete
+                                ; Set irq to indicate ready for new operation
                                 irq set 0 rel side 0
                             jmp write_single_line_n_nibbles side 0
                     "#
@@ -159,7 +161,6 @@ pub struct Qspi<'d, PIO: Instance, const SM: usize, M: Mode> {
     clk_pin: Pin<'d, PIO>,
     tx_dma: Option<dma::Channel<'d>>,
     rx_dma: Option<dma::Channel<'d>>,
-    operation_unflushed: bool,
     phantom: PhantomData<M>,
 }
 
@@ -234,7 +235,6 @@ impl<'d, PIO: Instance, const SM: usize, M: Mode> Qspi<'d, PIO, SM, M> {
             clk_pin,
             tx_dma,
             rx_dma,
-            operation_unflushed: false,
             phantom: PhantomData,
         }
     }
@@ -250,13 +250,10 @@ impl<'d, PIO: Instance, const SM: usize, M: Mode> Qspi<'d, PIO, SM, M> {
         Ok(())
     }
 
-    /// Wait for QSPI operation to complete
+    /// Wait for QSPI ready for new operation
     pub async fn async_flush(&mut self) {
-        if self.operation_unflushed {
-            // IRQ fires when operation finished
-            self.pio_irq.wait().await;
-            self.operation_unflushed = false;
-        }
+        // IRQ fires when ready for a new operation
+        self.pio_irq.wait().await;
     }
 
     /// Set QSPI frequency.
@@ -382,8 +379,6 @@ impl<'d, PIO: Instance, const SM: usize> Qspi<'d, PIO, SM, Async> {
             self.sm.exec_instr(self.program.as_ref().unwrap().read_jmp);
         }
 
-        self.operation_unflushed = true;
-
         let (rx, tx) = self.sm.rx_tx();
 
         let num_nibbles: u32 = 2 * (buffer.len() as u32);
@@ -407,8 +402,6 @@ impl<'d, PIO: Instance, const SM: usize> Qspi<'d, PIO, SM, Async> {
             self.sm.exec_instr(self.program.as_ref().unwrap().write_jmp);
         }
 
-        self.operation_unflushed = true;
-
         let tx = self.sm.tx();
 
         let num_nibbles: u32 = 2 * (buffer.len() as u32);
@@ -431,8 +424,6 @@ impl<'d, PIO: Instance, const SM: usize> Qspi<'d, PIO, SM, Async> {
         unsafe {
             self.sm.exec_instr(self.program.as_ref().unwrap().write_single_line_jmp);
         }
-
-        self.operation_unflushed = true;
 
         let tx = self.sm.tx();
 
@@ -465,7 +456,19 @@ impl<'d, PIO: Instance, const SM: usize, M: Mode> embassy_embedded_hal::qspi::tr
 
 impl<'d, PIO: Instance, const SM: usize> embassy_embedded_hal::qspi::traits::QspiBus<u8> for Qspi<'d, PIO, SM, Async> {
     async fn flush(&mut self) -> Result<(), Self::Error> {
+        // wait for the ready IRQ to fire
         self.async_flush().await;
+        // set the ready IRQ back
+        const RESET_IRQ: u16 = pio::InstructionOperands::IRQ {
+            clear: false,
+            wait: false,
+            index: 0,
+            index_mode: pio::IrqIndexMode::REL,
+        }
+        .encode();
+        unsafe {
+            self.sm.exec_instr(RESET_IRQ);
+        }
         Ok(())
     }
 
