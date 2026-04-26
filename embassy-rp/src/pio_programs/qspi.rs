@@ -6,6 +6,7 @@ use embassy_hal_internal::Peri;
 use embedded_hal_02::spi::{Phase, Polarity};
 use fixed::traits::ToFixed;
 use fixed::types::extra::U8;
+use futures::FutureExt;
 
 use crate::clocks::clk_sys_freq;
 use crate::gpio::{Level, SlewRate};
@@ -450,20 +451,19 @@ impl<'d, PIO: Instance, const SM: usize, M: Mode> embassy_embedded_hal::qspi::tr
 }
 
 impl<'d, PIO: Instance, const SM: usize> embassy_embedded_hal::qspi::traits::QspiBus<u8> for Qspi<'d, PIO, SM, Async> {
-    async fn flush(&mut self) -> Result<(), Self::Error> {
-        self.async_flush().await;
-        Ok(())
+    fn flush(&mut self) -> impl Future<Output = Result<(), Self::Error>> {
+        self.async_flush().map(|()| Ok(()))
     }
 
-    async fn read(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
-        self.read(words).await
+    fn read(&mut self, words: &mut [u8]) -> impl Future<Output = Result<(), Self::Error>> {
+        self.read(words)
     }
 
-    async fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
-        self.write(words).await
+     fn write(&mut self, words: &[u8]) -> impl Future<Output = Result<(), Self::Error>> {
+        self.write(words)
     }
 
-    async fn write_single_line(&mut self, words: &[u8]) -> Result<(), Self::Error> {
-        self.write_single_line(words).await
+    fn write_single_line(&mut self, words: &[u8]) -> impl Future<Output = Result<(), Self::Error>> {
+        self.write_single_line(words)
     }
 }
