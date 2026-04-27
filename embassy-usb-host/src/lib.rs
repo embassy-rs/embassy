@@ -77,38 +77,35 @@ impl core::error::Error for EnumerationError {}
 
 /// Shared bus-wide state used by a [`BusHandle`].
 ///
-/// Holds the in-use USB device addresses (1–MAX) and an async mutex used to
+/// Holds the in-use USB device addresses (1–127) and an async mutex used to
 /// serialise enumerations on a single bus.
-///
-/// MAX is 127 by default.
-pub struct BusState<const MAX: u8 = 127> {
-    addr_bitmap:
-        BlockingMutex<CriticalSectionRawMutex, RefCell<[usize; (u8::MAX as usize).div_ceil(usize::BITS as usize)]>>,
+pub struct BusState {
+    addr_bitmap: BlockingMutex<CriticalSectionRawMutex, RefCell<[u64; 2]>>,
     enum_lock: AsyncMutex<CriticalSectionRawMutex, ()>,
 }
 
-impl<const MAX: u8> BusState<MAX> {
+impl BusState {
     /// Create new, empty bus state.
     pub const fn new() -> Self {
         Self {
-            addr_bitmap: BlockingMutex::new(RefCell::new([0usize; _])),
+            addr_bitmap: BlockingMutex::new(RefCell::new([0u64; 2])),
             enum_lock: AsyncMutex::new(()),
         }
     }
 
-    /// Allocate the next free device address (1–MAX),
+    /// Allocate the next free device address (1–127),
     /// marking it as in use.
     ///
-    /// Returns `None` when every address in the 1–MAX range is already
+    /// Returns `None` when every address in the 1–127 range is already
     /// taken.
     fn alloc_address(&self) -> Option<u8> {
         self.addr_bitmap.lock(|b| {
             let mut b = b.borrow_mut();
-            for addr in 1u8..=MAX {
-                let word = (addr / usize::BITS as u8) as usize;
-                let bit = addr % usize::BITS as u8;
-                if b[word] & (1usize << bit) == 0 {
-                    b[word] |= 1usize << bit;
+            for addr in 1u8..=127 {
+                let word = (addr / 64) as usize;
+                let bit = addr % 64;
+                if b[word] & (1u64 << bit) == 0 {
+                    b[word] |= 1u64 << bit;
                     return Some(addr);
                 }
             }
@@ -120,12 +117,12 @@ impl<const MAX: u8> BusState<MAX> {
     ///
     /// No-op if the address is out of range or was not marked as in use.
     pub fn free_address(&self, addr: u8) {
-        if addr >= 1 && addr <= MAX {
+        if addr >= 1 && addr <= 127 {
             self.addr_bitmap.lock(|b| {
                 let mut b = b.borrow_mut();
-                let word = (addr / usize::BITS as u8) as usize;
-                let bit = addr % usize::BITS as u8;
-                b[word] &= !(1usize << bit);
+                let word = (addr / 64) as usize;
+                let bit = addr % 64;
+                b[word] &= !(1u64 << bit);
             });
         }
     }
