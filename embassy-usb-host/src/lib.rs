@@ -80,7 +80,7 @@ impl core::error::Error for EnumerationError {}
 /// Holds the in-use USB device addresses (1–127) and an async mutex used to
 /// serialise enumerations on a single bus.
 ///
-/// The behavior of addresses greater than 127 is undefined (USB 2.0 §9.4.6).
+/// Addresses greater than 127 are not issued because their behavior is not specified (USB 2.0 §9.4.6).
 pub struct BusState {
     addr_bitmap: BlockingMutex<CriticalSectionRawMutex, RefCell<[usize; 127usize.div_ceil(usize::BITS as usize)]>>,
     enum_lock: AsyncMutex<CriticalSectionRawMutex, ()>,
