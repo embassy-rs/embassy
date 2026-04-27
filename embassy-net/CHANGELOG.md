@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Implement `core::error::Error` for `dns::Error`, `tcp::AcceptError`, `udp::SendError` and `udp::RecvError`.
+
 ## 0.9.1 - 2026-04-16
 
 - Avoid busy looping if network driver's TX buffer is exhausted

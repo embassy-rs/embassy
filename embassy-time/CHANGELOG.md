@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Implement `core::error::Error` for `TimeoutError`.
+
 ## 0.5.1 - 2026-03-11
 
 - Add `as_nanos` and `from_nanos` where missing
