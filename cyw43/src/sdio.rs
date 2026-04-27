@@ -1,4 +1,4 @@
-use core::slice;
+use core::{mem, slice};
 
 use aligned::{A4, Aligned};
 use embassy_time::{Duration, Timer};
@@ -6,7 +6,7 @@ use embassy_time::{Duration, Timer};
 use crate::WithContext;
 use crate::consts::*;
 use crate::runner::{BusConfig, BusType, SealedBus};
-use crate::util::{aligned_mut, aligned_ref, slice32_mut, slice32_ref, try_until};
+use crate::util::{aligned_mut, aligned_ref, try_until};
 
 // macro_rules! ALIGN_UINT {
 //     ($val:expr, $align:expr) => {
@@ -400,7 +400,7 @@ where
 
         // align buffer len
         // note: safe because align is checked above
-        let mut data = aligned_mut(slice32_mut(unsafe { core::mem::transmute(data) }));
+        let mut data: &mut Aligned<A4, [u8]> = unsafe { mem::transmute(data) };
 
         while !data.is_empty() {
             // Ensure transfer doesn't cross a window boundary.
@@ -438,7 +438,7 @@ where
 
         // align buffer len
         // note: safe because align is checked above
-        let mut data = aligned_ref(slice32_ref(unsafe { core::mem::transmute(data) }));
+        let mut data: &Aligned<A4, [u8]> = unsafe { mem::transmute(data) };
 
         while !data.is_empty() {
             // Ensure transfer doesn't cross a window boundary.
@@ -498,25 +498,27 @@ where
     }
 
     async fn read16(&mut self, func: u32, addr: u32) -> u16 {
-        let mut val = [0u32];
-        let _ = self.cmd53_read(func, addr, &mut aligned_mut(&mut val)[..2]).await;
+        let mut val: Aligned<A4, [u8; _]> = Aligned([0u8; 2]);
+        let _ = self.cmd53_read(func, addr, &mut aligned_mut(&mut val)).await;
 
-        u16::from_be_bytes(val[0].to_be_bytes()[..2].try_into().unwrap())
+        u16::from_be_bytes(*val)
     }
 
     async fn write16(&mut self, func: u32, addr: u32, val: u16) {
-        let _ = self.cmd53_write(func, addr, &aligned_ref(&[val as u32])[..2]).await;
+        let val: Aligned<A4, [u8; 2]> = Aligned(val.to_be_bytes().into());
+        let _ = self.cmd53_write(func, addr, &aligned_ref(&val)).await;
     }
 
     async fn read32(&mut self, func: u32, addr: u32) -> u32 {
-        let mut val = [0u32];
+        let mut val: Aligned<A4, [u8; _]> = Aligned([0u8; 4]);
         let _ = self.cmd53_read(func, addr, &mut aligned_mut(&mut val)).await;
 
-        val[0]
+        u32::from_be_bytes(*val)
     }
 
     async fn write32(&mut self, func: u32, addr: u32, val: u32) {
-        let _ = self.cmd53_write(func, addr, &aligned_ref(&[val])).await;
+        let val: Aligned<A4, [u8; 4]> = Aligned(val.to_be_bytes().into());
+        let _ = self.cmd53_write(func, addr, &aligned_ref(&val)).await;
     }
 
     async fn wait_for_event(&mut self) {
