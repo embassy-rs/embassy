@@ -118,3 +118,14 @@ impl<'a> embedded_nal_async::Dns for DnsSocket<'a> {
 fn _assert_covariant<'a, 'b: 'a>(x: DnsSocket<'b>) -> DnsSocket<'a> {
     x
 }
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::InvalidName => f.write_str("InvalidName"),
+            Self::NameTooLong => f.write_str("NameTooLong"),
+            Self::Failed => f.write_str("Failed"),
+        }
+    }
+}
+impl core::error::Error for Error {}
