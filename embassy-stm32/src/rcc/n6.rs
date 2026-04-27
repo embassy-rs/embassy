@@ -243,6 +243,7 @@ struct ClocksOutput {
 
 struct ClocksInput {
     hsi: Option<Hertz>,
+    hsi_div: Option<Hertz>,
     msi: Option<Hertz>,
     hse: Option<Hertz>,
     ic1: Option<Hertz>,
@@ -815,6 +816,9 @@ fn init_pll(pll_config: Option<Pll>, pll_index: usize, input: &PllInput) -> PllO
 #[allow(dead_code)]
 struct OscOutput {
     hsi: Option<Hertz>,
+    /// `hsi_div_ck` per RM0486 §14.4.5 — a separate, always-on output of the
+    /// HSI block, equal to `hsi_ck / HSIDIV`. Present whenever HSI is on.
+    hsi_div: Option<Hertz>,
     hse: Option<Hertz>,
     msi: Option<Hertz>,
     lsi: Option<Hertz>,
@@ -895,8 +899,19 @@ fn init_osc(config: Config) -> OscOutput {
     };
 
     // hsi configuration
+    //
+    // Per RM0486 §14.4.5 + §14.10.11, the HSI block produces two clock
+    // outputs whenever it's enabled:
+    //   * `hsi_ck`     — the raw 64 MHz oscillator output, used as PLL
+    //                    input and as a CPU/sys-clock candidate.
+    //   * `hsi_div_ck` — `hsi_ck / HSIDIV[1:0]` (00→/1, 01→/2, 10→/4,
+    //                    11→/8). Used as a peripheral kernel-clock
+    //                    source by the I2C / LTDC / DCMIPP / etc. muxes.
+    //
+    // We need to report both so peripherals that select `HsiDiv` see a
+    // running clock and don't trip the `mux.init()` runtime validator.
     debug!("configuring HSI");
-    let hsi = if let Some(hsi) = config.hsi {
+    let (hsi, hsi_div) = if let Some(hsi) = config.hsi {
         RCC.csr().write(|w| w.set_hsions(true));
         while !RCC.sr().read().hsirdy() {}
 
@@ -906,7 +921,7 @@ fn init_osc(config: Config) -> OscOutput {
             w.set_hsitrim(hsi.trim);
         });
 
-        Some(HSI_FREQ / hsi.pre)
+        (Some(HSI_FREQ), Some(HSI_FREQ / hsi.pre))
     } else if cpu_src == Cpusws::Hsi
         || sys_src == Syssws::Hsi
         || (pll1_src == Pllsel::Hsi && rcc_sr.pllrdy(0))
@@ -923,7 +938,7 @@ fn init_osc(config: Config) -> OscOutput {
         RCC.ccr().write(|w| w.set_hsionc(true));
         while RCC.sr().read().hsirdy() {}
 
-        None
+        (None, None)
     };
 
     // msi configuration
@@ -1055,6 +1070,7 @@ fn init_osc(config: Config) -> OscOutput {
 
     OscOutput {
         hsi,
+        hsi_div,
         hse,
         msi,
         lsi,
@@ -1286,6 +1302,7 @@ pub(crate) unsafe fn init(config: Config) {
     });
     let clock_inputs = ClocksInput {
         hsi: osc.hsi,
+        hsi_div: osc.hsi_div,
         msi: osc.msi,
         hse: osc.hse,
         ic1: ic_freqs[0],
@@ -1318,7 +1335,7 @@ pub(crate) unsafe fn init(config: Config) {
     set_clocks!(
         sys: Some(clocks.sysclk),
         hsi: clock_inputs.hsi,
-        hsi_div: None,
+        hsi_div: clock_inputs.hsi_div,
         hse: clock_inputs.hse,
         msi: clock_inputs.msi,
         lse: None,
