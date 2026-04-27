@@ -84,10 +84,14 @@ pub mod cpu;
 pub mod crc;
 #[cfg(cryp)]
 pub mod cryp;
+#[cfg(csi)]
+pub mod csi;
 #[cfg(dac)]
 pub mod dac;
 #[cfg(dcmi)]
 pub mod dcmi;
+#[cfg(dcmipp)]
+pub mod dcmipp;
 #[cfg(dma2d)]
 pub mod dma2d;
 #[cfg(dsihost)]
@@ -140,7 +144,7 @@ pub mod rtc;
 pub mod saes;
 #[cfg(sai)]
 pub mod sai;
-#[cfg(sdmmc)]
+#[cfg(any(sdmmc_v1, sdmmc_v2, sdmmc_v3))]
 pub mod sdmmc;
 #[cfg(spdifrx)]
 pub mod spdifrx;

@@ -214,7 +214,7 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
             DatapathMode::Block(block_size(size_of::<DataBlock>())),
         );
 
-        #[cfg(sdmmc_v2)]
+        #[cfg(any(sdmmc_v2, sdmmc_v3))]
         self.sdmmc.cmd(cmd::<R1>(53, arg), true, true)?;
 
         self.sdmmc.complete_datapath_transfer(transfer, false).await?;
@@ -232,7 +232,7 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
 
         let transfer = self.sdmmc.prepare_datapath_write(buffer, DatapathMode::Byte);
 
-        #[cfg(sdmmc_v2)]
+        #[cfg(any(sdmmc_v2, sdmmc_v3))]
         self.sdmmc.cmd(cmd::<R1>(53, arg), true, true)?;
 
         self.sdmmc.complete_datapath_transfer(transfer, false).await?;
