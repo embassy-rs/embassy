@@ -49,6 +49,14 @@ impl WakerRegistration {
         }
     }
 
+    /// Schedule the waking of a waker.
+    #[cfg(feature = "schedule-wake")]
+    pub fn wake_at(&mut self, time: embassy_time::Instant) {
+        if let Some(w) = self.waker.take() {
+            embassy_time_driver::schedule_wake(time.as_ticks(), &w);
+        }
+    }
+
     /// Returns true if a waker is currently registered
     pub fn occupied(&self) -> bool {
         self.waker.is_some()

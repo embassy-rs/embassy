@@ -49,4 +49,24 @@ impl<const N: usize> MultiWakerRegistration<N> {
             w.wake();
         }
     }
+
+    /// Schedule the waking of a waker.
+    #[cfg(feature = "schedule-wake")]
+    pub fn wake_at(&mut self, time: embassy_time::Instant) {
+        // heapless::Vec has no `drain()`, do it unsafely ourselves...
+
+        // First set length to 0, without dropping the contents.
+        // This is necessary for soundness: if wake() panics and we're using panic=unwind.
+        // Setting len=0 upfront ensures other code can't observe the vec in an inconsistent state.
+        // (it'll leak wakers, but that's not UB)
+        let len = self.wakers.len();
+        unsafe { self.wakers.set_len(0) }
+
+        for i in 0..len {
+            // Move a waker out of the vec.
+            let waker = unsafe { self.wakers.as_mut_ptr().add(i).read() };
+            // Wake it by value, which consumes (drops) it.
+            embassy_time_driver::schedule_wake(time.as_ticks(), &waker);
+        }
+    }
 }
