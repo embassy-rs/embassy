@@ -408,7 +408,7 @@ impl RccInfo {
 
     #[allow(dead_code)]
     fn increment_minimum_stop_refcount_with_cs(&self, _cs: CriticalSection) {
-        #[cfg(all(any(stm32wl, stm32wb), feature = "low-power"))]
+        #[cfg(all(any(stm32wl, stm32wb, stm32wba), feature = "low-power"))]
         match self.stop_mode {
             StopMode::Stop1 | StopMode::Stop2 => increment_stop_refcount(_cs, StopMode::Stop2),
             _ => {}
@@ -417,7 +417,7 @@ impl RccInfo {
 
     #[allow(dead_code)]
     fn decrement_minimum_stop_refcount_with_cs(&self, _cs: CriticalSection) {
-        #[cfg(all(any(stm32wl, stm32wb), feature = "low-power"))]
+        #[cfg(all(any(stm32wl, stm32wb, stm32wba), feature = "low-power"))]
         match self.stop_mode {
             StopMode::Stop1 | StopMode::Stop2 => decrement_stop_refcount(_cs, StopMode::Stop2),
             _ => {}
