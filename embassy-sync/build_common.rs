@@ -79,6 +79,8 @@ pub fn set_target_cfgs(cfgs: &mut CfgSet) {
         cfgs.enable_all(&["cortex_m", "armv8m", "armv8m_base"]);
     } else if target.starts_with("thumbv8m.main") {
         cfgs.enable_all(&["cortex_m", "armv8m", "armv8m_main"]);
+    } else if target.starts_with("riscv32") {
+        cfgs.enable("riscv32");
     }
     cfgs.declare_all(&[
         "cortex_m",
@@ -88,6 +90,7 @@ pub fn set_target_cfgs(cfgs: &mut CfgSet) {
         "armv8m",
         "armv8m_base",
         "armv8m_main",
+        "riscv32",
     ]);
 
     cfgs.set("has_fpu", target.ends_with("-eabihf"));

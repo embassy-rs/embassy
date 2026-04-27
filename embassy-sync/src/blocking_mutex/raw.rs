@@ -89,7 +89,7 @@ unsafe impl RawMutex for NoopRawMutex {
 
 // ================
 
-#[cfg(any(cortex_m, doc, feature = "std"))]
+#[cfg(any(cortex_m, riscv32, doc, feature = "std"))]
 mod thread_mode {
     use super::*;
 
@@ -142,10 +142,14 @@ mod thread_mode {
         #[cfg(feature = "std")]
         return Some("main") == std::thread::current().name();
 
-        #[cfg(not(feature = "std"))]
+        #[cfg(cortex_m)]
         // ICSR.VECTACTIVE == 0
         return unsafe { (0xE000ED04 as *const u32).read_volatile() } & 0x1FF == 0;
+
+        #[cfg(riscv32)]
+        // No interrupt executor on RISC-V yet, so always in thread mode.
+        return true;
     }
 }
-#[cfg(any(cortex_m, doc, feature = "std"))]
+#[cfg(any(cortex_m, riscv32, doc, feature = "std"))]
 pub use thread_mode::*;
