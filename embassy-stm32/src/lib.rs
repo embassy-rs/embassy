@@ -102,6 +102,8 @@ pub mod exti;
 pub mod flash;
 #[cfg(fmc)]
 pub mod fmc;
+#[cfg(any(gtzc_wba, gtzc_v1, gtzc_h503, gtzc_l5))]
+pub mod gtzc;
 #[cfg(hash)]
 pub mod hash;
 #[cfg(all(hrtim, feature = "stm32-hrtim"))]
@@ -140,6 +142,8 @@ pub mod rtc;
 pub mod saes;
 #[cfg(sai)]
 pub mod sai;
+#[cfg(any(gtzc_wba, gtzc_v1, gtzc_h503, gtzc_l5))]
+pub mod sau;
 #[cfg(sdmmc)]
 pub mod sdmmc;
 #[cfg(spdifrx)]
