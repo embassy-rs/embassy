@@ -1,0 +1,25 @@
+[package]
+name = "embassy-net-esp-hosted-mcu"
+version = "0.1.0"
+edition = "2024"
+description = "embassy-net driver for ESP-Hosted MCU variant"
+license = "MIT OR Apache-2.0"
+
+[features]
+defmt = ["dep:defmt", "heapless/defmt-03"]
+log = ["dep:log"]
+
+[dependencies]
+defmt = { version = "1.0.1", optional = true }
+log = { version = "0.4.14", optional = true }
+
+embassy-time = { version = "0.5.1", path = "../embassy-time" }
+embassy-sync = { version = "0.8.0", path = "../embassy-sync"}
+embassy-futures = { version = "0.1.2", path = "../embassy-futures"}
+embassy-net-driver-channel = { version = "0.4.0", path = "../embassy-net-driver-channel"}
+
+embedded-hal = { version = "1.0" }
+embedded-hal-async = { version = "1.0" }
+
+micropb = { version = "0.4.0", default-features = false, features = ["container-heapless", "encode", "decode", "enable-64bit"] }
+heapless = "0.8"
