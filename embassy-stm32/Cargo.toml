@@ -160,8 +160,8 @@ embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-hal-internal = { version = "0.5.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-4"] }
 embassy-embedded-hal = { version = "0.6.0", path = "../embassy-embedded-hal", default-features = false }
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
-embassy-usb-driver = { version = "0.2.0", path = "../embassy-usb-driver" }
-embassy-usb-synopsys-otg = { version = "0.3.2", path = "../embassy-usb-synopsys-otg" }
+embassy-usb-driver = { version = "0.2.1", path = "../embassy-usb-driver" }
+embassy-usb-synopsys-otg = { version = "0.3.3", path = "../embassy-usb-synopsys-otg" }
 embassy-executor = { version = "0.10.0", path = "../embassy-executor", optional = true }
 cyw43 = { version = "0.7.0", path = "../cyw43", optional = true }
 
