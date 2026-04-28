@@ -6,20 +6,18 @@ use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
 use embassy_hal_internal::{Peri, PeripheralType};
 use maitake_sync::WaitCell;
 use nxp_pac::lpuart::Dozeen;
-use paste::paste;
 
 use crate::clocks::periph_helpers::{Div4, LpuartClockSel, LpuartConfig};
 use crate::clocks::{ClockError, Gate, PoweredClock, WakeGuard, enable_and_reset};
 use crate::dma::DmaRequest;
 use crate::gpio::{AnyPin, SealedPin};
-use crate::interrupt::typelevel::Interrupt;
+use crate::interrupt;
 use crate::pac::lpuart::{
     Idlecfg as IdleConfig, Ilt as IdleType, M as DataBits, Msbf as MsbFirst, Pt as Parity, Rst, Rxflush,
     Sbns as StopBits, Swap, Tc, Tdre, Txctsc as TxCtsConfig, Txctssrc as TxCtsSource, Txflush,
 };
-use crate::{interrupt, pac};
 
-mod bbq;
+pub(crate) mod bbq;
 mod blocking;
 mod buffered;
 mod dma;
@@ -35,7 +33,7 @@ mod sealed {
     pub trait Sealed {}
 }
 
-struct State {
+pub(crate) struct State {
     tx_waker: WaitCell,
     tx_buf: RingBuffer,
     rx_waker: WaitCell,
@@ -102,10 +100,10 @@ impl State {
     }
 }
 
-struct Info {
-    regs: crate::pac::lpuart::Lpuart,
-    int_disable: fn(),
-    mrcc_disable: unsafe fn(),
+pub(crate) struct Info {
+    pub(crate) regs: crate::pac::lpuart::Lpuart,
+    pub(crate) int_disable: fn(),
+    pub(crate) mrcc_disable: unsafe fn(),
 }
 
 unsafe impl Sync for Info {}
@@ -117,7 +115,7 @@ impl Info {
     }
 }
 
-trait SealedInstance: Gate<MrccPeriphConfig = LpuartConfig> {
+pub(crate) trait SealedInstance: Gate<MrccPeriphConfig = LpuartConfig> {
     fn info() -> &'static Info;
     fn state() -> &'static State;
 
@@ -134,59 +132,50 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
-macro_rules! impl_instance {
-    ($($n:expr);* $(;)?) => {
-        $(
-            paste!{
-                impl SealedInstance for crate::peripherals::[<LPUART $n>] {
-                    fn info() -> &'static Info {
-                        static INFO: Info = Info {
-                            regs: pac::[<LPUART $n>],
-                            int_disable: crate::interrupt::typelevel::[<LPUART $n>]::disable,
-                            mrcc_disable: crate::clocks::disable::<crate::peripherals::[<LPUART $n>]>,
-                        };
-                        &INFO
-                    }
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_lpuart_instance {
+    ($n:expr) => {
+        paste::paste! {
+            impl crate::lpuart::SealedInstance for crate::peripherals::[<LPUART $n>] {
+                fn info() -> &'static crate::lpuart::Info {
+                    use crate::interrupt::typelevel::Interrupt;
 
-                    fn state() -> &'static State {
-                        static STATE: State = State::new();
-                        &STATE
-                    }
-
-                    const CLOCK_INSTANCE: crate::clocks::periph_helpers::LpuartInstance
-                        = crate::clocks::periph_helpers::LpuartInstance::[<Lpuart $n>];
-                    const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<LPUART $n Tx>];
-                    const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<LPUART $n Rx>];
-                    const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_lpuart $n>];
-                    const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_lpuart $n _wake>];
+                    static INFO: crate::lpuart::Info = crate::lpuart::Info {
+                        regs: crate::pac::[<LPUART $n>],
+                        int_disable: crate::interrupt::typelevel::[<LPUART $n>]::disable,
+                        mrcc_disable: crate::clocks::disable::<crate::peripherals::[<LPUART $n>]>,
+                    };
+                    &INFO
                 }
 
-                impl Instance for crate::peripherals::[<LPUART $n>] {
-                    type Interrupt = crate::interrupt::typelevel::[<LPUART $n>];
-
+                fn state() -> &'static crate::lpuart::State {
+                    static STATE: crate::lpuart::State = crate::lpuart::State::new();
+                    &STATE
                 }
+
+                const CLOCK_INSTANCE: crate::clocks::periph_helpers::LpuartInstance
+                    = crate::clocks::periph_helpers::LpuartInstance::[<Lpuart $n>];
+                const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpuart $n Tx>];
+                const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpuart $n Rx>];
+                const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_lpuart $n>];
+                const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_lpuart $n _wake>];
             }
-        )*
+
+            impl crate::lpuart::Instance for crate::peripherals::[<LPUART $n>] {
+                type Interrupt = crate::interrupt::typelevel::[<LPUART $n>];
+            }
+
+            crate::impl_lpuart_bbq_instance!($n);
+        }
     };
 }
-
-// DMA request sources are now type-safe via associated types.
-// The request source numbers are defined in src/dma.rs:
-// LPUART0: RX=21, TX=22 -> Lpuart0RxRequest, Lpuart0TxRequest
-// LPUART1: RX=23, TX=24 -> Lpuart1RxRequest, Lpuart1TxRequest
-// LPUART2: RX=25, TX=26 -> Lpuart2RxRequest, Lpuart2TxRequest
-// LPUART3: RX=27, TX=28 -> Lpuart3RxRequest, Lpuart3TxRequest
-// LPUART4: RX=29, TX=30 -> Lpuart4RxRequest, Lpuart4TxRequest
-// LPUART5: RX=31, TX=32 -> Lpuart5RxRequest, Lpuart5TxRequest
-impl_instance!(0; 1; 2; 3; 4);
-#[cfg(feature = "mcxa5xx")]
-impl_instance!(5);
 
 /// Perform software reset on the LPUART peripheral
 fn perform_software_reset(info: &'static Info) {
     // Software reset - set and clear RST bit (Global register)
-    info.regs().global().write(|w| w.set_rst(Rst::RESET));
-    info.regs().global().write(|w| w.set_rst(Rst::NO_EFFECT));
+    info.regs().global().write(|w| w.set_rst(Rst::Reset));
+    info.regs().global().write(|w| w.set_rst(Rst::NoEffect));
 }
 
 /// Disable both transmitter and receiver
@@ -242,18 +231,18 @@ fn configure_control_settings(info: &'static Info, config: &Config) {
         // gating is used, or if the device never goes to deep sleep at all (e.g.
         // in WfeUngated configuration). For now, let's not touch this unless we
         // actually need to, e.g. *forcing* the lpuart to sleep!
-        w.set_dozeen(Dozeen::ENABLED);
+        w.set_dozeen(Dozeen::Enabled);
 
         // Data bits configuration
         match config.data_bits_count {
-            DataBits::DATA8 => {
+            DataBits::Data8 => {
                 if config.parity_mode.is_some() {
-                    w.set_m(DataBits::DATA9); // 8 data + 1 parity = 9 bits
+                    w.set_m(DataBits::Data9); // 8 data + 1 parity = 9 bits
                 } else {
-                    w.set_m(DataBits::DATA8); // 8 data bits only
+                    w.set_m(DataBits::Data8); // 8 data bits only
                 }
             }
-            DataBits::DATA9 => w.set_m(DataBits::DATA9),
+            DataBits::Data9 => w.set_m(DataBits::Data9),
         };
 
         // Idle configuration
@@ -262,9 +251,9 @@ fn configure_control_settings(info: &'static Info, config: &Config) {
 
         // Swap TXD/RXD if configured
         if config.swap_txd_rxd {
-            w.set_swap(Swap::SWAP);
+            w.set_swap(Swap::Swap);
         } else {
-            w.set_swap(Swap::STANDARD);
+            w.set_swap(Swap::Standard);
         }
     });
 }
@@ -285,8 +274,8 @@ fn configure_fifo(info: &'static Info, config: &Config) {
 
     // Flush FIFOs
     info.regs().fifo().modify(|w| {
-        w.set_txflush(Txflush::TXFIFO_RST);
-        w.set_rxflush(Rxflush::RXFIFO_RST);
+        w.set_txflush(Txflush::TxfifoRst);
+        w.set_rxflush(Rxflush::RxfifoRst);
     });
 }
 
@@ -369,7 +358,7 @@ fn wait_for_tx_complete(info: &'static Info) {
     }
 
     // Wait for last character to shift out (TC = Transmission Complete)
-    while info.regs().stat().read().tc() == Tc::ACTIVE {
+    while info.regs().stat().read().tc() == Tc::Active {
         // Wait for transmission to complete
     }
 }
@@ -441,212 +430,58 @@ pub trait RtsPin<T: Instance>: Into<AnyPin> + sealed::Sealed + PeripheralType {
     fn as_rts(&self);
 }
 
-macro_rules! impl_tx_pin {
-    ($inst:ident, $pin:ident, $alt:ident) => {
-        impl TxPin<crate::peripherals::$inst> for crate::peripherals::$pin {
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_lpuart_pin {
+    ($inst:ident, $pin:ident, $alt:ident, TXD) => {
+        impl crate::lpuart::TxPin<crate::peripherals::$inst> for crate::peripherals::$pin {
             const MUX: crate::pac::port::Mux = crate::pac::port::Mux::$alt;
             fn as_tx(&self) {
+                use crate::gpio::SealedPin;
                 self.set_pull(crate::gpio::Pull::Disabled);
                 self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
                 self.set_drive_strength(crate::gpio::DriveStrength::Normal.into());
-                self.set_function(<Self as TxPin<crate::peripherals::$inst>>::MUX);
+                self.set_function(<Self as crate::lpuart::TxPin<crate::peripherals::$inst>>::MUX);
                 self.set_enable_input_buffer(false);
             }
         }
     };
-}
-
-macro_rules! impl_rx_pin {
-    ($inst:ident, $pin:ident, $alt:ident) => {
-        impl RxPin<crate::peripherals::$inst> for crate::peripherals::$pin {
+    ($inst:ident, $pin:ident, $alt:ident, RXD) => {
+        impl crate::lpuart::RxPin<crate::peripherals::$inst> for crate::peripherals::$pin {
             const MUX: crate::pac::port::Mux = crate::pac::port::Mux::$alt;
             fn as_rx(&self) {
+                use crate::gpio::SealedPin;
                 self.set_pull(crate::gpio::Pull::Disabled);
-                self.set_function(<Self as RxPin<crate::peripherals::$inst>>::MUX);
+                self.set_function(<Self as crate::lpuart::RxPin<crate::peripherals::$inst>>::MUX);
                 self.set_enable_input_buffer(true);
             }
         }
     };
-}
-
-macro_rules! impl_cts_pin {
-    ($inst:ident, $pin:ident, $alt:ident) => {
-        impl CtsPin<crate::peripherals::$inst> for crate::peripherals::$pin {
+    ($inst:ident, $pin:ident, $alt:ident, CTS_B) => {
+        impl crate::lpuart::CtsPin<crate::peripherals::$inst> for crate::peripherals::$pin {
             const MUX: crate::pac::port::Mux = crate::pac::port::Mux::$alt;
             fn as_cts(&self) {
+                use crate::gpio::SealedPin;
                 self.set_pull(crate::gpio::Pull::Disabled);
-                self.set_function(<Self as CtsPin<crate::peripherals::$inst>>::MUX);
+                self.set_function(<Self as crate::lpuart::CtsPin<crate::peripherals::$inst>>::MUX);
                 self.set_enable_input_buffer(true);
             }
         }
     };
-}
-
-macro_rules! impl_rts_pin {
-    ($inst:ident, $pin:ident, $alt:ident) => {
-        impl RtsPin<crate::peripherals::$inst> for crate::peripherals::$pin {
+    ($inst:ident, $pin:ident, $alt:ident, RTS_B) => {
+        impl crate::lpuart::RtsPin<crate::peripherals::$inst> for crate::peripherals::$pin {
             const MUX: crate::pac::port::Mux = crate::pac::port::Mux::$alt;
             fn as_rts(&self) {
+                use crate::gpio::SealedPin;
                 self.set_pull(crate::gpio::Pull::Disabled);
                 self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
                 self.set_drive_strength(crate::gpio::DriveStrength::Normal.into());
-                self.set_function(<Self as RtsPin<crate::peripherals::$inst>>::MUX);
+                self.set_function(<Self as crate::lpuart::RtsPin<crate::peripherals::$inst>>::MUX);
                 self.set_enable_input_buffer(false);
             }
         }
     };
 }
-
-// LPUART 0
-#[cfg(feature = "jtag-extras-as-gpio")]
-impl_tx_pin!(LPUART0, P0_3, MUX2);
-impl_tx_pin!(LPUART0, P0_21, MUX3);
-impl_tx_pin!(LPUART0, P2_1, MUX2);
-#[cfg(feature = "mcxa5xx")]
-impl_tx_pin!(LPUART0, P4_9, MUX2);
-
-#[cfg(feature = "swd-swo-as-gpio")]
-impl_rx_pin!(LPUART0, P0_2, MUX2);
-impl_rx_pin!(LPUART0, P0_20, MUX3);
-impl_rx_pin!(LPUART0, P2_0, MUX2);
-#[cfg(feature = "mcxa5xx")]
-impl_rx_pin!(LPUART0, P4_8, MUX2);
-
-#[cfg(feature = "swd-as-gpio")]
-impl_cts_pin!(LPUART0, P0_1, MUX2);
-impl_cts_pin!(LPUART0, P0_23, MUX3);
-impl_cts_pin!(LPUART0, P2_3, MUX2);
-#[cfg(feature = "mcxa5xx")]
-impl_cts_pin!(LPUART0, P4_11, MUX2);
-
-#[cfg(feature = "swd-as-gpio")]
-impl_rts_pin!(LPUART0, P0_0, MUX2);
-impl_rts_pin!(LPUART0, P0_22, MUX3);
-impl_rts_pin!(LPUART0, P2_2, MUX2);
-#[cfg(feature = "mcxa5xx")]
-impl_rts_pin!(LPUART0, P4_10, MUX2);
-
-// LPUART 1
-impl_tx_pin!(LPUART1, P1_9, MUX2);
-impl_tx_pin!(LPUART1, P2_13, MUX3);
-impl_tx_pin!(LPUART1, P3_9, MUX3);
-impl_tx_pin!(LPUART1, P3_21, MUX3);
-
-impl_rx_pin!(LPUART1, P1_8, MUX2);
-impl_rx_pin!(LPUART1, P2_12, MUX3);
-impl_rx_pin!(LPUART1, P3_8, MUX3);
-impl_rx_pin!(LPUART1, P3_20, MUX3);
-
-impl_cts_pin!(LPUART1, P1_11, MUX2);
-impl_cts_pin!(LPUART1, P2_17, MUX3);
-impl_cts_pin!(LPUART1, P3_11, MUX3);
-impl_cts_pin!(LPUART1, P3_23, MUX3);
-
-impl_rts_pin!(LPUART1, P1_10, MUX2);
-impl_rts_pin!(LPUART1, P2_15, MUX3);
-impl_rts_pin!(LPUART1, P2_16, MUX3);
-impl_rts_pin!(LPUART1, P3_10, MUX3);
-#[cfg(feature = "mcxa5xx")]
-impl_rts_pin!(LPUART1, P3_22, MUX3);
-
-// LPUART 2
-impl_tx_pin!(LPUART2, P1_5, MUX3);
-impl_tx_pin!(LPUART2, P1_13, MUX3);
-impl_tx_pin!(LPUART2, P2_2, MUX3);
-impl_tx_pin!(LPUART2, P2_10, MUX3);
-impl_tx_pin!(LPUART2, P3_15, MUX2);
-
-impl_rx_pin!(LPUART2, P1_4, MUX3);
-impl_rx_pin!(LPUART2, P1_12, MUX3);
-impl_rx_pin!(LPUART2, P2_3, MUX3);
-impl_rx_pin!(LPUART2, P2_11, MUX3);
-impl_rx_pin!(LPUART2, P3_14, MUX2);
-
-impl_cts_pin!(LPUART2, P1_7, MUX3);
-impl_cts_pin!(LPUART2, P1_15, MUX3);
-impl_cts_pin!(LPUART2, P2_4, MUX3);
-impl_cts_pin!(LPUART2, P3_13, MUX2);
-
-impl_rts_pin!(LPUART2, P1_6, MUX3);
-impl_rts_pin!(LPUART2, P1_14, MUX3);
-impl_rts_pin!(LPUART2, P2_5, MUX3);
-impl_rts_pin!(LPUART2, P3_12, MUX2);
-
-// LPUART 3
-impl_tx_pin!(LPUART3, P3_1, MUX3);
-impl_tx_pin!(LPUART3, P3_12, MUX3);
-impl_tx_pin!(LPUART3, P4_5, MUX3);
-
-impl_rx_pin!(LPUART3, P3_0, MUX3);
-impl_rx_pin!(LPUART3, P3_13, MUX3);
-impl_rx_pin!(LPUART3, P4_2, MUX3);
-
-impl_cts_pin!(LPUART3, P3_7, MUX3);
-impl_cts_pin!(LPUART3, P3_14, MUX3);
-impl_cts_pin!(LPUART3, P4_6, MUX3);
-
-impl_rts_pin!(LPUART3, P3_6, MUX3);
-impl_rts_pin!(LPUART3, P3_15, MUX3);
-impl_rts_pin!(LPUART3, P4_7, MUX3);
-
-// LPUART 4
-impl_tx_pin!(LPUART4, P2_7, MUX3);
-impl_tx_pin!(LPUART4, P3_19, MUX2);
-impl_tx_pin!(LPUART4, P3_27, MUX3);
-impl_tx_pin!(LPUART4, P4_3, MUX3);
-
-impl_rx_pin!(LPUART4, P2_6, MUX3);
-impl_rx_pin!(LPUART4, P3_18, MUX2);
-#[cfg(feature = "mcxa2xx")]
-impl_rx_pin!(LPUART4, P3_28, MUX3);
-impl_rx_pin!(LPUART4, P4_4, MUX3);
-
-impl_cts_pin!(LPUART4, P2_0, MUX3);
-impl_cts_pin!(LPUART4, P3_17, MUX2);
-#[cfg(feature = "mcxa2xx")]
-impl_cts_pin!(LPUART4, P3_31, MUX3);
-
-impl_rts_pin!(LPUART4, P2_1, MUX3);
-impl_rts_pin!(LPUART4, P3_16, MUX2);
-#[cfg(feature = "mcxa2xx")]
-impl_rts_pin!(LPUART4, P3_30, MUX3);
-
-// LPUART 5
-#[cfg(feature = "mcxa5xx")]
-impl_tx_pin!(LPUART5, P0_25, MUX8);
-#[cfg(feature = "mcxa5xx")]
-impl_tx_pin!(LPUART5, P1_10, MUX8);
-#[cfg(feature = "mcxa5xx")]
-impl_tx_pin!(LPUART5, P1_17, MUX8);
-#[cfg(feature = "mcxa5xx")]
-impl_tx_pin!(LPUART5, P3_10, MUX8);
-
-#[cfg(feature = "mcxa5xx")]
-impl_rx_pin!(LPUART5, P0_24, MUX8);
-#[cfg(feature = "mcxa5xx")]
-impl_rx_pin!(LPUART5, P1_11, MUX8);
-#[cfg(feature = "mcxa5xx")]
-impl_rx_pin!(LPUART5, P1_16, MUX8);
-#[cfg(feature = "mcxa5xx")]
-impl_rx_pin!(LPUART5, P3_11, MUX8);
-
-#[cfg(feature = "mcxa5xx")]
-impl_cts_pin!(LPUART5, P0_27, MUX8);
-#[cfg(feature = "mcxa5xx")]
-impl_cts_pin!(LPUART5, P1_12, MUX8);
-#[cfg(feature = "mcxa5xx")]
-impl_cts_pin!(LPUART5, P1_19, MUX8);
-#[cfg(feature = "mcxa5xx")]
-impl_cts_pin!(LPUART5, P3_8, MUX8);
-
-#[cfg(feature = "mcxa5xx")]
-impl_rts_pin!(LPUART5, P0_26, MUX8);
-#[cfg(feature = "mcxa5xx")]
-impl_rts_pin!(LPUART5, P1_13, MUX8);
-#[cfg(feature = "mcxa5xx")]
-impl_rts_pin!(LPUART5, P1_18, MUX8);
-#[cfg(feature = "mcxa5xx")]
-impl_rts_pin!(LPUART5, P3_9, MUX8);
 
 /// LPUART error types
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -754,15 +589,15 @@ impl Default for Config {
         Self {
             baudrate_bps: 115_200u32,
             parity_mode: None,
-            data_bits_count: DataBits::DATA8,
-            msb_first: MsbFirst::LSB_FIRST,
-            stop_bits_count: StopBits::ONE,
+            data_bits_count: DataBits::Data8,
+            msb_first: MsbFirst::LsbFirst,
+            stop_bits_count: StopBits::One,
             tx_fifo_watermark: 0,
             rx_fifo_watermark: 1,
-            tx_cts_source: TxCtsSource::CTS,
-            tx_cts_config: TxCtsConfig::START,
-            rx_idle_type: IdleType::FROM_START,
-            rx_idle_config: IdleConfig::IDLE_1,
+            tx_cts_source: TxCtsSource::Cts,
+            tx_cts_config: TxCtsConfig::Start,
+            rx_idle_type: IdleType::FromStart,
+            rx_idle_config: IdleConfig::Idle1,
             swap_txd_rxd: false,
             power: PoweredClock::NormalEnabledDeepSleepDisabled,
             source: LpuartClockSel::FroLfDiv,

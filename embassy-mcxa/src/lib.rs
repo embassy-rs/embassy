@@ -13,53 +13,78 @@
 #[cfg(feature = "mcxa2xx")]
 #[path = "."]
 mod mcxa2xx_exclusive {
-    pub mod flash;
+    pub mod flash; // TODO: Add dummy driver to metadata
 
-    pub use crate::chips::mcxa2xx::{Peripherals, init, interrupt, peripherals};
+    pub use crate::chips::mcxa2xx::init;
 }
 
 /// Module for MCXA5xx-specific HAL drivers
 #[cfg(feature = "mcxa5xx")]
 #[path = "."]
 mod mcxa5xx_exclusive {
-    pub use crate::chips::mcxa5xx::{Peripherals, init, interrupt, peripherals};
+    pub use crate::chips::mcxa5xx::init;
 }
 
-/// Module for HAL drivers supported by all chips
-#[path = "."]
-mod all_chips {
-    pub mod adc;
-    pub mod cdog;
-    pub mod clkout;
-    pub mod clocks;
-    pub mod config;
-    pub mod crc;
-    pub mod ctimer;
-    pub mod dma;
-    #[cfg(feature = "executor-platform")]
-    pub mod executor;
-    pub mod gpio;
-    pub mod i2c;
-    pub mod i3c;
-    pub mod inputmux;
-    pub mod lpuart;
-    pub mod ostimer;
-    pub mod perf_counters;
-    pub mod reset_reason;
-    pub mod rtc;
-    pub mod spi;
-    pub mod trng;
-    pub mod wwdt;
-}
+#[cfg(mcxa_adc)]
+pub mod adc;
+#[cfg(mcxa_cdog)]
+pub mod cdog;
+#[cfg(any(mcxa_mrcc5xx, mcxa_mrcc2xx))]
+pub mod clkout; // TODO: Add dummy driver to metadata
+#[cfg(any(mcxa_mrcc5xx, mcxa_mrcc2xx))]
+pub mod clocks;
+pub mod config;
+#[cfg(mcxa_crc)]
+pub mod crc;
+#[cfg(mcxa_ctimer)]
+pub mod ctimer;
+#[cfg(mcxa_dma)]
+pub mod dma;
+#[cfg(feature = "executor-platform")]
+pub mod executor;
+#[cfg(mcxa_gpio)]
+pub mod gpio;
+#[cfg(mcxa_lpi2c)]
+pub mod i2c;
+#[cfg(mcxa_i3c)]
+pub mod i3c;
+#[cfg(mcxa_inputmux)]
+pub mod inputmux;
+#[cfg(mcxa_lpuart)]
+pub mod lpuart;
+#[cfg(mcxa_ostimer)]
+pub mod ostimer;
+pub mod perf_counters;
+#[cfg(mcxa_cmc)]
+pub mod reset_reason;
+#[cfg(mcxa_rtc5xx)]
+#[path = "rtc/mcxa5xx.rs"]
+pub mod rtc;
+#[cfg(mcxa_rtc2xx)]
+#[path = "rtc/mcxa2xx.rs"]
+pub mod rtc;
+#[cfg(mcxa_lpspi)]
+pub mod spi;
+#[cfg(mcxa_trng)]
+pub mod trng;
+#[cfg(mcxa_wwdt)]
+pub mod wwdt;
 
-#[allow(unused_imports)]
-pub use all_chips::*;
 #[cfg(feature = "mcxa2xx")]
 pub use mcxa2xx_exclusive::*;
 #[cfg(feature = "mcxa5xx")]
 pub use mcxa5xx_exclusive::*;
 
 pub(crate) mod chips;
+
+pub(crate) mod _generated {
+    #![allow(dead_code)]
+    #![allow(unused_imports)]
+    #![allow(non_snake_case)]
+    #![allow(missing_docs)]
+
+    include!(concat!(env!("OUT_DIR"), "/_generated.rs"));
+}
 
 // Re-export interrupt traits and types
 // Re-export Peri and PeripheralType to allow applications to express Peri types and requirements.
@@ -68,6 +93,8 @@ pub use embassy_hal_internal::{Peri, PeripheralType};
 pub use nxp_pac as pac;
 #[cfg(not(feature = "unstable-pac"))]
 pub(crate) use nxp_pac as pac;
+
+pub use crate::_generated::{Peripherals, interrupt, peripherals};
 
 const HALS_SELECTED: usize = const { cfg!(feature = "mcxa2xx") as usize + cfg!(feature = "mcxa5xx") as usize };
 

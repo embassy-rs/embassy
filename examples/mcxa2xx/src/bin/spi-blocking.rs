@@ -20,7 +20,7 @@ async fn main(_spawner: Spawner) {
 
     let mut config = controller::Config::default();
     config.frequency = 1_000_000;
-    let mut spi = Spi::new_blocking(p.LPSPI1, p.P3_10, p.P3_8, p.P3_9, config).unwrap();
+    let mut spi = Spi::new_blocking(p.LPSPI1, p.P3_10, p.P3_9, p.P3_8, config).unwrap();
 
     let mut rx_buf = [0u8; 32];
     let tx_buf = [0x55u8; 32];

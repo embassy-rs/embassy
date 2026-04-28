@@ -170,10 +170,10 @@ mod platform {
 
         #[cfg(stm32l0)]
         {
-            use crate::pac::pwr::vals::Pdds;
+            use crate::pac::pwr::vals;
             crate::pac::PWR.cr().modify(|w| {
-                w.set_pdds(Pdds::StopMode);
-                w.set_cwuf(true);
+                w.set_pdds(vals::Pdds::StopMode);
+                w.set_lpsdsr(vals::Mode::LowPowerMode);
             });
         }
 
@@ -203,7 +203,7 @@ mod platform {
 
     /// Exit stop mode, reinitializing timer and rcc if required
     pub fn exit_stop(_cs: CriticalSection) {
-        #[cfg(any(stm32l0, stm32wl, stm32wb, stm32wba))]
+        #[cfg(any(stm32wl, stm32wb, stm32wba))]
         {
             // stm32wl5x is dual core and we don't want BOTH cores to re-initialize RCC so we hold a lock
             #[cfg(stm32wl5x)]
@@ -215,11 +215,8 @@ mod platform {
             #[cfg(stm32wba)]
             let es = crate::pac::PWR.sr().read();
 
-            #[cfg(stm32l0)]
-            let es = crate::pac::PWR.csr().read();
-
             // we need to re-initialize RCC if *BOTH* cores have been in some STOP mode!
-            #[cfg(any(stm32l0, stm32wl, stm32wba))]
+            #[cfg(any(stm32wl, stm32wba))]
             let re_initialize_rcc = {
                 #[cfg(stm32wl5x)]
                 {
@@ -233,10 +230,6 @@ mod platform {
                 #[cfg(stm32wba)]
                 {
                     es.stopf()
-                }
-                #[cfg(stm32l0)]
-                {
-                    es.wuf()
                 }
             };
 
@@ -256,7 +249,7 @@ mod platform {
                 }
             };
 
-            #[cfg(any(stm32l0, stm32wl, stm32wba))]
+            #[cfg(any(stm32wl, stm32wba))]
             if re_initialize_rcc {
                 // when we wake from any stop mode we need to re-initialize the rcc
                 crate::rcc::reinit_saved(_cs);
@@ -292,12 +285,6 @@ mod platform {
                 (false, true) => debug!("low power: cpu2 has been in STOP"),
                 (true, true) => debug!("low power: cpu1 and cpu2 have been in STOP"),
                 (false, false) => trace!("low power: stop mode not entered"),
-            };
-
-            #[cfg(stm32l0)]
-            match es.wuf() {
-                true => debug!("low power: L0 has been in stop"),
-                _ => {}
             };
 
             clear_flags();

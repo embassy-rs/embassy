@@ -1,0 +1,164 @@
+##********************SUMMARY********************                      
+##Board Name: cyw94373wlsdusb_p307                                          
+# Sample variables file for CYW94373 reference board  
+# 1. 1/23/2020 Copied from cyw94373wlsdusb_p306_paldo2p9v.txt and changed NVRAMRev and boardrev
+# 2. 1/23/2020 Changed the lpo_margin_frac as "boardflags3=0x48202100" and "ext_lpo_margin_frac=0"
+
+
+NVRAMRev=$Rev$
+sromrev=11
+vendid=0x14e4
+# 11ac Dual Band Device ID
+devid=0x4418
+manfid=0x2d0
+prodid=0x070f
+macaddr=00:A0:50:26:07:2e
+nocrc=1
+
+#  SSID
+boardtype=0x83d
+boardrev=0x1307
+xtalfreq=37400
+
+# X BFL_BTCOEXIST   = 0x00000001   This board implements Bluetooth coexistence
+boardflags=0x00000001
+# Board flags 2:
+# X BFL2_BT_SHARE_ANT0     = 0x00800000   share core0 antenna with BT
+boardflags2=0x00800000
+# Board flags 3:
+# femctrl table is read from nvram and Av/Vmid read from NVRAM
+# Read RCAL from OTP : Bit 13
+boardflags3=0x48202100
+
+# Margin to account for drift in LPO frequency in units of 0.025%
+ext_lpo_margin_frac=0
+
+# New throttle scheme variables
+# temp at which throttling to kick in
+tempthresh=105
+# delta between throttle on & off
+temps_hysteresis=20
+# decides how many steps/depth for throttle; (0) means (100-(0))/ 5  = 20 steps
+temps_txduty_lowlimit=0
+# seconds , delta between temp sense update for throttle algo, every 1 secs check will happen for doing throttle
+temps_period=1
+
+phycal_tempdelta=15
+rxgains2gelnagaina0=0
+rxgains2gtrisoa0=0
+rxgains2gtrelnabypa0=0
+rxgains5gelnagaina0=0
+rxgains5gtrisoa0=0
+rxgains5gtrelnabypa0=0
+pdgain5g=3
+pdgain2g=3
+antswitch=0x6
+rxchain=1
+txchain=1
+aa2g=3
+aa5g=3
+tssipos5g=1
+tssipos2g=1
+femctrl=0
+pa2ga0=-188,5529,-658
+pa5ga0=-153,5976,-697,-153,5784,-684,-155,5691,-677,-167,5748,-688
+pdoffsetcckma0=0xf
+pdoffset2g40ma0=0x9
+pdoffset40ma0=0xffff
+pdoffset80ma0=0xeeee
+extpagain5g=2
+extpagain2g=2
+AvVmid_c0=1,130,0,160,0,160,0,160,0,160
+maxp2ga0=78
+maxp5ga0=70,70,70,70
+cckbw202gpo=0x2222
+dot11agofdmhrbw202gpo=0x4400
+ofdmlrbw202gpo=0x0000
+mcsbw202gpo=0x88888444
+mcsbw402gpo=0x88655333
+mcsbw205glpo=0xA6444440
+mcsbw205gmpo=0xA6444440
+mcsbw205ghpo=0xA6444440
+mcsbw405glpo=0xAA666664
+mcsbw405gmpo=0xAA666664
+mcsbw405ghpo=0xAA666664
+mcsbw805glpo=0xAA666666
+mcsbw805gmpo=0xAA666666
+mcsbw805ghpo=0xAA666666
+
+
+# RF switch control
+#swctrlmap_2g=0x00001131,0x00001131,0x00001131,0x313131,0x1ff
+#swctrlmap_5g=0x00201131,0x40405171,0x00001131,0x313131,0x1ff
+#swctrlmapext_2g=0x00000000,0x00000000,0x00000000,0x000000,0x000
+#swctrlmapext_5g=0x00000000,0x00000000,0x00000000,0x000000,0x000
+
+
+# Murata China RF switch control
+swctrlmap_2g=0x00000000,0x00000000,0x00000000,0x000000,0x1ff
+swctrlmap_5g=0x10101010,0x40404040,0x00000000,0x000000,0x1ff
+swctrlmapext_2g=0x00000000,0x00000000,0x00000000,0x000000,0x000
+swctrlmapext_5g=0x00000000,0x00000000,0x00000000,0x000000,0x000
+
+
+fem_table_init_val=0x1131,0x1131
+nb_papdcalidx=0x280f
+nb_txattn=0x0303
+nb_rxattn=0x0303
+nb_bbmult=0x3948
+nb_eps_offset=0x01e601ea
+
+# Enable Analytic PAPD mode
+papdmode=1
+
+# RSSI adjust
+rssi_delta_2g_c0=-2,-2,-2,-2
+rssi_delta_5gl_c0=-2,-2,-3,-3,-1,-1
+rssi_delta_5gml_c0=-2,-2,-3,-3,-1,-1
+rssi_delta_5gmu_c0=0,0,-1,-1,0,0
+rssi_delta_5gh_c0=-1,-1,-2,-2,0,0
+
+# WoWL_GPIO/HOST_WAKE settings
+#wowl_gpio=0
+#wowl_polarity=1
+
+# ATE related
+# First read from OTP , if value is 0 then force rcal value to static in driver
+ATErcalmode=0
+
+swdiv_en=1 #To enable SW-DIV feature
+swdiv_gpio=0
+swdiv_swctrl_en=2
+swdiv_swctrl_ant0=0
+swdiv_swctrl_ant1=1
+swdiv_antmap2g_main=1
+swdiv_antmap5g_main=1
+
+swdiv_snrlim=290 #Only enable sw_div if the snr on present antenna is less than 290/8=36.25
+swdiv_thresh=2000 #No.of rxpkts threshold
+swdiv_snrthresh=24 #Difference between antenna's snr is greater than 24/8=3dB, then shift the antennas
+swdiv_timeon=10
+swdiv_timeoff=1
+swdiv_snr2g20=232
+swdiv_snr2g40=257
+swdiv_snr5g20=296
+swdiv_snr5g40=312
+swdiv_snr5g80=296
+
+swdiv_ap_dead_check=1 #Enable sending of null frames at a periodicity of 1 sec to check whether the present antenna is dead
+swdiv_ap_div=1 #Enabling ap_diversity
+
+#Enables idac_main_mode only when PA LDO Voltage is 2.9.
+#In this mode pa5g_idac_main will be programmed to a high value(32)
+#Done for EVM improvement 
+idac_main_mode=1
+#PA LDO Voltage 2.9V
+paldo3p3_voltage=4
+#2G-5G xtal settings made similar
+xtal_ldo_ctl=1
+#To enable industrial grade related tunings
+e_grade=1
+# Enable FDSS
+fdss_level_2g=4
+fdss_level_5g=4
+fdss_interp_en=1

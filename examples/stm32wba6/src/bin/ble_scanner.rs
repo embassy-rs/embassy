@@ -29,32 +29,23 @@ use embassy_stm32::rcc::{
 };
 use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{Config, bind_interrupts, interrupt};
-use embassy_stm32_wpan::gap::{ParsedAdvData, ScanParams, ScanType};
-use embassy_stm32_wpan::hci::event::EventParams;
-use embassy_stm32_wpan::{Ble, ble_runner, run_radio_high_isr, run_radio_sw_low_isr};
+use embassy_stm32::{Config, bind_interrupts};
+use embassy_stm32_wpan::bluetooth::ble::Ble;
+use embassy_stm32_wpan::bluetooth::gap::{ParsedAdvData, ScanParams, ScanType};
+use embassy_stm32_wpan::{Controller, HighInterruptHandler, LowInterruptHandler, ble_runner, new_controller_state};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use static_cell::StaticCell;
+use stm32wb_hci::Event;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<RNG>;
     AES => aes::InterruptHandler<AES>;
     PKA => pka::InterruptHandler<PKA>;
+    RADIO => HighInterruptHandler;
+    HASH => LowInterruptHandler;
 });
-
-// RADIO interrupt handler - required for BLE stack operation
-#[interrupt]
-unsafe fn RADIO() {
-    unsafe { run_radio_high_isr() };
-}
-
-// HASH interrupt handler - used as software low-priority interrupt for BLE
-#[interrupt]
-unsafe fn HASH() {
-    unsafe { run_radio_sw_low_isr() };
-}
 
 /// BLE runner task - drives the BLE stack sequencer
 #[embassy_executor::task]
@@ -128,14 +119,16 @@ async fn main(spawner: Spawner) {
 
     info!("Hardware peripherals initialized (RNG, AES, PKA)");
 
-    // Initialize BLE stack
-    let mut ble = Ble::new(rng, aes, pka);
-    ble.init().expect("BLE initialization failed");
-    info!("BLE stack initialized");
-
     // Spawn the BLE runner task (required for proper BLE operation)
     spawner.spawn(ble_runner_task().expect("Failed to spawn BLE runner"));
-    embassy_futures::yield_now().await;
+
+    // Initialize BLE stack
+    let controller = Controller::new(new_controller_state!(8), rng, Some(aes), Some(pka), Irqs)
+        .await
+        .expect("BLE initialization failed");
+
+    let mut ble = Ble::new(controller).await.unwrap();
+    info!("BLE stack initialized");
 
     // Configure scan parameters
     // Using active scanning to get scan response data (device names)
@@ -160,7 +153,7 @@ async fn main(spawner: Spawner) {
         let event = ble.read_event().await;
 
         // Check for advertising reports
-        if let EventParams::LeAdvertisingReport { reports } = &event.params {
+        if let Event::LeAdvertisingReport(reports) = &event {
             for report in reports.iter() {
                 device_count += 1;
 
@@ -170,22 +163,13 @@ async fn main(spawner: Spawner) {
                 info!("--- Device #{} ---", device_count);
 
                 // Display device address
-                info!(
-                    "  Address: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X} ({})",
-                    report.address.0[5],
-                    report.address.0[4],
-                    report.address.0[3],
-                    report.address.0[2],
-                    report.address.0[1],
-                    report.address.0[0],
-                    address_type_str(report.address_type)
-                );
+                info!("  Address: {}", report.address);
 
                 // Display RSSI
                 info!("  RSSI: {} dBm", report.rssi);
 
                 // Display event type
-                info!("  Type: {}", adv_event_type_str(report.event_type));
+                info!("  Type: {}", report.event_type);
 
                 // Display parsed name if available
                 if let Some(name) = parsed.name {
@@ -247,28 +231,6 @@ async fn main(spawner: Spawner) {
                 info!("");
             }
         }
-    }
-}
-
-/// Convert address type to string
-fn address_type_str(addr_type: embassy_stm32_wpan::hci::types::AddressType) -> &'static str {
-    match addr_type {
-        embassy_stm32_wpan::hci::types::AddressType::Public => "Public",
-        embassy_stm32_wpan::hci::types::AddressType::Random => "Random",
-        embassy_stm32_wpan::hci::types::AddressType::PublicIdentity => "Public Identity",
-        embassy_stm32_wpan::hci::types::AddressType::RandomIdentity => "Random Identity",
-    }
-}
-
-/// Convert advertising event type to string
-fn adv_event_type_str(event_type: u8) -> &'static str {
-    match event_type {
-        0x00 => "Connectable Undirected",
-        0x01 => "Connectable Directed",
-        0x02 => "Scannable Undirected",
-        0x03 => "Non-Connectable Undirected",
-        0x04 => "Scan Response",
-        _ => "Unknown",
     }
 }
 

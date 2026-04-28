@@ -71,6 +71,20 @@ const MAX_QUERIES: usize = 4;
 #[cfg(feature = "dhcpv4-hostname")]
 const MAX_HOSTNAME_LEN: usize = 32;
 
+/// Error returned by `try_*` socket methods.
+///
+/// `WouldBlock` indicates the operation would block (e.g. no data available,
+/// send buffer full). `Other` wraps the socket-specific error type for any
+/// other failure.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum TryError<T> {
+    /// The operation would block; try again later.
+    WouldBlock,
+    /// A socket-specific error occurred.
+    Other(T),
+}
+
 /// Memory resources needed for a network stack.
 pub struct StackResources<const SOCK: usize> {
     sockets: MaybeUninit<[SocketStorage<'static>; SOCK]>,

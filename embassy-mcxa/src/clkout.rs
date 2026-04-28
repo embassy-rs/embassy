@@ -140,13 +140,13 @@ fn check_sel(sel: ClockOutSel, level: PoweredClock, divisor: u32) -> Result<(u32
         #[cfg(feature = "mcxa2xx")]
         let (freq, mux, fmax, expected) = {
             let (freq, mux) = match sel {
-                ClockOutSel::Fro12M => (c.ensure_fro_hf_active(&level)?, Mux::CLKROOT_12M),
-                ClockOutSel::FroHfDiv => (c.ensure_fro_hf_div_active(&level)?, Mux::CLKROOT_FIRC_DIV),
+                ClockOutSel::Fro12M => (c.ensure_fro_hf_active(&level)?, Mux::Clkroot12m),
+                ClockOutSel::FroHfDiv => (c.ensure_fro_hf_div_active(&level)?, Mux::ClkrootFircDiv),
                 #[cfg(not(feature = "sosc-as-gpio"))]
-                ClockOutSel::ClkIn => (c.ensure_clk_in_active(&level)?, Mux::CLKROOT_SOSC),
-                ClockOutSel::Clk16K => (c.ensure_clk_16k_vdd_core_active(&level)?, Mux::CLKROOT_16K),
-                ClockOutSel::Pll1Clk => (c.ensure_pll1_clk_active(&level)?, Mux::CLKROOT_SPLL),
-                ClockOutSel::SlowClk => (c.ensure_slow_clk_active(&level)?, Mux::CLKROOT_SLOW),
+                ClockOutSel::ClkIn => (c.ensure_clk_in_active(&level)?, Mux::ClkrootSosc),
+                ClockOutSel::Clk16K => (c.ensure_clk_16k_vdd_core_active(&level)?, Mux::Clkroot16k),
+                ClockOutSel::Pll1Clk => (c.ensure_pll1_clk_active(&level)?, Mux::ClkrootSpll),
+                ClockOutSel::SlowClk => (c.ensure_slow_clk_active(&level)?, Mux::ClkrootSlow),
             };
             let expected = freq / divisor;
             let fmax = match c.active_power {
@@ -158,14 +158,14 @@ fn check_sel(sel: ClockOutSel, level: PoweredClock, divisor: u32) -> Result<(u32
         #[cfg(feature = "mcxa5xx")]
         let (freq, mux, fmax, expected) = {
             let (freq, mux) = match sel {
-                ClockOutSel::Fro12M => (c.ensure_fro_hf_active(&level)?, Mux::I0_CLKROOT_12M),
-                ClockOutSel::FroHfDiv => (c.ensure_fro_hf_div_active(&level)?, Mux::I1_CLKROOT_FIRC_DIV),
+                ClockOutSel::Fro12M => (c.ensure_fro_hf_active(&level)?, Mux::I0Clkroot12m),
+                ClockOutSel::FroHfDiv => (c.ensure_fro_hf_div_active(&level)?, Mux::I1ClkrootFircDiv),
                 #[cfg(not(feature = "sosc-as-gpio"))]
-                ClockOutSel::ClkIn => (c.ensure_clk_in_active(&level)?, Mux::I2_CLKROOT_SOSC),
+                ClockOutSel::ClkIn => (c.ensure_clk_in_active(&level)?, Mux::I2ClkrootSosc),
                 // TODO: we need this to be an lp_osc clock
-                ClockOutSel::LpOsc => (c.ensure_clk_32k_vdd_core_active(&level)?, Mux::I3_CLKROOT_LPOSC),
-                ClockOutSel::Pll1ClkDiv => (c.ensure_pll1_clk_div_active(&level)?, Mux::I5_CLKROOT_SPLL_DIV),
-                ClockOutSel::SlowClk => (c.ensure_slow_clk_active(&level)?, Mux::I6_CLKROOT_SLOW),
+                ClockOutSel::LpOsc => (c.ensure_clk_32k_vdd_core_active(&level)?, Mux::I3ClkrootLposc),
+                ClockOutSel::Pll1ClkDiv => (c.ensure_pll1_clk_div_active(&level)?, Mux::I5ClkrootSpllDiv),
+                ClockOutSel::SlowClk => (c.ensure_slow_clk_active(&level)?, Mux::I6ClkrootSlow),
             };
             let expected = freq / divisor;
             let fmax = match c.active_power {
@@ -200,17 +200,17 @@ fn setup_clkout(mux: Mux, div: Div4) {
 
     // Set up clkdiv
     mrcc.mrcc_clkout_clkdiv().write(|w| {
-        w.set_halt(ClkdivHalt::OFF);
-        w.set_reset(ClkdivReset::OFF);
+        w.set_halt(ClkdivHalt::Off);
+        w.set_reset(ClkdivReset::Off);
         w.set_div(div.into_bits());
     });
     mrcc.mrcc_clkout_clkdiv().write(|w| {
-        w.set_halt(ClkdivHalt::ON);
-        w.set_reset(ClkdivReset::ON);
+        w.set_halt(ClkdivHalt::On);
+        w.set_reset(ClkdivReset::On);
         w.set_div(div.into_bits());
     });
 
-    while mrcc.mrcc_clkout_clkdiv().read().unstab() == ClkdivUnstab::ON {}
+    while mrcc.mrcc_clkout_clkdiv().read().unstab() == ClkdivUnstab::On {}
 }
 
 /// Stop the
@@ -220,17 +220,17 @@ fn disable_clkout() {
     // TODO: restore the pin to hi-z or something?
     let mrcc = crate::pac::MRCC0;
     mrcc.mrcc_clkout_clkdiv().write(|w| {
-        w.set_reset(ClkdivReset::OFF);
-        w.set_halt(ClkdivHalt::OFF);
+        w.set_reset(ClkdivReset::Off);
+        w.set_halt(ClkdivHalt::Off);
         w.set_div(0);
     });
     mrcc.mrcc_clkout_clksel().write(|w| w.0 = 0b111);
 }
 
-mod sealed {
+pub(crate) mod sealed {
     use embassy_hal_internal::PeripheralType;
 
-    use crate::gpio::{GpioPin, Pull, SealedPin};
+    use crate::gpio::GpioPin;
 
     /// Sealed marker trait for clockout pins
     pub trait ClockOutPin: GpioPin + PeripheralType {
@@ -238,12 +238,16 @@ mod sealed {
         fn mux(&self);
     }
 
-    macro_rules! impl_pin {
+    #[doc(hidden)]
+    #[macro_export]
+    macro_rules! impl_clkout_pin {
         ($pin:ident, $func:ident) => {
-            impl ClockOutPin for crate::peripherals::$pin {
+            impl crate::clkout::sealed::ClockOutPin for crate::peripherals::$pin {
                 fn mux(&self) {
+                    use crate::gpio::SealedPin;
+
                     self.set_function(crate::pac::port::Mux::$func);
-                    self.set_pull(Pull::Disabled);
+                    self.set_pull(crate::gpio::Pull::Disabled);
 
                     // TODO: we may want to expose these as options to allow the slew rate
                     // and drive strength for clocks if they are particularly high speed.
@@ -254,15 +258,4 @@ mod sealed {
             }
         };
     }
-
-    // TODO: 5xx reference manual states that P0_6 and P3_8 are clkout pins (Table 352), but the pinmux
-    // table doesn't list which alt mode corresponds with clkout (Table 340)
-    #[cfg(feature = "mcxa2xx")]
-    #[cfg(feature = "jtag-extras-as-gpio")]
-    impl_pin!(P0_6, MUX12);
-    #[cfg(feature = "mcxa2xx")]
-    impl_pin!(P3_8, MUX12);
-
-    impl_pin!(P3_6, MUX1);
-    impl_pin!(P4_2, MUX1);
 }

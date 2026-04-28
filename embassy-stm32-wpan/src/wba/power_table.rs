@@ -2,7 +2,7 @@
 //!
 //! This module defines the TX power tables required by the BLE link layer.
 
-use crate::bindings::link_layer::{_power_table_id_t, power_table_entry};
+use crate::wba::bindings::link_layer::{_power_table_id_t, power_table_entry};
 
 /// VDD LDO value for maximum power mode
 const VDD_LDO_VALUE_MAX_POWER: u8 = 0x70;

@@ -5,14 +5,13 @@ use core::ops::{Deref, RangeInclusive};
 use embassy_hal_internal::{Peri, PeripheralType};
 use maitake_sync::WaitCell;
 use nxp_pac::adc::{AdcActive, TcompIe, TcompInt};
-use paste::paste;
 
 use crate::clocks::periph_helpers::{AdcClockSel, AdcConfig, Div4, PreEnableParts};
 use crate::clocks::{ClockError, Gate, PoweredClock, WakeGuard, enable_and_reset};
 use crate::gpio::{AnyPin, GpioPin, SealedPin};
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac::adc::{
-    Avgs, CalAvgs, CalRdy, CalReq, Calofs, Cmpen, Dozen, Gcc0rdy, HptExdi, Loop as HwLoop, Mode as ConvMode, Next,
+    Avgs, CalAvgs, CalRdy, CalReq, Calofs, Cmpen, Dozen, Gcc0Rdy, HptExdi, Loop as HwLoop, Mode as ConvMode, Next,
     Pwrsel, Refsel, Rst, Rstfifo0, Sts, Tcmd, Tpri, Tprictrl,
 };
 use crate::pac::port::Mux;
@@ -100,11 +99,11 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             enable_in_doze_mode: true,
-            calibration_average_mode: CalAvgs::NO_AVERAGE,
+            calibration_average_mode: CalAvgs::NoAverage,
             power_pre_enabled: false,
             power_up_delay: 0x80,
             reference_voltage_source: Default::default(),
-            power_level_mode: Pwrsel::LOWEST,
+            power_level_mode: Pwrsel::Lowest,
             trigger_priority_policy: TriggerPriorityPolicy::ConvPreemptImmediatelyNotAutoResumed,
             conv_pause_delay: None,
             power: PoweredClock::NormalEnabledDeepSleepDisabled,
@@ -168,9 +167,9 @@ pub enum Compare {
 impl Compare {
     fn cmp_en(&self) -> Cmpen {
         match self {
-            Compare::Disabled => Cmpen::DISABLED_ALWAYS_STORE_RESULT,
-            Compare::StoreIf(_) => Cmpen::COMPARE_RESULT_STORE_IF_TRUE,
-            Compare::SkipUntil(_) => Cmpen::COMPARE_RESULT_KEEP_CONVERTING_UNTIL_TRUE_STORE_IF_TRUE,
+            Compare::Disabled => Cmpen::DisabledAlwaysStoreResult,
+            Compare::StoreIf(_) => Cmpen::CompareResultStoreIfTrue,
+            Compare::SkipUntil(_) => Cmpen::CompareResultKeepConvertingUntilTrueStoreIfTrue,
         }
     }
 
@@ -321,10 +320,10 @@ impl Default for CommandConfig {
     fn default() -> Self {
         Self {
             chained_command: None,
-            averaging: Avgs::NO_AVERAGE,
-            sample_time: Sts::SAMPLE_3P5,
+            averaging: Avgs::NoAverage,
+            sample_time: Sts::Sample3p5,
             compare: Compare::Disabled,
-            resolution: ConvMode::DATA_12_BITS,
+            resolution: ConvMode::Data12Bits,
             wait_for_trigger: false,
         }
     }
@@ -350,7 +349,7 @@ impl Default for Trigger {
         Trigger {
             target_command_id: CommandId::Cmd1,
             delay_power: 0,
-            priority: Tpri::HIGHEST_PRIORITY,
+            priority: Tpri::HighestPriority,
             enable_hardware_trigger: false,
             resync: false,
             synchronous: false,
@@ -470,7 +469,7 @@ impl<'a> Adc<'a, Async> {
                 // Enable the interrupts. They get disabled in the interrupt handler
                 self.info.regs().ie().write(|reg| {
                     reg.set_fwmie0(true);
-                    reg.set_tcomp_ie(TcompIe::ALL_TRIGGER_COMPLETES_ENABLED);
+                    reg.set_tcomp_ie(TcompIe::AllTriggerCompletesEnabled);
                 });
 
                 match self.try_get_conversion() {
@@ -494,7 +493,7 @@ impl<'a> Adc<'a, Async> {
                 // Enable the interrupts. They get disabled in the interrupt handler
                 self.info.regs().ie().write(|reg| {
                     reg.set_fwmie0(true);
-                    reg.set_tcomp_ie(TcompIe::ALL_TRIGGER_COMPLETES_ENABLED);
+                    reg.set_tcomp_ie(TcompIe::AllTriggerCompletesEnabled);
                 });
 
                 match self.try_get_conversion() {
@@ -536,7 +535,7 @@ impl<'a, M: Mode> Adc<'a, M> {
         self.info
             .regs()
             .ctrl()
-            .modify(|w| w.set_rstfifo0(Rstfifo0::TRIGGER_RESET));
+            .modify(|w| w.set_rstfifo0(Rstfifo0::TriggerReset));
     }
 
     /// Get conversion result from FIFO.
@@ -547,7 +546,7 @@ impl<'a, M: Mode> Adc<'a, M> {
     /// - [Error::FifoPending] if the FIFO is empty, but the adc is active
     pub fn try_get_conversion(&mut self) -> Result<Conversion, Error> {
         if self.info.regs().fctrl0().read().fcount() == 0 {
-            if self.info.regs().stat().read().adc_active() == AdcActive::BUSY {
+            if self.info.regs().stat().read().adc_active() == AdcActive::Busy {
                 return Err(Error::FifoPending);
             }
             return Err(Error::FifoEmpty);
@@ -597,10 +596,10 @@ impl<'a, M: Mode> Adc<'a, M> {
         let adc = info.regs();
 
         /* Reset the module. */
-        adc.ctrl().modify(|w| w.set_rst(Rst::HELD_IN_RESET));
-        adc.ctrl().modify(|w| w.set_rst(Rst::RELEASED_FROM_RESET));
+        adc.ctrl().modify(|w| w.set_rst(Rst::HeldInReset));
+        adc.ctrl().modify(|w| w.set_rst(Rst::ReleasedFromReset));
 
-        adc.ctrl().modify(|w| w.set_rstfifo0(Rstfifo0::TRIGGER_RESET));
+        adc.ctrl().modify(|w| w.set_rstfifo0(Rstfifo0::TriggerReset));
 
         /* Disable the module before setting configuration. */
         adc.ctrl().modify(|w| w.set_adcen(false));
@@ -608,9 +607,9 @@ impl<'a, M: Mode> Adc<'a, M> {
         /* Configure the module generally. */
         adc.ctrl().modify(|w| {
             w.set_dozen(if config.enable_in_doze_mode {
-                Dozen::ENABLED
+                Dozen::Enabled
             } else {
-                Dozen::DISABLED
+                Dozen::Disabled
             })
         });
 
@@ -626,11 +625,11 @@ impl<'a, M: Mode> Adc<'a, M> {
             w.set_tprictrl(match config.trigger_priority_policy {
                 TriggerPriorityPolicy::ConvPreemptSoftlyNotAutoResumed
                 | TriggerPriorityPolicy::ConvPreemptSoftlyAutoRestarted
-                | TriggerPriorityPolicy::ConvPreemptSoftlyAutoResumed => Tprictrl::FINISH_CURRENT_ON_PRIORITY,
+                | TriggerPriorityPolicy::ConvPreemptSoftlyAutoResumed => Tprictrl::FinishCurrentOnPriority,
                 TriggerPriorityPolicy::ConvPreemptSubsequentlyNotAutoResumed
                 | TriggerPriorityPolicy::ConvPreemptSubsequentlyAutoRestarted
-                | TriggerPriorityPolicy::ConvPreemptSubsequentlyAutoResumed => Tprictrl::FINISH_SEQUENCE_ON_PRIORITY,
-                _ => Tprictrl::ABORT_CURRENT_ON_PRIORITY,
+                | TriggerPriorityPolicy::ConvPreemptSubsequentlyAutoResumed => Tprictrl::FinishSequenceOnPriority,
+                _ => Tprictrl::AbortCurrentOnPriority,
             });
             w.set_tres(matches!(
                 config.trigger_priority_policy,
@@ -649,8 +648,8 @@ impl<'a, M: Mode> Adc<'a, M> {
                     | TriggerPriorityPolicy::TriggerPriorityExceptionDisabled
             ));
             w.set_hpt_exdi(match config.trigger_priority_policy {
-                TriggerPriorityPolicy::TriggerPriorityExceptionDisabled => HptExdi::DISABLED,
-                _ => HptExdi::ENABLED,
+                TriggerPriorityPolicy::TriggerPriorityExceptionDisabled => HptExdi::Disabled,
+                _ => HptExdi::Enabled,
             });
         });
 
@@ -730,10 +729,10 @@ impl<'a, M: Mode> Adc<'a, M> {
         self.info
             .regs()
             .ctrl()
-            .modify(|w| w.set_calofs(Calofs::OFFSET_CALIBRATION_REQUEST_PENDING));
+            .modify(|w| w.set_calofs(Calofs::OffsetCalibrationRequestPending));
 
         // Wait for calibration to complete (polling status register)
-        while self.info.regs().stat().read().cal_rdy() == CalRdy::NOT_SET {}
+        while self.info.regs().stat().read().cal_rdy() == CalRdy::NotSet {}
     }
 
     /// Calculate gain conversion result from gain adjustment factor.
@@ -766,9 +765,9 @@ impl<'a, M: Mode> Adc<'a, M> {
         self.info
             .regs()
             .ctrl()
-            .modify(|w| w.set_cal_req(CalReq::CALIBRATION_REQUEST_PENDING));
+            .modify(|w| w.set_cal_req(CalReq::CalibrationRequestPending));
 
-        while self.info.regs().gcc0().read().rdy() == Gcc0rdy::GAIN_CAL_NOT_VALID {}
+        while self.info.regs().gcc0().read().rdy() == Gcc0Rdy::GainCalNotValid {}
 
         let mut gcca = self.info.regs().gcc0().read().gain_cal() as u32;
         if gcca & 0x8000 != 0 {
@@ -783,7 +782,7 @@ impl<'a, M: Mode> Adc<'a, M> {
         self.info.regs().gcr0().modify(|w| w.set_rdy(true));
 
         // Wait for calibration to complete (polling status register)
-        while self.info.regs().stat().read().cal_rdy() == CalRdy::NOT_SET {}
+        while self.info.regs().stat().read().cal_rdy() == CalRdy::NotSet {}
     }
 }
 
@@ -816,12 +815,12 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
         T::info()
             .regs()
             .stat()
-            .write(|reg| reg.set_tcomp_int(TcompInt::COMPLETION_DETECTED));
+            .write(|reg| reg.set_tcomp_int(TcompInt::CompletionDetected));
         T::info().wait_cell().wake();
     }
 }
 
-mod sealed {
+pub(crate) mod sealed {
     /// Seal a trait
     pub trait Sealed {}
 
@@ -829,9 +828,9 @@ mod sealed {
     pub trait SealedAdcPin<T: super::Instance> {}
 }
 
-struct Info {
-    regs: pac::adc::Adc,
-    wait_cell: WaitCell,
+pub(crate) struct Info {
+    pub(crate) regs: pac::adc::Adc,
+    pub(crate) wait_cell: WaitCell,
 }
 
 unsafe impl Sync for Info {}
@@ -848,7 +847,7 @@ impl Info {
     }
 }
 
-trait SealedInstance: Gate<MrccPeriphConfig = AdcConfig> {
+pub(crate) trait SealedInstance: Gate<MrccPeriphConfig = AdcConfig> {
     fn info() -> &'static Info;
 
     const PERF_INT_INCR: fn();
@@ -861,32 +860,30 @@ pub trait Instance: SealedInstance + PeripheralType {
     type Interrupt: Interrupt;
 }
 
-macro_rules! impl_instance {
-    ($($n:expr),*) => {
-        $(
-            paste!{
-                impl SealedInstance for crate::peripherals::[<ADC $n>] {
-                    fn info() -> &'static Info {
-                        static INFO: Info =
-                        Info {
-                            regs: pac::[<ADC $n>],
-                            wait_cell: WaitCell::new(),
-                        };
-                        &INFO
-                    }
-
-                    const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_adc $n>];
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_adc_instance {
+    ($n:expr) => {
+        paste::paste! {
+            impl crate::adc::SealedInstance for crate::peripherals::[<ADC $n>] {
+                fn info() -> &'static crate::adc::Info {
+                    static INFO: crate::adc::Info =
+                    crate::adc::Info {
+                        regs: crate::pac::[<ADC $n>],
+                        wait_cell: maitake_sync::WaitCell::new(),
+                    };
+                    &INFO
                 }
 
-                impl Instance for crate::peripherals::[<ADC $n>] {
-                    type Interrupt = crate::interrupt::typelevel::[<ADC $n>];
-                }
+                const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_adc $n>];
             }
-        )*
+
+            impl crate::adc::Instance for crate::peripherals::[<ADC $n>] {
+                type Interrupt = crate::interrupt::typelevel::[<ADC $n>];
+            }
+        }
     };
 }
-
-impl_instance!(0, 1);
 
 /// Trait implemented by any possible ADC pin
 pub trait AdcPin<T: Instance>: sealed::SealedAdcPin<T> + GpioPin + PeripheralType {
@@ -920,7 +917,7 @@ impl<T> AnyAdcPin<T> {
             pin.set_pull(crate::gpio::Pull::Disabled);
             pin.set_slew_rate(crate::gpio::SlewRate::Fast.into());
             pin.set_drive_strength(crate::gpio::DriveStrength::Normal.into());
-            pin.set_function(Mux::MUX0);
+            pin.set_function(Mux::Mux0);
         }
     }
 
@@ -966,132 +963,17 @@ pub struct Async;
 impl sealed::Sealed for Async {}
 impl Mode for Async {}
 
-macro_rules! impl_pin {
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_adc_pin {
     ($pin:ident, $peri:ident, $channel:literal) => {
-        impl sealed::SealedAdcPin<crate::peripherals::$peri> for crate::peripherals::$pin {}
+        impl crate::adc::sealed::SealedAdcPin<crate::peripherals::$peri> for crate::peripherals::$pin {}
 
-        impl AdcPin<crate::peripherals::$peri> for crate::peripherals::$pin {
+        impl crate::adc::AdcPin<crate::peripherals::$peri> for crate::peripherals::$pin {
             #[inline]
             fn channel(&self) -> u8 {
                 $channel
             }
         }
     };
-}
-
-#[cfg(feature = "mcxa2xx")]
-mod mcxa2xx_pins {
-    use super::*;
-
-    impl_pin!(P2_0, ADC0, 0);
-    impl_pin!(P2_4, ADC0, 1);
-    impl_pin!(P2_15, ADC0, 2);
-    impl_pin!(P2_3, ADC0, 3);
-    impl_pin!(P2_2, ADC0, 4);
-    impl_pin!(P2_12, ADC0, 5);
-    impl_pin!(P2_16, ADC0, 6);
-    impl_pin!(P2_7, ADC0, 7);
-    impl_pin!(P0_18, ADC0, 8);
-    impl_pin!(P0_19, ADC0, 9);
-    impl_pin!(P0_20, ADC0, 10);
-    impl_pin!(P0_21, ADC0, 11);
-    impl_pin!(P0_22, ADC0, 12);
-    impl_pin!(P0_23, ADC0, 13);
-    #[cfg(feature = "jtag-extras-as-gpio")]
-    impl_pin!(P0_3, ADC0, 14);
-    #[cfg(feature = "jtag-extras-as-gpio")]
-    impl_pin!(P0_6, ADC0, 15);
-    impl_pin!(P1_0, ADC0, 16);
-    impl_pin!(P1_1, ADC0, 17);
-    impl_pin!(P1_2, ADC0, 18);
-    impl_pin!(P1_3, ADC0, 19);
-    impl_pin!(P1_4, ADC0, 20);
-    impl_pin!(P1_5, ADC0, 21);
-    impl_pin!(P1_6, ADC0, 22);
-    impl_pin!(P1_7, ADC0, 23);
-
-    // ???
-    // impl_pin!(P1_10, ADC0, 255);
-
-    impl_pin!(P2_1, ADC1, 0);
-    impl_pin!(P2_5, ADC1, 1);
-    impl_pin!(P2_19, ADC1, 2);
-    impl_pin!(P2_6, ADC1, 3);
-    impl_pin!(P2_3, ADC1, 4);
-    impl_pin!(P2_13, ADC1, 5);
-    impl_pin!(P2_17, ADC1, 6);
-    impl_pin!(P2_7, ADC1, 7);
-    impl_pin!(P1_10, ADC1, 8);
-    impl_pin!(P1_11, ADC1, 9);
-    impl_pin!(P1_12, ADC1, 10);
-    impl_pin!(P1_13, ADC1, 11);
-    impl_pin!(P1_14, ADC1, 12);
-    impl_pin!(P1_15, ADC1, 13);
-    // ???
-    // impl_pin!(P1_16, ADC1, 255);
-    // impl_pin!(P1_17, ADC1, 255);
-    // impl_pin!(P1_18, ADC1, 255);
-    // impl_pin!(P1_19, ADC1, 255);
-    // ???
-    impl_pin!(P3_31, ADC1, 20);
-    impl_pin!(P3_30, ADC1, 21);
-    impl_pin!(P3_29, ADC1, 22);
-}
-
-#[cfg(feature = "mcxa5xx")]
-mod mcxa5xx_pins {
-    use super::*;
-
-    #[cfg(feature = "jtag-extras-as-gpio")]
-    impl_pin!(P0_3, ADC0, 14);
-    #[cfg(feature = "jtag-extras-as-gpio")]
-    impl_pin!(P0_6, ADC0, 15);
-    impl_pin!(P0_14, ADC0, 10);
-    impl_pin!(P0_15, ADC0, 11);
-    impl_pin!(P0_18, ADC0, 8);
-    impl_pin!(P0_19, ADC0, 9);
-    impl_pin!(P0_22, ADC0, 12);
-    impl_pin!(P0_23, ADC0, 13);
-
-    impl_pin!(P1_0, ADC0, 16);
-    impl_pin!(P1_1, ADC0, 17);
-    impl_pin!(P1_2, ADC0, 18);
-    impl_pin!(P1_3, ADC0, 19);
-    impl_pin!(P1_4, ADC0, 20);
-    impl_pin!(P1_5, ADC0, 21);
-    impl_pin!(P1_6, ADC0, 22);
-    impl_pin!(P1_7, ADC0, 23);
-    impl_pin!(P1_10, ADC1, 8);
-    impl_pin!(P1_11, ADC1, 9);
-    impl_pin!(P1_12, ADC1, 10);
-    impl_pin!(P1_13, ADC1, 11);
-    impl_pin!(P1_14, ADC1, 12);
-    impl_pin!(P1_15, ADC1, 13);
-    impl_pin!(P1_16, ADC1, 14);
-    impl_pin!(P1_17, ADC1, 15);
-    impl_pin!(P1_18, ADC1, 16);
-    impl_pin!(P1_19, ADC1, 17);
-
-    impl_pin!(P2_0, ADC0, 0);
-    impl_pin!(P2_1, ADC1, 0);
-    impl_pin!(P2_2, ADC0, 4);
-    impl_pin!(P2_3, ADC0, 3);
-    impl_pin!(P2_3, ADC1, 4);
-    impl_pin!(P2_4, ADC0, 1);
-    impl_pin!(P2_5, ADC1, 1);
-    impl_pin!(P2_6, ADC1, 3);
-    impl_pin!(P2_7, ADC0, 7);
-    impl_pin!(P2_7, ADC1, 7);
-    impl_pin!(P2_12, ADC0, 5);
-    impl_pin!(P2_13, ADC1, 5);
-    impl_pin!(P2_15, ADC0, 2);
-    impl_pin!(P2_16, ADC0, 6);
-    impl_pin!(P2_17, ADC1, 6);
-    impl_pin!(P2_19, ADC1, 2);
-
-    #[cfg(feature = "rosc-32k-as-gpio")]
-    impl_pin!(P5_0, ADC1, 20);
-    #[cfg(feature = "rosc-32k-as-gpio")]
-    impl_pin!(P5_1, ADC1, 21);
-    impl_pin!(P5_2, ADC1, 22);
 }

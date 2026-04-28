@@ -1,23 +1,19 @@
-pub mod bindings;
-pub mod ble;
 pub mod context;
-pub mod error;
-pub mod gap;
-pub mod gap_init;
-pub mod gatt;
-pub mod hci;
+pub mod controller;
+pub mod host_if;
 pub mod linklayer_plat;
 pub mod ll_sys;
 pub mod ll_sys_if;
 pub mod mac_sys_if;
 pub mod power_table;
 pub mod runner;
-pub mod security;
 pub mod util_seq;
 
 // Re-export main types
-pub use ble::{Ble, VersionInfo};
-pub use error::BleError;
-pub use gap_init::{GapInitParams, GapRole, IoCapability, PhyPrefs, SecurityParams};
-pub use linklayer_plat::{run_radio_high_isr, run_radio_sw_low_isr, set_nvm_base_address};
+pub use controller::{ChannelPacket, Controller, ControllerState, HighInterruptHandler, LowInterruptHandler};
+pub use linklayer_plat::set_nvm_base_address;
 pub use runner::ble_runner;
+
+mod bindings {
+    pub use stm32_bindings::bindings::{mac, wba_ble_stack as ble, wba_link_layer as link_layer};
+}

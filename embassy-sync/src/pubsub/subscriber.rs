@@ -151,6 +151,39 @@ impl<'a, T: Clone> DerefMut for DynSubscriber<'a, T> {
     }
 }
 
+/// A subscriber that holds a dynamic reference to the channel.
+/// This version can be sent between threads but can only be created if the underlying mutex is Send + Sync.
+pub struct SendDynSubscriber<'a, T: Clone>(pub(super) Sub<'a, dyn PubSubBehavior<T> + 'a, T>);
+
+unsafe impl<'a, T: Clone + Send> Send for SendDynSubscriber<'a, T> {}
+unsafe impl<'a, T: Clone + Send> Sync for SendDynSubscriber<'a, T> {}
+
+impl<'a, T: Clone> Deref for SendDynSubscriber<'a, T> {
+    type Target = Sub<'a, dyn PubSubBehavior<T> + 'a, T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<'a, T: Clone> DerefMut for SendDynSubscriber<'a, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<'a, M, T, const CAP: usize, const SUBS: usize, const PUBS: usize> From<Subscriber<'a, M, T, CAP, SUBS, PUBS>>
+    for SendDynSubscriber<'a, T>
+where
+    M: RawMutex + Send + Sync,
+    T: Clone,
+{
+    fn from(s: Subscriber<'a, M, T, CAP, SUBS, PUBS>) -> Self {
+        let s = core::mem::ManuallyDrop::new(s);
+        Self(Sub::new(s.0.next_message_id, s.0.channel))
+    }
+}
+
 /// A subscriber that holds a generic reference to the channel
 #[derive(Debug)]
 pub struct Subscriber<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize>(

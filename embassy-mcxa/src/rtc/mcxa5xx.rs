@@ -371,8 +371,8 @@ impl<'a> Rtc<'a> {
     fn set_configuration(&mut self, config: &Config) -> Result<(), SetupError> {
         self.disable_write_protect();
 
-        self.info.regs().ctrl().modify(|w| w.set_swr(Swr::ASSERTED));
-        self.info.regs().ctrl().modify(|w| w.set_swr(Swr::CLEARED));
+        self.info.regs().ctrl().modify(|w| w.set_swr(Swr::Asserted));
+        self.info.regs().ctrl().modify(|w| w.set_swr(Swr::Cleared));
 
         self.info.regs().ctrl().modify(|w| {
             w.set_clkout(config.clkout.into());

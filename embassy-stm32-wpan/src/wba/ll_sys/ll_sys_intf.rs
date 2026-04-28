@@ -1,4 +1,4 @@
-use crate::bindings::link_layer::{
+use crate::wba::bindings::link_layer::{
     Evnt_timing_t, HostStack_Process, LINKLAYER_PLAT_AclkCtrl, LINKLAYER_PLAT_Assert, LINKLAYER_PLAT_ClockInit,
     LINKLAYER_PLAT_DelayUs, LINKLAYER_PLAT_GetRNG, LINKLAYER_PLAT_RCOStartClbr, LINKLAYER_PLAT_RCOStopClbr,
     LINKLAYER_PLAT_RequestTemperature, LINKLAYER_PLAT_SCHLDR_TIMING_UPDATE_NOT, LINKLAYER_PLAT_SetupRadioIT,

@@ -332,7 +332,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             self.info.regs().mcr().modify(|w| w.set_rst(false));
 
             self.info.regs().mcr().modify(|w| {
-                w.set_dozen(Dozen::ENABLED);
+                w.set_dozen(Dozen::Enabled);
                 w.set_dbgen(false);
             });
         });
@@ -353,14 +353,14 @@ impl<'d, M: Mode> I2c<'d, M> {
 
         // Clear all flags
         self.info.regs().msr().write(|w| {
-            w.set_epf(Epf::INT_YES);
-            w.set_sdf(MsrSdf::INT_YES);
-            w.set_ndf(Ndf::INT_YES);
-            w.set_alf(Alf::INT_YES);
-            w.set_fef(MsrFef::INT_YES);
-            w.set_pltf(Pltf::INT_YES);
-            w.set_dmf(Dmf::INT_YES);
-            w.set_stf(Stf::INT_YES);
+            w.set_epf(Epf::IntYes);
+            w.set_sdf(MsrSdf::IntYes);
+            w.set_ndf(Ndf::IntYes);
+            w.set_alf(Alf::IntYes);
+            w.set_fef(MsrFef::IntYes);
+            w.set_pltf(Pltf::IntYes);
+            w.set_dmf(Dmf::IntYes);
+            w.set_stf(Stf::IntYes);
         });
     }
 
@@ -381,8 +381,8 @@ impl<'d, M: Mode> I2c<'d, M> {
     fn reset_fifos(&self) {
         critical_section::with(|_| {
             self.info.regs().mcr().modify(|w| {
-                w.set_rtf(McrRtf::RESET);
-                w.set_rrf(McrRrf::RESET);
+                w.set_rtf(McrRtf::Reset);
+                w.set_rrf(McrRrf::Reset);
             });
         });
     }
@@ -411,11 +411,11 @@ impl<'d, M: Mode> I2c<'d, M> {
     /// Parses the controller status producing an
     /// appropriate `Result<(), Error>` variant.
     fn parse_status(&self, msr: &Msr) -> Result<(), IOError> {
-        if msr.ndf() == Ndf::INT_YES {
+        if msr.ndf() == Ndf::IntYes {
             Err(IOError::AddressNack)
-        } else if msr.alf() == Alf::INT_YES {
+        } else if msr.alf() == Alf::IntYes {
             Err(IOError::ArbitrationLoss)
-        } else if msr.fef() == MsrFef::INT_YES {
+        } else if msr.fef() == MsrFef::IntYes {
             Err(IOError::FifoError)
         } else {
             Ok(())

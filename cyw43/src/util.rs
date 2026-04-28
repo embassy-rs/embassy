@@ -5,6 +5,8 @@ use core::slice;
 use aligned::{A4, Aligned};
 use embassy_time::{Duration, Ticker};
 
+use crate::WithContext;
+
 /// Defines a `repr(u8)` enum and implements a `from()` associated function to instantiate it from
 /// a `u8`, defaulting to the variant decorated with `#[default]`.
 macro_rules! enum_from_u8 {
@@ -90,18 +92,18 @@ pub(crate) fn round_up(x: u32, a: u32) -> u32 {
     ((x + a - 1) / a) * a
 }
 
-pub(crate) async fn try_until(mut func: impl AsyncFnMut() -> bool, duration: Duration) -> bool {
+pub(crate) async fn try_until(mut func: impl AsyncFnMut() -> bool, duration: Duration) -> crate::Result<()> {
     let tick = Duration::from_millis(1);
     let mut ticker = Ticker::every(tick);
     let ticks = duration.as_ticks() / tick.as_ticks();
 
     for _ in 0..ticks {
         if func().await {
-            return true;
+            return Ok(());
         }
 
         ticker.next().await;
     }
 
-    false
+    Err(crate::Error)
 }

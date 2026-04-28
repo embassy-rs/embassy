@@ -12,7 +12,6 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_time::Duration;
-use paste::paste;
 
 use crate::clocks::periph_helpers::Clk1MConfig;
 use crate::clocks::{ClockError, Gate, WakeGuard, enable_and_reset};
@@ -146,23 +145,23 @@ impl<'d> Watchdog<'d> {
     /// Enable the watchdog timer.
     /// Function is blocking until the watchdog is actually started.
     fn enable(&self) {
-        self.info.regs().mod_().modify(|w| w.set_wden(Wden::RUN));
+        self.info.regs().mod_().modify(|w| w.set_wden(Wden::Run));
         while self.info.regs().tc().read().count() == 0xFF {}
     }
 
     /// Set the watchdog protection mode to flexible.
     fn set_flexible_mode(&self) {
-        self.info.regs().mod_().modify(|w| w.set_wdprotect(Wdprotect::FLEXIBLE));
+        self.info.regs().mod_().modify(|w| w.set_wdprotect(Wdprotect::Flexible));
     }
 
     /// Enable interrupt mode.
     fn enable_interrupt(&self) {
-        self.info.regs().mod_().modify(|w| w.set_wdreset(Wdreset::INTERRUPT));
+        self.info.regs().mod_().modify(|w| w.set_wdreset(Wdreset::Interrupt));
     }
 
     /// Enable reset mode.
     fn enable_reset(&self) {
-        self.info.regs().mod_().modify(|w| w.set_wdreset(Wdreset::RESET));
+        self.info.regs().mod_().modify(|w| w.set_wdreset(Wdreset::Reset));
     }
 
     /// Set the timeout value in clock cycles.
@@ -216,7 +215,7 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
     }
 }
 
-trait SealedInstance: Gate<MrccPeriphConfig = Clk1MConfig> {
+pub(crate) trait SealedInstance: Gate<MrccPeriphConfig = Clk1MConfig> {
     fn info() -> &'static Info;
 }
 
@@ -227,8 +226,8 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     type Interrupt: typelevel::Interrupt;
 }
 
-struct Info {
-    regs: pac::wwdt::Wwdt,
+pub(crate) struct Info {
+    pub(crate) regs: pac::wwdt::Wwdt,
 }
 
 impl Info {
@@ -240,31 +239,26 @@ impl Info {
 
 unsafe impl Sync for Info {}
 
-macro_rules! impl_instance {
-    ($($n:literal);*) => {
-        $(
-            paste!{
-                impl SealedInstance for crate::peripherals::[<WWDT $n>] {
-                    fn info() -> &'static Info {
-                        static INFO: Info = Info {
-                            regs: pac::[<WWDT $n>],
-                        };
-                        &INFO
-                    }
-                }
-
-                impl Instance for crate::peripherals::[<WWDT $n>] {
-                    type Interrupt = crate::interrupt::typelevel::[<WWDT $n>];
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_wwdt_instance {
+    ($n:literal) => {
+        paste::paste! {
+            impl crate::wwdt::SealedInstance for crate::peripherals::[<WWDT $n>] {
+                fn info() -> &'static crate::wwdt::Info {
+                    static INFO: crate::wwdt::Info = crate::wwdt::Info {
+                        regs: crate::pac::[<WWDT $n>],
+                    };
+                    &INFO
                 }
             }
-        )*
+
+            impl crate::wwdt::Instance for crate::peripherals::[<WWDT $n>] {
+                type Interrupt = crate::interrupt::typelevel::[<WWDT $n>];
+            }
+        }
     };
 }
-
-impl_instance!(0);
-
-#[cfg(feature = "mcxa5xx")]
-impl_instance!(1);
 
 #[cfg(feature = "embedded-mcu-hal")]
 impl embedded_mcu_hal::watchdog::Watchdog for Watchdog<'_> {

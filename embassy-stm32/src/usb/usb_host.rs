@@ -8,7 +8,7 @@ use core::task::Poll;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Duration, Instant, Timer};
 use embassy_usb_driver::host::{
-    ChannelError, DeviceEvent, HostError, TimeoutConfig, UsbChannel, UsbHostDriver, channel,
+    DeviceEvent, HostError, PipeError, TimeoutConfig, UsbHostAllocator, UsbHostController, UsbPipe, pipe,
 };
 use embassy_usb_driver::{EndpointType, Speed};
 use stm32_metapac::common::{RW, Reg};
@@ -226,10 +226,41 @@ impl<I: Instance> EndpointBuffer<I> {
     }
 }
 
-/// First bit is used to indicate control pipes
-/// bitfield for keeping track of used channels
-static ALLOCATED_PIPES: AtomicU32 = AtomicU32::new(0);
-static EP_MEM_FREE: AtomicU16 = AtomicU16::new(0);
+/// Per-instance state shared between [`UsbHost`], [`Allocator`] and [`Channel`].
+pub struct HostState {
+    /// Bitmap of allocated channels. Bit 0 is reserved for the control pipe.
+    allocated_pipes: AtomicU32,
+    /// First free address in the endpoint buffer memory, in bytes.
+    ep_mem_free: AtomicU16,
+}
+
+impl HostState {
+    /// Create a new, reset host state.
+    pub const fn new() -> Self {
+        Self {
+            allocated_pipes: AtomicU32::new(0),
+            ep_mem_free: AtomicU16::new(0),
+        }
+    }
+}
+
+/// Sealed extension of [`Instance`] exposing the per-peripheral [`HostState`].
+#[allow(private_bounds)]
+pub trait SealedHostInstance: Instance {
+    #[doc(hidden)]
+    fn host_state() -> &'static HostState;
+}
+
+foreach_interrupt!(
+    ($inst:ident, usb, $block:ident, LP, $irq:ident) => {
+        impl SealedHostInstance for crate::peripherals::$inst {
+            fn host_state() -> &'static HostState {
+                static STATE: HostState = HostState::new();
+                &STATE
+            }
+        }
+    };
+);
 
 /// USB host driver.
 pub struct UsbHost<'d, I: Instance> {
@@ -238,7 +269,7 @@ pub struct UsbHost<'d, I: Instance> {
     // ep_mem_free: u16,
 }
 
-impl<'d, I: Instance> UsbHost<'d, I> {
+impl<'d, I: SealedHostInstance> UsbHost<'d, I> {
     /// Create a new USB driver.
     pub fn new(
         _usb: Peri<'d, USB>,
@@ -274,7 +305,9 @@ impl<'d, I: Instance> UsbHost<'d, I> {
         #[cfg(stm32l1)]
         let _ = (dp, dm); // suppress "unused" warnings.
 
-        EP_MEM_FREE.store(EP_COUNT as u16 * 8, Ordering::Relaxed);
+        I::host_state()
+            .ep_mem_free
+            .store(EP_COUNT as u16 * 8, Ordering::Relaxed);
         Self {
             phantom: PhantomData,
             // ep_mem_free: EP_COUNT as u16 * 8, // for each EP, 4 regs, so 8 bytes
@@ -317,18 +350,6 @@ impl<'d, I: Instance> UsbHost<'d, I> {
         istr.0
     }
 
-    fn alloc_channel_mem(&self, len: u16) -> Result<u16, ()> {
-        assert!(len as usize % USBRAM_ALIGN == 0);
-        let addr = EP_MEM_FREE.load(Ordering::Relaxed);
-        if addr + len > USBRAM_SIZE as _ {
-            // panic!("Endpoint memory full");
-            error!("Endpoint memory full");
-            return Err(());
-        }
-        EP_MEM_FREE.store(addr + len, Ordering::Relaxed);
-        Ok(addr)
-    }
-
     async fn wait_for_device_connect(&self) -> DeviceEvent {
         poll_fn(|cx| {
             let istr = I::regs().istr().read();
@@ -365,7 +386,7 @@ impl<'d, I: Instance> UsbHost<'d, I> {
 }
 
 /// USB endpoint. Only implements single buffer mode.
-pub struct Channel<'d, I: Instance, D: channel::Direction, T: channel::Type> {
+pub struct Channel<'d, I: SealedHostInstance, D: pipe::Direction, T: pipe::Type> {
     _phantom: PhantomData<(&'d mut I, D, T)>,
     /// Register index (there are 8 in total)
     index: usize,
@@ -376,7 +397,7 @@ pub struct Channel<'d, I: Instance, D: channel::Direction, T: channel::Type> {
     buf_out: Option<EndpointBuffer<I>>,
 }
 
-impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D, T> {
+impl<'d, I: SealedHostInstance, D: pipe::Direction, T: pipe::Type> Channel<'d, I, D, T> {
     fn new(
         index: usize,
         buf_in: Option<EndpointBuffer<I>>,
@@ -444,12 +465,12 @@ impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D,
         epr.write_value(epr_val);
     }
 
-    fn read_data(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError> {
+    fn read_data(&mut self, buf: &mut [u8]) -> Result<usize, PipeError> {
         let index = self.index;
         let rx_len = btable::read_out_len::<I>(index) as usize & 0x3FF;
         trace!("rx_len = {}", rx_len);
         if rx_len > buf.len() {
-            return Err(ChannelError::BufferOverflow);
+            return Err(PipeError::BufferOverflow);
         }
         self.buf_in.as_mut().unwrap().read(&mut buf[..rx_len]);
         Ok(rx_len)
@@ -464,7 +485,7 @@ impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D,
     }
 
     //TODO: Emit a zero length packet when ensure_transaction_end is true and the packet is of max size
-    async fn write(&mut self, buf: &[u8], _ensure_transaction_end: bool) -> Result<(), ChannelError> {
+    async fn write(&mut self, buf: &[u8], _ensure_transaction_end: bool) -> Result<(), PipeError> {
         self.write_data(buf);
 
         let index = self.index;
@@ -483,26 +504,26 @@ impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D,
             let istr = regs.istr().read();
             if !istr.dcon_stat() {
                 self.disable_tx();
-                return Poll::Ready(Err(ChannelError::Disconnected));
+                return Poll::Ready(Err(PipeError::Disconnected));
             }
 
             if t0.elapsed() > Duration::from_millis(timeout_ms as u64) {
                 // Timeout, we need to stop the current transaction.
                 self.disable_tx();
-                return Poll::Ready(Err(ChannelError::Timeout));
+                return Poll::Ready(Err(PipeError::Timeout));
             }
 
             let stat = self.reg().read().stat_tx();
             match stat {
                 Stat::Disabled => Poll::Ready(Ok(())),
-                Stat::Stall => Poll::Ready(Err(ChannelError::Stall)),
+                Stat::Stall => Poll::Ready(Err(PipeError::Stall)),
                 Stat::Nak | Stat::Valid => Poll::Pending,
             }
         })
         .await
     }
 
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError> {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, PipeError> {
         let index = self.index;
 
         let timeout_ms = 1000;
@@ -522,12 +543,12 @@ impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D,
             let istr = regs.istr().read();
             if !istr.dcon_stat() {
                 self.disable_rx();
-                return Poll::Ready(Err(ChannelError::Disconnected));
+                return Poll::Ready(Err(PipeError::Disconnected));
             }
 
             if t0.elapsed() > Duration::from_millis(timeout_ms as u64) {
                 self.disable_rx();
-                return Poll::Ready(Err(ChannelError::Timeout));
+                return Poll::Ready(Err(PipeError::Timeout));
             }
 
             let stat = self.reg().read().stat_rx();
@@ -549,7 +570,7 @@ impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D,
                 }
                 Stat::Stall => {
                     // error
-                    Poll::Ready(Err(ChannelError::Stall))
+                    Poll::Ready(Err(PipeError::Stall))
                 }
                 Stat::Nak => Poll::Pending,
                 Stat::Valid => {
@@ -562,11 +583,11 @@ impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D,
     }
 }
 
-impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<'d, I, D, T> {
-    async fn control_in(&mut self, setup: &[u8; 8], buf: &mut [u8]) -> Result<usize, ChannelError>
+impl<'d, I: SealedHostInstance, T: pipe::Type, D: pipe::Direction> UsbPipe<T, D> for Channel<'d, I, D, T> {
+    async fn control_in(&mut self, setup: &[u8; 8], buf: &mut [u8]) -> Result<usize, PipeError>
     where
-        T: channel::IsControl,
-        D: channel::IsIn,
+        T: pipe::IsControl,
+        D: pipe::IsIn,
     {
         let epr0 = I::regs().epr(0);
 
@@ -589,10 +610,10 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         Ok(count)
     }
 
-    async fn control_out(&mut self, setup: &[u8; 8], buf: &[u8]) -> Result<(), ChannelError>
+    async fn control_out(&mut self, setup: &[u8; 8], buf: &[u8]) -> Result<(), PipeError>
     where
-        T: channel::IsControl,
-        D: channel::IsOut,
+        T: pipe::IsControl,
+        D: pipe::IsOut,
     {
         let epr0 = I::regs().epr(0);
 
@@ -615,40 +636,16 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         Ok(())
     }
 
-    fn retarget_channel(
-        &mut self,
-        addr: u8,
-        endpoint: &embassy_usb_driver::EndpointInfo,
-        _split: Option<embassy_usb_driver::host::SplitInfo>,
-    ) -> Result<(), embassy_usb_driver::host::HostError> {
-        trace!(
-            "retarget_channel: addr: {:?} ep_type: {:?} index: {}",
-            addr, endpoint.ep_type, self.index
-        );
-        let eptype = endpoint.ep_type;
-        let index = self.index;
-
-        // configure channel register
-        let epr_reg = I::regs().epr(index);
-        let mut epr = invariant(epr_reg.read());
-        epr.set_devaddr(addr);
-        epr.set_ep_type(convert_type(eptype));
-        epr.set_ea(index as _);
-        epr_reg.write_value(epr);
-
-        Ok(())
-    }
-
-    async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError>
+    async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, PipeError>
     where
-        D: channel::IsIn,
+        D: pipe::IsIn,
     {
         self.read(buf).await
     }
 
-    async fn request_out(&mut self, buf: &[u8], ensure_transaction_end: bool) -> Result<(), ChannelError>
+    async fn request_out(&mut self, buf: &[u8], ensure_transaction_end: bool) -> Result<(), PipeError>
     where
-        D: channel::IsOut,
+        D: pipe::IsOut,
     {
         self.write(buf, ensure_transaction_end).await
     }
@@ -656,41 +653,85 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
     fn set_timeout(&mut self, _: TimeoutConfig) {
         //TODO: Implement.
     }
+
+    fn reset_data_toggle(&mut self) {
+        // On STM32 PMA USB, DTOG_RX and DTOG_TX are toggle-on-write-1: writing
+        // a 1 flips the bit, writing a 0 leaves it unchanged. To clear both
+        // to 0 (DATA0), read the current values and write them back — a
+        // currently-1 bit will toggle to 0, a currently-0 bit will be left
+        // alone. `invariant()` preserves CTR_* and clears STAT_* toggle
+        // fields; we then set the DTOG fields explicitly.
+        let epr = self.reg();
+        let current = epr.read();
+        let dtog_rx = current.dtog_rx();
+        let dtog_tx = current.dtog_tx();
+        let mut new = invariant(current);
+        new.set_dtog_rx(dtog_rx);
+        new.set_dtog_tx(dtog_tx);
+        epr.write_value(new);
+    }
 }
 
-impl<'d, I: Instance, T: channel::Type, D: channel::Direction> Drop for Channel<'d, I, D, T> {
+impl<'d, I: SealedHostInstance, T: pipe::Type, D: pipe::Direction> Drop for Channel<'d, I, D, T> {
     fn drop(&mut self) {
         critical_section::with(|_| {
-            ALLOCATED_PIPES.store(
-                ALLOCATED_PIPES.load(Ordering::Relaxed) & !(1 << self.index),
-                Ordering::Relaxed,
-            );
+            let pipes = &I::host_state().allocated_pipes;
+            pipes.store(pipes.load(Ordering::Relaxed) & !(1 << self.index), Ordering::Relaxed);
         });
     }
 }
 
-impl<'d, I: Instance> UsbHostDriver for UsbHost<'d, I> {
-    type Channel<T: channel::Type, D: channel::Direction> = Channel<'d, I, D, T>;
+/// Pipe allocator handle for [`UsbHost`].
+pub struct Allocator<'d, I: Instance> {
+    _phantom: PhantomData<&'d I>,
+}
 
-    fn alloc_channel<T: channel::Type, D: channel::Direction>(
+impl<'d, I: Instance> Clone for Allocator<'d, I> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<'d, I: Instance> Copy for Allocator<'d, I> {}
+
+fn alloc_channel_mem(state: &HostState, len: u16) -> Result<u16, ()> {
+    assert!(len as usize % USBRAM_ALIGN == 0);
+    // Bump-allocate a contiguous range under a critical section so concurrent
+    // allocations from copies of the allocator can't clobber each other.
+    critical_section::with(|_| {
+        let addr = state.ep_mem_free.load(Ordering::Relaxed);
+        if addr + len > USBRAM_SIZE as _ {
+            error!("Endpoint memory full");
+            return Err(());
+        }
+        state.ep_mem_free.store(addr + len, Ordering::Relaxed);
+        Ok(addr)
+    })
+}
+
+impl<'d, I: SealedHostInstance> UsbHostAllocator<'d> for Allocator<'d, I> {
+    type Pipe<T: pipe::Type, D: pipe::Direction> = Channel<'d, I, D, T>;
+
+    fn alloc_pipe<T: pipe::Type, D: pipe::Direction>(
         &self,
         addr: u8,
         endpoint: &embassy_usb_driver::EndpointInfo,
-        split: Option<embassy_usb_driver::host::SplitInfo>,
-    ) -> Result<Self::Channel<T, D>, embassy_usb_driver::host::HostError> {
+        _split: Option<embassy_usb_driver::host::SplitInfo>,
+    ) -> Result<Self::Pipe<T, D>, embassy_usb_driver::host::HostError> {
+        let state = I::host_state();
         let new_index = if T::ep_type() == EndpointType::Control {
             // Only a single control channel is available
             0
         } else {
             critical_section::with(|_| {
-                let pipes = ALLOCATED_PIPES.load(Ordering::Relaxed);
+                let pipes = state.allocated_pipes.load(Ordering::Relaxed);
 
                 // Ignore index 0
                 let new_index = (pipes | 1).trailing_ones();
                 if new_index as usize >= USB_MAX_PIPES {
-                    Err(HostError::OutOfChannels)
+                    Err(HostError::OutOfPipes)
                 } else {
-                    ALLOCATED_PIPES.store(pipes | 1 << new_index, Ordering::Relaxed);
+                    state.allocated_pipes.store(pipes | 1 << new_index, Ordering::Relaxed);
                     Ok(new_index)
                 }
             })?
@@ -700,7 +741,7 @@ impl<'d, I: Instance> UsbHostDriver for UsbHost<'d, I> {
 
         let buffer_in = if D::is_in() {
             let (len, len_bits) = calc_receive_len_bits(max_packet_size);
-            let Ok(buffer_addr) = self.alloc_channel_mem(len) else {
+            let Ok(buffer_addr) = alloc_channel_mem(state, len) else {
                 return Err(HostError::OutOfSlots);
             };
 
@@ -713,7 +754,7 @@ impl<'d, I: Instance> UsbHostDriver for UsbHost<'d, I> {
 
         let buffer_out = if D::is_out() {
             let len = align_len_up(max_packet_size);
-            let Ok(buffer_addr) = self.alloc_channel_mem(len) else {
+            let Ok(buffer_addr) = alloc_channel_mem(state, len) else {
                 return Err(HostError::OutOfSlots);
             };
 
@@ -725,7 +766,7 @@ impl<'d, I: Instance> UsbHostDriver for UsbHost<'d, I> {
             None
         };
 
-        let mut channel = Channel::<I, D, T>::new(
+        let channel = Channel::<I, D, T>::new(
             new_index as usize,
             buffer_in,
             buffer_out,
@@ -733,11 +774,26 @@ impl<'d, I: Instance> UsbHostDriver for UsbHost<'d, I> {
             endpoint.max_packet_size,
         );
 
-        channel.retarget_channel(addr, endpoint, split)?;
+        // configure channel register
+        let epr_reg = I::regs().epr(new_index as usize);
+        let mut epr = invariant(epr_reg.read());
+        epr.set_devaddr(addr);
+        epr.set_ep_type(convert_type(endpoint.ep_type));
+        epr.set_ea(new_index as _);
+        epr_reg.write_value(epr);
+
         Ok(channel)
     }
+}
 
-    async fn bus_reset(&self) {
+impl<'d, I: SealedHostInstance> UsbHostController<'d> for UsbHost<'d, I> {
+    type Allocator = Allocator<'d, I>;
+
+    fn allocator(&self) -> Self::Allocator {
+        Allocator { _phantom: PhantomData }
+    }
+
+    async fn bus_reset(&mut self) {
         let regs = I::regs();
 
         trace!("Bus reset");
@@ -755,7 +811,7 @@ impl<'d, I: Instance> UsbHostDriver for UsbHost<'d, I> {
         });
     }
 
-    async fn wait_for_device_event(&self) -> embassy_usb_driver::host::DeviceEvent {
+    async fn wait_for_device_event(&mut self) -> embassy_usb_driver::host::DeviceEvent {
         // TODO: which event do we expect?
         self.wait_for_device_connect().await
     }

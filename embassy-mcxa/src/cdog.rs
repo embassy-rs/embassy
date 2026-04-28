@@ -45,9 +45,9 @@ pub enum FaultControl {
 impl From<FaultControl> for Ctrl {
     fn from(val: FaultControl) -> Self {
         match val {
-            FaultControl::EnableReset => Ctrl::ENABLE_RESET,
-            FaultControl::EnableInterrupt => Ctrl::ENABLE_INTERRUPT,
-            FaultControl::DisableBoth => Ctrl::DISABLE_BOTH,
+            FaultControl::EnableReset => Ctrl::EnableReset,
+            FaultControl::EnableInterrupt => Ctrl::EnableInterrupt,
+            FaultControl::DisableBoth => Ctrl::DisableBoth,
         }
     }
 }
@@ -131,7 +131,7 @@ impl<'d> Watchdog<'d> {
         // The clearing method depends on whether the module is locked:
         // - Unlocked (LOCK_CTRL = 10b): Write flag values directly
         // - Locked (LOCK_CTRL = 01b): Write '1' to clear individual flags
-        let b = info.control().read().lock_ctrl() == LockCtrl::LOCKED;
+        let b = info.control().read().lock_ctrl() == LockCtrl::Locked;
         // Locked mode: write '1' to clear each flag
         info.flags().write(|w| {
             w.set_to_flag(b);
@@ -153,20 +153,20 @@ impl<'d> Watchdog<'d> {
 
             // IRQ pause control
             match config.irq_pause {
-                PauseControl::RunTimer => w.set_irq_pause(IrqPause::RUN_TIMER),
-                PauseControl::PauseTimer => w.set_irq_pause(IrqPause::PAUSE_TIMER),
+                PauseControl::RunTimer => w.set_irq_pause(IrqPause::RunTimer),
+                PauseControl::PauseTimer => w.set_irq_pause(IrqPause::PauseTimer),
             };
 
             // Debug halt control
             match config.debug_halt {
-                PauseControl::RunTimer => w.set_debug_halt_ctrl(DebugHaltCtrl::RUN_TIMER),
-                PauseControl::PauseTimer => w.set_debug_halt_ctrl(DebugHaltCtrl::PAUSE_TIMER),
+                PauseControl::RunTimer => w.set_debug_halt_ctrl(DebugHaltCtrl::RunTimer),
+                PauseControl::PauseTimer => w.set_debug_halt_ctrl(DebugHaltCtrl::PauseTimer),
             };
 
             // Lock control
             match config.lock {
-                LockControl::Locked => w.set_lock_ctrl(LockCtrl::LOCKED),
-                LockControl::Unlocked => w.set_lock_ctrl(LockCtrl::UNLOCKED),
+                LockControl::Locked => w.set_lock_ctrl(LockCtrl::Locked),
+                LockControl::Unlocked => w.set_lock_ctrl(LockCtrl::Unlocked),
             }
         });
 

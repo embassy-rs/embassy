@@ -1,15 +1,13 @@
-//! Standard USB control request builders and the `ControlChannelExt` trait.
+//! Standard USB control request builders and the `ControlPipeExt` trait.
 
 use core::num::NonZeroU8;
 
-use embassy_time::Timer;
 use embassy_usb::control::Request;
-pub use embassy_usb_driver::host::channel;
-use embassy_usb_driver::host::{ChannelError, HostError, SplitInfo, UsbChannel};
-use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
+use embassy_usb_driver::Direction;
+pub use embassy_usb_driver::host::pipe;
+use embassy_usb_driver::host::{HostError, UsbPipe};
 
 use crate::descriptor::{USBDescriptor, descriptor_type};
-use crate::handler::EnumerationInfo;
 
 /// Recipient of a USB control request.
 ///
@@ -160,6 +158,20 @@ impl SetupPacket {
         ]
     }
 
+    /// Deserialize a wire format SETUP packet.
+    ///
+    /// Multi-byte fields are interpreted in little-endian order, as required by
+    /// USB 2.0 spec §8.1.
+    pub const fn from_bytes(wire: [u8; 8]) -> Self {
+        Self {
+            request_type: RequestType::from_bits(wire[0]),
+            request: wire[1],
+            value: u16::from_le_bytes([wire[2], wire[3]]),
+            index: u16::from_le_bytes([wire[4], wire[5]]),
+            length: u16::from_le_bytes([wire[6], wire[7]]),
+        }
+    }
+
     /// Build a GET_DESCRIPTOR SETUP packet delivered to the Device recipient.
     ///
     /// `class` selects Standard (`false`) vs Class (`true`) request type.
@@ -291,12 +303,42 @@ impl SetupPacket {
             length,
         }
     }
+
+    /// Build a vendor-specific interface request SETUP packet, host-to-device.
+    pub const fn vendor_interface_out(request: u8, value: u16, interface: u16, length: u16) -> Self {
+        Self {
+            request_type: RequestType {
+                direction: Direction::Out,
+                control_type: ControlType::Vendor,
+                recipient: Recipient::Interface,
+            },
+            request,
+            value,
+            index: interface,
+            length,
+        }
+    }
+
+    /// Build a vendor-specific interface request SETUP packet, device-to-host.
+    pub const fn vendor_interface_in(request: u8, value: u16, interface: u16, length: u16) -> Self {
+        Self {
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Vendor,
+                recipient: Recipient::Interface,
+            },
+            request,
+            value,
+            index: interface,
+            length,
+        }
+    }
 }
 
-// ── ControlChannelExt ──────────────────────────────────────────────────────────
+// ── ControlPipeExt ─────────────────────────────────────────────────────────────
 
-/// Extension trait providing higher-level control request methods on a USB control channel.
-pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control, D> {
+/// Extension trait providing higher-level control request methods on a USB control pipe.
+pub trait ControlPipeExt<D: pipe::Direction>: UsbPipe<pipe::Control, D> {
     /// Request and parse a fixed-size descriptor.
     async fn request_descriptor<T: USBDescriptor, const SIZE: usize>(
         &mut self,
@@ -304,7 +346,7 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
         class: bool,
     ) -> Result<T, HostError>
     where
-        D: channel::IsIn,
+        D: pipe::IsIn,
     {
         let mut buf = [0u8; SIZE];
         let setup = SetupPacket::get_descriptor(class, T::DESC_TYPE, index, SIZE as u16);
@@ -316,12 +358,12 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
     /// Request the raw bytes of a descriptor by type and index.
     async fn request_descriptor_bytes(&mut self, desc_type: u8, index: u8, buf: &mut [u8]) -> Result<usize, HostError>
     where
-        D: channel::IsIn,
+        D: pipe::IsIn,
     {
         let setup = SetupPacket::get_descriptor(false, desc_type, index, buf.len() as u16);
         self.control_in(&setup.to_bytes(), buf)
             .await
-            .map_err(HostError::ChannelError)
+            .map_err(HostError::PipeError)
     }
 
     /// Request the raw bytes of a class-specific interface descriptor.
@@ -331,18 +373,18 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
         buf: &mut [u8],
     ) -> Result<usize, HostError>
     where
-        D: channel::IsIn,
+        D: pipe::IsIn,
     {
         let setup = SetupPacket::get_interface_descriptor(T::DESC_TYPE, interface_num as u16, buf.len() as u16);
         self.control_in(&setup.to_bytes(), buf)
             .await
-            .map_err(HostError::ChannelError)
+            .map_err(HostError::PipeError)
     }
 
     /// GET_CONFIGURATION — returns the active configuration value, or `None` if unconfigured.
     async fn active_configuration_value(&mut self) -> Result<Option<NonZeroU8>, HostError>
     where
-        D: channel::IsIn,
+        D: pipe::IsIn,
     {
         let setup = SetupPacket::get_configuration();
         let mut buf = [0u8; 1];
@@ -353,7 +395,7 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
     /// SET_CONFIGURATION.
     async fn set_configuration(&mut self, config_no: u8) -> Result<(), HostError>
     where
-        D: channel::IsOut,
+        D: pipe::IsOut,
     {
         let setup = SetupPacket::set_configuration(config_no);
         self.control_out(&setup.to_bytes(), &[]).await?;
@@ -366,7 +408,7 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
     /// Breaks host channel state; use only during enumeration.
     async fn device_set_address(&mut self, new_addr: u8) -> Result<(), HostError>
     where
-        D: channel::IsOut,
+        D: pipe::IsOut,
     {
         let setup = SetupPacket::set_address(new_addr);
         self.control_out(&setup.to_bytes(), &[]).await?;
@@ -376,107 +418,48 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
     /// Class + Interface OUT request (no data stage).
     async fn class_request_out(&mut self, request: u8, value: u16, index: u16, buf: &[u8]) -> Result<(), HostError>
     where
-        D: channel::IsOut,
+        D: pipe::IsOut,
     {
         let setup = SetupPacket::class_interface_out(request, value, index, buf.len() as u16);
         self.control_out(&setup.to_bytes(), buf).await?;
         Ok(())
     }
-
-    /// Enumerate the currently pending device and return an [`EnumerationInfo`].
-    ///
-    /// The device must have been reset immediately before this call.
-    async fn enumerate_device(
-        &mut self,
-        speed: Speed,
-        new_device_address: u8,
-        split: Option<SplitInfo>,
-    ) -> Result<EnumerationInfo, HostError>
-    where
-        D: channel::IsIn + channel::IsOut,
-    {
-        use crate::descriptor::DeviceDescriptorPartial;
-
-        self.retarget_channel(
-            0,
-            &EndpointInfo {
-                addr: 0.into(),
-                ep_type: EndpointType::Control,
-                max_packet_size: speed.max_packet_size(),
-                interval_ms: 0,
-            },
-            split,
-        )?;
-
-        trace!("[enum] Getting max_packet_size for new device");
-        let max_packet_size0 = {
-            let mut max_retries = 10;
-            loop {
-                match self
-                    .request_descriptor::<DeviceDescriptorPartial, { DeviceDescriptorPartial::SIZE }>(0, false)
-                    .await
-                {
-                    Ok(desc) => break desc.max_packet_size0,
-                    Err(e) => {
-                        warn!("Request descriptor error: {:?}, retries: {}", e, max_retries);
-                        if max_retries > 0 {
-                            max_retries -= 1;
-                            Timer::after_millis(1).await;
-                            continue;
-                        } else {
-                            return Err(HostError::RequestFailed);
-                        }
-                    }
-                }
-            }
-        };
-        // USB 2.0 §9.6.1: legal EP0 max packet sizes are 8, 16, 32, 64.
-        if !matches!(max_packet_size0, 8 | 16 | 32 | 64) {
-            return Err(HostError::InvalidDescriptor);
-        }
-
-        self.device_set_address(new_device_address).await?;
-        // USB 2.0 §9.2.6.3: allow the device a 2ms recovery interval after SET_ADDRESS.
-        Timer::after_millis(2).await;
-
-        self.retarget_channel(
-            new_device_address,
-            &EndpointInfo {
-                addr: 0.into(),
-                ep_type: EndpointType::Control,
-                max_packet_size: max_packet_size0 as u16,
-                interval_ms: 0,
-            },
-            split,
-        )?;
-
-        let retries = 5;
-        let device_desc = async {
-            for _ in 0..retries {
-                match self
-                    .request_descriptor::<crate::descriptor::DeviceDescriptor, { crate::descriptor::DeviceDescriptor::SIZE }>(0, false)
-                    .await
-                {
-                    Err(HostError::ChannelError(ChannelError::Timeout)) => {
-                        Timer::after_millis(1).await;
-                        continue;
-                    }
-                    v => return v,
-                }
-            }
-            Err(HostError::ChannelError(ChannelError::Timeout))
-        }
-        .await?;
-
-        trace!("Device Descriptor: {:?}", device_desc);
-
-        Ok(EnumerationInfo {
-            device_address: new_device_address,
-            split,
-            speed,
-            device_desc,
-        })
-    }
 }
 
-impl<D: channel::Direction, C> ControlChannelExt<D> for C where C: UsbChannel<channel::Control, D> {}
+impl<D: pipe::Direction, C> ControlPipeExt<D> for C where C: UsbPipe<pipe::Control, D> {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn roundtrip_setup_packet() {
+        let directions = [Direction::In, Direction::Out];
+        let control_types = [ControlType::Standard, ControlType::Class, ControlType::Vendor];
+        let recipients = [
+            Recipient::Device,
+            Recipient::Interface,
+            Recipient::Endpoint,
+            Recipient::Other,
+        ];
+        for direction in directions {
+            for control_type in control_types {
+                for recipient in recipients {
+                    let setup = SetupPacket {
+                        request_type: RequestType {
+                            direction,
+                            control_type,
+                            recipient,
+                        },
+                        request: 0x11,
+                        value: 0x2233,
+                        index: 0x4455,
+                        length: 0x6677,
+                    };
+                    let bytes = setup.to_bytes();
+                    assert!(setup == SetupPacket::from_bytes(bytes));
+                }
+            }
+        }
+    }
+}

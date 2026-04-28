@@ -53,18 +53,27 @@ embassy-executor = { version = "0.10.0", path = "../embassy-executor" }
 # `time` dependencies
 embassy-time = { version = "0.5.1", path = "../embassy-time" }
 embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", features = ["tick-hz-1_000_000"] }
-embassy-time-queue-utils = { version = "0.3.1", path = "../embassy-time-queue-utils" }
+embassy-time-queue-utils = { version = "0.3.2", path = "../embassy-time-queue-utils" }
 
 grounded = { version = "0.2.1", features = ["cas", "critical-section"] }
 heapless = "0.9"
 maitake-sync = { version = "0.3.0", default-features = false, features = ["critical-section", "no-cache-pad"] }
 nb = "1.1.0"
-nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "b644ff07f59805b1fb362eee45a2de7becf29172", features = ["rt"] }
+nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "31d16059d65a47e6cd0dff61f5d67dc3aeebee4b", features = ["rt"] }
 paste = "1.0.15"
 
 rand-core-06 = { package = "rand_core", version = "0.6" }
 rand-core-09 = { package = "rand_core", version = "0.9" }
 rand-core-10 = { package = "rand_core", version = "0.10" }
+
+[build-dependencies]
+nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "31d16059d65a47e6cd0dff61f5d67dc3aeebee4b", default-features = false, features = ["metadata"] }
+proc-macro2 = "1.0.106"
+quote = "1.0.45"
+regex = "1.12.3"
+syn = "2.0.117"
+convert_case = "0.11"
+indexmap = "2.14.0"
 
 [features]
 default = ["rt", "swd-swo-as-gpio", "dma-ipd-req"]

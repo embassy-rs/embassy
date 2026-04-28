@@ -184,12 +184,31 @@ macro_rules! error {
     };
 }
 
+#[collapse_debuginfo(yes)]
+macro_rules! err {
+    ($s:literal $(, $x:expr)* $(,)?) => {{
+        error!($s $(, $x)*);
+
+        Err(crate::Error)
+    }};
+}
+
 #[cfg(feature = "defmt")]
 #[collapse_debuginfo(yes)]
 macro_rules! unwrap {
     ($($x:tt)*) => {
         ::defmt::unwrap!($($x)*)
     };
+}
+
+#[cfg(feature = "defmt")]
+trait_set::trait_set! {
+    pub trait Debuggable = Debug + defmt::Format;
+}
+
+#[cfg(not(feature = "defmt"))]
+trait_set::trait_set! {
+    pub trait Debuggable = Debug;
 }
 
 #[cfg(not(feature = "defmt"))]
