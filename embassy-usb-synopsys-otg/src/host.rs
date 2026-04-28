@@ -25,9 +25,10 @@ const CH_RESULT_BBERR: u8 = 5;
 const CH_RESULT_FRMOR: u8 = 6;
 const CH_RESULT_DTERR: u8 = 7;
 const CH_RESULT_HALTED: u8 = 8;
+const CH_RESULT_NYET: u8 = 9;
 
-/// Maximum number of NAK retries before returning a timeout error.
-const NAK_RETRY_LIMIT: u32 = 5000;
+/// HCINT.NYET bit (not exposed by the PAC struct).
+const HCINT_NYET_MASK: u32 = 1 << 6;
 
 // Port event bitflags (OR'd together, not mutually exclusive).
 const PORT_EVENT_CONNECTED: u8 = 1 << 0;
@@ -164,6 +165,13 @@ pub unsafe fn on_host_interrupt<const CH_COUNT: usize>(r: Otg, state: &HostState
         let status = r.grxstsp().read();
         let ch_num = status.epnum() as usize; // In host mode, epnum field is channel number
         let len = status.bcnt() as usize;
+        trace!(
+            "otg-host: rxfifo ch={} pktsts={} bcnt={} dpid={}",
+            ch_num,
+            status.pktstsh().to_bits(),
+            len,
+            status.dpid().to_bits(),
+        );
 
         if ch_num >= ch_count {
             // Discard unexpected data
@@ -235,6 +243,23 @@ pub unsafe fn on_host_interrupt<const CH_COUNT: usize>(r: Otg, state: &HostState
                 }
             }
         }
+
+        // Slave-mode multi-packet IN quirk: after each received data packet
+        // the DWC2 core dequeues this channel from its transaction scheduler
+        // even though HCCHAR.CHENA stays at 1 and HCTSIZ.PKTCNT > 0. Writing
+        // CHENA=1 again re-queues the channel for the next IN token. Without
+        // this, multi-packet bulk/interrupt IN transfers stop after the
+        // first packet. In DMA modes the core self-schedules; STM32 OTG
+        // runs in slave mode so software must re-arm per packet.
+        if ch_num < ch_count && matches!(status.pktstsh(), vals::Pktstsh::IN_DATA_RX) {
+            let hctsiz = r.hctsiz(ch_num).read();
+            if hctsiz.pktcnt() > 0 {
+                r.hcchar(ch_num).modify(|w| {
+                    w.set_chena(true);
+                    w.set_chdis(false);
+                });
+            }
+        }
     }
 
     // Host channel interrupts
@@ -245,6 +270,7 @@ pub unsafe fn on_host_interrupt<const CH_COUNT: usize>(r: Otg, state: &HostState
             if haint & (1 << ch) != 0 {
                 let hcint = r.hcint(ch).read();
 
+                let nyet = hcint.0 & HCINT_NYET_MASK != 0;
                 let result = if hcint.xfrc() {
                     CH_RESULT_COMPLETE
                 } else if hcint.stall() {
@@ -257,6 +283,8 @@ pub unsafe fn on_host_interrupt<const CH_COUNT: usize>(r: Otg, state: &HostState
                     CH_RESULT_DTERR
                 } else if hcint.frmor() {
                     CH_RESULT_FRMOR
+                } else if nyet {
+                    CH_RESULT_NYET
                 } else if hcint.nak() {
                     CH_RESULT_NAK
                 } else if hcint.chh() {
@@ -264,6 +292,8 @@ pub unsafe fn on_host_interrupt<const CH_COUNT: usize>(r: Otg, state: &HostState
                 } else {
                     CH_RESULT_NONE
                 };
+
+                trace!("otg-host: hcint ch={} raw={:#010x} -> result={}", ch, hcint.0, result,);
 
                 // Clear all channel interrupts
                 r.hcint(ch).write_value(hcint);
@@ -756,6 +786,19 @@ impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Channel<'_, T, D,
     fn configure_channel(&self, dir_in: bool, ep_type: EndpointType, pktcnt: u16, xfrsiz: u32, dpid: u8) {
         let r = self.regs;
         let ch = self.index;
+        trace!(
+            "otg-host: configure ch={} dir_in={} ep_type={} dad={} ep={} mps={} pktcnt={} xfrsiz={} dpid={} lsdev={}",
+            ch,
+            dir_in,
+            ep_type as u8,
+            self.device_address,
+            self.ep_number,
+            self.max_packet_size,
+            pktcnt,
+            xfrsiz,
+            dpid,
+            self.is_low_speed,
+        );
 
         // The DWC2 does not auto-clear CHENA after transfer completion.
         // If the channel is still active from a previous transfer, we
@@ -788,9 +831,11 @@ impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Channel<'_, T, D,
                 EndpointType::Interrupt => vals::Eptyp::INTERRUPT,
             });
             w.set_dad(self.device_address);
+            // Multi-Count must be ≥ 1 per the DWC2 programming guide; MC = 0 is
+            // reserved even for non-periodic channels where the field has no
+            // scheduling meaning.
+            w.set_mcnt(1);
             if is_periodic {
-                // Multi Count must be at least 1 for periodic endpoints (0 is reserved).
-                w.set_mcnt(1);
                 // Schedule on the opposite frame parity so the transfer starts on the next SOF.
                 let current_frame = r.hfnum().read().frnum();
                 w.set_oddfrm(current_frame & 1 == 0);
@@ -810,6 +855,9 @@ impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Channel<'_, T, D,
             w.set_chhm(true);
             w.set_stallm(true);
             w.set_nakm(true);
+            // HCINTMSK bit 6: NYET response (HS bulk OUT PING protocol).
+            // Named `nyet` (no `m` suffix) in the PAC.
+            w.set_nyet(true);
             w.set_txerrm(true);
             w.set_bberrm(true);
             w.set_frmorm(true);
@@ -907,7 +955,7 @@ impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Channel<'_, T, D,
         match result {
             CH_RESULT_COMPLETE => Ok(()),
             CH_RESULT_STALL => Err(PipeError::Stall),
-            CH_RESULT_NAK => Ok(()), // NAK is not an error, just retry
+            CH_RESULT_NAK | CH_RESULT_NYET => Ok(()), // not errors; caller retries
             CH_RESULT_TXERR => Err(PipeError::BadResponse),
             CH_RESULT_BBERR => Err(PipeError::Babble),
             CH_RESULT_FRMOR => Err(PipeError::BadResponse),
@@ -917,7 +965,12 @@ impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Channel<'_, T, D,
         }
     }
 
-    /// Execute an OUT transfer on this channel, retrying on NAK up to [`NAK_RETRY_LIMIT`] times.
+    /// Execute an OUT transfer on this channel, retrying indefinitely on NAK/NYET.
+    ///
+    /// Per USB spec, NAK is a legitimate "try again" response with no
+    /// time bound; the caller is responsible for cancelling on its own
+    /// deadline if one is needed. Disconnect is still surfaced via
+    /// [`PipeError::Disconnected`].
     async fn do_out_transfer(&mut self, ep_type: EndpointType, data: &[u8], dpid: u8) -> Result<(), PipeError> {
         let pktcnt = if data.is_empty() {
             1
@@ -925,26 +978,42 @@ impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Channel<'_, T, D,
             ((data.len() as u32 + self.max_packet_size as u32 - 1) / self.max_packet_size as u32) as u16
         };
 
-        let mut nak_retries = 0u32;
+        // `do_ping` survives across retries: on NYET from a HS device we
+        // must issue a PING token before the next OUT, but configure_channel
+        // rewrites HCTSIZ each iteration so we re-assert it here.
+        let mut do_ping = false;
         loop {
             self.configure_channel(false, ep_type, pktcnt, data.len() as u32, dpid);
+            if do_ping {
+                self.regs.hctsiz(self.index).modify(|w| w.set_doping(true));
+                do_ping = false;
+            }
             self.enable_channel();
             self.write_fifo(data);
 
             let result = self.wait_for_result().await;
-            if result == CH_RESULT_NAK {
-                nak_retries += 1;
-                if nak_retries >= NAK_RETRY_LIMIT {
-                    return Err(PipeError::Timeout);
+            match result {
+                CH_RESULT_COMPLETE => return Ok(()),
+                CH_RESULT_NAK => {
+                    yield_now().await;
+                    continue;
                 }
-                yield_now().await;
-                continue;
+                CH_RESULT_NYET => {
+                    do_ping = true;
+                    yield_now().await;
+                    continue;
+                }
+                _ => return Self::result_to_error(result),
             }
-            return Self::result_to_error(result);
         }
     }
 
-    /// Execute an IN transfer on this channel, retrying on NAK up to [`NAK_RETRY_LIMIT`] times.
+    /// Execute an IN transfer on this channel, retrying indefinitely on NAK.
+    ///
+    /// Per USB spec, NAK is a legitimate "try again" response with no
+    /// time bound; the caller is responsible for cancelling on its own
+    /// deadline if one is needed. Disconnect is still surfaced via
+    /// [`PipeError::Disconnected`].
     async fn do_in_transfer(&mut self, ep_type: EndpointType, buf: &mut [u8], dpid: u8) -> Result<usize, PipeError> {
         // For interrupt/isochronous endpoints, only request one packet per transfer.
         // The device sends at most one packet per (micro)frame.
@@ -962,7 +1031,6 @@ impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Channel<'_, T, D,
             ((buf.len() as u32 + self.max_packet_size as u32 - 1) / self.max_packet_size as u32) as u16
         };
 
-        let mut nak_retries = 0u32;
         loop {
             self.setup_rx_buffer(&mut buf[..xfer_size as usize]);
             self.configure_channel(true, ep_type, pktcnt, xfer_size, dpid);
@@ -984,15 +1052,6 @@ impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Channel<'_, T, D,
                     // the in-progress halt and the new transfer never starts.
                     self.halt_channel();
                     let _halt = self.wait_for_result().await; // expect CHH
-                } else {
-                    // NAK retry limit only applies to non-periodic (control/bulk)
-                    // transfers where NAK means "busy, try later". For periodic
-                    // (interrupt/iso) endpoints, NAK is the normal idle response
-                    // and polling should continue indefinitely.
-                    nak_retries += 1;
-                    if nak_retries >= NAK_RETRY_LIMIT {
-                        return Err(PipeError::Timeout);
-                    }
                 }
                 yield_now().await;
                 continue;
@@ -1108,7 +1167,14 @@ impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> UsbPipe<T, D> for
         };
 
         let n = self.do_in_transfer(T::ep_type(), buf, dpid.to_bits()).await?;
-        self.data_toggle = !self.data_toggle;
+        // DWC2 toggles DPID internally for every packet in a multi-packet
+        // transfer; reflect that in our stored toggle. Zero-byte reads still
+        // consume one packet (ZLP).
+        let mps = self.max_packet_size as usize;
+        let packets = if n == 0 { 1 } else { n.div_ceil(mps) };
+        if packets & 1 != 0 {
+            self.data_toggle = !self.data_toggle;
+        }
         Ok(n)
     }
 
@@ -1123,7 +1189,11 @@ impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> UsbPipe<T, D> for
         };
 
         self.do_out_transfer(T::ep_type(), buf, dpid.to_bits()).await?;
-        self.data_toggle = !self.data_toggle;
+        let mps = self.max_packet_size as usize;
+        let packets = if buf.is_empty() { 1 } else { buf.len().div_ceil(mps) };
+        if packets & 1 != 0 {
+            self.data_toggle = !self.data_toggle;
+        }
         Ok(())
     }
 
