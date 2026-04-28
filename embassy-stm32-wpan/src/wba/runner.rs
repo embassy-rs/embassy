@@ -42,7 +42,7 @@ use core::future::poll_fn;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
 
-use embassy_futures::select::{Either, select};
+use embassy_futures::select::select;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::Timer;
 
@@ -101,17 +101,11 @@ pub async fn ble_runner() -> ! {
 
     loop {
         // Wait for either a sequencer event or a timer expiry
-        match linklayer_plat::earliest_timer_deadline() {
-            Some(deadline) => match select(util_seq::wait_for_event(), Timer::at(deadline)).await {
-                Either::First(()) => {}
-                Either::Second(()) => {
-                    linklayer_plat::check_expired_timers();
-                }
-            },
-            None => {
-                util_seq::wait_for_event().await;
-            }
-        }
+        select(
+            util_seq::wait_for_event(),
+            Timer::at(linklayer_plat::earliest_timer_deadline()),
+        )
+        .await;
 
         // Check for any expired timers on each iteration
         linklayer_plat::check_expired_timers();

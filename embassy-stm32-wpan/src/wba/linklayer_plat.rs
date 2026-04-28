@@ -94,6 +94,7 @@ use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::zerocopy_channel;
 use embassy_time::{Duration, Instant, block_for};
+use stm32_bindings::ble::BLEPLATCB_TimerExpiry;
 
 use crate::controller::ChannelPacket;
 use crate::host_if::{TASK_BLE_HOST_MASK, TASK_PRIO_BLE_HOST};
@@ -337,48 +338,41 @@ const MAX_BLE_TIMERS: usize = 32;
 
 /// Timer slots: (timer_id, deadline). id=0xFFFF means slot is free.
 const TIMER_SLOT_FREE: u16 = 0xFFFF;
-static mut TIMER_SLOTS: [(u16, Option<Instant>); MAX_BLE_TIMERS] = [(TIMER_SLOT_FREE, None); MAX_BLE_TIMERS];
+static mut TIMER_SLOTS: [(u16, Instant); MAX_BLE_TIMERS] = [(TIMER_SLOT_FREE, Instant::MAX); MAX_BLE_TIMERS];
 
 /// Get the earliest active timer deadline, if any
-pub fn earliest_timer_deadline() -> Option<Instant> {
-    let mut earliest: Option<Instant> = None;
+pub fn earliest_timer_deadline() -> Instant {
     unsafe {
-        for &(id, ref deadline) in TIMER_SLOTS.iter() {
-            if id != TIMER_SLOT_FREE {
-                if let Some(d) = deadline {
-                    match earliest {
-                        None => earliest = Some(*d),
-                        Some(e) if *d < e => earliest = Some(*d),
-                        _ => {}
-                    }
-                }
-            }
-        }
+        TIMER_SLOTS
+            .iter()
+            .filter(|(id, _)| *id != TIMER_SLOT_FREE)
+            .map(|(_, deadline)| *deadline)
+            .min()
+            .unwrap_or(Instant::MAX)
     }
-    earliest
 }
 
 /// Check and fire any expired timers. Called from the runner loop.
 /// Calls BLEPLATCB_TimerExpiry(id) for each expired timer to notify the BLE stack.
 pub fn check_expired_timers() {
     let now = Instant::now();
-    let mut any_expired = false;
+    let mut expired = false;
+    let mut timer_id: u16;
     unsafe {
-        for slot in TIMER_SLOTS.iter_mut() {
-            if slot.0 != TIMER_SLOT_FREE {
-                if let Some(d) = slot.1 {
-                    if now >= d {
-                        let timer_id = slot.0;
-                        slot.0 = TIMER_SLOT_FREE;
-                        slot.1 = None;
-                        any_expired = true;
-                        super::bindings::ble::BLEPLATCB_TimerExpiry(timer_id);
-                    }
-                }
-            }
+        for (id, deadline) in TIMER_SLOTS
+            .iter_mut()
+            .filter(|(id, deadline)| *id != TIMER_SLOT_FREE && *deadline >= now)
+        {
+            timer_id = *id;
+            *id = TIMER_SLOT_FREE;
+            *deadline = Instant::MAX;
+            expired = true;
+
+            BLEPLATCB_TimerExpiry(timer_id);
         }
     }
-    if any_expired {
+
+    if expired {
         super::util_seq::seq_pend();
     }
 }
@@ -1606,21 +1600,22 @@ pub unsafe extern "C" fn BLEPLAT_TimerStart(id: u16, timeout: u32) -> u8 {
 
     // Find existing slot for this ID, or a free slot
     let mut free_slot: Option<usize> = None;
-    for (i, slot) in TIMER_SLOTS.iter_mut().enumerate() {
-        if slot.0 == id {
+    for (i, (slot_id, slot_deadline)) in TIMER_SLOTS.iter_mut().enumerate() {
+        if *slot_id == id {
             // Update existing timer
-            slot.1 = Some(deadline);
+            *slot_deadline = deadline;
             super::util_seq::seq_pend();
             return 0;
         }
-        if slot.0 == TIMER_SLOT_FREE && free_slot.is_none() {
+
+        if *slot_id == TIMER_SLOT_FREE && free_slot.is_none() {
             free_slot = Some(i);
         }
     }
 
     // Use a free slot
     if let Some(i) = free_slot {
-        TIMER_SLOTS[i] = (id, Some(deadline));
+        TIMER_SLOTS[i] = (id, deadline);
         super::util_seq::seq_pend();
         0
     } else {
@@ -1636,7 +1631,7 @@ pub unsafe extern "C" fn BLEPLAT_TimerStop(id: u16) {
     for slot in TIMER_SLOTS.iter_mut() {
         if slot.0 == id {
             slot.0 = TIMER_SLOT_FREE;
-            slot.1 = None;
+            slot.1 = Instant::MAX;
             return;
         }
     }
