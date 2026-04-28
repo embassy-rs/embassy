@@ -24,11 +24,11 @@ pub(crate) mod fmt;
 #[cfg(feature = "wba")]
 pub mod bluetooth;
 
-#[cfg(feature = "wb55")]
-mod wb55;
+#[cfg(feature = "wb")]
+mod wb;
 
-#[cfg(feature = "wb55")]
-pub use wb55::*;
+#[cfg(feature = "wb")]
+pub use wb::*;
 
 #[cfg(feature = "wba")]
 mod wba;

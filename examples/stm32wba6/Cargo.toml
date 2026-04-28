@@ -8,7 +8,7 @@ publish = false
 [dependencies]
 embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "stm32wba65ri", "time-driver-any", "memory-x", "exti", "usb-host"]  }
 stm32-metapac = { version = "21", features = ["stm32wba65ri"] }
-embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", features = ["defmt", "stm32wba65ri"], optional = true }
+embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", features = ["defmt", "stm32wba65ri", "bt-hci"], optional = true }
 embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-cortex-m", "executor-thread", "defmt"] }
 embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
@@ -33,9 +33,9 @@ stm32wb-hci = "0.17.4"
 
 [features]
 default = ["ble"]
-mac = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/wba_mac", "dep:embassy-net"]
-ble = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/wba_ble", "embassy-stm32-wpan/ble-stack-basic", "embassy-stm32-wpan/linklayer6-ble-basic"]
-
+mac = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/wba-mac", "dep:embassy-net"]
+ble = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/wba-ble", "embassy-stm32-wpan/ble-stack-basic", "embassy-stm32-wpan/linklayer6-ble-basic"]
+ 
 [profile.release]
 debug = 2
 

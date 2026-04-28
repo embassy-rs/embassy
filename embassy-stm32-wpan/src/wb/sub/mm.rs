@@ -10,7 +10,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use crate::consts::POOL_SIZE;
 use crate::evt;
 use crate::evt::EvtPacket;
-#[cfg(feature = "wb55_ble")]
+#[cfg(feature = "wb-ble")]
 use crate::tables::BLE_SPARE_EVT_BUF;
 use crate::tables::{EVT_POOL, FREE_BUF_QUEUE, MemManagerTable, SYS_SPARE_EVT_BUF, TL_MEM_MANAGER_TABLE};
 use crate::unsafe_linked_list::LinkedListNode;
@@ -29,9 +29,9 @@ impl<'a> MemoryManager<'a> {
             LinkedListNode::init_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr());
 
             TL_MEM_MANAGER_TABLE.as_mut_ptr().write_volatile(MemManagerTable {
-                #[cfg(feature = "wb55_ble")]
+                #[cfg(feature = "wb-ble")]
                 spare_ble_buffer: BLE_SPARE_EVT_BUF.as_ptr().cast(),
-                #[cfg(not(feature = "wb55_ble"))]
+                #[cfg(not(feature = "wb-ble"))]
                 spare_ble_buffer: core::ptr::null(),
                 spare_sys_buffer: SYS_SPARE_EVT_BUF.as_ptr().cast(),
                 blepool: EVT_POOL.as_ptr().cast(),

@@ -4,7 +4,7 @@ mod fmt;
 use core::mem::MaybeUninit;
 use core::sync::atomic::{Ordering, compiler_fence};
 
-#[cfg(any(feature = "wb55_ble", feature = "wb55_mac"))]
+#[cfg(any(feature = "wb-ble", feature = "wb-mac"))]
 use embassy_futures::select::{Either, select};
 use embassy_hal_internal::Peri;
 use embassy_stm32::interrupt;
@@ -27,17 +27,17 @@ pub mod sub;
 pub mod tables;
 pub mod unsafe_linked_list;
 
-#[cfg(feature = "wb55_mac")]
+#[cfg(feature = "wb-mac")]
 pub mod mac;
 
 use crate::shci::SchiSysEventReady;
-#[cfg(feature = "wb55_ble")]
+#[cfg(feature = "wb-ble")]
 use crate::shci::ShciBleInitCmdParam;
-#[cfg(feature = "wb55_ble")]
+#[cfg(feature = "wb-ble")]
 use crate::sub::ble::Ble;
-#[cfg(feature = "wb55_ble")]
+#[cfg(feature = "wb-ble")]
 pub use crate::sub::ble::hci;
-#[cfg(feature = "wb55_mac")]
+#[cfg(feature = "wb-mac")]
 use crate::sub::mac::Mac;
 
 type PacketHeader = LinkedListNode;
@@ -46,9 +46,9 @@ type PacketHeader = LinkedListNode;
 pub struct TlMbox<'d> {
     pub sys_subsystem: Sys<'d>,
     pub mm_subsystem: MemoryManager<'d>,
-    #[cfg(feature = "wb55_ble")]
+    #[cfg(feature = "wb-ble")]
     pub ble_subsystem: sub::ble::Ble<'d>,
-    #[cfg(feature = "wb55_mac")]
+    #[cfg(feature = "wb-mac")]
     pub mac_subsystem: sub::mac::Mac<'d>,
     pub traces: IpccRxChannel<'d>,
 }
@@ -147,7 +147,7 @@ impl<'d> TlMbox<'d> {
                 .as_mut_ptr()
                 .write_volatile(MaybeUninit::zeroed().assume_init());
 
-            #[cfg(feature = "wb55_ble")]
+            #[cfg(feature = "wb-ble")]
             {
                 BLE_SPARE_EVT_BUF
                     .as_mut_ptr()
@@ -161,7 +161,7 @@ impl<'d> TlMbox<'d> {
                     .write_volatile(MaybeUninit::zeroed().assume_init());
             }
 
-            #[cfg(feature = "wb55_mac")]
+            #[cfg(feature = "wb-mac")]
             {
                 MAC_802_15_4_CMD_BUFFER
                     .as_mut_ptr()
@@ -189,13 +189,13 @@ impl<'d> TlMbox<'d> {
 
         Self {
             sys_subsystem: sys,
-            #[cfg(feature = "wb55_ble")]
+            #[cfg(feature = "wb-ble")]
             ble_subsystem: sub::ble::Ble::new(
                 _hw_ipcc_ble_cmd_channel,
                 _ipcc_ble_event_channel,
                 _ipcc_hci_acl_data_channel,
             ),
-            #[cfg(feature = "wb55_mac")]
+            #[cfg(feature = "wb-mac")]
             mac_subsystem: sub::mac::Mac::new(
                 _ipcc_mac_802_15_4_cmd_rsp_channel,
                 _ipcc_mac_802_15_4_notification_ack_channel,
@@ -224,7 +224,7 @@ impl<'d> TlMbox<'d> {
         }
     }
 
-    #[cfg(feature = "wb55_ble")]
+    #[cfg(feature = "wb-ble")]
     /// Initialise the BLE subsystem
     pub async fn init_ble(mut self, param: ShciBleInitCmdParam) -> Result<(Ble<'d>, MemoryManager<'d>), ()> {
         match select(
@@ -240,7 +240,7 @@ impl<'d> TlMbox<'d> {
         Ok((self.ble_subsystem, self.mm_subsystem))
     }
 
-    #[cfg(feature = "wb55_mac")]
+    #[cfg(feature = "wb-mac")]
     /// Initialise the BLE subsystem
     pub async fn init_mac(mut self) -> Result<(Mac<'d>, MemoryManager<'d>), ()> {
         match select(
