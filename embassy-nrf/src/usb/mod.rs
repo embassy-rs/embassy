@@ -160,7 +160,7 @@ impl<'d, V: VbusDetect + 'd> driver::Driver<'d> for Driver<'d, V> {
         ))
     }
 
-    fn start(self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
+    fn start(self, control_max_packet_size: u16, _enable_sof_interrupts: bool) -> (Self::Bus, Self::ControlPipe) {
         (
             Bus {
                 regs: self.regs,
