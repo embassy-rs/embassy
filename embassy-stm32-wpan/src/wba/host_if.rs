@@ -3,8 +3,6 @@
 //! This module provides the interface between the C link layer and the Rust HCI event handling.
 //! The C layer calls into Rust via the `HostStack_Process` function to deliver HCI events.
 
-use core::ptr;
-
 // Event delivery is handled by BLECB_Indication (linklayer_plat.rs), not here.
 use crate::util_seq;
 use crate::wba::bindings::link_layer::ble_buff_hdr_t;
@@ -21,19 +19,12 @@ pub const MAX_BLE_PKT_SIZE: usize = 280;
 
 /// Static buffer for receiving HCI event packets from C layer
 /// Maximum HCI event packet size is 257 bytes (1 byte event code + 1 byte length + up to 255 bytes data)
-static mut HCI_EVENT_BUFFER: [u8; 260] = [0u8; 260];
-static mut HCI_EVENT_LEN: u16 = 0;
-
-/// Flag to track if we have a pending event to process
-static mut HAS_PENDING_EVENT: bool = false;
 
 /// Initialize the HCI host interface
 /// This should be called during BLE stack initialization
 pub unsafe fn init() {
     // The host callback will be registered in ll_sys_ble_cntrl_init
     // Here we just ensure our buffers are ready
-    HAS_PENDING_EVENT = false;
-    HCI_EVENT_LEN = 0;
 }
 
 /// Host callback function called by the C link layer when an HCI event is available
@@ -59,13 +50,6 @@ pub unsafe extern "C" fn hci_host_callback(ptr_evnt_hdr: *mut ble_buff_hdr_t) ->
         return 1;
     }
 
-    // TODO: it appears HCI_EVENT_BUFFER is never read
-
-    // Copy event data to our buffer
-    ptr::copy_nonoverlapping(data_ptr, HCI_EVENT_BUFFER.as_mut_ptr(), data_len as usize);
-    HCI_EVENT_LEN = data_len;
-    HAS_PENDING_EVENT = true;
-
     // Note: The actual processing happens in HostStack_Process
     // which is called from the background task
 
@@ -83,8 +67,6 @@ pub unsafe extern "C" fn hci_host_callback(ptr_evnt_hdr: *mut ble_buff_hdr_t) ->
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn HostStack_Process() {
     // Clear any pending flag — the event has been consumed by the C host stack
-    HAS_PENDING_EVENT = false;
-    HCI_EVENT_LEN = 0;
 
     // Schedule BLE Host task to process events (matches ST's BleStackCB_Process)
     // This is CRITICAL - it's what keeps BleStack_Process running!
