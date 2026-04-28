@@ -30,9 +30,9 @@ use embassy_stm32::rcc::{
 use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{Config, bind_interrupts};
-use embassy_stm32_wpan::bluetooth::ble::Ble;
+use embassy_stm32_wpan::bluetooth::HCI;
 use embassy_stm32_wpan::bluetooth::gap::{ParsedAdvData, ScanParams, ScanType};
-use embassy_stm32_wpan::{Controller, HighInterruptHandler, LowInterruptHandler, ble_runner, new_controller_state};
+use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, ble_runner, new_controller_state};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use static_cell::StaticCell;
@@ -121,11 +121,11 @@ async fn main(spawner: Spawner) {
     spawner.spawn(ble_runner_task().expect("Failed to spawn BLE runner"));
 
     // Initialize BLE stack
-    let controller = Controller::new(new_controller_state!(8), rng, Some(aes), Some(pka), Irqs)
+
+    let mut ble = HCI::new(new_controller_state!(8), rng, aes, pka, Irqs)
         .await
         .expect("BLE initialization failed");
 
-    let mut ble = Ble::new(controller).await.unwrap();
     info!("BLE stack initialized");
 
     // Configure scan parameters

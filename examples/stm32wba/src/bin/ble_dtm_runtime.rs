@@ -29,14 +29,12 @@ use embassy_stm32::pka::{self, Pka};
 use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{Config, bind_interrupts, exti, interrupt};
-use embassy_stm32_wpan::bluetooth::ble::Ble;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
-use embassy_stm32_wpan::bluetooth::gatt::{
-    CharProperties, GattEventMask, GattServer, SecurityPermissions, ServiceType, Uuid,
-};
+use embassy_stm32_wpan::bluetooth::gatt::{CharProperties, GattEventMask, SecurityPermissions, ServiceType, Uuid};
 use embassy_stm32_wpan::bluetooth::hci::types::DtmPacketPayload;
+use embassy_stm32_wpan::bluetooth::{HCI, Normal, Test};
 use embassy_stm32_wpan::{
-    Controller, HighInterruptHandler, LowInterruptHandler, ble_runner, declare_controller_state, use_controller_state,
+    HighInterruptHandler, LowInterruptHandler, ble_runner, declare_controller_state, use_controller_state,
 };
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -137,21 +135,19 @@ async fn main(spawner: Spawner) {
     declare_controller_state!(EVENT_BUFFER, EVENT_CHANNEL, 8);
 
     // Initialize BLE stack
-    let controller = Controller::new(
+    let mut ble = HCI::new(
         use_controller_state!(EVENT_BUFFER, EVENT_CHANNEL, 8),
         rng,
-        Some(aes),
-        Some(pka),
+        aes,
+        pka,
         Irqs,
     )
     .await
     .expect("BLE initialization failed");
 
-    let mut ble = Ble::new(controller).await.unwrap();
-
     info!("BLE stack initialized");
 
-    let mut gatt = GattServer::new();
+    let mut gatt = ble.gatt_server();
 
     let service_handle = gatt
         .add_service(Uuid::from_u16(0x180F), ServiceType::Primary, 4)
@@ -210,17 +206,10 @@ async fn main(spawner: Spawner) {
                 drop(ble);
 
                 // Initialize a minimal DTM-only instance (no GAP/GATT needed for DTM)
-                let controller = Controller::new(
-                    use_controller_state!(EVENT_BUFFER, EVENT_CHANNEL, 8),
-                    rng,
-                    Some(aes),
-                    Some(pka),
-                    Irqs,
-                )
-                .await
-                .expect("BLE initialization failed");
+                let mut dtm_ble = HCI::new_dtm(use_controller_state!(EVENT_BUFFER, EVENT_CHANNEL, 8), rng, Irqs)
+                    .await
+                    .expect("BLE initialization failed");
 
-                let mut dtm_ble = Ble::new_dtm(controller).unwrap();
                 run_dtm_test(&mut dtm_ble, expected).await;
 
                 // Deinit the DTM instance — resets radio hardware so PhyStartClbr
@@ -231,22 +220,18 @@ async fn main(spawner: Spawner) {
                 drop(dtm_ble);
 
                 // Initialize BLE stack
-                let controller = Controller::new(
+                ble = HCI::new(
                     use_controller_state!(EVENT_BUFFER, EVENT_CHANNEL, 8),
                     rng,
-                    Some(aes),
-                    Some(pka),
+                    aes,
+                    pka,
                     Irqs,
                 )
                 .await
                 .expect("BLE initialization failed");
 
-                let new_ble = Ble::new(controller).await.unwrap();
-
-                ble = new_ble;
-
                 // Rebuild GATT services (cleared by hci_reset inside deinit)
-                let mut gatt = GattServer::new();
+                let mut gatt = ble.gatt_server();
                 let service_handle = gatt
                     .add_service(Uuid::from_u16(0x180F), ServiceType::Primary, 4)
                     .expect("Failed to add service");
@@ -272,7 +257,7 @@ async fn main(spawner: Spawner) {
     }
 }
 
-async fn handle_ble_event(ble: &mut Ble, event: &Event, adv_params: &AdvParams, adv_data: &AdvData) {
+async fn handle_ble_event(ble: &mut HCI<Normal>, event: &Event, adv_params: &AdvParams, adv_data: &AdvData) {
     if let Some(gap_event) = ble.process_event(event) {
         match gap_event {
             GapEvent::Connected(conn) => {
@@ -335,13 +320,13 @@ async fn handle_ble_event(ble: &mut Ble, event: &Event, adv_params: &AdvParams, 
     }
 }
 
-async fn start_advertising(ble: &mut Ble, params: &AdvParams, data: &AdvData) {
+async fn start_advertising(ble: &mut HCI<Normal>, params: &AdvParams, data: &AdvData) {
     ble.start_advertising(params.clone(), data.clone(), None)
         .await
         .expect("start advertising failed");
 }
 
-async fn run_dtm_test(ble: &mut Ble, expected: u32) {
+async fn run_dtm_test(ble: &mut HCI<Test>, expected: u32) {
     let freq_mhz = 2402 + 2 * DTM_CHANNEL as u32;
 
     match DTM_MODE {

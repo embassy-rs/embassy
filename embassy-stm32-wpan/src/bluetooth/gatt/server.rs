@@ -113,14 +113,14 @@ pub(crate) fn init_gatt_layer() -> Result<(), BleError> {
 /// GATT Server
 ///
 /// Provides methods for creating and managing GATT services and characteristics.
-pub struct GattServer {}
+pub struct GattServer {
+    _private: (),
+}
 
 impl GattServer {
     /// Create a new GATT server instance
-    ///
-    /// Note: You must call `init()` before adding services or characteristics.
-    pub const fn new() -> Self {
-        Self {}
+    pub(crate) const fn new() -> Self {
+        Self { _private: () }
     }
 
     /// Add a service to the GATT database

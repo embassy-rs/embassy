@@ -32,12 +32,10 @@ use embassy_stm32::rcc::{
 use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{Config, bind_interrupts};
-use embassy_stm32_wpan::bluetooth::ble::Ble;
+use embassy_stm32_wpan::bluetooth::HCI;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
-use embassy_stm32_wpan::bluetooth::gatt::{
-    CharProperties, GattEventMask, GattServer, SecurityPermissions, ServiceType, Uuid,
-};
-use embassy_stm32_wpan::{Controller, HighInterruptHandler, LowInterruptHandler, ble_runner, new_controller_state};
+use embassy_stm32_wpan::bluetooth::gatt::{CharProperties, GattEventMask, SecurityPermissions, ServiceType, Uuid};
+use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, ble_runner, new_controller_state};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use static_cell::StaticCell;
@@ -126,15 +124,15 @@ async fn main(spawner: Spawner) {
     spawner.spawn(ble_runner_task().expect("Failed to spawn BLE runner"));
 
     // Initialize BLE stack
-    let controller = Controller::new(new_controller_state!(8), rng, Some(aes), Some(pka), Irqs)
+    // Initialize BLE stack
+    let mut ble = HCI::new(new_controller_state!(8), rng, aes, pka, Irqs)
         .await
         .expect("BLE initialization failed");
 
-    let mut ble = Ble::new(controller).await.unwrap();
     info!("BLE stack initialized");
 
     // Initialize GATT server with a simple service
-    let mut gatt = GattServer::new();
+    let mut gatt = ble.gatt_server();
 
     // Create a simple service for demonstration
     let service_uuid = Uuid::from_u16(0x180F); // Battery Service UUID

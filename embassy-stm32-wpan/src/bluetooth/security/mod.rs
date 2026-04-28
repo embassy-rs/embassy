@@ -386,7 +386,7 @@ pub struct SecurityManager {
 
 impl SecurityManager {
     /// Create a new Security Manager
-    pub fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self { initialized: false }
     }
 
