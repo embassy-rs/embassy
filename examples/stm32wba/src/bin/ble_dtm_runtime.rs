@@ -29,14 +29,20 @@ use embassy_stm32::pka::{self, Pka};
 use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{Config, bind_interrupts, exti, interrupt};
-use embassy_stm32_wpan::gap::{AdvData, AdvParams, AdvType, GapEvent};
-use embassy_stm32_wpan::gatt::{CharProperties, GattEventMask, GattServer, SecurityPermissions, ServiceType, Uuid};
-use embassy_stm32_wpan::hci::types::DtmPacketPayload;
-use embassy_stm32_wpan::{Ble, HighInterruptHandler, LowInterruptHandler, ble_runner};
+use embassy_stm32_wpan::bluetooth::ble::Ble;
+use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
+use embassy_stm32_wpan::bluetooth::gatt::{
+    CharProperties, GattEventMask, GattServer, SecurityPermissions, ServiceType, Uuid,
+};
+use embassy_stm32_wpan::bluetooth::hci::types::DtmPacketPayload;
+use embassy_stm32_wpan::{ChannelPacket, Controller, HighInterruptHandler, LowInterruptHandler, ble_runner};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::zerocopy_channel;
 use embassy_time::Timer;
 use static_cell::StaticCell;
+use stm32wb_hci::Event;
+use stm32wb_hci::event::ConnectionRole;
 use {defmt_rtt as _, panic_probe as _};
 
 // ---- DTM test configuration ----
@@ -126,11 +132,25 @@ async fn main(spawner: Spawner) {
     // Spawn the BLE runner task (required for proper BLE operation)
     spawner.spawn(ble_runner_task().expect("Failed to spawn BLE runner"));
 
-    let (mut ble, runtime) = Ble::new(rng, aes, pka, Irqs).await.expect("BLE init failed");
+    // Create BLE Event Channel
+    static EVENT_BUFFER: StaticCell<[ChannelPacket; 8]> = StaticCell::new();
+    static EVENT_CHANNEL: StaticCell<zerocopy_channel::Channel<'static, CriticalSectionRawMutex, ChannelPacket>> =
+        StaticCell::new();
+
+    let event_channel = EVENT_CHANNEL.init(zerocopy_channel::Channel::new(
+        EVENT_BUFFER.init([ChannelPacket::default(); 8]),
+    ));
+
+    // Initialize BLE stack
+    let controller = Controller::new(event_channel, rng, Some(aes), Some(pka), Irqs)
+        .await
+        .expect("BLE initialization failed");
+
+    let mut ble = Ble::new(controller).await.unwrap();
 
     info!("BLE stack initialized");
 
-    let mut gatt = GattServer::new(runtime);
+    let mut gatt = GattServer::new();
 
     let service_handle = gatt
         .add_service(Uuid::from_u16(0x180F), ServiceType::Primary, 4)
@@ -186,8 +206,19 @@ async fn main(spawner: Spawner) {
                 // leaving the LL in a clean idle state regardless of current BLE state.
                 ble.deinit().expect("deinit failed");
 
+                drop(ble);
+
                 // Initialize a minimal DTM-only instance (no GAP/GATT needed for DTM)
-                let mut dtm_ble = Ble::new_dtm(rng, Irqs).expect("DTM init failed");
+                let event_channel = EVENT_CHANNEL.init(zerocopy_channel::Channel::new(
+                    EVENT_BUFFER.init([ChannelPacket::default(); 8]),
+                ));
+
+                // Initialize BLE stack
+                let controller = Controller::new(event_channel, rng, Some(aes), Some(pka), Irqs)
+                    .await
+                    .expect("BLE initialization failed");
+
+                let mut dtm_ble = Ble::new_dtm(controller).unwrap();
                 run_dtm_test(&mut dtm_ble, expected).await;
 
                 // Deinit the DTM instance — resets radio hardware so PhyStartClbr
@@ -195,11 +226,23 @@ async fn main(spawner: Spawner) {
                 info!("DTM done — reinitializing BLE stack");
                 dtm_ble.deinit().expect("deinit after DTM failed");
 
-                let (new_ble, runtime) = Ble::new(rng, aes, pka, Irqs).await.expect("BLE reinit failed");
+                drop(dtm_ble);
+
+                let event_channel = EVENT_CHANNEL.init(zerocopy_channel::Channel::new(
+                    EVENT_BUFFER.init([ChannelPacket::default(); 8]),
+                ));
+
+                // Initialize BLE stack
+                let controller = Controller::new(event_channel, rng, Some(aes), Some(pka), Irqs)
+                    .await
+                    .expect("BLE initialization failed");
+
+                let new_ble = Ble::new(controller).await.unwrap();
+
                 ble = new_ble;
 
                 // Rebuild GATT services (cleared by hci_reset inside deinit)
-                let mut gatt = GattServer::new(runtime);
+                let mut gatt = GattServer::new();
                 let service_handle = gatt
                     .add_service(Uuid::from_u16(0x180F), ServiceType::Primary, 4)
                     .expect("Failed to add service");
@@ -225,12 +268,7 @@ async fn main(spawner: Spawner) {
     }
 }
 
-async fn handle_ble_event(
-    ble: &mut Ble,
-    event: &embassy_stm32_wpan::hci::event::Event,
-    adv_params: &AdvParams,
-    adv_data: &AdvData,
-) {
+async fn handle_ble_event(ble: &mut Ble, event: &Event, adv_params: &AdvParams, adv_data: &AdvData) {
     if let Some(gap_event) = ble.process_event(event) {
         match gap_event {
             GapEvent::Connected(conn) => {
@@ -239,30 +277,14 @@ async fn handle_ble_event(
                 info!(
                     "  Role: {}",
                     match conn.role {
-                        embassy_stm32_wpan::gap::ConnectionRole::Central => "Central",
-                        embassy_stm32_wpan::gap::ConnectionRole::Peripheral => "Peripheral",
+                        ConnectionRole::Central => "Central",
+                        ConnectionRole::Peripheral => "Peripheral",
                     }
                 );
-                info!(
-                    "  Peer Address: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
-                    conn.peer_address.0[5],
-                    conn.peer_address.0[4],
-                    conn.peer_address.0[3],
-                    conn.peer_address.0[2],
-                    conn.peer_address.0[1],
-                    conn.peer_address.0[0]
-                );
-                info!(
-                    "  Interval: {} ({}ms)",
-                    conn.params.interval,
-                    (conn.params.interval as u32 * 125) / 100
-                );
-                info!("  Latency: {}", conn.params.latency);
-                info!(
-                    "  Timeout: {} ({}ms)",
-                    conn.params.supervision_timeout,
-                    conn.params.supervision_timeout as u32 * 10
-                );
+                info!("  Peer Address: {}", conn.peer_address);
+                info!("  Interval: {}", conn.interval.interval());
+                info!("  Latency: {}", conn.interval.conn_latency());
+                info!("  Timeout: {}", conn.interval.supervision_timeout(),);
                 info!("  Active connections: {}", ble.connections().count());
             }
 
@@ -277,21 +299,12 @@ async fn handle_ble_event(
                 info!("Advertising restarted");
             }
 
-            GapEvent::ConnectionParamsUpdated {
-                handle,
-                interval,
-                latency,
-                supervision_timeout,
-            } => {
+            GapEvent::ConnectionParamsUpdated { handle, interval } => {
                 info!("=== CONNECTION PARAMS UPDATED ===");
                 info!("  Handle: 0x{:04X}", handle.0);
-                info!("  New Interval: {} ({}ms)", interval, (interval as u32 * 125) / 100);
-                info!("  New Latency: {}", latency);
-                info!(
-                    "  New Timeout: {} ({}ms)",
-                    supervision_timeout,
-                    supervision_timeout as u32 * 10
-                );
+                info!("  New Interval: {} ", interval.interval());
+                info!("  New Latency: {}", interval.conn_latency());
+                info!("  New Timeout: {}", interval.supervision_timeout(),);
             }
 
             GapEvent::PhyUpdated { handle, tx_phy, rx_phy } => {

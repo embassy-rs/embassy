@@ -5,8 +5,8 @@
 //!
 //! Based on ST's Ble_Hci_Gap_Gatt_Init() from BLE_HeartRate example.
 
-use crate::wba::error::BleError;
-use crate::wba::hci::types::Status;
+use crate::bluetooth::error::BleError;
+use crate::bluetooth::hci::types::Status;
 
 #[allow(non_camel_case_types)]
 type tBleStatus = u8;

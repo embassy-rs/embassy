@@ -4,11 +4,13 @@
 //! These functions are synchronous and return a status code immediately, which simplifies
 //! the implementation compared to packet-based HCI.
 
-use crate::Ble;
-use crate::hci::types;
-use crate::wba::bindings::ble;
-use crate::wba::ble::VersionInfo;
-use crate::wba::error::BleError;
+use stm32_bindings::ble;
+use stm32wb_hci::BdAddrType;
+use stm32wb_hci::host::OwnAddressType;
+
+use crate::bluetooth::ble::{Ble, VersionInfo};
+use crate::bluetooth::error::BleError;
+use crate::bluetooth::hci::types;
 
 // The C library exports uppercase function names (HCI_RESET, etc.)
 // but the bindings declare lowercase names. We need to link to the actual symbols.
@@ -282,7 +284,7 @@ impl CommandSender {
         interval_min: u16,
         interval_max: u16,
         adv_type: types::AdvType,
-        own_addr_type: types::OwnAddressType,
+        own_addr_type: OwnAddressType,
         peer_addr_type: u8,
         peer_addr: &[u8; 6],
         channel_map: u8,
@@ -351,7 +353,7 @@ impl CommandSender {
         scan_type: u8,
         scan_interval: u16,
         scan_window: u16,
-        own_addr_type: types::OwnAddressType,
+        own_addr_type: OwnAddressType,
         filter_policy: u8,
     ) -> Result<(), BleError> {
         unsafe {
@@ -518,9 +520,8 @@ impl CommandSender {
         scan_interval: u16,
         scan_window: u16,
         use_filter_accept_list: bool,
-        peer_addr_type: u8,
-        peer_addr: &[u8; 6],
-        own_addr_type: types::OwnAddressType,
+        peer_addr: BdAddrType,
+        own_addr_type: OwnAddressType,
         interval_min: u16,
         interval_max: u16,
         latency: u16,
@@ -528,14 +529,19 @@ impl CommandSender {
         ce_length_min: u16,
         ce_length_max: u16,
     ) -> Result<(), BleError> {
+        let mut peer_addr_bytes = [0u8; 7];
+        peer_addr.copy_into_slice(&mut peer_addr_bytes);
+
+        let peer_addr_ptr: &[u8; 6] = &peer_addr_bytes[1..7].try_into().unwrap();
+
         unsafe {
             let filter_policy = if use_filter_accept_list { 1 } else { 0 };
             let status = hci_le_create_connection(
                 scan_interval,
                 scan_window,
                 filter_policy,
-                peer_addr_type,
-                peer_addr as *const [u8; 6],
+                peer_addr_bytes[0],
+                peer_addr_ptr as *const [u8; 6],
                 own_addr_type as u8,
                 interval_min,
                 interval_max,

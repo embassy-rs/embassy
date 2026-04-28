@@ -22,9 +22,8 @@
 //! security.set_authentication_requirements(params)?;
 //! ```
 
-use crate::ble::Runtime;
-use crate::wba::error::BleError;
-use crate::wba::hci::types::Status;
+use crate::bluetooth::error::BleError;
+use crate::bluetooth::hci::types::Status;
 
 // C library exports uppercase function names
 #[allow(non_camel_case_types)]
@@ -383,16 +382,12 @@ impl PairingFailureReason {
 /// Manages BLE security including pairing, bonding, and encryption.
 pub struct SecurityManager {
     initialized: bool,
-    _runtime: Runtime,
 }
 
 impl SecurityManager {
     /// Create a new Security Manager
-    pub fn new(_runtime: Runtime) -> Self {
-        Self {
-            initialized: false,
-            _runtime,
-        }
+    pub fn new() -> Self {
+        Self { initialized: false }
     }
 
     /// Set authentication requirements

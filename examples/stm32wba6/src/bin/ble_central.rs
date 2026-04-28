@@ -31,12 +31,16 @@ use embassy_stm32::rcc::{
 use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{Config, bind_interrupts};
-use embassy_stm32_wpan::gap::{ConnectionInitParams, GapEvent, ParsedAdvData, ScanParams, ScanType};
-use embassy_stm32_wpan::hci::event::EventParams;
-use embassy_stm32_wpan::{Ble, HighInterruptHandler, LowInterruptHandler, ble_runner};
+use embassy_stm32_wpan::bluetooth::ble::Ble;
+use embassy_stm32_wpan::bluetooth::gap::{ConnectionInitParams, GapEvent, ParsedAdvData, ScanParams, ScanType};
+use embassy_stm32_wpan::{ChannelPacket, Controller, HighInterruptHandler, LowInterruptHandler, ble_runner};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::zerocopy_channel;
 use static_cell::StaticCell;
+use stm32wb_hci::event::ConnectionRole;
+use stm32wb_hci::vendor::event::{AttExchangeMtuResponse, VendorEvent};
+use stm32wb_hci::{BdAddrType, Event};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -55,9 +59,6 @@ async fn ble_runner_task() {
 
 /// Target device name to connect to (set to None to connect to first discovered device)
 const TARGET_DEVICE_NAME: Option<&str> = None; // e.g., Some("Embassy-Peripheral")
-
-/// Minimum RSSI to consider a device (helps filter out far away devices)
-const MIN_RSSI: i8 = -80;
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -128,8 +129,21 @@ async fn main(spawner: Spawner) {
     // Spawn the BLE runner task (required for proper BLE operation)
     spawner.spawn(ble_runner_task().expect("Failed to spawn BLE runner"));
 
+    // Create BLE Event Channel
+    static EVENT_BUFFER: StaticCell<[ChannelPacket; 8]> = StaticCell::new();
+    static EVENT_CHANNEL: StaticCell<zerocopy_channel::Channel<'static, CriticalSectionRawMutex, ChannelPacket>> =
+        StaticCell::new();
+
+    let event_channel = EVENT_CHANNEL.init(zerocopy_channel::Channel::new(
+        EVENT_BUFFER.init([ChannelPacket::default(); 8]),
+    ));
+
     // Initialize BLE stack
-    let (mut ble, _runtime) = Ble::new(rng, aes, pka, Irqs).await.expect("BLE initialization failed");
+    let controller = Controller::new(event_channel, rng, Some(aes), Some(pka), Irqs)
+        .await
+        .expect("BLE initialization failed");
+
+    let mut ble = Ble::new(controller).await.unwrap();
     info!("BLE stack initialized");
 
     // State machine for central role
@@ -163,10 +177,10 @@ async fn main(spawner: Spawner) {
         match state {
             CentralState::Scanning => {
                 // Process advertising reports
-                if let EventParams::LeAdvertisingReport { reports } = &event.params {
+                if let Event::LeAdvertisingReport(reports) = event {
                     for report in reports.iter() {
                         // Skip weak signals
-                        if report.rssi < MIN_RSSI {
+                        if report.rssi.is_none() {
                             continue;
                         }
 
@@ -183,15 +197,20 @@ async fn main(spawner: Spawner) {
                         };
 
                         if should_connect {
+                            let report_address = match report.address {
+                                BdAddrType::Public(addr) => addr,
+                                BdAddrType::Random(addr) => addr,
+                            };
+
                             info!("=== Found Target Device ===");
                             info!(
                                 "  Address: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
-                                report.address.0[5],
-                                report.address.0[4],
-                                report.address.0[3],
-                                report.address.0[2],
-                                report.address.0[1],
-                                report.address.0[0]
+                                report_address.0[5],
+                                report_address.0[4],
+                                report_address.0[3],
+                                report_address.0[2],
+                                report_address.0[1],
+                                report_address.0[0]
                             );
                             if let Some(name) = parsed.name {
                                 info!("  Name: \"{}\"", name);
@@ -207,7 +226,6 @@ async fn main(spawner: Spawner) {
 
                             // Initiate connection
                             let conn_params = ConnectionInitParams {
-                                peer_address_type: report.address_type,
                                 peer_address: report.address,
                                 ..ConnectionInitParams::default()
                             };
@@ -244,21 +262,13 @@ async fn main(spawner: Spawner) {
                             info!(
                                 "  Role: {}",
                                 match conn.role {
-                                    embassy_stm32_wpan::gap::ConnectionRole::Central => "Central",
-                                    embassy_stm32_wpan::gap::ConnectionRole::Peripheral => "Peripheral",
+                                    ConnectionRole::Central => "Central",
+                                    ConnectionRole::Peripheral => "Peripheral",
                                 }
                             );
-                            info!(
-                                "  Interval: {} ({}ms)",
-                                conn.params.interval,
-                                (conn.params.interval as u32 * 125) / 100
-                            );
-                            info!("  Latency: {}", conn.params.latency);
-                            info!(
-                                "  Timeout: {} ({}ms)",
-                                conn.params.supervision_timeout,
-                                conn.params.supervision_timeout as u32 * 10
-                            );
+                            info!("  Interval: {}", conn.interval.interval(),);
+                            info!("  Latency: {}", conn.interval.conn_latency());
+                            info!("  Timeout: {} ", conn.interval.supervision_timeout());
 
                             state = CentralState::Connected;
                             info!("");
@@ -300,21 +310,12 @@ async fn main(spawner: Spawner) {
                             info!("Restarted scanning...");
                         }
 
-                        GapEvent::ConnectionParamsUpdated {
-                            handle,
-                            interval,
-                            latency,
-                            supervision_timeout,
-                        } => {
+                        GapEvent::ConnectionParamsUpdated { handle, interval } => {
                             info!("=== CONNECTION PARAMS UPDATED ===");
                             info!("  Handle: 0x{:04X}", handle.0);
-                            info!("  New Interval: {} ({}ms)", interval, (interval as u32 * 125) / 100);
-                            info!("  New Latency: {}", latency);
-                            info!(
-                                "  New Timeout: {} ({}ms)",
-                                supervision_timeout,
-                                supervision_timeout as u32 * 10
-                            );
+                            info!("  New Interval: {}", interval.interval());
+                            info!("  New Latency: {}", interval.conn_latency());
+                            info!("  New Timeout: {} ", interval.supervision_timeout());
                         }
 
                         GapEvent::PhyUpdated { handle, tx_phy, rx_phy } => {
@@ -341,12 +342,12 @@ async fn main(spawner: Spawner) {
                 }
 
                 // Log other interesting events
-                match &event.params {
-                    EventParams::AttExchangeMtuResponse {
+                match &event {
+                    Event::Vendor(VendorEvent::AttExchangeMtuResponse(AttExchangeMtuResponse {
                         conn_handle,
-                        server_mtu,
-                    } => {
-                        info!("MTU Exchange: conn 0x{:04X}, MTU={}", conn_handle.0, server_mtu);
+                        server_rx_mtu,
+                    })) => {
+                        info!("MTU Exchange: conn 0x{:04X}, MTU={}", conn_handle.0, server_rx_mtu);
                     }
                     _ => {}
                 }

@@ -2,13 +2,14 @@
 //!
 //! This is a thin Rust wrapper around ST's GATT server implementation.
 
+use stm32_bindings::ble;
+
 use super::types::{
     CharProperties, CharacteristicHandle, GattEventMask, SecurityPermissions, ServiceHandle, ServiceType, Uuid,
     UuidType,
 };
-use crate::ble::Runtime;
-use crate::wba::bindings::ble;
-use crate::wba::error::BleError;
+use crate::bluetooth::error::BleError;
+use crate::bluetooth::hci::{self, Status};
 
 // The C library exports uppercase function names
 #[allow(non_camel_case_types)]
@@ -104,7 +105,7 @@ pub(crate) fn init_gatt_layer() -> Result<(), BleError> {
         } else {
             #[cfg(feature = "defmt")]
             defmt::error!("aci_gatt_init failed: 0x{:02X}", status);
-            Err(BleError::CommandFailed(crate::wba::hci::types::Status::from_u8(status)))
+            Err(BleError::CommandFailed(hci::types::Status::from_u8(status)))
         }
     }
 }
@@ -112,16 +113,14 @@ pub(crate) fn init_gatt_layer() -> Result<(), BleError> {
 /// GATT Server
 ///
 /// Provides methods for creating and managing GATT services and characteristics.
-pub struct GattServer {
-    _runtime: Runtime,
-}
+pub struct GattServer {}
 
 impl GattServer {
     /// Create a new GATT server instance
     ///
     /// Note: You must call `init()` before adding services or characteristics.
-    pub const fn new(_runtime: Runtime) -> Self {
-        Self { _runtime }
+    pub const fn new() -> Self {
+        Self {}
     }
 
     /// Add a service to the GATT database
@@ -174,7 +173,7 @@ impl GattServer {
             if status == BLE_STATUS_SUCCESS {
                 Ok(ServiceHandle(service_handle))
             } else {
-                Err(BleError::CommandFailed(crate::wba::hci::types::Status::from_u8(status)))
+                Err(BleError::CommandFailed(Status::from_u8(status)))
             }
         }
     }
@@ -259,7 +258,7 @@ impl GattServer {
             if status == BLE_STATUS_SUCCESS {
                 Ok(CharacteristicHandle(char_handle))
             } else {
-                Err(BleError::CommandFailed(crate::wba::hci::types::Status::from_u8(status)))
+                Err(BleError::CommandFailed(Status::from_u8(status)))
             }
         }
     }
@@ -302,7 +301,7 @@ impl GattServer {
             if status == BLE_STATUS_SUCCESS {
                 Ok(())
             } else {
-                Err(BleError::CommandFailed(crate::wba::hci::types::Status::from_u8(status)))
+                Err(BleError::CommandFailed(Status::from_u8(status)))
             }
         }
     }
@@ -319,7 +318,7 @@ impl GattServer {
             if status == BLE_STATUS_SUCCESS {
                 Ok(())
             } else {
-                Err(BleError::CommandFailed(crate::wba::hci::types::Status::from_u8(status)))
+                Err(BleError::CommandFailed(Status::from_u8(status)))
             }
         }
     }
@@ -341,7 +340,7 @@ impl GattServer {
             if status == BLE_STATUS_SUCCESS {
                 Ok(())
             } else {
-                Err(BleError::CommandFailed(crate::wba::hci::types::Status::from_u8(status)))
+                Err(BleError::CommandFailed(Status::from_u8(status)))
             }
         }
     }
@@ -394,7 +393,7 @@ impl GattServer {
             if status == BLE_STATUS_SUCCESS {
                 Ok(())
             } else {
-                Err(BleError::CommandFailed(crate::wba::hci::types::Status::from_u8(status)))
+                Err(BleError::CommandFailed(Status::from_u8(status)))
             }
         }
     }
@@ -448,7 +447,7 @@ impl GattServer {
             if status == BLE_STATUS_SUCCESS {
                 Ok(())
             } else {
-                Err(BleError::CommandFailed(crate::wba::hci::types::Status::from_u8(status)))
+                Err(BleError::CommandFailed(Status::from_u8(status)))
             }
         }
     }
@@ -480,7 +479,7 @@ impl GattServer {
             if status == BLE_STATUS_SUCCESS {
                 Ok(value_length as usize)
             } else {
-                Err(BleError::CommandFailed(crate::wba::hci::types::Status::from_u8(status)))
+                Err(BleError::CommandFailed(Status::from_u8(status)))
             }
         }
     }
@@ -499,7 +498,7 @@ impl GattServer {
             if status == BLE_STATUS_SUCCESS {
                 Ok(())
             } else {
-                Err(BleError::CommandFailed(crate::wba::hci::types::Status::from_u8(status)))
+                Err(BleError::CommandFailed(Status::from_u8(status)))
             }
         }
     }

@@ -3,9 +3,10 @@
 //! This module provides functionality for scanning (observer role) to discover
 //! nearby BLE devices that are advertising.
 
-use crate::wba::error::BleError;
-use crate::wba::gap::types::OwnAddressType;
-use crate::wba::hci::command::CommandSender;
+use stm32wb_hci::host::OwnAddressType;
+
+use crate::bluetooth::error::BleError;
+use crate::bluetooth::hci::CommandSender;
 
 /// Scan type
 #[repr(u8)]

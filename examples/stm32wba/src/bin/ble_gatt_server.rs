@@ -33,16 +33,19 @@ use embassy_stm32::rcc::{
 use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{Config, bind_interrupts};
-use embassy_stm32_wpan::gap::{AdvData, AdvParams, AdvType, GapEvent};
-use embassy_stm32_wpan::gatt::{
+use embassy_stm32_wpan::bluetooth::ble::Ble;
+use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
+use embassy_stm32_wpan::bluetooth::gatt::{
     CHAR_VALUE_HANDLE_OFFSET, CccdValue, CharProperties, CharacteristicHandle, GattEventMask, GattServer,
     SecurityPermissions, ServiceHandle, ServiceType, Uuid, is_cccd_handle, is_value_handle,
 };
-use embassy_stm32_wpan::hci::event::EventParams;
-use embassy_stm32_wpan::{Ble, HighInterruptHandler, LowInterruptHandler, ble_runner};
+use embassy_stm32_wpan::{ChannelPacket, Controller, HighInterruptHandler, LowInterruptHandler, ble_runner};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::zerocopy_channel;
 use static_cell::StaticCell;
+use stm32wb_hci::Event;
+use stm32wb_hci::vendor::event::{AttExchangeMtuResponse, VendorEvent};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -144,14 +147,25 @@ async fn main(spawner: Spawner) {
     // advertising and other BLE operations to work properly
     spawner.spawn(ble_runner_task().expect("Failed to create BLE runner task"));
 
-    info!("BLE runner spawned");
+    // Create BLE Event Channel
+    static EVENT_BUFFER: StaticCell<[ChannelPacket; 8]> = StaticCell::new();
+    static EVENT_CHANNEL: StaticCell<zerocopy_channel::Channel<'static, CriticalSectionRawMutex, ChannelPacket>> =
+        StaticCell::new();
+
+    let event_channel = EVENT_CHANNEL.init(zerocopy_channel::Channel::new(
+        EVENT_BUFFER.init([ChannelPacket::default(); 8]),
+    ));
 
     // Initialize BLE stack
-    let (mut ble, runtime) = Ble::new(rng, aes, pka, Irqs).await.expect("BLE initialization failed");
+    let controller = Controller::new(event_channel, rng, Some(aes), Some(pka), Irqs)
+        .await
+        .expect("BLE initialization failed");
+
+    let mut ble = Ble::new(controller).await.unwrap();
     info!("BLE stack initialized");
 
     // Initialize GATT server
-    let mut gatt = GattServer::new(runtime);
+    let mut gatt = GattServer::new();
 
     // Create custom service
     let service_uuid = Uuid::from_u16(CUSTOM_SERVICE_UUID);
@@ -247,25 +261,19 @@ async fn main(spawner: Spawner) {
                 _ => {}
             }
         }
-
         // Process GATT events
-        match &event.params {
-            EventParams::GattAttributeModified {
-                conn_handle,
-                attr_handle,
-                data,
-                ..
-            } => {
+        match &event {
+            Event::Vendor(VendorEvent::GattAttributeModified(attribute)) => {
                 info!(
                     "Attribute modified: conn 0x{:04X}, attr 0x{:04X}, {} bytes",
-                    conn_handle.0,
-                    attr_handle,
-                    data.len()
+                    attribute.conn_handle,
+                    attribute.attr_handle,
+                    attribute.data().len(),
                 );
 
                 // Check if this is a CCCD write (notification enable/disable)
-                if is_cccd_handle(state.data_char_handle.0, *attr_handle) {
-                    let cccd = CccdValue::from_bytes(data);
+                if is_cccd_handle(state.data_char_handle.0, attribute.attr_handle.0) {
+                    let cccd = CccdValue::from_bytes(attribute.data());
                     state.notifications_enabled = cccd.notifications;
                     info!(
                         "CCCD updated: notifications={}, indications={}",
@@ -279,8 +287,8 @@ async fn main(spawner: Spawner) {
                     }
                 }
                 // Check if this is a characteristic value write
-                else if is_value_handle(state.data_char_handle.0, *attr_handle) {
-                    info!("Characteristic value written: {:?}", data.as_slice());
+                else if is_value_handle(state.data_char_handle.0, attribute.attr_handle.0) {
+                    info!("Characteristic value written: {:?}", attribute.data());
 
                     // Echo the data back as a notification if enabled
                     if state.notifications_enabled {
@@ -288,7 +296,7 @@ async fn main(spawner: Spawner) {
                             // Increment counter and append to response
                             state.counter = state.counter.wrapping_add(1);
                             let mut response: heapless::Vec<u8, 33> = heapless::Vec::new();
-                            let _ = response.extend_from_slice(data);
+                            let _ = response.extend_from_slice(attribute.data());
                             let _ = response.push(state.counter);
 
                             match gatt.notify(conn, state.service_handle, state.data_char_handle, &response) {
@@ -304,24 +312,18 @@ async fn main(spawner: Spawner) {
                 }
             }
 
-            EventParams::GattNotificationComplete {
-                conn_handle,
-                attr_handle,
-            } => {
-                info!(
-                    "Notification complete: conn 0x{:04X}, attr 0x{:04X}",
-                    conn_handle.0, attr_handle
-                );
+            Event::Vendor(VendorEvent::GattNotificationComplete(attr_handle)) => {
+                info!("Notification complete: conn attr 0x{:04X}", attr_handle);
             }
 
-            EventParams::AttExchangeMtuResponse {
+            Event::Vendor(VendorEvent::AttExchangeMtuResponse(AttExchangeMtuResponse {
                 conn_handle,
-                server_mtu,
-            } => {
-                info!("MTU exchanged: conn 0x{:04X}, MTU={}", conn_handle.0, server_mtu);
+                server_rx_mtu,
+            })) => {
+                info!("MTU exchanged: conn 0x{:04X}, MTU={}", conn_handle.0, server_rx_mtu);
                 // Update connection MTU
                 if let Some(conn) = ble.get_connection_mut(*conn_handle) {
-                    conn.update_mtu(*server_mtu);
+                    conn.update_mtu(*server_rx_mtu as u16);
                 }
             }
 
