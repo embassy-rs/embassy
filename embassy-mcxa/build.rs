@@ -44,6 +44,7 @@ fn main() {
     let generated = [
         generate_peripherals_call(),
         generate_interrupt_mod_call(),
+        generate_cc_gates(),
         generate_dma_requests_enum(),
         generate_instance_calls(),
         generate_gpio_pin_impls(),
@@ -150,6 +151,36 @@ fn generate_interrupt_mod_call() -> TokenStream {
             )*
         );
     }
+}
+
+fn generate_cc_gates() -> TokenStream {
+    let mut generated = TokenStream::new();
+
+    for peripheral in METADATA.peripherals {
+        let Some(gate) = peripheral.gate.as_ref() else {
+            continue;
+        };
+
+        let peripheral_name = format_ident!("{}", peripheral.name);
+        let enable = format_ident!("{}", gate.enable);
+        let reset = gate.reset.map(|reset| format_ident!("{reset}"));
+        let config = gate
+            .config
+            .map(|config| format_ident!("{config}"))
+            .unwrap_or_else(|| format_ident!("NoConfig"));
+        let bit = format_ident!("{}", peripheral.name.to_lowercase());
+
+        match reset {
+            Some(reset) => generated.extend(quote! {
+                crate::impl_cc_gate!(#peripheral_name, #enable, #reset, #bit, #config);
+            }),
+            None => generated.extend(quote! {
+                crate::impl_cc_gate!(#peripheral_name, #enable, #bit, #config);
+            }),
+        }
+    }
+
+    generated
 }
 
 fn pin_feature_gate(pin_name: &str) -> TokenStream {
