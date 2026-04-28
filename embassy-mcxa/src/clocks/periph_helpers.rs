@@ -9,7 +9,7 @@
 
 use super::{ClockError, Clocks, PoweredClock, WakeGuard};
 use crate::clocks::VddLevel;
-use crate::pac::mrcc::vals::{
+use crate::pac::mrcc::{
     AdcClkselMux, ClkdivHalt, ClkdivReset, ClkdivUnstab, CtimerClkselMux, DacClkselMux, FclkClkselMux, Lpi2cClkselMux,
     LpspiClkselMux, LpuartClkselMux, OstimerClkselMux,
 };
@@ -357,7 +357,10 @@ impl SPConfHelper for DacConfig {
 
         let clksel = mrcc0.mrcc_dac0_clksel();
         let clkdiv = mrcc0.mrcc_dac0_clkdiv();
-        let variant = DacClkselMux::CLKROOT_FUNC_2;
+        #[cfg(feature = "mcxa5xx")]
+        let variant = DacClkselMux::I2ClkrootFunc2;
+        #[cfg(feature = "mcxa2xx")]
+        let variant = DacClkselMux::ClkrootFunc2;
         //let freq = clocks.ensure_fro_hf_active(&self.power)?;
         let freq = clocks.ensure_fro_lf_div_active(&self.power)?;
 

@@ -1,6 +1,6 @@
 use embassy_hal_internal::{Peri, PeripheralType};
-use nxp_pac::dac::vals::{BufEn, BufSpdCtrl, Dacrfs, Fifoen, Fiforst, Swrst, Trgsel};
-use nxp_pac::port::vals::Mux;
+use nxp_pac::dac::{BufSpdCtrl, Dacrfs, Fifoen, Fiforst, Swrst, Trgsel};
+use nxp_pac::port::Mux;
 
 use super::clocks::PoweredClock;
 use crate::clkout::Div4;
@@ -95,26 +95,25 @@ impl Dac {
         pin.set_pull(crate::gpio::Pull::Disabled);
         pin.set_slew_rate(crate::gpio::SlewRate::Fast.into());
         pin.set_drive_strength(crate::gpio::DriveStrength::Normal.into());
-        pin.set_function(Mux::MUX0);
+        pin.set_function(Mux::Mux0);
 
         let dac = <P::Instance as sealed::SealedInstance>::dac();
 
         dac.rcr().modify(|w| {
-            w.set_swrst(Swrst::SOFTWARE_RESET);
-            w.set_fiforst(Fiforst::FIFO_RESET);
+            w.set_swrst(Swrst::SoftwareReset);
+            w.set_fiforst(Fiforst::FifoReset);
         });
         dac.rcr().modify(|w| {
-            w.set_swrst(Swrst::NO_EFFECT);
-            w.set_fiforst(Fiforst::NO_EFFECT);
+            w.set_swrst(Swrst::NoEffect);
+            w.set_fiforst(Fiforst::NoEffect);
         });
 
         dac.gcr().write(|w| {
-            w.set_dacrfs(Dacrfs::VREFH0);
-            w.set_fifoen(Fifoen::BUFFER_MODE);
-            // TODO: This enum is inverted in the pac
-            w.set_buf_en(BufEn::NO_USE_BUF);
-            w.set_buf_spd_ctrl(BufSpdCtrl::LLP_MODE);
-            w.set_trgsel(Trgsel::HARDWARE);
+            w.set_dacrfs(Dacrfs::Vrefh0);
+            w.set_fifoen(Fifoen::BufferMode);
+            w.set_buf_en(true);
+            w.set_buf_spd_ctrl(BufSpdCtrl::LlpMode);
+            w.set_trgsel(Trgsel::Hardware);
             w.set_iref_ptat_ext_sel(true);
             w.set_latch_cyc(1);
             w.set_dacen(true);

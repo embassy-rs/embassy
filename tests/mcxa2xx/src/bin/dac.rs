@@ -9,7 +9,7 @@ use hal::adc::{self, Adc};
 use hal::clocks::config::Div8;
 use hal::config::Config;
 use hal::dac::Dac;
-use hal::pac::adc::vals::Mode;
+use hal::pac::adc::Mode;
 use hal::peripherals::ADC0;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
@@ -49,7 +49,7 @@ async fn main(_spawner: Spawner) {
     let commands = &[Command::new_single(
         p.P2_7,
         CommandConfig {
-            resolution: Mode::DATA_16_BITS,
+            resolution: Mode::Data16Bits,
             ..Default::default()
         },
     )];
