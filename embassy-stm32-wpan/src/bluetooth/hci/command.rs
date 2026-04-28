@@ -8,7 +8,7 @@ use stm32_bindings::ble;
 use stm32wb_hci::BdAddrType;
 use stm32wb_hci::host::OwnAddressType;
 
-use crate::bluetooth::ble::{Ble, VersionInfo};
+use crate::bluetooth::VersionInfo;
 use crate::bluetooth::error::BleError;
 use crate::bluetooth::hci::types;
 
@@ -589,7 +589,7 @@ impl Default for CommandSender {
 ///
 /// `rx_channel`: 0–39. Frequency = 2402 + (2 × N) MHz.
 /// Call `le_test_end()` to stop and read the received packet count.
-pub fn le_receiver_test(_ble: &mut Ble, rx_channel: u8) -> Result<(), BleError> {
+pub(crate) fn le_receiver_test(rx_channel: u8) -> Result<(), BleError> {
     let status = unsafe { hci_le_receiver_test(rx_channel) };
     if status == BLE_STATUS_SUCCESS {
         Ok(())
@@ -601,8 +601,7 @@ pub fn le_receiver_test(_ble: &mut Ble, rx_channel: u8) -> Result<(), BleError> 
 /// Start a DTM receiver test with PHY selection (v2).
 ///
 /// `modulation_index`: 0x00 = standard, 0x01 = stable.
-pub fn le_receiver_test_v2(
-    _ble: &mut Ble,
+pub(crate) fn le_receiver_test_v2(
     rx_channel: u8,
     phy: super::types::DtmRxPhy,
     modulation_index: u8,
@@ -619,8 +618,7 @@ pub fn le_receiver_test_v2(
 ///
 /// `tx_channel`: 0–39. Frequency = 2402 + (2 × N) MHz.
 /// `test_data_length`: payload bytes per packet, 0–255.
-pub fn le_transmitter_test(
-    _ble: &mut Ble,
+pub(crate) fn le_transmitter_test(
     tx_channel: u8,
     test_data_length: u8,
     packet_payload: types::DtmPacketPayload,
@@ -634,8 +632,7 @@ pub fn le_transmitter_test(
 }
 
 /// Start a DTM transmitter test with PHY selection (v2).
-pub fn le_transmitter_test_v2(
-    _ble: &mut Ble,
+pub(crate) fn le_transmitter_test_v2(
     tx_channel: u8,
     test_data_length: u8,
     packet_payload: types::DtmPacketPayload,
@@ -653,7 +650,7 @@ pub fn le_transmitter_test_v2(
 ///
 /// For a **receiver** test: returns the number of packets received.
 /// For a **transmitter** test: always returns 0 (per BLE spec Vol 4 Part E §7.8.30).
-pub fn le_test_end() -> Result<u16, BleError> {
+pub(crate) fn le_test_end() -> Result<u16, BleError> {
     let mut num_packets: u16 = 0;
     let status = unsafe { hci_le_test_end(&mut num_packets) };
     if status == BLE_STATUS_SUCCESS {
@@ -667,7 +664,7 @@ pub fn le_test_end() -> Result<u16, BleError> {
 ///
 /// ST proprietary command. Call this while the test is running to monitor
 /// progress without ending the test.
-pub fn aci_hal_tx_test_packet_number() -> Result<u32, BleError> {
+pub(crate) fn aci_hal_tx_test_packet_number() -> Result<u32, BleError> {
     let mut num_packets: u32 = 0;
     let status = unsafe { aci_hal_le_tx_test_packet_number(&mut num_packets) };
     if status == BLE_STATUS_SUCCESS {
