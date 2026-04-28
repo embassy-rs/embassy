@@ -4,7 +4,7 @@
 use core::num::NonZeroU8;
 
 use bitflags::bitflags;
-use embassy_usb_driver::host::{HostError, UsbHostDriver, UsbPipe, pipe};
+use embassy_usb_driver::host::{HostError, UsbHostAllocator, UsbPipe, pipe};
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType};
 
 use crate::control::ControlPipeExt;
@@ -37,23 +37,25 @@ pub enum KbdEvent {
 }
 
 /// Host-side HID boot-keyboard driver.
-pub struct KbdHandler<H: UsbHostDriver> {
-    interrupt_channel: H::Pipe<pipe::Interrupt, pipe::In>,
-    control_channel: H::Pipe<pipe::Control, pipe::InOut>,
+pub struct KbdHandler<'d, A: UsbHostAllocator<'d>> {
+    interrupt_channel: A::Pipe<pipe::Interrupt, pipe::In>,
+    control_channel: A::Pipe<pipe::Control, pipe::InOut>,
+    _phantom: core::marker::PhantomData<&'d ()>,
 }
 
-impl<H: UsbHostDriver> KbdHandler<H> {
+impl<'d, A: UsbHostAllocator<'d>> KbdHandler<'d, A> {
     /// Attempt to register a keyboard handler for the given device.
-    pub async fn try_register(bus: &H, enum_info: &EnumerationInfo) -> Result<Self, RegisterError> {
-        let mut control_channel = bus.alloc_pipe::<pipe::Control, pipe::InOut>(
+    pub async fn try_register(alloc: &A, enum_info: &EnumerationInfo) -> Result<Self, RegisterError> {
+        let mut control_channel = alloc.alloc_pipe::<pipe::Control, pipe::InOut>(
             enum_info.device_address,
             &EndpointInfo {
                 addr: 0.into(),
                 ep_type: EndpointType::Control,
-                max_packet_size: (enum_info.device_desc.max_packet_size0 as u16).min(enum_info.speed.max_packet_size()),
+                max_packet_size: (enum_info.device_desc.max_packet_size0 as u16)
+                    .min(enum_info.speed().max_packet_size()),
                 interval_ms: 0,
             },
-            enum_info.split,
+            enum_info.split(),
         )?;
 
         let mut cfg_desc_buf = [0u8; DEFAULT_MAX_DESCRIPTOR_SIZE];
@@ -85,10 +87,10 @@ impl<H: UsbHostDriver> KbdHandler<H> {
             .set_configuration(configuration.configuration_value)
             .await?;
 
-        let interrupt_channel = bus.alloc_pipe::<pipe::Interrupt, pipe::In>(
+        let interrupt_channel = alloc.alloc_pipe::<pipe::Interrupt, pipe::In>(
             enum_info.device_address,
             &interrupt_ep.into(),
-            enum_info.split,
+            enum_info.split(),
         )?;
 
         debug!("[kbd]: Setting PROTOCOL & idle");
@@ -112,6 +114,7 @@ impl<H: UsbHostDriver> KbdHandler<H> {
         Ok(KbdHandler {
             interrupt_channel,
             control_channel,
+            _phantom: core::marker::PhantomData,
         })
     }
 

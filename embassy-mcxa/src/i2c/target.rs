@@ -317,7 +317,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             self.info.regs().scr().modify(|w| w.set_rst(false));
 
             self.info.regs().scr().modify(|w| {
-                w.set_filtdz(Filtdz::FILTER_DISABLED);
+                w.set_filtdz(Filtdz::FilterDisabled);
                 w.set_filten(false);
             });
 
@@ -332,9 +332,9 @@ impl<'d, M: Mode> I2c<'d, M> {
                     self.info.regs().samr().write(|w| w.set_addr0(addr));
                     self.info.regs().scfgr1().modify(|w| {
                         w.set_addrcfg(if (0x00..=0x7f).contains(&addr) {
-                            Addrcfg::ADDRESS_MATCH0_7_BIT
+                            Addrcfg::AddressMatch07Bit
                         } else {
-                            Addrcfg::ADDRESS_MATCH0_10_BIT
+                            Addrcfg::AddressMatch010Bit
                         })
                     });
                 }
@@ -353,9 +353,9 @@ impl<'d, M: Mode> I2c<'d, M> {
                     });
                     self.info.regs().scfgr1().modify(|w| {
                         w.set_addrcfg(if (0x00..=0x7f).contains(&addr0) {
-                            Addrcfg::ADDRESS_MATCH0_7_BIT_OR_ADDRESS_MATCH1_7_BIT
+                            Addrcfg::AddressMatch07BitOrAddressMatch17Bit
                         } else {
-                            Addrcfg::ADDRESS_MATCH0_10_BIT_OR_ADDRESS_MATCH1_10_BIT
+                            Addrcfg::AddressMatch010BitOrAddressMatch110Bit
                         })
                     });
                 }
@@ -373,9 +373,9 @@ impl<'d, M: Mode> I2c<'d, M> {
                     });
                     self.info.regs().scfgr1().modify(|w| {
                         w.set_addrcfg(if (0x00..=0x7f).contains(&start) {
-                            Addrcfg::FROM_ADDRESS_MATCH0_7_BIT_TO_ADDRESS_MATCH1_7_BIT
+                            Addrcfg::FromAddressMatch07BitToAddressMatch17Bit
                         } else {
-                            Addrcfg::FROM_ADDRESS_MATCH0_10_BIT_TO_ADDRESS_MATCH1_10_BIT
+                            Addrcfg::FromAddressMatch010BitToAddressMatch110Bit
                         })
                     });
                 }
@@ -403,8 +403,8 @@ impl<'d, M: Mode> I2c<'d, M> {
         // read-modify-write operation.
         critical_section::with(|_| {
             self.info.regs().scr().modify(|w| {
-                w.set_rtf(ScrRtf::NOW_EMPTY);
-                w.set_rrf(ScrRrf::NOW_EMPTY);
+                w.set_rtf(ScrRtf::NowEmpty);
+                w.set_rrf(ScrRrf::NowEmpty);
             });
         });
     }

@@ -2,7 +2,7 @@
 //!
 //! This driver can communicate with USB HID devices (keyboards, mice, gamepads, etc.).
 
-use embassy_usb_driver::host::{PipeError, UsbHostDriver, UsbPipe, pipe};
+use embassy_usb_driver::host::{PipeError, UsbHostAllocator, UsbPipe, pipe};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
 
 pub use super::hid_report::{ReportDescriptor, ReportField};
@@ -229,19 +229,20 @@ impl core::error::Error for HidError {}
 /// HID host driver.
 ///
 /// Provides report reading and optional class request access to a USB HID device.
-pub struct HidHost<D: UsbHostDriver> {
-    ctrl_ch: D::Pipe<pipe::Control, pipe::InOut>,
-    in_ch: D::Pipe<pipe::Interrupt, pipe::In>,
+pub struct HidHost<'d, A: UsbHostAllocator<'d>> {
+    ctrl_ch: A::Pipe<pipe::Control, pipe::InOut>,
+    in_ch: A::Pipe<pipe::Interrupt, pipe::In>,
     interface: u8,
     report_descriptor_len: u16,
+    _phantom: core::marker::PhantomData<&'d ()>,
 }
 
-impl<D: UsbHostDriver> HidHost<D> {
+impl<'d, A: UsbHostAllocator<'d>> HidHost<'d, A> {
     /// Create a new HID host driver.
     ///
     /// Parses the config descriptor to find the HID interface and its interrupt IN endpoint,
     /// then allocates the necessary channels.
-    pub fn new(driver: &D, config_desc: &[u8], enum_info: &EnumerationInfo) -> Result<Self, HidError> {
+    pub fn new(alloc: &A, config_desc: &[u8], enum_info: &EnumerationInfo) -> Result<Self, HidError> {
         let info = find_hid(config_desc).ok_or(HidError::NoInterface)?;
 
         let ctrl_ep_info = EndpointInfo {
@@ -259,12 +260,12 @@ impl<D: UsbHostDriver> HidHost<D> {
         };
 
         let device_address = enum_info.device_address;
-        let split = enum_info.split;
+        let split = enum_info.split();
 
-        let ctrl_ch = driver
+        let ctrl_ch = alloc
             .alloc_pipe::<pipe::Control, pipe::InOut>(device_address, &ctrl_ep_info, split)
             .map_err(|_| HidError::NoPipe)?;
-        let in_ch = driver
+        let in_ch = alloc
             .alloc_pipe::<pipe::Interrupt, pipe::In>(device_address, &in_ep_info, split)
             .map_err(|_| HidError::NoPipe)?;
 
@@ -273,6 +274,7 @@ impl<D: UsbHostDriver> HidHost<D> {
             in_ch,
             interface: info.interface_number,
             report_descriptor_len: info.report_descriptor_len,
+            _phantom: core::marker::PhantomData,
         })
     }
 

@@ -246,19 +246,27 @@ impl<'d> CanConfigurator<'d> {
         self.config = self.config.set_nominal_bit_timing(nbtr);
     }
 
-    /// Configures the bit timings for VBR data calculated from supplied bitrate. This also sets confit to allow can FD and VBR
+    /// Configures the bit timings for VBR data calculated from supplied bitrate. This also sets config to allow can FD and VBR
     pub fn set_fd_data_bitrate(&mut self, bitrate: u32, transceiver_delay_compensation: bool) {
         let bit_timing = util::calc_can_timings(self.properties.kernel_input_clock(), bitrate).unwrap();
-        // Note, used existing calcluation for normal(non-VBR) bitrate, appears to work for 250k/1M
-        let nbtr = crate::can::fd::config::DataBitTiming {
-            transceiver_delay_compensation,
+        // Note, used existing calculation for normal(non-VBR) bitrate, appears to work for 250k/1M
+        let tdc_offset = if transceiver_delay_compensation {
+            // sets at the end of tseg1
+            (1 + u8::from(bit_timing.seg1)) * u16::from(bit_timing.prescaler) as u8
+        } else {
+            0
+        };
+        let dbtr = crate::can::fd::config::DataBitTiming {
             sync_jump_width: bit_timing.sync_jump_width,
             prescaler: bit_timing.prescaler,
             seg1: bit_timing.seg1,
             seg2: bit_timing.seg2,
+            transceiver_delay_compensation,
+            tdc_offset,
+            tdc_filter_window_length: 0,
         };
         self.config.frame_transmit = FrameTransmissionConfig::AllowFdCanAndBRS;
-        self.config = self.config.set_data_bit_timing(nbtr);
+        self.config = self.config.set_data_bit_timing(dbtr);
     }
 
     /// Start in mode.

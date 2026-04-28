@@ -499,21 +499,14 @@ pub enum FircFreqSel {
 impl FircFreqSel {
     #[cfg(feature = "mcxa2xx")]
     pub(crate) fn to_freq_and_sel(&self) -> (u32, FreqSel) {
-        // NOTE: the SVD currently has the wrong(?) values for these:
-        // 45 -> 48
-        // 60 -> 64
-        // 90 -> 96
-        // 180 -> 192
-        //
-        // Probably correct-ish, but for a different trim value?
         match self {
             FircFreqSel::Mhz45 => {
                 // We are default, there's nothing to do here.
-                (45_000_000, FreqSel::FIRC_48MHZ_192S)
+                (45_000_000, FreqSel::Firc45_48mhz)
             }
-            FircFreqSel::Mhz60 => (60_000_000, FreqSel::FIRC_64MHZ),
-            FircFreqSel::Mhz90 => (90_000_000, FreqSel::FIRC_96MHZ),
-            FircFreqSel::Mhz180 => (180_000_000, FreqSel::FIRC_192MHZ),
+            FircFreqSel::Mhz60 => (60_000_000, FreqSel::Firc60_64mhz),
+            FircFreqSel::Mhz90 => (90_000_000, FreqSel::Firc90_96mhz),
+            FircFreqSel::Mhz180 => (180_000_000, FreqSel::Firc180_192mhz),
         }
     }
 
@@ -522,11 +515,11 @@ impl FircFreqSel {
         match self {
             FircFreqSel::Mhz48 => {
                 // We are default, there's nothing to do here.
-                (48_000_000, FreqSel::FIRC_48MHZ_192S)
+                (48_000_000, FreqSel::Firc45_48mhz)
             }
-            FircFreqSel::Mhz64 => (64_000_000, FreqSel::FIRC_64MHZ),
-            FircFreqSel::Mhz96 => (96_000_000, FreqSel::FIRC_96MHZ),
-            FircFreqSel::Mhz192 => (192_000_000, FreqSel::FIRC_192MHZ),
+            FircFreqSel::Mhz64 => (64_000_000, FreqSel::Firc60_64mhz),
+            FircFreqSel::Mhz96 => (96_000_000, FreqSel::Firc90_96mhz),
+            FircFreqSel::Mhz192 => (192_000_000, FreqSel::Firc180_192mhz),
         }
     }
 }

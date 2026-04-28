@@ -2,23 +2,23 @@
 
 use embassy_hal_internal::PeripheralType;
 use maitake_sync::WaitCell;
-use paste::paste;
 
 use crate::clocks::Gate;
 use crate::clocks::periph_helpers::Lpi2cConfig;
 use crate::dma::{DmaChannel, DmaRequest};
-use crate::gpio::{GpioPin, SealedPin};
+use crate::gpio::GpioPin;
 use crate::{interrupt, pac};
 
 pub mod controller;
 pub mod target;
 
-mod sealed {
+pub(crate) mod sealed {
     /// Seal a trait
     pub trait Sealed {}
+    pub trait SealedPin<Instance> {}
 }
 
-trait SealedInstance: Gate<MrccPeriphConfig = Lpi2cConfig> {
+pub(crate) trait SealedInstance: Gate<MrccPeriphConfig = Lpi2cConfig> {
     fn info() -> &'static Info;
 
     /// Clock instance
@@ -36,9 +36,9 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
-struct Info {
-    regs: pac::lpi2c::Lpi2c,
-    wait_cell: WaitCell,
+pub(crate) struct Info {
+    pub(crate) regs: pac::lpi2c::Lpi2c,
+    pub(crate) wait_cell: WaitCell,
 }
 
 impl Info {
@@ -55,44 +55,57 @@ impl Info {
 
 unsafe impl Sync for Info {}
 
-macro_rules! impl_instance {
-    ($($n:literal),*) => {
-        $(
-            paste!{
-                impl SealedInstance for crate::peripherals::[<LPI2C $n>] {
-                    fn info() -> &'static Info {
-                        static INFO: Info = Info {
-                            regs: pac::[<LPI2C $n>],
-                            wait_cell: WaitCell::new(),
-                        };
-                        &INFO
-                    }
-
-                    const CLOCK_INSTANCE: crate::clocks::periph_helpers::Lpi2cInstance
-                        = crate::clocks::periph_helpers::Lpi2cInstance::[<Lpi2c $n>];
-                    const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_i2c $n>];
-                    const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_i2c $n _wake>];
-                    const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<LPI2C $n Tx>];
-                    const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<LPI2C $n Rx>];
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_lpi2c_instance {
+    ($n:literal) => {
+        paste::paste! {
+            impl crate::i2c::SealedInstance for crate::peripherals::[<LPI2C $n>] {
+                fn info() -> &'static crate::i2c::Info {
+                    static INFO: crate::i2c::Info = crate::i2c::Info {
+                        regs: crate::pac::[<LPI2C $n>],
+                        wait_cell: maitake_sync::WaitCell::new(),
+                    };
+                    &INFO
                 }
 
-                impl Instance for crate::peripherals::[<LPI2C $n>] {
-                    type Interrupt = crate::interrupt::typelevel::[<LPI2C $n>];
-                }
+                const CLOCK_INSTANCE: crate::clocks::periph_helpers::Lpi2cInstance
+                    = crate::clocks::periph_helpers::Lpi2cInstance::[<Lpi2c $n>];
+                const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_i2c $n>];
+                const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_i2c $n _wake>];
+                const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpi2C $n Tx>];
+                const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpi2C $n Rx>];
             }
-        )*
+
+            impl crate::i2c::Instance for crate::peripherals::[<LPI2C $n>] {
+                type Interrupt = crate::interrupt::typelevel::[<LPI2C $n>];
+            }
+        }
     };
 }
 
-impl_instance!(0, 1, 2, 3);
-
 /// SCL pin trait.
-pub trait SclPin<Instance>: GpioPin + sealed::Sealed + PeripheralType {
+pub trait SclPin<Instance>: GpioPin + sealed::SealedPin<Instance> + PeripheralType {
     fn mux(&self);
 }
 
 /// SDA pin trait.
-pub trait SdaPin<Instance>: GpioPin + sealed::Sealed + PeripheralType {
+pub trait SdaPin<Instance>: GpioPin + sealed::SealedPin<Instance> + PeripheralType {
+    fn mux(&self);
+}
+
+/// SCLS pin trait. (SCL secondary)
+pub trait SclsPin<Instance>: GpioPin + sealed::SealedPin<Instance> + PeripheralType {
+    fn mux(&self);
+}
+
+/// SDAS pin trait. (SDA secondary)
+pub trait SdasPin<Instance>: GpioPin + sealed::SealedPin<Instance> + PeripheralType {
+    fn mux(&self);
+}
+
+/// HREQ pin trait. (Host request)
+pub trait HreqPin<Instance>: GpioPin + sealed::SealedPin<Instance> + PeripheralType {
     fn mux(&self);
 }
 
@@ -126,12 +139,15 @@ impl sealed::Sealed for Dma<'_> {}
 impl Mode for Dma<'_> {}
 impl AsyncMode for Dma<'_> {}
 
-macro_rules! impl_pin {
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_lpi2c_pin {
     ($pin:ident, $peri:ident, $fn:ident, $trait:ident) => {
-        impl sealed::Sealed for crate::peripherals::$pin {}
+        impl crate::i2c::sealed::SealedPin<crate::peripherals::$peri> for crate::peripherals::$pin {}
 
-        impl $trait<crate::peripherals::$peri> for crate::peripherals::$pin {
+        impl crate::i2c::$trait<crate::peripherals::$peri> for crate::peripherals::$pin {
             fn mux(&self) {
+                use crate::gpio::SealedPin;
                 self.set_pull(crate::gpio::Pull::Disabled);
                 self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
                 self.set_drive_strength(crate::gpio::DriveStrength::Double.into());
@@ -140,77 +156,4 @@ macro_rules! impl_pin {
             }
         }
     };
-}
-
-#[cfg(feature = "mcxa2xx")]
-mod mcxa2xx {
-    use super::*;
-
-    impl_pin!(P0_16, LPI2C0, MUX2, SdaPin);
-    impl_pin!(P0_17, LPI2C0, MUX2, SclPin);
-    impl_pin!(P0_18, LPI2C0, MUX2, SclPin);
-    impl_pin!(P0_19, LPI2C0, MUX2, SdaPin);
-    impl_pin!(P1_0, LPI2C1, MUX3, SdaPin);
-    impl_pin!(P1_1, LPI2C1, MUX3, SclPin);
-    impl_pin!(P1_2, LPI2C1, MUX3, SdaPin);
-    impl_pin!(P1_3, LPI2C1, MUX3, SclPin);
-    impl_pin!(P1_8, LPI2C2, MUX3, SdaPin);
-    impl_pin!(P1_9, LPI2C2, MUX3, SclPin);
-    impl_pin!(P1_10, LPI2C2, MUX3, SdaPin);
-    impl_pin!(P1_11, LPI2C2, MUX3, SclPin);
-    impl_pin!(P1_12, LPI2C1, MUX2, SdaPin);
-    impl_pin!(P1_13, LPI2C1, MUX2, SclPin);
-    impl_pin!(P1_14, LPI2C1, MUX2, SclPin);
-    impl_pin!(P1_15, LPI2C1, MUX2, SdaPin);
-
-    #[cfg(feature = "sosc-as-gpio")]
-    impl_pin!(P1_30, LPI2C0, MUX3, SdaPin);
-    #[cfg(feature = "sosc-as-gpio")]
-    impl_pin!(P1_31, LPI2C0, MUX3, SclPin);
-
-    impl_pin!(P3_27, LPI2C3, MUX2, SclPin);
-    impl_pin!(P3_28, LPI2C3, MUX2, SdaPin);
-    // impl_pin!(P3_29, LPI2C3, MUX2, HreqPin); What is this HREQ pin?
-    impl_pin!(P3_30, LPI2C3, MUX2, SclPin);
-    impl_pin!(P3_31, LPI2C3, MUX2, SdaPin);
-    impl_pin!(P4_2, LPI2C2, MUX2, SdaPin);
-    impl_pin!(P4_3, LPI2C0, MUX2, SclPin);
-    impl_pin!(P4_4, LPI2C2, MUX2, SdaPin);
-    impl_pin!(P4_5, LPI2C0, MUX2, SclPin);
-    // impl_pin!(P4_6, LPI2C0, MUX2, HreqPin); What is this HREQ pin?
-}
-
-#[cfg(feature = "mcxa5xx")]
-mod mcxa5xx {
-    use super::*;
-
-    impl_pin!(P0_16, LPI2C0, MUX2, SdaPin);
-    impl_pin!(P0_17, LPI2C0, MUX2, SclPin);
-    impl_pin!(P0_18, LPI2C0, MUX2, SclPin);
-    impl_pin!(P0_19, LPI2C0, MUX2, SdaPin);
-    #[cfg(feature = "sosc-as-gpio")]
-    impl_pin!(P1_30, LPI2C0, MUX3, SdaPin);
-    #[cfg(feature = "sosc-as-gpio")]
-    impl_pin!(P1_31, LPI2C0, MUX3, SclPin);
-
-    impl_pin!(P1_0, LPI2C1, MUX3, SdaPin);
-    impl_pin!(P1_1, LPI2C1, MUX3, SclPin);
-    impl_pin!(P1_12, LPI2C1, MUX2, SdaPin);
-    impl_pin!(P1_13, LPI2C1, MUX2, SclPin);
-    impl_pin!(P1_14, LPI2C1, MUX2, SclPin);
-    impl_pin!(P1_15, LPI2C1, MUX2, SdaPin);
-
-    impl_pin!(P1_8, LPI2C2, MUX3, SdaPin);
-    impl_pin!(P1_9, LPI2C2, MUX3, SclPin);
-    impl_pin!(P4_2, LPI2C2, MUX2, SdaPin);
-    impl_pin!(P4_3, LPI2C2, MUX2, SclPin);
-    impl_pin!(P4_4, LPI2C2, MUX2, SdaPin);
-    impl_pin!(P4_5, LPI2C2, MUX2, SclPin);
-
-    impl_pin!(P3_20, LPI2C3, MUX2, SdaPin);
-    impl_pin!(P3_21, LPI2C3, MUX2, SclPin);
-    impl_pin!(P3_27, LPI2C3, MUX2, SclPin);
-    impl_pin!(P3_28, LPI2C3, MUX2, SdaPin);
-    impl_pin!(P3_30, LPI2C3, MUX2, SclPin);
-    impl_pin!(P3_31, LPI2C3, MUX2, SdaPin);
 }

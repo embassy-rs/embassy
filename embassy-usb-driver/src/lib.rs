@@ -136,7 +136,7 @@ pub struct EndpointInfo {
     pub interval_ms: u8,
 }
 
-/// Main USB driver trait.
+/// Main USB device driver trait.
 ///
 /// Implement this to add support for a new hardware platform.
 pub trait Driver<'a> {

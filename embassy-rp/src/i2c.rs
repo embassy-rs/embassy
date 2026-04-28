@@ -474,12 +474,15 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
     }
 
     fn setup(addr: u16) -> Result<(), Error> {
-        if addr >= 0x80 {
+        if addr >= 0x400 {
             return Err(Error::AddressOutOfRange(addr));
         }
 
+        let ten_bit = addr > 0x7F;
+
         let p = T::regs();
         p.ic_enable().write(|w| w.set_enable(false));
+        p.ic_con().modify(|w| w.set_ic_10bitaddr_master(ten_bit));
         p.ic_tar().write(|w| w.set_ic_tar(addr));
         p.ic_enable().write(|w| w.set_enable(true));
         Ok(())
@@ -694,22 +697,25 @@ impl<'d, T: Instance, M: Mode> embedded_hal_1::i2c::ErrorType for I2c<'d, T, M> 
     type Error = Error;
 }
 
-impl<'d, T: Instance, M: Mode> embedded_hal_1::i2c::I2c for I2c<'d, T, M> {
-    fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
+impl<'d, T: Instance, M: Mode, A> embedded_hal_1::i2c::I2c<A> for I2c<'d, T, M>
+where
+    A: embedded_hal_1::i2c::AddressMode + Into<u16> + 'static,
+{
+    fn read(&mut self, address: A, read: &mut [u8]) -> Result<(), Self::Error> {
         self.blocking_read(address, read)
     }
 
-    fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Self::Error> {
+    fn write(&mut self, address: A, write: &[u8]) -> Result<(), Self::Error> {
         self.blocking_write(address, write)
     }
 
-    fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
+    fn write_read(&mut self, address: A, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
         self.blocking_write_read(address, write, read)
     }
 
     fn transaction(
         &mut self,
-        address: u8,
+        address: A,
         operations: &mut [embedded_hal_1::i2c::Operation<'_>],
     ) -> Result<(), Self::Error> {
         Self::setup(address.into())?;

@@ -97,7 +97,7 @@ embassy-hal-internal = { version = "0.5.0", path = "../embassy-hal-internal", fe
 embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
 embassy-time = { version = "0.5.1", path = "../embassy-time" }
 embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", features = ["tick-hz-48_000_000"] }
-embassy-time-queue-utils = { version = "0.3.1", path = "../embassy-time-queue-utils" }
+embassy-time-queue-utils = { version = "0.3.2", path = "../embassy-time-queue-utils" }
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = { version = "1.0" }

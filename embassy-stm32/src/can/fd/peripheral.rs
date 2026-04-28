@@ -385,6 +385,7 @@ impl Registers {
         });
 
         self.set_data_bit_timing(config.dbtr);
+        self.set_transceiver_delay_compensation(config.dbtr);
         self.set_nominal_bit_timing(config.nbtr);
         self.set_automatic_retransmit(config.automatic_retransmit);
         self.set_transmit_pause(config.transmit_pause);
@@ -449,6 +450,15 @@ impl Registers {
             w.set_dtseg1(btr.dtseg1() - 1);
             w.set_dtseg2(btr.dtseg2() - 1);
             w.set_dsjw(btr.dsjw() - 1);
+            w.set_tdc(btr.transceiver_delay_compensation);
+        });
+    }
+
+    #[inline]
+    pub fn set_transceiver_delay_compensation(&self, btr: DataBitTiming) {
+        self.regs.tdcr().write(|w| {
+            w.set_tdco(btr.tdco());
+            w.set_tdcf(btr.tdcf());
         });
     }
 

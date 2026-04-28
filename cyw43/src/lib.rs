@@ -12,6 +12,7 @@ pub(crate) mod fmt;
 #[cfg(feature = "bluetooth")]
 /// Bluetooth module.
 pub mod bluetooth;
+mod chip;
 mod consts;
 mod control;
 mod countries;
@@ -23,6 +24,7 @@ mod spi;
 mod structs;
 mod util;
 
+use core::result;
 use core::sync::atomic::AtomicBool;
 
 pub use aligned::{A4, Aligned};
@@ -40,6 +42,27 @@ pub use crate::spi::{SpiBus, SpiBusCyw43};
 pub use crate::structs::BssInfo;
 
 const MTU: usize = 1514;
+
+/// cyw43 Error type
+#[derive(Debug)]
+pub struct Error;
+
+type Result<T> = result::Result<T, Error>;
+
+trait WithContext: Sized {
+    #[track_caller]
+    fn ctx(self, context: &'static str) -> Self;
+}
+
+impl<T> WithContext for Result<T> {
+    fn ctx(self, context: &'static str) -> Self {
+        if self.is_err() {
+            error!("- {}", context);
+        }
+
+        self
+    }
+}
 
 #[allow(unused)]
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -89,20 +112,139 @@ enum ChipId {
     C4373,
 }
 
-trait SealedChip {
+impl PartialEq<u16> for ChipId {
+    fn eq(&self, other: &u16) -> bool {
+        (match *self {
+            ChipId::C43439 => 43439,
+            ChipId::C4373 => 4373,
+        }) == *other
+    }
+}
+
+trait SealedChip: Copy {
     const INFO: ChipInfo;
     const ID: ChipId;
 
-    fn base_addr(core: Core) -> u32 {
+    fn id(&self) -> ChipId {
+        Self::ID
+    }
+
+    fn base_addr(&self, core: Core) -> u32 {
         match core {
-            Core::WLAN => Self::INFO.arm_core_base_address,
-            Core::SOCSRAM => Self::INFO.socsram_wrapper_base_address,
-            Core::SDIOD => Self::INFO.sdiod_core_base_address,
+            Core::WLAN => self.arm_core_base_address(),
+            Core::SOCSRAM => self.socsram_wrapper_base_address(),
+            Core::SDIOD => self.sdiod_core_base_address(),
         }
+    }
+
+    fn arm_core_base_address(&self) -> u32 {
+        Self::INFO.arm_core_base_address
+    }
+
+    fn socsram_base_address(&self) -> u32 {
+        Self::INFO.socsram_base_address
+    }
+
+    #[allow(dead_code)]
+    fn bluetooth_base_address(&self) -> u32 {
+        Self::INFO.bluetooth_base_address
+    }
+
+    fn socsram_wrapper_base_address(&self) -> u32 {
+        Self::INFO.socsram_wrapper_base_address
+    }
+
+    fn sdiod_core_base_address(&self) -> u32 {
+        Self::INFO.sdiod_core_base_address
+    }
+
+    #[allow(dead_code)]
+    fn pmu_base_address(&self) -> u32 {
+        Self::INFO.pmu_base_address
+    }
+
+    #[allow(dead_code)]
+    fn chip_ram_size(&self) -> u32 {
+        Self::INFO.chip_ram_size
+    }
+
+    fn atcm_ram_base_address(&self) -> u32 {
+        Self::INFO.atcm_ram_base_address
+    }
+
+    #[allow(dead_code)]
+    fn socram_srmem_size(&self) -> u32 {
+        Self::INFO.socram_srmem_size
+    }
+
+    #[allow(dead_code)]
+    fn chanspec_band_mask(&self) -> u32 {
+        Self::INFO.chanspec_band_mask
+    }
+
+    #[allow(dead_code)]
+    fn chanspec_band_2g(&self) -> u32 {
+        Self::INFO.chanspec_band_2g
+    }
+
+    #[allow(dead_code)]
+    fn chanspec_band_5g(&self) -> u32 {
+        Self::INFO.chanspec_band_5g
+    }
+
+    #[allow(dead_code)]
+    fn chanspec_band_shift(&self) -> u32 {
+        Self::INFO.chanspec_band_shift
+    }
+
+    #[allow(dead_code)]
+    fn chanspec_bw_10(&self) -> u32 {
+        Self::INFO.chanspec_bw_10
+    }
+
+    #[allow(dead_code)]
+    fn chanspec_bw_20(&self) -> u32 {
+        Self::INFO.chanspec_bw_20
+    }
+
+    #[allow(dead_code)]
+    fn chanspec_bw_40(&self) -> u32 {
+        Self::INFO.chanspec_bw_40
+    }
+
+    #[allow(dead_code)]
+    fn chanspec_bw_mask(&self) -> u32 {
+        Self::INFO.chanspec_bw_mask
+    }
+
+    #[allow(dead_code)]
+    fn chanspec_bw_shift(&self) -> u32 {
+        Self::INFO.chanspec_bw_shift
+    }
+
+    #[allow(dead_code)]
+    fn chanspec_ctl_sb_lower(&self) -> u32 {
+        Self::INFO.chanspec_ctl_sb_lower
+    }
+
+    #[allow(dead_code)]
+    fn chanspec_ctl_sb_upper(&self) -> u32 {
+        Self::INFO.chanspec_ctl_sb_upper
+    }
+
+    #[allow(dead_code)]
+    fn chanspec_ctl_sb_none(&self) -> u32 {
+        Self::INFO.chanspec_ctl_sb_none
+    }
+
+    #[allow(dead_code)]
+    fn chanspec_ctl_sb_mask(&self) -> u32 {
+        Self::INFO.chanspec_ctl_sb_mask
     }
 }
 
 /// CYW43439 Wi-Fi + Bluetooth combo chip (used on Raspberry Pi Pico W).
+#[derive(Clone, Copy, Debug)]
 pub struct Cyw43439;
 
 impl SealedChip for Cyw43439 {
@@ -134,6 +276,7 @@ impl SealedChip for Cyw43439 {
 }
 
 /// CYW4373 Wi-Fi + Bluetooth combo chip (Murata LBAD0ZZ1DZ / 2BC module).
+#[derive(Clone, Copy, Debug)]
 pub struct Cyw4373;
 
 impl SealedChip for Cyw4373 {
@@ -312,7 +455,7 @@ where
         None,
     );
 
-    runner.init(firmware, nvram, None).await.unwrap();
+    runner.init(firmware, nvram, None, &()).await.unwrap();
     let control = Control::new(
         state_ch,
         &state.net.events,
@@ -349,7 +492,7 @@ pub async fn new_43439_sdio<'a, SDIO>(
     sdio: SDIO,
     firmware: &Aligned<A4, [u8]>,
     nvram: &Aligned<A4, [u8]>,
-) -> Result<(NetDriver<'a>, Control<'a>, Runner<'a, SdioBus<SDIO>, Cyw43439>), ()>
+) -> Result<(NetDriver<'a>, Control<'a>, Runner<'a, SdioBus<SDIO>, Cyw43439>)>
 where
     SDIO: SdioBusCyw43<64>,
 {
@@ -358,7 +501,7 @@ where
 
     let mut runner = Runner::new(
         ch_runner,
-        SdioBus::new(sdio, 50_000_000),
+        SdioBus::new(sdio),
         Cyw43439,
         &state.ioctl_state,
         &state.net.events,
@@ -367,7 +510,12 @@ where
         None,
     );
 
-    runner.init(firmware, nvram, None).await?;
+    let config = sdio::Config {
+        max_f: 50_000_000,
+        out_of_band_irq: false,
+    };
+
+    runner.init(firmware, nvram, None, &config).await?;
     let control = Control::new(
         state_ch,
         &state.net.events,
@@ -384,7 +532,7 @@ pub async fn new_4373_sdio<'a, SDIO>(
     sdio: SDIO,
     firmware: &Aligned<A4, [u8]>,
     nvram: &Aligned<A4, [u8]>,
-) -> Result<(NetDriver<'a>, Control<'a>, Runner<'a, SdioBus<SDIO>, Cyw4373>), ()>
+) -> Result<(NetDriver<'a>, Control<'a>, Runner<'a, SdioBus<SDIO>, Cyw4373>)>
 where
     SDIO: SdioBusCyw43<64>,
 {
@@ -393,7 +541,7 @@ where
 
     let mut runner = Runner::new(
         ch_runner,
-        SdioBus::new(sdio, 12_500_000),
+        SdioBus::new(sdio),
         Cyw4373,
         &state.ioctl_state,
         &state.net.events,
@@ -402,7 +550,12 @@ where
         None,
     );
 
-    runner.init(firmware, nvram, None).await?;
+    let config = sdio::Config {
+        max_f: 12_500_000,
+        out_of_band_irq: false,
+    };
+
+    runner.init(firmware, nvram, None, &config).await?;
     let control = Control::new(
         state_ch,
         &state.net.events,
@@ -451,7 +604,7 @@ where
     );
 
     runner
-        .init(wifi_firmware, nvram, Some(bluetooth_firmware))
+        .init(wifi_firmware, nvram, Some(bluetooth_firmware), &())
         .await
         .unwrap();
     let control = Control::new(

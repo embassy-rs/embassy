@@ -5,8 +5,8 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::USB;
-use embassy_usb_host::UsbHost;
 use embassy_usb_host::class::hid::HidHost;
+use embassy_usb_host::{BusRoute, BusState};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -18,16 +18,18 @@ async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
 
     let driver = embassy_rp::usb::host::Driver::new(p.USB, Irqs);
-    let mut host = UsbHost::new(driver);
+
+    static BUS_STATE: BusState = BusState::new();
+    let (mut bus_ctrl, bus) = embassy_usb_host::bus(driver, &BUS_STATE);
 
     info!("USB host initialized, waiting for device...");
 
     loop {
-        let speed = host.wait_for_connection().await;
+        let speed = bus_ctrl.wait_for_connection().await;
         info!("Device connected at speed {:?}", speed);
 
         let mut config_buf = [0u8; 256];
-        let result = host.enumerate(speed, &mut config_buf).await;
+        let result = bus.enumerate(BusRoute::Direct(speed), &mut config_buf).await;
 
         let (enum_info, config_len) = match result {
             Ok(r) => r,
@@ -42,7 +44,7 @@ async fn main(_spawner: Spawner) {
             enum_info.device_desc.vendor_id, enum_info.device_desc.product_id, enum_info.device_address
         );
 
-        let mut hid = match HidHost::new(host.driver(), &config_buf[..config_len], &enum_info) {
+        let mut hid = match HidHost::new(&bus, &config_buf[..config_len], &enum_info) {
             Ok(h) => h,
             Err(e) => {
                 error!("HID init failed: {:?}", e);

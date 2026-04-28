@@ -2,22 +2,21 @@
 
 use embassy_hal_internal::PeripheralType;
 use maitake_sync::WaitCell;
-use paste::paste;
 
 use crate::clocks::Gate;
 use crate::clocks::periph_helpers::I3cConfig;
 use crate::dma::{DmaChannel, DmaRequest};
-use crate::gpio::{GpioPin, SealedPin};
+use crate::gpio::GpioPin;
 use crate::{interrupt, pac};
 
 pub mod controller;
 
-mod sealed {
+pub(crate) mod sealed {
     /// Seal a trait
     pub trait Sealed {}
 }
 
-trait SealedInstance: Gate<MrccPeriphConfig = I3cConfig> {
+pub(crate) trait SealedInstance: Gate<MrccPeriphConfig = I3cConfig> {
     fn info() -> &'static Info;
 
     const PERF_INT_INCR: fn();
@@ -33,9 +32,9 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
-struct Info {
-    regs: pac::i3c::I3c,
-    wait_cell: WaitCell,
+pub(crate) struct Info {
+    pub(crate) regs: pac::i3c::I3c,
+    pub(crate) wait_cell: WaitCell,
 }
 
 unsafe impl Sync for Info {}
@@ -52,37 +51,32 @@ impl Info {
     }
 }
 
-macro_rules! impl_instance {
-    ($($n:literal);*) => {
-        $(
-            paste! {
-                impl SealedInstance for crate::peripherals::[<I3C $n>] {
-                    fn info() -> &'static Info {
-                        static INFO: Info = Info {
-                            regs: pac::[<I3C $n>],
-                            wait_cell: WaitCell::new(),
-                        };
-                        &INFO
-                    }
-
-                    const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<I3C $n Tx>];
-                    const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<I3C $n Rx>];
-                    const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_i3c $n>];
-                    const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_i3c $n _wake>];
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_i3c_instance {
+    ($n:literal) => {
+        paste::paste! {
+            impl crate::i3c::SealedInstance for crate::peripherals::[<I3C $n>] {
+                fn info() -> &'static crate::i3c::Info {
+                    static INFO: crate::i3c::Info = crate::i3c::Info {
+                        regs: crate::pac::[<I3C $n>],
+                        wait_cell: maitake_sync::WaitCell::new(),
+                    };
+                    &INFO
                 }
 
-                impl Instance for crate::peripherals::[<I3C $n>] {
-                    type Interrupt = crate::interrupt::typelevel::[<I3C $n>];
-                }
+                const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<I3C $n Tx>];
+                const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<I3C $n Rx>];
+                const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_i3c $n>];
+                const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_i3c $n _wake>];
             }
-        )*
+
+            impl crate::i3c::Instance for crate::peripherals::[<I3C $n>] {
+                type Interrupt = crate::interrupt::typelevel::[<I3C $n>];
+            }
+        }
     };
 }
-
-impl_instance!(0);
-
-#[cfg(feature = "mcxa5xx")]
-impl_instance!(1; 2; 3);
 
 /// SCL pin trait.
 pub trait SclPin<T: Instance>: GpioPin + sealed::Sealed + PeripheralType {
@@ -91,6 +85,26 @@ pub trait SclPin<T: Instance>: GpioPin + sealed::Sealed + PeripheralType {
 
 /// SDA pin trait.
 pub trait SdaPin<T: Instance>: GpioPin + sealed::Sealed + PeripheralType {
+    fn mux(&self);
+}
+
+/// SDA1 pin (for I3C multi-lane) trait.
+pub trait Sda1Pin<T: Instance>: GpioPin + sealed::Sealed + PeripheralType {
+    fn mux(&self);
+}
+
+/// SDA2 pin (for I3C multi-lane) trait.
+pub trait Sda2Pin<T: Instance>: GpioPin + sealed::Sealed + PeripheralType {
+    fn mux(&self);
+}
+
+/// SDA3 pin (for I3C multi-lane) trait.
+pub trait Sda3Pin<T: Instance>: GpioPin + sealed::Sealed + PeripheralType {
+    fn mux(&self);
+}
+
+/// PUR pin trait. (Pull up resistance)
+pub trait PurPin<T: Instance>: GpioPin + sealed::Sealed + PeripheralType {
     fn mux(&self);
 }
 
@@ -125,13 +139,16 @@ impl sealed::Sealed for Dma<'_> {}
 impl Mode for Dma<'_> {}
 impl AsyncMode for Dma<'_> {}
 
-macro_rules! impl_pin {
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_i3c_pin {
     ($pin:ident, $peri:ident, $fn:ident, $trait:ident) => {
-        paste! {
-            impl sealed::Sealed for crate::peripherals::$pin {}
+        paste::paste! {
+            impl crate::i3c::sealed::Sealed for crate::peripherals::$pin {}
 
-            impl $trait<crate::peripherals::$peri> for crate::peripherals::$pin {
+            impl crate::i3c::$trait<crate::peripherals::$peri> for crate::peripherals::$pin {
                 fn mux(&self) {
+                    use crate::gpio::SealedPin;
                     self.set_pull(crate::gpio::Pull::Disabled);
                     self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
                     self.set_drive_strength(crate::gpio::DriveStrength::Double.into());
@@ -141,58 +158,4 @@ macro_rules! impl_pin {
             }
         }
     };
-}
-
-#[cfg(feature = "mcxa2xx")]
-mod mcxa2xx_pins {
-    use super::*;
-    // impl_pin!(P0_2, I3C0, MUX10, PurPin); REVISIT: what is this for?
-    impl_pin!(P0_17, I3C0, MUX10, SclPin);
-    impl_pin!(P0_18, I3C0, MUX10, SdaPin);
-    impl_pin!(P1_8, I3C0, MUX10, SdaPin);
-    impl_pin!(P1_9, I3C0, MUX10, SclPin);
-    // impl_pin!(P1_11, I3C0, MUX10, PurPin); REVISIT: what is this for?
-    #[cfg(feature = "sosc-as-gpio")]
-    impl_pin!(P1_30, I3C0, MUX10, SdaPin);
-    #[cfg(feature = "sosc-as-gpio")]
-    impl_pin!(P1_31, I3C0, MUX10, SclPin);
-}
-
-#[cfg(feature = "mcxa5xx")]
-mod mcxa5xx_pins {
-    use super::*;
-
-    // impl_pin!(P0_2, I3C0, MUX10, PurPin); REVISIT: what is this for?
-    impl_pin!(P0_16, I3C0, MUX10, SdaPin);
-    impl_pin!(P0_17, I3C0, MUX10, SclPin);
-    impl_pin!(P0_20, I3C0, MUX10, SdaPin);
-    impl_pin!(P0_21, I3C0, MUX10, SclPin);
-    // impl_pin!(P0_22, I3C0, MUX10, PurPin); REVISIT: what is this for?
-
-    impl_pin!(P1_5, I3C1, MUX10, SdaPin);
-    impl_pin!(P1_6, I3C1, MUX10, SdaPin);
-    impl_pin!(P1_7, I3C1, MUX10, SdaPin);
-    impl_pin!(P1_8, I3C1, MUX10, SdaPin);
-    impl_pin!(P1_9, I3C1, MUX10, SclPin);
-    impl_pin!(P1_14, I3C1, MUX10, SdaPin);
-    // impl_pin!(P1_15, I3C1, MUX10, PurPin); REVISIT: what is this for?
-    impl_pin!(P1_16, I3C1, MUX10, SdaPin);
-    impl_pin!(P1_17, I3C1, MUX10, SclPin);
-    impl_pin!(P1_18, I3C1, MUX10, SdaPin);
-    impl_pin!(P1_19, I3C1, MUX10, SdaPin);
-    #[cfg(feature = "sosc-as-gpio")]
-    impl_pin!(P1_30, I3C2, MUX10, SdaPin);
-    #[cfg(feature = "sosc-as-gpio")]
-    impl_pin!(P1_31, I3C2, MUX10, SclPin);
-
-    // impl_pin!(P4_0, I3C2, MUX10, PurPin); REVISIT: what is this for?
-    // impl_pin!(P4_1, I3C3, MUX10, PurPin); REVISIT: what is this for?
-    // impl_pin!(P4_12, I3C2, MUX10, PurPin); REVISIT: what is this for?
-    // impl_pin!(P4_13, I3C3, MUX10, PurPin); REVISIT: what is this for?
-    impl_pin!(P4_2, I3C3, MUX10, SdaPin);
-    impl_pin!(P4_3, I3C2, MUX10, SclPin);
-    impl_pin!(P4_4, I3C2, MUX10, SdaPin);
-    impl_pin!(P4_5, I3C3, MUX10, SclPin);
-    impl_pin!(P4_6, I3C3, MUX10, SclPin);
-    impl_pin!(P4_7, I3C3, MUX10, SdaPin);
 }

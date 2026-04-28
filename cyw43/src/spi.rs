@@ -5,7 +5,7 @@ use embedded_hal_1::digital::OutputPin;
 use futures::FutureExt;
 
 use crate::consts::*;
-use crate::runner::{BusType, SealedBus};
+use crate::runner::{BusConfig, BusType, SealedBus};
 use crate::util::{slice8_mut, slice32_mut, slice32_ref};
 
 /// Custom Spi Trait that _only_ supports the bus operation of the cyw43
@@ -152,8 +152,9 @@ where
     SPI: SpiBusCyw43,
 {
     const TYPE: BusType = BusType::Spi;
+    type Config = ();
 
-    async fn init(&mut self, bluetooth_enabled: bool) -> Result<(), ()> {
+    async fn init<'a>(&mut self, bluetooth_enabled: bool, config: &'a ()) -> crate::Result<BusConfig<'a>> {
         fn cmp<R: Eq>(left: R, right: R) -> Result<(), ()> {
             if left == right { Ok(()) } else { Err(()) }
         }
@@ -177,7 +178,7 @@ where
         self.write32_swapped(FUNC_BUS, REG_BUS_TEST_RW, TEST_PATTERN).await;
         let val = self.read32_swapped(FUNC_BUS, REG_BUS_TEST_RW).await;
         trace!("{:#x}", val);
-        cmp(val, TEST_PATTERN)?;
+        cmp(val, TEST_PATTERN).map_err(|_| crate::Error)?;
 
         trace!("read REG_BUS_CTRL");
         let val = self.read32_swapped(FUNC_BUS, REG_BUS_CTRL).await;
@@ -207,13 +208,13 @@ where
         trace!("read REG_BUS_TEST_RO");
         let val = self.read32(FUNC_BUS, REG_BUS_TEST_RO).await;
         trace!("{:#x}", val);
-        cmp(val, FEEDBEAD)?;
+        cmp(val, FEEDBEAD).map_err(|_| crate::Error)?;
 
         // TODO: C doesn't do this? i doubt it messes anything up
         trace!("read REG_BUS_TEST_RW");
         let val = self.read32(FUNC_BUS, REG_BUS_TEST_RW).await;
         trace!("{:#x}", val);
-        cmp(val, TEST_PATTERN)?;
+        cmp(val, TEST_PATTERN).map_err(|_| crate::Error)?;
 
         trace!("write SPI_RESP_DELAY_F1 CYW43_BACKPLANE_READ_PAD_LEN_BYTES");
         self.write8(FUNC_BUS, SPI_RESP_DELAY_F1, WHD_BUS_SPI_BACKPLANE_READ_PADD_SIZE)
@@ -243,10 +244,10 @@ where
         }
         self.write16(FUNC_BUS, REG_BUS_INTERRUPT_ENABLE, val).await;
 
-        Ok(())
+        Ok(BusConfig::Spi(config))
     }
 
-    async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) -> Result<(), ()> {
+    async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()> {
         let len_in_u8 = buf.len() as u32;
         let buf = slice32_mut(buf);
 
@@ -258,7 +259,7 @@ where
         Ok(())
     }
 
-    async fn wlan_write(&mut self, buf: &Aligned<A4, [u8]>) {
+    async fn wlan_write(&mut self, buf: &Aligned<A4, [u8]>) -> crate::Result<()> {
         let buf = slice32_ref(buf);
         let cmd = cmd_word(WRITE, INC_ADDR, FUNC_WLAN, 0, buf.len() as u32 * 4);
         //TODO try to remove copy?
@@ -267,10 +268,12 @@ where
         cmd_buf[1..][..buf.len()].copy_from_slice(buf);
 
         self.status = self.spi.cmd_write(&cmd_buf[..buf.len() + 1]).await;
+
+        Ok(())
     }
 
     #[allow(unused)]
-    async fn bp_read(&mut self, mut addr: u32, mut data: &mut [u8]) {
+    async fn bp_read(&mut self, mut addr: u32, mut data: &mut [u8]) -> crate::Result<()> {
         trace!("bp_read addr = {:08x}", addr);
 
         // It seems the HW force-aligns the addr
@@ -303,9 +306,11 @@ where
             addr += len as u32;
             data = &mut data[len..];
         }
+
+        Ok(())
     }
 
-    async fn bp_write(&mut self, mut addr: u32, mut data: &[u8]) {
+    async fn bp_write(&mut self, mut addr: u32, mut data: &[u8]) -> crate::Result<()> {
         trace!("bp_write addr = {:08x}", addr);
 
         // It seems the HW force-aligns the addr
@@ -335,6 +340,8 @@ where
             addr += len as u32;
             data = &data[len..];
         }
+
+        Ok(())
     }
 
     async fn bp_read8(&mut self, addr: u32) -> u8 {

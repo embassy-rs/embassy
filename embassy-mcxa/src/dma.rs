@@ -114,6 +114,7 @@ use core::task::{Context, Poll};
 use embassy_hal_internal::{Peri, PeripheralType};
 use maitake_sync::WaitCell;
 
+pub(crate) use crate::_generated::DmaRequest;
 use crate::clocks::enable_and_reset;
 use crate::clocks::periph_helpers::NoConfig;
 use crate::dma::sealed::SealedChannel;
@@ -139,7 +140,7 @@ pub(crate) fn init() {
     pac::DMA0.mp_csr().modify(|w| {
         w.set_edbg(true);
         w.set_erca(true);
-        w.set_halt(Halt::NORMAL_OPERATION);
+        w.set_halt(Halt::NormalOperation);
         w.set_gclc(true);
         w.set_gmrc(true);
     });
@@ -203,9 +204,9 @@ impl WordSize {
     /// Convert to hardware SSIZE/DSIZE field value.
     pub const fn to_hw_size(self) -> Size {
         match self {
-            WordSize::OneByte => Size::EIGHT_BIT,
-            WordSize::TwoBytes => Size::SIXTEEN_BIT,
-            WordSize::FourBytes => Size::THIRTYTWO_BIT,
+            WordSize::OneByte => Size::EightBit,
+            WordSize::TwoBytes => Size::SixteenBit,
+            WordSize::FourBytes => Size::ThirtytwoBit,
         }
     }
 
@@ -297,207 +298,6 @@ pub struct InvalidParameters;
 /// This is a hardware limitation of the eDMA4 controller. Transfers larger
 /// than this must be split into multiple DMA operations.
 pub const DMA_MAX_TRANSFER_SIZE: usize = 0x7FFF;
-
-/// DMA request sources
-///
-/// (from MCXA266 reference manual PDF attachment "DMA_Configuration.xml")
-#[derive(Clone, Copy, Debug)]
-#[repr(u8)]
-#[allow(dead_code)]
-#[cfg(feature = "mcxa2xx")]
-pub(crate) enum DmaRequest {
-    WUU0WakeUpEvent = 1,
-    CAN0 = 2,
-    LPI2C2Rx = 3,
-    LPI2C2Tx = 4,
-    LPI2C3Rx = 5,
-    LPI2C3Tx = 6,
-    I3C0Rx = 7,
-    I3C0Tx = 8,
-    LPI2C0Rx = 11,
-    LPI2C0Tx = 12,
-    LPI2C1Rx = 13,
-    LPI2C1Tx = 14,
-    LPSPI0Rx = 15,
-    LPSPI0Tx = 16,
-    LPSPI1Rx = 17,
-    LPSPI1Tx = 18,
-    LPUART0Rx = 21,
-    LPUART0Tx = 22,
-    LPUART1Rx = 23,
-    LPUART1Tx = 24,
-    LPUART2Rx = 25,
-    LPUART2Tx = 26,
-    LPUART3Rx = 27,
-    LPUART3Tx = 28,
-    LPUART4Rx = 29,
-    LPUART4Tx = 30,
-    Ctimer0M0 = 31,
-    Ctimer0M1 = 32,
-    Ctimer1M0 = 33,
-    Ctimer1M1 = 34,
-    Ctimer2M0 = 35,
-    Ctimer2M1 = 36,
-    Ctimer3M0 = 37,
-    Ctimer3M1 = 38,
-    Ctimer4M0 = 39,
-    Ctimer4M1 = 40,
-    FlexPWM0Capt0 = 41,
-    FlexPWM0Capt1 = 42,
-    FlexPWM0Capt2 = 43,
-    FlexPWM0Capt3 = 44,
-    FlexPWM0Val0 = 45,
-    FlexPWM0Val1 = 46,
-    FlexPWM0Val2 = 47,
-    FlexPWM0Val3 = 48,
-    LPTMR0CounterMatchEvent = 49,
-    ADC0FifoRequest = 51,
-    ADC1FifoRequest = 52,
-    CMP0 = 53,
-    CMP1 = 54,
-    CMP2 = 55,
-    DAC0FifoRequest = 56,
-    GPIO0PinEvent0 = 60,
-    GPIO1PinEvent0 = 61,
-    GPIO2PinEvent0 = 62,
-    GPIO3PinEvent0 = 63,
-    GPIO4PinEvent0 = 64,
-    QDC0 = 65,
-    QDC1 = 66,
-    FlexIO0SR0 = 71,
-    FlexIO0SR1 = 72,
-    FlexIO0SR2 = 73,
-    FlexIO0SR3 = 74,
-    FlexPWM1ReqCapt0 = 79,
-    FlexPWM1ReqCapt1 = 80,
-    FlexPWM1ReqCapt2 = 81,
-    FlexPWM1ReqCapt3 = 82,
-    FlexPWM1ReqVal0 = 83,
-    FlexPWM1ReqVal1 = 84,
-    FlexPWM1ReqVal2 = 85,
-    FlexPWM1ReqVal3 = 86,
-    CAN1 = 87,
-    LPUART5Rx = 102,
-    LPUART5Tx = 103,
-    MAU0MAU = 115,
-    SGI0ReqIdat = 119,
-    SGI0ReqOdat = 120,
-    ADC2FifoRequest = 123,
-    ADC3FifoRequest = 124,
-}
-
-/// DMA request sources
-///
-/// (from MCXA577 reference manual PDF attachment "DMA_Configuration.xml")
-#[derive(Clone, Copy, Debug)]
-#[repr(u8)]
-#[allow(dead_code)]
-#[cfg(feature = "mcxa5xx")]
-pub(crate) enum DmaRequest {
-    WUU0WakeUpEvent = 1,
-    CAN0 = 2,
-    LPI2C2Rx = 3,
-    LPI2C2Tx = 4,
-    LPI2C3Rx = 5,
-    LPI2C3Tx = 6,
-    I3C0Rx = 7,
-    I3C0Tx = 8,
-    I3C1Rx = 9,
-    I3C1Tx = 10,
-    LPI2C0Rx = 11,
-    LPI2C0Tx = 12,
-    LPI2C1Rx = 13,
-    LPI2C1Tx = 14,
-    LPSPI0Rx = 15,
-    LPSPI0Tx = 16,
-    LPSPI1Rx = 17,
-    LPSPI1Tx = 18,
-    LPSPI2Rx = 19,
-    LPSPI2Tx = 20,
-    LPUART0Rx = 21,
-    LPUART0Tx = 22,
-    LPUART1Rx = 23,
-    LPUART1Tx = 24,
-    LPUART2Rx = 25,
-    LPUART2Tx = 26,
-    LPUART3Rx = 27,
-    LPUART3Tx = 28,
-    LPUART4Rx = 29,
-    LPUART4Tx = 30,
-    Ctimer0M0 = 31,
-    Ctimer0M1 = 32,
-    Ctimer1M0 = 33,
-    Ctimer1M1 = 34,
-    Ctimer2M0 = 35,
-    Ctimer2M1 = 36,
-    Ctimer3M0 = 37,
-    Ctimer3M1 = 38,
-    Ctimer4M0 = 39,
-    Ctimer4M1 = 40,
-    LPTMR0CounterMatchEvent = 49,
-    ADC0FifoRequest = 51,
-    ADC1FifoRequest = 52,
-    CMP0 = 53,
-    DAC0FifoRequest = 56,
-    DAC1FifoRequest = 57,
-    GPIO5PinEvent0 = 59,
-    GPIO0PinEvent0 = 60,
-    GPIO1PinEvent0 = 61,
-    GPIO2PinEvent0 = 62,
-    GPIO3PinEvent0 = 63,
-    GPIO4PinEvent0 = 64,
-    TsiEndOfScan = 69,
-    TsiOutOfRange = 70,
-    FlexIO0SR0 = 71,
-    FlexIO0SR1 = 72,
-    FlexIO0SR2 = 73,
-    FlexIO0SR3 = 74,
-    CAN1 = 87,
-    EspiCh0 = 92,
-    EspiCh1 = 93,
-    LPI2C4Rx = 94,
-    LPI2C4Tx = 95,
-    LPSPI3Rx = 96,
-    LPSPI3Tx = 97,
-    LPSPI4Rx = 98,
-    LPSPI4Tx = 99,
-    LPSPI5Rx = 100,
-    LPSPI5Tx = 101,
-    LPUART5Rx = 102,
-    LPUART5Tx = 103,
-    I3C2Rx = 106,
-    I3C2Tx = 107,
-    I3C3Rx = 108,
-    I3C3Tx = 109,
-    FlexSPI0Rx = 110,
-    FlexSPI0Tx = 111,
-    ITRCTmprOut0 = 117,
-    SGI0ReqIdat = 119,
-    SGI0ReqOdat = 120,
-    Gpio0PinEvent1 = 132,
-    Gpio1PinEvent1 = 133,
-    Gpio2PinEvent1 = 134,
-    Gpio3PinEvent1 = 135,
-    Gpio4PinEvent1 = 136,
-    Gpio5PinEvent1 = 137,
-}
-
-impl DmaRequest {
-    /// Convert enumerated value into a raw integer
-    pub const fn number(self) -> u8 {
-        self as u8
-    }
-
-    /// Convert a raw integer into an enumerated value
-    ///
-    /// ## SAFETY
-    ///
-    /// The given number MUST be one of the defined variant, e.g. a number
-    /// derived from [`Self::number()`], otherwise it is immediate undefined behavior.
-    pub unsafe fn from_number_unchecked(num: u8) -> Self {
-        unsafe { core::mem::transmute(num) }
-    }
-}
 
 mod sealed {
     /// Sealed trait for DMA channels.
@@ -713,8 +513,8 @@ impl DmaChannel<'_> {
     #[inline]
     fn set_major_loop_nbytes_without_minor(t: &pac::edma_tcd::Tcd, count: u32) {
         t.tcd_nbytes_mloffno().write(|w| {
-            w.set_smloe(TcdNbytesMloffnoSmloe::OFFSET_NOT_APPLIED);
-            w.set_dmloe(TcdNbytesMloffnoDmloe::OFFSET_NOT_APPLIED);
+            w.set_smloe(TcdNbytesMloffnoSmloe::OffsetNotApplied);
+            w.set_dmloe(TcdNbytesMloffnoDmloe::OffsetNotApplied);
             w.set_nbytes(count)
         });
     }
@@ -759,8 +559,8 @@ impl DmaChannel<'_> {
     #[inline]
     fn set_fixed_priority(t: &pac::edma_tcd::Tcd, p: Priority) {
         t.ch_pri().write(|w| {
-            w.set_dpa(Dpa::SUSPEND);
-            w.set_ecp(Ecp::SUSPEND);
+            w.set_dpa(Dpa::Suspend);
+            w.set_ecp(Ecp::Suspend);
             w.set_apl(p as u8);
         });
     }
@@ -881,20 +681,20 @@ impl DmaChannel<'_> {
             w.set_intmajor(params.options.complete_transfer_interrupt);
             w.set_inthalf(params.options.half_transfer_interrupt);
             w.set_start(if params.software {
-                Start::CHANNEL_STARTED
+                Start::ChannelStarted
             } else {
-                Start::CHANNEL_NOT_STARTED
+                Start::ChannelNotStarted
             });
-            w.set_esg(Esg::NORMAL_FORMAT);
+            w.set_esg(Esg::NormalFormat);
             w.set_majorelink(false);
             w.set_eeop(false);
             w.set_esda(false);
-            w.set_bwc(Bwc::NO_STALL);
+            w.set_bwc(Bwc::NoStall);
 
             w.set_dreq(if params.circular {
-                Dreq::CHANNEL_NOT_AFFECTED // Don't clear ERQ on complete (circular)
+                Dreq::ChannelNotAffected // Don't clear ERQ on complete (circular)
             } else {
-                Dreq::ERQ_FIELD_CLEAR // Auto-disable request after major loop
+                Dreq::ErqFieldClear // Auto-disable request after major loop
             });
         });
 
@@ -1334,7 +1134,7 @@ impl DmaChannel<'_> {
     #[allow(unused)]
     pub(crate) unsafe fn trigger_start(&self) {
         let t = self.tcd();
-        t.tcd_csr().modify(|w| w.set_start(Start::CHANNEL_STARTED));
+        t.tcd_csr().modify(|w| w.set_start(Start::ChannelStarted));
     }
 
     /// Get the wait cell for this channel
@@ -2302,7 +2102,7 @@ impl<'a, W: Word> ScatterGatherBuilder<'a, W> {
         cortex_m::asm::dsb();
 
         // Start the transfer
-        t.tcd_csr().modify(|w| w.set_start(Start::CHANNEL_STARTED));
+        t.tcd_csr().modify(|w| w.set_start(Start::ChannelStarted));
 
         Ok(Transfer::new(channel))
     }
