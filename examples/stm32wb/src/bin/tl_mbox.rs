@@ -46,7 +46,7 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let config = Config::default();
-    let mbox = TlMbox::init(p.IPCC, Irqs, config).await.unwrap();
+    let mbox = TlMbox::init(p.IPCC, Irqs, config);
 
     loop {
         let wireless_fw_info = mbox.sys_subsystem.wireless_fw_info();

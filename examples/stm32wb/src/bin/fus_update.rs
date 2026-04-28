@@ -51,7 +51,7 @@ async fn main(_spawner: Spawner) {
     let (rtc, _time_provider) = Rtc::new(p.RTC);
 
     let config = Config::default();
-    let mut mbox = TlMbox::init(p.IPCC, Irqs, config).await.unwrap();
+    let mut mbox = TlMbox::init(p.IPCC, Irqs, config);
 
     match mbox.sys_subsystem.wireless_fw_info() {
         None => info!("not yet initialized"),
@@ -72,7 +72,10 @@ async fn main(_spawner: Spawner) {
 
     let mut updater = FirmwareUpgrader::new(rtc, 15);
 
-    updater.boot(mbox.sys_event, &mut mbox.sys_subsystem).await.unwrap();
+    updater
+        .boot(mbox.sys_subsystem.read_ready().await.unwrap(), &mut mbox.sys_subsystem)
+        .await
+        .unwrap();
 
     Timer::after(Duration::from_secs(3)).await;
 

@@ -4,10 +4,13 @@ mod fmt;
 use core::mem::MaybeUninit;
 use core::sync::atomic::{Ordering, compiler_fence};
 
+#[cfg(any(feature = "wb55_ble", feature = "wb55_mac"))]
+use embassy_futures::select::{Either, select};
 use embassy_hal_internal::Peri;
 use embassy_stm32::interrupt;
 use embassy_stm32::ipcc::{Config, Ipcc, IpccRxChannel, ReceiveInterruptHandler, TransmitInterruptHandler};
 use embassy_stm32::peripherals::IPCC;
+use embassy_time::{Duration, with_timeout};
 use sub::mm::MemoryManager;
 use sub::sys::Sys;
 use tables::*;
@@ -29,13 +32,18 @@ pub mod mac;
 
 use crate::shci::SchiSysEventReady;
 #[cfg(feature = "wb55_ble")]
+use crate::shci::ShciBleInitCmdParam;
+#[cfg(feature = "wb55_ble")]
+use crate::sub::ble::Ble;
+#[cfg(feature = "wb55_ble")]
 pub use crate::sub::ble::hci;
+#[cfg(feature = "wb55_mac")]
+use crate::sub::mac::Mac;
 
 type PacketHeader = LinkedListNode;
 
 /// Transport Layer for the Mailbox interface
 pub struct TlMbox<'d> {
-    pub sys_event: SchiSysEventReady,
     pub sys_subsystem: Sys<'d>,
     pub mm_subsystem: MemoryManager<'d>,
     #[cfg(feature = "wb55_ble")]
@@ -74,12 +82,12 @@ impl<'d> TlMbox<'d> {
     /// be handled by `TL_BLE_Init`; see Figure 66). This completes the procedure laid out in
     /// Figure 66.
     // TODO: document what the user should do after calling init to use the mac_802_15_4 subsystem
-    pub async fn init(
+    pub fn init(
         ipcc: Peri<'d, IPCC>,
         _irqs: impl interrupt::typelevel::Binding<interrupt::typelevel::IPCC_C1_RX, ReceiveInterruptHandler>
         + interrupt::typelevel::Binding<interrupt::typelevel::IPCC_C1_TX, TransmitInterruptHandler>,
         config: Config,
-    ) -> Result<Self, ()> {
+    ) -> Self {
         // this is an inlined version of TL_Init from the STM32WB firmware as requested by AN5289.
         // HW_IPCC_Init is not called, and its purpose is (presumably?) covered by this
         // implementation
@@ -177,14 +185,9 @@ impl<'d> TlMbox<'d> {
         ] = Ipcc::new(ipcc, _irqs, config).split();
 
         let mm = sub::mm::MemoryManager::new(ipcc_mm_release_buffer_channel);
-        let mut sys = sub::sys::Sys::new(ipcc_system_cmd_rsp_channel, ipcc_system_event_channel);
+        let sys = sub::sys::Sys::new(ipcc_system_cmd_rsp_channel, ipcc_system_event_channel);
 
-        let sys_event = sys.read_ready().await?;
-
-        debug!("sys event: {}", sys_event);
-
-        Ok(Self {
-            sys_event: sys_event,
+        Self {
             sys_subsystem: sys,
             #[cfg(feature = "wb55_ble")]
             ble_subsystem: sub::ble::Ble::new(
@@ -199,6 +202,57 @@ impl<'d> TlMbox<'d> {
             ),
             mm_subsystem: mm,
             traces: _ipcc_traces_channel,
-        })
+        }
+    }
+
+    /// Initialise the Transport Layer, and waits for the ready event with a timeout
+    pub async fn wait_ready(
+        ipcc: Peri<'d, IPCC>,
+        irqs: impl interrupt::typelevel::Binding<interrupt::typelevel::IPCC_C1_RX, ReceiveInterruptHandler>
+        + interrupt::typelevel::Binding<interrupt::typelevel::IPCC_C1_TX, TransmitInterruptHandler>,
+        config: Config,
+    ) -> Result<Self, ()> {
+        let mut this = Self::init(ipcc, irqs, config);
+
+        let sys_event = with_timeout(Duration::from_millis(500), this.sys_subsystem.read_ready())
+            .await
+            .map_err(|_| ())??;
+
+        match sys_event {
+            SchiSysEventReady::WirelessFwRunning => Ok(this),
+            _ => Err(()),
+        }
+    }
+
+    #[cfg(feature = "wb55_ble")]
+    /// Initialise the BLE subsystem
+    pub async fn init_ble(mut self, param: ShciBleInitCmdParam) -> Result<(Ble<'d>, MemoryManager<'d>), ()> {
+        match select(
+            self.mm_subsystem.run_queue(),
+            self.sys_subsystem.shci_c2_ble_init(param),
+        )
+        .await
+        {
+            Either::Second(res) => res,
+            _ => unreachable!(),
+        }?;
+
+        Ok((self.ble_subsystem, self.mm_subsystem))
+    }
+
+    #[cfg(feature = "wb55_mac")]
+    /// Initialise the BLE subsystem
+    pub async fn init_mac(mut self) -> Result<(Mac<'d>, MemoryManager<'d>), ()> {
+        match select(
+            self.mm_subsystem.run_queue(),
+            self.sys_subsystem.shci_c2_mac_802_15_4_init(),
+        )
+        .await
+        {
+            Either::Second(res) => res,
+            _ => unreachable!(),
+        }?;
+
+        Ok((self.mac_subsystem, self.mm_subsystem))
     }
 }
