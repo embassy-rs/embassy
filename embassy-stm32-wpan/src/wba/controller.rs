@@ -15,7 +15,7 @@ use embassy_stm32::rng::Rng;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::zerocopy_channel;
-use stm32_bindings::ble::BleStack_Process;
+use stm32_bindings::ble::{BleStack_Process, BleStack_Request};
 use stm32wb_hci::event::Packet;
 use stm32wb_hci::{Event, event};
 
@@ -116,6 +116,7 @@ macro_rules! new_controller_state {
 
 pub struct Controller {
     receiver: zerocopy_channel::Receiver<'static, CriticalSectionRawMutex, ChannelPacket>,
+    cmd_buf: ([u8; 255], usize),
 }
 
 impl Controller {
@@ -181,16 +182,40 @@ impl Controller {
         BLE_INIT.store(true, Ordering::Release);
         BLE_INIT_WAKER.wake();
 
-        Ok(Self { receiver })
+        Ok(Self {
+            receiver,
+            cmd_buf: ([0u8; 255], 0),
+        })
     }
 
     pub async fn read_event(&mut self) -> Result<Event, event::Error> {
-        let slot = self.receiver.receive().await;
-        let event = Event::new(Packet(&slot.0[..slot.1]));
+        if self.cmd_buf.1 > 0 {
+            let event = Event::new(Packet(&self.cmd_buf.0[..self.cmd_buf.1][1..]));
 
-        slot.receive_done();
+            self.cmd_buf.1 = 0;
 
-        event
+            event
+        } else {
+            let slot = self.receiver.receive().await;
+            let event = Event::new(Packet(&slot.0[..slot.1]));
+
+            slot.receive_done();
+
+            event
+        }
+    }
+}
+
+impl stm32wb_hci::Controller for Controller {
+    async fn controller_read_into(&mut self, _buf: &mut [u8]) {
+        panic!("use `read_event` to read events")
+    }
+
+    async fn controller_write(&mut self, opcode: stm32wb_hci::Opcode, payload: &[u8]) {
+        self.cmd_buf.0[0] = 0x01;
+        self.cmd_buf.0[1..3].copy_from_slice(&opcode.0.to_le_bytes());
+        self.cmd_buf.0[3..3 + payload.len()].copy_from_slice(payload);
+        self.cmd_buf.1 = unsafe { BleStack_Request(&mut self.cmd_buf.0 as *mut u8) }.into();
     }
 }
 
