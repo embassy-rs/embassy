@@ -35,10 +35,11 @@ use embassy_stm32_wpan::bluetooth::gatt::{
     CharProperties, GattEventMask, GattServer, SecurityPermissions, ServiceType, Uuid,
 };
 use embassy_stm32_wpan::bluetooth::hci::types::DtmPacketPayload;
-use embassy_stm32_wpan::{ChannelPacket, Controller, HighInterruptHandler, LowInterruptHandler, ble_runner};
+use embassy_stm32_wpan::{
+    Controller, HighInterruptHandler, LowInterruptHandler, ble_runner, declare_controller_state, use_controller_state,
+};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::zerocopy_channel;
 use embassy_time::Timer;
 use static_cell::StaticCell;
 use stm32wb_hci::Event;
@@ -132,19 +133,19 @@ async fn main(spawner: Spawner) {
     // Spawn the BLE runner task (required for proper BLE operation)
     spawner.spawn(ble_runner_task().expect("Failed to spawn BLE runner"));
 
-    // Create BLE Event Channel
-    static EVENT_BUFFER: StaticCell<[ChannelPacket; 8]> = StaticCell::new();
-    static EVENT_CHANNEL: StaticCell<zerocopy_channel::Channel<'static, CriticalSectionRawMutex, ChannelPacket>> =
-        StaticCell::new();
-
-    let event_channel = EVENT_CHANNEL.init(zerocopy_channel::Channel::new(
-        EVENT_BUFFER.init([ChannelPacket::default(); 8]),
-    ));
+    // Create controller state
+    declare_controller_state!(EVENT_BUFFER, EVENT_CHANNEL, 8);
 
     // Initialize BLE stack
-    let controller = Controller::new(event_channel, rng, Some(aes), Some(pka), Irqs)
-        .await
-        .expect("BLE initialization failed");
+    let controller = Controller::new(
+        use_controller_state!(EVENT_BUFFER, EVENT_CHANNEL, 8),
+        rng,
+        Some(aes),
+        Some(pka),
+        Irqs,
+    )
+    .await
+    .expect("BLE initialization failed");
 
     let mut ble = Ble::new(controller).await.unwrap();
 
@@ -209,14 +210,15 @@ async fn main(spawner: Spawner) {
                 drop(ble);
 
                 // Initialize a minimal DTM-only instance (no GAP/GATT needed for DTM)
-                let event_channel = EVENT_CHANNEL.init(zerocopy_channel::Channel::new(
-                    EVENT_BUFFER.init([ChannelPacket::default(); 8]),
-                ));
-
-                // Initialize BLE stack
-                let controller = Controller::new(event_channel, rng, Some(aes), Some(pka), Irqs)
-                    .await
-                    .expect("BLE initialization failed");
+                let controller = Controller::new(
+                    use_controller_state!(EVENT_BUFFER, EVENT_CHANNEL, 8),
+                    rng,
+                    Some(aes),
+                    Some(pka),
+                    Irqs,
+                )
+                .await
+                .expect("BLE initialization failed");
 
                 let mut dtm_ble = Ble::new_dtm(controller).unwrap();
                 run_dtm_test(&mut dtm_ble, expected).await;
@@ -228,14 +230,16 @@ async fn main(spawner: Spawner) {
 
                 drop(dtm_ble);
 
-                let event_channel = EVENT_CHANNEL.init(zerocopy_channel::Channel::new(
-                    EVENT_BUFFER.init([ChannelPacket::default(); 8]),
-                ));
-
                 // Initialize BLE stack
-                let controller = Controller::new(event_channel, rng, Some(aes), Some(pka), Irqs)
-                    .await
-                    .expect("BLE initialization failed");
+                let controller = Controller::new(
+                    use_controller_state!(EVENT_BUFFER, EVENT_CHANNEL, 8),
+                    rng,
+                    Some(aes),
+                    Some(pka),
+                    Irqs,
+                )
+                .await
+                .expect("BLE initialization failed");
 
                 let new_ble = Ble::new(controller).await.unwrap();
 

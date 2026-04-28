@@ -10,7 +10,7 @@ pub mod runner;
 pub mod util_seq;
 
 // Re-export main types
-pub use controller::{ChannelPacket, Controller, HighInterruptHandler, LowInterruptHandler};
+pub use controller::{ChannelPacket, Controller, ControllerState, HighInterruptHandler, LowInterruptHandler};
 pub use linklayer_plat::set_nvm_base_address;
 pub use runner::ble_runner;
 

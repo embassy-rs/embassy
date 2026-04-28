@@ -37,10 +37,9 @@ use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
 use embassy_stm32_wpan::bluetooth::gatt::{
     CharProperties, GattEventMask, GattServer, SecurityPermissions, ServiceType, Uuid,
 };
-use embassy_stm32_wpan::{ChannelPacket, Controller, HighInterruptHandler, LowInterruptHandler, ble_runner};
+use embassy_stm32_wpan::{Controller, HighInterruptHandler, LowInterruptHandler, ble_runner, new_controller_state};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::zerocopy_channel;
 use static_cell::StaticCell;
 use stm32wb_hci::event::ConnectionRole;
 use {defmt_rtt as _, panic_probe as _};
@@ -126,17 +125,8 @@ async fn main(spawner: Spawner) {
     // Spawn the BLE runner task (required for proper BLE operation)
     spawner.spawn(ble_runner_task().expect("Failed to spawn BLE runner"));
 
-    // Create BLE Event Channel
-    static EVENT_BUFFER: StaticCell<[ChannelPacket; 8]> = StaticCell::new();
-    static EVENT_CHANNEL: StaticCell<zerocopy_channel::Channel<'static, CriticalSectionRawMutex, ChannelPacket>> =
-        StaticCell::new();
-
-    let event_channel = EVENT_CHANNEL.init(zerocopy_channel::Channel::new(
-        EVENT_BUFFER.init([ChannelPacket::default(); 8]),
-    ));
-
     // Initialize BLE stack
-    let controller = Controller::new(event_channel, rng, Some(aes), Some(pka), Irqs)
+    let controller = Controller::new(new_controller_state!(8), rng, Some(aes), Some(pka), Irqs)
         .await
         .expect("BLE initialization failed");
 

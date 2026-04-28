@@ -75,6 +75,45 @@ impl Default for ChannelPacket {
     }
 }
 
+pub struct ControllerState {
+    channel: zerocopy_channel::Channel<'static, CriticalSectionRawMutex, ChannelPacket>,
+}
+
+impl ControllerState {
+    pub fn new<const N: usize>(buf: &'static mut [ChannelPacket; N]) -> Self {
+        Self {
+            channel: zerocopy_channel::Channel::new(buf),
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! declare_controller_state {
+    ($buf:ident, $state:ident, $size:expr) => {
+        static $buf: ::static_cell::StaticCell<[::embassy_stm32_wpan::ChannelPacket; $size]> =
+            ::static_cell::StaticCell::new();
+        static $state: ::static_cell::StaticCell<::embassy_stm32_wpan::ControllerState> =
+            ::static_cell::StaticCell::new();
+    };
+}
+
+#[macro_export]
+macro_rules! use_controller_state {
+    ($buf:ident, $state:ident, $size:expr) => {{
+        $state.init(::embassy_stm32_wpan::ControllerState::new(
+            $buf.init([::embassy_stm32_wpan::ChannelPacket::default(); $size]),
+        ))
+    }};
+}
+
+#[macro_export]
+macro_rules! new_controller_state {
+    ($size:expr) => {{
+        ::embassy_stm32_wpan::declare_controller_state!(EVENT_BUFFER, EVENT_STATE, $size);
+        ::embassy_stm32_wpan::use_controller_state!(EVENT_BUFFER, EVENT_STATE, $size)
+    }};
+}
+
 pub struct Controller {
     receiver: zerocopy_channel::Receiver<'static, CriticalSectionRawMutex, ChannelPacket>,
 }
@@ -85,14 +124,14 @@ impl Controller {
     /// Requires hardware peripheral instances for RNG, AES, and PKA.
     /// These are stored in statics so the BLE stack's `extern "C"` callbacks can access them.
     pub async fn new(
-        channel: &'static mut zerocopy_channel::Channel<'static, CriticalSectionRawMutex, ChannelPacket>,
+        state: &'static mut ControllerState,
         rng: &'static Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>,
         aes: Option<&'static Mutex<CriticalSectionRawMutex, RefCell<Aes<'static, AesPeriph, Blocking>>>>,
         pka: Option<&'static Mutex<CriticalSectionRawMutex, RefCell<Pka<'static, PkaPeriph>>>>,
         _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::RADIO, HighInterruptHandler>
         + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
     ) -> Result<Self, BleError> {
-        let (sender, receiver) = channel.split();
+        let (sender, receiver) = state.channel.split();
         unsafe {
             EVENT_CHANNEL.replace(sender);
             HARDWARE_RNG.replace(rng);
