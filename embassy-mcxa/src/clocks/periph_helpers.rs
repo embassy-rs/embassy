@@ -10,7 +10,7 @@
 use super::{ClockError, Clocks, PoweredClock, WakeGuard};
 use crate::clocks::VddLevel;
 use crate::pac::mrcc::{
-    AdcClkselMux, ClkdivHalt, ClkdivReset, ClkdivUnstab, CtimerClkselMux, FclkClkselMux, Lpi2cClkselMux,
+    AdcClkselMux, ClkdivHalt, ClkdivReset, ClkdivUnstab, CtimerClkselMux, DacClkselMux, FclkClkselMux, Lpi2cClkselMux,
     LpspiClkselMux, LpuartClkselMux, OstimerClkselMux,
 };
 
@@ -341,6 +341,28 @@ impl SPConfHelper for AdcConfig {
                 reason: "exceeds max rating",
             });
         }
+
+        apply_div4!(self, clksel, clkdiv, variant, freq)
+    }
+}
+
+pub struct DacConfig {
+    pub div: Div4,
+    pub power: PoweredClock,
+}
+
+impl SPConfHelper for DacConfig {
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
+        let mrcc0 = crate::pac::MRCC0;
+
+        let clksel = mrcc0.mrcc_dac0_clksel();
+        let clkdiv = mrcc0.mrcc_dac0_clkdiv();
+        #[cfg(feature = "mcxa5xx")]
+        let variant = DacClkselMux::I2ClkrootFunc2;
+        #[cfg(feature = "mcxa2xx")]
+        let variant = DacClkselMux::ClkrootFunc2;
+        //let freq = clocks.ensure_fro_hf_active(&self.power)?;
+        let freq = clocks.ensure_fro_lf_div_active(&self.power)?;
 
         apply_div4!(self, clksel, clkdiv, variant, freq)
     }
