@@ -8,6 +8,7 @@ pub mod onewire;
 pub mod pwm;
 pub mod rotary_encoder;
 pub mod spi;
+pub mod step_dir;
 pub mod stepper;
 pub mod uart;
 pub mod ws2812;
