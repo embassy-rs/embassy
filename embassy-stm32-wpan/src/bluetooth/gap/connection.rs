@@ -3,32 +3,13 @@
 //! This module provides types and utilities for managing BLE connections.
 //! It supports both peripheral and central roles.
 
-use crate::wba::hci::types::{Address, AddressType, Handle};
+use stm32wb_hci::event::{ConnectionRole, Phy};
+use stm32wb_hci::host::OwnAddressType;
+use stm32wb_hci::types::FixedConnectionInterval;
+use stm32wb_hci::{BdAddr, BdAddrType, ConnectionHandle};
 
 /// Maximum number of simultaneous BLE connections supported
 pub const MAX_CONNECTIONS: usize = 4;
-
-/// Connection role (as reported in connection complete event)
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum ConnectionRole {
-    /// Central role - initiated the connection
-    Central = 0x00,
-    /// Peripheral role - accepted the connection
-    Peripheral = 0x01,
-}
-
-impl ConnectionRole {
-    /// Create from raw u8 value
-    pub fn from_u8(value: u8) -> Option<Self> {
-        match value {
-            0x00 => Some(ConnectionRole::Central),
-            0x01 => Some(ConnectionRole::Peripheral),
-            _ => None,
-        }
-    }
-}
 
 /// Physical layer type for BLE connections
 #[repr(u8)]
@@ -112,10 +93,8 @@ pub struct ConnectionInitParams {
     pub scan_window: u16,
     /// Use filter accept list instead of peer address
     pub use_filter_accept_list: bool,
-    /// Peer address type
-    pub peer_address_type: AddressType,
     /// Peer address
-    pub peer_address: Address,
+    pub peer_address: BdAddrType,
     /// Own address type
     pub own_address_type: OwnAddressType,
     /// Minimum connection interval in units of 1.25ms
@@ -132,16 +111,13 @@ pub struct ConnectionInitParams {
     pub max_ce_length: u16,
 }
 
-use crate::wba::gap::types::OwnAddressType;
-
 impl Default for ConnectionInitParams {
     fn default() -> Self {
         Self {
             scan_interval: 0x0010, // 10ms
             scan_window: 0x0010,   // 10ms
             use_filter_accept_list: false,
-            peer_address_type: AddressType::Public,
-            peer_address: Address::new([0; 6]),
+            peer_address: BdAddrType::Public(BdAddr([0; 6])),
             own_address_type: OwnAddressType::Public,
             conn_interval_min: 0x0018, // 30ms
             conn_interval_max: 0x0028, // 50ms
@@ -160,25 +136,23 @@ impl Default for ConnectionInitParams {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Connection {
     /// Connection handle assigned by the controller
-    pub handle: Handle,
+    pub handle: ConnectionHandle,
     /// Role in this connection
     pub role: ConnectionRole,
-    /// Peer device address type
-    pub peer_address_type: AddressType,
     /// Peer device address
-    pub peer_address: Address,
+    pub peer_address: BdAddrType,
     /// Local resolvable private address (if used)
-    pub local_rpa: Option<Address>,
+    pub local_rpa: Option<BdAddr>,
     /// Peer resolvable private address (if used)
-    pub peer_rpa: Option<Address>,
+    pub peer_rpa: Option<BdAddr>,
     /// Current ATT MTU size
     pub mtu: u16,
     /// Connection parameters
-    pub params: ConnectionParams,
+    pub interval: FixedConnectionInterval,
     /// TX PHY
-    pub tx_phy: LePhy,
+    pub tx_phy: Phy,
     /// RX PHY
-    pub rx_phy: LePhy,
+    pub rx_phy: Phy,
     /// Whether this connection is encrypted
     pub encrypted: bool,
 }
@@ -186,44 +160,33 @@ pub struct Connection {
 impl Connection {
     /// Create a new connection from connection complete event data
     pub fn new(
-        handle: Handle,
+        handle: ConnectionHandle,
         role: ConnectionRole,
-        peer_address_type: AddressType,
-        peer_address: Address,
-        conn_interval: u16,
-        conn_latency: u16,
-        supervision_timeout: u16,
+        peer_address: BdAddrType,
+        conn_interval: FixedConnectionInterval,
     ) -> Self {
         Self {
             handle,
             role,
-            peer_address_type,
             peer_address,
             local_rpa: None,
             peer_rpa: None,
             mtu: 23, // Default ATT MTU
-            params: ConnectionParams {
-                interval: conn_interval,
-                latency: conn_latency,
-                supervision_timeout,
-            },
-            tx_phy: LePhy::Phy1M,
-            rx_phy: LePhy::Phy1M,
+            interval: conn_interval,
+            tx_phy: Phy::Le1M,
+            rx_phy: Phy::Le2M,
             encrypted: false,
         }
     }
 
     /// Create from enhanced connection complete event (includes RPA)
     pub fn new_enhanced(
-        handle: Handle,
+        handle: ConnectionHandle,
         role: ConnectionRole,
-        peer_address_type: AddressType,
-        peer_address: Address,
-        local_rpa: Address,
-        peer_rpa: Address,
-        conn_interval: u16,
-        conn_latency: u16,
-        supervision_timeout: u16,
+        peer_address: BdAddrType,
+        local_rpa: BdAddr,
+        peer_rpa: BdAddr,
+        conn_interval: FixedConnectionInterval,
     ) -> Self {
         let local_rpa_opt = if local_rpa.0 != [0; 6] { Some(local_rpa) } else { None };
         let peer_rpa_opt = if peer_rpa.0 != [0; 6] { Some(peer_rpa) } else { None };
@@ -231,27 +194,20 @@ impl Connection {
         Self {
             handle,
             role,
-            peer_address_type,
             peer_address,
             local_rpa: local_rpa_opt,
             peer_rpa: peer_rpa_opt,
             mtu: 23,
-            params: ConnectionParams {
-                interval: conn_interval,
-                latency: conn_latency,
-                supervision_timeout,
-            },
-            tx_phy: LePhy::Phy1M,
-            rx_phy: LePhy::Phy1M,
+            interval: conn_interval,
+            tx_phy: Phy::Le1M,
+            rx_phy: Phy::Le1M,
             encrypted: false,
         }
     }
 
     /// Update connection parameters
-    pub fn update_params(&mut self, interval: u16, latency: u16, supervision_timeout: u16) {
-        self.params.interval = interval;
-        self.params.latency = latency;
-        self.params.supervision_timeout = supervision_timeout;
+    pub fn update_interval(&mut self, conn_interval: FixedConnectionInterval) {
+        self.interval = conn_interval
     }
 
     /// Update MTU
@@ -260,7 +216,7 @@ impl Connection {
     }
 
     /// Update PHY
-    pub fn update_phy(&mut self, tx_phy: LePhy, rx_phy: LePhy) {
+    pub fn update_phy(&mut self, tx_phy: Phy, rx_phy: Phy) {
         self.tx_phy = tx_phy;
         self.rx_phy = rx_phy;
     }
@@ -302,7 +258,7 @@ impl<const N: usize> ConnectionManager<N> {
     }
 
     /// Get a connection by its handle
-    pub fn get_by_handle(&self, handle: Handle) -> Option<&Connection> {
+    pub fn get_by_handle(&self, handle: ConnectionHandle) -> Option<&Connection> {
         self.connections
             .iter()
             .filter_map(|c| c.as_ref())
@@ -310,7 +266,7 @@ impl<const N: usize> ConnectionManager<N> {
     }
 
     /// Get a mutable connection by its handle
-    pub fn get_by_handle_mut(&mut self, handle: Handle) -> Option<&mut Connection> {
+    pub fn get_by_handle_mut(&mut self, handle: ConnectionHandle) -> Option<&mut Connection> {
         self.connections
             .iter_mut()
             .filter_map(|c| c.as_mut())
@@ -318,7 +274,7 @@ impl<const N: usize> ConnectionManager<N> {
     }
 
     /// Get a connection by peer address
-    pub fn get_by_address(&self, address: &Address) -> Option<&Connection> {
+    pub fn get_by_address(&self, address: &BdAddrType) -> Option<&Connection> {
         self.connections
             .iter()
             .filter_map(|c| c.as_ref())
@@ -328,7 +284,7 @@ impl<const N: usize> ConnectionManager<N> {
     /// Remove a connection by its handle
     ///
     /// Returns the removed connection if it existed.
-    pub fn remove(&mut self, handle: Handle) -> Option<Connection> {
+    pub fn remove(&mut self, handle: ConnectionHandle) -> Option<Connection> {
         for slot in self.connections.iter_mut() {
             if let Some(conn) = slot {
                 if conn.handle == handle {
@@ -381,7 +337,7 @@ pub enum GapEvent {
     /// A connection has been terminated
     Disconnected {
         /// Handle of the terminated connection
-        handle: Handle,
+        handle: ConnectionHandle,
         /// Reason for disconnection
         reason: u8,
     },
@@ -389,29 +345,25 @@ pub enum GapEvent {
     /// Connection parameters have been updated
     ConnectionParamsUpdated {
         /// Connection handle
-        handle: Handle,
+        handle: ConnectionHandle,
         /// New connection interval
-        interval: u16,
-        /// New slave latency
-        latency: u16,
-        /// New supervision timeout
-        supervision_timeout: u16,
+        interval: FixedConnectionInterval,
     },
 
     /// PHY has been updated
     PhyUpdated {
         /// Connection handle
-        handle: Handle,
+        handle: ConnectionHandle,
         /// New TX PHY
-        tx_phy: LePhy,
+        tx_phy: Phy,
         /// New RX PHY
-        rx_phy: LePhy,
+        rx_phy: Phy,
     },
 
     /// Data length has changed
     DataLengthChanged {
         /// Connection handle
-        handle: Handle,
+        handle: ConnectionHandle,
         /// Maximum TX octets
         max_tx_octets: u16,
         /// Maximum TX time in microseconds

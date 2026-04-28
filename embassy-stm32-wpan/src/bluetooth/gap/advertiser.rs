@@ -6,8 +6,8 @@
 
 use super::aci_gap::{ADV_DIRECT_IND, ADV_DIRECT_IND_LOW_DUTY, ADV_IND, ADV_NONCONN_IND, ADV_SCAN_IND};
 use super::types::{AdvData, AdvParams, AdvType};
-use crate::wba::error::BleError;
-use crate::wba::hci::command::CommandSender;
+use crate::bluetooth::error::BleError;
+use crate::bluetooth::hci::CommandSender;
 
 /// Configure advertising parameters and data in the host stack.
 ///

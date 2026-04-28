@@ -30,12 +30,14 @@ use embassy_stm32::rcc::{
 use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{Config, bind_interrupts};
-use embassy_stm32_wpan::gap::{ParsedAdvData, ScanParams, ScanType};
-use embassy_stm32_wpan::hci::event::EventParams;
-use embassy_stm32_wpan::{Ble, HighInterruptHandler, LowInterruptHandler, ble_runner};
+use embassy_stm32_wpan::bluetooth::ble::Ble;
+use embassy_stm32_wpan::bluetooth::gap::{ParsedAdvData, ScanParams, ScanType};
+use embassy_stm32_wpan::{ChannelPacket, Controller, HighInterruptHandler, LowInterruptHandler, ble_runner};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::zerocopy_channel;
 use static_cell::StaticCell;
+use stm32wb_hci::Event;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -121,8 +123,21 @@ async fn main(spawner: Spawner) {
     // Spawn the BLE runner task (required for proper BLE operation)
     spawner.spawn(ble_runner_task().expect("Failed to spawn BLE runner"));
 
+    // Create BLE Event Channel
+    static EVENT_BUFFER: StaticCell<[ChannelPacket; 8]> = StaticCell::new();
+    static EVENT_CHANNEL: StaticCell<zerocopy_channel::Channel<'static, CriticalSectionRawMutex, ChannelPacket>> =
+        StaticCell::new();
+
+    let event_channel = EVENT_CHANNEL.init(zerocopy_channel::Channel::new(
+        EVENT_BUFFER.init([ChannelPacket::default(); 8]),
+    ));
+
     // Initialize BLE stack
-    let (ble, _runtime) = Ble::new(rng, aes, pka, Irqs).await.expect("BLE initialization failed");
+    let controller = Controller::new(event_channel, rng, Some(aes), Some(pka), Irqs)
+        .await
+        .expect("BLE initialization failed");
+
+    let mut ble = Ble::new(controller).await.unwrap();
     info!("BLE stack initialized");
 
     // Configure scan parameters
@@ -148,7 +163,7 @@ async fn main(spawner: Spawner) {
         let event = ble.read_event().await;
 
         // Check for advertising reports
-        if let EventParams::LeAdvertisingReport { reports } = &event.params {
+        if let Event::LeAdvertisingReport(reports) = &event {
             for report in reports.iter() {
                 device_count += 1;
 
@@ -158,22 +173,13 @@ async fn main(spawner: Spawner) {
                 info!("--- Device #{} ---", device_count);
 
                 // Display device address
-                info!(
-                    "  Address: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X} ({})",
-                    report.address.0[5],
-                    report.address.0[4],
-                    report.address.0[3],
-                    report.address.0[2],
-                    report.address.0[1],
-                    report.address.0[0],
-                    address_type_str(report.address_type)
-                );
+                info!("  Address: {}", report.address);
 
                 // Display RSSI
                 info!("  RSSI: {} dBm", report.rssi);
 
                 // Display event type
-                info!("  Type: {}", adv_event_type_str(report.event_type));
+                info!("  Type: {}", report.event_type);
 
                 // Display parsed name if available
                 if let Some(name) = parsed.name {
@@ -235,28 +241,6 @@ async fn main(spawner: Spawner) {
                 info!("");
             }
         }
-    }
-}
-
-/// Convert address type to string
-fn address_type_str(addr_type: embassy_stm32_wpan::hci::types::AddressType) -> &'static str {
-    match addr_type {
-        embassy_stm32_wpan::hci::types::AddressType::Public => "Public",
-        embassy_stm32_wpan::hci::types::AddressType::Random => "Random",
-        embassy_stm32_wpan::hci::types::AddressType::PublicIdentity => "Public Identity",
-        embassy_stm32_wpan::hci::types::AddressType::RandomIdentity => "Random Identity",
-    }
-}
-
-/// Convert advertising event type to string
-fn adv_event_type_str(event_type: u8) -> &'static str {
-    match event_type {
-        0x00 => "Connectable Undirected",
-        0x01 => "Connectable Directed",
-        0x02 => "Scannable Undirected",
-        0x03 => "Non-Connectable Undirected",
-        0x04 => "Scan Response",
-        _ => "Unknown",
     }
 }
 

@@ -6,7 +6,18 @@
 use core::ptr;
 
 // Event delivery is handled by BLECB_Indication (linklayer_plat.rs), not here.
-use crate::bindings::link_layer::ble_buff_hdr_t;
+use crate::util_seq;
+use crate::wba::bindings::link_layer::ble_buff_hdr_t;
+use crate::wba::bindings::mac;
+
+// Task ID for BLE Host processing (next available after CFG_TASK_NBR=9)
+pub const CFG_TASK_BLE_HOST: u32 = 9;
+pub const TASK_BLE_HOST_MASK: u32 = 1 << CFG_TASK_BLE_HOST;
+pub const TASK_PRIO_BLE_HOST: u32 = 0; // CFG_SEQ_PRIO_0
+// Link Layer background task
+pub const TASK_LINK_LAYER_MASK: u32 = 1 << mac::CFG_TASK_ID_T_CFG_TASK_LINK_LAYER;
+
+pub const MAX_BLE_PKT_SIZE: usize = 280;
 
 /// Static buffer for receiving HCI event packets from C layer
 /// Maximum HCI event packet size is 257 bytes (1 byte event code + 1 byte length + up to 255 bytes data)
@@ -48,6 +59,8 @@ pub unsafe extern "C" fn hci_host_callback(ptr_evnt_hdr: *mut ble_buff_hdr_t) ->
         return 1;
     }
 
+    // TODO: it appears HCI_EVENT_BUFFER is never read
+
     // Copy event data to our buffer
     ptr::copy_nonoverlapping(data_ptr, HCI_EVENT_BUFFER.as_mut_ptr(), data_len as usize);
     HCI_EVENT_LEN = data_len;
@@ -75,7 +88,7 @@ pub unsafe extern "C" fn HostStack_Process() {
 
     // Schedule BLE Host task to process events (matches ST's BleStackCB_Process)
     // This is CRITICAL - it's what keeps BleStack_Process running!
-    crate::wba::runner::schedule_ble_host_task();
+    util_seq::UTIL_SEQ_SetTask(TASK_BLE_HOST_MASK, TASK_PRIO_BLE_HOST);
 }
 
 // Note: For WBA, the callback mechanism above is the primary event delivery method.

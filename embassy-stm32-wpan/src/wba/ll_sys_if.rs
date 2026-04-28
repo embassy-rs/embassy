@@ -345,7 +345,10 @@ const TASK_PRIO_LINK_LAYER: u32 = mac::CFG_SEQ_PRIO_ID_T_CFG_SEQ_PRIO_0 as u32;
  */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ll_sys_bg_process_init() {
-    util_seq::UTIL_SEQ_RegTask(TASK_LINK_LAYER_MASK, UTIL_SEQ_RFU, Some(link_layer::ll_sys_bg_process));
+    unsafe extern "C" fn bg_process_wrapper() {
+        link_layer::ll_sys_bg_process();
+    }
+    util_seq::UTIL_SEQ_RegTask(TASK_LINK_LAYER_MASK, UTIL_SEQ_RFU, Some(bg_process_wrapper));
 }
 
 /**

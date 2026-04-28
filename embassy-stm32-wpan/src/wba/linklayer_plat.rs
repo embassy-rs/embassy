@@ -92,10 +92,13 @@ use embassy_stm32::pka::{EccPoint, EcdsaCurveParams, Pka};
 use embassy_stm32::rng::Rng;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::zerocopy_channel;
 use embassy_time::{Duration, Instant, block_for};
 
-use crate::bindings::{link_layer, mac};
-use crate::runner;
+use crate::controller::ChannelPacket;
+use crate::host_if::{TASK_BLE_HOST_MASK, TASK_PRIO_BLE_HOST};
+use crate::util_seq;
+use crate::wba::bindings::{link_layer, mac};
 
 // RADIO interrupt numbers for STM32WBA
 // RADIO interrupt is position 66
@@ -157,6 +160,9 @@ pub(crate) static mut HARDWARE_AES: Option<
     &'static Mutex<CriticalSectionRawMutex, RefCell<Aes<'static, AesPeriph, Blocking>>>,
 > = None;
 pub(crate) static mut HARDWARE_PKA: Option<&'static Mutex<CriticalSectionRawMutex, RefCell<Pka<'static, PkaPeriph>>>> =
+    None;
+
+pub(crate) static mut EVENT_CHANNEL: Option<zerocopy_channel::Sender<'static, CriticalSectionRawMutex, ChannelPacket>> =
     None;
 
 // ============================================================================
@@ -583,7 +589,7 @@ pub(crate) unsafe fn run_radio_high_isr() {
         cb();
     }
     // Wake the BLE runner task to process any resulting events
-    runner::on_radio_interrupt();
+    util_seq::seq_pend();
 }
 
 pub(crate) unsafe fn run_radio_sw_low_isr() {
@@ -600,7 +606,7 @@ pub(crate) unsafe fn run_radio_sw_low_isr() {
     }
 
     // Wake the BLE runner task to process any resulting events
-    runner::on_radio_interrupt();
+    util_seq::seq_pend();
 }
 
 // /**
@@ -1896,7 +1902,7 @@ pub unsafe extern "C" fn BLECB_Indication(data: *const u8, length: u16, _ext_dat
 
     // Schedule BLE host task processing after disconnect so the runner wakes
     if evt_code == 0x05 {
-        super::runner::schedule_ble_host_task();
+        util_seq::UTIL_SEQ_SetTask(TASK_BLE_HOST_MASK, TASK_PRIO_BLE_HOST);
     }
 
     // Parse and queue the event for processing.
@@ -1907,16 +1913,14 @@ pub unsafe extern "C" fn BLECB_Indication(data: *const u8, length: u16, _ext_dat
     } else {
         event_data
     };
-    if let Some(event) = super::hci::event::Event::parse(parse_data) {
-        match super::hci::event::try_send_event(event) {
-            Ok(_) => {
-                super::runner::schedule_ble_host_task();
-            }
-            Err(_) => {
-                warn!("Event queue full, dropping event");
-            }
-        }
-    }
+
+    let Some(mut slot) = unsafe { EVENT_CHANNEL.as_mut() }.unwrap().try_send() else {
+        return 0;
+    };
+
+    slot.0.copy_from_slice(parse_data);
+    slot.1 = parse_data.len();
+    slot.send_done();
 
     0 // Success
 }

@@ -3,8 +3,8 @@
 //! Higher-level GAP functions that use ACI (Application Command Interface)
 //! instead of raw HCI commands. These provide more integrated functionality.
 
-use crate::wba::error::BleError;
-use crate::wba::hci::types::Status;
+use crate::bluetooth::error::BleError;
+use crate::bluetooth::hci::Status;
 
 #[allow(non_camel_case_types)]
 type tBleStatus = u8;

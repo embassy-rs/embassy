@@ -1,11 +1,11 @@
 #[cfg(feature = "wba_ble")]
-use crate::bindings::ble::{BleStack_Init, BleStack_init_t, tBleStatus};
-use crate::bindings::link_layer::{
+use crate::wba::bindings::ble::{BleStack_Init, BleStack_init_t, tBleStatus};
+use crate::wba::bindings::link_layer::{
     LL_SYS_STATUS_T_LL_SYS_OK, ll_sys_assert, ll_sys_bg_process_init, ll_sys_config_params, ll_sys_dp_slp_init,
     ll_sys_status_t,
 };
 #[cfg(feature = "wba_ble")]
-use crate::bindings::link_layer::{
+use crate::wba::bindings::link_layer::{
     ble_buff_hdr_p, hci_dispatch_tbl, hci_get_dis_tbl, hst_cbk, ll_intf_init, ll_intf_rgstr_hst_cbk,
     ll_intf_rgstr_hst_cbk_ll_queue_full,
 };

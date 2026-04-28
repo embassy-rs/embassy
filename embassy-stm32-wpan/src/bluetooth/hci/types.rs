@@ -148,47 +148,6 @@ impl Status {
     }
 }
 
-/// BLE Address Type
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum AddressType {
-    Public = 0x00,
-    Random = 0x01,
-    PublicIdentity = 0x02,
-    RandomIdentity = 0x03,
-}
-
-/// BLE Address (6 bytes)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Address(pub [u8; 6]);
-
-impl Address {
-    pub const fn new(bytes: [u8; 6]) -> Self {
-        Self(bytes)
-    }
-
-    pub fn as_bytes(&self) -> &[u8; 6] {
-        &self.0
-    }
-}
-
-/// Connection Handle (12-bit value)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Handle(pub u16);
-
-impl Handle {
-    pub const fn new(handle: u16) -> Self {
-        Self(handle & 0x0FFF)
-    }
-
-    pub fn as_u16(&self) -> u16 {
-        self.0
-    }
-}
-
 /// Advertising Type
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -203,17 +162,6 @@ pub enum AdvType {
     NonConnectableUndirected = 0x03,
     /// Connectable low duty cycle directed advertising
     ConnectableDirectedLowDutyCycle = 0x04,
-}
-
-/// Own Address Type for advertising/scanning
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum OwnAddressType {
-    Public = 0x00,
-    Random = 0x01,
-    ResolvableOrPublic = 0x02,
-    ResolvableOrRandom = 0x03,
 }
 
 /// Advertising Filter Policy

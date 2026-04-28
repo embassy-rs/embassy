@@ -1,9 +1,10 @@
 //! GAP types and constants
 
-use crate::wba::error::BleError;
 // Re-export HCI types for convenience
-pub use crate::wba::hci::types::OwnAddressType;
-use crate::wba::hci::types::{AdvFilterPolicy, AdvType as HciAdvType};
+pub use stm32wb_hci::host::OwnAddressType;
+
+use crate::bluetooth::error::BleError;
+use crate::bluetooth::hci::AdvFilterPolicy;
 
 /// Advertising type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -19,18 +20,6 @@ pub enum AdvType {
     NonConnectableUndirected,
     /// Connectable directed advertising (low duty cycle)
     ConnectableDirectedLowDuty,
-}
-
-impl From<AdvType> for HciAdvType {
-    fn from(adv_type: AdvType) -> Self {
-        match adv_type {
-            AdvType::ConnectableUndirected => HciAdvType::ConnectableUndirected,
-            AdvType::ConnectableDirectedHighDuty => HciAdvType::ConnectableDirectedHighDutyCycle,
-            AdvType::ScannableUndirected => HciAdvType::ScannableUndirected,
-            AdvType::NonConnectableUndirected => HciAdvType::NonConnectableUndirected,
-            AdvType::ConnectableDirectedLowDuty => HciAdvType::ConnectableDirectedLowDutyCycle,
-        }
-    }
 }
 
 /// Advertising parameters
