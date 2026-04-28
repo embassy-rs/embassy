@@ -1105,10 +1105,17 @@ impl<'d, PIO: Instance> Common<'d, PIO> {
                 // PIO does support that. with only 32 instruction slots it
                 // doesn't make much sense to do anything more fancy.
                 let mut origin = 0;
-                while origin < 32 {
+                loop {
                     match self.try_load_program_at(prog, origin as _) {
                         Ok(r) => return Ok(r),
-                        Err(a) => origin = a + 1,
+                        Err(addr_in_use) => {
+                            if addr_in_use < origin {
+                                // wrapped around, theres no more space
+                                break;
+                            }
+
+                            origin = addr_in_use + 1;
+                        }
                     }
                 }
                 Err(LoadError::InsufficientSpace)
