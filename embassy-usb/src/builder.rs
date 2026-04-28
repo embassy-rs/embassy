@@ -20,7 +20,7 @@ pub enum UsbVersion {
     TwoOne = 0x0210,
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 /// The fastest speed the device configuration supports.
 pub enum UsbDeviceSpeed {
