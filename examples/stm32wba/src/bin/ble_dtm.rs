@@ -31,10 +31,9 @@ use embassy_stm32::{Config, bind_interrupts, exti, interrupt};
 use embassy_stm32_wpan::bluetooth::ble::Ble;
 use embassy_stm32_wpan::bluetooth::hci::command::{le_receiver_test, le_test_end, le_transmitter_test};
 use embassy_stm32_wpan::bluetooth::hci::types::DtmPacketPayload;
-use embassy_stm32_wpan::{ChannelPacket, Controller, HighInterruptHandler, LowInterruptHandler};
+use embassy_stm32_wpan::{Controller, HighInterruptHandler, LowInterruptHandler, new_controller_state};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::zerocopy_channel;
 use embassy_time::Timer;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
@@ -123,17 +122,8 @@ async fn main(_spawner: Spawner) {
 
     info!("Hardware peripherals initialized (RNG)");
 
-    // Create BLE Event Channel
-    static EVENT_BUFFER: StaticCell<[ChannelPacket; 8]> = StaticCell::new();
-    static EVENT_CHANNEL: StaticCell<zerocopy_channel::Channel<'static, CriticalSectionRawMutex, ChannelPacket>> =
-        StaticCell::new();
-
-    let event_channel = EVENT_CHANNEL.init(zerocopy_channel::Channel::new(
-        EVENT_BUFFER.init([ChannelPacket::default(); 8]),
-    ));
-
     // Initialize BLE stack
-    let controller = Controller::new(event_channel, rng, None, None, Irqs)
+    let controller = Controller::new(new_controller_state!(8), rng, None, None, Irqs)
         .await
         .expect("BLE initialization failed");
 
