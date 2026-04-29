@@ -12,8 +12,8 @@ use embassy_stm32::mode::Blocking;
 use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph, RNG};
 use embassy_stm32::pka::Pka;
 use embassy_stm32::rng::Rng;
-use embassy_sync::blocking_mutex::Mutex;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
+use embassy_sync::blocking_mutex::{Mutex, NoopMutex};
 use embassy_sync::zerocopy_channel;
 use stm32_bindings::ble::{BleStack_Process, BleStack_Request};
 use stm32wb_hci::event::Packet;
@@ -232,13 +232,25 @@ impl stm32wb_hci::Controller for Controller {
     }
 }
 
+pub struct AtomicController {
+    controller: NoopMutex<RefCell<Controller>>,
+}
+
+impl AtomicController {
+    pub const fn new(controller: Controller) -> Self {
+        Self {
+            controller: Mutex::const_new(NoopRawMutex::new(), RefCell::new(controller)),
+        }
+    }
+}
+
 #[cfg(feature = "bt-hci")]
-impl embedded_io::ErrorType for Controller {
+impl embedded_io::ErrorType for AtomicController {
     type Error = embedded_io::ErrorKind;
 }
 
 #[cfg(feature = "bt-hci")]
-impl bt_hci::controller::Controller for Controller {
+impl bt_hci::controller::Controller for AtomicController {
     async fn write_acl_data(&self, _packet: &bt_hci::data::AclPacket<'_>) -> Result<(), Self::Error> {
         todo!()
     }
@@ -257,23 +269,35 @@ impl bt_hci::controller::Controller for Controller {
 }
 
 #[cfg(feature = "bt-hci")]
-impl<C> bt_hci::controller::ControllerCmdSync<C> for Controller
+impl<C> bt_hci::controller::ControllerCmdSync<C> for AtomicController
 where
     C: bt_hci::cmd::SyncCmd,
 {
-    async fn exec(&self, _cmd: &C) -> Result<C::Return, bt_hci::cmd::Error<Self::Error>> {
+    async fn exec(&self, cmd: &C) -> Result<C::Return, bt_hci::cmd::Error<Self::Error>> {
+        let mut controller = self.controller.borrow().borrow_mut();
+
         // TODO: execute this directly
+
+        use bt_hci::transport::WithIndicator;
+        use bt_hci::{WriteHci, cmd};
+        use embedded_io::ErrorKind;
+
+        WithIndicator::new(cmd)
+            .write_hci(&mut controller.cmd_buf.0[..])
+            .map_err(|_| cmd::Error::Io(ErrorKind::InvalidData))?;
 
         todo!()
     }
 }
 
 #[cfg(feature = "bt-hci")]
-impl<C> bt_hci::controller::ControllerCmdAsync<C> for Controller
+impl<C> bt_hci::controller::ControllerCmdAsync<C> for AtomicController
 where
     C: bt_hci::cmd::AsyncCmd,
 {
     async fn exec(&self, _cmd: &C) -> Result<(), bt_hci::cmd::Error<Self::Error>> {
+        let mut _controller = self.controller.borrow().borrow_mut();
+
         // TODO: execute this and then wait for a command complete event from the channel
 
         todo!()
