@@ -704,20 +704,21 @@ impl HCI<Test> {
 }
 
 impl<M: Mode> HCI<M> {
-    /// Fully tear down the BLE stack so that `Ble::new()` can be safely called again.
+    /// Fully tear down the BLE stack and return the controller state.
     ///
     /// Terminates all connections, resets the HCI controller (which resets the radio
     /// hardware to its initial state), and zeroes the host stack memory buffers so
-    /// `init_ble_stack()` can reinitialize cleanly on the next `Ble::new()` call.
+    /// `init_ble_stack()` can reinitialize cleanly on the next `HCI::new()` call.
     ///
-    /// After this returns, drop `Ble` and call `Ble::new().await` to reinitialize, then
-    /// rebuild any GATT services and restart advertising.
+    /// The returned `&'static mut ControllerState` can be passed directly to the next
+    /// `HCI::new()` or `HCI::new_dtm()` call, enabling multiple DTM cycles per boot
+    /// without re-initializing the underlying static buffers.
     ///
     /// # Returns
     ///
-    /// - `Ok(())` on success
+    /// - `Ok(&'static mut ControllerState)` on success
     /// - `Err(BleError)` if the HCI reset failed
-    pub fn deinit(&mut self) -> Result<(), BleError> {
+    pub fn deinit(mut self) -> Result<&'static mut ControllerState, BleError> {
         // Terminate all active connections cleanly
         for conn in self.connections.iter() {
             // 0x16 = "local host terminated connection"
@@ -729,7 +730,7 @@ impl<M: Mode> HCI<M> {
         self.cmd_sender.reset()?;
 
         self.is_advertising = false;
-        Ok(())
+        Ok(self.controller.release_state())
     }
 
     /// Read the next BLE event

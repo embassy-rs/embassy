@@ -115,6 +115,7 @@ macro_rules! new_controller_state {
 }
 
 pub struct Controller {
+    state_ptr: *mut ControllerState,
     receiver: zerocopy_channel::Receiver<'static, CriticalSectionRawMutex, ChannelPacket>,
     cmd_buf: ([u8; 255], usize),
 }
@@ -132,6 +133,7 @@ impl Controller {
         _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::RADIO, HighInterruptHandler>
         + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
     ) -> Result<Self, BleError> {
+        let state_ptr = state as *mut ControllerState;
         let (sender, receiver) = state.channel.split();
         unsafe {
             EVENT_CHANNEL.replace(sender);
@@ -183,9 +185,20 @@ impl Controller {
         BLE_INIT_WAKER.wake();
 
         Ok(Self {
+            state_ptr,
             receiver,
             cmd_buf: ([0u8; 255], 0),
         })
+    }
+
+    /// Consume the controller and return the controller state so it can be
+    /// passed to the next `HCI::new()` or `HCI::new_dtm()` call.
+    pub(crate) fn release_state(self) -> &'static mut ControllerState {
+        let ptr = self.state_ptr;
+        // Drop self first — runs Drop (reset_ble_stack) and drops receiver —
+        // so no references into *ptr exist before we reconstruct the &'static mut.
+        drop(self);
+        unsafe { &mut *ptr }
     }
 
     pub async fn read_event(&mut self) -> Result<Event, event::Error> {

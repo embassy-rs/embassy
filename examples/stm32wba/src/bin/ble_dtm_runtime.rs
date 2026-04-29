@@ -34,7 +34,7 @@ use embassy_stm32_wpan::bluetooth::gatt::{CharProperties, GattEventMask, Securit
 use embassy_stm32_wpan::bluetooth::hci::types::DtmPacketPayload;
 use embassy_stm32_wpan::bluetooth::{HCI, Normal, Test};
 use embassy_stm32_wpan::{
-    HighInterruptHandler, LowInterruptHandler, ble_runner, declare_controller_state, use_controller_state,
+    ControllerState, HighInterruptHandler, LowInterruptHandler, ble_runner, new_controller_state,
 };
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -131,19 +131,11 @@ async fn main(spawner: Spawner) {
     // Spawn the BLE runner task (required for proper BLE operation)
     spawner.spawn(ble_runner_task().expect("Failed to spawn BLE runner"));
 
-    // Create controller state
-    declare_controller_state!(EVENT_BUFFER, EVENT_CHANNEL, 8);
-
-    // Initialize BLE stack
-    let mut ble = HCI::new(
-        use_controller_state!(EVENT_BUFFER, EVENT_CHANNEL, 8),
-        rng,
-        aes,
-        pka,
-        Irqs,
-    )
-    .await
-    .expect("BLE initialization failed");
+    // Initialize BLE stack — state is stored and passed through each reinit
+    let mut state: &'static mut ControllerState = new_controller_state!(8);
+    let mut ble = HCI::new(state, rng, aes, pka, Irqs)
+        .await
+        .expect("BLE initialization failed");
 
     info!("BLE stack initialized");
 
@@ -200,35 +192,22 @@ async fn main(spawner: Spawner) {
                 info!("Button pressed — entering DTM mode");
 
                 // deinit terminates connections and advertising via hci_reset(),
-                // leaving the LL in a clean idle state regardless of current BLE state.
-                ble.deinit().expect("deinit failed");
-
-                drop(ble);
+                // leaving the LL in a clean idle state. State is returned so it
+                // can be passed directly to the next HCI instance.
+                state = ble.deinit().expect("deinit failed");
 
                 // Initialize a minimal DTM-only instance (no GAP/GATT needed for DTM)
-                let mut dtm_ble = HCI::new_dtm(use_controller_state!(EVENT_BUFFER, EVENT_CHANNEL, 8), rng, Irqs)
-                    .await
-                    .expect("BLE initialization failed");
+                let mut dtm_ble = HCI::new_dtm(state, rng, Irqs).await.expect("DTM initialization failed");
 
                 run_dtm_test(&mut dtm_ble, expected).await;
 
                 // Deinit the DTM instance — resets radio hardware so PhyStartClbr
                 // succeeds when advertising is configured after full BLE reinit.
                 info!("DTM done — reinitializing BLE stack");
-                dtm_ble.deinit().expect("deinit after DTM failed");
+                state = dtm_ble.deinit().expect("deinit after DTM failed");
 
-                drop(dtm_ble);
-
-                // Initialize BLE stack
-                ble = HCI::new(
-                    use_controller_state!(EVENT_BUFFER, EVENT_CHANNEL, 8),
-                    rng,
-                    aes,
-                    pka,
-                    Irqs,
-                )
-                .await
-                .expect("BLE initialization failed");
+                // Reinitialize full BLE stack with the same state
+                ble = HCI::new(state, rng, aes, pka, Irqs).await.expect("BLE reinit failed");
 
                 // Rebuild GATT services (cleared by hci_reset inside deinit)
                 let mut gatt = ble.gatt_server();
