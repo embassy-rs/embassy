@@ -197,9 +197,7 @@ async fn main(spawner: Spawner) {
                 state = ble.deinit().expect("deinit failed");
 
                 // Initialize a minimal DTM-only instance (no GAP/GATT needed for DTM)
-                let mut dtm_ble = HCI::new_dtm(state, rng, Irqs)
-                    .await
-                    .expect("DTM initialization failed");
+                let mut dtm_ble = HCI::new_dtm(state, rng, Irqs).await.expect("DTM initialization failed");
 
                 run_dtm_test(&mut dtm_ble, expected).await;
 
@@ -209,9 +207,7 @@ async fn main(spawner: Spawner) {
                 state = dtm_ble.deinit().expect("deinit after DTM failed");
 
                 // Reinitialize full BLE stack with the same state
-                ble = HCI::new(state, rng, aes, pka, Irqs)
-                    .await
-                    .expect("BLE reinit failed");
+                ble = HCI::new(state, rng, aes, pka, Irqs).await.expect("BLE reinit failed");
 
                 // Rebuild GATT services (cleared by hci_reset inside deinit)
                 let mut gatt = ble.gatt_server();
