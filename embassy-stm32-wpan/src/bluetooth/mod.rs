@@ -730,7 +730,7 @@ impl<M: Mode> HCI<M> {
         self.cmd_sender.reset()?;
 
         self.is_advertising = false;
-        Ok(self.controller.into_state())
+        Ok(self.controller.release_state())
     }
 
     /// Read the next BLE event
