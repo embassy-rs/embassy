@@ -157,7 +157,7 @@ impl<M: RawMutex, const N: usize> Barrier<M, N> {
                 let mut state = cell.replace(BarrierState::EMPTY);
 
                 // On first poll, record which generation we are joining.
-                let gen = match my_generation {
+                let generation = match my_generation {
                     Some(g) => g,
                     None => {
                         my_generation = Some(state.generation);
@@ -166,7 +166,7 @@ impl<M: RawMutex, const N: usize> Barrier<M, N> {
                 };
 
                 // If the generation has advanced, we were already released.
-                if gen != state.generation {
+                if generation != state.generation {
                     cell.set(state);
                     return Poll::Ready(BarrierWaitResult { is_leader: false });
                 }
