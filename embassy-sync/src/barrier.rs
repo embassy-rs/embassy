@@ -244,9 +244,9 @@ impl<M: RawMutex, const N: usize> Barrier<M, N> {
     pub fn generation(&self) -> usize {
         self.state.lock(|cell| {
             let state = cell.replace(BarrierState::EMPTY);
-            let gen = state.generation;
+            let generation = state.generation;
             cell.set(state);
-            gen
+            generation
         })
     }
 }
