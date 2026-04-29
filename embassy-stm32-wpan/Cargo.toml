@@ -49,12 +49,13 @@ stm32-device-signature = { version = "0.3.3", features = ["stm32wb5x"] }
 stm32wb-hci = { version = "0.17.3", optional = true }
 futures-util = { version = "0.3.30", default-features = false }
 bitflags = { version = "2.3.3", optional = true }
-bt-hci = {version = "0.8.1", optional = true}
+bt-hci = { version = "0.8.1", optional = true}
+embedded-io = { version = "0.7.1", optional = true}
 
 [features]
 defmt = ["dep:defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embassy-hal-internal/defmt", "stm32wb-hci?/defmt"]
 log = ["dep:log"]
-bt-hci = ["dep:bt-hci"]
+bt-hci = ["dep:bt-hci", "dep:embedded-io"]
 
 wb = []
 wb-ble = ["dep:stm32wb-hci"]

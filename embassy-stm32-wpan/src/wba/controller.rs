@@ -219,6 +219,54 @@ impl stm32wb_hci::Controller for Controller {
     }
 }
 
+#[cfg(feature = "bt-hci")]
+impl embedded_io::ErrorType for Controller {
+    type Error = embedded_io::ErrorKind;
+}
+
+#[cfg(feature = "bt-hci")]
+impl bt_hci::controller::Controller for Controller {
+    async fn write_acl_data(&self, _packet: &bt_hci::data::AclPacket<'_>) -> Result<(), Self::Error> {
+        todo!()
+    }
+
+    async fn write_iso_data(&self, _packet: &bt_hci::data::IsoPacket<'_>) -> Result<(), Self::Error> {
+        todo!()
+    }
+
+    async fn write_sync_data(&self, _packet: &bt_hci::data::SyncPacket<'_>) -> Result<(), Self::Error> {
+        todo!()
+    }
+
+    async fn read<'a>(&self, _buf: &'a mut [u8]) -> Result<bt_hci::ControllerToHostPacket<'a>, Self::Error> {
+        todo!()
+    }
+}
+
+#[cfg(feature = "bt-hci")]
+impl<C> bt_hci::controller::ControllerCmdSync<C> for Controller
+where
+    C: bt_hci::cmd::SyncCmd,
+{
+    async fn exec(&self, _cmd: &C) -> Result<C::Return, bt_hci::cmd::Error<Self::Error>> {
+        // TODO: execute this directly
+
+        todo!()
+    }
+}
+
+#[cfg(feature = "bt-hci")]
+impl<C> bt_hci::controller::ControllerCmdAsync<C> for Controller
+where
+    C: bt_hci::cmd::AsyncCmd,
+{
+    async fn exec(&self, _cmd: &C) -> Result<(), bt_hci::cmd::Error<Self::Error>> {
+        // TODO: execute this and then wait for a command complete event from the channel
+
+        todo!()
+    }
+}
+
 impl Drop for Controller {
     fn drop(&mut self) {
         // Zero host stack buffers and reset the one-time LL init guard so
