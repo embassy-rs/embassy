@@ -115,6 +115,7 @@ macro_rules! new_controller_state {
 }
 
 pub struct Controller {
+    state: &'static mut ControllerState,
     receiver: zerocopy_channel::Receiver<'static, CriticalSectionRawMutex, ChannelPacket>,
     cmd_buf: ([u8; 255], usize),
 }
@@ -183,9 +184,16 @@ impl Controller {
         BLE_INIT_WAKER.wake();
 
         Ok(Self {
+            state,
             receiver,
             cmd_buf: ([0u8; 255], 0),
         })
+    }
+
+    /// Consume the controller and return the controller state so it can be
+    /// passed to the next `HCI::new()` or `HCI::new_dtm()` call.
+    pub fn into_state(self) -> &'static mut ControllerState {
+        self.state
     }
 
     pub async fn read_event(&mut self) -> Result<Event, event::Error> {
