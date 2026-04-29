@@ -1,9 +1,14 @@
+#[cfg(feature = "mcxa1xx")]
+pub mod mcxa1xx;
+
 #[cfg(feature = "mcxa2xx")]
 pub mod mcxa2xx;
 
 #[cfg(feature = "mcxa5xx")]
 pub mod mcxa5xx;
 
+#[cfg(feature = "mcxa1xx")]
+pub(crate) use mcxa1xx::clock_limits;
 #[cfg(feature = "mcxa2xx")]
 pub(crate) use mcxa2xx::clock_limits;
 #[cfg(feature = "mcxa5xx")]
