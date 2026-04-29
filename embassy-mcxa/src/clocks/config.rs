@@ -123,7 +123,7 @@ pub struct ClocksConfig {
     /// FIRC
     ///
     /// * On MCXA2xx: FRO180, 45/60/90/180M clock source
-    /// * On MCXA5xx: FRO192, 48/64/96/196M clock source
+    /// * On MCXA1xx/MCXA5xx: FRO192, 48/64/96/192M clock source
     pub firc: Option<FircConfig>,
     /// SIRC, FRO12M, clk_12m clock source
     pub sirc: SircConfig,
@@ -138,6 +138,7 @@ pub struct ClocksConfig {
     #[cfg(not(feature = "sosc-as-gpio"))]
     pub sosc: Option<SoscConfig>,
     /// SPLL
+    #[cfg(not(feature = "mcxa1xx"))]
     pub spll: Option<SpllConfig>,
 }
 
@@ -152,10 +153,11 @@ pub enum VddLevel {
     MidDriveMode,
 
     /// "Normal" voltage, 1.1v VDD Core
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(any(feature = "mcxa5xx", feature = "mcxa1xx"))]
     NormalMode,
 
     /// Overdrive "OD" power, 1.2v VDD Core
+    #[cfg(not(feature = "mcxa1xx"))]
     OverDriveMode,
 }
 
@@ -291,12 +293,14 @@ pub enum MainClockSource {
     /// Clock derived from `fro_hf_root`, via the internal 45/60/90/180M clock source (45-180MHz)
     FircHfRoot,
     /// Clock derived from `clk_16k` (vdd core)
-    #[cfg(feature = "mcxa2xx")]
+    #[cfg(any(feature = "mcxa2xx", feature = "mcxa1xx"))]
     RoscFro16K,
     /// Clock derived from `clk_32k` (vdd core)
     #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
     RoscOsc32K,
+
     /// Clock derived from `pll1_clk`, via the internal PLL
+    #[cfg(not(feature = "mcxa1xx"))] 
     SPll1,
 }
 
@@ -539,7 +543,19 @@ pub struct SircConfig {
     // peripheral output, aka sirc_12mhz
     pub fro_12m_enabled: bool,
     /// Is the "fro_lf_div" clock enabled? Requires `fro_12m`!
+    #[cfg(not(feature = "mcxa1xx"))] //SCG-Lite does not have FRO_LF_DIV
     pub fro_lf_div: Option<Div8>,
+}
+
+impl Default for SircConfig {
+    fn default() -> Self {
+        Self {
+            power: PoweredClock::NormalEnabledDeepSleepDisabled,
+            fro_12m_enabled: false,
+            #[cfg(not(feature = "mcxa1xx"))] //SCG-Lite does not have FRO_LF_DIV
+            fro_lf_div: None,
+        }
+    }
 }
 
 /// FRO16K Configuration items
@@ -708,11 +724,12 @@ impl Default for ClocksConfig {
                 power: PoweredClock::NormalEnabledDeepSleepDisabled,
                 fro_hf_enabled: true,
                 clk_hf_fundamental_enabled: true,
-                fro_hf_div: None,
+                fro_hf_div: Some(Div8::no_div()),
             }),
             sirc: SircConfig {
                 power: PoweredClock::AlwaysEnabled,
                 fro_12m_enabled: true,
+                #[cfg(not(feature = "mcxa1xx"))]
                 fro_lf_div: None,
             },
             fro16k: Some(Fro16KConfig {
@@ -725,6 +742,7 @@ impl Default for ClocksConfig {
             osc32k: None,
             #[cfg(not(feature = "sosc-as-gpio"))]
             sosc: None,
+            #[cfg(not(feature = "mcxa1xx"))]
             spll: None,
         }
     }

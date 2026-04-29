@@ -327,7 +327,15 @@ impl SPConfHelper for AdcConfig {
             PoweredClock::AlwaysEnabled => clocks.lp_power,
         };
 
-        #[cfg(any(feature = "mcxa2xx", feature = "mcxa1xx"))]
+        
+        
+        #[cfg(feature = "mcxa1xx")]
+        let fmax = match power {
+            VddLevel::MidDriveMode => 24_000_000,
+            VddLevel::NormalMode => 64_000_000,
+        };
+
+        #[cfg(feature = "mcxa2xx")]
         let fmax = match power {
             VddLevel::MidDriveMode => 24_000_000,
             VddLevel::OverDriveMode => 64_000_000,
@@ -577,7 +585,13 @@ impl SPConfHelper for LpspiConfig {
             PoweredClock::AlwaysEnabled => clocks.lp_power,
         };
 
-        #[cfg(any(feature = "mcxa2xx", feature = "mcxa1xx"))]
+        #[cfg(feature = "mcxa1xx")]
+        let fmax = match power {
+            VddLevel::MidDriveMode => 48_000_000,
+            VddLevel::NormalMode => 96_000_000,
+        };
+        
+        #[cfg(feature = "mcxa2xx")]
         let fmax = match power {
             VddLevel::MidDriveMode => 25_000_000,
             VddLevel::OverDriveMode => 60_000_000,
@@ -851,7 +865,14 @@ impl SPConfHelper for Lpi2cConfig {
             PoweredClock::AlwaysEnabled => clocks.lp_power,
         };
 
-        #[cfg(any(feature = "mcxa2xx", feature = "mcxa1xx"))]
+
+        #[cfg(feature = "mcxa1xx")]
+        let fmax = match power {
+            VddLevel::MidDriveMode => 24_000_000,
+            VddLevel::NormalMode => 48_000_000,
+        };
+        
+        #[cfg(feature = "mcxa2xx")]
         let fmax = match power {
             VddLevel::MidDriveMode => 25_000_000,
             VddLevel::OverDriveMode => 60_000_000,
@@ -1038,7 +1059,15 @@ impl SPConfHelper for LpuartConfig {
             PoweredClock::NormalEnabledDeepSleepDisabled => clocks.active_power,
             PoweredClock::AlwaysEnabled => clocks.lp_power,
         };
-        #[cfg(any(feature = "mcxa2xx", feature = "mcxa1xx"))]
+
+
+        #[cfg(feature = "mcxa1xx")]
+        let fmax = match power {
+            VddLevel::MidDriveMode => 48_000_000,
+            VddLevel::NormalMode => 96_000_000,
+        };
+        
+        #[cfg(feature = "mcxa2xx")]
         let fmax = match power {
             VddLevel::MidDriveMode => 45_000_000,
             VddLevel::OverDriveMode => 180_000_000,
@@ -1220,7 +1249,15 @@ impl SPConfHelper for CTimerConfig {
             PoweredClock::NormalEnabledDeepSleepDisabled => clocks.active_power,
             PoweredClock::AlwaysEnabled => clocks.lp_power,
         };
-        #[cfg(any(feature = "mcxa2xx", feature = "mcxa1xx"))]
+
+
+        #[cfg(feature = "mcxa1xx")]
+        let fmax = match power {
+            VddLevel::MidDriveMode => 96_000_000,
+            VddLevel::NormalMode => 192_000_000,
+        };
+        
+        #[cfg(feature = "mcxa2xx")]
         let fmax = match power {
             VddLevel::MidDriveMode => 25_000_000,
             VddLevel::OverDriveMode => 60_000_000,

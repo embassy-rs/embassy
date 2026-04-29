@@ -165,10 +165,10 @@ pub(crate) mod clock_limits {
     pub const VDD_CORE_MID_DRIVE_WAIT_STATE_LIMITS: &[(u32, u8)] = &[(24_000_000, 0b0000)];
     pub const VDD_CORE_MID_DRIVE_MAX_WAIT_STATES: u8 = 0b0001;
 
-    pub const VDD_CORE_OVER_DRIVE_WAIT_STATE_LIMITS: &[(u32, u8)] =
+    pub const VDD_CORE_NORMAL_DRIVE_WAIT_STATE_LIMITS: &[(u32, u8)] =
         &[(30_000_000, 0b0000), (60_000_000, 0b0001), (90_000_000, 0b0010)];
     
-    pub const VDD_CORE_OVER_DRIVE_MAX_WAIT_STATES: u8 = 0b0011;
+    pub const VDD_CORE_NORMAL_DRIVE_MAX_WAIT_STATES: u8 = 0b0011;
 
     //MCXAP100M96FS6RM.pdf - Table 148 page: 778-779
     impl ClockLimits {
@@ -193,14 +193,14 @@ pub(crate) mod clock_limits {
             // slow_clk: cpu_clk / 6,
         };
 
-        pub const OVER_DRIVE: Self = Self {
+        pub const NORMAL_DRIVE: Self = Self {
             fro_hf: 192_000_000,
-            fro_hf_div: 96_000_000,
+            fro_hf_div: 192_000_000,
             
             pll1_clk: 96_000_000,
             pll1_clk_div: 96_000_000,
             
-            main_clk: 96_000_000,
+            main_clk: 192_000_000,
             cpu_clk: 96_000_000,
             
             // clk_16k: 16_384,

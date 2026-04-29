@@ -137,8 +137,26 @@ impl Drop for ClockOut<'_> {
 /// Check whether the given clock selection is valid
 fn check_sel(sel: ClockOutSel, level: PoweredClock, divisor: u32) -> Result<(u32, Mux, Option<WakeGuard>), ClockError> {
     let res = with_clocks(|c| {
+
+        #[cfg(feature = "mcxa1xx")]
+        let (freq, mux, fmax, expected) = {
+            let (freq, mux) = match sel {
+                ClockOutSel::Fro12M => (c.ensure_fro_hf_active(&level)?, Mux::Clkroot12m),
+                ClockOutSel::FroHfDiv => (c.ensure_fro_hf_div_active(&level)?, Mux::ClkrootFircDiv),
+                ClockOutSel::Clk16K => (c.ensure_clk_16k_vdd_core_active(&level)?, Mux::Clkroot16k),
+                #[cfg(not(feature = "sosc-as-gpio"))]
+                ClockOutSel::ClkIn => (c.ensure_clk_in_active(&level)?, Mux::ClkrootSosc),
+                ClockOutSel::SlowClk => (c.ensure_slow_clk_active(&level)?, Mux::ClkrootSlow),
+            };
+            let expected = freq / divisor;
+            let fmax = match c.active_power {
+                VddLevel::MidDriveMode => 48_000_000,
+                VddLevel::NormalMode => 96_000_000,
+            };
+            (freq, mux, fmax, expected)
+        };
         
-        #[cfg(any(feature = "mcxa2xx", feature = "mcxa1xx"))]
+        #[cfg(feature = "mcxa2xx")]
         let (freq, mux, fmax, expected) = {
             let (freq, mux) = match sel {
                 ClockOutSel::Fro12M => (c.ensure_fro_hf_active(&level)?, Mux::Clkroot12m),
@@ -146,10 +164,7 @@ fn check_sel(sel: ClockOutSel, level: PoweredClock, divisor: u32) -> Result<(u32
                 #[cfg(not(feature = "sosc-as-gpio"))]
                 ClockOutSel::ClkIn => (c.ensure_clk_in_active(&level)?, Mux::ClkrootSosc),
                 ClockOutSel::Clk16K => (c.ensure_clk_16k_vdd_core_active(&level)?, Mux::Clkroot16k),
-                
-                #[cfg(not(feature = "mcxa1xx"))]
                 ClockOutSel::Pll1Clk => (c.ensure_pll1_clk_active(&level)?, Mux::ClkrootSpll),
-                
                 ClockOutSel::SlowClk => (c.ensure_slow_clk_active(&level)?, Mux::ClkrootSlow),
             };
             let expected = freq / divisor;
