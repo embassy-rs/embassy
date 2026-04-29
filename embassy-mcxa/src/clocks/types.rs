@@ -378,7 +378,7 @@ impl Clocks {
 
     pub fn ensure_slow_clk_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
         let freq = self.ensure_cpu_system_clk_active(at_level)?;
-        Ok( freq / 6)
+        Ok(freq / 6)
     }
 }
 

@@ -4,12 +4,11 @@
 //! `configure_*` methods. It is only used during [`super::init()`].
 
 use config::{
-    ClocksConfig, CoreSleep, FircConfig, Fro16KConfig, MainClockSource, SircConfig, VddDriveStrength,
-    VddLevel,
+    ClocksConfig, CoreSleep, FircConfig, Fro16KConfig, MainClockSource, SircConfig, VddDriveStrength, VddLevel,
 };
 use cortex_m::peripheral::SCB;
 #[cfg(feature = "mcxa1xx")]
-use nxp_pac::mrcc::{ClkdivUnstab};
+use nxp_pac::mrcc::ClkdivUnstab;
 
 use super::config;
 use super::types::{Clock, ClockError, Clocks, PoweredClock};
@@ -19,8 +18,8 @@ use crate::pac::cmc::Ckmode;
 
 #[allow(unused_imports)]
 use crate::pac::scg::{
-    Erefs, Fircacc, FircaccIe, FirccsrLk, Fircerr, FircerrIe, Fircsten, FreqSel, Range, Scs, SirccsrLk, Sircerr, Sircvld,
-    SosccsrLk, Soscerr, Source, SpllLock, SpllcsrLk, Spllerr, Spllsten, TrimUnlock,
+    Erefs, Fircacc, FircaccIe, FirccsrLk, Fircerr, FircerrIe, Fircsten, FreqSel, Range, Scs, SirccsrLk, Sircerr,
+    Sircvld, SosccsrLk, Soscerr, Source, SpllLock, SpllcsrLk, Spllerr, Spllsten, TrimUnlock,
 };
 use crate::pac::spc::{
     ActiveCfgBgmode, ActiveCfgCoreldoVddDs, ActiveCfgCoreldoVddLvl, LpCfgBgmode, LpCfgCoreldoVddLvl, Vsm,
@@ -33,9 +32,7 @@ use crate::pac::syscon::{
 };
 
 #[cfg(feature = "mcxa1xx")]
-use crate::pac::syscon::{
-    AhbclkdivUnstab, Unlock,
-};
+use crate::pac::syscon::{AhbclkdivUnstab, Unlock};
 
 /// The ClockOperator is a private helper type that contains the methods used
 /// during system clock initialization.
@@ -104,7 +101,7 @@ impl ClockOperator<'_> {
     pub(super) fn configure_firc_clocks(&mut self) -> Result<(), ClockError> {
         // Enable CSR writes
         self.scg0.firccsr().modify(|w| w.set_lk(FirccsrLk::WriteEnabled));
-        
+
         // Disable FIRC
         self.scg0.firccsr().modify(|w| {
             w.set_fircen(false);
@@ -273,14 +270,15 @@ impl ClockOperator<'_> {
             //MCXA1xx does not have a FRO_HF_DIV on syscon
             let syscon_state = self.syscon.clkunlock().read().unlock();
             self.syscon.clkunlock().modify(|w| w.set_unlock(Unlock::Enable));
-            self._mrcc0.mrcc_fro_hf_div_clkdiv().modify(|w| w.set_div(d.into_bits()));
+            self._mrcc0
+                .mrcc_fro_hf_div_clkdiv()
+                .modify(|w| w.set_div(d.into_bits()));
 
             while self._mrcc0.mrcc_fro_hf_div_clkdiv().read().unstab() == ClkdivUnstab::On {}
 
             //restore syscon lock state
             self.syscon.clkunlock().modify(|w| w.set_unlock(syscon_state));
         }
-
 
         Ok(())
     }
@@ -1298,7 +1296,6 @@ impl ClockOperator<'_> {
             // Wait for clock to stabilize
             while self.syscon.ahbclkdiv().read().unstab() == AhbclkdivUnstab::Ongoing {}
         }
-        
 
         let now = self.scg0.csr().read().scs();
         if now != var {

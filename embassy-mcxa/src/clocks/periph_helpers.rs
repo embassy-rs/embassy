@@ -327,8 +327,6 @@ impl SPConfHelper for AdcConfig {
             PoweredClock::AlwaysEnabled => clocks.lp_power,
         };
 
-        
-        
         #[cfg(feature = "mcxa1xx")]
         let fmax = match power {
             VddLevel::MidDriveMode => 24_000_000,
@@ -590,7 +588,7 @@ impl SPConfHelper for LpspiConfig {
             VddLevel::MidDriveMode => 48_000_000,
             VddLevel::NormalMode => 96_000_000,
         };
-        
+
         #[cfg(feature = "mcxa2xx")]
         let fmax = match power {
             VddLevel::MidDriveMode => 25_000_000,
@@ -633,7 +631,7 @@ pub enum I3cClockSel {
     ClkIn,
     /// clk_1m/FRO_LF divided by 12
     Clk1M,
-    
+
     /// Internal PLL output, with configurable divisor
     #[cfg(feature = "mcxa5xx")]
     Pll1ClkDiv,
@@ -865,13 +863,12 @@ impl SPConfHelper for Lpi2cConfig {
             PoweredClock::AlwaysEnabled => clocks.lp_power,
         };
 
-
         #[cfg(feature = "mcxa1xx")]
         let fmax = match power {
             VddLevel::MidDriveMode => 24_000_000,
             VddLevel::NormalMode => 48_000_000,
         };
-        
+
         #[cfg(feature = "mcxa2xx")]
         let fmax = match power {
             VddLevel::MidDriveMode => 25_000_000,
@@ -1060,13 +1057,12 @@ impl SPConfHelper for LpuartConfig {
             PoweredClock::AlwaysEnabled => clocks.lp_power,
         };
 
-
         #[cfg(feature = "mcxa1xx")]
         let fmax = match power {
             VddLevel::MidDriveMode => 48_000_000,
             VddLevel::NormalMode => 96_000_000,
         };
-        
+
         #[cfg(feature = "mcxa2xx")]
         let fmax = match power {
             VddLevel::MidDriveMode => 45_000_000,
@@ -1115,7 +1111,7 @@ pub enum CTimerClockSel {
     /// Internal PLL output, with configurable divisor
     #[cfg(not(feature = "mcxa1xx"))]
     Pll1ClkDiv,
-    
+
     /// Disabled
     None,
 }
@@ -1250,13 +1246,12 @@ impl SPConfHelper for CTimerConfig {
             PoweredClock::AlwaysEnabled => clocks.lp_power,
         };
 
-
         #[cfg(feature = "mcxa1xx")]
         let fmax = match power {
             VddLevel::MidDriveMode => 96_000_000,
             VddLevel::NormalMode => 192_000_000,
         };
-        
+
         #[cfg(feature = "mcxa2xx")]
         let fmax = match power {
             VddLevel::MidDriveMode => 25_000_000,

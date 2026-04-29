@@ -648,7 +648,7 @@ impl<'d, M: Mode> Flex<'d, M> {
     /// Is the output pin set as high?
     #[inline]
     pub fn is_set_high(&self) -> bool {
-        #[cfg(any(feature = "mcxa2xx" , feature = "mcxa1xx"))]
+        #[cfg(any(feature = "mcxa2xx", feature = "mcxa1xx"))]
         let set = self.gpio().pdor().read().pdo(self.pin.pin_index() as usize);
         #[cfg(feature = "mcxa5xx")]
         let set = (self.gpio().pdor().read().0 & (1 << self.pin.pin_index())) != 0;

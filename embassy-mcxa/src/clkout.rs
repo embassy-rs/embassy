@@ -137,7 +137,6 @@ impl Drop for ClockOut<'_> {
 /// Check whether the given clock selection is valid
 fn check_sel(sel: ClockOutSel, level: PoweredClock, divisor: u32) -> Result<(u32, Mux, Option<WakeGuard>), ClockError> {
     let res = with_clocks(|c| {
-
         #[cfg(feature = "mcxa1xx")]
         let (freq, mux, fmax, expected) = {
             let (freq, mux) = match sel {
@@ -155,7 +154,7 @@ fn check_sel(sel: ClockOutSel, level: PoweredClock, divisor: u32) -> Result<(u32
             };
             (freq, mux, fmax, expected)
         };
-        
+
         #[cfg(feature = "mcxa2xx")]
         let (freq, mux, fmax, expected) = {
             let (freq, mux) = match sel {

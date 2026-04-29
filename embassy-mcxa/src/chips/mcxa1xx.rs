@@ -50,7 +50,6 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
 
         _ = crate::clocks::enable_and_reset::<crate::peripherals::PORT4>(&crate::clocks::periph_helpers::NoConfig);
         _ = crate::clocks::enable_and_reset::<crate::peripherals::GPIO4>(&crate::clocks::periph_helpers::NoConfig);
-
     }
 
     // import may be unused if none of the following features are set
@@ -112,7 +111,7 @@ pub(crate) mod peripheral_gating {
     impl_cc_gate!(PORT2, mrcc_glb_cc1, mrcc_glb_rst1, port2, NoConfig);
     impl_cc_gate!(PORT3, mrcc_glb_cc1, mrcc_glb_rst1, port3, NoConfig);
     impl_cc_gate!(PORT4, mrcc_glb_cc1, mrcc_glb_rst1, port4, NoConfig);
-    
+
     impl_cc_gate!(CRC0, mrcc_glb_cc0, mrcc_glb_rst0, crc0, NoConfig);
     impl_cc_gate!(INPUTMUX0, mrcc_glb_cc0, mrcc_glb_rst0, inputmux0, NoConfig);
 
@@ -122,7 +121,7 @@ pub(crate) mod peripheral_gating {
     impl_cc_gate!(ADC1, mrcc_glb_cc1, mrcc_glb_rst1, adc1, AdcConfig);
 
     impl_cc_gate!(I3C0, mrcc_glb_acc0, mrcc_glb_rst0, i3c0, I3cConfig);
-    
+
     impl_cc_gate!(CTIMER0, mrcc_glb_acc0, mrcc_glb_rst0, ctimer0, CTimerConfig);
     impl_cc_gate!(CTIMER1, mrcc_glb_acc0, mrcc_glb_rst0, ctimer1, CTimerConfig);
     impl_cc_gate!(CTIMER2, mrcc_glb_acc0, mrcc_glb_rst0, ctimer2, CTimerConfig);
@@ -130,7 +129,6 @@ pub(crate) mod peripheral_gating {
     impl_cc_gate!(CTIMER4, mrcc_glb_acc0, mrcc_glb_rst0, ctimer4, CTimerConfig);
     impl_cc_gate!(OSTIMER0, mrcc_glb_acc1, mrcc_glb_rst1, ostimer0, OsTimerConfig);
 
-    
     // Peripherals that use ACC instead of CC!
     impl_cc_gate!(LPUART0, mrcc_glb_acc0, mrcc_glb_rst0, lpuart0, LpuartConfig);
     impl_cc_gate!(LPUART1, mrcc_glb_acc0, mrcc_glb_rst0, lpuart1, LpuartConfig);
@@ -146,14 +144,14 @@ pub(crate) mod peripheral_gating {
     impl_cc_gate!(GPIO2, mrcc_glb_acc1, mrcc_glb_rst1, gpio2, NoConfig);
     impl_cc_gate!(GPIO3, mrcc_glb_acc1, mrcc_glb_rst1, gpio3, NoConfig);
     impl_cc_gate!(GPIO4, mrcc_glb_acc1, mrcc_glb_rst1, gpio4, NoConfig);
-    
+
     impl_cc_gate!(LPI2C0, mrcc_glb_acc0, mrcc_glb_rst0, lpi2c0, Lpi2cConfig);
     impl_cc_gate!(LPI2C1, mrcc_glb_acc0, mrcc_glb_rst0, lpi2c1, Lpi2cConfig);
     impl_cc_gate!(LPI2C2, mrcc_glb_acc1, mrcc_glb_rst1, lpi2c2, Lpi2cConfig);
     impl_cc_gate!(LPI2C3, mrcc_glb_acc1, mrcc_glb_rst1, lpi2c3, Lpi2cConfig);
     impl_cc_gate!(LPSPI0, mrcc_glb_acc0, mrcc_glb_rst0, lpspi0, LpspiConfig);
     impl_cc_gate!(LPSPI1, mrcc_glb_acc0, mrcc_glb_rst0, lpspi1, LpspiConfig);
-    
+
     impl_cc_gate!(WWDT0, mrcc_glb_acc0, wwdt0, Clk1MConfig);
 }
 
@@ -167,7 +165,7 @@ pub(crate) mod clock_limits {
 
     pub const VDD_CORE_NORMAL_DRIVE_WAIT_STATE_LIMITS: &[(u32, u8)] =
         &[(30_000_000, 0b0000), (60_000_000, 0b0001), (90_000_000, 0b0010)];
-    
+
     pub const VDD_CORE_NORMAL_DRIVE_MAX_WAIT_STATES: u8 = 0b0011;
 
     //MCXAP100M96FS6RM.pdf - Table 148 page: 778-779
@@ -175,13 +173,12 @@ pub(crate) mod clock_limits {
         pub const MID_DRIVE: Self = Self {
             fro_hf: 96_000_000,
             fro_hf_div: 48_000_000,
-            
+
             pll1_clk: 96_000_000,
             pll1_clk_div: 96_000_000,
-            
+
             main_clk: 96_000_000,
             cpu_clk: 48_000_000,
-            
             // clk_16k: 16_384,
             // clk_in: 50_000_000,
             // clk_48m: 48_000_000,
@@ -196,13 +193,12 @@ pub(crate) mod clock_limits {
         pub const NORMAL_DRIVE: Self = Self {
             fro_hf: 192_000_000,
             fro_hf_div: 192_000_000,
-            
+
             pll1_clk: 96_000_000,
             pll1_clk_div: 96_000_000,
-            
+
             main_clk: 192_000_000,
             cpu_clk: 96_000_000,
-            
             // clk_16k: 16_384,
             // clk_in: 50_000_000,
             // clk_48m: 48_000_000,

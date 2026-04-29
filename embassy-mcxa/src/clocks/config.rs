@@ -300,7 +300,7 @@ pub enum MainClockSource {
     RoscOsc32K,
 
     /// Clock derived from `pll1_clk`, via the internal PLL
-    #[cfg(not(feature = "mcxa1xx"))] 
+    #[cfg(not(feature = "mcxa1xx"))]
     SPll1,
 }
 

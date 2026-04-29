@@ -127,7 +127,6 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
     // If we were keeping SIRC enabled, now we can release it.
     operator.configure_sirc_clocks_late();
 
-
     critical_section::with(|cs| {
         let mut clks = CLOCKS.borrow_ref_mut(cs);
         assert!(clks.is_none(), "Clock setup race!");

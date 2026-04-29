@@ -82,7 +82,6 @@ pub mod trng;
 #[cfg(mcxa_wwdt)]
 pub mod wwdt;
 
-
 #[cfg(feature = "mcxa1xx")]
 pub use mcxa1xx_exclusive::*;
 #[cfg(feature = "mcxa2xx")]
@@ -111,7 +110,9 @@ pub(crate) use nxp_pac as pac;
 
 pub use crate::_generated::{Peripherals, interrupt, peripherals};
 
-const HALS_SELECTED: usize = const { cfg!(feature = "mcxa1xx") as usize + cfg!(feature = "mcxa2xx") as usize + cfg!(feature = "mcxa5xx") as usize };
+const HALS_SELECTED: usize = const {
+    cfg!(feature = "mcxa1xx") as usize + cfg!(feature = "mcxa2xx") as usize + cfg!(feature = "mcxa5xx") as usize
+};
 
 /// Ensure exactly one chip feature is set.
 #[doc(hidden)]
