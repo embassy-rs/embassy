@@ -20,10 +20,10 @@ build = [
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-stm32-wpan-v$VERSION/embassy-stm32-wpan/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-stm32-wpan/src/"
 target = "thumbv7em-none-eabihf"
-features = ["stm32wb55rg", "wb55_ble", "wb55_mac"]
+features = ["stm32wb55rg", "wb-ble", "wb-mac"]
 
 [package.metadata.docs.rs]
-features = ["stm32wb55rg", "wb55_ble", "wb55_mac"]
+features = ["stm32wb55rg", "wb-ble", "wb-mac"]
 
 [dependencies]
 embassy-stm32 = { version = "0.6.0", path = "../embassy-stm32" , features = ["unstable-pac"]}
@@ -49,18 +49,21 @@ stm32-device-signature = { version = "0.3.3", features = ["stm32wb5x"] }
 stm32wb-hci = { version = "0.17.3", optional = true }
 futures-util = { version = "0.3.30", default-features = false }
 bitflags = { version = "2.3.3", optional = true }
+bt-hci = { version = "0.8.1", optional = true}
+embedded-io = { version = "0.7.1", optional = true}
 
 [features]
 defmt = ["dep:defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embassy-hal-internal/defmt", "stm32wb-hci?/defmt"]
 log = ["dep:log"]
+bt-hci = ["dep:bt-hci", "dep:embedded-io"]
 
-wb55 = []
-wb55_ble = ["dep:stm32wb-hci"]
-wb55_mac = ["dep:bitflags", "dep:embassy-net-driver", "dep:smoltcp", "smoltcp/medium-ieee802154"]
+wb = []
+wb-ble = ["dep:stm32wb-hci"]
+wb-mac = ["dep:bitflags", "dep:embassy-net-driver", "dep:smoltcp", "smoltcp/medium-ieee802154"]
 
 wba = [ "dep:stm32-bindings" ]
-wba_ble = [ "dep:stm32wb-hci", "stm32-bindings/wba_wpan_ble" , "stm32-bindings/wba_wpan", "stm32-bindings/wba_wpan_mac" ]
-wba_mac = [ "stm32-bindings/wba_wpan_mac", "stm32-bindings/wba_wpan_ble" , "stm32-bindings/lib_wba5_linklayer15_4", "stm32-bindings/lib_wba_mac_lib" , "stm32-bindings/wba_wpan" ]
+wba-ble = [ "dep:stm32wb-hci", "stm32-bindings/wba_wpan_ble" , "stm32-bindings/wba_wpan", "stm32-bindings/wba_wpan_mac" ]
+wba-mac = [ "stm32-bindings/wba_wpan_mac", "stm32-bindings/wba_wpan_ble" , "stm32-bindings/lib_wba5_linklayer15_4", "stm32-bindings/lib_wba_mac_lib" , "stm32-bindings/wba_wpan" ]
 
 # BLE stack library variants (choose one)
 ble-stack-basic = [ "stm32-bindings/lib_stm32wba_ble_stack_basic" ]
@@ -83,22 +86,22 @@ linklayer6-ble-peripheral-only = [ "stm32-bindings/lib_wba6_linklayer_ble_periph
 
 extended = []
 
-stm32wb10cc = [ "embassy-stm32/stm32wb10cc" , "wb55" ]
-stm32wb15cc = [ "embassy-stm32/stm32wb15cc" , "wb55" ]
-stm32wb30ce = [ "embassy-stm32/stm32wb30ce" , "wb55" ]
-stm32wb35cc = [ "embassy-stm32/stm32wb35cc" , "wb55" ]
-stm32wb35ce = [ "embassy-stm32/stm32wb35ce" , "wb55" ]
-stm32wb50cg = [ "embassy-stm32/stm32wb50cg" , "wb55" ]
-stm32wb55cc = [ "embassy-stm32/stm32wb55cc" , "wb55" ]
-stm32wb55ce = [ "embassy-stm32/stm32wb55ce" , "wb55" ]
-stm32wb55cg = [ "embassy-stm32/stm32wb55cg" , "wb55" ]
-stm32wb55rc = [ "embassy-stm32/stm32wb55rc" , "wb55" ]
-stm32wb55re = [ "embassy-stm32/stm32wb55re" , "wb55" ]
-stm32wb55rg = [ "embassy-stm32/stm32wb55rg" , "wb55" ]
-stm32wb55vc = [ "embassy-stm32/stm32wb55vc" , "wb55" ]
-stm32wb55ve = [ "embassy-stm32/stm32wb55ve" , "wb55" ]
-stm32wb55vg = [ "embassy-stm32/stm32wb55vg" , "wb55" ]
-stm32wb55vy = [ "embassy-stm32/stm32wb55vy" , "wb55" ]
+stm32wb10cc = [ "embassy-stm32/stm32wb10cc" , "wb" ]
+stm32wb15cc = [ "embassy-stm32/stm32wb15cc" , "wb" ]
+stm32wb30ce = [ "embassy-stm32/stm32wb30ce" , "wb" ]
+stm32wb35cc = [ "embassy-stm32/stm32wb35cc" , "wb" ]
+stm32wb35ce = [ "embassy-stm32/stm32wb35ce" , "wb" ]
+stm32wb50cg = [ "embassy-stm32/stm32wb50cg" , "wb" ]
+stm32wb55cc = [ "embassy-stm32/stm32wb55cc" , "wb" ]
+stm32wb55ce = [ "embassy-stm32/stm32wb55ce" , "wb" ]
+stm32wb55cg = [ "embassy-stm32/stm32wb55cg" , "wb" ]
+stm32wb55rc = [ "embassy-stm32/stm32wb55rc" , "wb" ]
+stm32wb55re = [ "embassy-stm32/stm32wb55re" , "wb" ]
+stm32wb55rg = [ "embassy-stm32/stm32wb55rg" , "wb" ]
+stm32wb55vc = [ "embassy-stm32/stm32wb55vc" , "wb" ]
+stm32wb55ve = [ "embassy-stm32/stm32wb55ve" , "wb" ]
+stm32wb55vg = [ "embassy-stm32/stm32wb55vg" , "wb" ]
+stm32wb55vy = [ "embassy-stm32/stm32wb55vy" , "wb" ]
 stm32wba50ke = [ "embassy-stm32/stm32wba50ke", "wba" ]
 stm32wba50kg = [ "embassy-stm32/stm32wba50kg", "wba" ]
 stm32wba52ce = [ "embassy-stm32/stm32wba52ce", "wba" ]

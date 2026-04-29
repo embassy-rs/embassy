@@ -2,7 +2,7 @@ use core::ptr;
 use core::sync::atomic::{Ordering, compiler_fence};
 
 use crate::consts::TlPacketType;
-use crate::wb55::PacketHeader;
+use crate::wb::PacketHeader;
 
 #[derive(Copy, Clone)]
 #[repr(C, packed)]
