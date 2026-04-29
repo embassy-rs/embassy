@@ -415,7 +415,28 @@ impl<'d, T: Instance> embassy_usb_driver::Bus for Bus<'d, T> {
     }
 
     async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
-        self.inner.remote_wakeup().await
+        let r = T::regs();
+        // Re-enable PHY clock gated during suspend
+        r.pcgcctl().modify(|w| {
+            w.set_stppclk(false);
+            // HCLK gating is only present on HS (OTG_HS) cores
+            if T::HIGH_SPEED {
+                w.set_gatehclk(false);
+            }
+        });
+        // Drive K-state on D+/D-
+        r.dctl().modify(|w| w.set_rwusig(true));
+        #[cfg(feature = "time")]
+        embassy_time::Timer::after_millis(10).await;
+        #[cfg(not(feature = "time"))]
+        {
+            let freq = unsafe { crate::rcc::get_freqs() }.sys.to_hertz().unwrap().0 as u64;
+            let cycles = freq * 10 / 1_000;
+            cortex_m::asm::delay(cycles as u32);
+        }
+        // Stop driving the wakeup signal
+        r.dctl().modify(|w| w.set_rwusig(false));
+        Ok(())
     }
 }
 
