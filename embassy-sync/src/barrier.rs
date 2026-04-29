@@ -35,8 +35,8 @@ use core::cell::Cell;
 use core::future::poll_fn;
 use core::task::Poll;
 
-use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex;
+use crate::blocking_mutex::raw::RawMutex;
 use crate::waitqueue::MultiWakerRegistration;
 
 /// Result returned by [`Barrier::wait`].
