@@ -15,7 +15,7 @@ async fn main(_spawner: Spawner) {
     let mut red = Output::new(p.P3_12, Level::High, DriveStrength::Normal, SlewRate::Fast);
     let mut green = Output::new(p.P3_13, Level::High, DriveStrength::Normal, SlewRate::Fast);
     let mut blue = Output::new(p.P3_0, Level::High, DriveStrength::Normal, SlewRate::Fast);
-    
+
     loop {
         defmt::info!("Toggle LEDs");
 
