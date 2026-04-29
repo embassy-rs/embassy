@@ -1,10 +1,10 @@
-pub use mimxrt633s_pac as pac;
+pub use nxp_pac as pac;
 
 #[allow(clippy::missing_safety_doc)]
 pub mod interrupts {
     embassy_hal_internal::interrupt_mod!(
         ACMP,
-        ADC0,
+        ADC,
         CASPER,
         CTIMER0,
         CTIMER1,
@@ -13,7 +13,7 @@ pub mod interrupts {
         CTIMER4,
         DMA0,
         DMA1,
-        DMIC0,
+        DMIC,
         ESPI,
         FLEXCOMM0,
         FLEXCOMM1,
@@ -31,7 +31,7 @@ pub mod interrupts {
         HASHCRYPT,
         HWVAD0,
         HYPERVISOR,
-        I3C0,
+        I3C,
         MRT0,
         MU_A,
         OS_EVENT,
@@ -48,7 +48,7 @@ pub mod interrupts {
         PUF,
         RNG,
         RTC,
-        SCT0,
+        SCT,
         SECUREVIOLATION,
         SGPIO_INTA,
         SGPIO_INTB,

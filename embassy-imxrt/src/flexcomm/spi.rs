@@ -15,7 +15,7 @@ use crate::gpio::{AnyPin, GpioPin as Pin};
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
 use crate::iopctl::{DriveMode, DriveStrength, Inverter, IopctlPin, Pull, SlewRate};
-use crate::pac::spi0::cfg::{Cpha, Cpol};
+use crate::pac::spi::vals::{Cpha, Cpol, Master, Rxignore};
 
 /// Driver move trait.
 #[allow(private_bounds)]
@@ -100,21 +100,21 @@ impl<'a, M: IoMode> Spi<'a, M> {
     /// Read data from Spi blocking execution until done.
     pub fn blocking_read(&mut self, data: &mut [u8]) -> Result<(), Error> {
         critical_section::with(|_| {
-            self.info
-                .regs
-                .fifostat()
-                .modify(|_, w| w.txerr().set_bit().rxerr().set_bit());
+            self.info.regs.fifostat().modify(|w| {
+                w.set_txerr(true);
+                w.set_rxerr(true);
+            });
 
             for word in data.iter_mut() {
                 // wait until we have data in the RxFIFO.
-                while self.info.regs.fifostat().read().rxnotempty().bit_is_clear() {}
+                while !self.info.regs.fifostat().read().rxnotempty() {}
 
-                self.info
-                    .regs
-                    .fifowr()
-                    .write(|w| unsafe { w.txdata().bits(*word as u16).len().bits(7) });
+                self.info.regs.fifowr().write(|w| {
+                    w.set_txdata(*word as u16);
+                    w.set_len(7);
+                });
 
-                *word = self.info.regs.fiford().read().rxdata().bits() as u8;
+                *word = self.info.regs.fiford().read().rxdata() as u8;
             }
         });
 
@@ -124,25 +124,23 @@ impl<'a, M: IoMode> Spi<'a, M> {
     /// Write data to Spi blocking execution until done.
     pub fn blocking_write(&mut self, data: &[u8]) -> Result<(), Error> {
         critical_section::with(|_| {
-            self.info
-                .regs
-                .fifostat()
-                .modify(|_, w| w.txerr().set_bit().rxerr().set_bit());
+            self.info.regs.fifostat().modify(|w| {
+                w.set_txerr(true);
+                w.set_rxerr(true);
+            });
 
             for (i, word) in data.iter().enumerate() {
                 // wait until we have space in the TxFIFO.
-                while self.info.regs.fifostat().read().txnotfull().bit_is_clear() {}
+                while !self.info.regs.fifostat().read().txnotfull() {}
 
                 self.info.regs.fifowr().write(|w| {
-                    unsafe { w.txdata().bits(*word as u16).len().bits(7) }
-                        .rxignore()
-                        .set_bit();
+                    w.set_txdata(*word as u16);
+                    w.set_len(7);
+                    w.set_rxignore(Rxignore::IGNORE);
 
                     if i == data.len() - 1 {
-                        w.eot().set_bit();
+                        w.set_eot(true);
                     }
-
-                    w
                 });
             }
         });
@@ -155,31 +153,30 @@ impl<'a, M: IoMode> Spi<'a, M> {
         let len = read.len().max(write.len());
 
         critical_section::with(|_| {
-            self.info
-                .regs
-                .fifostat()
-                .modify(|_, w| w.txerr().set_bit().rxerr().set_bit());
+            self.info.regs.fifostat().modify(|w| {
+                w.set_txerr(true);
+                w.set_rxerr(true);
+            });
 
             for i in 0..len {
                 let wb = write.get(i).copied().unwrap_or(0);
 
                 // wait until we have space in the TxFIFO.
-                while self.info.regs.fifostat().read().txnotfull().bit_is_clear() {}
+                while !self.info.regs.fifostat().read().txnotfull() {}
 
                 self.info.regs.fifowr().write(|w| {
-                    unsafe { w.txdata().bits(wb as u16).len().bits(7) };
+                    w.set_txdata(wb as u16);
+                    w.set_len(7);
 
                     if i == len - 1 {
-                        w.eot().set_bit();
+                        w.set_eot(true);
                     }
-
-                    w
                 });
 
                 // wait until we have data in the RxFIFO.
-                while self.info.regs.fifostat().read().rxnotempty().bit_is_clear() {}
+                while !self.info.regs.fifostat().read().rxnotempty() {}
 
-                let rb = self.info.regs.fiford().read().rxdata().bits() as u8;
+                let rb = self.info.regs.fiford().read().rxdata() as u8;
 
                 if let Some(r) = read.get_mut(i) {
                     *r = rb;
@@ -193,22 +190,19 @@ impl<'a, M: IoMode> Spi<'a, M> {
     /// Transfer data in place to SPI blocking execution until done.
     pub fn blocking_transfer_in_place(&mut self, data: &mut [u8]) -> Result<(), Error> {
         critical_section::with(|_| {
-            self.info
-                .regs
-                .fifostat()
-                .modify(|_, w| w.txerr().set_bit().rxerr().set_bit());
+            self.info.regs.fifostat().modify(|w| {
+                w.set_txerr(true);
+                w.set_rxerr(true);
+            });
 
             for word in data {
                 // wait until we have space in the TxFIFO.
-                while self.info.regs.fifostat().read().txnotfull().bit_is_clear() {}
-                self.info
-                    .regs
-                    .fifowr()
-                    .write(|w| unsafe { w.txdata().bits(*word as u16) });
+                while !self.info.regs.fifostat().read().txnotfull() {}
+                self.info.regs.fifowr().write(|w| w.set_txdata(*word as u16));
 
                 // wait until we have data in the RxFIFO.
-                while self.info.regs.fifostat().read().rxnotempty().bit_is_clear() {}
-                *word = self.info.regs.fiford().read().rxdata().bits() as u8;
+                while !self.info.regs.fifostat().read().rxnotempty() {}
+                *word = self.info.regs.fiford().read().rxdata() as u8;
             }
         });
 
@@ -218,7 +212,7 @@ impl<'a, M: IoMode> Spi<'a, M> {
     /// Block execution until Spi is done.
     pub fn flush(&mut self) -> Result<(), Error> {
         let regs = self.info.regs;
-        while regs.stat().read().mstidle().bit_is_clear() {}
+        while !regs.stat().read().mstidle() {}
         Ok(())
     }
 }
@@ -295,37 +289,37 @@ impl<'a> Spi<'a, Async> {
     /// Read data from Spi async execution until done.
     pub async fn async_read(&mut self, data: &mut [u8]) -> Result<(), Error> {
         critical_section::with(|_| {
-            self.info
-                .regs
-                .fifostat()
-                .modify(|_, w| w.txerr().set_bit().rxerr().set_bit());
+            self.info.regs.fifostat().modify(|w| {
+                w.set_txerr(true);
+                w.set_rxerr(true);
+            });
         });
 
         for word in data.iter_mut() {
             // wait until we have data in the RxFIFO.
             self.wait_for(
                 |me| {
-                    if me.info.regs.fifostat().read().rxnotempty().bit_is_set() {
+                    if me.info.regs.fifostat().read().rxnotempty() {
                         Poll::Ready(())
                     } else {
                         Poll::Pending
                     }
                 },
                 |me| {
-                    me.info
-                        .regs
-                        .fifointenset()
-                        .write(|w| w.rxlvl().set_bit().rxerr().set_bit());
+                    me.info.regs.fifointenset().write(|w| {
+                        w.set_rxlvl(true);
+                        w.set_rxerr(true);
+                    });
                 },
             )
             .await;
 
-            self.info
-                .regs
-                .fifowr()
-                .write(|w| unsafe { w.txdata().bits(*word as u16).len().bits(7) });
+            self.info.regs.fifowr().write(|w| {
+                w.set_txdata(*word as u16);
+                w.set_len(7);
+            });
 
-            *word = self.info.regs.fiford().read().rxdata().bits() as u8;
+            *word = self.info.regs.fiford().read().rxdata() as u8;
         }
 
         self.async_flush().await;
@@ -336,41 +330,39 @@ impl<'a> Spi<'a, Async> {
     /// Write data to Spi async execution until done.
     pub async fn async_write(&mut self, data: &[u8]) -> Result<(), Error> {
         critical_section::with(|_| {
-            self.info
-                .regs
-                .fifostat()
-                .modify(|_, w| w.txerr().set_bit().rxerr().set_bit());
+            self.info.regs.fifostat().modify(|w| {
+                w.set_txerr(true);
+                w.set_rxerr(true);
+            });
         });
 
         for (i, word) in data.iter().enumerate() {
             // wait until we have space in the TxFIFO.
             self.wait_for(
                 |me| {
-                    if me.info.regs.fifostat().read().txnotfull().bit_is_set() {
+                    if me.info.regs.fifostat().read().txnotfull() {
                         Poll::Ready(())
                     } else {
                         Poll::Pending
                     }
                 },
                 |me| {
-                    me.info
-                        .regs
-                        .fifointenset()
-                        .write(|w| w.txlvl().set_bit().txerr().set_bit());
+                    me.info.regs.fifointenset().write(|w| {
+                        w.set_txlvl(true);
+                        w.set_txerr(true);
+                    });
                 },
             )
             .await;
 
             self.info.regs.fifowr().write(|w| {
-                unsafe { w.txdata().bits(*word as u16).len().bits(7) }
-                    .rxignore()
-                    .set_bit();
+                w.set_txdata(*word as u16);
+                w.set_len(7);
+                w.set_rxignore(Rxignore::IGNORE);
 
                 if i == data.len() - 1 {
-                    w.eot().set_bit();
+                    w.set_eot(true);
                 }
-
-                w
             });
         }
 
@@ -384,10 +376,10 @@ impl<'a> Spi<'a, Async> {
         let len = read.len().max(write.len());
 
         critical_section::with(|_| {
-            self.info
-                .regs
-                .fifostat()
-                .modify(|_, w| w.txerr().set_bit().rxerr().set_bit());
+            self.info.regs.fifostat().modify(|w| {
+                w.set_txerr(true);
+                w.set_rxerr(true);
+            });
         });
 
         for i in 0..len {
@@ -396,52 +388,51 @@ impl<'a> Spi<'a, Async> {
             // wait until we have space in the TxFIFO.
             self.wait_for(
                 |me| {
-                    if me.info.regs.fifostat().read().txnotfull().bit_is_set() {
+                    if me.info.regs.fifostat().read().txnotfull() {
                         Poll::Ready(())
                     } else {
                         Poll::Pending
                     }
                 },
                 |me| {
-                    me.info.regs.fifotrig().write(|w| w.txlvlena().set_bit());
-                    me.info
-                        .regs
-                        .fifointenset()
-                        .write(|w| w.txlvl().set_bit().txerr().set_bit());
+                    me.info.regs.fifotrig().write(|w| w.set_txlvlena(true));
+                    me.info.regs.fifointenset().write(|w| {
+                        w.set_txlvl(true);
+                        w.set_txerr(true);
+                    });
                 },
             )
             .await;
 
             self.info.regs.fifowr().write(|w| {
-                unsafe { w.txdata().bits(wb as u16).len().bits(7) };
+                w.set_txdata(wb as u16);
+                w.set_len(7);
 
                 if i == len - 1 {
-                    w.eot().set_bit();
+                    w.set_eot(true);
                 }
-
-                w
             });
 
             // wait until we have data in the RxFIFO.
             self.wait_for(
                 |me| {
-                    if me.info.regs.fifostat().read().rxnotempty().bit_is_set() {
+                    if me.info.regs.fifostat().read().rxnotempty() {
                         Poll::Ready(())
                     } else {
                         Poll::Pending
                     }
                 },
                 |me| {
-                    me.info.regs.fifotrig().write(|w| w.rxlvlena().set_bit());
-                    me.info
-                        .regs
-                        .fifointenset()
-                        .write(|w| w.rxlvl().set_bit().rxerr().set_bit());
+                    me.info.regs.fifotrig().write(|w| w.set_rxlvlena(true));
+                    me.info.regs.fifointenset().write(|w| {
+                        w.set_rxlvl(true);
+                        w.set_rxerr(true);
+                    });
                 },
             )
             .await;
 
-            let rb = self.info.regs.fiford().read().rxdata().bits() as u8;
+            let rb = self.info.regs.fiford().read().rxdata() as u8;
 
             if let Some(r) = read.get_mut(i) {
                 *r = rb;
@@ -456,55 +447,52 @@ impl<'a> Spi<'a, Async> {
     /// Transfer data in place to SPI async execution until done.
     pub async fn async_transfer_in_place(&mut self, data: &mut [u8]) -> Result<(), Error> {
         critical_section::with(|_| {
-            self.info
-                .regs
-                .fifostat()
-                .modify(|_, w| w.txerr().set_bit().rxerr().set_bit());
+            self.info.regs.fifostat().modify(|w| {
+                w.set_txerr(true);
+                w.set_rxerr(true);
+            });
         });
 
         for word in data {
             // wait until we have space in the TxFIFO.
             self.wait_for(
                 |me| {
-                    if me.info.regs.fifostat().read().txnotfull().bit_is_set() {
+                    if me.info.regs.fifostat().read().txnotfull() {
                         Poll::Ready(())
                     } else {
                         Poll::Pending
                     }
                 },
                 |me| {
-                    me.info
-                        .regs
-                        .fifointenset()
-                        .write(|w| w.txlvl().set_bit().txerr().set_bit());
+                    me.info.regs.fifointenset().write(|w| {
+                        w.set_txlvl(true);
+                        w.set_txerr(true);
+                    });
                 },
             )
             .await;
 
-            self.info
-                .regs
-                .fifowr()
-                .write(|w| unsafe { w.txdata().bits(*word as u16) });
+            self.info.regs.fifowr().write(|w| w.set_txdata(*word as u16));
 
             // wait until we have data in the RxFIFO.
             self.wait_for(
                 |me| {
-                    if me.info.regs.fifostat().read().rxnotempty().bit_is_set() {
+                    if me.info.regs.fifostat().read().rxnotempty() {
                         Poll::Ready(())
                     } else {
                         Poll::Pending
                     }
                 },
                 |me| {
-                    me.info
-                        .regs
-                        .fifointenset()
-                        .write(|w| w.rxlvl().set_bit().rxerr().set_bit());
+                    me.info.regs.fifointenset().write(|w| {
+                        w.set_rxlvl(true);
+                        w.set_rxerr(true);
+                    });
                 },
             )
             .await;
 
-            *word = self.info.regs.fiford().read().rxdata().bits() as u8;
+            *word = self.info.regs.fiford().read().rxdata() as u8;
         }
 
         self.async_flush().await;
@@ -516,14 +504,14 @@ impl<'a> Spi<'a, Async> {
     pub fn async_flush(&mut self) -> impl Future<Output = ()> + use<'_, 'a> {
         self.wait_for(
             |me| {
-                if me.info.regs.stat().read().mstidle().bit_is_set() {
+                if me.info.regs.stat().read().mstidle() {
                     Poll::Ready(())
                 } else {
                     Poll::Pending
                 }
             },
             |me| {
-                me.info.regs.intenset().write(|w| w.mstidleen().set_bit());
+                me.info.regs.intenset().write(|w| w.set_mstidleen(true));
             },
         )
     }
@@ -571,53 +559,37 @@ impl<'a, M: IoMode> Spi<'a, M> {
 
         critical_section::with(|_| match (sck.is_some(), mosi.is_some(), miso.is_some()) {
             (true, true, true) => {
-                regs.fifocfg().modify(|_, w| {
-                    w.enabletx()
-                        .set_bit()
-                        .emptytx()
-                        .set_bit()
-                        .enablerx()
-                        .set_bit()
-                        .emptyrx()
-                        .set_bit()
+                regs.fifocfg().modify(|w| {
+                    w.set_enabletx(true);
+                    w.set_emptytx(true);
+                    w.set_enablerx(true);
+                    w.set_emptyrx(true);
                 });
             }
             (true, false, true) => {
-                regs.fifocfg().modify(|_, w| {
-                    w.enabletx()
-                        .set_bit()
-                        .emptytx()
-                        .clear_bit()
-                        .enablerx()
-                        .set_bit()
-                        .emptyrx()
-                        .set_bit()
+                regs.fifocfg().modify(|w| {
+                    w.set_enabletx(true);
+                    w.set_emptytx(false);
+                    w.set_enablerx(true);
+                    w.set_emptyrx(true);
                 });
             }
             (true, true, false) => {
-                regs.fifocfg().modify(|_, w| {
-                    w.enabletx()
-                        .set_bit()
-                        .emptytx()
-                        .set_bit()
-                        .enablerx()
-                        .clear_bit()
-                        .emptyrx()
-                        .set_bit()
+                regs.fifocfg().modify(|w| {
+                    w.set_enabletx(true);
+                    w.set_emptytx(true);
+                    w.set_enablerx(false);
+                    w.set_emptyrx(true);
                 });
             }
             (false, _, _) => {
-                regs.fifocfg().modify(|_, w| {
-                    w.enabletx()
-                        .set_bit()
-                        .emptytx()
-                        .set_bit()
-                        .enablerx()
-                        .set_bit()
-                        .emptyrx()
-                        .set_bit()
+                regs.fifocfg().modify(|w| {
+                    w.set_enabletx(true);
+                    w.set_emptytx(true);
+                    w.set_enablerx(true);
+                    w.set_emptyrx(true);
                 });
-                regs.cfg().modify(|_, w| w.loop_().enabled());
+                regs.cfg().modify(|w| w.set_loop_(true));
             }
             _ => {}
         });
@@ -650,17 +622,17 @@ impl<'a, M: IoMode> Spi<'a, M> {
         }
     }
 
-    fn apply_config(regs: &'static crate::pac::spi0::RegisterBlock, config: &Config) {
+    fn apply_config(regs: crate::pac::spi::Spi, config: &Config) {
         let polarity = if config.mode.polarity == Polarity::IdleLow {
-            Cpol::Low
+            Cpol::LOW
         } else {
-            Cpol::High
+            Cpol::HIGH
         };
 
         let phase = if config.mode.phase == Phase::CaptureOnFirstTransition {
-            Cpha::Change
+            Cpha::CHANGE
         } else {
-            Cpha::Capture
+            Cpha::CAPTURE
         };
 
         let clk = Self::clock(config);
@@ -668,22 +640,18 @@ impl<'a, M: IoMode> Spi<'a, M> {
 
         critical_section::with(|_| {
             // disable SPI every time we need to modify configuration.
-            regs.cfg().modify(|_, w| w.enable().disabled());
+            regs.cfg().modify(|w| w.set_enable(false));
 
-            regs.cfg().modify(|_, w| {
-                w.cpha()
-                    .variant(phase)
-                    .cpol()
-                    .variant(polarity)
-                    .loop_()
-                    .disabled()
-                    .master()
-                    .master_mode()
+            regs.cfg().modify(|w| {
+                w.set_cpha(phase);
+                w.set_cpol(polarity);
+                w.set_loop_(false);
+                w.set_master(Master::MASTER_MODE);
             });
 
-            regs.div().write(|w| unsafe { w.divval().bits(div as u16) });
+            regs.div().write(|w| w.set_divval(div as u16));
 
-            regs.cfg().modify(|_, w| w.enable().enabled());
+            regs.cfg().modify(|w| w.set_enable(true));
         });
     }
 }
@@ -707,18 +675,9 @@ impl Default for Config {
 }
 
 struct Info {
-    regs: &'static crate::pac::spi0::RegisterBlock,
+    regs: crate::pac::spi::Spi,
     waker: &'static AtomicWaker,
 }
-
-// SAFETY: safety for Send here is the same as the other accessors to
-// unsafe blocks: it must be done from a single executor context.
-//
-// This is a temporary workaround -- a better solution might be to
-// refactor Info to no longer maintain a reference to regs, but
-// instead look up the correct register set and then perform
-// operations within an unsafe block as we do for other peripherals
-unsafe impl Send for Info {}
 
 trait SealedInstance {
     fn info() -> Info;
@@ -734,24 +693,24 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let waker = T::info().waker;
         let stat = T::info().regs.fifointstat().read();
 
-        if stat.perint().bit_is_set() {
-            T::info().regs.intenclr().write(|w| w.mstidle().clear_bit_by_one());
+        if stat.perint() {
+            T::info().regs.intenclr().write(|w| w.set_mstidle(true));
         }
 
-        if stat.txlvl().bit_is_set() {
-            T::info().regs.fifointenclr().write(|w| w.txlvl().set_bit());
+        if stat.txlvl() {
+            T::info().regs.fifointenclr().write(|w| w.set_txlvl(true));
         }
 
-        if stat.txerr().bit_is_set() {
-            T::info().regs.fifointenclr().write(|w| w.txerr().set_bit());
+        if stat.txerr() {
+            T::info().regs.fifointenclr().write(|w| w.set_txerr(true));
         }
 
-        if stat.rxlvl().bit_is_set() {
-            T::info().regs.fifointenclr().write(|w| w.rxlvl().set_bit());
+        if stat.rxlvl() {
+            T::info().regs.fifointenclr().write(|w| w.set_rxlvl(true));
         }
 
-        if stat.rxerr().bit_is_set() {
-            T::info().regs.fifointenclr().write(|w| w.rxerr().set_bit());
+        if stat.rxerr() {
+            T::info().regs.fifointenclr().write(|w| w.set_rxerr(true));
         }
 
         waker.wake();
@@ -775,7 +734,7 @@ macro_rules! impl_instance {
                         static WAKER: AtomicWaker = AtomicWaker::new();
 
                         Info {
-                            regs: unsafe { &*crate::pac::[<Spi $n>]::ptr() },
+                            regs: crate::pac::[<SPI $n>],
                             waker: &WAKER,
                         }
                     }
