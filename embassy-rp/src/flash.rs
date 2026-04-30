@@ -955,8 +955,37 @@ pub(crate) unsafe fn in_ram(operation: impl FnOnce()) -> Result<(), Error> {
         // Wait for completion of any background reads
         while pac::XIP_CTRL.stream_ctr().read().0 > 0 {}
 
+        // On RP235x the bootrom flash routines reset QMI window 1
+        // (CS1) to default XIP timings, which clobbers any custom
+        // configuration applied for an attached PSRAM. Snapshot the
+        // window-1 registers and restore them afterwards so PSRAM
+        // access keeps working across flash erase/program.
+        // See pico-sdk#1983.
+        #[cfg(feature = "_rp235x")]
+        let qmi_m1 = {
+            let m = pac::QMI.mem(1);
+            (
+                m.timing().read(),
+                m.rfmt().read(),
+                m.rcmd().read(),
+                m.wfmt().read(),
+                m.wcmd().read(),
+            )
+        };
+
         // Run our flash operation in RAM
         operation();
+
+        #[cfg(feature = "_rp235x")]
+        {
+            let m = pac::QMI.mem(1);
+            m.timing().write_value(qmi_m1.0);
+            m.rfmt().write_value(qmi_m1.1);
+            m.rcmd().write_value(qmi_m1.2);
+            m.wfmt().write_value(qmi_m1.3);
+            m.wcmd().write_value(qmi_m1.4);
+            core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
+        }
     });
 
     // Resume CORE1 execution
