@@ -7,7 +7,7 @@ use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInf
 
 pub use super::hid_report::{ReportDescriptor, ReportField};
 use crate::control::SetupPacket;
-use crate::descriptor::ConfigurationDescriptor;
+use crate::descriptor::{ConfigurationDescriptor, DescriptorVisitor, EndpointDescriptor, InterfaceDescriptor};
 use crate::handler::EnumerationInfo;
 
 /// HID class code.
@@ -160,40 +160,73 @@ pub struct HidInfo {
 
 /// Find the first HID interface in a configuration descriptor.
 pub fn find_hid(config_desc: &[u8]) -> Option<HidInfo> {
-    let cfg = ConfigurationDescriptor::try_from_slice(config_desc).ok()?;
-
-    for iface in cfg.iter_interface() {
-        if iface.interface_class != USB_CLASS_HID {
-            continue;
+    struct Visitor {
+        interface_number: Option<u8>,
+        info: Option<HidInfo>,
+        report_desc_len: Option<u16>,
+    }
+    impl Visitor {
+        fn hid_info(self) -> Option<HidInfo> {
+            let mut info = self.info?;
+            info.report_descriptor_len = self.report_desc_len?;
+            Some(info)
         }
 
-        // Extract report descriptor length from the HID class descriptor (type 0x21).
-        // Layout: bLength, bDescriptorType(0x21), bcdHID(2), bCountryCode,
-        //         bNumDescriptors, bDescriptorType(0x22), wDescriptorLength(2)
-        let report_desc_len = iface
-            .iter_descriptors()
-            .find_map(|(_, data)| {
-                if data.len() >= 7 && data[1] == DESC_HID {
-                    Some(u16::from_le_bytes([data[5], data[6]]))
-                } else {
-                    None
-                }
-            })
-            .unwrap_or(0);
+        fn continue_parsing(&self) -> bool {
+            self.info.is_none() || self.report_desc_len.is_none()
+        }
+    }
+    impl DescriptorVisitor<'_> for Visitor {
+        type Error = ();
 
-        let ep = iface
-            .iter_endpoints()
-            .find(|ep| ep.transfer_type() == TRANSFER_INTERRUPT && ep.is_in())?;
+        fn on_interface(&mut self, i: &InterfaceDescriptor<'_>) -> bool {
+            if i.interface_class != USB_CLASS_HID {
+                return true;
+            }
+            self.interface_number = Some(i.interface_number);
+            self.info = None;
+            self.report_desc_len = None;
+            true
+        }
 
-        return Some(HidInfo {
-            interface_number: iface.interface_number,
-            interrupt_in_ep: ep.endpoint_address,
-            interrupt_in_mps: ep.max_packet_size,
-            report_descriptor_len: report_desc_len,
-        });
+        fn on_endpoint(&mut self, iface: &InterfaceDescriptor<'_>, e: &EndpointDescriptor) -> bool {
+            if self.interface_number == Some(iface.interface_number)
+                && e.transfer_type() == TRANSFER_INTERRUPT
+                && e.is_in()
+            {
+                self.info = Some(HidInfo {
+                    interface_number: iface.interface_number,
+                    interrupt_in_ep: e.endpoint_address,
+                    interrupt_in_mps: e.max_packet_size,
+                    report_descriptor_len: 0,
+                });
+            }
+
+            self.continue_parsing()
+        }
+
+        fn on_other(&mut self, iface: Option<&InterfaceDescriptor<'_>>, data: &[u8]) -> Result<bool, Self::Error> {
+            let Some(iface) = iface else {
+                return Ok(true);
+            };
+            if self.interface_number == Some(iface.interface_number) && data.len() >= 7 && data[1] == DESC_HID {
+                self.report_desc_len = Some(u16::from_le_bytes([data[5], data[6]]));
+            }
+
+            Ok(self.continue_parsing())
+        }
     }
 
-    None
+    let mut visitor = Visitor {
+        interface_number: None,
+        info: None,
+        report_desc_len: None,
+    };
+
+    let cfg = ConfigurationDescriptor::try_from_slice(config_desc).ok()?;
+    cfg.visit_descriptors(&mut visitor).ok()?;
+
+    visitor.hid_info()
 }
 
 /// HID host class driver error.
