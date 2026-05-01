@@ -9,13 +9,11 @@ use config::{
 use cortex_m::peripheral::SCB;
 #[cfg(feature = "mcxa1xx")]
 use nxp_pac::mrcc::ClkdivUnstab;
-
 use super::config;
 use super::types::{Clock, ClockError, Clocks, PoweredClock};
 use crate::chips::{ClockLimits, clock_limits};
 use crate::pac;
 use crate::pac::cmc::Ckmode;
-
 #[allow(unused_imports)]
 use crate::pac::scg::{
     Erefs, Fircacc, FircaccIe, FirccsrLk, Fircerr, FircerrIe, Fircsten, FreqSel, Range, Scs, SirccsrLk, Sircerr,
@@ -24,7 +22,6 @@ use crate::pac::scg::{
 use crate::pac::spc::{
     ActiveCfgBgmode, ActiveCfgCoreldoVddDs, ActiveCfgCoreldoVddLvl, LpCfgBgmode, LpCfgCoreldoVddLvl, Vsm,
 };
-
 #[cfg(not(feature = "mcxa1xx"))]
 use crate::pac::syscon::{
     AhbclkdivUnstab, FrohfdivHalt, FrohfdivReset, FrohfdivUnstab, FrolfdivHalt, FrolfdivReset, FrolfdivUnstab,
