@@ -47,9 +47,9 @@ impl<'a, M: RawMutex, T> Channel<'a, M, T> {
     ///
     /// The provided buffer will be used and reused by the channel's logic, and thus dictates the
     /// channel's capacity.
-    pub fn new(buf: &'a mut [T]) -> Self {
+    pub const fn new(buf: &'a mut [T]) -> Self {
         let len = buf.len();
-        assert!(len != 0);
+        core::assert!(len != 0);
 
         Self {
             buf: BufferPtr(buf.as_mut_ptr()),

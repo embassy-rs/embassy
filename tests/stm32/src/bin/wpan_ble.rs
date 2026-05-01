@@ -49,13 +49,9 @@ async fn main(spawner: Spawner) {
     info!("Hello World!");
 
     let config = Config::default();
-    let mbox = TlMbox::init(p.IPCC, Irqs, config).await.unwrap();
-    let mut sys = mbox.sys_subsystem;
-    let mut ble = mbox.ble_subsystem;
+    let mbox = TlMbox::wait_ready(p.IPCC, Irqs, config).await.unwrap();
 
-    spawner.spawn(run_mm_queue(mbox.mm_subsystem).unwrap());
-
-    let fw_info = sys.wireless_fw_info().unwrap();
+    let fw_info = mbox.sys_subsystem.wireless_fw_info().unwrap();
     let version_major = fw_info.version_major();
     let version_minor = fw_info.version_minor();
     let subversion = fw_info.subversion();
@@ -68,7 +64,9 @@ async fn main(spawner: Spawner) {
         version_major, version_minor, subversion, sram2a_size, sram2b_size
     );
 
-    let _ = sys.shci_c2_ble_init(Default::default()).await;
+    let (mut ble, mm) = mbox.init_ble(Default::default()).await.unwrap();
+
+    spawner.spawn(run_mm_queue(mm).unwrap());
 
     info!("resetting BLE...");
     ble.reset().await;

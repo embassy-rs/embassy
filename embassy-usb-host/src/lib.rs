@@ -79,8 +79,10 @@ impl core::error::Error for EnumerationError {}
 ///
 /// Holds the in-use USB device addresses (1–127) and an async mutex used to
 /// serialise enumerations on a single bus.
+///
+/// Addresses greater than 127 are not issued because their behavior is not specified (USB 2.0 §9.4.6).
 pub struct BusState {
-    addr_bitmap: BlockingMutex<CriticalSectionRawMutex, RefCell<[u64; 2]>>,
+    addr_bitmap: BlockingMutex<CriticalSectionRawMutex, RefCell<[usize; 127usize.div_ceil(usize::BITS as usize)]>>,
     enum_lock: AsyncMutex<CriticalSectionRawMutex, ()>,
 }
 
@@ -88,7 +90,7 @@ impl BusState {
     /// Create new, empty bus state.
     pub const fn new() -> Self {
         Self {
-            addr_bitmap: BlockingMutex::new(RefCell::new([0u64; 2])),
+            addr_bitmap: BlockingMutex::new(RefCell::new([0usize; _])),
             enum_lock: AsyncMutex::new(()),
         }
     }
@@ -102,10 +104,10 @@ impl BusState {
         self.addr_bitmap.lock(|b| {
             let mut b = b.borrow_mut();
             for addr in 1u8..=127 {
-                let word = (addr / 64) as usize;
-                let bit = addr % 64;
-                if b[word] & (1u64 << bit) == 0 {
-                    b[word] |= 1u64 << bit;
+                let word = (addr / usize::BITS as u8) as usize;
+                let bit = addr % usize::BITS as u8;
+                if b[word] & (1usize << bit) == 0 {
+                    b[word] |= 1usize << bit;
                     return Some(addr);
                 }
             }
@@ -120,9 +122,9 @@ impl BusState {
         if addr >= 1 && addr <= 127 {
             self.addr_bitmap.lock(|b| {
                 let mut b = b.borrow_mut();
-                let word = (addr / 64) as usize;
-                let bit = addr % 64;
-                b[word] &= !(1u64 << bit);
+                let word = (addr / usize::BITS as u8) as usize;
+                let bit = addr % usize::BITS as u8;
+                b[word] &= !(1usize << bit);
             });
         }
     }

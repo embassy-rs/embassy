@@ -739,7 +739,24 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
     async fn disable(&mut self) {}
 
     async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
-        Err(Unsupported)
+        let regs = T::regs();
+        // Wake transceiver from low-power mode
+        regs.cntr().modify(|w| w.set_lpmode(false));
+        // Drive K-state while FSUSP is still set
+        regs.cntr().modify(|w| w.set_resume(true));
+        #[cfg(feature = "time")]
+        embassy_time::Timer::after_millis(10).await;
+        #[cfg(not(feature = "time"))]
+        {
+            let freq = unsafe { crate::rcc::get_freqs() }.sys.to_hertz().unwrap().0 as u64;
+            let cycles = freq * 10 / 1_000;
+            cortex_m::asm::delay(cycles as u32);
+        }
+        regs.cntr().modify(|w| w.set_resume(false));
+        // Exit forced-suspend so the peripheral can handle the
+        // host's resume response
+        regs.cntr().modify(|w| w.set_fsusp(false));
+        Ok(())
     }
 }
 

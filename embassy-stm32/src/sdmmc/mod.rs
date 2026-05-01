@@ -46,7 +46,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
             T::state().tx_waker.wake();
         }
 
-        #[cfg(sdmmc_v2)]
+        #[cfg(any(sdmmc_v2, sdmmc_v3))]
         if status.dcrcfail() || status.dtimeout() || status.dataend() || status.dbckend() || status.dabort() {
             T::state().tx_waker.wake();
         }
@@ -75,7 +75,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
             if status.stbiterr() {
                 w.set_stbiterre(false);
             }
-            #[cfg(sdmmc_v2)]
+            #[cfg(any(sdmmc_v2, sdmmc_v3))]
             if status.dabort() {
                 w.set_dabortie(false);
             }
@@ -329,7 +329,7 @@ const fn block_size(bytes: usize) -> BlockSize {
 ///
 /// Returns `(bypass, clk_div, clk_f)`, where `bypass` enables clock divisor bypass (only sdmmc_v1),
 /// `clk_div` is the divisor register value and `clk_f` is the resulting new clock frequency.
-#[cfg(sdmmc_v2)]
+#[cfg(any(sdmmc_v2, sdmmc_v3))]
 fn clk_div(ker_ck: Hertz, sdmmc_ck: Hertz) -> Result<(bool, u16, Hertz), Error> {
     match ker_ck.0.div_ceil(sdmmc_ck.0) {
         0 | 1 => Ok((false, 0, ker_ck)),
@@ -346,7 +346,7 @@ fn clk_div(ker_ck: Hertz, sdmmc_ck: Hertz) -> Result<(bool, u16, Hertz), Error> 
 
 #[cfg(sdmmc_v1)]
 type Transfer<'a> = crate::dma::Transfer<'a>;
-#[cfg(sdmmc_v2)]
+#[cfg(any(sdmmc_v2, sdmmc_v3))]
 struct Transfer<'a> {
     _dummy: PhantomData<&'a ()>,
 }
@@ -548,7 +548,7 @@ impl<'d> Sdmmc<'d> {
     }
 }
 
-#[cfg(sdmmc_v2)]
+#[cfg(any(sdmmc_v2, sdmmc_v3))]
 impl<'d> Sdmmc<'d> {
     /// Create a new SDMMC driver, with 1 data lane.
     pub fn new_1bit<T: Instance>(
@@ -604,7 +604,7 @@ impl<'d> Sdmmc<'d> {
     }
 }
 
-#[cfg(sdmmc_v2)]
+#[cfg(any(sdmmc_v2, sdmmc_v3))]
 impl<'d> Sdmmc<'d> {
     /// Create a new SDMMC driver, with 8 data lanes.
     pub fn new_8bit<T: Instance>(
@@ -651,7 +651,7 @@ impl<'d> Sdmmc<'d> {
 
                 #[cfg(sdmmc_v1)]
                 w.set_stbiterre(true);
-                #[cfg(sdmmc_v2)]
+                #[cfg(any(sdmmc_v2, sdmmc_v3))]
                 w.set_dabortie(true);
             });
         });
@@ -730,7 +730,7 @@ impl<'d> Sdmmc<'d> {
         let status = regs.star().read();
         #[cfg(sdmmc_v1)]
         return status.rxact() || status.txact();
-        #[cfg(sdmmc_v2)]
+        #[cfg(any(sdmmc_v2, sdmmc_v3))]
         return status.dpsmact();
     }
 
@@ -742,7 +742,7 @@ impl<'d> Sdmmc<'d> {
         let status = regs.star().read();
         #[cfg(sdmmc_v1)]
         return status.cmdact();
-        #[cfg(sdmmc_v2)]
+        #[cfg(any(sdmmc_v2, sdmmc_v3))]
         return status.cpsmact();
     }
 
@@ -804,8 +804,18 @@ impl<'d> Sdmmc<'d> {
                 _dummy: core::marker::PhantomData,
             }
         };
+        #[cfg(sdmmc_v3)]
+        let transfer = {
+            // v3 uses single-buffer IDMA: program base + size, then enable.
+            regs.idmabaser().write(|w| w.set_idmabase(buffer.as_mut_ptr() as u32));
+            regs.idmabsizer().write(|w| w.set_idmabndt(buffer.len() as u16));
+            regs.idmactrlr().modify(|w| w.set_idmaen(true));
+            Transfer {
+                _dummy: core::marker::PhantomData,
+            }
+        };
 
-        #[cfg(sdmmc_v2)]
+        #[cfg(any(sdmmc_v2, sdmmc_v3))]
         let byte_mode = byte_mode as u8;
 
         regs.dctrl().modify(|w| {
@@ -866,8 +876,17 @@ impl<'d> Sdmmc<'d> {
                 _dummy: core::marker::PhantomData,
             }
         };
+        #[cfg(sdmmc_v3)]
+        let transfer = {
+            regs.idmabaser().write(|w| w.set_idmabase(buffer.as_ptr() as u32));
+            regs.idmabsizer().write(|w| w.set_idmabndt(buffer.len() as u16));
+            regs.idmactrlr().modify(|w| w.set_idmaen(true));
+            Transfer {
+                _dummy: core::marker::PhantomData,
+            }
+        };
 
-        #[cfg(sdmmc_v2)]
+        #[cfg(any(sdmmc_v2, sdmmc_v3))]
         let byte_mode = byte_mode as u8;
 
         regs.dctrl().modify(|w| {
@@ -898,7 +917,7 @@ impl<'d> Sdmmc<'d> {
             w.set_dmaen(false);
             w.set_dten(false);
         });
-        #[cfg(sdmmc_v2)]
+        #[cfg(any(sdmmc_v2, sdmmc_v3))]
         regs.idmactrlr().modify(|w| w.set_idmaen(false));
     }
 
@@ -985,7 +1004,7 @@ impl<'d> Sdmmc<'d> {
             #[cfg(sdmmc_v1)]
             w.set_stbiterrc(true);
 
-            #[cfg(sdmmc_v2)]
+            #[cfg(any(sdmmc_v2, sdmmc_v3))]
             {
                 w.set_dholdc(true);
                 w.set_dabortc(true);
@@ -1019,7 +1038,7 @@ impl<'d> Sdmmc<'d> {
             w.set_cmdindex(cmd.cmd);
             w.set_cpsmen(true);
 
-            #[cfg(sdmmc_v2)]
+            #[cfg(any(sdmmc_v2, sdmmc_v3))]
             {
                 // Special mode in CP State Machine
                 // CMD12: Stop Transmission
@@ -1087,7 +1106,7 @@ impl<'d> Sdmmc<'d> {
                 w.set_cmdindex(12);
                 w.set_cpsmen(true);
 
-                #[cfg(sdmmc_v2)]
+                #[cfg(any(sdmmc_v2, sdmmc_v3))]
                 {
                     w.set_cmdstop(true);
                     w.set_cmdtrans(false);
@@ -1130,7 +1149,7 @@ impl<'d> Sdmmc<'d> {
                 true => status.dbckend(),
                 false => status.dataend(),
             };
-            #[cfg(sdmmc_v2)]
+            #[cfg(any(sdmmc_v2, sdmmc_v3))]
             let done = status.dataend();
             if done {
                 return Poll::Ready(Ok(()));

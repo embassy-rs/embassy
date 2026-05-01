@@ -32,12 +32,14 @@ use embassy_stm32::rcc::{
 use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{Config, bind_interrupts};
-use embassy_stm32_wpan::gap::{AdvData, AdvParams, AdvType, GapEvent};
-use embassy_stm32_wpan::gatt::{CharProperties, GattEventMask, GattServer, SecurityPermissions, ServiceType, Uuid};
-use embassy_stm32_wpan::{Ble, HighInterruptHandler, LowInterruptHandler, ble_runner};
+use embassy_stm32_wpan::bluetooth::HCI;
+use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
+use embassy_stm32_wpan::bluetooth::gatt::{CharProperties, GattEventMask, SecurityPermissions, ServiceType, Uuid};
+use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, ble_runner, new_controller_state};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use static_cell::StaticCell;
+use stm32wb_hci::event::ConnectionRole;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -122,11 +124,15 @@ async fn main(spawner: Spawner) {
     spawner.spawn(ble_runner_task().expect("Failed to spawn BLE runner"));
 
     // Initialize BLE stack
-    let (mut ble, runtime) = Ble::new(rng, aes, pka, Irqs).await.expect("BLE initialization failed");
+    // Initialize BLE stack
+    let mut ble = HCI::new(new_controller_state!(8), rng, aes, pka, Irqs)
+        .await
+        .expect("BLE initialization failed");
+
     info!("BLE stack initialized");
 
     // Initialize GATT server with a simple service
-    let mut gatt = GattServer::new(runtime);
+    let mut gatt = ble.gatt_server();
 
     // Create a simple service for demonstration
     let service_uuid = Uuid::from_u16(0x180F); // Battery Service UUID
@@ -194,30 +200,14 @@ async fn main(spawner: Spawner) {
                     info!(
                         "  Role: {}",
                         match conn.role {
-                            embassy_stm32_wpan::gap::ConnectionRole::Central => "Central",
-                            embassy_stm32_wpan::gap::ConnectionRole::Peripheral => "Peripheral",
+                            ConnectionRole::Central => "Central",
+                            ConnectionRole::Peripheral => "Peripheral",
                         }
                     );
-                    info!(
-                        "  Peer Address: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
-                        conn.peer_address.0[5],
-                        conn.peer_address.0[4],
-                        conn.peer_address.0[3],
-                        conn.peer_address.0[2],
-                        conn.peer_address.0[1],
-                        conn.peer_address.0[0]
-                    );
-                    info!(
-                        "  Interval: {} ({}ms)",
-                        conn.params.interval,
-                        (conn.params.interval as u32 * 125) / 100
-                    );
-                    info!("  Latency: {}", conn.params.latency);
-                    info!(
-                        "  Timeout: {} ({}ms)",
-                        conn.params.supervision_timeout,
-                        conn.params.supervision_timeout as u32 * 10
-                    );
+                    info!("  Peer Address: {}", conn.peer_address);
+                    info!("  Interval: {} ", conn.interval.interval());
+                    info!("  Latency: {}", conn.interval.conn_latency());
+                    info!("  Timeout: {}", conn.interval.supervision_timeout());
                     info!("  Active connections: {}", ble.connections().count());
 
                     // Note: Advertising typically stops automatically on connection
@@ -230,30 +220,21 @@ async fn main(spawner: Spawner) {
                     info!("  Reason: 0x{:02X} ({})", reason, disconnect_reason_str(reason));
                     info!("  Active connections: {}", ble.connections().count());
 
-                    // Restart advertising after disconnection
+                    // Restart advertising after disconnection.
+                    // Advertising parameters are still configured, just re-enable.
                     info!("Restarting advertising...");
-                    if let Err(e) = ble.start_advertising(adv_params.clone(), adv_data.clone(), None).await {
-                        error!("Failed to restart advertising: {:?}", e);
-                    } else {
-                        info!("Advertising restarted");
+                    match ble.start_advertising(adv_params.clone(), adv_data.clone(), None).await {
+                        Ok(()) => info!("Advertising restarted"),
+                        Err(e) => error!("Failed to restart advertising: {:?}", e),
                     }
                 }
 
-                GapEvent::ConnectionParamsUpdated {
-                    handle,
-                    interval,
-                    latency,
-                    supervision_timeout,
-                } => {
+                GapEvent::ConnectionParamsUpdated { handle, interval } => {
                     info!("=== CONNECTION PARAMS UPDATED ===");
                     info!("  Handle: 0x{:04X}", handle.0);
-                    info!("  New Interval: {} ({}ms)", interval, (interval as u32 * 125) / 100);
-                    info!("  New Latency: {}", latency);
-                    info!(
-                        "  New Timeout: {} ({}ms)",
-                        supervision_timeout,
-                        supervision_timeout as u32 * 10
-                    );
+                    info!("  New Interval: {}", interval.interval());
+                    info!("  New Latency: {}", interval.conn_latency());
+                    info!("  New Timeout: {}", interval.supervision_timeout());
                 }
 
                 GapEvent::PhyUpdated { handle, tx_phy, rx_phy } => {

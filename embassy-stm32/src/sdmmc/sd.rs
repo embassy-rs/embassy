@@ -550,7 +550,7 @@ impl<'a, 'b, A: Addressable> StorageDevice<'a, 'b, A> {
             DatapathMode::Block(block_size(size_of::<DataBlock>())),
         );
 
-        #[cfg(sdmmc_v2)]
+        #[cfg(any(sdmmc_v2, sdmmc_v3))]
         self.sdmmc.cmd(common_cmd::write_single_block(address), true, true)?;
 
         self.sdmmc.complete_datapath_transfer(transfer, true).await?;
@@ -598,7 +598,7 @@ impl<'a, 'b, A: Addressable> StorageDevice<'a, 'b, A> {
             aligned_ref(buffer),
             DatapathMode::Block(block_size(size_of::<DataBlock>())),
         );
-        #[cfg(sdmmc_v2)]
+        #[cfg(any(sdmmc_v2, sdmmc_v3))]
         self.sdmmc.cmd(common_cmd::write_multiple_blocks(address), true, true)?; // CMD25
 
         self.sdmmc.complete_datapath_transfer(transfer, false).await?;

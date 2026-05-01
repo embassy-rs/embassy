@@ -31,7 +31,7 @@ stm32l4r5zi = ["embassy-stm32/stm32l4r5zi", "not-stop", "chrono", "not-gpdma", "
 stm32l552ze = ["embassy-stm32/stm32l552ze", "not-stop", "not-gpdma", "rng", "hash", "dual-bank"]
 stm32u585ai = ["embassy-stm32/stm32u585ai", "not-stop", "spi-v345", "chrono", "rng", "hash", "cordic"]
 stm32u5a5zj = ["embassy-stm32/stm32u5a5zj", "not-stop", "spi-v345", "chrono", "rng", "hash", "cordic"]
-stm32wb55rg = ["embassy-stm32/stm32wb55rg", "fake-stop", "chrono", "not-gpdma", "ble", "mac" , "rng", "hsem"]
+stm32wb55rg = ["embassy-stm32/stm32wb55rg", "embassy-stm32-wpan?/stm32wb55rg", "fake-stop", "chrono", "not-gpdma", "ble", "mac" , "rng", "hsem"]
 stm32wba52cg = ["embassy-stm32/stm32wba52cg", "not-stop", "spi-v345", "chrono", "rng", "hash", "adc"]
 stm32wba65ri = ["embassy-stm32/stm32wba65ri", "not-stop", "spi-v345", "chrono", "rng", "hash", "adc"]
 stm32wl55jc = ["embassy-stm32/stm32wl55jc-cm4", "fake-stop", "not-gpdma", "rng", "chrono", "hsem"]
@@ -54,8 +54,8 @@ not-stop = ["embassy-executor/platform-cortex-m", "embassy-executor/executor-thr
 chrono = ["embassy-stm32/chrono", "dep:chrono"]
 can = []
 fdcan = []
-ble = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/wb55_ble"]
-mac = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/wb55_mac"]
+ble = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/wb-ble"]
+mac = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/wb-mac"]
 embassy-stm32-wpan = []
 not-gpdma = []
 dac = []
@@ -80,7 +80,7 @@ embassy-executor = { version = "0.10.0", path = "../../embassy-executor", featur
 embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "tick-hz-131_072", "defmt-timestamp-uptime"] }
 embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "unstable-pac", "memory-x", "time-driver-any"]  }
 embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
-embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", optional = true, features = ["defmt", "stm32wb55rg", "wb55_ble"] }
+embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", optional = true, features = ["defmt"] }
 embassy-net = { version = "0.9.1", path = "../../embassy-net", features = ["defmt",  "tcp", "udp", "dhcpv4", "medium-ethernet"] }
 perf-client = { path = "../perf-client" }
 

@@ -90,12 +90,16 @@ use embassy_stm32::pac::{FLASH, PWR, RCC};
 use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph, RNG};
 use embassy_stm32::pka::{EccPoint, EcdsaCurveParams, Pka};
 use embassy_stm32::rng::Rng;
-use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::zerocopy_channel;
 use embassy_time::{Duration, Instant, block_for};
+use stm32_bindings::ble::BLEPLATCB_TimerExpiry;
 
-use crate::bindings::{link_layer, mac};
-use crate::runner;
+use crate::controller::ChannelPacket;
+use crate::host_if::{TASK_BLE_HOST_MASK, TASK_PRIO_BLE_HOST};
+use crate::util_seq;
+use crate::wba::bindings::{link_layer, mac};
 
 // RADIO interrupt numbers for STM32WBA
 // RADIO interrupt is position 66
@@ -149,14 +153,15 @@ static mut CS_RESTORE_STATE: Option<critical_section::RestoreState> = None;
 // Optional hardware RNG instance for true random number generation.
 // The RNG peripheral pointer is stored here to be used by LINKLAYER_PLAT_GetRNG.
 // This must be set by the application using `set_rng_instance` before the link layer requests random numbers.
-pub(crate) static mut HARDWARE_RNG: Option<&'static Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>> = None;
+pub(crate) static mut HARDWARE_RNG: Option<&'static CriticalSectionMutex<RefCell<Rng<'static, RNG>>>> = None;
 
 // Hardware AES and PKA driver instances, following the HARDWARE_RNG pattern.
 // Stored as statics so the extern "C" BLEPLAT callbacks can access them.
-pub(crate) static mut HARDWARE_AES: Option<
-    &'static Mutex<CriticalSectionRawMutex, RefCell<Aes<'static, AesPeriph, Blocking>>>,
-> = None;
-pub(crate) static mut HARDWARE_PKA: Option<&'static Mutex<CriticalSectionRawMutex, RefCell<Pka<'static, PkaPeriph>>>> =
+pub(crate) static mut HARDWARE_AES: Option<&'static CriticalSectionMutex<RefCell<Aes<'static, AesPeriph, Blocking>>>> =
+    None;
+pub(crate) static mut HARDWARE_PKA: Option<&'static CriticalSectionMutex<RefCell<Pka<'static, PkaPeriph>>>> = None;
+
+pub(crate) static mut EVENT_CHANNEL: Option<zerocopy_channel::Sender<'static, CriticalSectionRawMutex, ChannelPacket>> =
     None;
 
 // ============================================================================
@@ -331,48 +336,41 @@ const MAX_BLE_TIMERS: usize = 32;
 
 /// Timer slots: (timer_id, deadline). id=0xFFFF means slot is free.
 const TIMER_SLOT_FREE: u16 = 0xFFFF;
-static mut TIMER_SLOTS: [(u16, Option<Instant>); MAX_BLE_TIMERS] = [(TIMER_SLOT_FREE, None); MAX_BLE_TIMERS];
+static mut TIMER_SLOTS: [(u16, Instant); MAX_BLE_TIMERS] = [(TIMER_SLOT_FREE, Instant::MAX); MAX_BLE_TIMERS];
 
 /// Get the earliest active timer deadline, if any
-pub fn earliest_timer_deadline() -> Option<Instant> {
-    let mut earliest: Option<Instant> = None;
+pub fn earliest_timer_deadline() -> Instant {
     unsafe {
-        for &(id, ref deadline) in TIMER_SLOTS.iter() {
-            if id != TIMER_SLOT_FREE {
-                if let Some(d) = deadline {
-                    match earliest {
-                        None => earliest = Some(*d),
-                        Some(e) if *d < e => earliest = Some(*d),
-                        _ => {}
-                    }
-                }
-            }
-        }
+        TIMER_SLOTS
+            .iter()
+            .filter(|(id, _)| *id != TIMER_SLOT_FREE)
+            .map(|(_, deadline)| *deadline)
+            .min()
+            .unwrap_or(Instant::MAX)
     }
-    earliest
 }
 
 /// Check and fire any expired timers. Called from the runner loop.
 /// Calls BLEPLATCB_TimerExpiry(id) for each expired timer to notify the BLE stack.
 pub fn check_expired_timers() {
     let now = Instant::now();
-    let mut any_expired = false;
+    let mut expired = false;
+    let mut timer_id: u16;
     unsafe {
-        for slot in TIMER_SLOTS.iter_mut() {
-            if slot.0 != TIMER_SLOT_FREE {
-                if let Some(d) = slot.1 {
-                    if now >= d {
-                        let timer_id = slot.0;
-                        slot.0 = TIMER_SLOT_FREE;
-                        slot.1 = None;
-                        any_expired = true;
-                        super::bindings::ble::BLEPLATCB_TimerExpiry(timer_id);
-                    }
-                }
-            }
+        for (id, deadline) in TIMER_SLOTS
+            .iter_mut()
+            .filter(|(id, deadline)| *id != TIMER_SLOT_FREE && *deadline >= now)
+        {
+            timer_id = *id;
+            *id = TIMER_SLOT_FREE;
+            *deadline = Instant::MAX;
+            expired = true;
+
+            BLEPLATCB_TimerExpiry(timer_id);
         }
     }
-    if any_expired {
+
+    if expired {
         super::util_seq::seq_pend();
     }
 }
@@ -583,7 +581,7 @@ pub(crate) unsafe fn run_radio_high_isr() {
         cb();
     }
     // Wake the BLE runner task to process any resulting events
-    runner::on_radio_interrupt();
+    util_seq::seq_pend();
 }
 
 pub(crate) unsafe fn run_radio_sw_low_isr() {
@@ -600,7 +598,7 @@ pub(crate) unsafe fn run_radio_sw_low_isr() {
     }
 
     // Wake the BLE runner task to process any resulting events
-    runner::on_radio_interrupt();
+    util_seq::seq_pend();
 }
 
 // /**
@@ -1600,21 +1598,22 @@ pub unsafe extern "C" fn BLEPLAT_TimerStart(id: u16, timeout: u32) -> u8 {
 
     // Find existing slot for this ID, or a free slot
     let mut free_slot: Option<usize> = None;
-    for (i, slot) in TIMER_SLOTS.iter_mut().enumerate() {
-        if slot.0 == id {
+    for (i, (slot_id, slot_deadline)) in TIMER_SLOTS.iter_mut().enumerate() {
+        if *slot_id == id {
             // Update existing timer
-            slot.1 = Some(deadline);
+            *slot_deadline = deadline;
             super::util_seq::seq_pend();
             return 0;
         }
-        if slot.0 == TIMER_SLOT_FREE && free_slot.is_none() {
+
+        if *slot_id == TIMER_SLOT_FREE && free_slot.is_none() {
             free_slot = Some(i);
         }
     }
 
     // Use a free slot
     if let Some(i) = free_slot {
-        TIMER_SLOTS[i] = (id, Some(deadline));
+        TIMER_SLOTS[i] = (id, deadline);
         super::util_seq::seq_pend();
         0
     } else {
@@ -1630,7 +1629,7 @@ pub unsafe extern "C" fn BLEPLAT_TimerStop(id: u16) {
     for slot in TIMER_SLOTS.iter_mut() {
         if slot.0 == id {
             slot.0 = TIMER_SLOT_FREE;
-            slot.1 = None;
+            slot.1 = Instant::MAX;
             return;
         }
     }
@@ -1896,27 +1895,15 @@ pub unsafe extern "C" fn BLECB_Indication(data: *const u8, length: u16, _ext_dat
 
     // Schedule BLE host task processing after disconnect so the runner wakes
     if evt_code == 0x05 {
-        super::runner::schedule_ble_host_task();
+        util_seq::UTIL_SEQ_SetTask(TASK_BLE_HOST_MASK, TASK_PRIO_BLE_HOST);
     }
 
-    // Parse and queue the event for processing.
-    // Skip byte 0 (0x04 HCI Event packet indicator) — the parser expects
-    // data starting at the event code byte.
-    let parse_data = if length >= 2 && event_data[0] == 0x04 {
-        &event_data[1..]
-    } else {
-        event_data
+    let Some(mut slot) = unsafe { EVENT_CHANNEL.as_mut() }.unwrap().try_send() else {
+        return 0;
     };
-    if let Some(event) = super::hci::event::Event::parse(parse_data) {
-        match super::hci::event::try_send_event(event) {
-            Ok(_) => {
-                super::runner::schedule_ble_host_task();
-            }
-            Err(_) => {
-                warn!("Event queue full, dropping event");
-            }
-        }
-    }
+
+    slot.copy_from(event_data);
+    slot.send_done();
 
     0 // Success
 }

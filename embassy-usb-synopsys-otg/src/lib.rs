@@ -1145,7 +1145,25 @@ impl<'d, const MAX_EP_COUNT: usize> embassy_usb_driver::Bus for Bus<'d, MAX_EP_C
     }
 
     async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
-        Err(Unsupported)
+        let r = self.instance.regs;
+
+        // Re-enable PHY clock gated during suspend.
+        // See RM0368 §22.8 "OTG low-power modes" (STPPCLK / GATEHCLK).
+        r.pcgcctl().modify(|w| {
+            w.set_stppclk(false);
+            // GATEHCLK is only present on HS cores.
+            if self.instance.phy_type.high_speed() {
+                w.set_gatehclk(false);
+            }
+        });
+
+        // Assert resume K-state on D+/D-.
+        // USB 2.0 spec §7.1.7.7: TDRSMUP requires 1–15 ms of resume signaling.
+        r.dctl().modify(|w| w.set_rwusig(true));
+        embassy_time::Timer::after_millis(10).await;
+        r.dctl().modify(|w| w.set_rwusig(false));
+
+        Ok(())
     }
 }
 

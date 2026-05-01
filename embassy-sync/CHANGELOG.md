@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added `Pipe::try_write_all` method which repeatedly calls `Pipe::try_write` until all
   bytes were written.
+- Implement `core::error::Error` for `channel::TryReceiveError` and `channel::TrySendError`.
 
 ## 0.8.0 - 2026-03-10
 - Fix wakers getting dropped by `Signal::reset`

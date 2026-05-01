@@ -1022,6 +1022,17 @@ mod embedded_io_impls {
     }
 }
 
+impl core::fmt::Display for AcceptError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::InvalidState => f.write_str("InvalidState"),
+            Self::InvalidPort => f.write_str("InvalidPort"),
+            Self::ConnectionReset => f.write_str("ConnectionReset"),
+        }
+    }
+}
+impl core::error::Error for AcceptError {}
+
 /// TCP client compatible with `embedded-nal-async` traits.
 pub mod client {
     use core::cell::{Cell, UnsafeCell};

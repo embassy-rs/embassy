@@ -1622,12 +1622,9 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
     fn determine_matched_address(&self) -> Result<Address, Error> {
         let matched = self.info.regs.isr().read().addcode();
 
-        if matched >> 3 == 0b11110 {
-            // is 10-bit address and we need to get the other 8 bits from the rxdr
-            // we do this by doing a blocking read of 1 byte
-            let mut buffer = [0];
-            self.slave_read_internal(&mut buffer, self.timeout())?;
-            Ok(Address::TenBit((matched as u16) << 6 | buffer[0] as u16))
+        if matched >> 2 == 0b11110 {
+            let address = self.info.regs.oar1().read().oa1();
+            Ok(Address::TenBit(address))
         } else {
             Ok(Address::SevenBit(matched))
         }

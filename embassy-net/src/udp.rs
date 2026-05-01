@@ -512,3 +512,23 @@ impl Drop for UdpSocket<'_> {
 fn _assert_covariant<'a, 'b: 'a>(x: UdpSocket<'b>) -> UdpSocket<'a> {
     x
 }
+
+impl core::fmt::Display for SendError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::NoRoute => f.write_str("NoRoute"),
+            Self::SocketNotBound => f.write_str("SocketNotBound"),
+            Self::PacketTooLarge => f.write_str("PacketTooLarge"),
+        }
+    }
+}
+impl core::error::Error for SendError {}
+
+impl core::fmt::Display for RecvError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Truncated => f.write_str("Truncated"),
+        }
+    }
+}
+impl core::error::Error for RecvError {}

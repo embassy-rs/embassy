@@ -1876,7 +1876,7 @@ fn main() {
     }
 
     for (p, regs) in &peripheral_list {
-        if regs.kind == "adc" && regs.version == "f3v3" {
+        if regs.kind == "adc" && (regs.version == "f3v3" || regs.version == "wb1") {
             continue;
         }
 

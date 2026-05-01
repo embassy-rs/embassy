@@ -252,9 +252,7 @@ impl Sequencer {
 
         // Save and update SuperMask for nested calls
         // Each nested call makes the mask MORE restrictive (following ST's implementation)
-        let super_mask_backup = self.super_mask.load(Ordering::Acquire);
-        let new_super_mask = super_mask_backup & mask;
-        self.super_mask.store(new_super_mask, Ordering::Release);
+        let super_mask_backup = self.super_mask.fetch_and(mask, Ordering::AcqRel);
 
         loop {
             loop {

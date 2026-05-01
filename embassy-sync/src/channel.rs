@@ -1056,6 +1056,24 @@ where
     }
 }
 
+impl core::fmt::Display for TryReceiveError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Empty => f.write_str("Empty"),
+        }
+    }
+}
+impl core::error::Error for TryReceiveError {}
+
+impl<T> core::fmt::Display for TrySendError<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Full(_) => f.write_str("Full"),
+        }
+    }
+}
+impl<T: core::fmt::Debug> core::error::Error for TrySendError<T> {}
+
 #[cfg(test)]
 mod tests {
     use core::time::Duration;

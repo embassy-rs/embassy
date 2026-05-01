@@ -122,6 +122,35 @@ impl Default for Config {
     }
 }
 
+struct ActiveTxInterrupt {
+    core: CoreId,
+    index: u8,
+}
+
+impl ActiveTxInterrupt {
+    fn configure_interrupt(&mut self, enabled: bool) {
+        critical_section::with(|_| {
+            IPCC::regs()
+                .cpu(self.core.to_index().into())
+                .mr()
+                .modify(|w| w.set_chfm(self.index as usize, !enabled))
+        });
+    }
+
+    fn new(core: CoreId, index: u8) -> Self {
+        let mut this = Self { core, index };
+
+        this.configure_interrupt(true);
+        this
+    }
+}
+
+impl Drop for ActiveTxInterrupt {
+    fn drop(&mut self) {
+        self.configure_interrupt(false);
+    }
+}
+
 /// IPCC TX Channel
 pub struct IpccTxChannel<'a> {
     index: u8,
@@ -163,33 +192,51 @@ impl<'a> IpccTxChannel<'a> {
         // This is a race, but is nice for debugging
         if regs.cpu(core.to_index().into()).sr().read().chf(self.index as usize) {
             trace!("ipcc: ch {}: wait for tx free", self.index as u8);
+        } else {
+            return;
         }
 
+        let _irq = ActiveTxInterrupt::new(core, self.index);
         poll_fn(|cx| {
             IPCC::state().tx_waker_for(self.index).register(cx.waker());
-            // If bit is set to 1 then interrupt is disabled; we want to enable the interrupt
-            critical_section::with(|_| {
-                regs.cpu(core.to_index().into())
-                    .mr()
-                    .modify(|w| w.set_chfm(self.index as usize, false))
-            });
-
             compiler_fence(Ordering::SeqCst);
 
             if !regs.cpu(core.to_index().into()).sr().read().chf(self.index as usize) {
-                // If bit is set to 1 then interrupt is disabled; we want to disable the interrupt
-                critical_section::with(|_| {
-                    regs.cpu(core.to_index().into())
-                        .mr()
-                        .modify(|w| w.set_chfm(self.index as usize, true))
-                });
-
                 Poll::Ready(())
             } else {
                 Poll::Pending
             }
         })
         .await;
+    }
+}
+
+struct ActiveRxInterrupt {
+    core: CoreId,
+    index: u8,
+}
+
+impl ActiveRxInterrupt {
+    fn configure_interrupt(&mut self, enabled: bool) {
+        critical_section::with(|_| {
+            IPCC::regs()
+                .cpu(self.core.to_index().into())
+                .mr()
+                .modify(|w| w.set_chom(self.index as usize, !enabled))
+        });
+    }
+
+    fn new(core: CoreId, index: u8) -> Self {
+        let mut this = Self { core, index };
+
+        this.configure_interrupt(true);
+        this
+    }
+}
+
+impl Drop for ActiveRxInterrupt {
+    fn drop(&mut self) {
+        self.configure_interrupt(false);
     }
 }
 
@@ -210,7 +257,9 @@ impl<'a> IpccRxChannel<'a> {
     }
 
     /// Receive data from an IPCC channel. The closure is called to read the data when appropriate.
-    pub async fn receive<R>(&mut self, mut f: impl FnMut() -> Option<R>) -> R {
+    ///
+    /// `close` determines whether the channel will be open for receiving more data, or not after data is read.
+    pub async fn receive<R>(&mut self, mut f: impl FnMut() -> Option<R>, close: bool) -> R {
         let _scoped_wake_guard = IPCC::RCC_INFO.wake_guard();
         let regs = IPCC::regs();
         let core = CoreId::current();
@@ -224,38 +273,26 @@ impl<'a> IpccRxChannel<'a> {
                 .chf(self.index as usize)
             {
                 trace!("ipcc: ch {}: wait for rx occupied", self.index as u8);
+
+                let _irq = ActiveRxInterrupt::new(core, self.index);
+                poll_fn(|cx| {
+                    IPCC::state().rx_waker_for(self.index).register(cx.waker());
+
+                    compiler_fence(Ordering::SeqCst);
+
+                    if regs
+                        .cpu(core.other().to_index().into())
+                        .sr()
+                        .read()
+                        .chf(self.index as usize)
+                    {
+                        Poll::Ready(())
+                    } else {
+                        Poll::Pending
+                    }
+                })
+                .await;
             }
-
-            poll_fn(|cx| {
-                IPCC::state().rx_waker_for(self.index).register(cx.waker());
-                // If bit is set to 1 then interrupt is disabled; we want to enable the interrupt
-                critical_section::with(|_| {
-                    regs.cpu(core.to_index().into())
-                        .mr()
-                        .modify(|w| w.set_chom(self.index as usize, false))
-                });
-
-                compiler_fence(Ordering::SeqCst);
-
-                if regs
-                    .cpu(core.other().to_index().into())
-                    .sr()
-                    .read()
-                    .chf(self.index as usize)
-                {
-                    // If bit is set to 1 then interrupt is disabled; we want to disable the interrupt
-                    critical_section::with(|_| {
-                        regs.cpu(core.to_index().into())
-                            .mr()
-                            .modify(|w| w.set_chom(self.index as usize, true))
-                    });
-
-                    Poll::Ready(())
-                } else {
-                    Poll::Pending
-                }
-            })
-            .await;
 
             trace!("ipcc: ch {}: read data", self.index as u8);
 
@@ -267,7 +304,7 @@ impl<'a> IpccRxChannel<'a> {
             // If the channel is clear and the read function returns none, fetch more data
             regs.cpu(core.to_index().into())
                 .scr()
-                .write(|w| w.set_chc(self.index as usize, true));
+                .write(|w| w.set_chc(self.index as usize, ret.is_none() || !close));
             match ret {
                 Some(ret) => return ret,
                 None => {}
@@ -372,10 +409,10 @@ impl Ipcc {
     }
 
     /// Receive from a channel number
-    pub async unsafe fn receive<R>(number: u8, f: impl FnMut() -> Option<R>) -> R {
+    pub async unsafe fn receive<R>(number: u8, f: impl FnMut() -> Option<R>, close: bool) -> R {
         core::assert!(number > 0 && number <= 6);
 
-        IpccRxChannel::new(number - 1).receive(f).await
+        IpccRxChannel::new(number - 1).receive(f, close).await
     }
 
     /// Send to a channel number

@@ -1,7 +1,7 @@
 use core::mem::MaybeUninit;
 
 use ::stm32_hrtim::control::{HrPwmControl, HrTimOngoingCalibration};
-use ::stm32_hrtim::output::{Output1Pin, Output2Pin};
+use ::stm32_hrtim::output::{NoPin, Output1Pin, Output2Pin};
 #[cfg(hrtim_v2)]
 use ::stm32_hrtim::pac::HRTIM_TIMF;
 use ::stm32_hrtim::pac::{HRTIM_MASTER, HRTIM_TIMA, HRTIM_TIMB, HRTIM_TIMC, HRTIM_TIMD, HRTIM_TIME};
@@ -126,6 +126,14 @@ pub trait Out1Pin<TIM>: Output1Pin<TIM> {
 pub trait Out2Pin<TIM>: Output2Pin<TIM> {
     /// Connect pin to hrtim timer
     fn connect_to_hrtim(self);
+}
+
+impl<T> Out1Pin<T> for NoPin {
+    fn connect_to_hrtim(self) {}
+}
+
+impl<T> Out2Pin<T> for NoPin {
+    fn connect_to_hrtim(self) {}
 }
 
 macro_rules! pins_helper {

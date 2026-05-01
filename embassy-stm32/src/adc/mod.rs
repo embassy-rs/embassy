@@ -4,7 +4,7 @@
 #![allow(missing_docs)] // TODO
 #![cfg_attr(adc_f3v3, allow(unused))]
 
-#[cfg(not(any(adc_f3v3, adc_wba)))]
+#[cfg(not(any(adc_f3v3, adc_wba, adc_wb1)))]
 #[cfg_attr(adc_f1, path = "f1.rs")]
 #[cfg_attr(adc_f3v1, path = "f3.rs")]
 #[cfg_attr(adc_f3v2, path = "l1.rs")]
@@ -23,7 +23,7 @@ mod ringbuffered;
 use core::marker::PhantomData;
 
 #[allow(unused)]
-#[cfg(not(any(adc_f3v3, adc_wba)))]
+#[cfg(not(any(adc_f3v3, adc_wba, adc_wb1)))]
 pub use _version::*;
 pub use configured_sequence::ConfiguredSequence;
 #[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2, adc_u5, adc_wba))]
@@ -822,7 +822,7 @@ foreach_adc!(
     };
 );
 
-#[cfg(not(any(adc_u5, adc_wba, adc_f3v3)))]
+#[cfg(not(any(adc_u5, adc_wba, adc_f3v3, adc_wb1)))]
 foreach_adc!(
     ($inst:ident, $common_inst:ident, $clock:ident) => {
         impl crate::adc::BasicInstance for peripherals::$inst {
