@@ -973,6 +973,35 @@ pub(crate) unsafe fn in_ram(operation: impl FnOnce()) -> Result<(), Error> {
             )
         };
 
+        // Clean the XIP cache before invoking the bootrom flash
+        // routines. The bootrom calls `flash_flush_cache`, which
+        // INVALIDATES every cache line by set/way — that silently
+        // drops any dirty PSRAM lines (writes the CPU made that
+        // hadn't yet been written back to physical PSRAM via the
+        // cache write-back path). Cleaning first pushes those writes
+        // out so the subsequent invalidate is harmless. See
+        // pico-sdk's `hardware_xip_cache::xip_cache_clean_all` and
+        // erratum RP2350-E11.
+        //
+        // Encoding: addr[2:0]=0x1 selects "clean by set/way";
+        // addr[12:3] is the set index (1024 sets), addr[13] is the
+        // way (2 ways) — 2048 lines total. Maintenance writes are
+        // anchored at the very top of the maintenance window
+        // (0x1BFFC000) so the bogus tag left in the line by erratum
+        // E11 (`clean by set/way` writes the maintenance address
+        // into the line tag) sits in a region nothing reads.
+        #[cfg(feature = "_rp235x")]
+        {
+            const MAINT_BASE: usize = 0x1BFFC000;
+            let mut i: usize = 0;
+            while i < 2048 {
+                let addr = MAINT_BASE + (i * 8) + 1;
+                core::ptr::write_volatile(addr as *mut u8, 0);
+                i += 1;
+            }
+            core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
+        }
+
         // Run our flash operation in RAM
         operation();
 
