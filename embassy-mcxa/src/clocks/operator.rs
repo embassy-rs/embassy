@@ -9,6 +9,7 @@ use config::{
 use cortex_m::peripheral::SCB;
 #[cfg(feature = "mcxa1xx")]
 use nxp_pac::mrcc::ClkdivUnstab;
+
 use super::config;
 use super::types::{Clock, ClockError, Clocks, PoweredClock};
 use crate::chips::{ClockLimits, clock_limits};
@@ -27,7 +28,6 @@ use crate::pac::syscon::{
     AhbclkdivUnstab, FrohfdivHalt, FrohfdivReset, FrohfdivUnstab, FrolfdivHalt, FrolfdivReset, FrolfdivUnstab,
     Pll1clkdivHalt, Pll1clkdivReset, Pll1clkdivUnstab, Unlock,
 };
-
 #[cfg(feature = "mcxa1xx")]
 use crate::pac::syscon::{AhbclkdivUnstab, Unlock};
 
