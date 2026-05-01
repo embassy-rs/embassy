@@ -4,27 +4,35 @@
 //! `configure_*` methods. It is only used during [`super::init()`].
 
 use config::{
-    ClocksConfig, CoreSleep, FircConfig, FircFreqSel, Fro16KConfig, MainClockSource, SircConfig, VddDriveStrength,
-    VddLevel,
+    ClocksConfig, CoreSleep, FircConfig, Fro16KConfig, MainClockSource, SircConfig, VddDriveStrength, VddLevel,
 };
 use cortex_m::peripheral::SCB;
+#[cfg(feature = "mcxa1xx")]
+use nxp_pac::mrcc::ClkdivUnstab;
 
 use super::config;
 use super::types::{Clock, ClockError, Clocks, PoweredClock};
 use crate::chips::{ClockLimits, clock_limits};
 use crate::pac;
 use crate::pac::cmc::Ckmode;
+
+#[allow(unused_imports)]
 use crate::pac::scg::{
-    Erefs, Fircacc, FircaccIe, FirccsrLk, Fircerr, FircerrIe, Fircsten, Range, Scs, SirccsrLk, Sircerr, Sircvld,
-    SosccsrLk, Soscerr, Source, SpllLock, SpllcsrLk, Spllerr, Spllsten, TrimUnlock,
+    Erefs, Fircacc, FircaccIe, FirccsrLk, Fircerr, FircerrIe, Fircsten, FreqSel, Range, Scs, SirccsrLk, Sircerr,
+    Sircvld, SosccsrLk, Soscerr, Source, SpllLock, SpllcsrLk, Spllerr, Spllsten, TrimUnlock,
 };
 use crate::pac::spc::{
     ActiveCfgBgmode, ActiveCfgCoreldoVddDs, ActiveCfgCoreldoVddLvl, LpCfgBgmode, LpCfgCoreldoVddLvl, Vsm,
 };
+
+#[cfg(not(feature = "mcxa1xx"))]
 use crate::pac::syscon::{
     AhbclkdivUnstab, FrohfdivHalt, FrohfdivReset, FrohfdivUnstab, FrolfdivHalt, FrolfdivReset, FrolfdivUnstab,
     Pll1clkdivHalt, Pll1clkdivReset, Pll1clkdivUnstab, Unlock,
 };
+
+#[cfg(feature = "mcxa1xx")]
+use crate::pac::syscon::{AhbclkdivUnstab, Unlock};
 
 /// The ClockOperator is a private helper type that contains the methods used
 /// during system clock initialization.
@@ -64,8 +72,9 @@ impl ClockOperator<'_> {
     fn active_limits(&self) -> &'static ClockLimits {
         match self.config.vdd_power.active_mode.level {
             VddLevel::MidDriveMode => &ClockLimits::MID_DRIVE,
-            #[cfg(feature = "mcxa5xx")]
+            #[cfg(any(feature = "mcxa5xx", feature = "mcxa1xx"))]
             VddLevel::NormalMode => &ClockLimits::NORMAL_DRIVE,
+            #[cfg(not(feature = "mcxa1xx"))]
             VddLevel::OverDriveMode => &ClockLimits::OVER_DRIVE,
         }
     }
@@ -73,8 +82,9 @@ impl ClockOperator<'_> {
     fn low_power_limits(&self) -> &'static ClockLimits {
         match self.config.vdd_power.low_power_mode.level {
             VddLevel::MidDriveMode => &ClockLimits::MID_DRIVE,
-            #[cfg(feature = "mcxa5xx")]
+            #[cfg(any(feature = "mcxa5xx", feature = "mcxa1xx"))]
             VddLevel::NormalMode => &ClockLimits::NORMAL_DRIVE,
+            #[cfg(not(feature = "mcxa1xx"))]
             VddLevel::OverDriveMode => &ClockLimits::OVER_DRIVE,
         }
     }
@@ -89,70 +99,40 @@ impl ClockOperator<'_> {
 
     /// Configure the FIRC/FRO180M/FRO192M clock family
     pub(super) fn configure_firc_clocks(&mut self) -> Result<(), ClockError> {
-        // Three options here:
-        //
-        // * Firc is disabled -> Switch main clock to SIRC and return
-        // * Firc is enabled and !default ->
-        //   * Switch main clock to SIRC
-        //   * Make FIRC changes
-        //   * Switch main clock back to FIRC
-        // * Firc is enabled and default -> nop
-        #[cfg(feature = "mcxa2xx")]
-        let default_freq = FircFreqSel::Mhz45;
-        #[cfg(feature = "mcxa5xx")]
-        let default_freq = FircFreqSel::Mhz48;
-        let is_default = self.config.firc.as_ref().is_some_and(|c| c.frequency == default_freq);
-
-        // If we are not default, then we need to switch to SIRC
-        if !is_default {
-            // Set SIRC (fro_12m) as the source
-            self.scg0.rccr().modify(|w| w.set_scs(Scs::Sirc));
-
-            // Wait for the change to complete
-            while self.scg0.csr().read().scs() != Scs::Sirc {}
-        }
-
         // Enable CSR writes
         self.scg0.firccsr().modify(|w| w.set_lk(FirccsrLk::WriteEnabled));
+
+        // Disable FIRC
+        self.scg0.firccsr().modify(|w| {
+            w.set_fircen(false);
+            w.set_fircsten(Fircsten::DisabledInStopModes);
+            w.set_fircerr_ie(FircerrIe::ErrorNotDetected);
+            w.set_fircacc_ie(FircaccIe::Fircaccnot);
+            w.set_firc_sclk_periph_en(false);
+            w.set_firc_fclk_periph_en(false);
+        });
 
         // Did the user give us a FIRC config?
         let Some(firc) = self.config.firc.as_ref() else {
             // Nope, and we've already switched to fro_12m. Disable FIRC.
-            self.scg0.firccsr().modify(|w| {
-                w.set_fircsten(Fircsten::DisabledInStopModes);
-                w.set_fircerr_ie(FircerrIe::ErrorNotDetected);
-                w.set_firc_fclk_periph_en(false);
-                w.set_firc_sclk_periph_en(false);
-                w.set_fircen(false);
-            });
-
             self.scg0.firccsr().modify(|w| w.set_lk(FirccsrLk::WriteDisabled));
             return Ok(());
         };
-
-        // If we are here, we WANT FIRC. If we are !default, let's disable FIRC before
-        // we mess with it. If we are !default, we have already switched to SIRC instead!
-        if !is_default {
-            // Unlock
-            self.scg0.firccsr().modify(|w| w.set_lk(FirccsrLk::WriteEnabled));
-
-            // Disable FIRC
-            self.scg0.firccsr().modify(|w| {
-                w.set_fircen(false);
-                w.set_fircsten(Fircsten::DisabledInStopModes);
-                w.set_fircerr_ie(FircerrIe::ErrorNotDetected);
-                w.set_fircacc_ie(FircaccIe::Fircaccnot);
-                w.set_firc_sclk_periph_en(false);
-                w.set_firc_fclk_periph_en(false);
-            });
-        }
 
         let limits = self.lowest_relevant_limits(&firc.power);
 
         // Set frequency (if not the default!), re-enable FIRC, and return the base frequency
         let (base_freq, sel) = firc.frequency.to_freq_and_sel();
 
+        //TODO: fix SGC for MCXA1xx and MCXA2xx
+        #[cfg(any(feature = "mcxa1xx", feature = "mcxa2xx"))]
+        let real_sel = FreqSel::from_bits(sel.to_bits() << 1u8);
+
+        #[cfg(any(feature = "mcxa1xx", feature = "mcxa2xx"))]
+        self.scg0.firccfg().modify(|w| w.set_freq_sel(real_sel));
+        #[cfg(feature = "mcxa5xx")]
         self.scg0.firccfg().modify(|w| w.set_freq_sel(sel));
+
         self.scg0.firccsr().modify(|w| w.set_fircen(true));
 
         // Wait for FIRC to be enabled, error-free, and accurate
@@ -239,6 +219,8 @@ impl ClockOperator<'_> {
         // Do we enable the `fro_hf_div` output?
         if let Some(d) = fro_hf_div.as_ref() {
             // We need `fro_hf` to be enabled
+
+            #[cfg(not(feature = "mcxa1xx"))]
             if !*fro_hf_enabled {
                 return Err(ClockError::BadConfig {
                     clock: "fro_hf_div",
@@ -254,13 +236,18 @@ impl ClockOperator<'_> {
                 });
             }
 
+            //MCXA2xx/MCXA5xx FRO_HF_DIV
+
             // Halt and reset the div; then set our desired div.
+            #[cfg(not(feature = "mcxa1xx"))]
             self.syscon.frohfdiv().write(|w| {
                 w.set_halt(FrohfdivHalt::Halt);
                 w.set_reset(FrohfdivReset::Asserted);
                 w.set_div(d.into_bits());
             });
             // Then unhalt it, and reset it
+
+            #[cfg(not(feature = "mcxa1xx"))]
             self.syscon.frohfdiv().write(|w| {
                 w.set_halt(FrohfdivHalt::Run);
                 w.set_reset(FrohfdivReset::Released);
@@ -268,6 +255,7 @@ impl ClockOperator<'_> {
             });
 
             // Wait for clock to stabilize
+            #[cfg(not(feature = "mcxa1xx"))]
             while self.syscon.frohfdiv().read().unstab() == FrohfdivUnstab::Ongoing {}
 
             // Store off the clock info
@@ -277,14 +265,31 @@ impl ClockOperator<'_> {
             });
         }
 
+        #[cfg(feature = "mcxa1xx")]
+        if let Some(d) = fro_hf_div.as_ref() {
+            //MCXA1xx does not have a FRO_HF_DIV on syscon
+            let syscon_state = self.syscon.clkunlock().read().unlock();
+            self.syscon.clkunlock().modify(|w| w.set_unlock(Unlock::Enable));
+            self._mrcc0
+                .mrcc_fro_hf_div_clkdiv()
+                .modify(|w| w.set_div(d.into_bits()));
+
+            while self._mrcc0.mrcc_fro_hf_div_clkdiv().read().unstab() == ClkdivUnstab::On {}
+
+            //restore syscon lock state
+            self.syscon.clkunlock().modify(|w| w.set_unlock(syscon_state));
+        }
+
         Ok(())
     }
 
     /// Configure the SIRC/FRO12M clock family
+    /// and set as the system_clock for a safe clock init sequence.
     pub(super) fn configure_sirc_clocks_early(&mut self) -> Result<(), ClockError> {
         let SircConfig {
             power,
             fro_12m_enabled,
+            #[cfg(not(feature = "mcxa1xx"))] //SCG Lite does not have FRO_LF_DIV
             fro_lf_div,
         } = &self.config.sirc;
         let base_freq = 12_000_000;
@@ -339,6 +344,7 @@ impl ClockOperator<'_> {
         self.scg0.sirccsr().modify(|w| w.set_lk(SirccsrLk::WriteDisabled));
 
         // Do we enable the `fro_lf_div` output?
+        #[cfg(not(feature = "mcxa1xx"))]
         if let Some(d) = fro_lf_div.as_ref() {
             // We need `fro_lf` to be enabled
             if !*fro_12m_enabled {
@@ -362,6 +368,7 @@ impl ClockOperator<'_> {
             });
 
             // Wait for clock to stabilize
+            #[cfg(not(feature = "mcxa1xx"))]
             while self.syscon.frolfdiv().read().unstab() == FrolfdivUnstab::Ongoing {}
 
             // Store off the clock info
@@ -371,6 +378,16 @@ impl ClockOperator<'_> {
             });
         }
 
+        // Set SIRC (fro_12m) as the source
+        self.scg0.rccr().modify(|w| w.set_scs(Scs::Sirc));
+
+        // Wait for the change to complete
+        while self.scg0.csr().read().scs() != Scs::Sirc {}
+
+        //reset AHB div to 0
+        self.syscon.ahbclkdiv().modify(|w| w.set_div(0));
+        // Wait for clock to stabilize
+        while self.syscon.ahbclkdiv().read().unstab() == AhbclkdivUnstab::Ongoing {}
         Ok(())
     }
 
@@ -674,6 +691,7 @@ impl ClockOperator<'_> {
         Ok(())
     }
 
+    #[cfg(not(feature = "mcxa1xx"))] //MCXA1xx does not have SCG-LDOCSR
     fn ensure_ldo_active(&mut self, for_clock: &'static str, for_power: &PoweredClock) -> Result<(), ClockError> {
         let bg_good = match for_power {
             PoweredClock::NormalEnabledDeepSleepDisabled => self.clocks.bandgap_active,
@@ -711,6 +729,7 @@ impl ClockOperator<'_> {
         };
 
         // Enable (and wait for) LDO to be active
+        #[cfg(not(feature = "mcxa1xx"))] //MCXA1xx does not have SCG-LDOCSR
         self.ensure_ldo_active("sosc", &parts.power)?;
 
         let eref = match parts.mode {
@@ -808,6 +827,7 @@ impl ClockOperator<'_> {
         Ok(())
     }
 
+    #[cfg(not(feature = "mcxa1xx"))]
     pub(super) fn configure_spll(&mut self) -> Result<(), ClockError> {
         // # Vocab
         //
@@ -1190,10 +1210,11 @@ impl ClockOperator<'_> {
             MainClockSource::SoscClkIn => (Scs::Sosc, "clk_in", self.clocks.clk_in.as_ref()),
             MainClockSource::SircFro12M => (Scs::Sirc, "fro_12m", self.clocks.fro_12m.as_ref()),
             MainClockSource::FircHfRoot => (Scs::Firc, "fro_hf_root", self.clocks.fro_hf_root.as_ref()),
-            #[cfg(feature = "mcxa2xx")]
+            #[cfg(any(feature = "mcxa2xx", feature = "mcxa1xx"))]
             MainClockSource::RoscFro16K => (Scs::Rosc, "fro16k", self.clocks.clk_16k_vdd_core.as_ref()),
             #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
             MainClockSource::RoscOsc32K => (Scs::Rosc, "osc32k", self.clocks.clk_32k_vdd_core.as_ref()),
+            #[cfg(not(feature = "mcxa1xx"))]
             MainClockSource::SPll1 => (Scs::Spll, "pll1_clk", self.clocks.pll1_clk.as_ref()),
         };
         let Some(main_clk_src) = clk else {
@@ -1218,11 +1239,12 @@ impl ClockOperator<'_> {
                 clock_limits::VDD_CORE_MID_DRIVE_WAIT_STATE_LIMITS,
                 clock_limits::VDD_CORE_MID_DRIVE_MAX_WAIT_STATES,
             ),
-            #[cfg(feature = "mcxa5xx")]
+            #[cfg(any(feature = "mcxa5xx", feature = "mcxa1xx"))]
             VddLevel::NormalMode => (
                 clock_limits::VDD_CORE_NORMAL_DRIVE_WAIT_STATE_LIMITS,
                 clock_limits::VDD_CORE_NORMAL_DRIVE_MAX_WAIT_STATES,
             ),
+            #[cfg(not(feature = "mcxa1xx"))]
             VddLevel::OverDriveMode => (
                 clock_limits::VDD_CORE_OVER_DRIVE_WAIT_STATE_LIMITS,
                 clock_limits::VDD_CORE_OVER_DRIVE_MAX_WAIT_STATES,
@@ -1265,6 +1287,16 @@ impl ClockOperator<'_> {
 
         // TODO: (Double) check if clock is actually valid before switching?
         // Are we already on the right clock?
+
+        // Update AHB clock division
+        // ahb_div is set to 0 in the safe clock configuration, so if it's still 0 here, we can skip reconfiguring.
+        if ahb_div.into_bits() != 0 {
+            // If we're dividing, we need to switch to a safe clock before changing the div
+            self.syscon.ahbclkdiv().modify(|w| w.set_div(ahb_div.into_bits()));
+            // Wait for clock to stabilize
+            while self.syscon.ahbclkdiv().read().unstab() == AhbclkdivUnstab::Ongoing {}
+        }
+
         let now = self.scg0.csr().read().scs();
         if now != var {
             // Set RCCR
@@ -1276,14 +1308,6 @@ impl ClockOperator<'_> {
 
         // The main_clk is now set to the selected input clock
         self.clocks.main_clk = Some(main_clk_src.clone());
-
-        // Update AHB clock division, if necessary
-        if ahb_div.into_bits() != 0 {
-            // AHB has no halt/reset fields - it's different to other DIV8s!
-            self.syscon.ahbclkdiv().modify(|w| w.set_div(ahb_div.into_bits()));
-            // Wait for clock to stabilize
-            while self.syscon.ahbclkdiv().read().unstab() == AhbclkdivUnstab::Ongoing {}
-        }
 
         // Store off the clock info
         self.clocks.cpu_system_clk = Some(Clock {
@@ -1304,8 +1328,9 @@ impl ClockOperator<'_> {
                 // All other fields reset only with a system reset."
                 None
             }
-            #[cfg(feature = "mcxa5xx")]
+            #[cfg(any(feature = "mcxa5xx", feature = "mcxa1xx"))]
             VddLevel::NormalMode => Some((ActiveCfgCoreldoVddLvl::Normal, Vsm::Sram1v1)),
+            #[cfg(not(feature = "mcxa1xx"))]
             VddLevel::OverDriveMode => Some((ActiveCfgCoreldoVddLvl::Over, Vsm::Sram1v2)),
         };
 
@@ -1382,8 +1407,9 @@ impl ClockOperator<'_> {
             // a value for the 1.0v-1.2v transition we need. For now, the C SDK always uses 0x5B.
             #[cfg(feature = "mcxa5xx")]
             (VddLevel::OverDriveMode, VddLevel::NormalMode) => (false, 0x005b),
+            #[cfg(not(feature = "mcxa1xx"))]
             (VddLevel::OverDriveMode, VddLevel::MidDriveMode) => (false, 0x005b),
-            #[cfg(feature = "mcxa5xx")]
+            #[cfg(any(feature = "mcxa5xx", feature = "mcxa1xx"))]
             (VddLevel::NormalMode, VddLevel::MidDriveMode) => (false, 0x005b),
 
             //
@@ -1391,16 +1417,18 @@ impl ClockOperator<'_> {
             //
             // For now, enforce that active is always >= voltage to low power. I don't know if this
             // is required, but there's probably also no reason to support it?
-            #[cfg(feature = "mcxa5xx")]
+            #[cfg(any(feature = "mcxa5xx", feature = "mcxa1xx"))]
             (VddLevel::MidDriveMode, VddLevel::NormalMode) => return BAD_ASCENDING,
+            #[cfg(not(feature = "mcxa1xx"))]
             (VddLevel::MidDriveMode, VddLevel::OverDriveMode) => return BAD_ASCENDING,
             #[cfg(feature = "mcxa5xx")]
             (VddLevel::NormalMode, VddLevel::OverDriveMode) => return BAD_ASCENDING,
 
             // Correct "matching" options
             (VddLevel::MidDriveMode, VddLevel::MidDriveMode) => (true, 0x0000),
-            #[cfg(feature = "mcxa5xx")]
+            #[cfg(any(feature = "mcxa5xx", feature = "mcxa1xx"))]
             (VddLevel::NormalMode, VddLevel::NormalMode) => (true, 0x0000),
+            #[cfg(not(feature = "mcxa1xx"))]
             (VddLevel::OverDriveMode, VddLevel::OverDriveMode) => (true, 0x0000),
         };
         self.spc0.lpwkup_delay().write(|w| w.set_lpwkup_delay(lpwkup));
@@ -1443,8 +1471,9 @@ impl ClockOperator<'_> {
         };
         let lvl = match self.config.vdd_power.low_power_mode.level {
             VddLevel::MidDriveMode => LpCfgCoreldoVddLvl::Mid,
-            #[cfg(feature = "mcxa5xx")]
+            #[cfg(any(feature = "mcxa5xx", feature = "mcxa1xx"))]
             VddLevel::NormalMode => LpCfgCoreldoVddLvl::Normal,
+            #[cfg(not(feature = "mcxa1xx"))]
             VddLevel::OverDriveMode => LpCfgCoreldoVddLvl::Over,
         };
         self.spc0.lp_cfg().modify(|w| w.set_coreldo_vdd_ds(ds));

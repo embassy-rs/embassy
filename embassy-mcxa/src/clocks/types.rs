@@ -341,12 +341,14 @@ impl Clocks {
 
     /// Ensure the `pll1_clk` clock is active and valid at the given power state.
     #[inline]
+    #[cfg(not(feature = "mcxa1xx"))]
     pub fn ensure_pll1_clk_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
         self.ensure_clock_active(&self.pll1_clk, "pll1_clk", at_level)
     }
 
     /// Ensure the `pll1_clk_div` clock is active and valid at the given power state.
     #[inline]
+    #[cfg(not(feature = "mcxa1xx"))]
     pub fn ensure_pll1_clk_div_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
         self.ensure_clock_active(&self.pll1_clk_div, "pll1_clk_div", at_level)
     }
@@ -376,7 +378,6 @@ impl Clocks {
 
     pub fn ensure_slow_clk_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
         let freq = self.ensure_cpu_system_clk_active(at_level)?;
-
         Ok(freq / 6)
     }
 }
