@@ -120,16 +120,7 @@ impl ClockOperator<'_> {
 
         // Set frequency (if not the default!), re-enable FIRC, and return the base frequency
         let (base_freq, sel) = firc.frequency.to_freq_and_sel();
-
-        //TODO: fix SGC for MCXA1xx and MCXA2xx
-        #[cfg(any(feature = "mcxa1xx", feature = "mcxa2xx"))]
-        let real_sel = FreqSel::from_bits(sel.to_bits() << 1u8);
-
-        #[cfg(any(feature = "mcxa1xx", feature = "mcxa2xx"))]
-        self.scg0.firccfg().modify(|w| w.set_freq_sel(real_sel));
-        #[cfg(feature = "mcxa5xx")]
         self.scg0.firccfg().modify(|w| w.set_freq_sel(sel));
-
         self.scg0.firccsr().modify(|w| w.set_fircen(true));
 
         // Wait for FIRC to be enabled, error-free, and accurate
