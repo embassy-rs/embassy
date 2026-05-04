@@ -1,6 +1,6 @@
 = Bootloader
 
-`embassy-boot` a lightweight bootloader supporting firmware application upgrades in a power-fail-safe way, with trial boots and rollbacks.
+`embassy-boot` is a lightweight bootloader supporting firmware application upgrades in a power-fail-safe way, with trial boots and rollbacks.
 
 The update method used is referred to as an A/B partition update scheme.
 
@@ -18,7 +18,7 @@ The bootloader supports both internal and external flash by relying on the `embe
 
 == Hardware support
 
-The bootloader supports
+The bootloader supports:
 
 * nRF52 with and without softdevice
 * STM32 L4, WB, WL, L1, L0, F3, F7 and H7

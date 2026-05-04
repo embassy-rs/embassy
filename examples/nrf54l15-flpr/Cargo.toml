@@ -1,0 +1,20 @@
+[package]
+edition = "2024"
+name = "embassy-nrf54l15-flpr-examples"
+version = "0.1.0"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-riscv32", "executor-thread"] }
+nrf-pac = { git = "https://github.com/embassy-rs/nrf-pac", rev = "dcbec3723fa14fc81e004ab288c9b2e454dba802", features = ["nrf54l15-flpr"] }
+panic-halt = "1.0"
+embedded-hal = "1.0"
+
+riscv = { version = "0.16.0", features = ["critical-section-single-hart"] }
+riscv-rt = { version = "0.17.1", features = ["single-hart"] }
+
+[package.metadata.embassy]
+build = [
+    {group = "nightly", target = "riscv32emc-unknown-none-elf", "build-std" = ["core", "compiler_builtins"]}
+]

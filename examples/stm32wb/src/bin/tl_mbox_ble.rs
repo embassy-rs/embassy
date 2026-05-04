@@ -7,6 +7,7 @@ use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
 use embassy_stm32::rcc::WPAN_DEFAULT;
 use embassy_stm32_wpan::TlMbox;
+use embassy_stm32_wpan::sub::mm;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs{
@@ -14,8 +15,13 @@ bind_interrupts!(struct Irqs{
     IPCC_C1_TX => TransmitInterruptHandler;
 });
 
-#[embassy_executor::main]
-async fn main(_spawner: Spawner) {
+#[embassy_executor::task]
+async fn run_mm_queue(mut memory_manager: mm::MemoryManager<'static>) {
+    memory_manager.run_queue().await;
+}
+
+#[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
+async fn main(spawner: Spawner) {
     /*
         How to make this work:
 
@@ -45,18 +51,20 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let config = Config::default();
-    let mbox = TlMbox::init(p.IPCC, Irqs, config);
+    let (mut ble, mm) = TlMbox::wait_ready(p.IPCC, Irqs, config)
+        .await
+        .unwrap()
+        .init_ble(Default::default())
+        .await
+        .unwrap();
 
-    let sys_event = mbox.sys_subsystem.read().await;
-    info!("sys event: {}", sys_event.payload());
-
-    let _ = mbox.sys_subsystem.shci_c2_ble_init(Default::default()).await;
+    spawner.spawn(run_mm_queue(mm).unwrap());
 
     info!("starting ble...");
-    mbox.ble_subsystem.tl_write(0x0c, &[]).await;
+    ble.tl_write(0x0c, &[]).await;
 
     info!("waiting for ble...");
-    let ble_event = mbox.ble_subsystem.tl_read().await;
+    let ble_event = ble.tl_read().await;
 
     info!("ble event: {}", ble_event.payload());
 

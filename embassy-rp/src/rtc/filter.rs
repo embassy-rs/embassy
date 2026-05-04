@@ -81,7 +81,7 @@ impl DateTimeFilter {
     pub(super) fn write_setup_1(&self, w: &mut IrqSetup1) {
         if let Some(day_of_week) = self.day_of_week {
             w.set_dotw_ena(true);
-            let bits = super::datetime::day_of_week_to_u8(day_of_week);
+            let bits = super::conversions::day_of_week_to_u8(day_of_week);
 
             w.set_dotw(bits);
         }

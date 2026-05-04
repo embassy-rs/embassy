@@ -11,7 +11,7 @@ use embassy_executor::Spawner;
 use embassy_rp::adc::{self, Adc, Async, Config, InterruptHandler};
 use embassy_rp::gpio::Pull;
 use embassy_rp::peripherals::DMA_CH0;
-use embassy_rp::{Peri, bind_interrupts};
+use embassy_rp::{bind_interrupts, dma};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::zerocopy_channel::{Channel, Receiver, Sender};
 use embassy_time::{Duration, Ticker, Timer};
@@ -22,6 +22,7 @@ type SampleBuffer = [u16; 512];
 
 bind_interrupts!(struct Irqs {
     ADC_IRQ_FIFO => InterruptHandler;
+    DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>;
 });
 
 const BLOCK_SIZE: usize = 512;
@@ -31,7 +32,7 @@ static MAX: AtomicU16 = AtomicU16::new(0);
 struct AdcParts {
     adc: Adc<'static, Async>,
     pin: adc::Channel<'static>,
-    dma: Peri<'static, DMA_CH0>,
+    dma: dma::Channel<'static>,
 }
 
 #[embassy_executor::main]
@@ -42,7 +43,7 @@ async fn main(spawner: Spawner) {
     let adc_parts = AdcParts {
         adc: Adc::new(p.ADC, Irqs, Config::default()),
         pin: adc::Channel::new_pin(p.PIN_29, Pull::None),
-        dma: p.DMA_CH0,
+        dma: dma::Channel::new(p.DMA_CH0, Irqs),
     };
 
     static BUF: StaticCell<[SampleBuffer; NUM_BLOCKS]> = StaticCell::new();
@@ -67,16 +68,16 @@ async fn main(spawner: Spawner) {
 async fn producer(mut sender: Sender<'static, NoopRawMutex, SampleBuffer>, mut adc: AdcParts) {
     loop {
         // Obtain a free buffer from the channel
-        let buf = sender.send().await;
+        let mut buf = sender.send().await;
 
         // Fill it with data
         adc.adc
-            .read_many(&mut adc.pin, buf, 1, adc.dma.reborrow())
+            .read_many(&mut adc.pin, &mut *buf, 1, &mut adc.dma)
             .await
             .unwrap();
 
         // Notify the channel that the buffer is now ready to be received
-        sender.send_done();
+        buf.send_done();
     }
 }
 
@@ -92,6 +93,6 @@ async fn consumer(mut receiver: Receiver<'static, NoopRawMutex, SampleBuffer>) {
         MAX.store(*max, Ordering::Relaxed);
 
         // Notify the channel that the buffer is now ready to be reused
-        receiver.receive_done();
+        buf.receive_done();
     }
 }

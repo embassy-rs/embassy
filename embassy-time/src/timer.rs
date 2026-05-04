@@ -253,7 +253,7 @@ impl Ticker {
     }
 
     /// Reset the ticker at the deadline.
-    /// If the deadline is in the past, the ticker will fire instantly.
+    /// If the deadline is in the past, the ticker will fire before the next scheduled tick.
     pub fn reset_at(&mut self, deadline: Instant) {
         self.expires_at = deadline + self.duration;
     }
@@ -304,3 +304,10 @@ impl FusedStream for Ticker {
         false
     }
 }
+
+impl core::fmt::Display for TimeoutError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("TimeoutError")
+    }
+}
+impl core::error::Error for TimeoutError {}

@@ -7,10 +7,11 @@ use stm32_metapac::syscfg::vals::EthSelPhy;
 
 pub(crate) use self::descriptors::{RDes, RDesRing, TDes, TDesRing};
 use super::*;
-use crate::gpio::{AfType, AnyPin, OutputType, SealedPin as _, Speed};
+use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::interrupt;
 use crate::interrupt::InterruptExt;
 use crate::pac::ETH;
+use crate::rcc::WakeGuard;
 
 /// Interrupt handler.
 pub struct InterruptHandler {}
@@ -36,17 +37,21 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::ETH> for InterruptHandl
 /// Ethernet driver.
 pub struct Ethernet<'d, T: Instance, P: Phy> {
     _peri: Peri<'d, T>,
+    _wake_guard: WakeGuard,
+    pub(crate) link_state: LinkState,
     pub(crate) tx: TDesRing<'d>,
     pub(crate) rx: RDesRing<'d>,
-    pins: Pins<'d>,
+    _pins: Pins<'d>,
     pub(crate) phy: P,
     pub(crate) mac_addr: [u8; 6],
 }
 
 /// Pins of ethernet driver.
 enum Pins<'d> {
-    Rmii([Peri<'d, AnyPin>; 7]),
-    Mii([Peri<'d, AnyPin>; 12]),
+    #[allow(unused)]
+    Rmii([Flex<'d>; 7]),
+    #[allow(unused)]
+    Mii([Flex<'d>; 12]),
 }
 
 macro_rules! config_pins {
@@ -149,16 +154,16 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         config_pins!(ref_clk, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
 
         let pins = Pins::Rmii([
-            ref_clk.into(),
-            crs.into(),
-            rx_d0.into(),
-            rx_d1.into(),
-            tx_d0.into(),
-            tx_d1.into(),
-            tx_en.into(),
+            Flex::new(ref_clk),
+            Flex::new(crs),
+            Flex::new(rx_d0),
+            Flex::new(rx_d1),
+            Flex::new(tx_d0),
+            Flex::new(tx_d1),
+            Flex::new(tx_en),
         ]);
 
-        Self::new_inner(queue, peri, irq, pins, phy, mac_addr, EthSelPhy::RMII)
+        Self::new_inner(queue, peri, irq, pins, phy, mac_addr, EthSelPhy::Rmii)
     }
 
     /// Create a new MII ethernet driver using 12 pins.
@@ -186,21 +191,21 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         );
 
         let pins = Pins::Mii([
-            rx_clk.into(),
-            tx_clk.into(),
-            rxdv.into(),
-            rx_d0.into(),
-            rx_d1.into(),
-            rx_d2.into(),
-            rx_d3.into(),
-            tx_d0.into(),
-            tx_d1.into(),
-            tx_d2.into(),
-            tx_d3.into(),
-            tx_en.into(),
+            Flex::new(rx_clk),
+            Flex::new(tx_clk),
+            Flex::new(rxdv),
+            Flex::new(rx_d0),
+            Flex::new(rx_d1),
+            Flex::new(rx_d2),
+            Flex::new(rx_d3),
+            Flex::new(tx_d0),
+            Flex::new(tx_d1),
+            Flex::new(tx_d2),
+            Flex::new(tx_d3),
+            Flex::new(tx_en),
         ]);
 
-        Self::new_inner(queue, peri, irq, pins, phy, mac_addr, EthSelPhy::MII_GMII)
+        Self::new_inner(queue, peri, irq, pins, phy, mac_addr, EthSelPhy::MiiGmii)
     }
 
     fn new_inner<const TX: usize, const RX: usize>(
@@ -255,7 +260,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             )
         });
 
-        mac.macqtx_fcr().modify(|w| w.set_pt(0x100));
+        mac.macq_tx_fcr().modify(|w| w.set_pt(0x100));
 
         // disable all MMC RX interrupts
         mac.mmc_rx_interrupt_mask().write(|w| {
@@ -275,22 +280,24 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             w.set_txlpitrcim(true);
         });
 
-        mtl.mtlrx_qomr().modify(|w| w.set_rsf(true));
-        mtl.mtltx_qomr().modify(|w| w.set_tsf(true));
+        mtl.mtl_rx_qomr().modify(|w| w.set_rsf(true));
+        mtl.mtl_tx_qomr().modify(|w| w.set_tsf(true));
 
-        dma.dmactx_cr().modify(|w| w.set_txpbl(1)); // 32 ?
-        dma.dmacrx_cr().modify(|w| {
+        dma.dmac_tx_cr().modify(|w| w.set_txpbl(1)); // 32 ?
+        dma.dmac_rx_cr().modify(|w| {
             w.set_rxpbl(1); // 32 ?
             w.set_rbsz(RX_BUFFER_SIZE as u16);
         });
 
         let mut this = Self {
             _peri: peri,
+            _wake_guard: T::RCC_INFO.wake_guard(),
             tx: TDesRing::new(&mut queue.tx_desc, &mut queue.tx_buf),
             rx: RDesRing::new(&mut queue.rx_desc, &mut queue.rx_buf),
-            pins,
+            _pins: pins,
             phy,
             mac_addr,
+            link_state: LinkState::Down,
         };
 
         fence(Ordering::SeqCst);
@@ -303,10 +310,10 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             w.set_re(true);
             w.set_te(true);
         });
-        mtl.mtltx_qomr().modify(|w| w.set_ftq(true));
+        mtl.mtl_tx_qomr().modify(|w| w.set_ftq(true));
 
-        dma.dmactx_cr().modify(|w| w.set_st(true));
-        dma.dmacrx_cr().modify(|w| w.set_sr(true));
+        dma.dmac_tx_cr().modify(|w| w.set_st(true));
+        dma.dmac_rx_cr().modify(|w| w.set_sr(true));
 
         // Enable interrupts
         dma.dmacier().modify(|w| {
@@ -332,9 +339,9 @@ impl<'d, T: Instance, P: Phy> Drop for Ethernet<'d, T, P> {
         let mtl = T::regs().ethernet_mtl();
 
         // Disable the TX DMA and wait for any previous transmissions to be completed
-        dma.dmactx_cr().modify(|w| w.set_st(false));
+        dma.dmac_tx_cr().modify(|w| w.set_st(false));
         while {
-            let txqueue = mtl.mtltx_qdr().read();
+            let txqueue = mtl.mtl_tx_qdr().read();
             txqueue.trcsts() == 0b01 || txqueue.txqsts()
         } {}
 
@@ -346,18 +353,9 @@ impl<'d, T: Instance, P: Phy> Drop for Ethernet<'d, T, P> {
 
         // Wait for previous receiver transfers to be completed and then disable the RX DMA
         while {
-            let rxqueue = mtl.mtlrx_qdr().read();
+            let rxqueue = mtl.mtl_rx_qdr().read();
             rxqueue.rxqsts() != 0b00 || rxqueue.prxq() != 0
         } {}
-        dma.dmacrx_cr().modify(|w| w.set_sr(false));
-
-        critical_section::with(|_| {
-            for pin in match self.pins {
-                Pins::Rmii(ref mut pins) => pins.iter_mut(),
-                Pins::Mii(ref mut pins) => pins.iter_mut(),
-            } {
-                pin.set_as_disconnected();
-            }
-        })
+        dma.dmac_rx_cr().modify(|w| w.set_sr(false));
     }
 }

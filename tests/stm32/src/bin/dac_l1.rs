@@ -11,7 +11,7 @@ use common::*;
 use defmt::assert;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, SampleTime};
-use embassy_stm32::dac::{DacCh1, Value};
+use embassy_stm32::dac::{DacChannel, Value};
 use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_time::Timer;
 use micromath::F32Ext;
@@ -21,7 +21,11 @@ bind_interrupts!(struct Irqs {
     ADC1 => embassy_stm32::adc::InterruptHandler<peripherals::ADC1>;
 });
 
-#[embassy_executor::main]
+#[cfg_attr(
+    feature = "stop",
+    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
+)]
+#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
 async fn main(_spawner: Spawner) {
     // Initialize the board and obtain a Peripherals instance
     let p: embassy_stm32::Peripherals = init();
@@ -31,7 +35,7 @@ async fn main(_spawner: Spawner) {
     let dac_pin = peri!(p, DAC_PIN);
     let mut adc_pin = unsafe { core::ptr::read(&dac_pin) };
 
-    let mut dac = DacCh1::new_blocking(dac, dac_pin);
+    let mut dac = DacChannel::new_blocking(dac, dac_pin);
     let mut adc = Adc::new(adc, Irqs);
 
     #[cfg(feature = "stm32h755zi")]
@@ -47,7 +51,7 @@ async fn main(_spawner: Spawner) {
     dac.set(Value::Bit8(0));
     // Now wait a little to obtain a stable value
     Timer::after_millis(30).await;
-    let offset = adc.read(&mut adc_pin, SampleTime::from_bits(0)).await;
+    let offset = adc.irq_read(&mut adc_pin, SampleTime::from_bits(0)).await;
 
     for v in 0..=255 {
         // First set the DAC output value
@@ -59,7 +63,7 @@ async fn main(_spawner: Spawner) {
 
         // Need to steal the peripherals here because PA4 is obviously in use already
         let measured = adc
-            .read(
+            .irq_read(
                 &mut unsafe { embassy_stm32::Peripherals::steal() }.PA4,
                 SampleTime::from_bits(0),
             )

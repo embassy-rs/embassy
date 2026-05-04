@@ -6,11 +6,11 @@ use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
-use embassy_stm32::exti::ExtiInput;
+use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::gpio::Pull;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
-use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
+use embassy_stm32::{Config, bind_interrupts, interrupt, peripherals, usb};
 use embassy_usb::class::hid::{
     HidBootProtocol, HidProtocolMode, HidReaderWriter, HidSubclass, ReportId, RequestHandler, State,
 };
@@ -21,6 +21,7 @@ use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
+    EXTI15_10 => exti::InterruptHandler<interrupt::typelevel::EXTI15_10>;
 });
 
 static HID_PROTOCOL_MODE: AtomicU8 = AtomicU8::new(HidProtocolMode::Boot as u8);
@@ -39,19 +40,19 @@ async fn main(_spawner: Spawner) {
             freq: Hertz(8_000_000),
             mode: HseMode::Bypass,
         });
-        config.rcc.pll_src = PllSource::HSE;
+        config.rcc.pll_src = PllSource::Hse;
         config.rcc.pll = Some(Pll {
-            prediv: PllPreDiv::DIV4,
-            mul: PllMul::MUL168,
-            divp: Some(PllPDiv::DIV2), // 8mhz / 4 * 168 / 2 = 168Mhz.
-            divq: Some(PllQDiv::DIV7), // 8mhz / 4 * 168 / 7 = 48Mhz.
+            prediv: PllPreDiv::Div4,
+            mul: PllMul::Mul168,
+            divp: Some(PllPDiv::Div2), // 8mhz / 4 * 168 / 2 = 168Mhz.
+            divq: Some(PllQDiv::Div7), // 8mhz / 4 * 168 / 7 = 48Mhz.
             divr: None,
         });
-        config.rcc.ahb_pre = AHBPrescaler::DIV1;
-        config.rcc.apb1_pre = APBPrescaler::DIV4;
-        config.rcc.apb2_pre = APBPrescaler::DIV2;
-        config.rcc.sys = Sysclk::PLL1_P;
-        config.rcc.mux.clk48sel = mux::Clk48sel::PLL1_Q;
+        config.rcc.ahb_pre = AHBPrescaler::Div1;
+        config.rcc.apb1_pre = APBPrescaler::Div4;
+        config.rcc.apb2_pre = APBPrescaler::Div2;
+        config.rcc.sys = Sysclk::Pll1P;
+        config.rcc.mux.clk48sel = mux::Clk48sel::Pll1Q;
     }
     let p = embassy_stm32::init(config);
 
@@ -123,7 +124,7 @@ async fn main(_spawner: Spawner) {
 
     let (reader, mut writer) = hid.split();
 
-    let mut button = ExtiInput::new(p.PC13, p.EXTI13, Pull::Down);
+    let mut button = ExtiInput::new(p.PC13, p.EXTI13, Pull::Down, Irqs);
 
     // Do stuff with the class!
     let in_fut = async {

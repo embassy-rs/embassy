@@ -232,7 +232,10 @@ impl<'d, PIO: Instance, const SM: usize> PioOneWire<'d, PIO, SM> {
         let mut value = 0;
         let mut last_zero = 0;
 
-        for bit in 0..64 {
+        // The original Dallas app note used 1-based bit numbering with 0 being a
+        // sentinel value (ie None).  This is important if you have sensors with
+        // both 0 and 1 as LSB of the family code.
+        for bit in 1..=64 {
             // Write 2 dummy bits to read a bit and its complement
             tx.wait_push(0x1).await;
             tx.wait_push(0x1).await;
@@ -242,7 +245,7 @@ impl<'d, PIO: Instance, const SM: usize> PioOneWire<'d, PIO, SM> {
                 (0, 0) => {
                     // If both are 0, it means we have devices with 0 and 1 bits in this position
                     let write_value = if bit < state.last_discrepancy {
-                        (state.last_rom & (1 << bit)) != 0
+                        (state.last_rom & (1 << (bit - 1))) != 0
                     } else {
                         bit == state.last_discrepancy
                     };

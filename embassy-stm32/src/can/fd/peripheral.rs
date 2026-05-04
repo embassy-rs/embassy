@@ -100,37 +100,29 @@ impl Registers {
 
     fn reg_to_error(value: u8) -> Option<BusError> {
         match value {
-            //0b000 => None,
+            // 0b000 => None,
             0b001 => Some(BusError::Stuff),
             0b010 => Some(BusError::Form),
             0b011 => Some(BusError::Acknowledge),
             0b100 => Some(BusError::BitRecessive),
             0b101 => Some(BusError::BitDominant),
             0b110 => Some(BusError::Crc),
-            //0b111 => Some(BusError::NoError),
+            // 0b111 => Some(BusError::NoError),
             _ => None,
         }
     }
 
     pub fn curr_error(&self) -> Option<BusError> {
         let err = { self.regs.psr().read() };
-        if err.bo() {
-            return Some(BusError::BusOff);
-        } else if err.ep() {
-            return Some(BusError::BusPassive);
-        } else if err.ew() {
-            return Some(BusError::BusWarning);
-        } else {
-            cfg_if! {
-                if #[cfg(can_fdcan_h7)] {
-                    let lec = err.lec();
-                } else {
-                    let lec = err.lec().to_bits();
-                }
+        cfg_if! {
+            if #[cfg(can_fdcan_h7)] {
+                let lec = err.lec();
+            } else {
+                let lec = err.lec().to_bits();
             }
-            if let Some(err) = Self::reg_to_error(lec) {
-                return Some(err);
-            }
+        }
+        if let Some(err) = Self::reg_to_error(lec) {
+            return Some(err);
         }
         None
     }
@@ -317,7 +309,7 @@ impl Registers {
 
     /// Moves out of PoweredDownMode and into ConfigMode
     #[inline]
-    pub fn into_config_mode(self, _config: FdCanConfig) {
+    pub fn into_config_mode(&self, _config: FdCanConfig) {
         self.set_power_down_mode(false);
         self.enter_init_mode();
         self.reset_msg_ram();
@@ -374,7 +366,7 @@ impl Registers {
         #[cfg(not(can_fdcan_h7))]
         self.regs
             .tscc()
-            .write(|w| w.set_tss(stm32_metapac::can::vals::Tss::INCREMENT));
+            .write(|w| w.set_tss(stm32_metapac::can::vals::Tss::Increment));
         #[cfg(can_fdcan_h7)]
         self.regs.tscc().write(|w| w.set_tss(0x01));
 
@@ -393,6 +385,7 @@ impl Registers {
         });
 
         self.set_data_bit_timing(config.dbtr);
+        self.set_transceiver_delay_compensation(config.dbtr);
         self.set_nominal_bit_timing(config.nbtr);
         self.set_automatic_retransmit(config.automatic_retransmit);
         self.set_transmit_pause(config.transmit_pause);
@@ -457,6 +450,15 @@ impl Registers {
             w.set_dtseg1(btr.dtseg1() - 1);
             w.set_dtseg2(btr.dtseg2() - 1);
             w.set_dsjw(btr.dsjw() - 1);
+            w.set_tdc(btr.transceiver_delay_compensation);
+        });
+    }
+
+    #[inline]
+    pub fn set_transceiver_delay_compensation(&self, btr: DataBitTiming) {
+        self.regs.tdcr().write(|w| {
+            w.set_tdco(btr.tdco());
+            w.set_tdcf(btr.tdcf());
         });
     }
 
@@ -534,9 +536,9 @@ impl Registers {
 
         #[cfg(not(can_fdcan_h7))]
         let (tcp, tss) = match select {
-            TimestampSource::None => (0, stm32_metapac::can::vals::Tss::ZERO),
-            TimestampSource::Prescaler(p) => (p as u8, stm32_metapac::can::vals::Tss::INCREMENT),
-            TimestampSource::FromTIM3 => (0, stm32_metapac::can::vals::Tss::EXTERNAL),
+            TimestampSource::None => (0, stm32_metapac::can::vals::Tss::Zero),
+            TimestampSource::Prescaler(p) => (p as u8, stm32_metapac::can::vals::Tss::Increment),
+            TimestampSource::FromTIM3 => (0, stm32_metapac::can::vals::Tss::External),
         };
 
         self.regs.tscc().write(|w| {
@@ -550,14 +552,14 @@ impl Registers {
     #[inline]
     pub fn set_global_filter(&self, filter: GlobalFilter) {
         let anfs = match filter.handle_standard_frames {
-            crate::can::fd::config::NonMatchingFilter::IntoRxFifo0 => stm32_metapac::can::vals::Anfs::ACCEPT_FIFO_0,
-            crate::can::fd::config::NonMatchingFilter::IntoRxFifo1 => stm32_metapac::can::vals::Anfs::ACCEPT_FIFO_1,
-            crate::can::fd::config::NonMatchingFilter::Reject => stm32_metapac::can::vals::Anfs::REJECT,
+            crate::can::fd::config::NonMatchingFilter::IntoRxFifo0 => stm32_metapac::can::vals::Anfs::AcceptFifo0,
+            crate::can::fd::config::NonMatchingFilter::IntoRxFifo1 => stm32_metapac::can::vals::Anfs::AcceptFifo1,
+            crate::can::fd::config::NonMatchingFilter::Reject => stm32_metapac::can::vals::Anfs::Reject,
         };
         let anfe = match filter.handle_extended_frames {
-            crate::can::fd::config::NonMatchingFilter::IntoRxFifo0 => stm32_metapac::can::vals::Anfe::ACCEPT_FIFO_0,
-            crate::can::fd::config::NonMatchingFilter::IntoRxFifo1 => stm32_metapac::can::vals::Anfe::ACCEPT_FIFO_1,
-            crate::can::fd::config::NonMatchingFilter::Reject => stm32_metapac::can::vals::Anfe::REJECT,
+            crate::can::fd::config::NonMatchingFilter::IntoRxFifo0 => stm32_metapac::can::vals::Anfe::AcceptFifo0,
+            crate::can::fd::config::NonMatchingFilter::IntoRxFifo1 => stm32_metapac::can::vals::Anfe::AcceptFifo1,
+            crate::can::fd::config::NonMatchingFilter::Reject => stm32_metapac::can::vals::Anfe::Reject,
         };
 
         self.regs.rxgfc().modify(|w| {

@@ -34,7 +34,7 @@ For Cortex-M targets, check whether ALL of the following features are enabled in
 * `arch-cortex-m`
 * `executor-thread`
 
-For ESP32, consider using the executors and `#[main]` macro provided by your appropriate link:https://crates.io/crates/esp-hal-common[HAL crate].
+For ESP32, consider using the executors and `#[main]` macro provided by link:https://crates.io/crates/esp-hal[esp-hal].
 
 == Why is my binary so big?
 
@@ -128,7 +128,7 @@ Another common error you may experience is:
 
 There are two possible causes to this error:
 
-* You are using `embassy-executor` withuout enabling one of the architecture-specific features, but you are using a HAL that does not bring its own executors. For example, for Cortex-M (like the RP2040), you need to enable the `arch-cortex-m` feature of `embassy-executor`.
+* You are using `embassy-executor` without enabling one of the architecture-specific features, but you are using a HAL that does not bring its own executors. For example, for Cortex-M (like the RP2040), you need to enable the `arch-cortex-m` feature of `embassy-executor`.
 * You are not using `embassy-executor`. In this case, you need to enable the one of the `generic-queue-X` features of `embassy-time`.
 
 == Error: `Only one package in the dependency graph may specify the same links value.`
@@ -171,7 +171,11 @@ Note that the git revision should match any other embassy patches or git depende
 
 == Can I use manual ISRs alongside Embassy?
 
-Yes! This can be useful if you need to respond to an event as fast as possible, and the latency caused by the usual “ISR, wake, return from ISR, context switch to woken task” flow is too much for your application. Simply define a `#[interrupt] fn INTERRUPT_NAME() {}` handler as you would link:https://docs.rust-embedded.org/book/start/interrupts.html[in any other embedded rust project].
+Yes! This can be useful if you need to respond to an event as fast as possible, and the latency caused by the usual “ISR, wake, return from ISR, context switch to woken task” flow is too much for your application. 
+
+You may simply define a `#[interrupt] fn INTERRUPT_NAME() {}` handler as you would link:https://docs.rust-embedded.org/book/start/interrupts.html[in any other embedded rust project].
+
+Or you may define a struct implementing the `embassy-[family]::interrupt::typelevel::Handler` trait with an on_interrupt() method, and bind it to the interrupt vector via the `bind_interrupts!` macro, which introduces only a single indirection. This allows the mixing of manual ISRs with Embassy driver-defined ISRs; handlers will be called directly in the order they appear in the macro.
 
 == How can I measure resource usage (CPU, RAM, etc.)?
 
@@ -185,7 +189,7 @@ If you end up doing this, please update this section with more specific examples
 
 === For Static Memory Usage
 
-Tools like `cargo size` and `cargo nm` can tell you the size of any globals or other static usage. Specifically you will want to see the size of the `.data` and `.bss` sections, which together make up the total global/static memory usage.
+Tools like `cargo size` and `cargo nm` from `cargo-binutils` can tell you the size of any globals or other static usage. Specifically you will want to see the size of the `.data` and `.bss` sections, which together make up the total global/static memory usage.
 
 === For Max Stack Usage
 
@@ -216,7 +220,7 @@ If you find a case where the memory.x is wrong, please report it on link:https:/
 
 == The USB examples are not working on my board, is there anything else I need to configure?
 
-If you are trying out the USB examples and your device doesn not connect, the most common issues are listed below.
+If you are trying out the USB examples and your device does not connect, the most common issues are listed below.
 
 === Incorrect RCC config
 

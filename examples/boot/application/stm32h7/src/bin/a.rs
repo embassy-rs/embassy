@@ -7,12 +7,18 @@ use core::cell::RefCell;
 use defmt_rtt::*;
 use embassy_boot_stm32::{AlignedBuffer, BlockingFirmwareUpdater, FirmwareUpdaterConfig};
 use embassy_executor::Spawner;
-use embassy_stm32::exti::ExtiInput;
+use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::flash::{Flash, WRITE_SIZE};
 use embassy_stm32::gpio::{Level, Output, Pull, Speed};
+use embassy_stm32::{bind_interrupts, interrupt};
 use embassy_sync::blocking_mutex::Mutex;
 use embedded_storage::nor_flash::NorFlash;
 use panic_reset as _;
+
+bind_interrupts!(
+    pub struct Irqs{
+        EXTI15_10 => exti::InterruptHandler<interrupt::typelevel::EXTI15_10>;
+});
 
 #[cfg(feature = "skip-include")]
 static APP_B: &[u8] = &[0, 1, 2, 3];
@@ -25,7 +31,7 @@ async fn main(_spawner: Spawner) {
     let flash = Flash::new_blocking(p.FLASH);
     let flash = Mutex::new(RefCell::new(flash));
 
-    let mut button = ExtiInput::new(p.PC13, p.EXTI13, Pull::Down);
+    let mut button = ExtiInput::new(p.PC13, p.EXTI13, Pull::Down, Irqs);
 
     let mut led = Output::new(p.PB14, Level::Low, Speed::Low);
     led.set_high();

@@ -8,7 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
-- added: Add basic RTC support for nRF54L
+## 0.10.0 - 2026-03-10
+
+- feat: implement CryptoCell RNG driver (nrf52840, nrf5340, nrf9120, nrf9160)
+- bugfix: avoid hang if calling `now()` before syscounter is enabled on nrf54
+- bugfix: use correct pin count for the nrf54 chip family
+- bugfix: nrf54lm20 uses separate register for burst config
+- bugfix: enable burst for nrf54 if oversampling
+- bugfix: put SCL/SDA into high state during TWIM initialization
+- Update to embedded-io 0.7
+- Update embassy-sync to 0.8.0
+- Update embassy-embedded-hal to 0.6.0
+- Update embassy-net-driver-channel to 0.4.0
+
+## 0.9.0 - 2025-12-15
+
 - changed: apply trimming values from FICR.TRIMCNF on nrf53/54l
 - changed: do not panic on BufferedUarte overrun
 - added: allow direct access to the input pin of `gpiote::InputChannel`
@@ -27,6 +41,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - changed: `gpiote::InputChannel::wait()` now takes a mutable reference to `self` to avoid interference from concurrent calls
 - changed: `gpiote::InputChannel::wait()` now ensures events are seen as soon as the function is called, even if the future is not polled
 - bugfix: use correct flash size for nRF54l
+- changed: add workaround for anomaly 66 on nrf52
+- added: expose PPI events available on SPIS peripheral
+- added: add basic GRTC time driver support for nRF54L
+* added: support for nrf54l10 and nrf54l05
+* added: expose uicr write functions
+* added: support for nrf54lm20a
+- added: support buffered rram for nrf54
 
 ## 0.8.0 - 2025-09-30
 

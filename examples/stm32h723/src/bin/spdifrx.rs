@@ -9,13 +9,15 @@ use defmt::{info, trace};
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_stm32::spdifrx::{self, Spdifrx};
-use embassy_stm32::{Peri, bind_interrupts, peripherals, sai};
+use embassy_stm32::{Peri, bind_interrupts, dma, peripherals, sai};
 use grounded::uninit::GroundedArrayCell;
 use hal::sai::*;
 use {defmt_rtt as _, embassy_stm32 as hal, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     SPDIF_RX => spdifrx::GlobalInterruptHandler<peripherals::SPDIFRX1>;
+    DMA2_STREAM7 => dma::InterruptHandler<peripherals::DMA2_CH7>;
+    BDMA_CHANNEL0 => dma::InterruptHandler<peripherals::BDMA_CH0>;
 });
 
 const CHANNEL_COUNT: usize = 2;
@@ -35,23 +37,23 @@ async fn main(_spawner: Spawner) {
     let mut peripheral_config = embassy_stm32::Config::default();
     {
         use embassy_stm32::rcc::*;
-        peripheral_config.rcc.hsi = Some(HSIPrescaler::DIV1);
+        peripheral_config.rcc.hsi = Some(HSIPrescaler::Div1);
         peripheral_config.rcc.pll1 = Some(Pll {
-            source: PllSource::HSI,
-            prediv: PllPreDiv::DIV16,
-            mul: PllMul::MUL200,
-            divp: Some(PllDiv::DIV2), // 400 MHz
-            divq: Some(PllDiv::DIV2),
-            divr: Some(PllDiv::DIV2),
+            source: PllSource::Hsi,
+            prediv: PllPreDiv::Div16,
+            mul: PllMul::Mul200,
+            divp: Some(PllDiv::Div2), // 400 MHz
+            divq: Some(PllDiv::Div2),
+            divr: Some(PllDiv::Div2),
         });
-        peripheral_config.rcc.sys = Sysclk::PLL1_P;
-        peripheral_config.rcc.ahb_pre = AHBPrescaler::DIV2;
-        peripheral_config.rcc.apb1_pre = APBPrescaler::DIV2;
-        peripheral_config.rcc.apb2_pre = APBPrescaler::DIV2;
-        peripheral_config.rcc.apb3_pre = APBPrescaler::DIV2;
-        peripheral_config.rcc.apb4_pre = APBPrescaler::DIV2;
+        peripheral_config.rcc.sys = Sysclk::Pll1P;
+        peripheral_config.rcc.ahb_pre = AHBPrescaler::Div2;
+        peripheral_config.rcc.apb1_pre = APBPrescaler::Div2;
+        peripheral_config.rcc.apb2_pre = APBPrescaler::Div2;
+        peripheral_config.rcc.apb3_pre = APBPrescaler::Div2;
+        peripheral_config.rcc.apb4_pre = APBPrescaler::Div2;
 
-        peripheral_config.rcc.mux.spdifrxsel = mux::Spdifrxsel::PLL1_Q;
+        peripheral_config.rcc.mux.spdifrxsel = mux::Spdifrxsel::Pll1Q;
     }
     let mut p = embassy_stm32::init(peripheral_config);
 
@@ -168,8 +170,7 @@ fn new_sai_transmitter<'d>(
     sai_config.slot_enable = 0xFFFF; // All slots
     sai_config.data_size = sai::DataSize::Data32;
     sai_config.frame_length = (CHANNEL_COUNT * 32) as u16;
-    sai_config.master_clock_divider = None;
 
     let (sub_block_tx, _) = hal::sai::split_subblocks(sai);
-    Sai::new_asynchronous(sub_block_tx, sck, sd, fs, dma, buf, sai_config)
+    Sai::new_asynchronous(sub_block_tx, sck, sd, fs, dma, buf, Irqs, sai_config)
 }

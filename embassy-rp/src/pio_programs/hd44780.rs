@@ -1,12 +1,11 @@
 //! [HD44780 display driver](https://www.sparkfun.com/datasheets/LCD/HD44780.pdf)
 
-use crate::Peri;
-use crate::dma::{AnyChannel, Channel};
 use crate::pio::{
     Common, Config, Direction, FifoJoin, Instance, Irq, LoadedProgram, PioPin, ShiftConfig, ShiftDirection,
     StateMachine,
 };
 use crate::pio_programs::clock_divider::calculate_pio_clock_divider;
+use crate::{Peri, dma, interrupt};
 
 /// This struct represents a HD44780 program that takes command words (<wait:24> <command:4> <0:4>)
 pub struct PioHD44780CommandWordProgram<'a, PIO: Instance> {
@@ -100,7 +99,7 @@ impl<'a, PIO: Instance> PioHD44780CommandSequenceProgram<'a, PIO> {
 
 /// Pio backed HD44780 driver
 pub struct PioHD44780<'l, P: Instance, const S: usize> {
-    dma: Peri<'l, AnyChannel>,
+    dma: dma::Channel<'l>,
     sm: StateMachine<'l, P, S>,
 
     buf: [u8; 40],
@@ -108,11 +107,12 @@ pub struct PioHD44780<'l, P: Instance, const S: usize> {
 
 impl<'l, P: Instance, const S: usize> PioHD44780<'l, P, S> {
     /// Configure the given state machine to first init, then write data to, a HD44780 display.
-    pub async fn new(
+    pub async fn new<D: dma::ChannelInstance>(
         common: &mut Common<'l, P>,
         mut sm: StateMachine<'l, P, S>,
         mut irq: Irq<'l, P, S>,
-        mut dma: Peri<'l, impl Channel>,
+        dma: Peri<'l, D>,
+        dma_irq: impl interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + 'l,
         rs: Peri<'l, impl PioPin>,
         rw: Peri<'l, impl PioPin>,
         e: Peri<'l, impl PioPin>,
@@ -123,6 +123,7 @@ impl<'l, P: Instance, const S: usize> PioHD44780<'l, P, S> {
         word_prg: &PioHD44780CommandWordProgram<'l, P>,
         seq_prg: &PioHD44780CommandSequenceProgram<'l, P>,
     ) -> PioHD44780<'l, P, S> {
+        let mut dma_ch = dma::Channel::new(dma, dma_irq);
         let rs = common.make_pio_pin(rs);
         let rw = common.make_pio_pin(rw);
         let e = common.make_pio_pin(e);
@@ -178,10 +179,10 @@ impl<'l, P: Instance, const S: usize> PioHD44780<'l, P, S> {
         sm.set_enable(true);
 
         // display on and cursor on and blinking, reset display
-        sm.tx().dma_push(dma.reborrow(), &[0x81u8, 0x0f, 1], false).await;
+        sm.tx().dma_push(&mut dma_ch, &[0x81u8, 0x0f, 1], false).await;
 
         Self {
-            dma: dma.into(),
+            dma: dma_ch,
             sm,
             buf: [0x20; 40],
         }
@@ -203,6 +204,6 @@ impl<'l, P: Instance, const S: usize> PioHD44780<'l, P, S> {
         // set cursor to 1:15
         self.buf[38..].copy_from_slice(&[0x80, 0xcf]);
 
-        self.sm.tx().dma_push(self.dma.reborrow(), &self.buf, false).await;
+        self.sm.tx().dma_push(&mut self.dma, &self.buf, false).await;
     }
 }

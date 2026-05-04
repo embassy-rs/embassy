@@ -50,6 +50,14 @@ pub enum Error {
     // No errors for now
 }
 
+impl core::fmt::Display for Error {
+    fn fmt(&self, _f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match *self {}
+    }
+}
+
+impl core::error::Error for Error {}
+
 impl State {
     pub(crate) const fn new() -> Self {
         Self {
@@ -216,7 +224,7 @@ impl<'d, U: UarteInstance> BufferedUarte<'d, U> {
         let tx = BufferedUarteTx::new_innerer(unsafe { peri.clone_unchecked() }, txd, cts, tx_buffer);
         let rx = BufferedUarteRx::new_innerer(peri, rxd, rts, rx_buffer);
 
-        U::regs().enable().write(|w| w.set_enable(vals::Enable::ENABLED));
+        U::regs().enable().write(|w| w.set_enable(vals::Enable::Enabled));
         U::Interrupt::pend();
         unsafe { U::Interrupt::enable() };
 
@@ -317,7 +325,7 @@ impl<'d, U: UarteInstance> BufferedUarteTx<'d, U> {
 
         let this = Self::new_innerer(peri, txd, cts, tx_buffer);
 
-        U::regs().enable().write(|w| w.set_enable(vals::Enable::ENABLED));
+        U::regs().enable().write(|w| w.set_enable(vals::Enable::Enabled));
         U::Interrupt::pend();
         unsafe { U::Interrupt::enable() };
 
@@ -484,7 +492,7 @@ impl<'d, U: UarteInstance> BufferedUarteRx<'d, U> {
 
         let this = Self::new_innerer(peri, rxd, rts, rx_buffer);
 
-        U::regs().enable().write(|w| w.set_enable(vals::Enable::ENABLED));
+        U::regs().enable().write(|w| w.set_enable(vals::Enable::Enabled));
         U::Interrupt::pend();
         unsafe { U::Interrupt::enable() };
 

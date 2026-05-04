@@ -363,6 +363,30 @@ pub(crate) fn device_qualifier_descriptor(config: &Config) -> [u8; 10] {
     ]
 }
 
+pub(crate) fn rewrite_config_descriptor_for_high_speed(buf: &mut [u8]) {
+    let mut pos = 0;
+    while pos < buf.len() {
+        let len = buf[pos] as usize;
+        assert!(len >= 2 && pos + len <= buf.len(), "invalid configuration descriptor");
+
+        if buf[pos + 1] == descriptor_type::ENDPOINT && len >= 7 {
+            let transfer_type = buf[pos + 3] & 0x03;
+            if transfer_type == EndpointType::Interrupt as u8 || transfer_type == EndpointType::Isochronous as u8 {
+                buf[pos + 6] = encode_high_speed_interval(buf[pos + 6]);
+            }
+        }
+
+        pos += len;
+    }
+}
+
+fn encode_high_speed_interval(interval_ms: u8) -> u8 {
+    let microframes = u32::from(interval_ms.max(1)) * 8;
+    let rounded = microframes.next_power_of_two().min(1 << 15);
+    let exponent = (31 - rounded.leading_zeros()) as u8;
+    exponent + 1
+}
+
 /// A writer for Binary Object Store descriptor.
 pub struct BosWriter<'a> {
     pub(crate) writer: DescriptorWriter<'a>,

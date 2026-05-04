@@ -14,10 +14,10 @@ pub struct VoltageReferenceBuffer<'d, T: Instance> {
 #[cfg(rcc_wba)]
 fn get_refbuf_trim(voltage_scale: Vrs) -> usize {
     match voltage_scale {
-        Vrs::VREF0 => 0x0BFA_07ABusize,
-        Vrs::VREF1 => 0x0BFA_07AAusize,
-        Vrs::VREF2 => 0x0BFA_07A9usize,
-        Vrs::VREF3 => 0x0BFA_07A8usize,
+        Vrs::Vref0 => 0x0BFA_07ABusize,
+        Vrs::Vref1 => 0x0BFA_07AAusize,
+        Vrs::Vref2 => 0x0BFA_07A9usize,
+        Vrs::Vref3 => 0x0BFA_07A8usize,
         _ => panic!("Incorrect Vrs setting!"),
     }
 }
@@ -45,6 +45,11 @@ impl<'d, T: Instance> VoltageReferenceBuffer<'d, T> {
         {
             use crate::pac::RCC;
             RCC.apb3enr().modify(|w| w.set_vrefen(true));
+        }
+        #[cfg(rcc_u3)]
+        {
+            use crate::pac::RCC;
+            RCC.apb1enr1().modify(|w| w.set_vrefen(true));
         }
         #[cfg(any(rcc_h7rs, rcc_h7rm0433, rcc_h7ab, rcc_h7))]
         {

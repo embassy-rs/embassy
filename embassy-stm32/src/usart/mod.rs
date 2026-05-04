@@ -15,7 +15,7 @@ use futures_util::future::{Either, select};
 
 use crate::Peri;
 use crate::dma::ChannelAndRequest;
-use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
+use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::interrupt::typelevel::Interrupt as _;
 use crate::interrupt::{self, Interrupt, InterruptExt};
 use crate::mode::{Async, Blocking, Mode};
@@ -268,6 +268,14 @@ pub struct Config {
     #[cfg(not(any(usart_v1, usart_v2)))]
     pub de_deassertion_time: u8,
 
+    #[cfg(usart_v4)]
+    /// Transmit FIFO thereshold: number of bytes that must be free for the buffered irq handler to run.
+    pub tx_fifo_threshold: u8,
+
+    #[cfg(usart_v4)]
+    /// Receive FIFO thereshold: number of bytes that must be available for the buffered irq handler to run.
+    pub rx_fifo_threshold: u8,
+
     // private: set by new_half_duplex, not by the user.
     duplex: Duplex,
 }
@@ -317,6 +325,10 @@ impl Default for Config {
             de_assertion_time: 0,
             #[cfg(not(any(usart_v1, usart_v2)))]
             de_deassertion_time: 0,
+            #[cfg(usart_v4)]
+            tx_fifo_threshold: 6,
+            #[cfg(usart_v4)]
+            rx_fifo_threshold: 4,
             duplex: Duplex::Full,
         }
     }
@@ -393,9 +405,9 @@ pub struct UartTx<'d, M: Mode> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
-    tx: Option<Peri<'d, AnyPin>>,
-    cts: Option<Peri<'d, AnyPin>>,
-    de: Option<Peri<'d, AnyPin>>,
+    _tx: Option<Flex<'d>>,
+    cts: Option<Flex<'d>>,
+    _de: Option<Flex<'d>>,
     tx_dma: Option<ChannelAndRequest<'d>>,
     duplex: Duplex,
     _phantom: PhantomData<M>,
@@ -443,8 +455,8 @@ pub struct UartRx<'d, M: Mode> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
-    rx: Option<Peri<'d, AnyPin>>,
-    rts: Option<Peri<'d, AnyPin>>,
+    rx: Option<Flex<'d>>,
+    rts: Option<Flex<'d>>,
     rx_dma: Option<ChannelAndRequest<'d>>,
     detect_previous_overrun: bool,
     #[cfg(any(usart_v1, usart_v2))]
@@ -463,34 +475,38 @@ impl<'d, M: Mode> SetConfig for UartRx<'d, M> {
 
 impl<'d> UartTx<'d, Async> {
     /// Useful if you only want Uart Tx. It saves 1 pin and consumes a little less power.
-    pub fn new<T: Instance, #[cfg(afio)] A>(
+    pub fn new<T: Instance, D: TxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
-        tx_dma: Peri<'d, impl TxDma<T>>,
+        tx_dma: Peri<'d, D>,
+        _irq: impl interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(peri, new_pin!(tx, config.tx_af()), None, new_dma!(tx_dma), config)
+        Self::new_inner(peri, new_pin!(tx, config.tx_af()), None, new_dma!(tx_dma, _irq), config)
     }
 
     /// Create a new tx-only UART with a clear-to-send pin
-    pub fn new_with_cts<T: Instance, #[cfg(afio)] A>(
+    pub fn new_with_cts<T: Instance, D: TxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
         cts: Peri<'d, if_afio!(impl CtsPin<T, A>)>,
-        tx_dma: Peri<'d, impl TxDma<T>>,
+        tx_dma: Peri<'d, D>,
+        _irq: impl interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
             new_pin!(tx, config.tx_af()),
             new_pin!(cts, AfType::input(config.cts_pull)),
-            new_dma!(tx_dma),
+            new_dma!(tx_dma, _irq),
             config,
         )
     }
 
     /// Initiate an asynchronous UART write
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        let _scoped_wake_guard = self.info.rcc.wake_guard();
+
         let r = self.info.regs;
 
         half_duplex_set_rx_tx_before_write(&r, self.duplex == Duplex::Half(HalfDuplexReadback::Readback));
@@ -508,6 +524,8 @@ impl<'d> UartTx<'d, Async> {
 
     /// Wait until transmission complete
     pub async fn flush(&mut self) -> Result<(), Error> {
+        let _scoped_wake_guard = self.info.rcc.wake_guard();
+
         flush(&self.info, &self.state).await
     }
 }
@@ -544,8 +562,8 @@ impl<'d> UartTx<'d, Blocking> {
 impl<'d, M: Mode> UartTx<'d, M> {
     fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
-        tx: Option<Peri<'d, AnyPin>>,
-        cts: Option<Peri<'d, AnyPin>>,
+        tx: Option<Flex<'d>>,
+        cts: Option<Flex<'d>>,
         tx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
@@ -553,9 +571,9 @@ impl<'d, M: Mode> UartTx<'d, M> {
             info: T::info(),
             state: T::state(),
             kernel_clock: T::frequency(),
-            tx,
+            _tx: tx,
             cts,
-            de: None,
+            _de: None,
             tx_dma,
             duplex: config.duplex,
             _phantom: PhantomData,
@@ -696,36 +714,42 @@ impl<'d> UartRx<'d, Async> {
     /// Create a new rx-only UART with no hardware flow control.
     ///
     /// Useful if you only want Uart Rx. It saves 1 pin and consumes a little less power.
-    pub fn new<T: Instance, #[cfg(afio)] A>(
+    pub fn new<T: Instance, D: RxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
-        rx_dma: Peri<'d, impl RxDma<T>>,
+        rx_dma: Peri<'d, D>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(peri, new_pin!(rx, config.rx_af()), None, new_dma!(rx_dma), config)
+        Self::new_inner(peri, new_pin!(rx, config.rx_af()), None, new_dma!(rx_dma, _irq), config)
     }
 
     /// Create a new rx-only UART with a request-to-send pin
-    pub fn new_with_rts<T: Instance, #[cfg(afio)] A>(
+    pub fn new_with_rts<T: Instance, D: RxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         rts: Peri<'d, if_afio!(impl RtsPin<T, A>)>,
-        rx_dma: Peri<'d, impl RxDma<T>>,
+        rx_dma: Peri<'d, D>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
             new_pin!(rx, config.rx_af()),
             new_pin!(rts, config.rts_config.af_type()),
-            new_dma!(rx_dma),
+            new_dma!(rx_dma, _irq),
             config,
         )
     }
 
     /// Initiate an asynchronous UART read
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        let _scoped_wake_guard = self.info.rcc.wake_guard();
+
         self.inner_read(buffer, false).await?;
 
         Ok(())
@@ -733,6 +757,8 @@ impl<'d> UartRx<'d, Async> {
 
     /// Initiate an asynchronous read with idle line detection enabled
     pub async fn read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+        let _scoped_wake_guard = self.info.rcc.wake_guard();
+
         self.inner_read(buffer, true).await
     }
 
@@ -975,8 +1001,8 @@ impl<'d> UartRx<'d, Blocking> {
 impl<'d, M: Mode> UartRx<'d, M> {
     fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
-        rx: Option<Peri<'d, AnyPin>>,
-        rts: Option<Peri<'d, AnyPin>>,
+        rx: Option<Flex<'d>>,
+        rts: Option<Flex<'d>>,
         rx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
@@ -1119,17 +1145,12 @@ impl<'d, M: Mode> UartRx<'d, M> {
 
 impl<'d, M: Mode> Drop for UartTx<'d, M> {
     fn drop(&mut self) {
-        self.tx.as_ref().map(|x| x.set_as_disconnected());
-        self.cts.as_ref().map(|x| x.set_as_disconnected());
-        self.de.as_ref().map(|x| x.set_as_disconnected());
         drop_tx_rx(self.info, self.state);
     }
 }
 
 impl<'d, M: Mode> Drop for UartRx<'d, M> {
     fn drop(&mut self) {
-        self.rx.as_ref().map(|x| x.set_as_disconnected());
-        self.rts.as_ref().map(|x| x.set_as_disconnected());
         drop_tx_rx(self.info, self.state);
     }
 }
@@ -1149,13 +1170,16 @@ fn drop_tx_rx(info: &Info, state: &State) {
 
 impl<'d> Uart<'d, Async> {
     /// Create a new bidirectional UART
-    pub fn new<T: Instance, #[cfg(afio)] A>(
+    pub fn new<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        tx_dma: Peri<'d, impl TxDma<T>>,
-        rx_dma: Peri<'d, impl RxDma<T>>,
+        tx_dma: Peri<'d, D1>,
+        rx_dma: Peri<'d, D2>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
+        + interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + 'd,
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
@@ -1165,22 +1189,25 @@ impl<'d> Uart<'d, Async> {
             None,
             None,
             None,
-            new_dma!(tx_dma),
-            new_dma!(rx_dma),
+            new_dma!(tx_dma, _irq),
+            new_dma!(rx_dma, _irq),
             config,
         )
     }
 
     /// Create a new bidirectional UART with request-to-send and clear-to-send pins
-    pub fn new_with_rtscts<T: Instance, #[cfg(afio)] A>(
+    pub fn new_with_rtscts<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rts: Peri<'d, if_afio!(impl RtsPin<T, A>)>,
         cts: Peri<'d, if_afio!(impl CtsPin<T, A>)>,
-        tx_dma: Peri<'d, impl TxDma<T>>,
-        rx_dma: Peri<'d, impl RxDma<T>>,
+        tx_dma: Peri<'d, D1>,
+        rx_dma: Peri<'d, D2>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
+        + interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + 'd,
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
@@ -1190,22 +1217,25 @@ impl<'d> Uart<'d, Async> {
             new_pin!(rts, config.rts_config.af_type()),
             new_pin!(cts, AfType::input(config.cts_pull)),
             None,
-            new_dma!(tx_dma),
-            new_dma!(rx_dma),
+            new_dma!(tx_dma, _irq),
+            new_dma!(rx_dma, _irq),
             config,
         )
     }
 
     #[cfg(not(any(usart_v1, usart_v2)))]
     /// Create a new bidirectional UART with a driver-enable pin
-    pub fn new_with_de<T: Instance, #[cfg(afio)] A>(
+    pub fn new_with_de<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         de: Peri<'d, if_afio!(impl DePin<T, A>)>,
-        tx_dma: Peri<'d, impl TxDma<T>>,
-        rx_dma: Peri<'d, impl RxDma<T>>,
+        tx_dma: Peri<'d, D1>,
+        rx_dma: Peri<'d, D2>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
+        + interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + 'd,
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
@@ -1215,8 +1245,8 @@ impl<'d> Uart<'d, Async> {
             None,
             None,
             new_pin!(de, config.de_config.af_type()),
-            new_dma!(tx_dma),
-            new_dma!(rx_dma),
+            new_dma!(tx_dma, _irq),
+            new_dma!(rx_dma, _irq),
             config,
         )
     }
@@ -1233,12 +1263,15 @@ impl<'d> Uart<'d, Async> {
     /// Apart from this, the communication protocol is similar to normal USART mode. Any conflict
     /// on the line must be managed by software (for instance by using a centralized arbiter).
     #[doc(alias("HDSEL"))]
-    pub fn new_half_duplex<T: Instance, #[cfg(afio)] A>(
+    pub fn new_half_duplex<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        tx_dma: Peri<'d, impl TxDma<T>>,
-        rx_dma: Peri<'d, impl RxDma<T>>,
+        tx_dma: Peri<'d, D1>,
+        rx_dma: Peri<'d, D2>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
+        + interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + 'd,
         mut config: Config,
         readback: HalfDuplexReadback,
     ) -> Result<Self, ConfigError> {
@@ -1255,8 +1288,8 @@ impl<'d> Uart<'d, Async> {
             None,
             None,
             None,
-            new_dma!(tx_dma),
-            new_dma!(rx_dma),
+            new_dma!(tx_dma, _irq),
+            new_dma!(rx_dma, _irq),
             config,
         )
     }
@@ -1272,12 +1305,15 @@ impl<'d> Uart<'d, Async> {
     /// on the line must be managed by software (for instance by using a centralized arbiter).
     #[cfg(not(any(usart_v1, usart_v2)))]
     #[doc(alias("HDSEL"))]
-    pub fn new_half_duplex_on_rx<T: Instance, #[cfg(afio)] A>(
+    pub fn new_half_duplex_on_rx<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        tx_dma: Peri<'d, impl TxDma<T>>,
-        rx_dma: Peri<'d, impl RxDma<T>>,
+        tx_dma: Peri<'d, D1>,
+        rx_dma: Peri<'d, D2>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
+        + interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + 'd,
         mut config: Config,
         readback: HalfDuplexReadback,
     ) -> Result<Self, ConfigError> {
@@ -1291,8 +1327,8 @@ impl<'d> Uart<'d, Async> {
             new_pin!(rx, config.rx_af()),
             None,
             None,
-            new_dma!(tx_dma),
-            new_dma!(rx_dma),
+            new_dma!(tx_dma, _irq),
+            new_dma!(rx_dma, _irq),
             config,
         )
     }
@@ -1456,11 +1492,11 @@ impl<'d> Uart<'d, Blocking> {
 impl<'d, M: Mode> Uart<'d, M> {
     fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
-        rx: Option<Peri<'d, AnyPin>>,
-        tx: Option<Peri<'d, AnyPin>>,
-        rts: Option<Peri<'d, AnyPin>>,
-        cts: Option<Peri<'d, AnyPin>>,
-        de: Option<Peri<'d, AnyPin>>,
+        rx: Option<Flex<'d>>,
+        tx: Option<Flex<'d>>,
+        rts: Option<Flex<'d>>,
+        cts: Option<Flex<'d>>,
+        de: Option<Flex<'d>>,
         tx_dma: Option<ChannelAndRequest<'d>>,
         rx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
@@ -1475,9 +1511,9 @@ impl<'d, M: Mode> Uart<'d, M> {
                 info,
                 state,
                 kernel_clock,
-                tx,
+                _tx: tx,
                 cts,
-                de,
+                _de: de,
                 tx_dma,
                 duplex: config.duplex,
             },
@@ -1512,7 +1548,7 @@ impl<'d, M: Mode> Uart<'d, M> {
             w.set_rtse(self.rx.rts.is_some());
             w.set_ctse(self.tx.cts.is_some());
             #[cfg(not(any(usart_v1, usart_v2)))]
-            w.set_dem(self.tx.de.is_some());
+            w.set_dem(self.tx._de.is_some());
         });
         configure(info, self.rx.kernel_clock, config, true, true)?;
 
@@ -1614,18 +1650,18 @@ fn find_and_set_brr(r: Regs, kind: Kind, kernel_clock: Hertz, baudrate: u32) -> 
 
     #[cfg(usart_v4)]
     static DIVS: [(u16, vals::Presc); 12] = [
-        (1, vals::Presc::DIV1),
-        (2, vals::Presc::DIV2),
-        (4, vals::Presc::DIV4),
-        (6, vals::Presc::DIV6),
-        (8, vals::Presc::DIV8),
-        (10, vals::Presc::DIV10),
-        (12, vals::Presc::DIV12),
-        (16, vals::Presc::DIV16),
-        (32, vals::Presc::DIV32),
-        (64, vals::Presc::DIV64),
-        (128, vals::Presc::DIV128),
-        (256, vals::Presc::DIV256),
+        (1, vals::Presc::Div1),
+        (2, vals::Presc::Div2),
+        (4, vals::Presc::Div4),
+        (6, vals::Presc::Div6),
+        (8, vals::Presc::Div8),
+        (10, vals::Presc::Div10),
+        (12, vals::Presc::Div12),
+        (16, vals::Presc::Div16),
+        (32, vals::Presc::Div32),
+        (64, vals::Presc::Div64),
+        (128, vals::Presc::Div128),
+        (256, vals::Presc::Div256),
     ];
 
     let (mul, brr_min, brr_max) = match kind {
@@ -1755,10 +1791,10 @@ fn configure(
 
     r.cr2().write(|w| {
         w.set_stop(match config.stop_bits {
-            StopBits::STOP0P5 => vals::Stop::STOP0P5,
-            StopBits::STOP1 => vals::Stop::STOP1,
-            StopBits::STOP1P5 => vals::Stop::STOP1P5,
-            StopBits::STOP2 => vals::Stop::STOP2,
+            StopBits::STOP0P5 => vals::Stop::Stop0p5,
+            StopBits::STOP1 => vals::Stop::Stop1,
+            StopBits::STOP1P5 => vals::Stop::Stop1p5,
+            StopBits::STOP2 => vals::Stop::Stop2,
         });
 
         #[cfg(any(usart_v3, usart_v4))]
@@ -1775,106 +1811,105 @@ fn configure(
         w.set_hdsel(config.duplex.is_half());
     });
 
-    r.cr1().write(|w| {
-        // enable uart
-        w.set_ue(true);
+    let mut w: crate::pac::usart::regs::Cr1 = Default::default();
+    // enable uart
+    w.set_ue(true);
 
-        if config.duplex.is_half() {
-            // The te and re bits will be set by write, read and flush methods.
-            // Receiver should be enabled by default for Half-Duplex.
-            w.set_te(false);
-            w.set_re(true);
+    if config.duplex.is_half() {
+        // The te and re bits will be set by write, read and flush methods.
+        // Receiver should be enabled by default for Half-Duplex.
+        w.set_te(false);
+        w.set_re(true);
+    } else {
+        // enable transceiver
+        w.set_te(enable_tx);
+        // enable receiver
+        w.set_re(enable_rx);
+    }
+
+    #[cfg(not(any(usart_v1, usart_v2)))]
+    if dem {
+        w.set_deat(if over8 {
+            config.de_assertion_time / 2
         } else {
-            // enable transceiver
-            w.set_te(enable_tx);
-            // enable receiver
-            w.set_re(enable_rx);
-        }
+            config.de_assertion_time
+        });
+        w.set_dedt(if over8 {
+            config.de_assertion_time / 2
+        } else {
+            config.de_assertion_time
+        });
+    }
 
-        #[cfg(not(any(usart_v1, usart_v2)))]
-        if dem {
-            w.set_deat(if over8 {
-                config.de_assertion_time / 2
-            } else {
-                config.de_assertion_time
-            });
-            w.set_dedt(if over8 {
-                config.de_assertion_time / 2
-            } else {
-                config.de_assertion_time
-            });
-        }
-
-        // configure word size and parity, since the parity bit is inserted into the MSB position,
-        // it increases the effective word size
-        match (config.parity, config.data_bits) {
-            (Parity::ParityNone, DataBits::DataBits8) => {
-                trace!("USART: m0: 8 data bits, no parity");
-                w.set_m0(vals::M0::BIT8);
-                #[cfg(any(usart_v3, usart_v4))]
-                w.set_m1(vals::M1::M0);
-                w.set_pce(false);
-            }
-            (Parity::ParityNone, DataBits::DataBits9) => {
-                trace!("USART: m0: 9 data bits, no parity");
-                w.set_m0(vals::M0::BIT9);
-                #[cfg(any(usart_v3, usart_v4))]
-                w.set_m1(vals::M1::M0);
-                w.set_pce(false);
-            }
+    // configure word size and parity, since the parity bit is inserted into the MSB position,
+    // it increases the effective word size
+    match (config.parity, config.data_bits) {
+        (Parity::ParityNone, DataBits::DataBits8) => {
+            trace!("USART: m0: 8 data bits, no parity");
+            w.set_m0(vals::M0::Bit8);
             #[cfg(any(usart_v3, usart_v4))]
-            (Parity::ParityNone, DataBits::DataBits7) => {
-                trace!("USART: m0: 7 data bits, no parity");
-                w.set_m0(vals::M0::BIT8);
-                w.set_m1(vals::M1::BIT7);
-                w.set_pce(false);
-            }
-            (Parity::ParityEven, DataBits::DataBits8) => {
-                trace!("USART: m0: 8 data bits, even parity");
-                w.set_m0(vals::M0::BIT9);
-                #[cfg(any(usart_v3, usart_v4))]
-                w.set_m1(vals::M1::M0);
-                w.set_pce(true);
-                w.set_ps(vals::Ps::EVEN);
-            }
-            (Parity::ParityEven, DataBits::DataBits7) => {
-                trace!("USART: m0: 7 data bits, even parity");
-                w.set_m0(vals::M0::BIT8);
-                #[cfg(any(usart_v3, usart_v4))]
-                w.set_m1(vals::M1::M0);
-                w.set_pce(true);
-                w.set_ps(vals::Ps::EVEN);
-            }
-            (Parity::ParityOdd, DataBits::DataBits8) => {
-                trace!("USART: m0: 8 data bits, odd parity");
-                w.set_m0(vals::M0::BIT9);
-                #[cfg(any(usart_v3, usart_v4))]
-                w.set_m1(vals::M1::M0);
-                w.set_pce(true);
-                w.set_ps(vals::Ps::ODD);
-            }
-            (Parity::ParityOdd, DataBits::DataBits7) => {
-                trace!("USART: m0: 7 data bits, odd parity");
-                w.set_m0(vals::M0::BIT8);
-                #[cfg(any(usart_v3, usart_v4))]
-                w.set_m1(vals::M1::M0);
-                w.set_pce(true);
-                w.set_ps(vals::Ps::ODD);
-            }
-            _ => {
-                return Err(ConfigError::DataParityNotSupported);
-            }
+            w.set_m1(vals::M1::M0);
+            w.set_pce(false);
         }
-        #[cfg(not(usart_v1))]
-        w.set_over8(vals::Over8::from_bits(over8 as _));
-        #[cfg(usart_v4)]
-        {
-            trace!("USART: set_fifoen: true (usart_v4)");
-            w.set_fifoen(true);
+        (Parity::ParityNone, DataBits::DataBits9) => {
+            trace!("USART: m0: 9 data bits, no parity");
+            w.set_m0(vals::M0::Bit9);
+            #[cfg(any(usart_v3, usart_v4))]
+            w.set_m1(vals::M1::M0);
+            w.set_pce(false);
         }
+        #[cfg(any(usart_v3, usart_v4))]
+        (Parity::ParityNone, DataBits::DataBits7) => {
+            trace!("USART: m0: 7 data bits, no parity");
+            w.set_m0(vals::M0::Bit8);
+            w.set_m1(vals::M1::Bit7);
+            w.set_pce(false);
+        }
+        (Parity::ParityEven, DataBits::DataBits8) => {
+            trace!("USART: m0: 8 data bits, even parity");
+            w.set_m0(vals::M0::Bit9);
+            #[cfg(any(usart_v3, usart_v4))]
+            w.set_m1(vals::M1::M0);
+            w.set_pce(true);
+            w.set_ps(vals::Ps::Even);
+        }
+        (Parity::ParityEven, DataBits::DataBits7) => {
+            trace!("USART: m0: 7 data bits, even parity");
+            w.set_m0(vals::M0::Bit8);
+            #[cfg(any(usart_v3, usart_v4))]
+            w.set_m1(vals::M1::M0);
+            w.set_pce(true);
+            w.set_ps(vals::Ps::Even);
+        }
+        (Parity::ParityOdd, DataBits::DataBits8) => {
+            trace!("USART: m0: 8 data bits, odd parity");
+            w.set_m0(vals::M0::Bit9);
+            #[cfg(any(usart_v3, usart_v4))]
+            w.set_m1(vals::M1::M0);
+            w.set_pce(true);
+            w.set_ps(vals::Ps::Odd);
+        }
+        (Parity::ParityOdd, DataBits::DataBits7) => {
+            trace!("USART: m0: 7 data bits, odd parity");
+            w.set_m0(vals::M0::Bit8);
+            #[cfg(any(usart_v3, usart_v4))]
+            w.set_m1(vals::M1::M0);
+            w.set_pce(true);
+            w.set_ps(vals::Ps::Odd);
+        }
+        _ => {
+            return Err(ConfigError::DataParityNotSupported);
+        }
+    }
+    #[cfg(not(usart_v1))]
+    w.set_over8(vals::Over8::from_bits(over8 as _));
+    #[cfg(usart_v4)]
+    {
+        trace!("USART: set_fifoen: true (usart_v4)");
+        w.set_fifoen(true);
+    }
 
-        Ok(())
-    })?;
+    r.cr1().write_value(w);
 
     Ok(())
 }

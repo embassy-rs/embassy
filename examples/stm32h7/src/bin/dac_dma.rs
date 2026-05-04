@@ -3,62 +3,73 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::Peri;
-use embassy_stm32::dac::{DacCh1, DacCh2, ValueArray};
+use embassy_stm32::dac::{DacChannel, ValueArray};
 use embassy_stm32::mode::Async;
 use embassy_stm32::pac::timer::vals::Mms;
-use embassy_stm32::peripherals::{DAC1, TIM6, TIM7};
+use embassy_stm32::peripherals::{DMA1_CH3, DMA1_CH4, TIM6, TIM7};
 use embassy_stm32::rcc::frequency;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::low_level::Timer;
+use embassy_stm32::triggers::{TIM6_TRGO, TIM7_TRGO};
+use embassy_stm32::{Peri, bind_interrupts, dma};
 use micromath::F32Ext;
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    DMA1_STREAM3 => dma::InterruptHandler<DMA1_CH3>;
+    DMA1_STREAM4 => dma::InterruptHandler<DMA1_CH4>;
+});
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
     {
         use embassy_stm32::rcc::*;
-        config.rcc.hsi = Some(HSIPrescaler::DIV1);
+        config.rcc.hsi = Some(HSIPrescaler::Div1);
         config.rcc.csi = true;
         config.rcc.pll1 = Some(Pll {
-            source: PllSource::HSI,
-            prediv: PllPreDiv::DIV4,
-            mul: PllMul::MUL50,
-            divp: Some(PllDiv::DIV2),
-            divq: Some(PllDiv::DIV8), // 100mhz
+            source: PllSource::Hsi,
+            prediv: PllPreDiv::Div4,
+            mul: PllMul::Mul50,
+            fracn: None,
+            divp: Some(PllDiv::Div2),
+            divq: Some(PllDiv::Div8), // 100mhz
             divr: None,
         });
         config.rcc.pll2 = Some(Pll {
-            source: PllSource::HSI,
-            prediv: PllPreDiv::DIV4,
-            mul: PllMul::MUL50,
-            divp: Some(PllDiv::DIV8), // 100mhz
+            source: PllSource::Hsi,
+            prediv: PllPreDiv::Div4,
+            mul: PllMul::Mul50,
+            fracn: None,
+            divp: Some(PllDiv::Div8), // 100mhz
             divq: None,
             divr: None,
         });
-        config.rcc.sys = Sysclk::PLL1_P; // 400 Mhz
-        config.rcc.ahb_pre = AHBPrescaler::DIV2; // 200 Mhz
-        config.rcc.apb1_pre = APBPrescaler::DIV2; // 100 Mhz
-        config.rcc.apb2_pre = APBPrescaler::DIV2; // 100 Mhz
-        config.rcc.apb3_pre = APBPrescaler::DIV2; // 100 Mhz
-        config.rcc.apb4_pre = APBPrescaler::DIV2; // 100 Mhz
+        config.rcc.sys = Sysclk::Pll1P; // 400 Mhz
+        config.rcc.ahb_pre = AHBPrescaler::Div2; // 200 Mhz
+        config.rcc.apb1_pre = APBPrescaler::Div2; // 100 Mhz
+        config.rcc.apb2_pre = APBPrescaler::Div2; // 100 Mhz
+        config.rcc.apb3_pre = APBPrescaler::Div2; // 100 Mhz
+        config.rcc.apb4_pre = APBPrescaler::Div2; // 100 Mhz
         config.rcc.voltage_scale = VoltageScale::Scale1;
-        config.rcc.mux.adcsel = mux::Adcsel::PLL2_P;
+        config.rcc.mux.adcsel = mux::Adcsel::Pll2P;
     }
 
     // Initialize the board and obtain a Peripherals instance
     let p: embassy_stm32::Peripherals = embassy_stm32::init(config);
 
     // Obtain two independent channels (p.DAC1 can only be consumed once, though!)
-    let (dac_ch1, dac_ch2) = embassy_stm32::dac::Dac::new(p.DAC1, p.DMA1_CH3, p.DMA1_CH4, p.PA4, p.PA5).split();
+    let (dac_ch1, dac_ch2) = embassy_stm32::dac::Dac::new_triggered(
+        p.DAC1, p.DMA1_CH3, p.DMA1_CH4, TIM6_TRGO, TIM7_TRGO, Irqs, p.PA4, p.PA5,
+    )
+    .split();
 
     spawner.spawn(dac_task1(p.TIM6, dac_ch1).unwrap());
     spawner.spawn(dac_task2(p.TIM7, dac_ch2).unwrap());
 }
 
 #[embassy_executor::task]
-async fn dac_task1(tim: Peri<'static, TIM6>, mut dac: DacCh1<'static, DAC1, Async>) {
+async fn dac_task1(tim: Peri<'static, TIM6>, mut dac: DacChannel<'static, Async>) {
     let data: &[u8; 256] = &calculate_array::<256>();
 
     info!("TIM6 frequency is {}", frequency::<TIM6>());
@@ -72,13 +83,12 @@ async fn dac_task1(tim: Peri<'static, TIM6>, mut dac: DacCh1<'static, DAC1, Asyn
         error!("Reload value {} below threshold!", reload);
     }
 
-    dac.set_trigger(embassy_stm32::dac::TriggerSel::Tim6);
     dac.set_triggering(true);
     dac.enable();
 
     let tim = Timer::new(tim);
     tim.regs_basic().arr().modify(|w| w.set_arr(reload as u16 - 1));
-    tim.regs_basic().cr2().modify(|w| w.set_mms(Mms::UPDATE));
+    tim.regs_basic().cr2().modify(|w| w.set_mms(Mms::Update));
     tim.regs_basic().cr1().modify(|w| {
         w.set_opm(false);
         w.set_cen(true);
@@ -101,7 +111,7 @@ async fn dac_task1(tim: Peri<'static, TIM6>, mut dac: DacCh1<'static, DAC1, Asyn
 }
 
 #[embassy_executor::task]
-async fn dac_task2(tim: Peri<'static, TIM7>, mut dac: DacCh2<'static, DAC1, Async>) {
+async fn dac_task2(tim: Peri<'static, TIM7>, mut dac: DacChannel<'static, Async>) {
     let data: &[u8; 256] = &calculate_array::<256>();
 
     info!("TIM7 frequency is {}", frequency::<TIM6>());
@@ -115,13 +125,12 @@ async fn dac_task2(tim: Peri<'static, TIM7>, mut dac: DacCh2<'static, DAC1, Asyn
 
     let tim = Timer::new(tim);
     tim.regs_basic().arr().modify(|w| w.set_arr(reload as u16 - 1));
-    tim.regs_basic().cr2().modify(|w| w.set_mms(Mms::UPDATE));
+    tim.regs_basic().cr2().modify(|w| w.set_mms(Mms::Update));
     tim.regs_basic().cr1().modify(|w| {
         w.set_opm(false);
         w.set_cen(true);
     });
 
-    dac.set_trigger(embassy_stm32::dac::TriggerSel::Tim7);
     dac.set_triggering(true);
     dac.enable();
 

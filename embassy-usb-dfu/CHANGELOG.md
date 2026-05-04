@@ -8,8 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.3.0 - 2026-03-10
+
 - changed: Do not reset in the GetStatus request
 - Allow enabling the `application` and `dfu` feature at the same time
+- Use standalone DFU class from embassy-usb
+- Allow `dfu_mode::Handler::start` to return a `Result` (fail gracefully)
+- Upgrade embassy-boot to 0.7.0
+- Upgrade embassy-sync to 0.8.0
+- Upgrade embassy-usb to 0.6.0
 
 ## 0.2.0 - 2025-08-27
 

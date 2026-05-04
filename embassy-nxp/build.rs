@@ -39,6 +39,10 @@ fn main() {
         rt1xxx: { any(feature = "mimxrt1011", feature = "mimxrt1062") },
     }
 
+    cfg_aliases! {
+        lpc55: { any(feature = "lpc55s16", feature = "lpc55-core0") },
+    }
+
     eprintln!("chip: {chip_name}");
 
     generate_code(&mut cfgs, &singletons);
@@ -292,7 +296,15 @@ fn impl_dma_channel(impls: &mut Vec<TokenStream>, peripheral: &Peripheral) {
     }
 }
 
-fn impl_usart(impls: &mut Vec<TokenStream>, peripheral: &Peripheral) {
+fn impl_usart(cfgs: &mut common::CfgSet, impls: &mut Vec<TokenStream>, peripheral: &Peripheral) {
+    cfgs.declare_all(&[
+        "has_usart_txd_pins",
+        "has_usart_rxd_pins",
+        "has_usart_cts_pins",
+        "has_usart_rts_pins",
+        "has_usart_sck_pins",
+    ]);
+
     let instance = Ident::new(peripheral.name, Span::call_site());
     let flexcomm = Ident::new(
         peripheral.flexcomm.expect("LPC55 must specify FLEXCOMM instance"),
@@ -306,8 +318,26 @@ fn impl_usart(impls: &mut Vec<TokenStream>, peripheral: &Peripheral) {
 
     for signal in peripheral.signals {
         let r#macro = match signal.name {
-            "TXD" => format_ident!("impl_usart_txd_pin"),
-            "RXD" => format_ident!("impl_usart_rxd_pin"),
+            "TXD" => {
+                cfgs.enable("has_usart_txd_pins");
+                format_ident!("impl_usart_txd_pin")
+            }
+            "RXD" => {
+                cfgs.enable("has_usart_rxd_pins");
+                format_ident!("impl_usart_rxd_pin")
+            }
+            "CTS" => {
+                cfgs.enable("has_usart_cts_pins");
+                format_ident!("impl_usart_cts_pin")
+            }
+            "RTS" => {
+                cfgs.enable("has_usart_rts_pins");
+                format_ident!("impl_usart_rts_pin")
+            }
+            "SCK" => {
+                cfgs.enable("has_usart_sck_pins");
+                format_ident!("impl_usart_sck_pin")
+            }
             _ => unreachable!(),
         };
 
@@ -369,7 +399,7 @@ fn impl_sct(impls: &mut Vec<TokenStream>, peripheral: &Peripheral) {
     }
 }
 
-fn impl_peripherals(_cfgs: &mut common::CfgSet, _singletons: &[Singleton]) -> TokenStream {
+fn impl_peripherals(cfgs: &mut common::CfgSet, _singletons: &[Singleton]) -> TokenStream {
     let mut impls = Vec::new();
 
     for peripheral in metadata::METADATA.peripherals.iter() {
@@ -382,7 +412,7 @@ fn impl_peripherals(_cfgs: &mut common::CfgSet, _singletons: &[Singleton]) -> To
         }
 
         if peripheral.name.starts_with("USART") {
-            impl_usart(&mut impls, peripheral);
+            impl_usart(cfgs, &mut impls, peripheral);
         }
 
         if peripheral.name.starts_with("SCT") {

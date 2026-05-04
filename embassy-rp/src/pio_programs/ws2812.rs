@@ -4,12 +4,11 @@ use embassy_time::Timer;
 use fixed::types::U24F8;
 use smart_leds::{RGB8, RGBW};
 
-use crate::Peri;
 use crate::clocks::clk_sys_freq;
-use crate::dma::{AnyChannel, Channel};
 use crate::pio::{
     Common, Config, FifoJoin, Instance, LoadedProgram, PioPin, ShiftConfig, ShiftDirection, StateMachine,
 };
+use crate::{Peri, dma, interrupt};
 
 const T1: u8 = 2; // start bit
 const T2: u8 = 5; // data bit
@@ -104,7 +103,7 @@ pub struct PioWs2812<'d, P: Instance, const S: usize, const N: usize, ORDER>
 where
     ORDER: RgbColorOrder,
 {
-    dma: Peri<'d, AnyChannel>,
+    dma: dma::Channel<'d>,
     sm: StateMachine<'d, P, S>,
     _order: core::marker::PhantomData<ORDER>,
 }
@@ -112,14 +111,15 @@ where
 impl<'d, P: Instance, const S: usize, const N: usize> PioWs2812<'d, P, S, N, Grb> {
     /// Configure a pio state machine to use the loaded ws2812 program.
     /// Uses the default GRB order.
-    pub fn new(
+    pub fn new<D: dma::ChannelInstance>(
         pio: &mut Common<'d, P>,
         sm: StateMachine<'d, P, S>,
-        dma: Peri<'d, impl Channel>,
+        dma: Peri<'d, D>,
+        irq: impl interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + 'd,
         pin: Peri<'d, impl PioPin>,
         program: &PioWs2812Program<'d, P>,
     ) -> Self {
-        Self::with_color_order(pio, sm, dma, pin, program)
+        Self::with_color_order(pio, sm, dma, irq, pin, program)
     }
 }
 
@@ -129,10 +129,11 @@ where
 {
     /// Configure a pio state machine to use the loaded ws2812 program.
     /// Uses the specified color order.
-    pub fn with_color_order(
+    pub fn with_color_order<D: dma::ChannelInstance>(
         pio: &mut Common<'d, P>,
         mut sm: StateMachine<'d, P, S>,
-        dma: Peri<'d, impl Channel>,
+        dma: Peri<'d, D>,
+        irq: impl interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + 'd,
         pin: Peri<'d, impl PioPin>,
         program: &PioWs2812Program<'d, P>,
     ) -> Self {
@@ -164,7 +165,7 @@ where
         sm.set_enable(true);
 
         Self {
-            dma: dma.into(),
+            dma: dma::Channel::new(dma, irq),
             sm,
             _order: core::marker::PhantomData,
         }
@@ -179,7 +180,7 @@ where
         }
 
         // DMA transfer
-        self.sm.tx().dma_push(self.dma.reborrow(), &words, false).await;
+        self.sm.tx().dma_push(&mut self.dma, &words, false).await;
 
         Timer::after_micros(55).await;
     }
@@ -192,7 +193,7 @@ pub struct RgbwPioWs2812<'d, P: Instance, const S: usize, const N: usize, ORDER>
 where
     ORDER: RgbwColorOrder,
 {
-    dma: Peri<'d, AnyChannel>,
+    dma: dma::Channel<'d>,
     sm: StateMachine<'d, P, S>,
     _order: core::marker::PhantomData<ORDER>,
 }
@@ -200,14 +201,15 @@ where
 impl<'d, P: Instance, const S: usize, const N: usize> RgbwPioWs2812<'d, P, S, N, Grbw> {
     /// Configure a pio state machine to use the loaded ws2812 program.
     /// Uses the default GRBW color order
-    pub fn new(
+    pub fn new<D: dma::ChannelInstance>(
         pio: &mut Common<'d, P>,
         sm: StateMachine<'d, P, S>,
-        dma: Peri<'d, impl Channel>,
+        dma: Peri<'d, D>,
+        irq: impl interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + 'd,
         pin: Peri<'d, impl PioPin>,
         program: &PioWs2812Program<'d, P>,
     ) -> Self {
-        Self::with_color_order(pio, sm, dma, pin, program)
+        Self::with_color_order(pio, sm, dma, irq, pin, program)
     }
 }
 
@@ -217,10 +219,11 @@ where
 {
     /// Configure a pio state machine to use the loaded ws2812 program.
     /// Uses the specified color order
-    pub fn with_color_order(
+    pub fn with_color_order<D: dma::ChannelInstance>(
         pio: &mut Common<'d, P>,
         mut sm: StateMachine<'d, P, S>,
-        dma: Peri<'d, impl Channel>,
+        dma: Peri<'d, D>,
+        irq: impl interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + 'd,
         pin: Peri<'d, impl PioPin>,
         program: &PioWs2812Program<'d, P>,
     ) -> Self {
@@ -252,7 +255,7 @@ where
         sm.set_enable(true);
 
         Self {
-            dma: dma.into(),
+            dma: dma::Channel::new(dma, irq),
             sm,
             _order: core::marker::PhantomData,
         }
@@ -267,7 +270,7 @@ where
         }
 
         // DMA transfer
-        self.sm.tx().dma_push(self.dma.reborrow(), &words, false).await;
+        self.sm.tx().dma_push(&mut self.dma, &words, false).await;
 
         Timer::after_micros(55).await;
     }

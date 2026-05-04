@@ -16,14 +16,14 @@ pub enum Prescaler {
 impl From<&Prescaler> for vals::Presc {
     fn from(prescaler: &Prescaler) -> Self {
         match prescaler {
-            Prescaler::Div1 => vals::Presc::DIV1,
-            Prescaler::Div2 => vals::Presc::DIV2,
-            Prescaler::Div4 => vals::Presc::DIV4,
-            Prescaler::Div8 => vals::Presc::DIV8,
-            Prescaler::Div16 => vals::Presc::DIV16,
-            Prescaler::Div32 => vals::Presc::DIV32,
-            Prescaler::Div64 => vals::Presc::DIV64,
-            Prescaler::Div128 => vals::Presc::DIV128,
+            Prescaler::Div1 => vals::Presc::Div1,
+            Prescaler::Div2 => vals::Presc::Div2,
+            Prescaler::Div4 => vals::Presc::Div4,
+            Prescaler::Div8 => vals::Presc::Div8,
+            Prescaler::Div16 => vals::Presc::Div16,
+            Prescaler::Div32 => vals::Presc::Div32,
+            Prescaler::Div64 => vals::Presc::Div64,
+            Prescaler::Div128 => vals::Presc::Div128,
         }
     }
 }
@@ -31,14 +31,14 @@ impl From<&Prescaler> for vals::Presc {
 impl From<vals::Presc> for Prescaler {
     fn from(prescaler: vals::Presc) -> Self {
         match prescaler {
-            vals::Presc::DIV1 => Prescaler::Div1,
-            vals::Presc::DIV2 => Prescaler::Div2,
-            vals::Presc::DIV4 => Prescaler::Div4,
-            vals::Presc::DIV8 => Prescaler::Div8,
-            vals::Presc::DIV16 => Prescaler::Div16,
-            vals::Presc::DIV32 => Prescaler::Div32,
-            vals::Presc::DIV64 => Prescaler::Div64,
-            vals::Presc::DIV128 => Prescaler::Div128,
+            vals::Presc::Div1 => Prescaler::Div1,
+            vals::Presc::Div2 => Prescaler::Div2,
+            vals::Presc::Div4 => Prescaler::Div4,
+            vals::Presc::Div8 => Prescaler::Div8,
+            vals::Presc::Div16 => Prescaler::Div16,
+            vals::Presc::Div32 => Prescaler::Div32,
+            vals::Presc::Div64 => Prescaler::Div64,
+            vals::Presc::Div128 => Prescaler::Div128,
         }
     }
 }

@@ -25,16 +25,12 @@ pub enum ResetReason {
 /// Watchdog peripheral
 pub struct Watchdog {
     phantom: PhantomData<WATCHDOG>,
-    load_value: u32, // decremented by 2 per tick (µs)
 }
 
 impl Watchdog {
     /// Create a new `Watchdog`
     pub fn new(_watchdog: Peri<'static, WATCHDOG>) -> Self {
-        Self {
-            phantom: PhantomData,
-            load_value: 0,
-        }
+        Self { phantom: PhantomData }
     }
 
     /// Start tick generation on clk_tick which is driven from clk_ref.
@@ -83,36 +79,41 @@ impl Watchdog {
     }
 
     /// Feed the watchdog timer
-    pub fn feed(&mut self) {
-        self.load_counter(self.load_value)
-    }
-
-    /// Start the watchdog timer
-    pub fn start(&mut self, period: Duration) {
+    pub fn feed(&mut self, timeout: Duration) {
         #[cfg(feature = "rp2040")]
         const MAX_PERIOD: u32 = 0xFFFFFF / 2;
         #[cfg(feature = "_rp235x")]
         const MAX_PERIOD: u32 = 0xFFFFFF;
 
-        let delay_us = period.as_micros();
-        if delay_us > (MAX_PERIOD) as u64 {
+        let timeout_us = timeout.as_micros();
+        if timeout_us > (MAX_PERIOD) as u64 {
             panic!("Period cannot exceed {} microseconds", MAX_PERIOD);
         }
-        let delay_us = delay_us as u32;
+        let timeout_us = timeout_us as u32;
 
         // Due to a logic error, the watchdog decrements by 2 and
         // the load value must be compensated; see RP2040-E1
         // This errata is fixed in the RP235x
-        if cfg!(feature = "rp2040") {
-            self.load_value = delay_us * 2;
+        let load_value = if cfg!(feature = "rp2040") {
+            timeout_us * 2
         } else {
-            self.load_value = delay_us;
-        }
+            timeout_us
+        };
 
+        self.load_counter(load_value)
+    }
+
+    /// Start the watchdog timer
+    pub fn start(&mut self, initial_timeout: Duration) {
         self.enable(false);
         self.configure_wdog_reset_triggers();
-        self.load_counter(self.load_value);
+        self.feed(initial_timeout);
         self.enable(true);
+    }
+
+    /// Stop the watchdog timer
+    pub fn stop(&mut self) {
+        self.enable(false);
     }
 
     /// Trigger a system reset

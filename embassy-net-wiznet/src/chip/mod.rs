@@ -1,11 +1,16 @@
-//! Wiznet W5100s and W5500 family driver.
+//! Wiznet W5100s, W5500, W6100 and W6300 family driver.
 mod w5500;
 pub use w5500::W5500;
+
 mod w5100s;
-use embedded_hal_async::spi::SpiDevice;
 pub use w5100s::W5100S;
+
 mod w6100;
 pub use w6100::W6100;
+
+mod w6300;
+use embedded_hal_async::spi::SpiDevice;
+pub use w6300::W6300;
 
 pub(crate) trait SealedChip {
     type Address;

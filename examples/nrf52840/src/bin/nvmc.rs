@@ -4,7 +4,6 @@
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
 use embassy_nrf::nvmc::Nvmc;
-use embassy_time::Timer;
 use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -12,9 +11,6 @@ use {defmt_rtt as _, panic_probe as _};
 async fn main(_spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
     info!("Hello NVMC!");
-
-    // probe-rs run breaks without this, I'm not sure why.
-    Timer::after_secs(1).await;
 
     let mut f = Nvmc::new(p.NVMC);
     const ADDR: u32 = 0x80000;

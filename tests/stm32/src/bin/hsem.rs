@@ -15,7 +15,11 @@ bind_interrupts!(struct Irqs{
     HSEM => HardwareSemaphoreInterruptHandler<HSEM>;
 });
 
-#[embassy_executor::main]
+#[cfg_attr(
+    feature = "stop",
+    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
+)]
+#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
 async fn main(_spawner: Spawner) {
     let p: embassy_stm32::Peripherals = init();
 
@@ -32,7 +36,9 @@ async fn main(_spawner: Spawner) {
 
     #[cfg(feature = "stm32wb55rg")]
     let [_channel1, _channel2, mut channel5, _channel6] = hsem.split();
-    #[cfg(not(feature = "stm32wb55rg"))]
+    #[cfg(feature = "stm32wl55jc")]
+    let [_channel1, _channel2, _channel4, mut channel5, _channel6] = hsem.split();
+    #[cfg(not(any(feature = "stm32wb55rg", feature = "stm32wl55jc")))]
     let [_channel1, _channel2, _channel3, _channel4, mut channel5, _channel6] = hsem.split();
 
     info!("Locking channel 5");

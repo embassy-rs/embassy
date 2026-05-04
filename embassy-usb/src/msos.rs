@@ -9,7 +9,7 @@ use crate::types::InterfaceNumber;
 
 /// A serialized Microsoft OS 2.0 Descriptor set.
 ///
-/// Create with [`DeviceDescriptorSetBuilder`].
+/// Create with [`MsOsDescriptorWriter`].
 pub struct MsOsDescriptorSet<'d> {
     descriptor: &'d [u8],
     vendor_code: u8,
@@ -109,10 +109,6 @@ impl<'d> MsOsDescriptorWriter<'d> {
         assert!(
             !self.is_empty(),
             "device features may only be added after the header is written"
-        );
-        assert!(
-            self.config_mark.is_none(),
-            "device features must be added before the first configuration subset"
         );
         self.write(desc);
     }

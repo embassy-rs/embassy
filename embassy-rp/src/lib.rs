@@ -22,11 +22,16 @@ mod intrinsics;
 
 pub mod adc;
 #[cfg(feature = "_rp235x")]
+pub mod aon_timer;
+#[cfg(feature = "_rp235x")]
 pub mod block;
 #[cfg(feature = "rp2040")]
 pub mod bootsel;
 pub mod clocks;
+pub(crate) mod datetime;
 pub mod dma;
+#[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
+pub mod executor;
 pub mod flash;
 #[cfg(feature = "rp2040")]
 mod float;
@@ -147,6 +152,8 @@ embassy_hal_internal::interrupt_mod!(
     TRNG_IRQ,
     PLL_SYS_IRQ,
     PLL_USB_IRQ,
+    POWMAN_IRQ_POW,
+    POWMAN_IRQ_TIMER,
     SWI_IRQ_0,
     SWI_IRQ_1,
     SWI_IRQ_2,
@@ -440,6 +447,7 @@ embassy_hal_internal::peripherals! {
     WATCHDOG,
     BOOTSEL,
 
+    POWMAN,
     TRNG
 }
 

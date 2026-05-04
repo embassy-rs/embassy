@@ -1,105 +1,47 @@
-#[cfg(feature = "time")]
-use embassy_time::{Duration, TICK_HZ};
+use embassy_time::{Duration, Instant, TICK_HZ};
 
-use super::{DateTimeError, Rtc, RtcError, bcd2_to_byte};
+use super::Rtc;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::rtc::vals::Wucksel;
 use crate::peripherals::RTC;
 use crate::rtc::{RtcTimeProvider, SealedInstance};
 
-/// Represents an instant in time that can be substracted to compute a duration
-pub(super) struct RtcInstant {
-    /// 0..59
-    second: u8,
-    /// 0..256
-    subsecond: u16,
-}
-
-impl RtcInstant {
-    #[cfg(not(rtc_v2_f2))]
-    const fn from(second: u8, subsecond: u16) -> Result<Self, DateTimeError> {
-        if second > 59 {
-            Err(DateTimeError::InvalidSecond)
-        } else {
-            Ok(Self { second, subsecond })
-        }
-    }
-}
-
-#[cfg(feature = "defmt")]
-impl defmt::Format for RtcInstant {
-    fn format(&self, fmt: defmt::Formatter) {
-        defmt::write!(
-            fmt,
-            "{}:{}",
-            self.second,
-            RTC::regs().prer().read().prediv_s() - self.subsecond,
-        )
-    }
-}
-
-#[cfg(feature = "time")]
-impl core::ops::Sub for RtcInstant {
-    type Output = embassy_time::Duration;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        let second = if self.second < rhs.second {
-            self.second + 60
-        } else {
-            self.second
-        };
-
-        let psc = RTC::regs().prer().read().prediv_s() as u32;
-
-        let self_ticks = second as u32 * (psc + 1) + (psc - self.subsecond as u32);
-        let other_ticks = rhs.second as u32 * (psc + 1) + (psc - rhs.subsecond as u32);
-        let rtc_ticks = self_ticks - other_ticks;
-
-        Duration::from_ticks(((rtc_ticks * TICK_HZ as u32) / (psc + 1)) as u64)
-    }
-}
-
-fn wucksel_compute_min(val: u32) -> (Wucksel, u32) {
+fn wucksel_compute_min(val: u32, rtc_hz: u32) -> (Wucksel, u32) {
     *[
-        (Wucksel::DIV2, 2),
-        (Wucksel::DIV4, 4),
-        (Wucksel::DIV8, 8),
-        (Wucksel::DIV16, 16),
+        (Wucksel::Div2, 2),
+        (Wucksel::Div4, 4),
+        (Wucksel::Div8, 8),
+        (Wucksel::Div16, 16),
+        (Wucksel::ClockSpare, rtc_hz),
     ]
     .iter()
     .find(|(_, psc)| *psc as u32 > val)
-    .unwrap_or(&(Wucksel::DIV16, 16))
+    .unwrap_or(&(Wucksel::ClockSpare, rtc_hz))
 }
 
 impl Rtc {
-    /// Return the current instant.
-    fn instant(&self) -> Result<RtcInstant, RtcError> {
-        RtcTimeProvider::new().read(|_, tr, ss| {
-            let second = bcd2_to_byte((tr.st(), tr.su()));
-
-            RtcInstant::from(second, ss).map_err(RtcError::InvalidDateTime)
-        })
+    pub(super) fn millis_from_unix_epoch(&self) -> i64 {
+        RtcTimeProvider::new().now().unwrap().millis_from_unix_epoch()
     }
 
-    /// start the wakeup alarm and with a duration that is as close to but less than
-    /// the requested duration, and record the instant the wakeup alarm was started
-    pub(crate) fn start_wakeup_alarm(
-        &mut self,
-        requested_duration: embassy_time::Duration,
-        cs: critical_section::CriticalSection,
-    ) {
-        // Panic if the rcc mod knows we're not using low-power rtc
-        #[cfg(any(rcc_wb, rcc_f4, rcc_f410))]
-        unsafe { crate::rcc::get_freqs() }.rtc.to_hertz().unwrap();
+    pub(super) fn calc_epoch(&self) -> i64 {
+        self.millis_from_unix_epoch() - Instant::now().as_millis() as i64
+    }
 
+    pub(super) fn reset_epoch(&mut self) {
+        self.epoch = self.calc_epoch();
+    }
+
+    /// Start the wakeup alarm and with a duration that is as close to but less than the requested duration
+    pub(crate) fn start_wakeup_alarm(&mut self, requested_duration: embassy_time::Duration) {
+        let rtc_hz: u32 = Self::frequency().0;
         let requested_duration = requested_duration.as_ticks().clamp(0, u32::MAX as u64);
-        let rtc_hz = Self::frequency().0 as u64;
-        let rtc_ticks = requested_duration * rtc_hz / TICK_HZ;
-        let (wucksel, prescaler) = wucksel_compute_min((rtc_ticks / u16::MAX as u64) as u32);
+        let rtc_ticks: u32 = (requested_duration * rtc_hz as u64 / TICK_HZ).clamp(0, u32::MAX as u64) as u32;
+        let (wucksel, prescaler) = wucksel_compute_min(rtc_ticks / u16::MAX as u32, rtc_hz);
 
         // adjust the rtc ticks to the prescaler and subtract one rtc tick
-        let rtc_ticks = rtc_ticks / prescaler as u64;
-        let rtc_ticks = rtc_ticks.clamp(0, (u16::MAX - 1) as u64).saturating_sub(1) as u16;
+        let rtc_ticks: u32 = rtc_ticks / prescaler;
+        let rtc_ticks = rtc_ticks.clamp(0, (u16::MAX - 1) as u32).saturating_sub(1).max(1) as u16;
 
         self.write(false, |regs| {
             regs.cr().modify(|w| w.set_wute(false));
@@ -112,7 +54,7 @@ impl Rtc {
 
             #[cfg(rtc_v3)]
             {
-                regs.scr().write(|w| w.set_cwutf(crate::pac::rtc::vals::Calrf::CLEAR));
+                regs.scr().write(|w| w.set_cwutf(crate::pac::rtc::vals::Calrf::Clear));
                 while !regs.icsr().read().wutwf() {}
             }
 
@@ -122,27 +64,19 @@ impl Rtc {
             regs.cr().modify(|w| w.set_wutie(true));
         });
 
-        let instant = self.instant().unwrap();
         trace!(
-            "rtc: start wakeup alarm for {} ms (psc: {}, ticks: {}) at {}",
-            Duration::from_ticks(rtc_ticks as u64 * TICK_HZ * prescaler as u64 / rtc_hz).as_millis(),
+            "rtc: start wakeup alarm for {} ms (psc: {}, ticks: {})",
+            Duration::from_ticks(rtc_ticks as u64 * TICK_HZ * prescaler as u64 / rtc_hz as u64).as_millis(),
             prescaler as u32,
             rtc_ticks,
-            instant,
         );
-
-        assert!(self.stop_time.borrow(cs).replace(Some(instant)).is_none())
     }
 
     /// stop the wakeup alarm and return the time elapsed since `start_wakeup_alarm`
     /// was called, otherwise none
-    pub(crate) fn stop_wakeup_alarm(
-        &mut self,
-        cs: critical_section::CriticalSection,
-    ) -> Option<embassy_time::Duration> {
-        let instant = self.instant().unwrap();
+    pub(crate) fn stop_wakeup_alarm(&mut self) -> embassy_time::Instant {
         if RTC::regs().cr().read().wute() {
-            trace!("rtc: stop wakeup alarm at {}", instant);
+            trace!("rtc: stop wakeup alarm");
 
             self.write(false, |regs| {
                 regs.cr().modify(|w| w.set_wutie(false));
@@ -151,7 +85,7 @@ impl Rtc {
                 #[cfg(rtc_v2)]
                 regs.isr().modify(|w| w.set_wutf(false));
                 #[cfg(rtc_v3)]
-                regs.scr().write(|w| w.set_cwutf(crate::pac::rtc::vals::Calrf::CLEAR));
+                regs.scr().write(|w| w.set_cwutf(crate::pac::rtc::vals::Calrf::Clear));
 
                 // Check RM for EXTI and/or NVIC section, "Event event input mapping" or "EXTI interrupt/event mapping" or something similar,
                 // there is a table for every "Event input" / "EXTI Line".
@@ -160,29 +94,29 @@ impl Rtc {
                 #[cfg(any(exti_v1, stm32h7, stm32wb))]
                 crate::pac::EXTI
                     .pr(0)
-                    .modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
+                    .write(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
 
                 <RTC as crate::rtc::SealedInstance>::WakeupInterrupt::unpend();
             });
         }
 
-        self.stop_time.borrow(cs).take().map(|stop_time| instant - stop_time)
+        Instant::from_millis((self.millis_from_unix_epoch() - self.epoch).try_into().unwrap())
     }
 
-    pub(crate) fn enable_wakeup_line(&self) {
+    pub(super) fn enable_wakeup_line(&mut self) {
         <RTC as crate::rtc::SealedInstance>::WakeupInterrupt::unpend();
         unsafe { <RTC as crate::rtc::SealedInstance>::WakeupInterrupt::enable() };
 
-        #[cfg(not(any(stm32u5, stm32u0, stm32wba)))]
+        #[cfg(not(any(stm32u5, stm32u3, stm32u0, stm32wba)))]
         {
             use crate::pac::EXTI;
             EXTI.rtsr(0).modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
 
-            #[cfg(not(stm32wb))]
+            #[cfg(not(any(stm32wb, stm32wl5x)))]
             {
                 EXTI.imr(0).modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
             }
-            #[cfg(stm32wb)]
+            #[cfg(any(stm32wb, stm32wl5x))]
             {
                 EXTI.cpu(0).imr(0).modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
             }

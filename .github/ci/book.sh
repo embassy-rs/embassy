@@ -9,7 +9,7 @@ set -euxo pipefail
 make -C docs
 
 export KUBECONFIG=/ci/secrets/kubeconfig.yml
-POD=$(kubectl -n embassy get po -l app=website -o jsonpath={.items[0].metadata.name})
+POD=$(kubectl get po -l app=website -o jsonpath={.items[0].metadata.name})
 
 mkdir -p build
 mv docs/book build/book

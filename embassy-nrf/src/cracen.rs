@@ -18,10 +18,7 @@ pub struct Cracen<'d, M: Mode> {
 impl<'d> Cracen<'d, Blocking> {
     /// Create a new CRACEN driver.
     pub fn new_blocking(_peri: Peri<'d, peripherals::CRACEN>) -> Self {
-        let me = Self { _peri, _p: PhantomData };
-
-        me.stop();
-        me
+        Self { _peri, _p: PhantomData }
     }
 }
 
@@ -41,14 +38,30 @@ impl<'d, M: Mode> Cracen<'d, M> {
         });
 
         let r = Self::core();
+
+        #[cfg(feature = "_nrf54lm20")]
+        r.rngcontrol().cooldownperiod().write(|w| {
+            w.set_cooldownperiod(0);
+        });
+
         r.rngcontrol().control().write(|w| {
             w.set_enable(true);
         });
 
-        while r.rngcontrol().status().read().state() == pac::cracencore::vals::State::STARTUP {}
+        while r.rngcontrol().status().read().state() == pac::cracencore::vals::State::Startup {}
     }
 
-    fn stop(&self) {
+    fn stop_rng(&self) {
+        #[cfg(not(feature = "_nrf54lm20"))]
+        {
+            let r = Self::core();
+            r.rngcontrol().control().write(|w| {
+                w.set_enable(false);
+            });
+
+            while r.rngcontrol().status().read().state() != pac::cracencore::vals::State::Reset {}
+        }
+
         let r = Self::regs();
         r.enable().write(|w| {
             w.set_cryptomaster(false);
@@ -59,6 +72,10 @@ impl<'d, M: Mode> Cracen<'d, M> {
 
     /// Fill the buffer with random bytes, blocking version.
     pub fn blocking_fill_bytes(&mut self, dest: &mut [u8]) {
+        if dest.is_empty() {
+            return;
+        }
+
         self.start_rng();
 
         let r = Self::core();
@@ -69,7 +86,7 @@ impl<'d, M: Mode> Cracen<'d, M> {
             chunk[..to_copy].copy_from_slice(&word[..to_copy]);
         }
 
-        self.stop();
+        self.stop_rng();
     }
 
     /// Generate a random u32
@@ -90,19 +107,7 @@ impl<'d, M: Mode> Cracen<'d, M> {
 
 impl<'d, M: Mode> Drop for Cracen<'d, M> {
     fn drop(&mut self) {
-        let r = Self::core();
-        r.rngcontrol().control().write(|w| {
-            w.set_enable(false);
-        });
-
-        while r.rngcontrol().status().read().state() != pac::cracencore::vals::State::RESET {}
-
-        let r = Self::regs();
-        r.enable().write(|w| {
-            w.set_cryptomaster(false);
-            w.set_rng(false);
-            w.set_pkeikg(false);
-        });
+        // nothing to do here, since we stop+disable rng for each operation.
     }
 }
 
@@ -137,6 +142,25 @@ impl<'d, M: Mode> rand_core_09::RngCore for Cracen<'d, M> {
 }
 
 impl<'d, M: Mode> rand_core_09::CryptoRng for Cracen<'d, M> {}
+
+impl<'d, M: Mode> rand_core_10::TryRng for Cracen<'d, M> {
+    type Error = core::convert::Infallible;
+
+    fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+        Ok(self.blocking_next_u32())
+    }
+
+    fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+        Ok(self.blocking_next_u64())
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Self::Error> {
+        self.blocking_fill_bytes(dest);
+        Ok(())
+    }
+}
+
+impl<'d, M: Mode> rand_core_10::TryCryptoRng for Cracen<'d, M> {}
 
 pub(crate) trait SealedInstance {}
 

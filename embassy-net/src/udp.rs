@@ -9,7 +9,7 @@ use smoltcp::socket::udp;
 pub use smoltcp::socket::udp::{PacketMetadata, UdpMetadata};
 use smoltcp::wire::IpListenEndpoint;
 
-use crate::Stack;
+use crate::{Stack, TryError};
 
 /// Error returned by [`UdpSocket::bind`].
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -145,6 +145,21 @@ impl<'a> UdpSocket<'a> {
 
     /// Receive a datagram.
     ///
+    /// This method will not wait for a datagram to be received.
+    ///
+    /// If no datagram is available, this method will return `Err(TryError::WouldBlock)`.
+    ///
+    /// Returns the number of bytes received and the remote endpoint.
+    pub fn try_recv_from(&self, buf: &mut [u8]) -> Result<(usize, UdpMetadata), TryError<RecvError>> {
+        self.with_mut(|s, _| match s.recv_slice(buf) {
+            Ok((n, meta)) => Ok((n, meta)),
+            Err(udp::RecvError::Truncated) => Err(TryError::Other(RecvError::Truncated)),
+            Err(udp::RecvError::Exhausted) => Err(TryError::WouldBlock),
+        })
+    }
+
+    /// Receive a datagram.
+    ///
     /// When no datagram is available, this method will return `Poll::Pending` and
     /// register the current task to be notified when a datagram is received.
     ///
@@ -195,6 +210,22 @@ impl<'a> UdpSocket<'a> {
         .await
     }
 
+    /// Receive a datagram with a zero-copy function.
+    ///
+    /// This method will not wait for a datagram to be received.
+    ///
+    /// If no datagram is available, this method will return `Err(TryError::WouldBlock)`.
+    pub fn try_recv_from_with<F, R>(&mut self, f: F) -> Result<R, TryError<RecvError>>
+    where
+        F: FnOnce(&[u8], UdpMetadata) -> R,
+    {
+        self.with_mut(|s, _| match s.recv() {
+            Ok((buffer, endpoint)) => Ok(f(buffer, endpoint)),
+            Err(udp::RecvError::Truncated) => unreachable!(),
+            Err(udp::RecvError::Exhausted) => Err(TryError::WouldBlock),
+        })
+    }
+
     /// Wait until the socket becomes writable.
     ///
     /// A socket becomes writable when there is space in the buffer, from initial memory or after
@@ -239,6 +270,41 @@ impl<'a> UdpSocket<'a> {
 
     /// Send a datagram to the specified remote endpoint.
     ///
+    /// This method will not wait for the buffer to become free.
+    ///
+    /// If the socket's send buffer is full, this method will return `Err(TryError::WouldBlock)`.
+    ///
+    /// If the socket's send buffer is too small to fit `buf`, this method will return `Err(TryError::Other(SendError::PacketTooLarge))`
+    ///
+    /// When the remote endpoint is not reachable, this method will return `Err(TryError::Other(SendError::NoRoute))`
+    pub fn try_send_to<T>(&self, buf: &[u8], remote_endpoint: T) -> Result<(), TryError<SendError>>
+    where
+        T: Into<UdpMetadata>,
+    {
+        let remote_endpoint: UdpMetadata = remote_endpoint.into();
+
+        // Check if packet can ever fit in the transmit buffer
+        if self.with(|s, _| s.payload_send_capacity() < buf.len()) {
+            return Err(TryError::Other(SendError::PacketTooLarge));
+        }
+
+        self.with_mut(|s, _| match s.send_slice(buf, remote_endpoint) {
+            // Entire datagram has been sent
+            Ok(()) => Ok(()),
+            Err(udp::SendError::BufferFull) => Err(TryError::WouldBlock),
+            Err(udp::SendError::Unaddressable) => {
+                // If no sender/outgoing port is specified, there is not really "no route"
+                if s.endpoint().port == 0 {
+                    Err(TryError::Other(SendError::SocketNotBound))
+                } else {
+                    Err(TryError::Other(SendError::NoRoute))
+                }
+            }
+        })
+    }
+
+    /// Send a datagram to the specified remote endpoint.
+    ///
     /// When the datagram has been sent, this method will return `Poll::Ready(Ok())`.
     ///
     /// When the socket's send buffer is full, this method will return `Poll::Pending`
@@ -278,18 +344,19 @@ impl<'a> UdpSocket<'a> {
     /// Send a datagram to the specified remote endpoint with a zero-copy function.
     ///
     /// This method will wait until the buffer can fit the requested size before
-    /// calling the function to fill its contents.
+    /// passing it to the closure. The closure returns the number of bytes
+    /// written into the buffer.
     ///
-    /// If the socket's send buffer is too small to fit `size`, this method will return `Err(SendError::PacketTooLarge)`
+    /// If the socket's send buffer is too small to fit `max_size`, this method will return `Err(SendError::PacketTooLarge)`
     ///
     /// When the remote endpoint is not reachable, this method will return `Err(SendError::NoRoute)`
-    pub async fn send_to_with<T, F, R>(&mut self, size: usize, remote_endpoint: T, f: F) -> Result<R, SendError>
+    pub async fn send_to_with<T, F, R>(&mut self, max_size: usize, remote_endpoint: T, f: F) -> Result<R, SendError>
     where
         T: Into<UdpMetadata> + Copy,
-        F: FnOnce(&mut [u8]) -> R,
+        F: FnOnce(&mut [u8]) -> (usize, R),
     {
         // Don't need to wake waker in `with_mut` if the buffer will never fit the udp tx_buffer.
-        let send_capacity_too_small = self.with(|s, _| s.payload_send_capacity() < size);
+        let send_capacity_too_small = self.with(|s, _| s.payload_send_capacity() < max_size);
         if send_capacity_too_small {
             return Err(SendError::PacketTooLarge);
         }
@@ -297,8 +364,14 @@ impl<'a> UdpSocket<'a> {
         let mut f = Some(f);
         poll_fn(move |cx| {
             self.with_mut(|s, _| {
-                match s.send(size, remote_endpoint) {
-                    Ok(buffer) => Poll::Ready(Ok(unwrap!(f.take())(buffer))),
+                let mut ret = None;
+
+                match s.send_with(max_size, remote_endpoint, |buf| {
+                    let (size, r) = unwrap!(f.take())(buf);
+                    ret = Some(r);
+                    size
+                }) {
+                    Ok(_n) => Poll::Ready(Ok(unwrap!(ret))),
                     Err(udp::SendError::BufferFull) => {
                         s.register_send_waker(cx.waker());
                         Poll::Pending
@@ -317,6 +390,40 @@ impl<'a> UdpSocket<'a> {
         .await
     }
 
+    /// Send a datagram to the specified remote endpoint with a zero-copy function.
+    ///
+    /// This method will not wait for the buffer to become free.
+    ///
+    /// If the socket's send buffer is full, this method will return `Err(TryError::WouldBlock)`.
+    ///
+    /// If the socket's send buffer is too small to fit `size`, this method will return `Err(TryError::Other(SendError::PacketTooLarge))`
+    ///
+    /// When the remote endpoint is not reachable, this method will return `Err(TryError::Other(SendError::NoRoute))`
+    pub fn try_send_to_with<T, F, R>(&mut self, size: usize, remote_endpoint: T, f: F) -> Result<R, TryError<SendError>>
+    where
+        T: Into<UdpMetadata>,
+        F: FnOnce(&mut [u8]) -> R,
+    {
+        let remote_endpoint: UdpMetadata = remote_endpoint.into();
+
+        if self.with(|s, _| s.payload_send_capacity() < size) {
+            return Err(TryError::Other(SendError::PacketTooLarge));
+        }
+
+        self.with_mut(|s, _| match s.send(size, remote_endpoint) {
+            Ok(buffer) => Ok(f(buffer)),
+            Err(udp::SendError::BufferFull) => Err(TryError::WouldBlock),
+            Err(udp::SendError::Unaddressable) => {
+                // If no sender/outgoing port is specified, there is not really "no route"
+                if s.endpoint().port == 0 {
+                    Err(TryError::Other(SendError::SocketNotBound))
+                } else {
+                    Err(TryError::Other(SendError::NoRoute))
+                }
+            }
+        })
+    }
+
     /// Flush the socket.
     ///
     /// This method will wait until the socket is flushed.
@@ -331,6 +438,17 @@ impl<'a> UdpSocket<'a> {
                 }
             })
         })
+    }
+
+    /// Try to flush the socket.
+    ///
+    /// This method will check if the socket is flushed, and if not, return `Err(TryError::WouldBlock)`.
+    pub fn try_flush(&mut self) -> Result<(), TryError<SendError>> {
+        if self.with(|s, _| s.send_queue() == 0) {
+            Ok(())
+        } else {
+            Err(TryError::WouldBlock)
+        }
     }
 
     /// Returns the local endpoint of the socket.
@@ -394,3 +512,23 @@ impl Drop for UdpSocket<'_> {
 fn _assert_covariant<'a, 'b: 'a>(x: UdpSocket<'b>) -> UdpSocket<'a> {
     x
 }
+
+impl core::fmt::Display for SendError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::NoRoute => f.write_str("NoRoute"),
+            Self::SocketNotBound => f.write_str("SocketNotBound"),
+            Self::PacketTooLarge => f.write_str("PacketTooLarge"),
+        }
+    }
+}
+impl core::error::Error for SendError {}
+
+impl core::fmt::Display for RecvError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Truncated => f.write_str("Truncated"),
+        }
+    }
+}
+impl core::error::Error for RecvError {}

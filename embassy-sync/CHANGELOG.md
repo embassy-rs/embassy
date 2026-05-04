@@ -7,8 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## Unreleased - ReleaseDate
+
+- Added `Pipe::try_write_all` method which repeatedly calls `Pipe::try_write` until all
+  bytes were written.
+- Implement `core::error::Error` for `channel::TryReceiveError` and `channel::TrySendError`.
+
+## 0.8.0 - 2026-03-10
 - Fix wakers getting dropped by `Signal::reset`
 - Remove `Sized` trait bound from `MutexGuard::map`
+- Update to `embedded-io-async` 0.7.0
+- Fix `Pipe::try_write` docs
+- Implement `futures_sink::Sink` for `Channel` and `channel::Sender`
 
 ## 0.7.2 - 2025-08-26
 

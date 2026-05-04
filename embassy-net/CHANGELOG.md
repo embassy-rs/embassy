@@ -8,7 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Implement `core::error::Error` for `dns::Error`, `tcp::AcceptError`, `udp::SendError` and `udp::RecvError`.
+
+## 0.9.1 - 2026-04-16
+
+- Avoid busy looping if network driver's TX buffer is exhausted
+
+## 0.9.0 - 2026-03-10
+
+- raw: Removed unnecessary Driver type parameter from `RawSocket::new`
+- `{UdpSocket, IcmpSocket}::send_to_with` support writing less than `max_size` into the buffer by returning the number of bytes written from the closure
+- Update embassy-sync 0.8.0
+
+## 0.8.0 - 2026-01-04
+
 - tcp: Add `set_nagle_enabled()` to control TcpSocket nagle algorithm.
+- update to embedded-io 0.7
+- update to embedded-nal 0.9
 
 ## 0.7.1 - 2025-08-26
 

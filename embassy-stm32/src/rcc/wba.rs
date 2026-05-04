@@ -89,15 +89,15 @@ impl Config {
             hsi: true,
             hse: None,
             pll1: None,
-            sys: Sysclk::HSI,
-            ahb_pre: AHBPrescaler::DIV1,
-            ahb5_pre: AHB5Prescaler::DIV1,
-            apb1_pre: APBPrescaler::DIV1,
-            apb2_pre: APBPrescaler::DIV1,
-            apb7_pre: APBPrescaler::DIV1,
+            sys: Sysclk::Hsi,
+            ahb_pre: AHBPrescaler::Div1,
+            ahb5_pre: AHB5Prescaler::Div1,
+            apb1_pre: APBPrescaler::Div1,
+            apb2_pre: APBPrescaler::Div1,
+            apb7_pre: APBPrescaler::Div1,
             ls: crate::rcc::LsConfig::new(),
             // lsi2: crate::rcc::LsConfig::new(),
-            voltage_scale: VoltageScale::RANGE2,
+            voltage_scale: VoltageScale::Range2,
             mux: super::mux::ClockMux::default(),
         }
     }
@@ -106,6 +106,52 @@ impl Config {
 impl Default for Config {
     fn default() -> Config {
         Self::new()
+    }
+}
+
+/// SRAM page power-down configuration for Stop modes (Stop 0, Stop 1).
+///
+/// Each field controls whether a particular SRAM region is powered down
+/// (content lost) or retained when the MCU enters a Stop mode. Powering
+/// down unused SRAM pages reduces Stop-mode current consumption.
+///
+/// All pages default to retained (`false`), preserving backward compatibility.
+#[derive(Clone, Copy)]
+pub struct StopModeSramConfig {
+    /// SRAM1 page 0 power-down in Stop modes.
+    pub sram1_page0: bool,
+    /// SRAM1 page 1 power-down in Stop modes.
+    pub sram1_page1: bool,
+    /// SRAM1 page 2 power-down in Stop modes.
+    pub sram1_page2: bool,
+    /// SRAM1 page 3 power-down in Stop modes.
+    pub sram1_page3: bool,
+    /// SRAM2 power-down in Stop modes.
+    pub sram2: bool,
+    /// SRAM1 pages 5-7 (192KB) power-down in Stop modes.
+    /// Only present on WBA6x variants with 256KB SRAM.
+    pub sram1_pages567: bool,
+    /// ICACHE SRAM power-down in Stop modes.
+    pub icache_sram: bool,
+    /// OTG (USB) SRAM power-down in Stop modes.
+    pub otg_sram: bool,
+    /// PKA SRAM power-down in Stop modes.
+    pub pka_sram: bool,
+}
+
+impl Default for StopModeSramConfig {
+    fn default() -> Self {
+        Self {
+            sram1_page0: false,
+            sram1_page1: false,
+            sram1_page2: false,
+            sram1_page3: false,
+            sram2: false,
+            sram1_pages567: false,
+            icache_sram: false,
+            otg_sram: false,
+            pka_sram: false,
+        }
     }
 }
 
@@ -119,11 +165,11 @@ pub(crate) unsafe fn init(config: Config) {
     if !RCC.cr().read().hsion() {
         hsi_enable()
     }
-    if RCC.cfgr1().read().sws() != Sysclk::HSI {
+    if RCC.cfgr1().read().sws() != Sysclk::Hsi {
         // Set HSI as a clock source, reset prescalers.
         RCC.cfgr1().write_value(Cfgr1::default());
         // Wait for clock switch status bits to change.
-        while RCC.cfgr1().read().sws() != Sysclk::HSI {}
+        while RCC.cfgr1().read().sws() != Sysclk::Hsi {}
     }
 
     // Set voltage scale
@@ -150,13 +196,19 @@ pub(crate) unsafe fn init(config: Config) {
 
     let pll_input = PllInput { hse, hsi };
 
-    let pll1 = init_pll(config.pll1, &pll_input, config.voltage_scale);
+    let pll1 = config.pll1.map_or_else(
+        || {
+            pll_enable(false);
+            PllOutput::default()
+        },
+        |c| init_pll(Some(c), &pll_input, config.voltage_scale),
+    );
 
     let sys_clk = match config.sys {
-        Sysclk::HSE => hse.unwrap(),
-        Sysclk::HSI => hsi.unwrap(),
+        Sysclk::Hse => hse.unwrap(),
+        Sysclk::Hsi => hsi.unwrap(),
         Sysclk::_RESERVED_1 => unreachable!(),
-        Sysclk::PLL1_R => pll1.r.unwrap(),
+        Sysclk::Pll1R => pll1.r.unwrap(),
     };
 
     assert!(sys_clk.0 <= 100_000_000);
@@ -170,14 +222,14 @@ pub(crate) unsafe fn init(config: Config) {
 
     // Set flash wait states
     let flash_latency = match config.voltage_scale {
-        VoltageScale::RANGE1 => match sys_clk.0 {
+        VoltageScale::Range1 => match sys_clk.0 {
             ..=32_000_000 => 0,
             ..=64_000_000 => 1,
             ..=96_000_000 => 2,
             ..=100_000_000 => 3,
             _ => 4,
         },
-        VoltageScale::RANGE2 => match sys_clk.0 {
+        VoltageScale::Range2 => match sys_clk.0 {
             ..=8_000_000 => 0,
             ..=16_000_000 => 1,
             _ => 2,
@@ -188,15 +240,18 @@ pub(crate) unsafe fn init(config: Config) {
     while FLASH.acr().read().latency() != flash_latency {}
 
     // Set sram wait states
-    let _sram_latency = match config.voltage_scale {
-        VoltageScale::RANGE1 => 0,
-        VoltageScale::RANGE2 => match sys_clk.0 {
+    let sram_latency = match config.voltage_scale {
+        VoltageScale::Range1 => 0,
+        VoltageScale::Range2 => match sys_clk.0 {
             ..=12_000_000 => 0,
             ..=16_000_000 => 1,
             _ => 2,
         },
     };
-    // TODO: Set the SRAM wait states
+    crate::pac::RCC.ahb1enr().modify(|w| w.set_ramcfgen(true));
+    cortex_m::asm::dsb();
+    crate::pac::RAMCFG.m1cr().modify(|w| w.set_wsc(sram_latency));
+    crate::pac::RAMCFG.m2cr().modify(|w| w.set_wsc(sram_latency));
 
     RCC.cfgr1().modify(|w| {
         w.set_sw(config.sys);
@@ -212,16 +267,16 @@ pub(crate) unsafe fn init(config: Config) {
     // Set AHB5 prescaler depending on sysclk source
     RCC.cfgr4().modify(|w| match config.sys {
         // When using HSI or HSE, use HDIV5 bit (0 = div1, 1 = div2)
-        Sysclk::HSI | Sysclk::HSE => {
+        Sysclk::Hsi | Sysclk::Hse => {
             // Only Div1 and Div2 are valid for HDIV5, enforce this
             match config.ahb5_pre {
-                AHB5Prescaler::DIV1 => w.set_hdiv5(Hdiv5::DIV1),
-                AHB5Prescaler::DIV2 => w.set_hdiv5(Hdiv5::DIV2),
+                AHB5Prescaler::Div1 => w.set_hdiv5(Hdiv5::Div1),
+                AHB5Prescaler::Div2 => w.set_hdiv5(Hdiv5::Div2),
                 _ => panic!("Invalid ahb5_pre for HSI/HSE sysclk: only DIV1 and DIV2 are allowed"),
             };
         }
         // When using PLL1, use HPRE5 bits [2:0]
-        Sysclk::PLL1_R => {
+        Sysclk::Pll1R => {
             w.set_hpre5(config.ahb5_pre);
         }
         _ => {}
@@ -231,26 +286,26 @@ pub(crate) unsafe fn init(config: Config) {
 
     #[cfg(all(stm32wba, peri_usb_otg_hs))]
     let usb_refck = match config.mux.otghssel {
-        Otghssel::HSE => hse,
-        Otghssel::HSE_DIV_2 => hse.map(|hse_val| hse_val / 2u8),
-        Otghssel::PLL1_P => pll1.p,
-        Otghssel::PLL1_P_DIV_2 => pll1.p.map(|pll1p_val| pll1p_val / 2u8),
+        Otghssel::Hse => hse,
+        Otghssel::HseDiv2 => hse.map(|hse_val| hse_val / 2u8),
+        Otghssel::Pll1P => pll1.p,
+        Otghssel::Pll1PDiv2 => pll1.p.map(|pll1p_val| pll1p_val / 2u8),
     };
     #[cfg(all(stm32wba, peri_usb_otg_hs))]
     let usb_refck_sel = match usb_refck {
         Some(clk_val) => match clk_val {
-            Hertz(16_000_000) => Usbrefcksel::MHZ16,
-            Hertz(19_200_000) => Usbrefcksel::MHZ19_2,
-            Hertz(20_000_000) => Usbrefcksel::MHZ20,
-            Hertz(24_000_000) => Usbrefcksel::MHZ24,
-            Hertz(26_000_000) => Usbrefcksel::MHZ26,
-            Hertz(32_000_000) => Usbrefcksel::MHZ32,
+            Hertz(16_000_000) => Usbrefcksel::Mhz16,
+            Hertz(19_200_000) => Usbrefcksel::Mhz192,
+            Hertz(20_000_000) => Usbrefcksel::Mhz20,
+            Hertz(24_000_000) => Usbrefcksel::Mhz24,
+            Hertz(26_000_000) => Usbrefcksel::Mhz26,
+            Hertz(32_000_000) => Usbrefcksel::Mhz32,
             _ => panic!(
                 "cannot select OTG_HS reference clock with source frequency of {}, must be one of 16, 19.2, 20, 24, 26, 32 MHz",
                 clk_val
             ),
         },
-        None => Usbrefcksel::MHZ24,
+        None => Usbrefcksel::Mhz24,
     };
     #[cfg(all(stm32wba, peri_usb_otg_hs))]
     SYSCFG.otghsphycr().modify(|w| {
@@ -259,15 +314,21 @@ pub(crate) unsafe fn init(config: Config) {
 
     #[cfg(sai_v4_2pdm)]
     let audioclk = match config.mux.sai1sel {
-        Sai1sel::HSI => Some(HSI_FREQ),
-        Sai1sel::PLL1_Q => Some(pll1.q.expect("PLL1.Q not configured")),
-        Sai1sel::PLL1_P => Some(pll1.p.expect("PLL1.P not configured")),
-        Sai1sel::SYS => panic!("SYS not supported yet"),
-        Sai1sel::AUDIOCLK => panic!("AUDIOCLK not supported yet"),
+        Sai1sel::Hsi => Some(HSI_FREQ),
+        Sai1sel::Pll1Q => Some(pll1.q.expect("PLL1.Q not configured")),
+        Sai1sel::Pll1P => Some(pll1.p.expect("PLL1.P not configured")),
+        Sai1sel::Sys => panic!("SYS not supported yet"),
+        Sai1sel::Audioclk => panic!("AUDIOCLK not supported yet"),
         _ => None,
     };
 
     let lsi = config.ls.lsi.then_some(LSI_FREQ);
+    let lse = config.ls.lse.map(|c| c.frequency);
+
+    // Disable HSI if not used
+    if !config.hsi {
+        RCC.cr().modify(|w| w.set_hsion(false));
+    }
 
     config.mux.init();
 
@@ -285,13 +346,12 @@ pub(crate) unsafe fn init(config: Config) {
         rtc: rtc,
         hse: hse,
         lsi: lsi,
+        lse: lse,
         hsi: hsi,
         pll1_p: pll1.p,
         pll1_q: pll1.q,
         pll1_r: pll1.r,
 
-        // TODO
-        lse: None,
         #[cfg(sai_v4_2pdm)]
         audioclk: audioclk,
     );
@@ -322,15 +382,15 @@ fn init_pll(config: Option<Pll>, input: &PllInput, voltage_range: VoltageScale) 
     let Some(pll) = config else { return PllOutput::default() };
 
     let pre_src_freq = match pll.source {
-        PllSource::DISABLE => panic!("must not select PLL source as DISABLE"),
-        PllSource::HSE => unwrap!(input.hse),
-        PllSource::HSI => unwrap!(input.hsi),
+        PllSource::Disable => panic!("must not select PLL source as DISABLE"),
+        PllSource::Hse => unwrap!(input.hse),
+        PllSource::Hsi => unwrap!(input.hsi),
         PllSource::_RESERVED_1 => panic!("must not select RESERVED_1 source as DISABLE"),
     };
 
     // Only divide by the HSE prescaler when the PLL source is HSE
     let src_freq = match pll.source {
-        PllSource::HSE => {
+        PllSource::Hse => {
             // read the prescaler bits and divide
             let hsepre = RCC.cr().read().hsepre();
             pre_src_freq / hsepre
@@ -345,8 +405,8 @@ fn init_pll(config: Option<Pll>, input: &PllInput, voltage_range: VoltageScale) 
 
     // Check PLL clocks per RM0515 § 12.4.5
     let (vco_min, vco_max, out_max) = match voltage_range {
-        VoltageScale::RANGE1 => (Hertz::mhz(128), Hertz::mhz(544), Hertz::mhz(100)),
-        VoltageScale::RANGE2 => panic!("PLL is unavailable in voltage range 2"),
+        VoltageScale::Range1 => (Hertz::mhz(128), Hertz::mhz(544), Hertz::mhz(100)),
+        VoltageScale::Range2 => panic!("PLL is unavailable in voltage range 2"),
     };
 
     // Calculate the PLL VCO clock
@@ -370,17 +430,17 @@ fn init_pll(config: Option<Pll>, input: &PllInput, voltage_range: VoltageScale) 
     let divr = RCC.pll1divr();
     divr.write(|w| {
         w.set_plln(pll.mul);
-        w.set_pllp(pll.divp.unwrap_or(PllDiv::DIV1));
-        w.set_pllq(pll.divq.unwrap_or(PllDiv::DIV1));
-        w.set_pllr(pll.divr.unwrap_or(PllDiv::DIV1));
+        w.set_pllp(pll.divp.unwrap_or(PllDiv::Div1));
+        w.set_pllq(pll.divq.unwrap_or(PllDiv::Div1));
+        w.set_pllr(pll.divr.unwrap_or(PllDiv::Div1));
     });
     RCC.pll1fracr().write(|w| {
         w.set_pllfracn(pll.frac.unwrap_or(0));
     });
 
     let input_range = match ref_freq.0 {
-        ..=8_000_000 => Pllrge::FREQ_4TO8MHZ,
-        _ => Pllrge::FREQ_8TO16MHZ,
+        ..=8_000_000 => Pllrge::Freq4to8mhz,
+        _ => Pllrge::Freq8to16mhz,
     };
 
     macro_rules! write_fields {

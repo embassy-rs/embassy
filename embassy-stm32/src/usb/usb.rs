@@ -1,5 +1,8 @@
 #![macro_use]
 
+#[cfg(usb_v4)]
+mod usb_host;
+
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -11,6 +14,8 @@ use embassy_usb_driver as driver;
 use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType, Event, Unsupported,
 };
+#[cfg(usb_v4)]
+pub use usb_host::*;
 
 use crate::pac::USBRAM;
 use crate::pac::usb::regs;
@@ -133,10 +138,10 @@ static IRQ_RESUME: AtomicBool = AtomicBool::new(false);
 
 fn convert_type(t: EndpointType) -> EpType {
     match t {
-        EndpointType::Bulk => EpType::BULK,
-        EndpointType::Control => EpType::CONTROL,
-        EndpointType::Interrupt => EpType::INTERRUPT,
-        EndpointType::Isochronous => EpType::ISO,
+        EndpointType::Bulk => EpType::Bulk,
+        EndpointType::Control => EpType::Control,
+        EndpointType::Interrupt => EpType::Interrupt,
+        EndpointType::Isochronous => EpType::Iso,
     }
 }
 
@@ -326,13 +331,13 @@ impl<'d, T: Instance> Driver<'d, T> {
         #[cfg(not(usb_v4))]
         regs.btable().write(|w| w.set_btable(0));
 
-        #[cfg(not(stm32l1))]
+        #[cfg(usb_alternate_function)]
         {
             use crate::gpio::{AfType, OutputType, Speed};
             set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh));
             set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh));
         }
-        #[cfg(stm32l1)]
+        #[cfg(not(usb_alternate_function))]
         let _ = (dp, dm); // suppress "unused" warnings.
 
         // Initialize the bus so that it signals that power is available
@@ -543,7 +548,7 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
 
         trace!("enabled");
 
-        let mut ep_types = [EpType::BULK; EP_COUNT - 1];
+        let mut ep_types = [EpType::Bulk; EP_COUNT - 1];
         for i in 1..EP_COUNT {
             ep_types[i - 1] = convert_type(self.alloc[i].ep_type);
         }
@@ -599,9 +604,9 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                 });
 
                 regs.epr(0).write(|w| {
-                    w.set_ep_type(EpType::CONTROL);
-                    w.set_stat_rx(Stat::NAK);
-                    w.set_stat_tx(Stat::NAK);
+                    w.set_ep_type(EpType::Control);
+                    w.set_stat_rx(Stat::Nak);
+                    w.set_stat_tx(Stat::Nak);
                 });
 
                 for i in 1..EP_COUNT {
@@ -639,12 +644,12 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                 loop {
                     let r = reg.read();
                     match r.stat_tx() {
-                        Stat::DISABLED => break, // if disabled, stall does nothing.
-                        Stat::STALL => break,    // done!
+                        Stat::Disabled => break, // if disabled, stall does nothing.
+                        Stat::Stall => break,    // done!
                         _ => {
                             let want_stat = match stalled {
-                                false => Stat::NAK,
-                                true => Stat::STALL,
+                                false => Stat::Nak,
+                                true => Stat::Stall,
                             };
                             let mut w = invariant(r);
                             w.set_stat_tx(Stat::from_bits(r.stat_tx().to_bits() ^ want_stat.to_bits()));
@@ -658,12 +663,12 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                 loop {
                     let r = reg.read();
                     match r.stat_rx() {
-                        Stat::DISABLED => break, // if disabled, stall does nothing.
-                        Stat::STALL => break,    // done!
+                        Stat::Disabled => break, // if disabled, stall does nothing.
+                        Stat::Stall => break,    // done!
                         _ => {
                             let want_stat = match stalled {
-                                false => Stat::VALID,
-                                true => Stat::STALL,
+                                false => Stat::Valid,
+                                true => Stat::Stall,
                             };
                             let mut w = invariant(r);
                             w.set_stat_rx(Stat::from_bits(r.stat_rx().to_bits() ^ want_stat.to_bits()));
@@ -680,8 +685,8 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         let regs = T::regs();
         let epr = regs.epr(ep_addr.index() as _).read();
         match ep_addr.direction() {
-            Direction::In => epr.stat_tx() == Stat::STALL,
-            Direction::Out => epr.stat_rx() == Stat::STALL,
+            Direction::In => epr.stat_tx() == Stat::Stall,
+            Direction::Out => epr.stat_rx() == Stat::Stall,
         }
     }
 
@@ -694,10 +699,10 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
             Direction::In => {
                 loop {
                     let want_stat = match enabled {
-                        false => Stat::DISABLED,
+                        false => Stat::Disabled,
                         true => match epr.read().ep_type() {
-                            EpType::ISO => Stat::VALID,
-                            _ => Stat::NAK,
+                            EpType::Iso => Stat::Valid,
+                            _ => Stat::Nak,
                         },
                     };
                     let r = epr.read();
@@ -713,8 +718,8 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
             Direction::Out => {
                 loop {
                     let want_stat = match enabled {
-                        false => Stat::DISABLED,
-                        true => Stat::VALID,
+                        false => Stat::Disabled,
+                        true => Stat::Valid,
                     };
                     let r = epr.read();
                     if r.stat_rx() == want_stat {
@@ -734,7 +739,24 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
     async fn disable(&mut self) {}
 
     async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
-        Err(Unsupported)
+        let regs = T::regs();
+        // Wake transceiver from low-power mode
+        regs.cntr().modify(|w| w.set_lpmode(false));
+        // Drive K-state while FSUSP is still set
+        regs.cntr().modify(|w| w.set_resume(true));
+        #[cfg(feature = "time")]
+        embassy_time::Timer::after_millis(10).await;
+        #[cfg(not(feature = "time"))]
+        {
+            let freq = unsafe { crate::rcc::get_freqs() }.sys.to_hertz().unwrap().0 as u64;
+            let cycles = freq * 10 / 1_000;
+            cortex_m::asm::delay(cycles as u32);
+        }
+        regs.cntr().modify(|w| w.set_resume(false));
+        // Exit forced-suspend so the peripheral can handle the
+        // host's resume response
+        regs.cntr().modify(|w| w.set_fsusp(false));
+        Ok(())
     }
 }
 
@@ -844,7 +866,7 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, In> {
         poll_fn(|cx| {
             EP_IN_WAKERS[index].register(cx.waker());
             let regs = T::regs();
-            if regs.epr(index).read().stat_tx() == Stat::DISABLED {
+            if regs.epr(index).read().stat_tx() == Stat::Disabled {
                 Poll::Pending
             } else {
                 Poll::Ready(())
@@ -866,7 +888,7 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, Out> {
         poll_fn(|cx| {
             EP_OUT_WAKERS[index].register(cx.waker());
             let regs = T::regs();
-            if regs.epr(index).read().stat_rx() == Stat::DISABLED {
+            if regs.epr(index).read().stat_rx() == Stat::Disabled {
                 Poll::Pending
             } else {
                 Poll::Ready(())
@@ -888,14 +910,14 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
             if self.info.ep_type == EndpointType::Isochronous {
                 // The isochronous endpoint does not change its `STAT_RX` field to `NAK` when receiving a packet.
                 // Therefore, this instead waits until the `CTR` interrupt was triggered.
-                if matches!(stat, Stat::DISABLED) || RX_COMPLETE[index].load(Ordering::Relaxed) {
-                    assert!(matches!(stat, Stat::VALID | Stat::DISABLED));
+                if matches!(stat, Stat::Disabled) || RX_COMPLETE[index].load(Ordering::Relaxed) {
+                    assert!(matches!(stat, Stat::Valid | Stat::Disabled));
                     Poll::Ready(stat)
                 } else {
                     Poll::Pending
                 }
             } else {
-                if matches!(stat, Stat::NAK | Stat::DISABLED) {
+                if matches!(stat, Stat::Nak | Stat::Disabled) {
                     Poll::Ready(stat)
                 } else {
                     Poll::Pending
@@ -925,7 +947,7 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
 
         RX_COMPLETE[index].store(false, Ordering::Relaxed);
 
-        if stat == Stat::DISABLED {
+        if stat == Stat::Disabled {
             return Err(EndpointError::Disabled);
         }
 
@@ -945,7 +967,7 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
             regs.epr(index).write(|w| {
                 w.set_ep_type(convert_type(self.info.ep_type));
                 w.set_ea(self.info.addr.index() as _);
-                w.set_stat_rx(Stat::from_bits(Stat::NAK.to_bits() ^ Stat::VALID.to_bits()));
+                w.set_stat_rx(Stat::from_bits(Stat::Nak.to_bits() ^ Stat::Valid.to_bits()));
                 w.set_stat_tx(Stat::from_bits(0));
                 w.set_ctr_rx(true); // don't clear
                 w.set_ctr_tx(true); // don't clear
@@ -987,14 +1009,14 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
             if self.info.ep_type == EndpointType::Isochronous {
                 // The isochronous endpoint does not change its `STAT_TX` field to `NAK` after sending a packet.
                 // Therefore, this instead waits until the `CTR` interrupt was triggered.
-                if matches!(stat, Stat::DISABLED) || !TX_PENDING[index].load(Ordering::Relaxed) {
-                    assert!(matches!(stat, Stat::VALID | Stat::DISABLED));
+                if matches!(stat, Stat::Disabled) || !TX_PENDING[index].load(Ordering::Relaxed) {
+                    assert!(matches!(stat, Stat::Valid | Stat::Disabled));
                     Poll::Ready(stat)
                 } else {
                     Poll::Pending
                 }
             } else {
-                if matches!(stat, Stat::NAK | Stat::DISABLED) {
+                if matches!(stat, Stat::Nak | Stat::Disabled) {
                     Poll::Ready(stat)
                 } else {
                     Poll::Pending
@@ -1003,7 +1025,7 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
         })
         .await;
 
-        if stat == Stat::DISABLED {
+        if stat == Stat::Disabled {
             return Err(EndpointError::Disabled);
         }
 
@@ -1013,7 +1035,7 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
             regs.epr(index).write(|w| {
                 w.set_ep_type(convert_type(self.info.ep_type));
                 w.set_ea(self.info.addr.index() as _);
-                w.set_stat_tx(Stat::from_bits(Stat::NAK.to_bits() ^ Stat::VALID.to_bits()));
+                w.set_stat_tx(Stat::from_bits(Stat::Nak.to_bits() ^ Stat::Valid.to_bits()));
                 w.set_stat_rx(Stat::from_bits(0));
                 w.set_ctr_rx(true); // don't clear
                 w.set_ctr_tx(true); // don't clear
@@ -1079,17 +1101,17 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             let mut stat_tx = 0;
             if first {
                 // change NAK -> VALID
-                stat_rx ^= Stat::NAK.to_bits() ^ Stat::VALID.to_bits();
-                stat_tx ^= Stat::NAK.to_bits() ^ Stat::STALL.to_bits();
+                stat_rx ^= Stat::Nak.to_bits() ^ Stat::Valid.to_bits();
+                stat_tx ^= Stat::Nak.to_bits() ^ Stat::Stall.to_bits();
             }
             if last {
                 // change STALL -> VALID
-                stat_tx ^= Stat::STALL.to_bits() ^ Stat::NAK.to_bits();
+                stat_tx ^= Stat::Stall.to_bits() ^ Stat::Nak.to_bits();
             }
             // Note: if this is the first AND last transfer, the above effectively
             // changes stat_tx like NAK -> NAK, so noop.
             regs.epr(0).write(|w| {
-                w.set_ep_type(EpType::CONTROL);
+                w.set_ep_type(EpType::Control);
                 w.set_stat_rx(Stat::from_bits(stat_rx));
                 w.set_stat_tx(Stat::from_bits(stat_tx));
                 w.set_ctr_rx(true); // don't clear
@@ -1101,7 +1123,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         poll_fn(|cx| {
             EP_OUT_WAKERS[0].register(cx.waker());
             let regs = T::regs();
-            if regs.epr(0).read().stat_rx() == Stat::NAK {
+            if regs.epr(0).read().stat_rx() == Stat::Nak {
                 Poll::Ready(())
             } else {
                 Poll::Pending
@@ -1117,12 +1139,12 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         let rx_len = self.ep_out.read_data(buf)?;
 
         regs.epr(0).write(|w| {
-            w.set_ep_type(EpType::CONTROL);
+            w.set_ep_type(EpType::Control);
             w.set_stat_rx(Stat::from_bits(match last {
                 // If last, set STAT_RX=STALL.
-                true => Stat::NAK.to_bits() ^ Stat::STALL.to_bits(),
+                true => Stat::Nak.to_bits() ^ Stat::Stall.to_bits(),
                 // Otherwise, set STAT_RX=VALID, to allow the host to send the next packet.
-                false => Stat::NAK.to_bits() ^ Stat::VALID.to_bits(),
+                false => Stat::Nak.to_bits() ^ Stat::Valid.to_bits(),
             }));
             w.set_ctr_rx(true); // don't clear
             w.set_ctr_tx(true); // don't clear
@@ -1147,16 +1169,16 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             let mut stat_rx = 0;
             if first {
                 // change NAK -> STALL
-                stat_rx ^= Stat::NAK.to_bits() ^ Stat::STALL.to_bits();
+                stat_rx ^= Stat::Nak.to_bits() ^ Stat::Stall.to_bits();
             }
             if last {
                 // change STALL -> VALID
-                stat_rx ^= Stat::STALL.to_bits() ^ Stat::VALID.to_bits();
+                stat_rx ^= Stat::Stall.to_bits() ^ Stat::Valid.to_bits();
             }
             // Note: if this is the first AND last transfer, the above effectively
             // does a change of NAK -> VALID.
             regs.epr(0).write(|w| {
-                w.set_ep_type(EpType::CONTROL);
+                w.set_ep_type(EpType::Control);
                 w.set_stat_rx(Stat::from_bits(stat_rx));
                 w.set_ep_kind(last); // set OUT_STATUS if last.
                 w.set_ctr_rx(true); // don't clear
@@ -1169,7 +1191,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             EP_IN_WAKERS[0].register(cx.waker());
             EP_OUT_WAKERS[0].register(cx.waker());
             let regs = T::regs();
-            if regs.epr(0).read().stat_tx() == Stat::NAK {
+            if regs.epr(0).read().stat_tx() == Stat::Nak {
                 Poll::Ready(())
             } else {
                 Poll::Pending
@@ -1186,8 +1208,8 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
 
         let regs = T::regs();
         regs.epr(0).write(|w| {
-            w.set_ep_type(EpType::CONTROL);
-            w.set_stat_tx(Stat::from_bits(Stat::NAK.to_bits() ^ Stat::VALID.to_bits()));
+            w.set_ep_type(EpType::Control);
+            w.set_stat_tx(Stat::from_bits(Stat::Nak.to_bits() ^ Stat::Valid.to_bits()));
             w.set_ep_kind(last); // set OUT_STATUS if last.
             w.set_ctr_rx(true); // don't clear
             w.set_ctr_tx(true); // don't clear
@@ -1207,9 +1229,9 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         // Set OUT=stall, IN=accept
         let epr = regs.epr(0).read();
         regs.epr(0).write(|w| {
-            w.set_ep_type(EpType::CONTROL);
-            w.set_stat_rx(Stat::from_bits(epr.stat_rx().to_bits() ^ Stat::STALL.to_bits()));
-            w.set_stat_tx(Stat::from_bits(epr.stat_tx().to_bits() ^ Stat::VALID.to_bits()));
+            w.set_ep_type(EpType::Control);
+            w.set_stat_rx(Stat::from_bits(epr.stat_rx().to_bits() ^ Stat::Stall.to_bits()));
+            w.set_stat_tx(Stat::from_bits(epr.stat_tx().to_bits() ^ Stat::Valid.to_bits()));
             w.set_ctr_rx(true); // don't clear
             w.set_ctr_tx(true); // don't clear
         });
@@ -1220,7 +1242,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         poll_fn(|cx| {
             EP_IN_WAKERS[0].register(cx.waker());
             let regs = T::regs();
-            if regs.epr(0).read().stat_tx() == Stat::NAK {
+            if regs.epr(0).read().stat_tx() == Stat::Nak {
                 Poll::Ready(())
             } else {
                 Poll::Pending
@@ -1238,9 +1260,9 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         // Set IN+OUT to stall
         let epr = regs.epr(0).read();
         regs.epr(0).write(|w| {
-            w.set_ep_type(EpType::CONTROL);
-            w.set_stat_rx(Stat::from_bits(epr.stat_rx().to_bits() ^ Stat::STALL.to_bits()));
-            w.set_stat_tx(Stat::from_bits(epr.stat_tx().to_bits() ^ Stat::STALL.to_bits()));
+            w.set_ep_type(EpType::Control);
+            w.set_stat_rx(Stat::from_bits(epr.stat_rx().to_bits() ^ Stat::Stall.to_bits()));
+            w.set_stat_tx(Stat::from_bits(epr.stat_tx().to_bits() ^ Stat::Stall.to_bits()));
             w.set_ctr_rx(true); // don't clear
             w.set_ctr_tx(true); // don't clear
         });

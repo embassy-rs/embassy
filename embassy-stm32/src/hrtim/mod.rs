@@ -1,507 +1,340 @@
 //! High Resolution Timer (HRTIM)
 
-mod traits;
+use embassy_hal_internal::PeripheralType;
+
+mod advanced_channel;
+mod advanced_pwm;
+mod bridge_converter;
+mod fullbridge;
+pub mod low_level;
+mod resonant_converter;
+#[cfg(feature = "stm32-hrtim")]
+/// provides an adapter for the stm32-hrtim crate
+pub mod stm32_hrtim;
 
 use core::marker::PhantomData;
 
+pub use advanced_channel::AdvancedChannel;
+pub use advanced_pwm::AdvancedPwm;
+pub use bridge_converter::BridgeConverter;
 use embassy_hal_internal::Peri;
-pub use traits::Instance;
+pub use fullbridge::FullBridgeConverter;
+pub use resonant_converter::ResonantConverter;
 
-use crate::gpio::{AfType, AnyPin, OutputType, Speed};
-use crate::rcc;
+use crate::gpio::{AfType, Flex, OutputType, Speed};
+use crate::peripherals::HRTIM1;
+use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
-pub use crate::timer::simple_pwm::PwmPinConfig;
+use crate::timer::simple_pwm::PwmPinConfig;
 
-/// HRTIM burst controller instance.
-pub struct BurstController<T: Instance> {
-    phantom: PhantomData<T>,
-}
-
-/// HRTIM master instance.
-pub struct Master<T: Instance> {
-    phantom: PhantomData<T>,
-}
-
-/// HRTIM channel A instance.
-pub struct ChA<T: Instance> {
-    phantom: PhantomData<T>,
-}
-
-/// HRTIM channel B instance.
-pub struct ChB<T: Instance> {
-    phantom: PhantomData<T>,
-}
-
-/// HRTIM channel C instance.
-pub struct ChC<T: Instance> {
-    phantom: PhantomData<T>,
-}
-
-/// HRTIM channel D instance.
-pub struct ChD<T: Instance> {
-    phantom: PhantomData<T>,
-}
-
-/// HRTIM channel E instance.
-pub struct ChE<T: Instance> {
-    phantom: PhantomData<T>,
-}
-
-/// HRTIM channel F instance.
-#[cfg(hrtim_v2)]
-pub struct ChF<T: Instance> {
-    phantom: PhantomData<T>,
-}
-
-trait SealedAdvancedChannel<T: Instance> {
-    fn raw() -> usize;
-}
-
-/// Advanced channel instance trait.
-#[allow(private_bounds)]
-pub trait AdvancedChannel<T: Instance>: SealedAdvancedChannel<T> {}
-
-/// HRTIM PWM pin.
-pub struct PwmPin<'d, T, C> {
-    _pin: Peri<'d, AnyPin>,
-    phantom: PhantomData<(T, C)>,
-}
-
-/// HRTIM complementary PWM pin.
-pub struct ComplementaryPwmPin<'d, T, C> {
-    _pin: Peri<'d, AnyPin>,
-    phantom: PhantomData<(T, C)>,
-}
-
-macro_rules! advanced_channel_impl {
-    ($new_chx:ident, $new_chx_with_config:ident, $channel:tt, $ch_num:expr, $pin_trait:ident, $complementary_pin_trait:ident) => {
-        impl<'d, T: Instance> PwmPin<'d, T, $channel<T>> {
-            #[doc = concat!("Create a new ", stringify!($channel), " PWM pin instance.")]
-            pub fn $new_chx(pin: Peri<'d, impl $pin_trait<T>>) -> Self {
-                critical_section::with(|_| {
-                    pin.set_low();
-                    set_as_af!(pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-                });
-                PwmPin {
-                    _pin: pin.into(),
-                    phantom: PhantomData,
-                }
-            }
-
-            #[doc = concat!("Create a new ", stringify!($channel), " PWM pin instance with a specific configuration.")]
-            pub fn $new_chx_with_config(
-                pin: Peri<'d, impl $pin_trait<T>>,
-                pin_config: PwmPinConfig,
-            ) -> Self {
-                critical_section::with(|_| {
-                    pin.set_low();
-                    set_as_af!(pin, AfType::output(pin_config.output_type, pin_config.speed));
-                });
-                PwmPin {
-                    _pin: pin.into(),
-                    phantom: PhantomData,
-                }
-            }
-        }
-
-        impl<'d, T: Instance> ComplementaryPwmPin<'d, T, $channel<T>> {
-            #[doc = concat!("Create a new ", stringify!($channel), " complementary PWM pin instance.")]
-            pub fn $new_chx(pin: Peri<'d, impl $complementary_pin_trait<T>>) -> Self {
-                critical_section::with(|_| {
-                    pin.set_low();
-                    set_as_af!(pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-                });
-                ComplementaryPwmPin {
-                    _pin: pin.into(),
-                    phantom: PhantomData,
-                }
-            }
-
-            #[doc = concat!("Create a new ", stringify!($channel), " complementary PWM pin instance with a specific configuration.")]
-            pub fn $new_chx_with_config(
-                pin: Peri<'d, impl $complementary_pin_trait<T>>,
-                pin_config: PwmPinConfig,
-            ) -> Self {
-                critical_section::with(|_| {
-                    pin.set_low();
-                    set_as_af!(pin, AfType::output(pin_config.output_type, pin_config.speed));
-                });
-                ComplementaryPwmPin {
-                    _pin: pin.into(),
-                    phantom: PhantomData,
-                }
-            }
-        }
-
-        impl<T: Instance> SealedAdvancedChannel<T> for $channel<T> {
-            fn raw() -> usize {
-                $ch_num
-            }
-        }
-        impl<T: Instance> AdvancedChannel<T> for $channel<T> {}
-    };
-}
-
-advanced_channel_impl!(
-    new_cha,
-    new_cha_with_config,
-    ChA,
-    0,
-    ChannelAPin,
-    ChannelAComplementaryPin
-);
-advanced_channel_impl!(
-    new_chb,
-    new_chb_with_config,
-    ChB,
-    1,
-    ChannelBPin,
-    ChannelBComplementaryPin
-);
-advanced_channel_impl!(
-    new_chc,
-    new_chc_with_config,
-    ChC,
-    2,
-    ChannelCPin,
-    ChannelCComplementaryPin
-);
-advanced_channel_impl!(
-    new_chd,
-    new_chd_with_config,
-    ChD,
-    3,
-    ChannelDPin,
-    ChannelDComplementaryPin
-);
-advanced_channel_impl!(
-    new_che,
-    new_che_with_config,
-    ChE,
-    4,
-    ChannelEPin,
-    ChannelEComplementaryPin
-);
-#[cfg(hrtim_v2)]
-advanced_channel_impl!(
-    new_chf,
-    new_chf_with_config,
-    ChF,
-    5,
-    ChannelFPin,
-    ChannelFComplementaryPin
-);
-
-/// Struct used to divide a high resolution timer into multiple channels
-pub struct AdvancedPwm<'d, T: Instance> {
-    _inner: Peri<'d, T>,
-    /// Master instance.
-    pub master: Master<T>,
-    /// Burst controller.
-    pub burst_controller: BurstController<T>,
+/// Timer channel.
+#[derive(Clone, Copy)]
+pub enum Channel {
     /// Channel A.
-    pub ch_a: ChA<T>,
+    ChA,
     /// Channel B.
-    pub ch_b: ChB<T>,
+    ChB,
     /// Channel C.
-    pub ch_c: ChC<T>,
+    ChC,
     /// Channel D.
-    pub ch_d: ChD<T>,
+    ChD,
     /// Channel E.
-    pub ch_e: ChE<T>,
-    /// Channel F.
+    ChE,
     #[cfg(hrtim_v2)]
-    pub ch_f: ChF<T>,
+    /// Channel F.
+    ChF,
 }
 
-impl<'d, T: Instance> AdvancedPwm<'d, T> {
-    /// Create a new HRTIM driver.
-    ///
-    /// This splits the HRTIM into its constituent parts, which you can then use individually.
-    pub fn new(
-        tim: Peri<'d, T>,
-        _cha: Option<PwmPin<'d, T, ChA<T>>>,
-        _chan: Option<ComplementaryPwmPin<'d, T, ChA<T>>>,
-        _chb: Option<PwmPin<'d, T, ChB<T>>>,
-        _chbn: Option<ComplementaryPwmPin<'d, T, ChB<T>>>,
-        _chc: Option<PwmPin<'d, T, ChC<T>>>,
-        _chcn: Option<ComplementaryPwmPin<'d, T, ChC<T>>>,
-        _chd: Option<PwmPin<'d, T, ChD<T>>>,
-        _chdn: Option<ComplementaryPwmPin<'d, T, ChD<T>>>,
-        _che: Option<PwmPin<'d, T, ChE<T>>>,
-        _chen: Option<ComplementaryPwmPin<'d, T, ChE<T>>>,
-        #[cfg(hrtim_v2)] _chf: Option<PwmPin<'d, T, ChF<T>>>,
-        #[cfg(hrtim_v2)] _chfn: Option<ComplementaryPwmPin<'d, T, ChF<T>>>,
+/// Burst Controller marker type.
+pub enum BurstController {}
+
+/// Master marker type.
+pub enum Master {}
+
+/// Channel A marker type.
+pub enum ChA {}
+/// Channel B marker type.
+pub enum ChB {}
+/// Channel C marker type.
+pub enum ChC {}
+/// Channel D marker type.
+pub enum ChD {}
+
+/// Channel E marker type.
+pub enum ChE {}
+
+#[cfg(hrtim_v2)]
+/// Channel F marker type.
+pub enum ChF {}
+
+/// Timer channel trait.
+#[allow(private_bounds)]
+pub trait HRTimerChannel: SealedTimerChannel {
+    /// The runtime channel.
+    const CHANNEL: Channel;
+}
+
+trait SealedTimerChannel {}
+
+impl HRTimerChannel for ChA {
+    const CHANNEL: Channel = Channel::ChA;
+}
+
+impl HRTimerChannel for ChB {
+    const CHANNEL: Channel = Channel::ChB;
+}
+
+impl HRTimerChannel for ChC {
+    const CHANNEL: Channel = Channel::ChC;
+}
+
+impl HRTimerChannel for ChD {
+    const CHANNEL: Channel = Channel::ChD;
+}
+
+impl HRTimerChannel for ChE {
+    const CHANNEL: Channel = Channel::ChE;
+}
+
+#[cfg(hrtim_v2)]
+impl HRTimerChannel for ChF {
+    const CHANNEL: Channel = Channel::ChF;
+}
+
+impl SealedTimerChannel for ChA {}
+impl SealedTimerChannel for ChB {}
+impl SealedTimerChannel for ChC {}
+impl SealedTimerChannel for ChD {}
+impl SealedTimerChannel for ChE {}
+#[cfg(hrtim_v2)]
+impl SealedTimerChannel for ChF {}
+
+/// PWM pin wrapper.
+///
+/// This wraps a pin to make it usable with PWM.
+pub struct HRPin<'d, T, C, #[cfg(afio)] A> {
+    #[allow(unused)]
+    pub(crate) pin: Flex<'d>,
+    phantom: PhantomData<if_afio!((T, C, A))>,
+}
+
+impl<'d, T: Instance, C: HRTimerChannel, #[cfg(afio)] A> if_afio!(HRPin<'d, T, C, A>) {
+    /// Create a new PWM pin instance.
+    pub fn new(pin: Peri<'d, if_afio!(impl HRTimerPin<T, C, A>)>, output_type: OutputType) -> Self {
+        critical_section::with(|_| {
+            pin.set_low();
+            set_as_af!(pin, AfType::output(output_type, Speed::VeryHigh));
+        });
+        Self {
+            pin: Flex::new(pin),
+            phantom: PhantomData,
+        }
+    }
+
+    /// Create a new PWM pin instance with a specific configuration.
+    pub fn new_with_config(pin: Peri<'d, if_afio!(impl HRTimerPin<T, C, A>)>, pin_config: PwmPinConfig) -> Self {
+        critical_section::with(|_| {
+            pin.set_low();
+            #[cfg(gpio_v1)]
+            set_as_af!(pin, AfType::output(pin_config.output_type, pin_config.speed));
+            #[cfg(gpio_v2)]
+            set_as_af!(
+                pin,
+                AfType::output_pull(pin_config.output_type, pin_config.speed, pin_config.pull)
+            );
+        });
+
+        Self {
+            pin: Flex::new(pin),
+            phantom: PhantomData,
+        }
+    }
+}
+
+/// PWM pin wrapper.
+///
+/// This wraps a pin to make it usable with PWM.
+pub struct ComplementaryHRPin<'d, T, C, #[cfg(afio)] A> {
+    #[allow(unused)]
+    pub(crate) pin: Flex<'d>,
+    phantom: PhantomData<if_afio!((T, C, A))>,
+}
+
+impl<'d, T: Instance, C: HRTimerChannel, #[cfg(afio)] A> if_afio!(ComplementaryHRPin<'d, T, C, A>) {
+    /// Create a new PWM pin instance.
+    pub fn new(pin: Peri<'d, if_afio!(impl HRTimerComplementaryPin<T, C, A>)>, output_type: OutputType) -> Self {
+        critical_section::with(|_| {
+            pin.set_low();
+            set_as_af!(pin, AfType::output(output_type, Speed::VeryHigh));
+        });
+        Self {
+            pin: Flex::new(pin),
+            phantom: PhantomData,
+        }
+    }
+
+    /// Create a new PWM pin instance with a specific configuration.
+    pub fn new_with_config(
+        pin: Peri<'d, if_afio!(impl HRTimerComplementaryPin<T, C, A>)>,
+        pin_config: PwmPinConfig,
     ) -> Self {
-        Self::new_inner(tim)
-    }
-
-    fn new_inner(tim: Peri<'d, T>) -> Self {
-        rcc::enable_and_reset::<T>();
-
-        #[cfg(stm32f334)]
-        if crate::pac::RCC.cfgr3().read().hrtim1sw() == crate::pac::rcc::vals::Timsw::PLL1_P {
-            // Enable and and stabilize the DLL
-            T::regs().dllcr().modify(|w| {
-                w.set_cal(true);
-            });
-
-            trace!("hrtim: wait for dll calibration");
-            while !T::regs().isr().read().dllrdy() {}
-
-            trace!("hrtim: dll calibration complete");
-
-            // Enable periodic calibration
-            // Cal must be disabled before we can enable it
-            T::regs().dllcr().modify(|w| {
-                w.set_cal(false);
-            });
-
-            T::regs().dllcr().modify(|w| {
-                w.set_calen(true);
-                w.set_calrte(11);
-            });
-        }
+        critical_section::with(|_| {
+            pin.set_low();
+            #[cfg(gpio_v1)]
+            set_as_af!(pin, AfType::output(pin_config.output_type, pin_config.speed));
+            #[cfg(gpio_v2)]
+            set_as_af!(
+                pin,
+                AfType::output_pull(pin_config.output_type, pin_config.speed, pin_config.pull)
+            );
+        });
 
         Self {
-            _inner: tim,
-            master: Master { phantom: PhantomData },
-            burst_controller: BurstController { phantom: PhantomData },
-            ch_a: ChA { phantom: PhantomData },
-            ch_b: ChB { phantom: PhantomData },
-            ch_c: ChC { phantom: PhantomData },
-            ch_d: ChD { phantom: PhantomData },
-            ch_e: ChE { phantom: PhantomData },
-            #[cfg(hrtim_v2)]
-            ch_f: ChF { phantom: PhantomData },
+            pin: Flex::new(pin),
+            phantom: PhantomData,
         }
     }
 }
 
-/// Fixed-frequency bridge converter driver.
-///
-/// Our implementation of the bridge converter uses a single channel and three compare registers,
-/// allowing implementation of a synchronous buck or boost converter in continuous or discontinuous
-/// conduction mode.
-///
-/// It is important to remember that in synchronous topologies, energy can flow in reverse during
-/// light loading conditions, and that the low-side switch must be active for a short time to drive
-/// a bootstrapped high-side switch.
-pub struct BridgeConverter<T: Instance, C: AdvancedChannel<T>> {
-    timer: PhantomData<T>,
-    channel: PhantomData<C>,
-    dead_time: u16,
-    primary_duty: u16,
-    min_secondary_duty: u16,
-    max_secondary_duty: u16,
+/// Wrapper a pin that can be used as output to one of the HRTIM timer instances
+pub struct Pin<P> {
+    /// The speed setting of the pin
+    pub speed: Speed,
+
+    /// The pin
+    pub pin: P,
 }
 
-impl<T: Instance, C: AdvancedChannel<T>> BridgeConverter<T, C> {
-    /// Create a new HRTIM bridge converter driver.
-    pub fn new(_channel: C, frequency: Hertz) -> Self {
-        T::set_channel_frequency(C::raw(), frequency);
+pin_trait!(HRTimerPin, Instance, HRTimerChannel, @A);
+pin_trait!(HRTimerComplementaryPin, Instance, HRTimerChannel, @A);
 
-        // Always enable preload
-        T::regs().tim(C::raw()).cr().modify(|w| {
-            w.set_preen(true);
-            w.set_repu(true);
-            w.set_cont(true);
-        });
+/// Prescaler
+#[repr(u8)]
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Prescaler {
+    /// Prescaler ratio 1
+    Div1 = 1,
+    /// Prescaler ratio 2
+    Div2 = 2,
+    /// Prescaler ratio 4
+    Div4 = 4,
+    /// Prescaler ratio 8
+    Div8 = 8,
+    /// Prescaler ratio 16
+    Div16 = 16,
+    /// Prescaler ratio 32
+    Div32 = 32,
+    /// Prescaler ratio 64
+    Div64 = 64,
+    /// Prescaler ratio 128
+    Div128 = 128,
+}
 
-        // Enable timer outputs
-        T::regs().oenr().modify(|w| {
-            w.set_t1oen(C::raw(), true);
-            w.set_t2oen(C::raw(), true);
-        });
-
-        // The dead-time generation unit cannot be used because it forces the other output
-        // to be completely complementary to the first output, which restricts certain waveforms
-        // Therefore, software-implemented dead time must be used when setting the duty cycles
-
-        // Set output 1 to active on a period event
-        T::regs().tim(C::raw()).setr(0).modify(|w| w.set_per(true));
-
-        // Set output 1 to inactive on a compare 1 event
-        T::regs().tim(C::raw()).rstr(0).modify(|w| w.set_cmp(0, true));
-
-        // Set output 2 to active on a compare 2 event
-        T::regs().tim(C::raw()).setr(1).modify(|w| w.set_cmp(1, true));
-
-        // Set output 2 to inactive on a compare 3 event
-        T::regs().tim(C::raw()).rstr(1).modify(|w| w.set_cmp(2, true));
-
-        Self {
-            timer: PhantomData,
-            channel: PhantomData,
-            dead_time: 0,
-            primary_duty: 0,
-            min_secondary_duty: 0,
-            max_secondary_duty: 0,
+impl From<Prescaler> for u8 {
+    fn from(val: Prescaler) -> Self {
+        match val {
+            Prescaler::Div1 => 0b000,
+            Prescaler::Div2 => 0b001,
+            Prescaler::Div4 => 0b010,
+            Prescaler::Div8 => 0b011,
+            Prescaler::Div16 => 0b100,
+            Prescaler::Div32 => 0b101,
+            Prescaler::Div64 => 0b110,
+            Prescaler::Div128 => 0b111,
         }
     }
+}
 
-    /// Start HRTIM.
-    pub fn start(&mut self) {
-        T::regs().mcr().modify(|w| w.set_tcen(C::raw(), true));
+impl From<u8> for Prescaler {
+    fn from(val: u8) -> Self {
+        match val {
+            0b000 => Prescaler::Div1,
+            0b001 => Prescaler::Div2,
+            0b010 => Prescaler::Div4,
+            0b011 => Prescaler::Div8,
+            0b100 => Prescaler::Div16,
+            0b101 => Prescaler::Div32,
+            0b110 => Prescaler::Div64,
+            0b111 => Prescaler::Div128,
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl Prescaler {
+    /// Computer the minium prescaler for high resolution
+    pub fn compute_min_high_res(val: u32) -> Self {
+        *[
+            Prescaler::Div1,
+            Prescaler::Div2,
+            Prescaler::Div4,
+            Prescaler::Div8,
+            Prescaler::Div16,
+            Prescaler::Div32,
+            Prescaler::Div64,
+            Prescaler::Div128,
+        ]
+        .iter()
+        .skip_while(|psc| **psc as u32 <= val)
+        .next()
+        .unwrap()
     }
 
-    /// Stop HRTIM.
-    pub fn stop(&mut self) {
-        T::regs().mcr().modify(|w| w.set_tcen(C::raw(), false));
+    /// Compute the minium prescaler for low resolution
+    pub fn compute_min_low_res(val: u32) -> Self {
+        *[Prescaler::Div32, Prescaler::Div64, Prescaler::Div128]
+            .iter()
+            .skip_while(|psc| **psc as u32 <= val)
+            .next()
+            .unwrap()
     }
+}
 
-    /// Enable burst mode.
-    pub fn enable_burst_mode(&mut self) {
-        T::regs().tim(C::raw()).outr().modify(|w| {
-            // Enable Burst Mode
-            w.set_idlem(0, true);
-            w.set_idlem(1, true);
+pub(crate) trait SealedInstance: RccPeripheral {
+    fn regs() -> crate::pac::hrtim::Hrtim;
 
-            // Set output to active during the burst
-            w.set_idles(0, true);
-            w.set_idles(1, true);
-        })
-    }
+    #[allow(unused)]
+    fn set_master_frequency(frequency: Hertz) {
+        let f = frequency.0;
 
-    /// Disable burst mode.
-    pub fn disable_burst_mode(&mut self) {
-        T::regs().tim(C::raw()).outr().modify(|w| {
-            // Disable Burst Mode
-            w.set_idlem(0, false);
-            w.set_idlem(1, false);
-        })
-    }
+        // TODO: wire up HRTIM to the RCC mux infra.
+        //#[cfg(stm32f334)]
+        //let timer_f = unsafe { crate::rcc::get_freqs() }.hrtim.unwrap_or(Self::frequency()).0;
+        //#[cfg(not(stm32f334))]
+        let timer_f = Self::frequency().0;
 
-    fn update_primary_duty_or_dead_time(&mut self) {
-        self.min_secondary_duty = self.primary_duty + self.dead_time;
-
-        T::regs().tim(C::raw()).cmp(0).modify(|w| w.set_cmp(self.primary_duty));
-        T::regs()
-            .tim(C::raw())
-            .cmp(1)
-            .modify(|w| w.set_cmp(self.min_secondary_duty));
-    }
-
-    /// Set the dead time as a proportion of the maximum compare value
-    pub fn set_dead_time(&mut self, dead_time: u16) {
-        self.dead_time = dead_time;
-        self.max_secondary_duty = self.get_max_compare_value() - dead_time;
-        self.update_primary_duty_or_dead_time();
-    }
-
-    /// Get the maximum compare value of a duty cycle
-    pub fn get_max_compare_value(&mut self) -> u16 {
-        T::regs().tim(C::raw()).per().read().per()
-    }
-
-    /// The primary duty is the period in which the primary switch is active
-    ///
-    /// In the case of a buck converter, this is the high-side switch
-    /// In the case of a boost converter, this is the low-side switch
-    pub fn set_primary_duty(&mut self, primary_duty: u16) {
-        self.primary_duty = primary_duty;
-        self.update_primary_duty_or_dead_time();
-    }
-
-    /// The secondary duty is the period in any switch is active
-    ///
-    /// If less than or equal to the primary duty, the secondary switch will be active for one tick
-    /// If a fully complementary output is desired, the secondary duty can be set to the max compare
-    pub fn set_secondary_duty(&mut self, secondary_duty: u16) {
-        let secondary_duty = if secondary_duty > self.max_secondary_duty {
-            self.max_secondary_duty
-        } else if secondary_duty <= self.min_secondary_duty {
-            self.min_secondary_duty + 1
+        let psc_min = (timer_f / f) / (u16::MAX as u32 / 32);
+        let psc = if Self::regs().isr().read().dllrdy() {
+            Prescaler::compute_min_high_res(psc_min)
         } else {
-            secondary_duty
+            Prescaler::compute_min_low_res(psc_min)
         };
 
-        T::regs().tim(C::raw()).cmp(2).modify(|w| w.set_cmp(secondary_duty));
+        let timer_f = 32 * (timer_f / psc as u32);
+        let per: u16 = (timer_f / f) as u16;
+
+        let regs = Self::regs();
+
+        regs.mcr().modify(|w| w.set_ckpsc(psc.into()));
+        regs.mper().modify(|w| w.set_mper(per));
     }
 }
 
-/// Variable-frequency resonant converter driver.
-///
-/// This implementation of a resonsant converter is appropriate for a half or full bridge,
-/// but does not include secondary rectification, which is appropriate for applications
-/// with a low-voltage on the secondary side.
-pub struct ResonantConverter<T: Instance, C: AdvancedChannel<T>> {
-    timer: PhantomData<T>,
-    channel: PhantomData<C>,
-    min_period: u16,
-    max_period: u16,
-}
+/// HRTIM instance trait.
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + PeripheralType + 'static {}
 
-impl<T: Instance, C: AdvancedChannel<T>> ResonantConverter<T, C> {
-    /// Create a new variable-frequency resonant converter driver.
-    pub fn new(_channel: C, min_frequency: Hertz, max_frequency: Hertz) -> Self {
-        T::set_channel_frequency(C::raw(), min_frequency);
-
-        // Always enable preload
-        T::regs().tim(C::raw()).cr().modify(|w| {
-            w.set_preen(true);
-            w.set_repu(true);
-
-            w.set_cont(true);
-            w.set_half(true);
-        });
-
-        // Enable timer outputs
-        T::regs().oenr().modify(|w| {
-            w.set_t1oen(C::raw(), true);
-            w.set_t2oen(C::raw(), true);
-        });
-
-        // Dead-time generator can be used in this case because the primary fets
-        // of a resonant converter are always complementary
-        T::regs().tim(C::raw()).outr().modify(|w| w.set_dten(true));
-
-        let max_period = T::regs().tim(C::raw()).per().read().per();
-        let min_period = max_period * (min_frequency.0 / max_frequency.0) as u16;
-
-        Self {
-            timer: PhantomData,
-            channel: PhantomData,
-            min_period: min_period,
-            max_period: max_period,
+foreach_interrupt! {
+    ($inst:ident, hrtim, HRTIM, MASTER, $irq:ident) => {
+        impl SealedInstance for crate::peripherals::$inst {
+            fn regs() -> crate::pac::hrtim::Hrtim {
+                crate::pac::$inst
+            }
         }
-    }
 
-    /// Set the dead time as a proportion of the maximum compare value
-    pub fn set_dead_time(&mut self, value: u16) {
-        T::set_channel_dead_time(C::raw(), value);
-    }
+        impl Instance for crate::peripherals::$inst {
 
-    /// Set the timer period.
-    pub fn set_period(&mut self, period: u16) {
-        assert!(period < self.max_period);
-        assert!(period > self.min_period);
-
-        T::regs().tim(C::raw()).per().modify(|w| w.set_per(period));
-    }
-
-    /// Get the minimum compare value of a duty cycle
-    pub fn get_min_period(&mut self) -> u16 {
-        self.min_period
-    }
-
-    /// Get the maximum compare value of a duty cycle
-    pub fn get_max_period(&mut self) -> u16 {
-        self.max_period
-    }
+        }
+    };
 }
-
-pin_trait!(ChannelAPin, Instance);
-pin_trait!(ChannelAComplementaryPin, Instance);
-pin_trait!(ChannelBPin, Instance);
-pin_trait!(ChannelBComplementaryPin, Instance);
-pin_trait!(ChannelCPin, Instance);
-pin_trait!(ChannelCComplementaryPin, Instance);
-pin_trait!(ChannelDPin, Instance);
-pin_trait!(ChannelDComplementaryPin, Instance);
-pin_trait!(ChannelEPin, Instance);
-pin_trait!(ChannelEComplementaryPin, Instance);
-#[cfg(hrtim_v2)]
-pin_trait!(ChannelFPin, Instance);
-#[cfg(hrtim_v2)]
-pin_trait!(ChannelFComplementaryPin, Instance);

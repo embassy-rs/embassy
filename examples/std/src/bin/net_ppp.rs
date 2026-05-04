@@ -52,7 +52,7 @@ async fn ppp_task(stack: Stack<'static>, mut runner: Runner<'static>, port: Seri
         password: b"mypass",
     };
 
-    runner
+    let r = runner
         .run(port, config, |ipv4| {
             let Some(addr) = ipv4.address else {
                 warn!("PPP did not provide an IP address.");
@@ -69,9 +69,10 @@ async fn ppp_task(stack: Stack<'static>, mut runner: Runner<'static>, port: Seri
             });
             stack.set_config_v4(config);
         })
-        .await
-        .unwrap();
-    unreachable!()
+        .await;
+    match r {
+        Err(e) => panic!("{:?}", e),
+    }
 }
 
 #[embassy_executor::task]

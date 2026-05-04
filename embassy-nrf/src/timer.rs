@@ -122,16 +122,16 @@ impl<'d> Timer<'d> {
         regs.mode().write(|w| {
             w.set_mode(match is_counter {
                 #[cfg(not(feature = "_nrf51"))]
-                true => vals::Mode::LOW_POWER_COUNTER,
+                true => vals::Mode::LowPowerCounter,
                 #[cfg(feature = "_nrf51")]
-                true => vals::Mode::COUNTER,
-                false => vals::Mode::TIMER,
+                true => vals::Mode::Counter,
+                false => vals::Mode::Timer,
             })
         });
 
         // Make the counter's max value as high as possible.
         // TODO: is there a reason someone would want to set this lower?
-        regs.bitmode().write(|w| w.set_bitmode(vals::Bitmode::_32BIT));
+        regs.bitmode().write(|w| w.set_bitmode(vals::Bitmode::_32bit));
 
         // Initialize the counter at 0.
         this.clear();

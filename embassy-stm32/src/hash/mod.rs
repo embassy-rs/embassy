@@ -401,16 +401,18 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
 #[cfg(hash_v2)]
 impl<'d, T: Instance> Hash<'d, T, Async> {
     /// Instantiates, resets, and enables the HASH peripheral.
-    pub fn new(
+    pub fn new<D: Dma<T>>(
         peripheral: Peri<'d, T>,
-        dma: Peri<'d, impl Dma<T>>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        dma: Peri<'d, D>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
     ) -> Self {
         rcc::enable_and_reset::<HASH>();
         let instance = Self {
             _peripheral: peripheral,
             _phantom: PhantomData,
-            dma: new_dma!(dma),
+            dma: new_dma!(dma, _irq),
         };
 
         T::Interrupt::unpend();

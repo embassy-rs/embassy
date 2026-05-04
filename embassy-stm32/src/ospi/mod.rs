@@ -13,7 +13,7 @@ pub use enums::*;
 use stm32_metapac::octospi::vals::{PhaseMode, SizeInBits};
 
 use crate::dma::{ChannelAndRequest, word};
-use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
+use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::octospi::{Octospi as Regs, vals};
 #[cfg(octospim_v1)]
@@ -175,17 +175,17 @@ pub enum OspiError {
 /// OSPI driver.
 pub struct Ospi<'d, T: Instance, M: PeriMode> {
     _peri: Peri<'d, T>,
-    sck: Option<Peri<'d, AnyPin>>,
-    d0: Option<Peri<'d, AnyPin>>,
-    d1: Option<Peri<'d, AnyPin>>,
-    d2: Option<Peri<'d, AnyPin>>,
-    d3: Option<Peri<'d, AnyPin>>,
-    d4: Option<Peri<'d, AnyPin>>,
-    d5: Option<Peri<'d, AnyPin>>,
-    d6: Option<Peri<'d, AnyPin>>,
-    d7: Option<Peri<'d, AnyPin>>,
-    nss: Option<Peri<'d, AnyPin>>,
-    dqs: Option<Peri<'d, AnyPin>>,
+    _sck: Option<Flex<'d>>,
+    _d0: Option<Flex<'d>>,
+    _d1: Option<Flex<'d>>,
+    _d2: Option<Flex<'d>>,
+    _d3: Option<Flex<'d>>,
+    _d4: Option<Flex<'d>>,
+    _d5: Option<Flex<'d>>,
+    _d6: Option<Flex<'d>>,
+    _d7: Option<Flex<'d>>,
+    _nss: Option<Flex<'d>>,
+    _dqs: Option<Flex<'d>>,
     dma: Option<ChannelAndRequest<'d>>,
     _phantom: PhantomData<M>,
     config: Config,
@@ -233,7 +233,7 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
 
         // Enable memory mapped mode
         reg.cr().modify(|r| {
-            r.set_fmode(crate::ospi::vals::FunctionalMode::MEMORY_MAPPED);
+            r.set_fmode(crate::ospi::vals::FunctionalMode::MemoryMapped);
             r.set_tcen(false);
         });
         Ok(())
@@ -244,7 +244,7 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
         let reg = T::REGS;
 
         reg.cr().modify(|r| {
-            r.set_fmode(crate::ospi::vals::FunctionalMode::INDIRECT_WRITE);
+            r.set_fmode(crate::ospi::vals::FunctionalMode::IndirectWrite);
             r.set_abort(true);
             r.set_dmaen(false);
             r.set_en(false);
@@ -261,17 +261,17 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
 
     fn new_inner(
         peri: Peri<'d, T>,
-        d0: Option<Peri<'d, AnyPin>>,
-        d1: Option<Peri<'d, AnyPin>>,
-        d2: Option<Peri<'d, AnyPin>>,
-        d3: Option<Peri<'d, AnyPin>>,
-        d4: Option<Peri<'d, AnyPin>>,
-        d5: Option<Peri<'d, AnyPin>>,
-        d6: Option<Peri<'d, AnyPin>>,
-        d7: Option<Peri<'d, AnyPin>>,
-        sck: Option<Peri<'d, AnyPin>>,
-        nss: Option<Peri<'d, AnyPin>>,
-        dqs: Option<Peri<'d, AnyPin>>,
+        d0: Option<Flex<'d>>,
+        d1: Option<Flex<'d>>,
+        d2: Option<Flex<'d>>,
+        d3: Option<Flex<'d>>,
+        d4: Option<Flex<'d>>,
+        d5: Option<Flex<'d>>,
+        d6: Option<Flex<'d>>,
+        d7: Option<Flex<'d>>,
+        sck: Option<Flex<'d>>,
+        nss: Option<Flex<'d>>,
+        dqs: Option<Flex<'d>>,
         dma: Option<ChannelAndRequest<'d>>,
         config: Config,
         width: OspiWidth,
@@ -401,8 +401,8 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
 
         T::REGS.tcr().modify(|w| {
             w.set_sshift(match config.sample_shifting {
-                true => vals::SampleShift::HALF_CYCLE,
-                false => vals::SampleShift::NONE,
+                true => vals::SampleShift::HalfCycle,
+                false => vals::SampleShift::None,
             });
             w.set_dhqc(config.delay_hold_quarter_cycle);
         });
@@ -421,17 +421,17 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
 
         Self {
             _peri: peri,
-            sck,
-            d0,
-            d1,
-            d2,
-            d3,
-            d4,
-            d5,
-            d6,
-            d7,
-            nss,
-            dqs,
+            _sck: sck,
+            _d0: d0,
+            _d1: d1,
+            _d2: d2,
+            _d3: d3,
+            _d4: d4,
+            _d5: d5,
+            _d6: d6,
+            _d7: d7,
+            _nss: nss,
+            _dqs: dqs,
             dma,
             _phantom: PhantomData,
             config,
@@ -451,7 +451,7 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
         }
 
         T::REGS.cr().modify(|w| {
-            w.set_fmode(0.into());
+            w.set_fmode(vals::FunctionalMode::IndirectWrite);
         });
 
         // Configure alternate bytes
@@ -577,16 +577,15 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
             w.set_dmaen(false);
         });
 
-        self.configure_command(&transaction, Some(buf.len()))?;
+        let transfer_size_bytes = buf.len() * W::size().bytes();
+        self.configure_command(&transaction, Some(transfer_size_bytes))?;
 
         let current_address = T::REGS.ar().read().address();
         let current_instruction = T::REGS.ir().read().instruction();
 
         // For a indirect read transaction, the transaction begins when the instruction/address is set
-        T::REGS
-            .cr()
-            .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECT_READ));
-        if T::REGS.ccr().read().admode() == vals::PhaseMode::NONE {
+        T::REGS.cr().modify(|v| v.set_fmode(vals::FunctionalMode::IndirectRead));
+        if T::REGS.ccr().read().admode() == vals::PhaseMode::None {
             T::REGS.ir().write(|v| v.set_instruction(current_instruction));
         } else {
             T::REGS.ar().write(|v| v.set_address(current_address));
@@ -616,11 +615,12 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
             w.set_dmaen(false);
         });
 
-        self.configure_command(&transaction, Some(buf.len()))?;
+        let transfer_size_bytes = buf.len() * W::size().bytes();
+        self.configure_command(&transaction, Some(transfer_size_bytes))?;
 
         T::REGS
             .cr()
-            .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECT_WRITE));
+            .modify(|v| v.set_fmode(vals::FunctionalMode::IndirectWrite));
 
         for idx in 0..buf.len() {
             while !T::REGS.sr().read().ftf() {}
@@ -682,8 +682,8 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
 
         T::REGS.tcr().modify(|w| {
             w.set_sshift(match config.sample_shifting {
-                true => vals::SampleShift::HALF_CYCLE,
-                false => vals::SampleShift::NONE,
+                true => vals::SampleShift::HalfCycle,
+                false => vals::SampleShift::None,
             });
             w.set_dhqc(config.delay_hold_quarter_cycle);
         });
@@ -926,13 +926,14 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
 
 impl<'d, T: Instance> Ospi<'d, T, Async> {
     /// Create new blocking OSPI driver for a single spi external chip
-    pub fn new_singlespi(
+    pub fn new_singlespi<D: OctoDma<T>>(
         peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
         nss: Peri<'d, impl NSSPin<T>>,
-        dma: Peri<'d, impl OctoDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -951,7 +952,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            new_dma!(dma),
+            new_dma!(dma, _irq),
             config,
             OspiWidth::SING,
             false,
@@ -959,13 +960,14 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
     }
 
     /// Create new blocking OSPI driver for a dualspi external chip
-    pub fn new_dualspi(
+    pub fn new_dualspi<D: OctoDma<T>>(
         peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
         nss: Peri<'d, impl NSSPin<T>>,
-        dma: Peri<'d, impl OctoDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -984,7 +986,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            new_dma!(dma),
+            new_dma!(dma, _irq),
             config,
             OspiWidth::DUAL,
             false,
@@ -992,7 +994,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
     }
 
     /// Create new blocking OSPI driver for a quadspi external chip
-    pub fn new_quadspi(
+    pub fn new_quadspi<D: OctoDma<T>>(
         peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
@@ -1000,7 +1002,8 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         d2: Peri<'d, impl D2Pin<T>>,
         d3: Peri<'d, impl D3Pin<T>>,
         nss: Peri<'d, impl NSSPin<T>>,
-        dma: Peri<'d, impl OctoDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -1019,7 +1022,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            new_dma!(dma),
+            new_dma!(dma, _irq),
             config,
             OspiWidth::QUAD,
             false,
@@ -1027,7 +1030,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
     }
 
     /// Create new blocking OSPI driver for two quadspi external chips
-    pub fn new_dualquadspi(
+    pub fn new_dualquadspi<D: OctoDma<T>>(
         peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
@@ -1039,7 +1042,8 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         d6: Peri<'d, impl D6Pin<T>>,
         d7: Peri<'d, impl D7Pin<T>>,
         nss: Peri<'d, impl NSSPin<T>>,
-        dma: Peri<'d, impl OctoDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -1058,7 +1062,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            new_dma!(dma),
+            new_dma!(dma, _irq),
             config,
             OspiWidth::QUAD,
             true,
@@ -1066,7 +1070,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
     }
 
     /// Create new blocking OSPI driver for octospi external chips
-    pub fn new_octospi(
+    pub fn new_octospi<D: OctoDma<T>>(
         peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
@@ -1078,7 +1082,8 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         d6: Peri<'d, impl D6Pin<T>>,
         d7: Peri<'d, impl D7Pin<T>>,
         nss: Peri<'d, impl NSSPin<T>>,
-        dma: Peri<'d, impl OctoDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -1097,7 +1102,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            new_dma!(dma),
+            new_dma!(dma, _irq),
             config,
             OspiWidth::OCTO,
             false,
@@ -1105,7 +1110,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
     }
 
     /// Create new blocking OSPI driver for octospi external chips with DQS support
-    pub fn new_octospi_with_dqs(
+    pub fn new_octospi_with_dqs<D: OctoDma<T>>(
         peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
@@ -1118,7 +1123,8 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         d7: Peri<'d, impl D7Pin<T>>,
         nss: Peri<'d, impl NSSPin<T>>,
         dqs: Peri<'d, impl DQSPin<T>>,
-        dma: Peri<'d, impl OctoDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -1137,7 +1143,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             new_pin!(dqs, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
-            new_dma!(dma),
+            new_dma!(dma, _irq),
             config,
             OspiWidth::OCTO,
             false,
@@ -1153,31 +1159,32 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         // Wait for peripheral to be free
         while T::REGS.sr().read().busy() {}
 
-        self.configure_command(&transaction, Some(buf.len()))?;
+        let transfer_size_bytes = buf.len() * W::size().bytes();
+        self.configure_command(&transaction, Some(transfer_size_bytes))?;
 
         let current_address = T::REGS.ar().read().address();
         let current_instruction = T::REGS.ir().read().instruction();
 
         // For a indirect read transaction, the transaction begins when the instruction/address is set
-        T::REGS
-            .cr()
-            .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECT_READ));
-        if T::REGS.ccr().read().admode() == vals::PhaseMode::NONE {
+        T::REGS.cr().modify(|v| v.set_fmode(vals::FunctionalMode::IndirectRead));
+        if T::REGS.ccr().read().admode() == vals::PhaseMode::None {
             T::REGS.ir().write(|v| v.set_instruction(current_instruction));
         } else {
             T::REGS.ar().write(|v| v.set_address(current_address));
         }
 
-        let transfer = unsafe {
-            self.dma
-                .as_mut()
-                .unwrap()
-                .read(T::REGS.dr().as_ptr() as *mut W, buf, Default::default())
-        };
+        for chunk in buf.chunks_mut(0xFFFF / W::size().bytes()) {
+            let transfer = unsafe {
+                self.dma
+                    .as_mut()
+                    .unwrap()
+                    .read(T::REGS.dr().as_ptr() as *mut W, chunk, Default::default())
+            };
 
-        T::REGS.cr().modify(|w| w.set_dmaen(true));
+            T::REGS.cr().modify(|w| w.set_dmaen(true));
 
-        transfer.blocking_wait();
+            transfer.blocking_wait();
+        }
 
         finish_dma(T::REGS);
 
@@ -1193,13 +1200,14 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         // Wait for peripheral to be free
         while T::REGS.sr().read().busy() {}
 
-        self.configure_command(&transaction, Some(buf.len()))?;
+        let transfer_size_bytes = buf.len() * W::size().bytes();
+        self.configure_command(&transaction, Some(transfer_size_bytes))?;
         T::REGS
             .cr()
-            .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECT_WRITE));
+            .modify(|v| v.set_fmode(vals::FunctionalMode::IndirectWrite));
 
         // TODO: implement this using a LinkedList DMA to offload the whole transfer off the CPU.
-        for chunk in buf.chunks(0xFFFF) {
+        for chunk in buf.chunks(0xFFFF / W::size().bytes()) {
             let transfer = unsafe {
                 self.dma
                     .as_mut()
@@ -1226,31 +1234,32 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         // Wait for peripheral to be free
         while T::REGS.sr().read().busy() {}
 
-        self.configure_command(&transaction, Some(buf.len()))?;
+        let transfer_size_bytes = buf.len() * W::size().bytes();
+        self.configure_command(&transaction, Some(transfer_size_bytes))?;
 
         let current_address = T::REGS.ar().read().address();
         let current_instruction = T::REGS.ir().read().instruction();
 
         // For a indirect read transaction, the transaction begins when the instruction/address is set
-        T::REGS
-            .cr()
-            .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECT_READ));
-        if T::REGS.ccr().read().admode() == vals::PhaseMode::NONE {
+        T::REGS.cr().modify(|v| v.set_fmode(vals::FunctionalMode::IndirectRead));
+        if T::REGS.ccr().read().admode() == vals::PhaseMode::None {
             T::REGS.ir().write(|v| v.set_instruction(current_instruction));
         } else {
             T::REGS.ar().write(|v| v.set_address(current_address));
         }
 
-        let transfer = unsafe {
-            self.dma
-                .as_mut()
-                .unwrap()
-                .read(T::REGS.dr().as_ptr() as *mut W, buf, Default::default())
-        };
+        for chunk in buf.chunks_mut(0xFFFF / W::size().bytes()) {
+            let transfer = unsafe {
+                self.dma
+                    .as_mut()
+                    .unwrap()
+                    .read(T::REGS.dr().as_ptr() as *mut W, chunk, Default::default())
+            };
 
-        T::REGS.cr().modify(|w| w.set_dmaen(true));
+            T::REGS.cr().modify(|w| w.set_dmaen(true));
 
-        transfer.await;
+            transfer.await;
+        }
 
         finish_dma(T::REGS);
 
@@ -1266,13 +1275,14 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         // Wait for peripheral to be free
         while T::REGS.sr().read().busy() {}
 
-        self.configure_command(&transaction, Some(buf.len()))?;
+        let transfer_size_bytes = buf.len() * W::size().bytes();
+        self.configure_command(&transaction, Some(transfer_size_bytes))?;
         T::REGS
             .cr()
-            .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECT_WRITE));
+            .modify(|v| v.set_fmode(vals::FunctionalMode::IndirectWrite));
 
         // TODO: implement this using a LinkedList DMA to offload the whole transfer off the CPU.
-        for chunk in buf.chunks(0xFFFF) {
+        for chunk in buf.chunks(0xFFFF / W::size().bytes()) {
             let transfer = unsafe {
                 self.dma
                     .as_mut()
@@ -1293,18 +1303,6 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
 
 impl<'d, T: Instance, M: PeriMode> Drop for Ospi<'d, T, M> {
     fn drop(&mut self) {
-        self.sck.as_ref().map(|x| x.set_as_disconnected());
-        self.d0.as_ref().map(|x| x.set_as_disconnected());
-        self.d1.as_ref().map(|x| x.set_as_disconnected());
-        self.d2.as_ref().map(|x| x.set_as_disconnected());
-        self.d3.as_ref().map(|x| x.set_as_disconnected());
-        self.d4.as_ref().map(|x| x.set_as_disconnected());
-        self.d5.as_ref().map(|x| x.set_as_disconnected());
-        self.d6.as_ref().map(|x| x.set_as_disconnected());
-        self.d7.as_ref().map(|x| x.set_as_disconnected());
-        self.nss.as_ref().map(|x| x.set_as_disconnected());
-        self.dqs.as_ref().map(|x| x.set_as_disconnected());
-
         rcc::disable::<T>();
     }
 }
