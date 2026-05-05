@@ -336,17 +336,16 @@ const MAX_BLE_TIMERS: usize = 32;
 
 /// Timer slots: (timer_id, deadline). id=0xFFFF means slot is free.
 const TIMER_SLOT_FREE: u16 = 0xFFFF;
-static mut TIMER_SLOTS: [(u16, Instant); MAX_BLE_TIMERS] = [(TIMER_SLOT_FREE, Instant::MAX); MAX_BLE_TIMERS];
+static mut TIMER_SLOTS: [(u16, Option<Instant>); MAX_BLE_TIMERS] = [(TIMER_SLOT_FREE, None); MAX_BLE_TIMERS];
 
 /// Get the earliest active timer deadline, if any
-pub fn earliest_timer_deadline() -> Instant {
+pub fn earliest_timer_deadline() -> Option<Instant> {
     unsafe {
         TIMER_SLOTS
             .iter()
             .filter(|(id, _)| *id != TIMER_SLOT_FREE)
-            .map(|(_, deadline)| *deadline)
+            .filter_map(|(_, deadline)| *deadline)
             .min()
-            .unwrap_or(Instant::MAX)
     }
 }
 
@@ -354,23 +353,26 @@ pub fn earliest_timer_deadline() -> Instant {
 /// Calls BLEPLATCB_TimerExpiry(id) for each expired timer to notify the BLE stack.
 pub fn check_expired_timers() {
     let now = Instant::now();
-    let mut expired = false;
-    let mut timer_id: u16;
+    let mut any_expired = false;
     unsafe {
-        for (id, deadline) in TIMER_SLOTS
+        TIMER_SLOTS
             .iter_mut()
-            .filter(|(id, deadline)| *id != TIMER_SLOT_FREE && now >= *deadline)
-        {
-            timer_id = *id;
-            *id = TIMER_SLOT_FREE;
-            *deadline = Instant::MAX;
-            expired = true;
-
-            BLEPLATCB_TimerExpiry(timer_id);
-        }
+            .filter(|(id, _)| *id != TIMER_SLOT_FREE)
+            .filter_map(|slot| {
+                (now >= slot.1?).then(|| {
+                    let id = slot.0;
+                    slot.0 = TIMER_SLOT_FREE;
+                    slot.1 = None;
+                    id
+                })
+            })
+            .for_each(|timer_id| {
+                any_expired = true;
+                BLEPLATCB_TimerExpiry(timer_id);
+            });
     }
 
-    if expired {
+    if any_expired {
         super::util_seq::seq_pend();
     }
 }
@@ -1598,22 +1600,22 @@ pub unsafe extern "C" fn BLEPLAT_TimerStart(id: u16, timeout: u32) -> u8 {
 
     // Find existing slot for this ID, or a free slot
     let mut free_slot: Option<usize> = None;
-    for (i, (slot_id, slot_deadline)) in TIMER_SLOTS.iter_mut().enumerate() {
-        if *slot_id == id {
+    for (i, slot) in TIMER_SLOTS.iter_mut().enumerate() {
+        if slot.0 == id {
             // Update existing timer
-            *slot_deadline = deadline;
+            slot.1 = Some(deadline);
             super::util_seq::seq_pend();
             return 0;
         }
 
-        if *slot_id == TIMER_SLOT_FREE && free_slot.is_none() {
+        if slot.0 == TIMER_SLOT_FREE && free_slot.is_none() {
             free_slot = Some(i);
         }
     }
 
     // Use a free slot
     if let Some(i) = free_slot {
-        TIMER_SLOTS[i] = (id, deadline);
+        TIMER_SLOTS[i] = (id, Some(deadline));
         super::util_seq::seq_pend();
         0
     } else {
@@ -1629,7 +1631,7 @@ pub unsafe extern "C" fn BLEPLAT_TimerStop(id: u16) {
     for slot in TIMER_SLOTS.iter_mut() {
         if slot.0 == id {
             slot.0 = TIMER_SLOT_FREE;
-            slot.1 = Instant::MAX;
+            slot.1 = None;
             return;
         }
     }

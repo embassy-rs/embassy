@@ -101,11 +101,14 @@ pub async fn ble_runner() -> ! {
 
     loop {
         // Wait for either a sequencer event or a timer expiry
-        select(
-            util_seq::wait_for_event(),
-            Timer::at(linklayer_plat::earliest_timer_deadline()),
-        )
-        .await;
+        match linklayer_plat::earliest_timer_deadline() {
+            Some(deadline) => {
+                select(util_seq::wait_for_event(), Timer::at(deadline)).await;
+            }
+            None => {
+                util_seq::wait_for_event().await;
+            }
+        }
 
         // Check for any expired timers on each iteration
         linklayer_plat::check_expired_timers();
