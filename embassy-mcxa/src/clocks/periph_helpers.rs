@@ -248,6 +248,12 @@ pub enum AdcClockSel {
     None,
 }
 
+pub enum AdcInstance {
+    Adc0,
+    Adc1,
+}
+
+
 /// Top level configuration for the ADC peripheral
 pub struct AdcConfig {
     /// Power state required for this peripheral
@@ -256,11 +262,26 @@ pub struct AdcConfig {
     pub source: AdcClockSel,
     /// Pre-divisor, applied to the upstream clock output
     pub div: Div4,
+
+    /// Which instance is this?
+    // NOTE: should not be user settable
+    pub(crate) instance: AdcInstance,
 }
 
 impl SPConfHelper for AdcConfig {
     fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
         let mrcc0 = crate::pac::MRCC0;
+
+        #[cfg(not(feature = "mcxa1xx"))]
+        let clksel = mrcc0.mrcc_adc_clksel();
+        #[cfg(not(feature = "mcxa1xx"))]
+        let clkdiv = mrcc0.mrcc_adc_clkdiv();
+
+        #[cfg(feature = "mcxa1xx")]
+        let (clksel, clkdiv) = match self.instance {
+            AdcInstance::Adc0 => (mrcc0.mrcc_adc0_clksel(), mrcc0.mrcc_adc0_clkdiv()),
+            AdcInstance::Adc1 => (mrcc0.mrcc_adc1_clksel(), mrcc0.mrcc_adc1_clkdiv()),
+        };
 
         let (freq, variant) = match self.source {
             AdcClockSel::FroLfDiv => {
@@ -318,19 +339,17 @@ impl SPConfHelper for AdcConfig {
                 (freq, mux)
             }
             AdcClockSel::None => {
-                mrcc0.mrcc_adc_clksel().write(|w| {
+                clksel.write(|w| {
                     // no ClkrootFunc7, just write manually for now
                     w.set_mux(AdcClkselMux::_RESERVED_7)
                 });
-                mrcc0.mrcc_adc_clkdiv().modify(|w| {
+                clkdiv.modify(|w| {
                     w.set_reset(ClkdivReset::On);
                     w.set_halt(ClkdivHalt::On);
                 });
                 return Ok(PreEnableParts::empty());
             }
         };
-        let clksel = mrcc0.mrcc_adc_clksel();
-        let clkdiv = mrcc0.mrcc_adc_clkdiv();
 
         // Check clock speed is reasonable
         let div = self.div.into_divisor();
