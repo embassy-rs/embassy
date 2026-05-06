@@ -240,7 +240,10 @@ fn generate_code(cfgs: &mut common::CfgSet, singletons: &[Singleton]) {
 }
 
 fn interrupts() -> TokenStream {
-    let interrupts = METADATA.interrupts.iter().map(|interrupt| format_ident!("{interrupt}"));
+    let interrupts = METADATA
+        .interrupts
+        .iter()
+        .map(|&(interrupt, _)| format_ident!("{interrupt}"));
 
     quote! {
         embassy_hal_internal::interrupt_mod!(#(#interrupts),*);
