@@ -50,16 +50,13 @@ impl<'a, T, A> VolatilePtr<'a, [T], A> {
     /// let subslice = volatile.index(1..);
     /// assert_eq!(subslice.index(0).read(), 2);
     /// ```
-    pub fn index<I>(self, index: I) -> VolatilePtr<'a, <I as SliceIndex<[T]>>::Output, A>
+    pub fn index(self, index: usize) -> VolatilePtr<'a, <usize as SliceIndex<[T]>>::Output, A>
     where
-        I: SliceIndex<[T]> + SliceIndex<[()]> + Clone,
         A: Access,
     {
         bounds_check(self.pointer.len(), index.clone());
 
-        // unsafe { self.map(|slice| slice.get_unchecked_mut(index)) }
-
-        todo!()
+        unsafe { self.map(|slice| NonNull::new_unchecked((slice.as_ptr() as *mut T).add(index))) }
     }
 
     /// Returns an iterator over the slice.
@@ -153,7 +150,7 @@ impl<'a, T, A> VolatilePtr<'a, [T], A> {
     /// assert_eq!(src, [1, 2, 3, 4]);
     /// assert_eq!(dst, [3, 4]);
     /// ```
-    pub fn copy_from_slice(self, src: &[T])
+    pub fn copy_from_slice(&mut self, src: &[T])
     where
         T: Copy,
         A: Writable,
@@ -161,9 +158,26 @@ impl<'a, T, A> VolatilePtr<'a, [T], A> {
         let len = self.pointer.len();
         assert_eq!(len, src.len(), "destination and source slices have different lengths");
 
-        // intrinsics::volatile_copy_nonoverlapping_memory(self.pointer.as_mut_ptr(), src.as_ptr(), len);
+        unsafe {
+            let src = core::slice::from_raw_parts(src as *const _ as *const u8, size_of_val(src));
+            let dst = self.pointer.as_mut() as *mut _ as *mut u8;
 
-        todo!()
+            type NativeSizeArray = [u8; 8];
+            let (prefix, middle, suffix) = src.align_to::<NativeSizeArray>();
+            let mut i = 0;
+            for &v in prefix.iter() {
+                dst.add(i).write_volatile(v);
+                i += 1;
+            }
+            for &v in middle.iter() {
+                dst.add(i).cast::<NativeSizeArray>().write_volatile(v);
+                i += core::mem::size_of::<NativeSizeArray>();
+            }
+            for &v in suffix.iter() {
+                dst.add(i).write_volatile(v);
+                i += 1;
+            }
+        }
     }
 
     /// Copies elements from one part of the slice to another part of itself, using a
