@@ -12,6 +12,7 @@ pub mod drop;
 mod macros;
 mod peripheral;
 pub mod ratio;
+pub mod volatile_ptr;
 pub use peripheral::{Peri, PeripheralType};
 
 #[cfg(feature = "cortex-m")]
