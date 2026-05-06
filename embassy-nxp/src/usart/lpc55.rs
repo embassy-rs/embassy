@@ -506,19 +506,19 @@ impl<'d, M: Mode> Usart<'d, M> {
             750_001..=6_000_000 => {
                 SYSCON
                     .fcclksel(T::instance_number())
-                    .modify(|w| w.set_sel(syscon::vals::FcclkselSel::ENUM_0X3)); // 96 MHz
+                    .modify(|w| w.set_sel(syscon::vals::FcclkselSel::Enum0x3)); // 96 MHz
                 96_000_000
             }
             1501..=750_000 => {
                 SYSCON
                     .fcclksel(T::instance_number())
-                    .modify(|w| w.set_sel(syscon::vals::FcclkselSel::ENUM_0X2)); // 12 MHz
+                    .modify(|w| w.set_sel(syscon::vals::FcclkselSel::Enum0x2)); // 12 MHz
                 12_000_000
             }
             121..=1500 => {
                 SYSCON
                     .fcclksel(T::instance_number())
-                    .modify(|w| w.set_sel(syscon::vals::FcclkselSel::ENUM_0X4)); // 1 MHz
+                    .modify(|w| w.set_sel(syscon::vals::FcclkselSel::Enum0x4)); // 1 MHz
                 1_000_000
             }
             _ => {
@@ -586,22 +586,22 @@ impl<'d, M: Mode> Usart<'d, M> {
         if let Some((tx_pin, func)) = tx {
             tx_pin.pio().modify(|w| {
                 w.set_func(func);
-                w.set_mode(iocon::vals::PioMode::INACTIVE);
-                w.set_slew(iocon::vals::PioSlew::STANDARD);
+                w.set_mode(iocon::vals::PioMode::Inactive);
+                w.set_slew(iocon::vals::PioSlew::Standard);
                 w.set_invert(false);
-                w.set_digimode(iocon::vals::PioDigimode::DIGITAL);
-                w.set_od(iocon::vals::PioOd::NORMAL);
+                w.set_digimode(iocon::vals::PioDigimode::Digital);
+                w.set_od(iocon::vals::PioOd::Normal);
             });
         }
 
         if let Some((rx_pin, func)) = rx {
             rx_pin.pio().modify(|w| {
                 w.set_func(func);
-                w.set_mode(iocon::vals::PioMode::INACTIVE);
-                w.set_slew(iocon::vals::PioSlew::STANDARD);
+                w.set_mode(iocon::vals::PioMode::Inactive);
+                w.set_slew(iocon::vals::PioSlew::Standard);
                 w.set_invert(false);
-                w.set_digimode(iocon::vals::PioDigimode::DIGITAL);
-                w.set_od(iocon::vals::PioOd::NORMAL);
+                w.set_digimode(iocon::vals::PioDigimode::Digital);
+                w.set_od(iocon::vals::PioOd::Normal);
             });
         };
     }
@@ -619,12 +619,12 @@ impl<'d, M: Mode> Usart<'d, M> {
         });
         SYSCON
             .presetctrl1()
-            .modify(|w| w.set_fc_rst(instance_number, syscon::vals::FcRst::ASSERTED));
+            .modify(|w| w.set_fc_rst(instance_number, syscon::vals::FcRst::Asserted));
         SYSCON
             .presetctrl1()
-            .modify(|w| w.set_fc_rst(instance_number, syscon::vals::FcRst::RELEASED));
+            .modify(|w| w.set_fc_rst(instance_number, syscon::vals::FcRst::Released));
         flexcomm_register.pselid().modify(|w| {
-            w.set_persel(flexcomm::vals::Persel::USART);
+            w.set_persel(flexcomm::vals::Persel::Usart);
             // This will lock the peripheral PERSEL and will not allow any changes until the board is reset.
             w.set_lock(true);
         });
@@ -642,21 +642,21 @@ impl<'d, M: Mode> Usart<'d, M> {
             // No flow control. The transmitter does not receive any automatic flow control signal.
             w.set_ctsen(false);
             // Selects synchronous or asynchronous operation.
-            w.set_syncen(usart::vals::Syncen::ASYNCHRONOUS_MODE);
+            w.set_syncen(usart::vals::Syncen::AsynchronousMode);
             // Selects the clock polarity and sampling edge of received data in synchronous mode.
-            w.set_clkpol(usart::vals::Clkpol::RISING_EDGE);
+            w.set_clkpol(usart::vals::Clkpol::RisingEdge);
             // Synchronous mode Master select.
             // When synchronous mode is enabled, the USART is a master.
-            w.set_syncmst(usart::vals::Syncmst::MASTER);
+            w.set_syncmst(usart::vals::Syncmst::Master);
             // Selects data loopback mode
-            w.set_loop_(usart::vals::Loop::NORMAL);
+            w.set_loop_(usart::vals::Loop::Normal);
             // Output Enable Turnaround time enable for RS-485 operation.
             // Disabled. If selected by OESEL, the Output Enable signal deasserted at the end of
             // the last stop bit of a transmission.
             w.set_oeta(false);
             // Output enable select.
             // Standard. The RTS signal is used as the standard flow control function.
-            w.set_oesel(usart::vals::Oesel::STANDARD);
+            w.set_oesel(usart::vals::Oesel::Standard);
             // Automatic address matching enable.
             // Disabled. When addressing is enabled by ADDRDET, address matching is done by
             // software. This provides the possibility of versatile addressing (e.g. respond to more
@@ -664,32 +664,32 @@ impl<'d, M: Mode> Usart<'d, M> {
             w.set_autoaddr(false);
             // Output enable polarity.
             // Low. If selected by OESEL, the output enable is active low.
-            w.set_oepol(usart::vals::Oepol::LOW);
+            w.set_oepol(usart::vals::Oepol::Low);
         });
 
         // Configurations based on the config written by a user
         registers.cfg().modify(|w| {
             w.set_datalen(match config.data_bits {
-                DataBits::DataBits7 => usart::vals::Datalen::BIT_7,
-                DataBits::DataBits8 => usart::vals::Datalen::BIT_8,
-                DataBits::DataBits9 => usart::vals::Datalen::BIT_9,
+                DataBits::DataBits7 => usart::vals::Datalen::Bit7,
+                DataBits::DataBits8 => usart::vals::Datalen::Bit8,
+                DataBits::DataBits9 => usart::vals::Datalen::Bit9,
             });
             w.set_paritysel(match config.parity {
-                Parity::ParityNone => usart::vals::Paritysel::NO_PARITY,
-                Parity::ParityEven => usart::vals::Paritysel::EVEN_PARITY,
-                Parity::ParityOdd => usart::vals::Paritysel::ODD_PARITY,
+                Parity::ParityNone => usart::vals::Paritysel::NoParity,
+                Parity::ParityEven => usart::vals::Paritysel::EvenParity,
+                Parity::ParityOdd => usart::vals::Paritysel::OddParity,
             });
             w.set_stoplen(match config.stop_bits {
-                StopBits::Stop1 => usart::vals::Stoplen::BIT_1,
-                StopBits::Stop2 => usart::vals::Stoplen::BITS_2,
+                StopBits::Stop1 => usart::vals::Stoplen::Bit1,
+                StopBits::Stop2 => usart::vals::Stoplen::Bits2,
             });
             w.set_rxpol(match config.invert_rx {
-                false => usart::vals::Rxpol::STANDARD,
-                true => usart::vals::Rxpol::INVERTED,
+                false => usart::vals::Rxpol::Standard,
+                true => usart::vals::Rxpol::Inverted,
             });
             w.set_txpol(match config.invert_tx {
-                false => usart::vals::Txpol::STANDARD,
-                true => usart::vals::Txpol::INVERTED,
+                false => usart::vals::Txpol::Standard,
+                true => usart::vals::Txpol::Inverted,
             });
         });
 
