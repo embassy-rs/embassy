@@ -253,7 +253,6 @@ pub enum AdcInstance {
     Adc1,
 }
 
-
 /// Top level configuration for the ADC peripheral
 pub struct AdcConfig {
     /// Power state required for this peripheral
