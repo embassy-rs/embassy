@@ -879,7 +879,7 @@ macro_rules! impl_adc_instance {
                 }
 
                 const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_adc $n>];
-                const CLOCK_INSTANCE: crate::clocks::periph_helpers::AdcInstance 
+                const CLOCK_INSTANCE: crate::clocks::periph_helpers::AdcInstance
                     = crate::clocks::periph_helpers::AdcInstance::[<Adc $n>];
             }
 

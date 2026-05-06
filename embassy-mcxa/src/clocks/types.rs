@@ -252,10 +252,10 @@ impl Clocks {
     pub fn ensure_fro_lf_div_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
         //MCXA1xx does not have a FRO_LF_DIV register so we only check for FRO12M being active
         #[cfg(feature = "mcxa1xx")]
-        return self.ensure_clock_active(&self.fro_12m_root, "fro_lf_div", at_level); 
+        return self.ensure_clock_active(&self.fro_12m_root, "fro_lf_div", at_level);
 
         #[cfg(not(feature = "mcxa1xx"))]
-        return self.ensure_clock_active(&self.fro_lf_div, "fro_lf_div", at_level)
+        return self.ensure_clock_active(&self.fro_lf_div, "fro_lf_div", at_level);
     }
 
     /// Ensure the `fro_hf` clock is active and valid at the given power state.
