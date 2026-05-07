@@ -103,7 +103,7 @@ pub struct PioWs2812<'d, P: Instance, const S: usize, const N: usize, ORDER>
 where
     ORDER: RgbColorOrder,
 {
-    dma: dma::Channel<'d>,
+    dma: dma::Channel<'d, dma::Auto>,
     sm: StateMachine<'d, P, S>,
     _order: core::marker::PhantomData<ORDER>,
 }
@@ -193,7 +193,7 @@ pub struct RgbwPioWs2812<'d, P: Instance, const S: usize, const N: usize, ORDER>
 where
     ORDER: RgbwColorOrder,
 {
-    dma: dma::Channel<'d>,
+    dma: dma::Channel<'d, dma::Auto>,
     sm: StateMachine<'d, P, S>,
     _order: core::marker::PhantomData<ORDER>,
 }

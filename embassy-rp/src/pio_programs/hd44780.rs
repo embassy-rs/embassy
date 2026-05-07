@@ -99,7 +99,7 @@ impl<'a, PIO: Instance> PioHD44780CommandSequenceProgram<'a, PIO> {
 
 /// Pio backed HD44780 driver
 pub struct PioHD44780<'l, P: Instance, const S: usize> {
-    dma: dma::Channel<'l>,
+    dma: dma::Channel<'l, dma::Auto>,
     sm: StateMachine<'l, P, S>,
 
     buf: [u8; 40],

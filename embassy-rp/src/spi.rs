@@ -6,7 +6,7 @@ use embassy_futures::join::join;
 use embassy_hal_internal::{Peri, PeripheralType};
 pub use embedded_hal_02::spi::{Phase, Polarity};
 
-use crate::dma::{Channel, ChannelInstance};
+use crate::dma::{Auto, Channel, ChannelInstance};
 use crate::gpio::{AnyPin, Pin as GpioPin, SealedPin as _};
 use crate::{dma, interrupt, pac, peripherals};
 
@@ -43,8 +43,8 @@ impl Default for Config {
 /// SPI driver.
 pub struct Spi<'d, T: Instance, M: Mode> {
     inner: Peri<'d, T>,
-    tx_dma: Option<Channel<'d>>,
-    rx_dma: Option<Channel<'d>>,
+    tx_dma: Option<Channel<'d, Auto>>,
+    rx_dma: Option<Channel<'d, Auto>>,
     phantom: PhantomData<(&'d mut T, M)>,
 }
 
@@ -78,8 +78,8 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
         mosi: Option<Peri<'d, AnyPin>>,
         miso: Option<Peri<'d, AnyPin>>,
         cs: Option<Peri<'d, AnyPin>>,
-        tx_dma: Option<Channel<'d>>,
-        rx_dma: Option<Channel<'d>>,
+        tx_dma: Option<Channel<'d, Auto>>,
+        rx_dma: Option<Channel<'d, Auto>>,
         config: Config,
     ) -> Self {
         Self::apply_config(&inner, &config);
