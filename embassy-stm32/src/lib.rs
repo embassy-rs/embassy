@@ -88,7 +88,7 @@ pub mod aes;
 pub mod backup_sram;
 #[cfg(can)]
 pub mod can;
-#[cfg(any(comp_u5, comp_v1, comp_v2))]
+#[cfg(any(comp_u5, comp_v1, comp_v2, comp_u0))]
 pub mod comp;
 #[cfg(all(cordic, not(stm32c5)))]
 pub mod cordic;
@@ -110,12 +110,12 @@ pub mod comp {
 // Stub macros for COMP pin implementations when comp module is not compiled.
 // These are needed because build.rs generates macro calls for all chips with COMP,
 // but the actual macros are only defined in the comp module.
-#[cfg(all(comp, not(any(comp_u5, comp_v1, comp_v2))))]
+#[cfg(all(comp, not(any(comp_u5, comp_v1, comp_v2, comp_u0))))]
 #[allow(unused_macros)]
 macro_rules! impl_comp_inp_pin {
     ($inst:ident, $pin:ident, $ch:expr) => {};
 }
-#[cfg(all(comp, not(any(comp_u5, comp_v1, comp_v2))))]
+#[cfg(all(comp, not(any(comp_u5, comp_v1, comp_v2, comp_u0))))]
 #[allow(unused_macros)]
 macro_rules! impl_comp_inm_pin {
     ($inst:ident, $pin:ident, $ch:expr) => {};
