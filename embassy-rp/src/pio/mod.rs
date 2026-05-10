@@ -206,6 +206,7 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Drop for FifoInFuture<'a, 'd, PIO, 
 pub struct IrqFuture<'a, 'd, PIO: Instance> {
     pio: PhantomData<&'a mut Irq<'d, PIO, 0>>,
     irq_no: u8,
+    clear_flag: bool,
 }
 
 impl<'a, 'd, PIO: Instance> Future for IrqFuture<'a, 'd, PIO> {
@@ -215,7 +216,9 @@ impl<'a, 'd, PIO: Instance> Future for IrqFuture<'a, 'd, PIO> {
 
         // Check if IRQ flag is already set
         if PIO::PIO.irq().read().0 & (1 << self.irq_no) != 0 {
-            PIO::PIO.irq().write(|m| m.0 = 1 << self.irq_no);
+            if self.clear_flag {
+                PIO::PIO.irq().write(|m| m.0 = 1 << self.irq_no);
+            }
             return Poll::Ready(());
         }
 
@@ -1276,6 +1279,19 @@ impl<'d, PIO: Instance, const N: usize> Irq<'d, PIO, N> {
         IrqFuture {
             pio: PhantomData,
             irq_no: N as u8,
+            clear_flag: true,
+        }
+    }
+
+    /// Wait for an IRQ to fire without automatically clearing the IRQ flag afterward.
+    ///
+    /// This is useful to pause a state machine at a well-defined point by using an "irq wait" instruction.
+    /// The flag can be cleared manually by using the IrqFlags to resume the state machine later.
+    pub fn wait_without_clear<'a>(&'a mut self) -> IrqFuture<'a, 'd, PIO> {
+        IrqFuture {
+            pio: PhantomData,
+            irq_no: N as u8,
+            clear_flag: false,
         }
     }
 }
