@@ -7,7 +7,7 @@ use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInf
 
 pub use super::hid_report::{ReportDescriptor, ReportField};
 use crate::control::SetupPacket;
-use crate::descriptor::ConfigurationDescriptor;
+use crate::descriptor::ConfigurationDescriptorChain;
 use crate::handler::EnumerationInfo;
 
 /// HID class code.
@@ -160,7 +160,7 @@ pub struct HidInfo {
 
 /// Find the first HID interface in a configuration descriptor.
 pub fn find_hid(config_desc: &[u8]) -> Option<HidInfo> {
-    let cfg = ConfigurationDescriptor::try_from_slice(config_desc).ok()?;
+    let cfg = ConfigurationDescriptorChain::try_from_slice(config_desc).ok()?;
 
     for iface in cfg.iter_interface() {
         if iface.interface_class != USB_CLASS_HID {

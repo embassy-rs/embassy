@@ -102,7 +102,9 @@ impl HCI<Normal> {
         irq: impl interrupt::typelevel::Binding<interrupt::typelevel::RADIO, HighInterruptHandler>
         + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
     ) -> Result<Self, BleError> {
-        let controller = Controller::new(state, rng, Some(aes), Some(pka), irq).await?;
+        let controller = Controller::new(state, rng, Some(aes), Some(pka), irq)
+            .await
+            .map_err(|_| BleError::InitializationFailed)?;
 
         let mut this = Self {
             cmd_sender: CommandSender::new(),
@@ -610,7 +612,9 @@ impl HCI<Test> {
         irq: impl interrupt::typelevel::Binding<interrupt::typelevel::RADIO, HighInterruptHandler>
         + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
     ) -> Result<Self, BleError> {
-        let controller = Controller::new(state, rng, None, None, irq).await?;
+        let controller = Controller::new(state, rng, None, None, irq)
+            .await
+            .map_err(|_| BleError::InitializationFailed)?;
 
         let mut this = Self {
             cmd_sender: CommandSender::new(),

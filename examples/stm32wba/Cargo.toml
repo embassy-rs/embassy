@@ -30,7 +30,7 @@ stm32wb-hci = "0.17.4"
 [features]
 default = ["ble"]
 mac = ["embassy-stm32-wpan/wba-mac", "dep:embassy-net"]
-ble = ["embassy-stm32-wpan/wba-ble"]
+ble = ["embassy-stm32-wpan/wba-ble", "embassy-stm32-wpan/wb-hci"]
 
 [[bin]]
 name = "mac_ffd"

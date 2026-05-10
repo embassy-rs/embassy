@@ -272,6 +272,9 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
             v.set_ctef(true);
             v.set_ctof(true);
         });
+
+        while T::REGS.sr().read().busy() {}
+
         T::REGS.ccr().write(|v| {
             v.set_fmode(QspiMode::MemoryMapped.into());
             v.set_imode(transaction.iwidth.into());

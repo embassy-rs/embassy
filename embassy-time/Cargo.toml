@@ -260,6 +260,8 @@ tick-hz-48_000_000 = ["embassy-time-driver/tick-hz-48_000_000"]
 tick-hz-50_000_000 = ["embassy-time-driver/tick-hz-50_000_000"]
 ## 60.0MHz Tick Rate
 tick-hz-60_000_000 = ["embassy-time-driver/tick-hz-60_000_000"]
+## 62.5MHz Tick Rate
+tick-hz-62_500_000 = ["embassy-time-driver/tick-hz-62_500_000"]
 ## 64.0MHz Tick Rate
 tick-hz-64_000_000 = ["embassy-time-driver/tick-hz-64_000_000"]
 ## 65.536MHz Tick Rate

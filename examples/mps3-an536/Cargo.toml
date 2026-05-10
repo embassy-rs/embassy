@@ -1,0 +1,29 @@
+[package]
+edition = "2024"
+name = "embassy-mps3-an536-examples"
+version = "0.1.0"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+aarch32-cpu = { version = "0.3", features = ["critical-section-single-core"] }
+aarch32-rt = "0.3"
+arm-gic = "0.7.1"
+critical-section = "1.2.0"
+defmt = "1.0.1"
+defmt-semihosting = "0.3"
+embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-cortex-ar", "executor-thread", "defmt"] }
+embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
+embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }
+embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-62_500_000"] }
+embassy-time-driver = { version = "0.2.2", path = "../../embassy-time-driver" }
+embassy-time-queue-utils = { version = "0.3.2", path = "../../embassy-time-queue-utils" }
+semihosting = "0.1.25"
+
+[profile.release]
+debug = 2
+
+[package.metadata.embassy]
+build = [
+  { target = "armv8r-none-eabihf", artifact-dir = "out/examples/mps3-an536" }
+]

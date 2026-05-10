@@ -6,7 +6,7 @@ use embassy_usb_driver::host::pipe::{self, IsIn, IsOut};
 use embassy_usb_driver::host::{HostError, SplitInfo, SplitSpeed, UsbPipe};
 
 use crate::control::ControlPipeExt;
-use crate::descriptor::{ConfigurationDescriptor, DeviceDescriptor, USBDescriptor};
+use crate::descriptor::{ConfigurationDescriptor, ConfigurationDescriptorChain, DeviceDescriptor, USBDescriptor};
 
 /// How a device's traffic reaches it on the bus.
 ///
@@ -86,7 +86,7 @@ impl EnumerationInfo {
         &self,
         channel: &mut C,
         cfg_desc_buf: &'a mut [u8],
-    ) -> Result<ConfigurationDescriptor<'a>, HostError> {
+    ) -> Result<ConfigurationDescriptorChain<'a>, HostError> {
         Ok(match channel.active_configuration_value().await? {
             Some(_) => self.get_active_configuration(channel, cfg_desc_buf).await?.unwrap(),
             None => {
@@ -102,7 +102,7 @@ impl EnumerationInfo {
         &self,
         channel: &mut C,
         cfg_desc_buf: &'a mut [u8],
-    ) -> Result<Option<ConfigurationDescriptor<'a>>, HostError> {
+    ) -> Result<Option<ConfigurationDescriptorChain<'a>>, HostError> {
         let cfg_id = match channel.active_configuration_value().await? {
             Some(v) => v.into(),
             None => return Ok(None),
@@ -112,7 +112,7 @@ impl EnumerationInfo {
         let mut cfg_len = 0;
         for i in 0..self.device_desc.num_configurations {
             let cfg_desc_short = channel
-                .request_descriptor::<ConfigurationDescriptor, { ConfigurationDescriptor::SIZE }>(i, false)
+                .request_descriptor::<ConfigurationDescriptor, { ConfigurationDescriptor::BUF_SIZE }>(i, false)
                 .await?;
 
             if cfg_desc_short.configuration_value == cfg_id {
@@ -131,7 +131,8 @@ impl EnumerationInfo {
             .request_descriptor_bytes(ConfigurationDescriptor::DESC_TYPE, index, dest)
             .await?;
 
-        let cfg = ConfigurationDescriptor::try_from_slice(cfg_desc_buf).map_err(|_| HostError::InvalidDescriptor)?;
+        let cfg =
+            ConfigurationDescriptorChain::try_from_slice(cfg_desc_buf).map_err(|_| HostError::InvalidDescriptor)?;
         Ok(Some(cfg))
     }
 
@@ -141,13 +142,13 @@ impl EnumerationInfo {
         index: u8,
         channel: &mut C,
         cfg_desc_buf: &'a mut [u8],
-    ) -> Result<ConfigurationDescriptor<'a>, HostError> {
+    ) -> Result<ConfigurationDescriptorChain<'a>, HostError> {
         if index >= self.device_desc.num_configurations {
             return Err(HostError::InvalidDescriptor);
         }
 
         let cfg_desc_short = channel
-            .request_descriptor::<ConfigurationDescriptor, { ConfigurationDescriptor::SIZE }>(index, false)
+            .request_descriptor::<ConfigurationDescriptor, { ConfigurationDescriptor::BUF_SIZE }>(index, false)
             .await?;
 
         let total_len = cfg_desc_short.total_len as usize;
@@ -164,7 +165,7 @@ impl EnumerationInfo {
             cfg_desc_short.total_len, dest
         );
 
-        ConfigurationDescriptor::try_from_slice(dest).map_err(|_| HostError::InvalidDescriptor)
+        ConfigurationDescriptorChain::try_from_slice(dest).map_err(|_| HostError::InvalidDescriptor)
     }
 }
 

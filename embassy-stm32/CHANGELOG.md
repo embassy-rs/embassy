@@ -142,6 +142,7 @@ SMI:
 
 RCC:
 - fix: stm32/rcc: allow linker to optimize out expensive PLL init functions in binaries where the PLL is not used (e.g. most bootloaders)
+- fix: stm32/bkpsram: Fix unsound Backup SRAM API (breaking change)
 
 USB:
 - fix: don't put USB pins into alternate mode on chips where USB is an additional function

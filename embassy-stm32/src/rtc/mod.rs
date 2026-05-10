@@ -250,6 +250,8 @@ impl Rtc {
 
     /// Set the datetime to a new value.
     ///
+    /// This function has second precision, and sets subseconds to 0.
+    ///
     /// # Errors
     ///
     /// Will return `RtcError::InvalidDateTime` if the datetime is not a valid range.
@@ -317,6 +319,10 @@ impl Rtc {
     ///
     /// The registers retain their values during wakes from standby mode or system resets. They also
     /// retain their value when Vdd is switched off as long as V_BAT is powered.
+    #[cfg_attr(
+        rtc_v3,
+        doc = "\n\nAlways returns [`None`]. Use the [`TAMP`](crate::peripherals::TAMP) peripheral instead."
+    )]
     pub fn read_backup_register(&self, register: usize) -> Option<u32> {
         RTC::read_backup_register(RTC::regs(), register)
     }
@@ -325,6 +331,10 @@ impl Rtc {
     ///
     /// The registers retain their values during wakes from standby mode or system resets. They also
     /// retain their value when Vdd is switched off as long as V_BAT is powered.
+    #[cfg_attr(
+        rtc_v3,
+        doc = "\n\nDoes not write to the register. Use the [`TAMP`](crate::peripherals::TAMP) peripheral instead."
+    )]
     pub fn write_backup_register(&self, register: usize, value: u32) {
         RTC::write_backup_register(RTC::regs(), register, value)
     }

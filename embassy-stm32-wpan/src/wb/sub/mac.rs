@@ -2,16 +2,19 @@ use core::ptr;
 
 use embassy_stm32::ipcc::{Ipcc, IpccRxChannel, IpccTxChannel};
 
-use crate::channels::cpu1::IPCC_MAC_802_15_4_CMD_RSP_CHANNEL;
-use crate::cmd::CmdPacket;
-use crate::consts::TlPacketType;
-use crate::evt::{self, EvtBox, EvtPacket};
 use crate::mac::commands::MacCommand;
 use crate::mac::event::MacEvent;
 use crate::mac::typedefs::MacError;
-use crate::tables::{MAC_802_15_4_CMD_BUFFER, MAC_802_15_4_NOTIF_RSP_EVT_BUFFER};
-use crate::unsafe_linked_list::LinkedListNode;
 use crate::util::Flag;
+use crate::wb::channels::cpu1::IPCC_MAC_802_15_4_CMD_RSP_CHANNEL;
+use crate::wb::cmd::CmdPacket;
+use crate::wb::consts::TlPacketType;
+use crate::wb::evt::{self, EvtBox, EvtPacket};
+use crate::wb::tables::{
+    MAC_802_15_4_CMD_BUFFER, MAC_802_15_4_NOTIF_RSP_EVT_BUFFER, Mac802_15_4Table, TL_MAC_802_15_4_TABLE,
+    TL_TRACES_TABLE, TRACES_EVT_QUEUE, TracesTable,
+};
+use crate::wb::unsafe_linked_list::LinkedListNode;
 
 static MAC_EVT_OUT: Flag = Flag::new(false);
 
@@ -25,11 +28,6 @@ impl<'a> Mac<'a> {
         ipcc_mac_802_15_4_cmd_rsp_channel: IpccTxChannel<'a>,
         ipcc_mac_802_15_4_notification_ack_channel: IpccRxChannel<'a>,
     ) -> Self {
-        use crate::tables::{
-            MAC_802_15_4_CMD_BUFFER, MAC_802_15_4_NOTIF_RSP_EVT_BUFFER, Mac802_15_4Table, TL_MAC_802_15_4_TABLE,
-            TL_TRACES_TABLE, TRACES_EVT_QUEUE, TracesTable,
-        };
-
         unsafe {
             LinkedListNode::init_head(TRACES_EVT_QUEUE.as_mut_ptr() as *mut _);
 

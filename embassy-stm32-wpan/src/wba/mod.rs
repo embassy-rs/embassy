@@ -1,13 +1,13 @@
-pub mod context;
+mod context;
 pub mod controller;
-pub mod host_if;
-pub mod linklayer_plat;
-pub mod ll_sys;
-pub mod ll_sys_if;
-pub mod mac_sys_if;
-pub mod power_table;
+mod host_if;
+mod linklayer_plat;
+mod ll_sys;
+mod ll_sys_if;
+mod mac_sys_if;
+mod power_table;
 pub mod runner;
-pub mod util_seq;
+mod util_seq;
 
 // Re-export main types
 pub use controller::{ChannelPacket, Controller, ControllerState, HighInterruptHandler, LowInterruptHandler};

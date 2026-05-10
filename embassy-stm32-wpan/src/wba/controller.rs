@@ -5,6 +5,8 @@
 
 use core::cell::RefCell;
 use core::ops::Deref;
+#[cfg(feature = "bt-hci")]
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use embassy_stm32::aes::Aes;
 use embassy_stm32::interrupt;
@@ -19,20 +21,15 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 #[cfg(feature = "bt-hci")]
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::zerocopy_channel;
-use stm32_bindings::ble::{BleStack_Process, BleStack_Request};
-use stm32wb_hci::event::Packet;
-use stm32wb_hci::host::HciHeader;
-use stm32wb_hci::vendor::CommandHeader;
-use stm32wb_hci::{Event, event};
+use stm32_bindings::ble::{BLE_SLEEPMODE_RUNNING, BleStack_Process, BleStack_Request};
 
-use crate::bluetooth::error::BleError;
-use crate::host_if::{MAX_BLE_PKT_SIZE, TASK_BLE_HOST_MASK, TASK_LINK_LAYER_MASK, TASK_PRIO_BLE_HOST};
-use crate::linklayer_plat::{
+use crate::runner::BLE_INIT;
+use crate::wba::host_if::{MAX_BLE_PKT_SIZE, TASK_BLE_HOST_MASK, TASK_LINK_LAYER_MASK, TASK_PRIO_BLE_HOST};
+use crate::wba::linklayer_plat::{
     EVENT_CHANNEL, HARDWARE_AES, HARDWARE_PKA, HARDWARE_RNG, run_radio_high_isr, run_radio_sw_low_isr,
 };
-use crate::runner::{BLE_INIT, BLE_SLEEPMODE_RUNNING};
-use crate::util_seq;
 use crate::wba::ll_sys::init_ble_stack;
+use crate::wba::util_seq;
 
 /// High interrupt handler.
 pub struct HighInterruptHandler {}
@@ -66,7 +63,7 @@ unsafe extern "C" fn ble_stack_process_bg() {
 
     trace!("BleStack_Process called, result={}", result);
 
-    if result == BLE_SLEEPMODE_RUNNING {
+    if result == BLE_SLEEPMODE_RUNNING as u8 {
         // More work to do - re-queue
         util_seq::UTIL_SEQ_SetTask(TASK_BLE_HOST_MASK, TASK_PRIO_BLE_HOST);
     }
@@ -76,9 +73,10 @@ unsafe extern "C" fn ble_stack_process_bg() {
 pub struct ChannelPacket(pub [u8; MAX_BLE_PKT_SIZE], pub usize);
 
 impl ChannelPacket {
-    pub fn copy_from(&mut self, data: &[u8]) {
+    pub fn copy_from(&mut self, data: &[u8], ext_data: &[u8]) {
         self.0[..data.len()].copy_from_slice(data);
-        self.1 = data.len();
+        self.0[data.len()..][..ext_data.len()].copy_from_slice(ext_data);
+        self.1 = data.len() + ext_data.len();
     }
 }
 
@@ -109,29 +107,16 @@ impl ControllerState {
 }
 
 #[macro_export]
-macro_rules! declare_controller_state {
-    ($buf:ident, $state:ident, $size:expr) => {
-        static $buf: ::static_cell::StaticCell<[::embassy_stm32_wpan::ChannelPacket; $size]> =
-            ::static_cell::StaticCell::new();
-        static $state: ::static_cell::StaticCell<::embassy_stm32_wpan::ControllerState> =
-            ::static_cell::StaticCell::new();
-    };
-}
-
-#[macro_export]
-macro_rules! use_controller_state {
-    ($buf:ident, $state:ident, $size:expr) => {{
-        $state.init(::embassy_stm32_wpan::ControllerState::new(
-            $buf.init([::embassy_stm32_wpan::ChannelPacket::default(); $size]),
-        ))
-    }};
-}
-
-#[macro_export]
 macro_rules! new_controller_state {
     ($size:expr) => {{
-        ::embassy_stm32_wpan::declare_controller_state!(EVENT_BUFFER, EVENT_STATE, $size);
-        ::embassy_stm32_wpan::use_controller_state!(EVENT_BUFFER, EVENT_STATE, $size)
+        static EVENT_BUFFER: ::static_cell::StaticCell<[::embassy_stm32_wpan::ChannelPacket; $size]> =
+            ::static_cell::StaticCell::new();
+        static EVENT_STATE: ::static_cell::StaticCell<::embassy_stm32_wpan::ControllerState> =
+            ::static_cell::StaticCell::new();
+
+        EVENT_STATE.init(::embassy_stm32_wpan::ControllerState::new(
+            EVENT_BUFFER.init([::embassy_stm32_wpan::ChannelPacket::default(); $size]),
+        ))
     }};
 }
 
@@ -153,7 +138,7 @@ impl Controller {
         pka: Option<&'static Mutex<CriticalSectionRawMutex, RefCell<Pka<'static, PkaPeriph>>>>,
         _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::RADIO, HighInterruptHandler>
         + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
-    ) -> Result<Self, BleError> {
+    ) -> Result<Self, ()> {
         let state_ptr = state as *mut ControllerState;
         let (sender, receiver) = state.channel.split();
         unsafe {
@@ -171,7 +156,7 @@ impl Controller {
         // which is required before ll_intf_init can work properly.
         init_ble_stack().map_err(|status| {
             error!("BLE stack initialization failed: 0x{:02X}", status);
-            BleError::InitializationFailed
+            ()
         })?;
 
         util_seq::UTIL_SEQ_RegTask(TASK_BLE_HOST_MASK, 0, Some(ble_stack_process_bg));
@@ -227,7 +212,7 @@ impl Controller {
 
     /// Consume the controller and return the controller state so it can be
     /// passed to the next `HCI::new()` or `HCI::new_dtm()` call.
-    pub(crate) fn release_state(self) -> &'static mut ControllerState {
+    pub fn release_state(self) -> &'static mut ControllerState {
         let ptr = self.state_ptr;
         // Drop self first — runs Drop (reset_ble_stack) and drops receiver —
         // so no references into *ptr exist before we reconstruct the &'static mut.
@@ -235,7 +220,11 @@ impl Controller {
         unsafe { &mut *ptr }
     }
 
-    pub async fn read_event(&mut self) -> Result<Event, event::Error> {
+    #[cfg(feature = "wb-hci")]
+    pub async fn read_event(&mut self) -> Result<stm32wb_hci::Event, stm32wb_hci::event::Error> {
+        use stm32wb_hci::Event;
+        use stm32wb_hci::event::Packet;
+
         if let Some(buf) = self.pop_buf() {
             Event::new(Packet(&buf[1..]))
         } else {
@@ -258,12 +247,16 @@ impl Controller {
     }
 }
 
+#[cfg(feature = "wb-hci")]
 impl stm32wb_hci::Controller for Controller {
     async fn controller_read_into(&mut self, _buf: &mut [u8]) {
         panic!("use `read_event` to read events")
     }
 
     async fn controller_write(&mut self, opcode: stm32wb_hci::Opcode, payload: &[u8]) {
+        use stm32wb_hci::host::HciHeader;
+        use stm32wb_hci::vendor::CommandHeader;
+
         self.exec(|buf| {
             let (header, pkt) = buf.split_at_mut(CommandHeader::HEADER_LENGTH);
 
@@ -277,26 +270,28 @@ impl stm32wb_hci::Controller for Controller {
 const ERR: bt_hci::cmd::Error<embedded_io::ErrorKind> = bt_hci::cmd::Error::Io(embedded_io::ErrorKind::InvalidData);
 
 #[cfg(feature = "bt-hci")]
-pub struct AtomicController {
+pub struct ControllerAdapter {
     controller: NoopMutex<RefCell<Controller>>,
+    pending_evt: AtomicBool,
 }
 
 #[cfg(feature = "bt-hci")]
-impl AtomicController {
+impl ControllerAdapter {
     pub const fn new(controller: Controller) -> Self {
         Self {
             controller: Mutex::const_new(NoopRawMutex::new(), RefCell::new(controller)),
+            pending_evt: AtomicBool::new(false),
         }
     }
 }
 
 #[cfg(feature = "bt-hci")]
-impl embedded_io::ErrorType for AtomicController {
+impl embedded_io::ErrorType for ControllerAdapter {
     type Error = embedded_io::ErrorKind;
 }
 
 #[cfg(feature = "bt-hci")]
-impl bt_hci::controller::Controller for AtomicController {
+impl bt_hci::controller::Controller for ControllerAdapter {
     async fn write_acl_data(&self, packet: &bt_hci::data::AclPacket<'_>) -> Result<(), Self::Error> {
         use bt_hci::WriteHci;
         use bt_hci::transport::WithIndicator;
@@ -327,98 +322,82 @@ impl bt_hci::controller::Controller for AtomicController {
         })
     }
 
-    async fn read<'a>(&self, buf: &'a mut [u8]) -> Result<bt_hci::ControllerToHostPacket<'a>, Self::Error> {
+    async fn read<'a>(&self, _buf: &'a mut [u8]) -> Result<bt_hci::ControllerToHostPacket<'a>, Self::Error> {
         use core::future::poll_fn;
         use core::task::Poll;
 
         use bt_hci::{ControllerToHostPacket, FromHciBytes};
 
-        // TODO: install buffer so that Linklayer_Plat copies directly into buffer rather than going through the channel
-
-        let len = poll_fn(|cx| {
+        let buf = poll_fn(|cx| {
             let mut controller = self.controller.borrow().borrow_mut();
+
+            if self.pending_evt.swap(false, Ordering::AcqRel) {
+                // Advance the channel
+                controller.receiver.try_receive().unwrap().receive_done();
+            }
 
             let Poll::Ready(slot) = controller.receiver.poll_receive(cx) else {
                 return Poll::Pending;
             };
 
-            // Must copy to extend the lifetime
-            buf[..*&slot.len()].copy_from_slice(&slot);
+            self.pending_evt.store(true, Ordering::Release);
 
-            Poll::Ready(*&slot.len())
+            // Optimization depends on the assumption that the event is dropped before read is called again
+            Poll::Ready(unsafe { core::slice::from_raw_parts(&slot.0 as *const _ as *const u8, slot.1) })
         })
         .await;
 
-        ControllerToHostPacket::from_hci_bytes_complete(&buf[..len]).map_err(|_| embedded_io::ErrorKind::InvalidData)
+        ControllerToHostPacket::from_hci_bytes_complete(&buf).map_err(|_| embedded_io::ErrorKind::InvalidData)
     }
 }
 
 #[cfg(feature = "bt-hci")]
-impl<C> bt_hci::controller::ControllerCmdSync<C> for AtomicController
+impl<C> bt_hci::controller::ControllerCmdSync<C> for ControllerAdapter
 where
     C: bt_hci::cmd::SyncCmd,
 {
     async fn exec(&self, cmd: &C) -> Result<C::Return, bt_hci::cmd::Error<Self::Error>> {
-        use bt_hci::event::{CommandComplete, CommandCompleteWithStatus, EventKind};
         use bt_hci::transport::WithIndicator;
-        use bt_hci::{ControllerToHostPacket, FromHciBytes, WriteHci, cmd};
+        use bt_hci::{WriteHci, cmd};
+
+        use crate::util::make_cc_with_cs;
 
         let mut controller = self.controller.borrow().borrow_mut();
 
-        //info!("Executing command with opcode {}", C::OPCODE);
+        debug!("Executing command with opcode {}", C::OPCODE.0);
         controller.exec(|buf| WithIndicator::new(cmd).write_hci(&mut buf[..]).map_err(|_| ERR))?;
 
         let buf = controller.pop_buf().ok_or(ERR)?;
-        let pkt = ControllerToHostPacket::from_hci_bytes_complete(&buf[1..]).map_err(|_| ERR)?;
-
-        let ControllerToHostPacket::Event(ref event) = pkt else {
-            return Err(ERR);
-        };
-
-        if event.kind != EventKind::CommandComplete {
-            return Err(ERR);
-        }
-
-        let e = CommandComplete::from_hci_bytes_complete(event.data).map_err(|_| ERR)?;
-        let e: CommandCompleteWithStatus = e.try_into().map_err(|_| ERR)?;
+        let e = make_cc_with_cs(buf)?;
 
         let r = e.to_result::<C>().map_err(cmd::Error::Hci)?;
-        // info!("Done executing command with opcode {}", C::OPCODE);
+        debug!("Done executing command with opcode {}", C::OPCODE.0);
         Ok(r)
     }
 }
 
 #[cfg(feature = "bt-hci")]
-impl<C> bt_hci::controller::ControllerCmdAsync<C> for AtomicController
+impl<C> bt_hci::controller::ControllerCmdAsync<C> for ControllerAdapter
 where
     C: bt_hci::cmd::AsyncCmd,
 {
     async fn exec(&self, cmd: &C) -> Result<(), bt_hci::cmd::Error<Self::Error>> {
-        use bt_hci::event::{CommandStatus, EventKind};
+        use bt_hci::WriteHci;
         use bt_hci::transport::WithIndicator;
-        use bt_hci::{ControllerToHostPacket, FromHciBytes, WriteHci};
+
+        use crate::util::make_cc_with_cs;
 
         let mut controller = self.controller.borrow().borrow_mut();
 
-        //info!("Executing command with opcode {}", C::OPCODE);
+        debug!("Executing command with opcode {}", C::OPCODE.0);
         controller.exec(|buf| WithIndicator::new(cmd).write_hci(&mut buf[..]).map_err(|_| ERR))?;
 
         let buf = controller.pop_buf().ok_or(ERR)?;
-        let pkt = ControllerToHostPacket::from_hci_bytes_complete(&buf[1..]).map_err(|_| ERR)?;
-
-        let ControllerToHostPacket::Event(ref event) = pkt else {
-            return Err(ERR);
-        };
-
-        if event.kind != EventKind::CommandStatus {
-            return Err(ERR);
-        }
-
-        let e = CommandStatus::from_hci_bytes_complete(event.data).map_err(|_| ERR)?;
+        let e = make_cc_with_cs(buf)?;
 
         e.status.to_result()?;
 
-        // info!("Done executing command with opcode {}", C::OPCODE);
+        debug!("Done executing command with opcode {}", C::OPCODE.0);
         Ok(())
     }
 }

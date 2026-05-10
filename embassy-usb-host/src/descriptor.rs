@@ -16,6 +16,9 @@ pub mod descriptor_type {
     pub const CS_ENDPOINT: u8 = 0x25;
 }
 
+/// String descriptor index.
+///
+/// If the index is 0, then there is no string descriptor for that field.
 pub type StringIndex = u8;
 
 /// Maximum descriptor buffer size used during enumeration.
@@ -24,7 +27,10 @@ pub(crate) const DEFAULT_MAX_DESCRIPTOR_SIZE: usize = 512;
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum DescriptorError {
+    BadDescriptorData,
+    BadDescriptorSize,
     BadDescriptorType,
+    NotImplemented,
     UnexpectedEndOfBuffer,
 }
 
@@ -38,71 +44,234 @@ pub enum VisitError<E> {
     Visitor(E),
 }
 
-/// Trait for fixed-size USB descriptors that can be parsed from a byte slice.
+/// Trait for a USB descriptor that can be parsed from a byte slice.
 pub trait USBDescriptor {
-    const SIZE: usize;
+    /// Size of the byte buffer.
+    ///
+    /// This is the size of the byte buffer that should be used to read or write the descriptor.
+    /// This is not the size of the descriptor.
+    const BUF_SIZE: usize;
+
+    /// Descriptor type.
+    ///
+    /// This constant is compared against byte 1 of the buffer while reading.
     const DESC_TYPE: u8;
+
+    /// Descriptor subtype.
+    ///
+    /// If this constant is `None`, then it is ignored.
+    /// If this constant is `Some(subtype)`, then `subtype` is compared against byte 2 of the buffer while reading.
+    ///
+    /// This constant is `None` by default.
+    const DESC_SUBTYPE: Option<u8> = None;
+
     type Error;
     fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error>
     where
         Self: Sized;
 }
 
-/// First 8 bytes of the DeviceDescriptor, used to read `max_packet_size0` before SET_ADDRESS.
-#[derive(Debug)]
+/// Fixed size descriptor.
+///
+/// Implementors of this trait only allow the correct size while reading or writing.
+///
+/// If you are not sure that the length is always the same, implement [ExtendableDescriptor] instead.
+pub trait FixedSizeDescriptor: USBDescriptor {
+    /// Length of the descriptor.
+    ///
+    /// This constant is compared against byte 0 of the buffer.
+    const LEN: u8;
+
+    /// Matches `bytes` with this descriptor.
+    ///
+    /// On success it returns `Ok(())`.
+    /// On error it returns a [DescriptorError].
+    #[inline(always)]
+    fn match_bytes(bytes: &[u8]) -> Result<(), DescriptorError> {
+        if bytes.len() < Self::LEN as usize {
+            Err(DescriptorError::UnexpectedEndOfBuffer)
+        } else if bytes[0] != Self::LEN {
+            Err(DescriptorError::BadDescriptorSize)
+        } else if bytes[1] != Self::DESC_TYPE {
+            Err(DescriptorError::BadDescriptorType)
+        } else if let Some(subtype) = Self::DESC_SUBTYPE
+            && bytes[2] != subtype
+        {
+            Err(DescriptorError::BadDescriptorType)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// Extendable fixed size descriptor.
+///
+/// Implementors of this trait allow extra bytes in the descriptor while reading or writing.
+/// The origin and purpose of the extra bytes is undefined, it might be a class extension,
+/// a vendor extension, or anything else.
+pub trait ExtendableDescriptor: USBDescriptor {
+    /// Minimum length of the descriptor.
+    ///
+    /// This value is compared against byte 0 of the buffer.
+    /// All bytes after this length are considered an extension of the descriptor.
+    const MIN_LEN: u8;
+
+    /// Matches `bytes` with this descriptor.
+    ///
+    /// On success it returns `Ok(())`.
+    /// On error it returns a [DescriptorError].
+    #[inline(always)]
+    fn match_bytes(bytes: &[u8]) -> Result<(), DescriptorError> {
+        if bytes.len() < Self::MIN_LEN as usize {
+            Err(DescriptorError::UnexpectedEndOfBuffer)
+        } else if bytes[0] < Self::MIN_LEN {
+            Err(DescriptorError::BadDescriptorSize)
+        } else if bytes[1] != Self::DESC_TYPE {
+            Err(DescriptorError::BadDescriptorType)
+        } else if let Some(subtype) = Self::DESC_SUBTYPE
+            && bytes[2] != subtype
+        {
+            Err(DescriptorError::BadDescriptorType)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// Variable size descriptor.
+///
+/// Implementors of this trait accept multiple sizes while reading or writing.
+///
+/// The minimum length and the maximum length restrictions are always checked.
+/// Other restrictions should be implemented in [match_bytes_len](Self::match_bytes_len).
+pub trait VariableSizeDescriptor: USBDescriptor {
+    /// Minimum length of the descriptor.
+    ///
+    /// This constant is compared against byte 0 of the buffer.
+    const MIN_LEN: u8;
+
+    /// Maximum length of the descriptor.
+    ///
+    /// This constant is compared against byte 0 of the buffer.
+    const MAX_LEN: u8;
+
+    /// Matches `bytes` with this descriptor.
+    ///
+    /// On success it returns `Ok(())`.
+    /// On error it returns a [DescriptorError].
+    #[inline(always)]
+    fn match_bytes(bytes: &[u8]) -> Result<(), DescriptorError> {
+        if bytes.len() < Self::MIN_LEN as usize {
+            Err(DescriptorError::UnexpectedEndOfBuffer)
+        } else if !(Self::MIN_LEN..=Self::MAX_LEN).contains(&bytes[0]) || !Self::match_bytes_len(bytes) {
+            Err(DescriptorError::BadDescriptorSize)
+        } else if bytes[1] != Self::DESC_TYPE {
+            Err(DescriptorError::BadDescriptorType)
+        } else if let Some(subtype) = Self::DESC_SUBTYPE
+            && bytes[2] != subtype
+        {
+            Err(DescriptorError::BadDescriptorType)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Matches additional restrictions of the length.
+    ///
+    /// By default, there are no additional restrictions.
+    #[inline(always)]
+    fn match_bytes_len(_bytes: &[u8]) -> bool {
+        true
+    }
+}
+
+/// Partial version of [DeviceDescriptor].
+///
+/// This descriptor is used to read `max_packet_size0` before SET_ADDRESS.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct DeviceDescriptorPartial {
-    _padding: [u8; 7],
     pub max_packet_size0: u8,
 }
 
-impl USBDescriptor for DeviceDescriptorPartial {
-    const SIZE: usize = 8;
-    const DESC_TYPE: u8 = descriptor_type::DEVICE;
-    type Error = ();
+impl ExtendableDescriptor for DeviceDescriptorPartial {
+    const MIN_LEN: u8 = DeviceDescriptor::MIN_LEN;
+}
 
-    fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
-        if bytes.len() < Self::SIZE || bytes[1] != Self::DESC_TYPE {
-            return Err(());
-        }
+impl USBDescriptor for DeviceDescriptorPartial {
+    // `max_packet_size0` is at byte 7.
+    const BUF_SIZE: usize = 8;
+    const DESC_TYPE: u8 = DeviceDescriptor::DESC_TYPE;
+    type Error = DescriptorError;
+
+    fn try_from_bytes(buf: &[u8]) -> Result<Self, Self::Error> {
+        Self::match_bytes(buf)?;
         Ok(Self {
-            _padding: [0; 7],
-            max_packet_size0: bytes[7],
+            max_packet_size0: buf[7],
         })
     }
 }
 
-/// USB Device Descriptor (18 bytes).
-#[derive(Copy, Clone, Debug)]
+/// Standard USB Device Descriptor.
+///
+/// Each USB device has exactly one device descriptor, which contains information that
+/// applies globally to the device and all of it's configurations (USB 2.0 §9.6.1).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DeviceDescriptor {
-    pub len: u8,
-    pub descriptor_type: u8,
+    /// USB specification version that the device and it's descriptors comply to.
     pub bcd_usb: u16,
+    /// Class code.
+    ///
+    /// If the class is 0, then each configuration interface has an independent class code.
+    ///
+    /// If the class is 0xff, then the device class is vendor-specific.
     pub device_class: u8,
+    /// Subclass code.
+    ///
+    /// If the class is 0, then the subclass must be 0.
+    ///
+    /// If the subclass is 0xff, then the device subclass is vendor-specific.
     pub device_subclass: u8,
+    /// Protocol code.
+    ///
+    /// If the protocol is 0, then there is no class-specific device protocol.
+    /// However, individual interfaces may still use a class-specific protocol.
+    ///
+    /// If the protocol is 0xff, then the device protocol is vendor-specific.
     pub device_protocol: u8,
+    /// Maximum packet size for endpoint 0.
+    ///
+    /// For USB 2.0, the only valid sizes are 8, 16, 32, 64.
+    /// For USB 3.2, this value is a 2-based exponent.
     pub max_packet_size0: u8,
+    /// Vendor ID.
     pub vendor_id: u16,
+    /// Product ID.
     pub product_id: u16,
+    /// Device version.
     pub bcd_device: u16,
+    /// Manufacturer string.
     pub manufacturer: StringIndex,
+    /// Product string.
     pub product: StringIndex,
+    /// Serial number string.
     pub serial_number: StringIndex,
+    /// Number of possible configurations.
     pub num_configurations: u8,
 }
 
+impl ExtendableDescriptor for DeviceDescriptor {
+    const MIN_LEN: u8 = 18;
+}
+
 impl USBDescriptor for DeviceDescriptor {
-    const SIZE: usize = 18;
+    const BUF_SIZE: usize = Self::MIN_LEN as usize;
     const DESC_TYPE: u8 = descriptor_type::DEVICE;
-    type Error = ();
+    type Error = DescriptorError;
 
     fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
-        if bytes.len() < Self::SIZE || bytes[1] != Self::DESC_TYPE {
-            return Err(());
-        }
+        Self::match_bytes(bytes)?;
         Ok(Self {
-            len: bytes[0],
-            descriptor_type: bytes[1],
             bcd_usb: u16::from_le_bytes([bytes[2], bytes[3]]),
             device_class: bytes[4],
             device_subclass: bytes[5],
@@ -119,71 +288,115 @@ impl USBDescriptor for DeviceDescriptor {
     }
 }
 
-/// USB Configuration Descriptor header with a reference to the sub-descriptor buffer.
-#[derive(Copy, Clone, Debug)]
+/// Standard USB Configuration Descriptor.
+///
+/// When a configuration descriptor is requested, all related descriptors are returned. (USB 2.0 §9.6.3)
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct ConfigurationDescriptor<'a> {
-    pub len: u8,
-    pub descriptor_type: u8,
+pub struct ConfigurationDescriptor {
+    /// Total length of data returned for this configuration.
+    ///
+    /// The data includes this descriptor, interface descriptors,
+    /// endpoint descriptors, and possibly other descriptors.
     pub total_len: u16,
+    /// Number of interface descriptors.
     pub num_interfaces: u8,
+    /// Configuration ID.
     pub configuration_value: u8,
+    /// Configuration string.
     pub configuration_name: StringIndex,
+    /// Configuration attribute bitmap.
     pub attributes: u8,
+    /// Maximum bus power that will be consumed in 2mA units.
     pub max_power: u8,
-    /// The raw bytes following the 9-byte header (interface + endpoint descriptors).
-    pub buffer: &'a [u8],
 }
 
-impl USBDescriptor for ConfigurationDescriptor<'_> {
-    const SIZE: usize = 9;
+impl ExtendableDescriptor for ConfigurationDescriptor {
+    const MIN_LEN: u8 = 9;
+}
+
+impl USBDescriptor for ConfigurationDescriptor {
+    const BUF_SIZE: usize = Self::MIN_LEN as usize;
     const DESC_TYPE: u8 = descriptor_type::CONFIGURATION;
-    type Error = ();
+    type Error = DescriptorError;
 
     fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
-        if bytes.len() < Self::SIZE || bytes[1] != Self::DESC_TYPE {
-            return Err(());
-        }
+        Self::match_bytes(bytes)?;
         Ok(Self {
-            len: bytes[0],
-            descriptor_type: bytes[1],
             total_len: u16::from_le_bytes([bytes[2], bytes[3]]),
             num_interfaces: bytes[4],
             configuration_value: bytes[5],
             configuration_name: bytes[6],
             attributes: bytes[7],
             max_power: bytes[8],
-            buffer: &[],
         })
     }
 }
 
-impl<'a> ConfigurationDescriptor<'a> {
+/// A chain of descriptors.
+///
+/// Holds the current descriptor and a reference to the bytes after the descriptor.
+/// Deferences to the descriptor.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DescriptorChain<'a, T> {
+    /// The current descriptor.
+    pub descriptor: T,
+    /// The raw bytes following the descriptor.
+    pub buffer: &'a [u8],
+}
+
+impl<T> Copy for DescriptorChain<'_, T> where T: Copy {}
+
+#[cfg(feature = "defmt")]
+impl<T> defmt::Format for DescriptorChain<'_, T>
+where
+    T: defmt::Format,
+{
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!(
+            fmt,
+            "DescriptorChain<{}>{{descriptor: {}, buffer: {=[u8]}}}",
+            core::any::type_name::<T>(),
+            self.descriptor,
+            self.buffer
+        )
+    }
+}
+
+impl<'a, T> core::ops::Deref for DescriptorChain<'a, T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.descriptor
+    }
+}
+
+impl<'a, T> core::ops::DerefMut for DescriptorChain<'a, T> {
+    fn deref_mut(&mut self) -> &mut T {
+        &mut self.descriptor
+    }
+}
+/// The chain of descriptors of a [ConfigurationDescriptor].
+///
+/// When you request the configuration descriptor of a usb device you get a chain of descriptors (USB 2.0 §9.6.3).
+/// The chain includes interface descriptors, endpoint descriptors, and possibly other descriptors.
+///
+/// The total length of the chain is in [ConfigurationDescriptor::total_len].
+pub type ConfigurationDescriptorChain<'a> = DescriptorChain<'a, ConfigurationDescriptor>;
+
+impl<'a> ConfigurationDescriptorChain<'a> {
     /// Parse a full Configuration Descriptor blob, giving access to sub-descriptors via iterators.
     pub fn try_from_slice(buf: &'a [u8]) -> Result<Self, HostError> {
-        if buf.len() < Self::SIZE || buf[1] != Self::DESC_TYPE {
-            return Err(HostError::InvalidDescriptor);
+        let descriptor = ConfigurationDescriptor::try_from_bytes(buf).map_err(|_| HostError::InvalidDescriptor)?;
+        if let Some(buffer) = buf.get(buf[0] as usize..descriptor.total_len as usize) {
+            Ok(Self { descriptor, buffer })
+        } else {
+            Err(HostError::InvalidDescriptor)
         }
-        let total_length = u16::from_le_bytes([buf[2], buf[3]]);
-        Ok(Self {
-            len: buf[0],
-            descriptor_type: buf[1],
-            total_len: total_length,
-            num_interfaces: buf[4],
-            configuration_value: buf[5],
-            configuration_name: buf[6],
-            attributes: buf[7],
-            max_power: buf[8],
-            buffer: &buf[buf[0] as usize..total_length as usize],
-        })
     }
 
     /// Iterate over all raw descriptors in this Configuration.
     pub fn iter_descriptors(&self) -> RawDescriptorIterator<'a> {
-        RawDescriptorIterator {
-            buf: self.buffer,
-            offset: 0,
-        }
+        RawDescriptorIterator::new(self.buffer)
     }
 
     /// Iterate over all interface descriptors of this Configuration.
@@ -210,14 +423,15 @@ impl<'a> ConfigurationDescriptor<'a> {
         if !visitor.on_configuration(self) {
             return Ok(());
         }
-        let mut current_iface: Option<InterfaceDescriptor<'a>> = None;
+        let mut current_iface: Option<InterfaceDescriptorChain<'a>> = None;
         for (_, bytes) in self.iter_descriptors() {
             if bytes.len() < 2 {
                 continue;
             }
             match bytes[1] {
                 descriptor_type::INTERFACE => {
-                    let iface = InterfaceDescriptor::try_from_bytes(bytes).map_err(|_| VisitError::BadDescriptor)?;
+                    let iface =
+                        InterfaceDescriptorChain::try_from_bytes(bytes).map_err(|_| VisitError::BadDescriptor)?;
                     current_iface = Some(iface);
                     if !visitor.on_interface(&iface) {
                         return Ok(());
@@ -252,24 +466,24 @@ pub trait DescriptorVisitor<'a> {
     type Error;
 
     /// Return `false` to stop iteration early
-    fn on_configuration(&mut self, _c: &ConfigurationDescriptor<'a>) -> bool {
+    fn on_configuration(&mut self, _c: &ConfigurationDescriptor) -> bool {
         true
     }
 
     /// Return `false` to stop iteration early
-    fn on_interface(&mut self, _i: &InterfaceDescriptor<'a>) -> bool {
+    fn on_interface(&mut self, _i: &InterfaceDescriptorChain<'a>) -> bool {
         true
     }
 
     /// Return `false` to stop iteration early
-    fn on_endpoint(&mut self, _iface: &InterfaceDescriptor<'a>, _e: &EndpointDescriptor) -> bool {
+    fn on_endpoint(&mut self, _iface: &InterfaceDescriptorChain<'a>, _e: &EndpointDescriptor) -> bool {
         true
     }
 
     /// Catches every sub-descriptor that isn't an interface or endpoint:
     /// CS_INTERFACE, CS_ENDPOINT, HID, vendor-specific, etc.
     /// Return `Ok(false)` to stop iteration early without an error, or `Err(e)` to stop with one.
-    fn on_other(&mut self, _iface: Option<&InterfaceDescriptor<'a>>, _raw: &[u8]) -> Result<bool, Self::Error> {
+    fn on_other(&mut self, _iface: Option<&InterfaceDescriptorChain<'a>>, _raw: &[u8]) -> Result<bool, Self::Error> {
         Ok(true)
     }
 }
@@ -284,15 +498,15 @@ impl<'a> DescriptorVisitor<'a> for ShowDescriptors {
         debug!("{:?}", c);
         true
     }
-    fn on_interface(&mut self, i: &InterfaceDescriptor) -> bool {
+    fn on_interface(&mut self, i: &InterfaceDescriptorChain) -> bool {
         debug!("  {:?}", i);
         true
     }
-    fn on_endpoint(&mut self, _i: &InterfaceDescriptor, e: &EndpointDescriptor) -> bool {
+    fn on_endpoint(&mut self, _i: &InterfaceDescriptorChain, e: &EndpointDescriptor) -> bool {
         debug!("    {:?}", e);
         true
     }
-    fn on_other(&mut self, _i: Option<&InterfaceDescriptor>, d: &[u8]) -> Result<bool, Self::Error> {
+    fn on_other(&mut self, _i: Option<&InterfaceDescriptorChain>, d: &[u8]) -> Result<bool, Self::Error> {
         let dlen = d[0];
         let dtype = d[1];
         let domain = match dtype & 0x60 {
@@ -306,42 +520,52 @@ impl<'a> DescriptorVisitor<'a> for ShowDescriptors {
     }
 }
 
-/// USB Interface Descriptor with a reference to the trailing sub-descriptor buffer.
-#[derive(Copy, Clone, Debug)]
+/// Standard USB Interface Descriptor.
+///
+/// A configuration provides one or more interfaces. (USB 2.0 §9.6.5)
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct InterfaceDescriptor<'a> {
-    pub len: u8,
-    pub descriptor_type: u8,
+pub struct InterfaceDescriptor {
+    /// Interface index in this configuration (0-based).
     pub interface_number: u8,
+    /// Alternate setting ID of this interface.
     pub alternate_setting: u8,
+    /// Number of endpoints used by this interface.
     pub num_endpoints: u8,
+    /// Class code.
+    ///
+    /// If the class is 0, then the behavior is undefined (value is reserved).
+    ///
+    /// If the class is 0xff, then the interface class is vendor-specific.
     pub interface_class: u8,
+    /// Subclass code.
+    ///
+    /// If the class is 0, then the subclass must be 0.
+    ///
+    /// If the subclass is 0xff, then the interface subclass is vendor-specific.
     pub interface_subclass: u8,
+    /// Protocol code.
+    ///
+    /// If the protocol is 0, then there is no class-specific interface protocol.
+    ///
+    /// If the protocol is 0xff, then the interface protocol is vendor-specific.
     pub interface_protocol: u8,
+    /// Interface string.
     pub interface_name: StringIndex,
-    /// All bytes following this descriptor up to (but not including) the next interface descriptor.
-    pub buffer: &'a [u8],
 }
 
-impl<'a> InterfaceDescriptor<'a> {
-    const SIZE: usize = 9;
-    const DESC_TYPE: u8 = descriptor_type::INTERFACE;
+impl ExtendableDescriptor for InterfaceDescriptor {
+    const MIN_LEN: u8 = 9;
+}
 
-    pub(crate) fn try_from_bytes(bytes: &'a [u8]) -> Result<Self, ()> {
-        if bytes.len() < Self::SIZE || bytes[1] != Self::DESC_TYPE {
-            return Err(());
-        }
-        let endpoints = &bytes[bytes[0] as usize..];
-        let mut raw = RawDescriptorIterator {
-            buf: endpoints,
-            offset: 0,
-        };
-        let next_iface_index = raw
-            .find_map(|(index, v)| v.get(1).is_some_and(|v| *v == Self::DESC_TYPE).then_some(index))
-            .unwrap_or(endpoints.len());
+impl USBDescriptor for InterfaceDescriptor {
+    const BUF_SIZE: usize = Self::MIN_LEN as usize;
+    const DESC_TYPE: u8 = descriptor_type::INTERFACE;
+    type Error = DescriptorError;
+
+    fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
+        Self::match_bytes(bytes)?;
         Ok(Self {
-            len: bytes[0],
-            descriptor_type: bytes[1],
             interface_number: bytes[2],
             alternate_setting: bytes[3],
             num_endpoints: bytes[4],
@@ -349,16 +573,40 @@ impl<'a> InterfaceDescriptor<'a> {
             interface_subclass: bytes[6],
             interface_protocol: bytes[7],
             interface_name: bytes[8],
-            buffer: &endpoints[..next_iface_index],
         })
+    }
+}
+
+/// The chain of descriptors of a [InterfaceDescriptor].
+///
+/// A [ConfigurationDescriptorChain] provides one or more interface descriptors (USB 2.0 §9.6.5).
+/// Each interface chain includes endpoint descriptors, and possibly other descriptors.
+///
+/// The buffer goes up to the next interface descriptor.
+pub type InterfaceDescriptorChain<'a> = DescriptorChain<'a, InterfaceDescriptor>;
+
+impl<'a> InterfaceDescriptorChain<'a> {
+    pub(crate) fn try_from_bytes(bytes: &'a [u8]) -> Result<Self, DescriptorError> {
+        let descriptor = InterfaceDescriptor::try_from_bytes(bytes)?;
+        if let Some(endpoints) = bytes.get(bytes[0] as usize..) {
+            let mut next_iface_index = endpoints.len();
+            for (index, bytes) in RawDescriptorIterator::new(endpoints) {
+                if bytes.get(1) == Some(&InterfaceDescriptor::DESC_TYPE) {
+                    next_iface_index = index;
+                    break;
+                }
+            }
+            // up to the next interface descriptor
+            let buffer = &endpoints[..next_iface_index];
+            Ok(Self { descriptor, buffer })
+        } else {
+            Err(DescriptorError::UnexpectedEndOfBuffer)
+        }
     }
 
     /// Iterate over raw descriptors inside this interface.
     pub fn iter_descriptors(&self) -> RawDescriptorIterator<'_> {
-        RawDescriptorIterator {
-            buf: self.buffer,
-            offset: 0,
-        }
+        RawDescriptorIterator::new(self.buffer)
     }
 
     /// Iterate over endpoint descriptors inside this interface.
@@ -371,22 +619,28 @@ impl<'a> InterfaceDescriptor<'a> {
     }
 }
 
+impl<'a> From<&InterfaceDescriptorChain<'a>> for InterfaceDescriptor {
+    fn from(chain: &InterfaceDescriptorChain<'a>) -> Self {
+        chain.descriptor
+    }
+}
+
 /// Iterates over the InterfaceDescriptors of a configuration.
 pub struct InterfaceIterator<'a> {
     offset: usize,
-    cfg_desc: &'a ConfigurationDescriptor<'a>,
+    cfg_desc: &'a ConfigurationDescriptorChain<'a>,
 }
 
 impl<'a> Iterator for InterfaceIterator<'a> {
-    type Item = InterfaceDescriptor<'a>;
+    type Item = InterfaceDescriptorChain<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.offset >= self.cfg_desc.buffer.len() {
             return None;
         }
         let remaining = &self.cfg_desc.buffer[self.offset..];
-        let iface = InterfaceDescriptor::try_from_bytes(remaining).ok()?;
-        self.offset += iface.len as usize + iface.buffer.len();
+        let iface = InterfaceDescriptorChain::try_from_bytes(remaining).ok()?;
+        self.offset += remaining[0] as usize + iface.buffer.len();
         Some(iface)
     }
 }
@@ -397,23 +651,26 @@ pub struct RawDescriptorIterator<'a> {
     offset: usize,
 }
 
+impl<'a> RawDescriptorIterator<'a> {
+    pub fn new(buf: &'a [u8]) -> Self {
+        Self { buf, offset: 0 }
+    }
+}
+
 impl<'a> Iterator for RawDescriptorIterator<'a> {
     type Item = (usize, &'a [u8]);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.offset >= self.buf.len() {
-            return None;
+        let offset = self.offset;
+        if let Some(&len) = self.buf.get(offset)
+            && len > 0
+        {
+            self.offset += len as usize;
+            if let Some(bytes) = self.buf.get(offset..self.offset) {
+                return Some((offset, bytes));
+            }
         }
-        let pre = self.offset;
-        let len = self.buf[pre] as usize;
-        if len == 0 {
-            return None;
-        }
-        self.offset += len;
-        if self.offset > self.buf.len() {
-            return None;
-        }
-        Some((pre, &self.buf[pre..self.offset]))
+        None
     }
 }
 
@@ -421,7 +678,7 @@ impl<'a> Iterator for RawDescriptorIterator<'a> {
 pub struct EndpointIterator<'a> {
     buffer_idx: usize,
     index: usize,
-    iface_desc: &'a InterfaceDescriptor<'a>,
+    iface_desc: &'a InterfaceDescriptorChain<'a>,
 }
 
 impl Iterator for EndpointIterator<'_> {
@@ -443,15 +700,26 @@ impl Iterator for EndpointIterator<'_> {
     }
 }
 
-/// USB Endpoint Descriptor (7 bytes).
-#[derive(Copy, Clone, Debug, PartialEq)]
+/// Standard USB Endpoint Descriptor.
+///
+/// Contains information to determine the bandwidth requirements. (USB 2.0 §9.6.6)
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct EndpointDescriptor {
-    pub len: u8,
-    pub descriptor_type: u8,
+    /// Endpoint address.
+    ///
+    /// Contains the endpoint number and direction.
     pub endpoint_address: u8,
+    /// Endpoint attribute bitmap.
     pub attributes: u8,
+    /// Maximum packet size (11 bits).
+    ///
+    /// For high-speed isochronous and interrupt endpoints,
+    /// it also specifies aditional transaction opportunities.
     pub max_packet_size: u16,
+    /// Polling interval.
+    ///
+    /// The meaning of this value depends on the transfer type and speed.
     pub interval: u8,
 }
 
@@ -490,21 +758,18 @@ impl EndpointDescriptor {
     }
 }
 
+impl ExtendableDescriptor for EndpointDescriptor {
+    const MIN_LEN: u8 = 7;
+}
+
 impl USBDescriptor for EndpointDescriptor {
-    const SIZE: usize = 7;
+    const BUF_SIZE: usize = Self::MIN_LEN as usize;
     const DESC_TYPE: u8 = descriptor_type::ENDPOINT;
     type Error = DescriptorError;
 
     fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
-        if bytes.len() < Self::SIZE || bytes.len() < bytes[0] as usize {
-            return Err(DescriptorError::UnexpectedEndOfBuffer);
-        }
-        if bytes[1] != Self::DESC_TYPE {
-            return Err(DescriptorError::BadDescriptorType);
-        }
+        Self::match_bytes(bytes)?;
         Ok(Self {
-            len: bytes[0],
-            descriptor_type: bytes[1],
             endpoint_address: bytes[2],
             attributes: bytes[3],
             max_packet_size: u16::from_le_bytes([bytes[4], bytes[5]]),
@@ -528,11 +793,10 @@ impl From<EndpointDescriptor> for EndpointInfo {
 mod test {
     use heapless::Vec;
 
-    use super::{ConfigurationDescriptor, DescriptorVisitor, EndpointDescriptor, InterfaceDescriptor};
-    use crate::descriptor::ShowDescriptors;
+    use super::*;
 
     struct TestInterface<'a> {
-        interface: InterfaceDescriptor<'a>,
+        interface: InterfaceDescriptorChain<'a>,
         endpoints: Vec<EndpointDescriptor, 4>,
     }
 
@@ -541,7 +805,7 @@ mod test {
     const MAX_OTHERS: usize = 8;
 
     struct TestVisitor<'a> {
-        configuration: Option<ConfigurationDescriptor<'a>>,
+        configuration: Option<ConfigurationDescriptor>,
         interfaces: Vec<TestInterface<'a>, MAX_INTERFACES>,
         others: Vec<Vec<u8, MAX_DESCRIPTOR_SIZE>, MAX_OTHERS>,
     }
@@ -559,13 +823,13 @@ mod test {
     impl<'a> DescriptorVisitor<'a> for TestVisitor<'a> {
         type Error = core::convert::Infallible;
 
-        fn on_configuration(&mut self, c: &ConfigurationDescriptor<'a>) -> bool {
+        fn on_configuration(&mut self, c: &ConfigurationDescriptor) -> bool {
             assert!(self.configuration.is_none());
             self.configuration = Some(*c);
             true
         }
 
-        fn on_interface(&mut self, i: &InterfaceDescriptor<'a>) -> bool {
+        fn on_interface(&mut self, i: &InterfaceDescriptorChain<'a>) -> bool {
             assert!(self.configuration.is_some());
             let _ = self.interfaces.push(TestInterface {
                 interface: *i,
@@ -574,13 +838,13 @@ mod test {
             true
         }
 
-        fn on_endpoint(&mut self, _iface: &InterfaceDescriptor<'a>, e: &EndpointDescriptor) -> bool {
+        fn on_endpoint(&mut self, _iface: &InterfaceDescriptorChain<'a>, e: &EndpointDescriptor) -> bool {
             assert!(!self.interfaces.is_empty());
             let _ = self.interfaces.last_mut().unwrap().endpoints.push(*e);
             true
         }
 
-        fn on_other(&mut self, _iface: Option<&InterfaceDescriptor<'a>>, d: &[u8]) -> Result<bool, Self::Error> {
+        fn on_other(&mut self, _iface: Option<&InterfaceDescriptorChain<'a>>, d: &[u8]) -> Result<bool, Self::Error> {
             assert!(self.configuration.is_some());
             let _ = self.others.push(Vec::from_slice(d).unwrap_or_default());
             Ok(true)
@@ -595,7 +859,7 @@ mod test {
             3, 64, 0, 1, 7, 5, 3, 3, 64, 0, 1,
         ];
 
-        let cfg = ConfigurationDescriptor::try_from_slice(desc_bytes.as_slice()).unwrap();
+        let cfg = ConfigurationDescriptorChain::try_from_slice(desc_bytes.as_slice()).unwrap();
         assert_eq!(cfg.num_interfaces, 2);
 
         let interface0 = cfg.iter_interface().next().unwrap();
@@ -623,7 +887,7 @@ mod test {
             1,
         ];
 
-        let cfg = ConfigurationDescriptor::try_from_slice(desc_bytes.as_slice()).unwrap();
+        let cfg = ConfigurationDescriptorChain::try_from_slice(desc_bytes.as_slice()).unwrap();
         assert_eq!(cfg.num_interfaces, 2);
 
         let interface0 = cfg.iter_interface().next().unwrap();
@@ -651,7 +915,7 @@ mod test {
             4, 1, 1, 1, 0, 9, 5, 2, 2, 32, 0, 0, 0, 0, 5, 37, 1, 1, 1, 9, 5, 129, 2, 32, 0, 0, 0, 0, 5, 37, 1, 1, 3,
         ];
 
-        let cfg = ConfigurationDescriptor::try_from_slice(desc_bytes.as_slice()).unwrap();
+        let cfg = ConfigurationDescriptorChain::try_from_slice(desc_bytes.as_slice()).unwrap();
         assert_eq!(cfg.num_interfaces, 2);
 
         let mut v = TestVisitor::default();

@@ -5,16 +5,18 @@
 //! Requires the USB driver to support Interrupt IN pipes.
 
 use core::num::NonZeroU8;
+use core::ops::Deref;
 
 use bitflags::bitflags;
 use embassy_time::Timer;
 use embassy_usb::control::Request;
 use embassy_usb_driver::host::{HostError, SplitInfo, SplitSpeed, UsbHostAllocator, UsbPipe, pipe};
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
-use zerocopy::{FromBytes, Immutable, KnownLayout};
 
 use crate::control::{ControlPipeExt, ControlType, Recipient, RequestType, SetupPacket};
-use crate::descriptor::{DEFAULT_MAX_DESCRIPTOR_SIZE, InterfaceDescriptor, USBDescriptor};
+use crate::descriptor::{
+    DEFAULT_MAX_DESCRIPTOR_SIZE, DescriptorError, InterfaceDescriptor, USBDescriptor, VariableSizeDescriptor,
+};
 use crate::handler::{BusRoute, EnumerationInfo, HandlerEvent, RegisterError};
 use crate::{BusHandle, EnumerationError};
 
@@ -62,7 +64,7 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
             .iter_interface()
             .find(|v| {
                 matches!(
-                    v,
+                    v.deref(),
                     InterfaceDescriptor {
                         interface_class: 0x09,
                         interface_subclass: 0x0,
@@ -84,7 +86,9 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
             enum_info.split(),
         )?;
 
-        let desc = control_channel.request_descriptor::<HubDescriptor, 64>(0, true).await?;
+        let desc = control_channel
+            .request_descriptor::<HubDescriptor, { HubDescriptor::BUF_SIZE }>(0, true)
+            .await?;
 
         let mut hub = HubHandler {
             bus: bus.clone(),
@@ -363,33 +367,86 @@ impl HubInterrupt<'_> {
     }
 }
 
-/// USB 2.0 Spec 11.23.2.1
-#[derive(KnownLayout, FromBytes, Immutable, Clone, Debug)]
+/// USB Hub class descriptor (USB 2.0 §11.23.2.1)
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[repr(C)]
-struct HubDescriptor {
-    len: u8,
-    desc_type: u8,
-    port_num: u8,
-    characteristics0: u8,
-    characteristics1: u8,
+pub struct HubDescriptor {
+    /// Number of ports.
+    pub port_num: u8,
+    /// Characteristics bitmap.
+    pub characteristics: u16,
     /// Power-on delay in units of 2ms.
-    power_on_delay: u8,
-    max_current: u8,
-    port_buf: [u8; 32],
+    pub power_on_delay: u8,
+    /// Maximum current requirements of the hub.
+    pub max_current: u8,
+    /// Device removable bitmap (variable size).
+    ///
+    /// Meaning of bit values:
+    /// - 0 if the device is removable
+    /// - 1 if the device is not removable
+    ///
+    /// Bit 0 is reserved.
+    pub device_removable: [u8; 32],
+    /// Port power control mask bitmap (variable size).
+    ///
+    /// All bits should be 1 for compatibility with USB 1.0 code.
+    pub port_power_ctrl_mask: [u8; 32],
+}
+
+impl HubDescriptor {
+    /// Current size of (device_removable)[Self::device_removable] and (port_power_ctrl_mask)[Self::port_power_ctrl_mask].
+    pub fn variable_bitmap_size(&self) -> usize {
+        // bit 0 is reserved
+        Ord::max(1, (self.port_num as usize).div_ceil(u8::BITS as usize))
+    }
+}
+
+impl VariableSizeDescriptor for HubDescriptor {
+    const MIN_LEN: u8 = 7 + 2; // bit 0 is reserved
+    const MAX_LEN: u8 = 7 + 2 * 255u8.div_ceil(u8::BITS as u8);
+
+    /// Matches length with the number of ports.
+    fn match_bytes_len(bytes: &[u8]) -> bool {
+        if bytes.len() < 3 {
+            return false;
+        }
+        let len = bytes[0] as usize;
+        let port_num = bytes[2] as usize;
+        len == 6 + 2 * Ord::max(1, port_num.div_ceil(u8::BITS as usize))
+    }
 }
 
 impl USBDescriptor for HubDescriptor {
-    const SIZE: usize = core::mem::size_of::<Self>();
+    const BUF_SIZE: usize = Self::MAX_LEN as usize;
     const DESC_TYPE: u8 = 0x29;
-    type Error = ();
+    type Error = DescriptorError;
 
     fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
-        let (byref, _) = Self::ref_from_prefix(bytes).map_err(|_| ())?;
-        if byref.desc_type != Self::DESC_TYPE {
-            return Err(());
+        Self::match_bytes(bytes)?;
+        let port_num = bytes[2];
+        let n = Ord::max(1, (port_num as usize).div_ceil(u8::BITS as usize));
+        let mut device_removable = [0u8; _];
+        let mut port_power_ctrl_mask = [0u8; _];
+        if let Some(data) = bytes.get(7..) {
+            device_removable[..n]
+                .iter_mut()
+                .zip(data.iter())
+                .for_each(|(v, d)| *v = *d);
         }
-        Ok(byref.clone())
+        if let Some(data) = bytes.get(7 + n..) {
+            port_power_ctrl_mask[..n]
+                .iter_mut()
+                .zip(data.iter())
+                .for_each(|(v, d)| *v = *d);
+        }
+        Ok(Self {
+            port_num,
+            characteristics: u16::from_le_bytes([bytes[3], bytes[4]]),
+            power_on_delay: bytes[5],
+            max_current: bytes[6],
+            device_removable,
+            port_power_ctrl_mask,
+        })
     }
 }
 

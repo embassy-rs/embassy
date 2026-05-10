@@ -1,8 +1,9 @@
 use core::marker::PhantomData;
 use core::{ptr, slice};
 
-use super::PacketHeader;
-use crate::consts::TL_EVT_HEADER_SIZE;
+use crate::sub::mm;
+use crate::wb::PacketHeader;
+use crate::wb::consts::TL_EVT_HEADER_SIZE;
 
 /**
  * The payload of `Evt` for a command status event
@@ -27,6 +28,7 @@ pub struct CcEvt {
 }
 
 impl CcEvt {
+    #[allow(dead_code)]
     pub fn write(&self, buf: &mut [u8]) {
         unsafe {
             let len = core::mem::size_of::<CcEvt>();
@@ -35,11 +37,12 @@ impl CcEvt {
             let self_ptr: *const CcEvt = self;
             let self_buf_ptr: *const u8 = self_ptr.cast();
 
-            core::ptr::copy(self_buf_ptr, buf.as_mut_ptr(), len);
+            ptr::copy_nonoverlapping(self_buf_ptr, buf.as_mut_ptr(), len);
         }
     }
 }
 
+#[allow(dead_code)]
 #[derive(Copy, Clone, Default)]
 #[repr(C, packed)]
 pub struct AsynchEvt {
@@ -108,6 +111,12 @@ pub struct EvtBox<T: MemoryManager> {
     mm: PhantomData<T>,
 }
 
+impl<'d> EvtBox<mm::MemoryManager<'d>> {
+    pub unsafe fn read_stub(ptr: *const EvtPacket) -> EvtStub {
+        unsafe { ptr::read_volatile(&(*ptr).evt_serial as *const _ as *const EvtStub) }
+    }
+}
+
 unsafe impl<T: MemoryManager> Send for EvtBox<T> {}
 impl<T: MemoryManager> EvtBox<T> {
     pub(super) fn new(ptr: *mut EvtPacket) -> Self {
@@ -118,11 +127,7 @@ impl<T: MemoryManager> EvtBox<T> {
 
     /// Returns information about the event
     pub fn stub(&self) -> EvtStub {
-        unsafe {
-            let p_evt_stub = &(*self.ptr).evt_serial as *const _ as *const EvtStub;
-
-            ptr::read_volatile(p_evt_stub)
-        }
+        unsafe { EvtBox::read_stub(self.ptr) }
     }
 
     pub fn payload<'a>(&'a self) -> &'a [u8] {

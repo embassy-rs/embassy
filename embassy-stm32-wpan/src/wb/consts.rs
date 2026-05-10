@@ -1,5 +1,5 @@
-use crate::evt::CsEvt;
 use crate::wb::PacketHeader;
+use crate::wb::evt::CsEvt;
 
 #[derive(Debug)]
 #[repr(C)]
@@ -79,6 +79,7 @@ pub const CFG_TL_BLE_MOST_EVENT_PAYLOAD_SIZE: usize = 255;
 pub const TL_BLE_EVENT_FRAME_SIZE: usize = TL_EVT_HEADER_SIZE + CFG_TL_BLE_MOST_EVENT_PAYLOAD_SIZE;
 
 pub const POOL_SIZE: usize = CFG_TL_BLE_EVT_QUEUE_LENGTH * 4 * divc(TL_PACKET_HEADER_SIZE + TL_BLE_EVENT_FRAME_SIZE, 4);
+#[allow(dead_code)]
 pub const C_SIZE_CMD_STRING: usize = 256;
 
 pub const fn divc(x: usize, y: usize) -> usize {
@@ -89,6 +90,9 @@ pub const TL_BLE_EVT_CS_PACKET_SIZE: usize = TL_EVT_HEADER_SIZE + TL_CS_EVT_SIZE
 #[allow(dead_code)]
 pub const TL_BLE_EVT_CS_BUFFER_SIZE: usize = TL_PACKET_HEADER_SIZE + TL_BLE_EVT_CS_PACKET_SIZE;
 
+#[cfg(feature = "wb-ble")]
 pub const TL_BLEEVT_CC_OPCODE: u8 = 0x0E;
+#[cfg(feature = "wb-ble")]
 pub const TL_BLEEVT_CS_OPCODE: u8 = 0x0F;
+#[allow(dead_code)]
 pub const TL_BLEEVT_VS_OPCODE: u8 = 0xFF;

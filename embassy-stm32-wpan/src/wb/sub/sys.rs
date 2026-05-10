@@ -2,15 +2,15 @@ use core::slice;
 
 use embassy_stm32::ipcc::{IpccRxChannel, IpccTxChannel};
 
-use crate::cmd::CmdPacket;
-use crate::consts::TlPacketType;
-use crate::evt::EvtBox;
 #[cfg(feature = "wb-ble")]
 use crate::shci::ShciBleInitCmdParam;
 use crate::shci::{SchiCommandStatus, SchiFromPacket, SchiSysEventReady, ShciFusGetStateErrorCode, ShciOpcode};
 use crate::sub::mm;
-use crate::tables::{SysTable, WirelessFwInfoTable};
-use crate::unsafe_linked_list::LinkedListNode;
+use crate::wb::cmd::CmdPacket;
+use crate::wb::consts::TlPacketType;
+use crate::wb::evt::EvtBox;
+use crate::wb::tables::{SysTable, WirelessFwInfoTable};
+use crate::wb::unsafe_linked_list::LinkedListNode;
 use crate::wb::{SYS_CMD_BUF, SYSTEM_EVT_QUEUE, TL_DEVICE_INFO_TABLE, TL_SYS_TABLE};
 
 const fn slice8_ref(x: &[u32]) -> &[u8] {

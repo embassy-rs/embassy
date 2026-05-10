@@ -6,8 +6,8 @@ use heapless::index_map::FnvIndexMap;
 use super::codes::*;
 use crate::descriptor::descriptor_type::{CS_ENDPOINT, CS_INTERFACE, INTERFACE_ASSOCIATION};
 use crate::descriptor::{
-    ConfigurationDescriptor, DescriptorVisitor, EndpointDescriptor, InterfaceDescriptor as GenericInterfaceDescriptor,
-    StringIndex, USBDescriptor, VisitError,
+    ConfigurationDescriptorChain, DescriptorError, DescriptorVisitor, EndpointDescriptor, ExtendableDescriptor,
+    InterfaceDescriptor, InterfaceDescriptorChain, StringIndex, USBDescriptor, VariableSizeDescriptor, VisitError,
 };
 
 const MAX_AUDIO_STREAMING_INTERFACES: usize = 16;
@@ -49,6 +49,12 @@ pub enum AudioInterfaceError {
     MissingAudioStreamingClassDescriptor,
 }
 
+impl From<DescriptorError> for AudioInterfaceError {
+    fn from(_err: DescriptorError) -> Self {
+        Self::InvalidDescriptor
+    }
+}
+
 struct AudioCollectionBuilder {
     iad: Option<InterfaceAssociationDescriptor>,
     // Interface group cached until the CS_INTERFACE header arrives in on_other.
@@ -85,7 +91,7 @@ impl AudioCollectionBuilder {
 impl<'a> DescriptorVisitor<'a> for AudioCollectionBuilder {
     type Error = AudioInterfaceError;
 
-    fn on_interface(&mut self, iface: &GenericInterfaceDescriptor<'a>) -> bool {
+    fn on_interface(&mut self, iface: &InterfaceDescriptorChain) -> bool {
         let Some(ref iad) = self.iad else {
             return true;
         };
@@ -148,7 +154,7 @@ impl<'a> DescriptorVisitor<'a> for AudioCollectionBuilder {
         true
     }
 
-    fn on_endpoint(&mut self, iface: &GenericInterfaceDescriptor<'a>, ep: &EndpointDescriptor) -> bool {
+    fn on_endpoint(&mut self, iface: &InterfaceDescriptorChain, ep: &EndpointDescriptor) -> bool {
         match iface.interface_subclass {
             interface::subclass::AUDIOSTREAMING => {
                 if let Some(si) = self.streaming.last_mut() {
@@ -169,7 +175,7 @@ impl<'a> DescriptorVisitor<'a> for AudioCollectionBuilder {
         true
     }
 
-    fn on_other(&mut self, _iface: Option<&GenericInterfaceDescriptor<'a>>, raw: &[u8]) -> Result<bool, Self::Error> {
+    fn on_other(&mut self, _iface: Option<&InterfaceDescriptorChain>, raw: &[u8]) -> Result<bool, Self::Error> {
         if raw.len() < 2 {
             return Ok(true);
         }
@@ -241,7 +247,7 @@ impl AudioInterfaceCollection {
     /// then parses the control interface and all streaming interfaces.
     ///
     /// Returns an [`AudioInterfaceCollection`] on success, or an [`AudioInterfaceError`] if parsing fails.
-    pub fn try_from_configuration(cfg: &ConfigurationDescriptor) -> Result<Self, AudioInterfaceError> {
+    pub fn try_from_configuration(cfg: &ConfigurationDescriptorChain) -> Result<Self, AudioInterfaceError> {
         let mut builder = AudioCollectionBuilder::new();
         cfg.visit_descriptors(&mut builder).map_err(|e| match e {
             VisitError::BadDescriptor => AudioInterfaceError::InvalidDescriptor,
@@ -254,8 +260,8 @@ impl AudioInterfaceCollection {
 /// USB interface association descriptor for grouping related interfaces.
 ///
 /// This descriptor is used to associate multiple interfaces that belong to the same function,
-/// such as an audio function with control and streaming interfaces.
-#[derive(Debug, PartialEq)]
+/// such as an audio function with control and streaming interfaces. (USB Audio Devices 2.0 §4.6)
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct InterfaceAssociationDescriptor {
     /// First interface number in the association.
@@ -272,18 +278,17 @@ pub struct InterfaceAssociationDescriptor {
     pub interface_name: StringIndex,
 }
 
+impl ExtendableDescriptor for InterfaceAssociationDescriptor {
+    const MIN_LEN: u8 = 8;
+}
+
 impl USBDescriptor for InterfaceAssociationDescriptor {
-    const SIZE: usize = 8;
+    const BUF_SIZE: usize = Self::MIN_LEN as usize;
     const DESC_TYPE: u8 = INTERFACE_ASSOCIATION;
-    type Error = ();
+    type Error = DescriptorError;
 
     fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
-        if bytes.len() < Self::SIZE {
-            return Err(());
-        }
-        if bytes[1] != Self::DESC_TYPE {
-            return Err(());
-        }
+        Self::match_bytes(bytes)?;
         Ok(Self {
             first_interface: bytes[2],
             num_interfaces: bytes[3],
@@ -299,46 +304,6 @@ impl InterfaceAssociationDescriptor {
     /// Returns true if this interface association is for an audio function.
     pub fn is_audio_association(&self) -> bool {
         self.class == AUDIO_FUNCTION && self.protocol == function_protocol::AF_VERSION_02_00
-    }
-}
-
-/// USB interface descriptor for audio interfaces.
-#[derive(Copy, Clone, Debug, PartialEq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct InterfaceDescriptor {
-    /// Length of this descriptor in bytes.
-    pub len: u8,
-    /// Type of this descriptor. Must be 0x04.
-    pub descriptor_type: u8,
-    /// Number of this interface.
-    pub interface_number: u8,
-    /// Value used to select this alternate setting for the interface.
-    pub alternate_setting: u8,
-    /// Number of endpoints used by this interface.
-    pub num_endpoints: u8,
-    /// USB interface class code.
-    pub interface_class: u8,
-    /// USB interface subclass code.
-    pub interface_subclass: u8,
-    /// USB interface protocol code.
-    pub interface_protocol: u8,
-    /// Index of string descriptor describing this interface.
-    pub interface_name: StringIndex,
-}
-
-impl From<&GenericInterfaceDescriptor<'_>> for InterfaceDescriptor {
-    fn from(g: &GenericInterfaceDescriptor<'_>) -> Self {
-        Self {
-            len: g.len,
-            descriptor_type: g.descriptor_type,
-            interface_number: g.interface_number,
-            alternate_setting: g.alternate_setting,
-            num_endpoints: g.num_endpoints,
-            interface_class: g.interface_class,
-            interface_subclass: g.interface_subclass,
-            interface_protocol: g.interface_protocol,
-            interface_name: g.interface_name,
-        }
     }
 }
 
@@ -418,8 +383,8 @@ impl AudioControlInterface {
     }
 }
 
-/// Audio control header descriptor containing version and category information.
-#[derive(Debug, PartialEq)]
+/// Audio control header descriptor containing version and category information. (USB Audio Devices 2.0 §4.7.2)
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct AudioControlHeaderDescriptor {
     /// Audio device class version (major, minor).
@@ -430,21 +395,18 @@ pub struct AudioControlHeaderDescriptor {
     pub controls_bitmap: u8,
 }
 
+impl ExtendableDescriptor for AudioControlHeaderDescriptor {
+    const MIN_LEN: u8 = 9;
+}
+
 impl USBDescriptor for AudioControlHeaderDescriptor {
-    const SIZE: usize = 9;
+    const BUF_SIZE: usize = Self::MIN_LEN as usize;
     const DESC_TYPE: u8 = CS_INTERFACE;
-    type Error = ();
+    const DESC_SUBTYPE: Option<u8> = Some(ac_descriptor::HEADER);
+    type Error = DescriptorError;
 
     fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
-        if bytes.len() < Self::SIZE {
-            return Err(());
-        }
-        if bytes[1] != Self::DESC_TYPE {
-            return Err(());
-        }
-        if bytes[2] != ac_descriptor::HEADER {
-            return Err(());
-        }
+        Self::match_bytes(bytes)?;
         Ok(Self {
             audio_device_class: (bytes[4], bytes[3]),
             category: bytes[5],
@@ -454,7 +416,7 @@ impl USBDescriptor for AudioControlHeaderDescriptor {
 }
 
 /// Enumeration of clock descriptor types.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ClockDescriptor {
     /// Clock source descriptor.
@@ -465,14 +427,22 @@ pub enum ClockDescriptor {
     Multiplier(ClockMultiplierDescriptor),
 }
 
-impl ClockDescriptor {
-    fn try_from_bytes(bytes: &[u8]) -> Result<Self, AudioInterfaceError> {
-        if bytes.len() < 4 {
-            return Err(AudioInterfaceError::InvalidDescriptor);
-        }
-        if bytes[1] != CS_INTERFACE {
-            return Err(AudioInterfaceError::InvalidDescriptor);
-        }
+impl ExtendableDescriptor for ClockDescriptor {
+    const MIN_LEN: u8 = 3;
+}
+
+impl USBDescriptor for ClockDescriptor {
+    // can hold any subdescriptor that is supported.
+    const BUF_SIZE: usize = const_max![
+        ClockSourceDescriptor::BUF_SIZE,
+        ClockSelectorDescriptor::BUF_SIZE,
+        ClockMultiplierDescriptor::BUF_SIZE,
+    ];
+    const DESC_TYPE: u8 = CS_INTERFACE;
+    type Error = AudioInterfaceError;
+
+    fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
+        Self::match_bytes(bytes)?;
         match bytes[2] {
             ac_descriptor::CLOCK_SOURCE => Ok(Self::Source(ClockSourceDescriptor::try_from_bytes(bytes)?)),
             ac_descriptor::CLOCK_SELECTOR => Ok(Self::Selector(ClockSelectorDescriptor::try_from_bytes(bytes)?)),
@@ -480,7 +450,9 @@ impl ClockDescriptor {
             _ => Err(AudioInterfaceError::InvalidDescriptor),
         }
     }
+}
 
+impl ClockDescriptor {
     /// Returns the clock ID for this descriptor.
     pub fn clock_id(&self) -> u8 {
         match self {
@@ -491,8 +463,8 @@ impl ClockDescriptor {
     }
 }
 
-/// Clock source descriptor defining an audio clock source.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Clock source descriptor defining an audio clock source. (USB Audio Devices 2.0 §4.7.2.1)
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ClockSourceDescriptor {
     /// Unique identifier for this clock source.
@@ -507,21 +479,18 @@ pub struct ClockSourceDescriptor {
     pub clock_name: StringIndex,
 }
 
+impl ExtendableDescriptor for ClockSourceDescriptor {
+    const MIN_LEN: u8 = 8;
+}
+
 impl USBDescriptor for ClockSourceDescriptor {
-    const SIZE: usize = 8;
+    const BUF_SIZE: usize = Self::MIN_LEN as usize;
     const DESC_TYPE: u8 = CS_INTERFACE;
-    type Error = AudioInterfaceError;
+    const DESC_SUBTYPE: Option<u8> = Some(ac_descriptor::CLOCK_SOURCE);
+    type Error = DescriptorError;
 
     fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
-        if bytes.len() < Self::SIZE {
-            return Err(AudioInterfaceError::InvalidDescriptor);
-        }
-        if bytes[1] != Self::DESC_TYPE {
-            return Err(AudioInterfaceError::InvalidDescriptor);
-        }
-        if bytes[2] != ac_descriptor::CLOCK_SOURCE {
-            return Err(AudioInterfaceError::InvalidDescriptor);
-        }
+        Self::match_bytes(bytes)?;
         Ok(Self {
             clock_id: bytes[3],
             attributes_bitmap: bytes[4],
@@ -532,8 +501,8 @@ impl USBDescriptor for ClockSourceDescriptor {
     }
 }
 
-/// Clock selector descriptor for selecting between multiple clock sources.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Clock selector descriptor for selecting between multiple clock sources. (USB Audio Devices 2.0 §4.7.2.2)
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ClockSelectorDescriptor {
     /// Unique identifier for this clock selector.
@@ -547,34 +516,58 @@ pub struct ClockSelectorDescriptor {
 }
 
 impl ClockSelectorDescriptor {
-    fn try_from_bytes(bytes: &[u8]) -> Result<Self, AudioInterfaceError> {
-        if bytes.len() < 7 {
-            return Err(AudioInterfaceError::InvalidDescriptor);
+    /// Maximum number of source ids that we support (at most 248).
+    pub const SUPPORTED_SOURCE_IDS: u8 = MAX_CLOCK_DESCRIPTORS as u8;
+}
+
+impl VariableSizeDescriptor for ClockSelectorDescriptor {
+    const MIN_LEN: u8 = 7;
+    const MAX_LEN: u8 = u8::MAX;
+
+    /// Matches length with the number of source ids.
+    #[inline(always)]
+    fn match_bytes_len(bytes: &[u8]) -> bool {
+        if bytes.len() < 4 {
+            return false;
         }
-        if bytes[1] != CS_INTERFACE {
-            return Err(AudioInterfaceError::InvalidDescriptor);
-        }
-        if bytes[2] != ac_descriptor::CLOCK_SELECTOR {
-            return Err(AudioInterfaceError::InvalidDescriptor);
-        }
-        let mut source_ids = Vec::new();
+        let len = bytes[0] as usize;
         let num_source_ids = bytes[4] as usize;
-        for i in 0..num_source_ids {
-            source_ids
-                .push(bytes[5 + i])
-                .map_err(|_| AudioInterfaceError::BufferFull("Too many clock source ids"))?;
+        len == 7 + num_source_ids
+    }
+}
+
+impl USBDescriptor for ClockSelectorDescriptor {
+    const BUF_SIZE: usize = 7 + Self::SUPPORTED_SOURCE_IDS as usize;
+    const DESC_TYPE: u8 = CS_INTERFACE;
+    const DESC_SUBTYPE: Option<u8> = Some(ac_descriptor::CLOCK_SELECTOR);
+    type Error = AudioInterfaceError;
+
+    fn try_from_bytes(bytes: &[u8]) -> Result<Self, AudioInterfaceError> {
+        Self::match_bytes(bytes)?;
+        let mut source_ids = Vec::new();
+        let num_source_ids = bytes[4];
+        if num_source_ids as usize > source_ids.capacity() {
+            return Err(AudioInterfaceError::BufferFull("Too many clock source ids"));
+        }
+        for i in 0..num_source_ids as usize {
+            if let Some(&source_id) = bytes.get(5 + i) {
+                let result = source_ids.push(source_id);
+                debug_assert!(result.is_ok(), "push must work");
+            } else {
+                debug_assert!(false, "source_id must exist");
+            }
         }
         Ok(Self {
             clock_id: bytes[3],
             source_ids,
-            controls_bitmap: bytes[5 + num_source_ids as usize],
-            clock_name: bytes[6 + num_source_ids as usize],
+            controls_bitmap: *bytes.get(5 + num_source_ids as usize).unwrap_or(&0),
+            clock_name: *bytes.get(6 + num_source_ids as usize).unwrap_or(&0),
         })
     }
 }
 
-/// Clock multiplier descriptor for frequency multiplication.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Clock multiplier descriptor for frequency multiplication. (USB Audio Devices 2.0 §4.7.2.3)
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ClockMultiplierDescriptor {
     /// Unique identifier for this clock multiplier.
@@ -587,21 +580,18 @@ pub struct ClockMultiplierDescriptor {
     pub clock_name: StringIndex,
 }
 
-impl USBDescriptor for ClockMultiplierDescriptor {
-    const SIZE: usize = 7;
-    const DESC_TYPE: u8 = CS_INTERFACE;
-    type Error = AudioInterfaceError;
+impl ExtendableDescriptor for ClockMultiplierDescriptor {
+    const MIN_LEN: u8 = 7;
+}
 
-    fn try_from_bytes(bytes: &[u8]) -> Result<Self, AudioInterfaceError> {
-        if bytes.len() < Self::SIZE {
-            return Err(AudioInterfaceError::InvalidDescriptor);
-        }
-        if bytes[1] != Self::DESC_TYPE {
-            return Err(AudioInterfaceError::InvalidDescriptor);
-        }
-        if bytes[2] != ac_descriptor::CLOCK_MULTIPLIER {
-            return Err(AudioInterfaceError::InvalidDescriptor);
-        }
+impl USBDescriptor for ClockMultiplierDescriptor {
+    const BUF_SIZE: usize = Self::MIN_LEN as usize;
+    const DESC_TYPE: u8 = CS_INTERFACE;
+    const DESC_SUBTYPE: Option<u8> = Some(ac_descriptor::CLOCK_MULTIPLIER);
+    type Error = DescriptorError;
+
+    fn try_from_bytes(bytes: &[u8]) -> Result<Self, DescriptorError> {
+        Self::match_bytes(bytes)?;
         Ok(Self {
             clock_id: bytes[3],
             source_id: bytes[4],
@@ -612,7 +602,7 @@ impl USBDescriptor for ClockMultiplierDescriptor {
 }
 
 /// Enumeration of terminal descriptor types.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum TerminalDescriptor {
     /// Input terminal descriptor.
@@ -621,21 +611,27 @@ pub enum TerminalDescriptor {
     Output(OutputTerminalDescriptor),
 }
 
-impl TerminalDescriptor {
-    fn try_from_bytes(bytes: &[u8]) -> Result<Self, ()> {
-        if bytes.len() < 3 {
-            return Err(());
-        }
-        if bytes[1] != CS_INTERFACE {
-            return Err(());
-        }
+impl ExtendableDescriptor for TerminalDescriptor {
+    const MIN_LEN: u8 = 3;
+}
+
+impl USBDescriptor for TerminalDescriptor {
+    // can hold any subdescriptor that is supported
+    const BUF_SIZE: usize = const_max![InputTerminalDescriptor::BUF_SIZE, OutputTerminalDescriptor::BUF_SIZE,];
+    const DESC_TYPE: u8 = CS_INTERFACE;
+    type Error = DescriptorError;
+
+    fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
+        Self::match_bytes(bytes)?;
         match bytes[2] {
             ac_descriptor::INPUT_TERMINAL => Ok(Self::Input(InputTerminalDescriptor::try_from_bytes(bytes)?)),
             ac_descriptor::OUTPUT_TERMINAL => Ok(Self::Output(OutputTerminalDescriptor::try_from_bytes(bytes)?)),
-            _ => Err(()),
+            _ => Err(DescriptorError::BadDescriptorType),
         }
     }
+}
 
+impl TerminalDescriptor {
     /// Returns the terminal ID for this descriptor.
     pub fn terminal_id(&self) -> u8 {
         match self {
@@ -816,8 +812,8 @@ fn terminal_type_from_u16(terminal_type: u16) -> TerminalType {
     }
 }
 
-/// Input terminal descriptor for audio input sources.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Input terminal descriptor for audio input sources. (USB Audio Devices 2.0 §4.7.2.4)
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct InputTerminalDescriptor {
     /// Unique identifier for this input terminal.
@@ -840,21 +836,18 @@ pub struct InputTerminalDescriptor {
     pub terminal_name: StringIndex,
 }
 
+impl ExtendableDescriptor for InputTerminalDescriptor {
+    const MIN_LEN: u8 = 17;
+}
+
 impl USBDescriptor for InputTerminalDescriptor {
-    const SIZE: usize = 17;
+    const BUF_SIZE: usize = Self::MIN_LEN as usize;
     const DESC_TYPE: u8 = CS_INTERFACE;
-    type Error = ();
+    const DESC_SUBTYPE: Option<u8> = Some(ac_descriptor::INPUT_TERMINAL);
+    type Error = DescriptorError;
 
     fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
-        if bytes.len() != Self::SIZE {
-            return Err(());
-        }
-        if bytes[1] != Self::DESC_TYPE {
-            return Err(());
-        }
-        if bytes[2] != ac_descriptor::INPUT_TERMINAL {
-            return Err(());
-        }
+        Self::match_bytes(bytes)?;
         Ok(Self {
             terminal_id: bytes[3],
             terminal_type: terminal_type_from_u16(u16::from_le_bytes([bytes[4], bytes[5]])),
@@ -869,8 +862,8 @@ impl USBDescriptor for InputTerminalDescriptor {
     }
 }
 
-/// Output terminal descriptor for audio output destinations.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Output terminal descriptor for audio output destinations. (USB Audio Devices 2.0 §4.7.2.5)
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct OutputTerminalDescriptor {
     /// Unique identifier for this output terminal.
@@ -889,21 +882,18 @@ pub struct OutputTerminalDescriptor {
     pub terminal_name: StringIndex,
 }
 
+impl ExtendableDescriptor for OutputTerminalDescriptor {
+    const MIN_LEN: u8 = 12;
+}
+
 impl USBDescriptor for OutputTerminalDescriptor {
-    const SIZE: usize = 12;
+    const BUF_SIZE: usize = Self::MIN_LEN as usize;
     const DESC_TYPE: u8 = CS_INTERFACE;
-    type Error = ();
+    const DESC_SUBTYPE: Option<u8> = Some(ac_descriptor::OUTPUT_TERMINAL);
+    type Error = DescriptorError;
 
     fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
-        if bytes.len() != Self::SIZE {
-            return Err(());
-        }
-        if bytes[1] != Self::DESC_TYPE {
-            return Err(());
-        }
-        if bytes[2] != ac_descriptor::OUTPUT_TERMINAL {
-            return Err(());
-        }
+        Self::match_bytes(bytes)?;
         Ok(Self {
             terminal_id: bytes[3],
             terminal_type: terminal_type_from_u16(u16::from_le_bytes([bytes[4], bytes[5]])),
@@ -917,37 +907,37 @@ impl USBDescriptor for OutputTerminalDescriptor {
 }
 
 /// Enumeration of unit descriptor types for audio processing units.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum UnitDescriptor {
-    /// Mixer unit with unit ID.
+    /// Mixer unit with unit ID. (USB Audio Devices 2.0 §4.7.2.6)
     Mixer(u8),
-    /// Selector unit with unit ID.
+    /// Selector unit with unit ID. (USB Audio Devices 2.0 §4.7.2.7)
     Selector(u8),
-    /// Feature unit with unit ID.
+    /// Feature unit with unit ID. (USB Audio Devices 2.0 §4.7.2.8)
     Feature(u8),
-    /// Processing unit with unit ID.
+    /// Processing unit with unit ID. (USB Audio Devices 2.0 §4.7.2.11)
     Processing(u8),
-    /// Effect unit with unit ID.
+    /// Effect unit with unit ID. (USB Audio Devices 2.0 §4.7.2.10)
     Effect(u8),
-    /// Sample rate converter unit with unit ID.
+    /// Sample rate converter unit with unit ID. (USB Audio Devices 2.0 §4.7.2.9)
     SampleRateConverter(u8),
-    /// Extension unit with unit ID.
+    /// Extension unit with unit ID. (USB Audio Devices 2.0 §4.7.2.12)
     Extension(u8),
 }
 
+impl ExtendableDescriptor for UnitDescriptor {
+    const MIN_LEN: u8 = 4;
+}
+
 impl USBDescriptor for UnitDescriptor {
-    const SIZE: usize = 4; // This is not the true size; Will become variable
+    // This is not the true size; Will become variable
+    const BUF_SIZE: usize = Self::MIN_LEN as usize;
     const DESC_TYPE: u8 = CS_INTERFACE;
-    type Error = ();
+    type Error = DescriptorError;
 
     fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
-        if bytes.len() < Self::SIZE {
-            return Err(());
-        }
-        if bytes[1] != Self::DESC_TYPE {
-            return Err(());
-        }
+        Self::match_bytes(bytes)?;
         match bytes[2] {
             ac_descriptor::MIXER_UNIT => Ok(Self::Mixer(bytes[3])),
             ac_descriptor::SELECTOR_UNIT => Ok(Self::Selector(bytes[3])),
@@ -956,7 +946,7 @@ impl USBDescriptor for UnitDescriptor {
             ac_descriptor::EFFECT_UNIT => Ok(Self::Effect(bytes[3])),
             ac_descriptor::SAMPLE_RATE_CONVERTER => Ok(Self::SampleRateConverter(bytes[3])),
             ac_descriptor::EXTENSION_UNIT => Ok(Self::Extension(bytes[3])),
-            _ => Err(()),
+            _ => Err(DescriptorError::BadDescriptorType),
         }
     }
 }
@@ -1017,8 +1007,8 @@ impl AudioStreamingInterface {
     }
 }
 
-/// Audio streaming class descriptor containing format and channel information.
-#[derive(Debug, Clone, PartialEq)]
+/// Audio streaming class descriptor containing format and channel information. (USB Audio Devices 2.0 §4.9.2)
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct AudioStreamingClassDescriptor {
     /// Terminal link ID connecting to the control interface.
@@ -1035,26 +1025,23 @@ pub struct AudioStreamingClassDescriptor {
     pub channel_name: StringIndex,
 }
 
+impl ExtendableDescriptor for AudioStreamingClassDescriptor {
+    const MIN_LEN: u8 = 16;
+}
+
 impl USBDescriptor for AudioStreamingClassDescriptor {
-    const SIZE: usize = 16;
+    const BUF_SIZE: usize = Self::MIN_LEN as usize;
     const DESC_TYPE: u8 = CS_INTERFACE;
-    type Error = ();
+    const DESC_SUBTYPE: Option<u8> = Some(as_descriptor::GENERAL);
+    type Error = DescriptorError;
 
     fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
-        if bytes.len() < Self::SIZE {
-            return Err(());
-        }
-        if bytes[1] != Self::DESC_TYPE {
-            return Err(());
-        }
-        if bytes[2] != as_descriptor::GENERAL {
-            return Err(());
-        }
+        Self::match_bytes(bytes)?;
         let format =
             format_type::Format::from_u32(bytes[5], u32::from_le_bytes([bytes[6], bytes[7], bytes[8], bytes[9]]));
         if format.is_none() {
             error!("Invalid format type descriptor: type {:?}", bytes[5]);
-            return Err(());
+            return Err(DescriptorError::BadDescriptorData);
         }
         Ok(Self {
             terminal_link_id: bytes[3],
@@ -1067,8 +1054,8 @@ impl USBDescriptor for AudioStreamingClassDescriptor {
     }
 }
 
-/// Audio-specific endpoint descriptor containing audio endpoint attributes.
-#[derive(Debug, Clone, PartialEq)]
+/// Audio-specific endpoint descriptor containing audio endpoint attributes. (USB Audio Devices 2.0 §4.10.1.2)
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct AudioEndpointDescriptor {
     /// Bitmap of endpoint attributes.
@@ -1081,21 +1068,18 @@ pub struct AudioEndpointDescriptor {
     pub lock_delay: u16,
 }
 
+impl ExtendableDescriptor for AudioEndpointDescriptor {
+    const MIN_LEN: u8 = 8;
+}
+
 impl USBDescriptor for AudioEndpointDescriptor {
-    const SIZE: usize = 6;
+    const BUF_SIZE: usize = Self::MIN_LEN as usize;
     const DESC_TYPE: u8 = descriptor_type::CS_ENDPOINT;
-    type Error = ();
+    const DESC_SUBTYPE: Option<u8> = Some(as_descriptor::GENERAL);
+    type Error = DescriptorError;
 
     fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
-        if bytes.len() < Self::SIZE {
-            return Err(());
-        }
-        if bytes[1] != Self::DESC_TYPE {
-            return Err(());
-        }
-        if bytes[2] != as_descriptor::GENERAL {
-            return Err(());
-        }
+        Self::match_bytes(bytes)?;
         Ok(Self {
             attributes_bitmap: bytes[3],
             controls_bitmap: bytes[4],
@@ -1106,42 +1090,70 @@ impl USBDescriptor for AudioEndpointDescriptor {
 }
 
 /// Enumeration of format type descriptors for different audio formats.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FormatTypeDescriptor {
-    /// Type I format (PCM, PCM8, etc.).
+    /// Type I format (PCM, PCM8, etc.). (USB Audio Data Formats 2.0 §2.3.1.6)
     I(FormatTypeI),
-    /// Type II format (MPEG, AC-3, etc.).
+    /// Type II format (MPEG, AC-3, etc.). (USB Audio Data Formats 2.0 §2.3.2.6)
     II(FormatTypeII),
-    /// Type III format (IEC1937_AC-3, IEC1937_MPEG-1_Layer1, etc.).
+    /// Type III format (IEC1937_AC-3, IEC1937_MPEG-1_Layer1, etc.). (USB Audio Data Formats 2.0 §2.3.3.1)
     III(FormatTypeIII),
-    /// Type IV format.
+    /// Type IV format. (USB Audio Data Formats 2.0 §2.3.4.1)
     IV,
-    /// Extended Type I format.
+    /// Extended Type I format. (USB Audio Data Formats 2.0 §2.4.1.1)
     ExtendedI(FormatTypeExtendedI),
-    /// Extended Type II format.
+    /// Extended Type II format. (USB Audio Data Formats 2.0 §2.4.2.1)
     ExtendedII(FormatTypeExtendedII),
-    /// Extended Type III format.
+    /// Extended Type III format. (USB Audio Data Formats 2.0 §2.4.3.1)
     ExtendedIII(FormatTypeExtendedIII),
 }
 
 impl FormatTypeDescriptor {
-    fn try_from_bytes(bytes: &[u8]) -> Result<Self, ()> {
-        if bytes.len() < 4 {
-            // minimum length of a format type descriptor
-            return Err(());
-        }
+    /// Size of the byte buffer for [FormatTypeDescriptor::I].
+    pub const BUF_SIZE_I: usize = 6;
+    /// Size of the byte buffer for [FormatTypeDescriptor::II].
+    pub const BUF_SIZE_II: usize = 8;
+    /// Size of the byte buffer for [FormatTypeDescriptor::III].
+    pub const BUF_SIZE_III: usize = 6;
+    /// Size of the byte buffer for [FormatTypeDescriptor::IV].
+    pub const BUF_SIZE_IV: usize = 4;
+    /// Size of the byte buffer for [FormatTypeDescriptor::ExtendedI].
+    pub const BUF_SIZE_EXTENDED_I: usize = 9;
+    /// Size of the byte buffer for [FormatTypeDescriptor::ExtendedII].
+    pub const BUF_SIZE_EXTENDED_II: usize = 10;
+    /// Size of the byte buffer for [FormatTypeDescriptor::ExtendedIII].
+    pub const BUF_SIZE_EXTENDED_III: usize = 8;
+}
+
+impl ExtendableDescriptor for FormatTypeDescriptor {
+    const MIN_LEN: u8 = 4;
+}
+
+impl USBDescriptor for FormatTypeDescriptor {
+    const BUF_SIZE: usize = const_max![
+        Self::BUF_SIZE_I,
+        Self::BUF_SIZE_II,
+        Self::BUF_SIZE_III,
+        Self::BUF_SIZE_IV,
+        Self::BUF_SIZE_EXTENDED_I,
+        Self::BUF_SIZE_EXTENDED_II,
+        Self::BUF_SIZE_EXTENDED_III,
+    ];
+    const DESC_TYPE: u8 = CS_INTERFACE;
+    const DESC_SUBTYPE: Option<u8> = Some(as_descriptor::FORMAT_TYPE);
+    type Error = DescriptorError;
+
+    fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
+        Self::match_bytes(bytes)?;
         let len = bytes[0] as usize;
-        if bytes[1] != CS_INTERFACE {
-            return Err(());
-        }
-        if bytes[2] != as_descriptor::FORMAT_TYPE {
-            return Err(());
+        if bytes.len() < len {
+            return Err(DescriptorError::UnexpectedEndOfBuffer);
         }
         match bytes[3] {
             format_type::I => {
-                if len != 6 {
-                    return Err(());
+                if len != Self::BUF_SIZE_I {
+                    return Err(DescriptorError::BadDescriptorSize);
                 }
                 Ok(Self::I(FormatTypeI {
                     subslot_size: bytes[4],
@@ -1149,8 +1161,8 @@ impl FormatTypeDescriptor {
                 }))
             }
             format_type::II => {
-                if len != 8 {
-                    return Err(());
+                if len != Self::BUF_SIZE_II {
+                    return Err(DescriptorError::BadDescriptorSize);
                 }
                 Ok(Self::II(FormatTypeII {
                     max_bit_rate: u16::from_le_bytes([bytes[4], bytes[5]]),
@@ -1158,8 +1170,8 @@ impl FormatTypeDescriptor {
                 }))
             }
             format_type::III => {
-                if len != 6 {
-                    return Err(());
+                if len != Self::BUF_SIZE_III {
+                    return Err(DescriptorError::BadDescriptorSize);
                 }
                 Ok(Self::III(FormatTypeIII {
                     subslot_size: bytes[4],
@@ -1168,8 +1180,8 @@ impl FormatTypeDescriptor {
             }
             format_type::IV => Ok(Self::IV),
             format_type::EXT_I => {
-                if len != 9 {
-                    return Err(());
+                if len != Self::BUF_SIZE_EXTENDED_I {
+                    return Err(DescriptorError::BadDescriptorSize);
                 }
                 Ok(Self::ExtendedI(FormatTypeExtendedI {
                     subslot_size: bytes[4],
@@ -1180,8 +1192,8 @@ impl FormatTypeDescriptor {
                 }))
             }
             format_type::EXT_II => {
-                if len != 10 {
-                    return Err(());
+                if len != Self::BUF_SIZE_EXTENDED_II {
+                    return Err(DescriptorError::BadDescriptorSize);
                 }
                 Ok(Self::ExtendedII(FormatTypeExtendedII {
                     max_bit_rate: u16::from_le_bytes([bytes[4], bytes[5]]),
@@ -1191,8 +1203,8 @@ impl FormatTypeDescriptor {
                 }))
             }
             format_type::EXT_III => {
-                if len != 8 {
-                    return Err(());
+                if len != Self::BUF_SIZE_EXTENDED_III {
+                    return Err(DescriptorError::BadDescriptorSize);
                 }
                 Ok(Self::ExtendedIII(FormatTypeExtendedIII {
                     subslot_size: bytes[4],
@@ -1201,13 +1213,13 @@ impl FormatTypeDescriptor {
                     sideband_protocol: bytes[7],
                 }))
             }
-            _ => Err(()),
+            _ => Err(DescriptorError::BadDescriptorData),
         }
     }
 }
 
 /// Type I format descriptor for PCM-like formats.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FormatTypeI {
     /// Size of each subslot in bytes.
@@ -1217,7 +1229,7 @@ pub struct FormatTypeI {
 }
 
 /// Type II format descriptor for compressed formats.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FormatTypeII {
     /// Maximum bit rate in bits per second.
@@ -1227,7 +1239,7 @@ pub struct FormatTypeII {
 }
 
 /// Type III format descriptor for IEC formats.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FormatTypeIII {
     /// Size of each subslot in bytes.
@@ -1237,7 +1249,7 @@ pub struct FormatTypeIII {
 }
 
 /// Extended Type I format descriptor.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FormatTypeExtendedI {
     /// Size of each subslot in bytes.
@@ -1253,7 +1265,7 @@ pub struct FormatTypeExtendedI {
 }
 
 /// Extended Type II format descriptor.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FormatTypeExtendedII {
     /// Maximum bit rate in bits per second.
@@ -1267,7 +1279,7 @@ pub struct FormatTypeExtendedII {
 }
 
 /// Extended Type III format descriptor.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FormatTypeExtendedIII {
     /// Size of each subslot in bytes.
@@ -1342,15 +1354,15 @@ mod test {
             7, 33, 7, 250, 0, 64, 0, // DFU Functional Descriptor
         ];
         buffer[..descriptors.len()].copy_from_slice(&descriptors);
-        let descriptor = ConfigurationDescriptor {
-            len: 0,
-            descriptor_type: 0,
-            total_len: 0,
-            num_interfaces: 0,
-            configuration_value: 1,
-            configuration_name: 0,
-            attributes: 0,
-            max_power: 0,
+        let descriptor = ConfigurationDescriptorChain {
+            descriptor: ConfigurationDescriptor {
+                total_len: 0,
+                num_interfaces: 0,
+                configuration_value: 1,
+                configuration_name: 0,
+                attributes: 0,
+                max_power: 0,
+            },
             buffer: &buffer,
         };
         let mut expected_clock_descriptors = FnvIndexMap::<u8, ClockDescriptor, MAX_CLOCK_DESCRIPTORS>::new();
@@ -1446,8 +1458,6 @@ mod test {
             },
             control_interface: AudioControlInterface {
                 interface_descriptors: Vec::from_slice(&[InterfaceDescriptor {
-                    len: 9,
-                    descriptor_type: 4,
                     interface_number: 0,
                     alternate_setting: 0,
                     num_endpoints: 0,
@@ -1471,8 +1481,6 @@ mod test {
                 AudioStreamingInterface {
                     interface_descriptors: Vec::from_slice(&[
                         InterfaceDescriptor {
-                            len: 9,
-                            descriptor_type: 4,
                             interface_number: 1,
                             alternate_setting: 0,
                             num_endpoints: 0,
@@ -1482,8 +1490,6 @@ mod test {
                             interface_name: 8,
                         },
                         InterfaceDescriptor {
-                            len: 9,
-                            descriptor_type: 4,
                             interface_number: 1,
                             alternate_setting: 1,
                             num_endpoints: 2,
@@ -1503,16 +1509,12 @@ mod test {
                         channel_name: 18,
                     },
                     endpoint_descriptor: Some(EndpointDescriptor {
-                        len: 7,
-                        descriptor_type: 5,
                         endpoint_address: 1,
                         attributes: 5,
                         max_packet_size: 512,
                         interval: 1,
                     }),
                     feedback_endpoint_descriptor: Some(EndpointDescriptor {
-                        len: 7,
-                        descriptor_type: 5,
                         endpoint_address: 129,
                         attributes: 17,
                         max_packet_size: 4,
@@ -1532,8 +1534,6 @@ mod test {
                 AudioStreamingInterface {
                     interface_descriptors: Vec::from_slice(&[
                         InterfaceDescriptor {
-                            len: 9,
-                            descriptor_type: 4,
                             interface_number: 2,
                             alternate_setting: 0,
                             num_endpoints: 0,
@@ -1543,8 +1543,6 @@ mod test {
                             interface_name: 10,
                         },
                         InterfaceDescriptor {
-                            len: 9,
-                            descriptor_type: 4,
                             interface_number: 2,
                             alternate_setting: 1,
                             num_endpoints: 1,
@@ -1564,8 +1562,6 @@ mod test {
                         channel_name: 50,
                     },
                     endpoint_descriptor: Some(EndpointDescriptor {
-                        len: 7,
-                        descriptor_type: 5,
                         endpoint_address: 130,
                         attributes: 5,
                         max_packet_size: 512,

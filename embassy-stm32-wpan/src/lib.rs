@@ -21,7 +21,7 @@
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
-#[cfg(feature = "wba")]
+#[cfg(all(feature = "wba", feature = "wb-hci"))]
 pub mod bluetooth;
 
 #[cfg(feature = "wb")]

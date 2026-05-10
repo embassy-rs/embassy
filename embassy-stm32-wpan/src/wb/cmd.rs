@@ -1,8 +1,8 @@
 use core::ptr;
 use core::sync::atomic::{Ordering, compiler_fence};
 
-use crate::consts::TlPacketType;
 use crate::wb::PacketHeader;
+use crate::wb::consts::TlPacketType;
 
 #[derive(Copy, Clone)]
 #[repr(C, packed)]
@@ -83,6 +83,7 @@ pub struct AclDataSerial {
     pub acl_data: [u8; 1],
 }
 
+#[allow(dead_code)]
 #[derive(Copy, Clone)]
 #[repr(C, packed)]
 pub struct AclDataSerialStub {
@@ -99,6 +100,7 @@ pub struct AclDataPacket {
 }
 
 impl AclDataPacket {
+    #[allow(dead_code)]
     pub unsafe fn write_into(cmd_buf: *mut AclDataPacket, packet_type: TlPacketType, handle: u16, payload: &[u8]) {
         let p_cmd_serial = (cmd_buf as *mut u8).add(size_of::<PacketHeader>());
         let p_payload = p_cmd_serial.add(size_of::<AclDataSerialStub>());

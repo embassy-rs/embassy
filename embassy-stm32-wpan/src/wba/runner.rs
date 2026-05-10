@@ -44,9 +44,6 @@ use embassy_time::Timer;
 use super::{linklayer_plat, util_seq};
 use crate::util::Flag;
 
-// BleStack_Process return values
-pub(crate) const BLE_SLEEPMODE_RUNNING: u8 = 0;
-
 /// Ble runner task initialized
 pub(crate) static BLE_INIT: Flag = Flag::new(false);
 

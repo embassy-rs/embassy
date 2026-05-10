@@ -76,49 +76,33 @@ unsafe extern "C" fn ll_sys_event_missed_cb(_ptr_evnt_hdr: ble_buff_hdr_p) {
  */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ll_sys_ble_cntrl_init(host_callback: hst_cbk) {
-    #[cfg(feature = "defmt")]
-    defmt::trace!("ll_sys_ble_cntrl_init: starting");
+    trace!("ll_sys_ble_cntrl_init: starting");
 
     let p_hci_dis_tbl: *const hci_dispatch_tbl = core::ptr::null();
 
     hci_get_dis_tbl(&p_hci_dis_tbl as *const *const _ as *mut *const _);
-    #[cfg(feature = "defmt")]
-    defmt::trace!("ll_sys_ble_cntrl_init: hci_get_dis_tbl done");
+
+    trace!("ll_sys_ble_cntrl_init: hci_get_dis_tbl done");
 
     ll_intf_init(p_hci_dis_tbl);
-    #[cfg(feature = "defmt")]
-    defmt::trace!("ll_sys_ble_cntrl_init: ll_intf_init done");
+
+    trace!("ll_sys_ble_cntrl_init: ll_intf_init done");
 
     ll_intf_rgstr_hst_cbk(host_callback);
-    #[cfg(feature = "defmt")]
-    defmt::trace!("ll_sys_ble_cntrl_init: ll_intf_rgstr_hst_cbk done");
+
+    trace!("ll_sys_ble_cntrl_init: ll_intf_rgstr_hst_cbk done");
 
     ll_intf_rgstr_hst_cbk_ll_queue_full(Some(ll_sys_event_missed_cb));
-    #[cfg(feature = "defmt")]
-    defmt::trace!("ll_sys_ble_cntrl_init: ll_intf_rgstr_hst_cbk_ll_queue_full done");
+
+    trace!("ll_sys_ble_cntrl_init: ll_intf_rgstr_hst_cbk_ll_queue_full done");
 
     ll_sys_dependencies_init();
-    #[cfg(feature = "defmt")]
-    defmt::trace!("ll_sys_ble_cntrl_init: ll_sys_dependencies_init done");
+
+    trace!("ll_sys_ble_cntrl_init: ll_sys_dependencies_init done");
 }
 
 // NOTE: init_ble_link_layer and init_ble_link_layer_minimal have been removed.
 // Use init_ble_stack() instead, which uses BleStack_Init for proper initialization.
-
-#[cfg(feature = "wba-ble")]
-/// Complete the BLE link layer initialization
-/// This should be called after the sequencer is running
-pub fn complete_ble_link_layer_init() {
-    #[cfg(feature = "defmt")]
-    defmt::trace!("complete_ble_link_layer_init: starting");
-
-    unsafe {
-        ll_sys_dependencies_init();
-    }
-
-    #[cfg(feature = "defmt")]
-    defmt::trace!("complete_ble_link_layer_init: done");
-}
 
 // ========================================================================
 // BleStack_Init based initialization (recommended approach)
@@ -262,25 +246,22 @@ pub fn init_ble_stack() -> Result<(), u8> {
 
     use crate::wba::linklayer_plat::LINKLAYER_PLAT_ClockInit;
 
-    #[cfg(feature = "defmt")]
-    defmt::info!("init_ble_stack: starting BLE stack initialization");
+    info!("init_ble_stack: starting BLE stack initialization");
 
-    #[cfg(feature = "defmt")]
     {
-        defmt::debug!("init_ble_stack: buffer sizes:");
-        defmt::debug!("  DYN_ALLOC_BUFFER: {} bytes", dyn_alloc_buffer_size());
-        defmt::debug!("  GATT_BUFFER: {} bytes", gatt_buffer_size());
-        defmt::debug!("  mblockCount: {}", mblock_count());
-        defmt::debug!("  numOfLinks: {}", CFG_BLE_NUM_LINK);
-        defmt::debug!("  attMtu: {}", CFG_BLE_ATT_MTU_MAX);
+        debug!("init_ble_stack: buffer sizes:");
+        debug!("  DYN_ALLOC_BUFFER: {} bytes", dyn_alloc_buffer_size());
+        debug!("  GATT_BUFFER: {} bytes", gatt_buffer_size());
+        debug!("  mblockCount: {}", mblock_count());
+        debug!("  numOfLinks: {}", CFG_BLE_NUM_LINK);
+        debug!("  attMtu: {}", CFG_BLE_ATT_MTU_MAX);
     }
 
     unsafe {
         // 1. Enable radio clock first
         LINKLAYER_PLAT_ClockInit();
 
-        #[cfg(feature = "defmt")]
-        defmt::trace!("init_ble_stack: clock init done");
+        trace!("init_ble_stack: clock init done");
 
         // 2. Prepare BleStack_init_t structure
         let init_params = BleStack_init_t {
@@ -311,26 +292,22 @@ pub fn init_ble_stack() -> Result<(), u8> {
             debug: 0x10, // BLE_DEBUG_RAND_ADDR_INIT - required for random address support
         };
 
-        #[cfg(feature = "defmt")]
-        defmt::trace!("init_ble_stack: calling BleStack_Init");
+        trace!("init_ble_stack: calling BleStack_Init");
 
         // 3. Initialize the BLE stack
         let status: tBleStatus = BleStack_Init(&init_params);
 
         if status != BLE_STATUS_SUCCESS {
-            #[cfg(feature = "defmt")]
-            defmt::error!("init_ble_stack: BleStack_Init failed with status 0x{:02X}", status);
+            error!("init_ble_stack: BleStack_Init failed with status 0x{:02X}", status);
             return Err(status);
         }
 
-        #[cfg(feature = "defmt")]
-        defmt::trace!("init_ble_stack: BleStack_Init succeeded");
+        trace!("init_ble_stack: BleStack_Init succeeded");
 
         // Note: ll_sys_dependencies_init() is already called by ll_sys_ble_cntrl_init()
         // which is invoked internally by BleStack_Init(). No need to call it again here.
 
-        #[cfg(feature = "defmt")]
-        defmt::info!("init_ble_stack: BLE stack initialized successfully");
+        info!("init_ble_stack: BLE stack initialized successfully");
     }
 
     Ok(())
@@ -371,41 +348,35 @@ unsafe extern "C" fn ll_sys_thread_init() {
 unsafe fn ll_sys_dependencies_init() {
     let dp_slp_status: ll_sys_status_t;
 
-    #[cfg(feature = "defmt")]
-    defmt::trace!("ll_sys_dependencies_init: starting");
+    trace!("ll_sys_dependencies_init: starting");
 
     /* Ensure Link Layer resources are created only once */
     if IS_LL_INITIALIZED == 1 {
-        #[cfg(feature = "defmt")]
-        defmt::trace!("ll_sys_dependencies_init: already initialized");
+        trace!("ll_sys_dependencies_init: already initialized");
         return;
     }
     IS_LL_INITIALIZED = 1;
 
     /* Deep sleep feature initialization */
-    #[cfg(feature = "defmt")]
-    defmt::trace!("ll_sys_dependencies_init: calling ll_sys_dp_slp_init");
+    trace!("ll_sys_dependencies_init: calling ll_sys_dp_slp_init");
     dp_slp_status = ll_sys_dp_slp_init();
-    #[cfg(feature = "defmt")]
-    defmt::trace!(
+    trace!(
         "ll_sys_dependencies_init: ll_sys_dp_slp_init done, status={}",
         dp_slp_status
     );
     ll_sys_assert((dp_slp_status == LL_SYS_STATUS_T_LL_SYS_OK) as u8);
 
     /* Background task initialization */
-    #[cfg(feature = "defmt")]
-    defmt::trace!("ll_sys_dependencies_init: calling ll_sys_bg_process_init");
+
+    trace!("ll_sys_dependencies_init: calling ll_sys_bg_process_init");
     ll_sys_bg_process_init();
-    #[cfg(feature = "defmt")]
-    defmt::trace!("ll_sys_dependencies_init: ll_sys_bg_process_init done");
+    trace!("ll_sys_dependencies_init: ll_sys_bg_process_init done");
 
     /* Link Layer user parameters application */
-    #[cfg(feature = "defmt")]
-    defmt::trace!("ll_sys_dependencies_init: calling ll_sys_config_params");
+
+    trace!("ll_sys_dependencies_init: calling ll_sys_config_params");
     ll_sys_config_params();
-    #[cfg(feature = "defmt")]
-    defmt::trace!("ll_sys_dependencies_init: ll_sys_config_params done");
+    trace!("ll_sys_dependencies_init: ll_sys_config_params done");
 }
 
 /// Reset all BLE host stack state so that `init_ble_stack()` can safely run again.
@@ -415,7 +386,7 @@ unsafe fn ll_sys_dependencies_init() {
 /// layer background task on the next call. Must only be called after the BLE
 /// controller has been reset via `HCI_Reset`.
 #[cfg(feature = "wba-ble")]
-pub(crate) fn reset_ble_stack() {
+pub fn reset_ble_stack() {
     unsafe {
         IS_LL_INITIALIZED = 0;
         ble_buffers::DYN_ALLOC_BUFFER.0.fill(0);

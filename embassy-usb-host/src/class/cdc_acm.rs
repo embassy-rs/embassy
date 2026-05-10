@@ -6,7 +6,7 @@ use embassy_usb_driver::host::{PipeError, UsbHostAllocator, UsbPipe, pipe};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
 
 use crate::control::SetupPacket;
-use crate::descriptor::ConfigurationDescriptor;
+use crate::descriptor::ConfigurationDescriptorChain;
 use crate::handler::EnumerationInfo;
 
 /// CDC class code.
@@ -126,7 +126,7 @@ pub struct CdcAcmInfo {
 
 /// Find CDC ACM interfaces in a configuration descriptor.
 pub fn find_cdc_acm(config_desc: &[u8]) -> Option<CdcAcmInfo> {
-    let cfg = ConfigurationDescriptor::try_from_slice(config_desc).ok()?;
+    let cfg = ConfigurationDescriptorChain::try_from_slice(config_desc).ok()?;
 
     let mut comm_iface: Option<u8> = None;
     let mut data_iface: Option<u8> = None;

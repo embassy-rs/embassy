@@ -2,13 +2,16 @@
 #![allow(missing_docs)]
 
 use core::num::NonZeroU8;
+use core::ops::Deref;
 
 use bitflags::bitflags;
 use embassy_usb_driver::host::{HostError, UsbHostAllocator, UsbPipe, pipe};
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType};
 
 use crate::control::ControlPipeExt;
-use crate::descriptor::{DEFAULT_MAX_DESCRIPTOR_SIZE, InterfaceDescriptor, USBDescriptor};
+use crate::descriptor::{
+    DEFAULT_MAX_DESCRIPTOR_SIZE, DescriptorError, InterfaceDescriptor, USBDescriptor, VariableSizeDescriptor,
+};
 use crate::handler::{EnumerationInfo, HandlerEvent, RegisterError};
 
 #[repr(C)]
@@ -67,7 +70,7 @@ impl<'d, A: UsbHostAllocator<'d>> KbdHandler<'d, A> {
             .iter_interface()
             .find(|v| {
                 matches!(
-                    v,
+                    v.deref(),
                     InterfaceDescriptor {
                         interface_class: 0x03,
                         interface_subclass: 0x1,
@@ -150,33 +153,63 @@ bitflags! {
     }
 }
 
-/// HID class descriptor (type 0x21).
+/// USB HID class descriptor.
+///
+/// This descriptor identifies subordinate class descriptors. (USB HID 1.11 §6.2.1)
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct HIDDescriptor {
-    pub len: u8,
-    pub descriptor_type: u8,
+    /// USB HID specification version that the class descriptors comply to.
     pub bcd_hid: u16,
+    /// Country code.
+    ///
+    /// For country code 0, the hardware is not localized.
+    ///
+    /// Keyboards may use this field to identify the language of the key caps.
     pub country_code: u8,
+    /// Number of class descriptors.
     pub num_descriptors: u8,
+    /// Type of the class descriptor 0.
     pub descriptor_type0: u8,
+    /// Length of the class descriptor 0.
     pub descriptor_length0: u16,
 }
 
+impl HIDDescriptor {
+    /// Maximum number of class descriptors that we support (at most 83).
+    pub const SUPPORTED_DESCRIPTORS: u8 = 1;
+}
+
+impl VariableSizeDescriptor for HIDDescriptor {
+    const MIN_LEN: u8 = 6 + 3; // a Report descriptor is always present
+    const MAX_LEN: u8 = 6 + (u8::MAX - 6) / 3;
+
+    /// Matches length with the number of class descriptors.
+    fn match_bytes_len(bytes: &[u8]) -> bool {
+        if bytes.len() < 6 {
+            return false;
+        }
+        let len = bytes[0] as usize;
+        let num_descriptors = bytes[5] as usize;
+        len == 6 + 3 * num_descriptors
+    }
+}
+
 impl USBDescriptor for HIDDescriptor {
-    const SIZE: usize = 9;
-    const DESC_TYPE: u8 = 33;
-    type Error = ();
+    const BUF_SIZE: usize = 6 + 3 * Self::SUPPORTED_DESCRIPTORS as usize;
+    const DESC_TYPE: u8 = 0x21;
+    type Error = DescriptorError;
 
     fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
-        if bytes.len() < Self::SIZE || bytes[1] != Self::DESC_TYPE {
-            return Err(());
+        Self::match_bytes(bytes)?;
+        let num_descriptors = bytes[5];
+        if num_descriptors > Self::SUPPORTED_DESCRIPTORS {
+            return Err(DescriptorError::NotImplemented);
         }
         Ok(Self {
-            len: bytes[0],
-            descriptor_type: bytes[1],
             bcd_hid: u16::from_le_bytes([bytes[2], bytes[3]]),
             country_code: bytes[4],
-            num_descriptors: bytes[5],
+            num_descriptors,
             descriptor_type0: bytes[6],
             descriptor_length0: u16::from_le_bytes([bytes[7], bytes[8]]),
         })

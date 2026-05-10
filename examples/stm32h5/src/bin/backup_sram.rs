@@ -16,16 +16,19 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(config);
     info!("Started!");
 
-    let (bytes, status) = BackupMemory::new(p.BKPSRAM);
+    let mut backup_ram = BackupMemory::new(p.BKPSRAM);
 
-    match status {
+    match backup_ram.is_retained() {
         false => info!("BKPSRAM just enabled"),
         true => info!("BKPSRAM already enabled"),
     }
 
     loop {
+        let mut bytes = [0];
+        backup_ram.read(0, &mut bytes);
         info!("byte0: {}", bytes[0]);
         bytes[0] = bytes[0].wrapping_add(1);
+        backup_ram.write(0, &bytes);
         Timer::after_millis(500).await;
     }
 }

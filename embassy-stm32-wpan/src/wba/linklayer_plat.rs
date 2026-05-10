@@ -97,9 +97,9 @@ use embassy_time::{Duration, Instant, block_for};
 use stm32_bindings::ble::BLEPLATCB_TimerExpiry;
 
 use crate::controller::ChannelPacket;
-use crate::host_if::{TASK_BLE_HOST_MASK, TASK_PRIO_BLE_HOST};
-use crate::util_seq;
 use crate::wba::bindings::{link_layer, mac};
+use crate::wba::host_if::{TASK_BLE_HOST_MASK, TASK_PRIO_BLE_HOST};
+use crate::wba::util_seq;
 
 // RADIO interrupt numbers for STM32WBA
 // RADIO interrupt is position 66
@@ -1854,13 +1854,14 @@ pub unsafe extern "C" fn BLEPLAT_PkaReadDhKey(dh_key: *mut u32) -> i32 {
 /// BLE stack HCI event indication callback
 /// This is called by the BLE stack when HCI events arrive
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn BLECB_Indication(data: *const u8, length: u16, _ext_data: *const u8, _ext_length: u16) -> u8 {
+pub unsafe extern "C" fn BLECB_Indication(data: *const u8, length: u16, ext_data: *const u8, ext_length: u16) -> u8 {
     if data.is_null() || length == 0 {
         return 1; // Error
     }
 
     // Convert to slice
     let event_data = core::slice::from_raw_parts(data, length as usize);
+    let ext_data = core::slice::from_raw_parts(ext_data, ext_length as usize);
 
     trace!(
         "BLECB_Indication: event_code=0x{:02X}, length={}",
@@ -1872,32 +1873,41 @@ pub unsafe extern "C" fn BLECB_Indication(data: *const u8, length: u16, _ext_dat
     // Byte 1: Event code (0x05=Disconnect, 0x3E=LE Meta, 0xFF=Vendor)
     // Byte 2: Parameter total length
     // Byte 3+: Event parameters
-    let evt_code = if length >= 2 { event_data[1] } else { event_data[0] };
 
-    if evt_code == 0x05 {
-        let status = if length >= 4 { event_data[3] } else { 0 };
-        let handle = if length >= 6 {
-            u16::from_le_bytes([event_data[4], event_data[5]])
+    if event_data.len() > 0 && event_data[0] == 4 {
+        let evt_code = if length >= 2 { event_data[1] } else { event_data[0] };
+
+        if evt_code == 0x05 {
+            let status = if length >= 4 { event_data[3] } else { 0 };
+            let handle = if length >= 6 {
+                u16::from_le_bytes([event_data[4], event_data[5]])
+            } else {
+                0
+            };
+            let reason = if length >= 7 { event_data[6] } else { 0 };
+            debug!(
+                "HCI Event: Disconnection Complete (status=0x{:02X}, handle=0x{:04X}, reason=0x{:02X})",
+                status, handle, reason
+            );
+        } else if evt_code == 0x3E {
+            let sub_code = if length >= 4 { event_data[3] } else { 0 };
+            debug!("HCI Event: LE Meta (sub=0x{:02X}, len={})", sub_code, length);
         } else {
-            0
-        };
-        let reason = if length >= 7 { event_data[6] } else { 0 };
-        info!(
-            "HCI Event: Disconnection Complete (status=0x{:02X}, handle=0x{:04X}, reason=0x{:02X})",
-            status, handle, reason
-        );
-    } else if evt_code == 0x3E {
-        let sub_code = if length >= 4 { event_data[3] } else { 0 };
-        info!("HCI Event: LE Meta (sub=0x{:02X}, len={})", sub_code, length);
+            debug!("HCI Event: code=0x{:02X}, len={}", evt_code, length);
+        }
     } else {
-        info!("HCI Event: code=0x{:02X}, len={}", evt_code, length);
+        debug!("Other Event: {:x}", event_data[..10.min(event_data.len())]);
+
+        // TODO: handle these events
+
+        // return 0;
     }
 
     let Some(mut slot) = unsafe { EVENT_CHANNEL.as_mut() }.unwrap().try_send() else {
         return 0;
     };
 
-    slot.copy_from(event_data);
+    slot.copy_from(event_data, ext_data);
     slot.send_done();
 
     util_seq::UTIL_SEQ_SetTask(TASK_BLE_HOST_MASK, TASK_PRIO_BLE_HOST);

@@ -728,13 +728,13 @@ impl_ppi_group!(PPI20_GROUP5, DPPIC20, 5);
 impl_ppi_group!(PPI30_GROUP0, DPPIC30, 0);
 impl_ppi_group!(PPI30_GROUP1, DPPIC30, 1);
 
-impl_timer!(TIMER00, TIMER00, TIMER00);
-impl_timer!(TIMER10, TIMER10, TIMER10);
-impl_timer!(TIMER20, TIMER20, TIMER20);
-impl_timer!(TIMER21, TIMER21, TIMER21);
-impl_timer!(TIMER22, TIMER22, TIMER22);
-impl_timer!(TIMER23, TIMER23, TIMER23);
-impl_timer!(TIMER24, TIMER24, TIMER24);
+impl_timer!(TIMER00, TIMER00, TIMER00, 6);
+impl_timer!(TIMER10, TIMER10, TIMER10, 8);
+impl_timer!(TIMER20, TIMER20, TIMER20, 6);
+impl_timer!(TIMER21, TIMER21, TIMER21, 6);
+impl_timer!(TIMER22, TIMER22, TIMER22, 6);
+impl_timer!(TIMER23, TIMER23, TIMER23, 6);
+impl_timer!(TIMER24, TIMER24, TIMER24, 6);
 
 impl_twim!(SERIAL20, TWIM20, SERIAL20);
 impl_twim!(SERIAL21, TWIM21, SERIAL21);
