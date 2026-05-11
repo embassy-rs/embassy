@@ -253,7 +253,7 @@ impl Info {
 }
 
 pub mod sealed {
-    pub trait Sealed {}
+    pub trait Sealed<P> {}
 
     pub trait Instance: crate::clocks::Gate<MrccPeriphConfig = crate::clocks::periph_helpers::FlexspiConfig> {
         fn info() -> &'static super::Info;
@@ -349,7 +349,17 @@ macro_rules! impl_flexspi_instance {
     };
 }
 
-pub trait Pin<T: Instance>: GpioPin + sealed::Sealed + PeripheralType {
+/// Flexspi port A
+pub struct A;
+/// Flexspi port B
+pub struct B;
+
+/// Marker trait indicating a type is a port
+pub trait Port {}
+impl Port for A {}
+impl Port for B {}
+
+pub trait Pin<T: Instance, P: Port>: GpioPin + sealed::Sealed<P> + PeripheralType {
     fn mux(&self) {
         self.set_pull(Pull::Disabled);
         self.set_slew_rate(SlewRate::Fast.into());
@@ -362,9 +372,9 @@ pub trait Pin<T: Instance>: GpioPin + sealed::Sealed + PeripheralType {
 #[doc(hidden)]
 #[macro_export]
 macro_rules! impl_flexspi_pin {
-    ($pin:ident, $peri:ident) => {
-        impl crate::flexspi::sealed::Sealed for crate::peripherals::$pin {}
-        impl crate::flexspi::Pin<crate::peripherals::$peri> for crate::peripherals::$pin {}
+    ($pin:ident, $peri:ident, $port:ident) => {
+        impl crate::flexspi::sealed::Sealed<crate::flexspi::$port> for crate::peripherals::$pin {}
+        impl crate::flexspi::Pin<crate::peripherals::$peri, crate::flexspi::$port> for crate::peripherals::$pin {}
     };
 }
 
@@ -481,16 +491,16 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
         self.interrupt_mode
     }
 
-    pub fn new_blocking(
+    pub fn new_blocking<P: Port>(
         peri: Peri<'d, T>,
-        pin0: Peri<'d, impl Pin<T> + 'd>,
-        pin1: Peri<'d, impl Pin<T> + 'd>,
-        pin2: Peri<'d, impl Pin<T> + 'd>,
-        pin3: Peri<'d, impl Pin<T> + 'd>,
-        pin4: Peri<'d, impl Pin<T> + 'd>,
-        pin5: Peri<'d, impl Pin<T> + 'd>,
-        pin6: Peri<'d, impl Pin<T> + 'd>,
-        pin7: Peri<'d, impl Pin<T> + 'd>,
+        pin0: Peri<'d, impl Pin<T, P> + 'd>,
+        pin1: Peri<'d, impl Pin<T, P> + 'd>,
+        pin2: Peri<'d, impl Pin<T, P> + 'd>,
+        pin3: Peri<'d, impl Pin<T, P> + 'd>,
+        pin4: Peri<'d, impl Pin<T, P> + 'd>,
+        pin5: Peri<'d, impl Pin<T, P> + 'd>,
+        pin6: Peri<'d, impl Pin<T, P> + 'd>,
+        pin7: Peri<'d, impl Pin<T, P> + 'd>,
         clock: ClockConfig,
         flash: FlashConfig,
     ) -> Result<Self, SetupError> {
@@ -522,16 +532,16 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
         )
     }
 
-    pub fn new_async(
+    pub fn new_async<P: Port>(
         peri: Peri<'d, T>,
-        pin0: Peri<'d, impl Pin<T> + 'd>,
-        pin1: Peri<'d, impl Pin<T> + 'd>,
-        pin2: Peri<'d, impl Pin<T> + 'd>,
-        pin3: Peri<'d, impl Pin<T> + 'd>,
-        pin4: Peri<'d, impl Pin<T> + 'd>,
-        pin5: Peri<'d, impl Pin<T> + 'd>,
-        pin6: Peri<'d, impl Pin<T> + 'd>,
-        pin7: Peri<'d, impl Pin<T> + 'd>,
+        pin0: Peri<'d, impl Pin<T, P> + 'd>,
+        pin1: Peri<'d, impl Pin<T, P> + 'd>,
+        pin2: Peri<'d, impl Pin<T, P> + 'd>,
+        pin3: Peri<'d, impl Pin<T, P> + 'd>,
+        pin4: Peri<'d, impl Pin<T, P> + 'd>,
+        pin5: Peri<'d, impl Pin<T, P> + 'd>,
+        pin6: Peri<'d, impl Pin<T, P> + 'd>,
+        pin7: Peri<'d, impl Pin<T, P> + 'd>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clock: ClockConfig,
         flash: FlashConfig,
@@ -569,16 +579,16 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
         Ok(driver)
     }
 
-    pub fn new_with_dma(
+    pub fn new_with_dma<P: Port>(
         peri: Peri<'d, T>,
-        pin0: Peri<'d, impl Pin<T> + 'd>,
-        pin1: Peri<'d, impl Pin<T> + 'd>,
-        pin2: Peri<'d, impl Pin<T> + 'd>,
-        pin3: Peri<'d, impl Pin<T> + 'd>,
-        pin4: Peri<'d, impl Pin<T> + 'd>,
-        pin5: Peri<'d, impl Pin<T> + 'd>,
-        pin6: Peri<'d, impl Pin<T> + 'd>,
-        pin7: Peri<'d, impl Pin<T> + 'd>,
+        pin0: Peri<'d, impl Pin<T, P> + 'd>,
+        pin1: Peri<'d, impl Pin<T, P> + 'd>,
+        pin2: Peri<'d, impl Pin<T, P> + 'd>,
+        pin3: Peri<'d, impl Pin<T, P> + 'd>,
+        pin4: Peri<'d, impl Pin<T, P> + 'd>,
+        pin5: Peri<'d, impl Pin<T, P> + 'd>,
+        pin6: Peri<'d, impl Pin<T, P> + 'd>,
+        pin7: Peri<'d, impl Pin<T, P> + 'd>,
         tx_dma: Peri<'d, impl Channel>,
         rx_dma: Peri<'d, impl Channel>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
@@ -1451,16 +1461,16 @@ pub struct Flexspi<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> Flexspi<'d, T> {
-    pub fn new_blocking(
+    pub fn new_blocking<P: Port>(
         peri: Peri<'d, T>,
-        pin0: Peri<'d, impl Pin<T> + 'd>,
-        pin1: Peri<'d, impl Pin<T> + 'd>,
-        pin2: Peri<'d, impl Pin<T> + 'd>,
-        pin3: Peri<'d, impl Pin<T> + 'd>,
-        pin4: Peri<'d, impl Pin<T> + 'd>,
-        pin5: Peri<'d, impl Pin<T> + 'd>,
-        pin6: Peri<'d, impl Pin<T> + 'd>,
-        pin7: Peri<'d, impl Pin<T> + 'd>,
+        pin0: Peri<'d, impl Pin<T, P> + 'd>,
+        pin1: Peri<'d, impl Pin<T, P> + 'd>,
+        pin2: Peri<'d, impl Pin<T, P> + 'd>,
+        pin3: Peri<'d, impl Pin<T, P> + 'd>,
+        pin4: Peri<'d, impl Pin<T, P> + 'd>,
+        pin5: Peri<'d, impl Pin<T, P> + 'd>,
+        pin6: Peri<'d, impl Pin<T, P> + 'd>,
+        pin7: Peri<'d, impl Pin<T, P> + 'd>,
         clock: ClockConfig,
         flash: FlashConfig,
     ) -> Result<Self, SetupError> {
@@ -1469,16 +1479,16 @@ impl<'d, T: Instance> Flexspi<'d, T> {
         })
     }
 
-    pub fn new_async(
+    pub fn new_async<P: Port>(
         peri: Peri<'d, T>,
-        pin0: Peri<'d, impl Pin<T> + 'd>,
-        pin1: Peri<'d, impl Pin<T> + 'd>,
-        pin2: Peri<'d, impl Pin<T> + 'd>,
-        pin3: Peri<'d, impl Pin<T> + 'd>,
-        pin4: Peri<'d, impl Pin<T> + 'd>,
-        pin5: Peri<'d, impl Pin<T> + 'd>,
-        pin6: Peri<'d, impl Pin<T> + 'd>,
-        pin7: Peri<'d, impl Pin<T> + 'd>,
+        pin0: Peri<'d, impl Pin<T, P> + 'd>,
+        pin1: Peri<'d, impl Pin<T, P> + 'd>,
+        pin2: Peri<'d, impl Pin<T, P> + 'd>,
+        pin3: Peri<'d, impl Pin<T, P> + 'd>,
+        pin4: Peri<'d, impl Pin<T, P> + 'd>,
+        pin5: Peri<'d, impl Pin<T, P> + 'd>,
+        pin6: Peri<'d, impl Pin<T, P> + 'd>,
+        pin7: Peri<'d, impl Pin<T, P> + 'd>,
         irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clock: ClockConfig,
         flash: FlashConfig,
@@ -1488,16 +1498,16 @@ impl<'d, T: Instance> Flexspi<'d, T> {
         })
     }
 
-    pub fn new_with_dma(
+    pub fn new_with_dma<P: Port>(
         peri: Peri<'d, T>,
-        pin0: Peri<'d, impl Pin<T> + 'd>,
-        pin1: Peri<'d, impl Pin<T> + 'd>,
-        pin2: Peri<'d, impl Pin<T> + 'd>,
-        pin3: Peri<'d, impl Pin<T> + 'd>,
-        pin4: Peri<'d, impl Pin<T> + 'd>,
-        pin5: Peri<'d, impl Pin<T> + 'd>,
-        pin6: Peri<'d, impl Pin<T> + 'd>,
-        pin7: Peri<'d, impl Pin<T> + 'd>,
+        pin0: Peri<'d, impl Pin<T, P> + 'd>,
+        pin1: Peri<'d, impl Pin<T, P> + 'd>,
+        pin2: Peri<'d, impl Pin<T, P> + 'd>,
+        pin3: Peri<'d, impl Pin<T, P> + 'd>,
+        pin4: Peri<'d, impl Pin<T, P> + 'd>,
+        pin5: Peri<'d, impl Pin<T, P> + 'd>,
+        pin6: Peri<'d, impl Pin<T, P> + 'd>,
+        pin7: Peri<'d, impl Pin<T, P> + 'd>,
         tx_dma: Peri<'d, impl Channel>,
         rx_dma: Peri<'d, impl Channel>,
         irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
@@ -1517,16 +1527,16 @@ pub struct NorFlash<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> NorFlash<'d, T> {
-    pub fn new_blocking(
+    pub fn new_blocking<P: Port>(
         peri: Peri<'d, T>,
-        pin0: Peri<'d, impl Pin<T> + 'd>,
-        pin1: Peri<'d, impl Pin<T> + 'd>,
-        pin2: Peri<'d, impl Pin<T> + 'd>,
-        pin3: Peri<'d, impl Pin<T> + 'd>,
-        pin4: Peri<'d, impl Pin<T> + 'd>,
-        pin5: Peri<'d, impl Pin<T> + 'd>,
-        pin6: Peri<'d, impl Pin<T> + 'd>,
-        pin7: Peri<'d, impl Pin<T> + 'd>,
+        pin0: Peri<'d, impl Pin<T, P> + 'd>,
+        pin1: Peri<'d, impl Pin<T, P> + 'd>,
+        pin2: Peri<'d, impl Pin<T, P> + 'd>,
+        pin3: Peri<'d, impl Pin<T, P> + 'd>,
+        pin4: Peri<'d, impl Pin<T, P> + 'd>,
+        pin5: Peri<'d, impl Pin<T, P> + 'd>,
+        pin6: Peri<'d, impl Pin<T, P> + 'd>,
+        pin7: Peri<'d, impl Pin<T, P> + 'd>,
         clock: ClockConfig,
         flash: FlashConfig,
     ) -> Result<Self, SetupError> {
@@ -1535,16 +1545,16 @@ impl<'d, T: Instance> NorFlash<'d, T> {
         )?))
     }
 
-    pub fn new_async(
+    pub fn new_async<P: Port>(
         peri: Peri<'d, T>,
-        pin0: Peri<'d, impl Pin<T> + 'd>,
-        pin1: Peri<'d, impl Pin<T> + 'd>,
-        pin2: Peri<'d, impl Pin<T> + 'd>,
-        pin3: Peri<'d, impl Pin<T> + 'd>,
-        pin4: Peri<'d, impl Pin<T> + 'd>,
-        pin5: Peri<'d, impl Pin<T> + 'd>,
-        pin6: Peri<'d, impl Pin<T> + 'd>,
-        pin7: Peri<'d, impl Pin<T> + 'd>,
+        pin0: Peri<'d, impl Pin<T, P> + 'd>,
+        pin1: Peri<'d, impl Pin<T, P> + 'd>,
+        pin2: Peri<'d, impl Pin<T, P> + 'd>,
+        pin3: Peri<'d, impl Pin<T, P> + 'd>,
+        pin4: Peri<'d, impl Pin<T, P> + 'd>,
+        pin5: Peri<'d, impl Pin<T, P> + 'd>,
+        pin6: Peri<'d, impl Pin<T, P> + 'd>,
+        pin7: Peri<'d, impl Pin<T, P> + 'd>,
         irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clock: ClockConfig,
         flash: FlashConfig,
@@ -1554,16 +1564,16 @@ impl<'d, T: Instance> NorFlash<'d, T> {
         )?))
     }
 
-    pub fn new_with_dma(
+    pub fn new_with_dma<P: Port>(
         peri: Peri<'d, T>,
-        pin0: Peri<'d, impl Pin<T> + 'd>,
-        pin1: Peri<'d, impl Pin<T> + 'd>,
-        pin2: Peri<'d, impl Pin<T> + 'd>,
-        pin3: Peri<'d, impl Pin<T> + 'd>,
-        pin4: Peri<'d, impl Pin<T> + 'd>,
-        pin5: Peri<'d, impl Pin<T> + 'd>,
-        pin6: Peri<'d, impl Pin<T> + 'd>,
-        pin7: Peri<'d, impl Pin<T> + 'd>,
+        pin0: Peri<'d, impl Pin<T, P> + 'd>,
+        pin1: Peri<'d, impl Pin<T, P> + 'd>,
+        pin2: Peri<'d, impl Pin<T, P> + 'd>,
+        pin3: Peri<'d, impl Pin<T, P> + 'd>,
+        pin4: Peri<'d, impl Pin<T, P> + 'd>,
+        pin5: Peri<'d, impl Pin<T, P> + 'd>,
+        pin6: Peri<'d, impl Pin<T, P> + 'd>,
+        pin7: Peri<'d, impl Pin<T, P> + 'd>,
         tx_dma: Peri<'d, impl Channel>,
         rx_dma: Peri<'d, impl Channel>,
         irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,

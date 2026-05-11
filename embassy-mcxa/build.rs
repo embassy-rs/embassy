@@ -394,18 +394,18 @@ fn generate_flexspi_pin_impls() -> TokenStream {
     for flexspi in METADATA.peripherals.iter().filter(|p| flexspi_regex.is_match(p.name)) {
         let flexspi_name = format_ident!("{}", flexspi.name);
 
-        let mut emitted_pins = std::collections::HashSet::new();
         for signal in flexspi.signals {
+            let mut name_split = signal.name.split("_");
+            let port = format_ident!("{}", name_split.next().unwrap());
+            let signal_name = name_split.next().unwrap();
+
             for pin in signal.pins {
-                if !emitted_pins.insert(pin.pin) {
-                    continue;
-                }
                 let pin_name = format_ident!("{}", pin.pin);
                 let feature_gate = pin_feature_gate(pin.pin);
 
                 generated.extend(quote! {
                     #feature_gate
-                    crate::impl_flexspi_pin!(#pin_name, #flexspi_name);
+                    crate::impl_flexspi_pin!(#pin_name, #flexspi_name, #port);
                 });
             }
         }
