@@ -24,11 +24,11 @@ use embassy_sync::waitqueue::AtomicWaker;
 use crate::clocks::periph_helpers::{Div4, FlexspiClockSel, FlexspiConfig as FlexspiClockConfig};
 use crate::clocks::{ClockError, PoweredClock, WakeGuard, enable_and_reset};
 use crate::dma::{Channel, DmaChannel, TransferOptions};
-use crate::gpio::{AnyPin, DriveStrength, GpioPin, Pull, SlewRate};
+use crate::gpio::{DriveStrength, GpioPin, Pull, SlewRate};
 use crate::interrupt::typelevel::{Handler, Interrupt};
 pub use crate::pac::flexspi::Flexspi as Regs;
 use crate::pac::flexspi::{
-    Ahbcr, Ahbrxbuf0cr0, Flsha1cr0, Flshcr1, Flshcr2, Flshcr4, Intr, Ipcmd, Ipcr0, Ipcr1, Iprxfcr, Iptxfcr, Lut, Lutcr,
+    Ahbcr, Ahbrxbuf0cr0, Flshcr0, Flshcr1, Flshcr2, Flshcr4, Intr, Ipcmd, Ipcr0, Ipcr1, Iprxfcr, Iptxfcr, Lut, Lutcr,
     Lutkey, Mcr0, Tfdr,
 };
 use crate::{interrupt, pac};
@@ -369,12 +369,24 @@ pub trait Pin<T: Instance, P: Port>: GpioPin + sealed::Sealed<P> + PeripheralTyp
     }
 }
 
+pub trait Data0Pin<T: Instance, P: Port>: Pin<T, P> {}
+pub trait Data1Pin<T: Instance, P: Port>: Pin<T, P> {}
+pub trait Data2Pin<T: Instance, P: Port>: Pin<T, P> {}
+pub trait Data3Pin<T: Instance, P: Port>: Pin<T, P> {}
+pub trait DqsPin<T: Instance, P: Port>: Pin<T, P> {}
+pub trait SclkPin<T: Instance, P: Port>: Pin<T, P> {}
+pub trait Ss0Pin<T: Instance, P: Port>: Pin<T, P> {}
+pub trait Ss1Pin<T: Instance, P: Port>: Pin<T, P> {}
+
 #[doc(hidden)]
 #[macro_export]
 macro_rules! impl_flexspi_pin {
-    ($pin:ident, $peri:ident, $port:ident) => {
-        impl crate::flexspi::sealed::Sealed<crate::flexspi::$port> for crate::peripherals::$pin {}
-        impl crate::flexspi::Pin<crate::peripherals::$peri, crate::flexspi::$port> for crate::peripherals::$pin {}
+    ($pin:ident, $peri:ident, $port:ident, $signal: ident) => {
+        paste::paste! {
+            impl crate::flexspi::sealed::Sealed<crate::flexspi::$port> for crate::peripherals::$pin {}
+            impl crate::flexspi::Pin<crate::peripherals::$peri, crate::flexspi::$port> for crate::peripherals::$pin {}
+            impl crate::flexspi::[<$signal Pin>]<crate::peripherals::$peri, crate::flexspi::$port> for crate::peripherals::$pin {}
+        }
     };
 }
 
@@ -478,7 +490,6 @@ struct DmaState<'d> {
 struct InnerFlexSpi<'d, T: Instance> {
     _peri: Peri<'d, T>,
     regs: Regs,
-    _pins: [Peri<'d, AnyPin>; 8],
     dma: Option<DmaState<'d>>,
     interrupt_mode: bool,
     flash: FlashConfig,
@@ -491,149 +502,8 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
         self.interrupt_mode
     }
 
-    pub fn new_blocking<P: Port>(
-        peri: Peri<'d, T>,
-        pin0: Peri<'d, impl Pin<T, P> + 'd>,
-        pin1: Peri<'d, impl Pin<T, P> + 'd>,
-        pin2: Peri<'d, impl Pin<T, P> + 'd>,
-        pin3: Peri<'d, impl Pin<T, P> + 'd>,
-        pin4: Peri<'d, impl Pin<T, P> + 'd>,
-        pin5: Peri<'d, impl Pin<T, P> + 'd>,
-        pin6: Peri<'d, impl Pin<T, P> + 'd>,
-        pin7: Peri<'d, impl Pin<T, P> + 'd>,
-        clock: ClockConfig,
-        flash: FlashConfig,
-    ) -> Result<Self, SetupError> {
-        pin0.mux();
-        pin1.mux();
-        pin2.mux();
-        pin3.mux();
-        pin4.mux();
-        pin5.mux();
-        pin6.mux();
-        pin7.mux();
-
-        Self::new_inner(
-            peri,
-            [
-                pin0.into(),
-                pin1.into(),
-                pin2.into(),
-                pin3.into(),
-                pin4.into(),
-                pin5.into(),
-                pin6.into(),
-                pin7.into(),
-            ],
-            None,
-            false,
-            clock,
-            flash,
-        )
-    }
-
-    pub fn new_async<P: Port>(
-        peri: Peri<'d, T>,
-        pin0: Peri<'d, impl Pin<T, P> + 'd>,
-        pin1: Peri<'d, impl Pin<T, P> + 'd>,
-        pin2: Peri<'d, impl Pin<T, P> + 'd>,
-        pin3: Peri<'d, impl Pin<T, P> + 'd>,
-        pin4: Peri<'d, impl Pin<T, P> + 'd>,
-        pin5: Peri<'d, impl Pin<T, P> + 'd>,
-        pin6: Peri<'d, impl Pin<T, P> + 'd>,
-        pin7: Peri<'d, impl Pin<T, P> + 'd>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        clock: ClockConfig,
-        flash: FlashConfig,
-    ) -> Result<Self, SetupError> {
-        pin0.mux();
-        pin1.mux();
-        pin2.mux();
-        pin3.mux();
-        pin4.mux();
-        pin5.mux();
-        pin6.mux();
-        pin7.mux();
-
-        let driver = Self::new_inner(
-            peri,
-            [
-                pin0.into(),
-                pin1.into(),
-                pin2.into(),
-                pin3.into(),
-                pin4.into(),
-                pin5.into(),
-                pin6.into(),
-                pin7.into(),
-            ],
-            None,
-            true,
-            clock,
-            flash,
-        )?;
-
-        T::Interrupt::unpend();
-        unsafe { T::Interrupt::enable() };
-
-        Ok(driver)
-    }
-
-    pub fn new_with_dma<P: Port>(
-        peri: Peri<'d, T>,
-        pin0: Peri<'d, impl Pin<T, P> + 'd>,
-        pin1: Peri<'d, impl Pin<T, P> + 'd>,
-        pin2: Peri<'d, impl Pin<T, P> + 'd>,
-        pin3: Peri<'d, impl Pin<T, P> + 'd>,
-        pin4: Peri<'d, impl Pin<T, P> + 'd>,
-        pin5: Peri<'d, impl Pin<T, P> + 'd>,
-        pin6: Peri<'d, impl Pin<T, P> + 'd>,
-        pin7: Peri<'d, impl Pin<T, P> + 'd>,
-        tx_dma: Peri<'d, impl Channel>,
-        rx_dma: Peri<'d, impl Channel>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        clock: ClockConfig,
-        flash: FlashConfig,
-    ) -> Result<Self, SetupError> {
-        pin0.mux();
-        pin1.mux();
-        pin2.mux();
-        pin3.mux();
-        pin4.mux();
-        pin5.mux();
-        pin6.mux();
-        pin7.mux();
-
-        let driver = Self::new_inner(
-            peri,
-            [
-                pin0.into(),
-                pin1.into(),
-                pin2.into(),
-                pin3.into(),
-                pin4.into(),
-                pin5.into(),
-                pin6.into(),
-                pin7.into(),
-            ],
-            Some(DmaState {
-                tx_dma: DmaChannel::new(tx_dma),
-                rx_dma: DmaChannel::new(rx_dma),
-            }),
-            true,
-            clock,
-            flash,
-        )?;
-
-        T::Interrupt::unpend();
-        unsafe { T::Interrupt::enable() };
-
-        Ok(driver)
-    }
-
     fn new_inner(
         peri: Peri<'d, T>,
-        pins: [Peri<'d, AnyPin>; 8],
         dma: Option<DmaState<'d>>,
         interrupt_mode: bool,
         clock: ClockConfig,
@@ -654,7 +524,6 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
         let mut flash_driver = Self {
             _peri: peri,
             regs: T::regs(),
-            _pins: pins,
             dma,
             interrupt_mode,
             flash,
@@ -663,6 +532,12 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
         };
 
         flash_driver.initialize()?;
+
+        if interrupt_mode {
+            T::Interrupt::unpend();
+            unsafe { T::Interrupt::enable() };
+        }
+
         Ok(flash_driver)
     }
 
@@ -836,7 +711,7 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
             r.set_priority(0);
             r.set_prefetchen(pac::flexspi::Ahbrxbuf0cr0Prefetchen::Value1);
         });
-        self.regs.flsha1cr0().write(|r: &mut Flsha1cr0| {
+        self.regs.flshcr0(0).write(|r: &mut Flshcr0| {
             r.set_flshsz(self.flash.flash_size_kbytes);
         });
         self.regs.flshcr1(0).write(|r: &mut Flshcr1| {
@@ -1474,8 +1349,17 @@ impl<'d, T: Instance> Flexspi<'d, T> {
         clock: ClockConfig,
         flash: FlashConfig,
     ) -> Result<Self, SetupError> {
+        pin0.mux();
+        pin1.mux();
+        pin2.mux();
+        pin3.mux();
+        pin4.mux();
+        pin5.mux();
+        pin6.mux();
+        pin7.mux();
+
         Ok(Self {
-            inner: InnerFlexSpi::new_blocking(peri, pin0, pin1, pin2, pin3, pin4, pin5, pin6, pin7, clock, flash)?,
+            inner: InnerFlexSpi::new_inner(peri, None, false, clock, flash)?,
         })
     }
 
@@ -1489,12 +1373,21 @@ impl<'d, T: Instance> Flexspi<'d, T> {
         pin5: Peri<'d, impl Pin<T, P> + 'd>,
         pin6: Peri<'d, impl Pin<T, P> + 'd>,
         pin7: Peri<'d, impl Pin<T, P> + 'd>,
-        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clock: ClockConfig,
         flash: FlashConfig,
     ) -> Result<Self, SetupError> {
+        pin0.mux();
+        pin1.mux();
+        pin2.mux();
+        pin3.mux();
+        pin4.mux();
+        pin5.mux();
+        pin6.mux();
+        pin7.mux();
+
         Ok(Self {
-            inner: InnerFlexSpi::new_async(peri, pin0, pin1, pin2, pin3, pin4, pin5, pin6, pin7, irq, clock, flash)?,
+            inner: InnerFlexSpi::new_inner(peri, None, true, clock, flash)?,
         })
     }
 
@@ -1510,13 +1403,29 @@ impl<'d, T: Instance> Flexspi<'d, T> {
         pin7: Peri<'d, impl Pin<T, P> + 'd>,
         tx_dma: Peri<'d, impl Channel>,
         rx_dma: Peri<'d, impl Channel>,
-        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clock: ClockConfig,
         flash: FlashConfig,
     ) -> Result<Self, SetupError> {
+        pin0.mux();
+        pin1.mux();
+        pin2.mux();
+        pin3.mux();
+        pin4.mux();
+        pin5.mux();
+        pin6.mux();
+        pin7.mux();
+
         Ok(Self {
-            inner: InnerFlexSpi::new_with_dma(
-                peri, pin0, pin1, pin2, pin3, pin4, pin5, pin6, pin7, tx_dma, rx_dma, irq, clock, flash,
+            inner: InnerFlexSpi::new_inner(
+                peri,
+                Some(DmaState {
+                    tx_dma: DmaChannel::new(tx_dma),
+                    rx_dma: DmaChannel::new(rx_dma),
+                }),
+                true,
+                clock,
+                flash,
             )?,
         })
     }
@@ -1527,65 +1436,7 @@ pub struct NorFlash<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> NorFlash<'d, T> {
-    pub fn new_blocking<P: Port>(
-        peri: Peri<'d, T>,
-        pin0: Peri<'d, impl Pin<T, P> + 'd>,
-        pin1: Peri<'d, impl Pin<T, P> + 'd>,
-        pin2: Peri<'d, impl Pin<T, P> + 'd>,
-        pin3: Peri<'d, impl Pin<T, P> + 'd>,
-        pin4: Peri<'d, impl Pin<T, P> + 'd>,
-        pin5: Peri<'d, impl Pin<T, P> + 'd>,
-        pin6: Peri<'d, impl Pin<T, P> + 'd>,
-        pin7: Peri<'d, impl Pin<T, P> + 'd>,
-        clock: ClockConfig,
-        flash: FlashConfig,
-    ) -> Result<Self, SetupError> {
-        Ok(Self::from_flexspi(Flexspi::new_blocking(
-            peri, pin0, pin1, pin2, pin3, pin4, pin5, pin6, pin7, clock, flash,
-        )?))
-    }
-
-    pub fn new_async<P: Port>(
-        peri: Peri<'d, T>,
-        pin0: Peri<'d, impl Pin<T, P> + 'd>,
-        pin1: Peri<'d, impl Pin<T, P> + 'd>,
-        pin2: Peri<'d, impl Pin<T, P> + 'd>,
-        pin3: Peri<'d, impl Pin<T, P> + 'd>,
-        pin4: Peri<'d, impl Pin<T, P> + 'd>,
-        pin5: Peri<'d, impl Pin<T, P> + 'd>,
-        pin6: Peri<'d, impl Pin<T, P> + 'd>,
-        pin7: Peri<'d, impl Pin<T, P> + 'd>,
-        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        clock: ClockConfig,
-        flash: FlashConfig,
-    ) -> Result<Self, SetupError> {
-        Ok(Self::from_flexspi(Flexspi::new_async(
-            peri, pin0, pin1, pin2, pin3, pin4, pin5, pin6, pin7, irq, clock, flash,
-        )?))
-    }
-
-    pub fn new_with_dma<P: Port>(
-        peri: Peri<'d, T>,
-        pin0: Peri<'d, impl Pin<T, P> + 'd>,
-        pin1: Peri<'d, impl Pin<T, P> + 'd>,
-        pin2: Peri<'d, impl Pin<T, P> + 'd>,
-        pin3: Peri<'d, impl Pin<T, P> + 'd>,
-        pin4: Peri<'d, impl Pin<T, P> + 'd>,
-        pin5: Peri<'d, impl Pin<T, P> + 'd>,
-        pin6: Peri<'d, impl Pin<T, P> + 'd>,
-        pin7: Peri<'d, impl Pin<T, P> + 'd>,
-        tx_dma: Peri<'d, impl Channel>,
-        rx_dma: Peri<'d, impl Channel>,
-        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        clock: ClockConfig,
-        flash: FlashConfig,
-    ) -> Result<Self, SetupError> {
-        Ok(Self::from_flexspi(Flexspi::new_with_dma(
-            peri, pin0, pin1, pin2, pin3, pin4, pin5, pin6, pin7, tx_dma, rx_dma, irq, clock, flash,
-        )?))
-    }
-
-    pub fn from_flexspi(flexspi: Flexspi<'d, T>) -> Self {
+    pub fn new(flexspi: Flexspi<'d, T>) -> Self {
         Self { flexspi }
     }
 

@@ -2,11 +2,13 @@
 #![no_main]
 
 use defmt::{assert, assert_eq, info, panic, unwrap};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_mcxa as hal;
 use embassy_time::Timer;
 use hal::config::Config;
 use hal::flexspi::{ClockConfig as FlexspiClockConfig, Flexspi, NorFlash};
-use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+use panic_probe as _;
 
 #[path = "../flexspi_common.rs"]
 mod flexspi_common;
@@ -38,7 +40,7 @@ async fn main(_spawner: Spawner) {
         FLASH_CONFIG,
     ));
 
-    let mut flash = NorFlash::from_flexspi(flexspi);
+    let mut flash = NorFlash::new(flexspi);
 
     // 1) Vendor ID is idempotent.
     let id_a = unwrap!(flash.blocking_vendor_id());

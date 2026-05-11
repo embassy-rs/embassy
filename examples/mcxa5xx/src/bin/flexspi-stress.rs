@@ -79,11 +79,14 @@
 #![no_main]
 
 use defmt::{error, info, unwrap};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_mcxa as hal;
+use embassy_mcxa::flexspi::Flexspi;
 use embassy_mcxa::{Peripherals, bind_interrupts, peripherals};
 use hal::config::Config;
 use hal::flexspi::{self, ClockConfig as FlexspiClockConfig, IoError, NorFlash};
-use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+use panic_probe as _;
 
 #[path = "../flexspi_common.rs"]
 mod flexspi_common;
@@ -214,7 +217,7 @@ async fn main(_spawner: Spawner) {
 async fn blocking_phase(p: &mut Peripherals) -> u32 {
     info!("--- PHASE 1: BLOCKING ---");
 
-    let flash = NorFlash::new_blocking(
+    let flash = NorFlash::new(unwrap!(Flexspi::new_blocking(
         p.FLEXSPI0.reborrow(),
         p.P3_0.reborrow(),
         p.P3_1.reborrow(),
@@ -226,8 +229,8 @@ async fn blocking_phase(p: &mut Peripherals) -> u32 {
         p.P3_11.reborrow(),
         FlexspiClockConfig::default(),
         FLASH_CONFIG,
-    );
-    let mut flash = BlockingFlash(unwrap!(flash));
+    )));
+    let mut flash = BlockingFlash(flash);
 
     let mut failures = Failures::new();
     run_stress("blocking", &mut flash, &mut failures).await;
@@ -242,7 +245,7 @@ async fn blocking_phase(p: &mut Peripherals) -> u32 {
 async fn interrupt_phase(p: &mut Peripherals) -> u32 {
     info!("--- PHASE 2: INTERRUPT (no DMA) ---");
 
-    let flash = NorFlash::new_async(
+    let flash = NorFlash::new(unwrap!(Flexspi::new_async(
         p.FLEXSPI0.reborrow(),
         p.P3_0.reborrow(),
         p.P3_1.reborrow(),
@@ -255,8 +258,8 @@ async fn interrupt_phase(p: &mut Peripherals) -> u32 {
         Irqs,
         FlexspiClockConfig::default(),
         FLASH_CONFIG,
-    );
-    let mut flash = AsyncFlash(unwrap!(flash));
+    )));
+    let mut flash = AsyncFlash(flash);
 
     let mut failures = Failures::new();
     run_stress("interrupt", &mut flash, &mut failures).await;
@@ -271,7 +274,7 @@ async fn interrupt_phase(p: &mut Peripherals) -> u32 {
 async fn dma_phase(p: &mut Peripherals) -> u32 {
     info!("--- PHASE 3: DMA ---");
 
-    let flash = NorFlash::new_with_dma(
+    let flash = NorFlash::new(unwrap!(Flexspi::new_with_dma(
         p.FLEXSPI0.reborrow(),
         p.P3_0.reborrow(),
         p.P3_1.reborrow(),
@@ -286,8 +289,8 @@ async fn dma_phase(p: &mut Peripherals) -> u32 {
         Irqs,
         FlexspiClockConfig::default(),
         FLASH_CONFIG,
-    );
-    let mut flash = AsyncFlash(unwrap!(flash));
+    )));
+    let mut flash = AsyncFlash(flash);
 
     let mut failures = Failures::new();
     run_stress("dma", &mut flash, &mut failures).await;
