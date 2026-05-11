@@ -40,6 +40,12 @@ build = [
     {target = "riscv32imac-unknown-none-elf", features = ["platform-riscv32"]},
     {target = "riscv32imac-unknown-none-elf", features = ["platform-riscv32", "executor-thread"]},
     {target = "riscv32imac-unknown-none-elf", features = ["platform-riscv32", "executor-thread", "trace"]},
+    {target = "riscv64imac-unknown-none-elf", features = ["platform-riscv64"]},
+    {target = "riscv64imac-unknown-none-elf", features = ["platform-riscv64", "executor-thread"]},
+    {target = "riscv64imac-unknown-none-elf", features = ["platform-riscv64", "executor-thread", "trace"]},
+    {target = "riscv64gc-unknown-none-elf", features = ["platform-riscv64"]},
+    {target = "riscv64gc-unknown-none-elf", features = ["platform-riscv64", "executor-thread"]},
+    {target = "riscv64gc-unknown-none-elf", features = ["platform-riscv64", "executor-thread", "trace"]},
     # Nightly builds
     {group = "nightly", target = "thumbv7em-none-eabi", features = ["nightly"]},
     {group = "nightly", target = "thumbv7em-none-eabi", features = ["nightly", "log"]},
@@ -52,6 +58,10 @@ build = [
     {group = "nightly", target = "thumbv7em-none-eabi", features = ["nightly", "platform-cortex-m", "executor-thread", "executor-interrupt"]},
     {group = "nightly", target = "riscv32imac-unknown-none-elf", features = ["nightly", "platform-riscv32"]},
     {group = "nightly", target = "riscv32imac-unknown-none-elf", features = ["nightly", "platform-riscv32", "executor-thread"]},
+    {group = "nightly", target = "riscv64imac-unknown-none-elf", features = ["nightly", "platform-riscv64"]},
+    {group = "nightly", target = "riscv64imac-unknown-none-elf", features = ["nightly", "platform-riscv64", "executor-thread"]},
+    {group = "nightly", target = "riscv64gc-unknown-none-elf", features = ["nightly", "platform-riscv64"]},
+    {group = "nightly", target = "riscv64gc-unknown-none-elf", features = ["nightly", "platform-riscv64", "executor-thread"]},
     {group = "nightly", target = "armv7a-none-eabi", features = ["nightly", "platform-cortex-ar", "executor-thread"]},
     {group = "nightly", target = "avr-none", features = ["nightly", "platform-avr", "avr-device/atmega328p"], build-std = ["core", "alloc"], env = { RUSTFLAGS = "-Ctarget-cpu=atmega328p" }},
     # Xtensa builds
@@ -77,6 +87,7 @@ flavors = [
     { name = "wasm",            target = "wasm32-unknown-unknown",       features = ["platform-wasm", "executor-thread"] },
     { name = "cortex-m",        target = "thumbv7em-none-eabi",          features = ["platform-cortex-m", "executor-thread", "executor-interrupt"] },
     { name = "riscv32",         target = "riscv32imac-unknown-none-elf", features = ["platform-riscv32", "executor-thread"] },
+    { name = "riscv64",         target = "riscv64imac-unknown-none-elf", features = ["platform-riscv64", "executor-thread"] },
 ]
 
 [package.metadata.docs.rs]
@@ -156,11 +167,17 @@ platform-cortex-m = ["_platform", "dep:cortex-m"]
 ## - Only usable on **privileged mode**. 
 platform-cortex-ar = ["_platform", "dep:aarch32-cpu", "dep:arm-targets"]
 ## RISC-V 32-bit platform. Uses WFI for the thread executor. Interrupt executor is not supported.
-## 
+##
 ## - Only usable on **single-core chips**.
 ## - Only usable on **bare-metal**. Do not use this if you want to run the executor inside an RTOS thread, you must use RTOS primitives to sleep/notify the thread instead.
-## - Only usable on **privileged mode**. 
+## - Only usable on **privileged mode**.
 platform-riscv32 = ["_platform"]
+## RISC-V 64-bit platform. Uses WFI for the thread executor. Interrupt executor is not supported.
+##
+## - Only usable on **single-core chips**.
+## - Only usable on **bare-metal**. Do not use this if you want to run the executor inside an RTOS thread, you must use RTOS primitives to sleep/notify the thread instead.
+## - Only usable on **privileged mode**.
+platform-riscv64 = ["_platform"]
 ## WASM platform.
 platform-wasm = ["_platform", "dep:wasm-bindgen", "dep:js-sys"]
 ## AVR platform. Uses WFI for the thread executor. Interrupt executor is not supported.

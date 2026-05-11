@@ -1,5 +1,5 @@
 #[cfg(feature = "executor-interrupt")]
-compile_error!("`executor-interrupt` is not supported with `arch-riscv32`.");
+compile_error!("`executor-interrupt` is not supported on RISC-V.");
 
 #[cfg(feature = "executor-thread")]
 pub use thread::*;
@@ -20,7 +20,7 @@ mod thread {
         SIGNAL_WORK_THREAD_MODE.store(true, Ordering::SeqCst);
     }
 
-    /// RISCV32 Executor
+    /// RISC-V Executor
     pub struct Executor {
         inner: raw::Executor,
         not_send: PhantomData<*mut ()>,
