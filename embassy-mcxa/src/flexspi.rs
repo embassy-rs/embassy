@@ -427,9 +427,16 @@ pub struct FlashConfig {
 pub enum SetupError {
     InvalidPageSize,
     ClockSetup(ClockError),
+    IoError(IoError),
 }
 
-#[derive(Debug, Copy, Clone)]
+impl From<IoError> for SetupError {
+    fn from(v: IoError) -> Self {
+        Self::IoError(v)
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum IoError {
@@ -791,8 +798,8 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
 
     fn initialize(&mut self) -> Result<(), SetupError> {
         self.configure_controller();
-        self.flash_reset().ok();
-        self.apply_device_mode().ok();
+        self.flash_reset()?;
+        self.apply_device_mode()?;
         Ok(())
     }
 
