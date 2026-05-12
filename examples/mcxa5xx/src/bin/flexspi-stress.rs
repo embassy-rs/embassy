@@ -152,9 +152,9 @@ trait FlashOps {
     async fn page_program(&mut self, addr: u32, data: &[u8]) -> Result<(), IoError>;
 }
 
-struct BlockingFlash<'d, T: flexspi::Instance>(NorFlash<'d, T>);
+struct BlockingFlash<'d>(NorFlash<'d>);
 
-impl<'d, T: flexspi::Instance> FlashOps for BlockingFlash<'d, T> {
+impl<'d> FlashOps for BlockingFlash<'d> {
     async fn vendor_id(&mut self) -> Result<u8, IoError> {
         self.0.blocking_vendor_id()
     }
@@ -169,9 +169,9 @@ impl<'d, T: flexspi::Instance> FlashOps for BlockingFlash<'d, T> {
     }
 }
 
-struct AsyncFlash<'d, T: flexspi::Instance>(NorFlash<'d, T>);
+struct AsyncFlash<'d>(NorFlash<'d>);
 
-impl<'d, T: flexspi::Instance> FlashOps for AsyncFlash<'d, T> {
+impl<'d> FlashOps for AsyncFlash<'d> {
     async fn vendor_id(&mut self) -> Result<u8, IoError> {
         self.0.read_vendor_id_async().await
     }

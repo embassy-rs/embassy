@@ -257,7 +257,6 @@ pub mod sealed {
 
     pub trait Instance: crate::clocks::Gate<MrccPeriphConfig = crate::clocks::periph_helpers::FlexspiConfig> {
         fn info() -> &'static super::Info;
-        fn regs() -> super::Regs;
         const CLOCK_INSTANCE: crate::clocks::periph_helpers::FlexspiInstance;
         const TX_DMA_REQUEST: crate::dma::DmaRequest;
         const RX_DMA_REQUEST: crate::dma::DmaRequest;
@@ -328,10 +327,6 @@ macro_rules! impl_flexspi_instance {
                         waker: embassy_sync::waitqueue::AtomicWaker::new(),
                     };
                     &INFO
-                }
-
-                fn regs() -> crate::flexspi::Regs {
-                    crate::pac::[<FLEXSPI $n>]
                 }
 
                 const CLOCK_INSTANCE: crate::clocks::periph_helpers::FlexspiInstance =
@@ -487,23 +482,21 @@ struct DmaState<'d> {
     rx_dma: DmaChannel<'d>,
 }
 
-struct InnerFlexSpi<'d, T: Instance> {
-    _peri: Peri<'d, T>,
-    regs: Regs,
+struct InnerFlexSpi<'d> {
+    info: &'static Info,
     dma: Option<DmaState<'d>>,
     interrupt_mode: bool,
     flash: FlashConfig,
     _wg: Option<WakeGuard>,
-    _phantom: PhantomData<T>,
 }
 
-impl<'d, T: Instance> InnerFlexSpi<'d, T> {
+impl<'d> InnerFlexSpi<'d> {
     fn use_interrupt_waits(&self) -> bool {
         self.interrupt_mode
     }
 
-    fn new_inner(
-        peri: Peri<'d, T>,
+    fn new_inner<T: Instance>(
+        _peri: Peri<'d, T>,
         dma: Option<DmaState<'d>>,
         interrupt_mode: bool,
         clock: ClockConfig,
@@ -522,13 +515,11 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
         let parts = unsafe { enable_and_reset::<T>(&clock_cfg).map_err(SetupError::ClockSetup)? };
 
         let mut flash_driver = Self {
-            _peri: peri,
-            regs: T::regs(),
+            info: T::info(),
             dma,
             interrupt_mode,
             flash,
             _wg: parts.wake_guard,
-            _phantom: PhantomData,
         };
 
         flash_driver.initialize()?;
@@ -560,7 +551,7 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
 
     fn extract_vendor_id(&self) -> Result<u8, IoError> {
         for index in 0..3 {
-            let word = self.regs.rfdr(index).read().rxdata();
+            let word = self.info.regs.rfdr(index).read().rxdata();
             for byte in word.to_le_bytes() {
                 if byte != 0x7f {
                     return Ok(byte);
@@ -689,11 +680,11 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
     }
 
     fn configure_controller(&mut self) {
-        self.regs.mcr0().write(|r: &mut Mcr0| {
+        self.info.regs.mcr0().write(|r: &mut Mcr0| {
             r.set_mdis(pac::flexspi::Mdis::Val0);
             r.set_rxclksrc(pac::flexspi::Rxclksrc::Val1);
         });
-        self.regs.ahbcr().write(|r: &mut Ahbcr| {
+        self.info.regs.ahbcr().write(|r: &mut Ahbcr| {
             r.set_aparen(pac::flexspi::Aparen::Individual);
             r.set_clrahbrxbuf(pac::flexspi::Clrahbrxbuf::Val0);
             r.set_clrahbtxbuf(pac::flexspi::Clrahbtxbuf::Val0);
@@ -705,16 +696,16 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
             r.set_readszalign(pac::flexspi::Readszalign::Val0);
             r.set_aflashbase(0x8);
         });
-        self.regs.ahbrxbuf0cr0().write(|r: &mut Ahbrxbuf0cr0| {
+        self.info.regs.ahbrxbuf0cr0().write(|r: &mut Ahbrxbuf0cr0| {
             r.set_bufsz(0xff);
             r.set_mstrid(0);
             r.set_priority(0);
             r.set_prefetchen(pac::flexspi::Ahbrxbuf0cr0Prefetchen::Value1);
         });
-        self.regs.flshcr0(0).write(|r: &mut Flshcr0| {
+        self.info.regs.flshcr0(0).write(|r: &mut Flshcr0| {
             r.set_flshsz(self.flash.flash_size_kbytes);
         });
-        self.regs.flshcr1(0).write(|r: &mut Flshcr1| {
+        self.info.regs.flshcr1(0).write(|r: &mut Flshcr1| {
             r.set_tcss(3);
             r.set_tcsh(3);
             r.set_wa(pac::flexspi::Wa::Value0);
@@ -722,7 +713,7 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
             r.set_csintervalunit(pac::flexspi::Csintervalunit::Val0);
             r.set_csinterval(2);
         });
-        self.regs.flshcr2(0).write(|r: &mut Flshcr2| {
+        self.info.regs.flshcr2(0).write(|r: &mut Flshcr2| {
             r.set_ardseqid(self.flash.read_seq);
             r.set_ardseqnum(1);
             r.set_awrseqid(self.flash.page_program_seq);
@@ -731,14 +722,14 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
             r.set_awrwaitunit(pac::flexspi::Awrwaitunit::Val0);
             r.set_clrinstrptr(false);
         });
-        self.regs.flshcr4().write(|r: &mut Flshcr4| {
+        self.info.regs.flshcr4().write(|r: &mut Flshcr4| {
             r.set_wmopt1(false);
             r.set_wmopt2b(pac::flexspi::Wmopt2b::Val0);
             r.set_wmena(pac::flexspi::Wmena::Val0);
             r.set_wmenb(pac::flexspi::Wmenb::Val0);
         });
-        self.regs.iptxfcr().modify(|r: &mut Iptxfcr| r.set_txwmrk(0));
-        self.regs.iprxfcr().modify(|r: &mut Iprxfcr| r.set_rxwmrk(0));
+        self.info.regs.iptxfcr().modify(|r: &mut Iptxfcr| r.set_txwmrk(0));
+        self.info.regs.iprxfcr().modify(|r: &mut Iprxfcr| r.set_rxwmrk(0));
 
         self.load_lut(self.flash.lookup_table);
         self.software_reset();
@@ -749,13 +740,13 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
         self.set_lut_lock(false);
 
         for index in 0..LUT_WORD_COUNT {
-            self.regs.lut(index).write_value(Lut(0));
+            self.info.regs.lut(index).write_value(Lut(0));
         }
 
         for seq_index in 0..16 {
             let words = table.custom_sequence(seq_index as u8).into_words();
             for (word_index, word) in words.iter().enumerate() {
-                self.regs.lut(4 * seq_index + word_index).write_value(Lut(*word));
+                self.info.regs.lut(4 * seq_index + word_index).write_value(Lut(*word));
             }
         }
 
@@ -801,13 +792,13 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
 
     fn read_status(&mut self) -> Result<u8, IoError> {
         self.issue_ip_command(0, self.flash.read_status_seq as usize, 1, None)?;
-        Ok((self.regs.rfdr(0).read().rxdata() & 0xff) as u8)
+        Ok((self.info.regs.rfdr(0).read().rxdata() & 0xff) as u8)
     }
 
     async fn read_status_async(&mut self) -> Result<u8, IoError> {
         self.issue_ip_command_async(0, self.flash.read_status_seq as usize, 1, None)
             .await?;
-        Ok((self.regs.rfdr(0).read().rxdata() & 0xff) as u8)
+        Ok((self.info.regs.rfdr(0).read().rxdata() & 0xff) as u8)
     }
 
     fn wait_bus_busy(&mut self) -> Result<(), IoError> {
@@ -843,15 +834,19 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
     }
 
     fn software_reset(&mut self) {
-        self.regs
+        self.info
+            .regs
             .mcr0()
             .modify(|r: &mut Mcr0| r.set_swreset(pac::flexspi::Swreset::Val1));
-        while self.regs.mcr0().read().swreset() == pac::flexspi::Swreset::Val1 {}
+        while self.info.regs.mcr0().read().swreset() == pac::flexspi::Swreset::Val1 {}
     }
 
     fn set_lut_lock(&mut self, lock: bool) {
-        self.regs.lutkey().write_value(Lutkey(LUT_KEY_VALUE));
-        self.regs.lutcr().write_value(Lutcr(if lock { 0x01 } else { 0x02 }));
+        self.info.regs.lutkey().write_value(Lutkey(LUT_KEY_VALUE));
+        self.info
+            .regs
+            .lutcr()
+            .write_value(Lutcr(if lock { 0x01 } else { 0x02 }));
     }
 
     fn blocking_wait_bus_idle(&self) {
@@ -859,43 +854,47 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
     }
 
     fn wait_idle(&self) {
-        while self.regs.sts0().read().seqidle() != pac::flexspi::Seqidle::Value1 {}
+        while self.info.regs.sts0().read().seqidle() != pac::flexspi::Seqidle::Value1 {}
     }
 
     async fn wait_idle_async(&self) {
-        while self.regs.sts0().read().seqidle() != pac::flexspi::Seqidle::Value1 {
+        while self.info.regs.sts0().read().seqidle() != pac::flexspi::Seqidle::Value1 {
             yield_now().await;
         }
     }
 
     fn prepare_ip_transfer(&mut self) {
         self.wait_idle();
-        T::info().pending_events().store(0, Ordering::Release);
-        T::Interrupt::unpend();
+        self.info.pending_events().store(0, Ordering::Release);
 
-        self.regs.inten().write(|_| {});
-        self.regs.flshcr2(0).modify(|r: &mut Flshcr2| r.set_clrinstrptr(true));
-        self.regs.intr().write(|r: &mut Intr| {
+        self.info.regs.inten().write(|_| {});
+        self.info
+            .regs
+            .flshcr2(0)
+            .modify(|r: &mut Flshcr2| r.set_clrinstrptr(true));
+        self.info.regs.intr().write(|r: &mut Intr| {
             r.set_ahbcmderr(true);
             r.set_ipcmderr(true);
             r.set_ahbcmdge(true);
             r.set_ipcmdge(true);
             r.set_ipcmddone(true);
         });
-        self.regs
+        self.info
+            .regs
             .iptxfcr()
             .modify(|r: &mut Iptxfcr| r.set_clriptxf(pac::flexspi::Clriptxf::Value1));
-        self.regs
+        self.info
+            .regs
             .iprxfcr()
             .modify(|r: &mut Iprxfcr| r.set_clriprxf(pac::flexspi::Clriprxf::Value1));
     }
 
     fn wait_ip_command_done(&self) {
-        while !self.regs.intr().read().ipcmddone() {}
+        while !self.info.regs.intr().read().ipcmddone() {}
     }
 
     fn wait_no_ip_error(&self) -> Result<(), IoError> {
-        let status = self.regs.sts1().read();
+        let status = self.info.regs.sts1().read();
         if status.ipcmderrcode() == pac::flexspi::Ipcmderrcode::Val0 {
             Ok(())
         } else {
@@ -914,8 +913,8 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
     ) -> Result<(), IoError> {
         self.prepare_ip_transfer();
 
-        self.regs.ipcr0().write(|r: &mut Ipcr0| r.set_sfar(address));
-        self.regs.ipcr1().write(|r: &mut Ipcr1| {
+        self.info.regs.ipcr0().write(|r: &mut Ipcr0| r.set_sfar(address));
+        self.info.regs.ipcr1().write(|r: &mut Ipcr1| {
             r.set_idatsz(data_size);
             r.set_iseqid(seq_index as u8);
             r.set_iseqnum(0);
@@ -923,10 +922,11 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
         });
 
         if let Some(word) = data {
-            self.regs.tfdr(0).write_value(Tfdr(word));
+            self.info.regs.tfdr(0).write_value(Tfdr(word));
         }
 
-        self.regs
+        self.info
+            .regs
             .ipcmd()
             .write(|r: &mut Ipcmd| r.set_trg(pac::flexspi::Trg::Value1));
         self.wait_ip_command_done();
@@ -943,8 +943,8 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
     ) -> Result<(), IoError> {
         self.prepare_ip_transfer();
 
-        self.regs.ipcr0().write(|r: &mut Ipcr0| r.set_sfar(address));
-        self.regs.ipcr1().write(|r: &mut Ipcr1| {
+        self.info.regs.ipcr0().write(|r: &mut Ipcr0| r.set_sfar(address));
+        self.info.regs.ipcr1().write(|r: &mut Ipcr1| {
             r.set_idatsz(data_size);
             r.set_iseqid(seq_index as u8);
             r.set_iseqnum(0);
@@ -952,10 +952,11 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
         });
 
         if let Some(word) = data {
-            self.regs.tfdr(0).write_value(Tfdr(word));
+            self.info.regs.tfdr(0).write_value(Tfdr(word));
         }
 
-        self.regs
+        self.info
+            .regs
             .ipcmd()
             .write(|r: &mut Ipcmd| r.set_trg(pac::flexspi::Trg::Value1));
         self.wait_for_command_completion_async().await
@@ -964,34 +965,35 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
     fn issue_ip_write_command(&mut self, address: u32, seq_index: usize, data: &[u8]) -> Result<(), IoError> {
         self.prepare_ip_transfer();
 
-        self.regs.ipcr0().write(|r: &mut Ipcr0| r.set_sfar(address));
-        self.regs.ipcr1().write(|r: &mut Ipcr1| {
+        self.info.regs.ipcr0().write(|r: &mut Ipcr0| r.set_sfar(address));
+        self.info.regs.ipcr1().write(|r: &mut Ipcr1| {
             r.set_idatsz(data.len() as u16);
             r.set_iseqid(seq_index as u8);
             r.set_iseqnum(0);
             r.set_iparen(false);
         });
 
-        self.regs
+        self.info
+            .regs
             .ipcmd()
             .write(|r: &mut Ipcmd| r.set_trg(pac::flexspi::Trg::Value1));
 
-        let tx_watermark = self.regs.iptxfcr().read().txwmrk() as usize + 1;
+        let tx_watermark = self.info.regs.iptxfcr().read().txwmrk() as usize + 1;
         let mut offset = 0;
 
         while offset < data.len() {
-            while !self.regs.intr().read().iptxwe() {}
+            while !self.info.regs.intr().read().iptxwe() {}
 
             let chunk_len = (8 * tx_watermark).min(data.len() - offset);
             for (index, chunk) in data[offset..offset + chunk_len].chunks(4).enumerate() {
                 // Pad the trailing partial word with 0xFF.
                 let mut word = [0xFFu8; 4];
                 word[..chunk.len()].copy_from_slice(chunk);
-                self.regs.tfdr(index).write_value(Tfdr(u32::from_le_bytes(word)));
+                self.info.regs.tfdr(index).write_value(Tfdr(u32::from_le_bytes(word)));
             }
 
             offset += chunk_len;
-            self.regs.intr().write(|r: &mut Intr| r.set_iptxwe(true));
+            self.info.regs.intr().write(|r: &mut Intr| r.set_iptxwe(true));
         }
 
         self.wait_ip_command_done();
@@ -1007,19 +1009,20 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
     ) -> Result<(), IoError> {
         self.prepare_ip_transfer();
 
-        self.regs.ipcr0().write(|r: &mut Ipcr0| r.set_sfar(address));
-        self.regs.ipcr1().write(|r: &mut Ipcr1| {
+        self.info.regs.ipcr0().write(|r: &mut Ipcr0| r.set_sfar(address));
+        self.info.regs.ipcr1().write(|r: &mut Ipcr1| {
             r.set_idatsz(data.len() as u16);
             r.set_iseqid(seq_index as u8);
             r.set_iseqnum(0);
             r.set_iparen(false);
         });
 
-        self.regs
+        self.info
+            .regs
             .ipcmd()
             .write(|r: &mut Ipcmd| r.set_trg(pac::flexspi::Trg::Value1));
 
-        let tx_watermark = self.regs.iptxfcr().read().txwmrk() as usize + 1;
+        let tx_watermark = self.info.regs.iptxfcr().read().txwmrk() as usize + 1;
         let mut offset = 0;
 
         while offset < data.len() {
@@ -1031,11 +1034,11 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
                 // sibling above for why).
                 let mut word = [0xFFu8; 4];
                 word[..chunk.len()].copy_from_slice(chunk);
-                self.regs.tfdr(index).write_value(Tfdr(u32::from_le_bytes(word)));
+                self.info.regs.tfdr(index).write_value(Tfdr(u32::from_le_bytes(word)));
             }
 
             offset += chunk_len;
-            self.regs.intr().write(|r: &mut Intr| r.set_iptxwe(true));
+            self.info.regs.intr().write(|r: &mut Intr| r.set_iptxwe(true));
         }
 
         self.wait_for_command_completion_async().await
@@ -1044,15 +1047,16 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
     fn issue_ip_read_command(&mut self, address: u32, seq_index: usize, buffer: &mut [u8]) -> Result<(), IoError> {
         self.prepare_ip_transfer();
 
-        self.regs.ipcr0().write(|r: &mut Ipcr0| r.set_sfar(address));
-        self.regs.ipcr1().write(|r: &mut Ipcr1| {
+        self.info.regs.ipcr0().write(|r: &mut Ipcr0| r.set_sfar(address));
+        self.info.regs.ipcr1().write(|r: &mut Ipcr1| {
             r.set_idatsz(buffer.len() as u16);
             r.set_iseqid(seq_index as u8);
             r.set_iseqnum(0);
             r.set_iparen(false);
         });
 
-        self.regs
+        self.info
+            .regs
             .ipcmd()
             .write(|r: &mut Ipcmd| r.set_trg(pac::flexspi::Trg::Value1));
         self.wait_ip_command_done();
@@ -1060,7 +1064,7 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
         self.wait_no_ip_error()?;
 
         for (index, chunk) in buffer.chunks_mut(4).enumerate() {
-            let word = self.regs.rfdr(index).read().rxdata().to_le_bytes();
+            let word = self.info.regs.rfdr(index).read().rxdata().to_le_bytes();
             chunk.copy_from_slice(&word[..chunk.len()]);
         }
 
@@ -1075,21 +1079,22 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
     ) -> Result<(), IoError> {
         self.prepare_ip_transfer();
 
-        self.regs.ipcr0().write(|r: &mut Ipcr0| r.set_sfar(address));
-        self.regs.ipcr1().write(|r: &mut Ipcr1| {
+        self.info.regs.ipcr0().write(|r: &mut Ipcr0| r.set_sfar(address));
+        self.info.regs.ipcr1().write(|r: &mut Ipcr1| {
             r.set_idatsz(buffer.len() as u16);
             r.set_iseqid(seq_index as u8);
             r.set_iseqnum(0);
             r.set_iparen(false);
         });
 
-        self.regs
+        self.info
+            .regs
             .ipcmd()
             .write(|r: &mut Ipcmd| r.set_trg(pac::flexspi::Trg::Value1));
         self.wait_for_command_completion_async().await?;
 
         for (index, chunk) in buffer.chunks_mut(4).enumerate() {
-            let word = self.regs.rfdr(index).read().rxdata().to_le_bytes();
+            let word = self.info.regs.rfdr(index).read().rxdata().to_le_bytes();
             chunk.copy_from_slice(&word[..chunk.len()]);
         }
 
@@ -1109,15 +1114,15 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
 
         self.prepare_ip_transfer();
 
-        self.regs.ipcr0().write(|r: &mut Ipcr0| r.set_sfar(address));
-        self.regs.ipcr1().write(|r: &mut Ipcr1| {
+        self.info.regs.ipcr0().write(|r: &mut Ipcr0| r.set_sfar(address));
+        self.info.regs.ipcr1().write(|r: &mut Ipcr1| {
             r.set_idatsz(data_len as u16);
             r.set_iseqid(seq_index as u8);
             r.set_iseqnum(0);
             r.set_iparen(false);
         });
 
-        let regs = self.regs;
+        let regs = self.info.regs;
         regs.ipcmd().write(|r: &mut Ipcmd| r.set_trg(pac::flexspi::Trg::Value1));
 
         let tx_words_per_watermark = 2 * (regs.iptxfcr().read().txwmrk() as usize + 1);
@@ -1157,15 +1162,15 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
 
         self.prepare_ip_transfer();
 
-        self.regs.ipcr0().write(|r: &mut Ipcr0| r.set_sfar(address));
-        self.regs.ipcr1().write(|r: &mut Ipcr1| {
+        self.info.regs.ipcr0().write(|r: &mut Ipcr0| r.set_sfar(address));
+        self.info.regs.ipcr1().write(|r: &mut Ipcr1| {
             r.set_idatsz(data_len as u16);
             r.set_iseqid(seq_index as u8);
             r.set_iseqnum(0);
             r.set_iparen(false);
         });
 
-        let regs = self.regs;
+        let regs = self.info.regs;
         regs.ipcmd().write(|r: &mut Ipcmd| r.set_trg(pac::flexspi::Trg::Value1));
 
         self.wait_for_command_completion_async().await?;
@@ -1186,7 +1191,7 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
     async fn wait_for_command_completion_async(&mut self) -> Result<(), IoError> {
         if !self.use_interrupt_waits() {
             loop {
-                let status = self.regs.intr().read();
+                let status = self.info.regs.intr().read();
 
                 if status.ipcmdge() {
                     self.wait_idle_async().await;
@@ -1203,19 +1208,19 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
         }
 
         let timed_out = poll_fn(|cx| {
-            T::info().waker().register(cx.waker());
+            self.info.waker().register(cx.waker());
 
-            self.regs.inten().write(|w| {
+            self.info.regs.inten().write(|w| {
                 w.set_ipcmddoneen(pac::flexspi::Ipcmddoneen::Value1);
                 w.set_ipcmdgeen(pac::flexspi::Ipcmdgeen::Value1);
                 w.set_ipcmderren(pac::flexspi::Ipcmderren::Value1);
             });
 
-            let pending_events = T::info().pending_events().load(Ordering::Acquire);
-            let status = self.regs.intr().read();
+            let pending_events = self.info.pending_events().load(Ordering::Acquire);
+            let status = self.info.regs.intr().read();
 
             if (pending_events & IRQ_EVENT_COMMAND_GRANT) != 0 || status.ipcmdge() {
-                T::info()
+                self.info
                     .pending_events()
                     .fetch_and(!IRQ_EVENT_COMMAND_GRANT, Ordering::AcqRel);
                 return Poll::Ready(true);
@@ -1225,7 +1230,7 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
                 || status.ipcmddone()
                 || status.ipcmderr()
             {
-                T::info()
+                self.info
                     .pending_events()
                     .fetch_and(!(IRQ_EVENT_COMMAND_DONE | IRQ_EVENT_COMMAND_ERROR), Ordering::AcqRel);
                 return Poll::Ready(false);
@@ -1235,7 +1240,7 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
         })
         .await;
 
-        self.regs.inten().write(|_| {});
+        self.info.regs.inten().write(|_| {});
         self.wait_idle_async().await;
 
         if timed_out {
@@ -1248,39 +1253,39 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
     async fn wait_for_tx_watermark_async(&mut self) -> Result<(), IoError> {
         if self.use_interrupt_waits() {
             return poll_fn(|cx| {
-                T::info().waker().register(cx.waker());
+                self.info.waker().register(cx.waker());
 
-                self.regs.inten().write(|w| {
+                self.info.regs.inten().write(|w| {
                     w.set_iptxween(pac::flexspi::Iptxween::Value1);
                     w.set_ipcmdgeen(pac::flexspi::Ipcmdgeen::Value1);
                     w.set_ipcmderren(pac::flexspi::Ipcmderren::Value1);
                 });
 
-                let pending_events = T::info().pending_events().load(Ordering::Acquire);
-                let status = self.regs.intr().read();
+                let pending_events = self.info.pending_events().load(Ordering::Acquire);
+                let status = self.info.regs.intr().read();
 
                 if (pending_events & IRQ_EVENT_COMMAND_GRANT) != 0 || status.ipcmdge() {
-                    T::info()
+                    self.info
                         .pending_events()
                         .fetch_and(!IRQ_EVENT_COMMAND_GRANT, Ordering::AcqRel);
                     if status.ipcmdge() {
-                        self.regs.intr().write(|w| w.set_ipcmdge(true));
+                        self.info.regs.intr().write(|w| w.set_ipcmdge(true));
                     }
                     return Poll::Ready(Err(IoError::CommandGrantTimeout));
                 }
 
                 if (pending_events & IRQ_EVENT_COMMAND_ERROR) != 0 || status.ipcmderr() {
-                    T::info()
+                    self.info
                         .pending_events()
                         .fetch_and(!IRQ_EVENT_COMMAND_ERROR, Ordering::AcqRel);
                     if status.ipcmderr() {
-                        self.regs.intr().write(|w| w.set_ipcmderr(true));
+                        self.info.regs.intr().write(|w| w.set_ipcmderr(true));
                     }
                     return Poll::Ready(self.wait_no_ip_error());
                 }
 
                 if (pending_events & IRQ_EVENT_TX_WATERMARK) != 0 || status.iptxwe() {
-                    T::info()
+                    self.info
                         .pending_events()
                         .fetch_and(!IRQ_EVENT_TX_WATERMARK, Ordering::AcqRel);
                     return Poll::Ready(Ok(()));
@@ -1292,15 +1297,15 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
         }
 
         loop {
-            let status = self.regs.intr().read();
+            let status = self.info.regs.intr().read();
 
             if status.ipcmdge() {
-                self.regs.intr().write(|w| w.set_ipcmdge(true));
+                self.info.regs.intr().write(|w| w.set_ipcmdge(true));
                 return Err(IoError::CommandGrantTimeout);
             }
 
             if status.ipcmderr() {
-                self.regs.intr().write(|w| w.set_ipcmderr(true));
+                self.info.regs.intr().write(|w| w.set_ipcmderr(true));
                 return self.wait_no_ip_error();
             }
 
@@ -1331,12 +1336,12 @@ impl<'d, T: Instance> InnerFlexSpi<'d, T> {
     }
 }
 
-pub struct Flexspi<'d, T: Instance> {
-    inner: InnerFlexSpi<'d, T>,
+pub struct Flexspi<'d> {
+    inner: InnerFlexSpi<'d>,
 }
 
-impl<'d, T: Instance> Flexspi<'d, T> {
-    pub fn new_blocking<P: Port>(
+impl<'d> Flexspi<'d> {
+    pub fn new_blocking<T: Instance, P: Port>(
         peri: Peri<'d, T>,
         pin0: Peri<'d, impl Pin<T, P> + 'd>,
         pin1: Peri<'d, impl Pin<T, P> + 'd>,
@@ -1363,7 +1368,7 @@ impl<'d, T: Instance> Flexspi<'d, T> {
         })
     }
 
-    pub fn new_async<P: Port>(
+    pub fn new_async<T: Instance, P: Port>(
         peri: Peri<'d, T>,
         pin0: Peri<'d, impl Pin<T, P> + 'd>,
         pin1: Peri<'d, impl Pin<T, P> + 'd>,
@@ -1391,7 +1396,7 @@ impl<'d, T: Instance> Flexspi<'d, T> {
         })
     }
 
-    pub fn new_with_dma<P: Port>(
+    pub fn new_with_dma<T: Instance, P: Port>(
         peri: Peri<'d, T>,
         pin0: Peri<'d, impl Pin<T, P> + 'd>,
         pin1: Peri<'d, impl Pin<T, P> + 'd>,
@@ -1431,12 +1436,12 @@ impl<'d, T: Instance> Flexspi<'d, T> {
     }
 }
 
-pub struct NorFlash<'d, T: Instance> {
-    flexspi: Flexspi<'d, T>,
+pub struct NorFlash<'d> {
+    flexspi: Flexspi<'d>,
 }
 
-impl<'d, T: Instance> NorFlash<'d, T> {
-    pub fn new(flexspi: Flexspi<'d, T>) -> Self {
+impl<'d> NorFlash<'d> {
+    pub fn new(flexspi: Flexspi<'d>) -> Self {
         Self { flexspi }
     }
 
