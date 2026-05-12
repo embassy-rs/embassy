@@ -31,10 +31,10 @@ impl Registers {
         &mut self.msg_ram_mut().transmit.tbsa[bufidx]
     }
     pub fn msg_ram_mut(&self) -> &mut RegisterBlock {
-        #[cfg(can_fdcan_h7)]
+        #[cfg(can_fdcan_v2)]
         let ptr = self.msgram.ram(self.msg_ram_offset / 4).as_ptr() as *mut RegisterBlock;
 
-        #[cfg(not(can_fdcan_h7))]
+        #[cfg(not(can_fdcan_v2))]
         let ptr = self.msgram.as_ptr() as *mut RegisterBlock;
 
         unsafe { &mut (*ptr) }
@@ -115,7 +115,7 @@ impl Registers {
     pub fn curr_error(&self) -> Option<BusError> {
         let err = { self.regs.psr().read() };
         cfg_if! {
-            if #[cfg(can_fdcan_h7)] {
+            if #[cfg(can_fdcan_v2)] {
                 let lec = err.lec();
             } else {
                 let lec = err.lec().to_bits();
@@ -343,14 +343,14 @@ impl Registers {
         // set extended filters list size to 8
         // REQUIRED: we use the memory map as if these settings are set
         // instead of re-calculating them.
-        #[cfg(not(can_fdcan_h7))]
+        #[cfg(not(can_fdcan_v2))]
         {
             self.regs.rxgfc().modify(|w| {
                 w.set_lss(crate::can::fd::message_ram::STANDARD_FILTER_MAX);
                 w.set_lse(crate::can::fd::message_ram::EXTENDED_FILTER_MAX);
             });
         }
-        #[cfg(can_fdcan_h7)]
+        #[cfg(can_fdcan_v2)]
         {
             self.regs
                 .sidfc()
@@ -363,11 +363,11 @@ impl Registers {
         self.configure_msg_ram();
 
         // Enable timestamping
-        #[cfg(not(can_fdcan_h7))]
+        #[cfg(not(can_fdcan_v2))]
         self.regs
             .tscc()
             .write(|w| w.set_tss(stm32_metapac::can::vals::Tss::Increment));
-        #[cfg(can_fdcan_h7)]
+        #[cfg(can_fdcan_v2)]
         self.regs.tscc().write(|w| w.set_tss(0x01));
 
         // this isn't really documented in the reference manual
@@ -510,9 +510,9 @@ impl Registers {
 
         self.regs.cccr().modify(|w| {
             w.set_fdoe(fdoe);
-            #[cfg(can_fdcan_h7)]
+            #[cfg(can_fdcan_v2)]
             w.set_bse(brse);
-            #[cfg(not(can_fdcan_h7))]
+            #[cfg(not(can_fdcan_v2))]
             w.set_brse(brse);
         });
     }
@@ -527,14 +527,14 @@ impl Registers {
     #[inline]
     #[allow(unused)]
     pub fn set_timestamp_counter_source(&self, select: TimestampSource) {
-        #[cfg(can_fdcan_h7)]
+        #[cfg(can_fdcan_v2)]
         let (tcp, tss) = match select {
             TimestampSource::None => (0, 0),
             TimestampSource::Prescaler(p) => (p as u8, 1),
             TimestampSource::FromTIM3 => (0, 2),
         };
 
-        #[cfg(not(can_fdcan_h7))]
+        #[cfg(not(can_fdcan_v2))]
         let (tcp, tss) = match select {
             TimestampSource::None => (0, stm32_metapac::can::vals::Tss::Zero),
             TimestampSource::Prescaler(p) => (p as u8, stm32_metapac::can::vals::Tss::Increment),
@@ -547,7 +547,7 @@ impl Registers {
         });
     }
 
-    #[cfg(not(can_fdcan_h7))]
+    #[cfg(not(can_fdcan_v2))]
     /// Configures the global filter settings
     #[inline]
     pub fn set_global_filter(&self, filter: GlobalFilter) {
@@ -570,7 +570,7 @@ impl Registers {
         });
     }
 
-    #[cfg(can_fdcan_h7)]
+    #[cfg(can_fdcan_v2)]
     /// Configures the global filter settings
     #[inline]
     pub fn set_global_filter(&self, filter: GlobalFilter) {
@@ -594,10 +594,10 @@ impl Registers {
         });
     }
 
-    #[cfg(not(can_fdcan_h7))]
+    #[cfg(not(can_fdcan_v2))]
     fn configure_msg_ram(&self) {}
 
-    #[cfg(can_fdcan_h7)]
+    #[cfg(can_fdcan_v2)]
     fn configure_msg_ram(&self) {
         let r = self.regs;
 
