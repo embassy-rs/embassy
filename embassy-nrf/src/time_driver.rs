@@ -218,8 +218,10 @@ impl RtcDriver {
             r.events_compare(n).write_value(0);
             r.intenclr(DOMAIN_IDX).write(|w| w.0 = compare_n(n));
 
-            // 3. Clear and start the counter.
+            // 3. Clear and start the counter when lftimer is ready
+            while !r.status().lftimer().read().ready() {}
             r.tasks_clear().write_value(1);
+            while !r.status().lftimer().read().ready() {}
             r.tasks_start().write_value(1);
 
             // 4. Configure the sleep/wake mechanism and enable the SYSCOUNTER.

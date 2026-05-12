@@ -270,15 +270,11 @@ where
         Ok(())
     }
 
-    async fn wlan_write(&mut self, buf: &Aligned<A4, [u8]>) -> crate::Result<()> {
-        let buf = slice32_ref(buf);
-        let cmd = cmd_word(WRITE, INC_ADDR, FUNC_WLAN, 0, buf.len() as u32 * 4);
-        //TODO try to remove copy?
-        let mut cmd_buf = [0_u32; 513];
-        cmd_buf[0] = cmd;
-        cmd_buf[1..][..buf.len()].copy_from_slice(buf);
+    async fn wlan_write(&mut self, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()> {
+        let len = buf.len() - 4;
+        buf[..4].copy_from_slice(&cmd_word(WRITE, INC_ADDR, FUNC_WLAN, 0, len as u32).to_le_bytes());
 
-        self.status = self.spi.cmd_write(&cmd_buf[..buf.len() + 1]).await;
+        self.status = self.spi.cmd_write(slice32_ref(buf)).await;
 
         Ok(())
     }
