@@ -673,6 +673,7 @@ impl<'a, 'b, A: Addressable> StorageDevice<'a, 'b, A> {
             if status.ready_for_data() {
                 return Ok(());
             }
+            yield_now().await;
             timeout -= 1;
         }
 
@@ -750,6 +751,7 @@ impl<'a, 'b, A: Addressable> StorageDevice<'a, 'b, A> {
             if status.ready_for_data() {
                 return Ok(());
             }
+            yield_now().await;
             timeout -= 1;
         }
         Err(Error::SoftwareTimeout)
