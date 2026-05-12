@@ -35,9 +35,8 @@ async fn main(_spawner: Spawner) {
     let mut flash = NorFlash::new(unwrap!(Flexspi::new_async(
         p.FLEXSPI0,
         p.P3_0,
-        p.P3_1,
-        p.P3_6,
         p.P3_7,
+        p.P3_6,
         p.P3_8,
         p.P3_9,
         p.P3_10,

@@ -372,6 +372,12 @@ pub trait DqsPin<T: Instance, P: Port>: Pin<T, P> {}
 pub trait SclkPin<T: Instance, P: Port>: Pin<T, P> {}
 pub trait Ss0Pin<T: Instance, P: Port>: Pin<T, P> {}
 pub trait Ss1Pin<T: Instance, P: Port>: Pin<T, P> {}
+pub trait SsPin<T: Instance, P: Port>: Pin<T, P> {
+    const CHIP_INDEX: u8;
+    fn chip_index(&self) -> u8 {
+        Self::CHIP_INDEX
+    }
+}
 
 #[doc(hidden)]
 #[macro_export]
@@ -381,8 +387,35 @@ macro_rules! impl_flexspi_pin {
             impl crate::flexspi::sealed::Sealed<crate::flexspi::$port> for crate::peripherals::$pin {}
             impl crate::flexspi::Pin<crate::peripherals::$peri, crate::flexspi::$port> for crate::peripherals::$pin {}
             impl crate::flexspi::[<$signal Pin>]<crate::peripherals::$peri, crate::flexspi::$port> for crate::peripherals::$pin {}
+            crate::impl_flexspi_cs_pin!($pin, $peri, $signal, $port);
         }
     };
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_flexspi_cs_pin {
+    ($pin:ident, $peri:ident, Ss0, A) => {
+        impl crate::flexspi::SsPin<crate::peripherals::$peri, crate::flexspi::A> for crate::peripherals::$pin {
+            const CHIP_INDEX: u8 = 0;
+        }
+    };
+    ($pin:ident, $peri:ident, Ss0, B) => {
+        impl crate::flexspi::SsPin<crate::peripherals::$peri, crate::flexspi::B> for crate::peripherals::$pin {
+            const CHIP_INDEX: u8 = 1;
+        }
+    };
+    ($pin:ident, $peri:ident, Ss1, A) => {
+        impl crate::flexspi::SsPin<crate::peripherals::$peri, crate::flexspi::A> for crate::peripherals::$pin {
+            const CHIP_INDEX: u8 = 2;
+        }
+    };
+    ($pin:ident, $peri:ident, Ss1, B) => {
+        impl crate::flexspi::SsPin<crate::peripherals::$peri, crate::flexspi::B> for crate::peripherals::$pin {
+            const CHIP_INDEX: u8 = 3;
+        }
+    };
+    ($pin:ident, $peri:ident, $signal:ident, $port:ident) => {};
 }
 
 #[derive(Clone, Copy)]
@@ -497,6 +530,8 @@ impl Mode for Async {
 struct InnerFlexSpi<'d, M: Mode> {
     info: &'static Info,
     dma: Option<DmaState<'d>>,
+    /// The index of the chip we're set up to use. The current impl only supports 1 chip at a time
+    chip_index: u8,
     flash: FlashConfig,
     _wg: Option<WakeGuard>,
     _phantom: PhantomData<M>,
@@ -507,6 +542,7 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
         _peri: Peri<'d, T>,
         dma: Option<DmaState<'d>>,
         clock: ClockConfig,
+        chip_index: u8,
         flash: FlashConfig,
     ) -> Result<Self, SetupError> {
         if flash.page_size == 0 || flash.page_size > MAX_PAGE_SIZE {
@@ -521,9 +557,18 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
         };
         let parts = unsafe { enable_and_reset::<T>(&clock_cfg).map_err(SetupError::ClockSetup)? };
 
+        if chip_index != 0 {
+            #[cfg(feature = "defmt")]
+            defmt::warn!(
+                "Using flexspi with chip index {} is untested and might not work",
+                chip_index
+            );
+        }
+
         let mut flash_driver = Self {
             info: T::info(),
             dma,
+            chip_index,
             flash,
             _wg: parts.wake_guard,
             _phantom: PhantomData,
@@ -586,26 +631,35 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
             r.set_priority(0);
             r.set_prefetchen(pac::flexspi::Ahbrxbuf0cr0Prefetchen::Value1);
         });
-        self.info.regs.flshcr0(0).write(|r: &mut Flshcr0| {
-            r.set_flshsz(self.flash.flash_size_kbytes);
-        });
-        self.info.regs.flshcr1(0).write(|r: &mut Flshcr1| {
-            r.set_tcss(3);
-            r.set_tcsh(3);
-            r.set_wa(pac::flexspi::Wa::Value0);
-            r.set_cas(0);
-            r.set_csintervalunit(pac::flexspi::Csintervalunit::Val0);
-            r.set_csinterval(2);
-        });
-        self.info.regs.flshcr2(0).write(|r: &mut Flshcr2| {
-            r.set_ardseqid(self.flash.read_seq);
-            r.set_ardseqnum(1);
-            r.set_awrseqid(self.flash.page_program_seq);
-            r.set_awrseqnum(1);
-            r.set_awrwait(0);
-            r.set_awrwaitunit(pac::flexspi::Awrwaitunit::Val0);
-            r.set_clrinstrptr(false);
-        });
+        self.info
+            .regs
+            .flshcr0(self.chip_index as usize)
+            .write(|r: &mut Flshcr0| {
+                r.set_flshsz(self.flash.flash_size_kbytes);
+            });
+        self.info
+            .regs
+            .flshcr1(self.chip_index as usize)
+            .write(|r: &mut Flshcr1| {
+                r.set_tcss(3);
+                r.set_tcsh(3);
+                r.set_wa(pac::flexspi::Wa::Value0);
+                r.set_cas(0);
+                r.set_csintervalunit(pac::flexspi::Csintervalunit::Val0);
+                r.set_csinterval(2);
+            });
+        self.info
+            .regs
+            .flshcr2(self.chip_index as usize)
+            .write(|r: &mut Flshcr2| {
+                r.set_ardseqid(self.flash.read_seq);
+                r.set_ardseqnum(1);
+                r.set_awrseqid(self.flash.page_program_seq);
+                r.set_awrseqnum(1);
+                r.set_awrwait(0);
+                r.set_awrwaitunit(pac::flexspi::Awrwaitunit::Val0);
+                r.set_clrinstrptr(false);
+            });
         self.info.regs.flshcr4().write(|r: &mut Flshcr4| {
             r.set_wmopt1(false);
             r.set_wmopt2b(pac::flexspi::Wmopt2b::Val0);
@@ -765,7 +819,7 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
         self.info.regs.inten().write(|_| {});
         self.info
             .regs
-            .flshcr2(0)
+            .flshcr2(self.chip_index as usize)
             .modify(|r: &mut Flshcr2| r.set_clrinstrptr(true));
         self.info.regs.intr().write(|r: &mut Intr| {
             r.set_ahbcmderr(true);
@@ -1311,28 +1365,26 @@ pub struct Flexspi<'d, M: Mode> {
 impl<'d> Flexspi<'d, Blocking> {
     pub fn new_blocking<T: Instance, P: Port>(
         peri: Peri<'d, T>,
-        pin0: Peri<'d, impl Pin<T, P> + 'd>,
-        pin1: Peri<'d, impl Pin<T, P> + 'd>,
-        pin2: Peri<'d, impl Pin<T, P> + 'd>,
-        pin3: Peri<'d, impl Pin<T, P> + 'd>,
-        pin4: Peri<'d, impl Pin<T, P> + 'd>,
-        pin5: Peri<'d, impl Pin<T, P> + 'd>,
-        pin6: Peri<'d, impl Pin<T, P> + 'd>,
-        pin7: Peri<'d, impl Pin<T, P> + 'd>,
+        ss: Peri<'d, impl SsPin<T, P> + 'd>,
+        sclk: Peri<'d, impl SclkPin<T, P> + 'd>,
+        dqs: Peri<'d, impl DqsPin<T, P> + 'd>,
+        data0: Peri<'d, impl Data0Pin<T, P> + 'd>,
+        data1: Peri<'d, impl Data1Pin<T, P> + 'd>,
+        data2: Peri<'d, impl Data2Pin<T, P> + 'd>,
+        data3: Peri<'d, impl Data3Pin<T, P> + 'd>,
         clock: ClockConfig,
         flash: FlashConfig,
     ) -> Result<Self, SetupError> {
-        pin0.mux();
-        pin1.mux();
-        pin2.mux();
-        pin3.mux();
-        pin4.mux();
-        pin5.mux();
-        pin6.mux();
-        pin7.mux();
+        ss.mux();
+        sclk.mux();
+        dqs.mux();
+        data0.mux();
+        data1.mux();
+        data2.mux();
+        data3.mux();
 
         Ok(Self {
-            inner: InnerFlexSpi::new_inner(peri, None, clock, flash)?,
+            inner: InnerFlexSpi::new_inner(peri, None, clock, ss.chip_index(), flash)?,
         })
     }
 }
@@ -1340,56 +1392,52 @@ impl<'d> Flexspi<'d, Blocking> {
 impl<'d> Flexspi<'d, Async> {
     pub fn new_async<T: Instance, P: Port>(
         peri: Peri<'d, T>,
-        pin0: Peri<'d, impl Pin<T, P> + 'd>,
-        pin1: Peri<'d, impl Pin<T, P> + 'd>,
-        pin2: Peri<'d, impl Pin<T, P> + 'd>,
-        pin3: Peri<'d, impl Pin<T, P> + 'd>,
-        pin4: Peri<'d, impl Pin<T, P> + 'd>,
-        pin5: Peri<'d, impl Pin<T, P> + 'd>,
-        pin6: Peri<'d, impl Pin<T, P> + 'd>,
-        pin7: Peri<'d, impl Pin<T, P> + 'd>,
+        ss: Peri<'d, impl SsPin<T, P> + 'd>,
+        sclk: Peri<'d, impl SclkPin<T, P> + 'd>,
+        dqs: Peri<'d, impl DqsPin<T, P> + 'd>,
+        data0: Peri<'d, impl Data0Pin<T, P> + 'd>,
+        data1: Peri<'d, impl Data1Pin<T, P> + 'd>,
+        data2: Peri<'d, impl Data2Pin<T, P> + 'd>,
+        data3: Peri<'d, impl Data3Pin<T, P> + 'd>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clock: ClockConfig,
         flash: FlashConfig,
     ) -> Result<Self, SetupError> {
-        pin0.mux();
-        pin1.mux();
-        pin2.mux();
-        pin3.mux();
-        pin4.mux();
-        pin5.mux();
-        pin6.mux();
-        pin7.mux();
+        ss.mux();
+        sclk.mux();
+        dqs.mux();
+        data0.mux();
+        data1.mux();
+        data2.mux();
+        data3.mux();
 
         Ok(Self {
-            inner: InnerFlexSpi::new_inner(peri, None, clock, flash)?,
+            inner: InnerFlexSpi::new_inner(peri, None, clock, ss.chip_index(), flash)?,
         })
     }
 
     pub fn new_with_dma<T: Instance, P: Port>(
         peri: Peri<'d, T>,
-        pin0: Peri<'d, impl Pin<T, P> + 'd>,
-        pin1: Peri<'d, impl Pin<T, P> + 'd>,
-        pin2: Peri<'d, impl Pin<T, P> + 'd>,
-        pin3: Peri<'d, impl Pin<T, P> + 'd>,
-        pin4: Peri<'d, impl Pin<T, P> + 'd>,
-        pin5: Peri<'d, impl Pin<T, P> + 'd>,
-        pin6: Peri<'d, impl Pin<T, P> + 'd>,
-        pin7: Peri<'d, impl Pin<T, P> + 'd>,
+        ss: Peri<'d, impl SsPin<T, P> + 'd>,
+        sclk: Peri<'d, impl SclkPin<T, P> + 'd>,
+        dqs: Peri<'d, impl DqsPin<T, P> + 'd>,
+        data0: Peri<'d, impl Data0Pin<T, P> + 'd>,
+        data1: Peri<'d, impl Data1Pin<T, P> + 'd>,
+        data2: Peri<'d, impl Data2Pin<T, P> + 'd>,
+        data3: Peri<'d, impl Data3Pin<T, P> + 'd>,
         tx_dma: Peri<'d, impl Channel>,
         rx_dma: Peri<'d, impl Channel>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clock: ClockConfig,
         flash: FlashConfig,
     ) -> Result<Self, SetupError> {
-        pin0.mux();
-        pin1.mux();
-        pin2.mux();
-        pin3.mux();
-        pin4.mux();
-        pin5.mux();
-        pin6.mux();
-        pin7.mux();
+        ss.mux();
+        sclk.mux();
+        dqs.mux();
+        data0.mux();
+        data1.mux();
+        data2.mux();
+        data3.mux();
 
         Ok(Self {
             inner: InnerFlexSpi::new_inner(
@@ -1399,6 +1447,7 @@ impl<'d> Flexspi<'d, Async> {
                     rx_dma: DmaChannel::new(rx_dma),
                 }),
                 clock,
+                ss.chip_index(),
                 flash,
             )?,
         })

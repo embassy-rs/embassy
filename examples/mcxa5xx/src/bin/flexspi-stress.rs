@@ -220,9 +220,8 @@ async fn blocking_phase(p: &mut Peripherals) -> u32 {
     let flash = NorFlash::new(unwrap!(Flexspi::new_blocking(
         p.FLEXSPI0.reborrow(),
         p.P3_0.reborrow(),
-        p.P3_1.reborrow(),
-        p.P3_6.reborrow(),
         p.P3_7.reborrow(),
+        p.P3_6.reborrow(),
         p.P3_8.reborrow(),
         p.P3_9.reborrow(),
         p.P3_10.reborrow(),
@@ -248,9 +247,8 @@ async fn interrupt_phase(p: &mut Peripherals) -> u32 {
     let flash = NorFlash::new(unwrap!(Flexspi::new_async(
         p.FLEXSPI0.reborrow(),
         p.P3_0.reborrow(),
-        p.P3_1.reborrow(),
-        p.P3_6.reborrow(),
         p.P3_7.reborrow(),
+        p.P3_6.reborrow(),
         p.P3_8.reborrow(),
         p.P3_9.reborrow(),
         p.P3_10.reborrow(),
@@ -277,9 +275,8 @@ async fn dma_phase(p: &mut Peripherals) -> u32 {
     let flash = NorFlash::new(unwrap!(Flexspi::new_with_dma(
         p.FLEXSPI0.reborrow(),
         p.P3_0.reborrow(),
-        p.P3_1.reborrow(),
-        p.P3_6.reborrow(),
         p.P3_7.reborrow(),
+        p.P3_6.reborrow(),
         p.P3_8.reborrow(),
         p.P3_9.reborrow(),
         p.P3_10.reborrow(),
