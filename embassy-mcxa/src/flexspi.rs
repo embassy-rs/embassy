@@ -1358,6 +1358,12 @@ impl<'d> InnerFlexSpi<'d, Async> {
     }
 }
 
+/// Flexspi driver.
+///
+/// Use it with [`NorFlash`] to get a normal erase/read/write API.
+/// Currently only a single flash chip using all 4 data pins is supported.
+///
+/// *Note: The driver does allow you to use flash chips on SS pins that are not `A_SS0_B`, but that's untested. It might not work.*
 pub struct Flexspi<'d, M: Mode> {
     inner: InnerFlexSpi<'d, M>,
 }
