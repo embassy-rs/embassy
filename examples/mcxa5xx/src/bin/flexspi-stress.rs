@@ -82,7 +82,7 @@ use defmt::{error, info, unwrap};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_mcxa as hal;
-use embassy_mcxa::flexspi::Flexspi;
+use embassy_mcxa::flexspi::{Async, Blocking, Flexspi};
 use embassy_mcxa::{Peripherals, bind_interrupts, peripherals};
 use hal::config::Config;
 use hal::flexspi::{self, ClockConfig as FlexspiClockConfig, IoError, NorFlash};
@@ -152,7 +152,7 @@ trait FlashOps {
     async fn page_program(&mut self, addr: u32, data: &[u8]) -> Result<(), IoError>;
 }
 
-struct BlockingFlash<'d>(NorFlash<'d>);
+struct BlockingFlash<'d>(NorFlash<'d, Blocking>);
 
 impl<'d> FlashOps for BlockingFlash<'d> {
     async fn vendor_id(&mut self) -> Result<u8, IoError> {
@@ -169,7 +169,7 @@ impl<'d> FlashOps for BlockingFlash<'d> {
     }
 }
 
-struct AsyncFlash<'d>(NorFlash<'d>);
+struct AsyncFlash<'d>(NorFlash<'d, Async>);
 
 impl<'d> FlashOps for AsyncFlash<'d> {
     async fn vendor_id(&mut self) -> Result<u8, IoError> {

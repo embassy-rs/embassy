@@ -482,23 +482,30 @@ struct DmaState<'d> {
     rx_dma: DmaChannel<'d>,
 }
 
-struct InnerFlexSpi<'d> {
-    info: &'static Info,
-    dma: Option<DmaState<'d>>,
-    interrupt_mode: bool,
-    flash: FlashConfig,
-    _wg: Option<WakeGuard>,
+pub struct Blocking;
+pub struct Async;
+pub trait Mode {
+    const INTERRUPTS_ENABLED: bool;
+}
+impl Mode for Blocking {
+    const INTERRUPTS_ENABLED: bool = false;
+}
+impl Mode for Async {
+    const INTERRUPTS_ENABLED: bool = true;
 }
 
-impl<'d> InnerFlexSpi<'d> {
-    fn use_interrupt_waits(&self) -> bool {
-        self.interrupt_mode
-    }
+struct InnerFlexSpi<'d, M: Mode> {
+    info: &'static Info,
+    dma: Option<DmaState<'d>>,
+    flash: FlashConfig,
+    _wg: Option<WakeGuard>,
+    _phantom: PhantomData<M>,
+}
 
+impl<'d, M: Mode> InnerFlexSpi<'d, M> {
     fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
         dma: Option<DmaState<'d>>,
-        interrupt_mode: bool,
         clock: ClockConfig,
         flash: FlashConfig,
     ) -> Result<Self, SetupError> {
@@ -517,14 +524,14 @@ impl<'d> InnerFlexSpi<'d> {
         let mut flash_driver = Self {
             info: T::info(),
             dma,
-            interrupt_mode,
             flash,
             _wg: parts.wake_guard,
+            _phantom: PhantomData,
         };
 
         flash_driver.initialize()?;
 
-        if interrupt_mode {
+        if M::INTERRUPTS_ENABLED {
             T::Interrupt::unpend();
             unsafe { T::Interrupt::enable() };
         }
@@ -534,19 +541,6 @@ impl<'d> InnerFlexSpi<'d> {
 
     pub fn page_size(&self) -> usize {
         self.flash.page_size
-    }
-
-    pub fn read_vendor_id(&mut self) -> Result<u8, IoError> {
-        self.issue_ip_command(0, self.flash.read_id_seq as usize, 10, None)?;
-
-        self.extract_vendor_id()
-    }
-
-    pub async fn read_vendor_id_async(&mut self) -> Result<u8, IoError> {
-        self.issue_ip_command_async(0, self.flash.read_id_seq as usize, 10, None)
-            .await?;
-
-        self.extract_vendor_id()
     }
 
     fn extract_vendor_id(&self) -> Result<u8, IoError> {
@@ -560,116 +554,6 @@ impl<'d> InnerFlexSpi<'d> {
         }
 
         Ok(0)
-    }
-
-    pub fn erase_sector(&mut self, address: u32) -> Result<(), IoError> {
-        self.write_enable()?;
-        self.issue_ip_command(address, self.flash.erase_sector_seq as usize, 0, None)?;
-        self.wait_bus_busy()?;
-        Ok(())
-    }
-
-    pub async fn erase_sector_async(&mut self, address: u32) -> Result<(), IoError> {
-        self.write_enable_async().await?;
-        self.issue_ip_command_async(address, self.flash.erase_sector_seq as usize, 0, None)
-            .await?;
-        self.wait_bus_busy_async().await?;
-
-        Ok(())
-    }
-
-    pub fn read(&mut self, address: u32, buffer: &mut [u8]) -> Result<(), IoError> {
-        let mut offset = 0;
-
-        while offset < buffer.len() {
-            let remaining = buffer.len() - offset;
-            let chunk = remaining.min(IP_FIFO_CAPACITY_BYTES);
-
-            self.issue_ip_read_command(
-                address + offset as u32,
-                self.flash.read_seq as usize,
-                &mut buffer[offset..offset + chunk],
-            )?;
-
-            offset += chunk;
-        }
-
-        Ok(())
-    }
-
-    pub async fn read_async(&mut self, address: u32, buffer: &mut [u8]) -> Result<(), IoError> {
-        let mut offset = 0;
-
-        while offset < buffer.len() {
-            let remaining = buffer.len() - offset;
-            let dma_chunk = remaining.min(IP_FIFO_CAPACITY_BYTES);
-
-            if self.dma.is_some() && dma_chunk >= 4 {
-                let mut words = [0u32; MAX_PAGE_WORDS];
-                let word_len = dma_chunk.div_ceil(4);
-                self.issue_ip_read_dma(
-                    address + offset as u32,
-                    self.flash.read_seq as usize,
-                    &mut words[..word_len],
-                    dma_chunk,
-                )
-                .await?;
-                self.words_to_bytes(&words[..word_len], &mut buffer[offset..offset + dma_chunk]);
-                offset += dma_chunk;
-                continue;
-            }
-
-            let chunk = remaining.min(IP_FIFO_CAPACITY_BYTES);
-            self.issue_ip_read_command_async(
-                address + offset as u32,
-                self.flash.read_seq as usize,
-                &mut buffer[offset..offset + chunk],
-            )
-            .await?;
-            offset += chunk;
-        }
-
-        Ok(())
-    }
-
-    pub fn page_program(&mut self, address: u32, data: &[u8]) -> Result<(), IoError> {
-        if data.is_empty() || data.len() > self.flash.page_size {
-            return Err(IoError::InvalidTransferLength);
-        }
-
-        self.write_enable()?;
-
-        self.issue_ip_write_command(address, self.flash.page_program_seq as usize, data)?;
-
-        self.wait_bus_busy()?;
-        Ok(())
-    }
-
-    pub async fn page_program_async(&mut self, address: u32, data: &[u8]) -> Result<(), IoError> {
-        if data.is_empty() || data.len() > self.flash.page_size {
-            return Err(IoError::InvalidTransferLength);
-        }
-
-        self.write_enable_async().await?;
-
-        if self.dma.is_some() && data.len() >= DMA_FIFO_WINDOW_BYTES && data.len() % DMA_FIFO_WINDOW_BYTES == 0 {
-            let mut words = [0u32; MAX_PAGE_WORDS];
-            let word_len = data.len().div_ceil(4);
-            self.bytes_to_words(data, &mut words[..word_len]);
-            self.issue_ip_write_dma(
-                address,
-                self.flash.page_program_seq as usize,
-                &words[..word_len],
-                data.len(),
-            )
-            .await?;
-        } else {
-            self.issue_ip_write_command_async(address, self.flash.page_program_seq as usize, data)
-                .await?;
-        }
-
-        self.wait_bus_busy_async().await?;
-        Ok(())
     }
 
     fn initialize(&mut self) -> Result<(), SetupError> {
@@ -781,23 +665,57 @@ impl<'d> InnerFlexSpi<'d> {
         Ok(())
     }
 
+    pub fn read_vendor_id(&mut self) -> Result<u8, IoError> {
+        self.issue_ip_command(0, self.flash.read_id_seq as usize, 10, None)?;
+
+        self.extract_vendor_id()
+    }
+
+    pub fn erase_sector(&mut self, address: u32) -> Result<(), IoError> {
+        self.write_enable()?;
+        self.issue_ip_command(address, self.flash.erase_sector_seq as usize, 0, None)?;
+        self.wait_bus_busy()?;
+        Ok(())
+    }
+
+    pub fn read(&mut self, address: u32, buffer: &mut [u8]) -> Result<(), IoError> {
+        let mut offset = 0;
+
+        while offset < buffer.len() {
+            let remaining = buffer.len() - offset;
+            let chunk = remaining.min(IP_FIFO_CAPACITY_BYTES);
+
+            self.issue_ip_read_command(
+                address + offset as u32,
+                self.flash.read_seq as usize,
+                &mut buffer[offset..offset + chunk],
+            )?;
+
+            offset += chunk;
+        }
+
+        Ok(())
+    }
+
+    pub fn page_program(&mut self, address: u32, data: &[u8]) -> Result<(), IoError> {
+        if data.is_empty() || data.len() > self.flash.page_size {
+            return Err(IoError::InvalidTransferLength);
+        }
+
+        self.write_enable()?;
+
+        self.issue_ip_write_command(address, self.flash.page_program_seq as usize, data)?;
+
+        self.wait_bus_busy()?;
+        Ok(())
+    }
+
     fn write_enable(&mut self) -> Result<(), IoError> {
         self.issue_ip_command(0, self.flash.write_enable_seq as usize, 0, None)
     }
 
-    async fn write_enable_async(&mut self) -> Result<(), IoError> {
-        self.issue_ip_command_async(0, self.flash.write_enable_seq as usize, 0, None)
-            .await
-    }
-
     fn read_status(&mut self) -> Result<u8, IoError> {
         self.issue_ip_command(0, self.flash.read_status_seq as usize, 1, None)?;
-        Ok((self.info.regs.rfdr(0).read().rxdata() & 0xff) as u8)
-    }
-
-    async fn read_status_async(&mut self) -> Result<u8, IoError> {
-        self.issue_ip_command_async(0, self.flash.read_status_seq as usize, 1, None)
-            .await?;
         Ok((self.info.regs.rfdr(0).read().rxdata() & 0xff) as u8)
     }
 
@@ -813,23 +731,6 @@ impl<'d> InnerFlexSpi<'d> {
             if !is_busy {
                 return Ok(());
             }
-        }
-    }
-
-    async fn wait_bus_busy_async(&mut self) -> Result<(), IoError> {
-        loop {
-            let read_value = self.read_status_async().await?;
-            let is_busy = if self.flash.busy_status_polarity {
-                (read_value & (1 << self.flash.busy_status_offset)) != 0
-            } else {
-                (read_value & (1 << self.flash.busy_status_offset)) == 0
-            };
-
-            if !is_busy {
-                return Ok(());
-            }
-
-            yield_now().await;
         }
     }
 
@@ -855,12 +756,6 @@ impl<'d> InnerFlexSpi<'d> {
 
     fn wait_idle(&self) {
         while self.info.regs.sts0().read().seqidle() != pac::flexspi::Seqidle::Value1 {}
-    }
-
-    async fn wait_idle_async(&self) {
-        while self.info.regs.sts0().read().seqidle() != pac::flexspi::Seqidle::Value1 {
-            yield_now().await;
-        }
     }
 
     fn prepare_ip_transfer(&mut self) {
@@ -934,34 +829,6 @@ impl<'d> InnerFlexSpi<'d> {
         self.wait_no_ip_error()
     }
 
-    async fn issue_ip_command_async(
-        &mut self,
-        address: u32,
-        seq_index: usize,
-        data_size: u16,
-        data: Option<u32>,
-    ) -> Result<(), IoError> {
-        self.prepare_ip_transfer();
-
-        self.info.regs.ipcr0().write(|r: &mut Ipcr0| r.set_sfar(address));
-        self.info.regs.ipcr1().write(|r: &mut Ipcr1| {
-            r.set_idatsz(data_size);
-            r.set_iseqid(seq_index as u8);
-            r.set_iseqnum(0);
-            r.set_iparen(false);
-        });
-
-        if let Some(word) = data {
-            self.info.regs.tfdr(0).write_value(Tfdr(word));
-        }
-
-        self.info
-            .regs
-            .ipcmd()
-            .write(|r: &mut Ipcmd| r.set_trg(pac::flexspi::Trg::Value1));
-        self.wait_for_command_completion_async().await
-    }
-
     fn issue_ip_write_command(&mut self, address: u32, seq_index: usize, data: &[u8]) -> Result<(), IoError> {
         self.prepare_ip_transfer();
 
@@ -999,6 +866,193 @@ impl<'d> InnerFlexSpi<'d> {
         self.wait_ip_command_done();
         self.wait_idle();
         self.wait_no_ip_error()
+    }
+
+    fn issue_ip_read_command(&mut self, address: u32, seq_index: usize, buffer: &mut [u8]) -> Result<(), IoError> {
+        self.prepare_ip_transfer();
+
+        self.info.regs.ipcr0().write(|r: &mut Ipcr0| r.set_sfar(address));
+        self.info.regs.ipcr1().write(|r: &mut Ipcr1| {
+            r.set_idatsz(buffer.len() as u16);
+            r.set_iseqid(seq_index as u8);
+            r.set_iseqnum(0);
+            r.set_iparen(false);
+        });
+
+        self.info
+            .regs
+            .ipcmd()
+            .write(|r: &mut Ipcmd| r.set_trg(pac::flexspi::Trg::Value1));
+        self.wait_ip_command_done();
+        self.wait_idle();
+        self.wait_no_ip_error()?;
+
+        for (index, chunk) in buffer.chunks_mut(4).enumerate() {
+            let word = self.info.regs.rfdr(index).read().rxdata().to_le_bytes();
+            chunk.copy_from_slice(&word[..chunk.len()]);
+        }
+
+        Ok(())
+    }
+
+    fn bytes_to_words(&self, data: &[u8], words: &mut [u32]) {
+        for word in words.iter_mut() {
+            *word = 0;
+        }
+
+        for (index, chunk) in data.chunks(4).enumerate() {
+            let mut raw = [0u8; 4];
+            raw[..chunk.len()].copy_from_slice(chunk);
+            words[index] = u32::from_le_bytes(raw);
+        }
+    }
+
+    fn words_to_bytes(&self, words: &[u32], buffer: &mut [u8]) {
+        for (chunk, word) in buffer.chunks_mut(4).zip(words.iter()) {
+            chunk.copy_from_slice(&word.to_le_bytes()[..chunk.len()]);
+        }
+    }
+}
+
+impl<'d> InnerFlexSpi<'d, Async> {
+    pub async fn read_vendor_id_async(&mut self) -> Result<u8, IoError> {
+        self.issue_ip_command_async(0, self.flash.read_id_seq as usize, 10, None)
+            .await?;
+
+        self.extract_vendor_id()
+    }
+
+    pub async fn erase_sector_async(&mut self, address: u32) -> Result<(), IoError> {
+        self.write_enable_async().await?;
+        self.issue_ip_command_async(address, self.flash.erase_sector_seq as usize, 0, None)
+            .await?;
+        self.wait_bus_busy_async().await?;
+
+        Ok(())
+    }
+
+    pub async fn read_async(&mut self, address: u32, buffer: &mut [u8]) -> Result<(), IoError> {
+        let mut offset = 0;
+
+        while offset < buffer.len() {
+            let remaining = buffer.len() - offset;
+            let dma_chunk = remaining.min(IP_FIFO_CAPACITY_BYTES);
+
+            if self.dma.is_some() && dma_chunk >= 4 {
+                let mut words = [0u32; MAX_PAGE_WORDS];
+                let word_len = dma_chunk.div_ceil(4);
+                self.issue_ip_read_dma(
+                    address + offset as u32,
+                    self.flash.read_seq as usize,
+                    &mut words[..word_len],
+                    dma_chunk,
+                )
+                .await?;
+                self.words_to_bytes(&words[..word_len], &mut buffer[offset..offset + dma_chunk]);
+                offset += dma_chunk;
+                continue;
+            }
+
+            let chunk = remaining.min(IP_FIFO_CAPACITY_BYTES);
+            self.issue_ip_read_command_async(
+                address + offset as u32,
+                self.flash.read_seq as usize,
+                &mut buffer[offset..offset + chunk],
+            )
+            .await?;
+            offset += chunk;
+        }
+
+        Ok(())
+    }
+
+    pub async fn page_program_async(&mut self, address: u32, data: &[u8]) -> Result<(), IoError> {
+        if data.is_empty() || data.len() > self.flash.page_size {
+            return Err(IoError::InvalidTransferLength);
+        }
+
+        self.write_enable_async().await?;
+
+        if self.dma.is_some() && data.len() >= DMA_FIFO_WINDOW_BYTES && data.len() % DMA_FIFO_WINDOW_BYTES == 0 {
+            let mut words = [0u32; MAX_PAGE_WORDS];
+            let word_len = data.len().div_ceil(4);
+            self.bytes_to_words(data, &mut words[..word_len]);
+            self.issue_ip_write_dma(
+                address,
+                self.flash.page_program_seq as usize,
+                &words[..word_len],
+                data.len(),
+            )
+            .await?;
+        } else {
+            self.issue_ip_write_command_async(address, self.flash.page_program_seq as usize, data)
+                .await?;
+        }
+
+        self.wait_bus_busy_async().await?;
+        Ok(())
+    }
+
+    async fn write_enable_async(&mut self) -> Result<(), IoError> {
+        self.issue_ip_command_async(0, self.flash.write_enable_seq as usize, 0, None)
+            .await
+    }
+
+    async fn read_status_async(&mut self) -> Result<u8, IoError> {
+        self.issue_ip_command_async(0, self.flash.read_status_seq as usize, 1, None)
+            .await?;
+        Ok((self.info.regs.rfdr(0).read().rxdata() & 0xff) as u8)
+    }
+
+    async fn wait_bus_busy_async(&mut self) -> Result<(), IoError> {
+        loop {
+            let read_value = self.read_status_async().await?;
+            let is_busy = if self.flash.busy_status_polarity {
+                (read_value & (1 << self.flash.busy_status_offset)) != 0
+            } else {
+                (read_value & (1 << self.flash.busy_status_offset)) == 0
+            };
+
+            if !is_busy {
+                return Ok(());
+            }
+
+            yield_now().await;
+        }
+    }
+
+    async fn wait_idle_async(&self) {
+        while self.info.regs.sts0().read().seqidle() != pac::flexspi::Seqidle::Value1 {
+            yield_now().await;
+        }
+    }
+
+    async fn issue_ip_command_async(
+        &mut self,
+        address: u32,
+        seq_index: usize,
+        data_size: u16,
+        data: Option<u32>,
+    ) -> Result<(), IoError> {
+        self.prepare_ip_transfer();
+
+        self.info.regs.ipcr0().write(|r: &mut Ipcr0| r.set_sfar(address));
+        self.info.regs.ipcr1().write(|r: &mut Ipcr1| {
+            r.set_idatsz(data_size);
+            r.set_iseqid(seq_index as u8);
+            r.set_iseqnum(0);
+            r.set_iparen(false);
+        });
+
+        if let Some(word) = data {
+            self.info.regs.tfdr(0).write_value(Tfdr(word));
+        }
+
+        self.info
+            .regs
+            .ipcmd()
+            .write(|r: &mut Ipcmd| r.set_trg(pac::flexspi::Trg::Value1));
+        self.wait_for_command_completion_async().await
     }
 
     async fn issue_ip_write_command_async(
@@ -1042,33 +1096,6 @@ impl<'d> InnerFlexSpi<'d> {
         }
 
         self.wait_for_command_completion_async().await
-    }
-
-    fn issue_ip_read_command(&mut self, address: u32, seq_index: usize, buffer: &mut [u8]) -> Result<(), IoError> {
-        self.prepare_ip_transfer();
-
-        self.info.regs.ipcr0().write(|r: &mut Ipcr0| r.set_sfar(address));
-        self.info.regs.ipcr1().write(|r: &mut Ipcr1| {
-            r.set_idatsz(buffer.len() as u16);
-            r.set_iseqid(seq_index as u8);
-            r.set_iseqnum(0);
-            r.set_iparen(false);
-        });
-
-        self.info
-            .regs
-            .ipcmd()
-            .write(|r: &mut Ipcmd| r.set_trg(pac::flexspi::Trg::Value1));
-        self.wait_ip_command_done();
-        self.wait_idle();
-        self.wait_no_ip_error()?;
-
-        for (index, chunk) in buffer.chunks_mut(4).enumerate() {
-            let word = self.info.regs.rfdr(index).read().rxdata().to_le_bytes();
-            chunk.copy_from_slice(&word[..chunk.len()]);
-        }
-
-        Ok(())
     }
 
     async fn issue_ip_read_command_async(
@@ -1189,24 +1216,6 @@ impl<'d> InnerFlexSpi<'d> {
     }
 
     async fn wait_for_command_completion_async(&mut self) -> Result<(), IoError> {
-        if !self.use_interrupt_waits() {
-            loop {
-                let status = self.info.regs.intr().read();
-
-                if status.ipcmdge() {
-                    self.wait_idle_async().await;
-                    return Err(IoError::CommandGrantTimeout);
-                }
-
-                if status.ipcmddone() || status.ipcmderr() {
-                    self.wait_idle_async().await;
-                    return self.wait_no_ip_error();
-                }
-
-                yield_now().await;
-            }
-        }
-
         let timed_out = poll_fn(|cx| {
             self.info.waker().register(cx.waker());
 
@@ -1250,97 +1259,56 @@ impl<'d> InnerFlexSpi<'d> {
         self.wait_no_ip_error()
     }
 
-    async fn wait_for_tx_watermark_async(&mut self) -> Result<(), IoError> {
-        if self.use_interrupt_waits() {
-            return poll_fn(|cx| {
-                self.info.waker().register(cx.waker());
+    fn wait_for_tx_watermark_async(&mut self) -> impl Future<Output = Result<(), IoError>> {
+        poll_fn(|cx| {
+            self.info.waker().register(cx.waker());
 
-                self.info.regs.inten().write(|w| {
-                    w.set_iptxween(pac::flexspi::Iptxween::Value1);
-                    w.set_ipcmdgeen(pac::flexspi::Ipcmdgeen::Value1);
-                    w.set_ipcmderren(pac::flexspi::Ipcmderren::Value1);
-                });
+            self.info.regs.inten().write(|w| {
+                w.set_iptxween(pac::flexspi::Iptxween::Value1);
+                w.set_ipcmdgeen(pac::flexspi::Ipcmdgeen::Value1);
+                w.set_ipcmderren(pac::flexspi::Ipcmderren::Value1);
+            });
 
-                let pending_events = self.info.pending_events().load(Ordering::Acquire);
-                let status = self.info.regs.intr().read();
-
-                if (pending_events & IRQ_EVENT_COMMAND_GRANT) != 0 || status.ipcmdge() {
-                    self.info
-                        .pending_events()
-                        .fetch_and(!IRQ_EVENT_COMMAND_GRANT, Ordering::AcqRel);
-                    if status.ipcmdge() {
-                        self.info.regs.intr().write(|w| w.set_ipcmdge(true));
-                    }
-                    return Poll::Ready(Err(IoError::CommandGrantTimeout));
-                }
-
-                if (pending_events & IRQ_EVENT_COMMAND_ERROR) != 0 || status.ipcmderr() {
-                    self.info
-                        .pending_events()
-                        .fetch_and(!IRQ_EVENT_COMMAND_ERROR, Ordering::AcqRel);
-                    if status.ipcmderr() {
-                        self.info.regs.intr().write(|w| w.set_ipcmderr(true));
-                    }
-                    return Poll::Ready(self.wait_no_ip_error());
-                }
-
-                if (pending_events & IRQ_EVENT_TX_WATERMARK) != 0 || status.iptxwe() {
-                    self.info
-                        .pending_events()
-                        .fetch_and(!IRQ_EVENT_TX_WATERMARK, Ordering::AcqRel);
-                    return Poll::Ready(Ok(()));
-                }
-
-                Poll::Pending
-            })
-            .await;
-        }
-
-        loop {
+            let pending_events = self.info.pending_events().load(Ordering::Acquire);
             let status = self.info.regs.intr().read();
 
-            if status.ipcmdge() {
-                self.info.regs.intr().write(|w| w.set_ipcmdge(true));
-                return Err(IoError::CommandGrantTimeout);
+            if (pending_events & IRQ_EVENT_COMMAND_GRANT) != 0 || status.ipcmdge() {
+                self.info
+                    .pending_events()
+                    .fetch_and(!IRQ_EVENT_COMMAND_GRANT, Ordering::AcqRel);
+                if status.ipcmdge() {
+                    self.info.regs.intr().write(|w| w.set_ipcmdge(true));
+                }
+                return Poll::Ready(Err(IoError::CommandGrantTimeout));
             }
 
-            if status.ipcmderr() {
-                self.info.regs.intr().write(|w| w.set_ipcmderr(true));
-                return self.wait_no_ip_error();
+            if (pending_events & IRQ_EVENT_COMMAND_ERROR) != 0 || status.ipcmderr() {
+                self.info
+                    .pending_events()
+                    .fetch_and(!IRQ_EVENT_COMMAND_ERROR, Ordering::AcqRel);
+                if status.ipcmderr() {
+                    self.info.regs.intr().write(|w| w.set_ipcmderr(true));
+                }
+                return Poll::Ready(self.wait_no_ip_error());
             }
 
-            if status.iptxwe() {
-                return Ok(());
+            if (pending_events & IRQ_EVENT_TX_WATERMARK) != 0 || status.iptxwe() {
+                self.info
+                    .pending_events()
+                    .fetch_and(!IRQ_EVENT_TX_WATERMARK, Ordering::AcqRel);
+                return Poll::Ready(Ok(()));
             }
 
-            yield_now().await;
-        }
-    }
-
-    fn bytes_to_words(&self, data: &[u8], words: &mut [u32]) {
-        for word in words.iter_mut() {
-            *word = 0;
-        }
-
-        for (index, chunk) in data.chunks(4).enumerate() {
-            let mut raw = [0u8; 4];
-            raw[..chunk.len()].copy_from_slice(chunk);
-            words[index] = u32::from_le_bytes(raw);
-        }
-    }
-
-    fn words_to_bytes(&self, words: &[u32], buffer: &mut [u8]) {
-        for (chunk, word) in buffer.chunks_mut(4).zip(words.iter()) {
-            chunk.copy_from_slice(&word.to_le_bytes()[..chunk.len()]);
-        }
+            Poll::Pending
+        })
     }
 }
 
-pub struct Flexspi<'d> {
-    inner: InnerFlexSpi<'d>,
+pub struct Flexspi<'d, M: Mode> {
+    inner: InnerFlexSpi<'d, M>,
 }
 
-impl<'d> Flexspi<'d> {
+impl<'d> Flexspi<'d, Blocking> {
     pub fn new_blocking<T: Instance, P: Port>(
         peri: Peri<'d, T>,
         pin0: Peri<'d, impl Pin<T, P> + 'd>,
@@ -1364,10 +1332,12 @@ impl<'d> Flexspi<'d> {
         pin7.mux();
 
         Ok(Self {
-            inner: InnerFlexSpi::new_inner(peri, None, false, clock, flash)?,
+            inner: InnerFlexSpi::new_inner(peri, None, clock, flash)?,
         })
     }
+}
 
+impl<'d> Flexspi<'d, Async> {
     pub fn new_async<T: Instance, P: Port>(
         peri: Peri<'d, T>,
         pin0: Peri<'d, impl Pin<T, P> + 'd>,
@@ -1392,7 +1362,7 @@ impl<'d> Flexspi<'d> {
         pin7.mux();
 
         Ok(Self {
-            inner: InnerFlexSpi::new_inner(peri, None, true, clock, flash)?,
+            inner: InnerFlexSpi::new_inner(peri, None, clock, flash)?,
         })
     }
 
@@ -1428,7 +1398,6 @@ impl<'d> Flexspi<'d> {
                     tx_dma: DmaChannel::new(tx_dma),
                     rx_dma: DmaChannel::new(rx_dma),
                 }),
-                true,
                 clock,
                 flash,
             )?,
@@ -1436,12 +1405,12 @@ impl<'d> Flexspi<'d> {
     }
 }
 
-pub struct NorFlash<'d> {
-    flexspi: Flexspi<'d>,
+pub struct NorFlash<'d, M: Mode> {
+    flexspi: Flexspi<'d, M>,
 }
 
-impl<'d> NorFlash<'d> {
-    pub fn new(flexspi: Flexspi<'d>) -> Self {
+impl<'d, M: Mode> NorFlash<'d, M> {
+    pub fn new(flexspi: Flexspi<'d, M>) -> Self {
         Self { flexspi }
     }
 
@@ -1453,16 +1422,8 @@ impl<'d> NorFlash<'d> {
         self.flexspi.inner.read_vendor_id()
     }
 
-    pub async fn read_vendor_id_async(&mut self) -> Result<u8, IoError> {
-        self.flexspi.inner.read_vendor_id_async().await
-    }
-
     pub fn blocking_erase_sector(&mut self, address: u32) -> Result<(), IoError> {
         self.flexspi.inner.erase_sector(address)
-    }
-
-    pub async fn erase_sector_async(&mut self, address: u32) -> Result<(), IoError> {
-        self.flexspi.inner.erase_sector_async(address).await
     }
 
     pub fn blocking_read(&mut self, address: u32, buffer: &mut [u8]) -> Result<(), IoError> {
@@ -1471,6 +1432,16 @@ impl<'d> NorFlash<'d> {
 
     pub fn blocking_page_program(&mut self, address: u32, data: &[u8]) -> Result<(), IoError> {
         self.flexspi.inner.page_program(address, data)
+    }
+}
+
+impl<'d> NorFlash<'d, Async> {
+    pub async fn read_vendor_id_async(&mut self) -> Result<u8, IoError> {
+        self.flexspi.inner.read_vendor_id_async().await
+    }
+
+    pub async fn erase_sector_async(&mut self, address: u32) -> Result<(), IoError> {
+        self.flexspi.inner.erase_sector_async(address).await
     }
 
     pub async fn read_async(&mut self, address: u32, buffer: &mut [u8]) -> Result<(), IoError> {
