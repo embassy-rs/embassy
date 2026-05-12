@@ -1,6 +1,6 @@
 use core::default::Default;
 use core::ops::{Deref, DerefMut};
-
+use embassy_futures::yield_now;
 use sdio_host::common_cmd::R3;
 use sdio_host::emmc::{EMMC, ExtCSD};
 use sdio_host::sd::{BusWidth, CIC, CID, CSD, CardCapacity, CardStatus, CurrentState, OCR, RCA, SCR, SD, SDStatus};
