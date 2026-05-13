@@ -293,8 +293,14 @@ pub struct State<const EP_COUNT: usize> {
     cp_state: ControlPipeSetupState,
     ep_states: [EpState; EP_COUNT],
     bus_waker: AtomicWaker,
+
+    // Endpoint allocation data, owned by Driver/Bus.
+    ep_in_alloc: [UnsafeCell<Option<EndpointData>>; EP_COUNT],
+    ep_out_alloc: [UnsafeCell<Option<EndpointData>>; EP_COUNT],
 }
 
+// SAFETY: `ep_in_alloc` / `ep_out_alloc` are written only during `Driver` endpoint allocation before the USB device
+// stack runs; afterward they are read-only. `EpState::out_buffer` invariants are documented on `EpState`.
 unsafe impl<const EP_COUNT: usize> Send for State<EP_COUNT> {}
 unsafe impl<const EP_COUNT: usize> Sync for State<EP_COUNT> {}
 
@@ -314,7 +320,62 @@ impl<const EP_COUNT: usize> State<EP_COUNT> {
                     out_size: AtomicU16::new(EP_OUT_BUFFER_EMPTY),
                 }
             }; EP_COUNT],
+            ep_in_alloc: [const { UnsafeCell::new(None) }; EP_COUNT],
+            ep_out_alloc: [const { UnsafeCell::new(None) }; EP_COUNT],
             bus_waker: AtomicWaker::new(),
+        }
+    }
+
+    fn ep_alloc_get(&self, dir: Direction, index: usize) -> Option<EndpointData> {
+        unsafe {
+            match dir {
+                Direction::In => *self.ep_in_alloc[index].get(),
+                Direction::Out => *self.ep_out_alloc[index].get(),
+            }
+        }
+    }
+
+    fn ep_fifo_size_in(&self, endpoint_count: usize) -> u16 {
+        (0..endpoint_count)
+            .filter_map(|i| self.ep_alloc_get(Direction::In, i))
+            .map(|ep| ep.fifo_size_words)
+            .sum()
+    }
+
+    fn ep_fifo_size_out(&self, endpoint_count: usize) -> u16 {
+        (0..endpoint_count)
+            .filter_map(|i| self.ep_alloc_get(Direction::Out, i))
+            .map(|ep| ep.fifo_size_words)
+            .sum()
+    }
+
+    fn ep_irq_mask_in(&self, endpoint_count: usize) -> u16 {
+        (0..endpoint_count).fold(0, |mask, i| {
+            if self.ep_alloc_get(Direction::In, i).is_some() {
+                mask | (1 << i)
+            } else {
+                mask
+            }
+        })
+    }
+
+    fn ep_irq_mask_out(&self, endpoint_count: usize) -> u16 {
+        (0..endpoint_count).fold(0, |mask, i| {
+            if self.ep_alloc_get(Direction::Out, i).is_some() {
+                mask | (1 << i)
+            } else {
+                mask
+            }
+        })
+    }
+
+    /// # Safety
+    ///
+    /// Call only from [`Driver::alloc_endpoint`](crate::Driver::alloc_endpoint) before [`embassy_usb_driver::Driver::start`].
+    unsafe fn alloc_slot_write(&self, dir: Direction, index: usize, data: EndpointData) {
+        match dir {
+            Direction::In => *self.ep_in_alloc[index].get() = Some(data),
+            Direction::Out => *self.ep_out_alloc[index].get() = Some(data),
         }
     }
 }
@@ -367,8 +428,6 @@ impl Default for Config {
 /// USB OTG driver.
 pub struct Driver<'d, const MAX_EP_COUNT: usize> {
     config: Config,
-    ep_in: [Option<EndpointData>; MAX_EP_COUNT],
-    ep_out: [Option<EndpointData>; MAX_EP_COUNT],
     ep_out_buffer: &'d mut [u8],
     ep_out_buffer_offset: usize,
     instance: OtgInstance<'d, MAX_EP_COUNT>,
@@ -387,8 +446,6 @@ impl<'d, const MAX_EP_COUNT: usize> Driver<'d, MAX_EP_COUNT> {
     pub fn new(ep_out_buffer: &'d mut [u8], instance: OtgInstance<'d, MAX_EP_COUNT>, config: Config) -> Self {
         Self {
             config,
-            ep_in: [None; MAX_EP_COUNT],
-            ep_out: [None; MAX_EP_COUNT],
             ep_out_buffer,
             ep_out_buffer_offset: 0,
             instance,
@@ -397,7 +454,9 @@ impl<'d, const MAX_EP_COUNT: usize> Driver<'d, MAX_EP_COUNT> {
 
     /// Returns the total amount of words (u32) allocated in dedicated FIFO.
     fn allocated_fifo_words(&self) -> u16 {
-        self.instance.extra_rx_fifo_words + ep_fifo_size(&self.ep_out) + ep_fifo_size(&self.ep_in)
+        let state = self.instance.state;
+        let n = self.instance.endpoint_count;
+        self.instance.extra_rx_fifo_words + state.ep_fifo_size_out(n) + state.ep_fifo_size_in(n)
     }
 
     /// Creates an [`Endpoint`] with the given parameters.
@@ -434,59 +493,62 @@ impl<'d, const MAX_EP_COUNT: usize> Driver<'d, MAX_EP_COUNT> {
             return Err(EndpointAllocError);
         }
 
-        let eps = match D::dir() {
-            Direction::Out => &mut self.ep_out[..self.instance.endpoint_count],
-            Direction::In => &mut self.ep_in[..self.instance.endpoint_count],
-        };
+        let dir = D::dir();
+        let state = self.instance.state;
+        let endpoint_count = self.instance.endpoint_count;
 
         // Find endpoint slot
-        let slot = if let Some(addr) = ep_addr {
+        let index = if let Some(addr) = ep_addr {
             // Use the specified endpoint address
             let requested_index = addr.index();
-            if requested_index >= self.instance.endpoint_count {
+            if requested_index >= endpoint_count {
                 return Err(EndpointAllocError);
             }
             if requested_index == 0 && ep_type != EndpointType::Control {
                 return Err(EndpointAllocError); // EP0 is reserved for control
             }
-            if eps[requested_index].is_some() {
+            if state.ep_alloc_get(dir, requested_index).is_some() {
                 return Err(EndpointAllocError); // Already allocated
             }
-            Some((requested_index, &mut eps[requested_index]))
+            requested_index
         } else {
             // Find any free endpoint slot
-            eps.iter_mut().enumerate().find(|(i, ep)| {
-                if *i == 0 && ep_type != EndpointType::Control {
+            let found = (0..endpoint_count).find(|&i| {
+                if i == 0 && ep_type != EndpointType::Control {
                     // reserved for control pipe
                     false
                 } else {
-                    ep.is_none()
+                    state.ep_alloc_get(dir, i).is_none()
                 }
-            })
+            });
+            match found {
+                Some(i) => i,
+                None => {
+                    error!("No free endpoints available");
+                    return Err(EndpointAllocError);
+                }
+            }
         };
 
-        let index = match slot {
-            Some((index, ep)) => {
-                *ep = Some(EndpointData {
+        unsafe {
+            state.alloc_slot_write(
+                dir,
+                index,
+                EndpointData {
                     ep_type,
                     max_packet_size,
                     fifo_size_words,
-                });
-                index
-            }
-            None => {
-                error!("No free endpoints available");
-                return Err(EndpointAllocError);
-            }
+                },
+            );
         };
 
         trace!("  index={}", index);
 
-        let state = &self.instance.state.ep_states[index];
+        let ep_state = &self.instance.state.ep_states[index];
         if D::dir() == Direction::Out {
             // Buffer capacity check was done above, now allocation cannot fail
             unsafe {
-                *state.out_buffer.get() = self.ep_out_buffer.as_mut_ptr().offset(self.ep_out_buffer_offset as _);
+                *ep_state.out_buffer.get() = self.ep_out_buffer.as_mut_ptr().offset(self.ep_out_buffer_offset as _);
             }
             self.ep_out_buffer_offset += max_packet_size as usize;
         }
@@ -494,7 +556,7 @@ impl<'d, const MAX_EP_COUNT: usize> Driver<'d, MAX_EP_COUNT> {
         Ok(Endpoint {
             _phantom: PhantomData,
             regs: self.instance.regs,
-            state,
+            state: ep_state,
             info: EndpointInfo {
                 addr: EndpointAddress::from_parts(index, D::dir()),
                 ep_type,
@@ -548,8 +610,6 @@ impl<'d, const MAX_EP_COUNT: usize> embassy_usb_driver::Driver<'d> for Driver<'d
         (
             Bus {
                 config: self.config,
-                ep_in: self.ep_in,
-                ep_out: self.ep_out,
                 inited: false,
                 instance: self.instance,
             },
@@ -567,8 +627,6 @@ impl<'d, const MAX_EP_COUNT: usize> embassy_usb_driver::Driver<'d> for Driver<'d
 /// USB bus.
 pub struct Bus<'d, const MAX_EP_COUNT: usize> {
     config: Config,
-    ep_in: [Option<EndpointData>; MAX_EP_COUNT],
-    ep_out: [Option<EndpointData>; MAX_EP_COUNT],
     instance: OtgInstance<'d, MAX_EP_COUNT>,
     inited: bool,
 }
@@ -784,15 +842,17 @@ impl<'d, const MAX_EP_COUNT: usize> Bus<'d, MAX_EP_COUNT> {
         // the interrupt does not occur.
         critical_section::with(|_| {
             // Configure RX fifo size. All endpoints share the same FIFO area.
-            let rx_fifo_size_words = self.instance.extra_rx_fifo_words + ep_fifo_size(&self.ep_out);
+            let state = self.instance.state;
+            let ep_count = self.instance.endpoint_count;
+            let rx_fifo_size_words = self.instance.extra_rx_fifo_words + state.ep_fifo_size_out(ep_count);
             trace!("configuring rx fifo size={}", rx_fifo_size_words);
 
             regs.grxfsiz().modify(|w| w.set_rxfd(rx_fifo_size_words));
 
             // Configure TX (USB in direction) fifo size for each endpoint
             let mut fifo_top = rx_fifo_size_words;
-            for i in 0..self.instance.endpoint_count {
-                if let Some(ep) = self.ep_in[i] {
+            for i in 0..ep_count {
+                if let Some(ep) = state.ep_alloc_get(Direction::In, i) {
                     trace!(
                         "configuring tx fifo ep={}, offset={}, size={}",
                         i, fifo_top, ep.fifo_size_words
@@ -834,10 +894,11 @@ impl<'d, const MAX_EP_COUNT: usize> Bus<'d, MAX_EP_COUNT> {
         trace!("configure_endpoints");
 
         let regs = self.instance.regs;
+        let state = self.instance.state;
 
         // Configure IN endpoints
-        for (index, ep) in self.ep_in.iter().enumerate() {
-            if let Some(ep) = ep {
+        for index in 0..self.instance.endpoint_count {
+            if let Some(ep) = state.ep_alloc_get(Direction::In, index) {
                 critical_section::with(|_| {
                     regs.diepctl(index).write(|w| {
                         if index == 0 {
@@ -855,8 +916,8 @@ impl<'d, const MAX_EP_COUNT: usize> Bus<'d, MAX_EP_COUNT> {
         }
 
         // Configure OUT endpoints
-        for (index, ep) in self.ep_out.iter().enumerate() {
-            if let Some(ep) = ep {
+        for index in 0..self.instance.endpoint_count {
+            if let Some(ep) = state.ep_alloc_get(Direction::Out, index) {
                 critical_section::with(|_| {
                     regs.doepctl(index).write(|w| {
                         if index == 0 {
@@ -881,9 +942,10 @@ impl<'d, const MAX_EP_COUNT: usize> Bus<'d, MAX_EP_COUNT> {
         }
 
         // Enable IRQs for allocated endpoints
+        let ep_count = self.instance.endpoint_count;
         regs.daintmsk().modify(|w| {
-            w.set_iepm(ep_irq_mask(&self.ep_in));
-            w.set_oepm(ep_irq_mask(&self.ep_out));
+            w.set_iepm(state.ep_irq_mask_in(ep_count));
+            w.set_oepm(state.ep_irq_mask_out(ep_count));
         });
     }
 
@@ -1077,7 +1139,7 @@ impl<'d, const MAX_EP_COUNT: usize> embassy_usb_driver::Bus for Bus<'d, MAX_EP_C
                     // When re-enabling a non-EP0 OUT endpoint, prime it to receive a packet.
                     // Without this, the endpoint stays idle after reconnect and silently drops data.
                     if enabled && ep_addr.index() != 0 {
-                        if let Some(ep) = &self.ep_out[ep_addr.index()] {
+                        if let Some(ep) = self.instance.state.ep_alloc_get(Direction::Out, ep_addr.index()) {
                             regs.doeptsiz(ep_addr.index()).modify(|w| {
                                 w.set_xfrsiz(ep.max_packet_size as _);
                                 w.set_pktcnt(1);
@@ -1526,21 +1588,6 @@ fn to_eptyp(ep_type: EndpointType) -> vals::Eptyp {
         EndpointType::Bulk => vals::Eptyp::BULK,
         EndpointType::Interrupt => vals::Eptyp::INTERRUPT,
     }
-}
-
-/// Calculates total allocated FIFO size in words
-fn ep_fifo_size(eps: &[Option<EndpointData>]) -> u16 {
-    eps.iter().map(|ep| ep.map(|ep| ep.fifo_size_words).unwrap_or(0)).sum()
-}
-
-/// Generates IRQ mask for enabled endpoints
-fn ep_irq_mask(eps: &[Option<EndpointData>]) -> u16 {
-    eps.iter().enumerate().fold(
-        0,
-        |mask, (index, ep)| {
-            if ep.is_some() { mask | (1 << index) } else { mask }
-        },
-    )
 }
 
 /// Calculates MPSIZ value for EP0, which uses special values.
