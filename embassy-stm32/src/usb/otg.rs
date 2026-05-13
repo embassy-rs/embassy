@@ -25,8 +25,7 @@ pub struct InterruptHandler<T: Instance> {
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         let r = T::regs();
-        let state = T::state();
-        on_interrupt_impl(r, state, T::ENDPOINT_COUNT);
+        on_interrupt_impl(r, &T::state().as_otg_state(), T::ENDPOINT_COUNT);
     }
 }
 
@@ -49,7 +48,7 @@ const RX_FIFO_EXTRA_SIZE_WORDS: u16 = 30;
 /// USB driver.
 pub struct Driver<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
-    inner: OtgDriver<'d, MAX_EP_COUNT>,
+    inner: OtgDriver<'d>,
 }
 
 impl<'d, T: Instance> Driver<'d, T> {
@@ -80,7 +79,7 @@ impl<'d, T: Instance> Driver<'d, T> {
 
         let instance = OtgInstance {
             regs,
-            state: T::state(),
+            state: T::state().as_otg_state(),
             fifo_depth_words: T::FIFO_DEPTH_WORDS,
             extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
             endpoint_count: T::ENDPOINT_COUNT,
@@ -119,7 +118,7 @@ impl<'d, T: Instance> Driver<'d, T> {
 
         let instance = OtgInstance {
             regs: T::regs(),
-            state: T::state(),
+            state: T::state().as_otg_state(),
             fifo_depth_words: T::FIFO_DEPTH_WORDS,
             extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
             endpoint_count: T::ENDPOINT_COUNT,
@@ -165,7 +164,7 @@ impl<'d, T: Instance> Driver<'d, T> {
 
         let instance = OtgInstance {
             regs: T::regs(),
-            state: T::state(),
+            state: T::state().as_otg_state(),
             fifo_depth_words: T::FIFO_DEPTH_WORDS,
             extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
             endpoint_count: T::ENDPOINT_COUNT,
@@ -213,7 +212,7 @@ impl<'d, T: Instance> Driver<'d, T> {
 
         let instance = OtgInstance {
             regs: T::regs(),
-            state: T::state(),
+            state: T::state().as_otg_state(),
             fifo_depth_words: T::FIFO_DEPTH_WORDS,
             extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
             endpoint_count: T::ENDPOINT_COUNT,
@@ -273,7 +272,7 @@ impl<'d, T: Instance> embassy_usb_driver::Driver<'d> for Driver<'d, T> {
 /// USB bus.
 pub struct Bus<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
-    inner: OtgBus<'d, MAX_EP_COUNT>,
+    inner: OtgBus<'d>,
     inited: bool,
 }
 

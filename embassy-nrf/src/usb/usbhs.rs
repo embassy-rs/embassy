@@ -35,13 +35,13 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        on_interrupt_impl(T::core_regs(), T::state(), MAX_EP_COUNT);
+        on_interrupt_impl(T::core_regs(), &T::state().as_otg_state(), MAX_EP_COUNT);
     }
 }
 
 /// USB driver.
 pub struct Driver<'d, V: VbusDetect> {
-    inner: OtgDriver<'d, MAX_EP_COUNT>,
+    inner: OtgDriver<'d>,
     usb_regs: pac::usbhs::Usbhs,
     vbus_detect: V,
     _phantom: PhantomData<&'d ()>,
@@ -61,7 +61,7 @@ impl<'d, V: VbusDetect> Driver<'d, V> {
 
         let instance = OtgInstance {
             regs: T::core_regs(),
-            state: T::state(),
+            state: T::state().as_otg_state(),
             fifo_depth_words: FIFO_DEPTH_WORDS,
             endpoint_count: MAX_EP_COUNT,
             phy_type: PhyType::InternalHighSpeed,
@@ -125,7 +125,7 @@ impl<'d, V: VbusDetect + 'd> embassy_usb_driver::Driver<'d> for Driver<'d, V> {
 
 /// USB bus.
 pub struct Bus<'d, V: VbusDetect> {
-    inner: OtgBus<'d, MAX_EP_COUNT>,
+    inner: OtgBus<'d>,
     usb_regs: pac::usbhs::Usbhs,
     vbus_detect: V,
     power_present: bool,
