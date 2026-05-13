@@ -298,43 +298,43 @@ impl Otg {
     #[doc = "Host channel characteristics register"]
     #[inline(always)]
     pub const fn hcchar(self, n: usize) -> Reg<regs::Hcchar, RW> {
-        core::assert!(n < 12usize);
+        core::assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0500usize + n * 32usize) as _) }
     }
     #[doc = "Host channel split control register"]
     #[inline(always)]
     pub const fn hcsplt(self, n: usize) -> Reg<u32, RW> {
-        core::assert!(n < 12usize);
+        core::assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0504usize + n * 32usize) as _) }
     }
     #[doc = "Host channel interrupt register"]
     #[inline(always)]
     pub const fn hcint(self, n: usize) -> Reg<regs::Hcint, RW> {
-        core::assert!(n < 12usize);
+        core::assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0508usize + n * 32usize) as _) }
     }
     #[doc = "Host channel mask register"]
     #[inline(always)]
     pub const fn hcintmsk(self, n: usize) -> Reg<regs::Hcintmsk, RW> {
-        core::assert!(n < 12usize);
+        core::assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x050cusize + n * 32usize) as _) }
     }
     #[doc = "Host channel transfer size register"]
     #[inline(always)]
     pub const fn hctsiz(self, n: usize) -> Reg<regs::Hctsiz, RW> {
-        core::assert!(n < 12usize);
+        core::assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0510usize + n * 32usize) as _) }
     }
     #[doc = "Host channel DMA address register (config for scatter/gather, ptr for buffer-dma)"]
     #[inline(always)]
     pub const fn hcdma(self, n: usize) -> Reg<regs::Hcdma, RW> {
-        core::assert!(n < 12usize);
+        core::assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0514usize + n * 32usize) as _) }
     }
     #[doc = "Host channel DMA address register (addr buffer for current transfer; used to debug ddma)"]
     #[inline(always)]
     pub const fn hcdmab(self, n: usize) -> Reg<u32, RW> {
-        core::assert!(n < 12usize);
+        core::assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x051cusize + n * 32usize) as _) }
     }
     #[doc = "Device configuration register"]
