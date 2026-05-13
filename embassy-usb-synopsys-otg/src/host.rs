@@ -85,14 +85,38 @@ impl<const CH_COUNT: usize> HostState<CH_COUNT> {
             inited: AtomicBool::new(false),
         }
     }
+
+    /// Borrow this [`HostState`] as an [`OtgHostState`] for [`OtgHostInstance`].
+    pub fn as_otg_host_state(&self) -> OtgHostState<'_> {
+        OtgHostState {
+            channels: self.channels.as_slice(),
+            port_waker: &self.port_waker,
+            port_event: &self.port_event,
+            port_speed: &self.port_speed,
+            inited: &self.inited,
+        }
+    }
+}
+
+/// Type-erased view of [`HostState`] for [`OtgHostInstance`], [`OtgHost`], [`on_host_interrupt`], and pipes.
+///
+/// Build from [`HostState::as_otg_host_state`].
+#[derive(Clone, Copy)]
+pub struct OtgHostState<'d> {
+    channels: &'d [ChannelState],
+    port_waker: &'d AtomicWaker,
+    port_event: &'d AtomicU8,
+    port_speed: &'d AtomicU8,
+    inited: &'d AtomicBool,
 }
 
 /// Hardware-dependent host configuration.
-pub struct OtgHostInstance<'d, const CH_COUNT: usize> {
+#[derive(Copy, Clone)]
+pub struct OtgHostInstance<'d> {
     /// The USB peripheral registers.
     pub regs: Otg,
-    /// The host state.
-    pub state: &'d HostState<CH_COUNT>,
+    /// Shared host driver state from [`HostState::as_otg_host_state`].
+    pub state: OtgHostState<'d>,
     /// FIFO depth in words.
     pub fifo_depth_words: u16,
     /// Number of host channels available.
@@ -105,7 +129,7 @@ pub struct OtgHostInstance<'d, const CH_COUNT: usize> {
 ///
 /// # Safety
 /// Must be called from the USB OTG interrupt handler when the controller is in host mode.
-pub unsafe fn on_host_interrupt<const CH_COUNT: usize>(r: Otg, state: &HostState<CH_COUNT>, ch_count: usize) {
+pub unsafe fn on_host_interrupt(r: Otg, state: &OtgHostState<'_>, ch_count: usize) {
     let gintsts = r.gintsts().read();
 
     // Clear SOF interrupt immediately to avoid flooding.
@@ -338,13 +362,13 @@ fn hprt_read_safe(r: Otg) -> u32 {
 }
 
 /// USB OTG Host Driver.
-pub struct OtgHost<'d, const CH_COUNT: usize> {
-    instance: OtgHostInstance<'d, CH_COUNT>,
+pub struct OtgHost<'d> {
+    instance: OtgHostInstance<'d>,
 }
 
-impl<'d, const CH_COUNT: usize> OtgHost<'d, CH_COUNT> {
+impl<'d> OtgHost<'d> {
     /// Create a new OTG host driver.
-    pub fn new(instance: OtgHostInstance<'d, CH_COUNT>) -> Self {
+    pub fn new(instance: OtgHostInstance<'d>) -> Self {
         Self { instance }
     }
 
@@ -486,22 +510,22 @@ impl<'d, const CH_COUNT: usize> OtgHost<'d, CH_COUNT> {
 /// Obtained from [`UsbHostController::allocator`]. Holds only `Copy` handles
 /// to the controller's `'d`-borrowed state, so it can be freely copied and
 /// retained by class drivers independently of the controller's `&mut` borrow.
-pub struct OtgHostAllocator<'d, const CH_COUNT: usize> {
+pub struct OtgHostAllocator<'d> {
     regs: Otg,
-    state: &'d HostState<CH_COUNT>,
+    state: OtgHostState<'d>,
     channel_count: usize,
 }
 
-impl<'d, const CH_COUNT: usize> Clone for OtgHostAllocator<'d, CH_COUNT> {
+impl<'d> Clone for OtgHostAllocator<'d> {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<'d, const CH_COUNT: usize> Copy for OtgHostAllocator<'d, CH_COUNT> {}
+impl<'d> Copy for OtgHostAllocator<'d> {}
 
-impl<'d, const CH_COUNT: usize> UsbHostAllocator<'d> for OtgHostAllocator<'d, CH_COUNT> {
-    type Pipe<T: pipe::Type, D: pipe::Direction> = Channel<'d, T, D, CH_COUNT>;
+impl<'d> UsbHostAllocator<'d> for OtgHostAllocator<'d> {
+    type Pipe<T: pipe::Type, D: pipe::Direction> = Channel<'d, T, D>;
 
     fn alloc_pipe<T: pipe::Type, D: pipe::Direction>(
         &self,
@@ -516,8 +540,9 @@ impl<'d, const CH_COUNT: usize> UsbHostAllocator<'d> for OtgHostAllocator<'d, CH
         let speed_code = self.state.port_speed.load(Ordering::Acquire);
         let is_low_speed = speed_code == 1;
 
+        let max_ch = self.channel_count.min(self.state.channels.len());
         // Find a free channel using atomic CAS
-        for i in 0..self.channel_count.min(CH_COUNT) {
+        for i in 0..max_ch {
             if self.state.channels[i]
                 .allocated
                 .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
@@ -543,8 +568,8 @@ impl<'d, const CH_COUNT: usize> UsbHostAllocator<'d> for OtgHostAllocator<'d, CH
     }
 }
 
-impl<'d, const CH_COUNT: usize> UsbHostController<'d> for OtgHost<'d, CH_COUNT> {
-    type Allocator = OtgHostAllocator<'d, CH_COUNT>;
+impl<'d> UsbHostController<'d> for OtgHost<'d> {
+    type Allocator = OtgHostAllocator<'d>;
 
     fn allocator(&self) -> Self::Allocator {
         OtgHostAllocator {
@@ -577,7 +602,7 @@ impl<'d, const CH_COUNT: usize> UsbHostController<'d> for OtgHost<'d, CH_COUNT> 
                 if ev & PORT_EVENT_DISCONNECTED != 0 {
                     state.port_event.fetch_and(!PORT_EVENT_DISCONNECTED, Ordering::AcqRel);
                     // Wake all channels to signal disconnection
-                    for ch in &state.channels {
+                    for ch in state.channels {
                         if ch.allocated.load(Ordering::Relaxed) {
                             ch.result.store(CH_RESULT_HALTED, Ordering::Release);
                             ch.waker.wake();
@@ -613,7 +638,7 @@ impl<'d, const CH_COUNT: usize> UsbHostController<'d> for OtgHost<'d, CH_COUNT> 
                 }
                 if ev & PORT_EVENT_DISCONNECTED != 0 {
                     state.port_event.fetch_and(!PORT_EVENT_DISCONNECTED, Ordering::AcqRel);
-                    for ch in &state.channels {
+                    for ch in state.channels {
                         if ch.allocated.load(Ordering::Relaxed) {
                             ch.result.store(CH_RESULT_HALTED, Ordering::Release);
                             ch.waker.wake();
@@ -671,7 +696,7 @@ impl<'d, const CH_COUNT: usize> UsbHostController<'d> for OtgHost<'d, CH_COUNT> 
 
     async fn bus_reset(&mut self) {
         let r = self.instance.regs;
-        let ch_count = self.instance.channel_count.min(CH_COUNT);
+        let ch_count = self.instance.channel_count.min(self.instance.state.channels.len());
 
         // Halt any still-active hardware channels left over from a
         // previous session (e.g. interrupt endpoints that were polling
@@ -734,9 +759,9 @@ impl<'d, const CH_COUNT: usize> UsbHostController<'d> for OtgHost<'d, CH_COUNT> 
 /// A USB host channel for performing transfers.
 ///
 /// The channel is automatically released when dropped.
-pub struct Channel<'d, T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> {
+pub struct Channel<'d, T: pipe::Type, D: pipe::Direction> {
     regs: Otg,
-    state: &'d HostState<CH_COUNT>,
+    state: OtgHostState<'d>,
     index: usize,
     device_address: u8,
     ep_number: u8,
@@ -747,9 +772,9 @@ pub struct Channel<'d, T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize>
 }
 
 // SAFETY: Channel only accesses its own state in the shared HostState.
-unsafe impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Send for Channel<'_, T, D, CH_COUNT> {}
+unsafe impl<T: pipe::Type, D: pipe::Direction> Send for Channel<'_, T, D> {}
 
-impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Drop for Channel<'_, T, D, CH_COUNT> {
+impl<T: pipe::Type, D: pipe::Direction> Drop for Channel<'_, T, D> {
     fn drop(&mut self) {
         let r = self.regs;
         let ch = self.index;
@@ -782,7 +807,7 @@ impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Drop for Channel<
     }
 }
 
-impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Channel<'_, T, D, CH_COUNT> {
+impl<T: pipe::Type, D: pipe::Direction> Channel<'_, T, D> {
     fn configure_channel(&self, dir_in: bool, ep_type: EndpointType, pktcnt: u16, xfrsiz: u32, dpid: u8) {
         let r = self.regs;
         let ch = self.index;
@@ -1139,7 +1164,7 @@ impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Channel<'_, T, D,
     }
 }
 
-impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> UsbPipe<T, D> for Channel<'_, T, D, CH_COUNT> {
+impl<T: pipe::Type, D: pipe::Direction> UsbPipe<T, D> for Channel<'_, T, D> {
     async fn control_in(&mut self, setup: &[u8; 8], buf: &mut [u8]) -> Result<usize, PipeError>
     where
         T: pipe::IsControl,

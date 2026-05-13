@@ -626,8 +626,11 @@ mod host_impl {
     impl<T: SealedHostInstance> interrupt::typelevel::Handler<T::Interrupt> for HostInterruptHandler<T> {
         unsafe fn on_interrupt() {
             let r = T::regs();
-            let state = T::host_state();
-            on_host_interrupt_impl(r, state, T::ENDPOINT_COUNT.min(MAX_HOST_CH_COUNT));
+            on_host_interrupt_impl(
+                r,
+                &T::host_state().as_otg_host_state(),
+                T::ENDPOINT_COUNT.min(MAX_HOST_CH_COUNT),
+            );
         }
     }
 
@@ -635,7 +638,7 @@ mod host_impl {
     #[allow(private_interfaces, private_bounds)]
     pub struct HostDriver<'d, T: SealedHostInstance> {
         phantom: PhantomData<&'d mut T>,
-        inner: OtgHostDriver<'d, MAX_HOST_CH_COUNT>,
+        inner: OtgHostDriver<'d>,
     }
 
     #[allow(private_bounds)]
@@ -659,7 +662,7 @@ mod host_impl {
 
             let instance = OtgHostInstance {
                 regs: T::regs(),
-                state: T::host_state(),
+                state: T::host_state().as_otg_host_state(),
                 fifo_depth_words: T::FIFO_DEPTH_WORDS,
                 channel_count: T::ENDPOINT_COUNT.min(MAX_HOST_CH_COUNT),
                 phy_type: PhyType::InternalFullSpeed,
@@ -709,7 +712,7 @@ mod host_impl {
 
             let instance = OtgHostInstance {
                 regs: T::regs(),
-                state: T::host_state(),
+                state: T::host_state().as_otg_host_state(),
                 fifo_depth_words: T::FIFO_DEPTH_WORDS,
                 channel_count: T::ENDPOINT_COUNT.min(MAX_HOST_CH_COUNT),
                 phy_type: PhyType::InternalHighSpeed,
@@ -724,8 +727,7 @@ mod host_impl {
 
     #[allow(private_bounds)]
     impl<'d, T: SealedHostInstance> embassy_usb_driver::host::UsbHostController<'d> for HostDriver<'d, T> {
-        type Allocator =
-            <OtgHostDriver<'d, MAX_HOST_CH_COUNT> as embassy_usb_driver::host::UsbHostController<'d>>::Allocator;
+        type Allocator = <OtgHostDriver<'d> as embassy_usb_driver::host::UsbHostController<'d>>::Allocator;
 
         fn allocator(&self) -> Self::Allocator {
             self.inner.allocator()
