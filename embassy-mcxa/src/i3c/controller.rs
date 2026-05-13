@@ -68,6 +68,8 @@ pub enum IOError {
     InvalidReadBufferLength,
     /// Other internal errors or unexpected state.
     Other,
+    /// Requested IBI slot already holds a different address.
+    IbiSlotOccupied,
 }
 
 impl From<crate::dma::InvalidParameters> for IOError {
@@ -76,14 +78,18 @@ impl From<crate::dma::InvalidParameters> for IOError {
     }
 }
 
+/// Whether to send a STOP condition after the transfer.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum SendStop {
+    /// Do not send STOP (for repeated-START sequences).
     #[default]
     No,
+    /// Send STOP after the transfer.
     Yes,
 }
 
+/// Bus transfer type.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[allow(dead_code)]
@@ -103,6 +109,49 @@ impl From<BusType> for Type {
             BusType::I3cSdr => Self::I3c,
             BusType::I2c => Self::I2c,
             BusType::I3cDdr => Self::Ddr,
+        }
+    }
+}
+
+/// IBI registration slot in the controller's `MIBIRULES` table.
+///
+/// The MCXA I3C controller has five address slots used to recognize IBI source
+/// addresses. Pick one slot per registered target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum IbiSlot {
+    /// `MIBIRULES.ADDR0`.
+    Slot0,
+    /// `MIBIRULES.ADDR1`.
+    Slot1,
+    /// `MIBIRULES.ADDR2`.
+    Slot2,
+    /// `MIBIRULES.ADDR3`.
+    Slot3,
+    /// `MIBIRULES.ADDR4`.
+    Slot4,
+}
+
+/// Whether the registered IBI source emits a Mandatory Data Byte (MDB).
+///
+/// Note that the underlying `MIBIRULES.NOBYTE` field is a single bit shared by
+/// all five slots, so this setting is honoured only on the **first**
+/// registration; later registrations leave it untouched.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Payload {
+    /// Target does not emit an MDB byte after the IBI header.
+    #[default]
+    No,
+    /// Target emits an MDB byte after the IBI header.
+    Yes,
+}
+
+impl From<Payload> for crate::pac::i3c::Nobyte {
+    fn from(value: Payload) -> Self {
+        match value {
+            Payload::Yes => Self::Ibibyte,
+            Payload::No => Self::NoIbibyte,
         }
     }
 }
@@ -1231,10 +1280,60 @@ where
 
     // Public API: Async
 
+    /// Register a target's 7-bit dynamic address in `MIBIRULES` so the controller
+    /// captures the Mandatory Data Byte (MDB) sent during that target's IBIs.
+    ///
+    /// On NXP MCXA, the MDB byte is only written into the controller's RX FIFO when
+    /// the IBI source address matches one of the five registered slots in `MIBIRULES`
+    /// and `NOBYTE=0` (i.e., [`Payload::Yes`]). Without this, AUTO_IBI ACKs the IBI
+    /// and consumes the MDB on the wire but discards it, leaving `rxcount=0` and
+    /// frequently desyncing the post-IBI directed read.
+    ///
+    /// Re-registering the same address into the same slot is a no-op and returns
+    /// `Ok(())` without touching any register. If the slot already holds a different
+    /// address, returns [`IOError::IbiSlotOccupied`] and leaves `MIBIRULES` unchanged.
+    ///
+    /// `MIBIRULES.NOBYTE` is a single bit shared across all five slots. This method
+    /// writes it only on the *first* registration (when all five `ADDRn` fields are
+    /// zero); subsequent calls keep `payload` for documentation only.
+    pub fn register_ibi(&mut self, slot: IbiSlot, addr: u8, payload: Payload) -> Result<(), IOError> {
+        let regs = self.info.regs();
+        let r = regs.mibirules().read();
+
+        let current = match slot {
+            IbiSlot::Slot0 => r.addr0(),
+            IbiSlot::Slot1 => r.addr1(),
+            IbiSlot::Slot2 => r.addr2(),
+            IbiSlot::Slot3 => r.addr3(),
+            IbiSlot::Slot4 => r.addr4(),
+        };
+
+        if addr == current {
+            return Ok(());
+        }
+
+        if current != 0 {
+            return Err(IOError::IbiSlotOccupied);
+        }
+
+        regs.mibirules().modify(|w| {
+            match slot {
+                IbiSlot::Slot0 => w.set_addr0(addr),
+                IbiSlot::Slot1 => w.set_addr1(addr),
+                IbiSlot::Slot2 => w.set_addr2(addr),
+                IbiSlot::Slot3 => w.set_addr3(addr),
+                IbiSlot::Slot4 => w.set_addr4(addr),
+            }
+            w.set_nobyte(payload.into());
+        });
+
+        Ok(())
+    }
+
     /// Wait for a target IBI, ACK it, drain any payload bytes, and emit STOP.
     ///
     /// Returns the IBI target address and the number of payload bytes written into `buf`.
-    /// The P3T1755 (and most sensors) set BCR[2]=0 so no payload bytes follow the address header;
+    /// The P3T1755 (and most sensors) set BCR\[2\]=0 so no payload bytes follow the address header;
     /// in that case this returns `(addr, 0)`.
     pub async fn async_wait_for_ibi(&mut self, buf: &mut [u8]) -> Result<(u8, usize), IOError> {
         // Step 1: Wait for SLVSTART (a target is asserting SDA low to request the bus).
@@ -1410,8 +1509,20 @@ where
 ///
 /// Several operations can be combined as part of a single transaction.
 pub enum Operation<'a> {
-    Read { address: u8, buf: &'a mut [u8] },
-    Write { address: u8, buf: &'a [u8] },
+    /// Read from the given address into the buffer.
+    Read {
+        /// Target address.
+        address: u8,
+        /// Buffer to read into.
+        buf: &'a mut [u8],
+    },
+    /// Write the buffer contents to the given address.
+    Write {
+        /// Target address.
+        address: u8,
+        /// Data to write.
+        buf: &'a [u8],
+    },
 }
 
 impl<'d, M: Mode> Drop for I3c<'d, M> {
