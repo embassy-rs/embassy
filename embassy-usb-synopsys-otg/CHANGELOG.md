@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- **Breaking:** type-erased `OtgState`/`OtgHostState`, non-generic `OtgInstance`/`OtgHostInstance`, endpoint allocation in `State`, const generics removed from device/host drivers.
+- Allow using 16 host channels
+
 ## 0.3.3 - 2026-05-04
 
 - New feature: "host" for embassy-usb-host support
