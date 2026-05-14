@@ -4,7 +4,7 @@
 teleprobe_meta::target!(b"frdm-mcx-a266");
 
 use embassy_executor::Spawner;
-use embassy_mcxa::gpio::{self, Async, Input, Output};
+use embassy_mcxa::gpio::{self, Async, Flex, Input, Output};
 use embassy_mcxa::{bind_interrupts, peripherals};
 use hal::config::Config;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
@@ -46,6 +46,35 @@ async fn main(spawner: Spawner) {
     output.set_high();
     assert!(output.is_set_high());
     embassy_time::Timer::after_millis(40).await;
+
+    // Regression test: verify that set_as_input works after set_as_disabled.
+    // set_as_disabled() sets PID=1 in the Pin Input Disable Register, which
+    // permanently disables input reads (always returns 0). set_as_input() must
+    // clear PID back to 0, otherwise the pin can never read input again.
+    {
+        let mut flex_out = Flex::new(p.P1_8);
+        flex_out.set_as_output();
+        flex_out.set_high();
+
+        let mut flex_in = Flex::new(p.P2_4);
+        flex_in.set_as_disabled();
+        flex_in.set_as_input();
+
+        embassy_time::Timer::after_millis(10).await;
+        assert!(
+            flex_in.is_high(),
+            "Pin should read high after set_as_disabled -> set_as_input (PIDR regression)"
+        );
+
+        flex_out.set_low();
+        embassy_time::Timer::after_millis(10).await;
+        assert!(
+            flex_in.is_low(),
+            "Pin should read low after set_as_disabled -> set_as_input (PIDR regression)"
+        );
+
+        defmt::info!("PIDR regression test OK");
+    }
 
     unreachable!("The wait task failed to see the output values");
 }
