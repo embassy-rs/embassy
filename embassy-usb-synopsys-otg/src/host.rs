@@ -132,6 +132,9 @@ pub struct OtgHostInstance<'d> {
 pub unsafe fn on_host_interrupt(r: Otg, state: &OtgHostState<'_>, ch_count: usize) {
     let gintsts = r.gintsts().read();
 
+    // defensively cap ch_count to the number of channel slots we actually have.
+    let ch_count = ch_count.min(state.channels.len());
+
     // Clear SOF interrupt immediately to avoid flooding.
     if gintsts.sof() {
         r.gintsts().write(|w| w.set_sof(true));
