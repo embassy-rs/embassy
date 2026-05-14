@@ -156,29 +156,25 @@ impl AtomicWaker {
 
     /// Wake the registered waker, if any.
     ///
-    /// The waker is consumed (taken out of the slot) before being invoked.
-    /// The task is expected to re-register its waker on the next poll, as is
-    /// already the convention for users of [`CriticalSectionWaker`].
+    /// The stored waker is invoked via [`Waker::wake_by_ref`] and remains
+    /// registered, matching the semantics of
+    /// [`CriticalSectionWaker`](super::CriticalSectionWaker).
     pub fn wake(&self) {
-        if let Some(w) = self.take() {
-            w.wake();
-        }
-    }
-
-    fn take(&self) -> Option<Waker> {
         match self.state.fetch_or(WAKING, AcqRel) {
             WAITING => {
                 // SAFETY: We hold the WAKING flag; no other call can touch
                 // the waker cell while we own it.
-                let w = unsafe { (*self.waker.get()).take() };
+                unsafe {
+                    if let Some(w) = &*self.waker.get() {
+                        w.wake_by_ref();
+                    }
+                }
                 self.state.swap(WAITING, Release);
-                w
             }
             _ => {
                 // Either a register is in progress (it will see the WAKING
                 // bit on its CAS-back and wake the supplied waker itself),
                 // or another wake is in flight.
-                None
             }
         }
     }
