@@ -32,6 +32,9 @@ use otg_v1::{Otg, regs, vals};
 pub unsafe fn on_interrupt(r: Otg, state: &OtgState<'_>, ep_count: usize) {
     trace!("irq");
 
+    // defensively cap ep_count to the number of endpoint slots we actually have.
+    let ep_count = ep_count.min(state.ep_states.len());
+
     let ints = r.gintsts().read();
     if ints.wkupint() || ints.usbsusp() || ints.usbrst() || ints.enumdne() || ints.otgint() || ints.srqint() {
         // Mask interrupts and notify `Bus` to process them
