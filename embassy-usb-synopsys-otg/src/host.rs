@@ -110,6 +110,13 @@ pub struct OtgHostState<'d> {
     inited: &'d AtomicBool,
 }
 
+impl OtgHostState<'_> {
+    /// Returns the number of host channels supported by this state.
+    pub fn channel_count(&self) -> usize {
+        self.channels.len()
+    }
+}
+
 /// Hardware-dependent host configuration.
 #[derive(Copy, Clone)]
 pub struct OtgHostInstance<'d> {

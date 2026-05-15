@@ -304,11 +304,18 @@ struct EndpointData {
 /// Build from [`State::as_otg_state`].
 #[derive(Clone, Copy)]
 pub struct OtgState<'d> {
-    pub(crate) cp_state: &'d ControlPipeSetupState,
-    pub(crate) ep_states: &'d [EpState],
-    pub(crate) ep_in_alloc: &'d [UnsafeCell<Option<EndpointData>>],
-    pub(crate) ep_out_alloc: &'d [UnsafeCell<Option<EndpointData>>],
-    pub(crate) bus_waker: &'d AtomicWaker,
+    cp_state: &'d ControlPipeSetupState,
+    ep_states: &'d [EpState],
+    ep_in_alloc: &'d [UnsafeCell<Option<EndpointData>>],
+    ep_out_alloc: &'d [UnsafeCell<Option<EndpointData>>],
+    bus_waker: &'d AtomicWaker,
+}
+
+impl OtgState<'_> {
+    /// Returns the number of device endpoints supported by this state.
+    pub fn endpoint_count(&self) -> usize {
+        self.ep_states.len()
+    }
 }
 
 impl<'d> OtgState<'d> {
