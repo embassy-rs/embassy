@@ -302,7 +302,7 @@ fn pka_p256_mul(k: &[u32; 8], px: &[u32; 8], py: &[u32; 8], rx: &mut [u32; 8], r
     let curve = EcdsaCurveParams::nist_p256();
     let mut result = EccPoint::new(32);
 
-    let status = get_platform().borrow_pka(|pka| pka.ecc_mul(&curve, &k_be, &px_be, &py_be, &mut result));
+    let status = get_platform().borrow_pka(|pka| pka.ecc_mul_blocking(&curve, &k_be, &px_be, &py_be, &mut result));
 
     match status {
         Ok(()) => {

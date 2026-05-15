@@ -118,7 +118,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     let mut sig_s = [0u8; 32];
 
     info!("Signing message...");
-    match pka.ecdsa_sign(&curve, &private_key, &k, &message_hash, &mut sig_r, &mut sig_s) {
+    match pka.ecdsa_sign_blocking(&curve, &private_key, &k, &message_hash, &mut sig_r, &mut sig_s) {
         Ok(()) => {
             info!("Signature generated successfully!");
             info!("Signature R: {:02x}", sig_r);
@@ -142,7 +142,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     let signature = EcdsaSignature { r: &sig_r, s: &sig_s };
 
-    match pka.ecdsa_verify(&curve, &public_key, &signature, &message_hash) {
+    match pka.ecdsa_verify_blocking(&curve, &public_key, &signature, &message_hash) {
         Ok(true) => {
             info!("Generated signature verified successfully!");
         }
@@ -162,7 +162,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     let generator_y = curve.generator_y;
 
     let mut derived_pub = EccPoint::new(32);
-    match pka.ecc_mul(&curve, &private_key, generator_x, generator_y, &mut derived_pub) {
+    match pka.ecc_mul_blocking(&curve, &private_key, generator_x, generator_y, &mut derived_pub) {
         Ok(()) => {
             info!("Public key derived from private key:");
             info!("Derived X:  {:02x}", derived_pub.x[..32]);
