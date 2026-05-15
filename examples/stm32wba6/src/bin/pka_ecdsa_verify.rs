@@ -113,7 +113,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     // Verify the signature
     info!("Verifying signature...");
-    match pka.ecdsa_verify(&curve, &public_key, &signature, &message_hash) {
+    match pka.ecdsa_verify_blocking(&curve, &public_key, &signature, &message_hash) {
         Ok(true) => {
             info!("Signature is VALID");
         }
@@ -135,7 +135,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
         s: &sig_s,
     };
 
-    match pka.ecdsa_verify(&curve, &public_key, &tampered_signature, &message_hash) {
+    match pka.ecdsa_verify_blocking(&curve, &public_key, &tampered_signature, &message_hash) {
         Ok(true) => {
             error!("Tampered signature incorrectly verified as VALID!");
         }

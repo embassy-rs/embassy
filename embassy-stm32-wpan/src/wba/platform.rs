@@ -81,7 +81,7 @@ pub struct Platform {
     ble_init: Flag,
     rng: Mutex<CriticalSectionRawMutex, Rng<'static, RNG>>,
     aes: Option<CriticalSectionMutex<RefCell<Aes<'static, AesPeriph, Blocking>>>>,
-    pka: Option<CriticalSectionMutex<RefCell<Pka<'static, PkaPeriph>>>>,
+    pka: Option<CriticalSectionMutex<RefCell<Pka<'static, PkaPeriph, Blocking>>>>,
 }
 
 impl Platform {
@@ -106,7 +106,7 @@ impl Platform {
         buf: &'static mut [ChannelPacket; N],
         rng: Rng<'static, RNG>,
         aes: Aes<'static, AesPeriph, Blocking>,
-        pka: Pka<'static, PkaPeriph>,
+        pka: Pka<'static, PkaPeriph, Blocking>,
     ) -> (Self, FullRuntime) {
         (
             Self {
@@ -199,7 +199,7 @@ impl Platform {
     /// Panics if the platform was built with [`Self::new_basic`] (no PKA).
     /// Held under a critical section; long operations (e.g. P-256 ECDH) will
     /// delay BLE LL interrupts until `f` returns.
-    pub fn borrow_pka<R>(&self, f: impl FnOnce(&mut Pka<'static, PkaPeriph>) -> R) -> R {
+    pub fn borrow_pka<R>(&self, f: impl FnOnce(&mut Pka<'static, PkaPeriph, Blocking>) -> R) -> R {
         critical_section::with(|cs| {
             let mut pka = self
                 .pka
