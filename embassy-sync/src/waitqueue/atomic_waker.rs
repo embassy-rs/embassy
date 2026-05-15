@@ -59,13 +59,33 @@ impl<M: RawMutex> GenericAtomicWaker<M> {
 //
 // Reference: <https://docs.rs/futures/latest/futures/task/struct.AtomicWaker.html>
 
-/// Idle.
+// The state machine is encoded as a pair of independent bitflags packed into a
+// single `AtomicUsize`. They are *not* mutually exclusive: `wake()` uses
+// `fetch_or` to set the `WAKING` bit unconditionally, so a `wake()` that races
+// an in-flight `register()` legitimately produces the combined state
+// `REGISTERING | WAKING` (0b11). All four encodings are valid:
+//
+// - `WAITING`              (0b00): no operation in flight, waker cell is idle.
+// - `REGISTERING`          (0b01): a `register()` call owns the waker cell.
+// - `WAKING`               (0b10): a `wake()` call owns the waker cell.
+// - `REGISTERING | WAKING` (0b11): a `register()` owns the cell and a
+//   concurrent `wake()` has flagged that a wake is pending; the in-flight
+//   `register()` is responsible for honoring it before releasing the cell
+//   (see `register()` and `wake()` below).
+//
+// Only the holder of `REGISTERING` *or* `WAKING` (but never both at the same
+// time, by virtue of the protocol) may dereference the waker cell.
+
+/// No flags set: waker cell is idle and may be claimed by `register()` or
+/// `wake()`.
 #[cfg(target_has_atomic = "32")]
 const WAITING: usize = 0;
-/// A `register` call is in flight.
+/// Bit set while a `register()` call owns the waker cell.
 #[cfg(target_has_atomic = "32")]
 const REGISTERING: usize = 0b01;
-/// A `wake` call is in flight (or pending while a register is in flight).
+/// Bit set while a `wake()` call owns the waker cell, or — when combined with
+/// `REGISTERING` — to signal an in-flight `register()` that a wake is pending
+/// and must be driven before the cell is released.
 #[cfg(target_has_atomic = "32")]
 const WAKING: usize = 0b10;
 
@@ -127,13 +147,27 @@ impl AtomicWaker {
                         _ => *self.waker.get() = Some(waker.clone()),
                     }
 
+                    // Try to release the cell by clearing REGISTERING. This
+                    // CAS only succeeds if no `wake()` raced us; otherwise the
+                    // observed state is REGISTERING | WAKING (0b11) and the
+                    // CAS fails — that failure is precisely the handoff
+                    // signal from `wake()`.
                     let res = self.state.compare_exchange(REGISTERING, WAITING, AcqRel, Acquire);
                     match res {
                         Ok(_) => {}
                         Err(_) => {
                             // A concurrent `wake()` observed our REGISTERING
-                            // flag and left the WAKING bit set for us to
-                            // honor. Take the waker out and wake it ourselves.
+                            // bit and intentionally left the WAKING bit set
+                            // instead of touching the waker cell (which we
+                            // own). The wake duty has been transferred to us:
+                            // take the waker out, clear both bits in a single
+                            // `swap` so a new `register()` / `wake()` cycle
+                            // can begin, and finally drive the wake.
+                            //
+                            // This is what makes the "missed wake" race
+                            // impossible: the wake is delivered exactly once,
+                            // either by `wake()` itself (no race) or by
+                            // `register()` here (race), but never dropped.
                             let waker = (*self.waker.get()).take().unwrap();
                             self.state.swap(WAITING, AcqRel);
                             waker.wake();
@@ -160,10 +194,24 @@ impl AtomicWaker {
     /// registered, matching the semantics of
     /// [`CriticalSectionWaker`](super::CriticalSectionWaker).
     pub fn wake(&self) {
+        // `fetch_or` (rather than `compare_exchange`) is load-bearing here.
+        // It unconditionally publishes the WAKING bit, even if a `register()`
+        // is mid-flight (state == REGISTERING). This is what enables the
+        // handoff: the in-flight `register()` will observe the combined
+        // REGISTERING | WAKING state on its release-CAS, take ownership of
+        // the wake, and drive it.
+        //
+        // A `compare_exchange(WAITING, WAKING, ...)` here would silently drop
+        // the wake whenever it lost the race against `register()`, leaving
+        // the task hung — the waker cell holds a stale waker that nothing is
+        // about to invoke.
         match self.state.fetch_or(WAKING, AcqRel) {
             WAITING => {
-                // SAFETY: We hold the WAKING flag; no other call can touch
-                // the waker cell while we own it.
+                // No `register()` was in flight, so we now solely own the
+                // waker cell via the WAKING bit.
+                //
+                // SAFETY: We hold the WAKING bit; the protocol guarantees
+                // no other call can touch the waker cell while we own it.
                 unsafe {
                     if let Some(w) = &*self.waker.get() {
                         w.wake_by_ref();
@@ -172,9 +220,19 @@ impl AtomicWaker {
                 self.state.swap(WAITING, Release);
             }
             _ => {
-                // Either a register is in progress (it will see the WAKING
-                // bit on its CAS-back and wake the supplied waker itself),
-                // or another wake is in flight.
+                // Previous state was REGISTERING (now REGISTERING | WAKING due
+                // to `fetch_or` above), WAKING (another wake is in flight), or
+                // REGISTERING | WAKING (both). In every case, *somebody else*
+                // owns the waker cell and is responsible for delivering the
+                // wake:
+                //
+                // - REGISTERING: the in-flight `register()` will see WAKING
+                //   on its release-CAS and wake the registered waker itself.
+                // - WAKING / REGISTERING | WAKING: another `wake()` /
+                //   `register()` is already going to deliver the wake.
+                //
+                // So we deliberately do nothing here — including not touching
+                // the waker cell, which we do not own.
             }
         }
     }
