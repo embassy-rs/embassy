@@ -13,6 +13,7 @@ use aes_gcm::aead::{AeadInPlace, KeyInit};
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_stm32::cryp::{self, *};
+use embassy_stm32::time::Hertz;
 use embassy_stm32::{Config, bind_interrupts, dma, peripherals};
 use embassy_time::Instant;
 use static_cell::StaticCell;
@@ -33,13 +34,38 @@ static SW_DECRYPT: StaticCell<Vec<u8, { PAYLOAD_LEN + TAG_LEN }>> = StaticCell::
 
 bind_interrupts!(struct Irqs {
     CRYP => cryp::InterruptHandler<peripherals::CRYP>;
-    DMA2_STREAM6 => dma::InterruptHandler<peripherals::DMA2_CH6>;
-    DMA2_STREAM5 => dma::InterruptHandler<peripherals::DMA2_CH5>;
+    GPDMA1_CHANNEL0 => dma::InterruptHandler<peripherals::GPDMA1_CH0>;
+    GPDMA1_CHANNEL1 => dma::InterruptHandler<peripherals::GPDMA1_CH1>;
 });
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
-    let p = embassy_stm32::init(Config::default());
+    let mut config = Config::default();
+    {
+        use embassy_stm32::rcc::*;
+        config.rcc.hse = Some(Hse {
+            freq: Hertz(24_000_000),
+            mode: HseMode::Oscillator,
+        });
+        config.rcc.pll1 = Some(Pll {
+            source: PllSource::Hse,
+            prediv: PllPreDiv::Div3,
+            mul: PllMul::Mul150,
+            divp: Some(PllDiv::Div2),
+            divq: None,
+            divr: None,
+            divs: None,
+            divt: None,
+        });
+        config.rcc.sys = Sysclk::Pll1P;
+        config.rcc.ahb_pre = AHBPrescaler::Div2;
+        config.rcc.apb1_pre = APBPrescaler::Div2;
+        config.rcc.apb2_pre = APBPrescaler::Div2;
+        config.rcc.apb4_pre = APBPrescaler::Div2;
+        config.rcc.apb5_pre = APBPrescaler::Div2;
+        config.rcc.voltage_scale = VoltageScale::High;
+    }
+    let p = embassy_stm32::init(config);
 
     let payload = PAYLOAD.init_with(|| {
         let mut buf = Aligned([0u8; PAYLOAD_LEN]);
@@ -54,7 +80,7 @@ async fn main(_spawner: Spawner) -> ! {
     let plaintext = PLAINTEXT.init_with(|| Aligned([0u8; PAYLOAD_LEN]));
     let aad: &[u8] = b"additional data";
 
-    let mut hw_cryp = Cryp::new(p.CRYP, p.DMA2_CH6, p.DMA2_CH5, Irqs);
+    let mut hw_cryp = Cryp::new(p.CRYP, p.GPDMA1_CH0, p.GPDMA1_CH1, Irqs);
     let key: [u8; 16] = [0; 16];
     let iv: [u8; 12] = [0; 12];
 
