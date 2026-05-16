@@ -66,7 +66,6 @@ impl From<Priority> for pac::gpdma::vals::Prio {
 ///
 /// GPDMA hardware supports any integer burst length from 1 to 64 beats.
 /// Encoded as `TR1.SBL_1` / `TR1.DBL_1` (the register value is beats - 1).
-#[cfg(stm32n6)]
 #[allow(missing_docs)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -137,7 +136,6 @@ pub enum Burst {
     _64Beats,
 }
 
-#[cfg(stm32n6)]
 impl From<Burst> for u8 {
     fn from(b: Burst) -> u8 {
         match b {
@@ -227,10 +225,11 @@ pub struct TransferOptions {
     /// after partial progress. Default `false`.
     #[cfg(stm32n6)]
     pub secure: bool,
-    /// Burst length on both source and destination ports.
-    /// Default `Single`. Some peripherals (notably the JPEG codec on N6)
-    /// only assert their DMA request line for bursts above a threshold.
-    #[cfg(stm32n6)]
+    /// Source/destination burst length, in beats. Default `_1Beats`. Some
+    /// peripherals only assert their DMA request line for bursts above a
+    /// threshold (notably the JPEG codec on N6), and some require multi-beat
+    /// bursts to handshake correctly under `BREQ=Burst` (e.g. CRYP wants
+    /// 4-beat bursts, matching one AES block per peripheral request).
     pub burst_length: Burst,
 }
 
@@ -242,7 +241,6 @@ impl Default for TransferOptions {
             complete_transfer_ir: true,
             #[cfg(stm32n6)]
             secure: false,
-            #[cfg(stm32n6)]
             burst_length: Burst::_1Beats,
         }
     }
@@ -404,8 +402,14 @@ impl<'d> Channel<'d> {
         dst_size: WordSize,
         options: TransferOptions,
     ) {
-        // BNDT is specified as bytes, not as number of transfers.
-        let Ok(bndt) = (mem_len * data_size.bytes()).try_into() else {
+        // BNDT is the number of source bytes. For a packing/unpacking transfer
+        // the memory side dictates how much data the caller wants moved.
+        let mem_size = match dir {
+            Dir::MemoryToPeripheral => data_size,
+            Dir::PeripheralToMemory => dst_size,
+            Dir::MemoryToMemory => panic!("memory-to-memory transfers not implemented for GPDMA"),
+        };
+        let Ok(bndt) = (mem_len * mem_size.bytes()).try_into() else {
             panic!("DMA transfers may not be larger than 65535 bytes.");
         };
 
@@ -437,6 +441,13 @@ impl<'d> Channel<'d> {
             w.set_ddw(dst_size.into());
             w.set_sinc(dir == Dir::MemoryToPeripheral && incr_mem);
             w.set_dinc(dir == Dir::PeripheralToMemory && incr_mem);
+            // Pack/unpack through the channel FIFO when source and destination
+            // widths differ. The default (zero-extend / left-truncate) sends
+            // one source beat per destination beat, which silently corrupts
+            // mixed-width transfers.
+            if data_size != dst_size {
+                w.set_pam(vals::Pam::Pack);
+            }
             w.set_dap(match dir {
                 Dir::MemoryToPeripheral => vals::Ap::Port1, // Destination is peripheral on AHB for HPDMA
                 Dir::PeripheralToMemory => vals::Ap::Port0, // Destination is memory on AXI for HPDMA
@@ -447,13 +458,13 @@ impl<'d> Channel<'d> {
                 Dir::PeripheralToMemory => vals::Ap::Port1, // Source is peripheral on AHB for HPDMA
                 Dir::MemoryToMemory => panic!("memory-to-memory transfers not implemented for GPDMA"),
             });
+            let bl: u8 = options.burst_length.into();
+            w.set_sbl_1(bl);
+            w.set_dbl_1(bl);
             #[cfg(stm32n6)]
             {
-                let bl: u8 = options.burst_length.into();
                 w.set_ssec(options.secure);
                 w.set_dsec(options.secure);
-                w.set_sbl_1(bl);
-                w.set_dbl_1(bl);
             }
         });
         ch.tr2().write(|w| {

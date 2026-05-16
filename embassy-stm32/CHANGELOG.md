@@ -17,6 +17,9 @@ DMA:
 - feat: stm32/dma: expose write_pos() on WritableRingBuffer for timing-safe TX frame alignment after overrun
 - fix: stm32/dma: fix WritableDmaRingBuffer::new using out-of-range pos (cap) instead of {complete_count:1, pos:0}
 - fix: stm32/dma: eliminate second sync_len() call in write_raw to prevent consuming a lap count mid-copy
+- feat: stm32/dma: ungate `TransferOptions::burst_length` on GPDMA (was stm32n6-only)
+- fix: stm32/dma: auto-set `TR1.PAM = Pack` on GPDMA when source and destination widths differ, instead of silently zero-extending one beat per destination beat
+- fix: stm32/dma: compute GPDMA `BR1.BNDT` from the memory-side width regardless of direction, fixing destination overrun on reads with peripheral width > memory width
 
 ADC:
 - feat: stm32/adc: add `VrefInt::calibrated_value()` for additional chips
