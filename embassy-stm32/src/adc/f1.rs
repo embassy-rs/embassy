@@ -118,17 +118,17 @@ impl AdcRegs for crate::pac::adc::Adc {
 
         for (i, ((ch, _), sample_time)) in sequence.enumerate() {
             match i {
-                0..=5 => sqr1.set_sq(i, ch),
+                0..=5 => sqr3.set_sq(i, ch),
                 6..=11 => sqr2.set_sq(i - 6, ch),
-                12..=15 => sqr3.set_sq(i - 12, ch),
+                12..=15 => sqr1.set_sq(i - 12, ch),
                 _ => unreachable!(),
             }
 
             let sample_time = sample_time.into();
-            if ch < 8 {
-                smpr1.set_smp(ch as usize, sample_time);
+            if ch <= 9 {
+                smpr2.set_smp(ch as _, sample_time);
             } else {
-                smpr2.set_smp(ch as usize - 8, sample_time);
+                smpr1.set_smp((ch - 10) as _, sample_time);
             }
         }
 
