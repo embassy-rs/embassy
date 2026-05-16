@@ -118,9 +118,27 @@ pub trait USBDescriptor {
 pub trait WritableDescriptor: USBDescriptor {
     /// Writes this descriptor to the start of the byte buffer `bytes`.
     ///
+    /// The buffer must be big enough to fit all the descriptor data.
+    /// Use [write_to_bytes_partial](Self::write_to_bytes_partial) instead of this method to allow a partial write.
+    ///
     /// On success, it returns the number of bytes written.
     /// On failure, it returns a [USBDescriptor::Error].
     fn write_to_bytes(&self, bytes: &mut [u8]) -> Result<usize, Self::Error>;
+
+    /// Writes this descriptor to the start of the byte buffer `bytes`.
+    ///
+    /// If the buffer is not big enough, only the descriptor data that fits will be written.
+    /// Use [write_to_bytes](Self::write_to_bytes) instead of this method to require a complete write.
+    ///
+    /// On success, it returns the number of bytes written.
+    /// On failure, it returns a [USBDescriptor::Error].
+    fn write_to_bytes_partial(&self, bytes: &mut [u8]) -> Result<usize, Self::Error> {
+        // FIXME use Self::BUF_SIZE when stable is able to use constant expressions with generics
+        let mut buf = [0u8; u8::MAX as usize];
+        let len = Ord::min(bytes.len(), self.write_to_bytes(&mut buf)?);
+        bytes[..len].copy_from_slice(&buf[..len]);
+        Ok(len)
+    }
 }
 
 /// Fixed size descriptor.
@@ -1339,6 +1357,7 @@ mod test {
             serial_number: 0xff,
             num_configurations: 0x00,
         };
+        // with a complete write
         let mut bytes = [0u8; DeviceDescriptor::BUF_SIZE];
         assert_eq!(
             descriptor.write_to_bytes(&mut bytes),
@@ -1346,6 +1365,16 @@ mod test {
         );
         assert_eq!(
             DeviceDescriptorPartial::try_from_bytes(&bytes[..DeviceDescriptorPartial::BUF_SIZE]),
+            Ok(DeviceDescriptorPartial { max_packet_size0: 0x66 })
+        );
+        // with a partial write
+        let mut bytes = [0u8; DeviceDescriptorPartial::BUF_SIZE];
+        assert_eq!(
+            descriptor.write_to_bytes_partial(&mut bytes),
+            Ok(DeviceDescriptorPartial::BUF_SIZE)
+        );
+        assert_eq!(
+            DeviceDescriptorPartial::try_from_bytes(&bytes),
             Ok(DeviceDescriptorPartial { max_packet_size0: 0x66 })
         );
     }
