@@ -222,7 +222,7 @@ impl LsConfig {
         {
             #[cfg(stm32h7)]
             unsafe {
-                super::BKSRAM_RETAINED = crate::pac::PWR.cr2().read().bren() == Retention::PRESERVED
+                super::BKSRAM_RETAINED = crate::pac::PWR.cr2().read().bren() == Retention::Preserved
             };
             #[cfg(not(stm32h7))]
             unsafe {
@@ -241,8 +241,8 @@ impl LsConfig {
             #[cfg(stm32h7)]
             crate::pac::PWR.cr2().modify(|w| {
                 w.set_bren(match self.enable_backup_sram {
-                    true => Retention::PRESERVED,
-                    false => Retention::LOST,
+                    true => Retention::Preserved,
+                    false => Retention::Lost,
                 });
             });
             #[cfg(not(stm32h7))]
