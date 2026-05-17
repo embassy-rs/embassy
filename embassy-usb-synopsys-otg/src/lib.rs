@@ -1352,7 +1352,7 @@ impl<'d> embassy_usb_driver::EndpointOut for Endpoint<'d, Out> {
                 return Poll::Ready(Err(EndpointError::Disabled));
             }
 
-            let len = self.state.out_size.load(Ordering::Relaxed);
+            let len = self.state.out_size.load(Ordering::Acquire);
             if len != EP_OUT_BUFFER_EMPTY {
                 trace!("read ep={:?} done len={}", self.info.addr, len);
 
@@ -1536,7 +1536,7 @@ impl<'d> embassy_usb_driver::ControlPipe for ControlPipe<'d> {
         poll_fn(|cx| {
             self.ep_out.state.out_waker.register(cx.waker());
 
-            if self.setup_state.setup_ready.load(Ordering::Relaxed) {
+            if self.setup_state.setup_ready.load(Ordering::Acquire) {
                 let mut data = [0; 8];
                 data[0..4].copy_from_slice(&self.setup_state.setup_data[0].load(Ordering::Relaxed).to_ne_bytes());
                 data[4..8].copy_from_slice(&self.setup_state.setup_data[1].load(Ordering::Relaxed).to_ne_bytes());
