@@ -53,13 +53,17 @@ struct ChannelState {
 unsafe impl Send for ChannelState {}
 unsafe impl Sync for ChannelState {}
 
-/// USB host driver state. Create one per OTG instance.
-pub struct HostState<const CH_COUNT: usize> {
-    channels: [ChannelState; CH_COUNT],
+struct HostStateFields {
     port_waker: AtomicWaker,
     port_event: AtomicU8,
     port_speed: AtomicU8,
     inited: AtomicBool,
+}
+
+/// USB host driver state. Create one per OTG instance.
+pub struct HostState<const CH_COUNT: usize> {
+    channels: [ChannelState; CH_COUNT],
+    fields: HostStateFields,
 }
 
 unsafe impl<const CH_COUNT: usize> Send for HostState<CH_COUNT> {}
@@ -79,10 +83,12 @@ impl<const CH_COUNT: usize> HostState<CH_COUNT> {
                     allocated: AtomicBool::new(false),
                 }
             }; CH_COUNT],
-            port_waker: AtomicWaker::new(),
-            port_event: AtomicU8::new(0),
-            port_speed: AtomicU8::new(0),
-            inited: AtomicBool::new(false),
+            fields: HostStateFields {
+                port_waker: AtomicWaker::new(),
+                port_event: AtomicU8::new(0),
+                port_speed: AtomicU8::new(0),
+                inited: AtomicBool::new(false),
+            },
         }
     }
 
@@ -90,10 +96,7 @@ impl<const CH_COUNT: usize> HostState<CH_COUNT> {
     pub fn as_otg_host_state(&self) -> OtgHostState<'_> {
         OtgHostState {
             channels: self.channels.as_slice(),
-            port_waker: &self.port_waker,
-            port_event: &self.port_event,
-            port_speed: &self.port_speed,
-            inited: &self.inited,
+            fields: &self.fields,
         }
     }
 }
@@ -104,10 +107,7 @@ impl<const CH_COUNT: usize> HostState<CH_COUNT> {
 #[derive(Clone, Copy)]
 pub struct OtgHostState<'d> {
     channels: &'d [ChannelState],
-    port_waker: &'d AtomicWaker,
-    port_event: &'d AtomicU8,
-    port_speed: &'d AtomicU8,
-    inited: &'d AtomicBool,
+    fields: &'d HostStateFields,
 }
 
 impl OtgHostState<'_> {
@@ -153,8 +153,11 @@ pub unsafe fn on_host_interrupt(r: Otg, state: &OtgHostState<'_>, ch_count: usiz
 
         if hprt.pcdet() {
             // Port connect detected
-            state.port_event.fetch_or(PORT_EVENT_CONNECTED, Ordering::Release);
-            state.port_waker.wake();
+            state
+                .fields
+                .port_event
+                .fetch_or(PORT_EVENT_CONNECTED, Ordering::Release);
+            state.fields.port_waker.wake();
         }
 
         if hprt.penchng() {
@@ -166,19 +169,25 @@ pub unsafe fn on_host_interrupt(r: Otg, state: &OtgHostState<'_>, ch_count: usiz
                     0b10 => 1, // Low speed
                     _ => 0,    // Default to full speed
                 };
-                state.port_speed.store(speed, Ordering::Release);
-                state.port_event.fetch_or(PORT_EVENT_ENABLED, Ordering::Release);
+                state.fields.port_speed.store(speed, Ordering::Release);
+                state.fields.port_event.fetch_or(PORT_EVENT_ENABLED, Ordering::Release);
             } else {
                 // Port disabled
-                state.port_event.fetch_or(PORT_EVENT_DISCONNECTED, Ordering::Release);
+                state
+                    .fields
+                    .port_event
+                    .fetch_or(PORT_EVENT_DISCONNECTED, Ordering::Release);
             }
-            state.port_waker.wake();
+            state.fields.port_waker.wake();
         }
 
         if hprt.pocchng() {
             if hprt.poca() {
-                state.port_event.fetch_or(PORT_EVENT_OVERCURRENT, Ordering::Release);
-                state.port_waker.wake();
+                state
+                    .fields
+                    .port_event
+                    .fetch_or(PORT_EVENT_OVERCURRENT, Ordering::Release);
+                state.fields.port_waker.wake();
             }
         }
 
@@ -190,8 +199,11 @@ pub unsafe fn on_host_interrupt(r: Otg, state: &OtgHostState<'_>, ch_count: usiz
     // Disconnect interrupt
     if gintsts.discint() {
         r.gintsts().write(|w| w.set_discint(true)); // clear
-        state.port_event.fetch_or(PORT_EVENT_DISCONNECTED, Ordering::Release);
-        state.port_waker.wake();
+        state
+            .fields
+            .port_event
+            .fetch_or(PORT_EVENT_DISCONNECTED, Ordering::Release);
+        state.fields.port_waker.wake();
     }
 
     // RX FIFO non-empty (IN data received)
@@ -547,7 +559,7 @@ impl<'d> UsbHostAllocator<'d> for OtgHostAllocator<'d> {
         let max_packet_size = endpoint.max_packet_size;
 
         // Read device speed from port_speed atomic (stored by ISR)
-        let speed_code = self.state.port_speed.load(Ordering::Acquire);
+        let speed_code = self.state.fields.port_speed.load(Ordering::Acquire);
         let is_low_speed = speed_code == 1;
 
         let max_ch = self.channel_count.min(self.state.channels.len());
@@ -591,26 +603,32 @@ impl<'d> UsbHostController<'d> for OtgHost<'d> {
 
     async fn wait_for_device_event(&mut self) -> DeviceEvent {
         // Lazily initialize the host hardware on first call.
-        if !self.instance.state.inited.load(Ordering::Acquire) {
+        if !self.instance.state.fields.inited.load(Ordering::Acquire) {
             self.configure_as_host().await;
             self.init_host();
-            self.instance.state.inited.store(true, Ordering::Release);
+            self.instance.state.fields.inited.store(true, Ordering::Release);
         }
 
         loop {
             // Wait for CONNECTED or DISCONNECTED event.
             let event = poll_fn(|cx| {
                 let state = self.instance.state;
-                state.port_waker.register(cx.waker());
+                state.fields.port_waker.register(cx.waker());
 
-                let ev = state.port_event.load(Ordering::Acquire);
+                let ev = state.fields.port_event.load(Ordering::Acquire);
                 if ev & PORT_EVENT_OVERCURRENT != 0 {
-                    state.port_event.fetch_and(!PORT_EVENT_OVERCURRENT, Ordering::AcqRel);
+                    state
+                        .fields
+                        .port_event
+                        .fetch_and(!PORT_EVENT_OVERCURRENT, Ordering::AcqRel);
                     return Poll::Ready(PORT_EVENT_OVERCURRENT);
                 }
 
                 if ev & PORT_EVENT_DISCONNECTED != 0 {
-                    state.port_event.fetch_and(!PORT_EVENT_DISCONNECTED, Ordering::AcqRel);
+                    state
+                        .fields
+                        .port_event
+                        .fetch_and(!PORT_EVENT_DISCONNECTED, Ordering::AcqRel);
                     // Wake all channels to signal disconnection
                     for ch in state.channels {
                         if ch.allocated.load(Ordering::Relaxed) {
@@ -622,7 +640,10 @@ impl<'d> UsbHostController<'d> for OtgHost<'d> {
                     return Poll::Ready(PORT_EVENT_DISCONNECTED);
                 }
                 if ev & PORT_EVENT_CONNECTED != 0 {
-                    state.port_event.fetch_and(!PORT_EVENT_CONNECTED, Ordering::AcqRel);
+                    state
+                        .fields
+                        .port_event
+                        .fetch_and(!PORT_EVENT_CONNECTED, Ordering::AcqRel);
                     return Poll::Ready(PORT_EVENT_CONNECTED);
                 }
                 Poll::Pending
@@ -639,15 +660,21 @@ impl<'d> UsbHostController<'d> for OtgHost<'d> {
             // Now wait for ENABLED or DISCONNECTED.
             let enabled_event = poll_fn(|cx| {
                 let state = self.instance.state;
-                state.port_waker.register(cx.waker());
+                state.fields.port_waker.register(cx.waker());
 
-                let ev = state.port_event.load(Ordering::Acquire);
+                let ev = state.fields.port_event.load(Ordering::Acquire);
                 if ev & PORT_EVENT_OVERCURRENT != 0 {
-                    state.port_event.fetch_and(!PORT_EVENT_OVERCURRENT, Ordering::AcqRel);
+                    state
+                        .fields
+                        .port_event
+                        .fetch_and(!PORT_EVENT_OVERCURRENT, Ordering::AcqRel);
                     return Poll::Ready(PORT_EVENT_OVERCURRENT);
                 }
                 if ev & PORT_EVENT_DISCONNECTED != 0 {
-                    state.port_event.fetch_and(!PORT_EVENT_DISCONNECTED, Ordering::AcqRel);
+                    state
+                        .fields
+                        .port_event
+                        .fetch_and(!PORT_EVENT_DISCONNECTED, Ordering::AcqRel);
                     for ch in state.channels {
                         if ch.allocated.load(Ordering::Relaxed) {
                             ch.result.store(CH_RESULT_HALTED, Ordering::Release);
@@ -657,7 +684,7 @@ impl<'d> UsbHostController<'d> for OtgHost<'d> {
                     return Poll::Ready(PORT_EVENT_DISCONNECTED);
                 }
                 if ev & PORT_EVENT_ENABLED != 0 {
-                    state.port_event.fetch_and(!PORT_EVENT_ENABLED, Ordering::AcqRel);
+                    state.fields.port_event.fetch_and(!PORT_EVENT_ENABLED, Ordering::AcqRel);
                     return Poll::Ready(PORT_EVENT_ENABLED);
                 }
                 Poll::Pending
@@ -666,7 +693,7 @@ impl<'d> UsbHostController<'d> for OtgHost<'d> {
 
             match enabled_event {
                 PORT_EVENT_ENABLED => {
-                    let speed_code = self.instance.state.port_speed.load(Ordering::Acquire);
+                    let speed_code = self.instance.state.fields.port_speed.load(Ordering::Acquire);
                     let speed = match speed_code {
                         0 => Speed::Full,
                         1 => Speed::Low,
