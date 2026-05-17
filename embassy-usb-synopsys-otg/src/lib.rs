@@ -910,20 +910,17 @@ impl<'d> Bus<'d> {
                 "FIFO allocations exceeded maximum capacity"
             );
 
-            // Flush fifos
+            // Flush fifos, separately
             regs.grstctl().write(|w| {
-                w.set_rxfflsh(true);
                 w.set_txfflsh(true);
                 w.set_txfnum(0x10);
             });
+            while regs.grstctl().read().txfflsh() {}
+            regs.grstctl().write(|w| {
+                w.set_rxfflsh(true);
+            });
+            while regs.grstctl().read().rxfflsh() {}
         });
-
-        loop {
-            let x = regs.grstctl().read();
-            if !x.rxfflsh() && !x.txfflsh() {
-                break;
-            }
-        }
     }
 
     fn configure_endpoints(&mut self) {
