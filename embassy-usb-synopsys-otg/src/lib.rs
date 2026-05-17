@@ -1000,7 +1000,7 @@ impl<'d> Bus<'d> {
         }
     }
 
-    /// Deinitialize tehe device
+    /// Deinitialize the device
     pub fn deinit_device(&mut self) {
         if self.inited {
             self.inited = false;
