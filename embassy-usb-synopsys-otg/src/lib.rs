@@ -970,6 +970,13 @@ impl<'d> Bus<'d> {
                             w.set_pktcnt(1);
                         }
                     });
+
+                    if index == 0 {
+                        regs.doepctl(index).modify(|w| {
+                            w.set_epena(true);
+                            w.set_cnak(true);
+                        });
+                    }
                 });
             }
         }
