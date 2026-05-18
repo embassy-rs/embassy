@@ -54,7 +54,8 @@ impl Default for AdvParams {
             interval_min: 0x0800, // 1.28 seconds
             interval_max: 0x0800, // 1.28 seconds
             adv_type: AdvType::ConnectableUndirected,
-            own_addr_type: OwnAddressType::Public,
+            // Matches the default address type configured in `GapInitParams`.
+            own_addr_type: OwnAddressType::Random,
             filter_policy: AdvFilterPolicy::All,
             channel_map: 0x07, // All channels
         }
