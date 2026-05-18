@@ -695,6 +695,54 @@ fn disable_pll(pll_index: usize) {
     cfgr1.modify(|w| w.set_pllbyp(false));
 }
 
+fn pll_output(pll_config: Option<Pll>, input: &PllInput) -> PllOutput {
+    match pll_config {
+        Some(Pll::Oscillator {
+            source,
+            divm,
+            fractional: _,
+            divn,
+            divp1,
+            divp2,
+        }) => {
+            let in_clk = match source {
+                Pllsel::Hsi => unwrap!(input.hsi),
+                Pllsel::Msi => unwrap!(input.msi),
+                Pllsel::Hse => unwrap!(input.hse),
+                Pllsel::I2sCkin => unwrap!(input.i2s_ckin),
+                _ => panic!("reserved PLL source not allowed"),
+            };
+            let m = divm.to_bits() as u32;
+            let n = divn as u32;
+            let p1 = divp1.to_bits() as u32;
+            let p2 = divp2.to_bits() as u32;
+
+            PllOutput {
+                divm: Some(Hertz(m)),
+                divn: Some(Hertz(n)),
+                divp1: Some(Hertz(p1)),
+                divp2: Some(Hertz(p2)),
+                output: Some(Hertz(in_clk.0 / m * n / p1 / p2)),
+            }
+        }
+        Some(Pll::Bypass { source }) => {
+            let in_clk = match source {
+                Pllsel::Hsi => unwrap!(input.hsi),
+                Pllsel::Msi => unwrap!(input.msi),
+                Pllsel::Hse => unwrap!(input.hse),
+                Pllsel::I2sCkin => unwrap!(input.i2s_ckin),
+                _ => panic!("reserved PLL source not allowed"),
+            };
+
+            PllOutput {
+                output: Some(in_clk),
+                ..Default::default()
+            }
+        }
+        None => PllOutput::default(),
+    }
+}
+
 fn init_pll(pll_config: Option<Pll>, pll_index: usize, input: &PllInput) -> PllOutput {
     let cfgr1 = RCC.pllcfgr1(pll_index);
     let cfgr2 = RCC.pllcfgr2(pll_index);
@@ -726,24 +774,10 @@ fn init_pll(pll_config: Option<Pll>, pll_index: usize, input: &PllInput) -> PllO
                 w.set_plldivn(divn);
             });
 
-            let in_clk = match source {
-                Pllsel::Hsi => unwrap!(input.hsi),
-                Pllsel::Msi => unwrap!(input.msi),
-                Pllsel::Hse => unwrap!(input.hse),
-                Pllsel::I2sCkin => unwrap!(input.i2s_ckin),
-                _ => panic!("reserved PLL source not allowed"),
-            };
-
-            let m = divm.to_bits() as u32;
-            let n = divn as u32;
-
             cfgr3.modify(|w| {
                 w.set_pllpdiv1(divp1);
                 w.set_pllpdiv2(divp2);
             });
-
-            let p1 = divp1.to_bits() as u32;
-            let p2 = divp2.to_bits() as u32;
 
             // configure pll divnfrac
             cfgr2.modify(|w| w.set_plldivnfrac(fractional));
@@ -769,13 +803,7 @@ fn init_pll(pll_config: Option<Pll>, pll_index: usize, input: &PllInput) -> PllO
             while !RCC.sr().read().pllrdy(pll_index) {}
             debug!("PLL{}: ready", pll_index + 1);
 
-            PllOutput {
-                divm: Some(Hertz(m)),
-                divn: Some(Hertz(n)),
-                divp1: Some(Hertz(p1)),
-                divp2: Some(Hertz(p2)),
-                output: Some(Hertz(in_clk.0 / m * n / p1 / p2)),
-            }
+            pll_output(pll_config, input)
         }
         Some(Pll::Bypass { source }) => {
             // check if source is ready
@@ -792,18 +820,7 @@ fn init_pll(pll_config: Option<Pll>, pll_index: usize, input: &PllInput) -> PllO
                 w.set_pllsel(source);
             });
 
-            let in_clk = match source {
-                Pllsel::Hsi => unwrap!(input.hsi),
-                Pllsel::Msi => unwrap!(input.msi),
-                Pllsel::Hse => unwrap!(input.hse),
-                Pllsel::I2sCkin => unwrap!(input.i2s_ckin),
-                _ => panic!("reserved PLL source not allowed"),
-            };
-
-            PllOutput {
-                output: Some(in_clk),
-                ..Default::default()
-            }
+            pll_output(pll_config, input)
         }
         None => {
             disable_pll(pll_index);
@@ -1062,9 +1079,13 @@ fn init_osc(config: Config) -> OscOutput {
                 },
                 |c| init_pll(Some(c), n, &pll_input),
             );
-        } else if pll.is_some() && !pll_ready {
-            RCC.csr().write(|w| w.set_pllons(n, true));
-            while !RCC.sr().read().pllrdy(n) {}
+        } else if pll.is_some() {
+            // Config matches current register state.
+            *out = pll_output(pll, &pll_input);
+            if !pll_ready {
+                RCC.csr().write(|w| w.set_pllons(n, true));
+                while !RCC.sr().read().pllrdy(n) {}
+            }
         }
     }
 
