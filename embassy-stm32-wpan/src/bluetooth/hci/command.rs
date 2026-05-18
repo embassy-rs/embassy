@@ -4,7 +4,6 @@
 //! These functions are synchronous and return a status code immediately, which simplifies
 //! the implementation compared to packet-based HCI.
 
-use stm32_bindings::ble;
 use stm32wb_hci::BdAddrType;
 use stm32wb_hci::host::OwnAddressType;
 
@@ -145,6 +144,12 @@ unsafe extern "C" {
 
     #[link_name = "ACI_HAL_LE_TX_TEST_PACKET_NUMBER"]
     fn aci_hal_le_tx_test_packet_number(num_packets: *mut u32) -> tBleStatus;
+
+    #[link_name = "HCI_LE_SET_RANDOM_ADDRESS"]
+    fn hci_le_set_random_address(random_address: *const u8) -> tBleStatus;
+
+    #[link_name = "HCI_LE_READ_ADVERTISING_PHYSICAL_CHANNEL_TX_POWER"]
+    fn hci_le_read_advertising_physical_channel_tx_power(transmit_power_level: *mut u8) -> tBleStatus;
 }
 
 /// BLE Success status code
@@ -273,7 +278,7 @@ impl CommandSender {
     /// Set random address
     pub fn le_set_random_address(&self, address: &[u8; 6]) -> Result<(), BleError> {
         unsafe {
-            let status = ble::hci_le_set_random_address(address.as_ptr());
+            let status = hci_le_set_random_address(address.as_ptr());
             Self::check_status(status)
         }
     }
@@ -309,7 +314,7 @@ impl CommandSender {
     pub fn le_read_advertising_channel_tx_power(&self) -> Result<i8, BleError> {
         unsafe {
             let mut tx_power = 0u8;
-            let status = ble::hci_le_read_advertising_physical_channel_tx_power(&mut tx_power);
+            let status = hci_le_read_advertising_physical_channel_tx_power(&mut tx_power);
             Self::check_status(status)?;
             Ok(tx_power as i8)
         }

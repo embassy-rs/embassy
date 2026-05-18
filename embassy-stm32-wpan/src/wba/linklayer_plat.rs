@@ -1847,7 +1847,11 @@ pub unsafe extern "C" fn BLECB_Indication(data: *const u8, length: u16, ext_data
 
     // Convert to slice
     let event_data = core::slice::from_raw_parts(data, length as usize);
-    let ext_data = core::slice::from_raw_parts(ext_data, ext_length as usize);
+    let ext_data: &[u8] = if ext_data.is_null() || ext_length == 0 {
+        &[]
+    } else {
+        core::slice::from_raw_parts(ext_data, ext_length as usize)
+    };
 
     trace!(
         "BLECB_Indication: event_code=0x{:02X}, length={}",
