@@ -344,8 +344,8 @@ impl<'d> HCI<'d, Normal> {
     /// The BLE stack must be initialized before creating a scanner.
     /// Advertising reports will be received through the main event loop
     /// as `LeAdvertisingReport` events.
-    pub fn scanner(&self) -> Scanner<'_> {
-        Scanner::new(&self.cmd_sender)
+    pub fn scanner(&self) -> Scanner {
+        Scanner::new()
     }
 
     // ===== Connection Management =====

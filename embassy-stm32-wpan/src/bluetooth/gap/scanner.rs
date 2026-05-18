@@ -7,7 +7,6 @@ use stm32wb_hci::host::OwnAddressType;
 
 use crate::bluetooth::error::BleError;
 use crate::bluetooth::gap::aci_gap;
-use crate::bluetooth::hci::CommandSender;
 
 /// Scan type
 #[repr(u8)]
@@ -141,18 +140,14 @@ impl ScanParams {
 ///
 /// The Scanner provides methods for starting and stopping BLE scanning.
 /// Advertising reports are received through the main event loop.
-pub struct Scanner<'d> {
-    cmd: &'d CommandSender,
+pub struct Scanner {
     is_scanning: bool,
 }
 
-impl<'d> Scanner<'d> {
+impl Scanner {
     /// Create a new Scanner
-    pub(crate) fn new(cmd: &'d CommandSender) -> Self {
-        Self {
-            cmd,
-            is_scanning: false,
-        }
+    pub(crate) fn new() -> Self {
+        Self { is_scanning: false }
     }
 
     /// Start scanning with the given parameters
