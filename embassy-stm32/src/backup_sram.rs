@@ -1,5 +1,7 @@
 //! Battary backed SRAM
 
+use core::{ptr, slice};
+
 use embassy_hal_internal::Peri;
 
 use crate::_generated::{BKPSRAM_BASE, BKPSRAM_SIZE};
@@ -29,7 +31,7 @@ impl BackupMemory {
     }
 
     /// Returns true if the sram was retained across last reset
-    pub fn is_retained(&self) -> bool {
+    pub const fn is_retained(&self) -> bool {
         self.retained
     }
 
@@ -37,42 +39,65 @@ impl BackupMemory {
     ///
     /// Note that this is not necesserily normal memory, so please do use volatile
     /// and aligned reads/writes unless you know what you are doing.
-    pub fn as_ptr(&self) -> *mut u8 {
+    pub const fn as_ptr(&self) -> *mut u8 {
         BKPSRAM_BASE as *mut u8
     }
 
     /// Size of backup sram
-    pub fn size(&self) -> usize {
+    pub const fn size(&self) -> usize {
         BKPSRAM_SIZE
     }
 
-    /// Write single byte to backup sram
+    /// Write bytes to backup sram
     ///
     /// Address is relative start of backup sram
+    #[inline]
     pub fn read(&mut self, address: usize, dst: &mut [u8]) {
         assert!(address + dst.len() <= self.size());
-        let p = unsafe { self.as_ptr().add(address) };
+        unsafe {
+            let (start, mid, end) = slice::from_raw_parts(self.as_ptr().add(address), dst.len()).align_to::<u64>();
 
-        for (i, b) in dst.into_iter().enumerate() {
-            // SAFETY: Single byte writes are safe to perform into the backup sram
-            unsafe {
-                *b = p.add(i).read_volatile();
+            let (buf, dst) = dst.split_at_mut(size_of_val(start));
+            for (src, dst) in start.iter().zip(buf) {
+                *dst = ptr::read_volatile(src);
             }
-        }
+
+            let (buf, dst) = dst.split_at_mut(size_of_val(mid));
+            for (src, dst) in mid.iter().zip(buf.chunks_mut(size_of::<u64>())) {
+                dst.copy_from_slice(&ptr::read_volatile(src).to_le_bytes());
+            }
+
+            let buf = dst;
+            for (src, dst) in end.iter().zip(buf) {
+                *dst = ptr::read_volatile(src);
+            }
+        };
     }
 
     /// Write single byte to backup sram
     ///
     /// Address is relative start of backup sram
+    #[inline]
     pub fn write(&mut self, address: usize, src: &[u8]) {
         assert!(address + src.len() <= self.size());
-        let p = unsafe { self.as_ptr().add(address) };
+        unsafe {
+            let (start, mid, end) =
+                slice::from_raw_parts_mut(self.as_ptr().add(address), src.len()).align_to_mut::<u64>();
 
-        for (i, &b) in src.into_iter().enumerate() {
-            // SAFETY: Single byte writes are safe to perform into the backup sram
-            unsafe {
-                p.add(i).write_volatile(b);
+            let (buf, src) = src.split_at(size_of_val(start));
+            for (dst, src) in start.iter_mut().zip(buf) {
+                ptr::write_volatile(dst, *src);
             }
-        }
+
+            let (buf, src) = src.split_at(size_of_val(mid));
+            for (dst, src) in mid.iter_mut().zip(buf.chunks(size_of::<u64>())) {
+                ptr::write_volatile(dst, u64::from_le_bytes(src.try_into().unwrap()));
+            }
+
+            let buf = src;
+            for (dst, src) in end.iter_mut().zip(buf) {
+                ptr::write_volatile(dst, *src);
+            }
+        };
     }
 }
