@@ -14,7 +14,7 @@ pub use embassy_usb_synopsys_otg::Config;
 use embassy_usb_synopsys_otg::otg_v1::Otg;
 use embassy_usb_synopsys_otg::otg_v1::vals::Dspd;
 use embassy_usb_synopsys_otg::{
-    Bus as OtgBus, ControlPipe, Driver as OtgDriver, Endpoint, In, OtgInstance, Out, PhyType, State,
+    Bus as OtgBus, ControlPipe, Driver as OtgDriver, Endpoint, OtgState, In, OtgInstance, Out, PhyType, State,
     on_interrupt as on_interrupt_impl,
 };
 
@@ -35,7 +35,7 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        on_interrupt_impl(T::core_regs(), &T::state().as_otg_state(), MAX_EP_COUNT);
+        on_interrupt_impl(T::core_regs(), &T::state(), MAX_EP_COUNT);
     }
 }
 
@@ -61,7 +61,7 @@ impl<'d, V: VbusDetect> Driver<'d, V> {
 
         let instance = OtgInstance {
             regs: T::core_regs(),
-            state: T::state().as_otg_state(),
+            state: T::state(),
             fifo_depth_words: FIFO_DEPTH_WORDS,
             endpoint_count: MAX_EP_COUNT,
             phy_type: PhyType::InternalHighSpeed,
@@ -303,7 +303,7 @@ impl<'d, V: VbusDetect> Drop for Bus<'d, V> {
 pub(crate) trait SealedInstance {
     fn usb_regs() -> pac::usbhs::Usbhs;
     fn core_regs() -> Otg;
-    fn state() -> &'static State<MAX_EP_COUNT>;
+    fn state() -> OtgState<'static>;
 }
 
 /// USB peripheral instance.
@@ -322,9 +322,9 @@ impl SealedInstance for crate::peripherals::USBHS {
         unsafe { Otg::from_ptr(pac::USBHSCORE.as_ptr()) }
     }
 
-    fn state() -> &'static State<MAX_EP_COUNT> {
+    fn state() -> OtgState<'static> {
         static STATE: State<MAX_EP_COUNT> = State::new();
-        &STATE
+        STATE.as_otg_state()
     }
 }
 

@@ -6,7 +6,7 @@ pub use embassy_usb_synopsys_otg::Config;
 use embassy_usb_synopsys_otg::otg_v1::Otg;
 use embassy_usb_synopsys_otg::otg_v1::vals::Dspd;
 use embassy_usb_synopsys_otg::{
-    Bus as OtgBus, ControlPipe, Driver as OtgDriver, Endpoint, In, OtgInstance, Out, PhyType, State,
+    Bus as OtgBus, ControlPipe, Driver as OtgDriver, Endpoint, In, OtgInstance, Out, PhyType, State, OtgState,
     on_interrupt as on_interrupt_impl,
 };
 
@@ -25,7 +25,7 @@ pub struct InterruptHandler<T: Instance> {
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         let r = T::regs();
-        on_interrupt_impl(r, &T::state().as_otg_state(), T::ENDPOINT_COUNT);
+        on_interrupt_impl(r, &T::state(), T::ENDPOINT_COUNT);
     }
 }
 
@@ -79,7 +79,7 @@ impl<'d, T: Instance> Driver<'d, T> {
 
         let instance = OtgInstance {
             regs,
-            state: T::state().as_otg_state(),
+            state: T::state(),
             fifo_depth_words: T::FIFO_DEPTH_WORDS,
             extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
             endpoint_count: T::ENDPOINT_COUNT,
@@ -118,7 +118,7 @@ impl<'d, T: Instance> Driver<'d, T> {
 
         let instance = OtgInstance {
             regs: T::regs(),
-            state: T::state().as_otg_state(),
+            state: T::state(),
             fifo_depth_words: T::FIFO_DEPTH_WORDS,
             extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
             endpoint_count: T::ENDPOINT_COUNT,
@@ -164,7 +164,7 @@ impl<'d, T: Instance> Driver<'d, T> {
 
         let instance = OtgInstance {
             regs: T::regs(),
-            state: T::state().as_otg_state(),
+            state: T::state(),
             fifo_depth_words: T::FIFO_DEPTH_WORDS,
             extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
             endpoint_count: T::ENDPOINT_COUNT,
@@ -212,7 +212,7 @@ impl<'d, T: Instance> Driver<'d, T> {
 
         let instance = OtgInstance {
             regs: T::regs(),
-            state: T::state().as_otg_state(),
+            state: T::state(),
             fifo_depth_words: T::FIFO_DEPTH_WORDS,
             extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
             endpoint_count: T::ENDPOINT_COUNT,
@@ -430,7 +430,7 @@ trait SealedInstance {
     const ENDPOINT_COUNT: usize;
 
     fn regs() -> Otg;
-    fn state() -> &'static State<{ MAX_EP_COUNT }>;
+    fn state() -> OtgState<'static>;
 }
 
 /// USB instance trait.
@@ -514,9 +514,9 @@ foreach_interrupt!(
                 unsafe { Otg::from_ptr(crate::pac::USB_OTG_FS.as_ptr()) }
             }
 
-            fn state() -> &'static State<MAX_EP_COUNT> {
+            fn state() -> OtgState<'static> {
                 static STATE: State<MAX_EP_COUNT> = State::new();
-                &STATE
+                STATE.as_otg_state()
             }
         }
 
@@ -565,9 +565,9 @@ foreach_interrupt!(
                 unsafe { Otg::from_ptr(crate::pac::USB_OTG_HS.as_ptr()) }
             }
 
-            fn state() -> &'static State<MAX_EP_COUNT> {
+            fn state() -> OtgState<'static> {
                 static STATE: State<MAX_EP_COUNT> = State::new();
-                &STATE
+                STATE.as_otg_state()
             }
         }
 
@@ -585,7 +585,7 @@ mod host_impl {
 
     use embassy_usb_synopsys_otg::PhyType;
     use embassy_usb_synopsys_otg::host::{
-        HostState, OtgHost as OtgHostDriver, OtgHostInstance, on_host_interrupt as on_host_interrupt_impl,
+        HostState, OtgHost as OtgHostDriver, OtgHostState, OtgHostInstance, on_host_interrupt as on_host_interrupt_impl,
     };
 
     use super::*;
@@ -595,23 +595,23 @@ mod host_impl {
     /// Per-instance host state, analogous to `SealedInstance::state()` for device mode.
     #[allow(private_bounds)]
     pub(super) trait SealedHostInstance: Instance {
-        fn host_state() -> &'static HostState<MAX_HOST_CH_COUNT>;
+        fn host_state() -> OtgHostState<'static>;
     }
 
     foreach_interrupt!(
         (USB_OTG_FS, otg, $block:ident, GLOBAL, $irq:ident) => {
             impl SealedHostInstance for crate::peripherals::USB_OTG_FS {
-                fn host_state() -> &'static HostState<MAX_HOST_CH_COUNT> {
+                fn host_state() -> OtgHostState<'static> {
                     static STATE: HostState<MAX_HOST_CH_COUNT> = HostState::new();
-                    &STATE
+                    STATE.as_otg_host_state()
                 }
             }
         };
         (USB_OTG_HS, otg, $block:ident, GLOBAL, $irq:ident) => {
             impl SealedHostInstance for crate::peripherals::USB_OTG_HS {
-                fn host_state() -> &'static HostState<MAX_HOST_CH_COUNT> {
+                fn host_state() -> OtgHostState<'static> {
                     static STATE: HostState<MAX_HOST_CH_COUNT> = HostState::new();
-                    &STATE
+                    STATE.as_otg_host_state()
                 }
             }
         };
@@ -628,7 +628,7 @@ mod host_impl {
             let r = T::regs();
             on_host_interrupt_impl(
                 r,
-                &T::host_state().as_otg_host_state(),
+                &T::host_state(),
                 T::ENDPOINT_COUNT.min(MAX_HOST_CH_COUNT),
             );
         }
@@ -662,7 +662,7 @@ mod host_impl {
 
             let instance = OtgHostInstance {
                 regs: T::regs(),
-                state: T::host_state().as_otg_host_state(),
+                state: T::host_state(),
                 fifo_depth_words: T::FIFO_DEPTH_WORDS,
                 channel_count: T::ENDPOINT_COUNT.min(MAX_HOST_CH_COUNT),
                 phy_type: PhyType::InternalFullSpeed,
@@ -712,7 +712,7 @@ mod host_impl {
 
             let instance = OtgHostInstance {
                 regs: T::regs(),
-                state: T::host_state().as_otg_host_state(),
+                state: T::host_state(),
                 fifo_depth_words: T::FIFO_DEPTH_WORDS,
                 channel_count: T::ENDPOINT_COUNT.min(MAX_HOST_CH_COUNT),
                 phy_type: PhyType::InternalHighSpeed,
