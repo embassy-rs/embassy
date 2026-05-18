@@ -27,6 +27,8 @@ const CONFIG_DATA_GAP_ADD_REC_NBR_LEN: u8 = 1;
 const GAP_PERIPHERAL_ROLE: u8 = 0x01;
 #[allow(dead_code)]
 const GAP_CENTRAL_ROLE: u8 = 0x04;
+#[allow(dead_code)]
+const GAP_OBSERVER_ROLE: u8 = 0x08;
 
 #[link(name = "stm32wba_ble_stack_basic")]
 unsafe extern "C" {
@@ -128,6 +130,9 @@ pub enum GapRole {
     Peripheral,
     Central,
     Both,
+    /// Observer: scanning only, no advertising or connections.
+    /// Required for `ACI_GAP_START_OBSERVATION_PROC`.
+    Observer,
 }
 
 impl GapRole {
@@ -136,6 +141,7 @@ impl GapRole {
             GapRole::Peripheral => GAP_PERIPHERAL_ROLE,
             GapRole::Central => GAP_CENTRAL_ROLE,
             GapRole::Both => GAP_PERIPHERAL_ROLE | GAP_CENTRAL_ROLE,
+            GapRole::Observer => GAP_OBSERVER_ROLE,
         }
     }
 }

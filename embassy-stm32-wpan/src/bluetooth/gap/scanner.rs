@@ -6,6 +6,7 @@
 use stm32wb_hci::host::OwnAddressType;
 
 use crate::bluetooth::error::BleError;
+use crate::bluetooth::gap::aci_gap;
 use crate::bluetooth::hci::CommandSender;
 
 /// Scan type
@@ -180,17 +181,18 @@ impl<'d> Scanner<'d> {
     /// }
     /// ```
     pub fn start(&mut self, params: ScanParams) -> Result<(), BleError> {
-        // Set scan parameters
-        self.cmd.le_set_scan_parameters(
-            params.scan_type as u8,
+        // Use the GAP observation procedure instead of raw HCI scan commands.
+        // Raw HCI_LE_SET_SCAN_ENABLE starts the radio but the WBA host layer
+        // never routes the resulting reports through BLECB_Indication; only
+        // ACI_GAP_START_OBSERVATION_PROC does.
+        aci_gap::start_observation(
             params.scan_interval,
             params.scan_window,
-            params.own_address_type,
+            params.scan_type as u8,
+            params.own_address_type as u8,
+            params.filter_duplicates,
             params.filter_policy as u8,
         )?;
-
-        // Enable scanning
-        self.cmd.le_set_scan_enable(true, params.filter_duplicates)?;
 
         self.is_scanning = true;
         Ok(())
@@ -199,7 +201,7 @@ impl<'d> Scanner<'d> {
     /// Stop scanning
     pub fn stop(&mut self) -> Result<(), BleError> {
         if self.is_scanning {
-            self.cmd.le_set_scan_enable(false, false)?;
+            aci_gap::stop_observation()?;
             self.is_scanning = false;
         }
         Ok(())

@@ -21,7 +21,7 @@ use crate::bluetooth::gap::connection::{
 };
 use crate::bluetooth::gap::scanner::Scanner;
 use crate::bluetooth::gap::types::{AdvData, AdvParams};
-use crate::bluetooth::gap_init::{GapInitParams, init_gap_and_hal};
+use crate::bluetooth::gap_init::{GapInitParams, GapRole, init_gap_and_hal};
 use crate::bluetooth::gatt::GattServer;
 use crate::bluetooth::gatt::server::init_gatt_layer;
 use crate::bluetooth::hci::command::CommandSender;
@@ -98,6 +98,20 @@ impl<'d> HCI<'d, Normal> {
         irq: impl interrupt::typelevel::Binding<interrupt::typelevel::RADIO, HighInterruptHandler>
         + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
     ) -> Result<Self, BleError> {
+        Self::new_with_role(platform, runtime, irq, GapRole::Peripheral).await
+    }
+
+    /// Like `new`, but lets you specify the GAP role.
+    ///
+    /// Use `GapRole::Observer` for a scanner-only device (required for
+    /// `ACI_GAP_START_OBSERVATION_PROC` to succeed).
+    pub async fn new_with_role(
+        platform: &'static Platform,
+        runtime: &'d mut FullRuntime,
+        irq: impl interrupt::typelevel::Binding<interrupt::typelevel::RADIO, HighInterruptHandler>
+        + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
+        role: GapRole,
+    ) -> Result<Self, BleError> {
         let controller = Controller::new(platform, runtime, irq)
             .await
             .map_err(|_| BleError::InitializationFailed)?;
@@ -110,38 +124,14 @@ impl<'d> HCI<'d, Normal> {
             _mode: Normal,
         };
 
-        this.init()?;
+        this.init_with_role(role)?;
 
         yield_now().await;
 
         Ok(this)
     }
 
-    /// Initialize the BLE stack
-    ///
-    /// This function performs the following initialization steps:
-    /// 1. Initializes BLE host stack (BleStack_Init)
-    /// 2. Resets the BLE controller
-    /// 3. Reads and logs the local version information
-    /// 4. Reads the BD address
-    /// 5. Sets the event mask
-    /// 6. Reads buffer sizes
-    /// 7. Reads supported features
-    /// 8. Initializes GATT layer (aci_gatt_init) - MUST be before GAP!
-    /// 9. Initializes GAP and HAL (aci_gap_init, aci_hal_write_config_data, etc.)
-    ///
-    /// Must be called before any other BLE operations.
-    ///
-    /// # Initialization Order
-    ///
-    /// The order is critical: GATT initialization MUST happen before GAP initialization.
-    /// This matches ST's BLE_HeartRate example sequence.
-    ///
-    /// # Returns
-    ///
-    /// - `Ok(())` if initialization succeeded
-    /// - `Err(BleError)` if any initialization step failed
-    fn init(&mut self) -> Result<(), BleError> {
+    fn init_with_role(&mut self, role: GapRole) -> Result<(), BleError> {
         info!("Ble::init: BLE stack initialized, sending HCI reset");
 
         // 1. Reset BLE controller
@@ -223,6 +213,7 @@ impl<'d> HCI<'d, Normal> {
         // address must be `11`.
         let uid = embassy_stm32::uid::uid();
         let mut gap_params = GapInitParams::default();
+        gap_params.role = role;
         gap_params.bd_addr.copy_from_slice(&uid[0..6]);
         gap_params.bd_addr[5] |= 0xC0;
 
@@ -757,8 +748,9 @@ impl<'d, M: Mode> HCI<'d, M> {
     /// raw events (e.g., for connection management).
     pub async fn read_event(&mut self) -> stm32wb_hci::Event {
         loop {
-            if let Ok(event) = self.controller.read_event().await {
-                return event;
+            match self.controller.read_event().await {
+                Ok(event) => return event,
+                Err(e) => warn!("read_event: parse error {:?}", e),
             }
         }
     }
