@@ -27,6 +27,8 @@ const CONFIG_DATA_GAP_ADD_REC_NBR_LEN: u8 = 1;
 const GAP_PERIPHERAL_ROLE: u8 = 0x01;
 #[allow(dead_code)]
 const GAP_CENTRAL_ROLE: u8 = 0x04;
+#[allow(dead_code)]
+const GAP_OBSERVER_ROLE: u8 = 0x08;
 
 #[link(name = "stm32wba_ble_stack_basic")]
 unsafe extern "C" {
@@ -82,6 +84,18 @@ unsafe extern "C" {
     ) -> tBleStatus;
 }
 
+/// Address type to use for the device.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AddressType {
+    /// IEEE-registered public address. Written to PUBADDR (config offset 0x00).
+    /// Requires a real OUI; the WBA stack-basic library will reject the write
+    /// if the address violates expectations.
+    Public,
+    /// Random static address. The caller sets it via `hci_le_set_random_address`
+    /// after `init_gap_and_hal` returns; the PUBADDR config write is skipped.
+    RandomStatic,
+}
+
 /// GAP initialization parameters
 pub struct GapInitParams {
     /// Device role (peripheral, central, or both)
@@ -92,8 +106,10 @@ pub struct GapInitParams {
     pub device_name: &'static [u8],
     /// GAP appearance value
     pub appearance: u16,
-    /// BD address (6 bytes)
+    /// BD address (6 bytes). For `RandomStatic`, the top two bits of byte 5 must be `11`.
     pub bd_addr: [u8; 6],
+    /// Whether `bd_addr` is a public or random static address.
+    pub address_type: AddressType,
     /// Identity Root key (16 bytes) for IRK derivation
     pub ir_value: [u8; 16],
     /// Encryption Root key (16 bytes) for LTK derivation
@@ -114,6 +130,9 @@ pub enum GapRole {
     Peripheral,
     Central,
     Both,
+    /// Observer: scanning only, no advertising or connections.
+    /// Required for `ACI_GAP_START_OBSERVATION_PROC`.
+    Observer,
 }
 
 impl GapRole {
@@ -122,6 +141,7 @@ impl GapRole {
             GapRole::Peripheral => GAP_PERIPHERAL_ROLE,
             GapRole::Central => GAP_CENTRAL_ROLE,
             GapRole::Both => GAP_PERIPHERAL_ROLE | GAP_CENTRAL_ROLE,
+            GapRole::Observer => GAP_OBSERVER_ROLE,
         }
     }
 }
@@ -203,8 +223,12 @@ impl Default for GapInitParams {
             role: GapRole::Peripheral,
             privacy_enabled: false,
             device_name: b"Embassy-BLE",
-            appearance: 0,                                 // Unknown
-            bd_addr: [0xE1, 0x80, 0xE1, 0x26, 0x1A, 0x00], // Default address
+            appearance: 0, // Unknown
+            // Random static address: top two bits of byte 5 are `11`.
+            // Callers that want a per-chip address should overwrite all 6 bytes
+            // (e.g. from the chip UID) and then `bd_addr[5] |= 0xC0`.
+            bd_addr: [0x00, 0x1A, 0x26, 0xE1, 0x80, 0xC1],
+            address_type: AddressType::RandomStatic,
             ir_value: [0x12; 16],
             er_value: [0x34; 16],
             tx_power: 25, // +6 dBm
@@ -248,26 +272,44 @@ pub fn init_gap_and_hal(params: &GapInitParams) -> Result<GapHandles, BleError> 
             warn!("aci_hal_write_config_data (GAP_ADD_REC_NBR) failed: 0x{:02X}", status);
         }
 
-        // 2. Write BD address
-        let status = aci_hal_write_config_data(
-            CONFIG_DATA_PUBADDR_OFFSET,
-            CONFIG_DATA_PUBADDR_LEN,
-            params.bd_addr.as_ptr(),
-        );
-        if status != BLE_STATUS_SUCCESS {
-            error!("aci_hal_write_config_data (PUBADDR) failed: 0x{:02X}", status);
-            return Err(BleError::CommandFailed(Status::from_u8(status)));
+        // 2. Write BD address (only for public addresses).
+        //
+        // For random static addresses, the WBA stack-basic library doesn't accept
+        // PUBADDR writes — the caller programs the random address via
+        // `hci_le_set_random_address` after this function returns.
+        match params.address_type {
+            AddressType::Public => {
+                let status = aci_hal_write_config_data(
+                    CONFIG_DATA_PUBADDR_OFFSET,
+                    CONFIG_DATA_PUBADDR_LEN,
+                    params.bd_addr.as_ptr(),
+                );
+                if status != BLE_STATUS_SUCCESS {
+                    error!("aci_hal_write_config_data (PUBADDR) failed: 0x{:02X}", status);
+                    return Err(BleError::CommandFailed(Status::from_u8(status)));
+                }
+                info!(
+                    "Public BD address configured: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+                    params.bd_addr[5],
+                    params.bd_addr[4],
+                    params.bd_addr[3],
+                    params.bd_addr[2],
+                    params.bd_addr[1],
+                    params.bd_addr[0]
+                );
+            }
+            AddressType::RandomStatic => {
+                info!(
+                    "Random static address (to be set via HCI): {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+                    params.bd_addr[5],
+                    params.bd_addr[4],
+                    params.bd_addr[3],
+                    params.bd_addr[2],
+                    params.bd_addr[1],
+                    params.bd_addr[0]
+                );
+            }
         }
-
-        info!(
-            "BD Address configured: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
-            params.bd_addr[5],
-            params.bd_addr[4],
-            params.bd_addr[3],
-            params.bd_addr[2],
-            params.bd_addr[1],
-            params.bd_addr[0]
-        );
 
         // 3. Write IR (Identity Root) value
         let status = aci_hal_write_config_data(CONFIG_DATA_IR_OFFSET, CONFIG_DATA_IR_LEN, params.ir_value.as_ptr());

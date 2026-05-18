@@ -24,6 +24,7 @@ use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::{Config, bind_interrupts, rcc};
 use embassy_stm32_wpan::bluetooth::HCI;
 use embassy_stm32_wpan::bluetooth::gap::{ParsedAdvData, ScanParams, ScanType};
+use embassy_stm32_wpan::bluetooth::gap_init::GapRole;
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use stm32wb_hci::Event;
 use {defmt_rtt as _, panic_probe as _};
@@ -73,8 +74,8 @@ async fn main(spawner: Spawner) {
     // Spawn the BLE runner task (required for proper BLE operation)
     spawner.spawn(ble_runner_task(platform).expect("Failed to spawn BLE runner"));
 
-    // Initialize BLE stack
-    let mut ble = HCI::new(platform, runtime, Irqs)
+    // Initialize BLE stack in Observer role (required for ACI_GAP_START_OBSERVATION_PROC)
+    let mut ble = HCI::new_with_role(platform, runtime, Irqs, GapRole::Observer)
         .await
         .expect("BLE initialization failed");
 

@@ -785,6 +785,38 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_AclkCtrl(enable: u8) {
 //   * @param  len: number of byte of anthropy to get.
 //   * @retval None
 //   */
+/// Poll the hardware RNG directly to fill `buf`.
+///
+/// Used as a fallback when the async pipe is transiently empty — e.g. when the
+/// BLE link layer requests entropy inside `seq_resume()`, where we cannot yield
+/// to let `run_rng` replenish the pipe.  Reading DR is safe even while the
+/// embassy RNG driver holds the peripheral: the hardware immediately starts
+/// generating the next word after each DR read, so the async driver simply
+/// waits for the next DRDY interrupt.
+unsafe fn fill_from_hardware_rng(buf: &mut [u8]) {
+    use embassy_stm32::pac::RNG;
+    let mut i = 0;
+    while i < buf.len() {
+        loop {
+            let sr = RNG.sr().read();
+            if sr.seis() || sr.ceis() {
+                RNG.sr().modify(|w| {
+                    w.set_seis(false);
+                    w.set_ceis(false);
+                });
+            }
+            if sr.drdy() {
+                break;
+            }
+        }
+        let word = RNG.dr().read();
+        let bytes = word.to_le_bytes();
+        let to_copy = (buf.len() - i).min(4);
+        buf[i..i + to_copy].copy_from_slice(&bytes[..to_copy]);
+        i += to_copy;
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LINKLAYER_PLAT_GetRNG(ptr_rnd: *mut u8, len: u32) {
     trace!("LINKLAYER_PLAT_GetRNG: ptr_rnd={:?}, len={}", ptr_rnd, len);
@@ -792,9 +824,11 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_GetRNG(ptr_rnd: *mut u8, len: u32) {
         return;
     }
 
-    get_platform()
-        .try_fill_all_bytes(core::slice::from_raw_parts_mut(ptr_rnd, len as usize))
-        .expect("LINKLAYER_PLAT_GetRNG: could not fill bytes");
+    let buf = core::slice::from_raw_parts_mut(ptr_rnd, len as usize);
+    let from_pipe = get_platform().try_fill_bytes(buf);
+    if from_pipe < buf.len() {
+        fill_from_hardware_rng(&mut buf[from_pipe..]);
+    }
 
     trace!("LINKLAYER_PLAT_GetRNG: generated {} random bytes", len);
 }
@@ -1250,9 +1284,11 @@ pub unsafe extern "C" fn BLEPLAT_RngGet(n: u8, val: *mut u32) {
         return;
     }
 
-    get_platform()
-        .try_fill_all_bytes(core::slice::from_raw_parts_mut(val as *mut u8, n as usize * 4))
-        .expect("BLEPLAT_RngGet: could not fill bytes");
+    let buf = core::slice::from_raw_parts_mut(val as *mut u8, n as usize * 4);
+    let from_pipe = get_platform().try_fill_bytes(buf);
+    if from_pipe < buf.len() {
+        fill_from_hardware_rng(&mut buf[from_pipe..]);
+    }
 }
 
 /// AES ECB encrypt function using hardware AES peripheral.
@@ -1847,7 +1883,11 @@ pub unsafe extern "C" fn BLECB_Indication(data: *const u8, length: u16, ext_data
 
     // Convert to slice
     let event_data = core::slice::from_raw_parts(data, length as usize);
-    let ext_data = core::slice::from_raw_parts(ext_data, ext_length as usize);
+    let ext_data: &[u8] = if ext_data.is_null() || ext_length == 0 {
+        &[]
+    } else {
+        core::slice::from_raw_parts(ext_data, ext_length as usize)
+    };
 
     trace!(
         "BLECB_Indication: event_code=0x{:02X}, length={}",
