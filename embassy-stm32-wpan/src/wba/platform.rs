@@ -137,12 +137,10 @@ impl Platform {
         self.pipe.wait_full().await
     }
 
-    pub(crate) fn try_fill_all_bytes(&self, buf: &mut [u8]) -> Result<(), ()> {
-        if self.pipe.try_read(buf).map_err(|_| ())? < buf.len() {
-            Err(())
-        } else {
-            Ok(())
-        }
+    /// Fill `buf` from the pipe, returning how many bytes were actually written.
+    /// May return less than `buf.len()` if the pipe is transiently low.
+    pub(crate) fn try_fill_bytes(&self, buf: &mut [u8]) -> usize {
+        self.pipe.try_read(buf).unwrap_or(0)
     }
 
     /// Fill `buf` with random bytes from the BLE platform's RNG pipe.
