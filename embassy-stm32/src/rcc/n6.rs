@@ -743,16 +743,10 @@ fn pll_output(pll_config: Option<Pll>, input: &PllInput) -> PllOutput {
     }
 }
 
-fn init_pll(pll_config: Option<Pll>, pll_index: usize, input: &PllInput, skip_initialization: bool) -> PllOutput {
+fn init_pll(pll_config: Option<Pll>, pll_index: usize, input: &PllInput) -> PllOutput {
     let cfgr1 = RCC.pllcfgr1(pll_index);
     let cfgr2 = RCC.pllcfgr2(pll_index);
     let cfgr3 = RCC.pllcfgr3(pll_index);
-
-    if skip_initialization {
-        // Caller guarantees registers already match `pll_config` (verified via
-        // `is_new_pll_config`), so just compute the PllOutput.
-        return pll_output(pll_config, input);
-    }
 
     match pll_config {
         Some(Pll::Oscillator {
@@ -1083,12 +1077,11 @@ fn init_osc(config: Config) -> OscOutput {
                     disable_pll(n);
                     PllOutput::default()
                 },
-                |c| init_pll(Some(c), n, &pll_input, false),
+                |c| init_pll(Some(c), n, &pll_input),
             );
         } else if pll.is_some() {
-            // Config matches current register state. Run init_pll
-            // in skip mode and compute PllOutput.
-            *out = init_pll(pll, n, &pll_input, true);
+            // Config matches current register state.
+            *out = pll_output(pll, &pll_input);
             if !pll_ready {
                 RCC.csr().write(|w| w.set_pllons(n, true));
                 while !RCC.sr().read().pllrdy(n) {}
