@@ -860,7 +860,7 @@ impl<'d> Spi<'d, Async, Master> {
         )
     }
 
-    /// Create a new SPI driver, in bidirectional mode, specifically in tranmit mode
+    /// Create a new SPI driver, in bidirectional mode, specifically in transmit mode
     #[cfg(any(spi_v1, spi_v2, spi_v3))]
     pub fn new_bidi<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
