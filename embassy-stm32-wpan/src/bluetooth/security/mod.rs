@@ -53,6 +53,9 @@ unsafe extern "C" {
     #[link_name = "ACI_GAP_NUMERIC_COMPARISON_VALUE_CONFIRM_YESNO"]
     fn aci_gap_numeric_comparison_value_confirm_yesno(connection_handle: u16, confirm_yes_no: u8) -> tBleStatus;
 
+    #[link_name = "ACI_GAP_PERIPHERAL_SECURITY_REQ"]
+    fn aci_gap_peripheral_security_req(connection_handle: u16) -> tBleStatus;
+
     #[link_name = "ACI_GAP_ALLOW_REBOND"]
     fn aci_gap_allow_rebond(connection_handle: u16) -> tBleStatus;
 
@@ -459,6 +462,24 @@ impl SecurityManager {
         unsafe {
             let status = aci_gap_numeric_comparison_value_confirm_yesno(conn_handle, confirm as u8);
 
+            if status == BLE_STATUS_SUCCESS {
+                Ok(())
+            } else {
+                Err(BleError::CommandFailed(Status::from_u8(status)))
+            }
+        }
+    }
+
+    /// Request pairing/encryption from the peripheral side.
+    ///
+    /// Sends an SMP Security Request to the central. Call this immediately
+    /// after connection when the device has security requirements, rather than
+    /// waiting for the central to trigger pairing via an insufficient-security
+    /// GATT error. Matches ST's recommended pattern (aci_gap_slave_security_req
+    /// in BLE_HeartRate).
+    pub fn request_pairing(&self, conn_handle: u16) -> Result<(), BleError> {
+        unsafe {
+            let status = aci_gap_peripheral_security_req(conn_handle);
             if status == BLE_STATUS_SUCCESS {
                 Ok(())
             } else {

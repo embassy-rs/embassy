@@ -193,8 +193,14 @@ async fn main(spawner: Spawner) {
                     info!("  Handle: 0x{:04X}", conn.handle.0);
                     info!("  Peer: {}", conn.peer_address);
 
-                    info!("Waiting for pairing request...");
-                    info!("(Try to read the secure characteristic to trigger pairing)");
+                    // Immediately request pairing from the peripheral side so
+                    // the central doesn't have to trigger it via an
+                    // insufficient-security GATT error first.
+                    if let Err(e) = security.request_pairing(conn.handle.0) {
+                        warn!("request_pairing failed: {:?}", e);
+                    } else {
+                        info!("Pairing requested — waiting for central to respond...");
+                    }
                 }
 
                 GapEvent::Disconnected { handle, reason } => {

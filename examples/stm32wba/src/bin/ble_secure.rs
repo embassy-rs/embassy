@@ -30,7 +30,7 @@ use embassy_stm32::{Config, bind_interrupts};
 use embassy_stm32_wpan::bluetooth::HCI;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
 use embassy_stm32_wpan::bluetooth::gatt::{CharProperties, GattEventMask, SecurityPermissions, ServiceType, Uuid};
-use embassy_stm32_wpan::bluetooth::security::{SecureConnectionsSupport, SecurityParams};
+use embassy_stm32_wpan::bluetooth::security::{IoCapability, SecureConnectionsSupport, SecurityParams};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use stm32wb_hci::Event;
 use stm32wb_hci::event::EncryptionChange;
@@ -103,7 +103,8 @@ async fn main(spawner: Spawner) {
         .with_bonding(true)
         .with_mitm_protection(true)
         .with_secure_connections(SecureConnectionsSupport::Optional)
-        .with_key_size_range(7, 16);
+        .with_key_size_range(7, 16)
+        .with_io_capability(IoCapability::DisplayYesNo);
 
     security
         .set_authentication_requirements(security_params)
@@ -188,8 +189,11 @@ async fn main(spawner: Spawner) {
                     info!("  Handle: 0x{:04X}", conn.handle.0);
                     info!("  Peer: {}", conn.peer_address);
 
-                    info!("Waiting for pairing request...");
-                    info!("(Try to read the secure characteristic to trigger pairing)");
+                    if let Err(e) = security.request_pairing(conn.handle.0) {
+                        warn!("request_pairing failed: {:?}", e);
+                    } else {
+                        info!("Pairing requested — waiting for central to respond...");
+                    }
                 }
 
                 GapEvent::Disconnected { handle, reason } => {
