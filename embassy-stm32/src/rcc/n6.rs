@@ -1,7 +1,7 @@
 use stm32_metapac::pwr::vals::{
     Vddio2rdy, Vddio2sv, Vddio2vrsel, Vddio3rdy, Vddio3sv, Vddio3vrsel, Vddio4sv, Vddio5sv,
 };
-use stm32_metapac::rcc::vals::{Cpusw, Cpusws, Hseext, Hsitrim, Msifreqsel, Pllmodssdis, Syssw, Syssws, Timpre};
+use stm32_metapac::rcc::vals::{Cpusw, Cpusws, Hseext, Hsitrim, Msifreqsel, Persel, Pllmodssdis, Syssw, Syssws, Timpre};
 pub use stm32_metapac::rcc::vals::{
     Hpre as AhbPrescaler, Hsidiv as HsiPrescaler, Hsitrim as HsiCalibration, Icint, Icsel, Plldivm, Pllpdiv, Pllsel,
     Ppre as ApbPrescaler, Xspisel as XspiClkSrc,
@@ -126,6 +126,7 @@ pub struct Config {
 
     pub cpu: CpuClk,
     pub sys: SysClk,
+    pub per: Persel,
 
     pub pll1: Option<Pll>,
     pub pll2: Option<Pll>,
@@ -186,6 +187,7 @@ impl Config {
 
             cpu: CpuClk::Hsi,
             sys: SysClk::Hsi,
+            per: Persel::Hsi,
 
             pll1: Some(Pll::Bypass { source: Pllsel::Hsi }),
             pll2: Some(Pll::Bypass { source: Pllsel::Hsi }),
@@ -233,6 +235,7 @@ impl Config {
 struct ClocksOutput {
     cpuclk: Hertz,
     sysclk: Hertz,
+    perclk: Hertz,
     pclk_tim: Hertz,
     ahb: Hertz,
     apb1: Hertz,
@@ -409,6 +412,17 @@ fn init_clocks(config: Config, input: &ClocksInput) -> ClocksOutput {
         SysClk::Ic2 => unwrap!(input.ic2),
     };
 
+    let perclk = match config.per {
+        Persel::Hsi => unwrap!(input.hsi),
+        Persel::Msi => unwrap!(input.msi),
+        Persel::Hse => unwrap!(input.hse),
+        Persel::Ic19 => unwrap!(input.ic19),
+        Persel::Ic5 => unwrap!(input.ic5),
+        Persel::Ic10 => unwrap!(input.ic10),
+        Persel::Ic15 => unwrap!(input.ic15),
+        Persel::Ic20 => unwrap!(input.ic20),
+    };
+
     let timpre: u32 = match RCC.cfgr2().read().timpre() {
         Timpre::Div1 => 1,
         Timpre::Div2 => 2,
@@ -433,6 +447,7 @@ fn init_clocks(config: Config, input: &ClocksInput) -> ClocksOutput {
     ClocksOutput {
         cpuclk,
         sysclk,
+        perclk,
         pclk_tim: sysclk / timpre,
         ahb: Hertz(sysclk.0 / hpre as u32),
         apb1: sysclk / hpre / ppre1,
@@ -1376,7 +1391,7 @@ pub(crate) unsafe fn init(config: Config) {
         pclk2_tim: Some(clocks.pclk_tim),
         pclk4: Some(clocks.apb4),
         pclk5: Some(clocks.apb5),
-        per: None,
+        per: Some(clocks.perclk),
         rtc: None,
         i2s_ckin: None,
         ic1: clock_inputs.ic1,
