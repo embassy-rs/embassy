@@ -31,6 +31,9 @@ type tBleStatus = u8;
 
 #[link(name = "stm32wba_ble_stack_basic")]
 unsafe extern "C" {
+    #[link_name = "ACI_GAP_SET_IO_CAPABILITY"]
+    fn aci_gap_set_io_capability(io_capability: u8) -> tBleStatus;
+
     #[link_name = "ACI_GAP_SET_AUTHENTICATION_REQUIREMENT"]
     fn aci_gap_set_authentication_requirement(
         bonding_mode: u8,
@@ -149,6 +152,14 @@ pub struct SecurityParams {
     pub fixed_pin: u32,
     /// Identity address type
     pub identity_address_type: IdentityAddressType,
+    /// IO capability.
+    ///
+    /// Must match what the device can actually do. Determines which pairing
+    /// method the stack selects. If `mitm_protection` is `true`, this must be
+    /// something other than `NoInputNoOutput`; otherwise pairing always fails
+    /// with `AuthRequirements` because "Just Works" (the only method available
+    /// for NoInputNoOutput) provides no MITM protection.
+    pub io_capability: IoCapability,
 }
 
 impl Default for SecurityParams {
@@ -163,6 +174,7 @@ impl Default for SecurityParams {
             use_fixed_pin: false,
             fixed_pin: 0,
             identity_address_type: IdentityAddressType::Public,
+            io_capability: IoCapability::NoInputNoOutput,
         }
     }
 }
@@ -221,48 +233,43 @@ impl SecurityParams {
         self
     }
 
+    /// Set IO capability.
+    ///
+    /// Determines which pairing method the BLE stack selects. When
+    /// `mitm_protection` is enabled, use anything other than
+    /// `NoInputNoOutput`; otherwise the stack can only do "Just Works"
+    /// and pairing will fail with `AuthRequirements`.
+    pub fn with_io_capability(mut self, cap: IoCapability) -> Self {
+        self.io_capability = cap;
+        self
+    }
+
     /// Preset for "Just Works" pairing (no MITM protection)
     pub fn just_works() -> Self {
         Self {
-            bonding_mode: BondingMode::Bonding,
-            mitm_protection: false,
-            secure_connections: SecureConnectionsSupport::Optional,
-            keypress_notification: false,
-            min_encryption_key_size: 7,
-            max_encryption_key_size: 16,
-            use_fixed_pin: false,
-            fixed_pin: 0,
-            identity_address_type: IdentityAddressType::Public,
+            io_capability: IoCapability::NoInputNoOutput,
+            ..Self::default()
         }
     }
 
-    /// Preset for passkey entry pairing
+    /// Preset for passkey entry pairing (device displays passkey, peer enters it)
     pub fn passkey_entry() -> Self {
         Self {
-            bonding_mode: BondingMode::Bonding,
             mitm_protection: true,
-            secure_connections: SecureConnectionsSupport::Optional,
-            keypress_notification: false,
-            min_encryption_key_size: 7,
-            max_encryption_key_size: 16,
-            use_fixed_pin: false,
-            fixed_pin: 0,
-            identity_address_type: IdentityAddressType::Public,
+            io_capability: IoCapability::DisplayOnly,
+            ..Self::default()
         }
     }
 
     /// Preset for secure connections with numeric comparison
     pub fn secure_numeric_comparison() -> Self {
         Self {
-            bonding_mode: BondingMode::Bonding,
             mitm_protection: true,
             secure_connections: SecureConnectionsSupport::Required,
-            keypress_notification: false,
             min_encryption_key_size: 16,
             max_encryption_key_size: 16,
-            use_fixed_pin: false,
-            fixed_pin: 0,
-            identity_address_type: IdentityAddressType::Public,
+            io_capability: IoCapability::DisplayYesNo,
+            ..Self::default()
         }
     }
 }
@@ -396,6 +403,13 @@ impl SecurityManager {
     /// Must be called before connections are established.
     pub fn set_authentication_requirements(&mut self, params: SecurityParams) -> Result<(), BleError> {
         unsafe {
+            // IO capability determines the pairing method. Must be set before
+            // the authentication requirement so the stack uses the right method.
+            let io_status = aci_gap_set_io_capability(params.io_capability as u8);
+            if io_status != BLE_STATUS_SUCCESS {
+                return Err(BleError::CommandFailed(Status::from_u8(io_status)));
+            }
+
             let status = aci_gap_set_authentication_requirement(
                 params.bonding_mode as u8,
                 params.mitm_protection as u8,

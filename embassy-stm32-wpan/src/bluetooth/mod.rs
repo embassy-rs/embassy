@@ -750,7 +750,7 @@ impl<'d, M: Mode> HCI<'d, M> {
         loop {
             match self.controller.read_event().await {
                 Ok(event) => return event,
-                Err(e) => warn!("read_event: parse error {:?}", e),
+                Err(e) => debug!("read_event: unhandled event {:?}", e),
             }
         }
     }
