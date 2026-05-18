@@ -343,6 +343,13 @@ impl Driver for RtcDriver {
     fn now(&self) -> u64 {
         let r = regs_gp16();
 
+        // trigger the interrupt handler if irqs have been disabled
+        let sr = r.sr().read();
+        if sr.uif() || sr.ccif(0) {
+            #[cfg(feature = "rt")]
+            self.on_interrupt();
+        }
+
         let period = self.period.load(Ordering::Relaxed);
         compiler_fence(Ordering::Acquire);
         let counter = r.cnt().read().cnt();
