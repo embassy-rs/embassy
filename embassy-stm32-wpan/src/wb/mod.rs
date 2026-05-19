@@ -16,16 +16,13 @@ use unsafe_linked_list::LinkedListNode;
 mod channels;
 mod cmd;
 mod consts;
-mod evt;
+pub(crate) mod evt;
 pub mod fus;
 pub mod lhci;
 pub mod shci;
 pub mod sub;
-mod tables;
+pub(crate) mod tables;
 mod unsafe_linked_list;
-
-#[cfg(feature = "wb-mac")]
-pub mod mac;
 
 use crate::shci::SchiSysEventReady;
 #[cfg(feature = "wb-ble")]

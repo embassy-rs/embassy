@@ -7,9 +7,9 @@ use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
 use embassy_stm32::rcc::Config as RccConfig;
 use embassy_stm32_wpan::TlMbox;
-use embassy_stm32_wpan::mac::commands::{AssociateResponse, ResetRequest, SetRequest, StartRequest};
-use embassy_stm32_wpan::mac::event::MacEvent;
-use embassy_stm32_wpan::mac::typedefs::{MacChannel, MacStatus, PanId, PibId, SecurityLevel};
+use embassy_stm32_wpan::mlme::commands::{AssociateResponse, ResetRequest, SetRequest, StartRequest};
+use embassy_stm32_wpan::mlme::event::MacEvent;
+use embassy_stm32_wpan::mlme::typedefs::{MacChannel, MacStatus, PanId, PibId, SecurityLevel};
 use embassy_stm32_wpan::sub::mm;
 use {defmt_rtt as _, panic_probe as _};
 
