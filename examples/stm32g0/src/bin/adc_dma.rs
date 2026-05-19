@@ -22,7 +22,7 @@ async fn main(_spawner: Spawner) {
 
     info!("Hello World!");
 
-    let mut adc = Adc::new_with_clock(p.ADC1, Clock::Async { div: Presc::DIV1 });
+    let mut adc = Adc::new_with_clock(p.ADC1, Clock::Async { div: Presc::Div1 });
 
     let mut dma = p.DMA1_CH1;
     let mut vrefint = adc.enable_vrefint();
@@ -34,10 +34,11 @@ async fn main(_spawner: Spawner) {
             dma.reborrow(),
             Irqs,
             [
-                (&mut vrefint_channel, SampleTime::CYCLES160_5),
-                (&mut pa0, SampleTime::CYCLES160_5),
+                (&mut vrefint_channel, SampleTime::Cycles1605),
+                (&mut pa0, SampleTime::Cycles1605),
             ]
             .into_iter(),
+            None,
             &mut read_buffer,
         )
         .await;

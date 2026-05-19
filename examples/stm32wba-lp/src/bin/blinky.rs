@@ -19,12 +19,12 @@ async fn main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
 
     // HSI 16 MHz as sysclk — no PLL needed for a blinky demo.
-    config.rcc.sys = Sysclk::HSI;
+    config.rcc.sys = Sysclk::Hsi;
 
     // LSI 32 kHz for the RTC — the time driver uses the RTC wakeup
     // alarm to bring the core back from STOP mode.
     config.rcc.ls = LsConfig {
-        rtc: RtcClockSource::LSI,
+        rtc: RtcClockSource::Lsi,
         lsi: true,
         lse: None,
     };

@@ -198,10 +198,10 @@ impl<'d, T: Instance> Driver<'d, T> {
         ep.max_packet_size = max_packet_size;
 
         let ep_type_reg = match ep_type {
-            EndpointType::Bulk => pac::usb_dpram::vals::EpControlEndpointType::BULK,
-            EndpointType::Control => pac::usb_dpram::vals::EpControlEndpointType::CONTROL,
-            EndpointType::Interrupt => pac::usb_dpram::vals::EpControlEndpointType::INTERRUPT,
-            EndpointType::Isochronous => pac::usb_dpram::vals::EpControlEndpointType::ISOCHRONOUS,
+            EndpointType::Bulk => pac::usb_dpram::vals::EpControlEndpointType::Bulk,
+            EndpointType::Control => pac::usb_dpram::vals::EpControlEndpointType::Control,
+            EndpointType::Interrupt => pac::usb_dpram::vals::EpControlEndpointType::Interrupt,
+            EndpointType::Isochronous => pac::usb_dpram::vals::EpControlEndpointType::Isochronous,
         };
 
         match D::dir() {

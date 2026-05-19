@@ -59,12 +59,12 @@ async fn main(_spawner: Spawner) {
 
     // configure for 32MHz (HSI16 * 6 / 3)
     let mut config = Config::default();
-    config.rcc.sys = Sysclk::PLL1_R;
+    config.rcc.sys = Sysclk::Pll1R;
     config.rcc.hsi = true;
     config.rcc.pll = Some(Pll {
-        source: PllSource::HSI,
-        div: PllDiv::DIV3,
-        mul: PllMul::MUL6,
+        source: PllSource::Hsi,
+        div: PllDiv::Div3,
+        mul: PllMul::Mul6,
     });
 
     let p = embassy_stm32::init(config);

@@ -6,7 +6,6 @@ use core::ops::{Add, Sub};
 use core::sync::atomic::Ordering;
 
 use embassy_hal_internal::Peri;
-use nxp_pac::ctimer::{Capfe, Capi, Capre};
 
 use super::{AnyChannel, CTimer, CTimerChannel, Channel, Info, InputPin, Instance};
 use crate::clocks::WakeGuard;
@@ -168,7 +167,7 @@ impl<'d> Capture<'d> {
     ///
     /// Upon `Drop`, the external `pin` will be placed into `Disabled`
     /// state.
-    pub fn new_with_input_pin<T: Instance, CH: CTimerChannel<T>, PIN: InputPin>(
+    pub fn new_with_input_pin<T: Instance, CH: CTimerChannel<T>, PIN: InputPin<T>>(
         ctimer: CTimer<'d>,
         ch: Peri<'d, CH>,
         pin: Peri<'d, PIN>,
@@ -207,50 +206,50 @@ impl<'d> Capture<'d> {
             match self.ch.number() {
                 Channel::Zero => match config.edge {
                     Edge::Both => {
-                        w.set_cap0re(Capre::CAPRE1);
-                        w.set_cap0fe(Capfe::CAPFE1);
+                        w.set_cap0re(true);
+                        w.set_cap0fe(true);
                     }
                     Edge::RisingEdge => {
-                        w.set_cap0re(Capre::CAPRE1);
+                        w.set_cap0re(true);
                     }
                     Edge::FallingEdge => {
-                        w.set_cap0fe(Capfe::CAPFE1);
+                        w.set_cap0fe(true);
                     }
                 },
                 Channel::One => match config.edge {
                     Edge::Both => {
-                        w.set_cap1re(Capre::CAPRE1);
-                        w.set_cap1fe(Capfe::CAPFE1);
+                        w.set_cap1re(true);
+                        w.set_cap1fe(true);
                     }
                     Edge::RisingEdge => {
-                        w.set_cap1re(Capre::CAPRE1);
+                        w.set_cap1re(true);
                     }
                     Edge::FallingEdge => {
-                        w.set_cap1fe(Capfe::CAPFE1);
+                        w.set_cap1fe(true);
                     }
                 },
                 Channel::Two => match config.edge {
                     Edge::Both => {
-                        w.set_cap2re(Capre::CAPRE1);
-                        w.set_cap2fe(Capfe::CAPFE1);
+                        w.set_cap2re(true);
+                        w.set_cap2fe(true);
                     }
                     Edge::RisingEdge => {
-                        w.set_cap2re(Capre::CAPRE1);
+                        w.set_cap2re(true);
                     }
                     Edge::FallingEdge => {
-                        w.set_cap2fe(Capfe::CAPFE1);
+                        w.set_cap2fe(true);
                     }
                 },
                 Channel::Three => match config.edge {
                     Edge::Both => {
-                        w.set_cap3re(Capre::CAPRE1);
-                        w.set_cap3fe(Capfe::CAPFE1);
+                        w.set_cap3re(true);
+                        w.set_cap3fe(true);
                     }
                     Edge::RisingEdge => {
-                        w.set_cap3re(Capre::CAPRE1);
+                        w.set_cap3re(true);
                     }
                     Edge::FallingEdge => {
-                        w.set_cap3fe(Capfe::CAPFE1);
+                        w.set_cap3fe(true);
                     }
                 },
             };
@@ -269,16 +268,16 @@ impl<'d> Capture<'d> {
             .wait_for(|| {
                 self.info.regs().ccr().modify(|w| match self.ch.number() {
                     Channel::Zero => {
-                        w.set_cap0i(Capi::CAPI1);
+                        w.set_cap0i(true);
                     }
                     Channel::One => {
-                        w.set_cap1i(Capi::CAPI1);
+                        w.set_cap1i(true);
                     }
                     Channel::Two => {
-                        w.set_cap2i(Capi::CAPI1);
+                        w.set_cap2i(true);
                     }
                     Channel::Three => {
-                        w.set_cap3i(Capi::CAPI1);
+                        w.set_cap3i(true);
                     }
                 });
 
@@ -315,22 +314,22 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let mut mask = 0;
         T::info().regs().ccr().modify(|w| {
             if ir.cr0int() {
-                w.set_cap0i(Capi::CAPI0);
+                w.set_cap0i(false);
                 mask |= 1 << 0;
             }
 
             if ir.cr1int() {
-                w.set_cap1i(Capi::CAPI0);
+                w.set_cap1i(false);
                 mask |= 1 << 1;
             }
 
             if ir.cr2int() {
-                w.set_cap2i(Capi::CAPI0);
+                w.set_cap2i(false);
                 mask |= 1 << 2;
             }
 
             if ir.cr3int() {
-                w.set_cap3i(Capi::CAPI0);
+                w.set_cap3i(false);
                 mask |= 1 << 3;
             }
         });

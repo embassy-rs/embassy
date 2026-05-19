@@ -28,24 +28,24 @@ async fn adc_task(mut p: Peripherals) {
     let adc = Adc::new_with_config(p.ADC1, Default::default());
     let adc2 = Adc::new_with_config(p.ADC2, Default::default());
 
-    let mut adc: RingBufferedAdc<embassy_stm32::peripherals::ADC1> = adc.into_ring_buffered(
+    let mut adc: RingBufferedAdc<_> = adc.into_ring_buffered(
         p.DMA2_CH0,
         adc_data,
         Irqs,
         [
-            (p.PA0.degrade_adc(), SampleTime::CYCLES112),
-            (p.PA2.degrade_adc(), SampleTime::CYCLES112),
+            (p.PA0.degrade_adc(), SampleTime::Cycles112),
+            (p.PA2.degrade_adc(), SampleTime::Cycles112),
         ]
         .into_iter(),
         None,
     );
-    let mut adc2: RingBufferedAdc<embassy_stm32::peripherals::ADC2> = adc2.into_ring_buffered(
+    let mut adc2: RingBufferedAdc<_> = adc2.into_ring_buffered(
         p.DMA2_CH2,
         adc_data2,
         Irqs,
         [
-            (p.PA1.degrade_adc(), SampleTime::CYCLES112),
-            (p.PA3.degrade_adc(), SampleTime::CYCLES112),
+            (p.PA1.degrade_adc(), SampleTime::Cycles112),
+            (p.PA3.degrade_adc(), SampleTime::Cycles112),
         ]
         .into_iter(),
         None,

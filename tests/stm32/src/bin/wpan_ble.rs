@@ -11,17 +11,17 @@ use common::*;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
-use embassy_stm32::rcc::WPAN_DEFAULT;
+use embassy_stm32::rcc::Config as RccConfig;
 use embassy_stm32_wpan::TlMbox;
-use embassy_stm32_wpan::hci::BdAddr;
-use embassy_stm32_wpan::hci::host::uart::UartHci;
-use embassy_stm32_wpan::hci::host::{AdvertisingFilterPolicy, EncryptionKey, HostHci, OwnAddressType};
-use embassy_stm32_wpan::hci::types::AdvertisingType;
-use embassy_stm32_wpan::hci::vendor::command::gap::{AdvertisingDataType, DiscoverableParameters, GapCommands, Role};
-use embassy_stm32_wpan::hci::vendor::command::gatt::GattCommands;
-use embassy_stm32_wpan::hci::vendor::command::hal::{ConfigData, HalCommands, PowerLevel};
 use embassy_stm32_wpan::lhci::LhciC1DeviceInformationCcrp;
 use embassy_stm32_wpan::sub::mm;
+use stm32wb_hci::BdAddr;
+use stm32wb_hci::host::uart::UartHci;
+use stm32wb_hci::host::{AdvertisingFilterPolicy, EncryptionKey, HostHci, OwnAddressType};
+use stm32wb_hci::types::AdvertisingType;
+use stm32wb_hci::vendor::command::gap::{AdvertisingDataType, DiscoverableParameters, GapCommands, Role};
+use stm32wb_hci::vendor::command::gatt::GattCommands;
+use stm32wb_hci::vendor::command::hal::{ConfigData, HalCommands, PowerLevel};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs{
@@ -43,19 +43,15 @@ async fn run_mm_queue(mut memory_manager: mm::MemoryManager<'static>) {
 #[cfg_attr(not(feature = "stop"), embassy_executor::main)]
 async fn main(spawner: Spawner) {
     let mut config = config();
-    config.rcc = WPAN_DEFAULT;
+    config.rcc = RccConfig::new_wpan();
 
     let p = init_with_config(config);
     info!("Hello World!");
 
     let config = Config::default();
-    let mbox = TlMbox::init(p.IPCC, Irqs, config).await.unwrap();
-    let mut sys = mbox.sys_subsystem;
-    let mut ble = mbox.ble_subsystem;
+    let mbox = TlMbox::wait_ready(p.IPCC, Irqs, config).await.unwrap();
 
-    spawner.spawn(run_mm_queue(mbox.mm_subsystem).unwrap());
-
-    let fw_info = sys.wireless_fw_info().unwrap();
+    let fw_info = mbox.sys_subsystem.wireless_fw_info().unwrap();
     let version_major = fw_info.version_major();
     let version_minor = fw_info.version_minor();
     let subversion = fw_info.subversion();
@@ -68,7 +64,9 @@ async fn main(spawner: Spawner) {
         version_major, version_minor, subversion, sram2a_size, sram2b_size
     );
 
-    let _ = sys.shci_c2_ble_init(Default::default()).await;
+    let (mut ble, mm) = mbox.init_ble(Default::default()).await.unwrap();
+
+    spawner.spawn(run_mm_queue(mm).unwrap());
 
     info!("resetting BLE...");
     ble.reset().await;

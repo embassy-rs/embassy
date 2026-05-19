@@ -49,12 +49,12 @@ impl Mode {
     const fn mode(&self, tx_rx: TxRx) -> vals::Mode {
         match tx_rx {
             TxRx::Transmitter => match self {
-                Mode::Master => vals::Mode::MASTER_TX,
-                Mode::Slave => vals::Mode::SLAVE_TX,
+                Mode::Master => vals::Mode::MasterTx,
+                Mode::Slave => vals::Mode::SlaveTx,
             },
             TxRx::Receiver => match self {
-                Mode::Master => vals::Mode::MASTER_RX,
-                Mode::Slave => vals::Mode::SLAVE_RX,
+                Mode::Master => vals::Mode::MasterRx,
+                Mode::Slave => vals::Mode::SlaveRx,
             },
         }
     }
@@ -82,9 +82,9 @@ pub enum SlotSize {
 impl SlotSize {
     const fn slotsz(&self) -> vals::Slotsz {
         match self {
-            SlotSize::DataSize => vals::Slotsz::DATA_SIZE,
-            SlotSize::Channel16 => vals::Slotsz::BIT16,
-            SlotSize::Channel32 => vals::Slotsz::BIT32,
+            SlotSize::DataSize => vals::Slotsz::DataSize,
+            SlotSize::Channel16 => vals::Slotsz::Bit16,
+            SlotSize::Channel32 => vals::Slotsz::Bit32,
         }
     }
 }
@@ -104,12 +104,12 @@ pub enum DataSize {
 impl DataSize {
     const fn ds(&self) -> vals::Ds {
         match self {
-            DataSize::Data8 => vals::Ds::BIT8,
-            DataSize::Data10 => vals::Ds::BIT10,
-            DataSize::Data16 => vals::Ds::BIT16,
-            DataSize::Data20 => vals::Ds::BIT20,
-            DataSize::Data24 => vals::Ds::BIT24,
-            DataSize::Data32 => vals::Ds::BIT32,
+            DataSize::Data8 => vals::Ds::Bit8,
+            DataSize::Data10 => vals::Ds::Bit10,
+            DataSize::Data16 => vals::Ds::Bit16,
+            DataSize::Data20 => vals::Ds::Bit20,
+            DataSize::Data24 => vals::Ds::Bit24,
+            DataSize::Data32 => vals::Ds::Bit32,
         }
     }
 }
@@ -128,11 +128,11 @@ pub enum FifoThreshold {
 impl FifoThreshold {
     const fn fth(&self) -> vals::Fth {
         match self {
-            FifoThreshold::Empty => vals::Fth::EMPTY,
-            FifoThreshold::Quarter => vals::Fth::QUARTER1,
-            FifoThreshold::Half => vals::Fth::QUARTER2,
-            FifoThreshold::ThreeQuarters => vals::Fth::QUARTER3,
-            FifoThreshold::Full => vals::Fth::FULL,
+            FifoThreshold::Empty => vals::Fth::Empty,
+            FifoThreshold::Quarter => vals::Fth::Quarter1,
+            FifoThreshold::Half => vals::Fth::Quarter2,
+            FifoThreshold::ThreeQuarters => vals::Fth::Quarter3,
+            FifoThreshold::Full => vals::Fth::Full,
         }
     }
 }
@@ -148,8 +148,8 @@ pub enum MuteValue {
 impl MuteValue {
     const fn muteval(&self) -> vals::Muteval {
         match self {
-            MuteValue::Zero => vals::Muteval::SEND_ZERO,
-            MuteValue::LastValue => vals::Muteval::SEND_LAST,
+            MuteValue::Zero => vals::Muteval::SendZero,
+            MuteValue::LastValue => vals::Muteval::SendLast,
         }
     }
 }
@@ -166,9 +166,9 @@ pub enum Protocol {
 impl Protocol {
     const fn prtcfg(&self) -> vals::Prtcfg {
         match self {
-            Protocol::Free => vals::Prtcfg::FREE,
-            Protocol::Spdif => vals::Prtcfg::SPDIF,
-            Protocol::Ac97 => vals::Prtcfg::AC97,
+            Protocol::Free => vals::Prtcfg::Free,
+            Protocol::Spdif => vals::Prtcfg::Spdif,
+            Protocol::Ac97 => vals::Prtcfg::Ac97,
         }
     }
 }
@@ -189,10 +189,10 @@ pub enum SyncInput {
 impl SyncInput {
     const fn syncen(&self) -> vals::Syncen {
         match self {
-            SyncInput::None => vals::Syncen::ASYNCHRONOUS,
-            SyncInput::Internal => vals::Syncen::INTERNAL,
+            SyncInput::None => vals::Syncen::Asynchronous,
+            SyncInput::Internal => vals::Syncen::Internal,
             #[cfg(any(sai_v3, sai_v4))]
-            SyncInput::External(_) => vals::Syncen::EXTERNAL,
+            SyncInput::External(_) => vals::Syncen::External,
         }
     }
 }
@@ -223,8 +223,8 @@ pub enum StereoMono {
 impl StereoMono {
     const fn mono(&self) -> vals::Mono {
         match self {
-            StereoMono::Stereo => vals::Mono::STEREO,
-            StereoMono::Mono => vals::Mono::MONO,
+            StereoMono::Stereo => vals::Mono::Stereo,
+            StereoMono::Mono => vals::Mono::Mono,
         }
     }
 }
@@ -241,8 +241,8 @@ pub enum BitOrder {
 impl BitOrder {
     const fn lsbfirst(&self) -> vals::Lsbfirst {
         match self {
-            BitOrder::LsbFirst => vals::Lsbfirst::LSB_FIRST,
-            BitOrder::MsbFirst => vals::Lsbfirst::MSB_FIRST,
+            BitOrder::LsbFirst => vals::Lsbfirst::LsbFirst,
+            BitOrder::MsbFirst => vals::Lsbfirst::MsbFirst,
         }
     }
 }
@@ -259,8 +259,8 @@ pub enum FrameSyncOffset {
 impl FrameSyncOffset {
     const fn fsoff(&self) -> vals::Fsoff {
         match self {
-            FrameSyncOffset::OnFirstBit => vals::Fsoff::ON_FIRST,
-            FrameSyncOffset::BeforeFirstBit => vals::Fsoff::BEFORE_FIRST,
+            FrameSyncOffset::OnFirstBit => vals::Fsoff::OnFirst,
+            FrameSyncOffset::BeforeFirstBit => vals::Fsoff::BeforeFirst,
         }
     }
 }
@@ -277,8 +277,8 @@ pub enum FrameSyncPolarity {
 impl FrameSyncPolarity {
     const fn fspol(&self) -> vals::Fspol {
         match self {
-            FrameSyncPolarity::ActiveLow => vals::Fspol::FALLING_EDGE,
-            FrameSyncPolarity::ActiveHigh => vals::Fspol::RISING_EDGE,
+            FrameSyncPolarity::ActiveLow => vals::Fspol::FallingEdge,
+            FrameSyncPolarity::ActiveHigh => vals::Fspol::RisingEdge,
         }
     }
 }
@@ -311,8 +311,8 @@ pub enum ClockStrobe {
 impl ClockStrobe {
     const fn ckstr(&self) -> vals::Ckstr {
         match self {
-            ClockStrobe::Falling => vals::Ckstr::FALLING_EDGE,
-            ClockStrobe::Rising => vals::Ckstr::RISING_EDGE,
+            ClockStrobe::Falling => vals::Ckstr::FallingEdge,
+            ClockStrobe::Rising => vals::Ckstr::RisingEdge,
         }
     }
 }
@@ -328,8 +328,8 @@ pub enum ComplementFormat {
 impl ComplementFormat {
     const fn cpl(&self) -> vals::Cpl {
         match self {
-            ComplementFormat::OnesComplement => vals::Cpl::ONES_COMPLEMENT,
-            ComplementFormat::TwosComplement => vals::Cpl::TWOS_COMPLEMENT,
+            ComplementFormat::OnesComplement => vals::Cpl::OnesComplement,
+            ComplementFormat::TwosComplement => vals::Cpl::TwosComplement,
         }
     }
 }
@@ -346,9 +346,9 @@ pub enum Companding {
 impl Companding {
     const fn comp(&self) -> vals::Comp {
         match self {
-            Companding::None => vals::Comp::NO_COMPANDING,
-            Companding::MuLaw => vals::Comp::MU_LAW,
-            Companding::ALaw => vals::Comp::ALAW,
+            Companding::None => vals::Comp::NoCompanding,
+            Companding::MuLaw => vals::Comp::MuLaw,
+            Companding::ALaw => vals::Comp::ALaw,
         }
     }
 }
@@ -364,8 +364,8 @@ pub enum OutputDrive {
 impl OutputDrive {
     const fn outdriv(&self) -> vals::Outdriv {
         match self {
-            OutputDrive::OnStart => vals::Outdriv::ON_START,
-            OutputDrive::Immediately => vals::Outdriv::IMMEDIATELY,
+            OutputDrive::OnStart => vals::Outdriv::OnStart,
+            OutputDrive::Immediately => vals::Outdriv::Immediately,
         }
     }
 }
@@ -424,7 +424,7 @@ impl Default for Config {
             frame_sync_active_level_length: word::U7(16),
             frame_sync_definition: FrameSyncDefinition::ChannelIdentification,
             frame_length: 32,
-            master_clock_divider: MasterClockDivider::DIV1,
+            master_clock_divider: MasterClockDivider::Div1,
             nodiv: false,
             clock_strobe: ClockStrobe::Rising,
             output_drive: OutputDrive::Immediately,

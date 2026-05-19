@@ -13,7 +13,7 @@ categories = [
 ]
 
 [features]
-
+aligned = ["dep:aligned", "dep:as-slice"]
 defmt = ["dep:defmt"]
 log = ["dep:log"]
 
@@ -33,6 +33,8 @@ cortex-m = ["dep:cortex-m", "dep:critical-section"]
 [dependencies]
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
+aligned = { version = "0.4.3", optional = true }
+as-slice = { version = "0.2.1", optional = true }
 
 num-traits = { version = "0.2.14", default-features = false }
 

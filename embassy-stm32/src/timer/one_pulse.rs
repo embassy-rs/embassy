@@ -109,11 +109,10 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
             _pin: pin.pin,
         };
 
-        this.inner.set_trigger_source(Ts::TI1F_ED);
+        this.inner.set_trigger_source(Ts::Ti1fEd);
         this.inner
             .set_input_ti_selection(Channel::Ch1, InputTISelection::Normal);
-        this.inner
-            .set_input_capture_filter(Channel::Ch1, FilterValue::NO_FILTER);
+        this.inner.set_input_capture_filter(Channel::Ch1, FilterValue::NoFilter);
         this.new_inner(freq, pulse_end, counting_mode);
 
         this
@@ -137,11 +136,10 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
             _pin: _pin.pin,
         };
 
-        this.inner.set_trigger_source(Ts::TI1FP1);
+        this.inner.set_trigger_source(Ts::Ti1fp1);
         this.inner
             .set_input_ti_selection(Channel::Ch1, InputTISelection::Normal);
-        this.inner
-            .set_input_capture_filter(Channel::Ch1, FilterValue::NO_FILTER);
+        this.inner.set_input_capture_filter(Channel::Ch1, FilterValue::NoFilter);
         this.inner.set_input_capture_mode(Channel::Ch1, capture_mode);
         this.new_inner(freq, pulse_end, counting_mode);
 
@@ -166,11 +164,10 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
             _pin: _pin.pin,
         };
 
-        this.inner.set_trigger_source(Ts::TI2FP2);
+        this.inner.set_trigger_source(Ts::Ti2fp2);
         this.inner
             .set_input_ti_selection(Channel::Ch2, InputTISelection::Normal);
-        this.inner
-            .set_input_capture_filter(Channel::Ch2, FilterValue::NO_FILTER);
+        this.inner.set_input_capture_filter(Channel::Ch2, FilterValue::NoFilter);
         this.inner.set_input_capture_mode(Channel::Ch2, capture_mode);
         this.new_inner(freq, pulse_end, counting_mode);
 
@@ -199,9 +196,9 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
             // No pre-scaling
             r.set_etps(0.into());
             // No filtering
-            r.set_etf(FilterValue::NO_FILTER);
+            r.set_etf(FilterValue::NoFilter);
         });
-        this.inner.set_trigger_source(Ts::ETRF);
+        this.inner.set_trigger_source(Ts::Etrf);
         this.new_inner(freq, pulse_end, counting_mode);
 
         this
@@ -214,7 +211,7 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
         self.inner.regs_core().cr1().modify(|r| r.set_opm(true));
         // Required for advanced timers, see GeneralInstance4Channel for details
         self.inner.enable_outputs();
-        self.inner.set_slave_mode(SlaveMode::TRIGGER_MODE);
+        self.inner.set_slave_mode(SlaveMode::TriggerMode);
 
         T::CaptureCompareInterrupt::unpend();
         unsafe { T::CaptureCompareInterrupt::enable() };
@@ -236,9 +233,9 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
     #[cfg(not(stm32l0))]
     pub fn set_reset_on_trigger(&mut self, reset: bool) {
         let slave_mode = if reset {
-            SlaveMode::COMBINED_RESET_TRIGGER
+            SlaveMode::CombinedResetTrigger
         } else {
-            SlaveMode::TRIGGER_MODE
+            SlaveMode::TriggerMode
         };
         self.inner.set_slave_mode(slave_mode);
     }

@@ -47,8 +47,8 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            parity: Parity::EXCLUDED,
-            baudrate: Baudrate::BAUD115200,
+            parity: Parity::Excluded,
+            baudrate: Baudrate::Baud115200,
         }
     }
 }
@@ -213,7 +213,7 @@ impl<'d> Uarte<'d> {
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
-        r.enable().write(|w| w.set_enable(vals::Enable::ENABLED));
+        r.enable().write(|w| w.set_enable(vals::Enable::Enabled));
 
         let s = T::state();
         s.tx_rx_refcount.store(2, Ordering::Relaxed);
@@ -310,10 +310,10 @@ impl<'d> Uarte<'d> {
 pub(crate) fn configure_tx_pins(r: pac::uarte::Uarte, txd: Peri<'_, AnyPin>, cts: Option<Peri<'_, AnyPin>>) {
     txd.set_high();
     txd.conf().write(|w| {
-        w.set_dir(gpiovals::Dir::OUTPUT);
-        w.set_input(gpiovals::Input::DISCONNECT);
+        w.set_dir(gpiovals::Dir::Output);
+        w.set_input(gpiovals::Input::Disconnect);
         #[cfg(not(feature = "_nrf54l"))]
-        w.set_drive(gpiovals::Drive::H0H1);
+        w.set_drive(gpiovals::Drive::H0h1);
         #[cfg(feature = "_nrf54l")]
         {
             w.set_drive0(gpiovals::Drive::H);
@@ -324,10 +324,10 @@ pub(crate) fn configure_tx_pins(r: pac::uarte::Uarte, txd: Peri<'_, AnyPin>, cts
 
     if let Some(pin) = &cts {
         pin.conf().write(|w| {
-            w.set_dir(gpiovals::Dir::INPUT);
-            w.set_input(gpiovals::Input::CONNECT);
+            w.set_dir(gpiovals::Dir::Input);
+            w.set_input(gpiovals::Input::Connect);
             #[cfg(not(feature = "_nrf54l"))]
-            w.set_drive(gpiovals::Drive::H0H1);
+            w.set_drive(gpiovals::Drive::H0h1);
             #[cfg(feature = "_nrf54l")]
             {
                 w.set_drive0(gpiovals::Drive::H);
@@ -340,10 +340,10 @@ pub(crate) fn configure_tx_pins(r: pac::uarte::Uarte, txd: Peri<'_, AnyPin>, cts
 
 pub(crate) fn configure_rx_pins(r: pac::uarte::Uarte, rxd: Peri<'_, AnyPin>, rts: Option<Peri<'_, AnyPin>>) {
     rxd.conf().write(|w| {
-        w.set_dir(gpiovals::Dir::INPUT);
-        w.set_input(gpiovals::Input::CONNECT);
+        w.set_dir(gpiovals::Dir::Input);
+        w.set_input(gpiovals::Input::Connect);
         #[cfg(not(feature = "_nrf54l"))]
-        w.set_drive(gpiovals::Drive::H0H1);
+        w.set_drive(gpiovals::Drive::H0h1);
         #[cfg(feature = "_nrf54l")]
         {
             w.set_drive0(gpiovals::Drive::H);
@@ -355,10 +355,10 @@ pub(crate) fn configure_rx_pins(r: pac::uarte::Uarte, rxd: Peri<'_, AnyPin>, rts
     if let Some(pin) = &rts {
         pin.set_high();
         pin.conf().write(|w| {
-            w.set_dir(gpiovals::Dir::OUTPUT);
-            w.set_input(gpiovals::Input::DISCONNECT);
+            w.set_dir(gpiovals::Dir::Output);
+            w.set_input(gpiovals::Input::Disconnect);
             #[cfg(not(feature = "_nrf54l"))]
-            w.set_drive(gpiovals::Drive::H0H1);
+            w.set_drive(gpiovals::Drive::H0h1);
             #[cfg(feature = "_nrf54l")]
             {
                 w.set_drive0(gpiovals::Drive::H);
@@ -374,7 +374,7 @@ pub(crate) fn configure(r: pac::uarte::Uarte, config: Config, hardware_flow_cont
         w.set_hwfc(hardware_flow_control);
         w.set_parity(config.parity);
         #[cfg(feature = "_nrf54l")]
-        w.set_framesize(vals::Framesize::_8BIT);
+        w.set_framesize(vals::Framesize::_8bit);
         #[cfg(feature = "_nrf54l")]
         w.set_frametimeout(true);
     });
@@ -432,7 +432,7 @@ impl<'d> UarteTx<'d> {
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
-        r.enable().write(|w| w.set_enable(vals::Enable::ENABLED));
+        r.enable().write(|w| w.set_enable(vals::Enable::Enabled));
 
         let s = T::state();
         s.tx_rx_refcount.store(1, Ordering::Relaxed);
@@ -625,7 +625,7 @@ impl<'d> UarteRx<'d> {
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
-        r.enable().write(|w| w.set_enable(vals::Enable::ENABLED));
+        r.enable().write(|w| w.set_enable(vals::Enable::Enabled));
 
         let s = T::state();
         s.tx_rx_refcount.store(1, Ordering::Relaxed);
@@ -1189,7 +1189,7 @@ pub(crate) fn apply_workaround_for_enable_anomaly(r: pac::uarte::Uarte) {
     // NB Safety: This is taken from Nordic's driver -
     // https://github.com/NordicSemiconductor/nrfx/blob/master/drivers/src/nrfx_uarte.c#L197
     if unsafe { core::ptr::read_volatile(rxenable_reg) } == 1 {
-        r.enable().write(|w| w.set_enable(vals::Enable::ENABLED));
+        r.enable().write(|w| w.set_enable(vals::Enable::Enabled));
         r.tasks_dma().rx().stop().write_value(1);
 
         let mut workaround_succeded = false;
@@ -1222,7 +1222,7 @@ pub(crate) fn apply_workaround_for_enable_anomaly(r: pac::uarte::Uarte) {
         // write back the bits we just read to clear them
         let errors = r.errorsrc().read();
         r.errorsrc().write_value(errors);
-        r.enable().write(|w| w.set_enable(vals::Enable::DISABLED));
+        r.enable().write(|w| w.set_enable(vals::Enable::Disabled));
     }
 }
 
@@ -1230,7 +1230,7 @@ pub(crate) fn drop_tx_rx(r: pac::uarte::Uarte, s: &State) {
     if s.tx_rx_refcount.fetch_sub(1, Ordering::Relaxed) == 1 {
         // Finally we can disable, and we do so for the peripheral
         // i.e. not just rx concerns.
-        r.enable().write(|w| w.set_enable(vals::Enable::DISABLED));
+        r.enable().write(|w| w.set_enable(vals::Enable::Disabled));
 
         gpio::deconfigure_pin(r.psel().rxd().read());
         gpio::deconfigure_pin(r.psel().txd().read());

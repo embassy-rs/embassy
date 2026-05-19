@@ -3,8 +3,8 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_stm32::pac::DESIG;
 use embassy_stm32::uid;
-use stm32_metapac::DESIG;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]

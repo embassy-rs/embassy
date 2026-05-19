@@ -122,10 +122,10 @@ impl<'d> CcRng<'d, Async> {
     fn enable_irq(&self) {
         pac::CC_HOST_RGF
             .imr()
-            .modify(|w| w.set_rng_mask(pac::cc_host_rgf::vals::RngMask::IRQENABLE));
+            .modify(|w| w.set_rng_mask(pac::cc_host_rgf::vals::RngMask::IrqEnable));
         self.r
             .rng_imr()
-            .modify(|w| w.set_ehr_valid_mask(pac::cc_rng::vals::EhrValidMask::IRQENABLE));
+            .modify(|w| w.set_ehr_valid_mask(pac::cc_rng::vals::EhrValidMask::IrqEnable));
     }
 
     fn disable_irq(&self) {
@@ -133,10 +133,10 @@ impl<'d> CcRng<'d, Async> {
         pac::CC_HOST_RGF.icr().write(|w| w.set_rng_clear(true));
         self.r
             .rng_imr()
-            .modify(|w| w.set_ehr_valid_mask(pac::cc_rng::vals::EhrValidMask::IRQDISABLE));
+            .modify(|w| w.set_ehr_valid_mask(pac::cc_rng::vals::EhrValidMask::IrqDisable));
         pac::CC_HOST_RGF
             .imr()
-            .modify(|w| w.set_rng_mask(pac::cc_host_rgf::vals::RngMask::IRQDISABLE));
+            .modify(|w| w.set_rng_mask(pac::cc_host_rgf::vals::RngMask::IrqDisable));
     }
 
     /// Fill the buffer with random bytes.
@@ -224,7 +224,7 @@ impl<'d, M: Mode> CcRng<'d, M> {
         }
         self.r
             .trng_config()
-            .modify(|w| w.set_rosc_len(pac::cc_rng::vals::TrngConfigRoscLen::ROSC1));
+            .modify(|w| w.set_rosc_len(pac::cc_rng::vals::TrngConfigRoscLen::Rosc1));
         self.r.noise_source().modify(|w| w.set_enable(true));
     }
 

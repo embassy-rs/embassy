@@ -7,16 +7,16 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
-use embassy_stm32::rcc::WPAN_DEFAULT;
+use embassy_stm32::rcc::Config as RccConfig;
 use embassy_stm32_wpan::TlMbox;
-use embassy_stm32_wpan::hci::BdAddr;
-use embassy_stm32_wpan::hci::host::uart::UartHci;
-use embassy_stm32_wpan::hci::host::{AdvertisingFilterPolicy, EncryptionKey, HostHci, OwnAddressType};
-use embassy_stm32_wpan::hci::types::AdvertisingType;
-use embassy_stm32_wpan::hci::vendor::command::gap::{AdvertisingDataType, DiscoverableParameters, GapCommands, Role};
-use embassy_stm32_wpan::hci::vendor::command::gatt::GattCommands;
-use embassy_stm32_wpan::hci::vendor::command::hal::{ConfigData, HalCommands, PowerLevel};
 use embassy_stm32_wpan::lhci::LhciC1DeviceInformationCcrp;
+use stm32wb_hci::BdAddr;
+use stm32wb_hci::host::uart::UartHci;
+use stm32wb_hci::host::{AdvertisingFilterPolicy, EncryptionKey, HostHci, OwnAddressType};
+use stm32wb_hci::types::AdvertisingType;
+use stm32wb_hci::vendor::command::gap::{AdvertisingDataType, DiscoverableParameters, GapCommands, Role};
+use stm32wb_hci::vendor::command::gatt::GattCommands;
+use stm32wb_hci::vendor::command::hal::{ConfigData, HalCommands, PowerLevel};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs{
@@ -52,16 +52,17 @@ async fn main(_spawner: Spawner) {
     */
 
     let mut config = embassy_stm32::Config::default();
-    config.rcc = WPAN_DEFAULT;
+    config.rcc = RccConfig::new_wpan();
     let p = embassy_stm32::init(config);
     info!("Hello World!");
 
     let config = Config::default();
-    let mbox = TlMbox::init(p.IPCC, Irqs, config).await.unwrap();
-    let mut sys = mbox.sys_subsystem;
-    let mut ble = mbox.ble_subsystem;
-
-    let _ = sys.shci_c2_ble_init(Default::default()).await;
+    let (mut ble, _) = TlMbox::wait_ready(p.IPCC, Irqs, config)
+        .await
+        .unwrap()
+        .init_ble(Default::default())
+        .await
+        .unwrap();
 
     info!("resetting BLE...");
     ble.reset().await;
@@ -165,7 +166,7 @@ async fn main(_spawner: Spawner) {
     let response = ble.read().await.unwrap();
     defmt::info!("{}", response);
 
-    cortex_m::asm::wfi();
+    cortex_m::asm::bkpt();
 }
 
 fn get_bd_addr() -> BdAddr {

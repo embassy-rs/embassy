@@ -59,7 +59,7 @@ async fn main(_spawner: Spawner) -> ! {
     config.min_stop_pause = Duration::from_millis(50);
     // Set the LPTIM1 clock source to LSI & enable for secondary core time driver
     config.rcc.ls.lsi = true;
-    config.rcc.mux.lptim1sel = embassy_stm32::pac::rcc::vals::Lptimsel::LSI;
+    config.rcc.mux.lptim1sel = embassy_stm32::pac::rcc::vals::Lptimsel::Lsi;
     let _p = embassy_stm32::init_primary(config, &SHARED_DATA);
     #[cfg(feature = "defmt-serial")]
     {

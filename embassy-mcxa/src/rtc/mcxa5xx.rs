@@ -3,6 +3,8 @@ use core::marker::PhantomData;
 
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::{Peri, PeripheralType};
+#[cfg(feature = "embedded-mcu-hal")]
+use embedded_mcu_hal::time::{Datetime, DatetimeClock, DatetimeClockError, DatetimeFields, Month as HalMonth};
 use maitake_sync::WaitCell;
 
 use crate::clocks::{WakeGuard, with_clocks};
@@ -325,6 +327,7 @@ pub enum RtcError {
 pub struct Rtc<'a> {
     _inst: core::marker::PhantomData<&'a mut ()>,
     info: &'static Info,
+    _freq: u32,
     _wg: Option<WakeGuard>,
 }
 
@@ -353,6 +356,7 @@ impl<'a> Rtc<'a> {
             info,
             _inst: PhantomData,
             _wg: WakeGuard::for_power(&clk.power),
+            _freq: clk.frequency,
         };
 
         inst.set_configuration(&config)?;
@@ -367,8 +371,8 @@ impl<'a> Rtc<'a> {
     fn set_configuration(&mut self, config: &Config) -> Result<(), SetupError> {
         self.disable_write_protect();
 
-        self.info.regs().ctrl().modify(|w| w.set_swr(Swr::ASSERTED));
-        self.info.regs().ctrl().modify(|w| w.set_swr(Swr::CLEARED));
+        self.info.regs().ctrl().modify(|w| w.set_swr(Swr::Asserted));
+        self.info.regs().ctrl().modify(|w| w.set_swr(Swr::Cleared));
 
         self.info.regs().ctrl().modify(|w| {
             w.set_clkout(config.clkout.into());
@@ -615,6 +619,66 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
             T::PERF_INT_WAKE_INCR();
             T::info().wait_cell().wake();
         }
+    }
+}
+
+#[cfg(feature = "embedded-mcu-hal")]
+/// Compute day of week from year/month/day using Sakamoto's algorithm.
+fn day_of_week(year: i16, month: u8, day: u8) -> Weekday {
+    const T: [u8; 12] = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
+    let y = if month < 3 { year - 1 } else { year } as i32;
+    let dow = (y + y / 4 - y / 100 + y / 400 + T[(month - 1) as usize] as i32 + day as i32) % 7;
+    (dow as u8).into()
+}
+
+#[cfg(feature = "embedded-mcu-hal")]
+impl<'a> DatetimeClock for Rtc<'a> {
+    fn now(&self) -> Result<Datetime, DatetimeClockError> {
+        let dt = self.now().map_err(|_| DatetimeClockError::UnsupportedDatetime)?;
+        let month = match dt.month {
+            Month::January => HalMonth::January,
+            Month::February => HalMonth::February,
+            Month::March => HalMonth::March,
+            Month::April => HalMonth::April,
+            Month::May => HalMonth::May,
+            Month::June => HalMonth::June,
+            Month::July => HalMonth::July,
+            Month::August => HalMonth::August,
+            Month::September => HalMonth::September,
+            Month::October => HalMonth::October,
+            Month::November => HalMonth::November,
+            Month::December => HalMonth::December,
+        };
+
+        let fields = DatetimeFields {
+            year: dt.year as u16,
+            month: month,
+            day: dt.day,
+            hour: dt.hour,
+            minute: dt.minute,
+            second: dt.second,
+            nanosecond: 0,
+        };
+
+        Datetime::new(fields).map_err(|_| DatetimeClockError::UnsupportedDatetime)
+    }
+
+    fn set(&mut self, datetime: Datetime) -> Result<(), DatetimeClockError> {
+        let dt = DateTime {
+            year: datetime.year() as i16,
+            month: (datetime.month() as u8).into(),
+            day: datetime.day(),
+            dow: day_of_week(datetime.year() as i16, datetime.month() as u8, datetime.day()),
+            hour: datetime.hour(),
+            minute: datetime.minute(),
+            second: datetime.second(),
+        };
+        self.set_datetime(dt)
+            .map_err(|_| DatetimeClockError::UnsupportedDatetime)
+    }
+
+    fn resolution_hz(&self) -> u32 {
+        self._freq
     }
 }
 

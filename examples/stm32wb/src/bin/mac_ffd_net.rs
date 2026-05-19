@@ -10,7 +10,7 @@ use embassy_net::{Ipv6Cidr, StackResources, StaticConfigV6};
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
 use embassy_stm32::peripherals::RNG;
-use embassy_stm32::rcc::WPAN_DEFAULT;
+use embassy_stm32::rcc::Config as RccConfig;
 use embassy_stm32::rng::InterruptHandler as RngInterruptHandler;
 use embassy_stm32_wpan::TlMbox;
 use embassy_stm32_wpan::mac::{Driver, DriverState, Runner};
@@ -67,23 +67,25 @@ async fn main(spawner: Spawner) {
     */
 
     let mut config = embassy_stm32::Config::default();
-    config.rcc = WPAN_DEFAULT;
+    config.rcc = RccConfig::new_wpan();
     let p = embassy_stm32::init(config);
     info!("Hello World!");
 
     let config = Config::default();
-    let mut mbox = TlMbox::init(p.IPCC, Irqs, config).await.unwrap();
+    let (mac, mm) = TlMbox::wait_ready(p.IPCC, Irqs, config)
+        .await
+        .unwrap()
+        .init_mac()
+        .await
+        .unwrap();
 
-    spawner.spawn(run_mm_queue(mbox.mm_subsystem).unwrap());
-
-    let result = mbox.sys_subsystem.shci_c2_mac_802_15_4_init().await;
-    info!("initialized mac: {}", result);
+    spawner.spawn(run_mm_queue(mm).unwrap());
 
     static DRIVER_STATE: StaticCell<DriverState> = StaticCell::new();
     static RUNNER: StaticCell<Runner> = StaticCell::new();
     static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
 
-    let driver_state = DRIVER_STATE.init(DriverState::new(mbox.mac_subsystem));
+    let driver_state = DRIVER_STATE.init(DriverState::new(mac));
 
     let (driver, mac_runner, mut control) = Driver::new(
         driver_state,

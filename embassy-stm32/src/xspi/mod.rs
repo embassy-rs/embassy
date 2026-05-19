@@ -253,7 +253,7 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
 
         // Enable memory mapped mode
         reg.cr().modify(|r| {
-            r.set_fmode(Fmode::B_0X3);
+            r.set_fmode(Fmode::B0x3);
             r.set_tcen(false);
         });
         Ok(())
@@ -264,7 +264,7 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
         let reg = T::REGS;
 
         reg.cr().modify(|r| {
-            r.set_fmode(Fmode::B_0X0);
+            r.set_fmode(Fmode::B0x0);
             r.set_abort(true);
             r.set_dmaen(false);
             r.set_en(false);
@@ -427,7 +427,7 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
             w.set_dmm(dual_quad);
 
             assert!(_ncs_alt.is_none(), "ncs_alt TODO");
-            let cssel = if ncs_cssel == 0 { Cssel::B_0X0 } else { Cssel::B_0X1 };
+            let cssel = if ncs_cssel == 0 { Cssel::B0x0 } else { Cssel::B0x1 };
             w.set_cssel(cssel);
         });
 
@@ -500,7 +500,7 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
         } else {
             T::REGS.ccr().modify(|w| {
                 // disable alternate bytes
-                w.set_abmode(CcrAbmode::B_0X0);
+                w.set_abmode(CcrAbmode::B0x0);
             })
         }
 
@@ -628,7 +628,7 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
         T::REGS
             .cr()
             .modify(|v| v.set_fmode(Fmode::from_bits(XspiMode::IndirectRead.into())));
-        if T::REGS.ccr().read().admode() == CcrAdmode::B_0X0 {
+        if T::REGS.ccr().read().admode() == CcrAdmode::B0x0 {
             T::REGS.ir().write(|v| v.set_instruction(current_instruction));
         } else {
             T::REGS.ar().write(|v| v.set_address(current_address));
@@ -693,8 +693,8 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
             w.set_csht(Csht::from_bits(config.chip_select_high_time.into()));
             w.set_frck(false);
             w.set_ckmode(match config.clock_mode {
-                true => Ckmode::B_0X1,
-                false => Ckmode::B_0X0,
+                true => Ckmode::B0x1,
+                false => Ckmode::B0x0,
             });
         });
 
@@ -1709,7 +1709,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
         T::REGS
             .cr()
             .modify(|v| v.set_fmode(Fmode::from_bits(XspiMode::IndirectRead.into())));
-        if T::REGS.ccr().read().admode() == CcrAdmode::B_0X0 {
+        if T::REGS.ccr().read().admode() == CcrAdmode::B0x0 {
             T::REGS.ir().write(|v| v.set_instruction(current_instruction));
         } else {
             T::REGS.ar().write(|v| v.set_address(current_address));
@@ -1785,7 +1785,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
         T::REGS
             .cr()
             .modify(|v| v.set_fmode(Fmode::from_bits(XspiMode::IndirectRead.into())));
-        if T::REGS.ccr().read().admode() == CcrAdmode::B_0X0 {
+        if T::REGS.ccr().read().admode() == CcrAdmode::B0x0 {
             T::REGS.ir().write(|v| v.set_instruction(current_instruction));
         } else {
             T::REGS.ar().write(|v| v.set_address(current_address));

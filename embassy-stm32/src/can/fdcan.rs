@@ -12,7 +12,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use crate::can::fd::peripheral::Registers;
 use crate::gpio::{AfType, OutputType, Pull, SealedPin as _, Speed};
 use crate::interrupt::typelevel::Interrupt;
-use crate::rcc::{self, RccInfo, RccPeripheral, SealedRccPeripheral};
+use crate::rcc::{self, RccInfo, RccPeripheral, SealedRccPeripheral, WakeGuard};
 use crate::{Peri, interrupt, peripherals};
 
 pub(crate) mod fd;
@@ -246,19 +246,27 @@ impl<'d> CanConfigurator<'d> {
         self.config = self.config.set_nominal_bit_timing(nbtr);
     }
 
-    /// Configures the bit timings for VBR data calculated from supplied bitrate. This also sets confit to allow can FD and VBR
+    /// Configures the bit timings for VBR data calculated from supplied bitrate. This also sets config to allow can FD and VBR
     pub fn set_fd_data_bitrate(&mut self, bitrate: u32, transceiver_delay_compensation: bool) {
         let bit_timing = util::calc_can_timings(self.properties.kernel_input_clock(), bitrate).unwrap();
-        // Note, used existing calcluation for normal(non-VBR) bitrate, appears to work for 250k/1M
-        let nbtr = crate::can::fd::config::DataBitTiming {
-            transceiver_delay_compensation,
+        // Note, used existing calculation for normal(non-VBR) bitrate, appears to work for 250k/1M
+        let tdc_offset = if transceiver_delay_compensation {
+            // sets at the end of tseg1
+            (1 + u8::from(bit_timing.seg1)) * u16::from(bit_timing.prescaler) as u8
+        } else {
+            0
+        };
+        let dbtr = crate::can::fd::config::DataBitTiming {
             sync_jump_width: bit_timing.sync_jump_width,
             prescaler: bit_timing.prescaler,
             seg1: bit_timing.seg1,
             seg2: bit_timing.seg2,
+            transceiver_delay_compensation,
+            tdc_offset,
+            tdc_filter_window_length: 0,
         };
         self.config.frame_transmit = FrameTransmissionConfig::AllowFdCanAndBRS;
-        self.config = self.config.set_data_bit_timing(nbtr);
+        self.config = self.config.set_data_bit_timing(dbtr);
     }
 
     /// Start in mode.
@@ -278,6 +286,7 @@ impl<'d> CanConfigurator<'d> {
             _phantom: PhantomData,
             config: self.config,
             _mode: mode,
+            _wake_guard: self.info.rcc_info.wake_guard(),
             properties: Properties::new(&self.info),
             info: InfoRef::new(&self.info),
         }
@@ -304,6 +313,7 @@ pub struct Can<'d> {
     _phantom: PhantomData<&'d ()>,
     config: crate::can::fd::config::FdCanConfig,
     _mode: OperatingMode,
+    _wake_guard: WakeGuard,
     properties: Properties,
     info: InfoRef,
 }
@@ -367,11 +377,13 @@ impl<'d> Can<'d> {
                 _phantom: PhantomData,
                 config: self.config,
                 _mode: self._mode,
+                _wake_guard: self.info.rcc_info.wake_guard(),
                 info: TxInfoRef::new(&self.info),
             },
             CanRx {
                 _phantom: PhantomData,
                 _mode: self._mode,
+                _wake_guard: self.info.rcc_info.wake_guard(),
                 info: RxInfoRef::new(&self.info),
             },
             Properties {
@@ -385,6 +397,7 @@ impl<'d> Can<'d> {
             _phantom: PhantomData,
             config: tx.config,
             _mode: rx._mode,
+            _wake_guard: tx.info.rcc_info.wake_guard(),
             properties: Properties::new(&tx.info),
             info: InfoRef::new(&tx.info),
         }
@@ -430,6 +443,7 @@ pub type TxBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, Frame, 
 pub struct BufferedCan<'d, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> {
     _phantom: PhantomData<&'d ()>,
     _mode: OperatingMode,
+    _wake_guard: WakeGuard,
     tx_buf: &'static TxBuf<TX_BUF_SIZE>,
     rx_buf: &'static RxBuf<RX_BUF_SIZE>,
     properties: Properties,
@@ -446,6 +460,7 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCan<'d,
         BufferedCan {
             _phantom: PhantomData,
             _mode,
+            _wake_guard: info.rcc_info.wake_guard(),
             tx_buf,
             rx_buf,
             properties: Properties::new(info),
@@ -519,6 +534,7 @@ pub type BufferedFdCanReceiver = super::common::BufferedReceiver<'static, FdEnve
 pub struct BufferedCanFd<'d, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> {
     _phantom: PhantomData<&'d ()>,
     _mode: OperatingMode,
+    _wake_guard: WakeGuard,
     tx_buf: &'static TxFdBuf<TX_BUF_SIZE>,
     rx_buf: &'static RxFdBuf<RX_BUF_SIZE>,
     properties: Properties,
@@ -535,6 +551,7 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCanFd<'
         BufferedCanFd {
             _phantom: PhantomData,
             _mode,
+            _wake_guard: info.rcc_info.wake_guard(),
             tx_buf,
             rx_buf,
             properties: Properties::new(info),
@@ -596,6 +613,7 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCanFd<'
 pub struct CanRx<'d> {
     _phantom: PhantomData<&'d ()>,
     _mode: OperatingMode,
+    _wake_guard: WakeGuard,
     info: RxInfoRef,
 }
 
@@ -616,6 +634,7 @@ pub struct CanTx<'d> {
     _phantom: PhantomData<&'d ()>,
     config: crate::can::fd::config::FdCanConfig,
     _mode: OperatingMode,
+    _wake_guard: WakeGuard,
     info: TxInfoRef,
 }
 
@@ -1046,7 +1065,7 @@ macro_rules! impl_fdcan {
     };
 }
 
-#[cfg(not(can_fdcan_h7))]
+#[cfg(not(can_fdcan_v2))]
 foreach_peripheral!(
     (can, FDCAN) => { impl_fdcan!(FDCAN, FDCANRAM); };
     (can, FDCAN1) => { impl_fdcan!(FDCAN1, FDCANRAM1); };
@@ -1054,7 +1073,7 @@ foreach_peripheral!(
     (can, FDCAN3) => { impl_fdcan!(FDCAN3, FDCANRAM3); };
 );
 
-#[cfg(can_fdcan_h7)]
+#[cfg(can_fdcan_v2)]
 foreach_peripheral!(
     (can, FDCAN1) => { impl_fdcan!(FDCAN1, FDCANRAM, 0x0000); };
     (can, FDCAN2) => { impl_fdcan!(FDCAN2, FDCANRAM, 0x0C00); };

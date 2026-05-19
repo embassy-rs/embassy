@@ -247,14 +247,14 @@ impl_ppi_group!(PPI_GROUP3, PPI, 3);
 impl_ppi_group!(PPI_GROUP4, PPI, 4);
 impl_ppi_group!(PPI_GROUP5, PPI, 5);
 
-impl_saadc_input!(P0_02, ANALOG_INPUT0);
-impl_saadc_input!(P0_03, ANALOG_INPUT1);
-impl_saadc_input!(P0_04, ANALOG_INPUT2);
-impl_saadc_input!(P0_05, ANALOG_INPUT3);
-impl_saadc_input!(P0_28, ANALOG_INPUT4);
-impl_saadc_input!(P0_29, ANALOG_INPUT5);
-impl_saadc_input!(P0_30, ANALOG_INPUT6);
-impl_saadc_input!(P0_31, ANALOG_INPUT7);
+impl_saadc_input!(P0_02, AnalogInput0);
+impl_saadc_input!(P0_03, AnalogInput1);
+impl_saadc_input!(P0_04, AnalogInput2);
+impl_saadc_input!(P0_05, AnalogInput3);
+impl_saadc_input!(P0_28, AnalogInput4);
+impl_saadc_input!(P0_29, AnalogInput5);
+impl_saadc_input!(P0_30, AnalogInput6);
+impl_saadc_input!(P0_31, AnalogInput7);
 
 impl_radio!(RADIO, RADIO, RADIO);
 

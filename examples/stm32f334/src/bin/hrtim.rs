@@ -4,14 +4,14 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::Speed;
-use embassy_stm32::hrtim::stm32_hrtim::compare_register::HrCompareRegister;
-use embassy_stm32::hrtim::stm32_hrtim::output::HrOutput;
-use embassy_stm32::hrtim::stm32_hrtim::timer::HrTimer;
-use embassy_stm32::hrtim::stm32_hrtim::{HrParts, HrPwmAdvExt, PreloadSource};
-use embassy_stm32::hrtim::{HrControltExt, HrPwmBuilderExt, Parts};
+use embassy_stm32::hrtim::stm32_hrtim::{HrControltExt, HrPwmBuilderExt, Parts};
 use embassy_stm32::time::mhz;
 use embassy_stm32::{Config, hrtim};
 use embassy_time::Timer;
+use stm32_hrtim::compare_register::HrCompareRegister;
+use stm32_hrtim::output::HrOutput;
+use stm32_hrtim::timer::HrTimer;
+use stm32_hrtim::{HrParts, HrPwmAdvExt, PreloadSource};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -27,15 +27,15 @@ async fn main(_spawner: Spawner) {
         });
         config.rcc.pll = Some(Pll {
             src: PllSource::HSE,
-            prediv: PllPreDiv::DIV1,
-            mul: PllMul::MUL9,
+            prediv: PllPreDiv::Div1,
+            mul: PllMul::Mul9,
         });
-        config.rcc.sys = Sysclk::PLL1_P;
-        config.rcc.ahb_pre = AHBPrescaler::DIV1;
-        config.rcc.apb1_pre = APBPrescaler::DIV2;
-        config.rcc.apb2_pre = APBPrescaler::DIV1;
+        config.rcc.sys = Sysclk::Pll1P;
+        config.rcc.ahb_pre = AHBPrescaler::Div1;
+        config.rcc.apb1_pre = APBPrescaler::Div2;
+        config.rcc.apb2_pre = APBPrescaler::Div1;
 
-        config.rcc.mux.hrtim1sw = embassy_stm32::rcc::mux::Timsw::PLL1_P;
+        config.rcc.mux.hrtim1sw = embassy_stm32::rcc::mux::Timsw::Pll1P;
     }
     let p = embassy_stm32::init(config);
 
@@ -52,7 +52,7 @@ async fn main(_spawner: Spawner) {
 
     // ...with a prescaler of 4 this gives us a HrTimer with a tick rate of 1152MHz
     // With max the max period set, this would be 1152MHz/2^16 ~= 17.6kHz...
-    let prescaler = hrtim::Pscl4;
+    let prescaler = stm32_hrtim::Pscl4;
 
     let Parts { control, tima, .. } = p.HRTIM1.hr_control();
     let (control, ..) = control.wait_for_calibration();

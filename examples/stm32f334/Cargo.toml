@@ -9,7 +9,7 @@ publish = false
 embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
 embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
-embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "stm32f334r8", "unstable-pac", "memory-x", "time-driver-any", "exti"]  }
+embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "stm32f334r8", "unstable-pac", "memory-x", "time-driver-any", "exti", "stm32-hrtim"]  }
 embassy-usb = { version = "0.6.0", path = "../../embassy-usb", features = ["defmt"] }
 embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
 
@@ -24,6 +24,7 @@ heapless = { version = "0.9", default-features = false }
 nb = "1.0.0"
 embedded-storage = "0.3.1"
 static_cell = "2"
+stm32-hrtim = "0.2.0"
 
 [package.metadata.embassy]
 build = [

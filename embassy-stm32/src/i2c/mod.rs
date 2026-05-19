@@ -122,7 +122,7 @@ struct I2CDropGuard<'d> {
 }
 impl<'d> Drop for I2CDropGuard<'d> {
     fn drop(&mut self) {
-        self.info.rcc.disable_without_stop();
+        self.info.rcc.disable();
     }
 }
 
@@ -161,6 +161,26 @@ impl<'d> I2c<'d, Async, Master> {
             new_pin!(sda, config.sda_af()),
             new_dma!(tx_dma, _irq),
             new_dma!(rx_dma, _irq),
+            config,
+        )
+    }
+
+    /// Create a new I2C driver.
+    pub fn new_no_dma<T: Instance, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        scl: Peri<'d, if_afio!(impl SclPin<T, A>)>,
+        sda: Peri<'d, if_afio!(impl SdaPin<T, A>)>,
+        _irq: impl interrupt::typelevel::Binding<T::EventInterrupt, EventInterruptHandler<T>>
+        + interrupt::typelevel::Binding<T::ErrorInterrupt, ErrorInterruptHandler<T>>
+        + 'd,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(scl, config.scl_af()),
+            new_pin!(sda, config.sda_af()),
+            None,
+            None,
             config,
         )
     }
@@ -221,7 +241,7 @@ impl<'d, M: Mode> I2c<'d, M, Master> {
     }
 
     fn enable_and_init(&mut self, config: Config) {
-        self.info.rcc.enable_and_reset_without_stop();
+        self.info.rcc.enable_and_reset();
         self.init(config);
     }
 }

@@ -71,6 +71,20 @@ const MAX_QUERIES: usize = 4;
 #[cfg(feature = "dhcpv4-hostname")]
 const MAX_HOSTNAME_LEN: usize = 32;
 
+/// Error returned by `try_*` socket methods.
+///
+/// `WouldBlock` indicates the operation would block (e.g. no data available,
+/// send buffer full). `Other` wraps the socket-specific error type for any
+/// other failure.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum TryError<T> {
+    /// The operation would block; try again later.
+    WouldBlock,
+    /// A socket-specific error occurred.
+    Other(T),
+}
+
 /// Memory resources needed for a network stack.
 pub struct StackResources<const SOCK: usize> {
     sockets: MaybeUninit<[SocketStorage<'static>; SOCK]>,
@@ -331,6 +345,7 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
             inner: &mut driver,
             cx: None,
             medium,
+            tx_exhausted: false,
         },
         instant_to_smoltcp(Instant::now()),
     );
@@ -874,8 +889,10 @@ impl Inner {
             cx: Some(cx),
             inner: driver,
             medium,
+            tx_exhausted: false,
         };
         self.iface.poll(timestamp, &mut smoldev, &mut self.sockets);
+        let tx_exhausted = smoldev.tx_exhausted;
 
         // Update link up
         let old_link_up = self.link_up;
@@ -961,7 +978,9 @@ impl Inner {
             self.apply_static_config()
         }
 
-        if let Some(poll_at) = self.iface.poll_at(timestamp, &mut self.sockets) {
+        if let Some(poll_at) = self.iface.poll_at(timestamp, &mut self.sockets)
+            && !tx_exhausted
+        {
             let t = pin!(Timer::at(instant_from_smoltcp(poll_at)));
             if t.poll(cx).is_ready() {
                 cx.waker().wake_by_ref();

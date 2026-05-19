@@ -185,19 +185,19 @@ pub unsafe fn pulse_reset<G: Gate>() {
 #[doc(hidden)]
 #[macro_export]
 macro_rules! impl_cc_gate {
-    ($name:ident, $clk_reg:ident, $field:ident, $config:ty) => {
-        impl Gate for $crate::peripherals::$name {
-            type MrccPeriphConfig = $config;
+    ($name:ident, $clk_reg:ident, $field:ident, $config:ident) => {
+        impl crate::clocks::Gate for $crate::peripherals::$name {
+            type MrccPeriphConfig = crate::clocks::periph_helpers::$config;
 
-            paste! {
+            paste::paste! {
                 #[inline]
                 unsafe fn enable_clock() {
-                    pac::MRCC0.$clk_reg().modify(|w| w.[<set_ $field>](true));
+                    crate::pac::MRCC0.$clk_reg().modify(|w| w.[<set_ $field>](true));
                 }
 
                 #[inline]
                 unsafe fn disable_clock() {
-                    pac::MRCC0.$clk_reg().modify(|w| w.[<set_ $field>](false));
+                    crate::pac::MRCC0.$clk_reg().modify(|w| w.[<set_ $field>](false));
                 }
 
                 #[inline]
@@ -209,7 +209,7 @@ macro_rules! impl_cc_gate {
 
             #[inline]
             fn is_clock_enabled() -> bool {
-                pac::MRCC0.$clk_reg().read().$field()
+                crate::pac::MRCC0.$clk_reg().read().$field()
             }
 
             #[inline]
@@ -219,44 +219,44 @@ macro_rules! impl_cc_gate {
         }
     };
 
-    ($name:ident, $clk_reg:ident, $rst_reg:ident, $field:ident, $config:ty) => {
-        impl Gate for $crate::peripherals::$name {
-            type MrccPeriphConfig = $config;
+    ($name:ident, $clk_reg:ident, $rst_reg:ident, $field:ident, $config:ident) => {
+        impl crate::clocks::Gate for $crate::peripherals::$name {
+            type MrccPeriphConfig = crate::clocks::periph_helpers::$config;
 
-            paste! {
+            paste::paste! {
                 #[inline]
                 unsafe fn enable_clock() {
-                    pac::MRCC0.$clk_reg().modify(|w| w.[<set_ $field>](true));
+                    crate::pac::MRCC0.$clk_reg().modify(|w| w.[<set_ $field>](true));
                 }
 
                 #[inline]
                 unsafe fn disable_clock() {
-                    pac::MRCC0.$clk_reg().modify(|w| w.[<set_ $field>](false));
+                    crate::pac::MRCC0.$clk_reg().modify(|w| w.[<set_ $field>](false));
                 }
 
                 #[inline]
                 unsafe fn release_reset() {
-                    pac::MRCC0.$rst_reg().modify(|w| w.[<set_ $field>](true));
+                    crate::pac::MRCC0.$rst_reg().modify(|w| w.[<set_ $field>](true));
                     // Wait for reset to set
-                    while !pac::MRCC0.$rst_reg().read().[<$field>]() {}
+                    while !crate::pac::MRCC0.$rst_reg().read().[<$field>]() {}
                 }
 
                 #[inline]
                 unsafe fn assert_reset() {
-                    pac::MRCC0.$rst_reg().modify(|w| w.[<set_ $field>](false));
+                    crate::pac::MRCC0.$rst_reg().modify(|w| w.[<set_ $field>](false));
                     // Wait for reset to clear
-                    while pac::MRCC0.$rst_reg().read().[<$field>]() {}
+                    while crate::pac::MRCC0.$rst_reg().read().[<$field>]() {}
                 }
             }
 
             #[inline]
             fn is_clock_enabled() -> bool {
-                pac::MRCC0.$clk_reg().read().$field()
+                crate::pac::MRCC0.$clk_reg().read().$field()
             }
 
             #[inline]
             fn is_reset_released() -> bool {
-                pac::MRCC0.$rst_reg().read().$field()
+                crate::pac::MRCC0.$rst_reg().read().$field()
             }
         }
     };

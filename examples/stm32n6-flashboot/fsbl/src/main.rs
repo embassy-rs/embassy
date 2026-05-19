@@ -88,7 +88,7 @@ fn main() -> ! {
     //    Using PER avoids IC4/PLL routing, so the app's reinit() can use the
     //    same config without touching IC divider registers mid-execution.
     let mut config = embassy_stm32::Config::default();
-    config.rcc.mux.xspi2sel = XspiClkSrc::PER;
+    config.rcc.mux.xspi2sel = XspiClkSrc::Per;
     config.rcc.vddio3_1v8 = true;
     let p = embassy_stm32::init(config);
 

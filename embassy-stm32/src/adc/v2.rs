@@ -1,14 +1,20 @@
 use core::sync::atomic::{Ordering, compiler_fence};
 
-use super::{AnyAdcChannel, ConversionMode, Temperature, Vbat, VrefInt, blocking_delay_us};
-use crate::adc::{Adc, AdcRegs, DefaultInstance, Instance, Resolution, SampleTime, SealedInjectedAdcRegs};
+use crate::adc::{
+    Adc, AdcRegs, AnyAdcChannel, ConversionMode, DefaultInstance, InjectedRegs, Resolution, SampleTime, Temperature,
+    Vbat, VrefInt,
+};
 use crate::pac::adc::vals;
 pub use crate::pac::adccommon::vals::Adcpre;
 use crate::time::Hertz;
+use crate::wait::block_for_us;
 use crate::{Peri, rcc};
 
 mod injected;
 pub use injected::InjectedAdc;
+
+use crate::pac::adc::regs::{Sqr1, Sqr2, Sqr3};
+use crate::pac::adc::vals::Dds;
 
 fn clear_interrupt_flags(r: crate::pac::adc::Adc) {
     r.sr().modify(|regs| {
@@ -24,21 +30,21 @@ pub const VREF_CALIB_MV: u32 = 3300;
 
 pub const NR_INJECTED_RANKS: usize = 4;
 
-impl super::SealedSpecialConverter<super::VrefInt> for crate::peripherals::ADC1 {
+impl super::ConverterFor<super::VrefInt> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 17;
 }
 
 #[cfg(any(stm32f2, stm32f40x, stm32f41x))]
-impl super::SealedSpecialConverter<super::Temperature> for crate::peripherals::ADC1 {
+impl super::ConverterFor<super::Temperature> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 16;
 }
 
 #[cfg(not(any(stm32f2, stm32f40x, stm32f41x)))]
-impl super::SealedSpecialConverter<super::Temperature> for crate::peripherals::ADC1 {
+impl super::ConverterFor<super::Temperature> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 18;
 }
 
-impl super::SealedSpecialConverter<super::Vbat> for crate::peripherals::ADC1 {
+impl super::ConverterFor<super::Vbat> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 18;
 }
 
@@ -65,10 +71,10 @@ fn from_pclk2(freq: Hertz) -> Adcpre {
     const MAX_FREQUENCY: Hertz = Hertz(36_000_000);
     let raw_div = rcc::raw_prescaler(freq.0, MAX_FREQUENCY.0);
     match raw_div {
-        0..=1 => Adcpre::DIV2,
-        2..=3 => Adcpre::DIV4,
-        4..=5 => Adcpre::DIV6,
-        6..=7 => Adcpre::DIV8,
+        0..=1 => Adcpre::Div2,
+        2..=3 => Adcpre::Div4,
+        4..=5 => Adcpre::Div6,
+        6..=7 => Adcpre::Div8,
         _ => panic!("Selected PCLK2 frequency is too high for ADC with largest possible prescaler."),
     }
 }
@@ -89,7 +95,7 @@ impl AdcRegs for crate::pac::adc::Adc {
             reg.set_adon(true);
         });
 
-        blocking_delay_us(3);
+        block_for_us(3);
     }
 
     fn start(&self) {
@@ -99,7 +105,7 @@ impl AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn stop(&self) {
+    fn stop(&self, _disable: bool) {
         let r = self;
 
         // Stop ADC
@@ -124,23 +130,8 @@ impl AdcRegs for crate::pac::adc::Adc {
         compiler_fence(Ordering::SeqCst);
     }
 
-    fn convert(&self) {
-        // clear end of conversion flag
-        self.sr().modify(|reg| {
-            reg.set_eoc(false);
-        });
-
-        // Start conversion
-        self.cr2().modify(|reg| {
-            reg.set_swstart(true);
-        });
-
-        while self.sr().read().strt() == false {
-            // spin //wait for actual start
-        }
-        while self.sr().read().eoc() == false {
-            // spin //wait for finish
-        }
+    fn wait_done(&self) -> bool {
+        self.sr().read().eoc()
     }
 
     fn configure_dma(&self, conversion_mode: ConversionMode) {
@@ -152,6 +143,7 @@ impl AdcRegs for crate::pac::adc::Adc {
             regs.set_ovr(false);
             regs.set_strt(false);
         });
+
         let is_repeated = matches!(conversion_mode, ConversionMode::Repeated(_));
         r.cr1().modify(|w| {
             // Enable end of conversion interrupt only in repeated mode.
@@ -166,71 +158,55 @@ impl AdcRegs for crate::pac::adc::Adc {
 
         r.cr2().modify(|w| {
             // Enable DMA mode
-            w.set_dma(true);
-            w.set_dds(match conversion_mode {
-                // SINGLE: DMA requests stop after the sequence completes (one-shot).
-                ConversionMode::Singular => vals::Dds::SINGLE,
-                // CONTINUOUS: DMA stays armed between reads; cont=false below limits
-                // the ADC to one sequence per SWSTART.
-                ConversionMode::ConfiguredSequence => vals::Dds::CONTINUOUS,
-                // CONTINUOUS: DMA requests keep being issued as long as DMA=1 and data are converted.
-                ConversionMode::Repeated(_) => vals::Dds::CONTINUOUS,
-            });
+            w.set_dma(!matches!(conversion_mode, ConversionMode::NoDma));
+            w.set_dds(Dds::Continuous);
             // EOC flag is set at the end of each conversion.
-            w.set_eocs(vals::Eocs::EACH_CONVERSION);
-        });
+            w.set_eocs(vals::Eocs::EachConversion);
+            w.set_cont(matches!(conversion_mode, ConversionMode::Repeated(None)));
 
-        match conversion_mode {
-            ConversionMode::Singular | ConversionMode::ConfiguredSequence => {
-                r.cr2().modify(|w| w.set_cont(false));
+            if let ConversionMode::Repeated(Some((signal, edge))) = conversion_mode {
+                w.set_extsel(signal);
+                w.set_exten(edge);
             }
-            ConversionMode::Repeated(trigger) => match trigger {
-                None => {
-                    // continuous conversion
-                    r.cr2().modify(|w| {
-                        // Enable continuous conversions
-                        w.set_cont(true);
-                    });
-                }
-                Some((signal, edge)) => {
-                    r.cr2().modify(|w| {
-                        // Disable continuous conversions
-                        w.set_cont(false);
-                        // Trigger detection edge
-                        w.set_exten(edge);
-                        // Trigger channel
-                        w.set_extsel(signal);
-                    })
-                }
-            },
-        }
+        });
     }
 
     fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
+        let mut sqr1 = Sqr1::default();
+        let mut sqr2 = Sqr2::default();
+        let mut sqr3 = Sqr3::default();
+
+        let mut smpr1 = self.smpr1().read();
+        let mut smpr2 = self.smpr2().read();
+
         // Check the sequence is long enough
-        self.sqr1().modify(|r| {
-            r.set_l((sequence.len() - 1).try_into().unwrap());
-        });
+        sqr1.set_l((sequence.len() - 1).try_into().unwrap());
 
         for (i, ((ch, _), sample_time)) in sequence.enumerate() {
             match i {
-                0..=5 => self.sqr3().modify(|w| w.set_sq(i, ch)),
-                6..=11 => self.sqr2().modify(|w| w.set_sq(i - 6, ch)),
-                12..=15 => self.sqr1().modify(|w| w.set_sq(i - 12, ch)),
+                0..=5 => sqr3.set_sq(i, ch),
+                6..=11 => sqr2.set_sq(i - 6, ch),
+                12..=15 => sqr1.set_sq(i - 12, ch),
                 _ => unreachable!(),
             }
 
             let sample_time = sample_time.into();
             if ch <= 9 {
-                self.smpr2().modify(|reg| reg.set_smp(ch as _, sample_time));
+                smpr2.set_smp(ch as _, sample_time);
             } else {
-                self.smpr1().modify(|reg| reg.set_smp((ch - 10) as _, sample_time));
+                smpr1.set_smp((ch - 10) as _, sample_time);
             }
         }
+
+        self.sqr1().write_value(sqr1);
+        self.sqr2().write_value(sqr2);
+        self.sqr3().write_value(sqr3);
+        self.smpr1().write_value(smpr1);
+        self.smpr2().write_value(smpr2);
     }
 }
 
-impl SealedInjectedAdcRegs for crate::pac::adc::Adc {
+impl InjectedRegs for crate::pac::adc::Adc {
     fn configure_injected_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>) {
         let len: u8 = sequence.len().try_into().unwrap();
         self.cr1().modify(|w| w.set_jauto(false));
@@ -276,7 +252,7 @@ impl SealedInjectedAdcRegs for crate::pac::adc::Adc {
         // On STM32F4 adc_v2, externally-triggered injected conversions are armed
         // by JEXTEN and start on the next trigger event. JSWSTART is only valid
         // for pure software-triggered injected conversions.
-        if self.cr2().read().jexten() == vals::Exten::DISABLED {
+        if self.cr2().read().jexten() == vals::Exten::Disabled {
             self.cr2().modify(|w| w.set_jswstart(true));
         }
     }
@@ -284,7 +260,7 @@ impl SealedInjectedAdcRegs for crate::pac::adc::Adc {
     fn stop_injected(&self) {
         // No true "abort injected conversion" primitive on adc_v2.
         // Best practical stop: disable external injected triggering.
-        self.cr2().modify(|w| w.set_jexten(vals::Exten::DISABLED));
+        self.cr2().modify(|w| w.set_jexten(vals::Exten::Disabled));
         self.cr1().modify(|w| w.set_jeocie(false));
         self.sr().modify(|w| {
             w.set_jeoc(false);
@@ -326,7 +302,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
 
     /// Enables internal voltage reference and returns [VrefInt], which can be used in
     /// [Adc::read_internal()] to perform conversion.
-    pub fn enable_vrefint(&self) -> VrefInt {
+    pub fn enable_vrefint(&mut self) -> VrefInt {
         T::common_regs().ccr().modify(|reg| {
             reg.set_tsvrefe(true);
         });
@@ -339,7 +315,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
     ///
     /// On STM32F42 and STM32F43 this can not be used together with [Vbat]. If both are enabled,
     /// temperature sensor will return vbat value.
-    pub fn enable_temperature(&self) -> Temperature {
+    pub fn enable_temperature(&mut self) -> Temperature {
         T::common_regs().ccr().modify(|reg| {
             reg.set_tsvrefe(true);
         });
@@ -349,19 +325,11 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
 
     /// Enables vbat input and returns [Vbat], which can be used in
     /// [Adc::read_internal()] to perform conversion.
-    pub fn enable_vbat(&self) -> Vbat {
+    pub fn enable_vbat(&mut self) -> Vbat {
         T::common_regs().ccr().modify(|reg| {
             reg.set_vbate(true);
         });
 
         Vbat {}
-    }
-}
-
-impl<'d, T: Instance> Drop for Adc<'d, T> {
-    fn drop(&mut self) {
-        T::regs().stop();
-
-        rcc::disable::<T>();
     }
 }

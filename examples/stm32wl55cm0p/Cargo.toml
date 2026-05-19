@@ -30,7 +30,7 @@ embassy-time = { version = "0.5.1", path = "../../embassy-time", features = [
   "defmt-timestamp-uptime",
   "tick-hz-32_768",
 ] }
-embassy-net = { version = "0.9.0", path = "../../embassy-net", features = [
+embassy-net = { version = "0.9.1", path = "../../embassy-net", features = [
   "defmt",
   "tcp",
   "dhcpv4",

@@ -18,7 +18,7 @@
 //!
 //! ```rust,ignore
 //! // Register a UAC device
-//! let handler = UacHandler::try_register(host, enum_info).await?;
+//! let handler = UacHandler::try_register(&bus, enum_info).await?;
 //!
 //! // Get current sampling frequency
 //! let freq = handler.get_sampling_freq(terminal_id).await?;
@@ -41,10 +41,11 @@ use core::task::Poll;
 use aligned::{A4, Aligned};
 use embassy_time::{Duration, Instant, Timer};
 use embassy_usb::control::Request;
-use embassy_usb_driver::host::{ChannelError, HostError, RequestType, SetupPacket, UsbChannel, UsbHostDriver, channel};
+use embassy_usb_driver::host::{HostError, PipeError, UsbHostAllocator, UsbPipe, pipe};
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
 use heapless::{String, Vec};
 
+use crate::control::{ControlType, Recipient, RequestType, SetupPacket};
 use crate::descriptor::DEFAULT_MAX_DESCRIPTOR_SIZE;
 use crate::handler::{EnumerationInfo, RegisterError};
 
@@ -56,28 +57,29 @@ const MAX_STRING_LENGTH: usize = 127;
 
 /// Handler for USB Audio Class (UAC) devices, providing control and streaming functionality.
 ///
-/// This struct manages the USB channels and interface descriptors required to interact with
-/// a UAC device, including control, output, and feedback channels.
-pub struct UacHandler<H: UsbHostDriver> {
+/// This struct manages the USB pipes and interface descriptors required to interact with
+/// a UAC device, including control, output, and feedback pipes.
+pub struct UacHandler<'d, A: UsbHostAllocator<'d>> {
     /// Collection of audio interface descriptors parsed from the device configuration.
     pub interface_collection: descriptors::AudioInterfaceCollection,
-    /// Control channel for sending standard and class-specific requests.
-    pub control_channel: H::Channel<channel::Control, channel::InOut>,
-    /// Output channel for isochronous audio streaming (if available).
-    pub output_channel: Option<H::Channel<channel::Isochronous, channel::Out>>,
-    /// Feedback channel for isochronous feedback endpoint (if available).
-    pub feedback_channel: Option<H::Channel<channel::Isochronous, channel::In>>,
+    /// Control pipe for sending standard and class-specific requests.
+    pub control_channel: A::Pipe<pipe::Control, pipe::InOut>,
+    /// Output pipe for isochronous audio streaming (if available).
+    pub output_channel: Option<A::Pipe<pipe::Isochronous, pipe::Out>>,
+    /// Feedback pipe for isochronous feedback endpoint (if available).
+    pub feedback_channel: Option<A::Pipe<pipe::Isochronous, pipe::In>>,
     input_terminal_id: u8,
     output_interface_idx: usize,
     speed: Speed,
+    _phantom: core::marker::PhantomData<&'d ()>,
 }
 
 /// Errors that can occur during UAC request handling.
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum RequestError {
-    /// The request failed due to a channel error.
-    RequestFailed(ChannelError),
+    /// The request failed due to a pipe error.
+    RequestFailed(PipeError),
     /// The device was disconnected during the operation.
     DeviceDisconnected,
     /// The device returned an invalid or unexpected response.
@@ -86,30 +88,31 @@ pub enum RequestError {
     NoSupportedInterface,
 }
 
-impl<H: UsbHostDriver> UacHandler<H> {
-    /// Attempts to register a UAC device and allocate necessary channels.
+impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
+    /// Attempts to register a UAC device and allocate necessary pipes.
     ///
     /// This method parses the device's configuration, finds a suitable streaming interface,
-    /// and allocates output and feedback channels as needed.
+    /// and allocates output and feedback pipes as needed.
     ///
     /// Returns a new [`UacHandler`] on success, or a [`RegisterError`] if registration fails.
-    pub async fn try_register(host: &H, enum_info: EnumerationInfo) -> Result<Self, RegisterError> {
+    pub async fn try_register(alloc: &A, enum_info: EnumerationInfo) -> Result<Self, RegisterError> {
         // Steps taken:
         // 1. Find the first streaming interface with an output endpoint
         // 2. Connect it to its terminal to find the sampling frequency
         // 3. Check its format type
         // 4. Select the right alternate setting for the interface with a SET_INTERFACE request
-        // 5. Allocate up the output channel and the corresponding feedback channel, store on Self
+        // 5. Allocate up the output pipe and the corresponding feedback pipe, store on Self
 
-        let mut control_channel = host.alloc_channel::<channel::Control, channel::InOut>(
+        let mut control_channel = alloc.alloc_pipe::<pipe::Control, pipe::InOut>(
             enum_info.device_address,
             &EndpointInfo {
                 addr: 0.into(),
                 ep_type: EndpointType::Control,
-                max_packet_size: (enum_info.device_desc.max_packet_size0 as u16).min(enum_info.speed.max_packet_size()),
+                max_packet_size: (enum_info.device_desc.max_packet_size0 as u16)
+                    .min(enum_info.speed().max_packet_size()),
                 interval_ms: 0,
             },
-            enum_info.ls_over_fs,
+            enum_info.split(),
         )?;
 
         let mut cfg_desc_buf = [0u8; DEFAULT_MAX_DESCRIPTOR_SIZE];
@@ -164,40 +167,44 @@ impl<H: UsbHostDriver> UacHandler<H> {
             .max_by_key(|i| i.num_endpoints)
             .ok_or(RegisterError::NoSupportedInterface)?;
 
-        // Allocate the channels
+        // Allocate the pipes
         let mut output_channel = None;
         let mut feedback_channel = None;
         let input_terminal_id = output_interface.class_descriptor.terminal_link_id;
         // Select the correct alternate setting
         let packet = SetupPacket {
-            request_type: RequestType::OUT | RequestType::TYPE_STANDARD | RequestType::RECIPIENT_INTERFACE,
+            request_type: RequestType {
+                direction: Direction::Out,
+                control_type: ControlType::Standard,
+                recipient: Recipient::Interface,
+            },
             request: Request::SET_INTERFACE,
             value: streaming_interface.alternate_setting as u16,
             index: streaming_interface.interface_number as u16,
             length: 0,
         };
         control_channel
-            .control_out(&packet, &mut [])
+            .control_out(&packet.to_bytes(), &mut [])
             .await
-            .map_err(|e| RegisterError::HostError(HostError::ChannelError(e)))?;
+            .map_err(|e| RegisterError::HostError(HostError::PipeError(e)))?;
         debug!(
             "[UAC] Set output interface to alternate setting: {}",
             streaming_interface.alternate_setting
         );
 
         if streaming_interface.num_endpoints > 0 {
-            output_channel = Some(host.alloc_channel::<channel::Isochronous, channel::Out>(
+            output_channel = Some(alloc.alloc_pipe::<pipe::Isochronous, pipe::Out>(
                 enum_info.device_address,
                 &output_interface.endpoint_descriptor.unwrap().into(),
-                false,
+                enum_info.split(),
             )?);
         }
         if streaming_interface.num_endpoints > 1 {
             if let Some(feedback_endpoint) = output_interface.feedback_endpoint_descriptor {
-                feedback_channel = Some(host.alloc_channel::<channel::Isochronous, channel::In>(
+                feedback_channel = Some(alloc.alloc_pipe::<pipe::Isochronous, pipe::In>(
                     enum_info.device_address,
                     &feedback_endpoint.into(),
-                    false,
+                    enum_info.split(),
                 )?);
             }
         }
@@ -209,16 +216,17 @@ impl<H: UsbHostDriver> UacHandler<H> {
             feedback_channel,
             input_terminal_id,
             output_interface_idx,
-            speed: enum_info.speed,
+            speed: enum_info.speed(),
+            _phantom: core::marker::PhantomData,
         })
     }
 
     /// Returns a [`UacOut`] object for audio output streaming.
     ///
-    /// Returns an error if the output or feedback channel is not allocated or if the interface is unsupported.
-    pub async fn output(&mut self) -> Result<UacOut<H>, RequestError> {
+    /// Returns an error if the output or feedback pipe is not allocated or if the interface is unsupported.
+    pub async fn output(&mut self) -> Result<UacOut<'d, A>, RequestError> {
         if self.output_channel.is_none() {
-            error!("[UAC] Output channel not allocated");
+            error!("[UAC] Output pipe not allocated");
             return Err(RequestError::DeviceDisconnected);
         }
 
@@ -263,7 +271,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
                 _ => 1000.0,
             };
 
-        Ok(UacOut::<H> {
+        Ok(UacOut::<'d, A> {
             output_channel: self.output_channel.take().unwrap(),
             feedback_channel: self.feedback_channel.take(),
             speed: self.speed,
@@ -276,6 +284,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
             num_channels,
             bytes_per_sample,
             max_bytes_per_packet,
+            _phantom: core::marker::PhantomData,
         })
     }
 
@@ -311,7 +320,11 @@ impl<H: UsbHostDriver> UacHandler<H> {
     /// Returns the language ID as a 16-bit value, or an error if the request fails.
     pub async fn get_supported_language(&mut self) -> Result<u16, RequestError> {
         let packet = SetupPacket {
-            request_type: RequestType::IN | RequestType::TYPE_STANDARD | RequestType::RECIPIENT_DEVICE,
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Standard,
+                recipient: Recipient::Device,
+            },
             request: Request::GET_DESCRIPTOR,
             value: 0x0300, // String descriptor at index 0x00
             index: 0x00,
@@ -321,7 +334,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
         let mut buf = Aligned::<A4, _>([0; 4]);
 
         self.control_channel
-            .control_in(&packet, buf.as_mut_slice())
+            .control_in(&packet.to_bytes(), buf.as_mut_slice())
             .await
             .map_err(|e| RequestError::RequestFailed(e))?;
 
@@ -342,7 +355,11 @@ impl<H: UsbHostDriver> UacHandler<H> {
     ) -> Result<String<MAX_STRING_LENGTH>, RequestError> {
         // First, get just the length
         let packet = SetupPacket {
-            request_type: RequestType::IN | RequestType::TYPE_STANDARD | RequestType::RECIPIENT_DEVICE,
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Standard,
+                recipient: Recipient::Device,
+            },
             request: Request::GET_DESCRIPTOR,
             value: (0x03 << 8) | index as u16,
             index: lang_id,
@@ -351,7 +368,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
 
         let mut length_buf = Aligned::<A4, _>([0; 2]);
         self.control_channel
-            .control_in(&packet, length_buf.as_mut_slice())
+            .control_in(&packet.to_bytes(), length_buf.as_mut_slice())
             .await
             .map_err(|e| RequestError::RequestFailed(e))?;
 
@@ -366,7 +383,11 @@ impl<H: UsbHostDriver> UacHandler<H> {
 
         // Now get the full string with the correct length
         let packet = SetupPacket {
-            request_type: RequestType::IN | RequestType::TYPE_STANDARD | RequestType::RECIPIENT_DEVICE,
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Standard,
+                recipient: Recipient::Device,
+            },
             request: Request::GET_DESCRIPTOR,
             value: (0x03 << 8) | index as u16,
             index: lang_id,
@@ -375,7 +396,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
 
         let mut buf = Aligned::<A4, _>([0; MAX_STRING_BUF_SIZE]);
         self.control_channel
-            .control_in(&packet, &mut buf.as_mut_slice()[..total_length as usize])
+            .control_in(&packet.to_bytes(), &mut buf.as_mut_slice()[..total_length as usize])
             .await
             .map_err(|e| RequestError::RequestFailed(e))?;
 
@@ -415,7 +436,11 @@ impl<H: UsbHostDriver> UacHandler<H> {
         interface: u8,
     ) -> Result<u8, RequestError> {
         let packet = SetupPacket {
-            request_type: RequestType::IN | RequestType::TYPE_CLASS | RequestType::RECIPIENT_INTERFACE,
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Class,
+                recipient: Recipient::Interface,
+            },
             request: codes::request_code::CUR,
             value: (channel as u16) << 8 | control_selector as u16,
             index: (entity as u16) << 8 | interface as u16,
@@ -425,7 +450,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
         let mut buf = Aligned::<A4, _>([0; 1]);
 
         self.control_channel
-            .control_in(&packet, buf.as_mut_slice())
+            .control_in(&packet.to_bytes(), buf.as_mut_slice())
             .await
             .map_err(|e| RequestError::RequestFailed(e))?;
 
@@ -449,7 +474,11 @@ impl<H: UsbHostDriver> UacHandler<H> {
         interface: u8,
     ) -> Result<u16, RequestError> {
         let packet = SetupPacket {
-            request_type: RequestType::IN | RequestType::TYPE_CLASS | RequestType::RECIPIENT_INTERFACE,
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Class,
+                recipient: Recipient::Interface,
+            },
             request: codes::request_code::CUR,
             value: (channel as u16) << 8 | control_selector,
             index: (entity as u16) << 8 | interface as u16,
@@ -459,7 +488,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
         let mut buf = Aligned::<A4, _>([0; 2]);
 
         self.control_channel
-            .control_in(&packet, buf.as_mut_slice())
+            .control_in(&packet.to_bytes(), buf.as_mut_slice())
             .await
             .map_err(|e| RequestError::RequestFailed(e))?;
 
@@ -483,7 +512,11 @@ impl<H: UsbHostDriver> UacHandler<H> {
         interface: u8,
     ) -> Result<u32, RequestError> {
         let packet = SetupPacket {
-            request_type: RequestType::IN | RequestType::TYPE_CLASS | RequestType::RECIPIENT_INTERFACE,
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Class,
+                recipient: Recipient::Interface,
+            },
             request: codes::request_code::CUR,
             value: (channel as u16) << 8 | control_selector,
             index: (entity as u16) << 8 | interface as u16,
@@ -493,7 +526,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
         let mut buf = Aligned::<A4, _>([0; 4]);
 
         self.control_channel
-            .control_in(&packet, buf.as_mut_slice())
+            .control_in(&packet.to_bytes(), buf.as_mut_slice())
             .await
             .map_err(|e| RequestError::RequestFailed(e))?;
 
@@ -517,7 +550,11 @@ impl<H: UsbHostDriver> UacHandler<H> {
         interface: u8,
     ) -> Result<Layout1ParameterBlock, RequestError> {
         let packet = SetupPacket {
-            request_type: RequestType::IN | RequestType::TYPE_CLASS | RequestType::RECIPIENT_INTERFACE,
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Class,
+                recipient: Recipient::Interface,
+            },
             request: codes::request_code::RANGE,
             value: (channel as u16) << 8 | control_selector,
             index: (entity as u16) << 8 | interface as u16,
@@ -527,7 +564,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
         let mut buf = Aligned::<A4, _>([0; size_of::<Layout1ParameterBlock>()]);
 
         self.control_channel
-            .control_in(&packet, buf.as_mut_slice())
+            .control_in(&packet.to_bytes(), buf.as_mut_slice())
             .await
             .map_err(|e| RequestError::RequestFailed(e))?;
 
@@ -553,7 +590,11 @@ impl<H: UsbHostDriver> UacHandler<H> {
         interface: u8,
     ) -> Result<Layout2ParameterBlock, RequestError> {
         let packet = SetupPacket {
-            request_type: RequestType::IN | RequestType::TYPE_CLASS | RequestType::RECIPIENT_INTERFACE,
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Class,
+                recipient: Recipient::Interface,
+            },
             request: codes::request_code::RANGE,
             value: (channel as u16) << 8 | control_selector,
             index: (entity as u16) << 8 | interface as u16,
@@ -563,7 +604,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
         let mut buf = Aligned::<A4, _>([0; size_of::<Layout2ParameterBlock>()]);
 
         self.control_channel
-            .control_in(&packet, buf.as_mut_slice())
+            .control_in(&packet.to_bytes(), buf.as_mut_slice())
             .await
             .map_err(|e| RequestError::RequestFailed(e))?;
 
@@ -589,7 +630,11 @@ impl<H: UsbHostDriver> UacHandler<H> {
         interface: u8,
     ) -> Result<Layout3ParameterBlock, RequestError> {
         let packet = SetupPacket {
-            request_type: RequestType::IN | RequestType::TYPE_CLASS | RequestType::RECIPIENT_INTERFACE,
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Class,
+                recipient: Recipient::Interface,
+            },
             request: codes::request_code::RANGE,
             value: (channel as u16) << 8 | control_selector,
             index: (entity as u16) << 8 | interface as u16,
@@ -599,7 +644,7 @@ impl<H: UsbHostDriver> UacHandler<H> {
         let mut buf = Aligned::<A4, _>([0; size_of::<Layout3ParameterBlock>()]);
 
         self.control_channel
-            .control_in(&packet, buf.as_mut_slice())
+            .control_in(&packet.to_bytes(), buf.as_mut_slice())
             .await
             .map_err(|e| RequestError::RequestFailed(e))?;
 
@@ -614,13 +659,13 @@ impl<H: UsbHostDriver> UacHandler<H> {
 
 /// Represents an output audio stream to a USB Audio Class (UAC) device.
 ///
-/// This struct manages the output and feedback channels for isochronous audio streaming,
+/// This struct manages the output and feedback pipes for isochronous audio streaming,
 /// as well as timing and format information required for correct streaming.
-pub struct UacOut<H: UsbHostDriver> {
-    /// Output channel for isochronous audio streaming.
-    pub output_channel: H::Channel<channel::Isochronous, channel::Out>,
-    /// Feedback channel for isochronous feedback endpoint.
-    pub feedback_channel: Option<H::Channel<channel::Isochronous, channel::In>>,
+pub struct UacOut<'d, A: UsbHostAllocator<'d>> {
+    /// Output pipe for isochronous audio streaming.
+    pub output_channel: A::Pipe<pipe::Isochronous, pipe::Out>,
+    /// Feedback pipe for isochronous feedback endpoint.
+    pub feedback_channel: Option<A::Pipe<pipe::Isochronous, pipe::In>>,
     speed: Speed,
     samples_per_microframe: f32,
     microframes_per_microsecond: f32,
@@ -631,6 +676,7 @@ pub struct UacOut<H: UsbHostDriver> {
     num_channels: u8,
     bytes_per_sample: usize,
     max_bytes_per_packet: usize,
+    _phantom: core::marker::PhantomData<&'d ()>,
 }
 
 enum LockDelay {
@@ -638,7 +684,7 @@ enum LockDelay {
     Samples(u16),
 }
 
-impl<H: UsbHostDriver> UacOut<H> {
+impl<'d, A: UsbHostAllocator<'d>> UacOut<'d, A> {
     /// Starts the output audio stream, invoking the provided callback to fill each packet.
     ///
     /// The callback is called repeatedly with a mutable buffer for each packet to be sent.

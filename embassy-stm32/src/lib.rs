@@ -18,6 +18,7 @@ include!(concat!(env!("OUT_DIR"), "/_macros.rs"));
 // Utilities
 mod macros;
 pub mod time;
+mod wait;
 /// Operating modes for peripherals.
 pub mod mode {
     trait SealedMode {}
@@ -84,10 +85,16 @@ pub mod cpu;
 pub mod crc;
 #[cfg(cryp)]
 pub mod cryp;
+#[cfg(csi)]
+pub mod csi;
 #[cfg(dac)]
 pub mod dac;
 #[cfg(dcmi)]
 pub mod dcmi;
+#[cfg(dcmipp)]
+pub mod dcmipp;
+#[cfg(dlybsd)]
+pub mod dlyb;
 #[cfg(dma2d)]
 pub mod dma2d;
 #[cfg(dsihost)]
@@ -116,6 +123,11 @@ pub mod i2c;
 pub mod i2s;
 #[cfg(any(stm32wb, stm32wl5x))]
 pub mod ipcc;
+// Limited to N6 for now — on H7 the metapac entry for JPEG has `rcc: None`
+// (no RccPeripheral impl is generated), and the DMA signal names differ
+// (INFIFO/OUTFIFO vs N6's RX/TX). Broaden once stm32-data is updated.
+#[cfg(all(jpeg, stm32n6))]
+pub mod jpeg;
 #[cfg(lcd)]
 pub mod lcd;
 #[cfg(feature = "low-power")]
@@ -140,7 +152,7 @@ pub mod rtc;
 pub mod saes;
 #[cfg(sai)]
 pub mod sai;
-#[cfg(sdmmc)]
+#[cfg(any(sdmmc_v1, sdmmc_v2, sdmmc_v3))]
 pub mod sdmmc;
 #[cfg(spdifrx)]
 pub mod spdifrx;
@@ -305,6 +317,40 @@ pub struct Config {
     #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u3, stm32wba))]
     pub enable_independent_io_supply: bool,
 
+    /// Enable ultra-low-power BOR0 mode (discontinuous BOR monitoring) in
+    /// Stop 1 and Standby modes.
+    ///
+    /// This must be set to reach the lowest power consumption in low-power modes.
+    ///
+    /// **Constraints:**
+    /// - Must not be set when autonomous peripherals use HSI as kernel clock.
+    /// - Only effective when BOR levels 1-4 and PVD are disabled; when they
+    ///   are enabled, continuous mode applies regardless of this setting.
+    ///
+    /// Defaults to `false` (disabled).
+    #[cfg(stm32wba)]
+    pub enable_ulpmen: bool,
+
+    /// Enable flash fast wakeup from Stop 0/1 modes.
+    ///
+    /// When `true`, flash stays in normal mode during stop (faster wakeup,
+    /// higher power). When `false` (default), flash enters low-power mode
+    /// (slower wakeup, lower power).
+    ///
+    /// Defaults to `false`.
+    #[cfg(stm32wba)]
+    pub flash_fast_wakeup: bool,
+
+    /// SRAM power-down configuration for Stop modes.
+    ///
+    /// Controls which SRAM pages are powered down when entering Stop 0 or
+    /// Stop 1 modes. Powered-down pages lose their content but reduce
+    /// current draw.
+    ///
+    /// Defaults to all SRAM retained.
+    #[cfg(stm32wba)]
+    pub stop_mode_sram: rcc::StopModeSramConfig,
+
     /// On the U5 series all analog peripherals are powered by a separate supply.
     #[cfg(any(stm32u5, stm32u3))]
     pub enable_independent_analog_supply: bool,
@@ -362,6 +408,12 @@ impl Default for Config {
             enable_debug_during_sleep: true,
             #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u3, stm32wba))]
             enable_independent_io_supply: true,
+            #[cfg(stm32wba)]
+            enable_ulpmen: false,
+            #[cfg(stm32wba)]
+            flash_fast_wakeup: false,
+            #[cfg(stm32wba)]
+            stop_mode_sram: rcc::StopModeSramConfig::default(),
             #[cfg(any(stm32u5, stm32u3))]
             enable_independent_analog_supply: true,
             #[cfg(bdma)]
@@ -439,10 +491,7 @@ mod dual_core {
         let shared_data = unsafe { shared_data.assume_init_ref() };
 
         // Enable hardware semaphore.
-        // Attempting to reset is a race condition, as the second core may be using HSEM and deadlock.
-        critical_section::with(|cs| {
-            rcc::enable_with_cs::<peripherals::HSEM>(cs);
-        });
+        critical_section::with(|cs| crate::hsem::init_hsem(cs));
 
         #[cfg(stm32h7)]
         {
@@ -593,7 +642,7 @@ fn init_hw(config: Config) -> Peripherals {
             crate::pac::RCC.miscenr().read(); // volatile read
             crate::pac::DBGMCU
                 .cr()
-                .modify(|w| w.set_dbgclken(stm32_metapac::dbgmcu::vals::Dbgclken::B_0X1));
+                .modify(|w| w.set_dbgclken(stm32_metapac::dbgmcu::vals::Dbgclken::B0x1));
             crate::pac::DBGMCU.cr().read();
         }
 
@@ -656,9 +705,80 @@ fn init_hw(config: Config) -> Peripherals {
             use crate::pac::pwr::vals;
             crate::pac::PWR.svmcr().modify(|w| {
                 w.set_io2sv(if config.enable_independent_io_supply {
-                    vals::Io2sv::B_0X1
+                    vals::Io2sv::B0x1
                 } else {
-                    vals::Io2sv::B_0X0
+                    vals::Io2sv::B0x0
+                });
+            });
+
+            // Ultra-low-power BOR0 mode for lowest Stop 1 / Standby consumption.
+            crate::pac::PWR.cr1().modify(|w| w.set_ulpmen(config.enable_ulpmen));
+
+            // Flash fast wakeup and SRAM page power-down in Stop modes.
+            crate::pac::PWR.cr2().modify(|w| {
+                w.set_flashfwu(if config.flash_fast_wakeup {
+                    vals::Flashfwu::Normal
+                } else {
+                    vals::Flashfwu::LowPower
+                });
+
+                let sram = &config.stop_mode_sram;
+                w.set_sram1pds(
+                    0,
+                    if sram.sram1_page0 {
+                        vals::Srampds::PoweredOff
+                    } else {
+                        vals::Srampds::PoweredOn
+                    },
+                );
+                w.set_sram1pds(
+                    1,
+                    if sram.sram1_page1 {
+                        vals::Srampds::PoweredOff
+                    } else {
+                        vals::Srampds::PoweredOn
+                    },
+                );
+                w.set_sram1pds(
+                    2,
+                    if sram.sram1_page2 {
+                        vals::Srampds::PoweredOff
+                    } else {
+                        vals::Srampds::PoweredOn
+                    },
+                );
+                w.set_sram1pds(
+                    3,
+                    if sram.sram1_page3 {
+                        vals::Srampds::PoweredOff
+                    } else {
+                        vals::Srampds::PoweredOn
+                    },
+                );
+                w.set_sram2pds1(if sram.sram2 {
+                    vals::Srampds::PoweredOff
+                } else {
+                    vals::Srampds::PoweredOn
+                });
+                w.set_sram1pds567(if sram.sram1_pages567 {
+                    vals::Sram1pds567::PoweredOff
+                } else {
+                    vals::Sram1pds567::PoweredOn
+                });
+                w.set_icrampds(if sram.icache_sram {
+                    vals::Icrampds::NotRetained
+                } else {
+                    vals::Icrampds::Retained
+                });
+                w.set_prampds(if sram.otg_sram {
+                    vals::Prampds::B0x1
+                } else {
+                    vals::Prampds::B0x0
+                });
+                w.set_pkarampds(if sram.pka_sram {
+                    vals::Pkarampds::B0x1
+                } else {
+                    vals::Pkarampds::B0x0
                 });
             });
         }
@@ -751,22 +871,4 @@ fn init_hw(config: Config) -> Peripherals {
 
         p
     })
-}
-
-/// Performs a busy-wait delay for a specified number of microseconds.
-#[allow(unused)]
-pub(crate) fn block_for_us(us: u64) {
-    cortex_m::asm::delay(unsafe { rcc::get_freqs().sys.to_hertz().unwrap().0 as u64 * us / 1_000_000 } as u32);
-}
-
-#[cfg(all(feature = "time", not(feature = "rt")))]
-#[unsafe(no_mangle)]
-extern "Rust" fn __embassy_time_queue_item_from_waker(_waker: &core::task::Waker) {
-    unimplemented!()
-}
-
-#[cfg(all(feature = "time", not(feature = "rt")))]
-#[unsafe(no_mangle)]
-extern "Rust" fn __try_embassy_time_queue_item_from_waker(_waker: &core::task::Waker) {
-    unimplemented!()
 }

@@ -39,23 +39,23 @@ bind_interrupts!(struct Irqs {
 async fn main(_spawner: embassy_executor::Spawner) {
     let mut config = Config::default();
     config.rcc.pll1 = Some(embassy_stm32::rcc::Pll {
-        source: PllSource::HSI,
-        prediv: PllPreDiv::DIV1,
-        mul: PllMul::MUL30,
-        divr: Some(PllDiv::DIV5),
+        source: PllSource::Hsi,
+        prediv: PllPreDiv::Div1,
+        mul: PllMul::Mul30,
+        divr: Some(PllDiv::Div5),
         divq: None,
-        divp: Some(PllDiv::DIV30),
+        divp: Some(PllDiv::Div30),
         frac: Some(0),
     });
-    config.rcc.ahb_pre = AHBPrescaler::DIV1;
-    config.rcc.apb1_pre = APBPrescaler::DIV1;
-    config.rcc.apb2_pre = APBPrescaler::DIV1;
-    config.rcc.apb7_pre = APBPrescaler::DIV1;
-    config.rcc.ahb5_pre = AHB5Prescaler::DIV4;
-    config.rcc.voltage_scale = VoltageScale::RANGE1;
-    config.rcc.sys = Sysclk::PLL1_R;
+    config.rcc.ahb_pre = AHBPrescaler::Div1;
+    config.rcc.apb1_pre = APBPrescaler::Div1;
+    config.rcc.apb2_pre = APBPrescaler::Div1;
+    config.rcc.apb7_pre = APBPrescaler::Div1;
+    config.rcc.ahb5_pre = AHB5Prescaler::Div4;
+    config.rcc.voltage_scale = VoltageScale::Range1;
+    config.rcc.sys = Sysclk::Pll1R;
     // RNG requires HSI clock source on WBA
-    config.rcc.mux.rngsel = mux::Rngsel::HSI;
+    config.rcc.mux.rngsel = mux::Rngsel::Hsi;
 
     let p = embassy_stm32::init(config);
     info!("PKA ECDSA Signature Generation Example");
@@ -118,7 +118,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     let mut sig_s = [0u8; 32];
 
     info!("Signing message...");
-    match pka.ecdsa_sign(&curve, &private_key, &k, &message_hash, &mut sig_r, &mut sig_s) {
+    match pka.ecdsa_sign_blocking(&curve, &private_key, &k, &message_hash, &mut sig_r, &mut sig_s) {
         Ok(()) => {
             info!("Signature generated successfully!");
             info!("Signature R: {:02x}", sig_r);
@@ -142,7 +142,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     let signature = EcdsaSignature { r: &sig_r, s: &sig_s };
 
-    match pka.ecdsa_verify(&curve, &public_key, &signature, &message_hash) {
+    match pka.ecdsa_verify_blocking(&curve, &public_key, &signature, &message_hash) {
         Ok(true) => {
             info!("Generated signature verified successfully!");
         }
@@ -162,7 +162,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     let generator_y = curve.generator_y;
 
     let mut derived_pub = EccPoint::new(32);
-    match pka.ecc_mul(&curve, &private_key, generator_x, generator_y, &mut derived_pub) {
+    match pka.ecc_mul_blocking(&curve, &private_key, generator_x, generator_y, &mut derived_pub) {
         Ok(()) => {
             info!("Public key derived from private key:");
             info!("Derived X:  {:02x}", derived_pub.x[..32]);

@@ -68,13 +68,16 @@ async fn main(spawner: Spawner) {
 async fn producer(mut sender: Sender<'static, NoopRawMutex, SampleBuffer>, mut adc: AdcParts) {
     loop {
         // Obtain a free buffer from the channel
-        let buf = sender.send().await;
+        let mut buf = sender.send().await;
 
         // Fill it with data
-        adc.adc.read_many(&mut adc.pin, buf, 1, &mut adc.dma).await.unwrap();
+        adc.adc
+            .read_many(&mut adc.pin, &mut *buf, 1, &mut adc.dma)
+            .await
+            .unwrap();
 
         // Notify the channel that the buffer is now ready to be received
-        sender.send_done();
+        buf.send_done();
     }
 }
 
@@ -90,6 +93,6 @@ async fn consumer(mut receiver: Receiver<'static, NoopRawMutex, SampleBuffer>) {
         MAX.store(*max, Ordering::Relaxed);
 
         // Notify the channel that the buffer is now ready to be reused
-        receiver.receive_done();
+        buf.receive_done();
     }
 }

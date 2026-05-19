@@ -47,9 +47,9 @@ pub enum InputTISelection {
 impl From<InputTISelection> for stm32_metapac::timer::vals::CcmrInputCcs {
     fn from(tisel: InputTISelection) -> Self {
         match tisel {
-            InputTISelection::Normal => stm32_metapac::timer::vals::CcmrInputCcs::TI4,
-            InputTISelection::Alternate => stm32_metapac::timer::vals::CcmrInputCcs::TI3,
-            InputTISelection::TRC => stm32_metapac::timer::vals::CcmrInputCcs::TRC,
+            InputTISelection::Normal => stm32_metapac::timer::vals::CcmrInputCcs::Ti4,
+            InputTISelection::Alternate => stm32_metapac::timer::vals::CcmrInputCcs::Ti3,
+            InputTISelection::TRC => stm32_metapac::timer::vals::CcmrInputCcs::Trc,
         }
     }
 }
@@ -101,11 +101,11 @@ impl CountingMode {
 impl From<CountingMode> for (vals::Cms, vals::Dir) {
     fn from(value: CountingMode) -> Self {
         match value {
-            CountingMode::EdgeAlignedUp => (vals::Cms::EDGE_ALIGNED, vals::Dir::UP),
-            CountingMode::EdgeAlignedDown => (vals::Cms::EDGE_ALIGNED, vals::Dir::DOWN),
-            CountingMode::CenterAlignedDownInterrupts => (vals::Cms::CENTER_ALIGNED1, vals::Dir::UP),
-            CountingMode::CenterAlignedUpInterrupts => (vals::Cms::CENTER_ALIGNED2, vals::Dir::UP),
-            CountingMode::CenterAlignedBothInterrupts => (vals::Cms::CENTER_ALIGNED3, vals::Dir::UP),
+            CountingMode::EdgeAlignedUp => (vals::Cms::EdgeAligned, vals::Dir::Up),
+            CountingMode::EdgeAlignedDown => (vals::Cms::EdgeAligned, vals::Dir::Down),
+            CountingMode::CenterAlignedDownInterrupts => (vals::Cms::CenterAligned1, vals::Dir::Up),
+            CountingMode::CenterAlignedUpInterrupts => (vals::Cms::CenterAligned2, vals::Dir::Up),
+            CountingMode::CenterAlignedBothInterrupts => (vals::Cms::CenterAligned3, vals::Dir::Up),
         }
     }
 }
@@ -113,11 +113,11 @@ impl From<CountingMode> for (vals::Cms, vals::Dir) {
 impl From<(vals::Cms, vals::Dir)> for CountingMode {
     fn from(value: (vals::Cms, vals::Dir)) -> Self {
         match value {
-            (vals::Cms::EDGE_ALIGNED, vals::Dir::UP) => CountingMode::EdgeAlignedUp,
-            (vals::Cms::EDGE_ALIGNED, vals::Dir::DOWN) => CountingMode::EdgeAlignedDown,
-            (vals::Cms::CENTER_ALIGNED1, _) => CountingMode::CenterAlignedDownInterrupts,
-            (vals::Cms::CENTER_ALIGNED2, _) => CountingMode::CenterAlignedUpInterrupts,
-            (vals::Cms::CENTER_ALIGNED3, _) => CountingMode::CenterAlignedBothInterrupts,
+            (vals::Cms::EdgeAligned, vals::Dir::Up) => CountingMode::EdgeAlignedUp,
+            (vals::Cms::EdgeAligned, vals::Dir::Down) => CountingMode::EdgeAlignedDown,
+            (vals::Cms::CenterAligned1, _) => CountingMode::CenterAlignedDownInterrupts,
+            (vals::Cms::CenterAligned2, _) => CountingMode::CenterAlignedUpInterrupts,
+            (vals::Cms::CenterAligned3, _) => CountingMode::CenterAlignedBothInterrupts,
         }
     }
 }
@@ -194,14 +194,14 @@ pub enum OutputCompareMode {
 impl From<OutputCompareMode> for crate::pac::timer::vals::OcmGp {
     fn from(mode: OutputCompareMode) -> Self {
         match mode {
-            OutputCompareMode::Frozen => crate::pac::timer::vals::OcmGp::FROZEN,
-            OutputCompareMode::ActiveOnMatch => crate::pac::timer::vals::OcmGp::ACTIVE_ON_MATCH,
-            OutputCompareMode::InactiveOnMatch => crate::pac::timer::vals::OcmGp::INACTIVE_ON_MATCH,
-            OutputCompareMode::Toggle => crate::pac::timer::vals::OcmGp::TOGGLE,
-            OutputCompareMode::ForceInactive => crate::pac::timer::vals::OcmGp::FORCE_INACTIVE,
-            OutputCompareMode::ForceActive => crate::pac::timer::vals::OcmGp::FORCE_ACTIVE,
-            OutputCompareMode::PwmMode1 => crate::pac::timer::vals::OcmGp::PWM_MODE1,
-            OutputCompareMode::PwmMode2 => crate::pac::timer::vals::OcmGp::PWM_MODE2,
+            OutputCompareMode::Frozen => crate::pac::timer::vals::OcmGp::Frozen,
+            OutputCompareMode::ActiveOnMatch => crate::pac::timer::vals::OcmGp::ActiveOnMatch,
+            OutputCompareMode::InactiveOnMatch => crate::pac::timer::vals::OcmGp::InactiveOnMatch,
+            OutputCompareMode::Toggle => crate::pac::timer::vals::OcmGp::Toggle,
+            OutputCompareMode::ForceInactive => crate::pac::timer::vals::OcmGp::ForceInactive,
+            OutputCompareMode::ForceActive => crate::pac::timer::vals::OcmGp::ForceActive,
+            OutputCompareMode::PwmMode1 => crate::pac::timer::vals::OcmGp::PwmMode1,
+            OutputCompareMode::PwmMode2 => crate::pac::timer::vals::OcmGp::PwmMode2,
         }
     }
 }
@@ -209,26 +209,26 @@ impl From<OutputCompareMode> for crate::pac::timer::vals::OcmGp {
 impl From<OutputCompareMode> for crate::pac::timer::vals::Ocm {
     fn from(mode: OutputCompareMode) -> Self {
         match mode {
-            OutputCompareMode::Frozen => crate::pac::timer::vals::Ocm::FROZEN,
-            OutputCompareMode::ActiveOnMatch => crate::pac::timer::vals::Ocm::ACTIVE_ON_MATCH,
-            OutputCompareMode::InactiveOnMatch => crate::pac::timer::vals::Ocm::INACTIVE_ON_MATCH,
-            OutputCompareMode::Toggle => crate::pac::timer::vals::Ocm::TOGGLE,
-            OutputCompareMode::ForceInactive => crate::pac::timer::vals::Ocm::FORCE_INACTIVE,
-            OutputCompareMode::ForceActive => crate::pac::timer::vals::Ocm::FORCE_ACTIVE,
-            OutputCompareMode::PwmMode1 => crate::pac::timer::vals::Ocm::PWM_MODE1,
-            OutputCompareMode::PwmMode2 => crate::pac::timer::vals::Ocm::PWM_MODE2,
+            OutputCompareMode::Frozen => crate::pac::timer::vals::Ocm::Frozen,
+            OutputCompareMode::ActiveOnMatch => crate::pac::timer::vals::Ocm::ActiveOnMatch,
+            OutputCompareMode::InactiveOnMatch => crate::pac::timer::vals::Ocm::InactiveOnMatch,
+            OutputCompareMode::Toggle => crate::pac::timer::vals::Ocm::Toggle,
+            OutputCompareMode::ForceInactive => crate::pac::timer::vals::Ocm::ForceInactive,
+            OutputCompareMode::ForceActive => crate::pac::timer::vals::Ocm::ForceActive,
+            OutputCompareMode::PwmMode1 => crate::pac::timer::vals::Ocm::PwmMode1,
+            OutputCompareMode::PwmMode2 => crate::pac::timer::vals::Ocm::PwmMode2,
             #[cfg(timer_v2)]
-            OutputCompareMode::OnePulseMode1 => crate::pac::timer::vals::Ocm::RETRIGERRABLE_OPM_MODE_1,
+            OutputCompareMode::OnePulseMode1 => crate::pac::timer::vals::Ocm::RetrigerrableOpmMode1,
             #[cfg(timer_v2)]
-            OutputCompareMode::OnePulseMode2 => crate::pac::timer::vals::Ocm::RETRIGERRABLE_OPM_MODE_2,
+            OutputCompareMode::OnePulseMode2 => crate::pac::timer::vals::Ocm::RetrigerrableOpmMode2,
             #[cfg(timer_v2)]
-            OutputCompareMode::CombinedPwmMode1 => crate::pac::timer::vals::Ocm::COMBINED_PWM_MODE_1,
+            OutputCompareMode::CombinedPwmMode1 => crate::pac::timer::vals::Ocm::CombinedPwmMode1,
             #[cfg(timer_v2)]
-            OutputCompareMode::CombinedPwmMode2 => crate::pac::timer::vals::Ocm::COMBINED_PWM_MODE_2,
+            OutputCompareMode::CombinedPwmMode2 => crate::pac::timer::vals::Ocm::CombinedPwmMode2,
             #[cfg(timer_v2)]
-            OutputCompareMode::AsymmetricPwmMode1 => crate::pac::timer::vals::Ocm::ASYMMETRIC_PWM_MODE_1,
+            OutputCompareMode::AsymmetricPwmMode1 => crate::pac::timer::vals::Ocm::AsymmetricPwmMode1,
             #[cfg(timer_v2)]
-            OutputCompareMode::AsymmetricPwmMode2 => crate::pac::timer::vals::Ocm::ASYMMETRIC_PWM_MODE_2,
+            OutputCompareMode::AsymmetricPwmMode2 => crate::pac::timer::vals::Ocm::AsymmetricPwmMode2,
         }
     }
 }
@@ -426,9 +426,9 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
     /// used to load value from pre-load registers. If called when the timer is running,
     /// it may disrupt the output waveform.
     pub fn generate_update_event(&self) {
-        self.regs_core().cr1().modify(|r| r.set_urs(vals::Urs::COUNTER_ONLY));
+        self.regs_core().cr1().modify(|r| r.set_urs(vals::Urs::CounterOnly));
         self.regs_core().egr().write(|r| r.set_ug(true));
-        self.regs_core().cr1().modify(|r| r.set_urs(vals::Urs::ANY_EVENT));
+        self.regs_core().cr1().modify(|r| r.set_urs(vals::Urs::AnyEvent));
     }
 
     /// Stop the timer.
@@ -664,9 +664,9 @@ impl<'d, T: GeneralInstance1Channel> Timer<'d, T> {
         #[cfg(stm32l0)]
         regs.arr().write(|r| r.set_arr(unwrap!(arr.try_into())));
 
-        regs.cr1().modify(|r| r.set_urs(vals::Urs::COUNTER_ONLY));
+        regs.cr1().modify(|r| r.set_urs(vals::Urs::CounterOnly));
         regs.egr().write(|r| r.set_ug(true));
-        regs.cr1().modify(|r| r.set_urs(vals::Urs::ANY_EVENT));
+        regs.cr1().modify(|r| r.set_urs(vals::Urs::AnyEvent));
     }
 }
 

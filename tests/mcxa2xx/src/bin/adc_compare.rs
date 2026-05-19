@@ -38,7 +38,7 @@ async fn main(_spawner: Spawner) {
         let commands = &[Command::new_single(
             p.P2_4.reborrow(),
             CommandConfig {
-                resolution: Mode::DATA_16_BITS,
+                resolution: Mode::Data16Bits,
                 compare: adc::Compare::StoreIf(adc::CompareFunction::GreaterThan(0x8000)),
                 ..Default::default()
             },
@@ -82,7 +82,7 @@ async fn main(_spawner: Spawner) {
         let commands = &[Command::new_single(
             p.P2_4.reborrow(),
             CommandConfig {
-                resolution: Mode::DATA_16_BITS,
+                resolution: Mode::Data16Bits,
                 compare: adc::Compare::SkipUntil(adc::CompareFunction::GreaterThan(0x8000)),
                 ..Default::default()
             },

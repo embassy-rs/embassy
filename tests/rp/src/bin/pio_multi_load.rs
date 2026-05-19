@@ -124,6 +124,15 @@ async fn main(_spawner: Spawner) {
         };
     }
 
+    // program won't fit
+    {
+        let prg = pio_asm!("nop", "nop", "nop", "nop", "nop", "nop", "nop", "nop", "nop");
+        match common.try_load_program(&prg.program) {
+            Err(LoadError::InsufficientSpace) => (),
+            _ => panic!("program loaded when it shouldn't"),
+        };
+    }
+
     info!("Test OK");
     cortex_m::asm::bkpt();
 }

@@ -7,28 +7,28 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
-use embassy_stm32::rcc::WPAN_DEFAULT;
+use embassy_stm32::rcc::Config as RccConfig;
 use embassy_stm32_wpan::TlMbox;
-use embassy_stm32_wpan::hci::event::command::{CommandComplete, ReturnParameters};
-use embassy_stm32_wpan::hci::host::uart::{Packet, UartHci};
-use embassy_stm32_wpan::hci::host::{AdvertisingFilterPolicy, EncryptionKey, HostHci, OwnAddressType};
-use embassy_stm32_wpan::hci::types::AdvertisingType;
-use embassy_stm32_wpan::hci::vendor::command::gap::{
+use embassy_stm32_wpan::lhci::LhciC1DeviceInformationCcrp;
+use embassy_stm32_wpan::sub::ble::Ble;
+use embassy_stm32_wpan::sub::mm;
+use stm32wb_hci::event::command::{CommandComplete, ReturnParameters};
+use stm32wb_hci::host::uart::{Packet, UartHci};
+use stm32wb_hci::host::{AdvertisingFilterPolicy, EncryptionKey, HostHci, OwnAddressType};
+use stm32wb_hci::types::AdvertisingType;
+use stm32wb_hci::vendor::command::gap::{
     AddressType, AuthenticationRequirements, DiscoverableParameters, GapCommands, IoCapability, LocalName, Pin, Role,
     SecureConnectionSupport,
 };
-use embassy_stm32_wpan::hci::vendor::command::gatt::{
+use stm32wb_hci::vendor::command::gatt::{
     AddCharacteristicParameters, AddServiceParameters, CharacteristicEvent, CharacteristicPermission,
     CharacteristicProperty, EncryptionKeySize, GattCommands, ServiceType, UpdateCharacteristicValueParameters, Uuid,
     WriteResponseParameters,
 };
-use embassy_stm32_wpan::hci::vendor::command::hal::{ConfigData, HalCommands, PowerLevel};
-use embassy_stm32_wpan::hci::vendor::event::command::VendorReturnParameters;
-use embassy_stm32_wpan::hci::vendor::event::{self, AttributeHandle, VendorEvent};
-use embassy_stm32_wpan::hci::{BdAddr, Event};
-use embassy_stm32_wpan::lhci::LhciC1DeviceInformationCcrp;
-use embassy_stm32_wpan::sub::ble::Ble;
-use embassy_stm32_wpan::sub::mm;
+use stm32wb_hci::vendor::command::hal::{ConfigData, HalCommands, PowerLevel};
+use stm32wb_hci::vendor::event::command::VendorReturnParameters;
+use stm32wb_hci::vendor::event::{self, AttributeHandle, VendorEvent};
+use stm32wb_hci::{BdAddr, Event};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs{
@@ -64,18 +64,19 @@ async fn main(spawner: Spawner) {
     */
 
     let mut config = embassy_stm32::Config::default();
-    config.rcc = WPAN_DEFAULT;
+    config.rcc = RccConfig::new_wpan();
     let p = embassy_stm32::init(config);
     info!("Hello World!");
 
     let config = Config::default();
-    let mbox = TlMbox::init(p.IPCC, Irqs, config).await.unwrap();
-    let mut sys = mbox.sys_subsystem;
-    let mut ble = mbox.ble_subsystem;
+    let (mut ble, mm) = TlMbox::wait_ready(p.IPCC, Irqs, config)
+        .await
+        .unwrap()
+        .init_ble(Default::default())
+        .await
+        .unwrap();
 
-    spawner.spawn(run_mm_queue(mbox.mm_subsystem).unwrap());
-
-    let _ = sys.shci_c2_ble_init(Default::default()).await;
+    spawner.spawn(run_mm_queue(mm).unwrap());
 
     info!("resetting BLE...");
     ble.reset().await;

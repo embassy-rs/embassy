@@ -335,8 +335,8 @@ use super::bindings::{link_layer, mac};
 use super::util_seq;
 
 const UTIL_SEQ_RFU: u32 = 0;
-const TASK_LINK_LAYER_MASK: u32 = 1 << mac::CFG_TASK_ID_T_CFG_TASK_LINK_LAYER;
-const TASK_PRIO_LINK_LAYER: u32 = mac::CFG_SEQ_PRIO_ID_T_CFG_SEQ_PRIO_0 as u32;
+pub const TASK_LINK_LAYER_MASK: u32 = 1 << mac::CFG_TASK_ID_T_CFG_TASK_LINK_LAYER;
+pub const TASK_PRIO_LINK_LAYER: u32 = mac::CFG_SEQ_PRIO_ID_T_CFG_SEQ_PRIO_0 as u32;
 
 /**
  * @brief  Link Layer background process initialization
@@ -345,7 +345,10 @@ const TASK_PRIO_LINK_LAYER: u32 = mac::CFG_SEQ_PRIO_ID_T_CFG_SEQ_PRIO_0 as u32;
  */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ll_sys_bg_process_init() {
-    util_seq::UTIL_SEQ_RegTask(TASK_LINK_LAYER_MASK, UTIL_SEQ_RFU, Some(link_layer::ll_sys_bg_process));
+    unsafe extern "C" fn bg_process_wrapper() {
+        link_layer::ll_sys_bg_process();
+    }
+    util_seq::UTIL_SEQ_RegTask(TASK_LINK_LAYER_MASK, UTIL_SEQ_RFU, Some(bg_process_wrapper));
 }
 
 /**
@@ -401,10 +404,10 @@ pub unsafe extern "C" fn ll_sys_sleep_clock_source_selection() {
 
     let radiostsel = RCC.bdcr().read().radiostsel();
     let slp_clk_src = match radiostsel {
-        Radiostsel::LSE => link_layer::_SLPTMR_SRC_TYPE_E_RTC_SLPTMR as u8,
+        Radiostsel::Lse => link_layer::_SLPTMR_SRC_TYPE_E_RTC_SLPTMR as u8,
         Radiostsel::_RESERVED_2 => link_layer::_SLPTMR_SRC_TYPE_E_RCO_SLPTMR as u8, // LSI
-        Radiostsel::HSE => link_layer::_SLPTMR_SRC_TYPE_E_CRYSTAL_OSCILLATOR_SLPTMR as u8,
-        Radiostsel::DISABLE => panic!("Radio sleep timer clock not configured (RADIOSTSEL=DISABLE)"),
+        Radiostsel::Hse => link_layer::_SLPTMR_SRC_TYPE_E_CRYSTAL_OSCILLATOR_SLPTMR as u8,
+        Radiostsel::Disable => panic!("Radio sleep timer clock not configured (RADIOSTSEL=DISABLE)"),
     };
 
     let mut frequency: u16 = 0;

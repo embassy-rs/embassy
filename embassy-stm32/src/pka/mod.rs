@@ -21,12 +21,12 @@
 //! | ECDSA Verify | 0x26 | Verify ECDSA signatures |
 //! | Point Check | 0x28 | Validate point is on curve |
 //!
-//! # Example - ECDSA Signature Verification
+//! # Example - ECDSA Signature Verification (async)
 //!
 //! ```no_run
 //! use embassy_stm32::pka::{Pka, EcdsaCurveParams, EcdsaPublicKey, EcdsaSignature};
 //!
-//! let mut pka = Pka::new_blocking(p.PKA, Irqs);
+//! let mut pka = Pka::new(p.PKA, Irqs);
 //! let params = EcdsaCurveParams::nist_p256();
 //!
 //! let public_key = EcdsaPublicKey {
@@ -39,35 +39,41 @@
 //!     s: &sig_s,
 //! };
 //!
-//! let valid = pka.ecdsa_verify(&params, &public_key, &signature, &hash)?;
+//! let valid = pka.ecdsa_verify(&params, &public_key, &signature, &hash).await?;
 //! ```
 //!
-//! # Example - ECDH Key Agreement
+//! For blocking use, swap `Pka::new` for `Pka::new_blocking` and call
+//! `pka.ecdsa_verify_blocking(...)` etc. without `.await`.
+//!
+//! # RAM scrubbing
+//!
+//! Operations do **not** clear the RAM between calls. After a sensitive
+//! operation (one that touched a private key -- e.g. `ecdsa_sign`, `ecc_mul`
+//! with a private scalar, `modular_exp` with a private exponent), the
+//! intermediate values remain in PKA RAM until overwritten. To explicitly
+//! scrub the RAM between sensitive operations, call [`Pka::scrub`]:
 //!
 //! ```no_run
-//! use embassy_stm32::pka::{Pka, EccMulParams, EccPoint};
-//!
-//! let mut pka = Pka::new_blocking(p.PKA, Irqs);
-//! let params = EccMulParams::nist_p256();
-//!
-//! // Compute shared_secret = private_key * peer_public_key
-//! let peer_public = EccPoint { x: &peer_x, y: &peer_y };
-//! let shared_point = pka.ecc_mul(&params, &private_key, &peer_public)?;
+//! pka.ecdsa_sign(&curve, &priv_key, &k, &hash, &mut sig_r, &mut sig_s).await?;
+//! pka.scrub().await?; // zero the PKA RAM before the next op
 //! ```
 //!
 //! # Security Notes
 //!
-//! - Always use cryptographically secure random numbers for ECDSA k values
-//! - Validate all public keys before use (use `point_check`)
-//! - Use constant-time operations when possible (hardware provides this)
-//! - Clear sensitive data from memory after use
+//! - Always use cryptographically secure random numbers for ECDSA `k` values.
+//! - Validate all public keys before use (call `point_check`).
+//! - Call [`Pka::scrub`] between operations that touch sensitive material.
+//! - Clear sensitive data from caller-owned buffers after use.
 
+use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::task::Poll;
 
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::interrupt::typelevel::Interrupt;
+use crate::mode::{Async, Blocking, Mode};
 use crate::{interrupt, pac, peripherals, rcc};
 
 static PKA_WAKER: AtomicWaker = AtomicWaker::new();
@@ -335,16 +341,14 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     unsafe fn on_interrupt() {
         let sr = T::regs().sr().read();
 
-        if sr.procendf() {
-            T::regs().clrfr().write(|w| w.set_procendfc(true));
-            PKA_WAKER.wake();
-        }
-
-        if sr.ramerrf() || sr.addrerrf() || sr.operrf() {
-            T::regs().clrfr().write(|w| {
-                w.set_ramerrfc(true);
-                w.set_addrerrfc(true);
-                w.set_operrfc(true);
+        // Disable the IE bits so the IRQ doesn't refire while the future is waking.
+        // The poll_fn loop in `start_and_wait_async` reads SR and clears the flags itself.
+        if sr.procendf() || sr.ramerrf() || sr.addrerrf() || sr.operrf() {
+            T::regs().cr().modify(|w| {
+                w.set_procendie(false);
+                w.set_ramerrie(false);
+                w.set_addrerrie(false);
+                w.set_operrie(false);
             });
             PKA_WAKER.wake();
         }
@@ -501,7 +505,7 @@ pub struct RsaCrtParams<'a> {
 /// ECC point in projective coordinates (X, Y, Z)
 ///
 /// In projective coordinates, the affine point (x, y) is represented as (X, Y, Z)
-/// where x = X/Z and y = Y/Z (for standard projective) or x = X/Z² and y = Y/Z³
+/// where x = X/Z and y = Y/Z (for standard projective) or x = X/Z^2 and y = Y/Z^3
 /// (for Jacobian projective).
 pub struct EccProjectivePoint {
     /// X coordinate
@@ -566,14 +570,13 @@ pub struct ModExpProtectParams<'a> {
 // ============================================================================
 
 /// PKA driver
-pub struct Pka<'d, T: Instance> {
+pub struct Pka<'d, T: Instance, M: Mode> {
     _peripheral: Peri<'d, T>,
+    _phantom: PhantomData<M>,
 }
 
-impl<'d, T: Instance> Pka<'d, T> {
-    const RAM_ERASE_TIMEOUT: u32 = 100_000;
-
-    /// Create a new PKA driver
+impl<'d, T: Instance> Pka<'d, T, Blocking> {
+    /// Create a new PKA driver in blocking mode.
     pub fn new_blocking(
         peripheral: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
@@ -583,25 +586,49 @@ impl<'d, T: Instance> Pka<'d, T> {
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
-        Self {
+        let mut s = Self {
             _peripheral: peripheral,
-        }
+            _phantom: PhantomData,
+        };
+        s.ensure_init_blocking().expect("PKA initialization failed");
+        s
     }
+}
+
+impl<'d, T: Instance> Pka<'d, T, Async> {
+    /// Create a new PKA driver in async mode.
+    pub fn new(
+        peripheral: Peri<'d, T>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+    ) -> Self {
+        rcc::enable_and_reset::<T>();
+
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
+
+        let mut s = Self {
+            _peripheral: peripheral,
+            _phantom: PhantomData,
+        };
+        s.ensure_init_blocking().expect("PKA initialization failed");
+        s
+    }
+}
+
+impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
+    const RAM_ERASE_TIMEOUT: u32 = 100_000;
 
     // ========================================================================
     // ECDSA Operations
     // ========================================================================
 
-    /// Verify an ECDSA signature
-    ///
-    /// Returns `Ok(true)` if signature is valid, `Ok(false)` if invalid.
-    pub fn ecdsa_verify(
+    fn prepare_ecdsa_verify(
         &mut self,
         curve: &EcdsaCurveParams,
         public_key: &EcdsaPublicKey,
         signature: &EcdsaSignature,
         message_hash: &[u8],
-    ) -> Result<bool, Error> {
+    ) -> Result<(), Error> {
         let modulus_size = curve.p_modulus.len();
         let order_size = curve.order.len();
 
@@ -617,8 +644,6 @@ impl<'d, T: Instance> Pka<'d, T> {
         {
             return Err(Error::InvalidSize);
         }
-
-        self.init_pka()?;
 
         // Write bit counts
         let order_nb_bits = Self::get_opt_bit_size(order_size, curve.order[0]);
@@ -646,41 +671,24 @@ impl<'d, T: Instance> Pka<'d, T> {
         self.write_operand(offsets::ecdsa_verif::IN_HASH_E, message_hash);
         self.write_operand(offsets::ecdsa_verif::IN_ORDER_N, curve.order);
 
-        // Set mode and start (matching ST-HAL: mode is set AFTER writing parameters)
+        // Set mode (matching ST-HAL: mode is set AFTER writing parameters)
         self.set_mode(PkaMode::EcdsaVerify);
-        self.start_and_wait()?;
+        Ok(())
+    }
 
+    fn read_ecdsa_verify(&mut self) -> Result<bool, Error> {
         let result = self.read_ram_word(offsets::ecdsa_verif::OUT_RESULT);
-        self.disable_pka();
-
         Ok(result == 0xD60D)
     }
 
-    /// Generate an ECDSA signature
-    ///
-    /// # Arguments
-    /// * `curve` - Curve parameters
-    /// * `private_key` - Private key d
-    /// * `k` - Random nonce (MUST be cryptographically random and unique per signature!)
-    /// * `message_hash` - Hash of the message to sign
-    ///
-    /// # Returns
-    /// Signature (r, s) as byte arrays
-    ///
-    /// # Security Warning
-    /// The `k` value MUST be:
-    /// - Cryptographically random
-    /// - Unique for every signature
-    /// - Never reused or predictable
-    /// Failure to ensure this will compromise the private key!
-    pub fn ecdsa_sign(
+    fn prepare_ecdsa_sign(
         &mut self,
         curve: &EcdsaCurveParams,
         private_key: &[u8],
         k: &[u8],
         message_hash: &[u8],
-        signature_r: &mut [u8],
-        signature_s: &mut [u8],
+        signature_r: &[u8],
+        signature_s: &[u8],
     ) -> Result<(), Error> {
         let modulus_size = curve.p_modulus.len();
         let order_size = curve.order.len();
@@ -695,7 +703,6 @@ impl<'d, T: Instance> Pka<'d, T> {
             return Err(Error::InvalidSize);
         }
 
-        self.init_pka()?;
         self.set_mode(PkaMode::EcdsaSign);
 
         // Write bit counts
@@ -719,12 +726,18 @@ impl<'d, T: Instance> Pka<'d, T> {
         self.write_operand(offsets::ecdsa_sign::IN_K, k);
         self.write_operand(offsets::ecdsa_sign::IN_HASH_E, message_hash);
 
-        self.start_and_wait()?;
+        Ok(())
+    }
 
+    fn read_ecdsa_sign(
+        &mut self,
+        order_size: usize,
+        signature_r: &mut [u8],
+        signature_s: &mut [u8],
+    ) -> Result<(), Error> {
         // Check for errors - 0xD60D indicates success
         let result = self.read_ram_word(offsets::ecdsa_sign::OUT_ERROR);
         if result != 0xD60D {
-            self.disable_pka();
             return Err(Error::OperationError);
         }
 
@@ -732,7 +745,6 @@ impl<'d, T: Instance> Pka<'d, T> {
         self.read_operand(offsets::ecdsa_sign::OUT_SIGNATURE_R, &mut signature_r[..order_size]);
         self.read_operand(offsets::ecdsa_sign::OUT_SIGNATURE_S, &mut signature_s[..order_size]);
 
-        self.disable_pka();
         Ok(())
     }
 
@@ -740,25 +752,13 @@ impl<'d, T: Instance> Pka<'d, T> {
     // ECC Scalar Multiplication (for ECDH)
     // ========================================================================
 
-    /// Perform ECC scalar multiplication: result = k * P
-    ///
-    /// This is the core operation for ECDH key agreement:
-    /// - To generate public key: public = private_key * G (generator point)
-    /// - To compute shared secret: shared = my_private * peer_public
-    ///
-    /// # Arguments
-    /// * `curve` - Curve parameters
-    /// * `k` - Scalar multiplier
-    /// * `point_x` - Input point X coordinate
-    /// * `point_y` - Input point Y coordinate
-    /// * `result` - Output point (must be initialized with correct size)
-    pub fn ecc_mul(
+    fn prepare_ecc_mul(
         &mut self,
         curve: &EcdsaCurveParams,
         k: &[u8],
         point_x: &[u8],
         point_y: &[u8],
-        result: &mut EccPoint,
+        result_size: usize,
     ) -> Result<(), Error> {
         let modulus_size = curve.p_modulus.len();
         let order_size = curve.order.len();
@@ -766,12 +766,10 @@ impl<'d, T: Instance> Pka<'d, T> {
         if k.len() != order_size
             || point_x.len() != modulus_size
             || point_y.len() != modulus_size
-            || result.size != modulus_size
+            || result_size != modulus_size
         {
             return Err(Error::InvalidSize);
         }
-
-        self.init_pka()?;
 
         // Write bit counts
         // ST HAL uses scalar size with MSB of prime order (not scalar MSB)
@@ -795,12 +793,13 @@ impl<'d, T: Instance> Pka<'d, T> {
 
         // Set mode right before start (matching ST HAL order)
         self.set_mode(PkaMode::EccMul);
-        self.start_and_wait()?;
+        Ok(())
+    }
 
+    fn read_ecc_mul(&mut self, modulus_size: usize, result: &mut EccPoint) -> Result<(), Error> {
         // Check for errors - 0xD60D indicates success
         let status = self.read_ram_word(offsets::ecc_mul::OUT_ERROR);
         if status != 0xD60D {
-            self.disable_pka();
             return Err(Error::OperationError);
         }
 
@@ -808,22 +807,15 @@ impl<'d, T: Instance> Pka<'d, T> {
         self.read_operand(offsets::ecc_mul::OUT_RESULT_X, &mut result.x[..modulus_size]);
         self.read_operand(offsets::ecc_mul::OUT_RESULT_Y, &mut result.y[..modulus_size]);
 
-        self.disable_pka();
         Ok(())
     }
 
-    /// Check if a point is on the curve
-    ///
-    /// This should be called to validate any externally-provided public key
-    /// before using it in cryptographic operations.
-    pub fn point_check(&mut self, curve: &EcdsaCurveParams, point_x: &[u8], point_y: &[u8]) -> Result<bool, Error> {
+    fn prepare_point_check(&mut self, curve: &EcdsaCurveParams, point_x: &[u8], point_y: &[u8]) -> Result<(), Error> {
         let modulus_size = curve.p_modulus.len();
 
         if point_x.len() != modulus_size || point_y.len() != modulus_size {
             return Err(Error::InvalidSize);
         }
-
-        self.init_pka()?;
 
         let mod_nb_bits = Self::get_opt_bit_size(modulus_size, curve.p_modulus[0]);
 
@@ -838,10 +830,11 @@ impl<'d, T: Instance> Pka<'d, T> {
 
         // Set mode right before start (matching ST HAL order)
         self.set_mode(PkaMode::PointCheck);
-        self.start_and_wait()?;
+        Ok(())
+    }
 
+    fn read_point_check(&mut self) -> Result<bool, Error> {
         let result = self.read_ram_word(offsets::point_check::OUT_ERROR);
-        self.disable_pka();
 
         // 0xD60D means point is on curve
         Ok(result == 0xD60D)
@@ -851,34 +844,20 @@ impl<'d, T: Instance> Pka<'d, T> {
     // RSA Operations
     // ========================================================================
 
-    /// Perform modular exponentiation: result = base^exp mod n
-    ///
-    /// This is the core RSA operation:
-    /// - Encryption: ciphertext = plaintext^e mod n
-    /// - Decryption: plaintext = ciphertext^d mod n
-    /// - Signing: signature = hash^d mod n
-    /// - Verification: hash = signature^e mod n
-    ///
-    /// # Arguments
-    /// * `base` - Base value (plaintext/ciphertext)
-    /// * `exponent` - Exponent (e for encrypt/verify, d for decrypt/sign)
-    /// * `modulus` - RSA modulus n
-    /// * `result` - Output buffer (must be same size as modulus)
-    pub fn modular_exp(
+    fn prepare_modular_exp(
         &mut self,
         base: &[u8],
         exponent: &[u8],
         modulus: &[u8],
-        result: &mut [u8],
+        result_len: usize,
     ) -> Result<(), Error> {
         let mod_size = modulus.len();
         let exp_size = exponent.len();
 
-        if base.len() > mod_size || result.len() < mod_size {
+        if base.len() > mod_size || result_len < mod_size {
             return Err(Error::InvalidSize);
         }
 
-        self.init_pka()?;
         self.set_mode(PkaMode::ModularExp);
 
         // HAL uses byte-aligned bit sizes for modular exponentiation
@@ -892,22 +871,20 @@ impl<'d, T: Instance> Pka<'d, T> {
         self.write_operand(offsets::modular_exp::IN_EXPONENT, exponent);
         self.write_operand(offsets::modular_exp::IN_MODULUS, modulus);
 
-        self.start_and_wait()?;
-
-        self.read_operand(offsets::modular_exp::OUT_RESULT, &mut result[..mod_size]);
-
         Ok(())
     }
 
-    /// Perform RSA CRT exponentiation for fast decryption
-    ///
-    /// Uses Chinese Remainder Theorem for ~4x faster RSA private key operations.
-    ///
-    /// # Arguments
-    /// * `ciphertext` - Encrypted data
-    /// * `params` - CRT parameters (p, q, dp, dq, qinv)
-    /// * `result` - Output buffer
-    pub fn rsa_crt_exp(&mut self, ciphertext: &[u8], params: &RsaCrtParams, result: &mut [u8]) -> Result<(), Error> {
+    fn read_modular_exp(&mut self, mod_size: usize, result: &mut [u8]) -> Result<(), Error> {
+        self.read_operand(offsets::modular_exp::OUT_RESULT, &mut result[..mod_size]);
+        Ok(())
+    }
+
+    fn prepare_rsa_crt_exp(
+        &mut self,
+        ciphertext: &[u8],
+        params: &RsaCrtParams,
+        result_len: usize,
+    ) -> Result<(), Error> {
         let p_size = params.prime_p.len();
         let q_size = params.prime_q.len();
         let mod_size = p_size + q_size; // n = p * q
@@ -916,12 +893,11 @@ impl<'d, T: Instance> Pka<'d, T> {
             || params.dp.len() != p_size
             || params.dq.len() != q_size
             || params.qinv.len() != p_size
-            || result.len() < mod_size
+            || result_len < mod_size
         {
             return Err(Error::InvalidSize);
         }
 
-        self.init_pka()?;
         self.set_mode(PkaMode::RsaCrtExp);
 
         // HAL uses byte-aligned bit sizes for RSA CRT
@@ -936,10 +912,11 @@ impl<'d, T: Instance> Pka<'d, T> {
         self.write_operand(offsets::rsa_crt::IN_QINV_CRT, params.qinv);
         self.write_operand(offsets::rsa_crt::IN_EXPONENT_BASE, ciphertext);
 
-        self.start_and_wait()?;
+        Ok(())
+    }
 
+    fn read_rsa_crt_exp(&mut self, mod_size: usize, result: &mut [u8]) -> Result<(), Error> {
         self.read_operand(offsets::rsa_crt::OUT_RESULT, &mut result[..mod_size]);
-
         Ok(())
     }
 
@@ -947,15 +924,13 @@ impl<'d, T: Instance> Pka<'d, T> {
     // Modular Arithmetic Operations
     // ========================================================================
 
-    /// Compute modular inverse: result = a^(-1) mod n
-    pub fn modular_inv(&mut self, a: &[u8], modulus: &[u8], result: &mut [u8]) -> Result<(), Error> {
+    fn prepare_modular_inv(&mut self, a: &[u8], modulus: &[u8], result_len: usize) -> Result<(), Error> {
         let size = modulus.len();
 
-        if a.len() != size || result.len() < size {
+        if a.len() != size || result_len < size {
             return Err(Error::InvalidSize);
         }
 
-        self.init_pka()?;
         self.set_mode(PkaMode::ModularInv);
 
         let nb_bits = Self::get_opt_bit_size(size, modulus[0]);
@@ -964,36 +939,22 @@ impl<'d, T: Instance> Pka<'d, T> {
         self.write_operand(offsets::modular_inv::IN_OP1, a);
         self.write_operand(offsets::modular_inv::IN_OP2_MOD, modulus);
 
-        self.start_and_wait()?;
-
-        self.read_operand(offsets::modular_inv::OUT_RESULT, &mut result[..size]);
-
         Ok(())
     }
 
-    /// Compute modular addition: result = (a + b) mod n
-    pub fn modular_add(&mut self, a: &[u8], b: &[u8], modulus: &[u8], result: &mut [u8]) -> Result<(), Error> {
-        self.arithmetic_op(PkaMode::ModularAdd, a, b, Some(modulus), result)
+    fn read_modular_inv(&mut self, size: usize, result: &mut [u8]) -> Result<(), Error> {
+        self.read_operand(offsets::modular_inv::OUT_RESULT, &mut result[..size]);
+        Ok(())
     }
 
-    /// Compute modular subtraction: result = (a - b) mod n
-    pub fn modular_sub(&mut self, a: &[u8], b: &[u8], modulus: &[u8], result: &mut [u8]) -> Result<(), Error> {
-        self.arithmetic_op(PkaMode::ModularSub, a, b, Some(modulus), result)
-    }
-
-    /// Compute arithmetic multiplication: result = a * b
-    pub fn arithmetic_mul(&mut self, a: &[u8], b: &[u8], result: &mut [u8]) -> Result<(), Error> {
-        self.arithmetic_op(PkaMode::ArithmeticMul, a, b, None, result)
-    }
-
-    // Generic arithmetic operation helper
-    fn arithmetic_op(
+    // Generic arithmetic operation helpers, used by modular_add, modular_sub,
+    // arithmetic_mul, and montgomery_mul.
+    fn prepare_arithmetic_op(
         &mut self,
         mode: PkaMode,
         a: &[u8],
         b: &[u8],
         modulus: Option<&[u8]>,
-        result: &mut [u8],
     ) -> Result<(), Error> {
         let size = a.len();
 
@@ -1001,7 +962,6 @@ impl<'d, T: Instance> Pka<'d, T> {
             return Err(Error::InvalidSize);
         }
 
-        self.init_pka()?;
         self.set_mode(mode);
 
         // HAL uses byte-aligned bit sizes for arithmetic operations
@@ -1015,11 +975,12 @@ impl<'d, T: Instance> Pka<'d, T> {
             self.write_operand(offsets::arithmetic::IN_OP3_MOD, m);
         }
 
-        self.start_and_wait()?;
+        Ok(())
+    }
 
+    fn read_arithmetic_op(&mut self, mode: PkaMode, size: usize, result: &mut [u8]) -> Result<(), Error> {
         let result_size = if mode == PkaMode::ArithmeticMul { size * 2 } else { size };
         self.read_operand(offsets::arithmetic::OUT_RESULT, &mut result[..result_size]);
-
         Ok(())
     }
 
@@ -1027,24 +988,14 @@ impl<'d, T: Instance> Pka<'d, T> {
     // Montgomery Operations
     // ========================================================================
 
-    /// Compute Montgomery parameter R² mod n
-    ///
-    /// This parameter is required for fast modular exponentiation and other
-    /// Montgomery-form operations. The result should be stored and reused
-    /// for multiple operations with the same modulus.
-    ///
-    /// # Arguments
-    /// * `modulus` - The modulus n
-    /// * `result` - Output buffer for R² mod n (must be same size as modulus)
-    pub fn montgomery_param(&mut self, modulus: &[u8], result: &mut [u32]) -> Result<(), Error> {
+    fn prepare_montgomery_param(&mut self, modulus: &[u8], result_len: usize) -> Result<(), Error> {
         let size = modulus.len();
         let word_count = (size + 3) / 4;
 
-        if result.len() < word_count {
+        if result_len < word_count {
             return Err(Error::InvalidSize);
         }
 
-        self.init_pka()?;
         self.set_mode(PkaMode::MontgomeryParam);
 
         // Skip leading zero bytes to find the actual MSB (matching HAL behavior)
@@ -1063,43 +1014,32 @@ impl<'d, T: Instance> Pka<'d, T> {
         self.write_ram_word(offsets::montgomery_param::IN_MOD_NB_BITS, nb_bits);
         self.write_operand(offsets::montgomery_param::IN_MODULUS, modulus);
 
-        self.start_and_wait()?;
+        Ok(())
+    }
 
+    fn read_montgomery_param(&mut self, word_count: usize, result: &mut [u32]) -> Result<(), Error> {
         // Read result as u32 words (native PKA format)
         for i in 0..word_count {
             result[i] = self.read_ram_word(offsets::montgomery_param::OUT_PARAMETER + i * 4);
         }
-
         Ok(())
     }
 
-    /// Perform modular exponentiation with pre-computed Montgomery parameter (fast mode)
-    ///
-    /// This is faster than `modular_exp` when you have the Montgomery parameter
-    /// pre-computed (via `montgomery_param`).
-    ///
-    /// # Arguments
-    /// * `base` - Base value
-    /// * `exponent` - Exponent
-    /// * `modulus` - Modulus n
-    /// * `montgomery_param` - Pre-computed Montgomery parameter R² mod n
-    /// * `result` - Output buffer (must be same size as modulus)
-    pub fn modular_exp_fast(
+    fn prepare_modular_exp_fast(
         &mut self,
         base: &[u8],
         exponent: &[u8],
         modulus: &[u8],
         montgomery_param: &[u32],
-        result: &mut [u8],
+        result_len: usize,
     ) -> Result<(), Error> {
         let mod_size = modulus.len();
         let exp_size = exponent.len();
 
-        if base.len() > mod_size || result.len() < mod_size {
+        if base.len() > mod_size || result_len < mod_size {
             return Err(Error::InvalidSize);
         }
 
-        self.init_pka()?;
         self.set_mode(PkaMode::ModularExpFast);
 
         let exp_nb_bits = (exp_size * 8) as u32;
@@ -1117,33 +1057,24 @@ impl<'d, T: Instance> Pka<'d, T> {
         self.write_operand(offsets::modular_exp::IN_EXPONENT, exponent);
         self.write_operand(offsets::modular_exp::IN_MODULUS, modulus);
 
-        self.start_and_wait()?;
-
-        // Modular exponentiation (fast mode) doesn't write to OUT_ERROR
-        // Errors are indicated by SR flags which are checked in start_and_wait()
-
-        self.read_operand(offsets::modular_exp::OUT_RESULT, &mut result[..mod_size]);
-
         Ok(())
     }
 
-    /// Perform modular exponentiation with side-channel protection
-    ///
-    /// This mode provides constant-time execution to protect against
-    /// timing and power analysis attacks. It requires phi(n) as input.
-    ///
-    /// # Arguments
-    /// * `params` - Protected mode parameters including phi(n)
-    /// * `result` - Output buffer (must be same size as modulus)
-    pub fn modular_exp_protect(&mut self, params: &ModExpProtectParams, result: &mut [u8]) -> Result<(), Error> {
+    fn read_modular_exp_fast(&mut self, mod_size: usize, result: &mut [u8]) -> Result<(), Error> {
+        // Modular exponentiation (fast mode) doesn't write to OUT_ERROR
+        // Errors are indicated by SR flags which are checked in the wait helper
+        self.read_operand(offsets::modular_exp::OUT_RESULT, &mut result[..mod_size]);
+        Ok(())
+    }
+
+    fn prepare_modular_exp_protect(&mut self, params: &ModExpProtectParams, result_len: usize) -> Result<(), Error> {
         let mod_size = params.modulus.len();
         let exp_size = params.exponent.len();
 
-        if params.base.len() > mod_size || params.phi.len() != mod_size || result.len() < mod_size {
+        if params.base.len() > mod_size || params.phi.len() != mod_size || result_len < mod_size {
             return Err(Error::InvalidSize);
         }
 
-        self.init_pka()?;
         self.set_mode(PkaMode::ModularExpProtect);
 
         // HAL uses byte-aligned bit sizes for modular exponentiation
@@ -1158,38 +1089,27 @@ impl<'d, T: Instance> Pka<'d, T> {
         self.write_operand(offsets::modular_exp_protect::IN_MODULUS, params.modulus);
         self.write_operand(offsets::modular_exp_protect::IN_PHI, params.phi);
 
-        self.start_and_wait()?;
-
-        // Modular exponentiation (protected mode) doesn't write to OUT_ERROR
-        // Errors are indicated by SR flags which are checked in start_and_wait()
-
-        self.read_operand(offsets::modular_exp_protect::OUT_RESULT, &mut result[..mod_size]);
-
         Ok(())
     }
 
-    /// Perform Montgomery multiplication: result = (a * b * R^-1) mod n
-    ///
-    /// This is useful for operations in Montgomery form.
-    pub fn montgomery_mul(&mut self, a: &[u8], b: &[u8], modulus: &[u8], result: &mut [u8]) -> Result<(), Error> {
-        self.arithmetic_op(PkaMode::MontgomeryMul, a, b, Some(modulus), result)
+    fn read_modular_exp_protect(&mut self, mod_size: usize, result: &mut [u8]) -> Result<(), Error> {
+        // Modular exponentiation (protected mode) doesn't write to OUT_ERROR
+        // Errors are indicated by SR flags which are checked in the wait helper
+        self.read_operand(offsets::modular_exp_protect::OUT_RESULT, &mut result[..mod_size]);
+        Ok(())
     }
 
     // ========================================================================
     // Additional Arithmetic Operations
     // ========================================================================
 
-    /// Compute arithmetic addition: result = a + b
-    ///
-    /// Note: Result may be one word larger than inputs if there's overflow.
-    pub fn arithmetic_add(&mut self, a: &[u8], b: &[u8], result: &mut [u8]) -> Result<(), Error> {
+    fn prepare_arithmetic_add(&mut self, a: &[u8], b: &[u8], result_len: usize) -> Result<(), Error> {
         let size = a.len();
 
-        if b.len() != size || result.len() < size {
+        if b.len() != size || result_len < size {
             return Err(Error::InvalidSize);
         }
 
-        self.init_pka()?;
         self.set_mode(PkaMode::ArithmeticAdd);
 
         let nb_bits = Self::get_opt_bit_size(size, a[0].max(b[0]));
@@ -1198,25 +1118,21 @@ impl<'d, T: Instance> Pka<'d, T> {
         self.write_operand(offsets::arithmetic::IN_OP1, a);
         self.write_operand(offsets::arithmetic::IN_OP2, b);
 
-        self.start_and_wait()?;
-
-        self.read_operand(offsets::arithmetic::OUT_RESULT, &mut result[..size]);
-
-        self.disable_pka();
         Ok(())
     }
 
-    /// Compute arithmetic subtraction: result = a - b
-    ///
-    /// Note: If a < b, the result will be the two's complement.
-    pub fn arithmetic_sub(&mut self, a: &[u8], b: &[u8], result: &mut [u8]) -> Result<(), Error> {
+    fn read_arithmetic_add(&mut self, size: usize, result: &mut [u8]) -> Result<(), Error> {
+        self.read_operand(offsets::arithmetic::OUT_RESULT, &mut result[..size]);
+        Ok(())
+    }
+
+    fn prepare_arithmetic_sub(&mut self, a: &[u8], b: &[u8], result_len: usize) -> Result<(), Error> {
         let size = a.len();
 
-        if b.len() != size || result.len() < size {
+        if b.len() != size || result_len < size {
             return Err(Error::InvalidSize);
         }
 
-        self.init_pka()?;
         self.set_mode(PkaMode::ArithmeticSub);
 
         let nb_bits = Self::get_opt_bit_size(size, a[0].max(b[0]));
@@ -1225,24 +1141,21 @@ impl<'d, T: Instance> Pka<'d, T> {
         self.write_operand(offsets::arithmetic::IN_OP1, a);
         self.write_operand(offsets::arithmetic::IN_OP2, b);
 
-        self.start_and_wait()?;
-
-        self.read_operand(offsets::arithmetic::OUT_RESULT, &mut result[..size]);
-
         Ok(())
     }
 
-    /// Compare two big integers
-    ///
-    /// Returns the comparison result indicating whether a < b, a == b, or a > b.
-    pub fn comparison(&mut self, a: &[u8], b: &[u8]) -> Result<ComparisonResult, Error> {
+    fn read_arithmetic_sub(&mut self, size: usize, result: &mut [u8]) -> Result<(), Error> {
+        self.read_operand(offsets::arithmetic::OUT_RESULT, &mut result[..size]);
+        Ok(())
+    }
+
+    fn prepare_comparison(&mut self, a: &[u8], b: &[u8]) -> Result<(), Error> {
         let size = a.len();
 
         if b.len() != size {
             return Err(Error::InvalidSize);
         }
 
-        self.init_pka()?;
         self.set_mode(PkaMode::Comparison);
 
         // HAL uses byte-aligned bit sizes for comparison
@@ -1252,8 +1165,10 @@ impl<'d, T: Instance> Pka<'d, T> {
         self.write_operand(offsets::arithmetic::IN_OP1, a);
         self.write_operand(offsets::arithmetic::IN_OP2, b);
 
-        self.start_and_wait()?;
+        Ok(())
+    }
 
+    fn read_comparison(&mut self) -> Result<ComparisonResult, Error> {
         let result = self.read_ram_word(offsets::arithmetic::OUT_RESULT);
 
         // PKA comparison result encoding (from STM32WBA reference manual)
@@ -1265,16 +1180,14 @@ impl<'d, T: Instance> Pka<'d, T> {
         }
     }
 
-    /// Compute modular reduction: result = a mod n
-    pub fn modular_red(&mut self, a: &[u8], modulus: &[u8], result: &mut [u8]) -> Result<(), Error> {
+    fn prepare_modular_red(&mut self, a: &[u8], modulus: &[u8], result_len: usize) -> Result<(), Error> {
         let op_size = a.len();
         let mod_size = modulus.len();
 
-        if result.len() < mod_size {
+        if result_len < mod_size {
             return Err(Error::InvalidSize);
         }
 
-        self.init_pka()?;
         self.set_mode(PkaMode::ModularRed);
 
         let op_nb_bits = (op_size * 8) as u32;
@@ -1286,10 +1199,11 @@ impl<'d, T: Instance> Pka<'d, T> {
         self.write_operand(offsets::modular_red::IN_OPERAND, a);
         self.write_operand(offsets::modular_red::IN_MODULUS, modulus);
 
-        self.start_and_wait()?;
+        Ok(())
+    }
 
+    fn read_modular_red(&mut self, mod_size: usize, result: &mut [u8]) -> Result<(), Error> {
         self.read_operand(offsets::modular_red::OUT_RESULT, &mut result[..mod_size]);
-
         Ok(())
     }
 
@@ -1297,30 +1211,18 @@ impl<'d, T: Instance> Pka<'d, T> {
     // Advanced ECC Operations
     // ========================================================================
 
-    /// ECC complete point addition in projective coordinates: R = P + Q
-    ///
-    /// This operation adds two points in projective coordinates and handles
-    /// all edge cases (point at infinity, point doubling, etc.).
-    ///
-    /// # Arguments
-    /// * `curve` - Curve parameters
-    /// * `p` - First point in projective coordinates
-    /// * `q` - Second point in projective coordinates
-    /// * `result` - Output point in projective coordinates
-    pub fn ecc_complete_add(
+    fn prepare_ecc_complete_add(
         &mut self,
         curve: &EcdsaCurveParams,
         p: &EccProjectivePoint,
         q: &EccProjectivePoint,
-        result: &mut EccProjectivePoint,
+        result_size: usize,
     ) -> Result<(), Error> {
         let modulus_size = curve.p_modulus.len();
 
-        if p.size != modulus_size || q.size != modulus_size || result.size != modulus_size {
+        if p.size != modulus_size || q.size != modulus_size || result_size != modulus_size {
             return Err(Error::InvalidSize);
         }
-
-        self.init_pka()?;
 
         let mod_nb_bits = Self::get_opt_bit_size(modulus_size, curve.p_modulus[0]);
 
@@ -1341,37 +1243,26 @@ impl<'d, T: Instance> Pka<'d, T> {
         self.write_operand(offsets::ecc_complete_add::IN_POINT2_Z, &q.z[..modulus_size]);
 
         self.set_mode(PkaMode::EccCompleteAdd);
-        self.start_and_wait()?;
+        Ok(())
+    }
 
+    fn read_ecc_complete_add(&mut self, modulus_size: usize, result: &mut EccProjectivePoint) -> Result<(), Error> {
         // Read result
         self.read_operand(offsets::ecc_complete_add::OUT_RESULT_X, &mut result.x[..modulus_size]);
         self.read_operand(offsets::ecc_complete_add::OUT_RESULT_Y, &mut result.y[..modulus_size]);
         self.read_operand(offsets::ecc_complete_add::OUT_RESULT_Z, &mut result.z[..modulus_size]);
 
-        self.disable_pka();
         Ok(())
     }
 
-    /// ECC double base ladder: result = k*P + m*Q (side-channel resistant)
-    ///
-    /// This operation computes the linear combination of two points using the
-    /// double base ladder algorithm, which provides side-channel resistance.
-    ///
-    /// # Arguments
-    /// * `curve` - Curve parameters
-    /// * `k` - Scalar for point P
-    /// * `p` - First point in projective coordinates
-    /// * `m` - Scalar for point Q
-    /// * `q` - Second point in projective coordinates
-    /// * `result` - Output point in affine coordinates
-    pub fn double_base_ladder(
+    fn prepare_double_base_ladder(
         &mut self,
         curve: &EcdsaCurveParams,
         k: &[u8],
         p: &EccProjectivePoint,
         m: &[u8],
         q: &EccProjectivePoint,
-        result: &mut EccPoint,
+        result_size: usize,
     ) -> Result<(), Error> {
         let modulus_size = curve.p_modulus.len();
         let order_size = curve.order.len();
@@ -1380,12 +1271,10 @@ impl<'d, T: Instance> Pka<'d, T> {
             || m.len() != order_size
             || p.size != modulus_size
             || q.size != modulus_size
-            || result.size != modulus_size
+            || result_size != modulus_size
         {
             return Err(Error::InvalidSize);
         }
-
-        self.init_pka()?;
 
         let order_nb_bits = Self::get_opt_bit_size(order_size, curve.order[0]);
         let mod_nb_bits = Self::get_opt_bit_size(modulus_size, curve.p_modulus[0]);
@@ -1412,12 +1301,13 @@ impl<'d, T: Instance> Pka<'d, T> {
         self.write_operand(offsets::double_base_ladder::IN_POINT2_Z, &q.z[..modulus_size]);
 
         self.set_mode(PkaMode::DoubleBaseLadder);
-        self.start_and_wait()?;
+        Ok(())
+    }
 
+    fn read_double_base_ladder(&mut self, modulus_size: usize, result: &mut EccPoint) -> Result<(), Error> {
         // Check for errors
         let status = self.read_ram_word(offsets::double_base_ladder::OUT_ERROR);
         if status != 0xD60D {
-            self.disable_pka();
             return Err(Error::OperationError);
         }
 
@@ -1425,31 +1315,21 @@ impl<'d, T: Instance> Pka<'d, T> {
         self.read_operand(offsets::double_base_ladder::OUT_RESULT_X, &mut result.x[..modulus_size]);
         self.read_operand(offsets::double_base_ladder::OUT_RESULT_Y, &mut result.y[..modulus_size]);
 
-        self.disable_pka();
         Ok(())
     }
 
-    /// Convert a point from projective to affine coordinates
-    ///
-    /// # Arguments
-    /// * `modulus` - The curve modulus p
-    /// * `montgomery_param` - Pre-computed Montgomery parameter R² mod p
-    /// * `point` - Point in projective coordinates
-    /// * `result` - Output point in affine coordinates
-    pub fn projective_to_affine(
+    fn prepare_projective_to_affine(
         &mut self,
         modulus: &[u8],
         montgomery_param: &[u32],
         point: &EccProjectivePoint,
-        result: &mut EccPoint,
+        result_size: usize,
     ) -> Result<(), Error> {
         let modulus_size = modulus.len();
 
-        if point.size != modulus_size || result.size != modulus_size {
+        if point.size != modulus_size || result_size != modulus_size {
             return Err(Error::InvalidSize);
         }
-
-        self.init_pka()?;
 
         let mod_nb_bits = Self::get_opt_bit_size(modulus_size, modulus[0]);
 
@@ -1467,12 +1347,13 @@ impl<'d, T: Instance> Pka<'d, T> {
         self.write_operand(offsets::projective_to_affine::IN_POINT_Z, &point.z[..modulus_size]);
 
         self.set_mode(PkaMode::EccProjectiveToAffine);
-        self.start_and_wait()?;
+        Ok(())
+    }
 
+    fn read_projective_to_affine(&mut self, modulus_size: usize, result: &mut EccPoint) -> Result<(), Error> {
         // Check for errors
         let status = self.read_ram_word(offsets::projective_to_affine::OUT_ERROR);
         if status != 0xD60D {
-            self.disable_pka();
             return Err(Error::OperationError);
         }
 
@@ -1486,7 +1367,6 @@ impl<'d, T: Instance> Pka<'d, T> {
             &mut result.y[..modulus_size],
         );
 
-        self.disable_pka();
         Ok(())
     }
 
@@ -1494,7 +1374,7 @@ impl<'d, T: Instance> Pka<'d, T> {
     // Internal Helper Functions
     // ========================================================================
 
-    fn init_pka(&mut self) -> Result<(), Error> {
+    fn begin_init(&mut self) -> Result<bool, Error> {
         let p = T::regs();
         let sr_ptr = p.sr().as_ptr() as *const u32;
 
@@ -1504,7 +1384,7 @@ impl<'d, T: Instance> Pka<'d, T> {
 
         // If already enabled and INITOK is set, skip re-initialization
         if (cr_raw & 0x01) != 0 && (sr_raw & 0x01) != 0 {
-            return Ok(());
+            return Ok(false);
         }
 
         // If not enabled, enable it
@@ -1519,7 +1399,7 @@ impl<'d, T: Instance> Pka<'d, T> {
 
                 if !was_rng_enabled {
                     // Configure RNG clock source to HSI (required for PKA)
-                    rcc.ccipr2().modify(|w| w.set_rngsel(Rngsel::HSI));
+                    rcc.ccipr2().modify(|w| w.set_rngsel(Rngsel::Hsi));
 
                     // Enable RNG clock
                     rcc.ahb2enr().modify(|w| w.set_rngen(true));
@@ -1529,7 +1409,7 @@ impl<'d, T: Instance> Pka<'d, T> {
                     rng.cr().modify(|w| w.set_rngen(true));
 
                     // Small delay for RNG to start
-                    cortex_m::asm::delay(10000); // ~100µs at 96MHz
+                    cortex_m::asm::delay(10000); // ~100us at 96MHz
                 }
             }
 
@@ -1550,28 +1430,62 @@ impl<'d, T: Instance> Pka<'d, T> {
             }
         }
 
-        // Wait for INITOK (bit 0 of SR) - indicates RAM initialization complete
+        Ok(true)
+    }
+
+    // Clears all SR error/done flags. Called after INITOK asserts.
+    fn finish_init(&mut self) {
+        T::regs().clrfr().write(|w| {
+            w.set_procendfc(true);
+            w.set_ramerrfc(true);
+            w.set_addrerrfc(true);
+            w.set_operrfc(true);
+        });
+    }
+
+    // Wait for INITOK (bit 0 of SR) - indicated RAM initialization complete
+    fn wait_initok_blocking(&mut self) -> Result<(), Error> {
+        let p = T::regs();
+        let sr_ptr = p.sr().as_ptr() as *const u32;
         let mut timeout: u32 = 0;
         loop {
             let sr_raw = unsafe { sr_ptr.read_volatile() };
             if sr_raw & 0x01 != 0 {
-                break;
+                return Ok(());
             }
             timeout += 1;
             if timeout > 1_000_000 {
                 return Err(Error::Timeout);
             }
         }
+    }
 
-        // Clear any pending flags
-        p.clrfr().write(|w| {
-            w.set_procendfc(true);
-            w.set_ramerrfc(true);
-            w.set_addrerrfc(true);
-            w.set_operrfc(true);
-        });
-
+    fn ensure_init_blocking(&mut self) -> Result<(), Error> {
+        if self.begin_init()? {
+            self.wait_initok_blocking()?;
+        }
+        self.finish_init();
         Ok(())
+    }
+
+    /// Zero out the PKA RAM (basic hygiene scrub).
+    ///
+    /// Writes 0 to every word of the PKA internal RAM. Call this between
+    /// operations that touch sensitive material (e.g. private keys) to avoid
+    /// leaking intermediates from prior ops through PKA RAM.
+    pub fn scrub(&mut self) {
+        #[cfg(any(pka_v1a, pka_v1b))]
+        const PKA_RAM_WORDS: usize = 1334;
+        #[cfg(pka_v1c)]
+        const PKA_RAM_WORDS: usize = 894;
+
+        let p = T::regs();
+        for i in 0..PKA_RAM_WORDS {
+            unsafe {
+                let ptr = p.ram(i).as_ptr() as *mut u32;
+                ptr.write_volatile(0);
+            }
+        }
     }
 
     fn set_mode(&mut self, mode: PkaMode) {
@@ -1585,7 +1499,7 @@ impl<'d, T: Instance> Pka<'d, T> {
         });
     }
 
-    fn start_and_wait(&mut self) -> Result<(), Error> {
+    fn start_and_wait_blocking(&mut self) -> Result<(), Error> {
         let p = T::regs();
 
         p.cr().modify(|w| w.set_start(true));
@@ -1620,8 +1534,67 @@ impl<'d, T: Instance> Pka<'d, T> {
         Ok(())
     }
 
-    fn disable_pka(&mut self) {
-        T::regs().cr().modify(|w| w.set_en(false));
+    async fn start_and_wait_async(&mut self) -> Result<(), Error> {
+        let p = T::regs();
+
+        // Arm the interrupts and trigger the operation. The ISR clears the IE bits
+        // on completion (so the IRQ doesn't refire); poll_fn below reads SR and
+        // clears the flags itself.
+        p.cr().modify(|w| {
+            w.set_procendie(true);
+            w.set_ramerrie(true);
+            w.set_addrerrie(true);
+            w.set_operrie(true);
+            w.set_start(true);
+        });
+
+        let res = poll_fn(|cx| {
+            if let Some(result) = Self::check_sr() {
+                return Poll::Ready(result);
+            }
+            PKA_WAKER.register(cx.waker());
+            // Re-check after registering to close the race window where the IRQ
+            // fires between the first SR read and waker registration.
+            if let Some(result) = Self::check_sr() {
+                return Poll::Ready(result);
+            }
+            Poll::Pending
+        })
+        .await;
+
+        // Ensure IE bits are off (the ISR usually clears them, but if poll_fn
+        // returned Ready on its first pass the ISR may not have run).
+        p.cr().modify(|w| {
+            w.set_procendie(false);
+            w.set_ramerrie(false);
+            w.set_addrerrie(false);
+            w.set_operrie(false);
+        });
+
+        res
+    }
+
+    fn check_sr() -> Option<Result<(), Error>> {
+        let p = T::regs();
+        let sr = p.sr().read();
+
+        if sr.ramerrf() {
+            p.clrfr().write(|w| w.set_ramerrfc(true));
+            return Some(Err(Error::RamError));
+        }
+        if sr.addrerrf() {
+            p.clrfr().write(|w| w.set_addrerrfc(true));
+            return Some(Err(Error::AddressError));
+        }
+        if sr.operrf() {
+            p.clrfr().write(|w| w.set_operrfc(true));
+            return Some(Err(Error::OperationError));
+        }
+        if sr.procendf() {
+            p.clrfr().write(|w| w.set_procendfc(true));
+            return Some(Ok(()));
+        }
+        None
     }
 
     fn get_opt_bit_size(byte_count: usize, msb: u8) -> u32 {
@@ -1707,6 +1680,845 @@ impl<'d, T: Instance> Pka<'d, T> {
             let ram_ptr = p.ram(word_index).as_ptr() as *const u32;
             ram_ptr.read_volatile()
         }
+    }
+}
+
+// ============================================================================
+// Public Blocking API
+// ============================================================================
+
+impl<'d, T: Instance> Pka<'d, T, Blocking> {
+    /// Verify an ECDSA signature.
+    ///
+    /// # Arguments
+    /// * `curve` -- Curve parameters.
+    /// * `public_key` -- Public key `(Qx, Qy)`.
+    /// * `signature` -- Signature `(r, s)`.
+    /// * `message_hash` -- Hash of the message being verified.
+    ///
+    /// # Returns
+    /// `Ok(true)` if the signature is valid, `Ok(false)` if invalid.
+    pub fn ecdsa_verify_blocking(
+        &mut self,
+        curve: &EcdsaCurveParams,
+        public_key: &EcdsaPublicKey,
+        signature: &EcdsaSignature,
+        message_hash: &[u8],
+    ) -> Result<bool, Error> {
+        self.prepare_ecdsa_verify(curve, public_key, signature, message_hash)?;
+        self.start_and_wait_blocking()?;
+        self.read_ecdsa_verify()
+    }
+
+    /// Generate an ECDSA signature.
+    ///
+    /// # Arguments
+    /// * `curve` -- Curve parameters.
+    /// * `private_key` -- Private key `d`.
+    /// * `k` -- Random nonce (MUST be cryptographically random and unique per signature!).
+    /// * `message_hash` -- Hash of the message to sign.
+    /// * `signature_r`, `signature_s` -- Output buffers for the `(r, s)` signature.
+    ///
+    /// # Security Warning
+    /// The `k` value MUST be:
+    /// - Cryptographically random
+    /// - Unique for every signature
+    /// - Never reused or predictable
+    ///
+    /// Failure to ensure this will compromise the private key.
+    pub fn ecdsa_sign_blocking(
+        &mut self,
+        curve: &EcdsaCurveParams,
+        private_key: &[u8],
+        k: &[u8],
+        message_hash: &[u8],
+        signature_r: &mut [u8],
+        signature_s: &mut [u8],
+    ) -> Result<(), Error> {
+        let order_size = curve.order.len();
+        self.prepare_ecdsa_sign(curve, private_key, k, message_hash, signature_r, signature_s)?;
+        self.start_and_wait_blocking()?;
+        self.read_ecdsa_sign(order_size, signature_r, signature_s)
+    }
+
+    /// Perform ECC scalar multiplication: `result = k * P`.
+    ///
+    /// This is the core operation for ECDH key agreement:
+    /// - To generate a public key: `public = private_key * G` (generator point).
+    /// - To compute a shared secret: `shared = my_private * peer_public`.
+    ///
+    /// # Arguments
+    /// * `curve` -- Curve parameters.
+    /// * `k` -- Scalar multiplier.
+    /// * `point_x`, `point_y` -- Input point coordinates.
+    /// * `result` -- Output point (must be initialized with the correct size).
+    pub fn ecc_mul_blocking(
+        &mut self,
+        curve: &EcdsaCurveParams,
+        k: &[u8],
+        point_x: &[u8],
+        point_y: &[u8],
+        result: &mut EccPoint,
+    ) -> Result<(), Error> {
+        let modulus_size = curve.p_modulus.len();
+        self.prepare_ecc_mul(curve, k, point_x, point_y, result.size)?;
+        self.start_and_wait_blocking()?;
+        self.read_ecc_mul(modulus_size, result)
+    }
+
+    /// Check if a point is on the curve.
+    ///
+    /// Call this to validate any externally-provided public key before using
+    /// it in cryptographic operations.
+    pub fn point_check_blocking(
+        &mut self,
+        curve: &EcdsaCurveParams,
+        point_x: &[u8],
+        point_y: &[u8],
+    ) -> Result<bool, Error> {
+        self.prepare_point_check(curve, point_x, point_y)?;
+        self.start_and_wait_blocking()?;
+        self.read_point_check()
+    }
+
+    /// Perform modular exponentiation: `result = base^exp mod n`.
+    ///
+    /// This is the core RSA operation:
+    /// - Encryption: `ciphertext = plaintext^e mod n`
+    /// - Decryption: `plaintext = ciphertext^d mod n`
+    /// - Signing: `signature = hash^d mod n`
+    /// - Verification: `hash = signature^e mod n`
+    ///
+    /// # Arguments
+    /// * `base` -- Base value (plaintext/ciphertext).
+    /// * `exponent` -- Exponent (`e` for encrypt/verify, `d` for decrypt/sign).
+    /// * `modulus` -- RSA modulus `n`.
+    /// * `result` -- Output buffer (must be at least the size of `modulus`).
+    pub fn modular_exp_blocking(
+        &mut self,
+        base: &[u8],
+        exponent: &[u8],
+        modulus: &[u8],
+        result: &mut [u8],
+    ) -> Result<(), Error> {
+        let mod_size = modulus.len();
+        self.prepare_modular_exp(base, exponent, modulus, result.len())?;
+        self.start_and_wait_blocking()?;
+        self.read_modular_exp(mod_size, result)
+    }
+
+    /// Perform RSA CRT exponentiation for fast decryption.
+    ///
+    /// Uses the Chinese Remainder Theorem for ~4x faster RSA private-key
+    /// operations than [`modular_exp_blocking`](Self::modular_exp_blocking).
+    ///
+    /// # Arguments
+    /// * `ciphertext` -- Encrypted data.
+    /// * `params` -- CRT parameters (`p`, `q`, `dp`, `dq`, `qinv`).
+    /// * `result` -- Output buffer.
+    pub fn rsa_crt_exp_blocking(
+        &mut self,
+        ciphertext: &[u8],
+        params: &RsaCrtParams,
+        result: &mut [u8],
+    ) -> Result<(), Error> {
+        let mod_size = params.prime_p.len() + params.prime_q.len();
+        self.prepare_rsa_crt_exp(ciphertext, params, result.len())?;
+        self.start_and_wait_blocking()?;
+        self.read_rsa_crt_exp(mod_size, result)
+    }
+
+    /// Compute modular inverse: result = a^(-1) mod n.
+    pub fn modular_inv_blocking(&mut self, a: &[u8], modulus: &[u8], result: &mut [u8]) -> Result<(), Error> {
+        let size = modulus.len();
+        self.prepare_modular_inv(a, modulus, result.len())?;
+        self.start_and_wait_blocking()?;
+        self.read_modular_inv(size, result)
+    }
+
+    /// Compute modular addition: result = (a + b) mod n.
+    pub fn modular_add_blocking(&mut self, a: &[u8], b: &[u8], modulus: &[u8], result: &mut [u8]) -> Result<(), Error> {
+        self.prepare_arithmetic_op(PkaMode::ModularAdd, a, b, Some(modulus))?;
+        self.start_and_wait_blocking()?;
+        self.read_arithmetic_op(PkaMode::ModularAdd, a.len(), result)
+    }
+
+    /// Compute modular subtraction: result = (a - b) mod n.
+    pub fn modular_sub_blocking(&mut self, a: &[u8], b: &[u8], modulus: &[u8], result: &mut [u8]) -> Result<(), Error> {
+        self.prepare_arithmetic_op(PkaMode::ModularSub, a, b, Some(modulus))?;
+        self.start_and_wait_blocking()?;
+        self.read_arithmetic_op(PkaMode::ModularSub, a.len(), result)
+    }
+
+    /// Compute arithmetic multiplication: result = a * b.
+    pub fn arithmetic_mul_blocking(&mut self, a: &[u8], b: &[u8], result: &mut [u8]) -> Result<(), Error> {
+        self.prepare_arithmetic_op(PkaMode::ArithmeticMul, a, b, None)?;
+        self.start_and_wait_blocking()?;
+        self.read_arithmetic_op(PkaMode::ArithmeticMul, a.len(), result)
+    }
+
+    /// Compute the Montgomery parameter `R^2 mod n`.
+    ///
+    /// Required for fast modular exponentiation and other Montgomery-form
+    /// operations. The result should be stored and reused for multiple
+    /// operations against the same modulus.
+    ///
+    /// # Arguments
+    /// * `modulus` -- The modulus `n`.
+    /// * `result` -- Output buffer for `R^2 mod n` (must be at least
+    ///   `ceil(modulus.len() / 4)` `u32` words).
+    pub fn montgomery_param_blocking(&mut self, modulus: &[u8], result: &mut [u32]) -> Result<(), Error> {
+        let word_count = (modulus.len() + 3) / 4;
+        self.prepare_montgomery_param(modulus, result.len())?;
+        self.start_and_wait_blocking()?;
+        self.read_montgomery_param(word_count, result)
+    }
+
+    /// Perform modular exponentiation with pre-computed Montgomery parameter
+    /// (fast mode).
+    ///
+    /// Faster than [`modular_exp_blocking`](Self::modular_exp_blocking) when
+    /// the Montgomery parameter has already been computed (via
+    /// [`montgomery_param_blocking`](Self::montgomery_param_blocking)).
+    ///
+    /// # Arguments
+    /// * `base` -- Base value.
+    /// * `exponent` -- Exponent.
+    /// * `modulus` -- Modulus `n`.
+    /// * `montgomery_param` -- Pre-computed Montgomery parameter `R^2 mod n`.
+    /// * `result` -- Output buffer (must be at least the size of `modulus`).
+    pub fn modular_exp_fast_blocking(
+        &mut self,
+        base: &[u8],
+        exponent: &[u8],
+        modulus: &[u8],
+        montgomery_param: &[u32],
+        result: &mut [u8],
+    ) -> Result<(), Error> {
+        let mod_size = modulus.len();
+        self.prepare_modular_exp_fast(base, exponent, modulus, montgomery_param, result.len())?;
+        self.start_and_wait_blocking()?;
+        self.read_modular_exp_fast(mod_size, result)
+    }
+
+    /// Perform modular exponentiation with side-channel protection.
+    ///
+    /// Provides constant-time execution to protect against timing and power
+    /// analysis attacks. Requires `phi(n)` as input.
+    ///
+    /// # Arguments
+    /// * `params` -- Protected-mode parameters including `phi(n)`.
+    /// * `result` -- Output buffer (must be at least the size of `params.modulus`).
+    pub fn modular_exp_protect_blocking(
+        &mut self,
+        params: &ModExpProtectParams,
+        result: &mut [u8],
+    ) -> Result<(), Error> {
+        let mod_size = params.modulus.len();
+        self.prepare_modular_exp_protect(params, result.len())?;
+        self.start_and_wait_blocking()?;
+        self.read_modular_exp_protect(mod_size, result)
+    }
+
+    /// Perform Montgomery multiplication: `result = (a * b * R^-1) mod n`.
+    ///
+    /// Useful for chaining operations in Montgomery form.
+    pub fn montgomery_mul_blocking(
+        &mut self,
+        a: &[u8],
+        b: &[u8],
+        modulus: &[u8],
+        result: &mut [u8],
+    ) -> Result<(), Error> {
+        self.prepare_arithmetic_op(PkaMode::MontgomeryMul, a, b, Some(modulus))?;
+        self.start_and_wait_blocking()?;
+        self.read_arithmetic_op(PkaMode::MontgomeryMul, a.len(), result)
+    }
+
+    /// Compute arithmetic addition: `result = a + b`.
+    ///
+    /// Note: the result may be one word larger than the inputs if there is overflow.
+    pub fn arithmetic_add_blocking(&mut self, a: &[u8], b: &[u8], result: &mut [u8]) -> Result<(), Error> {
+        let size = a.len();
+        self.prepare_arithmetic_add(a, b, result.len())?;
+        self.start_and_wait_blocking()?;
+        self.read_arithmetic_add(size, result)
+    }
+
+    /// Compute arithmetic subtraction: `result = a - b`.
+    ///
+    /// Note: if `a < b`, the result is the two's complement.
+    pub fn arithmetic_sub_blocking(&mut self, a: &[u8], b: &[u8], result: &mut [u8]) -> Result<(), Error> {
+        let size = a.len();
+        self.prepare_arithmetic_sub(a, b, result.len())?;
+        self.start_and_wait_blocking()?;
+        self.read_arithmetic_sub(size, result)
+    }
+
+    /// Compare two big integers.
+    ///
+    /// Returns whether `a < b`, `a == b`, or `a > b`.
+    pub fn comparison_blocking(&mut self, a: &[u8], b: &[u8]) -> Result<ComparisonResult, Error> {
+        self.prepare_comparison(a, b)?;
+        self.start_and_wait_blocking()?;
+        self.read_comparison()
+    }
+
+    /// Compute modular reduction: result = a mod n.
+    pub fn modular_red_blocking(&mut self, a: &[u8], modulus: &[u8], result: &mut [u8]) -> Result<(), Error> {
+        let mod_size = modulus.len();
+        self.prepare_modular_red(a, modulus, result.len())?;
+        self.start_and_wait_blocking()?;
+        self.read_modular_red(mod_size, result)
+    }
+
+    /// ECC complete point addition in projective coordinates: `R = P + Q`.
+    ///
+    /// Handles all edge cases (point at infinity, point doubling, etc.).
+    ///
+    /// # Output representation
+    /// The result is in **Jacobian** projective coordinates, where the affine
+    /// point is recovered as `x = X / Z^2 mod p`, `y = Y / Z^3 mod p`. To convert
+    /// the result to affine, call
+    /// [`jacobian_to_affine_blocking`](Self::jacobian_to_affine_blocking) --
+    /// **not** [`projective_to_affine_blocking`](Self::projective_to_affine_blocking),
+    /// which uses the standard-projective formula and will return wrong values.
+    ///
+    /// # Arguments
+    /// * `curve` -- Curve parameters.
+    /// * `p` -- First point in projective coordinates.
+    /// * `q` -- Second point in projective coordinates.
+    /// * `result` -- Output point in Jacobian projective coordinates.
+    pub fn ecc_complete_add_blocking(
+        &mut self,
+        curve: &EcdsaCurveParams,
+        p: &EccProjectivePoint,
+        q: &EccProjectivePoint,
+        result: &mut EccProjectivePoint,
+    ) -> Result<(), Error> {
+        let modulus_size = curve.p_modulus.len();
+        self.prepare_ecc_complete_add(curve, p, q, result.size)?;
+        self.start_and_wait_blocking()?;
+        self.read_ecc_complete_add(modulus_size, result)
+    }
+
+    /// ECC double base ladder: `result = k*P + m*Q` (side-channel resistant).
+    ///
+    /// Computes the linear combination of two points using the double base
+    /// ladder algorithm, which provides side-channel resistance.
+    ///
+    /// # Arguments
+    /// * `curve` -- Curve parameters.
+    /// * `k` -- Scalar for point `P`.
+    /// * `p` -- First point in projective coordinates.
+    /// * `m` -- Scalar for point `Q`.
+    /// * `q` -- Second point in projective coordinates.
+    /// * `result` -- Output point in affine coordinates.
+    pub fn double_base_ladder_blocking(
+        &mut self,
+        curve: &EcdsaCurveParams,
+        k: &[u8],
+        p: &EccProjectivePoint,
+        m: &[u8],
+        q: &EccProjectivePoint,
+        result: &mut EccPoint,
+    ) -> Result<(), Error> {
+        let modulus_size = curve.p_modulus.len();
+        self.prepare_double_base_ladder(curve, k, p, m, q, result.size)?;
+        self.start_and_wait_blocking()?;
+        self.read_double_base_ladder(modulus_size, result)
+    }
+
+    /// Convert a point from projective to affine coordinates.
+    ///
+    /// # Arguments
+    /// * `modulus` -- The curve modulus `p`.
+    /// * `montgomery_param` -- Pre-computed Montgomery parameter `R^2 mod p`.
+    /// * `point` -- Point in projective coordinates.
+    /// * `result` -- Output point in affine coordinates.
+    pub fn projective_to_affine_blocking(
+        &mut self,
+        modulus: &[u8],
+        montgomery_param: &[u32],
+        point: &EccProjectivePoint,
+        result: &mut EccPoint,
+    ) -> Result<(), Error> {
+        let modulus_size = modulus.len();
+        self.prepare_projective_to_affine(modulus, montgomery_param, point, result.size)?;
+        self.start_and_wait_blocking()?;
+        self.read_projective_to_affine(modulus_size, result)
+    }
+
+    /// Convert a Jacobian projective point `(X, Y, Z)` to affine `(x, y)`,
+    /// computing `x = X * Z^-2 mod p` and `y = Y * Z^-3 mod p`.
+    ///
+    /// This is the correct normalization for the output of
+    /// [`ecc_complete_add_blocking`](Self::ecc_complete_add_blocking), which
+    /// produces points in **Jacobian** projective form. Do not use
+    /// [`projective_to_affine_blocking`](Self::projective_to_affine_blocking)
+    /// for that purpose -- it implements the **standard** projective formula
+    /// `x = X/Z, y = Y/Z`, which gives incorrect results for Jacobian input.
+    ///
+    /// Implemented as a chain of 9 PKA ops: 1 `modular_inv`, 4 `arithmetic_mul`,
+    /// 4 `modular_red`.
+    pub fn jacobian_to_affine_blocking(
+        &mut self,
+        modulus: &[u8],
+        point: &EccProjectivePoint,
+        result: &mut EccPoint,
+    ) -> Result<(), Error> {
+        let modulus_size = modulus.len();
+        if point.size != modulus_size || result.size != modulus_size {
+            return Err(Error::InvalidSize);
+        }
+
+        // Scratch buffers sized for the largest supported curve (P-521 = 66 bytes;
+        // arithmetic_mul produces 2* output, hence 132).
+        let mut z_inv = [0u8; 66];
+        let mut z_inv_sq = [0u8; 66];
+        let mut z_inv_cube = [0u8; 66];
+        let mut wide = [0u8; 132];
+
+        let m = modulus_size;
+        let w = 2 * m;
+
+        // Z^-1 mod p
+        self.modular_inv_blocking(&point.z[..m], modulus, &mut z_inv[..m])?;
+
+        // Z^-2 = Z^-1 * Z^-1 mod p
+        self.arithmetic_mul_blocking(&z_inv[..m], &z_inv[..m], &mut wide[..w])?;
+        self.modular_red_blocking(&wide[..w], modulus, &mut z_inv_sq[..m])?;
+
+        // x_affine = X * Z^-2 mod p
+        self.arithmetic_mul_blocking(&point.x[..m], &z_inv_sq[..m], &mut wide[..w])?;
+        self.modular_red_blocking(&wide[..w], modulus, &mut result.x[..m])?;
+
+        // Z^-3 = Z^-2 * Z^-1 mod p
+        self.arithmetic_mul_blocking(&z_inv_sq[..m], &z_inv[..m], &mut wide[..w])?;
+        self.modular_red_blocking(&wide[..w], modulus, &mut z_inv_cube[..m])?;
+
+        // y_affine = Y * Z^-3 mod p
+        self.arithmetic_mul_blocking(&point.y[..m], &z_inv_cube[..m], &mut wide[..w])?;
+        self.modular_red_blocking(&wide[..w], modulus, &mut result.y[..m])?;
+
+        Ok(())
+    }
+}
+
+// ============================================================================
+// Public Async API
+// ============================================================================
+
+impl<'d, T: Instance> Pka<'d, T, Async> {
+    /// Verify an ECDSA signature.
+    ///
+    /// # Arguments
+    /// * `curve` -- Curve parameters.
+    /// * `public_key` -- Public key `(Qx, Qy)`.
+    /// * `signature` -- Signature `(r, s)`.
+    /// * `message_hash` -- Hash of the message being verified.
+    ///
+    /// # Returns
+    /// `Ok(true)` if the signature is valid, `Ok(false)` if invalid.
+    pub async fn ecdsa_verify(
+        &mut self,
+        curve: &EcdsaCurveParams,
+        public_key: &EcdsaPublicKey<'_>,
+        signature: &EcdsaSignature<'_>,
+        message_hash: &[u8],
+    ) -> Result<bool, Error> {
+        self.prepare_ecdsa_verify(curve, public_key, signature, message_hash)?;
+        self.start_and_wait_async().await?;
+        self.read_ecdsa_verify()
+    }
+
+    /// Generate an ECDSA signature.
+    ///
+    /// # Arguments
+    /// * `curve` -- Curve parameters.
+    /// * `private_key` -- Private key `d`.
+    /// * `k` -- Random nonce (MUST be cryptographically random and unique per signature!).
+    /// * `message_hash` -- Hash of the message to sign.
+    /// * `signature_r`, `signature_s` -- Output buffers for the `(r, s)` signature.
+    ///
+    /// # Security Warning
+    /// The `k` value MUST be:
+    /// - Cryptographically random
+    /// - Unique for every signature
+    /// - Never reused or predictable
+    ///
+    /// Failure to ensure this will compromise the private key.
+    pub async fn ecdsa_sign(
+        &mut self,
+        curve: &EcdsaCurveParams,
+        private_key: &[u8],
+        k: &[u8],
+        message_hash: &[u8],
+        signature_r: &mut [u8],
+        signature_s: &mut [u8],
+    ) -> Result<(), Error> {
+        let order_size = curve.order.len();
+        self.prepare_ecdsa_sign(curve, private_key, k, message_hash, signature_r, signature_s)?;
+        self.start_and_wait_async().await?;
+        self.read_ecdsa_sign(order_size, signature_r, signature_s)
+    }
+
+    /// Perform ECC scalar multiplication: `result = k * P`.
+    ///
+    /// This is the core operation for ECDH key agreement:
+    /// - To generate a public key: `public = private_key * G` (generator point).
+    /// - To compute a shared secret: `shared = my_private * peer_public`.
+    ///
+    /// # Arguments
+    /// * `curve` -- Curve parameters.
+    /// * `k` -- Scalar multiplier.
+    /// * `point_x`, `point_y` -- Input point coordinates.
+    /// * `result` -- Output point (must be initialized with the correct size).
+    pub async fn ecc_mul(
+        &mut self,
+        curve: &EcdsaCurveParams,
+        k: &[u8],
+        point_x: &[u8],
+        point_y: &[u8],
+        result: &mut EccPoint,
+    ) -> Result<(), Error> {
+        let modulus_size = curve.p_modulus.len();
+        self.prepare_ecc_mul(curve, k, point_x, point_y, result.size)?;
+        self.start_and_wait_async().await?;
+        self.read_ecc_mul(modulus_size, result)
+    }
+
+    /// Check if a point is on the curve.
+    ///
+    /// Call this to validate any externally-provided public key before using
+    /// it in cryptographic operations.
+    pub async fn point_check(
+        &mut self,
+        curve: &EcdsaCurveParams,
+        point_x: &[u8],
+        point_y: &[u8],
+    ) -> Result<bool, Error> {
+        self.prepare_point_check(curve, point_x, point_y)?;
+        self.start_and_wait_async().await?;
+        self.read_point_check()
+    }
+
+    /// Perform modular exponentiation: `result = base^exp mod n`.
+    ///
+    /// This is the core RSA operation:
+    /// - Encryption: `ciphertext = plaintext^e mod n`
+    /// - Decryption: `plaintext = ciphertext^d mod n`
+    /// - Signing: `signature = hash^d mod n`
+    /// - Verification: `hash = signature^e mod n`
+    ///
+    /// # Arguments
+    /// * `base` -- Base value (plaintext/ciphertext).
+    /// * `exponent` -- Exponent (`e` for encrypt/verify, `d` for decrypt/sign).
+    /// * `modulus` -- RSA modulus `n`.
+    /// * `result` -- Output buffer (must be at least the size of `modulus`).
+    pub async fn modular_exp(
+        &mut self,
+        base: &[u8],
+        exponent: &[u8],
+        modulus: &[u8],
+        result: &mut [u8],
+    ) -> Result<(), Error> {
+        let mod_size = modulus.len();
+        self.prepare_modular_exp(base, exponent, modulus, result.len())?;
+        self.start_and_wait_async().await?;
+        self.read_modular_exp(mod_size, result)
+    }
+
+    /// Perform RSA CRT exponentiation for fast decryption.
+    ///
+    /// Uses the Chinese Remainder Theorem for ~4x faster RSA private-key
+    /// operations than [`modular_exp`](Self::modular_exp).
+    ///
+    /// # Arguments
+    /// * `ciphertext` -- Encrypted data.
+    /// * `params` -- CRT parameters (`p`, `q`, `dp`, `dq`, `qinv`).
+    /// * `result` -- Output buffer.
+    pub async fn rsa_crt_exp(
+        &mut self,
+        ciphertext: &[u8],
+        params: &RsaCrtParams<'_>,
+        result: &mut [u8],
+    ) -> Result<(), Error> {
+        let mod_size = params.prime_p.len() + params.prime_q.len();
+        self.prepare_rsa_crt_exp(ciphertext, params, result.len())?;
+        self.start_and_wait_async().await?;
+        self.read_rsa_crt_exp(mod_size, result)
+    }
+
+    /// Compute modular inverse: result = a^(-1) mod n.
+    pub async fn modular_inv(&mut self, a: &[u8], modulus: &[u8], result: &mut [u8]) -> Result<(), Error> {
+        let size = modulus.len();
+        self.prepare_modular_inv(a, modulus, result.len())?;
+        self.start_and_wait_async().await?;
+        self.read_modular_inv(size, result)
+    }
+
+    /// Compute modular addition: result = (a + b) mod n.
+    pub async fn modular_add(&mut self, a: &[u8], b: &[u8], modulus: &[u8], result: &mut [u8]) -> Result<(), Error> {
+        self.prepare_arithmetic_op(PkaMode::ModularAdd, a, b, Some(modulus))?;
+        self.start_and_wait_async().await?;
+        self.read_arithmetic_op(PkaMode::ModularAdd, a.len(), result)
+    }
+
+    /// Compute modular subtraction: result = (a - b) mod n.
+    pub async fn modular_sub(&mut self, a: &[u8], b: &[u8], modulus: &[u8], result: &mut [u8]) -> Result<(), Error> {
+        self.prepare_arithmetic_op(PkaMode::ModularSub, a, b, Some(modulus))?;
+        self.start_and_wait_async().await?;
+        self.read_arithmetic_op(PkaMode::ModularSub, a.len(), result)
+    }
+
+    /// Compute arithmetic multiplication: result = a * b.
+    pub async fn arithmetic_mul(&mut self, a: &[u8], b: &[u8], result: &mut [u8]) -> Result<(), Error> {
+        self.prepare_arithmetic_op(PkaMode::ArithmeticMul, a, b, None)?;
+        self.start_and_wait_async().await?;
+        self.read_arithmetic_op(PkaMode::ArithmeticMul, a.len(), result)
+    }
+
+    /// Compute the Montgomery parameter `R^2 mod n`.
+    ///
+    /// Required for fast modular exponentiation and other Montgomery-form
+    /// operations. The result should be stored and reused for multiple
+    /// operations against the same modulus.
+    ///
+    /// # Arguments
+    /// * `modulus` -- The modulus `n`.
+    /// * `result` -- Output buffer for `R^2 mod n` (must be at least
+    ///   `ceil(modulus.len() / 4)` `u32` words).
+    pub async fn montgomery_param(&mut self, modulus: &[u8], result: &mut [u32]) -> Result<(), Error> {
+        let word_count = (modulus.len() + 3) / 4;
+        self.prepare_montgomery_param(modulus, result.len())?;
+        self.start_and_wait_async().await?;
+        self.read_montgomery_param(word_count, result)
+    }
+
+    /// Perform modular exponentiation with pre-computed Montgomery parameter
+    /// (fast mode).
+    ///
+    /// Faster than [`modular_exp`](Self::modular_exp) when the Montgomery
+    /// parameter has already been computed (via
+    /// [`montgomery_param`](Self::montgomery_param)).
+    ///
+    /// # Arguments
+    /// * `base` -- Base value.
+    /// * `exponent` -- Exponent.
+    /// * `modulus` -- Modulus `n`.
+    /// * `montgomery_param` -- Pre-computed Montgomery parameter `R^2 mod n`.
+    /// * `result` -- Output buffer (must be at least the size of `modulus`).
+    pub async fn modular_exp_fast(
+        &mut self,
+        base: &[u8],
+        exponent: &[u8],
+        modulus: &[u8],
+        montgomery_param: &[u32],
+        result: &mut [u8],
+    ) -> Result<(), Error> {
+        let mod_size = modulus.len();
+        self.prepare_modular_exp_fast(base, exponent, modulus, montgomery_param, result.len())?;
+        self.start_and_wait_async().await?;
+        self.read_modular_exp_fast(mod_size, result)
+    }
+
+    /// Perform modular exponentiation with side-channel protection.
+    ///
+    /// Provides constant-time execution to protect against timing and power
+    /// analysis attacks. Requires `phi(n)` as input.
+    ///
+    /// # Arguments
+    /// * `params` -- Protected-mode parameters including `phi(n)`.
+    /// * `result` -- Output buffer (must be at least the size of `params.modulus`).
+    pub async fn modular_exp_protect(
+        &mut self,
+        params: &ModExpProtectParams<'_>,
+        result: &mut [u8],
+    ) -> Result<(), Error> {
+        let mod_size = params.modulus.len();
+        self.prepare_modular_exp_protect(params, result.len())?;
+        self.start_and_wait_async().await?;
+        self.read_modular_exp_protect(mod_size, result)
+    }
+
+    /// Perform Montgomery multiplication: `result = (a * b * R^-1) mod n`.
+    ///
+    /// Useful for chaining operations in Montgomery form.
+    pub async fn montgomery_mul(&mut self, a: &[u8], b: &[u8], modulus: &[u8], result: &mut [u8]) -> Result<(), Error> {
+        self.prepare_arithmetic_op(PkaMode::MontgomeryMul, a, b, Some(modulus))?;
+        self.start_and_wait_async().await?;
+        self.read_arithmetic_op(PkaMode::MontgomeryMul, a.len(), result)
+    }
+
+    /// Compute arithmetic addition: `result = a + b`.
+    ///
+    /// Note: the result may be one word larger than the inputs if there is overflow.
+    pub async fn arithmetic_add(&mut self, a: &[u8], b: &[u8], result: &mut [u8]) -> Result<(), Error> {
+        let size = a.len();
+        self.prepare_arithmetic_add(a, b, result.len())?;
+        self.start_and_wait_async().await?;
+        self.read_arithmetic_add(size, result)
+    }
+
+    /// Compute arithmetic subtraction: `result = a - b`.
+    ///
+    /// Note: if `a < b`, the result is the two's complement.
+    pub async fn arithmetic_sub(&mut self, a: &[u8], b: &[u8], result: &mut [u8]) -> Result<(), Error> {
+        let size = a.len();
+        self.prepare_arithmetic_sub(a, b, result.len())?;
+        self.start_and_wait_async().await?;
+        self.read_arithmetic_sub(size, result)
+    }
+
+    /// Compare two big integers.
+    ///
+    /// Returns whether `a < b`, `a == b`, or `a > b`.
+    pub async fn comparison(&mut self, a: &[u8], b: &[u8]) -> Result<ComparisonResult, Error> {
+        self.prepare_comparison(a, b)?;
+        self.start_and_wait_async().await?;
+        self.read_comparison()
+    }
+
+    /// Compute modular reduction: result = a mod n.
+    pub async fn modular_red(&mut self, a: &[u8], modulus: &[u8], result: &mut [u8]) -> Result<(), Error> {
+        let mod_size = modulus.len();
+        self.prepare_modular_red(a, modulus, result.len())?;
+        self.start_and_wait_async().await?;
+        self.read_modular_red(mod_size, result)
+    }
+
+    /// ECC complete point addition in projective coordinates: `R = P + Q`.
+    ///
+    /// Handles all edge cases (point at infinity, point doubling, etc.).
+    ///
+    /// # Output representation
+    /// The result is in **Jacobian** projective coordinates, where the affine
+    /// point is recovered as `x = X / Z^2 mod p`, `y = Y / Z^3 mod p`. To convert
+    /// the result to affine, call [`jacobian_to_affine`](Self::jacobian_to_affine) --
+    /// **not** [`projective_to_affine`](Self::projective_to_affine), which uses
+    /// the standard-projective formula and will return wrong values.
+    ///
+    /// # Arguments
+    /// * `curve` -- Curve parameters.
+    /// * `p` -- First point in projective coordinates.
+    /// * `q` -- Second point in projective coordinates.
+    /// * `result` -- Output point in Jacobian projective coordinates.
+    pub async fn ecc_complete_add(
+        &mut self,
+        curve: &EcdsaCurveParams,
+        p: &EccProjectivePoint,
+        q: &EccProjectivePoint,
+        result: &mut EccProjectivePoint,
+    ) -> Result<(), Error> {
+        let modulus_size = curve.p_modulus.len();
+        self.prepare_ecc_complete_add(curve, p, q, result.size)?;
+        self.start_and_wait_async().await?;
+        self.read_ecc_complete_add(modulus_size, result)
+    }
+
+    /// ECC double base ladder: `result = k*P + m*Q` (side-channel resistant).
+    ///
+    /// Computes the linear combination of two points using the double base
+    /// ladder algorithm, which provides side-channel resistance.
+    ///
+    /// # Arguments
+    /// * `curve` -- Curve parameters.
+    /// * `k` -- Scalar for point `P`.
+    /// * `p` -- First point in projective coordinates.
+    /// * `m` -- Scalar for point `Q`.
+    /// * `q` -- Second point in projective coordinates.
+    /// * `result` -- Output point in affine coordinates.
+    pub async fn double_base_ladder(
+        &mut self,
+        curve: &EcdsaCurveParams,
+        k: &[u8],
+        p: &EccProjectivePoint,
+        m: &[u8],
+        q: &EccProjectivePoint,
+        result: &mut EccPoint,
+    ) -> Result<(), Error> {
+        let modulus_size = curve.p_modulus.len();
+        self.prepare_double_base_ladder(curve, k, p, m, q, result.size)?;
+        self.start_and_wait_async().await?;
+        self.read_double_base_ladder(modulus_size, result)
+    }
+
+    /// Convert a point from projective to affine coordinates.
+    ///
+    /// # Arguments
+    /// * `modulus` -- The curve modulus `p`.
+    /// * `montgomery_param` -- Pre-computed Montgomery parameter `R^2 mod p`.
+    /// * `point` -- Point in projective coordinates.
+    /// * `result` -- Output point in affine coordinates.
+    pub async fn projective_to_affine(
+        &mut self,
+        modulus: &[u8],
+        montgomery_param: &[u32],
+        point: &EccProjectivePoint,
+        result: &mut EccPoint,
+    ) -> Result<(), Error> {
+        let modulus_size = modulus.len();
+        self.prepare_projective_to_affine(modulus, montgomery_param, point, result.size)?;
+        self.start_and_wait_async().await?;
+        self.read_projective_to_affine(modulus_size, result)
+    }
+
+    /// Convert a Jacobian projective point `(X, Y, Z)` to affine `(x, y)`,
+    /// computing `x = X * Z^-2 mod p` and `y = Y * Z^-3 mod p`.
+    ///
+    /// This is the correct normalization for the output of
+    /// [`ecc_complete_add`](Self::ecc_complete_add), which produces points in
+    /// **Jacobian** projective form. Do not use
+    /// [`projective_to_affine`](Self::projective_to_affine) for that purpose --
+    /// it implements the **standard** projective formula `x = X/Z, y = Y/Z`,
+    /// which gives incorrect results for Jacobian input.
+    ///
+    /// Implemented as a chain of 9 PKA ops: 1 `modular_inv`, 4 `arithmetic_mul`,
+    /// 4 `modular_red`.
+    pub async fn jacobian_to_affine(
+        &mut self,
+        modulus: &[u8],
+        point: &EccProjectivePoint,
+        result: &mut EccPoint,
+    ) -> Result<(), Error> {
+        let modulus_size = modulus.len();
+        if point.size != modulus_size || result.size != modulus_size {
+            return Err(Error::InvalidSize);
+        }
+
+        // Scratch buffers sized for the largest supported curve (P-521 = 66 bytes;
+        // arithmetic_mul produces 2* output, hence 132).
+        let mut z_inv = [0u8; 66];
+        let mut z_inv_sq = [0u8; 66];
+        let mut z_inv_cube = [0u8; 66];
+        let mut wide = [0u8; 132];
+
+        let m = modulus_size;
+        let w = 2 * m;
+
+        // Z^-1 mod p
+        self.modular_inv(&point.z[..m], modulus, &mut z_inv[..m]).await?;
+
+        // Z^-2 = Z^-1 * Z^-1 mod p
+        self.arithmetic_mul(&z_inv[..m], &z_inv[..m], &mut wide[..w]).await?;
+        self.modular_red(&wide[..w], modulus, &mut z_inv_sq[..m]).await?;
+
+        // x_affine = X * Z^-2 mod p
+        self.arithmetic_mul(&point.x[..m], &z_inv_sq[..m], &mut wide[..w])
+            .await?;
+        self.modular_red(&wide[..w], modulus, &mut result.x[..m]).await?;
+
+        // Z^-3 = Z^-2 * Z^-1 mod p
+        self.arithmetic_mul(&z_inv_sq[..m], &z_inv[..m], &mut wide[..w]).await?;
+        self.modular_red(&wide[..w], modulus, &mut z_inv_cube[..m]).await?;
+
+        // y_affine = Y * Z^-3 mod p
+        self.arithmetic_mul(&point.y[..m], &z_inv_cube[..m], &mut wide[..w])
+            .await?;
+        self.modular_red(&wide[..w], modulus, &mut result.y[..m]).await?;
+
+        Ok(())
     }
 }
 

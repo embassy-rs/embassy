@@ -316,7 +316,7 @@ impl<'d> BufferedUarte<'d> {
         let tx = BufferedUarteTx::new_innerer(unsafe { peri.clone_unchecked() }, txd, cts, tx_buffer);
         let rx = BufferedUarteRx::new_innerer(peri, timer, ppi_ch1, ppi_ch2, ppi_group, rxd, rts, rx_buffer);
 
-        r.enable().write(|w| w.set_enable(vals::Enable::ENABLED));
+        r.enable().write(|w| w.set_enable(vals::Enable::Enabled));
         irq.pend();
         unsafe { irq.enable() };
 
@@ -429,7 +429,7 @@ impl<'d> BufferedUarteTx<'d> {
 
         let this = Self::new_innerer(peri, txd, cts, tx_buffer);
 
-        r.enable().write(|w| w.set_enable(vals::Enable::ENABLED));
+        r.enable().write(|w| w.set_enable(vals::Enable::Enabled));
         irq.pend();
         unsafe { irq.enable() };
 
@@ -661,7 +661,7 @@ impl<'d> BufferedUarteRx<'d> {
 
         let this = Self::new_innerer(peri, timer, ppi_ch1, ppi_ch2, ppi_group, rxd, rts, rx_buffer);
 
-        r.enable().write(|w| w.set_enable(vals::Enable::ENABLED));
+        r.enable().write(|w| w.set_enable(vals::Enable::Enabled));
         irq.pend();
         unsafe { irq.enable() };
 

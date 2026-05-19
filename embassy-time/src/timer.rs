@@ -304,3 +304,10 @@ impl FusedStream for Ticker {
         false
     }
 }
+
+impl core::fmt::Display for TimeoutError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("TimeoutError")
+    }
+}
+impl core::error::Error for TimeoutError {}

@@ -21,25 +21,25 @@ async fn main(_spawner: Spawner) {
 
     // Configure PLL1 (required on WBA)
     config.rcc.pll1 = Some(embassy_stm32::rcc::Pll {
-        source: PllSource::HSI,
-        prediv: PllPreDiv::DIV1,  // PLLM = 1 → HSI / 1 = 16 MHz
-        mul: PllMul::MUL30,       // PLLN = 30 → 16 MHz * 30 = 480 MHz VCO
-        divr: Some(PllDiv::DIV5), // PLLR = 5 → 96 MHz (Sysclk)
+        source: PllSource::Hsi,
+        prediv: PllPreDiv::Div1,  // PLLM = 1 → HSI / 1 = 16 MHz
+        mul: PllMul::Mul30,       // PLLN = 30 → 16 MHz * 30 = 480 MHz VCO
+        divr: Some(PllDiv::Div5), // PLLR = 5 → 96 MHz (Sysclk)
         divq: None,
-        divp: Some(PllDiv::DIV30), // PLLP = 30 → 16 MHz (required for SAI)
+        divp: Some(PllDiv::Div30), // PLLP = 30 → 16 MHz (required for SAI)
         frac: Some(0),
     });
 
-    config.rcc.ahb_pre = AHBPrescaler::DIV1;
-    config.rcc.apb1_pre = APBPrescaler::DIV1;
-    config.rcc.apb2_pre = APBPrescaler::DIV1;
-    config.rcc.apb7_pre = APBPrescaler::DIV1;
-    config.rcc.ahb5_pre = AHB5Prescaler::DIV4;
-    config.rcc.voltage_scale = VoltageScale::RANGE1;
-    config.rcc.sys = Sysclk::PLL1_R;
+    config.rcc.ahb_pre = AHBPrescaler::Div1;
+    config.rcc.apb1_pre = APBPrescaler::Div1;
+    config.rcc.apb2_pre = APBPrescaler::Div1;
+    config.rcc.apb7_pre = APBPrescaler::Div1;
+    config.rcc.ahb5_pre = AHB5Prescaler::Div4;
+    config.rcc.voltage_scale = VoltageScale::Range1;
+    config.rcc.sys = Sysclk::Pll1R;
 
     // Configure RNG clock source to HSI (required for WBA)
-    config.rcc.mux.rngsel = mux::Rngsel::HSI;
+    config.rcc.mux.rngsel = mux::Rngsel::Hsi;
 
     let p = embassy_stm32::init(config);
     info!("STM32WBA65 RNG Test");

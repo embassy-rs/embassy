@@ -111,11 +111,11 @@ impl<'d, T: Instance, P: Phy> embassy_net_driver::Driver for Ethernet<'d, T, P> 
     }
 
     fn link_state(&mut self, cx: &mut Context) -> LinkState {
-        if self.phy.poll_link(cx) {
-            LinkState::Up
-        } else {
-            LinkState::Down
+        if let Some(link_state) = self.phy.poll_link(cx) {
+            self.link_state = if link_state { LinkState::Up } else { LinkState::Down };
         }
+
+        self.link_state
     }
 
     fn hardware_address(&self) -> HardwareAddress {
@@ -166,7 +166,7 @@ pub trait Phy {
     /// PHY initialisation.
     fn phy_init(&mut self);
     /// Poll link to see if it is up and FD with 100Mbps
-    fn poll_link(&mut self, cx: &mut Context) -> bool;
+    fn poll_link(&mut self, cx: &mut Context) -> Option<bool>;
 }
 
 impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {

@@ -36,6 +36,7 @@ build = [
     {target = "armv7a-none-eabi", features = ["platform-cortex-ar", "executor-thread"]},
     {target = "armv7r-none-eabi", features = ["platform-cortex-ar", "executor-thread"]},
     {target = "armv7r-none-eabihf", features = ["platform-cortex-ar", "executor-thread"]},
+    {target = "armv8r-none-eabihf", features = ["platform-cortex-ar", "executor-thread"]},
     {target = "riscv32imac-unknown-none-elf", features = ["platform-riscv32"]},
     {target = "riscv32imac-unknown-none-elf", features = ["platform-riscv32", "executor-thread"]},
     {target = "riscv32imac-unknown-none-elf", features = ["platform-riscv32", "executor-thread", "trace"]},
@@ -102,7 +103,7 @@ portable-atomic = { version = "1.5", optional = true }
 cortex-m = { version = "0.7.6", optional = true }
 
 # platform-cortex-ar dependencies
-aarch32-cpu = { version = "0.1", optional = true }
+aarch32-cpu = { version = "0.3", optional = true }
 
 # platform-wasm dependencies
 wasm-bindgen = { version = "0.2.82", optional = true }

@@ -105,13 +105,13 @@ impl<'d, T: Instance> Rng<'d, T> {
     pub fn reset(&mut self) {
         T::regs().cr().write(|reg| {
             reg.set_condrst(true);
-            reg.set_nistc(pac::rng::vals::Nistc::CUSTOM);
+            reg.set_nistc(pac::rng::vals::Nistc::Custom);
             // set RNG config "A" according to reference manual
             // this has to be written within the same write access as setting the CONDRST bit
-            reg.set_rng_config1(pac::rng::vals::RngConfig1::CONFIG_A);
-            reg.set_clkdiv(pac::rng::vals::Clkdiv::NO_DIV);
-            reg.set_rng_config2(pac::rng::vals::RngConfig2::CONFIG_A_B);
-            reg.set_rng_config3(pac::rng::vals::RngConfig3::CONFIG_A);
+            reg.set_rng_config1(pac::rng::vals::RngConfig1::ConfigA);
+            reg.set_clkdiv(pac::rng::vals::Clkdiv::NoDiv);
+            reg.set_rng_config2(pac::rng::vals::RngConfig2::ConfigAB);
+            reg.set_rng_config3(pac::rng::vals::RngConfig3::ConfigA);
             reg.set_ced(true);
             reg.set_ie(false);
             reg.set_rngen(true);
@@ -126,12 +126,12 @@ impl<'d, T: Instance> Rng<'d, T> {
         #[cfg(not(rng_wba6))]
         {
             // magic number must be written immediately before every read or write access to HTCR
-            T::regs().htcr().write(|w| w.set_htcfg(pac::rng::vals::Htcfg::MAGIC));
+            T::regs().htcr().write(|w| w.set_htcfg(pac::rng::vals::Htcfg::Magic));
             // write recommended value according to reference manual
             // note: HTCR can only be written during conditioning
             T::regs()
                 .htcr()
-                .write(|w| w.set_htcfg(pac::rng::vals::Htcfg::RECOMMENDED));
+                .write(|w| w.set_htcfg(pac::rng::vals::Htcfg::Recommended));
         }
         #[cfg(rng_wba6)]
         {

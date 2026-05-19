@@ -461,7 +461,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         self.inner.enable_channel(channel, true);
         self.inner.enable_channel(C::CHANNEL, true);
         self.inner.clamp_compare_value::<W>(channel);
-        self.inner.set_cc_dma_selection(Ccds::ON_UPDATE);
+        self.inner.set_cc_dma_selection(Ccds::OnUpdate);
         self.inner.set_cc_dma_enable_state(C::CHANNEL, true);
         self.inner.setup_channel_update_dma(dma, irq, channel, duty).await;
         self.inner.set_cc_dma_enable_state(C::CHANNEL, false);

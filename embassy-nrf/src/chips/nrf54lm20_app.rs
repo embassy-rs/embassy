@@ -525,6 +525,9 @@ embassy_hal_internal::peripherals! {
     WDT0,
     #[cfg(feature = "_s")]
     WDT1,
+
+    // VPR
+    VPR
 }
 
 impl_pin!(P0_00, 0, 0);
@@ -725,13 +728,13 @@ impl_ppi_group!(PPI20_GROUP5, DPPIC20, 5);
 impl_ppi_group!(PPI30_GROUP0, DPPIC30, 0);
 impl_ppi_group!(PPI30_GROUP1, DPPIC30, 1);
 
-impl_timer!(TIMER00, TIMER00, TIMER00);
-impl_timer!(TIMER10, TIMER10, TIMER10);
-impl_timer!(TIMER20, TIMER20, TIMER20);
-impl_timer!(TIMER21, TIMER21, TIMER21);
-impl_timer!(TIMER22, TIMER22, TIMER22);
-impl_timer!(TIMER23, TIMER23, TIMER23);
-impl_timer!(TIMER24, TIMER24, TIMER24);
+impl_timer!(TIMER00, TIMER00, TIMER00, 6);
+impl_timer!(TIMER10, TIMER10, TIMER10, 8);
+impl_timer!(TIMER20, TIMER20, TIMER20, 6);
+impl_timer!(TIMER21, TIMER21, TIMER21, 6);
+impl_timer!(TIMER22, TIMER22, TIMER22, 6);
+impl_timer!(TIMER23, TIMER23, TIMER23, 6);
+impl_timer!(TIMER24, TIMER24, TIMER24, 6);
 
 impl_twim!(SERIAL20, TWIM20, SERIAL20);
 impl_twim!(SERIAL21, TWIM21, SERIAL21);
@@ -753,8 +756,8 @@ impl_spim!(
     SPIM00,
     SERIAL00,
     match pac::OSCILLATORS_S.pll().currentfreq().read().currentfreq() {
-        pac::oscillators::vals::Currentfreq::CK128M => 128_000_000,
-        pac::oscillators::vals::Currentfreq::CK64M => 64_000_000,
+        pac::oscillators::vals::Currentfreq::Ck128m => 128_000_000,
+        pac::oscillators::vals::Currentfreq::Ck64m => 64_000_000,
         _ => unreachable!(),
     }
 );
@@ -764,8 +767,8 @@ impl_spim!(
     SPIM00,
     SERIAL00,
     match pac::OSCILLATORS_NS.pll().currentfreq().read().currentfreq() {
-        pac::oscillators::vals::Currentfreq::CK128M => 128_000_000,
-        pac::oscillators::vals::Currentfreq::CK64M => 64_000_000,
+        pac::oscillators::vals::Currentfreq::Ck128m => 128_000_000,
+        pac::oscillators::vals::Currentfreq::Ck64m => 64_000_000,
         _ => unreachable!(),
     }
 );
@@ -797,6 +800,9 @@ impl_saadc_input!(P1_14, 1, 14);
 
 #[cfg(feature = "_s")]
 impl_cracen!(CRACEN, CRACEN, CRACEN);
+
+#[cfg(feature = "_s")]
+impl_vpr!(VPR, VPR00, VPR00);
 
 embassy_hal_internal::interrupt_mod!(
     SWI00,

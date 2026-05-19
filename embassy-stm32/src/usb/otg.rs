@@ -724,28 +724,20 @@ mod host_impl {
     }
 
     #[allow(private_bounds)]
-    impl<'d, T: SealedHostInstance> embassy_usb_driver::host::UsbHostDriver for HostDriver<'d, T> {
-        type Channel<Ty: embassy_usb_driver::host::channel::Type, D: embassy_usb_driver::host::channel::Direction> =
-            <OtgHostDriver<'d, MAX_HOST_CH_COUNT> as embassy_usb_driver::host::UsbHostDriver>::Channel<Ty, D>;
+    impl<'d, T: SealedHostInstance> embassy_usb_driver::host::UsbHostController<'d> for HostDriver<'d, T> {
+        type Allocator =
+            <OtgHostDriver<'d, MAX_HOST_CH_COUNT> as embassy_usb_driver::host::UsbHostController<'d>>::Allocator;
 
-        async fn wait_for_device_event(&self) -> embassy_usb_driver::host::DeviceEvent {
+        fn allocator(&self) -> Self::Allocator {
+            self.inner.allocator()
+        }
+
+        async fn wait_for_device_event(&mut self) -> embassy_usb_driver::host::DeviceEvent {
             self.inner.wait_for_device_event().await
         }
 
-        async fn bus_reset(&self) {
+        async fn bus_reset(&mut self) {
             self.inner.bus_reset().await
-        }
-
-        fn alloc_channel<
-            Ty: embassy_usb_driver::host::channel::Type,
-            D: embassy_usb_driver::host::channel::Direction,
-        >(
-            &self,
-            addr: u8,
-            endpoint: &embassy_usb_driver::EndpointInfo,
-            pre: bool,
-        ) -> Result<Self::Channel<Ty, D>, embassy_usb_driver::host::HostError> {
-            self.inner.alloc_channel(addr, endpoint, pre)
         }
     }
 }

@@ -267,23 +267,23 @@ async fn main(spawner: Spawner) {
     {
         use embassy_stm32::rcc::*;
         config.rcc.pll1 = Some(Pll {
-            source: PllSource::HSI,
-            prediv: PllPreDiv::DIV1,
-            mul: PllMul::MUL12,
-            divq: Some(PllDiv::DIV4),
-            divr: Some(PllDiv::DIV5),
-            divp: Some(PllDiv::DIV30),
+            source: PllSource::Hsi,
+            prediv: PllPreDiv::Div1,
+            mul: PllMul::Mul12,
+            divq: Some(PllDiv::Div4),
+            divr: Some(PllDiv::Div5),
+            divp: Some(PllDiv::Div30),
             frac: Some(2363),
         });
 
-        config.rcc.ahb_pre = AHBPrescaler::DIV1;
-        config.rcc.apb1_pre = APBPrescaler::DIV1;
-        config.rcc.apb2_pre = APBPrescaler::DIV1;
-        config.rcc.apb7_pre = APBPrescaler::DIV1;
-        config.rcc.ahb5_pre = AHB5Prescaler::DIV2;
-        config.rcc.voltage_scale = VoltageScale::RANGE1;
+        config.rcc.ahb_pre = AHBPrescaler::Div1;
+        config.rcc.apb1_pre = APBPrescaler::Div1;
+        config.rcc.apb2_pre = APBPrescaler::Div1;
+        config.rcc.apb7_pre = APBPrescaler::Div1;
+        config.rcc.ahb5_pre = AHB5Prescaler::Div2;
+        config.rcc.voltage_scale = VoltageScale::Range1;
 
-        config.rcc.mux.sai1sel = mux::Sai1sel::PLL1_Q;
+        config.rcc.mux.sai1sel = mux::Sai1sel::Pll1Q;
     }
 
     let p = embassy_stm32::init(config);
@@ -310,7 +310,7 @@ async fn main(spawner: Spawner) {
     sai_cfg.frame_length = 32;
     sai_cfg.frame_sync_active_level_length = sai::word::U7(16);
     sai_cfg.fifo_threshold = sai::FifoThreshold::Quarter;
-    sai_cfg.master_clock_divider = sai::MasterClockDivider::DIV4;
+    sai_cfg.master_clock_divider = sai::MasterClockDivider::Div4;
 
     let mut sai_tx = Sai::new_asynchronous(sai_a, p.PA7, p.PB14, p.PA8, p.GPDMA1_CH2, sai_dma_buf, Irqs, sai_cfg);
 

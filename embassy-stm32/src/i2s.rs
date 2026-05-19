@@ -80,18 +80,18 @@ impl From<ringbuffer::Error> for Error {
 impl Standard {
     const fn i2sstd(&self) -> vals::I2sstd {
         match self {
-            Standard::Philips => vals::I2sstd::PHILIPS,
-            Standard::MsbFirst => vals::I2sstd::MSB,
-            Standard::LsbFirst => vals::I2sstd::LSB,
-            Standard::PcmLongSync => vals::I2sstd::PCM,
-            Standard::PcmShortSync => vals::I2sstd::PCM,
+            Standard::Philips => vals::I2sstd::Philips,
+            Standard::MsbFirst => vals::I2sstd::Msb,
+            Standard::LsbFirst => vals::I2sstd::Lsb,
+            Standard::PcmLongSync => vals::I2sstd::Pcm,
+            Standard::PcmShortSync => vals::I2sstd::Pcm,
         }
     }
 
     const fn pcmsync(&self) -> vals::Pcmsync {
         match self {
-            Standard::PcmLongSync => vals::Pcmsync::LONG,
-            _ => vals::Pcmsync::SHORT,
+            Standard::PcmLongSync => vals::Pcmsync::Long,
+            _ => vals::Pcmsync::Short,
         }
     }
 }
@@ -112,19 +112,19 @@ pub enum Format {
 impl Format {
     const fn datlen(&self) -> vals::Datlen {
         match self {
-            Format::Data16Channel16 => vals::Datlen::BITS16,
-            Format::Data16Channel32 => vals::Datlen::BITS16,
-            Format::Data24Channel32 => vals::Datlen::BITS24,
-            Format::Data32Channel32 => vals::Datlen::BITS32,
+            Format::Data16Channel16 => vals::Datlen::Bits16,
+            Format::Data16Channel32 => vals::Datlen::Bits16,
+            Format::Data24Channel32 => vals::Datlen::Bits24,
+            Format::Data32Channel32 => vals::Datlen::Bits32,
         }
     }
 
     const fn chlen(&self) -> vals::Chlen {
         match self {
-            Format::Data16Channel16 => vals::Chlen::BITS16,
-            Format::Data16Channel32 => vals::Chlen::BITS32,
-            Format::Data24Channel32 => vals::Chlen::BITS32,
-            Format::Data32Channel32 => vals::Chlen::BITS32,
+            Format::Data16Channel16 => vals::Chlen::Bits16,
+            Format::Data16Channel32 => vals::Chlen::Bits32,
+            Format::Data24Channel32 => vals::Chlen::Bits32,
+            Format::Data32Channel32 => vals::Chlen::Bits32,
         }
     }
 }
@@ -141,8 +141,8 @@ pub enum ClockPolarity {
 impl ClockPolarity {
     const fn ckpol(&self) -> vals::Ckpol {
         match self {
-            ClockPolarity::IdleHigh => vals::Ckpol::IDLE_HIGH,
-            ClockPolarity::IdleLow => vals::Ckpol::IDLE_LOW,
+            ClockPolarity::IdleHigh => vals::Ckpol::IdleHigh,
+            ClockPolarity::IdleLow => vals::Ckpol::IdleLow,
         }
     }
 }
@@ -709,8 +709,8 @@ impl<'d, W: Word> I2S<'d, W> {
         clk_reg.modify(|w| {
             w.set_i2sdiv(div);
             w.set_odd(match odd {
-                true => Odd::ODD,
-                false => Odd::EVEN,
+                true => Odd::Odd,
+                false => Odd::Even,
             });
 
             w.set_mckoe(config.master_clock);
@@ -728,14 +728,14 @@ impl<'d, W: Word> I2S<'d, W> {
             w.set_chlen(config.format.chlen());
 
             w.set_i2scfg(match (config.mode, function) {
-                (Mode::Master, Function::Transmit) => I2scfg::MASTER_TX,
-                (Mode::Master, Function::Receive) => I2scfg::MASTER_RX,
+                (Mode::Master, Function::Transmit) => I2scfg::MasterTx,
+                (Mode::Master, Function::Receive) => I2scfg::MasterRx,
                 #[cfg(any(spi_v4, spi_v5))]
-                (Mode::Master, Function::FullDuplex) => I2scfg::MASTER_FULL_DUPLEX,
-                (Mode::Slave, Function::Transmit) => I2scfg::SLAVE_TX,
-                (Mode::Slave, Function::Receive) => I2scfg::SLAVE_RX,
+                (Mode::Master, Function::FullDuplex) => I2scfg::MasterFullDuplex,
+                (Mode::Slave, Function::Transmit) => I2scfg::SlaveTx,
+                (Mode::Slave, Function::Receive) => I2scfg::SlaveRx,
                 #[cfg(any(spi_v4, spi_v5))]
-                (Mode::Slave, Function::FullDuplex) => I2scfg::SLAVE_FULL_DUPLEX,
+                (Mode::Slave, Function::FullDuplex) => I2scfg::SlaveFullDuplex,
             });
         });
 
@@ -745,7 +745,7 @@ impl<'d, W: Word> I2S<'d, W> {
         if let Some(ext) = regs_ext {
             ext.i2spr().modify(|w| {
                 w.set_i2sdiv(2);
-                w.set_odd(Odd::EVEN);
+                w.set_odd(Odd::Even);
                 w.set_mckoe(false);
             });
 
@@ -761,10 +761,10 @@ impl<'d, W: Word> I2S<'d, W> {
                 w.set_chlen(config.format.chlen());
 
                 w.set_i2scfg(match (config.mode, function) {
-                    (Mode::Master, Function::Transmit) => I2scfg::SLAVE_RX,
-                    (Mode::Master, Function::Receive) => I2scfg::SLAVE_TX,
-                    (Mode::Slave, Function::Transmit) => I2scfg::SLAVE_RX,
-                    (Mode::Slave, Function::Receive) => I2scfg::SLAVE_TX,
+                    (Mode::Master, Function::Transmit) => I2scfg::SlaveRx,
+                    (Mode::Master, Function::Receive) => I2scfg::SlaveTx,
+                    (Mode::Slave, Function::Transmit) => I2scfg::SlaveRx,
+                    (Mode::Slave, Function::Receive) => I2scfg::SlaveTx,
                 });
 
                 w.set_i2se(true);
@@ -778,8 +778,8 @@ impl<'d, W: Word> I2S<'d, W> {
         // 16-bit channel width: 1 half-word per channel × 2 channels = 2
         // 32-bit channel width: 2 half-words per channel × 2 channels = 4
         let frame_words = match config.format.chlen() {
-            vals::Chlen::BITS16 => 2,
-            vals::Chlen::BITS32 => 4,
+            vals::Chlen::Bits16 => 2,
+            vals::Chlen::Bits32 => 4,
         };
 
         let regs_rx = {

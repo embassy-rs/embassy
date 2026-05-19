@@ -31,30 +31,30 @@ bind_interrupts!(struct Irqs {
 async fn main(_spawner: Spawner) {
     let mut config = hal::Config::default();
     config.rcc.pll1 = Some(Pll {
-        source: PllSource::HSE,
-        prediv: PllPreDiv::DIV4,
-        mul: PllMul::MUL200,
+        source: PllSource::Hse,
+        prediv: PllPreDiv::Div4,
+        mul: PllMul::Mul200,
         fracn: None,
-        divp: Some(PllDiv::DIV2),
-        divq: Some(PllDiv::DIV5),
-        divr: Some(PllDiv::DIV2),
+        divp: Some(PllDiv::Div2),
+        divq: Some(PllDiv::Div5),
+        divr: Some(PllDiv::Div2),
     });
     config.rcc.pll3 = Some(Pll {
-        source: PllSource::HSE,
-        prediv: PllPreDiv::DIV6,
-        mul: PllMul::MUL295,
+        source: PllSource::Hse,
+        prediv: PllPreDiv::Div6,
+        mul: PllMul::Mul295,
         fracn: None,
-        divp: Some(PllDiv::DIV16),
-        divq: Some(PllDiv::DIV4),
-        divr: Some(PllDiv::DIV32),
+        divp: Some(PllDiv::Div16),
+        divq: Some(PllDiv::Div4),
+        divr: Some(PllDiv::Div32),
     });
-    config.rcc.sys = Sysclk::PLL1_P;
-    config.rcc.mux.sai1sel = hal::pac::rcc::vals::Saisel::PLL3_P;
-    config.rcc.ahb_pre = AHBPrescaler::DIV2; // 200 Mhz
-    config.rcc.apb1_pre = APBPrescaler::DIV2; // 100 Mhz
-    config.rcc.apb2_pre = APBPrescaler::DIV2; // 100 Mhz
-    config.rcc.apb3_pre = APBPrescaler::DIV2; // 100 Mhz
-    config.rcc.apb4_pre = APBPrescaler::DIV2; // 100 Mhz
+    config.rcc.sys = Sysclk::Pll1P;
+    config.rcc.mux.sai1sel = hal::pac::rcc::vals::Saisel::Pll3P;
+    config.rcc.ahb_pre = AHBPrescaler::Div2; // 200 Mhz
+    config.rcc.apb1_pre = APBPrescaler::Div2; // 100 Mhz
+    config.rcc.apb2_pre = APBPrescaler::Div2; // 100 Mhz
+    config.rcc.apb3_pre = APBPrescaler::Div2; // 100 Mhz
+    config.rcc.apb4_pre = APBPrescaler::Div2; // 100 Mhz
     config.rcc.hse = Some(Hse {
         freq: Hertz::mhz(16),
         mode: HseMode::Oscillator,

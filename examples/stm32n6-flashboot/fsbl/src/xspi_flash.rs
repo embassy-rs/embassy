@@ -83,12 +83,12 @@ fn try_opi_reset(cmd: u8, dtr: bool) -> bool {
     // Configure CCR: instruction-only, OCTO mode, 16-bit, no DDTR/DQSE
     // This avoids the driver's auto-enable of DDTR which causes the hang.
     XSPI2.ccr().write(|w| {
-        w.set_imode(CcrImode::B_0X4); // OCTO
-        w.set_isize(CcrIsize::B_0X1); // 16-bit
+        w.set_imode(CcrImode::B0x4); // OCTO
+        w.set_isize(CcrIsize::B0x1); // 16-bit
         w.set_idtr(dtr);
-        w.set_admode(CcrAdmode::B_0X0); // NONE
-        w.set_abmode(CcrAbmode::B_0X0); // NONE
-        w.set_dmode(CcrDmode::B_0X0); // NONE
+        w.set_admode(CcrAdmode::B0x0); // NONE
+        w.set_abmode(CcrAbmode::B0x0); // NONE
+        w.set_dmode(CcrDmode::B0x0); // NONE
         w.set_ddtr(false);
         w.set_dqse(false);
     });
@@ -130,12 +130,12 @@ fn try_spi_command(cmd: u8) -> bool {
     });
 
     XSPI2.ccr().write(|w| {
-        w.set_imode(CcrImode::B_0X1); // SING
-        w.set_isize(CcrIsize::B_0X0); // 8-bit
+        w.set_imode(CcrImode::B0x1); // SING
+        w.set_isize(CcrIsize::B0x0); // 8-bit
         w.set_idtr(false);
-        w.set_admode(CcrAdmode::B_0X0);
-        w.set_abmode(CcrAbmode::B_0X0);
-        w.set_dmode(CcrDmode::B_0X0);
+        w.set_admode(CcrAdmode::B0x0);
+        w.set_abmode(CcrAbmode::B0x0);
+        w.set_dmode(CcrDmode::B0x0);
         w.set_ddtr(false);
         w.set_dqse(false);
     });

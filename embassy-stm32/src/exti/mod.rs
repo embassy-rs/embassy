@@ -30,7 +30,7 @@ static EXTI_WAKERS: [AtomicWaker; EXTI_COUNT] = [const { AtomicWaker::new() }; E
 #[inline(always)]
 fn cpu_regs() -> pac::exti::Cpu {
     use crate::cpu::CoreId;
-    EXTI.cpu(CoreId::current().to_index())
+    EXTI.cpu(CoreId::current().to_index().into())
 }
 
 #[cfg(not(any(feature = "_dual-core", exti_w)))]

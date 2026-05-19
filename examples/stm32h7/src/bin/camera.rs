@@ -30,23 +30,23 @@ async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     {
         use embassy_stm32::rcc::*;
-        config.rcc.hsi = Some(HSIPrescaler::DIV1);
+        config.rcc.hsi = Some(HSIPrescaler::Div1);
         config.rcc.csi = true;
         config.rcc.pll1 = Some(Pll {
-            source: PllSource::HSI,
-            prediv: PllPreDiv::DIV4,
-            mul: PllMul::MUL50,
+            source: PllSource::Hsi,
+            prediv: PllPreDiv::Div4,
+            mul: PllMul::Mul50,
             fracn: None,
-            divp: Some(PllDiv::DIV2),
-            divq: Some(PllDiv::DIV8), // 100mhz
+            divp: Some(PllDiv::Div2),
+            divq: Some(PllDiv::Div8), // 100mhz
             divr: None,
         });
-        config.rcc.sys = Sysclk::PLL1_P; // 400 Mhz
-        config.rcc.ahb_pre = AHBPrescaler::DIV2; // 200 Mhz
-        config.rcc.apb1_pre = APBPrescaler::DIV2; // 100 Mhz
-        config.rcc.apb2_pre = APBPrescaler::DIV2; // 100 Mhz
-        config.rcc.apb3_pre = APBPrescaler::DIV2; // 100 Mhz
-        config.rcc.apb4_pre = APBPrescaler::DIV2; // 100 Mhz
+        config.rcc.sys = Sysclk::Pll1P; // 400 Mhz
+        config.rcc.ahb_pre = AHBPrescaler::Div2; // 200 Mhz
+        config.rcc.apb1_pre = APBPrescaler::Div2; // 100 Mhz
+        config.rcc.apb2_pre = APBPrescaler::Div2; // 100 Mhz
+        config.rcc.apb3_pre = APBPrescaler::Div2; // 100 Mhz
+        config.rcc.apb4_pre = APBPrescaler::Div2; // 100 Mhz
         config.rcc.voltage_scale = VoltageScale::Scale1;
     }
     let p = embassy_stm32::init(config);
@@ -55,11 +55,11 @@ async fn main(_spawner: Spawner) {
 
     let mco_config = {
         let mut config = McoConfig::default();
-        config.prescaler = McoPrescaler::DIV3;
+        config.prescaler = McoPrescaler::Div3;
         config
     };
 
-    let mco = Mco::new(p.MCO1, p.PA8, Mco1Source::HSI, mco_config);
+    let mco = Mco::new(p.MCO1, p.PA8, Mco1Source::Hsi, mco_config);
 
     let mut led = Output::new(p.PE3, Level::High, Speed::Low);
     let cam_i2c = I2c::new(p.I2C1, p.PB8, p.PB9, p.DMA1_CH1, p.DMA1_CH2, Irqs, Default::default());

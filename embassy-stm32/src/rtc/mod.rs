@@ -250,6 +250,8 @@ impl Rtc {
 
     /// Set the datetime to a new value.
     ///
+    /// This function has second precision, and sets subseconds to 0.
+    ///
     /// # Errors
     ///
     /// Will return `RtcError::InvalidDateTime` if the datetime is not a valid range.
@@ -274,7 +276,7 @@ impl Rtc {
                 w.set_mnu(mnu);
                 w.set_st(st);
                 w.set_su(su);
-                w.set_pm(Ampm::AM);
+                w.set_pm(Ampm::Am);
             });
 
             rtc.dr().write(|w| {
@@ -292,6 +294,33 @@ impl Rtc {
         self.reset_epoch();
 
         Ok(())
+    }
+
+    /// Synchronize to a remote clock with a high degree of precision.
+    ///
+    /// `shift` should be adjusted from -1 to 1 second.
+    #[cfg(not(rtc_v2_f2))]
+    pub fn synchronize(&mut self, shift: f32) {
+        let prediv_s = RTC::regs().prer().read().prediv_s() as f32;
+        let (add1s, subfs) = if shift > 0. {
+            (true, ((1. - shift) * (1. + prediv_s)))
+        } else if shift < 0. {
+            (false, -shift * (1. + prediv_s))
+        } else {
+            return;
+        };
+        let subfs = subfs + 0.5; // round
+
+        critical_section::with(|_| {
+            while RTC::regs().ssr().read().ss() & 0x8000 != 0 || RTC::shpf() {}
+
+            self.write(false, |rtc| {
+                rtc.shiftr().write(|w| {
+                    w.set_subfs(subfs.clamp(0., prediv_s) as u16);
+                    w.set_add1s(add1s);
+                });
+            });
+        });
     }
 
     /// Check if daylight savings time is active.
@@ -317,6 +346,10 @@ impl Rtc {
     ///
     /// The registers retain their values during wakes from standby mode or system resets. They also
     /// retain their value when Vdd is switched off as long as V_BAT is powered.
+    #[cfg_attr(
+        rtc_v3,
+        doc = "\n\nAlways returns [`None`]. Use the [`TAMP`](crate::peripherals::TAMP) peripheral instead."
+    )]
     pub fn read_backup_register(&self, register: usize) -> Option<u32> {
         RTC::read_backup_register(RTC::regs(), register)
     }
@@ -325,6 +358,10 @@ impl Rtc {
     ///
     /// The registers retain their values during wakes from standby mode or system resets. They also
     /// retain their value when Vdd is switched off as long as V_BAT is powered.
+    #[cfg_attr(
+        rtc_v3,
+        doc = "\n\nDoes not write to the register. Use the [`TAMP`](crate::peripherals::TAMP) peripheral instead."
+    )]
     pub fn write_backup_register(&self, register: usize, value: u32) {
         RTC::write_backup_register(RTC::regs(), register, value)
     }
@@ -423,6 +460,10 @@ trait SealedInstance {
     fn regs() -> crate::pac::rtc::Rtc {
         crate::pac::RTC
     }
+
+    /// Shift operation pending
+    #[cfg(not(rtc_v2_f2))]
+    fn shpf() -> bool;
 
     /// Read content of the backup register.
     ///

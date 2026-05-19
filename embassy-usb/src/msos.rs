@@ -9,7 +9,7 @@ use crate::types::InterfaceNumber;
 
 /// A serialized Microsoft OS 2.0 Descriptor set.
 ///
-/// Create with [`DeviceDescriptorSetBuilder`].
+/// Create with [`MsOsDescriptorWriter`].
 pub struct MsOsDescriptorSet<'d> {
     descriptor: &'d [u8],
     vendor_code: u8,

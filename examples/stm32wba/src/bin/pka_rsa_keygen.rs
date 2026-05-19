@@ -103,21 +103,21 @@ const RSA_D: [u8; 256] = [
 async fn main(_spawner: embassy_executor::Spawner) {
     let mut config = Config::default();
     config.rcc.pll1 = Some(embassy_stm32::rcc::Pll {
-        source: PllSource::HSI,
-        prediv: PllPreDiv::DIV1,
-        mul: PllMul::MUL30,
-        divr: Some(PllDiv::DIV5),
+        source: PllSource::Hsi,
+        prediv: PllPreDiv::Div1,
+        mul: PllMul::Mul30,
+        divr: Some(PllDiv::Div5),
         divq: None,
-        divp: Some(PllDiv::DIV30),
+        divp: Some(PllDiv::Div30),
         frac: Some(0),
     });
-    config.rcc.ahb_pre = AHBPrescaler::DIV1;
-    config.rcc.apb1_pre = APBPrescaler::DIV1;
-    config.rcc.apb2_pre = APBPrescaler::DIV1;
-    config.rcc.apb7_pre = APBPrescaler::DIV1;
-    config.rcc.ahb5_pre = AHB5Prescaler::DIV4;
-    config.rcc.voltage_scale = VoltageScale::RANGE1;
-    config.rcc.sys = Sysclk::PLL1_R;
+    config.rcc.ahb_pre = AHBPrescaler::Div1;
+    config.rcc.apb1_pre = APBPrescaler::Div1;
+    config.rcc.apb2_pre = APBPrescaler::Div1;
+    config.rcc.apb7_pre = APBPrescaler::Div1;
+    config.rcc.ahb5_pre = AHB5Prescaler::Div4;
+    config.rcc.voltage_scale = VoltageScale::Range1;
+    config.rcc.sys = Sysclk::Pll1R;
 
     let p = embassy_stm32::init(config);
     info!("PKA RSA Key Finalization Example");
@@ -133,7 +133,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     info!("R² mod n is required for fast modular operations");
 
     let mut montgomery_param = [0u32; 64]; // 64 bytes / 4 = 16 words
-    match pka.montgomery_param(&RSA_N, &mut montgomery_param) {
+    match pka.montgomery_param_blocking(&RSA_N, &mut montgomery_param) {
         Ok(()) => {
             info!("Montgomery parameter computed successfully");
             info!(
@@ -153,12 +153,12 @@ async fn main(_spawner: embassy_executor::Spawner) {
     info!("=== Step 2: Verifying n = p * q ===");
 
     let mut computed_n = [0u8; 256];
-    match pka.arithmetic_mul(&RSA_P, &RSA_Q, &mut computed_n) {
+    match pka.arithmetic_mul_blocking(&RSA_P, &RSA_Q, &mut computed_n) {
         Ok(()) => {
             info!("Computed p * q");
 
             // Compare with known n
-            match pka.comparison(&computed_n, &RSA_N) {
+            match pka.comparison_blocking(&computed_n, &RSA_N) {
                 Ok(ComparisonResult::Equal) => {
                     info!("Verified: p * q = n");
                 }
@@ -178,7 +178,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     // Step 3: Validate that d < n (private exponent must be less than modulus)
     info!("=== Step 3: Validating d < n ===");
 
-    match pka.comparison(&RSA_D, &RSA_N) {
+    match pka.comparison_blocking(&RSA_D, &RSA_N) {
         Ok(ComparisonResult::Less) => {
             info!("Verified: d < n (private exponent is valid)");
         }
@@ -202,7 +202,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     // Encrypt with public key
     let mut ciphertext = [0u8; 256];
-    match pka.modular_exp_fast(&test_message, &RSA_E, &RSA_N, &montgomery_param, &mut ciphertext) {
+    match pka.modular_exp_fast_blocking(&test_message, &RSA_E, &RSA_N, &montgomery_param, &mut ciphertext) {
         Ok(()) => {
             info!("Test encryption successful");
         }
@@ -216,7 +216,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     // Decrypt with private key
     let mut decrypted = [0u8; 256];
-    match pka.modular_exp_fast(&ciphertext, &RSA_D, &RSA_N, &montgomery_param, &mut decrypted) {
+    match pka.modular_exp_fast_blocking(&ciphertext, &RSA_D, &RSA_N, &montgomery_param, &mut decrypted) {
         Ok(()) => {
             if decrypted == test_message {
                 info!("Key pair verification PASSED!");
@@ -240,7 +240,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     let modulus: [u8; 1] = [11];
     let mut inverse = [0u8; 1];
 
-    match pka.modular_inv(&a, &modulus, &mut inverse) {
+    match pka.modular_inv_blocking(&a, &modulus, &mut inverse) {
         Ok(()) => {
             info!("Inverse of 7 mod 11 = {}", inverse[0]);
             if inverse[0] == 8 {
@@ -259,7 +259,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     let large_num = [0xFFu8; 64]; // All 1s
     let mut reduced = [0u8; 256];
 
-    match pka.modular_red(&large_num, &RSA_N, &mut reduced) {
+    match pka.modular_red_blocking(&large_num, &RSA_N, &mut reduced) {
         Ok(()) => {
             info!("Modular reduction successful");
             info!("Result (first 8 bytes): {:02x}", &reduced[..8]);

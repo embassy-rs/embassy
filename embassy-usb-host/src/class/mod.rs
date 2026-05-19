@@ -6,4 +6,6 @@ pub mod hid;
 pub mod hid_report;
 pub mod hub;
 pub mod kbd;
+pub mod msc;
 pub mod uac;
+pub mod vcp;

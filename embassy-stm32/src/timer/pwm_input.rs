@@ -67,12 +67,12 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
         inner.set_input_capture_mode(ch2, InputCaptureMode::Falling);
 
         inner.set_trigger_source(match ch1 {
-            Channel::Ch1 => TriggerSource::TI1FP1,
-            Channel::Ch2 => TriggerSource::TI2FP2,
+            Channel::Ch1 => TriggerSource::Ti1fp1,
+            Channel::Ch2 => TriggerSource::Ti2fp2,
             _ => panic!("Invalid channel for PWM input"),
         });
 
-        inner.set_slave_mode(SlaveMode::RESET_MODE);
+        inner.set_slave_mode(SlaveMode::ResetMode);
 
         // Must call the `enable` function after
 

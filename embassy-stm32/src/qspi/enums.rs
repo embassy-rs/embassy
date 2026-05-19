@@ -22,7 +22,7 @@ impl From<QspiMode> for u8 {
 
 /// QSPI lane width
 #[allow(dead_code)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum QspiWidth {
     /// None

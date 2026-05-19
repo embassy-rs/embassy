@@ -5,14 +5,13 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use embassy_hal_internal::{Peri, PeripheralType};
 use maitake_sync::WaitCell;
-use paste::paste;
 
 use crate::clocks::periph_helpers::NoConfig;
 use crate::clocks::{Gate, enable_and_reset};
 use crate::interrupt::typelevel;
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac;
-use crate::pac::trng::{IntStatus, IntStatusEntVal, TrngEntCtl};
+use crate::pac::trng::{IntStatus, TrngEntCtl};
 
 const BLOCK_SIZE: usize = 8;
 
@@ -266,7 +265,7 @@ impl<'d> Trng<'d, Async> {
 
                 let status = IntStatus(status);
 
-                if status.ent_val() == IntStatusEntVal::ENT_VAL_VALID {
+                if status.ent_val() {
                     Some(Ok(()))
                 } else if status.frq_ct_fail() {
                     Some(Err(Error::FrequencyCountFail))
@@ -551,9 +550,9 @@ pub enum OscMode {
 impl From<OscMode> for TrngEntCtl {
     fn from(value: OscMode) -> Self {
         match value {
-            OscMode::SingleOsc1 => Self::TRNG_ENT_CTL_SINGLE_OSC1,
-            OscMode::DualOscs => Self::TRNG_ENT_CTL_DUAL_OSCS,
-            OscMode::SingleOsc2 => Self::TRNG_ENT_CTL_SINGLE_OSC2,
+            OscMode::SingleOsc1 => Self::TrngEntCtlSingleOsc1,
+            OscMode::DualOscs => Self::TrngEntCtlDualOscs,
+            OscMode::SingleOsc2 => Self::TrngEntCtlSingleOsc2,
         }
     }
 }
@@ -634,7 +633,7 @@ impl<'d, M: Mode> rand_core_09::block::BlockRngCore for Trng<'d, M> {
 
 impl<'d, M: Mode> rand_core_09::block::CryptoBlockRng for Trng<'d, M> {}
 
-trait SealedInstance: Gate<MrccPeriphConfig = NoConfig> {
+pub(crate) trait SealedInstance: Gate<MrccPeriphConfig = NoConfig> {
     fn info() -> &'static Info;
 
     const PERF_INT_INCR: fn();
@@ -648,9 +647,9 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     type Interrupt: typelevel::Interrupt;
 }
 
-struct Info {
-    regs: pac::trng::Trng,
-    wait_cell: WaitCell,
+pub(crate) struct Info {
+    pub(crate) regs: pac::trng::Trng,
+    pub(crate) wait_cell: WaitCell,
 }
 
 impl Info {
@@ -667,29 +666,27 @@ impl Info {
 
 unsafe impl Sync for Info {}
 
-macro_rules! impl_instance {
-    ($($n:literal),*) => {
-        $(
-            paste!{
-                impl SealedInstance for crate::peripherals::[<TRNG $n>] {
-                    fn info() -> &'static Info {
-                        static INFO: Info = Info {
-                            regs: pac::[<TRNG $n>],
-                            wait_cell: WaitCell::new(),
-                        };
-                        &INFO
-                    }
-
-                    const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_trng $n>];
-                    const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_trng $n _wake>];
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_trng_instance {
+    ($n:literal) => {
+        paste::paste! {
+            impl crate::trng::SealedInstance for crate::peripherals::[<TRNG $n>] {
+                fn info() -> &'static crate::trng::Info {
+                    static INFO: crate::trng::Info = crate::trng::Info {
+                        regs: crate::pac::[<TRNG $n>],
+                        wait_cell: maitake_sync::WaitCell::new(),
+                    };
+                    &INFO
                 }
 
-                impl Instance for crate::peripherals::[<TRNG $n>] {
-                    type Interrupt = crate::interrupt::typelevel::[<TRNG $n>];
-                }
+                const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_trng $n>];
+                const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_trng $n _wake>];
             }
-        )*
+
+            impl crate::trng::Instance for crate::peripherals::[<TRNG $n>] {
+                type Interrupt = crate::interrupt::typelevel::[<TRNG $n>];
+            }
+        }
     };
 }
-
-impl_instance!(0);

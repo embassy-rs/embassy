@@ -139,12 +139,12 @@ impl<'a> LpuartTx<'a, Blocking> {
     }
 
     fn blocking_write_byte(&mut self, byte: u8) -> Result<(), Error> {
-        while self.info.regs().stat().read().tdre() == Tdre::TXDATA {}
+        while self.info.regs().stat().read().tdre() == Tdre::Txdata {}
         self.write_byte_internal(byte)
     }
 
     fn write_byte(&mut self, byte: u8) -> Result<(), Error> {
-        if self.info.regs().stat().read().tdre() == Tdre::TXDATA {
+        if self.info.regs().stat().read().tdre() == Tdre::Txdata {
             Err(Error::TxFifoFull)
         } else {
             self.write_byte_internal(byte)
@@ -180,7 +180,7 @@ impl<'a> LpuartTx<'a, Blocking> {
         }
 
         // Wait for last character to shift out
-        while self.info.regs().stat().read().tc() == Tc::ACTIVE {
+        while self.info.regs().stat().read().tc() == Tc::Active {
             // Wait for transmission to complete
         }
 
@@ -195,7 +195,7 @@ impl<'a> LpuartTx<'a, Blocking> {
         }
 
         // Check if transmission is complete
-        if self.info.regs().stat().read().tc() == Tc::ACTIVE {
+        if self.info.regs().stat().read().tc() == Tc::Active {
             return Err(Error::TxBusy);
         }
 

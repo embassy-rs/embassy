@@ -40,15 +40,15 @@ async fn main(_spawner: Spawner) {
         });
         config.rcc.pll = Some(Pll {
             src: PllSource::PLL2,
-            prediv: PllPreDiv::DIV5,
-            mul: PllMul::MUL9,
+            prediv: PllPreDiv::Div5,
+            mul: PllMul::Mul9,
         });
-        config.rcc.prediv2 = PllPreDiv::DIV5;
-        config.rcc.pll2 = Some(Pll2Or3 { mul: Pll2Mul::MUL8 });
-        config.rcc.ahb_pre = AHBPrescaler::DIV1;
-        config.rcc.apb1_pre = APBPrescaler::DIV2;
-        config.rcc.apb2_pre = APBPrescaler::DIV2;
-        config.rcc.sys = Sysclk::PLL1_P;
+        config.rcc.prediv2 = PllPreDiv::Div5;
+        config.rcc.pll2 = Some(Pll2Or3 { mul: Pll2Mul::Mul8 });
+        config.rcc.ahb_pre = AHBPrescaler::Div1;
+        config.rcc.apb1_pre = APBPrescaler::Div2;
+        config.rcc.apb2_pre = APBPrescaler::Div2;
+        config.rcc.sys = Sysclk::Pll1P;
     }
 
     let p = embassy_stm32::init(config);

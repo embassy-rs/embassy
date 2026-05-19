@@ -50,7 +50,10 @@
 //!                 // Controller issued a STOP condition for `addr`
 //!             }
 //!             target::Request::GeneralCall => {
-//!                 // Controller issued a General Call
+//!                 // Controller issued a General Call (broadcast write
+//!                 // to address 0x00). Drain the payload via the
+//!                 // normal write-response path.
+//!                 let _count = i2c.blocking_respond_to_write(&mut buf).unwrap();
 //!             }
 //!             target::Request::SmbusAlert => {
 //!                 // Controller issued an SMBus Alert
@@ -162,7 +165,7 @@ impl Default for Address {
 }
 
 /// Enable or disable feature
-#[derive(Clone, Default)]
+#[derive(Copy, Clone, Default)]
 pub enum Status {
     #[default]
     Disabled,
@@ -317,13 +320,15 @@ impl<'d, M: Mode> I2c<'d, M> {
             self.info.regs().scr().modify(|w| w.set_rst(false));
 
             self.info.regs().scr().modify(|w| {
-                w.set_filtdz(Filtdz::FILTER_DISABLED);
+                w.set_filtdz(Filtdz::FilterDisabled);
                 w.set_filten(false);
             });
 
             self.info.regs().scfgr1().modify(|w| {
                 w.set_rxstall(true);
                 w.set_txdstall(true);
+                w.set_gcen(config.general_call.into());
+                w.set_saen(config.smbus_alert.into());
             });
 
             // Configure address matching
@@ -332,9 +337,9 @@ impl<'d, M: Mode> I2c<'d, M> {
                     self.info.regs().samr().write(|w| w.set_addr0(addr));
                     self.info.regs().scfgr1().modify(|w| {
                         w.set_addrcfg(if (0x00..=0x7f).contains(&addr) {
-                            Addrcfg::ADDRESS_MATCH0_7_BIT
+                            Addrcfg::AddressMatch07Bit
                         } else {
-                            Addrcfg::ADDRESS_MATCH0_10_BIT
+                            Addrcfg::AddressMatch010Bit
                         })
                     });
                 }
@@ -353,9 +358,9 @@ impl<'d, M: Mode> I2c<'d, M> {
                     });
                     self.info.regs().scfgr1().modify(|w| {
                         w.set_addrcfg(if (0x00..=0x7f).contains(&addr0) {
-                            Addrcfg::ADDRESS_MATCH0_7_BIT_OR_ADDRESS_MATCH1_7_BIT
+                            Addrcfg::AddressMatch07BitOrAddressMatch17Bit
                         } else {
-                            Addrcfg::ADDRESS_MATCH0_10_BIT_OR_ADDRESS_MATCH1_10_BIT
+                            Addrcfg::AddressMatch010BitOrAddressMatch110Bit
                         })
                     });
                 }
@@ -373,9 +378,9 @@ impl<'d, M: Mode> I2c<'d, M> {
                     });
                     self.info.regs().scfgr1().modify(|w| {
                         w.set_addrcfg(if (0x00..=0x7f).contains(&start) {
-                            Addrcfg::FROM_ADDRESS_MATCH0_7_BIT_TO_ADDRESS_MATCH1_7_BIT
+                            Addrcfg::FromAddressMatch07BitToAddressMatch17Bit
                         } else {
-                            Addrcfg::FROM_ADDRESS_MATCH0_10_BIT_TO_ADDRESS_MATCH1_10_BIT
+                            Addrcfg::FromAddressMatch010BitToAddressMatch110Bit
                         })
                     });
                 }
@@ -403,8 +408,8 @@ impl<'d, M: Mode> I2c<'d, M> {
         // read-modify-write operation.
         critical_section::with(|_| {
             self.info.regs().scr().modify(|w| {
-                w.set_rtf(ScrRtf::NOW_EMPTY);
-                w.set_rrf(ScrRrf::NOW_EMPTY);
+                w.set_rtf(ScrRtf::NowEmpty);
+                w.set_rrf(ScrRrf::NowEmpty);
             });
         });
     }
@@ -424,10 +429,26 @@ impl<'d, M: Mode> I2c<'d, M> {
         let ssr = self.info.regs().ssr().read();
         self.clear_status();
 
-        if ssr.avf() {
+        if ssr.bef() {
+            Err(IOError::BitError)
+        } else if ssr.fef() {
+            Err(IOError::FifoError)
+        } else if ssr.avf() || ssr.gcf() || ssr.sarf() {
+            // GCF/SARF are address-classification tags on the
+            // address-valid event. We must read SASR to consume
+            // the address-valid state regardless of which tag
+            // triggered the match.
+            let is_gc = ssr.gcf();
+            let is_alert = ssr.sarf();
             let sasr = self.info.regs().sasr().read();
             let addr = sasr.raddr();
-            Ok(Event::AddressValid(addr))
+            if is_gc {
+                Ok(Event::GeneralCall)
+            } else if is_alert {
+                Ok(Event::SmbusAlert)
+            } else {
+                Ok(Event::AddressValid(addr))
+            }
         } else if ssr.taf() {
             Ok(Event::TransmitAck)
         } else if ssr.rsf() {
@@ -438,14 +459,6 @@ impl<'d, M: Mode> I2c<'d, M> {
             let sasr = self.info.regs().sasr().read();
             let addr = sasr.raddr();
             Ok(Event::Stop(addr))
-        } else if ssr.bef() {
-            Err(IOError::BitError)
-        } else if ssr.fef() {
-            Err(IOError::FifoError)
-        } else if ssr.gcf() {
-            Ok(Event::GeneralCall)
-        } else if ssr.sarf() {
-            Ok(Event::SmbusAlert)
         } else {
             Err(IOError::Other)
         }

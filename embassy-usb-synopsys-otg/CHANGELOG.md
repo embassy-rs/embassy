@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.3.3 - 2026-05-04
+
+- New feature: "host" for embassy-usb-host support
+- Implemented remote wakeup support
+
 ## 0.3.2 - 2026-03-10
 
 - Disabling an OUT endpoint no longer flushes the TX FIFO of the corresponding IN endpoint

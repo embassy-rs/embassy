@@ -15,14 +15,14 @@ use crate::pac::i2c;
 impl From<AddrMask> for Oamsk {
     fn from(value: AddrMask) -> Self {
         match value {
-            AddrMask::NOMASK => Oamsk::NO_MASK,
-            AddrMask::MASK1 => Oamsk::MASK1,
-            AddrMask::MASK2 => Oamsk::MASK2,
-            AddrMask::MASK3 => Oamsk::MASK3,
-            AddrMask::MASK4 => Oamsk::MASK4,
-            AddrMask::MASK5 => Oamsk::MASK5,
-            AddrMask::MASK6 => Oamsk::MASK6,
-            AddrMask::MASK7 => Oamsk::MASK7,
+            AddrMask::NOMASK => Oamsk::NoMask,
+            AddrMask::MASK1 => Oamsk::Mask1,
+            AddrMask::MASK2 => Oamsk::Mask2,
+            AddrMask::MASK3 => Oamsk::Mask3,
+            AddrMask::MASK4 => Oamsk::Mask4,
+            AddrMask::MASK5 => Oamsk::Mask5,
+            AddrMask::MASK6 => Oamsk::Mask6,
+            AddrMask::MASK7 => Oamsk::Mask7,
         }
     }
 }
@@ -30,8 +30,8 @@ impl From<AddrMask> for Oamsk {
 impl Address {
     pub(super) fn add_mode(&self) -> stm32_metapac::i2c::vals::Addmode {
         match self {
-            Address::SevenBit(_) => stm32_metapac::i2c::vals::Addmode::BIT7,
-            Address::TenBit(_) => stm32_metapac::i2c::vals::Addmode::BIT10,
+            Address::SevenBit(_) => stm32_metapac::i2c::vals::Addmode::Bit7,
+            Address::TenBit(_) => stm32_metapac::i2c::vals::Addmode::Bit10,
         }
     }
 }
@@ -96,9 +96,9 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     #[inline]
     fn to_reload(reload: bool) -> i2c::vals::Reload {
         if reload {
-            i2c::vals::Reload::NOT_COMPLETED
+            i2c::vals::Reload::NotCompleted
         } else {
-            i2c::vals::Reload::COMPLETED
+            i2c::vals::Reload::Completed
         }
     }
 
@@ -175,7 +175,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         info.regs.cr2().modify(|w| {
             w.set_sadd(address.addr() << 1);
             w.set_add10(address.add_mode());
-            w.set_dir(i2c::vals::Dir::READ);
+            w.set_dir(i2c::vals::Dir::Read);
             w.set_nbytes(length as u8);
             w.set_start(true);
             w.set_autoend(stop.autoend());
@@ -216,7 +216,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         info.regs.cr2().modify(|w| {
             w.set_sadd(address.addr() << 1);
             w.set_add10(address.add_mode());
-            w.set_dir(i2c::vals::Dir::WRITE);
+            w.set_dir(i2c::vals::Dir::Write);
             w.set_nbytes(length as u8);
             w.set_start(true);
             w.set_autoend(stop.autoend());
@@ -567,21 +567,27 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     //  Blocking public API
 
     /// Blocking read.
-    pub fn blocking_read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Error> {
+    pub fn blocking_read(&mut self, address: impl Into<Address>, read: &mut [u8]) -> Result<(), Error> {
         self.read_internal(address.into(), read, false, self.timeout())
         // Automatic Stop
     }
 
     /// Blocking write.
-    pub fn blocking_write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
+    pub fn blocking_write(&mut self, address: impl Into<Address>, write: &[u8]) -> Result<(), Error> {
         self.write_internal(address.into(), write, true, self.timeout())
     }
 
     /// Blocking write, restart, read.
-    pub fn blocking_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
+    pub fn blocking_write_read(
+        &mut self,
+        address: impl Into<Address>,
+        write: &[u8],
+        read: &mut [u8],
+    ) -> Result<(), Error> {
+        let address = address.into();
         let timeout = self.timeout();
-        self.write_internal(address.into(), write, false, timeout)?;
-        self.read_internal(address.into(), read, true, timeout)
+        self.write_internal(address, write, false, timeout)?;
+        self.read_internal(address, read, true, timeout)
         // Automatic Stop
     }
 
@@ -590,7 +596,11 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     /// Consecutive operations of same type are merged. See [transaction contract] for details.
     ///
     /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
-    pub fn blocking_transaction(&mut self, addr: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
+    pub fn blocking_transaction(
+        &mut self,
+        addr: impl Into<Address>,
+        operations: &mut [Operation<'_>],
+    ) -> Result<(), Error> {
         if operations.is_empty() {
             return Err(Error::ZeroLengthTransfer);
         }
@@ -1134,14 +1144,15 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     //  Async public API
 
     /// Write.
-    pub async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
+    pub async fn write(&mut self, address: impl Into<Address>, write: &[u8]) -> Result<(), Error> {
         let _scoped_wake_guard = self.info.rcc.wake_guard();
+        let address = address.into();
         let timeout = self.timeout();
         if write.is_empty() {
-            self.write_internal(address.into(), write, true, timeout)
+            self.write_internal(address, write, true, timeout)
         } else {
             timeout
-                .with(self.write_dma_internal(address.into(), write, true, true, true, false, timeout))
+                .with(self.write_dma_internal(address, write, true, true, true, false, timeout))
                 .await
         }
     }
@@ -1181,34 +1192,41 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     }
 
     /// Read.
-    pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
+    pub async fn read(&mut self, address: impl Into<Address>, buffer: &mut [u8]) -> Result<(), Error> {
         let _scoped_wake_guard = self.info.rcc.wake_guard();
+        let address = address.into();
         let timeout = self.timeout();
 
         if buffer.is_empty() {
-            self.read_internal(address.into(), buffer, false, timeout)
+            self.read_internal(address, buffer, false, timeout)
         } else {
-            let fut = self.read_dma_internal(address.into(), buffer, false, timeout);
+            let fut = self.read_dma_internal(address, buffer, false, timeout);
             timeout.with(fut).await
         }
     }
 
     /// Write, restart, read.
-    pub async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
+    pub async fn write_read(
+        &mut self,
+        address: impl Into<Address>,
+        write: &[u8],
+        read: &mut [u8],
+    ) -> Result<(), Error> {
         let _scoped_wake_guard = self.info.rcc.wake_guard();
+        let address = address.into();
         let timeout = self.timeout();
 
         if write.is_empty() {
-            self.write_internal(address.into(), write, false, timeout)?;
+            self.write_internal(address, write, false, timeout)?;
         } else {
-            let fut = self.write_dma_internal(address.into(), write, true, true, false, false, timeout);
+            let fut = self.write_dma_internal(address, write, true, true, false, false, timeout);
             timeout.with(fut).await?;
         }
 
         if read.is_empty() {
-            self.read_internal(address.into(), read, true, timeout)?;
+            self.read_internal(address, read, true, timeout)?;
         } else {
-            let fut = self.read_dma_internal(address.into(), read, true, timeout);
+            let fut = self.read_dma_internal(address, read, true, timeout);
             timeout.with(fut).await?;
         }
 
@@ -1220,7 +1238,11 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     /// Consecutive operations of same type are merged. See [transaction contract] for details.
     ///
     /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
-    pub async fn transaction(&mut self, addr: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
+    pub async fn transaction(
+        &mut self,
+        addr: impl Into<Address>,
+        operations: &mut [Operation<'_>],
+    ) -> Result<(), Error> {
         let _scoped_wake_guard = self.info.rcc.wake_guard();
         if operations.is_empty() {
             return Err(Error::ZeroLengthTransfer);
@@ -1576,13 +1598,13 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
             Address::SevenBit(addr) => self.info.regs.oar1().write(|reg| {
                 reg.set_oa1en(false);
                 reg.set_oa1((addr << 1) as u16);
-                reg.set_oa1mode(Addmode::BIT7);
+                reg.set_oa1mode(Addmode::Bit7);
                 reg.set_oa1en(true);
             }),
             Address::TenBit(addr) => self.info.regs.oar1().write(|reg| {
                 reg.set_oa1en(false);
                 reg.set_oa1(addr);
-                reg.set_oa1mode(Addmode::BIT10);
+                reg.set_oa1mode(Addmode::Bit10);
                 reg.set_oa1en(true);
             }),
         }
@@ -1600,12 +1622,9 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
     fn determine_matched_address(&self) -> Result<Address, Error> {
         let matched = self.info.regs.isr().read().addcode();
 
-        if matched >> 3 == 0b11110 {
-            // is 10-bit address and we need to get the other 8 bits from the rxdr
-            // we do this by doing a blocking read of 1 byte
-            let mut buffer = [0];
-            self.slave_read_internal(&mut buffer, self.timeout())?;
-            Ok(Address::TenBit((matched as u16) << 6 | buffer[0] as u16))
+        if matched >> 2 == 0b11110 {
+            let address = self.info.regs.oar1().read().oa1();
+            Ok(Address::TenBit(address))
         } else {
             Ok(Address::SevenBit(matched))
         }
@@ -1620,9 +1639,9 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
         assert!(length < 256);
 
         let reload = if reload {
-            i2c::vals::Reload::NOT_COMPLETED
+            i2c::vals::Reload::NotCompleted
         } else {
-            i2c::vals::Reload::COMPLETED
+            i2c::vals::Reload::Completed
         };
 
         info.regs.cr2().modify(|w| {
@@ -1850,14 +1869,14 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
         let isr = self.info.regs.isr().read();
 
         match isr.dir() {
-            i2c::vals::Dir::WRITE => {
+            i2c::vals::Dir::Write => {
                 trace!("DIR: write");
                 Ok(SlaveCommand {
                     kind: SlaveCommandKind::Write,
                     address: self.determine_matched_address()?,
                 })
             }
-            i2c::vals::Dir::READ => {
+            i2c::vals::Dir::Read => {
                 trace!("DIR: read");
                 Ok(SlaveCommand {
                     kind: SlaveCommandKind::Read,
@@ -2172,8 +2191,8 @@ enum Stop {
 impl Stop {
     fn autoend(&self) -> i2c::vals::Autoend {
         match self {
-            Stop::Software => i2c::vals::Autoend::SOFTWARE,
-            Stop::Automatic => i2c::vals::Autoend::AUTOMATIC,
+            Stop::Software => i2c::vals::Autoend::Software,
+            Stop::Automatic => i2c::vals::Autoend::Automatic,
         }
     }
 }

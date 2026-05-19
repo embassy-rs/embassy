@@ -13,6 +13,7 @@ use super::{
 use crate::dma::ReadableRingBuffer;
 use crate::gpio::Flex;
 use crate::mode::Async;
+use crate::rcc::WakeGuard;
 use crate::time::Hertz;
 use crate::usart::Regs;
 
@@ -81,6 +82,7 @@ pub struct RingBufferedUartRx<'d> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
+    _wake_guard: WakeGuard,
     _rx: Option<Flex<'d>>,
     _rts: Option<Flex<'d>>,
     ring_buf: ReadableRingBuffer<'d, u8>,
@@ -116,7 +118,7 @@ impl<'d> UartRx<'d, Async> {
         let rx = unsafe { self.rx.as_ref().map(|x| x.clone_unchecked()) };
         let rts = unsafe { self.rts.as_ref().map(|x| x.clone_unchecked()) };
 
-        info.rcc.increment_stop_refcount();
+        let wake_guard = self.info.rcc.wake_guard();
 
         // Don't disable the clock
         mem::forget(self);
@@ -125,6 +127,7 @@ impl<'d> UartRx<'d, Async> {
             info,
             state,
             kernel_clock,
+            _wake_guard: wake_guard,
             _rx: rx,
             _rts: rts,
             ring_buf,
@@ -325,7 +328,6 @@ impl<'d> RingBufferedUartRx<'d> {
 
 impl Drop for RingBufferedUartRx<'_> {
     fn drop(&mut self) {
-        self.info.rcc.decrement_stop_refcount();
         self.stop_uart();
         super::drop_tx_rx(self.info, self.state);
     }

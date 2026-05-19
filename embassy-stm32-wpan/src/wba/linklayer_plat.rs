@@ -75,7 +75,6 @@
 #![cfg(feature = "wba")]
 #![allow(clippy::missing_safety_doc)]
 
-use core::cell::RefCell;
 use core::ptr;
 use core::sync::atomic::{AtomicBool, AtomicI32, AtomicPtr, AtomicU32, Ordering, compiler_fence};
 
@@ -83,32 +82,20 @@ use cortex_m::interrupt::InterruptNumber;
 use cortex_m::peripheral::NVIC;
 use cortex_m::register::basepri;
 use critical_section;
-#[cfg(feature = "defmt")]
-use defmt::{error, trace, warn};
-use embassy_sync::blocking_mutex::Mutex;
-#[cfg(not(feature = "defmt"))]
-macro_rules! trace {
-    ($($arg:tt)*) => {{}};
-}
-#[cfg(not(feature = "defmt"))]
-macro_rules! error {
-    ($($arg:tt)*) => {{}};
-}
-#[cfg(not(feature = "defmt"))]
-macro_rules! warn {
-    ($($arg:tt)*) => {{}};
-}
 use embassy_stm32::NVIC_PRIO_BITS;
-use embassy_stm32::aes::{Aes, AesEcb, Direction};
-use embassy_stm32::mode::Blocking;
+use embassy_stm32::aes::{AesEcb, Direction};
 use embassy_stm32::pac::{FLASH, PWR, RCC};
-use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph, RNG};
-use embassy_stm32::pka::{EccPoint, EcdsaCurveParams, Pka};
-use embassy_stm32::rng::Rng;
+use embassy_stm32::pka::{EccPoint, EcdsaCurveParams};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::zerocopy_channel;
 use embassy_time::{Duration, Instant, block_for};
+use stm32_bindings::ble::BLEPLATCB_TimerExpiry;
 
-use super::bindings::{link_layer, mac};
+use crate::controller::ChannelPacket;
+use crate::platform::Platform;
+use crate::wba::bindings::{link_layer, mac};
+use crate::wba::host_if::{TASK_BLE_HOST_MASK, TASK_PRIO_BLE_HOST};
+use crate::wba::util_seq;
 
 // RADIO interrupt numbers for STM32WBA
 // RADIO interrupt is position 66
@@ -162,15 +149,18 @@ static mut CS_RESTORE_STATE: Option<critical_section::RestoreState> = None;
 // Optional hardware RNG instance for true random number generation.
 // The RNG peripheral pointer is stored here to be used by LINKLAYER_PLAT_GetRNG.
 // This must be set by the application using `set_rng_instance` before the link layer requests random numbers.
-pub(crate) static mut HARDWARE_RNG: Option<&'static Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>> = None;
+pub(crate) static mut PLATFORM: Option<&'static Platform> = None;
 
-// Hardware AES and PKA driver instances, following the HARDWARE_RNG pattern.
-// Stored as statics so the extern "C" BLEPLAT callbacks can access them.
-pub(crate) static mut HARDWARE_AES: Option<
-    &'static Mutex<CriticalSectionRawMutex, RefCell<Aes<'static, AesPeriph, Blocking>>>,
-> = None;
-pub(crate) static mut HARDWARE_PKA: Option<&'static Mutex<CriticalSectionRawMutex, RefCell<Pka<'static, PkaPeriph>>>> =
+pub(crate) static mut EVENT_CHANNEL: Option<zerocopy_channel::Sender<'static, CriticalSectionRawMutex, ChannelPacket>> =
     None;
+
+const fn get_platform() -> &'static Platform {
+    unsafe { PLATFORM.as_ref().expect("PLATFORM not initialized") }
+}
+
+const fn get_channel() -> &'static mut zerocopy_channel::Sender<'static, CriticalSectionRawMutex, ChannelPacket> {
+    unsafe { EVENT_CHANNEL.as_mut().expect("EVENT_CHANNEL not initialized") }
+}
 
 // ============================================================================
 // AES-128 ECB Hardware Acceleration (Embassy driver)
@@ -178,9 +168,7 @@ pub(crate) static mut HARDWARE_PKA: Option<&'static Mutex<CriticalSectionRawMute
 
 /// Perform AES-128 ECB encryption using the Embassy AES driver.
 fn aes_ecb_encrypt(key: &[u8; 16], input: &[u8; 16], output: &mut [u8; 16]) {
-    critical_section::with(|cs| {
-        let aes_ref = unsafe { HARDWARE_AES.as_ref() }.expect("HARDWARE_AES not initialized");
-        let mut aes = aes_ref.borrow(cs).borrow_mut();
+    get_platform().borrow_aes(|aes| {
         let cipher = AesEcb::new(key);
         let mut ctx = aes.start(&cipher, Direction::Encrypt);
         aes.payload_blocking(&mut ctx, input, output, true).unwrap();
@@ -314,11 +302,7 @@ fn pka_p256_mul(k: &[u32; 8], px: &[u32; 8], py: &[u32; 8], rx: &mut [u32; 8], r
     let curve = EcdsaCurveParams::nist_p256();
     let mut result = EccPoint::new(32);
 
-    let status = critical_section::with(|cs| {
-        let pka_ref = unsafe { HARDWARE_PKA.as_ref() }.expect("HARDWARE_PKA not initialized");
-        let mut pka = pka_ref.borrow(cs).borrow_mut();
-        pka.ecc_mul(&curve, &k_be, &px_be, &py_be, &mut result)
-    });
+    let status = get_platform().borrow_pka(|pka| pka.ecc_mul_blocking(&curve, &k_be, &px_be, &py_be, &mut result));
 
     match status {
         Ok(()) => {
@@ -327,8 +311,8 @@ fn pka_p256_mul(k: &[u32; 8], px: &[u32; 8], py: &[u32; 8], rx: &mut [u32; 8], r
             be_bytes_to_words_le(&result.y[..32], ry);
             0
         }
-        Err(_e) => {
-            warn!("PKA ECC mul failed");
+        Err(e) => {
+            warn!("PKA ECC mul failed: {}", e);
             -1
         }
     }
@@ -344,48 +328,45 @@ const MAX_BLE_TIMERS: usize = 32;
 
 /// Timer slots: (timer_id, deadline). id=0xFFFF means slot is free.
 const TIMER_SLOT_FREE: u16 = 0xFFFF;
-static mut TIMER_SLOTS: [(u16, Option<Instant>); MAX_BLE_TIMERS] = [(TIMER_SLOT_FREE, None); MAX_BLE_TIMERS];
+static mut TIMER_SLOTS: [(u16, Instant); MAX_BLE_TIMERS] = [(TIMER_SLOT_FREE, Instant::MAX); MAX_BLE_TIMERS];
 
 /// Get the earliest active timer deadline, if any
-pub fn earliest_timer_deadline() -> Option<Instant> {
-    let mut earliest: Option<Instant> = None;
+pub fn earliest_timer_deadline() -> Instant {
     unsafe {
-        for &(id, ref deadline) in TIMER_SLOTS.iter() {
-            if id != TIMER_SLOT_FREE {
-                if let Some(d) = deadline {
-                    match earliest {
-                        None => earliest = Some(*d),
-                        Some(e) if *d < e => earliest = Some(*d),
-                        _ => {}
-                    }
-                }
-            }
-        }
+        TIMER_SLOTS
+            .iter()
+            .filter(|(id, _)| *id != TIMER_SLOT_FREE)
+            .map(|(_, deadline)| *deadline)
+            .min()
+            .unwrap_or(Instant::MAX)
     }
-    earliest
 }
 
+#[cfg(feature = "ble-stack-llo")]
+pub fn check_expired_timers() {}
+
+#[cfg(not(feature = "ble-stack-llo"))]
 /// Check and fire any expired timers. Called from the runner loop.
 /// Calls BLEPLATCB_TimerExpiry(id) for each expired timer to notify the BLE stack.
 pub fn check_expired_timers() {
     let now = Instant::now();
-    let mut any_expired = false;
+    let mut expired = false;
+    let mut timer_id: u16;
     unsafe {
-        for slot in TIMER_SLOTS.iter_mut() {
-            if slot.0 != TIMER_SLOT_FREE {
-                if let Some(d) = slot.1 {
-                    if now >= d {
-                        let timer_id = slot.0;
-                        slot.0 = TIMER_SLOT_FREE;
-                        slot.1 = None;
-                        any_expired = true;
-                        super::bindings::ble::BLEPLATCB_TimerExpiry(timer_id);
-                    }
-                }
-            }
+        for (id, deadline) in TIMER_SLOTS
+            .iter_mut()
+            .filter(|(id, deadline)| *id != TIMER_SLOT_FREE && now >= *deadline)
+        {
+            timer_id = *id;
+            *id = TIMER_SLOT_FREE;
+            *deadline = Instant::MAX;
+            expired = true;
+
+            BLEPLATCB_TimerExpiry(timer_id);
         }
     }
-    if any_expired {
+
+    if expired {
         super::util_seq::seq_pend();
     }
 }
@@ -590,16 +571,16 @@ fn set_basepri_max(value: u8) {
     }
 }
 
-pub unsafe fn run_radio_high_isr() {
+pub(crate) unsafe fn run_radio_high_isr() {
     trace!("RADIO ISR: callback={:?}", load_callback(&RADIO_CALLBACK).is_some());
     if let Some(cb) = load_callback(&RADIO_CALLBACK) {
         cb();
     }
     // Wake the BLE runner task to process any resulting events
-    super::runner::on_radio_interrupt();
+    util_seq::seq_pend();
 }
 
-pub unsafe fn run_radio_sw_low_isr() {
+pub(crate) unsafe fn run_radio_sw_low_isr() {
     trace!(
         "HASH ISR (sw low): callback={:?}",
         load_callback(&LOW_ISR_CALLBACK).is_some()
@@ -613,7 +594,7 @@ pub unsafe fn run_radio_sw_low_isr() {
     }
 
     // Wake the BLE runner task to process any resulting events
-    super::runner::on_radio_interrupt();
+    util_seq::seq_pend();
 }
 
 // /**
@@ -804,6 +785,38 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_AclkCtrl(enable: u8) {
 //   * @param  len: number of byte of anthropy to get.
 //   * @retval None
 //   */
+/// Poll the hardware RNG directly to fill `buf`.
+///
+/// Used as a fallback when the async pipe is transiently empty — e.g. when the
+/// BLE link layer requests entropy inside `seq_resume()`, where we cannot yield
+/// to let `run_rng` replenish the pipe.  Reading DR is safe even while the
+/// embassy RNG driver holds the peripheral: the hardware immediately starts
+/// generating the next word after each DR read, so the async driver simply
+/// waits for the next DRDY interrupt.
+unsafe fn fill_from_hardware_rng(buf: &mut [u8]) {
+    use embassy_stm32::pac::RNG;
+    let mut i = 0;
+    while i < buf.len() {
+        loop {
+            let sr = RNG.sr().read();
+            if sr.seis() || sr.ceis() {
+                RNG.sr().modify(|w| {
+                    w.set_seis(false);
+                    w.set_ceis(false);
+                });
+            }
+            if sr.drdy() {
+                break;
+            }
+        }
+        let word = RNG.dr().read();
+        let bytes = word.to_le_bytes();
+        let to_copy = (buf.len() - i).min(4);
+        buf[i..i + to_copy].copy_from_slice(&bytes[..to_copy]);
+        i += to_copy;
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LINKLAYER_PLAT_GetRNG(ptr_rnd: *mut u8, len: u32) {
     trace!("LINKLAYER_PLAT_GetRNG: ptr_rnd={:?}, len={}", ptr_rnd, len);
@@ -811,14 +824,11 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_GetRNG(ptr_rnd: *mut u8, len: u32) {
         return;
     }
 
-    critical_section::with(|cs| {
-        HARDWARE_RNG
-            .as_ref()
-            .unwrap()
-            .borrow(cs)
-            .borrow_mut()
-            .fill_bytes(core::slice::from_raw_parts_mut(ptr_rnd, len as usize))
-    });
+    let buf = core::slice::from_raw_parts_mut(ptr_rnd, len as usize);
+    let from_pipe = get_platform().try_fill_bytes(buf);
+    if from_pipe < buf.len() {
+        fill_from_hardware_rng(&mut buf[from_pipe..]);
+    }
 
     trace!("LINKLAYER_PLAT_GetRNG: generated {} random bytes", len);
 }
@@ -1274,14 +1284,11 @@ pub unsafe extern "C" fn BLEPLAT_RngGet(n: u8, val: *mut u32) {
         return;
     }
 
-    critical_section::with(|cs| {
-        HARDWARE_RNG
-            .as_ref()
-            .unwrap()
-            .borrow(cs)
-            .borrow_mut()
-            .fill_bytes(core::slice::from_raw_parts_mut(val as *mut u8, n as usize * 4));
-    });
+    let buf = core::slice::from_raw_parts_mut(val as *mut u8, n as usize * 4);
+    let from_pipe = get_platform().try_fill_bytes(buf);
+    if from_pipe < buf.len() {
+        fill_from_hardware_rng(&mut buf[from_pipe..]);
+    }
 }
 
 /// AES ECB encrypt function using hardware AES peripheral.
@@ -1613,21 +1620,22 @@ pub unsafe extern "C" fn BLEPLAT_TimerStart(id: u16, timeout: u32) -> u8 {
 
     // Find existing slot for this ID, or a free slot
     let mut free_slot: Option<usize> = None;
-    for (i, slot) in TIMER_SLOTS.iter_mut().enumerate() {
-        if slot.0 == id {
+    for (i, (slot_id, slot_deadline)) in TIMER_SLOTS.iter_mut().enumerate() {
+        if *slot_id == id {
             // Update existing timer
-            slot.1 = Some(deadline);
+            *slot_deadline = deadline;
             super::util_seq::seq_pend();
             return 0;
         }
-        if slot.0 == TIMER_SLOT_FREE && free_slot.is_none() {
+
+        if *slot_id == TIMER_SLOT_FREE && free_slot.is_none() {
             free_slot = Some(i);
         }
     }
 
     // Use a free slot
     if let Some(i) = free_slot {
-        TIMER_SLOTS[i] = (id, Some(deadline));
+        TIMER_SLOTS[i] = (id, deadline);
         super::util_seq::seq_pend();
         0
     } else {
@@ -1643,7 +1651,7 @@ pub unsafe extern "C" fn BLEPLAT_TimerStop(id: u16) {
     for slot in TIMER_SLOTS.iter_mut() {
         if slot.0 == id {
             slot.0 = TIMER_SLOT_FREE;
-            slot.1 = None;
+            slot.1 = Instant::MAX;
             return;
         }
     }
@@ -1868,19 +1876,22 @@ pub unsafe extern "C" fn BLEPLAT_PkaReadDhKey(dh_key: *mut u32) -> i32 {
 /// BLE stack HCI event indication callback
 /// This is called by the BLE stack when HCI events arrive
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn BLECB_Indication(data: *const u8, length: u16, _ext_data: *const u8, _ext_length: u16) -> u8 {
+pub unsafe extern "C" fn BLECB_Indication(data: *const u8, length: u16, ext_data: *const u8, ext_length: u16) -> u8 {
     if data.is_null() || length == 0 {
         return 1; // Error
     }
 
     // Convert to slice
     let event_data = core::slice::from_raw_parts(data, length as usize);
+    let ext_data: &[u8] = if ext_data.is_null() || ext_length == 0 {
+        &[]
+    } else {
+        core::slice::from_raw_parts(ext_data, ext_length as usize)
+    };
 
-    #[cfg(feature = "defmt")]
-    defmt::trace!(
+    trace!(
         "BLECB_Indication: event_code=0x{:02X}, length={}",
-        event_data[0],
-        length
+        event_data[0], length
     );
 
     // HCI event packet format:
@@ -1888,10 +1899,10 @@ pub unsafe extern "C" fn BLECB_Indication(data: *const u8, length: u16, _ext_dat
     // Byte 1: Event code (0x05=Disconnect, 0x3E=LE Meta, 0xFF=Vendor)
     // Byte 2: Parameter total length
     // Byte 3+: Event parameters
-    let evt_code = if length >= 2 { event_data[1] } else { event_data[0] };
 
-    #[cfg(feature = "defmt")]
-    {
+    if event_data.len() > 0 && event_data[0] == 4 {
+        let evt_code = if length >= 2 { event_data[1] } else { event_data[0] };
+
         if evt_code == 0x05 {
             let status = if length >= 4 { event_data[3] } else { 0 };
             let handle = if length >= 6 {
@@ -1900,44 +1911,28 @@ pub unsafe extern "C" fn BLECB_Indication(data: *const u8, length: u16, _ext_dat
                 0
             };
             let reason = if length >= 7 { event_data[6] } else { 0 };
-            defmt::info!(
+            debug!(
                 "HCI Event: Disconnection Complete (status=0x{:02X}, handle=0x{:04X}, reason=0x{:02X})",
-                status,
-                handle,
-                reason
+                status, handle, reason
             );
         } else if evt_code == 0x3E {
             let sub_code = if length >= 4 { event_data[3] } else { 0 };
-            defmt::info!("HCI Event: LE Meta (sub=0x{:02X}, len={})", sub_code, length);
+            debug!("HCI Event: LE Meta (sub=0x{:02X}, len={})", sub_code, length);
         } else {
-            defmt::info!("HCI Event: code=0x{:02X}, len={}", evt_code, length);
+            debug!("HCI Event: code=0x{:02X}, len={}", evt_code, length);
         }
-    }
-
-    // Schedule BLE host task processing after disconnect so the runner wakes
-    if evt_code == 0x05 {
-        super::runner::schedule_ble_host_task();
-    }
-
-    // Parse and queue the event for processing.
-    // Skip byte 0 (0x04 HCI Event packet indicator) — the parser expects
-    // data starting at the event code byte.
-    let parse_data = if length >= 2 && event_data[0] == 0x04 {
-        &event_data[1..]
     } else {
-        event_data
-    };
-    if let Some(event) = super::hci::event::Event::parse(parse_data) {
-        match super::hci::event::try_send_event(event) {
-            Ok(_) => {
-                super::runner::schedule_ble_host_task();
-            }
-            Err(_) => {
-                #[cfg(feature = "defmt")]
-                defmt::warn!("Event queue full, dropping event");
-            }
-        }
+        debug!("Other Event: {:x}", event_data[..10.min(event_data.len())]);
     }
+
+    let Some(mut slot) = get_channel().try_send() else {
+        return 0;
+    };
+
+    slot.copy_from(event_data, ext_data);
+    slot.send_done();
+
+    util_seq::UTIL_SEQ_SetTask(TASK_BLE_HOST_MASK, TASK_PRIO_BLE_HOST);
 
     0 // Success
 }

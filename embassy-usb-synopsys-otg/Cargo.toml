@@ -1,6 +1,6 @@
 [package]
 name = "embassy-usb-synopsys-otg"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "`embassy-usb-driver` implementation for Synopsys OTG USB controllers"
@@ -21,7 +21,7 @@ portable-atomic = { version = "1" }
 
 embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
 embassy-time = { version = "0.5.1", path = "../embassy-time" }
-embassy-usb-driver = { version = "0.2.0", path = "../embassy-usb-driver" }
+embassy-usb-driver = { version = "0.2.1", path = "../embassy-usb-driver" }
 
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }

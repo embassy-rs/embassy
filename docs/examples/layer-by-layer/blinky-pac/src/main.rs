@@ -23,20 +23,20 @@ fn main() -> ! {
     // Setup button
     let gpioc = pac::GPIOC;
     const BUTTON_PIN: usize = 13;
-    gpioc.pupdr().modify(|w| w.set_pupdr(BUTTON_PIN, vals::Pupdr::PULL_UP));
-    gpioc.otyper().modify(|w| w.set_ot(BUTTON_PIN, vals::Ot::PUSH_PULL));
-    gpioc.moder().modify(|w| w.set_moder(BUTTON_PIN, vals::Moder::INPUT));
+    gpioc.pupdr().modify(|w| w.set_pupdr(BUTTON_PIN, vals::Pupdr::PullUp));
+    gpioc.otyper().modify(|w| w.set_ot(BUTTON_PIN, vals::Ot::PushPull));
+    gpioc.moder().modify(|w| w.set_moder(BUTTON_PIN, vals::Moder::Input));
 
     // Setup LED
     let gpiob = pac::GPIOB;
     const LED_PIN: usize = 14;
-    gpiob.pupdr().modify(|w| w.set_pupdr(LED_PIN, vals::Pupdr::FLOATING));
-    gpiob.otyper().modify(|w| w.set_ot(LED_PIN, vals::Ot::PUSH_PULL));
-    gpiob.moder().modify(|w| w.set_moder(LED_PIN, vals::Moder::OUTPUT));
+    gpiob.pupdr().modify(|w| w.set_pupdr(LED_PIN, vals::Pupdr::Floating));
+    gpiob.otyper().modify(|w| w.set_ot(LED_PIN, vals::Ot::PushPull));
+    gpiob.moder().modify(|w| w.set_moder(LED_PIN, vals::Moder::Output));
 
     // Main loop
     loop {
-        if gpioc.idr().read().idr(BUTTON_PIN) == vals::Idr::LOW {
+        if gpioc.idr().read().idr(BUTTON_PIN) == vals::Idr::Low {
             gpiob.bsrr().write(|w| w.set_bs(LED_PIN, true));
         } else {
             gpiob.bsrr().write(|w| w.set_br(LED_PIN, true));

@@ -314,7 +314,7 @@ impl<'a> LpuartTx<'a, Buffered> {
             .wait_for(|| {
                 let tx_empty = self.state.tx_buf.is_empty();
                 let fifo_empty = self.info.regs().water().read().txcount() == 0;
-                let tc_complete = self.info.regs().stat().read().tc() == Tc::COMPLETE;
+                let tc_complete = self.info.regs().stat().read().tc() == Tc::Complete;
                 tx_empty && fifo_empty && tc_complete
             })
             .await?)
@@ -577,7 +577,7 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for Buffere
                 // tx fifo size is 2^param.txfifo, we want to pop enough to fill
                 // the fifo, minus whatever is in there now.
                 (1 << param.txfifo()) - regs.water().read().txcount()
-            } else if regs.stat().read().tdre() != Tdre::TXDATA {
+            } else if regs.stat().read().tdre() != Tdre::Txdata {
                 1
             } else {
                 0
@@ -611,7 +611,7 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for Buffere
         }
 
         // Handle transmission complete
-        if ctrl.tcie() && regs.stat().read().tc() == Tc::COMPLETE {
+        if ctrl.tcie() && regs.stat().read().tc() == Tc::Complete {
             T::PERF_INT_WAKE_INCR();
             state.tx_waker.wake();
 

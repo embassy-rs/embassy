@@ -187,7 +187,7 @@ impl<'a> LpuartTx<'a, Dma<'a>> {
 
         // Wait for completion asynchronously
         core::future::poll_fn(|cx| {
-            guard.dma.waker().register(cx.waker());
+            let _ = guard.dma.wait_cell().poll_wait(cx);
             if guard.dma.is_done() {
                 core::task::Poll::Ready(())
             } else {
@@ -205,7 +205,7 @@ impl<'a> LpuartTx<'a, Dma<'a>> {
     /// Blocking write (fallback when DMA is not needed)
     pub fn blocking_write(&mut self, buf: &[u8]) -> Result<(), Error> {
         for &byte in buf {
-            while self.info.regs().stat().read().tdre() == Tdre::TXDATA {}
+            while self.info.regs().stat().read().tdre() == Tdre::Txdata {}
             self.info.regs().data().write(|w| w.0 = byte as u32);
         }
         Ok(())
@@ -214,7 +214,7 @@ impl<'a> LpuartTx<'a, Dma<'a>> {
     /// Flush TX blocking
     pub fn blocking_flush(&mut self) -> Result<(), Error> {
         while self.info.regs().water().read().txcount() != 0 {}
-        while self.info.regs().stat().read().tc() == Tc::ACTIVE {}
+        while self.info.regs().stat().read().tc() == Tc::Active {}
         Ok(())
     }
 }
@@ -313,7 +313,7 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
 
         // Wait for completion asynchronously
         core::future::poll_fn(|cx| {
-            guard.dma.waker().register(cx.waker());
+            let _ = guard.dma.wait_cell().poll_wait(cx);
             if guard.dma.is_done() {
                 core::task::Poll::Ready(())
             } else {

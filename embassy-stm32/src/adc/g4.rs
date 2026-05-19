@@ -8,10 +8,10 @@ pub use pac::adc::vals::{Adcaldif, Adstp, Difsel, Dmacfg, Dmaen, Exten, Rovsm, T
 use pac::adc::vals::{Adcaldif, Difsel, Exten};
 pub use pac::adccommon::vals::{Dual, Presc};
 
-use super::{Adc, AnyAdcChannel, ConversionMode, Resolution, SampleTime, blocking_delay_us};
-use crate::adc::{AdcRegs, DefaultInstance, SealedInjectedAdcRegs};
-use crate::pac::adc::regs::{Smpr, Smpr2, Sqr1, Sqr2, Sqr3, Sqr4};
+use crate::adc::{Adc, AdcRegs, AnyAdcChannel, ConversionMode, DefaultInstance, InjectedRegs, Resolution, SampleTime};
+use crate::pac::adc::regs::{Jsqr, Smpr, Smpr2, Sqr1, Sqr2, Sqr3, Sqr4};
 use crate::time::Hertz;
+use crate::wait::block_for_us;
 use crate::{Peri, pac, rcc};
 
 mod injected;
@@ -33,13 +33,13 @@ const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(50);
 fn from_ker_ck(frequency: Hertz) -> Presc {
     let raw_prescaler = rcc::raw_prescaler(frequency.0, MAX_ADC_CLK_FREQ.0);
     match raw_prescaler {
-        0 => Presc::DIV1,
-        1 => Presc::DIV2,
-        2..=3 => Presc::DIV4,
-        4..=5 => Presc::DIV6,
-        6..=7 => Presc::DIV8,
-        8..=9 => Presc::DIV10,
-        10..=11 => Presc::DIV12,
+        0 => Presc::Div1,
+        1 => Presc::Div2,
+        2..=3 => Presc::Div4,
+        4..=5 => Presc::Div6,
+        6..=7 => Presc::Div8,
+        8..=9 => Presc::Div10,
+        10..=11 => Presc::Div12,
         _ => unimplemented!(),
     }
 }
@@ -89,10 +89,10 @@ impl super::AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn stop(&self) {
+    fn stop(&self, _disable: bool) {
         if self.cr().read().adstart() && !self.cr().read().addis() {
             self.cr().modify(|reg| {
-                reg.set_adstp(Adstp::STOP);
+                reg.set_adstp(Adstp::Stop);
             });
             // The software must poll ADSTART until the bit is reset before assuming the
             // ADC is completely stopped
@@ -102,24 +102,14 @@ impl super::AdcRegs for crate::pac::adc::Adc {
         // Disable dma control and continuous conversion, if enabled
         self.cfgr().modify(|reg| {
             reg.set_cont(false);
-            reg.set_dmaen(Dmaen::DISABLE);
+            reg.set_dmaen(Dmaen::Disable);
         });
+
+        self.cr().modify(|w| w.set_aden(false));
     }
 
-    fn convert(&self) {
-        self.isr().modify(|reg| {
-            reg.set_eos(true);
-            reg.set_eoc(true);
-        });
-
-        // Start conversion
-        self.cr().modify(|reg| {
-            reg.set_adstart(true);
-        });
-
-        while !self.isr().read().eos() {
-            // spin
-        }
+    fn wait_done(&self) -> bool {
+        self.isr().read().eos()
     }
 
     fn configure_dma(&self, conversion_mode: ConversionMode) {
@@ -129,47 +119,21 @@ impl super::AdcRegs for crate::pac::adc::Adc {
 
         self.cfgr().modify(|reg| {
             reg.set_discen(false); // Convert all channels for each trigger
-            reg.set_dmacfg(match conversion_mode {
-                ConversionMode::Singular => Dmacfg::ONE_SHOT,
-                ConversionMode::ConfiguredSequence => Dmacfg::CIRCULAR,
-                ConversionMode::Repeated(_) => Dmacfg::CIRCULAR,
+            reg.set_dmacfg(Dmacfg::Circular);
+            reg.set_dmaen(match conversion_mode {
+                ConversionMode::NoDma => Dmaen::Disable,
+                _ => Dmaen::Enable,
             });
-            reg.set_dmaen(Dmaen::ENABLE);
-        });
+            reg.set_cont(matches!(conversion_mode, ConversionMode::Repeated(None)));
 
-        if matches!(conversion_mode, ConversionMode::ConfiguredSequence) {
-            // One sequence per adstart, DMA stays armed for the next call.
-            self.cfgr().modify(|reg| reg.set_cont(false));
-        }
-
-        if let ConversionMode::Repeated(trigger) = conversion_mode {
-            match trigger {
-                None => {
-                    // continuous conversions
-                    self.cfgr().modify(|reg| {
-                        reg.set_cont(true);
-                    });
-                }
-                Some((signal, edge)) => {
-                    self.cfgr().modify(|r| {
-                        r.set_cont(false); // New trigger is needed for each sample to be read
-                    });
-
-                    self.cfgr().modify(|r| {
-                        r.set_extsel(signal);
-                        r.set_exten(edge);
-                    });
-
-                    // Regular conversions uses DMA so no need to generate interrupt
-                    self.ier().modify(|r| r.set_eosie(false));
-                }
+            if let ConversionMode::Repeated(Some((signal, edge))) = conversion_mode {
+                reg.set_extsel(signal);
+                reg.set_exten(edge);
             }
-        }
+        });
     }
 
     fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
-        self.cr().modify(|w| w.set_aden(false));
-
         #[cfg(stm32g4)]
         let mut difsel = DifselReg::default();
         let mut smpr = Smpr::default();
@@ -213,9 +177,9 @@ impl super::AdcRegs for crate::pac::adc::Adc {
                     difsel.set_difsel(
                         ch.into(),
                         if is_differential {
-                            Difsel::DIFFERENTIAL
+                            Difsel::Differential
                         } else {
-                            Difsel::SINGLE_ENDED
+                            Difsel::SingleEnded
                         },
                     );
                 }
@@ -233,17 +197,22 @@ impl super::AdcRegs for crate::pac::adc::Adc {
     }
 }
 
-impl SealedInjectedAdcRegs for crate::pac::adc::Adc {
+impl InjectedRegs for crate::pac::adc::Adc {
     fn configure_injected_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>) {
+        let mut smpr1 = self.smpr().read();
+        let mut smpr2 = self.smpr2().read();
+
+        let mut jsqr = Jsqr::default();
+
         let len: u8 = sequence.len().try_into().unwrap();
-        self.jsqr().modify(|w| w.set_jl(len - 1));
+        jsqr.set_jl(len - 1);
 
         for (n, ((channel, _), sample_time)) in sequence.enumerate() {
             let sample_time = sample_time.clone().into();
             if channel <= 9 {
-                self.smpr().modify(|reg| reg.set_smp(channel as _, sample_time));
+                smpr1.set_smp(channel as _, sample_time);
             } else {
-                self.smpr2().modify(|reg| reg.set_smp((channel - 10) as _, sample_time));
+                smpr2.set_smp((channel - 10) as _, sample_time);
             }
 
             let idx = match n {
@@ -254,8 +223,13 @@ impl SealedInjectedAdcRegs for crate::pac::adc::Adc {
                 _ => unreachable!(),
             };
 
-            self.jsqr().modify(|w| w.set_jsq(idx, channel));
+            jsqr.set_jsq(idx, channel);
         }
+
+        self.smpr().write_value(smpr1);
+        self.smpr2().write_value(smpr2);
+
+        self.jsqr().write_value(jsqr);
     }
 
     fn configure_injected_trigger(&self, trigger: (u8, Exten), interrupt: bool) {
@@ -281,7 +255,7 @@ impl SealedInjectedAdcRegs for crate::pac::adc::Adc {
     fn stop_injected(&self) {
         if self.cr().read().adstart() && !self.cr().read().addis() {
             self.cr().modify(|reg| {
-                reg.set_jadstp(Adstp::STOP);
+                reg.set_jadstp(Adstp::Stop);
             });
             // The software must poll JADSTART until the bit is reset before assuming the
             // ADC is completely stopped
@@ -323,40 +297,40 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
             reg.set_advregen(true);
         });
 
-        blocking_delay_us(20);
+        block_for_us(20);
 
         T::regs().difsel().modify(|w| {
             for n in 0..18 {
-                w.set_difsel(n, Difsel::SINGLE_ENDED);
+                w.set_difsel(n, Difsel::SingleEnded);
             }
         });
 
         T::regs().cr().modify(|w| {
-            w.set_adcaldif(Adcaldif::SINGLE_ENDED);
+            w.set_adcaldif(Adcaldif::SingleEnded);
         });
 
         T::regs().cr().modify(|w| w.set_adcal(true));
 
         while T::regs().cr().read().adcal() {}
 
-        blocking_delay_us(20);
+        block_for_us(20);
 
         T::regs().cr().modify(|w| {
-            w.set_adcaldif(Adcaldif::DIFFERENTIAL);
+            w.set_adcaldif(Adcaldif::Differential);
         });
 
         T::regs().cr().modify(|w| w.set_adcal(true));
 
         while T::regs().cr().read().adcal() {}
 
-        blocking_delay_us(20);
+        block_for_us(20);
 
         T::regs().enable();
 
         // single conversion mode, software trigger
         T::regs().cfgr().modify(|w| {
             w.set_cont(false);
-            w.set_exten(Exten::DISABLED);
+            w.set_exten(Exten::Disabled);
         });
 
         if let Some(dual) = config.dual_mode {
@@ -390,7 +364,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
     }
 
     /// Enable reading the voltage reference internal channel.
-    pub fn enable_vrefint(&self) -> super::VrefInt
+    pub fn enable_vrefint(&mut self) -> super::VrefInt
     where
         T: super::SpecialConverter<super::VrefInt>,
     {
@@ -402,7 +376,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
     }
 
     /// Enable reading the temperature internal channel.
-    pub fn enable_temperature(&self) -> super::Temperature
+    pub fn enable_temperature(&mut self) -> super::Temperature
     where
         T: super::SpecialConverter<super::Temperature>,
     {
@@ -414,7 +388,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
     }
 
     /// Enable reading the vbat internal channel.
-    pub fn enable_vbat(&self) -> super::Vbat
+    pub fn enable_vbat(&mut self) -> super::Vbat
     where
         T: super::SpecialConverter<super::Vbat>,
     {
@@ -441,47 +415,47 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
 
 #[cfg(stm32g4)]
 mod g4 {
-    use crate::adc::{SealedSpecialConverter, Temperature, Vbat, VrefInt};
+    use crate::adc::{ConverterFor, Temperature, Vbat, VrefInt};
 
-    impl SealedSpecialConverter<Temperature> for crate::peripherals::ADC1 {
+    impl ConverterFor<Temperature> for crate::peripherals::ADC1 {
         const CHANNEL: u8 = 16;
     }
 
-    impl SealedSpecialConverter<VrefInt> for crate::peripherals::ADC1 {
+    impl ConverterFor<VrefInt> for crate::peripherals::ADC1 {
         const CHANNEL: u8 = 18;
     }
 
-    impl SealedSpecialConverter<Vbat> for crate::peripherals::ADC1 {
+    impl ConverterFor<Vbat> for crate::peripherals::ADC1 {
         const CHANNEL: u8 = 17;
     }
 
     #[cfg(peri_adc3_common)]
-    impl SealedSpecialConverter<VrefInt> for crate::peripherals::ADC3 {
+    impl ConverterFor<VrefInt> for crate::peripherals::ADC3 {
         const CHANNEL: u8 = 18;
     }
 
     #[cfg(peri_adc3_common)]
-    impl SealedSpecialConverter<Vbat> for crate::peripherals::ADC3 {
+    impl ConverterFor<Vbat> for crate::peripherals::ADC3 {
         const CHANNEL: u8 = 17;
     }
 
     #[cfg(not(stm32g4x1))]
-    impl SealedSpecialConverter<VrefInt> for crate::peripherals::ADC4 {
+    impl ConverterFor<VrefInt> for crate::peripherals::ADC4 {
         const CHANNEL: u8 = 18;
     }
 
     #[cfg(not(stm32g4x1))]
-    impl SealedSpecialConverter<Temperature> for crate::peripherals::ADC5 {
+    impl ConverterFor<Temperature> for crate::peripherals::ADC5 {
         const CHANNEL: u8 = 4;
     }
 
     #[cfg(not(stm32g4x1))]
-    impl SealedSpecialConverter<VrefInt> for crate::peripherals::ADC5 {
+    impl ConverterFor<VrefInt> for crate::peripherals::ADC5 {
         const CHANNEL: u8 = 18;
     }
 
     #[cfg(not(stm32g4x1))]
-    impl SealedSpecialConverter<Vbat> for crate::peripherals::ADC5 {
+    impl ConverterFor<Vbat> for crate::peripherals::ADC5 {
         const CHANNEL: u8 = 17;
     }
 }
@@ -489,13 +463,13 @@ mod g4 {
 // TODO this should look at each ADC individually and impl the correct channels
 #[cfg(stm32h7)]
 mod h7 {
-    impl<T: Instance> SealedSpecialConverter<Temperature> for T {
+    impl<T: Instance> ConverterFor<Temperature> for T {
         const CHANNEL: u8 = 18;
     }
-    impl<T: Instance> SealedSpecialConverter<VrefInt> for T {
+    impl<T: Instance> ConverterFor<VrefInt> for T {
         const CHANNEL: u8 = 19;
     }
-    impl<T: Instance> SealedSpecialConverter<Vbat> for T {
+    impl<T: Instance> ConverterFor<Vbat> for T {
         // TODO this should be 14 for H7a/b/35
         const CHANNEL: u8 = 17;
     }

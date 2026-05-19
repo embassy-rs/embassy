@@ -159,24 +159,24 @@ impl<'a> RDesRing<'a> {
     }
 
     pub(crate) fn demand_poll(&self) {
-        ETH.ethernet_dma().dmarpdr().write(|w| w.set_rpd(Rpd::POLL));
+        ETH.ethernet_dma().dmarpdr().write(|w| w.set_rpd(Rpd::Poll));
     }
 
     /// Get current `RunningState`
     fn running_state(&self) -> RunningState {
         match ETH.ethernet_dma().dmasr().read().rps() {
             //  Reset or Stop Receive Command issued
-            Rps::STOPPED => RunningState::Stopped,
+            Rps::Stopped => RunningState::Stopped,
             //  Fetching receive transfer descriptor
-            Rps::RUNNING_FETCHING => RunningState::Running,
+            Rps::RunningFetching => RunningState::Running,
             //  Waiting for receive packet
-            Rps::RUNNING_WAITING => RunningState::Running,
+            Rps::RunningWaiting => RunningState::Running,
             //  Receive descriptor unavailable
-            Rps::SUSPENDED => RunningState::Stopped,
+            Rps::Suspended => RunningState::Stopped,
             //  Closing receive descriptor
             Rps::_RESERVED_5 => RunningState::Running,
             //  Transferring the receive packet data from receive buffer to host memory
-            Rps::RUNNING_WRITING => RunningState::Running,
+            Rps::RunningWriting => RunningState::Running,
             _ => RunningState::Unknown,
         }
     }

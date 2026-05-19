@@ -4,15 +4,77 @@ use core::time::Duration;
 
 use crate::{EndpointInfo, EndpointType, Speed};
 
-/// Errors returned by [`ChannelOut::write`] and [`ChannelIn::read`]
+/// Speed of a low- or full-speed device reached through split transactions
+/// (USB 2.0 §11.14) or a `PRE` prefix (USB 1.1 §11.8.6).
+///
+/// High-speed devices are not valid split targets; split metadata only applies
+/// to devices operating at low or full speed behind a hub.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum ChannelError {
+pub enum SplitSpeed {
+    /// 1.5 Mbit/s
+    Low,
+    /// 12 Mbit/s
+    Full,
+}
+
+/// Per-pipe information necessary to encode a split-transaction token
+/// (USB 2.0 §11.14) or a legacy full-speed `PRE` packet (USB 1.1 §11.8.6).
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct SplitInfo {
+    hub_addr: u8,
+    port: u8,
+    device_speed: SplitSpeed,
+}
+
+impl SplitInfo {
+    /// Create a new [`SplitInfo`].
+    ///
+    /// `hub_addr` is the USB address of the hub that owns the Transaction
+    /// Translator; `port` is the 1-based port number on that hub where the
+    /// target device is attached; `device_speed` is the speed of that target
+    /// device ([`SplitSpeed::Low`] or [`SplitSpeed::Full`] only).
+    pub const fn new(hub_addr: u8, port: u8, device_speed: SplitSpeed) -> Self {
+        Self {
+            hub_addr,
+            port,
+            device_speed,
+        }
+    }
+
+    /// USB address of the hub that owns the Transaction Translator.
+    pub const fn hub_addr(self) -> u8 {
+        self.hub_addr
+    }
+
+    /// 1-based port number on the hub where the target device is attached.
+    pub const fn port(self) -> u8 {
+        self.port
+    }
+
+    /// Speed of the split target device (low or full only).
+    pub const fn device_speed(self) -> SplitSpeed {
+        self.device_speed
+    }
+}
+
+/// Errors returned by [`UsbPipe`] operations.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum PipeError {
     /// The packet is too long to fit in the buffer.
     BufferOverflow,
 
-    /// Response from device/bus was not interpretable (Crc, Babble)
+    /// CRC or other hardware-level framing error.
     BadResponse,
+
+    /// The device sent more data than expected (babble).
+    Babble,
+
+    /// Data toggle sequence mismatch detected.
+    DataToggleError,
 
     /// Transaction was canceled
     Canceled,
@@ -27,112 +89,36 @@ pub enum ChannelError {
     Disconnected,
 }
 
-macro_rules! bitflags {
-    ($($tt:tt)*) => {
-        #[cfg(feature = "defmt")]
-        defmt::bitflags! { $($tt)* }
-        #[cfg(not(feature = "defmt"))]
-        bitflags::bitflags! { $($tt)* }
-    };
-}
-
-bitflags! {
-    #[cfg_attr(not(feature = "defmt"), derive(Copy, Clone, Eq, PartialEq, Debug))]
-    /// RequestType bitfields for the setup packet.
-    ///
-    /// This type encodes three separate multi-bit fields packed into a single byte
-    /// (USB 2.0 spec Table 9-2):
-    /// - **Recipient** (bits 0–4): `RECIPIENT_DEVICE`, `RECIPIENT_INTERFACE`, `RECIPIENT_ENDPOINT`, `RECIPIENT_OTHER`
-    /// - **Type** (bits 5–6): `TYPE_STANDARD`, `TYPE_CLASS`, `TYPE_VENDOR`, `TYPE_RESERVED`
-    /// - **Direction** (bit 7): `OUT`, `IN`
-    ///
-    /// Combine exactly one value from each group with `|`. Do **not** OR values
-    /// within the same group (e.g. `RECIPIENT_INTERFACE | RECIPIENT_ENDPOINT` is invalid).
-    pub struct RequestType: u8 {
-        // Recipient
-        /// The request is intended for the entire device.
-        const RECIPIENT_DEVICE    = 0;
-        /// The request is intended for an interface.
-        const RECIPIENT_INTERFACE = 1;
-        /// The request is intended for an endpoint.
-        const RECIPIENT_ENDPOINT  = 2;
-        /// The recipient of the request is unspecified.
-        const RECIPIENT_OTHER     = 3;
-
-        // Type
-        /// The request is a standard USB request.
-        const TYPE_STANDARD = 0 << 5;
-        /// The request is a class-specific request.
-        const TYPE_CLASS    = 1 << 5;
-        /// The request is a vendor-specific request.
-        const TYPE_VENDOR   = 2 << 5;
-        /// Reserved.
-        const TYPE_RESERVED = 3 << 5;
-
-        // Direction
-        /// The request will send data to the device.
-        const OUT = 0 << 7;
-        /// The request expects to receive data from the device.
-        const IN  = 1 << 7;
-    }
-}
-
-/// USB Control Setup Packet
-#[repr(C)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub struct SetupPacket {
-    /// Request characteristics: direction, type, recipient.
-    /// See RequestType type for details.
-    /// Called bmRequestType in USB spec (Table 9-2).
-    pub request_type: RequestType,
-    /// Request code.
-    /// See Table 9-3 of USB spec for standard ones.
-    /// Called bRequest in USB spec (Table 9-2).
-    pub request: u8,
-    /// Use depending on request field.
-    /// Called wValue in USB spec (Table 9-2).
-    pub value: u16,
-    /// Use depending on request field.
-    /// Called wIndex in USB spec (Table 9-2).
-    pub index: u16,
-    /// Number of bytes to transfer in data stage if there is one.
-    /// Called wLength in USB spec (Table 9-2).
-    pub length: u16,
-}
-
-impl SetupPacket {
-    /// Get a reference to the underlying bytes of the setup packet.
-    pub fn as_bytes(&self) -> &[u8] {
-        // Safe because we know that the size of SetupPacket is 8 bytes.
-        unsafe { core::slice::from_raw_parts(self as *const _ as *const u8, core::mem::size_of::<Self>()) }
-    }
-}
-
 /// Device has been attached/detached
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum DeviceEvent {
     /// Indicates a root-device has become attached
     Connected(Speed),
+
     /// Indicates that a device has been detached
     Disconnected,
+
+    /// Root port overcurrent protection tripped.
+    Overcurrent,
 }
 
 /// Indicates type of error of Host interface
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum HostError {
-    /// A channel-level transfer error occurred.
-    ChannelError(ChannelError),
+    /// A pipe-level transfer error occurred.
+    PipeError(PipeError),
     /// The control request was not acknowledged by the device.
     RequestFailed,
     /// A descriptor returned by the device could not be parsed.
     InvalidDescriptor,
     /// No free device slots available.
     OutOfSlots,
-    /// No free host channels available.
-    OutOfChannels,
+    /// No free host pipes available.
+    OutOfPipes,
     /// The addressed device does not exist.
     NoSuchDevice,
     /// Insufficient memory for the requested operation.
@@ -141,65 +127,98 @@ pub enum HostError {
     Other(&'static str),
 }
 
-impl From<ChannelError> for HostError {
-    fn from(value: ChannelError) -> Self {
-        HostError::ChannelError(value)
+impl From<PipeError> for HostError {
+    fn from(value: PipeError) -> Self {
+        HostError::PipeError(value)
     }
 }
 
-/// Async USB Host Driver trait.
-/// To be implemented by the HAL.
-pub trait UsbHostDriver: Sized {
-    /// Channel implementation of this UsbHostDriver
-    type Channel<T: channel::Type, D: channel::Direction>: UsbChannel<T, D>;
+/// Pipe allocator trait for USB host drivers.
+///
+/// Implementations are expected to back allocator state with `'d`-lifetime
+/// storage (typically statics or user-provided `&'d` buffers), not with
+/// fields on the controller struct.
+pub trait UsbHostAllocator<'d>: Sized + Clone {
+    /// Pipe implementation produced by this allocator.
+    type Pipe<T: pipe::Type, D: pipe::Direction>: UsbPipe<T, D> + 'd;
 
-    /// Wait for device connect or disconnect
+    /// Allocate a pipe for communication with a device endpoint.
     ///
-    /// When connected, this function must issue a bus reset before the speed is reported
-    async fn wait_for_device_event(&self) -> DeviceEvent;
-
-    /// Issue a bus reset.
-    async fn bus_reset(&self);
-
-    /// Allocate channel for communication with device
+    /// This can be a scarce resource; for one-off requests please scope the
+    /// pipe so that it is dropped after completion.
     ///
-    /// This can be a scarce resource, for one-off requests please scope the channel so it's dropped after completion
-    ///
-    /// `pre` - device is low-speed and communication is going through hub, so send PRE packet
-    fn alloc_channel<T: channel::Type, D: channel::Direction>(
+    /// `split` — when `Some`, every transfer on this pipe is routed as a
+    /// split transaction through the specified hub's TT (USB 2.0 §11.14), or
+    /// as a legacy `PRE` packet on full-speed controllers (USB 1.1 §11.8.6).
+    /// Pass `None` when the device is reached directly (host at the same
+    /// speed as the device, or the device is high-speed).
+    fn alloc_pipe<T: pipe::Type, D: pipe::Direction>(
         &self,
         addr: u8,
         endpoint: &EndpointInfo,
-        pre: bool,
-    ) -> Result<Self::Channel<T, D>, HostError>;
+        split: Option<SplitInfo>,
+    ) -> Result<Self::Pipe<T, D>, HostError>;
 }
 
-/// Type-level channel markers for endpoint type and direction.
+/// Main USB host controller trait.
 ///
-/// These structs and traits are used as generic parameters on [`UsbChannel`](super::UsbChannel)
+/// Covers the bus-level operations that must be serialised on a single
+/// controller instance (root-port event waiting, bus reset). Pipe allocation
+/// lives on the companion [`UsbHostAllocator`] trait.
+///
+/// Implemented by the HAL.
+pub trait UsbHostController<'d>: Sized {
+    /// Pipe allocator associated with this controller.
+    type Allocator: UsbHostAllocator<'d>;
+
+    /// Return an allocator handle.
+    ///
+    /// Callers may keep the handle and use it to allocate pipes concurrently
+    /// with [`wait_for_device_event`](Self::wait_for_device_event)
+    /// or [`bus_reset`](Self::bus_reset).
+    fn allocator(&self) -> Self::Allocator;
+
+    /// Wait for a root-port attach/detach.
+    ///
+    /// On attach, the implementation must drive a bus reset to completion
+    /// before returning and must report the speed that the device settled
+    /// on after reset.
+    async fn wait_for_device_event(&mut self) -> DeviceEvent;
+
+    /// Force a bus reset on the root port.
+    ///
+    /// Invalidates every pipe currently allocated against addresses other
+    /// than 0. Used to recover from a misbehaving device or to force
+    /// re-enumeration without unplug.
+    async fn bus_reset(&mut self);
+}
+
+/// Type-level pipe markers for endpoint type and direction.
+///
+/// These structs and traits are used as generic parameters on [`UsbPipe`]
 /// to statically enforce correct endpoint type and direction at compile time.
 ///
 /// All marker traits are sealed — they cannot be implemented outside this crate.
-pub mod channel {
+pub mod pipe {
     use super::EndpointType;
 
     mod sealed {
         pub trait Sealed {}
     }
 
-    /// Marker trait for the endpoint transfer type of a channel.
-    pub trait Type: sealed::Sealed {
+    /// Marker trait for the endpoint transfer type of a pipe.
+    pub trait Type: sealed::Sealed + 'static {
         /// Returns the [`EndpointType`] this marker represents.
         fn ep_type() -> EndpointType;
     }
 
-    /// Marker for a control endpoint channel.
+    /// Marker for a control endpoint pipe.
     pub struct Control {}
-    /// Marker for an interrupt endpoint channel.
+    /// Marker for an interrupt endpoint pipe.
     pub struct Interrupt {}
-    /// Marker for a bulk endpoint channel.
+    /// Marker for a bulk endpoint pipe.
     pub struct Bulk {}
-    /// Marker for an isochronous endpoint channel.
+    /// Marker for an isochronous endpoint pipe.
     pub struct Isochronous {}
 
     impl sealed::Sealed for Control {}
@@ -228,29 +247,35 @@ pub mod channel {
         }
     }
 
-    /// Trait bound satisfied only by [`Control`] channels.
-    #[diagnostic::on_unimplemented(message = "This is not a CONTROL channel")]
-    pub trait IsControl: sealed::Sealed {}
+    /// Trait bound satisfied only by [`Control`] pipes.
+    #[diagnostic::on_unimplemented(message = "This is not a CONTROL pipe")]
+    pub trait IsControl: Type {}
     impl IsControl for Control {}
 
-    /// Trait bound satisfied only by [`Interrupt`] channels.
-    #[diagnostic::on_unimplemented(message = "This is not an INTERRUPT channel")]
-    pub trait IsInterrupt: sealed::Sealed {}
+    /// Trait bound satisfied only by [`Interrupt`] pipes.
+    #[diagnostic::on_unimplemented(message = "This is not an INTERRUPT pipe")]
+    pub trait IsInterrupt: Type {}
     impl IsInterrupt for Interrupt {}
 
-    /// Marker trait for the transfer direction of a channel.
-    pub trait Direction: sealed::Sealed {
+    /// Trait bound satisfied only by [`Bulk`] or [`Interrupt`] pipes.
+    #[diagnostic::on_unimplemented(message = "This is not a BULK or INTERRUPT pipe")]
+    pub trait IsBulkOrInterrupt: Type {}
+    impl IsBulkOrInterrupt for Bulk {}
+    impl IsBulkOrInterrupt for Interrupt {}
+
+    /// Marker trait for the transfer direction of a pipe.
+    pub trait Direction: sealed::Sealed + 'static {
         /// Returns `true` if this direction supports IN (device-to-host) transfers.
         fn is_in() -> bool;
         /// Returns `true` if this direction supports OUT (host-to-device) transfers.
         fn is_out() -> bool;
     }
 
-    /// Marker for an IN-only (device-to-host) channel.
+    /// Marker for an IN-only (device-to-host) pipe.
     pub struct In {}
-    /// Marker for an OUT-only (host-to-device) channel.
+    /// Marker for an OUT-only (host-to-device) pipe.
     pub struct Out {}
-    /// Marker for a bidirectional channel (used for control endpoints).
+    /// Marker for a bidirectional pipe (used for control endpoints).
     pub struct InOut {}
 
     impl sealed::Sealed for In {}
@@ -283,72 +308,104 @@ pub mod channel {
     }
 
     /// Trait bound satisfied by directions that support IN transfers.
-    #[diagnostic::on_unimplemented(message = "This is not an IN channel")]
+    #[diagnostic::on_unimplemented(message = "This is not an IN pipe")]
     pub trait IsIn: Direction {}
     impl IsIn for In {}
     impl IsIn for InOut {}
 
     /// Trait bound satisfied by directions that support OUT transfers.
-    #[diagnostic::on_unimplemented(message = "This is not an OUT channel")]
+    #[diagnostic::on_unimplemented(message = "This is not an OUT pipe")]
     pub trait IsOut: Direction {}
     impl IsOut for Out {}
     impl IsOut for InOut {}
 }
 
-/// Specify the timeout of a channel
+/// Timeouts applied to a control pipe's NAK-retry behaviour.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub struct TimeoutConfig {
-    /// Maximum response timeout for transactions with a Data Stage
+    /// Maximum response timeout for transactions with a Data Stage.
     pub data_timeout: Duration,
-    /// Maximum response timeout for transactions without a data stage
-    pub standard_timeout: Duration,
+
+    /// Maximum response timeout for transactions without a Data Stage.
+    pub no_data_timeout: Duration,
 }
 
 impl Default for TimeoutConfig {
     fn default() -> Self {
         TimeoutConfig {
             data_timeout: Duration::from_millis(500),
-            standard_timeout: Duration::from_millis(50),
+            no_data_timeout: Duration::from_millis(50),
         }
     }
 }
 
-/// ## Virtual USB Channels
+/// ## USB Pipes
 /// These contain the required information to send a packet correctly to a device endpoint.
-/// The information is carried with the channel on creation (see [`UsbHostDriver::alloc_channel`]) and can be changed with [`UsbChannel::retarget_channel`].
+/// The information is carried with the pipe on creation (see [`UsbHostAllocator::alloc_pipe`]).
 ///
 /// It is up to the HAL's driver how to implement concurrent requests, some hardware IP may allow for multiple hardware channels
 ///  while others may only have a single channel which needs to be multiplexed in software, while others still use DMA request linked-lists.
-/// Any of these are compatible with the UsbChannel with varying degrees of sync primitives required.
-pub trait UsbChannel<T: channel::Type, D: channel::Direction> {
+/// Any of these are compatible with the UsbPipe with varying degrees of sync primitives required.
+///
+/// ### NAK handling
+/// Implementations must retry on NAK if appropriate for the transfer type.
+/// - For **control** transfers, the implementation should retry until the configurable timeout expires (see [`UsbPipe::set_timeout`]).
+/// - For **bulk** transfers, the implementation must retry indefinitely. Use `embassy_time::with_timeout` around the future to impose a deadline; dropping the future must abort the transfer.
+/// - For **interrupt** transfers, a NAK indicates no data is available; the implementation should poll again at the next interval.
+///
+/// ### Data toggle
+/// Implementations are responsible for maintaining the data toggle sequence for bulk and interrupt endpoints.
+/// The toggle is initialized to DATA0 when the pipe is allocated and should advance after each successful transfer.
+///
+/// ### Cancellation
+/// All transfer methods (`control_in`, `control_out`, `request_in`, `request_out`) are asynchronous.
+/// If the returned future is dropped before completion, the implementation must abort the in-progress
+/// transfer and leave the pipe in a consistent state for future requests.
+pub trait UsbPipe<T: pipe::Type, D: pipe::Direction> {
     /// Send IN control request.
     ///
     /// Returns the number of bytes received into `buf`.
-    async fn control_in(&mut self, setup: &SetupPacket, buf: &mut [u8]) -> Result<usize, ChannelError>
+    async fn control_in(&mut self, setup: &[u8; 8], buf: &mut [u8]) -> Result<usize, PipeError>
     where
-        T: channel::IsControl,
-        D: channel::IsIn;
+        T: pipe::IsControl,
+        D: pipe::IsIn;
 
     /// Send OUT control request
-    async fn control_out(&mut self, setup: &SetupPacket, buf: &[u8]) -> Result<(), ChannelError>
+    async fn control_out(&mut self, setup: &[u8; 8], buf: &[u8]) -> Result<(), PipeError>
     where
-        T: channel::IsControl,
-        D: channel::IsOut;
-
-    /// Retargets channel to a new endpoint, may error if the underlying driver runs out of resources
-    fn retarget_channel(&mut self, addr: u8, endpoint: &EndpointInfo, pre: bool) -> Result<(), HostError>;
+        T: pipe::IsControl,
+        D: pipe::IsOut;
 
     /// Send IN request of type other from control
-    /// For interrupt channels this will return the result of the next successful interrupt poll
-    async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError>
+    /// For interrupt pipes this will return the result of the next successful interrupt poll
+    async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, PipeError>
     where
-        D: channel::IsIn;
+        D: pipe::IsIn;
 
     /// Send OUT request of type other from control
     /// ensure_transaction_end: Send a zero length packet at the end of transaction if last packet is of max size.
-    async fn request_out(&mut self, buf: &[u8], ensure_transaction_end: bool) -> Result<(), ChannelError>
+    async fn request_out(&mut self, buf: &[u8], ensure_transaction_end: bool) -> Result<(), PipeError>
     where
-        D: channel::IsOut;
+        D: pipe::IsOut;
 
-    /// Configure the timeouts of this channel.
-    fn set_timeout(&mut self, timeout: TimeoutConfig);
+    /// Configure the timeouts of this pipe.
+    fn set_timeout(&mut self, timeout: TimeoutConfig)
+    where
+        T: pipe::IsControl;
+
+    /// Reset the host-side data toggle on this pipe to DATA0.
+    ///
+    /// The caller must invoke this method after:
+    ///
+    /// - `CLEAR_FEATURE(ENDPOINT_HALT)` successfully clears a functional
+    ///   stall on this endpoint.
+    /// - `SET_CONFIGURATION` succeeds (all non-control endpoints on the
+    ///   affected interfaces must be reset).
+    /// - `SET_INTERFACE` succeeds (all non-control endpoints on the
+    ///   affected interface must be reset).
+    fn reset_data_toggle(&mut self)
+    where
+        T: pipe::IsBulkOrInterrupt;
 }

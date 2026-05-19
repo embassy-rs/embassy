@@ -8,7 +8,7 @@ use defmt_rtt::*;
 use embassy_boot_stm32::{AlignedBuffer, BlockingFirmwareState, FirmwareUpdaterConfig};
 use embassy_executor::Spawner;
 use embassy_stm32::flash::{Flash, WRITE_SIZE};
-use embassy_stm32::rcc::WPAN_DEFAULT;
+use embassy_stm32::rcc::Config as RccConfig;
 use embassy_stm32::usb::{self, Driver};
 use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::Mutex;
@@ -40,7 +40,7 @@ impl<FLASH: embedded_storage::nor_flash::NorFlash> Handler for DfuHandler<'_, FL
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
-    config.rcc = WPAN_DEFAULT;
+    config.rcc = RccConfig::new_wpan();
     let p = embassy_stm32::init(config);
     let flash = Flash::new_blocking(p.FLASH);
     let flash = Mutex::new(RefCell::new(flash));

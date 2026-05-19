@@ -48,7 +48,7 @@ impl<'d, M: Mode> Cracen<'d, M> {
             w.set_enable(true);
         });
 
-        while r.rngcontrol().status().read().state() == pac::cracencore::vals::State::STARTUP {}
+        while r.rngcontrol().status().read().state() == pac::cracencore::vals::State::Startup {}
     }
 
     fn stop_rng(&self) {
@@ -59,7 +59,7 @@ impl<'d, M: Mode> Cracen<'d, M> {
                 w.set_enable(false);
             });
 
-            while r.rngcontrol().status().read().state() != pac::cracencore::vals::State::RESET {}
+            while r.rngcontrol().status().read().state() != pac::cracencore::vals::State::Reset {}
         }
 
         let r = Self::regs();

@@ -6,8 +6,8 @@ use embassy_executor::Spawner;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::HostDriver;
 use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
-use embassy_usb_host::UsbHost;
 use embassy_usb_host::class::cdc_acm::{CdcAcmHost, LineCoding};
+use embassy_usb_host::{BusRoute, BusState};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -25,19 +25,19 @@ async fn main(_spawner: Spawner) {
             freq: Hertz(8_000_000),
             mode: HseMode::Bypass,
         });
-        config.rcc.pll_src = PllSource::HSE;
+        config.rcc.pll_src = PllSource::Hse;
         config.rcc.pll = Some(Pll {
-            prediv: PllPreDiv::DIV4,
-            mul: PllMul::MUL168,
-            divp: Some(PllPDiv::DIV2), // 168 MHz sysclk
-            divq: Some(PllQDiv::DIV7), // 48 MHz USB clock
+            prediv: PllPreDiv::Div4,
+            mul: PllMul::Mul168,
+            divp: Some(PllPDiv::Div2), // 168 MHz sysclk
+            divq: Some(PllQDiv::Div7), // 48 MHz USB clock
             divr: None,
         });
-        config.rcc.ahb_pre = AHBPrescaler::DIV1;
-        config.rcc.apb1_pre = APBPrescaler::DIV4;
-        config.rcc.apb2_pre = APBPrescaler::DIV2;
-        config.rcc.sys = Sysclk::PLL1_P;
-        config.rcc.mux.clk48sel = mux::Clk48sel::PLL1_Q;
+        config.rcc.ahb_pre = AHBPrescaler::Div1;
+        config.rcc.apb1_pre = APBPrescaler::Div4;
+        config.rcc.apb2_pre = APBPrescaler::Div2;
+        config.rcc.sys = Sysclk::Pll1P;
+        config.rcc.mux.clk48sel = mux::Clk48sel::Pll1Q;
     }
     let p = embassy_stm32::init(config);
 
@@ -46,19 +46,20 @@ async fn main(_spawner: Spawner) {
     // Create the host driver (FS mode)
     let driver = HostDriver::new_fs_host(p.USB_OTG_FS, Irqs, p.PA12, p.PA11);
 
-    let mut host = UsbHost::new(driver);
+    static BUS_STATE: BusState = BusState::new();
+    let (mut bus_ctrl, bus) = embassy_usb_host::bus(driver, &BUS_STATE);
     info!("USB host initialized, waiting for device...");
 
     loop {
         // Wait for a device to connect
-        let speed = host.wait_for_connection().await;
+        let speed = bus_ctrl.wait_for_connection().await;
         info!("Device connected at speed {:?}", speed);
 
         // Enumerate the device
         let mut config_buf = [0u8; 256];
-        let result = host.enumerate(speed, &mut config_buf).await;
+        let result = bus.enumerate(BusRoute::Direct(speed), &mut config_buf).await;
 
-        let (dev_desc, addr, config_len) = match result {
+        let (enum_info, config_len) = match result {
             Ok(r) => r,
             Err(e) => {
                 error!("Enumeration failed: {:?}", e);
@@ -68,16 +69,11 @@ async fn main(_spawner: Spawner) {
 
         info!(
             "Enumerated: VID={:04x} PID={:04x} addr={}",
-            dev_desc.vendor_id, dev_desc.product_id, addr
+            enum_info.device_desc.vendor_id, enum_info.device_desc.product_id, enum_info.device_address
         );
 
         // Try to create a CDC ACM host driver
-        let mut cdc = match CdcAcmHost::new(
-            host.driver(),
-            &config_buf[..config_len],
-            addr,
-            dev_desc.max_packet_size0 as u16,
-        ) {
+        let mut cdc = match CdcAcmHost::new(&bus, &config_buf[..config_len], &enum_info) {
             Ok(c) => c,
             Err(e) => {
                 error!("CDC ACM init failed: {:?}", e);

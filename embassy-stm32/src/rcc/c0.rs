@@ -67,15 +67,15 @@ impl Config {
     pub const fn new() -> Self {
         Config {
             hsi: Some(Hsi {
-                sys_div: HsiSysDiv::DIV4,
-                ker_div: HsiKerDiv::DIV3,
+                sys_div: HsiSysDiv::Div4,
+                ker_div: HsiKerDiv::Div3,
             }),
             hse: None,
-            sys: Sysclk::HSISYS,
+            sys: Sysclk::Hsisys,
             #[cfg(crs)]
             hsi48: Some(crate::rcc::Hsi48Config::new()),
-            ahb_pre: AHBPrescaler::DIV1,
-            apb1_pre: APBPrescaler::DIV1,
+            ahb_pre: AHBPrescaler::Div1,
+            apb1_pre: APBPrescaler::Div1,
             ls: crate::rcc::LsConfig::new(),
             mux: super::mux::ClockMux::default(),
         }
@@ -101,8 +101,8 @@ pub(crate) unsafe fn init(config: Config) {
     while !RCC.cr().read().hsirdy() {}
 
     // Use the HSI clock as system clock during the actual clock setup
-    RCC.cfgr().modify(|w| w.set_sw(Sysclk::HSISYS));
-    while RCC.cfgr().read().sws() != Sysclk::HSISYS {}
+    RCC.cfgr().modify(|w| w.set_sw(Sysclk::Hsisys));
+    while RCC.cfgr().read().sws() != Sysclk::Hsisys {}
 
     // Configure HSI
     let (hsi, hsisys, hsiker) = match config.hsi {
@@ -140,13 +140,13 @@ pub(crate) unsafe fn init(config: Config) {
     let rtc = config.ls.init();
 
     let sys = match config.sys {
-        Sysclk::HSISYS => unwrap!(hsisys),
-        Sysclk::HSE => unwrap!(hse),
-        Sysclk::LSI => {
+        Sysclk::Hsisys => unwrap!(hsisys),
+        Sysclk::Hse => unwrap!(hse),
+        Sysclk::Lsi => {
             assert!(config.ls.lsi);
             LSI_FREQ
         }
-        Sysclk::LSE => unwrap!(config.ls.lse).frequency,
+        Sysclk::Lse => unwrap!(config.ls.lse).frequency,
         _ => unreachable!(),
     };
 
@@ -160,8 +160,8 @@ pub(crate) unsafe fn init(config: Config) {
     rcc_assert!(max::PCLK.contains(&pclk1));
 
     let latency = match hclk.0 {
-        ..=24_000_000 => Latency::WS0,
-        _ => Latency::WS1,
+        ..=24_000_000 => Latency::Ws0,
+        _ => Latency::Ws1,
     };
 
     // Configure flash read access latency based on voltage scale and frequency
@@ -211,7 +211,7 @@ pub(crate) unsafe fn init(config: Config) {
     );
 
     RCC.ccipr()
-        .modify(|w| w.set_adc1sel(stm32_metapac::rcc::vals::Adcsel::SYS));
+        .modify(|w| w.set_adc1sel(stm32_metapac::rcc::vals::Adcsel::Sys));
 }
 
 mod max {

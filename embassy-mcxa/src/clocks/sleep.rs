@@ -8,7 +8,7 @@ use critical_section::CriticalSection;
 use super::CLOCKS;
 use super::types::{Clocks, PoweredClock};
 use crate::pac;
-use crate::pac::cmc::CkctrlCkmode;
+use crate::pac::cmc::Ckmode;
 #[cfg(feature = "mcxa2xx")]
 use crate::pac::scg::Fircvld;
 use crate::pac::scg::{Sircvld, SpllLock};
@@ -65,7 +65,7 @@ unsafe fn setup_deep_sleep() {
     // To configure for Deep Sleep Low-Power mode entry:
     //
     // Write Fh to Clock Control (CKCTRL)
-    cmc.ckctrl().modify(|w| w.set_ckmode(CkctrlCkmode::CKMODE1111));
+    cmc.ckctrl().modify(|w| w.set_ckmode(Ckmode::Ckmode1111));
     // Write 1h to Power Mode Protection (PMPROT)
     cmc.pmprot().write(|w| w.0 = 1);
     // Write 1h to Global Power Mode Control (GPMCTRL)
@@ -99,7 +99,7 @@ unsafe fn recover_deep_sleep(cs: &CriticalSection) {
     // Re-raise the sleep level to WFE sleep in the off chance that the
     // user decides to call `wfe` on their own accord, and to avoid having
     // to re-set if we chill in WFE sleep mostly
-    cmc.ckctrl().modify(|w| w.set_ckmode(CkctrlCkmode::CKMODE0001));
+    cmc.ckctrl().modify(|w| w.set_ckmode(Ckmode::Ckmode0001));
 }
 
 /// Perform any actions necessary to re-initialize clocks after returning to active
@@ -127,7 +127,7 @@ unsafe fn restart_active_only_clocks(_cs: &CriticalSection) {
     if let Some(fro12m) = clocks.fro_12m_root.as_ref()
         && !matches!(fro12m.power, PoweredClock::AlwaysEnabled)
     {
-        while scg.sirccsr().read().sircvld() != Sircvld::ENABLED_AND_VALID {}
+        while scg.sirccsr().read().sircvld() != Sircvld::EnabledAndValid {}
     }
 
     // Ensure FRO45M is up and running
@@ -135,7 +135,7 @@ unsafe fn restart_active_only_clocks(_cs: &CriticalSection) {
     if let Some(frohf) = clocks.fro_hf_root.as_ref()
         && !matches!(frohf.power, PoweredClock::AlwaysEnabled)
     {
-        while scg.firccsr().read().fircvld() != Fircvld::ENABLED_AND_VALID {}
+        while scg.firccsr().read().fircvld() != Fircvld::EnabledAndValid {}
     }
 
     // Ensure SOSC is up and running
@@ -150,6 +150,6 @@ unsafe fn restart_active_only_clocks(_cs: &CriticalSection) {
     if let Some(spll) = clocks.pll1_clk.as_ref()
         && !matches!(spll.power, PoweredClock::AlwaysEnabled)
     {
-        while scg.spllcsr().read().spll_lock() != SpllLock::ENABLED_AND_VALID {}
+        while scg.spllcsr().read().spll_lock() != SpllLock::EnabledAndValid {}
     }
 }
