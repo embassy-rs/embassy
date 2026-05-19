@@ -23,7 +23,8 @@ embedded-hal = "1.0.0"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 heapless = { version = "0.9", default-features = false }
 static_cell = "2"
-stm32wb-hci = "0.17.4"
+stm32wb-hci = { version = "0.17.4", git="https://github.com/embassy-rs/stm32wb-hci.git", rev="0ea312" }
+embassy-futures = "0.1.2"
 
 [features]
 default = ["ble", "mac"]

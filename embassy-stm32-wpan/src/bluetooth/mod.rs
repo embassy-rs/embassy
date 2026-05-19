@@ -13,6 +13,8 @@ use stm32wb_hci::event::{
     DisconnectionComplete, LeConnectionComplete, LeConnectionUpdateComplete, LeDataLengthChangeEvent,
     LeEnhancedConnectionComplete, LePhyUpdateComplete,
 };
+use stm32wb_hci::host::uart::Packet;
+use stm32wb_hci::host::{EventFlags, HostHci, LeEventFlags};
 use stm32wb_hci::{BdAddr, ConnectionHandle, Event, Status};
 
 use crate::bluetooth::error::BleError;
@@ -28,7 +30,7 @@ use crate::bluetooth::hci::command::CommandSender;
 use crate::bluetooth::hci::types::DtmPacketPayload;
 use crate::bluetooth::hci::{DtmRxPhy, DtmTxPhy};
 use crate::bluetooth::security::SecurityManager;
-use crate::controller::Controller;
+use crate::controller::{Controller, ControllerAdapter};
 use crate::{BasicRuntime, FullRuntime, HighInterruptHandler, LowInterruptHandler, Platform, Runtime};
 
 trait SealedMode {}
@@ -80,7 +82,7 @@ impl Mode for Test {
 /// }
 /// ```
 pub struct HCI<'d, M: Mode> {
-    controller: Controller<'d, M::Runtime>,
+    controller: ControllerAdapter<'d, M::Runtime>,
     cmd_sender: CommandSender,
     connections: ConnectionManager<MAX_CONNECTIONS>,
     is_advertising: bool,
@@ -138,25 +140,25 @@ impl<'d> HCI<'d, Normal> {
             cmd_sender: CommandSender::new(),
             connections: ConnectionManager::new(),
             is_advertising: false,
-            controller,
+            controller: ControllerAdapter::new(controller),
             _mode: Normal,
         };
 
-        this.init_with_gap_params(gap_params)?;
+        this.init_with_gap_params(gap_params).await?;
 
         yield_now().await;
 
         Ok(this)
     }
 
-    fn init_with_gap_params(&mut self, mut gap_params: GapInitParams) -> Result<(), BleError> {
+    async fn init_with_gap_params(&mut self, mut gap_params: GapInitParams) -> Result<(), BleError> {
         info!("Ble::init: BLE stack initialized, sending HCI reset");
 
         // 1. Reset BLE controller
-        self.cmd_sender.reset()?;
+        self.controller.reset().await?;
 
         // 2. Read local version information
-        let version = self.cmd_sender.read_local_version()?;
+        let version = self.controller.read_local_version_information().await?;
 
         info!(
             "BLE Controller: HCI Version {}.{}, Revision: 0x{:04X}, LMP Version: {}.{}, Manufacturer: 0x{:04X}",
@@ -173,14 +175,14 @@ impl<'d> HCI<'d, Normal> {
         // may not be needed. Skip if they fail with UnknownCommand.
 
         info!("Calling set_event_mask...");
-        if let Err(e) = self.cmd_sender.set_event_mask(0xFFFF_FFFF_FFFF_FFFF) {
+        if let Err(e) = self.controller.set_event_mask(EventFlags::all()).await {
             warn!("set_event_mask failed: {:?} (may be handled internally)", e);
         } else {
             info!("set_event_mask OK");
         }
 
         info!("Calling le_set_event_mask...");
-        if let Err(e) = self.cmd_sender.le_set_event_mask(0xFFFF_FFFF_FFFF_FFFF) {
+        if let Err(e) = self.controller.le_set_event_mask(LeEventFlags::all()).await {
             warn!("le_set_event_mask failed: {:?} (may be handled internally)", e);
         } else {
             info!("le_set_event_mask OK");
@@ -611,7 +613,7 @@ impl<'d> HCI<'d, Test> {
             cmd_sender: CommandSender::new(),
             connections: ConnectionManager::new(),
             is_advertising: false,
-            controller,
+            controller: ControllerAdapter::new(controller),
             _mode: Test,
         };
 
@@ -744,10 +746,11 @@ impl<'d, M: Mode> HCI<'d, M> {
     /// and scanning. This is provided for applications that need to handle
     /// raw events (e.g., for connection management).
     pub async fn read_event(&mut self) -> stm32wb_hci::Event {
+        use stm32wb_hci::host::uart::UartHci;
+
         loop {
-            match self.controller.read_event().await {
-                Ok(event) => return event,
-                Err(e) => debug!("read_event: unhandled event {:?}", e),
+            if let Ok(Packet::Event(event)) = self.controller.read_packet().await {
+                return event;
             }
         }
     }
