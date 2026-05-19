@@ -8,9 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Add `write_all` as a method to `pipe::Writer`, trait import not strictly necessary anymore.
+
 ## 0.8.0 - 2026-03-10
 - Fix wakers getting dropped by `Signal::reset`
-- Add `write_all` as a method to `pipe::Writer`, trait import not strictly necessary anymore.
 - Remove `Sized` trait bound from `MutexGuard::map`
 - Update to `embedded-io-async` 0.7.0
 - Fix `Pipe::try_write` docs
