@@ -208,10 +208,6 @@ impl<'d> HCI<'d, Normal> {
 
         let _gap_handles = init_gap_and_hal(&mut gap_params)?;
 
-        // Program the random static address into the controller. Must happen
-        // before any advertising/scanning that uses `own_addr_type = Random`.
-        self.cmd_sender.le_set_random_address(&gap_params.bd_addr)?;
-
         info!("GAP and HAL initialized");
 
         info!("BLE stack initialized successfully");
