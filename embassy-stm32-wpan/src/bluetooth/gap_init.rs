@@ -91,8 +91,8 @@ pub enum AddressType {
     /// Requires a real OUI; the WBA stack-basic library will reject the write
     /// if the address violates expectations.
     Public,
-    /// Random static address. The caller sets it via `hci_le_set_random_address`
-    /// after `init_gap_and_hal` returns; the PUBADDR config write is skipped.
+    /// Random static address. `init_gap_and_hal` enforces the top two bits of
+    /// byte 5 are `11` and skips the PUBADDR config write.
     RandomStatic,
 }
 
@@ -106,7 +106,7 @@ pub struct GapInitParams {
     pub device_name: &'static [u8],
     /// GAP appearance value
     pub appearance: u16,
-    /// BD address (6 bytes). For `RandomStatic`, the top two bits of byte 5 must be `11`.
+    /// BD address (6 bytes). For `RandomStatic`, `init_gap_and_hal` enforces the top two bits of byte 5 are `0b11`.
     pub bd_addr: [u8; 6],
     /// Whether `bd_addr` is a public or random static address.
     pub address_type: AddressType,
@@ -224,9 +224,8 @@ impl Default for GapInitParams {
             privacy_enabled: false,
             device_name: b"Embassy-BLE",
             appearance: 0, // Unknown
-            // Random static address: top two bits of byte 5 are `11`.
-            // Callers that want a per-chip address should overwrite all 6 bytes
-            // (e.g. from the chip UID) and then `bd_addr[5] |= 0xC0`.
+            // Random static address: top two bits of byte 5 are `0b11` (enforced by init_gap_and_hal).
+            // Callers that want a per-chip address should overwrite all 6 bytes, e.g. from the chip UID.
             bd_addr: [0x00, 0x1A, 0x26, 0xE1, 0x80, 0xC1],
             address_type: AddressType::RandomStatic,
             ir_value: [0x12; 16],
@@ -259,7 +258,7 @@ pub struct GapHandles {
 /// 8. Sets authentication requirements
 ///
 /// Must be called after BleStack_Init() and aci_gatt_init().
-pub fn init_gap_and_hal(params: &GapInitParams) -> Result<GapHandles, BleError> {
+pub fn init_gap_and_hal(params: &mut GapInitParams) -> Result<GapHandles, BleError> {
     unsafe {
         // 1. Write additional GAP service record number (for Device Info service, etc.)
         let additional_records: [u8; 1] = [0x03];
@@ -274,9 +273,8 @@ pub fn init_gap_and_hal(params: &GapInitParams) -> Result<GapHandles, BleError> 
 
         // 2. Write BD address (only for public addresses).
         //
-        // For random static addresses, the WBA stack-basic library doesn't accept
-        // PUBADDR writes — the caller programs the random address via
-        // `hci_le_set_random_address` after this function returns.
+        // For random static addresses the PUBADDR write is skipped — the WBA
+        // stack-basic library rejects it, and the address is handled separately.
         match params.address_type {
             AddressType::Public => {
                 let status = aci_hal_write_config_data(
@@ -299,6 +297,10 @@ pub fn init_gap_and_hal(params: &GapInitParams) -> Result<GapHandles, BleError> 
                 );
             }
             AddressType::RandomStatic => {
+                // Per BT Core Spec Vol 6 Part B §1.3.2.1: the top two bits of the most
+                // significant byte must be `11` to identify this as a random static address,
+                // distinguishing it from resolvable (10) and non-resolvable (01) private types.
+                params.bd_addr[5] |= 0xC0;
                 info!(
                     "Random static address (to be set via HCI): {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
                     params.bd_addr[5],

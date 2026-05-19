@@ -209,15 +209,12 @@ impl<'d> HCI<'d, Normal> {
         info!("Initializing GAP and HAL...");
 
         // Derive a stable random static address from the chip's unique ID.
-        // Per BT Core spec, the top two bits of the MSB of a random static
-        // address must be `11`.
         let uid = embassy_stm32::uid::uid();
         let mut gap_params = GapInitParams::default();
         gap_params.role = role;
         gap_params.bd_addr.copy_from_slice(&uid[0..6]);
-        gap_params.bd_addr[5] |= 0xC0;
 
-        let _gap_handles = init_gap_and_hal(&gap_params)?;
+        let _gap_handles = init_gap_and_hal(&mut gap_params)?;
 
         // Program the random static address into the controller. Must happen
         // before any advertising/scanning that uses `own_addr_type = Random`.
