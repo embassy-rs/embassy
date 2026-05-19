@@ -6,7 +6,7 @@ pub use stm32_metapac::rcc::vals::{
     Hpre as AhbPrescaler, Hsidiv as HsiPrescaler, Hsitrim as HsiCalibration, Icint, Icsel, Plldivm, Pllpdiv, Pllsel,
     Ppre as ApbPrescaler, Xspisel as XspiClkSrc,
 };
-use stm32_metapac::syscfg::vals::{Vddio2cccrEn, Vddio3cccrEn, Vddio4cccrEn};
+use stm32_metapac::syscfg::vals::{Vddio2cccrCs, Vddio3cccrCs, Vddio4cccrCs};
 
 use crate::pac::{GPDMA1, HPDMA1, PWR, RCC, RIFSC, RISAF3, SYSCFG};
 use crate::time::Hertz;
@@ -1268,21 +1268,21 @@ pub(crate) unsafe fn init(config: Config) {
         // SYSCFG is already enabled earlier in init
 
         // Set compensation cell values (0x287 = ST's recommended value)
-        // ransrc=7 (bits 0-3), rapsrc=8 (bits 4-7), en=1 (bit 8)
+        // ransrc=7 (bits 0-3), rapsrc=8 (bits 4-7), cs=1 (bit 9)
         SYSCFG.vddio2cccr().write(|w| {
             w.set_ransrc(0x7);
             w.set_rapsrc(0x8);
-            w.set_en(Vddio2cccrEn::B0x1);
+            w.set_cs(Vddio2cccrCs::B0x1);
         });
         SYSCFG.vddio3cccr().write(|w| {
             w.set_ransrc(0x7);
             w.set_rapsrc(0x8);
-            w.set_en(Vddio3cccrEn::B0x1);
+            w.set_cs(Vddio3cccrCs::B0x1);
         });
         SYSCFG.vddio4cccr().write(|w| {
             w.set_ransrc(0x7);
             w.set_rapsrc(0x8);
-            w.set_en(Vddio4cccrEn::B0x1);
+            w.set_cs(Vddio4cccrCs::B0x1);
         });
     }
 
