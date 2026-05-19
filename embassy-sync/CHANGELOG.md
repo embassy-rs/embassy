@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Add `write_all` as a method to `pipe::Writer`, trait import not strictly necessary anymore.
 - Added `Pipe::try_write_all` method which repeatedly calls `Pipe::try_write` until all
   bytes were written.
 - Implement `core::error::Error` for `channel::TryReceiveError` and `channel::TrySendError`.
