@@ -37,6 +37,8 @@ use embassy_stm32::usart::{self, BufferedUart, BufferedUartRx, BufferedUartTx, C
 use embassy_stm32::{Config, bind_interrupts, peripherals};
 use embassy_stm32_wpan::bluetooth::HCI;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
+use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
+use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams};
 use embassy_stm32_wpan::bluetooth::gatt::{
     CHAR_VALUE_HANDLE_OFFSET, CccdValue, CharProperties, CharacteristicHandle, GattEventMask, SecurityPermissions,
     ServiceHandle, ServiceType, Uuid, is_cccd_handle, is_value_handle,
@@ -90,6 +92,9 @@ const NUS_TX_CHAR_UUID: [u8; 16] = [
 
 /// Maximum data length for BLE transfers (ATT MTU - 3 for ATT header)
 const MAX_DATA_LEN: usize = 244;
+
+// ---- Test configuration ----
+const ADDR_TYPE: OwnAddressType = OwnAddressType::Random;
 
 /// Channel for UART -> BLE data flow
 static UART_TO_BLE: Channel<CriticalSectionRawMutex, heapless::Vec<u8, MAX_DATA_LEN>, 4> = Channel::new();
@@ -197,9 +202,18 @@ async fn main(spawner: Spawner) {
     info!("USART1 initialized (115200 baud, PB12=TX, PA8=RX)");
 
     // Initialize BLE stack
-    let mut ble = HCI::new(platform, runtime, Irqs)
-        .await
-        .expect("BLE initialization failed");
+    let mut ble = match ADDR_TYPE {
+        OwnAddressType::Public => {
+            let gap_params = GapInitParams {
+                bd_addr: [0x01, 0x00, 0x00, 0xE1, 0x80, 0x00],
+                address_type: AddressType::Public,
+                ..GapInitParams::default()
+            };
+            HCI::new_with_gap_params(platform, runtime, Irqs, gap_params).await
+        }
+        _ => HCI::new(platform, runtime, Irqs).await,
+    }
+    .expect("BLE initialization failed");
 
     info!("BLE stack initialized");
 
@@ -280,6 +294,7 @@ async fn main(spawner: Spawner) {
         interval_min: 0x0050, // 50ms (80 * 0.625ms)
         interval_max: 0x0064, // 62.5ms (100 * 0.625ms)
         adv_type: AdvType::ConnectableUndirected,
+        own_addr_type: ADDR_TYPE,
         ..AdvParams::default()
     };
 
