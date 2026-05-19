@@ -201,37 +201,6 @@ impl<'d, T: Runtime> ControllerAdapter<'d, T> {
             pending_evt: AtomicBool::new(false),
         }
     }
-
-    /// Read the next raw HCI event packet as an owned byte buffer.
-    ///
-    /// Returns the complete HCI packet bytes: `[0x04][event_code][param_len][params...]`
-    ///
-    /// Used by `HCI::read_event_ext()` to intercept CTE LE meta subevents (0x15/0x16)
-    /// that stm32wb_hci does not handle, before falling back to normal parsing.
-    pub async fn read_raw_event(&self) -> ([u8; MAX_BLE_PKT_SIZE], usize) {
-        use core::future::poll_fn;
-        use core::task::Poll;
-
-        poll_fn(|cx| {
-            let mut ctrl = self.controller.borrow().borrow_mut();
-
-            if self.pending_evt.swap(false, Ordering::AcqRel) {
-                ctrl.receiver.try_receive().unwrap().receive_done();
-            }
-
-            let Poll::Ready(slot) = ctrl.receiver.poll_receive(cx) else {
-                return Poll::Pending;
-            };
-
-            self.pending_evt.store(true, Ordering::Release);
-
-            let len = slot.1;
-            let mut buf = [0u8; MAX_BLE_PKT_SIZE];
-            buf[..len].copy_from_slice(&slot.0[..len]);
-            Poll::Ready((buf, len))
-        })
-        .await
-    }
 }
 
 #[cfg(feature = "bt-hci")]

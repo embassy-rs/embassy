@@ -41,13 +41,12 @@ use embassy_stm32::peripherals::{AES, PKA, RNG};
 use embassy_stm32::pka::{self, Pka};
 use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::{Config, bind_interrupts, rcc};
-use embassy_stm32_wpan::bluetooth::cte::CteEvent;
+use embassy_stm32_wpan::bluetooth::HCI;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
 use embassy_stm32_wpan::bluetooth::gatt::{
     CccdValue, CharProperties, CharacteristicHandle, GattEventMask, SecurityPermissions, ServiceHandle, ServiceType,
     Uuid, is_cccd_handle, is_value_handle,
 };
-use embassy_stm32_wpan::bluetooth::{BleEvent, HCI};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use embassy_time::{Duration, Ticker};
 use stm32wb_hci::vendor::event::{AttExchangeMtuResponse, VendorEvent};
@@ -213,32 +212,22 @@ async fn main(spawner: Spawner) {
 
     // ── Main loop ────────────────────────────────────────────────────────────
     loop {
-        match select(ble.read_event_ext(), ticker.next()).await {
-            Either::First(ble_event) => {
-                let event = match &ble_event {
-                    BleEvent::Hci(e) => Some(e),
-                    BleEvent::Cte(cte_event) => {
-                        match cte_event {
-                            CteEvent::ConnectionIqReport(r) => {
-                                info!(
-                                    "CTE IQ Report: conn=0x{:04X} ch={} rssi={} samples={}",
-                                    r.conn_handle, r.data_channel_index, r.rssi, r.sample_count
-                                );
-                            }
-                            CteEvent::CteRequestFailed(f) => {
-                                warn!(
-                                    "CTE Request Failed: conn=0x{:04X} status=0x{:02X}",
-                                    f.conn_handle, f.status
-                                );
-                            }
-                        }
-                        None
-                    }
-                };
-
-                if let Some(event) = event {
+        match select(ble.read_event(), ticker.next()).await {
+            Either::First(event) => {
+                // ── CTE events ────────────────────────────────────────────────
+                if let stm32wb_hci::Event::LeConnectionIqReport(r) = &event {
+                    info!(
+                        "CTE IQ Report: conn=0x{:04X} ch={} rssi={} samples={}",
+                        r.conn_handle.0, r.data_channel_index, r.rssi, r.sample_count
+                    );
+                } else if let stm32wb_hci::Event::LeCteRequestFailed(f) = &event {
+                    warn!(
+                        "CTE Request Failed: conn=0x{:04X} status={:?}",
+                        f.conn_handle.0, f.status
+                    );
+                } else {
                     // ── GAP events ────────────────────────────────────────────────
-                    if let Some(gap_event) = ble.process_event(event) {
+                    if let Some(gap_event) = ble.process_event(&event) {
                         match gap_event {
                             GapEvent::Connected(conn) => {
                                 info!("Connected: 0x{:04X}", conn.handle.0);
@@ -271,9 +260,8 @@ async fn main(spawner: Spawner) {
                     }
 
                     // ── GATT events ───────────────────────────────────────────────
-                    use stm32wb_hci::Event;
-                    match event {
-                        Event::Vendor(VendorEvent::GattAttributeModified(attr)) => {
+                    match &event {
+                        stm32wb_hci::Event::Vendor(VendorEvent::GattAttributeModified(attr)) => {
                             if is_cccd_handle(state.switch_char_handle.0, attr.attr_handle.0) {
                                 let cccd = CccdValue::from_bytes(attr.data());
                                 state.switch_notifications_enabled = cccd.notifications;
@@ -298,7 +286,7 @@ async fn main(spawner: Spawner) {
                                 );
                             }
                         }
-                        Event::Vendor(VendorEvent::AttExchangeMtuResponse(AttExchangeMtuResponse {
+                        stm32wb_hci::Event::Vendor(VendorEvent::AttExchangeMtuResponse(AttExchangeMtuResponse {
                             conn_handle,
                             server_rx_mtu,
                         })) => {
@@ -308,7 +296,7 @@ async fn main(spawner: Spawner) {
                         }
                         _ => {}
                     }
-                }
+                } // end else (non-CTE event)
             }
 
             Either::Second(_) => {

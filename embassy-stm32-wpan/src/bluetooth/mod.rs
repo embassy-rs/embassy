@@ -1,6 +1,5 @@
 //! High-level BLE API for STM32WBA
 
-pub mod cte;
 pub mod error;
 pub mod gap;
 pub mod gap_init;
@@ -825,56 +824,6 @@ impl<'d, M: Mode> HCI<'d, M> {
             }
         }
     }
-
-    /// Read the next BLE event, including CTE direction finding events.
-    ///
-    /// Intercepts LE meta subevents 0x15 (`LeConnectionIqReport`) and 0x16
-    /// (`LeCteRequestFailed`) that stm32wb_hci would otherwise discard, returning them
-    /// as `BleEvent::Cte`. All other events are returned as `BleEvent::Hci`.
-    ///
-    /// Use this instead of `read_event()` when direction finding is active.
-    /// Do not mix calls to `read_event()` and `read_event_ext()` on the same instance.
-    pub async fn read_event_ext(&mut self) -> BleEvent {
-        loop {
-            let (raw, len) = self.controller.read_raw_event().await;
-            if len < 3 {
-                continue;
-            }
-            let bytes = &raw[..len];
-
-            // bytes = [0x04][event_code][param_len][params...]
-            if bytes[0] != 0x04 {
-                continue;
-            }
-            let event_code = bytes[1];
-            let param_len = bytes[2] as usize;
-
-            // Intercept CTE LE meta subevents before stm32wb_hci drops them
-            if event_code == cte::LE_META_EVENT && len >= 4 {
-                let subevent = bytes[3];
-                if matches!(subevent, cte::LE_CONNECTION_IQ_REPORT | cte::LE_CTE_REQUEST_FAILED) {
-                    if let Some(cte_evt) = cte::parse_cte_event(bytes) {
-                        return BleEvent::Cte(cte_evt);
-                    }
-                }
-            }
-
-            // Parse as standard stm32wb_hci event
-            // payload = bytes after param_len (includes subevent byte for LE meta)
-            let payload_end = (3 + param_len).min(len);
-            match stm32wb_hci::Event::from_kind_and_payload(event_code, &bytes[3..payload_end]) {
-                Ok(event) => return BleEvent::Hci(event),
-                Err(_) => {
-                    warn!(
-                        "read_event_ext: unhandled event 0x{:02X} subevent 0x{:02X}",
-                        event_code,
-                        if len > 3 { bytes[3] } else { 0 }
-                    );
-                    continue;
-                }
-            }
-        }
-    }
 }
 
 /// Version information from the BLE controller
@@ -886,17 +835,4 @@ pub struct VersionInfo {
     pub lmp_version: u8,
     pub manufacturer_name: u16,
     pub lmp_subversion: u16,
-}
-
-/// A BLE event, either a standard HCI event or a CTE direction finding event.
-///
-/// Returned by `HCI::read_event_ext()`. Use this instead of `read_event()` when
-/// direction finding (Constant Tone Extension) is enabled on the connection.
-#[derive(Clone, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum BleEvent {
-    /// Standard HCI event, parsed by stm32wb_hci.
-    Hci(stm32wb_hci::Event),
-    /// CTE direction finding event (LE meta subevent 0x15 or 0x16).
-    Cte(cte::CteEvent),
 }
