@@ -13,6 +13,8 @@ use stm32wb_hci::event::{
     DisconnectionComplete, LeConnectionComplete, LeConnectionUpdateComplete, LeDataLengthChangeEvent,
     LeEnhancedConnectionComplete, LePhyUpdateComplete,
 };
+use stm32wb_hci::host::uart::Packet;
+use stm32wb_hci::host::{EventFlags, HostHci, LeEventFlags};
 use stm32wb_hci::{BdAddr, ConnectionHandle, Event, Status};
 
 use crate::bluetooth::error::BleError;
@@ -28,7 +30,7 @@ use crate::bluetooth::hci::command::CommandSender;
 use crate::bluetooth::hci::types::DtmPacketPayload;
 use crate::bluetooth::hci::{DtmRxPhy, DtmTxPhy};
 use crate::bluetooth::security::SecurityManager;
-use crate::controller::Controller;
+use crate::controller::{Controller, ControllerAdapter};
 use crate::{BasicRuntime, FullRuntime, HighInterruptHandler, LowInterruptHandler, Platform, Runtime};
 
 trait SealedMode {}
@@ -80,7 +82,7 @@ impl Mode for Test {
 /// }
 /// ```
 pub struct HCI<'d, M: Mode> {
-    controller: Controller<'d, M::Runtime>,
+    controller: ControllerAdapter<'d, M::Runtime>,
     cmd_sender: CommandSender,
     connections: ConnectionManager<MAX_CONNECTIONS>,
     is_advertising: bool,
@@ -112,6 +114,24 @@ impl<'d> HCI<'d, Normal> {
         + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
         role: GapRole,
     ) -> Result<Self, BleError> {
+        let uid = embassy_stm32::uid::uid();
+        let mut gap_params = GapInitParams::default();
+        gap_params.role = role;
+        gap_params.bd_addr.copy_from_slice(&uid[0..6]);
+        Self::new_with_gap_params(platform, runtime, irq, gap_params).await
+    }
+
+    /// Like `new`, but accepts fully custom `GapInitParams`.
+    ///
+    /// Use this to override the address type, BD address, or any other GAP
+    /// init parameter — e.g. a fixed public address.
+    pub async fn new_with_gap_params(
+        platform: &'static Platform,
+        runtime: &'d mut FullRuntime,
+        irq: impl interrupt::typelevel::Binding<interrupt::typelevel::RADIO, HighInterruptHandler>
+        + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
+        gap_params: GapInitParams,
+    ) -> Result<Self, BleError> {
         let controller = Controller::new(platform, runtime, irq)
             .await
             .map_err(|_| BleError::InitializationFailed)?;
@@ -120,25 +140,25 @@ impl<'d> HCI<'d, Normal> {
             cmd_sender: CommandSender::new(),
             connections: ConnectionManager::new(),
             is_advertising: false,
-            controller,
+            controller: ControllerAdapter::new(controller),
             _mode: Normal,
         };
 
-        this.init_with_role(role)?;
+        this.init_with_gap_params(gap_params).await?;
 
         yield_now().await;
 
         Ok(this)
     }
 
-    fn init_with_role(&mut self, role: GapRole) -> Result<(), BleError> {
+    async fn init_with_gap_params(&mut self, mut gap_params: GapInitParams) -> Result<(), BleError> {
         info!("Ble::init: BLE stack initialized, sending HCI reset");
 
         // 1. Reset BLE controller
-        self.cmd_sender.reset()?;
+        self.controller.reset().await?;
 
         // 2. Read local version information
-        let version = self.cmd_sender.read_local_version()?;
+        let version = self.controller.read_local_version_information().await?;
 
         info!(
             "BLE Controller: HCI Version {}.{}, Revision: 0x{:04X}, LMP Version: {}.{}, Manufacturer: 0x{:04X}",
@@ -150,33 +170,25 @@ impl<'d> HCI<'d, Normal> {
             version.manufacturer_name
         );
 
-        // 3. Read BD address
-        let bd_addr = self.cmd_sender.read_bd_addr()?;
-
-        info!(
-            "BD Address: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
-            bd_addr[5], bd_addr[4], bd_addr[3], bd_addr[2], bd_addr[1], bd_addr[0]
-        );
-
-        // 4. Set event mask (enable all events)
+        // 3. Set event mask (enable all events)
         // Note: The ST BLE stack handles event masks internally, so these calls
         // may not be needed. Skip if they fail with UnknownCommand.
 
         info!("Calling set_event_mask...");
-        if let Err(e) = self.cmd_sender.set_event_mask(0xFFFF_FFFF_FFFF_FFFF) {
+        if let Err(e) = self.controller.set_event_mask(EventFlags::all()).await {
             warn!("set_event_mask failed: {:?} (may be handled internally)", e);
         } else {
             info!("set_event_mask OK");
         }
 
         info!("Calling le_set_event_mask...");
-        if let Err(e) = self.cmd_sender.le_set_event_mask(0xFFFF_FFFF_FFFF_FFFF) {
+        if let Err(e) = self.controller.le_set_event_mask(LeEventFlags::all()).await {
             warn!("le_set_event_mask failed: {:?} (may be handled internally)", e);
         } else {
             info!("le_set_event_mask OK");
         }
 
-        // 5. Read buffer sizes (optional - skip if not available)
+        // 4. Read buffer sizes (optional - skip if not available)
         info!("Calling le_read_buffer_size...");
         match self.cmd_sender.le_read_buffer_size() {
             Ok((acl_len, acl_num, iso_len, iso_num)) => info!(
@@ -186,14 +198,14 @@ impl<'d> HCI<'d, Normal> {
             Err(e) => warn!("le_read_buffer_size failed: {:?} (skipping)", e),
         }
 
-        // 6. Read supported features (optional - skip if not available)
+        // 5. Read supported features (optional - skip if not available)
         info!("Calling le_read_local_supported_features...");
         match self.cmd_sender.le_read_local_supported_features() {
             Ok(features) => info!("Supported LE features: {=[u8]:#02X}", features),
             Err(e) => warn!("le_read_local_supported_features failed: {:?} (skipping)", e),
         }
 
-        // 7. Initialize GATT layer (MUST be done BEFORE GAP initialization!)
+        // 6. Initialize GATT layer (MUST be done BEFORE GAP initialization!)
         // Per ST's BLE_HeartRate: aci_gatt_init() is called before aci_gap_init()
         info!("Initializing GATT layer...");
 
@@ -202,26 +214,13 @@ impl<'d> HCI<'d, Normal> {
 
         info!("GATT layer initialized");
 
-        // 8. Initialize GAP and HAL (AFTER GATT!)
+        // 7. Initialize GAP and HAL (AFTER GATT!)
         // This is the critical step that ST's BLE_HeartRate does in Ble_Hci_Gap_Gatt_Init().
         // It configures BD address, IR/ER keys, TX power, PHY, and initializes the GAP layer.
 
         info!("Initializing GAP and HAL...");
 
-        // Derive a stable random static address from the chip's unique ID.
-        // Per BT Core spec, the top two bits of the MSB of a random static
-        // address must be `11`.
-        let uid = embassy_stm32::uid::uid();
-        let mut gap_params = GapInitParams::default();
-        gap_params.role = role;
-        gap_params.bd_addr.copy_from_slice(&uid[0..6]);
-        gap_params.bd_addr[5] |= 0xC0;
-
-        let _gap_handles = init_gap_and_hal(&gap_params)?;
-
-        // Program the random static address into the controller. Must happen
-        // before any advertising/scanning that uses `own_addr_type = Random`.
-        self.cmd_sender.le_set_random_address(&gap_params.bd_addr)?;
+        let _gap_handles = init_gap_and_hal(&mut gap_params)?;
 
         info!("GAP and HAL initialized");
 
@@ -614,7 +613,7 @@ impl<'d> HCI<'d, Test> {
             cmd_sender: CommandSender::new(),
             connections: ConnectionManager::new(),
             is_advertising: false,
-            controller,
+            controller: ControllerAdapter::new(controller),
             _mode: Test,
         };
 
@@ -747,10 +746,11 @@ impl<'d, M: Mode> HCI<'d, M> {
     /// and scanning. This is provided for applications that need to handle
     /// raw events (e.g., for connection management).
     pub async fn read_event(&mut self) -> stm32wb_hci::Event {
+        use stm32wb_hci::host::uart::UartHci;
+
         loop {
-            match self.controller.read_event().await {
-                Ok(event) => return event,
-                Err(e) => debug!("read_event: unhandled event {:?}", e),
+            if let Ok(Packet::Event(event)) = self.controller.read_packet().await {
+                return event;
             }
         }
     }

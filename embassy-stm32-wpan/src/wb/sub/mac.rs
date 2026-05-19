@@ -2,9 +2,9 @@ use core::ptr;
 
 use embassy_stm32::ipcc::{Ipcc, IpccRxChannel, IpccTxChannel};
 
-use crate::mac::commands::MacCommand;
-use crate::mac::event::MacEvent;
-use crate::mac::typedefs::MacError;
+use crate::mlme::commands::MacCommand;
+use crate::mlme::event::MacEvent;
+use crate::mlme::typedefs::MacError;
 use crate::util::Flag;
 use crate::wb::channels::cpu1::IPCC_MAC_802_15_4_CMD_RSP_CHANNEL;
 use crate::wb::cmd::CmdPacket;

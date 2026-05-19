@@ -25,7 +25,9 @@ use embassy_stm32::rcc::Config as RccConfig;
 use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::{Config, bind_interrupts};
 use embassy_stm32_wpan::bluetooth::HCI;
+use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{ConnectionInitParams, GapEvent, ParsedAdvData, ScanParams, ScanType};
+use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use stm32wb_hci::event::ConnectionRole;
 use stm32wb_hci::vendor::event::{AttExchangeMtuResponse, VendorEvent};
@@ -55,6 +57,9 @@ async fn ble_runner_task(platform: &'static Platform) {
 /// Target device name to connect to (set to None to connect to first discovered device)
 const TARGET_DEVICE_NAME: Option<&str> = None; // e.g., Some("Embassy-Peripheral")
 
+// ---- Test configuration ----
+const ADDR_TYPE: OwnAddressType = OwnAddressType::Random;
+
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let mut config = Config::default();
@@ -80,10 +85,18 @@ async fn main(spawner: Spawner) {
     // Spawn the BLE runner task (required for proper BLE operation)
     spawner.spawn(ble_runner_task(platform).expect("Failed to spawn BLE runner"));
 
-    // Initialize BLE stack
-    let mut ble = HCI::new(platform, runtime, Irqs)
-        .await
-        .expect("BLE initialization failed");
+    let mut ble = match ADDR_TYPE {
+        OwnAddressType::Public => {
+            let gap_params = GapInitParams {
+                bd_addr: [0x01, 0x00, 0x00, 0xE1, 0x80, 0x00],
+                address_type: AddressType::Public,
+                ..GapInitParams::default()
+            };
+            HCI::new_with_gap_params(platform, runtime, Irqs, gap_params).await
+        }
+        _ => HCI::new(platform, runtime, Irqs).await,
+    }
+    .expect("BLE initialization failed");
 
     info!("BLE stack initialized");
 

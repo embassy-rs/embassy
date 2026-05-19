@@ -141,7 +141,7 @@ impl<T: MemoryManager> EvtBox<T> {
         }
     }
 
-    pub fn serial<'a>(&'a self) -> &'a [u8] {
+    pub const fn serial<'a>(&'a self) -> &'a [u8] {
         unsafe {
             let evt_serial: *const EvtSerial = &(*self.ptr).evt_serial;
             let evt_serial_buf: *const u8 = evt_serial.cast();
