@@ -14,20 +14,9 @@ use crate::interrupt::typelevel::Interrupt;
 // Renamed so the `unsafe extern "C" fn TIMER0()` ISR symbol below doesn't collide with it.
 use crate::pac::TIMER0 as T;
 
-// Clock timekeeping works with something we call "periods", which are time intervals
-// of 2^31 ticks. The Clock counter value is 32 bits, so one "overflow cycle" is 2 periods.
-//
-// A `period` count is maintained in parallel to the Timer hardware `counter`, like this:
-// - `period` and `counter` start at 0
-// - `period` is incremented on overflow (at counter value 0)
-// - `period` is incremented "midway" between overflows (at counter value 0x8000_0000)
-//
-// Therefore, when `period` is even, counter is in 0..0x7FFF_FFFF. When odd, counter is in
-// 0x8000_0000..0xFFFF_FFFF. This allows now() to return the correct value even if it races
-// an overflow.
-//
-// `period` is a 32-bit integer, so it overflows on 2^32 * 2^31 / TICK_HZ seconds of uptime,
-// which at 1 MHz is ~290 000 years.
+// `period` goes up at counter values 0 (overflow) and 0x8000_0000 (CC0). An even `period` means the
+// counter is in the low half, so `now()` stays correct when it races an overflow. At 1 MHz,
+// `period` overflows after about 290 000 years.
 const HALF: u32 = 0x8000_0000;
 
 /// Alarm distance below which the CC1 interrupt is armed.
@@ -59,10 +48,24 @@ impl TimerDriver {
         t.en().write(|w| w.set_en(false));
         while t.en().read().disabling() {}
 
-        // EM01GRPACLK is HFRCODPLL at reset (~19 MHz on EFR32MG26). PRESC
-        // encoding is `divisor - 1`, so PRESC = 18 divides by 19 → ~1 MHz tick.
+        // TIMER0 lives on EM01GRPACLK. The source is configurable
+        // (HFRCODPLL at reset, HFXO once the clock tree is reprogrammed,
+        // etc.) and the rate is recorded in `rcc::get_freqs().em01grpaclk`.
+        // Pick PRESC = (em01grpaclk / tick_hz) - 1 so the timer counts
+        // at exactly `embassy_time_driver::TICK_HZ`.
+        //
+        // PRESC encoding: divisor = value + 1. The field is 10 bits, so
+        // divisor must fit in 1..=1024.
+        let em01grpaclk = unsafe { crate::rcc::get_freqs().em01grpaclk }.0 as u64;
+        let tick_hz = embassy_time_driver::TICK_HZ;
+        assert!(
+            tick_hz != 0 && em01grpaclk % tick_hz == 0,
+            "EM01GRPACLK is not an integer multiple of TICK_HZ"
+        );
+        let divisor = em01grpaclk / tick_hz;
+        assert!((1..=1024).contains(&divisor), "TIMER0 PRESC out of range");
         t.cfg().write(|w| {
-            w.set_presc(silabs_metapac::timer_v1_w::vals::Presc::from_bits(18));
+            w.set_presc(silabs_metapac::timer_v1_w::vals::Presc::from_bits((divisor - 1) as u16));
         });
 
         // CC0 marks the half period. OF and CC0 each add 1 to `period`.
@@ -80,8 +83,7 @@ impl TimerDriver {
         t.cmd().write(|w| w.set_stop(true));
         t.cnt().write(|w| w.set_cnt(0));
         // TOP is u32::MAX, so OF and CC0 alternate.
-        t.top()
-            .write(|w| w.set_top(HALF.wrapping_mul(2).wrapping_sub(1)));
+        t.top().write(|w| w.set_top(HALF.wrapping_mul(2).wrapping_sub(1)));
         t.cc0_oc().write(|w| w.set_oc(HALF));
 
         let stale = t.if_().read();
