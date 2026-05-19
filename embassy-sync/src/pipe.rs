@@ -43,6 +43,13 @@ where
         self.pipe.write(buf)
     }
 
+    /// Write all bytes to the pipe.
+    ///
+    /// This method writes all bytes from `buf` into the pipe. See [`Pipe::write_all()`]
+    pub async fn write_all<'a>(&'a self, buf: &'a [u8]) {
+        self.pipe.write_all(buf).await;
+    }
+
     /// Attempt to immediately write some bytes to the pipe.
     ///
     /// See [`Pipe::try_write()`]
@@ -533,6 +540,10 @@ impl<M: RawMutex, const N: usize> embedded_io_async::ErrorType for Writer<'_, M,
 impl<M: RawMutex, const N: usize> embedded_io_async::Write for Writer<'_, M, N> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         Ok(Writer::write(self, buf).await)
+    }
+
+    async fn write_all(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
+        Ok(Writer::write_all(self, buf).await)
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
