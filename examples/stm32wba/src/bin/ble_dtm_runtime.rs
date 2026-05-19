@@ -25,7 +25,9 @@ use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph, RNG};
 use embassy_stm32::pka::{self, Pka};
 use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::{Config, bind_interrupts, exti, interrupt, rcc};
+use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
+use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams};
 use embassy_stm32_wpan::bluetooth::gatt::{CharProperties, GattEventMask, SecurityPermissions, ServiceType, Uuid};
 use embassy_stm32_wpan::bluetooth::hci::types::DtmPacketPayload;
 use embassy_stm32_wpan::bluetooth::{HCI, Normal, Test};
@@ -45,6 +47,7 @@ const DTM_MODE: DtmMode = DtmMode::Rx;
 const DTM_CHANNEL: u8 = 19; // 2440 MHz
 const DTM_DATA_LENGTH: u8 = 37; // bytes per packet
 const DTM_TEST_DURATION_SECS: u64 = 10;
+const ADDR_TYPE: OwnAddressType = OwnAddressType::Random;
 // --------------------------------
 
 bind_interrupts!(struct Irqs {
@@ -96,9 +99,18 @@ async fn main(spawner: Spawner) {
     spawner.spawn(ble_runner_task(platform).expect("Failed to spawn BLE runner"));
 
     // Initialize BLE stack
-    let mut ble = HCI::new(platform, runtime, Irqs)
-        .await
-        .expect("BLE initialization failed");
+    let mut ble = match ADDR_TYPE {
+        OwnAddressType::Public => {
+            let gap_params = GapInitParams {
+                bd_addr: [0x01, 0x00, 0x00, 0xE1, 0x80, 0x00],
+                address_type: AddressType::Public,
+                ..GapInitParams::default()
+            };
+            HCI::new_with_gap_params(platform, runtime, Irqs, gap_params).await
+        }
+        _ => HCI::new(platform, runtime, Irqs).await,
+    }
+    .expect("BLE initialization failed");
 
     let mut gatt = ble.gatt_server();
 
@@ -135,6 +147,7 @@ async fn main(spawner: Spawner) {
         interval_min: 0x0050,
         interval_max: 0x0050,
         adv_type: AdvType::ConnectableUndirected,
+        own_addr_type: ADDR_TYPE,
         ..AdvParams::default()
     };
 
@@ -170,7 +183,18 @@ async fn main(spawner: Spawner) {
                 dtm_ble.deinit().expect("deinit after DTM failed");
 
                 // Reinitialize full BLE stack with the same state
-                ble = HCI::new(platform, runtime, Irqs).await.expect("BLE reinit failed");
+                ble = match ADDR_TYPE {
+                    OwnAddressType::Public => {
+                        let gap_params = GapInitParams {
+                            bd_addr: [0x01, 0x00, 0x00, 0xE1, 0x80, 0x00],
+                            address_type: AddressType::Public,
+                            ..GapInitParams::default()
+                        };
+                        HCI::new_with_gap_params(platform, runtime, Irqs, gap_params).await
+                    }
+                    _ => HCI::new(platform, runtime, Irqs).await,
+                }
+                .expect("BLE reinit failed");
 
                 // Rebuild GATT services (cleared by hci_reset inside deinit)
                 let mut gatt = ble.gatt_server();
