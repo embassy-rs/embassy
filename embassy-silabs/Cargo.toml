@@ -1,6 +1,6 @@
 [package]
 name = "embassy-silabs"
-version = "0.0.1"
+version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Embassy Hardware Abstraction Layer (HAL) for Silicon Labs microcontrollers"
@@ -25,7 +25,10 @@ cortex-m = "0.7.6"
 critical-section = "1.2.0"
 trait-set = "0.3.0"
 
-silabs-metapac = { git = "https://github.com/andresv/silabs-data-generated.git", rev = "d430f99198c8eedc75be17a20b8990511deed6b9" }
+silabs-metapac = { git = "https://github.com/andresv/silabs-data-generated.git", tag = "0.2.0" }
+
+[build-dependencies]
+silabs-metapac = { git = "https://github.com/andresv/silabs-data-generated.git", tag = "0.2.0", default-features = false, features = ["metadata"] }
 
 [features]
 default = ["rt"]
@@ -39,6 +42,7 @@ defmt = [
     "embassy-sync/defmt",
     "embassy-embedded-hal/defmt",
     "embassy-hal-internal/defmt",
+    "silabs-metapac/defmt",
 ]
 ## Use log for logging
 log = ["dep:log"]
@@ -48,6 +52,10 @@ log = ["dep:log"]
 ## If this is an issue for you, you're encouraged to directly depend on a fixed version of the PAC.
 ## There are no plans to make this stable.
 unstable-pac = []
+
+## Skip the RCC sanity assertions (e.g. SYSCLK/HCLK frequency upper bounds).
+## Mirrors `embassy-stm32`'s feature of the same name. Off by default.
+unchecked-overclocking = []
 
 #! ## Time
 
