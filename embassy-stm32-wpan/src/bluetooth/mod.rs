@@ -112,6 +112,24 @@ impl<'d> HCI<'d, Normal> {
         + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
         role: GapRole,
     ) -> Result<Self, BleError> {
+        let uid = embassy_stm32::uid::uid();
+        let mut gap_params = GapInitParams::default();
+        gap_params.role = role;
+        gap_params.bd_addr.copy_from_slice(&uid[0..6]);
+        Self::new_with_gap_params(platform, runtime, irq, gap_params).await
+    }
+
+    /// Like `new`, but accepts fully custom `GapInitParams`.
+    ///
+    /// Use this to override the address type, BD address, or any other GAP
+    /// init parameter — e.g. a fixed public address.
+    pub async fn new_with_gap_params(
+        platform: &'static Platform,
+        runtime: &'d mut FullRuntime,
+        irq: impl interrupt::typelevel::Binding<interrupt::typelevel::RADIO, HighInterruptHandler>
+        + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
+        gap_params: GapInitParams,
+    ) -> Result<Self, BleError> {
         let controller = Controller::new(platform, runtime, irq)
             .await
             .map_err(|_| BleError::InitializationFailed)?;
@@ -124,14 +142,14 @@ impl<'d> HCI<'d, Normal> {
             _mode: Normal,
         };
 
-        this.init_with_role(role)?;
+        this.init_with_gap_params(gap_params)?;
 
         yield_now().await;
 
         Ok(this)
     }
 
-    fn init_with_role(&mut self, role: GapRole) -> Result<(), BleError> {
+    fn init_with_gap_params(&mut self, mut gap_params: GapInitParams) -> Result<(), BleError> {
         info!("Ble::init: BLE stack initialized, sending HCI reset");
 
         // 1. Reset BLE controller
@@ -199,12 +217,6 @@ impl<'d> HCI<'d, Normal> {
         // It configures BD address, IR/ER keys, TX power, PHY, and initializes the GAP layer.
 
         info!("Initializing GAP and HAL...");
-
-        // Derive a stable random static address from the chip's unique ID.
-        let uid = embassy_stm32::uid::uid();
-        let mut gap_params = GapInitParams::default();
-        gap_params.role = role;
-        gap_params.bd_addr.copy_from_slice(&uid[0..6]);
 
         let _gap_handles = init_gap_and_hal(&mut gap_params)?;
 
