@@ -114,6 +114,15 @@ impl Timer {
     /// Expire after specified [Duration](struct.Duration.html).
     /// This can be used as a `sleep` abstraction.
     ///
+    /// Note: You must ensure that Instant::now() when added to the intended
+    /// sleep duration does not overflow the u64 tick counter or a panic will occur.
+    ///
+    /// For example Timer::after(Duration::MAX) will always panic
+    /// and must be avoided.
+    ///
+    /// The same restriction applies to with_timeout() and the other
+    /// after_* functions.
+    ///
     /// Example:
     /// ``` no_run
     /// use embassy_time::{Duration, Timer};
