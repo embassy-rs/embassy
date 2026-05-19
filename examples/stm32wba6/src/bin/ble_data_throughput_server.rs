@@ -36,14 +36,13 @@ use embassy_executor::Spawner;
 use embassy_stm32::aes::{self, Aes};
 use embassy_stm32::peripherals::{AES, PKA, RNG};
 use embassy_stm32::pka::{self, Pka};
-use embassy_stm32::rcc;
 use embassy_stm32::rng::{self, Rng};
-use embassy_stm32::{Config, bind_interrupts};
+use embassy_stm32::{Config, bind_interrupts, rcc};
 use embassy_stm32_wpan::bluetooth::HCI;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
 use embassy_stm32_wpan::bluetooth::gatt::{
-    CccdValue, CharProperties, CharacteristicHandle, GattEventMask, SecurityPermissions, ServiceHandle, ServiceType, Uuid,
-    is_cccd_handle, is_value_handle,
+    CccdValue, CharProperties, CharacteristicHandle, GattEventMask, SecurityPermissions, ServiceHandle, ServiceType,
+    Uuid, is_cccd_handle, is_value_handle,
 };
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use embassy_time::Instant;
@@ -267,12 +266,7 @@ async fn main(spawner: Spawner) {
                             );
                             if state.through_notifications_enabled {
                                 let report = encode_through(state.tx_bytes, state.rx_bytes, elapsed_ms);
-                                let _ = gatt.notify(
-                                    conn,
-                                    state.service_handle,
-                                    state.through_char_handle,
-                                    &report,
-                                );
+                                let _ = gatt.notify(conn, state.service_handle, state.through_char_handle, &report);
                             }
                             state.tx_bytes = 0;
                             state.rx_bytes = 0;
@@ -333,7 +327,10 @@ async fn main(spawner: Spawner) {
                     max_rx_octets,
                     ..
                 } => {
-                    info!("Data length on 0x{:04X}: TX={} RX={}", handle.0, max_tx_octets, max_rx_octets);
+                    info!(
+                        "Data length on 0x{:04X}: TX={} RX={}",
+                        handle.0, max_tx_octets, max_rx_octets
+                    );
                 }
                 _ => {}
             }
@@ -345,14 +342,20 @@ async fn main(spawner: Spawner) {
                 if is_cccd_handle(state.tx_char_handle.0, attr.attr_handle.0) {
                     let cccd = CccdValue::from_bytes(attr.data());
                     state.tx_notifications_enabled = cccd.notifications;
-                    info!("TX notifications {}", if cccd.notifications { "ENABLED" } else { "DISABLED" });
+                    info!(
+                        "TX notifications {}",
+                        if cccd.notifications { "ENABLED" } else { "DISABLED" }
+                    );
                     if cccd.notifications {
                         state.window_start = None; // reset measurement window
                     }
                 } else if is_cccd_handle(state.through_char_handle.0, attr.attr_handle.0) {
                     let cccd = CccdValue::from_bytes(attr.data());
                     state.through_notifications_enabled = cccd.notifications;
-                    info!("THROUGH notifications {}", if cccd.notifications { "ENABLED" } else { "DISABLED" });
+                    info!(
+                        "THROUGH notifications {}",
+                        if cccd.notifications { "ENABLED" } else { "DISABLED" }
+                    );
                 } else if is_value_handle(state.rx_char_handle.0, attr.attr_handle.0) {
                     state.rx_bytes += attr.data().len() as u32;
                     debug!("RX {} bytes (window total {} B)", attr.data().len(), state.rx_bytes);

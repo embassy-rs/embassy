@@ -30,9 +30,8 @@ use embassy_futures::select::{Either, select};
 use embassy_stm32::aes::{self, Aes};
 use embassy_stm32::peripherals::{AES, PKA, RNG};
 use embassy_stm32::pka::{self, Pka};
-use embassy_stm32::rcc;
 use embassy_stm32::rng::{self, Rng};
-use embassy_stm32::{Config, bind_interrupts};
+use embassy_stm32::{Config, bind_interrupts, rcc};
 use embassy_stm32_wpan::bluetooth::HCI;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
 use embassy_stm32_wpan::bluetooth::gatt::{

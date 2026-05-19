@@ -4,8 +4,8 @@
 //! The tag acts as a BLE peripheral that:
 //! - Advertises and accepts a connection from a locator (central)
 //! - Exposes a simple LED/button control service (the application layer of the DF demo)
-//! - **Would** enable Constant Tone Extension (CTE) in connected mode for AoA/AoD
-//!   angle-of-arrival measurement (see note below)
+//! - Enables Constant Tone Extension (CTE) in connected mode for AoA
+//!   angle-of-arrival measurement
 //!
 //! ## GATT structure
 //! - **Direction Finding Tag Service** (UUID 0000FE40-CC7A-482A-984A-7F2ED5B3E58F)
@@ -14,18 +14,12 @@
 //!   - SWITCH_C (0000FE42-8E22-4541-9D4C-21EDAE82ED19) — NOTIFY
 //!     Value: 0x00/0x01 (tag sends button-state change notifications to the locator)
 //!
-//! ## Direction Finding (CTE) — status
-//! The actual angle-of-arrival/departure measurement relies on the Constant Tone
-//! Extension (CTE) feature (BT Core 5.1+).  In connected CTE mode the locator
-//! sends `HCI_LE_Connection_CTE_Request_Enable` and the tag responds with CTE
-//! appended to ACL packets.  The locator then receives IQ samples via the
-//! `HCI_LE_Connection_IQ_Report` event.
-//!
-//! These HCI commands are not yet exposed by the `embassy-stm32-wpan` library.
-//! This example therefore implements the complete GATT application layer so it can
-//! be tested end-to-end with nRF Connect or an ST locator board today.  When CTE
-//! support is added to the library the commented stub below (`// CTE SETUP`) can
-//! be filled in.
+//! ## Direction Finding (CTE)
+//! The angle-of-arrival measurement relies on Constant Tone Extension (BT 5.1+).
+//! On connection, the tag calls `le_set_connection_cte_transmit_parameters` (AoA type)
+//! and `le_set_connection_cte_transmit_enable`, so it will respond with CTE when the
+//! locator sends `HCI_LE_Connection_CTE_Request_Enable`.  IQ sample events
+//! (`LeConnectionIqReport`) are returned via `read_event_ext()`.
 //!
 //! Based on ST's BLE_DirectionFinding_Peripheral_Tag example for NUCLEO-WBA55CGA.
 //!
@@ -45,18 +39,17 @@ use embassy_futures::select::{Either, select};
 use embassy_stm32::aes::{self, Aes};
 use embassy_stm32::peripherals::{AES, PKA, RNG};
 use embassy_stm32::pka::{self, Pka};
-use embassy_stm32::rcc;
 use embassy_stm32::rng::{self, Rng};
-use embassy_stm32::{Config, bind_interrupts};
-use embassy_stm32_wpan::bluetooth::HCI;
+use embassy_stm32::{Config, bind_interrupts, rcc};
+use embassy_stm32_wpan::bluetooth::cte::CteEvent;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
 use embassy_stm32_wpan::bluetooth::gatt::{
-    CccdValue, CharProperties, CharacteristicHandle, GattEventMask, SecurityPermissions, ServiceHandle, ServiceType, Uuid,
-    is_cccd_handle, is_value_handle,
+    CccdValue, CharProperties, CharacteristicHandle, GattEventMask, SecurityPermissions, ServiceHandle, ServiceType,
+    Uuid, is_cccd_handle, is_value_handle,
 };
+use embassy_stm32_wpan::bluetooth::{BleEvent, HCI};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use embassy_time::{Duration, Ticker};
-use stm32wb_hci::Event;
 use stm32wb_hci::vendor::event::{AttExchangeMtuResponse, VendorEvent};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -167,7 +160,10 @@ async fn main(spawner: Spawner) {
         )
         .expect("Failed to add SWITCH_C characteristic");
 
-    info!("Direction Finding Tag Service ready (handle 0x{:04X})", service_handle.0);
+    info!(
+        "Direction Finding Tag Service ready (handle 0x{:04X})",
+        service_handle.0
+    );
     info!("  LED_C    (read+write)  char: 0x{:04X}", led_char_handle.0);
     info!("  SWITCH_C (notify)      char: 0x{:04X}", switch_char_handle.0);
 
@@ -205,84 +201,113 @@ async fn main(spawner: Spawner) {
     info!("Advertising as 'DF_WBA6'");
     info!("Enable SWITCH_C notifications to receive simulated button events");
     info!("Write LED_C (0x01/0x00) to toggle the simulated LED");
-    info!("NOTE: CTE (Constant Tone Extension) setup requires HCI commands");
-    info!("      not yet exposed by embassy-stm32-wpan — see module doc comment");
 
     // Simulate a button toggle every 5 seconds
     let mut ticker = Ticker::every(Duration::from_secs(5));
 
+    // AoA CTE type (bit 0). For a single-antenna tag transmitting AoA CTE,
+    // antenna_ids must still have at least 2 entries — use [0, 0] as a
+    // placeholder when no switching is needed (locator does the switching).
+    const CTE_TYPES_AOA: u8 = 0x01;
+    const ANTENNA_IDS: [u8; 2] = [0x00, 0x00];
+
     // ── Main loop ────────────────────────────────────────────────────────────
     loop {
-        match select(ble.read_event(), ticker.next()).await {
-            Either::First(event) => {
-                // ── GAP events ────────────────────────────────────────────────
-                if let Some(gap_event) = ble.process_event(&event) {
-                    match gap_event {
-                        GapEvent::Connected(conn) => {
-                            info!("Connected: 0x{:04X}", conn.handle.0);
-                            state.conn_handle = Some(conn.handle.0);
-                            state.switch_notifications_enabled = false;
-
-                            // ── CTE SETUP (requires future HCI support) ────────────────
-                            // When embassy-stm32-wpan exposes CTE commands, enable them here:
-                            //
-                            // ble.command_sender().le_set_connection_cte_transmit_parameters(
-                            //     conn.handle.0,
-                            //     CTE_TYPE_AOA,           // 0x01 = AoA
-                            //     SWITCHING_PATTERN_LEN,  // number of antenna IDs
-                            //     &ANTENNA_IDS,           // antenna switching pattern
-                            // ).ok();
-                            //
-                            // ble.command_sender().le_set_connection_cte_transmit_enable(
-                            //     conn.handle.0,
-                            //     true,                   // enable CTE response
-                            // ).ok();
-                            // ──────────────────────────────────────────────────────────
+        match select(ble.read_event_ext(), ticker.next()).await {
+            Either::First(ble_event) => {
+                let event = match &ble_event {
+                    BleEvent::Hci(e) => Some(e),
+                    BleEvent::Cte(cte_event) => {
+                        match cte_event {
+                            CteEvent::ConnectionIqReport(r) => {
+                                info!(
+                                    "CTE IQ Report: conn=0x{:04X} ch={} rssi={} samples={}",
+                                    r.conn_handle, r.data_channel_index, r.rssi, r.sample_count
+                                );
+                            }
+                            CteEvent::CteRequestFailed(f) => {
+                                warn!(
+                                    "CTE Request Failed: conn=0x{:04X} status=0x{:02X}",
+                                    f.conn_handle, f.status
+                                );
+                            }
                         }
-                        GapEvent::Disconnected { handle, reason } => {
-                            info!("Disconnected: 0x{:04X}, reason 0x{:02X}", handle.0, reason);
-                            state.conn_handle = None;
-                            state.switch_notifications_enabled = false;
-                            ble.start_advertising(adv_params.clone(), adv_data.clone(), Some(scan_rsp.clone()))
-                                .await
-                                .expect("Failed to restart advertising");
+                        None
+                    }
+                };
+
+                if let Some(event) = event {
+                    // ── GAP events ────────────────────────────────────────────────
+                    if let Some(gap_event) = ble.process_event(event) {
+                        match gap_event {
+                            GapEvent::Connected(conn) => {
+                                info!("Connected: 0x{:04X}", conn.handle.0);
+                                state.conn_handle = Some(conn.handle.0);
+                                state.switch_notifications_enabled = false;
+
+                                // Enable CTE transmit: configure AoA type, then enable response
+                                match ble.le_set_connection_cte_transmit_parameters(
+                                    conn.handle,
+                                    CTE_TYPES_AOA,
+                                    &ANTENNA_IDS,
+                                ) {
+                                    Ok(()) => match ble.le_connection_cte_response_enable(conn.handle, true) {
+                                        Ok(()) => info!("CTE TX enabled (AoA)"),
+                                        Err(e) => warn!("CTE TX enable failed: {:?}", e),
+                                    },
+                                    Err(e) => warn!("CTE TX params failed: {:?}", e),
+                                }
+                            }
+                            GapEvent::Disconnected { handle, reason } => {
+                                info!("Disconnected: 0x{:04X}, reason 0x{:02X}", handle.0, reason);
+                                state.conn_handle = None;
+                                state.switch_notifications_enabled = false;
+                                ble.start_advertising(adv_params.clone(), adv_data.clone(), Some(scan_rsp.clone()))
+                                    .await
+                                    .expect("Failed to restart advertising");
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    // ── GATT events ───────────────────────────────────────────────
+                    use stm32wb_hci::Event;
+                    match event {
+                        Event::Vendor(VendorEvent::GattAttributeModified(attr)) => {
+                            if is_cccd_handle(state.switch_char_handle.0, attr.attr_handle.0) {
+                                let cccd = CccdValue::from_bytes(attr.data());
+                                state.switch_notifications_enabled = cccd.notifications;
+                                info!(
+                                    "SWITCH_C notifications {}",
+                                    if cccd.notifications { "ENABLED" } else { "DISABLED" }
+                                );
+                            } else if is_value_handle(state.led_char_handle.0, attr.attr_handle.0) {
+                                let new_val = attr.data().first().copied().unwrap_or(0);
+                                state.led_value = new_val;
+                                gatt.update_characteristic_value(
+                                    state.service_handle,
+                                    state.led_char_handle,
+                                    0,
+                                    &[new_val],
+                                )
+                                .ok();
+                                info!(
+                                    "LED_C write: {} ({})",
+                                    new_val,
+                                    if new_val == LED_ON { "ON" } else { "OFF" }
+                                );
+                            }
+                        }
+                        Event::Vendor(VendorEvent::AttExchangeMtuResponse(AttExchangeMtuResponse {
+                            conn_handle,
+                            server_rx_mtu,
+                        })) => {
+                            if let Some(conn) = ble.get_connection_mut(*conn_handle) {
+                                conn.update_mtu(*server_rx_mtu as u16);
+                            }
                         }
                         _ => {}
                     }
-                }
-
-                // ── GATT events ───────────────────────────────────────────────
-                match &event {
-                    Event::Vendor(VendorEvent::GattAttributeModified(attr)) => {
-                        if is_cccd_handle(state.switch_char_handle.0, attr.attr_handle.0) {
-                            let cccd = CccdValue::from_bytes(attr.data());
-                            state.switch_notifications_enabled = cccd.notifications;
-                            info!(
-                                "SWITCH_C notifications {}",
-                                if cccd.notifications { "ENABLED" } else { "DISABLED" }
-                            );
-                        } else if is_value_handle(state.led_char_handle.0, attr.attr_handle.0) {
-                            let new_val = attr.data().first().copied().unwrap_or(0);
-                            state.led_value = new_val;
-                            gatt.update_characteristic_value(
-                                state.service_handle,
-                                state.led_char_handle,
-                                0,
-                                &[new_val],
-                            )
-                            .ok();
-                            info!("LED_C write: {} ({})", new_val, if new_val == LED_ON { "ON" } else { "OFF" });
-                        }
-                    }
-                    Event::Vendor(VendorEvent::AttExchangeMtuResponse(AttExchangeMtuResponse {
-                        conn_handle,
-                        server_rx_mtu,
-                    })) => {
-                        if let Some(conn) = ble.get_connection_mut(*conn_handle) {
-                            conn.update_mtu(*server_rx_mtu as u16);
-                        }
-                    }
-                    _ => {}
                 }
             }
 
@@ -298,7 +323,10 @@ async fn main(spawner: Spawner) {
                             state.switch_char_handle,
                             &[state.switch_value],
                         ) {
-                            Ok(()) => info!("SWITCH_C: button {}", if state.switch_value == 1 { "PRESSED" } else { "RELEASED" }),
+                            Ok(()) => info!(
+                                "SWITCH_C: button {}",
+                                if state.switch_value == 1 { "PRESSED" } else { "RELEASED" }
+                            ),
                             Err(e) => error!("SWITCH_C notify failed: {:?}", e),
                         }
                     }

@@ -1,5 +1,6 @@
 //! High-level BLE API for STM32WBA
 
+pub mod cte;
 pub mod error;
 pub mod gap;
 pub mod gap_init;
@@ -446,6 +447,76 @@ impl<'d> HCI<'d, Normal> {
         Ok((LePhy::from_u8(tx), LePhy::from_u8(rx)))
     }
 
+    // ===== Direction Finding / CTE Commands =====
+
+    /// Set CTE transmit parameters for a connection (peripheral/tag side).
+    ///
+    /// Call this after connecting, before `le_set_connection_cte_transmit_enable`.
+    ///
+    /// - `cte_types`: Bit field — bit 0=AoA, bit 1=AoD 1μs slots, bit 2=AoD 2μs slots
+    /// - `antenna_ids`: Antenna switching pattern IDs (2–75 elements)
+    pub fn le_set_connection_cte_transmit_parameters(
+        &self,
+        handle: ConnectionHandle,
+        cte_types: u8,
+        antenna_ids: &[u8],
+    ) -> Result<(), BleError> {
+        self.cmd_sender
+            .le_set_connection_cte_transmit_parameters(handle.0, cte_types, antenna_ids)
+    }
+
+    /// Enable or disable CTE response for a connection (peripheral/tag side).
+    ///
+    /// BT spec 7.8.86 `HCI_LE_Connection_CTE_Response_Enable`. Call
+    /// `le_set_connection_cte_transmit_parameters` before enabling.
+    pub fn le_connection_cte_response_enable(&self, handle: ConnectionHandle, enable: bool) -> Result<(), BleError> {
+        self.cmd_sender.le_connection_cte_response_enable(handle.0, enable)
+    }
+
+    /// Set CTE receive (IQ sampling) parameters for a connection (central/locator side).
+    ///
+    /// - `slot_durations`: 0x01 = 1μs slots, 0x02 = 2μs slots
+    /// - `antenna_ids`: Antenna switching pattern (2–75 elements; ignored if sampling disabled)
+    pub fn le_set_connection_cte_receive_parameters(
+        &self,
+        handle: ConnectionHandle,
+        sampling_enable: bool,
+        slot_durations: u8,
+        antenna_ids: &[u8],
+    ) -> Result<(), BleError> {
+        self.cmd_sender
+            .le_set_connection_cte_receive_parameters(handle.0, sampling_enable, slot_durations, antenna_ids)
+    }
+
+    /// Enable or disable CTE requests for a connection (central/locator side).
+    ///
+    /// - `request_interval`: 0 = request once; N = request every N connection events
+    /// - `requested_cte_length`: Requested CTE length in 8μs units (range: 2–20)
+    /// - `requested_cte_type`: 0x00=AoA, 0x01=AoD 1μs, 0x02=AoD 2μs
+    pub fn le_connection_cte_request_enable(
+        &self,
+        handle: ConnectionHandle,
+        enable: bool,
+        request_interval: u16,
+        requested_cte_length: u8,
+        requested_cte_type: u8,
+    ) -> Result<(), BleError> {
+        self.cmd_sender.le_connection_cte_request_enable(
+            handle.0,
+            enable,
+            request_interval,
+            requested_cte_length,
+            requested_cte_type,
+        )
+    }
+
+    /// Read antenna information from the controller.
+    ///
+    /// Returns `(switching_sampling_rates, num_antennae, max_pattern_length, max_cte_length)`.
+    pub fn le_read_antenna_information(&self) -> Result<(u8, u8, u8, u8), BleError> {
+        self.cmd_sender.le_read_antenna_information()
+    }
+
     /// Process an HCI event and update internal state
     ///
     /// This method processes connection-related events and updates the
@@ -754,6 +825,56 @@ impl<'d, M: Mode> HCI<'d, M> {
             }
         }
     }
+
+    /// Read the next BLE event, including CTE direction finding events.
+    ///
+    /// Intercepts LE meta subevents 0x15 (`LeConnectionIqReport`) and 0x16
+    /// (`LeCteRequestFailed`) that stm32wb_hci would otherwise discard, returning them
+    /// as `BleEvent::Cte`. All other events are returned as `BleEvent::Hci`.
+    ///
+    /// Use this instead of `read_event()` when direction finding is active.
+    /// Do not mix calls to `read_event()` and `read_event_ext()` on the same instance.
+    pub async fn read_event_ext(&mut self) -> BleEvent {
+        loop {
+            let (raw, len) = self.controller.read_raw_event().await;
+            if len < 3 {
+                continue;
+            }
+            let bytes = &raw[..len];
+
+            // bytes = [0x04][event_code][param_len][params...]
+            if bytes[0] != 0x04 {
+                continue;
+            }
+            let event_code = bytes[1];
+            let param_len = bytes[2] as usize;
+
+            // Intercept CTE LE meta subevents before stm32wb_hci drops them
+            if event_code == cte::LE_META_EVENT && len >= 4 {
+                let subevent = bytes[3];
+                if matches!(subevent, cte::LE_CONNECTION_IQ_REPORT | cte::LE_CTE_REQUEST_FAILED) {
+                    if let Some(cte_evt) = cte::parse_cte_event(bytes) {
+                        return BleEvent::Cte(cte_evt);
+                    }
+                }
+            }
+
+            // Parse as standard stm32wb_hci event
+            // payload = bytes after param_len (includes subevent byte for LE meta)
+            let payload_end = (3 + param_len).min(len);
+            match stm32wb_hci::Event::from_kind_and_payload(event_code, &bytes[3..payload_end]) {
+                Ok(event) => return BleEvent::Hci(event),
+                Err(_) => {
+                    warn!(
+                        "read_event_ext: unhandled event 0x{:02X} subevent 0x{:02X}",
+                        event_code,
+                        if len > 3 { bytes[3] } else { 0 }
+                    );
+                    continue;
+                }
+            }
+        }
+    }
 }
 
 /// Version information from the BLE controller
@@ -765,4 +886,17 @@ pub struct VersionInfo {
     pub lmp_version: u8,
     pub manufacturer_name: u16,
     pub lmp_subversion: u16,
+}
+
+/// A BLE event, either a standard HCI event or a CTE direction finding event.
+///
+/// Returned by `HCI::read_event_ext()`. Use this instead of `read_event()` when
+/// direction finding (Constant Tone Extension) is enabled on the connection.
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum BleEvent {
+    /// Standard HCI event, parsed by stm32wb_hci.
+    Hci(stm32wb_hci::Event),
+    /// CTE direction finding event (LE meta subevent 0x15 or 0x16).
+    Cte(cte::CteEvent),
 }

@@ -34,9 +34,8 @@ use embassy_futures::select::{Either, select};
 use embassy_stm32::aes::{self, Aes};
 use embassy_stm32::peripherals::{AES, PKA, RNG};
 use embassy_stm32::pka::{self, Pka};
-use embassy_stm32::rcc;
 use embassy_stm32::rng::{self, Rng};
-use embassy_stm32::{Config, bind_interrupts};
+use embassy_stm32::{Config, bind_interrupts, rcc};
 use embassy_stm32_wpan::bluetooth::HCI;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
 use embassy_stm32_wpan::bluetooth::gatt::{
@@ -279,7 +278,10 @@ async fn main(spawner: Spawner) {
                         if is_cccd_handle(state.temm_char_handle.0, attr.attr_handle.0) {
                             let cccd = CccdValue::from_bytes(attr.data());
                             state.indications_enabled = cccd.indications;
-                            info!("TEMM indications {}", if cccd.indications { "ENABLED" } else { "DISABLED" });
+                            info!(
+                                "TEMM indications {}",
+                                if cccd.indications { "ENABLED" } else { "DISABLED" }
+                            );
                         }
                         // CCCD write for Intermediate Temperature (NOTIFY)
                         else if is_cccd_handle(state.interm_char_handle.0, attr.attr_handle.0) {
@@ -322,9 +324,7 @@ async fn main(spawner: Spawner) {
                 if let Some(conn) = state.conn_handle {
                     // Intermediate Temperature: notify every second
                     if state.interm_notifications_enabled {
-                        if let Err(e) =
-                            gatt.notify(conn, state.service_handle, state.interm_char_handle, &temp_value)
-                        {
+                        if let Err(e) = gatt.notify(conn, state.service_handle, state.interm_char_handle, &temp_value) {
                             error!("INT notify failed: {:?}", e);
                         }
                     }

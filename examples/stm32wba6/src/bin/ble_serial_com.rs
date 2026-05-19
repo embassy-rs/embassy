@@ -31,10 +31,9 @@ use embassy_executor::Spawner;
 use embassy_stm32::aes::{self, Aes};
 use embassy_stm32::peripherals::{AES, PKA, RNG, USART1};
 use embassy_stm32::pka::{self, Pka};
-use embassy_stm32::rcc;
 use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::usart::{self, BufferedUart, BufferedUartRx, BufferedUartTx, Config as UartConfig};
-use embassy_stm32::{Config, bind_interrupts};
+use embassy_stm32::{Config, bind_interrupts, rcc};
 use embassy_stm32_wpan::bluetooth::HCI;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
 use embassy_stm32_wpan::bluetooth::gatt::{
@@ -202,10 +201,7 @@ async fn main(spawner: Spawner) {
         .expect("Failed to add TX characteristic");
 
     info!("NUS service ready");
-    info!(
-        "TX value handle: 0x{:04X}",
-        tx_char_handle.0 + CHAR_VALUE_HANDLE_OFFSET
-    );
+    info!("TX value handle: 0x{:04X}", tx_char_handle.0 + CHAR_VALUE_HANDLE_OFFSET);
 
     let mut state = SerialComState {
         service_handle,
@@ -273,7 +269,10 @@ async fn main(spawner: Spawner) {
                 if is_cccd_handle(state.tx_char_handle.0, attr.attr_handle.0) {
                     let cccd = CccdValue::from_bytes(attr.data());
                     state.tx_notifications_enabled = cccd.notifications;
-                    info!("TX notifications {}", if cccd.notifications { "ENABLED" } else { "DISABLED" });
+                    info!(
+                        "TX notifications {}",
+                        if cccd.notifications { "ENABLED" } else { "DISABLED" }
+                    );
                 } else if is_value_handle(state.rx_char_handle.0, attr.attr_handle.0) {
                     let mut uart_data: heapless::Vec<u8, MAX_DATA_LEN> = heapless::Vec::new();
                     let _ = uart_data.extend_from_slice(attr.data());
