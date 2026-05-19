@@ -277,15 +277,13 @@ impl<'d> ControllerAdapter<'d> {
         ))
     }
 
-    async fn exec_cmd<C: bt_hci::WriteHci + bt_hci::cmd::Cmd>(
+    async fn exec_cmd<C: bt_hci::WriteHci + bt_hci::cmd::Cmd, R>(
         &self,
         cmd: &C,
-    ) -> Result<
-        (bt_hci::event::CommandCompleteWithStatus<'_>, SlotGuard<'d, '_>),
-        bt_hci::cmd::Error<embedded_io::ErrorKind>,
-    > {
-        use core::slice;
-
+        f: impl FnOnce(
+            &bt_hci::event::CommandCompleteWithStatus<'_>,
+        ) -> Result<R, bt_hci::cmd::Error<embedded_io::ErrorKind>>,
+    ) -> Result<R, bt_hci::cmd::Error<embedded_io::ErrorKind>> {
         use bt_hci::WriteHci;
         use bt_hci::cmd::Error as CmdError;
         use bt_hci::param::Error as ParamError;
@@ -293,7 +291,7 @@ impl<'d> ControllerAdapter<'d> {
 
         use crate::util::make_cc_with_cs;
 
-        let guard = self.grab_slot(C::OPCODE).await;
+        let _guard = self.grab_slot(C::OPCODE).await;
 
         self.hw_ipcc_ble_cmd_channel
             .lock()
@@ -311,10 +309,11 @@ impl<'d> ControllerAdapter<'d> {
             .await
             .ok_or(CmdError::Hci(ParamError::OPERATION_CANCELLED_BY_HOST))?;
 
-        // Packets with CC or CS opcode are not managed by the memory manager
-        let evt_serial = unsafe { slice::from_raw_parts(evt.serial() as *const _ as *const u8, evt.serial().len()) };
+        let ccws = make_cc_with_cs(evt.serial())?;
 
-        Ok((make_cc_with_cs(evt_serial)?, guard))
+        trace!("returned ccws: {:?}", ccws.status);
+
+        Ok(f(&ccws)?)
     }
 }
 
@@ -436,11 +435,10 @@ where
         use bt_hci::cmd;
         debug!("Executing sync command with opcode {:x}", C::OPCODE.0);
 
-        let (e, _guard) = self.exec_cmd(cmd).await?;
+        let r = self
+            .exec_cmd(cmd, |e| e.to_result::<C>().map_err(cmd::Error::Hci))
+            .await?;
 
-        trace!("returned ccws: {:?}", e.status);
-
-        let r = e.to_result::<C>().map_err(cmd::Error::Hci)?;
         debug!("Done executing command with opcode {:x}", C::OPCODE.0);
         Ok(r)
     }
@@ -452,13 +450,11 @@ where
     C: bt_hci::cmd::AsyncCmd,
 {
     async fn exec(&self, cmd: &C) -> Result<(), bt_hci::cmd::Error<Self::Error>> {
+        use bt_hci::cmd;
         debug!("Executing async command with opcode {:x}", C::OPCODE.0);
 
-        let (e, _guard) = self.exec_cmd(cmd).await?;
-
-        trace!("returned ccws: {:?}", e.status);
-
-        e.status.to_result()?;
+        self.exec_cmd(cmd, |e| e.status.to_result().map_err(cmd::Error::Hci))
+            .await?;
 
         debug!("Done executing command with opcode {:x}", C::OPCODE.0);
         Ok(())
