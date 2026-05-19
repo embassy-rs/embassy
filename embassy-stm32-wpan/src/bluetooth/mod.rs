@@ -150,15 +150,7 @@ impl<'d> HCI<'d, Normal> {
             version.manufacturer_name
         );
 
-        // 3. Read BD address
-        let bd_addr = self.cmd_sender.read_bd_addr()?;
-
-        info!(
-            "BD Address: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
-            bd_addr[5], bd_addr[4], bd_addr[3], bd_addr[2], bd_addr[1], bd_addr[0]
-        );
-
-        // 4. Set event mask (enable all events)
+        // 3. Set event mask (enable all events)
         // Note: The ST BLE stack handles event masks internally, so these calls
         // may not be needed. Skip if they fail with UnknownCommand.
 
@@ -176,7 +168,7 @@ impl<'d> HCI<'d, Normal> {
             info!("le_set_event_mask OK");
         }
 
-        // 5. Read buffer sizes (optional - skip if not available)
+        // 4. Read buffer sizes (optional - skip if not available)
         info!("Calling le_read_buffer_size...");
         match self.cmd_sender.le_read_buffer_size() {
             Ok((acl_len, acl_num, iso_len, iso_num)) => info!(
@@ -186,14 +178,14 @@ impl<'d> HCI<'d, Normal> {
             Err(e) => warn!("le_read_buffer_size failed: {:?} (skipping)", e),
         }
 
-        // 6. Read supported features (optional - skip if not available)
+        // 5. Read supported features (optional - skip if not available)
         info!("Calling le_read_local_supported_features...");
         match self.cmd_sender.le_read_local_supported_features() {
             Ok(features) => info!("Supported LE features: {=[u8]:#02X}", features),
             Err(e) => warn!("le_read_local_supported_features failed: {:?} (skipping)", e),
         }
 
-        // 7. Initialize GATT layer (MUST be done BEFORE GAP initialization!)
+        // 6. Initialize GATT layer (MUST be done BEFORE GAP initialization!)
         // Per ST's BLE_HeartRate: aci_gatt_init() is called before aci_gap_init()
         info!("Initializing GATT layer...");
 
@@ -202,7 +194,7 @@ impl<'d> HCI<'d, Normal> {
 
         info!("GATT layer initialized");
 
-        // 8. Initialize GAP and HAL (AFTER GATT!)
+        // 7. Initialize GAP and HAL (AFTER GATT!)
         // This is the critical step that ST's BLE_HeartRate does in Ble_Hci_Gap_Gatt_Init().
         // It configures BD address, IR/ER keys, TX power, PHY, and initializes the GAP layer.
 

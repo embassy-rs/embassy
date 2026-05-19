@@ -15,11 +15,12 @@ const BLE_STATUS_SUCCESS: u8 = 0x00;
 
 // Config data offsets and lengths (from ST's ble_const.h)
 const CONFIG_DATA_PUBADDR_OFFSET: u8 = 0x00;
-const CONFIG_DATA_PUBADDR_LEN: u8 = 6;
+const CONFIG_DATA_ADDR_LEN: u8 = 6;
 const CONFIG_DATA_ER_OFFSET: u8 = 0x08;
 const CONFIG_DATA_ER_LEN: u8 = 16;
 const CONFIG_DATA_IR_OFFSET: u8 = 0x18;
 const CONFIG_DATA_IR_LEN: u8 = 16;
+const CONFIG_DATA_RANDOM_ADDRESS_OFFSET: u8 = 0x2E;
 const CONFIG_DATA_GAP_ADD_REC_NBR_OFFSET: u8 = 0x2C;
 const CONFIG_DATA_GAP_ADD_REC_NBR_LEN: u8 = 1;
 
@@ -46,6 +47,10 @@ unsafe extern "C" {
     /// Write configuration data to BLE stack
     #[link_name = "ACI_HAL_WRITE_CONFIG_DATA"]
     fn aci_hal_write_config_data(offset: u8, length: u8, value: *const u8) -> tBleStatus;
+
+    /// Read configuration data from BLE stack
+    #[link_name = "ACI_HAL_READ_CONFIG_DATA"]
+    fn aci_hal_read_config_data(offset: u8, data_len: *mut u8, data: *mut u8) -> tBleStatus;
 
     /// Set transmission power level
     #[link_name = "ACI_HAL_SET_TX_POWER_LEVEL"]
@@ -279,7 +284,7 @@ pub fn init_gap_and_hal(params: &mut GapInitParams) -> Result<GapHandles, BleErr
             AddressType::Public => {
                 let status = aci_hal_write_config_data(
                     CONFIG_DATA_PUBADDR_OFFSET,
-                    CONFIG_DATA_PUBADDR_LEN,
+                    CONFIG_DATA_ADDR_LEN,
                     params.bd_addr.as_ptr(),
                 );
                 if status != BLE_STATUS_SUCCESS {
@@ -301,15 +306,19 @@ pub fn init_gap_and_hal(params: &mut GapInitParams) -> Result<GapHandles, BleErr
                 // significant byte must be `11` to identify this as a random static address,
                 // distinguishing it from resolvable (10) and non-resolvable (01) private types.
                 params.bd_addr[5] |= 0xC0;
-                info!(
-                    "Random static address (to be set via HCI): {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
-                    params.bd_addr[5],
-                    params.bd_addr[4],
-                    params.bd_addr[3],
-                    params.bd_addr[2],
-                    params.bd_addr[1],
-                    params.bd_addr[0]
-                );
+
+                let mut addr = [0u8; 6];
+                let mut len = CONFIG_DATA_ADDR_LEN;
+                let status = aci_hal_read_config_data(CONFIG_DATA_RANDOM_ADDRESS_OFFSET, &mut len, addr.as_mut_ptr());
+
+                if status == BLE_STATUS_SUCCESS {
+                    info!(
+                        "Random static address: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+                        addr[5], addr[4], addr[3], addr[2], addr[1], addr[0]
+                    );
+                } else {
+                    warn!("Failed to read random address slot: 0x{:02X}", status);
+                }
             }
         }
 
