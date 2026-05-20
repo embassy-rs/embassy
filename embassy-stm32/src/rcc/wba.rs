@@ -109,8 +109,7 @@ impl Config {
     /// LSI1 (internal RC) instead of LSE.  LSI is less accurate (~1-2% vs <20 ppm for LSE), which
     /// increases BLE sleep-clock tolerance and slightly degrades power consumption in deep sleep.
     ///
-    /// RADIOSTSEL is set to `_RESERVED_2` (hardware bit value 0x02 = LSI), the only PAC-visible
-    /// way to select LSI until the metapac gains a named `Lsi` variant.
+    /// RADIOSTSEL is set to `Lsi` (hardware bit value 0x02).
     pub const fn new_wpan_lsi() -> Self {
         let mut rcc = Self::new_wpan();
 
@@ -119,7 +118,7 @@ impl Config {
             lsi: true,
             lse: None,
         };
-        rcc.mux.radiostsel = mux::Radiostsel::_RESERVED_2; // LSI (hardware bit 0x02)
+        rcc.mux.radiostsel = mux::Radiostsel::Lsi;
 
         rcc
     }
