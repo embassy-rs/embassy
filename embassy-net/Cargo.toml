@@ -73,6 +73,10 @@ auto-icmp-echo-reply = ["smoltcp/auto-icmp-echo-reply"]
 udp = ["smoltcp/socket-udp"]
 ## Enable Raw support
 raw = ["smoltcp/socket-raw"]
+## Enable Raw Ethernet socket support
+# Currently socket-raw is added for compile error in smoll-tcp
+# See https://github.com/smoltcp-rs/smoltcp/pull/1013#issuecomment-3327778090
+eth = ["smoltcp/socket-eth", "smoltcp/socket-raw"]
 ## Enable TCP support
 tcp = ["smoltcp/socket-tcp"]
 ## Enable DNS support
@@ -121,3 +125,6 @@ managed = { version = "0.8.0", default-features = false, features = [ "map" ] }
 heapless = { version = "0.9", default-features = false }
 embedded-nal-async = "0.9.0"
 document-features = "0.2.7"
+
+[patch.crates-io]
+smoltcp = { git = "https://github.com/not-Ryan/smoltcp.git" }
