@@ -39,6 +39,17 @@ impl<M: RawMutex> GenericAtomicWaker<M> {
             }
         })
     }
+
+    /// Schedule the waking of a waker.
+    #[cfg(feature = "schedule-wake")]
+    pub fn wake_at(&mut self, time: embassy_time::Instant) {
+        self.waker.lock(|cell| {
+            if let Some(w) = cell.replace(None) {
+                embassy_time_driver::schedule_wake(time.as_ticks(), &w);
+                cell.set(Some(w));
+            }
+        })
+    }
 }
 
 /// Utility struct to register and wake a waker.
@@ -62,5 +73,11 @@ impl AtomicWaker {
     /// Wake the registered waker, if any.
     pub fn wake(&self) {
         self.waker.wake();
+    }
+
+    /// Schedule the waking of a waker.
+    #[cfg(feature = "schedule-wake")]
+    pub fn wake_at(&mut self, time: embassy_time::Instant) {
+        self.waker.wake_at(time);
     }
 }
