@@ -104,6 +104,8 @@ pub mod eth;
 pub mod exti;
 #[cfg(flash)]
 pub mod flash;
+#[cfg(fmac)]
+pub mod fmac;
 #[cfg(fmc)]
 pub mod fmc;
 #[cfg(hash)]
