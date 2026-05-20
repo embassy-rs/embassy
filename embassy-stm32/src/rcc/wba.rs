@@ -103,6 +103,27 @@ impl Config {
         }
     }
 
+    /// BLE radio config for boards without an LSE crystal.
+    ///
+    /// Identical to [`new_wpan`](Self::new_wpan) except the 32 kHz sleep-timer clock comes from
+    /// LSI1 (internal RC) instead of LSE.  LSI is less accurate (~1-2% vs <20 ppm for LSE), which
+    /// increases BLE sleep-clock tolerance and slightly degrades power consumption in deep sleep.
+    ///
+    /// RADIOSTSEL is set to `_RESERVED_2` (hardware bit value 0x02 = LSI), the only PAC-visible
+    /// way to select LSI until the metapac gains a named `Lsi` variant.
+    pub const fn new_wpan_lsi() -> Self {
+        let mut rcc = Self::new_wpan();
+
+        rcc.ls = LsConfig {
+            rtc: RtcClockSource::Lsi,
+            lsi: true,
+            lse: None,
+        };
+        rcc.mux.radiostsel = mux::Radiostsel::_RESERVED_2; // LSI (hardware bit 0x02)
+
+        rcc
+    }
+
     pub const fn new_wpan() -> Self {
         let mut rcc = Self::new();
 
@@ -232,7 +253,7 @@ pub(crate) unsafe fn init(config: Config) {
     });
 
     let hse = config.hse.map(|hse| {
-        RCC.cr().write(|w| {
+        RCC.cr().modify(|w| {
             w.set_hseon(true);
             w.set_hsepre(hse.prescaler);
         });
@@ -378,6 +399,10 @@ pub(crate) unsafe fn init(config: Config) {
 
     // Disable HSI if not used
     if !config.hsi {
+        assert!(
+            config.mux.rngsel != mux::Rngsel::Hsi,
+            "RNG is configured to use HSI but HSI is disabled"
+        );
         RCC.cr().modify(|w| w.set_hsion(false));
     }
 
