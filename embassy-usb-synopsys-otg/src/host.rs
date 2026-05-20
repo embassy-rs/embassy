@@ -126,8 +126,6 @@ pub struct OtgHostInstance<'d> {
     pub state: OtgHostState<'d>,
     /// FIFO depth in words.
     pub fifo_depth_words: u16,
-    /// Number of host channels available.
-    pub channel_count: usize,
     /// The PHY type.
     pub phy_type: PhyType,
 }
@@ -136,11 +134,9 @@ pub struct OtgHostInstance<'d> {
 ///
 /// # Safety
 /// Must be called from the USB OTG interrupt handler when the controller is in host mode.
-pub unsafe fn on_host_interrupt(r: Otg, state: &OtgHostState<'_>, ch_count: usize) {
+pub unsafe fn on_host_interrupt(r: Otg, state: &OtgHostState<'_>) {
     let gintsts = r.gintsts().read();
-
-    // defensively cap ch_count to the number of channel slots we actually have.
-    let ch_count = ch_count.min(state.channels.len());
+    let ch_count = state.channels.len();
 
     // Clear SOF interrupt immediately to avoid flooding.
     if gintsts.sof() {
@@ -535,7 +531,6 @@ impl<'d> OtgHost<'d> {
 pub struct OtgHostAllocator<'d> {
     regs: Otg,
     state: OtgHostState<'d>,
-    channel_count: usize,
 }
 
 impl<'d> Clone for OtgHostAllocator<'d> {
@@ -562,7 +557,7 @@ impl<'d> UsbHostAllocator<'d> for OtgHostAllocator<'d> {
         let speed_code = self.state.fields.port_speed.load(Ordering::Acquire);
         let is_low_speed = speed_code == 1;
 
-        let max_ch = self.channel_count.min(self.state.channels.len());
+        let max_ch = self.state.channels.len();
         // Find a free channel using atomic CAS
         for i in 0..max_ch {
             if self.state.channels[i]
@@ -597,7 +592,6 @@ impl<'d> UsbHostController<'d> for OtgHost<'d> {
         OtgHostAllocator {
             regs: self.instance.regs,
             state: self.instance.state,
-            channel_count: self.instance.channel_count,
         }
     }
 
@@ -733,7 +727,7 @@ impl<'d> UsbHostController<'d> for OtgHost<'d> {
 
     async fn bus_reset(&mut self) {
         let r = self.instance.regs;
-        let ch_count = self.instance.channel_count.min(self.instance.state.channels.len());
+        let ch_count = self.instance.state.channels.len();
 
         // Halt any still-active hardware channels left over from a
         // previous session (e.g. interrupt endpoints that were polling

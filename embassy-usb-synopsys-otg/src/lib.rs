@@ -29,11 +29,9 @@ pub mod host;
 use otg_v1::{Otg, regs, vals};
 
 /// Handle interrupts.
-pub unsafe fn on_interrupt(r: Otg, state: &OtgState<'_>, ep_count: usize) {
+pub unsafe fn on_interrupt(r: Otg, state: &OtgState<'_>) {
     trace!("irq");
-
-    // defensively cap ep_count to the number of endpoint slots we actually have.
-    let ep_count = ep_count.min(state.ep_states.len());
+    let ep_count = state.endpoint_count();
 
     let ints = r.gintsts().read();
     if ints.wkupint() || ints.usbsusp() || ints.usbrst() || ints.enumdne() || ints.otgint() || ints.srqint() {
@@ -328,22 +326,22 @@ impl<'d> OtgState<'d> {
         }
     }
 
-    pub(crate) fn ep_fifo_size_in(&self, endpoint_count: usize) -> u16 {
-        (0..endpoint_count)
+    pub(crate) fn ep_fifo_size_in(&self) -> u16 {
+        (0..self.endpoint_count())
             .filter_map(|i| self.ep_alloc_get(Direction::In, i))
             .map(|ep| ep.fifo_size_words)
             .sum()
     }
 
-    pub(crate) fn ep_fifo_size_out(&self, endpoint_count: usize) -> u16 {
-        (0..endpoint_count)
+    pub(crate) fn ep_fifo_size_out(&self) -> u16 {
+        (0..self.endpoint_count())
             .filter_map(|i| self.ep_alloc_get(Direction::Out, i))
             .map(|ep| ep.fifo_size_words)
             .sum()
     }
 
-    pub(crate) fn ep_irq_mask_in(&self, endpoint_count: usize) -> u16 {
-        (0..endpoint_count).fold(0, |mask, i| {
+    pub(crate) fn ep_irq_mask_in(&self) -> u16 {
+        (0..self.endpoint_count()).fold(0, |mask, i| {
             if self.ep_alloc_get(Direction::In, i).is_some() {
                 mask | (1 << i)
             } else {
@@ -352,8 +350,8 @@ impl<'d> OtgState<'d> {
         })
     }
 
-    pub(crate) fn ep_irq_mask_out(&self, endpoint_count: usize) -> u16 {
-        (0..endpoint_count).fold(0, |mask, i| {
+    pub(crate) fn ep_irq_mask_out(&self) -> u16 {
+        (0..self.endpoint_count()).fold(0, |mask, i| {
             if self.ep_alloc_get(Direction::Out, i).is_some() {
                 mask | (1 << i)
             } else {
@@ -491,8 +489,7 @@ impl<'d> Driver<'d> {
     /// Returns the total amount of words (u32) allocated in dedicated FIFO.
     fn allocated_fifo_words(&self) -> u16 {
         let st = self.instance.state;
-        let n = self.instance.endpoint_count;
-        self.instance.extra_rx_fifo_words + st.ep_fifo_size_out(n) + st.ep_fifo_size_in(n)
+        self.instance.extra_rx_fifo_words + st.ep_fifo_size_out() + st.ep_fifo_size_in()
     }
 
     /// Creates an [`Endpoint`] with the given parameters.
@@ -531,7 +528,7 @@ impl<'d> Driver<'d> {
 
         let dir = D::dir();
         let st = self.instance.state;
-        let endpoint_count = self.instance.endpoint_count;
+        let endpoint_count = st.endpoint_count();
 
         // Find endpoint slot
         let index = if let Some(addr) = ep_addr {
@@ -879,15 +876,14 @@ impl<'d> Bus<'d> {
         critical_section::with(|_| {
             // Configure RX fifo size. All endpoints share the same FIFO area.
             let st = self.instance.state;
-            let ep_count = self.instance.endpoint_count;
-            let rx_fifo_size_words = self.instance.extra_rx_fifo_words + st.ep_fifo_size_out(ep_count);
+            let rx_fifo_size_words = self.instance.extra_rx_fifo_words + st.ep_fifo_size_out();
             trace!("configuring rx fifo size={}", rx_fifo_size_words);
 
             regs.grxfsiz().modify(|w| w.set_rxfd(rx_fifo_size_words));
 
             // Configure TX (USB in direction) fifo size for each endpoint
             let mut fifo_top = rx_fifo_size_words;
-            for i in 0..ep_count {
+            for i in 0..st.endpoint_count() {
                 if let Some(ep) = st.ep_alloc_get(Direction::In, i) {
                     trace!(
                         "configuring tx fifo ep={}, offset={}, size={}",
@@ -930,7 +926,7 @@ impl<'d> Bus<'d> {
         let st = self.instance.state;
 
         // Configure IN endpoints
-        for index in 0..self.instance.endpoint_count {
+        for index in 0..st.endpoint_count() {
             if let Some(ep) = st.ep_alloc_get(Direction::In, index) {
                 critical_section::with(|_| {
                     regs.diepctl(index).write(|w| {
@@ -949,7 +945,7 @@ impl<'d> Bus<'d> {
         }
 
         // Configure OUT endpoints
-        for index in 0..self.instance.endpoint_count {
+        for index in 0..st.endpoint_count() {
             if let Some(ep) = st.ep_alloc_get(Direction::Out, index) {
                 critical_section::with(|_| {
                     regs.doepctl(index).write(|w| {
@@ -982,15 +978,15 @@ impl<'d> Bus<'d> {
         }
 
         // Enable IRQs for allocated endpoints
-        let ep_count = self.instance.endpoint_count;
         regs.daintmsk().modify(|w| {
-            w.set_iepm(st.ep_irq_mask_in(ep_count));
-            w.set_oepm(st.ep_irq_mask_out(ep_count));
+            w.set_iepm(st.ep_irq_mask_in());
+            w.set_oepm(st.ep_irq_mask_out());
         });
     }
 
     fn disable_all_endpoints(&mut self) {
-        for i in 0..self.instance.endpoint_count {
+        let st = self.instance.state;
+        for i in 0..st.endpoint_count() {
             self.endpoint_set_enabled(EndpointAddress::from_parts(i, Direction::In), false);
             self.endpoint_set_enabled(EndpointAddress::from_parts(i, Direction::Out), false);
         }
@@ -1106,14 +1102,15 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
     fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
         trace!("endpoint_set_stalled ep={:?} en={}", ep_addr, stalled);
 
+        let regs = self.instance.regs;
+        let st = &self.instance.state;
+
         assert!(
-            ep_addr.index() < self.instance.endpoint_count,
+            ep_addr.index() < st.endpoint_count(),
             "endpoint_set_stalled index {} out of range",
             ep_addr.index()
         );
 
-        let regs = self.instance.regs;
-        let ep_states = &self.instance.state.ep_states;
         match ep_addr.direction() {
             Direction::Out => {
                 critical_section::with(|_| {
@@ -1122,7 +1119,7 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
                     });
                 });
 
-                ep_states[ep_addr.index()].out_waker.wake();
+                st.ep_states[ep_addr.index()].out_waker.wake();
             }
             Direction::In => {
                 critical_section::with(|_| {
@@ -1131,14 +1128,14 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
                     });
                 });
 
-                ep_states[ep_addr.index()].in_waker.wake();
+                st.ep_states[ep_addr.index()].in_waker.wake();
             }
         }
     }
 
     fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
         assert!(
-            ep_addr.index() < self.instance.endpoint_count,
+            ep_addr.index() < self.instance.state.endpoint_count(),
             "endpoint_is_stalled index {} out of range",
             ep_addr.index()
         );
@@ -1154,7 +1151,7 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
         trace!("endpoint_set_enabled ep={:?} en={}", ep_addr, enabled);
 
         assert!(
-            ep_addr.index() < self.instance.endpoint_count,
+            ep_addr.index() < self.instance.state.endpoint_count(),
             "endpoint_set_enabled index {} out of range",
             ep_addr.index()
         );
@@ -1650,8 +1647,6 @@ pub struct OtgInstance<'d> {
     pub state: OtgState<'d>,
     /// FIFO depth in words.
     pub fifo_depth_words: u16,
-    /// Number of used endpoints.
-    pub endpoint_count: usize,
     /// The PHY type.
     pub phy_type: PhyType,
     /// Extra RX FIFO words needed by some implementations.

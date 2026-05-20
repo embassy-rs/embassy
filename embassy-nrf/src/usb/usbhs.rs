@@ -14,7 +14,7 @@ pub use embassy_usb_synopsys_otg::Config;
 use embassy_usb_synopsys_otg::otg_v1::Otg;
 use embassy_usb_synopsys_otg::otg_v1::vals::Dspd;
 use embassy_usb_synopsys_otg::{
-    Bus as OtgBus, ControlPipe, Driver as OtgDriver, Endpoint, OtgState, In, OtgInstance, Out, PhyType, State,
+    Bus as OtgBus, ControlPipe, Driver as OtgDriver, Endpoint, In, OtgInstance, OtgState, Out, PhyType, State,
     on_interrupt as on_interrupt_impl,
 };
 
@@ -35,7 +35,7 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        on_interrupt_impl(T::core_regs(), &T::state(), MAX_EP_COUNT);
+        on_interrupt_impl(T::core_regs(), &T::state());
     }
 }
 
@@ -63,7 +63,6 @@ impl<'d, V: VbusDetect> Driver<'d, V> {
             regs: T::core_regs(),
             state: T::state(),
             fifo_depth_words: FIFO_DEPTH_WORDS,
-            endpoint_count: MAX_EP_COUNT,
             phy_type: PhyType::InternalHighSpeed,
             extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
             calculate_trdt_fn: calculate_trdt,
