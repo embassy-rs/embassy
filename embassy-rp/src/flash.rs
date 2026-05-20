@@ -955,8 +955,66 @@ pub(crate) unsafe fn in_ram(operation: impl FnOnce()) -> Result<(), Error> {
         // Wait for completion of any background reads
         while pac::XIP_CTRL.stream_ctr().read().0 > 0 {}
 
+        // On RP235x the bootrom flash routines reset QMI window 1
+        // (CS1) to default XIP timings, which clobbers any custom
+        // configuration applied for an attached PSRAM. Snapshot the
+        // window-1 registers and restore them afterwards so PSRAM
+        // access keeps working across flash erase/program.
+        // See pico-sdk#1983.
+        #[cfg(feature = "_rp235x")]
+        let qmi_m1 = {
+            let m = pac::QMI.mem(1);
+            (
+                m.timing().read(),
+                m.rfmt().read(),
+                m.rcmd().read(),
+                m.wfmt().read(),
+                m.wcmd().read(),
+            )
+        };
+
+        // Clean the XIP cache before invoking the bootrom flash
+        // routines. The bootrom calls `flash_flush_cache`, which
+        // INVALIDATES every cache line by set/way — that silently
+        // drops any dirty PSRAM lines (writes the CPU made that
+        // hadn't yet been written back to physical PSRAM via the
+        // cache write-back path). Cleaning first pushes those writes
+        // out so the subsequent invalidate is harmless. See
+        // pico-sdk's `hardware_xip_cache::xip_cache_clean_all` and
+        // erratum RP2350-E11.
+        //
+        // Encoding: addr[2:0]=0x1 selects "clean by set/way";
+        // addr[12:3] is the set index (1024 sets), addr[13] is the
+        // way (2 ways) — 2048 lines total. Maintenance writes are
+        // anchored at the very top of the maintenance window
+        // (0x1BFFC000) so the bogus tag left in the line by erratum
+        // E11 (`clean by set/way` writes the maintenance address
+        // into the line tag) sits in a region nothing reads.
+        #[cfg(feature = "_rp235x")]
+        {
+            const MAINT_BASE: usize = 0x1BFFC000;
+            let mut i: usize = 0;
+            while i < 2048 {
+                let addr = MAINT_BASE + (i * 8) + 1;
+                core::ptr::write_volatile(addr as *mut u8, 0);
+                i += 1;
+            }
+            core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
+        }
+
         // Run our flash operation in RAM
         operation();
+
+        #[cfg(feature = "_rp235x")]
+        {
+            let m = pac::QMI.mem(1);
+            m.timing().write_value(qmi_m1.0);
+            m.rfmt().write_value(qmi_m1.1);
+            m.rcmd().write_value(qmi_m1.2);
+            m.wfmt().write_value(qmi_m1.3);
+            m.wcmd().write_value(qmi_m1.4);
+            core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
+        }
     });
 
     // Resume CORE1 execution
