@@ -106,8 +106,8 @@ impl<'d, V: VbusDetect + 'd> embassy_usb_driver::Driver<'d> for Driver<'d, V> {
             .alloc_endpoint_out(ep_type, ep_addr, max_packet_size, interval_ms)
     }
 
-    fn start(self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
-        let (inner, cp) = self.inner.start(control_max_packet_size);
+    fn start(self, control_max_packet_size: u16, _v: bool) -> (Self::Bus, Self::ControlPipe) {
+        let (inner, cp) = self.inner.start(control_max_packet_size, _v);
         (
             Bus {
                 inner,
