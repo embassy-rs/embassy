@@ -6,6 +6,7 @@ mod consts;
 pub mod control;
 mod driver;
 pub mod event;
+pub mod iface;
 pub mod indications;
 mod macros;
 mod opcodes;

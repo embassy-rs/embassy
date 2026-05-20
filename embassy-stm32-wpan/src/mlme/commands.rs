@@ -9,6 +9,8 @@ use super::typedefs::{
     AddressMode, Capabilities, DisassociationReason, GtsCharacteristics, KeyIdMode, MacAddress, MacChannel, MacStatus,
     PanId, PibId, ScanType, SecurityLevel,
 };
+use crate::mlme::iface::mlme::{RequestPacketKind, ResponsePacketKind};
+use crate::mlme::iface::{HostToControllerPacket, PacketKind, WriteHci, mcps, mlme};
 
 pub trait MacCommand: Sized {
     const OPCODE: OpcodeM4ToM0;
@@ -16,6 +18,45 @@ pub trait MacCommand: Sized {
     fn payload<'a>(&'a self) -> &'a [u8] {
         unsafe { slice::from_raw_parts(self as *const _ as *const u8, mem::size_of::<Self>()) }
     }
+}
+
+impl<T: MacCommand> WriteHci for T {
+    fn size(&self) -> usize {
+        mem::size_of::<Self>()
+    }
+
+    fn write_hci<W: embedded_io::Write>(&self, mut writer: W) -> Result<(), W::Error> {
+        writer.write_all(self.payload())
+    }
+}
+
+impl<T: MacCommand> HostToControllerPacket for T {
+    const KIND: PacketKind = const {
+        match Self::OPCODE {
+            OpcodeM4ToM0::MlmeAssociateReq => PacketKind::Mlme(mlme::PacketKind::Request(RequestPacketKind::Associate)),
+            OpcodeM4ToM0::MlmeAssociateRes => {
+                PacketKind::Mlme(mlme::PacketKind::Response(ResponsePacketKind::Associate))
+            }
+            OpcodeM4ToM0::MlmeDisassociateReq => {
+                PacketKind::Mlme(mlme::PacketKind::Request(RequestPacketKind::Dissassociate))
+            }
+            OpcodeM4ToM0::MlmeGetReq => PacketKind::Mlme(mlme::PacketKind::Request(RequestPacketKind::Get)),
+            OpcodeM4ToM0::MlmeGtsReq => PacketKind::Mlme(mlme::PacketKind::Request(RequestPacketKind::Gts)),
+            OpcodeM4ToM0::MlmeOrphanRes => PacketKind::Mlme(mlme::PacketKind::Response(ResponsePacketKind::Orphan)),
+            OpcodeM4ToM0::MlmeResetReq => PacketKind::Mlme(mlme::PacketKind::Request(RequestPacketKind::Reset)),
+            OpcodeM4ToM0::MlmeRxEnableReq => PacketKind::Mlme(mlme::PacketKind::Request(RequestPacketKind::RxEnable)),
+            OpcodeM4ToM0::MlmeScanReq => PacketKind::Mlme(mlme::PacketKind::Request(RequestPacketKind::Scan)),
+            OpcodeM4ToM0::MlmeSetReq => PacketKind::Mlme(mlme::PacketKind::Request(RequestPacketKind::Set)),
+            OpcodeM4ToM0::MlmeStartReq => PacketKind::Mlme(mlme::PacketKind::Request(RequestPacketKind::Start)),
+            OpcodeM4ToM0::MlmeSyncReq => PacketKind::Mlme(mlme::PacketKind::Request(RequestPacketKind::Sync)),
+            OpcodeM4ToM0::MlmePollReq => PacketKind::Mlme(mlme::PacketKind::Request(RequestPacketKind::Poll)),
+            OpcodeM4ToM0::MlmeDpsReq => PacketKind::Mlme(mlme::PacketKind::Request(RequestPacketKind::Dps)),
+            OpcodeM4ToM0::MlmeSoundingReq => PacketKind::Mlme(mlme::PacketKind::Request(RequestPacketKind::Sounding)),
+            OpcodeM4ToM0::MlmeCalibrateReq => PacketKind::Mlme(mlme::PacketKind::Request(RequestPacketKind::Calibrate)),
+            OpcodeM4ToM0::McpsDataReq => PacketKind::Mcps(mcps::PacketKind::Data),
+            OpcodeM4ToM0::McpsPurgeReq => PacketKind::Mcps(mcps::PacketKind::Purge),
+        }
+    };
 }
 
 /// MLME ASSOCIATE Request used to request an association
