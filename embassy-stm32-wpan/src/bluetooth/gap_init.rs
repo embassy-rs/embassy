@@ -13,7 +13,7 @@ type tBleStatus = u8;
 
 const BLE_STATUS_SUCCESS: u8 = 0x00;
 
-// Config data offsets and lengths (from ST's ble_const.h)
+// Config data offsets and lengths (from ST's ble_defs.h)
 const CONFIG_DATA_PUBADDR_OFFSET: u8 = 0x00;
 const CONFIG_DATA_ADDR_LEN: u8 = 6;
 const CONFIG_DATA_ER_OFFSET: u8 = 0x08;
@@ -21,7 +21,7 @@ const CONFIG_DATA_ER_LEN: u8 = 16;
 const CONFIG_DATA_IR_OFFSET: u8 = 0x18;
 const CONFIG_DATA_IR_LEN: u8 = 16;
 const CONFIG_DATA_RANDOM_ADDRESS_OFFSET: u8 = 0x2E;
-const CONFIG_DATA_GAP_ADD_REC_NBR_OFFSET: u8 = 0x2C;
+const CONFIG_DATA_GAP_ADD_REC_NBR_OFFSET: u8 = 0x34;
 const CONFIG_DATA_GAP_ADD_REC_NBR_LEN: u8 = 1;
 
 // GAP roles
