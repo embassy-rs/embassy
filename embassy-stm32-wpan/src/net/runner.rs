@@ -9,10 +9,10 @@ use embassy_sync::signal::Signal;
 use smoltcp::wire::Ieee802154FrameType;
 use smoltcp::wire::ieee802154::Frame;
 
-use crate::mlme::MTU;
-use crate::mlme::commands::*;
-use crate::mlme::driver::NetworkState;
-use crate::mlme::event::MacEvent;
+use crate::net::MTU;
+use crate::net::commands::*;
+use crate::net::driver::NetworkState;
+use crate::net::event::MacEvent;
 use crate::sub::mac::{MacRx, MacTx};
 
 pub type ZeroCopyPubSub<M, T> = blocking_mutex::Mutex<M, RefCell<Option<Signal<NoopRawMutex, T>>>>;

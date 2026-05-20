@@ -9,8 +9,8 @@ use super::typedefs::{
     AddressMode, Capabilities, DisassociationReason, GtsCharacteristics, KeyIdMode, MacAddress, MacChannel, MacStatus,
     PanId, PibId, ScanType, SecurityLevel,
 };
-use crate::mlme::iface::mlme::{RequestPacketKind, ResponsePacketKind};
-use crate::mlme::iface::{HostToControllerPacket, PacketKind, WriteHci, mcps, mlme};
+use crate::net::iface::mlme::{RequestPacketKind, ResponsePacketKind};
+use crate::net::iface::{HostToControllerPacket, PacketKind, WriteHci, mcps, mlme};
 
 pub trait MacCommand: Sized {
     const OPCODE: OpcodeM4ToM0;

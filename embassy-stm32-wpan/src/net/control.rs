@@ -11,11 +11,11 @@ use embassy_sync::mutex::Mutex;
 use embassy_sync::signal::Signal;
 use futures_util::FutureExt;
 
-use crate::mlme::commands::*;
-use crate::mlme::driver::NetworkState;
-use crate::mlme::event::MacEvent;
-use crate::mlme::runner::ZeroCopyPubSub;
-use crate::mlme::typedefs::*;
+use crate::net::commands::*;
+use crate::net::driver::NetworkState;
+use crate::net::event::MacEvent;
+use crate::net::runner::ZeroCopyPubSub;
+use crate::net::typedefs::*;
 use crate::sub::mac::MacTx;
 
 pub struct Control<'a> {

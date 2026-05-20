@@ -9,7 +9,7 @@ use super::typedefs::{
     AddressMode, Capabilities, DisassociationReason, KeyIdMode, MacAddress, MacChannel, MacStatus, PanDescriptor,
     PanId, SecurityLevel,
 };
-use crate::mlme::typedefs::MacAddressAndMode;
+use crate::net::typedefs::MacAddressAndMode;
 
 /// MLME ASSOCIATE Indication which will be used by the MAC
 /// to indicate the reception of an association request command

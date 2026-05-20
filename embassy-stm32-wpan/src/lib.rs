@@ -25,7 +25,7 @@ pub(crate) mod fmt;
 pub mod bluetooth;
 
 #[cfg(all(feature = "wb", feature = "wb-mac"))]
-pub mod mlme;
+pub mod net;
 
 #[cfg(feature = "wb")]
 mod wb;

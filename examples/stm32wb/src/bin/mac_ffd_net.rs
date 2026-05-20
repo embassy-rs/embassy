@@ -13,7 +13,7 @@ use embassy_stm32::peripherals::RNG;
 use embassy_stm32::rcc::Config as RccConfig;
 use embassy_stm32::rng::InterruptHandler as RngInterruptHandler;
 use embassy_stm32_wpan::TlMbox;
-use embassy_stm32_wpan::mlme::{Driver, DriverState, Runner};
+use embassy_stm32_wpan::net::{Driver, DriverState, Runner};
 use embassy_stm32_wpan::sub::mm;
 use embassy_time::{Duration, Timer};
 use heapless::Vec;
