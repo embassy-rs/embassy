@@ -1237,6 +1237,12 @@ where
     /// (i3c sdr, i3c ddr, or i2c), and R/w bit.
     async fn async_start(&self, address: u8, bus_type: BusType, dir: Dir, len: u8) -> Result<(), IOError> {
         self.clear_flags();
+        // Also clear MERRWARN. clear_flags() only touches MSTATUS bits; any
+        // sticky warning latched by the previous transaction (e.g. a stale
+        // OWRITE from a tight FIFO push) would otherwise be misreported as
+        // a fresh error by status() below. Matches the SDK master driver,
+        // which clears error flags at the start of each transaction.
+        self.clear_errors();
 
         self.info.regs().mctrl().write(|w| {
             w.set_addr(address);
