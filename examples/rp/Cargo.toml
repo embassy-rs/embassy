@@ -9,7 +9,7 @@ publish = false
 [dependencies]
 embassy-embedded-hal = { version = "0.6.0", path = "../../embassy-embedded-hal", features = ["defmt"] }
 embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }
-embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
+embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["defmt"] }
 embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-rp = { version = "0.10.0", path = "../../embassy-rp", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp2040"] }
 embassy-usb = { version = "0.6.0", path = "../../embassy-usb", features = ["defmt"] }
@@ -59,6 +59,18 @@ portable-atomic = { version = "1.5", features = ["critical-section"] }
 log = "0.4"
 rand = { version = "0.9.0", default-features = false }
 embedded-sdmmc = "0.7.0"
+
+[features]
+default = ["default-executor"]
+default-executor = [
+  "embassy-executor/platform-cortex-m",
+  "embassy-executor/executor-interrupt",
+  "embassy-executor/executor-thread",
+]
+executor-platform = [
+  "embassy-rp/executor-interrupt",
+  "embassy-rp/executor-thread",
+]
 
 [profile.release]
 # Enable generation of debug symbols even on release builds
