@@ -14,8 +14,8 @@ pub mod responses;
 pub mod runner;
 pub mod typedefs;
 
-pub use crate::mlme::control::Control;
-pub use crate::mlme::driver::{Driver, DriverState};
-pub use crate::mlme::runner::Runner;
+pub use crate::net::control::Control;
+pub use crate::net::driver::{Driver, DriverState};
+pub use crate::net::runner::Runner;
 
 const MTU: usize = 127;

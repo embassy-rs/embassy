@@ -10,10 +10,10 @@ use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::mlme::event::MacEvent;
-use crate::mlme::indications::{write_frame_from_beacon_indication, write_frame_from_data_indication};
-use crate::mlme::runner::{BUF_SIZE, ZeroCopyPubSub};
-use crate::mlme::{Control, MTU, Runner};
+use crate::net::event::MacEvent;
+use crate::net::indications::{write_frame_from_beacon_indication, write_frame_from_data_indication};
+use crate::net::runner::{BUF_SIZE, ZeroCopyPubSub};
+use crate::net::{Control, MTU, Runner};
 use crate::sub::mac::{Mac, MacRx, MacTx};
 
 pub struct NetworkState {
