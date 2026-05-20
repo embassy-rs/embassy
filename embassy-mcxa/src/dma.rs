@@ -1487,7 +1487,7 @@ impl<'a> Transfer<'a> {
 ///
 /// Each error variant can be queried separately, or all errors can be iterated by using [TransferErrors::into_iter].
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct TransferErrors(u8);
 
 /// Iterator to extract all [TransferError]s using [TransferErrors::into_iter].
