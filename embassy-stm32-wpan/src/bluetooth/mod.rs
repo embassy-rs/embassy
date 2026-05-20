@@ -446,6 +446,76 @@ impl<'d> HCI<'d, Normal> {
         Ok((LePhy::from_u8(tx), LePhy::from_u8(rx)))
     }
 
+    // ===== Direction Finding / CTE Commands =====
+
+    /// Set CTE transmit parameters for a connection (peripheral/tag side).
+    ///
+    /// Call this after connecting, before `le_set_connection_cte_transmit_enable`.
+    ///
+    /// - `cte_types`: Bit field — bit 0=AoA, bit 1=AoD 1μs slots, bit 2=AoD 2μs slots
+    /// - `antenna_ids`: Antenna switching pattern IDs (2–75 elements)
+    pub fn le_set_connection_cte_transmit_parameters(
+        &self,
+        handle: ConnectionHandle,
+        cte_types: u8,
+        antenna_ids: &[u8],
+    ) -> Result<(), BleError> {
+        self.cmd_sender
+            .le_set_connection_cte_transmit_parameters(handle.0, cte_types, antenna_ids)
+    }
+
+    /// Enable or disable CTE response for a connection (peripheral/tag side).
+    ///
+    /// BT spec 7.8.86 `HCI_LE_Connection_CTE_Response_Enable`. Call
+    /// `le_set_connection_cte_transmit_parameters` before enabling.
+    pub fn le_connection_cte_response_enable(&self, handle: ConnectionHandle, enable: bool) -> Result<(), BleError> {
+        self.cmd_sender.le_connection_cte_response_enable(handle.0, enable)
+    }
+
+    /// Set CTE receive (IQ sampling) parameters for a connection (central/locator side).
+    ///
+    /// - `slot_durations`: 0x01 = 1μs slots, 0x02 = 2μs slots
+    /// - `antenna_ids`: Antenna switching pattern (2–75 elements; ignored if sampling disabled)
+    pub fn le_set_connection_cte_receive_parameters(
+        &self,
+        handle: ConnectionHandle,
+        sampling_enable: bool,
+        slot_durations: u8,
+        antenna_ids: &[u8],
+    ) -> Result<(), BleError> {
+        self.cmd_sender
+            .le_set_connection_cte_receive_parameters(handle.0, sampling_enable, slot_durations, antenna_ids)
+    }
+
+    /// Enable or disable CTE requests for a connection (central/locator side).
+    ///
+    /// - `request_interval`: 0 = request once; N = request every N connection events
+    /// - `requested_cte_length`: Requested CTE length in 8μs units (range: 2–20)
+    /// - `requested_cte_type`: 0x00=AoA, 0x01=AoD 1μs, 0x02=AoD 2μs
+    pub fn le_connection_cte_request_enable(
+        &self,
+        handle: ConnectionHandle,
+        enable: bool,
+        request_interval: u16,
+        requested_cte_length: u8,
+        requested_cte_type: u8,
+    ) -> Result<(), BleError> {
+        self.cmd_sender.le_connection_cte_request_enable(
+            handle.0,
+            enable,
+            request_interval,
+            requested_cte_length,
+            requested_cte_type,
+        )
+    }
+
+    /// Read antenna information from the controller.
+    ///
+    /// Returns `(switching_sampling_rates, num_antennae, max_pattern_length, max_cte_length)`.
+    pub fn le_read_antenna_information(&self) -> Result<(u8, u8, u8, u8), BleError> {
+        self.cmd_sender.le_read_antenna_information()
+    }
+
     /// Process an HCI event and update internal state
     ///
     /// This method processes connection-related events and updates the

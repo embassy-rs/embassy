@@ -26,10 +26,11 @@ defmt-rtt = "1.0.0"
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
 embedded-hal = "1.0.0"
+embedded-io-async = "0.7.0"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 heapless = { version = "0.9", default-features = false }
 static_cell = "2"
-stm32wb-hci = { version = "0.17.4", git="https://github.com/embassy-rs/stm32wb-hci.git", rev="0ea312" }
+stm32wb-hci = { git="https://github.com/embassy-rs/stm32wb-hci.git", rev="18b732" }
 
 [features]
 default = ["ble"]
@@ -65,6 +66,30 @@ required-features = ["ble"]
 
 [[bin]]
 name = "ble_central"
+required-features = ["ble"]
+
+[[bin]]
+name = "ble_serial_com"
+required-features = ["ble"]
+
+[[bin]]
+name = "ble_beacon"
+required-features = ["ble"]
+
+[[bin]]
+name = "ble_heart_rate"
+required-features = ["ble"]
+
+[[bin]]
+name = "ble_health_thermometer"
+required-features = ["ble"]
+
+[[bin]]
+name = "ble_data_throughput_server"
+required-features = ["ble"]
+
+[[bin]]
+name = "ble_direction_finding_tag"
 required-features = ["ble"]
 
 [[bin]]
