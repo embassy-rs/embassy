@@ -1336,11 +1336,25 @@ where
         Ok(())
     }
 
-    /// Wait for a target IBI, ACK it, drain any payload bytes, and emit STOP.
+    /// Wait for a target IBI, ACK it, and drain any payload bytes.
     ///
     /// Returns the IBI target address and the number of payload bytes written into `buf`.
     /// The P3T1755 (and most sensors) set BCR\[2\]=0 so no payload bytes follow the address header;
     /// in that case this returns `(addr, 0)`.
+    ///
+    /// **Bus state on return:** the controller is left in `NORMACT` (between
+    /// start and stop). The caller MUST issue a follow-on bus operation
+    /// promptly — typically [`Self::async_read`] (which produces a repeated
+    /// start, what the target's pre-loaded IBI response expects) or
+    /// [`Self::async_write`], or call `async_stop` explicitly.
+    ///
+    /// Emitting an explicit Stop here would force the target to traverse the
+    /// `Stop → Start` boundary before the directed-read address arrives,
+    /// which races with the target's slave-side state machine and rarely
+    /// (≈1/10⁶ iterations) latches `SERRWARN.INVSTART` on the target — which
+    /// in turn causes a hardware NACK on the controller's directed-read
+    /// address. Leaving the bus in `NORMACT` lets the next `async_start`
+    /// emit a true repeated start, matching the target's expectation.
     pub async fn async_wait_for_ibi(&mut self, buf: &mut [u8]) -> Result<(u8, usize), IOError> {
         // Step 1: Wait for SLVSTART (a target is asserting SDA low to request the bus).
         self.info
@@ -1439,9 +1453,10 @@ where
             self.async_wait_for_complete().await?;
         }
 
-        // Step 7: Clear status flags, then emit STOP.
+        // Step 7: Clear status flags. We deliberately do NOT emit a Stop
+        // here — see the function's doc comment for the rationale (avoids
+        // an INVSTART race on the target during IBI→directed-read).
         self.clear_flags();
-        self.async_stop(BusType::I3cSdr).await?;
 
         Ok((ibi_addr, payload_len))
     }
