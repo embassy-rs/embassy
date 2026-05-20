@@ -14,7 +14,7 @@ pub use embassy_usb_synopsys_otg::Config;
 use embassy_usb_synopsys_otg::otg_v1::Otg;
 use embassy_usb_synopsys_otg::otg_v1::vals::Dspd;
 use embassy_usb_synopsys_otg::{
-    Bus as OtgBus, ControlPipe, Driver as OtgDriver, Endpoint, In, OtgInstance, Out, PhyType, State,
+    Bus as OtgBus, ControlPipe, Driver as OtgDriver, Endpoint, In, OtgInstance, OtgState, Out, PhyType, State,
     on_interrupt as on_interrupt_impl,
 };
 
@@ -35,13 +35,13 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        on_interrupt_impl(T::core_regs(), T::state(), MAX_EP_COUNT);
+        on_interrupt_impl(T::core_regs(), &T::state());
     }
 }
 
 /// USB driver.
 pub struct Driver<'d, V: VbusDetect> {
-    inner: OtgDriver<'d, MAX_EP_COUNT>,
+    inner: OtgDriver<'d>,
     usb_regs: pac::usbhs::Usbhs,
     vbus_detect: V,
     _phantom: PhantomData<&'d ()>,
@@ -63,7 +63,6 @@ impl<'d, V: VbusDetect> Driver<'d, V> {
             regs: T::core_regs(),
             state: T::state(),
             fifo_depth_words: FIFO_DEPTH_WORDS,
-            endpoint_count: MAX_EP_COUNT,
             phy_type: PhyType::InternalHighSpeed,
             extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
             calculate_trdt_fn: calculate_trdt,
@@ -125,7 +124,7 @@ impl<'d, V: VbusDetect + 'd> embassy_usb_driver::Driver<'d> for Driver<'d, V> {
 
 /// USB bus.
 pub struct Bus<'d, V: VbusDetect> {
-    inner: OtgBus<'d, MAX_EP_COUNT>,
+    inner: OtgBus<'d>,
     usb_regs: pac::usbhs::Usbhs,
     vbus_detect: V,
     power_present: bool,
@@ -303,7 +302,7 @@ impl<'d, V: VbusDetect> Drop for Bus<'d, V> {
 pub(crate) trait SealedInstance {
     fn usb_regs() -> pac::usbhs::Usbhs;
     fn core_regs() -> Otg;
-    fn state() -> &'static State<MAX_EP_COUNT>;
+    fn state() -> OtgState<'static>;
 }
 
 /// USB peripheral instance.
@@ -322,9 +321,9 @@ impl SealedInstance for crate::peripherals::USBHS {
         unsafe { Otg::from_ptr(pac::USBHSCORE.as_ptr()) }
     }
 
-    fn state() -> &'static State<MAX_EP_COUNT> {
+    fn state() -> OtgState<'static> {
         static STATE: State<MAX_EP_COUNT> = State::new();
-        &STATE
+        STATE.as_otg_state()
     }
 }
 
