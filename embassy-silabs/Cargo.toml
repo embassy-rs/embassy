@@ -1,0 +1,100 @@
+[package]
+name = "embassy-silabs"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Embassy Hardware Abstraction Layer (HAL) for Silicon Labs microcontrollers"
+keywords = ["embedded", "async", "silabs", "efr32", "efm32", "hal"]
+categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
+publish = false
+
+[dependencies]
+embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
+embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", optional = true, features = ["tick-hz-1_000_000"] }
+embassy-time-queue-utils = { version = "0.3.2", path = "../embassy-time-queue-utils", optional = true }
+embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
+embassy-hal-internal = { version = "0.5.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-4"] }
+embassy-embedded-hal = { version = "0.6.0", path = "../embassy-embedded-hal", default-features = false }
+
+embedded-hal = { version = "1.0" }
+
+defmt = { version = "1.0.1", optional = true }
+log = { version = "0.4.14", optional = true }
+cortex-m-rt = { version = "0.7", optional = true }
+cortex-m = "0.7.6"
+critical-section = "1.2.0"
+trait-set = "0.3.0"
+
+silabs-metapac = { git = "https://github.com/andresv/silabs-data-generated.git", tag = "0.2.0" }
+
+[build-dependencies]
+silabs-metapac = { git = "https://github.com/andresv/silabs-data-generated.git", tag = "0.2.0", default-features = false, features = ["metadata"] }
+
+[features]
+default = ["rt"]
+
+## Enable `silabs-metapac`'s `rt` feature
+rt = ["dep:cortex-m-rt", "silabs-metapac/rt"]
+
+## Use [`defmt`](https://docs.rs/defmt/latest/defmt/) for logging
+defmt = [
+    "dep:defmt",
+    "embassy-sync/defmt",
+    "embassy-embedded-hal/defmt",
+    "embassy-hal-internal/defmt",
+    "silabs-metapac/defmt",
+]
+## Use log for logging
+log = ["dep:log"]
+
+## Re-export silabs-metapac at `embassy_silabs::pac`.
+## This is unstable because semver-minor (non-breaking) releases of embassy-silabs may major-bump (breaking) the silabs-metapac version.
+## If this is an issue for you, you're encouraged to directly depend on a fixed version of the PAC.
+## There are no plans to make this stable.
+unstable-pac = []
+
+## Skip the RCC sanity assertions (e.g. SYSCLK/HCLK frequency upper bounds).
+## Mirrors `embassy-stm32`'s feature of the same name. Off by default.
+unchecked-overclocking = []
+
+#! ## Time
+
+# Features starting with `_` are for internal use only. They're not intended
+# to be enabled by other crates, and are not covered by semver guarantees.
+_time-driver = ["dep:embassy-time-driver", "dep:embassy-time-queue-utils"]
+
+## Use any available timer as the embassy-time driver (TIMER0 today).
+time-driver-any = ["_time-driver"]
+## Use TIMER0 as the embassy-time driver.
+time-driver-timer0 = ["_time-driver"]
+
+#! ## Chip-selection features
+#! Select your chip by specifying the model as a feature, e.g. `efr32mg26b420f3200im68`.
+#! Check the `Cargo.toml` for the latest list of supported chips.
+#!
+#! **Important:** Do not forget to adapt the target chip in your toolchain,
+#! e.g. in `.cargo/config.toml`.
+
+efr32mg26b211f2048im68 = ["silabs-metapac/efr32mg26b211f2048im68"]
+efr32mg26b211f3200im48 = ["silabs-metapac/efr32mg26b211f3200im48"]
+efr32mg26b221f2048im68 = ["silabs-metapac/efr32mg26b221f2048im68"]
+efr32mg26b221f3200im48 = ["silabs-metapac/efr32mg26b221f3200im48"]
+efr32mg26b410f3200im48 = ["silabs-metapac/efr32mg26b410f3200im48"]
+efr32mg26b410f3200im68 = ["silabs-metapac/efr32mg26b410f3200im68"]
+efr32mg26b420f3200im48 = ["silabs-metapac/efr32mg26b420f3200im48"]
+efr32mg26b420f3200im68 = ["silabs-metapac/efr32mg26b420f3200im68"]
+efr32mg26b510f3200im48 = ["silabs-metapac/efr32mg26b510f3200im48"]
+efr32mg26b510f3200im68 = ["silabs-metapac/efr32mg26b510f3200im68"]
+efr32mg26b520f3200im48 = ["silabs-metapac/efr32mg26b520f3200im48"]
+efr32mg26b520f3200im68 = ["silabs-metapac/efr32mg26b520f3200im68"]
+efr32mg26b610f3200im48 = ["silabs-metapac/efr32mg26b610f3200im48"]
+
+[profile.dev]
+debug = true
+[profile.release]
+debug = true
+
+[package.metadata.embassy]
+build = [
+    { target = "thumbv8m.main-none-eabihf", features = ["defmt", "efr32mg26b420f3200im68", "time-driver-any", "unstable-pac"] },
+]
