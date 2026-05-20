@@ -6,7 +6,7 @@ pub use embassy_usb_synopsys_otg::Config;
 use embassy_usb_synopsys_otg::otg_v1::Otg;
 use embassy_usb_synopsys_otg::otg_v1::vals::Dspd;
 use embassy_usb_synopsys_otg::{
-    Bus as OtgBus, ControlPipe, Driver as OtgDriver, Endpoint, In, OtgInstance, Out, PhyType, State, OtgState,
+    Bus as OtgBus, ControlPipe, Driver as OtgDriver, Endpoint, In, OtgInstance, OtgState, Out, PhyType,
     on_interrupt as on_interrupt_impl,
 };
 
@@ -14,8 +14,6 @@ use crate::gpio::{AfType, OutputType, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::rcc::{self, RccPeripheral};
 use crate::{Peri, interrupt};
-
-const MAX_EP_COUNT: usize = 9;
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
@@ -25,7 +23,7 @@ pub struct InterruptHandler<T: Instance> {
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         let r = T::regs();
-        on_interrupt_impl(r, &T::state(), T::ENDPOINT_COUNT);
+        on_interrupt_impl(r, &T::state());
     }
 }
 
@@ -82,7 +80,6 @@ impl<'d, T: Instance> Driver<'d, T> {
             state: T::state(),
             fifo_depth_words: T::FIFO_DEPTH_WORDS,
             extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
-            endpoint_count: T::ENDPOINT_COUNT,
             phy_type: PhyType::InternalFullSpeed,
             calculate_trdt_fn: calculate_trdt::<T>,
         };
@@ -121,7 +118,6 @@ impl<'d, T: Instance> Driver<'d, T> {
             state: T::state(),
             fifo_depth_words: T::FIFO_DEPTH_WORDS,
             extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
-            endpoint_count: T::ENDPOINT_COUNT,
             phy_type: PhyType::InternalHighSpeed,
             calculate_trdt_fn: calculate_trdt::<T>,
         };
@@ -167,7 +163,6 @@ impl<'d, T: Instance> Driver<'d, T> {
             state: T::state(),
             fifo_depth_words: T::FIFO_DEPTH_WORDS,
             extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
-            endpoint_count: T::ENDPOINT_COUNT,
             phy_type: PhyType::ExternalFullSpeed,
             calculate_trdt_fn: calculate_trdt::<T>,
         };
@@ -215,7 +210,6 @@ impl<'d, T: Instance> Driver<'d, T> {
             state: T::state(),
             fifo_depth_words: T::FIFO_DEPTH_WORDS,
             extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
-            endpoint_count: T::ENDPOINT_COUNT,
             phy_type: PhyType::ExternalHighSpeed,
             calculate_trdt_fn: calculate_trdt::<T>,
         };
@@ -427,7 +421,6 @@ impl<'d, T: Instance> Drop for Bus<'d, T> {
 trait SealedInstance {
     const HIGH_SPEED: bool;
     const FIFO_DEPTH_WORDS: u16;
-    const ENDPOINT_COUNT: usize;
 
     fn regs() -> Otg;
     fn state() -> OtgState<'static>;
@@ -460,12 +453,9 @@ pin_trait!(UlpiD7Pin, Instance);
 
 foreach_interrupt!(
     (USB_OTG_FS, otg, $block:ident, GLOBAL, $irq:ident) => {
-        impl SealedInstance for crate::peripherals::USB_OTG_FS {
-            const HIGH_SPEED: bool = false;
-
+        impl crate::peripherals::USB_OTG_FS {
             cfg_if::cfg_if! {
                 if #[cfg(stm32f1)] {
-                    const FIFO_DEPTH_WORDS: u16 = 128;
                     const ENDPOINT_COUNT: usize = 8;
                 } else if #[cfg(any(
                     stm32f2,
@@ -480,7 +470,6 @@ foreach_interrupt!(
                     stm32f437,
                     stm32f439,
                 ))] {
-                    const FIFO_DEPTH_WORDS: u16 = 320;
                     const ENDPOINT_COUNT: usize = 4;
                 } else if #[cfg(any(
                     stm32f412,
@@ -494,17 +483,58 @@ foreach_interrupt!(
                     stm32u5,
                     stm32wba,
                 ))] {
-                    const FIFO_DEPTH_WORDS: u16 = 320;
                     const ENDPOINT_COUNT: usize = 6;
                 } else if #[cfg(stm32g0x1)] {
-                    const FIFO_DEPTH_WORDS: u16 = 512;
                     const ENDPOINT_COUNT: usize = 8;
                 } else if #[cfg(any(stm32h7, stm32h7rs))] {
-                    const FIFO_DEPTH_WORDS: u16 = 1024;
                     const ENDPOINT_COUNT: usize = 9;
                 } else if #[cfg(any(stm32wba, stm32u5))] {
-                    const FIFO_DEPTH_WORDS: u16 = 320;
                     const ENDPOINT_COUNT: usize = 6;
+                } else {
+                    compile_error!("USB_OTG_FS peripheral is not supported by this chip.");
+                }
+            }
+        }
+
+        impl SealedInstance for crate::peripherals::USB_OTG_FS {
+            const HIGH_SPEED: bool = false;
+
+            cfg_if::cfg_if! {
+                if #[cfg(stm32f1)] {
+                    const FIFO_DEPTH_WORDS: u16 = 128;
+                } else if #[cfg(any(
+                    stm32f2,
+                    stm32f401,
+                    stm32f405,
+                    stm32f407,
+                    stm32f411,
+                    stm32f415,
+                    stm32f417,
+                    stm32f427,
+                    stm32f429,
+                    stm32f437,
+                    stm32f439,
+                ))] {
+                    const FIFO_DEPTH_WORDS: u16 = 320;
+                } else if #[cfg(any(
+                    stm32f412,
+                    stm32f413,
+                    stm32f423,
+                    stm32f446,
+                    stm32f469,
+                    stm32f479,
+                    stm32f7,
+                    stm32l4,
+                    stm32u5,
+                    stm32wba,
+                ))] {
+                    const FIFO_DEPTH_WORDS: u16 = 320;
+                } else if #[cfg(stm32g0x1)] {
+                    const FIFO_DEPTH_WORDS: u16 = 512;
+                } else if #[cfg(any(stm32h7, stm32h7rs))] {
+                    const FIFO_DEPTH_WORDS: u16 = 1024;
+                } else if #[cfg(any(stm32wba, stm32u5))] {
+                    const FIFO_DEPTH_WORDS: u16 = 320;
                 } else {
                     compile_error!("USB_OTG_FS peripheral is not supported by this chip.");
                 }
@@ -515,7 +545,10 @@ foreach_interrupt!(
             }
 
             fn state() -> OtgState<'static> {
-                static STATE: State<MAX_EP_COUNT> = State::new();
+                use embassy_usb_synopsys_otg::State;
+
+                const EP_COUNT: usize = crate::peripherals::USB_OTG_FS::ENDPOINT_COUNT;
+                static STATE: State<EP_COUNT> = State::new();
                 STATE.as_otg_state()
             }
         }
@@ -526,6 +559,36 @@ foreach_interrupt!(
     };
 
     (USB_OTG_HS, otg, $block:ident, GLOBAL, $irq:ident) => {
+        impl crate::peripherals::USB_OTG_HS {
+            cfg_if::cfg_if! {
+                if #[cfg(any(
+                    stm32f2,
+                    stm32f405,
+                    stm32f407,
+                    stm32f415,
+                    stm32f417,
+                    stm32f427,
+                    stm32f429,
+                    stm32f437,
+                    stm32f439,
+                ))] {
+                    const ENDPOINT_COUNT: usize = 6;
+                } else if #[cfg(any(
+                    stm32f446,
+                    stm32f469,
+                    stm32f479,
+                    stm32f7,
+                    stm32h7, stm32h7rs,
+                ))] {
+                    const ENDPOINT_COUNT: usize = 9;
+                } else if #[cfg(any(stm32u5, stm32wba))] {
+                    const ENDPOINT_COUNT: usize = 9;
+                } else {
+                    compile_error!("USB_OTG_HS peripheral is not supported by this chip.");
+                }
+            }
+        }
+
         impl SealedInstance for crate::peripherals::USB_OTG_HS {
             const HIGH_SPEED: bool = true;
 
@@ -542,7 +605,6 @@ foreach_interrupt!(
                     stm32f439,
                 ))] {
                     const FIFO_DEPTH_WORDS: u16 = 1024;
-                    const ENDPOINT_COUNT: usize = 6;
                 } else if #[cfg(any(
                     stm32f446,
                     stm32f469,
@@ -551,10 +613,8 @@ foreach_interrupt!(
                     stm32h7, stm32h7rs,
                 ))] {
                     const FIFO_DEPTH_WORDS: u16 = 1024;
-                    const ENDPOINT_COUNT: usize = 9;
                 } else if #[cfg(any(stm32u5, stm32wba))] {
                     const FIFO_DEPTH_WORDS: u16 = 1024;
-                    const ENDPOINT_COUNT: usize = 9;
                 } else {
                     compile_error!("USB_OTG_HS peripheral is not supported by this chip.");
                 }
@@ -566,7 +626,10 @@ foreach_interrupt!(
             }
 
             fn state() -> OtgState<'static> {
-                static STATE: State<MAX_EP_COUNT> = State::new();
+                use embassy_usb_synopsys_otg::State;
+
+                const EP_COUNT: usize = crate::peripherals::USB_OTG_HS::ENDPOINT_COUNT;
+                static STATE: State<EP_COUNT> = State::new();
                 STATE.as_otg_state()
             }
         }
@@ -585,12 +648,10 @@ mod host_impl {
 
     use embassy_usb_synopsys_otg::PhyType;
     use embassy_usb_synopsys_otg::host::{
-        HostState, OtgHost as OtgHostDriver, OtgHostState, OtgHostInstance, on_host_interrupt as on_host_interrupt_impl,
+        OtgHost as OtgHostDriver, OtgHostInstance, OtgHostState, on_host_interrupt as on_host_interrupt_impl,
     };
 
     use super::*;
-
-    const MAX_HOST_CH_COUNT: usize = 12;
 
     /// Per-instance host state, analogous to `SealedInstance::state()` for device mode.
     #[allow(private_bounds)]
@@ -602,7 +663,10 @@ mod host_impl {
         (USB_OTG_FS, otg, $block:ident, GLOBAL, $irq:ident) => {
             impl SealedHostInstance for crate::peripherals::USB_OTG_FS {
                 fn host_state() -> OtgHostState<'static> {
-                    static STATE: HostState<MAX_HOST_CH_COUNT> = HostState::new();
+                    use embassy_usb_synopsys_otg::host::HostState;
+
+                    const CH_COUNT:usize = crate::peripherals::USB_OTG_FS::ENDPOINT_COUNT;
+                    static STATE: HostState<CH_COUNT> = HostState::new();
                     STATE.as_otg_host_state()
                 }
             }
@@ -610,7 +674,10 @@ mod host_impl {
         (USB_OTG_HS, otg, $block:ident, GLOBAL, $irq:ident) => {
             impl SealedHostInstance for crate::peripherals::USB_OTG_HS {
                 fn host_state() -> OtgHostState<'static> {
-                    static STATE: HostState<MAX_HOST_CH_COUNT> = HostState::new();
+                    use embassy_usb_synopsys_otg::host::HostState;
+
+                    const CH_COUNT:usize = crate::peripherals::USB_OTG_HS::ENDPOINT_COUNT;
+                    static STATE: HostState<CH_COUNT> = HostState::new();
                     STATE.as_otg_host_state()
                 }
             }
@@ -626,11 +693,7 @@ mod host_impl {
     impl<T: SealedHostInstance> interrupt::typelevel::Handler<T::Interrupt> for HostInterruptHandler<T> {
         unsafe fn on_interrupt() {
             let r = T::regs();
-            on_host_interrupt_impl(
-                r,
-                &T::host_state(),
-                T::ENDPOINT_COUNT.min(MAX_HOST_CH_COUNT),
-            );
+            on_host_interrupt_impl(r, &T::host_state());
         }
     }
 
@@ -664,7 +727,6 @@ mod host_impl {
                 regs: T::regs(),
                 state: T::host_state(),
                 fifo_depth_words: T::FIFO_DEPTH_WORDS,
-                channel_count: T::ENDPOINT_COUNT.min(MAX_HOST_CH_COUNT),
                 phy_type: PhyType::InternalFullSpeed,
             };
 
@@ -714,7 +776,6 @@ mod host_impl {
                 regs: T::regs(),
                 state: T::host_state(),
                 fifo_depth_words: T::FIFO_DEPTH_WORDS,
-                channel_count: T::ENDPOINT_COUNT.min(MAX_HOST_CH_COUNT),
                 phy_type: PhyType::InternalHighSpeed,
             };
 
