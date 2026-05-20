@@ -301,7 +301,7 @@ async fn main(spawner: Spawner) {
 
             Either::Second(_) => {
                 // ── 5-second tick: simulate a button press ────────────────────
-                state.switch_value ^= 0x01; // toggle 0 ↔ 1
+                state.switch_value ^= 0x01;
 
                 if let Some(conn) = state.conn_handle {
                     if state.switch_notifications_enabled {

@@ -100,17 +100,8 @@ struct DtState {
     tx_bytes: u32,
     rx_bytes: u32,
     window_start: Option<Instant>,
-}
-
-/// Build a 244-byte DTS packet.
-/// Format: [seq_num (4 bytes, LE)] + [repeating 0x00..0xFF fill]
-fn build_packet(seq_num: u32) -> [u8; PACKET_SIZE] {
-    let mut pkt = [0u8; PACKET_SIZE];
-    pkt[..4].copy_from_slice(&seq_num.to_le_bytes());
-    for (i, b) in pkt[4..].iter_mut().enumerate() {
-        *b = (i & 0xFF) as u8;
-    }
-    pkt
+    // Reusable packet buffer; fill bytes [4..] are constant (never change between packets)
+    pkt_buf: [u8; PACKET_SIZE],
 }
 
 /// 16-byte throughput report sent on the THROUGH characteristic.
@@ -203,6 +194,11 @@ async fn main(spawner: Spawner) {
     info!("  RX   (write-without-resp)  char: 0x{:04X}", rx_char_handle.0);
     info!("  THRU (notify, stats)       char: 0x{:04X}", through_char_handle.0);
 
+    let mut pkt_buf = [0u8; PACKET_SIZE];
+    for (i, b) in pkt_buf[4..].iter_mut().enumerate() {
+        *b = (i & 0xFF) as u8;
+    }
+
     let mut state = DtState {
         service_handle,
         tx_char_handle,
@@ -215,6 +211,7 @@ async fn main(spawner: Spawner) {
         tx_bytes: 0,
         rx_bytes: 0,
         window_start: None,
+        pkt_buf,
     };
 
     // ── Advertising ──────────────────────────────────────────────────────────
@@ -244,8 +241,8 @@ async fn main(spawner: Spawner) {
         // Burst-send while connected and the client has subscribed
         if state.tx_notifications_enabled {
             if let Some(conn) = state.conn_handle {
-                let pkt = build_packet(state.seq_num);
-                match gatt.notify(conn, state.service_handle, state.tx_char_handle, &pkt) {
+                state.pkt_buf[..4].copy_from_slice(&state.seq_num.to_le_bytes());
+                match gatt.notify(conn, state.service_handle, state.tx_char_handle, &state.pkt_buf) {
                     Ok(()) => {
                         state.seq_num = state.seq_num.wrapping_add(1);
                         state.tx_bytes += PACKET_SIZE as u32;
@@ -273,7 +270,6 @@ async fn main(spawner: Spawner) {
                             state.window_start = Some(now);
                         }
 
-                        // Immediately try the next packet
                         continue;
                     }
                     Err(_) => {
