@@ -236,6 +236,10 @@ impl<'a, 'd> DmaHasher<'a, 'd> {
             .ok_or(SgiError::InvalidSize)?;
         length_field.copy_from_slice(&bit_len.to_be_bytes());
 
+        // From this point onward, both the saved chaining state and the CPU-driven final block
+        // are handled as big-endian values.
+        state.options.byte_order = ByteOrder::BigEndian;
+
         if state.processed_bytes > 0 {
             state.sgi.update_partial_output(state.options, &mut state.prev_result)?;
             state.sgi.sgi_hash_reload(state.options, &state.prev_result)?;
@@ -245,10 +249,6 @@ impl<'a, 'd> DmaHasher<'a, 'd> {
         }
 
         state.options.op_mode = HashMode::Auto;
-        // Switch back to Big-Endian for the final CPU-driven block, since the padding and length encoding as well as output digest are expected to
-        // be in Big-Endian format.
-        state.options.byte_order = ByteOrder::BigEndian;
-
         state.sgi.enable_operation_done_interrupt();
         state.sgi.init_sgi_sha(state.options)?;
         state.sgi.start_sgi_hash(state.options, &padded)?;
@@ -407,23 +407,26 @@ fn process_multi_block_update<'d>(
     //
     // The idea is to keep each `hasher.update()` call as user-friendly as possible and not require
     // the caller to manage block sizes or call a "finalize copy" after every update.
-    if hasher.ctx.first_block {
-        hasher.ctx.first_block = false;
-    } else {
+    let mut options = hasher.ctx.options;
+    let mut next_prev_result = [0u8; SGI_HASH_OUTPUT_SIZE as usize];
+
+    if !hasher.ctx.first_block {
         // Continue hashing without auto-init.
-        hasher.ctx.options.init = HashInit::NoInit;
-        peri.sgi_hash_reload(hasher.ctx.options, &hasher.ctx.prev_result)?;
+        options.init = HashInit::NoInit;
+        peri.sgi_hash_reload(options, &hasher.ctx.prev_result)?;
         peri.sgi_stop_sha2_cmd(); // Ensure we stop any ongoing hash operation before starting the next one
         peri.wait_until_sha2_not_busy()?;
     }
 
-    peri.init_sgi_sha(hasher.ctx.options)?;
-    peri.start_sgi_hash(hasher.ctx.options, input)?;
-    peri.fill_sha2_fifo(hasher.ctx.options, input, input.len())?;
-    peri.update_partial_output(hasher.ctx.options, &mut hasher.ctx.prev_result)?;
+    peri.init_sgi_sha(options)?;
+    peri.start_sgi_hash(options, input)?;
+    peri.fill_sha2_fifo(options, input, input.len())?;
+    peri.update_partial_output(options, &mut next_prev_result)?;
     // Once we've processed at least one block, future operations must NOT auto-init
     // (otherwise the hardware IV would overwrite the chained state).
     hasher.ctx.options.init = HashInit::NoInit;
+    hasher.ctx.prev_result = next_prev_result;
+    hasher.ctx.first_block = false;
     Ok(())
 }
 
@@ -433,8 +436,8 @@ fn process_single_block_update<'d>(
     input: &[u8],
 ) -> Result<(), SgiError> {
     let input_len = input.len() as usize;
-    let mut overflows_block = false;
-    let mut write_bytes = 0;
+    let mut next_curr_block_ptr = 0;
+    let mut overflow_suffix = None;
 
     if hasher.ctx.curr_block_ptr + input_len < MAX_BLOCK_SIZE {
         // process_single_block_update() only handles sub-block inputs, so this end offset stays in-bounds.
@@ -457,9 +460,12 @@ fn process_single_block_update<'d>(
             .ok_or(SgiError::InvalidSize)?;
         let input_prefix = input.get(..space_left).ok_or(SgiError::InvalidSize)?;
         curr_block_tail.copy_from_slice(input_prefix);
-        write_bytes = input_len - space_left;
-        overflows_block = true;
-        hasher.ctx.curr_block_ptr = 0; // Reset pointer for the next block
+        next_curr_block_ptr = input_len - space_left;
+        overflow_suffix = Some(
+            input
+                .get(input_len - next_curr_block_ptr..)
+                .ok_or(SgiError::InvalidSize)?,
+        );
     } else {
         // This branch exactly fills the current block, so the end offset lands on MAX_BLOCK_SIZE.
         let block_end = hasher.ctx.curr_block_ptr + input_len;
@@ -469,42 +475,47 @@ fn process_single_block_update<'d>(
             .get_mut(hasher.ctx.curr_block_ptr..block_end)
             .ok_or(SgiError::InvalidSize)?
             .copy_from_slice(input);
-        hasher.ctx.curr_block_ptr = 0; // Reset pointer for the next block
     }
 
-    if hasher.ctx.first_block {
-        hasher.ctx.first_block = false;
-    } else {
-        hasher.ctx.options.init = HashInit::NoInit;
-        peri.sgi_hash_reload(hasher.ctx.options, &hasher.ctx.prev_result)?; // Load the previous hash state into SGI for the current block
+    let mut options = hasher.ctx.options;
+    let mut next_prev_result = [0u8; SGI_HASH_OUTPUT_SIZE as usize];
+
+    if !hasher.ctx.first_block {
+        options.init = HashInit::NoInit;
+        peri.sgi_hash_reload(options, &hasher.ctx.prev_result)?; // Load the previous hash state into SGI for the current block
         peri.sgi_stop_sha2_cmd(); // Ensure we stop any ongoing hash operation before starting the next one
         peri.wait_until_sha2_not_busy()?;
     }
 
-    peri.init_sgi_sha(hasher.ctx.options)?;
-    peri.start_sgi_hash(hasher.ctx.options, &hasher.ctx.curr_block)?;
-    peri.fill_sha2_fifo(hasher.ctx.options, &hasher.ctx.curr_block, MAX_BLOCK_SIZE)?;
-    peri.update_partial_output(hasher.ctx.options, &mut hasher.ctx.prev_result)?;
+    peri.init_sgi_sha(options)?;
+    peri.start_sgi_hash(options, &hasher.ctx.curr_block)?;
+    peri.fill_sha2_fifo(options, &hasher.ctx.curr_block, MAX_BLOCK_SIZE)?;
+    peri.update_partial_output(options, &mut next_prev_result)?;
 
     // After the first processed block, all subsequent operations must chain without auto-init.
     hasher.ctx.options.init = HashInit::NoInit;
-    hasher.ctx.processed_len += MAX_BLOCK_SIZE;
+    hasher.ctx.prev_result = next_prev_result;
+    hasher.ctx.first_block = false;
+    hasher.ctx.processed_len = hasher
+        .ctx
+        .processed_len
+        .checked_add(MAX_BLOCK_SIZE)
+        .ok_or(SgiError::InvalidSize)?;
+    hasher.ctx.curr_block_ptr = 0;
 
-    if overflows_block && write_bytes > 0 {
+    if let Some(input_suffix) = overflow_suffix {
         #[cfg(feature = "defmt")]
         defmt::trace!(
             "Input overflows current block by {=usize} bytes, writing remaining bytes to next block",
-            write_bytes
+            next_curr_block_ptr
         );
         let curr_block_prefix = hasher
             .ctx
             .curr_block
-            .get_mut(..write_bytes)
+            .get_mut(..next_curr_block_ptr)
             .ok_or(SgiError::InvalidSize)?;
-        // This overflow path only writes the leftover suffix, so `write_bytes` cannot exceed `input.len()`.
-        let input_suffix = input.get(input.len() - write_bytes..).ok_or(SgiError::InvalidSize)?;
         curr_block_prefix.copy_from_slice(input_suffix);
-        hasher.ctx.curr_block_ptr = write_bytes;
+        hasher.ctx.curr_block_ptr = next_curr_block_ptr;
     }
     Ok(())
 }
@@ -723,7 +734,13 @@ impl StreamingHasher {
 
             fifo_start += MAX_BLOCK_SIZE;
             fifo_end += MAX_BLOCK_SIZE;
-            self.ctx.processed_len += MAX_BLOCK_SIZE;
+
+            // No need to update partial output, SGI retains the hash state internally across multiple blocks as long as we don't auto-init, so we can just keep feeding blocks until we're done.
+            self.ctx.processed_len = self
+                .ctx
+                .processed_len
+                .checked_add(MAX_BLOCK_SIZE)
+                .ok_or(SgiError::InvalidSize)?;
         }
 
         sgi.read_hash_output(self.ctx.options, hash_result)?;

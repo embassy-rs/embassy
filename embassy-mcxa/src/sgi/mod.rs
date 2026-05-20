@@ -641,6 +641,7 @@ impl<'d, M: Mode> Sgi<'d, M> {
     ) -> Result<(), SgiError> {
         // Reload the internal hash state using the DATIN path (NORMAL mode) with HASH_RELOAD enabled.
         // This must NOT auto-init, otherwise the hardware IV would overwrite the provided state.
+        options.byte_order = ByteOrder::BigEndian; // Hash state is always in big-endian order, so set byte order accordingly for reloading the hash state.
         options.op_mode = HashMode::Normal; // Use normal mode for hash reload to allow loading the hash state through the datain registers.
         options.reload = HashReload::Reload; // Set reload bit for hash reload operation
         options.init = HashInit::NoInit; // Clear auto init bit for hash reload operation, since we are providing the hash state to be reloaded and don't want SGI to overwrite it with IV.
