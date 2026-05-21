@@ -275,11 +275,13 @@ struct EpState {
     /// Buffers are ready when associated [State::ep_out_size] != [EP_OUT_BUFFER_EMPTY].
     out_buffer: UnsafeCell<*mut u8>,
     out_size: AtomicU16,
+    // Written once during endpoint allocation (before Driver::start), read-only afterward.
+    in_alloc: UnsafeCell<Option<EndpointData>>,
+    out_alloc: UnsafeCell<Option<EndpointData>>,
 }
 
-// SAFETY: The EndpointAllocator ensures that the buffer points to valid memory exclusive for each endpoint and is
-// large enough to hold the maximum packet size. Access to the buffer is synchronized between the USB interrupt and the
-// EndpointOut impl using the out_size atomic variable.
+// SAFETY: `out_buffer` access is synchronized via `out_size`. `in_alloc`/`out_alloc` are written
+// only during endpoint allocation before the USB stack starts; afterward they are read-only.
 unsafe impl Send for EpState {}
 unsafe impl Sync for EpState {}
 
@@ -304,8 +306,6 @@ struct EndpointData {
 pub struct OtgState<'d> {
     cp_state: &'d ControlPipeSetupState,
     ep_states: &'d [EpState],
-    ep_in_alloc: &'d [UnsafeCell<Option<EndpointData>>],
-    ep_out_alloc: &'d [UnsafeCell<Option<EndpointData>>],
     bus_waker: &'d AtomicWaker,
 }
 
@@ -320,8 +320,8 @@ impl<'d> OtgState<'d> {
     pub(crate) fn ep_alloc_get(&self, dir: Direction, index: usize) -> Option<&EndpointData> {
         unsafe {
             match dir {
-                Direction::In => (*self.ep_in_alloc[index].get()).as_ref(),
-                Direction::Out => (*self.ep_out_alloc[index].get()).as_ref(),
+                Direction::In => (*self.ep_states[index].in_alloc.get()).as_ref(),
+                Direction::Out => (*self.ep_states[index].out_alloc.get()).as_ref(),
             }
         }
     }
@@ -365,8 +365,8 @@ impl<'d> OtgState<'d> {
     /// Call only from [`Driver::alloc_endpoint`](crate::Driver::alloc_endpoint) before [`embassy_usb_driver::Driver::start`].
     pub(crate) unsafe fn alloc_slot_write(&self, dir: Direction, index: usize, data: EndpointData) {
         match dir {
-            Direction::In => *self.ep_in_alloc[index].get() = Some(data),
-            Direction::Out => *self.ep_out_alloc[index].get() = Some(data),
+            Direction::In => *self.ep_states[index].in_alloc.get() = Some(data),
+            Direction::Out => *self.ep_states[index].out_alloc.get() = Some(data),
         }
     }
 }
@@ -376,16 +376,7 @@ pub struct State<const EP_COUNT: usize> {
     cp_state: ControlPipeSetupState,
     ep_states: [EpState; EP_COUNT],
     bus_waker: AtomicWaker,
-
-    // Endpoint allocation data, owned by Driver/Bus.
-    ep_in_alloc: [UnsafeCell<Option<EndpointData>>; EP_COUNT],
-    ep_out_alloc: [UnsafeCell<Option<EndpointData>>; EP_COUNT],
 }
-
-// SAFETY: `ep_in_alloc` / `ep_out_alloc` are written only during `Driver` endpoint allocation before the USB device
-// stack runs; afterward they are read-only. `EpState::out_buffer` invariants are documented on `EpState`.
-unsafe impl<const EP_COUNT: usize> Send for State<EP_COUNT> {}
-unsafe impl<const EP_COUNT: usize> Sync for State<EP_COUNT> {}
 
 impl<const EP_COUNT: usize> State<EP_COUNT> {
     /// Create a new State.
@@ -401,10 +392,10 @@ impl<const EP_COUNT: usize> State<EP_COUNT> {
                     out_waker: AtomicWaker::new(),
                     out_buffer: UnsafeCell::new(0 as _),
                     out_size: AtomicU16::new(EP_OUT_BUFFER_EMPTY),
+                    in_alloc: UnsafeCell::new(None),
+                    out_alloc: UnsafeCell::new(None),
                 }
             }; EP_COUNT],
-            ep_in_alloc: [const { UnsafeCell::new(None) }; EP_COUNT],
-            ep_out_alloc: [const { UnsafeCell::new(None) }; EP_COUNT],
             bus_waker: AtomicWaker::new(),
         }
     }
@@ -414,8 +405,6 @@ impl<const EP_COUNT: usize> State<EP_COUNT> {
         OtgState {
             cp_state: &self.cp_state,
             ep_states: self.ep_states.as_slice(),
-            ep_in_alloc: self.ep_in_alloc.as_slice(),
-            ep_out_alloc: self.ep_out_alloc.as_slice(),
             bus_waker: &self.bus_waker,
         }
     }
