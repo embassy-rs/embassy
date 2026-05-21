@@ -114,16 +114,13 @@ impl Timer {
     /// Expire after specified [Duration](struct.Duration.html).
     /// This can be used as a `sleep` abstraction.
     ///
-    /// Note: You must ensure that Instant::now() when added to the intended
-    /// sleep duration does not overflow the u64 tick counter or a panic will occur.
+    /// ## Panics
     ///
-    /// For example Timer::after(Duration::MAX) will always panic
-    /// and must be avoided.
+    /// Panics if the computed instant overflows.
+    /// Avoid panics with [`Timer::try_after()`].
     ///
-    /// The same restriction applies to with_timeout() and the other
-    /// after_* functions.
+    /// ## Example
     ///
-    /// Example:
     /// ``` no_run
     /// use embassy_time::{Duration, Timer};
     ///
@@ -134,10 +131,17 @@ impl Timer {
     /// }
     /// ```
     pub fn after(duration: impl Into<Duration>) -> Self {
-        Self {
-            expires_at: Instant::now() + duration.into(),
-            yielded_once: false,
-        }
+        let expires_at = Instant::now() + duration.into();
+        Self::at(expires_at)
+    }
+
+    /// Try to expire after specified [Duration](struct.Duration.html).
+    /// This can be used as a `sleep` abstraction.
+    ///
+    /// This is a panic-free [`Timer::after()`].
+    pub fn try_after(duration: impl Into<Duration>) -> Option<Self> {
+        let expires_at = Instant::now().checked_add(duration.into())?;
+        Some(Self::at(expires_at))
     }
 
     /// Expire after the specified number of ticks.
@@ -321,3 +325,22 @@ impl core::fmt::Display for TimeoutError {
     }
 }
 impl core::error::Error for TimeoutError {}
+
+#[cfg(all(test, feature = "std"))]
+mod test {
+    use super::*;
+
+    #[test]
+    #[should_panic(expected = "overflow")]
+    #[cfg(panic = "unwind")]
+    fn timer_after_panics() {
+        while Instant::now() == Instant::MIN {} // with non-0 tick
+        let _ = Timer::after(Duration::MAX); // PANIC
+    }
+
+    #[test]
+    fn timer_try_after_none() {
+        while Instant::now() == Instant::MIN {} // with non-0 tick
+        assert!(Timer::try_after(Duration::MAX).is_none());
+    }
+}
