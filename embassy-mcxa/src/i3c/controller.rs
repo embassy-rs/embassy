@@ -179,8 +179,20 @@ pub struct Config {
     /// I3C push-pull bus frequency in Hz.
     pub push_pull_freq: u32,
 
-    /// I3C open-drain frequency in Hz.
+    /// I3C open-drain bus frequency in Hz.
     pub open_drain_freq: u32,
+
+    /// Open-drain SCL waveform mode (MCONFIG.ODHPP).
+    ///
+    /// - `false` (symmetric OD): SCL HIGH = SCL LOW = (ODBAUD+1)·(PPBAUD+1)·Tfclk.
+    ///   Safe on long cables, weak pull-ups, or buses shared with FM/FM+ I²C
+    ///   devices. Caps open-drain SCL at ~`push_pull_freq / 2`.
+    /// - `true` (high-speed OD, default): SCL HIGH = (PPBAUD+1)·Tfclk
+    ///   (push-pull-fast), SCL LOW unchanged. Faster open-drain addressing,
+    ///   ENTDAA and CCC phases. Requires a strong / active pull-up — the
+    ///   on-chip I3C_PUR FET driven by the controller. With ODHPP=1 the
+    ///   open-drain SCL frequency = `2·pp_freq / (ODBAUD+2)`.
+    pub odhpp: bool,
 
     /// I2C bus speed
     pub i2c_speed: Speed,
@@ -194,6 +206,7 @@ impl Default for Config {
         Self {
             push_pull_freq: 1_500_000,
             open_drain_freq: 750_000,
+            odhpp: true,
             i2c_speed: Speed::Fast,
             clock_config: ClockConfig::default(),
         }
@@ -316,7 +329,14 @@ impl<'d, M: Mode> I3c<'d, M> {
             w.set_rxtrig(MdatactrlRxtrig::NotEmpty);
         });
 
-        let (ppbaud, odbaud, i2cbaud) = self.calculate_baud_rate_params(config)?;
+        // ODHPP must match between the baud calc and the value programmed
+        // into MCONFIG — otherwise the calc picks ODBAUD for one timing
+        // formula while the HW runs the other, and the actual open-drain
+        // SCL overshoots (or undershoots) the target. Use the same value
+        // from `config` in both places.
+        let odhpp_enabled = config.odhpp;
+
+        let (ppbaud, odbaud, i2cbaud) = self.calculate_baud_rate_params(config, odhpp_enabled)?;
 
         self.info.regs().mconfig().write(|w| {
             w.set_ppbaud(ppbaud as u8);
@@ -326,14 +346,14 @@ impl<'d, M: Mode> I3c<'d, M> {
             w.set_disto(Disto::Enable);
             w.set_hkeep(Hkeep::None);
             w.set_odstop(false);
-            w.set_odhpp(true);
+            w.set_odhpp(odhpp_enabled);
         });
 
         Ok(())
     }
 
     // REVISIT: not very readable
-    fn calculate_baud_rate_params(&self, config: &Config) -> Result<(u32, u32, u32), SetupError> {
+    fn calculate_baud_rate_params(&self, config: &Config, odhpp_enabled: bool) -> Result<(u32, u32, u32), SetupError> {
         const NSEC_PER_SEC: u32 = 1_000_000_000;
 
         let fclk = self.fclk;
@@ -354,9 +374,18 @@ impl<'d, M: Mode> I3c<'d, M> {
         /* -------------------------------------------------------------
          * 1) Push‑Pull baud (PPBAUD)
          *    Generated from fclk / 2
+         *    Max achievable SCL = fclk / 2 (PPBAUD = 0).
          * ------------------------------------------------------------- */
 
         let mut pp_src_hz = fclk / 2;
+
+        // Reject configurations the clock source can't deliver, instead of
+        // silently clamping. Otherwise the driver would happily program a
+        // slower-than-requested bus and the user would only find out with
+        // a scope.
+        if pp_src_hz < target_pp_hz {
+            return Err(SetupError::InvalidConfiguration);
+        }
 
         let mut pp_div = (pp_src_hz / target_pp_hz).max(1);
         if pp_src_hz / pp_div > max_pp_hz {
@@ -370,13 +399,23 @@ impl<'d, M: Mode> I3c<'d, M> {
 
         /* -------------------------------------------------------------
          * 2) Open‑Drain baud (ODBAUD)
-         *    Depends on ODHPP mode
+         *    Depends on ODHPP mode. Caller (set_configuration) MUST
+         *    program MCONFIG.ODHPP to the same value passed here.
+         *
+         *    ODHPP = 1: SCL_HIGH = (PPBAUD+1)·Tfclk,
+         *               SCL_LOW  = (ODBAUD+1)·(PPBAUD+1)·Tfclk
+         *               → od_freq = 2·pp_freq / (ODBAUD + 2)
+         *    ODHPP = 0: SCL_HIGH = SCL_LOW = (ODBAUD+1)·(PPBAUD+1)·Tfclk
+         *               → od_freq = pp_freq / (ODBAUD + 1)
          * ------------------------------------------------------------- */
-
-        let odhpp_enabled = self.info.regs().mconfig().read().odhpp();
 
         let (od_baud, _od_src_hz) = if odhpp_enabled {
             // OD rate derived from 2×PP clock
+            let max_od_achievable = 2 * pp_src_hz / 2; // ODBAUD = 0 → freq = pp_freq
+            if max_od_achievable < target_od_hz {
+                return Err(SetupError::InvalidConfiguration);
+            }
+
             let mut div = ((2 * pp_src_hz) / target_od_hz).max(2);
             if (2 * pp_src_hz) / div > max_od_hz {
                 div += 1;
@@ -385,6 +424,10 @@ impl<'d, M: Mode> I3c<'d, M> {
             (div - 2, (2 * pp_src_hz) / div)
         } else {
             // OD rate derived directly
+            if pp_src_hz < target_od_hz {
+                return Err(SetupError::InvalidConfiguration);
+            }
+
             let mut div = (pp_src_hz / target_od_hz).max(1);
             if pp_src_hz / div > max_od_hz {
                 div += 1;
