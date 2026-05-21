@@ -1,0 +1,273 @@
+use core::sync::atomic::{AtomicU32, Ordering, compiler_fence};
+
+use mspm0_metapac::sysctl::vals::FcccmdKey;
+
+use crate::pac;
+
+pub(crate) struct Clocks {
+    /// PLL, SYSOSC, or HFXT
+    pub m_clk: AtomicU32,
+    /// LFOSC or LFXT
+    pub rtc_clk: AtomicU32,
+    /// ULPCLK
+    #[cfg(mspm0g)]
+    pub ulp_clk: AtomicU32,
+    /// MFCLK
+    pub mf_clk: AtomicU32,
+    /// SYSOSC
+    pub sys_osc: AtomicU32,
+    // HFCLK
+    // pub hf_clk: AtomicU32,
+}
+
+pub(crate) static CLOCKS: Clocks = Clocks {
+    m_clk: AtomicU32::new(0),
+    rtc_clk: AtomicU32::new(0),
+    #[cfg(mspm0g)]
+    ulp_clk: AtomicU32::new(0),
+    mf_clk: AtomicU32::new(0),
+    sys_osc: AtomicU32::new(0),
+    // hf_clk: AtomicU32::new(0),
+};
+
+#[cfg(mspm0g)]
+#[derive(Clone)]
+pub struct PllConfig {
+    pub pdiv: u8,
+    pub qdiv: u8,
+    pub rdiv2x: u8,
+}
+
+#[derive(Clone)]
+pub enum SysOscSpeed {
+    HighSpeed,
+    // UserTrim,
+    LowSpeed,
+}
+
+impl SysOscSpeed {
+    pub fn frequency(&self) -> u32 {
+        match self {
+            #[cfg(any(mspm0g, mspm0l, mspm0h))]
+            SysOscSpeed::HighSpeed => 32_000_000,
+            // NOTE: TRM is not clear about limit also specifying 32MHz possible
+            #[cfg(any(mspm0c))]
+            SysOscSpeed::HighSpeed => 24_000_000,
+            // SysOscSpeed::UserTrim => unimplemented!(),
+            SysOscSpeed::LowSpeed => 4_000_000,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct SysOscConfig {
+    pub fcl_enabled: bool,
+    pub speed: SysOscSpeed,
+}
+
+#[derive(Clone)]
+pub enum MClkSource {
+    #[cfg(mspm0g)]
+    PLL,
+    SYSOSC,
+    LFCLK,
+    HFCLK,
+}
+
+#[derive(Clone)]
+pub struct ClockConfig {
+    #[cfg(mspm0g)]
+    pub pll_config: Option<PllConfig>,
+
+    pub sysosc_config: SysOscConfig,
+
+    pub mclk_source: MClkSource,
+}
+
+impl Default for ClockConfig {
+    fn default() -> Self {
+        Self {
+            #[cfg(mspm0g)]
+            pll_config: Some(PllConfig {
+                pdiv: 0,
+                qdiv: 1,
+                rdiv2x: 0,
+            }),
+            sysosc_config: SysOscConfig {
+                fcl_enabled: true,
+                speed: SysOscSpeed::HighSpeed,
+            },
+            #[cfg(mspm0g)]
+            mclk_source: MClkSource::PLL,
+            #[cfg(not(mspm0g))]
+            mclk_source: MClkSource::SYSOSC,
+        }
+    }
+}
+
+// TODO:  Debug utils; to be moved
+pub fn start_measure_frequency() {
+    pac::SYSCTL.genclkcfg().modify(|w| {
+        w.set_fccselclk(mspm0_metapac::sysctl::vals::Fccselclk::SYSPLLCLK0);
+        w.set_fcclvltrig(mspm0_metapac::sysctl::vals::Fcclvltrig::RISE2RISE);
+        w.set_fcctrigsrc(mspm0_metapac::sysctl::vals::Fcctrigsrc::LFCLK);
+        w.set_fcctrigcnt(0x1F);
+    });
+
+    compiler_fence(Ordering::SeqCst);
+
+    pac::SYSCTL.fcccmd().write(|w| {
+        w.set_go(true);
+        w.set_key(FcccmdKey::KEY);
+    })
+}
+
+pub fn frequency() -> Option<u32> {
+    let status = pac::SYSCTL.clkstatus().read();
+    #[cfg(feature = "defmt")]
+    defmt::warn!(
+        "PLL status off={}, good={}; hsclkoff={}, hsclkgood={}, sysosc_freq={}",
+        status.sysplloff(),
+        status.syspllgood(),
+        status.hsclksoff(),
+        status.hsclkgood(),
+        status.sysoscfreq() as u8
+    );
+
+    if status.fccdone() {
+        Some(pac::SYSCTL.fcc().read().data() * 32768 / 0x20)
+    } else {
+        None
+    }
+}
+
+// TODO: create extensive ClockConfig
+pub(crate) unsafe fn init(config: ClockConfig) {
+    // TODO: Further clock configuration
+
+    CLOCKS.m_clk.store(
+        match config.mclk_source {
+            #[cfg(mspm0g)]
+            MClkSource::PLL => 80_000_000, // TODO: calculate
+            MClkSource::SYSOSC => config.sysosc_config.speed.frequency(),
+            MClkSource::LFCLK => unimplemented!("LFCLK is not supported yet"),
+            MClkSource::HFCLK => unimplemented!("HFCLK is not supported yet"),
+        },
+        Ordering::Relaxed,
+    );
+
+    CLOCKS.rtc_clk.store(32_000, Ordering::Relaxed);
+    CLOCKS.mf_clk.store(4_000_000, Ordering::Relaxed);
+    CLOCKS
+        .sys_osc
+        .store(config.sysosc_config.speed.frequency(), Ordering::Relaxed);
+
+    // TODO: this can deviate in case HF/PLL is not running at max freq
+    #[cfg(mspm0g)]
+    CLOCKS.ulp_clk.store(40_000_000, Ordering::Relaxed);
+
+    pac::SYSCTL.sysosccfg().modify(|w| {
+        w.set_freq(match config.sysosc_config.speed {
+            SysOscSpeed::HighSpeed => mspm0_metapac::sysctl::vals::SysosccfgFreq::SYSOSCBASE,
+            SysOscSpeed::LowSpeed => mspm0_metapac::sysctl::vals::SysosccfgFreq::SYSOSC4M,
+        });
+    });
+
+    // Enable MFCLK for peripheral use
+    //
+    // NOTE: Only used for DAC peripheral
+    pac::SYSCTL.genclken().modify(|w| {
+        w.set_mfpclken(true);
+    });
+
+    if config.sysosc_config.fcl_enabled {
+        pac::SYSCTL.sysoscfclctl().write(|w| {
+            w.set_setusefcl(config.sysosc_config.fcl_enabled);
+            // FIXME: this should exist for mspm0c/mspm0l
+            #[cfg(not(any(mspm0c, mspm0l, mspm0h)))]
+            w.set_setuseexres(config.sysosc_config.fcl_enabled);
+        });
+    }
+
+    #[cfg(mspm0g)]
+    if let Some(pll_config) = config.pll_config {
+        // TODO: assert this requires sys_osc.speed == HighSpeed
+
+        pac::SYSCTL.syspllcfg0().modify(|w| {
+            w.set_syspllref(mspm0_metapac::sysctl::vals::Syspllref::SYSOSC);
+            w.set_enableclk2x(true);
+            w.set_enableclk1(true);
+            w.set_enableclk0(true); // FIXME: this probably isn't needed
+            w.set_mclk2xvco(false);
+            w.set_rdivclk1(mspm0_metapac::sysctl::vals::Rdivclk1::CLK1DIV2);
+            w.set_rdivclk2x(mspm0_metapac::sysctl::vals::Rdivclk2x::from_bits(pll_config.rdiv2x));
+        });
+
+        // let divs = crate::common::hillclimb([0u32, 1u32, 0u32], |divs| {
+        //     if divs[0] > 3 || !(1..127).contains(&divs[1]) || divs[2] > 15 {
+        //         return i32::MAX;
+        //     }
+
+        //     let pdiv = 1 << divs[0];
+        //     let qdiv = divs[1] + 1;
+        //     let rdiv = divs[2] + 1;
+        //     target_freq as i32 - (((2 * common::get_mclk_frequency() * qdiv) / pdiv) / rdiv) as i32
+        // });
+
+        // Load PLL params from factory region (16-32MHz)
+        let pll_params_0 = core::ptr::read_volatile(0x41C4001C as *const u32);
+        let pll_params_1 = core::ptr::read_volatile(0x41C40020 as *const u32);
+        (pac::SYSCTL.syspllparam0().as_ptr() as *mut u32).write_volatile(pll_params_0);
+        (pac::SYSCTL.syspllparam1().as_ptr() as *mut u32).write_volatile(pll_params_1);
+
+        pac::SYSCTL.syspllcfg1().modify(|w| {
+            w.set_pdiv(mspm0_metapac::sysctl::vals::Pdiv::from_bits(pll_config.pdiv));
+            w.set_qdiv(mspm0_metapac::sysctl::vals::Qdiv(pll_config.qdiv));
+        });
+
+        pac::SYSCTL.hsclken().modify(|w| {
+            w.set_syspllen(true);
+        });
+        pac::SYSCTL.hsclkcfg().modify(|w| {
+            // For now PLL is assumed
+            w.set_hsclksel(mspm0_metapac::sysctl::vals::Hsclksel::SYSPLL);
+        });
+        pac::SYSCTL
+            .genclkcfg()
+            .modify(|w| w.set_canclksrc(mspm0_metapac::sysctl::vals::Canclksrc::SYSPLLOUT1));
+
+        cortex_m::asm::delay(2_000_000); // Wait a bit for PLL to catch up
+    }
+
+    // FIXME: this should exist for mpsm0c/mspm0l
+    #[cfg(not(any(mspm0c, mspm0l, mspm0h)))]
+    pac::SYSCTL.hsclkcfg().modify(|w| match config.mclk_source {
+        #[cfg(mspm0g)]
+        MClkSource::PLL => w.set_hsclksel(mspm0_metapac::sysctl::vals::Hsclksel::SYSPLL),
+        MClkSource::HFCLK => w.set_hsclksel(mspm0_metapac::sysctl::vals::Hsclksel::HFCLKCLK),
+        _ => {}
+    });
+
+    pac::SYSCTL.mclkcfg().modify(|w| {
+        match config.mclk_source {
+            MClkSource::SYSOSC => {
+                w.set_usemftick(true);
+                w.set_mdiv(0);
+            }
+            #[cfg(mspm0g)]
+            MClkSource::PLL => {
+                w.set_flashwait(mspm0_metapac::sysctl::vals::Flashwait::WAIT2);
+                w.set_usehsclk(true);
+            }
+            MClkSource::HFCLK => {
+                // FIXME: this should exist for MSPM0L
+                w.set_flashwait(mspm0_metapac::sysctl::vals::Flashwait::WAIT2);
+                #[cfg(not(mspm0l))]
+                w.set_usehsclk(true);
+            }
+            MClkSource::LFCLK => {
+                w.set_uselfclk(true);
+            }
+        }
+    });
+}
