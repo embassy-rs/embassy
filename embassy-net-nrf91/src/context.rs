@@ -113,6 +113,17 @@ impl<'a> Control<'a> {
         CommandParser::parse(&buf[..n]).expect_identifier(b"OK").finish()?;
 
         let op = CommandBuilder::create_set(&mut cmd, true)
+            .named("%XSYSTEMMODE")
+            .with_int_parameter(1)
+            .with_int_parameter(0)
+            .with_int_parameter(1)
+            .with_int_parameter(0)
+            .finish()
+            .map_err(|_| Error::BufferTooSmall)?;
+        let n = self.control.at_command(op, &mut buf).await;
+        CommandParser::parse(&buf[..n]).expect_identifier(b"OK").finish()?;
+
+        let op = CommandBuilder::create_set(&mut cmd, true)
             .named("+CGDCONT")
             .with_int_parameter(self.cid)
             .with_string_parameter("IP")
