@@ -80,13 +80,29 @@ impl<'d, T: Timer> LLTimer<'d, T> {
         })
     }
 
-    // Automatically configures clock frequency & tmr.load to give a periodic interrupt
-    // Frequency is at best-effort basis, actual frequency is returned
-    //
-    // This uses the ZeroEvent
-    //
-    // SAFETY: this requires the user to setup an interrupt handler which clears the zero interrupt
-    //  failure to do so will block the CPU
+    /// Automatically configures clock frequency & tmr.load to give a periodic interrupt
+    /// Frequency is at best-effort basis, actual frequency is returned
+    ///
+    /// This uses the LoadEvent, which should be cleared in the interrupt handler
+    ///
+    /// Example:
+    ///
+    /// ```rust,ignore
+    /// #[interrupt]
+    /// fn TIMA0() {
+    ///   pac::TIMA0.cpu_int(0).iclr().write(|w| {
+    ///     w.set_l(true);
+    ///   });
+    ///
+    ///   ...
+    /// }
+    ///
+    /// let tima0 = LLTimer::new(p.TIMA0);
+    /// let actual_freq = unsafe { tima0.start_periodic_timer(10) };
+    /// ```
+    ///
+    /// SAFETY: this requires the user to setup an interrupt handler which clears the zero interrupt
+    ///  failure to do so will block the CPU
     pub unsafe fn start_periodic_timer(&self, freq: u32) -> u32 {
         let regs = T::regs();
 
