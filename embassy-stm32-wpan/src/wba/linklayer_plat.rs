@@ -76,7 +76,7 @@
 #![allow(clippy::missing_safety_doc)]
 
 use core::ptr;
-use core::sync::atomic::{AtomicBool, AtomicI32, AtomicPtr, AtomicU32, Ordering, compiler_fence};
+use core::sync::atomic::{AtomicBool, AtomicI32, AtomicPtr, AtomicU32, AtomicUsize, Ordering, compiler_fence};
 
 use cortex_m::interrupt::InterruptNumber;
 use cortex_m::peripheral::NVIC;
@@ -269,6 +269,20 @@ fn cmac_compute(key: &[u8; 16], input: &[u8], output: &mut [u8; 16]) {
 static mut PKA_RESULT_X: [u32; 8] = [0u32; 8];
 static mut PKA_RESULT_Y: [u32; 8] = [0u32; 8];
 static PKA_RESULT_READY: AtomicBool = AtomicBool::new(false);
+/// Set after a PKA computation completes. BLEPLATCB_PkaComplete must be called
+/// from outside the sequencer context (i.e. from run_ble), not re-entrantly
+/// from within BLEPLAT_PkaStartP256Key / BLEPLAT_PkaStartDhKey, because the
+/// BLE stack state machine hasn't finished its own transition yet when Start returns.
+static PKA_CALLBACK_PENDING: AtomicBool = AtomicBool::new(false);
+
+/// Call BLEPLATCB_PkaComplete if a PKA callback was deferred.
+/// Must be invoked from the embassy-task context (after seq_resume returns),
+/// never from within the sequencer context.
+pub fn dispatch_pka_callback_if_pending() {
+    if PKA_CALLBACK_PENDING.swap(false, Ordering::AcqRel) {
+        unsafe { super::bindings::ble::BLEPLATCB_PkaComplete() };
+    }
+}
 
 /// Convert u32 LE word array (index 0 = LSW) to big-endian byte array.
 /// This is needed because the BLE stack uses u32 LE words, but the Embassy
@@ -398,8 +412,54 @@ static NVM_BASE_ADDRESS: AtomicU32 = AtomicU32::new(0);
 
 /// Set the NVM base address. Must be called before BLE init.
 /// The address must be page-aligned (8KB boundary) and within flash.
+/// For STM32WBA65RI (2MB flash): use 0x081F_E000 (last 8KB page of BANK_2).
 pub fn set_nvm_base_address(addr: u32) {
     NVM_BASE_ADDRESS.store(addr, Ordering::Release);
+}
+
+/// Pointer to the NVM cache buffer allocated by the BLE stack init.
+static NVM_CACHE_PTR: AtomicUsize = AtomicUsize::new(0);
+/// Size of the NVM cache buffer in bytes.
+static NVM_CACHE_LEN_BYTES: AtomicUsize = AtomicUsize::new(0);
+
+/// Register the NVM cache buffer. Called once during `init_ble_stack` so that
+/// `BLEPLAT_NvmStore` can write the entire buffer (matching ST reference behaviour).
+pub fn register_nvm_cache(ptr: *mut u64, len_u64s: usize) {
+    NVM_CACHE_PTR.store(ptr as usize, Ordering::Release);
+    NVM_CACHE_LEN_BYTES.store(len_u64s * 8, Ordering::Release);
+}
+
+/// Load previously stored NVM data from flash into `buf`.
+///
+/// Call this before `BleStack_Init` so the stack can restore any bonds that
+/// were persisted in a previous session. Returns the number of valid bytes
+/// loaded into `buf`, or 0 if flash has no valid NVM data (first boot after
+/// flash erase, or NVM base address not configured).
+pub fn load_nvm_from_flash(buf: &mut [u8]) -> usize {
+    let base = NVM_BASE_ADDRESS.load(Ordering::Acquire);
+    if base == 0 {
+        return 0;
+    }
+
+    // Read and verify magic marker
+    let magic = unsafe { core::ptr::read_volatile(base as *const u32) };
+    if magic != NVM_MAGIC {
+        return 0;
+    }
+
+    // Read stored data length
+    let size = unsafe { core::ptr::read_volatile((base + 4) as *const u16) } as usize;
+    if size == 0 || size > buf.len() {
+        return 0;
+    }
+
+    // Copy data payload (starts at offset NVM_WRITE_SIZE = 16)
+    let data_ptr = (base + NVM_WRITE_SIZE as u32) as *const u8;
+    let data = unsafe { core::slice::from_raw_parts(data_ptr, size) };
+    buf[..size].copy_from_slice(data);
+
+    trace!("load_nvm_from_flash: loaded {} bytes", size);
+    size
 }
 
 /// Unlock flash for programming
@@ -442,16 +502,21 @@ unsafe fn flash_wait_ready() -> bool {
 
 /// Erase a flash page by its base address
 unsafe fn flash_erase_page(page_addr: u32) -> bool {
-    // Calculate page index: (addr - FLASH_BASE) / PAGE_SIZE
-    let flash_base = 0x0800_0000u32;
-    let page_index = (page_addr - flash_base) / NVM_PAGE_SIZE as u32;
+    const FLASH_BASE: u32 = 0x0800_0000;
+    const BANK2_BASE: u32 = 0x0810_0000; // BANK_2 starts at +1MB
+
+    let (bank2, page_index) = if page_addr >= BANK2_BASE {
+        (true, (page_addr - BANK2_BASE) / NVM_PAGE_SIZE as u32)
+    } else {
+        (false, (page_addr - FLASH_BASE) / NVM_PAGE_SIZE as u32)
+    };
 
     flash_unlock();
 
     FLASH.nscr().modify(|w| {
         w.set_per(true);
         w.set_pnb(page_index as u8);
-        w.set_bker(false); // Bank 1
+        w.set_bker(bank2);
     });
     FLASH.nscr().modify(|w| {
         w.set_strt(true);
@@ -1659,39 +1724,37 @@ pub unsafe extern "C" fn BLEPLAT_TimerStop(id: u16) {
 
 /// NVM store function for BLE stack.
 ///
-/// Stores BLE bonding/configuration data to internal flash.
-/// The NVM base address must be set via `set_nvm_base_address()` before use.
-///
-/// # Arguments
-/// * `ptr` - Pointer to data to store
-/// * `size` - Size of data in bytes
+/// The ST BLE stack ignores the `ptr`/`size` arguments in its reference implementation
+/// and always writes the entire NVM cache buffer. We do the same: `ptr` and `size` are
+/// ignored; the buffer registered via `register_nvm_cache` is written to flash wholesale.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn BLEPLAT_NvmStore(ptr: *const u64, size: u16) {
-    trace!("BLEPLAT_NvmStore: size={}", size);
-
+pub unsafe extern "C" fn BLEPLAT_NvmStore(_ptr: *const u64, _size: u16) {
     let base = NVM_BASE_ADDRESS.load(Ordering::Acquire);
     if base == 0 {
         trace!("BLEPLAT_NvmStore: NVM not configured, skipping");
         return;
     }
 
-    if ptr.is_null() || size == 0 {
+    let cache_ptr = NVM_CACHE_PTR.load(Ordering::Acquire);
+    let cache_len = NVM_CACHE_LEN_BYTES.load(Ordering::Acquire);
+    if cache_ptr == 0 || cache_len == 0 {
+        error!("BLEPLAT_NvmStore: NVM cache not registered");
         return;
     }
 
-    let data = core::slice::from_raw_parts(ptr as *const u8, size as usize);
+    trace!("BLEPLAT_NvmStore: writing {} bytes", cache_len);
 
-    // Erase the NVM page first
+    let data = core::slice::from_raw_parts(cache_ptr as *const u8, cache_len);
+
     if !flash_erase_page(base) {
         error!("BLEPLAT_NvmStore: flash erase failed");
         return;
     }
 
-    // Write header: magic + length (fits in first quad-word with padding)
+    // Write header: magic + length in bytes (fits in first quad-word with padding)
     let mut header = [0u8; NVM_WRITE_SIZE];
     header[0..4].copy_from_slice(&NVM_MAGIC.to_le_bytes());
-    header[4..6].copy_from_slice(&size.to_le_bytes());
-    // bytes 6..16 are zero padding
+    header[4..6].copy_from_slice(&(cache_len as u16).to_le_bytes());
 
     if !flash_write_quadword(base, &header) {
         error!("BLEPLAT_NvmStore: flash write header failed");
@@ -1703,12 +1766,7 @@ pub unsafe extern "C" fn BLEPLAT_NvmStore(ptr: *const u64, size: u16) {
     let mut offset: usize = 0;
     while offset < data.len() {
         let mut quad = [0u8; NVM_WRITE_SIZE];
-        let remaining = data.len() - offset;
-        let chunk = if remaining >= NVM_WRITE_SIZE {
-            NVM_WRITE_SIZE
-        } else {
-            remaining
-        };
+        let chunk = (data.len() - offset).min(NVM_WRITE_SIZE);
         quad[..chunk].copy_from_slice(&data[offset..offset + chunk]);
 
         if !flash_write_quadword(data_addr + offset as u32, &quad) {
@@ -1718,7 +1776,7 @@ pub unsafe extern "C" fn BLEPLAT_NvmStore(ptr: *const u64, size: u16) {
         offset += NVM_WRITE_SIZE;
     }
 
-    trace!("BLEPLAT_NvmStore: stored {} bytes", size);
+    trace!("BLEPLAT_NvmStore: stored {} bytes", cache_len);
 }
 
 // BLEPLAT return codes
@@ -1759,8 +1817,9 @@ pub unsafe extern "C" fn BLEPLAT_PkaStartP256Key(local_private_key: *const u32) 
 
     if result == 0 {
         PKA_RESULT_READY.store(true, Ordering::Release);
-        // Notify the BLE stack that PKA computation is complete
-        super::bindings::ble::BLEPLATCB_PkaComplete();
+        PKA_CALLBACK_PENDING.store(true, Ordering::Release);
+    } else {
+        error!("BLEPLAT_PkaStartP256Key: PKA computation failed with result={}", result);
     }
 
     result
@@ -1833,8 +1892,9 @@ pub unsafe extern "C" fn BLEPLAT_PkaStartDhKey(local_private_key: *const u32, re
 
     if result == 0 {
         PKA_RESULT_READY.store(true, Ordering::Release);
-        // Notify the BLE stack that PKA computation is complete
-        super::bindings::ble::BLEPLATCB_PkaComplete();
+        PKA_CALLBACK_PENDING.store(true, Ordering::Release);
+    } else {
+        error!("BLEPLAT_PkaStartDhKey: PKA computation failed with result={}", result);
     }
 
     result

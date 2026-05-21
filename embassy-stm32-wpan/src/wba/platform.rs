@@ -229,6 +229,11 @@ impl Platform {
 
             // Resume the sequencer context
             util_seq::seq_resume();
+
+            // Dispatch deferred PKA callback (BLEPLATCB_PkaComplete) from embassy-task
+            // context. The BLE stack requires this to arrive asynchronously — calling
+            // it from within seq_resume (re-entrantly) corrupts the stack's state machine.
+            linklayer_plat::dispatch_pka_callback_if_pending();
         }
     }
 
