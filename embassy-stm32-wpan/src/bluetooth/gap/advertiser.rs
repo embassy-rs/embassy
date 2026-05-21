@@ -45,17 +45,27 @@ pub(crate) fn configure(
         AdvType::ConnectableDirectedLowDuty => ADV_DIRECT_IND_LOW_DUTY,
     };
 
-    // Use aci_gap_set_discoverable - the high-level ACI command
-    // This configures advertising parameters and data in the host stack
-    super::aci_gap::set_discoverable(
-        aci_adv_type,
-        params.interval_min,
-        params.interval_max,
-        params.own_addr_type as u8,
-        params.filter_policy as u8,
-        local_name,
-        service_uuid_bytes,
-    )
+    if params.privacy_undirected {
+        // ST BLE_Privacy_Peripheral: undirected connectable + explicit AD bytes.
+        super::aci_gap::set_undirected_connectable(
+            params.interval_min,
+            params.interval_max,
+            params.own_addr_type as u8,
+            params.filter_policy as u8,
+        )?;
+        super::aci_gap::update_adv_data(adv_bytes)
+    } else {
+        // Use aci_gap_set_discoverable - the high-level ACI command
+        super::aci_gap::set_discoverable(
+            aci_adv_type,
+            params.interval_min,
+            params.interval_max,
+            params.own_addr_type as u8,
+            params.filter_policy as u8,
+            local_name,
+            service_uuid_bytes,
+        )
+    }
 }
 
 /// Remove advertising configuration from the host stack.

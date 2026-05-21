@@ -59,8 +59,8 @@ unsafe extern "C" {
     #[link_name = "ACI_GAP_ALLOW_REBOND"]
     fn aci_gap_allow_rebond(connection_handle: u16) -> tBleStatus;
 
-    #[link_name = "ACI_GAP_CLEAR_SECURITY_DATABASE"]
-    fn aci_gap_clear_security_database() -> tBleStatus;
+    #[link_name = "ACI_GAP_CLEAR_SECURITY_DB"]
+    fn aci_gap_clear_security_db() -> tBleStatus;
 
     #[link_name = "ACI_GAP_REMOVE_BONDED_DEVICE"]
     fn aci_gap_remove_bonded_device(peer_identity_address_type: u8, peer_identity_address: *const u8) -> tBleStatus;
@@ -528,7 +528,7 @@ impl SecurityManager {
     /// This removes all stored bonds. Use with caution.
     pub fn clear_security_database(&self) -> Result<(), BleError> {
         unsafe {
-            let status = aci_gap_clear_security_database();
+            let status = aci_gap_clear_security_db();
 
             if status == BLE_STATUS_SUCCESS {
                 Ok(())
@@ -662,6 +662,176 @@ impl SecurityManager {
             }
         }
     }
+
+    /// Clear and repopulate both the Filter Accept List and resolving list from
+    /// bonded devices (`aci_gap_add_devices_to_list` mode `0x05`).
+    ///
+    /// Matches ST `BLE_Privacy_Peripheral` `configure_filter_and_resolving_list()`.
+    /// The stack looks up peer IRKs from the bond database for each identity
+    /// address in `List_Entry`.
+    ///
+    /// Must NOT be called while advertising, scanning, or initiating is active.
+    pub fn configure_filter_and_resolving_list(&self) -> Result<usize, BleError> {
+        const GAP_ADD_DEV_MODE_CLEAR_BOTH_LISTS: u8 = 0x05;
+
+        const MAX_BONDED: usize = 16;
+        let mut entries = [BondedDeviceEntry {
+            address_type: 0,
+            address: [0; 6],
+        }; MAX_BONDED];
+        let mut num: u8 = 0;
+
+        unsafe {
+            let status = aci_gap_get_bonded_devices(&mut num, entries.as_mut_ptr());
+            if status != BLE_STATUS_SUCCESS {
+                return Err(BleError::CommandFailed(Status::from_u8(status)));
+            }
+
+            if num == 0 {
+                return Ok(0);
+            }
+
+            let count = (num as usize).min(MAX_BONDED) as u8;
+
+            // Enable resolution before programming the list (ST privacy peripheral order).
+            let status = hci_le_set_address_resolution_enable(1);
+            if status != BLE_STATUS_SUCCESS {
+                return Err(BleError::CommandFailed(Status::from_u8(status)));
+            }
+
+            let status = aci_gap_add_devices_to_list(
+                count,
+                entries.as_ptr() as *const ListEntry,
+                GAP_ADD_DEV_MODE_CLEAR_BOTH_LISTS,
+            );
+            if status != BLE_STATUS_SUCCESS {
+                return Err(BleError::CommandFailed(Status::from_u8(status)));
+            }
+
+            Ok(count as usize)
+        }
+    }
+
+    /// Log bonded peer identity addresses from the stack database (debug).
+    #[cfg(feature = "defmt")]
+    pub fn log_bonded_devices(&self) {
+        const MAX_BONDED: usize = 16;
+        let mut entries = [BondedDeviceEntry {
+            address_type: 0,
+            address: [0; 6],
+        }; MAX_BONDED];
+        let mut num: u8 = 0;
+
+        unsafe {
+            let status = aci_gap_get_bonded_devices(&mut num, entries.as_mut_ptr());
+            if status != BLE_STATUS_SUCCESS {
+                warn!("aci_gap_get_bonded_devices failed: 0x{:02X}", status);
+                return;
+            }
+
+            for i in 0..(num as usize).min(MAX_BONDED) {
+                let e = &entries[i];
+                info!(
+                    "bond[{}]: type={} addr={:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+                    i,
+                    e.address_type,
+                    e.address[5],
+                    e.address[4],
+                    e.address[3],
+                    e.address[2],
+                    e.address[1],
+                    e.address[0]
+                );
+            }
+        }
+    }
+
+    #[cfg(not(feature = "defmt"))]
+    pub fn log_bonded_devices(&self) {}
+
+    /// Number of bonded peers in the stack database.
+    pub fn bonded_device_count(&self) -> Result<u8, BleError> {
+        const MAX_BONDED: usize = 16;
+        let mut entries = [BondedDeviceEntry {
+            address_type: 0,
+            address: [0; 6],
+        }; MAX_BONDED];
+        let mut num: u8 = 0;
+
+        unsafe {
+            let status = aci_gap_get_bonded_devices(&mut num, entries.as_mut_ptr());
+            if status == BLE_STATUS_SUCCESS {
+                Ok(num)
+            } else {
+                Err(BleError::CommandFailed(Status::from_u8(status)))
+            }
+        }
+    }
+
+    /// Append bonded peers to resolving list + FAL (ST mode `0x04`).
+    ///
+    /// Used after disconnect in `BLE_Privacy_Peripheral` before RPA advertising.
+    pub fn append_bond_lists_for_reconnect(&self) -> Result<usize, BleError> {
+        const GAP_ADD_DEV_MODE_APPEND_BOTH: u8 = 0x04;
+
+        const MAX_BONDED: usize = 16;
+        let mut entries = [BondedDeviceEntry {
+            address_type: 0,
+            address: [0; 6],
+        }; MAX_BONDED];
+        let mut num: u8 = 0;
+
+        unsafe {
+            let status = aci_gap_get_bonded_devices(&mut num, entries.as_mut_ptr());
+            if status != BLE_STATUS_SUCCESS {
+                return Err(BleError::CommandFailed(Status::from_u8(status)));
+            }
+
+            if num == 0 {
+                return Ok(0);
+            }
+
+            let count = (num as usize).min(MAX_BONDED) as u8;
+
+            let status = hci_le_set_address_resolution_enable(1);
+            if status != BLE_STATUS_SUCCESS {
+                return Err(BleError::CommandFailed(Status::from_u8(status)));
+            }
+
+            let status = aci_gap_add_devices_to_list(
+                count,
+                entries.as_ptr() as *const ListEntry,
+                GAP_ADD_DEV_MODE_APPEND_BOTH,
+            );
+            if status != BLE_STATUS_SUCCESS {
+                return Err(BleError::CommandFailed(Status::from_u8(status)));
+            }
+
+            Ok(count as usize)
+        }
+    }
+
+    /// Restore resolving-list IRKs for bonded RPAs without touching the filter accept list.
+    ///
+    /// Use before advertising with `AdvFilterPolicy::All` so centrals can still discover
+    /// the peripheral name in a scan while iOS reconnects can resolve the peer's RPA.
+    pub fn restore_resolving_list_for_privacy(&self) -> Result<usize, BleError> {
+        let count = self.populate_resolving_list_from_bonds()?;
+        if count > 0 {
+            self.set_address_resolution_enable(true)?;
+        }
+        Ok(count)
+    }
+
+    /// Restore bond-based connection filtering for RPA centrals (e.g. iOS).
+    ///
+    /// Alias for [`configure_filter_and_resolving_list`](Self::configure_filter_and_resolving_list).
+    pub fn restore_bond_lists(&self) -> Result<usize, BleError> {
+        self.configure_filter_and_resolving_list()
+    }
+
+    /// ST HAL firmware warning: SMP unexpected LTK request (bond lookup failed).
+    pub const FW_ERROR_SMP_UNEXPECTED_LTK: u8 = 0x06;
 
     /// Check if security has been initialized
     pub fn is_initialized(&self) -> bool {

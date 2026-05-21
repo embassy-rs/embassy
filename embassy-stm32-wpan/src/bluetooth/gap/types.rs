@@ -46,6 +46,10 @@ pub struct AdvParams {
     /// Advertising channel map (bit 0: channel 37, bit 1: channel 38, bit 2: channel 39)
     /// Default: 0x07 (all channels)
     pub channel_map: u8,
+
+    /// Use `aci_gap_set_undirected_connectable` + `aci_gap_update_adv_data` instead of
+    /// `aci_gap_set_discoverable` (required for ST controller privacy + RPA advertising).
+    pub privacy_undirected: bool,
 }
 
 impl Default for AdvParams {
@@ -58,6 +62,7 @@ impl Default for AdvParams {
             own_addr_type: OwnAddressType::Random,
             filter_policy: AdvFilterPolicy::All,
             channel_map: 0x07, // All channels
+            privacy_undirected: false,
         }
     }
 }

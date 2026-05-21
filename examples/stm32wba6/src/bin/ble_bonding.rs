@@ -1,54 +1,43 @@
-//! BLE Numeric-Comparison Bonded Example (mirrors ST `BLE_p2pServer`)
+//! BLE Numeric-Comparison Bonded Example (mirrors ST `BLE_Privacy_Peripheral`)
 //!
 //! Demonstrates MITM-protected bonding using LE Secure Connections Numeric
-//! Comparison. The device displays a 6-digit value derived from the ECDH key
-//! exchange; iOS auto-confirms via CoreBluetooth, Android shows a confirm prompt.
-//! After pairing, the bond (LTK/IRK) is persisted to the last 8 KB page of
-//! flash via `BLEPLAT_NvmStore` and restored on the next boot.
+//! Comparison, with **controller privacy enabled** so iOS can reconnect using
+//! RPAs. Bonds are persisted to flash via `BLEPLAT_NvmStore` and restored on boot.
 //!
-//! Security model:
-//! - `IoCapability::DisplayYesNo` + SC → Numeric Comparison
-//! - MITM Required, Bonding enabled, key size 7..16
-//! - `SecureConnectionsSupport::Optional` (matches the ST reference)
-//! - Privacy disabled at the GAP layer; bonds are restored into the controller's
-//!   Filter Accept List via `aci_gap_configure_filter_accept_list()` (the
-//!   maintained `aci_gap_configure_whitelist()` from ST's reference)
+//! Security model (aligned with ST `BLE_Privacy_Peripheral`):
+//! - `aci_gap_init` with privacy enabled → peripheral advertises with an RPA
+//! - Resolving list restored from bonds (mode `0x01`); advertising filter stays open
+//! - `IoCapability::DisplayYesNo` + SC Optional → Numeric Comparison
+//! - Identity address type **Public** (ST `CFG_BD_ADDRESS_DEVICE`)
 //!
 //! Hardware: STM32WBA65 or compatible.
 //!
-//! ## Known limitation: iOS bonded reconnect
+//! ## iPhone testing
 //!
-//! iOS connects as a central using **Resolvable Private Addresses** (RPAs).
-//! When pairing completes, the ST BLE stack stores the bond keyed by iOS's
-//! identity address (sent via SMP IRK distribution). On reconnect, iOS uses an
-//! RPA again, so the host needs Controller Privacy + a properly populated
-//! resolving list (with explicit IRKs) to map RPA → identity → LTK. That path
-//! requires additional integration work — pulling IRKs from the bond DB and
-//! calling `hci_le_add_device_to_resolving_list` directly — that this example
-//! does not yet do. The visible symptom is HAL warning 0x06 ("SMP unexpected
-//! LTK request") on reconnect, after which iOS will fall back to re-pairing.
+//! 1. Flash and open RTT (`probe-rs run --chip STM32WBA65RI`).
+//! 2. In **nRF Connect** or **LightBlue**: connect to "Embassy-Bond".
+//! 3. Read characteristic **0xBEF0** (service 0xBEEF) to trigger pairing.
+//! 4. RTT shows `CONFIRM ON PHONE: NNNNNN` (iOS often auto-confirms).
+//! 5. Expect `PAIRING COMPLETE` and `Link encrypted`.
+//! 6. Disconnect in the app, reconnect — expect `Link encrypted` without a new
+//!    pairing prompt (disconnect handler refreshes resolving list + FAL).
+//!    If reconnect fails, set `ERASE_BONDS_ON_BOOT = true` once and re-pair.
 //!
-//! Bonded reconnect **does work** against centrals that use public or static
-//! random identity addresses (most Android phones, nRF Connect on desktop).
+//! **iOS Settings → Bluetooth does not show generic BLE advertisers** — use
+//! nRF Connect or LightBlue to scan for "Embassy-Bond".
 //!
-//! ## To test
+//! If the app scan is empty, a stale bond may remain in device flash (reflash
+//! does not erase the bond NVM page). Set `ERASE_BONDS_ON_BOOT` to `true` once,
+//! rebuild, flash, then set it back to `false` for reconnect testing.
 //!
-//! 1. Flash and open an RTT terminal (`probe-rs run --chip STM32WBA65RI`).
-//! 2. nRF Connect on the central: scan, connect to "Embassy-Bond".
-//! 3. Tap Read on characteristic BEF0 — pairing starts because the read
-//!    requires authentication.
-//! 4. The device logs "CONFIRM ON PHONE: NNNNNN"; iOS auto-accepts, Android
-//!    prompts the user.
-//! 5. Log shows "PAIRING COMPLETE" — link is encrypted and bonded.
-//! 6. Disconnect, then reconnect — on Android/desktop centrals the LTK lookup
-//!    succeeds and the link re-encrypts automatically (no pairing prompt). On
-//!    iOS this currently re-pairs (see "Known limitation" above).
+//! **nRF Connect hangs on "Connecting"** after you reflash the board: the phone
+//! still has an old bond but the MCU does not. In nRF Connect: disconnect →
+//! menu on the device → **Forget bond** / remove from cache, then scan again.
+//! Or set `ERASE_BONDS_ON_BOOT = true` and pair fresh on both sides.
 //!
 //! ## Invariant
 //!
-//! `set_authentication_requirements` is called exactly once at boot. Calling it
-//! again invalidates the BLE stack's bond-lookup state and triggers HAL firmware
-//! warning 0x06 on the next reconnect.
+//! `set_authentication_requirements` is called exactly once at boot.
 
 #![no_std]
 #![no_main]
@@ -62,9 +51,15 @@ use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::{Config, bind_interrupts, rcc};
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
+use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams, IoCapability as GapIoCapability};
 use embassy_stm32_wpan::bluetooth::gatt::{CharProperties, GattEventMask, SecurityPermissions, ServiceType, Uuid};
-use embassy_stm32_wpan::bluetooth::security::{IoCapability, SecureConnectionsSupport, SecurityParams};
-use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform, set_nvm_base_address};
+use embassy_stm32_wpan::bluetooth::hci::AdvFilterPolicy;
+use embassy_stm32_wpan::bluetooth::security::{
+    IdentityAddressType, IoCapability, SecureConnectionsSupport, SecurityParams,
+};
+use embassy_stm32_wpan::{
+    HighInterruptHandler, LowInterruptHandler, Platform, erase_bond_nvm_flash, new_platform, set_nvm_base_address,
+};
 use stm32wb_hci::Event;
 use stm32wb_hci::event::{Encryption, EncryptionChange};
 use stm32wb_hci::vendor::event::{GapPairingComplete, GapPairingStatus, VendorEvent};
@@ -81,6 +76,9 @@ bind_interrupts!(struct Irqs {
 /// GATT service/characteristic UUIDs for the demo "bonded data" service
 const BOND_SERVICE_UUID: u16 = 0xBEEF;
 const BOND_CHAR_UUID: u16 = 0xBEF0;
+
+/// Erase bond NVM **before** BLE init. Set `true` once to clear stale bonds, flash, then `false`.
+const ERASE_BONDS_ON_BOOT: bool = false;
 
 #[embassy_executor::task]
 async fn rng_runner_task(platform: &'static Platform) {
@@ -104,6 +102,13 @@ async fn main(spawner: Spawner) {
     // Configure the last 8KB page of BANK_2 for bond storage.
     // Must be called before new_platform! triggers BleStack_Init.
     set_nvm_base_address(0x081F_E000);
+    if ERASE_BONDS_ON_BOOT {
+        if erase_bond_nvm_flash() {
+            info!("Bond NVM flash page erased — next boot should not restore bonds");
+        } else {
+            warn!("Bond NVM flash erase failed");
+        }
+    }
 
     let (platform, runtime) = new_platform!(
         Rng::new(p.RNG, Irqs),
@@ -115,15 +120,15 @@ async fn main(spawner: Spawner) {
     spawner.spawn(rng_runner_task(platform).expect("rng runner"));
     spawner.spawn(ble_runner_task(platform).expect("ble runner"));
 
-    // Use a fixed static random address. Matching ST's BLE_p2pServer pattern:
-    // privacy disabled at the GAP layer, bonded reconnect works at the LL via
-    // EDIV/RAND lookup (LE Legacy fallback), no resolving list / RPA resolution
-    // needed on the host.
-    let gap_params = embassy_stm32_wpan::bluetooth::gap_init::GapInitParams {
-        bd_addr: [0x01, 0x02, 0x03, 0x04, 0x05, 0xC0],
-        address_type: embassy_stm32_wpan::bluetooth::gap_init::AddressType::RandomStatic,
-        privacy_enabled: false,
-        ..embassy_stm32_wpan::bluetooth::gap_init::GapInitParams::default()
+    // ST BLE_Privacy_Peripheral: public peripheral identity + controller privacy.
+    let gap_params = GapInitParams {
+        privacy_enabled: true,
+        address_type: AddressType::Public,
+        bd_addr: st_public_bd_addr(),
+        device_name: b"Embassy-Bond",
+        io_capability: GapIoCapability::DisplayYesNo,
+        skip_authentication_setup: true,
+        ..GapInitParams::default()
     };
     let mut ble = embassy_stm32_wpan::bluetooth::HCI::new_with_gap_params(platform, runtime, Irqs, gap_params)
         .await
@@ -132,33 +137,38 @@ async fn main(spawner: Spawner) {
     // ── Security ──────────────────────────────────────────────────────────────
     let mut security = ble.security_manager();
 
-    // DisplayYesNo + MITM + SC Optional — matches ST's BLE_p2pServer reference.
-    // SC Optional (not Required) lets iOS fall back to LE Legacy so reconnect
-    // uses EDIV/RAND-based LTK lookup, which the ST stack handles cleanly.
+    // DisplayYesNo + MITM + SC Optional — matches ST BLE_Privacy_Peripheral.
     let params = SecurityParams::new()
         .with_bonding(true)
         .with_mitm_protection(true)
         .with_io_capability(IoCapability::DisplayYesNo)
         .with_secure_connections(SecureConnectionsSupport::Optional)
-        .with_key_size_range(7, 16);
+        .with_key_size_range(7, 16)
+        .with_identity_address_type(IdentityAddressType::Public);
 
     security
         .set_authentication_requirements(params)
         .expect("set security params");
 
-    // Restore bonded peers into the Filter Accept List (matches the
-    // `aci_gap_configure_whitelist()` call in ST's BLE_p2pServer). This is what
-    // makes bonded reconnect work: on LL_ENC_REQ the controller looks up the
-    // LTK by EDIV/RAND directly, with the bond identified via the FAL.
-    if let Err(e) = security.configure_filter_accept_list() {
-        warn!("configure_filter_accept_list failed: {:?}", e);
-    } else {
-        info!("Filter Accept List configured from bonded devices");
+    // ST: initialize whitelist when bonding is enabled.
+    security
+        .configure_filter_accept_list()
+        .expect("configure_filter_accept_list");
+
+    if ERASE_BONDS_ON_BOOT {
+        security.clear_security_database().expect("clear_security_database");
+        info!("Bond RAM database cleared (ERASE_BONDS_ON_BOOT)");
     }
 
-    // No HCI address resolution / resolving list — ST's BLE_p2pServer pattern
-    // relies on LL-layer EDIV/RAND lookup for bonded reconnect, which doesn't
-    // require any host-side privacy plumbing.
+    // Cold boot with bonds in NVM: program FAL + resolving list (ST privacy flow).
+    match security.configure_filter_and_resolving_list() {
+        Ok(count) => {
+            if count > 0 {
+                info!("Bond lists configured at boot ({} peer(s))", count);
+            }
+        }
+        Err(e) => warn!("configure_filter_and_resolving_list at boot failed: {:?}", e),
+    }
 
     // ── GATT ──────────────────────────────────────────────────────────────────
     //
@@ -187,13 +197,7 @@ async fn main(spawner: Spawner) {
         .expect("set initial value");
 
     // ── Advertising ───────────────────────────────────────────────────────────
-    let adv_params = AdvParams {
-        interval_min: 0x0050,
-        interval_max: 0x0050,
-        adv_type: AdvType::ConnectableUndirected,
-        own_addr_type: OwnAddressType::Random,
-        ..AdvParams::default()
-    };
+    let adv_params = make_adv_params();
 
     fn make_adv_data() -> AdvData {
         let mut d = AdvData::new();
@@ -203,7 +207,10 @@ async fn main(spawner: Spawner) {
         d
     }
 
-    ble.start_advertising(adv_params.clone(), make_adv_data(), None)
+    let mut scan_rsp = AdvData::new();
+    scan_rsp.add_name("Embassy-Bond").expect("scan rsp name");
+
+    ble.start_advertising(adv_params.clone(), make_adv_data(), Some(scan_rsp))
         .await
         .expect("start advertising");
 
@@ -216,20 +223,35 @@ async fn main(spawner: Spawner) {
         if let Some(gap_event) = ble.process_event(&event) {
             match gap_event {
                 GapEvent::Connected(conn) => {
-                    info!("Connected: handle=0x{:04X} peer={}", conn.handle.0, conn.peer_address);
-                    // Bonded peers re-encrypt with the stored LTK automatically.
-                    // Fresh pairings are triggered by reading BEF0 (ENCRY_READ → ATT 0x0F).
+                    if let Some(rpa) = conn.peer_rpa {
+                        info!(
+                            "Connected: handle=0x{:04X} peer={} peer_rpa={}",
+                            conn.handle.0, conn.peer_address, rpa
+                        );
+                    } else {
+                        info!("Connected: handle=0x{:04X} peer={}", conn.handle.0, conn.peer_address);
+                    }
                 }
 
                 GapEvent::Disconnected { handle, reason } => {
                     info!("Disconnected: handle=0x{:04X} reason=0x{:02X}", handle.0, reason);
 
                     // Do NOT call set_authentication_requirements here — re-running it
-                    // between sessions appears to invalidate the bond's LTK lookup state,
-                    // making the next bonded reconnect fail with "SMP unexpected LTK
-                    // request". The passkey set at boot remains valid for fresh pairings.
+                    // between sessions appears to invalidate the bond's LTK lookup state.
 
-                    ble.start_advertising(adv_params.clone(), make_adv_data(), None)
+                    if ble.is_advertising() {
+                        let _ = ble.stop_advertising().await;
+                    }
+
+                    // ST BLE_Privacy_Peripheral: append FAL + resolving (mode 0x04).
+                    match security.append_bond_lists_for_reconnect() {
+                        Ok(count) => info!("Bond lists appended for reconnect ({} device(s))", count),
+                        Err(e) => warn!("append_bond_lists_for_reconnect failed: {:?}", e),
+                    }
+
+                    let mut scan_rsp = AdvData::new();
+                    scan_rsp.add_name("Embassy-Bond").expect("scan rsp name");
+                    ble.start_advertising(make_adv_params(), make_adv_data(), Some(scan_rsp))
                         .await
                         .expect("restart advertising");
                     info!("Advertising restarted");
@@ -266,6 +288,7 @@ async fn main(spawner: Spawner) {
                         "PAIRING COMPLETE: handle=0x{:04X} — encrypted and bonded",
                         conn_handle.0
                     );
+                    security.log_bonded_devices();
                 }
                 GapPairingStatus::Timeout => {
                     warn!("Pairing timed out: handle=0x{:04X}", conn_handle.0);
@@ -292,9 +315,19 @@ async fn main(spawner: Spawner) {
                 }
             },
 
-            // ── Bond lost: the peer will need to re-pair ─────────────────
+            // ── Bond lost / LTK mismatch: allow re-pair and restart open advertising ─
             Event::Vendor(VendorEvent::GapBondLost) => {
-                info!("Bond lost — peer will need to re-pair with the current code");
+                info!("Bond lost — allowing rebond and restarting advertising");
+                let conn_handle = ble.connections().iter().next().map(|c| c.handle.0).unwrap_or(0);
+                let _ = security.allow_rebond(conn_handle);
+                if ble.is_advertising() {
+                    let _ = ble.stop_advertising().await;
+                }
+                let mut scan_rsp = AdvData::new();
+                scan_rsp.add_name("Embassy-Bond").expect("scan rsp name");
+                let _ = ble
+                    .start_advertising(make_adv_params(), make_adv_data(), Some(scan_rsp))
+                    .await;
             }
 
             // ── Authenticated write received from bonded peer ─────────────
@@ -311,5 +344,25 @@ async fn main(spawner: Spawner) {
                 debug!("Event: {:?}", event);
             }
         }
+    }
+}
+
+/// ST-style public address (CFG_BD_ADDRESS_DEVICE = GAP_PUBLIC_ADDR).
+fn st_public_bd_addr() -> [u8; 6] {
+    let uid = embassy_stm32::uid::uid();
+    [uid[0], uid[1], uid[2], 0xE1, 0x80, 0x00]
+}
+
+fn make_adv_params() -> AdvParams {
+    AdvParams {
+        interval_min: 0x0080,
+        interval_max: 0x0080,
+        adv_type: AdvType::ConnectableUndirected,
+        // 0x02 = resolvable private address when controller privacy is enabled.
+        own_addr_type: OwnAddressType::PrivateFallbackPublic,
+        filter_policy: AdvFilterPolicy::All,
+        channel_map: 0x07,
+        // Use set_discoverable + le_set_advertise_enable (undirected path can hang centrals).
+        privacy_undirected: false,
     }
 }

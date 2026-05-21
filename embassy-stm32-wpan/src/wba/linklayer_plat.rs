@@ -417,6 +417,20 @@ pub fn set_nvm_base_address(addr: u32) {
     NVM_BASE_ADDRESS.store(addr, Ordering::Release);
 }
 
+/// Erase the bond NVM flash page previously configured with [`set_nvm_base_address`].
+///
+/// Must be called **after** [`set_nvm_base_address`] and **before** BLE stack init
+/// (`new_platform!`). Reflashing the application does not erase this page; use this
+/// when clearing stale bonds. `aci_gap_clear_security_db` only clears RAM — the next
+/// boot would reload bonds from flash without this erase.
+pub fn erase_bond_nvm_flash() -> bool {
+    let base = NVM_BASE_ADDRESS.load(Ordering::Acquire);
+    if base == 0 {
+        return false;
+    }
+    unsafe { flash_erase_page(base) }
+}
+
 /// Pointer to the NVM cache buffer allocated by the BLE stack init.
 static NVM_CACHE_PTR: AtomicUsize = AtomicUsize::new(0);
 /// Size of the NVM cache buffer in bytes.
