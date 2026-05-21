@@ -1,146 +1,85 @@
-use core::cell::RefCell;
-
 use embassy_futures::join;
-use embassy_sync::blocking_mutex;
-use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
-use embassy_sync::channel::Channel;
-use embassy_sync::mutex::Mutex;
-use embassy_sync::signal::Signal;
-use smoltcp::wire::Ieee802154FrameType;
-use smoltcp::wire::ieee802154::Frame;
+use embassy_net_driver_channel as ch;
+use smoltcp::wire::Ieee802154Frame;
 
-use crate::net::MTU;
-use crate::net::commands::*;
-use crate::net::driver::NetworkState;
-use crate::net::event::MacEvent;
-use crate::sub::mac::{MacRx, MacTx};
-
-pub type ZeroCopyPubSub<M, T> = blocking_mutex::Mutex<M, RefCell<Option<Signal<NoopRawMutex, T>>>>;
+use crate::net::commands::DataRequest;
+use crate::net::iface::{Controller, ControllerToHostPacket, mcps};
+use crate::net::indications::write_frame_from_data_indication;
+use crate::net::{Allocator, MTU, ZeroCopyPubSub};
 
 pub const BUF_SIZE: usize = 3;
 
-pub struct Runner<'a> {
-    // rx event backpressure is already provided through the MacEvent drop mechanism
-    // therefore, we don't need to worry about overwriting events
-    rx_event_channel: &'a ZeroCopyPubSub<CriticalSectionRawMutex, MacEvent<'a>>,
-    rx_data_channel: &'a Channel<CriticalSectionRawMutex, MacEvent<'a>, 1>,
-    mac_rx: Mutex<NoopRawMutex, &'a mut MacRx<'a>>,
+pub struct Runner<'a, C: Controller> {
+    ch: ch::Runner<'a, MTU>,
+    controller: &'a C,
 
-    tx_data_channel: &'a Channel<CriticalSectionRawMutex, (&'a mut [u8; MTU], usize), BUF_SIZE>,
-    tx_buf_channel: &'a Channel<CriticalSectionRawMutex, &'a mut [u8; MTU], BUF_SIZE>,
-    mac_tx: &'a Mutex<CriticalSectionRawMutex, MacTx<'a>>,
-
-    #[allow(unused)]
-    network_state: &'a blocking_mutex::Mutex<CriticalSectionRawMutex, RefCell<NetworkState>>,
+    events: &'a ZeroCopyPubSub<'a, C::Packet<'a>>,
+    allocator: &'a Allocator<'a>,
 }
 
-impl<'a> Runner<'a> {
+impl<'a, C: Controller> Runner<'a, C> {
     pub(crate) fn new(
-        rx_event_channel: &'a ZeroCopyPubSub<CriticalSectionRawMutex, MacEvent<'a>>,
-        rx_data_channel: &'a Channel<CriticalSectionRawMutex, MacEvent<'a>, 1>,
-        mac_rx: &'a mut MacRx<'a>,
-        tx_data_channel: &'a Channel<CriticalSectionRawMutex, (&'a mut [u8; MTU], usize), BUF_SIZE>,
-        tx_buf_channel: &'a Channel<CriticalSectionRawMutex, &'a mut [u8; MTU], BUF_SIZE>,
-        mac_tx: &'a Mutex<CriticalSectionRawMutex, MacTx<'a>>,
-        tx_buf_queue: &'a mut [[u8; MTU]; BUF_SIZE],
-        network_state: &'a blocking_mutex::Mutex<CriticalSectionRawMutex, RefCell<NetworkState>>,
-        short_address: [u8; 2],
-        mac_address: [u8; 8],
+        controller: &'a C,
+        ch: ch::Runner<'a, MTU>,
+        events: &'a ZeroCopyPubSub<'a, C::Packet<'a>>,
+        allocator: &'a Allocator<'a>,
     ) -> Self {
-        for buf in tx_buf_queue {
-            tx_buf_channel.try_send(buf).unwrap();
-        }
-
-        critical_section::with(|cs| {
-            let mut network_state = network_state.borrow(cs).borrow_mut();
-
-            network_state.mac_addr = mac_address;
-            network_state.short_addr = short_address;
-        });
-
         Self {
-            rx_event_channel,
-            rx_data_channel,
-            mac_rx: Mutex::new(mac_rx),
-            tx_data_channel,
-            tx_buf_channel,
-            mac_tx,
-            network_state,
+            ch,
+            controller,
+            events,
+            allocator,
         }
     }
 
-    async fn send_request<T: MacCommand, U: TryInto<T>>(&self, frame: U) -> Result<(), ()>
-    where
-        (): From<<U as TryInto<T>>::Error>,
-    {
-        let request: T = frame.try_into()?;
-        self.mac_tx.lock().await.send_command(&request).await.map_err(|_| ())?;
+    pub async fn run(&mut self) -> ! {
+        let (_state, mut rx, mut tx) = self.ch.borrow_split();
 
-        Ok(())
-    }
-
-    pub async fn run(&'a self) -> ! {
         join::join(
             async {
                 loop {
-                    if let Ok(mac_event) = self.mac_rx.try_lock().unwrap().read().await {
-                        match mac_event {
-                            MacEvent::MlmeAssociateCnf(_)
-                            | MacEvent::MlmeDisassociateCnf(_)
-                            | MacEvent::MlmeGetCnf(_)
-                            | MacEvent::MlmeGtsCnf(_)
-                            | MacEvent::MlmeResetCnf(_)
-                            | MacEvent::MlmeRxEnableCnf(_)
-                            | MacEvent::MlmeScanCnf(_)
-                            | MacEvent::MlmeSetCnf(_)
-                            | MacEvent::MlmeStartCnf(_)
-                            | MacEvent::MlmePollCnf(_)
-                            | MacEvent::MlmeDpsCnf(_)
-                            | MacEvent::MlmeSoundingCnf(_)
-                            | MacEvent::MlmeCalibrateCnf(_)
-                            | MacEvent::McpsDataCnf(_)
-                            | MacEvent::McpsPurgeCnf(_) => {
-                                self.rx_event_channel.lock(|s| {
-                                    s.borrow().as_ref().map(|signal| signal.signal(mac_event));
-                                });
+                    let Ok(pkt) = self
+                        .allocator
+                        .make_packet(async |buf| self.controller.read(&mut buf[..]).await)
+                        .await
+                    else {
+                        continue;
+                    };
+
+                    // TODO: respond to association requests, etc
+
+                    match pkt.packet() {
+                        ControllerToHostPacket::Mlme(_) => self.events.publish(pkt),
+                        ControllerToHostPacket::Mcps(pkt) => match pkt {
+                            mcps::Packet::Indication(mcps::IndicationPacket::Data(ind)) => {
+                                let mut rx_buf = rx.rx_buf().await;
+                                let len = write_frame_from_data_indication(ind, &mut *rx_buf);
+
+                                rx_buf.rx_done(len);
                             }
-                            MacEvent::McpsDataInd(_) => {
-                                // Pattern should match driver
-                                self.rx_data_channel.send(mac_event).await;
-                            }
-                            _ => {
-                                debug!("unhandled mac event: {:#x}", mac_event);
-                            }
-                        }
+                            _ => continue,
+                        },
                     }
                 }
             },
             async {
                 loop {
-                    let (buf, _) = self.tx_data_channel.receive().await;
+                    let tx_buf = tx.tx_buf().await;
+                    let b = &*tx_buf;
+                    let frame = Ieee802154Frame::new_unchecked(&b);
 
-                    // Smoltcp has created this frame, so there's no need to reparse it.
-                    let frame = Frame::new_unchecked(&buf);
-
-                    let result: Result<(), ()> = match frame.frame_type() {
-                        Ieee802154FrameType::Beacon => Err(()),
-                        Ieee802154FrameType::Data => self.send_request::<DataRequest, _>(frame).await,
-                        Ieee802154FrameType::Acknowledgement => Err(()),
-                        Ieee802154FrameType::MacCommand => Err(()),
-                        Ieee802154FrameType::Multipurpose => Err(()),
-                        Ieee802154FrameType::FragmentOrFrak => Err(()),
-                        Ieee802154FrameType::Extended => Err(()),
-                        _ => Err(()),
+                    let Ok(request) = DataRequest::try_from(frame) else {
+                        warn!("failed to make data request");
+                        continue;
                     };
 
-                    if result.is_err() {
-                        debug!("failed to parse mac frame");
+                    if let Err(_e) = self.controller.write(&request).await {
+                        warn!("failed to send pkt");
                     } else {
-                        trace!("data frame sent!");
+                        warn!("data frame sent!");
                     }
 
-                    // The tx channel should always be of equal capacity to the tx_buf channel
-                    self.tx_buf_channel.try_send(buf).unwrap();
+                    tx_buf.tx_done();
                 }
             },
         )

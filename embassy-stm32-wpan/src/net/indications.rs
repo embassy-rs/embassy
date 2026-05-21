@@ -1,15 +1,13 @@
 use core::slice;
 
-use smoltcp::wire::Ieee802154FrameType;
 use smoltcp::wire::ieee802154::Frame;
+use smoltcp::wire::{Ieee802154FrameType, Ieee802154FrameVersion, Ieee802154Repr};
 
-use super::consts::MAX_PENDING_ADDRESS;
-use super::event::ParseableMacEvent;
-use super::typedefs::{
-    AddressMode, Capabilities, DisassociationReason, KeyIdMode, MacAddress, MacChannel, MacStatus, PanDescriptor,
-    PanId, SecurityLevel,
+use crate::net::typedefs::{
+    AddressMode, Capabilities, DisassociationReason, KeyIdMode, MacAddress, MacAddressAndMode, MacChannel, MacStatus,
+    PanDescriptor, PanId, SecurityLevel,
 };
-use crate::net::typedefs::MacAddressAndMode;
+use crate::net::{MAX_PENDING_ADDRESS, MacEvent};
 
 /// MLME ASSOCIATE Indication which will be used by the MAC
 /// to indicate the reception of an association request command
@@ -31,7 +29,9 @@ pub struct AssociateIndication {
     pub key_source: [u8; 8],
 }
 
-impl ParseableMacEvent for AssociateIndication {}
+impl MacEvent for AssociateIndication {
+    const NAME: &str = "AssociateIndication";
+}
 
 /// MLME DISASSOCIATE indication which will be used to send
 /// disassociation indication to the application.
@@ -53,7 +53,9 @@ pub struct DisassociateIndication {
     pub key_source: [u8; 8],
 }
 
-impl ParseableMacEvent for DisassociateIndication {}
+impl MacEvent for DisassociateIndication {
+    const NAME: &str = "DisassociateIndication";
+}
 
 /// MLME BEACON NOTIIFY Indication which is used to send parameters contained
 /// within a beacon frame received by the MAC to the application
@@ -76,7 +78,9 @@ pub struct BeaconNotifyIndication {
     pub sdu_length: u8,
 }
 
-impl ParseableMacEvent for BeaconNotifyIndication {}
+impl MacEvent for BeaconNotifyIndication {
+    const NAME: &str = "BeaconNotifyIndication";
+}
 
 impl BeaconNotifyIndication {
     pub fn payload<'a>(&'a self) -> &'a mut [u8] {
@@ -122,7 +126,9 @@ pub struct CommStatusIndication {
     pub key_source: [u8; 8],
 }
 
-impl ParseableMacEvent for CommStatusIndication {}
+impl MacEvent for CommStatusIndication {
+    const NAME: &str = "CommStatusIndication";
+}
 
 /// MLME GTS Indication indicates that a GTS has been allocated or that a
 /// previously allocated GTS has been deallocated
@@ -146,7 +152,9 @@ pub struct GtsIndication {
     pub key_source: [u8; 8],
 }
 
-impl ParseableMacEvent for GtsIndication {}
+impl MacEvent for GtsIndication {
+    const NAME: &str = "GtsIndication";
+}
 
 /// MLME ORPHAN Indication which is used by the coordinator to notify the
 /// application of the presence of an orphaned device
@@ -168,7 +176,9 @@ pub struct OrphanIndication {
     a_stuffing: [u8; 1],
 }
 
-impl ParseableMacEvent for OrphanIndication {}
+impl MacEvent for OrphanIndication {
+    const NAME: &str = "OrphanIndication";
+}
 
 /// MLME SYNC LOSS Indication which is used by the MAC to indicate the loss
 /// of synchronization with the coordinator
@@ -194,7 +204,9 @@ pub struct SyncLossIndication {
     pub key_source: [u8; 8],
 }
 
-impl ParseableMacEvent for SyncLossIndication {}
+impl MacEvent for SyncLossIndication {
+    const NAME: &str = "SyncLossIndication";
+}
 
 /// MLME DPS Indication which indicates the expiration of the DPSIndexDuration
 ///  and the resetting of the DPS values in the PHY
@@ -206,7 +218,9 @@ pub struct DpsIndication {
     a_stuffing: [u8; 4],
 }
 
-impl ParseableMacEvent for DpsIndication {}
+impl MacEvent for DpsIndication {
+    const NAME: &str = "DpsIndication";
+}
 
 #[repr(C)]
 #[derive(Debug)]
@@ -262,7 +276,9 @@ pub struct DataIndication {
     pub rssi: u8,
 }
 
-impl ParseableMacEvent for DataIndication {}
+impl MacEvent for DataIndication {
+    const NAME: &str = "DataIndication";
+}
 
 impl DataIndication {
     pub fn payload<'a>(&'a self) -> &'a mut [u8] {
@@ -270,19 +286,31 @@ impl DataIndication {
     }
 }
 
-pub fn write_frame_from_data_indication<'a, T: AsRef<[u8]> + AsMut<[u8]>>(data: &'a DataIndication, buffer: &'a mut T) {
+pub fn write_frame_from_data_indication<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(
+    data: &'a DataIndication,
+    buffer: &'a mut T,
+) -> usize {
+    let repr = Ieee802154Repr {
+        frame_type: Ieee802154FrameType::Data,
+        security_enabled: data.security_level == SecurityLevel::Secured,
+        frame_pending: false,
+        ack_request: false,
+        sequence_number: Some(data.dsn),
+        pan_id_compression: false,
+        frame_version: Ieee802154FrameVersion::Ieee802154,
+        dst_pan_id: Some(data.dst_pan_id.into()),
+        dst_addr: Some(MacAddressAndMode(data.src_address, data.src_addr_mode).into()),
+        src_pan_id: Some(data.src_pan_id.into()),
+        src_addr: Some(MacAddressAndMode(data.src_address, data.src_addr_mode).into()),
+    };
+
     let mut frame = Frame::new_unchecked(buffer);
 
-    frame.set_frame_type(Ieee802154FrameType::Data);
-    frame.set_src_addr(MacAddressAndMode(data.src_address, data.src_addr_mode).into());
-    frame.set_dst_addr(MacAddressAndMode(data.dst_address, data.dst_addr_mode).into());
-    frame.set_dst_pan_id(data.dst_pan_id.into());
-    frame.set_src_pan_id(data.src_pan_id.into());
-    frame.set_sequence_number(data.dsn);
-    frame.set_security_enabled(data.security_level == SecurityLevel::Secured);
+    repr.emit(&mut frame);
 
-    // No way around the copy with the current API
     frame.payload_mut().unwrap().copy_from_slice(data.payload());
+
+    repr.buffer_len() + data.payload().len()
 }
 
 /// MLME POLL Indication which will be used for indicating the Data Request
@@ -297,4 +325,6 @@ pub struct PollIndication {
     pub request_address: MacAddress,
 }
 
-impl ParseableMacEvent for PollIndication {}
+impl MacEvent for PollIndication {
+    const NAME: &str = "PollIndication";
+}
