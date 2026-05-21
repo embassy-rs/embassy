@@ -198,6 +198,8 @@ impl<'d, T: Instance> Fmac<'d, T> {
     /// Convolution/FIR filter
     ///
     /// y = gain * (feedforward ⋅ input)
+    ///
+    /// Note: The 0th elements are the newest, and the n-1nth is the oldest
     pub fn fir(
         peri: Peri<'d, T>,
         config: Config,
@@ -214,6 +216,8 @@ impl<'d, T: Instance> Fmac<'d, T> {
     /// IIR filter
     ///
     /// y = gain * (feedforward ⋅ input) + (feedback ⋅ previous_outputs)
+    ///
+    /// Note: The 0th elements are the newest, and the n-1nth is the oldest
     pub fn iir(
         peri: Peri<'d, T>,
         config: Config,

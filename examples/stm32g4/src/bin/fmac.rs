@@ -2,11 +2,10 @@
 #![no_main]
 
 use defmt::*;
-use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::fmac::{self, Q16};
 use embassy_time::Timer;
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -20,9 +19,9 @@ async fn main(_spawner: Spawner) {
 
     // Create a second order FIR filter
     //
-    // This will calculate 
+    // This will calculate
     // result = input_history[0] * latest_input +
-    //     input_history[1] * older_input + 
+    //     input_history[1] * older_input +
     //     input_history[2] * oldest_input
     let mut fmac = fmac::Fmac::fir(
         dp.FMAC.reborrow(),
@@ -39,11 +38,17 @@ async fn main(_spawner: Spawner) {
     let mut input_buffer_contents = [zero, zero];
     let mut calc = |fmac: &mut fmac::Fmac<'_, _>, x| {
         fmac.write(x).unwrap();
-        input_buffer_contents.rotate_right(1); input_buffer_contents[0] = x;
+        input_buffer_contents.rotate_right(1);
+        input_buffer_contents[0] = x;
         loop {
             if let Some(res) = fmac.read() {
                 defmt::assert!(fmac.read().is_none());
-                println!("in_buf: {:?}, x: {}, result: {}", input_buffer_contents.map(|x| x.as_f32()), x.as_f32(), res.as_f32());
+                println!(
+                    "in_buf: {:?}, x: {}, result: {}",
+                    input_buffer_contents.map(|x| x.as_f32()),
+                    x.as_f32(),
+                    res.as_f32()
+                );
                 break;
             }
         }
@@ -57,7 +62,7 @@ async fn main(_spawner: Spawner) {
 
     // Now we have enough data for a result
     calc(&mut fmac, zero);
-    
+
     // Note that that the max value is just below 1.0
     for _ in 0..10 {
         calc(&mut fmac, one);
