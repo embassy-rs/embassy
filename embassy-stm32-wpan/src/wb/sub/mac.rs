@@ -7,8 +7,6 @@ use embedded_io::ErrorKind;
 
 use crate::evt::MemoryManager;
 use crate::net;
-use crate::net::commands::MacCommand;
-use crate::net::event::MacEvent;
 use crate::net::iface::mcps::{
     ConfirmPacket as McpsConfirmPacket, IndicationPacket as McpsIndicationPacket, Packet as McpsPacket,
     PacketKind as McpsPacketKind,
@@ -24,10 +22,9 @@ use crate::net::indications::{
     DpsIndication, GtsIndication, OrphanIndication, PollIndication, SyncLossIndication,
 };
 use crate::net::responses::{
-    CalibrateConfirm, DataConfirm, DpsConfirm, GetConfirm, GtsConfirm, PollConfirm, PurgeConfirm, ResetConfirm,
-    RxEnableConfirm, ScanConfirm, SetConfirm, SoundingConfirm, StartConfirm,
+    AssociateConfirm, CalibrateConfirm, DataConfirm, DisassociateConfirm, DpsConfirm, GetConfirm, GtsConfirm,
+    PollConfirm, PurgeConfirm, ResetConfirm, RxEnableConfirm, ScanConfirm, SetConfirm, SoundingConfirm, StartConfirm,
 };
-use crate::net::typedefs::MacError;
 use crate::util::Flag;
 use crate::wb::channels::cpu1::IPCC_MAC_802_15_4_CMD_RSP_CHANNEL;
 use crate::wb::cmd::CmdPacket;
@@ -70,22 +67,20 @@ impl<'a> Mac<'a> {
             ipcc_mac_802_15_4_notification_ack_channel,
         }
     }
-
-    pub const fn split(self) -> (MacRx<'a>, MacTx<'a>) {
-        (
-            MacRx {
-                ipcc_mac_802_15_4_notification_ack_channel: self.ipcc_mac_802_15_4_notification_ack_channel,
-            },
-            MacTx {
-                ipcc_mac_802_15_4_cmd_rsp_channel: self.ipcc_mac_802_15_4_cmd_rsp_channel,
-            },
-        )
-    }
 }
 
 pub struct ControllerAdapter<'d> {
     ipcc_mac_802_15_4_cmd_rsp_channel: Mutex<NoopRawMutex, IpccTxChannel<'d>>,
     ipcc_mac_802_15_4_notification_ack_channel: Mutex<NoopRawMutex, IpccRxChannel<'d>>,
+}
+
+impl<'d> ControllerAdapter<'d> {
+    pub const fn new(mac: Mac<'d>) -> Self {
+        Self {
+            ipcc_mac_802_15_4_cmd_rsp_channel: Mutex::new(mac.ipcc_mac_802_15_4_cmd_rsp_channel),
+            ipcc_mac_802_15_4_notification_ack_channel: Mutex::new(mac.ipcc_mac_802_15_4_notification_ack_channel),
+        }
+    }
 }
 
 impl<'d> embedded_io::ErrorType for ControllerAdapter<'d> {
@@ -131,11 +126,11 @@ impl<'d> net::iface::Controller for ControllerAdapter<'d> {
 
         let (opcode, payload) = payload.split_at(2);
         let pkt = match u16::from_le_bytes(opcode.try_into().unwrap()) {
-            0 => ControllerToHostPacket::Mlme(MlmePacket::Indication(MlmeIndicationPacket::Associate(
-                AssociateIndication::from_hci_bytes(payload).map_err(|e| e.into())?,
+            0 => ControllerToHostPacket::Mlme(MlmePacket::Confirm(MlmeConfirmPacket::Associate(
+                AssociateConfirm::from_hci_bytes(payload).map_err(|e| e.into())?,
             ))),
-            1 => ControllerToHostPacket::Mlme(MlmePacket::Indication(MlmeIndicationPacket::Disassociate(
-                DisassociateIndication::from_hci_bytes(payload).map_err(|e| e.into())?,
+            1 => ControllerToHostPacket::Mlme(MlmePacket::Confirm(MlmeConfirmPacket::Disassociate(
+                DisassociateConfirm::from_hci_bytes(payload).map_err(|e| e.into())?,
             ))),
             2 => ControllerToHostPacket::Mlme(MlmePacket::Confirm(MlmeConfirmPacket::Get(
                 GetConfirm::from_hci_bytes(payload).map_err(|e| e.into())?,
@@ -284,74 +279,6 @@ impl<'d> net::iface::Controller for ControllerAdapter<'d> {
         } else {
             Err(ErrorKind::InvalidInput)
         }
-    }
-}
-
-pub struct MacTx<'a> {
-    ipcc_mac_802_15_4_cmd_rsp_channel: IpccTxChannel<'a>,
-}
-
-impl<'a> MacTx<'a> {
-    /// `HW_IPCC_MAC_802_15_4_CmdEvtNot`
-    pub async fn tl_write_and_get_response(&mut self, opcode: u16, payload: &[u8]) -> u8 {
-        self.tl_write(opcode, payload).await;
-        self.ipcc_mac_802_15_4_cmd_rsp_channel.flush().await;
-
-        unsafe {
-            let p_event_packet = MAC_802_15_4_CMD_BUFFER.as_ptr() as *const EvtPacket;
-            let p_mac_rsp_evt = &((*p_event_packet).evt_serial.evt.payload) as *const u8;
-
-            ptr::read_volatile(p_mac_rsp_evt)
-        }
-    }
-
-    /// `TL_MAC_802_15_4_SendCmd`
-    pub async fn tl_write(&mut self, opcode: u16, payload: &[u8]) {
-        self.ipcc_mac_802_15_4_cmd_rsp_channel
-            .send(|| unsafe {
-                CmdPacket::write_into(
-                    MAC_802_15_4_CMD_BUFFER.as_mut_ptr(),
-                    TlPacketType::MacCmd,
-                    opcode,
-                    payload,
-                );
-            })
-            .await;
-    }
-
-    pub async fn send_command<T>(&mut self, cmd: &T) -> Result<(), MacError>
-    where
-        T: MacCommand,
-    {
-        let response = self.tl_write_and_get_response(T::OPCODE as u16, cmd.payload()).await;
-
-        if response == 0x00 {
-            Ok(())
-        } else {
-            Err(MacError::from(response))
-        }
-    }
-}
-
-pub struct MacRx<'a> {
-    ipcc_mac_802_15_4_notification_ack_channel: IpccRxChannel<'a>,
-}
-
-impl<'a> MacRx<'a> {
-    /// `HW_IPCC_MAC_802_15_4_EvtNot`
-    ///
-    /// This function will stall if the previous `EvtBox` has not been dropped
-    pub async fn read(&mut self) -> Result<MacEvent<'a>, ()> {
-        MAC_EVT_OUT.wait_for_low().await;
-
-        // Return a new event box
-        self.ipcc_mac_802_15_4_notification_ack_channel
-            .receive(|| unsafe {
-                Some(MacEvent::new(EvtBox::new(
-                    MAC_802_15_4_NOTIF_RSP_EVT_BUFFER.as_mut_ptr() as *mut _,
-                )))
-            })
-            .await
     }
 }
 
