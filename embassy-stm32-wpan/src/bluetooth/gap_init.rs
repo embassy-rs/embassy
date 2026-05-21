@@ -345,9 +345,15 @@ pub fn init_gap_and_hal(params: &mut GapInitParams) -> Result<GapHandles, BleErr
         let mut gap_dev_name_char_handle: u16 = 0;
         let mut gap_appearance_char_handle: u16 = 0;
 
+        // Per BLE stack docs, valid values are 0x00 (disabled) or 0x02 (Controller
+        // Privacy enabled). Passing 0x01 is undefined and silently leaves the SMP
+        // layer in a "no privacy" state, which makes bonded reconnects from RPA
+        // peers fail with HAL warning 0x06 (SMP unexpected LTK request).
+        let privacy_value: u8 = if params.privacy_enabled { 0x02 } else { 0x00 };
+
         let status = aci_gap_init(
             params.role.to_bits(),
-            params.privacy_enabled as u8,
+            privacy_value,
             params.device_name.len() as u8,
             &mut gap_service_handle,
             &mut gap_dev_name_char_handle,

@@ -73,7 +73,26 @@ unsafe extern "C" {
 
     #[link_name = "HCI_LE_SET_RESOLVABLE_PRIVATE_ADDRESS_TIMEOUT"]
     fn hci_le_set_resolvable_private_address_timeout(timeout: u16) -> tBleStatus;
+
+    #[link_name = "ACI_GAP_GET_BONDED_DEVICES"]
+    fn aci_gap_get_bonded_devices(num_of_addresses: *mut u8, bonded_device_entry: *mut BondedDeviceEntry)
+    -> tBleStatus;
+
+    #[link_name = "ACI_GAP_ADD_DEVICES_TO_LIST"]
+    fn aci_gap_add_devices_to_list(num_of_list_entries: u8, list_entry: *const ListEntry, mode: u8) -> tBleStatus;
+
+    #[link_name = "ACI_GAP_CONFIGURE_FILTER_ACCEPT_LIST"]
+    fn aci_gap_configure_filter_accept_list() -> tBleStatus;
 }
+
+// Matches `Bonded_Device_Entry_t` / `List_Entry_t` in the ST headers (packed: 7 bytes).
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+struct BondedDeviceEntry {
+    address_type: u8,
+    address: [u8; 6],
+}
+type ListEntry = BondedDeviceEntry;
 
 const BLE_STATUS_SUCCESS: u8 = 0x00;
 
@@ -569,6 +588,73 @@ impl SecurityManager {
         unsafe {
             let status = hci_le_set_resolvable_private_address_timeout(timeout);
 
+            if status == BLE_STATUS_SUCCESS {
+                Ok(())
+            } else {
+                Err(BleError::CommandFailed(Status::from_u8(status)))
+            }
+        }
+    }
+
+    /// Populate the controller's resolving list with bonded peer identities so
+    /// that reconnections from RPA-using peers (e.g. iOS) can be recognised as
+    /// the bonded peer.
+    ///
+    /// Without this, `set_address_resolution_enable(true)` only enables resolution
+    /// in the controller — there are no IRKs to resolve against. Incoming
+    /// `LL_ENC_REQ` from a bonded peer will fail with "SMP unexpected LTK request"
+    /// because the host cannot match an LTK to the unresolved peer identity.
+    ///
+    /// Uses mode 0x01 (clear and set the **resolving list only**, leaving the
+    /// Filter Accept List untouched), so it is idempotent and won't interfere
+    /// with `aci_gap_set_discoverable` advertising. Safe to call repeatedly,
+    /// e.g. after every disconnect before re-advertising.
+    ///
+    /// Must NOT be called while advertising, scanning, or connecting are active
+    /// when address resolution is enabled (Core Spec restriction). Returns the
+    /// number of bonded devices restored to the resolving list.
+    pub fn populate_resolving_list_from_bonds(&self) -> Result<usize, BleError> {
+        const MAX_BONDED: usize = 16;
+        let mut entries = [BondedDeviceEntry {
+            address_type: 0,
+            address: [0; 6],
+        }; MAX_BONDED];
+        let mut num: u8 = 0;
+
+        unsafe {
+            let status = aci_gap_get_bonded_devices(&mut num, entries.as_mut_ptr());
+            if status != BLE_STATUS_SUCCESS {
+                return Err(BleError::CommandFailed(Status::from_u8(status)));
+            }
+
+            if num == 0 {
+                return Ok(0);
+            }
+
+            let count = (num as usize).min(MAX_BONDED) as u8;
+            // mode 0x01 = clear and set the resolving list only
+            let status = aci_gap_add_devices_to_list(count, entries.as_ptr() as *const ListEntry, 0x01);
+            if status != BLE_STATUS_SUCCESS {
+                return Err(BleError::CommandFailed(Status::from_u8(status)));
+            }
+
+            Ok(count as usize)
+        }
+    }
+
+    /// Populate the controller's Filter Accept List with all bonded devices'
+    /// identity addresses (clears it first). This is the maintained ST pattern
+    /// from `BLE_p2pServer` for restoring bond-based filtering on boot.
+    ///
+    /// For LE Legacy bonded reconnect, the controller looks up the LTK by the
+    /// EDIV/RAND values in `LL_ENC_REQ`, so populating the Filter Accept List
+    /// here lets the controller recognise the bonded peer at the LL layer
+    /// without needing RPA resolution at the host level.
+    ///
+    /// Must NOT be called while advertising/scanning/initiating is active.
+    pub fn configure_filter_accept_list(&self) -> Result<(), BleError> {
+        unsafe {
+            let status = aci_gap_configure_filter_accept_list();
             if status == BLE_STATUS_SUCCESS {
                 Ok(())
             } else {
