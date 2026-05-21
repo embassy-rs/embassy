@@ -1400,6 +1400,15 @@ where
     /// emit a true repeated start, matching the target's expectation.
     pub async fn async_wait_for_ibi(&mut self, buf: &mut [u8]) -> Result<(u8, usize), IOError> {
         // Step 1: Wait for SLVSTART (a target is asserting SDA low to request the bus).
+        //
+        // NOTE: we deliberately do *not* gate on `mstatus.state() == Slvreq`
+        // here. SLVSTART is a sticky edge latch, while `state` reflects the
+        // current bus FSM which transitions through SLVREQ in a handful of
+        // SCL cycles when no controller is driving the bus. With BBQ-backed
+        // targets the IRQ-to-IBI latency is high enough that the FSM has
+        // typically already moved on by the time we wake. The latched
+        // SLVSTART is sufficient evidence to proceed — if the target
+        // subsequently gives up, AUTO_IBI in step 4 will surface errwarn.
         self.info
             .wait_cell()
             .wait_for(|| {
@@ -1414,11 +1423,6 @@ where
             .map_err(|_| IOError::Other)?;
 
         self.status()?;
-
-        // Only proceed if the bus is in SLVREQ state.
-        if self.info.regs().mstatus().read().state() != State::Slvreq {
-            return Err(IOError::Other);
-        }
 
         // Step 2: Pre-clear IBIWON in case it was already set, so AUTO_IBI doesn't return early.
         self.info.regs().mstatus().write(|w| w.set_ibiwon(true));
