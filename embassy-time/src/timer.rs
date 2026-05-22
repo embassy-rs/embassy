@@ -198,9 +198,25 @@ impl Timer {
     ///
     /// This method is a convenience wrapper for calling `Timer::after(Duration::from_micros())`.
     /// For more details, refer to [`Timer::after()`] and [`Duration::from_micros()`].
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the computed instant overflows.
+    /// Avoid panics with [`Timer::try_after_nanos()`].
     #[inline]
     pub fn after_micros(micros: u64) -> Self {
         Self::after(Duration::from_micros(micros))
+    }
+
+    /// Try to expire after the specified number of microseconds.
+    ///
+    /// This method is a convenience wrapper for calling `Timer::try_after(Duration::from_micros())`.
+    /// For more details, refer to [`Timer::try_after()`] and [`Duration::from_micros()`].
+    ///
+    /// This is a panic-free [`Timer::after_micros()`].
+    #[inline]
+    pub fn try_after_micros(micros: u64) -> Option<Self> {
+        Self::try_after(Duration::from_micros(micros))
     }
 
     /// Expire after the specified number of milliseconds.
