@@ -356,8 +356,22 @@ impl Ticker {
 
     /// Resets the ticker back to its original state.
     /// This causes the ticker to go back to zero, even if the current tick isn't over yet.
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the computed instant overflows.
+    /// Avoid panics with [`Ticker::checked_reset()`].
     pub fn reset(&mut self) {
         self.expires_at = Instant::now() + self.duration;
+    }
+
+    /// Checked resets the ticker back to its original state.
+    /// This causes the ticker to go back to zero, even if the current tick isn't over yet.
+    ///
+    /// This is a panic-free [`Ticker::reset()`].
+    pub fn checked_reset(&mut self) -> Option<()> {
+        self.expires_at = Instant::now().checked_add(self.duration)?;
+        Some(())
     }
 
     /// Reset the ticker at the deadline.
@@ -450,5 +464,27 @@ mod test {
     fn ticker_try_every_none() {
         while Instant::now() == Instant::MIN {} // with non-0 tick
         assert!(Ticker::try_every(Duration::MAX).is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "overflow")]
+    #[cfg(panic = "unwind")]
+    fn ticker_reset_panics() {
+        let mut ticker = Ticker {
+            expires_at: Instant::MAX,
+            duration: Duration::MAX,
+        };
+        while Instant::now() == Instant::MIN {} // with non-0 tick
+        ticker.reset(); // PANIC
+    }
+
+    #[test]
+    fn ticker_checked_reset_none() {
+        let mut ticker = Ticker {
+            expires_at: Instant::MAX,
+            duration: Duration::MAX,
+        };
+        while Instant::now() == Instant::MIN {} // with non-0 tick
+        assert!(ticker.checked_reset().is_none());
     }
 }
