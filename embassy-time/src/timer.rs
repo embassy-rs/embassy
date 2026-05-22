@@ -418,6 +418,10 @@ impl Ticker {
 
     /// Waits for the next tick.
     ///
+    /// ## Panics
+    ///
+    /// Panics if the next computed instant overflows.
+    ///
     /// ## Cancel safety
     /// The produced Future is cancel safe, meaning no tick is lost if the Future is dropped.
     pub fn next(&mut self) -> impl Future<Output = ()> + Send + Sync + '_ {
