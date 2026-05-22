@@ -841,7 +841,8 @@ impl VrefInt {
         stm32l5,
         stm32l5,
         stm32wb,
-        stm32wl
+        stm32wl,
+        stm32u0,
     ))]
     /// The value that vref would be if vdda was at the factory calibration voltage `VREF_CALIB_MV`.
     pub fn calibrated_value(&self) -> u16 {
