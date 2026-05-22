@@ -207,6 +207,7 @@ bitflags = "2.10.0"
 block-device-driver = { version = "0.2" }
 aligned = "0.4.3"
 heapless = "0.9.1"
+once_cell = { version = "1.21.4", default-features = false, features=["critical-section"] }
 
 # stm32-metapac = { version = "21" }
 stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-6d108b6d3695cafd30923b033bc82291da5859a7" }
