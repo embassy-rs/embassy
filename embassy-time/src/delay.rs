@@ -6,6 +6,10 @@ use crate::Timer;
 /// Blocks for at least `duration`.
 ///
 /// This function may require interrupts to be enabled to work correctly.
+///
+/// ## Panics
+///
+/// Panics if the computed instant overflows.
 pub fn block_for(duration: Duration) {
     let expires_at = Instant::now() + duration;
     while Instant::now() < expires_at {}
