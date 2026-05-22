@@ -223,9 +223,25 @@ impl Timer {
     ///
     /// This method is a convenience wrapper for calling `Timer::after(Duration::from_millis())`.
     /// For more details, refer to [`Timer::after`] and [`Duration::from_millis()`].
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the computed instant overflows.
+    /// Avoid panics with [`Timer::try_after_millis()`].
     #[inline]
     pub fn after_millis(millis: u64) -> Self {
         Self::after(Duration::from_millis(millis))
+    }
+
+    /// Try to expire after the specified number of milliseconds.
+    ///
+    /// This method is a convenience wrapper for calling `Timer::try_after(Duration::from_millis())`.
+    /// For more details, refer to [`Timer::try_after`] and [`Duration::from_millis()`].
+    ///
+    /// This is a panic-free [`Timer::after_millis()`].
+    #[inline]
+    pub fn try_after_millis(millis: u64) -> Option<Self> {
+        Self::try_after(Duration::from_millis(millis))
     }
 
     /// Expire after the specified number of seconds.
