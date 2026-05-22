@@ -14,7 +14,7 @@ pub use embassy_usb_synopsys_otg::Config;
 use embassy_usb_synopsys_otg::otg_v1::Otg;
 use embassy_usb_synopsys_otg::otg_v1::vals::Dspd;
 use embassy_usb_synopsys_otg::{
-    Bus as OtgBus, ControlPipe, Driver as OtgDriver, Endpoint, In, OtgInstance, OtgState, Out, PhyType, State,
+    Bus as OtgBus, ControlPipe, Driver as OtgDriver, Endpoint, In, OtgInstance, Out, PhyType, State, StateStorage,
     on_interrupt as on_interrupt_impl,
 };
 
@@ -302,7 +302,7 @@ impl<'d, V: VbusDetect> Drop for Bus<'d, V> {
 pub(crate) trait SealedInstance {
     fn usb_regs() -> pac::usbhs::Usbhs;
     fn core_regs() -> Otg;
-    fn state() -> OtgState<'static>;
+    fn state() -> State<'static>;
 }
 
 /// USB peripheral instance.
@@ -321,9 +321,9 @@ impl SealedInstance for crate::peripherals::USBHS {
         unsafe { Otg::from_ptr(pac::USBHSCORE.as_ptr()) }
     }
 
-    fn state() -> OtgState<'static> {
-        static STATE: State<MAX_EP_COUNT> = State::new();
-        STATE.as_otg_state()
+    fn state() -> State<'static> {
+        static STATE: StateStorage<MAX_EP_COUNT> = StateStorage::new();
+        STATE.as_state()
     }
 }
 

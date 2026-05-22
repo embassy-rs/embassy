@@ -6,7 +6,7 @@ pub use embassy_usb_synopsys_otg::Config;
 use embassy_usb_synopsys_otg::otg_v1::Otg;
 use embassy_usb_synopsys_otg::otg_v1::vals::Dspd;
 use embassy_usb_synopsys_otg::{
-    Bus as OtgBus, ControlPipe, Driver as OtgDriver, Endpoint, In, OtgInstance, OtgState, Out, PhyType,
+    Bus as OtgBus, ControlPipe, Driver as OtgDriver, Endpoint, In, OtgInstance, Out, PhyType, State,
     on_interrupt as on_interrupt_impl,
 };
 
@@ -423,7 +423,7 @@ trait SealedInstance {
     const FIFO_DEPTH_WORDS: u16;
 
     fn regs() -> Otg;
-    fn state() -> OtgState<'static>;
+    fn state() -> State<'static>;
 }
 
 /// USB instance trait.
@@ -544,12 +544,12 @@ foreach_interrupt!(
                 unsafe { Otg::from_ptr(crate::pac::USB_OTG_FS.as_ptr()) }
             }
 
-            fn state() -> OtgState<'static> {
-                use embassy_usb_synopsys_otg::State;
+            fn state() -> State<'static> {
+                use embassy_usb_synopsys_otg::StateStorage;
 
                 const EP_COUNT: usize = crate::peripherals::USB_OTG_FS::ENDPOINT_COUNT;
-                static STATE: State<EP_COUNT> = State::new();
-                STATE.as_otg_state()
+                static STATE: StateStorage<EP_COUNT> = StateStorage::new();
+                STATE.as_state()
             }
         }
 
@@ -625,12 +625,12 @@ foreach_interrupt!(
                 unsafe { Otg::from_ptr(crate::pac::USB_OTG_HS.as_ptr()) }
             }
 
-            fn state() -> OtgState<'static> {
-                use embassy_usb_synopsys_otg::State;
+            fn state() -> State<'static> {
+                use embassy_usb_synopsys_otg::StateStorage;
 
                 const EP_COUNT: usize = crate::peripherals::USB_OTG_HS::ENDPOINT_COUNT;
-                static STATE: State<EP_COUNT> = State::new();
-                STATE.as_otg_state()
+                static STATE: StateStorage<EP_COUNT> = StateStorage::new();
+                STATE.as_state()
             }
         }
 
@@ -648,7 +648,7 @@ mod host_impl {
 
     use embassy_usb_synopsys_otg::PhyType;
     use embassy_usb_synopsys_otg::host::{
-        OtgHost as OtgHostDriver, OtgHostInstance, OtgHostState, on_host_interrupt as on_host_interrupt_impl,
+        HostState, OtgHost as OtgHostDriver, OtgHostInstance, on_host_interrupt as on_host_interrupt_impl,
     };
 
     use super::*;
@@ -656,29 +656,29 @@ mod host_impl {
     /// Per-instance host state, analogous to `SealedInstance::state()` for device mode.
     #[allow(private_bounds)]
     pub(super) trait SealedHostInstance: Instance {
-        fn host_state() -> OtgHostState<'static>;
+        fn host_state() -> HostState<'static>;
     }
 
     foreach_interrupt!(
         (USB_OTG_FS, otg, $block:ident, GLOBAL, $irq:ident) => {
             impl SealedHostInstance for crate::peripherals::USB_OTG_FS {
-                fn host_state() -> OtgHostState<'static> {
-                    use embassy_usb_synopsys_otg::host::HostState;
+                fn host_state() -> HostState<'static> {
+                    use embassy_usb_synopsys_otg::host::HostStateStorage;
 
                     const CH_COUNT:usize = crate::peripherals::USB_OTG_FS::ENDPOINT_COUNT;
-                    static STATE: HostState<CH_COUNT> = HostState::new();
-                    STATE.as_otg_host_state()
+                    static STATE: HostStateStorage<CH_COUNT> = HostStateStorage::new();
+                    STATE.as_host_state()
                 }
             }
         };
         (USB_OTG_HS, otg, $block:ident, GLOBAL, $irq:ident) => {
             impl SealedHostInstance for crate::peripherals::USB_OTG_HS {
-                fn host_state() -> OtgHostState<'static> {
-                    use embassy_usb_synopsys_otg::host::HostState;
+                fn host_state() -> HostState<'static> {
+                    use embassy_usb_synopsys_otg::host::HostStateStorage;
 
                     const CH_COUNT:usize = crate::peripherals::USB_OTG_HS::ENDPOINT_COUNT;
-                    static STATE: HostState<CH_COUNT> = HostState::new();
-                    STATE.as_otg_host_state()
+                    static STATE: HostStateStorage<CH_COUNT> = HostStateStorage::new();
+                    STATE.as_host_state()
                 }
             }
         };

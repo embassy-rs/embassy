@@ -29,7 +29,7 @@ pub mod host;
 use otg_v1::{Otg, regs, vals};
 
 /// Handle interrupts.
-pub unsafe fn on_interrupt(r: Otg, state: &OtgState<'_>) {
+pub unsafe fn on_interrupt(r: Otg, state: &State<'_>) {
     trace!("irq");
     let ep_count = state.endpoint_count();
 
@@ -301,22 +301,22 @@ struct EndpointData {
 /// Type-erased borrow of [`State`] passed to [`OtgInstance`], [`Driver`](crate::Driver), [`Bus`](crate::Bus),
 /// and [`on_interrupt`].
 ///
-/// Build from [`State::as_otg_state`].
+/// Build from [`State::as_state`].
 #[derive(Clone, Copy)]
-pub struct OtgState<'d> {
+pub struct State<'d> {
     cp_state: &'d ControlPipeSetupState,
     ep_states: &'d [EpState],
     bus_waker: &'d AtomicWaker,
 }
 
-impl OtgState<'_> {
+impl State<'_> {
     /// Returns the number of device endpoints supported by this state.
     pub fn endpoint_count(&self) -> usize {
         self.ep_states.len()
     }
 }
 
-impl<'d> OtgState<'d> {
+impl<'d> State<'d> {
     pub(crate) fn ep_alloc_get(&self, dir: Direction, index: usize) -> Option<&EndpointData> {
         unsafe {
             match dir {
@@ -371,15 +371,15 @@ impl<'d> OtgState<'d> {
     }
 }
 
-/// USB OTG driver state.
-pub struct State<const EP_COUNT: usize> {
+/// Storage object for USB OTG driver state.
+pub struct StateStorage<const EP_COUNT: usize> {
     cp_state: ControlPipeSetupState,
     ep_states: [EpState; EP_COUNT],
     bus_waker: AtomicWaker,
 }
 
-impl<const EP_COUNT: usize> State<EP_COUNT> {
-    /// Create a new State.
+impl<const EP_COUNT: usize> StateStorage<EP_COUNT> {
+    /// Create a new StateStorage.
     pub const fn new() -> Self {
         Self {
             cp_state: ControlPipeSetupState {
@@ -400,9 +400,9 @@ impl<const EP_COUNT: usize> State<EP_COUNT> {
         }
     }
 
-    /// Borrow this [`State`] as an [`OtgState`] for [`OtgInstance`] and the Synopsys [`Driver`](crate::Driver).
-    pub fn as_otg_state(&self) -> OtgState<'_> {
-        OtgState {
+    /// Borrow this [`StateStorage`] as a [`State`] for [`OtgInstance`] and the Synopsys [`Driver`](crate::Driver).
+    pub fn as_state(&self) -> State<'_> {
+        State {
             cp_state: &self.cp_state,
             ep_states: self.ep_states.as_slice(),
             bus_waker: &self.bus_waker,
@@ -1632,8 +1632,8 @@ fn ep0_mpsiz(max_packet_size: u16) -> u16 {
 pub struct OtgInstance<'d> {
     /// The USB peripheral.
     pub regs: Otg,
-    /// Shared driver/interrupt state from [`State::as_otg_state`].
-    pub state: OtgState<'d>,
+    /// Shared driver/interrupt state from [`State::as_state`].
+    pub state: State<'d>,
     /// FIFO depth in words.
     pub fifo_depth_words: u16,
     /// The PHY type.

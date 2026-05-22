@@ -60,16 +60,13 @@ struct HostStateFields {
     inited: AtomicBool,
 }
 
-/// USB host driver state. Create one per OTG instance.
-pub struct HostState<const CH_COUNT: usize> {
+/// Storage object for USB host driver state. Create one per OTG instance.
+pub struct HostStateStorage<const CH_COUNT: usize> {
     channels: [ChannelState; CH_COUNT],
     fields: HostStateFields,
 }
 
-unsafe impl<const CH_COUNT: usize> Send for HostState<CH_COUNT> {}
-unsafe impl<const CH_COUNT: usize> Sync for HostState<CH_COUNT> {}
-
-impl<const CH_COUNT: usize> HostState<CH_COUNT> {
+impl<const CH_COUNT: usize> HostStateStorage<CH_COUNT> {
     /// Create a new host state.
     pub const fn new() -> Self {
         Self {
@@ -92,9 +89,9 @@ impl<const CH_COUNT: usize> HostState<CH_COUNT> {
         }
     }
 
-    /// Borrow this [`HostState`] as an [`OtgHostState`] for [`OtgHostInstance`].
-    pub fn as_otg_host_state(&self) -> OtgHostState<'_> {
-        OtgHostState {
+    /// Borrow this [`HostStateStorage`] as a [`HostState`] for [`OtgHostInstance`].
+    pub fn as_host_state(&self) -> HostState<'_> {
+        HostState {
             channels: self.channels.as_slice(),
             fields: &self.fields,
         }
@@ -103,14 +100,14 @@ impl<const CH_COUNT: usize> HostState<CH_COUNT> {
 
 /// Type-erased view of [`HostState`] for [`OtgHostInstance`], [`OtgHost`], [`on_host_interrupt`], and pipes.
 ///
-/// Build from [`HostState::as_otg_host_state`].
+/// Build from [`HostState::as_host_state`].
 #[derive(Clone, Copy)]
-pub struct OtgHostState<'d> {
+pub struct HostState<'d> {
     channels: &'d [ChannelState],
     fields: &'d HostStateFields,
 }
 
-impl OtgHostState<'_> {
+impl HostState<'_> {
     /// Returns the number of host channels supported by this state.
     pub fn channel_count(&self) -> usize {
         self.channels.len()
@@ -122,8 +119,8 @@ impl OtgHostState<'_> {
 pub struct OtgHostInstance<'d> {
     /// The USB peripheral registers.
     pub regs: Otg,
-    /// Shared host driver state from [`HostState::as_otg_host_state`].
-    pub state: OtgHostState<'d>,
+    /// Shared host driver state from [`HostState::as_host_state`].
+    pub state: HostState<'d>,
     /// FIFO depth in words.
     pub fifo_depth_words: u16,
     /// The PHY type.
@@ -134,7 +131,7 @@ pub struct OtgHostInstance<'d> {
 ///
 /// # Safety
 /// Must be called from the USB OTG interrupt handler when the controller is in host mode.
-pub unsafe fn on_host_interrupt(r: Otg, state: &OtgHostState<'_>) {
+pub unsafe fn on_host_interrupt(r: Otg, state: &HostState<'_>) {
     let gintsts = r.gintsts().read();
     let ch_count = state.channels.len();
 
@@ -530,7 +527,7 @@ impl<'d> OtgHost<'d> {
 /// retained by class drivers independently of the controller's `&mut` borrow.
 pub struct OtgHostAllocator<'d> {
     regs: Otg,
-    state: OtgHostState<'d>,
+    state: HostState<'d>,
 }
 
 impl<'d> Clone for OtgHostAllocator<'d> {
@@ -792,7 +789,7 @@ impl<'d> UsbHostController<'d> for OtgHost<'d> {
 /// The channel is automatically released when dropped.
 pub struct Channel<'d, T: pipe::Type, D: pipe::Direction> {
     regs: Otg,
-    state: OtgHostState<'d>,
+    state: HostState<'d>,
     index: usize,
     device_address: u8,
     ep_number: u8,
