@@ -334,10 +334,24 @@ pub struct Ticker {
 
 impl Ticker {
     /// Creates a new ticker that ticks at the specified duration interval.
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the computed instant overflows.
+    /// Avoid panics with [`Ticker::try_every()`].
     pub fn every(duration: impl Into<Duration>) -> Self {
         let duration = duration.into();
         let expires_at = Instant::now() + duration;
         Self { expires_at, duration }
+    }
+
+    /// Tries to create a new ticker that ticks at the specified duration interval.
+    ///
+    /// This is a panic-free [`Ticker::every()`].
+    pub fn try_every(duration: impl Into<Duration>) -> Option<Self> {
+        let duration = duration.into();
+        let expires_at = Instant::now().checked_add(duration)?;
+        Some(Self { expires_at, duration })
     }
 
     /// Resets the ticker back to its original state.
@@ -422,5 +436,19 @@ mod test {
     fn timer_try_after_none() {
         while Instant::now() == Instant::MIN {} // with non-0 tick
         assert!(Timer::try_after(Duration::MAX).is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "overflow")]
+    #[cfg(panic = "unwind")]
+    fn ticker_every_panics() {
+        while Instant::now() == Instant::MIN {} // with non-0 tick
+        let _ = Ticker::every(Duration::MAX); // PANIC
+    }
+
+    #[test]
+    fn ticker_try_every_none() {
+        while Instant::now() == Instant::MIN {} // with non-0 tick
+        assert!(Ticker::try_every(Duration::MAX).is_none());
     }
 }
