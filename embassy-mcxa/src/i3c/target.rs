@@ -889,8 +889,24 @@ impl<'d> I3c<'d> {
 
         _ibi_drop.defuse();
 
-        self.check_status()?;
-        Ok(())
+        // Treat `Terminated` as success: the controller is free to chunk this
+        // logical response into multiple wire-level reads (each bounded by
+        // RDTERM and separated by Sr or Stop). Every chunk boundary that
+        // falls mid-T=1-stream latches SERRWARN.TERM on the target, even
+        // though the IP keeps draining the TX FIFO across the Sr. By the
+        // time we reach this check, DMA has streamed `rest` into the FIFO
+        // and SWDATABE has emitted the final T=0 byte — so the wire-level
+        // payload is fully delivered regardless of how many TERM warnings
+        // got latched along the way. Mirrors `dma_respond_to_read`, which
+        // exposes the same condition as `ReadStatus::EarlyStop`.
+        //
+        // Genuine controller-side aborts (mid-payload Stop with bytes still
+        // pending in DMA) surface earlier as Underrun/UnderrunNack on the
+        // `wait_tx_space` / SWDATABE path, not here.
+        match self.check_status() {
+            Ok(()) | Err(IOError::Terminated) => Ok(()),
+            Err(e) => Err(e),
+        }
     }
 
     /// Diagnostic: measure the TX FIFO depth by pushing bytes until full.

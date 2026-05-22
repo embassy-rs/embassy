@@ -20,6 +20,18 @@ use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 const TARGET_STATIC_ADDR: u8 = 0x0a;
 const TARGET_DYNAMIC_ADDR: u8 = 0x0b;
 
+// Per-iteration read length the controller demands. Set larger than the
+// target's TGT_TX_LEN to exercise the over-read path: controller's
+// RDTERM = CTRL_RD_LEN, target T-bits early at TGT_TX_LEN.
+const CTRL_RD_LEN: usize = 256;
+const TGT_TX_LEN: usize = 16;
+const EXPECTED_RD_LEN: usize = if CTRL_RD_LEN < TGT_TX_LEN {
+    CTRL_RD_LEN
+} else {
+    TGT_TX_LEN
+};
+const RX_PATTERN_BYTE: u8 = 0x55;
+
 bind_interrupts!(
     struct Irqs {
         I3C0 => InterruptHandler<I3C0>;
@@ -66,7 +78,10 @@ async fn main(_spawner: Spawner) {
 
     i3c.register_ibi(IbiSlot::Slot0, TARGET_DYNAMIC_ADDR, Payload::Yes)
         .unwrap();
-    info!("[ctrl] entering loop");
+    info!(
+        "[ctrl] entering loop (CTRL_RD_LEN={} TGT_TX_LEN={} EXPECTED={})",
+        CTRL_RD_LEN, TGT_TX_LEN, EXPECTED_RD_LEN
+    );
 
     let mut iter: u32 = 0;
     loop {
@@ -75,15 +90,38 @@ async fn main(_spawner: Spawner) {
             .unwrap();
 
         let mut ibi_buf = [0u8; 8];
-        i3c.async_wait_for_ibi(&mut ibi_buf).await.unwrap();
+        let (_ibi_addr, _ibi_len) = i3c.async_wait_for_ibi(&mut ibi_buf).await.unwrap();
 
-        let mut buf = [0u8; 64];
-        i3c.async_read(TARGET_DYNAMIC_ADDR, &mut buf, BusType::I3cSdr)
-            .await
-            .unwrap();
-
-        assert_eq!(buf, [0x55; 64]);
-        Timer::after_micros(100).await;
+        let mut buf = [0u8; CTRL_RD_LEN];
+        match i3c.async_read(TARGET_DYNAMIC_ADDR, &mut buf, BusType::I3cSdr).await {
+            Ok(n) => {
+                let matched = buf[..n].iter().take_while(|&&b| b == RX_PATTERN_BYTE).count();
+                if iter < 3 {
+                    info!(
+                        "[ctrl] iter {} OK n={} matched={} head={:?}",
+                        iter,
+                        n,
+                        matched,
+                        &buf[..core::cmp::min(8, n)]
+                    );
+                }
+                if n != EXPECTED_RD_LEN || matched != EXPECTED_RD_LEN {
+                    defmt::error!(
+                        "[ctrl] iter {} mismatch: n={} matched_55={} EXPECTED={} buf={:?}",
+                        iter,
+                        n,
+                        matched,
+                        EXPECTED_RD_LEN,
+                        &buf[..]
+                    );
+                    panic!("ctrl read short/mismatch");
+                }
+            }
+            Err(e) => {
+                defmt::error!("[ctrl] iter {} async_read err {:?} buf={:?}", iter, e, &buf[..]);
+                panic!("ctrl read err");
+            }
+        }
         iter = iter.wrapping_add(1);
         if iter % 1000 == 0 {
             info!("[ctrl] iter {} OK", iter);

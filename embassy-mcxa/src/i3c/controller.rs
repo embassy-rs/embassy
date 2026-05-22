@@ -18,7 +18,7 @@ use crate::pac::i3c::{
     Disto, Hkeep, Ibiresp, Ibitype, MctrlDir as I3cDir, MdatactrlRxtrig, MdatactrlTxtrig, Mstena, Request, State, Type,
 };
 
-const MAX_CHUNK_SIZE: usize = 255;
+const MAX_CHUNK_SIZE: usize = 256;
 
 /// Setup Errors
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -76,6 +76,22 @@ impl From<crate::dma::InvalidParameters> for IOError {
     fn from(_value: crate::dma::InvalidParameters) -> Self {
         Self::Other
     }
+}
+
+/// Outcome of [`async_wait_for_rx_fifo`].
+///
+/// Distinguishes a normal "data available" wake-up from a target-terminated
+/// end-of-transaction (slave drove the T-bit to 0 with fewer bytes than the
+/// controller requested). Callers use this to drain remaining FIFO data and
+/// then break the read loop cleanly without reading phantom zeros from an
+/// empty FIFO.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+enum RxFifoStatus {
+    /// `MSTATUS.RXPEND` is set: at least one byte is in the RX FIFO.
+    RxPending,
+    /// `MSTATUS.COMPLETE` is set without `RXPEND`: transaction ended (the
+    /// slave T-bit'd) and the FIFO is drained.
+    Complete,
 }
 
 /// Whether to send a STOP condition after the transfer.
@@ -832,7 +848,7 @@ trait AsyncEngine {
         read: &'a mut [u8],
         bus_type: BusType,
         send_stop: SendStop,
-    ) -> impl Future<Output = Result<(), IOError>> + 'a;
+    ) -> impl Future<Output = Result<usize, IOError>> + 'a;
 
     fn async_write_internal<'a>(
         &'a self,
@@ -872,7 +888,7 @@ impl<'d> AsyncEngine for I3c<'d, Async> {
         read: &mut [u8],
         bus_type: BusType,
         send_stop: SendStop,
-    ) -> Result<(), IOError> {
+    ) -> Result<usize, IOError> {
         if read.is_empty() {
             return Err(IOError::InvalidReadBufferLength);
         }
@@ -882,24 +898,65 @@ impl<'d> AsyncEngine for I3c<'d, Async> {
             self.blocking_remediation(bus_type);
         });
 
-        for chunk in read.chunks_mut(MAX_CHUNK_SIZE) {
-            self.async_start(address, bus_type, Dir::Read, chunk.len() as u8)
-                .await?;
+        let mut bytes_received: usize = 0;
+        // Track final result; we never early-`return` so a single Stop
+        // path at the bottom can run regardless of error.
+        let mut result: Result<usize, IOError> = Ok(0);
+
+        'outer: for chunk in read.chunks_mut(MAX_CHUNK_SIZE) {
+            // `chunk.len() as u8` gives RDTERM=N for 1..=255 and RDTERM=0
+            // for exactly 256 (matches SDK: "no controller-side termination;
+            // slave drives end via T-bit").
+            if let Err(e) = self.async_start(address, bus_type, Dir::Read, chunk.len() as u8).await {
+                result = Err(e);
+                break 'outer;
+            }
 
             for byte in chunk.iter_mut() {
-                self.async_wait_for_rx_fifo().await?;
-                *byte = self.info.regs().mrdatab().read().value();
+                match self.async_wait_for_rx_fifo().await {
+                    Ok(RxFifoStatus::RxPending) => {
+                        *byte = self.info.regs().mrdatab().read().value();
+                        bytes_received += 1;
+                    }
+                    Ok(RxFifoStatus::Complete) => {
+                        // Slave T-bit'd before our requested length: clean
+                        // target-terminated short read. Report what we got
+                        // and exit before reading phantom bytes out of an
+                        // empty FIFO.
+                        result = Ok(bytes_received);
+                        break 'outer;
+                    }
+                    Err(e) => {
+                        // Real bus error. Any bytes already received =>
+                        // spec-compliant short read; suppress and return Ok.
+                        // Zero bytes => propagate the error.
+                        if bytes_received > 0 {
+                            self.clear_errors();
+                            result = Ok(bytes_received);
+                        } else {
+                            result = Err(e);
+                        }
+                        break 'outer;
+                    }
+                }
             }
+            result = Ok(bytes_received);
         }
 
+        // Always emit Stop on the configured send_stop path, regardless of
+        // success or short-read. After a short read the slave already
+        // released the bus; Stop may report InvalidRequest (state != Normact)
+        // which is benign here. Matches SDK StopState semantics
+        // (fsl_i3c.c:2293). Without this, the target sees a dirty bus on
+        // its next listen and raises SdrParity.
         if send_stop == SendStop::Yes {
-            self.async_stop(bus_type).await?;
+            let _ = self.async_stop(bus_type).await;
         }
 
         // defuse it if the future is not dropped
         on_drop.defuse();
 
-        Ok(())
+        result
     }
 
     async fn async_write_internal(
@@ -1011,7 +1068,7 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
         read: &mut [u8],
         bus_type: BusType,
         send_stop: SendStop,
-    ) -> Result<(), IOError> {
+    ) -> Result<usize, IOError> {
         if read.is_empty() {
             return Err(IOError::InvalidReadBufferLength);
         }
@@ -1025,9 +1082,19 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
                 .modify(|w| w.set_dmafb(MdmactrlDmafb::NotUsed));
         });
 
-        for chunk in read.chunks_mut(MAX_CHUNK_SIZE) {
-            self.async_start(address, bus_type, Dir::Read, chunk.len() as u8)
-                .await?;
+        let mut bytes_received: usize = 0;
+        // Track final result; we never early-`return` so a single Stop
+        // path at the bottom can run regardless of error.
+        let mut result: Result<usize, IOError> = Ok(0);
+
+        'outer: for chunk in read.chunks_mut(MAX_CHUNK_SIZE) {
+            // `chunk.len() as u8` gives RDTERM=N for 1..=255 and RDTERM=0
+            // for exactly 256 (matches SDK: "no controller-side termination;
+            // slave drives end via T-bit").
+            if let Err(e) = self.async_start(address, bus_type, Dir::Read, chunk.len() as u8).await {
+                result = Err(e);
+                break 'outer;
+            }
 
             let peri_addr = self.info.regs().mrdatab().as_ptr() as *const u8;
 
@@ -1041,12 +1108,15 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
                 self.mode.rx_dma.set_request_source(self.mode.rx_request);
 
                 // Configure TCD for peripheral-to-memory transfer
-                self.mode.rx_dma.setup_read_from_peripheral(
+                if let Err(e) = self.mode.rx_dma.setup_read_from_peripheral(
                     peri_addr,
                     chunk,
                     false,
                     TransferOptions::COMPLETE_INTERRUPT,
-                )?;
+                ) {
+                    result = Err(e.into());
+                    break 'outer;
+                }
 
                 // Enable I3C RX DMA request
                 self.info
@@ -1058,10 +1128,23 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
                 self.mode.rx_dma.enable_request();
             }
 
-            // Wait for completion asynchronously
+            // Race DMA-done vs I3C COMPLETE/errwarn. The target may end
+            // the read early via T-bit; in that case the IP fires COMPLETE
+            // but DMA stalls. Without this race we'd hang until something
+            // else nudges us, then misreport the latched MERRWARN.
             core::future::poll_fn(|cx| {
                 let _ = self.mode.rx_dma.wait_cell().poll_wait(cx);
-                if self.mode.rx_dma.is_done() {
+                let _ = self.info.wait_cell().poll_wait(cx);
+
+                // Enable I3C complete + errwarn interrupts so the I3C IRQ
+                // can wake us if DMA never finishes.
+                self.info.regs().mintset().write(|w| {
+                    w.set_complete(true);
+                    w.set_errwarn(true);
+                });
+
+                let st = self.info.regs().mstatus().read();
+                if self.mode.rx_dma.is_done() || st.complete() || st.errwarn() {
                     core::task::Poll::Ready(())
                 } else {
                     core::task::Poll::Pending
@@ -1071,6 +1154,10 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
 
             // Ensure DMA writes are visible to CPU
             cortex_m::asm::dsb();
+
+            // How many bytes did DMA actually move into this chunk?
+            let chunk_done = self.mode.rx_dma.transferred_bytes().min(chunk.len());
+
             // Cleanup
             self.info
                 .regs()
@@ -1080,16 +1167,59 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
                 self.mode.rx_dma.disable_request();
                 self.mode.rx_dma.clear_done();
             }
+
+            let st_after = self.info.regs().mstatus().read();
+            bytes_received += chunk_done;
+
+            // Classify the outcome. Per spec, target-terminated SDR reads
+            // can end before RDTERM with no error — and that's what SDK
+            // sees (status=0). The MCXA IP may still latch MERRWARN bits
+            // (nack/term/etc.) on certain RDTERM mismatch patterns.
+            //
+            // Rule (mirrors SDK behavior):
+            //   - bytes_received > 0 with any errwarn → spec-compliant
+            //     short read; suppress, return Ok(bytes_received).
+            //   - bytes_received == 0 with errwarn → real bus error
+            //     (true address NACK, parity, etc.); propagate.
+            //   - errwarn at chunk boundary with full chunk: same rule
+            //     (we got the bytes we asked for, suppress).
+            if chunk_done < chunk.len() {
+                if st_after.errwarn() {
+                    if bytes_received > 0 {
+                        self.clear_errors();
+                        result = Ok(bytes_received);
+                    } else {
+                        result = Err(self.status().err().unwrap_or(IOError::Other));
+                    }
+                } else {
+                    result = Ok(bytes_received);
+                }
+                break 'outer;
+            } else {
+                if st_after.errwarn() {
+                    // Full chunk delivered + errwarn. Suppress as long as
+                    // we did get data.
+                    self.clear_errors();
+                }
+                result = Ok(bytes_received);
+            }
         }
 
+        // Always emit Stop on the configured send_stop path, regardless of
+        // success or short-read. After a short read the slave already
+        // released the bus; Stop may report InvalidRequest (state != Normact)
+        // which is benign here. Matches SDK StopState semantics
+        // (fsl_i3c.c:2293) which emits Stop unconditionally after COMPLETE.
+        // Without this, the target sees a dirty bus on its next listen and
+        // raises SdrParity.
         if send_stop == SendStop::Yes {
-            self.async_stop(bus_type).await?;
+            let _ = self.async_stop(bus_type).await;
         }
 
         // defuse it if the future is not dropped
         on_drop.defuse();
 
-        Ok(())
+        result
     }
 
     async fn async_write_internal(
@@ -1259,20 +1389,39 @@ where
             .map_err(|_| IOError::Overwrite)
     }
 
-    async fn async_wait_for_rx_fifo(&self) -> Result<(), IOError> {
+    async fn async_wait_for_rx_fifo(&self) -> Result<RxFifoStatus, IOError> {
         self.info
             .wait_cell()
             .wait_for(|| {
-                // enable RXPEND interrupt
+                // enable RXPEND, COMPLETE, and ERRWARN interrupts so any of
+                // them wakes us. A target-terminated SDR read fires COMPLETE
+                // with no further bytes in the FIFO; we must distinguish
+                // that from "more data is coming".
                 self.info.regs().mintset().write(|w| {
                     w.set_rxpend(true);
+                    w.set_complete(true);
                     w.set_errwarn(true);
                 });
-                // if the rx FIFO is pending, we need to read bytes
-                self.info.regs().mstatus().read().rxpend() || self.info.regs().mstatus().read().errwarn()
+                let status = self.info.regs().mstatus().read();
+                status.rxpend() || status.complete() || status.errwarn()
             })
             .await
-            .map_err(|_| IOError::Overread)
+            .map_err(|_| IOError::Overread)?;
+
+        let status = self.info.regs().mstatus().read();
+        // Order matters: drain any pending FIFO byte first; on the next call
+        // we'll observe Complete without RxPending and report the early end.
+        // ERRWARN takes precedence only when the FIFO is already empty,
+        // otherwise we'd lose the last byte of a transaction that ended with
+        // a benign warning latched alongside the final byte.
+        if status.rxpend() {
+            Ok(RxFifoStatus::RxPending)
+        } else if status.errwarn() {
+            Err(self.status().err().unwrap_or(IOError::Other))
+        } else {
+            // complete() must be set (predicate above).
+            Ok(RxFifoStatus::Complete)
+        }
     }
 
     /// Prepares an appropriate Start condition on bus by issuing a
@@ -1505,12 +1654,17 @@ where
     }
 
     /// Read from address into buffer asynchronously.
+    ///
+    /// Returns the number of bytes actually read. On a spec-compliant
+    /// target-terminated short read (slave T-bits before `buf.len()` is
+    /// reached), this returns `Ok(n)` where `n < buf.len()`. Callers that
+    /// require the exact length should check `n == buf.len()` themselves.
     pub fn async_read<'a>(
         &'a mut self,
         address: u8,
         read: &'a mut [u8],
         bus_type: BusType,
-    ) -> impl Future<Output = Result<(), IOError>> + 'a {
+    ) -> impl Future<Output = Result<usize, IOError>> + 'a {
         <Self as AsyncEngine>::async_read_internal(self, address, read, bus_type, SendStop::Yes)
     }
 
@@ -1525,13 +1679,15 @@ where
     }
 
     /// Write to address from bytes and then read from address into buffer asynchronously.
+    ///
+    /// Returns the number of bytes actually read (see [`Self::async_read`]).
     pub async fn async_write_read<'a>(
         &'a mut self,
         address: u8,
         write: &'a [u8],
         read: &'a mut [u8],
         bus_type: BusType,
-    ) -> Result<(), IOError> {
+    ) -> Result<usize, IOError> {
         <Self as AsyncEngine>::async_write_internal(self, address, write, bus_type, SendStop::No).await?;
         <Self as AsyncEngine>::async_read_internal(self, address, read, bus_type, SendStop::Yes).await
     }
@@ -1550,7 +1706,7 @@ where
         for op in rest {
             match op {
                 Operation::Read { address, buf } => {
-                    <Self as AsyncEngine>::async_read_internal(self, *address, buf, bus_type, SendStop::No).await?
+                    <Self as AsyncEngine>::async_read_internal(self, *address, buf, bus_type, SendStop::No).await?;
                 }
                 Operation::Write { address, buf } => {
                     <Self as AsyncEngine>::async_write_internal(self, *address, buf, bus_type, SendStop::No).await?
@@ -1560,7 +1716,9 @@ where
 
         match last {
             Operation::Read { address, buf } => {
-                <Self as AsyncEngine>::async_read_internal(self, *address, buf, bus_type, SendStop::Yes).await
+                <Self as AsyncEngine>::async_read_internal(self, *address, buf, bus_type, SendStop::Yes)
+                    .await
+                    .map(|_| ())
             }
             Operation::Write { address, buf } => {
                 <Self as AsyncEngine>::async_write_internal(self, *address, buf, bus_type, SendStop::Yes).await
@@ -1717,7 +1875,7 @@ where
         for op in rest {
             match op {
                 embedded_hal_async::i2c::Operation::Read(buf) => {
-                    <Self as AsyncEngine>::async_read_internal(self, address, buf, BusType::I2c, SendStop::No).await?
+                    <Self as AsyncEngine>::async_read_internal(self, address, buf, BusType::I2c, SendStop::No).await?;
                 }
                 embedded_hal_async::i2c::Operation::Write(buf) => {
                     <Self as AsyncEngine>::async_write_internal(self, address, buf, BusType::I2c, SendStop::No).await?
@@ -1727,7 +1885,9 @@ where
 
         match last {
             embedded_hal_async::i2c::Operation::Read(buf) => {
-                <Self as AsyncEngine>::async_read_internal(self, address, buf, BusType::I2c, SendStop::Yes).await
+                <Self as AsyncEngine>::async_read_internal(self, address, buf, BusType::I2c, SendStop::Yes)
+                    .await
+                    .map(|_| ())
             }
             embedded_hal_async::i2c::Operation::Write(buf) => {
                 <Self as AsyncEngine>::async_write_internal(self, address, buf, BusType::I2c, SendStop::Yes).await
