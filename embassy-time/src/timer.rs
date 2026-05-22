@@ -173,9 +173,25 @@ impl Timer {
     ///
     /// This method is a convenience wrapper for calling `Timer::after(Duration::from_nanos())`.
     /// For more details, refer to [`Timer::after()`] and [`Duration::from_nanos()`].
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the computed instant overflows.
+    /// Avoid panics with [`Timer::try_after_nanos()`].
     #[inline]
     pub fn after_nanos(nanos: u64) -> Self {
         Self::after(Duration::from_nanos(nanos))
+    }
+
+    /// Try to expire after the specified number of nanoseconds.
+    ///
+    /// This method is a convenience wrapper for calling `Timer::try_after(Duration::from_ticks())`.
+    /// For more details, refer to [`Timer::try_after()`] and [`Duration::from_nanos()`].
+    ///
+    /// This is a panic-free [`Timer::after_nanos()`].
+    #[inline]
+    pub fn try_after_nanos(nanos: u64) -> Option<Self> {
+        Self::try_after(Duration::from_nanos(nanos))
     }
 
     /// Expire after the specified number of microseconds.
