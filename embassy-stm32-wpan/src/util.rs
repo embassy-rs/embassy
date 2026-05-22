@@ -114,7 +114,7 @@ pub fn make_cc_with_cs<'a>(
 }
 
 /// Parse an HCI event, with fallbacks for vendor payloads that stm32wb-hci does not yet decode.
-#[cfg(feature = "bt-hci")]
+#[cfg(all(feature = "bt-hci", feature = "wba"))]
 pub fn parse_event_with_fallback(
     event_type: u8,
     payload: &[u8],
@@ -143,7 +143,7 @@ pub fn parse_event_with_fallback(
 }
 
 /// Returns true when the vendor payload is an ST HAL firmware warning.
-#[cfg(feature = "bt-hci")]
+#[cfg(all(feature = "bt-hci", feature = "wba"))]
 pub fn vendor_event_is_hal_firmware_warning(payload: &[u8], warning: u8) -> bool {
     payload.len() >= 3 && u16::from_le_bytes([payload[0], payload[1]]) == 0x0006 && payload[2] == warning
 }
