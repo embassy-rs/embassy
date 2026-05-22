@@ -442,6 +442,14 @@ impl Unpin for Ticker {}
 
 impl Stream for Ticker {
     type Item = ();
+    /// Attempt to pull the next tick from this [`Stream`].
+    ///
+    /// * Returns `Poll::Pending` if the instant is in the future.
+    /// * Returns `Poll::Ready(Some(()))` if the instant has been reached, and computes the next instant.
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the computed instant overflows.
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         if self.expires_at <= Instant::now() {
             let dur = self.duration;
