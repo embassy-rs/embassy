@@ -248,9 +248,25 @@ impl Timer {
     ///
     /// This method is a convenience wrapper for calling `Timer::after(Duration::from_secs())`.
     /// For more details, refer to [`Timer::after`] and [`Duration::from_secs()`].
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the computed instant overflows.
+    /// Avoid panics with [`Timer::try_after_secs()`].
     #[inline]
     pub fn after_secs(secs: u64) -> Self {
         Self::after(Duration::from_secs(secs))
+    }
+
+    /// Try to expire after the specified number of seconds.
+    ///
+    /// This method is a convenience wrapper for calling `Timer::try_after(Duration::from_secs())`.
+    /// For more details, refer to [`Timer::try_after`] and [`Duration::from_secs()`].
+    ///
+    /// This is a panic-free [`Timer::after_secs()`].
+    #[inline]
+    pub fn try_after_secs(secs: u64) -> Option<Self> {
+        Self::try_after(Duration::from_secs(secs))
     }
 }
 
