@@ -396,8 +396,24 @@ impl Ticker {
 
     /// Resets the ticker, after the specified duration has passed.
     /// If the specified duration is zero, the next tick will be after the duration of the ticker.
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the computed instant overflows.
+    /// Avoid panics with [`Ticker::checked_reset_after()`].
     pub fn reset_after(&mut self, after: impl Into<Duration>) {
-        self.expires_at = Instant::now() + after.into() + self.duration;
+        let after = after.into();
+        self.expires_at = Instant::now() + after + self.duration;
+    }
+
+    /// Checked resets the ticker, after the specified duration has passed.
+    /// If the specified duration is zero, the next tick will be after the duration of the ticker.
+    ///
+    /// This is a panic-free [`Ticker::reset_after()`].
+    pub fn checked_reset_after(&mut self, after: impl Into<Duration>) -> Option<()> {
+        let after = after.into();
+        self.expires_at = Instant::now().checked_add(after)?.checked_add(self.duration)?;
+        Some(())
     }
 
     /// Waits for the next tick.
@@ -520,5 +536,27 @@ mod test {
             duration: Duration::MAX,
         };
         assert!(ticker.checked_reset_at(Instant::MAX).is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "overflow")]
+    #[cfg(panic = "unwind")]
+    fn ticker_reset_after_panics() {
+        let mut ticker = Ticker {
+            expires_at: Instant::MAX,
+            duration: Duration::MAX,
+        };
+        while Instant::now() == Instant::MIN {} // with non-0 tick
+        ticker.reset_after(Duration::MAX); // PANIC
+    }
+
+    #[test]
+    fn ticker_checked_reset_after_none() {
+        let mut ticker = Ticker {
+            expires_at: Instant::MAX,
+            duration: Duration::MAX,
+        };
+        while Instant::now() == Instant::MIN {} // with non-0 tick
+        assert!(ticker.checked_reset_after(Duration::MAX).is_none());
     }
 }
