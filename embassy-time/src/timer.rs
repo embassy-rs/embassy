@@ -148,9 +148,25 @@ impl Timer {
     ///
     /// This method is a convenience wrapper for calling `Timer::after(Duration::from_ticks())`.
     /// For more details, refer to [`Timer::after()`] and [`Duration::from_ticks()`].
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the computed instant overflows.
+    /// Avoid panics with [`Timer::try_after_ticks()`].
     #[inline]
     pub fn after_ticks(ticks: u64) -> Self {
         Self::after(Duration::from_ticks(ticks))
+    }
+
+    /// Try to expire after the specified number of ticks.
+    ///
+    /// This method is a convenience wrapper for calling `Timer::try_after(Duration::from_ticks())`.
+    /// For more details, refer to [`Timer::try_after()`] and [`Duration::from_ticks()`].
+    ///
+    /// This is a panic-free [`Timer::after_ticks()`].
+    #[inline]
+    pub fn try_after_ticks(ticks: u64) -> Option<Self> {
+        Self::try_after(Duration::from_ticks(ticks))
     }
 
     /// Expire after the specified number of nanoseconds.
