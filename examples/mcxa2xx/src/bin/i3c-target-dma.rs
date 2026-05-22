@@ -18,6 +18,12 @@ use {defmt::info, defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 const TARGET_ADDR: u8 = 0x0a;
 const RX_BUF_SIZE: usize = 128;
+
+// Per-iteration TX payload size for the read response. Set smaller than
+// the controller's CTRL_RD_LEN to exercise the over-read path (target
+// runs out before controller's RDTERM is satisfied).
+const TGT_TX_LEN: usize = 16;
+const TX_PATTERN_BYTE: u8 = 0x55;
 static RX_BUF: ConstStaticCell<[u8; RX_BUF_SIZE]> = ConstStaticCell::new([0u8; RX_BUF_SIZE]);
 
 bind_interrupts!(
@@ -47,8 +53,9 @@ async fn main(_spawner: Spawner) {
     .unwrap();
     let mut tgt = tgt;
 
-    info!("[tgt] up, listening");
+    info!("[tgt] up, listening (TGT_TX_LEN={})", TGT_TX_LEN);
     let mut sink = [0u8; 64];
+    let tx_payload = [TX_PATTERN_BYTE; TGT_TX_LEN];
     let mut iter: u32 = 0;
 
     loop {
@@ -57,7 +64,17 @@ async fn main(_spawner: Spawner) {
             tgt.dma_respond_to_write(&mut sink).await.unwrap();
             assert_eq!(sink, [0xaa; 64]);
 
-            tgt.dma_respond_to_read_with_ibi(&[0x55; 64]).await.unwrap();
+            match tgt.dma_respond_to_read_with_ibi(&tx_payload).await {
+                Ok(()) => {
+                    if iter < 3 {
+                        info!("[tgt] iter {} TX_LEN={} OK", iter, TGT_TX_LEN);
+                    }
+                }
+                Err(e) => {
+                    defmt::error!("[tgt] iter {} TX_LEN={} err {:?}", iter, TGT_TX_LEN, e);
+                    panic!("tgt read-with-ibi failed");
+                }
+            }
             iter = iter.wrapping_add(1);
             if iter % 1000 == 0 {
                 info!("[tgt] iter {} OK", iter);
