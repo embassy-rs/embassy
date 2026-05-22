@@ -72,6 +72,11 @@ micromath = "2.0.0"
 # mspm0-metapac = { version = "" }
 mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-d9f54366c65cec47957065f42fe04542b852a8cd" }
 rand_core = "0.9"
+# Force no cache padding or the types are too large.
+maitake-sync = { version = "0.3.0", default-features = false, features = ["critical-section", "no-cache-pad"]}
+# maitake sync requires portable atomic. For Cortex-M0 it is fine to force a dependency on the critical section feature.
+# however on MSPM33 parts it may be desired to use hardware atomics instead.
+portable-atomic = { version = "1.13.1", features = ["critical-section"] }
 
 [build-dependencies]
 proc-macro2 = "1.0.94"

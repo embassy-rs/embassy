@@ -89,7 +89,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     // Compute Alice's public key: A = alice_private * G
     let mut alice_public = EccPoint::new(32);
-    match pka.ecc_mul(
+    match pka.ecc_mul_blocking(
         &curve,
         &alice_private,
         curve.generator_x,
@@ -127,7 +127,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     // Compute Bob's public key: B = bob_private * G
     let mut bob_public = EccPoint::new(32);
-    match pka.ecc_mul(
+    match pka.ecc_mul_blocking(
         &curve,
         &bob_private,
         curve.generator_x,
@@ -150,7 +150,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     info!("=== Validating Public Keys ===");
 
     // Alice validates Bob's public key
-    match pka.point_check(&curve, &bob_public.x[..32], &bob_public.y[..32]) {
+    match pka.point_check_blocking(&curve, &bob_public.x[..32], &bob_public.y[..32]) {
         Ok(true) => {
             info!("Bob's public key is valid (on curve)");
         }
@@ -169,7 +169,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     }
 
     // Bob validates Alice's public key
-    match pka.point_check(&curve, &alice_public.x[..32], &alice_public.y[..32]) {
+    match pka.point_check_blocking(&curve, &alice_public.x[..32], &alice_public.y[..32]) {
         Ok(true) => {
             info!("Alice's public key is valid (on curve)");
         }
@@ -192,7 +192,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     // Alice computes shared secret: S_alice = alice_private * bob_public
     let mut alice_shared = EccPoint::new(32);
-    match pka.ecc_mul(
+    match pka.ecc_mul_blocking(
         &curve,
         &alice_private,
         &bob_public.x[..32],
@@ -212,7 +212,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     // Bob computes shared secret: S_bob = bob_private * alice_public
     let mut bob_shared = EccPoint::new(32);
-    match pka.ecc_mul(
+    match pka.ecc_mul_blocking(
         &curve,
         &bob_private,
         &alice_public.x[..32],
@@ -269,7 +269,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     info!("Computing public key from known private key...");
     let mut test_public = EccPoint::new(32);
-    match pka.ecc_mul(
+    match pka.ecc_mul_blocking(
         &curve,
         &test_private,
         curve.generator_x,

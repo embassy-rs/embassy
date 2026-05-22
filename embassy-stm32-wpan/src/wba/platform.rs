@@ -81,7 +81,7 @@ pub struct Platform {
     ble_init: Flag,
     rng: Mutex<CriticalSectionRawMutex, Rng<'static, RNG>>,
     aes: Option<CriticalSectionMutex<RefCell<Aes<'static, AesPeriph, Blocking>>>>,
-    pka: Option<CriticalSectionMutex<RefCell<Pka<'static, PkaPeriph>>>>,
+    pka: Option<CriticalSectionMutex<RefCell<Pka<'static, PkaPeriph, Blocking>>>>,
 }
 
 impl Platform {
@@ -106,7 +106,7 @@ impl Platform {
         buf: &'static mut [ChannelPacket; N],
         rng: Rng<'static, RNG>,
         aes: Aes<'static, AesPeriph, Blocking>,
-        pka: Pka<'static, PkaPeriph>,
+        pka: Pka<'static, PkaPeriph, Blocking>,
     ) -> (Self, FullRuntime) {
         (
             Self {
@@ -137,12 +137,10 @@ impl Platform {
         self.pipe.wait_full().await
     }
 
-    pub(crate) fn try_fill_all_bytes(&self, buf: &mut [u8]) -> Result<(), ()> {
-        if self.pipe.try_read(buf).map_err(|_| ())? < buf.len() {
-            Err(())
-        } else {
-            Ok(())
-        }
+    /// Fill `buf` from the pipe, returning how many bytes were actually written.
+    /// May return less than `buf.len()` if the pipe is transiently low.
+    pub(crate) fn try_fill_bytes(&self, buf: &mut [u8]) -> usize {
+        self.pipe.try_read(buf).unwrap_or(0)
     }
 
     /// Fill `buf` with random bytes from the BLE platform's RNG pipe.
@@ -199,7 +197,7 @@ impl Platform {
     /// Panics if the platform was built with [`Self::new_basic`] (no PKA).
     /// Held under a critical section; long operations (e.g. P-256 ECDH) will
     /// delay BLE LL interrupts until `f` returns.
-    pub fn borrow_pka<R>(&self, f: impl FnOnce(&mut Pka<'static, PkaPeriph>) -> R) -> R {
+    pub fn borrow_pka<R>(&self, f: impl FnOnce(&mut Pka<'static, PkaPeriph, Blocking>) -> R) -> R {
         critical_section::with(|cs| {
             let mut pka = self
                 .pka

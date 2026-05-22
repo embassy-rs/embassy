@@ -54,7 +54,8 @@ impl Default for AdvParams {
             interval_min: 0x0800, // 1.28 seconds
             interval_max: 0x0800, // 1.28 seconds
             adv_type: AdvType::ConnectableUndirected,
-            own_addr_type: OwnAddressType::Public,
+            // Matches the default address type configured in `GapInitParams`.
+            own_addr_type: OwnAddressType::Random,
             filter_policy: AdvFilterPolicy::All,
             channel_map: 0x07, // All channels
         }
@@ -74,6 +75,7 @@ mod ad_type {
     pub const SHORTENED_LOCAL_NAME: u8 = 0x08;
     pub const COMPLETE_LOCAL_NAME: u8 = 0x09;
     pub const TX_POWER_LEVEL: u8 = 0x0A;
+    pub const SERVICE_DATA_16BIT_UUID: u8 = 0x16;
     pub const MANUFACTURER_SPECIFIC_DATA: u8 = 0xFF;
 }
 
@@ -148,6 +150,19 @@ impl AdvData {
     /// Add TX power level
     pub fn add_tx_power(&mut self, power: i8) -> Result<&mut Self, BleError> {
         self.add_field(ad_type::TX_POWER_LEVEL, &[power as u8])
+    }
+
+    /// Add 16-bit UUID service data to advertising data
+    ///
+    /// Used by Eddystone beacons and other service-data-based protocols.
+    /// Format: 2-byte service UUID (little-endian) followed by data.
+    pub fn add_service_data(&mut self, service_uuid: u16, data: &[u8]) -> Result<&mut Self, BleError> {
+        let mut svc_data = heapless::Vec::<u8, 29>::new();
+        svc_data
+            .extend_from_slice(&service_uuid.to_le_bytes())
+            .map_err(|_| BleError::BufferFull)?;
+        svc_data.extend_from_slice(data).map_err(|_| BleError::BufferFull)?;
+        self.add_field(ad_type::SERVICE_DATA_16BIT_UUID, &svc_data)
     }
 
     /// Add manufacturer-specific data

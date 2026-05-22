@@ -13,7 +13,9 @@ use embassy_stm32::peripherals::RNG;
 use embassy_stm32::rcc::Config as RccConfig;
 use embassy_stm32::rng::InterruptHandler as RngInterruptHandler;
 use embassy_stm32_wpan::TlMbox;
-use embassy_stm32_wpan::mac::{Driver, DriverState, Runner};
+use embassy_stm32_wpan::net::runner::Runner;
+use embassy_stm32_wpan::net::{Device, MTU, State};
+use embassy_stm32_wpan::sub::mac::ControllerAdapter;
 use embassy_stm32_wpan::sub::mm;
 use embassy_time::{Duration, Timer};
 use heapless::Vec;
@@ -32,12 +34,12 @@ async fn run_mm_queue(mut memory_manager: mm::MemoryManager<'static>) -> ! {
 }
 
 #[embassy_executor::task]
-async fn run_mac(runner: &'static Runner<'static>) -> ! {
+async fn run_mac(mut runner: Runner<'static, ControllerAdapter<'static>>) -> ! {
     runner.run().await
 }
 
 #[embassy_executor::task]
-async fn run_net(mut runner: embassy_net::Runner<'static, Driver<'static>>) -> ! {
+async fn run_net(mut runner: embassy_net::Runner<'static, Device<'static, MTU>>) -> ! {
     runner.run().await
 }
 
@@ -81,15 +83,16 @@ async fn main(spawner: Spawner) {
 
     spawner.spawn(run_mm_queue(mm).unwrap());
 
-    static DRIVER_STATE: StaticCell<DriverState> = StaticCell::new();
-    static RUNNER: StaticCell<Runner> = StaticCell::new();
+    static DRIVER_STATE: StaticCell<State<ControllerAdapter>> = StaticCell::new();
+    static CONTROLLER: StaticCell<ControllerAdapter> = StaticCell::new();
     static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
 
-    let driver_state = DRIVER_STATE.init(DriverState::new(mac));
+    let driver_state = DRIVER_STATE.init(State::new());
+    let controller = CONTROLLER.init(ControllerAdapter::new(mac));
 
-    let (driver, mac_runner, mut control) = Driver::new(
+    let (driver, mut control, mac_runner) = embassy_stm32_wpan::net::new(
         driver_state,
-        0x1122u16.to_be_bytes().try_into().unwrap(),
+        controller,
         0xACDE480000000001u64.to_be_bytes().try_into().unwrap(),
     );
 
@@ -114,14 +117,18 @@ async fn main(spawner: Spawner) {
     let (stack, eth_runner) = embassy_net::new(driver, config, RESOURCES.init(StackResources::new()), seed);
 
     // wpan runner
-    spawner.spawn(run_mac(RUNNER.init(mac_runner)).unwrap());
+    spawner.spawn(unwrap!(run_mac(mac_runner)));
 
     // Launch network task
     spawner.spawn(unwrap!(run_net(eth_runner)));
 
     info!("Network task initialized");
 
-    control.init_link([0x1A, 0xAA]).await;
+    unwrap!(
+        control
+            .start_ap([0x1A, 0xAA], 0x1122u16.to_be_bytes().try_into().unwrap())
+            .await
+    );
 
     // Ensure DHCP configuration is up before trying connect
     stack.wait_config_up().await;

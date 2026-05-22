@@ -181,7 +181,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     info!("=== Step 1: RSA Encryption (Public Key) ===");
 
     let mut ciphertext = [0u8; 256];
-    match pka.modular_exp(&plaintext, &RSA_E, &RSA_N, &mut ciphertext) {
+    match pka.modular_exp_blocking(&plaintext, &RSA_E, &RSA_N, &mut ciphertext) {
         Ok(()) => {
             info!("Encryption successful");
             info!("Ciphertext (first 16 bytes): {:02x}", &ciphertext[..16]);
@@ -199,7 +199,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     info!("M = C^d mod n (full exponent)");
 
     let mut decrypted_standard = [0u8; 256];
-    match pka.modular_exp(&ciphertext, &RSA_D, &RSA_N, &mut decrypted_standard) {
+    match pka.modular_exp_blocking(&ciphertext, &RSA_D, &RSA_N, &mut decrypted_standard) {
         Ok(()) => {
             info!("Standard decryption complete");
             if decrypted_standard == plaintext {
@@ -232,7 +232,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     };
 
     let mut decrypted_crt = [0u8; 256];
-    match pka.rsa_crt_exp(&ciphertext, &crt_params, &mut decrypted_crt) {
+    match pka.rsa_crt_exp_blocking(&ciphertext, &crt_params, &mut decrypted_crt) {
         Ok(()) => {
             info!("CRT decryption complete");
             info!("Decrypted (last 10 bytes): {:02x}", &decrypted_crt[246..]);
@@ -272,10 +272,10 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
         // Encrypt
         let mut ct = [0u8; 256];
-        if pka.modular_exp(&msg, &RSA_E, &RSA_N, &mut ct).is_ok() {
+        if pka.modular_exp_blocking(&msg, &RSA_E, &RSA_N, &mut ct).is_ok() {
             // Decrypt with CRT
             let mut pt = [0u8; 256];
-            if pka.rsa_crt_exp(&ct, &crt_params, &mut pt).is_ok() {
+            if pka.rsa_crt_exp_blocking(&ct, &crt_params, &mut pt).is_ok() {
                 if pt == msg {
                     info!("Message {}: CRT decryption OK", i + 1);
                 } else {

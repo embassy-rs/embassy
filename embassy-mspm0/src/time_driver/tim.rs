@@ -3,21 +3,21 @@ use core::sync::atomic::{AtomicU32, Ordering, compiler_fence};
 use core::task::Waker;
 
 use critical_section::{CriticalSection, Mutex};
+use embassy_hal_internal::interrupt::InterruptExt;
 use embassy_time_driver::Driver;
 use embassy_time_queue_utils::Queue;
 use mspm0_metapac::interrupt;
 use mspm0_metapac::tim::Tim;
 use mspm0_metapac::tim::vals::{Cm, Cvae, CxC, EvtCfg, PwrenKey, Repeat, ResetKey};
 
-use crate::peripherals;
-use crate::timer::SealedTimer;
+use crate::interrupt::typelevel::Interrupt;
+use crate::tim::SealedInstance;
+use crate::{peripherals, tim};
 
 #[cfg(any(time_driver_timg12, time_driver_timg13))]
 compile_error!("TIMG12 and TIMG13 are not supported by the time driver yet");
 
 // Currently TIMG12 and TIMG13 are excluded because those are 32-bit timers.
-#[cfg(time_driver_timb0)]
-type T = peripherals::TIMB0;
 #[cfg(time_driver_timg0)]
 type T = peripherals::TIMG0;
 #[cfg(time_driver_timg1)]
@@ -52,7 +52,7 @@ type T = peripherals::TIMA1;
 // TODO: RTC
 
 fn regs() -> Tim {
-    unsafe { Tim::from_ptr(T::regs()) }
+    T::info().regs
 }
 
 /// Clock timekeeping works with something we call "periods", which are time intervals
@@ -166,7 +166,8 @@ impl TimxDriver {
             w.set_ccu0(true);
         });
 
-        unsafe { T::enable_interrupt() };
+        <T as tim::Instance>::Interrupt::IRQ.unpend();
+        unsafe { <T as tim::Instance>::Interrupt::IRQ.enable() };
 
         // Allow the counter to start counting.
         regs.counterregs(0).ctrctl().modify(|w| {

@@ -28,9 +28,11 @@ use embassy_stm32::rcc::{self};
 use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::{Config, bind_interrupts};
 use embassy_stm32_wpan::bluetooth::HCI;
+use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
+use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams};
 use embassy_stm32_wpan::bluetooth::gatt::{CharProperties, GattEventMask, SecurityPermissions, ServiceType, Uuid};
-use embassy_stm32_wpan::bluetooth::security::{SecureConnectionsSupport, SecurityParams};
+use embassy_stm32_wpan::bluetooth::security::{IoCapability, SecureConnectionsSupport, SecurityParams};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use stm32wb_hci::Event;
 use stm32wb_hci::event::EncryptionChange;
@@ -49,6 +51,9 @@ bind_interrupts!(struct Irqs {
 const SECURE_SERVICE_UUID: u16 = 0xABCD;
 /// Characteristic that requires encryption
 const SECURE_CHAR_UUID: u16 = 0xABCE;
+
+// ---- Test configuration ----
+const ADDR_TYPE: OwnAddressType = OwnAddressType::Random;
 
 /// RNG runner task
 #[embassy_executor::task]
@@ -88,9 +93,18 @@ async fn main(spawner: Spawner) {
     spawner.spawn(ble_runner_task(platform).expect("Failed to spawn BLE runner"));
 
     // Initialize BLE stack
-    let mut ble = HCI::new(platform, runtime, Irqs)
-        .await
-        .expect("BLE initialization failed");
+    let mut ble = match ADDR_TYPE {
+        OwnAddressType::Public => {
+            let gap_params = GapInitParams {
+                bd_addr: [0x01, 0x00, 0x00, 0xE1, 0x80, 0x00],
+                address_type: AddressType::Public,
+                ..GapInitParams::default()
+            };
+            HCI::new_with_gap_params(platform, runtime, Irqs, gap_params).await
+        }
+        _ => HCI::new(platform, runtime, Irqs).await,
+    }
+    .expect("BLE initialization failed");
 
     // ===== Configure Security =====
     let mut security = ble.security_manager();
@@ -103,7 +117,8 @@ async fn main(spawner: Spawner) {
         .with_bonding(true)
         .with_mitm_protection(true)
         .with_secure_connections(SecureConnectionsSupport::Optional)
-        .with_key_size_range(7, 16);
+        .with_key_size_range(7, 16)
+        .with_io_capability(IoCapability::DisplayYesNo);
 
     security
         .set_authentication_requirements(security_params)
@@ -150,6 +165,7 @@ async fn main(spawner: Spawner) {
         interval_min: 0x0050,
         interval_max: 0x0050,
         adv_type: AdvType::ConnectableUndirected,
+        own_addr_type: ADDR_TYPE,
         ..AdvParams::default()
     };
 
@@ -188,8 +204,11 @@ async fn main(spawner: Spawner) {
                     info!("  Handle: 0x{:04X}", conn.handle.0);
                     info!("  Peer: {}", conn.peer_address);
 
-                    info!("Waiting for pairing request...");
-                    info!("(Try to read the secure characteristic to trigger pairing)");
+                    if let Err(e) = security.request_pairing(conn.handle.0) {
+                        warn!("request_pairing failed: {:?}", e);
+                    } else {
+                        info!("Pairing requested — waiting for central to respond...");
+                    }
                 }
 
                 GapEvent::Disconnected { handle, reason } => {

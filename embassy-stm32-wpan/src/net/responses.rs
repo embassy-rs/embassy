@@ -1,9 +1,8 @@
-use super::consts::{MAX_ED_SCAN_RESULTS_SUPPORTED, MAX_PAN_DESC_SUPPORTED, MAX_SOUNDING_LIST_SUPPORTED};
-use super::event::ParseableMacEvent;
-use super::typedefs::{
+use crate::net::typedefs::{
     AddressMode, AssociationStatus, KeyIdMode, MacAddress, MacStatus, PanDescriptor, PanId, PibId, ScanType,
     SecurityLevel,
 };
+use crate::net::{MAX_ED_SCAN_RESULTS_SUPPORTED, MAX_PAN_DESC_SUPPORTED, MAX_SOUNDING_LIST_SUPPORTED, MacEvent};
 
 /// MLME ASSOCIATE Confirm used to inform of the initiating device whether
 /// its request to associate was successful or unsuccessful
@@ -27,7 +26,9 @@ pub struct AssociateConfirm {
     a_stuffing: [u8; 2],
 }
 
-impl ParseableMacEvent for AssociateConfirm {}
+impl MacEvent for AssociateConfirm {
+    const NAME: &str = "AssociateConfirm";
+}
 
 /// MLME DISASSOCIATE Confirm used to send disassociation Confirmation to the application.
 #[repr(C)]
@@ -44,7 +45,9 @@ pub struct DisassociateConfirm {
     pub device_address: MacAddress,
 }
 
-impl ParseableMacEvent for DisassociateConfirm {}
+impl MacEvent for DisassociateConfirm {
+    const NAME: &str = "DisassociateConfirm";
+}
 
 ///  MLME GET Confirm which requests information about a given PIB attribute
 #[repr(C)]
@@ -63,7 +66,9 @@ pub struct GetConfirm {
     a_stuffing: [u8; 1],
 }
 
-impl ParseableMacEvent for GetConfirm {}
+impl MacEvent for GetConfirm {
+    const NAME: &str = "GetConfirm";
+}
 
 /// MLME GTS Confirm which eports the results of a request to allocate a new GTS
 /// or to deallocate an existing GTS
@@ -79,7 +84,9 @@ pub struct GtsConfirm {
     a_stuffing: [u8; 2],
 }
 
-impl ParseableMacEvent for GtsConfirm {}
+impl MacEvent for GtsConfirm {
+    const NAME: &str = "GtsConfirm";
+}
 
 /// MLME RESET Confirm which is used to report the results of the reset operation
 #[repr(C)]
@@ -92,7 +99,9 @@ pub struct ResetConfirm {
     a_stuffing: [u8; 3],
 }
 
-impl ParseableMacEvent for ResetConfirm {}
+impl MacEvent for ResetConfirm {
+    const NAME: &str = "ResetConfirm";
+}
 
 /// MLME RX ENABLE Confirm which is used to report the results of the attempt
 /// to enable or disable the receiver
@@ -106,7 +115,9 @@ pub struct RxEnableConfirm {
     a_stuffing: [u8; 3],
 }
 
-impl ParseableMacEvent for RxEnableConfirm {}
+impl MacEvent for RxEnableConfirm {
+    const NAME: &str = "RxEnableConfirm";
+}
 
 /// MLME SCAN Confirm which is used to report the result of the channel scan request
 #[repr(C)]
@@ -133,7 +144,9 @@ pub struct ScanConfirm {
     pub uwb_energy_detect_list: [u8; MAX_ED_SCAN_RESULTS_SUPPORTED],
 }
 
-impl ParseableMacEvent for ScanConfirm {}
+impl MacEvent for ScanConfirm {
+    const NAME: &str = "ScanConfirm";
+}
 
 /// MLME SET Confirm which reports the result of an attempt to write a value to a PIB attribute
 #[repr(C)]
@@ -148,7 +161,9 @@ pub struct SetConfirm {
     a_stuffing: [u8; 2],
 }
 
-impl ParseableMacEvent for SetConfirm {}
+impl MacEvent for SetConfirm {
+    const NAME: &str = "SetConfirm";
+}
 
 /// MLME START Confirm which is used to report the results of the attempt to
 /// start using a new superframe configuration
@@ -162,7 +177,9 @@ pub struct StartConfirm {
     a_stuffing: [u8; 3],
 }
 
-impl ParseableMacEvent for StartConfirm {}
+impl MacEvent for StartConfirm {
+    const NAME: &str = "StartConfirm";
+}
 
 /// MLME POLL Confirm which is used to report the result of a request to poll the coordinator for data
 #[repr(C)]
@@ -175,7 +192,9 @@ pub struct PollConfirm {
     a_stuffing: [u8; 3],
 }
 
-impl ParseableMacEvent for PollConfirm {}
+impl MacEvent for PollConfirm {
+    const NAME: &str = "PollConfirm";
+}
 
 /// MLME DPS Confirm which  reports the results of the attempt to enable or disable the DPS
 #[repr(C)]
@@ -188,7 +207,9 @@ pub struct DpsConfirm {
     a_stuffing: [u8; 3],
 }
 
-impl ParseableMacEvent for DpsConfirm {}
+impl MacEvent for DpsConfirm {
+    const NAME: &str = "DpsConfirm";
+}
 
 /// MLME SOUNDING Confirm which  reports the result of a request to the PHY to provide
 /// channel sounding information
@@ -202,7 +223,9 @@ pub struct SoundingConfirm {
     status: u8,
 }
 
-impl ParseableMacEvent for SoundingConfirm {}
+impl MacEvent for SoundingConfirm {
+    const NAME: &str = "SoundingConfirm";
+}
 
 /// MLME CALIBRATE Confirm which reports the result of a request to the PHY
 /// to provide internal propagation path information
@@ -222,7 +245,9 @@ pub struct CalibrateConfirm {
     pub cal_rx_rmaker_offset: u32,
 }
 
-impl ParseableMacEvent for CalibrateConfirm {}
+impl MacEvent for CalibrateConfirm {
+    const NAME: &str = "CalibrateConfirm";
+}
 
 /// MCPS DATA Confirm which will be used for reporting the results of
 /// MAC data related requests from the application
@@ -254,7 +279,9 @@ pub struct DataConfirm {
     a_stuffing: [u8; 3],
 }
 
-impl ParseableMacEvent for DataConfirm {}
+impl MacEvent for DataConfirm {
+    const NAME: &str = "DataConfirm";
+}
 
 /// MCPS PURGE Confirm which will be used by the  MAC to notify the application of
 /// the status of its request to purge an MSDU from the transaction queue
@@ -270,4 +297,6 @@ pub struct PurgeConfirm {
     a_stuffing: [u8; 2],
 }
 
-impl ParseableMacEvent for PurgeConfirm {}
+impl MacEvent for PurgeConfirm {
+    const NAME: &str = "PurgeConfirm";
+}

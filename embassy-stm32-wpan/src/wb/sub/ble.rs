@@ -62,18 +62,6 @@ pub struct Ble<'a> {
     ipcc_hci_acl_rx_data_channel: IpccRxChannel<'a>,
 }
 
-/// BLE for only sending commands to CPU2
-pub struct BleTx<'a> {
-    hw_ipcc_ble_cmd_channel: IpccTxChannel<'a>,
-    ipcc_hci_acl_tx_data_channel: IpccTxChannel<'a>,
-}
-
-/// BLE for only receive commands from CPU2
-pub struct BleRx<'a> {
-    ipcc_ble_event_channel: IpccRxChannel<'a>,
-    ipcc_hci_acl_rx_data_channel: IpccRxChannel<'a>,
-}
-
 impl<'a> Ble<'a> {
     /// Constructs a guard that allows for BLE commands to be sent to CPU2.
     ///
@@ -101,20 +89,6 @@ impl<'a> Ble<'a> {
             ipcc_hci_acl_tx_data_channel,
             ipcc_hci_acl_rx_data_channel,
         }
-    }
-
-    /// Split current BLE into BleTx and BleRx
-    pub fn split(self) -> (BleTx<'a>, BleRx<'a>) {
-        (
-            BleTx {
-                hw_ipcc_ble_cmd_channel: self.hw_ipcc_ble_cmd_channel,
-                ipcc_hci_acl_tx_data_channel: self.ipcc_hci_acl_tx_data_channel,
-            },
-            BleRx {
-                ipcc_ble_event_channel: self.ipcc_ble_event_channel,
-                ipcc_hci_acl_rx_data_channel: self.ipcc_hci_acl_rx_data_channel,
-            },
-        )
     }
 
     /// `HW_IPCC_BLE_EvtNot`
@@ -184,96 +158,6 @@ impl<'a> evt::MemoryManager for Ble<'a> {
         if !(stub.evt_code == TL_BLEEVT_CS_OPCODE || stub.evt_code == TL_BLEEVT_CC_OPCODE) {
             mm::MemoryManager::drop_event_packet(evt);
         }
-    }
-}
-
-#[cfg(feature = "wb-hci")]
-impl<'a> stm32wb_hci::Controller for Ble<'a> {
-    async fn controller_write(&mut self, opcode: stm32wb_hci::Opcode, payload: &[u8]) {
-        self.tl_write(opcode.0, payload).await;
-    }
-
-    async fn controller_read_into(&mut self, buf: &mut [u8]) {
-        let evt_box = self.tl_read().await;
-        let evt_serial = evt_box.serial();
-
-        buf[..evt_serial.len()].copy_from_slice(evt_serial);
-    }
-}
-
-impl<'a> BleTx<'a> {
-    /// `TL_BLE_SendCmd`
-    pub async fn tl_write(&mut self, opcode: u16, payload: &[u8]) {
-        self.hw_ipcc_ble_cmd_channel
-            .send(|| unsafe {
-                CmdPacket::write_into(BLE_CMD_BUFFER.as_mut_ptr(), TlPacketType::BleCmd, opcode, payload);
-            })
-            .await;
-    }
-
-    /// `TL_BLE_SendAclData`
-    pub async fn acl_write(&mut self, handle: u16, payload: &[u8]) {
-        self.ipcc_hci_acl_tx_data_channel
-            .send(|| unsafe {
-                CmdPacket::write_into(
-                    HCI_ACL_DATA_BUFFER.as_mut_ptr() as *mut _,
-                    TlPacketType::AclData,
-                    handle,
-                    payload,
-                );
-            })
-            .await;
-    }
-}
-
-impl<'a> BleRx<'a> {
-    /// `HW_IPCC_BLE_EvtNot`
-    pub async fn tl_read(&mut self) -> EvtBox<Ble<'a>> {
-        self.ipcc_ble_event_channel
-            .receive(|| unsafe {
-                if let Some(node_ptr) =
-                    critical_section::with(|cs| LinkedListNode::remove_head(cs, EVT_QUEUE.as_mut_ptr()))
-                {
-                    Some(EvtBox::new(node_ptr.cast()))
-                } else {
-                    None
-                }
-            })
-            .await
-    }
-
-    /// `TL_BLE_AclNot`
-    pub async fn acl_read(&mut self) -> EvtBox<Ble<'a>> {
-        ACL_EVT_OUT.wait_for_low().await;
-        self.ipcc_hci_acl_rx_data_channel
-            .receive(|| unsafe { Some(EvtBox::new(HCI_ACL_DATA_BUFFER.as_mut_ptr() as *mut _)) })
-            .await
-    }
-}
-
-#[cfg(feature = "wb-hci")]
-/// Implement Controller for TX (Write only)
-impl<'a> stm32wb_hci::Controller for BleTx<'a> {
-    async fn controller_write(&mut self, opcode: stm32wb_hci::Opcode, payload: &[u8]) {
-        self.tl_write(opcode.0, payload).await;
-    }
-
-    async fn controller_read_into(&mut self, _buf: &mut [u8]) {
-        panic!("BleTx cannot read!");
-    }
-}
-
-#[cfg(feature = "wb-hci")]
-/// Implement Controller for RX (Read only)
-impl<'a> stm32wb_hci::Controller for BleRx<'a> {
-    async fn controller_write(&mut self, _opcode: stm32wb_hci::Opcode, _payload: &[u8]) {
-        panic!("BleRx cannot write!");
-    }
-
-    async fn controller_read_into(&mut self, buf: &mut [u8]) {
-        let evt_box = self.tl_read().await;
-        let evt_serial = evt_box.serial();
-        buf[..evt_serial.len()].copy_from_slice(evt_serial);
     }
 }
 
@@ -362,6 +246,8 @@ impl<'d> ControllerAdapter<'d> {
     async fn read_pkt(
         &self,
     ) -> Result<(EvtBox<Ble<'d>>, bt_hci::ControllerToHostPacket<'static>), embedded_io::ErrorKind> {
+        use core::slice;
+
         use bt_hci::{ControllerToHostPacket, FromHciBytes};
 
         use crate::util::to_err;
@@ -381,25 +267,41 @@ impl<'d> ControllerAdapter<'d> {
             })
             .await;
 
-        let serial = evt.serial();
-        let buf = unsafe { core::slice::from_raw_parts(serial as *const _ as *const u8, serial.len()) };
+        let evt_serial = unsafe { slice::from_raw_parts(evt.serial() as *const _ as *const u8, evt.serial().len()) };
 
         Ok((
             evt,
-            ControllerToHostPacket::from_hci_bytes(buf)
+            ControllerToHostPacket::from_hci_bytes(evt_serial)
                 .map_err(to_err)
                 .map(|(pkt, _)| pkt)?,
         ))
     }
 
-    async fn read_status(
+    async fn exec_cmd<C: bt_hci::WriteHci + bt_hci::cmd::Cmd, R>(
         &self,
-        _guard: &SlotGuard<'d, '_>,
-    ) -> Result<bt_hci::event::CommandCompleteWithStatus<'_>, bt_hci::cmd::Error<embedded_io::ErrorKind>> {
+        cmd: &C,
+        f: impl FnOnce(
+            &bt_hci::event::CommandCompleteWithStatus<'_>,
+        ) -> Result<R, bt_hci::cmd::Error<embedded_io::ErrorKind>>,
+    ) -> Result<R, bt_hci::cmd::Error<embedded_io::ErrorKind>> {
+        use bt_hci::WriteHci;
         use bt_hci::cmd::Error as CmdError;
         use bt_hci::param::Error as ParamError;
+        use bt_hci::transport::WithIndicator;
 
         use crate::util::make_cc_with_cs;
+
+        let _guard = self.grab_slot(C::OPCODE).await;
+
+        self.hw_ipcc_ble_cmd_channel
+            .lock()
+            .await
+            .send(|| unsafe {
+                WithIndicator::new(cmd)
+                    .write_hci(CmdPacket::writer(BLE_CMD_BUFFER.as_mut_ptr()))
+                    .map_err(CmdError::Io)
+            })
+            .await?;
 
         let evt = self
             .signal
@@ -407,11 +309,11 @@ impl<'d> ControllerAdapter<'d> {
             .await
             .ok_or(CmdError::Hci(ParamError::OPERATION_CANCELLED_BY_HOST))?;
 
-        // Packets with CC or CS opcode are not managed by the memory manager
-        let evt_serial = evt.serial();
-        let evt_serial = unsafe { core::slice::from_raw_parts(evt_serial as *const _ as *const u8, evt_serial.len()) };
+        let ccws = make_cc_with_cs(evt.serial())?;
 
-        make_cc_with_cs(evt_serial)
+        trace!("returned ccws: {:?}", ccws.status);
+
+        Ok(f(&ccws)?)
     }
 }
 
@@ -530,29 +432,13 @@ where
     C: bt_hci::cmd::SyncCmd,
 {
     async fn exec(&self, cmd: &C) -> Result<C::Return, bt_hci::cmd::Error<Self::Error>> {
-        use bt_hci::cmd::Error as CmdError;
-        use bt_hci::transport::WithIndicator;
-        use bt_hci::{WriteHci, cmd};
-
+        use bt_hci::cmd;
         debug!("Executing sync command with opcode {:x}", C::OPCODE.0);
 
-        let guard = self.grab_slot(C::OPCODE).await;
-
-        self.hw_ipcc_ble_cmd_channel
-            .lock()
-            .await
-            .send(|| unsafe {
-                WithIndicator::new(cmd)
-                    .write_hci(CmdPacket::writer(BLE_CMD_BUFFER.as_mut_ptr()))
-                    .map_err(CmdError::Io)
-            })
+        let r = self
+            .exec_cmd(cmd, |e| e.to_result::<C>().map_err(cmd::Error::Hci))
             .await?;
 
-        let e = self.read_status(&guard).await?;
-
-        trace!("returned ccws: {:?}", e.status);
-
-        let r = e.to_result::<C>().map_err(cmd::Error::Hci)?;
         debug!("Done executing command with opcode {:x}", C::OPCODE.0);
         Ok(r)
     }
@@ -564,29 +450,11 @@ where
     C: bt_hci::cmd::AsyncCmd,
 {
     async fn exec(&self, cmd: &C) -> Result<(), bt_hci::cmd::Error<Self::Error>> {
-        use bt_hci::WriteHci;
-        use bt_hci::cmd::Error as CmdError;
-        use bt_hci::transport::WithIndicator;
-
+        use bt_hci::cmd;
         debug!("Executing async command with opcode {:x}", C::OPCODE.0);
 
-        let guard = self.grab_slot(C::OPCODE).await;
-
-        self.hw_ipcc_ble_cmd_channel
-            .lock()
-            .await
-            .send(|| unsafe {
-                WithIndicator::new(cmd)
-                    .write_hci(CmdPacket::writer(BLE_CMD_BUFFER.as_mut_ptr()))
-                    .map_err(CmdError::Io)
-            })
+        self.exec_cmd(cmd, |e| e.status.to_result().map_err(cmd::Error::Hci))
             .await?;
-
-        let e = self.read_status(&guard).await?;
-
-        trace!("returned ccws: {:?}", e.status);
-
-        e.status.to_result()?;
 
         debug!("Done executing command with opcode {:x}", C::OPCODE.0);
         Ok(())

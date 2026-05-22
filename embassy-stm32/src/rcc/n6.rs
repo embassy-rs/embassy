@@ -6,7 +6,7 @@ pub use stm32_metapac::rcc::vals::{
     Hpre as AhbPrescaler, Hsidiv as HsiPrescaler, Hsitrim as HsiCalibration, Icint, Icsel, Plldivm, Pllpdiv, Pllsel,
     Ppre as ApbPrescaler, Xspisel as XspiClkSrc,
 };
-use stm32_metapac::syscfg::vals::{Vddio2cccrEn, Vddio3cccrEn, Vddio4cccrEn};
+use stm32_metapac::syscfg::vals::{Vddio2cccrCs, Vddio3cccrCs, Vddio4cccrCs};
 
 use crate::pac::{GPDMA1, HPDMA1, PWR, RCC, RIFSC, RISAF3, SYSCFG};
 use crate::time::Hertz;
@@ -695,6 +695,54 @@ fn disable_pll(pll_index: usize) {
     cfgr1.modify(|w| w.set_pllbyp(false));
 }
 
+fn pll_output(pll_config: Option<Pll>, input: &PllInput) -> PllOutput {
+    match pll_config {
+        Some(Pll::Oscillator {
+            source,
+            divm,
+            fractional: _,
+            divn,
+            divp1,
+            divp2,
+        }) => {
+            let in_clk = match source {
+                Pllsel::Hsi => unwrap!(input.hsi),
+                Pllsel::Msi => unwrap!(input.msi),
+                Pllsel::Hse => unwrap!(input.hse),
+                Pllsel::I2sCkin => unwrap!(input.i2s_ckin),
+                _ => panic!("reserved PLL source not allowed"),
+            };
+            let m = divm.to_bits() as u32;
+            let n = divn as u32;
+            let p1 = divp1.to_bits() as u32;
+            let p2 = divp2.to_bits() as u32;
+
+            PllOutput {
+                divm: Some(Hertz(m)),
+                divn: Some(Hertz(n)),
+                divp1: Some(Hertz(p1)),
+                divp2: Some(Hertz(p2)),
+                output: Some(Hertz(in_clk.0 / m * n / p1 / p2)),
+            }
+        }
+        Some(Pll::Bypass { source }) => {
+            let in_clk = match source {
+                Pllsel::Hsi => unwrap!(input.hsi),
+                Pllsel::Msi => unwrap!(input.msi),
+                Pllsel::Hse => unwrap!(input.hse),
+                Pllsel::I2sCkin => unwrap!(input.i2s_ckin),
+                _ => panic!("reserved PLL source not allowed"),
+            };
+
+            PllOutput {
+                output: Some(in_clk),
+                ..Default::default()
+            }
+        }
+        None => PllOutput::default(),
+    }
+}
+
 fn init_pll(pll_config: Option<Pll>, pll_index: usize, input: &PllInput) -> PllOutput {
     let cfgr1 = RCC.pllcfgr1(pll_index);
     let cfgr2 = RCC.pllcfgr2(pll_index);
@@ -726,24 +774,10 @@ fn init_pll(pll_config: Option<Pll>, pll_index: usize, input: &PllInput) -> PllO
                 w.set_plldivn(divn);
             });
 
-            let in_clk = match source {
-                Pllsel::Hsi => unwrap!(input.hsi),
-                Pllsel::Msi => unwrap!(input.msi),
-                Pllsel::Hse => unwrap!(input.hse),
-                Pllsel::I2sCkin => unwrap!(input.i2s_ckin),
-                _ => panic!("reserved PLL source not allowed"),
-            };
-
-            let m = divm.to_bits() as u32;
-            let n = divn as u32;
-
             cfgr3.modify(|w| {
                 w.set_pllpdiv1(divp1);
                 w.set_pllpdiv2(divp2);
             });
-
-            let p1 = divp1.to_bits() as u32;
-            let p2 = divp2.to_bits() as u32;
 
             // configure pll divnfrac
             cfgr2.modify(|w| w.set_plldivnfrac(fractional));
@@ -769,13 +803,7 @@ fn init_pll(pll_config: Option<Pll>, pll_index: usize, input: &PllInput) -> PllO
             while !RCC.sr().read().pllrdy(pll_index) {}
             debug!("PLL{}: ready", pll_index + 1);
 
-            PllOutput {
-                divm: Some(Hertz(m)),
-                divn: Some(Hertz(n)),
-                divp1: Some(Hertz(p1)),
-                divp2: Some(Hertz(p2)),
-                output: Some(Hertz(in_clk.0 / m * n / p1 / p2)),
-            }
+            pll_output(pll_config, input)
         }
         Some(Pll::Bypass { source }) => {
             // check if source is ready
@@ -792,18 +820,7 @@ fn init_pll(pll_config: Option<Pll>, pll_index: usize, input: &PllInput) -> PllO
                 w.set_pllsel(source);
             });
 
-            let in_clk = match source {
-                Pllsel::Hsi => unwrap!(input.hsi),
-                Pllsel::Msi => unwrap!(input.msi),
-                Pllsel::Hse => unwrap!(input.hse),
-                Pllsel::I2sCkin => unwrap!(input.i2s_ckin),
-                _ => panic!("reserved PLL source not allowed"),
-            };
-
-            PllOutput {
-                output: Some(in_clk),
-                ..Default::default()
-            }
+            pll_output(pll_config, input)
         }
         None => {
             disable_pll(pll_index);
@@ -1062,9 +1079,13 @@ fn init_osc(config: Config) -> OscOutput {
                 },
                 |c| init_pll(Some(c), n, &pll_input),
             );
-        } else if pll.is_some() && !pll_ready {
-            RCC.csr().write(|w| w.set_pllons(n, true));
-            while !RCC.sr().read().pllrdy(n) {}
+        } else if pll.is_some() {
+            // Config matches current register state.
+            *out = pll_output(pll, &pll_input);
+            if !pll_ready {
+                RCC.csr().write(|w| w.set_pllons(n, true));
+                while !RCC.sr().read().pllrdy(n) {}
+            }
         }
     }
 
@@ -1247,21 +1268,21 @@ pub(crate) unsafe fn init(config: Config) {
         // SYSCFG is already enabled earlier in init
 
         // Set compensation cell values (0x287 = ST's recommended value)
-        // ransrc=7 (bits 0-3), rapsrc=8 (bits 4-7), en=1 (bit 8)
+        // ransrc=7 (bits 0-3), rapsrc=8 (bits 4-7), cs=1 (bit 9)
         SYSCFG.vddio2cccr().write(|w| {
             w.set_ransrc(0x7);
             w.set_rapsrc(0x8);
-            w.set_en(Vddio2cccrEn::B0x1);
+            w.set_cs(Vddio2cccrCs::B0x1);
         });
         SYSCFG.vddio3cccr().write(|w| {
             w.set_ransrc(0x7);
             w.set_rapsrc(0x8);
-            w.set_en(Vddio3cccrEn::B0x1);
+            w.set_cs(Vddio3cccrCs::B0x1);
         });
         SYSCFG.vddio4cccr().write(|w| {
             w.set_ransrc(0x7);
             w.set_rapsrc(0x8);
-            w.set_en(Vddio4cccrEn::B0x1);
+            w.set_cs(Vddio4cccrCs::B0x1);
         });
     }
 
