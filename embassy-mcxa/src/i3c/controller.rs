@@ -1385,19 +1385,12 @@ where
     /// The P3T1755 (and most sensors) set BCR\[2\]=0 so no payload bytes follow the address header;
     /// in that case this returns `(addr, 0)`.
     ///
-    /// **Bus state on return:** the controller is left in `NORMACT` (between
-    /// start and stop). The caller MUST issue a follow-on bus operation
-    /// promptly — typically [`Self::async_read`] (which produces a repeated
-    /// start, what the target's pre-loaded IBI response expects) or
-    /// [`Self::async_write`], or call `async_stop` explicitly.
-    ///
-    /// Emitting an explicit Stop here would force the target to traverse the
-    /// `Stop → Start` boundary before the directed-read address arrives,
-    /// which races with the target's slave-side state machine and rarely
-    /// (≈1/10⁶ iterations) latches `SERRWARN.INVSTART` on the target — which
-    /// in turn causes a hardware NACK on the controller's directed-read
-    /// address. Leaving the bus in `NORMACT` lets the next `async_start`
-    /// emit a true repeated start, matching the target's expectation.
+    /// **Bus state on return:** the controller has emitted a Stop, so the
+    /// bus is idle. This matches the NXP SDK master driver behavior on
+    /// `kStatus_I3C_IBIWon` (see `I3C_MasterTransferHandleIRQ` in
+    /// `fsl_i3c.c`) and is what spec-compliant targets expect before the
+    /// next directed transfer. The caller should follow up with
+    /// [`Self::async_read`] or [`Self::async_write`] as needed.
     pub async fn async_wait_for_ibi(&mut self, buf: &mut [u8]) -> Result<(u8, usize), IOError> {
         // Step 1: Wait for SLVSTART (a target is asserting SDA low to request the bus).
         //
@@ -1500,10 +1493,13 @@ where
             self.async_wait_for_complete().await?;
         }
 
-        // Step 7: Clear status flags. We deliberately do NOT emit a Stop
-        // here — see the function's doc comment for the rationale (avoids
-        // an INVSTART race on the target during IBI→directed-read).
+        // Step 7: Clear status flags and emit a STOP to terminate the IBI
+        // sequence on the bus before the caller issues their follow-on
+        // transfer. This matches the NXP SDK master driver
+        // (`fsl_i3c.c` I3C_MasterTransferHandleIRQ → I3C_MasterEmitStop on
+        // `kStatus_I3C_IBIWon`) and is what spec-compliant targets expect.
         self.clear_flags();
+        self.async_stop(BusType::I3cSdr).await?;
 
         Ok((ibi_addr, payload_len))
     }

@@ -75,16 +75,13 @@ async fn main(_spawner: Spawner) {
 
     let mut iter: u32 = 0;
     loop {
-        info!("[ctrl] iter {} write", iter);
         i3c.async_write(TARGET_DYNAMIC_ADDR, &[0xaa; 64], BusType::I3cSdr)
             .await
             .unwrap();
 
-        info!("[ctrl] iter {} wait-ibi", iter);
         let mut ibi_buf = [0u8; 8];
         let (_ibi_addr, _ibi_len) = i3c.async_wait_for_ibi(&mut ibi_buf).await.unwrap();
 
-        info!("[ctrl] iter {} read", iter);
         let mut buf = [0u8; 64];
         i3c.async_read(TARGET_DYNAMIC_ADDR, &mut buf, BusType::I3cSdr)
             .await
@@ -93,6 +90,8 @@ async fn main(_spawner: Spawner) {
         assert_eq!(buf, [0x55; 64]);
         Timer::after_micros(100).await;
         iter = iter.wrapping_add(1);
-        info!("[ctrl] iter {} done", iter);
+        if iter % 1000 == 0 {
+            info!("[ctrl] iter {} OK", iter);
+        }
     }
 }
