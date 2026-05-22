@@ -53,8 +53,7 @@ async fn main(_spawner: Spawner) {
     }
 
     let cfg = controller::Config::default();
-    let mut i3c =
-        I3c::new_async_with_dma(p.I3C0, p.P0_21, p.P0_20, p.DMA0_CH0, p.DMA0_CH1, Irqs, cfg).unwrap();
+    let mut i3c = I3c::new_async_with_dma(p.I3C0, p.P0_21, p.P0_20, p.DMA0_CH0, p.DMA0_CH1, Irqs, cfg).unwrap();
 
     Timer::after_secs(2).await;
     info!("[ctrl] RSTDAA");

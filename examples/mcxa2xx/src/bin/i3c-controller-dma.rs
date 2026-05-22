@@ -60,8 +60,7 @@ async fn main(_spawner: Spawner) {
     cfg.clock_config.div = Div4::from_divisor(1).unwrap();
     cfg.open_drain_freq = 1_000_000;
     cfg.push_pull_freq = 2_000_000;
-    let mut i3c =
-        I3c::new_async_with_dma(p.I3C0, p.P1_9, p.P1_8, p.DMA0_CH0, p.DMA0_CH1, Irqs, cfg).unwrap();
+    let mut i3c = I3c::new_async_with_dma(p.I3C0, p.P1_9, p.P1_8, p.DMA0_CH0, p.DMA0_CH1, Irqs, cfg).unwrap();
 
     Timer::after_secs(2).await;
     info!("[ctrl] RSTDAA");
