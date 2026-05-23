@@ -48,12 +48,12 @@ static ACL_EVT_OUT: Flag = Flag::new(false);
 /// # let p = embassy_stm32::init(embassy_stm32::Config::default());
 /// # let mut mbox = embassy_stm32_wpan::TlMbox::init(p.IPCC, Irqs, embassy_stm32::ipcc::Config::default());
 /// #
-/// # let sys_event = mbox.sys_subsystem.read().await;
-/// # let _command_status = mbox.sys_subsystem.shci_c2_ble_init(Default::default());
+/// # let sys_event = mbox.sys.read().await;
+/// # let _command_status = mbox.sys.shci_c2_ble_init(Default::default());
 /// # // BLE commands may now be sent
 /// #
-/// # mbox.ble_subsystem.reset().await;
-/// # let _reset_response = mbox.ble_subsystem.read().await;
+/// # mbox.ble.reset().await;
+/// # let _reset_response = mbox.ble.read().await;
 /// ```
 pub struct Ble<'a> {
     hw_ipcc_ble_cmd_channel: IpccTxChannel<'a>,
