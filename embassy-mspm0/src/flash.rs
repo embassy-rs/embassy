@@ -45,10 +45,16 @@ pub enum FlashError {
 
 impl<'d> FlashController<'d> {
     pub fn new<T: Instance>(_instance: Peri<'d, T>) -> Self {
+        let regs = T::regs();
+
+        #[cfg(feature = "rt")]
+        regs.imask().write(|w| w.set_done(true));
+
         Self {
-            regs: T::regs(),
+            regs,
             _phantom: PhantomData,
         }
+
     }
 
     pub fn disable_dyn_writeprotect(&mut self) {
