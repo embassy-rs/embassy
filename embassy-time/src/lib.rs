@@ -14,6 +14,7 @@ pub(crate) mod fmt;
 
 mod delay;
 mod duration;
+mod eh_timer;
 mod instant;
 mod timer;
 
@@ -32,6 +33,7 @@ mod driver_wasm;
 
 pub use delay::{Delay, block_for};
 pub use duration::Duration;
+pub use eh_timer::HalTimer;
 pub use embassy_time_driver::TICK_HZ;
 pub use instant::Instant;
 pub use timer::{Ticker, TimeoutError, Timer, WithTimeout, with_deadline, with_timeout};
