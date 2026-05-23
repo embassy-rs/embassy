@@ -57,7 +57,6 @@ struct HostStateFields {
     port_waker: AtomicWaker,
     port_event: AtomicU8,
     port_speed: AtomicU8,
-    inited: AtomicBool,
 }
 
 /// Storage object for USB host driver state. Create one per OTG instance.
@@ -84,7 +83,6 @@ impl<const CH_COUNT: usize> HostStateStorage<CH_COUNT> {
                 port_waker: AtomicWaker::new(),
                 port_event: AtomicU8::new(0),
                 port_speed: AtomicU8::new(0),
-                inited: AtomicBool::new(false),
             },
         }
     }
@@ -379,12 +377,16 @@ fn hprt_read_safe(r: Otg) -> u32 {
 /// USB OTG Host Driver.
 pub struct OtgHost<'d> {
     instance: OtgHostInstance<'d>,
+    inited: bool,
 }
 
 impl<'d> OtgHost<'d> {
     /// Create a new OTG host driver.
     pub fn new(instance: OtgHostInstance<'d>) -> Self {
-        Self { instance }
+        Self {
+            instance,
+            inited: false,
+        }
     }
 
     async fn configure_as_host(&self) {
@@ -594,10 +596,10 @@ impl<'d> UsbHostController<'d> for OtgHost<'d> {
 
     async fn wait_for_device_event(&mut self) -> DeviceEvent {
         // Lazily initialize the host hardware on first call.
-        if !self.instance.state.fields.inited.load(Ordering::Acquire) {
+        if !self.inited {
             self.configure_as_host().await;
             self.init_host();
-            self.instance.state.fields.inited.store(true, Ordering::Release);
+            self.inited = true;
         }
 
         loop {
