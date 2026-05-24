@@ -27,7 +27,7 @@ use crate::net::responses::{
 };
 use crate::util::Flag;
 use crate::wb::channels::cpu1::IPCC_MAC_802_15_4_CMD_RSP_CHANNEL;
-use crate::wb::cmd::CmdPacket;
+use crate::wb::cmd::{CmdPacket, CmdSerialStub, VolatileWriter};
 use crate::wb::consts::TlPacketType;
 use crate::wb::evt::{self, EvtBox, EvtPacket};
 use crate::wb::tables::{
@@ -261,7 +261,8 @@ impl<'d> net::iface::Controller for ControllerAdapter<'d> {
 
         ipcc_mac_802_15_4_cmd_rsp_channel
             .send(|| unsafe {
-                WithIndicator { pkt: packet }.write_hci(CmdPacket::writer(MAC_802_15_4_CMD_BUFFER.as_mut_ptr()))
+                WithIndicator { pkt: packet }
+                    .write_hci(VolatileWriter::from_serial(MAC_802_15_4_CMD_BUFFER.as_mut_ptr()))
             })
             .await?;
 
@@ -294,11 +295,13 @@ impl<'a> evt::MemoryManager for Mac<'a> {
             trace!("mac drop event");
 
             // Write the ack
-            CmdPacket::write_into(
+            CmdPacket::write_stub(
                 MAC_802_15_4_NOTIF_RSP_EVT_BUFFER.as_mut_ptr() as *mut _,
-                TlPacketType::OtAck,
-                0,
-                &[],
+                CmdSerialStub {
+                    ty: TlPacketType::OtAck as u8,
+                    cmd_code: 0,
+                    payload_len: 0,
+                },
             );
 
             // Clear the rx flag

@@ -1,6 +1,7 @@
 use core::pin::pin;
+use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
-use core::{mem, ptr};
+use core::{mem, ptr, slice};
 
 use cortex_m::peripheral::SCB;
 use embassy_futures::poll_once;
@@ -13,7 +14,7 @@ use crate::tables::{
     TL_TRACES_TABLE, TRACES_EVT_QUEUE, ThreadTable, TracesTable,
 };
 use crate::wb::channels::cpu1::IPCC_THREAD_OT_CMD_RSP_CHANNEL;
-use crate::wb::cmd::CmdPacket;
+use crate::wb::cmd::{CmdPacket, CmdSerialStub};
 use crate::wb::consts::TlPacketType;
 use crate::wb::unsafe_linked_list::LinkedListNode;
 
@@ -164,12 +165,12 @@ fn cmd_transfer() {
                 // uint32_t  Data[OT_CMD_BUFFER_SIZE];
                 // }Thread_OT_Cmd_Request_t;
 
-                let l_size = u32::from_le_bytes(
-                    CmdPacket::read_payload(THREAD_CMD_BUFFER.as_ptr())[4..8]
-                        .try_into()
-                        .unwrap(),
-                ) * 4
-                    + 8;
+                let (payload, len) = CmdPacket::read_payload(THREAD_CMD_BUFFER.as_ptr());
+
+                compiler_fence(Ordering::Acquire);
+
+                let payload = slice::from_raw_parts(payload, len);
+                let l_size = u32::from_le_bytes(payload[4..8].try_into().unwrap()) * 4 + 8;
 
                 /* OpenThread OT command cmdcode range 0x280 .. 0x3DF = 352 */
 
@@ -178,9 +179,11 @@ fn cmd_transfer() {
 
                 CmdPacket::write_stub(
                     THREAD_CMD_BUFFER.as_mut_ptr(),
-                    TlPacketType::OtCmd,
-                    0x280u16,
-                    l_size as u8,
+                    CmdSerialStub {
+                        ty: TlPacketType::OtCmd as u8,
+                        cmd_code: 0x280u16,
+                        payload_len: l_size as u8,
+                    },
                 );
             })
             .await;

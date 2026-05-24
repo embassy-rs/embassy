@@ -17,11 +17,12 @@ use embassy_sync::mutex::Mutex;
 use embassy_sync::signal::Signal;
 #[cfg(feature = "bt-hci")]
 use embassy_sync::waitqueue::AtomicWaker;
+use embedded_io::Write;
 
 use crate::sub::mm;
 use crate::util::Flag;
 use crate::wb::channels::cpu1::IPCC_HCI_ACL_DATA_CHANNEL;
-use crate::wb::cmd::CmdPacket;
+use crate::wb::cmd::{CmdPacket, CmdSerialStub, VolatileWriter};
 use crate::wb::consts::{TL_BLEEVT_CC_OPCODE, TL_BLEEVT_CS_OPCODE, TlPacketType};
 use crate::wb::evt;
 use crate::wb::evt::{EvtBox, EvtPacket};
@@ -110,7 +111,18 @@ impl<'a> Ble<'a> {
     pub async fn tl_write(&mut self, opcode: u16, payload: &[u8]) {
         self.hw_ipcc_ble_cmd_channel
             .send(|| unsafe {
-                CmdPacket::write_into(BLE_CMD_BUFFER.as_mut_ptr(), TlPacketType::BleCmd, opcode, payload);
+                CmdPacket::write_stub(
+                    BLE_CMD_BUFFER.as_mut_ptr(),
+                    CmdSerialStub {
+                        ty: TlPacketType::BleCmd as u8,
+                        cmd_code: opcode as u16,
+                        payload_len: payload.len().try_into().unwrap(),
+                    },
+                );
+
+                VolatileWriter::from_payload(BLE_CMD_BUFFER.as_mut_ptr())
+                    .write_all(payload)
+                    .unwrap();
             })
             .await;
     }
@@ -119,12 +131,18 @@ impl<'a> Ble<'a> {
     pub async fn acl_write(&mut self, handle: u16, payload: &[u8]) {
         self.ipcc_hci_acl_tx_data_channel
             .send_exclusive(|| unsafe {
-                CmdPacket::write_into(
+                CmdPacket::write_stub(
                     HCI_ACL_DATA_BUFFER.as_mut_ptr() as *mut _,
-                    TlPacketType::AclData,
-                    handle,
-                    payload,
+                    CmdSerialStub {
+                        ty: TlPacketType::AclData as u8,
+                        cmd_code: handle,
+                        payload_len: payload.len().try_into().unwrap(),
+                    },
                 );
+
+                VolatileWriter::from_payload(HCI_ACL_DATA_BUFFER.as_mut_ptr() as *mut _)
+                    .write_all(payload)
+                    .unwrap();
             })
             .await;
     }
@@ -154,7 +172,7 @@ impl<'a> evt::MemoryManager for Ble<'a> {
             return;
         }
 
-        let stub = unsafe { EvtBox::read_stub(evt) };
+        let stub = unsafe { EvtPacket::read_stub(evt) };
         if !(stub.evt_code == TL_BLEEVT_CS_OPCODE || stub.evt_code == TL_BLEEVT_CC_OPCODE) {
             mm::MemoryManager::drop_event_packet(evt);
         }
@@ -298,7 +316,7 @@ impl<'d> ControllerAdapter<'d> {
             .await
             .send(|| unsafe {
                 WithIndicator::new(cmd)
-                    .write_hci(CmdPacket::writer(BLE_CMD_BUFFER.as_mut_ptr()))
+                    .write_hci(VolatileWriter::from_serial(BLE_CMD_BUFFER.as_mut_ptr()))
                     .map_err(CmdError::Io)
             })
             .await?;
@@ -327,7 +345,8 @@ impl<'d> bt_hci::controller::Controller for ControllerAdapter<'d> {
             .lock()
             .await
             .send_exclusive(|| unsafe {
-                WithIndicator::new(packet).write_hci(CmdPacket::writer(HCI_ACL_DATA_BUFFER.as_mut_ptr() as *mut _))
+                WithIndicator::new(packet)
+                    .write_hci(VolatileWriter::from_serial(HCI_ACL_DATA_BUFFER.as_mut_ptr() as *mut _))
             })
             .await
     }

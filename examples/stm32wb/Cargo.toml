@@ -28,6 +28,7 @@ embassy-futures = "0.1.2"
 
 [features]
 default = ["ble", "mac"]
+thread = ["embassy-stm32-wpan/wb-thread"]
 mac = ["embassy-stm32-wpan/wb-mac", "dep:embassy-net"]
 ble = ["embassy-stm32-wpan/wb-ble", "embassy-stm32-wpan/wb-hci"]
 
