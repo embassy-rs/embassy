@@ -29,15 +29,7 @@ fn rtc() -> pac::rtc::Rtc {
 // Because the time driver does not make use of periodic alarms (but always reprograms it), it does not need to make use of this.
 // This selects the last CC channel (CC[11]) instead of CC[0] to keep CC[0] free for application use,
 // specifically for PPI-driven events that aim to avoid CPU intervention in periodic tasks.
-#[cfg(feature = "_grtc")]
-fn time_driver_cc_n() -> usize {
-    11
-}
-
-#[cfg(not(feature = "_grtc"))]
-fn time_driver_cc_n() -> usize {
-    0
-}
+const TIME_DRIVER_CC_N: usize = if cfg!(feature = "_grtc") { 11 } else { 0 };
 
 // On nRF54L/LM GRTC, SYSCOUNTER[n], INTENSETn/INTENCLRn/INTENn, and the
 // GRTC_n interrupt all index by "domain":
@@ -225,7 +217,7 @@ impl RtcDriver {
         // GRTC initialization for nRF54L/LM series.
         #[cfg(feature = "_grtc")]
         {
-            let n = time_driver_cc_n();
+            let n = TIME_DRIVER_CC_N;
 
             // 1. Disable the SYSCOUNTER before reconfiguring
             r.mode().modify(|w| w.set_syscounteren(false));
@@ -298,7 +290,7 @@ impl RtcDriver {
             self.next_period();
         }
 
-        let n = time_driver_cc_n();
+        let n = TIME_DRIVER_CC_N;
         if r.events_compare(n).read() == 1 {
             r.events_compare(n).write_value(0);
             critical_section::with(|cs| {
@@ -315,7 +307,7 @@ impl RtcDriver {
             self.period.store(period, Ordering::Relaxed);
             let t = (period as u64) << 23;
 
-            let n = 0;
+            let n = TIME_DRIVER_CC_N;
             let alarm = &self.alarms.borrow(cs);
             let at = alarm.timestamp.get();
 
@@ -327,7 +319,7 @@ impl RtcDriver {
     }
 
     fn trigger_alarm(&self, cs: CriticalSection) {
-        let n = time_driver_cc_n();
+        let n = TIME_DRIVER_CC_N;
         let r = rtc();
         #[cfg(not(feature = "_grtc"))]
         r.intenclr().write(|w| w.0 = compare_n(n));
@@ -345,7 +337,7 @@ impl RtcDriver {
     }
 
     fn set_alarm(&self, cs: CriticalSection, timestamp: u64) -> bool {
-        let n = time_driver_cc_n();
+        let n = TIME_DRIVER_CC_N;
         let alarm = &self.alarms.borrow(cs);
         alarm.timestamp.set(timestamp);
 
