@@ -66,7 +66,9 @@ impl State {
     /// function if the task was successfully marked.
     #[inline(always)]
     pub fn run_enqueue(&self, f: impl FnOnce(Token)) {
-        let old = self.run_queued.swap(true, Ordering::AcqRel);
+        compiler_fence(Ordering::Release);
+        let old = self.run_queued.swap(true, Ordering::Relaxed);
+        compiler_fence(Ordering::Acquire);
 
         if !old {
             locked(f);
