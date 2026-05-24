@@ -6,7 +6,6 @@ use core::{mem, ptr, slice};
 use cortex_m::peripheral::SCB;
 use embassy_futures::poll_once;
 use embassy_stm32::ipcc::{Ipcc, IpccRxChannel, IpccTxChannel};
-use openthread_radio::{Capabilities, MacCapabilities, Radio, RadioErrorKind};
 
 use crate::evt::EvtPacket;
 use crate::tables::{
@@ -19,7 +18,7 @@ use crate::wb::consts::TlPacketType;
 use crate::wb::unsafe_linked_list::LinkedListNode;
 
 pub struct Thread<'a> {
-    thread_cmd_rsp_channel: IpccTxChannel<'a>,
+    _thread_cmd_rsp_channel: IpccTxChannel<'a>,
     thread_notification_ack_channel: IpccRxChannel<'a>,
 }
 
@@ -44,20 +43,9 @@ impl<'a> Thread<'a> {
         };
 
         Self {
-            thread_cmd_rsp_channel,
+            _thread_cmd_rsp_channel: thread_cmd_rsp_channel,
             thread_notification_ack_channel,
         }
-    }
-
-    pub fn split(self) -> (Runner<'a>, RadioAdapter<'a>) {
-        (
-            Runner {
-                thread_notification_ack_channel: self.thread_notification_ack_channel,
-            },
-            RadioAdapter {
-                _thread_cmd_rsp_channel: self.thread_cmd_rsp_channel,
-            },
-        )
     }
 }
 
@@ -66,9 +54,9 @@ pub struct Runner<'a> {
 }
 
 impl<'a> Runner<'a> {
-    pub fn new(thread_notification_ack_channel: IpccRxChannel<'a>) -> Self {
+    pub fn new(thread: Thread<'a>) -> Self {
         Self {
-            thread_notification_ack_channel: thread_notification_ack_channel,
+            thread_notification_ack_channel: thread.thread_notification_ack_channel,
         }
     }
 
@@ -87,43 +75,6 @@ impl<'a> Runner<'a> {
             .await;
 
         loop {}
-    }
-}
-
-pub struct RadioAdapter<'a> {
-    _thread_cmd_rsp_channel: IpccTxChannel<'a>,
-}
-
-impl<'a> RadioAdapter<'a> {
-    pub fn new(thread_cmd_rsp_channel: IpccTxChannel<'a>) -> Self {
-        Self {
-            _thread_cmd_rsp_channel: thread_cmd_rsp_channel,
-        }
-    }
-}
-
-impl<'a> Radio for RadioAdapter<'a> {
-    type Error = RadioErrorKind;
-
-    const CAPS: Capabilities = Capabilities::empty();
-
-    const MAC_CAPS: MacCapabilities = MacCapabilities::empty();
-
-    async fn receive(&mut self, _psdu_buf: &mut [u8]) -> Result<openthread_radio::PsduMeta, Self::Error> {
-        unreachable!()
-    }
-
-    async fn transmit(
-        &mut self,
-        _psdu: &[u8],
-        _cca: bool,
-        _ack_psdu_buf: Option<&mut [u8]>,
-    ) -> Result<Option<openthread_radio::PsduMeta>, Self::Error> {
-        unreachable!()
-    }
-
-    async fn set_config(&mut self, _config: &openthread_radio::Config) -> Result<(), Self::Error> {
-        Ok(())
     }
 }
 

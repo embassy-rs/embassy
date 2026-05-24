@@ -47,7 +47,6 @@ critical-section = "1.2"
 bit_field = "0.10.2"
 stm32-device-signature = { version = "0.3.3", features = ["stm32wb5x"] }
 stm32wb-hci = { version = "0.17.4", optional = true, git="https://github.com/embassy-rs/stm32wb-hci.git", rev="18b732" }
-openthread-radio = { version = "0.1.0", optional = true, git="https://github.com/xoviat/openthread.git", rev="afc851c"}
 futures-util = { version = "0.3.30", default-features = false }
 bitflags = { version = "2.3.3", optional = true }
 bt-hci = { version = "0.9.0", optional = true }
@@ -63,7 +62,7 @@ wb-hci = ["bt-hci", "dep:stm32wb-hci"]
 wb = []
 wb-ble = []
 wb-mac = ["dep:bitflags", "dep:embassy-net-driver-channel", "dep:smoltcp", "smoltcp/medium-ieee802154"]
-wb-thread = ["dep:openthread-radio", "dep:stm32-bindings", "stm32-bindings/wb_wpan_openthread"]
+wb-thread = ["dep:stm32-bindings", "stm32-bindings/wb_wpan_openthread"]
 
 wba = [ "dep:stm32-bindings" ]
 wba-ble = [ "stm32-bindings/wba_wpan_ble" , "stm32-bindings/wba_wpan", "stm32-bindings/wba_wpan_mac" ]
