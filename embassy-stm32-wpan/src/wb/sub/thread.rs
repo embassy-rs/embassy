@@ -18,8 +18,8 @@ use crate::wb::consts::TlPacketType;
 use crate::wb::unsafe_linked_list::LinkedListNode;
 
 pub struct Thread<'a> {
-    _thread_cmd_rsp_channel: IpccTxChannel<'a>,
-    _thread_notification_ack_channel: IpccRxChannel<'a>,
+    thread_cmd_rsp_channel: IpccTxChannel<'a>,
+    thread_notification_ack_channel: IpccRxChannel<'a>,
 }
 
 impl<'a> Thread<'a> {
@@ -43,23 +43,65 @@ impl<'a> Thread<'a> {
         };
 
         Self {
+            thread_cmd_rsp_channel,
+            thread_notification_ack_channel,
+        }
+    }
+
+    pub fn split(self) -> (Runner<'a>, RadioAdapter<'a>) {
+        (
+            Runner {
+                thread_notification_ack_channel: self.thread_notification_ack_channel,
+            },
+            RadioAdapter {
+                _thread_cmd_rsp_channel: self.thread_cmd_rsp_channel,
+            },
+        )
+    }
+}
+
+pub struct Runner<'a> {
+    thread_notification_ack_channel: IpccRxChannel<'a>,
+}
+
+impl<'a> Runner<'a> {
+    pub fn new(thread_notification_ack_channel: IpccRxChannel<'a>) -> Self {
+        Self {
+            thread_notification_ack_channel: thread_notification_ack_channel,
+        }
+    }
+
+    pub async fn run_stack(&mut self) -> ! {
+        unsafe extern "C" {
+            unsafe fn OpenThread_CallBack_Processing();
+        }
+
+        // This future never returns because None is always returned, therefore more data is always fetched
+        self.thread_notification_ack_channel
+            .receive::<()>(|| unsafe {
+                OpenThread_CallBack_Processing();
+
+                None
+            })
+            .await;
+
+        loop {}
+    }
+}
+
+pub struct RadioAdapter<'a> {
+    _thread_cmd_rsp_channel: IpccTxChannel<'a>,
+}
+
+impl<'a> RadioAdapter<'a> {
+    pub fn new(thread_cmd_rsp_channel: IpccTxChannel<'a>) -> Self {
+        Self {
             _thread_cmd_rsp_channel: thread_cmd_rsp_channel,
-            _thread_notification_ack_channel: thread_notification_ack_channel,
         }
     }
 }
 
-pub struct ControllerAdapter<'a> {
-    _thread: Thread<'a>,
-}
-
-impl<'a> ControllerAdapter<'a> {
-    pub fn new(thread: Thread<'a>) -> Self {
-        Self { _thread: thread }
-    }
-}
-
-impl<'a> Radio for ControllerAdapter<'a> {
+impl<'a> Radio for RadioAdapter<'a> {
     type Error = RadioErrorKind;
 
     const CAPS: Capabilities = Capabilities::empty();
@@ -156,7 +198,10 @@ fn cmd_flush() {
     });
 }
 
-/// Embassy Runtime -> Openthread Rust -> stm32-bindings -> embassy-stm32-wpan
+/// Embassy Runtime -> rust-openthread -> stm32-bindings -> embassy-stm32-wpan
+///
+/// This approach effectively blocks embassy while an OT command is executing, but
+/// propagating async up the stack to rust-openthread is not worth it for now.
 
 #[unsafe(no_mangle)]
 extern "C" fn Pre_OtCmdProcessing() {
@@ -165,7 +210,7 @@ extern "C" fn Pre_OtCmdProcessing() {
 
 #[unsafe(no_mangle)]
 extern "C" fn THREAD_Get_OTCmdPayloadBuffer() -> *mut u8 {
-    unsafe { THREAD_CMD_BUFFER.as_mut_ptr() as *mut _ }
+    unsafe { &mut (*THREAD_CMD_BUFFER.as_mut_ptr()).cmdserial.cmd.payload as *mut _ }
 }
 
 #[unsafe(no_mangle)]
@@ -184,10 +229,30 @@ extern "C" fn Ot_Cmd_Transfer() {
 
 #[unsafe(no_mangle)]
 extern "C" fn Ot_Cmd_TransferWithNotif() {
+    // This cmd will also send a notification, that we will deal with after we finish processing
+    // the cmd. I don't think think any further special handling is required in this case.
     cmd_transfer();
 }
 
 #[unsafe(no_mangle)]
 extern "C" fn Post_OtCmdProcessing() {
     cmd_flush();
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn THREAD_Get_NotificationPayloadBuffer() -> *mut u8 {
+    unsafe {
+        let p_event_packet = THREAD_NOTIF_RSP_EVT_BUFFER.as_mut_ptr() as *mut EvtPacket;
+
+        &mut ((*p_event_packet).evt_serial.evt.payload) as *mut u8
+    }
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn THREAD_Get_RCPPayloadBuffer() -> *mut u8 {
+    unsafe {
+        let p_event_packet = THREAD_NOTIF_RSP_EVT_BUFFER.as_mut_ptr() as *mut EvtPacket;
+
+        &mut ((*p_event_packet).evt_serial.evt.payload) as *mut u8
+    }
 }
