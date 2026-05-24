@@ -161,16 +161,12 @@ extern "C" fn Pre_OtCmdProcessing() {
 
 #[unsafe(no_mangle)]
 extern "C" fn THREAD_Get_OTCmdPayloadBuffer() -> *mut u8 {
-    unsafe { &mut (*THREAD_CMD_BUFFER.as_mut_ptr()).cmdserial.cmd.payload as *mut _ }
+    unsafe { CmdPacket::write_payload(THREAD_CMD_BUFFER.as_mut_ptr()).0 }
 }
 
 #[unsafe(no_mangle)]
-extern "C" fn THREAD_Get_OTCmdRspPayloadBuffer() -> *mut u8 {
-    unsafe {
-        let p_event_packet = THREAD_CMD_BUFFER.as_mut_ptr() as *mut EvtPacket;
-
-        &mut ((*p_event_packet).evt_serial.evt.payload) as *mut u8
-    }
+extern "C" fn THREAD_Get_OTCmdRspPayloadBuffer() -> *const u8 {
+    unsafe { EvtPacket::read_payload(THREAD_CMD_BUFFER.as_ptr() as *const _).0 }
 }
 
 #[unsafe(no_mangle)]
@@ -191,21 +187,13 @@ extern "C" fn Post_OtCmdProcessing() {
 }
 
 #[unsafe(no_mangle)]
-extern "C" fn THREAD_Get_NotificationPayloadBuffer() -> *mut u8 {
-    unsafe {
-        let p_event_packet = THREAD_NOTIF_RSP_EVT_BUFFER.as_mut_ptr() as *mut EvtPacket;
-
-        &mut ((*p_event_packet).evt_serial.evt.payload) as *mut u8
-    }
+extern "C" fn THREAD_Get_NotificationPayloadBuffer() -> *const u8 {
+    unsafe { EvtPacket::read_payload(THREAD_NOTIF_RSP_EVT_BUFFER.as_ptr() as *const _).0 }
 }
 
 #[unsafe(no_mangle)]
-extern "C" fn THREAD_Get_RCPPayloadBuffer() -> *mut u8 {
-    unsafe {
-        let p_event_packet = THREAD_NOTIF_RSP_EVT_BUFFER.as_mut_ptr() as *mut EvtPacket;
-
-        &mut ((*p_event_packet).evt_serial.evt.payload) as *mut u8
-    }
+extern "C" fn THREAD_Get_RCPPayloadBuffer() -> *const u8 {
+    unsafe { EvtPacket::read_payload(THREAD_NOTIF_RSP_EVT_BUFFER.as_ptr() as *const _).0 }
 }
 
 #[unsafe(no_mangle)]

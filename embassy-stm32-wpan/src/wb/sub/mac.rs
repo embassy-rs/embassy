@@ -268,12 +268,8 @@ impl<'d> net::iface::Controller for ControllerAdapter<'d> {
 
         ipcc_mac_802_15_4_cmd_rsp_channel.flush().await;
 
-        let response = unsafe {
-            let p_event_packet = MAC_802_15_4_CMD_BUFFER.as_ptr() as *const EvtPacket;
-            let p_mac_rsp_evt = &((*p_event_packet).evt_serial.evt.payload) as *const u8;
-
-            ptr::read_volatile(p_mac_rsp_evt)
-        };
+        let response =
+            unsafe { ptr::read_volatile(EvtPacket::read_payload(MAC_802_15_4_CMD_BUFFER.as_ptr() as *const _).0) };
 
         if response == 0x00 {
             Ok(())
