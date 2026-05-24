@@ -65,16 +65,13 @@ impl<'a> Runner<'a> {
             unsafe fn OpenThread_CallBack_Processing();
         }
 
-        // This future never returns because None is always returned, therefore more data is always fetched
-        self.thread_notification_ack_channel
-            .receive::<()>(|| unsafe {
-                OpenThread_CallBack_Processing();
+        loop {
+            self.thread_notification_ack_channel.receive(|| Some(())).await;
 
-                None
-            })
-            .await;
+            unsafe { OpenThread_CallBack_Processing() };
 
-        loop {}
+            self.thread_notification_ack_channel.clear();
+        }
     }
 }
 
@@ -209,4 +206,19 @@ extern "C" fn THREAD_Get_RCPPayloadBuffer() -> *mut u8 {
 
         &mut ((*p_event_packet).evt_serial.evt.payload) as *mut u8
     }
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn TL_THREAD_SendAck() {
+    // ack is done in runner loop, so this is a no-op
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn SHCI_C2_FLASH_StoreData(_ip: u8) -> u8 {
+    todo!()
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn HAL_NVIC_SystemReset() {
+    todo!()
 }
