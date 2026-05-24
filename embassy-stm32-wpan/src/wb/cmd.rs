@@ -55,6 +55,30 @@ impl CmdPacket {
         }
     }
 
+    #[cfg(feature = "wb-thread")]
+    pub unsafe fn read_payload(cmd_buf: *const CmdPacket) -> &'static [u8] {
+        let p_cmd_serial = (cmd_buf as *mut u8).add(size_of::<PacketHeader>());
+        let p_payload = p_cmd_serial.add(size_of::<CmdSerialStub>());
+
+        core::slice::from_raw_parts(p_payload, 255)
+    }
+
+    #[cfg(feature = "wb-thread")]
+    pub unsafe fn write_stub(cmd_buf: *mut CmdPacket, packet_type: TlPacketType, cmd_code: u16, len: u8) {
+        let p_cmd_serial = (cmd_buf as *mut u8).add(size_of::<PacketHeader>());
+
+        ptr::write_unaligned(
+            p_cmd_serial as *mut _,
+            CmdSerialStub {
+                ty: packet_type as u8,
+                cmd_code,
+                payload_len: len,
+            },
+        );
+
+        compiler_fence(Ordering::Release);
+    }
+
     pub unsafe fn write_into(cmd_buf: *mut CmdPacket, packet_type: TlPacketType, cmd_code: u16, payload: &[u8]) {
         let p_cmd_serial = (cmd_buf as *mut u8).add(size_of::<PacketHeader>());
         let p_payload = p_cmd_serial.add(size_of::<CmdSerialStub>());

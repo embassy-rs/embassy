@@ -1,7 +1,7 @@
 use core::mem::MaybeUninit;
 use core::sync::atomic::{Ordering, compiler_fence};
 
-#[cfg(any(feature = "wb-ble", feature = "wb-mac"))]
+#[cfg(any(feature = "wb-ble", feature = "wb-mac", feature = "wb-thread"))]
 use embassy_futures::select::{Either, select};
 use embassy_hal_internal::Peri;
 use embassy_stm32::interrupt;
@@ -31,6 +31,8 @@ use crate::shci::ShciBleInitCmdParam;
 use crate::sub::ble::Ble;
 #[cfg(feature = "wb-mac")]
 use crate::sub::mac::Mac;
+#[cfg(feature = "wb-thread")]
+use crate::sub::thread::Thread;
 
 type PacketHeader = LinkedListNode;
 
@@ -270,5 +272,21 @@ impl<'d> TlMbox<'d> {
         .map_err(|_| ())??;
 
         Ok((self.mac, self.mm))
+    }
+
+    #[cfg(feature = "wb-thread")]
+    /// Initialise the BLE subsystem
+    pub async fn init_thread(mut self) -> Result<(Thread<'d>, MemoryManager<'d>), ()> {
+        debug!("starting thread...");
+        with_timeout(Duration::from_millis(500), async {
+            match select(self.mm.run_queue(), self.sys.shci_c2_thread_init()).await {
+                Either::Second(res) => res,
+                _ => unreachable!(),
+            }
+        })
+        .await
+        .map_err(|_| ())??;
+
+        Ok((self.thread, self.mm))
     }
 }

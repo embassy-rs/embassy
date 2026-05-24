@@ -7,11 +7,14 @@ use embassy_futures::poll_once;
 use embassy_stm32::ipcc::{Ipcc, IpccRxChannel, IpccTxChannel};
 use openthread_radio::{Capabilities, MacCapabilities, Radio, RadioErrorKind};
 
+use crate::evt::EvtPacket;
 use crate::tables::{
     THREAD_CLI_CMD_BUFFER, THREAD_CLI_NOT_BUFFER, THREAD_CMD_BUFFER, THREAD_NOTIF_RSP_EVT_BUFFER, TL_THREAD_TABLE,
     TL_TRACES_TABLE, TRACES_EVT_QUEUE, ThreadTable, TracesTable,
 };
 use crate::wb::channels::cpu1::IPCC_THREAD_OT_CMD_RSP_CHANNEL;
+use crate::wb::cmd::CmdPacket;
+use crate::wb::consts::TlPacketType;
 use crate::wb::unsafe_linked_list::LinkedListNode;
 
 pub struct Thread<'a> {
@@ -110,13 +113,37 @@ fn cmd_transfer() {
     tiny_exec(async {
         unsafe {
             Ipcc::send(IPCC_THREAD_OT_CMD_RSP_CHANNEL as u8, || {
+                /* Structure of the messages exchanged between M0 and M4 (inside of the payload) */
+                // #define OT_CMD_BUFFER_SIZE 20U
+                // typedef PACKED_STRUCT
+                // {
+                // uint32_t  ID;
+                // uint32_t  Size;
+                // uint32_t  Data[OT_CMD_BUFFER_SIZE];
+                // }Thread_OT_Cmd_Request_t;
+
+                let l_size = u32::from_le_bytes(
+                    CmdPacket::read_payload(THREAD_CMD_BUFFER.as_ptr())[4..8]
+                        .try_into()
+                        .unwrap(),
+                ) * 4
+                    + 8;
+
                 /* OpenThread OT command cmdcode range 0x280 .. 0x3DF = 352 */
+
                 // p_thread_otcmdbuffer->cmdserial.cmd.cmdcode = 0x280U;
-                /* Size = otCmdBuffer->Size (Number of OT cmd arguments : 1 arg = 32bits so multiply by 4 to get size in bytes)
-                 * + ID (4 bytes) + Size (4 bytes) */
-                // uint32_t l_size = ((Thread_OT_Cmd_Request_t*)(p_thread_otcmdbuffer->cmdserial.cmd.payload))->Size * 4U + 8U;
                 // p_thread_otcmdbuffer->cmdserial.cmd.plen = l_size;
+
+                CmdPacket::write_stub(
+                    THREAD_CMD_BUFFER.as_mut_ptr(),
+                    TlPacketType::OtCmd,
+                    0x280u16,
+                    l_size as u8,
+                );
             })
+            .await;
+
+            Ipcc::flush(IPCC_THREAD_OT_CMD_RSP_CHANNEL as u8).await;
         }
     });
 }
@@ -142,6 +169,15 @@ extern "C" fn THREAD_Get_OTCmdPayloadBuffer() -> *mut u8 {
 }
 
 #[unsafe(no_mangle)]
+extern "C" fn THREAD_Get_OTCmdRspPayloadBuffer() -> *mut u8 {
+    unsafe {
+        let p_event_packet = THREAD_CMD_BUFFER.as_mut_ptr() as *mut EvtPacket;
+
+        &mut ((*p_event_packet).evt_serial.evt.payload) as *mut u8
+    }
+}
+
+#[unsafe(no_mangle)]
 extern "C" fn Ot_Cmd_Transfer() {
     cmd_transfer();
 }
@@ -152,4 +188,6 @@ extern "C" fn Ot_Cmd_TransferWithNotif() {
 }
 
 #[unsafe(no_mangle)]
-extern "C" fn Post_OtCmdProcessing() {}
+extern "C" fn Post_OtCmdProcessing() {
+    cmd_flush();
+}

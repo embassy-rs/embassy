@@ -78,6 +78,11 @@ impl<'a> Sys<'a> {
         self.write_and_get_response(ShciOpcode::Mac802_15_4Init, &[]).await
     }
 
+    #[cfg(feature = "wb-thread")]
+    pub async fn shci_c2_thread_init(&mut self) -> Result<SchiCommandStatus, ()> {
+        self.write_and_get_response(ShciOpcode::ThreadInit, &[]).await
+    }
+
     /// Send a request to CPU2 to initialise the BLE stack.
     ///
     /// This must be called before any BLE commands are sent via the BLE channel (according to
