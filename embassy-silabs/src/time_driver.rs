@@ -1,4 +1,4 @@
-//! `embassy-time` driver backed by TIMER0.
+//! `embassy-time` driver backed by a TIMER peripheral.
 
 use core::cell::{Cell, RefCell};
 use core::sync::atomic::{AtomicU32, Ordering, compiler_fence};
@@ -11,8 +11,41 @@ use embassy_time_driver::Driver;
 use embassy_time_queue_utils::Queue;
 
 use crate::interrupt::typelevel::Interrupt;
-// Renamed so the `unsafe extern "C" fn TIMER0()` ISR symbol below doesn't collide with it.
-use crate::pac::TIMER0 as T;
+use crate::pac::timer_v1_w;
+use crate::peripherals;
+
+mod sealed {
+    pub trait Instance {}
+}
+
+pub(crate) trait Instance: sealed::Instance + 'static {
+    type Interrupt: crate::interrupt::typelevel::Interrupt;
+    fn regs() -> *mut ();
+}
+
+macro_rules! impl_timer_instance {
+    ($name:ident) => {
+        impl sealed::Instance for peripherals::$name {}
+        impl Instance for peripherals::$name {
+            type Interrupt = crate::interrupt::typelevel::$name;
+            fn regs() -> *mut () {
+                crate::pac::$name.as_ptr()
+            }
+        }
+    };
+}
+
+impl_timer_instance!(TIMER0);
+impl_timer_instance!(TIMER1);
+
+#[cfg(time_driver_timer0)]
+type T = peripherals::TIMER0;
+#[cfg(time_driver_timer1)]
+type T = peripherals::TIMER1;
+
+fn regs() -> timer_v1_w::Timer {
+    unsafe { timer_v1_w::Timer::from_ptr(<T as Instance>::regs()) }
+}
 
 // Clock timekeeping works in "periods" — time intervals of 2^31 ticks.
 // The Clock counter is 32 bits wide, so one overflow cycle spans two periods.
@@ -38,7 +71,7 @@ fn calc_now(period: u32, counter: u32) -> u64 {
     ((period as u64) << 31) + ((counter ^ ((period & 1) << 31)) as u64)
 }
 
-struct TimerDriver {
+pub(crate) struct TimerDriver {
     period: AtomicU32,
     alarm: Mutex<CriticalSectionRawMutex, Cell<u64>>,
     queue: Mutex<CriticalSectionRawMutex, RefCell<Queue>>,
@@ -52,7 +85,7 @@ embassy_time_driver::time_driver_impl!(static DRIVER: TimerDriver = TimerDriver 
 
 impl TimerDriver {
     fn init(&'static self, _cs: CriticalSection) {
-        let t = T;
+        let t = regs();
 
         // Series 2 TIMER register-access rules:
         //  - `EN` is always accessible.
@@ -109,15 +142,15 @@ impl TimerDriver {
             w.set_cc0(true);
         });
 
-        crate::interrupt::typelevel::TIMER0::unpend();
-        unsafe { crate::interrupt::typelevel::TIMER0::enable() };
+        <T as Instance>::Interrupt::unpend();
+        unsafe { <T as Instance>::Interrupt::enable() };
 
         t.cmd().write(|w| w.set_start(true));
     }
 
-    fn on_interrupt(&self) {
+    pub(crate) fn on_interrupt(&self) {
         critical_section::with(|cs| {
-            let t = T;
+            let t = regs();
             let flags = t.if_().read();
             t.if_clr().write_value(flags);
 
@@ -142,9 +175,9 @@ impl TimerDriver {
         critical_section::with(|cs| {
             let alarm = self.alarm.borrow(cs).get();
             if alarm < lo + ARM_AHEAD {
-                T.ien_set().write(|w| w.set_cc1(true));
+                regs().ien_set().write(|w| w.set_cc1(true));
             } else {
-                T.ien_clr().write(|w| w.set_cc1(true));
+                regs().ien_clr().write(|w| w.set_cc1(true));
             }
         });
     }
@@ -157,7 +190,7 @@ impl TimerDriver {
     }
 
     fn set_alarm(&self, cs: CriticalSection, timestamp: u64) -> bool {
-        let t = T;
+        let t = regs();
         self.alarm.borrow(cs).set(timestamp);
 
         let now = self.now_inner();
@@ -191,7 +224,7 @@ impl TimerDriver {
     fn now_inner(&self) -> u64 {
         let period = self.period.load(Ordering::Relaxed);
         compiler_fence(Ordering::Acquire);
-        let counter = T.cnt().read().cnt();
+        let counter = regs().cnt().read().cnt();
         calc_now(period, counter)
     }
 }
@@ -219,7 +252,6 @@ pub(crate) fn init(cs: CriticalSection) {
 }
 
 #[cfg(feature = "rt")]
-#[unsafe(no_mangle)]
-unsafe extern "C" fn TIMER0() {
-    DRIVER.on_interrupt();
+pub(crate) const fn get_driver() -> &'static TimerDriver {
+    &DRIVER
 }

@@ -63,10 +63,12 @@ unchecked-overclocking = []
 # to be enabled by other crates, and are not covered by semver guarantees.
 _time-driver = ["dep:embassy-time-driver", "dep:embassy-time-queue-utils"]
 
-## Use any available timer as the embassy-time driver (TIMER0 today).
+## Use any time driver
 time-driver-any = ["_time-driver"]
-## Use TIMER0 as the embassy-time driver.
+## Use TIMER0 as time driver
 time-driver-timer0 = ["_time-driver"]
+## Use TIMER1 as time driver
+time-driver-timer1 = ["_time-driver"]
 
 #! ## Chip-selection features
 #! Select your chip by specifying the model as a feature, e.g. `efr32mg26b420f3200im68`.

@@ -26,10 +26,9 @@
 //! from `src/lib.rs` via `include!(concat!(env!("OUT_DIR"), "/_generated.rs"))`.
 
 use std::collections::BTreeSet;
-use std::env;
 use std::fmt::Write as _;
-use std::fs;
 use std::path::PathBuf;
+use std::{env, fs};
 
 use silabs_metapac::metadata::METADATA;
 
@@ -70,10 +69,41 @@ fn main() {
     singletons.sort();
     singletons.dedup();
 
-    // Pick the time-driver singleton. The Cargo feature is exclusive
-    // (`time-driver-timer0` and `time-driver-any`; `_time-driver` is
-    // internal). TIMER0 is the only driver implementation today.
-    let time_driver_singleton = pick_time_driver(&singletons);
+    // Handle time-driver-XXXX features.
+    let time_driver = match env::vars()
+        .map(|(a, _)| a)
+        .filter(|x| x.starts_with("CARGO_FEATURE_TIME_DRIVER_"))
+        .get_one()
+    {
+        Ok(x) => Some(
+            x.strip_prefix("CARGO_FEATURE_TIME_DRIVER_")
+                .unwrap()
+                .to_ascii_lowercase(),
+        ),
+        Err(GetOneError::None) => None,
+        Err(GetOneError::Multiple) => panic!("Multiple time-driver-xxx Cargo features enabled"),
+    };
+
+    let time_driver_singleton = match time_driver.as_ref().map(|x| x.as_ref()) {
+        None => "",
+        Some("timer0") => "TIMER0",
+        Some("timer1") => "TIMER1",
+        Some("any") => ["TIMER0", "TIMER1"]
+            .iter()
+            .find(|tim| singletons.contains(&tim.to_string()))
+            .expect("time-driver-any requested, but the chip doesn't have TIMER0 or TIMER1."),
+        _ => panic!("unknown time_driver {:?}", time_driver),
+    };
+
+    if !time_driver_singleton.is_empty() {
+        println!(
+            "cargo:rustc-cfg=time_driver_{}",
+            time_driver_singleton.to_ascii_lowercase()
+        );
+    }
+    for tim in ["timer0", "timer1"] {
+        println!("cargo:rustc-check-cfg=cfg(time_driver_{tim})");
+    }
 
     // Emit peripherals_definition! / peripherals_struct!.
     writeln!(out, "embassy_hal_internal::peripherals_definition!(").unwrap();
@@ -84,7 +114,7 @@ fn main() {
 
     writeln!(out, "embassy_hal_internal::peripherals_struct!(").unwrap();
     for s in &singletons {
-        if Some(s.as_str()) == time_driver_singleton.as_deref() {
+        if s == time_driver_singleton {
             // Owned by the time driver — keep the type, drop the field.
             continue;
         }
@@ -106,7 +136,19 @@ fn main() {
     for name in &irq_names {
         writeln!(out, "    {name},").unwrap();
     }
-    writeln!(out, ");").unwrap();
+    writeln!(out, ");\n").unwrap();
+
+    if !time_driver_singleton.is_empty() {
+        if !METADATA.interrupts.iter().any(|i| i.name == time_driver_singleton) {
+            panic!("Tried to select {time_driver_singleton}, which is not available on this device");
+        }
+        writeln!(out).unwrap();
+        writeln!(out, "#[cfg(feature = \"rt\")]").unwrap();
+        writeln!(out, "#[interrupt]").unwrap();
+        writeln!(out, "fn {time_driver_singleton}() {{").unwrap();
+        writeln!(out, "    crate::time_driver::get_driver().on_interrupt();").unwrap();
+        writeln!(out, "}}").unwrap();
+    }
 
     fs::write(&out_path, &out).expect("write _generated.rs");
 
@@ -141,14 +183,23 @@ fn skip_peripheral_kind(kind: &str) -> bool {
     matches!(kind, "devinfo")
 }
 
-/// Resolve the `time-driver-*` Cargo features to a singleton name.
-fn pick_time_driver(singletons: &[String]) -> Option<String> {
-    if env::var_os("CARGO_FEATURE_TIME_DRIVER_TIMER0").is_some() {
-        return Some("TIMER0".to_string());
+enum GetOneError {
+    None,
+    Multiple,
+}
+
+trait IteratorExt: Iterator {
+    fn get_one(self) -> Result<Self::Item, GetOneError>;
+}
+
+impl<T: Iterator> IteratorExt for T {
+    fn get_one(mut self) -> Result<Self::Item, GetOneError> {
+        match self.next() {
+            None => Err(GetOneError::None),
+            Some(res) => match self.next() {
+                Some(_) => Err(GetOneError::Multiple),
+                None => Ok(res),
+            },
+        }
     }
-    if env::var_os("CARGO_FEATURE_TIME_DRIVER_ANY").is_some() {
-        // Pick the lowest-numbered TIMER present on this chip.
-        return singletons.iter().find(|s| s.starts_with("TIMER")).cloned();
-    }
-    None
 }
