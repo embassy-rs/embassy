@@ -412,9 +412,14 @@ fn em01grpcclk_source_freq(src: Em01GrpCClkSource, hfxo: Option<Hertz>, hfrcodpl
 }
 
 pub(crate) fn init_clocks(_cs: CriticalSection, config: Config) {
-    // Bus-clock gates for the HAL's own peripherals.
+    // Bus-clock gates for the HAL's own peripherals + the SYSRTC0
+    // mux that is configured below (its bus clock is independent of the
+    // mux register and otherwise stays at reset-default off, which
+    // BusFaults the first register access - including sleeptimer,
+    // which the Silicon Labs SDK uses pervasively).
     CMU.clken0().modify(|w| {
         w.set_gpio(true);
+        w.set_sysrtc0(true);
         #[cfg(time_driver_timer0)]
         w.set_timer0(true);
         #[cfg(time_driver_timer1)]
