@@ -22,10 +22,8 @@ pub struct TimeoutError;
 /// Panics if the computed instant overflows.
 /// Avoid panics with [`try_with_timeout()`].
 pub fn with_timeout<F: Future>(timeout: impl Into<Duration>, fut: F) -> TimeoutFuture<F> {
-    TimeoutFuture {
-        timer: Timer::after(timeout),
-        fut,
-    }
+    let timeout = timeout.into();
+    with_deadline(Instant::now() + timeout, fut)
 }
 
 /// Tries to run a given future with a timeout.
@@ -35,10 +33,8 @@ pub fn with_timeout<F: Future>(timeout: impl Into<Duration>, fut: F) -> TimeoutF
 ///
 /// This is a panic-free version of [`with_timeout`].
 pub fn try_with_timeout<F: Future>(timeout: impl Into<Duration>, fut: F) -> Option<TimeoutFuture<F>> {
-    Some(TimeoutFuture {
-        timer: Timer::try_after(timeout)?,
-        fut,
-    })
+    let timeout = timeout.into();
+    Some(with_deadline(Instant::now().checked_add(timeout)?, fut))
 }
 
 /// Runs a given future with a deadline time.
@@ -66,7 +62,10 @@ pub trait WithTimeout: Sized {
     ///
     /// Panics if the computed instant overflows.
     /// Avoid panics with [`WithTimeout::try_with_timeout()`].
-    fn with_timeout(self, timeout: impl Into<Duration>) -> TimeoutFuture<Self>;
+    fn with_timeout(self, timeout: impl Into<Duration>) -> TimeoutFuture<Self> {
+        let timeout = timeout.into();
+        self.with_deadline(Instant::now() + timeout)
+    }
 
     /// Tries to run a given future with a timeout.
     ///
@@ -74,7 +73,10 @@ pub trait WithTimeout: Sized {
     /// work on the future is stopped (`poll` is no longer called), the future is dropped and `Err(TimeoutError)` is returned.
     ///
     /// This is a panic-free [`WithTimeout::with_timeout()`].
-    fn try_with_timeout(self, timeout: impl Into<Duration>) -> Option<TimeoutFuture<Self>>;
+    fn try_with_timeout(self, timeout: impl Into<Duration>) -> Option<TimeoutFuture<Self>> {
+        let timeout = timeout.into();
+        Some(self.with_deadline(Instant::now().checked_add(timeout)?))
+    }
 
     /// Runs a given future with a deadline time.
     ///
@@ -85,14 +87,6 @@ pub trait WithTimeout: Sized {
 
 impl<F: Future> WithTimeout for F {
     type Output = F::Output;
-
-    fn with_timeout(self, timeout: impl Into<Duration>) -> TimeoutFuture<Self> {
-        with_timeout(timeout.into(), self)
-    }
-
-    fn try_with_timeout(self, timeout: impl Into<Duration>) -> Option<TimeoutFuture<Self>> {
-        try_with_timeout(timeout, self)
-    }
 
     fn with_deadline(self, at: Instant) -> TimeoutFuture<Self> {
         with_deadline(at, self)
