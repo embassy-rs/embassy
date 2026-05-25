@@ -12,7 +12,6 @@ pub use crate::pac::cmu_v7::vals::{
     Pclkpresc as PclkPrescaler, SysclkctrlClksel as SysclkSource, Sysrtc0clkctrlClksel as Sysrtc0ClkSource,
     TraceclkctrlClksel as TraceClkSource, Wdog0clkctrlClksel as Wdog0ClkSource, Wdog1clkctrlClksel as Wdog1ClkSource,
 };
-
 pub use crate::time::Hertz;
 
 /// FSRCO frequency, 20 MHz.
@@ -413,7 +412,10 @@ pub(crate) fn init_clocks(_cs: CriticalSection, config: Config) {
     // Bus-clock gates for the HAL's own peripherals.
     CMU.clken0().modify(|w| {
         w.set_gpio(true);
+        #[cfg(time_driver_timer0)]
         w.set_timer0(true);
+        #[cfg(time_driver_timer1)]
+        w.set_timer1(true);
     });
 
     // Start each oscillator before a branch selects it. SYSCLK on a stopped oscillator faults.
