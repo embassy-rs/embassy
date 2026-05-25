@@ -16,11 +16,29 @@ pub struct TimeoutError;
 ///
 /// If the future completes before the timeout, its output is returned. Otherwise, on timeout,
 /// work on the future is stopped (`poll` is no longer called), the future is dropped and `Err(TimeoutError)` is returned.
+///
+/// ## Panics
+///
+/// Panics if the computed instant overflows.
+/// Avoid panics with [`try_with_timeout()`].
 pub fn with_timeout<F: Future>(timeout: impl Into<Duration>, fut: F) -> TimeoutFuture<F> {
     TimeoutFuture {
-        timer: Timer::after(timeout.into()),
+        timer: Timer::after(timeout),
         fut,
     }
+}
+
+/// Tries to run a given future with a timeout.
+///
+/// If the future completes before the timeout, its output is returned. Otherwise, on timeout,
+/// work on the future is stopped (`poll` is no longer called), the future is dropped and `Err(TimeoutError)` is returned.
+///
+/// This is a panic-free version of [`with_timeout`].
+pub fn try_with_timeout<F: Future>(timeout: impl Into<Duration>, fut: F) -> Option<TimeoutFuture<F>> {
+    Some(TimeoutFuture {
+        timer: Timer::try_after(timeout)?,
+        fut,
+    })
 }
 
 /// Runs a given future with a deadline time.
@@ -43,7 +61,20 @@ pub trait WithTimeout: Sized {
     ///
     /// If the future completes before the timeout, its output is returned. Otherwise, on timeout,
     /// work on the future is stopped (`poll` is no longer called), the future is dropped and `Err(TimeoutError)` is returned.
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the computed instant overflows.
+    /// Avoid panics with [`WithTimeout::try_with_timeout()`].
     fn with_timeout(self, timeout: impl Into<Duration>) -> TimeoutFuture<Self>;
+
+    /// Tries to run a given future with a timeout.
+    ///
+    /// If the future completes before the timeout, its output is returned. Otherwise, on timeout,
+    /// work on the future is stopped (`poll` is no longer called), the future is dropped and `Err(TimeoutError)` is returned.
+    ///
+    /// This is a panic-free [`WithTimeout::with_timeout()`].
+    fn try_with_timeout(self, timeout: impl Into<Duration>) -> Option<TimeoutFuture<Self>>;
 
     /// Runs a given future with a deadline time.
     ///
@@ -57,6 +88,10 @@ impl<F: Future> WithTimeout for F {
 
     fn with_timeout(self, timeout: impl Into<Duration>) -> TimeoutFuture<Self> {
         with_timeout(timeout.into(), self)
+    }
+
+    fn try_with_timeout(self, timeout: impl Into<Duration>) -> Option<TimeoutFuture<Self>> {
+        try_with_timeout(timeout, self)
     }
 
     fn with_deadline(self, at: Instant) -> TimeoutFuture<Self> {
@@ -479,6 +514,20 @@ impl core::error::Error for TimeoutError {}
 #[cfg(all(test, feature = "std"))]
 mod test {
     use super::*;
+
+    #[test]
+    #[should_panic(expected = "overflow")]
+    #[cfg(panic = "unwind")]
+    fn with_timeout_panics() {
+        while Instant::now() == Instant::MIN {} // with non-0 tick
+        let _ = with_timeout(Duration::MAX, async {}); // PANIC
+    }
+
+    #[test]
+    fn try_with_timeout_none() {
+        while Instant::now() == Instant::MIN {} // with non-0 tick
+        assert!(try_with_timeout(Duration::MAX, async {}).is_none());
+    }
 
     #[test]
     #[should_panic(expected = "overflow")]
