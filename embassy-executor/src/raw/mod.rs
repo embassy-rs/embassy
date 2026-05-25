@@ -9,9 +9,18 @@
 
 mod run_queue;
 
-#[cfg_attr(all(cortex_m, target_has_atomic = "32"), path = "state_atomics_arm.rs")]
+// The ARM-specific state backend uses `compiler_fence`, which is only a synchronization primitive
+// for same-core concurrency such as interrupts. `platform-cortex-m` is documented as single-core-only;
+// custom Cortex-M platforms, including multicore ones, use the generic atomic backend instead.
 #[cfg_attr(
-    all(not(cortex_m), any(target_has_atomic = "8", target_has_atomic = "32")),
+    all(cortex_m, target_has_atomic = "32", feature = "platform-cortex-m"),
+    path = "state_atomics_arm.rs"
+)]
+#[cfg_attr(
+    all(
+        not(all(cortex_m, target_has_atomic = "32", feature = "platform-cortex-m")),
+        any(target_has_atomic = "8", target_has_atomic = "32")
+    ),
     path = "state_atomics.rs"
 )]
 #[cfg_attr(
