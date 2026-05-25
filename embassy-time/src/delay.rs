@@ -10,9 +10,21 @@ use crate::Timer;
 /// ## Panics
 ///
 /// Panics if the computed instant overflows.
+/// Avoid panics with [`try_block_for()`].
 pub fn block_for(duration: Duration) {
     let expires_at = Instant::now() + duration;
     while Instant::now() < expires_at {}
+}
+
+/// Tries to block for at least `duration`.
+///
+/// This function may require interrupts to be enabled to work correctly.
+///
+/// This is a panic-free [`block_for()`].
+pub fn try_block_for(duration: Duration) -> Option<()> {
+    let expires_at = Instant::now().checked_add(duration)?;
+    while Instant::now() < expires_at {}
+    Some(())
 }
 
 /// Type implementing async delays and blocking `embedded-hal` delays.
@@ -146,5 +158,24 @@ impl embedded_hal_02::blocking::delay::DelayUs<u32> for Delay {
     /// Panics if the computed instant overflows.
     fn delay_us(&mut self, us: u32) {
         block_for(Duration::from_micros(us as u64))
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod test {
+    use super::*;
+
+    #[test]
+    #[should_panic(expected = "overflow")]
+    #[cfg(panic = "unwind")]
+    fn block_for_panics() {
+        while Instant::now() == Instant::MIN {} // with non-0 tick
+        block_for(Duration::MAX); // PANIC
+    }
+
+    #[test]
+    fn try_block_for_none() {
+        while Instant::now() == Instant::MIN {} // with non-0 tick
+        assert!(try_block_for(Duration::MAX).is_none());
     }
 }

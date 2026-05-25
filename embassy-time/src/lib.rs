@@ -30,7 +30,7 @@ mod driver_std;
 #[cfg(feature = "wasm")]
 mod driver_wasm;
 
-pub use delay::{Delay, block_for};
+pub use delay::{Delay, block_for, try_block_for};
 pub use duration::Duration;
 pub use embassy_time_driver::TICK_HZ;
 pub use instant::Instant;
