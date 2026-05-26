@@ -51,7 +51,7 @@ async fn main(_spawner: Spawner) {
         .expect("failed to init tl mbox");
 
     loop {
-        let wireless_fw_info = mbox.sys_subsystem.wireless_fw_info();
+        let wireless_fw_info = mbox.sys.wireless_fw_info();
         match wireless_fw_info {
             None => info!("not yet initialized"),
             Some(fw_info) => {

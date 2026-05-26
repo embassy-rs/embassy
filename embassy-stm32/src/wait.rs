@@ -1,12 +1,15 @@
 //! Provides a function to try until something is true
 
+#[cfg(feature = "time")]
+use embassy_time::Timer;
+
 use crate::rcc;
 
 /// Performs a busy-wait delay for a specified number of microseconds that is async if possible
 #[allow(dead_code)]
 pub async fn wait_for_us(us: u64) {
     #[cfg(feature = "time")]
-    embassy_time::Timer::after_micros(us).await;
+    Timer::after_micros(us).await;
 
     #[cfg(not(feature = "time"))]
     block_for_us(us);
@@ -22,22 +25,39 @@ pub fn block_for_us(us: u64) {
 /// Function to try until something is true
 #[allow(dead_code)]
 pub async fn try_until(mut func: impl AsyncFnMut() -> bool, micros: u64) -> Result<(), ()> {
+    use core::future::poll_fn;
+    use core::task::Poll;
+
+    use embassy_futures::select::{Either, select};
     use embassy_time::{Duration, Ticker};
+    use futures_util::FutureExt;
 
-    let duration = Duration::from_micros(micros);
-    let tick = Duration::from_millis(1);
-    let mut ticker = Ticker::every(tick);
-    let ticks = duration.as_ticks() / tick.as_ticks();
+    match select(
+        async {
+            let mut ticker = Ticker::every(Duration::from_millis(1));
 
-    for _ in 0..ticks {
-        if func().await {
-            return Ok(());
-        }
+            loop {
+                if func().await {
+                    return;
+                }
 
-        ticker.next().await;
+                // Advance the ticker to the next pending tick
+                poll_fn(|cx| {
+                    while matches!(ticker.next().poll_unpin(cx), Poll::Ready(())) {}
+                    Poll::Ready(())
+                })
+                .await;
+
+                ticker.next().await;
+            }
+        },
+        Timer::after_micros(micros),
+    )
+    .await
+    {
+        Either::First(()) => Ok(()),
+        Either::Second(()) => Err(()),
     }
-
-    Err(())
 }
 
 #[cfg(not(feature = "time"))]

@@ -11,11 +11,12 @@ use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
 use embassy_stm32::rcc::Config as RccConfig;
 use embassy_stm32_wpan::TlMbox;
-use embassy_stm32_wpan::mlme::commands::{AssociateRequest, GetRequest, ResetRequest, SetRequest};
-use embassy_stm32_wpan::mlme::event::MacEvent;
-use embassy_stm32_wpan::mlme::typedefs::{
+use embassy_stm32_wpan::net::commands::{AssociateRequest, GetRequest, ResetRequest, SetRequest};
+use embassy_stm32_wpan::net::iface::{Controller, ControllerToHostPacket, ControllerToHostPacketBox, mlme};
+use embassy_stm32_wpan::net::typedefs::{
     AddressMode, Capabilities, KeyIdMode, MacAddress, MacChannel, PanId, PibId, SecurityLevel,
 };
+use embassy_stm32_wpan::sub::mac::ControllerAdapter;
 use embassy_stm32_wpan::sub::mm;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -50,39 +51,43 @@ async fn main(spawner: Spawner) {
         .unwrap();
 
     spawner.spawn(run_mm_queue(mm).unwrap());
-
-    let (mut mac_rx, mut mac_tx) = mac.split();
+    let controller = ControllerAdapter::new(mac);
 
     info!("resetting");
-    mac_tx
-        .send_command(&ResetRequest {
+    controller
+        .write(&ResetRequest {
             set_default_pib: true,
             ..Default::default()
         })
         .await
         .unwrap();
+
     {
-        let evt = mac_rx.read().await.unwrap();
-        info!("{:#x}", evt);
+        let mut buf = [0u8; 256];
+        let pkt = controller.read(&mut buf[..]).await.unwrap();
+
+        defmt::info!("{:#x}", pkt.packet());
     }
 
     info!("setting extended address");
     let extended_address: u64 = 0xACDE480000000002;
-    mac_tx
-        .send_command(&SetRequest {
+    controller
+        .write(&SetRequest {
             pib_attribute_ptr: &extended_address as *const _ as *const u8,
             pib_attribute: PibId::ExtendedAddress,
         })
         .await
         .unwrap();
     {
-        let evt = mac_rx.read().await.unwrap();
-        info!("{:#x}", evt);
+        let mut buf = [0u8; 256];
+        let pkt = controller.read(&mut buf[..]).await.unwrap();
+
+        defmt::info!("{:#x}", pkt.packet());
     }
 
     info!("getting extended address");
-    mac_tx
-        .send_command(&GetRequest {
+    controller
+        .write(&GetRequest {
             pib_attribute: PibId::ExtendedAddress,
             ..Default::default()
         })
@@ -90,15 +95,18 @@ async fn main(spawner: Spawner) {
         .unwrap();
 
     {
-        let evt = mac_rx.read().await.unwrap();
-        info!("{:#x}", evt);
+        let mut buf = [0u8; 256];
+        let pkt = controller.read(&mut buf[..]).await.unwrap();
+        defmt::info!("{:#x}", pkt.packet());
 
-        if let MacEvent::MlmeGetCnf(evt) = evt {
+        if let ControllerToHostPacket::Mlme(mlme::Packet::Confirm(mlme::ConfirmPacket::Get(evt))) = pkt.packet() {
             if evt.pib_attribute_value_len == 8 {
                 let value = unsafe { core::ptr::read_unaligned(evt.pib_attribute_value_ptr as *const u64) };
 
                 info!("value {:#x}", value)
             }
+        } else {
+            defmt::panic!();
         }
     }
 
@@ -116,11 +124,18 @@ async fn main(spawner: Spawner) {
         key_index: 152,
     };
     info!("{}", a);
-    mac_tx.send_command(&a).await.unwrap();
-    let short_addr = if let MacEvent::MlmeAssociateCnf(conf) = mac_rx.read().await.unwrap() {
-        conf.assoc_short_address
-    } else {
-        defmt::panic!()
+    controller.write(&a).await.unwrap();
+    let short_addr = {
+        let mut buf = [0u8; 256];
+        let pkt = controller.read(&mut buf[..]).await.unwrap();
+        defmt::info!("{:#x}", pkt.packet());
+
+        if let ControllerToHostPacket::Mlme(mlme::Packet::Confirm(mlme::ConfirmPacket::Associate(conf))) = pkt.packet()
+        {
+            conf.assoc_short_address
+        } else {
+            defmt::panic!()
+        }
     };
 
     info!("{}", short_addr);

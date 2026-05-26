@@ -1,6 +1,6 @@
 use core::task::Context;
 
-use embassy_net_driver::{Capabilities, Checksum, Driver, RxToken, TxToken};
+use embassy_net_driver::{Capabilities, Checksum, Driver, PacketMeta, RxToken, TxToken};
 use smoltcp::phy::{self, Medium};
 use smoltcp::time::Instant;
 
@@ -93,6 +93,10 @@ where
             f(buf)
         })
     }
+
+    fn meta(&self) -> phy::PacketMeta {
+        into_smoltcp_meta(self.0.meta())
+    }
 }
 
 pub(crate) struct TxTokenAdapter<T>(T)
@@ -114,4 +118,28 @@ where
             r
         })
     }
+
+    fn set_meta(&mut self, meta: phy::PacketMeta) {
+        self.0.set_meta(into_embassy_net_meta(meta));
+    }
+}
+
+#[allow(unused, reason = "meta isn't used if no features are enabled")]
+pub(crate) fn into_smoltcp_meta(meta: PacketMeta) -> phy::PacketMeta {
+    let out_meta = phy::PacketMeta::default();
+    #[cfg(feature = "packetmeta-id")]
+    {
+        out_meta.id = meta.id;
+    }
+    out_meta
+}
+
+#[allow(unused, reason = "meta isn't used if no features are enabled")]
+pub(crate) fn into_embassy_net_meta(meta: phy::PacketMeta) -> PacketMeta {
+    let out_meta = PacketMeta::default();
+    #[cfg(feature = "packetmeta-id")]
+    {
+        out_meta.id = meta.id;
+    }
+    out_meta
 }

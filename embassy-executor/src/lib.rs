@@ -28,6 +28,7 @@ check_at_most_one!(
     "platform-avr",
     "platform-cortex-m",
     "platform-cortex-ar",
+    "platform-z7",
     "platform-riscv32",
     "platform-riscv64",
     "platform-std",
@@ -41,6 +42,7 @@ check_at_most_one!(
 #[cfg_attr(feature = "platform-cortex-ar", path = "platform/cortex_ar.rs")]
 #[cfg_attr(feature = "platform-riscv32", path = "platform/riscv.rs")]
 #[cfg_attr(feature = "platform-riscv64", path = "platform/riscv.rs")]
+#[cfg_attr(feature = "platform-z7", path = "platform/z7.rs")]
 #[cfg_attr(feature = "platform-std", path = "platform/std.rs")]
 #[cfg_attr(feature = "platform-wasm", path = "platform/wasm.rs")]
 #[cfg_attr(feature = "platform-spin", path = "platform/spin.rs")]

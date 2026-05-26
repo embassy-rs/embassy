@@ -1,6 +1,8 @@
 use core::ptr;
 use core::sync::atomic::{Ordering, compiler_fence};
 
+use embedded_io::ErrorKind;
+
 use crate::wb::PacketHeader;
 use crate::wb::consts::TlPacketType;
 
@@ -37,6 +39,15 @@ pub struct CmdSerialStub {
     pub payload_len: u8,
 }
 
+/// ```rust,ignore
+/// struct CmdPacket {
+///     header: [u8; 8],
+///     ty: [u8; 1],
+///     cmd_code: [u8; 2], // `EvtPacket` one byte code
+///     payload_len: [u8; 1]
+///     payload [u8; 255]
+/// }
+/// ```
 #[derive(Copy, Clone, Default)]
 #[repr(C, packed)]
 pub struct CmdPacket {
@@ -45,32 +56,35 @@ pub struct CmdPacket {
 }
 
 impl CmdPacket {
-    #[cfg(feature = "bt-hci")]
-    pub unsafe fn writer(cmd_buf: *mut CmdPacket) -> VolatileWriter {
-        let p_cmd_serial = (cmd_buf as *mut u8).add(size_of::<PacketHeader>());
-
-        VolatileWriter {
-            start: p_cmd_serial,
-            len: 255,
-        }
+    pub unsafe fn read_stub(ptr: *const CmdPacket) -> CmdSerialStub {
+        unsafe { ptr::read_unaligned(&raw const (*ptr).cmdserial as *const CmdSerialStub) }
     }
 
-    pub unsafe fn write_into(cmd_buf: *mut CmdPacket, packet_type: TlPacketType, cmd_code: u16, payload: &[u8]) {
-        let p_cmd_serial = (cmd_buf as *mut u8).add(size_of::<PacketHeader>());
-        let p_payload = p_cmd_serial.add(size_of::<CmdSerialStub>());
+    pub unsafe fn write_stub(ptr: *mut CmdPacket, stub: CmdSerialStub) {
+        unsafe { ptr::write_unaligned(&raw mut (*ptr).cmdserial as *mut CmdSerialStub, stub) }
+    }
 
-        ptr::write_unaligned(
-            p_cmd_serial as *mut _,
-            CmdSerialStub {
-                ty: packet_type as u8,
-                cmd_code,
-                payload_len: payload.len() as u8,
-            },
-        );
+    pub unsafe fn read_serial(ptr: *const CmdPacket) -> (*const u8, usize) {
+        let payload_len = Self::read_stub(ptr).payload_len as usize;
 
-        ptr::copy_nonoverlapping(payload as *const _ as *const u8, p_payload, payload.len());
+        (
+            &raw const (*ptr).cmdserial as *const u8,
+            payload_len + size_of::<PacketHeader>(),
+        )
+    }
 
-        compiler_fence(Ordering::Release);
+    pub unsafe fn write_serial(ptr: *mut CmdPacket) -> (*mut u8, usize) {
+        (&raw mut (*ptr).cmdserial as *mut u8, size_of::<CmdSerial>())
+    }
+
+    pub unsafe fn read_payload(ptr: *const CmdPacket) -> (*const u8, usize) {
+        let payload_len = Self::read_stub(ptr).payload_len as usize;
+
+        (&raw const (*ptr).cmdserial.cmd.payload as *const u8, payload_len)
+    }
+
+    pub unsafe fn write_payload(ptr: *mut CmdPacket) -> (*mut u8, usize) {
+        (&raw mut (*ptr).cmdserial.cmd.payload as *mut u8, size_of::<[u8; 255]>())
     }
 }
 
@@ -120,22 +134,43 @@ impl AclDataPacket {
     }
 }
 
-#[cfg(feature = "bt-hci")]
-impl<'d> embedded_io::ErrorType for VolatileWriter {
-    type Error = embedded_io::ErrorKind;
-}
-
-#[cfg(feature = "bt-hci")]
 pub struct VolatileWriter {
     start: *mut u8,
     len: usize,
 }
 
-#[cfg(feature = "bt-hci")]
+impl VolatileWriter {
+    #[allow(dead_code)]
+    pub unsafe fn from_serial(ptr: *mut CmdPacket) -> Self {
+        unsafe {
+            let (ptr, len) = CmdPacket::write_serial(ptr);
+
+            Self { start: ptr, len }
+        }
+    }
+
+    pub unsafe fn from_payload(ptr: *mut CmdPacket) -> Self {
+        unsafe {
+            let (ptr, len) = CmdPacket::write_payload(ptr);
+
+            Self { start: ptr, len }
+        }
+    }
+
+    pub unsafe fn with_stub(ptr: *mut CmdPacket, stub: CmdSerialStub) -> Self {
+        unsafe {
+            CmdPacket::write_stub(ptr, stub);
+            Self::from_payload(ptr)
+        }
+    }
+}
+
+impl<'d> embedded_io::ErrorType for VolatileWriter {
+    type Error = ErrorKind;
+}
+
 impl embedded_io::Write for VolatileWriter {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        use embedded_io::ErrorKind;
-
         if self.len == 0 {
             return Err(ErrorKind::WriteZero);
         }
