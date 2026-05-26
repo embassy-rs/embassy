@@ -4,12 +4,68 @@ use core::future::{Future, poll_fn};
 use core::mem;
 use core::task::{Context, Poll};
 
+pub use embassy_net_driver::PacketMeta;
 use smoltcp::iface::{Interface, SocketHandle};
 use smoltcp::socket::udp;
-pub use smoltcp::socket::udp::{PacketMetadata, UdpMetadata};
+pub use smoltcp::socket::udp::PacketMetadata;
 use smoltcp::wire::IpListenEndpoint;
 
-use crate::{Stack, TryError};
+use crate::{IpAddress, IpEndpoint, Stack, TryError};
+
+/// Metadata for a sent or received UDP packet.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct UdpMetadata {
+    /// The IP endpoint from which an incoming datagram was received, or to which an outgoing
+    /// datagram will be sent.
+    pub endpoint: IpEndpoint,
+    /// The IP address to which an incoming datagram was sent, or from which an outgoing datagram
+    /// will be sent. Incoming datagrams always have this set. On outgoing datagrams, if it is not
+    /// set, and the socket is not bound to a single address anyway, a suitable address will be
+    /// determined using the algorithms of RFC 6724 (candidate source address selection) or some
+    /// heuristic (for IPv4).
+    pub local_address: Option<IpAddress>,
+    /// Additional metadata for the packet.
+    pub meta: PacketMeta,
+}
+
+impl UdpMetadata {
+    fn from_smoltcp(value: udp::UdpMetadata) -> Self {
+        UdpMetadata {
+            endpoint: value.endpoint,
+            local_address: value.local_address,
+            meta: crate::driver_util::into_embassy_net_meta(value.meta),
+        }
+    }
+
+    fn into_smoltcp(self) -> udp::UdpMetadata {
+        udp::UdpMetadata {
+            endpoint: self.endpoint,
+            local_address: self.local_address,
+            meta: crate::driver_util::into_smoltcp_meta(self.meta),
+        }
+    }
+}
+
+impl core::fmt::Display for UdpMetadata {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        #[cfg(feature = "packetmeta-id")]
+        return write!(f, "{}, PacketID: {:?}", self.endpoint, self.meta);
+
+        #[cfg(not(feature = "packetmeta-id"))]
+        write!(f, "{}", self.endpoint)
+    }
+}
+
+impl<T: Into<IpEndpoint>> From<T> for UdpMetadata {
+    fn from(value: T) -> Self {
+        Self {
+            endpoint: value.into(),
+            local_address: None,
+            meta: PacketMeta::default(),
+        }
+    }
+}
 
 /// Error returned by [`UdpSocket::bind`].
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -152,7 +208,7 @@ impl<'a> UdpSocket<'a> {
     /// Returns the number of bytes received and the remote endpoint.
     pub fn try_recv_from(&self, buf: &mut [u8]) -> Result<(usize, UdpMetadata), TryError<RecvError>> {
         self.with_mut(|s, _| match s.recv_slice(buf) {
-            Ok((n, meta)) => Ok((n, meta)),
+            Ok((n, meta)) => Ok((n, UdpMetadata::from_smoltcp(meta))),
             Err(udp::RecvError::Truncated) => Err(TryError::Other(RecvError::Truncated)),
             Err(udp::RecvError::Exhausted) => Err(TryError::WouldBlock),
         })
@@ -171,7 +227,7 @@ impl<'a> UdpSocket<'a> {
         cx: &mut Context<'_>,
     ) -> Poll<Result<(usize, UdpMetadata), RecvError>> {
         self.with_mut(|s, _| match s.recv_slice(buf) {
-            Ok((n, meta)) => Poll::Ready(Ok((n, meta))),
+            Ok((n, meta)) => Poll::Ready(Ok((n, UdpMetadata::from_smoltcp(meta)))),
             // No data ready
             Err(udp::RecvError::Truncated) => Poll::Ready(Err(RecvError::Truncated)),
             Err(udp::RecvError::Exhausted) => {
@@ -197,7 +253,9 @@ impl<'a> UdpSocket<'a> {
         poll_fn(move |cx| {
             self.with_mut(|s, _| {
                 match s.recv() {
-                    Ok((buffer, endpoint)) => Poll::Ready(unwrap!(f.take())(buffer, endpoint)),
+                    Ok((buffer, endpoint)) => {
+                        Poll::Ready(unwrap!(f.take())(buffer, UdpMetadata::from_smoltcp(endpoint)))
+                    }
                     Err(udp::RecvError::Truncated) => unreachable!(),
                     Err(udp::RecvError::Exhausted) => {
                         // socket buffer is empty wait until at least one byte has arrived
@@ -220,7 +278,7 @@ impl<'a> UdpSocket<'a> {
         F: FnOnce(&[u8], UdpMetadata) -> R,
     {
         self.with_mut(|s, _| match s.recv() {
-            Ok((buffer, endpoint)) => Ok(f(buffer, endpoint)),
+            Ok((buffer, endpoint)) => Ok(f(buffer, UdpMetadata::from_smoltcp(endpoint))),
             Err(udp::RecvError::Truncated) => unreachable!(),
             Err(udp::RecvError::Exhausted) => Err(TryError::WouldBlock),
         })
@@ -288,7 +346,7 @@ impl<'a> UdpSocket<'a> {
             return Err(TryError::Other(SendError::PacketTooLarge));
         }
 
-        self.with_mut(|s, _| match s.send_slice(buf, remote_endpoint) {
+        self.with_mut(|s, _| match s.send_slice(buf, remote_endpoint.into_smoltcp()) {
             // Entire datagram has been sent
             Ok(()) => Ok(()),
             Err(udp::SendError::BufferFull) => Err(TryError::WouldBlock),
@@ -323,7 +381,7 @@ impl<'a> UdpSocket<'a> {
             return Poll::Ready(Err(SendError::PacketTooLarge));
         }
 
-        self.with_mut(|s, _| match s.send_slice(buf, remote_endpoint) {
+        self.with_mut(|s, _| match s.send_slice(buf, remote_endpoint.into().into_smoltcp()) {
             // Entire datagram has been sent
             Ok(()) => Poll::Ready(Ok(())),
             Err(udp::SendError::BufferFull) => {
@@ -366,7 +424,7 @@ impl<'a> UdpSocket<'a> {
             self.with_mut(|s, _| {
                 let mut ret = None;
 
-                match s.send_with(max_size, remote_endpoint, |buf| {
+                match s.send_with(max_size, remote_endpoint.into().into_smoltcp(), |buf| {
                     let (size, r) = unwrap!(f.take())(buf);
                     ret = Some(r);
                     size
@@ -410,7 +468,7 @@ impl<'a> UdpSocket<'a> {
             return Err(TryError::Other(SendError::PacketTooLarge));
         }
 
-        self.with_mut(|s, _| match s.send(size, remote_endpoint) {
+        self.with_mut(|s, _| match s.send(size, remote_endpoint.into_smoltcp()) {
             Ok(buffer) => Ok(f(buffer)),
             Err(udp::SendError::BufferFull) => Err(TryError::WouldBlock),
             Err(udp::SendError::Unaddressable) => {

@@ -53,19 +53,19 @@ struct ChannelState {
 unsafe impl Send for ChannelState {}
 unsafe impl Sync for ChannelState {}
 
-/// USB host driver state. Create one per OTG instance.
-pub struct HostState<const CH_COUNT: usize> {
-    channels: [ChannelState; CH_COUNT],
+struct HostStateFields {
     port_waker: AtomicWaker,
     port_event: AtomicU8,
     port_speed: AtomicU8,
-    inited: AtomicBool,
 }
 
-unsafe impl<const CH_COUNT: usize> Send for HostState<CH_COUNT> {}
-unsafe impl<const CH_COUNT: usize> Sync for HostState<CH_COUNT> {}
+/// Storage object for USB host driver state. Create one per OTG instance.
+pub struct HostStateStorage<const CH_COUNT: usize> {
+    channels: [ChannelState; CH_COUNT],
+    fields: HostStateFields,
+}
 
-impl<const CH_COUNT: usize> HostState<CH_COUNT> {
+impl<const CH_COUNT: usize> HostStateStorage<CH_COUNT> {
     /// Create a new host state.
     pub const fn new() -> Self {
         Self {
@@ -79,24 +79,48 @@ impl<const CH_COUNT: usize> HostState<CH_COUNT> {
                     allocated: AtomicBool::new(false),
                 }
             }; CH_COUNT],
-            port_waker: AtomicWaker::new(),
-            port_event: AtomicU8::new(0),
-            port_speed: AtomicU8::new(0),
-            inited: AtomicBool::new(false),
+            fields: HostStateFields {
+                port_waker: AtomicWaker::new(),
+                port_event: AtomicU8::new(0),
+                port_speed: AtomicU8::new(0),
+            },
+        }
+    }
+
+    /// Borrow this [`HostStateStorage`] as a [`HostState`] for [`OtgHostInstance`].
+    pub fn as_host_state(&self) -> HostState<'_> {
+        HostState {
+            channels: self.channels.as_slice(),
+            fields: &self.fields,
         }
     }
 }
 
+/// Type-erased view of [`HostState`] for [`OtgHostInstance`], [`OtgHost`], [`on_host_interrupt`], and pipes.
+///
+/// Build from [`HostState::as_host_state`].
+#[derive(Clone, Copy)]
+pub struct HostState<'d> {
+    channels: &'d [ChannelState],
+    fields: &'d HostStateFields,
+}
+
+impl HostState<'_> {
+    /// Returns the number of host channels supported by this state.
+    pub fn channel_count(&self) -> usize {
+        self.channels.len()
+    }
+}
+
 /// Hardware-dependent host configuration.
-pub struct OtgHostInstance<'d, const CH_COUNT: usize> {
+#[derive(Copy, Clone)]
+pub struct OtgHostInstance<'d> {
     /// The USB peripheral registers.
     pub regs: Otg,
-    /// The host state.
-    pub state: &'d HostState<CH_COUNT>,
+    /// Shared host driver state from [`HostState::as_host_state`].
+    pub state: HostState<'d>,
     /// FIFO depth in words.
     pub fifo_depth_words: u16,
-    /// Number of host channels available.
-    pub channel_count: usize,
     /// The PHY type.
     pub phy_type: PhyType,
 }
@@ -105,8 +129,9 @@ pub struct OtgHostInstance<'d, const CH_COUNT: usize> {
 ///
 /// # Safety
 /// Must be called from the USB OTG interrupt handler when the controller is in host mode.
-pub unsafe fn on_host_interrupt<const CH_COUNT: usize>(r: Otg, state: &HostState<CH_COUNT>, ch_count: usize) {
+pub unsafe fn on_host_interrupt(r: Otg, state: &HostState<'_>) {
     let gintsts = r.gintsts().read();
+    let ch_count = state.channels.len();
 
     // Clear SOF interrupt immediately to avoid flooding.
     if gintsts.sof() {
@@ -119,8 +144,11 @@ pub unsafe fn on_host_interrupt<const CH_COUNT: usize>(r: Otg, state: &HostState
 
         if hprt.pcdet() {
             // Port connect detected
-            state.port_event.fetch_or(PORT_EVENT_CONNECTED, Ordering::Release);
-            state.port_waker.wake();
+            state
+                .fields
+                .port_event
+                .fetch_or(PORT_EVENT_CONNECTED, Ordering::Release);
+            state.fields.port_waker.wake();
         }
 
         if hprt.penchng() {
@@ -132,19 +160,25 @@ pub unsafe fn on_host_interrupt<const CH_COUNT: usize>(r: Otg, state: &HostState
                     0b10 => 1, // Low speed
                     _ => 0,    // Default to full speed
                 };
-                state.port_speed.store(speed, Ordering::Release);
-                state.port_event.fetch_or(PORT_EVENT_ENABLED, Ordering::Release);
+                state.fields.port_speed.store(speed, Ordering::Release);
+                state.fields.port_event.fetch_or(PORT_EVENT_ENABLED, Ordering::Release);
             } else {
                 // Port disabled
-                state.port_event.fetch_or(PORT_EVENT_DISCONNECTED, Ordering::Release);
+                state
+                    .fields
+                    .port_event
+                    .fetch_or(PORT_EVENT_DISCONNECTED, Ordering::Release);
             }
-            state.port_waker.wake();
+            state.fields.port_waker.wake();
         }
 
         if hprt.pocchng() {
             if hprt.poca() {
-                state.port_event.fetch_or(PORT_EVENT_OVERCURRENT, Ordering::Release);
-                state.port_waker.wake();
+                state
+                    .fields
+                    .port_event
+                    .fetch_or(PORT_EVENT_OVERCURRENT, Ordering::Release);
+                state.fields.port_waker.wake();
             }
         }
 
@@ -156,8 +190,11 @@ pub unsafe fn on_host_interrupt<const CH_COUNT: usize>(r: Otg, state: &HostState
     // Disconnect interrupt
     if gintsts.discint() {
         r.gintsts().write(|w| w.set_discint(true)); // clear
-        state.port_event.fetch_or(PORT_EVENT_DISCONNECTED, Ordering::Release);
-        state.port_waker.wake();
+        state
+            .fields
+            .port_event
+            .fetch_or(PORT_EVENT_DISCONNECTED, Ordering::Release);
+        state.fields.port_waker.wake();
     }
 
     // RX FIFO non-empty (IN data received)
@@ -338,14 +375,18 @@ fn hprt_read_safe(r: Otg) -> u32 {
 }
 
 /// USB OTG Host Driver.
-pub struct OtgHost<'d, const CH_COUNT: usize> {
-    instance: OtgHostInstance<'d, CH_COUNT>,
+pub struct OtgHost<'d> {
+    instance: OtgHostInstance<'d>,
+    inited: bool,
 }
 
-impl<'d, const CH_COUNT: usize> OtgHost<'d, CH_COUNT> {
+impl<'d> OtgHost<'d> {
     /// Create a new OTG host driver.
-    pub fn new(instance: OtgHostInstance<'d, CH_COUNT>) -> Self {
-        Self { instance }
+    pub fn new(instance: OtgHostInstance<'d>) -> Self {
+        Self {
+            instance,
+            inited: false,
+        }
     }
 
     async fn configure_as_host(&self) {
@@ -486,22 +527,21 @@ impl<'d, const CH_COUNT: usize> OtgHost<'d, CH_COUNT> {
 /// Obtained from [`UsbHostController::allocator`]. Holds only `Copy` handles
 /// to the controller's `'d`-borrowed state, so it can be freely copied and
 /// retained by class drivers independently of the controller's `&mut` borrow.
-pub struct OtgHostAllocator<'d, const CH_COUNT: usize> {
+pub struct OtgHostAllocator<'d> {
     regs: Otg,
-    state: &'d HostState<CH_COUNT>,
-    channel_count: usize,
+    state: HostState<'d>,
 }
 
-impl<'d, const CH_COUNT: usize> Clone for OtgHostAllocator<'d, CH_COUNT> {
+impl<'d> Clone for OtgHostAllocator<'d> {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<'d, const CH_COUNT: usize> Copy for OtgHostAllocator<'d, CH_COUNT> {}
+impl<'d> Copy for OtgHostAllocator<'d> {}
 
-impl<'d, const CH_COUNT: usize> UsbHostAllocator<'d> for OtgHostAllocator<'d, CH_COUNT> {
-    type Pipe<T: pipe::Type, D: pipe::Direction> = Channel<'d, T, D, CH_COUNT>;
+impl<'d> UsbHostAllocator<'d> for OtgHostAllocator<'d> {
+    type Pipe<T: pipe::Type, D: pipe::Direction> = Channel<'d, T, D>;
 
     fn alloc_pipe<T: pipe::Type, D: pipe::Direction>(
         &self,
@@ -513,11 +553,12 @@ impl<'d, const CH_COUNT: usize> UsbHostAllocator<'d> for OtgHostAllocator<'d, CH
         let max_packet_size = endpoint.max_packet_size;
 
         // Read device speed from port_speed atomic (stored by ISR)
-        let speed_code = self.state.port_speed.load(Ordering::Acquire);
+        let speed_code = self.state.fields.port_speed.load(Ordering::Acquire);
         let is_low_speed = speed_code == 1;
 
+        let max_ch = self.state.channels.len();
         // Find a free channel using atomic CAS
-        for i in 0..self.channel_count.min(CH_COUNT) {
+        for i in 0..max_ch {
             if self.state.channels[i]
                 .allocated
                 .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
@@ -543,41 +584,46 @@ impl<'d, const CH_COUNT: usize> UsbHostAllocator<'d> for OtgHostAllocator<'d, CH
     }
 }
 
-impl<'d, const CH_COUNT: usize> UsbHostController<'d> for OtgHost<'d, CH_COUNT> {
-    type Allocator = OtgHostAllocator<'d, CH_COUNT>;
+impl<'d> UsbHostController<'d> for OtgHost<'d> {
+    type Allocator = OtgHostAllocator<'d>;
 
     fn allocator(&self) -> Self::Allocator {
         OtgHostAllocator {
             regs: self.instance.regs,
             state: self.instance.state,
-            channel_count: self.instance.channel_count,
         }
     }
 
     async fn wait_for_device_event(&mut self) -> DeviceEvent {
         // Lazily initialize the host hardware on first call.
-        if !self.instance.state.inited.load(Ordering::Acquire) {
+        if !self.inited {
             self.configure_as_host().await;
             self.init_host();
-            self.instance.state.inited.store(true, Ordering::Release);
+            self.inited = true;
         }
 
         loop {
             // Wait for CONNECTED or DISCONNECTED event.
             let event = poll_fn(|cx| {
                 let state = self.instance.state;
-                state.port_waker.register(cx.waker());
+                state.fields.port_waker.register(cx.waker());
 
-                let ev = state.port_event.load(Ordering::Acquire);
+                let ev = state.fields.port_event.load(Ordering::Acquire);
                 if ev & PORT_EVENT_OVERCURRENT != 0 {
-                    state.port_event.fetch_and(!PORT_EVENT_OVERCURRENT, Ordering::AcqRel);
+                    state
+                        .fields
+                        .port_event
+                        .fetch_and(!PORT_EVENT_OVERCURRENT, Ordering::AcqRel);
                     return Poll::Ready(PORT_EVENT_OVERCURRENT);
                 }
 
                 if ev & PORT_EVENT_DISCONNECTED != 0 {
-                    state.port_event.fetch_and(!PORT_EVENT_DISCONNECTED, Ordering::AcqRel);
+                    state
+                        .fields
+                        .port_event
+                        .fetch_and(!PORT_EVENT_DISCONNECTED, Ordering::AcqRel);
                     // Wake all channels to signal disconnection
-                    for ch in &state.channels {
+                    for ch in state.channels {
                         if ch.allocated.load(Ordering::Relaxed) {
                             ch.result.store(CH_RESULT_HALTED, Ordering::Release);
                             ch.waker.wake();
@@ -587,7 +633,10 @@ impl<'d, const CH_COUNT: usize> UsbHostController<'d> for OtgHost<'d, CH_COUNT> 
                     return Poll::Ready(PORT_EVENT_DISCONNECTED);
                 }
                 if ev & PORT_EVENT_CONNECTED != 0 {
-                    state.port_event.fetch_and(!PORT_EVENT_CONNECTED, Ordering::AcqRel);
+                    state
+                        .fields
+                        .port_event
+                        .fetch_and(!PORT_EVENT_CONNECTED, Ordering::AcqRel);
                     return Poll::Ready(PORT_EVENT_CONNECTED);
                 }
                 Poll::Pending
@@ -604,16 +653,22 @@ impl<'d, const CH_COUNT: usize> UsbHostController<'d> for OtgHost<'d, CH_COUNT> 
             // Now wait for ENABLED or DISCONNECTED.
             let enabled_event = poll_fn(|cx| {
                 let state = self.instance.state;
-                state.port_waker.register(cx.waker());
+                state.fields.port_waker.register(cx.waker());
 
-                let ev = state.port_event.load(Ordering::Acquire);
+                let ev = state.fields.port_event.load(Ordering::Acquire);
                 if ev & PORT_EVENT_OVERCURRENT != 0 {
-                    state.port_event.fetch_and(!PORT_EVENT_OVERCURRENT, Ordering::AcqRel);
+                    state
+                        .fields
+                        .port_event
+                        .fetch_and(!PORT_EVENT_OVERCURRENT, Ordering::AcqRel);
                     return Poll::Ready(PORT_EVENT_OVERCURRENT);
                 }
                 if ev & PORT_EVENT_DISCONNECTED != 0 {
-                    state.port_event.fetch_and(!PORT_EVENT_DISCONNECTED, Ordering::AcqRel);
-                    for ch in &state.channels {
+                    state
+                        .fields
+                        .port_event
+                        .fetch_and(!PORT_EVENT_DISCONNECTED, Ordering::AcqRel);
+                    for ch in state.channels {
                         if ch.allocated.load(Ordering::Relaxed) {
                             ch.result.store(CH_RESULT_HALTED, Ordering::Release);
                             ch.waker.wake();
@@ -622,7 +677,7 @@ impl<'d, const CH_COUNT: usize> UsbHostController<'d> for OtgHost<'d, CH_COUNT> 
                     return Poll::Ready(PORT_EVENT_DISCONNECTED);
                 }
                 if ev & PORT_EVENT_ENABLED != 0 {
-                    state.port_event.fetch_and(!PORT_EVENT_ENABLED, Ordering::AcqRel);
+                    state.fields.port_event.fetch_and(!PORT_EVENT_ENABLED, Ordering::AcqRel);
                     return Poll::Ready(PORT_EVENT_ENABLED);
                 }
                 Poll::Pending
@@ -631,7 +686,7 @@ impl<'d, const CH_COUNT: usize> UsbHostController<'d> for OtgHost<'d, CH_COUNT> 
 
             match enabled_event {
                 PORT_EVENT_ENABLED => {
-                    let speed_code = self.instance.state.port_speed.load(Ordering::Acquire);
+                    let speed_code = self.instance.state.fields.port_speed.load(Ordering::Acquire);
                     let speed = match speed_code {
                         0 => Speed::Full,
                         1 => Speed::Low,
@@ -671,7 +726,7 @@ impl<'d, const CH_COUNT: usize> UsbHostController<'d> for OtgHost<'d, CH_COUNT> 
 
     async fn bus_reset(&mut self) {
         let r = self.instance.regs;
-        let ch_count = self.instance.channel_count.min(CH_COUNT);
+        let ch_count = self.instance.state.channels.len();
 
         // Halt any still-active hardware channels left over from a
         // previous session (e.g. interrupt endpoints that were polling
@@ -734,9 +789,9 @@ impl<'d, const CH_COUNT: usize> UsbHostController<'d> for OtgHost<'d, CH_COUNT> 
 /// A USB host channel for performing transfers.
 ///
 /// The channel is automatically released when dropped.
-pub struct Channel<'d, T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> {
+pub struct Channel<'d, T: pipe::Type, D: pipe::Direction> {
     regs: Otg,
-    state: &'d HostState<CH_COUNT>,
+    state: HostState<'d>,
     index: usize,
     device_address: u8,
     ep_number: u8,
@@ -747,9 +802,9 @@ pub struct Channel<'d, T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize>
 }
 
 // SAFETY: Channel only accesses its own state in the shared HostState.
-unsafe impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Send for Channel<'_, T, D, CH_COUNT> {}
+unsafe impl<T: pipe::Type, D: pipe::Direction> Send for Channel<'_, T, D> {}
 
-impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Drop for Channel<'_, T, D, CH_COUNT> {
+impl<T: pipe::Type, D: pipe::Direction> Drop for Channel<'_, T, D> {
     fn drop(&mut self) {
         let r = self.regs;
         let ch = self.index;
@@ -782,7 +837,7 @@ impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Drop for Channel<
     }
 }
 
-impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Channel<'_, T, D, CH_COUNT> {
+impl<T: pipe::Type, D: pipe::Direction> Channel<'_, T, D> {
     fn configure_channel(&self, dir_in: bool, ep_type: EndpointType, pktcnt: u16, xfrsiz: u32, dpid: u8) {
         let r = self.regs;
         let ch = self.index;
@@ -1139,7 +1194,7 @@ impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> Channel<'_, T, D,
     }
 }
 
-impl<T: pipe::Type, D: pipe::Direction, const CH_COUNT: usize> UsbPipe<T, D> for Channel<'_, T, D, CH_COUNT> {
+impl<T: pipe::Type, D: pipe::Direction> UsbPipe<T, D> for Channel<'_, T, D> {
     async fn control_in(&mut self, setup: &[u8; 8], buf: &mut [u8]) -> Result<usize, PipeError>
     where
         T: pipe::IsControl,
