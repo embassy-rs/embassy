@@ -340,22 +340,24 @@ impl<'d> bt_hci::controller::Controller for ControllerAdapter<'d> {
         todo!()
     }
 
-    async fn read<'a>(&self, buf: &'a mut [u8]) -> Result<bt_hci::ControllerToHostPacket<'a>, Self::Error> {
+    async fn read<'a>(&self, _buf: &'a mut [u8]) -> Result<bt_hci::ControllerToHostPacket<'a>, Self::Error> {
+        use core::slice;
+
         use bt_hci::event::{CommandComplete, CommandStatus, EventKind};
         use bt_hci::{ControllerToHostPacket, FromHciBytes};
         use embassy_futures::select::{Either, select};
 
         use crate::util::to_err;
 
+        // Drop the pending evt so that the memory manager can clean it up
+        self.pending_evt.borrow().borrow_mut().take();
+        if self.cc_no_status.swap(false, Ordering::AcqRel) {
+            self.waker.wake();
+        }
+
         match select(
             async {
                 loop {
-                    // Drop the pending evt so that the memory manager can clean it up
-                    self.pending_evt.borrow().borrow_mut().take();
-                    if self.cc_no_status.swap(false, Ordering::AcqRel) {
-                        self.waker.wake();
-                    }
-
                     let (evt, pkt) = self.read_pkt().await?;
 
                     match pkt {
@@ -396,26 +398,27 @@ impl<'d> bt_hci::controller::Controller for ControllerAdapter<'d> {
                 }
             },
             async {
-                self.ipcc_hci_acl_rx_data_channel
+                let (evt, pkt) = self
+                    .ipcc_hci_acl_rx_data_channel
                     .lock()
                     .await
                     .receive(|| unsafe {
-                        // We must copy out the event immediately so that it is not trashed by a pending command.
-
-                        let buf = core::slice::from_raw_parts_mut(buf as *mut _ as *mut u8, buf.len());
                         let evt: EvtBox<Ble<'d>> = EvtBox::new(HCI_ACL_DATA_BUFFER.as_mut_ptr() as *mut _);
-                        let serial = evt.serial();
-                        buf[..serial.len()].copy_from_slice(serial);
-
-                        // rx will be cleared by evt box drop
+                        let evt_serial =
+                            slice::from_raw_parts(evt.serial() as *const _ as *const u8, evt.serial().len());
 
                         Some(
-                            ControllerToHostPacket::from_hci_bytes(buf)
-                                .map(|(pkt, _)| pkt)
+                            ControllerToHostPacket::from_hci_bytes(evt_serial)
+                                .map(|(pkt, _)| (evt, pkt))
                                 .map_err(to_err),
                         )
                     })
-                    .await
+                    .await?;
+
+                // Store the pending event so that it isn't dropped until the next read
+                self.pending_evt.borrow().borrow_mut().replace(evt);
+
+                return Ok(pkt);
             },
         )
         .await
