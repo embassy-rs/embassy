@@ -1853,21 +1853,25 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
             burst_length: crate::dma::Burst::_4Beats,
             ..Default::default()
         };
-        // Fast path: 4-byte aligned source becomes a u32 transfer (SDW=DDW=
-        // Word), so the channel doesn't have to pack/unpack across widths.
-        // Otherwise let the channel handle the mismatch via its FIFO.
-        let dma_transfer = unsafe {
-            if blocks.as_ptr() as usize % 4 == 0 {
-                let num_words = blocks.len() / 4;
-                let src: *const [u32] = core::ptr::slice_from_raw_parts(blocks.as_ptr() as *const u32, num_words);
-                dma.write_raw(src, dst_ptr, options)
-            } else {
-                dma.write_raw(blocks, dst_ptr, options)
+
+        unsafe {
+            let (start, mid, end) = blocks.align_to::<u32>();
+
+            T::regs().dmacr().modify(|w| w.set_dien(true));
+
+            // Wait for the transfer to complete.
+            if start.len() > 0 {
+                dma.write_raw(start, dst_ptr, options).await;
             }
-        };
-        T::regs().dmacr().modify(|w| w.set_dien(true));
-        // Wait for the transfer to complete.
-        dma_transfer.await;
+
+            if mid.len() > 0 {
+                dma.write_raw(mid, dst_ptr, options).await;
+            }
+
+            if end.len() > 0 {
+                dma.write_raw(end, dst_ptr, options).await;
+            }
+        }
     }
 
     #[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
@@ -1904,19 +1908,26 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
             burst_length: crate::dma::Burst::_4Beats,
             ..Default::default()
         };
-        // See write_bytes above for the alignment fast/slow path rationale.
-        let dma_transfer = unsafe {
-            if blocks.as_ptr() as usize % 4 == 0 {
-                let num_words = blocks.len() / 4;
-                let dst: *mut [u32] = core::ptr::slice_from_raw_parts_mut(blocks.as_mut_ptr() as *mut u32, num_words);
-                dma.read_raw(src_ptr, dst, options)
-            } else {
-                dma.read_raw(src_ptr, blocks, options)
+
+        unsafe {
+            let (start, mid, end) = blocks.align_to_mut::<u32>();
+
+            // See write_bytes above for the alignment fast/slow path rationale.
+            T::regs().dmacr().modify(|w| w.set_doen(true));
+
+            // Wait for the transfer to complete.
+            if start.len() > 0 {
+                dma.read_raw(src_ptr, start, options).await;
             }
-        };
-        T::regs().dmacr().modify(|w| w.set_doen(true));
-        // Wait for the transfer to complete.
-        dma_transfer.await;
+
+            if mid.len() > 0 {
+                dma.read_raw(src_ptr, mid, options).await;
+            }
+
+            if end.len() > 0 {
+                dma.read_raw(src_ptr, end, options).await;
+            }
+        }
     }
 }
 
