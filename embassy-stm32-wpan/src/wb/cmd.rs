@@ -156,6 +156,13 @@ impl VolatileWriter {
             Self { start: ptr, len }
         }
     }
+
+    pub unsafe fn with_stub(ptr: *mut CmdPacket, stub: CmdSerialStub) -> Self {
+        unsafe {
+            CmdPacket::write_stub(ptr, stub);
+            Self::from_payload(ptr)
+        }
+    }
 }
 
 impl<'d> embedded_io::ErrorType for VolatileWriter {

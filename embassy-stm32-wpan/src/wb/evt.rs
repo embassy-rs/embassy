@@ -139,13 +139,33 @@ impl<T: MemoryManager> EvtBox<T> {
         }
     }
 
-    pub fn payload<'a>(&'a self) -> &'a [u8] {
+    pub unsafe fn serial_unchecked(&self) -> &'static [u8] {
         unsafe {
-            let (serial, len) = EvtPacket::read_payload(self.ptr);
+            let (serial, len) = EvtPacket::read_serial(self.ptr);
 
             compiler_fence(Ordering::Acquire);
 
             slice::from_raw_parts(serial, len)
+        }
+    }
+
+    pub fn payload<'a>(&'a self) -> &'a [u8] {
+        unsafe {
+            let (payload, len) = EvtPacket::read_payload(self.ptr);
+
+            compiler_fence(Ordering::Acquire);
+
+            slice::from_raw_parts(payload, len)
+        }
+    }
+
+    pub unsafe fn payload_unchecked(&self) -> &'static [u8] {
+        unsafe {
+            let (payload, len) = EvtPacket::read_payload(self.ptr);
+
+            compiler_fence(Ordering::Acquire);
+
+            slice::from_raw_parts(payload, len)
         }
     }
 }

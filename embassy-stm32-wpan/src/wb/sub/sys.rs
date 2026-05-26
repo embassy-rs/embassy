@@ -7,7 +7,7 @@ use embedded_io::Write;
 use crate::shci::ShciBleInitCmdParam;
 use crate::shci::{SchiCommandStatus, SchiFromPacket, SchiSysEventReady, ShciFusGetStateErrorCode, ShciOpcode};
 use crate::sub::mm;
-use crate::wb::cmd::{CmdPacket, CmdSerialStub, VolatileWriter};
+use crate::wb::cmd::{CmdSerialStub, VolatileWriter};
 use crate::wb::consts::TlPacketType;
 use crate::wb::evt::EvtBox;
 use crate::wb::tables::{SysTable, WirelessFwInfoTable};
@@ -57,18 +57,16 @@ impl<'a> Sys<'a> {
     pub async fn write(&mut self, opcode: ShciOpcode, payload: &[u8]) {
         self.ipcc_system_cmd_rsp_channel
             .send(|| unsafe {
-                CmdPacket::write_stub(
+                VolatileWriter::with_stub(
                     SYS_CMD_BUF.as_mut_ptr(),
                     CmdSerialStub {
                         ty: TlPacketType::SysCmd as u8,
                         cmd_code: opcode as u16,
                         payload_len: payload.len().try_into().unwrap(),
                     },
-                );
-
-                VolatileWriter::from_payload(SYS_CMD_BUF.as_mut_ptr())
-                    .write_all(payload)
-                    .unwrap();
+                )
+                .write_all(payload)
+                .unwrap();
             })
             .await;
     }
