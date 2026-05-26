@@ -53,7 +53,7 @@ async fn main(spawner: Spawner) {
     let config = Config::default();
     let mbox = TlMbox::wait_ready(p.IPCC, Irqs, config).await.unwrap();
 
-    let fw_info = mbox.sys_subsystem.wireless_fw_info().unwrap();
+    let fw_info = mbox.sys.wireless_fw_info().unwrap();
     let version_major = fw_info.version_major();
     let version_minor = fw_info.version_minor();
     let subversion = fw_info.subversion();

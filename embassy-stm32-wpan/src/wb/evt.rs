@@ -1,9 +1,8 @@
 use core::marker::PhantomData;
+use core::sync::atomic::{Ordering, compiler_fence};
 use core::{ptr, slice};
 
-use crate::sub::mm;
 use crate::wb::PacketHeader;
-use crate::wb::consts::TL_EVT_HEADER_SIZE;
 
 /**
  * The payload of `Evt` for a command status event
@@ -25,21 +24,6 @@ pub struct CcEvt {
     pub num_cmd: u8,
     pub cmd_code: u16,
     pub payload: [u8; 1],
-}
-
-impl CcEvt {
-    #[allow(dead_code)]
-    pub fn write(&self, buf: &mut [u8]) {
-        unsafe {
-            let len = core::mem::size_of::<CcEvt>();
-            assert!(buf.len() >= len);
-
-            let self_ptr: *const CcEvt = self;
-            let self_buf_ptr: *const u8 = self_ptr.cast();
-
-            ptr::copy_nonoverlapping(self_buf_ptr, buf.as_mut_ptr(), len);
-        }
-    }
 }
 
 #[allow(dead_code)]
@@ -81,6 +65,16 @@ pub struct EvtStub {
 /// Be careful that the asynchronous events reported by the CPU2 on the system channel do
 /// include the header and shall use `EvtPacket` format. Only the command response format on the
 /// system channel is different.
+///
+/// ```rust,ignore
+/// struct EvtPacket {
+///     header: [u8; 8],
+///     kind: [u8; 1],
+///     evt_code: [u8; 1], // `CmdPacket` two byte code
+///     payload_len: [u8; 1]
+///     payload [u8; 255]
+/// }
+/// ```
 #[derive(Copy, Clone)]
 #[repr(C, packed)]
 pub struct EvtPacket {
@@ -89,12 +83,23 @@ pub struct EvtPacket {
 }
 
 impl EvtPacket {
-    pub fn kind(&self) -> u8 {
-        self.evt_serial.kind
+    pub unsafe fn read_stub(ptr: *const EvtPacket) -> EvtStub {
+        unsafe { ptr::read_volatile(&raw const (*ptr).evt_serial as *const EvtStub) }
     }
 
-    pub fn evt(&self) -> &Evt {
-        &self.evt_serial.evt
+    pub unsafe fn read_serial(ptr: *const EvtPacket) -> (*const u8, usize) {
+        let payload_len = Self::read_stub(ptr).payload_len as usize;
+
+        (
+            &raw const (*ptr).evt_serial as *const u8,
+            payload_len + size_of::<PacketHeader>(),
+        )
+    }
+
+    pub unsafe fn read_payload(ptr: *const EvtPacket) -> (*const u8, usize) {
+        let payload_len = Self::read_stub(ptr).payload_len as usize;
+
+        (&raw const (*ptr).evt_serial.evt.payload as *const u8, payload_len)
     }
 }
 
@@ -111,12 +116,6 @@ pub struct EvtBox<T: MemoryManager> {
     mm: PhantomData<T>,
 }
 
-impl<'d> EvtBox<mm::MemoryManager<'d>> {
-    pub unsafe fn read_stub(ptr: *const EvtPacket) -> EvtStub {
-        unsafe { ptr::read_volatile(&(*ptr).evt_serial as *const _ as *const EvtStub) }
-    }
-}
-
 unsafe impl<T: MemoryManager> Send for EvtBox<T> {}
 impl<T: MemoryManager> EvtBox<T> {
     pub(super) fn new(ptr: *mut EvtPacket) -> Self {
@@ -127,28 +126,46 @@ impl<T: MemoryManager> EvtBox<T> {
 
     /// Returns information about the event
     pub fn stub(&self) -> EvtStub {
-        unsafe { EvtBox::read_stub(self.ptr) }
+        unsafe { EvtPacket::read_stub(self.ptr) }
+    }
+
+    pub fn serial<'a>(&'a self) -> &'a [u8] {
+        unsafe {
+            let (serial, len) = EvtPacket::read_serial(self.ptr);
+
+            compiler_fence(Ordering::Acquire);
+
+            slice::from_raw_parts(serial, len)
+        }
+    }
+
+    pub unsafe fn serial_unchecked(&self) -> &'static [u8] {
+        unsafe {
+            let (serial, len) = EvtPacket::read_serial(self.ptr);
+
+            compiler_fence(Ordering::Acquire);
+
+            slice::from_raw_parts(serial, len)
+        }
     }
 
     pub fn payload<'a>(&'a self) -> &'a [u8] {
         unsafe {
-            let p_payload_len = &(*self.ptr).evt_serial.evt.payload_len as *const u8;
-            let p_payload = &(*self.ptr).evt_serial.evt.payload as *const u8;
+            let (payload, len) = EvtPacket::read_payload(self.ptr);
 
-            let payload_len = ptr::read_volatile(p_payload_len);
+            compiler_fence(Ordering::Acquire);
 
-            slice::from_raw_parts(p_payload, payload_len as usize)
+            slice::from_raw_parts(payload, len)
         }
     }
 
-    pub const fn serial<'a>(&'a self) -> &'a [u8] {
+    pub unsafe fn payload_unchecked(&self) -> &'static [u8] {
         unsafe {
-            let evt_serial: *const EvtSerial = &(*self.ptr).evt_serial;
-            let evt_serial_buf: *const u8 = evt_serial.cast();
+            let (payload, len) = EvtPacket::read_payload(self.ptr);
 
-            let len = (*evt_serial).evt.payload_len as usize + TL_EVT_HEADER_SIZE;
+            compiler_fence(Ordering::Acquire);
 
-            slice::from_raw_parts(evt_serial_buf, len)
+            slice::from_raw_parts(payload, len)
         }
     }
 }

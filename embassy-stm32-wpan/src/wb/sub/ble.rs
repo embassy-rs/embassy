@@ -17,11 +17,12 @@ use embassy_sync::mutex::Mutex;
 use embassy_sync::signal::Signal;
 #[cfg(feature = "bt-hci")]
 use embassy_sync::waitqueue::AtomicWaker;
+use embedded_io::Write;
 
 use crate::sub::mm;
 use crate::util::Flag;
 use crate::wb::channels::cpu1::IPCC_HCI_ACL_DATA_CHANNEL;
-use crate::wb::cmd::CmdPacket;
+use crate::wb::cmd::{CmdSerialStub, VolatileWriter};
 use crate::wb::consts::{TL_BLEEVT_CC_OPCODE, TL_BLEEVT_CS_OPCODE, TlPacketType};
 use crate::wb::evt;
 use crate::wb::evt::{EvtBox, EvtPacket};
@@ -48,12 +49,12 @@ static ACL_EVT_OUT: Flag = Flag::new(false);
 /// # let p = embassy_stm32::init(embassy_stm32::Config::default());
 /// # let mut mbox = embassy_stm32_wpan::TlMbox::init(p.IPCC, Irqs, embassy_stm32::ipcc::Config::default());
 /// #
-/// # let sys_event = mbox.sys_subsystem.read().await;
-/// # let _command_status = mbox.sys_subsystem.shci_c2_ble_init(Default::default());
+/// # let sys_event = mbox.sys.read().await;
+/// # let _command_status = mbox.sys.shci_c2_ble_init(Default::default());
 /// # // BLE commands may now be sent
 /// #
-/// # mbox.ble_subsystem.reset().await;
-/// # let _reset_response = mbox.ble_subsystem.read().await;
+/// # mbox.ble.reset().await;
+/// # let _reset_response = mbox.ble.read().await;
 /// ```
 pub struct Ble<'a> {
     hw_ipcc_ble_cmd_channel: IpccTxChannel<'a>,
@@ -110,7 +111,16 @@ impl<'a> Ble<'a> {
     pub async fn tl_write(&mut self, opcode: u16, payload: &[u8]) {
         self.hw_ipcc_ble_cmd_channel
             .send(|| unsafe {
-                CmdPacket::write_into(BLE_CMD_BUFFER.as_mut_ptr(), TlPacketType::BleCmd, opcode, payload);
+                VolatileWriter::with_stub(
+                    BLE_CMD_BUFFER.as_mut_ptr(),
+                    CmdSerialStub {
+                        ty: TlPacketType::BleCmd as u8,
+                        cmd_code: opcode as u16,
+                        payload_len: payload.len().try_into().unwrap(),
+                    },
+                )
+                .write_all(payload)
+                .unwrap();
             })
             .await;
     }
@@ -119,12 +129,16 @@ impl<'a> Ble<'a> {
     pub async fn acl_write(&mut self, handle: u16, payload: &[u8]) {
         self.ipcc_hci_acl_tx_data_channel
             .send_exclusive(|| unsafe {
-                CmdPacket::write_into(
+                VolatileWriter::with_stub(
                     HCI_ACL_DATA_BUFFER.as_mut_ptr() as *mut _,
-                    TlPacketType::AclData,
-                    handle,
-                    payload,
-                );
+                    CmdSerialStub {
+                        ty: TlPacketType::AclData as u8,
+                        cmd_code: handle,
+                        payload_len: payload.len().try_into().unwrap(),
+                    },
+                )
+                .write_all(payload)
+                .unwrap();
             })
             .await;
     }
@@ -154,7 +168,7 @@ impl<'a> evt::MemoryManager for Ble<'a> {
             return;
         }
 
-        let stub = unsafe { EvtBox::read_stub(evt) };
+        let stub = unsafe { EvtPacket::read_stub(evt) };
         if !(stub.evt_code == TL_BLEEVT_CS_OPCODE || stub.evt_code == TL_BLEEVT_CC_OPCODE) {
             mm::MemoryManager::drop_event_packet(evt);
         }
@@ -246,8 +260,6 @@ impl<'d> ControllerAdapter<'d> {
     async fn read_pkt(
         &self,
     ) -> Result<(EvtBox<Ble<'d>>, bt_hci::ControllerToHostPacket<'static>), embedded_io::ErrorKind> {
-        use core::slice;
-
         use bt_hci::{ControllerToHostPacket, FromHciBytes};
 
         use crate::util::to_err;
@@ -267,14 +279,13 @@ impl<'d> ControllerAdapter<'d> {
             })
             .await;
 
-        let evt_serial = unsafe { slice::from_raw_parts(evt.serial() as *const _ as *const u8, evt.serial().len()) };
-
-        Ok((
-            evt,
-            ControllerToHostPacket::from_hci_bytes(evt_serial)
+        let pkt = unsafe {
+            ControllerToHostPacket::from_hci_bytes(evt.serial_unchecked())
                 .map_err(to_err)
-                .map(|(pkt, _)| pkt)?,
-        ))
+                .map(|(pkt, _)| pkt)?
+        };
+
+        Ok((evt, pkt))
     }
 
     async fn exec_cmd<C: bt_hci::WriteHci + bt_hci::cmd::Cmd, R>(
@@ -298,7 +309,7 @@ impl<'d> ControllerAdapter<'d> {
             .await
             .send(|| unsafe {
                 WithIndicator::new(cmd)
-                    .write_hci(CmdPacket::writer(BLE_CMD_BUFFER.as_mut_ptr()))
+                    .write_hci(VolatileWriter::from_serial(BLE_CMD_BUFFER.as_mut_ptr()))
                     .map_err(CmdError::Io)
             })
             .await?;
@@ -327,7 +338,8 @@ impl<'d> bt_hci::controller::Controller for ControllerAdapter<'d> {
             .lock()
             .await
             .send_exclusive(|| unsafe {
-                WithIndicator::new(packet).write_hci(CmdPacket::writer(HCI_ACL_DATA_BUFFER.as_mut_ptr() as *mut _))
+                WithIndicator::new(packet)
+                    .write_hci(VolatileWriter::from_serial(HCI_ACL_DATA_BUFFER.as_mut_ptr() as *mut _))
             })
             .await
     }
@@ -341,8 +353,6 @@ impl<'d> bt_hci::controller::Controller for ControllerAdapter<'d> {
     }
 
     async fn read<'a>(&self, _buf: &'a mut [u8]) -> Result<bt_hci::ControllerToHostPacket<'a>, Self::Error> {
-        use core::slice;
-
         use bt_hci::event::{CommandComplete, CommandStatus, EventKind};
         use bt_hci::{ControllerToHostPacket, FromHciBytes};
         use embassy_futures::select::{Either, select};
@@ -404,11 +414,9 @@ impl<'d> bt_hci::controller::Controller for ControllerAdapter<'d> {
                     .await
                     .receive(|| unsafe {
                         let evt: EvtBox<Ble<'d>> = EvtBox::new(HCI_ACL_DATA_BUFFER.as_mut_ptr() as *mut _);
-                        let evt_serial =
-                            slice::from_raw_parts(evt.serial() as *const _ as *const u8, evt.serial().len());
 
                         Some(
-                            ControllerToHostPacket::from_hci_bytes(evt_serial)
+                            ControllerToHostPacket::from_hci_bytes(evt.serial_unchecked())
                                 .map(|(pkt, _)| (evt, pkt))
                                 .map_err(to_err),
                         )

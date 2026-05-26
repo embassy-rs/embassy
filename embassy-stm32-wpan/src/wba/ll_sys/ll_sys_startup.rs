@@ -1,13 +1,13 @@
 #[cfg(feature = "wba-ble")]
 use crate::wba::bindings::ble::{BleStack_Init, BleStack_init_t, tBleStatus};
-use crate::wba::bindings::link_layer::{
-    LL_SYS_STATUS_T_LL_SYS_OK, ll_sys_assert, ll_sys_bg_process_init, ll_sys_config_params, ll_sys_dp_slp_init,
-    ll_sys_status_t,
-};
 #[cfg(feature = "wba-ble")]
 use crate::wba::bindings::link_layer::{
     ble_buff_hdr_p, hci_dispatch_tbl, hci_get_dis_tbl, hst_cbk, ll_intf_init, ll_intf_rgstr_hst_cbk,
     ll_intf_rgstr_hst_cbk_ll_queue_full,
+};
+use crate::wba::bindings::link_layer::{
+    ll_sys_assert, ll_sys_bg_process_init, ll_sys_config_params, ll_sys_dp_slp_init, ll_sys_status_t,
+    ll_sys_status_t_LL_SYS_OK,
 };
 
 /// BLE status code for success
@@ -364,7 +364,7 @@ unsafe fn ll_sys_dependencies_init() {
         "ll_sys_dependencies_init: ll_sys_dp_slp_init done, status={}",
         dp_slp_status
     );
-    ll_sys_assert((dp_slp_status == LL_SYS_STATUS_T_LL_SYS_OK) as u8);
+    ll_sys_assert((dp_slp_status == ll_sys_status_t_LL_SYS_OK) as u8);
 
     /* Background task initialization */
 
