@@ -1,4 +1,4 @@
-use core::{mem, ptr, slice};
+use core::{mem, ptr};
 
 use embassy_stm32::ipcc::{Ipcc, IpccRxChannel, IpccTxChannel};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
@@ -120,7 +120,7 @@ impl<'d> net::iface::Controller for ControllerAdapter<'d> {
             .receive(|| unsafe { Some(EvtBox::new(MAC_802_15_4_NOTIF_RSP_EVT_BUFFER.as_mut_ptr() as *mut _)) })
             .await;
 
-        let payload = unsafe { slice::from_raw_parts(evt.payload() as *const _ as *const u8, evt.payload().len()) };
+        let payload = unsafe { evt.payload_unchecked() };
 
         mem::forget(evt);
 
