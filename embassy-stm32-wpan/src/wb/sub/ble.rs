@@ -22,7 +22,7 @@ use embedded_io::Write;
 use crate::sub::mm;
 use crate::util::Flag;
 use crate::wb::channels::cpu1::IPCC_HCI_ACL_DATA_CHANNEL;
-use crate::wb::cmd::{CmdPacket, CmdSerialStub, VolatileWriter};
+use crate::wb::cmd::{CmdSerialStub, VolatileWriter};
 use crate::wb::consts::{TL_BLEEVT_CC_OPCODE, TL_BLEEVT_CS_OPCODE, TlPacketType};
 use crate::wb::evt;
 use crate::wb::evt::{EvtBox, EvtPacket};
