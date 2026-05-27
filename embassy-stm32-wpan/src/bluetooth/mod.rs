@@ -16,6 +16,7 @@ use stm32wb_hci::event::{
     LeEnhancedConnectionComplete, LePhyUpdateComplete,
 };
 use stm32wb_hci::host::HostHci;
+use stm32wb_hci::host::uart::Packet;
 use stm32wb_hci::{BdAddr, BdAddrType, ConnectionHandle, Event, Status};
 
 use crate::bluetooth::error::BleError;
@@ -823,7 +824,13 @@ impl<'d, M: Mode> HCI<'d, M> {
     /// and scanning. This is provided for applications that need to handle
     /// raw events (e.g., for connection management).
     pub async fn read_event(&mut self) -> stm32wb_hci::Event {
-        self.controller.read_hci_event().await.expect("HCI event read failed")
+        use stm32wb_hci::host::uart::UartHci;
+
+        loop {
+            if let Ok(Packet::Event(event)) = self.controller.read_packet().await {
+                return event;
+            }
+        }
     }
 }
 
