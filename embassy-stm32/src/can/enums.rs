@@ -78,7 +78,7 @@ pub enum RefCountOp {
 }
 
 /// Error returned when calculating the can timing fails
-#[cfg_attr(not(feature = "defmt"), derive(Debug))]
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum TimingCalcError {
     /// Bitrate is lower than 1000
