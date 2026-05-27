@@ -112,18 +112,3 @@ pub fn make_cc_with_cs<'a>(
         _ => return Err(CmdError::Io(ErrorKind::InvalidData)),
     }
 }
-
-/// Parse an HCI event, with fallbacks for vendor payloads that stm32wb-hci does not yet decode.
-#[cfg(all(feature = "bt-hci", feature = "wba"))]
-pub fn parse_event_with_fallback(
-    event_type: u8,
-    payload: &[u8],
-) -> Result<stm32wb_hci::Event, stm32wb_hci::event::Error> {
-    stm32wb_hci::Event::from_kind_and_payload(event_type, payload)
-}
-
-/// Returns true when the vendor payload is an ST HAL firmware warning.
-#[cfg(all(feature = "bt-hci", feature = "wba"))]
-pub fn vendor_event_is_hal_firmware_warning(payload: &[u8], warning: u8) -> bool {
-    payload.len() >= 3 && u16::from_le_bytes([payload[0], payload[1]]) == 0x0006 && payload[2] == warning
-}

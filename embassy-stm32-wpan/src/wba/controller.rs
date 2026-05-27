@@ -201,41 +201,6 @@ impl<'d, T: Runtime> ControllerAdapter<'d, T> {
             pending_evt: AtomicBool::new(false),
         }
     }
-
-    /// Read the next HCI event, using embassy fallbacks for vendor events stm32wb-hci
-    /// does not yet parse (e.g. successful pairing with reason=0).
-    pub async fn read_hci_event(&self) -> Result<stm32wb_hci::Event, stm32wb_hci::host::uart::Error> {
-        use bt_hci::ControllerToHostPacket;
-        use bt_hci::controller::Controller;
-        use stm32wb_hci::host::uart::Error;
-
-        loop {
-            let mut scratch = [0u8; 4];
-            let pkt = self.read(&mut scratch).await.map_err(|_| Error::IoError)?;
-            let ControllerToHostPacket::Event(evt) = pkt else {
-                continue;
-            };
-
-            match crate::util::parse_event_with_fallback(evt.kind.0, evt.data) {
-                Ok(event) => return Ok(event),
-                Err(_) => {
-                    if crate::util::vendor_event_is_hal_firmware_warning(
-                        evt.data,
-                        crate::bluetooth::security::SecurityManager::FW_ERROR_SMP_UNEXPECTED_LTK,
-                    ) {
-                        warn!("HAL firmware warning 0x06: SMP unexpected LTK request (bond lookup failed)");
-                    } else {
-                        warn!(
-                            "failed to parse pkt({}): {:x} {:x}",
-                            evt.data.len(),
-                            evt.kind.0,
-                            evt.data[..evt.data.len().min(10)]
-                        );
-                    }
-                }
-            }
-        }
-    }
 }
 
 #[cfg(feature = "bt-hci")]
