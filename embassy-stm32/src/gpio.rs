@@ -8,6 +8,7 @@ use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
 
 use crate::pac::gpio::{self, vals};
 use crate::peripherals;
+use crate::reg::AtomicModify;
 
 /// GPIO flexible pin.
 ///
@@ -53,35 +54,33 @@ impl<'d> Flex<'d> {
     /// The internal weak pull-up and pull-down resistors will be enabled according to `pull`.
     #[inline(never)]
     pub fn set_as_input(&mut self, pull: Pull) {
-        critical_section::with(|_| {
-            let r = self.pin.block();
-            let n = self.pin.pin() as usize;
-            #[cfg(gpio_v1)]
-            {
-                let cnf = match pull {
-                    Pull::Up => {
-                        r.bsrr().write(|w| w.set_bs(n, true));
-                        vals::CnfIn::Pull
-                    }
-                    Pull::Down => {
-                        r.bsrr().write(|w| w.set_br(n, true));
-                        vals::CnfIn::Pull
-                    }
-                    Pull::None => vals::CnfIn::Floating,
-                };
+        let r = self.pin.block();
+        let n = self.pin.pin() as usize;
+        #[cfg(gpio_v1)]
+        {
+            let cnf = match pull {
+                Pull::Up => {
+                    r.bsrr().write(|w| w.set_bs(n, true));
+                    vals::CnfIn::Pull
+                }
+                Pull::Down => {
+                    r.bsrr().write(|w| w.set_br(n, true));
+                    vals::CnfIn::Pull
+                }
+                Pull::None => vals::CnfIn::Floating,
+            };
 
-                r.cr(n / 8).modify(|w| {
-                    w.set_mode(n % 8, vals::Mode::Input);
-                    w.set_cnf_in(n % 8, cnf);
-                });
-            }
-            #[cfg(gpio_v2)]
-            {
-                r.pupdr().modify(|w| w.set_pupdr(n, pull.to_pupdr()));
-                r.otyper().modify(|w| w.set_ot(n, vals::Ot::PushPull));
-                r.moder().modify(|w| w.set_moder(n, vals::Moder::Input));
-            }
-        });
+            r.cr(n / 8).clear_set_bits(|w| {
+                w.set_mode(n % 8, vals::Mode::Input);
+                w.set_cnf_in(n % 8, cnf);
+            });
+        }
+        #[cfg(gpio_v2)]
+        {
+            r.pupdr().clear_set_bits(|w| w.set_pupdr(n, pull.to_pupdr()));
+            r.otyper().clear_set_bits(|w| w.set_ot(n, vals::Ot::PushPull));
+            r.moder().clear_set_bits(|w| w.set_moder(n, vals::Moder::Input));
+        }
     }
 
     /// Put the pin into push-pull output mode.
@@ -92,24 +91,22 @@ impl<'d> Flex<'d> {
     /// The internal weak pull-up and pull-down resistors will be disabled.
     #[inline(never)]
     pub fn set_as_output(&mut self, speed: Speed) {
-        critical_section::with(|_| {
-            let r = self.pin.block();
-            let n = self.pin.pin() as usize;
-            #[cfg(gpio_v1)]
-            {
-                r.cr(n / 8).modify(|w| {
-                    w.set_mode(n % 8, speed.to_mode());
-                    w.set_cnf_out(n % 8, vals::CnfOut::PushPull);
-                });
-            }
-            #[cfg(gpio_v2)]
-            {
-                r.pupdr().modify(|w| w.set_pupdr(n, vals::Pupdr::Floating));
-                r.otyper().modify(|w| w.set_ot(n, vals::Ot::PushPull));
-                r.ospeedr().modify(|w| w.set_ospeedr(n, speed.to_ospeedr()));
-                r.moder().modify(|w| w.set_moder(n, vals::Moder::Output));
-            }
-        });
+        let r = self.pin.block();
+        let n = self.pin.pin() as usize;
+        #[cfg(gpio_v1)]
+        {
+            r.cr(n / 8).clear_set_bits(|w| {
+                w.set_mode(n % 8, speed.to_mode());
+                w.set_cnf_out(n % 8, vals::CnfOut::PushPull);
+            });
+        }
+        #[cfg(gpio_v2)]
+        {
+            r.pupdr().clear_set_bits(|w| w.set_pupdr(n, vals::Pupdr::Floating));
+            r.otyper().clear_set_bits(|w| w.set_ot(n, vals::Ot::PushPull));
+            r.ospeedr().clear_set_bits(|w| w.set_ospeedr(n, speed.to_ospeedr()));
+            r.moder().clear_set_bits(|w| w.set_moder(n, vals::Moder::Output));
+        }
     }
 
     /// Put the pin into input + open-drain output mode.
@@ -125,12 +122,13 @@ impl<'d> Flex<'d> {
     #[inline(never)]
     pub fn set_as_input_output(&mut self, speed: Speed) {
         #[cfg(gpio_v1)]
-        critical_section::with(|_| {
+        {
             let r = self.pin.block();
             let n = self.pin.pin() as usize;
-            r.cr(n / 8).modify(|w| w.set_mode(n % 8, speed.to_mode()));
-            r.cr(n / 8).modify(|w| w.set_cnf_out(n % 8, vals::CnfOut::OpenDrain));
-        });
+            r.cr(n / 8).clear_set_bits(|w| w.set_mode(n % 8, speed.to_mode()));
+            r.cr(n / 8)
+                .clear_set_bits(|w| w.set_cnf_out(n % 8, vals::CnfOut::OpenDrain));
+        }
 
         #[cfg(gpio_v2)]
         self.set_as_input_output_pull(speed, Pull::None);
@@ -143,14 +141,14 @@ impl<'d> Flex<'d> {
     #[inline(never)]
     #[cfg(gpio_v2)]
     pub fn set_as_input_output_pull(&mut self, speed: Speed, pull: Pull) {
-        critical_section::with(|_| {
+        {
             let r = self.pin.block();
             let n = self.pin.pin() as usize;
-            r.pupdr().modify(|w| w.set_pupdr(n, pull.to_pupdr()));
-            r.otyper().modify(|w| w.set_ot(n, vals::Ot::OpenDrain));
-            r.ospeedr().modify(|w| w.set_ospeedr(n, speed.to_ospeedr()));
-            r.moder().modify(|w| w.set_moder(n, vals::Moder::Output));
-        });
+            r.pupdr().clear_set_bits(|w| w.set_pupdr(n, pull.to_pupdr()));
+            r.otyper().clear_set_bits(|w| w.set_ot(n, vals::Ot::OpenDrain));
+            r.ospeedr().clear_set_bits(|w| w.set_ospeedr(n, speed.to_ospeedr()));
+            r.moder().clear_set_bits(|w| w.set_moder(n, vals::Moder::Output));
+        }
     }
 
     /// Put the pin into analog mode
@@ -159,7 +157,6 @@ impl<'d> Flex<'d> {
     /// as the mode change is handled by the driver.
     #[inline]
     pub fn set_as_analog(&mut self) {
-        // TODO: does this also need a critical section, like other methods?
         self.pin.set_as_analog();
     }
 
@@ -169,13 +166,11 @@ impl<'d> Flex<'d> {
     /// completely unchecked, it can attach the pin to literally any peripheral, so use with care.
     #[inline]
     pub fn set_as_af_unchecked(&mut self, #[cfg(not(afio))] af_num: u8, af_type: AfType) {
-        critical_section::with(|_| {
-            self.pin.set_as_af(
-                #[cfg(not(afio))]
-                af_num,
-                af_type,
-            );
-        });
+        self.pin.set_as_af(
+            #[cfg(not(afio))]
+            af_num,
+            af_type,
+        );
     }
 
     /// Get whether the pin input level is high.
@@ -252,9 +247,7 @@ impl<'d> Drop for Flex<'d> {
     #[inline]
     fn drop(&mut self) {
         trace!("gpio: dropping {}", self.pin);
-        critical_section::with(|_| {
-            self.pin.set_as_disconnected();
-        });
+        self.pin.set_as_disconnected();
     }
 }
 
@@ -627,7 +620,7 @@ fn set_as_af(pin_port: PinNumber, af_type: AfType) {
     let r = pin.block();
     let n = pin._pin() as usize;
 
-    r.cr(n / 8).modify(|w| {
+    r.cr(n / 8).clear_set_bits(|w| {
         w.set_mode(n % 8, af_type.mode);
         // note that we are writing the CNF field, which is exposed as both `cnf_in` and `cnf_out`
         // in the PAC. the choice of `cnf_in` instead of `cnf_out` in this code is arbitrary and
@@ -684,11 +677,11 @@ fn set_as_af(pin_port: PinNumber, af_num: u8, af_type: AfType) {
     let r = pin.block();
     let n = pin._pin() as usize;
 
-    r.afr(n / 8).modify(|w| w.set_afr(n % 8, af_num));
-    r.pupdr().modify(|w| w.set_pupdr(n, af_type.pupdr));
-    r.otyper().modify(|w| w.set_ot(n, af_type.ot));
-    r.ospeedr().modify(|w| w.set_ospeedr(n, af_type.ospeedr));
-    r.moder().modify(|w| w.set_moder(n, vals::Moder::Alternate));
+    r.afr(n / 8).clear_set_bits(|w| w.set_afr(n % 8, af_num));
+    r.pupdr().clear_set_bits(|w| w.set_pupdr(n, af_type.pupdr));
+    r.otyper().clear_set_bits(|w| w.set_ot(n, af_type.ot));
+    r.ospeedr().clear_set_bits(|w| w.set_ospeedr(n, af_type.ospeedr));
+    r.moder().clear_set_bits(|w| w.set_moder(n, vals::Moder::Alternate));
 }
 
 #[inline(never)]
@@ -698,7 +691,7 @@ fn set_speed(pin_port: PinNumber, speed: Speed) {
     let r = pin.block();
     let n = pin._pin() as usize;
 
-    r.ospeedr().modify(|w| w.set_ospeedr(n, speed.to_ospeedr()));
+    r.ospeedr().clear_set_bits(|w| w.set_ospeedr(n, speed.to_ospeedr()));
 }
 
 #[inline(never)]
@@ -708,7 +701,7 @@ pub(crate) fn set_as_analog(pin_port: PinNumber) {
     let n = pin._pin() as usize;
 
     #[cfg(gpio_v1)]
-    r.cr(n / 8).modify(|w| {
+    r.cr(n / 8).clear_set_bits(|w| {
         w.set_mode(n % 8, vals::Mode::Input);
         w.set_cnf_in(n % 8, vals::CnfIn::Analog);
     });
@@ -716,8 +709,8 @@ pub(crate) fn set_as_analog(pin_port: PinNumber) {
     #[cfg(gpio_v2)]
     {
         #[cfg(any(stm32l47x, stm32l48x))]
-        r.ascr().modify(|w| w.set_asc(n, true));
-        r.moder().modify(|w| w.set_moder(n, vals::Moder::Analog));
+        r.ascr().clear_set_bits(|w| w.set_asc(n, true));
+        r.moder().clear_set_bits(|w| w.set_moder(n, vals::Moder::Analog));
     }
 }
 
@@ -728,7 +721,7 @@ fn get_pull(pin_port: PinNumber) -> Pull {
     let n = pin._pin() as usize;
 
     #[cfg(gpio_v1)]
-    return match r.cr(n / 8).read().mode(n % 8) {
+    return critical_section::with(|_| match r.cr(n / 8).read().mode(n % 8) {
         vals::Mode::Input => match r.cr(n / 8).read().cnf_in(n % 8) {
             vals::CnfIn::Pull => match r.odr().read().odr(n) {
                 vals::Odr::Low => Pull::Down,
@@ -737,7 +730,7 @@ fn get_pull(pin_port: PinNumber) -> Pull {
             _ => Pull::None,
         },
         _ => Pull::None,
-    };
+    });
 
     #[cfg(gpio_v2)]
     return match r.pupdr().read().pupdr(n) {
@@ -828,7 +821,7 @@ pub(crate) trait SealedPin {
     /// Get the pull-up configuration.
     #[inline]
     fn pull(&self) -> Pull {
-        critical_section::with(|_| get_pull(self.pin_port()))
+        get_pull(self.pin_port())
     }
 }
 

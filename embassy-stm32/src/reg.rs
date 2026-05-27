@@ -10,6 +10,13 @@ pub trait AtomicModify<T: Sized> {
     ///
     /// Call `set_xxx(false)` inside the closure
     fn clear_bits(&self, f: impl FnOnce(&mut T));
+    /// Atomically mask and unmask bits
+    ///
+    /// Values may exist briefly in an intermediate state.
+    fn clear_set_bits(&self, f: impl Fn(&mut T)) {
+        self.clear_bits(&f);
+        self.set_bits(&f);
+    }
 }
 
 impl<T: Copy, A: Read + Write> AtomicModify<T> for Reg<T, A> {
@@ -28,10 +35,12 @@ impl<T: Copy, A: Read + Write> AtomicModify<T> for Reg<T, A> {
             let ptr = self.as_ptr() as *mut u32;
 
             #[cfg(not(target_has_atomic = "32"))]
-            critical_section::with(|_| {
-                let val = ptr.read_volatile();
-                ptr.write_volatile(val | v);
-            });
+            if v > u32::MIN {
+                critical_section::with(|_| {
+                    let val = ptr.read_volatile();
+                    ptr.write_volatile(val | v);
+                });
+            }
 
             #[cfg(target_has_atomic = "32")]
             compiler_fence(Ordering::Release);
@@ -59,10 +68,12 @@ impl<T: Copy, A: Read + Write> AtomicModify<T> for Reg<T, A> {
             let ptr = self.as_ptr() as *mut u32;
 
             #[cfg(not(target_has_atomic = "32"))]
-            critical_section::with(|_| {
-                let val = ptr.read_volatile();
-                ptr.write_volatile(val & v);
-            });
+            if v < u32::MAX {
+                critical_section::with(|_| {
+                    let val = ptr.read_volatile();
+                    ptr.write_volatile(val & v);
+                });
+            }
 
             #[cfg(target_has_atomic = "32")]
             compiler_fence(Ordering::Release);
