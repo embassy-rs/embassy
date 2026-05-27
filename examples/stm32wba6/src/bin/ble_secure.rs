@@ -233,11 +233,7 @@ async fn main(spawner: Spawner) {
 
         // Process security events
         match &event {
-            Event::Vendor(VendorEvent::GapPairingComplete(GapPairingComplete {
-                conn_handle,
-                status,
-                reason,
-            })) => {
+            Event::Vendor(VendorEvent::GapPairingComplete(GapPairingComplete { conn_handle, status })) => {
                 info!("=== PAIRING COMPLETE ===");
                 info!("  Connection: 0x{:04X}", conn_handle.0);
 
@@ -246,13 +242,14 @@ async fn main(spawner: Spawner) {
                         info!("  Status: SUCCESS");
                         info!("  Device is now bonded and can access secure characteristics");
                     }
-                    GapPairingStatus::Timeout => {
-                        info!("  Status: TIMEOUT");
-                        info!("  Pairing timed out - please try again");
+                    GapPairingStatus::Timeout(reason) => {
+                        info!("  Status: TIMEOUT (reason: {:?})", reason);
                     }
-                    GapPairingStatus::Failed => {
-                        info!("  Status: FAILED");
-                        info!("  Reason: 0x{:02X} ({})", reason, reason);
+                    GapPairingStatus::Failed(reason) => {
+                        info!("  Status: FAILED (reason: {:?})", reason);
+                    }
+                    GapPairingStatus::EncryptionFailed(reason) => {
+                        info!("  Status: ENCRYPTION FAILED (reason: {:?})", reason);
                     }
                 }
             }

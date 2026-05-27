@@ -24,7 +24,7 @@ panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 heapless = { version = "0.9", default-features = false }
 static_cell = "2"
 embedded-io-async = "0.7.0"
-stm32wb-hci = { version = "0.17.4", git="https://github.com/embassy-rs/stm32wb-hci.git", rev="18b732" }
+stm32wb-hci = { version = "0.17.4", git = "https://github.com/embassy-rs/stm32wb-hci.git", rev = "5526056" }
 
 [features]
 default = ["ble"]

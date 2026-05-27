@@ -102,7 +102,7 @@ rand_chacha = { version = "0.9.0", default-features = false }
 static_cell = "2"
 portable-atomic = { version = "1.5", features = [] }
 critical-section = "1.1"
-stm32wb-hci = { version = "0.17.4", optional = true, git="https://github.com/embassy-rs/stm32wb-hci.git", rev="18b732" }
+stm32wb-hci = { version = "0.17.4", optional = true, git = "https://github.com/embassy-rs/stm32wb-hci.git", rev = "5526056" }
 
 chrono = { version = "^0.4", default-features = false, optional = true}
 sha2 = { version = "0.10.8", default-features = false }
