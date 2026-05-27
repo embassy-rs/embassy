@@ -170,6 +170,12 @@ async fn main(spawner: Spawner) {
         Err(e) => warn!("configure_filter_and_resolving_list at boot failed: {:?}", e),
     }
 
+    // Dump the controller's view of the resolving list (debug). Useful for verifying that
+    // the bond's IRK made it into the LL resolving list — if `peer_rpa` here matches the
+    // identity address (instead of being a valid RPA), the LL has `peer_irk = 0` and will
+    // silently drop incoming CONNECT_INDs from a bonded RPA-using peer like iOS.
+    security.log_resolving_list_diagnostics();
+
     // ── GATT ──────────────────────────────────────────────────────────────────
     //
     // One characteristic that requires an authenticated, encrypted link.
@@ -235,26 +241,12 @@ async fn main(spawner: Spawner) {
 
                 GapEvent::Disconnected { handle, reason } => {
                     info!("Disconnected: handle=0x{:04X} reason=0x{:02X}", handle.0, reason);
-
-                    // Do NOT call set_authentication_requirements here — re-running it
-                    // between sessions appears to invalidate the bond's LTK lookup state.
-
-                    if ble.is_advertising() {
-                        let _ = ble.stop_advertising().await;
-                    }
-
-                    // ST BLE_Privacy_Peripheral: append FAL + resolving (mode 0x04).
-                    match security.append_bond_lists_for_reconnect() {
-                        Ok(count) => info!("Bond lists appended for reconnect ({} device(s))", count),
-                        Err(e) => warn!("append_bond_lists_for_reconnect failed: {:?}", e),
-                    }
-
-                    let mut scan_rsp = AdvData::new();
-                    scan_rsp.add_name("Embassy-Bond").expect("scan rsp name");
-                    ble.start_advertising(make_adv_params(), make_adv_data(), Some(scan_rsp))
-                        .await
-                        .expect("restart advertising");
-                    info!("Advertising restarted");
+                    // Match ST BLE_Privacy_Peripheral: do nothing on disconnect. The boot-time
+                    // configure_filter_and_resolving_list call already populated the controller
+                    // resolving list, and the stack auto-resumes the previous advertising set
+                    // after HCI_Disconnection_Complete. Re-appending bonds here (mode 0x04) or
+                    // tearing down + restarting advertising loses controller-side resolution
+                    // state and breaks RPA-based reconnect from iOS.
                 }
 
                 _ => {}
@@ -278,28 +270,29 @@ async fn main(spawner: Spawner) {
             }
 
             // ── Pairing result ──────────────────────────────────────────────
-            Event::Vendor(VendorEvent::GapPairingComplete(GapPairingComplete {
-                conn_handle,
-                status,
-                reason,
-            })) => match status {
-                GapPairingStatus::Success => {
-                    info!(
-                        "PAIRING COMPLETE: handle=0x{:04X} — encrypted and bonded",
-                        conn_handle.0
-                    );
-                    security.log_bonded_devices();
+            Event::Vendor(VendorEvent::GapPairingComplete(GapPairingComplete { conn_handle, status })) => {
+                match status {
+                    GapPairingStatus::Success => {
+                        info!(
+                            "PAIRING COMPLETE: handle=0x{:04X} — encrypted and bonded",
+                            conn_handle.0
+                        );
+                        security.log_bonded_devices();
+                    }
+                    GapPairingStatus::Timeout(reason) => {
+                        warn!("Pairing timed out: handle=0x{:04X} reason={:?}", conn_handle.0, reason);
+                    }
+                    GapPairingStatus::Failed(reason) => {
+                        warn!(
+                            "Pairing failed: handle=0x{:04X} reason={:?} — wrong code entered?",
+                            conn_handle.0, reason
+                        );
+                    }
+                    GapPairingStatus::EncryptionFailed(reason) => {
+                        warn!("Encryption failed: handle=0x{:04X} reason={:?}", conn_handle.0, reason);
+                    }
                 }
-                GapPairingStatus::Timeout => {
-                    warn!("Pairing timed out: handle=0x{:04X}", conn_handle.0);
-                }
-                GapPairingStatus::Failed => {
-                    warn!(
-                        "Pairing failed: handle=0x{:04X} reason=0x{:02X} — wrong code entered?",
-                        conn_handle.0, reason
-                    );
-                }
-            },
+            }
 
             // ── Encryption state (also fires on reconnect with stored bond) ─
             Event::EncryptionChange(EncryptionChange {

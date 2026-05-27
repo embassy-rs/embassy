@@ -119,27 +119,7 @@ pub fn parse_event_with_fallback(
     event_type: u8,
     payload: &[u8],
 ) -> Result<stm32wb_hci::Event, stm32wb_hci::event::Error> {
-    use stm32wb_hci::event::Error;
-    use stm32wb_hci::vendor::event::{GapPairingComplete, GapPairingReason, GapPairingStatus, VendorEvent};
-    use stm32wb_hci::{ConnectionHandle, Event};
-
-    match Event::from_kind_and_payload(event_type, payload) {
-        Ok(event) => Ok(event),
-        // GapPairingComplete with reason=0 on success (stm32wb-hci rejects reason 0).
-        Err(_) if event_type == 0xFF && payload.len() >= 6 => {
-            let event_code = u16::from_le_bytes([payload[0], payload[1]]);
-            if event_code == 0x0401 && payload[4] == GapPairingStatus::Success as u8 && payload[5] == 0 {
-                Ok(Event::Vendor(VendorEvent::GapPairingComplete(GapPairingComplete {
-                    conn_handle: ConnectionHandle(u16::from_le_bytes([payload[2], payload[3]])),
-                    status: GapPairingStatus::Success,
-                    reason: GapPairingReason::Unspecified,
-                })))
-            } else {
-                Err(Error::UnknownEvent(event_code as u8))
-            }
-        }
-        Err(e) => Err(e),
-    }
+    stm32wb_hci::Event::from_kind_and_payload(event_type, payload)
 }
 
 /// Returns true when the vendor payload is an ST HAL firmware warning.

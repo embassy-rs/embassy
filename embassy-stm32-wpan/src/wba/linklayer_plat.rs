@@ -1999,6 +1999,8 @@ pub unsafe extern "C" fn BLECB_Indication(data: *const u8, length: u16, ext_data
         debug!("Other Event: {:x}", event_data[..10.min(event_data.len())]);
     }
 
+    debug!("Raw Event: {:x} {:x}", event_data, ext_data);
+
     let Some(mut slot) = get_channel().try_send() else {
         return 0;
     };

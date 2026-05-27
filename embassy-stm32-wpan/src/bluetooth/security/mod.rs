@@ -83,6 +83,35 @@ unsafe extern "C" {
 
     #[link_name = "ACI_GAP_CONFIGURE_FILTER_ACCEPT_LIST"]
     fn aci_gap_configure_filter_accept_list() -> tBleStatus;
+
+    #[link_name = "HCI_LE_SET_PRIVACY_MODE"]
+    fn hci_le_set_privacy_mode(
+        peer_identity_address_type: u8,
+        peer_identity_address: *const u8,
+        privacy_mode: u8,
+    ) -> tBleStatus;
+
+    // Diagnostic-only readers, behind the defmt feature so they don't trip dead-code-lints
+    // when log_resolving_list_diagnostics is compiled out.
+    #[cfg(feature = "defmt")]
+    #[link_name = "HCI_LE_READ_RESOLVING_LIST_SIZE"]
+    fn hci_le_read_resolving_list_size(resolving_list_size: *mut u8) -> tBleStatus;
+
+    #[cfg(feature = "defmt")]
+    #[link_name = "HCI_LE_READ_PEER_RESOLVABLE_ADDRESS"]
+    fn hci_le_read_peer_resolvable_address(
+        peer_identity_address_type: u8,
+        peer_identity_address: *const u8,
+        peer_resolvable_address: *mut u8,
+    ) -> tBleStatus;
+
+    #[cfg(feature = "defmt")]
+    #[link_name = "HCI_LE_READ_LOCAL_RESOLVABLE_ADDRESS"]
+    fn hci_le_read_local_resolvable_address(
+        peer_identity_address_type: u8,
+        peer_identity_address: *const u8,
+        local_resolvable_address: *mut u8,
+    ) -> tBleStatus;
 }
 
 // Matches `Bonded_Device_Entry_t` / `List_Entry_t` in the ST headers (packed: 7 bytes).
@@ -664,7 +693,7 @@ impl SecurityManager {
     }
 
     /// Clear and repopulate both the Filter Accept List and resolving list from
-    /// bonded devices (`aci_gap_add_devices_to_list` mode `0x05`).
+    /// bonded devices (`aci_gap_add_devices_to_list` mode `0x04` = append both).
     ///
     /// Matches ST `BLE_Privacy_Peripheral` `configure_filter_and_resolving_list()`.
     /// The stack looks up peer IRKs from the bond database for each identity
@@ -672,7 +701,9 @@ impl SecurityManager {
     ///
     /// Must NOT be called while advertising, scanning, or initiating is active.
     pub fn configure_filter_and_resolving_list(&self) -> Result<usize, BleError> {
-        const GAP_ADD_DEV_MODE_CLEAR_BOTH_LISTS: u8 = 0x05;
+        // ST reference BLE_Privacy_Peripheral uses mode 0x04 (append). Mode 0x05 (clear+set)
+        // appears to leave peer_irk=0 on the basic stack.
+        const GAP_ADD_DEV_MODE_CLEAR_BOTH_LISTS: u8 = 0x04;
 
         const MAX_BONDED: usize = 16;
         let mut entries = [BondedDeviceEntry {
@@ -706,6 +737,20 @@ impl SecurityManager {
             );
             if status != BLE_STATUS_SUCCESS {
                 return Err(BleError::CommandFailed(Status::from_u8(status)));
+            }
+
+            // Set Device Privacy mode for each bonded peer (BT Core Vol 6 Part B 4.7).
+            // Default Network Privacy mode silently drops connect requests when the peer
+            // address can't be resolved via the stored IRK — which happens whenever iOS
+            // rotates its RPA past the timeout. Device Privacy mode also accepts the peer
+            // using its identity address as a fallback, so reconnect works either way.
+            const PRIVACY_MODE_DEVICE: u8 = 0x01;
+            for i in 0..(count as usize) {
+                let e = &entries[i];
+                let status = hci_le_set_privacy_mode(e.address_type, e.address.as_ptr(), PRIVACY_MODE_DEVICE);
+                if status != BLE_STATUS_SUCCESS {
+                    return Err(BleError::CommandFailed(Status::from_u8(status)));
+                }
             }
 
             Ok(count as usize)
@@ -748,6 +793,86 @@ impl SecurityManager {
 
     #[cfg(not(feature = "defmt"))]
     pub fn log_bonded_devices(&self) {}
+
+    /// Log the controller's resolving-list size and the current peer/local RPAs for each bond
+    /// (debug). Use this to verify that the bonded peer's IRK is actually loaded into the
+    /// controller resolving list — if HCI_LE_READ_PEER_RESOLVABLE_ADDRESS returns 0x02
+    /// (Unknown Connection Identifier), the IRK is missing or invalid and the LL will reject
+    /// incoming connect requests from that peer's RPAs.
+    #[cfg(feature = "defmt")]
+    pub fn log_resolving_list_diagnostics(&self) {
+        const MAX_BONDED: usize = 16;
+        let mut entries = [BondedDeviceEntry {
+            address_type: 0,
+            address: [0; 6],
+        }; MAX_BONDED];
+        let mut num: u8 = 0;
+
+        unsafe {
+            let mut list_size: u8 = 0;
+            let status = hci_le_read_resolving_list_size(&mut list_size);
+            if status != BLE_STATUS_SUCCESS {
+                warn!("hci_le_read_resolving_list_size failed: 0x{:02X}", status);
+            } else {
+                info!("Resolving list capacity: {} entries", list_size);
+            }
+
+            let status = aci_gap_get_bonded_devices(&mut num, entries.as_mut_ptr());
+            if status != BLE_STATUS_SUCCESS {
+                warn!("aci_gap_get_bonded_devices failed: 0x{:02X}", status);
+                return;
+            }
+
+            for i in 0..(num as usize).min(MAX_BONDED) {
+                let e = &entries[i];
+                let mut peer_rpa = [0u8; 6];
+                let peer_status =
+                    hci_le_read_peer_resolvable_address(e.address_type, e.address.as_ptr(), peer_rpa.as_mut_ptr());
+
+                let mut local_rpa = [0u8; 6];
+                let local_status =
+                    hci_le_read_local_resolvable_address(e.address_type, e.address.as_ptr(), local_rpa.as_mut_ptr());
+
+                let id = [
+                    e.address[5],
+                    e.address[4],
+                    e.address[3],
+                    e.address[2],
+                    e.address[1],
+                    e.address[0],
+                ];
+
+                info!(
+                    "resolving_list[{}]: identity type={} addr={:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+                    i, e.address_type, id[0], id[1], id[2], id[3], id[4], id[5]
+                );
+
+                if peer_status == BLE_STATUS_SUCCESS {
+                    info!(
+                        "  peer_rpa  = {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+                        peer_rpa[5], peer_rpa[4], peer_rpa[3], peer_rpa[2], peer_rpa[1], peer_rpa[0]
+                    );
+                } else {
+                    warn!(
+                        "  peer_rpa: read failed status=0x{:02X} (0x02 = Unknown Conn Id => IRK missing)",
+                        peer_status
+                    );
+                }
+
+                if local_status == BLE_STATUS_SUCCESS {
+                    info!(
+                        "  local_rpa = {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+                        local_rpa[5], local_rpa[4], local_rpa[3], local_rpa[2], local_rpa[1], local_rpa[0]
+                    );
+                } else {
+                    warn!("  local_rpa: read failed status=0x{:02X}", local_status);
+                }
+            }
+        }
+    }
+
+    #[cfg(not(feature = "defmt"))]
+    pub fn log_resolving_list_diagnostics(&self) {}
 
     /// Number of bonded peers in the stack database.
     pub fn bonded_device_count(&self) -> Result<u8, BleError> {
