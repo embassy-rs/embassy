@@ -177,7 +177,7 @@ impl<'d> HCI<'d, Normal> {
 
         info!("Calling set_event_mask...");
         let event_mask = EventMask::from_hci_bytes(&[0xFF; 8]).expect("valid event mask").0;
-        if let Err(e) = self.controller.set_event_mask(event_mask).await {
+        if let Err(e) = self.controller.set_event_mask(event_mask.into()).await {
             warn!("set_event_mask failed: {:?} (may be handled internally)", e);
         } else {
             info!("set_event_mask OK");
@@ -185,7 +185,7 @@ impl<'d> HCI<'d, Normal> {
 
         info!("Calling le_set_event_mask...");
         let le_event_mask = LeEventMask::from_hci_bytes(&[0xFF; 8]).expect("valid LE event mask").0;
-        if let Err(e) = self.controller.le_set_event_mask(le_event_mask).await {
+        if let Err(e) = self.controller.le_set_event_mask(le_event_mask.into()).await {
             warn!("le_set_event_mask failed: {:?} (may be handled internally)", e);
         } else {
             info!("le_set_event_mask OK");
@@ -573,9 +573,7 @@ impl<'d> HCI<'d, Normal> {
                 let _ = central_clock_accuracy;
 
                 if matches!(status, Status::Success) {
-                    let Ok(peer_address) = BdAddrType::try_from(*peer_bd_addr) else {
-                        return None;
-                    };
+                    let Ok(peer_address) = BdAddrType::try_from(*peer_bd_addr);
                     let conn = Connection::new_enhanced(
                         *conn_handle,
                         *role,
