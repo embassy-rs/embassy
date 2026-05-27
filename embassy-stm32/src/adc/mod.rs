@@ -854,6 +854,15 @@ impl VrefInt {
 pub struct Temperature;
 impl SpecialChannel for Temperature {}
 
+impl Temperature {
+    #[cfg(any(stm32u0))]
+    pub fn calibrated_value(&self) -> (u16, u16) {
+        let lower = crate::pac::TSCAL.tscal1().read();
+        let upper = crate::pac::TSCAL.tscal2().read();
+        (lower, upper)
+    }
+}
+
 /// Internal battery voltage channel.
 pub struct Vbat;
 impl SpecialChannel for Vbat {}
