@@ -13,7 +13,7 @@ use core::mem;
 
 // Re-export main types
 pub use controller::{ChannelPacket, Controller, HighInterruptHandler, LowInterruptHandler};
-pub use linklayer_plat::set_nvm_base_address;
+pub use linklayer_plat::{erase_bond_nvm_flash, set_nvm_base_address};
 pub use platform::Platform;
 
 mod bindings {

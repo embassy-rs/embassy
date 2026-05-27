@@ -7,15 +7,16 @@ pub mod gatt;
 pub mod hci;
 pub mod security;
 
+use bt_hci::FromHciBytes;
+use bt_hci::param::{EventMask, LeEventMask};
 use embassy_futures::yield_now;
 use embassy_stm32::interrupt;
 use stm32wb_hci::event::{
     DisconnectionComplete, LeConnectionComplete, LeConnectionUpdateComplete, LeDataLengthChangeEvent,
     LeEnhancedConnectionComplete, LePhyUpdateComplete,
 };
-use stm32wb_hci::host::uart::Packet;
-use stm32wb_hci::host::{EventFlags, HostHci, LeEventFlags};
-use stm32wb_hci::{BdAddr, ConnectionHandle, Event, Status};
+use stm32wb_hci::host::HostHci;
+use stm32wb_hci::{BdAddr, BdAddrType, ConnectionHandle, Event, Status};
 
 use crate::bluetooth::error::BleError;
 use crate::bluetooth::gap::connection::{
@@ -175,14 +176,16 @@ impl<'d> HCI<'d, Normal> {
         // may not be needed. Skip if they fail with UnknownCommand.
 
         info!("Calling set_event_mask...");
-        if let Err(e) = self.controller.set_event_mask(EventFlags::all()).await {
+        let event_mask = EventMask::from_hci_bytes(&[0xFF; 8]).expect("valid event mask").0;
+        if let Err(e) = self.controller.set_event_mask(event_mask).await {
             warn!("set_event_mask failed: {:?} (may be handled internally)", e);
         } else {
             info!("set_event_mask OK");
         }
 
         info!("Calling le_set_event_mask...");
-        if let Err(e) = self.controller.le_set_event_mask(LeEventFlags::all()).await {
+        let le_event_mask = LeEventMask::from_hci_bytes(&[0xFF; 8]).expect("valid LE event mask").0;
+        if let Err(e) = self.controller.le_set_event_mask(le_event_mask).await {
             warn!("le_set_event_mask failed: {:?} (may be handled internally)", e);
         } else {
             info!("le_set_event_mask OK");
@@ -267,6 +270,9 @@ impl<'d> HCI<'d, Normal> {
 
         // Configure host-stack advertising parameters and data
         gap::advertiser::configure(&params, &adv_data, scan_rsp_data.as_ref())?;
+        if let Some(scan_rsp) = scan_rsp_data.as_ref() {
+            gap::advertiser::update_scan_rsp_data(&self.cmd_sender, scan_rsp)?;
+        }
 
         // Enable LL advertising
         self.cmd_sender.le_set_advertise_enable(true)?;
@@ -567,10 +573,13 @@ impl<'d> HCI<'d, Normal> {
                 let _ = central_clock_accuracy;
 
                 if matches!(status, Status::Success) {
+                    let Ok(peer_address) = BdAddrType::try_from(*peer_bd_addr) else {
+                        return None;
+                    };
                     let conn = Connection::new_enhanced(
                         *conn_handle,
                         *role,
-                        *peer_bd_addr,
+                        peer_address,
                         *local_resolvable_private_address,
                         *peer_resolvable_private_address,
                         *conn_interval,
@@ -816,13 +825,7 @@ impl<'d, M: Mode> HCI<'d, M> {
     /// and scanning. This is provided for applications that need to handle
     /// raw events (e.g., for connection management).
     pub async fn read_event(&mut self) -> stm32wb_hci::Event {
-        use stm32wb_hci::host::uart::UartHci;
-
-        loop {
-            if let Ok(Packet::Event(event)) = self.controller.read_packet().await {
-                return event;
-            }
-        }
+        self.controller.read_hci_event().await.expect("HCI event read failed")
     }
 }
 

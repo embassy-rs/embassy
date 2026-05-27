@@ -127,6 +127,9 @@ pub struct GapInitParams {
     pub io_capability: IoCapability,
     /// Security parameters
     pub security: SecurityParams,
+    /// When true, skip `aci_gap_set_authentication_requirement` in GAP init so the
+    /// application can configure auth exactly once via [`SecurityManager`].
+    pub skip_authentication_setup: bool,
 }
 
 /// GAP role
@@ -239,6 +242,7 @@ impl Default for GapInitParams {
             phy_prefs: PhyPrefs::default(),
             io_capability: IoCapability::NoInputNoOutput,
             security: SecurityParams::default(),
+            skip_authentication_setup: false,
         }
     }
 }
@@ -345,9 +349,15 @@ pub fn init_gap_and_hal(params: &mut GapInitParams) -> Result<GapHandles, BleErr
         let mut gap_dev_name_char_handle: u16 = 0;
         let mut gap_appearance_char_handle: u16 = 0;
 
+        // Per BLE stack docs, valid values are 0x00 (disabled) or 0x02 (Controller
+        // Privacy enabled). Passing 0x01 is undefined and silently leaves the SMP
+        // layer in a "no privacy" state, which makes bonded reconnects from RPA
+        // peers fail with HAL warning 0x06 (SMP unexpected LTK request).
+        let privacy_value: u8 = if params.privacy_enabled { 0x02 } else { 0x00 };
+
         let status = aci_gap_init(
             params.role.to_bits(),
-            params.privacy_enabled as u8,
+            privacy_value,
             params.device_name.len() as u8,
             &mut gap_service_handle,
             &mut gap_dev_name_char_handle,
@@ -405,20 +415,23 @@ pub fn init_gap_and_hal(params: &mut GapInitParams) -> Result<GapHandles, BleErr
             warn!("aci_gap_set_io_capability failed: 0x{:02X}", status);
         }
 
-        // 11. Set authentication requirements
-        let status = aci_gap_set_authentication_requirement(
-            params.security.bonding_mode,
-            params.security.mitm_mode,
-            params.security.sc_support,
-            params.security.key_press_notification_support,
-            params.security.min_encryption_key_size,
-            params.security.max_encryption_key_size,
-            params.security.use_fixed_pin,
-            params.security.fixed_pin,
-            params.security.identity_address_type,
-        );
-        if status != BLE_STATUS_SUCCESS {
-            warn!("aci_gap_set_authentication_requirement failed: 0x{:02X}", status);
+        // 11. Set authentication requirements (optional — apps that use SecurityManager
+        // should set skip_authentication_setup to avoid calling this twice).
+        if !params.skip_authentication_setup {
+            let status = aci_gap_set_authentication_requirement(
+                params.security.bonding_mode,
+                params.security.mitm_mode,
+                params.security.sc_support,
+                params.security.key_press_notification_support,
+                params.security.min_encryption_key_size,
+                params.security.max_encryption_key_size,
+                params.security.use_fixed_pin,
+                params.security.fixed_pin,
+                params.security.identity_address_type,
+            );
+            if status != BLE_STATUS_SUCCESS {
+                warn!("aci_gap_set_authentication_requirement failed: 0x{:02X}", status);
+            }
         }
 
         info!("GAP and HAL configuration completed successfully");

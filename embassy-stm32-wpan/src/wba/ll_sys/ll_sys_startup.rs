@@ -224,14 +224,13 @@ mod ble_buffers {
     #[repr(align(4))]
     pub struct GattBuffer(pub [u8; ble_config::gatt_buffer_size()]);
 
-    /// NVM cache buffer
+    /// NVM cache buffer — CFG_BLE_NVM_SIZE_MAX is in u64 word units, not bytes
     #[repr(align(8))]
-    pub struct NvmCacheBuffer(pub [u64; (ble_config::CFG_BLE_NVM_SIZE_MAX as usize + 7) / 8]);
+    pub struct NvmCacheBuffer(pub [u64; ble_config::CFG_BLE_NVM_SIZE_MAX as usize]);
 
     pub static mut DYN_ALLOC_BUFFER: DynAllocBuffer = DynAllocBuffer([0u8; ble_config::dyn_alloc_buffer_size()]);
     pub static mut GATT_BUFFER: GattBuffer = GattBuffer([0u8; ble_config::gatt_buffer_size()]);
-    pub static mut NVM_CACHE_BUFFER: NvmCacheBuffer =
-        NvmCacheBuffer([0u64; (ble_config::CFG_BLE_NVM_SIZE_MAX as usize + 7) / 8]);
+    pub static mut NVM_CACHE_BUFFER: NvmCacheBuffer = NvmCacheBuffer([0u64; ble_config::CFG_BLE_NVM_SIZE_MAX as usize]);
 }
 
 #[cfg(feature = "wba-ble")]
@@ -262,6 +261,25 @@ pub fn init_ble_stack() -> Result<(), u8> {
         LINKLAYER_PLAT_ClockInit();
 
         trace!("init_ble_stack: clock init done");
+
+        // 1b. Pre-load any previously persisted bond data from flash into the
+        // NVM cache so the BLE stack can restore bonds from a prior session.
+        {
+            let cache_bytes = core::slice::from_raw_parts_mut(
+                ble_buffers::NVM_CACHE_BUFFER.0.as_mut_ptr() as *mut u8,
+                core::mem::size_of_val(&ble_buffers::NVM_CACHE_BUFFER),
+            );
+            let loaded = crate::wba::linklayer_plat::load_nvm_from_flash(cache_bytes);
+            if loaded > 0 {
+                info!("init_ble_stack: restored {} bytes of bond data from flash", loaded);
+            }
+        }
+
+        // Register the NVM cache buffer so BLEPLAT_NvmStore writes the whole buffer.
+        crate::wba::linklayer_plat::register_nvm_cache(
+            ble_buffers::NVM_CACHE_BUFFER.0.as_mut_ptr(),
+            ble_buffers::NVM_CACHE_BUFFER.0.len(),
+        );
 
         // 2. Prepare BleStack_init_t structure
         let init_params = BleStack_init_t {
