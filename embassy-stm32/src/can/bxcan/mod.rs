@@ -127,8 +127,7 @@ impl CanConfig<'_> {
     ///
     /// This is a helper that internally calls `set_bit_timing()`[Self::set_bit_timing].
     pub fn set_bitrate(self, bitrate: u32) -> Self {
-        let bit_timing = util::calc_can_timings(self.periph_clock, bitrate)
-            .unwrap_or_else(|_| panic!("CAN timing calculation failed"));
+        let bit_timing = unwrap!(util::calc_can_timings(self.periph_clock, bitrate));
         self.set_bit_timing(bit_timing)
     }
 
@@ -244,8 +243,7 @@ impl<'d> Can<'d> {
 
     /// Set CAN bit rate.
     pub fn set_bitrate(&mut self, bitrate: u32) {
-        let bit_timing = util::calc_can_timings(self.periph_clock, bitrate)
-            .unwrap_or_else(|_| panic!("CAN timing calculation failed"));
+        let bit_timing = unwrap!(util::calc_can_timings(self.periph_clock, bitrate));
         self.modify_config().set_bit_timing(bit_timing);
     }
 

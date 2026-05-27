@@ -235,8 +235,7 @@ impl<'d> CanConfigurator<'d> {
 
     /// Configures the bit timings calculated from supplied bitrate.
     pub fn set_bitrate(&mut self, bitrate: u32) {
-        let bit_timing = util::calc_can_timings(self.properties.kernel_input_clock(), bitrate)
-            .unwrap_or_else(|_| panic!("CAN timing calculation failed"));
+        let bit_timing = unwrap!(util::calc_can_timings(self.properties.kernel_input_clock(), bitrate));
 
         let nbtr = crate::can::fd::config::NominalBitTiming {
             sync_jump_width: bit_timing.sync_jump_width,
@@ -249,8 +248,7 @@ impl<'d> CanConfigurator<'d> {
 
     /// Configures the bit timings for VBR data calculated from supplied bitrate. This also sets config to allow can FD and VBR
     pub fn set_fd_data_bitrate(&mut self, bitrate: u32, transceiver_delay_compensation: bool) {
-        let bit_timing = util::calc_can_timings(self.properties.kernel_input_clock(), bitrate)
-            .unwrap_or_else(|_| panic!("CAN FD data timing calculation failed"));
+        let bit_timing = unwrap!(util::calc_can_timings(self.properties.kernel_input_clock(), bitrate));
         // Note, used existing calculation for normal(non-VBR) bitrate, appears to work for 250k/1M
         let tdc_offset = if transceiver_delay_compensation {
             // sets at the end of tseg1
