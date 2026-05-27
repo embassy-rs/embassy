@@ -21,7 +21,7 @@ use embassy_net_driver_channel::driver::LinkState;
 use crate::net::control::Control;
 use crate::net::iface::{Controller, ControllerToHostPacketBox, FromHciBytes, FromHciBytesError};
 use crate::net::runner::Runner;
-use crate::net::util::{Allocator, ZeroCopyPubSub};
+use crate::net::util::ZeroCopyPubSub;
 
 pub const MTU: usize = 127;
 
@@ -48,13 +48,12 @@ trait MacEvent: Sized {
 
 /// Driver state.
 pub struct State<'a, C: Controller> {
-    net: NetState<'a, C::Packet<'a>>,
+    net: NetState<'a, C::Packet>,
 }
 
-struct NetState<'a, B: ControllerToHostPacketBox<'a>> {
+struct NetState<'a, B: ControllerToHostPacketBox> {
     ch: ch::State<MTU, 4, 4>,
-    events: ZeroCopyPubSub<'a, B>,
-    allocator: Allocator<'a>,
+    events: ZeroCopyPubSub<B>,
     _lifetime: PhantomData<&'a ()>,
 }
 
@@ -65,7 +64,7 @@ impl<'a, C: Controller> State<'a, C> {
             net: NetState {
                 ch: ch::State::new(),
                 events: ZeroCopyPubSub::new(),
-                allocator: Allocator::new(),
+
                 _lifetime: PhantomData,
             },
         }
@@ -88,7 +87,7 @@ where
 
     state_ch.set_link_state(LinkState::Down);
 
-    let runner = Runner::new(controller, ch_runner, &state.net.events, &state.net.allocator);
+    let runner = Runner::new(controller, ch_runner, &state.net.events);
 
     let control = Control::new(controller, state_ch, &state.net.events);
 

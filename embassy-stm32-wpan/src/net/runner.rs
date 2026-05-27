@@ -3,9 +3,9 @@ use embassy_net_driver_channel as ch;
 use smoltcp::wire::Ieee802154Frame;
 
 use crate::net::commands::DataRequest;
-use crate::net::iface::{Controller, ControllerToHostPacket, mcps};
+use crate::net::iface::{Controller, ControllerToHostPacket, ControllerToHostPacketBox, mcps};
 use crate::net::indications::write_frame_from_data_indication;
-use crate::net::{Allocator, MTU, ZeroCopyPubSub};
+use crate::net::{MTU, ZeroCopyPubSub};
 
 pub const BUF_SIZE: usize = 3;
 
@@ -13,23 +13,12 @@ pub struct Runner<'a, C: Controller> {
     ch: ch::Runner<'a, MTU>,
     controller: &'a C,
 
-    events: &'a ZeroCopyPubSub<'a, C::Packet<'a>>,
-    allocator: &'a Allocator<'a>,
+    events: &'a ZeroCopyPubSub<C::Packet>,
 }
 
 impl<'a, C: Controller> Runner<'a, C> {
-    pub(crate) fn new(
-        controller: &'a C,
-        ch: ch::Runner<'a, MTU>,
-        events: &'a ZeroCopyPubSub<'a, C::Packet<'a>>,
-        allocator: &'a Allocator<'a>,
-    ) -> Self {
-        Self {
-            ch,
-            controller,
-            events,
-            allocator,
-        }
+    pub(crate) fn new(controller: &'a C, ch: ch::Runner<'a, MTU>, events: &'a ZeroCopyPubSub<C::Packet>) -> Self {
+        Self { ch, controller, events }
     }
 
     pub async fn run(&mut self) -> ! {
@@ -38,11 +27,7 @@ impl<'a, C: Controller> Runner<'a, C> {
         join::join(
             async {
                 loop {
-                    let Ok(pkt) = self
-                        .allocator
-                        .make_packet(async |buf| self.controller.read(&mut buf[..]).await)
-                        .await
-                    else {
+                    let Ok(pkt) = self.controller.read().await else {
                         continue;
                     };
 
