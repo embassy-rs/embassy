@@ -19,6 +19,7 @@ use embassy_sync::signal::Signal;
 use embassy_sync::waitqueue::AtomicWaker;
 use embedded_io::Write;
 
+use crate::evt::ProtectedChannel;
 use crate::sub::mm;
 use crate::util::Flag;
 use crate::wb::channels::cpu1::IPCC_HCI_ACL_DATA_CHANNEL;
@@ -60,7 +61,7 @@ pub struct Ble<'a> {
     hw_ipcc_ble_cmd_channel: IpccTxChannel<'a>,
     ipcc_ble_event_channel: IpccRxChannel<'a>,
     ipcc_hci_acl_tx_data_channel: IpccTxChannel<'a>,
-    ipcc_hci_acl_rx_data_channel: IpccRxChannel<'a>,
+    ipcc_hci_acl_rx_data_channel: ProtectedChannel<'a>,
 }
 
 impl<'a> Ble<'a> {
@@ -88,7 +89,7 @@ impl<'a> Ble<'a> {
             hw_ipcc_ble_cmd_channel,
             ipcc_ble_event_channel,
             ipcc_hci_acl_tx_data_channel,
-            ipcc_hci_acl_rx_data_channel,
+            ipcc_hci_acl_rx_data_channel: ProtectedChannel::new(&ACL_EVT_OUT, ipcc_hci_acl_rx_data_channel),
         }
     }
 
@@ -145,8 +146,9 @@ impl<'a> Ble<'a> {
 
     /// `TL_BLE_AclNot`
     pub async fn acl_read(&mut self) -> EvtBox<Self> {
-        ACL_EVT_OUT.wait_for_low().await;
         self.ipcc_hci_acl_rx_data_channel
+            .lock()
+            .await
             .receive(|| unsafe { Some(EvtBox::new(HCI_ACL_DATA_BUFFER.as_mut_ptr() as *mut _)) })
             .await
     }
@@ -180,7 +182,7 @@ pub struct ControllerAdapter<'d> {
     hw_ipcc_ble_cmd_channel: Mutex<NoopRawMutex, IpccTxChannel<'d>>,
     ipcc_ble_event_channel: Mutex<NoopRawMutex, IpccRxChannel<'d>>,
     ipcc_hci_acl_tx_data_channel: Mutex<NoopRawMutex, IpccTxChannel<'d>>,
-    ipcc_hci_acl_rx_data_channel: Mutex<NoopRawMutex, IpccRxChannel<'d>>,
+    ipcc_hci_acl_rx_data_channel: Mutex<NoopRawMutex, ProtectedChannel<'d>>,
     slot: blocking_mutex::NoopMutex<RefCell<Option<bt_hci::cmd::Opcode>>>,
     signal: Signal<NoopRawMutex, Option<EvtBox<Ble<'d>>>>,
     waker: AtomicWaker,
@@ -410,6 +412,8 @@ impl<'d> bt_hci::controller::Controller for ControllerAdapter<'d> {
             async {
                 let (evt, pkt) = self
                     .ipcc_hci_acl_rx_data_channel
+                    .lock()
+                    .await
                     .lock()
                     .await
                     .receive(|| unsafe {
