@@ -97,19 +97,16 @@ impl<'d> Drop for ParsedIndication<'d> {
     }
 }
 
-impl<'d, 'a> net::iface::ControllerToHostPacketBox<'a> for ParsedIndication<'d> {
-    fn packet<'b>(&'b self) -> ControllerToHostPacket<'b>
-    where
-        'a: 'b,
-    {
+impl<'d, 'a> net::iface::ControllerToHostPacketBox for ParsedIndication<'d> {
+    fn packet<'b>(&'b self) -> ControllerToHostPacket<'b> {
         self.pkt
     }
 }
 
 impl<'d> net::iface::Controller for ControllerAdapter<'d> {
-    type Packet<'a> = ParsedIndication<'a>;
+    type Packet = ParsedIndication<'d>;
 
-    async fn read<'a>(&self, _buf: &'a mut [u8]) -> Result<Self::Packet<'a>, Self::Error> {
+    async fn read<'a>(&self) -> Result<Self::Packet, Self::Error> {
         MAC_EVT_OUT.wait_for_low().await;
 
         // Return a new event box

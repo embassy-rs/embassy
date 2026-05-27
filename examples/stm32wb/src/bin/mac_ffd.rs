@@ -2,6 +2,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
@@ -12,7 +13,7 @@ use embassy_stm32_wpan::net::iface::{Controller, ControllerToHostPacket, Control
 use embassy_stm32_wpan::net::typedefs::{MacChannel, MacStatus, PanId, PibId, SecurityLevel};
 use embassy_stm32_wpan::sub::mac::ControllerAdapter;
 use embassy_stm32_wpan::sub::mm;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs{
     IPCC_C1_RX => ReceiveInterruptHandler;
@@ -76,8 +77,7 @@ async fn main(spawner: Spawner) {
         .unwrap();
 
     {
-        let mut buf = [0u8; 256];
-        let pkt = controller.read(&mut buf[..]).await.unwrap();
+        let pkt = controller.read().await.unwrap();
 
         defmt::info!("{:#x}", pkt.packet());
     }
@@ -92,8 +92,7 @@ async fn main(spawner: Spawner) {
         .await
         .unwrap();
     {
-        let mut buf = [0u8; 256];
-        let pkt = controller.read(&mut buf[..]).await.unwrap();
+        let pkt = controller.read().await.unwrap();
 
         defmt::info!("{:#x}", pkt.packet());
     }
@@ -108,8 +107,7 @@ async fn main(spawner: Spawner) {
         .await
         .unwrap();
     {
-        let mut buf = [0u8; 256];
-        let pkt = controller.read(&mut buf[..]).await.unwrap();
+        let pkt = controller.read().await.unwrap();
 
         defmt::info!("{:#x}", pkt.packet());
     }
@@ -125,7 +123,7 @@ async fn main(spawner: Spawner) {
         .unwrap();
     {
         let mut buf = [0u8; 256];
-        let pkt = controller.read(&mut buf[..]).await.unwrap();
+        let pkt = controller.read().await.unwrap();
 
         defmt::info!("{:#x}", pkt.packet());
     }
@@ -140,8 +138,7 @@ async fn main(spawner: Spawner) {
         .await
         .unwrap();
     {
-        let mut buf = [0u8; 256];
-        let pkt = controller.read(&mut buf[..]).await.unwrap();
+        let pkt = controller.read().await.unwrap();
 
         defmt::info!("{:#x}", pkt.packet());
     }
@@ -160,8 +157,7 @@ async fn main(spawner: Spawner) {
         .await
         .unwrap();
     {
-        let mut buf = [0u8; 256];
-        let pkt = controller.read(&mut buf[..]).await.unwrap();
+        let pkt = controller.read().await.unwrap();
 
         defmt::info!("{:#x}", pkt.packet());
     }
@@ -176,15 +172,13 @@ async fn main(spawner: Spawner) {
         .await
         .unwrap();
     {
-        let mut buf = [0u8; 256];
-        let pkt = controller.read(&mut buf[..]).await.unwrap();
+        let pkt = controller.read().await.unwrap();
 
         defmt::info!("{:#x}", pkt.packet());
     }
 
     loop {
-        let mut buf = [0u8; 256];
-        let pkt = controller.read(&mut buf[..]).await;
+        let pkt = controller.read().await;
 
         if let Ok(pkt) = pkt {
             let evt = pkt.packet();
