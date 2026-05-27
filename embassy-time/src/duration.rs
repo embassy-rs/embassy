@@ -55,7 +55,7 @@ impl Duration {
     /// Creates a duration from the specified number of milliseconds, rounding up.
     pub const fn from_millis(millis: u64) -> Duration {
         Duration {
-            ticks: div_ceil(millis * (TICK_HZ / GCD_1K), 1000 / GCD_1K),
+            ticks: u64::div_ceil(millis * (TICK_HZ / GCD_1K), 1000 / GCD_1K),
         }
     }
 
@@ -63,7 +63,7 @@ impl Duration {
     /// NOTE: Delays this small may be inaccurate.
     pub const fn from_micros(micros: u64) -> Duration {
         Duration {
-            ticks: div_ceil(micros * (TICK_HZ / GCD_1M), 1_000_000 / GCD_1M),
+            ticks: u64::div_ceil(micros * (TICK_HZ / GCD_1M), 1_000_000 / GCD_1M),
         }
     }
 
@@ -71,7 +71,7 @@ impl Duration {
     /// NOTE: Delays this small may be inaccurate.
     pub const fn from_nanos(nanoseconds: u64) -> Duration {
         Duration {
-            ticks: div_ceil(nanoseconds * (TICK_HZ / GCD_1G), 1_000_000_000 / GCD_1G),
+            ticks: u64::div_ceil(nanoseconds * (TICK_HZ / GCD_1G), 1_000_000_000 / GCD_1G),
         }
     }
 
@@ -111,7 +111,7 @@ impl Duration {
             return None;
         };
         Some(Duration {
-            ticks: div_ceil(value, 1000 / GCD_1K),
+            ticks: u64::div_ceil(value, 1000 / GCD_1K),
         })
     }
 
@@ -123,7 +123,7 @@ impl Duration {
             return None;
         };
         Some(Duration {
-            ticks: div_ceil(value, 1_000_000 / GCD_1M),
+            ticks: u64::div_ceil(value, 1_000_000 / GCD_1M),
         })
     }
 
@@ -135,7 +135,7 @@ impl Duration {
             return None;
         };
         Some(Duration {
-            ticks: div_ceil(value, 1_000_000_000 / GCD_1G),
+            ticks: u64::div_ceil(value, 1_000_000_000 / GCD_1G),
         })
     }
 
@@ -179,22 +179,22 @@ impl Duration {
         Duration { ticks }
     }
 
-    /// Adds one Duration to another, returning a new Duration or None in the event of an overflow.
+    /// Adds one `Duration` to another, returning a new `Duration` or `None` in the event of an overflow.
     pub fn checked_add(self, rhs: Duration) -> Option<Duration> {
         self.ticks.checked_add(rhs.ticks).map(|ticks| Duration { ticks })
     }
 
-    /// Subtracts one Duration to another, returning a new Duration or None in the event of an overflow.
+    /// Subtracts one `Duration` from another, returning a new `Duration` or `None` in the event of an overflow.
     pub fn checked_sub(self, rhs: Duration) -> Option<Duration> {
         self.ticks.checked_sub(rhs.ticks).map(|ticks| Duration { ticks })
     }
 
-    /// Multiplies one Duration by a scalar u32, returning a new Duration or None in the event of an overflow.
+    /// Multiplies one `Duration` by a scalar `u32`, returning a new `Duration` or `None` in the event of an overflow.
     pub fn checked_mul(self, rhs: u32) -> Option<Duration> {
         self.ticks.checked_mul(rhs as _).map(|ticks| Duration { ticks })
     }
 
-    /// Divides one Duration a scalar u32, returning a new Duration or None in the event of an overflow.
+    /// Divides one `Duration` by a scalar `u32`, returning a new `Duration` or `None` in the event of an overflow.
     pub fn checked_div(self, rhs: u32) -> Option<Duration> {
         self.ticks.checked_div(rhs as _).map(|ticks| Duration { ticks })
     }
@@ -270,11 +270,6 @@ impl<'a> fmt::Display for Duration {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} ticks", self.ticks)
     }
-}
-
-#[inline]
-const fn div_ceil(num: u64, den: u64) -> u64 {
-    (num + den - 1) / den
 }
 
 impl TryFrom<core::time::Duration> for Duration {

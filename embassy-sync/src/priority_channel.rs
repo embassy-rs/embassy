@@ -438,7 +438,7 @@ where
     fn poll_ready_to_send(&mut self, cx: &mut Context<'_>) -> Poll<()> {
         self.senders_waker.register(cx.waker());
 
-        if !self.queue.len() == self.queue.capacity() {
+        if self.queue.len() != self.queue.capacity() {
             Poll::Ready(())
         } else {
             Poll::Pending

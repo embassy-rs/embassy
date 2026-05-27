@@ -135,10 +135,12 @@ pub struct BootLoader<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> {
     dfu: DFU,
     /// The state partition has the following format:
     /// All ranges are in multiples of WRITE_SIZE bytes.
-    /// | Range    | Description                                                                      |
-    /// | 0..1     | Magic indicating bootloader state. BOOT_MAGIC means boot, SWAP_MAGIC means swap. |
-    /// | 1..2     | Progress validity. ERASE_VALUE means valid, !ERASE_VALUE means invalid.          |
-    /// | 2..2 + N | Progress index used while swapping or reverting      
+    /// N = Active partition size divided by WRITE_SIZE.
+    /// | Range              | Description                                                                      |
+    /// | 0..1               | Magic indicating bootloader state. BOOT_MAGIC means boot, SWAP_MAGIC means swap. |
+    /// | 1..2               | Progress validity. ERASE_VALUE means valid, !ERASE_VALUE means invalid.          |
+    /// | 2..(2 + 2N)        | Progress index used while swapping                                               |
+    /// | (2 + 2N)..(2 + 4N) | Progress index used while reverting
     state: STATE,
 }
 
@@ -283,6 +285,22 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
         Ok(state)
     }
 
+    /// Read the magic state from flash
+    pub fn read_state(&mut self, aligned_buf: &mut [u8]) -> Result<State, BootError> {
+        let state_word = &mut aligned_buf[..STATE::WRITE_SIZE];
+        self.state.read(0, state_word)?;
+
+        if !state_word.iter().any(|&b| b != SWAP_MAGIC) {
+            Ok(State::Swap)
+        } else if !state_word.iter().any(|&b| b != DFU_DETACH_MAGIC) {
+            Ok(State::DfuDetach)
+        } else if !state_word.iter().any(|&b| b != REVERT_MAGIC) {
+            Ok(State::Revert)
+        } else {
+            Ok(State::Boot)
+        }
+    }
+
     fn is_swapped(&mut self, aligned_buf: &mut [u8]) -> Result<bool, BootError> {
         let page_count = self.active.capacity() / Self::PAGE_SIZE as usize;
         let progress = self.current_progress(aligned_buf)?;
@@ -402,21 +420,6 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
 
         Ok(())
     }
-
-    fn read_state(&mut self, aligned_buf: &mut [u8]) -> Result<State, BootError> {
-        let state_word = &mut aligned_buf[..STATE::WRITE_SIZE];
-        self.state.read(0, state_word)?;
-
-        if !state_word.iter().any(|&b| b != SWAP_MAGIC) {
-            Ok(State::Swap)
-        } else if !state_word.iter().any(|&b| b != DFU_DETACH_MAGIC) {
-            Ok(State::DfuDetach)
-        } else if !state_word.iter().any(|&b| b != REVERT_MAGIC) {
-            Ok(State::Revert)
-        } else {
-            Ok(State::Boot)
-        }
-    }
 }
 
 fn assert_partitions<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash>(
@@ -429,7 +432,7 @@ fn assert_partitions<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash>(
     assert_eq!(dfu.capacity() as u32 % page_size, 0);
     // DFU partition has to be bigger than ACTIVE partition to handle swap algorithm
     assert!(dfu.capacity() as u32 - active.capacity() as u32 >= page_size);
-    assert!(2 + 2 * (active.capacity() as u32 / page_size) <= state.capacity() as u32 / STATE::WRITE_SIZE as u32);
+    assert!(2 + 4 * (active.capacity() as u32 / page_size) <= state.capacity() as u32 / STATE::WRITE_SIZE as u32);
 }
 
 #[cfg(test)]

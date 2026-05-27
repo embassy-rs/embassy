@@ -3,10 +3,15 @@
 use cortex_m::singleton;
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::Peripherals;
-use embassy_stm32::adc::{Adc, RingBufferedAdc, SampleTime, Sequence};
+use embassy_stm32::adc::{Adc, AdcChannel, RingBufferedAdc, SampleTime};
+use embassy_stm32::{Peripherals, bind_interrupts, dma, peripherals};
 use embassy_time::Instant;
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    DMA2_STREAM0 => dma::InterruptHandler<peripherals::DMA2_CH0>;
+    DMA2_STREAM2 => dma::InterruptHandler<peripherals::DMA2_CH2>;
+});
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -20,16 +25,31 @@ async fn adc_task(mut p: Peripherals) {
     let adc_data: &mut [u16; ADC_BUF_SIZE] = singleton!(ADCDAT : [u16; ADC_BUF_SIZE] = [0u16; ADC_BUF_SIZE]).unwrap();
     let adc_data2: &mut [u16; ADC_BUF_SIZE] = singleton!(ADCDAT2 : [u16; ADC_BUF_SIZE] = [0u16; ADC_BUF_SIZE]).unwrap();
 
-    let adc = Adc::new(p.ADC1);
-    let adc2 = Adc::new(p.ADC2);
+    let adc = Adc::new_with_config(p.ADC1, Default::default());
+    let adc2 = Adc::new_with_config(p.ADC2, Default::default());
 
-    let mut adc: RingBufferedAdc<embassy_stm32::peripherals::ADC1> = adc.into_ring_buffered(p.DMA2_CH0, adc_data);
-    let mut adc2: RingBufferedAdc<embassy_stm32::peripherals::ADC2> = adc2.into_ring_buffered(p.DMA2_CH2, adc_data2);
-
-    adc.set_sample_sequence(Sequence::One, &mut p.PA0, SampleTime::CYCLES112);
-    adc.set_sample_sequence(Sequence::Two, &mut p.PA2, SampleTime::CYCLES112);
-    adc2.set_sample_sequence(Sequence::One, &mut p.PA1, SampleTime::CYCLES112);
-    adc2.set_sample_sequence(Sequence::Two, &mut p.PA3, SampleTime::CYCLES112);
+    let mut adc: RingBufferedAdc<_> = adc.into_ring_buffered(
+        p.DMA2_CH0,
+        adc_data,
+        Irqs,
+        [
+            (p.PA0.degrade_adc(), SampleTime::Cycles112),
+            (p.PA2.degrade_adc(), SampleTime::Cycles112),
+        ]
+        .into_iter(),
+        None,
+    );
+    let mut adc2: RingBufferedAdc<_> = adc2.into_ring_buffered(
+        p.DMA2_CH2,
+        adc_data2,
+        Irqs,
+        [
+            (p.PA1.degrade_adc(), SampleTime::Cycles112),
+            (p.PA3.degrade_adc(), SampleTime::Cycles112),
+        ]
+        .into_iter(),
+        None,
+    );
 
     // Note that overrun is a big consideration in this implementation. Whatever task is running the adc.read() calls absolutely must circle back around
     // to the adc.read() call before the DMA buffer is wrapped around > 1 time. At this point, the overrun is so significant that the context of

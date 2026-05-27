@@ -23,16 +23,23 @@ pub struct Shared(RefCell<SharedInner>);
 
 struct SharedInner {
     ioctl: IoctlState,
-    is_init: bool,
+    state: ControlState,
     control_waker: WakerRegistration,
     runner_waker: WakerRegistration,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum ControlState {
+    Init,
+    Reboot,
+    Ready,
 }
 
 impl Shared {
     pub fn new() -> Self {
         Self(RefCell::new(SharedInner {
             ioctl: IoctlState::Done { resp_len: 0 },
-            is_init: false,
+            state: ControlState::Init,
             control_waker: WakerRegistration::new(),
             runner_waker: WakerRegistration::new(),
         }))
@@ -99,18 +106,30 @@ impl Shared {
         }
     }
 
+    // ota
+    pub fn ota_done(&self) {
+        let mut this = self.0.borrow_mut();
+        this.state = ControlState::Reboot;
+    }
+
     // // // // // // // // // // // // // // // // // // // //
+    //
+    // check if ota is in progress
+    pub(crate) fn state(&self) -> ControlState {
+        let this = self.0.borrow();
+        this.state
+    }
 
     pub fn init_done(&self) {
         let mut this = self.0.borrow_mut();
-        this.is_init = true;
+        this.state = ControlState::Ready;
         this.control_waker.wake();
     }
 
     pub fn init_wait(&self) -> impl Future<Output = ()> + '_ {
         poll_fn(|cx| {
             let mut this = self.0.borrow_mut();
-            if this.is_init {
+            if let ControlState::Ready = this.state {
                 Poll::Ready(())
             } else {
                 this.control_waker.register(cx.waker());

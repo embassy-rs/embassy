@@ -8,7 +8,7 @@ use core::future::Future;
 use embassy_futures::join::join;
 use embassy_sync::pipe::Pipe;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, Receiver, Sender, State};
-use embassy_usb::driver::Driver;
+use embassy_usb::driver::{Driver, EndpointError};
 use embassy_usb::{Builder, Config};
 use log::{Metadata, Record};
 
@@ -133,17 +133,25 @@ impl<const N: usize, T: ReceiverHandler + Send + Sync> UsbLogger<N, T> {
             sender.wait_connection().await;
             loop {
                 let len = self.buffer.read(&mut rx[..]).await;
-                let _ = sender.write_packet(&rx[..len]).await;
-                if len as u8 == MAX_PACKET_SIZE {
-                    let _ = sender.write_packet(&[]).await;
-                }
+                if Err(EndpointError::Disabled) == sender.write_packet(&rx[..len]).await
+                    || len as u8 == MAX_PACKET_SIZE && Err(EndpointError::Disabled) == sender.write_packet(&[]).await
+                {
+                    sender.wait_connection().await;
+                };
             }
         };
         let reciever_fut = async {
             let mut reciever_buf: [u8; MAX_PACKET_SIZE as usize] = [0; MAX_PACKET_SIZE as usize];
             receiver.wait_connection().await;
             loop {
-                let n = receiver.read_packet(&mut reciever_buf).await.unwrap();
+                let n = match receiver.read_packet(&mut reciever_buf).await {
+                    Err(EndpointError::Disabled) => {
+                        receiver.wait_connection().await;
+                        continue;
+                    }
+                    Err(_) => continue,
+                    Ok(n) => n,
+                };
                 match &self.recieve_handler {
                     Some(handler) => {
                         let data = &reciever_buf[..n];
@@ -159,7 +167,8 @@ impl<const N: usize, T: ReceiverHandler + Send + Sync> UsbLogger<N, T> {
 
     /// Creates the futures needed for the logger from a given class
     /// This can be used in cases where the usb device is already in use for another connection
-    pub async fn create_future_from_class<'d, D>(&'d self, class: CdcAcmClass<'d, D>)
+    /// Never returns.
+    pub async fn create_future_from_class<'d, D>(&'d self, class: CdcAcmClass<'d, D>) -> !
     where
         D: Driver<'d>,
     {
@@ -215,7 +224,7 @@ impl<'d, const N: usize> core::fmt::Write for Writer<'d, N> {
 /// # Usage
 ///
 /// ```
-/// embassy_usb_logger::run!(1024, log::LevelFilter::Info, driver);
+/// embassy_usb_logger::run!(1024, log::LevelFilter::Info, driver); //never returns
 /// ```
 ///
 /// # Safety
@@ -243,13 +252,14 @@ macro_rules! run {
 }
 
 /// Initialize the USB serial logger from a serial class and return the future to run it.
+/// The future never returns.
 ///
 /// Arguments specify the buffer size, log level and the serial class, respectively. You can optionally add a RecieverHandler.
 ///
 /// # Usage
 ///
 /// ```
-/// embassy_usb_logger::with_class!(1024, log::LevelFilter::Info, class);
+/// embassy_usb_logger::with_class!(1024, log::LevelFilter::Info, class).await; //never returns.
 /// ```
 ///
 /// # Safety
@@ -277,6 +287,7 @@ macro_rules! with_class {
 }
 
 /// Initialize the USB serial logger from a serial class and return the future to run it.
+/// The future never returns.
 /// This version of the macro allows for a custom style function to be passed in.
 /// The custom style function will be called for each log record and is responsible for writing the log message to the buffer.
 ///
@@ -290,6 +301,7 @@ macro_rules! with_class {
 ///     let level = record.level().as_str();
 ///     write!(writer, "[{level}] {}\r\n", record.args()).unwrap();
 /// });
+/// log_fut.await; // never returns
 /// ```
 ///
 /// # Safety

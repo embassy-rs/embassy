@@ -16,7 +16,7 @@ use super::{
     clear_interrupt_flags, configure, half_duplex_set_rx_tx_before_write, rdr, reconfigure, send_break, set_baudrate,
     sr, tdr,
 };
-use crate::gpio::{AfType, AnyPin, Pull, SealedPin as _};
+use crate::gpio::{AfType, Flex, Pull};
 use crate::interrupt::{self, InterruptExt};
 use crate::time::Hertz;
 
@@ -32,6 +32,10 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 }
 
 unsafe fn on_interrupt(r: Regs, state: &'static State) {
+    if state.tx_rx_refcount.load(Ordering::Relaxed) == 0 {
+        return;
+    }
+
     // RX
     let sr_val = sr(r).read();
     // On v1 & v2, reading DR clears the rxne, error and idle interrupt
@@ -56,16 +60,24 @@ unsafe fn on_interrupt(r: Regs, state: &'static State) {
     if sr_val.ore() {
         warn!("Overrun error");
     }
+
+    // RX
     if sr_val.rxne() {
         let mut rx_writer = state.rx_buf.writer();
-        let buf = rx_writer.push_slice();
-        if !buf.is_empty() {
-            if let Some(byte) = dr {
-                buf[0] = byte;
-                rx_writer.push_done(1);
+        {
+            let mut rx_iter = rx_writer.iter();
+            if let Some(data) = dr
+                && let Some(byte) = rx_iter.next()
+            {
+                *byte = data;
             }
-        } else {
-            // FIXME: Should we disable any further RX interrupts when the buffer becomes full.
+
+            #[cfg(usart_v4)]
+            while sr(r).read().rxne()
+                && let Some(byte) = rx_iter.next()
+            {
+                *byte = rdr(r).read_volatile();
+            }
         }
 
         let eager = state.eager_reads.load(Ordering::Relaxed);
@@ -87,7 +99,7 @@ unsafe fn on_interrupt(r: Regs, state: &'static State) {
     // With `usart_v4` hardware FIFO is enabled and Transmission complete (TC)
     // indicates that all bytes are pushed out from the FIFO.
     // For other usart variants it shows that last byte from the buffer was just sent.
-    if sr_val.tc() {
+    if sr_val.tc() && r.cr1().read().tcie() {
         // For others it is cleared above with `clear_interrupt_flags`.
         #[cfg(any(usart_v1, usart_v2))]
         sr(r).modify(|w| w.set_tc(false));
@@ -105,27 +117,44 @@ unsafe fn on_interrupt(r: Regs, state: &'static State) {
     // TX
     if sr(r).read().txe() {
         let mut tx_reader = state.tx_buf.reader();
-        let buf = tx_reader.pop_slice();
-        if !buf.is_empty() {
+        let mut tx_iter = tx_reader.iter();
+        if tx_iter.size_hint().0 > 0 {
+            #[cfg(any(usart_v1, usart_v2, usart_v3))]
             r.cr1().modify(|w| {
                 w.set_txeie(true);
             });
 
-            // Enable transmission complete interrupt when last byte is going to be sent out.
-            if buf.len() == 1 {
-                r.cr1().modify(|w| {
-                    w.set_tcie(true);
-                });
-            }
+            #[cfg(usart_v4)]
+            r.cr3().modify(|w| {
+                w.set_txftie(true);
+            });
 
             half_duplex_set_rx_tx_before_write(&r, state.half_duplex_readback.load(Ordering::Relaxed));
 
-            tdr(r).write_volatile(buf[0].into());
-            tx_reader.pop_done(1);
-        } else {
+            while sr(r).read().txe()
+                && let Some(byte) = tx_iter.next()
+            {
+                // Enable transmission complete interrupt when last byte is going to be sent out.
+                if matches!(tx_iter.size_hint(), (0, Some(0))) {
+                    r.cr1().modify(|w| {
+                        w.set_tcie(true);
+                    });
+                }
+
+                tdr(r).write_volatile(byte.into());
+            }
+        }
+
+        if matches!(tx_iter.size_hint(), (0, Some(0))) {
             // Disable interrupt until we have something to transmit again.
+            #[cfg(any(usart_v1, usart_v2, usart_v3))]
             r.cr1().modify(|w| {
                 w.set_txeie(false);
+            });
+
+            #[cfg(usart_v4)]
+            r.cr3().modify(|w| {
+                w.set_txftie(false);
             });
         }
     }
@@ -170,9 +199,9 @@ pub struct BufferedUartTx<'d> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
-    tx: Option<Peri<'d, AnyPin>>,
-    cts: Option<Peri<'d, AnyPin>>,
-    de: Option<Peri<'d, AnyPin>>,
+    tx: Option<Flex<'d>>,
+    cts: Option<Flex<'d>>,
+    de: Option<Flex<'d>>,
     is_borrowed: bool,
 }
 
@@ -183,8 +212,8 @@ pub struct BufferedUartRx<'d> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
-    rx: Option<Peri<'d, AnyPin>>,
-    rts: Option<Peri<'d, AnyPin>>,
+    rx: Option<Flex<'d>>,
+    rts: Option<Flex<'d>>,
     is_borrowed: bool,
 }
 
@@ -415,11 +444,11 @@ impl<'d> BufferedUart<'d> {
 
     fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
-        rx: Option<Peri<'d, AnyPin>>,
-        tx: Option<Peri<'d, AnyPin>>,
-        rts: Option<Peri<'d, AnyPin>>,
-        cts: Option<Peri<'d, AnyPin>>,
-        de: Option<Peri<'d, AnyPin>>,
+        rx: Option<Flex<'d>>,
+        tx: Option<Flex<'d>>,
+        rts: Option<Flex<'d>>,
+        cts: Option<Flex<'d>>,
+        de: Option<Flex<'d>>,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,
@@ -487,12 +516,28 @@ impl<'d> BufferedUart<'d> {
             #[cfg(not(any(usart_v1, usart_v2)))]
             w.set_dem(self.tx.de.is_some());
             w.set_hdsel(config.duplex.is_half());
+            #[cfg(usart_v4)]
+            w.set_rxftie(true);
+            #[cfg(usart_v4)]
+            w.set_txftcfg(config.tx_fifo_threshold);
+            #[cfg(usart_v4)]
+            w.set_rxftcfg(
+                match config.eager_reads {
+                    None | Some(0) => u8::MAX,
+                    Some(x) => x as u8,
+                }
+                .min(config.rx_fifo_threshold),
+            );
         });
         configure(info, self.rx.kernel_clock, &config, true, true)?;
 
         info.regs.cr1().modify(|w| {
             w.set_rxneie(true);
             w.set_idleie(true);
+            #[cfg(usart_v4)]
+            w.set_txeie(false);
+            #[cfg(usart_v4)]
+            w.set_rxneie(false);
 
             if config.duplex.is_half() {
                 // The te and re bits will be set by write, read and flush methods.
@@ -522,17 +567,17 @@ impl<'d> BufferedUart<'d> {
                 info: self.tx.info,
                 state: self.tx.state,
                 kernel_clock: self.tx.kernel_clock,
-                tx: self.tx.tx.as_mut().map(Peri::reborrow),
-                cts: self.tx.cts.as_mut().map(Peri::reborrow),
-                de: self.tx.de.as_mut().map(Peri::reborrow),
+                tx: self.tx.tx.as_mut().map(Flex::reborrow),
+                cts: self.tx.cts.as_mut().map(Flex::reborrow),
+                de: self.tx.de.as_mut().map(Flex::reborrow),
                 is_borrowed: true,
             },
             BufferedUartRx {
                 info: self.rx.info,
                 state: self.rx.state,
                 kernel_clock: self.rx.kernel_clock,
-                rx: self.rx.rx.as_mut().map(Peri::reborrow),
-                rts: self.rx.rts.as_mut().map(Peri::reborrow),
+                rx: self.rx.rx.as_mut().map(Flex::reborrow),
+                rts: self.rx.rts.as_mut().map(Flex::reborrow),
                 is_borrowed: true,
             },
         )
@@ -688,22 +733,33 @@ impl<'d> BufferedUartTx<'d> {
 
             let empty = state.tx_buf.is_empty();
 
-            let mut tx_writer = unsafe { state.tx_buf.writer() };
-            let data = tx_writer.push_slice();
-            if data.is_empty() {
-                state.tx_waker.register(cx.waker());
+            if state.tx_buf.len() < buf.len() {
+                return Poll::Ready(Err(Error::BufferTooLong));
+            }
+
+            if state.tx_buf.len() - state.tx_buf.available() < buf.len() {
                 return Poll::Pending;
             }
 
-            let n = data.len().min(buf.len());
-            data[..n].copy_from_slice(&buf[..n]);
-            tx_writer.push_done(n);
+            let mut written: usize = 0;
+            let mut tx_writer = unsafe { state.tx_buf.writer() };
+            while written != buf.len() {
+                let data = tx_writer.push_slice();
+                if data.is_empty() {
+                    state.tx_waker.register(cx.waker());
+                    return Poll::Pending;
+                }
+                let n = data.len().min(buf.len() - written);
+                data[..n].copy_from_slice(&buf[written..written + n]);
+                written = written + n;
+                tx_writer.push_done(n);
+            }
 
             if empty {
                 self.info.interrupt.pend();
             }
 
-            Poll::Ready(Ok(n))
+            Poll::Ready(Ok(written))
         })
         .await
     }
@@ -729,19 +785,23 @@ impl<'d> BufferedUartTx<'d> {
 
             let empty = state.tx_buf.is_empty();
 
+            let mut written: usize = 0;
             let mut tx_writer = unsafe { state.tx_buf.writer() };
-            let data = tx_writer.push_slice();
-            if !data.is_empty() {
-                let n = data.len().min(buf.len());
-                data[..n].copy_from_slice(&buf[..n]);
-                tx_writer.push_done(n);
-
-                if empty {
-                    self.info.interrupt.pend();
+            while written != buf.len() {
+                let data = tx_writer.push_slice();
+                if !data.is_empty() {
+                    let n = data.len().min(buf.len() - written);
+                    data[..n].copy_from_slice(&buf[written..written + n]);
+                    written = written + n;
+                    tx_writer.push_done(n);
                 }
-
-                return Ok(n);
             }
+
+            if empty {
+                self.info.interrupt.pend();
+            }
+
+            return Ok(written);
         }
     }
 
@@ -791,8 +851,6 @@ impl<'d> Drop for BufferedUartRx<'d> {
                 }
             }
 
-            self.rx.as_ref().map(|x| x.set_as_disconnected());
-            self.rts.as_ref().map(|x| x.set_as_disconnected());
             drop_tx_rx(self.info, state);
         }
     }
@@ -811,10 +869,6 @@ impl<'d> Drop for BufferedUartTx<'d> {
                     self.info.interrupt.disable();
                 }
             }
-
-            self.tx.as_ref().map(|x| x.set_as_disconnected());
-            self.cts.as_ref().map(|x| x.set_as_disconnected());
-            self.de.as_ref().map(|x| x.set_as_disconnected());
             drop_tx_rx(self.info, state);
         }
     }

@@ -22,6 +22,7 @@ bind_interrupts!(struct Irqs {
 
 #[cfg(any(
     feature = "stm32wba52cg",
+    feature = "stm32wba65ri",
     feature = "stm32l552ze",
     feature = "stm32h563zi",
     feature = "stm32h503rb",
@@ -122,7 +123,11 @@ fn test_sizes(hw_hasher: &mut Hash<'_, peripherals::HASH, Blocking>) {
     }
 }
 
-#[embassy_executor::main]
+#[cfg_attr(
+    feature = "stop",
+    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
+)]
+#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
 async fn main(_spawner: Spawner) {
     let p: embassy_stm32::Peripherals = init();
     let mut hw_hasher = Hash::new_blocking(p.HASH, Irqs);

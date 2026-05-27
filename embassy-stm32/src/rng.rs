@@ -1,6 +1,7 @@
 //! Random Number Generator (RNG)
 #![macro_use]
 
+use core::convert::Infallible;
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
@@ -12,6 +13,23 @@ use crate::interrupt::typelevel::Interrupt;
 use crate::{Peri, interrupt, pac, peripherals, rcc};
 
 static RNG_WAKER: AtomicWaker = AtomicWaker::new();
+
+/// WBA-specific health test configuration values for RNG
+#[derive(Clone, Copy)]
+#[allow(dead_code)]
+enum Htcfg {
+    /// WBA-specific health test configuration (0x0000AAC7)
+    /// Corresponds to configuration A, B, and C thresholds as recommended in the reference manual
+    WbaRecommended = 0x0000_AAC7,
+}
+
+impl Htcfg {
+    /// Convert to the raw u32 value for register access
+    #[allow(dead_code)]
+    fn value(self) -> u32 {
+        self as u32
+    }
+}
 
 /// RNG error
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -52,6 +70,10 @@ impl<'d, T: Instance> Rng<'d, T> {
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
         rcc::enable_and_reset::<T>();
+
+        // Verify clock is available
+        T::frequency();
+
         let mut random = Self { _inner: inner };
         random.reset();
 
@@ -83,13 +105,13 @@ impl<'d, T: Instance> Rng<'d, T> {
     pub fn reset(&mut self) {
         T::regs().cr().write(|reg| {
             reg.set_condrst(true);
-            reg.set_nistc(pac::rng::vals::Nistc::CUSTOM);
+            reg.set_nistc(pac::rng::vals::Nistc::Custom);
             // set RNG config "A" according to reference manual
             // this has to be written within the same write access as setting the CONDRST bit
-            reg.set_rng_config1(pac::rng::vals::RngConfig1::CONFIG_A);
-            reg.set_clkdiv(pac::rng::vals::Clkdiv::NO_DIV);
-            reg.set_rng_config2(pac::rng::vals::RngConfig2::CONFIG_A_B);
-            reg.set_rng_config3(pac::rng::vals::RngConfig3::CONFIG_A);
+            reg.set_rng_config1(pac::rng::vals::RngConfig1::ConfigA);
+            reg.set_clkdiv(pac::rng::vals::Clkdiv::NoDiv);
+            reg.set_rng_config2(pac::rng::vals::RngConfig2::ConfigAB);
+            reg.set_rng_config3(pac::rng::vals::RngConfig3::ConfigA);
             reg.set_ced(true);
             reg.set_ie(false);
             reg.set_rngen(true);
@@ -100,16 +122,22 @@ impl<'d, T: Instance> Rng<'d, T> {
         // wait for CONDRST to be set
         while !T::regs().cr().read().condrst() {}
 
-        // TODO for WBA6, the HTCR reg is different
+        // Set health test configuration values
         #[cfg(not(rng_wba6))]
         {
             // magic number must be written immediately before every read or write access to HTCR
-            T::regs().htcr().write(|w| w.set_htcfg(pac::rng::vals::Htcfg::MAGIC));
+            T::regs().htcr().write(|w| w.set_htcfg(pac::rng::vals::Htcfg::Magic));
             // write recommended value according to reference manual
             // note: HTCR can only be written during conditioning
             T::regs()
                 .htcr()
-                .write(|w| w.set_htcfg(pac::rng::vals::Htcfg::RECOMMENDED));
+                .write(|w| w.set_htcfg(pac::rng::vals::Htcfg::Recommended));
+        }
+        #[cfg(rng_wba6)]
+        {
+            // For WBA6, set RNG_HTCR0 to the recommended value for configurations A, B, and C
+            // This value corresponds to the health test thresholds specified in the reference manual
+            T::regs().htcr(0).write(|w| w.0 = Htcfg::WbaRecommended.value());
         }
 
         // finish conditioning
@@ -117,8 +145,16 @@ impl<'d, T: Instance> Rng<'d, T> {
             reg.set_rngen(true);
             reg.set_condrst(false);
         });
-        // wait for CONDRST to be reset
-        while T::regs().cr().read().condrst() {}
+
+        // According to reference manual for RNGv3: SEIS must be cleared manually.
+        // RNGv2 does not say anything about SEIS clearing, but ST Cube HAL clears it.
+        T::regs().sr().modify(|reg| {
+            reg.set_seis(false);
+        });
+
+        // According to reference manual: after software reset, wait for random number to be ready
+        // The next_u32() call will wait for DRDY, completing the initialization
+        let _ = self.next_u32();
     }
 
     /// Try to recover from a seed error.
@@ -265,6 +301,26 @@ impl<'d, T: Instance> rand_core_09::RngCore for Rng<'d, T> {
 }
 
 impl<'d, T: Instance> rand_core_09::CryptoRng for Rng<'d, T> {}
+
+impl<'d, T: Instance> rand_core_10::TryRng for Rng<'d, T> {
+    type Error = Infallible;
+
+    fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+        Ok(self.next_u32())
+    }
+
+    fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+        Ok(self.next_u64())
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Self::Error> {
+        self.fill_bytes(dest);
+
+        Ok(())
+    }
+}
+
+impl<'d, T: Instance> rand_core_10::TryCryptoRng for Rng<'d, T> {}
 
 trait SealedInstance {
     fn regs() -> pac::rng::Rng;

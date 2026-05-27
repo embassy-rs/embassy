@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 
+use core::sync::atomic::{AtomicU8, Ordering};
+
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
@@ -9,7 +11,9 @@ use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
 use embassy_time::Timer;
 use embassy_usb::Builder;
-use embassy_usb::class::hid::{HidWriter, ReportId, RequestHandler, State};
+use embassy_usb::class::hid::{
+    HidBootProtocol, HidProtocolMode, HidSubclass, HidWriter, ReportId, RequestHandler, State,
+};
 use embassy_usb::control::OutResponse;
 use usbd_hid::descriptor::{MouseReport, SerializedDescriptor};
 use {defmt_rtt as _, panic_probe as _};
@@ -17,6 +21,8 @@ use {defmt_rtt as _, panic_probe as _};
 bind_interrupts!(struct Irqs {
     OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
 });
+
+static HID_PROTOCOL_MODE: AtomicU8 = AtomicU8::new(HidProtocolMode::Boot as u8);
 
 // If you are trying this and your USB device doesn't connect, the most
 // common issues are the RCC config and vbus_detection
@@ -32,19 +38,19 @@ async fn main(_spawner: Spawner) {
             freq: Hertz(8_000_000),
             mode: HseMode::Bypass,
         });
-        config.rcc.pll_src = PllSource::HSE;
+        config.rcc.pll_src = PllSource::Hse;
         config.rcc.pll = Some(Pll {
-            prediv: PllPreDiv::DIV4,
-            mul: PllMul::MUL168,
-            divp: Some(PllPDiv::DIV2), // 8mhz / 4 * 168 / 2 = 168Mhz.
-            divq: Some(PllQDiv::DIV7), // 8mhz / 4 * 168 / 7 = 48Mhz.
+            prediv: PllPreDiv::Div4,
+            mul: PllMul::Mul168,
+            divp: Some(PllPDiv::Div2), // 8mhz / 4 * 168 / 2 = 168Mhz.
+            divq: Some(PllQDiv::Div7), // 8mhz / 4 * 168 / 7 = 48Mhz.
             divr: None,
         });
-        config.rcc.ahb_pre = AHBPrescaler::DIV1;
-        config.rcc.apb1_pre = APBPrescaler::DIV4;
-        config.rcc.apb2_pre = APBPrescaler::DIV2;
-        config.rcc.sys = Sysclk::PLL1_P;
-        config.rcc.mux.clk48sel = mux::Clk48sel::PLL1_Q;
+        config.rcc.ahb_pre = AHBPrescaler::Div1;
+        config.rcc.apb1_pre = APBPrescaler::Div4;
+        config.rcc.apb2_pre = APBPrescaler::Div2;
+        config.rcc.sys = Sysclk::Pll1P;
+        config.rcc.mux.clk48sel = mux::Clk48sel::Pll1Q;
     }
     let p = embassy_stm32::init(config);
 
@@ -65,6 +71,10 @@ async fn main(_spawner: Spawner) {
     config.manufacturer = Some("Embassy");
     config.product = Some("HID mouse example");
     config.serial_number = Some("12345678");
+    config.composite_with_iads = false;
+    config.device_class = 0;
+    config.device_sub_class = 0;
+    config.device_protocol = 0;
 
     // Create embassy-usb DeviceBuilder using the driver and config.
     // It needs some buffers for building the descriptors.
@@ -91,6 +101,8 @@ async fn main(_spawner: Spawner) {
         request_handler: Some(&mut request_handler),
         poll_ms: 60,
         max_packet_size: 8,
+        hid_subclass: HidSubclass::Boot,
+        hid_boot_protocol: HidBootProtocol::Mouse,
     };
 
     let mut writer = HidWriter::<_, 5>::new(&mut builder, &mut state, config);
@@ -108,16 +120,26 @@ async fn main(_spawner: Spawner) {
             Timer::after_millis(500).await;
 
             y = -y;
-            let report = MouseReport {
-                buttons: 0,
-                x: 0,
-                y,
-                wheel: 0,
-                pan: 0,
-            };
-            match writer.write_serialize(&report).await {
-                Ok(()) => {}
-                Err(e) => warn!("Failed to send report: {:?}", e),
+
+            if HID_PROTOCOL_MODE.load(Ordering::Relaxed) == HidProtocolMode::Boot as u8 {
+                let buttons = 0u8;
+                let x = 0i8;
+                match writer.write(&[buttons, x as u8, y as u8]).await {
+                    Ok(()) => {}
+                    Err(e) => warn!("Failed to send boot report: {:?}", e),
+                }
+            } else {
+                let report = MouseReport {
+                    buttons: 0,
+                    x: 0,
+                    y,
+                    wheel: 0,
+                    pan: 0,
+                };
+                match writer.write_serialize(&report).await {
+                    Ok(()) => {}
+                    Err(e) => warn!("Failed to send report: {:?}", e),
+                }
             }
         }
     };
@@ -137,6 +159,18 @@ impl RequestHandler for MyRequestHandler {
 
     fn set_report(&mut self, id: ReportId, data: &[u8]) -> OutResponse {
         info!("Set report for {:?}: {=[u8]}", id, data);
+        OutResponse::Accepted
+    }
+
+    fn get_protocol(&self) -> HidProtocolMode {
+        let protocol = HidProtocolMode::from(HID_PROTOCOL_MODE.load(Ordering::Relaxed));
+        info!("The current HID protocol mode is: {}", protocol);
+        protocol
+    }
+
+    fn set_protocol(&mut self, protocol: HidProtocolMode) -> OutResponse {
+        info!("Switching to HID protocol mode: {}", protocol);
+        HID_PROTOCOL_MODE.store(protocol as u8, Ordering::Relaxed);
         OutResponse::Accepted
     }
 

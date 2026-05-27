@@ -8,7 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
-- Add `EndpointOut::read_data()` and `EndpointIn::write_data()` provided methods.
+## 0.2.1 - 2026-05-04
+
+- Add `EndpointOut::read_transfer()` and `EndpointIn::write_transfer()` provided methods.
+- USB host-side driver traits and types
 
 ## 0.2.0 - 2025-07-16
 

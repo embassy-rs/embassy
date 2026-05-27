@@ -151,14 +151,18 @@ impl<'d, PIO: Instance, const SM: usize> PioOneWire<'d, PIO, SM> {
         }
 
         let rx = self.sm.rx();
-        let mut found = false;
-        for _ in 0..4 {
-            if rx.wait_pull().await != 0 {
-                found = true;
-            }
+        let mut bytes = [0_u8; 4];
+        for byte in &mut bytes {
+            let word = rx.wait_pull().await;
+            // Save only the 8 bits the pio actually sent
+            *byte = (word >> 24) as u8;
         }
 
-        found
+        let samples = u32::from_be_bytes(bytes);
+
+        // If `samples == 0xFFFFFFFF` then nobody responded
+        // If `samples == 0x00000000` then your pullup is broken
+        samples != 0xFFFFFFFF && samples != 0x00000000
     }
 
     /// Write bytes to the onewire bus
@@ -232,7 +236,10 @@ impl<'d, PIO: Instance, const SM: usize> PioOneWire<'d, PIO, SM> {
         let mut value = 0;
         let mut last_zero = 0;
 
-        for bit in 0..64 {
+        // The original Dallas app note used 1-based bit numbering with 0 being a
+        // sentinel value (ie None).  This is important if you have sensors with
+        // both 0 and 1 as LSB of the family code.
+        for bit in 1..=64 {
             // Write 2 dummy bits to read a bit and its complement
             tx.wait_push(0x1).await;
             tx.wait_push(0x1).await;
@@ -242,7 +249,7 @@ impl<'d, PIO: Instance, const SM: usize> PioOneWire<'d, PIO, SM> {
                 (0, 0) => {
                     // If both are 0, it means we have devices with 0 and 1 bits in this position
                     let write_value = if bit < state.last_discrepancy {
-                        (state.last_rom & (1 << bit)) != 0
+                        (state.last_rom & (1 << (bit - 1))) != 0
                     } else {
                         bit == state.last_discrepancy
                     };

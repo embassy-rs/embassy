@@ -3,6 +3,9 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
+// must go first!
+mod fmt;
+
 pub mod chip;
 mod device;
 
@@ -74,14 +77,14 @@ impl<'d, C: Chip, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, C, SPI, 
             )
             .await
             {
-                Either3::First(p) => {
-                    if let Ok(n) = self.mac.read_frame(p).await {
-                        rx_chan.rx_done(n);
+                Either3::First(mut p) => {
+                    if let Ok(n) = self.mac.read_frame(&mut p).await {
+                        p.rx_done(n);
                     }
                 }
-                Either3::Second(p) => {
-                    self.mac.write_frame(p).await.ok();
-                    tx_chan.tx_done();
+                Either3::Second(mut p) => {
+                    self.mac.write_frame(&mut p).await.ok();
+                    p.tx_done();
                 }
                 Either3::Third(()) => {
                     if self.mac.is_link_up().await {

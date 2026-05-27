@@ -10,7 +10,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::i2c::I2c;
-use embassy_stm32::{bind_interrupts, i2c, peripherals};
+use embassy_stm32::{bind_interrupts, dma, i2c, peripherals};
 use embassy_time::Instant;
 use futures_util::future::try_join3;
 use {defmt_rtt as _, panic_probe as _};
@@ -24,6 +24,12 @@ bind_interrupts!(struct Irqs {
     I2C2_ER => i2c::ErrorInterruptHandler<peripherals::I2C2>;
     I2C3_EV => i2c::EventInterruptHandler<peripherals::I2C3>;
     I2C3_ER => i2c::ErrorInterruptHandler<peripherals::I2C3>;
+    DMA1_STREAM0 => dma::InterruptHandler<peripherals::DMA1_CH0>;
+    DMA1_STREAM6 => dma::InterruptHandler<peripherals::DMA1_CH6>;
+    DMA1_STREAM7 => dma::InterruptHandler<peripherals::DMA1_CH7>;
+    DMA1_STREAM3 => dma::InterruptHandler<peripherals::DMA1_CH3>;
+    DMA1_STREAM4 => dma::InterruptHandler<peripherals::DMA1_CH4>;
+    DMA1_STREAM2 => dma::InterruptHandler<peripherals::DMA1_CH2>;
 });
 
 /// Convert 12-bit signed integer within a 4 byte long buffer into 16-bit signed integer.
@@ -47,11 +53,11 @@ async fn main(_spawner: Spawner) {
     info!("Setting up peripherals.");
     let p = embassy_stm32::init(Default::default());
 
-    let mut i2c1 = I2c::new(p.I2C1, p.PB8, p.PB7, Irqs, p.DMA1_CH6, p.DMA1_CH0, Default::default());
+    let mut i2c1 = I2c::new(p.I2C1, p.PB8, p.PB7, p.DMA1_CH6, p.DMA1_CH0, Irqs, Default::default());
 
-    let mut i2c2 = I2c::new(p.I2C2, p.PB10, p.PB11, Irqs, p.DMA1_CH7, p.DMA1_CH3, Default::default());
+    let mut i2c2 = I2c::new(p.I2C2, p.PB10, p.PB11, p.DMA1_CH7, p.DMA1_CH3, Irqs, Default::default());
 
-    let mut i2c3 = I2c::new(p.I2C3, p.PA8, p.PC9, Irqs, p.DMA1_CH4, p.DMA1_CH2, Default::default());
+    let mut i2c3 = I2c::new(p.I2C3, p.PA8, p.PC9, p.DMA1_CH4, p.DMA1_CH2, Irqs, Default::default());
 
     let a1454_read_sensor_command = [0x1F];
     let mut i2c1_buffer: [u8; 4] = [0, 0, 0, 0];

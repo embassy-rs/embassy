@@ -4,17 +4,37 @@
 use cortex_m::prelude::_embedded_hal_blocking_delay_DelayUs;
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::{Adc, Temperature, VrefInt};
+use embassy_stm32::adc::vals::Exten;
+use embassy_stm32::adc::{Adc, AdcChannel, RegularAdcTrigger, SampleTime, Temperature, VrefInt};
+use embassy_stm32::triggers::TIM1_CH1;
+use embassy_stm32::{bind_interrupts, dma, peripherals};
 use embassy_time::{Delay, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
+bind_interrupts!(struct Irqs {
+    DMA2_STREAM2 => dma::InterruptHandler<peripherals::DMA2_CH2>;
+    DMA2_STREAM0 => dma::InterruptHandler<peripherals::DMA2_CH0>;
+});
+
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = embassy_stm32::init(Default::default());
+    let mut p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
+    let mut adc_dma_buf: [u16; 2] = [0; 2];
+
+    // TODO: impl. triggers for this
+    let mut adc_ring_buffered = Adc::new(p.ADC2).into_ring_buffered(
+        p.DMA2_CH2,
+        &mut adc_dma_buf,
+        Irqs,
+        [(p.PA0.degrade_adc(), SampleTime::Cycles112)].into_iter(),
+        RegularAdcTrigger::from(TIM1_CH1, Exten::RisingEdge),
+    );
+    adc_ring_buffered.start();
+
     let mut delay = Delay;
-    let mut adc = Adc::new(p.ADC1);
+    let mut adc = Adc::new_with_config(p.ADC1, Default::default());
     let mut pin = p.PC1;
 
     let mut vrefint = adc.enable_vrefint();
@@ -23,7 +43,27 @@ async fn main(_spawner: Spawner) {
     // Startup delay can be combined to the maximum of either
     delay.delay_us(Temperature::start_time_us().max(VrefInt::start_time_us()));
 
-    let vrefint_sample = adc.blocking_read(&mut vrefint);
+    {
+        let mut first_pin = p.PA0.degrade_adc();
+        let mut second_pin = p.PA2.degrade_adc();
+
+        let mut configured_sequence = adc.configured_sequence(
+            p.DMA2_CH0,
+            [
+                (&mut first_pin, SampleTime::Cycles112),
+                (&mut second_pin, SampleTime::Cycles112),
+            ]
+            .into_iter(),
+            Irqs,
+        );
+
+        let mut buf = [0u16; 4];
+
+        configured_sequence.read(&mut buf[..2]).await;
+        configured_sequence.read(&mut buf[2..]).await;
+    }
+
+    let vrefint_sample = adc.blocking_read(&mut vrefint, SampleTime::Cycles112);
 
     let convert_to_millivolts = |sample| {
         // From http://www.st.com/resource/en/datasheet/DM00071990.pdf
@@ -50,16 +90,16 @@ async fn main(_spawner: Spawner) {
 
     loop {
         // Read pin
-        let v = adc.blocking_read(&mut pin);
+        let v = adc.blocking_read(&mut pin, SampleTime::Cycles112);
         info!("PC1: {} ({} mV)", v, convert_to_millivolts(v));
 
         // Read internal temperature
-        let v = adc.blocking_read(&mut temp);
+        let v = adc.blocking_read(&mut temp, SampleTime::Cycles112);
         let celcius = convert_to_celcius(v);
         info!("Internal temp: {} ({} C)", v, celcius);
 
         // Read internal voltage reference
-        let v = adc.blocking_read(&mut vrefint);
+        let v = adc.blocking_read(&mut vrefint, SampleTime::Cycles112);
         info!("VrefInt: {}", v);
 
         Timer::after_millis(100).await;

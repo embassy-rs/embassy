@@ -9,16 +9,20 @@
 use core::mem::ManuallyDrop;
 
 use embassy_hal_internal::Peri;
+#[cfg(not(stm32l0))]
+pub use stm32_metapac::timer::vals::{Bkinp as BreakComparatorPolarity, Bkp as BreakInputPolarity};
 // Re-export useful enums
 pub use stm32_metapac::timer::vals::{FilterValue, Mms as MasterMode, Sms as SlaveMode, Ts as TriggerSource};
 
 use super::*;
+use crate::dma::{self, Transfer, WritableRingBuffer};
 use crate::pac::timer::vals;
 use crate::rcc;
 use crate::time::Hertz;
 
 /// Input capture mode.
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum InputCaptureMode {
     /// Rising edge only.
     Rising,
@@ -30,6 +34,7 @@ pub enum InputCaptureMode {
 
 /// Input TI selection.
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum InputTISelection {
     /// Normal
     Normal,
@@ -42,9 +47,9 @@ pub enum InputTISelection {
 impl From<InputTISelection> for stm32_metapac::timer::vals::CcmrInputCcs {
     fn from(tisel: InputTISelection) -> Self {
         match tisel {
-            InputTISelection::Normal => stm32_metapac::timer::vals::CcmrInputCcs::TI4,
-            InputTISelection::Alternate => stm32_metapac::timer::vals::CcmrInputCcs::TI3,
-            InputTISelection::TRC => stm32_metapac::timer::vals::CcmrInputCcs::TRC,
+            InputTISelection::Normal => stm32_metapac::timer::vals::CcmrInputCcs::Ti4,
+            InputTISelection::Alternate => stm32_metapac::timer::vals::CcmrInputCcs::Ti3,
+            InputTISelection::TRC => stm32_metapac::timer::vals::CcmrInputCcs::Trc,
         }
     }
 }
@@ -52,6 +57,7 @@ impl From<InputTISelection> for stm32_metapac::timer::vals::CcmrInputCcs {
 /// Timer counting mode.
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum CountingMode {
     #[default]
     /// The timer counts up to the reload value and then resets back to 0.
@@ -95,11 +101,11 @@ impl CountingMode {
 impl From<CountingMode> for (vals::Cms, vals::Dir) {
     fn from(value: CountingMode) -> Self {
         match value {
-            CountingMode::EdgeAlignedUp => (vals::Cms::EDGE_ALIGNED, vals::Dir::UP),
-            CountingMode::EdgeAlignedDown => (vals::Cms::EDGE_ALIGNED, vals::Dir::DOWN),
-            CountingMode::CenterAlignedDownInterrupts => (vals::Cms::CENTER_ALIGNED1, vals::Dir::UP),
-            CountingMode::CenterAlignedUpInterrupts => (vals::Cms::CENTER_ALIGNED2, vals::Dir::UP),
-            CountingMode::CenterAlignedBothInterrupts => (vals::Cms::CENTER_ALIGNED3, vals::Dir::UP),
+            CountingMode::EdgeAlignedUp => (vals::Cms::EdgeAligned, vals::Dir::Up),
+            CountingMode::EdgeAlignedDown => (vals::Cms::EdgeAligned, vals::Dir::Down),
+            CountingMode::CenterAlignedDownInterrupts => (vals::Cms::CenterAligned1, vals::Dir::Up),
+            CountingMode::CenterAlignedUpInterrupts => (vals::Cms::CenterAligned2, vals::Dir::Up),
+            CountingMode::CenterAlignedBothInterrupts => (vals::Cms::CenterAligned3, vals::Dir::Up),
         }
     }
 }
@@ -107,17 +113,18 @@ impl From<CountingMode> for (vals::Cms, vals::Dir) {
 impl From<(vals::Cms, vals::Dir)> for CountingMode {
     fn from(value: (vals::Cms, vals::Dir)) -> Self {
         match value {
-            (vals::Cms::EDGE_ALIGNED, vals::Dir::UP) => CountingMode::EdgeAlignedUp,
-            (vals::Cms::EDGE_ALIGNED, vals::Dir::DOWN) => CountingMode::EdgeAlignedDown,
-            (vals::Cms::CENTER_ALIGNED1, _) => CountingMode::CenterAlignedDownInterrupts,
-            (vals::Cms::CENTER_ALIGNED2, _) => CountingMode::CenterAlignedUpInterrupts,
-            (vals::Cms::CENTER_ALIGNED3, _) => CountingMode::CenterAlignedBothInterrupts,
+            (vals::Cms::EdgeAligned, vals::Dir::Up) => CountingMode::EdgeAlignedUp,
+            (vals::Cms::EdgeAligned, vals::Dir::Down) => CountingMode::EdgeAlignedDown,
+            (vals::Cms::CenterAligned1, _) => CountingMode::CenterAlignedDownInterrupts,
+            (vals::Cms::CenterAligned2, _) => CountingMode::CenterAlignedUpInterrupts,
+            (vals::Cms::CenterAligned3, _) => CountingMode::CenterAlignedBothInterrupts,
         }
     }
 }
 
 /// Output compare mode.
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum OutputCompareMode {
     /// The comparison between the output compare register TIMx_CCRx and
     /// the counter TIMx_CNT has no effect on the outputs.
@@ -183,35 +190,52 @@ pub enum OutputCompareMode {
     AsymmetricPwmMode2,
 }
 
+#[cfg(timer_v3)]
+impl From<OutputCompareMode> for crate::pac::timer::vals::OcmGp {
+    fn from(mode: OutputCompareMode) -> Self {
+        match mode {
+            OutputCompareMode::Frozen => crate::pac::timer::vals::OcmGp::Frozen,
+            OutputCompareMode::ActiveOnMatch => crate::pac::timer::vals::OcmGp::ActiveOnMatch,
+            OutputCompareMode::InactiveOnMatch => crate::pac::timer::vals::OcmGp::InactiveOnMatch,
+            OutputCompareMode::Toggle => crate::pac::timer::vals::OcmGp::Toggle,
+            OutputCompareMode::ForceInactive => crate::pac::timer::vals::OcmGp::ForceInactive,
+            OutputCompareMode::ForceActive => crate::pac::timer::vals::OcmGp::ForceActive,
+            OutputCompareMode::PwmMode1 => crate::pac::timer::vals::OcmGp::PwmMode1,
+            OutputCompareMode::PwmMode2 => crate::pac::timer::vals::OcmGp::PwmMode2,
+        }
+    }
+}
+
 impl From<OutputCompareMode> for crate::pac::timer::vals::Ocm {
     fn from(mode: OutputCompareMode) -> Self {
         match mode {
-            OutputCompareMode::Frozen => crate::pac::timer::vals::Ocm::FROZEN,
-            OutputCompareMode::ActiveOnMatch => crate::pac::timer::vals::Ocm::ACTIVE_ON_MATCH,
-            OutputCompareMode::InactiveOnMatch => crate::pac::timer::vals::Ocm::INACTIVE_ON_MATCH,
-            OutputCompareMode::Toggle => crate::pac::timer::vals::Ocm::TOGGLE,
-            OutputCompareMode::ForceInactive => crate::pac::timer::vals::Ocm::FORCE_INACTIVE,
-            OutputCompareMode::ForceActive => crate::pac::timer::vals::Ocm::FORCE_ACTIVE,
-            OutputCompareMode::PwmMode1 => crate::pac::timer::vals::Ocm::PWM_MODE1,
-            OutputCompareMode::PwmMode2 => crate::pac::timer::vals::Ocm::PWM_MODE2,
+            OutputCompareMode::Frozen => crate::pac::timer::vals::Ocm::Frozen,
+            OutputCompareMode::ActiveOnMatch => crate::pac::timer::vals::Ocm::ActiveOnMatch,
+            OutputCompareMode::InactiveOnMatch => crate::pac::timer::vals::Ocm::InactiveOnMatch,
+            OutputCompareMode::Toggle => crate::pac::timer::vals::Ocm::Toggle,
+            OutputCompareMode::ForceInactive => crate::pac::timer::vals::Ocm::ForceInactive,
+            OutputCompareMode::ForceActive => crate::pac::timer::vals::Ocm::ForceActive,
+            OutputCompareMode::PwmMode1 => crate::pac::timer::vals::Ocm::PwmMode1,
+            OutputCompareMode::PwmMode2 => crate::pac::timer::vals::Ocm::PwmMode2,
             #[cfg(timer_v2)]
-            OutputCompareMode::OnePulseMode1 => crate::pac::timer::vals::Ocm::RETRIGERRABLE_OPM_MODE_1,
+            OutputCompareMode::OnePulseMode1 => crate::pac::timer::vals::Ocm::RetrigerrableOpmMode1,
             #[cfg(timer_v2)]
-            OutputCompareMode::OnePulseMode2 => crate::pac::timer::vals::Ocm::RETRIGERRABLE_OPM_MODE_2,
+            OutputCompareMode::OnePulseMode2 => crate::pac::timer::vals::Ocm::RetrigerrableOpmMode2,
             #[cfg(timer_v2)]
-            OutputCompareMode::CombinedPwmMode1 => crate::pac::timer::vals::Ocm::COMBINED_PWM_MODE_1,
+            OutputCompareMode::CombinedPwmMode1 => crate::pac::timer::vals::Ocm::CombinedPwmMode1,
             #[cfg(timer_v2)]
-            OutputCompareMode::CombinedPwmMode2 => crate::pac::timer::vals::Ocm::COMBINED_PWM_MODE_2,
+            OutputCompareMode::CombinedPwmMode2 => crate::pac::timer::vals::Ocm::CombinedPwmMode2,
             #[cfg(timer_v2)]
-            OutputCompareMode::AsymmetricPwmMode1 => crate::pac::timer::vals::Ocm::ASYMMETRIC_PWM_MODE_1,
+            OutputCompareMode::AsymmetricPwmMode1 => crate::pac::timer::vals::Ocm::AsymmetricPwmMode1,
             #[cfg(timer_v2)]
-            OutputCompareMode::AsymmetricPwmMode2 => crate::pac::timer::vals::Ocm::ASYMMETRIC_PWM_MODE_2,
+            OutputCompareMode::AsymmetricPwmMode2 => crate::pac::timer::vals::Ocm::AsymmetricPwmMode2,
         }
     }
 }
 
 /// Timer output pin polarity.
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum OutputPolarity {
     /// Active high (higher duty value makes the pin spend more time high).
     ActiveHigh,
@@ -225,6 +249,125 @@ impl From<OutputPolarity> for bool {
             OutputPolarity::ActiveHigh => false,
             OutputPolarity::ActiveLow => true,
         }
+    }
+}
+
+/// Rounding mode for timer period/frequency configuration.
+///
+/// When configuring a timer, the exact requested period may not be achievable
+/// due to hardware limitations (prescaler and counter are integers). This enum
+/// controls how the driver rounds the configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum RoundTo {
+    /// Round towards a slower timer (higher period, lower frequency).
+    ///
+    /// The actual period will be >= the requested period.
+    Slower,
+    /// Round towards a faster timer (lower period, higher frequency).
+    ///
+    /// The actual period will be <= the requested period.
+    Faster,
+}
+
+/// Result of PSC/ARR calculation for timer configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+struct PscArrConfig {
+    /// Prescaler value (0-65535). The timer clock is divided by `psc + 1`.
+    psc: u16,
+    /// Auto-reload value. The timer counts from 0 to `arr`, then wraps.
+    arr: u64,
+    /// The actual period in clock cycles that will be achieved: `(psc + 1) * (arr + 1)`.
+    actual_period_clocks: u64,
+}
+
+/// Error returned when the requested timer period is out of range.
+///
+/// This occurs when:
+/// - For `RoundTo::Faster`: The requested period is less than 2 (minimum achievable is 2, since ARR >= 1).
+/// - For `RoundTo::Slower`: The required prescaler exceeds 16 bits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct OutOfRangeError;
+
+/// Calculate prescaler (PSC) and auto-reload (ARR) values for a desired timer period.
+///
+/// # Arguments
+/// * `period_clocks` - The desired period in timer clock cycles
+/// * `round` - How to round when exact period is not achievable
+/// * `max_arr_bits` - Maximum bits for ARR register (16 or 32)
+///
+/// # Returns
+/// A [`PscArrConfig`] containing the calculated values, or an [`OutOfRangeError`] if the
+/// requested period cannot be achieved with the given rounding mode.
+///
+/// # Errors
+/// Returns `OutOfRangeError` when:
+/// - `RoundTo::Faster` and `period_clocks < 2`: Cannot achieve period <= 1 (minimum is 2 since ARR >= 1).
+/// - `RoundTo::Slower` and the required prescaler exceeds 16 bits.
+fn calculate_psc_arr(period_clocks: u64, round: RoundTo, max_arr_bits: usize) -> Result<PscArrConfig, OutOfRangeError> {
+    let max_arr: u64 = (1 << max_arr_bits) - 1;
+
+    // Minimum achievable period is 2 (psc=0, arr=1), since ARR=0 is not valid.
+    const MIN_PERIOD: u64 = 2;
+
+    // For Faster, we need actual_period_clocks <= period_clocks
+    // If period_clocks < MIN_PERIOD, we can't achieve this
+    if round == RoundTo::Faster && period_clocks < MIN_PERIOD {
+        return Err(OutOfRangeError);
+    }
+
+    // We need: period_clocks = (psc + 1) * (arr + 1)
+    // Calculate minimum prescaler needed: psc >= period_clocks / (max_arr + 1) - 1
+    let psc_min = period_clocks.saturating_sub(1) / (max_arr + 1);
+    let psc: u16 = match psc_min.try_into() {
+        Ok(v) => v,
+        Err(_) => {
+            // Prescaler would overflow
+            match round {
+                RoundTo::Slower => return Err(OutOfRangeError), // Can't achieve actual >= requested
+                RoundTo::Faster => u16::MAX,                    // Use max psc; we only need actual <= requested
+            }
+        }
+    };
+
+    // Calculate arr for this prescaler
+    let psc_plus_1 = u64::from(psc) + 1;
+
+    // actual_clocks = (psc + 1) * (arr + 1), so arr = actual_clocks / (psc + 1) - 1
+    // We want actual_clocks as close to period_clocks as possible, respecting rounding mode
+    let arr = match round {
+        RoundTo::Faster => {
+            // Round down: actual_clocks <= period_clocks
+            // arr + 1 <= period_clocks / (psc + 1)
+            // arr <= period_clocks / (psc + 1) - 1
+            (period_clocks / psc_plus_1).saturating_sub(1)
+        }
+        RoundTo::Slower => {
+            // Round up: actual_clocks >= period_clocks
+            // arr + 1 >= ceil(period_clocks / (psc + 1))
+            // arr >= ceil(period_clocks / (psc + 1)) - 1
+            period_clocks.div_ceil(psc_plus_1).saturating_sub(1)
+        }
+    };
+
+    // Clamp arr to valid range (min is 1, not 0)
+    let arr = arr.clamp(1, max_arr);
+    let actual_period_clocks = psc_plus_1 * (arr + 1);
+
+    Ok(PscArrConfig {
+        psc,
+        arr,
+        actual_period_clocks,
+    })
+}
+
+/// Helper to round a division according to the rounding mode.
+fn div_round(numerator: u64, denominator: u64, round: RoundTo) -> u64 {
+    match round {
+        RoundTo::Faster => numerator / denominator,
+        RoundTo::Slower => numerator.div_ceil(denominator),
     }
 }
 
@@ -267,9 +410,25 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
         unsafe { crate::pac::timer::TimGp32::from_ptr(T::regs()) }
     }
 
+    #[cfg(stm32l0)]
+    fn regs_gp32_unchecked(&self) -> crate::pac::timer::TimGp16 {
+        unsafe { crate::pac::timer::TimGp16::from_ptr(T::regs()) }
+    }
+
     /// Start the timer.
     pub fn start(&self) {
         self.regs_core().cr1().modify(|r| r.set_cen(true));
+    }
+
+    /// Generate timer update event from software.
+    ///
+    /// Set URS to avoid generating interrupt or DMA request. This update event is only
+    /// used to load value from pre-load registers. If called when the timer is running,
+    /// it may disrupt the output waveform.
+    pub fn generate_update_event(&self) {
+        self.regs_core().cr1().modify(|r| r.set_urs(vals::Urs::CounterOnly));
+        self.regs_core().egr().write(|r| r.set_ug(true));
+        self.regs_core().cr1().modify(|r| r.set_urs(vals::Urs::AnyEvent));
     }
 
     /// Stop the timer.
@@ -284,7 +443,34 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
 
     /// get the capability of the timer
     pub fn bits(&self) -> TimerBits {
-        T::BITS
+        match T::Word::bits() {
+            16 => TimerBits::Bits16,
+            #[cfg(not(stm32l0))]
+            32 => TimerBits::Bits32,
+            _ => unreachable!(),
+        }
+    }
+
+    /// Set the timer period in timer clock cycles.
+    ///
+    /// The timer will count for `clocks` clock cycles before wrapping.
+    /// The actual period may differ from the requested value due to hardware
+    /// limitations; the `round` parameter controls how rounding is performed.
+    pub fn set_period_clocks(&self, clocks: u64, round: RoundTo) {
+        self.set_period_clocks_internal(clocks, round, T::Word::bits());
+    }
+
+    pub(crate) fn set_period_clocks_internal(&self, clocks: u64, round: RoundTo, max_arr_bits: usize) {
+        // TODO: we might want to propagate errors to the user instead of panicking.
+        let config = unwrap!(calculate_psc_arr(clocks, round, max_arr_bits));
+        let arr: T::Word = unwrap!(T::Word::try_from(config.arr));
+
+        let regs = self.regs_gp32_unchecked();
+        regs.psc().write_value(config.psc);
+        #[cfg(stm32l0)]
+        regs.arr().write(|r| r.set_arr(unwrap!(arr.try_into())));
+        #[cfg(not(stm32l0))]
+        regs.arr().write_value(arr.into());
     }
 
     /// Set the frequency of how many times per second the timer counts up to the max value or down to 0.
@@ -293,54 +479,56 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
     /// the timer counter will wrap around at the same frequency as is being set.
     /// In center-aligned mode (which not all timers support), the wrap-around frequency is effectively halved
     /// because it needs to count up and down.
-    pub fn set_frequency(&self, frequency: Hertz) {
-        match T::BITS {
-            TimerBits::Bits16 => {
-                self.set_frequency_internal(frequency, 16);
-            }
-            #[cfg(not(stm32l0))]
-            TimerBits::Bits32 => {
-                self.set_frequency_internal(frequency, 32);
-            }
-        }
-    }
-
-    pub(crate) fn set_frequency_internal(&self, frequency: Hertz, max_divide_by_bits: u8) {
+    ///
+    /// The actual frequency may differ from the requested value due to hardware
+    /// limitations; the `round` parameter controls how rounding is performed.
+    pub fn set_frequency(&self, frequency: Hertz, round: RoundTo) {
         let f = frequency.0;
         assert!(f > 0);
-        let timer_f = T::frequency().0;
+        let timer_f = T::frequency().0 as u64;
+        let clocks = div_round(timer_f, f as u64, round);
+        self.set_period_clocks(clocks, round);
+    }
 
-        let pclk_ticks_per_timer_period = (timer_f / f) as u64;
-        let psc: u16 = unwrap!(((pclk_ticks_per_timer_period - 1) / (1 << max_divide_by_bits)).try_into());
-        let divide_by = pclk_ticks_per_timer_period / (u64::from(psc) + 1);
+    /// Set the timer period in milliseconds.
+    ///
+    /// The actual period may differ from the requested value due to hardware
+    /// limitations; the `round` parameter controls how rounding is performed.
+    pub fn set_period_ms(&self, ms: u32, round: RoundTo) {
+        let timer_f = T::frequency().0 as u64;
+        let clocks = div_round(timer_f * ms as u64, 1_000, round);
+        self.set_period_clocks(clocks, round);
+    }
 
-        match T::BITS {
-            TimerBits::Bits16 => {
-                // the timer counts `0..=arr`, we want it to count `0..divide_by`
-                let arr = unwrap!(u16::try_from(divide_by - 1));
+    /// Set the timer period in microseconds.
+    ///
+    /// The actual period may differ from the requested value due to hardware
+    /// limitations; the `round` parameter controls how rounding is performed.
+    pub fn set_period_us(&self, us: u32, round: RoundTo) {
+        let timer_f = T::frequency().0 as u64;
+        let clocks = div_round(timer_f * us as u64, 1_000_000, round);
+        self.set_period_clocks(clocks, round);
+    }
 
-                let regs = self.regs_core();
-                regs.psc().write_value(psc);
-                regs.arr().write(|r| r.set_arr(arr));
+    /// Set the timer period in seconds.
+    ///
+    /// The actual period may differ from the requested value due to hardware
+    /// limitations; the `round` parameter controls how rounding is performed.
+    pub fn set_period_secs(&self, secs: u32, round: RoundTo) {
+        let timer_f = T::frequency().0 as u64;
+        let clocks = timer_f * secs as u64;
+        self.set_period_clocks(clocks, round);
+    }
 
-                regs.cr1().modify(|r| r.set_urs(vals::Urs::COUNTER_ONLY));
-                regs.egr().write(|r| r.set_ug(true));
-                regs.cr1().modify(|r| r.set_urs(vals::Urs::ANY_EVENT));
-            }
-            #[cfg(not(stm32l0))]
-            TimerBits::Bits32 => {
-                // the timer counts `0..=arr`, we want it to count `0..divide_by`
-                let arr: u32 = unwrap!(u32::try_from(divide_by - 1));
-
-                let regs = self.regs_gp32_unchecked();
-                regs.psc().write_value(psc);
-                regs.arr().write_value(arr);
-
-                regs.cr1().modify(|r| r.set_urs(vals::Urs::COUNTER_ONLY));
-                regs.egr().write(|r| r.set_ug(true));
-                regs.cr1().modify(|r| r.set_urs(vals::Urs::ANY_EVENT));
-            }
-        }
+    /// Set the timer period using an `embassy_time::Duration`.
+    ///
+    /// The actual period may differ from the requested value due to hardware
+    /// limitations; the `round` parameter controls how rounding is performed.
+    #[cfg(feature = "time")]
+    pub fn set_period(&self, period: embassy_time::Duration, round: RoundTo) {
+        let timer_f = T::frequency().0 as u64;
+        let clocks = div_round(timer_f * period.as_ticks(), embassy_time::TICK_HZ, round);
+        self.set_period_clocks(clocks, round);
     }
 
     /// Set tick frequency.
@@ -389,23 +577,14 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
     pub fn get_frequency(&self) -> Hertz {
         let timer_f = T::frequency();
 
-        match T::BITS {
-            TimerBits::Bits16 => {
-                let regs = self.regs_core();
-                let arr = regs.arr().read().arr();
-                let psc = regs.psc().read();
+        let regs = self.regs_gp32_unchecked();
+        #[cfg(not(stm32l0))]
+        let arr = regs.arr().read();
+        #[cfg(stm32l0)]
+        let arr = regs.arr().read().arr();
+        let psc = regs.psc().read();
 
-                timer_f / arr / (psc + 1)
-            }
-            #[cfg(not(stm32l0))]
-            TimerBits::Bits32 => {
-                let regs = self.regs_gp32_unchecked();
-                let arr = regs.arr().read();
-                let psc = regs.psc().read();
-
-                timer_f / arr / (psc + 1)
-            }
-        }
+        timer_f / arr / (psc + 1)
     }
 
     /// Get the clock frequency of the timer (before prescaler is applied).
@@ -465,42 +644,29 @@ impl<'d, T: GeneralInstance1Channel> Timer<'d, T> {
     }
 
     /// Get max compare value. This depends on the timer frequency and the clock frequency from RCC.
-    pub fn get_max_compare_value(&self) -> u32 {
-        match T::BITS {
-            TimerBits::Bits16 => self.regs_1ch().arr().read().arr() as u32,
-            #[cfg(not(stm32l0))]
-            TimerBits::Bits32 => self.regs_gp32_unchecked().arr().read(),
-        }
+    pub fn get_max_compare_value(&self) -> T::Word {
+        #[cfg(not(stm32l0))]
+        return unwrap!(self.regs_gp32_unchecked().arr().read().try_into());
+        #[cfg(stm32l0)]
+        return unwrap!(self.regs_gp32_unchecked().arr().read().arr().try_into());
     }
 
     /// Set the max compare value.
     ///
     /// An update event is generated to load the new value. The update event is
     /// generated such that it will not cause an interrupt or DMA request.
-    pub fn set_max_compare_value(&self, ticks: u32) {
-        match T::BITS {
-            TimerBits::Bits16 => {
-                let arr = unwrap!(u16::try_from(ticks));
+    pub fn set_max_compare_value(&self, ticks: T::Word) {
+        let arr = ticks;
 
-                let regs = self.regs_1ch();
-                regs.arr().write(|r| r.set_arr(arr));
+        let regs = self.regs_gp32_unchecked();
+        #[cfg(not(stm32l0))]
+        regs.arr().write_value(arr.into());
+        #[cfg(stm32l0)]
+        regs.arr().write(|r| r.set_arr(unwrap!(arr.try_into())));
 
-                regs.cr1().modify(|r| r.set_urs(vals::Urs::COUNTER_ONLY));
-                regs.egr().write(|r| r.set_ug(true));
-                regs.cr1().modify(|r| r.set_urs(vals::Urs::ANY_EVENT));
-            }
-            #[cfg(not(stm32l0))]
-            TimerBits::Bits32 => {
-                let arr = ticks;
-
-                let regs = self.regs_gp32_unchecked();
-                regs.arr().write_value(arr);
-
-                regs.cr1().modify(|r| r.set_urs(vals::Urs::COUNTER_ONLY));
-                regs.egr().write(|r| r.set_ug(true));
-                regs.cr1().modify(|r| r.set_urs(vals::Urs::ANY_EVENT));
-            }
-        }
+        regs.cr1().modify(|r| r.set_urs(vals::Urs::CounterOnly));
+        regs.egr().write(|r| r.set_ug(true));
+        regs.cr1().modify(|r| r.set_urs(vals::Urs::AnyEvent));
     }
 }
 
@@ -634,30 +800,213 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     }
 
     /// Set compare value for a channel.
-    pub fn set_compare_value(&self, channel: Channel, value: u32) {
-        match T::BITS {
-            TimerBits::Bits16 => {
-                let value = unwrap!(u16::try_from(value));
-                self.regs_gp16().ccr(channel.index()).modify(|w| w.set_ccr(value));
-            }
-            #[cfg(not(stm32l0))]
-            TimerBits::Bits32 => {
-                self.regs_gp32_unchecked().ccr(channel.index()).write_value(value);
-            }
-        }
+    pub fn set_compare_value(&self, channel: Channel, value: T::Word) {
+        #[cfg(not(stm32l0))]
+        self.regs_gp32_unchecked()
+            .ccr(channel.index())
+            .write_value(value.into());
+        #[cfg(stm32l0)]
+        self.regs_gp16()
+            .ccr(channel.index())
+            .modify(|w| w.set_ccr(unwrap!(value.try_into())));
     }
 
     /// Get compare value for a channel.
-    pub fn get_compare_value(&self, channel: Channel) -> u32 {
-        match T::BITS {
-            TimerBits::Bits16 => self.regs_gp16().ccr(channel.index()).read().ccr() as u32,
-            #[cfg(not(stm32l0))]
-            TimerBits::Bits32 => self.regs_gp32_unchecked().ccr(channel.index()).read(),
+    pub fn get_compare_value(&self, channel: Channel) -> T::Word {
+        #[cfg(not(stm32l0))]
+        return unwrap!(self.regs_gp32_unchecked().ccr(channel.index()).read().try_into());
+        #[cfg(stm32l0)]
+        return unwrap!(self.regs_gp32_unchecked().ccr(channel.index()).read().ccr().try_into());
+    }
+
+    pub(crate) fn clamp_compare_value<W: Word>(&mut self, channel: Channel) {
+        self.set_compare_value(
+            channel,
+            unwrap!(
+                self.get_compare_value(channel)
+                    .into()
+                    .clamp(0, W::max() as u32)
+                    .try_into()
+            ),
+        );
+    }
+
+    /// Setup a ring buffer for the channel
+    pub fn setup_ring_buffer<'a, W: Word + Into<T::Word>, D: super::UpDma<T>>(
+        &mut self,
+        dma: Peri<'a, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
+        channel: Channel,
+        dma_buf: &'a mut [W],
+    ) -> WritableRingBuffer<'a, W> {
+        #[allow(clippy::let_unit_value)] // eg. stm32f334
+        let req = dma.request();
+
+        unsafe {
+            use crate::dma::TransferOptions;
+            #[cfg(not(any(bdma, gpdma)))]
+            use crate::dma::{Burst, FifoThreshold};
+
+            let dma_transfer_option = TransferOptions {
+                #[cfg(not(any(bdma, gpdma)))]
+                fifo_threshold: Some(FifoThreshold::Full),
+                #[cfg(not(any(bdma, gpdma)))]
+                mburst: Burst::Incr8,
+                ..Default::default()
+            };
+
+            WritableRingBuffer::new(
+                dma::Channel::new(dma, irq),
+                req,
+                self.regs_1ch().ccr(channel.index()).as_ptr() as *mut W,
+                dma_buf,
+                dma_transfer_option,
+            )
+        }
+    }
+
+    /// Generate a sequence of PWM waveform
+    ///
+    /// Note:
+    /// you will need to provide corresponding TIMx_UP DMA channel to use this method.
+    pub fn setup_update_dma<'a, W: Word + Into<T::Word>, D: super::UpDma<T>>(
+        &mut self,
+        dma: Peri<'a, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
+        channel: Channel,
+        duty: &'a [W],
+    ) -> Transfer<'a> {
+        self.setup_update_dma_inner(dma.request(), dma, irq, channel, duty)
+    }
+
+    /// Generate a sequence of PWM waveform
+    ///
+    /// Note:
+    /// The DMA channel provided does not need to correspond to the requested channel.
+    pub fn setup_channel_update_dma<'a, C: TimerChannel, W: Word + Into<T::Word>, D: super::Dma<T, C>>(
+        &mut self,
+        dma: Peri<'a, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
+        channel: Channel,
+        duty: &'a [W],
+    ) -> Transfer<'a> {
+        self.setup_update_dma_inner(dma.request(), dma, irq, channel, duty)
+    }
+
+    fn setup_update_dma_inner<'a, W: Word + Into<T::Word>, D: dma::ChannelInstance>(
+        &mut self,
+        request: dma::Request,
+        dma: Peri<'a, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
+        channel: Channel,
+        duty: &'a [W],
+    ) -> Transfer<'a> {
+        unsafe {
+            use crate::dma::TransferOptions;
+            #[cfg(not(any(bdma, gpdma)))]
+            use crate::dma::{Burst, FifoThreshold};
+
+            let dma_transfer_option = TransferOptions {
+                #[cfg(not(any(bdma, gpdma)))]
+                fifo_threshold: Some(FifoThreshold::Full),
+                #[cfg(not(any(bdma, gpdma)))]
+                mburst: Burst::Incr8,
+                ..Default::default()
+            };
+
+            let mut dma_channel = dma::Channel::new(dma, irq);
+            dma_channel
+                .write(
+                    request,
+                    duty,
+                    self.regs_gp16().ccr(channel.index()).as_ptr() as *mut W,
+                    dma_transfer_option,
+                )
+                .unchecked_extend_lifetime()
+        }
+    }
+
+    /// Generate a multichannel sequence of PWM waveforms using DMA triggered by timer update events.
+    ///
+    /// This method utilizes the timer's DMA burst transfer capability to update multiple CCRx registers
+    /// in sequence on each update event (UEV). The data is written via the DMAR register using the
+    /// DMA base address (DBA) and burst length (DBL) configured in the DCR register.
+    ///
+    /// The `duty` buffer must be structured as a flattened 2D array in row-major order, where each row
+    /// represents a single update event and each column corresponds to a specific timer channel (starting
+    /// from `starting_channel` up to and including `ending_channel`).
+    ///
+    /// For example, if using channels 1 through 4, a buffer of 4 update steps might look like:
+    ///
+    /// ```rust,ignore
+    /// let dma_buf: [u16; 16] = [
+    ///     ch1_duty_1, ch2_duty_1, ch3_duty_1, ch4_duty_1, // update 1
+    ///     ch1_duty_2, ch2_duty_2, ch3_duty_2, ch4_duty_2, // update 2
+    ///     ch1_duty_3, ch2_duty_3, ch3_duty_3, ch4_duty_3, // update 3
+    ///     ch1_duty_4, ch2_duty_4, ch3_duty_4, ch4_duty_4, // update 4
+    /// ];
+    /// ```
+    ///
+    /// Each group of `N` values (where `N` is number of channels) is transferred on one update event,
+    /// updating the duty cycles of all selected channels simultaneously.
+    ///
+    /// Note:
+    /// You will need to provide corresponding `TIMx_UP` DMA channel to use this method.
+    /// Also be aware that embassy timers use one of timers internally. It is possible to
+    /// switch this timer by using `time-driver-timX` feature.
+    ///
+    pub fn setup_update_dma_burst<'a, W: Word + Into<T::Word>, D: super::UpDma<T>>(
+        &mut self,
+        dma: Peri<'a, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
+        starting_channel: Channel,
+        ending_channel: Channel,
+        duty: &'a [W],
+    ) -> Transfer<'a> {
+        let cr1_addr = self.regs_gp16().cr1().as_ptr() as u32;
+        let start_ch_index = starting_channel.index();
+        let end_ch_index = ending_channel.index();
+
+        assert!(start_ch_index <= end_ch_index);
+
+        let ccrx_addr = self.regs_gp16().ccr(start_ch_index).as_ptr() as u32;
+        self.regs_gp16()
+            .dcr()
+            .modify(|w| w.set_dba(((ccrx_addr - cr1_addr) / 4) as u8));
+        self.regs_gp16()
+            .dcr()
+            .modify(|w| w.set_dbl((end_ch_index - start_ch_index) as u8));
+
+        #[allow(clippy::let_unit_value)] // eg. stm32f334
+        let req = dma.request();
+
+        unsafe {
+            use crate::dma::TransferOptions;
+            #[cfg(not(any(bdma, gpdma)))]
+            use crate::dma::{Burst, FifoThreshold};
+
+            let dma_transfer_option = TransferOptions {
+                #[cfg(not(any(bdma, gpdma)))]
+                fifo_threshold: Some(FifoThreshold::Full),
+                #[cfg(not(any(bdma, gpdma)))]
+                mburst: Burst::Incr4,
+                ..Default::default()
+            };
+
+            let mut dma_channel = dma::Channel::new(dma, irq);
+            dma_channel
+                .write(
+                    req,
+                    duty,
+                    self.regs_gp16().dmar().as_ptr() as *mut W,
+                    dma_transfer_option,
+                )
+                .unchecked_extend_lifetime()
         }
     }
 
     /// Get capture value for a channel.
-    pub fn get_capture_value(&self, channel: Channel) -> u32 {
+    pub fn get_capture_value(&self, channel: Channel) -> T::Word {
         self.get_compare_value(channel)
     }
 
@@ -702,6 +1051,32 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     /// Set Timer Trigger Source
     pub fn set_trigger_source(&self, ts: TriggerSource) {
         self.regs_gp16().smcr().modify(|r| r.set_ts(ts));
+    }
+
+    /// Set Timer Etr_in Source
+    #[cfg(not(stm32l0))]
+    pub fn set_etr_in_source(&self, val: u8) {
+        self.regs_gp16().af1().modify(|w| w.set_etrsel(val));
+    }
+
+    /// Set Timer External Trigger Filter
+    pub fn set_external_trigger_filter(&self, fv: FilterValue) {
+        self.regs_gp16().smcr().modify(|w| w.set_etf(fv));
+    }
+
+    /// Set Timer External Trigger prescaler
+    pub fn set_external_trigger_prescaler(&self, etp: vals::Etps) {
+        self.regs_gp16().smcr().modify(|w| w.set_etps(etp));
+    }
+
+    /// Set Timer External Trigger Polarity
+    pub fn set_external_trigger_polarity(&self, etp: vals::Etp) {
+        self.regs_gp16().smcr().modify(|w| w.set_etp(etp));
+    }
+
+    /// Set Timer External Clock Mode 2 Enable state
+    pub fn set_external_clock_mode_2_enable_state(&self, val: bool) {
+        self.regs_gp16().smcr().modify(|w| w.set_ece(val));
     }
 }
 
@@ -769,6 +1144,98 @@ impl<'d, T: AdvancedInstance1Channel> Timer<'d, T> {
     pub fn get_moe(&self) -> bool {
         self.regs_1ch_cmp().bdtr().read().moe()
     }
+
+    /// Enable/disable break input 1.
+    ///
+    /// When enabled, an active level on the break input puts the timer outputs
+    /// into a safe state (driven by OSSI/OSSR and OIS/OISN settings).
+    pub fn set_break_enable(&self, enable: bool) {
+        self.regs_1ch_cmp().bdtr().modify(|w| w.set_bke(0, enable));
+    }
+
+    /// Get break input 1 enable state.
+    pub fn get_break_enable(&self) -> bool {
+        self.regs_1ch_cmp().bdtr().read().bke(0)
+    }
+
+    /// Set break input 1 polarity.
+    pub fn set_break_polarity(&self, polarity: vals::Bkp) {
+        self.regs_1ch_cmp().bdtr().modify(|w| w.set_bkp(0, polarity));
+    }
+
+    /// Get break input 1 polarity.
+    pub fn get_break_polarity(&self) -> vals::Bkp {
+        self.regs_1ch_cmp().bdtr().read().bkp(0)
+    }
+
+    /// Set break input 1 digital filter.
+    ///
+    /// The filter rejects glitches shorter than the configured number of clock
+    /// cycles, preventing false break events from noise.
+    pub fn set_break_filter(&self, filter: FilterValue) {
+        self.regs_1ch_cmp().bdtr().modify(|w| w.set_bkf(0, filter));
+    }
+
+    /// Get break input 1 digital filter.
+    pub fn get_break_filter(&self) -> FilterValue {
+        self.regs_1ch_cmp().bdtr().read().bkf(0)
+    }
+
+    /// Enable/disable automatic output enable (AOE).
+    ///
+    /// When AOE is set, the MOE bit is automatically set at the next update
+    /// event after a break event (allowing automatic recovery). When cleared,
+    /// MOE can only be set by software.
+    pub fn set_automatic_output_enable(&self, enable: bool) {
+        self.regs_1ch_cmp().bdtr().modify(|w| w.set_aoe(enable));
+    }
+
+    /// Get automatic output enable (AOE) state.
+    pub fn get_automatic_output_enable(&self) -> bool {
+        self.regs_1ch_cmp().bdtr().read().aoe()
+    }
+
+    /// Enable/disable comparator output as break input 1 source.
+    ///
+    /// When enabled, the output of comparator `comp_index` (0-based: 0=COMP1, 1=COMP2, etc.)
+    /// is internally OR'd into the break input 1 signal. Multiple comparators can be
+    /// enabled simultaneously. This is configured via the TIMx_AF1 register BKCMPE bits.
+    ///
+    /// No GPIO pin is needed — the routing is fully internal.
+    pub fn set_break_comparator_enable(&self, comp_index: usize, enable: bool) {
+        self.regs_1ch_cmp().af1().modify(|w| w.set_bkcmpe(comp_index, enable));
+    }
+
+    /// Get comparator break input 1 enable state.
+    pub fn get_break_comparator_enable(&self, comp_index: usize) -> bool {
+        self.regs_1ch_cmp().af1().read().bkcmpe(comp_index)
+    }
+
+    /// Set comparator break input 1 polarity.
+    ///
+    /// Controls the polarity of comparator `comp_index` (0-based, max 3) output
+    /// when used as a break source. Only COMP1-COMP4 have individual polarity control.
+    pub fn set_break_comparator_polarity(&self, comp_index: usize, polarity: vals::Bkinp) {
+        self.regs_1ch_cmp().af1().modify(|w| w.set_bkcmpp(comp_index, polarity));
+    }
+
+    /// Get comparator break input 1 polarity.
+    pub fn get_break_comparator_polarity(&self, comp_index: usize) -> vals::Bkinp {
+        self.regs_1ch_cmp().af1().read().bkcmpp(comp_index)
+    }
+
+    /// Enable/disable the external BKIN pin as break input 1 source.
+    ///
+    /// This controls whether the TIMx_BKIN GPIO pin contributes to the break input.
+    /// When using only comparator-based break sources, this can be disabled.
+    pub fn set_break_input_pin_enable(&self, enable: bool) {
+        self.regs_1ch_cmp().af1().modify(|w| w.set_bkine(enable));
+    }
+
+    /// Get external BKIN pin enable state.
+    pub fn get_break_input_pin_enable(&self) -> bool {
+        self.regs_1ch_cmp().af1().read().bkine()
+    }
 }
 
 #[cfg(not(stm32l0))]
@@ -814,9 +1281,277 @@ impl<'d, T: AdvancedInstance4Channel> Timer<'d, T> {
         self.regs_advanced().cr2().modify(|w| w.set_oisn(channel.index(), val));
     }
 
+    /// Set master mode selection 2
+    pub fn set_mms2_selection(&self, mms2: vals::Mms2) {
+        self.regs_advanced().cr2().modify(|w| w.set_mms2(mms2));
+    }
+
+    /// Set repetition counter
+    pub fn set_repetition_counter(&self, val: u16) {
+        self.regs_advanced().rcr().modify(|w| w.set_rep(val));
+    }
+
+    /// Enable/disable break input 2.
+    ///
+    /// When enabled, an active level on break input 2 puts the timer outputs
+    /// into a safe state. Only available on advanced 4-channel timers.
+    pub fn set_break2_enable(&self, enable: bool) {
+        self.regs_advanced().bdtr().modify(|w| w.set_bke(1, enable));
+    }
+
+    /// Get break input 2 enable state.
+    pub fn get_break2_enable(&self) -> bool {
+        self.regs_advanced().bdtr().read().bke(1)
+    }
+
+    /// Set break input 2 polarity.
+    pub fn set_break2_polarity(&self, polarity: vals::Bkp) {
+        self.regs_advanced().bdtr().modify(|w| w.set_bkp(1, polarity));
+    }
+
+    /// Get break input 2 polarity.
+    pub fn get_break2_polarity(&self) -> vals::Bkp {
+        self.regs_advanced().bdtr().read().bkp(1)
+    }
+
+    /// Set break input 2 digital filter.
+    pub fn set_break2_filter(&self, filter: FilterValue) {
+        self.regs_advanced().bdtr().modify(|w| w.set_bkf(1, filter));
+    }
+
+    /// Get break input 2 digital filter.
+    pub fn get_break2_filter(&self) -> FilterValue {
+        self.regs_advanced().bdtr().read().bkf(1)
+    }
+
     /// Trigger software break 1 or 2
     /// Setting this bit generates a break event. This bit is automatically cleared by the hardware.
     pub fn trigger_software_break(&self, n: usize) {
         self.regs_advanced().egr().write(|r| r.set_bg(n, true));
+    }
+
+    /// Enable/disable comparator output as break input 2 source.
+    ///
+    /// When enabled, the output of comparator `comp_index` (0-based: 0=COMP1, 1=COMP2, etc.)
+    /// is internally OR'd into the break input 2 signal. Configured via TIMx_AF2 register.
+    pub fn set_break2_comparator_enable(&self, comp_index: usize, enable: bool) {
+        self.regs_advanced().af2().modify(|w| w.set_bk2cmpe(comp_index, enable));
+    }
+
+    /// Get comparator break input 2 enable state.
+    pub fn get_break2_comparator_enable(&self, comp_index: usize) -> bool {
+        self.regs_advanced().af2().read().bk2cmpe(comp_index)
+    }
+
+    /// Set comparator break input 2 polarity.
+    pub fn set_break2_comparator_polarity(&self, comp_index: usize, polarity: vals::Bkinp) {
+        self.regs_advanced()
+            .af2()
+            .modify(|w| w.set_bk2cmpp(comp_index, polarity));
+    }
+
+    /// Get comparator break input 2 polarity.
+    pub fn get_break2_comparator_polarity(&self, comp_index: usize) -> vals::Bkinp {
+        self.regs_advanced().af2().read().bk2cmpp(comp_index)
+    }
+
+    /// Enable/disable the external BK2IN pin as break input 2 source.
+    pub fn set_break2_input_pin_enable(&self, enable: bool) {
+        self.regs_advanced().af2().modify(|w| w.set_bk2ine(enable));
+    }
+
+    /// Get external BK2IN pin enable state.
+    pub fn get_break2_input_pin_enable(&self) -> bool {
+        self.regs_advanced().af2().read().bk2ine()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Test cases: (period_clocks, max_arr_bits, expect_fail_slower, expect_fail_faster)
+    const TEST_CASES: &[(u64, usize, bool, bool)] = &[
+        // Small periods (no prescaler needed for 16-bit)
+        // period=0,1 fail for Faster because min achievable is 2 (arr=1)
+        (0, 16, false, true),
+        (1, 16, false, true),
+        (2, 16, false, false), // Minimum achievable period
+        (100, 16, false, false),
+        (1000, 16, false, false),
+        (65535, 16, false, false),
+        (65536, 16, false, false),
+        // Periods requiring prescaler for 16-bit
+        (65537, 16, false, false),
+        (100_000, 16, false, false),
+        (1_000_000, 16, false, false),
+        (10_000_000, 16, false, false),
+        // Edge cases around boundaries
+        (131070, 16, false, false), // 2 * 65535
+        (131072, 16, false, false), // 2 * 65536
+        (196605, 16, false, false), // 3 * 65535
+        // 32-bit timer cases
+        (0, 32, false, true),
+        (1, 32, false, true),
+        (2, 32, false, false),
+        (100_000, 32, false, false),
+        (1_000_000_000, 32, false, false),
+        (4_294_967_295, 32, false, false), // u32::MAX
+        (4_294_967_296, 32, false, false), // u32::MAX + 1
+        // Very large periods that would overflow 16-bit prescaler for Slower
+        // max_arr for 16-bit is 65535, so max period with psc=65535 is 65536*65536 = 4_294_967_296
+        // Anything larger than that fails for Slower (need actual >= requested, impossible)
+        // For Faster, it still works (need actual <= requested, can always use max period)
+        (4_294_967_297, 16, true, false), // Just over 16-bit max, fails Slower only
+    ];
+
+    fn actual_clocks(psc: u16, arr: u64) -> u64 {
+        (psc as u64 + 1) * (arr + 1)
+    }
+
+    #[test]
+    fn test_calculate_psc_arr() {
+        for &(period_clocks, max_arr_bits, expect_fail_slower, expect_fail_faster) in TEST_CASES {
+            let max_arr: u64 = (1 << max_arr_bits) - 1;
+
+            for round in [RoundTo::Slower, RoundTo::Faster] {
+                let expect_fail = match round {
+                    RoundTo::Slower => expect_fail_slower,
+                    RoundTo::Faster => expect_fail_faster,
+                };
+
+                let result = calculate_psc_arr(period_clocks, round, max_arr_bits);
+
+                if expect_fail {
+                    assert!(
+                        result.is_err(),
+                        "Expected failure for period_clocks={}, round={:?}, max_arr_bits={}, but got {:?}",
+                        period_clocks,
+                        round,
+                        max_arr_bits,
+                        result
+                    );
+                    continue;
+                }
+
+                let config = result.unwrap_or_else(|_| {
+                    panic!(
+                        "Unexpected failure for period_clocks={}, round={:?}, max_arr_bits={}",
+                        period_clocks, round, max_arr_bits
+                    )
+                });
+
+                // Verify actual_period_clocks matches (psc + 1) * (arr + 1)
+                let computed_actual = actual_clocks(config.psc, config.arr);
+                assert_eq!(
+                    config.actual_period_clocks, computed_actual,
+                    "actual_period_clocks mismatch for period_clocks={}, round={:?}",
+                    period_clocks, round
+                );
+
+                // Verify arr is within bounds (min is 1)
+                assert!(
+                    config.arr >= 1 && config.arr <= max_arr,
+                    "arr {} out of bounds [1, {}] for period_clocks={}, round={:?}",
+                    config.arr,
+                    max_arr,
+                    period_clocks,
+                    round
+                );
+
+                // Check rounding constraint
+                match round {
+                    RoundTo::Slower => {
+                        assert!(
+                            config.actual_period_clocks >= period_clocks,
+                            "Slower: actual {} < requested {} for period_clocks={}, max_arr_bits={}",
+                            config.actual_period_clocks,
+                            period_clocks,
+                            period_clocks,
+                            max_arr_bits
+                        );
+                    }
+                    RoundTo::Faster => {
+                        assert!(
+                            config.actual_period_clocks <= period_clocks,
+                            "Faster: actual {} > requested {} for period_clocks={}, max_arr_bits={}",
+                            config.actual_period_clocks,
+                            period_clocks,
+                            period_clocks,
+                            max_arr_bits
+                        );
+                    }
+                }
+
+                // Test mutations: verify the solution is not obviously suboptimal.
+                // Try all combinations of psc +/- 1 and arr +/- 1
+                // This doesn't guarantee optimality. but it's enough to catch dumb off-by-one bugs.
+                // Guaranteeing optimality would require searching all divisors of `period_clocks` which is obviously too expensive.
+                let mutations: [(i32, i64); 8] = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)];
+
+                for (psc_delta, arr_delta) in mutations {
+                    let new_psc = config.psc as i32 + psc_delta;
+                    let new_arr = config.arr as i64 + arr_delta;
+
+                    // Skip invalid mutations
+                    if new_psc < 0 || new_psc > u16::MAX as i32 {
+                        continue;
+                    }
+                    if new_arr < 1 || new_arr > max_arr as i64 {
+                        continue;
+                    }
+
+                    let new_psc = new_psc as u16;
+                    let new_arr = new_arr as u64;
+                    let new_actual = actual_clocks(new_psc, new_arr);
+
+                    // Check if mutation satisfies the rounding constraint
+                    let satisfies_constraint = match round {
+                        RoundTo::Slower => new_actual >= period_clocks,
+                        RoundTo::Faster => new_actual <= period_clocks,
+                    };
+
+                    if satisfies_constraint {
+                        // If it satisfies the constraint, it should not be better (closer) than our solution
+                        let our_distance = (config.actual_period_clocks as i64 - period_clocks as i64).abs();
+                        let new_distance = (new_actual as i64 - period_clocks as i64).abs();
+
+                        assert!(
+                            new_distance >= our_distance,
+                            "Found better solution via mutation for period_clocks={}, round={:?}, max_arr_bits={}: \
+                             original (psc={}, arr={}, actual={}, dist={}) vs \
+                             mutated (psc={}, arr={}, actual={}, dist={})",
+                            period_clocks,
+                            round,
+                            max_arr_bits,
+                            config.psc,
+                            config.arr,
+                            config.actual_period_clocks,
+                            our_distance,
+                            new_psc,
+                            new_arr,
+                            new_actual,
+                            new_distance
+                        );
+                    }
+                    // If mutation doesn't satisfy constraint, that's fine - our solution is better
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_div_round() {
+        // Faster (round down)
+        assert_eq!(div_round(10, 3, RoundTo::Faster), 3);
+        assert_eq!(div_round(9, 3, RoundTo::Faster), 3);
+        assert_eq!(div_round(11, 3, RoundTo::Faster), 3);
+        assert_eq!(div_round(12, 3, RoundTo::Faster), 4);
+
+        // Slower (round up)
+        assert_eq!(div_round(10, 3, RoundTo::Slower), 4);
+        assert_eq!(div_round(9, 3, RoundTo::Slower), 3);
+        assert_eq!(div_round(11, 3, RoundTo::Slower), 4);
+        assert_eq!(div_round(12, 3, RoundTo::Slower), 4);
     }
 }

@@ -55,7 +55,7 @@ pub enum Scale {
 
 /// CORDIC argument/result register access count
 #[allow(missing_docs)]
-#[derive(Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum AccessCount {
     #[default]
     One,

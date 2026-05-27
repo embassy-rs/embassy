@@ -34,7 +34,7 @@ use core::marker::PhantomData;
 use core::mem;
 use core::pin::Pin;
 use core::ptr::NonNull;
-#[cfg(not(feature = "arch-avr"))]
+#[cfg(not(feature = "platform-avr"))]
 use core::sync::atomic::AtomicPtr;
 use core::sync::atomic::Ordering;
 use core::task::{Context, Poll, Waker};
@@ -42,19 +42,25 @@ use core::task::{Context, Poll, Waker};
 #[cfg(feature = "scheduler-deadline")]
 pub(crate) use deadline::Deadline;
 use embassy_executor_timer_queue::TimerQueueItem;
-#[cfg(feature = "arch-avr")]
+#[cfg(feature = "platform-avr")]
 use portable_atomic::AtomicPtr;
 
 use self::run_queue::{RunQueue, RunQueueItem};
 use self::state::State;
 use self::util::{SyncUnsafeCell, UninitCell};
 pub use self::waker::task_from_waker;
+use self::waker::try_task_from_waker;
 use super::SpawnToken;
 use crate::{Metadata, SpawnError};
 
 #[unsafe(no_mangle)]
 extern "Rust" fn __embassy_time_queue_item_from_waker(waker: &Waker) -> &'static mut TimerQueueItem {
     unsafe { task_from_waker(waker).timer_queue_item() }
+}
+
+#[unsafe(no_mangle)]
+extern "Rust" fn __try_embassy_time_queue_item_from_waker(waker: &Waker) -> Option<&'static mut TimerQueueItem> {
+    unsafe { try_task_from_waker(waker).map(|task| task.timer_queue_item()) }
 }
 
 /// Raw task header for use in task pointers.
@@ -225,8 +231,7 @@ impl<F: Future + 'static> TaskStorage<F> {
     /// NRVO optimizations.
     ///
     /// This function will fail if the task is already spawned and has not finished running.
-    /// In this case, the error is delayed: a "poisoned" SpawnToken is returned, which will
-    /// cause [`Spawner::spawn()`](super::Spawner::spawn) to return the error.
+    /// In this case, [`SpawnError::Busy`] is returned.
     ///
     /// Once the task has finished running, you may spawn it again. It is allowed to spawn it
     /// on a different executor.
@@ -375,8 +380,7 @@ impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
     /// See [`TaskStorage::spawn()`] for details.
     ///
     /// This will loop over the pool and spawn the task in the first storage that
-    /// is currently free. If none is free, a "poisoned" SpawnToken is returned,
-    /// which will cause [`Spawner::spawn()`](super::Spawner::spawn) to return the error.
+    /// is currently free. If none is free, [`SpawnError::Busy`] is returned.
     pub fn spawn(&'static self, future: impl FnOnce() -> F) -> Result<SpawnToken<impl Sized>, SpawnError> {
         self.spawn_impl::<F>(future)
     }

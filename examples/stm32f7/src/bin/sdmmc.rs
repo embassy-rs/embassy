@@ -4,12 +4,14 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::sdmmc::Sdmmc;
+use embassy_stm32::sdmmc::sd::{CmdBlock, StorageDevice};
 use embassy_stm32::time::{Hertz, mhz};
-use embassy_stm32::{Config, bind_interrupts, peripherals, sdmmc};
+use embassy_stm32::{Config, bind_interrupts, dma, peripherals, sdmmc};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     SDMMC1 => sdmmc::InterruptHandler<peripherals::SDMMC1>;
+    DMA2_STREAM3 => dma::InterruptHandler<peripherals::DMA2_CH3>;
 });
 
 #[embassy_executor::main]
@@ -21,18 +23,18 @@ async fn main(_spawner: Spawner) {
             freq: Hertz(8_000_000),
             mode: HseMode::Bypass,
         });
-        config.rcc.pll_src = PllSource::HSE;
+        config.rcc.pll_src = PllSource::Hse;
         config.rcc.pll = Some(Pll {
-            prediv: PllPreDiv::DIV4,
-            mul: PllMul::MUL216,
-            divp: Some(PllPDiv::DIV2), // 8mhz / 4 * 216 / 2 = 216Mhz
-            divq: Some(PllQDiv::DIV9), // 8mhz / 4 * 216 / 9 = 48Mhz
+            prediv: PllPreDiv::Div4,
+            mul: PllMul::Mul216,
+            divp: Some(PllPDiv::Div2), // 8mhz / 4 * 216 / 2 = 216Mhz
+            divq: Some(PllQDiv::Div9), // 8mhz / 4 * 216 / 9 = 48Mhz
             divr: None,
         });
-        config.rcc.ahb_pre = AHBPrescaler::DIV1;
-        config.rcc.apb1_pre = APBPrescaler::DIV4;
-        config.rcc.apb2_pre = APBPrescaler::DIV2;
-        config.rcc.sys = Sysclk::PLL1_P;
+        config.rcc.ahb_pre = AHBPrescaler::Div1;
+        config.rcc.apb1_pre = APBPrescaler::Div4;
+        config.rcc.apb2_pre = APBPrescaler::Div2;
+        config.rcc.sys = Sysclk::Pll1P;
     }
     let p = embassy_stm32::init(config);
 
@@ -40,8 +42,8 @@ async fn main(_spawner: Spawner) {
 
     let mut sdmmc = Sdmmc::new_4bit(
         p.SDMMC1,
-        Irqs,
         p.DMA2_CH3,
+        Irqs,
         p.PC12,
         p.PD2,
         p.PC8,
@@ -51,12 +53,13 @@ async fn main(_spawner: Spawner) {
         Default::default(),
     );
 
-    // Should print 400kHz for initialization
-    info!("Configured clock: {}", sdmmc.clock().0);
+    let mut cmd_block = CmdBlock::new();
 
-    unwrap!(sdmmc.init_sd_card(mhz(25)).await);
+    let storage = StorageDevice::new_sd_card(&mut sdmmc, &mut cmd_block, mhz(25))
+        .await
+        .unwrap();
 
-    let card = unwrap!(sdmmc.card());
+    let card = storage.card();
 
-    info!("Card: {:#?}", Debug2Format(card));
+    info!("Card: {:#?}", Debug2Format(&card));
 }

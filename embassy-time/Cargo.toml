@@ -1,6 +1,6 @@
 [package]
 name = "embassy-time"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2024"
 description = "Instant and Duration for embedded no-std systems, with async timer support"
 repository = "https://github.com/embassy-rs/embassy"
@@ -33,7 +33,7 @@ features = ["defmt", "std"]
 [features]
 ## Enable defmt
 defmt = ["dep:defmt"]
-## Enable log  
+## Enable log
 log = ["dep:log"]
 
 ## Display the time since startup next to defmt log messages.
@@ -60,15 +60,24 @@ mock-driver = ["tick-hz-1_000_000", "dep:embassy-time-queue-utils"]
 std = ["tick-hz-1_000_000", "dep:embassy-time-queue-utils"]
 ## Create a time driver for WASM.
 wasm = ["dep:wasm-bindgen", "dep:js-sys", "dep:wasm-timer", "tick-hz-1_000_000", "dep:embassy-time-queue-utils"]
+## Provides a time driver using the ARM CMSDK timer.
+cmsdk = [
+  "dep:derive-mmio",
+  "dep:bitbybit",
+  "dep:arbitrary-int",
+  "dep:once_cell",
+  "dep:embassy-time-queue-utils"
+]
+cortex-m = ["dep:cortex-m"]
 
 #! ### Generic Queue
 
 #! By default embassy-time uses a timer queue implementation that is faster but depends on `embassy-executor`.
 #! It will panic if you try to await any timer when using another executor.
-#! 
+#!
 #! Alternatively, you can choose to use a "generic" timer queue implementation that works on any executor.
 #! To enable it, enable any of the features below.
-#! 
+#!
 #! The features also set how many timers are used for the generic queue. At most one
 #! `generic-queue-*` feature can be enabled. If none is enabled, `queue_integrated` is used.
 #!
@@ -178,6 +187,8 @@ tick-hz-256_000 = ["embassy-time-driver/tick-hz-256_000"]
 tick-hz-262_144 = ["embassy-time-driver/tick-hz-262_144"]
 ## 320.0kHz Tick Rate
 tick-hz-320_000 = ["embassy-time-driver/tick-hz-320_000"]
+## 375.0kHz Tick Rate
+tick-hz-375_000 = ["embassy-time-driver/tick-hz-375_000"]
 ## 512.0kHz Tick Rate
 tick-hz-512_000 = ["embassy-time-driver/tick-hz-512_000"]
 ## 524.288kHz Tick Rate
@@ -258,6 +269,8 @@ tick-hz-48_000_000 = ["embassy-time-driver/tick-hz-48_000_000"]
 tick-hz-50_000_000 = ["embassy-time-driver/tick-hz-50_000_000"]
 ## 60.0MHz Tick Rate
 tick-hz-60_000_000 = ["embassy-time-driver/tick-hz-60_000_000"]
+## 62.5MHz Tick Rate
+tick-hz-62_500_000 = ["embassy-time-driver/tick-hz-62_500_000"]
 ## 64.0MHz Tick Rate
 tick-hz-64_000_000 = ["embassy-time-driver/tick-hz-64_000_000"]
 ## 65.536MHz Tick Rate
@@ -429,8 +442,8 @@ tick-hz-5_242_880_000 = ["embassy-time-driver/tick-hz-5_242_880_000"]
 #! </details>
 
 [dependencies]
-embassy-time-driver = { version = "0.2.1", path = "../embassy-time-driver" }
-embassy-time-queue-utils = { version = "0.3.0", path = "../embassy-time-queue-utils", optional = true}
+embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver" }
+embassy-time-queue-utils = { version = "0.3.2", path = "../embassy-time-queue-utils", optional = true}
 
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
@@ -450,7 +463,16 @@ wasm-bindgen = { version = "0.2.81", optional = true }
 js-sys = { version = "0.3", optional = true }
 wasm-timer = { version = "0.2.5", optional = true }
 
+# ARM CMSDK dependencies
+derive-mmio = { version = "0.6", optional = true }
+bitbybit = { version = "2", optional = true }
+arbitrary-int = { version = "2", optional = true }
+once_cell = { version = "1", default-features = false, features = [
+  "critical-section",
+], optional = true }
+cortex-m = { version = "0.7", optional = true }
+
 [dev-dependencies]
 serial_test = "0.9"
 critical-section = { version = "1.1", features = ["std"] }
-embassy-executor = { version = "0.9.0", path = "../embassy-executor" }
+embassy-executor = { version = "0.10.0", path = "../embassy-executor" }

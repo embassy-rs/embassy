@@ -7,20 +7,21 @@ mod common;
 
 use chrono::NaiveDate;
 use common::*;
-use cortex_m_rt::entry;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
-use embassy_stm32::low_power::{Executor, StopMode, stop_ready, stop_with_rtc};
-use embassy_stm32::rcc::LsConfig;
-use embassy_stm32::rtc::{Rtc, RtcConfig};
+use embassy_stm32::rcc::{LsConfig, StopMode, get_stop_mode};
+use embassy_stm32::rtc::Rtc;
 use embassy_time::Timer;
-use static_cell::StaticCell;
 
-#[entry]
-fn main() -> ! {
-    Executor::take().run(|spawner| {
-        spawner.spawn(unwrap!(async_main(spawner)));
-    });
+/// Get whether the core is ready to enter the given stop mode.
+///
+/// This will return false if some peripheral driver is in use that
+/// prevents entering the given stop mode.
+fn stop_ready(stop_mode: StopMode) -> bool {
+    critical_section::with(|cs| match get_stop_mode(cs) {
+        Some(mode) => mode.at_least(stop_mode),
+        None => false,
+    })
 }
 
 #[embassy_executor::task]
@@ -44,7 +45,7 @@ async fn task_2() {
     cortex_m::asm::bkpt();
 }
 
-#[embassy_executor::task]
+#[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn async_main(spawner: Spawner) {
     let _ = config();
 
@@ -55,7 +56,7 @@ async fn async_main(spawner: Spawner) {
     #[cfg(any(feature = "stm32h563zi", feature = "stm32h503rb"))]
     {
         use embassy_stm32::rcc::HSIPrescaler;
-        config.rcc.hsi = Some(HSIPrescaler::DIV4); // 64 MHz HSI will need a /4
+        config.rcc.hsi = Some(HSIPrescaler::Div4); // 64 MHz HSI will need a /4
     }
 
     let p = init_with_config(config);
@@ -66,15 +67,14 @@ async fn async_main(spawner: Spawner) {
         .and_hms_opt(10, 30, 15)
         .unwrap();
 
-    let mut rtc = Rtc::new(p.RTC, RtcConfig::default());
+    let (rtc, _time_provider) = Rtc::new(p.RTC);
 
-    rtc.set_datetime(now.into()).expect("datetime not set");
+    info!("set datetime");
+    critical_section::with(|cs| {
+        rtc.borrow_mut(cs).set_datetime(now.into()).expect("datetime not set");
+    });
 
-    static RTC: StaticCell<Rtc> = StaticCell::new();
-    let rtc = RTC.init(rtc);
-
-    stop_with_rtc(rtc);
-
+    info!("spawn");
     spawner.spawn(task_1().unwrap());
     spawner.spawn(task_2().unwrap());
 }

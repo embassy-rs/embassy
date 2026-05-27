@@ -10,7 +10,12 @@
 use embassy_executor::Spawner;
 use embassy_stm32::i2s::{Config, Format, I2S};
 use embassy_stm32::time::Hertz;
+use embassy_stm32::{bind_interrupts, dma, peripherals};
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    DMA1_STREAM7 => dma::InterruptHandler<peripherals::DMA1_CH7>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -22,28 +27,28 @@ async fn main(_spawner: Spawner) {
             freq: Hertz::mhz(25),
             mode: HseMode::Oscillator,
         });
-        config.rcc.pll_src = PllSource::HSE;
+        config.rcc.pll_src = PllSource::Hse;
         config.rcc.pll = Some(Pll {
-            prediv: PllPreDiv::DIV25,
-            mul: PllMul::MUL192,
-            divp: Some(PllPDiv::DIV2),
-            divq: Some(PllQDiv::DIV4),
+            prediv: PllPreDiv::Div25,
+            mul: PllMul::Mul192,
+            divp: Some(PllPDiv::Div2),
+            divq: Some(PllQDiv::Div4),
             divr: None,
         });
-        config.rcc.sys = Sysclk::PLL1_P;
+        config.rcc.sys = Sysclk::Pll1P;
 
-        config.rcc.ahb_pre = AHBPrescaler::DIV1;
-        config.rcc.apb1_pre = APBPrescaler::DIV2;
-        config.rcc.apb2_pre = APBPrescaler::DIV1;
+        config.rcc.ahb_pre = AHBPrescaler::Div1;
+        config.rcc.apb1_pre = APBPrescaler::Div2;
+        config.rcc.apb2_pre = APBPrescaler::Div1;
 
         // reference your chip's manual for proper clock settings; this config
         // is recommended for a 32 bit frame at 48 kHz sample rate
         config.rcc.plli2s = Some(Pll {
-            prediv: PllPreDiv::DIV25,
-            mul: PllMul::MUL384,
+            prediv: PllPreDiv::Div25,
+            mul: PllMul::Mul384,
             divp: None,
             divq: None,
-            divr: Some(PllRDiv::DIV5),
+            divr: Some(PllRDiv::Div5),
         });
         config.enable_debug_during_sleep = true;
 
@@ -72,6 +77,7 @@ async fn main(_spawner: Spawner) {
         p.PB3,  // ck
         p.DMA1_CH7,
         &mut dma_buffer,
+        Irqs,
         i2s_config,
     );
     i2s.start();

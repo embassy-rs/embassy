@@ -1,6 +1,6 @@
 [package]
 name = "embassy-time-driver"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 description = "Driver trait for embassy-time"
 repository = "https://github.com/embassy-rs/embassy"
@@ -118,6 +118,8 @@ tick-hz-256_000 = []
 tick-hz-262_144 = []
 ## 320.0kHz Tick Rate
 tick-hz-320_000 = []
+## 375.0kHz Tick Rate
+tick-hz-375_000 = []
 ## 512.0kHz Tick Rate
 tick-hz-512_000 = []
 ## 524.288kHz Tick Rate
@@ -198,6 +200,8 @@ tick-hz-48_000_000 = []
 tick-hz-50_000_000 = []
 ## 60.0MHz Tick Rate
 tick-hz-60_000_000 = []
+## 62.5MHz Tick Rate
+tick-hz-62_500_000 = []
 ## 64.0MHz Tick Rate
 tick-hz-64_000_000 = []
 ## 65.536MHz Tick Rate

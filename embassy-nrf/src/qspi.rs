@@ -95,16 +95,16 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            read_opcode: ReadOpcode::READ4IO,
-            write_opcode: WriteOpcode::PP4IO,
+            read_opcode: ReadOpcode::Read4io,
+            write_opcode: WriteOpcode::Pp4io,
             xip_offset: 0,
-            write_page_size: WritePageSize::_256BYTES,
+            write_page_size: WritePageSize::_256bytes,
             deep_power_down: None,
             frequency: Frequency::M8,
             sck_delay: 80,
             rx_delay: 2,
-            spi_mode: SpiMode::MODE0,
-            address_mode: AddressMode::_24BIT,
+            spi_mode: SpiMode::Mode0,
+            address_mode: AddressMode::_24bit,
             capacity: 0,
         }
     }
@@ -165,10 +165,10 @@ impl<'d> Qspi<'d> {
             ($pin:ident) => {
                 $pin.set_high();
                 $pin.conf().write(|w| {
-                    w.set_dir(gpiovals::Dir::OUTPUT);
-                    w.set_drive(gpiovals::Drive::H0H1);
+                    w.set_dir(gpiovals::Dir::Output);
+                    w.set_drive(gpiovals::Drive::H0h1);
                     #[cfg(all(feature = "_nrf5340", feature = "_s"))]
-                    w.set_mcusel(gpiovals::Mcusel::PERIPHERAL);
+                    w.set_mcusel(gpiovals::Mcusel::Peripheral);
                 });
                 r.psel().$pin().write_value($pin.psel_bits());
             };
@@ -373,7 +373,7 @@ impl<'d> Qspi<'d> {
         assert_eq!(address % 4096, 0);
 
         self.r.erase().ptr().write_value(address);
-        self.r.erase().len().write(|w| w.set_len(vals::Len::_4KB));
+        self.r.erase().len().write(|w| w.set_len(vals::Len::_4kb));
 
         self.r.events_ready().write_value(0);
         self.r.intenset().write(|w| w.set_ready(true));

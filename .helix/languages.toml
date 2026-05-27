@@ -1,0 +1,11 @@
+[language-server.rust-analyzer.config.cargo]
+allTargets = false
+noDefaultFeatures = true
+target = "thumbv8m.main-none-eabihf"
+features = ["stm32n657x0", "time-driver-any", "unstable-pac", "exti"]
+
+[language-server.rust-analyzer.config.check]
+allTargets = false
+noDefaultFeatures = true
+target = "thumbv8m.main-none-eabihf"
+features = ["stm32n657x0", "time-driver-any", "unstable-pac", "exti"]

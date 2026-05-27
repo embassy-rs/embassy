@@ -1,14 +1,18 @@
 //! Flash memory (FLASH)
 use embedded_storage::nor_flash::{NorFlashError, NorFlashErrorKind};
 
-#[cfg(flash_f4)]
+#[cfg(any(
+    flash_f4, flash_g0x0, flash_g0x1, flash_g4c2, flash_g4c3, flash_g4c4, flash_h7, flash_h7ab, flash_l4
+))]
 mod asynch;
 #[cfg(flash)]
 mod common;
 #[cfg(eeprom)]
 mod eeprom;
 
-#[cfg(flash_f4)]
+#[cfg(any(
+    flash_f4, flash_g0x0, flash_g0x1, flash_g4c2, flash_g4c3, flash_g4c4, flash_h7, flash_h7ab, flash_l4
+))]
 pub use asynch::InterruptHandler;
 #[cfg(flash)]
 pub use common::*;
@@ -40,8 +44,8 @@ pub enum Async {}
 pub struct FlashRegion {
     /// Bank number.
     pub bank: FlashBank,
-    /// Absolute base address.
-    pub base: u32,
+    /// Offset from bank base.
+    pub offset: u32,
     /// Size in bytes.
     pub size: u32,
     /// Erase size (sector size).
@@ -54,9 +58,14 @@ pub struct FlashRegion {
 }
 
 impl FlashRegion {
+    /// Absolute base address.
+    pub fn base(&self) -> u32 {
+        self.bank.base() + self.offset
+    }
+
     /// Absolute end address.
-    pub const fn end(&self) -> u32 {
-        self.base + self.size
+    pub fn end(&self) -> u32 {
+        self.base() + self.size
     }
 
     /// Number of sectors in the region.
@@ -99,17 +108,19 @@ compile_error!("The 'eeprom' cfg is enabled for a non-L0/L1 chip family. This is
 #[cfg_attr(flash_f4, path = "f4.rs")]
 #[cfg_attr(flash_f7, path = "f7.rs")]
 #[cfg_attr(any(flash_g0x0, flash_g0x1, flash_g4c2, flash_g4c3, flash_g4c4), path = "g.rs")]
+#[cfg_attr(flash_c0, path = "c.rs")]
 #[cfg_attr(flash_h7, path = "h7.rs")]
 #[cfg_attr(flash_h7ab, path = "h7.rs")]
 #[cfg_attr(any(flash_u5, flash_wba), path = "u5.rs")]
 #[cfg_attr(flash_h5, path = "h5.rs")]
 #[cfg_attr(flash_h50, path = "h50.rs")]
 #[cfg_attr(flash_u0, path = "u0.rs")]
+#[cfg_attr(flash_u3, path = "u3.rs")]
 #[cfg_attr(
     not(any(
         flash_l0, flash_l1, flash_l4, flash_l5, flash_wl, flash_wb, flash_f0, flash_f1, flash_f2, flash_f3, flash_f4,
-        flash_f7, flash_g0x0, flash_g0x1, flash_g4c2, flash_g4c3, flash_g4c4, flash_h7, flash_h7ab, flash_u5,
-        flash_wba, flash_h50, flash_u0, flash_h5,
+        flash_f7, flash_g0x0, flash_g0x1, flash_g4c2, flash_g4c3, flash_g4c4, flash_c0, flash_h7, flash_h7ab, flash_u5,
+        flash_wba, flash_h50, flash_u0, flash_h5, flash_u3,
     )),
     path = "other.rs"
 )]

@@ -1,7 +1,9 @@
 use heapless::Vec;
 
 use crate::config::MAX_HANDLER_COUNT;
-use crate::descriptor::{BosWriter, DescriptorWriter, SynchronizationType, UsageType};
+use crate::descriptor::{
+    BosWriter, DescriptorWriter, SynchronizationType, UsageType, rewrite_config_descriptor_for_high_speed,
+};
 use crate::driver::{Driver, Endpoint, EndpointAddress, EndpointInfo, EndpointType};
 use crate::msos::{DeviceLevelDescriptor, FunctionLevelDescriptor, MsOsDescriptorWriter};
 use crate::types::{InterfaceNumber, StringIndex};
@@ -16,6 +18,16 @@ pub enum UsbVersion {
     Two = 0x0200,
     /// Usb version 2.1
     TwoOne = 0x0210,
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// The fastest speed the device configuration supports.
+pub enum UsbDeviceSpeed {
+    /// Full-speed only.
+    Full,
+    /// Build a high-speed configuration descriptor.
+    High,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -64,6 +76,11 @@ pub struct Config<'a> {
     ///
     /// Default: 64 bytes
     pub max_packet_size_0: u8,
+
+    /// The fastest speed the device can enumerate at.
+    ///
+    /// Default: [`UsbDeviceSpeed::Full`]
+    pub max_speed: UsbDeviceSpeed,
 
     /// Manufacturer name string descriptor.
     ///
@@ -127,6 +144,7 @@ impl<'a> Config<'a> {
             device_sub_class: 0x02,
             device_protocol: 0x01,
             max_packet_size_0: 64,
+            max_speed: UsbDeviceSpeed::Full,
             vendor_id: vid,
             product_id: pid,
             device_release: 0x0010,
@@ -219,8 +237,19 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
         self.config_descriptor.end_configuration();
         self.bos_descriptor.end_bos();
 
+        if self.config.max_speed == UsbDeviceSpeed::High {
+            assert!(
+                self.config.max_packet_size_0 == 64,
+                "high-speed USB requires max_packet_size_0 = 64"
+            );
+            let used = self.config_descriptor.position();
+            rewrite_config_descriptor_for_high_speed(&mut self.config_descriptor.buf[..used]);
+        }
+
+        let config_descriptor = self.config_descriptor.into_buf();
+
         // Log the number of allocator bytes actually used in descriptor buffers
-        trace!("USB: config_descriptor used: {}", self.config_descriptor.position());
+        trace!("USB: config_descriptor used: {}", config_descriptor.len());
         trace!("USB: bos_descriptor used: {}", self.bos_descriptor.writer.position());
         trace!("USB: msos_descriptor used: {}", msos_descriptor.len());
         trace!("USB: control_buf size: {}", self.control_buf.len());
@@ -229,7 +258,7 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
             self.driver,
             self.config,
             self.handlers,
-            self.config_descriptor.into_buf(),
+            config_descriptor,
             self.bos_descriptor.writer.into_buf(),
             msos_descriptor,
             self.interfaces,

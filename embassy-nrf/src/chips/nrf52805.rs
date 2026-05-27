@@ -225,8 +225,8 @@ impl_ppi_group!(PPI_GROUP3, PPI, 3);
 impl_ppi_group!(PPI_GROUP4, PPI, 4);
 impl_ppi_group!(PPI_GROUP5, PPI, 5);
 
-impl_saadc_input!(P0_04, ANALOG_INPUT2);
-impl_saadc_input!(P0_05, ANALOG_INPUT3);
+impl_saadc_input!(P0_04, AnalogInput2);
+impl_saadc_input!(P0_05, AnalogInput3);
 
 impl_radio!(RADIO, RADIO, RADIO);
 

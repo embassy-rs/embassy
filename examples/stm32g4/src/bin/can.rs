@@ -24,15 +24,15 @@ async fn main(_spawner: Spawner) {
             mode: HseMode::Oscillator,
         });
         config.rcc.pll = Some(Pll {
-            source: PllSource::HSE,
-            prediv: PllPreDiv::DIV6,
-            mul: PllMul::MUL85,
+            source: PllSource::Hse,
+            prediv: PllPreDiv::Div6,
+            mul: PllMul::Mul85,
             divp: None,
-            divq: Some(PllQDiv::DIV8), // 42.5 Mhz for fdcan.
-            divr: Some(PllRDiv::DIV2), // Main system clock at 170 MHz
+            divq: Some(PllQDiv::Div8), // 42.5 Mhz for fdcan.
+            divr: Some(PllRDiv::Div2), // Main system clock at 170 MHz
         });
-        config.rcc.mux.fdcansel = mux::Fdcansel::PLL1_Q;
-        config.rcc.sys = Sysclk::PLL1_R;
+        config.rcc.mux.fdcansel = mux::Fdcansel::Pll1Q;
+        config.rcc.sys = Sysclk::Pll1R;
     }
     let peripherals = embassy_stm32::init(config);
 

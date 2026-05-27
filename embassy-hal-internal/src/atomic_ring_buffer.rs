@@ -1,4 +1,5 @@
 //! Atomic reusable ringbuffer.
+use core::iter::FusedIterator;
 use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 use core::{ptr, slice};
 
@@ -308,6 +309,67 @@ impl<'a> Writer<'a> {
         // will guarantee the reader sees them after reading from `end`.
         self.0.end.store(self.0.wrap(end + n), Ordering::Release);
     }
+
+    /// Return an iterator that can be used to iterate over the ringbufffer,
+    /// consuming the bytes as it iterates. This uses local variables to cache
+    /// buffer position, allowing the compiler to optimize the iterator.
+    ///
+    /// Note that this iterator is a fused iterator, meaning that once it is
+    /// exhausted, it can no longer be used to write to the buffer.
+    pub fn iter<'b>(&'b mut self) -> WriterIterator<'a, 'b> {
+        let [(d0, l0), (d1, l1)] = self.push_bufs();
+        let bufs = unsafe { [slice::from_raw_parts_mut(d0, l0), slice::from_raw_parts_mut(d1, l1)] };
+
+        WriterIterator {
+            writer: self,
+            bufs,
+            i: 0,
+        }
+    }
+}
+
+/// Iterator that efficiently iterates over the writer.
+pub struct WriterIterator<'a, 'b> {
+    writer: &'b mut Writer<'a>,
+    bufs: [&'b mut [u8]; 2],
+    i: usize,
+}
+
+impl<'a, 'b> Iterator for WriterIterator<'a, 'b> {
+    type Item = &'b mut u8;
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let size = self.bufs[0].len() + self.bufs[1].len() - self.i;
+
+        (size, Some(size))
+    }
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (i, buf) = if self.i < self.bufs[0].len() {
+            (self.i, &mut self.bufs[0])
+        } else {
+            (self.i - self.bufs[0].len(), &mut self.bufs[1])
+        };
+
+        let item = buf.get_mut(i);
+
+        if item.is_some() {
+            self.i += 1;
+        }
+
+        // We can be certain that item will not move for the lifetime that writer is borrowed
+        item.map(|item| unsafe { &mut *(item as *mut u8) })
+    }
+}
+
+impl<'a, 'b> FusedIterator for WriterIterator<'a, 'b> {}
+
+impl<'a, 'b> Drop for WriterIterator<'a, 'b> {
+    fn drop(&mut self) {
+        if self.i > 0 {
+            self.writer.push_done(self.i);
+        }
+    }
 }
 
 impl<'a> Reader<'a> {
@@ -396,6 +458,69 @@ impl<'a> Reader<'a> {
         // buffer, which "gives permission" to the writer to write to it again.
         // Therefore, all buffer accesses must be completed before this.
         self.0.start.store(self.0.wrap(start + n), Ordering::Release);
+    }
+
+    /// Return an iterator that can be used to iterate over the ringbufffer,
+    /// consuming the bytes as it iterates. This uses local variables to cache
+    /// buffer position, allowing the compiler to optimize the iterator.
+    ///
+    /// Note that this iterator is a fused iterator, meaning that once it is
+    /// exhausted, it can no longer be used to read the buffer.
+    pub fn iter<'b>(&'b mut self) -> ReaderIterator<'a, 'b> {
+        let (data, len) = self.pop_buf();
+        let buf = unsafe { slice::from_raw_parts_mut(data, len) };
+
+        ReaderIterator {
+            reader: self,
+            buf,
+            i: 0,
+        }
+    }
+}
+
+/// Iterator that efficiently iterates over the reader.
+pub struct ReaderIterator<'a, 'b> {
+    reader: &'b mut Reader<'a>,
+    buf: &'b mut [u8],
+    i: usize,
+}
+
+impl<'a, 'b> Iterator for ReaderIterator<'a, 'b> {
+    type Item = u8;
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self.buf.len() {
+            0 => (0, Some(0)),
+            l => (l, None),
+        }
+    }
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let item = self.buf.get(self.i).map(|x| *x);
+
+        if item.is_some() {
+            self.i += 1;
+        }
+
+        if item.is_some() && self.i == self.buf.len() {
+            self.reader.pop_done(self.i);
+            self.i = 0;
+
+            let (data, len) = self.reader.pop_buf();
+            self.buf = unsafe { slice::from_raw_parts_mut(data, len) };
+        }
+
+        item
+    }
+}
+
+impl<'a, 'b> FusedIterator for ReaderIterator<'a, 'b> {}
+
+impl<'a, 'b> Drop for ReaderIterator<'a, 'b> {
+    fn drop(&mut self) {
+        if self.i > 0 {
+            self.reader.pop_done(self.i);
+        }
     }
 }
 

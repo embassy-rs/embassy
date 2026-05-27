@@ -26,7 +26,11 @@ bind_interrupts!(struct Irqs {
     CAN1_TX => TxInterruptHandler<CAN1>;
 });
 
-#[embassy_executor::main]
+#[cfg_attr(
+    feature = "stop",
+    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
+)]
+#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
 async fn main(_spawner: Spawner) {
     let p = init();
     info!("Hello World!");

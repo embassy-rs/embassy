@@ -13,9 +13,13 @@ use embassy_stm32::hspi::{
     MemoryType, TransferConfig, WrapSize,
 };
 use embassy_stm32::mode::Async;
-use embassy_stm32::rcc;
 use embassy_stm32::time::Hertz;
+use embassy_stm32::{bind_interrupts, dma, peripherals, rcc};
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    GPDMA1_CHANNEL7 => dma::InterruptHandler<peripherals::GPDMA1_CH7>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -28,23 +32,23 @@ async fn main(_spawner: Spawner) {
         mode: rcc::HseMode::Oscillator,
     });
     config.rcc.pll1 = Some(rcc::Pll {
-        source: rcc::PllSource::HSE,
-        prediv: rcc::PllPreDiv::DIV1,
-        mul: rcc::PllMul::MUL10,
+        source: rcc::PllSource::Hse,
+        prediv: rcc::PllPreDiv::Div1,
+        mul: rcc::PllMul::Mul10,
         divp: None,
         divq: None,
-        divr: Some(rcc::PllDiv::DIV1),
+        divr: Some(rcc::PllDiv::Div1),
     });
-    config.rcc.sys = rcc::Sysclk::PLL1_R; // 160 Mhz
+    config.rcc.sys = rcc::Sysclk::Pll1R; // 160 Mhz
     config.rcc.pll2 = Some(rcc::Pll {
-        source: rcc::PllSource::HSE,
-        prediv: rcc::PllPreDiv::DIV4,
-        mul: rcc::PllMul::MUL66,
+        source: rcc::PllSource::Hse,
+        prediv: rcc::PllPreDiv::Div4,
+        mul: rcc::PllMul::Mul66,
         divp: None,
-        divq: Some(rcc::PllDiv::DIV2),
+        divq: Some(rcc::PllDiv::Div2),
         divr: None,
     });
-    config.rcc.mux.hspi1sel = rcc::mux::Hspisel::PLL2_Q; // 132 MHz
+    config.rcc.mux.hspi1sel = rcc::mux::Hspisel::Pll2Q; // 132 MHz
 
     // Initialize peripherals
     let p = embassy_stm32::init(config);
@@ -84,6 +88,7 @@ async fn main(_spawner: Spawner) {
         p.PH9,
         p.PI2,
         p.GPDMA1_CH7,
+        Irqs,
         flash_config,
     );
 

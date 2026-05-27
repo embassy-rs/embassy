@@ -3,6 +3,7 @@
 use core::cmp::min;
 use core::marker::PhantomData;
 
+use aligned::{A4, Aligned};
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
@@ -711,7 +712,8 @@ pub struct AesCcm<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZ
     key: &'c [u8; KEY_SIZE],
     aad_header: [u8; 6],
     aad_header_len: usize,
-    block0: [u8; 16],
+    // 4-byte aligned because the async DMA path transfers this buffer as u32 words.
+    block0: Aligned<A4, [u8; 16]>,
     ctr: [u8; 16],
 }
 
@@ -721,7 +723,7 @@ impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize> Aes
     pub fn new(key: &'c [u8; KEY_SIZE], iv: &'c [u8; IV_SIZE], aad_len: usize, payload_len: usize) -> Self {
         let mut aad_header: [u8; 6] = [0; 6];
         let mut aad_header_len = 0;
-        let mut block0: [u8; 16] = [0; 16];
+        let mut block0: Aligned<A4, [u8; 16]> = Aligned([0; 16]);
         if aad_len != 0 {
             if aad_len < 65280 {
                 aad_header[0] = (aad_len >> 8) as u8 & 0xFF;
@@ -801,7 +803,7 @@ impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize> Cip
     fn init_phase_blocking<T: Instance, M: Mode>(&self, p: pac::cryp::Cryp, cryp: &Cryp<T, M>) {
         p.cr().modify(|w| w.set_gcm_ccmph(0));
 
-        cryp.write_bytes_blocking(Self::BLOCK_SIZE, &self.block0);
+        cryp.write_bytes_blocking(Self::BLOCK_SIZE, &self.block0[..]);
 
         p.cr().modify(|w| w.set_crypen(true));
         while p.cr().read().crypen() {}
@@ -810,7 +812,7 @@ impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize> Cip
     async fn init_phase<T: Instance>(&self, p: pac::cryp::Cryp, cryp: &mut Cryp<'_, T, Async>) {
         p.cr().modify(|w| w.set_gcm_ccmph(0));
 
-        Cryp::<T, Async>::write_bytes(cryp.indma.as_mut().unwrap(), Self::BLOCK_SIZE, &self.block0).await;
+        Cryp::<T, Async>::write_bytes(cryp.indma.as_mut().unwrap(), Self::BLOCK_SIZE, &self.block0[..]).await;
 
         p.cr().modify(|w| w.set_crypen(true));
         while p.cr().read().crypen() {}
@@ -972,7 +974,8 @@ pub struct Context<'c, C: Cipher<'c> + CipherSized> {
     csgcm: [u32; 8],
     header_len: u64,
     payload_len: u64,
-    aad_buffer: [u8; 16],
+    // 4-byte aligned because the async DMA path transfers from this buffer as u32 words.
+    aad_buffer: Aligned<A4, [u8; 16]>,
     aad_buffer_len: usize,
 }
 
@@ -1034,7 +1037,7 @@ impl<'d, T: Instance, M: Mode> Cryp<'d, T, M> {
             cipher: cipher,
             phantom_data: PhantomData,
             header_processed: false,
-            aad_buffer: [0; 16],
+            aad_buffer: Aligned([0; 16]),
             aad_buffer_len: 0,
         };
 
@@ -1085,7 +1088,7 @@ impl<'d, T: Instance, M: Mode> Cryp<'d, T, M> {
         T::regs().init(1).ivrr().write_value(u32::from_be_bytes(iv_word));
 
         // Flush in/out FIFOs
-        T::regs().cr().modify(|w| w.fflush());
+        T::regs().cr().modify(|w| w.set_fflush(true));
 
         ctx.cipher.init_phase_blocking(T::regs(), self);
 
@@ -1142,7 +1145,7 @@ impl<'d, T: Instance, M: Mode> Cryp<'d, T, M> {
         if ctx.aad_buffer_len < C::BLOCK_SIZE {
             // The buffer isn't full and this is the last buffer, so process it as is (already padded).
             if last_aad_block {
-                self.write_bytes_blocking(C::BLOCK_SIZE, &ctx.aad_buffer);
+                self.write_bytes_blocking(C::BLOCK_SIZE, &ctx.aad_buffer[..]);
                 // Block until input FIFO is empty.
                 while !T::regs().sr().read().ifem() {}
 
@@ -1150,14 +1153,14 @@ impl<'d, T: Instance, M: Mode> Cryp<'d, T, M> {
                 ctx.aad_complete = true;
                 T::regs().cr().modify(|w| w.set_crypen(false));
                 T::regs().cr().modify(|w| w.set_gcm_ccmph(2));
-                T::regs().cr().modify(|w| w.fflush());
+                T::regs().cr().modify(|w| w.set_fflush(true));
             } else {
                 // Just return because we don't yet have a full block to process.
                 return;
             }
         } else {
             // Load the full block from the buffer.
-            self.write_bytes_blocking(C::BLOCK_SIZE, &ctx.aad_buffer);
+            self.write_bytes_blocking(C::BLOCK_SIZE, &ctx.aad_buffer[..]);
             // Block until input FIFO is empty.
             while !T::regs().sr().read().ifem() {}
         }
@@ -1179,13 +1182,13 @@ impl<'d, T: Instance, M: Mode> Cryp<'d, T, M> {
 
         if last_aad_block {
             if leftovers > 0 {
-                self.write_bytes_blocking(C::BLOCK_SIZE, &ctx.aad_buffer);
+                self.write_bytes_blocking(C::BLOCK_SIZE, &ctx.aad_buffer[..]);
             }
             // Switch to payload phase.
             ctx.aad_complete = true;
             T::regs().cr().modify(|w| w.set_crypen(false));
             T::regs().cr().modify(|w| w.set_gcm_ccmph(2));
-            T::regs().cr().modify(|w| w.fflush());
+            T::regs().cr().modify(|w| w.set_fflush(true));
         }
 
         self.store_context(ctx);
@@ -1219,7 +1222,7 @@ impl<'d, T: Instance, M: Mode> Cryp<'d, T, M> {
                 ctx.aad_complete = true;
                 T::regs().cr().modify(|w| w.set_crypen(false));
                 T::regs().cr().modify(|w| w.set_gcm_ccmph(2));
-                T::regs().cr().modify(|w| w.fflush());
+                T::regs().cr().modify(|w| w.set_fflush(true));
                 T::regs().cr().modify(|w| w.set_crypen(true));
             }
         }
@@ -1461,18 +1464,21 @@ impl<'d, T: Instance, M: Mode> Cryp<'d, T, M> {
 
 impl<'d, T: Instance> Cryp<'d, T, Async> {
     /// Create a new CRYP driver.
-    pub fn new(
+    pub fn new<D1: DmaIn<T>, D2: DmaOut<T>>(
         peri: Peri<'d, T>,
-        indma: Peri<'d, impl DmaIn<T>>,
-        outdma: Peri<'d, impl DmaOut<T>>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        indma: Peri<'d, D1>,
+        outdma: Peri<'d, D2>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
+        + interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + 'd,
     ) -> Self {
         rcc::enable_and_reset::<T>();
         let instance = Self {
             _peripheral: peri,
             _phantom: PhantomData,
-            indma: new_dma!(indma),
-            outdma: new_dma!(outdma),
+            indma: new_dma!(indma, _irq),
+            outdma: new_dma!(outdma, _irq),
         };
 
         T::Interrupt::unpend();
@@ -1500,7 +1506,7 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
             cipher: cipher,
             phantom_data: PhantomData,
             header_processed: false,
-            aad_buffer: [0; 16],
+            aad_buffer: Aligned([0; 16]),
             aad_buffer_len: 0,
         };
 
@@ -1551,7 +1557,7 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
         T::regs().init(1).ivrr().write_value(u32::from_be_bytes(iv_word));
 
         // Flush in/out FIFOs
-        T::regs().cr().modify(|w| w.fflush());
+        T::regs().cr().modify(|w| w.set_fflush(true));
 
         ctx.cipher.init_phase(T::regs(), self).await;
 
@@ -1566,6 +1572,11 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
     /// All additional associated data (AAD) must be supplied to this function prior to starting the payload phase with `payload`.
     /// The AAD must be supplied in multiples of the block size (128-bits for AES, 64-bits for DES), except when supplying the last block.
     /// When supplying the last block of AAD, `last_aad_block` must be `true`.
+    ///
+    /// # Buffer alignment
+    ///
+    /// Best performance is achieved when `aad` is 4-byte aligned: the DMA
+    /// transfers as 32-bit words and skips its FIFO packing path.
     pub async fn aad<
         'c,
         const TAG_SIZE: usize,
@@ -1608,21 +1619,21 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
         if ctx.aad_buffer_len < C::BLOCK_SIZE {
             // The buffer isn't full and this is the last buffer, so process it as is (already padded).
             if last_aad_block {
-                Self::write_bytes(self.indma.as_mut().unwrap(), C::BLOCK_SIZE, &ctx.aad_buffer).await;
+                Self::write_bytes(self.indma.as_mut().unwrap(), C::BLOCK_SIZE, &ctx.aad_buffer[..]).await;
                 assert_eq!(T::regs().sr().read().ifem(), true);
 
                 // Switch to payload phase.
                 ctx.aad_complete = true;
                 T::regs().cr().modify(|w| w.set_crypen(false));
                 T::regs().cr().modify(|w| w.set_gcm_ccmph(2));
-                T::regs().cr().modify(|w| w.fflush());
+                T::regs().cr().modify(|w| w.set_fflush(true));
             } else {
                 // Just return because we don't yet have a full block to process.
                 return;
             }
         } else {
             // Load the full block from the buffer.
-            Self::write_bytes(self.indma.as_mut().unwrap(), C::BLOCK_SIZE, &ctx.aad_buffer).await;
+            Self::write_bytes(self.indma.as_mut().unwrap(), C::BLOCK_SIZE, &ctx.aad_buffer[..]).await;
             assert_eq!(T::regs().sr().read().ifem(), true);
         }
 
@@ -1648,14 +1659,14 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
 
         if last_aad_block {
             if leftovers > 0 {
-                Self::write_bytes(self.indma.as_mut().unwrap(), C::BLOCK_SIZE, &ctx.aad_buffer).await;
+                Self::write_bytes(self.indma.as_mut().unwrap(), C::BLOCK_SIZE, &ctx.aad_buffer[..]).await;
                 assert_eq!(T::regs().sr().read().ifem(), true);
             }
             // Switch to payload phase.
             ctx.aad_complete = true;
             T::regs().cr().modify(|w| w.set_crypen(false));
             T::regs().cr().modify(|w| w.set_gcm_ccmph(2));
-            T::regs().cr().modify(|w| w.fflush());
+            T::regs().cr().modify(|w| w.set_fflush(true));
         }
 
         self.store_context(ctx);
@@ -1669,6 +1680,14 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
     /// Data must be a multiple of block size (128-bits for AES, 64-bits for DES) for CBC and ECB modes.
     /// Padding or ciphertext stealing must be managed by the application for these modes.
     /// Data must also be a multiple of block size unless `last_block` is `true`.
+    ///
+    /// # Buffer alignment
+    ///
+    /// Best performance is achieved when `input` and `output` are 4-byte
+    /// aligned: the DMA transfers as 32-bit words and skips its FIFO packing
+    /// path. `[u8; N]` arrays are not aligned by default; wrap them in a
+    /// `#[repr(align(4))]` newtype (or `aligned::Aligned<aligned::A4, _>`) to
+    /// guarantee alignment.
     pub async fn payload<'c, C: Cipher<'c> + CipherSized + IVSized>(
         &mut self,
         ctx: &mut Context<'c, C>,
@@ -1689,7 +1708,7 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
                 ctx.aad_complete = true;
                 T::regs().cr().modify(|w| w.set_crypen(false));
                 T::regs().cr().modify(|w| w.set_gcm_ccmph(2));
-                T::regs().cr().modify(|w| w.fflush());
+                T::regs().cr().modify(|w| w.set_fflush(true));
                 T::regs().cr().modify(|w| w.set_crypen(true));
             }
         }
@@ -1716,23 +1735,29 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
             ctx.last_block_processed = true;
         }
 
-        // Load data into core, block by block.
+        // Feed all full blocks to the core in one DMA round-trip per chunk.
+        // With burst-level handshake and 4-beat (16-byte) bursts, the channel
+        // fires one burst per CRYP request, so the FIFO never overflows.
+        // BNDT is 16 bits so cap each chunk at the largest multiple of the
+        // cipher block size that fits.
         let num_full_blocks = input.len() / C::BLOCK_SIZE;
-        for block in 0..num_full_blocks {
-            let index = block * C::BLOCK_SIZE;
-            // Read block out
+        let bulk_len = num_full_blocks * C::BLOCK_SIZE;
+        let max_chunk = (0xFFFF / C::BLOCK_SIZE) * C::BLOCK_SIZE;
+        let mut offset = 0;
+        while offset < bulk_len {
+            let chunk = (bulk_len - offset).min(max_chunk);
             let read = Self::read_bytes(
                 self.outdma.as_mut().unwrap(),
                 C::BLOCK_SIZE,
-                &mut output[index..index + C::BLOCK_SIZE],
+                &mut output[offset..offset + chunk],
             );
-            // Write block in
             let write = Self::write_bytes(
                 self.indma.as_mut().unwrap(),
                 C::BLOCK_SIZE,
-                &input[index..index + C::BLOCK_SIZE],
+                &input[offset..offset + chunk],
             );
             embassy_futures::join::join(read, write).await;
+            offset += chunk;
         }
 
         // Handle the final block, which is incomplete.
@@ -1740,11 +1765,12 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
             let padding_len = C::BLOCK_SIZE - last_block_remainder;
             let temp1 = ctx.cipher.pre_final(T::regs(), ctx.dir, padding_len);
 
-            let mut intermediate_data: [u8; AES_BLOCK_SIZE] = [0; AES_BLOCK_SIZE];
-            let mut last_block: [u8; AES_BLOCK_SIZE] = [0; AES_BLOCK_SIZE];
+            // Stack locals are 4-byte aligned for the CRYP DMA (word-width).
+            let mut intermediate_data: Aligned<A4, [u8; AES_BLOCK_SIZE]> = Aligned([0; AES_BLOCK_SIZE]);
+            let mut last_block: Aligned<A4, [u8; AES_BLOCK_SIZE]> = Aligned([0; AES_BLOCK_SIZE]);
             last_block[..last_block_remainder].copy_from_slice(&input[input.len() - last_block_remainder..input.len()]);
-            let read = Self::read_bytes(self.outdma.as_mut().unwrap(), C::BLOCK_SIZE, &mut intermediate_data);
-            let write = Self::write_bytes(self.indma.as_mut().unwrap(), C::BLOCK_SIZE, &last_block);
+            let read = Self::read_bytes(self.outdma.as_mut().unwrap(), C::BLOCK_SIZE, &mut *intermediate_data);
+            let write = Self::write_bytes(self.indma.as_mut().unwrap(), C::BLOCK_SIZE, &*last_block);
             embassy_futures::join::join(read, write).await;
 
             // Handle the last block depending on mode.
@@ -1755,7 +1781,7 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
             let mut mask: [u8; 16] = [0; 16];
             mask[..last_block_remainder].fill(0xFF);
             ctx.cipher
-                .post_final(T::regs(), self, ctx.dir, &mut intermediate_data, temp1, mask)
+                .post_final(T::regs(), self, ctx.dir, &mut *intermediate_data, temp1, mask)
                 .await;
         }
 
@@ -1798,8 +1824,8 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
 
         let write = Self::write_words(self.indma.as_mut().unwrap(), C::BLOCK_SIZE, &footer);
 
-        let mut full_tag: [u8; 16] = [0; 16];
-        let read = Self::read_bytes(self.outdma.as_mut().unwrap(), C::BLOCK_SIZE, &mut full_tag);
+        let mut full_tag: Aligned<A4, [u8; 16]> = Aligned([0; 16]);
+        let read = Self::read_bytes(self.outdma.as_mut().unwrap(), C::BLOCK_SIZE, &mut *full_tag);
 
         embassy_futures::join::join(read, write).await;
 
@@ -1817,13 +1843,28 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
         }
         // Ensure input is a multiple of block size.
         assert_eq!(blocks.len() % block_size, 0);
-        // Configure DMA to transfer input to crypto core.
         let dst_ptr: *mut u32 = T::regs().din().as_ptr();
         let options = TransferOptions {
             priority: crate::dma::Priority::High,
+            // GPDMA only: 4-beat bursts (16 bytes = one AES block) per
+            // peripheral request, matching Linux's stm32-cryp
+            // `dst_maxburst = CRYP_DMA_BURST_REG = 4`.
+            #[cfg(gpdma)]
+            burst_length: crate::dma::Burst::_4Beats,
             ..Default::default()
         };
-        let dma_transfer = unsafe { dma.write_raw(blocks, dst_ptr, options) };
+        // Fast path: 4-byte aligned source becomes a u32 transfer (SDW=DDW=
+        // Word), so the channel doesn't have to pack/unpack across widths.
+        // Otherwise let the channel handle the mismatch via its FIFO.
+        let dma_transfer = unsafe {
+            if blocks.as_ptr() as usize % 4 == 0 {
+                let num_words = blocks.len() / 4;
+                let src: *const [u32] = core::ptr::slice_from_raw_parts(blocks.as_ptr() as *const u32, num_words);
+                dma.write_raw(src, dst_ptr, options)
+            } else {
+                dma.write_raw(blocks, dst_ptr, options)
+            }
+        };
         T::regs().dmacr().modify(|w| w.set_dien(true));
         // Wait for the transfer to complete.
         dma_transfer.await;
@@ -1840,6 +1881,8 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
         let dst_ptr: *mut u32 = T::regs().din().as_ptr();
         let options = TransferOptions {
             priority: crate::dma::Priority::High,
+            #[cfg(gpdma)]
+            burst_length: crate::dma::Burst::_4Beats,
             ..Default::default()
         };
         let dma_transfer = unsafe { dma.write_raw(blocks, dst_ptr, options) };
@@ -1854,13 +1897,23 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
         }
         // Ensure input is a multiple of block size.
         assert_eq!(blocks.len() % block_size, 0);
-        // Configure DMA to get output from crypto core.
         let src_ptr = T::regs().dout().as_ptr();
         let options = TransferOptions {
             priority: crate::dma::Priority::VeryHigh,
+            #[cfg(gpdma)]
+            burst_length: crate::dma::Burst::_4Beats,
             ..Default::default()
         };
-        let dma_transfer = unsafe { dma.read_raw(src_ptr, blocks, options) };
+        // See write_bytes above for the alignment fast/slow path rationale.
+        let dma_transfer = unsafe {
+            if blocks.as_ptr() as usize % 4 == 0 {
+                let num_words = blocks.len() / 4;
+                let dst: *mut [u32] = core::ptr::slice_from_raw_parts_mut(blocks.as_mut_ptr() as *mut u32, num_words);
+                dma.read_raw(src_ptr, dst, options)
+            } else {
+                dma.read_raw(src_ptr, blocks, options)
+            }
+        };
         T::regs().dmacr().modify(|w| w.set_doen(true));
         // Wait for the transfer to complete.
         dma_transfer.await;

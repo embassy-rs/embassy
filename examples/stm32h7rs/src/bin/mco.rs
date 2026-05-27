@@ -17,11 +17,11 @@ async fn main(_spawner: Spawner) {
 
     let config = {
         let mut config = McoConfig::default();
-        config.prescaler = McoPrescaler::DIV8;
+        config.prescaler = McoPrescaler::Div8;
         config
     };
 
-    let _mco = Mco::new(p.MCO1, p.PA8, Mco1Source::HSI, config);
+    let _mco = Mco::new(p.MCO1, p.PA8, Mco1Source::Hsi, config);
 
     loop {
         info!("high");

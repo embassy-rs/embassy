@@ -2,23 +2,27 @@
 
 use core::marker::PhantomData;
 
-pub use stm32_metapac::timer::vals::{Ckd, Ossi, Ossr};
-
-use super::low_level::{CountingMode, OutputPolarity, Timer};
+pub use super::low_level::FilterValue;
+use super::low_level::{CountingMode, OutputPolarity, RoundTo, Timer};
 use super::simple_pwm::PwmPin;
 use super::{AdvancedInstance4Channel, Ch1, Ch2, Ch3, Ch4, Channel, TimerComplementaryPin};
 use crate::Peri;
-use crate::gpio::{AnyPin, OutputType};
+use crate::dma::word::Word;
+use crate::gpio::{AfType, Flex, OutputType};
+pub use crate::pac::timer::vals::{
+    Bkinp as BreakComparatorPolarity, Bkp as BreakInputPolarity, Ccds, Ckd, Mms2, Ossi, Ossr,
+};
 use crate::time::Hertz;
 use crate::timer::TimerChannel;
 use crate::timer::low_level::OutputCompareMode;
+use crate::timer::simple_pwm::PwmPinConfig;
 
 /// Complementary PWM pin wrapper.
 ///
 /// This wraps a pin to make it usable with PWM.
 pub struct ComplementaryPwmPin<'d, T, C, #[cfg(afio)] A> {
     #[allow(unused)]
-    pin: Peri<'d, AnyPin>,
+    pin: Flex<'d>,
     phantom: PhantomData<if_afio!((T, C, A))>,
 }
 
@@ -27,13 +31,31 @@ impl<'d, T: AdvancedInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(
     pub fn new(pin: Peri<'d, if_afio!(impl TimerComplementaryPin<T, C, A>)>, output_type: OutputType) -> Self {
         critical_section::with(|_| {
             pin.set_low();
-            set_as_af!(
-                pin,
-                crate::gpio::AfType::output(output_type, crate::gpio::Speed::VeryHigh)
+            set_as_af!(pin, AfType::output(output_type, crate::gpio::Speed::VeryHigh));
+        });
+        ComplementaryPwmPin {
+            pin: Flex::new(pin),
+            phantom: PhantomData,
+        }
+    }
+
+    /// Create a new PWM pin instance with config.
+    pub fn new_with_config(
+        pin: Peri<'d, if_afio!(impl TimerComplementaryPin<T, C, A>)>,
+        pin_config: PwmPinConfig,
+    ) -> Self {
+        critical_section::with(|_| {
+            pin.set_low();
+            #[cfg(gpio_v1)]
+            set_as_af!(pin, AfType::output(pin_config.output_type, pin_config.speed));
+            #[cfg(gpio_v2)]
+            pin.set_as_af(
+                pin.af_num(),
+                AfType::output_pull(pin_config.output_type, pin_config.speed, pin_config.pull),
             );
         });
         ComplementaryPwmPin {
-            pin: pin.into(),
+            pin: Flex::new(pin),
             phantom: PhantomData,
         }
     }
@@ -42,6 +64,14 @@ impl<'d, T: AdvancedInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(
 /// PWM driver with support for standard and complementary outputs.
 pub struct ComplementaryPwm<'d, T: AdvancedInstance4Channel> {
     inner: Timer<'d, T>,
+    _ch1: Option<Flex<'d>>,
+    _ch1n: Option<Flex<'d>>,
+    _ch2: Option<Flex<'d>>,
+    _ch2n: Option<Flex<'d>>,
+    _ch3: Option<Flex<'d>>,
+    _ch3n: Option<Flex<'d>>,
+    _ch4: Option<Flex<'d>>,
+    _ch4n: Option<Flex<'d>>,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -69,16 +99,48 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         freq: Hertz,
         counting_mode: CountingMode,
     ) -> Self {
-        Self::new_inner(tim, freq, counting_mode)
+        Self::new_inner(
+            tim,
+            ch1.map(|pin| pin.pin),
+            ch1n.map(|pin| pin.pin),
+            ch2.map(|pin| pin.pin),
+            ch2n.map(|pin| pin.pin),
+            ch3.map(|pin| pin.pin),
+            ch3n.map(|pin| pin.pin),
+            ch4.map(|pin| pin.pin),
+            ch4n.map(|pin| pin.pin),
+            freq,
+            counting_mode,
+        )
     }
 
-    fn new_inner(tim: Peri<'d, T>, freq: Hertz, counting_mode: CountingMode) -> Self {
-        let mut this = Self { inner: Timer::new(tim) };
+    fn new_inner(
+        tim: Peri<'d, T>,
+        _ch1: Option<Flex<'d>>,
+        _ch1n: Option<Flex<'d>>,
+        _ch2: Option<Flex<'d>>,
+        _ch2n: Option<Flex<'d>>,
+        _ch3: Option<Flex<'d>>,
+        _ch3n: Option<Flex<'d>>,
+        _ch4: Option<Flex<'d>>,
+        _ch4n: Option<Flex<'d>>,
+        freq: Hertz,
+        counting_mode: CountingMode,
+    ) -> Self {
+        let mut this = Self {
+            inner: Timer::new(tim),
+            _ch1,
+            _ch1n,
+            _ch2,
+            _ch2n,
+            _ch3,
+            _ch3n,
+            _ch4,
+            _ch4n,
+        };
 
         this.inner.set_counting_mode(counting_mode);
         this.set_frequency(freq);
-        this.inner.start();
-
         this.inner.enable_outputs();
 
         [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
@@ -89,6 +151,10 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
             });
         this.inner.set_autoreload_preload(true);
 
+        // Generate update event so pre-load registers are written to the shadow registers
+        this.inner.generate_update_event();
+        this.inner.start();
+
         this
     }
 
@@ -98,6 +164,42 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         for &channel in channels {
             self.inner.set_ois(channel, ois_active);
             self.inner.set_oisn(channel, !ois_active);
+        }
+    }
+
+    /// Sets the idle state for the normal (OISx) channels only. OISxN is not modified.
+    ///
+    /// When OSSI is enabled (`set_off_state_selection_idle(Ossi::IdleLevel)`), the timer
+    /// drives outputs to the configured idle state whenever MOE=0, regardless of GPIO
+    /// push-pull configuration. This makes idle behavior deterministic across platforms.
+    ///
+    /// **Constraint**: OISx and OISxN must not both map to the active output state for the same
+    /// channel. After a break event the timer inserts a dead time before settling outputs to their
+    /// idle state, and the hardware prevents both complementary outputs from being active
+    /// simultaneously to avoid a shoot-through condition in half-bridge configurations.
+    ///
+    /// - `ois_active = true`:  normal outputs go active when idle (OISx=1)
+    /// - `ois_active = false`: normal outputs go inactive when idle (OISx=0)
+    pub fn set_normal_output_idle_state(&mut self, channels: &[Channel], ois_active: bool) {
+        for &channel in channels {
+            self.inner.set_ois(channel, ois_active);
+        }
+    }
+
+    /// Sets the idle state for the complementary (OISxN) channels only. OISx is not modified.
+    ///
+    /// When OSSI is enabled (`set_off_state_selection_idle(Ossi::IdleLevel)`), the timer
+    /// drives outputs to the configured idle state whenever MOE=0, regardless of GPIO
+    /// push-pull configuration. This makes idle behavior deterministic across platforms.
+    ///
+    /// **Constraint**: OISx and OISxN must not both map to the active output state for the same
+    /// channel. See [`set_normal_output_idle_state`] for details.
+    ///
+    /// - `oisn_active = true`:  complementary outputs go active when idle (OISxN=1)
+    /// - `oisn_active = false`: complementary outputs go inactive when idle (OISxN=0)
+    pub fn set_complementary_output_idle_state(&mut self, channels: &[Channel], oisn_active: bool) {
+        for &channel in channels {
+            self.inner.set_oisn(channel, oisn_active);
         }
     }
 
@@ -136,6 +238,161 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.get_moe()
     }
 
+    /// Enable/disable break input 1.
+    ///
+    /// When enabled, an active level on the break input forces all timer
+    /// outputs to their safe state (configured by OSSI/OSSR and OIS/OISN).
+    /// This provides hardware-level overcurrent protection for motor drives.
+    pub fn set_break_enable(&mut self, enable: bool) {
+        self.inner.set_break_enable(enable);
+    }
+
+    /// Get break input 1 enable state.
+    pub fn get_break_enable(&self) -> bool {
+        self.inner.get_break_enable()
+    }
+
+    /// Set break input 1 polarity.
+    pub fn set_break_polarity(&mut self, polarity: BreakInputPolarity) {
+        self.inner.set_break_polarity(polarity);
+    }
+
+    /// Get break input 1 polarity.
+    pub fn get_break_polarity(&self) -> BreakInputPolarity {
+        self.inner.get_break_polarity()
+    }
+
+    /// Set break input 1 digital filter.
+    ///
+    /// The filter rejects glitches shorter than the configured number of
+    /// clock cycles, preventing false break events from noise on the pin.
+    pub fn set_break_filter(&mut self, filter: FilterValue) {
+        self.inner.set_break_filter(filter);
+    }
+
+    /// Get break input 1 digital filter.
+    pub fn get_break_filter(&self) -> FilterValue {
+        self.inner.get_break_filter()
+    }
+
+    /// Enable/disable break input 2.
+    pub fn set_break2_enable(&mut self, enable: bool) {
+        self.inner.set_break2_enable(enable);
+    }
+
+    /// Get break input 2 enable state.
+    pub fn get_break2_enable(&self) -> bool {
+        self.inner.get_break2_enable()
+    }
+
+    /// Set break input 2 polarity.
+    pub fn set_break2_polarity(&mut self, polarity: BreakInputPolarity) {
+        self.inner.set_break2_polarity(polarity);
+    }
+
+    /// Get break input 2 polarity.
+    pub fn get_break2_polarity(&self) -> BreakInputPolarity {
+        self.inner.get_break2_polarity()
+    }
+
+    /// Set break input 2 digital filter.
+    pub fn set_break2_filter(&mut self, filter: FilterValue) {
+        self.inner.set_break2_filter(filter);
+    }
+
+    /// Get break input 2 digital filter.
+    pub fn get_break2_filter(&self) -> FilterValue {
+        self.inner.get_break2_filter()
+    }
+
+    /// Enable/disable automatic output enable (AOE).
+    ///
+    /// When enabled, the MOE bit is automatically set at the next update
+    /// event after a break event, allowing the outputs to resume. When
+    /// disabled, MOE can only be re-enabled by software after a break.
+    pub fn set_automatic_output_enable(&mut self, enable: bool) {
+        self.inner.set_automatic_output_enable(enable);
+    }
+
+    /// Get automatic output enable (AOE) state.
+    pub fn get_automatic_output_enable(&self) -> bool {
+        self.inner.get_automatic_output_enable()
+    }
+
+    /// Enable/disable comparator output as break input 1 source.
+    ///
+    /// Routes the internal comparator output directly to the break input,
+    /// no GPIO pin needed. `comp_index` is 0-based (0=COMP1, 1=COMP2, etc.).
+    /// Multiple comparators can be enabled simultaneously (OR'd together).
+    pub fn set_break_comparator_enable(&mut self, comp_index: usize, enable: bool) {
+        self.inner.set_break_comparator_enable(comp_index, enable);
+    }
+
+    /// Get comparator break input 1 enable state.
+    pub fn get_break_comparator_enable(&self, comp_index: usize) -> bool {
+        self.inner.get_break_comparator_enable(comp_index)
+    }
+
+    /// Set comparator break input 1 polarity.
+    pub fn set_break_comparator_polarity(&mut self, comp_index: usize, polarity: BreakComparatorPolarity) {
+        self.inner.set_break_comparator_polarity(comp_index, polarity);
+    }
+
+    /// Get comparator break input 1 polarity.
+    pub fn get_break_comparator_polarity(&self, comp_index: usize) -> BreakComparatorPolarity {
+        self.inner.get_break_comparator_polarity(comp_index)
+    }
+
+    /// Enable/disable the external BKIN pin as break input 1 source.
+    pub fn set_break_input_pin_enable(&mut self, enable: bool) {
+        self.inner.set_break_input_pin_enable(enable);
+    }
+
+    /// Get external BKIN pin enable state.
+    pub fn get_break_input_pin_enable(&self) -> bool {
+        self.inner.get_break_input_pin_enable()
+    }
+
+    /// Enable/disable comparator output as break input 2 source.
+    pub fn set_break2_comparator_enable(&mut self, comp_index: usize, enable: bool) {
+        self.inner.set_break2_comparator_enable(comp_index, enable);
+    }
+
+    /// Get comparator break input 2 enable state.
+    pub fn get_break2_comparator_enable(&self, comp_index: usize) -> bool {
+        self.inner.get_break2_comparator_enable(comp_index)
+    }
+
+    /// Set comparator break input 2 polarity.
+    pub fn set_break2_comparator_polarity(&mut self, comp_index: usize, polarity: BreakComparatorPolarity) {
+        self.inner.set_break2_comparator_polarity(comp_index, polarity);
+    }
+
+    /// Get comparator break input 2 polarity.
+    pub fn get_break2_comparator_polarity(&self, comp_index: usize) -> BreakComparatorPolarity {
+        self.inner.get_break2_comparator_polarity(comp_index)
+    }
+
+    /// Enable/disable the external BK2IN pin as break input 2 source.
+    pub fn set_break2_input_pin_enable(&mut self, enable: bool) {
+        self.inner.set_break2_input_pin_enable(enable);
+    }
+
+    /// Get external BK2IN pin enable state.
+    pub fn get_break2_input_pin_enable(&self) -> bool {
+        self.inner.get_break2_input_pin_enable()
+    }
+
+    /// Set Master Slave Mode 2
+    pub fn set_mms2(&mut self, mms2: Mms2) {
+        self.inner.set_mms2_selection(mms2);
+    }
+
+    /// Set Repetition Counter
+    pub fn set_repetition_counter(&mut self, val: u16) {
+        self.inner.set_repetition_counter(val);
+    }
+
     /// Enable the given channel.
     pub fn enable(&mut self, channel: Channel) {
         self.inner.enable_channel(channel, true);
@@ -150,34 +407,104 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
 
     /// Set PWM frequency.
     ///
-    /// Note: when you call this, the max duty value changes, so you will have to
-    /// call `set_duty` on all channels with the duty calculated based on the new max duty.
+    /// The actual frequency may differ from the requested value due to hardware
+    /// limitations. The timer will round towards a slower (longer) period.
+    ///
+    /// Note: that the frequency will not be applied in the timer until an update event
+    /// occurs.
     pub fn set_frequency(&mut self, freq: Hertz) {
         let multiplier = if self.inner.get_counting_mode().is_center_aligned() {
-            2u8
+            2u64
         } else {
-            1u8
+            1u64
         };
-        self.inner.set_frequency_internal(freq * multiplier, 16);
+        let timer_f = T::frequency().0 as u64;
+        let clocks = timer_f / (freq.0 as u64 * multiplier);
+        self.inner.set_period_clocks_internal(clocks, RoundTo::Slower, 16);
+    }
+
+    /// Set the PWM period in milliseconds.
+    ///
+    /// The actual period may differ from the requested value due to hardware
+    /// limitations. The timer will round towards a slower (longer) period.
+    ///
+    /// Note: that the period will not be applied in the timer until an update event
+    /// occurs.
+    pub fn set_period_ms(&mut self, ms: u32) {
+        let timer_f = T::frequency().0 as u64;
+        let mut clocks = timer_f * ms as u64 / 1_000;
+        if self.inner.get_counting_mode().is_center_aligned() {
+            clocks = clocks / 2;
+        }
+        self.inner.set_period_clocks(clocks, RoundTo::Slower);
+    }
+
+    /// Set the PWM period in microseconds.
+    ///
+    /// The actual period may differ from the requested value due to hardware
+    /// limitations. The timer will round towards a slower (longer) period.
+    ///
+    /// Note: that the period will not be applied in the timer until an update event
+    /// occurs.
+    pub fn set_period_us(&mut self, us: u32) {
+        let timer_f = T::frequency().0 as u64;
+        let mut clocks = timer_f * us as u64 / 1_000_000;
+        if self.inner.get_counting_mode().is_center_aligned() {
+            clocks = clocks / 2;
+        }
+        self.inner.set_period_clocks(clocks, RoundTo::Slower);
+    }
+
+    /// Set the PWM period in seconds.
+    ///
+    /// The actual period may differ from the requested value due to hardware
+    /// limitations. The timer will round towards a slower (longer) period.
+    ///
+    /// Note: that the period will not be applied in the timer until an update event
+    /// occurs.
+    pub fn set_period_secs(&mut self, secs: u32) {
+        let timer_f = T::frequency().0 as u64;
+        let mut clocks = timer_f * secs as u64;
+        if self.inner.get_counting_mode().is_center_aligned() {
+            clocks = clocks / 2;
+        }
+        self.inner.set_period_clocks(clocks, RoundTo::Slower);
+    }
+
+    /// Set the PWM period using an `embassy_time::Duration`.
+    ///
+    /// The actual period may differ from the requested value due to hardware
+    /// limitations. The timer will round towards a slower (longer) period.
+    ///
+    /// Note: that the period will not be applied in the timer until an update event
+    /// occurs.
+    #[cfg(feature = "time")]
+    pub fn set_period(&mut self, period: embassy_time::Duration) {
+        let timer_f = T::frequency().0 as u64;
+        let mut clocks = timer_f * period.as_ticks() / embassy_time::TICK_HZ;
+        if self.inner.get_counting_mode().is_center_aligned() {
+            clocks = clocks / 2;
+        }
+        self.inner.set_period_clocks(clocks, RoundTo::Slower);
     }
 
     /// Get max duty value.
     ///
     /// This value depends on the configured frequency and the timer's clock rate from RCC.
-    pub fn get_max_duty(&self) -> u16 {
+    pub fn get_max_duty(&self) -> u32 {
         if self.inner.get_counting_mode().is_center_aligned() {
-            self.inner.get_max_compare_value() as u16
+            self.inner.get_max_compare_value().into()
         } else {
-            self.inner.get_max_compare_value() as u16 + 1
+            self.inner.get_max_compare_value().into() + 1
         }
     }
 
     /// Set the duty for a given channel.
     ///
     /// The value ranges from 0 for 0% duty, to [`get_max_duty`](Self::get_max_duty) for 100% duty, both included.
-    pub fn set_duty(&mut self, channel: Channel, duty: u16) {
+    pub fn set_duty(&mut self, channel: Channel, duty: u32) {
         assert!(duty <= self.get_max_duty());
-        self.inner.set_compare_value(channel, duty as _)
+        self.inner.set_compare_value(channel, unwrap!(duty.try_into()))
     }
 
     /// Set the output polarity for a given channel.
@@ -207,61 +534,91 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Generate a sequence of PWM waveform
     ///
     /// Note:
+    /// The DMA channel provided does not need to correspond to the requested channel.
+    pub async fn waveform<C: TimerChannel, W: Word + Into<T::Word>, D: super::Dma<T, C>>(
+        &mut self,
+        dma: Peri<'_, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + '_,
+        channel: Channel,
+        duty: &[W],
+    ) {
+        self.inner.enable_channel(channel, true);
+        self.inner.enable_channel(C::CHANNEL, true);
+        self.inner.clamp_compare_value::<W>(channel);
+        self.inner.set_cc_dma_selection(Ccds::OnUpdate);
+        self.inner.set_cc_dma_enable_state(C::CHANNEL, true);
+        self.inner.setup_channel_update_dma(dma, irq, channel, duty).await;
+        self.inner.set_cc_dma_enable_state(C::CHANNEL, false);
+    }
+
+    /// Generate a sequence of PWM waveform
+    ///
+    /// Note:
     /// you will need to provide corresponding TIMx_UP DMA channel to use this method.
-    pub async fn waveform_up(&mut self, dma: Peri<'_, impl super::UpDma<T>>, channel: Channel, duty: &[u16]) {
-        #[allow(clippy::let_unit_value)] // eg. stm32f334
-        let req = dma.request();
+    pub async fn waveform_up<W: Word + Into<T::Word>, D: super::UpDma<T>>(
+        &mut self,
+        dma: Peri<'_, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + '_,
+        channel: Channel,
+        duty: &[W],
+    ) {
+        self.inner.enable_channel(channel, true);
+        self.inner.clamp_compare_value::<W>(channel);
+        self.inner.enable_update_dma(true);
+        self.inner.setup_update_dma(dma, irq, channel, duty).await;
+        self.inner.enable_update_dma(false);
+    }
 
-        let original_duty_state = self.inner.get_compare_value(channel);
-        let original_enable_state = self.inner.get_channel_enable_state(channel);
-        let original_update_dma_state = self.inner.get_update_dma_state();
-
-        if !original_update_dma_state {
-            self.inner.enable_update_dma(true);
-        }
-
-        if !original_enable_state {
-            self.inner.enable_channel(channel, true);
-        }
-
-        unsafe {
-            #[cfg(not(any(bdma, gpdma)))]
-            use crate::dma::{Burst, FifoThreshold};
-            use crate::dma::{Transfer, TransferOptions};
-
-            let dma_transfer_option = TransferOptions {
-                #[cfg(not(any(bdma, gpdma)))]
-                fifo_threshold: Some(FifoThreshold::Full),
-                #[cfg(not(any(bdma, gpdma)))]
-                mburst: Burst::Incr8,
-                ..Default::default()
-            };
-
-            Transfer::new_write(
-                dma,
-                req,
-                duty,
-                self.inner.regs_gp16().ccr(channel.index()).as_ptr() as *mut u16,
-                dma_transfer_option,
-            )
-            .await
-        };
-
-        // restore output compare state
-        if !original_enable_state {
-            self.inner.enable_channel(channel, false);
-        }
-
-        self.inner.set_compare_value(channel, original_duty_state);
-
-        // Since DMA is closed before timer update event trigger DMA is turn off,
-        // this can almost always trigger a DMA FIFO error.
-        //
-        // optional TODO:
-        // clean FEIF after disable UDE
-        if !original_update_dma_state {
-            self.inner.enable_update_dma(false);
-        }
+    /// Generate a multichannel sequence of PWM waveforms using DMA triggered by timer update events.
+    ///
+    /// This method utilizes the timer's DMA burst transfer capability to update multiple CCRx registers
+    /// in sequence on each update event (UEV). The data is written via the DMAR register using the
+    /// DMA base address (DBA) and burst length (DBL) configured in the DCR register.
+    ///
+    /// The `duty` buffer must be structured as a flattened 2D array in row-major order, where each row
+    /// represents a single update event and each column corresponds to a specific timer channel (starting
+    /// from `starting_channel` up to and including `ending_channel`).
+    ///
+    /// For example, if using channels 1 through 4, a buffer of 4 update steps might look like:
+    ///
+    /// ```rust,ignore
+    /// let dma_buf: [u16; 16] = [
+    ///     ch1_duty_1, ch2_duty_1, ch3_duty_1, ch4_duty_1, // update 1
+    ///     ch1_duty_2, ch2_duty_2, ch3_duty_2, ch4_duty_2, // update 2
+    ///     ch1_duty_3, ch2_duty_3, ch3_duty_3, ch4_duty_3, // update 3
+    ///     ch1_duty_4, ch2_duty_4, ch3_duty_4, ch4_duty_4, // update 4
+    /// ];
+    /// ```
+    ///
+    /// Each group of `N` values (where `N` is number of channels) is transferred on one update event,
+    /// updating the duty cycles of all selected channels simultaneously.
+    ///
+    /// Note:
+    /// You will need to provide corresponding `TIMx_UP` DMA channel to use this method.
+    /// Also be aware that embassy timers use one of timers internally. It is possible to
+    /// switch this timer by using `time-driver-timX` feature.
+    ///
+    pub async fn waveform_up_multi_channel<W: Word + Into<T::Word>, D: super::UpDma<T>>(
+        &mut self,
+        dma: Peri<'_, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + '_,
+        starting_channel: Channel,
+        ending_channel: Channel,
+        duty: &[W],
+    ) {
+        [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
+            .iter()
+            .filter(|ch| ch.index() >= starting_channel.index())
+            .filter(|ch| ch.index() <= ending_channel.index())
+            .for_each(|ch| {
+                self.inner.enable_channel(*ch, true);
+                self.inner.clamp_compare_value::<W>(*ch);
+            });
+        self.inner.enable_update_dma(true);
+        self.inner
+            .setup_update_dma_burst(dma, irq, starting_channel, ending_channel, duty)
+            .await;
+        self.inner.enable_update_dma(false);
     }
 }
 
@@ -285,27 +642,27 @@ impl<'d, T: AdvancedInstance4Channel> embedded_hal_02::Pwm for ComplementaryPwm<
     }
 
     fn get_duty(&self, channel: Self::Channel) -> Self::Duty {
-        self.inner.get_compare_value(channel) as u16
+        unwrap!(self.inner.get_compare_value(channel).try_into())
     }
 
     fn get_max_duty(&self) -> Self::Duty {
         if self.inner.get_counting_mode().is_center_aligned() {
-            self.inner.get_max_compare_value() as u16
+            unwrap!(self.inner.get_max_compare_value().try_into())
         } else {
-            self.inner.get_max_compare_value() as u16 + 1
+            unwrap!(self.inner.get_max_compare_value().try_into()) + 1
         }
     }
 
     fn set_duty(&mut self, channel: Self::Channel, duty: Self::Duty) {
-        assert!(duty <= self.get_max_duty());
-        self.inner.set_compare_value(channel, duty as u32)
+        assert!(duty <= unwrap!(self.get_max_duty().try_into()));
+        self.inner.set_compare_value(channel, unwrap!(duty.try_into()))
     }
 
     fn set_period<P>(&mut self, period: P)
     where
         P: Into<Self::Time>,
     {
-        self.inner.set_frequency(period.into());
+        self.inner.set_frequency(period.into(), RoundTo::Slower);
     }
 }
 
@@ -336,14 +693,14 @@ fn compute_dead_time_value(value: u16) -> (Ckd, u8) {
     */
 
     let mut error = u16::MAX;
-    let mut ckd = Ckd::DIV1;
+    let mut ckd = Ckd::Div1;
     let mut bits = 0u8;
 
-    for this_ckd in [Ckd::DIV1, Ckd::DIV2, Ckd::DIV4] {
+    for this_ckd in [Ckd::Div1, Ckd::Div2, Ckd::Div4] {
         let outdiv = match this_ckd {
-            Ckd::DIV1 => 1,
-            Ckd::DIV2 => 2,
-            Ckd::DIV4 => 4,
+            Ckd::Div1 => 1,
+            Ckd::Div2 => 2,
+            Ckd::Div4 => 4,
             _ => unreachable!(),
         };
 
@@ -401,32 +758,32 @@ mod tests {
         let fn_results = [
             TestRun {
                 value: 1,
-                ckd: Ckd::DIV1,
+                ckd: Ckd::Div1,
                 bits: 1,
             },
             TestRun {
                 value: 125,
-                ckd: Ckd::DIV1,
+                ckd: Ckd::Div1,
                 bits: 125,
             },
             TestRun {
                 value: 245,
-                ckd: Ckd::DIV1,
+                ckd: Ckd::Div1,
                 bits: 64 + 245 / 2,
             },
             TestRun {
                 value: 255,
-                ckd: Ckd::DIV2,
+                ckd: Ckd::Div2,
                 bits: 127,
             },
             TestRun {
                 value: 400,
-                ckd: Ckd::DIV1,
+                ckd: Ckd::Div1,
                 bits: 210,
             },
             TestRun {
                 value: 600,
-                ckd: Ckd::DIV4,
+                ckd: Ckd::Div4,
                 bits: 64 + (600u16 / 8) as u8,
             },
         ];

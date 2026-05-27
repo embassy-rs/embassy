@@ -5,6 +5,10 @@ use crate::pio::{Instance, StateMachine};
 
 impl<'d, PIO: Instance, const SM: usize> StateMachine<'d, PIO, SM> {
     /// Set value of scratch register X.
+    ///
+    /// SAFETY: autopull enabled else it will write undefined data.
+    /// Make sure to have setup the according configuration see
+    /// [shift_out](crate::pio::Config::shift_out) and [auto_fill](crate::pio::ShiftConfig::auto_fill).
     pub unsafe fn set_x(&mut self, value: u32) {
         const OUT: u16 = InstructionOperands::OUT {
             destination: OutDestination::X,
@@ -16,6 +20,10 @@ impl<'d, PIO: Instance, const SM: usize> StateMachine<'d, PIO, SM> {
     }
 
     /// Get value of scratch register X.
+    ///
+    /// SAFETY: autopush enabled else it will read undefined data.
+    /// Make sure to have setup the according configurations see
+    /// [shift_in](crate::pio::Config::shift_in) and [auto_fill](crate::pio::ShiftConfig::auto_fill).
     pub unsafe fn get_x(&mut self) -> u32 {
         const IN: u16 = InstructionOperands::IN {
             source: InSource::X,
@@ -27,6 +35,10 @@ impl<'d, PIO: Instance, const SM: usize> StateMachine<'d, PIO, SM> {
     }
 
     /// Set value of scratch register Y.
+    ///
+    /// SAFETY: autopull enabled else it will write undefined data.
+    /// Make sure to have setup the according configuration see
+    /// [shift_out](crate::pio::Config::shift_out) and [auto_fill](crate::pio::ShiftConfig::auto_fill).
     pub unsafe fn set_y(&mut self, value: u32) {
         const OUT: u16 = InstructionOperands::OUT {
             destination: OutDestination::Y,
@@ -38,6 +50,10 @@ impl<'d, PIO: Instance, const SM: usize> StateMachine<'d, PIO, SM> {
     }
 
     /// Get value of scratch register Y.
+    ///
+    /// SAFETY: autopush enabled else it will read undefined data.
+    /// Make sure to have setup the according configurations see
+    /// [shift_in](crate::pio::Config::shift_in) and [auto_fill](crate::pio::ShiftConfig::auto_fill).
     pub unsafe fn get_y(&mut self) -> u32 {
         const IN: u16 = InstructionOperands::IN {
             source: InSource::Y,

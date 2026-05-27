@@ -1,9 +1,10 @@
 //! Direct Memory Access (DMA)
 #![macro_use]
 
-#[cfg(any(bdma, dma))]
+#[cfg(any(bdma, dma, mdma))]
 mod dma_bdma;
-#[cfg(any(bdma, dma))]
+
+#[cfg(any(bdma, dma, mdma))]
 pub use dma_bdma::*;
 
 #[cfg(gpdma)]
@@ -24,8 +25,11 @@ pub(crate) use util::*;
 pub(crate) mod ringbuffer;
 pub mod word;
 
-use embassy_hal_internal::{PeripheralType, impl_peripheral};
+use core::marker::PhantomData;
 
+use embassy_hal_internal::{Peri, PeripheralType};
+
+use crate::_generated::DmaChannel;
 use crate::interrupt;
 
 /// The direction of a DMA transfer.
@@ -36,6 +40,22 @@ pub enum Dir {
     MemoryToPeripheral,
     /// Transfer from a peripheral to memory.
     PeripheralToMemory,
+    /// Transfer from memory to another memory address.
+    MemoryToMemory,
+}
+
+/// Which pointer in the transfer to increment.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Increment {
+    /// DMA will not increment either of the addresses.
+    None,
+    /// DMA will increment the peripheral address.
+    Peripheral,
+    /// DMA will increment the memory address.
+    Memory,
+    /// DMA will increment both peripheral and memory addresses simultaneously.
+    Both,
 }
 
 /// DMA request type alias. (also known as DMA channel number in some chips)
@@ -45,65 +65,81 @@ pub type Request = u8;
 #[cfg(not(any(dma_v2, bdma_v2, gpdma, dmamux)))]
 pub type Request = ();
 
-pub(crate) trait SealedChannel {
-    fn id(&self) -> u8;
+/// DMA channel driver
+pub struct Channel<'d> {
+    pub(crate) channel: DmaChannel,
+    phantom: PhantomData<&'d ()>,
 }
 
-pub(crate) trait ChannelInterrupt {
-    #[cfg_attr(not(feature = "rt"), allow(unused))]
-    unsafe fn on_irq();
+impl<'d> Channel<'d> {
+    /// Create a new DMA channel driver.
+    pub fn new<T: ChannelInstance>(
+        _ch: Peri<'d, T>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, crate::dma::InterruptHandler<T>> + 'd,
+    ) -> Self {
+        Self {
+            channel: T::CHANNEL,
+            phantom: PhantomData,
+        }
+    }
+
+    /// Reborrow the channel, allowing it to be used in multiple places.
+    pub fn reborrow(&mut self) -> Channel<'_> {
+        Channel {
+            channel: self.channel,
+            phantom: PhantomData,
+        }
+    }
+
+    pub(crate) unsafe fn clone_unchecked(&self) -> Channel<'d> {
+        Channel {
+            channel: self.channel,
+            phantom: PhantomData,
+        }
+    }
+}
+
+pub(crate) trait SealedChannelInstance {
+    const CHANNEL: DmaChannel;
 }
 
 /// DMA channel.
 #[allow(private_bounds)]
-pub trait Channel: SealedChannel + PeripheralType + Into<AnyChannel> + 'static {}
+pub trait ChannelInstance: SealedChannelInstance + PeripheralType + 'static {
+    /// The interrupt type for this DMA channel.
+    type Interrupt: interrupt::typelevel::Interrupt;
+}
+
+/// DMA interrupt handler.
+#[allow(private_bounds)]
+pub struct InterruptHandler<T: ChannelInstance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: ChannelInstance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        on_irq(T::CHANNEL)
+    }
+}
 
 macro_rules! dma_channel_impl {
-    ($channel_peri:ident, $index:expr) => {
-        impl crate::dma::SealedChannel for crate::peripherals::$channel_peri {
-            fn id(&self) -> u8 {
-                $index
-            }
-        }
-        impl crate::dma::ChannelInterrupt for crate::peripherals::$channel_peri {
-            unsafe fn on_irq() {
-                crate::dma::AnyChannel { id: $index }.on_irq();
-            }
+    ($channel_peri:ident, $irq:ty) => {
+        impl crate::dma::SealedChannelInstance for crate::peripherals::$channel_peri {
+            const CHANNEL: crate::_generated::DmaChannel = crate::_generated::DmaChannel::$channel_peri;
         }
 
-        impl crate::dma::Channel for crate::peripherals::$channel_peri {}
-
-        impl From<crate::peripherals::$channel_peri> for crate::dma::AnyChannel {
-            fn from(val: crate::peripherals::$channel_peri) -> Self {
-                Self {
-                    id: crate::dma::SealedChannel::id(&val),
-                }
-            }
+        impl crate::dma::ChannelInstance for crate::peripherals::$channel_peri {
+            type Interrupt = $irq;
         }
     };
 }
 
-/// Type-erased DMA channel.
-pub struct AnyChannel {
-    pub(crate) id: u8,
-}
-impl_peripheral!(AnyChannel);
-
-impl AnyChannel {
-    fn info(&self) -> &ChannelInfo {
-        &crate::_generated::DMA_CHANNELS[self.id as usize]
-    }
-}
-
-impl SealedChannel for AnyChannel {
-    fn id(&self) -> u8 {
-        self.id
-    }
-}
-impl Channel for AnyChannel {}
-
 const CHANNEL_COUNT: usize = crate::_generated::DMA_CHANNELS.len();
 static STATE: [ChannelState; CHANNEL_COUNT] = [ChannelState::NEW; CHANNEL_COUNT];
+
+pub(crate) fn info(channel: DmaChannel) -> &'static ChannelInfo {
+    &crate::_generated::DMA_CHANNELS[channel as usize]
+}
 
 // safety: must be called only once at startup
 pub(crate) unsafe fn init(
@@ -111,6 +147,7 @@ pub(crate) unsafe fn init(
     #[cfg(bdma)] bdma_priority: interrupt::Priority,
     #[cfg(dma)] dma_priority: interrupt::Priority,
     #[cfg(gpdma)] gpdma_priority: interrupt::Priority,
+    #[cfg(mdma)] mdma_priority: interrupt::Priority,
 ) {
     #[cfg(any(dma, bdma))]
     dma_bdma::init(
@@ -119,6 +156,8 @@ pub(crate) unsafe fn init(
         dma_priority,
         #[cfg(bdma)]
         bdma_priority,
+        #[cfg(mdma)]
+        mdma_priority,
     );
     #[cfg(gpdma)]
     gpdma::init(cs, gpdma_priority);

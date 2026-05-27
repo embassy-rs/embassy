@@ -1,8 +1,8 @@
 = Sharing peripherals between tasks
 
-Often times, more than one task needs access to the same resource (pin, communication interface, etc.). Embassy provides many different synchronization primitives in the link:https://crates.io/crates/embassy-sync[embassy-sync] crate.
+Often, more than one task needs to access the same resource (pin, communication interface, etc.). Embassy provides many different synchronization primitives in the link:https://crates.io/crates/embassy-sync[embassy-sync] crate.
 
-The following examples shows different ways to use the on-board LED on a Raspberry Pi Pico board by two tasks simultaneously.
+The following examples show different ways for two tasks to use the on-board LED on a Raspberry Pi Pico board simultaneously.
 
 == Sharing using a Mutex
 
@@ -36,8 +36,8 @@ async fn main(spawner: Spawner) {
     let dt = 100 * 1_000_000;
     let k = 1.003;
 
-    spawner.spawn(unwrap!(toggle_led(&LED, Duration::from_nanos(dt))));
-    spawner.spawn(unwrap!(toggle_led(&LED, Duration::from_nanos((dt as f64 * k) as u64))));
+    unwrap!(spawner.spawn(toggle_led(&LED, Duration::from_nanos(dt))));
+    unwrap!(spawner.spawn(toggle_led(&LED, Duration::from_nanos((dt as f64 * k) as u64))));
 }
 
 // A pool size of 2 means you can spawn two instances of this task.
@@ -103,8 +103,8 @@ async fn main(spawner: Spawner) {
     let dt = 100 * 1_000_000;
     let k = 1.003;
 
-    spawner.spawn(unwrap!(toggle_led(CHANNEL.sender(), Duration::from_nanos(dt))));
-    spawner.spawn(unwrap!(toggle_led(CHANNEL.sender(), Duration::from_nanos((dt as f64 * k) as u64))));
+    unwrap!(spawner.spawn(toggle_led(CHANNEL.sender(), Duration::from_nanos(dt))));
+    unwrap!(spawner.spawn(toggle_led(CHANNEL.sender(), Duration::from_nanos((dt as f64 * k) as u64))));
 
     loop {
         match CHANNEL.receive().await {

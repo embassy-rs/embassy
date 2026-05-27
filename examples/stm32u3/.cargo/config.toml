@@ -1,0 +1,9 @@
+[target.'cfg(all(target_arch = "arm", target_os = "none"))']
+# replace STM32U5G9ZJTxQ with your chip as listed in `probe-rs chip list`
+runner = "probe-rs run --chip STM32U385RGTxQ"
+
+[build]
+target = "thumbv8m.main-none-eabihf"
+
+[env]
+DEFMT_LOG = "trace"

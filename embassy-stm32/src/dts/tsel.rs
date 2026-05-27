@@ -49,3 +49,20 @@ pub enum TriggerSel {
     /// EXTI13
     Exti13 = 4,
 }
+
+/// Trigger selection for N6
+#[cfg(stm32n6)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum TriggerSel {
+    /// Software triggering. Performs continuous measurements.
+    Software = 0,
+    /// LPTIM4 OUT
+    Lptim4 = 1,
+    /// LPTIM2 CH1
+    Lptim2 = 2,
+    /// LPTIM3 CH1
+    Lptim3 = 3,
+    /// EXTI13
+    Exti13 = 4,
+}

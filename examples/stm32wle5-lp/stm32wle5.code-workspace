@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"rust-analyzer.cargo.target": "thumbv7em-none-eabi",
+		"rust-analyzer.cargo.allTargets": false,
+		"rust-analyzer.cargo.targetDir": "target/rust-analyzer",
+		"rust-analyzer.checkOnSave": true,
+	}
+}

@@ -114,6 +114,15 @@ impl Timer {
     /// Expire after specified [Duration](struct.Duration.html).
     /// This can be used as a `sleep` abstraction.
     ///
+    /// Note: You must ensure that Instant::now() when added to the intended
+    /// sleep duration does not overflow the u64 tick counter or a panic will occur.
+    ///
+    /// For example Timer::after(Duration::MAX) will always panic
+    /// and must be avoided.
+    ///
+    /// The same restriction applies to with_timeout() and the other
+    /// after_* functions.
+    ///
     /// Example:
     /// ``` no_run
     /// use embassy_time::{Duration, Timer};
@@ -253,7 +262,7 @@ impl Ticker {
     }
 
     /// Reset the ticker at the deadline.
-    /// If the deadline is in the past, the ticker will fire instantly.
+    /// If the deadline is in the past, the ticker will fire before the next scheduled tick.
     pub fn reset_at(&mut self, deadline: Instant) {
         self.expires_at = deadline + self.duration;
     }
@@ -304,3 +313,10 @@ impl FusedStream for Ticker {
         false
     }
 }
+
+impl core::fmt::Display for TimeoutError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("TimeoutError")
+    }
+}
+impl core::error::Error for TimeoutError {}

@@ -14,6 +14,8 @@ use crate::peripherals;
 /// This pin can either be a disconnected, input, or output pin, or both. The level register bit will remain
 /// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
 /// mode.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Flex<'d> {
     pub(crate) pin: Peri<'d, AnyPin>,
 }
@@ -30,6 +32,22 @@ impl<'d> Flex<'d> {
         Self { pin: pin.into() }
     }
 
+    /// Reborrow into a "child" Flex.
+    ///
+    /// `self` will stay borrowed until the child Peripheral is dropped.
+    pub fn reborrow(&mut self) -> Flex<'_> {
+        Flex {
+            pin: self.pin.reborrow(),
+        }
+    }
+
+    /// Unsafely clone (duplicate) a Flex.
+    pub unsafe fn clone_unchecked(&self) -> Flex<'d> {
+        Flex {
+            pin: self.pin.clone_unchecked(),
+        }
+    }
+
     /// Put the pin into input mode.
     ///
     /// The internal weak pull-up and pull-down resistors will be enabled according to `pull`.
@@ -43,25 +61,25 @@ impl<'d> Flex<'d> {
                 let cnf = match pull {
                     Pull::Up => {
                         r.bsrr().write(|w| w.set_bs(n, true));
-                        vals::CnfIn::PULL
+                        vals::CnfIn::Pull
                     }
                     Pull::Down => {
                         r.bsrr().write(|w| w.set_br(n, true));
-                        vals::CnfIn::PULL
+                        vals::CnfIn::Pull
                     }
-                    Pull::None => vals::CnfIn::FLOATING,
+                    Pull::None => vals::CnfIn::Floating,
                 };
 
                 r.cr(n / 8).modify(|w| {
-                    w.set_mode(n % 8, vals::Mode::INPUT);
+                    w.set_mode(n % 8, vals::Mode::Input);
                     w.set_cnf_in(n % 8, cnf);
                 });
             }
             #[cfg(gpio_v2)]
             {
                 r.pupdr().modify(|w| w.set_pupdr(n, pull.to_pupdr()));
-                r.otyper().modify(|w| w.set_ot(n, vals::Ot::PUSH_PULL));
-                r.moder().modify(|w| w.set_moder(n, vals::Moder::INPUT));
+                r.otyper().modify(|w| w.set_ot(n, vals::Ot::PushPull));
+                r.moder().modify(|w| w.set_moder(n, vals::Moder::Input));
             }
         });
     }
@@ -81,15 +99,15 @@ impl<'d> Flex<'d> {
             {
                 r.cr(n / 8).modify(|w| {
                     w.set_mode(n % 8, speed.to_mode());
-                    w.set_cnf_out(n % 8, vals::CnfOut::PUSH_PULL);
+                    w.set_cnf_out(n % 8, vals::CnfOut::PushPull);
                 });
             }
             #[cfg(gpio_v2)]
             {
-                r.pupdr().modify(|w| w.set_pupdr(n, vals::Pupdr::FLOATING));
-                r.otyper().modify(|w| w.set_ot(n, vals::Ot::PUSH_PULL));
+                r.pupdr().modify(|w| w.set_pupdr(n, vals::Pupdr::Floating));
+                r.otyper().modify(|w| w.set_ot(n, vals::Ot::PushPull));
                 r.ospeedr().modify(|w| w.set_ospeedr(n, speed.to_ospeedr()));
-                r.moder().modify(|w| w.set_moder(n, vals::Moder::OUTPUT));
+                r.moder().modify(|w| w.set_moder(n, vals::Moder::Output));
             }
         });
     }
@@ -111,7 +129,7 @@ impl<'d> Flex<'d> {
             let r = self.pin.block();
             let n = self.pin.pin() as usize;
             r.cr(n / 8).modify(|w| w.set_mode(n % 8, speed.to_mode()));
-            r.cr(n / 8).modify(|w| w.set_cnf_out(n % 8, vals::CnfOut::OPEN_DRAIN));
+            r.cr(n / 8).modify(|w| w.set_cnf_out(n % 8, vals::CnfOut::OpenDrain));
         });
 
         #[cfg(gpio_v2)]
@@ -129,9 +147,9 @@ impl<'d> Flex<'d> {
             let r = self.pin.block();
             let n = self.pin.pin() as usize;
             r.pupdr().modify(|w| w.set_pupdr(n, pull.to_pupdr()));
-            r.otyper().modify(|w| w.set_ot(n, vals::Ot::OPEN_DRAIN));
+            r.otyper().modify(|w| w.set_ot(n, vals::Ot::OpenDrain));
             r.ospeedr().modify(|w| w.set_ospeedr(n, speed.to_ospeedr()));
-            r.moder().modify(|w| w.set_moder(n, vals::Moder::OUTPUT));
+            r.moder().modify(|w| w.set_moder(n, vals::Moder::Output));
         });
     }
 
@@ -170,7 +188,7 @@ impl<'d> Flex<'d> {
     #[inline]
     pub fn is_low(&self) -> bool {
         let state = self.pin.block().idr().read().idr(self.pin.pin() as _);
-        state == vals::Idr::LOW
+        state == vals::Idr::Low
     }
 
     /// Get the current pin input level.
@@ -189,7 +207,7 @@ impl<'d> Flex<'d> {
     #[inline]
     pub fn is_set_low(&self) -> bool {
         let state = self.pin.block().odr().read().odr(self.pin.pin() as _);
-        state == vals::Odr::LOW
+        state == vals::Odr::Low
     }
 
     /// Get the current output level.
@@ -233,6 +251,7 @@ impl<'d> Flex<'d> {
 impl<'d> Drop for Flex<'d> {
     #[inline]
     fn drop(&mut self) {
+        trace!("gpio: dropping {}", self.pin);
         critical_section::with(|_| {
             self.pin.set_as_disconnected();
         });
@@ -255,9 +274,9 @@ impl Pull {
     #[cfg(gpio_v2)]
     const fn to_pupdr(self) -> vals::Pupdr {
         match self {
-            Pull::None => vals::Pupdr::FLOATING,
-            Pull::Up => vals::Pupdr::PULL_UP,
-            Pull::Down => vals::Pupdr::PULL_DOWN,
+            Pull::None => vals::Pupdr::Floating,
+            Pull::Up => vals::Pupdr::PullUp,
+            Pull::Down => vals::Pupdr::PullDown,
         }
     }
 }
@@ -287,20 +306,20 @@ impl Speed {
     #[cfg(gpio_v1)]
     const fn to_mode(self) -> vals::Mode {
         match self {
-            Speed::Low => vals::Mode::OUTPUT2MHZ,
-            Speed::Medium => vals::Mode::OUTPUT10MHZ,
-            Speed::VeryHigh => vals::Mode::OUTPUT50MHZ,
+            Speed::Low => vals::Mode::Output2mhz,
+            Speed::Medium => vals::Mode::Output10mhz,
+            Speed::VeryHigh => vals::Mode::Output50mhz,
         }
     }
 
     #[cfg(gpio_v2)]
     const fn to_ospeedr(self: Speed) -> vals::Ospeedr {
         match self {
-            Speed::Low => vals::Ospeedr::LOW_SPEED,
-            Speed::Medium => vals::Ospeedr::MEDIUM_SPEED,
+            Speed::Low => vals::Ospeedr::LowSpeed,
+            Speed::Medium => vals::Ospeedr::MediumSpeed,
             #[cfg(not(syscfg_f0))]
-            Speed::High => vals::Ospeedr::HIGH_SPEED,
-            Speed::VeryHigh => vals::Ospeedr::VERY_HIGH_SPEED,
+            Speed::High => vals::Ospeedr::HighSpeed,
+            Speed::VeryHigh => vals::Ospeedr::VeryHighSpeed,
         }
     }
 }
@@ -316,6 +335,17 @@ impl<'d> Input<'d> {
     pub fn new(pin: Peri<'d, impl Pin>, pull: Pull) -> Self {
         let mut pin = Flex::new(pin);
         pin.set_as_input(pull);
+        Self { pin }
+    }
+
+    /// Create a GPIO input driver from an existing [`Flex`] pin.
+    ///
+    /// This is useful when a pin was previously used in bidirectional mode and
+    /// needs to be converted to a typed input driver without re-acquiring the
+    /// peripheral token. The pin should already be configured as an input via
+    /// [`Flex::set_as_input()`].
+    #[inline]
+    pub fn from_flex(pin: Flex<'d>) -> Self {
         Self { pin }
     }
 
@@ -542,16 +572,16 @@ impl OutputType {
     #[cfg(gpio_v1)]
     const fn to_cnf_out(self) -> vals::CnfOut {
         match self {
-            OutputType::PushPull => vals::CnfOut::ALT_PUSH_PULL,
-            OutputType::OpenDrain => vals::CnfOut::ALT_OPEN_DRAIN,
+            OutputType::PushPull => vals::CnfOut::AltPushPull,
+            OutputType::OpenDrain => vals::CnfOut::AltOpenDrain,
         }
     }
 
     #[cfg(gpio_v2)]
     const fn to_ot(self) -> vals::Ot {
         match self {
-            OutputType::PushPull => vals::Ot::PUSH_PULL,
-            OutputType::OpenDrain => vals::Ot::OPEN_DRAIN,
+            OutputType::PushPull => vals::Ot::PushPull,
+            OutputType::OpenDrain => vals::Ot::OpenDrain,
         }
     }
 }
@@ -570,11 +600,11 @@ impl AfType {
     /// Input with optional pullup or pulldown.
     pub const fn input(pull: Pull) -> Self {
         let cnf_in = match pull {
-            Pull::Up | Pull::Down => vals::CnfIn::PULL,
-            Pull::None => vals::CnfIn::FLOATING,
+            Pull::Up | Pull::Down => vals::CnfIn::Pull,
+            Pull::None => vals::CnfIn::Floating,
         };
         Self {
-            mode: vals::Mode::INPUT,
+            mode: vals::Mode::Input,
             cnf: cnf_in.to_bits(),
             pull,
         }
@@ -592,7 +622,7 @@ impl AfType {
 
 #[inline(never)]
 #[cfg(gpio_v1)]
-fn set_as_af(pin_port: u8, af_type: AfType) {
+fn set_as_af(pin_port: PinNumber, af_type: AfType) {
     let pin = unsafe { AnyPin::steal(pin_port) };
     let r = pin.block();
     let n = pin._pin() as usize;
@@ -627,8 +657,8 @@ impl AfType {
     pub const fn input(pull: Pull) -> Self {
         Self {
             pupdr: pull.to_pupdr(),
-            ot: vals::Ot::PUSH_PULL,
-            ospeedr: vals::Ospeedr::LOW_SPEED,
+            ot: vals::Ot::PushPull,
+            ospeedr: vals::Ospeedr::LowSpeed,
         }
     }
 
@@ -649,7 +679,7 @@ impl AfType {
 
 #[inline(never)]
 #[cfg(gpio_v2)]
-fn set_as_af(pin_port: u8, af_num: u8, af_type: AfType) {
+fn set_as_af(pin_port: PinNumber, af_num: u8, af_type: AfType) {
     let pin = unsafe { AnyPin::steal(pin_port) };
     let r = pin.block();
     let n = pin._pin() as usize;
@@ -658,12 +688,12 @@ fn set_as_af(pin_port: u8, af_num: u8, af_type: AfType) {
     r.pupdr().modify(|w| w.set_pupdr(n, af_type.pupdr));
     r.otyper().modify(|w| w.set_ot(n, af_type.ot));
     r.ospeedr().modify(|w| w.set_ospeedr(n, af_type.ospeedr));
-    r.moder().modify(|w| w.set_moder(n, vals::Moder::ALTERNATE));
+    r.moder().modify(|w| w.set_moder(n, vals::Moder::Alternate));
 }
 
 #[inline(never)]
 #[cfg(gpio_v2)]
-fn set_speed(pin_port: u8, speed: Speed) {
+fn set_speed(pin_port: PinNumber, speed: Speed) {
     let pin = unsafe { AnyPin::steal(pin_port) };
     let r = pin.block();
     let n = pin._pin() as usize;
@@ -672,33 +702,37 @@ fn set_speed(pin_port: u8, speed: Speed) {
 }
 
 #[inline(never)]
-fn set_as_analog(pin_port: u8) {
+pub(crate) fn set_as_analog(pin_port: PinNumber) {
     let pin = unsafe { AnyPin::steal(pin_port) };
     let r = pin.block();
     let n = pin._pin() as usize;
 
     #[cfg(gpio_v1)]
     r.cr(n / 8).modify(|w| {
-        w.set_mode(n % 8, vals::Mode::INPUT);
-        w.set_cnf_in(n % 8, vals::CnfIn::ANALOG);
+        w.set_mode(n % 8, vals::Mode::Input);
+        w.set_cnf_in(n % 8, vals::CnfIn::Analog);
     });
 
     #[cfg(gpio_v2)]
-    r.moder().modify(|w| w.set_moder(n, vals::Moder::ANALOG));
+    {
+        #[cfg(any(stm32l47x, stm32l48x))]
+        r.ascr().modify(|w| w.set_asc(n, true));
+        r.moder().modify(|w| w.set_moder(n, vals::Moder::Analog));
+    }
 }
 
 #[inline(never)]
-fn get_pull(pin_port: u8) -> Pull {
+fn get_pull(pin_port: PinNumber) -> Pull {
     let pin = unsafe { AnyPin::steal(pin_port) };
     let r = pin.block();
     let n = pin._pin() as usize;
 
     #[cfg(gpio_v1)]
     return match r.cr(n / 8).read().mode(n % 8) {
-        vals::Mode::INPUT => match r.cr(n / 8).read().cnf_in(n % 8) {
-            vals::CnfIn::PULL => match r.odr().read().odr(n) {
-                vals::Odr::LOW => Pull::Down,
-                vals::Odr::HIGH => Pull::Up,
+        vals::Mode::Input => match r.cr(n / 8).read().cnf_in(n % 8) {
+            vals::CnfIn::Pull => match r.odr().read().odr(n) {
+                vals::Odr::Low => Pull::Down,
+                vals::Odr::High => Pull::Up,
             },
             _ => Pull::None,
         },
@@ -707,9 +741,9 @@ fn get_pull(pin_port: u8) -> Pull {
 
     #[cfg(gpio_v2)]
     return match r.pupdr().read().pupdr(n) {
-        vals::Pupdr::FLOATING => Pull::None,
-        vals::Pupdr::PULL_DOWN => Pull::Down,
-        vals::Pupdr::PULL_UP => Pull::Up,
+        vals::Pupdr::Floating => Pull::None,
+        vals::Pupdr::PullDown => Pull::Down,
+        vals::Pupdr::PullUp => Pull::Up,
         vals::Pupdr::_RESERVED_3 => Pull::None,
     };
 }
@@ -727,15 +761,15 @@ pub struct AfioRemapBool<const V: bool>;
 pub struct AfioRemapNotApplicable;
 
 pub(crate) trait SealedPin {
-    fn pin_port(&self) -> u8;
+    fn pin_port(&self) -> PinNumber;
 
     #[inline]
-    fn _pin(&self) -> u8 {
+    fn _pin(&self) -> PinNumber {
         self.pin_port() % 16
     }
 
     #[inline]
-    fn _port(&self) -> u8 {
+    fn _port(&self) -> PinNumber {
         self.pin_port() / 16
     }
 
@@ -798,31 +832,42 @@ pub(crate) trait SealedPin {
     }
 }
 
-/// GPIO pin trait.
+/// GPIO pin number type.
+///
+/// Some chips have a total number of ports that exceeds 8, a larger integer
+/// is needed to hold the total pin number `(ports * number)`.
+pub type PinNumber = u8;
+
+/// Pin that can be used to configure an [ExtiInput](crate::exti::ExtiInput). This trait is lost when converting to [AnyPin].
+#[cfg(feature = "exti")]
 #[allow(private_bounds)]
-pub trait Pin: PeripheralType + Into<AnyPin> + SealedPin + Sized + 'static {
+pub trait ExtiPin: PeripheralType + SealedPin {
     /// EXTI channel assigned to this pin.
     ///
     /// For example, PC4 uses EXTI4.
-    #[cfg(feature = "exti")]
     type ExtiChannel: crate::exti::Channel;
+}
 
+/// GPIO pin trait.
+#[allow(private_bounds)]
+pub trait Pin: PeripheralType + Into<AnyPin> + SealedPin + Sized + 'static {
     /// Number of the pin within the port (0..31)
     #[inline]
-    fn pin(&self) -> u8 {
+    fn pin(&self) -> PinNumber {
         self._pin()
     }
 
     /// Port of the pin
     #[inline]
-    fn port(&self) -> u8 {
+    fn port(&self) -> PinNumber {
         self._port()
     }
 }
 
-/// Type-erased GPIO pin
+/// Type-erased GPIO pin.
+#[derive(Debug)]
 pub struct AnyPin {
-    pin_port: u8,
+    pin_port: PinNumber,
 }
 
 impl AnyPin {
@@ -830,31 +875,44 @@ impl AnyPin {
     ///
     /// `pin_port` is `port_num * 16 + pin_num`, where `port_num` is 0 for port `A`, 1 for port `B`, etc...
     #[inline]
-    pub unsafe fn steal(pin_port: u8) -> Peri<'static, Self> {
+    pub const unsafe fn steal(pin_port: PinNumber) -> Peri<'static, Self> {
         Peri::new_unchecked(Self { pin_port })
     }
 
     #[inline]
-    fn _port(&self) -> u8 {
+    const fn _port(&self) -> PinNumber {
         self.pin_port / 16
     }
 
     /// Get the GPIO register block for this pin.
     #[cfg(feature = "unstable-pac")]
     #[inline]
-    pub fn block(&self) -> gpio::Gpio {
+    pub const fn block(&self) -> gpio::Gpio {
         crate::_generated::gpio_block(self._port() as _)
     }
 }
 
-impl_peripheral!(AnyPin);
-impl Pin for AnyPin {
-    #[cfg(feature = "exti")]
-    type ExtiChannel = crate::exti::AnyChannel;
+impl core::fmt::Display for AnyPin {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let port = char::from(b'A' + self.port());
+        let pin = self.pin();
+        write!(f, "P{port}{pin}")
+    }
 }
+#[cfg(feature = "defmt")]
+impl defmt::Format for AnyPin {
+    fn format(&self, f: defmt::Formatter) {
+        let port = char::from(b'A' + self.port());
+        let pin = self.pin();
+        defmt::write!(f, "P{}{}", port, pin)
+    }
+}
+
+impl_peripheral!(AnyPin);
+impl Pin for AnyPin {}
 impl SealedPin for AnyPin {
     #[inline]
-    fn pin_port(&self) -> u8 {
+    fn pin_port(&self) -> PinNumber {
         self.pin_port
     }
 }
@@ -864,12 +922,14 @@ impl SealedPin for AnyPin {
 foreach_pin!(
     ($pin_name:ident, $port_name:ident, $port_num:expr, $pin_num:expr, $exti_ch:ident) => {
         impl Pin for peripherals::$pin_name {
-            #[cfg(feature = "exti")]
+        }
+        #[cfg(feature = "exti")]
+        impl ExtiPin for peripherals::$pin_name {
             type ExtiChannel = peripherals::$exti_ch;
         }
         impl SealedPin for peripherals::$pin_name {
             #[inline]
-            fn pin_port(&self) -> u8 {
+            fn pin_port(&self) -> PinNumber {
                 $port_num * 16 + $pin_num
             }
         }
@@ -889,6 +949,47 @@ pub(crate) unsafe fn init(_cs: CriticalSection) {
     crate::rcc::enable_and_reset_with_cs::<crate::peripherals::AFIO>(_cs);
 
     crate::_generated::init_gpio();
+}
+
+#[cfg(stm32f1)]
+/// SWJ Config
+#[derive(Clone, Copy, Debug, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum SwjCfg {
+    /// Full SWJ (JTAG-DP + SW-DP) (Reset state)
+    ///
+    /// PA13, PA14, PA15, PB3, and PB4 cannot be used
+    #[default]
+    SwdAndJtag = 0x0,
+    /// Full SWJ (JTAG-DP + SW-DP) but without NJTRST
+    ///
+    /// PA13, PA14, PA15, and PB3 cannot be used
+    ///
+    /// PB4 can be used
+    SwdAndJtagNoRst = 0x01,
+    /// JTAG-DP Disabled and SW-DP Enabled
+    ///
+    /// PA13 and  PA14 cannot be used
+    ///
+    /// PA15, PB3, and PB4 can be used
+    SwdOnly = 0x02,
+    /// JTAG-DP Disabled and SW-DP Disabled
+    ///
+    /// PA13, PA14, PA15, PB3, and PB4 can be used
+    Disabled = 0x04,
+}
+
+#[cfg(stm32f1)]
+impl From<SwjCfg> for crate::pac::afio::vals::SwjCfg {
+    #[inline(always)]
+    fn from(value: SwjCfg) -> Self {
+        match value {
+            SwjCfg::SwdAndJtag => crate::pac::afio::vals::SwjCfg::Reset,
+            SwjCfg::SwdAndJtagNoRst => crate::pac::afio::vals::SwjCfg::NoJntRst,
+            SwjCfg::SwdOnly => crate::pac::afio::vals::SwjCfg::JtagDisable,
+            SwjCfg::Disabled => crate::pac::afio::vals::SwjCfg::Disable,
+        }
+    }
 }
 
 impl<'d> embedded_hal_02::digital::v2::InputPin for Input<'d> {

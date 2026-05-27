@@ -1,8 +1,10 @@
 use core::cmp::{max, min};
 use core::iter::zip;
+use core::sync::atomic::AtomicBool;
+use core::sync::atomic::Ordering::Relaxed;
 
 use embassy_net_driver_channel as ch;
-use embassy_net_driver_channel::driver::{HardwareAddress, LinkState};
+use embassy_net_driver_channel::driver::HardwareAddress;
 use embassy_time::{Duration, Timer};
 
 use crate::consts::*;
@@ -12,11 +14,16 @@ use crate::ioctl::{IoctlState, IoctlType};
 use crate::structs::*;
 use crate::{PowerManagementMode, countries, events};
 
-/// Control errors.
+/// Join errors.
 #[derive(Debug)]
-pub struct Error {
-    /// Status code.
-    pub status: u32,
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum JoinError {
+    /// Network not found.
+    NetworkNotFound,
+    /// Failure to join network. Contains the status code from the SET_SSID event.
+    JoinFailure(u8),
+    /// Authentication failure for a secure network.
+    AuthenticationFailure,
 }
 
 /// Multicast errors.
@@ -33,6 +40,7 @@ pub struct Control<'a> {
     state_ch: ch::StateRunner<'a>,
     events: &'a Events,
     ioctl_state: &'a IoctlState,
+    secure_network: &'a AtomicBool,
 }
 
 /// WiFi scan type.
@@ -154,11 +162,17 @@ impl<'a> Default for JoinOptions<'a> {
 }
 
 impl<'a> Control<'a> {
-    pub(crate) fn new(state_ch: ch::StateRunner<'a>, event_sub: &'a Events, ioctl_state: &'a IoctlState) -> Self {
+    pub(crate) fn new(
+        state_ch: ch::StateRunner<'a>,
+        event_sub: &'a Events,
+        ioctl_state: &'a IoctlState,
+        secure_network: &'a AtomicBool,
+    ) -> Self {
         Self {
             state_ch,
             events: event_sub,
             ioctl_state,
+            secure_network,
         }
     }
 
@@ -296,7 +310,7 @@ impl<'a> Control<'a> {
     }
 
     /// Join a network with the provided SSID using the specified options.
-    pub async fn join(&mut self, ssid: &str, options: JoinOptions<'_>) -> Result<(), Error> {
+    pub async fn join(&mut self, ssid: &str, options: JoinOptions<'_>) -> Result<(), JoinError> {
         self.set_iovar_u32("ampdu_ba_wsize", 8).await;
 
         if options.auth == JoinAuth::Open {
@@ -367,40 +381,62 @@ impl<'a> Control<'a> {
         };
         i.ssid[..ssid.len()].copy_from_slice(ssid.as_bytes());
 
-        self.wait_for_join(i).await
+        let secure_network = options.auth != JoinAuth::Open;
+        self.secure_network.store(secure_network, Relaxed);
+        self.wait_for_join(i, secure_network).await
     }
 
-    async fn wait_for_join(&mut self, i: SsidInfo) -> Result<(), Error> {
-        self.events.mask.enable(&[Event::SET_SSID, Event::AUTH]);
+    async fn wait_for_join(&mut self, i: SsidInfo, secure_network: bool) -> Result<(), JoinError> {
+        struct UnsubscribeOnDrop<'a>(&'a Events);
+
+        impl Drop for UnsubscribeOnDrop<'_> {
+            fn drop(&mut self) {
+                self.0.mask.disable_all();
+            }
+        }
+
+        let _uod = UnsubscribeOnDrop(&self.events);
+
+        self.events.mask.enable(&[Event::SET_SSID, Event::AUTH, Event::PSK_SUP]);
         let mut subscriber = self.events.queue.subscriber().unwrap();
         // the actual join operation starts here
         // we make sure to enable events before so we don't miss any
 
         self.ioctl(IoctlType::Set, Ioctl::SetSsid, 0, &mut i.to_bytes()).await;
 
-        // to complete the join, we wait for a SET_SSID event
-        // we also save the AUTH status for the user, it may be interesting
-        let mut auth_status = 0;
-        let status = loop {
+        // To complete the join on an open network, we wait for a SET_SSID event with status SUCCESS
+        // For secured networks, we wait for a PSK_SUP event with status 6 "UNSOLICITED"
+        let result = loop {
             let msg = subscriber.next_message_pure().await;
-            if msg.header.event_type == Event::AUTH && msg.header.status != EStatus::SUCCESS {
-                auth_status = msg.header.status;
-            } else if msg.header.event_type == Event::SET_SSID {
-                // join operation ends with SET_SSID event
-                break msg.header.status;
-            }
+
+            let status = EStatus::from(msg.header.status as u8);
+            match (msg.header.event_type, status, secure_network) {
+                // Join operation ends with SET_SSID event for open networks
+                (Event::SET_SSID, EStatus::SUCCESS, false) => break Ok(()),
+                (Event::SET_SSID, EStatus::NO_NETWORKS, _) => break Err(JoinError::NetworkNotFound),
+                (Event::SET_SSID, status, _) if status != EStatus::SUCCESS => {
+                    break Err(JoinError::JoinFailure(status as u8));
+                }
+                // Ignore PSK_SUP "ABORT" which is sometimes sent before successful join
+                (Event::PSK_SUP, EStatus::ABORT, true) => {}
+                // Event PSK_SUP with status 6 "UNSOLICITED" indicates success for secure networks
+                (Event::PSK_SUP, EStatus::UNSOLICITED, true) => break Ok(()),
+                // Events indicating authentication failure, possibly due to incorrect password
+                (Event::PSK_SUP, _, true) | (Event::AUTH, EStatus::FAIL, true) => {
+                    break Err(JoinError::AuthenticationFailure);
+                }
+                _ => {}
+            };
         };
 
-        self.events.mask.disable_all();
-        if status == EStatus::SUCCESS {
-            // successful join
-            self.state_ch.set_link_state(LinkState::Up);
-            debug!("JOINED");
-            Ok(())
-        } else {
-            warn!("JOIN failed with status={} auth={}", status, auth_status);
-            Err(Error { status })
-        }
+        match result {
+            Ok(()) => debug!("JOINED"),
+            Err(JoinError::JoinFailure(status)) => debug!("JOIN failed: status={}", status),
+            Err(JoinError::NetworkNotFound) => debug!("JOIN failed: network not found"),
+            Err(JoinError::AuthenticationFailure) => debug!("JOIN failed: authentication failure"),
+        };
+
+        result
     }
 
     /// Set GPIO pin on WiFi chip.
@@ -436,6 +472,9 @@ impl<'a> Control<'a> {
         // Set wifi up again
         self.up().await;
 
+        // Disable authentication
+        self.ioctl_set_u32(Ioctl::SetAuth, 0, AUTH_OPEN).await;
+
         // Turn on AP mode
         self.ioctl_set_u32(Ioctl::SetAp, 0, 1).await;
 
@@ -470,8 +509,6 @@ impl<'a> Control<'a> {
             pfi.passphrase[..passphrase.as_bytes().len()].copy_from_slice(passphrase.as_bytes());
             self.ioctl(IoctlType::Set, Ioctl::SetWsecPmk, 0, &mut pfi.to_bytes())
                 .await;
-        } else {
-            self.ioctl_set_u32(Ioctl::SetAuth, 0, 0).await;
         }
 
         // Change mutlicast rate from 1 Mbps to 11 Mbps
@@ -545,6 +582,14 @@ impl<'a> Control<'a> {
         }
 
         n
+    }
+
+    /// Retrieve the latest RSSI value
+    pub async fn get_rssi(&mut self) -> i32 {
+        let mut rssi_buf = [0u8; 4];
+        let n = self.ioctl(IoctlType::Get, Ioctl::GetRssi, 0, &mut rssi_buf).await;
+        assert_eq!(n, 4);
+        i32::from_ne_bytes(rssi_buf)
     }
 
     async fn set_iovar_u32x2(&mut self, name: &str, val1: u32, val2: u32) {

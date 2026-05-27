@@ -25,9 +25,9 @@ async fn main(_spawner: Spawner) {
     let mut config = qspi::Config::default();
     config.capacity = 8 * 1024 * 1024; // 8 MB
     config.frequency = Frequency::M32;
-    config.read_opcode = qspi::ReadOpcode::READ4IO;
-    config.write_opcode = qspi::WriteOpcode::PP4IO;
-    config.write_page_size = qspi::WritePageSize::_256BYTES;
+    config.read_opcode = qspi::ReadOpcode::Read4io;
+    config.write_opcode = qspi::WriteOpcode::Pp4io;
+    config.write_page_size = qspi::WritePageSize::_256bytes;
 
     let mut q = qspi::Qspi::new(
         p.QSPI, Irqs, p.P0_19, p.P0_17, p.P0_20, p.P0_21, p.P0_22, p.P0_23, config,

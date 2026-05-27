@@ -1,15 +1,19 @@
 //! Real Time Clock (RTC)
 mod datetime;
 
-#[cfg(feature = "low-power")]
+#[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
 mod low_power;
 
-#[cfg(feature = "low-power")]
-use core::cell::Cell;
+#[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
+use core::cell::{RefCell, RefMut};
+#[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
+use core::ops;
 
-#[cfg(feature = "low-power")]
+#[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
+use critical_section::CriticalSection;
+#[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
 use embassy_sync::blocking_mutex::Mutex;
-#[cfg(feature = "low-power")]
+#[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
 pub use self::datetime::{DateTime, DayOfWeek, Error as DateTimeError};
@@ -28,7 +32,7 @@ pub use _version::*;
 use crate::Peri;
 use crate::peripherals::RTC;
 
-/// Errors that can occur on methods on [RtcClock]
+/// Errors that can occur on methods on [Rtc]
 #[non_exhaustive]
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -44,11 +48,17 @@ pub enum RtcError {
 }
 
 /// Provides immutable access to the current time of the RTC.
+#[derive(Clone)]
 pub struct RtcTimeProvider {
     _private: (),
 }
 
 impl RtcTimeProvider {
+    /// Create a new RTC time provider instance.
+    pub(self) const fn new() -> Self {
+        Self { _private: () }
+    }
+
     /// Return the current datetime.
     ///
     /// # Errors
@@ -106,10 +116,55 @@ impl RtcTimeProvider {
     }
 }
 
+#[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
+/// Contains an RTC driver.
+#[derive(Clone)]
+pub struct RtcContainer {
+    pub(self) mutex: &'static Mutex<CriticalSectionRawMutex, RefCell<Option<Rtc>>>,
+}
+
+#[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
+impl RtcContainer {
+    pub(self) const fn new() -> Self {
+        Self {
+            mutex: &crate::time_driver::get_driver().rtc,
+        }
+    }
+
+    /// Acquire an RTC borrow.
+    pub fn borrow_mut<'a>(&self, cs: CriticalSection<'a>) -> RtcBorrow<'a> {
+        RtcBorrow {
+            ref_mut: self.mutex.borrow(cs).borrow_mut(),
+        }
+    }
+}
+
+#[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
+/// Contains an RTC borrow.
+pub struct RtcBorrow<'a> {
+    pub(self) ref_mut: RefMut<'a, Option<Rtc>>,
+}
+
+#[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
+impl<'a> ops::Deref for RtcBorrow<'a> {
+    type Target = Rtc;
+
+    fn deref(&self) -> &Self::Target {
+        self.ref_mut.as_ref().unwrap()
+    }
+}
+
+#[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
+impl<'a> ops::DerefMut for RtcBorrow<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.ref_mut.as_mut().unwrap()
+    }
+}
+
 /// RTC driver.
 pub struct Rtc {
-    #[cfg(feature = "low-power")]
-    stop_time: Mutex<CriticalSectionRawMutex, Cell<Option<low_power::RtcInstant>>>,
+    #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
+    epoch: i64,
     _private: (),
 }
 
@@ -145,19 +200,30 @@ pub enum RtcCalibrationCyclePeriod {
 }
 
 impl Rtc {
+    #[cfg(any(not(feature = "low-power"), feature = "_lp-time-driver"))]
     /// Create a new RTC instance.
-    pub fn new(_rtc: Peri<'static, RTC>, rtc_config: RtcConfig) -> Self {
+    pub fn new(_rtc: Peri<'static, RTC>, rtc_config: RtcConfig) -> (Self, RtcTimeProvider) {
+        (Self::new_inner(rtc_config), RtcTimeProvider::new())
+    }
+
+    #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
+    /// Create a new RTC instance.
+    pub fn new(_rtc: Peri<'static, RTC>) -> (RtcContainer, RtcTimeProvider) {
+        (RtcContainer::new(), RtcTimeProvider::new())
+    }
+
+    pub(self) fn new_inner(rtc_config: RtcConfig) -> Self {
         #[cfg(not(any(stm32l0, stm32f3, stm32l1, stm32f0, stm32f2)))]
         crate::rcc::enable_and_reset::<RTC>();
 
         let mut this = Self {
-            #[cfg(feature = "low-power")]
-            stop_time: Mutex::const_new(CriticalSectionRawMutex::new(), Cell::new(None)),
+            #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
+            epoch: 0i64,
             _private: (),
         };
 
         let frequency = Self::frequency();
-        let async_psc = ((frequency.0 / rtc_config.frequency.0) - 1) as u8;
+        let async_psc = ((frequency / rtc_config.frequency) - 1) as u8;
         let sync_psc = (rtc_config.frequency.0 - 1) as u16;
 
         this.configure(async_psc, sync_psc);
@@ -165,24 +231,26 @@ impl Rtc {
         // Wait for the clock to update after initialization
         #[cfg(not(rtc_v2_f2))]
         {
-            let now = this.time_provider().read(|_, _, ss| Ok(ss)).unwrap();
-            while now == this.time_provider().read(|_, _, ss| Ok(ss)).unwrap() {}
+            let now = RtcTimeProvider::new().read(|_, _, ss| Ok(ss)).unwrap();
+            while now == RtcTimeProvider::new().read(|_, _, ss| Ok(ss)).unwrap() {}
+        }
+
+        #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
+        {
+            this.enable_wakeup_line();
+            this.reset_epoch();
         }
 
         this
     }
 
     fn frequency() -> Hertz {
-        let freqs = unsafe { crate::rcc::get_freqs() };
-        freqs.rtc.to_hertz().unwrap()
-    }
-
-    /// Acquire a [`RtcTimeProvider`] instance.
-    pub const fn time_provider(&self) -> RtcTimeProvider {
-        RtcTimeProvider { _private: () }
+        unsafe { crate::rcc::get_freqs() }.rtc.to_hertz().unwrap()
     }
 
     /// Set the datetime to a new value.
+    ///
+    /// This function has second precision, and sets subseconds to 0.
     ///
     /// # Errors
     ///
@@ -208,7 +276,7 @@ impl Rtc {
                 w.set_mnu(mnu);
                 w.set_st(st);
                 w.set_su(su);
-                w.set_pm(Ampm::AM);
+                w.set_pm(Ampm::Am);
             });
 
             rtc.dr().write(|w| {
@@ -222,16 +290,37 @@ impl Rtc {
             });
         });
 
+        #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
+        self.reset_epoch();
+
         Ok(())
     }
 
-    /// Return the current datetime.
+    /// Synchronize to a remote clock with a high degree of precision.
     ///
-    /// # Errors
-    ///
-    /// Will return an `RtcError::InvalidDateTime` if the stored value in the system is not a valid [`DayOfWeek`].
-    pub fn now(&self) -> Result<DateTime, RtcError> {
-        self.time_provider().now()
+    /// `shift` should be adjusted from -1 to 1 second.
+    #[cfg(not(rtc_v2_f2))]
+    pub fn synchronize(&mut self, shift: f32) {
+        let prediv_s = RTC::regs().prer().read().prediv_s() as f32;
+        let (add1s, subfs) = if shift > 0. {
+            (true, ((1. - shift) * (1. + prediv_s)))
+        } else if shift < 0. {
+            (false, -shift * (1. + prediv_s))
+        } else {
+            return;
+        };
+        let subfs = subfs + 0.5; // round
+
+        critical_section::with(|_| {
+            while RTC::regs().ssr().read().ss() & 0x8000 != 0 || RTC::shpf() {}
+
+            self.write(false, |rtc| {
+                rtc.shiftr().write(|w| {
+                    w.set_subfs(subfs.clamp(0., prediv_s) as u16);
+                    w.set_add1s(add1s);
+                });
+            });
+        });
     }
 
     /// Check if daylight savings time is active.
@@ -244,7 +333,10 @@ impl Rtc {
     pub fn set_daylight_savings(&mut self, daylight_savings: bool) {
         self.write(true, |rtc| {
             rtc.cr().modify(|w| w.set_bkp(daylight_savings));
-        })
+        });
+
+        #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
+        self.reset_epoch();
     }
 
     /// Number of backup registers of this instance.
@@ -254,6 +346,10 @@ impl Rtc {
     ///
     /// The registers retain their values during wakes from standby mode or system resets. They also
     /// retain their value when Vdd is switched off as long as V_BAT is powered.
+    #[cfg_attr(
+        rtc_v3,
+        doc = "\n\nAlways returns [`None`]. Use the [`TAMP`](crate::peripherals::TAMP) peripheral instead."
+    )]
     pub fn read_backup_register(&self, register: usize) -> Option<u32> {
         RTC::read_backup_register(RTC::regs(), register)
     }
@@ -262,8 +358,71 @@ impl Rtc {
     ///
     /// The registers retain their values during wakes from standby mode or system resets. They also
     /// retain their value when Vdd is switched off as long as V_BAT is powered.
+    #[cfg_attr(
+        rtc_v3,
+        doc = "\n\nDoes not write to the register. Use the [`TAMP`](crate::peripherals::TAMP) peripheral instead."
+    )]
     pub fn write_backup_register(&self, register: usize, value: u32) {
         RTC::write_backup_register(RTC::regs(), register, value)
+    }
+}
+
+/// Trait applicable to an `Rtc` or an `RtcContainer`
+pub trait AnyRtc {
+    /// Set the datetime to a new value.
+    fn set_datetime(&mut self, t: DateTime) -> Result<(), RtcError>;
+    /// Check if daylight savings time is active.
+    fn get_daylight_savings(&self) -> bool;
+    /// Enable/disable daylight savings time.
+    fn set_daylight_savings(&mut self, daylight_savings: bool);
+    /// Read content of the backup register.
+    fn read_backup_register(&self, register: usize) -> Option<u32>;
+    /// Set content of the backup register.
+    fn write_backup_register(&self, register: usize, value: u32);
+}
+
+#[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
+impl AnyRtc for RtcContainer {
+    fn set_datetime(&mut self, t: DateTime) -> Result<(), RtcError> {
+        critical_section::with(|cs| self.borrow_mut(cs).set_datetime(t))
+    }
+
+    fn get_daylight_savings(&self) -> bool {
+        critical_section::with(|cs| self.borrow_mut(cs).get_daylight_savings())
+    }
+
+    fn set_daylight_savings(&mut self, daylight_savings: bool) {
+        critical_section::with(|cs| self.borrow_mut(cs).set_daylight_savings(daylight_savings))
+    }
+
+    fn read_backup_register(&self, register: usize) -> Option<u32> {
+        critical_section::with(|cs| self.borrow_mut(cs).read_backup_register(register))
+    }
+
+    fn write_backup_register(&self, register: usize, value: u32) {
+        critical_section::with(|cs| self.borrow_mut(cs).write_backup_register(register, value))
+    }
+}
+
+impl AnyRtc for Rtc {
+    fn set_datetime(&mut self, t: DateTime) -> Result<(), RtcError> {
+        self.set_datetime(t)
+    }
+
+    fn get_daylight_savings(&self) -> bool {
+        self.get_daylight_savings()
+    }
+
+    fn set_daylight_savings(&mut self, daylight_savings: bool) {
+        self.set_daylight_savings(daylight_savings)
+    }
+
+    fn read_backup_register(&self, register: usize) -> Option<u32> {
+        self.read_backup_register(register)
+    }
+
+    fn write_backup_register(&self, register: usize, value: u32) {
+        self.write_backup_register(register, value)
     }
 }
 
@@ -291,7 +450,8 @@ trait SealedInstance {
     const BACKUP_REGISTER_COUNT: usize;
 
     #[cfg(feature = "low-power")]
-    #[cfg(not(any(stm32wba, stm32u5, stm32u0)))]
+    #[cfg(not(feature = "_lp-time-driver"))]
+    #[cfg(not(any(stm32wba, stm32u5, stm32u3, stm32u0)))]
     const EXTI_WAKEUP_LINE: usize;
 
     #[cfg(feature = "low-power")]
@@ -300,6 +460,10 @@ trait SealedInstance {
     fn regs() -> crate::pac::rtc::Rtc {
         crate::pac::RTC
     }
+
+    /// Shift operation pending
+    #[cfg(not(rtc_v2_f2))]
+    fn shpf() -> bool;
 
     /// Read content of the backup register.
     ///
@@ -314,4 +478,14 @@ trait SealedInstance {
     fn write_backup_register(rtc: crate::pac::rtc::Rtc, register: usize, value: u32);
 
     // fn apply_config(&mut self, rtc_config: RtcConfig);
+}
+
+#[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
+pub(crate) fn init_rtc(cs: CriticalSection, config: RtcConfig, min_stop_pause: embassy_time::Duration) {
+    use crate::time_driver::{LPTimeDriver, get_driver};
+
+    get_driver().set_rtc(cs, Rtc::new_inner(config));
+    get_driver().set_min_stop_pause(cs, min_stop_pause);
+
+    trace!("low power: stop with rtc configured");
 }

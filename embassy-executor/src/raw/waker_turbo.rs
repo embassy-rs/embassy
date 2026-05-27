@@ -25,6 +25,10 @@ pub fn task_from_waker(waker: &Waker) -> TaskRef {
     unsafe { TaskRef::from_ptr(ptr as *const TaskHeader) }
 }
 
+pub(crate) fn try_task_from_waker(waker: &Waker) -> Option<TaskRef> {
+    Some(task_from_waker(waker))
+}
+
 #[inline(never)]
 #[unsafe(no_mangle)]
 fn _turbo_wake(ptr: NonNull<()>) {
