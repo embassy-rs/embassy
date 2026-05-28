@@ -194,8 +194,21 @@ async fn main(spawner: Spawner) {
             if let Ok(script) = core::str::from_utf8(&input_buf) {
                 info!("eval (timeout): {} bytes", input_buf.len());
                 let reply = match engine.eval::<Dynamic>(script) {
-                    Ok(result) => format!("{}\r\n", result),
-                    Err(e) => format!("err: {}\r\n", e),
+                    Ok(result) => {
+                        let type_name = result.type_name();
+                        let is_string = result.is_string();
+                        info!(
+                            "eval ok: type={} is_string={}",
+                            type_name,
+                            if is_string { "yes" } else { "no" }
+                        );
+                        format!("{}\r\n", result)
+                    }
+                    Err(e) => {
+                        let err_str = format!("{}", e);
+                                    warn!("eval err: {}", err_str.as_str());
+                        format!("err: {}\r\n", e)
+                    }
                 };
                 if let Some(conn) = conn_handle {
                     for chunk in reply.as_bytes().chunks(MAX_DATA_LEN) {
@@ -226,8 +239,21 @@ async fn main(spawner: Spawner) {
                         if let Ok(script) = core::str::from_utf8(&input_buf) {
                             info!("eval (disconnect): {} bytes", input_buf.len());
                             let reply = match engine.eval::<Dynamic>(script) {
-                                Ok(result) => format!("{}\r\n", result),
-                                Err(e) => format!("err: {}\r\n", e),
+                                Ok(result) => {
+                                    let type_name = result.type_name();
+                                    let is_string = result.is_string();
+                                    info!(
+                                        "eval ok: type={} is_string={}",
+                                        type_name,
+                                        if is_string { "yes" } else { "no" }
+                                    );
+                                    format!("{}\r\n", result)
+                                }
+                                Err(e) => {
+                                    let err_str = format!("{}", e);
+                                    warn!("eval err: {}", err_str.as_str());
+                                    format!("err: {}\r\n", e)
+                                }
                             };
                             if let Some(conn) = conn_handle {
                                 for chunk in reply.as_bytes().chunks(MAX_DATA_LEN) {
