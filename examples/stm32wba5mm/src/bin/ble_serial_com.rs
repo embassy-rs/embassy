@@ -372,15 +372,15 @@ async fn main(spawner: Spawner) {
                 }
                 // Check if this is a write to RX characteristic (data from BLE client)
                 else if is_value_handle(state.rx_char_handle.0, attribute.attr_handle.0) {
-                    debug!(
-                        "Received {} bytes via BLE from conn 0x{:04X}",
-                        attribute.data().len(),
-                        attribute.conn_handle.0
-                    );
+                    let data = attribute.data();
+                    match core::str::from_utf8(data) {
+                        Ok(s) => info!("BLE RX: {}", s),
+                        Err(_) => info!("BLE RX ({} bytes): {:02x}", data.len(), data),
+                    }
 
                     // Forward to UART
                     let mut uart_data: heapless::Vec<u8, MAX_DATA_LEN> = heapless::Vec::new();
-                    let _ = uart_data.extend_from_slice(attribute.data());
+                    let _ = uart_data.extend_from_slice(data);
 
                     if BLE_TO_UART.try_send(uart_data).is_err() {
                         warn!("BLE->UART channel full, dropping data");
