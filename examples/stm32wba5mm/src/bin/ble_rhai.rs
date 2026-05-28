@@ -32,6 +32,8 @@ use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::{Config, bind_interrupts, peripherals};
 use embassy_stm32_wpan::bluetooth::HCI;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
+use core::sync::atomic::{AtomicBool, Ordering};
+use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gatt::{
     CccdValue, CharProperties, GattEventMask, SecurityPermissions, ServiceType, Uuid,
@@ -72,6 +74,8 @@ const NUS_TX_CHAR_UUID: [u8; 16] = [
     0x9E, 0xCA, 0xDC, 0x24, 0x0E, 0xE5, 0xA9, 0xE0, 0x93, 0xF3, 0xA3, 0xB5, 0x03, 0x00, 0x40, 0x6E,
 ];
 
+static LED_STATE: AtomicBool = AtomicBool::new(false);
+
 const MAX_DATA_LEN: usize = 244;
 const INPUT_BUF_SIZE: usize = 512;
 
@@ -97,10 +101,17 @@ async fn main(spawner: Spawner) {
     config.rcc = rcc::Config::new_wpan();
     let p = embassy_stm32::init(config);
 
+    let mut led = Output::new(p.PA1, Level::Low, Speed::Low);
+
     // Set up Rhai engine with math + core packages
     let mut engine = Engine::new_raw();
     BasicMathPackage::new().register_into_engine(&mut engine);
     CorePackage::new().register_into_engine(&mut engine);
+
+    // led(true) / led(false) — drives PA1 via a static flag applied after eval
+    engine.register_fn("led", |state: bool| {
+        LED_STATE.store(state, Ordering::Relaxed);
+    });
 
     info!("BLE Rhai interpreter starting");
 
@@ -188,10 +199,10 @@ async fn main(spawner: Spawner) {
                 let value = if is_string {
                     result.into_string().unwrap_or_default()
                 } else {
-                    format!("{}", result)
+                    format!("{:?}", result)
                 };
                 let reply = format!("{}\r\n", value);
-                info!("reply: {}", format!("{:?}", reply).as_str());
+                info!("reply: {}", format!("{:}", reply).as_str());
                 reply
             }
             Err(e) => {
@@ -224,6 +235,7 @@ async fn main(spawner: Spawner) {
             if let Ok(script) = core::str::from_utf8(&input_buf) {
                 info!("eval (timeout): {} bytes\n{}", input_buf.len(), script);
                 let reply = eval_script(&engine, script);
+                led.set_level(if LED_STATE.load(Ordering::Relaxed) { Level::High } else { Level::Low });
                 if let Some(conn) = conn_handle {
                     for chunk in reply.as_bytes().chunks(MAX_DATA_LEN) {
                         let _ = gatt.notify(conn, service_handle, tx_char_handle, chunk);
@@ -253,6 +265,7 @@ async fn main(spawner: Spawner) {
                         if let Ok(script) = core::str::from_utf8(&input_buf) {
                             info!("eval (disconnect): {} bytes\n{}", input_buf.len(), script);
                             let reply = eval_script(&engine, script);
+                            led.set_level(if LED_STATE.load(Ordering::Relaxed) { Level::High } else { Level::Low });
                             if let Some(conn) = conn_handle {
                                 for chunk in reply.as_bytes().chunks(MAX_DATA_LEN) {
                                     let _ = gatt.notify(conn, service_handle, tx_char_handle, chunk);
