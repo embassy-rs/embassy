@@ -15,6 +15,8 @@ use core::task::Context;
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, Default)]
 #[non_exhaustive]
 pub struct PacketMeta {
+    /// An identifier associated with a transmitted or received
+    /// packet.
     #[cfg(feature = "packetmeta-id")]
     pub id: u32,
 }
