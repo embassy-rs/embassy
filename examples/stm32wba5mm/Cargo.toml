@@ -26,10 +26,29 @@ static_cell = "2"
 embedded-io-async = "0.7.0"
 stm32wb-hci = { version = "0.18.0", git = "https://github.com/embassy-rs/stm32wb-hci.git", rev = "57acfb4" }
 
+rhai = { git = "https://github.com/rhaiscript/rhai.git", version = "1", optional = true, default-features = false, features = [
+    "no_std",
+    "no_optimize",
+    "no_float",
+    "no_custom_syntax",
+    "unchecked",
+    "only_i32",
+    #"f32_float",
+    "no_index",
+    "no_module",
+    "no_closure",
+    "no_position",
+    "no_object",
+    "no_function"
+] }
+embedded-alloc = { version = "0.5.1", optional = true }
+once_cell = { version = "1", optional = true, default-features = false, features = ["race", "alloc"] }
+
 [features]
 default = ["ble"]
 mac = ["embassy-stm32-wpan/wba-mac", "dep:embassy-net"]
 ble = ["embassy-stm32-wpan/wba-ble", "embassy-stm32-wpan/wb-hci"]
+scripting = ["dep:rhai", "dep:embedded-alloc", "dep:once_cell"]
 
 [[bin]]
 name = "mac_ffd"
@@ -55,24 +74,9 @@ required-features = ["ble"]
 name = "ble_dtm_runtime"
 required-features = ["ble"]
 
-
-embedded-alloc = { version = "0.5.1" }
-rhai = { git = "https://github.com/rhaiscript/rhai.git", version = "1", default-features = false, features = [
-    "no_std",
-    "no_optimize",
-    # "no_float",
-    "no_custom_syntax",
-    "unchecked",
-    "only_i32",
-    "f32_float",
-    "no_index",
-    "no_module",
-    "no_closure",
-    "no_position",
-    "no_object",
-    "no_function"
-] }
-once_cell = { version = "1", default-features = false, features = ["race", "alloc"] }
+[[bin]]
+name = "usart_rhai"
+required-features = ["scripting"]
 
 
 [profile.release]
