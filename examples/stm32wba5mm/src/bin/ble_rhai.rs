@@ -172,6 +172,34 @@ async fn main(spawner: Spawner) {
 
     info!("Advertising as 'RhaiShell' — connect and send Rhai expressions");
 
+    // Evaluate a script and return a displayable reply string.
+    // If the result is a Rhai string it is extracted directly; other types are
+    // formatted via Display so numbers, bools, arrays etc. look natural.
+    let eval_script = |engine: &Engine, script: &str| -> alloc::string::String {
+        match engine.eval::<Dynamic>(script) {
+            Ok(result) => {
+                let type_name = result.type_name();
+                let is_string = result.is_string();
+                info!(
+                    "eval ok: type={} is_string={}",
+                    type_name,
+                    if is_string { "yes" } else { "no" }
+                );
+                let value = if is_string {
+                    result.into_string().unwrap_or_default()
+                } else {
+                    format!("{}", result)
+                };
+                format!("{}\r\n", value)
+            }
+            Err(e) => {
+                let err_str = format!("{}", e);
+                warn!("eval err: {}", err_str.as_str());
+                format!("err: {}\r\n", e)
+            }
+        }
+    };
+
     let mut input_buf: heapless::Vec<u8, INPUT_BUF_SIZE> = heapless::Vec::new();
     let mut tx_notifications = false;
     let mut conn_handle: Option<u16> = None;
@@ -193,23 +221,7 @@ async fn main(spawner: Spawner) {
         if maybe_event.is_none() {
             if let Ok(script) = core::str::from_utf8(&input_buf) {
                 info!("eval (timeout): {} bytes\n{}", input_buf.len(), script);
-                let reply = match engine.eval::<Dynamic>(script) {
-                    Ok(result) => {
-                        let type_name = result.type_name();
-                        let is_string = result.is_string();
-                        info!(
-                            "eval ok: type={} is_string={}",
-                            type_name,
-                            if is_string { "yes" } else { "no" }
-                        );
-                        format!("{}\r\n", result)
-                    }
-                    Err(e) => {
-                        let err_str = format!("{}", e);
-                                    warn!("eval err: {}", err_str.as_str());
-                        format!("err: {}\r\n", e)
-                    }
-                };
+                let reply = eval_script(&engine, script);
                 if let Some(conn) = conn_handle {
                     for chunk in reply.as_bytes().chunks(MAX_DATA_LEN) {
                         let _ = gatt.notify(conn, service_handle, tx_char_handle, chunk);
@@ -238,23 +250,7 @@ async fn main(spawner: Spawner) {
                     if !input_buf.is_empty() {
                         if let Ok(script) = core::str::from_utf8(&input_buf) {
                             info!("eval (disconnect): {} bytes\n{}", input_buf.len(), script);
-                            let reply = match engine.eval::<Dynamic>(script) {
-                                Ok(result) => {
-                                    let type_name = result.type_name();
-                                    let is_string = result.is_string();
-                                    info!(
-                                        "eval ok: type={} is_string={}",
-                                        type_name,
-                                        if is_string { "yes" } else { "no" }
-                                    );
-                                    format!("{}\r\n", result)
-                                }
-                                Err(e) => {
-                                    let err_str = format!("{}", e);
-                                    warn!("eval err: {}", err_str.as_str());
-                                    format!("err: {}\r\n", e)
-                                }
-                            };
+                            let reply = eval_script(&engine, script);
                             if let Some(conn) = conn_handle {
                                 for chunk in reply.as_bytes().chunks(MAX_DATA_LEN) {
                                     let _ = gatt.notify(conn, service_handle, tx_char_handle, chunk);
