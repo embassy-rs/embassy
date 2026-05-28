@@ -192,7 +192,7 @@ async fn main(spawner: Spawner) {
         // Idle timeout fired: evaluate and send result without disconnecting
         if maybe_event.is_none() {
             if let Ok(script) = core::str::from_utf8(&input_buf) {
-                info!("eval (timeout): {} bytes", input_buf.len());
+                info!("eval (timeout): {} bytes\n{}", input_buf.len(), script);
                 let reply = match engine.eval::<Dynamic>(script) {
                     Ok(result) => {
                         let type_name = result.type_name();
@@ -237,7 +237,7 @@ async fn main(spawner: Spawner) {
                     // Evaluate any remaining buffered data on disconnect too
                     if !input_buf.is_empty() {
                         if let Ok(script) = core::str::from_utf8(&input_buf) {
-                            info!("eval (disconnect): {} bytes", input_buf.len());
+                            info!("eval (disconnect): {} bytes\n{}", input_buf.len(), script);
                             let reply = match engine.eval::<Dynamic>(script) {
                                 Ok(result) => {
                                     let type_name = result.type_name();
