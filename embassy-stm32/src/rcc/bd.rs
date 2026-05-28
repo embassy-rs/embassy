@@ -288,7 +288,7 @@ impl LsConfig {
         }
         #[cfg(rcc_n6)]
         {
-            ok &= apb4lenr.rtcen() == (self.rtc != RtcClockSource::DISABLE);
+            ok &= apb4lenr.rtcen() == (self.rtc != RtcClockSource::Disable);
         }
         ok &= reg.lseon() == lse_en;
         #[cfg(not(rcc_n6))]
