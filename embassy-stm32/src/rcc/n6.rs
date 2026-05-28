@@ -931,7 +931,7 @@ fn init_osc(config: Config) -> OscOutput {
         None
     };
     // hse rtc configuration
-    let hse_rtc = hse.map(|freq| freq / RCC.ccipr7().read().rtcpre().to_bits().add(1));
+    let hse_rtc = hse.map(|freq| freq / (RCC.ccipr7().read().rtcpre().to_bits() + 1));
 
     // hsi configuration
     //
