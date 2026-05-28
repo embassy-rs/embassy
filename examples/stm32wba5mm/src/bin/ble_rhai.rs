@@ -23,6 +23,7 @@ use embedded_alloc::LlffHeap as Heap;
 
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_futures::select::{Either, select};
 use embassy_stm32::aes::{self, Aes};
 use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph};
 use embassy_stm32::pka::{self, Pka};
@@ -176,7 +177,39 @@ async fn main(spawner: Spawner) {
     let mut conn_handle: Option<u16> = None;
 
     loop {
-        let event = ble.read_event().await;
+        // If we have buffered data, race BLE events against a 500 ms idle timeout.
+        // Every incoming packet resets the timer (we restart the select from the top
+        // of the loop), so the eval only fires when nothing arrives for 500 ms.
+        let maybe_event = if !input_buf.is_empty() {
+            match select(ble.read_event(), embassy_time::Timer::after_millis(500)).await {
+                Either::First(ev) => Some(ev),
+                Either::Second(_) => None, // 500 ms idle → evaluate
+            }
+        } else {
+            Some(ble.read_event().await)
+        };
+
+        // Idle timeout fired: evaluate and send result without disconnecting
+        if maybe_event.is_none() {
+            if let Ok(script) = core::str::from_utf8(&input_buf) {
+                info!("eval (timeout): {} bytes", input_buf.len());
+                let reply = match engine.eval::<Dynamic>(script) {
+                    Ok(result) => format!("{}\r\n", result),
+                    Err(e) => format!("err: {}\r\n", e),
+                };
+                if let Some(conn) = conn_handle {
+                    for chunk in reply.as_bytes().chunks(MAX_DATA_LEN) {
+                        let _ = gatt.notify(conn, service_handle, tx_char_handle, chunk);
+                    }
+                    // Re-prompt so the user can send another expression
+                    let _ = gatt.notify(conn, service_handle, tx_char_handle, b"> ");
+                }
+            }
+            input_buf.clear();
+            continue;
+        }
+
+        let event = maybe_event.unwrap();
 
         if let Some(gap_event) = ble.process_event(&event) {
             match gap_event {
@@ -188,9 +221,10 @@ async fn main(spawner: Spawner) {
                 }
                 GapEvent::Disconnected { handle, reason } => {
                     info!("Disconnected: 0x{:04X} reason=0x{:02X}", handle.0, reason);
+                    // Evaluate any remaining buffered data on disconnect too
                     if !input_buf.is_empty() {
                         if let Ok(script) = core::str::from_utf8(&input_buf) {
-                            info!("eval (eof): {} bytes", input_buf.len());
+                            info!("eval (disconnect): {} bytes", input_buf.len());
                             let reply = match engine.eval::<Dynamic>(script) {
                                 Ok(result) => format!("{}\r\n", result),
                                 Err(e) => format!("err: {}\r\n", e),
@@ -218,14 +252,12 @@ async fn main(spawner: Spawner) {
                 if is_cccd_handle(tx_char_handle.0, attr.attr_handle.0) {
                     tx_notifications = CccdValue::from_bytes(attr.data()).notifications;
                     if tx_notifications {
-                        // Send a welcome/prompt so the user knows we are ready
                         if let Some(conn) = conn_handle {
                             let _ = gatt.notify(conn, service_handle, tx_char_handle, b"> ");
                         }
                     }
                     info!("TX notifications {}", if tx_notifications { "on" } else { "off" });
                 } else if is_value_handle(rx_char_handle.0, attr.attr_handle.0) {
-                    // Just accumulate — evaluation happens on disconnect (EOF)
                     for &b in attr.data() {
                         if input_buf.len() < INPUT_BUF_SIZE {
                             let _ = input_buf.push(b);
