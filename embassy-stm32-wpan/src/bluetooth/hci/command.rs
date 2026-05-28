@@ -150,6 +150,44 @@ unsafe extern "C" {
 
     #[link_name = "HCI_LE_READ_ADVERTISING_PHYSICAL_CHANNEL_TX_POWER"]
     fn hci_le_read_advertising_physical_channel_tx_power(transmit_power_level: *mut u8) -> tBleStatus;
+
+    // CTE — Constant Tone Extension commands (BT 5.1+, Direction Finding)
+    #[link_name = "HCI_LE_SET_CONNECTION_CTE_TRANSMIT_PARAMETERS"]
+    fn hci_le_set_connection_cte_transmit_parameters(
+        connection_handle: u16,
+        cte_types: u8,
+        switching_pattern_length: u8,
+        antenna_ids: *const u8,
+    ) -> tBleStatus;
+
+    #[link_name = "HCI_LE_CONNECTION_CTE_RESPONSE_ENABLE"]
+    fn hci_le_connection_cte_response_enable(connection_handle: u16, cte_response_enable: u8) -> tBleStatus;
+
+    #[link_name = "HCI_LE_SET_CONNECTION_CTE_RECEIVE_PARAMETERS"]
+    fn hci_le_set_connection_cte_receive_parameters(
+        connection_handle: u16,
+        sampling_enable: u8,
+        slot_durations: u8,
+        switching_pattern_length: u8,
+        antenna_ids: *const u8,
+    ) -> tBleStatus;
+
+    #[link_name = "HCI_LE_CONNECTION_CTE_REQUEST_ENABLE"]
+    fn hci_le_connection_cte_request_enable(
+        connection_handle: u16,
+        enable: u8,
+        cte_request_interval: u16,
+        requested_cte_length: u8,
+        requested_cte_type: u8,
+    ) -> tBleStatus;
+
+    #[link_name = "HCI_LE_READ_ANTENNA_INFORMATION"]
+    fn hci_le_read_antenna_information(
+        supported_switching_sampling_rates: *mut u8,
+        num_antennae: *mut u8,
+        max_switching_pattern_length: *mut u8,
+        max_cte_length: *mut u8,
+    ) -> tBleStatus;
 }
 
 /// BLE Success status code
@@ -580,6 +618,130 @@ impl CommandSender {
         unsafe {
             let status = hci_le_set_data_length(handle, tx_octets, tx_time);
             Self::check_status(status)
+        }
+    }
+
+    // ===== Direction Finding / CTE Commands =====
+
+    /// Set CTE transmit parameters for a connection (peripheral/tag side).
+    ///
+    /// Configure which CTE types the peripheral can transmit and the antenna switching
+    /// pattern used for AoD. Call before enabling CTE transmit response.
+    ///
+    /// - `cte_types`: Bit field — bit 0=AoA, bit 1=AoD 1μs slots, bit 2=AoD 2μs slots
+    /// - `antenna_ids`: Antenna switching pattern IDs (2–75 elements)
+    pub fn le_set_connection_cte_transmit_parameters(
+        &self,
+        handle: u16,
+        cte_types: u8,
+        antenna_ids: &[u8],
+    ) -> Result<(), BleError> {
+        if antenna_ids.len() < 2 || antenna_ids.len() > 75 {
+            return Err(BleError::InvalidParameter);
+        }
+        unsafe {
+            let status = hci_le_set_connection_cte_transmit_parameters(
+                handle,
+                cte_types,
+                antenna_ids.len() as u8,
+                antenna_ids.as_ptr(),
+            );
+            Self::check_status(status)
+        }
+    }
+
+    /// Enable or disable CTE response for a connection (peripheral/tag side).
+    ///
+    /// When enabled, the peripheral responds with CTE whenever the central requests it
+    /// (BT spec 7.8.86 `HCI_LE_Connection_CTE_Response_Enable`).
+    /// Call `le_set_connection_cte_transmit_parameters` first.
+    pub fn le_connection_cte_response_enable(&self, handle: u16, enable: bool) -> Result<(), BleError> {
+        unsafe {
+            let status = hci_le_connection_cte_response_enable(handle, if enable { 1 } else { 0 });
+            Self::check_status(status)
+        }
+    }
+
+    /// Set CTE receive (IQ sampling) parameters for a connection (central/locator side).
+    ///
+    /// Configure IQ sample collection for incoming CTE packets. When enabled, IQ reports
+    /// arrive as `LeConnectionIqReport` events.
+    ///
+    /// - `sampling_enable`: true to enable IQ sampling
+    /// - `slot_durations`: 0x01 = 1μs slots, 0x02 = 2μs slots
+    /// - `antenna_ids`: Antenna switching pattern (2–75 elements; ignored if sampling disabled)
+    pub fn le_set_connection_cte_receive_parameters(
+        &self,
+        handle: u16,
+        sampling_enable: bool,
+        slot_durations: u8,
+        antenna_ids: &[u8],
+    ) -> Result<(), BleError> {
+        if sampling_enable && (antenna_ids.len() < 2 || antenna_ids.len() > 75) {
+            return Err(BleError::InvalidParameter);
+        }
+        unsafe {
+            let status = hci_le_set_connection_cte_receive_parameters(
+                handle,
+                if sampling_enable { 1 } else { 0 },
+                slot_durations,
+                antenna_ids.len() as u8,
+                antenna_ids.as_ptr(),
+            );
+            Self::check_status(status)
+        }
+    }
+
+    /// Enable or disable CTE requests for a connection (central/locator side).
+    ///
+    /// When enabled, the central periodically asks the peripheral to send CTE.
+    /// IQ samples arrive via `LeConnectionIqReport` events.
+    ///
+    /// - `enable`: true to start CTE requests
+    /// - `request_interval`: 0 = request once; N = request every N connection events
+    /// - `requested_cte_length`: Requested CTE length in 8μs units (range: 2–20)
+    /// - `requested_cte_type`: 0x00=AoA, 0x01=AoD 1μs, 0x02=AoD 2μs
+    pub fn le_connection_cte_request_enable(
+        &self,
+        handle: u16,
+        enable: bool,
+        request_interval: u16,
+        requested_cte_length: u8,
+        requested_cte_type: u8,
+    ) -> Result<(), BleError> {
+        unsafe {
+            let status = hci_le_connection_cte_request_enable(
+                handle,
+                if enable { 1 } else { 0 },
+                request_interval,
+                requested_cte_length,
+                requested_cte_type,
+            );
+            Self::check_status(status)
+        }
+    }
+
+    /// Read antenna information from the controller.
+    ///
+    /// Returns `(switching_sampling_rates, num_antennae, max_pattern_length, max_cte_length)`.
+    /// - `switching_sampling_rates`: Bit field of supported switching/sampling rates
+    /// - `num_antennae`: Number of antennae supported by the controller
+    /// - `max_pattern_length`: Maximum supported switching pattern length
+    /// - `max_cte_length`: Maximum supported CTE length in 8μs units
+    pub fn le_read_antenna_information(&self) -> Result<(u8, u8, u8, u8), BleError> {
+        unsafe {
+            let mut switching_rates = 0u8;
+            let mut num_antennae = 0u8;
+            let mut max_pattern_len = 0u8;
+            let mut max_cte_len = 0u8;
+            let status = hci_le_read_antenna_information(
+                &mut switching_rates,
+                &mut num_antennae,
+                &mut max_pattern_len,
+                &mut max_cte_len,
+            );
+            Self::check_status(status)?;
+            Ok((switching_rates, num_antennae, max_pattern_len, max_cte_len))
         }
     }
 }

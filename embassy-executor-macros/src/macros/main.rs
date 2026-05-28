@@ -43,6 +43,12 @@ pub static ARCH_CORTEX_AR: Arch = Arch {
     executor_required: false,
 };
 
+pub static ARCH_Z7: Arch = Arch {
+    default_entry: None,
+    flavor: Flavor::Standard,
+    executor_required: false,
+};
+
 pub static ARCH_SPIN: Arch = Arch {
     default_entry: None,
     flavor: Flavor::Standard,

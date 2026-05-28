@@ -4,18 +4,29 @@ use core::{mem, slice};
 
 use smoltcp::wire::ieee802154::Frame;
 
-use super::opcodes::OpcodeM4ToM0;
-use super::typedefs::{
+use crate::net::iface::mlme::{RequestPacketKind, ResponsePacketKind};
+use crate::net::iface::{HostToControllerPacket, PacketKind, WriteHci, mcps, mlme};
+use crate::net::typedefs::{
     AddressMode, Capabilities, DisassociationReason, GtsCharacteristics, KeyIdMode, MacAddress, MacChannel, MacStatus,
     PanId, PibId, ScanType, SecurityLevel,
 };
 
-pub trait MacCommand: Sized {
-    const OPCODE: OpcodeM4ToM0;
+trait MacCommand: Sized {
+    const KIND: PacketKind;
+}
 
-    fn payload<'a>(&'a self) -> &'a [u8] {
-        unsafe { slice::from_raw_parts(self as *const _ as *const u8, mem::size_of::<Self>()) }
+impl<T: MacCommand> WriteHci for T {
+    fn size(&self) -> usize {
+        mem::size_of::<Self>()
     }
+
+    fn write_hci<W: embedded_io::Write>(&self, mut writer: W) -> Result<(), W::Error> {
+        writer.write_all(unsafe { slice::from_raw_parts(self as *const _ as *const u8, mem::size_of::<Self>()) })
+    }
+}
+
+impl<T: MacCommand> HostToControllerPacket for T {
+    const KIND: PacketKind = <T as MacCommand>::KIND;
 }
 
 /// MLME ASSOCIATE Request used to request an association
@@ -45,7 +56,7 @@ pub struct AssociateRequest {
 }
 
 impl MacCommand for AssociateRequest {
-    const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::MlmeAssociateReq;
+    const KIND: PacketKind = PacketKind::Mlme(mlme::PacketKind::Request(RequestPacketKind::Associate));
 }
 
 /// MLME DISASSOCIATE Request sed to request a disassociation
@@ -73,7 +84,7 @@ pub struct DisassociateRequest {
 }
 
 impl MacCommand for DisassociateRequest {
-    const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::MlmeDisassociateReq;
+    const KIND: PacketKind = PacketKind::Mlme(mlme::PacketKind::Request(RequestPacketKind::Dissassociate));
 }
 
 /// MLME GET Request used to request a PIB value
@@ -89,7 +100,7 @@ pub struct GetRequest {
 }
 
 impl MacCommand for GetRequest {
-    const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::MlmeGetReq;
+    const KIND: PacketKind = PacketKind::Mlme(mlme::PacketKind::Request(RequestPacketKind::Get));
 }
 
 /// MLME GTS Request used to request and maintain GTSs
@@ -109,7 +120,7 @@ pub struct GtsRequest {
 }
 
 impl MacCommand for GtsRequest {
-    const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::MlmeGetReq;
+    const KIND: PacketKind = PacketKind::Mlme(mlme::PacketKind::Request(RequestPacketKind::Gts));
 }
 
 #[repr(C)]
@@ -123,7 +134,7 @@ pub struct ResetRequest {
 }
 
 impl MacCommand for ResetRequest {
-    const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::MlmeResetReq;
+    const KIND: PacketKind = PacketKind::Mlme(mlme::PacketKind::Request(RequestPacketKind::Reset));
 }
 
 /// MLME RX ENABLE Request used to request that the receiver is either enabled
@@ -145,7 +156,7 @@ pub struct RxEnableRequest {
 }
 
 impl MacCommand for RxEnableRequest {
-    const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::MlmeRxEnableReq;
+    const KIND: PacketKind = PacketKind::Mlme(mlme::PacketKind::Request(RequestPacketKind::RxEnable));
 }
 
 /// MLME SCAN Request used to initiate a channel scan over a given list of channels
@@ -173,7 +184,7 @@ pub struct ScanRequest {
 }
 
 impl MacCommand for ScanRequest {
-    const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::MlmeScanReq;
+    const KIND: PacketKind = PacketKind::Mlme(mlme::PacketKind::Request(RequestPacketKind::Scan));
 }
 
 /// MLME SET Request used to attempt to write the given value to the indicated PIB attribute
@@ -187,7 +198,7 @@ pub struct SetRequest {
 }
 
 impl MacCommand for SetRequest {
-    const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::MlmeSetReq;
+    const KIND: PacketKind = PacketKind::Mlme(mlme::PacketKind::Request(RequestPacketKind::Set));
 }
 
 /// MLME START Request used by the FFDs to intiate a new PAN or to begin using a new superframe
@@ -231,7 +242,7 @@ pub struct StartRequest {
 }
 
 impl MacCommand for StartRequest {
-    const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::MlmeStartReq;
+    const KIND: PacketKind = PacketKind::Mlme(mlme::PacketKind::Request(RequestPacketKind::Start));
 }
 
 /// MLME SYNC Request used to synchronize with the coordinator by acquiring and, if
@@ -253,7 +264,7 @@ pub struct SyncRequest {
 }
 
 impl MacCommand for SyncRequest {
-    const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::MlmeSyncReq;
+    const KIND: PacketKind = PacketKind::Mlme(mlme::PacketKind::Request(RequestPacketKind::Sync));
 }
 
 /// MLME POLL Request propmts the device to request data from the coordinator
@@ -279,7 +290,7 @@ pub struct PollRequest {
 }
 
 impl MacCommand for PollRequest {
-    const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::MlmePollReq;
+    const KIND: PacketKind = PacketKind::Mlme(mlme::PacketKind::Request(RequestPacketKind::Poll));
 }
 
 /// MLME DPS Request allows the next higher layer to request that the PHY utilize a
@@ -299,7 +310,7 @@ pub struct DpsRequest {
 }
 
 impl MacCommand for DpsRequest {
-    const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::MlmeDpsReq;
+    const KIND: PacketKind = PacketKind::Mlme(mlme::PacketKind::Request(RequestPacketKind::Dps));
 }
 
 /// MLME SOUNDING request primitive which is used by the next higher layer to request that
@@ -312,7 +323,7 @@ pub struct SoundingRequest {
 }
 
 impl MacCommand for SoundingRequest {
-    const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::MlmeSoundingReq;
+    const KIND: PacketKind = PacketKind::Mlme(mlme::PacketKind::Request(RequestPacketKind::Sounding));
 }
 
 /// MLME CALIBRATE request primitive which used  to obtain the results of a ranging
@@ -325,7 +336,7 @@ pub struct CalibrateRequest {
 }
 
 impl MacCommand for CalibrateRequest {
-    const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::MlmeCalibrateReq;
+    const KIND: PacketKind = PacketKind::Mlme(mlme::PacketKind::Request(RequestPacketKind::Calibrate));
 }
 
 /// MCPS DATA Request used for MAC data related requests from the application
@@ -436,7 +447,7 @@ impl Default for DataRequest {
 }
 
 impl MacCommand for DataRequest {
-    const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::McpsDataReq;
+    const KIND: PacketKind = PacketKind::Mcps(mcps::PacketKind::Data);
 }
 
 /// for MCPS PURGE Request used to purge an MSDU from the transaction queue
@@ -451,7 +462,7 @@ pub struct PurgeRequest {
 }
 
 impl MacCommand for PurgeRequest {
-    const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::McpsPurgeReq;
+    const KIND: PacketKind = PacketKind::Mcps(mcps::PacketKind::Purge);
 }
 
 /// MLME ASSOCIATE Response used to initiate a response to an MLME-ASSOCIATE.indication
@@ -479,7 +490,7 @@ pub struct AssociateResponse {
 }
 
 impl MacCommand for AssociateResponse {
-    const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::MlmeAssociateRes;
+    const KIND: PacketKind = PacketKind::Mlme(mlme::PacketKind::Response(mlme::ResponsePacketKind::Associate));
 }
 
 /// MLME ORPHAN Response used to respond to the MLME ORPHAN Indication
@@ -505,5 +516,5 @@ pub struct OrphanResponse {
 }
 
 impl MacCommand for OrphanResponse {
-    const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::MlmeOrphanRes;
+    const KIND: PacketKind = PacketKind::Mlme(mlme::PacketKind::Response(mlme::ResponsePacketKind::Orphan));
 }

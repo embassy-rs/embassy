@@ -165,9 +165,7 @@ impl AdcRegs for crate::pac::adc::Adc {
         let mut smpr2 = self.smpr(1).read();
 
         // Set sequence length
-        self.sqr1().modify(|w| {
-            w.set_l(sequence.len() as u8 - 1);
-        });
+        sqr1.set_l(sequence.len() as u8 - 1);
 
         // Configure channels and ranks
         for (i, ((channel, _), sample_time)) in sequence.enumerate() {

@@ -457,11 +457,19 @@ pub enum EndpointError {
 }
 
 // TODO: remove before releasing embassy-usb-driver v0.3
-impl embedded_io_async::Error for EndpointError {
-    fn kind(&self) -> embedded_io_async::ErrorKind {
+impl embedded_io_async_06::Error for EndpointError {
+    fn kind(&self) -> embedded_io_async_06::ErrorKind {
         match self {
-            Self::BufferOverflow => embedded_io_async::ErrorKind::OutOfMemory,
-            Self::Disabled => embedded_io_async::ErrorKind::NotConnected,
+            Self::BufferOverflow => embedded_io_async_06::ErrorKind::OutOfMemory,
+            Self::Disabled => embedded_io_async_06::ErrorKind::NotConnected,
+        }
+    }
+}
+impl embedded_io_async_07::Error for EndpointError {
+    fn kind(&self) -> embedded_io_async_07::ErrorKind {
+        match self {
+            Self::BufferOverflow => embedded_io_async_07::ErrorKind::OutOfMemory,
+            Self::Disabled => embedded_io_async_07::ErrorKind::NotConnected,
         }
     }
 }

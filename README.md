@@ -24,6 +24,7 @@ Rust's [async/await](https://rust-lang.github.io/async-book/) allows for unprece
     - [ch32-hal](https://github.com/ch32-rs/ch32-hal), for the WCH 32-bit RISC-V(CH32V) series of chips.
     - [mpfs-hal](https://github.com/AlexCharlton/mpfs-hal), for the Microchip PolarFire SoC.
     - [py32-hal](https://github.com/py32-rs/py32-hal), for the Puya Semiconductor PY32 series of microcontrollers.
+    - [ra-hal](https://git.sr.ht/~az1/ra-hal), for the Renesas RA family of microcontrollers.
 
 - **Time that Just Works** -
   No more messing with hardware timers. [embassy_time](https://docs.embassy.dev/embassy-time) provides Instant, Duration, and Timer types that are globally available and never overflow.

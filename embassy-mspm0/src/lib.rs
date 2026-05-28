@@ -22,7 +22,7 @@ pub mod i2c;
 pub mod i2c_target;
 #[cfg(any(mspm0g150x, mspm0g151x, mspm0g350x, mspm0g351x))]
 pub mod mathacl;
-pub mod timer;
+pub mod tim;
 #[cfg(any(mspm0g150x, mspm0g151x, mspm0g350x, mspm0g351x, mspm0l122x, mspm0l222x))]
 pub mod trng;
 // TODO: UART unicomm

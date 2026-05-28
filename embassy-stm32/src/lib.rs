@@ -17,6 +17,7 @@ include!(concat!(env!("OUT_DIR"), "/_macros.rs"));
 
 // Utilities
 mod macros;
+mod reg;
 pub mod time;
 mod wait;
 /// Operating modes for peripherals.
