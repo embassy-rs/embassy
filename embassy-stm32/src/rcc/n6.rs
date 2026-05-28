@@ -11,6 +11,7 @@ use stm32_metapac::syscfg::vals::{Vddio2cccrCs, Vddio3cccrCs, Vddio4cccrCs};
 use crate::pac::{GPDMA1, HPDMA1, PWR, RCC, RIFSC, RISAF3, SYSCFG};
 use crate::time::Hertz;
 
+use crate::rcc::LSI_FREQ;
 pub const HSI_FREQ: Hertz = Hertz(64_000_000);
 pub const LSE_FREQ: Hertz = Hertz(32_768);
 
