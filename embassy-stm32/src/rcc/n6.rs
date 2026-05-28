@@ -852,6 +852,7 @@ struct OscOutput {
     /// HSI block, equal to `hsi_ck / HSIDIV`. Present whenever HSI is on.
     hsi_div: Option<Hertz>,
     hse: Option<Hertz>,
+    hse_rtc: Option<Hertz>,
     msi: Option<Hertz>,
     lsi: Option<Hertz>,
     lse: Option<Hertz>,
@@ -929,6 +930,8 @@ fn init_osc(config: Config) -> OscOutput {
 
         None
     };
+    // hse rtc configuration
+    let hse_rtc = hse.map(|freq| freq / RCC.ccipr7().read().rtcpre().to_bits().add(1));
 
     // hsi configuration
     //
@@ -1108,6 +1111,7 @@ fn init_osc(config: Config) -> OscOutput {
         hsi,
         hsi_div,
         hse,
+        hse_rtc,
         msi,
         lsi,
         lse,
@@ -1373,7 +1377,9 @@ pub(crate) unsafe fn init(config: Config) {
         hsi: clock_inputs.hsi,
         hsi_div: clock_inputs.hsi_div,
         hse: clock_inputs.hse,
+        hse_rtc: osc.hse_rtc,
         msi: clock_inputs.msi,
+        lsi: osc.lsi,
         lse: None,
         hclk1: Some(clocks.ahb),
         hclk2: Some(clocks.ahb),
