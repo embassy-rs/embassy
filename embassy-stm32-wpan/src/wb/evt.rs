@@ -2,6 +2,9 @@ use core::marker::PhantomData;
 use core::sync::atomic::{Ordering, compiler_fence};
 use core::{ptr, slice};
 
+use embassy_stm32::ipcc::IpccRxChannel;
+
+use crate::util::Flag;
 use crate::wb::PacketHeader;
 
 /**
@@ -100,6 +103,26 @@ impl EvtPacket {
         let payload_len = Self::read_stub(ptr).payload_len as usize;
 
         (&raw const (*ptr).evt_serial.evt.payload as *const u8, payload_len)
+    }
+}
+
+// Channel protected by a flag
+pub struct ProtectedChannel<'a> {
+    flag: &'a Flag,
+    channel: IpccRxChannel<'a>,
+}
+
+impl<'a> ProtectedChannel<'a> {
+    #[allow(dead_code)]
+    pub const fn new(flag: &'a Flag, channel: IpccRxChannel<'a>) -> Self {
+        Self { flag, channel }
+    }
+
+    #[allow(dead_code)]
+    pub async fn lock(&mut self) -> &mut IpccRxChannel<'a> {
+        self.flag.wait_for_low().await;
+
+        &mut self.channel
     }
 }
 
