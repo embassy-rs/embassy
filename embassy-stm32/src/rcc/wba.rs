@@ -386,8 +386,8 @@ pub(crate) unsafe fn init(config: Config) {
     #[cfg(sai_v4_2pdm)]
     let audioclk = match config.mux.sai1sel {
         Sai1sel::Hsi => Some(HSI_FREQ),
-        Sai1sel::Pll1Q => Some(pll1.q.expect("PLL1.Q not configured")),
-        Sai1sel::Pll1P => Some(pll1.p.expect("PLL1.P not configured")),
+        Sai1sel::Pll1Q => pll1.q,
+        Sai1sel::Pll1P => pll1.p,
         Sai1sel::Sys => panic!("SYS not supported yet"),
         Sai1sel::Audioclk => panic!("AUDIOCLK not supported yet"),
         _ => None,
