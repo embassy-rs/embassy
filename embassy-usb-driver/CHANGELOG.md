@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.2.2 - 2026-05-28
+
 - **Un-breaking change**: Re-add embedded-io-async 0.6.1 support.
 
 ## 0.2.1 - 2026-05-04
