@@ -19,7 +19,7 @@
 extern crate alloc;
 use alloc::format;
 
-use embedded_alloc::Heap;
+use embedded_alloc::LlffHeap as Heap;
 
 use defmt::*;
 use embassy_executor::Spawner;
@@ -55,13 +55,18 @@ bind_interrupts!(struct Irqs {
     HASH => LowInterruptHandler;
 });
 
-// Nordic UART Service (NUS) UUIDs
+// Nordic UART Service (NUS) UUIDs - compatible with nRF Connect and similar apps
+// Service UUID: 6E400001-B5A3-F393-E0A9-E50E24DCCA9E
 const NUS_SERVICE_UUID: [u8; 16] = [
     0x9E, 0xCA, 0xDC, 0x24, 0x0E, 0xE5, 0xA9, 0xE0, 0x93, 0xF3, 0xA3, 0xB5, 0x01, 0x00, 0x40, 0x6E,
 ];
+
+// RX Characteristic UUID: 6E400002-B5A3-F393-E0A9-E50E24DCCA9E (Client writes to this)
 const NUS_RX_CHAR_UUID: [u8; 16] = [
     0x9E, 0xCA, 0xDC, 0x24, 0x0E, 0xE5, 0xA9, 0xE0, 0x93, 0xF3, 0xA3, 0xB5, 0x02, 0x00, 0x40, 0x6E,
 ];
+
+// TX Characteristic UUID: 6E400003-B5A3-F393-E0A9-E50E24DCCA9E (Server notifies on this)
 const NUS_TX_CHAR_UUID: [u8; 16] = [
     0x9E, 0xCA, 0xDC, 0x24, 0x0E, 0xE5, 0xA9, 0xE0, 0x93, 0xF3, 0xA3, 0xB5, 0x03, 0x00, 0x40, 0x6E,
 ];
@@ -149,6 +154,9 @@ async fn main(spawner: Spawner) {
     adv_data.add_flags(0x06).unwrap();
     adv_data.add_name("RhaiShell").unwrap();
 
+    let mut scan_rsp = AdvData::new();
+    scan_rsp.add_service_uuid_128(&NUS_SERVICE_UUID).unwrap();
+
     let adv_params = AdvParams {
         interval_min: 0x0050,
         interval_max: 0x0064,
@@ -157,7 +165,7 @@ async fn main(spawner: Spawner) {
         ..AdvParams::default()
     };
 
-    ble.start_advertising(adv_params.clone(), adv_data.clone(), None)
+    ble.start_advertising(adv_params.clone(), adv_data.clone(), Some(scan_rsp.clone()))
         .await
         .expect("start advertising");
 
@@ -183,7 +191,7 @@ async fn main(spawner: Spawner) {
                     conn_handle = None;
                     tx_notifications = false;
                     input_buf.clear();
-                    ble.start_advertising(adv_params.clone(), adv_data.clone(), None)
+                    ble.start_advertising(adv_params.clone(), adv_data.clone(), Some(scan_rsp.clone()))
                         .await
                         .expect("restart advertising");
                 }
