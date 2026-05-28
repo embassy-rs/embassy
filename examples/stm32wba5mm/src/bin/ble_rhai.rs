@@ -190,7 +190,9 @@ async fn main(spawner: Spawner) {
                 } else {
                     format!("{}", result)
                 };
-                format!("{}\r\n", value)
+                let reply = format!("{}\r\n", value);
+                info!("reply: {}", format!("{:?}", reply).as_str());
+                reply
             }
             Err(e) => {
                 let err_str = format!("{}", e);
