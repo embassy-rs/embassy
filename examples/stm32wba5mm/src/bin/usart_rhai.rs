@@ -3,7 +3,7 @@
 
 extern crate alloc;
 use alloc::format;
-use embedded_alloc::Heap;
+use embedded_hal::Heap;
 
 use core::str;
 
