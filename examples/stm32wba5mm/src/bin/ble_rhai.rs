@@ -21,9 +21,12 @@ use alloc::format;
 
 use embedded_alloc::LlffHeap as Heap;
 
+use core::cell::RefCell;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
+use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_stm32::aes::{self, Aes};
 use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph};
 use embassy_stm32::pka::{self, Pka};
@@ -78,6 +81,12 @@ static LED_STATE: AtomicBool = AtomicBool::new(false);
 
 const MAX_DATA_LEN: usize = 244;
 const INPUT_BUF_SIZE: usize = 512;
+const PRINT_BUF_SIZE: usize = 512;
+
+/// Accumulates output from Rhai `print()` / `debug()` calls during script evaluation.
+/// Drained and sent as BLE notifications immediately before the eval result.
+static PRINT_BUF: Mutex<CriticalSectionRawMutex, RefCell<heapless::Vec<u8, PRINT_BUF_SIZE>>> =
+    Mutex::new(RefCell::new(heapless::Vec::new()));
 
 #[embassy_executor::task]
 async fn rng_runner_task(platform: &'static Platform) {
@@ -111,6 +120,33 @@ async fn main(spawner: Spawner) {
     // led(true) / led(false) — drives PA1 via a static flag applied after eval
     engine.register_fn("led", |state: bool| {
         LED_STATE.store(state, Ordering::Relaxed);
+    });
+
+    // Redirect Rhai print() / debug() output to the BLE TX print buffer.
+    engine.on_print(|s| {
+        PRINT_BUF.lock(|buf| {
+            let mut buf = buf.borrow_mut();
+            for &b in s.as_bytes() {
+                let _ = buf.push(b);
+            }
+            let _ = buf.push(b'\r');
+            let _ = buf.push(b'\n');
+        });
+    });
+    engine.on_debug(|s, src, pos| {
+        let msg = if let Some(src) = src {
+            alloc::format!("[{}@{:?}] {}", src, pos, s)
+        } else {
+            alloc::format!("{}", s)
+        };
+        PRINT_BUF.lock(|buf| {
+            let mut buf = buf.borrow_mut();
+            for &b in msg.as_bytes() {
+                let _ = buf.push(b);
+            }
+            let _ = buf.push(b'\r');
+            let _ = buf.push(b'\n');
+        });
     });
 
     info!("BLE Rhai interpreter starting");
@@ -237,6 +273,18 @@ async fn main(spawner: Spawner) {
                 let reply = eval_script(&engine, script);
                 led.set_level(if LED_STATE.load(Ordering::Relaxed) { Level::High } else { Level::Low });
                 if let Some(conn) = conn_handle {
+                    // Send any print()/debug() output captured during eval first
+                    let print_out: alloc::vec::Vec<u8> = PRINT_BUF.lock(|buf| {
+                        let mut b = buf.borrow_mut();
+                        let v = b.iter().copied().collect();
+                        b.clear();
+                        v
+                    });
+                    if !print_out.is_empty() {
+                        for chunk in print_out.chunks(MAX_DATA_LEN) {
+                            let _ = gatt.notify(conn, service_handle, tx_char_handle, chunk);
+                        }
+                    }
                     for chunk in reply.as_bytes().chunks(MAX_DATA_LEN) {
                         let _ = gatt.notify(conn, service_handle, tx_char_handle, chunk);
                     }
@@ -267,6 +315,18 @@ async fn main(spawner: Spawner) {
                             let reply = eval_script(&engine, script);
                             led.set_level(if LED_STATE.load(Ordering::Relaxed) { Level::High } else { Level::Low });
                             if let Some(conn) = conn_handle {
+                                // Send any print()/debug() output captured during eval first
+                                let print_out: alloc::vec::Vec<u8> = PRINT_BUF.lock(|buf| {
+                                    let mut b = buf.borrow_mut();
+                                    let v = b.iter().copied().collect();
+                                    b.clear();
+                                    v
+                                });
+                                if !print_out.is_empty() {
+                                    for chunk in print_out.chunks(MAX_DATA_LEN) {
+                                        let _ = gatt.notify(conn, service_handle, tx_char_handle, chunk);
+                                    }
+                                }
                                 for chunk in reply.as_bytes().chunks(MAX_DATA_LEN) {
                                     let _ = gatt.notify(conn, service_handle, tx_char_handle, chunk);
                                 }
