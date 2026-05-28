@@ -188,9 +188,23 @@ async fn main(spawner: Spawner) {
                 }
                 GapEvent::Disconnected { handle, reason } => {
                     info!("Disconnected: 0x{:04X} reason=0x{:02X}", handle.0, reason);
+                    if !input_buf.is_empty() {
+                        if let Ok(script) = core::str::from_utf8(&input_buf) {
+                            info!("eval (eof): {} bytes", input_buf.len());
+                            let reply = match engine.eval::<Dynamic>(script) {
+                                Ok(result) => format!("{}\r\n", result),
+                                Err(e) => format!("err: {}\r\n", e),
+                            };
+                            if let Some(conn) = conn_handle {
+                                for chunk in reply.as_bytes().chunks(MAX_DATA_LEN) {
+                                    let _ = gatt.notify(conn, service_handle, tx_char_handle, chunk);
+                                }
+                            }
+                        }
+                        input_buf.clear();
+                    }
                     conn_handle = None;
                     tx_notifications = false;
-                    input_buf.clear();
                     ble.start_advertising(adv_params.clone(), adv_data.clone(), Some(scan_rsp.clone()))
                         .await
                         .expect("restart advertising");
@@ -211,31 +225,13 @@ async fn main(spawner: Spawner) {
                     }
                     info!("TX notifications {}", if tx_notifications { "on" } else { "off" });
                 } else if is_value_handle(rx_char_handle.0, attr.attr_handle.0) {
+                    // Just accumulate — evaluation happens on disconnect (EOF)
                     for &b in attr.data() {
-                        if b == b'\n' || b == b'\r' {
-                            if input_buf.is_empty() {
-                                continue;
-                            }
-                            if let Ok(expr) = core::str::from_utf8(&input_buf) {
-                                info!("eval: {}", expr);
-                                let reply = match engine.eval_expression::<Dynamic>(expr) {
-                                    Ok(result) => format!("{}\r\n> ", result),
-                                    Err(e) => format!("err: {}\r\n> ", e),
-                                };
-                                if tx_notifications {
-                                    if let Some(conn) = conn_handle {
-                                        // Chunk reply into MAX_DATA_LEN pieces if needed
-                                        for chunk in reply.as_bytes().chunks(MAX_DATA_LEN) {
-                                            let _ = gatt.notify(conn, service_handle, tx_char_handle, chunk);
-                                        }
-                                    }
-                                }
-                            }
-                            input_buf.clear();
-                        } else if input_buf.len() < INPUT_BUF_SIZE {
+                        if input_buf.len() < INPUT_BUF_SIZE {
                             let _ = input_buf.push(b);
                         }
                     }
+                    debug!("buffered {} bytes total", input_buf.len());
                 }
             }
 
