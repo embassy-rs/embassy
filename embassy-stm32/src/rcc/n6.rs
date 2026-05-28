@@ -121,8 +121,7 @@ pub struct Config {
     pub hsi: Option<Hsi>,
     pub hse: Option<Hse>,
     pub msi: Option<Msi>,
-    pub lsi: bool,
-    pub lse: bool,
+    pub ls: super::LsConfig,
 
     pub cpu: CpuClk,
     pub sys: SysClk,
@@ -182,8 +181,7 @@ impl Config {
             }),
             hse: None,
             msi: None,
-            lsi: true,
-            lse: false,
+            ls: crate::rcc::LsConfig::new(),
 
             cpu: CpuClk::Hsi,
             sys: SysClk::Hsi,
@@ -856,6 +854,7 @@ struct OscOutput {
     msi: Option<Hertz>,
     lsi: Option<Hertz>,
     lse: Option<Hertz>,
+    rtc: Option<Hertz>,
     pll1: Option<Hertz>,
     pll2: Option<Hertz>,
     pll3: Option<Hertz>,
@@ -1005,29 +1004,14 @@ fn init_osc(config: Config) -> OscOutput {
         None
     };
 
-    // lsi configuration
-    debug!("configuring LSI");
-    let lsi = if config.lsi {
-        RCC.csr().write(|w| w.set_lsions(true));
-        while !RCC.sr().read().lsirdy() {}
-        Some(super::LSI_FREQ)
-    } else {
-        RCC.ccr().write(|w| w.set_lsionc(true));
-        while RCC.sr().read().lsirdy() {}
-        None
-    };
-
+    // rtc configuration
+    let rtc = config.ls.init();
     // lse configuration
     debug!("configuring LSE");
-    let lse = if config.lse {
-        RCC.csr().write(|w| w.set_lseons(true));
-        while !RCC.sr().read().lserdy() {}
-        Some(LSE_FREQ)
-    } else {
-        RCC.ccr().write(|w| w.set_lseonc(true));
-        while RCC.sr().read().lserdy() {}
-        None
-    };
+    let lse = config.ls.lse.map(|l| l.frequency);
+    // lsi configuration
+    debug!("configuring LSI");
+    let lsi = config.ls.lsi.then_some(LSI_FREQ);
 
     let pll_input = PllInput {
         hse,
@@ -1115,6 +1099,7 @@ fn init_osc(config: Config) -> OscOutput {
         msi,
         lsi,
         lse,
+        rtc,
         pll1: pll_outputs[0].output,
         pll2: pll_outputs[1].output,
         pll3: pll_outputs[2].output,
@@ -1398,7 +1383,7 @@ pub(crate) unsafe fn init(config: Config) {
         pclk4: Some(clocks.apb4),
         pclk5: Some(clocks.apb5),
         per: Some(clocks.perclk),
-        rtc: None,
+        rtc: osc.rtc,
         i2s_ckin: None,
         ic1: clock_inputs.ic1,
         ic2: clock_inputs.ic2,
