@@ -184,28 +184,23 @@ pub enum ControllerToHostPacket<'a> {
     Mcps(mcps::Packet<'a>),
 }
 
-pub trait ControllerToHostPacketBox<'a> {
-    fn packet<'b>(&'b self) -> ControllerToHostPacket<'b>
-    where
-        'a: 'b;
+pub trait ControllerToHostPacketBox {
+    fn packet<'b>(&'b self) -> ControllerToHostPacket<'b>;
 }
 
-impl<'a> ControllerToHostPacketBox<'a> for ControllerToHostPacket<'a> {
-    fn packet<'b>(&'b self) -> ControllerToHostPacket<'b>
-    where
-        'a: 'b,
-    {
+impl<'d> ControllerToHostPacketBox for ControllerToHostPacket<'d> {
+    fn packet<'b>(&'b self) -> ControllerToHostPacket<'b> {
         *self
     }
 }
 
 /// Trait representing a HCI controller which supports async operations.
 pub trait Controller: ErrorType {
-    type Packet<'a>: ControllerToHostPacketBox<'a>;
+    type Packet: ControllerToHostPacketBox;
 
     /// Write a packet to the controller.
     fn write(&self, packet: &impl HostToControllerPacket) -> impl Future<Output = Result<(), Self::Error>>;
 
     /// Read a valid packet from the controller.
-    fn read<'a>(&self, buf: &'a mut [u8]) -> impl Future<Output = Result<Self::Packet<'a>, Self::Error>>;
+    fn read<'a>(&self) -> impl Future<Output = Result<Self::Packet, Self::Error>>;
 }

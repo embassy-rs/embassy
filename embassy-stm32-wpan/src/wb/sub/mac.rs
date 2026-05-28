@@ -5,7 +5,7 @@ use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
 use embedded_io::ErrorKind;
 
-use crate::evt::MemoryManager;
+use crate::evt::{MemoryManager, ProtectedChannel};
 use crate::net;
 use crate::net::iface::mcps::{
     ConfirmPacket as McpsConfirmPacket, IndicationPacket as McpsIndicationPacket, Packet as McpsPacket,
@@ -40,7 +40,7 @@ static MAC_EVT_OUT: Flag = Flag::new(false);
 
 pub struct Mac<'a> {
     ipcc_mac_802_15_4_cmd_rsp_channel: IpccTxChannel<'a>,
-    ipcc_mac_802_15_4_notification_ack_channel: IpccRxChannel<'a>,
+    ipcc_mac_802_15_4_notification_ack_channel: ProtectedChannel<'a>,
 }
 
 impl<'a> Mac<'a> {
@@ -64,14 +64,17 @@ impl<'a> Mac<'a> {
 
         Self {
             ipcc_mac_802_15_4_cmd_rsp_channel,
-            ipcc_mac_802_15_4_notification_ack_channel,
+            ipcc_mac_802_15_4_notification_ack_channel: ProtectedChannel::new(
+                &MAC_EVT_OUT,
+                ipcc_mac_802_15_4_notification_ack_channel,
+            ),
         }
     }
 }
 
 pub struct ControllerAdapter<'d> {
     ipcc_mac_802_15_4_cmd_rsp_channel: Mutex<NoopRawMutex, IpccTxChannel<'d>>,
-    ipcc_mac_802_15_4_notification_ack_channel: Mutex<NoopRawMutex, IpccRxChannel<'d>>,
+    ipcc_mac_802_15_4_notification_ack_channel: Mutex<NoopRawMutex, ProtectedChannel<'d>>,
 }
 
 impl<'d> ControllerAdapter<'d> {
@@ -97,24 +100,21 @@ impl<'d> Drop for ParsedIndication<'d> {
     }
 }
 
-impl<'d, 'a> net::iface::ControllerToHostPacketBox<'a> for ParsedIndication<'d> {
-    fn packet<'b>(&'b self) -> ControllerToHostPacket<'b>
-    where
-        'a: 'b,
-    {
+impl<'d, 'a> net::iface::ControllerToHostPacketBox for ParsedIndication<'d> {
+    fn packet<'b>(&'b self) -> ControllerToHostPacket<'b> {
         self.pkt
     }
 }
 
 impl<'d> net::iface::Controller for ControllerAdapter<'d> {
-    type Packet<'a> = ParsedIndication<'a>;
+    type Packet = ParsedIndication<'d>;
 
-    async fn read<'a>(&self, _buf: &'a mut [u8]) -> Result<Self::Packet<'a>, Self::Error> {
-        MAC_EVT_OUT.wait_for_low().await;
-
+    async fn read<'a>(&self) -> Result<Self::Packet, Self::Error> {
         // Return a new event box
         let evt: EvtBox<Mac<'d>> = self
             .ipcc_mac_802_15_4_notification_ack_channel
+            .lock()
+            .await
             .lock()
             .await
             .receive(|| unsafe { Some(EvtBox::new(MAC_802_15_4_NOTIF_RSP_EVT_BUFFER.as_mut_ptr() as *mut _)) })

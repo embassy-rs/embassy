@@ -5,22 +5,21 @@ use embassy_net_driver_channel::driver::{HardwareAddress, LinkState};
 
 use crate::net::ZeroCopyPubSub;
 use crate::net::commands::*;
-use crate::net::iface::{Controller, HostToControllerPacket};
+use crate::net::iface::{Controller, ControllerToHostPacketBox, HostToControllerPacket};
 use crate::net::typedefs::*;
-use crate::net::util::RefBox;
 
 pub struct Control<'a, C: Controller> {
     controller: &'a C,
 
     state_ch: StateRunner<'a>,
-    events: &'a ZeroCopyPubSub<'a, C::Packet<'a>>,
+    events: &'a ZeroCopyPubSub<C::Packet>,
 }
 
 impl<'a, C: Controller> Control<'a, C> {
     pub(crate) const fn new(
         controller: &'a C,
         state_ch: StateRunner<'a>,
-        events: &'a ZeroCopyPubSub<'a, C::Packet<'a>>,
+        events: &'a ZeroCopyPubSub<C::Packet>,
     ) -> Self {
         Self {
             controller,
@@ -32,7 +31,7 @@ impl<'a, C: Controller> Control<'a, C> {
     pub async fn send_command_and_get_response(
         &self,
         cmd: &impl HostToControllerPacket,
-    ) -> Result<RefBox<'a, C::Packet<'a>>, MacError> {
+    ) -> Result<C::Packet, MacError> {
         let subscriber = self.events.subscribe();
 
         compiler_fence(Ordering::Release);

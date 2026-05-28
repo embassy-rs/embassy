@@ -76,8 +76,7 @@ async fn main(spawner: Spawner) {
         .unwrap();
 
     {
-        let mut buf = [0u8; 256];
-        let pkt = controller.read(&mut buf[..]).await.unwrap();
+        let pkt = controller.read().await.unwrap();
 
         defmt::info!("{:#x}", pkt.packet());
     }
@@ -92,8 +91,7 @@ async fn main(spawner: Spawner) {
         .await
         .unwrap();
     {
-        let mut buf = [0u8; 256];
-        let pkt = controller.read(&mut buf[..]).await.unwrap();
+        let pkt = controller.read().await.unwrap();
 
         defmt::info!("{:#x}", pkt.packet());
     }
@@ -108,8 +106,7 @@ async fn main(spawner: Spawner) {
         .await
         .unwrap();
     {
-        let mut buf = [0u8; 256];
-        let pkt = controller.read(&mut buf[..]).await.unwrap();
+        let pkt = controller.read().await.unwrap();
 
         defmt::info!("{:#x}", pkt.packet());
     }
@@ -124,8 +121,7 @@ async fn main(spawner: Spawner) {
         .await
         .unwrap();
     {
-        let mut buf = [0u8; 256];
-        let pkt = controller.read(&mut buf[..]).await.unwrap();
+        let pkt = controller.read().await.unwrap();
 
         defmt::info!("{:#x}", pkt.packet());
     }
@@ -140,8 +136,7 @@ async fn main(spawner: Spawner) {
         .await
         .unwrap();
     {
-        let mut buf = [0u8; 256];
-        let pkt = controller.read(&mut buf[..]).await.unwrap();
+        let pkt = controller.read().await.unwrap();
 
         defmt::info!("{:#x}", pkt.packet());
     }
@@ -160,8 +155,7 @@ async fn main(spawner: Spawner) {
         .await
         .unwrap();
     {
-        let mut buf = [0u8; 256];
-        let pkt = controller.read(&mut buf[..]).await.unwrap();
+        let pkt = controller.read().await.unwrap();
 
         defmt::info!("{:#x}", pkt.packet());
     }
@@ -176,15 +170,13 @@ async fn main(spawner: Spawner) {
         .await
         .unwrap();
     {
-        let mut buf = [0u8; 256];
-        let pkt = controller.read(&mut buf[..]).await.unwrap();
+        let pkt = controller.read().await.unwrap();
 
         defmt::info!("{:#x}", pkt.packet());
     }
 
     loop {
-        let mut buf = [0u8; 256];
-        let pkt = controller.read(&mut buf[..]).await;
+        let pkt = controller.read().await;
 
         if let Ok(pkt) = pkt {
             let evt = pkt.packet();

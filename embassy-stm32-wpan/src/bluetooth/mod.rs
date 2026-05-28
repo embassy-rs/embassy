@@ -16,6 +16,7 @@ use stm32wb_hci::event::{
     LeEnhancedConnectionComplete, LePhyUpdateComplete,
 };
 use stm32wb_hci::host::HostHci;
+use stm32wb_hci::host::uart::Packet;
 use stm32wb_hci::{BdAddr, BdAddrType, ConnectionHandle, Event, Status};
 
 use crate::bluetooth::error::BleError;
@@ -177,7 +178,7 @@ impl<'d> HCI<'d, Normal> {
 
         info!("Calling set_event_mask...");
         let event_mask = EventMask::from_hci_bytes(&[0xFF; 8]).expect("valid event mask").0;
-        if let Err(e) = self.controller.set_event_mask(event_mask).await {
+        if let Err(e) = self.controller.set_event_mask(event_mask.into()).await {
             warn!("set_event_mask failed: {:?} (may be handled internally)", e);
         } else {
             info!("set_event_mask OK");
@@ -185,7 +186,7 @@ impl<'d> HCI<'d, Normal> {
 
         info!("Calling le_set_event_mask...");
         let le_event_mask = LeEventMask::from_hci_bytes(&[0xFF; 8]).expect("valid LE event mask").0;
-        if let Err(e) = self.controller.le_set_event_mask(le_event_mask).await {
+        if let Err(e) = self.controller.le_set_event_mask(le_event_mask.into()).await {
             warn!("le_set_event_mask failed: {:?} (may be handled internally)", e);
         } else {
             info!("le_set_event_mask OK");
@@ -573,9 +574,7 @@ impl<'d> HCI<'d, Normal> {
                 let _ = central_clock_accuracy;
 
                 if matches!(status, Status::Success) {
-                    let Ok(peer_address) = BdAddrType::try_from(*peer_bd_addr) else {
-                        return None;
-                    };
+                    let Ok(peer_address) = BdAddrType::try_from(*peer_bd_addr);
                     let conn = Connection::new_enhanced(
                         *conn_handle,
                         *role,
@@ -825,7 +824,13 @@ impl<'d, M: Mode> HCI<'d, M> {
     /// and scanning. This is provided for applications that need to handle
     /// raw events (e.g., for connection management).
     pub async fn read_event(&mut self) -> stm32wb_hci::Event {
-        self.controller.read_hci_event().await.expect("HCI event read failed")
+        use stm32wb_hci::host::uart::UartHci;
+
+        loop {
+            if let Ok(Packet::Event(event)) = self.controller.read_packet().await {
+                return event;
+            }
+        }
     }
 }
 
