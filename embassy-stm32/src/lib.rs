@@ -526,9 +526,7 @@ mod dual_core {
     ///
     /// A hardware semaphore is used to coordinate the init with the second core.
     pub fn try_init_secondary(shared_data: &'static MaybeUninit<SharedData>) -> Option<Peripherals> {
-        critical_section::with(|cs| {
-            rcc::enable_with_cs::<peripherals::HSEM>(cs);
-        });
+        critical_section::with(|cs| crate::hsem::init_hsem(cs));
 
         // Wait for the semaphore to be unlocked by the primary core
         hsem::get_hsem(1).blocking_listen();
