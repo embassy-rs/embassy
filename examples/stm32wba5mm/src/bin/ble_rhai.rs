@@ -1,0 +1,246 @@
+//! BLE Rhai Interpreter Demo
+//!
+//! Receives Rhai expressions over BLE NUS (Nordic UART Service), evaluates
+//! them and sends the result back as a BLE notification.
+//!
+//! ## Usage
+//! 1. Flash to STM32WBA55 board
+//! 2. Connect with nRF Connect (or similar BLE app)
+//! 3. Enable notifications on the TX characteristic
+//! 4. Write a Rhai expression to the RX characteristic, e.g. `40 + 2`
+//! 5. Result appears as a notification: `42`
+//!
+//! ## Build
+//! cargo build --release --bin ble_rhai --features scripting
+
+#![no_std]
+#![no_main]
+
+extern crate alloc;
+use alloc::format;
+
+use embedded_alloc::Heap;
+
+use defmt::*;
+use embassy_executor::Spawner;
+use embassy_stm32::aes::{self, Aes};
+use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph};
+use embassy_stm32::pka::{self, Pka};
+use embassy_stm32::rcc;
+use embassy_stm32::rng::{self, Rng};
+use embassy_stm32::{Config, bind_interrupts, peripherals};
+use embassy_stm32_wpan::bluetooth::HCI;
+use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
+use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
+use embassy_stm32_wpan::bluetooth::gatt::{
+    CccdValue, CharProperties, GattEventMask, SecurityPermissions, ServiceType, Uuid,
+    is_cccd_handle, is_value_handle,
+};
+use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
+use rhai::{Dynamic, Engine, packages::BasicMathPackage, packages::CorePackage, packages::Package};
+use stm32wb_hci::Event;
+use stm32wb_hci::vendor::event::{AttExchangeMtuResponse, VendorEvent};
+use {defmt_rtt as _, panic_probe as _};
+
+#[global_allocator]
+static HEAP: Heap = Heap::empty();
+
+const HEAP_SIZE: usize = 48 * 1024;
+
+bind_interrupts!(struct Irqs {
+    RNG => rng::InterruptHandler<peripherals::RNG>;
+    AES => aes::InterruptHandler<AesPeriph>;
+    PKA => pka::InterruptHandler<PkaPeriph>;
+    RADIO => HighInterruptHandler;
+    HASH => LowInterruptHandler;
+});
+
+// Nordic UART Service (NUS) UUIDs
+const NUS_SERVICE_UUID: [u8; 16] = [
+    0x9E, 0xCA, 0xDC, 0x24, 0x0E, 0xE5, 0xA9, 0xE0, 0x93, 0xF3, 0xA3, 0xB5, 0x01, 0x00, 0x40, 0x6E,
+];
+const NUS_RX_CHAR_UUID: [u8; 16] = [
+    0x9E, 0xCA, 0xDC, 0x24, 0x0E, 0xE5, 0xA9, 0xE0, 0x93, 0xF3, 0xA3, 0xB5, 0x02, 0x00, 0x40, 0x6E,
+];
+const NUS_TX_CHAR_UUID: [u8; 16] = [
+    0x9E, 0xCA, 0xDC, 0x24, 0x0E, 0xE5, 0xA9, 0xE0, 0x93, 0xF3, 0xA3, 0xB5, 0x03, 0x00, 0x40, 0x6E,
+];
+
+const MAX_DATA_LEN: usize = 244;
+const INPUT_BUF_SIZE: usize = 512;
+
+#[embassy_executor::task]
+async fn rng_runner_task(platform: &'static Platform) {
+    platform.run_rng().await
+}
+
+#[embassy_executor::task]
+async fn ble_runner_task(platform: &'static Platform) {
+    platform.run_ble().await
+}
+
+#[embassy_executor::main]
+async fn main(spawner: Spawner) {
+    {
+        use core::mem::MaybeUninit;
+        static mut HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
+        unsafe { HEAP.init(core::ptr::addr_of!(HEAP_MEM) as usize, HEAP_SIZE) }
+    }
+
+    let mut config = Config::default();
+    config.rcc = rcc::Config::new_wpan();
+    let p = embassy_stm32::init(config);
+
+    // Set up Rhai engine with math + core packages
+    let mut engine = Engine::new_raw();
+    BasicMathPackage::new().register_into_engine(&mut engine);
+    CorePackage::new().register_into_engine(&mut engine);
+
+    info!("BLE Rhai interpreter starting");
+
+    let (platform, runtime) = new_platform!(
+        Rng::new(p.RNG, Irqs),
+        Aes::new_blocking(p.AES, Irqs),
+        Pka::new_blocking(p.PKA, Irqs),
+        8
+    );
+
+    spawner.spawn(rng_runner_task(platform).expect("spawn rng"));
+    spawner.spawn(ble_runner_task(platform).expect("spawn ble"));
+
+    let mut ble = HCI::new(platform, runtime, Irqs)
+        .await
+        .expect("BLE init failed");
+    embassy_futures::yield_now().await;
+
+    let mut gatt = ble.gatt_server();
+
+    let service_handle = gatt
+        .add_service(Uuid::from_u128_le(NUS_SERVICE_UUID), ServiceType::Primary, 10)
+        .expect("add NUS service");
+
+    let rx_char_handle = gatt
+        .add_characteristic(
+            service_handle,
+            Uuid::from_u128_le(NUS_RX_CHAR_UUID),
+            MAX_DATA_LEN as u16,
+            CharProperties::WRITE | CharProperties::WRITE_WITHOUT_RESPONSE,
+            SecurityPermissions::NONE,
+            GattEventMask::ATTRIBUTE_MODIFIED,
+            0,
+            true,
+        )
+        .expect("add RX char");
+
+    let tx_char_handle = gatt
+        .add_characteristic(
+            service_handle,
+            Uuid::from_u128_le(NUS_TX_CHAR_UUID),
+            MAX_DATA_LEN as u16,
+            CharProperties::NOTIFY,
+            SecurityPermissions::NONE,
+            GattEventMask::empty(),
+            0,
+            true,
+        )
+        .expect("add TX char");
+
+    let mut adv_data = AdvData::new();
+    adv_data.add_flags(0x06).unwrap();
+    adv_data.add_name("RhaiShell").unwrap();
+
+    let adv_params = AdvParams {
+        interval_min: 0x0050,
+        interval_max: 0x0064,
+        adv_type: AdvType::ConnectableUndirected,
+        own_addr_type: OwnAddressType::Random,
+        ..AdvParams::default()
+    };
+
+    ble.start_advertising(adv_params.clone(), adv_data.clone(), None)
+        .await
+        .expect("start advertising");
+
+    info!("Advertising as 'RhaiShell' — connect and send Rhai expressions");
+
+    let mut input_buf: heapless::Vec<u8, INPUT_BUF_SIZE> = heapless::Vec::new();
+    let mut tx_notifications = false;
+    let mut conn_handle: Option<u16> = None;
+
+    loop {
+        let event = ble.read_event().await;
+
+        if let Some(gap_event) = ble.process_event(&event) {
+            match gap_event {
+                GapEvent::Connected(conn) => {
+                    info!("Connected: 0x{:04X}", conn.handle.0);
+                    conn_handle = Some(conn.handle.0);
+                    tx_notifications = false;
+                    input_buf.clear();
+                }
+                GapEvent::Disconnected { handle, reason } => {
+                    info!("Disconnected: 0x{:04X} reason=0x{:02X}", handle.0, reason);
+                    conn_handle = None;
+                    tx_notifications = false;
+                    input_buf.clear();
+                    ble.start_advertising(adv_params.clone(), adv_data.clone(), None)
+                        .await
+                        .expect("restart advertising");
+                }
+                _ => {}
+            }
+        }
+
+        match &event {
+            Event::Vendor(VendorEvent::GattAttributeModified(attr)) => {
+                if is_cccd_handle(tx_char_handle.0, attr.attr_handle.0) {
+                    tx_notifications = CccdValue::from_bytes(attr.data()).notifications;
+                    if tx_notifications {
+                        // Send a welcome/prompt so the user knows we are ready
+                        if let Some(conn) = conn_handle {
+                            let _ = gatt.notify(conn, service_handle, tx_char_handle, b"> ");
+                        }
+                    }
+                    info!("TX notifications {}", if tx_notifications { "on" } else { "off" });
+                } else if is_value_handle(rx_char_handle.0, attr.attr_handle.0) {
+                    for &b in attr.data() {
+                        if b == b'\n' || b == b'\r' {
+                            if input_buf.is_empty() {
+                                continue;
+                            }
+                            if let Ok(expr) = core::str::from_utf8(&input_buf) {
+                                info!("eval: {}", expr);
+                                let reply = match engine.eval_expression::<Dynamic>(expr) {
+                                    Ok(result) => format!("{}\r\n> ", result),
+                                    Err(e) => format!("err: {}\r\n> ", e),
+                                };
+                                if tx_notifications {
+                                    if let Some(conn) = conn_handle {
+                                        // Chunk reply into MAX_DATA_LEN pieces if needed
+                                        for chunk in reply.as_bytes().chunks(MAX_DATA_LEN) {
+                                            let _ = gatt.notify(conn, service_handle, tx_char_handle, chunk);
+                                        }
+                                    }
+                                }
+                            }
+                            input_buf.clear();
+                        } else if input_buf.len() < INPUT_BUF_SIZE {
+                            let _ = input_buf.push(b);
+                        }
+                    }
+                }
+            }
+
+            Event::Vendor(VendorEvent::AttExchangeMtuResponse(AttExchangeMtuResponse {
+                conn_handle: ch,
+                server_rx_mtu,
+            })) => {
+                if let Some(conn) = ble.get_connection_mut(*ch) {
+                    conn.update_mtu(*server_rx_mtu as u16);
+                }
+            }
+
+            _ => {}
+        }
+    }
+}

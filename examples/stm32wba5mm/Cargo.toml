@@ -75,6 +75,10 @@ name = "ble_dtm_runtime"
 required-features = ["ble"]
 
 [[bin]]
+name = "ble_rhai"
+required-features = ["ble", "scripting"]
+
+[[bin]]
 name = "usart_rhai"
 required-features = ["scripting"]
 
