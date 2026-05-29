@@ -315,7 +315,7 @@ impl LsConfig {
         {
             ok &= reg.lsebyp() == lse_byp;
         }
-        info!("OK 4 = {:?}, {}, {}", ok, reg.lsebyp(), lse_byp);
+        info!("OK 4 = {:?}, {}, {}", ok, reg.lseon(), lse_en);
         #[cfg(rcc_n6)]
         {
             ok &= lsecfgr.lsebyp() == lse_byp;
@@ -334,8 +334,9 @@ impl LsConfig {
         #[cfg(rcc_n6)]
         if let Some(lse_drv) = lse_drv {
             ok &= lsecfgr.lsedrv() == lse_drv.into();
+            use crate::pac::rcc::vals::Lsedrv;
+            info!("OK 6 = {:?}, {}, {}", ok, lsecfgr.lsedrv().to_bits(), <LseDrive as Into<Lsedrv>>::into(lse_drv).to_bits());
         }
-        info!("OK 6 = {:?}, {}, {}", ok, lsecfgr.lsedrv(), lse_drv);
 
         // After a power-on reset LSESYSEN will be set to 0
         // even if VBAT was present and kept the RTC running
