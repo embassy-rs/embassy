@@ -202,11 +202,11 @@ impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
     pub fn blocking_listen(&mut self) {
         let core = CoreId::current();
 
-        T::state().flag_for(core.to_index()).store(false, Ordering::Release);
+        T::state().flag_for(self.index).store(false, Ordering::Release);
 
         let _irq = self.clear_and_enable_interupt(core);
         // Wait for the semaphore interrupt flag
-        while !T::state().flag_for(core.to_index()).load(Ordering::Relaxed) {}
+        while !T::state().flag_for(self.index).load(Ordering::Relaxed) {}
     }
 
     /// Asynchronous listen for a notification interrupt when this semaphore channel is unlocked
@@ -214,7 +214,7 @@ impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
         let _scoped_wake_guard = T::RCC_INFO.wake_guard();
         let core = CoreId::current();
 
-        T::state().flag_for(core.to_index()).store(false, Ordering::Release);
+        T::state().flag_for(self.index).store(false, Ordering::Release);
 
         let _irq = self.clear_and_enable_interupt(core);
         // Wait for the semaphore interrupt flag
@@ -223,7 +223,7 @@ impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
 
             compiler_fence(Ordering::SeqCst);
 
-            if T::state().flag_for(core.to_index()).load(Ordering::Acquire) {
+            if T::state().flag_for(self.index).load(Ordering::Acquire) {
                 Poll::Ready(())
             } else {
                 Poll::Pending
