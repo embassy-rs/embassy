@@ -155,7 +155,20 @@ impl Default for LsConfig {
 }
 
 impl LsConfig {
+    fn log_data() {
+        let rtcsel = crate::pac::RCC.ccipr7().read().rtcsel();
+        info!("1rtcsel = {:?}", rtcsel);
+        let rtcen = crate::pac::RCC.apb4lenr().read().rtcen();
+        info!("rtcen = {:?}", if rtcen {1} else {0});
+        let lseon = crate::pac::RCC.cr().read().lseon();
+        info!("lseon = {:?}", if lseon {1} else {0});
+        let lsebyp = crate::pac::RCC.lsecfgr().read().lsebyp();
+        info!("lsebyp = {:?}", if lsebyp {1} else {0});
+        let lsedrv = crate::pac::RCC.lsecfgr().read().lsedrv();
+        info!("lsedrv = {:?}", lsedrv);
+    }
     pub(crate) fn init(&self) -> Option<Hertz> {
+        Self::log_data();
         let rtc_clk = match self.rtc {
             RtcClockSource::Lsi => {
                 assert!(self.lsi);
@@ -173,6 +186,7 @@ impl LsConfig {
             },
             None => (false, false, None),
         };
+        Self::log_data();
         #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba))]
         let lse_sysen = if let Some(lse) = self.lse {
             Some(lse.peripherals_clocked)
@@ -187,6 +201,7 @@ impl LsConfig {
         // Disable backup domain write protection
         unlock();
 
+        Self::log_data();
         if self.lsi {
             #[cfg(any(stm32u5, stm32h5, stm32wba))]
             let csr = crate::pac::RCC.bdcr();
@@ -213,6 +228,7 @@ impl LsConfig {
             while !csr.read().lsi1rdy() {}
         }
 
+        Self::log_data();
         // Enable backup regulator for peristent battery backed sram
         #[cfg(backup_sram)]
         {
@@ -273,7 +289,9 @@ impl LsConfig {
         #[cfg(rcc_n6)]
         let lsecfgr = crate::pac::RCC.lsecfgr().read();
 
+        Self::log_data();
         let mut ok = true;
+        info!("OK 1 = {:?}", ok);
         #[cfg(not(rcc_n6))]
         {
             ok &= reg.rtcsel() == self.rtc;
@@ -282,6 +300,7 @@ impl LsConfig {
         {
             ok &= ccipr7.rtcsel() == self.rtc;
         }
+        info!("OK 2 = {:?}, {}, {}", ok, ccipr7.rtcsel(), self.rtc);
         #[cfg(not(any(rcc_wba, rcc_n6)))]
         {
             ok &= reg.rtcen() == (self.rtc != RtcClockSource::Disable);
@@ -290,15 +309,18 @@ impl LsConfig {
         {
             ok &= apb4lenr.rtcen() == (self.rtc != RtcClockSource::Disable);
         }
+        info!("OK 3 = {:?}, {}, {}", ok, apb4lenr.rtcen(), (self.rtc != RtcClockSource::Disable));
         ok &= reg.lseon() == lse_en;
         #[cfg(not(rcc_n6))]
         {
             ok &= reg.lsebyp() == lse_byp;
         }
+        info!("OK 4 = {:?}, {}, {}", ok, reg.lsebyp(), lse_byp);
         #[cfg(rcc_n6)]
         {
             ok &= lsecfgr.lsebyp() == lse_byp;
         }
+        info!("OK 5 = {:?}, {}, {}", ok, lsecfgr.lsebyp(), lse_byp);
         #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
         if let Some(lse_sysen) = lse_sysen
             && !lse_sysen
@@ -313,6 +335,7 @@ impl LsConfig {
         if let Some(lse_drv) = lse_drv {
             ok &= lsecfgr.lsedrv() == lse_drv.into();
         }
+        info!("OK 6 = {:?}, {}, {}", ok, lsecfgr.lsedrv(), lse_drv);
 
         // After a power-on reset LSESYSEN will be set to 0
         // even if VBAT was present and kept the RTC running
@@ -328,11 +351,13 @@ impl LsConfig {
             while !bdcr().read().lsesysrdy() {}
         }
 
+        Self::log_data();
         // if configuration is OK, we're done.
         if ok {
-            trace!("BDCR ok: {:08x}", bdcr().read().0);
+            info!("BDCR ok: {:08x}", bdcr().read().0);
             return rtc_clk;
         }
+        Self::log_data();
 
         // If not OK, reset backup domain and configure it.
         #[cfg(not(any(rcc_l0, rcc_l0_v2, rcc_l1, stm32h5, stm32h7rs, stm32c0, stm32n6)))]
@@ -353,11 +378,13 @@ impl LsConfig {
             bdcr().modify(|w| w.set_vswrst(true));
             bdcr().modify(|w| w.set_vswrst(false));
         }
+        info!("Domain reset");
         #[cfg(any(stm32c0, stm32l0))]
         {
             bdcr().modify(|w| w.set_rtcrst(true));
             bdcr().modify(|w| w.set_rtcrst(false));
         }
+        Self::log_data();
 
         if lse_en {
             #[cfg(not(rcc_n6))]
@@ -397,6 +424,7 @@ impl LsConfig {
                 }
             }
         }
+        Self::log_data();
 
         if self.rtc != RtcClockSource::Disable {
             #[cfg(not(rcc_n6))]
@@ -415,8 +443,9 @@ impl LsConfig {
                 crate::pac::RCC.apb4lenr().modify(|w| w.set_rtcen(true))
             }
         }
+        Self::log_data();
 
-        trace!("BDCR configured: {:08x}", bdcr().read().0);
+        info!("BDCR configured: {:08x}", bdcr().read().0);
 
         compiler_fence(Ordering::SeqCst);
 
