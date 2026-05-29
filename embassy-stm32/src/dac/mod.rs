@@ -1,6 +1,9 @@
 //! Digital to Analog Converter (DAC)
 #![macro_use]
 
+pub mod ringbuffered;
+pub use ringbuffered::RingBufferedDacChannel;
+
 use core::marker::PhantomData;
 
 #[cfg(stm32g4)]
@@ -307,37 +310,69 @@ impl<'d> DacChannel<'d, Async> {
         )
     }
 
-    /// Start a circular DMA output from a static buffer, running indefinitely.
+    /// Convert this channel into a ring-buffered DAC channel using 8-bit output (DHR8Rx).
     ///
-    /// Unlike [`write`](Self::write), this is non-blocking and does not return a future.
-    /// DMA is configured in circular mode and started immediately, so the waveform begins
-    /// as soon as the trigger source fires. Because no `Transfer` guard is returned, DMA
-    /// is never stopped by `Drop` — the excitation runs until the channel itself is dropped.
-    ///
-    /// The buffer must be `'static` because DMA will continuously read it after this
-    /// function returns. Suitable for use in non-async contexts.
-    #[cfg(not(gpdma))]
-    pub fn start_circular_dma(&mut self, data: ValueArray<'static>) {
-        self.info.regs.cr().modify(|w| {
-            w.set_en(self.idx, true);
-            w.set_dmaen(self.idx, true);
+    /// Each element of `dma_buf` holds one 8-bit sample in bits [7:0]. DMA transfers are
+    /// 32-bit wide as required by the DAC peripheral, so the upper bits are ignored by hardware.
+    /// The DMA runs in circular mode so output is uninterrupted between writes.
+    /// Use [`RingBufferedDacChannel::write_immediate`] to pre-fill the buffer before
+    /// calling [`RingBufferedDacChannel::start`].
+    pub fn into_ring_buffered_8bit(self, dma_buf: &'d mut [u32]) -> RingBufferedDacChannel<'d, u32> {
+        let info = self.info;
+        let state = self.state;
+        let idx = self.idx;
+        // Safety: self is forgotten below so the ChannelAndRequest won't be dropped twice.
+        let dma = unsafe { self.dma.as_ref().unwrap().clone_unchecked() };
+        core::mem::forget(self);
+
+        let crate::dma::ChannelAndRequest { channel, request } = dma;
+        info.regs.cr().modify(|w| {
+            w.set_en(idx, true);
+            w.set_dmaen(idx, true);
         });
+        let ring_buf = unsafe {
+            crate::dma::WritableRingBuffer::new(
+                channel,
+                request,
+                info.regs.dhr8r(idx).as_ptr() as *mut u32,
+                dma_buf,
+                Default::default(),
+            )
+        };
+        RingBufferedDacChannel::new(ring_buf, info, state, idx)
+    }
 
-        let dma = self.dma.as_mut().unwrap();
+    /// Convert this channel into a ring-buffered DAC channel using 12-bit right-aligned output
+    /// (DHR12Rx).
+    ///
+    /// Each element of `dma_buf` holds one 12-bit sample in bits [11:0]. DMA transfers are
+    /// 32-bit wide as required by the DAC peripheral, so bits [31:12] are ignored by hardware.
+    /// The DMA runs in circular mode so output is uninterrupted between writes.
+    /// Use [`RingBufferedDacChannel::write_immediate`] to pre-fill the buffer before
+    /// calling [`RingBufferedDacChannel::start`].
+    pub fn into_ring_buffered_12right(self, dma_buf: &'d mut [u32]) -> RingBufferedDacChannel<'d, u32> {
+        let info = self.info;
+        let state = self.state;
+        let idx = self.idx;
+        // Safety: self is forgotten below so the ChannelAndRequest won't be dropped twice.
+        let dma = unsafe { self.dma.as_ref().unwrap().clone_unchecked() };
+        core::mem::forget(self);
 
-        unsafe {
-            match data {
-                ValueArray::Bit8(buf) => {
-                    dma.start_circular_write(buf, self.info.regs.dhr8r(self.idx).as_ptr() as *mut u32)
-                }
-                ValueArray::Bit12Left(buf) => {
-                    dma.start_circular_write(buf, self.info.regs.dhr12l(self.idx).as_ptr() as *mut u32)
-                }
-                ValueArray::Bit12Right(buf) => {
-                    dma.start_circular_write(buf, self.info.regs.dhr12r(self.idx).as_ptr() as *mut u32)
-                }
-            }
-        }
+        let crate::dma::ChannelAndRequest { channel, request } = dma;
+        info.regs.cr().modify(|w| {
+            w.set_en(idx, true);
+            w.set_dmaen(idx, true);
+        });
+        let ring_buf = unsafe {
+            crate::dma::WritableRingBuffer::new(
+                channel,
+                request,
+                info.regs.dhr12r(idx).as_ptr() as *mut u32,
+                dma_buf,
+                Default::default(),
+            )
+        };
+        RingBufferedDacChannel::new(ring_buf, info, state, idx)
     }
 
     /// Write `data` to this channel via DMA.
