@@ -3,6 +3,7 @@
 
 use core::marker::PhantomData;
 use core::ptr;
+use core::sync::atomic::{Ordering, fence};
 
 use embassy_embedded_hal::SetConfig;
 use embassy_futures::join::join;
@@ -563,6 +564,10 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         self.set_word_size(W::CONFIG);
         self.info.regs.cr1().modify(|w| w.set_spe(true));
         flush_rx_fifo(self.info.regs);
+
+        // Memory barrier after flush RX fifo to ensure register writes complete
+        fence(Ordering::SeqCst);
+
         for word in words.iter() {
             // this cannot use `transfer_word` because on SPIv2 and higher,
             // the SPI RX state machine hangs if no physical pin is connected to the SCK AF.
@@ -600,6 +605,10 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         self.set_word_size(W::CONFIG);
         self.info.regs.cr1().modify(|w| w.set_spe(true));
         flush_rx_fifo(self.info.regs);
+
+        // Memory barrier after flush RX fifo to ensure register writes complete
+        fence(Ordering::SeqCst);
+
         for word in words.iter_mut() {
             *word = transfer_word(self.info.regs, W::default())?;
         }
@@ -616,6 +625,10 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         self.set_word_size(W::CONFIG);
         self.info.regs.cr1().modify(|w| w.set_spe(true));
         flush_rx_fifo(self.info.regs);
+
+        // Memory barrier after flush RX fifo to ensure register writes complete
+        fence(Ordering::SeqCst);
+
         for word in words.iter_mut() {
             *word = transfer_word(self.info.regs, *word)?;
         }
@@ -635,6 +648,10 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         self.set_word_size(W::CONFIG);
         self.info.regs.cr1().modify(|w| w.set_spe(true));
         flush_rx_fifo(self.info.regs);
+
+        // Memory barrier after flush RX fifo to ensure register writes complete
+        fence(Ordering::SeqCst);
+
         let len = read.len().max(write.len());
         for i in 0..len {
             let wb = write.get(i).copied().unwrap_or_default();
@@ -969,6 +986,10 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
         let tx_f = unsafe { self.tx_dma.as_mut().unwrap().write(data, tx_dst, Default::default()) };
 
         set_txdmaen(self.info.regs, true);
+
+        // Memory barrier after DMA setup to ensure register writes complete before command
+        fence(Ordering::SeqCst);
+
         self.info.regs.cr1().modify(|w| {
             w.set_spe(true);
         });
@@ -1026,7 +1047,7 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
 
         let rx_src = regs.rx_ptr();
 
-        for mut chunk in data.chunks_mut(u16::max_value().into()) {
+        for mut chunk in data.chunks_mut(u16::MAX.into()) {
             set_rxdmaen(regs, true);
 
             let tsize = chunk.len();
@@ -1041,6 +1062,9 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
             regs.cr2().modify(|w| {
                 w.set_tsize(tsize as u16);
             });
+
+            // Memory barrier after DMA setup to ensure register writes complete before command
+            fence(Ordering::SeqCst);
 
             regs.cr1().modify(|w| {
                 w.set_spe(true);
@@ -1073,6 +1097,9 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
                 w.set_i2scfg(i2scfg);
             });
         }
+
+        // Memory barrier after DMA setup to ensure register writes complete before command
+        fence(Ordering::Acquire);
 
         Ok(())
     }
@@ -1112,6 +1139,10 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
         };
 
         set_txdmaen(self.info.regs, true);
+
+        // Memory barrier after DMA setup to ensure register writes complete before command
+        fence(Ordering::SeqCst);
+
         self.info.regs.cr1().modify(|w| {
             w.set_spe(true);
         });
@@ -1158,6 +1189,10 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
         };
 
         set_txdmaen(self.info.regs, true);
+
+        // Memory barrier after DMA setup to ensure register writes complete before command
+        fence(Ordering::SeqCst);
+
         self.info.regs.cr1().modify(|w| {
             w.set_spe(true);
         });
@@ -1406,7 +1441,7 @@ fn transfer_word<W: Word>(regs: Regs, tx_word: W) -> Result<W, Error> {
     Ok(rx_word)
 }
 
-#[allow(unused)] // unused in SPIv1
+#[cfg(not(any(spi_v1, spi_v2)))]
 fn write_word<W: Word>(regs: Regs, tx_word: W) -> Result<(), Error> {
     // for write, we intentionally ignore the rx fifo, which will cause
     // overrun errors that we have to ignore.
