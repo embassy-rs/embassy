@@ -17,12 +17,12 @@
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_stm32::dac::DacChannel;
-use static_cell::StaticCell;
 use embassy_stm32::timer::Channel;
 use embassy_stm32::timer::low_level::{MasterMode, RoundTo, Timer};
 use embassy_stm32::triggers::TIM8_TRGO;
 use embassy_stm32::{Config, bind_interrupts, dma, peripherals};
 use embassy_time::Timer as EmbassyTimer;
+use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 // 64-sample 12-bit right-aligned sine table, centred at 2048, amplitude 2000 counts.
@@ -30,7 +30,7 @@ use {defmt_rtt as _, panic_probe as _};
 // u32 elements are required because the DAC DMA uses 32-bit peripheral transfers;
 // only bits [11:0] of each word are used by the DHR12R register.
 const N: usize = 64;
-static SINE_CH1: [u32; N] = [
+const SINE: [u32; N] = [
     2048, 2244, 2438, 2629, 2813, 2991, 3159, 3317, 3462, 3594, 3711, 3812, 3896, 3962, 4010, 4038, 4048, 4038, 4010,
     3962, 3896, 3812, 3711, 3594, 3462, 3317, 3159, 2991, 2813, 2629, 2438, 2244, 2048, 1852, 1658, 1467, 1283, 1105,
     937, 779, 634, 502, 385, 284, 200, 134, 86, 58, 48, 58, 86, 134, 200, 284, 385, 502, 634, 779, 937, 1105, 1283,
@@ -72,9 +72,10 @@ async fn main(_spawner: Spawner) {
     let mut dac_ch1 = DacChannel::new_triggered(p.DAC1, p.DMA1_CH5, TIM8_TRGO, Irqs, p.PA4);
     dac_ch1.set_triggering(true);
 
-    let mut ring = dac_ch1.into_ring_buffered_12right(DMA_BUF.init([0u32; N]));
+    // Pre-populate the DMA buffer with the sine table before handing it to the ring buffer.
+    // No write_immediate needed — DMA reads the pre-filled data from the first trigger.
+    let mut ring = dac_ch1.into_ring_buffered_12right(DMA_BUF.init(SINE));
 
-    ring.write_immediate(&SINE_CH1).unwrap();
     ring.start();
 
     tim8.start();

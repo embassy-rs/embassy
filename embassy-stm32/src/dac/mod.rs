@@ -2,7 +2,6 @@
 #![macro_use]
 
 pub mod ringbuffered;
-pub use ringbuffered::RingBufferedDacChannel;
 
 use core::marker::PhantomData;
 
@@ -10,6 +9,7 @@ use core::marker::PhantomData;
 use dac::vals;
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+pub use ringbuffered::RingBufferedDacChannel;
 
 use crate::dma::ChannelAndRequest;
 use crate::mode::{Async, Blocking, Mode as PeriMode};
