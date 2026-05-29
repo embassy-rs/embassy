@@ -24,6 +24,6 @@ panic = "abort"
 
 [package.metadata.embassy]
 build = [
-  { target = "riscv64imac-unknown-none-elf", artifact-dir = "out/examples/qemu-virt-riscv64" },
-  { target = "riscv64gc-unknown-none-elf",   artifact-dir = "out/examples/qemu-virt-riscv64" },
+  { target = "riscv64imac-unknown-none-elf", artifact-dir = "out/examples/qemu-virt-riscv64imac" },
+  { target = "riscv64gc-unknown-none-elf",   artifact-dir = "out/examples/qemu-virt-riscv64gc" },
 ]
