@@ -80,8 +80,8 @@ const NUS_TX_CHAR_UUID: [u8; 16] = [
 static LED_STATE: AtomicBool = AtomicBool::new(false);
 
 const MAX_DATA_LEN: usize = 244;
-const INPUT_BUF_SIZE: usize = 512;
-const PRINT_BUF_SIZE: usize = 512;
+const INPUT_BUF_SIZE: usize = 1024;
+const PRINT_BUF_SIZE: usize = 1024;
 
 /// Accumulates output from Rhai `print()` / `debug()` calls during script evaluation.
 /// Drained and sent as BLE notifications immediately before the eval result.
@@ -120,6 +120,11 @@ async fn main(spawner: Spawner) {
     // led(true) / led(false) — drives PA1 via a static flag applied after eval
     engine.register_fn("led", |state: bool| {
         LED_STATE.store(state, Ordering::Relaxed);
+    });
+
+    // timestamp() → current embassy_time ticks as i64
+    engine.register_fn("timestamp", || {
+        embassy_time::Instant::now().as_ticks() as i64
     });
 
     // Redirect Rhai print() / debug() output to the BLE TX print buffer.
