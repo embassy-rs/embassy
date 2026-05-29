@@ -1,14 +1,9 @@
 //! BLE Rhai Interpreter Demo
 //!
-//! Receives Rhai expressions over BLE NUS (Nordic UART Service), evaluates
-//! them and sends the result back as a BLE notification.
-//!
-//! ## Usage
-//! 1. Flash to STM32WBA55 board
-//! 2. Connect with nRF Connect (or similar BLE app)
-//! 3. Enable notifications on the TX characteristic
-//! 4. Write a Rhai expression to the RX characteristic, e.g. `40 + 2`
-//! 5. Result appears as a notification: `42`
+//! Receives Rhai scripts over BLE NUS (Nordic UART Service). After 500 ms of
+//! idle time the accumulated input is dispatched to a dedicated eval task.
+//! The eval task runs the Rhai engine and sends the result back over a channel;
+//! the BLE task then notifies the client without ever blocking on eval.
 //!
 //! ## Build
 //! cargo build --release --bin ble_rhai --features scripting
@@ -22,21 +17,22 @@ use alloc::format;
 use embedded_alloc::LlffHeap as Heap;
 
 use core::cell::RefCell;
+use core::sync::atomic::{AtomicBool, Ordering};
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_futures::select::{Either, select};
-use embassy_sync::blocking_mutex::Mutex;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_futures::select::{Either, Either3, select, select3};
 use embassy_stm32::aes::{self, Aes};
+use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph};
 use embassy_stm32::pka::{self, Pka};
 use embassy_stm32::rcc;
 use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::{Config, bind_interrupts, peripherals};
+use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Channel;
 use embassy_stm32_wpan::bluetooth::HCI;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
-use core::sync::atomic::{AtomicBool, Ordering};
-use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gatt::{
     CccdValue, CharProperties, GattEventMask, SecurityPermissions, ServiceType, Uuid,
@@ -44,6 +40,7 @@ use embassy_stm32_wpan::bluetooth::gatt::{
 };
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use rhai::{Dynamic, Engine, packages::BasicMathPackage, packages::CorePackage, packages::Package};
+use static_cell::StaticCell;
 use stm32wb_hci::Event;
 use stm32wb_hci::vendor::event::{AttExchangeMtuResponse, VendorEvent};
 use {defmt_rtt as _, panic_probe as _};
@@ -61,32 +58,42 @@ bind_interrupts!(struct Irqs {
     HASH => LowInterruptHandler;
 });
 
-// Nordic UART Service (NUS) UUIDs - compatible with nRF Connect and similar apps
-// Service UUID: 6E400001-B5A3-F393-E0A9-E50E24DCCA9E
+// Nordic UART Service (NUS) UUIDs
 const NUS_SERVICE_UUID: [u8; 16] = [
     0x9E, 0xCA, 0xDC, 0x24, 0x0E, 0xE5, 0xA9, 0xE0, 0x93, 0xF3, 0xA3, 0xB5, 0x01, 0x00, 0x40, 0x6E,
 ];
-
-// RX Characteristic UUID: 6E400002-B5A3-F393-E0A9-E50E24DCCA9E (Client writes to this)
 const NUS_RX_CHAR_UUID: [u8; 16] = [
     0x9E, 0xCA, 0xDC, 0x24, 0x0E, 0xE5, 0xA9, 0xE0, 0x93, 0xF3, 0xA3, 0xB5, 0x02, 0x00, 0x40, 0x6E,
 ];
-
-// TX Characteristic UUID: 6E400003-B5A3-F393-E0A9-E50E24DCCA9E (Server notifies on this)
 const NUS_TX_CHAR_UUID: [u8; 16] = [
     0x9E, 0xCA, 0xDC, 0x24, 0x0E, 0xE5, 0xA9, 0xE0, 0x93, 0xF3, 0xA3, 0xB5, 0x03, 0x00, 0x40, 0x6E,
 ];
 
-static LED_STATE: AtomicBool = AtomicBool::new(false);
-
 const MAX_DATA_LEN: usize = 244;
 const INPUT_BUF_SIZE: usize = 1024;
+const RESULT_BUF_SIZE: usize = 512;
 const PRINT_BUF_SIZE: usize = 1024;
 
-/// Accumulates output from Rhai `print()` / `debug()` calls during script evaluation.
-/// Drained and sent as BLE notifications immediately before the eval result.
+// BLE task → eval task: raw script bytes
+static SCRIPT_CHAN: Channel<CriticalSectionRawMutex, heapless::Vec<u8, INPUT_BUF_SIZE>, 1> =
+    Channel::new();
+
+// eval task → BLE task: result bytes (print output + eval result)
+static RESULT_CHAN: Channel<CriticalSectionRawMutex, heapless::Vec<u8, RESULT_BUF_SIZE>, 1> =
+    Channel::new();
+
+// Rhai print()/debug() output captured during eval, flushed into RESULT_CHAN message
 static PRINT_BUF: Mutex<CriticalSectionRawMutex, RefCell<heapless::Vec<u8, PRINT_BUF_SIZE>>> =
     Mutex::new(RefCell::new(heapless::Vec::new()));
+
+// LED state bridge between the Rhai led() closure and the Output pin owned by eval_task
+static LED_STATE: AtomicBool = AtomicBool::new(false);
+
+static LED_CELL: StaticCell<Output<'static>> = StaticCell::new();
+
+// ---------------------------------------------------------------------------
+// BLE platform tasks
+// ---------------------------------------------------------------------------
 
 #[embassy_executor::task]
 async fn rng_runner_task(platform: &'static Platform) {
@@ -97,6 +104,101 @@ async fn rng_runner_task(platform: &'static Platform) {
 async fn ble_runner_task(platform: &'static Platform) {
     platform.run_ble().await
 }
+
+// ---------------------------------------------------------------------------
+// Eval task — owns the Rhai Engine and the LED pin
+// ---------------------------------------------------------------------------
+
+#[embassy_executor::task]
+async fn eval_task(led: &'static mut Output<'static>) {
+    let mut engine = Engine::new_raw();
+    BasicMathPackage::new().register_into_engine(&mut engine);
+    CorePackage::new().register_into_engine(&mut engine);
+
+    engine.register_fn("led", |state: bool| {
+        LED_STATE.store(state, Ordering::Relaxed);
+    });
+
+    engine.register_fn("timestamp", || {
+        embassy_time::Instant::now().as_ticks() as i64
+    });
+
+    engine.on_print(|s| {
+        PRINT_BUF.lock(|buf| {
+            let mut buf = buf.borrow_mut();
+            for &b in s.as_bytes() { let _ = buf.push(b); }
+            let _ = buf.push(b'\r');
+            let _ = buf.push(b'\n');
+        });
+    });
+    engine.on_debug(|s, src, pos| {
+        let msg = if let Some(src) = src {
+            format!("[{}@{:?}] {}", src, pos, s)
+        } else {
+            format!("{}", s)
+        };
+        PRINT_BUF.lock(|buf| {
+            let mut buf = buf.borrow_mut();
+            for &b in msg.as_bytes() { let _ = buf.push(b); }
+            let _ = buf.push(b'\r');
+            let _ = buf.push(b'\n');
+        });
+    });
+
+    info!("eval_task ready");
+
+    loop {
+        let script_bytes = SCRIPT_CHAN.receive().await;
+
+        let mut result_buf: heapless::Vec<u8, RESULT_BUF_SIZE> = heapless::Vec::new();
+
+        if let Ok(script) = core::str::from_utf8(&script_bytes) {
+            info!("eval: {} bytes\n{}", script_bytes.len(), script);
+
+            let eval_result = match engine.eval::<Dynamic>(script) {
+                Ok(result) => {
+                    let type_name = result.type_name();
+                    let is_string = result.is_string();
+                    info!("eval ok: type={} is_string={}", type_name, if is_string { "yes" } else { "no" });
+                    let value = if is_string {
+                        result.into_string().unwrap_or_default()
+                    } else {
+                        format!("{}", result)
+                    };
+                    let reply = format!("{}\r\n", value);
+                    info!("reply: {}", format!("{:?}", reply).as_str());
+                    reply
+                }
+                Err(e) => {
+                    let s = format!("{}", e);
+                    warn!("eval err: {}", s.as_str());
+                    format!("err: {}\r\n", e)
+                }
+            };
+
+            // Apply LED state set by the led() Rhai function
+            led.set_level(if LED_STATE.load(Ordering::Relaxed) { Level::High } else { Level::Low });
+
+            // Collect print() output then eval result into result_buf
+            PRINT_BUF.lock(|buf| {
+                let mut b = buf.borrow_mut();
+                for &byte in b.iter() {
+                    if result_buf.len() < RESULT_BUF_SIZE { let _ = result_buf.push(byte); }
+                }
+                b.clear();
+            });
+            for &byte in eval_result.as_bytes() {
+                if result_buf.len() < RESULT_BUF_SIZE { let _ = result_buf.push(byte); }
+            }
+        }
+
+        RESULT_CHAN.send(result_buf).await;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Main — BLE task
+// ---------------------------------------------------------------------------
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -110,49 +212,8 @@ async fn main(spawner: Spawner) {
     config.rcc = rcc::Config::new_wpan();
     let p = embassy_stm32::init(config);
 
-    let mut led = Output::new(p.PA1, Level::Low, Speed::Low);
-
-    // Set up Rhai engine with math + core packages
-    let mut engine = Engine::new_raw();
-    BasicMathPackage::new().register_into_engine(&mut engine);
-    CorePackage::new().register_into_engine(&mut engine);
-
-    // led(true) / led(false) — drives PA1 via a static flag applied after eval
-    engine.register_fn("led", |state: bool| {
-        LED_STATE.store(state, Ordering::Relaxed);
-    });
-
-    // timestamp() → current embassy_time ticks as i64
-    engine.register_fn("timestamp", || {
-        embassy_time::Instant::now().as_ticks() as i64
-    });
-
-    // Redirect Rhai print() / debug() output to the BLE TX print buffer.
-    engine.on_print(|s| {
-        PRINT_BUF.lock(|buf| {
-            let mut buf = buf.borrow_mut();
-            for &b in s.as_bytes() {
-                let _ = buf.push(b);
-            }
-            let _ = buf.push(b'\r');
-            let _ = buf.push(b'\n');
-        });
-    });
-    engine.on_debug(|s, src, pos| {
-        let msg = if let Some(src) = src {
-            alloc::format!("[{}@{:?}] {}", src, pos, s)
-        } else {
-            alloc::format!("{}", s)
-        };
-        PRINT_BUF.lock(|buf| {
-            let mut buf = buf.borrow_mut();
-            for &b in msg.as_bytes() {
-                let _ = buf.push(b);
-            }
-            let _ = buf.push(b'\r');
-            let _ = buf.push(b'\n');
-        });
-    });
+    let led = LED_CELL.init(Output::new(p.PA1, Level::Low, Speed::Low));
+    spawner.spawn(eval_task(led).expect("spawn eval"));
 
     info!("BLE Rhai interpreter starting");
 
@@ -224,161 +285,130 @@ async fn main(spawner: Spawner) {
 
     info!("Advertising as 'RhaiShell' — connect and send Rhai expressions");
 
-    // Evaluate a script and return a displayable reply string.
-    // If the result is a Rhai string it is extracted directly; other types are
-    // formatted via Display so numbers, bools, arrays etc. look natural.
-    let eval_script = |engine: &Engine, script: &str| -> alloc::string::String {
-        match engine.eval::<Dynamic>(script) {
-            Ok(result) => {
-                let type_name = result.type_name();
-                let is_string = result.is_string();
-                info!(
-                    "eval ok: type={} is_string={}",
-                    type_name,
-                    if is_string { "yes" } else { "no" }
-                );
-                let value = if is_string {
-                    result.into_string().unwrap_or_default()
-                } else {
-                    format!("{:?}", result)
-                };
-                let reply = format!("{}\r\n", value);
-                info!("reply: {}", format!("{:}", reply).as_str());
-                reply
-            }
-            Err(e) => {
-                let err_str = format!("{}", e);
-                warn!("eval err: {}", err_str.as_str());
-                format!("err: {}\r\n", e)
-            }
-        }
-    };
-
     let mut input_buf: heapless::Vec<u8, INPUT_BUF_SIZE> = heapless::Vec::new();
     let mut tx_notifications = false;
     let mut conn_handle: Option<u16> = None;
+    let mut eval_pending = false;
 
     loop {
-        // If we have buffered data, race BLE events against a 500 ms idle timeout.
-        // Every incoming packet resets the timer (we restart the select from the top
-        // of the loop), so the eval only fires when nothing arrives for 500 ms.
-        let maybe_event = if !input_buf.is_empty() {
-            match select(ble.read_event(), embassy_time::Timer::after_millis(500)).await {
-                Either::First(ev) => Some(ev),
-                Either::Second(_) => None, // 500 ms idle → evaluate
+        // 3-way select when buffer is non-empty: BLE event | eval result | 500ms timeout
+        // 2-way select otherwise: BLE event | eval result (in case disconnect triggered eval)
+        enum Msg<E> {
+            Ble(E),
+            Result(heapless::Vec<u8, RESULT_BUF_SIZE>),
+            Timeout,
+        }
+
+        let msg = if !input_buf.is_empty() {
+            match select3(
+                ble.read_event(),
+                RESULT_CHAN.receive(),
+                embassy_time::Timer::after_millis(500),
+            ).await {
+                Either3::First(ev)  => Msg::Ble(ev),
+                Either3::Second(r)  => Msg::Result(r),
+                Either3::Third(_)   => Msg::Timeout,
             }
         } else {
-            Some(ble.read_event().await)
+            match select(ble.read_event(), RESULT_CHAN.receive()).await {
+                Either::First(ev)  => Msg::Ble(ev),
+                Either::Second(r)  => Msg::Result(r),
+            }
         };
 
-        // Idle timeout fired: evaluate and send result without disconnecting
-        if maybe_event.is_none() {
-            if let Ok(script) = core::str::from_utf8(&input_buf) {
-                info!("eval (timeout): {} bytes\n{}", input_buf.len(), script);
-                let reply = eval_script(&engine, script);
-                led.set_level(if LED_STATE.load(Ordering::Relaxed) { Level::High } else { Level::Low });
+        match msg {
+            // ----------------------------------------------------------------
+            // 500 ms idle — dispatch buffer to eval task
+            // ----------------------------------------------------------------
+            Msg::Timeout => {
+                if !eval_pending {
+                    let mut script_buf: heapless::Vec<u8, INPUT_BUF_SIZE> = heapless::Vec::new();
+                    for &b in input_buf.iter() { let _ = script_buf.push(b); }
+                    SCRIPT_CHAN.send(script_buf).await;
+                    eval_pending = true;
+                }
+                input_buf.clear();
+            }
+
+            // ----------------------------------------------------------------
+            // Eval result arrived — notify client
+            // ----------------------------------------------------------------
+            Msg::Result(result) => {
+                eval_pending = false;
+                info!("result ready, {} bytes", result.len());
                 if let Some(conn) = conn_handle {
-                    // Send any print()/debug() output captured during eval first
-                    let print_out: alloc::vec::Vec<u8> = PRINT_BUF.lock(|buf| {
-                        let mut b = buf.borrow_mut();
-                        let v = b.iter().copied().collect();
-                        b.clear();
-                        v
-                    });
-                    if !print_out.is_empty() {
-                        for chunk in print_out.chunks(MAX_DATA_LEN) {
-                            let _ = gatt.notify(conn, service_handle, tx_char_handle, chunk);
-                        }
-                    }
-                    for chunk in reply.as_bytes().chunks(MAX_DATA_LEN) {
+                    for chunk in result.chunks(MAX_DATA_LEN) {
                         let _ = gatt.notify(conn, service_handle, tx_char_handle, chunk);
                     }
-                    // Re-prompt so the user can send another expression
                     let _ = gatt.notify(conn, service_handle, tx_char_handle, b"> ");
                 }
             }
-            input_buf.clear();
-            continue;
-        }
 
-        let event = maybe_event.unwrap();
-
-        if let Some(gap_event) = ble.process_event(&event) {
-            match gap_event {
-                GapEvent::Connected(conn) => {
-                    info!("Connected: 0x{:04X}", conn.handle.0);
-                    conn_handle = Some(conn.handle.0);
-                    tx_notifications = false;
-                    input_buf.clear();
+            // ----------------------------------------------------------------
+            // BLE event
+            // ----------------------------------------------------------------
+            Msg::Ble(event) => {
+                if let Some(gap_event) = ble.process_event(&event) {
+                    match gap_event {
+                        GapEvent::Connected(conn) => {
+                            info!("Connected: 0x{:04X}", conn.handle.0);
+                            conn_handle = Some(conn.handle.0);
+                            tx_notifications = false;
+                            input_buf.clear();
+                            eval_pending = false;
+                        }
+                        GapEvent::Disconnected { handle, reason } => {
+                            info!("Disconnected: 0x{:04X} reason=0x{:02X}", handle.0, reason);
+                            // Flush remaining buffer to eval task on disconnect
+                            if !input_buf.is_empty() && !eval_pending {
+                                let mut script_buf: heapless::Vec<u8, INPUT_BUF_SIZE> = heapless::Vec::new();
+                                for &b in input_buf.iter() { let _ = script_buf.push(b); }
+                                SCRIPT_CHAN.send(script_buf).await;
+                                eval_pending = true;
+                                input_buf.clear();
+                            }
+                            conn_handle = None;
+                            tx_notifications = false;
+                            ble.start_advertising(
+                                adv_params.clone(), adv_data.clone(), Some(scan_rsp.clone()),
+                            ).await.expect("restart advertising");
+                        }
+                        _ => {}
+                    }
                 }
-                GapEvent::Disconnected { handle, reason } => {
-                    info!("Disconnected: 0x{:04X} reason=0x{:02X}", handle.0, reason);
-                    // Evaluate any remaining buffered data on disconnect too
-                    if !input_buf.is_empty() {
-                        if let Ok(script) = core::str::from_utf8(&input_buf) {
-                            info!("eval (disconnect): {} bytes\n{}", input_buf.len(), script);
-                            let reply = eval_script(&engine, script);
-                            led.set_level(if LED_STATE.load(Ordering::Relaxed) { Level::High } else { Level::Low });
-                            if let Some(conn) = conn_handle {
-                                // Send any print()/debug() output captured during eval first
-                                let print_out: alloc::vec::Vec<u8> = PRINT_BUF.lock(|buf| {
-                                    let mut b = buf.borrow_mut();
-                                    let v = b.iter().copied().collect();
-                                    b.clear();
-                                    v
-                                });
-                                if !print_out.is_empty() {
-                                    for chunk in print_out.chunks(MAX_DATA_LEN) {
-                                        let _ = gatt.notify(conn, service_handle, tx_char_handle, chunk);
-                                    }
-                                }
-                                for chunk in reply.as_bytes().chunks(MAX_DATA_LEN) {
-                                    let _ = gatt.notify(conn, service_handle, tx_char_handle, chunk);
+
+                match &event {
+                    Event::Vendor(VendorEvent::GattAttributeModified(attr)) => {
+                        if is_cccd_handle(tx_char_handle.0, attr.attr_handle.0) {
+                            tx_notifications = CccdValue::from_bytes(attr.data()).notifications;
+                            if tx_notifications {
+                                if let Some(conn) = conn_handle {
+                                    let _ = gatt.notify(conn, service_handle, tx_char_handle, b"> ");
                                 }
                             }
-                        }
-                        input_buf.clear();
-                    }
-                    conn_handle = None;
-                    tx_notifications = false;
-                    ble.start_advertising(adv_params.clone(), adv_data.clone(), Some(scan_rsp.clone()))
-                        .await
-                        .expect("restart advertising");
-                }
-                _ => {}
-            }
-        }
-
-        match &event {
-            Event::Vendor(VendorEvent::GattAttributeModified(attr)) => {
-                if is_cccd_handle(tx_char_handle.0, attr.attr_handle.0) {
-                    tx_notifications = CccdValue::from_bytes(attr.data()).notifications;
-                    if tx_notifications {
-                        if let Some(conn) = conn_handle {
-                            let _ = gatt.notify(conn, service_handle, tx_char_handle, b"> ");
+                            info!("TX notifications {}", if tx_notifications { "on" } else { "off" });
+                        } else if is_value_handle(rx_char_handle.0, attr.attr_handle.0) {
+                            for &b in attr.data() {
+                                if input_buf.len() < INPUT_BUF_SIZE {
+                                    let _ = input_buf.push(b);
+                                }
+                            }
+                            debug!("buffered {} bytes total", input_buf.len());
                         }
                     }
-                    info!("TX notifications {}", if tx_notifications { "on" } else { "off" });
-                } else if is_value_handle(rx_char_handle.0, attr.attr_handle.0) {
-                    for &b in attr.data() {
-                        if input_buf.len() < INPUT_BUF_SIZE {
-                            let _ = input_buf.push(b);
+
+                    Event::Vendor(VendorEvent::AttExchangeMtuResponse(AttExchangeMtuResponse {
+                        conn_handle: ch,
+                        server_rx_mtu,
+                    })) => {
+                        if let Some(conn) = ble.get_connection_mut(*ch) {
+                            conn.update_mtu(*server_rx_mtu as u16);
                         }
                     }
-                    debug!("buffered {} bytes total", input_buf.len());
+
+                    _ => {}
                 }
             }
-
-            Event::Vendor(VendorEvent::AttExchangeMtuResponse(AttExchangeMtuResponse {
-                conn_handle: ch,
-                server_rx_mtu,
-            })) => {
-                if let Some(conn) = ble.get_connection_mut(*ch) {
-                    conn.update_mtu(*server_rx_mtu as u16);
-                }
-            }
-
-            _ => {}
         }
     }
 }
