@@ -70,7 +70,16 @@ use {defmt_rtt as _, panic_probe as _};
 #[global_allocator]
 static HEAP: Heap = Heap::empty();
 
-const HEAP_SIZE: usize = 48 * 1024;
+// RAM layout (128 KB total):
+//   BSS baseline (BLE stack + task state) ≈ 41 KB
+//   data section (BLE blob init data)     ≈ 35 KB
+//   HEAP_MEM (below)                      = 20 KB
+//   ── total used ──────────────────────────── 96 KB
+//   Stack (grows down from 0x20020000)    ≈ 32 KB  ← enough for Rhai recursion
+//
+// Do NOT increase HEAP_SIZE beyond 24 KB without shrinking something else;
+// a 4 KB stack causes Rhai to overflow and corrupt the BLE scheduler → BusFault.
+const HEAP_SIZE: usize = 20 * 1024;
 
 bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<peripherals::RNG>;
@@ -92,9 +101,9 @@ const NUS_TX_CHAR_UUID: [u8; 16] = [
 ];
 
 const MAX_DATA_LEN: usize = 244;
-const INPUT_BUF_SIZE: usize = 1024;
-const RESULT_BUF_SIZE: usize = 512;
-const PRINT_BUF_SIZE: usize = 1024;
+const INPUT_BUF_SIZE: usize = 512;   // max script size over BLE
+const RESULT_BUF_SIZE: usize = 256;  // max result notification payload
+const PRINT_BUF_SIZE: usize = 512;   // max print()/debug() output during eval
 
 // BLE task → eval task: raw script bytes
 static SCRIPT_CHAN: Channel<CriticalSectionRawMutex, heapless::Vec<u8, INPUT_BUF_SIZE>, 1> =
