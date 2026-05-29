@@ -5,6 +5,28 @@
 //! The eval task runs the Rhai engine and sends the result back over a channel;
 //! the BLE task then notifies the client without ever blocking on eval.
 //!
+//! ## Architecture
+//!
+//! ```text
+//! ┌─────────────────────────────────────┐   ┌──────────────────────────────┐
+//! │  main / BLE task                    │   │  eval_task                   │
+//! │                                     │   │                              │
+//! │  select3(                           │   │  owns: Engine, LED pin (PA1) │
+//! │    ble.read_event(),         ──────────→│  SCRIPT_CHAN.receive()        │
+//! │    RESULT_CHAN.receive(),    ←──────────│  engine.eval()               │
+//! │    Timer::after_millis(500), │   │   │  LED_STATE → set_level()     │
+//! │  )                          │   │   │  RESULT_CHAN.send()           │
+//! │                             │   │   └──────────────────────────────┘
+//! │  on timeout  → SCRIPT_CHAN.send()       (eval_pending flag prevents
+//! │  on result   → gatt.notify()             double-dispatch)
+//! │  on BLE event → handle connect /
+//! │                 disconnect / RX data
+//! └─────────────────────────────────────┘
+//! ```
+//!
+//! BLE events are never blocked while Rhai evaluates. Both channels have
+//! depth 1, so the eval task processes one script at a time.
+//!
 //! ## Build
 //! cargo build --release --bin ble_rhai --features scripting
 
