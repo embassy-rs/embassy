@@ -71,15 +71,16 @@ use {defmt_rtt as _, panic_probe as _};
 static HEAP: Heap = Heap::empty();
 
 // RAM layout (128 KB total):
-//   BSS baseline (BLE stack + task state) ≈ 41 KB
+//   BSS baseline (BLE stack + task state) ≈ 36 KB
 //   data section (BLE blob init data)     ≈ 35 KB
-//   HEAP_MEM (below)                      = 20 KB
-//   ── total used ──────────────────────────── 96 KB
-//   Stack (grows down from 0x20020000)    ≈ 32 KB  ← enough for Rhai recursion
+//   HEAP_MEM (below)                      = 32 KB
+//   ── total used ──────────────────────────── 103 KB
+//   Stack (grows down from 0x20020000)    ≈ 25 KB  ← enough for Rhai recursion
 //
-// Do NOT increase HEAP_SIZE beyond 24 KB without shrinking something else;
-// a 4 KB stack causes Rhai to overflow and corrupt the BLE scheduler → BusFault.
-const HEAP_SIZE: usize = 20 * 1024;
+// Rhai Engine::new_raw() + packages needs ~24-28 KB heap.
+// Do NOT increase HEAP_SIZE beyond 36 KB; a stack < 20 KB will overflow
+// Rhai's recursive evaluator and corrupt BLE internal state → BusFault.
+const HEAP_SIZE: usize = 32 * 1024;
 
 bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<peripherals::RNG>;
