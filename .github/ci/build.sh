@@ -4,6 +4,18 @@
 
 set -euo pipefail
 
+# === OOMinator (TEMPORARY) ===========================================
+# Deliberately exhausts memory to verify the kernel/systemd-oomd OOM killer
+# now picks this job cgroup. Expect the job to be OOM-killed. REMOVE ME.
+echo "OOMinator: allocating memory until OOM-killed..."
+oominator_blob=""
+oominator_chunk=$(head -c 10000000 /dev/zero | tr '\0' 'x')  # ~10MB
+while true; do
+    oominator_blob="${oominator_blob}${oominator_chunk}"
+    echo "OOMinator: ~$(( ${#oominator_blob} / 1000000 )) MB allocated"
+done
+# === end OOMinator ===================================================
+
 export RUSTUP_HOME=/ci/cache/rustup
 export CARGO_HOME=/ci/cache/cargo
 export CARGO_TARGET_DIR=/ci/cache/target
