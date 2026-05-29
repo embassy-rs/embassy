@@ -78,6 +78,7 @@ impl<'d> ChannelAndRequest<'d> {
     /// stopped by `Drop`. The buffer must be `'static` because DMA will continue to access
     /// it after this function returns. Suitable for use in non-async contexts.
     #[cfg(not(gpdma))]
+    #[allow(dead_code)]
     pub unsafe fn start_circular_write<MW: Word, PW: Word>(&mut self, buf: &'static [MW], peri_addr: *mut PW) {
         unsafe { self.channel.start_circular_write(self.request, buf, peri_addr) }
     }
