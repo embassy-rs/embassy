@@ -1077,39 +1077,6 @@ impl<'d> Channel<'d> {
         }
     }
 
-    /// Start a circular write DMA transfer (memory to peripheral) that runs indefinitely.
-    ///
-    /// Unlike `write_raw`, this does not return a `Transfer` guard, so the DMA is never
-    /// stopped by `Drop`. The buffer must be `'static` because DMA will continue to access
-    /// it after this function returns. Suitable for use in non-async contexts.
-    pub unsafe fn start_circular_write<MW: Word, PW: Word>(
-        &mut self,
-        request: Request,
-        buf: &'static [MW],
-        peri_addr: *mut PW,
-    ) {
-        let options = TransferOptions {
-            circular: true,
-            half_transfer_ir: false,
-            complete_transfer_ir: false,
-            ..Default::default()
-        };
-        unsafe {
-            self.configure(
-                request,
-                Dir::MemoryToPeripheral,
-                peri_addr as *const u32,
-                buf.as_ptr() as *mut u32,
-                buf.len(),
-                Increment::Memory,
-                MW::size(),
-                PW::size(),
-                options,
-            );
-        }
-        self.start();
-    }
-
     /// Create a write DMA transfer (memory to peripheral), writing the same value repeatedly.
     pub unsafe fn write_repeated<'a, W: Word>(
         &'a mut self,
