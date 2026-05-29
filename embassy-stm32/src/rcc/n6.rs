@@ -269,7 +269,18 @@ struct ClocksInput {
     ic19: Option<Hertz>,
     ic20: Option<Hertz>,
 }
-
+fn log_data() {
+    let rtcsel = RCC.ccipr7().read().rtcsel();
+    info!("2rtcsel = {:?}", rtcsel);
+    let rtcen = RCC.apb4lenr().read().rtcen();
+    info!("rtcen = {:?}", if rtcen {1} else {0});
+    let lseon = RCC.cr().read().lseon();
+    info!("lseon = {:?}", if lseon {1} else {0});
+    let lsebyp = RCC.lsecfgr().read().lsebyp();
+    info!("lsebyp = {:?}", if lsebyp {1} else {0});
+    let lsedrv = RCC.lsecfgr().read().lsedrv();
+    info!("lsedrv = {:?}", lsedrv);
+}
 fn init_clocks(config: Config, input: &ClocksInput) -> ClocksOutput {
     // IC configuration
     for (index, ic) in [
@@ -315,6 +326,7 @@ fn init_clocks(config: Config, input: &ClocksInput) -> ClocksOutput {
         });
         RCC.divensr().modify(|w| w.0 = 1 << index);
     }
+    log_data();
 
     // handle increasing dividers
     debug!("configuring increasing pclk dividers");
@@ -340,6 +352,7 @@ fn init_clocks(config: Config, input: &ClocksInput) -> ClocksOutput {
             w.set_hpre(config.ahb);
         }
     });
+    log_data();
     // cpuclk
     debug!("configuring cpuclk");
     match config.cpu {
@@ -349,11 +362,13 @@ fn init_clocks(config: Config, input: &ClocksInput) -> ClocksOutput {
         CpuClk::Ic1 if !ic_enabled(1) => panic!("IC1 is not ready to be selected as CPU clock source"),
         _ => {}
     }
+    log_data();
     // set source
     let cpusw = Cpusw::from_bits(config.cpu.to_bits());
     RCC.cfgr().modify(|w| w.set_cpusw(cpusw));
     // wait for changes to take effect
     while RCC.cfgr().read().cpusws() != Cpusws::from_bits(config.cpu.to_bits()) {}
+    log_data();
 
     // sysclk
     debug!("configuring sysclk");
@@ -366,12 +381,14 @@ fn init_clocks(config: Config, input: &ClocksInput) -> ClocksOutput {
         ),
         _ => {}
     }
+    log_data();
     // switch the system bus clock
     let syssw = Syssw::from_bits(config.sys.to_bits());
     RCC.cfgr().modify(|w| w.set_syssw(syssw));
     // wait for changes to be applied
     while RCC.cfgr().read().syssws() != Syssws::from_bits(config.sys.to_bits()) {}
 
+    log_data();
     // decreasing dividers
     debug!("configuring decreasing pclk dividers");
     RCC.cfgr2().modify(|w| {
@@ -396,6 +413,7 @@ fn init_clocks(config: Config, input: &ClocksInput) -> ClocksOutput {
             w.set_ppre5(config.apb5);
         }
     });
+    log_data();
 
     let cpuclk = match config.cpu {
         CpuClk::Hsi => unwrap!(input.hsi),
@@ -429,14 +447,17 @@ fn init_clocks(config: Config, input: &ClocksInput) -> ClocksOutput {
         Timpre::_RESERVED_3 => 8,
     };
 
+    log_data();
     let hpre = periph_prescaler_to_value(config.ahb.to_bits());
     let ppre1 = periph_prescaler_to_value(config.apb1.to_bits());
     let ppre2 = periph_prescaler_to_value(config.apb2.to_bits());
     let ppre4 = periph_prescaler_to_value(config.apb4.to_bits());
     let ppre5 = periph_prescaler_to_value(config.apb5.to_bits());
+    log_data();
 
     // enable all peripherals in sleep mode
     enable_low_power_peripherals();
+    log_data();
 
     // enable interrupts
     unsafe {
@@ -1006,13 +1027,16 @@ fn init_osc(config: Config) -> OscOutput {
     };
 
     // rtc configuration
+    log_data();
     let rtc = config.ls.init();
+    log_data();
     // lse configuration
     debug!("configuring LSE");
     let lse = config.ls.lse.map(|l| l.frequency);
     // lsi configuration
     debug!("configuring LSI");
     let lsi = config.ls.lsi.then_some(LSI_FREQ);
+    log_data();
 
     let pll_input = PllInput {
         hse,
@@ -1029,6 +1053,7 @@ fn init_osc(config: Config) -> OscOutput {
     let ic2_src = RCC.iccfgr(1).read().icsel();
     let ic6_src = RCC.iccfgr(5).read().icsel();
     let ic11_src = RCC.iccfgr(10).read().icsel();
+    log_data();
 
     // If config wants a non-IC1 CPU source (HSI/HSE/MSI), switch now before
     // touching PLLs. This prevents panicking when trying to reconfigure a PLL
@@ -1044,6 +1069,7 @@ fn init_osc(config: Config) -> OscOutput {
     } else {
         cpu_src
     };
+    log_data();
 
     // If config wants a non-IC2 sys source (HSI/HSE/MSI), switch now before
     // touching PLLs. This prevents panicking when trying to reconfigure a PLL
@@ -1059,6 +1085,7 @@ fn init_osc(config: Config) -> OscOutput {
     } else {
         sys_src
     };
+    log_data();
 
     for (n, (&pll, out)) in pll_configs.iter().zip(pll_outputs.iter_mut()).enumerate() {
         debug!("configuring PLL{}", n + 1);
@@ -1091,6 +1118,7 @@ fn init_osc(config: Config) -> OscOutput {
             }
         }
     }
+    log_data();
 
     OscOutput {
         hsi,
@@ -1292,6 +1320,7 @@ pub(crate) unsafe fn init(config: Config) {
     }
 
     let osc = init_osc(config);
+    log_data();
     let ic_freqs = [
         config.ic1,
         config.ic2,
@@ -1326,6 +1355,7 @@ pub(crate) unsafe fn init(config: Config) {
         let divider = (ic_cfg.divider.to_bits() as u32) + 1; // ICINT 0 = divide by 1
         Some(Hertz(pll_freq.0 / divider))
     });
+    log_data();
     let clock_inputs = ClocksInput {
         hsi: osc.hsi,
         hsi_div: osc.hsi_div,
@@ -1352,11 +1382,14 @@ pub(crate) unsafe fn init(config: Config) {
         ic19: ic_freqs[18],
         ic20: ic_freqs[19],
     };
+    log_data();
     let clocks = init_clocks(config, &clock_inputs);
+    log_data();
 
     // TODO: sysb, sysc, sysd must have the same clock source
 
     config.mux.init();
+    log_data();
 
     set_clocks!(
         sys: Some(clocks.sysclk),
