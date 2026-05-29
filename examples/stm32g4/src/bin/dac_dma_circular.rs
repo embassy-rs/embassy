@@ -15,7 +15,7 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_stm32::dac::{Dac, ValueArray};
+use embassy_stm32::dac::{DacChannel, ValueArray};
 use embassy_stm32::timer::Channel;
 use embassy_stm32::timer::low_level::{MasterMode, RoundTo, Timer};
 use embassy_stm32::triggers::TIM8_TRGO;
@@ -28,21 +28,14 @@ use {defmt_rtt as _, panic_probe as _};
 // TIM8 at 170 MHz / 266 ≈ 639 kHz; 64 samples per period → output ≈ 10 kHz.
 const N: usize = 64;
 static SINE_CH1: [u16; N] = [
-    2048, 2244, 2438, 2629, 2813, 2991, 3159, 3317, 3462, 3594, 3711, 3812, 3896, 3962, 4010,
-    4038, 4048, 4038, 4010, 3962, 3896, 3812, 3711, 3594, 3462, 3317, 3159, 2991, 2813, 2629,
-    2438, 2244, 2048, 1852, 1658, 1467, 1283, 1105, 937, 779, 634, 502, 385, 284, 200, 134, 86,
-    58, 48, 58, 86, 134, 200, 284, 385, 502, 634, 779, 937, 1105, 1283, 1467, 1658, 1852,
-];
-static SINE_CH2: [u16; N] = [
-    2048, 1852, 1658, 1467, 1283, 1105, 937, 779, 634, 502, 385, 284, 200, 134, 86, 58, 48, 58,
-    86, 134, 200, 284, 385, 502, 634, 779, 937, 1105, 1283, 1467, 1658, 1852, 2048, 2244, 2438,
-    2629, 2813, 2991, 3159, 3317, 3462, 3594, 3711, 3812, 3896, 3962, 4010, 4038, 4048, 4038,
-    4010, 3962, 3896, 3812, 3711, 3594, 3462, 3317, 3159, 2991, 2813, 2629, 2438, 2244,
+    2048, 2244, 2438, 2629, 2813, 2991, 3159, 3317, 3462, 3594, 3711, 3812, 3896, 3962, 4010, 4038, 4048, 4038, 4010,
+    3962, 3896, 3812, 3711, 3594, 3462, 3317, 3159, 2991, 2813, 2629, 2438, 2244, 2048, 1852, 1658, 1467, 1283, 1105,
+    937, 779, 634, 502, 385, 284, 200, 134, 86, 58, 48, 58, 86, 134, 200, 284, 385, 502, 634, 779, 937, 1105, 1283,
+    1467, 1658, 1852,
 ];
 
 bind_interrupts!(struct Irqs {
     DMA1_CHANNEL5 => dma::InterruptHandler<peripherals::DMA1_CH5>;
-    DMA1_CHANNEL6 => dma::InterruptHandler<peripherals::DMA1_CH6>;
 });
 
 #[embassy_executor::main]
@@ -71,22 +64,10 @@ async fn main(_spawner: Spawner) {
     tim8.set_master_mode(MasterMode::ComparePulse);
 
     // DAC1: both channels triggered by TIM8_TRGO, output on PA4 and PA5.
-    let (mut dac_ch1, mut dac_ch2) = Dac::new_triggered(
-        p.DAC1,
-        p.DMA1_CH5,
-        p.DMA1_CH6,
-        TIM8_TRGO,
-        TIM8_TRGO,
-        Irqs,
-        p.PA4,
-        p.PA5,
-    )
-    .split();
+    let mut dac_ch1 = DacChannel::new_triggered(p.DAC1, p.DMA1_CH5, TIM8_TRGO, Irqs, p.PA4);
 
     dac_ch1.set_triggering(true);
-    dac_ch2.set_triggering(true);
     dac_ch1.start_circular_dma(ValueArray::Bit12Right(&SINE_CH1));
-    dac_ch2.start_circular_dma(ValueArray::Bit12Right(&SINE_CH2));
 
     tim8.start();
 
@@ -94,7 +75,6 @@ async fn main(_spawner: Spawner) {
 
     // Keep dac_ch1, dac_ch2, and tim8 alive so Drop does not stop the peripherals.
     let _dac_ch1 = dac_ch1;
-    let _dac_ch2 = dac_ch2;
     let _tim8 = tim8;
 
     loop {
