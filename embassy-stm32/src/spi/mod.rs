@@ -600,9 +600,25 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         self.set_word_size(W::CONFIG);
         self.info.regs.cr1().modify(|w| w.set_spe(true));
         flush_rx_fifo(self.info.regs);
+
+        // Overlap write and read to avoid stalling the peripheral
+        #[cfg(not(any(spi_v1, spi_v2)))]
+        if let Some((last, words)) = words.split_last_mut() {
+            write_word(self.info.regs, W::default())?;
+            for word in words {
+                *word = transfer_word(self.info.regs, W::default())?;
+            }
+            *last = read_word(self.info.regs)?;
+        }
+
+        // SPI v1/v2 have a single-word RX/TX buffer,
+        // so we cannot overlap read and write, otherwise
+        // preemption can let the peripheral overrun RX.
+        #[cfg(any(spi_v1, spi_v2))]
         for word in words.iter_mut() {
             *word = transfer_word(self.info.regs, W::default())?;
         }
+
         Ok(())
     }
 
@@ -616,9 +632,32 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         self.set_word_size(W::CONFIG);
         self.info.regs.cr1().modify(|w| w.set_spe(true));
         flush_rx_fifo(self.info.regs);
+
+        // Overlap write and read to avoid stalling the peripheral
+        // Use Cells to generate multiple 'mutable' references to the same data
+        #[cfg(not(any(spi_v1, spi_v2)))]
+        {
+            use core::cell::Cell;
+            let words: &[Cell<W>] = Cell::from_mut(words).as_slice_of_cells();
+            if let (Some(first), Some(last)) = (words.first(), words.last()) {
+                write_word(self.info.regs, first.get())?;
+
+                for window in words.windows(2) {
+                    window[0].set(transfer_word(self.info.regs, window[1].get())?);
+                }
+
+                last.set(read_word(self.info.regs)?);
+            }
+        }
+
+        // SPI v1/v2 have a single-word RX/TX buffer,
+        // so we cannot overlap read and write, otherwise
+        // preemption can let the peripheral overrun RX.
+        #[cfg(any(spi_v1, spi_v2))]
         for word in words.iter_mut() {
             *word = transfer_word(self.info.regs, *word)?;
         }
+
         Ok(())
     }
 
@@ -635,7 +674,30 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         self.set_word_size(W::CONFIG);
         self.info.regs.cr1().modify(|w| w.set_spe(true));
         flush_rx_fifo(self.info.regs);
+
         let len = read.len().max(write.len());
+
+        // Overlap write and read to avoid stalling the peripheral
+        #[cfg(not(any(spi_v1, spi_v2)))]
+        if len > 0 {
+            write_word(self.info.regs, write.first().copied().unwrap_or_default())?;
+            for i in 0..len - 1 {
+                let wb = write.get(i + 1).copied().unwrap_or_default();
+                let rb = transfer_word(self.info.regs, wb)?;
+                if let Some(r) = read.get_mut(i) {
+                    *r = rb;
+                }
+            }
+            let rb = read_word(self.info.regs)?;
+            if let Some(r) = read.get_mut(len - 1) {
+                *r = rb;
+            }
+        }
+
+        // SPI v1/v2 have a single-word RX/TX buffer,
+        // so we cannot overlap read and write, otherwise
+        // preemption can let the peripheral overrun RX.
+        #[cfg(any(spi_v1, spi_v2))]
         for i in 0..len {
             let wb = write.get(i).copied().unwrap_or_default();
             let rb = transfer_word(self.info.regs, wb)?;
@@ -643,6 +705,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
                 *r = rb;
             }
         }
+
         Ok(())
     }
 }
@@ -1390,6 +1453,14 @@ fn finish_dma(regs: Regs) {
     });
 }
 
+#[cfg(not(any(spi_v1, spi_v2)))]
+fn read_word<W: Word>(regs: Regs) -> Result<W, Error> {
+    spin_until_rx_ready(regs)?;
+
+    let rx_word = unsafe { ptr::read_volatile(regs.rx_ptr()) };
+    Ok(rx_word)
+}
+
 fn transfer_word<W: Word>(regs: Regs, tx_word: W) -> Result<W, Error> {
     spin_until_tx_ready(regs, true)?;
 
@@ -1406,7 +1477,7 @@ fn transfer_word<W: Word>(regs: Regs, tx_word: W) -> Result<W, Error> {
     Ok(rx_word)
 }
 
-#[allow(unused)] // unused in SPIv1
+#[cfg(not(any(spi_v1, spi_v2)))]
 fn write_word<W: Word>(regs: Regs, tx_word: W) -> Result<(), Error> {
     // for write, we intentionally ignore the rx fifo, which will cause
     // overrun errors that we have to ignore.
