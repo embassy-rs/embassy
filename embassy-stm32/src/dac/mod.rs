@@ -307,6 +307,42 @@ impl<'d> DacChannel<'d, Async> {
         )
     }
 
+    /// Start a circular DMA output from a static buffer, running indefinitely.
+    ///
+    /// Unlike [`write`](Self::write), this is non-blocking and does not return a future.
+    /// DMA is configured in circular mode and started immediately, so the waveform begins
+    /// as soon as the trigger source fires. Because no `Transfer` guard is returned, DMA
+    /// is never stopped by `Drop` — the excitation runs until the channel itself is dropped.
+    ///
+    /// The buffer must be `'static` because DMA will continuously read it after this
+    /// function returns. Suitable for use in non-async contexts.
+    #[cfg(not(gpdma))]
+    pub fn start_circular_dma(&mut self, data: ValueArray<'static>) {
+        self.info.regs.cr().modify(|w| {
+            w.set_en(self.idx, true);
+            w.set_dmaen(self.idx, true);
+        });
+
+        let dma = self.dma.as_mut().unwrap();
+
+        unsafe {
+            match data {
+                ValueArray::Bit8(buf) => dma.start_circular_write(
+                    buf,
+                    self.info.regs.dhr8r(self.idx).as_ptr() as *mut u32,
+                ),
+                ValueArray::Bit12Left(buf) => dma.start_circular_write(
+                    buf,
+                    self.info.regs.dhr12l(self.idx).as_ptr() as *mut u32,
+                ),
+                ValueArray::Bit12Right(buf) => dma.start_circular_write(
+                    buf,
+                    self.info.regs.dhr12r(self.idx).as_ptr() as *mut u32,
+                ),
+            }
+        }
+    }
+
     /// Write `data` to this channel via DMA.
     ///
     /// To prevent delays or glitches when outputing a periodic waveform, the `circular`
