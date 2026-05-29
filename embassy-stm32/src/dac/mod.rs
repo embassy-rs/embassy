@@ -327,18 +327,15 @@ impl<'d> DacChannel<'d, Async> {
 
         unsafe {
             match data {
-                ValueArray::Bit8(buf) => dma.start_circular_write(
-                    buf,
-                    self.info.regs.dhr8r(self.idx).as_ptr() as *mut u32,
-                ),
-                ValueArray::Bit12Left(buf) => dma.start_circular_write(
-                    buf,
-                    self.info.regs.dhr12l(self.idx).as_ptr() as *mut u32,
-                ),
-                ValueArray::Bit12Right(buf) => dma.start_circular_write(
-                    buf,
-                    self.info.regs.dhr12r(self.idx).as_ptr() as *mut u32,
-                ),
+                ValueArray::Bit8(buf) => {
+                    dma.start_circular_write(buf, self.info.regs.dhr8r(self.idx).as_ptr() as *mut u32)
+                }
+                ValueArray::Bit12Left(buf) => {
+                    dma.start_circular_write(buf, self.info.regs.dhr12l(self.idx).as_ptr() as *mut u32)
+                }
+                ValueArray::Bit12Right(buf) => {
+                    dma.start_circular_write(buf, self.info.regs.dhr12r(self.idx).as_ptr() as *mut u32)
+                }
             }
         }
     }
