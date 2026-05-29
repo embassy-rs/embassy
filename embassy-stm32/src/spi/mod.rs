@@ -1312,35 +1312,52 @@ fn check_error_flags(sr: regs::Sr, ovr: bool) -> Result<(), Error> {
     Ok(())
 }
 
+fn check_tx_ready(regs: Regs, ovr: bool) -> Result<bool, Error> {
+    let sr = regs.sr().read();
+
+    check_error_flags(sr, ovr)?;
+
+    #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
+    if sr.txe() {
+        return Ok(true);
+    }
+    #[cfg(any(spi_v4, spi_v5, spi_v6))]
+    if sr.txp() {
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+
 fn spin_until_tx_ready(regs: Regs, ovr: bool) -> Result<(), Error> {
     loop {
-        let sr = regs.sr().read();
-
-        check_error_flags(sr, ovr)?;
-
-        #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
-        if sr.txe() {
-            return Ok(());
-        }
-        #[cfg(any(spi_v4, spi_v5, spi_v6))]
-        if sr.txp() {
+        if check_tx_ready(regs, ovr)? {
             return Ok(());
         }
     }
 }
 
+fn check_rx_ready(regs: Regs) -> Result<bool, Error> {
+    let sr = regs.sr().read();
+
+    check_error_flags(sr, true)?;
+
+    #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
+    if sr.rxne() {
+        return Ok(true);
+    }
+    #[cfg(any(spi_v4, spi_v5, spi_v6))]
+    if sr.rxp() {
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+
+#[cfg(any(spi_v1, spi_v2))]
 fn spin_until_rx_ready(regs: Regs) -> Result<(), Error> {
     loop {
-        let sr = regs.sr().read();
-
-        check_error_flags(sr, true)?;
-
-        #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
-        if sr.rxne() {
-            return Ok(());
-        }
-        #[cfg(any(spi_v4, spi_v5, spi_v6))]
-        if sr.rxp() {
+        if check_rx_ready(regs)? {
             return Ok(());
         }
     }
@@ -1414,61 +1431,47 @@ fn finish_dma(regs: Regs) {
 #[inline]
 fn transfer_words<W: Word>(regs: Regs, read: *mut [W], write: *const [W]) -> Result<(), Error> {
     unsafe {
-        let read_ptr = |i: &mut usize| {
-            *i += 1;
-            if *i - 1 < read.len() {
-                Some((read as *mut W).add(*i - 1))
-            } else {
-                None
+        let ndt = read.len().max(write.len());
+        let mut read = read.as_mut().unwrap().iter_mut();
+        let mut write = write.as_ref().unwrap().iter();
+
+        let mut w = 0usize;
+        let mut r = 0usize;
+
+        spin_until_tx_ready(regs, true)?;
+
+        while w < ndt || r < ndt {
+            if w < ndt && check_tx_ready(regs, true)? {
+                if let Some(word_out) = write.next() {
+                    ptr::write_volatile(regs.tx_ptr(), *word_out);
+                } else {
+                    ptr::write_volatile(regs.tx_ptr(), W::default());
+                }
+
+                if w == 0 {
+                    #[cfg(any(spi_v4, spi_v5, spi_v6))]
+                    regs.cr1().modify(|reg| reg.set_cstart(true));
+                }
+
+                w += 1;
             }
-        };
 
-        let write_ptr = |i: &mut usize| {
-            *i += 1;
-            if *i - 1 < write.len() {
-                Some((write as *const W).add(*i - 1))
-            } else {
-                None
+            if r < ndt && check_rx_ready(regs)? {
+                if let Some(word_in) = read.next() {
+                    *word_in = ptr::read_volatile(regs.rx_ptr());
+                } else {
+                    ptr::read_volatile::<W>(regs.rx_ptr());
+                }
+
+                r += 1;
             }
-        };
-
-        let mut r = 0usize; // The next unread element in the read buffer
-        let mut w = 0usize; // The next unwritten element in the write buffer
-
-        #[cfg(any(spi_v3, spi_v4, spi_v5, spi_v6))]
-        if read.len().max(write.len()) == 0 {
-        } else if let Some(word_out) = write_ptr(&mut w) {
-            write_word(regs, *word_out)?;
-        } else {
-            write_word(regs, W::default())?;
-        }
-
-        for _ in 0..read.len().max(write.len()).saturating_sub(w - r) {
-            let word_out = if let Some(word_out) = write_ptr(&mut w) {
-                *word_out
-            } else {
-                W::default()
-            };
-
-            if let Some(word_in) = read_ptr(&mut r) {
-                *word_in = transfer_word(regs, word_out)?;
-            } else {
-                transfer_word(regs, word_out)?;
-            }
-        }
-
-        #[cfg(any(spi_v3, spi_v4, spi_v5, spi_v6))]
-        if read.len().max(write.len()) == 0 {
-        } else if let Some(word_in) = read_ptr(&mut r) {
-            *word_in = read_word(regs)?;
-        } else {
-            read_word::<W>(regs)?;
         }
 
         Ok(())
     }
 }
 
+#[cfg(any(spi_v1, spi_v2))]
 fn transfer_word<W: Word>(regs: Regs, tx_word: W) -> Result<W, Error> {
     spin_until_tx_ready(regs, true)?;
 
@@ -1479,14 +1482,6 @@ fn transfer_word<W: Word>(regs: Regs, tx_word: W) -> Result<W, Error> {
         regs.cr1().modify(|reg| reg.set_cstart(true));
     }
 
-    spin_until_rx_ready(regs)?;
-
-    let rx_word = unsafe { ptr::read_volatile(regs.rx_ptr()) };
-    Ok(rx_word)
-}
-
-#[cfg(any(spi_v3, spi_v4, spi_v5, spi_v6))]
-fn read_word<W: Word>(regs: Regs) -> Result<W, Error> {
     spin_until_rx_ready(regs)?;
 
     let rx_word = unsafe { ptr::read_volatile(regs.rx_ptr()) };
