@@ -12,11 +12,11 @@
 //! │  main / BLE task                    │   │  eval_task                   │
 //! │                                     │   │                              │
 //! │  select3(                           │   │  owns: Engine, LED pin (PA1) │
-//! │    ble.read_event(),         ──────────→│  SCRIPT_CHAN.receive()        │
+//! │    ble.read_event(),         ──────────→│  SCRIPT_CHAN.receive()       │
 //! │    RESULT_CHAN.receive(),    ←──────────│  engine.eval()               │
-//! │    Timer::after_millis(500), │   │   │  LED_STATE → set_level()     │
-//! │  )                          │   │   │  RESULT_CHAN.send()           │
-//! │                             │   │   └──────────────────────────────┘
+//! │    Timer::after_millis(500),    │   │   │  LED_STATE → set_level()     │
+//! │  )                              │   │   │  RESULT_CHAN.send()          │
+//! │                                 │   │   └──────────────────────────────┘
 //! │  on timeout  → SCRIPT_CHAN.send()       (eval_pending flag prevents
 //! │  on result   → gatt.notify()             double-dispatch)
 //! │  on BLE event → handle connect /
@@ -235,7 +235,6 @@ async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(config);
 
     let led = LED_CELL.init(Output::new(p.PA1, Level::Low, Speed::Low));
-    spawner.spawn(eval_task(led).expect("spawn eval"));
 
     info!("BLE Rhai interpreter starting");
 
@@ -304,6 +303,12 @@ async fn main(spawner: Spawner) {
     ble.start_advertising(adv_params.clone(), adv_data.clone(), Some(scan_rsp.clone()))
         .await
         .expect("start advertising");
+
+    // Spawn eval_task only after BLE is fully initialised and advertising.
+    // Spawning earlier would let Engine::new_raw() run heap allocations
+    // concurrently with BLE stack init, which can corrupt BLE internal state
+    // (null callback pointer → BusFault at 0x00000010).
+    spawner.spawn(eval_task(led).expect("spawn eval"));
 
     info!("Advertising as 'RhaiShell' — connect and send Rhai expressions");
 
