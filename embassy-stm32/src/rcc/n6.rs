@@ -1,7 +1,9 @@
 use stm32_metapac::pwr::vals::{
     Vddio2rdy, Vddio2sv, Vddio2vrsel, Vddio3rdy, Vddio3sv, Vddio3vrsel, Vddio4sv, Vddio5sv,
 };
-use stm32_metapac::rcc::vals::{Cpusw, Cpusws, Hseext, Hsitrim, Msifreqsel, Persel, Pllmodssdis, Syssw, Syssws, Timpre};
+use stm32_metapac::rcc::vals::{
+    Cpusw, Cpusws, Hseext, Hsitrim, Msifreqsel, Persel, Pllmodssdis, Syssw, Syssws, Timpre,
+};
 pub use stm32_metapac::rcc::vals::{
     Hpre as AhbPrescaler, Hsidiv as HsiPrescaler, Hsitrim as HsiCalibration, Icint, Icsel, Plldivm, Pllpdiv, Pllsel,
     Ppre as ApbPrescaler, Xspisel as XspiClkSrc,
@@ -9,9 +11,8 @@ pub use stm32_metapac::rcc::vals::{
 use stm32_metapac::syscfg::vals::{Vddio2cccrCs, Vddio3cccrCs, Vddio4cccrCs};
 
 use crate::pac::{GPDMA1, HPDMA1, PWR, RCC, RIFSC, RISAF3, SYSCFG};
-use crate::time::Hertz;
-
 use crate::rcc::LSI_FREQ;
+use crate::time::Hertz;
 pub const HSI_FREQ: Hertz = Hertz(64_000_000);
 pub const LSE_FREQ: Hertz = Hertz(32_768);
 
