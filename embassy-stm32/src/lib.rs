@@ -460,12 +460,18 @@ mod dual_core {
     ///
     /// ```
     /// use core::mem::MaybeUninit;
-    /// use embassy_stm32::{init_secondary, SharedData};
+    /// use embassy_stm32::{bind_interrupts, init_secondary, SharedData};
+    /// use embassy_stm32::hsem::HardwareSemaphoreInterruptHandler;
+    /// use embassy_stm32::peripherals::HSEM;
+    ///
+    /// bind_interrupts!(struct Irqs{
+    ///     HSEM => HardwareSemaphoreInterruptHandler<HSEM>;
+    /// });
     ///
     /// #[link_section = ".ram_d3"]
     /// static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
     ///
-    /// init_secondary(&SHARED_DATA);
+    /// init_secondary(Irqs, &SHARED_DATA);
     /// ```
     ///
     /// This static must be placed in the same position for both cores. How and where this is done is left to the user.
@@ -525,7 +531,10 @@ mod dual_core {
     /// This should only be called once at startup, otherwise it may panic.
     ///
     /// A hardware semaphore is used to coordinate the init with the second core.
-    pub fn try_init_secondary(shared_data: &'static MaybeUninit<SharedData>) -> Option<Peripherals> {
+    pub fn try_init_secondary<T: hsem::Instance>(
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, hsem::HardwareSemaphoreInterruptHandler<T>>,
+        shared_data: &'static MaybeUninit<SharedData>,
+    ) -> Option<Peripherals> {
         critical_section::with(|cs| crate::hsem::init_hsem(cs));
 
         // Wait for the semaphore to be unlocked by the primary core
@@ -545,9 +554,12 @@ mod dual_core {
     ///
     /// The `shared_data` is used to coordinate the init with the second core. Read the [SharedData] docs
     /// for more information on its requirements.
-    pub fn init_secondary(shared_data: &'static MaybeUninit<SharedData>) -> Peripherals {
+    pub fn init_secondary<T: hsem::Instance>(
+        irq: impl interrupt::typelevel::Binding<T::Interrupt, hsem::HardwareSemaphoreInterruptHandler<T>>,
+        shared_data: &'static MaybeUninit<SharedData>,
+    ) -> Peripherals {
         loop {
-            if let Some(p) = try_init_secondary(shared_data) {
+            if let Some(p) = try_init_secondary(irq, shared_data) {
                 return p;
             }
         }

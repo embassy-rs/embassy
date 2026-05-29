@@ -95,9 +95,15 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::SharedData;
 use embassy_stm32::gpio::{Level, Output, Speed};
+use embassy_stm32::hsem::HardwareSemaphoreInterruptHandler;
+use embassy_stm32::peripherals::HSEM;
 use embassy_time::Timer;
 use shared::SHARED_LED_STATE;
 use {defmt_rtt as _, panic_probe as _};
+
+embassy_stm32::bind_interrupts!(struct Irqs {
+    HSEM2 => HardwareSemaphoreInterruptHandler<HSEM>;
+});
 
 #[unsafe(link_section = ".ram_d3")]
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
@@ -115,7 +121,7 @@ async fn blink_heartbeat(mut led: Output<'static>) {
 #[embassy_executor::main]
 async fn main(spawner: Spawner) -> ! {
     // Initialize the secondary core
-    let p = embassy_stm32::init_secondary(&SHARED_DATA);
+    let p = embassy_stm32::init_secondary(Irqs, &SHARED_DATA);
     info!("CM4 core initialized!");
 
     // Verify shared memory is accessible

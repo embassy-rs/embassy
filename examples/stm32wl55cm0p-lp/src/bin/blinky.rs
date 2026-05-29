@@ -8,17 +8,23 @@ use defmt::*;
 #[cfg(feature = "defmt-rtt")]
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::SharedData;
 use embassy_stm32::gpio::{Level, Output, Speed};
+use embassy_stm32::hsem::HardwareSemaphoreInterruptHandler;
+use embassy_stm32::peripherals::HSEM;
+use embassy_stm32::{SharedData, bind_interrupts};
 use embassy_time::Timer;
 use panic_probe as _;
+
+bind_interrupts!(struct Irqs{
+    HSEM => HardwareSemaphoreInterruptHandler<HSEM>;
+});
 
 #[unsafe(link_section = ".shared_data.0")]
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
 
 #[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn async_main(_spawner: Spawner) {
-    let p = embassy_stm32::init_secondary(&SHARED_DATA);
+    let p = embassy_stm32::init_secondary(Irqs, &SHARED_DATA);
 
     #[cfg(feature = "defmt-serial")]
     {

@@ -9,12 +9,15 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
+use embassy_stm32::hsem::HardwareSemaphoreInterruptHandler;
 use embassy_stm32::ipcc::{Config as IPCCConfig, InterruptHandler, Ipcc};
+use embassy_stm32::peripherals::HSEM;
 use embassy_stm32::{SharedData, bind_interrupts};
 use embassy_time::Timer;
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs{
+    HSEM => HardwareSemaphoreInterruptHandler<HSEM>;
     IPCC_C2_RX_C2_TX => InterruptHandler;
 });
 
@@ -37,7 +40,7 @@ async fn blink_heartbeat(mut led: Output<'static>) {
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
     // Initialize the secondary core
-    let p = embassy_stm32::init_secondary(&SHARED_DATA);
+    let p = embassy_stm32::init_secondary(Irqs, &SHARED_DATA);
     #[cfg(feature = "defmt-serial")]
     {
         use embassy_stm32::mode::Blocking;
