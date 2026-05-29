@@ -1,14 +1,14 @@
-//! DAC circular DMA: two complementary sine waves on PA4 (DAC1_CH1) and PA5 (DAC1_CH2).
+//! DAC circular DMA: a 10 kHz sine wave on PA4 (DAC1_CH1).
 //!
-//! A pre-computed 64-sample table is played back continuously via DMA, clocked byTIM8_TRGO
+//! A pre-computed 64-sample table is played back continuously via DMA, clocked by TIM8_TRGO
 //! at ~639 kHz, giving an output frequency of ~10 kHz with no CPU involvement after setup.
 //!
 //! This demonstrates `DacChannel::start_circular_dma`: a non-blocking alternative to the
 //! async `write(..., circular: true)` that is usable in synchronous contexts. The DMA runs
 //! indefinitely and is never stopped by a `Drop` guard.
 //!
-//! Wiring: observe PA4 and PA5 with an oscilloscope; both channels produce a 10 kHz sine
-//! centred at ~1.65 V (DAC mid-scale), with PA5 phase-inverted relative to PA4.
+//! Wiring: observe PA4 with an oscilloscope; it produces a 10 kHz sine centred at ~1.65 V
+//! (DAC mid-scale).
 
 #![no_std]
 #![no_main]
@@ -23,8 +23,7 @@ use embassy_stm32::{Config, bind_interrupts, dma, peripherals};
 use embassy_time::Timer as EmbassyTimer;
 use {defmt_rtt as _, panic_probe as _};
 
-// 64-sample 12-bit right-aligned sine tables, centred at 2048, amplitude 2000 counts.
-// CH1 = positive sine, CH2 = inverted sine.
+// 64-sample 12-bit right-aligned sine table, centred at 2048, amplitude 2000 counts.
 // TIM8 at 170 MHz / 266 ≈ 639 kHz; 64 samples per period → output ≈ 10 kHz.
 const N: usize = 64;
 static SINE_CH1: [u16; N] = [
@@ -63,7 +62,7 @@ async fn main(_spawner: Spawner) {
     tim8.set_compare_value(Channel::Ch1, 0u16);
     tim8.set_master_mode(MasterMode::ComparePulse);
 
-    // DAC1: both channels triggered by TIM8_TRGO, output on PA4 and PA5.
+    // DAC1 CH1: triggered by TIM8_TRGO, output on PA4.
     let mut dac_ch1 = DacChannel::new_triggered(p.DAC1, p.DMA1_CH5, TIM8_TRGO, Irqs, p.PA4);
 
     dac_ch1.set_triggering(true);
@@ -71,9 +70,9 @@ async fn main(_spawner: Spawner) {
 
     tim8.start();
 
-    info!("DAC circular DMA running, ~10 kHz complementary sine on PA4/PA5");
+    info!("DAC circular DMA running, ~10 kHz sine on PA4");
 
-    // Keep dac_ch1, dac_ch2, and tim8 alive so Drop does not stop the peripherals.
+    // Keep dac_ch1 and tim8 alive so Drop does not stop the peripherals.
     let _dac_ch1 = dac_ch1;
     let _tim8 = tim8;
 
