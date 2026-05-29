@@ -34,17 +34,17 @@
 #![no_main]
 
 extern crate alloc;
-use alloc::format;
+use alloc::vec::Vec;
 
 use embedded_alloc::LlffHeap as Heap;
 
 use core::cell::RefCell;
-use core::sync::atomic::{AtomicBool, Ordering};
 use defmt::*;
-use embassy_executor::Spawner;
-use embassy_futures::select::{Either, Either3, select, select3};
+use embassy_executor::{InterruptExecutor, Spawner};
+use embassy_futures::select::{Either3, Either4, select3, select4};
 use embassy_stm32::aes::{self, Aes};
 use embassy_stm32::gpio::{Level, Output, Speed};
+use embassy_stm32::interrupt::{self, InterruptExt, Priority};
 use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph};
 use embassy_stm32::pka::{self, Pka};
 use embassy_stm32::rcc;
@@ -53,7 +53,7 @@ use embassy_stm32::{Config, bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
-use embassy_stm32_wpan::bluetooth::HCI;
+use embassy_stm32_wpan::bluetooth::{HCI, Normal};
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gatt::{
@@ -61,26 +61,27 @@ use embassy_stm32_wpan::bluetooth::gatt::{
     is_cccd_handle, is_value_handle,
 };
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
-use rhai::{Dynamic, Engine, packages::BasicMathPackage, packages::CorePackage, packages::Package};
+use rhai::{Dynamic, Engine, packages::BasicIteratorPackage, packages::BasicMathPackage, packages::BasicStringPackage, packages::Package};
 use static_cell::StaticCell;
 use stm32wb_hci::Event;
 use stm32wb_hci::vendor::event::{AttExchangeMtuResponse, VendorEvent};
 use {defmt_rtt as _, panic_probe as _};
+use cortex_m_rt::interrupt;
 
 #[global_allocator]
 static HEAP: Heap = Heap::empty();
 
 // RAM layout (128 KB total):
-//   BSS baseline (BLE stack + task state) ≈ 36 KB
+//   BSS baseline (BLE stack + task state) ≈ 33 KB  (excl. HEAP_MEM)
 //   data section (BLE blob init data)     ≈ 35 KB
-//   HEAP_MEM (below)                      = 32 KB
-//   ── total used ──────────────────────────── 103 KB
-//   Stack (grows down from 0x20020000)    ≈ 25 KB  ← enough for Rhai recursion
+//   HEAP_MEM (below)                      = 48 KB
+//   ── total used ──────────────────────────── 116 KB
+//   Stack (grows down from 0x20020000)    ≈ 12 KB
 //
-// Rhai Engine::new_raw() + packages needs ~24-28 KB heap.
-// Do NOT increase HEAP_SIZE beyond 36 KB; a stack < 20 KB will overflow
-// Rhai's recursive evaluator and corrupt BLE internal state → BusFault.
-const HEAP_SIZE: usize = 32 * 1024;
+// CorePackage was tried but its init uses too much stack (overflows into BLE BSS).
+// Three focused packages (Math+Iterator+String) with only_i32 keep stack usage low.
+// Engine::new_raw() + three packages ≈ 14-18 KB heap at init; ~30 KB free for eval.
+const HEAP_SIZE: usize = 48 * 1024;
 
 bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<peripherals::RNG>;
@@ -102,26 +103,39 @@ const NUS_TX_CHAR_UUID: [u8; 16] = [
 ];
 
 const MAX_DATA_LEN: usize = 244;
-const INPUT_BUF_SIZE: usize = 512;   // max script size over BLE
-const RESULT_BUF_SIZE: usize = 256;  // max result notification payload
-const PRINT_BUF_SIZE: usize = 512;   // max print()/debug() output during eval
 
 // BLE task → eval task: raw script bytes
-static SCRIPT_CHAN: Channel<CriticalSectionRawMutex, heapless::Vec<u8, INPUT_BUF_SIZE>, 1> =
+static SCRIPT_CHAN: Channel<CriticalSectionRawMutex, Vec<u8>, 1> =
     Channel::new();
 
-// eval task → BLE task: result bytes (print output + eval result)
-static RESULT_CHAN: Channel<CriticalSectionRawMutex, heapless::Vec<u8, RESULT_BUF_SIZE>, 1> =
+// eval task → BLE task: final eval result
+static RESULT_CHAN: Channel<CriticalSectionRawMutex, Vec<u8>, 1> =
     Channel::new();
 
-// Rhai print()/debug() output captured during eval, flushed into RESULT_CHAN message
-static PRINT_BUF: Mutex<CriticalSectionRawMutex, RefCell<heapless::Vec<u8, PRINT_BUF_SIZE>>> =
-    Mutex::new(RefCell::new(heapless::Vec::new()));
+// print()/debug() output: each call sends one Vec<u8> immediately during eval.
+// depth 8: scripts rarely print more than 8 lines between awaits.
+static PRINT_CHAN: Channel<CriticalSectionRawMutex, Vec<u8>, 8> =
+    Channel::new();
 
-// LED state bridge between the Rhai led() closure and the Output pin owned by eval_task
-static LED_STATE: AtomicBool = AtomicBool::new(false);
+// LED pin shared between the Rhai led() closure (needs 'static) and eval_task.
+static LED_PIN: Mutex<CriticalSectionRawMutex, RefCell<Option<Output<'static>>>> =
+    Mutex::new(RefCell::new(None));
 
+// Used to give PA1 a 'static lifetime so it can live in LED_PIN.
 static LED_CELL: StaticCell<Output<'static>> = StaticCell::new();
+
+// FullRuntime is stored inside new_platform!'s internal StaticCell — already 'static.
+// EXECUTOR_BLE: high-priority interrupt executor for ble_task.
+// USART1 interrupt is unused in this BLE-only example and serves as a
+// software-trigger interrupt. ble_task runs here so it can preempt eval_task
+// (which monopolises the thread executor during engine.eval()).
+static EXECUTOR_BLE: InterruptExecutor = InterruptExecutor::new();
+
+#[interrupt]
+unsafe fn USART1() {
+    unsafe { EXECUTOR_BLE.on_interrupt() }
+}
+
 
 // ---------------------------------------------------------------------------
 // BLE platform tasks
@@ -138,43 +152,49 @@ async fn ble_runner_task(platform: &'static Platform) {
 }
 
 // ---------------------------------------------------------------------------
-// Eval task — owns the Rhai Engine and the LED pin
+// Eval task — owns the Rhai Engine and the LED pin (thread executor)
 // ---------------------------------------------------------------------------
 
 #[embassy_executor::task]
-async fn eval_task(led: &'static mut Output<'static>) {
+async fn eval_task() {
+
     let mut engine = Engine::new_raw();
+    // Three focused packages (no CorePackage — its init uses too much stack on
+    // this device and overflows into BLE BSS). With only_i32 each package
+    // registers i32+f32 variants only → roughly half the function-table entries.
     BasicMathPackage::new().register_into_engine(&mut engine);
-    CorePackage::new().register_into_engine(&mut engine);
+    BasicIteratorPackage::new().register_into_engine(&mut engine);
+    BasicStringPackage::new().register_into_engine(&mut engine);
 
-    engine.register_fn("led", |state: bool| {
-        LED_STATE.store(state, Ordering::Relaxed);
+    engine.register_fn("led", |state: bool| -> bool {
+        LED_PIN.lock(|cell| {
+            if let Some(pin) = cell.borrow_mut().as_mut() {
+                pin.set_level(if state { Level::High } else { Level::Low });
+            }
+        });
+        state
     });
 
-    engine.register_fn("timestamp", || {
-        embassy_time::Instant::now().as_ticks() as i64
+    engine.register_fn("ts", || { // timestamp in ticks (32768 Hz); i32 with only_i32
+        embassy_time::Instant::now().as_ticks() as i32
     });
 
+    // Each print()/debug() call sends immediately to PRINT_CHAN.
+    // ble_task runs at interrupt priority and will preempt eval_task to forward
+    // the notification to the BLE client without waiting for eval to finish.
     engine.on_print(|s| {
-        PRINT_BUF.lock(|buf| {
-            let mut buf = buf.borrow_mut();
-            for &b in s.as_bytes() { let _ = buf.push(b); }
-            let _ = buf.push(b'\r');
-            let _ = buf.push(b'\n');
-        });
+        let mut v: Vec<u8> = Vec::with_capacity(s.len() + 2);
+        v.extend_from_slice(s.as_bytes());
+        v.push(b'\r');
+        v.push(b'\n');
+        let _ = PRINT_CHAN.try_send(v); // non-blocking; drops if channel full
     });
-    engine.on_debug(|s, src, pos| {
-        let msg = if let Some(src) = src {
-            format!("[{}@{:?}] {}", src, pos, s)
-        } else {
-            format!("{}", s)
-        };
-        PRINT_BUF.lock(|buf| {
-            let mut buf = buf.borrow_mut();
-            for &b in msg.as_bytes() { let _ = buf.push(b); }
-            let _ = buf.push(b'\r');
-            let _ = buf.push(b'\n');
-        });
+    engine.on_debug(|s, _src, _pos| {
+        let mut v: Vec<u8> = Vec::with_capacity(s.len() + 2);
+        v.extend_from_slice(s.as_bytes());
+        v.push(b'\r');
+        v.push(b'\n');
+        let _ = PRINT_CHAN.try_send(v);
     });
 
     info!("eval_task ready");
@@ -182,46 +202,27 @@ async fn eval_task(led: &'static mut Output<'static>) {
     loop {
         let script_bytes = SCRIPT_CHAN.receive().await;
 
-        let mut result_buf: heapless::Vec<u8, RESULT_BUF_SIZE> = heapless::Vec::new();
+        let mut result_buf: Vec<u8> = Vec::new();
 
         if let Ok(script) = core::str::from_utf8(&script_bytes) {
             info!("eval: {} bytes\n{}", script_bytes.len(), script);
 
             let eval_result = match engine.eval::<Dynamic>(script) {
                 Ok(result) => {
-                    let type_name = result.type_name();
-                    let is_string = result.is_string();
-                    info!("eval ok: type={} is_string={}", type_name, if is_string { "yes" } else { "no" });
-                    let value = if is_string {
+                    let value = if result.is_string() {
                         result.into_string().unwrap_or_default()
                     } else {
-                        format!("{}", result)
+                        alloc::format!("{}", result)
                     };
-                    let reply = format!("{}\r\n", value);
-                    info!("reply: {}", format!("{:?}", reply).as_str());
-                    reply
+                    alloc::format!("{}\r\n", value)
                 }
                 Err(e) => {
-                    let s = format!("{}", e);
-                    warn!("eval err: {}", s.as_str());
-                    format!("err: {}\r\n", e)
+                    warn!("eval err: {}", alloc::format!("{}", e).as_str());
+                    alloc::format!("err: {}\r\n", e)
                 }
             };
 
-            // Apply LED state set by the led() Rhai function
-            led.set_level(if LED_STATE.load(Ordering::Relaxed) { Level::High } else { Level::Low });
-
-            // Collect print() output then eval result into result_buf
-            PRINT_BUF.lock(|buf| {
-                let mut b = buf.borrow_mut();
-                for &byte in b.iter() {
-                    if result_buf.len() < RESULT_BUF_SIZE { let _ = result_buf.push(byte); }
-                }
-                b.clear();
-            });
-            for &byte in eval_result.as_bytes() {
-                if result_buf.len() < RESULT_BUF_SIZE { let _ = result_buf.push(byte); }
-            }
+            result_buf.extend_from_slice(eval_result.as_bytes());
         }
 
         RESULT_CHAN.send(result_buf).await;
@@ -229,40 +230,12 @@ async fn eval_task(led: &'static mut Output<'static>) {
 }
 
 // ---------------------------------------------------------------------------
-// Main — BLE task
+// BLE task — runs on interrupt executor (Priority::P4) so it can preempt
+// eval_task (thread executor) and forward print() output in real time.
 // ---------------------------------------------------------------------------
 
-#[embassy_executor::main]
-async fn main(spawner: Spawner) {
-    {
-        use core::mem::MaybeUninit;
-        static mut HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
-        unsafe { HEAP.init(core::ptr::addr_of!(HEAP_MEM) as usize, HEAP_SIZE) }
-    }
-
-    let mut config = Config::default();
-    config.rcc = rcc::Config::new_wpan();
-    let p = embassy_stm32::init(config);
-
-    let led = LED_CELL.init(Output::new(p.PA1, Level::Low, Speed::Low));
-
-    info!("BLE Rhai interpreter starting");
-
-    let (platform, runtime) = new_platform!(
-        Rng::new(p.RNG, Irqs),
-        Aes::new_blocking(p.AES, Irqs),
-        Pka::new_blocking(p.PKA, Irqs),
-        8
-    );
-
-    spawner.spawn(rng_runner_task(platform).expect("spawn rng"));
-    spawner.spawn(ble_runner_task(platform).expect("spawn ble"));
-
-    let mut ble = HCI::new(platform, runtime, Irqs)
-        .await
-        .expect("BLE init failed");
-    embassy_futures::yield_now().await;
-
+#[embassy_executor::task]
+async fn ble_task(mut ble: HCI<'static, Normal>) {
     let mut gatt = ble.gatt_server();
 
     let service_handle = gatt
@@ -314,54 +287,61 @@ async fn main(spawner: Spawner) {
         .await
         .expect("start advertising");
 
-    // Spawn eval_task only after BLE is fully initialised and advertising.
-    // Spawning earlier would let Engine::new_raw() run heap allocations
-    // concurrently with BLE stack init, which can corrupt BLE internal state
-    // (null callback pointer → BusFault at 0x00000010).
-    spawner.spawn(eval_task(led).expect("spawn eval"));
-
     info!("Advertising as 'RhaiShell' — connect and send Rhai expressions");
 
-    let mut input_buf: heapless::Vec<u8, INPUT_BUF_SIZE> = heapless::Vec::new();
+    let mut input_buf: Vec<u8> = Vec::new();
     let mut tx_notifications = false;
     let mut conn_handle: Option<u16> = None;
     let mut eval_pending = false;
 
     loop {
-        // 3-way select when buffer is non-empty: BLE event | eval result | 500ms timeout
-        // 2-way select otherwise: BLE event | eval result (in case disconnect triggered eval)
-        enum Msg<E> {
-            Ble(E),
-            Result(heapless::Vec<u8, RESULT_BUF_SIZE>),
-            Timeout,
-        }
+        // 4-way select when buffer is pending dispatch (500 ms timeout), else 3-way.
+        enum Msg<E> { Ble(E), Result(Vec<u8>), Print(Vec<u8>), Timeout }
 
         let msg = if !input_buf.is_empty() {
+            match select4(
+                ble.read_event(),
+                RESULT_CHAN.receive(),
+                PRINT_CHAN.receive(),
+                embassy_time::Timer::after_millis(500),
+            ).await {
+                Either4::First(ev)  => Msg::Ble(ev),
+                Either4::Second(r)  => Msg::Result(r),
+                Either4::Third(p)   => Msg::Print(p),
+                Either4::Fourth(_)  => Msg::Timeout,
+            }
+        } else {
             match select3(
                 ble.read_event(),
                 RESULT_CHAN.receive(),
-                embassy_time::Timer::after_millis(500),
+                PRINT_CHAN.receive(),
             ).await {
                 Either3::First(ev)  => Msg::Ble(ev),
                 Either3::Second(r)  => Msg::Result(r),
-                Either3::Third(_)   => Msg::Timeout,
-            }
-        } else {
-            match select(ble.read_event(), RESULT_CHAN.receive()).await {
-                Either::First(ev)  => Msg::Ble(ev),
-                Either::Second(r)  => Msg::Result(r),
+                Either3::Third(p)   => Msg::Print(p),
             }
         };
 
         match msg {
             // ----------------------------------------------------------------
+            // print()/debug() output — forward immediately to BLE client
+            // ----------------------------------------------------------------
+            Msg::Print(data) => {
+                if let Some(conn) = conn_handle {
+                    if tx_notifications {
+                        for chunk in data.chunks(MAX_DATA_LEN) {
+                            let _ = gatt.notify(conn, service_handle, tx_char_handle, chunk);
+                        }
+                    }
+                }
+            }
+
+            // ----------------------------------------------------------------
             // 500 ms idle — dispatch buffer to eval task
             // ----------------------------------------------------------------
             Msg::Timeout => {
                 if !eval_pending {
-                    let mut script_buf: heapless::Vec<u8, INPUT_BUF_SIZE> = heapless::Vec::new();
-                    for &b in input_buf.iter() { let _ = script_buf.push(b); }
-                    SCRIPT_CHAN.send(script_buf).await;
+                    SCRIPT_CHAN.send(input_buf.clone()).await;
                     eval_pending = true;
                 }
                 input_buf.clear();
@@ -372,7 +352,6 @@ async fn main(spawner: Spawner) {
             // ----------------------------------------------------------------
             Msg::Result(result) => {
                 eval_pending = false;
-                info!("result ready, {} bytes", result.len());
                 if let Some(conn) = conn_handle {
                     for chunk in result.chunks(MAX_DATA_LEN) {
                         let _ = gatt.notify(conn, service_handle, tx_char_handle, chunk);
@@ -396,11 +375,8 @@ async fn main(spawner: Spawner) {
                         }
                         GapEvent::Disconnected { handle, reason } => {
                             info!("Disconnected: 0x{:04X} reason=0x{:02X}", handle.0, reason);
-                            // Flush remaining buffer to eval task on disconnect
                             if !input_buf.is_empty() && !eval_pending {
-                                let mut script_buf: heapless::Vec<u8, INPUT_BUF_SIZE> = heapless::Vec::new();
-                                for &b in input_buf.iter() { let _ = script_buf.push(b); }
-                                SCRIPT_CHAN.send(script_buf).await;
+                                SCRIPT_CHAN.send(input_buf.clone()).await;
                                 eval_pending = true;
                                 input_buf.clear();
                             }
@@ -425,11 +401,7 @@ async fn main(spawner: Spawner) {
                             }
                             info!("TX notifications {}", if tx_notifications { "on" } else { "off" });
                         } else if is_value_handle(rx_char_handle.0, attr.attr_handle.0) {
-                            for &b in attr.data() {
-                                if input_buf.len() < INPUT_BUF_SIZE {
-                                    let _ = input_buf.push(b);
-                                }
-                            }
+                            input_buf.extend_from_slice(attr.data());
                             debug!("buffered {} bytes total", input_buf.len());
                         }
                     }
@@ -449,3 +421,59 @@ async fn main(spawner: Spawner) {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Main — hardware init, spawn platform runners + tasks, then idle
+// ---------------------------------------------------------------------------
+
+#[embassy_executor::main]
+async fn main(spawner: Spawner) {
+    {
+        use core::mem::MaybeUninit;
+        static mut HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
+        unsafe { HEAP.init(core::ptr::addr_of!(HEAP_MEM) as usize, HEAP_SIZE) }
+    }
+
+    let mut config = Config::default();
+    config.rcc = rcc::Config::new_wpan();
+    let p = embassy_stm32::init(config);
+
+    let led: &'static mut Output<'static> = LED_CELL.init(Output::new(p.PA1, Level::Low, Speed::Low));
+    LED_PIN.lock(|cell| { *cell.borrow_mut() = unsafe { Some(core::ptr::read(led)) }; });
+
+    info!("BLE Rhai interpreter starting");
+
+    let (platform, runtime) = new_platform!(
+        Rng::new(p.RNG, Irqs),
+        Aes::new_blocking(p.AES, Irqs),
+        Pka::new_blocking(p.PKA, Irqs),
+        8
+    );
+
+    // Make runtime 'static so HCI (and therefore ble_task) can be 'static.
+    // new_platform! already stores runtime in a StaticCell internally, so
+    // runtime is &'static mut FullRuntime — no extra cell needed here.
+
+    spawner.spawn(rng_runner_task(platform).expect("spawn rng"));
+    spawner.spawn(ble_runner_task(platform).expect("spawn ble"));
+
+    // BLE stack init (blocking-async) — must complete before spawning eval_task
+    // to avoid concurrent heap allocation corrupting BLE internal state.
+    let ble: HCI<'static, Normal> = HCI::new(platform, runtime, Irqs)
+        .await
+        .expect("BLE init failed");
+    embassy_futures::yield_now().await;
+
+    // Start the interrupt-priority executor for ble_task.
+    // USART1 is unused in this example and repurposed as a software interrupt.
+    // P4 is high enough to preempt the thread executor where eval_task runs.
+    interrupt::USART1.set_priority(Priority::P4);
+    let ble_spawner = EXECUTOR_BLE.start(interrupt::USART1);
+    ble_spawner.spawn(unwrap!(ble_task(ble)));
+
+    spawner.spawn(eval_task().expect("spawn eval_task"));
+
+    // Thread executor is now only needed for eval_task; park main here.
+    loop { core::future::pending::<()>().await; }
+}
+
