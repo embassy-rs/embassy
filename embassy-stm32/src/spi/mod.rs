@@ -609,10 +609,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         // Memory barrier after flush RX fifo to ensure register writes complete
         fence(Ordering::SeqCst);
 
-        for word in words.iter_mut() {
-            *word = transfer_word(self.info.regs, W::default())?;
-        }
-        Ok(())
+        transfer_words(self.info.regs, words, &[])
     }
 
     /// Blocking in-place bidirectional transfer.
@@ -629,10 +626,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         // Memory barrier after flush RX fifo to ensure register writes complete
         fence(Ordering::SeqCst);
 
-        for word in words.iter_mut() {
-            *word = transfer_word(self.info.regs, *word)?;
-        }
-        Ok(())
+        transfer_words(self.info.regs, words, words)
     }
 
     /// Blocking bidirectional transfer.
@@ -652,15 +646,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         // Memory barrier after flush RX fifo to ensure register writes complete
         fence(Ordering::SeqCst);
 
-        let len = read.len().max(write.len());
-        for i in 0..len {
-            let wb = write.get(i).copied().unwrap_or_default();
-            let rb = transfer_word(self.info.regs, wb)?;
-            if let Some(r) = read.get_mut(i) {
-                *r = rb;
-            }
-        }
-        Ok(())
+        transfer_words(self.info.regs, read, write)
     }
 }
 
@@ -1425,6 +1411,64 @@ fn finish_dma(regs: Regs) {
     });
 }
 
+#[inline]
+fn transfer_words<W: Word>(regs: Regs, read: *mut [W], write: *const [W]) -> Result<(), Error> {
+    unsafe {
+        let read_ptr = |i: &mut usize| {
+            *i += 1;
+            if *i - 1 < read.len() {
+                Some((read as *mut W).add(*i - 1))
+            } else {
+                None
+            }
+        };
+
+        let write_ptr = |i: &mut usize| {
+            *i += 1;
+            if *i - 1 < write.len() {
+                Some((write as *const W).add(*i - 1))
+            } else {
+                None
+            }
+        };
+
+        let mut r = 0usize; // The next unread element in the read buffer
+        let mut w = 0usize; // The next unwritten element in the write buffer
+
+        #[cfg(any(spi_v3, spi_v4, spi_v5, spi_v6))]
+        if read.len().max(write.len()) == 0 {
+        } else if let Some(word_out) = write_ptr(&mut w) {
+            write_word(regs, *word_out)?;
+        } else {
+            write_word(regs, W::default())?;
+        }
+
+        for _ in 0..read.len().max(write.len()).saturating_sub(w - r) {
+            let word_out = if let Some(word_out) = write_ptr(&mut w) {
+                *word_out
+            } else {
+                W::default()
+            };
+
+            if let Some(word_in) = read_ptr(&mut r) {
+                *word_in = transfer_word(regs, word_out)?;
+            } else {
+                transfer_word(regs, word_out)?;
+            }
+        }
+
+        #[cfg(any(spi_v3, spi_v4, spi_v5, spi_v6))]
+        if read.len().max(write.len()) == 0 {
+        } else if let Some(word_in) = read_ptr(&mut r) {
+            *word_in = read_word(regs)?;
+        } else {
+            read_word::<W>(regs)?;
+        }
+
+        Ok(())
+    }
+}
+
 fn transfer_word<W: Word>(regs: Regs, tx_word: W) -> Result<W, Error> {
     spin_until_tx_ready(regs, true)?;
 
@@ -1441,7 +1485,15 @@ fn transfer_word<W: Word>(regs: Regs, tx_word: W) -> Result<W, Error> {
     Ok(rx_word)
 }
 
-#[cfg(not(any(spi_v1, spi_v2)))]
+#[cfg(any(spi_v3, spi_v4, spi_v5, spi_v6))]
+fn read_word<W: Word>(regs: Regs) -> Result<W, Error> {
+    spin_until_rx_ready(regs)?;
+
+    let rx_word = unsafe { ptr::read_volatile(regs.rx_ptr()) };
+    Ok(rx_word)
+}
+
+#[cfg(any(spi_v3, spi_v4, spi_v5, spi_v6))]
 fn write_word<W: Word>(regs: Regs, tx_word: W) -> Result<(), Error> {
     // for write, we intentionally ignore the rx fifo, which will cause
     // overrun errors that we have to ignore.
