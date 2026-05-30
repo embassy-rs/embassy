@@ -999,15 +999,33 @@ impl<'d> Channel<'d> {
         }
     }
 
-    /// Create a read DMA transfer (peripheral to memory).
-    pub unsafe fn read<'a, W: Word>(
+    /// Create a read DMA transfer (peripheral to memory), using raw pointers.
+    unsafe fn read_inner<'a, MW: Word, PW: Word>(
         &'a mut self,
         request: Request,
-        peri_addr: *mut W,
-        buf: &'a mut [W],
+        peri_addr: *mut PW,
+        buf: *mut [MW],
         options: TransferOptions,
+        mem_inc: Increment,
     ) -> Transfer<'a> {
-        self.read_raw(request, peri_addr, buf, options)
+        let mem_len = buf.len();
+
+        self.configure(
+            request,
+            Dir::PeripheralToMemory,
+            peri_addr as *const u32,
+            buf as *mut MW as *mut u32,
+            mem_len,
+            mem_inc,
+            MW::size(),
+            PW::size(),
+            options,
+        );
+        self.start();
+        Transfer {
+            _wake_guard: self.info().wake_guard(),
+            channel: self.reborrow(),
+        }
     }
 
     /// Create a read DMA transfer (peripheral to memory), using raw pointers.
@@ -1018,24 +1036,36 @@ impl<'d> Channel<'d> {
         buf: *mut [MW],
         options: TransferOptions,
     ) -> Transfer<'a> {
-        let mem_len = buf.len();
+        self.read_inner(request, peri_addr, buf, options, Increment::Memory)
+    }
 
-        self.configure(
-            request,
-            Dir::PeripheralToMemory,
-            peri_addr as *const u32,
-            buf as *mut MW as *mut u32,
-            mem_len,
-            Increment::Memory,
-            MW::size(),
-            PW::size(),
-            options,
-        );
-        self.start();
-        Transfer {
-            _wake_guard: self.info().wake_guard(),
-            channel: self.reborrow(),
-        }
+    /// Create a read DMA transfer (peripheral to memory), reading the same value repeatedly.
+    ///
+    /// This is useful for peripheral to peripheral transfers where the peripheral at `peri_addr` sets the pace.
+    ///
+    /// NOTE: In peripheral-to-peripheral mode, the destination peripheral should *NOT* be in DMA mode as per 12.4.5 "Peripheral-to-peripheral mode"
+    pub unsafe fn read_repeated<'a, W: Word, PW: Word>(
+        &'a mut self,
+        request: Request,
+        peri_addr: *mut PW,
+        repeated_dst: *mut W,
+        options: TransferOptions,
+    ) -> Transfer<'a> {
+        use core::ptr;
+
+        let dst = ptr::slice_from_raw_parts_mut(repeated_dst, 1);
+        self.read_inner(request, peri_addr, dst, options, Increment::None)
+    }
+
+    /// Create a read DMA transfer (peripheral to memory).
+    pub unsafe fn read<'a, W: Word>(
+        &'a mut self,
+        request: Request,
+        peri_addr: *mut W,
+        buf: &'a mut [W],
+        options: TransferOptions,
+    ) -> Transfer<'a> {
+        self.read_raw(request, peri_addr, buf, options)
     }
 
     /// Create a write DMA transfer (memory to peripheral).

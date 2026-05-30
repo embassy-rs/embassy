@@ -1,7 +1,10 @@
 //! Filter Math Accelerator
 
+mod from_adc;
+
 pub use dsp_fixedpoint::Q16;
 use embassy_hal_internal::{Peri, PeripheralType};
+pub use from_adc::FromAdc;
 
 use crate::{peripherals, rcc};
 
@@ -30,6 +33,14 @@ trait SealedInstance {
 
     fn write_q16(&self, x: Q16<15>) {
         self.write_input(x.inner as u16);
+    }
+
+    fn rdata() -> *const u32 {
+        Self::regs().rdata().as_ptr() as *const u32
+    }
+
+    fn wdata() -> *mut u32 {
+        Self::regs().wdata().as_ptr() as *mut u32
     }
 }
 

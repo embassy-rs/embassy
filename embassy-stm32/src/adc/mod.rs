@@ -59,8 +59,8 @@ dma_trait!(RxDma, Instance);
 pub struct Exten;
 
 pub struct RegularAdcTrigger<T: Instance> {
-    _trigger: u8,
-    _edge: Exten,
+    pub(crate) _trigger: u8,
+    pub(crate) _edge: Exten,
     _typ: PhantomData<T>,
 }
 
@@ -145,7 +145,7 @@ pub trait BasicAdcRegs {
     type SampleTime: Copy;
 }
 
-trait AdcRegs: BasicAdcRegs {
+pub(crate) trait AdcRegs: BasicAdcRegs {
     const HAS_ERRATA: bool = false;
     fn enable(&self);
     fn start(&self);
@@ -177,7 +177,7 @@ pub trait BasicInstance {
     type Regs: AdcRegs;
 }
 
-trait SealedInstance: BasicInstance {
+pub(crate) trait SealedInstance: BasicInstance {
     fn regs() -> Self::Regs;
     #[cfg(not(any(adc_f1, adc_v1, adc_l0, adc_f3v3, adc_f3v2, adc_g0)))]
     #[allow(unused)]
