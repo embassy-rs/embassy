@@ -176,8 +176,8 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
     }
 
     /// Set input capture selection.
-    pub fn set_input_capture_selection(&mut self, channel: Channel, tisel: InputCaptureSelection) {
-        self.inner.set_input_capture_selection(channel, tisel)
+    pub fn set_input_capture_selection(&mut self, channel: Channel, icsel: InputCaptureSelection) {
+        self.inner.set_input_capture_selection(channel, icsel)
     }
 
     /// Set the input capture filter for a given channel.
@@ -200,32 +200,32 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
         self.inner.get_input_interrupt(channel)
     }
 
-    /// Asynchronously wait until the pin sees a rising edge.
+    /// Asynchronously wait until the pin or trigger sees a rising edge.
     pub async fn wait_for_rising_edge(&mut self, channel: Channel) -> T::Word {
         self.channel(channel).wait_for_rising_edge().await
     }
 
-    /// Asynchronously wait until the pin sees a falling edge.
+    /// Asynchronously wait until the pin or trigger sees a falling edge.
     pub async fn wait_for_falling_edge(&mut self, channel: Channel) -> T::Word {
         self.channel(channel).wait_for_falling_edge().await
     }
 
-    /// Asynchronously wait until the pin sees any edge.
+    /// Asynchronously wait until the pin or trigger sees any edge.
     pub async fn wait_for_any_edge(&mut self, channel: Channel) -> T::Word {
         self.channel(channel).wait_for_any_edge().await
     }
 
-    /// Asynchronously wait until the (alternate) pin sees a rising edge.
+    /// Asynchronously wait until the (alternate) pin or trigger sees a rising edge.
     pub async fn wait_for_rising_edge_alternate(&mut self, channel: Channel) -> T::Word {
         self.channel(channel).wait_for_rising_edge_alternate().await
     }
 
-    /// Asynchronously wait until the (alternate) pin sees a falling edge.
+    /// Asynchronously wait until the (alternate) pin or trigger sees a falling edge.
     pub async fn wait_for_falling_edge_alternate(&mut self, channel: Channel) -> T::Word {
         self.channel(channel).wait_for_falling_edge_alternate().await
     }
 
-    /// Asynchronously wait until the (alternate) pin sees any edge.
+    /// Asynchronously wait until the (alternate) pin or trigger sees any edge.
     pub async fn wait_for_any_edge_alternate(&mut self, channel: Channel) -> T::Word {
         self.channel(channel).wait_for_any_edge_alternate().await
     }
@@ -308,12 +308,14 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
         &mut self,
         dma: Peri<'_, D>,
         irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>,
+        channel: M,
         buf: &mut [u16],
     ) where
         M: TimerChannel,
     {
         #[allow(clippy::let_unit_value)] // eg. stm32f334
         let req = dma.request();
+        let _ = channel;
 
         let original_enable_state = self.is_enabled(M::CHANNEL);
         let original_cc_dma_enable_state = self.inner.get_cc_dma_enable_state(M::CHANNEL);
@@ -391,9 +393,9 @@ impl<'d, T: GeneralInstance4Channel> InputCaptureChannel<'d, T> {
         self.inner.set_input_capture_mode(self.channel, mode);
     }
 
-    /// Set input TI selection for this channel.
-    pub fn set_input_capture_selection(&mut self, tisel: InputCaptureSelection) {
-        self.inner.set_input_capture_selection(self.channel, tisel);
+    /// Set input capture selection for this channel.
+    pub fn set_input_capture_selection(&mut self, icsel: InputCaptureSelection) {
+        self.inner.set_input_capture_selection(self.channel, icsel);
     }
 
     /// Set the input capture filter for this channel.
@@ -416,10 +418,10 @@ impl<'d, T: GeneralInstance4Channel> InputCaptureChannel<'d, T> {
         self.inner.get_input_interrupt(self.channel)
     }
 
-    fn new_future(&self, mode: InputCaptureMode, tisel: InputCaptureSelection) -> InputCaptureFuture<T> {
+    fn new_future(&self, mode: InputCaptureMode, icsel: InputCaptureSelection) -> InputCaptureFuture<T> {
         // Configuration steps from ST RM0390 (STM32F446) chapter 17.3.5
         // or ST RM0008 (STM32F103) chapter 15.3.5 Input capture mode
-        self.inner.set_input_capture_selection(self.channel, tisel);
+        self.inner.set_input_capture_selection(self.channel, icsel);
         self.inner.set_input_capture_mode(self.channel, mode);
         self.inner.enable_channel(self.channel, true);
         self.inner.clear_input_interrupt(self.channel);
@@ -431,37 +433,37 @@ impl<'d, T: GeneralInstance4Channel> InputCaptureChannel<'d, T> {
         }
     }
 
-    /// Asynchronously wait until the pin sees a rising edge.
+    /// Asynchronously wait until the pin or trigger sees a rising edge.
     pub async fn wait_for_rising_edge(&mut self) -> T::Word {
         self.new_future(InputCaptureMode::Rising, InputCaptureSelection::Normal)
             .await
     }
 
-    /// Asynchronously wait until the pin sees a falling edge.
+    /// Asynchronously wait until the pin or trigger sees a falling edge.
     pub async fn wait_for_falling_edge(&mut self) -> T::Word {
         self.new_future(InputCaptureMode::Falling, InputCaptureSelection::Normal)
             .await
     }
 
-    /// Asynchronously wait until the pin sees any edge.
+    /// Asynchronously wait until the pin or trigger sees any edge.
     pub async fn wait_for_any_edge(&mut self) -> T::Word {
         self.new_future(InputCaptureMode::BothEdges, InputCaptureSelection::Normal)
             .await
     }
 
-    /// Asynchronously wait until the (alternate) pin sees a rising edge.
+    /// Asynchronously wait until the (alternate) pin or trigger sees a rising edge.
     pub async fn wait_for_rising_edge_alternate(&mut self) -> T::Word {
         self.new_future(InputCaptureMode::Rising, InputCaptureSelection::Alternate)
             .await
     }
 
-    /// Asynchronously wait until the (alternate) pin sees a falling edge.
+    /// Asynchronously wait until the (alternate) pin or trigger sees a falling edge.
     pub async fn wait_for_falling_edge_alternate(&mut self) -> T::Word {
         self.new_future(InputCaptureMode::Falling, InputCaptureSelection::Alternate)
             .await
     }
 
-    /// Asynchronously wait until the (alternate) pin sees any edge.
+    /// Asynchronously wait until the (alternate) pin or trigger sees any edge.
     pub async fn wait_for_any_edge_alternate(&mut self) -> T::Word {
         self.new_future(InputCaptureMode::BothEdges, InputCaptureSelection::Alternate)
             .await

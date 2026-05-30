@@ -46,13 +46,13 @@ impl Channel {
 }
 
 /// Channel 1 marker type.
-pub enum Ch1 {}
+pub struct Ch1;
 /// Channel 2 marker type.
-pub enum Ch2 {}
+pub struct Ch2;
 /// Channel 3 marker type.
-pub enum Ch3 {}
+pub struct Ch3;
 /// Channel 4 marker type.
-pub enum Ch4 {}
+pub struct Ch4;
 
 /// Timer channel trait.
 #[allow(private_bounds)]
