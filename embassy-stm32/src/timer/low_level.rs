@@ -32,7 +32,7 @@ pub enum InputCaptureMode {
     BothEdges,
 }
 
-/// Input TI selection.
+/// Input capture selection.
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum InputCaptureSelection {
@@ -45,8 +45,8 @@ pub enum InputCaptureSelection {
 }
 
 impl From<InputCaptureSelection> for stm32_metapac::timer::vals::CcmrInputCcs {
-    fn from(tisel: InputCaptureSelection) -> Self {
-        match tisel {
+    fn from(icsel: InputCaptureSelection) -> Self {
+        match icsel {
             InputCaptureSelection::Normal => stm32_metapac::timer::vals::CcmrInputCcs::Ti4,
             InputCaptureSelection::Alternate => stm32_metapac::timer::vals::CcmrInputCcs::Ti3,
             InputCaptureSelection::TRC => stm32_metapac::timer::vals::CcmrInputCcs::Trc,
