@@ -2083,7 +2083,7 @@ fn main() {
 
     let mut trigger_list: BTreeSet<&str> = BTreeSet::new();
 
-    let trigger_expr = Regex::new(r"(?m)(.+?)(\d+)").unwrap();
+    let trigger_expr = Regex::new(r"(?m)(.+?)(\d+)$").unwrap();
 
     if chip_name.starts_with("stm32u5") {
         signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma));
