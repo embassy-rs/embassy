@@ -367,10 +367,46 @@ pub trait ControlPipe {
     /// and `length` greater than zero.
     async fn data_out(&mut self, buf: &mut [u8], first: bool, last: bool) -> Result<usize, EndpointError>;
 
+    /// Read a DATA OUT packet into `buf` in response to a control write request.
+    ///
+    /// Must be called after `setup()` for requests with `direction` of `Out`
+    /// and request length greater than zero.
+    ///
+    /// `buf` must be **at most** as large as the request length.
+    async fn data_out_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        let mut total = 0;
+
+        let req_len = buf.len();
+
+        let chunks = buf.chunks_mut(self.max_packet_size());
+        for (first, last, chunk) in first_last(chunks) {
+            let size = self.data_out(chunk, first, last).await?;
+            total += size;
+            if size < self.max_packet_size() || total == req_len {
+                break;
+            }
+        }
+
+        Ok(total)
+    }
+
     /// Send a DATA IN packet with `data` in response to a control read request.
     ///
-    /// If `last_packet` is true, the STATUS packet will be ACKed following the transfer of `data`.
+    /// If `last` is true, the STATUS packet will be ACKed following the transfer of `data`.
     async fn data_in(&mut self, data: &[u8], first: bool, last: bool) -> Result<(), EndpointError>;
+
+    /// Send a number of DATA IN packets with `data` in response to a control read request.
+    async fn data_in_transfer(&mut self, data: &[u8], needs_zlp: bool) -> Result<(), EndpointError> {
+        let chunks = data
+            .chunks(self.max_packet_size())
+            .chain(needs_zlp.then(|| -> &[u8] { &[] }));
+
+        for (first, last, chunk) in first_last(chunks) {
+            self.data_in(chunk, first, last).await?;
+        }
+
+        Ok(())
+    }
 
     /// Accept a control request.
     ///
@@ -387,6 +423,18 @@ pub trait ControlPipe {
     /// For most drivers this function should firstly call `accept()` and then change the bus address.
     /// However, there are peripherals (Synopsys USB OTG) that have reverse order.
     async fn accept_set_address(&mut self, addr: u8);
+}
+
+fn first_last<T: Iterator>(iter: T) -> impl Iterator<Item = (bool, bool, T::Item)> {
+    let mut iter = iter.peekable();
+    let mut first = true;
+    core::iter::from_fn(move || {
+        let val = iter.next()?;
+        let is_first = first;
+        first = false;
+        let is_last = iter.peek().is_none();
+        Some((is_first, is_last, val))
+    })
 }
 
 /// IN Endpoint trait.
