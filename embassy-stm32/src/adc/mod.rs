@@ -59,7 +59,7 @@ pub struct Exten;
 pub struct RegularAdcTrigger<T: Instance> {
     _trigger: u8,
     _edge: Exten,
-    _typ: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> RegularAdcTrigger<T> {
@@ -67,7 +67,7 @@ impl<T: Instance> RegularAdcTrigger<T> {
         Some(Self {
             _trigger: trigger.signal(),
             _edge: edge,
-            _typ: PhantomData,
+            _marker: PhantomData,
         })
     }
 }
@@ -75,7 +75,7 @@ impl<T: Instance> RegularAdcTrigger<T> {
 pub struct InjectedAdcTrigger<T: Instance> {
     _trigger: u8,
     _edge: Exten,
-    _typ: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> InjectedAdcTrigger<T> {
@@ -83,7 +83,7 @@ impl<T: Instance> InjectedAdcTrigger<T> {
         Self {
             _trigger: trigger.signal(),
             _edge: edge,
-            _typ: PhantomData,
+            _marker: PhantomData,
         }
     }
 }
@@ -682,7 +682,7 @@ pub trait AdcChannel<T>: SealedAdcChannel<T> + Sized {
         AnyAdcChannel {
             channel: self.channel(),
             is_differential: self.is_differential(),
-            _phantom: PhantomData,
+            _marker: PhantomData,
         }
     }
 }
@@ -694,7 +694,7 @@ pub trait AdcChannel<T>: SealedAdcChannel<T> + Sized {
 pub struct AnyAdcChannel<'a, T> {
     channel: u8,
     is_differential: bool,
-    _phantom: PhantomData<&'a mut T>,
+    _marker: PhantomData<&'a mut T>,
 }
 impl<T: Instance> AdcChannel<T> for AnyAdcChannel<'_, T> {}
 impl<T: Instance> SealedAdcChannel<T> for AnyAdcChannel<'_, T> {

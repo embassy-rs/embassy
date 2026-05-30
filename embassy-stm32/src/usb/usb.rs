@@ -25,7 +25,7 @@ use crate::{Peri, interrupt};
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
@@ -247,7 +247,7 @@ mod btable {
 struct EndpointBuffer<T: Instance> {
     addr: u16,
     len: u16,
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> EndpointBuffer<T> {
@@ -441,7 +441,7 @@ impl<'d, T: Instance> Driver<'d, T> {
                 EndpointBuffer {
                     addr,
                     len,
-                    _phantom: PhantomData,
+                    _marker: PhantomData,
                 }
             }
             Direction::In => {
@@ -473,7 +473,7 @@ impl<'d, T: Instance> Driver<'d, T> {
                 EndpointBuffer {
                     addr,
                     len,
-                    _phantom: PhantomData,
+                    _marker: PhantomData,
                 }
             }
         };
@@ -481,7 +481,7 @@ impl<'d, T: Instance> Driver<'d, T> {
         trace!("  index={} addr={} len={}", index, buf.addr, buf.len);
 
         Ok(Endpoint {
-            _phantom: PhantomData,
+            _marker: PhantomData,
             info: EndpointInfo {
                 addr: EndpointAddress::from_parts(index, D::dir()),
                 ep_type,
@@ -560,7 +560,7 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
                 inited: false,
             },
             ControlPipe {
-                _phantom: PhantomData,
+                _marker: PhantomData,
                 max_packet_size: control_max_packet_size,
                 ep_out,
                 ep_in,
@@ -795,7 +795,7 @@ enum PacketBuffer {
 
 /// USB endpoint.
 pub struct Endpoint<'d, T: Instance, D> {
-    _phantom: PhantomData<(&'d mut T, D)>,
+    _marker: PhantomData<(&'d mut T, D)>,
     info: EndpointInfo,
     buf: EndpointBuffer<T>,
 }
@@ -1050,7 +1050,7 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
 
 /// USB control pipe.
 pub struct ControlPipe<'d, T: Instance> {
-    _phantom: PhantomData<&'d mut T>,
+    _marker: PhantomData<&'d mut T>,
     max_packet_size: u16,
     ep_in: Endpoint<'d, T, In>,
     ep_out: Endpoint<'d, T, Out>,

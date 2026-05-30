@@ -36,7 +36,7 @@ pub type Timestamp = u16;
 
 /// Interrupt handler channel 0.
 pub struct IT0InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 // We use IT0 for everything currently
@@ -103,7 +103,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::IT0Interrupt> for IT0Interrup
 
 /// Interrupt handler channel 1.
 pub struct IT1InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::IT1Interrupt> for IT1InterruptHandler<T> {
@@ -170,7 +170,7 @@ fn calc_ns_per_timer_tick(
 /// FDCAN Configuration instance instance
 /// Create instance of this first
 pub struct CanConfigurator<'d> {
-    _phantom: PhantomData<&'d ()>,
+    _marker: PhantomData<&'d ()>,
     config: crate::can::fd::config::FdCanConfig,
     /// Reference to internals.
     properties: Properties,
@@ -211,7 +211,7 @@ impl<'d> CanConfigurator<'d> {
             T::IT1Interrupt::enable();
         }
         Self {
-            _phantom: PhantomData,
+            _marker: PhantomData,
             config,
             properties: Properties::new(T::info()),
             info: InfoRef::new(info),
@@ -283,7 +283,7 @@ impl<'d> CanConfigurator<'d> {
         });
         self.info.regs.into_mode(self.config, mode);
         Can {
-            _phantom: PhantomData,
+            _marker: PhantomData,
             config: self.config,
             _mode: mode,
             _wake_guard: self.info.rcc_info.wake_guard(),
@@ -310,7 +310,7 @@ impl<'d> CanConfigurator<'d> {
 
 /// FDCAN Instance
 pub struct Can<'d> {
-    _phantom: PhantomData<&'d ()>,
+    _marker: PhantomData<&'d ()>,
     config: crate::can::fd::config::FdCanConfig,
     _mode: OperatingMode,
     _wake_guard: WakeGuard,
@@ -374,14 +374,14 @@ impl<'d> Can<'d> {
     pub fn split(self) -> (CanTx<'d>, CanRx<'d>, Properties) {
         (
             CanTx {
-                _phantom: PhantomData,
+                _marker: PhantomData,
                 config: self.config,
                 _mode: self._mode,
                 _wake_guard: self.info.rcc_info.wake_guard(),
                 info: TxInfoRef::new(&self.info),
             },
             CanRx {
-                _phantom: PhantomData,
+                _marker: PhantomData,
                 _mode: self._mode,
                 _wake_guard: self.info.rcc_info.wake_guard(),
                 info: RxInfoRef::new(&self.info),
@@ -394,7 +394,7 @@ impl<'d> Can<'d> {
     /// Join split rx and tx portions back together
     pub fn join(tx: CanTx<'d>, rx: CanRx<'d>) -> Self {
         Can {
-            _phantom: PhantomData,
+            _marker: PhantomData,
             config: tx.config,
             _mode: rx._mode,
             _wake_guard: tx.info.rcc_info.wake_guard(),
@@ -425,7 +425,7 @@ impl<'d> Can<'d> {
     pub fn into_config_mode(self) -> CanConfigurator<'d> {
         self.info.regs.into_config_mode(self.config);
         CanConfigurator {
-            _phantom: PhantomData,
+            _marker: PhantomData,
             config: self.config,
             properties: self.properties,
             info: self.info,
@@ -441,7 +441,7 @@ pub type TxBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, Frame, 
 
 /// Buffered FDCAN Instance
 pub struct BufferedCan<'d, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> {
-    _phantom: PhantomData<&'d ()>,
+    _marker: PhantomData<&'d ()>,
     _mode: OperatingMode,
     _wake_guard: WakeGuard,
     tx_buf: &'static TxBuf<TX_BUF_SIZE>,
@@ -458,7 +458,7 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCan<'d,
         rx_buf: &'static RxBuf<RX_BUF_SIZE>,
     ) -> Self {
         BufferedCan {
-            _phantom: PhantomData,
+            _marker: PhantomData,
             _mode,
             _wake_guard: info.rcc_info.wake_guard(),
             tx_buf,
@@ -532,7 +532,7 @@ pub type BufferedFdCanReceiver = super::common::BufferedReceiver<'static, FdEnve
 
 /// Buffered FDCAN Instance
 pub struct BufferedCanFd<'d, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> {
-    _phantom: PhantomData<&'d ()>,
+    _marker: PhantomData<&'d ()>,
     _mode: OperatingMode,
     _wake_guard: WakeGuard,
     tx_buf: &'static TxFdBuf<TX_BUF_SIZE>,
@@ -549,7 +549,7 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCanFd<'
         rx_buf: &'static RxFdBuf<RX_BUF_SIZE>,
     ) -> Self {
         BufferedCanFd {
-            _phantom: PhantomData,
+            _marker: PhantomData,
             _mode,
             _wake_guard: info.rcc_info.wake_guard(),
             tx_buf,
@@ -611,7 +611,7 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCanFd<'
 
 /// FDCAN Rx only Instance
 pub struct CanRx<'d> {
-    _phantom: PhantomData<&'d ()>,
+    _marker: PhantomData<&'d ()>,
     _mode: OperatingMode,
     _wake_guard: WakeGuard,
     info: RxInfoRef,
@@ -631,7 +631,7 @@ impl<'d> CanRx<'d> {
 
 /// FDCAN Tx only Instance
 pub struct CanTx<'d> {
-    _phantom: PhantomData<&'d ()>,
+    _marker: PhantomData<&'d ()>,
     config: crate::can::fd::config::FdCanConfig,
     _mode: OperatingMode,
     _wake_guard: WakeGuard,

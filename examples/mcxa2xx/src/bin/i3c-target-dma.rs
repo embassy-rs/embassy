@@ -7,6 +7,7 @@
 #![no_std]
 #![no_main]
 
+use defmt::info;
 use embassy_executor::Spawner;
 use embassy_mcxa::bind_interrupts;
 use embassy_mcxa::clocks::config::Div8;
@@ -14,7 +15,7 @@ use embassy_mcxa::config::Config;
 use embassy_mcxa::i3c::target::{self, Div4, Event, I3cClockSel};
 use embassy_mcxa::peripherals::I3C0;
 use static_cell::ConstStaticCell;
-use {defmt::info, defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 const TARGET_ADDR: u8 = 0x0a;
 const RX_BUF_SIZE: usize = 128;
