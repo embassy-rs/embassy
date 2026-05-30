@@ -210,11 +210,11 @@ heapless = "0.9.1"
 once_cell = { version = "1.21.4", default-features = false, features=["critical-section"] }
 
 # stm32-metapac = { version = "21" }
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-7deeeef3bafb319dee1b79d5ba03812220bf514f" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-c94b8266d45caab8c3be8d9e6bbf7db8911d99c0" }
 
 [build-dependencies]
 # stm32-metapac = { version = "21", default-features = false, features = ["metadata"]}
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-7deeeef3bafb319dee1b79d5ba03812220bf514f", default-features = false, features = ["metadata"] }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-c94b8266d45caab8c3be8d9e6bbf7db8911d99c0", default-features = false, features = ["metadata"] }
 
 proc-macro2 = "1.0.36"
 quote = "1.0.15"
