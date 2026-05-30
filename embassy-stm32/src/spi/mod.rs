@@ -215,7 +215,7 @@ pub struct Spi<'d, M: PeriMode, CM: CommunicationMode> {
     nss: Option<Flex<'d>>,
     tx_dma: Option<ChannelAndRequest<'d>>,
     rx_dma: Option<ChannelAndRequest<'d>>,
-    _phantom: PhantomData<(M, CM)>,
+    _marker: PhantomData<(M, CM)>,
     current_word_size: word_impl::Config,
     gpio_speed: Speed,
 }
@@ -241,7 +241,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
             tx_dma,
             rx_dma,
             current_word_size: <u8 as SealedWord>::CONFIG,
-            _phantom: PhantomData,
+            _marker: PhantomData,
             gpio_speed: config.gpio_speed,
         };
         this.enable_and_init(config);

@@ -145,7 +145,7 @@ pub struct Ltdc<'d, T: Instance, I: Interface = Rgb888> {
 
 /// LTDC interrupt handler.
 pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 /// 24 bit color

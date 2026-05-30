@@ -402,7 +402,7 @@ foreach_interrupt! {
 
 /// Update interrupt handler.
 pub struct UpdateInterruptHandler<T: CoreInstance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: CoreInstance> interrupt::typelevel::Handler<T::UpdateInterrupt> for UpdateInterruptHandler<T> {
@@ -427,7 +427,7 @@ impl<T: CoreInstance> interrupt::typelevel::Handler<T::UpdateInterrupt> for Upda
 
 /// Capture/Compare interrupt handler.
 pub struct CaptureCompareInterruptHandler<T: GeneralInstance1Channel> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: GeneralInstance1Channel> interrupt::typelevel::Handler<T::CaptureCompareInterrupt>

@@ -30,7 +30,7 @@ use crate::time::Hertz;
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
@@ -411,7 +411,7 @@ pub struct UartTx<'d, M: Mode> {
     _de: Option<Flex<'d>>,
     tx_dma: Option<ChannelAndRequest<'d>>,
     duplex: Duplex,
-    _phantom: PhantomData<M>,
+    _marker: PhantomData<M>,
 }
 
 impl<'d, M: Mode> SetConfig for UartTx<'d, M> {
@@ -462,7 +462,7 @@ pub struct UartRx<'d, M: Mode> {
     detect_previous_overrun: bool,
     #[cfg(any(usart_v1, usart_v2))]
     buffered_sr: regs::Sr,
-    _phantom: PhantomData<M>,
+    _marker: PhantomData<M>,
 }
 
 impl<'d, M: Mode> SetConfig for UartRx<'d, M> {
@@ -577,7 +577,7 @@ impl<'d, M: Mode> UartTx<'d, M> {
             _de: None,
             tx_dma,
             duplex: config.duplex,
-            _phantom: PhantomData,
+            _marker: PhantomData,
         };
         this.enable_and_configure(&config)?;
         Ok(this)
@@ -1015,7 +1015,7 @@ impl<'d, M: Mode> UartRx<'d, M> {
         config: Config,
     ) -> Result<Self, ConfigError> {
         let mut this = Self {
-            _phantom: PhantomData,
+            _marker: PhantomData,
             info: T::info(),
             state: T::state(),
             kernel_clock: T::frequency(),
@@ -1518,7 +1518,7 @@ impl<'d, M: Mode> Uart<'d, M> {
 
         let mut this = Self {
             tx: UartTx {
-                _phantom: PhantomData,
+                _marker: PhantomData,
                 info,
                 state,
                 kernel_clock,
@@ -1529,7 +1529,7 @@ impl<'d, M: Mode> Uart<'d, M> {
                 duplex: config.duplex,
             },
             rx: UartRx {
-                _phantom: PhantomData,
+                _marker: PhantomData,
                 info,
                 state,
                 kernel_clock,

@@ -31,7 +31,7 @@ static DSIHOST_WAKER: AtomicWaker = AtomicWaker::new();
 
 /// DSIHOST interrupt handler.
 pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 /// PacketTypes extracted from CubeMX

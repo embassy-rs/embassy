@@ -25,7 +25,7 @@ const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(55);
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance<Regs = crate::pac::adc::Adc4>> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance<Regs = crate::pac::adc::Adc4>> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {

@@ -192,7 +192,7 @@ pub struct Xspi<'d, T: Instance, M: PeriMode> {
     _dqs0: Option<Flex<'d>>,
     _dqs1: Option<Flex<'d>>,
     dma: Option<ChannelAndRequest<'d>>,
-    _phantom: PhantomData<M>,
+    _marker: PhantomData<M>,
     config: Config,
     width: XspiWidth,
 }
@@ -473,7 +473,7 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
             _dqs0,
             _dqs1,
             dma,
-            _phantom: PhantomData,
+            _marker: PhantomData,
             config,
             width,
         }

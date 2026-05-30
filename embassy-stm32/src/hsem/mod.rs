@@ -40,7 +40,7 @@ const PUB_CHANNELS: usize = 4;
 
 /// TX interrupt handler.
 pub struct HardwareSemaphoreInterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for HardwareSemaphoreInterruptHandler<T> {

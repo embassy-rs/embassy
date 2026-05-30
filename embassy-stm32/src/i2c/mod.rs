@@ -135,8 +135,8 @@ pub struct I2c<'d, M: Mode, IM: MasterMode> {
     rx_dma: Option<ChannelAndRequest<'d>>,
     #[cfg(feature = "time")]
     timeout: Duration,
-    _phantom: PhantomData<M>,
-    _phantom2: PhantomData<IM>,
+    _marker: PhantomData<M>,
+    _marker2: PhantomData<IM>,
     _drop_guard: I2CDropGuard<'d>,
 }
 
@@ -226,8 +226,8 @@ impl<'d, M: Mode> I2c<'d, M, Master> {
             rx_dma,
             #[cfg(feature = "time")]
             timeout: config.timeout,
-            _phantom: PhantomData,
-            _phantom2: PhantomData,
+            _marker: PhantomData,
+            _marker2: PhantomData,
             _drop_guard: I2CDropGuard {
                 info: T::info(),
                 _scl,
@@ -319,7 +319,7 @@ dma_trait!(TxDma, Instance);
 
 /// Event interrupt handler.
 pub struct EventInterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::EventInterrupt> for EventInterruptHandler<T> {
@@ -330,7 +330,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::EventInterrupt> for EventInte
 
 /// Error interrupt handler.
 pub struct ErrorInterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::ErrorInterrupt> for ErrorInterruptHandler<T> {

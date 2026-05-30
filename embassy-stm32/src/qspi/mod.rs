@@ -104,7 +104,7 @@ pub struct Qspi<'d, T: Instance, M: PeriMode> {
     bk1nss: Option<Flex<'d>>,
     bk2nss: Option<Flex<'d>>,
     dma: Option<ChannelAndRequest<'d>>,
-    _phantom: PhantomData<M>,
+    _marker: PhantomData<M>,
     config: Config,
 }
 
@@ -172,7 +172,7 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
             bk1nss,
             bk2nss,
             dma,
-            _phantom: PhantomData,
+            _marker: PhantomData,
             config,
         }
     }
@@ -957,7 +957,7 @@ impl From<MatchMode> for bool {
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
