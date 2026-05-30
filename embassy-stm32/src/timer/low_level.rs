@@ -35,7 +35,7 @@ pub enum InputCaptureMode {
 /// Input TI selection.
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum InputTISelection {
+pub enum InputCaptureSelection {
     /// Normal
     Normal,
     /// Alternate
@@ -44,12 +44,12 @@ pub enum InputTISelection {
     TRC,
 }
 
-impl From<InputTISelection> for stm32_metapac::timer::vals::CcmrInputCcs {
-    fn from(tisel: InputTISelection) -> Self {
+impl From<InputCaptureSelection> for stm32_metapac::timer::vals::CcmrInputCcs {
+    fn from(tisel: InputCaptureSelection) -> Self {
         match tisel {
-            InputTISelection::Normal => stm32_metapac::timer::vals::CcmrInputCcs::Ti4,
-            InputTISelection::Alternate => stm32_metapac::timer::vals::CcmrInputCcs::Ti3,
-            InputTISelection::TRC => stm32_metapac::timer::vals::CcmrInputCcs::Trc,
+            InputCaptureSelection::Normal => stm32_metapac::timer::vals::CcmrInputCcs::Ti4,
+            InputCaptureSelection::Alternate => stm32_metapac::timer::vals::CcmrInputCcs::Ti3,
+            InputCaptureSelection::TRC => stm32_metapac::timer::vals::CcmrInputCcs::Trc,
         }
     }
 }
@@ -748,12 +748,19 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
             .modify(|r| r.set_icpsc(raw_channel % 2, factor));
     }
 
+    #[cfg(not(stm32l0))]
     /// Set input TI selection.
-    pub fn set_input_ti_selection(&self, channel: Channel, tisel: InputTISelection) {
+    pub fn set_input_ti_seletion(&self, channel: Channel, tisel: u8) {
+        let raw_channel = channel.index();
+        self.regs_gp16().tisel().modify(|w| w.set_tisel(raw_channel, tisel));
+    }
+
+    /// Set input capture selection.
+    pub fn set_input_capture_selection(&self, channel: Channel, icsel: InputCaptureSelection) {
         let raw_channel = channel.index();
         self.regs_gp16()
             .ccmr_input(raw_channel / 2)
-            .modify(|r| r.set_ccs(raw_channel % 2, tisel.into()));
+            .modify(|r| r.set_ccs(raw_channel % 2, icsel.into()));
     }
 
     /// Set input capture mode.

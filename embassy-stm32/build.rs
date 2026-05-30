@@ -2074,6 +2074,10 @@ fn main() {
         (("dac", "DAC_INC_CHX_TRG"), quote!(crate::dac::ChannelIncTrigger)),
         (("adc", "ADC_EXT_TRG"), quote!(crate::adc::RegularTrigger)),
         (("adc", "ADC_JEXT_TRG"), quote!(crate::adc::InjectedTrigger)),
+        (("timer", "TIMX_TI1_IN"), quote!(crate::timer::TimerInputTrigger<Ch1>)),
+        (("timer", "TIMX_TI2_IN"), quote!(crate::timer::TimerInputTrigger<Ch2>)),
+        (("timer", "TIMX_TI3_IN"), quote!(crate::timer::TimerInputTrigger<Ch3>)),
+        (("timer", "TIMX_TI4_IN"), quote!(crate::timer::TimerInputTrigger<Ch4>)),
     ]
     .into();
 

@@ -231,6 +231,8 @@ pub trait AdvancedInstance2Channel: BasicInstance + GeneralInstance2Channel + Ad
 /// Advanced 16-bit timer with 4 channels instance.
 pub trait AdvancedInstance4Channel: AdvancedInstance2Channel + GeneralInstance4Channel {}
 
+trigger_trait!(TimerInputTrigger, GeneralInstance4Channel, TimerChannel);
+
 pin_trait!(TimerPin, GeneralInstance4Channel, TimerChannel, @A);
 pin_trait!(ExternalTriggerPin, GeneralInstance4Channel, @A);
 

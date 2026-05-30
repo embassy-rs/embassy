@@ -348,7 +348,7 @@ async fn main(spawner: Spawner) {
     tim2.set_tick_freq(Hertz(FEEDBACK_COUNTER_TICK_RATE));
     tim2.set_trigger_source(timer::low_level::TriggerSource::Itr1); // The USB SOF signal.
 
-    tim2.set_input_ti_selection(TIMER_CHANNEL, timer::low_level::InputTISelection::TRC);
+    tim2.set_input_capture_selection(TIMER_CHANNEL, timer::low_level::InputCaptureSelection::TRC);
     tim2.set_input_capture_prescaler(TIMER_CHANNEL, 0);
     tim2.set_input_capture_filter(TIMER_CHANNEL, timer::low_level::FilterValue::FckIntN2);
 
