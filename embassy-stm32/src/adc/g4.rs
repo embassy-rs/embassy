@@ -8,8 +8,10 @@ pub use pac::adc::vals::{Adcaldif, Adstp, Difsel, Dmacfg, Dmaen, Exten, Rovsm, T
 use pac::adc::vals::{Adcaldif, Difsel, Exten};
 pub use pac::adccommon::vals::{Dual, Presc};
 
-use super::{Adc, AnyAdcChannel, ConversionMode, RegularAdcTrigger, Resolution, RxDma, SampleTime};
-use crate::adc::{AdcRegs, DefaultInstance, InjectedRegs};
+use crate::adc::{
+    Adc, AdcRegs, AnyAdcChannel, ConversionMode, DefaultInstance, InjectedRegs, RegularAdcTrigger, Resolution, RxDma,
+    SampleTime,
+};
 use crate::pac::adc::regs::{Jsqr, Smpr, Smpr2, Sqr1, Sqr2, Sqr3, Sqr4};
 use crate::time::Hertz;
 use crate::wait::block_for_us;
