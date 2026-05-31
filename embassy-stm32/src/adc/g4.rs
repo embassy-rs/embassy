@@ -474,9 +474,9 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
             dma_channel
                 .read_raw_repeated(
                     dma_request,
-                    T::regs().data(),
-                    1,
                     dst,
+                    1,
+                    T::regs().data(),
                     dma::TransferOptions {
                         priority: dma::Priority::VeryHigh,
                         circular: true,

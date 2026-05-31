@@ -10,6 +10,7 @@ use embassy_stm32::{Config, bind_interrupts, dma, peripherals, triggers};
 use stm32_hrtim::HrPwmAdvExt;
 use stm32_hrtim::compare_register::HrCompareRegister;
 use stm32_hrtim::output::NoPin;
+use stm32_hrtim::timer::HrTimer;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -95,12 +96,15 @@ async fn main(_spawner: Spawner) {
 
     tim.cr3.set_duty(period / 2);
     control.adc_trigger1.enable_source(&tim.cr3);
+    tim.timer.start(&mut control.control);
 
     defmt::assert!(fmac.read().is_none()); // <-- Not enough data yet
-
+    defmt::println!("Running!");
     loop {
-        if let Some(value) = fmac.read() {
-            defmt::println!("reading: {}", value.as_f32());
+        if let Some(raw) = fmac.read() {
+            // raw is in Q1.15 format, convert back to u16
+            let filtered_value = raw.inner;
+            defmt::println!("reading: {}", filtered_value);
         }
     }
 }
