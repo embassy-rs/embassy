@@ -14,6 +14,8 @@ use crate::peripherals;
 /// This pin can either be a disconnected, input, or output pin, or both. The level register bit will remain
 /// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
 /// mode.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Flex<'d> {
     pub(crate) pin: Peri<'d, AnyPin>,
 }
@@ -863,6 +865,7 @@ pub trait Pin: PeripheralType + Into<AnyPin> + SealedPin + Sized + 'static {
 }
 
 /// Type-erased GPIO pin.
+#[derive(Debug)]
 pub struct AnyPin {
     pin_port: PinNumber,
 }

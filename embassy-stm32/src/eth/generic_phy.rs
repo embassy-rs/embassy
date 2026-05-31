@@ -9,8 +9,8 @@ use embassy_time::{Duration, Timer};
 #[cfg(feature = "time")]
 use futures_util::FutureExt;
 
-use super::{Phy, StationManagement};
-use crate::block_for_us as blocking_delay_us;
+use crate::eth::{Phy, StationManagement};
+use crate::wait::block_for_us;
 
 #[allow(dead_code)]
 mod phy_consts {
@@ -101,7 +101,7 @@ impl<SM: StationManagement> Phy for GenericPhy<SM> {
                         return;
                     }
                     // Give PHY a total of 100ms to respond
-                    blocking_delay_us(10000);
+                    block_for_us(10000);
                 }
             }
             panic!("PHY did not respond");

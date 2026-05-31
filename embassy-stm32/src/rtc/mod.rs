@@ -296,6 +296,33 @@ impl Rtc {
         Ok(())
     }
 
+    /// Synchronize to a remote clock with a high degree of precision.
+    ///
+    /// `shift` should be adjusted from -1 to 1 second.
+    #[cfg(not(rtc_v2_f2))]
+    pub fn synchronize(&mut self, shift: f32) {
+        let prediv_s = RTC::regs().prer().read().prediv_s() as f32;
+        let (add1s, subfs) = if shift > 0. {
+            (true, ((1. - shift) * (1. + prediv_s)))
+        } else if shift < 0. {
+            (false, -shift * (1. + prediv_s))
+        } else {
+            return;
+        };
+        let subfs = subfs + 0.5; // round
+
+        critical_section::with(|_| {
+            while RTC::regs().ssr().read().ss() & 0x8000 != 0 || RTC::shpf() {}
+
+            self.write(false, |rtc| {
+                rtc.shiftr().write(|w| {
+                    w.set_subfs(subfs.clamp(0., prediv_s) as u16);
+                    w.set_add1s(add1s);
+                });
+            });
+        });
+    }
+
     /// Check if daylight savings time is active.
     pub fn get_daylight_savings(&self) -> bool {
         let cr = RTC::regs().cr().read();
@@ -433,6 +460,10 @@ trait SealedInstance {
     fn regs() -> crate::pac::rtc::Rtc {
         crate::pac::RTC
     }
+
+    /// Shift operation pending
+    #[cfg(not(rtc_v2_f2))]
+    fn shpf() -> bool;
 
     /// Read content of the backup register.
     ///

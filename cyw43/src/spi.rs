@@ -1,3 +1,5 @@
+use core::slice;
+
 use aligned::{A4, Aligned};
 use embassy_futures::yield_now;
 use embassy_time::Timer;
@@ -6,7 +8,6 @@ use futures::FutureExt;
 
 use crate::consts::*;
 use crate::runner::{BusConfig, BusType, SealedBus};
-use crate::util::{slice8_mut, slice32_mut, slice32_ref};
 
 /// Custom Spi Trait that _only_ supports the bus operation of the cyw43
 /// Implementors are expected to hold the CS pin low during an operation.
@@ -27,6 +28,16 @@ pub trait SpiBusCyw43 {
     async fn wait_for_event(&mut self) {
         yield_now().await;
     }
+}
+
+const fn slice32_mut(x: &mut Aligned<A4, [u8]>) -> &mut [u32] {
+    let len = (size_of_val(x) + 3) / 4;
+    unsafe { slice::from_raw_parts_mut(x as *mut Aligned<A4, [u8]> as *mut u32, len) }
+}
+
+const fn slice32_ref(x: &Aligned<A4, [u8]>) -> &[u32] {
+    let len = (size_of_val(x) + 3) / 4;
+    unsafe { slice::from_raw_parts(x as *const Aligned<A4, [u8]> as *const u32, len) }
 }
 
 /// Doc
@@ -259,20 +270,15 @@ where
         Ok(())
     }
 
-    async fn wlan_write(&mut self, buf: &Aligned<A4, [u8]>) -> crate::Result<()> {
-        let buf = slice32_ref(buf);
-        let cmd = cmd_word(WRITE, INC_ADDR, FUNC_WLAN, 0, buf.len() as u32 * 4);
-        //TODO try to remove copy?
-        let mut cmd_buf = [0_u32; 513];
-        cmd_buf[0] = cmd;
-        cmd_buf[1..][..buf.len()].copy_from_slice(buf);
+    async fn wlan_write(&mut self, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()> {
+        let len = buf.len() - 4;
+        buf[..4].copy_from_slice(&cmd_word(WRITE, INC_ADDR, FUNC_WLAN, 0, len as u32).to_le_bytes());
 
-        self.status = self.spi.cmd_write(&cmd_buf[..buf.len() + 1]).await;
+        self.status = self.spi.cmd_write(slice32_ref(buf)).await;
 
         Ok(())
     }
 
-    #[allow(unused)]
     async fn bp_read(&mut self, mut addr: u32, mut data: &mut [u8]) -> crate::Result<()> {
         trace!("bp_read addr = {:08x}", addr);
 
@@ -283,7 +289,7 @@ where
         assert!(addr % 4 == 0);
 
         // Backplane read buffer has one extra word for the response delay.
-        let mut buf = [0u32; BACKPLANE_MAX_TRANSFER_SIZE / 4 + 1];
+        let mut buf: Aligned<A4, [u8; _]> = Aligned([0u8; 4 + BACKPLANE_MAX_TRANSFER_SIZE]);
 
         while !data.is_empty() {
             // Ensure transfer doesn't cross a window boundary.
@@ -297,10 +303,13 @@ where
             let cmd = cmd_word(READ, INC_ADDR, FUNC_BACKPLANE, window_offs, len as u32);
 
             // round `buf` to word boundary, add one extra word for the response delay
-            self.status = self.spi.cmd_read(cmd, &mut buf[..(len + 3) / 4 + 1]).await;
+            self.status = self
+                .spi
+                .cmd_read(cmd, &mut slice32_mut(&mut buf)[..(len + 3) / 4 + 1])
+                .await;
 
             // when writing out the data, we skip the response-delay byte
-            data[..len].copy_from_slice(&slice8_mut(&mut buf[1..])[..len]);
+            data[..len].copy_from_slice(&mut buf[4..][..len]);
 
             // Advance ptr.
             addr += len as u32;
@@ -319,7 +328,7 @@ where
         // To simplify, enforce 4-align for now.
         assert!(addr % 4 == 0);
 
-        let mut buf = [0u32; BACKPLANE_MAX_TRANSFER_SIZE / 4 + 1];
+        let mut buf: Aligned<A4, [u8; _]> = Aligned([0u8; 4 + BACKPLANE_MAX_TRANSFER_SIZE]);
 
         while !data.is_empty() {
             // Ensure transfer doesn't cross a window boundary.
@@ -327,14 +336,14 @@ where
             let window_remaining = BACKPLANE_WINDOW_SIZE - window_offs as usize;
 
             let len = data.len().min(BACKPLANE_MAX_TRANSFER_SIZE).min(window_remaining);
-            slice8_mut(&mut buf[1..])[..len].copy_from_slice(&data[..len]);
+            buf[4..][..len].copy_from_slice(&data[..len]);
 
             self.backplane_set_window(addr).await;
 
             let cmd = cmd_word(WRITE, INC_ADDR, FUNC_BACKPLANE, window_offs, len as u32);
-            buf[0] = cmd;
+            slice32_mut(&mut buf)[0] = cmd;
 
-            self.status = self.spi.cmd_write(&buf[..(len + 3) / 4 + 1]).await;
+            self.status = self.spi.cmd_write(&slice32_ref(&buf)[..(len + 3) / 4 + 1]).await;
 
             // Advance ptr.
             addr += len as u32;

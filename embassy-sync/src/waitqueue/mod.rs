@@ -4,6 +4,9 @@
 mod atomic_waker;
 pub use atomic_waker::*;
 
+mod critical_section_waker;
+pub use critical_section_waker::*;
+
 mod waker_registration;
 pub use waker_registration::*;
 

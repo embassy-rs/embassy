@@ -1,12 +1,13 @@
 use core::slice;
 
 use embassy_stm32::ipcc::{IpccRxChannel, IpccTxChannel};
+use embedded_io::Write;
 
 #[cfg(feature = "wb-ble")]
 use crate::shci::ShciBleInitCmdParam;
 use crate::shci::{SchiCommandStatus, SchiFromPacket, SchiSysEventReady, ShciFusGetStateErrorCode, ShciOpcode};
 use crate::sub::mm;
-use crate::wb::cmd::CmdPacket;
+use crate::wb::cmd::{CmdSerialStub, VolatileWriter};
 use crate::wb::consts::TlPacketType;
 use crate::wb::evt::EvtBox;
 use crate::wb::tables::{SysTable, WirelessFwInfoTable};
@@ -56,7 +57,16 @@ impl<'a> Sys<'a> {
     pub async fn write(&mut self, opcode: ShciOpcode, payload: &[u8]) {
         self.ipcc_system_cmd_rsp_channel
             .send(|| unsafe {
-                CmdPacket::write_into(SYS_CMD_BUF.as_mut_ptr(), TlPacketType::SysCmd, opcode as u16, payload);
+                VolatileWriter::with_stub(
+                    SYS_CMD_BUF.as_mut_ptr(),
+                    CmdSerialStub {
+                        ty: TlPacketType::SysCmd as u8,
+                        cmd_code: opcode as u16,
+                        payload_len: payload.len().try_into().unwrap(),
+                    },
+                )
+                .write_all(payload)
+                .unwrap();
             })
             .await;
     }
@@ -76,6 +86,11 @@ impl<'a> Sys<'a> {
     #[cfg(feature = "wb-mac")]
     pub async fn shci_c2_mac_802_15_4_init(&mut self) -> Result<SchiCommandStatus, ()> {
         self.write_and_get_response(ShciOpcode::Mac802_15_4Init, &[]).await
+    }
+
+    #[cfg(feature = "wb-thread")]
+    pub async fn shci_c2_thread_init(&mut self) -> Result<SchiCommandStatus, ()> {
+        self.write_and_get_response(ShciOpcode::ThreadInit, &[]).await
     }
 
     /// Send a request to CPU2 to initialise the BLE stack.

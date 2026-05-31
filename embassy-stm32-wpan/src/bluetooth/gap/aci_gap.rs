@@ -23,6 +23,9 @@ pub const ADV_NONCONN_IND: u8 = 0x03; // Non-connectable undirected
 #[allow(dead_code)]
 pub const ADV_DIRECT_IND_LOW_DUTY: u8 = 0x04; // Connectable directed low duty cycle
 
+/// ST `GAP_RESOLVABLE_PRIVATE_ADDR` — use with controller privacy for advertising.
+pub const GAP_RESOLVABLE_PRIVATE_ADDR: u8 = 0x02;
+
 // Advertising filter policy
 #[allow(dead_code)]
 pub const NO_WHITE_LIST_USE: u8 = 0x00;
@@ -57,6 +60,40 @@ unsafe extern "C" {
     /// Set device in non-discoverable mode (stop advertising)
     #[link_name = "ACI_GAP_SET_NON_DISCOVERABLE"]
     fn aci_gap_set_non_discoverable() -> tBleStatus;
+
+    /// Undirected connectable advertising (ST `BLE_Privacy_Peripheral` path).
+    #[link_name = "ACI_GAP_SET_UNDIRECTED_CONNECTABLE"]
+    fn aci_gap_set_undirected_connectable(
+        advertising_interval_min: u16,
+        advertising_interval_max: u16,
+        own_address_type: u8,
+        adv_filter_policy: u8,
+    ) -> tBleStatus;
+
+    /// Update legacy advertising payload (after undirected connectable).
+    #[link_name = "ACI_GAP_UPDATE_ADV_DATA"]
+    fn aci_gap_update_adv_data(adv_data_len: u8, adv_data: *const u8) -> tBleStatus;
+
+    /// Start the GAP observation procedure (scanning without connection intent).
+    ///
+    /// Unlike raw HCI_LE_SET_SCAN_ENABLE, this routes advertising reports
+    /// through the host layer so they arrive via BLECB_Indication as standard
+    /// HCI_LE_Advertising_Report events.
+    #[link_name = "ACI_GAP_START_OBSERVATION_PROC"]
+    fn aci_gap_start_observation_proc(
+        le_scan_interval: u16,
+        le_scan_window: u16,
+        le_scan_type: u8,
+        own_address_type: u8,
+        filter_duplicates: u8,
+        scanning_filter_policy: u8,
+    ) -> tBleStatus;
+
+    /// Terminate a running GAP procedure.
+    ///
+    /// Pass `procedure_code = 0x80` to stop `GAP_OBSERVATION_PROC`.
+    #[link_name = "ACI_GAP_TERMINATE_GAP_PROC"]
+    fn aci_gap_terminate_gap_proc(procedure_code: u8) -> tBleStatus;
 }
 
 /// Start advertising using aci_gap_set_discoverable
@@ -128,6 +165,83 @@ pub fn set_discoverable(
         } else {
             #[cfg(feature = "defmt")]
             defmt::error!("aci_gap_set_discoverable failed: 0x{:02X}", status);
+            Err(BleError::CommandFailed(Status::from_u8(status)))
+        }
+    }
+}
+
+/// Start the GAP observation procedure (passive or active scanning).
+///
+/// Advertising reports arrive as standard `HCI_LE_Advertising_Report` events
+/// via `BLECB_Indication`.  This is the correct way to scan on the WBA BLE
+/// stack — raw `HCI_LE_SET_SCAN_ENABLE` starts the radio but does not route
+/// reports through the host layer.
+pub fn start_observation(
+    scan_interval: u16,
+    scan_window: u16,
+    scan_type: u8,
+    own_address_type: u8,
+    filter_duplicates: bool,
+    filter_policy: u8,
+) -> Result<(), BleError> {
+    let status = unsafe {
+        aci_gap_start_observation_proc(
+            scan_interval,
+            scan_window,
+            scan_type,
+            own_address_type,
+            filter_duplicates as u8,
+            filter_policy,
+        )
+    };
+    if status == BLE_STATUS_SUCCESS {
+        Ok(())
+    } else {
+        Err(BleError::CommandFailed(Status::from_u8(status)))
+    }
+}
+
+/// Stop the running GAP observation procedure (`procedure_code = 0x80`).
+pub fn stop_observation() -> Result<(), BleError> {
+    let status = unsafe { aci_gap_terminate_gap_proc(0x80) };
+    if status == BLE_STATUS_SUCCESS {
+        Ok(())
+    } else {
+        Err(BleError::CommandFailed(Status::from_u8(status)))
+    }
+}
+
+/// Start undirected connectable advertising (ST privacy peripheral mode).
+pub fn set_undirected_connectable(
+    interval_min: u16,
+    interval_max: u16,
+    own_address_type: u8,
+    filter_policy: u8,
+) -> Result<(), BleError> {
+    unsafe {
+        let status = aci_gap_set_undirected_connectable(interval_min, interval_max, own_address_type, filter_policy);
+        if status == BLE_STATUS_SUCCESS {
+            #[cfg(feature = "defmt")]
+            defmt::info!("aci_gap_set_undirected_connectable succeeded");
+            Ok(())
+        } else {
+            #[cfg(feature = "defmt")]
+            defmt::error!("aci_gap_set_undirected_connectable failed: 0x{:02X}", status);
+            Err(BleError::CommandFailed(Status::from_u8(status)))
+        }
+    }
+}
+
+/// Push AD payload after [`set_undirected_connectable`].
+pub fn update_adv_data(adv_data: &[u8]) -> Result<(), BleError> {
+    if adv_data.is_empty() || adv_data.len() > 31 {
+        return Err(BleError::InvalidParameter);
+    }
+    unsafe {
+        let status = aci_gap_update_adv_data(adv_data.len() as u8, adv_data.as_ptr());
+        if status == BLE_STATUS_SUCCESS {
+            Ok(())
+        } else {
             Err(BleError::CommandFailed(Status::from_u8(status)))
         }
     }

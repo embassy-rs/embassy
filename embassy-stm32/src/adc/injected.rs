@@ -8,7 +8,7 @@ use crate::adc::{BasicAdcRegs, InjectedAdcRegs, Instance};
 pub struct InjectedAdc<'d, R: InjectedAdcRegs> {
     regs: R,
     len: usize,
-    _typ: PhantomData<&'d mut ()>,
+    _marker: PhantomData<&'d mut ()>,
 }
 
 impl<'d, R: InjectedAdcRegs> InjectedAdc<'d, R> {
@@ -18,7 +18,7 @@ impl<'d, R: InjectedAdcRegs> InjectedAdc<'d, R> {
         Self {
             regs: T::regs(),
             len: N,
-            _typ: PhantomData,
+            _marker: PhantomData,
         }
     }
 

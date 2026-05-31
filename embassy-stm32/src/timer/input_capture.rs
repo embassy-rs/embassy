@@ -6,30 +6,71 @@ use core::mem::ManuallyDrop;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-use super::low_level::{CountingMode, FilterValue, InputCaptureMode, InputTISelection, Timer};
+use super::low_level::{CountingMode, FilterValue, InputCaptureMode, InputCaptureSelection, Timer};
 use super::{CaptureCompareInterruptHandler, Channel, GeneralInstance4Channel, TimerPin};
 pub use super::{Ch1, Ch2, Ch3, Ch4};
 use crate::gpio::{AfType, Flex, Pull};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::time::Hertz;
-use crate::timer::TimerChannel;
+use crate::timer::{TimerChannel, TimerInputTrigger};
 use crate::{Peri, dma};
 
 /// Capture pin wrapper.
 ///
 /// This wraps a pin to make it usable with capture.
 pub struct CapturePin<'d, T, C, #[cfg(afio)] A> {
-    #[allow(unused)]
     pin: Flex<'d>,
-    phantom: PhantomData<if_afio!((T, C, A))>,
+    _marker: PhantomData<if_afio!((T, C, A))>,
 }
 impl<'d, T: GeneralInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(CapturePin<'d, T, C, A>) {
     /// Create a new capture pin instance.
-    pub fn new(pin: Peri<'d, if_afio!(impl TimerPin<T, C, A>)>, pull: Pull) -> Self {
+    pub fn new(pin: Peri<'d, if_afio!(impl TimerPin<T, C, A>)>, pull: Pull) -> if_afio!(TimerInputType<'d, T, C, A>) {
         set_as_af!(pin, AfType::input(pull));
-        CapturePin {
+        TimerInputType::Pin(CapturePin {
             pin: Flex::new(pin),
-            phantom: PhantomData,
+            _marker: PhantomData,
+        })
+    }
+}
+
+/// Trigger wrapper.
+///
+/// This wraps a trigger to make it usable with capture.
+pub struct CaptureInput<T, C> {
+    trigger: u8,
+    _marker: PhantomData<(T, C)>,
+}
+
+impl<T: GeneralInstance4Channel, C: TimerChannel> CaptureInput<T, C> {
+    /// Create a new capture input instance.
+    pub fn from<'d, #[cfg(afio)] A>(trigger: impl TimerInputTrigger<T, C>) -> if_afio!(TimerInputType<'d, T, C, A>) {
+        TimerInputType::Trigger(Self {
+            trigger: trigger.signal(),
+            _marker: PhantomData,
+        })
+    }
+}
+
+/// Trigger or pin wrapper.
+pub enum TimerInputType<'d, T, C, #[cfg(afio)] A> {
+    /// Pin type
+    Pin(if_afio!(CapturePin<'d, T, C, A>)),
+    /// Trigger type
+    Trigger(CaptureInput<T, C>),
+}
+
+enum PinTrigger<'d> {
+    #[allow(dead_code)]
+    Pin(Flex<'d>),
+    #[allow(dead_code)]
+    Trigger(u8),
+}
+
+impl<'d, T, C, #[cfg(afio)] A> From<if_afio!(TimerInputType<'d, T, C, A>)> for PinTrigger<'d> {
+    fn from(tinput: if_afio!(TimerInputType<'d, T, C, A>)) -> Self {
+        match tinput {
+            TimerInputType::Pin(pin) => Self::Pin(pin.pin),
+            TimerInputType::Trigger(trigger) => Self::Trigger(trigger.trigger),
         }
     }
 }
@@ -37,10 +78,10 @@ impl<'d, T: GeneralInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(C
 /// Input capture driver.
 pub struct InputCapture<'d, T: GeneralInstance4Channel> {
     inner: Timer<'d, T>,
-    _ch1: Option<Flex<'d>>,
-    _ch2: Option<Flex<'d>>,
-    _ch3: Option<Flex<'d>>,
-    _ch4: Option<Flex<'d>>,
+    _ch1: Option<PinTrigger<'d>>,
+    _ch2: Option<PinTrigger<'d>>,
+    _ch3: Option<PinTrigger<'d>>,
+    _ch4: Option<PinTrigger<'d>>,
 }
 
 impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
@@ -48,20 +89,20 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
     #[allow(unused)]
     pub fn new<#[cfg(afio)] A>(
         tim: Peri<'d, T>,
-        ch1: Option<if_afio!(CapturePin<'d, T, Ch1, A>)>,
-        ch2: Option<if_afio!(CapturePin<'d, T, Ch2, A>)>,
-        ch3: Option<if_afio!(CapturePin<'d, T, Ch3, A>)>,
-        ch4: Option<if_afio!(CapturePin<'d, T, Ch4, A>)>,
+        ch1: Option<if_afio!(TimerInputType<'d, T, Ch1, A>)>,
+        ch2: Option<if_afio!(TimerInputType<'d, T, Ch2, A>)>,
+        ch3: Option<if_afio!(TimerInputType<'d, T, Ch3, A>)>,
+        ch4: Option<if_afio!(TimerInputType<'d, T, Ch4, A>)>,
         _irq: impl Binding<T::CaptureCompareInterrupt, CaptureCompareInterruptHandler<T>> + 'd,
         freq: Hertz,
         counting_mode: CountingMode,
     ) -> Self {
         Self::new_inner(
             tim,
-            ch1.map(|pin| pin.pin),
-            ch2.map(|pin| pin.pin),
-            ch3.map(|pin| pin.pin),
-            ch4.map(|pin| pin.pin),
+            ch1.map(|pin| pin.into()),
+            ch2.map(|pin| pin.into()),
+            ch3.map(|pin| pin.into()),
+            ch4.map(|pin| pin.into()),
             freq,
             counting_mode,
         )
@@ -69,10 +110,10 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
 
     fn new_inner(
         tim: Peri<'d, T>,
-        _ch1: Option<Flex<'d>>,
-        _ch2: Option<Flex<'d>>,
-        _ch3: Option<Flex<'d>>,
-        _ch4: Option<Flex<'d>>,
+        _ch1: Option<PinTrigger<'d>>,
+        _ch2: Option<PinTrigger<'d>>,
+        _ch3: Option<PinTrigger<'d>>,
+        _ch4: Option<PinTrigger<'d>>,
         freq: Hertz,
         counting_mode: CountingMode,
     ) -> Self {
@@ -86,9 +127,22 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
 
         this.inner.set_counting_mode(counting_mode);
         this.inner.set_tick_freq(freq);
-        for ch in [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4] {
-            this.inner.set_input_capture_filter(ch, FilterValue::NoFilter);
-            this.inner.set_input_capture_prescaler(ch, 0);
+        for (ch, _pin_trigger) in [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
+            .iter()
+            .zip([&this._ch1, &this._ch2, &this._ch3, &this._ch4])
+        {
+            #[cfg(not(stm32l0))]
+            if let Some(pin_trigger) = _pin_trigger {
+                let tisel = match pin_trigger {
+                    PinTrigger::Pin(_) => 0,
+                    PinTrigger::Trigger(trigger) => *trigger,
+                };
+
+                this.inner.set_input_ti_seletion(*ch, tisel);
+            }
+
+            this.inner.set_input_capture_filter(*ch, FilterValue::NoFilter);
+            this.inner.set_input_capture_prescaler(*ch, 0);
         }
         this.inner.enable_outputs(); // Required for advanced timers, see GeneralInstance4Channel for details
         this.inner.generate_update_event();
@@ -121,9 +175,9 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
         self.inner.set_input_capture_mode(channel, mode);
     }
 
-    /// Set input TI selection.
-    pub fn set_input_ti_selection(&mut self, channel: Channel, tisel: InputTISelection) {
-        self.inner.set_input_ti_selection(channel, tisel)
+    /// Set input capture selection.
+    pub fn set_input_capture_selection(&mut self, channel: Channel, icsel: InputCaptureSelection) {
+        self.inner.set_input_capture_selection(channel, icsel)
     }
 
     /// Set the input capture filter for a given channel.
@@ -146,32 +200,32 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
         self.inner.get_input_interrupt(channel)
     }
 
-    /// Asynchronously wait until the pin sees a rising edge.
+    /// Asynchronously wait until the pin or trigger sees a rising edge.
     pub async fn wait_for_rising_edge(&mut self, channel: Channel) -> T::Word {
         self.channel(channel).wait_for_rising_edge().await
     }
 
-    /// Asynchronously wait until the pin sees a falling edge.
+    /// Asynchronously wait until the pin or trigger sees a falling edge.
     pub async fn wait_for_falling_edge(&mut self, channel: Channel) -> T::Word {
         self.channel(channel).wait_for_falling_edge().await
     }
 
-    /// Asynchronously wait until the pin sees any edge.
+    /// Asynchronously wait until the pin or trigger sees any edge.
     pub async fn wait_for_any_edge(&mut self, channel: Channel) -> T::Word {
         self.channel(channel).wait_for_any_edge().await
     }
 
-    /// Asynchronously wait until the (alternate) pin sees a rising edge.
+    /// Asynchronously wait until the (alternate) pin or trigger sees a rising edge.
     pub async fn wait_for_rising_edge_alternate(&mut self, channel: Channel) -> T::Word {
         self.channel(channel).wait_for_rising_edge_alternate().await
     }
 
-    /// Asynchronously wait until the (alternate) pin sees a falling edge.
+    /// Asynchronously wait until the (alternate) pin or trigger sees a falling edge.
     pub async fn wait_for_falling_edge_alternate(&mut self, channel: Channel) -> T::Word {
         self.channel(channel).wait_for_falling_edge_alternate().await
     }
 
-    /// Asynchronously wait until the (alternate) pin sees any edge.
+    /// Asynchronously wait until the (alternate) pin or trigger sees any edge.
     pub async fn wait_for_any_edge_alternate(&mut self, channel: Channel) -> T::Word {
         self.channel(channel).wait_for_any_edge_alternate().await
     }
@@ -254,17 +308,20 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
         &mut self,
         dma: Peri<'_, D>,
         irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>,
+        channel: M,
         buf: &mut [u16],
     ) where
         M: TimerChannel,
     {
         #[allow(clippy::let_unit_value)] // eg. stm32f334
         let req = dma.request();
+        let _ = channel;
 
         let original_enable_state = self.is_enabled(M::CHANNEL);
         let original_cc_dma_enable_state = self.inner.get_cc_dma_enable_state(M::CHANNEL);
 
-        self.inner.set_input_ti_selection(M::CHANNEL, InputTISelection::Normal);
+        self.inner
+            .set_input_capture_selection(M::CHANNEL, InputCaptureSelection::Normal);
         self.inner
             .set_input_capture_mode(M::CHANNEL, InputCaptureMode::BothEdges);
 
@@ -312,7 +369,7 @@ pub struct InputCaptureChannels<'d, T: GeneralInstance4Channel> {
 pub struct InputCaptureChannel<'d, T: GeneralInstance4Channel> {
     inner: ManuallyDrop<Timer<'d, T>>,
     channel: Channel,
-    _pin: Option<Flex<'d>>,
+    _pin: Option<PinTrigger<'d>>,
 }
 
 impl<'d, T: GeneralInstance4Channel> InputCaptureChannel<'d, T> {
@@ -336,9 +393,9 @@ impl<'d, T: GeneralInstance4Channel> InputCaptureChannel<'d, T> {
         self.inner.set_input_capture_mode(self.channel, mode);
     }
 
-    /// Set input TI selection for this channel.
-    pub fn set_input_ti_selection(&mut self, tisel: InputTISelection) {
-        self.inner.set_input_ti_selection(self.channel, tisel);
+    /// Set input capture selection for this channel.
+    pub fn set_input_capture_selection(&mut self, icsel: InputCaptureSelection) {
+        self.inner.set_input_capture_selection(self.channel, icsel);
     }
 
     /// Set the input capture filter for this channel.
@@ -361,10 +418,10 @@ impl<'d, T: GeneralInstance4Channel> InputCaptureChannel<'d, T> {
         self.inner.get_input_interrupt(self.channel)
     }
 
-    fn new_future(&self, mode: InputCaptureMode, tisel: InputTISelection) -> InputCaptureFuture<T> {
+    fn new_future(&self, mode: InputCaptureMode, icsel: InputCaptureSelection) -> InputCaptureFuture<T> {
         // Configuration steps from ST RM0390 (STM32F446) chapter 17.3.5
         // or ST RM0008 (STM32F103) chapter 15.3.5 Input capture mode
-        self.inner.set_input_ti_selection(self.channel, tisel);
+        self.inner.set_input_capture_selection(self.channel, icsel);
         self.inner.set_input_capture_mode(self.channel, mode);
         self.inner.enable_channel(self.channel, true);
         self.inner.clear_input_interrupt(self.channel);
@@ -376,39 +433,39 @@ impl<'d, T: GeneralInstance4Channel> InputCaptureChannel<'d, T> {
         }
     }
 
-    /// Asynchronously wait until the pin sees a rising edge.
+    /// Asynchronously wait until the pin or trigger sees a rising edge.
     pub async fn wait_for_rising_edge(&mut self) -> T::Word {
-        self.new_future(InputCaptureMode::Rising, InputTISelection::Normal)
+        self.new_future(InputCaptureMode::Rising, InputCaptureSelection::Normal)
             .await
     }
 
-    /// Asynchronously wait until the pin sees a falling edge.
+    /// Asynchronously wait until the pin or trigger sees a falling edge.
     pub async fn wait_for_falling_edge(&mut self) -> T::Word {
-        self.new_future(InputCaptureMode::Falling, InputTISelection::Normal)
+        self.new_future(InputCaptureMode::Falling, InputCaptureSelection::Normal)
             .await
     }
 
-    /// Asynchronously wait until the pin sees any edge.
+    /// Asynchronously wait until the pin or trigger sees any edge.
     pub async fn wait_for_any_edge(&mut self) -> T::Word {
-        self.new_future(InputCaptureMode::BothEdges, InputTISelection::Normal)
+        self.new_future(InputCaptureMode::BothEdges, InputCaptureSelection::Normal)
             .await
     }
 
-    /// Asynchronously wait until the (alternate) pin sees a rising edge.
+    /// Asynchronously wait until the (alternate) pin or trigger sees a rising edge.
     pub async fn wait_for_rising_edge_alternate(&mut self) -> T::Word {
-        self.new_future(InputCaptureMode::Rising, InputTISelection::Alternate)
+        self.new_future(InputCaptureMode::Rising, InputCaptureSelection::Alternate)
             .await
     }
 
-    /// Asynchronously wait until the (alternate) pin sees a falling edge.
+    /// Asynchronously wait until the (alternate) pin or trigger sees a falling edge.
     pub async fn wait_for_falling_edge_alternate(&mut self) -> T::Word {
-        self.new_future(InputCaptureMode::Falling, InputTISelection::Alternate)
+        self.new_future(InputCaptureMode::Falling, InputCaptureSelection::Alternate)
             .await
     }
 
-    /// Asynchronously wait until the (alternate) pin sees any edge.
+    /// Asynchronously wait until the (alternate) pin or trigger sees any edge.
     pub async fn wait_for_any_edge_alternate(&mut self) -> T::Word {
-        self.new_future(InputCaptureMode::BothEdges, InputTISelection::Alternate)
+        self.new_future(InputCaptureMode::BothEdges, InputCaptureSelection::Alternate)
             .await
     }
 }

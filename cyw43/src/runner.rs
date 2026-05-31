@@ -3,6 +3,7 @@ use core::sync::atomic::Ordering::Relaxed;
 
 use aligned::{A4, Aligned};
 use embassy_futures::select::{Either4, select4};
+use embassy_hal_internal::aligned::AsMutAligned;
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::LinkState;
 use embassy_time::Duration;
@@ -16,7 +17,7 @@ use crate::fmt::Bytes;
 use crate::ioctl::{IoctlState, IoctlType, PendingIoctl};
 pub use crate::spi::SpiBusCyw43;
 use crate::structs::*;
-use crate::util::{aligned_mut, aligned_ref, slice8_mut, slice16_mut, try_until};
+use crate::util::try_until;
 use crate::{Chip, ChipId, Core, MTU, WithContext, events, sdio};
 
 #[cfg(feature = "firmware-logs")]
@@ -56,7 +57,8 @@ pub(crate) trait SealedBus {
 
     async fn init<'a>(&mut self, bluetooth: bool, config: &'a Self::Config) -> crate::Result<BusConfig<'a>>;
     async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()>;
-    async fn wlan_write(&mut self, buf: &Aligned<A4, [u8]>) -> crate::Result<()>;
+    /// The first 4 bytes of this buffer are reserved for the cmd word
+    async fn wlan_write(&mut self, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()>;
     async fn bp_read(&mut self, addr: u32, data: &mut [u8]) -> crate::Result<()>;
     async fn bp_write(&mut self, addr: u32, data: &[u8]) -> crate::Result<()>;
     async fn bp_read8(&mut self, addr: u32) -> u8;
@@ -106,7 +108,8 @@ async fn wlan_read(bus: &mut impl Bus, buf: &mut Aligned<A4, [u8]>) -> crate::Re
     bus.wlan_read(buf).await.ctx("wlan_read failed")
 }
 
-async fn wlan_write(bus: &mut impl Bus, buf: &Aligned<A4, [u8]>) -> crate::Result<()> {
+/// The first 4 bytes of this buffer are reserved for the cmd word
+async fn wlan_write(bus: &mut impl Bus, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()> {
     wake_bus(bus).await?;
     bus.wlan_write(buf).await.ctx("wlan_write failed")
 }
@@ -717,7 +720,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
 
     /// Run the CYW43 event handling loop.
     pub async fn run(mut self) -> ! {
-        let mut buf = [0; 512];
+        let mut buf = Aligned([0u8; 4 + 2048]);
         loop {
             #[cfg(feature = "firmware-logs")]
             self.log_read().await;
@@ -758,7 +761,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                     Either4::Second(packet) => {
                         trace!("tx pkt {:02x}", Bytes(&packet[..packet.len().min(48)]));
 
-                        let buf8 = slice8_mut(&mut buf);
+                        let buf8 = &mut buf[4..];
 
                         // There MUST be 2 bytes of padding between the SDPCM and BDC headers.
                         // And ONLY for data packets!
@@ -805,7 +808,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
 
                         trace!("    {:02x}", Bytes(&buf8[..total_len.min(48)]));
 
-                        let _ = wlan_write(&mut self.bus, &aligned_ref(&buf)[..total_len]).await;
+                        let _ = wlan_write(&mut self.bus, &mut buf.as_mut_aligned()[..4 + total_len]).await;
                         packet.tx_done();
                         self.check_status(&mut buf).await;
                     }
@@ -840,7 +843,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
     }
 
     /// Wait for IRQ on F2 packet available
-    async fn handle_irq(&mut self, buf: &mut [u32; 512]) {
+    async fn handle_irq(&mut self, buf: &mut Aligned<A4, [u8; 4 + 2048]>) {
         match BUS::TYPE {
             BusType::Sdio => {
                 let irq = self
@@ -915,7 +918,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
     }
 
     /// Handle F2 events while status register is set
-    async fn check_status(&mut self, buf: &mut [u32; 512]) {
+    async fn check_status(&mut self, buf: &mut Aligned<A4, [u8; 4 + 2048]>) {
         loop {
             match self.bus.bus_type() {
                 BusType::Spi => {
@@ -924,26 +927,29 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
 
                     if status & STATUS_F2_PKT_AVAILABLE != 0 {
                         let len = (status & STATUS_F2_PKT_LEN_MASK) >> STATUS_F2_PKT_LEN_SHIFT;
-                        if wlan_read(&mut self.bus, &mut aligned_mut(buf)[..len as usize])
+                        if wlan_read(&mut self.bus, &mut buf.as_mut_aligned()[..len as usize])
                             .await
                             .is_err()
                         {
                             debug!("spi wlan_read failed");
                             break;
                         }
-                        trace!("rx {:02x}", Bytes(&slice8_mut(buf)[..(len as usize).min(48)]));
-                        self.rx(&mut slice8_mut(buf)[..len as usize]);
+                        trace!("rx {:02x}", Bytes(&mut buf[..(len as usize).min(48)]));
+                        self.rx(&mut buf[..len as usize]);
                     } else {
                         break;
                     }
                 }
                 BusType::Sdio => {
-                    if wlan_read(&mut self.bus, &mut aligned_mut(&mut buf[..1])).await.is_err() {
+                    if wlan_read(&mut self.bus, &mut buf.as_mut_aligned()[..4]).await.is_err() {
                         debug!("failed to read sdio hwtag");
                         break;
                     }
                     let (len, len_inv) = {
-                        let hwtag = slice16_mut(&mut buf[..1]);
+                        let hwtag = [
+                            u16::from_le_bytes(buf[..2].try_into().unwrap()),
+                            u16::from_le_bytes(buf[2..4].try_into().unwrap()),
+                        ];
 
                         (hwtag[0], hwtag[1])
                     };
@@ -958,7 +964,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                     if len > INITIAL_READ as usize {
                         if self
                             .bus
-                            .wlan_read(&mut aligned_mut(&mut buf[1..])[..len - INITIAL_READ as usize])
+                            .wlan_read(&mut buf.as_mut_aligned()[4..][..len - INITIAL_READ as usize])
                             .await
                             .is_err()
                         {
@@ -972,15 +978,15 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                     }
 
                     if len == SdpcmHeader::SIZE {
-                        let Some((sdpcm_header, _)) = SdpcmHeader::parse(slice8_mut(&mut buf[..3])) else {
+                        let Some((sdpcm_header, _)) = SdpcmHeader::parse(&mut buf[..len]) else {
                             debug!("failed to parse sdpcm header");
                             break;
                         };
 
                         self.update_credit(&sdpcm_header);
                     } else if len > SdpcmHeader::SIZE {
-                        trace!("rx {:02x}", Bytes(&slice8_mut(buf)[..len.min(48)]));
-                        self.rx(&mut slice8_mut(buf)[..len]);
+                        trace!("rx {:02x}", Bytes(&buf[..len.min(48)]));
+                        self.rx(&mut buf[..len]);
                     }
                 }
             }
@@ -1194,8 +1200,15 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         self.sdpcm_seq != self.sdpcm_seq_max && self.sdpcm_seq_max.wrapping_sub(self.sdpcm_seq) & 0x80 == 0
     }
 
-    async fn send_ioctl(&mut self, kind: IoctlType, cmd: Ioctl, iface: u32, data: &[u8], buf: &mut [u32; 512]) {
-        let buf8 = slice8_mut(buf);
+    async fn send_ioctl(
+        &mut self,
+        kind: IoctlType,
+        cmd: Ioctl,
+        iface: u32,
+        data: &[u8],
+        buf: &mut Aligned<A4, [u8; 4 + 2048]>,
+    ) {
+        let buf8 = &mut buf[4..];
 
         let total_len = SdpcmHeader::SIZE + CdcHeader::SIZE + data.len();
 
@@ -1232,6 +1245,6 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         let total_len = (total_len + 3) & !3; // round up to 4byte,
         trace!("    {:02x}", Bytes(&buf8[..total_len.min(48)]));
 
-        let _ = wlan_write(&mut self.bus, &aligned_ref(buf)[..total_len]).await;
+        let _ = wlan_write(&mut self.bus, &mut buf.as_mut_aligned()[..4 + total_len]).await;
     }
 }

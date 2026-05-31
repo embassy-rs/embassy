@@ -17,6 +17,8 @@ use sdio_host::sd::{BusWidth, CID, CSD, CardStatus};
 #[cfg(sdmmc_uhs)]
 use sdio_host::sd_cmd;
 
+#[cfg(sdmmc_dlyb)]
+use crate::dlyb::DlybInstance;
 #[cfg(sdmmc_v1)]
 use crate::dma::ChannelAndRequest;
 #[cfg(sdmmc_uhs)]
@@ -28,7 +30,10 @@ use crate::interrupt::typelevel::Interrupt;
 use crate::pac::sdmmc::Sdmmc as RegBlock;
 use crate::rcc::{self, RccInfo, RccPeripheral, SealedRccPeripheral};
 use crate::time::Hertz;
-use crate::{block_for_us, interrupt, peripherals};
+use crate::wait::block_for_us;
+#[cfg(sdmmc_uhs)]
+use crate::wait::{try_until, wait_for_us};
+use crate::{interrupt, peripherals};
 
 /// Module for SD and EMMC cards
 pub mod sd;
@@ -36,9 +41,12 @@ pub mod sd;
 /// Module for SDIO interface
 pub mod sdio;
 
+#[cfg(sdmmc_dlyb)]
+mod dlyb;
+
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
@@ -412,16 +420,29 @@ const DMA_TRANSFER_OPTIONS: crate::dma::TransferOptions = crate::dma::TransferOp
 ///
 /// Default values:
 /// data_transfer_timeout: 5_000_000
+/// use_cmd23: false
+/// use_acmd23: false
 #[non_exhaustive]
 pub struct Config {
     /// The timeout to be set for data transfers, in card bus clock periods
     pub data_transfer_timeout: u32,
+
+    /// Pre-declare block count via CMD23 before CMD25, skipping CMD12.
+    /// Honored only if the card advertises support; falls back silently
+    /// otherwise (see [`StorageDevice::supports_cmd23`]).
+    pub use_cmd23: bool,
+
+    /// Send ACMD23 (SET_WR_BLK_ERASE_COUNT) before CMD25 as a pre-erase
+    /// hint. Mandatory in SD spec v2+, so honored unconditionally.
+    pub use_acmd23: bool,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             data_transfer_timeout: 5_000_000,
+            use_cmd23: false,
+            use_acmd23: false,
         }
     }
 }
@@ -480,7 +501,20 @@ pub struct Sdmmc<'d> {
     #[cfg(sdmmc_uhs)]
     ckin_pin: Option<Flex<'d>>,
 
+    /// Mutually exclusive with [`feedback_clk`]; the two select different
+    /// `CLKCR.SELCLKRX` values.
+    #[cfg(sdmmc_dlyb)]
+    dlyb_active: bool,
+
+    #[cfg(sdmmc_dlyb)]
+    dlyb_slot: Option<DlybSlot>,
+
     config: Config,
+}
+
+#[cfg(sdmmc_dlyb)]
+struct DlybSlot {
+    regs: crate::pac::dlybsd::Dlybsd,
 }
 
 const CLK_AF: AfType = AfType::output(OutputType::PushPull, Speed::VeryHigh);
@@ -526,6 +560,8 @@ impl<'d> Sdmmc<'d> {
             None,
             #[cfg(sdmmc_uhs)]
             None,
+            #[cfg(sdmmc_dlyb)]
+            None,
             config,
         )
     }
@@ -561,6 +597,8 @@ impl<'d> Sdmmc<'d> {
             #[cfg(sdmmc_uhs)]
             None,
             #[cfg(sdmmc_uhs)]
+            None,
+            #[cfg(sdmmc_dlyb)]
             None,
             config,
         )
@@ -605,6 +643,8 @@ impl<'d> Sdmmc<'d> {
             None,
             #[cfg(sdmmc_uhs)]
             None,
+            #[cfg(sdmmc_dlyb)]
+            None,
             config,
         )
     }
@@ -637,6 +677,8 @@ impl<'d> Sdmmc<'d> {
             None,
             #[cfg(sdmmc_uhs)]
             None,
+            #[cfg(sdmmc_dlyb)]
+            None,
             config,
         )
     }
@@ -668,6 +710,8 @@ impl<'d> Sdmmc<'d> {
             #[cfg(sdmmc_uhs)]
             None,
             #[cfg(sdmmc_uhs)]
+            None,
+            #[cfg(sdmmc_dlyb)]
             None,
             config,
         )
@@ -707,6 +751,8 @@ impl<'d> Sdmmc<'d> {
             #[cfg(sdmmc_uhs)]
             None,
             #[cfg(sdmmc_uhs)]
+            None,
+            #[cfg(sdmmc_dlyb)]
             None,
             config,
         )
@@ -752,6 +798,8 @@ impl<'d> Sdmmc<'d> {
             None,
             Some(vswitch),
             None,
+            #[cfg(sdmmc_dlyb)]
+            None,
             config,
         )
     }
@@ -782,6 +830,8 @@ impl<'d> Sdmmc<'d> {
             None,
             None,
             Some(vswitch),
+            None,
+            #[cfg(sdmmc_dlyb)]
             None,
             config,
         )
@@ -818,6 +868,8 @@ impl<'d> Sdmmc<'d> {
             None,
             Some(vswitch),
             new_pin!(ckin, CKIN_AF),
+            #[cfg(sdmmc_dlyb)]
+            None,
             config,
         )
     }
@@ -850,8 +902,73 @@ impl<'d> Sdmmc<'d> {
             None,
             Some(vswitch),
             new_pin!(ckin, CKIN_AF),
+            #[cfg(sdmmc_dlyb)]
+            None,
             config,
         )
+    }
+}
+
+#[cfg(sdmmc_dlyb)]
+impl<'d> Sdmmc<'d> {
+    /// 4-lane SD with UHS-I vswitch and a DLYB block for RX tap tuning.
+    /// Use on instances where CKIN is not routed (e.g. STM32N6 SDMMC2).
+    pub fn new_4bit_with_vswitch_dlyb<T: Instance, D: DlybInstance<T>>(
+        sdmmc: Peri<'d, T>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        clk: Peri<'d, impl CkPin<T>>,
+        cmd: Peri<'d, impl CmdPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        d2: Peri<'d, impl D2Pin<T>>,
+        d3: Peri<'d, impl D3Pin<T>>,
+        vswitch: Output<'d>,
+        _dlyb: Peri<'d, D>,
+        config: Config,
+    ) -> Self {
+        // DLL is held in reset out of POR; release it so the DLYB can
+        // start lock acquisition once enabled.
+        D::reset_and_enable();
+
+        let slot = DlybSlot { regs: D::regs() };
+        Self::new_inner(
+            sdmmc,
+            new_pin!(clk, CLK_AF).unwrap(),
+            new_pin!(cmd, CMD_AF).unwrap(),
+            new_pin!(d0, DATA_AF).unwrap(),
+            new_pin!(d1, DATA_AF),
+            new_pin!(d2, DATA_AF),
+            new_pin!(d3, DATA_AF),
+            None,
+            None,
+            None,
+            None,
+            Some(vswitch),
+            None,
+            Some(slot),
+            config,
+        )
+    }
+
+    fn set_dlyb_active(&mut self, on: bool) {
+        self.dlyb_active = on;
+    }
+
+    fn dlyb_enable_lock(&mut self) -> Result<(), Error> {
+        let regs = self.dlyb_slot.as_ref().unwrap().regs;
+        dlyb::Dlyb::new(regs).enable_lock()
+    }
+
+    fn dlyb_set_tap(&mut self, tap: u8) -> Result<(), Error> {
+        let regs = self.dlyb_slot.as_ref().unwrap().regs;
+        dlyb::Dlyb::new(regs).set_tap(tap)
+    }
+
+    fn dlyb_disable(&mut self) {
+        if let Some(slot) = self.dlyb_slot.as_ref() {
+            dlyb::Dlyb::new(slot.regs).disable();
+        }
+        self.dlyb_active = false;
     }
 }
 
@@ -887,7 +1004,7 @@ impl Drop for VswitchGuard<'_, '_> {
 impl<'d> Sdmmc<'d> {
     /// True if the driver has switched to UHS-I 1.8V signalling. Always
     /// `false` outside `cfg(sdmmc_uhs)`.
-    pub(crate) fn uhs_active(&self) -> bool {
+    fn uhs_active(&self) -> bool {
         #[cfg(sdmmc_uhs)]
         return self.uhs_active;
         #[cfg(not(sdmmc_uhs))]
@@ -897,7 +1014,7 @@ impl<'d> Sdmmc<'d> {
     /// Set the CKIN feedback-clock sampling flag (`CLKCR.SELCLKRX`).
     /// Caller must follow with a `clkcr_set_clkdiv` to write the bit.
     /// No-op outside `cfg(sdmmc_uhs)`.
-    pub(crate) fn set_feedback_clk(&mut self, on: bool) {
+    fn set_feedback_clk(&mut self, on: bool) {
         #[cfg(sdmmc_uhs)]
         {
             self.feedback_clk = on;
@@ -908,7 +1025,7 @@ impl<'d> Sdmmc<'d> {
 
     /// True if this driver owns a UHS-I level-shifter pin. Always
     /// `false` outside `cfg(sdmmc_uhs)`.
-    pub(crate) fn has_vswitch(&self) -> bool {
+    fn has_vswitch(&self) -> bool {
         #[cfg(sdmmc_uhs)]
         return self.vswitch_pin.is_some();
         #[cfg(not(sdmmc_uhs))]
@@ -917,10 +1034,17 @@ impl<'d> Sdmmc<'d> {
 
     /// True if this driver owns a CKIN feedback-clock pin (gate for the
     /// SDR50 negotiation path). Always `false` outside `cfg(sdmmc_uhs)`.
-    pub(crate) fn has_ckin(&self) -> bool {
+    fn has_ckin(&self) -> bool {
         #[cfg(sdmmc_uhs)]
         return self.ckin_pin.is_some();
         #[cfg(not(sdmmc_uhs))]
+        return false;
+    }
+
+    fn has_dlyb(&self) -> bool {
+        #[cfg(sdmmc_dlyb)]
+        return self.dlyb_slot.is_some();
+        #[cfg(not(sdmmc_dlyb))]
         return false;
     }
 
@@ -928,7 +1052,7 @@ impl<'d> Sdmmc<'d> {
     /// `CLKCR` bits. Called by `acquire()` so that re-init after a card
     /// swap starts from a known 3.3V / SDR12 state. No-op outside
     /// `cfg(sdmmc_uhs)`.
-    pub(crate) fn reset_uhs_state(&mut self) {
+    fn reset_uhs_state(&mut self) {
         #[cfg(sdmmc_uhs)]
         {
             if self.uhs_active {
@@ -942,6 +1066,14 @@ impl<'d> Sdmmc<'d> {
             });
             self.uhs_active = false;
             self.feedback_clk = false;
+        }
+        #[cfg(sdmmc_dlyb)]
+        {
+            if let Some(slot) = self.dlyb_slot.as_ref() {
+                let mut d = dlyb::Dlyb::new(slot.regs);
+                d.disable();
+            }
+            self.dlyb_active = false;
         }
     }
 
@@ -977,6 +1109,7 @@ impl<'d> Sdmmc<'d> {
         d7: Option<Flex<'d>>,
         #[cfg(sdmmc_uhs)] vswitch_pin: Option<Output<'d>>,
         #[cfg(sdmmc_uhs)] ckin_pin: Option<Flex<'d>>,
+        #[cfg(sdmmc_dlyb)] dlyb_slot: Option<DlybSlot>,
         config: Config,
     ) -> Self {
         rcc::enable_and_reset::<T>();
@@ -1033,6 +1166,11 @@ impl<'d> Sdmmc<'d> {
             feedback_clk: false,
             #[cfg(sdmmc_uhs)]
             ckin_pin,
+
+            #[cfg(sdmmc_dlyb)]
+            dlyb_active: false,
+            #[cfg(sdmmc_dlyb)]
+            dlyb_slot,
 
             config,
         }
@@ -1272,6 +1410,8 @@ impl<'d> Sdmmc<'d> {
         let self_uhs_active = self.uhs_active;
         #[cfg(sdmmc_uhs)]
         let self_feedback_clk = self.feedback_clk;
+        #[cfg(sdmmc_dlyb)]
+        let self_dlyb_active = self.dlyb_active;
         regs.clkcr().modify(|w| {
             w.set_clkdiv(clkdiv);
             #[cfg(sdmmc_v1)]
@@ -1288,11 +1428,17 @@ impl<'d> Sdmmc<'d> {
                 w.set_busspeed(true);
             }
             // selclkrx = 1 selects CKIN feedback-clock sampling, which
-            // is required for SDR50 (>50 MHz at 1.8V). For lower modes
-            // we leave selclkrx at 0 (use SDMMC_CK directly).
+            // is required for SDR50 (>50 MHz at 1.8V). selclkrx = 2
+            // selects DLYB output (used on chips/instances without
+            // CKIN). For lower modes we leave selclkrx at 0
+            // (use SDMMC_CK directly).
             #[cfg(sdmmc_uhs)]
             if self_feedback_clk {
                 w.set_selclkrx(1);
+            }
+            #[cfg(sdmmc_dlyb)]
+            if self_dlyb_active {
+                w.set_selclkrx(2);
             }
         });
 
@@ -1305,17 +1451,13 @@ impl<'d> Sdmmc<'d> {
     #[cfg(sdmmc_uhs)]
     async fn wait_status_flag(
         &self,
-        timeout: embassy_time::Duration,
+        micros: u64,
         check: impl Fn(crate::pac::sdmmc::regs::Star) -> bool,
     ) -> Result<(), Error> {
         let regs = self.info.regs;
-        embassy_time::with_timeout(timeout, async {
-            while !check(regs.star().read()) {
-                embassy_time::Timer::after(embassy_time::Duration::from_micros(100)).await;
-            }
-        })
-        .await
-        .map_err(|_| Error::VoltageSwitchFailed)
+        try_until(async || check(regs.star().read()), micros)
+            .await
+            .map_err(|_| Error::VoltageSwitchFailed)
     }
 
     /// Run the UHS-I voltage-switch (CMD11) handshake against the card,
@@ -1334,14 +1476,12 @@ impl<'d> Sdmmc<'d> {
     /// shifter restored to 3.3V so the caller can retry without UHS.
     #[cfg(sdmmc_uhs)]
     async fn voltage_switch(&mut self) -> Result<(), Error> {
-        use embassy_time::Duration;
-
         // CKSTOP fires within microseconds of the CMD11 R1 ack at
         // 400 kHz; a 50 ms ceiling is generous.
-        const CKSTOP_TIMEOUT: Duration = Duration::from_millis(50);
+        const CKSTOP_TIMEOUT: u64 = 50_000;
         // VSWEND fires after the hardware-managed 5 ms clock-low hold
         // plus the 1 ms post-restart sampling window — ~6 ms typical.
-        const VSWEND_TIMEOUT: Duration = Duration::from_millis(50);
+        const VSWEND_TIMEOUT: u64 = 50_000;
 
         let regs = self.info.regs;
 
@@ -1419,7 +1559,8 @@ impl<'d> Sdmmc<'d> {
         //    busspeed; empirically the very next CPSM command hangs
         //    without a short delay. 1 ms is well above the internal
         //    resync window.
-        embassy_time::Timer::after(Duration::from_millis(1)).await;
+        wait_for_us(1_000).await;
+
         Ok(())
     }
 

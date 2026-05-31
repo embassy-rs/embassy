@@ -40,12 +40,6 @@ embedded-storage = { version = "0.3" }
 static_cell = "2"
 portable-atomic = { version = "1.5", features = ["critical-section"] }
 
-# bootsel not currently supported on 2350
-[[bin]]
-name = "bootsel"
-path = "src/bin/bootsel.rs"
-required-features = [ "rp2040",]
-
 # 2350 devboard isn't a W
 [[bin]]
 name = "cyw43-perf"

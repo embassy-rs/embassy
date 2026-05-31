@@ -1,16 +1,18 @@
 use stm32_metapac::pwr::vals::{
     Vddio2rdy, Vddio2sv, Vddio2vrsel, Vddio3rdy, Vddio3sv, Vddio3vrsel, Vddio4sv, Vddio5sv,
 };
-use stm32_metapac::rcc::vals::{Cpusw, Cpusws, Hseext, Hsitrim, Msifreqsel, Pllmodssdis, Syssw, Syssws, Timpre};
+use stm32_metapac::rcc::vals::{
+    Cpusw, Cpusws, Hseext, Hsitrim, Msifreqsel, Persel, Pllmodssdis, Syssw, Syssws, Timpre,
+};
 pub use stm32_metapac::rcc::vals::{
     Hpre as AhbPrescaler, Hsidiv as HsiPrescaler, Hsitrim as HsiCalibration, Icint, Icsel, Plldivm, Pllpdiv, Pllsel,
     Ppre as ApbPrescaler, Xspisel as XspiClkSrc,
 };
-use stm32_metapac::syscfg::vals::{Vddio2cccrEn, Vddio3cccrEn, Vddio4cccrEn};
+use stm32_metapac::syscfg::vals::{Vddio2cccrCs, Vddio3cccrCs, Vddio4cccrCs};
 
 use crate::pac::{GPDMA1, HPDMA1, PWR, RCC, RIFSC, RISAF3, SYSCFG};
+use crate::rcc::LSI_FREQ;
 use crate::time::Hertz;
-
 pub const HSI_FREQ: Hertz = Hertz(64_000_000);
 pub const LSE_FREQ: Hertz = Hertz(32_768);
 
@@ -121,11 +123,11 @@ pub struct Config {
     pub hsi: Option<Hsi>,
     pub hse: Option<Hse>,
     pub msi: Option<Msi>,
-    pub lsi: bool,
-    pub lse: bool,
+    pub ls: super::LsConfig,
 
     pub cpu: CpuClk,
     pub sys: SysClk,
+    pub per: Persel,
 
     pub pll1: Option<Pll>,
     pub pll2: Option<Pll>,
@@ -181,11 +183,11 @@ impl Config {
             }),
             hse: None,
             msi: None,
-            lsi: true,
-            lse: false,
+            ls: crate::rcc::LsConfig::new(),
 
             cpu: CpuClk::Hsi,
             sys: SysClk::Hsi,
+            per: Persel::Hsi,
 
             pll1: Some(Pll::Bypass { source: Pllsel::Hsi }),
             pll2: Some(Pll::Bypass { source: Pllsel::Hsi }),
@@ -233,6 +235,7 @@ impl Config {
 struct ClocksOutput {
     cpuclk: Hertz,
     sysclk: Hertz,
+    perclk: Hertz,
     pclk_tim: Hertz,
     ahb: Hertz,
     apb1: Hertz,
@@ -409,6 +412,17 @@ fn init_clocks(config: Config, input: &ClocksInput) -> ClocksOutput {
         SysClk::Ic2 => unwrap!(input.ic2),
     };
 
+    let perclk = match config.per {
+        Persel::Hsi => unwrap!(input.hsi),
+        Persel::Msi => unwrap!(input.msi),
+        Persel::Hse => unwrap!(input.hse),
+        Persel::Ic19 => unwrap!(input.ic19),
+        Persel::Ic5 => unwrap!(input.ic5),
+        Persel::Ic10 => unwrap!(input.ic10),
+        Persel::Ic15 => unwrap!(input.ic15),
+        Persel::Ic20 => unwrap!(input.ic20),
+    };
+
     let timpre: u32 = match RCC.cfgr2().read().timpre() {
         Timpre::Div1 => 1,
         Timpre::Div2 => 2,
@@ -433,6 +447,7 @@ fn init_clocks(config: Config, input: &ClocksInput) -> ClocksOutput {
     ClocksOutput {
         cpuclk,
         sysclk,
+        perclk,
         pclk_tim: sysclk / timpre,
         ahb: Hertz(sysclk.0 / hpre as u32),
         apb1: sysclk / hpre / ppre1,
@@ -695,6 +710,54 @@ fn disable_pll(pll_index: usize) {
     cfgr1.modify(|w| w.set_pllbyp(false));
 }
 
+fn pll_output(pll_config: Option<Pll>, input: &PllInput) -> PllOutput {
+    match pll_config {
+        Some(Pll::Oscillator {
+            source,
+            divm,
+            fractional: _,
+            divn,
+            divp1,
+            divp2,
+        }) => {
+            let in_clk = match source {
+                Pllsel::Hsi => unwrap!(input.hsi),
+                Pllsel::Msi => unwrap!(input.msi),
+                Pllsel::Hse => unwrap!(input.hse),
+                Pllsel::I2sCkin => unwrap!(input.i2s_ckin),
+                _ => panic!("reserved PLL source not allowed"),
+            };
+            let m = divm.to_bits() as u32;
+            let n = divn as u32;
+            let p1 = divp1.to_bits() as u32;
+            let p2 = divp2.to_bits() as u32;
+
+            PllOutput {
+                divm: Some(Hertz(m)),
+                divn: Some(Hertz(n)),
+                divp1: Some(Hertz(p1)),
+                divp2: Some(Hertz(p2)),
+                output: Some(Hertz(in_clk.0 / m * n / p1 / p2)),
+            }
+        }
+        Some(Pll::Bypass { source }) => {
+            let in_clk = match source {
+                Pllsel::Hsi => unwrap!(input.hsi),
+                Pllsel::Msi => unwrap!(input.msi),
+                Pllsel::Hse => unwrap!(input.hse),
+                Pllsel::I2sCkin => unwrap!(input.i2s_ckin),
+                _ => panic!("reserved PLL source not allowed"),
+            };
+
+            PllOutput {
+                output: Some(in_clk),
+                ..Default::default()
+            }
+        }
+        None => PllOutput::default(),
+    }
+}
+
 fn init_pll(pll_config: Option<Pll>, pll_index: usize, input: &PllInput) -> PllOutput {
     let cfgr1 = RCC.pllcfgr1(pll_index);
     let cfgr2 = RCC.pllcfgr2(pll_index);
@@ -726,24 +789,10 @@ fn init_pll(pll_config: Option<Pll>, pll_index: usize, input: &PllInput) -> PllO
                 w.set_plldivn(divn);
             });
 
-            let in_clk = match source {
-                Pllsel::Hsi => unwrap!(input.hsi),
-                Pllsel::Msi => unwrap!(input.msi),
-                Pllsel::Hse => unwrap!(input.hse),
-                Pllsel::I2sCkin => unwrap!(input.i2s_ckin),
-                _ => panic!("reserved PLL source not allowed"),
-            };
-
-            let m = divm.to_bits() as u32;
-            let n = divn as u32;
-
             cfgr3.modify(|w| {
                 w.set_pllpdiv1(divp1);
                 w.set_pllpdiv2(divp2);
             });
-
-            let p1 = divp1.to_bits() as u32;
-            let p2 = divp2.to_bits() as u32;
 
             // configure pll divnfrac
             cfgr2.modify(|w| w.set_plldivnfrac(fractional));
@@ -769,13 +818,7 @@ fn init_pll(pll_config: Option<Pll>, pll_index: usize, input: &PllInput) -> PllO
             while !RCC.sr().read().pllrdy(pll_index) {}
             debug!("PLL{}: ready", pll_index + 1);
 
-            PllOutput {
-                divm: Some(Hertz(m)),
-                divn: Some(Hertz(n)),
-                divp1: Some(Hertz(p1)),
-                divp2: Some(Hertz(p2)),
-                output: Some(Hertz(in_clk.0 / m * n / p1)),
-            }
+            pll_output(pll_config, input)
         }
         Some(Pll::Bypass { source }) => {
             // check if source is ready
@@ -792,18 +835,7 @@ fn init_pll(pll_config: Option<Pll>, pll_index: usize, input: &PllInput) -> PllO
                 w.set_pllsel(source);
             });
 
-            let in_clk = match source {
-                Pllsel::Hsi => unwrap!(input.hsi),
-                Pllsel::Msi => unwrap!(input.msi),
-                Pllsel::Hse => unwrap!(input.hse),
-                Pllsel::I2sCkin => unwrap!(input.i2s_ckin),
-                _ => panic!("reserved PLL source not allowed"),
-            };
-
-            PllOutput {
-                output: Some(in_clk),
-                ..Default::default()
-            }
+            pll_output(pll_config, input)
         }
         None => {
             disable_pll(pll_index);
@@ -820,9 +852,11 @@ struct OscOutput {
     /// HSI block, equal to `hsi_ck / HSIDIV`. Present whenever HSI is on.
     hsi_div: Option<Hertz>,
     hse: Option<Hertz>,
+    hse_rtc: Option<Hertz>,
     msi: Option<Hertz>,
     lsi: Option<Hertz>,
     lse: Option<Hertz>,
+    rtc: Option<Hertz>,
     pll1: Option<Hertz>,
     pll2: Option<Hertz>,
     pll3: Option<Hertz>,
@@ -897,6 +931,8 @@ fn init_osc(config: Config) -> OscOutput {
 
         None
     };
+    // hse rtc configuration
+    let hse_rtc = hse.map(|freq| freq / (RCC.ccipr7().read().rtcpre().to_bits() + 1));
 
     // hsi configuration
     //
@@ -970,29 +1006,14 @@ fn init_osc(config: Config) -> OscOutput {
         None
     };
 
-    // lsi configuration
-    debug!("configuring LSI");
-    let lsi = if config.lsi {
-        RCC.csr().write(|w| w.set_lsions(true));
-        while !RCC.sr().read().lsirdy() {}
-        Some(super::LSI_FREQ)
-    } else {
-        RCC.ccr().write(|w| w.set_lsionc(true));
-        while RCC.sr().read().lsirdy() {}
-        None
-    };
-
+    // rtc configuration
+    let rtc = config.ls.init();
     // lse configuration
     debug!("configuring LSE");
-    let lse = if config.lse {
-        RCC.csr().write(|w| w.set_lseons(true));
-        while !RCC.sr().read().lserdy() {}
-        Some(LSE_FREQ)
-    } else {
-        RCC.ccr().write(|w| w.set_lseonc(true));
-        while RCC.sr().read().lserdy() {}
-        None
-    };
+    let lse = config.ls.lse.map(|l| l.frequency);
+    // lsi configuration
+    debug!("configuring LSI");
+    let lsi = config.ls.lsi.then_some(LSI_FREQ);
 
     let pll_input = PllInput {
         hse,
@@ -1062,9 +1083,13 @@ fn init_osc(config: Config) -> OscOutput {
                 },
                 |c| init_pll(Some(c), n, &pll_input),
             );
-        } else if pll.is_some() && !pll_ready {
-            RCC.csr().write(|w| w.set_pllons(n, true));
-            while !RCC.sr().read().pllrdy(n) {}
+        } else if pll.is_some() {
+            // Config matches current register state.
+            *out = pll_output(pll, &pll_input);
+            if !pll_ready {
+                RCC.csr().write(|w| w.set_pllons(n, true));
+                while !RCC.sr().read().pllrdy(n) {}
+            }
         }
     }
 
@@ -1072,9 +1097,11 @@ fn init_osc(config: Config) -> OscOutput {
         hsi,
         hsi_div,
         hse,
+        hse_rtc,
         msi,
         lsi,
         lse,
+        rtc,
         pll1: pll_outputs[0].output,
         pll2: pll_outputs[1].output,
         pll3: pll_outputs[2].output,
@@ -1247,21 +1274,21 @@ pub(crate) unsafe fn init(config: Config) {
         // SYSCFG is already enabled earlier in init
 
         // Set compensation cell values (0x287 = ST's recommended value)
-        // ransrc=7 (bits 0-3), rapsrc=8 (bits 4-7), en=1 (bit 8)
+        // ransrc=7 (bits 0-3), rapsrc=8 (bits 4-7), cs=1 (bit 9)
         SYSCFG.vddio2cccr().write(|w| {
             w.set_ransrc(0x7);
             w.set_rapsrc(0x8);
-            w.set_en(Vddio2cccrEn::B0x1);
+            w.set_cs(Vddio2cccrCs::B0x1);
         });
         SYSCFG.vddio3cccr().write(|w| {
             w.set_ransrc(0x7);
             w.set_rapsrc(0x8);
-            w.set_en(Vddio3cccrEn::B0x1);
+            w.set_cs(Vddio3cccrCs::B0x1);
         });
         SYSCFG.vddio4cccr().write(|w| {
             w.set_ransrc(0x7);
             w.set_rapsrc(0x8);
-            w.set_en(Vddio4cccrEn::B0x1);
+            w.set_cs(Vddio4cccrCs::B0x1);
         });
     }
 
@@ -1337,7 +1364,9 @@ pub(crate) unsafe fn init(config: Config) {
         hsi: clock_inputs.hsi,
         hsi_div: clock_inputs.hsi_div,
         hse: clock_inputs.hse,
+        hse_rtc: osc.hse_rtc,
         msi: clock_inputs.msi,
+        lsi: osc.lsi,
         lse: None,
         hclk1: Some(clocks.ahb),
         hclk2: Some(clocks.ahb),
@@ -1355,8 +1384,8 @@ pub(crate) unsafe fn init(config: Config) {
         pclk2_tim: Some(clocks.pclk_tim),
         pclk4: Some(clocks.apb4),
         pclk5: Some(clocks.apb5),
-        per: None,
-        rtc: None,
+        per: Some(clocks.perclk),
+        rtc: osc.rtc,
         i2s_ckin: None,
         ic1: clock_inputs.ic1,
         ic2: clock_inputs.ic2,

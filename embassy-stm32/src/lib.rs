@@ -17,7 +17,9 @@ include!(concat!(env!("OUT_DIR"), "/_macros.rs"));
 
 // Utilities
 mod macros;
+mod reg;
 pub mod time;
+mod wait;
 /// Operating modes for peripherals.
 pub mod mode {
     trait SealedMode {}
@@ -92,6 +94,8 @@ pub mod dac;
 pub mod dcmi;
 #[cfg(dcmipp)]
 pub mod dcmipp;
+#[cfg(dlybsd)]
+pub mod dlyb;
 #[cfg(dma2d)]
 pub mod dma2d;
 #[cfg(dsihost)]
@@ -870,10 +874,4 @@ fn init_hw(config: Config) -> Peripherals {
 
         p
     })
-}
-
-/// Performs a busy-wait delay for a specified number of microseconds.
-#[allow(unused)]
-pub(crate) fn block_for_us(us: u64) {
-    cortex_m::asm::delay(unsafe { rcc::get_freqs().sys.to_hertz().unwrap().0 as u64 * us / 1_000_000 } as u32);
 }

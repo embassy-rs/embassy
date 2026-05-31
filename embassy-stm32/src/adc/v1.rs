@@ -5,10 +5,10 @@ use stm32_metapac::adc::vals::Ckmode;
 use stm32_metapac::adc::vals::Scandir;
 
 #[cfg(not(adc_l0))]
-use super::Vbat;
-use super::{Temperature, VrefInt, blocking_delay_us};
-use crate::adc::{Adc, AdcRegs, ConversionMode, DefaultInstance, Resolution, SampleTime};
+use crate::adc::Vbat;
+use crate::adc::{Adc, AdcRegs, ConversionMode, DefaultInstance, Resolution, SampleTime, Temperature, VrefInt};
 use crate::interrupt::typelevel::Interrupt;
+use crate::wait::block_for_us;
 use crate::{Peri, interrupt, rcc};
 
 mod watchdog_v1;
@@ -19,7 +19,7 @@ pub const VREF_INT: u32 = 1230;
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: DefaultInstance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: DefaultInstance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
@@ -202,7 +202,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         //
         // Table 57. ADC characteristics
         // tstab = 14 * 1/fadc
-        blocking_delay_us(1);
+        block_for_us(1);
 
         // set default PCKL/2 on L0s because HSI is disabled in the default clock config
         #[cfg(adc_l0)]
@@ -268,7 +268,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         // Table 28. Embedded internal reference voltage
         // tstart = 10μs
         T::regs().ccr().modify(|reg| reg.set_vrefen(true));
-        blocking_delay_us(10);
+        block_for_us(10);
         VrefInt
     }
 
@@ -279,7 +279,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         // tstart ≤ 10μs
         // ts_temp ≥ 4μs
         T::regs().ccr().modify(|reg| reg.set_tsen(true));
-        blocking_delay_us(10);
+        block_for_us(10);
         Temperature
     }
 

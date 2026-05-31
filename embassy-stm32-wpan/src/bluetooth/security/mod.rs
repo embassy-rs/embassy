@@ -31,6 +31,9 @@ type tBleStatus = u8;
 
 #[link(name = "stm32wba_ble_stack_basic")]
 unsafe extern "C" {
+    #[link_name = "ACI_GAP_SET_IO_CAPABILITY"]
+    fn aci_gap_set_io_capability(io_capability: u8) -> tBleStatus;
+
     #[link_name = "ACI_GAP_SET_AUTHENTICATION_REQUIREMENT"]
     fn aci_gap_set_authentication_requirement(
         bonding_mode: u8,
@@ -50,11 +53,14 @@ unsafe extern "C" {
     #[link_name = "ACI_GAP_NUMERIC_COMPARISON_VALUE_CONFIRM_YESNO"]
     fn aci_gap_numeric_comparison_value_confirm_yesno(connection_handle: u16, confirm_yes_no: u8) -> tBleStatus;
 
+    #[link_name = "ACI_GAP_PERIPHERAL_SECURITY_REQ"]
+    fn aci_gap_peripheral_security_req(connection_handle: u16) -> tBleStatus;
+
     #[link_name = "ACI_GAP_ALLOW_REBOND"]
     fn aci_gap_allow_rebond(connection_handle: u16) -> tBleStatus;
 
-    #[link_name = "ACI_GAP_CLEAR_SECURITY_DATABASE"]
-    fn aci_gap_clear_security_database() -> tBleStatus;
+    #[link_name = "ACI_GAP_CLEAR_SECURITY_DB"]
+    fn aci_gap_clear_security_db() -> tBleStatus;
 
     #[link_name = "ACI_GAP_REMOVE_BONDED_DEVICE"]
     fn aci_gap_remove_bonded_device(peer_identity_address_type: u8, peer_identity_address: *const u8) -> tBleStatus;
@@ -67,7 +73,55 @@ unsafe extern "C" {
 
     #[link_name = "HCI_LE_SET_RESOLVABLE_PRIVATE_ADDRESS_TIMEOUT"]
     fn hci_le_set_resolvable_private_address_timeout(timeout: u16) -> tBleStatus;
+
+    #[link_name = "ACI_GAP_GET_BONDED_DEVICES"]
+    fn aci_gap_get_bonded_devices(num_of_addresses: *mut u8, bonded_device_entry: *mut BondedDeviceEntry)
+    -> tBleStatus;
+
+    #[link_name = "ACI_GAP_ADD_DEVICES_TO_LIST"]
+    fn aci_gap_add_devices_to_list(num_of_list_entries: u8, list_entry: *const ListEntry, mode: u8) -> tBleStatus;
+
+    #[link_name = "ACI_GAP_CONFIGURE_FILTER_ACCEPT_LIST"]
+    fn aci_gap_configure_filter_accept_list() -> tBleStatus;
+
+    #[link_name = "HCI_LE_SET_PRIVACY_MODE"]
+    fn hci_le_set_privacy_mode(
+        peer_identity_address_type: u8,
+        peer_identity_address: *const u8,
+        privacy_mode: u8,
+    ) -> tBleStatus;
+
+    // Diagnostic-only readers, behind the defmt feature so they don't trip dead-code-lints
+    // when log_resolving_list_diagnostics is compiled out.
+    #[cfg(feature = "defmt")]
+    #[link_name = "HCI_LE_READ_RESOLVING_LIST_SIZE"]
+    fn hci_le_read_resolving_list_size(resolving_list_size: *mut u8) -> tBleStatus;
+
+    #[cfg(feature = "defmt")]
+    #[link_name = "HCI_LE_READ_PEER_RESOLVABLE_ADDRESS"]
+    fn hci_le_read_peer_resolvable_address(
+        peer_identity_address_type: u8,
+        peer_identity_address: *const u8,
+        peer_resolvable_address: *mut u8,
+    ) -> tBleStatus;
+
+    #[cfg(feature = "defmt")]
+    #[link_name = "HCI_LE_READ_LOCAL_RESOLVABLE_ADDRESS"]
+    fn hci_le_read_local_resolvable_address(
+        peer_identity_address_type: u8,
+        peer_identity_address: *const u8,
+        local_resolvable_address: *mut u8,
+    ) -> tBleStatus;
 }
+
+// Matches `Bonded_Device_Entry_t` / `List_Entry_t` in the ST headers (packed: 7 bytes).
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+struct BondedDeviceEntry {
+    address_type: u8,
+    address: [u8; 6],
+}
+type ListEntry = BondedDeviceEntry;
 
 const BLE_STATUS_SUCCESS: u8 = 0x00;
 
@@ -149,6 +203,14 @@ pub struct SecurityParams {
     pub fixed_pin: u32,
     /// Identity address type
     pub identity_address_type: IdentityAddressType,
+    /// IO capability.
+    ///
+    /// Must match what the device can actually do. Determines which pairing
+    /// method the stack selects. If `mitm_protection` is `true`, this must be
+    /// something other than `NoInputNoOutput`; otherwise pairing always fails
+    /// with `AuthRequirements` because "Just Works" (the only method available
+    /// for NoInputNoOutput) provides no MITM protection.
+    pub io_capability: IoCapability,
 }
 
 impl Default for SecurityParams {
@@ -163,6 +225,7 @@ impl Default for SecurityParams {
             use_fixed_pin: false,
             fixed_pin: 0,
             identity_address_type: IdentityAddressType::Public,
+            io_capability: IoCapability::NoInputNoOutput,
         }
     }
 }
@@ -221,48 +284,43 @@ impl SecurityParams {
         self
     }
 
+    /// Set IO capability.
+    ///
+    /// Determines which pairing method the BLE stack selects. When
+    /// `mitm_protection` is enabled, use anything other than
+    /// `NoInputNoOutput`; otherwise the stack can only do "Just Works"
+    /// and pairing will fail with `AuthRequirements`.
+    pub fn with_io_capability(mut self, cap: IoCapability) -> Self {
+        self.io_capability = cap;
+        self
+    }
+
     /// Preset for "Just Works" pairing (no MITM protection)
     pub fn just_works() -> Self {
         Self {
-            bonding_mode: BondingMode::Bonding,
-            mitm_protection: false,
-            secure_connections: SecureConnectionsSupport::Optional,
-            keypress_notification: false,
-            min_encryption_key_size: 7,
-            max_encryption_key_size: 16,
-            use_fixed_pin: false,
-            fixed_pin: 0,
-            identity_address_type: IdentityAddressType::Public,
+            io_capability: IoCapability::NoInputNoOutput,
+            ..Self::default()
         }
     }
 
-    /// Preset for passkey entry pairing
+    /// Preset for passkey entry pairing (device displays passkey, peer enters it)
     pub fn passkey_entry() -> Self {
         Self {
-            bonding_mode: BondingMode::Bonding,
             mitm_protection: true,
-            secure_connections: SecureConnectionsSupport::Optional,
-            keypress_notification: false,
-            min_encryption_key_size: 7,
-            max_encryption_key_size: 16,
-            use_fixed_pin: false,
-            fixed_pin: 0,
-            identity_address_type: IdentityAddressType::Public,
+            io_capability: IoCapability::DisplayOnly,
+            ..Self::default()
         }
     }
 
     /// Preset for secure connections with numeric comparison
     pub fn secure_numeric_comparison() -> Self {
         Self {
-            bonding_mode: BondingMode::Bonding,
             mitm_protection: true,
             secure_connections: SecureConnectionsSupport::Required,
-            keypress_notification: false,
             min_encryption_key_size: 16,
             max_encryption_key_size: 16,
-            use_fixed_pin: false,
-            fixed_pin: 0,
-            identity_address_type: IdentityAddressType::Public,
+            io_capability: IoCapability::DisplayYesNo,
+            ..Self::default()
         }
     }
 }
@@ -396,6 +454,13 @@ impl SecurityManager {
     /// Must be called before connections are established.
     pub fn set_authentication_requirements(&mut self, params: SecurityParams) -> Result<(), BleError> {
         unsafe {
+            // IO capability determines the pairing method. Must be set before
+            // the authentication requirement so the stack uses the right method.
+            let io_status = aci_gap_set_io_capability(params.io_capability as u8);
+            if io_status != BLE_STATUS_SUCCESS {
+                return Err(BleError::CommandFailed(Status::from_u8(io_status)));
+            }
+
             let status = aci_gap_set_authentication_requirement(
                 params.bonding_mode as u8,
                 params.mitm_protection as u8,
@@ -453,6 +518,24 @@ impl SecurityManager {
         }
     }
 
+    /// Request pairing/encryption from the peripheral side.
+    ///
+    /// Sends an SMP Security Request to the central. Call this immediately
+    /// after connection when the device has security requirements, rather than
+    /// waiting for the central to trigger pairing via an insufficient-security
+    /// GATT error. Matches ST's recommended pattern (aci_gap_slave_security_req
+    /// in BLE_HeartRate).
+    pub fn request_pairing(&self, conn_handle: u16) -> Result<(), BleError> {
+        unsafe {
+            let status = aci_gap_peripheral_security_req(conn_handle);
+            if status == BLE_STATUS_SUCCESS {
+                Ok(())
+            } else {
+                Err(BleError::CommandFailed(Status::from_u8(status)))
+            }
+        }
+    }
+
     /// Allow rebonding after receiving BondLost event
     ///
     /// Call this when you receive a `SecurityEvent::BondLost` to allow
@@ -474,7 +557,7 @@ impl SecurityManager {
     /// This removes all stored bonds. Use with caution.
     pub fn clear_security_database(&self) -> Result<(), BleError> {
         unsafe {
-            let status = aci_gap_clear_security_database();
+            let status = aci_gap_clear_security_db();
 
             if status == BLE_STATUS_SUCCESS {
                 Ok(())
@@ -541,6 +624,339 @@ impl SecurityManager {
             }
         }
     }
+
+    /// Populate the controller's resolving list with bonded peer identities so
+    /// that reconnections from RPA-using peers (e.g. iOS) can be recognised as
+    /// the bonded peer.
+    ///
+    /// Without this, `set_address_resolution_enable(true)` only enables resolution
+    /// in the controller — there are no IRKs to resolve against. Incoming
+    /// `LL_ENC_REQ` from a bonded peer will fail with "SMP unexpected LTK request"
+    /// because the host cannot match an LTK to the unresolved peer identity.
+    ///
+    /// Uses mode 0x01 (clear and set the **resolving list only**, leaving the
+    /// Filter Accept List untouched), so it is idempotent and won't interfere
+    /// with `aci_gap_set_discoverable` advertising. Safe to call repeatedly,
+    /// e.g. after every disconnect before re-advertising.
+    ///
+    /// Must NOT be called while advertising, scanning, or connecting are active
+    /// when address resolution is enabled (Core Spec restriction). Returns the
+    /// number of bonded devices restored to the resolving list.
+    pub fn populate_resolving_list_from_bonds(&self) -> Result<usize, BleError> {
+        const MAX_BONDED: usize = 16;
+        let mut entries = [BondedDeviceEntry {
+            address_type: 0,
+            address: [0; 6],
+        }; MAX_BONDED];
+        let mut num: u8 = 0;
+
+        unsafe {
+            let status = aci_gap_get_bonded_devices(&mut num, entries.as_mut_ptr());
+            if status != BLE_STATUS_SUCCESS {
+                return Err(BleError::CommandFailed(Status::from_u8(status)));
+            }
+
+            if num == 0 {
+                return Ok(0);
+            }
+
+            let count = (num as usize).min(MAX_BONDED) as u8;
+            // mode 0x01 = clear and set the resolving list only
+            let status = aci_gap_add_devices_to_list(count, entries.as_ptr() as *const ListEntry, 0x01);
+            if status != BLE_STATUS_SUCCESS {
+                return Err(BleError::CommandFailed(Status::from_u8(status)));
+            }
+
+            Ok(count as usize)
+        }
+    }
+
+    /// Populate the controller's Filter Accept List with all bonded devices'
+    /// identity addresses (clears it first). This is the maintained ST pattern
+    /// from `BLE_p2pServer` for restoring bond-based filtering on boot.
+    ///
+    /// For LE Legacy bonded reconnect, the controller looks up the LTK by the
+    /// EDIV/RAND values in `LL_ENC_REQ`, so populating the Filter Accept List
+    /// here lets the controller recognise the bonded peer at the LL layer
+    /// without needing RPA resolution at the host level.
+    ///
+    /// Must NOT be called while advertising/scanning/initiating is active.
+    pub fn configure_filter_accept_list(&self) -> Result<(), BleError> {
+        unsafe {
+            let status = aci_gap_configure_filter_accept_list();
+            if status == BLE_STATUS_SUCCESS {
+                Ok(())
+            } else {
+                Err(BleError::CommandFailed(Status::from_u8(status)))
+            }
+        }
+    }
+
+    /// Clear and repopulate both the Filter Accept List and resolving list from
+    /// bonded devices (`aci_gap_add_devices_to_list` mode `0x04` = append both).
+    ///
+    /// Matches ST `BLE_Privacy_Peripheral` `configure_filter_and_resolving_list()`.
+    /// The stack looks up peer IRKs from the bond database for each identity
+    /// address in `List_Entry`.
+    ///
+    /// Must NOT be called while advertising, scanning, or initiating is active.
+    pub fn configure_filter_and_resolving_list(&self) -> Result<usize, BleError> {
+        // ST reference BLE_Privacy_Peripheral uses mode 0x04 (append). Mode 0x05 (clear+set)
+        // appears to leave peer_irk=0 on the basic stack.
+        const GAP_ADD_DEV_MODE_CLEAR_BOTH_LISTS: u8 = 0x04;
+
+        const MAX_BONDED: usize = 16;
+        let mut entries = [BondedDeviceEntry {
+            address_type: 0,
+            address: [0; 6],
+        }; MAX_BONDED];
+        let mut num: u8 = 0;
+
+        unsafe {
+            let status = aci_gap_get_bonded_devices(&mut num, entries.as_mut_ptr());
+            if status != BLE_STATUS_SUCCESS {
+                return Err(BleError::CommandFailed(Status::from_u8(status)));
+            }
+
+            if num == 0 {
+                return Ok(0);
+            }
+
+            let count = (num as usize).min(MAX_BONDED) as u8;
+
+            // Enable resolution before programming the list (ST privacy peripheral order).
+            let status = hci_le_set_address_resolution_enable(1);
+            if status != BLE_STATUS_SUCCESS {
+                return Err(BleError::CommandFailed(Status::from_u8(status)));
+            }
+
+            let status = aci_gap_add_devices_to_list(
+                count,
+                entries.as_ptr() as *const ListEntry,
+                GAP_ADD_DEV_MODE_CLEAR_BOTH_LISTS,
+            );
+            if status != BLE_STATUS_SUCCESS {
+                return Err(BleError::CommandFailed(Status::from_u8(status)));
+            }
+
+            // Set Device Privacy mode for each bonded peer (BT Core Vol 6 Part B 4.7).
+            // Default Network Privacy mode silently drops connect requests when the peer
+            // address can't be resolved via the stored IRK — which happens whenever iOS
+            // rotates its RPA past the timeout. Device Privacy mode also accepts the peer
+            // using its identity address as a fallback, so reconnect works either way.
+            const PRIVACY_MODE_DEVICE: u8 = 0x01;
+            for i in 0..(count as usize) {
+                let e = &entries[i];
+                let status = hci_le_set_privacy_mode(e.address_type, e.address.as_ptr(), PRIVACY_MODE_DEVICE);
+                if status != BLE_STATUS_SUCCESS {
+                    return Err(BleError::CommandFailed(Status::from_u8(status)));
+                }
+            }
+
+            Ok(count as usize)
+        }
+    }
+
+    /// Log bonded peer identity addresses from the stack database (debug).
+    #[cfg(feature = "defmt")]
+    pub fn log_bonded_devices(&self) {
+        const MAX_BONDED: usize = 16;
+        let mut entries = [BondedDeviceEntry {
+            address_type: 0,
+            address: [0; 6],
+        }; MAX_BONDED];
+        let mut num: u8 = 0;
+
+        unsafe {
+            let status = aci_gap_get_bonded_devices(&mut num, entries.as_mut_ptr());
+            if status != BLE_STATUS_SUCCESS {
+                warn!("aci_gap_get_bonded_devices failed: 0x{:02X}", status);
+                return;
+            }
+
+            for i in 0..(num as usize).min(MAX_BONDED) {
+                let e = &entries[i];
+                info!(
+                    "bond[{}]: type={} addr={:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+                    i,
+                    e.address_type,
+                    e.address[5],
+                    e.address[4],
+                    e.address[3],
+                    e.address[2],
+                    e.address[1],
+                    e.address[0]
+                );
+            }
+        }
+    }
+
+    #[cfg(not(feature = "defmt"))]
+    pub fn log_bonded_devices(&self) {}
+
+    /// Log the controller's resolving-list size and the current peer/local RPAs for each bond
+    /// (debug). Use this to verify that the bonded peer's IRK is actually loaded into the
+    /// controller resolving list — if HCI_LE_READ_PEER_RESOLVABLE_ADDRESS returns 0x02
+    /// (Unknown Connection Identifier), the IRK is missing or invalid and the LL will reject
+    /// incoming connect requests from that peer's RPAs.
+    #[cfg(feature = "defmt")]
+    pub fn log_resolving_list_diagnostics(&self) {
+        const MAX_BONDED: usize = 16;
+        let mut entries = [BondedDeviceEntry {
+            address_type: 0,
+            address: [0; 6],
+        }; MAX_BONDED];
+        let mut num: u8 = 0;
+
+        unsafe {
+            let mut list_size: u8 = 0;
+            let status = hci_le_read_resolving_list_size(&mut list_size);
+            if status != BLE_STATUS_SUCCESS {
+                warn!("hci_le_read_resolving_list_size failed: 0x{:02X}", status);
+            } else {
+                info!("Resolving list capacity: {} entries", list_size);
+            }
+
+            let status = aci_gap_get_bonded_devices(&mut num, entries.as_mut_ptr());
+            if status != BLE_STATUS_SUCCESS {
+                warn!("aci_gap_get_bonded_devices failed: 0x{:02X}", status);
+                return;
+            }
+
+            for i in 0..(num as usize).min(MAX_BONDED) {
+                let e = &entries[i];
+                let mut peer_rpa = [0u8; 6];
+                let peer_status =
+                    hci_le_read_peer_resolvable_address(e.address_type, e.address.as_ptr(), peer_rpa.as_mut_ptr());
+
+                let mut local_rpa = [0u8; 6];
+                let local_status =
+                    hci_le_read_local_resolvable_address(e.address_type, e.address.as_ptr(), local_rpa.as_mut_ptr());
+
+                let id = [
+                    e.address[5],
+                    e.address[4],
+                    e.address[3],
+                    e.address[2],
+                    e.address[1],
+                    e.address[0],
+                ];
+
+                info!(
+                    "resolving_list[{}]: identity type={} addr={:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+                    i, e.address_type, id[0], id[1], id[2], id[3], id[4], id[5]
+                );
+
+                if peer_status == BLE_STATUS_SUCCESS {
+                    info!(
+                        "  peer_rpa  = {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+                        peer_rpa[5], peer_rpa[4], peer_rpa[3], peer_rpa[2], peer_rpa[1], peer_rpa[0]
+                    );
+                } else {
+                    warn!(
+                        "  peer_rpa: read failed status=0x{:02X} (0x02 = Unknown Conn Id => IRK missing)",
+                        peer_status
+                    );
+                }
+
+                if local_status == BLE_STATUS_SUCCESS {
+                    info!(
+                        "  local_rpa = {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+                        local_rpa[5], local_rpa[4], local_rpa[3], local_rpa[2], local_rpa[1], local_rpa[0]
+                    );
+                } else {
+                    warn!("  local_rpa: read failed status=0x{:02X}", local_status);
+                }
+            }
+        }
+    }
+
+    #[cfg(not(feature = "defmt"))]
+    pub fn log_resolving_list_diagnostics(&self) {}
+
+    /// Number of bonded peers in the stack database.
+    pub fn bonded_device_count(&self) -> Result<u8, BleError> {
+        const MAX_BONDED: usize = 16;
+        let mut entries = [BondedDeviceEntry {
+            address_type: 0,
+            address: [0; 6],
+        }; MAX_BONDED];
+        let mut num: u8 = 0;
+
+        unsafe {
+            let status = aci_gap_get_bonded_devices(&mut num, entries.as_mut_ptr());
+            if status == BLE_STATUS_SUCCESS {
+                Ok(num)
+            } else {
+                Err(BleError::CommandFailed(Status::from_u8(status)))
+            }
+        }
+    }
+
+    /// Append bonded peers to resolving list + FAL (ST mode `0x04`).
+    ///
+    /// Used after disconnect in `BLE_Privacy_Peripheral` before RPA advertising.
+    pub fn append_bond_lists_for_reconnect(&self) -> Result<usize, BleError> {
+        const GAP_ADD_DEV_MODE_APPEND_BOTH: u8 = 0x04;
+
+        const MAX_BONDED: usize = 16;
+        let mut entries = [BondedDeviceEntry {
+            address_type: 0,
+            address: [0; 6],
+        }; MAX_BONDED];
+        let mut num: u8 = 0;
+
+        unsafe {
+            let status = aci_gap_get_bonded_devices(&mut num, entries.as_mut_ptr());
+            if status != BLE_STATUS_SUCCESS {
+                return Err(BleError::CommandFailed(Status::from_u8(status)));
+            }
+
+            if num == 0 {
+                return Ok(0);
+            }
+
+            let count = (num as usize).min(MAX_BONDED) as u8;
+
+            let status = hci_le_set_address_resolution_enable(1);
+            if status != BLE_STATUS_SUCCESS {
+                return Err(BleError::CommandFailed(Status::from_u8(status)));
+            }
+
+            let status = aci_gap_add_devices_to_list(
+                count,
+                entries.as_ptr() as *const ListEntry,
+                GAP_ADD_DEV_MODE_APPEND_BOTH,
+            );
+            if status != BLE_STATUS_SUCCESS {
+                return Err(BleError::CommandFailed(Status::from_u8(status)));
+            }
+
+            Ok(count as usize)
+        }
+    }
+
+    /// Restore resolving-list IRKs for bonded RPAs without touching the filter accept list.
+    ///
+    /// Use before advertising with `AdvFilterPolicy::All` so centrals can still discover
+    /// the peripheral name in a scan while iOS reconnects can resolve the peer's RPA.
+    pub fn restore_resolving_list_for_privacy(&self) -> Result<usize, BleError> {
+        let count = self.populate_resolving_list_from_bonds()?;
+        if count > 0 {
+            self.set_address_resolution_enable(true)?;
+        }
+        Ok(count)
+    }
+
+    /// Restore bond-based connection filtering for RPA centrals (e.g. iOS).
+    ///
+    /// Alias for [`configure_filter_and_resolving_list`](Self::configure_filter_and_resolving_list).
+    pub fn restore_bond_lists(&self) -> Result<usize, BleError> {
+        self.configure_filter_and_resolving_list()
+    }
+
+    /// ST HAL firmware warning: SMP unexpected LTK request (bond lookup failed).
+    pub const FW_ERROR_SMP_UNEXPECTED_LTK: u8 = 0x06;
 
     /// Check if security has been initialized
     pub fn is_initialized(&self) -> bool {

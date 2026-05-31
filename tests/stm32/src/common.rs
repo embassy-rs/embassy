@@ -441,6 +441,7 @@ define_peris!(
     UART = USART1, UART_TX = PB14, UART_RX = PA10, UART_TX_DMA = GPDMA1_CH0, UART_RX_DMA = GPDMA1_CH1,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PB5, SPI_MISO = PA6, SPI_TX_DMA = GPDMA1_CH0, SPI_RX_DMA = GPDMA1_CH1,
     @irq UART = {
+        CRYP => embassy_stm32::cryp::InterruptHandler<embassy_stm32::peripherals::CRYP>;
         RNG => embassy_stm32::rng::InterruptHandler<embassy_stm32::peripherals::RNG>;
         USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>,
             embassy_stm32::usart::BufferedInterruptHandler<embassy_stm32::peripherals::USART1>;
@@ -492,7 +493,7 @@ pub fn config() -> Config {
     }
     #[cfg(feature = "stm32wb55rg")]
     {
-        config.rcc = embassy_stm32::rcc::WPAN_DEFAULT;
+        config.rcc = embassy_stm32::rcc::Config::new_wpan();
     }
 
     #[cfg(feature = "stm32f091rc")]

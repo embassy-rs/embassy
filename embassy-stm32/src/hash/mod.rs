@@ -35,7 +35,7 @@ static HASH_WAKER: AtomicWaker = AtomicWaker::new();
 
 /// HASH interrupt handler.
 pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
@@ -121,7 +121,7 @@ type HmacKey<'k> = Option<&'k [u8]>;
 /// HASH driver.
 pub struct Hash<'d, T: Instance, M: Mode> {
     _peripheral: Peri<'d, T>,
-    _phantom: PhantomData<M>,
+    _marker: PhantomData<M>,
     #[cfg(hash_v2)]
     dma: Option<ChannelAndRequest<'d>>,
 }
@@ -135,7 +135,7 @@ impl<'d, T: Instance> Hash<'d, T, Blocking> {
         rcc::enable_and_reset::<HASH>();
         let instance = Self {
             _peripheral: peripheral,
-            _phantom: PhantomData,
+            _marker: PhantomData,
             #[cfg(hash_v2)]
             dma: None,
         };
@@ -411,7 +411,7 @@ impl<'d, T: Instance> Hash<'d, T, Async> {
         rcc::enable_and_reset::<HASH>();
         let instance = Self {
             _peripheral: peripheral,
-            _phantom: PhantomData,
+            _marker: PhantomData,
             dma: new_dma!(dma, _irq),
         };
 

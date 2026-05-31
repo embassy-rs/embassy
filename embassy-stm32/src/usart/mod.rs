@@ -25,11 +25,12 @@ use crate::pac::usart::Lpuart as Regs;
 use crate::pac::usart::Usart as Regs;
 use crate::pac::usart::{regs, vals};
 use crate::rcc::{RccInfo, SealedRccPeripheral};
+use crate::reg::AtomicModify;
 use crate::time::Hertz;
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
@@ -410,7 +411,7 @@ pub struct UartTx<'d, M: Mode> {
     _de: Option<Flex<'d>>,
     tx_dma: Option<ChannelAndRequest<'d>>,
     duplex: Duplex,
-    _phantom: PhantomData<M>,
+    _marker: PhantomData<M>,
 }
 
 impl<'d, M: Mode> SetConfig for UartTx<'d, M> {
@@ -461,7 +462,7 @@ pub struct UartRx<'d, M: Mode> {
     detect_previous_overrun: bool,
     #[cfg(any(usart_v1, usart_v2))]
     buffered_sr: regs::Sr,
-    _phantom: PhantomData<M>,
+    _marker: PhantomData<M>,
 }
 
 impl<'d, M: Mode> SetConfig for UartRx<'d, M> {
@@ -512,7 +513,7 @@ impl<'d> UartTx<'d, Async> {
         half_duplex_set_rx_tx_before_write(&r, self.duplex == Duplex::Half(HalfDuplexReadback::Readback));
 
         let ch = self.tx_dma.as_mut().unwrap();
-        r.cr3().modify(|reg| {
+        r.cr3().set_bits(|reg| {
             reg.set_dmat(true);
         });
         // If we don't assign future to a variable, the data register pointer
@@ -576,7 +577,7 @@ impl<'d, M: Mode> UartTx<'d, M> {
             _de: None,
             tx_dma,
             duplex: config.duplex,
-            _phantom: PhantomData,
+            _marker: PhantomData,
         };
         this.enable_and_configure(&config)?;
         Ok(this)
@@ -649,7 +650,7 @@ impl<'d, M: Mode> UartTx<'d, M> {
 async fn flush(info: &Info, state: &State) -> Result<(), Error> {
     let r = info.regs;
     if r.cr1().read().te() && !sr(r).read().tc() {
-        r.cr1().modify(|w| {
+        r.cr1().set_bits(|w| {
             // enable Transmission Complete interrupt
             w.set_tcie(true);
         });
@@ -694,7 +695,7 @@ pub fn send_break(regs: &Regs) {
 
     // Send break right after completing the current character transmission
     #[cfg(any(usart_v1, usart_v2))]
-    regs.cr1().modify(|w| w.set_sbk(true));
+    regs.cr1().set_bits(|w| w.set_sbk(true));
     #[cfg(any(usart_v3, usart_v4))]
     regs.rqr().write(|w| w.set_sbkrq(true));
 }
@@ -775,8 +776,11 @@ impl<'d> UartRx<'d, Async> {
             flush(&self.info, &self.state).await?;
 
             // Disable Transmitter and enable Receiver after flush
-            r.cr1().modify(|reg| {
+            r.cr1().set_bits(|reg| {
                 reg.set_re(true);
+            });
+
+            r.cr1().clear_bits(|reg| {
                 reg.set_te(false);
             });
         }
@@ -784,7 +788,7 @@ impl<'d> UartRx<'d, Async> {
         // make sure USART state is restored to neutral state when this future is dropped
         let on_drop = OnDrop::new(move || {
             // clear all interrupts and DMA Rx Request
-            r.cr1().modify(|w| {
+            r.cr1().clear_bits(|w| {
                 // disable RXNE interrupt
                 w.set_rxneie(false);
                 // disable parity interrupt
@@ -792,7 +796,7 @@ impl<'d> UartRx<'d, Async> {
                 // disable idle line interrupt
                 w.set_idleie(false);
             });
-            r.cr3().modify(|w| {
+            r.cr3().clear_bits(|w| {
                 // disable Error Interrupt: (Frame error, Noise error, Overrun error)
                 w.set_eie(false);
                 // disable DMA Rx Request
@@ -817,14 +821,18 @@ impl<'d> UartRx<'d, Async> {
             clear_interrupt_flags(r, sr);
         }
 
-        r.cr1().modify(|w| {
+        r.cr1().clear_bits(|w| {
             // disable RXNE interrupt
             w.set_rxneie(false);
-            // enable parity interrupt if not ParityNone
-            w.set_peie(w.pce());
         });
 
-        r.cr3().modify(|w| {
+        let pce = r.cr1().read().pce();
+        r.cr1().set_bits(|w| {
+            // enable parity interrupt if not ParityNone
+            w.set_peie(pce);
+        });
+
+        r.cr3().set_bits(|w| {
             // enable Error Interrupt: (Frame error, Noise error, Overrun error)
             w.set_eie(true);
             // enable DMA Rx Request
@@ -874,7 +882,7 @@ impl<'d> UartRx<'d, Async> {
             clear_interrupt_flags(r, sr);
 
             // enable idle interrupt
-            r.cr1().modify(|w| {
+            r.cr1().set_bits(|w| {
                 w.set_idleie(true);
             });
         }
@@ -894,7 +902,7 @@ impl<'d> UartRx<'d, Async> {
 
             if enable_idle_line_detection {
                 // enable idle interrupt
-                r.cr1().modify(|w| {
+                r.cr1().set_bits(|w| {
                     w.set_idleie(true);
                 });
             }
@@ -1007,7 +1015,7 @@ impl<'d, M: Mode> UartRx<'d, M> {
         config: Config,
     ) -> Result<Self, ConfigError> {
         let mut this = Self {
-            _phantom: PhantomData,
+            _marker: PhantomData,
             info: T::info(),
             state: T::state(),
             kernel_clock: T::frequency(),
@@ -1124,8 +1132,11 @@ impl<'d, M: Mode> UartRx<'d, M> {
             blocking_flush(self.info)?;
 
             // Disable Transmitter and enable Receiver after flush
-            r.cr1().modify(|reg| {
+            r.cr1().set_bits(|reg| {
                 reg.set_re(true);
+            });
+
+            r.cr1().clear_bits(|reg| {
                 reg.set_te(false);
             });
         }
@@ -1507,7 +1518,7 @@ impl<'d, M: Mode> Uart<'d, M> {
 
         let mut this = Self {
             tx: UartTx {
-                _phantom: PhantomData,
+                _marker: PhantomData,
                 info,
                 state,
                 kernel_clock,
@@ -1518,7 +1529,7 @@ impl<'d, M: Mode> Uart<'d, M> {
                 duplex: config.duplex,
             },
             rx: UartRx {
-                _phantom: PhantomData,
+                _marker: PhantomData,
                 info,
                 state,
                 kernel_clock,

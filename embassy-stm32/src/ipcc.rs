@@ -12,6 +12,7 @@ use crate::cpu::CoreId;
 use crate::interrupt::typelevel::Interrupt;
 use crate::peripherals::IPCC;
 use crate::rcc::SealedRccPeripheral;
+use crate::reg::AtomicModify;
 use crate::{interrupt, rcc};
 
 /// Interrupt handler.
@@ -129,12 +130,12 @@ struct ActiveTxInterrupt {
 
 impl ActiveTxInterrupt {
     fn configure_interrupt(&mut self, enabled: bool) {
-        critical_section::with(|_| {
-            IPCC::regs()
-                .cpu(self.core.to_index().into())
-                .mr()
-                .modify(|w| w.set_chfm(self.index as usize, !enabled))
-        });
+        let mr = IPCC::regs().cpu(self.core.to_index().into()).mr();
+
+        match enabled {
+            true => mr.clear_bits(|w| w.set_chfm(self.index as usize, false)),
+            false => mr.set_bits(|w| w.set_chfm(self.index as usize, true)),
+        };
     }
 
     fn new(core: CoreId, index: u8) -> Self {
@@ -269,12 +270,12 @@ struct ActiveRxInterrupt {
 
 impl ActiveRxInterrupt {
     fn configure_interrupt(&mut self, enabled: bool) {
-        critical_section::with(|_| {
-            IPCC::regs()
-                .cpu(self.core.to_index().into())
-                .mr()
-                .modify(|w| w.set_chom(self.index as usize, !enabled))
-        });
+        let mr = IPCC::regs().cpu(self.core.to_index().into()).mr();
+
+        match enabled {
+            true => mr.clear_bits(|w| w.set_chom(self.index as usize, false)),
+            false => mr.set_bits(|w| w.set_chom(self.index as usize, true)),
+        };
     }
 
     fn new(core: CoreId, index: u8) -> Self {

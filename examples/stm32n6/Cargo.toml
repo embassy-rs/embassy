@@ -37,6 +37,10 @@ sha2 = { version = "0.10.9", default-features = false }
 embedded-graphics-core = "0.4.0"
 embedded-graphics = "0.8.1"
 embedded-sdmmc = { version = "0.9.0", default-features = false }
+embedded-fatfs = { git = "https://github.com/MabezDev/embedded-fatfs", default-features = false, features = ["defmt"] }
+block-device-driver = { git = "https://github.com/MabezDev/embedded-fatfs" }
+block-device-adapters = { git = "https://github.com/MabezDev/embedded-fatfs" }
+aligned = "0.4.2"
 
 
 # cargo build/run

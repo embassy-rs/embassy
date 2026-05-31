@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.4.0 - 2026-05-28
+
+- **Breaking:** type-erased `State`/`HostState`, non-generic `OtgInstance`/`OtgHostInstance`, endpoint allocation in `State`, const generics removed from device/host drivers. Static state now needs to be constructed as `StateStorage::new()`/`HostStateStorage::new()` and then `as_state()`/`as_host_state()` must be called to obtain the state reference.
+- **Breaking:** type-erased `OtgState`/`OtgHostState`, non-generic `OtgInstance`/`OtgHostInstance`, endpoint allocation in `State`, const generics removed from device/host drivers.
+- **Breaking:** `OtgInstance::endpoint_count`, `OtgHostInstance::channel_count` have been removed.
+- **Breaking:** `endpoint_count`, and `channel_count` parameters have been removed from the interrupt handler functions.
+- Allow using 16 host channels
+
 ## 0.3.3 - 2026-05-04
 
 - New feature: "host" for embassy-usb-host support

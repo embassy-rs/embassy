@@ -346,7 +346,7 @@ async fn main(spawner: Spawner) {
     tim5.set_trigger_source(timer::low_level::TriggerSource::Itr12); // The USB SOF signal.
 
     const TIMER_CHANNEL: timer::Channel = timer::Channel::Ch1;
-    tim5.set_input_ti_selection(TIMER_CHANNEL, timer::low_level::InputTISelection::TRC);
+    tim5.set_input_capture_selection(TIMER_CHANNEL, timer::low_level::InputCaptureSelection::TRC);
     tim5.set_input_capture_prescaler(TIMER_CHANNEL, 0);
     tim5.set_input_capture_filter(TIMER_CHANNEL, timer::low_level::FilterValue::FckIntN2);
 

@@ -45,17 +45,27 @@ pub(crate) fn configure(
         AdvType::ConnectableDirectedLowDuty => ADV_DIRECT_IND_LOW_DUTY,
     };
 
-    // Use aci_gap_set_discoverable - the high-level ACI command
-    // This configures advertising parameters and data in the host stack
-    super::aci_gap::set_discoverable(
-        aci_adv_type,
-        params.interval_min,
-        params.interval_max,
-        params.own_addr_type as u8,
-        params.filter_policy as u8,
-        local_name,
-        service_uuid_bytes,
-    )
+    if params.privacy_undirected {
+        // ST BLE_Privacy_Peripheral: undirected connectable + explicit AD bytes.
+        super::aci_gap::set_undirected_connectable(
+            params.interval_min,
+            params.interval_max,
+            params.own_addr_type as u8,
+            params.filter_policy as u8,
+        )?;
+        super::aci_gap::update_adv_data(adv_bytes)
+    } else {
+        // Use aci_gap_set_discoverable - the high-level ACI command
+        super::aci_gap::set_discoverable(
+            aci_adv_type,
+            params.interval_min,
+            params.interval_max,
+            params.own_addr_type as u8,
+            params.filter_policy as u8,
+            local_name,
+            service_uuid_bytes,
+        )
+    }
 }
 
 /// Remove advertising configuration from the host stack.
@@ -90,7 +100,11 @@ pub(crate) fn update_scan_rsp_data(cmd: &CommandSender, scan_rsp_data: &AdvData)
     cmd.le_set_scan_response_data(scan_rsp_data.build())
 }
 
-/// Extract local name from advertising data
+/// Extract local name AD field from advertising data.
+///
+/// Returns the slice `[ad_type, name_bytes...]` — the AD-type byte (0x08 or 0x09)
+/// is kept as the first byte because `aci_gap_set_discoverable` expects it that
+/// way and counts it in `local_name_length`.
 pub(crate) fn extract_local_name(adv_data: &[u8]) -> Option<&[u8]> {
     let mut offset = 0;
     while offset < adv_data.len() {
@@ -106,7 +120,7 @@ pub(crate) fn extract_local_name(adv_data: &[u8]) -> Option<&[u8]> {
         // AD_TYPE_COMPLETE_LOCAL_NAME = 0x09
         // AD_TYPE_SHORTENED_LOCAL_NAME = 0x08
         if ad_type == 0x09 || ad_type == 0x08 {
-            return Some(&adv_data[offset + 2..offset + 1 + len]);
+            return Some(&adv_data[offset + 1..offset + 1 + len]);
         }
 
         offset += 1 + len;
@@ -114,8 +128,11 @@ pub(crate) fn extract_local_name(adv_data: &[u8]) -> Option<&[u8]> {
     None
 }
 
-/// Extract 16-bit service UUID bytes from advertising data.
-/// Returns raw bytes in the format expected by aci_gap_set_discoverable.
+/// Extract 16-bit service UUID AD field from advertising data.
+///
+/// Returns the slice `[ad_type, uuid_bytes_le...]` — the AD-type byte (0x02 or 0x03)
+/// is kept as the first byte because `aci_gap_set_discoverable` expects it that way
+/// and counts it in `service_uuid_length`.
 pub(crate) fn extract_service_uuids_16(adv_data: &[u8]) -> Option<&[u8]> {
     let mut offset = 0;
     while offset < adv_data.len() {
@@ -131,7 +148,7 @@ pub(crate) fn extract_service_uuids_16(adv_data: &[u8]) -> Option<&[u8]> {
         // AD_TYPE_16_BIT_SERV_UUID = 0x02 (incomplete list)
         // AD_TYPE_16_BIT_SERV_UUID_CMPLT_LIST = 0x03 (complete list)
         if ad_type == 0x02 || ad_type == 0x03 {
-            return Some(&adv_data[offset + 2..offset + 1 + len]);
+            return Some(&adv_data[offset + 1..offset + 1 + len]);
         }
 
         offset += 1 + len;

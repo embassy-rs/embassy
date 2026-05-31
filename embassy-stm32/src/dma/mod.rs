@@ -113,7 +113,7 @@ pub trait ChannelInstance: SealedChannelInstance + PeripheralType + 'static {
 /// DMA interrupt handler.
 #[allow(private_bounds)]
 pub struct InterruptHandler<T: ChannelInstance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: ChannelInstance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {

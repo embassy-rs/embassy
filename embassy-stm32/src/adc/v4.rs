@@ -7,12 +7,14 @@ use pac::adc::vals::{Adstp, Dmngt, Exten, Pcsel};
 #[cfg(not(stm32u3))]
 use pac::adccommon::vals::Presc;
 
-use super::{Adc, Averaging, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt, blocking_delay_us};
 #[cfg(any(stm32u5, stm32u3))]
 use crate::adc::DefaultInstance;
-use crate::adc::{AdcRegs, ConversionMode};
+use crate::adc::{
+    Adc, AdcRegs, Averaging, ConversionMode, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt,
+};
 use crate::pac::adc::regs::{Sqr1, Sqr2, Sqr3, Sqr4};
 use crate::time::Hertz;
+use crate::wait::block_for_us;
 use crate::{Peri, pac, rcc};
 
 /// Default VREF voltage used for sample conversion to millivolts.
@@ -163,9 +165,7 @@ impl AdcRegs for crate::pac::adc::Adc {
         let mut smpr2 = self.smpr(1).read();
 
         // Set sequence length
-        self.sqr1().modify(|w| {
-            w.set_l(sequence.len() as u8 - 1);
-        });
+        sqr1.set_l(sequence.len() as u8 - 1);
 
         // Configure channels and ranks
         for (i, ((channel, _), sample_time)) in sequence.enumerate() {
@@ -285,7 +285,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
             reg.set_advregen(true);
         });
 
-        blocking_delay_us(10);
+        block_for_us(10);
 
         #[cfg(not(stm32u3))]
         T::regs().difsel().modify(|w| {
@@ -305,7 +305,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
 
         while T::regs().cr().read().adcal() {}
 
-        blocking_delay_us(1);
+        block_for_us(1);
 
         T::regs().enable();
 

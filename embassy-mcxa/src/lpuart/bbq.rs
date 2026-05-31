@@ -500,6 +500,27 @@ impl LpuartBbq {
     }
 }
 
+impl embedded_io_async::ErrorType for LpuartBbq {
+    type Error = BbqError;
+}
+
+impl embedded_io_async::Write for LpuartBbq {
+    fn write(&mut self, buf: &[u8]) -> impl Future<Output = Result<usize, Self::Error>> {
+        self.write(buf)
+    }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        self.flush().await;
+        Ok(())
+    }
+}
+
+impl embedded_io_async::Read for LpuartBbq {
+    fn read(&mut self, buf: &mut [u8]) -> impl Future<Output = Result<usize, Self::Error>> {
+        self.read(buf)
+    }
+}
+
 /// A `bbqueue` powered Lpuart TX Half
 pub struct LpuartBbqTx {
     state: &'static BbqState,

@@ -155,6 +155,10 @@ impl SealedInstance for crate::peripherals::RTC {
         }
     );
 
+    fn shpf() -> bool {
+        Self::regs().icsr().read().shpf()
+    }
+
     fn read_backup_register(_rtc: Rtc, register: usize) -> Option<u32> {
         #[allow(clippy::if_same_then_else)]
         if register < Self::BACKUP_REGISTER_COUNT {

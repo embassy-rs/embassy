@@ -1,8 +1,8 @@
-use super::{Adc, Instance, Resolution, blocking_delay_us};
-use crate::adc::{AdcRegs, ConversionMode};
+use crate::adc::{Adc, AdcRegs, ConversionMode, Instance, Resolution};
 use crate::pac::adc::vals::{Adstp, Align, Ckmode, Dmacfg, Exten, Ovrmod, SampleTime, Scandir};
 use crate::pac::adccommon::vals::Presc;
 use crate::time::Hertz;
+use crate::wait::block_for_us;
 use crate::{Peri, rcc};
 
 /// Default VREF voltage used for sample conversion to millivolts.
@@ -197,7 +197,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
 
         // "The software must wait for the ADC voltage regulator startup time."
         // See datasheet for the value.
-        blocking_delay_us(TIME_ADC_VOLTAGE_REGUALTOR_STARTUP_US as u64 + 1);
+        block_for_us(TIME_ADC_VOLTAGE_REGUALTOR_STARTUP_US as u64 + 1);
 
         T::regs().cfgr1().modify(|reg| reg.set_res(resolution));
 

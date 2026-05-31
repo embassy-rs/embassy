@@ -2,6 +2,13 @@
 //!
 //! Connect a voltage source or potentiometer to **PA0** (ADC4 channel 9). The example waits for the
 //! sample to go above ~0.6 V, then waits for it to fall below ~0.2 V, and repeats.
+//!
+//! Hardware oversampling (8×) is enabled. When oversampling is active the AWD hardware compares
+//! `ADC_DR[15:4]` against the threshold registers (RM: "most significant 12 bits of the 16-bit
+//! oversampled result"). With an averaging shift that yields a 12-bit result in DR[11:0], only
+//! the upper 8 bits (`DR[11:4]`) are compared, so thresholds must be right-shifted by 4.
+//! `enable_watchdog` does this automatically — pass thresholds in the same 12-bit space as the
+//! sample values and the driver scales them correctly.
 
 #![no_std]
 #![no_main]
@@ -47,7 +54,10 @@ async fn main(_spawner: Spawner) {
     let mut adc = Adc::new_adc4(p.ADC4);
     let mut pin = p.PA0;
     adc.set_resolution_adc4(adc4::Resolution::Bits12);
-    adc.set_averaging_adc4(adc4::Averaging::Disabled);
+    // 8× oversampling with matching right-shift → same 12-bit range, lower noise.
+    // enable_watchdog will automatically scale AWD thresholds by >> 4 to match
+    // the hardware's DR[15:4] comparison window.
+    adc.set_averaging_adc4(adc4::Averaging::Samples8);
 
     let pin_ch = pin.degrade_adc().get_hw_channel();
 

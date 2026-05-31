@@ -37,7 +37,7 @@ stm32wba65ri = ["embassy-stm32/stm32wba65ri", "not-stop", "spi-v345", "chrono", 
 stm32wl55jc = ["embassy-stm32/stm32wl55jc-cm4", "fake-stop", "not-gpdma", "rng", "chrono", "hsem"]
 stm32f091rc = ["embassy-stm32/stm32f091rc", "not-stop", "cm0", "not-gpdma", "chrono"]
 stm32h503rb = ["embassy-stm32/stm32h503rb", "stop", "spi-v345", "rng"]
-stm32h7s3l8 = ["embassy-stm32/stm32h7s3l8", "not-stop", "spi-v345", "rng", "cordic", "hash-v34"] # TODO: fdcan crashes, cryp dma hangs.
+stm32h7s3l8 = ["embassy-stm32/stm32h7s3l8", "not-stop", "spi-v345", "rng", "cordic", "hash-v34", "cryp"] # TODO: fdcan crashes.
 stm32u083rc = ["embassy-stm32/stm32u083rc", "not-stop", "cm0", "rng", "chrono"]
 
 spi-v1 = []
@@ -102,7 +102,7 @@ rand_chacha = { version = "0.9.0", default-features = false }
 static_cell = "2"
 portable-atomic = { version = "1.5", features = [] }
 critical-section = "1.1"
-stm32wb-hci = { version = "0.17.4", optional = true }
+stm32wb-hci = { version = "0.18.0", optional = true, git = "https://github.com/embassy-rs/stm32wb-hci.git", rev = "57acfb4" }
 
 chrono = { version = "^0.4", default-features = false, optional = true}
 sha2 = { version = "0.10.8", default-features = false }

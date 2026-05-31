@@ -606,6 +606,12 @@ pub mod config {
         #[cfg(feature = "_time-driver")]
         pub time_interrupt_priority: crate::interrupt::Priority,
         /// Enable or disable the debug port.
+        ///
+        /// On nRF9151/9161/9131, [`Debug::Allowed`] additionally applies the
+        /// workaround for erratum 36 by forcing constant-latency mode, which
+        /// keeps the debug access port reachable across `WFI`/`WFE`. Select
+        /// one of the other variants once debugging is no longer required
+        /// to save power.
         pub debug: Debug,
         /// Clock speed configuration.
         #[cfg(feature = "_nrf54l")]
@@ -975,9 +981,11 @@ pub fn init(config: config::Config) -> Peripherals {
                     .disable()
                     .write(|w| w.set_disable(pac::approtect::vals::SecureapprotectDisableDisable::SwUnprotected));
 
-                // TODO: maybe add workaround for this errata
-                // It uses extra power, not sure how to let the user choose.
-                // https://docs.nordicsemi.com/bundle/errata_nRF9151_Rev1/page/ERR/nRF9151/Rev1/latest/anomaly_151_36.html#anomaly_151_36
+                // nRF9120 erratum 36: force constant-latency mode so the debug AP survives WFI/WFE.
+                // https://docs.nordicsemi.com/bundle/errata_nRF9151_EngB/page/ERR/nRF9151/EngineeringB/latest/anomaly_151_36.html
+                if matches!(config.debug, config::Debug::Allowed) {
+                    pac::POWER_S.tasks_constlat().write_value(1);
+                }
             }
         }
         config::Debug::Disallowed => {

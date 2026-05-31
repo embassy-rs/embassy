@@ -10,9 +10,11 @@ use pac::adc::vals::{OversamplingRatio, OversamplingShift, Rovsm, Trovs};
 pub use pac::adc::vals::{Ovsr, Ovss, Presc};
 
 #[allow(unused_imports)]
-use super::SealedAdcChannel;
-use super::{Adc, Averaging, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt, blocking_delay_us};
-use crate::adc::{AdcRegs, ConversionMode};
+use crate::adc::SealedAdcChannel;
+use crate::adc::{
+    Adc, AdcRegs, Averaging, ConversionMode, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt,
+};
+use crate::wait::block_for_us;
 use crate::{Peri, pac, rcc};
 
 /// Default VREF voltage used for sample conversion to millivolts.
@@ -416,7 +418,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
             reg.set_chselrmod(false);
         });
 
-        blocking_delay_us(20);
+        block_for_us(20);
     }
 
     /// Calibrate to remove conversion offset
@@ -441,7 +443,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
             reg.set_autoff(auto_off);
         });
 
-        blocking_delay_us(1);
+        block_for_us(1);
     }
 
     /// Initialize the ADC leaving any analog clock at reset value.
@@ -596,7 +598,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
 
         // "Table 24. Embedded internal voltage reference" states that it takes a maximum of 12 us
         // to stabilize the internal voltage reference.
-        blocking_delay_us(15);
+        block_for_us(15);
 
         VrefInt {}
     }

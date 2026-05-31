@@ -1,10 +1,10 @@
 use crate::wba::bindings::link_layer::{
-    DPSLP_STATE_DEEP_SLEEP_DISABLE, DPSLP_STATE_DEEP_SLEEP_ENABLE, LINKLAYER_PLAT_DisableRadioIT,
-    LINKLAYER_PLAT_EnableRadioIT, LL_SYS_DP_SLP_STATE_T_LL_SYS_DP_SLP_DISABLED,
-    LL_SYS_DP_SLP_STATE_T_LL_SYS_DP_SLP_ENABLED, LL_SYS_STATUS_T_LL_SYS_ERROR, LL_SYS_STATUS_T_LL_SYS_OK,
-    OS_TIMER_PRIO_HG_PRIO_TMR, OS_TIMER_STATE_OSTIMERSTOPPED, OS_TIMER_TYPE_OS_TIMER_ONCE, SUCCESS, ble_stat_t,
-    ll_intf_cmn_le_set_dp_slp_mode, ll_sys_dp_slp_state_t, ll_sys_status_t, os_get_tmr_state, os_timer_create,
-    os_timer_id, os_timer_set_prio, os_timer_start, os_timer_stop,
+    LINKLAYER_PLAT_DisableRadioIT, LINKLAYER_PLAT_EnableRadioIT, SUCCESS, ble_stat_t, dpslp_state_DEEP_SLEEP_DISABLE,
+    dpslp_state_DEEP_SLEEP_ENABLE, ll_intf_cmn_le_set_dp_slp_mode, ll_sys_dp_slp_state_t,
+    ll_sys_dp_slp_state_t_LL_SYS_DP_SLP_DISABLED, ll_sys_dp_slp_state_t_LL_SYS_DP_SLP_ENABLED, ll_sys_status_t,
+    ll_sys_status_t_LL_SYS_ERROR, ll_sys_status_t_LL_SYS_OK, os_get_tmr_state, os_timer_create, os_timer_id,
+    os_timer_prio_hg_prio_tmr, os_timer_set_prio, os_timer_start, os_timer_state_osTimerStopped, os_timer_stop,
+    os_timer_type_os_timer_once,
 };
 
 macro_rules! LL_DP_SLP_NO_WAKEUP {
@@ -45,7 +45,7 @@ macro_rules! LL_INTERNAL_TMR_US_TO_STEPS {
 static mut RADIO_DP_SLP_TMR_ID: os_timer_id = core::ptr::null_mut();
 //
 // /* Link Layer deep sleep state */
-static mut LINKLAYER_DP_SLP_STATE: ll_sys_dp_slp_state_t = LL_SYS_DP_SLP_STATE_T_LL_SYS_DP_SLP_DISABLED;
+static mut LINKLAYER_DP_SLP_STATE: ll_sys_dp_slp_state_t = ll_sys_dp_slp_state_t_LL_SYS_DP_SLP_DISABLED;
 //
 // /**
 //   * @brief  Initialize resources to handle deep sleep entry/exit
@@ -54,20 +54,20 @@ static mut LINKLAYER_DP_SLP_STATE: ll_sys_dp_slp_state_t = LL_SYS_DP_SLP_STATE_T
 //   */
 #[unsafe(no_mangle)]
 unsafe extern "C" fn ll_sys_dp_slp_init() -> ll_sys_status_t {
-    let mut return_status: ll_sys_status_t = LL_SYS_STATUS_T_LL_SYS_ERROR;
+    let mut return_status: ll_sys_status_t = ll_sys_status_t_LL_SYS_ERROR;
 
     /* Create link layer timer for handling IP DEEP SLEEP mode */
     RADIO_DP_SLP_TMR_ID = os_timer_create(
         Some(ll_sys_dp_slp_wakeup_evt_clbk),
-        OS_TIMER_TYPE_OS_TIMER_ONCE,
+        os_timer_type_os_timer_once,
         core::ptr::null_mut(),
     );
 
     /* Set priority of deep sleep timer */
-    os_timer_set_prio(RADIO_DP_SLP_TMR_ID, OS_TIMER_PRIO_HG_PRIO_TMR);
+    os_timer_set_prio(RADIO_DP_SLP_TMR_ID, os_timer_prio_hg_prio_tmr);
 
     if !RADIO_DP_SLP_TMR_ID.is_null() {
-        return_status = LL_SYS_STATUS_T_LL_SYS_OK;
+        return_status = ll_sys_status_t_LL_SYS_OK;
     }
 
     return return_status;
@@ -92,7 +92,7 @@ unsafe extern "C" fn ll_sys_dp_slp_get_state() -> ll_sys_dp_slp_state_t {
 unsafe extern "C" fn ll_sys_dp_slp_enter(dp_slp_duration: u32) -> ll_sys_status_t {
     let cmd_status: ble_stat_t;
     let os_status: i32;
-    let mut return_status: ll_sys_status_t = LL_SYS_STATUS_T_LL_SYS_ERROR;
+    let mut return_status: ll_sys_status_t = ll_sys_status_t_LL_SYS_ERROR;
 
     /* Check if deep sleep timer has to be started */
     if dp_slp_duration < LL_DP_SLP_NO_WAKEUP!() {
@@ -105,10 +105,10 @@ unsafe extern "C" fn ll_sys_dp_slp_enter(dp_slp_duration: u32) -> ll_sys_status_
 
     if os_status == SUCCESS as i32 {
         /* Switch Link Layer IP to DEEP SLEEP mode */
-        cmd_status = ll_intf_cmn_le_set_dp_slp_mode(DPSLP_STATE_DEEP_SLEEP_ENABLE as u8);
+        cmd_status = ll_intf_cmn_le_set_dp_slp_mode(dpslp_state_DEEP_SLEEP_ENABLE as u8);
         if cmd_status == SUCCESS {
-            LINKLAYER_DP_SLP_STATE = LL_SYS_DP_SLP_STATE_T_LL_SYS_DP_SLP_ENABLED;
-            return_status = LL_SYS_STATUS_T_LL_SYS_OK;
+            LINKLAYER_DP_SLP_STATE = ll_sys_dp_slp_state_t_LL_SYS_DP_SLP_ENABLED;
+            return_status = ll_sys_status_t_LL_SYS_OK;
         }
     }
 
@@ -123,24 +123,24 @@ unsafe extern "C" fn ll_sys_dp_slp_enter(dp_slp_duration: u32) -> ll_sys_status_
 #[unsafe(no_mangle)]
 unsafe extern "C" fn ll_sys_dp_slp_exit() -> ll_sys_status_t {
     let cmd_status: ble_stat_t;
-    let mut return_status: ll_sys_status_t = LL_SYS_STATUS_T_LL_SYS_ERROR;
+    let mut return_status: ll_sys_status_t = ll_sys_status_t_LL_SYS_ERROR;
 
     /* Disable radio interrupt */
     LINKLAYER_PLAT_DisableRadioIT();
 
-    if LINKLAYER_DP_SLP_STATE == LL_SYS_DP_SLP_STATE_T_LL_SYS_DP_SLP_DISABLED {
+    if LINKLAYER_DP_SLP_STATE == ll_sys_dp_slp_state_t_LL_SYS_DP_SLP_DISABLED {
         /* Radio not in sleep mode */
-        return_status = LL_SYS_STATUS_T_LL_SYS_OK;
+        return_status = ll_sys_status_t_LL_SYS_OK;
     } else {
         /* Switch Link Layer IP to SLEEP mode (by deactivate DEEP SLEEP mode) */
-        cmd_status = ll_intf_cmn_le_set_dp_slp_mode(DPSLP_STATE_DEEP_SLEEP_DISABLE as u8);
+        cmd_status = ll_intf_cmn_le_set_dp_slp_mode(dpslp_state_DEEP_SLEEP_DISABLE as u8);
         if cmd_status == SUCCESS {
-            LINKLAYER_DP_SLP_STATE = LL_SYS_DP_SLP_STATE_T_LL_SYS_DP_SLP_DISABLED;
-            return_status = LL_SYS_STATUS_T_LL_SYS_OK;
+            LINKLAYER_DP_SLP_STATE = ll_sys_dp_slp_state_t_LL_SYS_DP_SLP_DISABLED;
+            return_status = ll_sys_status_t_LL_SYS_OK;
         }
 
         /* Stop the deep sleep wake-up timer if running */
-        if os_get_tmr_state(RADIO_DP_SLP_TMR_ID) != OS_TIMER_STATE_OSTIMERSTOPPED {
+        if os_get_tmr_state(RADIO_DP_SLP_TMR_ID) != os_timer_state_osTimerStopped {
             os_timer_stop(RADIO_DP_SLP_TMR_ID);
         }
     }

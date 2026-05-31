@@ -59,8 +59,8 @@ dma_trait!(RxDma, Instance);
 pub struct Exten;
 
 pub struct RegularAdcTrigger<T: Instance> {
-    pub(crate) _trigger: u8,
-    pub(crate) _edge: Exten,
+    _trigger: u8, 
+    _edge: Exten,
     _typ: PhantomData<T>,
 }
 
@@ -926,5 +926,7 @@ pub const fn resolution_to_max_count(res: Resolution) -> u32 {
         Resolution::Bits6 => (1 << 6) - 1,
         #[allow(unreachable_patterns)]
         _ => core::unreachable!(),
+    }
+}
     }
 }

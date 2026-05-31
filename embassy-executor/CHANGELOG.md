@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Added `platform-riscv64` for RISC-V 64-bit targets (thread executor only, uses `WFI`; shares implementation with `platform-riscv32`).
+
 ## 0.10.0 - 2026-03-10
 
 - Added new metadata API for tasks.
@@ -22,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added fallible `from_waker` getter for `TaskRef`
 - Changed: return error when creating the `SpawnToken`, not when spawning
 - Bump avr-device from 0.7.0 to 0.8.1
+- rename `arch-*` features to `platform-*`
 
 ## 0.9.1 - 2025-08-31
 

@@ -2,11 +2,11 @@ use core::marker::PhantomData;
 
 use stm32_metapac::adc::regs::{Smpr1, Smpr2, Sqr1, Sqr2, Sqr3};
 
-use super::blocking_delay_us;
 use crate::adc::{Adc, AdcRegs, ConversionMode, DefaultInstance, Instance, SampleTime, VrefInt};
 use crate::interrupt::typelevel::Interrupt;
 use crate::interrupt::{self};
 use crate::time::Hertz;
+use crate::wait::block_for_us;
 use crate::{Peri, rcc};
 
 pub const VDDA_CALIB_MV: u32 = 3300;
@@ -16,7 +16,7 @@ pub const VREF_INT: u32 = 1200;
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: DefaultInstance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
@@ -46,7 +46,7 @@ impl AdcRegs for crate::pac::adc::Adc {
             reg.set_adon(true);
         });
 
-        blocking_delay_us(3);
+        block_for_us(3);
     }
 
     fn start(&self) {
@@ -118,17 +118,17 @@ impl AdcRegs for crate::pac::adc::Adc {
 
         for (i, ((ch, _), sample_time)) in sequence.enumerate() {
             match i {
-                0..=5 => sqr1.set_sq(i, ch),
+                0..=5 => sqr3.set_sq(i, ch),
                 6..=11 => sqr2.set_sq(i - 6, ch),
-                12..=15 => sqr3.set_sq(i - 12, ch),
+                12..=15 => sqr1.set_sq(i - 12, ch),
                 _ => unreachable!(),
             }
 
             let sample_time = sample_time.into();
-            if ch < 8 {
-                smpr1.set_smp(ch as usize, sample_time);
+            if ch <= 9 {
+                smpr2.set_smp(ch as _, sample_time);
             } else {
-                smpr2.set_smp(ch as usize - 8, sample_time);
+                smpr1.set_smp((ch - 10) as _, sample_time);
             }
         }
 
@@ -147,7 +147,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
 
         // 11.4: Before starting a calibration, the ADC must have been in power-on state (ADON bit = ‘1’)
         // for at least two ADC clock cycles.
-        blocking_delay_us((1_000_000 * 2) / Self::freq().0 as u64 + 1);
+        block_for_us((1_000_000 * 2) / Self::freq().0 as u64 + 1);
 
         // Reset calibration
         T::regs().cr2().modify(|reg| reg.set_rstcal(true));
@@ -162,7 +162,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         }
 
         // One cycle after calibration
-        blocking_delay_us((1_000_000 * 1) / Self::freq().0 as u64 + 1);
+        block_for_us((1_000_000 * 1) / Self::freq().0 as u64 + 1);
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };

@@ -4,11 +4,11 @@
 use embassy_hal_internal::PeripheralType;
 
 use crate::Peri;
-#[cfg(opamp_v5)]
-use crate::block_for_us;
 use crate::pac::opamp::vals::*;
 #[cfg(not(any(stm32g4, stm32f3)))]
 use crate::rcc::RccInfo;
+#[cfg(opamp_v5)]
+use crate::wait::block_for_us;
 
 /// Gain
 #[allow(missing_docs)]

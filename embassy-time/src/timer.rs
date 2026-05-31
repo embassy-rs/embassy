@@ -16,9 +16,9 @@ pub struct TimeoutError;
 ///
 /// If the future completes before the timeout, its output is returned. Otherwise, on timeout,
 /// work on the future is stopped (`poll` is no longer called), the future is dropped and `Err(TimeoutError)` is returned.
-pub fn with_timeout<F: Future>(timeout: Duration, fut: F) -> TimeoutFuture<F> {
+pub fn with_timeout<F: Future>(timeout: impl Into<Duration>, fut: F) -> TimeoutFuture<F> {
     TimeoutFuture {
-        timer: Timer::after(timeout),
+        timer: Timer::after(timeout.into()),
         fut,
     }
 }
@@ -43,7 +43,7 @@ pub trait WithTimeout: Sized {
     ///
     /// If the future completes before the timeout, its output is returned. Otherwise, on timeout,
     /// work on the future is stopped (`poll` is no longer called), the future is dropped and `Err(TimeoutError)` is returned.
-    fn with_timeout(self, timeout: Duration) -> TimeoutFuture<Self>;
+    fn with_timeout(self, timeout: impl Into<Duration>) -> TimeoutFuture<Self>;
 
     /// Runs a given future with a deadline time.
     ///
@@ -55,8 +55,8 @@ pub trait WithTimeout: Sized {
 impl<F: Future> WithTimeout for F {
     type Output = F::Output;
 
-    fn with_timeout(self, timeout: Duration) -> TimeoutFuture<Self> {
-        with_timeout(timeout, self)
+    fn with_timeout(self, timeout: impl Into<Duration>) -> TimeoutFuture<Self> {
+        with_timeout(timeout.into(), self)
     }
 
     fn with_deadline(self, at: Instant) -> TimeoutFuture<Self> {
@@ -114,6 +114,15 @@ impl Timer {
     /// Expire after specified [Duration](struct.Duration.html).
     /// This can be used as a `sleep` abstraction.
     ///
+    /// Note: You must ensure that Instant::now() when added to the intended
+    /// sleep duration does not overflow the u64 tick counter or a panic will occur.
+    ///
+    /// For example Timer::after(Duration::MAX) will always panic
+    /// and must be avoided.
+    ///
+    /// The same restriction applies to with_timeout() and the other
+    /// after_* functions.
+    ///
     /// Example:
     /// ``` no_run
     /// use embassy_time::{Duration, Timer};
@@ -124,9 +133,9 @@ impl Timer {
     ///     Timer::after(Duration::from_secs(1)).await;
     /// }
     /// ```
-    pub fn after(duration: Duration) -> Self {
+    pub fn after(duration: impl Into<Duration>) -> Self {
         Self {
-            expires_at: Instant::now() + duration,
+            expires_at: Instant::now() + duration.into(),
             yielded_once: false,
         }
     }
@@ -241,7 +250,8 @@ pub struct Ticker {
 
 impl Ticker {
     /// Creates a new ticker that ticks at the specified duration interval.
-    pub fn every(duration: Duration) -> Self {
+    pub fn every(duration: impl Into<Duration>) -> Self {
+        let duration = duration.into();
         let expires_at = Instant::now() + duration;
         Self { expires_at, duration }
     }
@@ -260,8 +270,8 @@ impl Ticker {
 
     /// Resets the ticker, after the specified duration has passed.
     /// If the specified duration is zero, the next tick will be after the duration of the ticker.
-    pub fn reset_after(&mut self, after: Duration) {
-        self.expires_at = Instant::now() + after + self.duration;
+    pub fn reset_after(&mut self, after: impl Into<Duration>) {
+        self.expires_at = Instant::now() + after.into() + self.duration;
     }
 
     /// Waits for the next tick.
