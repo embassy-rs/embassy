@@ -41,6 +41,7 @@ trait SealedInstance {
     //    Self::regs().rdata().as_ptr() as *const u16
     //}
 
+    #[allow(dead_code)]
     fn wdata() -> *mut u16 {
         Self::regs().wdata().as_ptr() as *mut u16
     }
