@@ -275,7 +275,7 @@ pub trait EndpointOut: Endpoint {
         loop {
             let i = self.read(&mut buf[n..]).await?;
             n += i;
-            if i < self.info().max_packet_size as usize {
+            if i < self.info().max_packet_size as usize || n == buf.len() {
                 return Ok(n);
             }
         }
