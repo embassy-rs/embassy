@@ -1,3 +1,5 @@
+use core::marker::PhantomData;
+
 #[cfg(stm32g4)]
 use pac::adc::regs::Difsel as DifselReg;
 #[allow(unused)]
@@ -8,11 +10,14 @@ pub use pac::adc::vals::{Adcaldif, Adstp, Difsel, Dmacfg, Dmaen, Exten, Rovsm, T
 use pac::adc::vals::{Adcaldif, Difsel, Exten};
 pub use pac::adccommon::vals::{Dual, Presc};
 
-use crate::adc::{Adc, AdcRegs, AnyAdcChannel, ConversionMode, DefaultInstance, InjectedRegs, Resolution, SampleTime};
+use crate::adc::{
+    Adc, AdcRegs, BorrowedAdcChannel, ConversionMode, DefaultInstance, InjectedRegs, RegularAdcTrigger, Resolution,
+    RxDma, SampleTime,
+};
 use crate::pac::adc::regs::{Jsqr, Smpr, Smpr2, Sqr1, Sqr2, Sqr3, Sqr4};
 use crate::time::Hertz;
 use crate::wait::block_for_us;
-use crate::{Peri, pac, rcc};
+use crate::{Peri, dma, pac, rcc};
 
 mod injected;
 pub use injected::InjectedAdc;
@@ -55,6 +60,19 @@ pub struct AdcConfig {
     pub oversampling_ratio: Option<u8>,
     #[cfg(stm32g4)]
     pub oversampling_mode: Option<(Rovsm, Trovs, bool)>,
+}
+
+/// An ADC with a pre-configured channel sequence for repeated DMA to peripheral reads.
+///
+/// Just like [`Adc::configured_sequence`], this type programs the ADC channel sequence
+/// registers. However, while `ConfiguredSequence` is targeted at ADC to mem transfers,
+/// `ConfiguredTransfer` is designed for ADC to peripheral transfers such as to FMAC or CORDIC
+///
+/// Obtain via [`Adc::configured_transfer`].
+#[allow(private_bounds)]
+pub struct ConfiguredTransfer<'adc, R: super::AdcRegs> {
+    _transfer: dma::Transfer<'adc>,
+    _marker: PhantomData<R>,
 }
 
 impl super::AdcRegs for crate::pac::adc::Adc {
@@ -411,6 +429,71 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
     //     T::regs().cfgr2().modify(|reg| reg.set_rovse(enable));
     //     T::regs().cfgr2().modify(|reg| reg.set_jovse(enable));
     // }
+
+    /// Configure an ADC channel sequence once and return a [`ConfiguredTransfer`] for repeated
+    /// DMA reads to peripherals such as FMAC or CORDIC.
+    ///
+    /// Use [`Adc::configured_sequence`] instead if you don't want to pipe the results directly
+    /// to a peripheral.
+    ///
+    /// # Parameters
+    /// - `sequence`: Iterator of channels and sample times. Maximum 16 entries.
+    ///
+    /// # Returns
+    /// A [`ConfiguredTransfer`] which is can be passed to [`fmac::FromAdc::new`]
+    ///
+    /// # Notes
+    /// - The channel sequence is programmed into the ADC sequence registers once here and
+    ///   remains fixed for the lifetime of the returned [`ConfiguredTransfer`].
+    /// - Call this method AFTER the targeted peripheral is ready to begin receiving the transfer.
+    pub(crate) fn configured_transfer<'adc, 'ch, D: RxDma<T>, W: dma::word::Word>(
+        &'adc mut self,
+        rx_dma: embassy_hal_internal::Peri<'adc, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
+        sequence: impl ExactSizeIterator<Item = (BorrowedAdcChannel<'ch, T>, SampleTime)>,
+        trigger: RegularAdcTrigger<T>,
+        dst: *mut W,
+    ) -> ConfiguredTransfer<'adc, T::Regs>
+    where
+        'ch: 'adc,
+    {
+        // Ensure no conversions are ongoing
+        T::regs().stop(false);
+        T::regs().configure_sequence(
+            sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
+        );
+
+        T::regs().enable();
+
+        // Configure DMA once, reused across all subsequent read() calls.
+        T::regs().configure_dma(ConversionMode::Repeated(Some((trigger._trigger, trigger._edge))));
+
+        let dma_request = rx_dma.request();
+        let mut dma_channel = dma::Channel::new(rx_dma, irq);
+        let transfer = unsafe {
+            dma_channel
+                .read_raw_repeated(
+                    dma_request,
+                    dst,
+                    1,
+                    T::regs().data(),
+                    dma::TransferOptions {
+                        priority: dma::Priority::VeryHigh,
+                        circular: true,
+                        half_transfer_ir: false,
+                        complete_transfer_ir: false,
+                    },
+                )
+                .unchecked_extend_lifetime()
+        };
+
+        T::regs().start();
+
+        ConfiguredTransfer {
+            _transfer: transfer,
+            _marker: PhantomData,
+        }
+    }
 }
 
 #[cfg(stm32g4)]

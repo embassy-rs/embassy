@@ -1556,8 +1556,8 @@ impl<'d, M: Mode> I2c<'d, M, Master> {
             rx_dma: self.rx_dma.take(),
             #[cfg(feature = "time")]
             timeout: self.timeout,
-            _phantom: PhantomData,
-            _phantom2: PhantomData,
+            _marker: PhantomData,
+            _marker2: PhantomData,
             _drop_guard: self._drop_guard,
         };
         slave.init_slave(slave_addr_config);

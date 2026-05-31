@@ -462,7 +462,7 @@ macro_rules! foreach_exti_irq {
 // It technically doesn't need to be generic at all, except to satisfy the generic argument
 // of [Handler]. All EXTI interrupts eventually land in the same on_irq() function.
 pub struct InterruptHandler<T: crate::interrupt::typelevel::Interrupt> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: InterruptType> Handler<T> for InterruptHandler<T> {

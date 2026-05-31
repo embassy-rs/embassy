@@ -334,7 +334,7 @@ mod offsets {
 
 /// PKA interrupt handler.
 pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
@@ -572,7 +572,7 @@ pub struct ModExpProtectParams<'a> {
 /// PKA driver
 pub struct Pka<'d, T: Instance, M: Mode> {
     _peripheral: Peri<'d, T>,
-    _phantom: PhantomData<M>,
+    _marker: PhantomData<M>,
 }
 
 impl<'d, T: Instance> Pka<'d, T, Blocking> {
@@ -588,7 +588,7 @@ impl<'d, T: Instance> Pka<'d, T, Blocking> {
 
         let mut s = Self {
             _peripheral: peripheral,
-            _phantom: PhantomData,
+            _marker: PhantomData,
         };
         s.ensure_init_blocking().expect("PKA initialization failed");
         s
@@ -608,7 +608,7 @@ impl<'d, T: Instance> Pka<'d, T, Async> {
 
         let mut s = Self {
             _peripheral: peripheral,
-            _phantom: PhantomData,
+            _marker: PhantomData,
         };
         s.ensure_init_blocking().expect("PKA initialization failed");
         s

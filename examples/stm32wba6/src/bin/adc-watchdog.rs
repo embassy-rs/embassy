@@ -59,7 +59,7 @@ async fn main(_spawner: Spawner) {
     // the hardware's DR[15:4] comparison window.
     adc.set_averaging_adc4(adc4::Averaging::Samples8);
 
-    let pin_ch = pin.degrade_adc().get_hw_channel();
+    let pin_ch = pin.reborrow_adc().get_hw_channel();
 
     let max = adc4::resolution_to_max_count(adc4::Resolution::Bits12);
 

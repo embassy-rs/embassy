@@ -1,24 +1,23 @@
 use core::marker::PhantomData;
 use core::sync::atomic::{Ordering, compiler_fence};
 
-use super::AnyAdcChannel;
-use crate::adc::{BasicAdcRegs, InjectedAdcRegs, Instance};
+use crate::adc::{BasicAdcRegs, BorrowedAdcChannel, InjectedAdcRegs, Instance};
 
 /// Injected ADC sequence with owned channels.
 pub struct InjectedAdc<'d, R: InjectedAdcRegs> {
     regs: R,
     len: usize,
-    _typ: PhantomData<&'d mut ()>,
+    _marker: PhantomData<&'d mut ()>,
 }
 
 impl<'d, R: InjectedAdcRegs> InjectedAdc<'d, R> {
     pub(crate) fn new<T: Instance<Regs = R>, const N: usize>(
-        _channels: [(AnyAdcChannel<'d, T>, <T::Regs as BasicAdcRegs>::SampleTime); N],
+        _channels: [(BorrowedAdcChannel<'d, T>, <T::Regs as BasicAdcRegs>::SampleTime); N],
     ) -> Self {
         Self {
             regs: T::regs(),
             len: N,
-            _typ: PhantomData,
+            _marker: PhantomData,
         }
     }
 

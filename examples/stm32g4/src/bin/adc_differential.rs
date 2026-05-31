@@ -9,7 +9,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
-use embassy_stm32::adc::{Adc, SampleTime};
+use embassy_stm32::adc::{Adc, AdcChannel, SampleTime};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -39,7 +39,7 @@ async fn main(_spawner: Spawner) {
     // adc.set_differential_channel(1, true);
     info!("adc initialized");
     loop {
-        let measured = adc.blocking_read(&mut differential_channel, SampleTime::Cycles2475);
+        let measured = adc.blocking_read(differential_channel.reborrow_adc(), SampleTime::Cycles2475);
         info!("data: {}", measured);
         Timer::after_millis(500).await;
     }
