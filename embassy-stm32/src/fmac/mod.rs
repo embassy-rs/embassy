@@ -37,8 +37,8 @@ trait SealedInstance {
         self.write_input(x.inner as u16);
     }
 
-    //fn rdata() -> *const u32 {
-    //    Self::regs().rdata().as_ptr() as *const u32
+    //fn rdata() -> *const u16 {
+    //    Self::regs().rdata().as_ptr() as *const u16
     //}
 
     #[allow(dead_code)]

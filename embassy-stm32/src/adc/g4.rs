@@ -446,15 +446,17 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
     /// - The channel sequence is programmed into the ADC sequence registers once here and
     ///   remains fixed for the lifetime of the returned [`ConfiguredTransfer`].
     /// - Call this method AFTER the targeted peripheral is ready to begin receiving the transfer.
-    #[allow(dead_code)]
-    pub(crate) fn configured_transfer<'ch: 'd, D: RxDma<T>, W: dma::word::Word>(
-        &'d mut self,
+    pub(crate) fn configured_transfer<'adc, 'ch, D: RxDma<T>, W: dma::word::Word>(
+        &'adc mut self,
+        rx_dma: embassy_hal_internal::Peri<'adc, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         sequence: impl ExactSizeIterator<Item = (BorrowedAdcChannel<'ch, T>, SampleTime)>,
         trigger: RegularAdcTrigger<T>,
-        dma_ch: embassy_hal_internal::Peri<'d, D>,
         dst: *mut W,
-        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
-    ) -> ConfiguredTransfer<'d, T::Regs> {
+    ) -> ConfiguredTransfer<'adc, T::Regs>
+    where
+        'ch: 'adc,
+    {
         // Ensure no conversions are ongoing
         T::regs().stop(false);
         T::regs().configure_sequence(
@@ -466,15 +468,15 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         // Configure DMA once, reused across all subsequent read() calls.
         T::regs().configure_dma(ConversionMode::Repeated(Some((trigger._trigger, trigger._edge))));
 
-        let dma_request = dma_ch.request();
-        let mut dma_channel = dma::Channel::new(dma_ch, irq);
+        let dma_request = rx_dma.request();
+        let mut dma_channel = dma::Channel::new(rx_dma, irq);
         let transfer = unsafe {
             dma_channel
                 .read_raw_repeated(
                     dma_request,
-                    T::regs().data(),
-                    usize::MAX,
                     dst,
+                    1,
+                    T::regs().data(),
                     dma::TransferOptions {
                         priority: dma::Priority::VeryHigh,
                         circular: true,
