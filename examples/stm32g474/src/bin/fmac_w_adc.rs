@@ -42,7 +42,6 @@ async fn main(_spawner: Spawner) {
     let mut adc = Adc::new(p.ADC1, Default::default());
 
     let mut temperature = adc.enable_temperature();
-    let mut temperature_channel = temperature.degrade_adc();
 
     let one_third = Q16::from_f32(1.0 / 3.0);
 
@@ -70,7 +69,7 @@ async fn main(_spawner: Spawner) {
     let mut fmac = fmac::FromAdc::new(
         fmac,
         &mut adc,
-        [(&mut temperature_channel, SampleTime::Cycles6405)].into_iter(),
+        [(temperature.reborrow_adc(), SampleTime::Cycles6405)].into_iter(),
         trigger,
         p.DMA1_CH1,
         Irqs,
