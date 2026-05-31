@@ -35,9 +35,9 @@ trait SealedInstance {
         self.write_input(x.inner as u16);
     }
 
-    fn rdata() -> *const u32 {
-        Self::regs().rdata().as_ptr() as *const u32
-    }
+    //fn rdata() -> *const u32 {
+    //    Self::regs().rdata().as_ptr() as *const u32
+    //}
 
     fn wdata() -> *mut u32 {
         Self::regs().wdata().as_ptr() as *mut u32
