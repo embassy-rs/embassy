@@ -1,8 +1,7 @@
 use core::sync::atomic::{Ordering, compiler_fence};
 
 use crate::adc::{
-    Adc, AdcRegs, AnyAdcChannel, ConversionMode, DefaultInstance, InjectedRegs, Resolution, SampleTime, Temperature,
-    Vbat, VrefInt,
+    Adc, AdcRegs, ConversionMode, DefaultInstance, InjectedRegs, Resolution, SampleTime, Temperature, Vbat, VrefInt,
 };
 use crate::pac::adc::vals;
 pub use crate::pac::adccommon::vals::Adcpre;
