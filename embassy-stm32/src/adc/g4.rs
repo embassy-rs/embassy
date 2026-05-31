@@ -8,10 +8,11 @@ pub use pac::adc::vals::{Adcaldif, Adstp, Difsel, Dmacfg, Dmaen, Exten, Rovsm, T
 use pac::adc::vals::{Adcaldif, Difsel, Exten};
 pub use pac::adccommon::vals::{Dual, Presc};
 
-use super::{Adc, AnyAdcChannel, ConversionMode, RegularAdcTrigger, Resolution, RxDma, SampleTime, blocking_delay_us};
+use super::{Adc, AnyAdcChannel, ConversionMode, RegularAdcTrigger, Resolution, RxDma, SampleTime};
 use crate::adc::{AdcRegs, DefaultInstance, InjectedRegs};
 use crate::pac::adc::regs::{Jsqr, Smpr, Smpr2, Sqr1, Sqr2, Sqr3, Sqr4};
 use crate::time::Hertz;
+use crate::wait::block_for_us;
 use crate::{Peri, dma, pac, rcc};
 
 mod injected;
@@ -319,7 +320,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
             reg.set_advregen(true);
         });
 
-        blocking_delay_us(20);
+        block_for_us(20);
 
         T::regs().difsel().modify(|w| {
             for n in 0..18 {
@@ -335,7 +336,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
 
         while T::regs().cr().read().adcal() {}
 
-        blocking_delay_us(20);
+        block_for_us(20);
 
         T::regs().cr().modify(|w| {
             w.set_adcaldif(Adcaldif::Differential);
@@ -345,7 +346,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
 
         while T::regs().cr().read().adcal() {}
 
-        blocking_delay_us(20);
+        block_for_us(20);
 
         T::regs().enable();
 
@@ -437,7 +438,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
     /// Configure an ADC channel sequence once and return a [`ConfiguredTransfer`] for repeated
     /// DMA reads to peripherals such as FMAC or CORDIC.
     ///
-    /// Use [`Adc::configured_sequence`] instead if you dont want to pipe the results directly
+    /// Use [`Adc::configured_sequence`] instead if you don't want to pipe the results directly
     /// to a peripheral.
     ///
     /// # Parameters
@@ -455,7 +456,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         trigger: RegularAdcTrigger<T>,
         dma_ch: embassy_hal_internal::Peri<'d, D>,
         dst: *mut W,
-        irq_not_used: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
     ) -> ConfiguredTransfer<'d, T::Regs> {
         // Ensure no conversions are ongoing
         T::regs().stop(false);
@@ -469,12 +470,13 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         T::regs().configure_dma(ConversionMode::Repeated(Some((trigger._trigger, trigger._edge))));
 
         let dma_request = dma_ch.request();
-        let mut dma_channel = dma::Channel::new(dma_ch, irq_not_used);
+        let mut dma_channel = dma::Channel::new(dma_ch, irq);
         let transfer = unsafe {
             dma_channel
-                .read_repeated(
+                .read_raw_repeated(
                     dma_request,
                     T::regs().data(),
+                    usize::MAX,
                     dst,
                     dma::TransferOptions {
                         priority: dma::Priority::VeryHigh,
