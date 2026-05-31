@@ -1,3 +1,4 @@
+use dsp_fixedpoint::Q16;
 use embassy_hal_internal::Peri as DmaPeri;
 
 use crate::adc::{self, Adc, AnyAdcChannel, BasicAdcRegs, ConfiguredTransfer, RegularAdcTrigger, RxDma};
@@ -14,7 +15,7 @@ pub struct FromAdc<'d, FMAC: fmac::Instance, ADC: adc::DefaultInstance> {
 
 impl<'d, ADC: adc::DefaultInstance, FMAC: fmac::Instance> FromAdc<'d, FMAC, ADC> {
     /// Bind ADC to FMAC using DMA and start conversion
-    pub fn new<'di: 'd, D: RxDma<ADC>, Irq>(
+    pub fn new<'di: 'd, D: RxDma<ADC>>(
         fmac: Fmac<'d, FMAC>,
         adc: &'d mut Adc<'d, ADC>,
         adc_ch: &'d mut AnyAdcChannel<ADC>,
@@ -32,5 +33,10 @@ impl<'d, ADC: adc::DefaultInstance, FMAC: fmac::Instance> FromAdc<'d, FMAC, ADC>
         );
 
         Self { fmac, transfer }
+    }
+
+    /// Read output value
+    pub fn read(&mut self) -> Option<Q16<15>> {
+        self.fmac.read()
     }
 }

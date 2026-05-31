@@ -445,13 +445,12 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
     /// # Notes
     /// - The channel sequence is programmed into the ADC sequence registers once here and
     ///   remains fixed for the lifetime of the returned [`ConfiguredTransfer`].
-    /// - Call this method AFTER the targeted peripheral is ready to begin receiving the transfer.
-    pub(crate) fn configured_transfer<'ch: 'd, D: RxDma<T>, W: dma::word::Word>(
+    pub(crate) fn configured_transfer<'ch: 'd, D: RxDma<T>>(
         &'d mut self,
         sequence: impl ExactSizeIterator<Item = (&'d mut AnyAdcChannel<'ch, T>, SampleTime)>,
         trigger: RegularAdcTrigger<T>,
         dma_ch: embassy_hal_internal::Peri<'d, D>,
-        dst: *mut W,
+        dst: *mut u16,
         irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
     ) -> ConfiguredTransfer<'d, T::Regs> {
         // Ensure no conversions are ongoing
@@ -472,7 +471,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
                 .read_raw_repeated(
                     dma_request,
                     T::regs().data(),
-                    usize::MAX,
+                    1,
                     dst,
                     dma::TransferOptions {
                         priority: dma::Priority::VeryHigh,
