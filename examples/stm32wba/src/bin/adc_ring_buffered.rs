@@ -84,9 +84,6 @@ async fn main(_spawner: embassy_executor::Spawner) {
     // Degrade to AnyAdcChannel for use with DMA
     // IMPORTANT: Order matters for ADC4 - must be ascending channel numbers
     // VrefInt: Channel 0, VCORE: Channel 12, Temperature: Channel 13
-    let vrefint_ch = vrefint.degrade_adc();
-    let vcore_ch = vcore.degrade_adc();
-    let temp_ch = temperature.degrade_adc();
 
     info!("Internal channels enabled, setting up ring buffer...");
 
@@ -101,9 +98,9 @@ async fn main(_spawner: embassy_executor::Spawner) {
         unsafe { &mut *core::ptr::addr_of_mut!(DMA_BUF) },
         Irqs,
         [
-            (vrefint_ch, adc4::SampleTime::Cycles125), // Channel 0
-            (vcore_ch, adc4::SampleTime::Cycles125),   // Channel 12
-            (temp_ch, adc4::SampleTime::Cycles125),    // Channel 13
+            (vrefint.reborrow_adc(), adc4::SampleTime::Cycles125), // Channel 0
+            (vcore.reborrow_adc(), adc4::SampleTime::Cycles125),   // Channel 12
+            (temperature.reborrow_adc(), adc4::SampleTime::Cycles125), // Channel 13
         ]
         .into_iter(),
         None,

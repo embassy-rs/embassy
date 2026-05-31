@@ -61,14 +61,10 @@ async fn main(_spawner: Spawner) {
     let mut vrefint = adc.enable_vrefint();
     let mut temperature = adc.enable_temperature();
 
-    let vrefint_channel = vrefint.degrade_adc();
-    let temp_channel = temperature.degrade_adc();
-    let pa0 = p.PA0.degrade_adc();
-
     let sequence = [
-        (vrefint_channel, SampleTime::Cycles125),
-        (temp_channel, SampleTime::Cycles125),
-        (pa0, SampleTime::Cycles125),
+        (vrefint.reborrow_adc(), SampleTime::Cycles125),
+        (temperature.reborrow_adc(), SampleTime::Cycles125),
+        (p.PA0.reborrow_adc(), SampleTime::Cycles125),
     ]
     .into_iter();
 

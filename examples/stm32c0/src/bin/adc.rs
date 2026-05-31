@@ -3,8 +3,8 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::{Adc, AdcChannel, AnyAdcChannel, Resolution, SampleTime};
-use embassy_stm32::peripherals::{ADC1, DMA1_CH1};
+use embassy_stm32::adc::{Adc, AdcChannel, Resolution, SampleTime};
+use embassy_stm32::peripherals::DMA1_CH1;
 use embassy_stm32::{bind_interrupts, dma};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
@@ -25,32 +25,28 @@ async fn main(_spawner: Spawner) {
     let mut temperature = adc.enable_temperature();
     let mut vrefint = adc.enable_vrefint();
 
-    let mut temp = temperature.degrade_adc();
-    let mut vref = vrefint.degrade_adc();
-    let mut pin0 = p.PA0.degrade_adc();
-
     let mut dma = p.DMA1_CH1;
     let mut read_buffer: [u16; 3] = [0; 3];
 
     for _ in 0..5 {
         info!("============================");
-        let blocking_temp = adc.blocking_read(&mut temp, SampleTime::Cycles125);
-        let blocking_vref = adc.blocking_read(&mut vref, SampleTime::Cycles125);
-        let blocing_pin0 = adc.blocking_read(&mut pin0, SampleTime::Cycles125);
+        let blocking_temp = adc.blocking_read(&mut temperature, SampleTime::Cycles125);
+        let blocking_vref = adc.blocking_read(&mut vrefint, SampleTime::Cycles125);
+        let blocing_pin0 = adc.blocking_read(&mut p.PA0, SampleTime::Cycles125);
         info!(
             "Blocking ADC read: vref = {}, temp = {}, pin0 = {}.",
             blocking_vref, blocking_temp, blocing_pin0
         );
 
-        let channels_sequence: [(&mut AnyAdcChannel<ADC1>, SampleTime); 3] = [
-            (&mut vref, SampleTime::Cycles125),
-            (&mut temp, SampleTime::Cycles125),
-            (&mut pin0, SampleTime::Cycles125),
-        ];
         adc.read(
             dma.reborrow(),
             Irqs,
-            channels_sequence.into_iter(),
+            [
+                (vrefint.reborrow_adc(), SampleTime::Cycles125),
+                (temperature.reborrow_adc(), SampleTime::Cycles125),
+                (p.PA0.reborrow_adc(), SampleTime::Cycles125),
+            ]
+            .into_iter(),
             None,
             &mut read_buffer,
         )

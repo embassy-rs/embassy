@@ -11,8 +11,8 @@ use pac::adc::vals::{Adcaldif, Difsel, Exten};
 pub use pac::adccommon::vals::{Dual, Presc};
 
 use crate::adc::{
-    Adc, AdcRegs, AnyAdcChannel, ConversionMode, DefaultInstance, InjectedRegs, RegularAdcTrigger, Resolution, RxDma,
-    SampleTime,
+    Adc, AdcRegs, BorrowedAdcChannel, ConversionMode, DefaultInstance, InjectedRegs, RegularAdcTrigger, Resolution,
+    RxDma, SampleTime,
 };
 use crate::pac::adc::regs::{Jsqr, Smpr, Smpr2, Sqr1, Sqr2, Sqr3, Sqr4};
 use crate::time::Hertz;
@@ -445,9 +445,14 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
     /// # Notes
     /// - The channel sequence is programmed into the ADC sequence registers once here and
     ///   remains fixed for the lifetime of the returned [`ConfiguredTransfer`].
-    pub(crate) fn configured_transfer<'adc, 'ch, D: RxDma<T>>(
-        &'adc mut self,
-        rx_dma: embassy_hal_internal::Peri<'adc, D>,
+    /// - Call this method AFTER the targeted peripheral is ready to begin receiving the transfer.
+    #[allow(dead_code)]
+    pub(crate) fn configured_transfer<'ch: 'd, D: RxDma<T>, W: dma::word::Word>(
+        &'d mut self,
+        sequence: impl ExactSizeIterator<Item = (BorrowedAdcChannel<'ch, T>, SampleTime)>,
+        trigger: RegularAdcTrigger<T>,
+        dma_ch: embassy_hal_internal::Peri<'d, D>,
+        dst: *mut W,
         irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         sequence: impl ExactSizeIterator<Item = (&'adc mut AnyAdcChannel<'ch, T>, SampleTime)>,
         trigger: RegularAdcTrigger<T>,

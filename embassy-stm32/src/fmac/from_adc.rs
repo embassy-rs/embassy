@@ -1,7 +1,7 @@
 use dsp_fixedpoint::Q16;
 use stm32_metapac::adc::vals::SampleTime;
 
-use crate::adc::{self, Adc, AnyAdcChannel, ConfiguredTransfer, RegularAdcTrigger, RxDma};
+use crate::adc::{self, Adc, BasicAdcRegs, BorrowedAdcChannel, ConfiguredTransfer, RegularAdcTrigger, RxDma};
 use crate::fmac::{self, Fmac};
 
 /// A type used to bind ADC to FMAC using DMA
@@ -12,12 +12,13 @@ pub struct FromAdc<'d, 'adc, FMAC: fmac::Instance, ADC: adc::DefaultInstance> {
     fmac: Fmac<'d, FMAC>,
 }
 
-impl<'d, 'adc, ADC: adc::DefaultInstance, FMAC: fmac::Instance> FromAdc<'d, 'adc, FMAC, ADC> {
+impl<'d, ADC: adc::DefaultInstance, FMAC: fmac::Instance> FromAdc<'d, FMAC, ADC> {
+    #[allow(unused)]
     /// Bind ADC to FMAC using DMA and start conversion
     pub fn new<'a, 'ch, D: RxDma<ADC>>(
         fmac: Fmac<'d, FMAC>,
         adc: &'adc mut Adc<'a, ADC>,
-        sequence: impl ExactSizeIterator<Item = (&'adc mut AnyAdcChannel<'ch, ADC>, SampleTime)>,
+        sequence: impl ExactSizeIterator<Item = (BorrowedAdcChannel<'ch, ADC>, SampleTime)>,
         trigger: RegularAdcTrigger<ADC>,
         dma_ch: embassy_hal_internal::Peri<'adc, D>,
         irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,

@@ -1438,19 +1438,41 @@ fn transfer_words<W: Word>(regs: Regs, read: *mut [W], write: *const [W]) -> Res
         let mut w = 0usize;
         let mut r = 0usize;
 
+        if ndt == 0 {
+            return Ok(());
+        }
+
         spin_until_tx_ready(regs, true)?;
 
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
+        while w < ndt && check_tx_ready(regs, true)? {
+            if let Some(word_out) = write.next() {
+                ptr::write_volatile(regs.tx_ptr(), *word_out);
+            } else {
+                ptr::write_volatile(regs.tx_ptr(), W::default());
+            }
+
+            w += 1;
+        }
+
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
+        regs.cr1().modify(|reg| reg.set_cstart(true));
+
+        #[cfg(any(spi_v1, spi_v2))]
+        let fifo_size = 1;
+
+        #[cfg(spi_v3)]
+        let fifo_size = 4 / size_of::<W>();
+
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
+        let fifo_size = w;
+
         while w < ndt || r < ndt {
-            if w < ndt && check_tx_ready(regs, true)? {
+            if w < ndt && (w - r) < fifo_size && check_tx_ready(regs, true)? {
                 if let Some(word_out) = write.next() {
                     ptr::write_volatile(regs.tx_ptr(), *word_out);
                 } else {
                     ptr::write_volatile(regs.tx_ptr(), W::default());
-                }
-
-                if w == 0 {
-                    #[cfg(any(spi_v4, spi_v5, spi_v6))]
-                    regs.cr1().modify(|reg| reg.set_cstart(true));
                 }
 
                 w += 1;
