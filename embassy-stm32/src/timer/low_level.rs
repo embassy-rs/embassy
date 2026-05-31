@@ -1337,6 +1337,13 @@ impl<'d, T: AdvancedInstance4Channel> Timer<'d, T> {
         self.regs_advanced().egr().write(|r| r.set_bg(n, true));
     }
 
+    /// Generate a software capture/compare event on the given channel.
+    ///
+    /// Sets CCxG in EGR. The bit is automatically cleared by hardware.
+    pub fn generate_capture_compare_event(&self, channel: Channel) {
+        self.regs_advanced().egr().write(|r| r.set_ccg(channel.index(), true));
+    }
+
     /// Enable/disable comparator output as break input 2 source.
     ///
     /// When enabled, the output of comparator `comp_index` (0-based: 0=COMP1, 1=COMP2, etc.)
