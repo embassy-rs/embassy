@@ -27,7 +27,7 @@ async fn main(_spawner: Spawner) {
     adc.set_resolution_adc4(adc4::Resolution::Bits12);
     adc.set_averaging_adc4(adc4::Averaging::Disabled);
 
-    let pin_ch = pin.degrade_adc().get_hw_channel();
+    let pin_ch = pin.reborrow_adc().get_hw_channel();
 
     let max = adc4::resolution_to_max_count(adc4::Resolution::Bits12);
 

@@ -28,7 +28,7 @@ async fn main(_spawner: Spawner) {
         p.DMA2_CH2,
         &mut adc_dma_buf,
         Irqs,
-        [(p.PA0.degrade_adc(), SampleTime::Cycles112)].into_iter(),
+        [(p.PA0.reborrow_adc(), SampleTime::Cycles112)].into_iter(),
         RegularAdcTrigger::from(TIM1_CH1, Exten::RisingEdge),
     );
     adc_ring_buffered.start();
@@ -44,14 +44,11 @@ async fn main(_spawner: Spawner) {
     delay.delay_us(Temperature::start_time_us().max(VrefInt::start_time_us()));
 
     {
-        let mut first_pin = p.PA0.degrade_adc();
-        let mut second_pin = p.PA2.degrade_adc();
-
         let mut configured_sequence = adc.configured_sequence(
             p.DMA2_CH0,
             [
-                (&mut first_pin, SampleTime::Cycles112),
-                (&mut second_pin, SampleTime::Cycles112),
+                (p.PA0.reborrow_adc(), SampleTime::Cycles112),
+                (p.PA2.reborrow_adc(), SampleTime::Cycles112),
             ]
             .into_iter(),
             Irqs,
