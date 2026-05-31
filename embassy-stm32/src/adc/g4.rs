@@ -1,3 +1,5 @@
+use core::marker::PhantomData;
+
 #[cfg(stm32g4)]
 use pac::adc::regs::Difsel as DifselReg;
 #[allow(unused)]
@@ -69,17 +71,8 @@ pub struct AdcConfig {
 /// Obtain via [`Adc::configured_transfer`].
 #[allow(private_bounds)]
 pub struct ConfiguredTransfer<'adc, R: super::AdcRegs> {
-    regs: R,
-    #[allow(unused)]
-    transfer: dma::Transfer<'adc>,
-}
-
-#[allow(private_bounds)]
-impl<'adc, R: super::AdcRegs> ConfiguredTransfer<'adc, R> {
-    /// Start/Arm the ADC to start listening for hardware triggers
-    pub fn arm(&mut self) {
-        self.regs.start();
-    }
+    _transfer: dma::Transfer<'adc>,
+    _marker: PhantomData<R>,
 }
 
 impl super::AdcRegs for crate::pac::adc::Adc {
@@ -452,6 +445,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
     /// # Notes
     /// - The channel sequence is programmed into the ADC sequence registers once here and
     ///   remains fixed for the lifetime of the returned [`ConfiguredTransfer`].
+    /// - Call this method AFTER the targeted peripheral is ready to begin receiving the transfer.
     pub(crate) fn configured_transfer<'ch: 'd, D: RxDma<T>, W: dma::word::Word>(
         &'d mut self,
         sequence: impl ExactSizeIterator<Item = (&'d mut AnyAdcChannel<'ch, T>, SampleTime)>,
@@ -490,9 +484,11 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
                 .unchecked_extend_lifetime()
         };
 
+        T::regs().start();
+
         ConfiguredTransfer {
-            regs: T::regs(),
-            transfer,
+            _transfer: transfer,
+            _marker: PhantomData,
         }
     }
 }

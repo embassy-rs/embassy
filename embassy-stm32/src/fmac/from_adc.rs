@@ -23,14 +23,13 @@ impl<'d, ADC: adc::DefaultInstance, FMAC: fmac::Instance> FromAdc<'d, FMAC, ADC>
         dma_ch: DmaPeri<'d, D>,
         irq_not_used: impl interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'di,
     ) -> Self {
-        let mut transfer = adc.configured_transfer(
+        let transfer = adc.configured_transfer(
             [(adc_ch, sample_time)].into_iter(),
             trigger,
             dma_ch,
             FMAC::wdata(),
             irq_not_used,
         );
-        transfer.arm();
 
         Self { fmac, transfer }
     }
