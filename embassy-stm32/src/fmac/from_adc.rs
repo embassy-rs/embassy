@@ -1,38 +1,34 @@
 use dsp_fixedpoint::Q16;
-use embassy_hal_internal::Peri as DmaPeri;
+use stm32_metapac::adc::vals::SampleTime;
 
-use crate::adc::{self, Adc, AnyAdcChannel, BasicAdcRegs, ConfiguredTransfer, RegularAdcTrigger, RxDma};
+use crate::adc::{self, Adc, AnyAdcChannel, ConfiguredTransfer, RegularAdcTrigger, RxDma};
 use crate::fmac::{self, Fmac};
-use crate::interrupt;
 
 /// A type used to bind ADC to FMAC using DMA
-pub struct FromAdc<'d, FMAC: fmac::Instance, ADC: adc::DefaultInstance> {
+pub struct FromAdc<'d, 'adc, FMAC: fmac::Instance, ADC: adc::DefaultInstance> {
     #[allow(unused)]
-    transfer: ConfiguredTransfer<'d, ADC::Regs>,
+    transfer: ConfiguredTransfer<'adc, ADC::Regs>,
     #[allow(unused)]
     fmac: Fmac<'d, FMAC>,
 }
 
-impl<'d, ADC: adc::DefaultInstance, FMAC: fmac::Instance> FromAdc<'d, FMAC, ADC> {
+impl<'d, 'adc, ADC: adc::DefaultInstance, FMAC: fmac::Instance> FromAdc<'d, 'adc, FMAC, ADC> {
     /// Bind ADC to FMAC using DMA and start conversion
-    pub fn new<'di: 'd, D: RxDma<ADC>>(
+    pub fn new<'a, 'ch, D: RxDma<ADC>>(
         fmac: Fmac<'d, FMAC>,
-        adc: &'d mut Adc<'d, ADC>,
-        adc_ch: &'d mut AnyAdcChannel<ADC>,
-        sample_time: <ADC::Regs as BasicAdcRegs>::SampleTime,
+        adc: &'adc mut Adc<'a, ADC>,
+        sequence: impl ExactSizeIterator<Item = (&'adc mut AnyAdcChannel<'ch, ADC>, SampleTime)>,
         trigger: RegularAdcTrigger<ADC>,
-        dma_ch: DmaPeri<'d, D>,
-        irq_not_used: impl interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'di,
-    ) -> Self {
-        let transfer = adc.configured_transfer(
-            [(adc_ch, sample_time)].into_iter(),
-            trigger,
-            dma_ch,
-            FMAC::wdata(),
-            irq_not_used,
-        );
-
-        Self { fmac, transfer }
+        dma_ch: embassy_hal_internal::Peri<'adc, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
+    ) -> Self
+    where
+        'ch: 'adc,
+    {
+        Self {
+            fmac,
+            transfer: adc.configured_transfer(dma_ch, irq, sequence, trigger, FMAC::wdata()),
+        }
     }
 
     /// Read output value

@@ -445,14 +445,17 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
     /// # Notes
     /// - The channel sequence is programmed into the ADC sequence registers once here and
     ///   remains fixed for the lifetime of the returned [`ConfiguredTransfer`].
-    pub(crate) fn configured_transfer<'ch: 'd, D: RxDma<T>>(
-        &'d mut self,
-        sequence: impl ExactSizeIterator<Item = (&'d mut AnyAdcChannel<'ch, T>, SampleTime)>,
-        trigger: RegularAdcTrigger<T>,
-        dma_ch: embassy_hal_internal::Peri<'d, D>,
-        dst: *mut u16,
+    pub(crate) fn configured_transfer<'adc, 'ch, D: RxDma<T>>(
+        &'adc mut self,
+        rx_dma: embassy_hal_internal::Peri<'adc, D>,
         irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
-    ) -> ConfiguredTransfer<'d, T::Regs> {
+        sequence: impl ExactSizeIterator<Item = (&'adc mut AnyAdcChannel<'ch, T>, SampleTime)>,
+        trigger: RegularAdcTrigger<T>,
+        dst: *mut u16,
+    ) -> ConfiguredTransfer<'adc, T::Regs>
+    where
+        'ch: 'adc,
+    {
         // Ensure no conversions are ongoing
         T::regs().stop(false);
         T::regs().configure_sequence(
@@ -464,8 +467,8 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         // Configure DMA once, reused across all subsequent read() calls.
         T::regs().configure_dma(ConversionMode::Repeated(Some((trigger._trigger, trigger._edge))));
 
-        let dma_request = dma_ch.request();
-        let mut dma_channel = dma::Channel::new(dma_ch, irq);
+        let dma_request = rx_dma.request();
+        let mut dma_channel = dma::Channel::new(rx_dma, irq);
         let transfer = unsafe {
             dma_channel
                 .read_raw_repeated(

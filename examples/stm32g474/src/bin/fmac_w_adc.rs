@@ -7,7 +7,6 @@ use embassy_stm32::adc::{Adc, AdcChannel, Exten, RegularAdcTrigger, SampleTime};
 use embassy_stm32::fmac::{self, Q16};
 use embassy_stm32::hrtim::stm32_hrtim::{HrControltExt, HrPwmBuilderExt, Parts};
 use embassy_stm32::{Config, bind_interrupts, dma, peripherals, triggers};
-use embassy_time::Timer;
 use stm32_hrtim::HrPwmAdvExt;
 use stm32_hrtim::compare_register::HrCompareRegister;
 use stm32_hrtim::output::NoPin;
@@ -41,10 +40,9 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let mut adc = Adc::new(p.ADC1, Default::default());
-    let mut temperature_ = adc.enable_temperature();
-    let mut temperature = temperature_.degrade_adc();
 
-    let sample_time = SampleTime::Cycles6405;
+    let mut temperature = adc.enable_temperature();
+    let mut temperature_channel = temperature.degrade_adc();
 
     let one_third = Q16::from_f32(1.0 / 3.0);
 
@@ -68,7 +66,15 @@ async fn main(_spawner: Spawner) {
         fmac::Gain::X1,
     );
     let trigger = RegularAdcTrigger::from(triggers::HRTIM_ADC_TRG1, Exten::RisingEdge).unwrap();
-    let mut fmac = fmac::FromAdc::new(fmac, &mut adc, &mut temperature, sample_time, trigger, p.DMA1_CH1, Irqs);
+
+    let mut fmac = fmac::FromAdc::new(
+        fmac,
+        &mut adc,
+        [(&mut temperature_channel, SampleTime::Cycles6405)].into_iter(),
+        trigger,
+        p.DMA1_CH1,
+        Irqs,
+    );
 
     // ...with a prescaler of 4 this gives us a HrTimer with a tick rate of 30MHz
     // With max the max period set, this would be 30MHz/2^16 ~= 458Hz...
@@ -98,8 +104,4 @@ async fn main(_spawner: Spawner) {
             defmt::println!("reading: {}", value.as_f32());
         }
     }
-    drop(fmac);
-    drop(adc);
-    drop(temperature);
-    drop(temperature_);
 }
