@@ -1,9 +1,11 @@
 //! Filter Math Accelerator
 
+#[cfg(adc_g4)]
 mod from_adc;
 
 pub use dsp_fixedpoint::Q16;
 use embassy_hal_internal::{Peri, PeripheralType};
+#[cfg(adc_g4)]
 pub use from_adc::FromAdc;
 
 use crate::{peripherals, rcc};
@@ -39,6 +41,7 @@ trait SealedInstance {
     //    Self::regs().rdata().as_ptr() as *const u32
     //}
 
+    #[allow(dead_code)]
     fn wdata() -> *mut u32 {
         Self::regs().wdata().as_ptr() as *mut u32
     }
