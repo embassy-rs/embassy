@@ -112,6 +112,16 @@ impl<'a> Control<'a> {
         CommandParser::parse(&buf[..n]).expect_identifier(b"OK").finish()?;
 
         let op = CommandBuilder::create_set(&mut cmd, true)
+            .named("%XBANDLOCK")
+            .with_int_parameter(2)
+            .with_string_parameter("10000000000001000101")
+            .finish()
+            .map_err(|_| Error::BufferTooSmall)?;
+        let n = self.control.at_command(op, &mut buf).await;
+        // info!("RES1: {}", unsafe { core::str::from_utf8_unchecked(&buf[..n]) });
+        CommandParser::parse(&buf[..n]).expect_identifier(b"OK").finish()?;
+
+        let op = CommandBuilder::create_set(&mut cmd, true)
             .named("+CGDCONT")
             .with_int_parameter(self.cid)
             .with_string_parameter("IP")
