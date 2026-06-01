@@ -175,8 +175,8 @@ async fn eval_task() {
         state
     });
 
-    engine.register_fn("ts", || { // timestamp in ticks (32768 Hz); i32 with only_i32
-        embassy_time::Instant::now().as_ticks() as i32
+    engine.register_fn("ts", || { // timestamp in ticks (32768 Hz); i64 without only_i32
+        embassy_time::Instant::now().as_ticks() as i64
     });
 
     // Each print()/debug() call sends immediately to PRINT_CHAN.
@@ -476,4 +476,3 @@ async fn main(spawner: Spawner) {
     // Thread executor is now only needed for eval_task; park main here.
     loop { core::future::pending::<()>().await; }
 }
-

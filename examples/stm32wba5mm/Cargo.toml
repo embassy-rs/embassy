@@ -32,7 +32,7 @@ rhai = { git = "https://github.com/rhaiscript/rhai.git", version = "1", optional
     #"no_float",
     "no_custom_syntax",
     "unchecked",
-    "only_i32",
+    #"only_i32",
     "f32_float",
     #"no_index",
     "no_module",
