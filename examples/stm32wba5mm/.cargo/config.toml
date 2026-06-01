@@ -6,3 +6,4 @@ target = "thumbv8m.main-none-eabihf"
 
 [env]
 DEFMT_LOG = "info"
+DEFMT_RTT_BUFFER_SIZE = "512"

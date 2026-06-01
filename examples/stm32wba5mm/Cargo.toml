@@ -31,14 +31,14 @@ rhai = { git = "https://github.com/rhaiscript/rhai.git", version = "1", optional
     "no_optimize",
     #"no_float",
     "no_custom_syntax",
-    "unchecked",
-    #"only_i32",
+    #"unchecked",
+    "only_i32",
     "f32_float",
     #"no_index",
     "no_module",
     "no_closure",
     "no_position",
-    "no_object",
+    #"no_object",
     #"no_function"
 ] }
 embedded-alloc = { version = "0.7.0", optional = true }

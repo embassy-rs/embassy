@@ -40,7 +40,10 @@ use embedded_alloc::LlffHeap as Heap;
 
 use core::cell::RefCell;
 use core::sync::atomic::{AtomicBool, Ordering};
-use defmt::*;
+// defmt::* would bring in a `panic_handler` proc-macro that conflicts with the
+// built-in #[panic_handler] attribute used for our custom panic handler below.
+// Import the macros we actually use explicitly instead of glob-importing.
+use defmt::{debug, error, info, warn, unwrap};
 use embassy_executor::{InterruptExecutor, Spawner};
 use embassy_futures::select::{Either3, Either4, select3, select4};
 use embassy_stm32::aes::{self, Aes};
@@ -66,8 +69,8 @@ use rhai::{Dynamic, Engine, packages::BasicIteratorPackage, packages::BasicMathP
 use static_cell::StaticCell;
 use stm32wb_hci::Event;
 use stm32wb_hci::vendor::event::{AttExchangeMtuResponse, VendorEvent};
-use {defmt_rtt as _, panic_probe as _};
-use cortex_m_rt::interrupt;
+use defmt_rtt as _; // RTT logging backend; panic handler is custom below (no panic_probe)
+use cortex_m_rt::{exception, interrupt};
 
 #[global_allocator]
 static HEAP: Heap = Heap::empty();
@@ -75,14 +78,21 @@ static HEAP: Heap = Heap::empty();
 // RAM layout (128 KB total):
 //   BSS baseline (BLE stack + task state) ≈ 33 KB  (excl. HEAP_MEM)
 //   data section (BLE blob init data)     ≈ 35 KB
-//   HEAP_MEM (below)                      = 48 KB
-//   ── total used ──────────────────────────── 116 KB
-//   Stack (grows down from 0x20020000)    ≈ 12 KB
+//   HEAP_MEM (below)                      = 46 KB  (reduced from 50 KB to give ~14 KB stack)
+//   ── total used ──────────────────────────── 114 KB
+//   Stack (grows down from 0x20020000)    ≈ 14 KB
 //
+// Stack budget is the critical constraint for Rhai user-defined functions.
+// Each Rhai fn call consumes ~2-3 KB Rust stack (interpreter eval structs).
+// With 14 KB stack: depth 5 is safe, depth 6 likely OK, depth ≥7 risky.
+// Heap: engine init ~18 KB → ~28 KB free for eval (arrays, strings, results).
 // CorePackage was tried but its init uses too much stack (overflows into BLE BSS).
 // Three focused packages (Math+Iterator+String) with only_i32 keep stack usage low.
-// Engine::new_raw() + three packages ≈ 14-18 KB heap at init; ~30 KB free for eval.
-const HEAP_SIZE: usize = 48 * 1024;
+const HEAP_SIZE: usize = 46 * 1024;
+
+// Max total bytes buffered in pending_output while disconnected.
+// Caps heap use during long eval runs with many print() calls.
+const MAX_PENDING_BYTES: usize = 16 * 1024;
 
 bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<peripherals::RNG>;
@@ -123,6 +133,113 @@ static PRINT_CHAN: Channel<CriticalSectionRawMutex, Vec<u8>, 8> =
 
 // Set while engine.eval() is running; lets the BLE task detect an in-progress eval on disconnect.
 static EVAL_RUNNING: AtomicBool = AtomicBool::new(false);
+
+// Set by the on_progress heap-guard when free heap drops below MIN_HEAP_RESERVE.
+// Cleared atomically in the error handler so the eval loop can report a clean
+// "out of memory" message instead of the opaque Rhai termination error.
+static OOM_TERMINATED: AtomicBool = AtomicBool::new(false);
+
+// Persists across a SYSRESET (software reset) — placed in .uninit so startup code
+// never zeroes it. The panic handler writes RESET_CAUSE_OOM before resetting;
+// the BLE task reads and clears it on the next CCCD subscribe to notify the client.
+//
+// On a fresh power-up RAM is random, so false-positive probability is 1/2^32.
+// After reading, the value is always cleared to 0.
+#[unsafe(link_section = ".uninit")]
+static mut RESET_CAUSE: u32 = 0;
+const RESET_CAUSE_OOM: u32 = 0xDEAD_0001;
+const RESET_CAUSE_STACKOVERFLOW: u32 = 0xDEAD_0002;
+
+/// Custom panic handler: logs via defmt, then either halts (debugger attached)
+/// or performs a clean SYSRESET (deployed, no debugger).
+///
+/// **Debugger attached** (probe-rs / cargo run):
+///   Disables interrupts and spins in a `bkpt` loop. probe-rs stays connected,
+///   the session is not terminated, and the error is visible in the RTT log.
+///   Disconnect/reflash to recover.
+///
+/// **No debugger** (deployed device):
+///   Writes RESET_CAUSE (survives SYSRESET in .uninit RAM), waits briefly for
+///   RTT to flush, then calls SCB::sys_reset(). The firmware reboots, the BLE
+///   stack re-initialises, and the next CCCD subscribe delivers the error
+///   message to the BLE client automatically.
+///
+/// Debugger detection uses the Cortex-M DHCSR register (0xE000_EDF0), bit 0
+/// = C_DEBUGEN. This is a read-only status bit set by the debug port.
+#[panic_handler]
+fn panic(_info: &::core::panic::PanicInfo) -> ! {
+    cortex_m::interrupt::disable();
+    if EVAL_RUNNING.load(Ordering::Relaxed) {
+        // Most likely OOM from a large array/string allocation inside Rhai.
+        defmt::error!("panic during script eval (OOM?) — check Rhai array/string limits");
+        // Safety: single-core, interrupts disabled.
+        unsafe { RESET_CAUSE = RESET_CAUSE_OOM; }
+    } else {
+        defmt::error!("panic");
+    }
+    // Brief busy-wait to give RTT a chance to flush.
+    cortex_m::asm::delay(100_000);
+    // DHCSR C_DEBUGEN bit: 1 = debugger connected.
+    const DHCSR: *const u32 = 0xE000_EDF0 as *const u32;
+    if unsafe { core::ptr::read_volatile(DHCSR) } & 1 != 0 {
+        // Debugger attached: halt here so probe-rs keeps its session.
+        // User can inspect logs, then disconnect to trigger a reset.
+        defmt::error!("halting (debugger attached) — disconnect probe to reset");
+        loop { cortex_m::asm::bkpt(); }
+    }
+    // No debugger: reset and auto-recover.
+    cortex_m::peripheral::SCB::sys_reset()
+}
+
+/// Hardware stack overflow guard (Cortex-M33 MSPLIM).
+///
+/// Fires as a UsageFault (CFSR STKOF, bit 20) when MSP crosses the limit set
+/// in main(). The limit is placed 2 KB above the end of static data so the
+/// handler always has clean stack to report the error before RAM is corrupted.
+///
+/// Same reset/halt logic as the panic handler: SYSRESET on deployed device,
+/// bkpt loop when debugger is attached.
+#[exception]
+unsafe fn UsageFault() {
+    cortex_m::interrupt::disable();
+    // Read and clear the Configurable Fault Status Register (sticky bits).
+    const SCB_CFSR: *mut u32 = 0xE000_ED28 as *mut u32;
+    let cfsr = core::ptr::read_volatile(SCB_CFSR);
+    core::ptr::write_volatile(SCB_CFSR, cfsr);
+    if (cfsr >> 20) & 1 != 0 {
+        // STKOF: stack pointer crossed MSPLIM.
+        if EVAL_RUNNING.load(Ordering::Relaxed) {
+            defmt::error!("stack overflow during script eval (MSPLIM) — resetting");
+        } else {
+            defmt::error!("stack overflow (MSPLIM) — resetting");
+        }
+        RESET_CAUSE = RESET_CAUSE_STACKOVERFLOW;
+    } else {
+        defmt::error!("UsageFault CFSR=0x{:08X} — resetting", cfsr);
+    }
+    cortex_m::asm::delay(100_000);
+    const DHCSR: *const u32 = 0xE000_EDF0 as *const u32;
+    if core::ptr::read_volatile(DHCSR) & 1 != 0 {
+        defmt::error!("halting (debugger attached) — disconnect probe to reset");
+        loop { cortex_m::asm::bkpt(); }
+    }
+    cortex_m::peripheral::SCB::sys_reset()
+}
+
+// Minimum free heap to maintain during script execution.
+// on_progress checks this between Rhai steps and terminates the script if
+// free heap drops below this threshold. The reserve serves two purposes:
+//
+//  1. Post-eval cleanup: after OOM termination, alloc::format!() and
+//     result_buf.extend_from_slice() still need a few hundred bytes.
+//
+//  2. In-step print() buffer: on_print allocates Vec::with_capacity(s.len()+2)
+//     inside a Rhai step (not between steps), so on_progress cannot intercept it.
+//     Keeping 6 KB in reserve ensures there is room for a reasonably-sized
+//     print() call even in the step immediately after the last on_progress check.
+//     This is a heuristic, not a hard guarantee — extremely large print strings
+//     could still exhaust the reserve within a single step.
+const MIN_HEAP_RESERVE: usize = 6 * 1024;
 
 // LED pin shared between the Rhai led() closure (needs 'static) and eval_task.
 static LED_PIN: Mutex<CriticalSectionRawMutex, RefCell<Option<Output<'static>>>> =
@@ -186,8 +303,8 @@ async fn eval_task() {
         state
     });
 
-    engine.register_fn("ts", || { // timestamp in ticks (32768 Hz); i64 without only_i32
-        embassy_time::Instant::now().as_ticks() as i64
+    engine.register_fn("ts", || { // timestamp in ticks (32768 Hz); i32 with only_i32
+        embassy_time::Instant::now().as_ticks() as i32
     });
 
     // Each print()/debug() call sends immediately to PRINT_CHAN.
@@ -211,6 +328,45 @@ async fn eval_task() {
         let _ = PRINT_CHAN.try_send(v);
     });
 
+    // Rhai safety limits — enforced BEFORE the allocation attempt, so violations
+    // return a clean EvalAltResult error instead of an allocator panic.
+    //
+    // set_max_array_size: 512 elements maximum.
+    // Heap budget analysis (50 KB total, ~18 KB engine init = ~32 KB eval room):
+    //   A Rhai Dynamic is 16 bytes on 32-bit. 512 elements = 8 KB in the array.
+    //   Rhai checks the size limit BEFORE calling Vec::push, so when mask has
+    //   512 elements (capacity 512), the 513th push is intercepted first —
+    //   no Vec growth (512→1024 = 16 KB) is ever attempted.
+    //   Setting it to 1024 leaves one doubling step (1024→2048 = 32 KB) within
+    //   a single Rhai step where the check cannot intervene — that causes OOM.
+    //
+    // set_max_string_size: 8 KB cap against runaway string building.
+    //
+    // set_max_operations + on_progress: belt-and-suspenders for non-array OOM
+    // and infinite loops. on_progress fires between Rhai steps so it cannot
+    // stop an in-step Vec realloc — the size limits above are the primary guard.
+    engine.set_max_array_size(512);
+    engine.set_max_string_size(8192);
+    engine.set_max_operations(500_000);
+    // Limit call stack depth to prevent stack overflow via deep recursion.
+    // Each Rhai function call consumes ~2-3 KB Rust stack (interpreter structs).
+    //
+    // Measured on this device (STM32WBA55):
+    //   With 10 KB stack (50 KB heap): depth 4 OK, depth 5 = HardFault
+    //   With 14 KB stack (46 KB heap): depth 5-6 OK, depth ≥7 risky
+    //
+    // Set to 6; HardFault territory starts at 7+. Increase MAX_CALL_LEVELS
+    // only if you also reduce HEAP_SIZE to compensate.
+    engine.set_max_call_levels(6);
+    engine.on_progress(|_ops| {
+        if HEAP.free() < MIN_HEAP_RESERVE {
+            OOM_TERMINATED.store(true, Ordering::Relaxed);
+            Some(Dynamic::UNIT) // signal Rhai to stop immediately
+        } else {
+            None
+        }
+    });
+
     info!("eval_task ready");
 
     loop {
@@ -219,7 +375,7 @@ async fn eval_task() {
         let mut result_buf: Vec<u8> = Vec::new();
 
         if let Ok(script) = core::str::from_utf8(&script_bytes) {
-            info!("eval: {} bytes\n{}", script_bytes.len(), script);
+            info!("eval: {} bytes  heap_free={} B\n{}", script_bytes.len(), HEAP.free(), script);
 
             EVAL_RUNNING.store(true, Ordering::Relaxed);
             let eval_result = match engine.eval::<Dynamic>(script) {
@@ -232,8 +388,14 @@ async fn eval_task() {
                     alloc::format!("{}\r\n", value)
                 }
                 Err(e) => {
-                    warn!("eval err: {}", alloc::format!("{}", e).as_str());
-                    alloc::format!("err: {}\r\n", e)
+                    if OOM_TERMINATED.swap(false, Ordering::Relaxed) {
+                        let free = HEAP.free();
+                        error!("eval OOM: {} B heap free (reserve {} B)", free, MIN_HEAP_RESERVE);
+                        alloc::format!("err: out of memory ({} B heap free)\r\n", free)
+                    } else {
+                        warn!("eval err: {}", alloc::format!("{}", e).as_str());
+                        alloc::format!("err: {}\r\n", e)
+                    }
                 }
             };
             EVAL_RUNNING.store(false, Ordering::Relaxed);
@@ -309,9 +471,11 @@ async fn ble_task(mut ble: HCI<'static, Normal>) {
     let mut tx_notifications = false;
     let mut conn_handle: Option<u16> = None;
     let mut eval_pending = false;
-    // Notifications that could not be delivered (no connection / CCCD not yet
-    // subscribed). Drained to the client as soon as it re-subscribes.
+    // Notifications buffered while disconnected (no connection / CCCD not subscribed yet).
+    // Drained as soon as the client re-subscribes. Capped at MAX_PENDING_BYTES total
+    // to prevent heap exhaustion during long disconnected eval runs.
     let mut pending_output: Vec<Vec<u8>> = Vec::new();
+    let mut pending_bytes: usize = 0;
 
     loop {
         // 4-way select when buffer is pending dispatch (500 ms timeout), else 3-way.
@@ -368,10 +532,14 @@ async fn ble_task(mut ble: HCI<'static, Normal>) {
             // ----------------------------------------------------------------
             Msg::Timeout => {
                 if !eval_pending {
-                    SCRIPT_CHAN.send(input_buf.clone()).await;
+                    // mem::take moves the buffer into the channel without cloning,
+                    // freeing the script bytes from the BLE task's heap as soon as
+                    // eval_task takes ownership.
+                    SCRIPT_CHAN.send(core::mem::take(&mut input_buf)).await;
                     eval_pending = true;
+                } else {
+                    input_buf.clear();
                 }
-                input_buf.clear();
             }
 
             // ----------------------------------------------------------------
@@ -387,8 +555,13 @@ async fn ble_task(mut ble: HCI<'static, Normal>) {
                 } else {
                     // Connection lost before result arrived — buffer for replay.
                     if !result.is_empty() {
-                        info!("result buffered for replay ({} bytes)", result.len());
-                        pending_output.push(result);
+                        if pending_bytes + result.len() <= MAX_PENDING_BYTES {
+                            info!("result buffered for replay ({} bytes)", result.len());
+                            pending_bytes += result.len();
+                            pending_output.push(result);
+                        } else {
+                            warn!("pending_output full, result dropped");
+                        }
                     }
                 }
             }
@@ -414,9 +587,8 @@ async fn ble_task(mut ble: HCI<'static, Normal>) {
                                 info!("Disconnected: 0x{:04X} reason=0x{:02X}", handle.0, reason);
                             }
                             if !input_buf.is_empty() && !eval_pending {
-                                SCRIPT_CHAN.send(input_buf.clone()).await;
+                                SCRIPT_CHAN.send(core::mem::take(&mut input_buf)).await;
                                 eval_pending = true;
-                                input_buf.clear();
                             }
                             conn_handle = None;
                             tx_notifications = false;
@@ -436,12 +608,22 @@ async fn ble_task(mut ble: HCI<'static, Normal>) {
                                 if let Some(conn) = conn_handle {
                                     // Replay any output buffered while disconnected.
                                     if !pending_output.is_empty() {
-                                        info!("replaying {} buffered item(s)", pending_output.len());
+                                        info!("replaying {} buffered item(s) ({} bytes)", pending_output.len(), pending_bytes);
+                                        pending_bytes = 0;
                                         for item in pending_output.drain(..) {
                                             for chunk in item.chunks(MAX_DATA_LEN) {
                                                 let _ = gatt.notify(conn, service_handle, tx_char_handle, chunk);
                                             }
                                         }
+                                    }
+                                    // Check if the firmware was reset due to OOM in the previous eval.
+                                    // Safety: single-core; only written by panic handler before reset.
+                                    let prev_cause = unsafe { RESET_CAUSE };
+                                    if prev_cause == RESET_CAUSE_OOM {
+                                        unsafe { RESET_CAUSE = 0; }
+                                        warn!("OOM reset in previous eval — notifying client");
+                                        let _ = gatt.notify(conn, service_handle, tx_char_handle,
+                                            b"err: out of memory (script aborted, firmware reset)\r\n");
                                     }
                                     let _ = gatt.notify(conn, service_handle, tx_char_handle, b"> ");
                                 }
@@ -486,7 +668,28 @@ async fn main(spawner: Spawner) {
     config.rcc = rcc::Config::new_wpan();
     let p = embassy_stm32::init(config);
 
-    let led: &'static mut Output<'static> = LED_CELL.init(Output::new(p.PA1, Level::Low, Speed::Low));
+    // ---- Cortex-M33 hardware stack guard (MSPLIM) --------------------------------
+    // Enable UsageFault (SHCSR bit 18 = USGFAULTENA) so a stack overflow triggers
+    // our UsageFault handler instead of escalating silently to HardFault.
+    // Then set MSPLIM to _ebss + .uninit size (~520 B) + 2 KB safety runway:
+    //   - fault fires 2 KB BEFORE the stack pointer would overwrite static data
+    //   - those 2 KB remain available for the UsageFault handler itself
+    // With 46 KB heap, _ebss is ~0x2001_BD00; MSPLIM lands near 0x2001_C700,
+    // leaving ~10 KB of safe stack for eval_task.
+    unsafe {
+        const SCB_SHCSR: *mut u32 = 0xE000_ED24 as *mut u32;
+        core::ptr::write_volatile(
+            SCB_SHCSR,
+            core::ptr::read_volatile(SCB_SHCSR) | (1 << 18), // USGFAULTENA
+        );
+        extern "C" { static _ebss: u8; }
+        // _ebss = end of .bss; .uninit follows (~520 B: RTT buf 512 + RESET_CAUSE 4 + pad)
+        let limit = core::ptr::addr_of!(_ebss) as u32 + 520 + 2048;
+        cortex_m::register::msplim::write(limit);
+        info!("stack guard: MSPLIM=0x{:08X}", limit);
+    }
+    // -------------------------------------------------------------------------------
+ = LED_CELL.init(Output::new(p.PA1, Level::Low, Speed::Low));
     LED_PIN.lock(|cell| { *cell.borrow_mut() = unsafe { Some(core::ptr::read(led)) }; });
 
     info!("BLE Rhai interpreter starting");
@@ -495,7 +698,7 @@ async fn main(spawner: Spawner) {
         Rng::new(p.RNG, Irqs),
         Aes::new_blocking(p.AES, Irqs),
         Pka::new_blocking(p.PKA, Irqs),
-        8
+        4  // HCI channel packet slots; 4 is enough for NUS, saves ~1.1 KB BSS vs 8
     );
 
     // Make runtime 'static so HCI (and therefore ble_task) can be 'static.
