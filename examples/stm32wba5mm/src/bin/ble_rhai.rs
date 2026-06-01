@@ -39,6 +39,7 @@ use alloc::vec::Vec;
 use embedded_alloc::LlffHeap as Heap;
 
 use core::cell::RefCell;
+use core::sync::atomic::{AtomicBool, Ordering};
 use defmt::*;
 use embassy_executor::{InterruptExecutor, Spawner};
 use embassy_futures::select::{Either3, Either4, select3, select4};
@@ -117,6 +118,9 @@ static RESULT_CHAN: Channel<CriticalSectionRawMutex, Vec<u8>, 1> =
 static PRINT_CHAN: Channel<CriticalSectionRawMutex, Vec<u8>, 8> =
     Channel::new();
 
+// Set while engine.eval() is running; lets the BLE task detect an in-progress eval on disconnect.
+static EVAL_RUNNING: AtomicBool = AtomicBool::new(false);
+
 // LED pin shared between the Rhai led() closure (needs 'static) and eval_task.
 static LED_PIN: Mutex<CriticalSectionRawMutex, RefCell<Option<Output<'static>>>> =
     Mutex::new(RefCell::new(None));
@@ -125,17 +129,21 @@ static LED_PIN: Mutex<CriticalSectionRawMutex, RefCell<Option<Output<'static>>>>
 static LED_CELL: StaticCell<Output<'static>> = StaticCell::new();
 
 // FullRuntime is stored inside new_platform!'s internal StaticCell — already 'static.
-// EXECUTOR_BLE: high-priority interrupt executor for ble_task.
-// USART1 interrupt is unused in this BLE-only example and serves as a
-// software-trigger interrupt. ble_task runs here so it can preempt eval_task
-// (which monopolises the thread executor during engine.eval()).
+// EXECUTOR_BLE: high-priority interrupt executor for ble_runner_task + ble_task.
+// Both run at Priority::P4 so they preempt eval_task (thread executor) during
+// engine.eval(), keeping the BLE connection and HCI runner alive.
+//
+// ICACHE (IRQ 64) is used as a pure software-trigger interrupt.
+// On Cortex-M there is no dedicated software IRQ; borrowing a peripheral IRQ
+// is the standard pattern. ICACHE is chosen because it only fires on cache ECC
+// errors and is never enabled for hardware use in this firmware, so there is
+// zero risk of accidental triggering.
 static EXECUTOR_BLE: InterruptExecutor = InterruptExecutor::new();
 
 #[interrupt]
-unsafe fn USART1() {
+unsafe fn ICACHE() {
     unsafe { EXECUTOR_BLE.on_interrupt() }
 }
-
 
 // ---------------------------------------------------------------------------
 // BLE platform tasks
@@ -187,13 +195,16 @@ async fn eval_task() {
         v.extend_from_slice(s.as_bytes());
         v.push(b'\r');
         v.push(b'\n');
+        info!("print: {}", s);
         let _ = PRINT_CHAN.try_send(v); // non-blocking; drops if channel full
+
     });
     engine.on_debug(|s, _src, _pos| {
         let mut v: Vec<u8> = Vec::with_capacity(s.len() + 2);
         v.extend_from_slice(s.as_bytes());
         v.push(b'\r');
         v.push(b'\n');
+        info!("debug: {}", s);
         let _ = PRINT_CHAN.try_send(v);
     });
 
@@ -207,6 +218,7 @@ async fn eval_task() {
         if let Ok(script) = core::str::from_utf8(&script_bytes) {
             info!("eval: {} bytes\n{}", script_bytes.len(), script);
 
+            EVAL_RUNNING.store(true, Ordering::Relaxed);
             let eval_result = match engine.eval::<Dynamic>(script) {
                 Ok(result) => {
                     let value = if result.is_string() {
@@ -221,6 +233,7 @@ async fn eval_task() {
                     alloc::format!("err: {}\r\n", e)
                 }
             };
+            EVAL_RUNNING.store(false, Ordering::Relaxed);
 
             result_buf.extend_from_slice(eval_result.as_bytes());
         }
@@ -293,6 +306,9 @@ async fn ble_task(mut ble: HCI<'static, Normal>) {
     let mut tx_notifications = false;
     let mut conn_handle: Option<u16> = None;
     let mut eval_pending = false;
+    // Notifications that could not be delivered (no connection / CCCD not yet
+    // subscribed). Drained to the client as soon as it re-subscribes.
+    let mut pending_output: Vec<Vec<u8>> = Vec::new();
 
     loop {
         // 4-way select when buffer is pending dispatch (500 ms timeout), else 3-way.
@@ -330,9 +346,17 @@ async fn ble_task(mut ble: HCI<'static, Normal>) {
                 if let Some(conn) = conn_handle {
                     if tx_notifications {
                         for chunk in data.chunks(MAX_DATA_LEN) {
-                            let _ = gatt.notify(conn, service_handle, tx_char_handle, chunk);
+                            if let Err(e) = gatt.notify(conn, service_handle, tx_char_handle, chunk) {
+                                warn!("print notify failed: {:?}", defmt::Debug2Format(&e));
+                            }
                         }
+                    } else {
+                        // Connected but CCCD not yet subscribed — buffer for drain.
+                        pending_output.push(data);
                     }
+                } else {
+                    // No connection — buffer for replay on next reconnect.
+                    pending_output.push(data);
                 }
             }
 
@@ -357,6 +381,12 @@ async fn ble_task(mut ble: HCI<'static, Normal>) {
                         let _ = gatt.notify(conn, service_handle, tx_char_handle, chunk);
                     }
                     let _ = gatt.notify(conn, service_handle, tx_char_handle, b"> ");
+                } else {
+                    // Connection lost before result arrived — buffer for replay.
+                    if !result.is_empty() {
+                        info!("result buffered for replay ({} bytes)", result.len());
+                        pending_output.push(result);
+                    }
                 }
             }
 
@@ -367,14 +397,19 @@ async fn ble_task(mut ble: HCI<'static, Normal>) {
                 if let Some(gap_event) = ble.process_event(&event) {
                     match gap_event {
                         GapEvent::Connected(conn) => {
-                            info!("Connected: 0x{:04X}", conn.handle.0);
+                            info!("Connected: 0x{:04X} (pending_output={})", conn.handle.0, pending_output.len());
                             conn_handle = Some(conn.handle.0);
                             tx_notifications = false;
                             input_buf.clear();
                             eval_pending = false;
+                            // pending_output intentionally kept — drained on CCCD subscribe.
                         }
                         GapEvent::Disconnected { handle, reason } => {
-                            info!("Disconnected: 0x{:04X} reason=0x{:02X}", handle.0, reason);
+                            if EVAL_RUNNING.load(Ordering::Relaxed) {
+                                warn!("Disconnected during eval — BLE runner starved by engine.eval(): handle=0x{:04X} reason=0x{:02X}", handle.0, reason);
+                            } else {
+                                info!("Disconnected: 0x{:04X} reason=0x{:02X}", handle.0, reason);
+                            }
                             if !input_buf.is_empty() && !eval_pending {
                                 SCRIPT_CHAN.send(input_buf.clone()).await;
                                 eval_pending = true;
@@ -396,6 +431,15 @@ async fn ble_task(mut ble: HCI<'static, Normal>) {
                             tx_notifications = CccdValue::from_bytes(attr.data()).notifications;
                             if tx_notifications {
                                 if let Some(conn) = conn_handle {
+                                    // Replay any output buffered while disconnected.
+                                    if !pending_output.is_empty() {
+                                        info!("replaying {} buffered item(s)", pending_output.len());
+                                        for item in pending_output.drain(..) {
+                                            for chunk in item.chunks(MAX_DATA_LEN) {
+                                                let _ = gatt.notify(conn, service_handle, tx_char_handle, chunk);
+                                            }
+                                        }
+                                    }
                                     let _ = gatt.notify(conn, service_handle, tx_char_handle, b"> ");
                                 }
                             }
@@ -455,7 +499,15 @@ async fn main(spawner: Spawner) {
     // runtime is &'static mut FullRuntime — no extra cell needed here.
 
     spawner.spawn(rng_runner_task(platform).expect("spawn rng"));
-    spawner.spawn(ble_runner_task(platform).expect("spawn ble"));
+
+    // ble_runner_task must run at interrupt priority so it can preempt eval_task
+    // during engine.eval(). Without this, the thread executor is monopolised by
+    // eval and the BLE M0+ supervision timer fires → client disconnects mid-script.
+    // Start the interrupt executor now (before HCI::new) so ble_runner_task is
+    // already live when HCI::new() awaits BLE stack init events.
+    interrupt::ICACHE.set_priority(Priority::P4);
+    let ble_spawner = EXECUTOR_BLE.start(interrupt::ICACHE);
+    ble_spawner.spawn(unwrap!(ble_runner_task(platform)));
 
     // BLE stack init (blocking-async) — must complete before spawning eval_task
     // to avoid concurrent heap allocation corrupting BLE internal state.
@@ -464,11 +516,6 @@ async fn main(spawner: Spawner) {
         .expect("BLE init failed");
     embassy_futures::yield_now().await;
 
-    // Start the interrupt-priority executor for ble_task.
-    // USART1 is unused in this example and repurposed as a software interrupt.
-    // P4 is high enough to preempt the thread executor where eval_task runs.
-    interrupt::USART1.set_priority(Priority::P4);
-    let ble_spawner = EXECUTOR_BLE.start(interrupt::USART1);
     ble_spawner.spawn(unwrap!(ble_task(ble)));
 
     spawner.spawn(eval_task().expect("spawn eval_task"));

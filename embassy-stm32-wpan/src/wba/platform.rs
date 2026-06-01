@@ -84,6 +84,15 @@ pub struct Platform {
     pka: Option<CriticalSectionMutex<RefCell<Pka<'static, PkaPeriph, Blocking>>>>,
 }
 
+// SAFETY: Every field except `channel` already implements Sync via
+// CriticalSection-backed wrappers.  `channel` is `UnsafeCell<Channel<...>>`
+// where the inner Channel uses CriticalSectionRawMutex for all state.
+// `get_channel()` is `unsafe`, `pub(crate)`, and called exactly once during
+// initialisation — no aliased `&mut` is ever produced at runtime.
+// On single-core Cortex-M the critical-section protects all cross-context
+// access, so sharing `&'static Platform` across executors is safe.
+unsafe impl Sync for Platform {}
+
 impl Platform {
     pub const fn new_basic<const N: usize>(
         buf: &'static mut [ChannelPacket; N],
