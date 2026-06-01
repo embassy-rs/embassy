@@ -9,14 +9,14 @@ pub struct FromAdc<'d, FMAC: fmac::Instance, ADC: adc::DefaultInstance> {
     #[allow(unused)]
     transfer: ConfiguredTransfer<'d, ADC::Regs>,
     #[allow(unused)]
-    fmac: Fmac<'d, FMAC>,
+    fmac: &'d mut Fmac<'d, FMAC>,
 }
 
 impl<'d, ADC: adc::DefaultInstance, FMAC: fmac::Instance> FromAdc<'d, FMAC, ADC> {
     #[allow(unused)]
     /// Bind ADC to FMAC using DMA and start conversion
     pub fn new<'ch, 'a, D: RxDma<ADC>>(
-        fmac: Fmac<'d, FMAC>,
+        fmac: &'d mut Fmac<'d, FMAC>,
         adc: &'d mut Adc<'a, ADC>,
         sequence: impl ExactSizeIterator<Item = (BorrowedAdcChannel<'ch, ADC>, SampleTime)>,
         trigger: RegularAdcTrigger<ADC>,
@@ -28,7 +28,7 @@ impl<'d, ADC: adc::DefaultInstance, FMAC: fmac::Instance> FromAdc<'d, FMAC, ADC>
     {
         Self {
             fmac,
-            transfer: adc.configured_transfer(dma_ch, irq, sequence, trigger, FMAC::wdata()),
+            transfer: unsafe { adc.configure_transfer(dma_ch, irq, sequence, trigger, FMAC::wdata()) },
         }
     }
 

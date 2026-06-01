@@ -660,6 +660,35 @@ impl<'d> Channel<'d> {
         }
     }
 
+    /// Create a read DMA transfer (peripheral to memory), writing the same value repeatedly.
+    pub unsafe fn read_raw_repeated<'a, MW: Word, PW: Word>(
+        &'a mut self,
+        request: Request,
+        repeated: *mut MW,
+        count: usize,
+        peri_addr: *mut PW,
+        options: TransferOptions,
+    ) -> Transfer<'a> {
+        assert!(count > 0 && count <= 0xFFFF);
+
+        self.configure(
+            request,
+            Dir::PeripheralToMemory,
+            peri_addr as *const u32,
+            repeated as *const MW as *mut u32,
+            count,
+            false,
+            MW::size(),
+            PW::size(),
+            options,
+        );
+        self.start();
+        Transfer {
+            _wake_guard: self.info().wake_guard(),
+            channel: self.reborrow(),
+        }
+    }
+
     /// Create a write DMA transfer (memory to peripheral).
     pub unsafe fn write<'a, MW: Word, PW: Word>(
         &'a mut self,
