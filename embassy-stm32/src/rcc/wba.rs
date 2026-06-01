@@ -145,22 +145,22 @@ impl Config {
 
         // Configure PLL1 from HSE for system clock
         // HSE = 32MHz (fixed for WBA), prediv /2 gives 16MHz to PLL input (must be 4-16MHz)
-        // VCO = 16MHz * 12 = 192MHz, PLLR = 192 / 2 = 96MHz system clock
+        // VCO = 16MHz × (12 + 4096/8192) = 16 × 12.5 = 200MHz, PLLR = 200 / 2 = 100MHz
         rcc.pll1 = Some(Pll {
             source: PllSource::Hse,
             prediv: PllPreDiv::Div2,  // 32MHz / 2 = 16MHz to PLL input
-            mul: PllMul::Mul12,       // 16MHz * 12 = 192MHz VCO
-            divr: Some(PllDiv::Div2), // 192MHz / 2 = 96MHz system clock
+            mul: PllMul::Mul12,       // integer part: 16MHz * 12 = 192MHz base
+            divr: Some(PllDiv::Div2), // 200MHz / 2 = 100MHz system clock
             divq: None,
-            divp: Some(PllDiv::Div12), // 192MHz / 12 = 16MHz for peripherals
-            frac: Some(0),
+            divp: None,               // PLL1P unused; RNG runs from HSI directly
+            frac: Some(4096),         // fractional: +0.5 → effective mul = 12.5 → VCO = 200MHz
         });
 
         rcc.ahb_pre = AHBPrescaler::Div1;
         rcc.apb1_pre = APBPrescaler::Div1;
         rcc.apb2_pre = APBPrescaler::Div1;
         rcc.apb7_pre = APBPrescaler::Div1;
-        rcc.ahb5_pre = AHB5Prescaler::Div4; // Radio bus: 96MHz / 4 = 24MHz
+        rcc.ahb5_pre = AHB5Prescaler::Div4; // Radio bus: 100MHz / 4 = 25MHz
         rcc.voltage_scale = VoltageScale::Range1;
         rcc.sys = Sysclk::Pll1R;
         rcc.mux.rngsel = mux::Rngsel::Hsi; // RNG clock from HSI (16 MHz)
