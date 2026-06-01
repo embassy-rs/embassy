@@ -249,6 +249,20 @@ const fn check_dma_len(sequence_len: usize, dma_len: Option<usize>, configured_s
 }
 
 #[cfg(not(adc_f3v3))]
+/// An ADC with a pre-configured channel sequence for repeated DMA to peripheral reads.
+///
+/// Just like [`Adc::configure_sequence`], this type programs the ADC channel sequence
+/// registers. However, while `ConfiguredSequence` is targeted at ADC to mem transfers,
+/// `ConfiguredTransfer` is designed for ADC to peripheral transfers such as to FMAC or CORDIC
+///
+/// Obtain via [`Adc::configure_transfer`].
+#[allow(private_bounds)]
+pub struct ConfiguredTransfer<'adc, R: AdcRegs> {
+    _transfer: crate::dma::Transfer<'adc>,
+    _marker: PhantomData<R>,
+}
+
+#[cfg(not(adc_f3v3))]
 impl<'d, T: Instance> Adc<'d, T> {
     #[cfg(any(adc_v1, adc_l0, adc_f1, adc_f3v1, adc_f3v2))]
     /// Read an ADC pin async using the irq handler.
@@ -381,6 +395,98 @@ impl<'d, T: Instance> Adc<'d, T> {
         transfer.await;
     }
 
+    #[deprecated = "use `configure_transfer`"]
+    pub unsafe fn configured_transfer<'adc, 'ch, D: RxDma<T>, W: crate::dma::word::Word>(
+        &'adc mut self,
+        rx_dma: embassy_hal_internal::Peri<'adc, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
+        sequence: impl ExactSizeIterator<Item = (BorrowedAdcChannel<'ch, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
+        trigger: RegularAdcTrigger<T>,
+        dst: *mut W,
+    ) -> ConfiguredTransfer<'adc, T::Regs>
+    where
+        'ch: 'adc,
+    {
+        self.configure_transfer(rx_dma, irq, sequence, trigger, dst)
+    }
+
+    /// Configure an ADC channel sequence once and return a [`ConfiguredTransfer`] for repeated
+    /// DMA reads to peripherals such as FMAC or CORDIC.
+    ///
+    /// Use [`Adc::configure_sequence`] instead if you don't want to pipe the results directly
+    /// to a peripheral.
+    ///
+    /// # Parameters
+    /// - `sequence`: Iterator of channels and sample times. Maximum 16 entries.
+    ///
+    /// # Returns
+    /// A [`ConfiguredTransfer`] which is can be passed to [`fmac::FromAdc::new`]
+    ///
+    /// # Notes
+    /// - The channel sequence is programmed into the ADC sequence registers once here and
+    ///   remains fixed for the lifetime of the returned [`ConfiguredTransfer`].
+    /// - Call this method AFTER the targeted peripheral is ready to begin receiving the transfer.
+    pub unsafe fn configure_transfer<'adc, 'ch, D: RxDma<T>, W: crate::dma::word::Word>(
+        &'adc mut self,
+        rx_dma: embassy_hal_internal::Peri<'adc, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
+        sequence: impl ExactSizeIterator<Item = (BorrowedAdcChannel<'ch, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
+        trigger: RegularAdcTrigger<T>,
+        dst: *mut W,
+    ) -> ConfiguredTransfer<'adc, T::Regs>
+    where
+        'ch: 'adc,
+    {
+        // Ensure no conversions are ongoing
+        T::regs().stop(false);
+        T::regs().configure_sequence(
+            sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
+        );
+
+        T::regs().enable();
+
+        // Configure DMA once, reused across all subsequent read() calls.
+        T::regs().configure_dma(ConversionMode::Repeated(Some((trigger._trigger, trigger._edge))));
+
+        let dma_request = rx_dma.request();
+        let mut dma_channel = crate::dma::Channel::new(rx_dma, irq);
+        let transfer = unsafe {
+            dma_channel
+                .read_raw_repeated(
+                    dma_request,
+                    dst,
+                    1,
+                    T::regs().data(),
+                    crate::dma::TransferOptions {
+                        #[cfg(any(bdma, dma, mdma))]
+                        circular: true,
+                        ..Default::default()
+                    },
+                )
+                .unchecked_extend_lifetime()
+        };
+
+        T::regs().start();
+
+        ConfiguredTransfer {
+            _transfer: transfer,
+            _marker: PhantomData,
+        }
+    }
+
+    #[deprecated = "use `configure_sequence`"]
+    pub fn configured_sequence<'adc, 'ch, D: RxDma<T>>(
+        &'adc mut self,
+        rx_dma: crate::Peri<'adc, D>,
+        sequence: impl ExactSizeIterator<Item = (BorrowedAdcChannel<'ch, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
+    ) -> ConfiguredSequence<'adc, T::Regs>
+    where
+        'ch: 'adc,
+    {
+        self.configure_sequence(rx_dma, sequence, irq)
+    }
+
     /// Configure an ADC channel sequence once and return a [`ConfiguredSequence`] for repeated
     /// DMA reads without reprogramming the sequence each time.
     ///
@@ -398,7 +504,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// # Notes
     /// - The channel sequence is programmed into the ADC sequence registers once here and
     ///   remains fixed for the lifetime of the returned [`ConfiguredSequence`].
-    pub fn configured_sequence<'adc, 'ch, D: RxDma<T>>(
+    pub fn configure_sequence<'adc, 'ch, D: RxDma<T>>(
         &'adc mut self,
         rx_dma: crate::Peri<'adc, D>,
         sequence: impl ExactSizeIterator<Item = (BorrowedAdcChannel<'ch, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
@@ -670,6 +776,11 @@ pub trait Instance: SealedInstance + crate::PeripheralType + crate::rcc::RccPeri
 /// ADC channel.
 #[allow(private_bounds)]
 pub trait AdcChannel<T>: SealedAdcChannel<T> + Sized {
+    #[deprecated = "use `reborrow_adc`"]
+    fn degrade_adc<'a>(&'a mut self) -> BorrowedAdcChannel<'a, T> {
+        self.reborrow_adc()
+    }
+
     #[allow(unused_mut)]
     fn reborrow_adc<'a>(&'a mut self) -> BorrowedAdcChannel<'a, T> {
         self.setup();

@@ -1,11 +1,9 @@
 //! Filter Math Accelerator
 
-#[cfg(adc_g4)]
 mod from_adc;
 
 pub use dsp_fixedpoint::Q16;
 use embassy_hal_internal::{Peri, PeripheralType};
-#[cfg(adc_g4)]
 pub use from_adc::FromAdc;
 
 use crate::{peripherals, rcc};

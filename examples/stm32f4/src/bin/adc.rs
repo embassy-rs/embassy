@@ -44,7 +44,7 @@ async fn main(_spawner: Spawner) {
     delay.delay_us(Temperature::start_time_us().max(VrefInt::start_time_us()));
 
     {
-        let mut configured_sequence = adc.configured_sequence(
+        let mut configured_sequence = adc.configure_sequence(
             p.DMA2_CH0,
             [
                 (p.PA0.reborrow_adc(), SampleTime::Cycles112),

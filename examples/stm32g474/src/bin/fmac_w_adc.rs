@@ -54,7 +54,7 @@ async fn main(_spawner: Spawner) {
     // result = input_history[0] * latest_input +
     //     input_history[1] * older_input +
     //     input_history[2] * oldest_input
-    let fmac = fmac::Fmac::fir(
+    let mut fmac = fmac::Fmac::fir(
         p.FMAC.reborrow(),
         fmac::Config {
             output_mode: fmac::OutputMode::Saturating,
@@ -67,8 +67,8 @@ async fn main(_spawner: Spawner) {
     );
     let trigger = RegularAdcTrigger::from(triggers::HRTIM_ADC_TRG1, Exten::RisingEdge).unwrap();
 
-    let mut fmac = fmac::FromAdc::new(
-        fmac,
+    let mut from_adc = fmac::FromAdc::new(
+        &mut fmac,
         &mut adc,
         [(temperature.reborrow_adc(), SampleTime::Cycles6405)].into_iter(),
         trigger,
@@ -98,10 +98,10 @@ async fn main(_spawner: Spawner) {
     control.adc_trigger1.enable_source(&tim.cr3);
     tim.timer.start(&mut control.control);
 
-    defmt::assert!(fmac.read().is_none()); // <-- Not enough data yet
+    defmt::assert!(from_adc.read().is_none()); // <-- Not enough data yet
     defmt::println!("Running!");
     loop {
-        if let Some(raw) = fmac.read() {
+        if let Some(raw) = from_adc.read() {
             // raw is in Q1.15 format, convert back to u16
             let filtered_value = raw.inner;
             defmt::println!("reading: {}", filtered_value);
