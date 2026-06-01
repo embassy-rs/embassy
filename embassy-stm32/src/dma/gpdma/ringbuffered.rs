@@ -93,13 +93,18 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// Create a new ring buffer.
     ///
     /// Transfer options are applied to the individual linked list items.
+    /// Half-transfer and transfer-complete IRQs are always enabled (same as BDMA ring
+    /// buffers) so async `read_exact` / `write_exact` can wake at half-buffer boundaries.
     pub unsafe fn new(
         channel: Channel<'a>,
         request: Request,
         peri_addr: *mut W,
         buffer: &'a mut [W],
-        options: TransferOptions,
+        mut options: TransferOptions,
     ) -> Self {
+        options.half_transfer_ir = true;
+        options.complete_transfer_ir = true;
+
         let table = Table::<1>::new_circular::<W>(request, peri_addr, buffer, Dir::PeripheralToMemory);
 
         Self {
@@ -254,13 +259,18 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
     /// Create a new ring buffer.
     ///
     /// Transfer options are applied to the individual linked list items.
+    /// Half-transfer and transfer-complete IRQs are always enabled (same as BDMA ring
+    /// buffers) so async `read_exact` / `write_exact` can wake at half-buffer boundaries.
     pub unsafe fn new(
         channel: Channel<'a>,
         request: Request,
         peri_addr: *mut W,
         buffer: &'a mut [W],
-        options: TransferOptions,
+        mut options: TransferOptions,
     ) -> Self {
+        options.half_transfer_ir = true;
+        options.complete_transfer_ir = true;
+
         let table = Table::<1>::new_circular::<W>(request, peri_addr, buffer, Dir::MemoryToPeripheral);
 
         Self {
