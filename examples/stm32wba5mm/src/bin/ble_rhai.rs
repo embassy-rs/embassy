@@ -204,8 +204,8 @@ unsafe fn UsageFault() {
     cortex_m::interrupt::disable();
     // Read and clear the Configurable Fault Status Register (sticky bits).
     const SCB_CFSR: *mut u32 = 0xE000_ED28 as *mut u32;
-    let cfsr = core::ptr::read_volatile(SCB_CFSR);
-    core::ptr::write_volatile(SCB_CFSR, cfsr);
+    let cfsr = unsafe { core::ptr::read_volatile(SCB_CFSR) };
+    unsafe { core::ptr::write_volatile(SCB_CFSR, cfsr) };
     if (cfsr >> 20) & 1 != 0 {
         // STKOF: stack pointer crossed MSPLIM.
         if EVAL_RUNNING.load(Ordering::Relaxed) {
@@ -213,13 +213,13 @@ unsafe fn UsageFault() {
         } else {
             defmt::error!("stack overflow (MSPLIM) — resetting");
         }
-        RESET_CAUSE = RESET_CAUSE_STACKOVERFLOW;
+        unsafe { RESET_CAUSE = RESET_CAUSE_STACKOVERFLOW; }
     } else {
         defmt::error!("UsageFault CFSR=0x{:08X} — resetting", cfsr);
     }
     cortex_m::asm::delay(100_000);
     const DHCSR: *const u32 = 0xE000_EDF0 as *const u32;
-    if core::ptr::read_volatile(DHCSR) & 1 != 0 {
+    if unsafe { core::ptr::read_volatile(DHCSR) } & 1 != 0 {
         defmt::error!("halting (debugger attached) — disconnect probe to reset");
         loop { cortex_m::asm::bkpt(); }
     }
@@ -348,16 +348,17 @@ async fn eval_task() {
     engine.set_max_array_size(512);
     engine.set_max_string_size(8192);
     engine.set_max_operations(500_000);
-    // Limit call stack depth to prevent stack overflow via deep recursion.
-    // Each Rhai function call consumes ~2-3 KB Rust stack (interpreter structs).
+    // Soft call-stack depth limit (secondary guard).
+    // MSPLIM is the primary hardware guard: it fires a UsageFault the moment
+    // MSP crosses the protected address, BEFORE RAM is corrupted. This soft
+    // limit exists as a belt-and-suspenders check that delivers a clean Rhai
+    // error message for moderate recursion, without involving a firmware reset.
     //
-    // Measured on this device (STM32WBA55):
-    //   With 10 KB stack (50 KB heap): depth 4 OK, depth 5 = HardFault
-    //   With 14 KB stack (46 KB heap): depth 5-6 OK, depth ≥7 risky
-    //
-    // Set to 6; HardFault territory starts at 7+. Increase MAX_CALL_LEVELS
-    // only if you also reduce HEAP_SIZE to compensate.
-    engine.set_max_call_levels(6);
+    // With 14 KB stack and ~2-3 KB per Rhai call level, MSPLIM fires around
+    // depth 4-5 anyway. Set this to 12 so normal scripts aren't capped early;
+    // deeply recursive scripts hit MSPLIM first and get the "firmware reset"
+    // error message via RESET_CAUSE_STACKOVERFLOW.
+    engine.set_max_call_levels(12);
     engine.on_progress(|_ops| {
         if HEAP.free() < MIN_HEAP_RESERVE {
             OOM_TERMINATED.store(true, Ordering::Relaxed);
@@ -624,6 +625,11 @@ async fn ble_task(mut ble: HCI<'static, Normal>) {
                                         warn!("OOM reset in previous eval — notifying client");
                                         let _ = gatt.notify(conn, service_handle, tx_char_handle,
                                             b"err: out of memory (script aborted, firmware reset)\r\n");
+                                    } else if prev_cause == RESET_CAUSE_STACKOVERFLOW {
+                                        unsafe { RESET_CAUSE = 0; }
+                                        warn!("stack overflow reset in previous eval — notifying client");
+                                        let _ = gatt.notify(conn, service_handle, tx_char_handle,
+                                            b"err: stack overflow (too many recursive calls, firmware reset)\r\n");
                                     }
                                     let _ = gatt.notify(conn, service_handle, tx_char_handle, b"> ");
                                 }
@@ -682,14 +688,14 @@ async fn main(spawner: Spawner) {
             SCB_SHCSR,
             core::ptr::read_volatile(SCB_SHCSR) | (1 << 18), // USGFAULTENA
         );
-        extern "C" { static _ebss: u8; }
-        // _ebss = end of .bss; .uninit follows (~520 B: RTT buf 512 + RESET_CAUSE 4 + pad)
-        let limit = core::ptr::addr_of!(_ebss) as u32 + 520 + 2048;
+        unsafe extern "C" { static __ebss: u8; }
+        // __ebss = end of .bss (cortex-m-rt symbol); .uninit follows (~520 B: RTT buf 512 + RESET_CAUSE 4 + pad)
+        let limit = core::ptr::addr_of!(__ebss) as u32 + 520 + 2048;
         cortex_m::register::msplim::write(limit);
         info!("stack guard: MSPLIM=0x{:08X}", limit);
     }
     // -------------------------------------------------------------------------------
- = LED_CELL.init(Output::new(p.PA1, Level::Low, Speed::Low));
+    let led: &'static mut Output<'static> = LED_CELL.init(Output::new(p.PA1, Level::Low, Speed::Low));
     LED_PIN.lock(|cell| { *cell.borrow_mut() = unsafe { Some(core::ptr::read(led)) }; });
 
     info!("BLE Rhai interpreter starting");
