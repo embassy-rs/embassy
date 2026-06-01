@@ -84,8 +84,10 @@ use cortex_m::register::basepri;
 use critical_section;
 use embassy_stm32::NVIC_PRIO_BITS;
 use embassy_stm32::aes::{AesEcb, Direction};
+use embassy_stm32::mode::Async;
 use embassy_stm32::pac::{FLASH, PWR, RCC};
-use embassy_stm32::pka::{EccPoint, EcdsaCurveParams};
+use embassy_stm32::peripherals::PKA as PkaPeriph;
+use embassy_stm32::pka::{EccPoint, EcdsaCurveParams, Pka};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::zerocopy_channel;
 use embassy_time::{Duration, Instant, block_for};
@@ -263,25 +265,11 @@ fn cmac_compute(key: &[u8; 16], input: &[u8], output: &mut [u8; 16]) {
 // PKA P-256 Hardware Acceleration (Embassy driver)
 // ============================================================================
 
-/// Cached PKA result for async Start/Read pattern.
-/// The BLE stack calls Start (begin computation), then later calls Read (get result).
-/// Results stored as u32 LE word arrays (index 0 = LSW) matching BLE stack format.
-static mut PKA_RESULT_X: [u32; 8] = [0u32; 8];
-static mut PKA_RESULT_Y: [u32; 8] = [0u32; 8];
-static PKA_RESULT_READY: AtomicBool = AtomicBool::new(false);
-/// Set after a PKA computation completes. BLEPLATCB_PkaComplete must be called
-/// from outside the sequencer context (i.e. from run_ble), not re-entrantly
-/// from within BLEPLAT_PkaStartP256Key / BLEPLAT_PkaStartDhKey, because the
-/// BLE stack state machine hasn't finished its own transition yet when Start returns.
-static PKA_CALLBACK_PENDING: AtomicBool = AtomicBool::new(false);
-
 /// Call BLEPLATCB_PkaComplete if a PKA callback was deferred.
 /// Must be invoked from the embassy-task context (after seq_resume returns),
 /// never from within the sequencer context.
-pub fn dispatch_pka_callback_if_pending() {
-    if PKA_CALLBACK_PENDING.swap(false, Ordering::AcqRel) {
-        unsafe { super::bindings::ble::BLEPLATCB_PkaComplete() };
-    }
+pub fn dispatch_pka_callback() {
+    unsafe { super::bindings::ble::BLEPLATCB_PkaComplete() };
 }
 
 /// Convert u32 LE word array (index 0 = LSW) to big-endian byte array.
@@ -304,7 +292,14 @@ fn be_bytes_to_words_le(bytes: &[u8], words: &mut [u32; 8]) {
 /// Perform P-256 ECC scalar multiplication using the Embassy PKA driver.
 /// k and point coordinates are u32 arrays in LE word order (index 0 = LSW).
 /// Returns 0 on success, non-zero on error.
-fn pka_p256_mul(k: &[u32; 8], px: &[u32; 8], py: &[u32; 8], rx: &mut [u32; 8], ry: &mut [u32; 8]) -> i32 {
+pub async fn pka_p256_mul(
+    pka: &mut Pka<'static, PkaPeriph, Async>,
+    k: &[u32; 8],
+    px: &[u32; 8],
+    py: &[u32; 8],
+    rx: &mut [u32; 8],
+    ry: &mut [u32; 8],
+) {
     // Convert from BLE stack u32 LE words to big-endian bytes for Embassy PKA driver
     let mut k_be = [0u8; 32];
     let mut px_be = [0u8; 32];
@@ -316,18 +311,14 @@ fn pka_p256_mul(k: &[u32; 8], px: &[u32; 8], py: &[u32; 8], rx: &mut [u32; 8], r
     let curve = EcdsaCurveParams::nist_p256();
     let mut result = EccPoint::new(32);
 
-    let status = get_platform().borrow_pka(|pka| pka.ecc_mul_blocking(&curve, &k_be, &px_be, &py_be, &mut result));
-
-    match status {
+    match pka.ecc_mul(&curve, &k_be, &px_be, &py_be, &mut result).await {
         Ok(()) => {
             // Convert result from big-endian bytes back to u32 LE words
             be_bytes_to_words_le(&result.x[..32], rx);
             be_bytes_to_words_le(&result.y[..32], ry);
-            0
         }
         Err(e) => {
             warn!("PKA ECC mul failed: {}", e);
-            -1
         }
     }
 }
@@ -1816,8 +1807,6 @@ pub unsafe extern "C" fn BLEPLAT_PkaStartP256Key(local_private_key: *const u32) 
         return -1;
     }
 
-    PKA_RESULT_READY.store(false, Ordering::Release);
-
     let k: &[u32; 8] = &*(local_private_key as *const [u32; 8]);
 
     // Convert P-256 generator point from big-endian bytes to u32 LE words
@@ -1827,16 +1816,15 @@ pub unsafe extern "C" fn BLEPLAT_PkaStartP256Key(local_private_key: *const u32) 
     be_bytes_to_words_le(curve.generator_x, &mut gx_words);
     be_bytes_to_words_le(curve.generator_y, &mut gy_words);
 
-    let result = pka_p256_mul(k, &gx_words, &gy_words, &mut PKA_RESULT_X, &mut PKA_RESULT_Y);
-
-    if result == 0 {
-        PKA_RESULT_READY.store(true, Ordering::Release);
-        PKA_CALLBACK_PENDING.store(true, Ordering::Release);
-    } else {
-        error!("BLEPLAT_PkaStartP256Key: PKA computation failed with result={}", result);
+    if get_platform().get_p256_req().signaled() {
+        error!("BLEPLAT_PkaStartDhKey: signal not empty");
+        return -1;
     }
 
-    result
+    get_platform().get_p256_resp().reset();
+    get_platform().get_p256_req().signal((*k, gx_words, gy_words));
+
+    BLEPLAT_OK
 }
 
 /// Read result of P-256 public key generation.
@@ -1858,16 +1846,19 @@ pub unsafe extern "C" fn BLEPLAT_PkaReadP256Key(local_public_key: *mut u32) -> i
         return -1;
     }
 
-    if !PKA_RESULT_READY.load(Ordering::Acquire) {
+    let Some((pka_x, pka_y)) = get_platform().get_p256_resp().try_take() else {
         warn!("BLEPLAT_PkaReadP256Key: result not ready");
+        return -1;
+    };
+
+    if pka_x == [0u32; 8] && pka_y == [0u32; 8] {
+        warn!("BLEPLAT_PkaReadP256Key: invalid result");
         return -1;
     }
 
     let out = core::slice::from_raw_parts_mut(local_public_key, 16);
-    out[0..8].copy_from_slice(&PKA_RESULT_X);
-    out[8..16].copy_from_slice(&PKA_RESULT_Y);
-
-    PKA_RESULT_READY.store(false, Ordering::Release);
+    out[0..8].copy_from_slice(&pka_x);
+    out[8..16].copy_from_slice(&pka_y);
 
     BLEPLAT_OK
 }
@@ -1892,8 +1883,6 @@ pub unsafe extern "C" fn BLEPLAT_PkaStartDhKey(local_private_key: *const u32, re
         return -1;
     }
 
-    PKA_RESULT_READY.store(false, Ordering::Release);
-
     let k: &[u32; 8] = &*(local_private_key as *const [u32; 8]);
     let remote = core::slice::from_raw_parts(remote_public_key, 16);
 
@@ -1902,16 +1891,15 @@ pub unsafe extern "C" fn BLEPLAT_PkaStartDhKey(local_private_key: *const u32, re
     px.copy_from_slice(&remote[0..8]);
     py.copy_from_slice(&remote[8..16]);
 
-    let result = pka_p256_mul(k, &px, &py, &mut PKA_RESULT_X, &mut PKA_RESULT_Y);
-
-    if result == 0 {
-        PKA_RESULT_READY.store(true, Ordering::Release);
-        PKA_CALLBACK_PENDING.store(true, Ordering::Release);
-    } else {
-        error!("BLEPLAT_PkaStartDhKey: PKA computation failed with result={}", result);
+    if get_platform().get_p256_req().signaled() {
+        error!("BLEPLAT_PkaStartDhKey: signal not empty");
+        return -1;
     }
 
-    result
+    get_platform().get_p256_resp().reset();
+    get_platform().get_p256_req().signal((*k, px, py));
+
+    BLEPLAT_OK
 }
 
 /// Read result of DH key computation.
@@ -1933,16 +1921,19 @@ pub unsafe extern "C" fn BLEPLAT_PkaReadDhKey(dh_key: *mut u32) -> i32 {
         return -1;
     }
 
-    if !PKA_RESULT_READY.load(Ordering::Acquire) {
+    let Some((pka_x, pka_y)) = get_platform().get_p256_resp().try_take() else {
         warn!("BLEPLAT_PkaReadDhKey: result not ready");
+        return -1;
+    };
+
+    if pka_x == [0u32; 8] && pka_y == [0u32; 8] {
+        warn!("BLEPLAT_PkaReadDhKey: invalid result");
         return -1;
     }
 
     // DH key is just the X coordinate of the shared point
     let out = core::slice::from_raw_parts_mut(dh_key, 8);
-    out.copy_from_slice(&PKA_RESULT_X);
-
-    PKA_RESULT_READY.store(false, Ordering::Release);
+    out.copy_from_slice(&pka_x);
 
     BLEPLAT_OK
 }

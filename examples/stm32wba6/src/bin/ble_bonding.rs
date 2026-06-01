@@ -81,11 +81,6 @@ const BOND_CHAR_UUID: u16 = 0xBEF0;
 const ERASE_BONDS_ON_BOOT: bool = false;
 
 #[embassy_executor::task]
-async fn rng_runner_task(platform: &'static Platform) {
-    platform.run_rng().await
-}
-
-#[embassy_executor::task]
 async fn ble_runner_task(platform: &'static Platform) {
     platform.run_ble().await
 }
@@ -112,12 +107,11 @@ async fn main(spawner: Spawner) {
 
     let (platform, runtime) = new_platform!(
         Rng::new(p.RNG, Irqs),
+        Pka::new(p.PKA, Irqs),
         Aes::new_blocking(p.AES, Irqs),
-        Pka::new_blocking(p.PKA, Irqs),
         8
     );
 
-    spawner.spawn(rng_runner_task(platform).expect("rng runner"));
     spawner.spawn(ble_runner_task(platform).expect("ble runner"));
 
     // ST BLE_Privacy_Peripheral: public peripheral identity + controller privacy.
