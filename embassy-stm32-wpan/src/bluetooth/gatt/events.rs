@@ -22,7 +22,7 @@ pub enum GattEvent {
         /// Offset within the attribute value
         offset: u16,
         /// The written data
-        data: heapless::Vec<u8, 247>,
+        data: heapless::Vec<u8, 512>,
     },
 
     /// Notification was sent successfully
@@ -74,7 +74,7 @@ pub enum GattEvent {
         /// Offset within the attribute
         offset: u16,
         /// Data to be written
-        data: heapless::Vec<u8, 247>,
+        data: heapless::Vec<u8, 512>,
     },
 
     /// Read request (for dynamic value generation)

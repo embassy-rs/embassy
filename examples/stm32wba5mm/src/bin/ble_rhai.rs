@@ -103,7 +103,10 @@ const NUS_TX_CHAR_UUID: [u8; 16] = [
     0x9E, 0xCA, 0xDC, 0x24, 0x0E, 0xE5, 0xA9, 0xE0, 0x93, 0xF3, 0xA3, 0xB5, 0x03, 0x00, 0x40, 0x6E,
 ];
 
-const MAX_DATA_LEN: usize = 244;
+// Per-packet BLE payload limit. BLE 5.0 allows ATT MTU up to 517 bytes;
+// max payload = ATT_MTU - 3 = 514. We use 512 as a clean round number that
+// fits within both the stack's negotiated MTU and the ATT event buffer.
+const MAX_DATA_LEN: usize = 512;
 
 // BLE task → eval task: raw script bytes
 static SCRIPT_CHAN: Channel<CriticalSectionRawMutex, Vec<u8>, 1> =
@@ -457,6 +460,7 @@ async fn ble_task(mut ble: HCI<'static, Normal>) {
                         if let Some(conn) = ble.get_connection_mut(*ch) {
                             conn.update_mtu(*server_rx_mtu as u16);
                         }
+                        info!("ATT MTU exchanged: server_rx_mtu={} → max write payload={}", server_rx_mtu, server_rx_mtu.saturating_sub(3));
                     }
 
                     _ => {}
