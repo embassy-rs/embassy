@@ -135,7 +135,7 @@ macro_rules! bind_interrupts {
             $(#[cfg($cond_irq)])?
             unsafe extern "C" fn $irq() {
                 use embassy_mcxa::interrupt::typelevel::Interrupt;
-                
+
                 $crate::trace::irq_start($crate::interrupt::typelevel::$irq::IRQ);
                 unsafe {
                     $(

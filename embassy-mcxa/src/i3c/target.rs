@@ -22,10 +22,9 @@ use crate::dma::{Channel, DmaChannel, DmaRequest, TransferOptions};
 use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt::typelevel;
 use crate::interrupt::typelevel::Interrupt;
-use crate::pac::i3c::Sstatus;
 use crate::pac::i3c::{
-    Evdet, Ibidis, Mstena, SctrlEvent, SdatactrlTxtrig, SdmactrlDmafb, SdmactrlDmatb, SdmactrlDmawidth, SstatusStart,
-    SstatusTxnotfull, Stnotstop, Streqrd, Type,
+    Evdet, Ibidis, Mstena, SctrlEvent, SdatactrlTxtrig, SdmactrlDmafb, SdmactrlDmatb, SdmactrlDmawidth, Sstatus,
+    SstatusStart, SstatusTxnotfull, Stnotstop, Streqrd, Type,
 };
 
 /// Setup Errors
@@ -464,7 +463,6 @@ impl<'d> I3c<'d> {
 
         Ok(())
     }
-
 }
 
 impl<'d> I3c<'d> {
@@ -1245,9 +1243,7 @@ impl<T: Instance> typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
         // so the next transaction-end fires us again. `wait_for_end_of_chain`
         // and friends rely on the level-triggered `STNOTSTOP` instead of
         // the latched STOP and remain correct.
-        let pre = bbq
-            .state
-            .fetch_and(!STATE_RXDMA_COMPLETE, Ordering::AcqRel);
+        let pre = bbq.state.fetch_and(!STATE_RXDMA_COMPLETE, Ordering::AcqRel);
         let rx_present = (pre & STATE_RXDMA_PRESENT) != 0;
         let dma_complete = (pre & STATE_RXDMA_COMPLETE) != 0;
         let stop_fired = s_status.stop();
@@ -1498,8 +1494,7 @@ impl BbqState {
 
         // Publish INITED + RXDMA_PRESENT *before* opening the first
         // grant so that start_read_transfer sees the right state.
-        self.state
-            .store(STATE_INITED | STATE_RXDMA_PRESENT, Ordering::Release);
+        self.state.store(STATE_INITED | STATE_RXDMA_PRESENT, Ordering::Release);
 
         // Open the first grant + program DMA + enable SDMACTRL.dmafb.
         // SAFETY: just published RXDMA_PRESENT and we hold exclusive
