@@ -310,6 +310,13 @@ pub(crate) unsafe fn init(config: Config) {
     FLASH.acr().modify(|w| w.set_latency(flash_latency));
     while FLASH.acr().read().latency() != flash_latency {}
 
+    // Enable Flash prefetch buffer (PRFTEN) and the 8 KB instruction cache (ICACHE).
+    // Per RM0493 §4.3.3: prefetch must be enabled before raising the clock.
+    // ICACHE is a separate peripheral (not an ACR bit on WBA); it provides
+    // 0-wait-state re-fetch hits and is required to reach 150 DMIPS at 100 MHz.
+    FLASH.acr().modify(|w| w.set_prften(true));
+    crate::pac::ICACHE.cr().modify(|w| w.set_en(true));
+
     // Set sram wait states
     let sram_latency = match config.voltage_scale {
         VoltageScale::Range1 => 0,
