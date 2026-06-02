@@ -523,13 +523,7 @@ impl GattServer {
     /// Use this after receiving a `GattEvent::ReadPermitRequest`.
     /// When denying, `error_code` is returned to the client and `attr_handle`
     /// selects the first denied attribute (0 denies all).
-    pub fn permit_read(
-        &self,
-        conn_handle: u16,
-        allow: bool,
-        error_code: u8,
-        attr_handle: u16,
-    ) -> Result<(), BleError> {
+    pub fn permit_read(&self, conn_handle: u16, allow: bool, error_code: u8, attr_handle: u16) -> Result<(), BleError> {
         unsafe {
             let status = aci_gatt_permit_read(
                 conn_handle,

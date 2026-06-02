@@ -301,7 +301,10 @@ async fn main(spawner: Spawner) {
                         embassy_stm32_wpan::bluetooth::gatt::GattClientEvent::ProcedureComplete {
                             conn_handle,
                             success,
-                        } => info!("GATT procedure complete: conn=0x{:04X} success={}", conn_handle.0, success),
+                        } => info!(
+                            "GATT procedure complete: conn=0x{:04X} success={}",
+                            conn_handle.0, success
+                        ),
                         embassy_stm32_wpan::bluetooth::gatt::GattClientEvent::ErrorResponse {
                             conn_handle,
                             request_opcode,
@@ -310,6 +313,65 @@ async fn main(spawner: Spawner) {
                         } => warn!(
                             "GATT error: conn=0x{:04X} req=0x{:02X} attr=0x{:04X} err=0x{:02X}",
                             conn_handle.0, request_opcode, attribute_handle, error_code
+                        ),
+                        _ => {}
+                    }
+                }
+
+                // Log high-level GATT stream events, including extended payload events.
+                if let Some(gatt_event) = ble.process_gatt_event(&event) {
+                    match gatt_event {
+                        embassy_stm32_wpan::bluetooth::gatt::GattEvent::ReadResponseExt {
+                            conn_handle,
+                            offset,
+                            value,
+                        } => info!(
+                            "GATT read ext: conn=0x{:04X} off={} len={}",
+                            conn_handle.0,
+                            offset,
+                            value.len()
+                        ),
+                        embassy_stm32_wpan::bluetooth::gatt::GattEvent::NotificationReceivedExt {
+                            conn_handle,
+                            attr_handle,
+                            offset,
+                            data,
+                        } => info!(
+                            "GATT notif ext: conn=0x{:04X} attr=0x{:04X} off={} len={}",
+                            conn_handle.0,
+                            attr_handle,
+                            offset,
+                            data.len()
+                        ),
+                        embassy_stm32_wpan::bluetooth::gatt::GattEvent::IndicationReceivedExt {
+                            conn_handle,
+                            attr_handle,
+                            offset,
+                            data,
+                        } => info!(
+                            "GATT ind ext: conn=0x{:04X} attr=0x{:04X} off={} len={}",
+                            conn_handle.0,
+                            attr_handle,
+                            offset,
+                            data.len()
+                        ),
+                        embassy_stm32_wpan::bluetooth::gatt::GattEvent::MultiNotificationReceived {
+                            conn_handle,
+                            offset,
+                            data,
+                        } => info!(
+                            "GATT multi notif: conn=0x{:04X} off={} len={}",
+                            conn_handle.0,
+                            offset,
+                            data.len()
+                        ),
+                        embassy_stm32_wpan::bluetooth::gatt::GattEvent::EattBearerStateChanged {
+                            channel_index,
+                            state,
+                            success,
+                        } => info!(
+                            "EATT bearer: channel={} state={:?} success={}",
+                            channel_index, state, success
                         ),
                         _ => {}
                     }

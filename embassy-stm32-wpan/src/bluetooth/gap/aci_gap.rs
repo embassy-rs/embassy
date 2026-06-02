@@ -235,12 +235,7 @@ pub fn start_limited_discovery(
     filter_duplicates: bool,
 ) -> Result<(), BleError> {
     let status = unsafe {
-        aci_gap_start_limited_discovery_proc(
-            scan_interval,
-            scan_window,
-            own_address_type,
-            filter_duplicates as u8,
-        )
+        aci_gap_start_limited_discovery_proc(scan_interval, scan_window, own_address_type, filter_duplicates as u8)
     };
     if status == BLE_STATUS_SUCCESS {
         Ok(())
@@ -259,12 +254,7 @@ pub fn start_general_discovery(
     filter_duplicates: bool,
 ) -> Result<(), BleError> {
     let status = unsafe {
-        aci_gap_start_general_discovery_proc(
-            scan_interval,
-            scan_window,
-            own_address_type,
-            filter_duplicates as u8,
-        )
+        aci_gap_start_general_discovery_proc(scan_interval, scan_window, own_address_type, filter_duplicates as u8)
     };
     if status == BLE_STATUS_SUCCESS {
         Ok(())

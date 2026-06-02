@@ -26,10 +26,10 @@ use crate::bluetooth::gap::connection::{
 use crate::bluetooth::gap::scanner::{ScanParams, ScanProcedure, Scanner};
 use crate::bluetooth::gap::types::{AdvData, AdvParams};
 use crate::bluetooth::gap_init::{GapInitParams, GapRole, init_gap_and_hal};
+use crate::bluetooth::gatt::server::init_gatt_layer;
 use crate::bluetooth::gatt::{
     GattClient, GattClientEvent, GattEvent, GattServer, client_events_from_vendor_event, from_vendor_event,
 };
-use crate::bluetooth::gatt::server::init_gatt_layer;
 use crate::bluetooth::hci::command::CommandSender;
 use crate::bluetooth::hci::types::DtmPacketPayload;
 use crate::bluetooth::hci::{DtmRxPhy, DtmTxPhy};
@@ -644,7 +644,7 @@ impl<'d> HCI<'d, Normal> {
                 let _ = central_clock_accuracy;
 
                 if matches!(status, Status::Success) {
-                    let Ok(peer_address) = BdAddrType::try_from(*peer_bd_addr);
+                    let peer_address = BdAddrType::from(*peer_bd_addr);
                     let conn = Connection::new_enhanced(
                         *conn_handle,
                         *role,
@@ -745,14 +745,19 @@ impl<'d> HCI<'d, Normal> {
     }
 
     /// Convert a raw HCI event into one or more high-level GATT client events.
-    pub fn process_gatt_client_events(
-        &self,
-        event: &stm32wb_hci::Event,
-    ) -> heapless::Vec<GattClientEvent, 16> {
+    pub fn process_gatt_client_events(&self, event: &stm32wb_hci::Event) -> heapless::Vec<GattClientEvent, 16> {
         match event {
             Event::Vendor(v) => client_events_from_vendor_event(v),
             _ => heapless::Vec::new(),
         }
+    }
+
+    /// Return the first terminal GATT client event for a procedure, if any.
+    ///
+    /// Useful for "start procedure + pump events until terminal" patterns.
+    pub fn process_gatt_client_terminal_event(&self, event: &stm32wb_hci::Event) -> Option<GattClientEvent> {
+        let events = self.process_gatt_client_events(event);
+        events.into_iter().find(|e| e.is_terminal())
     }
 
     /// Convert a raw HCI event into a high-level security event when applicable.

@@ -31,9 +31,7 @@ use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
 use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams};
 use embassy_stm32_wpan::bluetooth::gatt::{CharProperties, GattEventMask, SecurityPermissions, ServiceType, Uuid};
-use embassy_stm32_wpan::bluetooth::security::{
-    IoCapability, SecureConnectionsSupport, SecurityEvent, SecurityParams,
-};
+use embassy_stm32_wpan::bluetooth::security::{IoCapability, SecureConnectionsSupport, SecurityEvent, SecurityParams};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use stm32wb_hci::Event;
 use stm32wb_hci::event::EncryptionChange;
@@ -268,11 +266,29 @@ async fn main(spawner: Spawner) {
                     }
                 }
                 SecurityEvent::PairingRequest { .. } => {}
+                SecurityEvent::AuthorizationRequest { conn_handle } => {
+                    info!("=== AUTHORIZATION REQUEST ===");
+                    info!("  Connection: 0x{:04X}", conn_handle);
+                }
+                SecurityEvent::PeripheralSecurityInitiated => {
+                    info!("=== PERIPHERAL SECURITY INITIATED ===");
+                }
+                SecurityEvent::AddressNotResolved { conn_handle } => {
+                    warn!("=== ADDRESS NOT RESOLVED ===");
+                    warn!("  Connection: 0x{:04X}", conn_handle);
+                }
+                SecurityEvent::KeypressNotification {
+                    conn_handle,
+                    notification_type,
+                } => {
+                    info!("=== KEYPRESS NOTIFICATION ===");
+                    info!("  Connection: 0x{:04X}", conn_handle);
+                    info!("  Notification: {:?}", notification_type);
+                }
             }
         }
 
         match &event {
-
             // TODO: Not currently implemented
 
             //            EventParams::GapPairingRequest { conn_handle, is_bonded } => {
