@@ -190,6 +190,16 @@ pub enum OutputCompareMode {
     AsymmetricPwmMode2,
 }
 
+/// OCREF clear trigger source.
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum OcrefClearSource {
+    /// Use the timer's dedicated OCREF clear input.
+    Internal,
+    /// Use filtered external trigger (ETRF) as OCREF clear source.
+    Etrf,
+}
+
 #[cfg(timer_v3)]
 impl From<OutputCompareMode> for crate::pac::timer::vals::OcmGp {
     fn from(mode: OutputCompareMode) -> Self {
@@ -837,6 +847,16 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
             .modify(|w| w.set_ocm(raw_channel % 2, mode.into()));
     }
 
+    /// Enable/disable OCREF clear on a channel.
+    ///
+    /// When enabled, a configured clear input can force OCxREF inactive.
+    pub fn set_output_compare_clear_enable(&self, channel: Channel, enable: bool) {
+        let raw_channel = channel.index();
+        self.regs_gp16()
+            .ccmr_output(raw_channel / 2)
+            .modify(|w| w.set_occe(raw_channel % 2, enable));
+    }
+
     /// Set output polarity.
     pub fn set_output_polarity(&self, channel: Channel, polarity: OutputPolarity) {
         self.regs_gp16()
@@ -1311,6 +1331,16 @@ impl<'d, T: AdvancedInstance4Channel> Timer<'d, T> {
     /// Get access to the advanced timer registers.
     pub fn regs_advanced(&self) -> crate::pac::timer::TimAdv {
         unsafe { crate::pac::timer::TimAdv::from_ptr(T::regs()) }
+    }
+
+    /// Select OCREF clear source.
+    pub fn set_ocref_clear_source(&self, source: OcrefClearSource) {
+        self.regs_advanced().smcr().modify(|w| {
+            w.set_occs(match source {
+                OcrefClearSource::Internal => vals::Occs::Input,
+                OcrefClearSource::Etrf => vals::Occs::Etrf,
+            });
+        });
     }
 
     /// Set complementary output polarity.

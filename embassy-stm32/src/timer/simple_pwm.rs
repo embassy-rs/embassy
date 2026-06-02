@@ -166,6 +166,11 @@ impl<'d, T: GeneralInstance4Channel> SimplePwmChannel<'d, T> {
         self.timer.set_output_compare_mode(self.channel, mode);
     }
 
+    /// Enable/disable OCREF clear for this channel.
+    pub fn set_output_compare_clear_enable(&mut self, enable: bool) {
+        self.timer.set_output_compare_clear_enable(self.channel, enable);
+    }
+
     /// Convert this PWM channel into a ring-buffered PWM channel.
     ///
     /// This allows continuous PWM waveform generation using a DMA ring buffer.

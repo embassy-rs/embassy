@@ -3,7 +3,7 @@
 use core::marker::PhantomData;
 
 pub use super::low_level::FilterValue;
-use super::low_level::{CountingMode, OutputPolarity, RoundTo, Timer};
+use super::low_level::{CountingMode, OcrefClearSource, OutputPolarity, RoundTo, Timer};
 use super::simple_pwm::PwmPin;
 use super::{AdvancedInstance4Channel, Ch1, Ch2, Ch3, Ch4, Channel, TimerComplementaryPin};
 use crate::Peri;
@@ -231,6 +231,11 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Set Master Output Enable
     pub fn set_master_output_enable(&mut self, enable: bool) {
         self.inner.set_moe(enable);
+    }
+
+    /// Select OCREF clear source.
+    pub fn set_ocref_clear_source(&mut self, source: OcrefClearSource) {
+        self.inner.set_ocref_clear_source(source);
     }
 
     /// Get Master Output Enable
@@ -505,6 +510,11 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     pub fn set_duty(&mut self, channel: Channel, duty: u32) {
         assert!(duty <= self.get_max_duty());
         self.inner.set_compare_value(channel, unwrap!(duty.try_into()))
+    }
+
+    /// Enable/disable OCREF clear for a given channel.
+    pub fn set_output_compare_clear_enable(&mut self, channel: Channel, enable: bool) {
+        self.inner.set_output_compare_clear_enable(channel, enable);
     }
 
     /// Set the output polarity for a given channel.
