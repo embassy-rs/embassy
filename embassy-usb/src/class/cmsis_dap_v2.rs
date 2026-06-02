@@ -40,7 +40,6 @@ pub struct CmsisDapV2Class<'d, D: Driver<'d>> {
     read_ep: D::EndpointOut,
     write_ep: D::EndpointIn,
     trace_ep: Option<D::EndpointIn>,
-    max_packet_size: u16,
 }
 
 impl<'d, D: Driver<'d>> CmsisDapV2Class<'d, D> {
@@ -76,7 +75,6 @@ impl<'d, D: Driver<'d>> CmsisDapV2Class<'d, D> {
             read_ep,
             write_ep,
             trace_ep,
-            max_packet_size,
         }
     }
 
@@ -87,13 +85,7 @@ impl<'d, D: Driver<'d>> CmsisDapV2Class<'d, D> {
 
     /// Write data to the host.
     pub async fn write_packet(&mut self, data: &[u8]) -> Result<(), EndpointError> {
-        for chunk in data.chunks(self.max_packet_size as usize) {
-            self.write_ep.write(chunk).await?;
-        }
-        if data.len() % self.max_packet_size as usize == 0 {
-            self.write_ep.write(&[]).await?;
-        }
-        Ok(())
+        self.write_ep.write_transfer(data, true).await
     }
 
     /// Write data to the host via the trace output endpoint.
@@ -103,26 +95,11 @@ impl<'d, D: Driver<'d>> CmsisDapV2Class<'d, D> {
         let Some(ep) = self.trace_ep.as_mut() else {
             return Err(EndpointError::Disabled);
         };
-
-        for chunk in data.chunks(self.max_packet_size as usize) {
-            ep.write(chunk).await?;
-        }
-        if data.len() % self.max_packet_size as usize == 0 {
-            ep.write(&[]).await?;
-        }
-        Ok(())
+        ep.write_transfer(data, true).await
     }
 
     /// Read data from the host.
     pub async fn read_packet(&mut self, data: &mut [u8]) -> Result<usize, EndpointError> {
-        let mut n = 0;
-
-        loop {
-            let i = self.read_ep.read(&mut data[n..]).await?;
-            n += i;
-            if i < self.max_packet_size as usize {
-                return Ok(n);
-            }
-        }
+        self.read_ep.read_transfer(data).await
     }
 }

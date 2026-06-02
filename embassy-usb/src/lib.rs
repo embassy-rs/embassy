@@ -397,20 +397,10 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         match self.inner.handle_control_in(req, self.control_buf) {
             InResponse::Accepted(data) => {
                 let len = data.len().min(resp_length);
-                let need_zlp = len != resp_length && (len % max_packet_size) == 0;
+                let needs_zlp = len != resp_length && (len % max_packet_size) == 0;
 
-                let chunks = data[0..len]
-                    .chunks(max_packet_size)
-                    .chain(need_zlp.then(|| -> &[u8] { &[] }));
-
-                for (first, last, chunk) in first_last(chunks) {
-                    match self.control.data_in(chunk, first, last).await {
-                        Ok(()) => {}
-                        Err(e) => {
-                            warn!("control accept_in failed: {:?}", e);
-                            return;
-                        }
-                    }
+                if let Err(e) = self.control.data_in_transfer(&data[0..len], needs_zlp).await {
+                    warn!("control accept_in failed: {:?}", e);
                 }
             }
             InResponse::Rejected => self.control.reject().await,
@@ -419,8 +409,6 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
 
     async fn handle_control_out(&mut self, req: Request) {
         let req_length = req.length as usize;
-        let max_packet_size = self.control.max_packet_size();
-        let mut total = 0;
 
         if req_length > self.control_buf.len() {
             warn!(
@@ -432,20 +420,17 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
             return;
         }
 
-        let chunks = self.control_buf[..req_length].chunks_mut(max_packet_size);
-        for (first, last, chunk) in first_last(chunks) {
-            let size = match self.control.data_out(chunk, first, last).await {
-                Ok(x) => x,
-                Err(e) => {
-                    warn!("usb: failed to read CONTROL OUT data stage: {:?}", e);
-                    return;
-                }
-            };
-            total += size;
-            if size < max_packet_size || total == req_length {
-                break;
+        let total = match self
+            .control
+            .data_out_transfer(&mut self.control_buf[..req_length])
+            .await
+        {
+            Ok(total) => total,
+            Err(e) => {
+                warn!("usb: failed to receive CONTROL OUT data stage: {:?}", e);
+                return;
             }
-        }
+        };
 
         let data = &self.control_buf[0..total];
         #[cfg(feature = "defmt")]
@@ -804,16 +789,4 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
             _ => InResponse::Rejected,
         }
     }
-}
-
-fn first_last<T: Iterator>(iter: T) -> impl Iterator<Item = (bool, bool, T::Item)> {
-    let mut iter = iter.peekable();
-    let mut first = true;
-    core::iter::from_fn(move || {
-        let val = iter.next()?;
-        let is_first = first;
-        first = false;
-        let is_last = iter.peek().is_none();
-        Some((is_first, is_last, val))
-    })
 }

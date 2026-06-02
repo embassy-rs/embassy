@@ -465,7 +465,7 @@ pub struct LcdPin<'d, T: Instance> {
     pin: Flex<'d>,
     af_num: u8,
     is_seg: bool,
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<'d, T: Instance> LcdPin<'d, T> {
@@ -477,7 +477,7 @@ impl<'d, T: Instance> LcdPin<'d, T> {
             pin: Flex::new(pin),
             af_num: af,
             is_seg: true,
-            _phantom: PhantomData,
+            _marker: PhantomData,
         }
     }
 
@@ -489,7 +489,7 @@ impl<'d, T: Instance> LcdPin<'d, T> {
             pin: Flex::new(pin),
             af_num: af,
             is_seg: false,
-            _phantom: PhantomData,
+            _marker: PhantomData,
         }
     }
 }

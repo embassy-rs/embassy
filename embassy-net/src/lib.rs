@@ -787,15 +787,15 @@ impl Inner {
 
         #[cfg(feature = "proto-ipv4")]
         if let Some(config) = &self.static_v4 {
-            debug!("IPv4: UP");
-            debug!("   IP address:      {:?}", config.address);
-            debug!("   Default gateway: {:?}", config.gateway);
+            info!("IPv4: UP");
+            info!("   IP address:      {:?}", config.address);
+            info!("   Default gateway: {:?}", config.gateway);
 
             unwrap!(addrs.push(IpCidr::Ipv4(config.address)).ok());
             gateway_v4 = config.gateway;
             #[cfg(feature = "dns")]
             for s in &config.dns_servers {
-                debug!("   DNS server:      {:?}", s);
+                info!("   DNS server:      {:?}", s);
                 unwrap!(dns_servers.push(s.clone().into()).ok());
             }
         } else {
@@ -804,15 +804,15 @@ impl Inner {
 
         #[cfg(feature = "proto-ipv6")]
         if let Some(config) = &self.static_v6 {
-            debug!("IPv6: UP");
-            debug!("   IP address:      {:?}", config.address);
-            debug!("   Default gateway: {:?}", config.gateway);
+            info!("IPv6: UP");
+            info!("   IP address:      {:?}", config.address);
+            info!("   Default gateway: {:?}", config.gateway);
 
             unwrap!(addrs.push(IpCidr::Ipv6(config.address)).ok());
             gateway_v6 = config.gateway;
             #[cfg(feature = "dns")]
             for s in &config.dns_servers {
-                debug!("   DNS server:      {:?}", s);
+                info!("   DNS server:      {:?}", s);
                 unwrap!(dns_servers.push(s.clone().into()).ok());
             }
         } else {

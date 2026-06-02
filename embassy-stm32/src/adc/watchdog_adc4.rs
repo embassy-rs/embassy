@@ -79,7 +79,7 @@ pub struct AnalogWatchdog<T: Instance<Regs = crate::pac::adc::Adc4>> {
     index: usize,
     /// True when [`Self::monitor`] started a continuous conversion that must be stopped in Drop.
     stop_on_drop: bool,
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance<Regs = crate::pac::adc::Adc4>> AnalogWatchdog<T> {
@@ -87,7 +87,7 @@ impl<T: Instance<Regs = crate::pac::adc::Adc4>> AnalogWatchdog<T> {
         Self {
             index,
             stop_on_drop: false,
-            _phantom: PhantomData,
+            _marker: PhantomData,
         }
     }
 

@@ -107,15 +107,13 @@ impl<'d, R: AdcRegs> RingBufferedAdc<'d, R> {
     /// use embassy_stm32::adc::{Adc, AdcChannel}
     ///
     /// let mut adc = Adc::new(p.ADC1);
-    /// let mut adc_pin0 = p.PA0.degrade_adc();
-    /// let mut adc_pin1 = p.PA1.degrade_adc();
     /// let adc_dma_buf = [0u16; DMA_BUF_LEN];
     ///
     /// let mut ring_buffered_adc: RingBufferedAdc<embassy_stm32::peripherals::ADC1> = adc.into_ring_buffered(
     ///     p.DMA2_CH0,
     ///      adc_dma_buf, [
-    ///         (&mut *adc_pin0, SampleTime::CYCLES160_5),
-    ///         (&mut *adc_pin1, SampleTime::CYCLES160_5),
+    ///         (p.PA0.reborrow_adc(), SampleTime::CYCLES160_5),
+    ///         (p.PA1.reborrow_adc(), SampleTime::CYCLES160_5),
     ///     ].into_iter());
     ///
     ///

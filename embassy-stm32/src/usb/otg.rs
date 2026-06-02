@@ -17,7 +17,7 @@ use crate::{Peri, interrupt};
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
@@ -687,7 +687,7 @@ mod host_impl {
     /// USB host interrupt handler.
     #[allow(private_bounds)]
     pub struct HostInterruptHandler<T: SealedHostInstance> {
-        _phantom: PhantomData<T>,
+        _marker: PhantomData<T>,
     }
 
     impl<T: SealedHostInstance> interrupt::typelevel::Handler<T::Interrupt> for HostInterruptHandler<T> {

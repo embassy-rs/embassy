@@ -14,7 +14,7 @@ use crate::rcc::RccInfo;
 /// reuses the existing hardware sequence configuration, avoiding the per-call
 /// overhead of reprogramming the sequence registers.
 ///
-/// Obtain via [`Adc::configured_sequence`].
+/// Obtain via [`Adc::configure_sequence`].
 #[allow(private_bounds)]
 pub struct ConfiguredSequence<'adc, R: AdcRegs> {
     regs: R,
@@ -43,10 +43,10 @@ impl<'adc, R: AdcRegs> ConfiguredSequence<'adc, R> {
     /// wait for it to complete.
     ///
     /// Returns a slice over the results in the same channel order as the
-    /// sequence passed to [`Adc::configured_sequence`].
+    /// sequence passed to [`Adc::configure_sequence`].
     ///
     /// The ADC and DMA are configured once at construction by
-    /// [`Adc::configured_sequence`]. The hardware is configured so that
+    /// [`Adc::configure_sequence`]. The hardware is configured so that
     /// DMA stays armed between calls while the ADC runs only one sequence per
     /// [`start`](AdcRegs::start) call.
     pub async fn read(&mut self, buf: &mut [u16]) {

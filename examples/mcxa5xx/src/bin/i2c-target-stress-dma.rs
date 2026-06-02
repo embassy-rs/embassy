@@ -50,16 +50,8 @@ async fn main(_spawner: Spawner) {
     let mut t_cfg = target::Config::default();
     t_cfg.address = target::Address::Single(ADDR);
 
-    let mut tgt = target::I2c::new_async_with_dma(
-        p.LPI2C3,
-        p.P3_21,
-        p.P3_20,
-        p.DMA0_CH0,
-        p.DMA0_CH1,
-        Irqs,
-        t_cfg,
-    )
-    .unwrap();
+    let mut tgt =
+        target::I2c::new_async_with_dma(p.LPI2C3, p.P3_21, p.P3_20, p.DMA0_CH0, p.DMA0_CH1, Irqs, t_cfg).unwrap();
 
     let mut regs = [0u8; REG_LEN];
     for (i, b) in regs.iter_mut().enumerate() {
