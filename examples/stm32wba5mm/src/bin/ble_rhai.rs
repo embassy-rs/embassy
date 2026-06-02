@@ -692,27 +692,20 @@ async fn main(spawner: Spawner) {
     config.rcc = rcc::Config::new_wpan();
     let p = embassy_stm32::init(config);
 
-    // ---- Cortex-M33 hardware stack guard (MSPLIM) --------------------------------
-    // Enable UsageFault (SHCSR bit 18 = USGFAULTENA) so a stack overflow triggers
-    // our UsageFault handler instead of escalating silently to HardFault.
-    // Then set MSPLIM to _ebss + .uninit size (~520 B) + 2 KB safety runway:
-    //   - fault fires 2 KB BEFORE the stack pointer would overwrite static data
-    //   - those 2 KB remain available for the UsageFault handler itself
-    // With 48 KB heap, _ebss is ~0x2001_C500; MSPLIM lands near ~0x2001_CF00,
-    // leaving ~12 KB total stack (~10 KB available to eval_task after BLE overhead).
-    unsafe {
-        const SCB_SHCSR: *mut u32 = 0xE000_ED24 as *mut u32;
-        core::ptr::write_volatile(
-            SCB_SHCSR,
-            core::ptr::read_volatile(SCB_SHCSR) | (1 << 18), // USGFAULTENA
-        );
-        unsafe extern "C" { static __ebss: u8; }
-        // __ebss = end of .bss (cortex-m-rt symbol); .uninit follows (~520 B: RTT buf 512 + RESET_CAUSE 4 + pad)
-        let limit = core::ptr::addr_of!(__ebss) as u32 + 520 + 2048;
-        cortex_m::register::msplim::write(limit);
-        info!("stack guard: MSPLIM=0x{:08X}", limit);
-    }
-    // -------------------------------------------------------------------------------
+    // NOTE: MSPLIM is intentionally NOT set here.
+    //
+    // The BLE sequencer context-switch (context.rs) loads MSP directly from BSS
+    // (the 32 KB sequencer stack lives below __ebss).  Any MSPLIM value high
+    // enough to guard the thread stack would be above task_sp.  When an interrupt
+    // fires while MSP == task_sp the hardware's exception-entry push violates
+    // MSPLIM → STKOF fault → HardFault with stacked PC = 0x00000000 (the
+    // exception frame was never written to the zeroed BSS, so the debugger reads
+    // back zero).  This is exactly the crash that appeared once MSPLIM was added.
+    //
+    // Stack-overflow detection for eval_task is done via the Rhai on_progress
+    // hook (heap guard) and the RESET_CAUSE mechanism.  A pure-Rust stack canary
+    // approach (e.g. placing a known pattern at the stack bottom and checking it
+    // in on_progress) would be safe here and is left as a future improvement.
     let led: &'static mut Output<'static> = LED_CELL.init(Output::new(p.PA1, Level::Low, Speed::Low));
     LED_PIN.lock(|cell| { *cell.borrow_mut() = unsafe { Some(core::ptr::read(led)) }; });
 
