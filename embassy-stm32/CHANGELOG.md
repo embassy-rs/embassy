@@ -40,6 +40,9 @@ CRYP:
 - feat: stm32/cryp: batch full-block DMA in payload and use 4-beat bursts on GPDMA
 - perf: stm32/cryp: aad/payload async API takes a faster path when user buffers are 4-byte aligned
 
+SAES:
+- feat: stm32/saes: expose explicit key-mode starters (`start_with_mode`, `start_wrapped_key`, `start_shared_key`) and async `aad`/`payload`/`finish` parity methods
+
 ## 0.6.0 - 2026-03-10
 
 ADC:
