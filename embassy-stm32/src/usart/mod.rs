@@ -1780,6 +1780,14 @@ fn configure(
         return Err(ConfigError::RxOrTxNotEnabled);
     }
 
+    // The `duplex` config field is private and defaults to `Full`, so a user-supplied
+    // `Config` passed to `set_config`/`reconfigure` cannot express half-duplex. Combine
+    // the requested config with the current hardware HDSEL state so that reconfiguring a
+    // half-duplex peripheral (e.g. to change baudrate) does not silently revert it to
+    // full-duplex. On initial setup the peripheral has just been reset, so HDSEL is clear
+    // and the config value alone decides.
+    let half_duplex = config.duplex.is_half() || r.cr3().read().hdsel();
+
     #[cfg(not(any(usart_v1, usart_v2)))]
     let dem = r.cr3().read().dem();
 
@@ -1819,14 +1827,14 @@ fn configure(
     r.cr3().modify(|w| {
         #[cfg(not(usart_v1))]
         w.set_onebit(config.assume_noise_free);
-        w.set_hdsel(config.duplex.is_half());
+        w.set_hdsel(half_duplex);
     });
 
     let mut w: crate::pac::usart::regs::Cr1 = Default::default();
     // enable uart
     w.set_ue(true);
 
-    if config.duplex.is_half() {
+    if half_duplex {
         // The te and re bits will be set by write, read and flush methods.
         // Receiver should be enabled by default for Half-Duplex.
         w.set_te(false);
