@@ -39,7 +39,7 @@ use alloc::vec::Vec;
 use embedded_alloc::LlffHeap as Heap;
 
 use core::cell::RefCell;
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 // defmt::* would bring in a `panic_handler` proc-macro that conflicts with the
 // built-in #[panic_handler] attribute used for our custom panic handler below.
 // Import the macros we actually use explicitly instead of glob-importing.
@@ -138,6 +138,29 @@ static EVAL_RUNNING: AtomicBool = AtomicBool::new(false);
 // Cleared atomically in the error handler so the eval loop can report a clean
 // "out of memory" message instead of the opaque Rhai termination error.
 static OOM_TERMINATED: AtomicBool = AtomicBool::new(false);
+
+// Set by the on_progress stack-guard when MSP falls within STACK_GUARD_MARGIN of
+// _stack_end (the linker-defined bottom of the thread stack).  Cleared in the eval
+// error handler so a clean "stack overflow" message is forwarded to the BLE client.
+static STACK_OVERFLOW_TERMINATED: AtomicBool = AtomicBool::new(false);
+// MSP value captured by on_progress at the moment the overflow is detected.
+// Used to report the exact stack depth to the BLE client.
+static STACK_OVERFLOW_MSP: AtomicU32 = AtomicU32::new(0);
+
+// Computed once in main(): addr_of!(_stack_end) + STACK_GUARD_MARGIN.
+// on_progress reads this and aborts the script when MSP < limit.
+static STACK_GUARD_LIMIT: AtomicU32 = AtomicU32::new(0);
+
+// Safety margin above the hard stack bottom (_stack_end).  2 KB leaves enough
+// room for on_progress itself, the return path through Rhai, and any interrupt
+// frames (ICACHE/RADIO/HASH) that may arrive during the unwind.
+const STACK_GUARD_MARGIN: u32 = 2 * 1024;
+
+// Linker-defined thread-stack bounds (cortex-m-rt symbols).
+unsafe extern "C" {
+    static _stack_end: u8;   // bottom (lowest address, must not be written)
+    static _stack_start: u8; // top    (initial SP value = 0x20020000)
+}
 
 // Persists across a SYSRESET (software reset) — placed in .uninit so startup code
 // never zeroes it. The panic handler writes RESET_CAUSE_OOM before resetting;
@@ -351,17 +374,28 @@ async fn eval_task() {
     engine.set_max_string_size(8192);
     engine.set_max_operations(500_000);
     // Soft call-stack depth limit (secondary guard).
-    // MSPLIM is the primary hardware guard: it fires a UsageFault the moment
-    // MSP crosses the protected address, BEFORE RAM is corrupted. This soft
-    // limit exists as a belt-and-suspenders check that delivers a clean Rhai
-    // error message for moderate recursion, without involving a firmware reset.
+    // The primary guard is the software MSP check in on_progress: it fires a
+    // clean Rhai termination before MSP crosses _stack_end (the thread stack
+    // bottom).  This soft limit acts as a belt-and-suspenders check that catches
+    // recursive scripts early enough for the MSP check to remain meaningful.
     //
-    // With 12 KB stack and ~2-3 KB per Rhai call level, MSPLIM fires around
-    // depth 4-5 anyway. Set this to 12 so normal scripts aren't capped early;
-    // deeply recursive scripts hit MSPLIM first and get the "firmware reset"
-    // error message via RESET_CAUSE_STACKOVERFLOW.
+    // With ~14 KB thread stack and ~1-2 KB per Rhai call level, the MSP check
+    // fires around depth 8-10.  Setting max_call_levels to 12 means well-behaved
+    // recursive scripts get a clean "too many levels" error rather than the
+    // on_progress abort message.
     engine.set_max_call_levels(12);
     engine.on_progress(|_ops| {
+        // Software stack guard: read MSP and abort before it crosses _stack_end.
+        // MSPLIM cannot be used here because the sequencer context-switch swaps
+        // MSP directly (see context.rs); on_progress is our only safe check point.
+        let msp: u32;
+        unsafe { core::arch::asm!("mrs {0}, msp", out(reg) msp, options(nomem, nostack, preserves_flags)) }
+        let limit = STACK_GUARD_LIMIT.load(Ordering::Relaxed);
+        if limit != 0 && msp < limit {
+            STACK_OVERFLOW_MSP.store(msp, Ordering::Relaxed);
+            STACK_OVERFLOW_TERMINATED.store(true, Ordering::Relaxed);
+            return Some(Dynamic::UNIT);
+        }
         if HEAP.free() < MIN_HEAP_RESERVE {
             OOM_TERMINATED.store(true, Ordering::Relaxed);
             Some(Dynamic::UNIT) // signal Rhai to stop immediately
@@ -378,7 +412,7 @@ async fn eval_task() {
         let mut result_buf: Vec<u8> = Vec::new();
 
         if let Ok(script) = core::str::from_utf8(&script_bytes) {
-            info!("eval: {} bytes  heap_free={} B\n{}", script_bytes.len(), HEAP.free(), script);
+            info!("eval: {} bytes  heap_free={} KB\n{}", script_bytes.len(), HEAP.free() / 1024, script);
 
             EVAL_RUNNING.store(true, Ordering::Relaxed);
             let eval_result = match engine.eval::<Dynamic>(script) {
@@ -391,10 +425,21 @@ async fn eval_task() {
                     alloc::format!("{}\r\n", value)
                 }
                 Err(e) => {
-                    if OOM_TERMINATED.swap(false, Ordering::Relaxed) {
+                    if STACK_OVERFLOW_TERMINATED.swap(false, Ordering::Relaxed) {
+                        let msp = STACK_OVERFLOW_MSP.load(Ordering::Relaxed);
+                        let stack_top = core::ptr::addr_of!(_stack_start) as u32;
+                        let stack_bot = core::ptr::addr_of!(_stack_end)   as u32;
+                        let used  = stack_top.saturating_sub(msp);
+                        let total = stack_top.saturating_sub(stack_bot);
+                        let free  = total.saturating_sub(used);
+                        error!("eval stack overflow: used={} KB, free={} KB, total={} KB (MSP=0x{:08X})",
+                               used / 1024, free / 1024, total / 1024, msp);
+                        alloc::format!("err: stack overflow (used {} KB, {} KB free of {} KB total)\r\n",
+                                       used / 1024, free / 1024, total / 1024)
+                    } else if OOM_TERMINATED.swap(false, Ordering::Relaxed) {
                         let free = HEAP.free();
-                        error!("eval OOM: {} B heap free (reserve {} B)", free, MIN_HEAP_RESERVE);
-                        alloc::format!("err: out of memory ({} B heap free)\r\n", free)
+                        error!("eval OOM: {} KB heap free (reserve {} KB)", free / 1024, MIN_HEAP_RESERVE / 1024);
+                        alloc::format!("err: out of memory ({} KB heap free)\r\n", free / 1024)
                     } else {
                         warn!("eval err: {}", alloc::format!("{}", e).as_str());
                         alloc::format!("err: {}\r\n", e)
@@ -402,7 +447,7 @@ async fn eval_task() {
                 }
             };
             EVAL_RUNNING.store(false, Ordering::Relaxed);
-            info!("eval done: heap_free={} B", HEAP.free());
+            info!("eval done: heap_free={} KB", HEAP.free() / 1024);
 
             result_buf.extend_from_slice(eval_result.as_bytes());
         }
@@ -702,10 +747,16 @@ async fn main(spawner: Spawner) {
     // exception frame was never written to the zeroed BSS, so the debugger reads
     // back zero).  This is exactly the crash that appeared once MSPLIM was added.
     //
-    // Stack-overflow detection for eval_task is done via the Rhai on_progress
-    // hook (heap guard) and the RESET_CAUSE mechanism.  A pure-Rust stack canary
-    // approach (e.g. placing a known pattern at the stack bottom and checking it
-    // in on_progress) would be safe here and is left as a future improvement.
+    // Stack-overflow detection is instead done via a software MSP check in the
+    // Rhai on_progress hook: on_progress reads the MSP register and aborts the
+    // script before the stack reaches _stack_end (bottom of thread stack).
+    // STACK_GUARD_LIMIT is computed once here from the linker symbol.
+    {
+        let limit = core::ptr::addr_of!(_stack_end) as u32 + STACK_GUARD_MARGIN;
+        STACK_GUARD_LIMIT.store(limit, Ordering::Relaxed);
+        info!("stack guard: limit=0x{:08X} (_stack_end+{} KB)", limit, STACK_GUARD_MARGIN / 1024);
+    }
+
     let led: &'static mut Output<'static> = LED_CELL.init(Output::new(p.PA1, Level::Low, Speed::Low));
     LED_PIN.lock(|cell| { *cell.borrow_mut() = unsafe { Some(core::ptr::read(led)) }; });
 
