@@ -271,11 +271,6 @@ unsafe fn ICACHE() {
 // ---------------------------------------------------------------------------
 
 #[embassy_executor::task]
-async fn rng_runner_task(platform: &'static Platform) {
-    platform.run_rng().await
-}
-
-#[embassy_executor::task]
 async fn ble_runner_task(platform: &'static Platform) {
     platform.run_ble().await
 }
@@ -725,16 +720,14 @@ async fn main(spawner: Spawner) {
 
     let (platform, runtime) = new_platform!(
         Rng::new(p.RNG, Irqs),
+        Pka::new(p.PKA, Irqs),
         Aes::new_blocking(p.AES, Irqs),
-        Pka::new_blocking(p.PKA, Irqs),
         4  // HCI channel packet slots; 4 is enough for NUS, saves ~1.1 KB BSS vs 8
     );
 
     // Make runtime 'static so HCI (and therefore ble_task) can be 'static.
     // new_platform! already stores runtime in a StaticCell internally, so
     // runtime is &'static mut FullRuntime — no extra cell needed here.
-
-    spawner.spawn(rng_runner_task(platform).expect("spawn rng"));
 
     // ble_runner_task must run at interrupt priority so it can preempt eval_task
     // during engine.eval(). Without this, the thread executor is monopolised by
