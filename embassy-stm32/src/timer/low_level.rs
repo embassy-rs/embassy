@@ -604,6 +604,20 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
         self.regs_core().cr1().modify(|r| r.set_arpe(enable));
     }
 
+    /// Enable/disable UIF status remapping.
+    ///
+    /// When enabled, the update interrupt flag (UIF) is copied into the counter
+    /// register's MSB, allowing atomic reads of counter+overflow status on
+    /// supported timer variants.
+    pub fn set_uif_remap(&self, enable: bool) {
+        self.regs_core().cr1().modify(|r| r.set_uifremap(enable));
+    }
+
+    /// Get UIF status remapping state.
+    pub fn get_uif_remap(&self) -> bool {
+        self.regs_core().cr1().read().uifremap()
+    }
+
     /// Get the timer frequency.
     pub fn get_frequency(&self) -> Hertz {
         let timer_f = T::frequency();
@@ -746,6 +760,16 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     pub fn get_counting_mode(&self) -> CountingMode {
         let cr1 = self.regs_gp16().cr1().read();
         (cr1.cms(), cr1.dir()).into()
+    }
+
+    /// Return whether the timer direction bit indicates up-counting.
+    pub fn is_counting_up(&self) -> bool {
+        self.regs_gp16().cr1().read().dir() == vals::Dir::Up
+    }
+
+    /// Return whether the timer direction bit indicates down-counting.
+    pub fn is_counting_down(&self) -> bool {
+        self.regs_gp16().cr1().read().dir() == vals::Dir::Down
     }
 
     /// Set input capture filter.
