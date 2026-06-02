@@ -28,7 +28,7 @@ pub use _version::*;
 pub use configured_sequence::ConfiguredSequence;
 #[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2, adc_u5, adc_wba))]
 use embassy_sync::waitqueue::AtomicWaker;
-pub use ringbuffered::RingBufferedAdc;
+pub use ringbuffered::{OverrunError, RingBufferedAdc};
 
 #[cfg(adc_u5)]
 use crate::pac::adc::vals::Adc4SampleTime;
