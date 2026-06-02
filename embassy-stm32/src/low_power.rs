@@ -301,6 +301,16 @@ mod platform {
             }
         }
     }
+
+    /// WBA-specific pre-stop cleanup.
+    ///
+    /// The reference manual requires wakeup pending flags to be cleared before
+    /// entering Stop, otherwise Stop entry may be ignored.
+    #[cfg(stm32wba)]
+    pub fn clear_wakeup_flags() {
+        // Clear WKUP1..WKUP8 pending flags (CWUFx).
+        crate::pac::PWR.wuscr().write(|w| w.0 = 0xff);
+    }
 }
 
 static STOP_ENTERED: AtomicBool = AtomicBool::new(false);
@@ -323,6 +333,8 @@ fn configure_pwr(cs: CriticalSection) {
 
     get_scb().clear_sleepdeep();
     platform::clear_flags();
+    #[cfg(stm32wba)]
+    platform::clear_wakeup_flags();
 
     compiler_fence(Ordering::Acquire);
 

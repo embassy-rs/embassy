@@ -415,9 +415,51 @@ pub unsafe extern "C" fn ll_sys_sleep_clock_source_selection() {
 }
 
 /// Determine the BLE sleep-clock accuracy used by the stack.
-/// Returns zero when board-specific calibration data is unavailable.
+///
+/// Values follow the BLE Sleep Clock Accuracy range encoding used by the
+/// link-layer/HCI (0 = 251-500 ppm ... 7 = 0-20 ppm).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ll_sys_BLE_sleep_clock_accuracy_selection() -> u8 {
-    // TODO: derive the board-specific sleep clock accuracy once calibration data is available.
-    0
+    use embassy_stm32::pac::RCC;
+    use embassy_stm32::pac::rcc::vals::Radiostsel;
+
+    // BLE SCA range encoding (Bluetooth Core, Vol 6, Part B).
+    const BLE_SCA_251_TO_500_PPM: u8 = 0;
+    const BLE_SCA_021_TO_030_PPM: u8 = 6;
+
+    // Optional build-time override for board-specific characterization.
+    //
+    // Example:
+    // EMBASSY_WBA_BLE_SCA_RANGE=7 cargo build ...
+    //
+    // Valid values: 0..=7 (BLE SCA encoding).
+    if let Some(override_sca) = parse_ble_sca_override() {
+        return override_sca;
+    }
+
+    match RCC.bdcr().read().radiostsel() {
+        // Typical 32.768 kHz crystal population on WBA boards targets this range.
+        // If your board's 32 kHz source is better, this can be tightened later.
+        Radiostsel::Lse => BLE_SCA_021_TO_030_PPM,
+        // LSI is RC-based and significantly less accurate.
+        Radiostsel::Lsi => BLE_SCA_251_TO_500_PPM,
+        // HSE/1000 sleep-timer source is usually crystal-derived and tight.
+        Radiostsel::Hse => BLE_SCA_021_TO_030_PPM,
+        Radiostsel::Disable => BLE_SCA_251_TO_500_PPM,
+    }
+}
+
+#[inline]
+fn parse_ble_sca_override() -> Option<u8> {
+    match option_env!("EMBASSY_WBA_BLE_SCA_RANGE") {
+        Some("0") => Some(0),
+        Some("1") => Some(1),
+        Some("2") => Some(2),
+        Some("3") => Some(3),
+        Some("4") => Some(4),
+        Some("5") => Some(5),
+        Some("6") => Some(6),
+        Some("7") => Some(7),
+        _ => None,
+    }
 }
