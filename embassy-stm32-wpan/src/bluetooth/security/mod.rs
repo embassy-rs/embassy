@@ -24,6 +24,7 @@
 
 use crate::bluetooth::error::BleError;
 use crate::bluetooth::hci::types::Status;
+use stm32wb_hci::vendor::event::{GapPairingReason, GapPairingStatus, VendorEvent};
 
 // C library exports uppercase function names
 #[allow(non_camel_case_types)]
@@ -55,6 +56,9 @@ unsafe extern "C" {
 
     #[link_name = "ACI_GAP_PERIPHERAL_SECURITY_REQ"]
     fn aci_gap_peripheral_security_req(connection_handle: u16) -> tBleStatus;
+
+    #[link_name = "ACI_GAP_SEND_PAIRING_REQ"]
+    fn aci_gap_send_pairing_req(connection_handle: u16, force_rebond: u8) -> tBleStatus;
 
     #[link_name = "ACI_GAP_ALLOW_REBOND"]
     fn aci_gap_allow_rebond(connection_handle: u16) -> tBleStatus;
@@ -345,6 +349,41 @@ pub enum SecurityEvent {
     PairingRequest { conn_handle: u16, is_bonded: bool },
 }
 
+/// Convert an STM32 vendor-specific event into a high-level security event.
+///
+/// Returns `None` for vendor events that do not map to [`SecurityEvent`].
+pub fn from_vendor_event(event: &VendorEvent) -> Option<SecurityEvent> {
+    match event {
+        VendorEvent::GapPairingComplete(e) => {
+            let (status, reason) = match e.status {
+                GapPairingStatus::Success => (PairingStatus::Success, 0),
+                GapPairingStatus::Timeout(r) => (PairingStatus::Timeout, pairing_reason_to_u8(r)),
+                GapPairingStatus::Failed(r) | GapPairingStatus::EncryptionFailed(r) => {
+                    (PairingStatus::Failed, pairing_reason_to_u8(r))
+                }
+            };
+            Some(SecurityEvent::PairingComplete {
+                conn_handle: e.conn_handle.0,
+                status,
+                reason,
+            })
+        }
+        VendorEvent::GapPassKeyRequest(conn_handle) => Some(SecurityEvent::PasskeyRequest {
+            conn_handle: conn_handle.0,
+        }),
+        VendorEvent::GapNumericComparisonValue(e) => Some(SecurityEvent::NumericComparisonRequest {
+            conn_handle: e.connection_handle.0,
+            numeric_value: e.numeric_value,
+        }),
+        VendorEvent::GapBondLost => Some(SecurityEvent::BondLost { conn_handle: 0 }),
+        _ => None,
+    }
+}
+
+fn pairing_reason_to_u8(reason: GapPairingReason) -> u8 {
+    reason as u8
+}
+
 /// Pairing completion status
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -536,6 +575,21 @@ impl SecurityManager {
         }
     }
 
+    /// Request pairing/encryption from the central side.
+    ///
+    /// Sends a pairing request to the peer peripheral. Set `force_rebond` to
+    /// restart pairing even when a bond entry exists.
+    pub fn request_pairing_central(&self, conn_handle: u16, force_rebond: bool) -> Result<(), BleError> {
+        unsafe {
+            let status = aci_gap_send_pairing_req(conn_handle, force_rebond as u8);
+            if status == BLE_STATUS_SUCCESS {
+                Ok(())
+            } else {
+                Err(BleError::CommandFailed(Status::from_u8(status)))
+            }
+        }
+    }
+
     /// Allow rebonding after receiving BondLost event
     ///
     /// Call this when you receive a `SecurityEvent::BondLost` to allow
@@ -690,6 +744,13 @@ impl SecurityManager {
                 Err(BleError::CommandFailed(Status::from_u8(status)))
             }
         }
+    }
+
+    /// Compatibility alias for ST guide naming (`configure_whitelist`).
+    ///
+    /// On current stacks this is implemented by `ACI_GAP_CONFIGURE_FILTER_ACCEPT_LIST`.
+    pub fn configure_whitelist(&self) -> Result<(), BleError> {
+        self.configure_filter_accept_list()
     }
 
     /// Clear and repopulate both the Filter Accept List and resolving list from
@@ -946,6 +1007,13 @@ impl SecurityManager {
             self.set_address_resolution_enable(true)?;
         }
         Ok(count)
+    }
+
+    /// Compatibility alias for ST guide naming (`add_devices_to_resolving_list`-style flow).
+    ///
+    /// Restores bonded peer IRKs into the resolving list.
+    pub fn add_devices_to_resolving_list_from_bonds(&self) -> Result<usize, BleError> {
+        self.populate_resolving_list_from_bonds()
     }
 
     /// Restore bond-based connection filtering for RPA centrals (e.g. iOS).

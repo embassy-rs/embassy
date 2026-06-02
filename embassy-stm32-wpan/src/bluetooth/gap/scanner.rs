@@ -36,6 +36,19 @@ pub enum ScanFilterPolicy {
     AcceptFilterListFilterDirected = 0x03,
 }
 
+/// Active GAP scan procedure.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum ScanProcedure {
+    /// Observer-only scanning procedure.
+    Observation = aci_gap::GAP_OBSERVATION_PROC,
+    /// Limited discovery procedure (reports limited discoverable devices only).
+    LimitedDiscovery = aci_gap::GAP_LIMITED_DISCOVERY_PROC,
+    /// General discovery procedure (reports all discoverable devices).
+    GeneralDiscovery = aci_gap::GAP_GENERAL_DISCOVERY_PROC,
+}
+
 /// Scan parameters
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -141,13 +154,13 @@ impl ScanParams {
 /// The Scanner provides methods for starting and stopping BLE scanning.
 /// Advertising reports are received through the main event loop.
 pub struct Scanner {
-    is_scanning: bool,
+    active_proc: Option<ScanProcedure>,
 }
 
 impl Scanner {
     /// Create a new Scanner
     pub(crate) fn new() -> Self {
-        Self { is_scanning: false }
+        Self { active_proc: None }
     }
 
     /// Start scanning with the given parameters
@@ -176,6 +189,10 @@ impl Scanner {
     /// }
     /// ```
     pub fn start(&mut self, params: ScanParams) -> Result<(), BleError> {
+        if self.active_proc.is_some() {
+            self.stop()?;
+        }
+
         // Use the GAP observation procedure instead of raw HCI scan commands.
         // Raw HCI_LE_SET_SCAN_ENABLE starts the radio but the WBA host layer
         // never routes the resulting reports through BLECB_Indication; only
@@ -189,22 +206,65 @@ impl Scanner {
             params.filter_policy as u8,
         )?;
 
-        self.is_scanning = true;
+        self.active_proc = Some(ScanProcedure::Observation);
+        Ok(())
+    }
+
+    /// Start the GAP general discovery procedure.
+    ///
+    /// This runs active scanning and reports all discoverable devices.
+    pub fn start_general_discovery(&mut self, params: ScanParams) -> Result<(), BleError> {
+        if self.active_proc.is_some() {
+            self.stop()?;
+        }
+
+        aci_gap::start_general_discovery(
+            params.scan_interval,
+            params.scan_window,
+            params.own_address_type as u8,
+            params.filter_duplicates,
+        )?;
+
+        self.active_proc = Some(ScanProcedure::GeneralDiscovery);
+        Ok(())
+    }
+
+    /// Start the GAP limited discovery procedure.
+    ///
+    /// This runs active scanning and reports only limited discoverable devices.
+    pub fn start_limited_discovery(&mut self, params: ScanParams) -> Result<(), BleError> {
+        if self.active_proc.is_some() {
+            self.stop()?;
+        }
+
+        aci_gap::start_limited_discovery(
+            params.scan_interval,
+            params.scan_window,
+            params.own_address_type as u8,
+            params.filter_duplicates,
+        )?;
+
+        self.active_proc = Some(ScanProcedure::LimitedDiscovery);
         Ok(())
     }
 
     /// Stop scanning
     pub fn stop(&mut self) -> Result<(), BleError> {
-        if self.is_scanning {
-            aci_gap::stop_observation()?;
-            self.is_scanning = false;
+        if let Some(proc) = self.active_proc {
+            aci_gap::terminate_gap_proc(proc as u8)?;
+            self.active_proc = None;
         }
         Ok(())
     }
 
     /// Check if currently scanning
     pub fn is_scanning(&self) -> bool {
-        self.is_scanning
+        self.active_proc.is_some()
+    }
+
+    /// Return the currently active GAP scan procedure.
+    pub fn active_procedure(&self) -> Option<ScanProcedure> {
+        self.active_proc
     }
 }
 

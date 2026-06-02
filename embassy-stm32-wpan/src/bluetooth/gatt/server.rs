@@ -76,6 +76,19 @@ unsafe extern "C" {
 
     #[link_name = "ACI_GATT_SET_EVENT_MASK"]
     fn aci_gatt_set_event_mask(event_mask: u32) -> tBleStatus;
+
+    #[link_name = "ACI_GATT_PERMIT_READ"]
+    fn aci_gatt_permit_read(connection_handle: u16, read_status: u8, error_code: u8, attr_handle: u16) -> tBleStatus;
+
+    #[link_name = "ACI_GATT_PERMIT_WRITE"]
+    fn aci_gatt_permit_write(
+        connection_handle: u16,
+        attr_handle: u16,
+        write_status: u8,
+        error_code: u8,
+        attribute_val_length: u8,
+        attribute_val: *const u8,
+    ) -> tBleStatus;
 }
 
 /// Update type for aci_gatt_update_char_value_ext
@@ -90,6 +103,8 @@ mod update_type {
 }
 
 const BLE_STATUS_SUCCESS: u8 = 0x00;
+const ACCESS_ALLOWED: u8 = 0x00;
+const ACCESS_DENIED: u8 = 0x01;
 
 /// Initialize the GATT layer globally
 ///
@@ -501,5 +516,87 @@ impl GattServer {
                 Err(BleError::CommandFailed(Status::from_u8(status)))
             }
         }
+    }
+
+    /// Respond to a read permit request.
+    ///
+    /// Use this after receiving a `GattEvent::ReadPermitRequest`.
+    /// When denying, `error_code` is returned to the client and `attr_handle`
+    /// selects the first denied attribute (0 denies all).
+    pub fn permit_read(
+        &self,
+        conn_handle: u16,
+        allow: bool,
+        error_code: u8,
+        attr_handle: u16,
+    ) -> Result<(), BleError> {
+        unsafe {
+            let status = aci_gatt_permit_read(
+                conn_handle,
+                if allow { ACCESS_ALLOWED } else { ACCESS_DENIED },
+                error_code,
+                attr_handle,
+            );
+            if status == BLE_STATUS_SUCCESS {
+                Ok(())
+            } else {
+                Err(BleError::CommandFailed(Status::from_u8(status)))
+            }
+        }
+    }
+
+    /// Allow a pending read permit request.
+    pub fn allow_read(&self, conn_handle: u16) -> Result<(), BleError> {
+        self.permit_read(conn_handle, true, 0, 0)
+    }
+
+    /// Deny a pending read permit request.
+    ///
+    /// - `error_code`: ATT error code to send to the client
+    /// - `attr_handle`: first denied attribute handle (0 denies all in the request)
+    pub fn deny_read(&self, conn_handle: u16, error_code: u8, attr_handle: u16) -> Result<(), BleError> {
+        self.permit_read(conn_handle, false, error_code, attr_handle)
+    }
+
+    /// Respond to a write permit request.
+    ///
+    /// Use this after receiving a `GattEvent::WritePermitRequest`.
+    /// If allowing, pass the value that was requested to be written.
+    pub fn permit_write(
+        &self,
+        conn_handle: u16,
+        attr_handle: u16,
+        allow: bool,
+        error_code: u8,
+        value: &[u8],
+    ) -> Result<(), BleError> {
+        if value.len() > 255 {
+            return Err(BleError::InvalidParameter);
+        }
+        unsafe {
+            let status = aci_gatt_permit_write(
+                conn_handle,
+                attr_handle,
+                if allow { ACCESS_ALLOWED } else { ACCESS_DENIED },
+                error_code,
+                value.len() as u8,
+                value.as_ptr(),
+            );
+            if status == BLE_STATUS_SUCCESS {
+                Ok(())
+            } else {
+                Err(BleError::CommandFailed(Status::from_u8(status)))
+            }
+        }
+    }
+
+    /// Allow a pending write permit request using the requested value.
+    pub fn allow_write(&self, conn_handle: u16, attr_handle: u16, value: &[u8]) -> Result<(), BleError> {
+        self.permit_write(conn_handle, attr_handle, true, 0, value)
+    }
+
+    /// Deny a pending write permit request.
+    pub fn deny_write(&self, conn_handle: u16, attr_handle: u16, error_code: u8) -> Result<(), BleError> {
+        self.permit_write(conn_handle, attr_handle, false, error_code, &[])
     }
 }
