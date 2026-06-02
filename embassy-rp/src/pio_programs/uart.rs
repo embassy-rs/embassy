@@ -2,15 +2,16 @@
 
 use core::convert::Infallible;
 
-use embedded_io_async::{ErrorType, Read, Write};
-use fixed::traits::ToFixed;
-
 use crate::Peri;
 use crate::clocks::clk_sys_freq;
 use crate::gpio::Level;
 use crate::pio::{
     Common, Config, Direction as PioDirection, FifoJoin, Instance, LoadedProgram, PioPin, ShiftDirection, StateMachine,
 };
+use embedded_io_async::{ErrorType, Read, Write};
+use fixed::FixedU32;
+use fixed::traits::ToFixed;
+use fixed::types::extra::U8;
 
 /// This struct represents a uart tx program loaded into pio instruction memory.
 pub struct PioUartTxProgram<'d, PIO: Instance> {
@@ -78,11 +79,10 @@ impl<'d, PIO: Instance, const SM: usize> PioUartTx<'d, PIO, SM> {
         self.sm_tx.tx().wait_push(data as u32).await;
     }
 
-
-    /// Change Baud Rate, make sure the communication stopped before changingthe baud rate in run time 
+    /// Change Baud Rate, make sure the communication stopped before changingthe baud rate in run time
     /// if not data can be lost  
-    pub async fn change_baud_rate(&mut self, baud:u32){
-        let clock_divider = (clk_sys_freq() / (8 * baud)).to_fixed();
+    pub async fn change_baud_rate(&mut self, baud: u32) {
+        let clock_divider: FixedU32<U8> = (clk_sys_freq() / (8 * baud)).to_fixed();
         self.sm_tx.set_enable(false);
         self.sm_tx.clear_fifos();
         self.sm_tx.restart();
@@ -185,18 +185,16 @@ impl<'d, PIO: Instance, const SM: usize> PioUartRx<'d, PIO, SM> {
         self.sm_rx.rx().wait_pull().await as u8
     }
 
-
-    /// Change Baud Rate, make sure the communication stopped before changing it in run time 
+    /// Change Baud Rate, make sure the communication stopped before changing it in run time
     /// if not data can be lost  
-    pub async fn change_baud_rate(&mut self, baud:u32){
-        let clock_divider = (clk_sys_freq() / (8.0 * baud)).to_fixed();
+    pub async fn change_baud_rate(&mut self, baud: u32) {
+        let clock_divider: FixedU32<U8> = (clk_sys_freq() / (8 * baud)).to_fixed();
         self.sm_rx.set_enable(false);
         self.sm_rx.clear_fifos();
         self.sm_rx.restart();
         self.sm_rx.set_clock_divider(clock_divider);
         self.sm_rx.set_enable(true);
     }
-
 }
 
 impl<PIO: Instance, const SM: usize> ErrorType for PioUartRx<'_, PIO, SM> {
