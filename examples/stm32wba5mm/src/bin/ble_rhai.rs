@@ -356,21 +356,23 @@ async fn eval_task() {
     // Rhai safety limits — enforced BEFORE the allocation attempt, so violations
     // return a clean EvalAltResult error instead of an allocator panic.
     //
-    // set_max_array_size: 512 elements maximum.
+    // set_max_array_size: effective cap of 1024 elements.
     // Heap budget analysis (48 KB total, ~18 KB engine init = ~30 KB free; ~28 KB effective):
-    //   A Rhai Dynamic is 16 bytes on 32-bit. 512 elements = 8 KB in the array.
-    //   Rhai checks the size limit BEFORE calling Vec::push, so when mask has
-    //   512 elements (capacity 512), the 513th push is intercepted first —
-    //   no Vec growth (512→1024 = 16 KB) is ever attempted.
-    //   Setting it to 1024 leaves one doubling step (1024→2048 = 32 KB) within
-    //   a single Rhai step where the check cannot intervene — that causes OOM.
+    //   A Rhai Dynamic is 16 bytes on 32-bit. 1024 elements = 16 KB in the array.
+    //   Rhai's `+=` operator checks `old_size <= limit` BEFORE appending (bug: it
+    //   should check `old_size + new_len <= limit`).  With limit=1024 the check
+    //   passes when old_size=1024, append is called, and Vec tries to double its
+    //   capacity 1024→2048 (32 KB) — causing OOM.
+    //   Workaround: set limit to desired_max-1 = 1023.  Then the check fires when
+    //   old_size=1024 (1024 > 1023), returning a clean error before any growth.
+    //   Vec capacity never exceeds 1024 (16 KB), which fits the heap comfortably.
     //
     // set_max_string_size: 8 KB cap against runaway string building.
     //
     // set_max_operations + on_progress: belt-and-suspenders for non-array OOM
     // and infinite loops. on_progress fires between Rhai steps so it cannot
     // stop an in-step Vec realloc — the size limits above are the primary guard.
-    engine.set_max_array_size(512);
+    engine.set_max_array_size(1023); // effective limit 1024; -1 compensates Rhai off-by-one (see above)
     engine.set_max_string_size(8192);
     engine.set_max_operations(500_000);
     // Soft call-stack depth limit (secondary guard).
