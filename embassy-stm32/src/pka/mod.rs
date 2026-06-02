@@ -77,6 +77,8 @@ use crate::mode::{Async, Blocking, Mode};
 use crate::{interrupt, pac, peripherals, rcc};
 
 static PKA_WAKER: AtomicWaker = AtomicWaker::new();
+const MAX_ECC_BYTES: usize = 80; // 640-bit ECC operand support
+const MAX_ECC_WIDE_BYTES: usize = MAX_ECC_BYTES * 2;
 
 // ============================================================================
 // PKA Modes
@@ -462,9 +464,9 @@ pub struct EcdsaSignature<'a> {
 /// ECC point (for scalar multiplication results)
 pub struct EccPoint {
     /// X coordinate
-    pub x: [u8; 66], // Max size for P-521
+    pub x: [u8; MAX_ECC_BYTES],
     /// Y coordinate
-    pub y: [u8; 66],
+    pub y: [u8; MAX_ECC_BYTES],
     /// Actual size of coordinates in bytes
     pub size: usize,
 }
@@ -472,9 +474,10 @@ pub struct EccPoint {
 impl EccPoint {
     /// Create a new point with given size
     pub fn new(size: usize) -> Self {
+        assert!(size <= MAX_ECC_BYTES, "ECC size exceeds 640-bit hardware limit");
         Self {
-            x: [0u8; 66],
-            y: [0u8; 66],
+            x: [0u8; MAX_ECC_BYTES],
+            y: [0u8; MAX_ECC_BYTES],
             size,
         }
     }
@@ -509,11 +512,11 @@ pub struct RsaCrtParams<'a> {
 /// (for Jacobian projective).
 pub struct EccProjectivePoint {
     /// X coordinate
-    pub x: [u8; 66], // Max size for P-521
+    pub x: [u8; MAX_ECC_BYTES],
     /// Y coordinate
-    pub y: [u8; 66],
+    pub y: [u8; MAX_ECC_BYTES],
     /// Z coordinate
-    pub z: [u8; 66],
+    pub z: [u8; MAX_ECC_BYTES],
     /// Actual size of coordinates in bytes
     pub size: usize,
 }
@@ -521,17 +524,20 @@ pub struct EccProjectivePoint {
 impl EccProjectivePoint {
     /// Create a new projective point with given size
     pub fn new(size: usize) -> Self {
+        assert!(size <= MAX_ECC_BYTES, "ECC size exceeds 640-bit hardware limit");
         Self {
-            x: [0u8; 66],
-            y: [0u8; 66],
-            z: [0u8; 66],
+            x: [0u8; MAX_ECC_BYTES],
+            y: [0u8; MAX_ECC_BYTES],
+            z: [0u8; MAX_ECC_BYTES],
             size,
         }
     }
 
     /// Create from affine point (Z = 1)
     pub fn from_affine(x: &[u8], y: &[u8]) -> Self {
+        assert!(x.len() == y.len(), "Affine point coordinates must have equal lengths");
         let size = x.len();
+        assert!(size <= MAX_ECC_BYTES, "ECC size exceeds 640-bit hardware limit");
         let mut point = Self::new(size);
         point.x[..size].copy_from_slice(x);
         point.y[..size].copy_from_slice(y);
@@ -2072,12 +2078,12 @@ impl<'d, T: Instance> Pka<'d, T, Blocking> {
             return Err(Error::InvalidSize);
         }
 
-        // Scratch buffers sized for the largest supported curve (P-521 = 66 bytes;
-        // arithmetic_mul produces 2* output, hence 132).
-        let mut z_inv = [0u8; 66];
-        let mut z_inv_sq = [0u8; 66];
-        let mut z_inv_cube = [0u8; 66];
-        let mut wide = [0u8; 132];
+        // Scratch buffers sized for the largest supported curve (640-bit = 80 bytes;
+        // arithmetic_mul produces 2* output, hence 160).
+        let mut z_inv = [0u8; MAX_ECC_BYTES];
+        let mut z_inv_sq = [0u8; MAX_ECC_BYTES];
+        let mut z_inv_cube = [0u8; MAX_ECC_BYTES];
+        let mut wide = [0u8; MAX_ECC_WIDE_BYTES];
 
         let m = modulus_size;
         let w = 2 * m;
@@ -2487,12 +2493,12 @@ impl<'d, T: Instance> Pka<'d, T, Async> {
             return Err(Error::InvalidSize);
         }
 
-        // Scratch buffers sized for the largest supported curve (P-521 = 66 bytes;
-        // arithmetic_mul produces 2* output, hence 132).
-        let mut z_inv = [0u8; 66];
-        let mut z_inv_sq = [0u8; 66];
-        let mut z_inv_cube = [0u8; 66];
-        let mut wide = [0u8; 132];
+        // Scratch buffers sized for the largest supported curve (640-bit = 80 bytes;
+        // arithmetic_mul produces 2* output, hence 160).
+        let mut z_inv = [0u8; MAX_ECC_BYTES];
+        let mut z_inv_sq = [0u8; MAX_ECC_BYTES];
+        let mut z_inv_cube = [0u8; MAX_ECC_BYTES];
+        let mut wide = [0u8; MAX_ECC_WIDE_BYTES];
 
         let m = modulus_size;
         let w = 2 * m;

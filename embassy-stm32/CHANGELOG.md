@@ -33,6 +33,9 @@ COMP:
 Timer:
 - feat: stm32/timer/input_capture: add per-channel split API for concurrent multi-channel capture
 
+PKA:
+- feat: stm32/pka: extend ECC point buffer support to 640-bit operands (80-byte coordinates) in public point types and Jacobian conversion paths
+
 CRYP:
 - feat: stm32/cryp: batch full-block DMA in payload and use 4-beat bursts on GPDMA
 - perf: stm32/cryp: aad/payload async API takes a faster path when user buffers are 4-byte aligned
