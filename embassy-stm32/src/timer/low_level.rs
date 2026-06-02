@@ -755,6 +755,54 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
         self.regs_gp16().tisel().modify(|w| w.set_tisel(raw_channel, tisel));
     }
 
+    #[cfg(timer_v2)]
+    /// Configure encoder index direction behavior (TIMx_ECR.IDIR).
+    pub fn set_encoder_index_direction(&self, direction: vals::Idir) {
+        self.regs_gp16().ecr().modify(|w| w.set_idir(direction));
+    }
+
+    #[cfg(timer_v2)]
+    /// Configure encoder index position behavior (TIMx_ECR.FIDX).
+    pub fn set_encoder_index_position(&self, position: vals::Fidx) {
+        self.regs_gp16().ecr().modify(|w| w.set_fidx(position));
+    }
+
+    #[cfg(timer_v2)]
+    /// Enable/disable index event interrupts (TIMx_DIER.IDXIE).
+    pub fn enable_encoder_index_interrupt(&self, enable: bool) {
+        self.regs_gp16().dier().modify(|w| w.set_idxie(enable));
+    }
+
+    #[cfg(timer_v2)]
+    /// Enable/disable direction-change interrupts (TIMx_DIER.DIRIE).
+    pub fn enable_encoder_direction_change_interrupt(&self, enable: bool) {
+        self.regs_gp16().dier().modify(|w| w.set_dirie(enable));
+    }
+
+    #[cfg(timer_v2)]
+    /// Get index event interrupt pending state (TIMx_SR.IDXIF).
+    pub fn get_encoder_index_interrupt(&self) -> bool {
+        self.regs_gp16().sr().read().idxif()
+    }
+
+    #[cfg(timer_v2)]
+    /// Get direction-change interrupt pending state (TIMx_SR.DIRIF).
+    pub fn get_encoder_direction_change_interrupt(&self) -> bool {
+        self.regs_gp16().sr().read().dirif()
+    }
+
+    #[cfg(timer_v2)]
+    /// Clear index event interrupt pending state (TIMx_SR.IDXIF).
+    pub fn clear_encoder_index_interrupt(&self) {
+        self.regs_gp16().sr().modify(|w| w.set_idxif(false));
+    }
+
+    #[cfg(timer_v2)]
+    /// Clear direction-change interrupt pending state (TIMx_SR.DIRIF).
+    pub fn clear_encoder_direction_change_interrupt(&self) {
+        self.regs_gp16().sr().modify(|w| w.set_dirif(false));
+    }
+
     /// Set input capture selection.
     pub fn set_input_capture_selection(&self, channel: Channel, icsel: InputCaptureSelection) {
         let raw_channel = channel.index();
