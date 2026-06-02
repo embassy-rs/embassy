@@ -831,12 +831,14 @@ pub fn config() -> Config {
     #[cfg(feature = "stm32wba52cg")]
     {
         config.rcc.sys = Sysclk::Hsi;
+        config.rcc.ahb5_pre = AHB5Prescaler::Div1;
         config.rcc.mux.rngsel = mux::Rngsel::Hsi;
     }
 
     #[cfg(feature = "stm32wba65ri")]
     {
         config.rcc.sys = Sysclk::Hsi;
+        config.rcc.ahb5_pre = AHB5Prescaler::Div1;
         config.rcc.mux.rngsel = mux::Rngsel::Hsi;
         config.rcc.mux.sai1sel = mux::Sai1sel::Hsi;
     }
