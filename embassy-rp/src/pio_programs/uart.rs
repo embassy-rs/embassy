@@ -77,6 +77,18 @@ impl<'d, PIO: Instance, const SM: usize> PioUartTx<'d, PIO, SM> {
     pub async fn write_u8(&mut self, data: u8) {
         self.sm_tx.tx().wait_push(data as u32).await;
     }
+
+
+    /// Change Baud Rate 
+    pub async fn change_baud_rate(&mut self, baud:u32){
+        self.sm_tx.set_enable(false);
+        self.sm_tx.clear_fifos();
+        self.sm_tx.restart();
+
+        let clock_divider = (clk_sys_freq() / (8 * baud)).to_fixed();
+        self.sm_tx.set_clock_divider(clock_divider);
+        self.sm_tx.set_enable(true);
+    }
 }
 
 impl<PIO: Instance, const SM: usize> ErrorType for PioUartTx<'_, PIO, SM> {
@@ -172,6 +184,18 @@ impl<'d, PIO: Instance, const SM: usize> PioUartRx<'d, PIO, SM> {
     pub async fn read_u8(&mut self) -> u8 {
         self.sm_rx.rx().wait_pull().await as u8
     }
+    
+    /// Change Baud Rate 
+    pub async fn change_baud_rate(&mut self, baud:u32){
+        self.sm_rx.set_enable(false);
+        self.sm_rx.clear_fifos();
+        self.sm_rx.restart();
+
+        let clock_divider = (clk_sys_freq() / (8 * baud)).to_fixed();
+        self.sm_rx.set_clock_divider(clock_divider);
+        self.sm_rx.set_enable(true);
+    }
+
 }
 
 impl<PIO: Instance, const SM: usize> ErrorType for PioUartRx<'_, PIO, SM> {
