@@ -10,7 +10,8 @@ use crate::Peri;
 use crate::dma::word::Word;
 use crate::gpio::{AfType, Flex, OutputType};
 pub use crate::pac::timer::vals::{
-    Bkinp as BreakComparatorPolarity, Bkp as BreakInputPolarity, Ccds, Ckd, Mms2, Ossi, Ossr,
+    Bkbid as BreakBidirectionalMode, Bkdsrm as BreakDisarmMode, Bkinp as BreakComparatorPolarity, Bkp as BreakInputPolarity,
+    Ccds, Ckd, Mms2, Ossi, Ossr,
 };
 use crate::time::Hertz;
 use crate::timer::TimerChannel;
@@ -280,6 +281,30 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.get_break_filter()
     }
 
+    #[cfg(timer_v2)]
+    /// Set break input 1 disarm mode.
+    pub fn set_break_disarm_mode(&mut self, mode: BreakDisarmMode) {
+        self.inner.set_break_disarm_mode(mode);
+    }
+
+    #[cfg(timer_v2)]
+    /// Get break input 1 disarm mode.
+    pub fn get_break_disarm_mode(&self) -> BreakDisarmMode {
+        self.inner.get_break_disarm_mode()
+    }
+
+    #[cfg(timer_v2)]
+    /// Set break input 1 bidirectional mode.
+    pub fn set_break_bidirectional_mode(&mut self, mode: BreakBidirectionalMode) {
+        self.inner.set_break_bidirectional_mode(mode);
+    }
+
+    #[cfg(timer_v2)]
+    /// Get break input 1 bidirectional mode.
+    pub fn get_break_bidirectional_mode(&self) -> BreakBidirectionalMode {
+        self.inner.get_break_bidirectional_mode()
+    }
+
     /// Enable/disable break input 2.
     pub fn set_break2_enable(&mut self, enable: bool) {
         self.inner.set_break2_enable(enable);
@@ -308,6 +333,30 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Get break input 2 digital filter.
     pub fn get_break2_filter(&self) -> FilterValue {
         self.inner.get_break2_filter()
+    }
+
+    #[cfg(timer_v2)]
+    /// Set break input 2 disarm mode.
+    pub fn set_break2_disarm_mode(&mut self, mode: BreakDisarmMode) {
+        self.inner.set_break2_disarm_mode(mode);
+    }
+
+    #[cfg(timer_v2)]
+    /// Get break input 2 disarm mode.
+    pub fn get_break2_disarm_mode(&self) -> BreakDisarmMode {
+        self.inner.get_break2_disarm_mode()
+    }
+
+    #[cfg(timer_v2)]
+    /// Set break input 2 bidirectional mode.
+    pub fn set_break2_bidirectional_mode(&mut self, mode: BreakBidirectionalMode) {
+        self.inner.set_break2_bidirectional_mode(mode);
+    }
+
+    #[cfg(timer_v2)]
+    /// Get break input 2 bidirectional mode.
+    pub fn get_break2_bidirectional_mode(&self) -> BreakBidirectionalMode {
+        self.inner.get_break2_bidirectional_mode()
     }
 
     /// Enable/disable automatic output enable (AOE).

@@ -1409,6 +1409,54 @@ impl<'d, T: AdvancedInstance4Channel> Timer<'d, T> {
         self.regs_advanced().bdtr().read().bkf(1)
     }
 
+    #[cfg(timer_v2)]
+    /// Set break input 1 disarm mode.
+    pub fn set_break_disarm_mode(&self, mode: vals::Bkdsrm) {
+        self.regs_advanced().bdtr().modify(|w| w.set_bkdsrm(0, mode));
+    }
+
+    #[cfg(timer_v2)]
+    /// Get break input 1 disarm mode.
+    pub fn get_break_disarm_mode(&self) -> vals::Bkdsrm {
+        self.regs_advanced().bdtr().read().bkdsrm(0)
+    }
+
+    #[cfg(timer_v2)]
+    /// Set break input 1 bidirectional mode.
+    pub fn set_break_bidirectional_mode(&self, mode: vals::Bkbid) {
+        self.regs_advanced().bdtr().modify(|w| w.set_bkbid(0, mode));
+    }
+
+    #[cfg(timer_v2)]
+    /// Get break input 1 bidirectional mode.
+    pub fn get_break_bidirectional_mode(&self) -> vals::Bkbid {
+        self.regs_advanced().bdtr().read().bkbid(0)
+    }
+
+    #[cfg(timer_v2)]
+    /// Set break input 2 disarm mode.
+    pub fn set_break2_disarm_mode(&self, mode: vals::Bkdsrm) {
+        self.regs_advanced().bdtr().modify(|w| w.set_bkdsrm(1, mode));
+    }
+
+    #[cfg(timer_v2)]
+    /// Get break input 2 disarm mode.
+    pub fn get_break2_disarm_mode(&self) -> vals::Bkdsrm {
+        self.regs_advanced().bdtr().read().bkdsrm(1)
+    }
+
+    #[cfg(timer_v2)]
+    /// Set break input 2 bidirectional mode.
+    pub fn set_break2_bidirectional_mode(&self, mode: vals::Bkbid) {
+        self.regs_advanced().bdtr().modify(|w| w.set_bkbid(1, mode));
+    }
+
+    #[cfg(timer_v2)]
+    /// Get break input 2 bidirectional mode.
+    pub fn get_break2_bidirectional_mode(&self) -> vals::Bkbid {
+        self.regs_advanced().bdtr().read().bkbid(1)
+    }
+
     /// Trigger software break 1 or 2
     /// Setting this bit generates a break event. This bit is automatically cleared by the hardware.
     pub fn trigger_software_break(&self, n: usize) {
