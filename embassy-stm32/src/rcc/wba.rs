@@ -89,16 +89,26 @@ impl Config {
         Config {
             hsi: true,
             hse: None,
-            pll1: None,
-            sys: Sysclk::Hsi,
+            // Match the common WBA6 example baseline:
+            // HSI 16 MHz -> PLL1 (x30 /5) -> SYSCLK 96 MHz, PLL1P 16 MHz.
+            pll1: Some(Pll {
+                source: PllSource::Hsi,
+                prediv: PllPreDiv::Div1,
+                mul: PllMul::Mul30,
+                divp: Some(PllDiv::Div30),
+                divq: None,
+                divr: Some(PllDiv::Div5),
+                frac: Some(0),
+            }),
+            sys: Sysclk::Pll1R,
             ahb_pre: AHBPrescaler::Div1,
-            ahb5_pre: AHB5Prescaler::Div1,
+            ahb5_pre: AHB5Prescaler::Div4,
             apb1_pre: APBPrescaler::Div1,
             apb2_pre: APBPrescaler::Div1,
             apb7_pre: APBPrescaler::Div1,
             ls: crate::rcc::LsConfig::new(),
             // lsi2: crate::rcc::LsConfig::new(),
-            voltage_scale: VoltageScale::Range2,
+            voltage_scale: VoltageScale::Range1,
             mux: super::mux::ClockMux::default(),
         }
     }

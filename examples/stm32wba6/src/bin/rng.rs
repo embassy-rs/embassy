@@ -3,9 +3,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::rcc::{
-    AHB5Prescaler, AHBPrescaler, APBPrescaler, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale, mux,
-};
+use embassy_stm32::rcc::mux;
 use embassy_stm32::rng::Rng;
 use embassy_stm32::{Config, bind_interrupts, peripherals, rng};
 use embassy_time::Timer;
@@ -20,24 +18,6 @@ async fn main(_spawner: Spawner) {
     let mut config = Config::default();
 
     // Configure PLL1 (required on WBA)
-    config.rcc.pll1 = Some(embassy_stm32::rcc::Pll {
-        source: PllSource::Hsi,
-        prediv: PllPreDiv::Div1,  // PLLM = 1 → HSI / 1 = 16 MHz
-        mul: PllMul::Mul30,       // PLLN = 30 → 16 MHz * 30 = 480 MHz VCO
-        divr: Some(PllDiv::Div5), // PLLR = 5 → 96 MHz (Sysclk)
-        divq: None,
-        divp: Some(PllDiv::Div30), // PLLP = 30 → 16 MHz (required for SAI)
-        frac: Some(0),
-    });
-
-    config.rcc.ahb_pre = AHBPrescaler::Div1;
-    config.rcc.apb1_pre = APBPrescaler::Div1;
-    config.rcc.apb2_pre = APBPrescaler::Div1;
-    config.rcc.apb7_pre = APBPrescaler::Div1;
-    config.rcc.ahb5_pre = AHB5Prescaler::Div4;
-    config.rcc.voltage_scale = VoltageScale::Range1;
-    config.rcc.sys = Sysclk::Pll1R;
-
     // Configure RNG clock source to HSI (required for WBA)
     config.rcc.mux.rngsel = mux::Rngsel::Hsi;
 
