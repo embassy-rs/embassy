@@ -10,10 +10,9 @@ use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use interrupt::typelevel::Interrupt;
 
-// TODO: This code works for all HSEM implemenations except for the STM32WBA52/4/5xx MCUs.
-// Those MCUs have a different HSEM implementation (Secure semaphore lock support,
-// Privileged / unprivileged semaphore lock support, Semaphore lock protection via semaphore attribute),
-// which is not yet supported by this code.
+// NOTE: STM32WBA5/6 expose additional secure/privileged HSEM features.
+// The nonsecure lock/listen flow used here is compatible with the common
+// semaphore interface and remains usable across WBA52/54/55/65 families.
 use crate::Peri;
 use crate::cpu::CoreId;
 use crate::peripherals::HSEM;
@@ -27,9 +26,16 @@ pub enum HsemError {
     LockFailed,
 }
 
+#[cfg(stm32wba)]
+const CHANNELS: usize = 16;
+#[cfg(not(stm32wba))]
 const CHANNELS: usize = 6;
 
-#[cfg(all(not(all(stm32wb, feature = "low-power")), not(all(stm32wl5x, feature = "low-power"))))]
+#[cfg(all(stm32wba, not(feature = "low-power")))]
+const PUB_CHANNELS: usize = 16;
+#[cfg(all(stm32wba, feature = "low-power"))]
+const PUB_CHANNELS: usize = 16;
+#[cfg(all(not(stm32wba), not(all(stm32wb, feature = "low-power")), not(all(stm32wl5x, feature = "low-power"))))]
 const PUB_CHANNELS: usize = 6;
 
 #[cfg(all(stm32wl5x, feature = "low-power"))]
@@ -367,6 +373,28 @@ impl<T: Instance> HardwareSemaphore<T> {
     ///
     /// If using low-power mode, channels 3 and 4 will not be returned
     pub const fn split<'a>(self) -> [HardwareSemaphoreChannel<'a, T>; PUB_CHANNELS] {
+        #[cfg(stm32wba)]
+        {
+            [
+                HardwareSemaphoreChannel::new(1),
+                HardwareSemaphoreChannel::new(2),
+                HardwareSemaphoreChannel::new(3),
+                HardwareSemaphoreChannel::new(4),
+                HardwareSemaphoreChannel::new(5),
+                HardwareSemaphoreChannel::new(6),
+                HardwareSemaphoreChannel::new(7),
+                HardwareSemaphoreChannel::new(8),
+                HardwareSemaphoreChannel::new(9),
+                HardwareSemaphoreChannel::new(10),
+                HardwareSemaphoreChannel::new(11),
+                HardwareSemaphoreChannel::new(12),
+                HardwareSemaphoreChannel::new(13),
+                HardwareSemaphoreChannel::new(14),
+                HardwareSemaphoreChannel::new(15),
+                HardwareSemaphoreChannel::new(16),
+            ]
+        }
+        #[cfg(not(stm32wba))]
         [
             HardwareSemaphoreChannel::new(1),
             HardwareSemaphoreChannel::new(2),
