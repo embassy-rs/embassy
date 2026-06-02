@@ -133,6 +133,30 @@ impl Config {
         rcc
     }
 
+    /// BLE radio config for boards that have HSE but no LSE crystal.
+    ///
+    /// Identical to [`new_wpan`](Self::new_wpan) except the BLE radio sleep timer
+    /// is sourced from `HSE / 1000` (≈32 kHz) instead of LSE, and the RTC peripheral
+    /// falls back to LSI (since no LSE is available).
+    ///
+    /// Prefer this over [`new_wpan_lsi`](Self::new_wpan_lsi) when HSE is available:
+    /// the HSE crystal is much more accurate than LSI (~50 ppm vs ~1–2 %), which
+    /// keeps BLE sleep-clock tolerance tight and reduces wake-up margin overhead.
+    ///
+    /// RADIOSTSEL is set to `Hse` (hardware bit value 0x03).
+    pub const fn new_wpan_hse() -> Self {
+        let mut rcc = Self::new_wpan();
+
+        rcc.ls = LsConfig {
+            rtc: RtcClockSource::Lsi,
+            lsi: true,
+            lse: None,
+        };
+        rcc.mux.radiostsel = mux::Radiostsel::Hse;
+
+        rcc
+    }
+
     pub const fn new_wpan() -> Self {
         let mut rcc = Self::new();
 

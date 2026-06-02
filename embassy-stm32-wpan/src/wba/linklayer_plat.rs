@@ -752,10 +752,21 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_DelayUs(delay: u32) {
 //   * @param  condition: conditional statement to be checked.
 //   * @retval None
 //   */
+// Some of these sanity checks fire on production silicon — e.g. an IP-version
+// probe inside the PHY init path can return the silicon-default response on
+// early WBA5x cuts, which doesn't match the value the type-7 PHY code
+// expects. ST's reference HAL project templates define `assert_failed()` with
+// an empty body, so the link-layer archive is designed to continue past a
+// failed assert.
+//
+// We mirror that here: log the failed assert (with the return address so it
+// can be looked up in the archive's disassembly) but do not halt.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LINKLAYER_PLAT_Assert(condition: u8) {
     if condition == 0 {
-        panic!("LINKLAYER_PLAT assertion failed");
+        let lr: u32;
+        core::arch::asm!("mov {}, lr", out(reg) lr);
+        warn!("LINKLAYER_PLAT_Assert(0) at LR=0x{:08x}", lr);
     }
 }
 
