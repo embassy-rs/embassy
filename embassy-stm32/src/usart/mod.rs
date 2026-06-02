@@ -1846,9 +1846,9 @@ fn configure(
             config.de_assertion_time
         });
         w.set_dedt(if over8 {
-            config.de_assertion_time / 2
+            config.de_deassertion_time / 2
         } else {
-            config.de_assertion_time
+            config.de_deassertion_time
         });
     }
 
