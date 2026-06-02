@@ -32,6 +32,7 @@ COMP:
 
 Timer:
 - feat: stm32/timer/input_capture: add per-channel split API for concurrent multi-channel capture
+- feat: stm32/timer: add timer_v2 dithering APIs (`DitheringConfig`, ARR/CCR fractional nibble setters) in low-level, simple PWM, and complementary PWM drivers
 
 CRYP:
 - feat: stm32/cryp: batch full-block DMA in payload and use 4-beat bursts on GPDMA

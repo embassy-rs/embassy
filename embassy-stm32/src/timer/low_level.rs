@@ -280,6 +280,27 @@ pub enum RoundTo {
     Faster,
 }
 
+/// Dithering configuration for timer_v2-capable timers.
+#[cfg(timer_v2)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct DitheringConfig {
+    /// Enable/disable hardware dithering mode.
+    pub enabled: bool,
+    /// Fractional ARR nibble (`ARR_DITHER.DITHER`).
+    pub arr_dither: u8,
+}
+
+#[cfg(timer_v2)]
+impl Default for DitheringConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            arr_dither: 0,
+        }
+    }
+}
+
 /// Result of PSC/ARR calculation for timer configuration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -884,6 +905,23 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
         self.regs_gp16()
             .ccr(channel.index())
             .modify(|w| w.set_ccr(unwrap!(value.try_into())));
+    }
+
+    #[cfg(timer_v2)]
+    /// Configure timer dithering mode and ARR fractional nibble.
+    pub fn set_dithering(&self, config: DitheringConfig) {
+        self.regs_gp16().cr1().modify(|w| w.set_dithen(config.enabled));
+        self.regs_gp16()
+            .arr_dither()
+            .modify(|w| w.set_dither(config.arr_dither & 0x0f));
+    }
+
+    #[cfg(timer_v2)]
+    /// Set CCR fractional nibble (`CCRx_DITHER.DITHER`) for a channel.
+    pub fn set_compare_dither_value(&self, channel: Channel, dither: u8) {
+        self.regs_gp16()
+            .ccr_dither(channel.index())
+            .modify(|w| w.set_dither(dither & 0x0f));
     }
 
     /// Get compare value for a channel.

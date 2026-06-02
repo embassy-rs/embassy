@@ -4,6 +4,8 @@ use core::marker::PhantomData;
 use core::mem::ManuallyDrop;
 
 use super::low_level::{CountingMode, OutputCompareMode, OutputPolarity, RoundTo, Timer};
+#[cfg(timer_v2)]
+use crate::timer::low_level::DitheringConfig;
 use super::ringbuffered::RingBufferedPwmChannel;
 use super::{Ch1, Ch2, Ch3, Ch4, Channel, GeneralInstance4Channel, TimerChannel, TimerPin};
 use crate::Peri;
@@ -450,6 +452,18 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     /// This value depends on the configured frequency and the timer's clock rate from RCC.
     pub fn max_duty_cycle(&self) -> u32 {
         self.inner.get_max_compare_value().into() + 1
+    }
+
+    #[cfg(timer_v2)]
+    /// Configure timer dithering mode and ARR fractional nibble.
+    pub fn set_dithering(&mut self, config: DitheringConfig) {
+        self.inner.set_dithering(config);
+    }
+
+    #[cfg(timer_v2)]
+    /// Set CCR fractional nibble for one channel.
+    pub fn set_channel_dither(&mut self, channel: Channel, dither: u8) {
+        self.inner.set_compare_dither_value(channel, dither);
     }
 
     /// Generate a sequence of PWM waveform

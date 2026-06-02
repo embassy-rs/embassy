@@ -4,6 +4,8 @@ use core::marker::PhantomData;
 
 pub use super::low_level::FilterValue;
 use super::low_level::{CountingMode, OcrefClearSource, OutputPolarity, RoundTo, Timer};
+#[cfg(timer_v2)]
+use crate::timer::low_level::DitheringConfig;
 use super::simple_pwm::PwmPin;
 use super::{AdvancedInstance4Channel, Ch1, Ch2, Ch3, Ch4, Channel, TimerComplementaryPin};
 use crate::Peri;
@@ -551,6 +553,18 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         } else {
             self.inner.get_max_compare_value().into() + 1
         }
+    }
+
+    #[cfg(timer_v2)]
+    /// Configure timer dithering mode and ARR fractional nibble.
+    pub fn set_dithering(&mut self, config: DitheringConfig) {
+        self.inner.set_dithering(config);
+    }
+
+    #[cfg(timer_v2)]
+    /// Set CCR fractional nibble for one channel.
+    pub fn set_channel_dither(&mut self, channel: Channel, dither: u8) {
+        self.inner.set_compare_dither_value(channel, dither);
     }
 
     /// Set the duty for a given channel.
