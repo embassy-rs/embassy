@@ -12,7 +12,7 @@
 #[cfg_attr(adc_l0, path = "v1.rs")]
 #[cfg_attr(adc_v2, path = "v2.rs")]
 #[cfg_attr(any(adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0), path = "v3.rs")]
-#[cfg_attr(any(adc_v4, adc_u5, adc_u3), path = "v4.rs")]
+#[cfg_attr(any(adc_v4, adc_u5, adc_u3, adc_n6), path = "v4.rs")]
 #[cfg_attr(adc_g4, path = "g4.rs")]
 #[cfg_attr(adc_c0, path = "c0.rs")]
 mod _version;
@@ -196,7 +196,7 @@ pub(crate) trait SealedAdcChannel<T> {
     }
 }
 
-#[cfg(any(adc_c0, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3))]
+#[cfg(any(adc_c0, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_n6))]
 /// Number of samples used for averaging.
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -210,9 +210,9 @@ pub enum Averaging {
     Samples64,
     Samples128,
     Samples256,
-    #[cfg(any(adc_c0, adc_v4, adc_u5, adc_u3))]
+    #[cfg(any(adc_c0, adc_v4, adc_u5, adc_u3, adc_n6))]
     Samples512,
-    #[cfg(any(adc_c0, adc_v4, adc_u5, adc_u3))]
+    #[cfg(any(adc_c0, adc_v4, adc_u5, adc_u3, adc_n6))]
     Samples1024,
 }
 
@@ -740,7 +740,6 @@ impl VrefInt {
         stm32l4,
         stm32l4_plus,
         stm32l5,
-        stm32n6,
         stm32l5,
         stm32wb,
         stm32wl
@@ -982,7 +981,7 @@ macro_rules! impl_adc_pin {
         impl crate::adc::AdcChannel<peripherals::$inst> for crate::Peri<'_, crate::peripherals::$pin> {}
         impl crate::adc::SealedAdcChannel<peripherals::$inst> for crate::Peri<'_, crate::peripherals::$pin> {
             #[cfg(any(
-                adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba
+                adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba, adc_n6
             ))]
             fn setup(&mut self) {
                 <crate::peripherals::$pin as crate::gpio::SealedPin>::set_as_analog(self);
@@ -1012,7 +1011,7 @@ macro_rules! impl_adc_pair {
             )
         {
             #[cfg(any(
-                adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba
+                adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba, adc_n6
             ))]
             fn setup(&mut self) {
                 <crate::peripherals::$pin as crate::gpio::SealedPin>::set_as_analog(&mut self.0);
