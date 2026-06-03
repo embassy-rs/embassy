@@ -270,23 +270,21 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
     pub fn read_latest(&mut self, dma: &mut impl DmaCtrl, buf: &mut [W]) -> usize {
         fence(Ordering::Acquire);
 
-        self.write_index.dma_sync(self.cap(), dma);
-        DmaIndex::normalize(&mut self.write_index, &mut self.read_index);
-
-        let diff = self.write_index.diff(self.cap(), &self.read_index);
-
-        // On overrun or desync, reset the read pointer to the current write position.
-        // This means zero samples are available right now, but the next call will
-        // return fresh data without any error.
-        if diff < 0 || diff > self.cap() as isize {
+        let available = self.sync_len(dma).unwrap_or_else(|err| {
             self.read_index = self.write_index;
-            return 0;
-        }
-
-        let available = diff as usize;
-        if available == 0 {
-            return 0;
-        }
+            match err {
+                Error::Overrun => {
+                    // the entire buffer contains the latest data
+                    self.write_index.complete_count += 1;
+                    self.cap()
+                }
+                Error::DmaUnsynced => {
+                    #[cfg(feature = "defmt")]
+                    defmt::error!("Ring buffer broken invariants detected!");
+                    return 0;
+                }
+            }
+        });
 
         // Respect frame alignment. Because read_latest reads the NEWEST data
         // (skip at the front, read at the tail), reducing to_read moves the
