@@ -367,13 +367,13 @@ async fn eval_task() {
     //   old_size=1024 (1024 > 1023), returning a clean error before any growth.
     //   Vec capacity never exceeds 1024 (16 KB), which fits the heap comfortably.
     //
-    // set_max_string_size: 8 KB cap against runaway string building.
+    // set_max_string_size: 1 KB cap against runaway string building.
     //
     // set_max_operations + on_progress: belt-and-suspenders for non-array OOM
     // and infinite loops. on_progress fires between Rhai steps so it cannot
     // stop an in-step Vec realloc — the size limits above are the primary guard.
     engine.set_max_array_size(1023); // effective limit 1024; -1 compensates Rhai off-by-one (see above)
-    engine.set_max_string_size(8192);
+    engine.set_max_string_size(1023);
     engine.set_max_operations(0); // no fixed limit; rely on on_progress heap check for OOM and user-friendly error reporting
     // Soft call-stack depth limit (secondary guard).
     // The primary guard is the software MSP check in on_progress: it fires a
