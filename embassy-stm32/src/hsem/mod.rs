@@ -35,7 +35,11 @@ const CHANNELS: usize = 6;
 const PUB_CHANNELS: usize = 16;
 #[cfg(all(stm32wba, feature = "low-power"))]
 const PUB_CHANNELS: usize = 16;
-#[cfg(all(not(stm32wba), not(all(stm32wb, feature = "low-power")), not(all(stm32wl5x, feature = "low-power"))))]
+#[cfg(all(
+    not(stm32wba),
+    not(all(stm32wb, feature = "low-power")),
+    not(all(stm32wl5x, feature = "low-power"))
+))]
 const PUB_CHANNELS: usize = 6;
 
 #[cfg(all(stm32wl5x, feature = "low-power"))]
