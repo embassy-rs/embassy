@@ -268,12 +268,6 @@ impl<'d, T: Instance> Rng<'d, T> {
         let _ = self.next_u32();
     }
 
-    #[cfg(not(rng_v1))]
-    /// Disable RNG and wait until it is idle (safe before low-power entry).
-    pub fn disable_for_low_power(&mut self) {
-        T::regs().cr().modify(|reg| reg.set_rngen(false));
-    }
-
     /// Try to recover from a seed error.
     pub fn recover_seed_error(&mut self) {
         self.reset();
