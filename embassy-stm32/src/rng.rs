@@ -126,7 +126,7 @@ impl<'d, T: Instance> Rng<'d, T> {
     ) -> Self {
         #[cfg(rng_v1)]
         {
-            Self::new_inner(inner, _irq)
+            Self::new_inner(inner)
         }
         #[cfg(not(rng_v1))]
         {
@@ -378,7 +378,15 @@ impl<'d, T: Instance> crate::low_power::SealedSuspendablePeripheral for Rng<'d, 
     }
 
     fn resume(state: Self::InternalState) -> Self {
-        Self::new_inner(state, Default::default())
+        #[cfg(not(rng_v1))]
+        {
+            Self::new_inner(state, Default::default())
+        }
+
+        #[cfg(rng_v1)]
+        {
+            Self::new_inner(state)
+        }
     }
 }
 
