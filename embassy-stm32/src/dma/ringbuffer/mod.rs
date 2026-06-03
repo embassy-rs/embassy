@@ -167,13 +167,9 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
     /// Error is returned if the portion to be read was overwritten by the DMA controller,
     /// in which case the rinbuffer will automatically reset itself.
     pub fn read(&mut self, dma: &mut impl DmaCtrl, buf: &mut [W]) -> Result<(usize, usize), Error> {
-        fence(Ordering::Acquire);
-
-        let available = self.sync_len(dma).inspect_err(|_e| {
+        self.read_raw(dma, buf).inspect_err(|_e| {
             self.reset(dma);
-        })?;
-
-        Ok(self.read_raw(available, buf))
+        })
     }
 
     /// Read an exact number of elements from the ringbuffer.
@@ -209,7 +205,11 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
         .await
     }
 
-    fn read_raw(&mut self, mut available: usize, buf: &mut [W]) -> (usize, usize) {
+    fn read_raw(&mut self, dma: &mut impl DmaCtrl, buf: &mut [W]) -> Result<(usize, usize), Error> {
+        fence(Ordering::Acquire);
+
+        let mut available = self.sync_len(dma)?;
+
         // Compute alignment skip without advancing read_index yet.
         // DMA always starts at buffer position 0 (frame-aligned) and advances
         // sequentially, so position N is frame-aligned when N % alignment == 0.
@@ -221,7 +221,7 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
                     available -= skip;
                     skip
                 } else {
-                    return (0, available);
+                    return Ok((0, available));
                 }
             } else {
                 0
@@ -250,7 +250,7 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
         self.read_index.advance(self.cap(), skip + readable);
 
         let remaining = write_snapshot.diff(self.cap(), &self.read_index).max(0) as usize;
-        (readable, remaining)
+        Ok((readable, remaining))
     }
 
     /// Read the most recent elements from the ring buffer, discarding any older data.
