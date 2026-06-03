@@ -8,13 +8,11 @@
 #![no_main]
 
 use defmt::{error, info};
-use embassy_stm32::adc::adc4;
-use embassy_stm32::adc::{Adc, AdcChannel as _, Exten, RegularAdcTrigger, RingBufferedAdc};
+use embassy_stm32::adc::{Adc, AdcChannel as _, RingBufferedAdc, adc4};
 use embassy_stm32::peripherals::GPDMA1_CH1;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::complementary_pwm::{ComplementaryPwm, Mms2};
 use embassy_stm32::timer::low_level::CountingMode;
-use embassy_stm32::triggers::TIM1_TRGO2;
 use embassy_stm32::{Config, bind_interrupts, dma};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -55,8 +53,8 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     // Channel order must be ascending for this ADC4 path.
     let sequence = [
-        (vrefint.reborrow_adc(), adc4::SampleTime::Cycles795), // CH0
-        (vcore.reborrow_adc(), adc4::SampleTime::Cycles795),   // CH12
+        (vrefint.reborrow_adc(), adc4::SampleTime::Cycles795),     // CH0
+        (vcore.reborrow_adc(), adc4::SampleTime::Cycles795),       // CH12
         (temperature.reborrow_adc(), adc4::SampleTime::Cycles795), // CH13
     ]
     .into_iter();
@@ -68,7 +66,8 @@ async fn main(_spawner: embassy_executor::Spawner) {
         &mut dma_buf,
         Irqs,
         sequence,
-        RegularAdcTrigger::from(TIM1_TRGO2, Exten::RisingEdge),
+        // TODO: hook up TIM1_TRGO2 once ADC4 regular-trigger mapping is available for WBA6.
+        None,
     );
 
     let mut out = [0u16; (3 * 32) / 2];
