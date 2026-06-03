@@ -39,7 +39,8 @@ rm -rf out/tests/stm32f103c8
 rm -rf out/tests/nrf52840-dk
 rm -rf out/tests/nrf52833-dk
 rm -rf out/tests/nrf5340-dk
-
+rm -rf out/tests/nrf51422-dk
+ 
 # disabled because these boards are not on the shelf
 rm -rf out/tests/mspm0g3507
 
