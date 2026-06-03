@@ -23,15 +23,17 @@ use crate::bluetooth::error::BleError;
 use crate::bluetooth::gap::connection::{
     Connection, ConnectionInitParams, ConnectionManager, DisconnectReason, GapEvent, LePhy, MAX_CONNECTIONS,
 };
-use crate::bluetooth::gap::scanner::Scanner;
+use crate::bluetooth::gap::scanner::{ScanParams, ScanProcedure, Scanner};
 use crate::bluetooth::gap::types::{AdvData, AdvParams};
 use crate::bluetooth::gap_init::{GapInitParams, GapRole, init_gap_and_hal};
-use crate::bluetooth::gatt::GattServer;
 use crate::bluetooth::gatt::server::init_gatt_layer;
+use crate::bluetooth::gatt::{
+    GattClient, GattClientEvent, GattEvent, GattServer, client_events_from_vendor_event, from_vendor_event,
+};
 use crate::bluetooth::hci::command::CommandSender;
 use crate::bluetooth::hci::types::DtmPacketPayload;
 use crate::bluetooth::hci::{DtmRxPhy, DtmTxPhy};
-use crate::bluetooth::security::SecurityManager;
+use crate::bluetooth::security::{SecurityEvent, SecurityManager, from_vendor_event as security_from_vendor_event};
 use crate::controller::{Controller, ControllerAdapter};
 use crate::{BasicRuntime, FullRuntime, HighInterruptHandler, LowInterruptHandler, Platform, Runtime};
 
@@ -88,6 +90,7 @@ pub struct HCI<'d, M: Mode> {
     cmd_sender: CommandSender,
     connections: ConnectionManager<MAX_CONNECTIONS>,
     is_advertising: bool,
+    active_scan_proc: Option<ScanProcedure>,
     _mode: M,
 }
 
@@ -142,6 +145,7 @@ impl<'d> HCI<'d, Normal> {
             cmd_sender: CommandSender::new(),
             connections: ConnectionManager::new(),
             is_advertising: false,
+            active_scan_proc: None,
             controller: ControllerAdapter::new(controller),
             _mode: Normal,
         };
@@ -236,6 +240,11 @@ impl<'d> HCI<'d, Normal> {
     /// Create a new GATT server instance
     pub fn gatt_server(&mut self) -> GattServer {
         GattServer::new()
+    }
+
+    /// Create a new minimal GATT client instance.
+    pub fn gatt_client(&self) -> GattClient {
+        GattClient::new()
     }
 
     /// Create a new security manager
@@ -352,6 +361,67 @@ impl<'d> HCI<'d, Normal> {
     /// as `LeAdvertisingReport` events.
     pub fn scanner(&self) -> Scanner {
         Scanner::new()
+    }
+
+    /// Start observer scanning (observation procedure).
+    pub fn start_scan_observation(&mut self, params: ScanParams) -> Result<(), BleError> {
+        if self.active_scan_proc.is_some() {
+            self.stop_scan()?;
+        }
+        gap::aci_gap::start_observation(
+            params.scan_interval,
+            params.scan_window,
+            params.scan_type as u8,
+            params.own_address_type as u8,
+            params.filter_duplicates,
+            params.filter_policy as u8,
+        )?;
+        self.active_scan_proc = Some(ScanProcedure::Observation);
+        Ok(())
+    }
+
+    /// Start active general discovery procedure.
+    pub fn start_scan_general_discovery(&mut self, params: ScanParams) -> Result<(), BleError> {
+        if self.active_scan_proc.is_some() {
+            self.stop_scan()?;
+        }
+        gap::aci_gap::start_general_discovery(
+            params.scan_interval,
+            params.scan_window,
+            params.own_address_type as u8,
+            params.filter_duplicates,
+        )?;
+        self.active_scan_proc = Some(ScanProcedure::GeneralDiscovery);
+        Ok(())
+    }
+
+    /// Start active limited discovery procedure.
+    pub fn start_scan_limited_discovery(&mut self, params: ScanParams) -> Result<(), BleError> {
+        if self.active_scan_proc.is_some() {
+            self.stop_scan()?;
+        }
+        gap::aci_gap::start_limited_discovery(
+            params.scan_interval,
+            params.scan_window,
+            params.own_address_type as u8,
+            params.filter_duplicates,
+        )?;
+        self.active_scan_proc = Some(ScanProcedure::LimitedDiscovery);
+        Ok(())
+    }
+
+    /// Stop whichever GAP scanning/discovery procedure is currently active.
+    pub fn stop_scan(&mut self) -> Result<(), BleError> {
+        if let Some(proc) = self.active_scan_proc {
+            gap::aci_gap::terminate_gap_proc(proc as u8)?;
+            self.active_scan_proc = None;
+        }
+        Ok(())
+    }
+
+    /// Return whether a scan/discovery procedure is currently active.
+    pub fn is_scanning(&self) -> bool {
+        self.active_scan_proc.is_some()
     }
 
     // ===== Connection Management =====
@@ -574,7 +644,7 @@ impl<'d> HCI<'d, Normal> {
                 let _ = central_clock_accuracy;
 
                 if matches!(status, Status::Success) {
-                    let Ok(peer_address) = BdAddrType::try_from(*peer_bd_addr);
+                    let peer_address = BdAddrType::from(*peer_bd_addr);
                     let conn = Connection::new_enhanced(
                         *conn_handle,
                         *role,
@@ -665,6 +735,38 @@ impl<'d> HCI<'d, Normal> {
             _ => None,
         }
     }
+
+    /// Convert a raw HCI event into a high-level GATT event when applicable.
+    pub fn process_gatt_event(&self, event: &stm32wb_hci::Event) -> Option<GattEvent> {
+        match event {
+            Event::Vendor(v) => from_vendor_event(v),
+            _ => None,
+        }
+    }
+
+    /// Convert a raw HCI event into one or more high-level GATT client events.
+    pub fn process_gatt_client_events(&self, event: &stm32wb_hci::Event) -> heapless::Vec<GattClientEvent, 16> {
+        match event {
+            Event::Vendor(v) => client_events_from_vendor_event(v),
+            _ => heapless::Vec::new(),
+        }
+    }
+
+    /// Return the first terminal GATT client event for a procedure, if any.
+    ///
+    /// Useful for "start procedure + pump events until terminal" patterns.
+    pub fn process_gatt_client_terminal_event(&self, event: &stm32wb_hci::Event) -> Option<GattClientEvent> {
+        let events = self.process_gatt_client_events(event);
+        events.into_iter().find(|e| e.is_terminal())
+    }
+
+    /// Convert a raw HCI event into a high-level security event when applicable.
+    pub fn process_security_event(&self, event: &stm32wb_hci::Event) -> Option<SecurityEvent> {
+        match event {
+            Event::Vendor(v) => security_from_vendor_event(v),
+            _ => None,
+        }
+    }
 }
 
 impl<'d> HCI<'d, Test> {
@@ -691,6 +793,7 @@ impl<'d> HCI<'d, Test> {
             cmd_sender: CommandSender::new(),
             connections: ConnectionManager::new(),
             is_advertising: false,
+            active_scan_proc: None,
             controller: ControllerAdapter::new(controller),
             _mode: Test,
         };
@@ -805,6 +908,7 @@ impl<'d, M: Mode> HCI<'d, M> {
         self.cmd_sender.reset()?;
 
         self.is_advertising = false;
+        self.active_scan_proc = None;
         Ok(())
     }
 
