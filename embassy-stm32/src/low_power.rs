@@ -196,6 +196,9 @@ mod platform {
         });
         #[cfg(stm32wba)]
         crate::pac::PWR.sr().modify(|w| w.set_cssf(true));
+        #[cfg(stm32wba)]
+        // Clear WKUP1..WKUP8 pending flags (CWUFx) before stop entry.
+        crate::pac::PWR.wuscr().write(|w| w.0 = 0xff);
 
         #[cfg(stm32l0)]
         crate::pac::PWR.cr().modify(|w| w.set_cwuf(true));

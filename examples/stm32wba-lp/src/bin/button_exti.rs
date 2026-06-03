@@ -27,6 +27,7 @@ async fn main(_spawner: Spawner) {
 
     // HSI 16 MHz as sysclk.
     config.rcc.sys = Sysclk::Hsi;
+    config.rcc.ahb5_pre = AHB5Prescaler::Div1;
 
     // LSI 32 kHz for the RTC — the time driver uses the RTC wakeup
     // alarm to bring the core back from STOP mode.

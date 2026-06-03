@@ -36,6 +36,11 @@ pub const WHITE_LIST_FOR_ONLY_CONN: u8 = 0x02;
 #[allow(dead_code)]
 pub const WHITE_LIST_FOR_ALL: u8 = 0x03;
 
+// GAP procedure codes for ACI_GAP_TERMINATE_GAP_PROC.
+pub const GAP_LIMITED_DISCOVERY_PROC: u8 = 0x01;
+pub const GAP_GENERAL_DISCOVERY_PROC: u8 = 0x02;
+pub const GAP_OBSERVATION_PROC: u8 = 0x80;
+
 #[link(name = "stm32wba_ble_stack_basic")]
 unsafe extern "C" {
     /// Set device in discoverable mode
@@ -87,6 +92,24 @@ unsafe extern "C" {
         own_address_type: u8,
         filter_duplicates: u8,
         scanning_filter_policy: u8,
+    ) -> tBleStatus;
+
+    /// Start limited discovery procedure (active scanning).
+    #[link_name = "ACI_GAP_START_LIMITED_DISCOVERY_PROC"]
+    fn aci_gap_start_limited_discovery_proc(
+        le_scan_interval: u16,
+        le_scan_window: u16,
+        own_address_type: u8,
+        filter_duplicates: u8,
+    ) -> tBleStatus;
+
+    /// Start general discovery procedure (active scanning).
+    #[link_name = "ACI_GAP_START_GENERAL_DISCOVERY_PROC"]
+    fn aci_gap_start_general_discovery_proc(
+        le_scan_interval: u16,
+        le_scan_window: u16,
+        own_address_type: u8,
+        filter_duplicates: u8,
     ) -> tBleStatus;
 
     /// Terminate a running GAP procedure.
@@ -201,14 +224,58 @@ pub fn start_observation(
     }
 }
 
-/// Stop the running GAP observation procedure (`procedure_code = 0x80`).
-pub fn stop_observation() -> Result<(), BleError> {
-    let status = unsafe { aci_gap_terminate_gap_proc(0x80) };
+/// Start the GAP limited discovery procedure.
+///
+/// This uses active scanning and reports only peripherals in limited
+/// discoverable mode.
+pub fn start_limited_discovery(
+    scan_interval: u16,
+    scan_window: u16,
+    own_address_type: u8,
+    filter_duplicates: bool,
+) -> Result<(), BleError> {
+    let status = unsafe {
+        aci_gap_start_limited_discovery_proc(scan_interval, scan_window, own_address_type, filter_duplicates as u8)
+    };
     if status == BLE_STATUS_SUCCESS {
         Ok(())
     } else {
         Err(BleError::CommandFailed(Status::from_u8(status)))
     }
+}
+
+/// Start the GAP general discovery procedure.
+///
+/// This uses active scanning and reports all discovered peripherals.
+pub fn start_general_discovery(
+    scan_interval: u16,
+    scan_window: u16,
+    own_address_type: u8,
+    filter_duplicates: bool,
+) -> Result<(), BleError> {
+    let status = unsafe {
+        aci_gap_start_general_discovery_proc(scan_interval, scan_window, own_address_type, filter_duplicates as u8)
+    };
+    if status == BLE_STATUS_SUCCESS {
+        Ok(())
+    } else {
+        Err(BleError::CommandFailed(Status::from_u8(status)))
+    }
+}
+
+/// Terminate a running GAP procedure by procedure code.
+pub fn terminate_gap_proc(procedure_code: u8) -> Result<(), BleError> {
+    let status = unsafe { aci_gap_terminate_gap_proc(procedure_code) };
+    if status == BLE_STATUS_SUCCESS {
+        Ok(())
+    } else {
+        Err(BleError::CommandFailed(Status::from_u8(status)))
+    }
+}
+
+/// Stop the running GAP observation procedure (`procedure_code = 0x80`).
+pub fn stop_observation() -> Result<(), BleError> {
+    terminate_gap_proc(GAP_OBSERVATION_PROC)
 }
 
 /// Start undirected connectable advertising (ST privacy peripheral mode).

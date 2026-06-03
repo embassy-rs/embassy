@@ -62,6 +62,81 @@ impl From<Priority> for pac::gpdma::vals::Prio {
     }
 }
 
+/// GPDMA hardware request granularity.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum RequestMode {
+    /// Peripheral handshakes at burst level (`BREQ=Burst`).
+    Burst,
+    /// Peripheral handshakes at block level (`BREQ=Block`).
+    Block,
+}
+
+impl From<RequestMode> for vals::Breq {
+    fn from(value: RequestMode) -> Self {
+        match value {
+            RequestMode::Burst => vals::Breq::Burst,
+            RequestMode::Block => vals::Breq::Block,
+        }
+    }
+}
+
+/// Input-trigger polarity for GPDMA triggered transfers.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum TriggerPolarity {
+    /// Trigger on rising edge.
+    RisingEdge,
+    /// Trigger on falling edge.
+    FallingEdge,
+}
+
+impl From<TriggerPolarity> for vals::Trigpol {
+    fn from(value: TriggerPolarity) -> Self {
+        match value {
+            TriggerPolarity::RisingEdge => vals::Trigpol::RisingEdge,
+            TriggerPolarity::FallingEdge => vals::Trigpol::FallingEdge,
+        }
+    }
+}
+
+/// GPDMA transfer trigger mode.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum TriggerMode {
+    /// Trigger-gate each block transfer.
+    Block,
+    /// Trigger-gate each repeated/2D block transfer.
+    TwoDBlock,
+    /// Trigger-gate linked-list item (link transfer).
+    LinkedListItem,
+    /// Trigger-gate each programmed burst transfer.
+    Burst,
+}
+
+impl From<TriggerMode> for vals::Trigm {
+    fn from(value: TriggerMode) -> Self {
+        match value {
+            TriggerMode::Block => vals::Trigm::Block,
+            TriggerMode::TwoDBlock => vals::Trigm::from_bits(1),
+            TriggerMode::LinkedListItem => vals::Trigm::LinkedListItem,
+            TriggerMode::Burst => vals::Trigm::Burst,
+        }
+    }
+}
+
+/// Optional hardware trigger input for a GPDMA channel.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct TriggerConfig {
+    /// Trigger input selector (`TRIGSEL` raw value from the device RM).
+    pub signal: u8,
+    /// Trigger edge polarity.
+    pub polarity: TriggerPolarity,
+    /// Trigger gating mode.
+    pub mode: TriggerMode,
+}
+
 /// GPDMA burst length (beats per burst on a port).
 ///
 /// GPDMA hardware supports any integer burst length from 1 to 64 beats.
@@ -231,6 +306,10 @@ pub struct TransferOptions {
     /// bursts to handshake correctly under `BREQ=Burst` (e.g. CRYP wants
     /// 4-beat bursts, matching one AES block per peripheral request).
     pub burst_length: Burst,
+    /// Select whether peripheral handshaking is done at burst or block level.
+    pub request_mode: RequestMode,
+    /// Optional trigger-gated transfer configuration.
+    pub trigger: Option<TriggerConfig>,
 }
 
 impl Default for TransferOptions {
@@ -242,6 +321,8 @@ impl Default for TransferOptions {
             #[cfg(stm32n6)]
             secure: false,
             burst_length: Burst::_1Beats,
+            request_mode: RequestMode::Burst,
+            trigger: None,
         }
     }
 }
@@ -473,7 +554,13 @@ impl<'d> Channel<'d> {
                 Dir::PeripheralToMemory => vals::Dreq::SourcePeripheral,
                 Dir::MemoryToMemory => panic!("memory-to-memory transfers not implemented for GPDMA"),
             });
+            w.set_breq(options.request_mode.into());
             w.set_reqsel(request);
+            if let Some(trigger) = options.trigger {
+                w.set_trigsel(trigger.signal);
+                w.set_trigpol(trigger.polarity.into());
+                w.set_trigm(trigger.mode.into());
+            }
         });
         ch.tr3().write(|_| {}); // no address offsets.
         ch.br1().write(|w| w.set_bndt(bndt));

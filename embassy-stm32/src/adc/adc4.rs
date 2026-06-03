@@ -311,8 +311,9 @@ impl AdcRegs for crate::pac::adc::Adc4 {
             reg.set_chselrmod(false);
 
             #[cfg(stm32wba)]
-            if let ConversionMode::Repeated(Some((trigger, _edge))) = conversion_mode {
+            if let ConversionMode::Repeated(Some((trigger, edge))) = conversion_mode {
                 reg.set_extsel(Extsel::from(trigger));
+                reg.set_exten(edge);
             }
         });
     }

@@ -8,7 +8,7 @@ use embedded_io_async::ReadReady;
 use futures_util::future::{Either, select};
 
 use super::{
-    Config, ConfigError, Error, Info, State, UartRx, clear_interrupt_flags, rdr, reconfigure, set_baudrate, sr,
+    Config, ConfigError, Error, Info, State, UartRx, clear_interrupt_flags, flush, rdr, reconfigure, set_baudrate, sr,
 };
 use crate::dma::ReadableRingBuffer;
 use crate::gpio::Flex;
@@ -224,6 +224,10 @@ impl<'d> RingBufferedUartRx<'d> {
         // since they can't operate simultaneously on the shared line
         let r = self.info.regs;
         if r.cr3().read().hdsel() && r.cr1().read().te() {
+            // Wait for any in-flight transmission to complete before disabling the
+            // transmitter, otherwise the last byte(s) would be truncated on the wire.
+            flush(self.info, self.state).await?;
+
             r.cr1().modify(|reg| {
                 reg.set_re(true);
                 reg.set_te(false);

@@ -303,7 +303,7 @@ async fn main(spawner: Spawner) {
             },
 
             // ── Bond lost / LTK mismatch: allow re-pair and restart open advertising ─
-            Event::Vendor(VendorEvent::GapBondLost) => {
+            Event::Vendor(VendorEvent::GapBondLost(_)) => {
                 info!("Bond lost — allowing rebond and restarting advertising");
                 let conn_handle = ble.connections().iter().next().map(|c| c.handle.0).unwrap_or(0);
                 let _ = security.allow_rebond(conn_handle);
