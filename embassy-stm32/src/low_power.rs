@@ -25,7 +25,7 @@
 //! executor is the preferred way to lower power consumption if you're using `async`, instead of calling `sleep()` directly.
 
 use core::mem;
-use core::mem::transmute_copy;
+use core::mem::{ManuallyDrop, transmute_copy};
 use core::ops::{Deref, DerefMut};
 use core::sync::atomic::{AtomicBool, Ordering, compiler_fence};
 
@@ -413,6 +413,10 @@ impl<T: SuspendablePeripheral> SuspendedPeripheral<T> {
     }
 }
 
+unsafe fn transmute_ref<T>(src: &T) -> T {
+    unsafe { mem::transmute_copy(src) }
+}
+
 enum ResumableState<T: SuspendablePeripheral> {
     Suspended(SuspendedPeripheral<T>),
     Resumed(T),
@@ -420,26 +424,33 @@ enum ResumableState<T: SuspendablePeripheral> {
 
 /// A mutex-like object to resume a peripheral
 pub struct ResumablePeripheral<T: SuspendablePeripheral> {
-    state: ResumableState<T>,
+    state: ManuallyDrop<ResumableState<T>>,
 }
 
 impl<T: SuspendablePeripheral> ResumablePeripheral<T> {
     /// Create the object. Will suspend the peripheral as soon as it is passed.
     pub fn new(peripheral: T) -> Self {
         Self {
-            state: ResumableState::Suspended(SuspendedPeripheral::from(peripheral)),
+            state: ManuallyDrop::new(ResumableState::Suspended(SuspendedPeripheral::from(peripheral))),
         }
     }
 
     /// Get the resumable peripheral guard
     pub fn lock(&mut self) -> ResumablePeripheralGuard<'_, T> {
-        unsafe {
-            if let ResumableState::Suspended(peripheral) = transmute_copy(&self.state) {
-                self.state = ResumableState::Resumed(peripheral.resume());
+        if let ResumableState::Suspended(peripheral) = &*self.state {
+            unsafe {
+                // self.state is ManuallyDrop, so the transmute_ref is safe
+                *self.state = ResumableState::Resumed(transmute_ref(peripheral).resume());
             }
         }
 
         ResumablePeripheralGuard { state: &mut self.state }
+    }
+}
+
+impl<T: SuspendablePeripheral> Drop for ResumablePeripheral<T> {
+    fn drop(&mut self) {
+        unsafe { ManuallyDrop::drop(&mut self.state) };
     }
 }
 
@@ -450,9 +461,10 @@ pub struct ResumablePeripheralGuard<'a, T: SuspendablePeripheral> {
 
 impl<'a, T: SuspendablePeripheral> Drop for ResumablePeripheralGuard<'a, T> {
     fn drop(&mut self) {
-        unsafe {
-            if let ResumableState::Resumed(peripheral) = transmute_copy(&self.state) {
-                *self.state = ResumableState::Suspended(SuspendedPeripheral::from(peripheral));
+        if let ResumableState::Resumed(peripheral) = &self.state {
+            unsafe {
+                // self.state is ManuallyDrop, so the transmute_ref is safe
+                *self.state = ResumableState::Suspended(SuspendedPeripheral::from(transmute_ref(peripheral)));
             }
         }
     }

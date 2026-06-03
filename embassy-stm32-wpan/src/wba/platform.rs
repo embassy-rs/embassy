@@ -262,13 +262,29 @@ impl Platform {
 
                 loop {
                     let mut buf = [0u8; 64];
-                    if let Err(e) = rng.lock().async_fill_bytes(&mut buf).await {
-                        warn!("rng: err during fill bytes: {}", e);
+                    let mut n;
+                    {
+                        #[allow(unused_mut)]
+                        let mut guard = rng.lock();
+                        'outer: loop {
+                            n = 0;
+                            if let Err(e) = guard.async_fill_bytes(&mut buf).await {
+                                warn!("rng: err during fill bytes: {}", e);
 
-                        continue;
+                                continue;
+                            }
+
+                            while n < buf.len() {
+                                if let Ok(len) = self.rng_pipe.try_write(&buf) {
+                                    n += len;
+                                } else {
+                                    break 'outer;
+                                }
+                            }
+                        }
                     }
 
-                    self.rng_pipe.write_all(&buf).await;
+                    self.rng_pipe.write_all(&buf[n..]).await;
                 }
             },
         )
