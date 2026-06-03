@@ -208,7 +208,7 @@ impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
             .write(|w| w.set_isc(self.index.into(), true));
 
         // Wait for the semaphore interrupt flag
-        while !T::regs().misr(core.to_index().into()).read().misf(self.index.into()) {}
+        while !T::regs().isr(core.to_index().into()).read().isf(self.index.into()) {}
     }
 
     /// Asynchronous listen for a notification interrupt when this semaphore channel is unlocked
