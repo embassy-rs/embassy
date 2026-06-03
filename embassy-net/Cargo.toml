@@ -54,6 +54,8 @@ target = "thumbv7em-none-eabi"
 features = ["defmt", "tcp", "udp", "raw", "dns", "icmp", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "multicast", "dhcpv4-hostname", "packetmeta-id"]
 
 [features]
+default = ["auto-icmp-echo-reply"]
+
 ## Enable defmt
 defmt = ["dep:defmt", "smoltcp/defmt", "embassy-net-driver/defmt", "embassy-time/defmt", "heapless/defmt", "defmt?/ip_in_core"]
 ## Enable log
