@@ -25,6 +25,8 @@
 //! executor is the preferred way to lower power consumption if you're using `async`, instead of calling `sleep()` directly.
 
 use core::mem;
+use core::mem::ManuallyDrop;
+use core::ops::{Deref, DerefMut};
 use core::sync::atomic::{AtomicBool, Ordering, compiler_fence};
 
 use cortex_m::peripheral::SCB;
@@ -375,4 +377,117 @@ pub unsafe fn sleep(cs: CriticalSection) {
     cortex_m::asm::dsb();
 
     on_wakeup(cs);
+}
+
+/// Peripheral that can be suspended
+#[allow(private_bounds)]
+pub trait SuspendablePeripheral: SealedSuspendablePeripheral {}
+
+pub(crate) trait SealedSuspendablePeripheral {
+    type InternalState;
+
+    #[allow(dead_code)]
+    fn suspend(self) -> Self::InternalState;
+    #[allow(dead_code)]
+    fn resume(state: Self::InternalState) -> Self;
+}
+
+impl<T: SealedSuspendablePeripheral> SuspendablePeripheral for T {}
+
+/// A suspended peripheral
+pub struct SuspendedPeripheral<T: SuspendablePeripheral> {
+    state: T::InternalState,
+}
+
+impl<T: SuspendablePeripheral> SuspendedPeripheral<T> {
+    /// Suspend a peripheral
+    pub fn from(peripheral: T) -> Self {
+        Self {
+            state: T::suspend(peripheral),
+        }
+    }
+
+    /// Resume a peripheral
+    pub fn resume(self) -> T {
+        T::resume(self.state)
+    }
+}
+
+unsafe fn transmute_ref<T>(src: &T) -> T {
+    unsafe { mem::transmute_copy(src) }
+}
+
+enum ResumableState<T: SuspendablePeripheral> {
+    Suspended(SuspendedPeripheral<T>),
+    Resumed(T),
+}
+
+/// A mutex-like object to resume a peripheral
+pub struct ResumablePeripheral<T: SuspendablePeripheral> {
+    state: ManuallyDrop<ResumableState<T>>,
+}
+
+impl<T: SuspendablePeripheral> ResumablePeripheral<T> {
+    /// Create the object. Will suspend the peripheral as soon as it is passed.
+    pub fn new(peripheral: T) -> Self {
+        Self {
+            state: ManuallyDrop::new(ResumableState::Suspended(SuspendedPeripheral::from(peripheral))),
+        }
+    }
+
+    /// Get the resumable peripheral guard
+    pub fn lock(&mut self) -> ResumablePeripheralGuard<'_, T> {
+        if let ResumableState::Suspended(peripheral) = &*self.state {
+            unsafe {
+                // self.state is ManuallyDrop, so the transmute_ref is safe
+                *self.state = ResumableState::Resumed(transmute_ref(peripheral).resume());
+            }
+        }
+
+        ResumablePeripheralGuard { state: &mut self.state }
+    }
+}
+
+impl<T: SuspendablePeripheral> Drop for ResumablePeripheral<T> {
+    fn drop(&mut self) {
+        unsafe { ManuallyDrop::drop(&mut self.state) };
+    }
+}
+
+/// A mutex-like object guard, that when held, activates the peripheral
+pub struct ResumablePeripheralGuard<'a, T: SuspendablePeripheral> {
+    state: &'a mut ResumableState<T>,
+}
+
+impl<'a, T: SuspendablePeripheral> Drop for ResumablePeripheralGuard<'a, T> {
+    fn drop(&mut self) {
+        if let ResumableState::Resumed(peripheral) = &self.state {
+            unsafe {
+                // self.state is ManuallyDrop, so the transmute_ref is safe
+                *self.state = ResumableState::Suspended(SuspendedPeripheral::from(transmute_ref(peripheral)));
+            }
+        }
+    }
+}
+
+impl<'a, T: SuspendablePeripheral> Deref for ResumablePeripheralGuard<'a, T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        if let ResumableState::Resumed(peripheral) = &self.state {
+            peripheral
+        } else {
+            unreachable!()
+        }
+    }
+}
+
+impl<'a, T: SuspendablePeripheral> DerefMut for ResumablePeripheralGuard<'a, T> {
+    fn deref_mut(&mut self) -> &mut T {
+        if let ResumableState::Resumed(peripheral) = &mut self.state {
+            peripheral
+        } else {
+            unreachable!()
+        }
+    }
 }

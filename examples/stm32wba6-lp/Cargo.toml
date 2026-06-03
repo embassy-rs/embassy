@@ -21,7 +21,8 @@ panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 static_cell = "2"
 
 [features]
-ble = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/wba-ble", "embassy-stm32-wpan/ble-stack-basic", "embassy-stm32-wpan/linklayer6-ble-basic"]
+default = [ "ble" ]
+ble = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/low-power", "embassy-stm32-wpan/wba-ble", "embassy-stm32-wpan/ble-stack-basic", "embassy-stm32-wpan/linklayer6-ble-basic"]
 
 [[bin]]
 name = "ble_advertiser_lp"
