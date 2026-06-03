@@ -374,7 +374,7 @@ async fn eval_task() {
     // stop an in-step Vec realloc — the size limits above are the primary guard.
     engine.set_max_array_size(1023); // effective limit 1024; -1 compensates Rhai off-by-one (see above)
     engine.set_max_string_size(8192);
-    engine.set_max_operations(500_000);
+    engine.set_max_operations(0); // no fixed limit; rely on on_progress heap check for OOM and user-friendly error reporting
     // Soft call-stack depth limit (secondary guard).
     // The primary guard is the software MSP check in on_progress: it fires a
     // clean Rhai termination before MSP crosses _stack_end (the thread stack
