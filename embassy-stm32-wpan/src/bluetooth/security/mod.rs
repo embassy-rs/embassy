@@ -22,6 +22,8 @@
 //! security.set_authentication_requirements(params)?;
 //! ```
 
+use stm32wb_hci::vendor::event::{GapPairingReason, GapPairingStatus, KeypressNotificationType, VendorEvent};
+
 use crate::bluetooth::error::BleError;
 use crate::bluetooth::hci::types::Status;
 
@@ -50,11 +52,20 @@ unsafe extern "C" {
     #[link_name = "ACI_GAP_PASS_KEY_RESP"]
     fn aci_gap_pass_key_resp(connection_handle: u16, pass_key: u32) -> tBleStatus;
 
+    #[link_name = "ACI_GAP_AUTHORIZATION_RESP"]
+    fn aci_gap_authorization_resp(connection_handle: u16, authorize: u8) -> tBleStatus;
+
     #[link_name = "ACI_GAP_NUMERIC_COMPARISON_VALUE_CONFIRM_YESNO"]
     fn aci_gap_numeric_comparison_value_confirm_yesno(connection_handle: u16, confirm_yes_no: u8) -> tBleStatus;
 
     #[link_name = "ACI_GAP_PERIPHERAL_SECURITY_REQ"]
     fn aci_gap_peripheral_security_req(connection_handle: u16) -> tBleStatus;
+
+    #[link_name = "ACI_GAP_SEND_PAIRING_REQ"]
+    fn aci_gap_send_pairing_req(connection_handle: u16, force_rebond: u8) -> tBleStatus;
+
+    #[link_name = "ACI_GAP_PAIRING_REQUEST_REPLY"]
+    fn aci_gap_pairing_request_reply(connection_handle: u16, accept: u8) -> tBleStatus;
 
     #[link_name = "ACI_GAP_ALLOW_REBOND"]
     fn aci_gap_allow_rebond(connection_handle: u16) -> tBleStatus;
@@ -343,6 +354,69 @@ pub enum SecurityEvent {
     BondLost { conn_handle: u16 },
     /// Pairing request received (when using SMP mode bit 3)
     PairingRequest { conn_handle: u16, is_bonded: bool },
+    /// Application authorization response is required.
+    AuthorizationRequest { conn_handle: u16 },
+    /// Peripheral-side security procedure has started successfully.
+    PeripheralSecurityInitiated,
+    /// Peer address could not be resolved with current privacy data.
+    AddressNotResolved { conn_handle: u16 },
+    /// Peer keypress-notification during passkey entry.
+    KeypressNotification {
+        conn_handle: u16,
+        notification_type: KeypressNotificationType,
+    },
+}
+
+/// Convert an STM32 vendor-specific event into a high-level security event.
+///
+/// Returns `None` for vendor events that do not map to [`SecurityEvent`].
+pub fn from_vendor_event(event: &VendorEvent) -> Option<SecurityEvent> {
+    match event {
+        VendorEvent::GapPairingComplete(e) => {
+            let (status, reason) = match e.status {
+                GapPairingStatus::Success => (PairingStatus::Success, 0),
+                GapPairingStatus::Timeout(r) => (PairingStatus::Timeout, pairing_reason_to_u8(r)),
+                GapPairingStatus::Failed(r) | GapPairingStatus::EncryptionFailed(r) => {
+                    (PairingStatus::Failed, pairing_reason_to_u8(r))
+                }
+            };
+            Some(SecurityEvent::PairingComplete {
+                conn_handle: e.conn_handle.0,
+                status,
+                reason,
+            })
+        }
+        VendorEvent::GapPassKeyRequest(conn_handle) => Some(SecurityEvent::PasskeyRequest {
+            conn_handle: conn_handle.0,
+        }),
+        VendorEvent::GapNumericComparisonValue(e) => Some(SecurityEvent::NumericComparisonRequest {
+            conn_handle: e.connection_handle.0,
+            numeric_value: e.numeric_value,
+        }),
+        VendorEvent::GapBondLost(conn_handle) => Some(SecurityEvent::BondLost {
+            conn_handle: conn_handle.0,
+        }),
+        VendorEvent::GapPairingRequest(e) => Some(SecurityEvent::PairingRequest {
+            conn_handle: e.connection_handle.0,
+            is_bonded: e.bonded,
+        }),
+        VendorEvent::GapAuthorizationRequest(conn_handle) => Some(SecurityEvent::AuthorizationRequest {
+            conn_handle: conn_handle.0,
+        }),
+        VendorEvent::GapPeripheralSecurityInitiated => Some(SecurityEvent::PeripheralSecurityInitiated),
+        VendorEvent::GapAddressNotResolved(conn_handle) => Some(SecurityEvent::AddressNotResolved {
+            conn_handle: conn_handle.0,
+        }),
+        VendorEvent::GapKeypressNotification(e) => Some(SecurityEvent::KeypressNotification {
+            conn_handle: e.connection_handle.0,
+            notification_type: e.notification_type,
+        }),
+        _ => None,
+    }
+}
+
+fn pairing_reason_to_u8(reason: GapPairingReason) -> u8 {
+    reason as u8
 }
 
 /// Pairing completion status
@@ -502,6 +576,20 @@ impl SecurityManager {
         }
     }
 
+    /// Respond to an authorization request event.
+    ///
+    /// Call this when you receive a `SecurityEvent::AuthorizationRequest`.
+    pub fn authorization_response(&self, conn_handle: u16, authorize: bool) -> Result<(), BleError> {
+        unsafe {
+            let status = aci_gap_authorization_resp(conn_handle, if authorize { 0x01 } else { 0x02 });
+            if status == BLE_STATUS_SUCCESS {
+                Ok(())
+            } else {
+                Err(BleError::CommandFailed(Status::from_u8(status)))
+            }
+        }
+    }
+
     /// Respond to a numeric comparison request
     ///
     /// Call this when you receive a `SecurityEvent::NumericComparisonRequest`.
@@ -528,6 +616,35 @@ impl SecurityManager {
     pub fn request_pairing(&self, conn_handle: u16) -> Result<(), BleError> {
         unsafe {
             let status = aci_gap_peripheral_security_req(conn_handle);
+            if status == BLE_STATUS_SUCCESS {
+                Ok(())
+            } else {
+                Err(BleError::CommandFailed(Status::from_u8(status)))
+            }
+        }
+    }
+
+    /// Request pairing/encryption from the central side.
+    ///
+    /// Sends a pairing request to the peer peripheral. Set `force_rebond` to
+    /// restart pairing even when a bond entry exists.
+    pub fn request_pairing_central(&self, conn_handle: u16, force_rebond: bool) -> Result<(), BleError> {
+        unsafe {
+            let status = aci_gap_send_pairing_req(conn_handle, force_rebond as u8);
+            if status == BLE_STATUS_SUCCESS {
+                Ok(())
+            } else {
+                Err(BleError::CommandFailed(Status::from_u8(status)))
+            }
+        }
+    }
+
+    /// Reply to a pairing request signaled via `SecurityEvent::PairingRequest`.
+    ///
+    /// Set `accept` to `true` to continue pairing, or `false` to reject it.
+    pub fn pairing_request_response(&self, conn_handle: u16, accept: bool) -> Result<(), BleError> {
+        unsafe {
+            let status = aci_gap_pairing_request_reply(conn_handle, accept as u8);
             if status == BLE_STATUS_SUCCESS {
                 Ok(())
             } else {
@@ -690,6 +807,13 @@ impl SecurityManager {
                 Err(BleError::CommandFailed(Status::from_u8(status)))
             }
         }
+    }
+
+    /// Compatibility alias for ST guide naming (`configure_whitelist`).
+    ///
+    /// On current stacks this is implemented by `ACI_GAP_CONFIGURE_FILTER_ACCEPT_LIST`.
+    pub fn configure_whitelist(&self) -> Result<(), BleError> {
+        self.configure_filter_accept_list()
     }
 
     /// Clear and repopulate both the Filter Accept List and resolving list from
@@ -946,6 +1070,13 @@ impl SecurityManager {
             self.set_address_resolution_enable(true)?;
         }
         Ok(count)
+    }
+
+    /// Compatibility alias for ST guide naming (`add_devices_to_resolving_list`-style flow).
+    ///
+    /// Restores bonded peer IRKs into the resolving list.
+    pub fn add_devices_to_resolving_list_from_bonds(&self) -> Result<usize, BleError> {
+        self.populate_resolving_list_from_bonds()
     }
 
     /// Restore bond-based connection filtering for RPA centrals (e.g. iOS).

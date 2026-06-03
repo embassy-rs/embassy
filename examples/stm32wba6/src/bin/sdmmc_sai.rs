@@ -275,14 +275,7 @@ async fn main(spawner: Spawner) {
             divp: Some(PllDiv::Div30),
             frac: Some(2363),
         });
-
-        config.rcc.ahb_pre = AHBPrescaler::Div1;
-        config.rcc.apb1_pre = APBPrescaler::Div1;
-        config.rcc.apb2_pre = APBPrescaler::Div1;
-        config.rcc.apb7_pre = APBPrescaler::Div1;
         config.rcc.ahb5_pre = AHB5Prescaler::Div2;
-        config.rcc.voltage_scale = VoltageScale::Range1;
-
         config.rcc.mux.sai1sel = mux::Sai1sel::Pll1Q;
     }
 
