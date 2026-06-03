@@ -28,7 +28,7 @@ ADC:
 - feat: stm32/adc: add `VrefInt::calibrated_value()` for additional chips
 
 RNG:
-- feat: stm32/rng: add configurable initialization policy (`RngConfig`) with `new_with_config`, health-test profile control, and low-power disable helper
+- feat: stm32/rng: add configurable initialization policy (`RngConfig`) with `new_with_config` and health-test profile control
 
 COMP:
 - feat: stm32/comp: add support for comp_v1 (used on G0)
