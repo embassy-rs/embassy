@@ -181,6 +181,9 @@ impl<H: Handler> crate::Handler for DfuState<H> {
                             self.reset();
                         }
                     }
+                    State::Manifest if !self.attrs.contains(DfuAttributes::WILL_DETACH) => {
+                        self.state = State::ManifestWaitReset;
+                    }
                     _ => {}
                 }
                 //TODO: Configurable poll timeout, ability to add string for Vendor error
