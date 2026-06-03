@@ -371,16 +371,42 @@ impl<'d, T: Instance> Drop for Rng<'d, T> {
 
 #[cfg(feature = "low-power")]
 impl<'d, T: Instance> crate::low_power::SealedSuspendablePeripheral for Rng<'d, T> {
+    #[cfg(rng_v1)]
     type InternalState = Peri<'d, T>;
 
+    #[cfg(not(rng_v1))]
+    type InternalState = (Peri<'d, T>, RngConfig);
+
     fn suspend(self) -> Self::InternalState {
-        unsafe { self._inner.clone_unchecked() }
+        #[cfg(not(rng_v1))]
+        {
+            let cr = T::regs().cr().read();
+
+            let config = RngConfig {
+                nistc: cr.nistc(),
+                clkdiv: cr.clkdiv(),
+                rng_config1: cr.rng_config1(),
+                rng_config2: cr.rng_config2(),
+                rng_config3: cr.rng_config3(),
+                clock_error_detector: !cr.ced(),
+                #[cfg(any(rng_v3, rng_wba6))]
+                auto_reset_disable: cr.ardis(),
+                ..Default::default()
+            };
+
+            unsafe { (self._inner.clone_unchecked(), config) }
+        }
+
+        #[cfg(rng_v1)]
+        {
+            unsafe { self._inner.clone_unchecked() }
+        }
     }
 
     fn resume(state: Self::InternalState) -> Self {
         #[cfg(not(rng_v1))]
         {
-            Self::new_inner(state, Default::default())
+            Self::new_inner(state.0, state.1)
         }
 
         #[cfg(rng_v1)]
