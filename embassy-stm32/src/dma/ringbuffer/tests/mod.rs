@@ -273,9 +273,10 @@ fn read_latest_recovers_from_overrun() {
         TestCircularTransferRequest::PositionRequest(5),
     ]);
 
-    // Should not panic or error — just returns 0 (reset to catch up).
+    // Should not panic or error — catches up and returns latest data.
     let n = ringbuf.read_latest(&mut dma, &mut read_buf);
-    assert_eq!(n, 0);
+    assert_eq!(n, 8);
+    assert_eq!(&read_buf[..n], &[13, 14, 15, 0, 1, 2, 3, 4]);
 
     // Next call after overrun recovery should return fresh data normally.
     dma.setup(vec![

@@ -277,17 +277,45 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
                     // the entire buffer contains the latest data
                     self.write_index.complete_count += 1;
                     self.cap()
-                },
+                }
                 Error::DmaUnsynced => {
                     #[cfg(feature = "defmt")]
                     defmt::error!("Ring buffer broken invariants detected!");
-                    0
-                },
+                    return 0;
+                }
             }
         });
 
-        let (read, _) = self.read_raw(available, buf);
-        read
+        // Respect frame alignment. Because read_latest reads the NEWEST data
+        // (skip at the front, read at the tail), reducing to_read moves the
+        // start forward. We must compute front_skip explicitly so the read
+        // window starts at an aligned buffer position.
+        let (to_read, front_skip) = if self.alignment > 1 {
+            // Discard any partial frame at the tail of available data, then
+            // round down to_read so it fits in buf and lands on a frame boundary.
+            let end_pos = self.read_index.as_index(self.cap(), available);
+            let aligned_available = available.saturating_sub(end_pos % self.alignment);
+            let to_read = aligned_available.min(buf.len());
+            let to_read = to_read - to_read % self.alignment;
+            (to_read, aligned_available - to_read)
+        } else {
+            let to_read = available.min(buf.len());
+            (to_read, available - to_read)
+        };
+
+        // Advance past old data to the aligned start position.
+        if front_skip > 0 {
+            self.read_index.advance(self.cap(), front_skip);
+        }
+
+        for i in 0..to_read {
+            buf[i] = self.read_buf(i);
+        }
+
+        // Advance past what we read plus any trailing partial frame.
+        self.read_index.advance(self.cap(), available - front_skip);
+
+        to_read
     }
 
     fn read_buf(&self, offset: usize) -> W {
