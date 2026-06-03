@@ -7,8 +7,8 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 #[cfg(not(stm32l0))]
 pub mod complementary_pwm;
-pub mod input_capture;
 pub mod hall;
+pub mod input_capture;
 pub mod low_level;
 pub mod one_pulse;
 pub mod pwm_input;

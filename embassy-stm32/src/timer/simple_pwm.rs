@@ -4,8 +4,6 @@ use core::marker::PhantomData;
 use core::mem::ManuallyDrop;
 
 use super::low_level::{CountingMode, OutputCompareMode, OutputPolarity, RoundTo, Timer};
-#[cfg(timer_v2)]
-use crate::timer::low_level::DitheringConfig;
 use super::ringbuffered::RingBufferedPwmChannel;
 use super::{Ch1, Ch2, Ch3, Ch4, Channel, GeneralInstance4Channel, TimerChannel, TimerPin};
 use crate::Peri;
@@ -15,6 +13,8 @@ use crate::gpio::Pull;
 use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::pac::timer::vals::Ccds;
 use crate::time::Hertz;
+#[cfg(timer_v2)]
+use crate::timer::low_level::DitheringConfig;
 
 /// PWM pin wrapper.
 ///

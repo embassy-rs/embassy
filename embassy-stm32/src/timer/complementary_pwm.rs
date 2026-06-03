@@ -3,20 +3,23 @@
 use core::marker::PhantomData;
 
 pub use super::low_level::FilterValue;
-use super::low_level::{CountingMode, OcrefClearSource, OutputPolarity, RoundTo, Timer};
 #[cfg(timer_v2)]
-use crate::timer::low_level::DitheringConfig;
+use super::low_level::OcrefClearSource;
+use super::low_level::{CountingMode, OutputPolarity, RoundTo, Timer};
 use super::simple_pwm::PwmPin;
 use super::{AdvancedInstance4Channel, Ch1, Ch2, Ch3, Ch4, Channel, TimerComplementaryPin};
 use crate::Peri;
 use crate::dma::word::Word;
 use crate::gpio::{AfType, Flex, OutputType};
+#[cfg(timer_v2)]
+pub use crate::pac::timer::vals::{Bkbid as BreakBidirectionalMode, Bkdsrm as BreakDisarmMode};
 pub use crate::pac::timer::vals::{
-    Bkbid as BreakBidirectionalMode, Bkdsrm as BreakDisarmMode, Bkinp as BreakComparatorPolarity, Bkp as BreakInputPolarity,
-    Ccds, Ckd, Mms2, Ossi, Ossr,
+    Bkinp as BreakComparatorPolarity, Bkp as BreakInputPolarity, Ccds, Ckd, Mms2, Ossi, Ossr,
 };
 use crate::time::Hertz;
 use crate::timer::TimerChannel;
+#[cfg(timer_v2)]
+use crate::timer::low_level::DitheringConfig;
 use crate::timer::low_level::OutputCompareMode;
 use crate::timer::simple_pwm::PwmPinConfig;
 
@@ -236,6 +239,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.set_moe(enable);
     }
 
+    #[cfg(timer_v2)]
     /// Select OCREF clear source.
     pub fn set_ocref_clear_source(&mut self, source: OcrefClearSource) {
         self.inner.set_ocref_clear_source(source);

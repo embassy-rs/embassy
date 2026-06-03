@@ -1395,6 +1395,7 @@ impl<'d, T: AdvancedInstance4Channel> Timer<'d, T> {
         unsafe { crate::pac::timer::TimAdv::from_ptr(T::regs()) }
     }
 
+    #[cfg(timer_v2)]
     /// Select OCREF clear source.
     pub fn set_ocref_clear_source(&self, source: OcrefClearSource) {
         self.regs_advanced().smcr().modify(|w| {
