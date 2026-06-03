@@ -35,6 +35,40 @@ impl Default for Config {
     }
 }
 
+/// Advanced QEI configuration.
+///
+/// This extends [`Config`] with optional encoder-index controls on timer variants
+/// that expose TIMx_ECR/TIMx_SR index fields.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Clone, Copy, Default)]
+pub struct AdvancedConfig {
+    /// Base QEI configuration.
+    pub base: Config,
+    /// Optional index behavior configuration.
+    #[cfg(timer_v2)]
+    pub index: Option<IndexConfig>,
+    /// Enable index event interrupt.
+    #[cfg(timer_v2)]
+    pub enable_index_interrupt: bool,
+    /// Enable direction-change interrupt.
+    #[cfg(timer_v2)]
+    pub enable_direction_change_interrupt: bool,
+}
+
+impl From<Config> for AdvancedConfig {
+    fn from(base: Config) -> Self {
+        Self {
+            base,
+            #[cfg(timer_v2)]
+            index: None,
+            #[cfg(timer_v2)]
+            enable_index_interrupt: false,
+            #[cfg(timer_v2)]
+            enable_direction_change_interrupt: false,
+        }
+    }
+}
+
 /// See STMicro AN4013 for §2.3 for more information
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Clone, Copy)]
@@ -55,6 +89,17 @@ impl From<QeiMode> for Sms {
             QeiMode::Mode3 => Sms::EncoderMode3,
         }
     }
+}
+
+#[cfg(timer_v2)]
+/// Encoder index configuration (TIMx_ECR fields).
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Clone, Copy)]
+pub struct IndexConfig {
+    /// Index-direction selection.
+    pub direction: vals::Idir,
+    /// Index position selection.
+    pub position: vals::Fidx,
 }
 
 /// Counting direction
@@ -93,6 +138,17 @@ impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
         ch2: Peri<'d, if_afio!(impl TimerPin<T, CH2, A>)>,
         config: Config,
     ) -> Self {
+        Self::new_advanced(tim, ch1, ch2, config.into())
+    }
+
+    /// Create a new quadrature decoder driver with extended encoder options.
+    #[allow(unused)]
+    pub fn new_advanced<CH1: QeiChannel, CH2: QeiChannel, #[cfg(afio)] A>(
+        tim: Peri<'d, T>,
+        ch1: Peri<'d, if_afio!(impl TimerPin<T, CH1, A>)>,
+        ch2: Peri<'d, if_afio!(impl TimerPin<T, CH2, A>)>,
+        config: AdvancedConfig,
+    ) -> Self {
         // Configure the pins to be used for the QEI peripheral.
         critical_section::with(|_| {
             ch1.set_low();
@@ -118,16 +174,28 @@ impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
         });
 
         r.smcr().modify(|w| {
-            w.set_sms(config.mode.into());
+            w.set_sms(config.base.mode.into());
         });
 
-        r.arr().modify(|w| w.set_arr(config.auto_reload));
+        r.arr().modify(|w| w.set_arr(config.base.auto_reload));
         r.cr1().modify(|w| w.set_cen(true));
+
+        #[cfg(timer_v2)]
+        if let Some(index) = config.index {
+            inner.set_encoder_index_direction(index.direction);
+            inner.set_encoder_index_position(index.position);
+        }
+
+        #[cfg(timer_v2)]
+        {
+            inner.enable_encoder_index_interrupt(config.enable_index_interrupt);
+            inner.enable_encoder_direction_change_interrupt(config.enable_direction_change_interrupt);
+        }
 
         Self {
             inner,
-            _ch1: new_pin!(ch1, AfType::input(config.ch1_pull)).unwrap(),
-            _ch2: new_pin!(ch2, AfType::input(config.ch2_pull)).unwrap(),
+            _ch1: new_pin!(ch1, AfType::input(config.base.ch1_pull)).unwrap(),
+            _ch2: new_pin!(ch2, AfType::input(config.base.ch2_pull)).unwrap(),
         }
     }
 
@@ -147,5 +215,29 @@ impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
     /// Reset count.
     pub fn reset(&mut self) {
         self.inner.regs_gp16().cnt().modify(|w| w.set_cnt(0));
+    }
+
+    #[cfg(timer_v2)]
+    /// Check whether an encoder index event interrupt is pending.
+    pub fn index_event_pending(&self) -> bool {
+        self.inner.get_encoder_index_interrupt()
+    }
+
+    #[cfg(timer_v2)]
+    /// Clear encoder index event interrupt pending state.
+    pub fn clear_index_event(&self) {
+        self.inner.clear_encoder_index_interrupt();
+    }
+
+    #[cfg(timer_v2)]
+    /// Check whether a direction-change interrupt is pending.
+    pub fn direction_change_pending(&self) -> bool {
+        self.inner.get_encoder_direction_change_interrupt()
+    }
+
+    #[cfg(timer_v2)]
+    /// Clear direction-change interrupt pending state.
+    pub fn clear_direction_change(&self) {
+        self.inner.clear_encoder_direction_change_interrupt();
     }
 }
