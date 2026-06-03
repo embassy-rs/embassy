@@ -25,7 +25,7 @@
 //! executor is the preferred way to lower power consumption if you're using `async`, instead of calling `sleep()` directly.
 
 use core::mem;
-use core::mem::{ManuallyDrop, transmute_copy};
+use core::mem::ManuallyDrop;
 use core::ops::{Deref, DerefMut};
 use core::sync::atomic::{AtomicBool, Ordering, compiler_fence};
 
