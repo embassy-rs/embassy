@@ -11,7 +11,7 @@ use crate::bluetooth::hci::Status;
 
 const BLE_STATUS_SUCCESS: u8 = 0x00;
 
-#[cfg(stm32wba)]
+#[cfg(feature = "wba")]
 mod ffi {
     unsafe extern "C" {
         #[link_name = "ACI_GATT_DISC_ALL_PRIMARY_SERVICES"]
@@ -93,7 +93,7 @@ mod ffi {
     }
 }
 
-#[cfg(not(stm32wba))]
+#[cfg(not(feature = "wba"))]
 mod ffi {
     pub use stm32_bindings::ble::{
         aci_att_execute_write_req, aci_att_prepare_write_req, aci_gatt_confirm_indication, aci_gatt_disc_all_char_desc,
