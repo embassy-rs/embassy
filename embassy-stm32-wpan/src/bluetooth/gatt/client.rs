@@ -11,6 +11,23 @@ use crate::bluetooth::hci::Status;
 
 const BLE_STATUS_SUCCESS: u8 = 0x00;
 
+#[cfg(stm32wba)]
+unsafe extern "C" {
+    fn ACI_GATT_DISC_ALL_PRIMARY_SERVICES(conn_handle: u16) -> u8;
+}
+
+#[cfg(stm32wba)]
+#[inline]
+unsafe fn disc_all_primary_services(conn_handle: u16) -> u8 {
+    ACI_GATT_DISC_ALL_PRIMARY_SERVICES(conn_handle)
+}
+
+#[cfg(not(stm32wba))]
+#[inline]
+unsafe fn disc_all_primary_services(conn_handle: u16) -> u8 {
+    ble::aci_gatt_disc_all_primary_services(conn_handle)
+}
+
 /// Minimal GATT client helper.
 pub struct GattClient {
     _private: (),
@@ -23,7 +40,7 @@ impl GattClient {
 
     /// Discover all primary services on the peer.
     pub fn discover_all_primary_services(&self, conn_handle: u16) -> Result<(), BleError> {
-        let status = unsafe { ble::aci_gatt_disc_all_primary_services(conn_handle) };
+        let status = unsafe { disc_all_primary_services(conn_handle) };
         check_status(status)
     }
 
