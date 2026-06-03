@@ -167,9 +167,13 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
     /// Error is returned if the portion to be read was overwritten by the DMA controller,
     /// in which case the rinbuffer will automatically reset itself.
     pub fn read(&mut self, dma: &mut impl DmaCtrl, buf: &mut [W]) -> Result<(usize, usize), Error> {
-        self.read_raw(dma, buf).inspect_err(|_e| {
+        fence(Ordering::Acquire);
+
+        let available = self.sync_len(dma).inspect_err(|_e| {
             self.reset(dma);
-        })
+        })?;
+
+        Ok(self.read_raw(available, buf))
     }
 
     /// Read an exact number of elements from the ringbuffer.
@@ -205,11 +209,7 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
         .await
     }
 
-    fn read_raw(&mut self, dma: &mut impl DmaCtrl, buf: &mut [W]) -> Result<(usize, usize), Error> {
-        fence(Ordering::Acquire);
-
-        let mut available = self.sync_len(dma)?;
-
+    fn read_raw(&mut self, mut available: usize, buf: &mut [W]) -> (usize, usize) {
         // Compute alignment skip without advancing read_index yet.
         // DMA always starts at buffer position 0 (frame-aligned) and advances
         // sequentially, so position N is frame-aligned when N % alignment == 0.
@@ -221,7 +221,7 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
                     available -= skip;
                     skip
                 } else {
-                    return Ok((0, available));
+                    return (0, available);
                 }
             } else {
                 0
@@ -250,7 +250,7 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
         self.read_index.advance(self.cap(), skip + readable);
 
         let remaining = write_snapshot.diff(self.cap(), &self.read_index).max(0) as usize;
-        Ok((readable, remaining))
+        (readable, remaining)
     }
 
     /// Read the most recent elements from the ring buffer, discarding any older data.
@@ -270,54 +270,24 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
     pub fn read_latest(&mut self, dma: &mut impl DmaCtrl, buf: &mut [W]) -> usize {
         fence(Ordering::Acquire);
 
-        self.write_index.dma_sync(self.cap(), dma);
-        DmaIndex::normalize(&mut self.write_index, &mut self.read_index);
-
-        let diff = self.write_index.diff(self.cap(), &self.read_index);
-
-        // On overrun or desync, reset the read pointer to the current write position.
-        // This means zero samples are available right now, but the next call will
-        // return fresh data without any error.
-        if diff < 0 || diff > self.cap() as isize {
+        let available = self.sync_len(dma).unwrap_or_else(|err| {
             self.read_index = self.write_index;
-            return 0;
-        }
+            match err {
+                Error::Overrun => {
+                    // the entire buffer contains the latest data
+                    self.write_index.complete_count += 1;
+                    self.cap()
+                },
+                Error::DmaUnsynced => {
+                    #[cfg(feature = "defmt")]
+                    defmt::error!("Ring buffer broken invariants detected!");
+                    0
+                },
+            }
+        });
 
-        let available = diff as usize;
-        if available == 0 {
-            return 0;
-        }
-
-        // Respect frame alignment. Because read_latest reads the NEWEST data
-        // (skip at the front, read at the tail), reducing to_read moves the
-        // start forward. We must compute front_skip explicitly so the read
-        // window starts at an aligned buffer position.
-        let (to_read, front_skip) = if self.alignment > 1 {
-            // Discard any partial frame at the tail of available data, then
-            // round down to_read so it fits in buf and lands on a frame boundary.
-            let end_pos = self.read_index.as_index(self.cap(), available);
-            let aligned_available = available.saturating_sub(end_pos % self.alignment);
-            let to_read = aligned_available.min(buf.len());
-            let to_read = to_read - to_read % self.alignment;
-            (to_read, aligned_available - to_read)
-        } else {
-            let to_read = available.min(buf.len());
-            (to_read, available - to_read)
-        };
-
-        // Advance past old data to the aligned start position.
-        if front_skip > 0 {
-            self.read_index.advance(self.cap(), front_skip);
-        }
-
-        for i in 0..to_read {
-            buf[i] = self.read_buf(i);
-        }
-
-        // Advance past what we read plus any trailing partial frame.
-        self.read_index.advance(self.cap(), available - front_skip);
-
-        to_read
+        let (read, _) = self.read_raw(available, buf);
+        read
     }
 
     fn read_buf(&self, offset: usize) -> W {
