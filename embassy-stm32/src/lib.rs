@@ -282,10 +282,31 @@ macro_rules! bind_interrupts {
 // Reexports
 pub use _generated::{Peripherals, peripherals};
 pub use embassy_hal_internal::{Peri, PeripheralType};
+#[cfg(feature = "low-power")]
+pub use low_power::ResumablePeripheral;
 #[cfg(feature = "unstable-pac")]
 pub use stm32_metapac as pac;
 #[cfg(not(feature = "unstable-pac"))]
 pub(crate) use stm32_metapac as pac;
+
+#[cfg(not(feature = "low-power"))]
+/// A mutex-like object to resume a peripheral. Does nothing when `low-power` is not enabled.
+pub struct ResumablePeripheral<T> {
+    peripheral: T,
+}
+
+#[cfg(not(feature = "low-power"))]
+impl<T> ResumablePeripheral<T> {
+    /// Create the object. Will suspend the peripheral as soon as it is passed.
+    pub fn new(peripheral: T) -> Self {
+        Self { peripheral }
+    }
+
+    /// Get the resumable peripheral guard
+    pub fn lock(&mut self) -> &mut T {
+        &mut self.peripheral
+    }
+}
 
 use crate::interrupt::Priority;
 #[cfg(feature = "rt")]

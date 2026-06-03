@@ -60,6 +60,7 @@ use core::task::Poll;
 
 use embassy_futures::join::join3;
 use embassy_futures::select::select;
+use embassy_stm32::ResumablePeripheral;
 use embassy_stm32::aes::Aes;
 use embassy_stm32::mode::{Async, Blocking};
 use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph, RNG};
@@ -77,47 +78,13 @@ use crate::ChannelPacket;
 use crate::util::Flag;
 use crate::wba::{BasicRuntime, FullRuntime, linklayer_plat, util_seq};
 
-#[cfg(feature = "low-power")]
-struct MaybeResumablePeripheral<T: embassy_stm32::low_power::SuspendablePeripheral> {
-    peripheral: embassy_stm32::low_power::ResumablePeripheral<T>,
-}
-
-#[cfg(feature = "low-power")]
-impl<T: embassy_stm32::low_power::SuspendablePeripheral> MaybeResumablePeripheral<T> {
-    fn new(peripheral: T) -> Self {
-        Self {
-            peripheral: embassy_stm32::low_power::ResumablePeripheral::new(peripheral),
-        }
-    }
-
-    fn lock(&mut self) -> embassy_stm32::low_power::ResumablePeripheralGuard<'_, T> {
-        self.peripheral.lock()
-    }
-}
-
-#[cfg(not(feature = "low-power"))]
-struct MaybeResumablePeripheral<T> {
-    peripheral: T,
-}
-
-#[cfg(not(feature = "low-power"))]
-impl<T> MaybeResumablePeripheral<T> {
-    fn new(peripheral: T) -> Self {
-        Self { peripheral }
-    }
-
-    fn lock(&mut self) -> &mut T {
-        &mut self.peripheral
-    }
-}
-
 pub struct Platform {
     channel: UnsafeCell<Channel<'static, CriticalSectionRawMutex, ChannelPacket>>,
     rng_pipe: Pipe<CriticalSectionRawMutex, 256>,
     p256_req: Signal<CriticalSectionRawMutex, ([u32; 8], [u32; 8], [u32; 8])>,
     p256_resp: Signal<CriticalSectionRawMutex, ([u32; 8], [u32; 8])>,
     ble_init: Flag,
-    rng: Mutex<CriticalSectionRawMutex, MaybeResumablePeripheral<Rng<'static, RNG>>>,
+    rng: Mutex<CriticalSectionRawMutex, ResumablePeripheral<Rng<'static, RNG>>>,
     pka: Mutex<CriticalSectionRawMutex, Option<Pka<'static, PkaPeriph, Async>>>,
     aes: Option<CriticalSectionMutex<RefCell<Aes<'static, AesPeriph, Blocking>>>>,
 }
@@ -134,7 +101,7 @@ impl Platform {
                 p256_req: Signal::new(),
                 p256_resp: Signal::new(),
                 ble_init: Flag::new(false),
-                rng: Mutex::new(MaybeResumablePeripheral::new(rng)),
+                rng: Mutex::new(ResumablePeripheral::new(rng)),
                 pka: Mutex::new(None),
                 aes: None,
             },
@@ -155,7 +122,7 @@ impl Platform {
                 p256_req: Signal::new(),
                 p256_resp: Signal::new(),
                 ble_init: Flag::new(false),
-                rng: Mutex::new(MaybeResumablePeripheral::new(rng)),
+                rng: Mutex::new(ResumablePeripheral::new(rng)),
                 pka: Mutex::new(Some(pka)),
                 aes: Some(CriticalSectionMutex::new(RefCell::new(aes))),
             },
