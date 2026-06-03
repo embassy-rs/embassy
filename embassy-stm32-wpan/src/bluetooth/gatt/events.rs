@@ -296,7 +296,7 @@ pub fn is_value_handle(char_handle: u16, attr_handle: u16) -> bool {
 pub fn from_vendor_event(event: &VendorEvent) -> Option<GattEvent> {
     match event {
         VendorEvent::GattAttributeModified(e) => {
-            let mut data = heapless::Vec::<u8, 247>::new();
+            let mut data = heapless::Vec::<u8, 512>::new();
             let _ = data.extend_from_slice(e.data());
             Some(GattEvent::AttributeModified {
                 conn_handle: e.conn_handle,
@@ -321,7 +321,7 @@ pub fn from_vendor_event(event: &VendorEvent) -> Option<GattEvent> {
             server_mtu: e.server_rx_mtu as u16,
         }),
         VendorEvent::AttWritePermitRequest(e) => {
-            let mut data = heapless::Vec::<u8, 247>::new();
+            let mut data = heapless::Vec::<u8, 512>::new();
             let _ = data.extend_from_slice(e.value());
             Some(GattEvent::WritePermitRequest {
                 conn_handle: e.conn_handle,
