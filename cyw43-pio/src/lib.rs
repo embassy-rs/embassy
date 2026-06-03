@@ -15,12 +15,13 @@ use fixed::FixedU32;
 use fixed::types::extra::U8;
 
 /// SPI comms driven by PIO.
-pub struct PioSpi<'d, PIO: Instance, const SM: usize, DMA: Channel> {
+pub struct PioSpi<'a, 'd, PIO: Instance, const SM: usize, DMA: Channel> {
     cs: Output<'d>,
     sm: StateMachine<'d, PIO, SM>,
     irq: Irq<'d, PIO, 0>,
     dma: Peri<'d, DMA>,
     wrap_target: u8,
+    common: core::marker::PhantomData<&'a mut Common<'d, PIO>>,
 }
 
 /// The default clock divider that works for Pico 1 and 2 W. As well as the RM2 on rp2040 devices.
@@ -42,14 +43,15 @@ pub const OVERCLOCK_CLOCK_DIVIDER: FixedU32<U8> = FixedU32::from_bits(0x0100);
 /// Pico Plus 2 Non w with the RM2 breakout module, and the Pico 2 with the RM2 breakout module.
 pub const RM2_CLOCK_DIVIDER: FixedU32<U8> = FixedU32::from_bits(0x0300);
 
-impl<'d, PIO, const SM: usize, DMA> PioSpi<'d, PIO, SM, DMA>
+impl<'a, 'd, PIO, const SM: usize, DMA> PioSpi<'a, 'd, PIO, SM, DMA>
 where
+    'd: 'a,
     DMA: Channel,
     PIO: Instance,
 {
     /// Create a new instance of PioSpi.
     pub fn new(
-        common: &mut Common<'d, PIO>,
+        common: &'a mut Common<'d, PIO>,
         mut sm: StateMachine<'d, PIO, SM>,
         clock_divider: FixedU32<U8>,
         irq: Irq<'d, PIO, 0>,
@@ -144,6 +146,7 @@ where
             irq,
             dma: dma,
             wrap_target: loaded_program.wrap.target,
+            common: core::marker::PhantomData,
         }
     }
 
@@ -216,7 +219,7 @@ where
     }
 }
 
-impl<'d, PIO, const SM: usize, DMA> SpiBusCyw43 for PioSpi<'d, PIO, SM, DMA>
+impl<'a, 'd, PIO, const SM: usize, DMA> SpiBusCyw43 for PioSpi<'a, 'd, PIO, SM, DMA>
 where
     PIO: Instance,
     DMA: Channel,
