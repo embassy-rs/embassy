@@ -69,6 +69,10 @@ impl<'d, T: Instance> Rng<'d, T> {
         inner: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
+        Self::new_inner(inner)
+    }
+
+    fn new_inner(inner: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
 
         // Verify clock is available
@@ -262,6 +266,19 @@ impl<'d, T: Instance> Drop for Rng<'d, T> {
             reg.set_rngen(false);
         });
         rcc::disable::<T>();
+    }
+}
+
+#[cfg(feature = "low-power")]
+impl<'d, T: Instance> crate::low_power::SealedSuspendablePeripheral for Rng<'d, T> {
+    type InternalState = Peri<'d, T>;
+
+    fn suspend(self) -> Self::InternalState {
+        unsafe { self._inner.clone_unchecked() }
+    }
+
+    fn resume(state: Self::InternalState) -> Self {
+        Self::new_inner(state)
     }
 }
 
