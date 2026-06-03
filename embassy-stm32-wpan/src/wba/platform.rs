@@ -77,19 +77,53 @@ use crate::ChannelPacket;
 use crate::util::Flag;
 use crate::wba::{BasicRuntime, FullRuntime, linklayer_plat, util_seq};
 
+#[cfg(feature = "low-power")]
+struct MaybeResumablePeripheral<T: embassy_stm32::low_power::SuspendablePeripheral> {
+    peripheral: embassy_stm32::low_power::ResumablePeripheral<T>,
+}
+
+#[cfg(feature = "low-power")]
+impl<T: embassy_stm32::low_power::SuspendablePeripheral> MaybeResumablePeripheral<T> {
+    fn new(peripheral: T) -> Self {
+        Self {
+            peripheral: embassy_stm32::low_power::ResumablePeripheral::new(peripheral),
+        }
+    }
+
+    fn lock(&mut self) -> embassy_stm32::low_power::ResumablePeripheralGuard<'_, T> {
+        self.peripheral.lock()
+    }
+}
+
+#[cfg(not(feature = "low-power"))]
+struct MaybeResumablePeripheral<T> {
+    peripheral: T,
+}
+
+#[cfg(not(feature = "low-power"))]
+impl<T> MaybeResumablePeripheral<T> {
+    fn new(peripheral: T) -> Self {
+        Self { peripheral }
+    }
+
+    fn lock(&mut self) -> &mut T {
+        &mut self.peripheral
+    }
+}
+
 pub struct Platform {
     channel: UnsafeCell<Channel<'static, CriticalSectionRawMutex, ChannelPacket>>,
     rng_pipe: Pipe<CriticalSectionRawMutex, 256>,
     p256_req: Signal<CriticalSectionRawMutex, ([u32; 8], [u32; 8], [u32; 8])>,
     p256_resp: Signal<CriticalSectionRawMutex, ([u32; 8], [u32; 8])>,
     ble_init: Flag,
-    rng: Mutex<CriticalSectionRawMutex, Rng<'static, RNG>>,
+    rng: Mutex<CriticalSectionRawMutex, MaybeResumablePeripheral<Rng<'static, RNG>>>,
     pka: Mutex<CriticalSectionRawMutex, Option<Pka<'static, PkaPeriph, Async>>>,
     aes: Option<CriticalSectionMutex<RefCell<Aes<'static, AesPeriph, Blocking>>>>,
 }
 
 impl Platform {
-    pub const fn new_basic<const N: usize>(
+    pub fn new_basic<const N: usize>(
         buf: &'static mut [ChannelPacket; N],
         rng: Rng<'static, RNG>,
     ) -> (Self, BasicRuntime) {
@@ -100,7 +134,7 @@ impl Platform {
                 p256_req: Signal::new(),
                 p256_resp: Signal::new(),
                 ble_init: Flag::new(false),
-                rng: Mutex::new(rng),
+                rng: Mutex::new(MaybeResumablePeripheral::new(rng)),
                 pka: Mutex::new(None),
                 aes: None,
             },
@@ -108,7 +142,7 @@ impl Platform {
         )
     }
 
-    pub const fn new_full<const N: usize>(
+    pub fn new_full<const N: usize>(
         buf: &'static mut [ChannelPacket; N],
         rng: Rng<'static, RNG>,
         pka: Pka<'static, PkaPeriph, Async>,
@@ -121,7 +155,7 @@ impl Platform {
                 p256_req: Signal::new(),
                 p256_resp: Signal::new(),
                 ble_init: Flag::new(false),
-                rng: Mutex::new(rng),
+                rng: Mutex::new(MaybeResumablePeripheral::new(rng)),
                 pka: Mutex::new(Some(pka)),
                 aes: Some(CriticalSectionMutex::new(RefCell::new(aes))),
             },
@@ -261,7 +295,7 @@ impl Platform {
 
                 loop {
                     let mut buf = [0u8; 64];
-                    if let Err(e) = rng.async_fill_bytes(&mut buf).await {
+                    if let Err(e) = rng.lock().async_fill_bytes(&mut buf).await {
                         warn!("rng: err during fill bytes: {}", e);
 
                         continue;
