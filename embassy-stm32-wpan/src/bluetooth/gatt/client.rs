@@ -13,6 +13,8 @@ const BLE_STATUS_SUCCESS: u8 = 0x00;
 
 #[cfg(feature = "wba")]
 mod ffi {
+    use stm32_bindings::ble;
+
     unsafe extern "C" {
         #[link_name = "ACI_GATT_DISC_ALL_PRIMARY_SERVICES"]
         pub fn aci_gatt_disc_all_primary_services(conn_handle: u16) -> u8;
