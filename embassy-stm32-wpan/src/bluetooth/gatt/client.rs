@@ -12,20 +12,97 @@ use crate::bluetooth::hci::Status;
 const BLE_STATUS_SUCCESS: u8 = 0x00;
 
 #[cfg(stm32wba)]
-unsafe extern "C" {
-    fn ACI_GATT_DISC_ALL_PRIMARY_SERVICES(conn_handle: u16) -> u8;
-}
-
-#[cfg(stm32wba)]
-#[inline]
-unsafe fn disc_all_primary_services(conn_handle: u16) -> u8 {
-    ACI_GATT_DISC_ALL_PRIMARY_SERVICES(conn_handle)
+mod ffi {
+    unsafe extern "C" {
+        #[link_name = "ACI_GATT_DISC_ALL_PRIMARY_SERVICES"]
+        pub fn aci_gatt_disc_all_primary_services(conn_handle: u16) -> u8;
+        #[link_name = "ACI_GATT_DISC_PRIMARY_SERVICE_BY_UUID"]
+        pub fn aci_gatt_disc_primary_service_by_uuid(conn_handle: u16, uuid_type: u8, uuid: *const ble::UUID_t) -> u8;
+        #[link_name = "ACI_GATT_DISC_ALL_CHAR_OF_SERVICE"]
+        pub fn aci_gatt_disc_all_char_of_service(conn_handle: u16, start_handle: u16, end_handle: u16) -> u8;
+        #[link_name = "ACI_GATT_DISC_ALL_CHAR_DESC"]
+        pub fn aci_gatt_disc_all_char_desc(conn_handle: u16, value_handle: u16, end_handle: u16) -> u8;
+        #[link_name = "ACI_GATT_FIND_INCLUDED_SERVICES"]
+        pub fn aci_gatt_find_included_services(conn_handle: u16, start_handle: u16, end_handle: u16) -> u8;
+        #[link_name = "ACI_GATT_DISC_CHAR_BY_UUID"]
+        pub fn aci_gatt_disc_char_by_uuid(
+            conn_handle: u16,
+            start_handle: u16,
+            end_handle: u16,
+            uuid_type: u8,
+            uuid: *const ble::UUID_t,
+        ) -> u8;
+        #[link_name = "ACI_GATT_READ_CHAR_VALUE"]
+        pub fn aci_gatt_read_char_value(conn_handle: u16, attr_handle: u16) -> u8;
+        #[link_name = "ACI_GATT_READ_USING_CHAR_UUID"]
+        pub fn aci_gatt_read_using_char_uuid(
+            conn_handle: u16,
+            start_handle: u16,
+            end_handle: u16,
+            uuid_type: u8,
+            uuid: *const ble::UUID_t,
+        ) -> u8;
+        #[link_name = "ACI_GATT_READ_MULTIPLE_CHAR_VALUE"]
+        pub fn aci_gatt_read_multiple_char_value(
+            conn_handle: u16,
+            count: u8,
+            entries: *const ble::Handle_Entry_t,
+        ) -> u8;
+        #[link_name = "ACI_GATT_READ_MULTIPLE_VAR_CHAR_VALUE"]
+        pub fn aci_gatt_read_multiple_var_char_value(
+            conn_handle: u16,
+            count: u8,
+            entries: *const ble::Handle_Entry_t,
+        ) -> u8;
+        #[link_name = "ACI_GATT_READ_LONG_CHAR_VALUE"]
+        pub fn aci_gatt_read_long_char_value(conn_handle: u16, attr_handle: u16, offset: u16) -> u8;
+        #[link_name = "ACI_GATT_WRITE_CHAR_VALUE"]
+        pub fn aci_gatt_write_char_value(conn_handle: u16, attr_handle: u16, len: u8, data: *const u8) -> u8;
+        #[link_name = "ACI_GATT_WRITE_WITHOUT_RESP"]
+        pub fn aci_gatt_write_without_resp(conn_handle: u16, attr_handle: u16, len: u8, data: *const u8) -> u8;
+        #[link_name = "ACI_GATT_WRITE_LONG_CHAR_VALUE"]
+        pub fn aci_gatt_write_long_char_value(
+            conn_handle: u16,
+            attr_handle: u16,
+            offset: u16,
+            len: u8,
+            data: *const u8,
+        ) -> u8;
+        #[link_name = "ACI_GATT_WRITE_CHAR_RELIABLE"]
+        pub fn aci_gatt_write_char_reliable(
+            conn_handle: u16,
+            attr_handle: u16,
+            offset: u16,
+            len: u8,
+            data: *const u8,
+        ) -> u8;
+        #[link_name = "ACI_ATT_PREPARE_WRITE_REQ"]
+        pub fn aci_att_prepare_write_req(
+            conn_handle: u16,
+            attr_handle: u16,
+            offset: u16,
+            len: u8,
+            data: *const u8,
+        ) -> u8;
+        #[link_name = "ACI_ATT_EXECUTE_WRITE_REQ"]
+        pub fn aci_att_execute_write_req(conn_handle: u16, execute: u8) -> u8;
+        #[link_name = "ACI_GATT_EXCHANGE_CONFIG"]
+        pub fn aci_gatt_exchange_config(conn_handle: u16) -> u8;
+        #[link_name = "ACI_GATT_CONFIRM_INDICATION"]
+        pub fn aci_gatt_confirm_indication(conn_handle: u16) -> u8;
+    }
 }
 
 #[cfg(not(stm32wba))]
-#[inline]
-unsafe fn disc_all_primary_services(conn_handle: u16) -> u8 {
-    ble::aci_gatt_disc_all_primary_services(conn_handle)
+mod ffi {
+    pub use stm32_bindings::ble::{
+        aci_att_execute_write_req, aci_att_prepare_write_req, aci_gatt_confirm_indication, aci_gatt_disc_all_char_desc,
+        aci_gatt_disc_all_char_of_service, aci_gatt_disc_all_primary_services, aci_gatt_disc_char_by_uuid,
+        aci_gatt_disc_primary_service_by_uuid, aci_gatt_exchange_config, aci_gatt_find_included_services,
+        aci_gatt_read_char_value, aci_gatt_read_long_char_value, aci_gatt_read_multiple_char_value,
+        aci_gatt_read_multiple_var_char_value, aci_gatt_read_using_char_uuid, aci_gatt_write_char_reliable,
+        aci_gatt_write_char_value, aci_gatt_write_long_char_value, aci_gatt_write_without_resp,
+    };
 }
 
 /// Minimal GATT client helper.
@@ -40,14 +117,14 @@ impl GattClient {
 
     /// Discover all primary services on the peer.
     pub fn discover_all_primary_services(&self, conn_handle: u16) -> Result<(), BleError> {
-        let status = unsafe { disc_all_primary_services(conn_handle) };
+        let status = unsafe { ffi::aci_gatt_disc_all_primary_services(conn_handle) };
         check_status(status)
     }
 
     /// Discover primary services by UUID.
     pub fn discover_primary_service_by_uuid(&self, conn_handle: u16, uuid: Uuid) -> Result<(), BleError> {
         let (uuid_type, uuid_union) = to_uuid_union(uuid);
-        let status = unsafe { ble::aci_gatt_disc_primary_service_by_uuid(conn_handle, uuid_type, &uuid_union) };
+        let status = unsafe { ffi::aci_gatt_disc_primary_service_by_uuid(conn_handle, uuid_type, &uuid_union) };
         check_status(status)
     }
 
@@ -63,7 +140,7 @@ impl GattClient {
         service_end_handle: u16,
     ) -> Result<(), BleError> {
         let status =
-            unsafe { ble::aci_gatt_disc_all_char_of_service(conn_handle, service_start_handle, service_end_handle) };
+            unsafe { ffi::aci_gatt_disc_all_char_of_service(conn_handle, service_start_handle, service_end_handle) };
         check_status(status)
     }
 
@@ -78,7 +155,7 @@ impl GattClient {
         char_value_handle: u16,
         char_end_handle: u16,
     ) -> Result<(), BleError> {
-        let status = unsafe { ble::aci_gatt_disc_all_char_desc(conn_handle, char_value_handle, char_end_handle) };
+        let status = unsafe { ffi::aci_gatt_disc_all_char_desc(conn_handle, char_value_handle, char_end_handle) };
         check_status(status)
     }
 
@@ -90,7 +167,7 @@ impl GattClient {
         service_end_handle: u16,
     ) -> Result<(), BleError> {
         let status =
-            unsafe { ble::aci_gatt_find_included_services(conn_handle, service_start_handle, service_end_handle) };
+            unsafe { ffi::aci_gatt_find_included_services(conn_handle, service_start_handle, service_end_handle) };
         check_status(status)
     }
 
@@ -104,7 +181,7 @@ impl GattClient {
     ) -> Result<(), BleError> {
         let (uuid_type, uuid_union) = to_uuid_union(uuid);
         let status = unsafe {
-            ble::aci_gatt_disc_char_by_uuid(
+            ffi::aci_gatt_disc_char_by_uuid(
                 conn_handle,
                 service_start_handle,
                 service_end_handle,
@@ -117,7 +194,7 @@ impl GattClient {
 
     /// Read a characteristic or descriptor value.
     pub fn read_value(&self, conn_handle: u16, attr_handle: u16) -> Result<(), BleError> {
-        let status = unsafe { ble::aci_gatt_read_char_value(conn_handle, attr_handle) };
+        let status = unsafe { ffi::aci_gatt_read_char_value(conn_handle, attr_handle) };
         check_status(status)
     }
 
@@ -131,7 +208,7 @@ impl GattClient {
     ) -> Result<(), BleError> {
         let (uuid_type, uuid_union) = to_uuid_union(uuid);
         let status = unsafe {
-            ble::aci_gatt_read_using_char_uuid(conn_handle, start_handle, end_handle, uuid_type, &uuid_union)
+            ffi::aci_gatt_read_using_char_uuid(conn_handle, start_handle, end_handle, uuid_type, &uuid_union)
         };
         check_status(status)
     }
@@ -142,7 +219,7 @@ impl GattClient {
     pub fn read_multiple_values(&self, conn_handle: u16, attr_handles: &[u16]) -> Result<(), BleError> {
         let entries = to_handle_entries(attr_handles)?;
         let status =
-            unsafe { ble::aci_gatt_read_multiple_char_value(conn_handle, entries.len() as u8, entries.as_ptr()) };
+            unsafe { ffi::aci_gatt_read_multiple_char_value(conn_handle, entries.len() as u8, entries.as_ptr()) };
         check_status(status)
     }
 
@@ -152,13 +229,13 @@ impl GattClient {
     pub fn read_multiple_variable_values(&self, conn_handle: u16, attr_handles: &[u16]) -> Result<(), BleError> {
         let entries = to_handle_entries(attr_handles)?;
         let status =
-            unsafe { ble::aci_gatt_read_multiple_var_char_value(conn_handle, entries.len() as u8, entries.as_ptr()) };
+            unsafe { ffi::aci_gatt_read_multiple_var_char_value(conn_handle, entries.len() as u8, entries.as_ptr()) };
         check_status(status)
     }
 
     /// Read a long characteristic/descriptor value from a given offset.
     pub fn read_long_value(&self, conn_handle: u16, attr_handle: u16, offset: u16) -> Result<(), BleError> {
-        let status = unsafe { ble::aci_gatt_read_long_char_value(conn_handle, attr_handle, offset) };
+        let status = unsafe { ffi::aci_gatt_read_long_char_value(conn_handle, attr_handle, offset) };
         check_status(status)
     }
 
@@ -168,7 +245,7 @@ impl GattClient {
             return Err(BleError::InvalidParameter);
         }
         let status =
-            unsafe { ble::aci_gatt_write_char_value(conn_handle, attr_handle, value.len() as u8, value.as_ptr()) };
+            unsafe { ffi::aci_gatt_write_char_value(conn_handle, attr_handle, value.len() as u8, value.as_ptr()) };
         check_status(status)
     }
 
@@ -188,7 +265,7 @@ impl GattClient {
             return Err(BleError::InvalidParameter);
         }
         let status =
-            unsafe { ble::aci_gatt_write_without_resp(conn_handle, attr_handle, value.len() as u8, value.as_ptr()) };
+            unsafe { ffi::aci_gatt_write_without_resp(conn_handle, attr_handle, value.len() as u8, value.as_ptr()) };
         check_status(status)
     }
 
@@ -204,7 +281,7 @@ impl GattClient {
             return Err(BleError::InvalidParameter);
         }
         let status = unsafe {
-            ble::aci_gatt_write_long_char_value(conn_handle, attr_handle, offset, value.len() as u8, value.as_ptr())
+            ffi::aci_gatt_write_long_char_value(conn_handle, attr_handle, offset, value.len() as u8, value.as_ptr())
         };
         check_status(status)
     }
@@ -221,7 +298,7 @@ impl GattClient {
             return Err(BleError::InvalidParameter);
         }
         let status = unsafe {
-            ble::aci_gatt_write_char_reliable(conn_handle, attr_handle, offset, value.len() as u8, value.as_ptr())
+            ffi::aci_gatt_write_char_reliable(conn_handle, attr_handle, offset, value.len() as u8, value.as_ptr())
         };
         check_status(status)
     }
@@ -232,26 +309,26 @@ impl GattClient {
             return Err(BleError::InvalidParameter);
         }
         let status = unsafe {
-            ble::aci_att_prepare_write_req(conn_handle, attr_handle, offset, value.len() as u8, value.as_ptr())
+            ffi::aci_att_prepare_write_req(conn_handle, attr_handle, offset, value.len() as u8, value.as_ptr())
         };
         check_status(status)
     }
 
     /// Execute or cancel all prepared writes for the connection.
     pub fn execute_write(&self, conn_handle: u16, execute: bool) -> Result<(), BleError> {
-        let status = unsafe { ble::aci_att_execute_write_req(conn_handle, execute as u8) };
+        let status = unsafe { ffi::aci_att_execute_write_req(conn_handle, execute as u8) };
         check_status(status)
     }
 
     /// Request ATT exchange configuration procedure.
     pub fn exchange_configuration(&self, conn_handle: u16) -> Result<(), BleError> {
-        let status = unsafe { ble::aci_gatt_exchange_config(conn_handle) };
+        let status = unsafe { ffi::aci_gatt_exchange_config(conn_handle) };
         check_status(status)
     }
 
     /// Confirm an indication from the peer.
     pub fn confirm_indication(&self, conn_handle: u16) -> Result<(), BleError> {
-        let status = unsafe { ble::aci_gatt_confirm_indication(conn_handle) };
+        let status = unsafe { ffi::aci_gatt_confirm_indication(conn_handle) };
         check_status(status)
     }
 }
