@@ -957,6 +957,13 @@ where
     /// This function sends the contents of the provided buffer to the I2C controller
     /// asynchronously.
     ///
+    /// If the controller continues clocking out bytes after the buffer has been
+    /// fully transmitted (for example, an I2C-HID host that reads a fixed block
+    /// size larger than the prepared response), the async implementation pads
+    /// the remainder of the transaction with `0x00` bytes until the controller
+    /// issues STOP or repeated START. This avoids indefinite SCL clock
+    /// stretching when the firmware has nothing more to send.
+    ///
     /// # Parameters
     ///
     /// - `buf`: The buffer containing the data to transmit.
