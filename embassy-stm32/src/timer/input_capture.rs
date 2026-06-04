@@ -23,6 +23,22 @@ enum InputType<'d> {
 }
 
 /// Capture pin wrapper.
+pub struct CapturePin {
+    _private: (),
+}
+
+impl CapturePin {
+    /// Create a new capture pin instance.
+    #[deprecated = "use `CaptureInput::from_pin`"]
+    pub fn new<'d, T: GeneralInstance4Channel, C: TimerChannel, #[cfg(afio)] A>(
+        pin: Peri<'d, if_afio!(impl TimerPin<T, C, A>)>,
+        pull: Pull,
+    ) -> if_afio!(CaptureInput<'d, T, C, A>) {
+        CaptureInput::from_pin(pin, pull)
+    }
+}
+
+/// Capture pin wrapper.
 ///
 /// This wraps a pin or trigger to make it usable with capture.
 pub struct CaptureInput<'d, T, C, #[cfg(afio)] A> {
