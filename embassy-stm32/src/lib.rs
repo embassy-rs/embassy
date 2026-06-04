@@ -312,7 +312,7 @@ pub mod low_power {
 
         /// Resume the peripheral and get a mutable reference to it
         pub fn resume(&mut self) -> &mut T {
-            self.0
+            &mut self.0
         }
 
         /// Get the resumable peripheral guard
