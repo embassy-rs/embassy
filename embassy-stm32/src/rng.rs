@@ -369,14 +369,14 @@ impl<'d, T: Instance> Drop for Rng<'d, T> {
     }
 }
 
-#[cfg(feature = "low-power")]
 impl<'d, T: Instance> crate::low_power::SealedSuspendablePeripheral for Rng<'d, T> {
-    #[cfg(rng_v1)]
+    #[cfg(all(feature = "low-power", rng_v1))]
     type InternalState = Peri<'d, T>;
 
-    #[cfg(not(rng_v1))]
+    #[cfg(all(feature = "low-power", not(rng_v1)))]
     type InternalState = (Peri<'d, T>, RngConfig);
 
+    #[cfg(feature = "low-power")]
     fn suspend(self) -> Self::InternalState {
         #[cfg(not(rng_v1))]
         {
@@ -403,6 +403,7 @@ impl<'d, T: Instance> crate::low_power::SealedSuspendablePeripheral for Rng<'d, 
         }
     }
 
+    #[cfg(feature = "low-power")]
     fn resume(state: Self::InternalState) -> Self {
         #[cfg(not(rng_v1))]
         {

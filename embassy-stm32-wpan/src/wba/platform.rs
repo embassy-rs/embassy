@@ -60,8 +60,8 @@ use core::task::Poll;
 
 use embassy_futures::join::join3;
 use embassy_futures::select::select;
-use embassy_stm32::ResumablePeripheral;
 use embassy_stm32::aes::Aes;
+use embassy_stm32::low_power::ResumablePeripheral;
 use embassy_stm32::mode::{Async, Blocking};
 use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph, RNG};
 use embassy_stm32::pka::Pka;

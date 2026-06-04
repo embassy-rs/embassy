@@ -24,10 +24,10 @@
 //! in the `embassy_stm32::executor` module, and is enabled by the `executor-thread` or `executor-interrupt` features. This stm32-specific
 //! executor is the preferred way to lower power consumption if you're using `async`, instead of calling `sleep()` directly.
 
-use core::mem;
 use core::mem::ManuallyDrop;
 use core::ops::{Deref, DerefMut};
 use core::sync::atomic::{AtomicBool, Ordering, compiler_fence};
+use core::{mem, ptr};
 
 use cortex_m::peripheral::SCB;
 use critical_section::CriticalSection;
@@ -413,10 +413,6 @@ impl<T: SuspendablePeripheral> SuspendedPeripheral<T> {
     }
 }
 
-unsafe fn transmute_ref<T>(src: &T) -> T {
-    unsafe { mem::transmute_copy(src) }
-}
-
 enum ResumableState<T: SuspendablePeripheral> {
     Suspended(SuspendedPeripheral<T>),
     Resumed(T),
@@ -439,8 +435,8 @@ impl<T: SuspendablePeripheral> ResumablePeripheral<T> {
     pub fn lock(&mut self) -> ResumablePeripheralGuard<'_, T> {
         if let ResumableState::Suspended(peripheral) = &*self.state {
             unsafe {
-                // self.state is ManuallyDrop, so the transmute_ref is safe
-                *self.state = ResumableState::Resumed(transmute_ref(peripheral).resume());
+                // self.state is ManuallyDrop, so the ptr::read is safe
+                *self.state = ResumableState::Resumed(ptr::read(peripheral).resume());
             }
         }
 
@@ -459,12 +455,19 @@ pub struct ResumablePeripheralGuard<'a, T: SuspendablePeripheral> {
     state: &'a mut ResumableState<T>,
 }
 
+impl<'a, T: SuspendablePeripheral> ResumablePeripheralGuard<'a, T> {
+    /// Convenience wrapper for `mem::forget`. Keeps the peripheral alive.
+    pub fn keep_alive(self) {
+        mem::forget(self);
+    }
+}
+
 impl<'a, T: SuspendablePeripheral> Drop for ResumablePeripheralGuard<'a, T> {
     fn drop(&mut self) {
         if let ResumableState::Resumed(peripheral) = &self.state {
             unsafe {
-                // self.state is ManuallyDrop, so the transmute_ref is safe
-                *self.state = ResumableState::Suspended(SuspendedPeripheral::from(transmute_ref(peripheral)));
+                // self.state is ManuallyDrop, so the ptr::read is safe
+                *self.state = ResumableState::Suspended(SuspendedPeripheral::from(ptr::read(peripheral)));
             }
         }
     }
