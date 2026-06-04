@@ -282,29 +282,57 @@ macro_rules! bind_interrupts {
 // Reexports
 pub use _generated::{Peripherals, peripherals};
 pub use embassy_hal_internal::{Peri, PeripheralType};
-#[cfg(feature = "low-power")]
-pub use low_power::ResumablePeripheral;
 #[cfg(feature = "unstable-pac")]
 pub use stm32_metapac as pac;
 #[cfg(not(feature = "unstable-pac"))]
 pub(crate) use stm32_metapac as pac;
 
 #[cfg(not(feature = "low-power"))]
-/// A mutex-like object to resume a peripheral. Does nothing when `low-power` is not enabled.
-pub struct ResumablePeripheral<T> {
-    peripheral: T,
-}
+pub mod low_power {
+    //! Low-power stub module to provide consistent API
 
-#[cfg(not(feature = "low-power"))]
-impl<T> ResumablePeripheral<T> {
-    /// Create the object. Will suspend the peripheral as soon as it is passed.
-    pub fn new(peripheral: T) -> Self {
-        Self { peripheral }
+    /// Peripheral that can be suspended
+    #[allow(private_bounds)]
+    pub trait SuspendablePeripheral: SealedSuspendablePeripheral {}
+
+    pub(crate) trait SealedSuspendablePeripheral {}
+    impl<T: SealedSuspendablePeripheral> SuspendablePeripheral for T {}
+
+    /// A mutex-like object to resume a peripheral. Does nothing when `low-power` is not enabled.
+    pub struct ResumablePeripheral<T: SuspendablePeripheral>(T);
+
+    impl<T: SuspendablePeripheral> ResumablePeripheral<T> {
+        /// Create the object. Will suspend the peripheral as soon as it is passed.
+        pub fn new(peripheral: T) -> Self {
+            Self(peripheral)
+        }
+
+        /// Get the resumable peripheral guard
+        pub fn lock(&mut self) -> ResumablePeripheralGuard<'_, T> {
+            ResumablePeripheralGuard(&mut self.0)
+        }
     }
 
-    /// Get the resumable peripheral guard
-    pub fn lock(&mut self) -> &mut T {
-        &mut self.peripheral
+    /// A mutex-like object guard, that when held, activates the peripheral
+    pub struct ResumablePeripheralGuard<'a, T: SuspendablePeripheral>(&'a mut T);
+
+    impl<'a, T: SuspendablePeripheral> ResumablePeripheralGuard<'a, T> {
+        /// Convenience wrapper for `mem::forget`. Keeps the peripheral alive.
+        pub fn keep_alive(self) {}
+    }
+
+    impl<'a, T: SuspendablePeripheral> core::ops::Deref for ResumablePeripheralGuard<'a, T> {
+        type Target = T;
+
+        fn deref(&self) -> &T {
+            self.0
+        }
+    }
+
+    impl<'a, T: SuspendablePeripheral> core::ops::DerefMut for ResumablePeripheralGuard<'a, T> {
+        fn deref_mut(&mut self) -> &mut T {
+            &mut self.0
+        }
     }
 }
 
