@@ -40,7 +40,7 @@ async fn main(spawner: Spawner) {
     spawner.spawn(unwrap!(blinky(p.PB2)));
 
     let ch3 = CaptureInput::from_pin(p.PB10, Pull::None);
-    let mut ic = InputCapture::new(p.TIM2, None, None, Some(ch3), None, Irqs, khz(1000), Default::default());
+    let mut ic = InputCapture::new(p.TIM2, None, None, ch3, None, Irqs, khz(1000), Default::default());
 
     loop {
         info!("wait for risign edge");

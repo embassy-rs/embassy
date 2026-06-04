@@ -254,7 +254,7 @@ async fn main(_spawner: Spawner) {
         reset_afio_registers();
         InputCapture::new::<AfioRemap<1>>(
             p.TIM1.reborrow(),
-            Some(CaptureInput::from_pin(p.PA8.reborrow(), Pull::Down)),
+            CaptureInput::from_pin(p.PA8.reborrow(), Pull::Down),
             None,
             None,
             None,

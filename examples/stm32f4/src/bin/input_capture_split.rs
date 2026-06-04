@@ -36,16 +36,7 @@ async fn main(spawner: Spawner) {
 
     let ch1 = CaptureInput::from_pin(p.PA0, Pull::None);
     let ch2 = CaptureInput::from_pin(p.PA1, Pull::None);
-    let ic = InputCapture::new(
-        p.TIM2,
-        Some(ch1),
-        Some(ch2),
-        None,
-        None,
-        Irqs,
-        khz(1000),
-        Default::default(),
-    );
+    let ic = InputCapture::new(p.TIM2, ch1, ch2, None, None, Irqs, khz(1000), Default::default());
 
     let chs = ic.split();
     spawner.spawn(unwrap!(capture_task_ch1(chs.ch1)));

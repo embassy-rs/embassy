@@ -40,8 +40,7 @@ async fn main(spawner: Spawner) {
     spawner.spawn(unwrap!(blinky(p.PC13)));
 
     let ch3 = CaptureInput::from_pin(p.PA2, Pull::None);
-    let mut ic =
-        InputCapture::new::<AfioRemap<0>>(p.TIM2, None, None, Some(ch3), None, Irqs, khz(1000), Default::default());
+    let mut ic = InputCapture::new::<AfioRemap<0>>(p.TIM2, None, None, ch3, None, Irqs, khz(1000), Default::default());
 
     loop {
         info!("wait for rising edge");
