@@ -474,6 +474,24 @@ impl<'d, M: Mode> I2c<'d, M> {
         });
     }
 
+    /// Recover from an I2C error by resetting FIFOs and clearing all
+    /// status flags.  Without this, a NACK or FIFO error leaves the
+    /// LPI2C controller in a state where every subsequent transaction
+    /// fails with FifoError.
+    fn recover_from_error(&self) {
+        self.reset_fifos();
+        self.info.regs().msr().write(|w| {
+            w.set_epf(Epf::IntYes);
+            w.set_sdf(MsrSdf::IntYes);
+            w.set_ndf(Ndf::IntYes);
+            w.set_alf(Alf::IntYes);
+            w.set_fef(MsrFef::IntYes);
+            w.set_pltf(Pltf::IntYes);
+            w.set_dmf(Dmf::IntYes);
+            w.set_stf(Stf::IntYes);
+        });
+    }
+
     /// Checks whether the TX FIFO is full
     fn is_tx_fifo_full(&self) -> bool {
         let txfifo_size = 1 << self.info.regs().param().read().mtxfifo();
@@ -1419,25 +1437,36 @@ impl<'d, M: Mode> embedded_hal_1::i2c::I2c for I2c<'d, M> {
         address: u8,
         operations: &mut [embedded_hal_1::i2c::Operation<'_>],
     ) -> Result<(), Self::Error> {
-        if let Some((last, rest)) = operations.split_last_mut() {
-            for op in rest {
-                match op {
-                    embedded_hal_1::i2c::Operation::Read(buf) => {
-                        self.blocking_read_internal(address, buf, SendStop::No)?
-                    }
-                    embedded_hal_1::i2c::Operation::Write(buf) => {
-                        self.blocking_write_internal(address, buf, SendStop::No)?
+        let result = (|| {
+            if let Some((last, rest)) = operations.split_last_mut() {
+                for op in rest {
+                    match op {
+                        embedded_hal_1::i2c::Operation::Read(buf) => {
+                            self.blocking_read_internal(address, buf, SendStop::No)?
+                        }
+                        embedded_hal_1::i2c::Operation::Write(buf) => {
+                            self.blocking_write_internal(address, buf, SendStop::No)?
+                        }
                     }
                 }
-            }
 
-            match last {
-                embedded_hal_1::i2c::Operation::Read(buf) => self.blocking_read_internal(address, buf, SendStop::Yes),
-                embedded_hal_1::i2c::Operation::Write(buf) => self.blocking_write_internal(address, buf, SendStop::Yes),
+                match last {
+                    embedded_hal_1::i2c::Operation::Read(buf) => {
+                        self.blocking_read_internal(address, buf, SendStop::Yes)
+                    }
+                    embedded_hal_1::i2c::Operation::Write(buf) => {
+                        self.blocking_write_internal(address, buf, SendStop::Yes)
+                    }
+                }
+            } else {
+                Ok(())
             }
-        } else {
-            Ok(())
+        })();
+
+        if result.is_err() {
+            self.recover_from_error();
         }
+        result
     }
 }
 
@@ -1450,29 +1479,37 @@ where
         address: u8,
         operations: &mut [embedded_hal_async::i2c::Operation<'_>],
     ) -> Result<(), Self::Error> {
-        if let Some((last, rest)) = operations.split_last_mut() {
-            for op in rest {
-                match op {
+        let result = async {
+            if let Some((last, rest)) = operations.split_last_mut() {
+                for op in rest {
+                    match op {
+                        embedded_hal_async::i2c::Operation::Read(buf) => {
+                            <Self as AsyncEngine>::async_read_internal(self, address, buf, SendStop::No).await?
+                        }
+                        embedded_hal_async::i2c::Operation::Write(buf) => {
+                            <Self as AsyncEngine>::async_write_internal(self, address, buf, SendStop::No).await?
+                        }
+                    }
+                }
+
+                match last {
                     embedded_hal_async::i2c::Operation::Read(buf) => {
-                        <Self as AsyncEngine>::async_read_internal(self, address, buf, SendStop::No).await?
+                        <Self as AsyncEngine>::async_read_internal(self, address, buf, SendStop::Yes).await
                     }
                     embedded_hal_async::i2c::Operation::Write(buf) => {
-                        <Self as AsyncEngine>::async_write_internal(self, address, buf, SendStop::No).await?
+                        <Self as AsyncEngine>::async_write_internal(self, address, buf, SendStop::Yes).await
                     }
                 }
+            } else {
+                Ok(())
             }
-
-            match last {
-                embedded_hal_async::i2c::Operation::Read(buf) => {
-                    <Self as AsyncEngine>::async_read_internal(self, address, buf, SendStop::Yes).await
-                }
-                embedded_hal_async::i2c::Operation::Write(buf) => {
-                    <Self as AsyncEngine>::async_write_internal(self, address, buf, SendStop::Yes).await
-                }
-            }
-        } else {
-            Ok(())
         }
+        .await;
+
+        if result.is_err() {
+            self.recover_from_error();
+        }
+        result
     }
 }
 
