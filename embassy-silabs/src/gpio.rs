@@ -7,6 +7,17 @@ use core::convert::Infallible;
 use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
 
 use crate::pac::GPIO;
+// GPIO routes to a different register-block version per Series 2 config:
+// MG24 (config 4) uses gpio_v3, FG25 (config 5) uses gpio_v4, MG26 (config 6)
+// uses gpio_v7. The port register newtypes (PortDout / PortModel / PortModeh)
+// have identical shapes across all three; alias the module so the code below
+// is version-agnostic.
+#[cfg(silabs_series_2_config = "4")]
+use crate::pac::gpio_v3 as gpio_mod;
+#[cfg(silabs_series_2_config = "5")]
+use crate::pac::gpio_v4 as gpio_mod;
+#[cfg(silabs_series_2_config = "6")]
+use crate::pac::gpio_v7 as gpio_mod;
 
 /// Logic level.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -128,7 +139,7 @@ impl<'d> Output<'d> {
         let n = (self.pin.pin_port() & 0xF) as u32;
         critical_section::with(|_| {
             let cur = GPIO.p_dout(port).read().0;
-            let new = silabs_metapac::gpio_v7::regs::PortDout(cur ^ (1 << n));
+            let new = gpio_mod::regs::PortDout(cur ^ (1 << n));
             GPIO.p_dout(port).write_value(new);
         });
     }
@@ -319,13 +330,13 @@ fn write_mode(pin: &AnyPin, mode: Mode) {
             let shift = pin_in_port * 4;
             let cur = GPIO.p_model(port).read().0;
             let cleared = cur & !(0xF << shift);
-            let new = silabs_metapac::gpio_v7::regs::PortModel(cleared | (mode_val << shift));
+            let new = gpio_mod::regs::PortModel(cleared | (mode_val << shift));
             GPIO.p_model(port).write_value(new);
         } else {
             let shift = (pin_in_port - 8) * 4;
             let cur = GPIO.p_modeh(port).read().0;
             let cleared = cur & !(0xF << shift);
-            let new = silabs_metapac::gpio_v7::regs::PortModeh(cleared | (mode_val << shift));
+            let new = gpio_mod::regs::PortModeh(cleared | (mode_val << shift));
             GPIO.p_modeh(port).write_value(new);
         }
     });
@@ -338,9 +349,24 @@ fn write_dout_bit(pin: &AnyPin, high: bool) {
     critical_section::with(|_| {
         let cur = GPIO.p_dout(port).read().0;
         let new_raw = if high { cur | (1 << n) } else { cur & !(1 << n) };
-        let new = silabs_metapac::gpio_v7::regs::PortDout(new_raw);
+        let new = gpio_mod::regs::PortDout(new_raw);
         GPIO.p_dout(port).write_value(new);
     });
+}
+
+/// Configure `pin` as a push-pull output driven by a peripheral (e.g. EUSART TX).
+/// Sets the line idle-high before switching to push-pull so a UART idle
+/// level is presented immediately.
+#[inline]
+pub(crate) fn set_as_alternate_output(pin: &AnyPin) {
+    write_dout_bit(pin, true);
+    write_mode(pin, Mode::PushPull);
+}
+
+/// Configure `pin` as a floating input consumed by a peripheral (e.g. EUSART RX).
+#[inline]
+pub(crate) fn set_as_alternate_input(pin: &AnyPin) {
+    write_mode(pin, Mode::Input);
 }
 
 impl<'d> embedded_hal::digital::ErrorType for Output<'d> {

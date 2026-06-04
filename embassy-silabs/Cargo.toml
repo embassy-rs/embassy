@@ -17,6 +17,8 @@ embassy-hal-internal = { version = "0.5.0", path = "../embassy-hal-internal", fe
 embassy-embedded-hal = { version = "0.6.0", path = "../embassy-embedded-hal", default-features = false }
 
 embedded-hal = { version = "1.0" }
+embedded-io = { version = "0.7.1" }
+embedded-io-async = { version = "0.7.0" }
 
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
@@ -25,10 +27,10 @@ cortex-m = "0.7.6"
 critical-section = "1.2.0"
 trait-set = "0.3.0"
 
-silabs-metapac = { git = "https://github.com/andresv/silabs-data-generated.git", tag = "0.2.0" }
+silabs-metapac = { git = "https://github.com/andresv/silabs-data-generated.git", tag = "0.3.0" }
 
 [build-dependencies]
-silabs-metapac = { git = "https://github.com/andresv/silabs-data-generated.git", tag = "0.2.0", default-features = false, features = ["metadata"] }
+silabs-metapac = { git = "https://github.com/andresv/silabs-data-generated.git", tag = "0.3.0", default-features = false, features = ["metadata"] }
 
 [features]
 default = ["rt"]
@@ -77,19 +79,86 @@ time-driver-timer1 = ["_time-driver"]
 #! **Important:** Do not forget to adapt the target chip in your toolchain,
 #! e.g. in `.cargo/config.toml`.
 
-efr32mg26b211f2048im68 = ["silabs-metapac/efr32mg26b211f2048im68"]
-efr32mg26b211f3200im48 = ["silabs-metapac/efr32mg26b211f3200im48"]
-efr32mg26b221f2048im68 = ["silabs-metapac/efr32mg26b221f2048im68"]
-efr32mg26b221f3200im48 = ["silabs-metapac/efr32mg26b221f3200im48"]
-efr32mg26b410f3200im48 = ["silabs-metapac/efr32mg26b410f3200im48"]
-efr32mg26b410f3200im68 = ["silabs-metapac/efr32mg26b410f3200im68"]
-efr32mg26b420f3200im48 = ["silabs-metapac/efr32mg26b420f3200im48"]
-efr32mg26b420f3200im68 = ["silabs-metapac/efr32mg26b420f3200im68"]
-efr32mg26b510f3200im48 = ["silabs-metapac/efr32mg26b510f3200im48"]
-efr32mg26b510f3200im68 = ["silabs-metapac/efr32mg26b510f3200im68"]
-efr32mg26b520f3200im48 = ["silabs-metapac/efr32mg26b520f3200im48"]
-efr32mg26b520f3200im68 = ["silabs-metapac/efr32mg26b520f3200im68"]
-efr32mg26b610f3200im48 = ["silabs-metapac/efr32mg26b610f3200im48"]
+efr32fg25a021f256im56 = [ "silabs-metapac/efr32fg25a021f256im56" ]
+efr32fg25a021f512im56 = [ "silabs-metapac/efr32fg25a021f512im56" ]
+efr32fg25a111f1152im56 = [ "silabs-metapac/efr32fg25a111f1152im56" ]
+efr32fg25a121f1152im56 = [ "silabs-metapac/efr32fg25a121f1152im56" ]
+efr32fg25a211f1152im56 = [ "silabs-metapac/efr32fg25a211f1152im56" ]
+efr32fg25a211f1920im56 = [ "silabs-metapac/efr32fg25a211f1920im56" ]
+efr32fg25a221f1152im56 = [ "silabs-metapac/efr32fg25a221f1152im56" ]
+efr32fg25a221f1920im56 = [ "silabs-metapac/efr32fg25a221f1920im56" ]
+efr32fg25b111f1152im56 = [ "silabs-metapac/efr32fg25b111f1152im56" ]
+efr32fg25b121f1152im56 = [ "silabs-metapac/efr32fg25b121f1152im56" ]
+efr32fg25b211f1920im56 = [ "silabs-metapac/efr32fg25b211f1920im56" ]
+efr32fg25b212f1920im56 = [ "silabs-metapac/efr32fg25b212f1920im56" ]
+efr32fg25b221f1920im56 = [ "silabs-metapac/efr32fg25b221f1920im56" ]
+efr32fg25b222f1920im56 = [ "silabs-metapac/efr32fg25b222f1920im56" ]
+efr32mg24a010f1024im40 = [ "silabs-metapac/efr32mg24a010f1024im40" ]
+efr32mg24a010f1024im48 = [ "silabs-metapac/efr32mg24a010f1024im48" ]
+efr32mg24a010f1536gm40 = [ "silabs-metapac/efr32mg24a010f1536gm40" ]
+efr32mg24a010f1536gm48 = [ "silabs-metapac/efr32mg24a010f1536gm48" ]
+efr32mg24a010f1536im40 = [ "silabs-metapac/efr32mg24a010f1536im40" ]
+efr32mg24a010f1536im48 = [ "silabs-metapac/efr32mg24a010f1536im48" ]
+efr32mg24a010f768im40 = [ "silabs-metapac/efr32mg24a010f768im40" ]
+efr32mg24a010f768im48 = [ "silabs-metapac/efr32mg24a010f768im48" ]
+efr32mg24a020f1024im40 = [ "silabs-metapac/efr32mg24a020f1024im40" ]
+efr32mg24a020f1024im48 = [ "silabs-metapac/efr32mg24a020f1024im48" ]
+efr32mg24a020f1536gm40 = [ "silabs-metapac/efr32mg24a020f1536gm40" ]
+efr32mg24a020f1536gm48 = [ "silabs-metapac/efr32mg24a020f1536gm48" ]
+efr32mg24a020f1536im40 = [ "silabs-metapac/efr32mg24a020f1536im40" ]
+efr32mg24a020f1536im48 = [ "silabs-metapac/efr32mg24a020f1536im48" ]
+efr32mg24a020f768im40 = [ "silabs-metapac/efr32mg24a020f768im40" ]
+efr32mg24a021f1024im40 = [ "silabs-metapac/efr32mg24a021f1024im40" ]
+efr32mg24a110f1024im48 = [ "silabs-metapac/efr32mg24a110f1024im48" ]
+efr32mg24a110f1536gm48 = [ "silabs-metapac/efr32mg24a110f1536gm48" ]
+efr32mg24a111f1536gm48 = [ "silabs-metapac/efr32mg24a111f1536gm48" ]
+efr32mg24a120f1536gm48 = [ "silabs-metapac/efr32mg24a120f1536gm48" ]
+efr32mg24a121f1536gm48 = [ "silabs-metapac/efr32mg24a121f1536gm48" ]
+efr32mg24a410f1536im40 = [ "silabs-metapac/efr32mg24a410f1536im40" ]
+efr32mg24a410f1536im48 = [ "silabs-metapac/efr32mg24a410f1536im48" ]
+efr32mg24a420f1536im40 = [ "silabs-metapac/efr32mg24a420f1536im40" ]
+efr32mg24a420f1536im48 = [ "silabs-metapac/efr32mg24a420f1536im48" ]
+efr32mg24a610f1536im40 = [ "silabs-metapac/efr32mg24a610f1536im40" ]
+efr32mg24a620f1536im40 = [ "silabs-metapac/efr32mg24a620f1536im40" ]
+efr32mg24b010f1024im48 = [ "silabs-metapac/efr32mg24b010f1024im48" ]
+efr32mg24b010f1536im40 = [ "silabs-metapac/efr32mg24b010f1536im40" ]
+efr32mg24b010f1536im48 = [ "silabs-metapac/efr32mg24b010f1536im48" ]
+efr32mg24b020f1024im48 = [ "silabs-metapac/efr32mg24b020f1024im48" ]
+efr32mg24b020f1536im40 = [ "silabs-metapac/efr32mg24b020f1536im40" ]
+efr32mg24b020f1536im48 = [ "silabs-metapac/efr32mg24b020f1536im48" ]
+efr32mg24b110f1536gm48 = [ "silabs-metapac/efr32mg24b110f1536gm48" ]
+efr32mg24b110f1536im48 = [ "silabs-metapac/efr32mg24b110f1536im48" ]
+efr32mg24b120f1536im48 = [ "silabs-metapac/efr32mg24b120f1536im48" ]
+efr32mg24b210f1536im40 = [ "silabs-metapac/efr32mg24b210f1536im40" ]
+efr32mg24b210f1536im48 = [ "silabs-metapac/efr32mg24b210f1536im48" ]
+efr32mg24b220f1536im48 = [ "silabs-metapac/efr32mg24b220f1536im48" ]
+efr32mg24b310f1536im48 = [ "silabs-metapac/efr32mg24b310f1536im48" ]
+efr32mg24b610f1536im40 = [ "silabs-metapac/efr32mg24b610f1536im40" ]
+efr32mg26b211f2048im68 = [ "silabs-metapac/efr32mg26b211f2048im68" ]
+efr32mg26b211f3200im48 = [ "silabs-metapac/efr32mg26b211f3200im48" ]
+efr32mg26b221f2048im68 = [ "silabs-metapac/efr32mg26b221f2048im68" ]
+efr32mg26b221f3200im48 = [ "silabs-metapac/efr32mg26b221f3200im48" ]
+efr32mg26b311f3200il136 = [ "silabs-metapac/efr32mg26b311f3200il136" ]
+efr32mg26b410f3200im48 = [ "silabs-metapac/efr32mg26b410f3200im48" ]
+efr32mg26b410f3200im68 = [ "silabs-metapac/efr32mg26b410f3200im68" ]
+efr32mg26b411f3200im48 = [ "silabs-metapac/efr32mg26b411f3200im48" ]
+efr32mg26b411f3200im68 = [ "silabs-metapac/efr32mg26b411f3200im68" ]
+efr32mg26b420f3200im48 = [ "silabs-metapac/efr32mg26b420f3200im48" ]
+efr32mg26b420f3200im68 = [ "silabs-metapac/efr32mg26b420f3200im68" ]
+efr32mg26b421f3200im48 = [ "silabs-metapac/efr32mg26b421f3200im48" ]
+efr32mg26b421f3200im68 = [ "silabs-metapac/efr32mg26b421f3200im68" ]
+efr32mg26b510f3200il136 = [ "silabs-metapac/efr32mg26b510f3200il136" ]
+efr32mg26b510f3200im48 = [ "silabs-metapac/efr32mg26b510f3200im48" ]
+efr32mg26b510f3200im68 = [ "silabs-metapac/efr32mg26b510f3200im68" ]
+efr32mg26b511f3200il136 = [ "silabs-metapac/efr32mg26b511f3200il136" ]
+efr32mg26b511f3200im48 = [ "silabs-metapac/efr32mg26b511f3200im48" ]
+efr32mg26b511f3200im68 = [ "silabs-metapac/efr32mg26b511f3200im68" ]
+efr32mg26b520f3200im48 = [ "silabs-metapac/efr32mg26b520f3200im48" ]
+efr32mg26b520f3200im68 = [ "silabs-metapac/efr32mg26b520f3200im68" ]
+efr32mg26b521f3200im48 = [ "silabs-metapac/efr32mg26b521f3200im48" ]
+efr32mg26b521f3200im68 = [ "silabs-metapac/efr32mg26b521f3200im68" ]
+efr32mg26b610f3200im48 = [ "silabs-metapac/efr32mg26b610f3200im48" ]
+efr32mg26b611f2048im48 = [ "silabs-metapac/efr32mg26b611f2048im48" ]
 
 [profile.dev]
 debug = true

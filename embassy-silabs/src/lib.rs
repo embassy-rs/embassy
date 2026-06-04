@@ -8,7 +8,32 @@
 // This must go FIRST so that all the other modules see its macros.
 mod fmt;
 
+pub mod eusart;
 pub mod gpio;
+
+pub mod mode {
+    trait SealedMode {}
+
+    /// Operating mode for a peripheral.
+    #[allow(private_bounds)]
+    pub trait Mode: SealedMode {}
+
+    macro_rules! impl_mode {
+        ($name:ident) => {
+            impl SealedMode for $name {}
+            impl Mode for $name {}
+        };
+    }
+
+    /// Blocking mode.
+    pub struct Blocking;
+    /// Async mode.
+    pub struct Async;
+
+    impl_mode!(Blocking);
+    impl_mode!(Async);
+}
+
 pub mod rcc;
 pub mod time;
 #[cfg(feature = "_time-driver")]
@@ -30,15 +55,20 @@ include!(concat!(env!("OUT_DIR"), "/_generated.rs"));
 /// use embassy_silabs::{bind_interrupts, peripherals};
 ///
 /// bind_interrupts!(struct Irqs {
-///     EUSART0_RX => eusart::InterruptHandler<peripherals::EUSART0>;
+///     EUSART0_RX => eusart::RxInterruptHandler<peripherals::EUSART0>;
+///     EUSART0_TX => eusart::TxInterruptHandler<peripherals::EUSART0>;
 /// });
 /// ```
 #[macro_export]
 macro_rules! bind_interrupts {
     ($(#[$outer:meta])* $vis:vis struct $name:ident {
         $(
-            $(#[$irq_meta:meta])*
-            $irq:ident => $($handler:ty),*;
+            $(#[doc = $doc:literal])*
+            $(#[cfg($cond_irq:meta)])?
+            $irq:ident => $(
+                $(#[cfg($cond_handler:meta)])?
+                $handler:ty
+            ),*;
         )*
     }) => {
         #[derive(Copy, Clone)]
@@ -46,26 +76,32 @@ macro_rules! bind_interrupts {
         $vis struct $name;
 
         $(
-            $(#[$irq_meta])*
             #[allow(non_snake_case)]
             #[unsafe(no_mangle)]
+            $(#[cfg($cond_irq)])?
+            $(#[doc = $doc])*
             unsafe extern "C" fn $irq() {
-                $(
-                    <$handler as $crate::interrupt::typelevel::Handler<
-                        $crate::interrupt::typelevel::$irq,
-                    >>::on_interrupt();
-                )*
+                unsafe {
+                    $(
+                        $(#[cfg($cond_handler)])?
+                        <$handler as $crate::interrupt::typelevel::Handler<$crate::interrupt::typelevel::$irq>>::on_interrupt();
+
+                    )*
+                }
             }
 
-            $(
-                $(#[$irq_meta])*
-                unsafe impl $crate::interrupt::typelevel::Binding<
-                    $crate::interrupt::typelevel::$irq,
-                    $handler,
-                > for $name {}
-            )*
+            $(#[cfg($cond_irq)])?
+            $crate::bind_interrupts!(@inner
+                $(
+                    $(#[cfg($cond_handler)])?
+                    unsafe impl $crate::interrupt::typelevel::Binding<$crate::interrupt::typelevel::$irq, $handler> for $name {}
+                )*
+            );
         )*
     };
+    (@inner $($t:tt)*) => {
+        $($t)*
+    }
 }
 
 /// `embassy-silabs` global configuration.
