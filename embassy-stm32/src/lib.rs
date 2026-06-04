@@ -126,7 +126,7 @@ pub mod fmac;
 pub mod fmc;
 #[cfg(hash)]
 pub mod hash;
-#[cfg(all(hrtim, feature = "stm32-hrtim"))]
+#[cfg(hrtim)]
 pub mod hrtim;
 #[cfg(hsem)]
 pub mod hsem;
