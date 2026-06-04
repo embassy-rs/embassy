@@ -67,6 +67,18 @@ pub mod comp;
 #[cfg(cordic)]
 pub mod cordic;
 
+#[cfg(not(any(comp_u5, comp_v1, comp_v2)))]
+pub mod comp {
+    //! Comp stub module to provide consistent API
+
+    trait_set::trait_set! {
+        /// Comp stub peripheral type
+        pub trait Instance = embassy_hal_internal::PeripheralType + 'static;
+    }
+
+    pin_trait!(OutputPin, Instance);
+}
+
 // Stub macros for COMP pin implementations when comp module is not compiled.
 // These are needed because build.rs generates macro calls for all chips with COMP,
 // but the actual macros are only defined in the comp module.
