@@ -265,7 +265,7 @@ impl Platform {
                     let mut n;
                     {
                         #[allow(unused_mut)]
-                        let mut guard = rng.lock();
+                        let mut guard = rng.borrow();
                         'outer: loop {
                             n = 0;
                             if let Err(e) = guard.async_fill_bytes(&mut buf).await {
