@@ -2,16 +2,27 @@
 
 use core::mem::MaybeUninit;
 
-use critical_section::CriticalSection;
-
-use crate::pac::CMU;
-pub use crate::pac::cmu_v7::vals::{
+pub use cmu_mod::vals::{
     Em01grpaclkctrlClksel as Em01GrpAClkSource, Em01grpcclkctrlClksel as Em01GrpCClkSource,
     Em4grpaclkctrlClksel as Em4GrpAClkSource, Em23grpaclkctrlClksel as Em23GrpAClkSource,
     Eusart0clkctrlClksel as Eusart0ClkSource, Hclkpresc as HclkPrescaler, IadcclkctrlClksel as IadcClkSource,
     Pclkpresc as PclkPrescaler, SysclkctrlClksel as SysclkSource, Sysrtc0clkctrlClksel as Sysrtc0ClkSource,
     TraceclkctrlClksel as TraceClkSource, Wdog0clkctrlClksel as Wdog0ClkSource, Wdog1clkctrlClksel as Wdog1ClkSource,
 };
+use critical_section::CriticalSection;
+
+use crate::pac::CMU;
+// CMU / HFXO / MSC route to different register-block versions per Series 2
+// config: MG24 (config 4) uses cmu_v3 / hfxo_v3 / msc_v3; FG25 (config 5) uses
+// cmu_v4 / hfxo_v4 / msc_v4; MG26 (config 6) uses cmu_v7 / hfxo_v3 / msc_v9.
+// Alias them so the shared clock code below stays version-agnostic.
+// (LFXO, HFRCO, TIMER are the same version across all three.)
+#[cfg(silabs_series_2_config = "4")]
+use crate::pac::{cmu_v3 as cmu_mod, hfxo_v3 as hfxo_mod, msc_v3 as msc_mod};
+#[cfg(silabs_series_2_config = "5")]
+use crate::pac::{cmu_v4 as cmu_mod, hfxo_v4 as hfxo_mod, msc_v4 as msc_mod};
+#[cfg(silabs_series_2_config = "6")]
+use crate::pac::{cmu_v7 as cmu_mod, hfxo_v3 as hfxo_mod, msc_v9 as msc_mod};
 pub use crate::time::Hertz;
 
 /// FSRCO frequency, 20 MHz.
@@ -499,9 +510,9 @@ pub(crate) fn init_clocks(_cs: CriticalSection, config: Config) {
 ///
 /// Panics for a mode other than [`HfxoMode::Xtal`].
 pub(crate) fn init_hfxo(config: &HfxoConfig) {
+    use hfxo_mod::vals as hfxo_vals;
+
     use crate::pac::HFXO0;
-    use crate::pac::cmu_v7::vals as cmu_vals;
-    use crate::pac::hfxo_v3::vals as hfxo_vals;
 
     assert!(
         matches!(config.mode, HfxoMode::Xtal),
@@ -530,9 +541,7 @@ pub(crate) fn init_hfxo(config: &HfxoConfig) {
 
     // 1. Bus clock on, registers unlocked.
     CMU.clken0().modify(|w| w.set_hfxo0(true));
-    HFXO0
-        .lock()
-        .write(|w| w.set_lockkey(crate::pac::hfxo_v3::vals::Lockkey::Unlock));
+    HFXO0.lock().write(|w| w.set_lockkey(hfxo_mod::vals::Lockkey::Unlock));
 
     // 2. Disable HFXO. Only DISONDEMAND is set — DISONDEMANDBUFOUT is
     //    absent on hfxo_v3.
@@ -636,8 +645,6 @@ pub(crate) fn init_hfxo(config: &HfxoConfig) {
 
     HFXO0.ctrl_clr().write(|w| w.set_disondemand(true));
     HFXO0.ctrl_clr().write(|w| w.set_forceen(true));
-
-    let _ = cmu_vals::SysclkctrlClksel::Hfxo; // silence unused-import warning
 }
 
 /// Fixed HFXO tuning capacitor setting (`HFXO_XTALCTRL.CTUNEFIXANA`) per chip family.
@@ -654,7 +661,7 @@ pub(crate) fn init_hfxo(config: &HfxoConfig) {
     silabs_series_2_config = "6",
     silabs_series_2_config = "8",
 ))]
-const CTUNEFIXANA_DEFAULT: crate::pac::hfxo_v3::vals::Ctunefixana = crate::pac::hfxo_v3::vals::Ctunefixana::Xo;
+const CTUNEFIXANA_DEFAULT: hfxo_mod::vals::Ctunefixana = hfxo_mod::vals::Ctunefixana::Xo;
 #[cfg(not(any(
     silabs_series_2_config = "3",
     silabs_series_2_config = "4",
@@ -662,7 +669,7 @@ const CTUNEFIXANA_DEFAULT: crate::pac::hfxo_v3::vals::Ctunefixana = crate::pac::
     silabs_series_2_config = "6",
     silabs_series_2_config = "8",
 )))]
-const CTUNEFIXANA_DEFAULT: crate::pac::hfxo_v3::vals::Ctunefixana = crate::pac::hfxo_v3::vals::Ctunefixana::Both;
+const CTUNEFIXANA_DEFAULT: hfxo_mod::vals::Ctunefixana = hfxo_mod::vals::Ctunefixana::Both;
 
 /// Sets up LFXO in crystal mode. It starts on demand.
 ///
@@ -750,10 +757,8 @@ pub(crate) fn init_hfrcodpll(band: HfrcoBand) {
     if sysclk_is_hfrcodpll {
         CMU.clken1().modify(|w| w.set_msc(true));
         let msc = crate::pac::MSC;
-        msc.lock()
-            .write(|w| w.set_lockkey(crate::pac::msc_v9::vals::Lockkey::Unlock));
-        msc.readctrl()
-            .modify(|w| w.set_mode(crate::pac::msc_v9::vals::Mode::Ws3));
+        msc.lock().write(|w| w.set_lockkey(msc_mod::vals::Lockkey::Unlock));
+        msc.readctrl().modify(|w| w.set_mode(msc_mod::vals::Mode::Ws3));
 
         CMU.sysclkctrl().modify(|w| w.set_pclkpresc(PclkPrescaler::Div2));
     }
