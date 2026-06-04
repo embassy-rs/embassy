@@ -5,7 +5,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::Pull;
 use embassy_stm32::time::khz;
-use embassy_stm32::timer::input_capture::{CapturePin, InputCapture, InputCaptureChannel};
+use embassy_stm32::timer::input_capture::{CaptureInput, InputCapture, InputCaptureChannel};
 use embassy_stm32::{bind_interrupts, peripherals, timer};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -34,8 +34,8 @@ async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Input capture split example");
 
-    let ch1 = CapturePin::new(p.PA0, Pull::None);
-    let ch2 = CapturePin::new(p.PA1, Pull::None);
+    let ch1 = CaptureInput::from_pin(p.PA0, Pull::None);
+    let ch2 = CaptureInput::from_pin(p.PA1, Pull::None);
     let ic = InputCapture::new(
         p.TIM2,
         Some(ch1),

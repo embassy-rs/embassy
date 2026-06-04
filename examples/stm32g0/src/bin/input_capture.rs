@@ -14,7 +14,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, OutputType, Pull, Speed};
 use embassy_stm32::time::khz;
 use embassy_stm32::timer::Channel;
-use embassy_stm32::timer::input_capture::{CapturePin, InputCapture};
+use embassy_stm32::timer::input_capture::{CaptureInput, InputCapture};
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
 use embassy_stm32::{Peri, bind_interrupts, peripherals, timer};
 use embassy_time::Timer;
@@ -52,7 +52,7 @@ async fn main(spawner: Spawner) {
     pwm.ch1().enable();
     pwm.ch1().set_duty_cycle(50);
 
-    let ch1 = CapturePin::new(p.PA0, Pull::None);
+    let ch1 = CaptureInput::from_pin(p.PA0, Pull::None);
     let mut ic = InputCapture::new(p.TIM2, Some(ch1), None, None, None, Irqs, khz(1000), Default::default());
 
     let mut old_capture = 0;

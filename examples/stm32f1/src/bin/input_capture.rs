@@ -5,7 +5,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{AfioRemap, Level, Output, Pull, Speed};
 use embassy_stm32::time::khz;
-use embassy_stm32::timer::input_capture::{CapturePin, InputCapture};
+use embassy_stm32::timer::input_capture::{CaptureInput, InputCapture};
 use embassy_stm32::timer::{self, Channel};
 use embassy_stm32::{Peri, bind_interrupts, peripherals};
 use embassy_time::Timer;
@@ -39,7 +39,7 @@ async fn main(spawner: Spawner) {
 
     spawner.spawn(unwrap!(blinky(p.PC13)));
 
-    let ch3 = CapturePin::new(p.PA2, Pull::None);
+    let ch3 = CaptureInput::from_pin(p.PA2, Pull::None);
     let mut ic =
         InputCapture::new::<AfioRemap<0>>(p.TIM2, None, None, Some(ch3), None, Irqs, khz(1000), Default::default());
 

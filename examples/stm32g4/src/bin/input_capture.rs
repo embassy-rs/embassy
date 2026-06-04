@@ -19,7 +19,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
-    let trigger = CaptureInput::from(COMP1_OUT);
+    let trigger = CaptureInput::from_trigger(COMP1_OUT);
 
     let _pwm = InputCapture::new(
         p.TIM1,
