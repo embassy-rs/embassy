@@ -3,11 +3,14 @@
 //! Higher-level GAP functions that use ACI (Application Command Interface)
 //! instead of raw HCI commands. These provide more integrated functionality.
 
+use stm32_bindings::ble::{
+    aci_gap_set_discoverable, aci_gap_set_non_discoverable, aci_gap_set_undirected_connectable,
+    aci_gap_start_general_discovery_proc, aci_gap_start_limited_discovery_proc, aci_gap_start_observation_proc,
+    aci_gap_terminate_gap_proc, aci_gap_update_adv_data,
+};
+
 use crate::bluetooth::error::BleError;
 use crate::bluetooth::hci::Status;
-
-#[allow(non_camel_case_types)]
-type tBleStatus = u8;
 
 const BLE_STATUS_SUCCESS: u8 = 0x00;
 
@@ -40,84 +43,6 @@ pub const WHITE_LIST_FOR_ALL: u8 = 0x03;
 pub const GAP_LIMITED_DISCOVERY_PROC: u8 = 0x01;
 pub const GAP_GENERAL_DISCOVERY_PROC: u8 = 0x02;
 pub const GAP_OBSERVATION_PROC: u8 = 0x80;
-
-#[link(name = "stm32wba_ble_stack_basic")]
-unsafe extern "C" {
-    /// Set device in discoverable mode
-    ///
-    /// This is the high-level ACI command used by ST for advertising.
-    /// It properly configures the Link Layer and schedules advertising work.
-    #[link_name = "ACI_GAP_SET_DISCOVERABLE"]
-    fn aci_gap_set_discoverable(
-        advertising_type: u8,
-        advertising_interval_min: u16,
-        advertising_interval_max: u16,
-        own_address_type: u8,
-        advertising_filter_policy: u8,
-        local_name_length: u8,
-        local_name: *const u8,
-        service_uuid_length: u8,
-        service_uuid_list: *const u8,
-        slave_conn_interval_min: u16,
-        slave_conn_interval_max: u16,
-    ) -> tBleStatus;
-
-    /// Set device in non-discoverable mode (stop advertising)
-    #[link_name = "ACI_GAP_SET_NON_DISCOVERABLE"]
-    fn aci_gap_set_non_discoverable() -> tBleStatus;
-
-    /// Undirected connectable advertising (ST `BLE_Privacy_Peripheral` path).
-    #[link_name = "ACI_GAP_SET_UNDIRECTED_CONNECTABLE"]
-    fn aci_gap_set_undirected_connectable(
-        advertising_interval_min: u16,
-        advertising_interval_max: u16,
-        own_address_type: u8,
-        adv_filter_policy: u8,
-    ) -> tBleStatus;
-
-    /// Update legacy advertising payload (after undirected connectable).
-    #[link_name = "ACI_GAP_UPDATE_ADV_DATA"]
-    fn aci_gap_update_adv_data(adv_data_len: u8, adv_data: *const u8) -> tBleStatus;
-
-    /// Start the GAP observation procedure (scanning without connection intent).
-    ///
-    /// Unlike raw HCI_LE_SET_SCAN_ENABLE, this routes advertising reports
-    /// through the host layer so they arrive via BLECB_Indication as standard
-    /// HCI_LE_Advertising_Report events.
-    #[link_name = "ACI_GAP_START_OBSERVATION_PROC"]
-    fn aci_gap_start_observation_proc(
-        le_scan_interval: u16,
-        le_scan_window: u16,
-        le_scan_type: u8,
-        own_address_type: u8,
-        filter_duplicates: u8,
-        scanning_filter_policy: u8,
-    ) -> tBleStatus;
-
-    /// Start limited discovery procedure (active scanning).
-    #[link_name = "ACI_GAP_START_LIMITED_DISCOVERY_PROC"]
-    fn aci_gap_start_limited_discovery_proc(
-        le_scan_interval: u16,
-        le_scan_window: u16,
-        own_address_type: u8,
-        filter_duplicates: u8,
-    ) -> tBleStatus;
-
-    /// Start general discovery procedure (active scanning).
-    #[link_name = "ACI_GAP_START_GENERAL_DISCOVERY_PROC"]
-    fn aci_gap_start_general_discovery_proc(
-        le_scan_interval: u16,
-        le_scan_window: u16,
-        own_address_type: u8,
-        filter_duplicates: u8,
-    ) -> tBleStatus;
-
-    /// Terminate a running GAP procedure.
-    ///
-    /// Pass `procedure_code = 0x80` to stop `GAP_OBSERVATION_PROC`.
-    #[link_name = "ACI_GAP_TERMINATE_GAP_PROC"]
-    fn aci_gap_terminate_gap_proc(procedure_code: u8) -> tBleStatus;
-}
 
 /// Start advertising using aci_gap_set_discoverable
 ///

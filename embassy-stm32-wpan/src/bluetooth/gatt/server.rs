@@ -2,7 +2,10 @@
 //!
 //! This is a thin Rust wrapper around ST's GATT server implementation.
 
-use stm32_bindings::ble;
+use stm32_bindings::ble::{
+    self, aci_gatt_add_char, aci_gatt_add_service, aci_gatt_init, aci_gatt_permit_read, aci_gatt_permit_write,
+    aci_gatt_read_handle_value, aci_gatt_set_event_mask, aci_gatt_update_char_value, aci_gatt_update_char_value_ext,
+};
 
 use super::types::{
     CharProperties, CharacteristicHandle, GattEventMask, SecurityPermissions, ServiceHandle, ServiceType, Uuid,
@@ -10,86 +13,6 @@ use super::types::{
 };
 use crate::bluetooth::error::BleError;
 use crate::bluetooth::hci::{self, Status};
-
-// The C library exports uppercase function names
-#[allow(non_camel_case_types)]
-type tBleStatus = u8;
-
-#[link(name = "stm32wba_ble_stack_basic")]
-unsafe extern "C" {
-    #[link_name = "ACI_GATT_INIT"]
-    fn aci_gatt_init() -> tBleStatus;
-
-    #[link_name = "ACI_GATT_ADD_SERVICE"]
-    fn aci_gatt_add_service(
-        service_uuid_type: u8,
-        service_uuid: *const u8,
-        service_type: u8,
-        max_attribute_records: u8,
-        service_handle: *mut u16,
-    ) -> tBleStatus;
-
-    #[link_name = "ACI_GATT_ADD_CHAR"]
-    fn aci_gatt_add_char(
-        service_handle: u16,
-        char_uuid_type: u8,
-        char_uuid: *const u8,
-        char_value_length: u16,
-        char_properties: u8,
-        security_permissions: u8,
-        gatt_evt_mask: u8,
-        enc_key_size: u8,
-        is_variable: u8,
-        char_handle: *mut u16,
-    ) -> tBleStatus;
-
-    #[link_name = "ACI_GATT_UPDATE_CHAR_VALUE"]
-    fn aci_gatt_update_char_value(
-        service_handle: u16,
-        char_handle: u16,
-        val_offset: u8,
-        char_value_length: u8,
-        char_value: *const u8,
-    ) -> tBleStatus;
-
-    #[link_name = "ACI_GATT_UPDATE_CHAR_VALUE_EXT"]
-    fn aci_gatt_update_char_value_ext(
-        conn_handle: u16,
-        service_handle: u16,
-        char_handle: u16,
-        update_type: u8,
-        char_length: u16,
-        value_offset: u16,
-        value_length: u8,
-        value: *const u8,
-    ) -> tBleStatus;
-
-    #[link_name = "ACI_GATT_READ_HANDLE_VALUE"]
-    fn aci_gatt_read_handle_value(
-        attr_handle: u16,
-        offset: u16,
-        value_length_requested: u16,
-        value_length: *mut u16,
-        value_offset: *mut u16,
-        value: *mut u8,
-    ) -> tBleStatus;
-
-    #[link_name = "ACI_GATT_SET_EVENT_MASK"]
-    fn aci_gatt_set_event_mask(event_mask: u32) -> tBleStatus;
-
-    #[link_name = "ACI_GATT_PERMIT_READ"]
-    fn aci_gatt_permit_read(connection_handle: u16, read_status: u8, error_code: u8, attr_handle: u16) -> tBleStatus;
-
-    #[link_name = "ACI_GATT_PERMIT_WRITE"]
-    fn aci_gatt_permit_write(
-        connection_handle: u16,
-        attr_handle: u16,
-        write_status: u8,
-        error_code: u8,
-        attribute_val_length: u8,
-        attribute_val: *const u8,
-    ) -> tBleStatus;
-}
 
 /// Update type for aci_gatt_update_char_value_ext
 #[allow(dead_code)]
