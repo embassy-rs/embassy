@@ -307,19 +307,22 @@ pub mod low_power {
             Self(peripheral)
         }
 
+        /// Suspend the peripheral, if it is resumed
+        pub fn suspend(&mut self) {}
+
+        /// Resume the peripheral and get a mutable reference to it
+        pub fn resume(&mut self) -> &mut T {
+            &mut self.0
+        }
+
         /// Get the resumable peripheral guard
-        pub fn lock(&mut self) -> ResumablePeripheralGuard<'_, T> {
+        pub fn borrow(&mut self) -> ResumablePeripheralGuard<'_, T> {
             ResumablePeripheralGuard(&mut self.0)
         }
     }
 
     /// A mutex-like object guard, that when held, activates the peripheral
     pub struct ResumablePeripheralGuard<'a, T: SuspendablePeripheral>(&'a mut T);
-
-    impl<'a, T: SuspendablePeripheral> ResumablePeripheralGuard<'a, T> {
-        /// Convenience wrapper for `mem::forget`. Keeps the peripheral alive.
-        pub fn keep_alive(self) {}
-    }
 
     impl<'a, T: SuspendablePeripheral> core::ops::Deref for ResumablePeripheralGuard<'a, T> {
         type Target = T;

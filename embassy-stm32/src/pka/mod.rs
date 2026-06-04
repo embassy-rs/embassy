@@ -587,17 +587,7 @@ impl<'d, T: Instance> Pka<'d, T, Blocking> {
         peripheral: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
-        rcc::enable_and_reset::<T>();
-
-        T::Interrupt::unpend();
-        unsafe { T::Interrupt::enable() };
-
-        let mut s = Self {
-            _peripheral: peripheral,
-            _marker: PhantomData,
-        };
-        s.ensure_init_blocking().expect("PKA initialization failed");
-        s
+        Self::new_inner(peripheral)
     }
 }
 
@@ -607,6 +597,14 @@ impl<'d, T: Instance> Pka<'d, T, Async> {
         peripheral: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
+        Self::new_inner(peripheral)
+    }
+}
+
+impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
+    const RAM_ERASE_TIMEOUT: u32 = 100_000;
+
+    fn new_inner(peripheral: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
 
         T::Interrupt::unpend();
@@ -619,10 +617,6 @@ impl<'d, T: Instance> Pka<'d, T, Async> {
         s.ensure_init_blocking().expect("PKA initialization failed");
         s
     }
-}
-
-impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
-    const RAM_ERASE_TIMEOUT: u32 = 100_000;
 
     // ========================================================================
     // ECDSA Operations
@@ -2525,6 +2519,27 @@ impl<'d, T: Instance> Pka<'d, T, Async> {
         self.modular_red(&wide[..w], modulus, &mut result.y[..m]).await?;
 
         Ok(())
+    }
+}
+
+impl<'d, T: Instance, M: Mode> crate::low_power::SealedSuspendablePeripheral for Pka<'d, T, M> {
+    #[cfg(all(feature = "low-power"))]
+    type InternalState = Peri<'d, T>;
+
+    #[cfg(feature = "low-power")]
+    fn suspend(self) -> Self::InternalState {
+        unsafe { self._peripheral.clone_unchecked() }
+    }
+
+    #[cfg(feature = "low-power")]
+    fn resume(state: Self::InternalState) -> Self {
+        Self::new_inner(state)
+    }
+}
+
+impl<'d, T: Instance, M: Mode> Drop for Pka<'d, T, M> {
+    fn drop(&mut self) {
+        rcc::disable::<T>();
     }
 }
 

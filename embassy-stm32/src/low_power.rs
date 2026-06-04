@@ -24,7 +24,6 @@
 //! in the `embassy_stm32::executor` module, and is enabled by the `executor-thread` or `executor-interrupt` features. This stm32-specific
 //! executor is the preferred way to lower power consumption if you're using `async`, instead of calling `sleep()` directly.
 
-use core::mem::ManuallyDrop;
 use core::ops::{Deref, DerefMut};
 use core::sync::atomic::{AtomicBool, Ordering, compiler_fence};
 use core::{mem, ptr};
@@ -418,35 +417,62 @@ enum ResumableState<T: SuspendablePeripheral> {
     Resumed(T),
 }
 
+impl<T: SuspendablePeripheral> ResumableState<T> {
+    pub fn resume(&mut self) -> &mut T {
+        if let ResumableState::Suspended(peripheral) = &self {
+            unsafe {
+                let peripheral = ptr::read(peripheral).resume();
+
+                ptr::write(self, ResumableState::Resumed(peripheral));
+            }
+        }
+
+        if let ResumableState::Resumed(peripheral) = self {
+            peripheral
+        } else {
+            unreachable!()
+        }
+    }
+
+    pub fn suspend(&mut self) {
+        if let ResumableState::Resumed(peripheral) = &self {
+            unsafe {
+                let peripheral = SuspendedPeripheral::from(ptr::read(peripheral));
+
+                ptr::write(self, ResumableState::Suspended(peripheral));
+            }
+        }
+    }
+}
+
 /// A mutex-like object to resume a peripheral
 pub struct ResumablePeripheral<T: SuspendablePeripheral> {
-    state: ManuallyDrop<ResumableState<T>>,
+    state: ResumableState<T>,
 }
 
 impl<T: SuspendablePeripheral> ResumablePeripheral<T> {
     /// Create the object. Will suspend the peripheral as soon as it is passed.
     pub fn new(peripheral: T) -> Self {
         Self {
-            state: ManuallyDrop::new(ResumableState::Suspended(SuspendedPeripheral::from(peripheral))),
+            state: ResumableState::Suspended(SuspendedPeripheral::from(peripheral)),
         }
     }
 
-    /// Get the resumable peripheral guard
-    pub fn lock(&mut self) -> ResumablePeripheralGuard<'_, T> {
-        if let ResumableState::Suspended(peripheral) = &*self.state {
-            unsafe {
-                // self.state is ManuallyDrop, so the ptr::read is safe
-                *self.state = ResumableState::Resumed(ptr::read(peripheral).resume());
-            }
-        }
+    /// Suspend the peripheral, if it is resumed
+    pub fn suspend(&mut self) {
+        self.state.suspend()
+    }
+
+    /// Resume the peripheral and get a mutable reference to it
+    pub fn resume(&mut self) -> &mut T {
+        self.state.resume()
+    }
+
+    /// Get a guard that will put the peripheral back to sleep once it is dropped
+    pub fn borrow(&mut self) -> ResumablePeripheralGuard<'_, T> {
+        self.state.resume();
 
         ResumablePeripheralGuard { state: &mut self.state }
-    }
-}
-
-impl<T: SuspendablePeripheral> Drop for ResumablePeripheral<T> {
-    fn drop(&mut self) {
-        unsafe { ManuallyDrop::drop(&mut self.state) };
     }
 }
 
@@ -455,21 +481,9 @@ pub struct ResumablePeripheralGuard<'a, T: SuspendablePeripheral> {
     state: &'a mut ResumableState<T>,
 }
 
-impl<'a, T: SuspendablePeripheral> ResumablePeripheralGuard<'a, T> {
-    /// Convenience wrapper for `mem::forget`. Keeps the peripheral alive.
-    pub fn keep_alive(self) {
-        mem::forget(self);
-    }
-}
-
 impl<'a, T: SuspendablePeripheral> Drop for ResumablePeripheralGuard<'a, T> {
     fn drop(&mut self) {
-        if let ResumableState::Resumed(peripheral) = &self.state {
-            unsafe {
-                // self.state is ManuallyDrop, so the ptr::read is safe
-                *self.state = ResumableState::Suspended(SuspendedPeripheral::from(ptr::read(peripheral)));
-            }
-        }
+        self.state.suspend();
     }
 }
 
