@@ -804,10 +804,11 @@ impl<'d, W: Word> I2S<'d, W> {
             _ws: new_pin!(ws, AfType::output(OutputType::PushPull, config.gpio_speed)),
             _ck: new_pin!(ck, AfType::output(OutputType::PushPull, config.gpio_speed)),
             _mck: mck.map(|w| w.into()),
-            tx_ring_buffer: txdma
-                .map(|(ch, buf)| unsafe { WritableRingBuffer::new(ch.channel, ch.request, regs.tx_ptr(), buf, opts) }),
-            rx_ring_buffer: rxdma.map(|(ch, buf)| {
-                let mut rb = unsafe { ReadableRingBuffer::new(ch.channel, ch.request, regs_rx.rx_ptr(), buf, opts) };
+            tx_ring_buffer: txdma.map(|(ch, buf)| unsafe {
+                WritableRingBuffer::new(ch.channel, ch.request, regs.tx_ptr() as *mut W, buf, opts)
+            }),
+            rx_ring_buffer: rxdma.map(|(ch, buf)| unsafe {
+                let mut rb = ReadableRingBuffer::new(ch.channel, ch.request, regs_rx.rx_ptr() as *mut W, buf, opts);
                 rb.set_alignment(frame_words);
                 rb
             }),
