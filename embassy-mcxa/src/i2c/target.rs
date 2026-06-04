@@ -414,21 +414,6 @@ impl<'d, M: Mode> I2c<'d, M> {
         });
     }
 
-    /// Pre-load the TX FIFO with default data so the hardware has
-    /// something to send if the controller starts a read before the
-    /// firmware is ready with a real response.
-    pub fn preload_tx(&mut self, data: &[u8]) {
-        // Clear the TX FIFO first
-        critical_section::with(|_| {
-            self.info.regs().scr().modify(|w| {
-                w.set_rtf(ScrRtf::NowEmpty);
-            });
-        });
-        for &byte in data {
-            self.info.regs().stdr().write(|w| w.set_data(byte));
-        }
-    }
-
     fn clear_status(&self) {
         self.info.regs().ssr().write(|w| {
             w.set_rsf(true);
