@@ -2537,6 +2537,12 @@ impl<'d, T: Instance, M: Mode> crate::low_power::SealedSuspendablePeripheral for
     }
 }
 
+impl<'d, T: Instance, M: Mode> Drop for Pka<'d, T, M> {
+    fn drop(&mut self) {
+        rcc::disable::<T>();
+    }
+}
+
 // ============================================================================
 // Instance Traits
 // ============================================================================
