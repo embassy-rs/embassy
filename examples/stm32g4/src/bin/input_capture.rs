@@ -2,14 +2,13 @@
 #![no_main]
 
 use defmt::*;
-use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::time::khz;
 use embassy_stm32::timer::CaptureCompareInterruptHandler;
 use embassy_stm32::timer::input_capture::{CaptureInput, InputCapture};
 use embassy_stm32::triggers::COMP1_OUT;
 use embassy_stm32::{bind_interrupts, peripherals};
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     TIM1_CC => CaptureCompareInterruptHandler<peripherals::TIM1>;
