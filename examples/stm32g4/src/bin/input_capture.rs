@@ -4,7 +4,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::comp::{Comp, Config, Hysteresis, InvertingInput, OutputPolarity, PowerMode};
-use embassy_stm32::dac::{Ch1, DacChannel, Value};
+use embassy_stm32::dac::{Ch1, DacChannel, u12r};
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::time::khz;
 use embassy_stm32::timer::input_capture::{CaptureInput, InputCapture};
@@ -40,7 +40,7 @@ async fn main(spawner: Spawner) {
     // 1. setup dac as internal output and set dac output to constant value 3.3V/4
     let mut dac: DacChannel<'_, embassy_stm32::mode::Blocking> = DacChannel::new_internal_blocking::<_, Ch1>(p.DAC1);
     let constant_voltage: u16 = 1024;
-    dac.set(Value::Bit12Right(constant_voltage));
+    dac.set(u12r(constant_voltage));
 
     // 2. configure comparator and set its inverting input as DAC1 output
     let comp1_config = Config {
