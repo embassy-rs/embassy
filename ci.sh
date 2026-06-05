@@ -25,7 +25,7 @@ if [[ -z "${CARGO_TARGET_DIR}" ]]; then
 fi
 
 # always run check to prime cache
-cargo embassy-devtool check
+cargo embassy-devtool check --force-incremental
 
 if [[ -z "${TELEPROBE_TOKEN-}" ]]; then
     echo No teleprobe token found, skipping running HIL tests
