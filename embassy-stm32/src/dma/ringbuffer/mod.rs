@@ -291,7 +291,7 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
         // start forward. We must compute front_skip explicitly so the read
         // window starts at an aligned buffer position.
         let (to_read, front_skip) = if self.alignment > 1 {
-            // Discard any partial frame at the tail of available data, then
+            // Skip any partial frame at the tail of available data, then
             // round down to_read so it fits in buf and lands on a frame boundary.
             let end_pos = self.read_index.as_index(self.cap(), available);
             let aligned_available = available.saturating_sub(end_pos % self.alignment);
@@ -312,8 +312,8 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
             buf[i] = self.read_buf(i);
         }
 
-        // Advance past what we read plus any trailing partial frame.
-        self.read_index.advance(self.cap(), available - front_skip);
+        // Advance past what we read. Trailing partial frame is left in the buffer.
+        self.read_index.advance(self.cap(), to_read);
 
         to_read
     }
