@@ -2,7 +2,7 @@
 #![no_main]
 
 use defmt::*;
-use embassy_stm32::dac::{DacChannel, Value};
+use embassy_stm32::dac::DacChannel;
 use {defmt_rtt as _, panic_probe as _};
 
 #[cortex_m_rt::entry]
@@ -14,7 +14,7 @@ fn main() -> ! {
 
     loop {
         for v in 0..=255 {
-            dac.set(Value::Bit8(to_sine_wave(v)));
+            dac.set(to_sine_wave(v));
         }
     }
 }
