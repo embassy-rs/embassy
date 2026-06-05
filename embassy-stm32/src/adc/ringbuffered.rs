@@ -30,21 +30,7 @@ impl<'d, R: AdcRegs> RingBufferedAdc<'d, R> {
         dma_buf: &'d mut [u16],
         sequence_len: usize,
     ) -> Self {
-        // DMA side setup - configuration differs between DMA/BDMA and GPDMA
-        // For DMA/BDMA: use circular mode via TransferOptions
-        // For GPDMA: circular mode is achieved via linked-list ping-pong
-        #[cfg(not(gpdma))]
-        let opts = TransferOptions {
-            half_transfer_ir: true,
-            circular: true,
-            ..Default::default()
-        };
-
-        #[cfg(gpdma)]
-        let opts = TransferOptions {
-            half_transfer_ir: true,
-            ..Default::default()
-        };
+        let opts = Default::default();
 
         // Safety: we forget the struct before this function returns.
         let request = dma.request();
