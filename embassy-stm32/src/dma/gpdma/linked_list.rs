@@ -40,16 +40,16 @@ pub struct LinearItem {
 
 impl LinearItem {
     /// Create a new read DMA transfer (peripheral to memory).
-    pub unsafe fn new_read<'d, W: Word>(request: Request, peri_addr: *mut W, buf: &'d mut [W]) -> Self {
+    pub unsafe fn new_read<'d, MW: Word, PW: Word>(request: Request, peri_addr: *mut PW, buf: &'d mut [MW]) -> Self {
         Self::new_inner(
             request,
             Dir::PeripheralToMemory,
             peri_addr as *const u32,
-            buf as *mut [W] as *mut W as *mut u32,
+            buf as *mut [MW] as *mut MW as *mut u32,
             buf.len(),
             true,
-            W::size(),
-            W::size(),
+            PW::size(),
+            MW::size(),
         )
     }
 
@@ -170,10 +170,10 @@ impl<const ITEM_COUNT: usize> Table<ITEM_COUNT> {
     /// Uses one linked-list item covering the entire buffer, linked to itself.
     /// This avoids multi-LLI race conditions in position tracking while still
     /// providing half-transfer and transfer-complete interrupts for wakeups.
-    pub unsafe fn new_circular<W: Word>(
+    pub unsafe fn new_circular<MW: Word, PW: Word>(
         request: Request,
-        peri_addr: *mut W,
-        buffer: &mut [W],
+        peri_addr: *mut PW,
+        buffer: &mut [MW],
         direction: Dir,
     ) -> Table<1> {
         let item = match direction {
@@ -188,10 +188,10 @@ impl<const ITEM_COUNT: usize> Table<ITEM_COUNT> {
     /// Create a ping-pong linked-list table.
     ///
     /// This uses two linked-list items, one for each half of the buffer.
-    pub unsafe fn new_ping_pong<W: Word>(
+    pub unsafe fn new_ping_pong<MW: Word, PW: Word>(
         request: Request,
-        peri_addr: *mut W,
-        buffer: &mut [W],
+        peri_addr: *mut PW,
+        buffer: &mut [MW],
         direction: Dir,
     ) -> Table<2> {
         // Buffer halves should be the same length.

@@ -3,10 +3,9 @@
 use core::mem::ManuallyDrop;
 use core::sync::atomic::{Ordering, compiler_fence};
 
-use crate::dac::{ChannelEvent, Info, State};
+use crate::dac::{ChannelEvent, Info, State, Word};
 use crate::dma::WritableRingBuffer;
 use crate::dma::ringbuffer::Error;
-use crate::dma::word::Word;
 
 /// A DAC channel backed by a DMA ring buffer.
 ///
@@ -17,7 +16,7 @@ use crate::dma::word::Word;
 /// Obtain this from [`DacChannel::into_ring_buffered_8bit`] or
 /// [`DacChannel::into_ring_buffered_12right`].
 pub struct RingBufferedDacChannel<'d, W: Word> {
-    ring_buf: ManuallyDrop<WritableRingBuffer<'d, W>>,
+    ring_buf: ManuallyDrop<WritableRingBuffer<'d, W::Word>>,
     info: &'static Info,
     state: &'static State,
     idx: usize,
@@ -25,7 +24,7 @@ pub struct RingBufferedDacChannel<'d, W: Word> {
 
 impl<'d, W: Word> RingBufferedDacChannel<'d, W> {
     pub(super) fn new(
-        ring_buf: WritableRingBuffer<'d, W>,
+        ring_buf: WritableRingBuffer<'d, W::Word>,
         info: &'static Info,
         state: &'static State,
         idx: usize,
@@ -51,7 +50,7 @@ impl<'d, W: Word> RingBufferedDacChannel<'d, W> {
     /// Useful for pre-filling the buffer before calling [`start`](Self::start). Writes
     /// at most `capacity` elements aligned to the end of the buffer.
     pub fn write_immediate(&mut self, buf: &[W]) -> Result<(usize, usize), Error> {
-        self.ring_buf.write_immediate(buf)
+        self.ring_buf.write_immediate(W::dma_buf(buf))
     }
 
     /// Write samples into the ring buffer.
@@ -60,12 +59,12 @@ impl<'d, W: Word> RingBufferedDacChannel<'d, W> {
     /// consumed data faster than the CPU supplied it; the ring buffer resets itself
     /// automatically in that case.
     pub fn write(&mut self, buf: &[W]) -> Result<(usize, usize), Error> {
-        self.ring_buf.write(buf)
+        self.ring_buf.write(W::dma_buf(buf))
     }
 
     /// Write an exact number of samples, waiting asynchronously until space is available.
     pub async fn write_exact(&mut self, buffer: &[W]) -> Result<usize, Error> {
-        self.ring_buf.write_exact(buffer).await
+        self.ring_buf.write_exact(W::dma_buf(buffer)).await
     }
 
     /// Wait for a ring buffer write error (underrun).

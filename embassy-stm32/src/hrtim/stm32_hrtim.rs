@@ -10,7 +10,8 @@ use embassy_hal_internal::Peri;
 
 #[cfg(hrtim_v2)]
 use crate::hrtim::ChF;
-use crate::hrtim::{AfType, ChA, ChB, ChC, ChD, ChE, HRTIM1, HRTimerComplementaryPin, HRTimerPin, OutputType, Pin};
+use crate::hrtim::{AfType, ChA, ChB, ChC, ChD, ChE, HRTimerComplementaryPin, HRTimerPin, OutputType, Pin};
+use crate::peripherals::HRTIM1;
 use crate::rcc;
 
 /// Uninitialized HRTIM resources as returned by [HrControltExt::hr_control]

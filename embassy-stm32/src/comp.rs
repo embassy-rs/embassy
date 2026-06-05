@@ -13,6 +13,7 @@ use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use stm32_metapac::comp::vals;
 
+use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::rcc::RccInfo;
 use crate::{Peri, interrupt};
@@ -227,6 +228,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 /// Comparator driver.
 pub struct Comp<'d, T: Instance> {
     _peri: Peri<'d, T>,
+    _output: Option<Flex<'d>>,
 }
 
 impl<'d, T: Instance> Comp<'d, T> {
@@ -250,7 +252,37 @@ impl<'d, T: Instance> Comp<'d, T> {
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
-        Self { _peri: peri }
+        Self {
+            _peri: peri,
+            _output: None,
+        }
+    }
+
+    /// Create a new comparator driver.
+    ///
+    /// The comparator is configured but not enabled. Use [`enable`](Self::enable) to enable it.
+    ///
+    /// The non-inverting input is connected to the provided pin. The inverting input
+    /// is configured via the `config.inverting_input` parameter.
+    pub fn new_with_output(
+        peri: Peri<'d, T>,
+        inp: Peri<'_, impl NonInvertingPin<T>>,
+        out: Peri<'d, impl OutputPin<T>>,
+        _irq: impl Binding<T::Interrupt, InterruptHandler<T>>,
+        config: Config,
+    ) -> Self {
+        T::info().rcc.enable_and_reset();
+        inp.set_as_analog();
+
+        Self::configure(inp.channel(), config);
+
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
+
+        Self {
+            _peri: peri,
+            _output: new_pin!(out, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+        }
     }
 
     /// Create a new comparator driver with an external inverting input pin.
@@ -276,7 +308,40 @@ impl<'d, T: Instance> Comp<'d, T> {
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
-        Self { _peri: peri }
+        Self {
+            _peri: peri,
+            _output: None,
+        }
+    }
+
+    /// Create a new comparator driver with an external inverting input pin.
+    ///
+    /// The comparator is configured but not enabled. Use [`enable`](Self::enable) to enable it.
+    ///
+    /// Both non-inverting and inverting inputs are connected to the provided pins.
+    /// The `config.inverting_input` parameter is ignored; the pin determines the input.
+    pub fn new_with_input_minus_pin_and_output(
+        peri: Peri<'d, T>,
+        inp: Peri<'_, impl NonInvertingPin<T>>,
+        inm: Peri<'_, impl InvertingPin<T>>,
+        out: Peri<'d, impl OutputPin<T>>,
+        _irq: impl Binding<T::Interrupt, InterruptHandler<T>>,
+        config: Config,
+    ) -> Self {
+        T::info().rcc.enable_and_reset();
+        inp.set_as_analog();
+        inm.set_as_analog();
+
+        // Configure with the pin's channel
+        Self::configure_with_input_minus_pin(inp.channel(), inm.channel(), config);
+
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
+
+        Self {
+            _peri: peri,
+            _output: new_pin!(out, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+        }
     }
 
     fn configure_raw(inp_channel: u8, inmsel: vals::Inm, config: Config) {
@@ -586,6 +651,8 @@ pub trait Instance: SealedInstance + PeripheralType + 'static {
     /// Interrupt type for this instance.
     type Interrupt: Interrupt;
 }
+
+pin_trait!(OutputPin, Instance);
 
 macro_rules! impl_comp {
     ($inst:ident, $exti_line:expr) => {

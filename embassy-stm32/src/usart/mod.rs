@@ -202,6 +202,8 @@ pub enum ConfigError {
     /// DE deassertion time too high
     #[cfg(not(any(usart_v1, usart_v2)))]
     DeDeassertionTimeTooHigh,
+    /// IrDA not compatible with half duplex
+    IrDAHalfDuplexInvalid,
 }
 
 #[non_exhaustive]
@@ -255,6 +257,9 @@ pub struct Config {
     /// Set this to true to invert RX pin signal values (V<sub>DD</sub> = 0/mark, Gnd = 1/idle).
     #[cfg(any(usart_v3, usart_v4))]
     pub invert_rx: bool,
+
+    /// Set this to true to enable the IrDA mode register
+    pub irda_enable: bool,
 
     /// Set the pull configuration for the RX pin.
     pub rx_pull: Pull,
@@ -327,6 +332,7 @@ impl Default for Config {
             invert_tx: false,
             #[cfg(any(usart_v3, usart_v4))]
             invert_rx: false,
+            irda_enable: false,
             rx_pull: Pull::None,
             cts_pull: Pull::None,
             tx_config: OutputConfig::PushPull,
@@ -1798,6 +1804,10 @@ fn configure(
     // and the config value alone decides.
     let half_duplex = config.duplex.is_half() || r.cr3().read().hdsel();
 
+    if config.irda_enable && half_duplex {
+        return Err(ConfigError::IrDAHalfDuplexInvalid);
+    }
+
     #[cfg(not(any(usart_v1, usart_v2)))]
     let dem = r.cr3().read().dem();
 
@@ -1826,6 +1836,11 @@ fn configure(
             StopBits::STOP2 => vals::Stop::Stop2,
         });
 
+        if config.irda_enable {
+            w.set_clken(false);
+            w.set_linen(false);
+        }
+
         #[cfg(any(usart_v3, usart_v4))]
         {
             w.set_txinv(config.invert_tx);
@@ -1838,6 +1853,11 @@ fn configure(
         #[cfg(not(usart_v1))]
         w.set_onebit(config.assume_noise_free);
         w.set_hdsel(half_duplex);
+
+        if config.irda_enable {
+            w.set_scen(false);
+            w.set_iren(true);
+        }
     });
 
     let mut w: crate::pac::usart::regs::Cr1 = Default::default();
