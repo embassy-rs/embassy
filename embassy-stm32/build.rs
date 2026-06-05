@@ -1140,6 +1140,7 @@ fn main() {
         (("rcc", "MCO_1"), quote!(crate::rcc::McoPin)),
         (("rcc", "MCO_2"), quote!(crate::rcc::McoPin)),
         (("rcc", "MCO"), quote!(crate::rcc::McoPin)),
+        (("comp", "OUT"), quote!(crate::comp::OutputPin)),
         (("dcmi", "D0"), quote!(crate::dcmi::D0Pin)),
         (("dcmi", "D1"), quote!(crate::dcmi::D1Pin)),
         (("dcmi", "D2"), quote!(crate::dcmi::D2Pin)),
@@ -1698,12 +1699,6 @@ fn main() {
     cfgs.declare("usb_alternate_function");
 
     for (p, regs) in &peripheral_list {
-        #[cfg(not(feature = "stm32-hrtim"))]
-        if regs.kind == "hrtim" {
-            // Only enable the hrtim peripheral if the stm32-hrtim feature is active
-            continue;
-        }
-
         let mut adc_pairs: BTreeMap<u8, (Option<Ident>, Option<Ident>)> = BTreeMap::new();
         let mut seen_lcd_seg_pins = HashSet::new();
 
