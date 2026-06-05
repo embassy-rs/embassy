@@ -53,7 +53,7 @@ async fn main(spawner: Spawner) {
     pwm.ch1().set_duty_cycle(50);
 
     let ch1 = CaptureInput::from_pin(p.PA0, Pull::None);
-    let mut ic = InputCapture::new(p.TIM2, Some(ch1), None, None, None, Irqs, khz(1000), Default::default());
+    let mut ic = InputCapture::new(p.TIM2, ch1, None, None, None, Irqs, khz(1000), Default::default());
 
     let mut old_capture = 0;
 
