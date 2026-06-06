@@ -6,6 +6,4 @@
 #[allow(non_upper_case_globals)]
 #[allow(missing_docs)]
 #[allow(clippy::all)]
-mod fg;
-
-pub use fg::*;
+pub(crate) mod fg;

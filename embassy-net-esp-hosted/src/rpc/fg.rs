@@ -4,7 +4,7 @@ use micropb::MessageDecode;
 
 use super::{HostedEvent, IoctlCtx, RpcBackend};
 use crate::control::{Error, Security, Status};
-use crate::proto::{
+use crate::proto::fg::{
     CtrlMsg, CtrlMsg_, CtrlMsg_Req_ConfigHeartbeat, CtrlMsg_Req_ConnectAP, CtrlMsg_Req_GetAPConfig,
     CtrlMsg_Req_GetMacAddress, CtrlMsg_Req_GetStatus, CtrlMsg_Req_OTABegin, CtrlMsg_Req_OTAEnd, CtrlMsg_Req_OTAWrite,
     CtrlMsg_Req_SetMode, CtrlMsgId, CtrlMsgType,
