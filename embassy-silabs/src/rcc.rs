@@ -3,26 +3,41 @@
 use core::mem::MaybeUninit;
 
 pub use cmu_mod::vals::{
-    Em01grpaclkctrlClksel as Em01GrpAClkSource, Em01grpcclkctrlClksel as Em01GrpCClkSource,
-    Em4grpaclkctrlClksel as Em4GrpAClkSource, Em23grpaclkctrlClksel as Em23GrpAClkSource,
-    Eusart0clkctrlClksel as Eusart0ClkSource, Hclkpresc as HclkPrescaler, IadcclkctrlClksel as IadcClkSource,
-    Pclkpresc as PclkPrescaler, SysclkctrlClksel as SysclkSource, Sysrtc0clkctrlClksel as Sysrtc0ClkSource,
-    TraceclkctrlClksel as TraceClkSource, Wdog0clkctrlClksel as Wdog0ClkSource, Wdog1clkctrlClksel as Wdog1ClkSource,
+    Em01grpaclkctrlClksel as Em01GrpAClkSource, Em4grpaclkctrlClksel as Em4GrpAClkSource,
+    Em23grpaclkctrlClksel as Em23GrpAClkSource, Hclkpresc as HclkPrescaler, IadcclkctrlClksel as IadcClkSource,
+    Pclkpresc as PclkPrescaler, SysclkctrlClksel as SysclkSource, Wdog0clkctrlClksel as Wdog0ClkSource,
+};
+// These clock branches don't exist on MG22 (config 2): no EM01GRPCCLK split,
+// no SYSRTC0, no second WDOG, no EUSART, no TRACE clock select.
+#[cfg(not(silabs_series_2_config = "2"))]
+pub use cmu_mod::vals::{
+    Em01grpcclkctrlClksel as Em01GrpCClkSource, Eusart0clkctrlClksel as Eusart0ClkSource,
+    Sysrtc0clkctrlClksel as Sysrtc0ClkSource, TraceclkctrlClksel as TraceClkSource,
+    Wdog1clkctrlClksel as Wdog1ClkSource,
 };
 use critical_section::CriticalSection;
 
 use crate::pac::CMU;
-// CMU / HFXO / MSC route to different register-block versions per Series 2
-// config: MG24 (config 4) uses cmu_v3 / hfxo_v3 / msc_v3; FG25 (config 5) uses
-// cmu_v4 / hfxo_v4 / msc_v4; MG26 (config 6) uses cmu_v7 / hfxo_v3 / msc_v9.
-// Alias them so the shared clock code below stays version-agnostic.
-// (LFXO, HFRCO, TIMER are the same version across all three.)
+// CMU / HFXO / MSC / LFXO / HFRCO route to different register-block versions
+// per Series 2 config: MG22 (config 2), MG24 (config 4), FG25 (config 5),
+// MG26 (config 6). Alias them so the shared clock code below stays
+// version-agnostic. (TIMER is aliased the same way in time_driver.rs.)
+#[cfg(silabs_series_2_config = "2")]
+use crate::pac::{
+    cmu_v1 as cmu_mod, hfrco_v1 as hfrco_mod, hfxo_v2 as hfxo_mod, lfxo_v0 as lfxo_mod, msc_v8 as msc_mod,
+};
 #[cfg(silabs_series_2_config = "4")]
-use crate::pac::{cmu_v3 as cmu_mod, hfxo_v3 as hfxo_mod, msc_v3 as msc_mod};
+use crate::pac::{
+    cmu_v3 as cmu_mod, hfrco_v2 as hfrco_mod, hfxo_v3 as hfxo_mod, lfxo_v1 as lfxo_mod, msc_v3 as msc_mod,
+};
 #[cfg(silabs_series_2_config = "5")]
-use crate::pac::{cmu_v4 as cmu_mod, hfxo_v4 as hfxo_mod, msc_v4 as msc_mod};
+use crate::pac::{
+    cmu_v4 as cmu_mod, hfrco_v2 as hfrco_mod, hfxo_v4 as hfxo_mod, lfxo_v1 as lfxo_mod, msc_v4 as msc_mod,
+};
 #[cfg(silabs_series_2_config = "6")]
-use crate::pac::{cmu_v7 as cmu_mod, hfxo_v3 as hfxo_mod, msc_v9 as msc_mod};
+use crate::pac::{
+    cmu_v7 as cmu_mod, hfrco_v2 as hfrco_mod, hfxo_v3 as hfxo_mod, lfxo_v1 as lfxo_mod, msc_v9 as msc_mod,
+};
 pub use crate::time::Hertz;
 
 /// FSRCO is always 20 MHz on Series 2.
@@ -256,6 +271,8 @@ pub struct Config {
     /// EM01GRPACLK source select (TIMER0..9 live on this branch).
     pub em01grpaclk: Em01GrpAClkSource,
     /// EM01GRPCCLK source select (EUSART module B-instances live on this branch).
+    /// Not present on MG22 (config 2).
+    #[cfg(not(silabs_series_2_config = "2"))]
     pub em01grpcclk: Em01GrpCClkSource,
     /// HCLK = SYSCLK / `hclk_pre`.
     pub hclk_pre: HclkPrescaler,
@@ -267,11 +284,13 @@ pub struct Config {
     pub em23grpaclk: Em23GrpAClkSource,
     /// EM4GRPACLK source select (peripherals active in EM4).
     pub em4grpaclk: Em4GrpAClkSource,
-    /// SYSRTC0 clock source.
+    /// SYSRTC0 clock source. Not present on MG22 (config 2).
+    #[cfg(not(silabs_series_2_config = "2"))]
     pub sysrtc0: Sysrtc0ClkSource,
     /// WDOG0 clock source.
     pub wdog0: Wdog0ClkSource,
-    /// WDOG1 clock source.
+    /// WDOG1 clock source. Not present on MG22 (config 2).
+    #[cfg(not(silabs_series_2_config = "2"))]
     pub wdog1: Wdog1ClkSource,
 
     // Per-peripheral branches.
@@ -279,8 +298,12 @@ pub struct Config {
     pub iadc: IadcClkSource,
     /// EUSART0 clock source (EUSART0 is on the LF island so it gets a
     /// separate mux from EUSART1..3 which are on EM01GRPCCLK).
+    /// Not present on MG22 (config 2 has EUART, not EUSART).
+    #[cfg(not(silabs_series_2_config = "2"))]
     pub eusart0: Eusart0ClkSource,
     /// TRACE clock source. Only used by debugger ETM/ITM.
+    /// Not a separate mux on MG22 (config 2).
+    #[cfg(not(silabs_series_2_config = "2"))]
     pub trace: TraceClkSource,
 }
 
@@ -296,6 +319,7 @@ impl Config {
             // HCLK undivided, PCLK = HCLK/2.
             sysclk: SysclkSource::Hfrcodpll,
             em01grpaclk: Em01GrpAClkSource::Hfrcodpll,
+            #[cfg(not(silabs_series_2_config = "2"))]
             em01grpcclk: Em01GrpCClkSource::Hfrcodpll,
             hclk_pre: HclkPrescaler::Div1,
             pclk_pre: PclkPrescaler::Div2,
@@ -305,14 +329,18 @@ impl Config {
             // sleep-clock accuracy.
             em23grpaclk: Em23GrpAClkSource::Lfrco,
             em4grpaclk: Em4GrpAClkSource::Lfrco,
+            #[cfg(not(silabs_series_2_config = "2"))]
             sysrtc0: Sysrtc0ClkSource::Lfrco,
             wdog0: Wdog0ClkSource::Lfrco,
+            #[cfg(not(silabs_series_2_config = "2"))]
             wdog1: Wdog1ClkSource::Lfrco,
 
             // POR defaults: IADC on EM01GRPACLK, EUSART0 on EM01GRPCCLK,
             // TRACE on SYSCLK.
             iadc: IadcClkSource::Em01grpaclk,
+            #[cfg(not(silabs_series_2_config = "2"))]
             eusart0: Eusart0ClkSource::Em01grpcclk,
+            #[cfg(not(silabs_series_2_config = "2"))]
             trace: TraceClkSource::Sysclk,
         }
     }
@@ -340,6 +368,7 @@ pub struct Clocks {
     pub hclk: Hertz,
     pub pclk: Hertz,
     pub em01grpaclk: Hertz,
+    #[cfg(not(silabs_series_2_config = "2"))]
     pub em01grpcclk: Hertz,
 }
 
@@ -402,16 +431,24 @@ fn sysclk_source_freq(src: SysclkSource, hfxo: Option<Hertz>, hfrcodpll: Hertz) 
     }
 }
 
-fn em01grpaclk_source_freq(src: Em01GrpAClkSource, hfxo: Option<Hertz>, hfrcodpll: Hertz, hfrcoem23: Hertz) -> Hertz {
+fn em01grpaclk_source_freq(src: Em01GrpAClkSource, hfxo: Option<Hertz>, hfrcodpll: Hertz, _hfrcoem23: Hertz) -> Hertz {
     match src {
         Em01GrpAClkSource::Fsrco => FSRCO_FREQ,
-        Em01GrpAClkSource::Hfrcodpll | Em01GrpAClkSource::Hfrcodpllrt => hfrcodpll,
-        Em01GrpAClkSource::Hfrcoem23 => hfrcoem23,
-        Em01GrpAClkSource::Hfxo | Em01GrpAClkSource::Hfxort => unwrap!(hfxo),
+        Em01GrpAClkSource::Hfrcodpll => hfrcodpll,
+        // The RT (radio) and HFRCOEM23 sources don't exist on MG22 (config 2).
+        #[cfg(not(silabs_series_2_config = "2"))]
+        Em01GrpAClkSource::Hfrcodpllrt => hfrcodpll,
+        #[cfg(not(silabs_series_2_config = "2"))]
+        Em01GrpAClkSource::Hfrcoem23 => _hfrcoem23,
+        Em01GrpAClkSource::Hfxo => unwrap!(hfxo),
+        #[cfg(not(silabs_series_2_config = "2"))]
+        Em01GrpAClkSource::Hfxort => unwrap!(hfxo),
         _ => unreachable!(),
     }
 }
 
+// EM01GRPCCLK is a config-4/5/6 branch; MG22 (config 2) has no such mux.
+#[cfg(not(silabs_series_2_config = "2"))]
 fn em01grpcclk_source_freq(src: Em01GrpCClkSource, hfxo: Option<Hertz>, hfrcodpll: Hertz, hfrcoem23: Hertz) -> Hertz {
     match src {
         Em01GrpCClkSource::Fsrco => FSRCO_FREQ,
@@ -430,6 +467,7 @@ pub(crate) fn init_clocks(_cs: CriticalSection, config: Config) {
     // which the Silicon Labs SDK uses pervasively).
     CMU.clken0().modify(|w| {
         w.set_gpio(true);
+        #[cfg(not(silabs_series_2_config = "2"))]
         w.set_sysrtc0(true);
         #[cfg(time_driver_timer0)]
         w.set_timer0(true);
@@ -464,15 +502,19 @@ pub(crate) fn init_clocks(_cs: CriticalSection, config: Config) {
         w.set_pclkpresc(config.pclk_pre);
     });
     CMU.em01grpaclkctrl().modify(|w| w.set_clksel(config.em01grpaclk));
-    CMU.em01grpcclkctrl().modify(|w| w.set_clksel(config.em01grpcclk));
     CMU.em23grpaclkctrl().modify(|w| w.set_clksel(config.em23grpaclk));
     CMU.em4grpaclkctrl().modify(|w| w.set_clksel(config.em4grpaclk));
-    CMU.sysrtc0clkctrl().modify(|w| w.set_clksel(config.sysrtc0));
     CMU.wdog0clkctrl().modify(|w| w.set_clksel(config.wdog0));
-    CMU.wdog1clkctrl().modify(|w| w.set_clksel(config.wdog1));
     CMU.iadcclkctrl().modify(|w| w.set_clksel(config.iadc));
-    CMU.eusart0clkctrl().modify(|w| w.set_clksel(config.eusart0));
-    CMU.traceclkctrl().modify(|w| w.set_clksel(config.trace));
+    // Branches that only exist on config 4/5/6 (absent on MG22 / config 2).
+    #[cfg(not(silabs_series_2_config = "2"))]
+    {
+        CMU.em01grpcclkctrl().modify(|w| w.set_clksel(config.em01grpcclk));
+        CMU.sysrtc0clkctrl().modify(|w| w.set_clksel(config.sysrtc0));
+        CMU.wdog1clkctrl().modify(|w| w.set_clksel(config.wdog1));
+        CMU.eusart0clkctrl().modify(|w| w.set_clksel(config.eusart0));
+        CMU.traceclkctrl().modify(|w| w.set_clksel(config.trace));
+    }
 
     let hfxo_hz = config.hfxo.map(|c| c.freq);
     let hfrcodpll_hz = match config.hfrcodpll {
@@ -486,6 +528,7 @@ pub(crate) fn init_clocks(_cs: CriticalSection, config: Config) {
     let hclk = Hertz(sysclk.0 / hclk_divisor(config.hclk_pre));
     let pclk = Hertz(hclk.0 / pclk_divisor(config.pclk_pre));
     let em01grpaclk = em01grpaclk_source_freq(config.em01grpaclk, hfxo_hz, hfrcodpll_hz, hfrcoem23_hz);
+    #[cfg(not(silabs_series_2_config = "2"))]
     let em01grpcclk = em01grpcclk_source_freq(config.em01grpcclk, hfxo_hz, hfrcodpll_hz, hfrcoem23_hz);
 
     rcc_assert!(sysclk.0 <= 80_000_000);
@@ -504,6 +547,7 @@ pub(crate) fn init_clocks(_cs: CriticalSection, config: Config) {
             hclk,
             pclk,
             em01grpaclk,
+            #[cfg(not(silabs_series_2_config = "2"))]
             em01grpcclk,
         });
     }
@@ -609,6 +653,8 @@ pub(crate) fn init_hfxo(config: &HfxoConfig) {
         w.set_forcexo2gndana(false);
         w.set_forcexi2gndana(false);
         w.set_disondemand(false);
+        // EM23ONDEMAND isn't present on MG22's HFXO (hfxo_v2).
+        #[cfg(not(silabs_series_2_config = "2"))]
         w.set_em23ondemand(false);
         w.set_forceen(true);
     });
@@ -701,14 +747,14 @@ const CTUNEFIXANA_DEFAULT: hfxo_mod::vals::Ctunefixana = hfxo_mod::vals::Ctunefi
 /// EM23GRPACLK, …) is routed to LFXO, so live consumers don't see the glitch.
 pub(crate) fn init_lfxo(config: &LfxoConfig) {
     use crate::pac::LFXO;
-    use crate::pac::lfxo_v1::vals as lfxo_vals;
+    use lfxo_mod::vals as lfxo_vals;
 
     let ctune = config.ctune.resolve(); // already clamped to 0..=0x7F
 
     // 1. Bus-clock gate + unlock.
     CMU.clken0().modify(|w| w.set_lfxo(true));
     LFXO.lock()
-        .write(|w| w.set_lockkey(crate::pac::lfxo_v1::vals::Lockkey::Unlock));
+        .write(|w| w.set_lockkey(lfxo_mod::vals::Lockkey::Unlock));
 
     // 2. Disable LFXO so CAL/CFG are writable.
     LFXO.ctrl_set().write(|w| w.set_disondemand(true));
@@ -766,6 +812,8 @@ pub(crate) fn init_hfrcodpll(band: HfrcoBand) {
     //    DPLL_EN was never set, this is a no-op.
     if DPLL0.en().read().en() {
         DPLL0.en_clr().write(|w| w.set_en(true));
+        // dpll_v0 (MG22) has no DISABLING status bit — disable is immediate.
+        #[cfg(not(silabs_series_2_config = "2"))]
         while DPLL0.en().read().disabling() {}
     }
 
@@ -808,7 +856,7 @@ pub(crate) fn init_hfrcodpll(band: HfrcoBand) {
     }
 
     // 7. Write the calibration word.
-    HFRCO0.cal().write_value(crate::pac::hfrco_v2::regs::Cal(cal_word));
+    HFRCO0.cal().write_value(hfrco_mod::regs::Cal(cal_word));
 }
 
 /// HFRCODPLL DEVINFO calibration-word lookup. The index map is the

@@ -27,10 +27,10 @@ cortex-m = "0.7.6"
 critical-section = "1.2.0"
 trait-set = "0.3.0"
 
-silabs-metapac = { git = "https://github.com/andresv/silabs-data-generated.git", tag = "0.3.0" }
+silabs-metapac = { git = "https://github.com/andresv/silabs-data-generated.git", tag = "0.4.0" }
 
 [build-dependencies]
-silabs-metapac = { git = "https://github.com/andresv/silabs-data-generated.git", tag = "0.3.0", default-features = false, features = ["metadata"] }
+silabs-metapac = { git = "https://github.com/andresv/silabs-data-generated.git", tag = "0.4.0", default-features = false, features = ["metadata"] }
 
 [features]
 default = ["rt"]
@@ -93,6 +93,12 @@ efr32fg25b211f1920im56 = [ "silabs-metapac/efr32fg25b211f1920im56" ]
 efr32fg25b212f1920im56 = [ "silabs-metapac/efr32fg25b212f1920im56" ]
 efr32fg25b221f1920im56 = [ "silabs-metapac/efr32fg25b221f1920im56" ]
 efr32fg25b222f1920im56 = [ "silabs-metapac/efr32fg25b222f1920im56" ]
+efr32mg22a224f512im40 = [ "silabs-metapac/efr32mg22a224f512im40" ]
+efr32mg22c224f512gn32 = [ "silabs-metapac/efr32mg22c224f512gn32" ]
+efr32mg22c224f512im32 = [ "silabs-metapac/efr32mg22c224f512im32" ]
+efr32mg22c224f512im40 = [ "silabs-metapac/efr32mg22c224f512im40" ]
+efr32mg22e224f512im32 = [ "silabs-metapac/efr32mg22e224f512im32" ]
+efr32mg22e224f512im40 = [ "silabs-metapac/efr32mg22e224f512im40" ]
 efr32mg24a010f1024im40 = [ "silabs-metapac/efr32mg24a010f1024im40" ]
 efr32mg24a010f1024im48 = [ "silabs-metapac/efr32mg24a010f1024im48" ]
 efr32mg24a010f1536gm40 = [ "silabs-metapac/efr32mg24a010f1536gm40" ]
