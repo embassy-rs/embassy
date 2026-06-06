@@ -14,8 +14,6 @@ impl IoctlCtx<'_> {
     }
 
     pub async fn exchange(&mut self, msg: &mut (impl MessageDecode + MessageEncode)) -> Result<(), Error> {
-        debug!("ioctl req: {:?}", msg);
-
         // Theoretical max overhead is 29 bytes. Biggest message is OTA write with 256 bytes.
         let mut buf = [0u8; 256 + 29];
         let buf_len = buf.len();
@@ -52,7 +50,6 @@ impl IoctlCtx<'_> {
             warn!("failed to deserialize control response");
             Error::Internal
         })?;
-        debug!("ioctl resp: {:?}", msg);
 
         Ok(())
     }

@@ -27,7 +27,11 @@ macro_rules! exchange {
             req_resp_type: 0,
             uid: 0,
         };
+
+        debug!("ioctl req: {:?}", msg);
         $ctx.exchange(&mut msg).await?;
+        debug!("ioctl resp: {:?}", msg);
+
         msg
     }};
 }
