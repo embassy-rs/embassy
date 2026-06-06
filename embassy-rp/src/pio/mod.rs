@@ -318,9 +318,9 @@ impl<'l, PIO: Instance> Pin<'l, PIO> {
     pub fn set_input_inversion(&mut self, invert: bool) {
         self.pin.gpio().ctrl().modify(|w| {
             w.set_inover(if invert {
-                pac::io::vals::Inover::INVERT
+                pac::io::vals::Inover::Invert
             } else {
-                pac::io::vals::Inover::NORMAL
+                pac::io::vals::Inover::Normal
             })
         })
     }
