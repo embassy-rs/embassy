@@ -323,10 +323,16 @@ where
             Some(HostedEvent::Heartbeat) => self.heartbeat_deadline = Instant::now() + HEARTBEAT_MAX_GAP,
             Some(HostedEvent::StaConnected { resp }) => {
                 info!("connected, code {}", resp);
+                if self.shared.connect_is_pending() {
+                    self.shared.connect_done();
+                }
                 self.state_ch.set_link_state(LinkState::Up);
             }
             Some(HostedEvent::StaDisconnected { reason }) => {
                 info!("disconnected, reason {}", reason);
+                if self.shared.connect_is_pending() {
+                    self.shared.connect_failed(reason);
+                }
                 self.state_ch.set_link_state(LinkState::Down);
             }
             None => {}

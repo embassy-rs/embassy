@@ -117,12 +117,12 @@ impl<'a> Control<'a> {
 
     /// Connect to the network identified by ssid using the provided password.
     pub async fn connect(&mut self, ssid: &str, password: &str) -> Result<(), Error> {
+        self.shared.connect_begin();
+
         let mut ctx = IoctlCtx::new(self.shared);
         self.backend.connect_ap(&mut ctx, ssid, password).await?;
 
-        // TODO: in newer esp-hosted firmwares that added EventStationConnectedToAp
-        // the connect ioctl seems to be async, so we shouldn't immediately set LinkState::Up here.
-        self.state_ch.set_link_state(LinkState::Up);
+        self.shared.connect_wait().await.map_err(Error::Failed)?;
 
         Ok(())
     }
