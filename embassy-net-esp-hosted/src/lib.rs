@@ -10,7 +10,7 @@ use embassy_time::{Duration, Instant, Timer};
 use embedded_hal::digital::OutputPin;
 
 use crate::ioctl::{PendingIoctl, Shared};
-use crate::proto::{CtrlMsg, CtrlMsg_};
+use crate::rpc::{FgBackend, HostedEvent, RpcBackend};
 
 mod proto;
 
@@ -20,6 +20,7 @@ mod fmt;
 mod control;
 mod iface;
 mod ioctl;
+mod rpc;
 
 pub use control::*;
 pub use iface::*;
@@ -317,32 +318,18 @@ where
     }
 
     fn handle_event(&mut self, data: &[u8]) {
-        use micropb::MessageDecode;
-        let mut event = CtrlMsg::default();
-        if event.decode_from_bytes(data).is_err() {
-            warn!("failed to parse event");
-            return;
-        }
-
-        debug!("event: {:?}", &event);
-
-        let Some(payload) = &event.payload else {
-            warn!("event without payload?");
-            return;
-        };
-
-        match payload {
-            CtrlMsg_::Payload::EventEspInit(_) => self.shared.init_done(),
-            CtrlMsg_::Payload::EventHeartbeat(_) => self.heartbeat_deadline = Instant::now() + HEARTBEAT_MAX_GAP,
-            CtrlMsg_::Payload::EventStationConnectedToAp(e) => {
-                info!("connected, code {}", e.resp);
+        match RpcBackend::normalize_event(&FgBackend, data) {
+            Some(HostedEvent::Init) => self.shared.init_done(),
+            Some(HostedEvent::Heartbeat) => self.heartbeat_deadline = Instant::now() + HEARTBEAT_MAX_GAP,
+            Some(HostedEvent::StaConnected { resp }) => {
+                info!("connected, code {}", resp);
                 self.state_ch.set_link_state(LinkState::Up);
             }
-            CtrlMsg_::Payload::EventStationDisconnectFromAp(e) => {
-                info!("disconnected, code {}", e.resp);
+            Some(HostedEvent::StaDisconnected { reason }) => {
+                info!("disconnected, reason {}", reason);
                 self.state_ch.set_link_state(LinkState::Down);
             }
-            _ => {}
+            None => {}
         }
     }
 }
