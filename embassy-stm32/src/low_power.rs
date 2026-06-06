@@ -378,9 +378,11 @@ pub unsafe fn sleep(cs: CriticalSection) {
     on_wakeup(cs);
 }
 
-/// Peripheral that can be suspended
-#[allow(private_bounds)]
-pub trait SuspendablePeripheral: SealedSuspendablePeripheral {}
+trait_set::trait_set! {
+    /// Peripheral that can be suspended
+    #[allow(private_bounds)]
+    pub trait SuspendablePeripheral = SealedSuspendablePeripheral;
+}
 
 pub(crate) trait SealedSuspendablePeripheral {
     type InternalState;
@@ -390,8 +392,6 @@ pub(crate) trait SealedSuspendablePeripheral {
     #[allow(dead_code)]
     fn resume(state: Self::InternalState) -> Self;
 }
-
-impl<T: SealedSuspendablePeripheral> SuspendablePeripheral for T {}
 
 /// A suspended peripheral
 pub struct SuspendedPeripheral<T: SuspendablePeripheral> {

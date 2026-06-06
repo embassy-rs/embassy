@@ -1026,27 +1026,16 @@ impl<'d, M: PeriMode> Dac<'d, M> {
     }
 }
 
-trait SealedIntoSlice<T> {}
-trait SealedIntoArray<T> {}
+trait SealedCast<T: ?Sized> {}
 
 /// Convert between slice types
 #[allow(private_bounds)]
-pub trait IntoSlice<T>: SealedIntoSlice<T> {
-    /// Convert the slice
-    fn into_slice(&self) -> &[T];
+pub trait Cast<T: ?Sized>: SealedCast<T> {
+    /// Cast the object
+    fn cast(&self) -> &T;
 
-    /// Convert the mut slice
-    fn into_mut_slice(&mut self) -> &mut [T];
-}
-
-/// Convert between slice types
-#[allow(private_bounds)]
-pub trait IntoArray<T, const N: usize>: SealedIntoArray<T> {
-    /// Convert the array
-    fn into_array(&self) -> &[T; N];
-
-    /// Convert the mut array
-    fn into_mut_array(&mut self) -> &mut [T; N];
+    /// Cast the mut object
+    fn cast_mut(&mut self) -> &mut T;
 }
 
 macro_rules! impl_word_type {
@@ -1061,24 +1050,24 @@ macro_rules! impl_word_type {
         impl_word_type!($b, $a, INTO_SLICE);
     };
     ($a:ident, $b:ident, INTO_SLICE) => {
-        impl SealedIntoSlice<$a> for [$b] {}
-        impl IntoSlice<$a> for [$b] {
-            fn into_slice(&self) -> &[$a] {
+        impl SealedCast<[$a]> for [$b] {}
+        impl Cast<[$a]> for [$b] {
+            fn cast(&self) -> &[$a] {
                 unsafe { slice::from_raw_parts(self.as_ptr() as *const $a, self.len()) }
             }
 
-            fn into_mut_slice(&mut self) -> &mut [$a] {
+            fn cast_mut(&mut self) -> &mut [$a] {
                 unsafe { slice::from_raw_parts_mut(self.as_mut_ptr() as *mut $a, self.len()) }
             }
         }
 
-        impl<const N: usize> SealedIntoArray<$a> for [$b; N] {}
-        impl<const N: usize> IntoArray<$a, N> for [$b; N] {
-            fn into_array(&self) -> &[$a; N] {
+        impl<const N: usize> SealedCast<[$a; N]> for [$b; N] {}
+        impl<const N: usize> Cast<[$a; N]> for [$b; N] {
+            fn cast(&self) -> &[$a; N] {
                 unsafe { &*(self.as_ptr() as *const u8 as *const [$a; N]) }
             }
 
-            fn into_mut_array(&mut self) -> &mut [$a; N] {
+            fn cast_mut(&mut self) -> &mut [$a; N] {
                 unsafe { &mut *(self.as_mut_ptr() as *mut u8 as *mut [$a; N]) }
             }
         }
@@ -1134,11 +1123,11 @@ impl SealedWord for u12r {
     type Word = u16;
 
     fn dma_buf(buf: &[Self]) -> &[Self::Word] {
-        buf.into_slice()
+        buf.cast()
     }
 
     fn dma_buf_mut(buf: &mut [Self]) -> &mut [Self::Word] {
-        buf.into_mut_slice()
+        buf.cast_mut()
     }
 
     fn dma_ptr(regs: Regs, idx: usize) -> *mut u32 {
@@ -1161,11 +1150,11 @@ impl SealedWord for u12l {
     type Word = u16;
 
     fn dma_buf(buf: &[Self]) -> &[Self::Word] {
-        buf.into_slice()
+        buf.cast()
     }
 
     fn dma_buf_mut(buf: &mut [Self]) -> &mut [Self::Word] {
-        buf.into_mut_slice()
+        buf.cast_mut()
     }
 
     fn dma_ptr(regs: Regs, idx: usize) -> *mut u32 {

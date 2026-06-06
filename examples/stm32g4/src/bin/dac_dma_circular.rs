@@ -16,7 +16,7 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_stm32::dac::{DacChannel, IntoArray, u12r};
+use embassy_stm32::dac::{Cast, DacChannel, u12r};
 use embassy_stm32::timer::Channel;
 use embassy_stm32::timer::low_level::{MasterMode, RoundTo, Timer};
 use embassy_stm32::triggers::TIM8_TRGO;
@@ -74,7 +74,7 @@ async fn main(_spawner: Spawner) {
 
     // Pre-populate the DMA buffer with the sine table before handing it to the ring buffer.
     // No write_immediate needed — DMA reads the pre-filled data from the first trigger.
-    let mut ring = dac_ch1.into_ring_buffered(DMA_BUF.init(*SINE.into_array()));
+    let mut ring = dac_ch1.into_ring_buffered(DMA_BUF.init(*SINE.cast()));
 
     ring.start();
 
