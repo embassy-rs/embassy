@@ -41,22 +41,6 @@ pub enum Security {
     Unknown(i32),
 }
 
-impl From<i32> for Security {
-    fn from(val: i32) -> Self {
-        match val {
-            0 => Self::Open,
-            1 => Self::Wep,
-            2 => Self::WpaPsk,
-            3 => Self::Wpa2Psk,
-            4 => Self::WpaWpa2Psk,
-            5 => Self::Wpa2Enterprise,
-            6 => Self::Wpa3Psk,
-            7 => Self::Wpa2Wpa3Psk,
-            n => Self::Unknown(n),
-        }
-    }
-}
-
 /// Handle for managing the network and WiFI state.
 pub struct Control<'a> {
     state_ch: ch::StateRunner<'a>,

@@ -115,7 +115,7 @@ impl RpcBackend for FgBackend {
             bssid: parse_mac(bssid_str)?,
             rssi: resp.rssi as _,
             channel: resp.chnl as u32,
-            security: Security::from(resp.sec_prot.0),
+            security: map_fg_security(resp.sec_prot.0),
         })
     }
 
@@ -165,6 +165,20 @@ impl RpcBackend for FgBackend {
             Payload::EventStationDisconnectFromAp(e) => Some(HostedEvent::StaDisconnected { reason: e.reason }),
             _ => None,
         }
+    }
+}
+
+fn map_fg_security(val: i32) -> Security {
+    match val {
+        0 => Security::Open,
+        1 => Security::Wep,
+        2 => Security::WpaPsk,
+        3 => Security::Wpa2Psk,
+        4 => Security::WpaWpa2Psk,
+        5 => Security::Wpa2Enterprise,
+        6 => Security::Wpa3Psk,
+        7 => Security::Wpa2Wpa3Psk,
+        n => Security::Unknown(n),
     }
 }
 
