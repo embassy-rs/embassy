@@ -75,7 +75,7 @@ impl<'d, PIO: Instance> PioIrNecRxProgram<'d, PIO> {
 
 /// NEC data is sent in a 32 bit frame made from the normal and inverted address and data. This
 /// struct represents the unencoded data.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct NecFrame {
     /// Checked NEC Address
@@ -86,7 +86,7 @@ pub struct NecFrame {
 
 /// NEC data is sent in a 32 bit frame made from the normal and inverted address and data. This
 /// struct represents the unencoded data.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct NecExtendedFrame {
     /// Checked NEC Address
