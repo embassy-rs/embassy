@@ -11,7 +11,12 @@ use embassy_time_driver::Driver;
 use embassy_time_queue_utils::Queue;
 
 use crate::interrupt::typelevel::Interrupt;
-use crate::pac::timer_v1_w;
+// TIMER0 routes to a different register-block version per Series 2 config:
+// MG22 (config 2) uses timer_v0_w; configs 4/5/6 use timer_v1_w.
+#[cfg(silabs_series_2_config = "2")]
+use crate::pac::timer_v0_w as timer_mod;
+#[cfg(not(silabs_series_2_config = "2"))]
+use crate::pac::timer_v1_w as timer_mod;
 use crate::peripherals;
 
 mod sealed {
@@ -43,8 +48,8 @@ type T = peripherals::TIMER0;
 #[cfg(time_driver_timer1)]
 type T = peripherals::TIMER1;
 
-fn regs() -> timer_v1_w::Timer {
-    unsafe { timer_v1_w::Timer::from_ptr(<T as Instance>::regs()) }
+fn regs() -> timer_mod::Timer {
+    unsafe { timer_mod::Timer::from_ptr(<T as Instance>::regs()) }
 }
 
 // `period` goes up at counter values 0 (overflow) and 0x8000_0000 (CC0). An even `period` means the
@@ -79,6 +84,8 @@ impl TimerDriver {
         // `CFG` and `CCx_CFG` are writable only while `EN.EN` is 0. Other registers, except `EN`,
         // BusFault while `EN.EN` is 0.
         t.en().write(|w| w.set_en(false));
+        // timer_v0_w (MG22) has no DISABLING status bit — disable is immediate.
+        #[cfg(not(silabs_series_2_config = "2"))]
         while t.en().read().disabling() {}
 
         // TIMER0 lives on EM01GRPACLK. The source is configurable
@@ -98,17 +105,17 @@ impl TimerDriver {
         let divisor = em01grpaclk / tick_hz;
         assert!((1..=1024).contains(&divisor), "TIMER0 PRESC out of range");
         t.cfg().write(|w| {
-            w.set_presc(silabs_metapac::timer_v1_w::vals::Presc::from_bits((divisor - 1) as u16));
+            w.set_presc(timer_mod::vals::Presc::from_bits((divisor - 1) as u16));
         });
 
         // CC0 marks the half period. OF and CC0 each add 1 to `period`.
         t.cc0_cfg().write(|w| {
-            w.set_mode(silabs_metapac::timer_v1_w::vals::Cc0CfgMode::Outputcompare);
+            w.set_mode(timer_mod::vals::Cc0CfgMode::Outputcompare);
         });
 
         // CC1 is the alarm.
         t.cc1_cfg().write(|w| {
-            w.set_mode(silabs_metapac::timer_v1_w::vals::Cc1CfgMode::Outputcompare);
+            w.set_mode(timer_mod::vals::Cc1CfgMode::Outputcompare);
         });
 
         t.en().write(|w| w.set_en(true));

@@ -8,6 +8,12 @@
 // This must go FIRST so that all the other modules see its macros.
 mod fmt;
 
+// The EUSART driver as written is MG26-specific: its EUSART2/EUSART3 impls
+// use `CMU.clken2()` and assume 4 EUSART instances, which only exist on
+// cmu_v7 / MG26 (config 6). MG24 (cmu_v3) and FG25 (cmu_v4) lack clken2, and
+// MG22 (config 2) has EUART, not EUSART. Gate it to config 6 until the driver
+// is generalised across configs.
+#[cfg(silabs_series_2_config = "6")]
 pub mod eusart;
 pub mod gpio;
 
