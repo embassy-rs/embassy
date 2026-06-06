@@ -408,10 +408,10 @@ impl<'a> UdpSocket<'a> {
     /// If the socket's send buffer is too small to fit `max_size`, this method will return `Err(SendError::PacketTooLarge)`
     ///
     /// When the remote endpoint is not reachable, this method will return `Err(SendError::NoRoute)`
-    pub async fn send_to_with<T, F, R>(&mut self, max_size: usize, remote_endpoint: T, f: F) -> Result<R, SendError>
+    pub async fn send_to_with<T, F, R>(&mut self, max_size: usize, remote_endpoint: T, mut f: F) -> Result<R, SendError>
     where
         T: Into<UdpMetadata> + Copy,
-        F: FnOnce(&mut [u8]) -> (usize, R),
+        F: FnMut(&mut [u8]) -> (usize, R),
     {
         // Don't need to wake waker in `with_mut` if the buffer will never fit the udp tx_buffer.
         let send_capacity_too_small = self.with(|s, _| s.payload_send_capacity() < max_size);
@@ -419,13 +419,12 @@ impl<'a> UdpSocket<'a> {
             return Err(SendError::PacketTooLarge);
         }
 
-        let mut f = Some(f);
         poll_fn(move |cx| {
             self.with_mut(|s, _| {
                 let mut ret = None;
 
                 match s.send_with(max_size, remote_endpoint.into().into_smoltcp(), |buf| {
-                    let (size, r) = unwrap!(f.take())(buf);
+                    let (size, r) = f(buf);
                     ret = Some(r);
                     size
                 }) {
