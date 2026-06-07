@@ -839,7 +839,7 @@ pub(crate) trait SealedPin {
 pub type PinNumber = u8;
 
 /// Pin that can be used to configure an [ExtiInput](crate::exti::ExtiInput). This trait is lost when converting to [AnyPin].
-#[cfg(feature = "exti")]
+#[cfg(all(feature = "exti", not(stm32c5)))]
 #[allow(private_bounds)]
 pub trait ExtiPin: PeripheralType + SealedPin {
     /// EXTI channel assigned to this pin.

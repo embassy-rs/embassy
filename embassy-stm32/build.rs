@@ -2262,6 +2262,9 @@ fn main() {
                         return Ok(f.simplify());
                     }
                 }
+                if n.contains("Disabled") {
+                    return Ok(Frac { num: 0, denom: 1 });
+                }
                 Err(())
             }
 

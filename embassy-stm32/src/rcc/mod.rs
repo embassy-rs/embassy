@@ -5,7 +5,9 @@
 
 use core::mem::MaybeUninit;
 
+#[cfg(not(stm32c5))]
 mod bd;
+#[cfg(not(stm32c5))]
 pub use bd::*;
 
 #[cfg(any(mco, mco1, mco2))]
@@ -25,6 +27,7 @@ pub use hsi48::*;
 #[cfg_attr(any(stm32f0, stm32f1, stm32f3), path = "f013.rs")]
 #[cfg_attr(any(stm32f2, stm32f4, stm32f7), path = "f247.rs")]
 #[cfg_attr(stm32c0, path = "c0.rs")]
+#[cfg_attr(stm32c5, path = "c5.rs")]
 #[cfg_attr(stm32g0, path = "g0.rs")]
 #[cfg_attr(stm32g4, path = "g4.rs")]
 #[cfg_attr(any(stm32h5, stm32h7, stm32h7rs), path = "h.rs")]
@@ -600,7 +603,7 @@ pub fn reinit(config: Config, _rcc: &'_ mut crate::Peri<'_, crate::peripherals::
         init_rcc(cs, config);
 
         // must be after rcc init
-        #[cfg(feature = "_time-driver")]
+        #[cfg(all(feature = "_time-driver", not(stm32c5)))]
         crate::time_driver::init(cs);
     })
 }
