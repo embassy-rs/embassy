@@ -303,12 +303,13 @@ pub(crate) use stm32_metapac as pac;
 pub mod low_power {
     //! Low-power stub module to provide consistent API
 
-    /// Peripheral that can be suspended
-    #[allow(private_bounds)]
-    pub trait SuspendablePeripheral: SealedSuspendablePeripheral {}
+    trait_set::trait_set! {
+        /// Peripheral that can be suspended
+        #[allow(private_bounds)]
+        pub trait SuspendablePeripheral = SealedSuspendablePeripheral;
+    }
 
     pub(crate) trait SealedSuspendablePeripheral {}
-    impl<T: SealedSuspendablePeripheral> SuspendablePeripheral for T {}
 
     /// A mutex-like object to resume a peripheral. Does nothing when `low-power` is not enabled.
     pub struct ResumablePeripheral<T: SuspendablePeripheral>(T);
