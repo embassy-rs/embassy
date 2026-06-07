@@ -362,8 +362,8 @@ fn write_dout_bit(pin: &AnyPin, high: bool) {
 /// Sets `pin` as a push-pull output for a peripheral, such as EUSART TX.
 /// Sets the line idle-high before switching to push-pull so a UART idle
 /// level is presented immediately.
-// Only the EUSART driver (MG26 / config 6) uses these today.
-#[cfg(silabs_series_2_config = "6")]
+// Used by the EUSART driver (MG26 config 6 + FG25 config 5).
+#[cfg(any(silabs_series_2_config = "5", silabs_series_2_config = "6"))]
 #[inline]
 pub(crate) fn set_as_alternate_output(pin: &AnyPin) {
     write_dout_bit(pin, true);
@@ -371,7 +371,7 @@ pub(crate) fn set_as_alternate_output(pin: &AnyPin) {
 }
 
 /// Sets `pin` as a floating input for a peripheral, such as EUSART RX.
-#[cfg(silabs_series_2_config = "6")]
+#[cfg(any(silabs_series_2_config = "5", silabs_series_2_config = "6"))]
 #[inline]
 pub(crate) fn set_as_alternate_input(pin: &AnyPin) {
     write_mode(pin, Mode::Input);
