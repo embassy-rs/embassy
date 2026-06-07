@@ -302,9 +302,10 @@ macro_rules! impl_eusart {
     };
 }
 
-// All four EUSART instances. EUSART0 is the LF-capable instance with its own
-// clock mux (resolved by `eusart0_source_freq`); EUSART1..3 are HF-only on
-// EM01GRPCCLK. Bus-clock gates live in CLKEN1 (EUSART0/1) and CLKEN2 (EUSART2/3).
+// EUSART instances. EUSART0 is the LF-capable instance with its own clock mux
+// (resolved by `eusart0_source_freq`); the rest are HF-only on EM01GRPCCLK.
+// MG26 (cmu_v7) has EUSART0-3 with bus-clock gates in CLKEN1 (EUSART0/1) +
+// CLKEN2 (EUSART2/3); FG25 (cmu_v4) has EUSART0-4 all gated in CLKEN1.
 impl_eusart!(
     EUSART0,
     EUSART0_RX,
@@ -329,6 +330,9 @@ impl_eusart!(
     },
     em01grpcclk_freq(),
 );
+// EUSART2/3 bus-clock gate: CLKEN2 on MG26 (cmu_v7), CLKEN1 on FG25 (cmu_v4,
+// which has no CLKEN2). Routing / regs / IRQ wiring are identical.
+#[cfg(silabs_series_2_config = "6")]
 impl_eusart!(
     EUSART2,
     EUSART2_RX,
@@ -341,6 +345,7 @@ impl_eusart!(
     },
     em01grpcclk_freq(),
 );
+#[cfg(silabs_series_2_config = "6")]
 impl_eusart!(
     EUSART3,
     EUSART3_RX,
@@ -350,6 +355,46 @@ impl_eusart!(
     eusart3_routeen,
     {
         CMU.clken2().modify(|w| w.set_eusart3(true));
+    },
+    em01grpcclk_freq(),
+);
+#[cfg(silabs_series_2_config = "5")]
+impl_eusart!(
+    EUSART2,
+    EUSART2_RX,
+    EUSART2_TX,
+    eusart2_txroute,
+    eusart2_rxroute,
+    eusart2_routeen,
+    {
+        CMU.clken1().modify(|w| w.set_eusart2(true));
+    },
+    em01grpcclk_freq(),
+);
+#[cfg(silabs_series_2_config = "5")]
+impl_eusart!(
+    EUSART3,
+    EUSART3_RX,
+    EUSART3_TX,
+    eusart3_txroute,
+    eusart3_rxroute,
+    eusart3_routeen,
+    {
+        CMU.clken1().modify(|w| w.set_eusart3(true));
+    },
+    em01grpcclk_freq(),
+);
+// EUSART4 exists only on FG25 (cmu_v4); also gated in CLKEN1.
+#[cfg(silabs_series_2_config = "5")]
+impl_eusart!(
+    EUSART4,
+    EUSART4_RX,
+    EUSART4_TX,
+    eusart4_txroute,
+    eusart4_rxroute,
+    eusart4_routeen,
+    {
+        CMU.clken1().modify(|w| w.set_eusart4(true));
     },
     em01grpcclk_freq(),
 );
