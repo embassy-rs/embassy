@@ -87,6 +87,15 @@ struct PayloadHeader {
 }
 impl_bytes!(PayloadHeader);
 
+impl PayloadHeader {
+    #[inline]
+    fn copy(mut self, buffer: &mut [u8; MAX_BUFFER_SIZE]) {
+        buffer[0..PayloadHeader::SIZE].copy_from_slice(&self.to_bytes());
+        self.checksum = checksum(&buffer[..PayloadHeader::SIZE + self.len as usize]);
+        buffer[0..PayloadHeader::SIZE].copy_from_slice(&self.to_bytes());
+    }
+}
+
 #[allow(unused)]
 #[repr(u8)]
 enum InterfaceType {
@@ -98,7 +107,7 @@ enum InterfaceType {
     Test = 5,
 }
 
-const MAX_SPI_BUFFER_SIZE: usize = 1600;
+const MAX_BUFFER_SIZE: usize = 1600;
 const HEARTBEAT_MAX_GAP: Duration = Duration::from_secs(20);
 
 /// State for the esp-hosted driver.
@@ -175,7 +184,7 @@ where
         self.reset.set_high().unwrap();
         Timer::after_millis(1000).await;
 
-        let mut buffer = [0u8; MAX_SPI_BUFFER_SIZE];
+        let mut buffer = [0u8; MAX_BUFFER_SIZE];
 
         loop {
             self.iface.wait_for_handshake().await;
@@ -187,28 +196,23 @@ where
 
             match select4(ioctl, tx, ev, hb).await {
                 Either4::First(PendingIoctl { buf, req_len }) => {
-                    buffer[12..24].copy_from_slice(b"\x01\x08\x00ctrlResp\x02");
-                    buffer[24..26].copy_from_slice(&(req_len as u16).to_le_bytes());
-                    buffer[26..][..req_len].copy_from_slice(&unsafe { &*buf }[..req_len]);
+                    let payload_len =
+                        FgBackend.encode_ioctl(&mut buffer[PayloadHeader::SIZE..], &unsafe { &*buf }[..req_len]);
 
-                    let mut header = PayloadHeader {
+                    let header = PayloadHeader {
                         if_type_and_num: InterfaceType::Serial as _,
-                        len: (req_len + 14) as _,
+                        len: payload_len as _,
                         offset: PayloadHeader::SIZE as _,
                         seq_num: self.next_seq,
                         ..Default::default()
                     };
                     self.next_seq = self.next_seq.wrapping_add(1);
-
-                    // Calculate checksum
-                    buffer[0..12].copy_from_slice(&header.to_bytes());
-                    header.checksum = checksum(&buffer[..26 + req_len]);
-                    buffer[0..12].copy_from_slice(&header.to_bytes());
+                    header.copy(&mut buffer);
                 }
                 Either4::Second(packet) => {
-                    buffer[12..][..packet.len()].copy_from_slice(&packet);
+                    buffer[PayloadHeader::SIZE..][..packet.len()].copy_from_slice(&packet);
 
-                    let mut header = PayloadHeader {
+                    let header = PayloadHeader {
                         if_type_and_num: InterfaceType::Sta as _,
                         len: packet.len() as _,
                         offset: PayloadHeader::SIZE as _,
@@ -216,11 +220,7 @@ where
                         ..Default::default()
                     };
                     self.next_seq = self.next_seq.wrapping_add(1);
-
-                    // Calculate checksum
-                    buffer[0..12].copy_from_slice(&header.to_bytes());
-                    header.checksum = checksum(&buffer[..12 + packet.len()]);
-                    buffer[0..12].copy_from_slice(&header.to_bytes());
+                    header.copy(&mut buffer);
 
                     packet.tx_done();
                 }
@@ -286,31 +286,11 @@ where
             // serial
             2 => {
                 trace!("serial rx: {:02x}", payload);
-                if payload.len() < 14 {
-                    warn!("serial rx: too short");
-                    return;
-                }
 
-                let is_event = match &payload[..12] {
-                    b"\x01\x08\x00ctrlResp\x02" => false,
-                    b"\x01\x08\x00ctrlEvnt\x02" => true,
-                    _ => {
-                        warn!("serial rx: bad tlv");
-                        return;
-                    }
-                };
-
-                let len = u16::from_le_bytes(payload[12..14].try_into().unwrap()) as usize;
-                if payload.len() < 14 + len {
-                    warn!("serial rx: too short 2");
-                    return;
-                }
-                let data = &payload[14..][..len];
-
-                if is_event {
-                    self.handle_event(data);
-                } else {
-                    self.shared.ioctl_done(data);
+                match FgBackend.process_serial_data(payload) {
+                    Some((true, data)) => self.handle_event(data),
+                    Some((false, data)) => self.shared.ioctl_done(data),
+                    _ => {}
                 }
             }
             _ => warn!("unknown iftype {}", if_type_and_num),
@@ -318,7 +298,7 @@ where
     }
 
     fn handle_event(&mut self, data: &[u8]) {
-        match RpcBackend::normalize_event(&FgBackend, data) {
+        match FgBackend.normalize_event(data) {
             Some(HostedEvent::Init) => self.shared.init_done(),
             Some(HostedEvent::Heartbeat) => self.heartbeat_deadline = Instant::now() + HEARTBEAT_MAX_GAP,
             Some(HostedEvent::StaConnected { resp }) => {

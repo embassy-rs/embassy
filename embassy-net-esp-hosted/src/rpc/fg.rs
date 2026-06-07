@@ -41,6 +41,42 @@ macro_rules! exchange {
 pub struct FgBackend;
 
 impl RpcBackend for FgBackend {
+    #[inline]
+    fn encode_ioctl(&self, buffer: &mut [u8], req: &[u8]) -> usize {
+        let req_len = req.len();
+
+        buffer[0..12].copy_from_slice(b"\x01\x08\x00ctrlResp\x02");
+        buffer[12..14].copy_from_slice(&(req_len as u16).to_le_bytes());
+        buffer[14..][..req_len].copy_from_slice(req);
+
+        req_len + 14
+    }
+
+    #[inline]
+    fn process_serial_data<'pl>(&self, payload: &'pl [u8]) -> Option<(bool, &'pl [u8])> {
+        if payload.len() < 14 {
+            warn!("serial rx: too short");
+            return None;
+        }
+
+        let is_event = match &payload[..12] {
+            b"\x01\x08\x00ctrlResp\x02" => false,
+            b"\x01\x08\x00ctrlEvnt\x02" => true,
+            _ => {
+                warn!("serial rx: bad tlv");
+                return None;
+            }
+        };
+
+        let len = u16::from_le_bytes(payload[12..14].try_into().unwrap()) as usize;
+        if payload.len() < 14 + len {
+            warn!("serial rx: too short 2");
+            return None;
+        }
+
+        Some((is_event, &payload[14..][..len]))
+    }
+
     async fn config_heartbeat(&self, ctx: &mut IoctlCtx<'_>, secs: u32) -> Result<(), Error> {
         let req = CtrlMsg_Req_ConfigHeartbeat {
             enable: true,
@@ -152,6 +188,7 @@ impl RpcBackend for FgBackend {
         check_resp(resp.resp)
     }
 
+    #[inline]
     fn normalize_event(&self, raw: &[u8]) -> Option<HostedEvent> {
         let mut event = CtrlMsg::default();
         if event.decode_from_bytes(raw).is_err() {
