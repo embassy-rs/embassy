@@ -57,27 +57,24 @@ impl Shared {
         })
     }
 
-    pub async fn ioctl_wait_pending(&self) -> PendingIoctl {
-        let pending = poll_fn(|cx| {
+    pub fn ioctl_wait_pending(&self) -> impl Future<Output = PendingIoctl> + '_ {
+        poll_fn(|cx| {
             let mut this = self.0.borrow_mut();
             if let IoctlState::Pending(pending) = this.ioctl {
+                this.ioctl = IoctlState::Sent { buf: pending.buf };
                 Poll::Ready(pending)
             } else {
                 this.runner_waker.register(cx.waker());
                 Poll::Pending
             }
         })
-        .await;
-
-        self.0.borrow_mut().ioctl = IoctlState::Sent { buf: pending.buf };
-        pending
     }
 
     pub fn ioctl_cancel(&self) {
         self.0.borrow_mut().ioctl = IoctlState::Done { resp_len: 0 };
     }
 
-    pub async fn ioctl(&self, buf: &mut [u8], req_len: usize) -> usize {
+    pub fn ioctl(&self, buf: &mut [u8], req_len: usize) -> impl Future<Output = usize> + '_ {
         trace!("ioctl req bytes: {:02x}", Bytes(&buf[..req_len]));
 
         {
@@ -86,7 +83,7 @@ impl Shared {
             this.runner_waker.wake();
         }
 
-        self.ioctl_wait_complete().await
+        self.ioctl_wait_complete()
     }
 
     pub fn ioctl_done(&self, response: &[u8]) {
