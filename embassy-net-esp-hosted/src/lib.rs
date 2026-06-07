@@ -187,7 +187,7 @@ where
 
             let ioctl = self.shared.ioctl_wait_pending();
             let tx = self.ch.tx_buf();
-            let ev = async { self.iface.wait_for_ready().await };
+            let ev = self.iface.wait_for_ready();
             let hb = Timer::at(self.heartbeat_deadline);
 
             match select4(ioctl, tx, ev, hb).await {
@@ -277,7 +277,7 @@ where
             return;
         }
 
-        let payload = &mut buf[PayloadHeader::SIZE..][..payload_len];
+        let payload = &buf[PayloadHeader::SIZE..][..payload_len];
 
         match if_type_and_num & 0x0f {
             // STA
