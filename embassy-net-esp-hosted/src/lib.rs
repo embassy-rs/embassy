@@ -1,5 +1,8 @@
 #![no_std]
 #![doc = include_str!("../README.md")]
+
+//! ## Feature flags
+#![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
 #![warn(missing_docs)]
 #![allow(async_fn_in_trait)]
 
@@ -10,7 +13,7 @@ use embassy_time::{Duration, Instant, Timer};
 use embedded_hal::digital::OutputPin;
 
 use crate::ioctl::{PendingIoctl, Shared};
-use crate::rpc::{FgBackend, HostedEvent, RpcBackend};
+use crate::rpc::{Backend, HostedEvent, RpcBackend};
 
 mod proto;
 
@@ -97,8 +100,11 @@ impl PayloadHeader {
 }
 
 #[allow(unused)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
 enum InterfaceType {
+    Invalid,
     Sta,
     Ap,
     Serial,
@@ -149,7 +155,7 @@ where
         ch: ch_runner,
         state_ch,
         shared: &state.shared,
-        backend: FgBackend,
+        backend: Backend::default(),
         next_seq: 1,
         reset,
         iface,
@@ -164,7 +170,7 @@ pub struct Runner<'a, I, OUT> {
     ch: ch::Runner<'a, MTU>,
     state_ch: ch::StateRunner<'a>,
     shared: &'a Shared,
-    backend: FgBackend,
+    backend: Backend,
 
     next_seq: u16,
     heartbeat_deadline: Instant,
@@ -191,6 +197,10 @@ where
         loop {
             self.iface.wait_for_handshake().await;
 
+            if let ioctl::ControlState::Reboot = self.shared.state() {
+                self.backend = Backend::default();
+            }
+
             let ioctl = self.shared.ioctl_wait_pending();
             let tx = self.ch.tx_buf();
             let ev = self.iface.wait_for_ready();
@@ -198,12 +208,14 @@ where
 
             match select4(ioctl, tx, ev, hb).await {
                 Either4::First(PendingIoctl { buf, req_len }) => {
+                    let if_type_and_num = unwrap!(self.backend.encode_iface_type(InterfaceType::Serial));
+
                     let payload_len = self
                         .backend
                         .encode_ioctl(&mut buffer[PayloadHeader::SIZE..], &unsafe { &*buf }[..req_len]);
 
                     let header = PayloadHeader {
-                        if_type_and_num: self.backend.encode_iface_type(InterfaceType::Serial),
+                        if_type_and_num,
                         len: payload_len as _,
                         offset: PayloadHeader::SIZE as _,
                         seq_num: self.next_seq,
@@ -213,17 +225,19 @@ where
                     header.copy(&mut buffer);
                 }
                 Either4::Second(packet) => {
-                    buffer[PayloadHeader::SIZE..][..packet.len()].copy_from_slice(&packet);
+                    if let Some(if_type_and_num) = self.backend.encode_iface_type(InterfaceType::Sta) {
+                        buffer[PayloadHeader::SIZE..][..packet.len()].copy_from_slice(&packet);
 
-                    let header = PayloadHeader {
-                        if_type_and_num: self.backend.encode_iface_type(InterfaceType::Sta),
-                        len: packet.len() as _,
-                        offset: PayloadHeader::SIZE as _,
-                        seq_num: self.next_seq,
-                        ..Default::default()
-                    };
-                    self.next_seq = self.next_seq.wrapping_add(1);
-                    header.copy(&mut buffer);
+                        let header = PayloadHeader {
+                            if_type_and_num,
+                            len: packet.len() as _,
+                            offset: PayloadHeader::SIZE as _,
+                            seq_num: self.next_seq,
+                            ..Default::default()
+                        };
+                        self.next_seq = self.next_seq.wrapping_add(1);
+                        header.copy(&mut buffer);
+                    }
 
                     packet.tx_done();
                 }
@@ -310,7 +324,7 @@ where
 
     fn handle_event(&mut self, data: &[u8]) {
         match self.backend.normalize_event(data) {
-            Some(HostedEvent::Init) => self.shared.init_done(),
+            Some(HostedEvent::Init) => self.shared.init_done(self.backend),
             Some(HostedEvent::Heartbeat) => self.heartbeat_deadline = Instant::now() + HEARTBEAT_MAX_GAP,
             Some(HostedEvent::StaConnected { resp }) => {
                 info!("connected, code {}", resp);

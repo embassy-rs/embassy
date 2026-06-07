@@ -2,22 +2,15 @@ use CtrlMsg_::Payload;
 use heapless::String;
 use micropb::MessageDecode;
 
-use super::{HostedEvent, IoctlCtx, RpcBackend};
+use super::{HostedEvent, IoctlCtx, RpcBackend, check_resp};
 use crate::control::{Error, Security, Status};
 use crate::proto::fg::{
     CtrlMsg, CtrlMsg_, CtrlMsg_Req_ConfigHeartbeat, CtrlMsg_Req_ConnectAP, CtrlMsg_Req_GetAPConfig,
     CtrlMsg_Req_GetMacAddress, CtrlMsg_Req_GetStatus, CtrlMsg_Req_OTABegin, CtrlMsg_Req_OTAEnd, CtrlMsg_Req_OTAWrite,
     CtrlMsg_Req_SetMode, CtrlMsgId, CtrlMsgType,
 };
-use crate::{FwVersion, InterfaceType};
 
-#[expect(unused)]
-enum WifiMode {
-    None = 0,
-    Sta = 1,
-    Ap = 2,
-    ApSta = 3,
-}
+use crate::{FwVersion, InterfaceType, WifiMode};
 
 macro_rules! exchange {
     ($ctx:ident, $req_variant:ident, $resp_variant:ident, $req:expr) => {{
@@ -44,6 +37,7 @@ macro_rules! exchange {
 
 /// FG (`esp_hosted_config.proto`) RPC backend.
 #[derive(Clone, Copy, Debug, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FgBackend;
 
 impl RpcBackend for FgBackend {
@@ -83,8 +77,16 @@ impl RpcBackend for FgBackend {
         Some((is_event, &payload[14..][..len]))
     }
 
-    fn encode_iface_type(&self, iface_type: InterfaceType) -> u8 {
-        iface_type as u8
+    fn encode_iface_type(&self, iface_type: InterfaceType) -> Option<u8> {
+        match iface_type {
+            InterfaceType::Sta => Some(0),
+            InterfaceType::Ap => Some(1),
+            InterfaceType::Serial => Some(2),
+            InterfaceType::Hci => Some(3),
+            InterfaceType::Priv => Some(4),
+            InterfaceType::Test => Some(5),
+            InterfaceType::Invalid => None,
+        }
     }
 
     fn decode_iface_type(&self, iface_type: u8) -> Option<InterfaceType> {
@@ -93,6 +95,14 @@ impl RpcBackend for FgBackend {
             2 => Some(InterfaceType::Serial),
             _ => None,
         }
+    }
+
+    async fn wifi_init(&self, _ctx: &mut IoctlCtx<'_>) -> Result<(), Error> {
+        Ok(())
+    }
+
+    async fn start_wifi(&self, _ctx: &mut IoctlCtx<'_>) -> Result<(), Error> {
+        Ok(())
     }
 
     async fn config_heartbeat(&self, ctx: &mut IoctlCtx<'_>, secs: u32) -> Result<(), Error> {
@@ -104,10 +114,8 @@ impl RpcBackend for FgBackend {
         Ok(())
     }
 
-    async fn set_sta_mode(&self, ctx: &mut IoctlCtx<'_>) -> Result<(), Error> {
-        let req = CtrlMsg_Req_SetMode {
-            mode: WifiMode::Sta as i32,
-        };
+    async fn set_mode(&self, ctx: &mut IoctlCtx<'_>, mode: WifiMode) -> Result<(), Error> {
+        let req = CtrlMsg_Req_SetMode { mode: mode as i32 };
         exchange!(ctx, ReqSetWifiMode, RespSetWifiMode, req);
         Ok(())
     }
@@ -222,14 +230,6 @@ fn map_fg_security(val: i32) -> Security {
         6 => Security::Wpa3Psk,
         7 => Security::Wpa2Wpa3Psk,
         n => Security::Unknown(n),
-    }
-}
-
-fn check_resp(resp: i32) -> Result<(), Error> {
-    if resp != 0 {
-        Err(Error::Failed(resp as u32))
-    } else {
-        Ok(())
     }
 }
 

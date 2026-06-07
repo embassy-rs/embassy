@@ -4,6 +4,7 @@ use core::task::Poll;
 
 use embassy_sync::waitqueue::WakerRegistration;
 
+use crate::Backend;
 use crate::fmt::Bytes;
 
 #[derive(Clone, Copy)]
@@ -41,7 +42,7 @@ enum ConnectState {
 pub(crate) enum ControlState {
     Init,
     Reboot,
-    Ready,
+    Ready(Backend),
 }
 
 impl Shared {
@@ -127,17 +128,17 @@ impl Shared {
         this.state
     }
 
-    pub fn init_done(&self) {
+    pub fn init_done(&self, backend: Backend) {
         let mut this = self.0.borrow_mut();
-        this.state = ControlState::Ready;
+        this.state = ControlState::Ready(backend);
         this.control_waker.wake();
     }
 
-    pub fn init_wait(&self) -> impl Future<Output = ()> + '_ {
+    pub fn init_wait(&self) -> impl Future<Output = Backend> + '_ {
         poll_fn(|cx| {
             let mut this = self.0.borrow_mut();
-            if let ControlState::Ready = this.state {
-                Poll::Ready(())
+            if let ControlState::Ready(backend) = this.state {
+                Poll::Ready(backend)
             } else {
                 this.control_waker.register(cx.waker());
                 Poll::Pending
