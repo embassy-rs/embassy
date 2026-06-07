@@ -3,6 +3,7 @@ use heapless::String;
 use micropb::MessageDecode;
 
 use super::{HostedEvent, IoctlCtx, RpcBackend};
+use crate::InterfaceType;
 use crate::control::{Error, Security, Status};
 use crate::proto::fg::{
     CtrlMsg, CtrlMsg_, CtrlMsg_Req_ConfigHeartbeat, CtrlMsg_Req_ConnectAP, CtrlMsg_Req_GetAPConfig,
@@ -53,7 +54,7 @@ impl RpcBackend for FgBackend {
     }
 
     #[inline]
-    fn process_serial_data<'pl>(&self, payload: &'pl [u8]) -> Option<(bool, &'pl [u8])> {
+    fn process_serial_data<'pl>(&mut self, payload: &'pl [u8]) -> Option<(bool, &'pl [u8])> {
         if payload.len() < 14 {
             warn!("serial rx: too short");
             return None;
@@ -75,6 +76,18 @@ impl RpcBackend for FgBackend {
         }
 
         Some((is_event, &payload[14..][..len]))
+    }
+
+    fn encode_iface_type(&self, iface_type: InterfaceType) -> u8 {
+        iface_type as u8
+    }
+
+    fn decode_iface_type(&self, iface_type: u8) -> Option<InterfaceType> {
+        match iface_type {
+            0 => Some(InterfaceType::Sta),
+            2 => Some(InterfaceType::Serial),
+            _ => None,
+        }
     }
 
     async fn config_heartbeat(&self, ctx: &mut IoctlCtx<'_>, secs: u32) -> Result<(), Error> {

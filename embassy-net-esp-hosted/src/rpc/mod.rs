@@ -6,6 +6,7 @@ mod ioctl_ctx;
 pub use fg::FgBackend;
 pub use ioctl_ctx::IoctlCtx;
 
+use crate::InterfaceType;
 use crate::control::{Error, Status};
 
 /// Normalized control-path events from the coprocessor.
@@ -31,7 +32,10 @@ pub enum HostedEvent {
 /// User-facing control operations; each method may perform one or more ioctl round-trips.
 pub trait RpcBackend {
     fn encode_ioctl(&self, buffer: &mut [u8], req: &[u8]) -> usize;
-    fn process_serial_data<'pl>(&self, payload: &'pl [u8]) -> Option<(bool, &'pl [u8])>;
+    fn process_serial_data<'pl>(&mut self, payload: &'pl [u8]) -> Option<(bool, &'pl [u8])>;
+
+    fn encode_iface_type(&self, iface_type: InterfaceType) -> u8;
+    fn decode_iface_type(&self, iface_type: u8) -> Option<InterfaceType>;
 
     async fn config_heartbeat(&self, ctx: &mut IoctlCtx<'_>, secs: u32) -> Result<(), Error>;
     async fn set_sta_mode(&self, ctx: &mut IoctlCtx<'_>) -> Result<(), Error>;
