@@ -746,15 +746,15 @@ const CTUNEFIXANA_DEFAULT: hfxo_mod::vals::Ctunefixana = hfxo_mod::vals::Ctunefi
 /// [`init_clocks`] calls this before any LF branch (SYSRTC, WDOG,
 /// EM23GRPACLK, …) is routed to LFXO, so live consumers don't see the glitch.
 pub(crate) fn init_lfxo(config: &LfxoConfig) {
-    use crate::pac::LFXO;
     use lfxo_mod::vals as lfxo_vals;
+
+    use crate::pac::LFXO;
 
     let ctune = config.ctune.resolve(); // already clamped to 0..=0x7F
 
     // 1. Bus-clock gate + unlock.
     CMU.clken0().modify(|w| w.set_lfxo(true));
-    LFXO.lock()
-        .write(|w| w.set_lockkey(lfxo_mod::vals::Lockkey::Unlock));
+    LFXO.lock().write(|w| w.set_lockkey(lfxo_mod::vals::Lockkey::Unlock));
 
     // 2. Disable LFXO so CAL/CFG are writable.
     LFXO.ctrl_set().write(|w| w.set_disondemand(true));
