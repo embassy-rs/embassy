@@ -97,9 +97,9 @@ use self::{McoSource as Mco1Source, McoSource as Mco2Source};
 
 #[cfg(mco)]
 impl_peri!(MCO, McoSource, set_mcosel, set_mcopre);
-#[cfg(mco1)]
+#[cfg(all(mco1, not(stm32c5)))]
 impl_peri!(MCO1, Mco1Source, set_mco1sel, set_mco1pre);
-#[cfg(mco2)]
+#[cfg(all(mco2, not(stm32c5)))]
 impl_peri!(MCO2, Mco2Source, set_mco2sel, set_mco2pre);
 
 pub struct Mco<'d, T: McoInstance> {
