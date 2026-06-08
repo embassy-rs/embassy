@@ -27,8 +27,8 @@ heapless = { version = "0.9", default-features = false }
 
 # Optional LVGL dependencies (for lvgl_demo example)
 # Uncomment these if you want to use LVGL
-# lvgl = "0.6.2"
-# lvgl-sys = "0.6.2"
+lvgl = { version = "0.6.2", optional = true }
+lvgl-sys = { version = "0.6.2", optional = true }
 
 [features]
 default = []
