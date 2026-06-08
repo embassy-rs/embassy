@@ -1478,7 +1478,7 @@ fn transfer_words<W: Word>(regs: Regs, read: *mut [W], write: *const [W]) -> Res
                 w += 1;
             }
 
-            if r < ndt && check_rx_ready(regs)? {
+            if r < ndt && r < w && check_rx_ready(regs)? {
                 if let Some(word_in) = read.next() {
                     *word_in = ptr::read_volatile(regs.rx_ptr());
                 } else {
