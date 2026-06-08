@@ -279,6 +279,18 @@ pub mod hooks {
             /// This marks the EXECUTOR state transition from SCHEDULING -> IDLE
             #[symbol = "_embassy_trace_executor_idle"]
             pub(crate) fn executor_idle(executor_id: u32);
+
+            /// This callback is called AFTER the name of a task is set
+            #[symbol = "_embassy_trace_task_name_set"]
+            pub(crate) fn task_name_set(task: TaskRef, name: &'static str);
+
+            /// This callback is called AFTER the priority of a task is set
+            #[symbol = "_embassy_trace_task_priority_set"]
+            pub(crate) fn task_priority_set(task: TaskRef, priority: u8);
+
+            /// This callback is called AFTER the deadline of a task is set
+            #[symbol = "_embassy_trace_task_deadline_set"]
+            pub(crate) fn task_deadline_set(task: TaskRef, deadline: u64);
         }
 
         /// Register a type as the global executor trace hook implementation.
@@ -352,6 +364,24 @@ pub(crate) fn executor_idle(executor: &SyncExecutor) {
     hooks::executor_idle(executor as *const _ as u32);
     #[cfg(feature = "rtos-trace")]
     rtos_trace::trace::system_idle();
+}
+
+#[inline]
+pub(crate) fn task_name_set(task: TaskRef, name: &'static str) {
+    #[cfg(feature = "trace")]
+    hooks::task_name_set(task, name);
+}
+
+#[inline]
+pub(crate) fn task_priority_set(task: TaskRef, priority: u8) {
+    #[cfg(feature = "trace")]
+    hooks::task_priority_set(task, priority);
+}
+
+#[inline]
+pub(crate) fn task_deadline_set(task: TaskRef, deadline: u64) {
+    #[cfg(feature = "trace")]
+    hooks::task_deadline_set(task, deadline);
 }
 
 /// Returns an iterator over all active tasks in the system

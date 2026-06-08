@@ -5,7 +5,7 @@ use core::sync::atomic::Ordering;
 use core::task::Poll;
 
 use super::raw;
-use crate::Metadata;
+use crate::MetadataRef;
 
 /// Token to spawn a newly-created task in an executor.
 ///
@@ -43,7 +43,7 @@ impl<S> SpawnToken<S> {
 
     /// Get the metadata for this task. You can use this to set metadata fields
     /// prior to spawning it.
-    pub fn metadata(&self) -> &Metadata {
+    pub fn metadata(&self) -> MetadataRef {
         self.raw_task.metadata()
     }
 }
