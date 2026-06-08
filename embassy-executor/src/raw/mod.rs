@@ -51,6 +51,7 @@ use self::util::{SyncUnsafeCell, UninitCell};
 pub use self::waker::task_from_waker;
 use self::waker::try_task_from_waker;
 use super::SpawnToken;
+use crate::raw::trace::{ExecutorId, TaskId};
 use crate::{Metadata, MetadataRef, SpawnError};
 
 #[unsafe(no_mangle)]
@@ -156,6 +157,12 @@ impl TaskRef {
         executor.as_ref().map(|e| Executor::wrap(e))
     }
 
+    /// Get the id of the executor the task is currently running on.
+    /// None when the task is not running.
+    pub fn executor_id(self) -> Option<ExecutorId> {
+        unsafe { self.executor().map(|e| e.id()) }
+    }
+
     /// Returns a mutable reference to the timer queue item.
     ///
     /// Safety
@@ -171,9 +178,9 @@ impl TaskRef {
     }
 
     /// Returns the task ID.
-    /// This can be used in combination with rtos-trace to match task names with IDs
-    pub fn id(&self) -> u32 {
-        self.as_ptr() as u32
+    /// This can be used in combination with (rtos-)trace to match task names with IDs
+    pub fn id(&self) -> TaskId {
+        TaskId(self.as_ptr() as usize)
     }
 }
 
@@ -439,7 +446,7 @@ impl SyncExecutor {
     /// - `task` must be set up to run in this executor.
     /// - `task` must NOT be already enqueued (in this executor or another one).
     #[inline(always)]
-    unsafe fn enqueue(&self, task: TaskRef, l: state::Token) {
+    unsafe fn enqueue(&'static self, task: TaskRef, l: state::Token) {
         #[cfg(feature = "_any_trace")]
         trace::task_ready_begin(self, task);
 
@@ -483,6 +490,11 @@ impl SyncExecutor {
 
         #[cfg(feature = "_any_trace")]
         trace::executor_idle(self)
+    }
+
+    /// Get a unique ID for this Executor.
+    pub fn id(&'static self) -> ExecutorId {
+        ExecutorId(self as *const Self as usize)
     }
 }
 
@@ -588,8 +600,8 @@ impl Executor {
     }
 
     /// Get a unique ID for this Executor.
-    pub fn id(&'static self) -> usize {
-        &self.inner as *const SyncExecutor as usize
+    pub fn id(&'static self) -> ExecutorId {
+        self.inner.id()
     }
 }
 

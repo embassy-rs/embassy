@@ -6,6 +6,7 @@ use core::task::Poll;
 
 use super::raw;
 use crate::MetadataRef;
+use crate::raw::trace::{ExecutorId, TaskId};
 
 /// Token to spawn a newly-created task in an executor.
 ///
@@ -37,7 +38,7 @@ impl<S> SpawnToken<S> {
 
     /// Returns the task ID.
     /// This can be used in combination with rtos-trace to match task names with IDs
-    pub fn id(&self) -> u32 {
+    pub fn id(&self) -> TaskId {
         self.raw_task.id()
     }
 
@@ -173,7 +174,7 @@ impl Spawner {
     }
 
     /// Return the unique ID of this Spawner's Executor.
-    pub fn executor_id(&self) -> usize {
+    pub fn executor_id(&self) -> ExecutorId {
         self.executor.id()
     }
 }
