@@ -205,6 +205,8 @@ impl TaskTracker {
 /// The executor trace hooks, defined with the [`unitrait`] crate.
 #[cfg(feature = "trace")]
 pub mod hooks {
+    use crate::raw::TaskRef;
+
     unitrait::unitrait! {
         /// Executor trace hooks.
         ///
@@ -227,12 +229,12 @@ pub mod hooks {
             ///
             /// Tasks start life in the SPAWNED state.
             #[symbol = "_embassy_trace_task_new"]
-            pub(crate) fn task_new(executor_id: u32, task_id: u32);
+            pub(crate) fn task_new(executor_id: u32, task: TaskRef);
 
             /// This callback is called AFTER a task is destructed/freed. This will always
             /// have a prior matching call to `task_new`.
             #[symbol = "_embassy_trace_task_end"]
-            pub(crate) fn task_end(executor_id: u32, task_id: u32);
+            pub(crate) fn task_end(executor_id: u32, task: TaskRef);
 
             /// This callback is called AFTER a task has been dequeued from the runqueue,
             /// and BEFORE the task is polled. There will always be a matching call to
@@ -241,7 +243,7 @@ pub mod hooks {
             /// This marks the TASK state transition from WAITING -> RUNNING
             /// This marks the EXECUTOR state transition from SCHEDULING -> POLLING
             #[symbol = "_embassy_trace_task_exec_begin"]
-            pub(crate) fn task_exec_begin(executor_id: u32, task_id: u32);
+            pub(crate) fn task_exec_begin(executor_id: u32, task: TaskRef);
 
             /// This callback is called AFTER a task has completed polling. There will
             /// always be a matching call to `task_exec_begin`.
@@ -254,7 +256,7 @@ pub mod hooks {
             ///
             /// This marks the EXECUTOR state transition from POLLING -> SCHEDULING
             #[symbol = "_embassy_trace_task_exec_end"]
-            pub(crate) fn task_exec_end(executor_id: u32, task_id: u32);
+            pub(crate) fn task_exec_end(executor_id: u32, task: TaskRef);
 
             /// This callback is called AFTER the waker for a task is awoken, and BEFORE it
             /// is added to the run queue.
@@ -268,7 +270,7 @@ pub mod hooks {
             /// NOTE: This may be called from an interrupt, outside the context of the current
             /// task or executor.
             #[symbol = "_embassy_trace_task_ready_begin"]
-            pub(crate) fn task_ready_begin(executor_id: u32, task_id: u32);
+            pub(crate) fn task_ready_begin(executor_id: u32, task: TaskRef);
 
             /// This callback is called AFTER all dequeued tasks in a single call to poll
             /// have been processed. This will always be paired with a call to
@@ -293,9 +295,9 @@ pub(crate) fn poll_start(executor: &SyncExecutor) {
 }
 
 #[inline]
-pub(crate) fn task_new(executor: &SyncExecutor, task: &TaskRef) {
+pub(crate) fn task_new(executor: &SyncExecutor, task: TaskRef) {
     #[cfg(feature = "trace")]
-    hooks::task_new(executor as *const _ as u32, task.as_ptr() as u32);
+    hooks::task_new(executor as *const _ as u32, task);
 
     #[cfg(feature = "rtos-trace")]
     {
@@ -311,35 +313,35 @@ pub(crate) fn task_new(executor: &SyncExecutor, task: &TaskRef) {
     }
 
     #[cfg(feature = "rtos-trace")]
-    TASK_TRACKER.add(*task);
+    TASK_TRACKER.add(task);
 }
 
 #[inline]
-pub(crate) fn task_end(executor: *const SyncExecutor, task: &TaskRef) {
+pub(crate) fn task_end(executor: *const SyncExecutor, task: TaskRef) {
     #[cfg(feature = "trace")]
-    hooks::task_end(executor as u32, task.as_ptr() as u32);
+    hooks::task_end(executor as u32, task);
 }
 
 #[inline]
-pub(crate) fn task_ready_begin(executor: &SyncExecutor, task: &TaskRef) {
+pub(crate) fn task_ready_begin(executor: &SyncExecutor, task: TaskRef) {
     #[cfg(feature = "trace")]
-    hooks::task_ready_begin(executor as *const _ as u32, task.as_ptr() as u32);
+    hooks::task_ready_begin(executor as *const _ as u32, task);
     #[cfg(feature = "rtos-trace")]
     rtos_trace::trace::task_ready_begin(task.as_ptr() as u32);
 }
 
 #[inline]
-pub(crate) fn task_exec_begin(executor: &SyncExecutor, task: &TaskRef) {
+pub(crate) fn task_exec_begin(executor: &SyncExecutor, task: TaskRef) {
     #[cfg(feature = "trace")]
-    hooks::task_exec_begin(executor as *const _ as u32, task.as_ptr() as u32);
+    hooks::task_exec_begin(executor as *const _ as u32, task);
     #[cfg(feature = "rtos-trace")]
     rtos_trace::trace::task_exec_begin(task.as_ptr() as u32);
 }
 
 #[inline]
-pub(crate) fn task_exec_end(executor: &SyncExecutor, task: &TaskRef) {
+pub(crate) fn task_exec_end(executor: &SyncExecutor, task: TaskRef) {
     #[cfg(feature = "trace")]
-    hooks::task_exec_end(executor as *const _ as u32, task.as_ptr() as u32);
+    hooks::task_exec_end(executor as *const _ as u32, task);
     #[cfg(feature = "rtos-trace")]
     rtos_trace::trace::task_exec_end();
 }
