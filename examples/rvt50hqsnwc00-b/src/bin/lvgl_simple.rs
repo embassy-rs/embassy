@@ -1,5 +1,6 @@
 #![no_std]
 #![no_main]
+#![allow(static_mut_refs)]
 
 /// Simple LVGL Demo for Riverdi RVT50HQSNWC00-B board
 ///
@@ -14,11 +15,13 @@
 /// Note: This example requires the lvgl crate and may need adjustments
 /// based on your specific hardware configuration.
 
-use defmt::info;
+use core::fmt::Write;
+
+use defmt::{info, unwrap};
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::ltdc::{self, Ltdc, LtdcConfiguration, LtdcLayer, LtdcLayerConfig, PolarityActive, PolarityEdge};
-use embassy_stm32::{bind_interrupts, peripherals, Config, rcc};
+use embassy_stm32::{bind_interrupts, peripherals, Config, Peripherals, rcc};
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -88,7 +91,7 @@ impl SimpleDisplay {
     pub fn draw_text(&mut self, x: usize, y: usize, text: &str, color: u16) {
         // Very simple text rendering - just draw each character as a small block
         let mut cx = x;
-        for c in text.chars() {
+        for _c in text.chars() {
             // Draw a small rectangle for each character
             self.draw_rect(cx, y, 8, 12, color);
             cx += 10;
@@ -108,37 +111,61 @@ fn init_clocks() -> Peripherals {
     
     // Configure PLL1 for system clock (160 MHz)
     config.rcc.pll1 = Some(rcc::Pll {
-        source: rcc::PllSource::HSE,
-        prediv: rcc::PllPreDiv::DIV1,
-        mul: rcc::PllMul::MUL10,
+        source: rcc::PllSource::Hse,
+        prediv: rcc::PllPreDiv::Div1,
+        mul: rcc::PllMul::Mul10,
         divp: None,
         divq: None,
-        divr: Some(rcc::PllDiv::DIV1),
+        divr: Some(rcc::PllDiv::Div1),
     });
     
-    config.rcc.sys = rcc::Sysclk::PLL1_R;
+    config.rcc.sys = rcc::Sysclk::Pll1R;
     
     // Configure PLL3 for LTDC clock (~30 MHz)
     config.rcc.pll3 = Some(rcc::Pll {
-        source: rcc::PllSource::HSE,
-        prediv: rcc::PllPreDiv::DIV4,
-        mul: rcc::PllMul::MUL75,
+        source: rcc::PllSource::Hse,
+        prediv: rcc::PllPreDiv::Div4,
+        mul: rcc::PllMul::Mul75,
         divp: None,
         divq: None,
-        divr: Some(rcc::PllDiv::DIV10),
+        divr: Some(rcc::PllDiv::Div10),
     });
     
-    config.rcc.mux.ltdcsel = rcc::mux::Ltdcsel::PLL3_R;
-    
-    // Enable caches for better performance
-    config.rcc.icache = rcc::Icache::Enabled;
-    config.rcc.dcache = rcc::Dcache::Enabled;
+    config.rcc.mux.ltdcsel = rcc::mux::Ltdcsel::Pll3R;
     
     embassy_stm32::init(config)
 }
 
 /// Initialize LTDC for the display
-fn init_ltdc(p: &mut Peripherals) -> Ltdc<'static, peripherals::LTDC> {
+fn init_ltdc(p: Peripherals) -> (Ltdc<'static, peripherals::LTDC, ltdc::Rgb565>, embassy_stm32::Peri<'static, peripherals::PD2>) {
+    let Peripherals {
+        LTDC,
+        PD2,
+        PD3,
+        PE0,
+        PD13,
+        PD6,
+        PD15,
+        PD0,
+        PD1,
+        PE7,
+        PE8,
+        PE9,
+        PE10,
+        PE11,
+        PE12,
+        PE13,
+        PE14,
+        PD8,
+        PD9,
+        PD10,
+        PD11,
+        PD12,
+        PE4,
+        PE6,
+        ..
+    } = p;
+
     // Display timing parameters
     const H_SYNC: u16 = 5;
     const H_BACK_PORCH: u16 = 40;
@@ -164,62 +191,55 @@ fn init_ltdc(p: &mut Peripherals) -> Ltdc<'static, peripherals::LTDC> {
 
     info!("Initializing LTDC...");
 
-    // Initialize LTDC with RGB565 format
+    // Initialize LTDC with RGB565 format (16-bit color pins only)
     let mut ltdc = Ltdc::<_, ltdc::Rgb565>::new_with_pins(
-        p.LTDC,
+        LTDC,
         Irqs,
-        p.PD3,   // CLK
-        p.PE0,   // HSYNC
-        p.PD13,  // VSYNC
-        p.PD6,   // DE
-        p.PB9,   // B0
-        p.PB2,   // B1
-        p.PD14,  // B2
-        p.PD15,  // B3
-        p.PD0,   // B4
-        p.PD1,   // B5
-        p.PE7,   // B6
-        p.PE8,   // B7
-        p.PC8,   // G0
-        p.PC9,   // G1
-        p.PE9,   // G2
-        p.PE10,  // G3
-        p.PE11,  // G4
-        p.PE12,  // G5
-        p.PE13,  // G6
-        p.PE14,  // G7
-        p.PC6,   // R0
-        p.PC7,   // R1
-        p.PE15,  // R2
-        p.PD8,   // R3
-        p.PD9,   // R4
-        p.PD10,  // R5
-        p.PD11,  // R6
-        p.PD12,  // R7
+        PD3,   // CLK
+        PE0,   // HSYNC
+        PD13,  // VSYNC
+        PD6,   // DE
+        PD15,  // B3
+        PD0,   // B4
+        PD1,   // B5
+        PE7,   // B6
+        PE8,   // B7
+        PE9,   // G2
+        PE10,  // G3
+        PE11,  // G4
+        PE12,  // G5
+        PE13,  // G6
+        PE14,  // G7
+        PD8,   // R3
+        PD9,   // R4
+        PD10,  // R5
+        PD11,  // R6
+        PD12,  // R7
     );
 
     ltdc.init(&ltdc_config);
 
-    // Configure and enable display control pins
-    let _ltdc_de = Output::new(p.PD6, Level::High, Speed::High);
-    let _ltdc_disp_ctrl = Output::new(p.PE4, Level::High, Speed::High);
-    let _ltdc_bl_ctrl = Output::new(p.PE6, Level::High, Speed::High);
+    // Enable display and backlight
+    let mut ltdc_disp_ctrl = Output::new(PE4, Level::Low, Speed::High);
+    let mut ltdc_bl_ctrl = Output::new(PE6, Level::Low, Speed::High);
+    ltdc_disp_ctrl.set_high();
+    ltdc_bl_ctrl.set_high();
 
     info!("LTDC initialized successfully");
 
-    ltdc
+    (ltdc, PD2)
 }
 
 /// Display task - handles LTDC and framebuffer management
 #[embassy_executor::task]
 async fn display_task(
-    mut ltdc: Ltdc<'static, peripherals::LTDC>,
+    mut ltdc: Ltdc<'static, peripherals::LTDC, ltdc::Rgb565>,
 ) {
     info!("Starting display task");
 
     // Configure LTDC layer
     let layer_config = LtdcLayerConfig {
-        pixel_format: ltdc::PixelFormat::RGB565,
+        pixel_format: ltdc::PixelFormat::Rgb565,
         layer: LtdcLayer::Layer1,
         window_x0: 0,
         window_x1: DISPLAY_WIDTH as _,
@@ -254,8 +274,9 @@ async fn display_task(
         display.draw_rect(260, 60, 100, 60, 0x001F); // Blue
 
         // Draw a counter
-        let counter_str = format!("Counter: {}", counter);
-        display.draw_text(20, 140, &counter_str, 0xFFFF);
+        let mut counter_str = heapless::String::<24>::new();
+        let _ = write!(counter_str, "Counter: {}", counter);
+        display.draw_text(20, 140, counter_str.as_str(), 0xFFFF);
 
         // Draw a bouncing box
         let x = ((counter * 7) % (DISPLAY_WIDTH - 100)) as usize;
@@ -301,7 +322,7 @@ async fn main(spawner: Spawner) -> ! {
     info!("Display: 800x480 RGB LCD");
 
     // Initialize clocks
-    let mut p = init_clocks();
+    let p = init_clocks();
 
     // Enable ICACHE
     embassy_stm32::pac::ICACHE.cr().write(|w| {
@@ -311,16 +332,16 @@ async fn main(spawner: Spawner) -> ! {
     info!("Clocks initialized");
 
     // Initialize LTDC
-    let ltdc = init_ltdc(&mut p);
+    let (ltdc, pd2) = init_ltdc(p);
 
     info!("LTDC initialized");
 
     // Create LED output
-    let led = Output::new(p.PD2, Level::High, Speed::Low);
+    let led = Output::new(pd2, Level::High, Speed::Low);
 
     // Spawn tasks
-    embassy_executor::spawn(led_task(led)).unwrap();
-    embassy_executor::spawn(display_task(ltdc)).unwrap();
+    spawner.spawn(unwrap!(led_task(led)));
+    spawner.spawn(unwrap!(display_task(ltdc)));
 
     info!("Tasks spawned, entering idle loop");
 

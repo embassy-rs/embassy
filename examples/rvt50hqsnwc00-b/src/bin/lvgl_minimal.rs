@@ -1,25 +1,24 @@
 #![no_std]
 #![no_main]
+#![allow(static_mut_refs)]
 
 /// Minimal LVGL Example for Riverdi RVT50HQSNWC00-B
 ///
 /// This example provides a foundation for running LVGL on the
 /// Riverdi RVT50HQSNWC00-B display module with STM32U5A9NJH6Q.
 ///
-/// To use this example:
-/// 1. Enable the lvgl feature: cargo run --features lvgl --bin lvgl_minimal
-/// 2. Ensure you have the lvgl and lvgl-sys crates available
-///
 /// This example demonstrates:
 /// - LTDC display initialization
 /// - Basic framebuffer management
-/// - LVGL integration (when feature is enabled)
+/// - Double-buffered test graphics
+///
+/// Run with: `cargo run --bin lvgl_minimal`
 
-use defmt::info;
+use defmt::{info, unwrap};
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::ltdc::{self, Ltdc, LtdcConfiguration, LtdcLayer, LtdcLayerConfig, PolarityActive, PolarityEdge};
-use embassy_stm32::{bind_interrupts, peripherals, Config, rcc};
+use embassy_stm32::{bind_interrupts, peripherals, Config, Peripherals, rcc};
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -39,47 +38,67 @@ bind_interrupts!(struct Irqs {
 /// Initialize clocks for STM32U5A9NJH6Q
 fn init_clocks() -> Peripherals {
     let mut config = Config::default();
-    
-    // Configure HSE (16 MHz external oscillator)
+
     config.rcc.hse = Some(rcc::Hse {
         freq: embassy_stm32::time::Hertz(16_000_000),
         mode: rcc::HseMode::Oscillator,
     });
-    
-    // Configure PLL1 for system clock (160 MHz)
+
     config.rcc.pll1 = Some(rcc::Pll {
-        source: rcc::PllSource::HSE,
-        prediv: rcc::PllPreDiv::DIV1,
-        mul: rcc::PllMul::MUL10,
+        source: rcc::PllSource::Hse,
+        prediv: rcc::PllPreDiv::Div1,
+        mul: rcc::PllMul::Mul10,
         divp: None,
         divq: None,
-        divr: Some(rcc::PllDiv::DIV1),
+        divr: Some(rcc::PllDiv::Div1),
     });
-    
-    config.rcc.sys = rcc::Sysclk::PLL1_R;
-    
-    // Configure PLL3 for LTDC clock (~30 MHz for 800x480 display)
+
+    config.rcc.sys = rcc::Sysclk::Pll1R;
+
     config.rcc.pll3 = Some(rcc::Pll {
-        source: rcc::PllSource::HSE,
-        prediv: rcc::PllPreDiv::DIV4,
-        mul: rcc::PllMul::MUL75,
+        source: rcc::PllSource::Hse,
+        prediv: rcc::PllPreDiv::Div4,
+        mul: rcc::PllMul::Mul75,
         divp: None,
         divq: None,
-        divr: Some(rcc::PllDiv::DIV10),
+        divr: Some(rcc::PllDiv::Div10),
     });
-    
-    config.rcc.mux.ltdcsel = rcc::mux::Ltdcsel::PLL3_R;
-    
-    // Enable caches for better performance
-    config.rcc.icache = rcc::Icache::Enabled;
-    config.rcc.dcache = rcc::Dcache::Enabled;
-    
+
+    config.rcc.mux.ltdcsel = rcc::mux::Ltdcsel::Pll3R;
+
     embassy_stm32::init(config)
 }
 
 /// Initialize LTDC for the display
-fn init_ltdc(p: &mut Peripherals) -> Ltdc<'static, peripherals::LTDC> {
-    // Display timing parameters (adjust based on your display specifications)
+fn init_ltdc(p: Peripherals) -> (Ltdc<'static, peripherals::LTDC, ltdc::Rgb565>, embassy_stm32::Peri<'static, peripherals::PD2>) {
+    let Peripherals {
+        LTDC,
+        PD2,
+        PD3,
+        PE0,
+        PD13,
+        PD6,
+        PD15,
+        PD0,
+        PD1,
+        PE7,
+        PE8,
+        PE9,
+        PE10,
+        PE11,
+        PE12,
+        PE13,
+        PE14,
+        PD8,
+        PD9,
+        PD10,
+        PD11,
+        PD12,
+        PE4,
+        PE6,
+        ..
+    } = p;
+
     const H_SYNC: u16 = 5;
     const H_BACK_PORCH: u16 = 40;
     const H_FRONT_PORCH: u16 = 20;
@@ -104,63 +123,50 @@ fn init_ltdc(p: &mut Peripherals) -> Ltdc<'static, peripherals::LTDC> {
 
     info!("Initializing LTDC...");
 
-    // Initialize LTDC with RGB565 format
     let mut ltdc = Ltdc::<_, ltdc::Rgb565>::new_with_pins(
-        p.LTDC,
+        LTDC,
         Irqs,
-        p.PD3,   // CLK
-        p.PE0,   // HSYNC
-        p.PD13,  // VSYNC
-        p.PD6,   // DE (Data Enable)
-        p.PB9,   // B0
-        p.PB2,   // B1
-        p.PD14,  // B2
-        p.PD15,  // B3
-        p.PD0,   // B4
-        p.PD1,   // B5
-        p.PE7,   // B6
-        p.PE8,   // B7
-        p.PC8,   // G0
-        p.PC9,   // G1
-        p.PE9,   // G2
-        p.PE10,  // G3
-        p.PE11,  // G4
-        p.PE12,  // G5
-        p.PE13,  // G6
-        p.PE14,  // G7
-        p.PC6,   // R0
-        p.PC7,   // R1
-        p.PE15,  // R2
-        p.PD8,   // R3
-        p.PD9,   // R4
-        p.PD10,  // R5
-        p.PD11,  // R6
-        p.PD12,  // R7
+        PD3,  // CLK
+        PE0,  // HSYNC
+        PD13, // VSYNC
+        PD6,  // DE
+        PD15, // B3
+        PD0,  // B4
+        PD1,  // B5
+        PE7,  // B6
+        PE8,  // B7
+        PE9,  // G2
+        PE10, // G3
+        PE11, // G4
+        PE12, // G5
+        PE13, // G6
+        PE14, // G7
+        PD8,  // R3
+        PD9,  // R4
+        PD10, // R5
+        PD11, // R6
+        PD12, // R7
     );
 
     ltdc.init(&ltdc_config);
 
-    // Configure and enable display control pins
-    let _ltdc_de = Output::new(p.PD6, Level::High, Speed::High);
-    let _ltdc_disp_ctrl = Output::new(p.PE4, Level::High, Speed::High);
-    let _ltdc_bl_ctrl = Output::new(p.PE6, Level::High, Speed::High);
+    let mut ltdc_disp_ctrl = Output::new(PE4, Level::Low, Speed::High);
+    let mut ltdc_bl_ctrl = Output::new(PE6, Level::Low, Speed::High);
+    ltdc_disp_ctrl.set_high();
+    ltdc_bl_ctrl.set_high();
 
     info!("LTDC initialized successfully");
 
-    ltdc
+    (ltdc, PD2)
 }
 
 /// Simple display task that shows basic graphics
-/// This can be used as a base for LVGL integration
 #[embassy_executor::task]
-async fn display_task(
-    mut ltdc: Ltdc<'static, peripherals::LTDC>,
-) {
+async fn display_task(mut ltdc: Ltdc<'static, peripherals::LTDC, ltdc::Rgb565>) {
     info!("Starting display task");
 
-    // Configure LTDC layer for RGB565
     let layer_config = LtdcLayerConfig {
-        pixel_format: ltdc::PixelFormat::RGB565,
+        pixel_format: ltdc::PixelFormat::Rgb565,
         layer: LtdcLayer::Layer1,
         window_x0: 0,
         window_x1: DISPLAY_WIDTH as _,
@@ -168,33 +174,25 @@ async fn display_task(
         window_y1: DISPLAY_HEIGHT as _,
     };
 
-    // Initialize layer
     ltdc.init_layer(&layer_config, None);
 
-    // Set initial buffer
     ltdc.set_buffer(LtdcLayer::Layer1, unsafe { FB1.as_ptr() } as *const _)
         .await
         .unwrap();
 
-    // Simple frame counter
     let mut frame = 0u32;
     let mut use_fb1 = true;
 
     loop {
-        // Get the current buffer
         let buffer = if use_fb1 {
             unsafe { FB1.as_mut_ptr() }
         } else {
             unsafe { FB2.as_mut_ptr() }
         };
 
-        // Fill with a gradient pattern
         fill_gradient(buffer, DISPLAY_WIDTH, DISPLAY_HEIGHT, frame);
-
-        // Draw a simple test pattern
         draw_test_pattern(buffer, DISPLAY_WIDTH, DISPLAY_HEIGHT, frame);
 
-        // Swap buffers
         use_fb1 = !use_fb1;
         let next_buffer = if use_fb1 {
             unsafe { FB1.as_ptr() }
@@ -202,77 +200,62 @@ async fn display_task(
             unsafe { FB2.as_ptr() }
         };
 
-        // Update LTDC to use the new buffer
         ltdc.set_buffer(LtdcLayer::Layer1, next_buffer as *const _)
             .await
             .unwrap();
 
         frame += 1;
-        Timer::after(Duration::from_millis(16)).await; // ~60 FPS
+        Timer::after(Duration::from_millis(16)).await;
     }
 }
 
-/// Fill buffer with a gradient
 fn fill_gradient(buffer: *mut u16, width: usize, height: usize, frame: u32) {
     unsafe {
         let slice = core::slice::from_raw_parts_mut(buffer, width * height);
         for y in 0..height {
             for x in 0..width {
                 let index = y * width + x;
-                // Simple gradient based on position and frame
                 let r = ((x * 31 / width) as u16) << 11;
                 let g = ((y * 63 / height) as u16) << 5;
-                let b = ((frame % 32) as u16);
+                let b = (frame % 32) as u16;
                 slice[index] = r | g | b;
             }
         }
     }
 }
 
-/// Draw a simple test pattern
 fn draw_test_pattern(buffer: *mut u16, width: usize, height: usize, frame: u32) {
     unsafe {
         let slice = core::slice::from_raw_parts_mut(buffer, width * height);
-        
-        // Draw a moving rectangle
-        let rect_x = ((frame * 5) % (width - 100)) as usize;
-        let rect_y = ((frame * 3) % (height - 100)) as usize;
-        
+
+        let rect_x = (frame as usize * 5) % (width - 100);
+        let rect_y = (frame as usize * 3) % (height - 100);
+
         for y in rect_y..rect_y + 100 {
             for x in rect_x..rect_x + 100 {
                 if x < width && y < height {
-                    let index = y * width + x;
-                    // White rectangle
-                    slice[index] = 0xFFFF;
+                    slice[y * width + x] = 0xFFFF;
                 }
             }
         }
-        
-        // Draw a border
+
         for x in 0..width {
-            if x < width {
-                slice[x] = 0xF800; // Red top border
-                slice[(height - 1) * width + x] = 0xF800; // Red bottom border
-            }
+            slice[x] = 0xF800;
+            slice[(height - 1) * width + x] = 0xF800;
         }
         for y in 0..height {
-            if y * width < width * height {
-                slice[y * width] = 0xF800; // Red left border
-                slice[y * width + width - 1] = 0xF800; // Red right border
-            }
+            slice[y * width] = 0xF800;
+            slice[y * width + width - 1] = 0xF800;
         }
-        
-        // Draw title text (simplified)
+
         draw_text(slice, width, 20, 20, "RVT50HQSNWC00-B", 0xFFFF);
         draw_text(slice, width, 20, 40, "LVGL Minimal", 0xAAAA);
     }
 }
 
-/// Simple text drawing (very basic)
 fn draw_text(buffer: &mut [u16], width: usize, x: usize, y: usize, text: &str, color: u16) {
     let mut cx = x;
     for _c in text.chars() {
-        // Draw each character as a small block
         for dy in 0..12 {
             for dx in 0..8 {
                 let px = cx + dx;
@@ -286,7 +269,6 @@ fn draw_text(buffer: &mut [u16], width: usize, x: usize, y: usize, text: &str, c
     }
 }
 
-/// LED blink task for visual feedback
 #[embassy_executor::task]
 async fn led_task(mut led: Output<'static>) {
     let mut counter = 0;
@@ -306,31 +288,25 @@ async fn main(spawner: Spawner) -> ! {
     info!("MCU: STM32U5A9NJH6Q");
     info!("Display: 800x480 RGB LCD");
 
-    // Initialize clocks
-    let mut p = init_clocks();
+    let p = init_clocks();
 
-    // Enable ICACHE for better performance
     embassy_stm32::pac::ICACHE.cr().write(|w| {
         w.set_en(true);
     });
 
     info!("Clocks initialized");
 
-    // Initialize LTDC
-    let ltdc = init_ltdc(&mut p);
+    let (ltdc, pd2) = init_ltdc(p);
 
     info!("LTDC initialized");
 
-    // Create LED output
-    let led = Output::new(p.PD2, Level::High, Speed::Low);
+    let led = Output::new(pd2, Level::High, Speed::Low);
 
-    // Spawn tasks
-    embassy_executor::spawn(led_task(led)).unwrap();
-    embassy_executor::spawn(display_task(ltdc)).unwrap();
+    spawner.spawn(unwrap!(led_task(led)));
+    spawner.spawn(unwrap!(display_task(ltdc)));
 
     info!("Tasks spawned, entering idle loop");
 
-    // Main loop - just idle
     loop {
         Timer::after(Duration::from_secs(1)).await;
     }
