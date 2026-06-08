@@ -15,6 +15,7 @@ embassy-executor = { version = "0.10.0", path = "../../embassy-executor", featur
 embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
 
+# Display and graphics
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
 
@@ -23,12 +24,17 @@ cortex-m-rt = "0.7.0"
 embedded-hal = "0.2.6"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 heapless = { version = "0.9", default-features = false }
-embedded-graphics = { version = "0.8.1" }
-tinybmp = { version = "0.6.0" }
 
-micromath = "2.0.0"
+# Optional LVGL dependencies (for lvgl_demo example)
+# Uncomment these if you want to use LVGL
+# lvgl = "0.6.2"
+# lvgl-sys = "0.6.2"
 
 [features]
+default = []
+# Enable LVGL support
+lvgl = ["dep:lvgl", "dep:lvgl-sys"]
+
 ## Use secure registers when TrustZone is enabled
 trustzone-secure = ["embassy-stm32/trustzone-secure"]
 
