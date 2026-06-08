@@ -138,6 +138,12 @@ pub enum HalfDuplexReadback {
 pub enum OutputConfig {
     /// Push pull allows for faster baudrates, no internal pullup
     PushPull,
+    #[cfg(not(gpio_v1))]
+    /// Push pull output with internal pull down resistor (half-duplex idle low)
+    PushPullPullDown,
+    #[cfg(not(gpio_v1))]
+    /// Push pull output with internal pull up resistor (half-duplex idle high)
+    PushPullPullUp,
     /// Open drain output (external pull up needed)
     OpenDrain,
     #[cfg(not(gpio_v1))]
@@ -149,6 +155,10 @@ impl OutputConfig {
     const fn af_type(self) -> AfType {
         match self {
             OutputConfig::PushPull => AfType::output(OutputType::PushPull, Speed::Medium),
+            #[cfg(not(gpio_v1))]
+            OutputConfig::PushPullPullDown => AfType::output_pull(OutputType::PushPull, Speed::Medium, Pull::Down),
+            #[cfg(not(gpio_v1))]
+            OutputConfig::PushPullPullUp => AfType::output_pull(OutputType::PushPull, Speed::Medium, Pull::Up),
             OutputConfig::OpenDrain => AfType::output(OutputType::OpenDrain, Speed::Medium),
             #[cfg(not(gpio_v1))]
             OutputConfig::OpenDrainPullUp => AfType::output_pull(OutputType::OpenDrain, Speed::Medium, Pull::Up),
@@ -192,6 +202,8 @@ pub enum ConfigError {
     /// DE deassertion time too high
     #[cfg(not(any(usart_v1, usart_v2)))]
     DeDeassertionTimeTooHigh,
+    /// IrDA not compatible with half duplex
+    IrDAHalfDuplexInvalid,
 }
 
 #[non_exhaustive]
@@ -245,6 +257,9 @@ pub struct Config {
     /// Set this to true to invert RX pin signal values (V<sub>DD</sub> = 0/mark, Gnd = 1/idle).
     #[cfg(any(usart_v3, usart_v4))]
     pub invert_rx: bool,
+
+    /// Set this to true to enable the IrDA mode register
+    pub irda_enable: bool,
 
     /// Set the pull configuration for the RX pin.
     pub rx_pull: Pull,
@@ -317,6 +332,7 @@ impl Default for Config {
             invert_tx: false,
             #[cfg(any(usart_v3, usart_v4))]
             invert_rx: false,
+            irda_enable: false,
             rx_pull: Pull::None,
             cts_pull: Pull::None,
             tx_config: OutputConfig::PushPull,
@@ -1788,6 +1804,10 @@ fn configure(
     // and the config value alone decides.
     let half_duplex = config.duplex.is_half() || r.cr3().read().hdsel();
 
+    if config.irda_enable && half_duplex {
+        return Err(ConfigError::IrDAHalfDuplexInvalid);
+    }
+
     #[cfg(not(any(usart_v1, usart_v2)))]
     let dem = r.cr3().read().dem();
 
@@ -1816,6 +1836,11 @@ fn configure(
             StopBits::STOP2 => vals::Stop::Stop2,
         });
 
+        if config.irda_enable {
+            w.set_clken(false);
+            w.set_linen(false);
+        }
+
         #[cfg(any(usart_v3, usart_v4))]
         {
             w.set_txinv(config.invert_tx);
@@ -1828,6 +1853,11 @@ fn configure(
         #[cfg(not(usart_v1))]
         w.set_onebit(config.assume_noise_free);
         w.set_hdsel(half_duplex);
+
+        if config.irda_enable {
+            w.set_scen(false);
+            w.set_iren(true);
+        }
     });
 
     let mut w: crate::pac::usart::regs::Cr1 = Default::default();

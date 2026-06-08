@@ -247,7 +247,53 @@ fn read_latest_returns_most_recent_data() {
     assert_eq!(&read_buf[..n], &[8, 9, 10, 11]);
 }
 
-/// read_latest never errors on overrun — it just resets and returns 0.
+/// read_latest never errors on overrun and respects alignment.
+#[test]
+fn read_latest_recovers_from_overrun_respecting_alignment() {
+    let mut dma_buf = [0u8; CAP];
+    for i in 0..CAP {
+        dma_buf[i] = i as u8;
+    }
+    let mut ringbuf = ReadableDmaRingBuffer::new(&mut dma_buf);
+    ringbuf.set_alignment(4);
+    let mut dma = TestCircularTransfer::new(CAP);
+
+    // Reset at position 0 (aligned).
+    dma.setup(vec![
+        TestCircularTransferRequest::ResetCompleteCount(0),
+        TestCircularTransferRequest::ResetCompleteCount(0),
+        TestCircularTransferRequest::PositionRequest(0),
+    ]);
+    ringbuf.reset(&mut dma);
+
+    // Simulate overrun: DMA has wrapped more than once (complete_count=2, pos=6).
+    // after overrun 16 samples are available and read_index = 6
+    // 6 (end_pos) % 4 = 2 (partial frame skipped), aligned_available = 14.
+    // to_read = min(14, 6) = 6, rounded down to 4.
+    // front_skip = 14 - 4 = 10. Read starts at position:
+    // (6 + 10) % 16 = 0 (aligned): [0, 1, 2, 3].
+    let mut read_buf = [0u8; 6];
+    dma.setup(vec![
+        TestCircularTransferRequest::ResetCompleteCount(2),
+        TestCircularTransferRequest::PositionRequest(6),
+    ]);
+
+    let n = ringbuf.read_latest(&mut dma, &mut read_buf);
+    assert_eq!(n, 4);
+    assert_eq!(&read_buf[..n], &[0, 1, 2, 3]);
+
+    // Next call after overrun recovery should return fresh data normally.
+    dma.setup(vec![
+        TestCircularTransferRequest::ResetCompleteCount(0),
+        TestCircularTransferRequest::PositionRequest(12),
+    ]);
+
+    let n = ringbuf.read_latest(&mut dma, &mut read_buf);
+    assert_eq!(n, 4);
+    assert_eq!(&read_buf[..n], &[8, 9, 10, 11]);
+}
+
+/// read_latest never errors on overrun.
 #[test]
 fn read_latest_recovers_from_overrun() {
     let mut dma_buf = [0u8; CAP];
@@ -273,9 +319,10 @@ fn read_latest_recovers_from_overrun() {
         TestCircularTransferRequest::PositionRequest(5),
     ]);
 
-    // Should not panic or error — just returns 0 (reset to catch up).
+    // Should not panic or error — catches up and returns latest data.
     let n = ringbuf.read_latest(&mut dma, &mut read_buf);
-    assert_eq!(n, 0);
+    assert_eq!(n, 8);
+    assert_eq!(&read_buf[..n], &[13, 14, 15, 0, 1, 2, 3, 4]);
 
     // Next call after overrun recovery should return fresh data normally.
     dma.setup(vec![
@@ -334,7 +381,7 @@ fn read_latest_with_alignment() {
     ringbuf.reset(&mut dma);
 
     // DMA at position 14. 14 samples available, user buffer holds 6.
-    // Tail = 14 % 4 = 2 (partial frame discarded), aligned_available = 12.
+    // Tail = 14 % 4 = 2 (partial frame skipped), aligned_available = 12.
     // to_read = min(12, 6) = 6, rounded down to 4.
     // front_skip = 12 - 4 = 8. Read starts at position 8 (aligned): [8, 9, 10, 11].
     let mut read_buf = [0u8; 6];
@@ -346,6 +393,72 @@ fn read_latest_with_alignment() {
     let n = ringbuf.read_latest(&mut dma, &mut read_buf);
     assert_eq!(n, 4);
     assert_eq!(&read_buf[..n], &[8, 9, 10, 11]);
+}
+
+/// read_latest does not discard trailing partial frame
+#[test]
+fn read_latest_does_not_discard_partial_frame() {
+    let mut dma_buf = [0u8; CAP];
+    for i in 0..CAP {
+        dma_buf[i] = i as u8;
+    }
+    let mut ringbuf = ReadableDmaRingBuffer::new(&mut dma_buf);
+    ringbuf.set_alignment(4);
+    let mut dma = TestCircularTransfer::new(CAP);
+
+    // Reset at position 0 (aligned).
+    dma.setup(vec![
+        TestCircularTransferRequest::ResetCompleteCount(0),
+        TestCircularTransferRequest::ResetCompleteCount(0),
+        TestCircularTransferRequest::PositionRequest(0),
+    ]);
+    ringbuf.reset(&mut dma);
+
+    // read_index = 0 (reset above)
+    // DMA at position 6. 6 samples available, user buffer holds 6.
+    // 6 (end_pos) % 4 = 2 (partial frame skipped), aligned_available = 4.
+    // to_read = min(4, 6) = 4, rounded down to 4.
+    // front_skip = 4 - 4 = 0. Read starts at position:
+    // (0 + 0) % 16 = 0 (aligned): [0, 1, 2, 3].
+    let mut read_buf = [0u8; 6];
+    dma.setup(vec![
+        TestCircularTransferRequest::ResetCompleteCount(0),
+        TestCircularTransferRequest::PositionRequest(6),
+    ]);
+
+    let n = ringbuf.read_latest(&mut dma, &mut read_buf);
+    assert_eq!(n, 4);
+    assert_eq!(&read_buf[..n], &[0, 1, 2, 3]);
+
+    // read_index = 4 (incremented by 0 (front_skip) + 4 (read))
+    // DMA at position 6. 2 samples available, user buffer holds 6.
+    // 6 (end_pos) % 4 = 2 (partial frame skipped), aligned_available = 0.
+    // to_read = min(0, 6) = 0, rounded down to 0.
+    // front_skip = 0 - 0 = 0.
+    let mut read_buf = [0u8; 6];
+    dma.setup(vec![
+        TestCircularTransferRequest::ResetCompleteCount(0),
+        TestCircularTransferRequest::PositionRequest(6),
+    ]);
+
+    let n = ringbuf.read_latest(&mut dma, &mut read_buf);
+    assert_eq!(n, 0);
+
+    // read_index = 4 (no change)
+    // DMA at position 8. 4 samples available, user buffer holds 6.
+    // 8 (end_pos) % 4 = 0 (partial frame skipped), aligned_available = 4.
+    // to_read = min(4, 6) = 4, rounded down to 4.
+    // front_skip = 4 - 4 = 0. Read starts at position:
+    // (4 + 0) % 16 = 4 (aligned): [4, 5, 6, 7].
+    let mut read_buf = [0u8; 6];
+    dma.setup(vec![
+        TestCircularTransferRequest::ResetCompleteCount(0),
+        TestCircularTransferRequest::PositionRequest(8),
+    ]);
+
+    let n = ringbuf.read_latest(&mut dma, &mut read_buf);
+    assert_eq!(n, 4);
+    assert_eq!(&read_buf[..n], &[4, 5, 6, 7]);
 }
 
 /// read_latest reads all available data when buffer is large enough.

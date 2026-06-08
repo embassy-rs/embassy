@@ -180,22 +180,21 @@ where
         self.reset.set_high().unwrap();
         Timer::after_millis(1000).await;
 
-        let mut tx_buf = [0u8; MAX_SPI_BUFFER_SIZE];
-        let mut rx_buf = [0u8; MAX_SPI_BUFFER_SIZE];
+        let mut buffer = [0u8; MAX_SPI_BUFFER_SIZE];
 
         loop {
             self.iface.wait_for_handshake().await;
 
             let ioctl = self.shared.ioctl_wait_pending();
             let tx = self.ch.tx_buf();
-            let ev = async { self.iface.wait_for_ready().await };
+            let ev = self.iface.wait_for_ready();
             let hb = Timer::at(self.heartbeat_deadline);
 
             match select4(ioctl, tx, ev, hb).await {
                 Either4::First(PendingIoctl { buf, req_len }) => {
-                    tx_buf[12..24].copy_from_slice(b"\x01\x08\x00ctrlResp\x02");
-                    tx_buf[24..26].copy_from_slice(&(req_len as u16).to_le_bytes());
-                    tx_buf[26..][..req_len].copy_from_slice(&unsafe { &*buf }[..req_len]);
+                    buffer[12..24].copy_from_slice(b"\x01\x08\x00ctrlResp\x02");
+                    buffer[24..26].copy_from_slice(&(req_len as u16).to_le_bytes());
+                    buffer[26..][..req_len].copy_from_slice(&unsafe { &*buf }[..req_len]);
 
                     let mut header = PayloadHeader {
                         if_type_and_num: InterfaceType::Serial as _,
@@ -207,12 +206,12 @@ where
                     self.next_seq = self.next_seq.wrapping_add(1);
 
                     // Calculate checksum
-                    tx_buf[0..12].copy_from_slice(&header.to_bytes());
-                    header.checksum = checksum(&tx_buf[..26 + req_len]);
-                    tx_buf[0..12].copy_from_slice(&header.to_bytes());
+                    buffer[0..12].copy_from_slice(&header.to_bytes());
+                    header.checksum = checksum(&buffer[..26 + req_len]);
+                    buffer[0..12].copy_from_slice(&header.to_bytes());
                 }
                 Either4::Second(packet) => {
-                    tx_buf[12..][..packet.len()].copy_from_slice(&packet);
+                    buffer[12..][..packet.len()].copy_from_slice(&packet);
 
                     let mut header = PayloadHeader {
                         if_type_and_num: InterfaceType::Sta as _,
@@ -224,14 +223,14 @@ where
                     self.next_seq = self.next_seq.wrapping_add(1);
 
                     // Calculate checksum
-                    tx_buf[0..12].copy_from_slice(&header.to_bytes());
-                    header.checksum = checksum(&tx_buf[..12 + packet.len()]);
-                    tx_buf[0..12].copy_from_slice(&header.to_bytes());
+                    buffer[0..12].copy_from_slice(&header.to_bytes());
+                    header.checksum = checksum(&buffer[..12 + packet.len()]);
+                    buffer[0..12].copy_from_slice(&header.to_bytes());
 
                     packet.tx_done();
                 }
                 Either4::Third(()) => {
-                    tx_buf[..PayloadHeader::SIZE].fill(0);
+                    buffer[..PayloadHeader::SIZE].fill(0);
                 }
                 Either4::Fourth(()) => {
                     // Extend the deadline if initializing
@@ -243,13 +242,13 @@ where
                 }
             }
 
-            if tx_buf[0] != 0 {
-                trace!("tx: {:02x}", &tx_buf[..40]);
+            if buffer[0] != 0 {
+                trace!("tx: {:02x}", &buffer[..40]);
             }
 
-            self.iface.transfer(&mut rx_buf, &tx_buf).await;
+            self.iface.transfer(&mut buffer).await;
 
-            self.handle_rx(&mut rx_buf);
+            self.handle_rx(&mut buffer);
         }
     }
 
@@ -278,7 +277,7 @@ where
             return;
         }
 
-        let payload = &mut buf[PayloadHeader::SIZE..][..payload_len];
+        let payload = &buf[PayloadHeader::SIZE..][..payload_len];
 
         match if_type_and_num & 0x0f {
             // STA

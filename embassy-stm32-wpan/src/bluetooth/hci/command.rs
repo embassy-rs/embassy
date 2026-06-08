@@ -4,191 +4,24 @@
 //! These functions are synchronous and return a status code immediately, which simplifies
 //! the implementation compared to packet-based HCI.
 
+use stm32_bindings::ble::{
+    aci_hal_le_tx_test_packet_number, hci_disconnect, hci_le_connection_cte_request_enable,
+    hci_le_connection_cte_response_enable, hci_le_connection_update, hci_le_create_connection,
+    hci_le_create_connection_cancel, hci_le_read_advertising_physical_channel_tx_power,
+    hci_le_read_antenna_information, hci_le_read_buffer_size_v2, hci_le_read_local_supported_features_page_0,
+    hci_le_read_phy, hci_le_receiver_test, hci_le_receiver_test_v2, hci_le_set_advertising_data,
+    hci_le_set_advertising_enable, hci_le_set_advertising_parameters, hci_le_set_connection_cte_receive_parameters,
+    hci_le_set_connection_cte_transmit_parameters, hci_le_set_data_length, hci_le_set_event_mask, hci_le_set_phy,
+    hci_le_set_random_address, hci_le_set_scan_enable, hci_le_set_scan_parameters, hci_le_set_scan_response_data,
+    hci_le_test_end, hci_le_transmitter_test, hci_le_transmitter_test_v2, hci_read_bd_addr,
+    hci_read_local_version_information, hci_reset, hci_set_event_mask,
+};
 use stm32wb_hci::BdAddrType;
 use stm32wb_hci::host::OwnAddressType;
 
 use crate::bluetooth::VersionInfo;
 use crate::bluetooth::error::BleError;
 use crate::bluetooth::hci::types;
-
-// The C library exports uppercase function names (HCI_RESET, etc.)
-// but the bindings declare lowercase names. We need to link to the actual symbols.
-#[allow(non_camel_case_types)]
-type tBleStatus = u8;
-
-#[link(name = "stm32wba_ble_stack_basic")]
-unsafe extern "C" {
-    #[link_name = "HCI_RESET"]
-    fn hci_reset() -> tBleStatus;
-
-    #[link_name = "HCI_READ_LOCAL_VERSION_INFORMATION"]
-    fn hci_read_local_version_information(
-        hci_version: *mut u8,
-        hci_revision: *mut u16,
-        lmp_pal_version: *mut u8,
-        manufacturer_name: *mut u16,
-        lmp_pal_subversion: *mut u16,
-    ) -> tBleStatus;
-
-    #[link_name = "HCI_READ_BD_ADDR"]
-    fn hci_read_bd_addr(bd_addr: *mut [u8; 6]) -> tBleStatus;
-
-    #[link_name = "HCI_SET_EVENT_MASK"]
-    fn hci_set_event_mask(event_mask: *const [u8; 8]) -> tBleStatus;
-
-    #[link_name = "HCI_LE_SET_EVENT_MASK"]
-    fn hci_le_set_event_mask(le_event_mask: *const [u8; 8]) -> tBleStatus;
-
-    #[link_name = "HCI_LE_SET_ADVERTISING_PARAMETERS"]
-    fn hci_le_set_advertising_parameters(
-        advertising_interval_min: u16,
-        advertising_interval_max: u16,
-        advertising_type: u8,
-        own_address_type: u8,
-        peer_address_type: u8,
-        peer_address: *const [u8; 6],
-        advertising_channel_map: u8,
-        advertising_filter_policy: u8,
-    ) -> tBleStatus;
-
-    #[link_name = "HCI_LE_SET_ADVERTISING_DATA"]
-    fn hci_le_set_advertising_data(advertising_data_length: u8, advertising_data: *const u8) -> tBleStatus;
-
-    #[link_name = "HCI_LE_SET_SCAN_RESPONSE_DATA"]
-    fn hci_le_set_scan_response_data(scan_response_data_length: u8, scan_response_data: *const u8) -> tBleStatus;
-
-    #[link_name = "HCI_LE_SET_SCAN_PARAMETERS"]
-    fn hci_le_set_scan_parameters(
-        le_scan_type: u8,
-        le_scan_interval: u16,
-        le_scan_window: u16,
-        own_address_type: u8,
-        scanning_filter_policy: u8,
-    ) -> tBleStatus;
-
-    #[link_name = "HCI_LE_SET_SCAN_ENABLE"]
-    fn hci_le_set_scan_enable(le_scan_enable: u8, filter_duplicates: u8) -> tBleStatus;
-
-    #[link_name = "HCI_LE_SET_ADVERTISING_ENABLE"]
-    fn hci_le_set_advertising_enable(advertising_enable: u8) -> tBleStatus;
-
-    #[link_name = "HCI_LE_READ_BUFFER_SIZE_V2"]
-    fn hci_le_read_buffer_size_v2(
-        le_acl_data_packet_length: *mut u16,
-        total_num_le_acl_data_packets: *mut u8,
-        iso_data_packet_length: *mut u16,
-        total_num_iso_data_packets: *mut u8,
-    ) -> tBleStatus;
-
-    #[link_name = "HCI_LE_READ_LOCAL_SUPPORTED_FEATURES_PAGE_0"]
-    fn hci_le_read_local_supported_features_page_0(le_features: *mut [u8; 8]) -> tBleStatus;
-
-    // Connection management commands
-    #[link_name = "HCI_DISCONNECT"]
-    fn hci_disconnect(connection_handle: u16, reason: u8) -> tBleStatus;
-
-    #[link_name = "HCI_LE_READ_PHY"]
-    fn hci_le_read_phy(connection_handle: u16, tx_phy: *mut u8, rx_phy: *mut u8) -> tBleStatus;
-
-    #[link_name = "HCI_LE_SET_PHY"]
-    fn hci_le_set_phy(connection_handle: u16, all_phys: u8, tx_phys: u8, rx_phys: u8, phy_options: u16) -> tBleStatus;
-
-    #[link_name = "HCI_LE_CONNECTION_UPDATE"]
-    fn hci_le_connection_update(
-        connection_handle: u16,
-        conn_interval_min: u16,
-        conn_interval_max: u16,
-        conn_latency: u16,
-        supervision_timeout: u16,
-        minimum_ce_length: u16,
-        maximum_ce_length: u16,
-    ) -> tBleStatus;
-
-    #[link_name = "HCI_LE_CREATE_CONNECTION"]
-    fn hci_le_create_connection(
-        le_scan_interval: u16,
-        le_scan_window: u16,
-        initiator_filter_policy: u8,
-        peer_address_type: u8,
-        peer_address: *const [u8; 6],
-        own_address_type: u8,
-        conn_interval_min: u16,
-        conn_interval_max: u16,
-        max_latency: u16,
-        supervision_timeout: u16,
-        min_ce_length: u16,
-        max_ce_length: u16,
-    ) -> tBleStatus;
-
-    #[link_name = "HCI_LE_CREATE_CONNECTION_CANCEL"]
-    fn hci_le_create_connection_cancel() -> tBleStatus;
-
-    #[link_name = "HCI_LE_SET_DATA_LENGTH"]
-    fn hci_le_set_data_length(connection_handle: u16, tx_octets: u16, tx_time: u16) -> tBleStatus;
-
-    // DTM — Direct Test Mode commands
-    #[link_name = "HCI_LE_RECEIVER_TEST"]
-    fn hci_le_receiver_test(rx_channel: u8) -> tBleStatus;
-
-    #[link_name = "HCI_LE_RECEIVER_TEST_V2"]
-    fn hci_le_receiver_test_v2(rx_channel: u8, phy: u8, modulation_index: u8) -> tBleStatus;
-
-    #[link_name = "HCI_LE_TRANSMITTER_TEST"]
-    fn hci_le_transmitter_test(tx_channel: u8, test_data_length: u8, packet_payload: u8) -> tBleStatus;
-
-    #[link_name = "HCI_LE_TRANSMITTER_TEST_V2"]
-    fn hci_le_transmitter_test_v2(tx_channel: u8, test_data_length: u8, packet_payload: u8, phy: u8) -> tBleStatus;
-
-    #[link_name = "HCI_LE_TEST_END"]
-    fn hci_le_test_end(num_packets: *mut u16) -> tBleStatus;
-
-    #[link_name = "ACI_HAL_LE_TX_TEST_PACKET_NUMBER"]
-    fn aci_hal_le_tx_test_packet_number(num_packets: *mut u32) -> tBleStatus;
-
-    #[link_name = "HCI_LE_SET_RANDOM_ADDRESS"]
-    fn hci_le_set_random_address(random_address: *const u8) -> tBleStatus;
-
-    #[link_name = "HCI_LE_READ_ADVERTISING_PHYSICAL_CHANNEL_TX_POWER"]
-    fn hci_le_read_advertising_physical_channel_tx_power(transmit_power_level: *mut u8) -> tBleStatus;
-
-    // CTE — Constant Tone Extension commands (BT 5.1+, Direction Finding)
-    #[link_name = "HCI_LE_SET_CONNECTION_CTE_TRANSMIT_PARAMETERS"]
-    fn hci_le_set_connection_cte_transmit_parameters(
-        connection_handle: u16,
-        cte_types: u8,
-        switching_pattern_length: u8,
-        antenna_ids: *const u8,
-    ) -> tBleStatus;
-
-    #[link_name = "HCI_LE_CONNECTION_CTE_RESPONSE_ENABLE"]
-    fn hci_le_connection_cte_response_enable(connection_handle: u16, cte_response_enable: u8) -> tBleStatus;
-
-    #[link_name = "HCI_LE_SET_CONNECTION_CTE_RECEIVE_PARAMETERS"]
-    fn hci_le_set_connection_cte_receive_parameters(
-        connection_handle: u16,
-        sampling_enable: u8,
-        slot_durations: u8,
-        switching_pattern_length: u8,
-        antenna_ids: *const u8,
-    ) -> tBleStatus;
-
-    #[link_name = "HCI_LE_CONNECTION_CTE_REQUEST_ENABLE"]
-    fn hci_le_connection_cte_request_enable(
-        connection_handle: u16,
-        enable: u8,
-        cte_request_interval: u16,
-        requested_cte_length: u8,
-        requested_cte_type: u8,
-    ) -> tBleStatus;
-
-    #[link_name = "HCI_LE_READ_ANTENNA_INFORMATION"]
-    fn hci_le_read_antenna_information(
-        supported_switching_sampling_rates: *mut u8,
-        num_antennae: *mut u8,
-        max_switching_pattern_length: *mut u8,
-        max_cte_length: *mut u8,
-    ) -> tBleStatus;
-}
 
 /// BLE Success status code
 const BLE_STATUS_SUCCESS: u8 = 0x00;
@@ -287,7 +120,7 @@ impl CommandSender {
     pub fn set_event_mask(&self, mask: u64) -> Result<(), BleError> {
         unsafe {
             let mask_bytes = mask.to_le_bytes();
-            let status = hci_set_event_mask(&mask_bytes as *const [u8; 8]);
+            let status = hci_set_event_mask(&mask_bytes as *const [u8; 8] as *const u8);
             Self::check_status(status)
         }
     }
@@ -296,7 +129,7 @@ impl CommandSender {
     pub fn read_bd_addr(&self) -> Result<[u8; 6], BleError> {
         unsafe {
             let mut addr = [0u8; 6];
-            let status = hci_read_bd_addr(&mut addr as *mut [u8; 6]);
+            let status = hci_read_bd_addr(&mut addr as *mut [u8; 6] as *mut u8);
             Self::check_status(status)?;
             Ok(addr)
         }
@@ -308,7 +141,7 @@ impl CommandSender {
     pub fn le_set_event_mask(&self, mask: u64) -> Result<(), BleError> {
         unsafe {
             let mask_bytes = mask.to_le_bytes();
-            let status = hci_le_set_event_mask(&mask_bytes as *const [u8; 8]);
+            let status = hci_le_set_event_mask(&mask_bytes as *const [u8; 8] as *const u8);
             Self::check_status(status)
         }
     }
@@ -340,7 +173,7 @@ impl CommandSender {
                 adv_type as u8,
                 own_addr_type as u8,
                 peer_addr_type,
-                peer_addr as *const [u8; 6],
+                peer_addr as *const [u8; 6] as *const u8,
                 channel_map,
                 filter_policy as u8,
             );
@@ -441,7 +274,7 @@ impl CommandSender {
     pub fn le_read_local_supported_features(&self) -> Result<[u8; 8], BleError> {
         unsafe {
             let mut features = [0u8; 8];
-            let status = hci_le_read_local_supported_features_page_0(&mut features as *mut [u8; 8]);
+            let status = hci_le_read_local_supported_features_page_0(&mut features as *mut [u8; 8] as *mut u8);
             Self::check_status(status)?;
             Ok(features)
         }
@@ -584,7 +417,7 @@ impl CommandSender {
                 scan_window,
                 filter_policy,
                 peer_addr_bytes[0],
-                peer_addr_ptr as *const [u8; 6],
+                peer_addr_ptr as *const [u8; 6] as *const u8,
                 own_addr_type as u8,
                 interval_min,
                 interval_max,

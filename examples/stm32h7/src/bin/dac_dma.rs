@@ -3,7 +3,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::dac::{DacChannel, ValueArray};
+use embassy_stm32::dac::DacChannel;
 use embassy_stm32::mode::Async;
 use embassy_stm32::pac::timer::vals::Mms;
 use embassy_stm32::peripherals::{DMA1_CH3, DMA1_CH4, TIM6, TIM7};
@@ -106,7 +106,7 @@ async fn dac_task1(tim: Peri<'static, TIM6>, mut dac: DacChannel<'static, Async>
     // Loop technically not necessary if DMA circular mode is enabled
     loop {
         info!("Loop DAC1");
-        dac.write(ValueArray::Bit8(data), true).await;
+        dac.write(data, true).await;
     }
 }
 
@@ -143,7 +143,7 @@ async fn dac_task2(tim: Peri<'static, TIM7>, mut dac: DacChannel<'static, Async>
         data.len()
     );
 
-    dac.write(ValueArray::Bit8(data), true).await;
+    dac.write(data, true).await;
 }
 
 fn to_sine_wave(v: u8) -> u8 {

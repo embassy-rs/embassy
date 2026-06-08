@@ -2,13 +2,17 @@
 use crate::wba::bindings::ble::{BleStack_Init, BleStack_init_t, tBleStatus};
 #[cfg(feature = "wba-ble")]
 use crate::wba::bindings::link_layer::{
-    ble_buff_hdr_p, hci_dispatch_tbl, hci_get_dis_tbl, hst_cbk, ll_intf_init, ll_intf_rgstr_hst_cbk,
-    ll_intf_rgstr_hst_cbk_ll_queue_full,
+    ble_buff_hdr_p, hci_dispatch_tbl, hst_cbk, ll_intf_init, ll_intf_rgstr_hst_cbk, ll_intf_rgstr_hst_cbk_ll_queue_full,
 };
 use crate::wba::bindings::link_layer::{
     ll_sys_assert, ll_sys_bg_process_init, ll_sys_config_params, ll_sys_dp_slp_init, ll_sys_status_t,
     ll_sys_status_t_LL_SYS_OK,
 };
+
+unsafe extern "C" {
+    #[doc = " @brief  get a pointer to the HCI dispatch table.\n\n @param  p_p_dispatch_tbl : [out] pointer to be filled by the address of the HCI dispatch table."]
+    pub fn hci_get_dis_tbl(p_p_dispatch_tbl: *mut *const hci_dispatch_tbl);
+}
 
 /// BLE status code for success
 #[cfg(feature = "wba-ble")]

@@ -67,6 +67,18 @@ pub mod comp;
 #[cfg(cordic)]
 pub mod cordic;
 
+#[cfg(not(any(comp_u5, comp_v1, comp_v2)))]
+pub mod comp {
+    //! Comp stub module to provide consistent API
+
+    trait_set::trait_set! {
+        /// Comp stub peripheral type
+        pub trait Instance = embassy_hal_internal::PeripheralType + 'static;
+    }
+
+    pin_trait!(OutputPin, Instance);
+}
+
 // Stub macros for COMP pin implementations when comp module is not compiled.
 // These are needed because build.rs generates macro calls for all chips with COMP,
 // but the actual macros are only defined in the comp module.
@@ -114,7 +126,7 @@ pub mod fmac;
 pub mod fmc;
 #[cfg(hash)]
 pub mod hash;
-#[cfg(all(hrtim, feature = "stm32-hrtim"))]
+#[cfg(hrtim)]
 pub mod hrtim;
 #[cfg(hsem)]
 pub mod hsem;
@@ -286,6 +298,59 @@ pub use embassy_hal_internal::{Peri, PeripheralType};
 pub use stm32_metapac as pac;
 #[cfg(not(feature = "unstable-pac"))]
 pub(crate) use stm32_metapac as pac;
+
+#[cfg(not(feature = "low-power"))]
+pub mod low_power {
+    //! Low-power stub module to provide consistent API
+
+    trait_set::trait_set! {
+        /// Peripheral that can be suspended
+        #[allow(private_bounds)]
+        pub trait SuspendablePeripheral = SealedSuspendablePeripheral;
+    }
+
+    pub(crate) trait SealedSuspendablePeripheral {}
+
+    /// A mutex-like object to resume a peripheral. Does nothing when `low-power` is not enabled.
+    pub struct ResumablePeripheral<T: SuspendablePeripheral>(T);
+
+    impl<T: SuspendablePeripheral> ResumablePeripheral<T> {
+        /// Create the object. Will suspend the peripheral as soon as it is passed.
+        pub fn new(peripheral: T) -> Self {
+            Self(peripheral)
+        }
+
+        /// Suspend the peripheral, if it is resumed
+        pub fn suspend(&mut self) {}
+
+        /// Resume the peripheral and get a mutable reference to it
+        pub fn resume(&mut self) -> &mut T {
+            &mut self.0
+        }
+
+        /// Get the resumable peripheral guard
+        pub fn borrow(&mut self) -> ResumablePeripheralGuard<'_, T> {
+            ResumablePeripheralGuard(&mut self.0)
+        }
+    }
+
+    /// A mutex-like object guard, that when held, activates the peripheral
+    pub struct ResumablePeripheralGuard<'a, T: SuspendablePeripheral>(&'a mut T);
+
+    impl<'a, T: SuspendablePeripheral> core::ops::Deref for ResumablePeripheralGuard<'a, T> {
+        type Target = T;
+
+        fn deref(&self) -> &T {
+            self.0
+        }
+    }
+
+    impl<'a, T: SuspendablePeripheral> core::ops::DerefMut for ResumablePeripheralGuard<'a, T> {
+        fn deref_mut(&mut self) -> &mut T {
+            &mut self.0
+        }
+    }
+}
 
 use crate::interrupt::Priority;
 #[cfg(feature = "rt")]
