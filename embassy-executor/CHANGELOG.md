@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Renamed `platform-cortex-ar` to `platform-aarch32`.
 - Added `executor-interrupt` support to `platform-aarch32`, using GICv1/GICv2 software-generated
   interrupts. `InterruptExecutor::start()` takes the GIC distributor base address and the SGI ID.
+- Changed trace callback signatures & added traces for when the task metadata changes
+- Create proper types for task id & executor id
 
 ## 0.10.0 - 2026-03-10
 
