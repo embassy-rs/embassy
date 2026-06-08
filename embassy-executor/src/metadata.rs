@@ -14,6 +14,7 @@ use crate::raw::{self, TaskRef};
 
 /// A reference to metadata of a particular task
 pub struct MetadataRef {
+    #[allow(dead_code, reason = "only used when metadata is active")]
     task: TaskRef,
 }
 
@@ -33,6 +34,7 @@ impl MetadataRef {
         poll_fn(|cx| Poll::Ready(Self::new(raw::task_from_waker(cx.waker()))))
     }
 
+    #[allow(dead_code, reason = "only used when metadata is active")]
     fn metadata(&self) -> &Metadata {
         &self.task.header().metadata
     }
