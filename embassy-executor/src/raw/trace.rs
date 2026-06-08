@@ -75,6 +75,8 @@ use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 #[cfg(feature = "rtos-trace")]
 use rtos_trace::TaskInfo;
 
+#[cfg(feature = "trace")]
+use crate::ExecutorId;
 use crate::raw::{SyncExecutor, TaskHeader, TaskRef};
 use crate::spawner::{SpawnError, SpawnToken, Spawner};
 
@@ -330,26 +332,6 @@ pub(crate) fn task_deadline_set(task: TaskRef, deadline: u64) {
     #[cfg(feature = "trace")]
     unsafe {
         _embassy_trace_task_deadline_set(task, deadline)
-    }
-}
-
-/// A unique ID for a task
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct TaskId(pub(crate) usize);
-impl TaskId {
-    /// Get the id as a raw number
-    pub fn get(&self) -> usize {
-        self.0
-    }
-}
-
-/// A unique ID for an executor
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ExecutorId(pub(crate) usize);
-impl ExecutorId {
-    /// Get the id as a raw number
-    pub fn get(&self) -> usize {
-        self.0
     }
 }
 
