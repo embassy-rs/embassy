@@ -76,6 +76,8 @@ use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 #[cfg(feature = "rtos-trace")]
 use rtos_trace::TaskInfo;
 
+#[cfg(feature = "trace")]
+use crate::ExecutorId;
 use crate::raw::{SyncExecutor, TaskHeader, TaskRef};
 use crate::spawner::{SpawnError, SpawnToken, Spawner};
 
@@ -193,8 +195,8 @@ impl TaskTracker {
 /// The executor trace hooks, defined with the [`unitrait`] crate.
 #[cfg(feature = "trace")]
 pub mod hooks {
+    use crate::ExecutorId;
     use crate::raw::TaskRef;
-    use crate::raw::trace::ExecutorId;
 
     unitrait::unitrait! {
         /// Executor trace hooks.
@@ -377,26 +379,6 @@ pub(crate) fn task_priority_set(task: TaskRef, priority: u8) {
 pub(crate) fn task_deadline_set(task: TaskRef, deadline: u64) {
     #[cfg(feature = "trace")]
     hooks::task_deadline_set(task, deadline);
-}
-
-/// A unique ID for a task
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct TaskId(pub(crate) usize);
-impl TaskId {
-    /// Get the id as a raw number
-    pub fn get(&self) -> usize {
-        self.0
-    }
-}
-
-/// A unique ID for an executor
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ExecutorId(pub(crate) usize);
-impl ExecutorId {
-    /// Get the id as a raw number
-    pub fn get(&self) -> usize {
-        self.0
-    }
 }
 
 /// Returns an iterator over all active tasks in the system

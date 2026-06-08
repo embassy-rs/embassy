@@ -51,8 +51,7 @@ use self::util::{SyncUnsafeCell, UninitCell};
 pub use self::waker::task_from_waker;
 use self::waker::try_task_from_waker;
 use super::SpawnToken;
-use crate::raw::trace::{ExecutorId, TaskId};
-use crate::{Metadata, MetadataRef, SpawnError};
+use crate::{ExecutorId, Metadata, MetadataRef, SpawnError, TaskId};
 
 struct TimerQueueItemProviderImpl;
 

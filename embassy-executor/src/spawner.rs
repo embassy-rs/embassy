@@ -5,8 +5,7 @@ use core::sync::atomic::Ordering;
 use core::task::Poll;
 
 use super::raw;
-use crate::MetadataRef;
-use crate::raw::trace::{ExecutorId, TaskId};
+use crate::{ExecutorId, MetadataRef, TaskId};
 
 /// Token to spawn a newly-created task in an executor.
 ///
