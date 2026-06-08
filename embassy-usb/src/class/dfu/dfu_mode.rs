@@ -79,7 +79,7 @@ impl<'d, H: Handler> DfuState<H> {
 
 impl<H: Handler> crate::Handler for DfuState<H> {
     fn reset(&mut self) {
-        if matches!(self.state, State::ManifestSync | State::Manifest) {
+        if matches!(self.state, State::ManifestSync | State::Manifest | State::ManifestWaitReset) {
             self.handler.system_reset();
         }
     }
