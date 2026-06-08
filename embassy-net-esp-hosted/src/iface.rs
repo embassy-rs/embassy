@@ -1,3 +1,4 @@
+use embassy_futures::join::join;
 use embedded_hal::digital::InputPin;
 use embedded_hal_async::digital::Wait;
 use embedded_hal_async::spi::SpiDevice;
@@ -51,11 +52,16 @@ where
     }
 
     async fn transfer(&mut self, buffer: &mut [u8]) {
-        self.spi.transfer_in_place(buffer).await.unwrap();
+        let (a, b) = join(
+            // The esp-hosted firmware deasserts the HANDSHAKE pin a few us AFTER ending the SPI transfer
+            // If we check it again too fast, we'll see it's high from the previous transfer, and if we send it
+            // data it will get lost.
+            self.handshake.wait_for_low(),
+            self.spi.transfer_in_place(buffer),
+        )
+        .await;
 
-        // The esp-hosted firmware deasserts the HANDSHAKE pin a few us AFTER ending the SPI transfer
-        // If we check it again too fast, we'll see it's high from the previous transfer, and if we send it
-        // data it will get lost.
-        self.handshake.wait_for_low().await.unwrap();
+        a.unwrap();
+        b.unwrap();
     }
 }
