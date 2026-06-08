@@ -26,11 +26,6 @@ heapless = { version = "0.9", default-features = false }
 embedded-graphics = { version = "0.8.1" }
 tinybmp = { version = "0.6.0" }
 
-<<<<<<< HEAD
-[profile.release]
-debug = 2
-
-=======
 micromath = "2.0.0"
 
 [features]
@@ -39,7 +34,7 @@ trustzone-secure = ["embassy-stm32/trustzone-secure"]
 
 [profile.release]
 debug = 2
->>>>>>> d5b1bfcde (fix build for STM32U5A9NJH6Q)
+
 [package.metadata.embassy]
 build = [
   { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/rvt50hqsnwc00-b" }
