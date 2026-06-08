@@ -53,6 +53,7 @@ impl MetadataRef {
     #[cfg(feature = "metadata-name")]
     pub fn set_name(&self, name: &'static str) {
         self.metadata().set_name(name);
+        #[cfg(feature = "_any_trace")]
         crate::raw::trace::task_name_set(self.task, name);
     }
 
@@ -66,6 +67,7 @@ impl MetadataRef {
     #[cfg(feature = "scheduler-priority")]
     pub fn set_priority(&self, priority: u8) {
         self.metadata().set_priority(priority);
+        #[cfg(feature = "_any_trace")]
         crate::raw::trace::task_priority_set(self.task, priority);
     }
 
@@ -81,6 +83,7 @@ impl MetadataRef {
     #[cfg(feature = "scheduler-deadline")]
     pub fn set_deadline(&self, instant_ticks: u64) {
         self.metadata().set_deadline(instant_ticks);
+        #[cfg(feature = "_any_trace")]
         crate::raw::trace::task_deadline_set(self.task, instant_ticks);
     }
 
