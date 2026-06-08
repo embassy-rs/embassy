@@ -267,7 +267,7 @@ impl<F: Future + 'static> TaskStorage<F> {
                 this.raw.state.despawn();
 
                 #[cfg(feature = "_any_trace")]
-                trace::task_end(exec_ptr, &p);
+                trace::task_end(exec_ptr, p);
             }
             Poll::Pending => {}
         }
@@ -440,7 +440,7 @@ impl SyncExecutor {
     #[inline(always)]
     unsafe fn enqueue(&self, task: TaskRef, l: state::Token) {
         #[cfg(feature = "_any_trace")]
-        trace::task_ready_begin(self, &task);
+        trace::task_ready_begin(self, task);
 
         if self.run_queue.enqueue(task, l) {
             self.pender.pend();
@@ -453,7 +453,7 @@ impl SyncExecutor {
             .store((self as *const Self).cast_mut(), Ordering::Relaxed);
 
         #[cfg(feature = "_any_trace")]
-        trace::task_new(self, &task);
+        trace::task_new(self, task);
 
         state::locked(|l| {
             self.enqueue(task, l);
@@ -471,13 +471,13 @@ impl SyncExecutor {
             let task = p.header();
 
             #[cfg(feature = "_any_trace")]
-            trace::task_exec_begin(self, &p);
+            trace::task_exec_begin(self, p);
 
             // Run the task
             task.poll_fn.get().unwrap_unchecked()(p);
 
             #[cfg(feature = "_any_trace")]
-            trace::task_exec_end(self, &p);
+            trace::task_exec_end(self, p);
         });
 
         #[cfg(feature = "_any_trace")]
