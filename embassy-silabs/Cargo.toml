@@ -27,10 +27,10 @@ cortex-m = "0.7.6"
 critical-section = "1.2.0"
 trait-set = "0.3.0"
 
-silabs-metapac = { git = "https://github.com/andresv/silabs-data-generated.git", tag = "0.4.0" }
+silabs-metapac = { version = "0.4.0" }
 
 [build-dependencies]
-silabs-metapac = { git = "https://github.com/andresv/silabs-data-generated.git", tag = "0.4.0", default-features = false, features = ["metadata"] }
+silabs-metapac = { version = "0.4.0", default-features = false, features = ["metadata"] }
 
 [features]
 default = ["rt"]
