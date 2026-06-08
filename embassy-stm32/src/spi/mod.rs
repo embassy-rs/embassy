@@ -558,7 +558,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
 
     /// Blocking write.
     pub fn blocking_write<W: Word>(&mut self, words: &[W]) -> Result<(), Error> {
-        // needed in v3+ to avoid overrun causing the SPI RX state machine to get stuck...?
+        // needed in spi_v4+ to avoid overrun causing the SPI RX state machine to get stuck...?
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         self.info.regs.cr1().modify(|w| w.set_spe(false));
         self.set_word_size(W::CONFIG);
@@ -569,7 +569,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         fence(Ordering::SeqCst);
 
         for word in words.iter() {
-            // this cannot use `transfer_word` because on SPIv2 and higher,
+            // this cannot use `transfer_word` because on spi_v3 and higher,
             // the SPI RX state machine hangs if no physical pin is connected to the SCK AF.
             // This is the case when the SPI has been created with `new_(blocking_?)txonly_nosck`.
             // See https://github.com/embassy-rs/embassy/issues/2902
@@ -578,17 +578,17 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
             write_word(self.info.regs, *word)?;
 
             // if we're doing tx only, after writing the last byte to FIFO we have to wait
-            // until it's actually sent. On SPIv1 you're supposed to use the BSY flag for this
+            // until it's actually sent. On spi_v1 and spi_v2 you're supposed to use the BSY flag for this
             // but apparently it's broken, it clears too soon. Workaround is to wait for RXNE:
             // when it gets set you know the transfer is done, even if you don't care about rx.
-            // Luckily this doesn't affect SPIv2+.
+            // Luckily this doesn't affect spi_v3+.
             // See http://efton.sk/STM32/gotcha/g68.html
             // ST doesn't seem to document this in errata sheets (?)
             #[cfg(any(spi_v1, spi_v2))]
             transfer_word(self.info.regs, *word)?;
         }
 
-        // wait until last word is transmitted. (except on v1, see above)
+        // wait until last word is transmitted. (except on spi_v1 and spi_v2, see above)
         #[cfg(not(any(spi_v1, spi_v2, spi_v3)))]
         while !self.info.regs.sr().read().txc() {}
         #[cfg(spi_v3)]
@@ -599,7 +599,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
 
     /// Blocking read.
     pub fn blocking_read<W: Word>(&mut self, words: &mut [W]) -> Result<(), Error> {
-        // needed in v3+ to avoid overrun causing the SPI RX state machine to get stuck...?
+        // needed in spi_v4+ to avoid overrun causing the SPI RX state machine to get stuck...?
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         self.info.regs.cr1().modify(|w| w.set_spe(false));
         self.set_word_size(W::CONFIG);
@@ -616,7 +616,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
     ///
     /// This writes the contents of `data` on MOSI, and puts the received data on MISO in `data`, at the same time.
     pub fn blocking_transfer_in_place<W: Word>(&mut self, words: &mut [W]) -> Result<(), Error> {
-        // needed in v3+ to avoid overrun causing the SPI RX state machine to get stuck...?
+        // needed in spi_v4+ to avoid overrun causing the SPI RX state machine to get stuck...?
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         self.info.regs.cr1().modify(|w| w.set_spe(false));
         self.set_word_size(W::CONFIG);
@@ -636,7 +636,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
     /// The transfer runs for `max(read.len(), write.len())` bytes. If `read` is shorter extra bytes are ignored.
     /// If `write` is shorter it is padded with zero bytes.
     pub fn blocking_transfer<W: Word>(&mut self, read: &mut [W], write: &[W]) -> Result<(), Error> {
-        // needed in v3+ to avoid overrun causing the SPI RX state machine to get stuck...?
+        // needed in spi_v4+ to avoid overrun causing the SPI RX state machine to get stuck...?
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         self.info.regs.cr1().modify(|w| w.set_spe(false));
         self.set_word_size(W::CONFIG);
@@ -1104,7 +1104,7 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
 
         self.set_word_size(W::CONFIG);
 
-        // SPIv3 clears rxfifo on SPE=0
+        // spi_v4 clears rxfifo on SPE=0
         #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
         flush_rx_fifo(self.info.regs);
 
@@ -1157,7 +1157,7 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
 
         self.set_word_size(W::CONFIG);
 
-        // SPIv3 clears rxfifo on SPE=0
+        // spi_v4 clears rxfifo on SPE=0
         #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
         flush_rx_fifo(self.info.regs);
 
