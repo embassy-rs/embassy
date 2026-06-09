@@ -97,18 +97,25 @@ cargo run --features lvgl --bin lvgl_demo
   - One-hot TX on CAN ID `0x200`, `minp` feedback on `0x285`
   - Build:
     ```bash
-    # Debian/Ubuntu: install GCC + libc headers (newlib OR picolibc):
-    sudo apt install gcc-arm-none-eabi libnewlib-dev      # or: picolibc-arm-none-eabi
+    # Install GCC + libc headers (newlib OR picolibc):
+    sudo apt install gcc-arm-none-eabi libnewlib-dev      # Debian/Ubuntu
+    # sudo pacman -S arm-none-eabi-gcc arm-none-eabi-newlib   # Arch
+    # brew install --cask gcc-arm-embedded                    # macOS
 
-    source scripts/lvgl-env.sh                            # discovers <string.h> for bindgen
+    # bash/zsh:
+    source scripts/lvgl-env.sh
+    # fish:
+    # source scripts/lvgl-env.fish
+
     cargo run --bin lvgl_touch_can --features lvgl,touch
     ```
-    `lvgl-env.sh` queries `arm-none-eabi-gcc` for its include path and exports
-    `BINDGEN_EXTRA_CLANG_ARGS`. It works with Debian/Ubuntu apt installs, the
-    ARM-provided GCC tarball, PlatformIO, and Homebrew. The other cross
-    compiler env (`CC` / `AR` / `CFLAGS`) is set in `.cargo/config.toml`.
-    For non-standard toolchains override the env in your shell or in
-    `.cargo/config.toml` (see `.cargo/config.toml.example`).
+    The `lvgl-env` script queries `arm-none-eabi-gcc` for its include path and
+    exports `BINDGEN_EXTRA_CLANG_ARGS` (so `lvgl-sys`' bindgen can find
+    `<string.h>`). Works with Debian/Ubuntu apt, Arch, the ARM-provided GCC
+    tarball, PlatformIO, and Homebrew. Cross-compiler env (`CC` / `AR` /
+    `CFLAGS`) is set in `.cargo/config.toml`. For non-standard toolchains
+    override the env in your shell or pin a snippet from
+    `.cargo/config.toml.example` into your local `.cargo/config.toml`.
 
 ## Configuration
 

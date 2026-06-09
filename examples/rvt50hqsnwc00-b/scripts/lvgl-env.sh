@@ -55,6 +55,7 @@ for dir in \
     "${GCC_DIR}/../lib/gcc/arm-none-eabi/${GCC_VERSION}/include" \
     "${HOME}/.platformio/packages/toolchain-gccarmnoneeabi/arm-none-eabi/include" \
     "/usr/lib/arm-none-eabi/include" \
+    "/usr/arm-none-eabi/include" \
     "/usr/include/newlib" \
     "/usr/lib/picolibc/arm-none-eabi/include"
 do

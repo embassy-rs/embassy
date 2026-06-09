@@ -21,10 +21,11 @@ DEP_LV_CONFIG_PATH = { value = "lvgl", relative = true }
 
 # `lvgl-sys` runs bindgen with `BINDGEN_EXTRA_CLANG_ARGS` to find the cross
 # libc headers (`string.h`, …). The path is host-specific (Debian's
-# update-alternatives, picolibc, ARM tarball, PlatformIO, Homebrew, …), so we
-# cannot hard-code it here. Run once per shell:
+# update-alternatives, picolibc, ARM tarball, PlatformIO, Homebrew, Arch, …),
+# so we cannot hard-code it here. Run once per shell:
 #
-#     source scripts/lvgl-env.sh
+#     source scripts/lvgl-env.sh        # bash / zsh
+#     source scripts/lvgl-env.fish      # fish
 #
 # The script queries `arm-none-eabi-gcc` for its include path. To skip the
 # script, set BINDGEN_EXTRA_CLANG_ARGS yourself or copy a snippet from
