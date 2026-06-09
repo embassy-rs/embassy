@@ -1,39 +1,39 @@
-//! JSON-driven hall lighting UI on top of [lv_binding_rust](https://github.com/lvgl/lv_binding_rust).
+//! JSON-driven hall lighting UI on top of [lv_binding_rust](https://github.com/lvgl/lv_binding_rust)
+//! (vendored master under `vendor/lv_binding_rust/`).
 //!
-//! Builds a screen with one card per field plus a group card; each card has
-//! three lux buttons (`500`, `300`, `OFF`/central-off) wired to the press/release
-//! callbacks supplied by the binary. The widget hierarchy is driven by the
-//! generated [`crate::touch_config`] tables so the UI matches the project
-//! JSON without any hand-maintained constants.
+//! The widget tree (one card per field plus a group card with three lux
+//! buttons each) is built with the safe [`Btn::create`] / [`Label::create`]
+//! / [`Obj::create`] constructors. After build we drop the widget handles
+//! and keep raw [`lvgl_sys::lv_obj_t`] pointers, because LVGL owns the
+//! widgets in its tree — the Rust handles only matter during construction.
+//! [`HallUi::set_button_active`] swaps a button's style via `lvgl_sys`.
 
 extern crate alloc;
 
+use core::fmt::Write as _;
 use core::ptr::NonNull;
 use core::time::Duration;
 
 use cstr_core::CString;
-use heapless::Vec;
+use heapless::{String, Vec};
+use lvgl::style::Style;
 use lvgl::widgets::{Btn, Label};
-use lvgl::{Align, Event, LvError, LvResult, NativeObject, Obj, Part, Widget};
+use lvgl::{Align, Event, NativeObject, Obj, Part, Widget};
 
 use crate::lvgl::display::Rvt50Display;
 use crate::lvgl::input::{self, Rvt50Touch};
-use crate::lvgl::theme::Theme;
+use crate::lvgl::theme::{self, Theme};
 use crate::touch_config::{
     self, ALL_PREFIX, CENTRAL_OFF_LABEL, FIELDS, FieldLayout, GROUP_BUTTON_BASE, GROUP_EYEBROW, HALL_NAME, LUX_SUFFIX,
     OFF_LABEL, SUMMARY_READY,
 };
 
-/// Maximum number of buttons the UI can hold; covers any project we generate.
 const MAX_BUTTONS: usize = 64;
 
 pub type PressHandler = fn(u8);
 pub type ReleaseHandler = fn();
 
 /// Geometry of the row of three lux buttons inside a card.
-///
-/// Layout is `4 px` left margin + `4 px` gap between buttons, matching the
-/// values previously hard-coded in `build_field_card` / `build_group_card`.
 struct ButtonRow {
     btn_w: i16,
     btn_h: i16,
@@ -67,20 +67,22 @@ impl ButtonRow {
 pub struct HallUi {
     _display: Rvt50Display,
     _touch: Rvt50Touch,
-    theme: Theme,
-    buttons: Vec<Btn, MAX_BUTTONS>,
+    buttons: Vec<NonNull<lvgl_sys::lv_obj_t>, MAX_BUTTONS>,
+    btn_style: &'static mut Style,
+    btn_active_style: &'static mut Style,
 }
 
 impl HallUi {
     /// Initialize LVGL drivers and build the hall UI from `touch_config`.
-    pub fn build(framebuffer: *mut u16, on_press: PressHandler, on_release: ReleaseHandler) -> LvResult<Self> {
+    pub fn build(framebuffer: *mut u16, on_press: PressHandler, on_release: ReleaseHandler) -> lvgl::LvResult<Self> {
         let display = Rvt50Display::register(framebuffer)?;
         let touch = Rvt50Touch::register(&display.inner)?;
 
         let theme = Theme::new();
-        let mut buttons = Vec::new();
+        let mut buttons: Vec<NonNull<lvgl_sys::lv_obj_t>, MAX_BUTTONS> = Vec::new();
+
         let mut screen = display.inner.get_scr_act()?;
-        theme.apply_screen(&mut screen)?;
+        screen.add_style(Part::Main, theme::leak(&theme.screen_bg));
 
         build_header(&mut screen, &theme)?;
         build_summary(&mut screen, &theme)?;
@@ -90,11 +92,15 @@ impl HallUi {
         }
         build_group_card(&mut screen, &theme, on_press, on_release, &mut buttons)?;
 
+        // Persist one inactive / one active style for `set_button_active` to
+        // swap between via `lvgl_sys`. The per-button styles attached during
+        // build are independent leaked clones owned by LVGL.
         Ok(Self {
             _display: display,
             _touch: touch,
-            theme,
             buttons,
+            btn_style: theme::leak(&theme.btn),
+            btn_active_style: theme::leak(&theme.btn_active),
         })
     }
 
@@ -105,89 +111,92 @@ impl HallUi {
 
     /// Mark a button as active/inactive based on CAN minp feedback.
     pub fn set_button_active(&mut self, index: usize, active: bool) {
-        if let Some(btn) = self.buttons.get_mut(index) {
-            let style = if active {
-                &mut self.theme.btn_active
-            } else {
-                &mut self.theme.btn
-            };
-            let _ = btn.add_style(Part::Main, style);
+        let Some(btn_ptr) = self.buttons.get(index).copied() else {
+            return;
+        };
+        let style: *mut lvgl_sys::lv_style_t = if active {
+            &mut *self.btn_active_style as *mut Style as *mut _
+        } else {
+            &mut *self.btn_style as *mut Style as *mut _
+        };
+        // SAFETY: `btn_ptr` is a non-null `lv_obj_t*` produced by
+        // `lv_btn_create` during `build` and still owned by LVGL's widget
+        // tree; `style` points at a leaked `Style` that lives for `'static`.
+        // Both calls are the standard LVGL pattern for swapping a style at
+        // runtime and are safe under LVGL's single-threaded model.
+        unsafe {
+            lvgl_sys::lv_obj_remove_style(
+                btn_ptr.as_ptr(),
+                core::ptr::null_mut(),
+                lvgl_sys::LV_PART_MAIN as lvgl_sys::lv_style_selector_t,
+            );
+            lvgl_sys::lv_obj_add_style(
+                btn_ptr.as_ptr(),
+                style,
+                lvgl_sys::LV_PART_MAIN as lvgl_sys::lv_style_selector_t,
+            );
         }
     }
 
-    /// Advance the LVGL tick by `ms` milliseconds and run the timer handler.
-    /// Call once per UI iteration (~5 ms in `lvgl_touch_can`).
+    /// Advance LVGL by `ms` and run the timer handler. Call once per frame
+    /// (~5 ms in `lvgl_touch_can`).
     pub fn tick_and_run(&self, ms: u64) {
         lvgl::tick_inc(Duration::from_millis(ms));
         lvgl::task_handler();
     }
 }
 
-/// Allocate a generic [`Obj`] as a child of `parent`.
-///
-/// `lv_binding_rust` 0.6 does not yet expose a safe `Obj::create(parent)`
-/// constructor (only `Obj::default()` which creates without a parent), so this
-/// is the single place we drop into `lvgl_sys` from the UI builder.
-fn obj_create(parent: &mut impl NativeObject) -> LvResult<Obj> {
-    // SAFETY: `parent.raw()?` returns a non-null pointer to an initialised
-    // `lv_obj_t`. `lv_obj_create` only reads it to attach a fresh child.
-    unsafe {
-        let ptr = lvgl_sys::lv_obj_create(parent.raw()?.as_mut());
-        NonNull::new(ptr).map(Obj::from_raw).ok_or(LvError::InvalidReference)
-    }
+/// Set the text of a label from a Rust `&str`. `lv_label_set_text` copies the
+/// string into a label-owned buffer, so the temporary [`CString`] is allowed
+/// to drop after this call.
+fn set_label_text<'a>(label: &mut Label<'a>, text: &str) -> lvgl::LvResult<()> {
+    let cstring = CString::new(text).map_err(|_| lvgl::LvError::InvalidReference)?;
+    label.set_text(cstring.as_c_str());
+    Ok(())
 }
 
-/// Set the text of a label from a Rust `&str`.
-///
-/// `lv_label_set_text` copies the string into a label-owned buffer, so the
-/// temporary [`CString`] is allowed to drop after this call.
-fn set_label_text(label: &mut Label, text: &str) -> LvResult<()> {
-    let cstring = CString::new(text).map_err(|_| LvError::InvalidReference)?;
-    label.set_text(cstring.as_c_str())
-}
-
-fn build_header(screen: &mut Obj, theme: &Theme) -> LvResult<()> {
-    let mut header = obj_create(screen)?;
-    header.set_size(touch_config::DISPLAY_WIDTH as i16, 44)?;
-    header.set_pos(0, 0)?;
-    header.add_style(Part::Main, &mut theme.header.clone())?;
+fn build_header<'a>(screen: &'a mut impl NativeObject, theme: &Theme) -> lvgl::LvResult<()> {
+    let mut header = Obj::create(screen)?;
+    header.set_size(touch_config::DISPLAY_WIDTH as i16, 44);
+    header.set_pos(0, 0);
+    header.add_style(Part::Main, theme::leak(&theme.header));
 
     let mut label = Label::create(&mut header)?;
-    theme.label_text(&mut label)?;
+    label.add_style(Part::Main, theme::leak(&theme.text));
     set_label_text(&mut label, HALL_NAME)?;
-    label.set_pos(12, 12)?;
+    label.set_pos(12, 12);
     Ok(())
 }
 
-fn build_summary(screen: &mut Obj, theme: &Theme) -> LvResult<()> {
+fn build_summary<'a>(screen: &'a mut impl NativeObject, theme: &Theme) -> lvgl::LvResult<()> {
     let mut label = Label::create(screen)?;
-    theme.label_muted(&mut label)?;
+    label.add_style(Part::Main, theme::leak(&theme.muted));
     set_label_text(&mut label, SUMMARY_READY)?;
-    label.set_align(Align::TopMid, 0, 50)?;
+    label.set_align(Align::TopMid, 0, 50);
     Ok(())
 }
 
-fn build_field_card(
-    screen: &mut Obj,
+fn build_field_card<'a>(
+    screen: &'a mut impl NativeObject,
     theme: &Theme,
     field: &FieldLayout,
     on_press: PressHandler,
     on_release: ReleaseHandler,
-    buttons: &mut Vec<Btn, MAX_BUTTONS>,
-) -> LvResult<()> {
-    let mut card = obj_create(screen)?;
-    card.add_style(Part::Main, &mut theme.card.clone())?;
-    card.set_pos(field.x as i16, field.y as i16)?;
-    card.set_size(field.w as i16, field.h as i16)?;
+    buttons: &mut Vec<NonNull<lvgl_sys::lv_obj_t>, MAX_BUTTONS>,
+) -> lvgl::LvResult<()> {
+    let mut card = Obj::create(screen)?;
+    card.add_style(Part::Main, theme::leak(&theme.card));
+    card.set_pos(field.x as i16, field.y as i16);
+    card.set_size(field.w as i16, field.h as i16);
 
     let mut eyebrow = Label::create(&mut card)?;
-    theme.label_muted(&mut eyebrow)?;
+    eyebrow.add_style(Part::Main, theme::leak(&theme.muted));
     set_label_text(&mut eyebrow, field.eyebrow)?;
 
     let mut title = Label::create(&mut card)?;
-    theme.label_text(&mut title)?;
+    title.add_style(Part::Main, theme::leak(&theme.text));
     set_label_text(&mut title, field.label)?;
-    title.set_pos(0, 14)?;
+    title.set_pos(0, 14);
 
     let row = ButtonRow::for_field(field.w, field.h);
     add_lux_buttons(
@@ -205,25 +214,25 @@ fn build_field_card(
     )
 }
 
-fn build_group_card(
-    screen: &mut Obj,
+fn build_group_card<'a>(
+    screen: &'a mut impl NativeObject,
     theme: &Theme,
     on_press: PressHandler,
     on_release: ReleaseHandler,
-    buttons: &mut Vec<Btn, MAX_BUTTONS>,
-) -> LvResult<()> {
+    buttons: &mut Vec<NonNull<lvgl_sys::lv_obj_t>, MAX_BUTTONS>,
+) -> lvgl::LvResult<()> {
     let margin = 8i16;
     let card_h = (touch_config::DISPLAY_HEIGHT / 10).max(56) as i16;
     let card_y = touch_config::DISPLAY_HEIGHT as i16 - card_h - margin;
     let card_w = touch_config::DISPLAY_WIDTH as i16 - 2 * margin;
 
-    let mut card = obj_create(screen)?;
-    card.add_style(Part::Main, &mut theme.card.clone())?;
-    card.set_pos(margin, card_y)?;
-    card.set_size(card_w, card_h)?;
+    let mut card = Obj::create(screen)?;
+    card.add_style(Part::Main, theme::leak(&theme.card));
+    card.set_pos(margin, card_y);
+    card.set_size(card_w, card_h);
 
     let mut eyebrow = Label::create(&mut card)?;
-    theme.label_muted(&mut eyebrow)?;
+    eyebrow.add_style(Part::Main, theme::leak(&theme.muted));
     set_label_text(&mut eyebrow, GROUP_EYEBROW)?;
 
     let row = ButtonRow::for_group(card_w, card_h);
@@ -242,7 +251,6 @@ fn build_group_card(
     )
 }
 
-/// Tag describing one of the four label shapes used by the hall UI buttons.
 #[derive(Clone, Copy)]
 enum LuxLabel {
     Lux(u16),
@@ -252,8 +260,7 @@ enum LuxLabel {
 }
 
 impl LuxLabel {
-    fn render(self, out: &mut heapless::String<32>) {
-        use core::fmt::Write as _;
+    fn render(self, out: &mut String<32>) {
         let _ = match self {
             LuxLabel::Lux(v) => write!(out, "{v} {LUX_SUFFIX}"),
             LuxLabel::AllLux(v) => write!(out, "{ALL_PREFIX} {v} {LUX_SUFFIX}"),
@@ -263,15 +270,15 @@ impl LuxLabel {
     }
 }
 
-fn add_lux_buttons(
-    card: &mut Obj,
+fn add_lux_buttons<'a>(
+    card: &'a mut impl NativeObject,
     theme: &Theme,
     row: &ButtonRow,
     spec: &[(LuxLabel, u8); 3],
     on_press: PressHandler,
     on_release: ReleaseHandler,
-    buttons: &mut Vec<Btn, MAX_BUTTONS>,
-) -> LvResult<()> {
+    buttons: &mut Vec<NonNull<lvgl_sys::lv_obj_t>, MAX_BUTTONS>,
+) -> lvgl::LvResult<()> {
     for (col, (label, button_index)) in spec.iter().enumerate() {
         add_lux_button(
             card,
@@ -290,8 +297,8 @@ fn add_lux_buttons(
     Ok(())
 }
 
-fn add_lux_button(
-    parent: &mut Obj,
+fn add_lux_button<'a>(
+    parent: &'a mut impl NativeObject,
     theme: &Theme,
     label: LuxLabel,
     button_index: u8,
@@ -301,19 +308,20 @@ fn add_lux_button(
     h: i16,
     on_press: PressHandler,
     on_release: ReleaseHandler,
-    buttons: &mut Vec<Btn, MAX_BUTTONS>,
-) -> LvResult<()> {
+    buttons: &mut Vec<NonNull<lvgl_sys::lv_obj_t>, MAX_BUTTONS>,
+) -> lvgl::LvResult<()> {
     let mut button = Btn::create(parent)?;
-    button.set_pos(x, y)?;
-    button.set_size(w, h)?;
-    button.add_style(Part::Main, &mut theme.btn.clone())?;
+    let raw_btn = button.raw();
+    button.set_pos(x, y);
+    button.set_size(w, h);
+    button.add_style(Part::Main, theme::leak(&theme.btn));
 
     let mut text_label = Label::create(&mut button)?;
-    theme.label_text(&mut text_label)?;
-    let mut text = heapless::String::<32>::new();
+    text_label.add_style(Part::Main, theme::leak(&theme.text));
+    let mut text = String::<32>::new();
     label.render(&mut text);
     set_label_text(&mut text_label, &text)?;
-    text_label.set_align(Align::Center, 0, 0)?;
+    text_label.set_align(Align::Center, 0, 0);
 
     button.on_event(move |_btn, event| match event {
         Event::Pressed => on_press(button_index),
@@ -321,6 +329,6 @@ fn add_lux_button(
         _ => {}
     })?;
 
-    buttons.push(button).map_err(|_| LvError::LvOOMemory)?;
+    let _ = buttons.push(raw_btn);
     Ok(())
 }

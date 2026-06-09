@@ -1,8 +1,17 @@
-//! Shared LVGL styles for the hall lighting UI.
+//! Shared LVGL style palette for the hall lighting UI.
+//!
+//! On master `add_style(part, style: &'a mut Style)` borrows the style for the
+//! widget's whole lifetime. Since our widgets live in a `'static` `HallUi`,
+//! the styles attached to them must be `&'static mut Style` and unique per
+//! attachment site. We expose templates here and the UI code calls
+//! [`leak`] to mint a fresh `&'static mut` clone for each widget that needs it.
 
+extern crate alloc;
+
+use alloc::boxed::Box;
+
+use lvgl::Color;
 use lvgl::style::Style;
-use lvgl::{Color, LvResult, Part, Widget};
-use lvgl::widgets::Label;
 
 pub struct Theme {
     pub card: Style,
@@ -11,6 +20,7 @@ pub struct Theme {
     pub btn_active: Style,
     pub text: Style,
     pub muted: Style,
+    pub screen_bg: Style,
 }
 
 impl Theme {
@@ -44,6 +54,9 @@ impl Theme {
         let mut muted = Style::default();
         muted.set_text_color(Color::from_rgb((0x90, 0xA0, 0xB0)));
 
+        let mut screen_bg = Style::default();
+        screen_bg.set_bg_color(Color::from_rgb((0x10, 0x18, 0x28)));
+
         Self {
             card,
             header,
@@ -51,22 +64,14 @@ impl Theme {
             btn_active,
             text,
             muted,
+            screen_bg,
         }
     }
+}
 
-    pub fn apply_screen(&self, screen: &mut lvgl::Obj) -> LvResult<()> {
-        let mut bg = Style::default();
-        bg.set_bg_color(Color::from_rgb((0x10, 0x18, 0x28)));
-        screen.add_style(Part::Main, &mut bg)
-    }
-
-    pub fn label_text(&self, label: &mut Label) -> LvResult<()> {
-        let mut style = self.text.clone();
-        label.add_style(Part::Main, &mut style)
-    }
-
-    pub fn label_muted(&self, label: &mut Label) -> LvResult<()> {
-        let mut style = self.muted.clone();
-        label.add_style(Part::Main, &mut style)
-    }
+/// Box-and-leak a clone so `Style` lives for `'static`. Each attachment site
+/// needs its own copy because `add_style` takes `&'a mut Style` (a unique
+/// borrow that lasts for the widget's lifetime).
+pub fn leak(template: &Style) -> &'static mut Style {
+    Box::leak(Box::new(template.clone()))
 }

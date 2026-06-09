@@ -1,18 +1,16 @@
 //! RGB565 LTDC framebuffer display driver for LVGL.
 //!
-//! Mirrors the flush logic of the C
-//! [Riverdi LVGL port](https://github.com/riverdi/riverdi-50-stm32u5-lvgl)
-//! (`disp_flush_cb` in `lvgl-port/port.c`) using the safe
-//! [`Display::register`](lvgl::Display::register) API from
-//! [lv_binding_rust](https://github.com/lvgl/lv_binding_rust): a partial draw
-//! buffer is rendered into and copied into the panel framebuffer one rectangle
-//! at a time.
+//! Wraps [`lvgl::Display::register`] from the vendored
+//! [`lv_binding_rust`](https://github.com/lvgl/lv_binding_rust) master under
+//! `vendor/lv_binding_rust/`. The flush callback walks the LVGL partial draw
+//! buffer once per refresh and copies pixels into the panel framebuffer in
+//! the same layout LTDC scans out.
 
 use lvgl::{Color, Display, DisplayRefresh, DrawBuffer, LvResult, init};
 
 use crate::touch_config;
 
-/// Partial buffer height in scanlines (Riverdi uses `width * 10`).
+/// Partial buffer height in scanlines (Riverdi C port uses `width * 10`).
 const DRAW_LINES: usize = 10;
 const DRAW_BUF_PIXELS: usize = touch_config::DISPLAY_WIDTH as usize * DRAW_LINES;
 
@@ -25,12 +23,12 @@ impl Rvt50Display {
     pub fn register(framebuffer: *mut u16) -> LvResult<Self> {
         init();
 
-        let width = touch_config::DISPLAY_WIDTH;
-        let height = touch_config::DISPLAY_HEIGHT;
+        let width = u32::from(touch_config::DISPLAY_WIDTH);
+        let height = u32::from(touch_config::DISPLAY_HEIGHT);
         let buffer = DrawBuffer::<DRAW_BUF_PIXELS>::default();
 
-        let display = Display::register(buffer, width.into(), height.into(), move |refresh| {
-            flush_rgb565(framebuffer, width, refresh);
+        let display = Display::register(buffer, width, height, move |refresh| {
+            flush_rgb565(framebuffer, touch_config::DISPLAY_WIDTH, refresh);
         })?;
 
         Ok(Self { inner: display })
@@ -46,20 +44,18 @@ fn flush_rgb565(fb: *mut u16, fb_width: u16, refresh: &DisplayRefresh<DRAW_BUF_P
         let x = area.x1 as usize + i % line_width;
         let y = area.y1 as usize + i / line_width;
         let idx = y * fb_width as usize + x;
-        // SAFETY: `fb` points to a `[u16; DISPLAY_WIDTH * DISPLAY_HEIGHT]`
-        // framebuffer owned by the LTDC task; LVGL's flush area is clipped to
-        // those bounds so `idx < DISPLAY_WIDTH * DISPLAY_HEIGHT`.
+        // SAFETY: `fb` is a `[u16; DISPLAY_WIDTH * DISPLAY_HEIGHT]` framebuffer
+        // owned by the LTDC task; LVGL's flush area stays inside those bounds.
         unsafe {
             fb.add(idx).write(rgb565(*color));
         }
     }
 }
 
-/// Pack an LVGL [`Color`] into the RGB565 word expected by the LTDC framebuffer.
+/// Pack an LVGL [`Color`] into the RGB565 word LTDC scans out.
 ///
-/// Matches `lv_color16_t.full` (LV_COLOR_DEPTH=16, LV_COLOR_16_SWAP=0):
-/// red is stored in the high 5 bits, green in the middle 6 bits, blue in the
-/// low 5 bits. Avoids reading `lv_color_t` as a C union.
+/// Matches `lv_color16_t.full` (LV_COLOR_DEPTH=16, LV_COLOR_16_SWAP=0) without
+/// reading the C union: red in the high 5 bits, green 6, blue 5.
 #[inline]
 fn rgb565(color: Color) -> u16 {
     let r = u16::from(color.r()) & 0x1F;
