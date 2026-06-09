@@ -1,6 +1,6 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
 # Riverdi RVT50HQSNWC00-B uses STM32U5A9NJH6Q
-runner = "probe-rs run --chip STM32U5A9NJH6Q --preverify"
+runner = "probe-rs run --chip STM32U5A9NJHxQ --preverify"
 
 [build]
 target = "thumbv8m.main-none-eabihf"
