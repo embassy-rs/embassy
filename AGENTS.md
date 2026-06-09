@@ -39,3 +39,8 @@ Install once on a fresh VM (system package + cargo binaries):
 
 - Format all Rust: `./fmtall.sh` (uses nightly rustfmt).
 - CI rustfmt check: `.github/ci/rustfmt.sh` (requires nightly toolchain file swap).
+- Local rustfmt check without mutating `rust-toolchain.toml`: `rustfmt +nightly-2025-12-11 --check --skip-children --unstable-features --edition 2024` on `.rs` files (channel from `rust-toolchain-nightly.toml`).
+
+### cargo-embassy-devtool
+
+- `cargo embassy-devtool check [CRATE]` takes a crate name (e.g. `embassy-std-examples`), not `--manifest-path`.
