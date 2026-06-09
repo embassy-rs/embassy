@@ -6,7 +6,7 @@
 //! Transmits classic CAN frames on `PB9` and prints any received frames on `PB8`.
 //! Connect a second CAN node or USB-CAN adapter to the P5 header for loopback testing.
 
-use defmt::{error, info};
+use defmt::info;
 use embassy_executor::Spawner;
 use embassy_rvt50hqsnwc00_b_examples::rvt50_board::{self, CAN_BITRATE};
 use embassy_stm32::can;
@@ -32,9 +32,7 @@ async fn main(_spawner: Spawner) -> ! {
     loop {
         let frame = can::frame::Frame::new_standard(0x123, &[seq, seq.wrapping_add(1), 0xAA, 0x55]).unwrap();
         info!("TX id=0x123 data={:x}", seq);
-        if can.write(&frame).await.is_none() {
-            error!("TX failed");
-        }
+        _ = can.write(&frame).await;
 
         if let Ok(envelope) = can.read().await {
             let (rx_frame, _) = envelope.parts();
