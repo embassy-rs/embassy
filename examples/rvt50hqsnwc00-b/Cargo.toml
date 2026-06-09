@@ -7,6 +7,9 @@ publish = false
 
 description = "Examples for Riverdi RVT50HQSNWC00-B board with STM32U5A9NJH6Q"
 
+[build-dependencies]
+cc = "1.2"
+
 [dependencies]
 # RVT50HQSNWC00-B uses STM32U5A9NJH6Q with 4MB Flash, 2.5MB RAM
 embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = ["defmt", "unstable-pac", "stm32u5a9nj", "time-driver-any", "memory-x", "exti"] }
@@ -15,6 +18,7 @@ embassy-executor = { version = "0.10.0", path = "../../embassy-executor", featur
 embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
 
+# Display and graphics
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
 
@@ -23,12 +27,19 @@ cortex-m-rt = "0.7.0"
 embedded-hal = "0.2.6"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 heapless = { version = "0.9", default-features = false }
-embedded-graphics = { version = "0.8.1" }
-tinybmp = { version = "0.6.0" }
 
-micromath = "2.0.0"
+# Optional LVGL dependencies (lvgl-sys builds the C library; port.c provides drivers)
+lvgl-sys = { version = "0.6.2", optional = true }
 
 [features]
+default = []
+# Capacitive touch panel (RVT50HQSNWC00 and similar variants)
+touch = []
+# Enable LVGL support (requires lv_conf.h via DEP_LV_CONFIG_PATH)
+lvgl = ["dep:lvgl-sys"]
+# Convenience alias for the touch demo binary
+lvgl-touch = ["lvgl", "touch"]
+
 ## Use secure registers when TrustZone is enabled
 trustzone-secure = ["embassy-stm32/trustzone-secure"]
 
