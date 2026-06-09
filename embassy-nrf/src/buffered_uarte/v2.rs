@@ -77,7 +77,6 @@ pub struct InterruptHandler<U: UarteInstance> {
 
 impl<U: UarteInstance> interrupt::typelevel::Handler<U::Interrupt> for InterruptHandler<U> {
     unsafe fn on_interrupt() {
-        info!("irq: start");
         let r = U::regs();
         let ss = U::state();
         let s = U::buffered_state();
