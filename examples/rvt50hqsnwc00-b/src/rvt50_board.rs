@@ -1,21 +1,28 @@
-//! Board support for Riverdi RVT50HQSNWC00-B (STM32U5A9NJH6Q).
+//! Board support for Riverdi STM32 embedded 5" displays (STM32U5A9NJH6Q).
 //!
-//! LTDC timing, polarities, and pin assignments are taken from the official
+//! Default configuration matches [RVT50HQSNWN00](https://download.riverdi.com/RVT50HQSNWN00/DS_RVT50HQSNWN00_Rev.1.1.pdf):
+//! 800×480 RGB565 panel, no touch panel.
+//!
+//! LTDC timing, polarities, and pin assignments follow the official
 //! [LVGL Riverdi STM32U5 port](https://github.com/lvgl/lv_port_riverdi_stm32u5).
 
 use defmt::info;
 use embassy_stm32::gpio::{Level, Output, Speed};
-use embassy_stm32::i2c::{self, Config as I2cConfig, I2c};
 use embassy_stm32::ltdc::{self, Ltdc, LtdcConfiguration, PolarityActive, PolarityEdge};
-use embassy_stm32::mode::Blocking;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{bind_interrupts, peripherals, Config, Peripherals, rcc};
 use embassy_time::{Duration, Timer};
 
+#[cfg(feature = "touch")]
+use embassy_stm32::i2c::{self, Config as I2cConfig, I2c};
+#[cfg(feature = "touch")]
+use embassy_stm32::mode::Blocking;
+
 pub const DISPLAY_WIDTH: usize = 800;
 pub const DISPLAY_HEIGHT: usize = 480;
 
-/// Capacitive touch controller on I2C1 (7-bit address).
+/// Capacitive touch controller on I2C1 (7-bit address), touch-panel variants only.
+#[cfg(feature = "touch")]
 pub const TOUCH_I2C_ADDR: u8 = 0x41;
 
 bind_interrupts!(pub struct Irqs {
@@ -79,17 +86,22 @@ pub fn ltdc_configuration() -> LtdcConfiguration {
     }
 }
 
+#[cfg(feature = "touch")]
 pub struct DisplayResources {
     pub ltdc: Ltdc<'static, peripherals::LTDC, ltdc::Rgb565>,
-    pub led: embassy_stm32::Peri<'static, peripherals::PD2>,
     pub i2c: I2c<'static, Blocking, i2c::Master>,
 }
 
-/// Initialize LTDC, panel reset/backlight, and touch I2C.
+#[cfg(not(feature = "touch"))]
+pub struct DisplayResources {
+    pub ltdc: Ltdc<'static, peripherals::LTDC, ltdc::Rgb565>,
+}
+
+/// Initialize LTDC, panel reset/backlight, and optionally touch I2C.
 pub async fn init_display(p: Peripherals) -> DisplayResources {
+    #[cfg(feature = "touch")]
     let Peripherals {
         LTDC,
-        PD2,
         PD3,
         PE0,
         PD13,
@@ -116,6 +128,34 @@ pub async fn init_display(p: Peripherals) -> DisplayResources {
         PG13,
         PG14,
         I2C1,
+        ..
+    } = p;
+
+    #[cfg(not(feature = "touch"))]
+    let Peripherals {
+        LTDC,
+        PD3,
+        PE0,
+        PD13,
+        PF11,
+        PD15,
+        PD0,
+        PD1,
+        PE7,
+        PE8,
+        PE9,
+        PE10,
+        PE11,
+        PE12,
+        PE13,
+        PE14,
+        PD8,
+        PD9,
+        PD10,
+        PD11,
+        PD12,
+        PH7,
+        PB14,
         ..
     } = p;
 
@@ -157,20 +197,27 @@ pub async fn init_display(p: Peripherals) -> DisplayResources {
 
     ltdc.init(&ltdc_configuration());
 
-    // Touch controller reset (PE3 / CTP_RST)
-    let mut touch_reset = Output::new(PE3, Level::Low, Speed::Low);
-    touch_reset.set_high();
-    Timer::after(Duration::from_millis(10)).await;
-    touch_reset.set_low();
-    Timer::after(Duration::from_millis(10)).await;
-    touch_reset.set_high();
-    Timer::after(Duration::from_millis(10)).await;
+    #[cfg(feature = "touch")]
+    {
+        // Touch controller reset (PE3 / CTP_RST)
+        let mut touch_reset = Output::new(PE3, Level::Low, Speed::Low);
+        touch_reset.set_high();
+        Timer::after(Duration::from_millis(10)).await;
+        touch_reset.set_low();
+        Timer::after(Duration::from_millis(10)).await;
+        touch_reset.set_high();
+        Timer::after(Duration::from_millis(10)).await;
 
-    let i2c = I2c::new_blocking(I2C1, PG14, PG13, I2cConfig::default());
+        let i2c = I2c::new_blocking(I2C1, PG14, PG13, I2cConfig::default());
+        info!("LTDC and touch I2C initialized");
+        return DisplayResources { ltdc, i2c };
+    }
 
-    info!("LTDC and touch I2C initialized");
-
-    DisplayResources { ltdc, led: PD2, i2c }
+    #[cfg(not(feature = "touch"))]
+    {
+        info!("LTDC initialized");
+        DisplayResources { ltdc }
+    }
 }
 
 #[derive(Clone, Copy, Default)]
@@ -181,6 +228,7 @@ pub struct TouchPoint {
 }
 
 /// Read touch coordinates (FT5x06-style protocol from lv_port_riverdi_stm32u5).
+#[cfg(feature = "touch")]
 pub fn read_touch(i2c: &mut I2c<'static, Blocking, i2c::Master>) -> TouchPoint {
     let mut data = [0u8; 16];
     match i2c.blocking_write_read(TOUCH_I2C_ADDR, &[0x10], &mut data) {

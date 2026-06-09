@@ -20,7 +20,6 @@ use core::fmt::Write;
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
 use embassy_rvt50hqsnwc00_b_examples::rvt50_board::{self, DISPLAY_HEIGHT, DISPLAY_WIDTH};
-use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::ltdc::{self, Ltdc, LtdcLayer, LtdcLayerConfig};
 use embassy_stm32::peripherals;
 use embassy_time::{Duration, Timer};
@@ -162,38 +161,19 @@ async fn display_task(
     }
 }
 
-/// LED blink task for visual feedback
-#[embassy_executor::task]
-async fn led_task(mut led: Output<'static>) {
-    let mut counter = 0;
-    loop {
-        led.set_low();
-        Timer::after(Duration::from_millis(50)).await;
-        led.set_high();
-        Timer::after(Duration::from_millis(450)).await;
-        info!("LED blink: {}", counter);
-        counter += 1;
-    }
-}
-
 #[embassy_executor::main]
 async fn main(spawner: Spawner) -> ! {
-    info!("Riverdi RVT50HQSNWC00-B - Simple Display Demo");
+    info!("Riverdi RVT50HQSNWN00 - Simple Display Demo");
 
     let p = rvt50_board::init_clocks();
     rvt50_board::enable_icache();
 
-    let rvt50_board::DisplayResources { ltdc, led, i2c: _ } = rvt50_board::init_display(p).await;
+    let rvt50_board::DisplayResources { ltdc } = rvt50_board::init_display(p).await;
 
-    let led = Output::new(led, Level::High, Speed::Low);
-
-    // Spawn tasks
-    spawner.spawn(unwrap!(led_task(led)));
     spawner.spawn(unwrap!(display_task(ltdc)));
 
     info!("Tasks spawned, entering idle loop");
 
-    // Main loop - just idle
     loop {
         Timer::after(Duration::from_secs(1)).await;
     }

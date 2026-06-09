@@ -6,8 +6,8 @@ fn main() {
     println!("cargo:rustc-link-arg-bins=-Tlink.x");
     println!("cargo:rustc-link-arg-bins=-Tdefmt.x");
     println!("cargo:rerun-if-changed=lvgl/lv_conf.h");
-    println!("cargo:rerun-if-changed=lvgl/port.c");
-    println!("cargo:rerun-if-changed=lvgl/port.h");
+    println!("cargo:rerun-if-changed=lvgl-port/port.c");
+    println!("cargo:rerun-if-changed=lvgl-port/port.h");
 
     if env::var("CARGO_FEATURE_LVGL").is_ok() {
         compile_lvgl_port();
@@ -16,11 +16,13 @@ fn main() {
 
 fn compile_lvgl_port() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    let port_dir = manifest_dir.join("lvgl-port");
     let lv_config_dir = manifest_dir.join("lvgl");
     let vendor = lvgl_sys_vendor_dir().join("vendor");
 
     cc::Build::new()
-        .file(lv_config_dir.join("port.c"))
+        .file(port_dir.join("port.c"))
+        .include(&port_dir)
         .include(&lv_config_dir)
         .include(vendor.join("lvgl").join("src"))
         .include(&vendor)

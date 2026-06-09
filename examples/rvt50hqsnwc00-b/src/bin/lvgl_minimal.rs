@@ -15,7 +15,6 @@
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
 use embassy_rvt50hqsnwc00_b_examples::rvt50_board::{self, DISPLAY_HEIGHT, DISPLAY_WIDTH};
-use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::ltdc::{self, Ltdc, LtdcLayer, LtdcLayerConfig};
 use embassy_stm32::peripherals;
 use embassy_time::{Duration, Timer};
@@ -29,14 +28,12 @@ mod fb_demo {
     use super::*;
 
     pub async fn run(spawner: Spawner) -> ! {
-        info!("Riverdi RVT50HQSNWC00-B - framebuffer minimal demo");
+        info!("Riverdi RVT50HQSNWN00 - framebuffer minimal demo");
 
         let p = rvt50_board::init_clocks();
         rvt50_board::enable_icache();
-        let rvt50_board::DisplayResources { ltdc, led, i2c: _ } = rvt50_board::init_display(p).await;
+        let rvt50_board::DisplayResources { ltdc } = rvt50_board::init_display(p).await;
 
-        let led = Output::new(led, Level::High, Speed::Low);
-        spawner.spawn(unwrap!(super::led_task(led)));
         spawner.spawn(unwrap!(display_task(ltdc)));
 
         idle_loop().await
@@ -159,30 +156,24 @@ mod lvgl_ui {
 
     unsafe extern "C" {
         fn rvt50_lvgl_init(framebuffer: *mut u16, width: u16, height: u16);
-        fn rvt50_lvgl_set_touch(x: u16, y: u16, pressed: bool);
         fn rvt50_lvgl_tick(ms: c_uint);
         fn rvt50_lvgl_handler();
     }
 
     pub async fn run(spawner: Spawner) -> ! {
-        info!("Riverdi RVT50HQSNWC00-B - LVGL minimal demo");
+        info!("Riverdi RVT50HQSNWN00 - LVGL minimal demo");
 
         let p = rvt50_board::init_clocks();
         rvt50_board::enable_icache();
-        let rvt50_board::DisplayResources { ltdc, led, i2c } = rvt50_board::init_display(p).await;
+        let rvt50_board::DisplayResources { ltdc } = rvt50_board::init_display(p).await;
 
-        let led = Output::new(led, Level::High, Speed::Low);
-        spawner.spawn(unwrap!(super::led_task(led)));
-        spawner.spawn(unwrap!(lvgl_task(ltdc, i2c)));
+        spawner.spawn(unwrap!(lvgl_task(ltdc)));
 
         idle_loop().await
     }
 
     #[embassy_executor::task]
-    async fn lvgl_task(
-        mut ltdc: Ltdc<'static, peripherals::LTDC, ltdc::Rgb565>,
-        mut i2c: embassy_stm32::i2c::I2c<'static, embassy_stm32::mode::Blocking, embassy_stm32::i2c::Master>,
-    ) {
+    async fn lvgl_task(mut ltdc: Ltdc<'static, peripherals::LTDC, ltdc::Rgb565>) {
         info!("Starting LVGL task");
 
         let layer_config = LtdcLayerConfig {
@@ -205,9 +196,7 @@ mod lvgl_ui {
             .unwrap();
 
         loop {
-            let touch = rvt50_board::read_touch(&mut i2c);
             unsafe {
-                rvt50_lvgl_set_touch(touch.x, touch.y, touch.pressed);
                 rvt50_lvgl_tick(5);
                 rvt50_lvgl_handler();
             }
@@ -224,19 +213,6 @@ mod lvgl_ui {
 async fn idle_loop() -> ! {
     loop {
         Timer::after(Duration::from_secs(1)).await;
-    }
-}
-
-#[embassy_executor::task]
-async fn led_task(mut led: Output<'static>) {
-    let mut counter = 0;
-    loop {
-        led.set_low();
-        Timer::after(Duration::from_millis(50)).await;
-        led.set_high();
-        Timer::after(Duration::from_millis(450)).await;
-        info!("LED blink: {}", counter);
-        counter += 1;
     }
 }
 

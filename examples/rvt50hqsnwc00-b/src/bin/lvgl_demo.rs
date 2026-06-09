@@ -2,7 +2,7 @@
 #![no_main]
 #![allow(static_mut_refs)]
 
-/// Display demo for Riverdi RVT50HQSNWC00-B, aligned with
+/// Display demo for Riverdi RVT50HQSNWN00, aligned with
 /// [lv_port_riverdi_stm32u5](https://github.com/lvgl/lv_port_riverdi_stm32u5).
 ///
 /// Uses correct panel timing, LTDC polarities, touch I2C, and a widget-style
@@ -16,7 +16,6 @@ use core::fmt::Write;
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
 use embassy_rvt50hqsnwc00_b_examples::rvt50_board::{self, TouchPoint, DISPLAY_HEIGHT, DISPLAY_WIDTH};
-use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::ltdc::{LtdcLayer, LtdcLayerConfig};
 use embassy_stm32::ltdc::{self, Ltdc};
 use embassy_stm32::peripherals;
@@ -158,14 +157,18 @@ fn draw_demo_ui(buffer: &mut [u16], width: usize, frame: u32, touch: TouchPoint)
         draw_text(buffer, width, 32, 380, pos.as_str(), Rgb565::GREEN);
         draw_touch_crosshair(buffer, width, touch);
     } else {
-        draw_text(buffer, width, 32, 380, "Touch the screen...", Rgb565::GRAY);
+        draw_text(buffer, width, 32, 380, "No touch panel", Rgb565::GRAY);
     }
 }
 
 #[embassy_executor::task]
 async fn demo_task(
     mut ltdc: Ltdc<'static, peripherals::LTDC, ltdc::Rgb565>,
-    mut i2c: embassy_stm32::i2c::I2c<'static, embassy_stm32::mode::Blocking, embassy_stm32::i2c::Master>,
+    #[cfg(feature = "touch")] mut i2c: embassy_stm32::i2c::I2c<
+        'static,
+        embassy_stm32::mode::Blocking,
+        embassy_stm32::i2c::Master,
+    >,
 ) {
     info!("Starting Riverdi display demo");
 
@@ -186,7 +189,10 @@ async fn demo_task(
     let mut frame = 0u32;
     let mut use_fb1 = true;
     loop {
+        #[cfg(feature = "touch")]
         let touch = rvt50_board::read_touch(&mut i2c);
+        #[cfg(not(feature = "touch"))]
+        let touch = TouchPoint::default();
 
         let buffer = if use_fb1 {
             unsafe { FB1.as_mut_ptr() }
@@ -215,33 +221,23 @@ async fn demo_task(
     }
 }
 
-#[embassy_executor::task]
-async fn led_task(mut led: Output<'static>) {
-    let mut counter = 0;
-    loop {
-        led.set_low();
-        Timer::after(Duration::from_millis(50)).await;
-        led.set_high();
-        Timer::after(Duration::from_millis(450)).await;
-        info!("LED: {}", counter);
-        counter += 1;
-    }
-}
-
 #[embassy_executor::main]
 async fn main(spawner: Spawner) -> ! {
-    info!("Riverdi RVT50HQSNWC00-B Display Demo");
+    info!("Riverdi RVT50HQSNWN00 Display Demo");
     info!("Based on lv_port_riverdi_stm32u5 hardware config");
 
     let p = rvt50_board::init_clocks();
     rvt50_board::enable_icache();
 
-    let rvt50_board::DisplayResources { ltdc, led, i2c } = rvt50_board::init_display(p).await;
+    #[cfg(feature = "touch")]
+    let rvt50_board::DisplayResources { ltdc, i2c } = rvt50_board::init_display(p).await;
+    #[cfg(not(feature = "touch"))]
+    let rvt50_board::DisplayResources { ltdc } = rvt50_board::init_display(p).await;
 
-    let led = Output::new(led, Level::High, Speed::Low);
-
-    spawner.spawn(unwrap!(led_task(led)));
+    #[cfg(feature = "touch")]
     spawner.spawn(unwrap!(demo_task(ltdc, i2c)));
+    #[cfg(not(feature = "touch"))]
+    spawner.spawn(unwrap!(demo_task(ltdc)));
 
     loop {
         Timer::after(Duration::from_secs(1)).await;

@@ -33,8 +33,12 @@ lvgl-sys = { version = "0.6.2", optional = true }
 
 [features]
 default = []
+# Capacitive touch panel (RVT50HQSNWC00 and similar variants)
+touch = []
 # Enable LVGL support (requires lv_conf.h via DEP_LV_CONFIG_PATH)
 lvgl = ["dep:lvgl-sys"]
+# Convenience alias for the touch demo binary
+lvgl-touch = ["lvgl", "touch"]
 
 ## Use secure registers when TrustZone is enabled
 trustzone-secure = ["embassy-stm32/trustzone-secure"]
