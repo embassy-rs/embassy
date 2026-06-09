@@ -29,7 +29,7 @@ cty = "0.2.2"
 
 [build-dependencies]
 cc = "1.0.79"
-bindgen = "0.65.1"
+bindgen = "0.72.1"
 
 [features]
 use-vendored-config = []
