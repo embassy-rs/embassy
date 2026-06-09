@@ -1,14 +1,16 @@
 //! Capacitive touch input for LVGL pointer device.
 //!
-//! Follows the `g_touch_data` + `touch_read_cb` pattern from `lvgl-port/port.c` and
-//! [lv_binding_rust](https://github.com/lvgl/lv_binding_rust) pointer drivers.
+//! Built on top of the safe [`Pointer::register`](lvgl::input_device::pointer::Pointer)
+//! handler from [lv_binding_rust](https://github.com/lvgl/lv_binding_rust). Touch
+//! coordinates are produced by the board I2C driver and stored in atomics so the
+//! handler closure can read them without locks.
 
 use core::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 
-use lvgl::input_device::pointer::Pointer;
-use lvgl::input_device::InputDriver;
-use lvgl::Display;
-use lvgl_sys;
+use embedded_graphics::geometry::Point;
+use lvgl::input_device::pointer::{Pointer, PointerInputData};
+use lvgl::input_device::{BufferStatus, InputDriver};
+use lvgl::{Display, LvResult};
 
 static TOUCH_X: AtomicU16 = AtomicU16::new(0);
 static TOUCH_Y: AtomicU16 = AtomicU16::new(0);
@@ -21,28 +23,25 @@ pub fn set_touch(x: u16, y: u16, pressed: bool) {
     TOUCH_PRESSED.store(pressed, Ordering::Relaxed);
 }
 
+fn read_touch() -> BufferStatus {
+    let x = TOUCH_X.load(Ordering::Relaxed) as i32;
+    let y = TOUCH_Y.load(Ordering::Relaxed) as i32;
+    let data = PointerInputData::Touch(Point::new(x, y));
+    if TOUCH_PRESSED.load(Ordering::Relaxed) {
+        data.pressed().once()
+    } else {
+        data.released().once()
+    }
+}
+
+/// LVGL pointer input device backed by the static touch state above.
 pub struct Rvt50Touch {
     pub inner: Pointer,
 }
 
 impl Rvt50Touch {
-    pub fn register(display: &Display) -> lvgl::LvResult<Self> {
-        let pointer = unsafe { Pointer::new_raw(Some(touch_read_cb), None, display)? };
-        Ok(Self { inner: pointer })
-    }
-}
-
-unsafe extern "C" fn touch_read_cb(
-    _drv: *mut lvgl_sys::lv_indev_drv_t,
-    data: *mut lvgl_sys::lv_indev_data_t,
-) {
-    unsafe {
-        (*data).point.x = TOUCH_X.load(Ordering::Relaxed) as lvgl_sys::lv_coord_t;
-        (*data).point.y = TOUCH_Y.load(Ordering::Relaxed) as lvgl_sys::lv_coord_t;
-        (*data).state = if TOUCH_PRESSED.load(Ordering::Relaxed) {
-            lvgl_sys::lv_indev_state_t_LV_INDEV_STATE_PRESSED
-        } else {
-            lvgl_sys::lv_indev_state_t_LV_INDEV_STATE_RELEASED
-        };
+    pub fn register(display: &Display) -> LvResult<Self> {
+        let inner = Pointer::register(read_touch, display)?;
+        Ok(Self { inner })
     }
 }

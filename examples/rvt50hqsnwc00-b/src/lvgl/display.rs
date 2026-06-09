@@ -1,10 +1,14 @@
 //! RGB565 LTDC framebuffer display driver for LVGL.
 //!
-//! Flush logic matches [Riverdi's LVGL port](https://github.com/riverdi/riverdi-50-stm32u5-lvgl)
-//! (`disp_flush_cb` in `lvgl-port/port.c`): partial draw buffer, `lv_color.full` → framebuffer.
+//! Mirrors the flush logic of the C
+//! [Riverdi LVGL port](https://github.com/riverdi/riverdi-50-stm32u5-lvgl)
+//! (`disp_flush_cb` in `lvgl-port/port.c`) using the safe
+//! [`Display::register`](lvgl::Display::register) API from
+//! [lv_binding_rust](https://github.com/lvgl/lv_binding_rust): a partial draw
+//! buffer is rendered into and copied into the panel framebuffer one rectangle
+//! at a time.
 
-use lvgl::{init, Color, Display, DisplayRefresh, DrawBuffer, LvResult};
-use lvgl_sys;
+use lvgl::{Color, Display, DisplayRefresh, DrawBuffer, LvResult, init};
 
 use crate::touch_config;
 
@@ -42,15 +46,24 @@ fn flush_rgb565(fb: *mut u16, fb_width: u16, refresh: &DisplayRefresh<DRAW_BUF_P
         let x = area.x1 as usize + i % line_width;
         let y = area.y1 as usize + i / line_width;
         let idx = y * fb_width as usize + x;
-        let pixel = color_to_rgb565(*color);
+        // SAFETY: `fb` points to a `[u16; DISPLAY_WIDTH * DISPLAY_HEIGHT]`
+        // framebuffer owned by the LTDC task; LVGL's flush area is clipped to
+        // those bounds so `idx < DISPLAY_WIDTH * DISPLAY_HEIGHT`.
         unsafe {
-            fb.add(idx).write(pixel);
+            fb.add(idx).write(rgb565(*color));
         }
     }
 }
 
+/// Pack an LVGL [`Color`] into the RGB565 word expected by the LTDC framebuffer.
+///
+/// Matches `lv_color16_t.full` (LV_COLOR_DEPTH=16, LV_COLOR_16_SWAP=0):
+/// red is stored in the high 5 bits, green in the middle 6 bits, blue in the
+/// low 5 bits. Avoids reading `lv_color_t` as a C union.
 #[inline]
-fn color_to_rgb565(color: Color) -> u16 {
-    let raw: lvgl_sys::lv_color_t = color.into();
-    unsafe { raw.full }
+fn rgb565(color: Color) -> u16 {
+    let r = u16::from(color.r()) & 0x1F;
+    let g = u16::from(color.g()) & 0x3F;
+    let b = u16::from(color.b()) & 0x1F;
+    (r << 11) | (g << 5) | b
 }
