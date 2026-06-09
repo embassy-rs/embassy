@@ -1,0 +1,7 @@
+[build.env]
+passthrough = ["DEP_LV_CONFIG_PATH", "LVGL_INCLUDE", "LVGL_LINK"]
+
+# See https://github.com/rafaelcaricio/lvgl-rs/issues/78 for more details on
+# the current status of `Cross` support.
+# https://github.com/rafaelcaricio/lvgl-rs/issues/53 contains a way to get
+# lvgl-rs building on armv7-unknown-linux-gnueabihf

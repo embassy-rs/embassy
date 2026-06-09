@@ -1,0 +1,7 @@
+# ====================
+#  Graphical settings
+# ====================
+[graphical]
+# Maximal horizontal and vertical resolution to support by the library.
+hor_res_max=480
+ver_res_max=320
