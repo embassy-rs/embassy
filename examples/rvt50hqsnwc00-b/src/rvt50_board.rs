@@ -10,7 +10,7 @@
 
 use defmt::info;
 use embassy_stm32::exti::{self, ExtiInput};
-use embassy_stm32::gpio::{Level, Output, Pin, Pull, Speed};
+use embassy_stm32::gpio::{Input, Level, Output, Pin, Pull, Speed};
 use embassy_stm32::interrupt;
 use embassy_stm32::ltdc::{self, Ltdc, LtdcConfiguration, PolarityActive, PolarityEdge};
 use embassy_stm32::time::Hertz;
@@ -29,8 +29,34 @@ pub const DISPLAY_HEIGHT: usize = 480;
 /// Nominal CAN bitrate for the on-board TJA1441 transceiver (P5).
 pub const CAN_BITRATE: u32 = 500_000;
 
-/// Standard CAN ID used for user-button press counter frames.
-pub const CAN_BUTTON_FRAME_ID: u16 = 0x123;
+/// Standard CAN ID for the periodic demo pattern transmitted by `can_raw`.
+pub const CAN_PATTERN_TX_ID: u16 = 0x123;
+
+/// Standard CAN ID for LED state frames received by `can_raw`.
+///
+/// Payload: byte 0 bit 0 — `1` = LED on, `0` = LED off.
+pub const CAN_LED_STATE_RX_ID: u16 = 0x124;
+
+/// Interval between pattern frames in `can_raw`.
+pub const CAN_PATTERN_INTERVAL_MS: u64 = 500;
+
+/// Build the 8-byte demo pattern: signature bytes plus a rotating walk bit.
+pub fn can_pattern_payload(seq: u8) -> [u8; 8] {
+    [seq, 0xDE, 0xAD, 0xBE, 0xEF, 0x55, 0xAA, 1 << (seq % 8)]
+}
+
+/// Extract the standard CAN ID from a received frame, if present.
+pub fn can_frame_standard_id(frame: &can::frame::Frame) -> Option<u16> {
+    match frame.header().id() {
+        embedded_can::Id::Standard(id) => Some(id.as_raw()),
+        _ => None,
+    }
+}
+
+/// Parse LED on/off from a `CAN_LED_STATE_RX_ID` payload.
+pub fn can_led_state_from_payload(data: &[u8]) -> Option<bool> {
+    data.first().map(|byte| byte & 1 != 0)
+}
 
 /// Capacitive touch controller on I2C1 (7-bit address), touch-panel variants only.
 #[cfg(feature = "touch")]
@@ -66,6 +92,21 @@ pub mod pins {
     pub const BACKLIGHT_PWM: &str = "PB14"; // TIM15_CH1
 
     // --- User I/O ---
+    //
+    // `PH3` is shared with the MCU boot strap `BOOT0` (user button S1 on the board).
+    // By default the STM32U5 samples the boot mode from the PH3 pin at reset.
+    //
+    // To use PH3 reliably as GPIO or EXTI (instead of as a live boot strap), program
+    // the user option byte `nSWBOOT0` in `FLASH->OPTR` to **0** once per device:
+    //
+    // 1. **Set `nSWBOOT0 = 0`** — BOOT0 is taken from the `nBOOT0` option bit, not PH3.
+    // 2. **Set `nBOOT0` as needed** — typically `0` to keep booting from internal flash.
+    // 3. **Launch option bytes** — e.g. via STM32CubeProgrammer (*OB* tab) or
+    //    `HAL_FLASH_OB_Launch()` after programming.
+    //
+    // After that, the PH3 pad is no longer wired to the boot loader path and can be
+    // configured as a normal GPIO input (as in `init_user_button_input()` /
+    // `init_user_button()`). See the README section *User button (PH3 / BOOT0)*.
     pub const USER_BUTTON: &str = "PH3"; // BOOT0
     pub const USER_LED: &str = "PE5";
 
@@ -188,6 +229,16 @@ pub fn ltdc_configuration() -> LtdcConfiguration {
 pub fn enable_can_transceiver(stb: Peri<'static, impl Pin>) {
     let mut stb = Output::new(stb, Level::High, Speed::Low);
     stb.set_low();
+}
+
+/// User push button on `PH3` / `BOOT0` as plain GPIO input (active high).
+///
+/// Uses `Pull::None` because the board already provides a BOOT0 pull-down.
+/// Until `nSWBOOT0` is programmed to `0` (see [`pins::USER_BUTTON`] docs), PH3
+/// remains a boot strap sampled at reset; `Input::new` still reconfigures the pad
+/// as a digital input at runtime.
+pub fn init_user_button_input(pin: Peri<'static, peripherals::PH3>) -> Input<'static> {
+    Input::new(pin, Pull::None)
 }
 
 /// User push button on `PH3` / `BOOT0` (active high, EXTI on rising edge).
