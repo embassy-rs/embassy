@@ -31,6 +31,26 @@ pub struct Config {
     pub apb3_pre: APBPrescaler,
 }
 
+impl Config {
+    pub const fn new() -> Self {
+        Self {
+            hsi: false,
+            hsi_div3: true,
+            sys: Sysclk::Hsidiv3,
+            ahb_pre: AHBPrescaler::_RESERVED_0, // TODO: This is all Div1
+            apb1_pre: APBPrescaler::_RESERVED_0,
+            apb2_pre: APBPrescaler::_RESERVED_0,
+            apb3_pre: APBPrescaler::_RESERVED_0,
+        }
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub(crate) unsafe fn init(config: Config) {
     RCC.cr().modify(|w| {
         w.set_hsison(config.hsi);
