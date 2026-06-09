@@ -88,8 +88,12 @@ cargo run --features lvgl --bin lvgl_demo
 
 - `lvgl_touch_can.rs` - JSON-driven hall lighting UI with CAN press/hold/repeat
   - Project configs in `touch-projects/SporthalleLudwigsfelde/`
-  - UI via [lv_binding_rust](https://github.com/lvgl/lv_binding_rust) in `src/lvgl/` (display, touch, theme, hall UI)
-  - Board patterns from [riverdi-50-stm32u5-lvgl](https://github.com/riverdi/riverdi-50-stm32u5-lvgl); legacy C port in `lvgl-port/` for older demos only
+  - UI via [lv_binding_rust](https://github.com/lvgl/lv_binding_rust) in `src/lvgl/`:
+    - `display.rs` - safe `Display::register` wrapper, RGB565 framebuffer flush
+    - `input.rs` - safe `Pointer::register` wrapper backed by atomic touch state
+    - `theme.rs` - shared LVGL `Style`s (cards, header, buttons)
+    - `hall_ui.rs` - `HallUi` widget tree built from `touch_config` (`tick_and_run`, `set_touch`, `set_button_active`)
+  - Board patterns from [riverdi-50-stm32u5-lvgl](https://github.com/riverdi/riverdi-50-stm32u5-lvgl); legacy C port in `lvgl-port/` is only used by `lvgl_touch.rs` / `lvgl_demo.rs`
   - One-hot TX on CAN ID `0x200`, `minp` feedback on `0x285`
   - Requires `arm-none-eabi-gcc` and picolibc headers for bindgen (`lvgl-sys` builds LVGL as C)
   - Recommended build wrapper (sets bindgen + cross CC):
