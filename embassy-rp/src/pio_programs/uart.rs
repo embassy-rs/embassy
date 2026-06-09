@@ -11,6 +11,7 @@ use crate::gpio::Level;
 use crate::pio::{
     Common, Config, Direction as PioDirection, FifoJoin, Instance, LoadedProgram, PioPin, ShiftDirection, StateMachine,
 };
+use crate::pio_programs::clock_divider::calculate_pio_clock_divider;
 
 /// This struct represents a uart tx program loaded into pio instruction memory.
 pub struct PioUartTxProgram<'d, PIO: Instance> {
@@ -27,6 +28,7 @@ impl<'d, PIO: Instance> PioUartTxProgram<'d, PIO> {
                 ; An 8n1 UART transmit program.
                 ; OUT pin 0 and side-set pin 0 are both mapped to UART TX pin.
 
+                    nop        side 1 [7]  ; Stop bit/idle time
                     pull       side 1 [7]  ; Assert stop bit, or stall with line in idle state
                     set x, 7   side 0 [7]  ; Preload bit counter, assert start bit for 8 clocks
                 bitloop:                   ; This loop will run 8 times (8n1 UART)
@@ -66,7 +68,7 @@ impl<'d, PIO: Instance, const SM: usize> PioUartTx<'d, PIO, SM> {
         cfg.shift_out.auto_fill = false;
         cfg.shift_out.direction = ShiftDirection::Right;
         cfg.fifo_join = FifoJoin::TxOnly;
-        cfg.clock_divider = (clk_sys_freq() / (8 * baud)).to_fixed();
+        cfg.clock_divider = calculate_pio_clock_divider(8 * baud);
         sm_tx.set_config(&cfg);
         sm_tx.set_enable(true);
 
@@ -116,7 +118,7 @@ impl<'d, PIO: Instance> PioUartRxProgram<'d, PIO> {
                 rx_bitloop:             ; the first data bit (12 cycles incl wait, set).
                     in pins, 1          ; Shift data bit into ISR
                     jmp x-- rx_bitloop [6] ; Loop 8 times, each loop iteration is 8 cycles
-                    jmp pin good_rx_stop   ; Check stop bit (should be high)
+                    jmp pin good_rx_stop  ; Check stop bit (should be high)
 
                     irq 4 rel           ; Either a framing error or a break. Set a sticky flag,
                     wait 1 pin 0        ; and wait for line to return to idle state.
@@ -151,17 +153,18 @@ impl<'d, PIO: Instance, const SM: usize> PioUartRx<'d, PIO, SM> {
         let mut cfg = Config::default();
         cfg.use_program(&program.prg, &[]);
 
-        let rx_pin = common.make_pio_pin(rx_pin);
-        sm_rx.set_pins(Level::High, &[&rx_pin]);
+        let mut rx_pin = common.make_pio_pin(rx_pin);
+        rx_pin.set_pull(crate::gpio::Pull::Up);
         cfg.set_in_pins(&[&rx_pin]);
         cfg.set_jmp_pin(&rx_pin);
-        sm_rx.set_pin_dirs(PioDirection::In, &[&rx_pin]);
+        sm_rx.set_pins(Level::High, &[&rx_pin]);
 
-        cfg.clock_divider = (clk_sys_freq() / (8 * baud)).to_fixed();
+        cfg.clock_divider = calculate_pio_clock_divider(8 * baud);
         cfg.shift_in.auto_fill = false;
         cfg.shift_in.direction = ShiftDirection::Right;
         cfg.shift_in.threshold = 32;
         cfg.fifo_join = FifoJoin::RxOnly;
+        sm_rx.set_pin_dirs(PioDirection::In, &[&rx_pin]);
         sm_rx.set_config(&cfg);
         sm_rx.set_enable(true);
 
