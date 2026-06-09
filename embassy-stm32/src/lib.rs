@@ -44,7 +44,13 @@ pub mod mode {
     impl_mode!(Async);
 }
 
+#[cfg(stm32c5)]
+macro_rules! dma_channel_impl {
+    ($channel_peri:ident, $irq:ty) => {};
+}
+
 // Always-present hardware
+#[cfg(not(stm32c5))]
 pub mod dma;
 pub mod gpio;
 pub mod rcc;
@@ -64,7 +70,7 @@ pub mod backup_sram;
 pub mod can;
 #[cfg(any(comp_u5, comp_v1, comp_v2))]
 pub mod comp;
-#[cfg(cordic)]
+#[cfg(all(cordic, not(stm32c5)))]
 pub mod cordic;
 
 #[cfg(not(any(comp_u5, comp_v1, comp_v2)))]
@@ -114,11 +120,11 @@ pub mod dma2d;
 pub mod dsihost;
 #[cfg(dts)]
 pub mod dts;
-#[cfg(eth)]
+#[cfg(all(eth, not(stm32n6)))]
 pub mod eth;
-#[cfg(feature = "exti")]
+#[cfg(all(feature = "exti", not(stm32c5)))]
 pub mod exti;
-#[cfg(flash)]
+#[cfg(all(flash, not(stm32c5)))]
 pub mod flash;
 #[cfg(fmac)]
 pub mod fmac;
@@ -352,6 +358,7 @@ pub mod low_power {
     }
 }
 
+#[cfg(not(stm32c5))]
 use crate::interrupt::Priority;
 #[cfg(feature = "rt")]
 pub use crate::pac::NVIC_PRIO_BITS;
@@ -714,8 +721,17 @@ fn init_hw(config: Config) -> Peripherals {
             crate::pac::DBGMCU.cr().read();
         }
 
+        #[cfg(all(dbgmcu, stm32c5))]
+        let dcr = crate::pac::DBGMCU.dbgmcu_cr();
+
+        #[cfg(all(dbgmcu, not(stm32c5)))]
+        let dcr = crate::pac::DBGMCU.cr();
+
         #[cfg(dbgmcu)]
-        crate::pac::DBGMCU.cr().modify(|cr| {
+        dcr.modify(|cr| {
+            #[cfg(all(dbgmcu, stm32c5))]
+            let _ = cr;
+
             #[cfg(dbgmcu_h5)]
             {
                 cr.set_stop(config.enable_debug_during_sleep);
@@ -750,11 +766,14 @@ fn init_hw(config: Config) -> Peripherals {
         #[cfg(any(stm32h7rs))]
         // On the H7RS the SYSCFG should not be reset if it is already enabled. This is typically the case when running from external flash and the bootloader enables the SYSCFG.
         rcc::enable_with_cs::<peripherals::SYSCFG>(cs);
-        #[cfg(not(any(stm32f1, stm32wb, stm32wl, stm32h7rs)))]
+        #[cfg(not(any(stm32f1, stm32wb, stm32wl, stm32h7rs, stm32c5)))]
         rcc::enable_and_reset_with_cs::<peripherals::SYSCFG>(cs);
-        #[cfg(not(any(stm32h5, stm32h7, stm32h7rs, stm32wb, stm32wl)))]
+        #[cfg(not(any(stm32h5, stm32h7, stm32h7rs, stm32wb, stm32wl, stm32c5)))]
         rcc::enable_and_reset_with_cs::<peripherals::PWR>(cs);
-        #[cfg(all(flash, not(any(stm32f2, stm32f4, stm32f7, stm32l0, stm32h5, stm32h7, stm32h7rs))))]
+        #[cfg(all(
+            flash,
+            not(any(stm32f2, stm32f4, stm32f7, stm32l0, stm32h5, stm32h7, stm32h7rs, stm32c5))
+        ))]
         rcc::enable_and_reset_with_cs::<peripherals::FLASH>(cs);
 
         // Enable the VDDIO2 power supply on chips that have it.
@@ -908,6 +927,7 @@ fn init_hw(config: Config) -> Peripherals {
             #[cfg(stm32f1)]
             crate::pac::AFIO.mapr().modify(|w| w.set_swj_cfg(config.swj.into()));
 
+            #[cfg(not(stm32c5))]
             dma::init(
                 cs,
                 #[cfg(bdma)]
@@ -919,7 +939,7 @@ fn init_hw(config: Config) -> Peripherals {
                 #[cfg(mdma)]
                 config.mdma_interrupt_priority,
             );
-            #[cfg(feature = "exti")]
+            #[cfg(all(feature = "exti", not(stm32c5)))]
             exti::init(cs);
 
             rcc::init_rcc(cs, config.rcc);
@@ -929,7 +949,7 @@ fn init_hw(config: Config) -> Peripherals {
             hsem::init_hsem(cs);
 
             // must be after rcc init
-            #[cfg(feature = "_time-driver")]
+            #[cfg(all(feature = "_time-driver", not(stm32c5)))]
             crate::time_driver::init(cs);
 
             // must be after time-driver init
