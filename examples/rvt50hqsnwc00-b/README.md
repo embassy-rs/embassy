@@ -226,6 +226,38 @@ To integrate LVGL with the display:
    }
    ```
 
+## User button (PH3 / BOOT0)
+
+The **USR BTN** (S1) is wired to `PH3`, which is also the STM32U5 **BOOT0** boot-strap
+pin. Out of the factory, the MCU reads the boot mode from the PH3 pin level at reset.
+
+To use PH3 as a normal GPIO or EXTI input (user button, as in `gpio` / `can_raw`), the
+PH3 pad must be released from the boot-loader path by programming the user option bytes
+in flash **once per device**:
+
+| Step | Action |
+|------|--------|
+| 1 | Set **`nSWBOOT0 = 0`** in `FLASH->OPTR` (user option byte) |
+| 2 | BOOT0 is then taken from the internal **`nBOOT0`** option bit instead of PH3 |
+| 3 | Set **`nBOOT0`** as needed (typically `0` to boot from internal flash) |
+| 4 | Launch the new option bytes (power cycle or OB launch) |
+
+After `nSWBOOT0 = 0` is stored in `FLASH_OPTR`, the PH3 pad is no longer used as a
+hardware boot strap and can be declared as standard GPIO (e.g. in STM32CubeMX) or
+configured in firmware via `Input::new` / `ExtiInput::new`.
+
+**Programming with STM32CubeProgrammer**
+
+1. Connect SWD and open *STM32CubeProgrammer*.
+2. Go to **OB** (option bytes) for the connected STM32U5.
+3. Set **nSWBOOT0** to **0** (BOOT0 from option bit).
+4. Set **nBOOT0** to **0** if you want to keep booting from internal flash.
+5. Apply / launch option bytes and reset the board.
+
+Embassy examples do **not** modify option bytes at runtime; this is a one-time
+hardware configuration step. Until it is done, verify button behaviour with the
+`gpio` polling example before relying on EXTI in `can_raw`.
+
 ## Hardware Connections
 
 The RVT50HQSNWC00-B module typically connects to a host MCU via:
@@ -263,6 +295,15 @@ Make sure your probe is properly connected and the board is powered.
 2. Verify the display timing parameters match your panel specifications
 3. Ensure all RGB data lines are properly connected
 4. Check that the display enable (DE) and control signals are active
+
+### User button or EXTI not working (PH3)
+
+1. Run `cargo run --bin gpio` and check whether `initial=` / `count=` change on RTT when
+   pressing S1.
+2. If GPIO polling works but `can_raw` EXTI does not, check EXTI wiring (`EXTI3`) in code.
+3. If GPIO polling also fails, program **`nSWBOOT0 = 0`** in option bytes (see
+   [User button (PH3 / BOOT0)](#user-button-ph3--boot0)) so PH3 is no longer a boot strap.
+4. Do not hold the user button during reset — PH3 high at reset enters the system bootloader.
 
 ## Resources
 
