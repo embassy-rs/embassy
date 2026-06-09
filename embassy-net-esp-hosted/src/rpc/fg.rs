@@ -20,7 +20,7 @@ enum WifiMode {
 }
 
 macro_rules! exchange {
-    ($ctx:ident, $req_variant:ident, $req:expr) => {{
+    ($ctx:ident, $req_variant:ident, $resp_variant:ident, $req:expr) => {{
         let mut msg = CtrlMsg {
             msg_id: CtrlMsgId::$req_variant,
             msg_type: CtrlMsgType::Req,
@@ -33,7 +33,12 @@ macro_rules! exchange {
         $ctx.exchange(&mut msg).await?;
         debug!("ioctl resp: {:?}", msg);
 
-        msg
+        let Some(Payload::$resp_variant(resp)) = msg.payload else {
+            return Err(Error::Internal);
+        };
+        check_resp(resp.resp)?;
+
+        resp
     }};
 }
 
@@ -95,33 +100,23 @@ impl RpcBackend for FgBackend {
             enable: true,
             duration: secs as i32,
         };
-        let msg = exchange!(ctx, ReqConfigHeartbeat, req);
-        let Some(Payload::RespConfigHeartbeat(resp)) = msg.payload else {
-            return Err(Error::Internal);
-        };
-        check_resp(resp.resp)
+        exchange!(ctx, ReqConfigHeartbeat, RespConfigHeartbeat, req);
+        Ok(())
     }
 
     async fn set_sta_mode(&self, ctx: &mut IoctlCtx<'_>) -> Result<(), Error> {
         let req = CtrlMsg_Req_SetMode {
             mode: WifiMode::Sta as i32,
         };
-        let msg = exchange!(ctx, ReqSetWifiMode, req);
-        let Some(Payload::RespSetWifiMode(resp)) = msg.payload else {
-            return Err(Error::Internal);
-        };
-        check_resp(resp.resp)
+        exchange!(ctx, ReqSetWifiMode, RespSetWifiMode, req);
+        Ok(())
     }
 
     async fn get_mac_addr(&self, ctx: &mut IoctlCtx<'_>) -> Result<[u8; 6], Error> {
         let req = CtrlMsg_Req_GetMacAddress {
             mode: WifiMode::Sta as i32,
         };
-        let msg = exchange!(ctx, ReqGetMacAddress, req);
-        let Some(Payload::RespGetMacAddress(resp)) = msg.payload else {
-            return Err(Error::Internal);
-        };
-        check_resp(resp.resp)?;
+        let resp = exchange!(ctx, ReqGetMacAddress, RespGetMacAddress, req);
         let mac_str = core::str::from_utf8(&resp.mac).map_err(|_| Error::Internal)?;
         parse_mac(mac_str)
     }
@@ -137,29 +132,19 @@ impl RpcBackend for FgBackend {
             is_wpa3_supported: true,
             band_mode: WIFI_BAND_MODE_AUTO,
         };
-        let msg = exchange!(ctx, ReqConnectAp, req);
-        let Some(Payload::RespConnectAp(resp)) = msg.payload else {
-            return Err(Error::Internal);
-        };
-        check_resp(resp.resp)
+        exchange!(ctx, ReqConnectAp, RespConnectAp, req);
+        Ok(())
     }
 
     async fn disconnect_ap(&self, ctx: &mut IoctlCtx<'_>) -> Result<(), Error> {
         let req = CtrlMsg_Req_GetStatus {};
-        let msg = exchange!(ctx, ReqDisconnectAp, req);
-        let Some(Payload::RespDisconnectAp(resp)) = msg.payload else {
-            return Err(Error::Internal);
-        };
-        check_resp(resp.resp)
+        exchange!(ctx, ReqDisconnectAp, RespDisconnectAp, req);
+        Ok(())
     }
 
     async fn get_status(&self, ctx: &mut IoctlCtx<'_>) -> Result<Status, Error> {
         let req = CtrlMsg_Req_GetAPConfig {};
-        let msg = exchange!(ctx, ReqGetApConfig, req);
-        let Some(Payload::RespGetApConfig(resp)) = msg.payload else {
-            return Err(Error::Internal);
-        };
-        check_resp(resp.resp)?;
+        let resp = exchange!(ctx, ReqGetApConfig, RespGetApConfig, req);
         let ssid = core::str::from_utf8(&resp.ssid).map_err(|_| Error::Internal)?;
         let ssid = String::try_from(ssid.trim_end_matches('\0')).map_err(|_| Error::Internal)?;
         let bssid_str = core::str::from_utf8(&resp.bssid).map_err(|_| Error::Internal)?;
@@ -174,31 +159,22 @@ impl RpcBackend for FgBackend {
 
     async fn ota_begin(&self, ctx: &mut IoctlCtx<'_>) -> Result<(), Error> {
         let req = CtrlMsg_Req_OTABegin {};
-        let msg = exchange!(ctx, ReqOtaBegin, req);
-        let Some(Payload::RespOtaBegin(resp)) = msg.payload else {
-            return Err(Error::Internal);
-        };
-        check_resp(resp.resp)
+        exchange!(ctx, ReqOtaBegin, RespOtaBegin, req);
+        Ok(())
     }
 
     async fn ota_write(&self, ctx: &mut IoctlCtx<'_>, chunk: &[u8]) -> Result<(), Error> {
         let req = CtrlMsg_Req_OTAWrite {
             ota_data: heapless::Vec::from_slice(chunk).unwrap(),
         };
-        let msg = exchange!(ctx, ReqOtaWrite, req);
-        let Some(Payload::RespOtaWrite(resp)) = msg.payload else {
-            return Err(Error::Internal);
-        };
-        check_resp(resp.resp)
+        exchange!(ctx, ReqOtaWrite, RespOtaWrite, req);
+        Ok(())
     }
 
     async fn ota_end(&self, ctx: &mut IoctlCtx<'_>) -> Result<(), Error> {
         let req = CtrlMsg_Req_OTAEnd {};
-        let msg = exchange!(ctx, ReqOtaEnd, req);
-        let Some(Payload::RespOtaEnd(resp)) = msg.payload else {
-            return Err(Error::Internal);
-        };
-        check_resp(resp.resp)
+        exchange!(ctx, ReqOtaEnd, RespOtaEnd, req);
+        Ok(())
     }
 
     #[inline]
