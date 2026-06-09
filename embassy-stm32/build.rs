@@ -598,7 +598,10 @@ fn main() {
 
         g.extend(quote! { pub const MAX_ERASE_SIZE: usize = #max_erase_size as usize; });
 
-        g.extend(quote! { pub mod flash_regions { #flash_regions } });
+        g.extend(quote! {
+            #[cfg(not(stm32c5))]
+            pub mod flash_regions { #flash_regions }
+        });
     }
 
     // ========
@@ -1036,6 +1039,7 @@ fn main() {
     });
 
     let clocks_macro = quote!(
+        #[cfg(not(stm32c5))]
         macro_rules! set_clocks {
             ($($(#[$m:meta])* $k:ident: $v:expr,)*) => {
                 {
@@ -1725,6 +1729,10 @@ fn main() {
             });
         }
 
+        if regs.kind == "eth" && chip_name.starts_with("stm32n6") {
+            continue;
+        }
+
         for pin in p.pins {
             let mut key = (regs.kind, pin.signal);
 
@@ -2262,6 +2270,9 @@ fn main() {
                         return Ok(f.simplify());
                     }
                 }
+                if n.contains("Disabled") {
+                    return Ok(Frac { num: 1, denom: 0 });
+                }
                 Err(())
             }
 
@@ -2578,6 +2589,7 @@ fn main() {
     }
 
     g.extend(quote! {
+        #[cfg(not(stm32c5))]
         pub(crate) const DMA_CHANNELS: &[crate::dma::ChannelInfo] = &[#dmas];
     });
 

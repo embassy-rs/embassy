@@ -1,5 +1,6 @@
 #![macro_use]
 
+#[cfg(not(stm32c5))]
 macro_rules! peri_trait {
     (
         $(irqs: [$($irq:ident),*],)?
@@ -23,6 +24,7 @@ macro_rules! peri_trait {
     };
 }
 
+#[cfg(not(stm32c5))]
 macro_rules! peri_trait_impl {
     ($instance:ident, $info:expr) => {
         #[allow(private_interfaces)]
@@ -142,6 +144,7 @@ macro_rules! sel_trait_impl {
 
 // ====================
 
+#[cfg(not(stm32c5))]
 macro_rules! dma_trait {
     ($signal:ident, $instance:path$(, $mode:path)?) => {
         #[doc = concat!(stringify!($signal), " DMA request trait")]
@@ -212,6 +215,7 @@ macro_rules! new_dma_nonopt {
     }};
 }
 
+#[cfg(not(stm32c5))]
 macro_rules! new_dma {
     ($name:ident, $irqs:expr) => {{
         let dma = $name;

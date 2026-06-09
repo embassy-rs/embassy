@@ -15,6 +15,7 @@ pub use stm32_metapac::timer::vals::{Bkinp as BreakComparatorPolarity, Bkp as Br
 pub use stm32_metapac::timer::vals::{FilterValue, Mms as MasterMode, Sms as SlaveMode, Ts as TriggerSource};
 
 use super::*;
+#[cfg(not(stm32c5))]
 use crate::dma::{self, Transfer, WritableRingBuffer};
 use crate::pac::timer::vals;
 use crate::rcc;
@@ -956,6 +957,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
         return unwrap!(self.regs_gp32_unchecked().ccr(channel.index()).read().ccr().try_into());
     }
 
+    #[cfg(not(stm32c5))]
     pub(crate) fn clamp_compare_value<W: Word>(&mut self, channel: Channel) {
         self.set_compare_value(
             channel,
@@ -968,6 +970,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
         );
     }
 
+    #[cfg(not(stm32c5))]
     /// Setup a ring buffer for the channel
     pub fn setup_ring_buffer<'a, W: Word + Into<T::Word>, D: super::UpDma<T>>(
         &mut self,
@@ -1002,6 +1005,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
         }
     }
 
+    #[cfg(not(stm32c5))]
     /// Generate a sequence of PWM waveform
     ///
     /// Note:
@@ -1016,6 +1020,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
         self.setup_update_dma_inner(dma.request(), dma, irq, channel, duty)
     }
 
+    #[cfg(not(stm32c5))]
     /// Generate a sequence of PWM waveform
     ///
     /// Note:
@@ -1030,6 +1035,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
         self.setup_update_dma_inner(dma.request(), dma, irq, channel, duty)
     }
 
+    #[cfg(not(stm32c5))]
     fn setup_update_dma_inner<'a, W: Word + Into<T::Word>, D: dma::ChannelInstance>(
         &mut self,
         request: dma::Request,
@@ -1063,6 +1069,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
         }
     }
 
+    #[cfg(not(stm32c5))]
     /// Generate a multichannel sequence of PWM waveforms using DMA triggered by timer update events.
     ///
     /// This method utilizes the timer's DMA burst transfer capability to update multiple CCRx registers
