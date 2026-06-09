@@ -11,7 +11,9 @@ linker = "rust-lld"
 [env]
 DEFMT_LOG = "info"
 DEP_LV_CONFIG_PATH = { value = "lvgl", relative = true }
-"CC_thumbv8m.main-none-eabihf" = "/home/mkoeppchen/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-gcc"
+# Cross C compiler for lvgl-sys. BINDGEN_EXTRA_CLANG_ARGS is NOT set here —
+# it is machine-specific. Before LVGL builds run:
+#   source scripts/lvgl-env.sh
+"CC_thumbv8m.main-none-eabihf" = "arm-none-eabi-gcc"
 "CFLAGS_thumbv8m.main-none-eabihf" = "-mcpu=cortex-m33 -mthumb -mfloat-abi=hard -mfpu=fpv5-sp-d16"
-"AR_thumbv8m.main-none-eabihf" = "/home/mkoeppchen/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-ar"
-BINDGEN_EXTRA_CLANG_ARGS = "--target=thumbv8m.main-none-eabihf -mcpu=cortex-m33 -mthumb -I/home/mkoeppchen/.platformio/packages/toolchain-gccarmnoneeabi/arm-none-eabi/include -I/home/mkoeppchen/.platformio/packages/toolchain-gccarmnoneeabi/lib/gcc/arm-none-eabi/12.3.1/include"
+"AR_thumbv8m.main-none-eabihf" = "arm-none-eabi-ar"

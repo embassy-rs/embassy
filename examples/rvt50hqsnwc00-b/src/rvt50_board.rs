@@ -272,6 +272,17 @@ pub struct DisplayResources {
     pub i2c: I2c<'static, Blocking, i2c::Master>,
 }
 
+/// Display, touch, and CAN peripherals for the hall touch UI example.
+#[cfg(feature = "touch")]
+pub struct TouchCanResources {
+    pub ltdc: Ltdc<'static, peripherals::LTDC, ltdc::Rgb565>,
+    pub i2c: I2c<'static, Blocking, i2c::Master>,
+    pub fdcan: Peri<'static, peripherals::FDCAN1>,
+    pub can_rx_pin: Peri<'static, peripherals::PB8>,
+    pub can_tx_pin: Peri<'static, peripherals::PB9>,
+    pub can_stb: Peri<'static, peripherals::PI6>,
+}
+
 #[cfg(not(feature = "touch"))]
 pub struct DisplayResources {
     pub ltdc: Ltdc<'static, peripherals::LTDC, ltdc::Rgb565>,
@@ -402,6 +413,78 @@ pub async fn init_display(p: Peripherals) -> DisplayResources {
     {
         info!("LTDC initialized");
         DisplayResources { ltdc }
+    }
+}
+
+/// Initialize display, touch, and CAN for the hall touch UI example.
+#[cfg(feature = "touch")]
+pub async fn init_touch_can(p: Peripherals) -> TouchCanResources {
+    let Peripherals {
+        LTDC,
+        PD3,
+        PE0,
+        PD13,
+        PF11,
+        PD15,
+        PD0,
+        PD1,
+        PE7,
+        PE8,
+        PE9,
+        PE10,
+        PE11,
+        PE12,
+        PE13,
+        PE14,
+        PD8,
+        PD9,
+        PD10,
+        PD11,
+        PD12,
+        PH7,
+        PB14,
+        PE3,
+        PG13,
+        PG14,
+        I2C1,
+        FDCAN1,
+        PB8,
+        PB9,
+        PI6,
+        ..
+    } = p;
+
+    info!("Initializing LTDC (Riverdi RVT50 timing)...");
+
+    reset_panel(PH7).await;
+    init_backlight(PB14);
+
+    let mut ltdc = Ltdc::<_, ltdc::Rgb565>::new_with_pins(
+        LTDC,
+        Irqs,
+        PD3, PE0, PD13, PF11, PD15, PD0, PD1, PE7, PE8, PE9, PE10, PE11, PE12, PE13, PE14, PD8, PD9,
+        PD10, PD11, PD12,
+    );
+    ltdc.init(&ltdc_configuration());
+
+    let mut touch_reset = Output::new(PE3, Level::Low, Speed::Low);
+    touch_reset.set_high();
+    Timer::after(Duration::from_millis(10)).await;
+    touch_reset.set_low();
+    Timer::after(Duration::from_millis(10)).await;
+    touch_reset.set_high();
+    Timer::after(Duration::from_millis(10)).await;
+
+    let i2c = I2c::new_blocking(I2C1, PG14, PG13, I2cConfig::default());
+    info!("LTDC, touch I2C, and CAN pins initialized");
+
+    TouchCanResources {
+        ltdc,
+        i2c,
+        fdcan: FDCAN1,
+        can_rx_pin: PB8,
+        can_tx_pin: PB9,
+        can_stb: PI6,
     }
 }
 

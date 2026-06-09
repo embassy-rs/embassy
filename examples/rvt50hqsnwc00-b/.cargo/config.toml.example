@@ -1,0 +1,27 @@
+# Copy snippets into .cargo/config.toml if needed for your machine.
+# Prefer: source scripts/lvgl-env.sh  (auto-detects paths)
+
+[target.'cfg(all(target_arch = "arm", target_os = "none"))']
+runner = "probe-rs run --chip STM32U5A9NJHxQ --preverify"
+
+[build]
+target = "thumbv8m.main-none-eabihf"
+
+[target.thumbv8m.main-none-eabihf]
+linker = "rust-lld"
+
+[env]
+DEFMT_LOG = "info"
+DEP_LV_CONFIG_PATH = { value = "lvgl", relative = true }
+
+# Cross C compiler for lvgl-sys (use names on PATH, or absolute paths):
+"CC_thumbv8m.main-none-eabihf" = "arm-none-eabi-gcc"
+"AR_thumbv8m.main-none-eabihf" = "arm-none-eabi-ar"
+"CFLAGS_thumbv8m.main-none-eabihf" = "-mcpu=cortex-m33 -mthumb -mfloat-abi=hard -mfpu=fpv5-sp-d16"
+
+# PlatformIO toolchain example:
+# "CC_thumbv8m.main-none-eabihf" = "/home/USER/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-gcc"
+# "AR_thumbv8m.main-none-eabihf" = "/home/USER/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-ar"
+# BINDGEN_EXTRA_CLANG_ARGS = "--target=thumbv8m.main-none-eabihf -mcpu=cortex-m33 -mthumb -I/home/USER/.platformio/packages/toolchain-gccarmnoneeabi/arm-none-eabi/include -I/home/USER/.platformio/packages/toolchain-gccarmnoneeabi/lib/gcc/arm-none-eabi/12.3.1/include"
+
+# Or run: source scripts/lvgl-env.sh  (sets BINDGEN_EXTRA_CLANG_ARGS in your shell)

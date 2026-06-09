@@ -1,0 +1,64 @@
+{
+  "app_title": "Sporthallen Tableau",
+  "page_title_prefix": "Lichtsteuerung",
+  "hall_name": "Sporthalle Ludwigsfelde",
+  "ui": {
+    "off_label": "Aus",
+    "lux_suffix": "Lux",
+    "field_eyebrow": "Feld",
+    "tribune_eyebrow": "Halle",
+    "group_eyebrow": "Sammelbefehl",
+    "all_fields_heading": "Alle Felder",
+    "all_prefix": "Alle",
+    "central_off_label": "Zentral Aus",
+    "summary_all_fields_prefix": "Alle Felder auf",
+    "summary_single_control_active": "Einzelsteuerung aktiv",
+    "summary_ready": "Lichtsteuerung bereit"
+  },
+  "fields": [
+    {
+      "id": "tribune",
+      "name": "Tribüne",
+      "label": "Tribüne",
+      "eyebrow": "Bereich",
+      "left": 11,
+      "top": 14,
+      "width": 78,
+      "height": 22,
+      "default_lux": 300
+    },
+    {
+      "id": "left",
+      "name": "Feld Links",
+      "label": "Links",
+      "eyebrow": "Feld",
+      "left": 5,
+      "top": 52,
+      "width": 28,
+      "height": 34,
+      "default_lux": 300
+    },
+    {
+      "id": "middle",
+      "name": "Feld Mitte",
+      "label": "Mitte",
+      "eyebrow": "Feld",
+      "left": 36,
+      "top": 52,
+      "width": 28,
+      "height": 34,
+      "default_lux": 300
+    },
+    {
+      "id": "right",
+      "name": "Feld Rechts",
+      "label": "Rechts",
+      "eyebrow": "Feld",
+      "left": 67,
+      "top": 52,
+      "width": 28,
+      "height": 34,
+      "default_lux": 300
+    }
+  ]
+}
