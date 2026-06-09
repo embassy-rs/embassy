@@ -15,7 +15,32 @@ pub struct PioEncoderProgram<'a, PIO: Instance> {
 impl<'a, PIO: Instance> PioEncoderProgram<'a, PIO> {
     /// Load the program into the given pio
     pub fn new(common: &mut Common<'a, PIO>) -> Self {
-        let prg = pio::pio_asm!("wait 1 pin 1", "wait 0 pin 1", "in pins, 2", "push",);
+        let prg = pio::pio_asm!(
+            // reset count. if it was odd, we report a step
+            "complete:",
+            "mov y, isr",
+            "mov isr, null",
+            "jmp !y, invalid",
+            "in x 1", "push noblock",
+            "invalid:",
+
+            // loop while pins are [11] (home state). outputs x
+            "while_11:",
+            "mov osr, ~ pins", "out x, 2",
+            "jmp !x, while_11", // pins == [11]
+
+            // then, count how many [01] and [10] states come after that one
+            // (ignoring [00]) until we see [11] again
+            ".wrap_target",
+            "mov osr, ~ x", "out x, 2", // decide next state to search for
+            "until_x:",
+            "mov osr, ~ pins", "out y, 2",
+            "jmp !y, complete", // pins == [11]
+            "jmp x!=y until_x",
+            // if pins matched next state:
+            "mov isr, ~ isr", // count even/odd flag
+            ".wrap",
+        );
 
         let prg = common.load_program(&prg.program);
 
@@ -48,8 +73,8 @@ impl<'d, T: Instance, const SM: usize> PioEncoder<'d, T, SM> {
         cfg.fifo_join = FifoJoin::RxOnly;
         cfg.shift_in.direction = ShiftDirection::Left;
 
-        // Target 12.5 KHz PIO clock
-        cfg.clock_divider = calculate_pio_clock_divider(12_500);
+        // Target 12 MHz PIO clock
+        cfg.clock_divider = calculate_pio_clock_divider(12_000_000);
 
         cfg.use_program(&program.prg, &[]);
         sm.set_config(&cfg);
@@ -61,8 +86,8 @@ impl<'d, T: Instance, const SM: usize> PioEncoder<'d, T, SM> {
     pub async fn read(&mut self) -> Direction {
         loop {
             match self.sm.rx().wait_pull().await {
-                0 => return Direction::CounterClockwise,
-                1 => return Direction::Clockwise,
+                0 => return Direction::Clockwise,
+                1 => return Direction::CounterClockwise,
                 _ => {}
             }
         }
