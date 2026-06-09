@@ -86,6 +86,12 @@ cargo run --features lvgl --bin lvgl_demo
 - `lvgl_touch.rs` - LVGL with capacitive touch input
   - Run with: `cargo run --bin lvgl_touch --features lvgl,touch`
 
+- `lvgl_buttons.rs` - **Minimal "buttons on screen" demo** (a good starting point)
+  - Three coloured buttons (`A` / `B` / `C`) plus a status label, all built
+    end to end against the safe [lv_binding_rust](https://github.com/lvgl/lv_binding_rust)
+    API (vendored master under `vendor/lv_binding_rust/`).
+  - Run with: `cargo run --bin lvgl_buttons --features lvgl,touch`
+
 - `lvgl_touch_can.rs` - JSON-driven hall lighting UI with CAN press/hold/repeat
   - Project configs in `touch-projects/SporthalleLudwigsfelde/`
   - UI via [lv_binding_rust](https://github.com/lvgl/lv_binding_rust) in `src/lvgl/`:
@@ -95,27 +101,38 @@ cargo run --features lvgl --bin lvgl_demo
     - `hall_ui.rs` - `HallUi` widget tree built from `touch_config` (`tick_and_run`, `set_touch`, `set_button_active`)
   - Board patterns from [riverdi-50-stm32u5-lvgl](https://github.com/riverdi/riverdi-50-stm32u5-lvgl); legacy C port in `lvgl-port/` is only used by `lvgl_touch.rs` / `lvgl_demo.rs`
   - One-hot TX on CAN ID `0x200`, `minp` feedback on `0x285`
-  - Build:
-    ```bash
-    # Install GCC + libc headers (newlib OR picolibc):
-    sudo apt install gcc-arm-none-eabi libnewlib-dev      # Debian/Ubuntu
-    # sudo pacman -S arm-none-eabi-gcc arm-none-eabi-newlib   # Arch
-    # brew install --cask gcc-arm-embedded                    # macOS
 
-    # bash/zsh:
-    source scripts/lvgl-env.sh
-    # fish:
-    # source scripts/lvgl-env.fish
+### Building the LVGL examples
 
-    cargo run --bin lvgl_touch_can --features lvgl,touch
-    ```
-    The `lvgl-env` script queries `arm-none-eabi-gcc` for its include path and
-    exports `BINDGEN_EXTRA_CLANG_ARGS` (so `lvgl-sys`' bindgen can find
-    `<string.h>`). Works with Debian/Ubuntu apt, Arch, the ARM-provided GCC
-    tarball, PlatformIO, and Homebrew. Cross-compiler env (`CC` / `AR` /
-    `CFLAGS`) is set in `.cargo/config.toml`. For non-standard toolchains
-    override the env in your shell or pin a snippet from
-    `.cargo/config.toml.example` into your local `.cargo/config.toml`.
+Both `lvgl_buttons.rs` and `lvgl_touch_can.rs` build against the vendored
+`lv_binding_rust` master under `vendor/lv_binding_rust/`. We vendor master
+(rather than depend on the published `lvgl 0.6.2` from crates.io) because
+0.6.2 pins `bindgen 0.64`, which silently produces opaque LVGL structs when
+combined with `libclang ≥ 18` and modern newlib headers; master ships a
+newer bindgen and the API fixes that go with it.
+
+```bash
+# Install GCC + libc headers (newlib OR picolibc):
+sudo apt install gcc-arm-none-eabi libnewlib-dev      # Debian/Ubuntu
+# sudo pacman -S arm-none-eabi-gcc arm-none-eabi-newlib   # Arch
+# brew install --cask gcc-arm-embedded                    # macOS
+
+# bash/zsh:
+source scripts/lvgl-env.sh
+# fish:
+# source scripts/lvgl-env.fish
+
+cargo run --bin lvgl_buttons   --features lvgl,touch    # quick demo
+cargo run --bin lvgl_touch_can --features lvgl,touch    # full hall UI
+```
+
+The `lvgl-env` script queries `arm-none-eabi-gcc` for its libc include path
+and exports `BINDGEN_EXTRA_CLANG_ARGS` (so `lvgl-sys`' bindgen can find
+`<string.h>`). Works with Debian/Ubuntu apt, Arch, the ARM-provided GCC
+tarball, PlatformIO, and Homebrew. Cross-compiler env (`CC` / `AR` /
+`CFLAGS`) is set in `.cargo/config.toml`. To skip the script paste a
+snippet from `.cargo/config.toml.example` into your local
+`.cargo/config.toml`.
 
 ## Configuration
 
