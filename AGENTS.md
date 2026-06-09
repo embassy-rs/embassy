@@ -24,7 +24,7 @@ Install once on a fresh VM (system package + cargo binaries):
 | Task | Command | Notes |
 |------|---------|-------|
 | Host unit tests | Run `cargo test` lines from `.github/ci/test.sh` directly | **Do not** run `test.sh` as-is in Cloud: it sets `RUSTUP_HOME=/ci/cache/rustup` and will fail with permission errors. |
-| Std async demo | `cd examples/std && cargo run --bin tick` | Logs `tick` once per second; no TAP or probe-rs needed. |
+| Std async demo | `cd examples/std && cargo run --bin tick` | Logs `tick` once per second; no TAP or probe-rs needed. First cold build can take ~1–2 min; after `cargo build --bin tick`, `./target/debug/tick` is instant for re-runs. |
 | Std networking | `examples/std` `net` / `tcp_accept` / etc. | Requires `sudo sh tap.sh` to create `tap99` (see `examples/std/README.md`). |
 | Full compile check | `./ci.sh` or `cargo embassy-devtool check` | Checks all crates/examples; can take several minutes. Skips HIL without `TELEPROBE_TOKEN`. |
 
