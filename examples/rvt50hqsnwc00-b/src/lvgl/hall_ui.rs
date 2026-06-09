@@ -1,33 +1,69 @@
-//! JSON-driven hall lighting UI (widgets + CAN button callbacks).
+//! JSON-driven hall lighting UI on top of [lv_binding_rust](https://github.com/lvgl/lv_binding_rust).
 //!
-//! Built with [lv_binding_rust](https://github.com/lvgl/lv_binding_rust) on top of the
-//! Riverdi RVT50 display stack in `crate::lvgl::{display, input}`.
+//! Builds a screen with one card per field plus a group card; each card has
+//! three lux buttons (`500`, `300`, `OFF`/central-off) wired to the press/release
+//! callbacks supplied by the binary. The widget hierarchy is driven by the
+//! generated [`crate::touch_config`] tables so the UI matches the project
+//! JSON without any hand-maintained constants.
 
 extern crate alloc;
 
-use alloc::boxed::Box;
-use alloc::format;
 use core::ptr::NonNull;
+use core::time::Duration;
 
-use cstr_core::{CStr, CString};
+use cstr_core::CString;
 use heapless::Vec;
 use lvgl::widgets::{Btn, Label};
 use lvgl::{Align, Event, LvError, LvResult, NativeObject, Obj, Part, Widget};
-use lvgl_sys;
 
 use crate::lvgl::display::Rvt50Display;
 use crate::lvgl::input::{self, Rvt50Touch};
 use crate::lvgl::theme::Theme;
 use crate::touch_config::{
-    self, ALL_PREFIX, CENTRAL_OFF_LABEL, FIELDS, GROUP_BUTTON_BASE, GROUP_EYEBROW, HALL_NAME,
-    LUX_SUFFIX, OFF_LABEL, SUMMARY_READY,
+    self, ALL_PREFIX, CENTRAL_OFF_LABEL, FIELDS, FieldLayout, GROUP_BUTTON_BASE, GROUP_EYEBROW, HALL_NAME, LUX_SUFFIX,
+    OFF_LABEL, SUMMARY_READY,
 };
 
+/// Maximum number of buttons the UI can hold; covers any project we generate.
 const MAX_BUTTONS: usize = 64;
 
 pub type PressHandler = fn(u8);
 pub type ReleaseHandler = fn();
 
+/// Geometry of the row of three lux buttons inside a card.
+///
+/// Layout is `4 px` left margin + `4 px` gap between buttons, matching the
+/// values previously hard-coded in `build_field_card` / `build_group_card`.
+struct ButtonRow {
+    btn_w: i16,
+    btn_h: i16,
+    btn_y: i16,
+}
+
+impl ButtonRow {
+    /// Layout for a per-field card (`btn_h` switches at the 80 px height
+    /// breakpoint, matching the original UI).
+    fn for_field(card_w: u16, card_h: u16) -> Self {
+        let btn_h = if card_h > 80 { 36 } else { 32 };
+        let btn_w = ((card_w.saturating_sub(16)) / 3) as i16;
+        let btn_y = card_h.saturating_sub(btn_h as u16 + 12) as i16;
+        Self { btn_w, btn_h, btn_y }
+    }
+
+    /// Layout for the group card across the bottom of the screen.
+    fn for_group(card_w: i16, card_h: i16) -> Self {
+        let btn_h = card_h - 28;
+        let btn_w = (card_w - 24) / 3;
+        let btn_y = card_h - btn_h - 4;
+        Self { btn_w, btn_h, btn_y }
+    }
+
+    fn col_x(&self, col: i16) -> i16 {
+        4 + col * (self.btn_w + 4)
+    }
+}
+
+/// JSON-driven hall lighting UI.
 pub struct HallUi {
     _display: Rvt50Display,
     _touch: Rvt50Touch,
@@ -36,18 +72,13 @@ pub struct HallUi {
 }
 
 impl HallUi {
-    /// Init LVGL drivers and build the hall UI from `touch_config`.
-    pub fn build(
-        framebuffer: *mut u16,
-        on_press: PressHandler,
-        on_release: ReleaseHandler,
-    ) -> LvResult<Self> {
+    /// Initialize LVGL drivers and build the hall UI from `touch_config`.
+    pub fn build(framebuffer: *mut u16, on_press: PressHandler, on_release: ReleaseHandler) -> LvResult<Self> {
         let display = Rvt50Display::register(framebuffer)?;
         let touch = Rvt50Touch::register(&display.inner)?;
 
         let theme = Theme::new();
         let mut buttons = Vec::new();
-
         let mut screen = display.inner.get_scr_act()?;
         theme.apply_screen(&mut screen)?;
 
@@ -67,10 +98,12 @@ impl HallUi {
         })
     }
 
+    /// Forward a touch sample from the I2C driver into the LVGL pointer state.
     pub fn set_touch(&self, x: u16, y: u16, pressed: bool) {
         input::set_touch(x, y, pressed);
     }
 
+    /// Mark a button as active/inactive based on CAN minp feedback.
     pub fn set_button_active(&mut self, index: usize, active: bool) {
         if let Some(btn) = self.buttons.get_mut(index) {
             let style = if active {
@@ -78,24 +111,39 @@ impl HallUi {
             } else {
                 &mut self.theme.btn
             };
-            btn.add_style(Part::Main, style).ok();
+            let _ = btn.add_style(Part::Main, style);
         }
     }
-}
 
-fn obj_create(parent: &mut impl NativeObject) -> LvResult<Obj> {
-    unsafe {
-        let ptr = lvgl_sys::lv_obj_create(parent.raw()?.as_mut());
-        NonNull::new(ptr)
-            .map(Obj::from_raw)
-            .ok_or(LvError::InvalidReference)
+    /// Advance the LVGL tick by `ms` milliseconds and run the timer handler.
+    /// Call once per UI iteration (~5 ms in `lvgl_touch_can`).
+    pub fn tick_and_run(&self, ms: u64) {
+        lvgl::tick_inc(Duration::from_millis(ms));
+        lvgl::task_handler();
     }
 }
 
-fn leaked_label(text: &str) -> LvResult<&'static CStr> {
-    CString::new(text)
-        .map(|s| Box::leak(Box::new(s)).as_c_str())
-        .map_err(|_| LvError::InvalidReference)
+/// Allocate a generic [`Obj`] as a child of `parent`.
+///
+/// `lv_binding_rust` 0.6 does not yet expose a safe `Obj::create(parent)`
+/// constructor (only `Obj::default()` which creates without a parent), so this
+/// is the single place we drop into `lvgl_sys` from the UI builder.
+fn obj_create(parent: &mut impl NativeObject) -> LvResult<Obj> {
+    // SAFETY: `parent.raw()?` returns a non-null pointer to an initialised
+    // `lv_obj_t`. `lv_obj_create` only reads it to attach a fresh child.
+    unsafe {
+        let ptr = lvgl_sys::lv_obj_create(parent.raw()?.as_mut());
+        NonNull::new(ptr).map(Obj::from_raw).ok_or(LvError::InvalidReference)
+    }
+}
+
+/// Set the text of a label from a Rust `&str`.
+///
+/// `lv_label_set_text` copies the string into a label-owned buffer, so the
+/// temporary [`CString`] is allowed to drop after this call.
+fn set_label_text(label: &mut Label, text: &str) -> LvResult<()> {
+    let cstring = CString::new(text).map_err(|_| LvError::InvalidReference)?;
+    label.set_text(cstring.as_c_str())
 }
 
 fn build_header(screen: &mut Obj, theme: &Theme) -> LvResult<()> {
@@ -106,7 +154,7 @@ fn build_header(screen: &mut Obj, theme: &Theme) -> LvResult<()> {
 
     let mut label = Label::create(&mut header)?;
     theme.label_text(&mut label)?;
-    label.set_text(leaked_label(HALL_NAME)?)?;
+    set_label_text(&mut label, HALL_NAME)?;
     label.set_pos(12, 12)?;
     Ok(())
 }
@@ -114,7 +162,7 @@ fn build_header(screen: &mut Obj, theme: &Theme) -> LvResult<()> {
 fn build_summary(screen: &mut Obj, theme: &Theme) -> LvResult<()> {
     let mut label = Label::create(screen)?;
     theme.label_muted(&mut label)?;
-    label.set_text(leaked_label(SUMMARY_READY)?)?;
+    set_label_text(&mut label, SUMMARY_READY)?;
     label.set_align(Align::TopMid, 0, 50)?;
     Ok(())
 }
@@ -122,7 +170,7 @@ fn build_summary(screen: &mut Obj, theme: &Theme) -> LvResult<()> {
 fn build_field_card(
     screen: &mut Obj,
     theme: &Theme,
-    field: &touch_config::FieldLayout,
+    field: &FieldLayout,
     on_press: PressHandler,
     on_release: ReleaseHandler,
     buttons: &mut Vec<Btn, MAX_BUTTONS>,
@@ -134,57 +182,27 @@ fn build_field_card(
 
     let mut eyebrow = Label::create(&mut card)?;
     theme.label_muted(&mut eyebrow)?;
-    eyebrow.set_text(leaked_label(field.eyebrow)?)?;
+    set_label_text(&mut eyebrow, field.eyebrow)?;
 
     let mut title = Label::create(&mut card)?;
     theme.label_text(&mut title)?;
-    title.set_text(leaked_label(field.label)?)?;
+    set_label_text(&mut title, field.label)?;
     title.set_pos(0, 14)?;
 
-    let btn_h = if field.h > 80 { 36 } else { 32 };
-    let btn_w = ((field.w.saturating_sub(16)) / 3) as i16;
-    let btn_y = (field.h.saturating_sub(btn_h as u16 + 12)) as i16;
-
-    add_lux_button(
+    let row = ButtonRow::for_field(field.w, field.h);
+    add_lux_buttons(
         &mut card,
         theme,
-        &format!("500 {LUX_SUFFIX}"),
-        field.button_base,
-        4,
-        btn_y,
-        btn_w,
-        btn_h,
+        &row,
+        &[
+            (LuxLabel::Lux(500), field.button_base),
+            (LuxLabel::Lux(300), field.button_base + 1),
+            (LuxLabel::Off, field.button_base + 2),
+        ],
         on_press,
         on_release,
         buttons,
-    )?;
-    add_lux_button(
-        &mut card,
-        theme,
-        &format!("300 {LUX_SUFFIX}"),
-        field.button_base + 1,
-        8 + btn_w,
-        btn_y,
-        btn_w,
-        btn_h,
-        on_press,
-        on_release,
-        buttons,
-    )?;
-    add_lux_button(
-        &mut card,
-        theme,
-        OFF_LABEL,
-        field.button_base + 2,
-        12 + 2 * btn_w,
-        btn_y,
-        btn_w,
-        btn_h,
-        on_press,
-        on_release,
-        buttons,
-    )?;
-    Ok(())
+    )
 }
 
 fn build_group_card(
@@ -206,58 +224,76 @@ fn build_group_card(
 
     let mut eyebrow = Label::create(&mut card)?;
     theme.label_muted(&mut eyebrow)?;
-    eyebrow.set_text(leaked_label(GROUP_EYEBROW)?)?;
+    set_label_text(&mut eyebrow, GROUP_EYEBROW)?;
 
-    let btn_h = card_h - 28;
-    let btn_w = (card_w - 24) / 3;
-    let btn_y = card_h - btn_h - 4;
+    let row = ButtonRow::for_group(card_w, card_h);
+    add_lux_buttons(
+        &mut card,
+        theme,
+        &row,
+        &[
+            (LuxLabel::AllLux(500), GROUP_BUTTON_BASE),
+            (LuxLabel::AllLux(300), GROUP_BUTTON_BASE + 1),
+            (LuxLabel::CentralOff, GROUP_BUTTON_BASE + 2),
+        ],
+        on_press,
+        on_release,
+        buttons,
+    )
+}
 
-    add_lux_button(
-        &mut card,
-        theme,
-        &format!("{ALL_PREFIX} 500 {LUX_SUFFIX}"),
-        GROUP_BUTTON_BASE,
-        4,
-        btn_y,
-        btn_w,
-        btn_h,
-        on_press,
-        on_release,
-        buttons,
-    )?;
-    add_lux_button(
-        &mut card,
-        theme,
-        &format!("{ALL_PREFIX} 300 {LUX_SUFFIX}"),
-        GROUP_BUTTON_BASE + 1,
-        8 + btn_w,
-        btn_y,
-        btn_w,
-        btn_h,
-        on_press,
-        on_release,
-        buttons,
-    )?;
-    add_lux_button(
-        &mut card,
-        theme,
-        CENTRAL_OFF_LABEL,
-        GROUP_BUTTON_BASE + 2,
-        12 + 2 * btn_w,
-        btn_y,
-        btn_w,
-        btn_h,
-        on_press,
-        on_release,
-        buttons,
-    )?;
+/// Tag describing one of the four label shapes used by the hall UI buttons.
+#[derive(Clone, Copy)]
+enum LuxLabel {
+    Lux(u16),
+    AllLux(u16),
+    Off,
+    CentralOff,
+}
+
+impl LuxLabel {
+    fn render(self, out: &mut heapless::String<32>) {
+        use core::fmt::Write as _;
+        let _ = match self {
+            LuxLabel::Lux(v) => write!(out, "{v} {LUX_SUFFIX}"),
+            LuxLabel::AllLux(v) => write!(out, "{ALL_PREFIX} {v} {LUX_SUFFIX}"),
+            LuxLabel::Off => write!(out, "{OFF_LABEL}"),
+            LuxLabel::CentralOff => write!(out, "{CENTRAL_OFF_LABEL}"),
+        };
+    }
+}
+
+fn add_lux_buttons(
+    card: &mut Obj,
+    theme: &Theme,
+    row: &ButtonRow,
+    spec: &[(LuxLabel, u8); 3],
+    on_press: PressHandler,
+    on_release: ReleaseHandler,
+    buttons: &mut Vec<Btn, MAX_BUTTONS>,
+) -> LvResult<()> {
+    for (col, (label, button_index)) in spec.iter().enumerate() {
+        add_lux_button(
+            card,
+            theme,
+            *label,
+            *button_index,
+            row.col_x(col as i16),
+            row.btn_y,
+            row.btn_w,
+            row.btn_h,
+            on_press,
+            on_release,
+            buttons,
+        )?;
+    }
     Ok(())
 }
 
 fn add_lux_button(
     parent: &mut Obj,
     theme: &Theme,
-    text: &str,
+    label: LuxLabel,
     button_index: u8,
     x: i16,
     y: i16,
@@ -272,10 +308,12 @@ fn add_lux_button(
     button.set_size(w, h)?;
     button.add_style(Part::Main, &mut theme.btn.clone())?;
 
-    let mut label = Label::create(&mut button)?;
-    theme.label_text(&mut label)?;
-    label.set_text(leaked_label(text)?)?;
-    label.set_align(Align::Center, 0, 0)?;
+    let mut text_label = Label::create(&mut button)?;
+    theme.label_text(&mut text_label)?;
+    let mut text = heapless::String::<32>::new();
+    label.render(&mut text);
+    set_label_text(&mut text_label, &text)?;
+    text_label.set_align(Align::Center, 0, 0)?;
 
     button.on_event(move |_btn, event| match event {
         Event::Pressed => on_press(button_index),
