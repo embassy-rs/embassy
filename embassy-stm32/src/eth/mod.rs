@@ -3,7 +3,11 @@
 
 #[cfg_attr(any(eth_v1a, eth_v1b, eth_v1c), path = "v1/mod.rs")]
 #[cfg_attr(eth_v2, path = "v2/mod.rs")]
+#[cfg_attr(eth_v2a, path = "v2a/mod.rs")]
 mod _version;
+// Descriptor ring handling shared by the eth_v2 and eth_v2a drivers.
+#[cfg(any(eth_v2, eth_v2a))]
+mod v2_descriptors;
 mod generic_phy;
 mod sma;
 
@@ -107,6 +111,16 @@ impl<'d, T: Instance, P: Phy> embassy_net_driver::Driver for Ethernet<'d, T, P> 
         let mut caps = Capabilities::default();
         caps.max_transmission_unit = MTU;
         caps.max_burst_size = Some(self.tx.len());
+        // The v2a MAC offloads the IPv4 header and TCP/UDP payload
+        // checksums in hardware (MACCR.IPC + TDES3.CIC; bad RX frames are dropped
+        // in the descriptor ring), so smoltcp can skip them.
+        #[cfg(eth_v2a)]
+        {
+            use embassy_net_driver::Checksum;
+            caps.checksum.ipv4 = Checksum::None;
+            caps.checksum.tcp = Checksum::None;
+            caps.checksum.udp = Checksum::None;
+        }
         caps
     }
 
@@ -189,12 +203,24 @@ trait SealedInstance {
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + PeripheralType + RccPeripheral + Send + 'static {}
 
+#[cfg(not(eth_v2a))]
 impl SealedInstance for crate::peripherals::ETH {
     fn regs() -> crate::pac::eth::Eth {
         crate::pac::ETH
     }
 }
+
+#[cfg(eth_v2a)]
+impl SealedInstance for crate::peripherals::ETH1 {
+    fn regs() -> crate::pac::eth::Eth {
+        crate::pac::ETH1
+    }
+}
+
+#[cfg(not(eth_v2a))]
 impl Instance for crate::peripherals::ETH {}
+#[cfg(eth_v2a)]
+impl Instance for crate::peripherals::ETH1 {}
 
 pin_trait!(RXClkPin, Instance, @A);
 pin_trait!(TXClkPin, Instance, @A);
@@ -212,3 +238,17 @@ pin_trait!(TXD1Pin, Instance, @A);
 pin_trait!(TXD2Pin, Instance, @A);
 pin_trait!(TXD3Pin, Instance, @A);
 pin_trait!(TXEnPin, Instance, @A);
+
+pin_trait!(RGMIIGTXClkPin, Instance, @A);
+pin_trait!(RGMIIRXClkPin, Instance, @A);
+pin_trait!(RGMIIRXCtlPin, Instance, @A);
+pin_trait!(RGMIITXCtlPin, Instance, @A);
+pin_trait!(RGMIIRXD0Pin, Instance, @A);
+pin_trait!(RGMIIRXD1Pin, Instance, @A);
+pin_trait!(RGMIIRXD2Pin, Instance, @A);
+pin_trait!(RGMIIRXD3Pin, Instance, @A);
+pin_trait!(RGMIITXD0Pin, Instance, @A);
+pin_trait!(RGMIITXD1Pin, Instance, @A);
+pin_trait!(RGMIITXD2Pin, Instance, @A);
+pin_trait!(RGMIITXD3Pin, Instance, @A);
+pin_trait!(RGMIICLK125Pin, Instance, @A);

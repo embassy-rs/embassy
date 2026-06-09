@@ -1,11 +1,9 @@
-mod descriptors;
-
 use core::sync::atomic::{Ordering, fence};
 
 use embassy_hal_internal::Peri;
 use stm32_metapac::syscfg::vals::EthSelPhy;
 
-pub(crate) use self::descriptors::{RDes, RDesRing, TDes, TDesRing};
+pub(crate) use super::v2_descriptors::{RDes, RDesRing, TDes, TDesRing};
 use super::*;
 use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::interrupt;
