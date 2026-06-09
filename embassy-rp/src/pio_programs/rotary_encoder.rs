@@ -21,20 +21,22 @@ impl<'a, PIO: Instance> PioEncoderProgram<'a, PIO> {
             "mov y, isr",
             "mov isr, null",
             "jmp !y, invalid",
-            "in x 1", "push noblock",
+            "in x 1",
+            "push noblock",
             "invalid:",
-
             // loop while pins are [11] (home state). outputs x
             "while_11:",
-            "mov osr, ~ pins", "out x, 2",
+            "mov osr, ~ pins",
+            "out x, 2",
             "jmp !x, while_11", // pins == [11]
-
             // then, count how many [01] and [10] states come after that one
             // (ignoring [00]) until we see [11] again
             ".wrap_target",
-            "mov osr, ~ x", "out x, 2", // decide next state to search for
+            "mov osr, ~ x",
+            "out x, 2", // decide next state to search for
             "until_x:",
-            "mov osr, ~ pins", "out y, 2",
+            "mov osr, ~ pins",
+            "out y, 2",
             "jmp !y, complete", // pins == [11]
             "jmp x!=y until_x",
             // if pins matched next state:
