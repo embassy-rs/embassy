@@ -11,9 +11,17 @@ linker = "rust-lld"
 [env]
 DEFMT_LOG = "info"
 DEP_LV_CONFIG_PATH = { value = "lvgl", relative = true }
-# Cross C compiler for lvgl-sys. BINDGEN_EXTRA_CLANG_ARGS is NOT set here —
-# it is machine-specific. Before LVGL builds run:
-#   source scripts/lvgl-env.sh
+
+# Cross C compiler used by `cc` (for `lvgl-port/port.c`) and `lvgl-sys` (the
+# vendored LVGL C sources). Defaults assume `arm-none-eabi-gcc` is on PATH; on
+# Debian/Ubuntu install it with `apt install gcc-arm-none-eabi`.
 "CC_thumbv8m.main-none-eabihf" = "arm-none-eabi-gcc"
 "CFLAGS_thumbv8m.main-none-eabihf" = "-mcpu=cortex-m33 -mthumb -mfloat-abi=hard -mfpu=fpv5-sp-d16"
 "AR_thumbv8m.main-none-eabihf" = "arm-none-eabi-ar"
+
+# Bindgen / clang flags used by `lvgl-sys` to parse the LVGL headers.
+# Points at the newlib headers shipped by `apt install gcc-arm-none-eabi`
+# (which pulls in `libnewlib-dev` via Recommends). No separate picolibc
+# install required. Set the env var in your shell to override this for
+# non-Debian toolchains (PlatformIO, macOS, …).
+BINDGEN_EXTRA_CLANG_ARGS = "--target=thumbv8m.main-none-eabihf -mcpu=cortex-m33 -mthumb -isystem /usr/include/newlib"
