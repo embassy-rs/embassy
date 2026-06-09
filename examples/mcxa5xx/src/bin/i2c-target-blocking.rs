@@ -32,11 +32,21 @@ async fn main(_spawner: Spawner) {
         match request {
             target::Request::Read(_addr) => {
                 buf.fill(0x55);
-                let count = target.blocking_respond_to_read(&buf).unwrap();
+                let count = match target.blocking_respond_to_read(&buf).unwrap() {
+                    target::ReadStatus::Complete(n)
+                    | target::ReadStatus::NeedMore(n)
+                    | target::ReadStatus::EarlyStop(n) => n,
+                    _ => 0,
+                };
                 defmt::info!("T [R]: {:02x} -> {:02x}", _addr, buf[..count]);
             }
             target::Request::Write(_addr) => {
-                let count = target.blocking_respond_to_write(&mut buf).unwrap();
+                let count = match target.blocking_respond_to_write(&mut buf).unwrap() {
+                    target::WriteStatus::Stopped(n)
+                    | target::WriteStatus::Restarted(n)
+                    | target::WriteStatus::BufferFull(n) => n,
+                    _ => 0,
+                };
                 defmt::info!("T [W]: {:02x} <- {:02x}", _addr, buf[..count]);
             }
             _ => {}
