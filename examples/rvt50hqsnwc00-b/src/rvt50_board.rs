@@ -3,50 +3,148 @@
 //! Default configuration matches [RVT50HQSNWN00](https://download.riverdi.com/RVT50HQSNWN00/DS_RVT50HQSNWN00_Rev.1.1.pdf):
 //! 800×480 RGB565 panel, no touch panel.
 //!
-//! LTDC timing, polarities, and pin assignments follow the official
+//! Pin assignments follow the
+//! [BD_50STM32U5 Rev.1.1](https://download.riverdi.com/RVT50HQSNWN00/BD_50STM32U5_Rev.1.1.pdf)
+//! schematic and the official
 //! [LVGL Riverdi STM32U5 port](https://github.com/lvgl/lv_port_riverdi_stm32u5).
 
 use defmt::info;
-use embassy_stm32::gpio::{Level, Output, Speed};
+use embassy_stm32::exti::{self, ExtiInput};
+use embassy_stm32::gpio::{Level, Output, Pin, Pull, Speed};
+use embassy_stm32::interrupt;
 use embassy_stm32::ltdc::{self, Ltdc, LtdcConfiguration, PolarityActive, PolarityEdge};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{bind_interrupts, peripherals, Config, Peripherals, rcc};
+use embassy_stm32::{bind_interrupts, can, peripherals, Config, Peri, Peripherals, rcc};
 use embassy_time::{Duration, Timer};
 
 #[cfg(feature = "touch")]
 use embassy_stm32::i2c::{self, Config as I2cConfig, I2c};
+use embassy_stm32::mode::Async;
 #[cfg(feature = "touch")]
 use embassy_stm32::mode::Blocking;
 
 pub const DISPLAY_WIDTH: usize = 800;
 pub const DISPLAY_HEIGHT: usize = 480;
 
+/// Nominal CAN bitrate for the on-board TJA1441 transceiver (P5).
+pub const CAN_BITRATE: u32 = 500_000;
+
+/// Standard CAN ID used for user-button press counter frames.
+pub const CAN_BUTTON_FRAME_ID: u16 = 0x123;
+
 /// Capacitive touch controller on I2C1 (7-bit address), touch-panel variants only.
 #[cfg(feature = "touch")]
 pub const TOUCH_I2C_ADDR: u8 = 0x41;
+
+/// Board layout and pin assignments from BD_50STM32U5 Rev.1.1.
+pub mod pins {
+    //! MCU pin map for the Riverdi 5" STM32U5 embedded display module.
+    //!
+    //! ```text
+    //!                    +-------- MCU (STM32U5A9NJH6Q) --------+
+    //!                    |                                      |
+    //!   LCD + CTP -------+ LTDC / I2C1 (touch variants)         |
+    //!   BACKLIGHT -------+ PB14 (TIM15 PWM)                     |
+    //!   CAN (P5) --------+ PB8/PB9 + PI6 (TJA1441)              |
+    //!   RS485 (P7) ------+ USART6 + PE4 (ST3485)                |
+    //!   USB (P6) --------+ PA11/PA12 (AP2265)                   |
+    //!   SWD (P3) --------+ PA13/PA14/PB3                        |
+    //!   microSD ---------+ SDMMC1                                |
+    //!   RiBUS -----------+ SPI (PI1..PI3, PG1)                  |
+    //!   Expansion (P4) --+ (see datasheet)                       |
+    //!   User button -----+ PH3 (BOOT0)                           |
+    //!   User LED --------+ PE5                                     |
+    //!                    +--------------------------------------+
+    //! ```
+
+    // --- Display (LTDC RGB565, RK050HR18) ---
+    pub const LTDC_CLK: &str = "PD3";
+    pub const LTDC_HSYNC: &str = "PE0";
+    pub const LTDC_VSYNC: &str = "PD13";
+    pub const LTDC_DE: &str = "PF11";
+    pub const LCD_DISP_RESET: &str = "PH7";
+    pub const BACKLIGHT_PWM: &str = "PB14"; // TIM15_CH1
+
+    // --- User I/O ---
+    pub const USER_BUTTON: &str = "PH3"; // BOOT0
+    pub const USER_LED: &str = "PE5";
+
+    // --- CAN on P5 (TJA1441AT/0Z) ---
+    pub const CAN_RX: &str = "PB8";  // FDCAN1_RX
+    pub const CAN_TX: &str = "PB9";  // FDCAN1_TX
+    pub const CAN_STB: &str = "PI6"; // FDCAN_STB, active low
+
+    // --- RS485 on P7 (ST3485E, USART6) ---
+    pub const RS485_TX: &str = "PE1";  // USART6_TX
+    pub const RS485_RX: &str = "PJ4";  // USART6_RX
+    pub const RS485_DE: &str = "PE4";  // USART6_DE
+
+    // --- USB on P6 (AP2265) ---
+    pub const USB_DM: &str = "PA11";
+    pub const USB_DP: &str = "PA12";
+
+    // --- SWD on P3 ---
+    pub const SWDIO: &str = "PA13";
+    pub const SWCLK: &str = "PA14";
+    pub const SWO: &str = "PB3";
+
+    // --- RiBUS (SPI) ---
+    pub const RIBUS_SCK: &str = "PI1";
+    pub const RIBUS_MISO: &str = "PI2";
+    pub const RIBUS_MOSI: &str = "PI3";
+    pub const RIBUS_CS: &str = "PG1";
+
+    // --- microSD (SDMMC1) ---
+    pub const SD_D0: &str = "PC8";
+    pub const SD_D1: &str = "PC9";
+    pub const SD_D2: &str = "PC10";
+    pub const SD_D3: &str = "PC11";
+    pub const SD_CK: &str = "PC12";
+    pub const SD_CMD: &str = "PD2";
+
+    #[cfg(feature = "touch")]
+    pub const CTP_RST: &str = "PE3";
+    #[cfg(feature = "touch")]
+    pub const CTP_INT: &str = "PE6";
+    #[cfg(feature = "touch")]
+    pub const TOUCH_I2C_SCL: &str = "PG13";
+    #[cfg(feature = "touch")]
+    pub const TOUCH_I2C_SDA: &str = "PG14";
+}
 
 bind_interrupts!(pub struct Irqs {
     LTDC => ltdc::InterruptHandler<peripherals::LTDC>;
 });
 
-/// Initialize system and LTDC clocks for the Riverdi 5" panel (~25 MHz pixel clock).
+bind_interrupts!(pub struct CanIrqs {
+    FDCAN1_IT0 => can::IT0InterruptHandler<peripherals::FDCAN1>;
+    FDCAN1_IT1 => can::IT1InterruptHandler<peripherals::FDCAN1>;
+});
+
+bind_interrupts!(pub struct ButtonIrqs {
+    EXTI3 => exti::InterruptHandler<interrupt::typelevel::EXTI3>;
+});
+
+/// Initialize system, LTDC, and FDCAN clocks for the Riverdi 5" panel (~25 MHz pixel clock).
 pub fn init_clocks() -> Peripherals {
     let mut config = Config::default();
 
     config.rcc.hse = Some(rcc::Hse {
         freq: Hertz(16_000_000),
-        mode: rcc::HseMode::Oscillator,
+        mode: rcc::HseMode::Bypass,
     });
 
+    // PLL1: 16 MHz * 10 = 160 MHz (sysclk and FDCAN kernel clock via PLL1Q)
     config.rcc.pll1 = Some(rcc::Pll {
         source: rcc::PllSource::Hse,
         prediv: rcc::PllPreDiv::Div1,
         mul: rcc::PllMul::Mul10,
         divp: None,
-        divq: None,
+        divq: Some(rcc::PllDiv::Div1),
         divr: Some(rcc::PllDiv::Div1),
     });
     config.rcc.sys = rcc::Sysclk::Pll1R;
+    config.rcc.mux.fdcan1sel = rcc::mux::Fdcansel::Pll1Q;
 
     // 16 MHz / 4 * 75 / 12 = 25 MHz LTDC clock (matches lv_port_riverdi_stm32u5)
     config.rcc.pll3 = Some(rcc::Pll {
@@ -86,6 +184,37 @@ pub fn ltdc_configuration() -> LtdcConfiguration {
     }
 }
 
+/// Bring the TJA1441 CAN transceiver out of standby (`FDCAN_STB` / PI6, active low).
+pub fn enable_can_transceiver(stb: Peri<'static, impl Pin>) {
+    let mut stb = Output::new(stb, Level::High, Speed::Low);
+    stb.set_low();
+}
+
+/// User push button on `PH3` / `BOOT0` (active high, EXTI on rising edge).
+pub fn init_user_button(
+    pin: Peri<'static, peripherals::PH3>,
+    exti: Peri<'static, peripherals::EXTI3>,
+) -> ExtiInput<'static, Async> {
+    ExtiInput::new(pin, exti, Pull::Down, ButtonIrqs)
+}
+
+/// User LED on `PE5` (active high).
+pub fn init_user_led(pin: Peri<'static, peripherals::PE5>) -> Output<'static> {
+    Output::new(pin, Level::Low, Speed::Low)
+}
+
+/// Create an FDCAN1 configurator on the board CAN connector (P5).
+pub fn init_can(
+    fdcan: Peri<'static, peripherals::FDCAN1>,
+    rx: Peri<'static, impl can::RxPin<peripherals::FDCAN1>>,
+    tx: Peri<'static, impl can::TxPin<peripherals::FDCAN1>>,
+    stb: Peri<'static, impl Pin>,
+) -> can::CanConfigurator<'static> {
+    enable_can_transceiver(stb);
+    info!("FDCAN1 on {} / {} (transceiver enabled)", pins::CAN_RX, pins::CAN_TX);
+    can::CanConfigurator::new(fdcan, rx, tx, CanIrqs)
+}
+
 #[cfg(feature = "touch")]
 pub struct DisplayResources {
     pub ltdc: Ltdc<'static, peripherals::LTDC, ltdc::Rgb565>,
@@ -95,6 +224,18 @@ pub struct DisplayResources {
 #[cfg(not(feature = "touch"))]
 pub struct DisplayResources {
     pub ltdc: Ltdc<'static, peripherals::LTDC, ltdc::Rgb565>,
+}
+
+async fn reset_panel(reset: Peri<'static, impl Pin>) {
+    let mut disp_reset = Output::new(reset, Level::Low, Speed::Low);
+    disp_reset.set_high();
+    Timer::after(Duration::from_millis(20)).await;
+}
+
+fn init_backlight(pin: Peri<'static, impl Pin>) {
+    // Backlight (TIM15 CH1 / PB14) — full on via GPIO until PWM is wired up
+    let mut backlight = Output::new(pin, Level::Low, Speed::Low);
+    backlight.set_high();
 }
 
 /// Initialize LTDC, panel reset/backlight, and optionally touch I2C.
@@ -159,16 +300,10 @@ pub async fn init_display(p: Peripherals) -> DisplayResources {
         ..
     } = p;
 
-    // Panel reset (PH7 / LCD_DISP_RESET)
-    let mut disp_reset = Output::new(PH7, Level::Low, Speed::Low);
-    disp_reset.set_high();
-    Timer::after(Duration::from_millis(20)).await;
-
-    // Backlight (TIM15 CH1 / PB14) — full on via GPIO until PWM is wired up
-    let mut backlight = Output::new(PB14, Level::Low, Speed::Low);
-    backlight.set_high();
-
     info!("Initializing LTDC (Riverdi RVT50 timing)...");
+
+    reset_panel(PH7).await;
+    init_backlight(PB14);
 
     let mut ltdc = Ltdc::<_, ltdc::Rgb565>::new_with_pins(
         LTDC,
@@ -194,7 +329,6 @@ pub async fn init_display(p: Peripherals) -> DisplayResources {
         PD11, // R6
         PD12, // R7
     );
-
     ltdc.init(&ltdc_configuration());
 
     #[cfg(feature = "touch")]
