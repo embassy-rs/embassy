@@ -20,15 +20,18 @@ DEP_LV_CONFIG_PATH = { value = "lvgl", relative = true }
 "AR_thumbv8m.main-none-eabihf" = "arm-none-eabi-ar"
 "CFLAGS_thumbv8m.main-none-eabihf" = "-mcpu=cortex-m33 -mthumb -mfloat-abi=hard -mfpu=fpv5-sp-d16"
 
-# Bindgen / clang flags for `lvgl-sys`. Default in `.cargo/config.toml` points
-# at newlib (Debian: apt install gcc-arm-none-eabi). Override examples:
+# Bindgen / clang flags for `lvgl-sys`. Required by lvgl-sys's bindgen step
+# to find <string.h>, etc. The path is host-specific; the easiest way to
+# set it is `source scripts/lvgl-env.sh` before `cargo build`. Pin one of
+# the snippets below into `.cargo/config.toml` to skip the script.
+#
+# Debian/Ubuntu (libnewlib-dev or picolibc-arm-none-eabi installed):
+# BINDGEN_EXTRA_CLANG_ARGS = "--target=thumbv8m.main-none-eabihf -mcpu=cortex-m33 -mthumb -isystem /usr/lib/arm-none-eabi/include"
 #
 # PlatformIO toolchain:
 # "CC_thumbv8m.main-none-eabihf" = "/home/USER/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-gcc"
 # "AR_thumbv8m.main-none-eabihf" = "/home/USER/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-ar"
 # BINDGEN_EXTRA_CLANG_ARGS = "--target=thumbv8m.main-none-eabihf -mcpu=cortex-m33 -mthumb -isystem /home/USER/.platformio/packages/toolchain-gccarmnoneeabi/arm-none-eabi/include"
 #
-# Picolibc (Debian: apt install picolibc-arm-none-eabi):
-# BINDGEN_EXTRA_CLANG_ARGS = "--target=thumbv8m.main-none-eabihf -mcpu=cortex-m33 -mthumb -isystem /usr/lib/picolibc/arm-none-eabi/include"
-#
-# Or use the discovery helper: `source scripts/lvgl-env.sh` before `cargo build`.
+# ARM-provided GCC tarball (e.g. /opt/gcc-arm-none-eabi/):
+# BINDGEN_EXTRA_CLANG_ARGS = "--target=thumbv8m.main-none-eabihf -mcpu=cortex-m33 -mthumb -isystem /opt/gcc-arm-none-eabi/arm-none-eabi/include"

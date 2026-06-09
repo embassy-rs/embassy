@@ -46,14 +46,17 @@ GCC_DIR="$(dirname "${GCC}")"
 GCC_VERSION="$("${GCC}" -dumpversion)"
 
 # Look for any of the common ARM libc header locations in priority order. The
-# first directory that contains string.h wins.
+# first directory that contains string.h wins. Toolchain-relative paths come
+# first so a self-contained ARM tarball / PlatformIO install resolves to its
+# own bundled headers instead of accidentally picking up a system libc.
 INCLUDE_DIR=""
 for dir in \
-    "/usr/include/newlib" \
-    "/usr/lib/picolibc/arm-none-eabi/include" \
     "${GCC_DIR}/../arm-none-eabi/include" \
     "${GCC_DIR}/../lib/gcc/arm-none-eabi/${GCC_VERSION}/include" \
-    "${HOME}/.platformio/packages/toolchain-gccarmnoneeabi/arm-none-eabi/include"
+    "${HOME}/.platformio/packages/toolchain-gccarmnoneeabi/arm-none-eabi/include" \
+    "/usr/lib/arm-none-eabi/include" \
+    "/usr/include/newlib" \
+    "/usr/lib/picolibc/arm-none-eabi/include"
 do
     if [[ -f "${dir}/string.h" ]]; then
         INCLUDE_DIR="${dir}"
@@ -63,7 +66,10 @@ done
 
 if [[ -z "${INCLUDE_DIR}" ]]; then
     echo "lvgl-env: could not locate <string.h> for ${GCC}" >&2
-    echo "  On Debian/Ubuntu: sudo apt install gcc-arm-none-eabi" >&2
+    echo "  Debian/Ubuntu: sudo apt install libnewlib-dev   # or picolibc-arm-none-eabi" >&2
+    echo "  ARM tarball / PlatformIO: ensure the toolchain ships an arm-none-eabi/include/ dir" >&2
+    echo "  Or set BINDGEN_EXTRA_CLANG_ARGS yourself, e.g.:" >&2
+    echo "    export BINDGEN_EXTRA_CLANG_ARGS='--target=thumbv8m.main-none-eabihf -mcpu=cortex-m33 -mthumb -isystem /path/to/include'" >&2
     return 1
 fi
 

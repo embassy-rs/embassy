@@ -95,18 +95,20 @@ cargo run --features lvgl --bin lvgl_demo
     - `hall_ui.rs` - `HallUi` widget tree built from `touch_config` (`tick_and_run`, `set_touch`, `set_button_active`)
   - Board patterns from [riverdi-50-stm32u5-lvgl](https://github.com/riverdi/riverdi-50-stm32u5-lvgl); legacy C port in `lvgl-port/` is only used by `lvgl_touch.rs` / `lvgl_demo.rs`
   - One-hot TX on CAN ID `0x200`, `minp` feedback on `0x285`
-  - Build (Debian/Ubuntu):
+  - Build:
     ```bash
-    sudo apt install gcc-arm-none-eabi
+    # Debian/Ubuntu: install GCC + libc headers (newlib OR picolibc):
+    sudo apt install gcc-arm-none-eabi libnewlib-dev      # or: picolibc-arm-none-eabi
+
+    source scripts/lvgl-env.sh                            # discovers <string.h> for bindgen
     cargo run --bin lvgl_touch_can --features lvgl,touch
     ```
-    `gcc-arm-none-eabi`'s `Recommends` pulls in `libnewlib-dev`, which provides
-    the `<string.h>` etc. that `lvgl-sys`' bindgen needs.
-    `.cargo/config.toml` points `BINDGEN_EXTRA_CLANG_ARGS` at `/usr/include/newlib`
-    out of the box — no `picolibc-arm-none-eabi`, no wrapper script, no
-    `source` step. For non-Debian toolchains (PlatformIO, macOS, custom GCC
-    paths) override `BINDGEN_EXTRA_CLANG_ARGS` in your shell or run
-    `source scripts/lvgl-env.sh` before `cargo build`.
+    `lvgl-env.sh` queries `arm-none-eabi-gcc` for its include path and exports
+    `BINDGEN_EXTRA_CLANG_ARGS`. It works with Debian/Ubuntu apt installs, the
+    ARM-provided GCC tarball, PlatformIO, and Homebrew. The other cross
+    compiler env (`CC` / `AR` / `CFLAGS`) is set in `.cargo/config.toml`.
+    For non-standard toolchains override the env in your shell or in
+    `.cargo/config.toml` (see `.cargo/config.toml.example`).
 
 ## Configuration
 
