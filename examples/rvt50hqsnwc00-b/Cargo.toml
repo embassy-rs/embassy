@@ -32,7 +32,9 @@ heapless = { version = "0.9", default-features = false }
 static_cell = "2"
 
 # Optional LVGL dependencies (lvgl-sys builds the C library; port.c provides drivers)
-embedded-graphics = { version = "0.8.0", default-features = false, optional = true }
+# Pinned to 0.7.x so the `Point` type matches the version `lvgl 0.6.2` re-exports
+# through its `embedded_graphics` feature (used by `Pointer::register` in `lvgl::input_device::pointer`).
+embedded-graphics = { version = "0.7.1", default-features = false, optional = true }
 lvgl = { version = "0.6.2", optional = true, default-features = false, features = [
   "unsafe_no_autoinit",
   "embedded_graphics",
