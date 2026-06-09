@@ -7,6 +7,9 @@ publish = false
 
 description = "Examples for Riverdi RVT50HQSNWC00-B board with STM32U5A9NJH6Q"
 
+[build-dependencies]
+cc = "1.2"
+
 [dependencies]
 # RVT50HQSNWC00-B uses STM32U5A9NJH6Q with 4MB Flash, 2.5MB RAM
 embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = ["defmt", "unstable-pac", "stm32u5a9nj", "time-driver-any", "memory-x", "exti"] }
@@ -25,15 +28,13 @@ embedded-hal = "0.2.6"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 heapless = { version = "0.9", default-features = false }
 
-# Optional LVGL dependencies (for lvgl_demo example)
-# Uncomment these if you want to use LVGL
-lvgl = { version = "0.6.2", optional = true }
+# Optional LVGL dependencies (lvgl-sys builds the C library; port.c provides drivers)
 lvgl-sys = { version = "0.6.2", optional = true }
 
 [features]
 default = []
-# Enable LVGL support
-lvgl = ["dep:lvgl", "dep:lvgl-sys"]
+# Enable LVGL support (requires lv_conf.h via DEP_LV_CONFIG_PATH)
+lvgl = ["dep:lvgl-sys"]
 
 ## Use secure registers when TrustZone is enabled
 trustzone-secure = ["embassy-stm32/trustzone-secure"]

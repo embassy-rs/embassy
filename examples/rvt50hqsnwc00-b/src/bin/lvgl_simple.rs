@@ -19,26 +19,18 @@ use core::fmt::Write;
 
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
+use embassy_rvt50hqsnwc00_b_examples::rvt50_board::{self, DISPLAY_HEIGHT, DISPLAY_WIDTH};
 use embassy_stm32::gpio::{Level, Output, Speed};
-use embassy_stm32::ltdc::{self, Ltdc, LtdcConfiguration, LtdcLayer, LtdcLayerConfig, PolarityActive, PolarityEdge};
-use embassy_stm32::{bind_interrupts, peripherals, Config, Peripherals, rcc};
+use embassy_stm32::ltdc::{self, Ltdc, LtdcLayer, LtdcLayerConfig};
+use embassy_stm32::peripherals;
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
-
-// Display constants
-const DISPLAY_WIDTH: usize = 800;
-const DISPLAY_HEIGHT: usize = 480;
 
 // Frame buffer for LTDC - using RGB565 format (2 bytes per pixel)
 // Total size: 800 * 480 * 2 = 768,000 bytes per buffer
 // With double buffering: 1,536,000 bytes (~1.5MB)
 pub static mut FB1: [u16; DISPLAY_WIDTH * DISPLAY_HEIGHT] = [0; DISPLAY_WIDTH * DISPLAY_HEIGHT];
 pub static mut FB2: [u16; DISPLAY_WIDTH * DISPLAY_HEIGHT] = [0; DISPLAY_WIDTH * DISPLAY_HEIGHT];
-
-// Bind interrupts
-bind_interrupts!(struct Irqs {
-    LTDC => ltdc::InterruptHandler<peripherals::LTDC>;
-});
 
 /// Simple framebuffer-based display for testing
 /// This can be used to test display output before integrating LVGL
@@ -97,137 +89,6 @@ impl SimpleDisplay {
             cx += 10;
         }
     }
-}
-
-/// Initialize clocks for STM32U5A9NJH6Q
-fn init_clocks() -> Peripherals {
-    let mut config = Config::default();
-    
-    // Configure HSE (16 MHz external oscillator)
-    config.rcc.hse = Some(rcc::Hse {
-        freq: embassy_stm32::time::Hertz(16_000_000),
-        mode: rcc::HseMode::Oscillator,
-    });
-    
-    // Configure PLL1 for system clock (160 MHz)
-    config.rcc.pll1 = Some(rcc::Pll {
-        source: rcc::PllSource::Hse,
-        prediv: rcc::PllPreDiv::Div1,
-        mul: rcc::PllMul::Mul10,
-        divp: None,
-        divq: None,
-        divr: Some(rcc::PllDiv::Div1),
-    });
-    
-    config.rcc.sys = rcc::Sysclk::Pll1R;
-    
-    // Configure PLL3 for LTDC clock (~30 MHz)
-    config.rcc.pll3 = Some(rcc::Pll {
-        source: rcc::PllSource::Hse,
-        prediv: rcc::PllPreDiv::Div4,
-        mul: rcc::PllMul::Mul75,
-        divp: None,
-        divq: None,
-        divr: Some(rcc::PllDiv::Div10),
-    });
-    
-    config.rcc.mux.ltdcsel = rcc::mux::Ltdcsel::Pll3R;
-    
-    embassy_stm32::init(config)
-}
-
-/// Initialize LTDC for the display
-fn init_ltdc(p: Peripherals) -> (Ltdc<'static, peripherals::LTDC, ltdc::Rgb565>, embassy_stm32::Peri<'static, peripherals::PD2>) {
-    let Peripherals {
-        LTDC,
-        PD2,
-        PD3,
-        PE0,
-        PD13,
-        PD6,
-        PD15,
-        PD0,
-        PD1,
-        PE7,
-        PE8,
-        PE9,
-        PE10,
-        PE11,
-        PE12,
-        PE13,
-        PE14,
-        PD8,
-        PD9,
-        PD10,
-        PD11,
-        PD12,
-        PE4,
-        PE6,
-        ..
-    } = p;
-
-    // Display timing parameters
-    const H_SYNC: u16 = 5;
-    const H_BACK_PORCH: u16 = 40;
-    const H_FRONT_PORCH: u16 = 20;
-    const V_SYNC: u16 = 5;
-    const V_BACK_PORCH: u16 = 10;
-    const V_FRONT_PORCH: u16 = 20;
-
-    let ltdc_config = LtdcConfiguration {
-        active_width: DISPLAY_WIDTH as _,
-        active_height: DISPLAY_HEIGHT as _,
-        h_back_porch: H_BACK_PORCH,
-        h_front_porch: H_FRONT_PORCH,
-        v_back_porch: V_BACK_PORCH,
-        v_front_porch: V_FRONT_PORCH,
-        h_sync: H_SYNC,
-        v_sync: V_SYNC,
-        h_sync_polarity: PolarityActive::ActiveLow,
-        v_sync_polarity: PolarityActive::ActiveLow,
-        data_enable_polarity: PolarityActive::ActiveHigh,
-        pixel_clock_polarity: PolarityEdge::RisingEdge,
-    };
-
-    info!("Initializing LTDC...");
-
-    // Initialize LTDC with RGB565 format (16-bit color pins only)
-    let mut ltdc = Ltdc::<_, ltdc::Rgb565>::new_with_pins(
-        LTDC,
-        Irqs,
-        PD3,   // CLK
-        PE0,   // HSYNC
-        PD13,  // VSYNC
-        PD6,   // DE
-        PD15,  // B3
-        PD0,   // B4
-        PD1,   // B5
-        PE7,   // B6
-        PE8,   // B7
-        PE9,   // G2
-        PE10,  // G3
-        PE11,  // G4
-        PE12,  // G5
-        PE13,  // G6
-        PE14,  // G7
-        PD8,   // R3
-        PD9,   // R4
-        PD10,  // R5
-        PD11,  // R6
-        PD12,  // R7
-    );
-
-    ltdc.init(&ltdc_config);
-
-    // Enable display and backlight
-    let mut ltdc_disp_ctrl = Output::new(PE4, Level::Low, Speed::High);
-    let mut ltdc_bl_ctrl = Output::new(PE6, Level::Low, Speed::High);
-    ltdc_disp_ctrl.set_high();
-    ltdc_bl_ctrl.set_high();
-
-    info!("LTDC initialized successfully");
-
-    (ltdc, PD2)
 }
 
 /// Display task - handles LTDC and framebuffer management
@@ -318,26 +179,13 @@ async fn led_task(mut led: Output<'static>) {
 #[embassy_executor::main]
 async fn main(spawner: Spawner) -> ! {
     info!("Riverdi RVT50HQSNWC00-B - Simple Display Demo");
-    info!("MCU: STM32U5A9NJH6Q");
-    info!("Display: 800x480 RGB LCD");
 
-    // Initialize clocks
-    let p = init_clocks();
+    let p = rvt50_board::init_clocks();
+    rvt50_board::enable_icache();
 
-    // Enable ICACHE
-    embassy_stm32::pac::ICACHE.cr().write(|w| {
-        w.set_en(true);
-    });
+    let rvt50_board::DisplayResources { ltdc, led, i2c: _ } = rvt50_board::init_display(p).await;
 
-    info!("Clocks initialized");
-
-    // Initialize LTDC
-    let (ltdc, pd2) = init_ltdc(p);
-
-    info!("LTDC initialized");
-
-    // Create LED output
-    let led = Output::new(pd2, Level::High, Speed::Low);
+    let led = Output::new(led, Level::High, Speed::Low);
 
     // Spawn tasks
     spawner.spawn(unwrap!(led_task(led)));
