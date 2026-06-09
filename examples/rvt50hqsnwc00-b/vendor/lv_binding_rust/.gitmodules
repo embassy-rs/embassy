@@ -1,0 +1,7 @@
+[submodule "lvgl-sys/vendor/lvgl"]
+	path = lvgl-sys/vendor/lvgl
+	url = https://github.com/lvgl/lvgl.git
+	
+[submodule "lvgl-sys/vendor/lv_drivers"]
+	path = lvgl-sys/vendor/lv_drivers
+	url = https://github.com/lvgl/lv_drivers.git

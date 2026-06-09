@@ -1,0 +1,33 @@
+name: Rust
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+env:
+  CARGO_TERM_COLOR: always
+  DEP_LV_CONFIG_PATH: /home/runner/work/lv_binding_rust/lv_binding_rust/examples/include
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Update APT
+        run: sudo apt-get update
+
+      - name: Install SDL2
+        run: sudo apt install libsdl2-dev libsdl2-2.0-0
+
+      - uses: actions/checkout@v2
+        with:
+          submodules: true
+
+      - name: Build
+        run: cargo build --verbose
+
+      - name: Run tests
+        run: cargo test --verbose -- --test-threads 1

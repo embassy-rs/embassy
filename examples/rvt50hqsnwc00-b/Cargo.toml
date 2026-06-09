@@ -32,6 +32,8 @@ heapless = { version = "0.9", default-features = false }
 static_cell = "2"
 
 # Optional LVGL dependencies (lvgl-sys builds the C library; port.c provides drivers)
+# 0.8.x to match the embedded-graphics dep used by the vendored
+# `lv_binding_rust` master under `vendor/lv_binding_rust/`.
 embedded-graphics = { version = "0.8.0", default-features = false, optional = true }
 lvgl = { version = "0.6.2", optional = true, default-features = false, features = [
   "unsafe_no_autoinit",
@@ -62,3 +64,12 @@ debug = 2
 build = [
   { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/rvt50hqsnwc00-b" }
 ]
+
+# Bindgen 0.64 (used by lvgl-sys 0.6.2 on crates.io) silently produces opaque
+# `_lv_*` structs (only an `_address` field) when libclang ≥18 hits newer
+# newlib (≥4.5) headers. Pin to a vendored fork of `lv_binding_rust` master
+# with bindgen bumped to 0.72, which parses the same headers correctly.
+[patch.crates-io]
+lvgl = { path = "vendor/lv_binding_rust/lvgl" }
+lvgl-sys = { path = "vendor/lv_binding_rust/lvgl-sys" }
+lvgl-codegen = { path = "vendor/lv_binding_rust/lvgl-codegen" }

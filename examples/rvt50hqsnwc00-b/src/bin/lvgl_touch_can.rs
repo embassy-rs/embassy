@@ -1,12 +1,14 @@
 #![no_std]
 #![no_main]
-#![allow(static_mut_refs)]
 
-//! JSON-driven LVGL hall lighting UI with CAN press/hold/repeat for Riverdi RVT50.
+//! JSON-driven LVGL hall lighting UI with CAN press/hold/repeat for the
+//! Riverdi RVT50HQSNWC00-B.
 //!
-//! - UI: [lv_binding_rust](https://github.com/lvgl/lv_binding_rust) + `src/lvgl/`
-//! - Board: [riverdi-50-stm32u5-lvgl](https://github.com/riverdi/riverdi-50-stm32u5-lvgl) display/touch patterns
-//! - Config: `touch-projects/SporthalleLudwigsfelde/*.json`
+//! UI is built with [lv_binding_rust](https://github.com/lvgl/lv_binding_rust)
+//! through [`crate::lvgl::HallUi`]; the board glue (LTDC, capacitive touch
+//! I2C, FDCAN1) lives in [`crate::rvt50_board`]. Touch project configuration
+//! (`hall_config.json` / `can_config.json`) is generated into
+//! [`crate::touch_config`] at build time.
 //!
 //! ```bash
 //! ./scripts/cargo-lvgl.sh run --bin lvgl_touch_can --features lvgl,touch
@@ -17,7 +19,7 @@ compile_error!("lvgl_touch_can requires --features lvgl,touch");
 
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
-use embassy_rvt50hqsnwc00_b_examples::lvgl::{self, HallUi};
+use embassy_rvt50hqsnwc00_b_examples::lvgl::HallUi;
 use embassy_rvt50hqsnwc00_b_examples::rvt50_board::{self, CAN_BITRATE};
 use embassy_rvt50hqsnwc00_b_examples::touch_can::{self, on_button_press, on_button_release};
 use embassy_rvt50hqsnwc00_b_examples::touch_config::{self, BUTTON_COUNT};
@@ -30,8 +32,10 @@ use embassy_time::{Duration, Timer};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
-const FB_PIXELS: usize =
-    touch_config::DISPLAY_WIDTH as usize * touch_config::DISPLAY_HEIGHT as usize;
+const FB_PIXELS: usize = touch_config::DISPLAY_WIDTH as usize * touch_config::DISPLAY_HEIGHT as usize;
+
+/// Period between LVGL ticks / framebuffer updates.
+const FRAME_INTERVAL: Duration = Duration::from_millis(5);
 
 static FB1: StaticCell<[u16; FB_PIXELS]> = StaticCell::new();
 static CAN_TX: StaticCell<CanTx<'static>> = StaticCell::new();
@@ -64,28 +68,23 @@ async fn ui_task(
 
     let fb = FB1.init([0; FB_PIXELS]);
     let fb_ptr = fb.as_mut_ptr();
-    let ui = HALL_UI.init(
-        HallUi::build(fb_ptr, on_button_press, on_button_release).expect("hall UI build"),
-    );
+    let ui = HALL_UI.init(HallUi::build(fb_ptr, on_button_press, on_button_release).expect("hall UI build"));
 
-    ltdc.set_buffer(LtdcLayer::Layer1, fb_ptr as *const _)
-        .await
-        .unwrap();
+    ltdc.set_buffer(LtdcLayer::Layer1, fb_ptr as *const _).await.unwrap();
 
+    let frame_ms = FRAME_INTERVAL.as_millis() as u64;
     loop {
         let touch = rvt50_board::read_touch(&mut i2c);
         ui.set_touch(touch.x, touch.y, touch.pressed);
-        lvgl::tick_and_run(5);
+        ui.tick_and_run(frame_ms);
 
         for i in 0..BUTTON_COUNT {
             ui.set_button_active(i, touch_can::button_status(i));
         }
 
-        ltdc.set_buffer(LtdcLayer::Layer1, fb_ptr as *const _)
-            .await
-            .unwrap();
+        ltdc.set_buffer(LtdcLayer::Layer1, fb_ptr as *const _).await.unwrap();
 
-        Timer::after(Duration::from_millis(5)).await;
+        Timer::after(FRAME_INTERVAL).await;
     }
 }
 

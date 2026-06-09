@@ -1,0 +1,134 @@
+[package]
+name = "lvgl"
+description = "LVGL bindings for Rust. A powerful and easy-to-use embedded GUI with many widgets, advanced visual effects (opacity, antialiasing, animations) and low memory requirements (16K RAM, 64K Flash)."
+version = "0.6.2"
+authors = ["Rafael Caricio <crates.lvgl@caric.io>", "Nia Espera <a5b6@riseup.net>"]
+edition = "2021"
+repository = "https://github.com/rafaelcaricio/lvgl-rs"
+license = "MIT"
+readme = "../README.md"
+categories = ["api-bindings", "embedded", "gui", "no-std"]
+keywords = ["littlevgl", "lvgl", "graphical_interfaces"]
+build = "build.rs"
+
+[dependencies]
+lvgl-sys = { version = "0.6.2", path = "../lvgl-sys" }
+cty = "0.2.2"
+embedded-graphics = { version = "0.8.0", optional = true }
+cstr_core = { version = "0.2.6", default-features = false, features = ["alloc"] }
+bitflags = "2.3.2"
+paste = "1.0.12"
+ctor = "0.2.2"
+
+[features]
+default = ["embedded_graphics", "drivers"]
+
+# Enable the embedded_graphics crate as a backend for graphics and input
+# devices. This is the 'legacy' method (supported in LVGL 0.5.2 and below) and
+# requires some manual configuration. See the examples directory for usage
+# examples, and see the documentation on Display and on input devices.
+embedded_graphics = ["embedded-graphics"]
+
+# Enable interop with the lv_drivers project as a graphics and input backend.
+# See the documentation on the drivers module, and the sdl example for a
+# practical example.
+drivers = ["lvgl-sys/drivers"]
+
+# Enable using the alloc crate internally on platforms that support it. Check
+# if your platform supports this crate before enabling.
+alloc = ["cstr_core/alloc"]
+
+# Sets the LVGL allocator as Rust's global allocator. This places ALL memory in
+# LVGL-handled space, and may require growing the memory pool in lv_conf.h
+# above the default.
+lvgl_alloc = ["alloc"]
+
+# Ignores the DEP_LV_CONFIG_PATH environment variable and instead selects the
+# LVGL config that comes bundled with the lvgl-sys crate. Useful if you don't
+# need any extra features, but the default config is quite conservative.
+use-vendored-config = ["lvgl-sys/use-vendored-config"]
+
+# Enables using a custom tick function in Rust for LVGL. See the documentation
+# on the timer module for usage notes.
+rust_timer = ["lvgl-sys/rust_timer"]
+
+# Enables using a custom tick function supplied in lv_conf.h
+custom_timer = ["lvgl-sys/custom_timer"]
+
+# Enables some unstable features. Currently, #![feature(cfg_accessible)] and
+# #![feature(error_in_core)] are used.
+# This feature will currently allow:
+# - Using built-in LVGL fonts other than the default
+# - Handling LvErrors/LvResults with error-handling libraries i.e. anyhow
+nightly = []
+
+# Disables auto-initializing LVGL.
+# !!! WARNING !!!
+# Enabling this feature and forgetting to call lvgl::init() before doing
+# anything at all with LVGL *will* cause undefined behaviour and probably a
+# segault. Only enable this if you're really, seriously, absolutely certain
+# that you need it. Unless you're doing something particularly exotic, this is
+# *not* needed, nor would it make anything measurably faster.
+#
+# However, if you're running baremetal or on a platform that ctor doesn't
+# support (https://github.com/mmastrac/rust-ctor/blob/master/ctor/src/lib.rs),
+# this feature should be enabled. Remember to call lvgl::init() in your main
+# function before constructing or using anything LVGL-related.
+unsafe_no_autoinit = []
+
+# This feature is required to use the custom allocator in lvgl (`LV_MEM_CUSTOM=1` in `lv_conf.h`).
+custom_allocator = []
+
+[build-dependencies]
+quote = "1.0.23"
+proc-macro2 = "1.0.51"
+lvgl-codegen = { version = "0.6.2", path = "../lvgl-codegen" }
+lvgl-sys = { version = "0.6.2", path = "../lvgl-sys" }
+
+[dev-dependencies]
+embedded-graphics-simulator = "0.5.0"
+
+[[example]]
+name = "app"
+path = "../examples/app.rs"
+required-features = ["alloc", "embedded_graphics"]
+
+[[example]]
+name = "demo"
+path = "../examples/demo.rs"
+required-features = ["alloc", "embedded_graphics"]
+
+[[example]]
+name = "bar"
+path = "../examples/bar.rs"
+required-features = ["alloc", "embedded_graphics"]
+
+[[example]]
+name = "button_click"
+path = "../examples/button_click.rs"
+required-features = ["alloc", "embedded_graphics"]
+
+[[example]]
+name = "meter"
+path = "../examples/meter.rs"
+required-features = ["alloc", "embedded_graphics"]
+
+[[example]]
+name = "arc"
+path = "../examples/arc.rs"
+required-features = ["alloc", "embedded_graphics"]
+
+[[example]]
+name = "sdl"
+path = "../examples/sdl.rs"
+required-features = ["alloc", "drivers"]
+
+[[example]]
+name = "rust_timer"
+path = "../examples/rust_timer.rs"
+required-features = ["alloc", "embedded_graphics", "rust_timer"]
+
+[[example]]
+name = "animation"
+path = "../examples/animation.rs"
+required-features = ["alloc", "embedded_graphics"]
