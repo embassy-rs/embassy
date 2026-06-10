@@ -161,6 +161,12 @@ bind_interrupts!(pub struct ButtonIrqs {
     EXTI3 => exti::InterruptHandler<interrupt::typelevel::EXTI3>;
 });
 
+/// Interrupt binding for the capacitive touch panel INT line (`CTP_INT` / PE6).
+#[cfg(feature = "touch")]
+bind_interrupts!(pub struct TouchIrqs {
+    EXTI6 => exti::InterruptHandler<interrupt::typelevel::EXTI6>;
+});
+
 /// Initialize system, LTDC, and FDCAN clocks for the Riverdi 5" panel (~25 MHz pixel clock).
 pub fn init_clocks() -> Peripherals {
     let mut config = Config::default();
@@ -265,6 +271,9 @@ pub struct DisplayResources {
     pub ltdc: Ltdc<'static, peripherals::LTDC, ltdc::Rgb565>,
     #[cfg(feature = "touch")]
     pub i2c: I2c<'static, Blocking, i2c::Master>,
+    /// EXTI input on `CTP_INT` (PE6, active-low). Asserts on touch events.
+    #[cfg(feature = "touch")]
+    pub touch_int: ExtiInput<'static, Async>,
 }
 
 async fn reset_panel(reset: Peri<'static, impl Pin>) {
@@ -307,6 +316,8 @@ pub async fn init_display(p: Peripherals) -> DisplayResources {
         PH7,
         PB14,
         PE3,
+        PE6,
+        EXTI6,
         PG13,
         PG14,
         I2C1,
@@ -383,8 +394,10 @@ pub async fn init_display(p: Peripherals) -> DisplayResources {
         Timer::after(Duration::from_millis(10)).await;
 
         let i2c = I2c::new_blocking(I2C1, PG14, PG13, I2cConfig::default());
-        info!("LTDC and touch I2C initialized");
-        return DisplayResources { ltdc, i2c };
+        // CTP_INT (PE6) is active-low: controller pulls it down on each touch event.
+        let touch_int = ExtiInput::new(PE6, EXTI6, Pull::Up, TouchIrqs);
+        info!("LTDC, touch I2C and CTP_INT interrupt initialized");
+        return DisplayResources { ltdc, i2c, touch_int };
     }
 
     #[cfg(not(feature = "touch"))]
