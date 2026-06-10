@@ -44,6 +44,16 @@ This will:
 - `hello_world.rs` - Simple hello world that prints messages via RTT
 - `gpio.rs` - Poll the user button (`PH3`) and flash the user LED (`PE5`)
 - `can_raw.rs` - FDCAN demo on connector P5 (pattern TX + LED state RX)
+- `rlvgl_demo.rs` - Minimal [rlvgl](https://github.com/SoftOboros/rlvgl) UI (label + tappable button)
+
+### rlvgl demo
+
+The `rlvgl_demo` binary uses **rlvgl 0.2.1** with an Embassy LTDC RGB565 backend. It draws a title and a counter button on the 800×480 panel.
+
+```bash
+cargo run --bin rlvgl_demo --features rlvgl
+cargo run --bin rlvgl_demo --features rlvgl,touch   # capacitive touch input
+```
 
 ## Configuration
 

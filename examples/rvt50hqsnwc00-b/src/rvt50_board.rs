@@ -17,6 +17,11 @@ use embassy_stm32::time::Hertz;
 use embassy_stm32::{bind_interrupts, can, peripherals, Config, Peri, Peripherals, rcc};
 use embassy_time::{Duration, Timer};
 
+#[cfg(feature = "touch")]
+use embassy_stm32::i2c::{self, Config as I2cConfig, I2c};
+#[cfg(feature = "touch")]
+use embassy_stm32::mode::Blocking;
+
 pub const DISPLAY_WIDTH: usize = 800;
 pub const DISPLAY_HEIGHT: usize = 480;
 
@@ -51,6 +56,10 @@ pub fn can_frame_standard_id(frame: &can::frame::Frame) -> Option<u16> {
 pub fn can_led_state_from_payload(data: &[u8]) -> Option<bool> {
     data.first().map(|byte| byte & 1 != 0)
 }
+
+/// Capacitive touch controller on I2C1 (7-bit address), touch-panel variants only.
+#[cfg(feature = "touch")]
+pub const TOUCH_I2C_ADDR: u8 = 0x41;
 
 /// Board layout and pin assignments from BD_50STM32U5 Rev.1.1.
 pub mod pins {
@@ -254,6 +263,8 @@ pub fn init_can(
 
 pub struct DisplayResources {
     pub ltdc: Ltdc<'static, peripherals::LTDC, ltdc::Rgb565>,
+    #[cfg(feature = "touch")]
+    pub i2c: I2c<'static, Blocking, i2c::Master>,
 }
 
 async fn reset_panel(reset: Peri<'static, impl Pin>) {
@@ -268,8 +279,41 @@ fn init_backlight(pin: Peri<'static, impl Pin>) {
     backlight.set_high();
 }
 
-/// Initialize LTDC, panel reset, and backlight.
+/// Initialize LTDC, panel reset, backlight, and optionally touch I2C.
 pub async fn init_display(p: Peripherals) -> DisplayResources {
+    #[cfg(feature = "touch")]
+    let Peripherals {
+        LTDC,
+        PD3,
+        PE0,
+        PD13,
+        PF11,
+        PD15,
+        PD0,
+        PD1,
+        PE7,
+        PE8,
+        PE9,
+        PE10,
+        PE11,
+        PE12,
+        PE13,
+        PE14,
+        PD8,
+        PD9,
+        PD10,
+        PD11,
+        PD12,
+        PH7,
+        PB14,
+        PE3,
+        PG13,
+        PG14,
+        I2C1,
+        ..
+    } = p;
+
+    #[cfg(not(feature = "touch"))]
     let Peripherals {
         LTDC,
         PD3,
@@ -328,6 +372,72 @@ pub async fn init_display(p: Peripherals) -> DisplayResources {
     );
     ltdc.init(&ltdc_configuration());
 
-    info!("LTDC initialized");
-    DisplayResources { ltdc }
+    #[cfg(feature = "touch")]
+    {
+        let mut touch_reset = Output::new(PE3, Level::Low, Speed::Low);
+        touch_reset.set_high();
+        Timer::after(Duration::from_millis(10)).await;
+        touch_reset.set_low();
+        Timer::after(Duration::from_millis(10)).await;
+        touch_reset.set_high();
+        Timer::after(Duration::from_millis(10)).await;
+
+        let i2c = I2c::new_blocking(I2C1, PG14, PG13, I2cConfig::default());
+        info!("LTDC and touch I2C initialized");
+        return DisplayResources { ltdc, i2c };
+    }
+
+    #[cfg(not(feature = "touch"))]
+    {
+        info!("LTDC initialized");
+        DisplayResources { ltdc }
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct TouchPoint {
+    pub x: u16,
+    pub y: u16,
+    pub pressed: bool,
+    /// `true` when the last I2C read succeeded.
+    pub i2c_ok: bool,
+    /// First byte returned by the touch read (register 0x10), for debug logging.
+    pub raw_status: u8,
+}
+
+/// Read touch coordinates (Riverdi reference port / `lvgl_touch` demo protocol).
+///
+/// Register `0x10` is read over I2C; contact is inferred from the status byte
+/// and coordinates (not from I2C success alone). Idle reads return `raw` `0x00`
+/// or `0xFE` and coordinates parked at the panel edge.
+#[cfg(feature = "touch")]
+pub fn read_touch(i2c: &mut I2c<'static, Blocking, i2c::Master>) -> TouchPoint {
+    let mut data = [0u8; 16];
+    match i2c.blocking_write_read(TOUCH_I2C_ADDR, &[0x10], &mut data) {
+        Ok(()) => {
+            let raw_status = data[0];
+            let x = u16::from(data[3] & 0x0F) << 8 | u16::from(data[2]);
+            let y = u16::from(data[5] & 0x0F) << 8 | u16::from(data[4]);
+            let x = x.min(DISPLAY_WIDTH as u16 - 1);
+            let y = y.min(DISPLAY_HEIGHT as u16 - 1);
+            let pressed = touch_is_active(raw_status, x, y);
+            TouchPoint {
+                x,
+                y,
+                pressed,
+                i2c_ok: true,
+                raw_status,
+            }
+        }
+        Err(_) => TouchPoint::default(),
+    }
+}
+
+#[cfg(feature = "touch")]
+fn touch_is_active(raw_status: u8, x: u16, y: u16) -> bool {
+    if raw_status == 0x00 || raw_status == 0xFE {
+        return false;
+    }
+    // Idle/no-contact reads on the RVT50 panel park at the bottom-right pixel.
+    x < DISPLAY_WIDTH as u16 - 1 || y < DISPLAY_HEIGHT as u16 - 1
 }

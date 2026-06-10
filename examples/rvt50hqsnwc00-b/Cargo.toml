@@ -25,9 +25,20 @@ embedded-can = "0.4"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 static_cell = "2"
 
+# rlvgl (pure-Rust LVGL reimplementation)
+rlvgl = { version = "0.2.1", default-features = false, optional = true }
+embedded-alloc = { version = "0.6.0", features = ["llff"], optional = true }
+
 ## Use secure registers when TrustZone is enabled
 [features]
+default = []
+rlvgl = ["dep:rlvgl", "dep:embedded-alloc"]
+touch = []
 trustzone-secure = ["embassy-stm32/trustzone-secure"]
+
+[[bin]]
+name = "rlvgl_demo"
+required-features = ["rlvgl"]
 
 [profile.release]
 debug = 2
