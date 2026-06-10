@@ -119,6 +119,12 @@ pub fn sync_back_from_front() {
     }
 }
 
+/// Pointer to the framebuffer currently shown on LTDC (before the next swap).
+pub fn front_framebuffer() -> *const u16 {
+    // SAFETY: only the UI task touches these static mut buffers.
+    front_ptr() as *const u16
+}
+
 /// Swap LTDC buffers and return the pointer to the newly visible framebuffer.
 pub fn present_framebuffer() -> *const u16 {
     // SAFETY: only the UI task touches these static mut buffers.
