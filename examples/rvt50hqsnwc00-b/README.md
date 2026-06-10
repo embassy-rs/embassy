@@ -45,7 +45,22 @@ This will:
 - `gpio.rs` - Poll the user button (`PH3`) and flash the user LED (`PE5`)
 - `can_raw.rs` - FDCAN demo on connector P5 (pattern TX + LED state RX)
 - `rlvgl_demo.rs` - Minimal [rlvgl](https://github.com/SoftOboros/rlvgl) UI (label + tappable button)
-- `widget_demo.rs` - Multi-widget LVGL-style demo (label, button, slider, bar, switch, checkbox)
+- `widget_demo.rs` - Multi-widget **rlvgl** demo (label, button, slider, bar, switch, checkbox)
+- `oxivgl_widget_demo.rs` - Multi-widget **OxivGL** demo (real C LVGL v9.5 via [oxivgl](https://github.com/emobotics-dev/oxivgl))
+
+### UI stacks (`rlvgl` vs `oxivgl`)
+
+| Feature | Library | Toolchain | Description |
+|---------|---------|-----------|-------------|
+| `rlvgl` | [rlvgl](https://github.com/SoftOboros/rlvgl) | Stable Rust 1.92+ | Pure-Rust LVGL-style UI on Embassy LTDC |
+| `oxivgl` | [oxivgl](https://github.com/emobotics-dev/oxivgl) | **Nightly** (see `rust-toolchain.toml`) | C LVGL v9.5 — same generation as [Riverdi's Cube LVGL port](https://github.com/riverdi/riverdi-50-stm32u5-lvgl) |
+
+Enable **one** UI feature per binary, e.g. `--features rlvgl` or `--features oxivgl`.
+
+OxivGL builds also need:
+
+- `arm-none-eabi-gcc` and `libnewlib-arm-none-eabi` (LVGL is compiled from source by `oxivgl-sys`)
+- **Nightly Rust** (`rust-toolchain.toml` in this crate)
 
 ### rlvgl demo
 
@@ -56,16 +71,27 @@ cargo run --bin rlvgl_demo --features rlvgl
 cargo run --bin rlvgl_demo --features rlvgl,touch   # capacitive touch input
 ```
 
-### Widget demo
-
-The `widget_demo` binary showcases several rlvgl widgets on the 800×480 panel — the Embassy/Rust counterpart to widget examples in Riverdi's [riverdi-50-stm32u5-lvgl](https://github.com/riverdi/riverdi-50-stm32u5-lvgl) Cube project (`Middlewares/Third_Party/LVGL`).
+### rlvgl widget demo
 
 ```bash
 cargo run --bin widget_demo --features rlvgl
 cargo run --bin widget_demo --features rlvgl,touch
 ```
 
-> **Note:** [OxivGL](https://github.com/emobotics-dev/oxivgl) (safe Rust bindings over C LVGL v9.5) currently targets ESP32 and host SDL2. This example uses **rlvgl**, the pure-Rust LVGL-style library already integrated with Embassy LTDC on the RVT50.
+### OxivGL widget demo
+
+Real LVGL v9.5 via OxivGL, with `conf/lv_conf.h` and an STM32U5 LTDC flush driver in `src/oxivgl/`.
+
+```bash
+cargo run --bin oxivgl_widget_demo --features oxivgl
+cargo run --bin oxivgl_widget_demo --features oxivgl,touch
+```
+
+Optional: point `LVGL_SRC_DIR` at Riverdi's vendored tree when building:
+
+```bash
+export LVGL_SRC_DIR=/path/to/riverdi-50-stm32u5-lvgl/Middlewares/Third_Party/LVGL
+```
 
 ## Configuration
 

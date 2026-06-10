@@ -25,14 +25,19 @@ embedded-can = "0.4"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 static_cell = "2"
 
-# rlvgl (pure-Rust LVGL reimplementation)
+# rlvgl — pure-Rust LVGL-style UI (no C LVGL)
 rlvgl = { version = "0.2.1", default-features = false, optional = true }
+# oxivgl — safe Rust bindings over C LVGL v9.5 (Riverdi Cube-compatible sources)
+oxivgl = { version = "0.1.2", default-features = false, optional = true }
+oxivgl-sys = { version = "0.1.2", default-features = false, optional = true }
 embedded-alloc = { version = "0.6.0", features = ["llff"], optional = true }
 
 ## Use secure registers when TrustZone is enabled
 [features]
 default = []
+# Pick one UI stack per binary (rlvgl *or* oxivgl).
 rlvgl = ["dep:rlvgl", "dep:embedded-alloc"]
+oxivgl = ["dep:oxivgl", "dep:oxivgl-sys", "dep:embedded-alloc"]
 touch = []
 trustzone-secure = ["embassy-stm32/trustzone-secure"]
 
@@ -44,8 +49,19 @@ required-features = ["rlvgl"]
 name = "widget_demo"
 required-features = ["rlvgl"]
 
+[[bin]]
+name = "oxivgl_widget_demo"
+required-features = ["oxivgl"]
+
 [profile.release]
 debug = 2
+
+# Align oxivgl's embassy crates with this example's path dependencies.
+[patch.crates-io]
+embassy-time = { path = "../../embassy-time" }
+embassy-sync = { path = "../../embassy-sync" }
+oxivgl = { path = "vendor/oxivgl" }
+oxivgl-sys = { path = "vendor/oxivgl-sys" }
 
 [package.metadata.embassy]
 build = [

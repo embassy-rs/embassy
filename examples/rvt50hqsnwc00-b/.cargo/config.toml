@@ -10,3 +10,5 @@ linker = "rust-lld"
 
 [env]
 DEFMT_LOG = "info"
+# Required by oxivgl-sys when building with `--features oxivgl`
+DEP_LV_CONFIG_PATH = { value = "conf", relative = true }

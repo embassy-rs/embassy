@@ -1,0 +1,36 @@
+[package]
+name = "oxivgl-sys"
+version = "0.1.2"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Raw LVGL v9.5 FFI bindings for oxivgl — compiled from source with bindgen"
+repository = "https://github.com/emobotics-dev/oxivgl"
+homepage = "https://github.com/emobotics-dev/oxivgl"
+documentation = "https://docs.rs/oxivgl-sys"
+keywords = ["lvgl", "ffi", "embedded-gui", "esp32", "no-std"]
+categories = ["external-ffi-bindings", "no-std"]
+links = "lv"
+build = "build.rs"
+include = ["src/**", "shims/**", "default-conf/**", "bindings_docsrs.rs", "build.rs", "Cargo.toml", "LICENSE-*"]
+
+[features]
+default = ["use-string-functions"]
+drivers = []
+rust_timer = []
+use-string-functions = []
+
+[build-dependencies]
+bindgen = { version = "0.72.1", features = ["experimental"] }
+cc = "1"
+flate2 = "1"
+pkg-config = "0.3"
+sha2 = "0.10"
+tar = "0.4"
+ureq = "3"
+
+[package.metadata.docs.rs]
+features = []
+targets = ["x86_64-unknown-linux-gnu"]
+no-default-features = true
+
+[workspace]

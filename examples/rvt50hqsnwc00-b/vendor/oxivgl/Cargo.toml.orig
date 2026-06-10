@@ -1,0 +1,80 @@
+# SPDX-License-Identifier: MIT OR Apache-2.0
+[package]
+name = "oxivgl"
+edition = "2024"
+version = "0.1.2"
+license = "MIT OR Apache-2.0"
+description = "Safe no_std Rust bindings for LVGL — embedded GUI on ESP32 and host SDL2"
+repository = "https://github.com/emobotics-dev/oxivgl"
+homepage = "https://github.com/emobotics-dev/oxivgl"
+documentation = "https://docs.rs/oxivgl"
+readme = "README.md"
+keywords = ["lvgl", "embedded-gui", "esp32", "no-std", "ui"]
+authors = ["emobotics-dev"]
+categories = ["embedded", "no-std", "gui"]
+exclude = [
+    ".devcontainer/",
+    ".github/",
+    "CLAUDE.md",
+    "docs/",
+    "examples/doc/screenshots/",
+    "examples/common/",
+    "run_*.sh",
+]
+
+[package.metadata.docs.rs]
+features = ["log-04", "png"]
+targets = ["x86_64-unknown-linux-gnu"]
+no-default-features = true
+
+[lib]
+
+[features]
+default = []
+esp-hal = ["dep:esp-hal"]
+esp32 = ["esp-hal/esp32"]
+defmt = ["dep:defmt"]
+log-04 = ["dep:log-04"]
+png = ["dep:png"]
+
+[dependencies]
+oxivgl_sys = { package = "oxivgl-sys", version = "0.1.2", path = "oxivgl-sys", default-features = false }
+embassy-sync = "0.7.2"
+embassy-time = "0.5.0"
+heapless = { version = "0.9.1", features = ["nightly"] }
+cfg-if = "1"
+thiserror-no-std = "2.0.2"
+critical-section = "1"
+esp-hal = { version = "1.0.0", features = ["unstable"], optional = true }
+defmt = { version = "1.0.1", optional = true }
+log-04 = { package = "log", version = "0.4", optional = true }
+png = { version = "0.17", optional = true }
+
+[build-dependencies]
+oxivgl-build = { version = "0.1.0", path = "oxivgl-build" }
+
+[workspace]
+exclude = ["examples/common", "oxivgl-build", "oxivgl-sys"]
+
+[dev-dependencies]
+oxivgl-examples-common = { path = "examples/common" }
+oxivgl_sys = { package = "oxivgl-sys", version = "0.1.2", path = "oxivgl-sys", default-features = false }
+
+# Proc-macro crates needed by fire27_main! attribute/macro expansion on xtensa
+[target.'cfg(target_arch = "xtensa")'.dev-dependencies]
+embassy-executor       = { version = "0.9.1", features = ["nightly"] }
+esp-bootloader-esp-idf = { version = "0.4.0", features = ["esp32"] }
+esp-hal                = { version = "=1.0.0", features = ["esp32", "unstable"] }
+esp-rtos               = { version = "0.2.0", features = ["esp32", "embassy"] }
+
+[profile.dev]
+opt-level = "s"
+
+[profile.release]
+codegen-units = 1
+debug = 2
+debug-assertions = false
+incremental = false
+lto = "fat"
+opt-level = "s"
+overflow-checks = true
