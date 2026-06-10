@@ -15,6 +15,8 @@ use embassy_stm32::rcc::*;
 use embassy_stm32::{bind_interrupts, interrupt};
 use {defmt_rtt as _, panic_probe as _};
 
+const MEASURE_POWER: bool = true;
+
 bind_interrupts!(
     pub struct Irqs {
         EXTI13 => exti::InterruptHandler<interrupt::typelevel::EXTI13>;
@@ -37,12 +39,22 @@ async fn main(_spawner: Spawner) {
         lse: None,
     };
 
-    // Disable debug peripherals during STOP to minimise leakage.
-    // Set to `true` when debugging with probe-rs / RTT.
-    config.enable_debug_during_sleep = false;
+    if MEASURE_POWER {
+        // Lowest leakage profile for current measurements.
+        config.enable_debug_during_sleep = false;
+        config.min_stop_pause = embassy_time::Duration::from_millis(100);
+    } else {
+        // Easier debug/reflash profile, but with higher STOP current.
+        config.enable_debug_during_sleep = true;
+        config.min_stop_pause = embassy_time::Duration::from_millis(20);
+    }
 
     let p = embassy_stm32::init(config);
     info!("Hello from STM32WBA low-power button example!");
+    info!(
+        "Power profile: {}",
+        if MEASURE_POWER { "measurement" } else { "debug-friendly" }
+    );
     info!("Press the USER button (PC13)...");
 
     let mut button = ExtiInput::new(p.PC13, p.EXTI13, Pull::Up, Irqs);
