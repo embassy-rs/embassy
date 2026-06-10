@@ -10,8 +10,8 @@ use core::slice;
 use oxivgl::display::{LvglBuffers, DISPLAY_READY};
 use oxivgl_sys::{
     lv_area_t, lv_display_create, lv_display_flush_ready, lv_display_set_buffers,
-    lv_display_set_color_format, lv_display_set_flush_cb, lv_display_t,
-    lv_color_format_t_LV_COLOR_FORMAT_RGB565,
+    lv_display_set_color_format, lv_display_set_default, lv_display_set_flush_cb,
+    lv_display_t, lv_color_format_t_LV_COLOR_FORMAT_RGB565,
     lv_display_render_mode_t_LV_DISPLAY_RENDER_MODE_PARTIAL,
 };
 
@@ -103,6 +103,7 @@ pub unsafe fn lvgl_disp_init_ltdc<const BYTES: usize>(
             lv_display_render_mode_t_LV_DISPLAY_RENDER_MODE_PARTIAL,
         );
         lv_display_set_flush_cb(disp, Some(flush_callback));
+        lv_display_set_default(disp);
         LVGL_DISP = disp;
         DISPLAY_READY.signal(());
         disp

@@ -2,10 +2,12 @@
 
 extern crate alloc;
 
-use oxivgl::enums::{EventCode, ObjState};
+use defmt::info;
+use oxivgl::enums::{EventCode, ObjFlag, ObjState};
 use oxivgl::event::Event;
 use oxivgl::view::{register_event_on, NavAction, View};
 use oxivgl::widgets::{Bar, Button, Checkbox, Label, Obj, Slider, Switch, WidgetError};
+use oxivgl_sys::lv_screen_active;
 
 /// Multi-widget demo inspired by LVGL `lv_demo_widgets` / OxivGL examples.
 #[derive(Default)]
@@ -36,12 +38,19 @@ impl View for WidgetView {
             .text_color(0x96AACC);
 
         let btn = Button::new(container)?;
-        btn.size(180, 52).pos(24, 90).bubble_events();
+        btn.size(180, 52)
+            .pos(24, 90)
+            .add_flag(ObjFlag::CLICKABLE)
+            .bubble_events();
         let btn_label = Label::new(&btn)?;
         btn_label.text("Tap counter").center();
 
         let slider = Slider::new(container)?;
-        slider.size(320, 20).pos(24, 170);
+        slider
+            .size(320, 20)
+            .pos(24, 170)
+            .add_flag(ObjFlag::CLICKABLE)
+            .bubble_events();
         slider.set_value(35);
 
         let bar = Bar::new(container)?;
@@ -49,10 +58,17 @@ impl View for WidgetView {
         bar.set_range(100.0).set_value(35.0);
 
         let switch = Switch::new(container)?;
-        switch.pos(24, 270);
+        switch
+            .pos(24, 270)
+            .add_flag(ObjFlag::CLICKABLE)
+            .bubble_events();
 
         let checkbox = Checkbox::new(container)?;
-        checkbox.text("Highlight panel").pos(24, 320);
+        checkbox
+            .text("Highlight panel")
+            .pos(24, 320)
+            .add_flag(ObjFlag::CLICKABLE)
+            .bubble_events();
 
         let info = Label::new(container)?;
         info.text("Interact with the widgets…")
@@ -69,6 +85,10 @@ impl View for WidgetView {
     }
 
     fn register_events(&mut self) {
+        // Screen-level handler catches bubbled events from children.
+        // SAFETY: lv_init() completed; screen is active.
+        register_event_on(self, unsafe { lv_screen_active() });
+
         if let Some(ref btn) = self._btn {
             register_event_on(self, btn.handle());
         }
@@ -84,12 +104,17 @@ impl View for WidgetView {
     }
 
     fn on_event(&mut self, event: &Event) -> NavAction {
-        match event.code() {
-            EventCode::CLICKED => {
+        let code = event.code();
+        match code {
+            EventCode::CLICKED
+            | EventCode::SHORT_CLICKED
+            | EventCode::SINGLE_CLICKED => {
+                info!("oxivgl widget click ({:?})", code.0);
                 self.clicks += 1;
                 self.refresh_info();
             }
             EventCode::VALUE_CHANGED => {
+                info!("oxivgl widget value changed");
                 if let (Some(slider), Some(bar)) = (self._slider.as_ref(), self.bar.as_ref()) {
                     let _ = bar.set_value(slider.get_value() as f32);
                 }

@@ -4,11 +4,12 @@ extern crate alloc;
 
 use embassy_stm32::ltdc::{self, Ltdc, LtdcLayer, LtdcLayerConfig};
 use embassy_stm32::peripherals;
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Instant, Timer};
 use oxivgl::display::{LvglBuffers, DISPLAY_READY};
 use oxivgl::driver::LvglDriver;
 use oxivgl::view::{register_view_events, View};
 use oxivgl_sys::{lv_obj_t, lv_screen_active, LV_DEF_REFR_PERIOD};
+use static_cell::StaticCell;
 
 use crate::oxivgl::display::{
     lvgl_disp_init_ltdc, lvgl_display, prefill_background, present_framebuffer,
@@ -18,10 +19,14 @@ use crate::oxivgl::widget_view::WidgetView;
 use crate::rvt50_board::DISPLAY_WIDTH;
 
 const LVGL_TICK_MS: u64 = LV_DEF_REFR_PERIOD as u64 / 4;
+const TOUCH_POLL_MS: u64 = 5;
+const PRESENT_MS: u64 = 33;
 
 /// OxivGL stripe buffer height (lines × width × 2 bytes per stripe buffer).
 pub const COLOR_BUF_LINES: usize = 20;
 pub const LVGL_BUF_BYTES: usize = crate::rvt50_board::DISPLAY_WIDTH * COLOR_BUF_LINES * 2;
+
+static VIEW: StaticCell<WidgetView> = StaticCell::new();
 
 async fn init_ltdc_layer(ltdc: &mut Ltdc<'static, peripherals::LTDC, ltdc::Rgb565>) {
     let layer_config = LtdcLayerConfig {
@@ -54,16 +59,15 @@ fn publish_board_touch(
     let was_pressed = unsafe { TOUCH_WAS_PRESSED };
     if touch.pressed && !was_pressed {
         info!(
-            "oxivgl touch down x={} y={} raw=0x{:02x} i2c_ok={}",
+            "oxivgl touch down x={} y={} raw=0x{:02x}",
             touch.x,
             touch.y,
-            touch.raw_status,
-            touch.i2c_ok
+            touch.raw_status
         );
     } else if !touch.pressed && was_pressed {
         info!("oxivgl touch up");
     }
-  // SAFETY: UI task only.
+    // SAFETY: UI task only.
     unsafe {
         TOUCH_WAS_PRESSED = touch.pressed;
     }
@@ -72,6 +76,17 @@ fn publish_board_touch(
         y: touch.y as i32,
         pressed: touch.pressed,
     });
+}
+
+#[cfg(feature = "touch")]
+fn pump_pointer_input(
+    i2c: &mut embassy_stm32::i2c::I2c<
+        'static,
+        embassy_stm32::mode::Blocking,
+        embassy_stm32::i2c::Master,
+    >,
+) {
+    publish_board_touch(i2c);
 }
 
 /// Run the OxivGL widget demo (touch optional via `touch` feature).
@@ -108,7 +123,8 @@ pub async fn run_widget_demo(
         let _indev = unsafe { crate::oxivgl::indev::register_pointer_indev(disp) };
     }
 
-    let mut view = WidgetView::default();
+    // Stable address for LVGL event trampolines (must not move after registration).
+    let view = VIEW.init(WidgetView::default());
     let screen = unsafe { lv_screen_active() };
     assert!(!screen.is_null());
     let container = oxivgl::widgets::Obj::from_raw_non_owning(screen as *mut lv_obj_t);
@@ -118,25 +134,38 @@ pub async fn run_widget_demo(
             Timer::after(Duration::from_secs(60)).await;
         }
     }
-    register_view_events(&mut view);
+    register_view_events(view);
+
+    let mut last_present = Instant::now();
 
     loop {
-        sync_back_from_front();
-
-        for _ in 0..4 {
-            #[cfg(feature = "touch")]
-            if let Some(i2c) = i2c.as_mut() {
-                publish_board_touch(i2c);
-            }
-
-            driver.timer_handler();
-            Timer::after(Duration::from_millis(LVGL_TICK_MS)).await;
+        #[cfg(feature = "touch")]
+        if let Some(i2c) = i2c.as_mut() {
+            pump_pointer_input(i2c);
         }
 
-        let _ = view.update();
+        driver.timer_handler();
 
-        let fb_ptr = present_framebuffer();
-        ltdc.init_buffer(LtdcLayer::Layer1, fb_ptr as *const _);
-        let _ = ltdc.reload().await;
+        if last_present.elapsed() >= Duration::from_millis(PRESENT_MS) {
+            sync_back_from_front();
+
+            for _ in 0..3 {
+                #[cfg(feature = "touch")]
+                if let Some(i2c) = i2c.as_mut() {
+                    pump_pointer_input(i2c);
+                }
+                driver.timer_handler();
+                Timer::after(Duration::from_millis(LVGL_TICK_MS)).await;
+            }
+
+            let _ = view.update();
+
+            let fb_ptr = present_framebuffer();
+            ltdc.init_buffer(LtdcLayer::Layer1, fb_ptr as *const _);
+            let _ = ltdc.reload().await;
+            last_present = Instant::now();
+        } else {
+            Timer::after(Duration::from_millis(TOUCH_POLL_MS)).await;
+        }
     }
 }
