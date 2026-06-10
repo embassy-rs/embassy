@@ -1,4 +1,7 @@
 //! STM32U5 LTDC display flush for OxivGL / LVGL v9.5 on the Riverdi RVT50.
+//!
+//! Uses two full-screen RGB565 buffers (like the rlvgl demos) instead of a
+//! separate shadow framebuffer, keeping RAM within the STM32U5A9 2.5 MiB budget.
 
 use core::ffi::c_void;
 use core::ptr;
@@ -16,15 +19,34 @@ use crate::rvt50_board::{DISPLAY_HEIGHT, DISPLAY_WIDTH};
 
 const FB_BYTES: usize = DISPLAY_WIDTH * DISPLAY_HEIGHT * 2;
 
-/// Full-screen shadow framebuffer LVGL partial flushes are composited into.
-static mut SHADOW_FB: [u8; FB_BYTES] = [0; FB_BYTES];
-
-/// Which LTDC buffer is currently being shown (toggled by the UI task).
+/// Which LTDC buffer is currently shown (0 or 1).
 static mut PRESENT_IDX: u8 = 0;
 
 /// Double full-screen buffers presented to LTDC (RGB565 byte pairs).
 static mut PRESENT_FB0: [u8; FB_BYTES] = [0; FB_BYTES];
 static mut PRESENT_FB1: [u8; FB_BYTES] = [0; FB_BYTES];
+
+fn front_ptr() -> *mut u8 {
+    unsafe {
+        if PRESENT_IDX == 0 {
+            ptr::addr_of_mut!(PRESENT_FB0)
+        } else {
+            ptr::addr_of_mut!(PRESENT_FB1)
+        }
+    }
+    .cast::<u8>()
+}
+
+fn back_ptr() -> *mut u8 {
+    unsafe {
+        if PRESENT_IDX == 0 {
+            ptr::addr_of_mut!(PRESENT_FB1)
+        } else {
+            ptr::addr_of_mut!(PRESENT_FB0)
+        }
+    }
+    .cast::<u8>()
+}
 
 /// Register LVGL display buffers and wire the LTDC flush callback.
 ///
@@ -57,23 +79,21 @@ pub unsafe fn lvgl_disp_init_ltdc<const BYTES: usize>(
     }
 }
 
-/// Copy the shadow framebuffer to the back LTDC buffer and return its pointer.
+/// Copy the visible buffer to the back buffer so partial LVGL flushes retain
+/// pixels outside the dirty regions.
+pub fn sync_back_from_front() {
+    // SAFETY: only the UI task touches these static mut buffers.
+    unsafe {
+        ptr::copy_nonoverlapping(front_ptr(), back_ptr(), FB_BYTES);
+    }
+}
+
+/// Swap LTDC buffers and return the pointer to the newly visible framebuffer.
 pub fn present_framebuffer() -> *const u16 {
     // SAFETY: only the UI task touches these static mut buffers.
     unsafe {
-        let next = 1 - PRESENT_IDX;
-        let dst_ptr = if next == 0 {
-            ptr::addr_of_mut!(PRESENT_FB0)
-        } else {
-            ptr::addr_of_mut!(PRESENT_FB1)
-        };
-        ptr::copy_nonoverlapping(
-            ptr::addr_of!(SHADOW_FB) as *const u8,
-            dst_ptr as *mut u8,
-            FB_BYTES,
-        );
-        PRESENT_IDX = next;
-        dst_ptr as *const u16
+        PRESENT_IDX = 1 - PRESENT_IDX;
+        front_ptr() as *const u16
     }
 }
 
@@ -100,9 +120,9 @@ unsafe extern "C" fn flush_callback(
     // SAFETY: px_map points at `w*h` RGB565 pixels supplied by LVGL.
     let src = unsafe { slice::from_raw_parts(px_map, row_bytes * h) };
 
-    // SAFETY: shadow framebuffer is only written from this LVGL flush callback.
+    // SAFETY: back buffer is only written from this LVGL flush callback.
     unsafe {
-        let shadow = ptr::addr_of_mut!(SHADOW_FB);
+        let back = back_ptr();
         for row in 0..h {
             let y = area.y1 as usize + row;
             if y >= DISPLAY_HEIGHT {
@@ -114,7 +134,7 @@ unsafe extern "C" fn flush_callback(
             if end <= FB_BYTES {
                 ptr::copy_nonoverlapping(
                     src[src_off..].as_ptr(),
-                    (*shadow).as_mut_ptr().add(dst_off),
+                    back.add(dst_off),
                     row_bytes,
                 );
             }

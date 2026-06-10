@@ -30,7 +30,8 @@ use embassy_time::Timer;
 use oxivgl::display::LvglBuffers;
 use {defmt_rtt as _, panic_probe as _};
 
-const HEAP_SIZE: usize = 384 * 1024;
+/// Match rlvgl demo heap sizing; LVGL also uses its built-in allocator in `lv_conf.h`.
+const HEAP_SIZE: usize = 256 * 1024;
 
 #[global_allocator]
 static HEAP: Heap = Heap::empty();

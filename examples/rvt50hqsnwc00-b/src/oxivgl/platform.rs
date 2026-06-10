@@ -10,14 +10,14 @@ use oxivgl::driver::LvglDriver;
 use oxivgl::view::{register_view_events, View};
 use oxivgl_sys::{lv_obj_t, lv_screen_active, LV_DEF_REFR_PERIOD};
 
-use crate::oxivgl::display::{lvgl_disp_init_ltdc, present_framebuffer};
+use crate::oxivgl::display::{lvgl_disp_init_ltdc, present_framebuffer, sync_back_from_front};
 use crate::oxivgl::widget_view::WidgetView;
 use crate::rvt50_board::DISPLAY_WIDTH;
 
 const LVGL_TICK_MS: u64 = LV_DEF_REFR_PERIOD as u64 / 4;
 
-/// OxivGL stripe buffer size (see `oxivgl::display::COLOR_BUF_LINES`).
-pub const COLOR_BUF_LINES: usize = 40;
+/// OxivGL stripe buffer height (lines × width × 2 bytes per stripe buffer).
+pub const COLOR_BUF_LINES: usize = 20;
 pub const LVGL_BUF_BYTES: usize = crate::rvt50_board::DISPLAY_WIDTH * COLOR_BUF_LINES * 2;
 
 async fn init_ltdc_layer(ltdc: &mut Ltdc<'static, peripherals::LTDC, ltdc::Rgb565>) {
@@ -88,6 +88,8 @@ pub async fn run_widget_demo(
         }
 
         let _ = view.update();
+
+        sync_back_from_front();
 
         for _ in 0..4 {
             driver.timer_handler();
