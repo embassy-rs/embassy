@@ -2,89 +2,146 @@
 
 extern crate alloc;
 
+use alloc::vec::Vec;
+
 use defmt::info;
-use oxivgl::enums::{EventCode, ObjFlag, ObjState};
+use oxivgl::enums::{EventCode, ObjFlag};
 use oxivgl::event::Event;
-use oxivgl::view::{register_event_on, NavAction, View};
-use oxivgl::widgets::{Bar, Button, Checkbox, Label, Obj, Screen, Slider, Switch, WidgetError};
+use oxivgl::fonts::{MONTSERRAT_14, MONTSERRAT_16};
+use oxivgl::style::Selector;
+use oxivgl::view::{NavAction, View, register_event_on};
+use oxivgl::widgets::{AsLvHandle, Button, Label, Obj, RADIUS_MAX, Screen, TextAlign, WidgetError};
 
 fn on_demo_button_click(_event: &Event) {
-    info!("oxivgl direct btn CLICKED (Obj::on)");
+    info!("oxivgl light scene direct button CLICKED");
 }
 
-/// Multi-widget demo inspired by LVGL `lv_demo_widgets` / OxivGL examples.
+const SCREEN_BG: u32 = 0xE7DCC8;
+const SURFACE: u32 = 0xFFFDF8;
+const CARD_BG: u32 = 0xFFFDF7;
+const CARD_BG_HIGHLIGHT: u32 = 0xFFF7E7;
+const BUTTON_BG: u32 = 0xFCF7EC;
+const BUTTON_BG_ACTIVE: u32 = 0xEEE8DB;
+const BUTTON_BG_PRESSED: u32 = 0xE8DDC8;
+const BORDER: u32 = 0xE4D8C3;
+const BORDER_ACTIVE: u32 = 0xC5BAA8;
+const TEXT: u32 = 0x151515;
+const MUTED: u32 = 0x665F54;
+const ACCENT: u32 = 0xA37418;
+const LOGO: u32 = 0x6F6A62;
+
+struct ColumnSpec {
+    eyebrow: &'static str,
+    title: &'static str,
+    buttons: [&'static str; 3],
+    highlight: bool,
+}
+
+const COLUMNS: [ColumnSpec; 5] = [
+    ColumnSpec {
+        eyebrow: "HALLE",
+        title: "Tribüne",
+        buttons: ["500 Lux", "300 Lux", "Aus"],
+        highlight: false,
+    },
+    ColumnSpec {
+        eyebrow: "FELD",
+        title: "Links",
+        buttons: ["500 Lux", "300 Lux", "Aus"],
+        highlight: false,
+    },
+    ColumnSpec {
+        eyebrow: "FELD",
+        title: "Mitte",
+        buttons: ["500 Lux", "300 Lux", "Aus"],
+        highlight: false,
+    },
+    ColumnSpec {
+        eyebrow: "FELD",
+        title: "Rechts",
+        buttons: ["500 Lux", "300 Lux", "Aus"],
+        highlight: false,
+    },
+    ColumnSpec {
+        eyebrow: "SAMMELBEFEHL",
+        title: "Alle Felder",
+        buttons: ["Alle\n500 Lux", "Alle\n300 Lux", "Zentral\nAus"],
+        highlight: true,
+    },
+];
+
+/// Stadium lighting scene demo styled after the protronic control mock-up.
 #[derive(Default)]
 pub struct WidgetView {
-    info_label: Option<Label<'static>>,
-    bar: Option<Bar<'static>>,
-    _slider: Option<Slider<'static>>,
-    _btn: Option<Button<'static>>,
-    _switch: Option<Switch<'static>>,
-    _checkbox: Option<Checkbox<'static>>,
+    labels: Vec<Label<'static>>,
+    buttons: Vec<Button<'static>>,
+    objects: Vec<Obj<'static>>,
     clicks: u32,
 }
 
 impl View for WidgetView {
     fn create(&mut self, container: &Obj<'static>) -> Result<(), WidgetError> {
-        container.bg_color(0x102030).bg_opa(255);
+        self.labels.clear();
+        self.buttons.clear();
+        self.objects.clear();
 
-        let title = Label::new(container)?;
-        title
-            .text("OxivGL on Riverdi RVT50")
-            .pos(24, 20)
-            .text_color(0xDCE6FF);
+        container.bg_color(SCREEN_BG).bg_opa(255).remove_scrollable().pad(0);
 
-        let subtitle = Label::new(container)?;
-        subtitle
-            .text("C LVGL v9.5 via oxivgl-sys — Embassy LTDC")
-            .pos(24, 48)
-            .text_color(0x96AACC);
+        let shell = Obj::new(container)?;
+        shell
+            .size(720, 430)
+            .pos(40, 25)
+            .bg_color(SURFACE)
+            .bg_opa(255)
+            .border_width(0)
+            .radius(18, Selector::DEFAULT)
+            .remove_scrollable()
+            .pad(0);
 
-        let btn = Button::new(container)?;
-        btn.size(180, 52)
-            .pos(24, 90)
-            .add_flag(ObjFlag::CLICKABLE)
-            .bubble_events();
-        let btn_label = Label::new(&btn)?;
-        btn_label.text("Tap counter").center();
-        btn.on(EventCode::CLICKED, on_demo_button_click);
+        self.labels.push(make_label(
+            &shell,
+            "LICHTSZENENMODUL",
+            12,
+            12,
+            250,
+            ACCENT,
+            LabelKind::Eyebrow,
+        )?);
 
-        let slider = Slider::new(container)?;
-        slider
-            .size(320, 20)
-            .pos(24, 170)
-            .add_flag(ObjFlag::CLICKABLE)
-            .bubble_events();
-        slider.set_value(35);
+        let badge = Obj::new(&shell)?;
+        badge
+            .size(110, 28)
+            .pos(305, 21)
+            .bg_color(SURFACE)
+            .bg_opa(255)
+            .border_width(1)
+            .radius(RADIUS_MAX, Selector::DEFAULT)
+            .remove_scrollable()
+            .pad(0);
+        set_border_color(&badge, BORDER, 255);
+        self.labels
+            .push(make_label(&badge, "Demo Halle", 0, 6, 110, MUTED, LabelKind::Body)?);
+        self.objects.push(badge);
 
-        let bar = Bar::new(container)?;
-        bar.size(320, 24).pos(24, 210);
-        bar.set_range(100.0).set_value(35.0);
+        self.labels
+            .push(make_label(&shell, "protronic", 585, 22, 105, LOGO, LabelKind::Logo)?);
+        let logo_dot = Obj::new(&shell)?;
+        logo_dot
+            .size(9, 9)
+            .pos(688, 18)
+            .bg_color(LOGO)
+            .bg_opa(255)
+            .border_width(0)
+            .radius(RADIUS_MAX, Selector::DEFAULT)
+            .remove_scrollable();
+        self.objects.push(logo_dot);
 
-        let switch = Switch::new(container)?;
-        switch
-            .pos(24, 270)
-            .add_flag(ObjFlag::CLICKABLE)
-            .bubble_events();
+        for (idx, column) in COLUMNS.iter().enumerate() {
+            let x = 12 + idx as i32 * 142;
+            self.create_column(&shell, column, x)?;
+        }
 
-        let checkbox = Checkbox::new(container)?;
-        checkbox
-            .text("Highlight panel")
-            .pos(24, 320)
-            .add_flag(ObjFlag::CLICKABLE)
-            .bubble_events();
-
-        let info = Label::new(container)?;
-        info.text("Interact with the widgets…")
-            .pos(24, 380)
-            .width(480);
-
-        self._btn = Some(btn);
-        self._slider = Some(slider);
-        self.bar = Some(bar);
-        self._switch = Some(switch);
-        self._checkbox = Some(checkbox);
-        self.info_label = Some(info);
+        self.objects.push(shell);
         container.update_layout();
         Ok(())
     }
@@ -95,17 +152,8 @@ impl View for WidgetView {
             register_event_on(self, screen.handle());
         }
 
-        if let Some(ref btn) = self._btn {
-            register_event_on(self, btn.handle());
-        }
-        if let Some(ref slider) = self._slider {
-            register_event_on(self, slider.handle());
-        }
-        if let Some(ref switch) = self._switch {
-            register_event_on(self, switch.handle());
-        }
-        if let Some(ref checkbox) = self._checkbox {
-            register_event_on(self, checkbox.handle());
+        for idx in 0..self.buttons.len() {
+            register_event_on(self, self.buttons[idx].handle());
         }
     }
 
@@ -113,19 +161,9 @@ impl View for WidgetView {
         let code = event.code();
         match code {
             EventCode::PRESSED => info!("oxivgl widget pressed ({:?})", code.0),
-            EventCode::CLICKED
-            | EventCode::SHORT_CLICKED
-            | EventCode::SINGLE_CLICKED => {
-                info!("oxivgl widget click ({:?})", code.0);
+            EventCode::CLICKED | EventCode::SHORT_CLICKED | EventCode::SINGLE_CLICKED => {
+                info!("oxivgl light scene click ({:?})", code.0);
                 self.clicks += 1;
-                self.refresh_info();
-            }
-            EventCode::VALUE_CHANGED => {
-                info!("oxivgl widget value changed ({:?})", code.0);
-                if let (Some(slider), Some(bar)) = (self._slider.as_ref(), self.bar.as_ref()) {
-                    let _ = bar.set_value(slider.get_value() as f32);
-                }
-                self.refresh_info();
             }
             _ => {}
         }
@@ -138,37 +176,159 @@ impl View for WidgetView {
 }
 
 impl WidgetView {
+    fn create_column(
+        &mut self,
+        parent: &impl oxivgl::widgets::AsLvHandle,
+        column: &ColumnSpec,
+        x: i32,
+    ) -> Result<(), WidgetError> {
+        let card = Obj::new(parent)?;
+        card.size(130, 344)
+            .pos(x, 82)
+            .bg_color(if column.highlight { CARD_BG_HIGHLIGHT } else { CARD_BG })
+            .bg_opa(255)
+            .border_width(1)
+            .radius(14, Selector::DEFAULT)
+            .remove_scrollable()
+            .pad(0);
+        set_border_color(&card, BORDER, 255);
+
+        self.labels.push(make_label(
+            &card,
+            column.eyebrow,
+            14,
+            15,
+            102,
+            ACCENT,
+            LabelKind::Eyebrow,
+        )?);
+        self.labels
+            .push(make_label(&card, column.title, 14, 33, 102, TEXT, LabelKind::Title)?);
+
+        for (idx, text) in column.buttons.iter().enumerate() {
+            let active = column.highlight && idx == 2;
+            let button = make_scene_button(&card, text, 14, 70 + idx as i32 * 92, active, &mut self.labels)?;
+            if self.buttons.is_empty() {
+                button.on(EventCode::CLICKED, on_demo_button_click);
+            }
+            self.buttons.push(button);
+        }
+
+        self.objects.push(card);
+        Ok(())
+    }
+
     /// Log widget bounds once (RTT) to verify touch hit targets.
     pub fn log_layout(&self) {
-        if let Some(ref btn) = self._btn {
+        if let Some(btn) = self.buttons.first() {
             let area = btn.get_coords();
             info!(
-                "oxivgl btn area x1={} y1={} x2={} y2={}",
+                "oxivgl first scene btn area x1={} y1={} x2={} y2={}",
+                area.x1, area.y1, area.x2, area.y2
+            );
+        }
+        if let Some(btn) = self.buttons.last() {
+            let area = btn.get_coords();
+            info!(
+                "oxivgl last scene btn area x1={} y1={} x2={} y2={}",
                 area.x1, area.y1, area.x2, area.y2
             );
         }
     }
+}
 
-    fn refresh_info(&mut self) {
-        let level = self._slider.as_ref().map(|s| s.get_value()).unwrap_or(0);
-        let switch_on = self
-            ._switch
-            .as_ref()
-            .map(|s| s.has_state(ObjState::CHECKED))
-            .unwrap_or(false);
-        let checked = self
-            ._checkbox
-            .as_ref()
-            .map(|c| c.has_state(ObjState::CHECKED))
-            .unwrap_or(false);
-        if let Some(ref info) = self.info_label {
-            let _ = info.text(&alloc::format!(
-                "taps={}  level={}  switch={}  check={}",
-                self.clicks,
-                level,
-                if switch_on { "ON" } else { "off" },
-                if checked { "ON" } else { "off" },
-            ));
+#[derive(Clone, Copy)]
+enum LabelKind {
+    Eyebrow,
+    Title,
+    Body,
+    Logo,
+}
+
+fn make_label(
+    parent: &impl oxivgl::widgets::AsLvHandle,
+    text: &str,
+    x: i32,
+    y: i32,
+    w: i32,
+    color: u32,
+    kind: LabelKind,
+) -> Result<Label<'static>, WidgetError> {
+    let label = Label::new(parent)?;
+    label
+        .text(text)
+        .pos(x, y)
+        .width(w)
+        .text_color(color)
+        .remove_scrollable();
+
+    match kind {
+        LabelKind::Eyebrow => {
+            label
+                .text_font(MONTSERRAT_14)
+                .style_text_letter_space(3, Selector::DEFAULT)
+                .text_align(TextAlign::Left);
         }
+        LabelKind::Title => {
+            label.text_font(MONTSERRAT_16).text_align(TextAlign::Left);
+        }
+        LabelKind::Body => {
+            label.text_font(MONTSERRAT_14).text_align(TextAlign::Center);
+        }
+        LabelKind::Logo => {
+            label
+                .text_font(MONTSERRAT_16)
+                .style_text_letter_space(1, Selector::DEFAULT)
+                .text_align(TextAlign::Right);
+        }
+    }
+
+    Ok(label)
+}
+
+fn make_scene_button(
+    parent: &impl oxivgl::widgets::AsLvHandle,
+    text: &str,
+    x: i32,
+    y: i32,
+    active: bool,
+    labels: &mut Vec<Label<'static>>,
+) -> Result<Button<'static>, WidgetError> {
+    let button = Button::new(parent)?;
+    button
+        .size(102, 78)
+        .pos(x, y)
+        .bg_color(if active { BUTTON_BG_ACTIVE } else { BUTTON_BG })
+        .bg_opa(255)
+        .border_width(1)
+        .radius(10, Selector::DEFAULT)
+        .style_bg_color(
+            unsafe { oxivgl_sys::lv_color_hex(BUTTON_BG_PRESSED) },
+            oxivgl::enums::ObjState::PRESSED,
+        )
+        .remove_scrollable()
+        .add_flag(ObjFlag::CLICKABLE)
+        .bubble_events()
+        .pad(0);
+    set_border_color(&button, if active { BORDER_ACTIVE } else { BORDER }, 255);
+
+    let label = Label::new(&button)?;
+    label
+        .text(text)
+        .width(92)
+        .text_color(TEXT)
+        .text_font(MONTSERRAT_16)
+        .text_align(TextAlign::Center)
+        .center()
+        .remove_scrollable();
+    labels.push(label);
+
+    Ok(button)
+}
+
+fn set_border_color(obj: &impl AsLvHandle, color: u32, opa: u8) {
+    unsafe {
+        oxivgl_sys::lv_obj_set_style_border_color(obj.lv_handle(), oxivgl_sys::lv_color_hex(color), 0);
+        oxivgl_sys::lv_obj_set_style_border_opa(obj.lv_handle(), opa as oxivgl_sys::lv_opa_t, 0);
     }
 }
