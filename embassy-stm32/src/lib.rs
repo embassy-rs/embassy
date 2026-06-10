@@ -120,7 +120,7 @@ pub mod dma2d;
 pub mod dsihost;
 #[cfg(dts)]
 pub mod dts;
-#[cfg(all(eth, not(stm32n6)))]
+#[cfg(eth)]
 pub mod eth;
 #[cfg(all(feature = "exti", not(stm32c5)))]
 pub mod exti;

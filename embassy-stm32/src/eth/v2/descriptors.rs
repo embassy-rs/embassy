@@ -3,7 +3,27 @@ use core::sync::atomic::{Ordering, fence};
 use vcell::VolatileCell;
 
 use crate::eth::{Packet, RX_BUFFER_SIZE, TX_BUFFER_SIZE};
+#[cfg(eth_v2)]
 use crate::pac::ETH;
+#[cfg(eth_v2a)]
+use crate::pac::ETH1 as ETH;
+
+/// Access a per-channel DMA register at channel 0.
+///
+/// On eth_v2a the DMA channel registers are arrays (the MAC has multiple DMA
+/// channels); on eth_v2 they are plain registers. We only ever use channel 0.
+macro_rules! dma_ch0 {
+    ($dma:expr, $reg:ident) => {{
+        #[cfg(eth_v2)]
+        {
+            $dma.$reg()
+        }
+        #[cfg(eth_v2a)]
+        {
+            $dma.$reg(0)
+        }
+    }};
+}
 
 /// Transmit and Receive Descriptor fields
 #[allow(dead_code)]
@@ -18,10 +38,23 @@ mod emac_consts {
     pub const EMAC_TDES2_IOC: u32 = 0x8000_0000;
     pub const EMAC_TDES2_B1L: u32 = 0x0000_3FFF;
 
+    // TX checksum insertion control (TDES3, read format), bits [17:16]. 0b11 =
+    // insert IP header + payload checksums, with the pseudo-header computed by
+    // hardware (full offload). eth_v2a only.
+    pub const EMAC_TDES3_CIC_FULL: u32 = 0x0003_0000;
+
     pub const EMAC_RDES3_IOC: u32 = 0x4000_0000;
     pub const EMAC_RDES3_PL: u32 = 0x0000_7FFF;
     pub const EMAC_RDES3_BUF1V: u32 = 0x0100_0000;
     pub const EMAC_RDES3_PKTLEN: u32 = 0x0000_7FFF;
+
+    // RX checksum status (RDES1, write-back format). These are NOT folded into
+    // the RDES3 error summary, so they must be inspected separately. eth_v2a only.
+    pub const EMAC_RDES1_IPHE: u32 = 0x0000_0008; // IP header checksum error
+    pub const EMAC_RDES1_IPCE: u32 = 0x0000_0080; // IP payload (TCP/UDP/ICMP) checksum error
+    pub const EMAC_RDES1_PT: u32 = 0x0000_0003; // payload type
+    pub const EMAC_RDES1_PT_UDP: u32 = 1;
+    pub const EMAC_RDES1_PT_TCP: u32 = 2;
 }
 use emac_consts::*;
 
@@ -74,9 +107,9 @@ impl<'a> TDesRing<'a> {
         // Initialize the pointers in the DMA engine. (There will be a memory barrier later
         // before the DMA engine is enabled.)
         let dma = ETH.ethernet_dma();
-        dma.dmac_tx_dlar().write(|w| w.0 = descriptors.as_mut_ptr() as u32);
-        dma.dmac_tx_rlr().write(|w| w.set_tdrl((descriptors.len() as u16) - 1));
-        dma.dmac_tx_dtpr().write(|w| w.0 = 0);
+        dma_ch0!(dma, dmac_tx_dlar).write(|w| w.0 = descriptors.as_mut_ptr() as u32);
+        dma_ch0!(dma, dmac_tx_rlr).write(|w| w.set_tdrl((descriptors.len() as u16) - 1));
+        dma_ch0!(dma, dmac_tx_dtpr).write(|w| w.0 = 0);
 
         Self {
             descriptors,
@@ -112,7 +145,11 @@ impl<'a> TDesRing<'a> {
         // FD: Contains first buffer of packet
         // LD: Contains last buffer of packet
         // Give the DMA engine ownership
-        td.tdes3.set(EMAC_DES3_FD | EMAC_DES3_LD | EMAC_DES3_OWN);
+        let tdes3 = EMAC_DES3_FD | EMAC_DES3_LD | EMAC_DES3_OWN;
+        // CIC_FULL: let the MAC compute and insert the IP/TCP/UDP checksums.
+        #[cfg(eth_v2a)]
+        let tdes3 = tdes3 | EMAC_TDES3_CIC_FULL;
+        td.tdes3.set(tdes3);
 
         // Ensure changes to the descriptor are committed before DMA engine sees tail pointer store.
         // This will generate an DMB instruction.
@@ -121,9 +158,7 @@ impl<'a> TDesRing<'a> {
 
         // signal DMA it can try again.
         // See issue #2129
-        ETH.ethernet_dma()
-            .dmac_tx_dtpr()
-            .write(|w| w.0 = &td as *const _ as u32);
+        dma_ch0!(ETH.ethernet_dma(), dmac_tx_dtpr).write(|w| w.0 = &td as *const _ as u32);
 
         self.index = (self.index + 1) % self.descriptors.len();
     }
@@ -156,12 +191,29 @@ impl RDes {
     /// Return true if this RDes is acceptable to us
     #[inline(always)]
     fn valid(&self) -> bool {
-        // Write-back descriptor is valid if:
-        //
-        // Contains first buffer of packet AND contains last buf of
-        // packet AND no errors AND not a context descriptor
-        self.rdes3.get() & (EMAC_DES3_FD | EMAC_DES3_LD | EMAC_DES3_ES | EMAC_DES3_CTXT)
-            == (EMAC_DES3_FD | EMAC_DES3_LD)
+        // Write-back descriptor is valid if it contains the first AND last
+        // buffer of the packet AND has no errors AND is not a context descriptor.
+        if self.rdes3.get() & (EMAC_DES3_FD | EMAC_DES3_LD | EMAC_DES3_ES | EMAC_DES3_CTXT)
+            != (EMAC_DES3_FD | EMAC_DES3_LD)
+        {
+            return false;
+        }
+
+        // Hardware checksum offload (eth_v2a): the MAC verified the IPv4 header
+        // and the TCP/UDP payload checksums. smoltcp is told not to re-verify
+        // these (see the driver `capabilities`), so a frame the MAC flagged as
+        // bad must be dropped here.
+        #[cfg(eth_v2a)]
+        {
+            let rdes1 = self.rdes1.get();
+            let pt = rdes1 & EMAC_RDES1_PT;
+            let tcp_or_udp = pt == EMAC_RDES1_PT_TCP || pt == EMAC_RDES1_PT_UDP;
+            if rdes1 & EMAC_RDES1_IPHE != 0 || (tcp_or_udp && rdes1 & EMAC_RDES1_IPCE != 0) {
+                return false;
+            }
+        }
+
+        true
     }
 
     /// Return true if this RDes is not currently owned by the DMA
@@ -195,9 +247,9 @@ impl<'a> RDesRing<'a> {
         }
 
         let dma = ETH.ethernet_dma();
-        dma.dmac_rx_dlar().write(|w| w.0 = descriptors.as_mut_ptr() as u32);
-        dma.dmac_rx_rlr().write(|w| w.set_rdrl((descriptors.len() as u16) - 1));
-        dma.dmac_rx_dtpr().write(|w| w.0 = 0);
+        dma_ch0!(dma, dmac_rx_dlar).write(|w| w.0 = descriptors.as_mut_ptr() as u32);
+        dma_ch0!(dma, dmac_rx_rlr).write(|w| w.set_rdrl((descriptors.len() as u16) - 1));
+        dma_ch0!(dma, dmac_rx_dtpr).write(|w| w.0 = 0);
 
         Self {
             descriptors,
@@ -247,9 +299,7 @@ impl<'a> RDesRing<'a> {
 
         // signal DMA it can try again.
         // See issue #2129
-        ETH.ethernet_dma()
-            .dmac_rx_dtpr()
-            .write(|w| w.0 = &rd as *const _ as u32);
+        dma_ch0!(ETH.ethernet_dma(), dmac_rx_dtpr).write(|w| w.0 = &rd as *const _ as u32);
 
         // Increment index.
         self.index = (self.index + 1) % self.descriptors.len();
