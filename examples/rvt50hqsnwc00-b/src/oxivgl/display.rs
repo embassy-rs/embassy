@@ -51,8 +51,27 @@ fn back_ptr() -> *mut u8 {
     .cast::<u8>()
 }
 
-/// Return the LVGL display created by [`lvgl_disp_init_ltdc`].
-pub fn lvgl_display() -> *mut lv_display_t {
+/// LTDC display token — proves LVGL display init completed.
+#[derive(Debug)]
+pub struct LtdcDisplay;
+
+impl LtdcDisplay {
+    /// Register LVGL display buffers and wire the LTDC flush callback.
+    pub fn init<const BYTES: usize>(
+        w: i32,
+        h: i32,
+        bufs: &'static mut LvglBuffers<BYTES>,
+    ) -> Self {
+        // SAFETY: `lv_init()` completed in `LvglDriver::init`; single init; `'static` bufs.
+        unsafe {
+            lvgl_disp_init_ltdc(w, h, bufs);
+        }
+        Self
+    }
+}
+
+/// Return the LVGL display created by [`LtdcDisplay::init`].
+pub(crate) fn lvgl_display() -> *mut lv_display_t {
     // SAFETY: written once during init before the UI loop runs.
     unsafe { LVGL_DISP }
 }

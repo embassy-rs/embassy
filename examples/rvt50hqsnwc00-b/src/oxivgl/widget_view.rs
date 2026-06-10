@@ -6,8 +6,11 @@ use defmt::info;
 use oxivgl::enums::{EventCode, ObjFlag, ObjState};
 use oxivgl::event::Event;
 use oxivgl::view::{register_event_on, NavAction, View};
-use oxivgl::widgets::{Bar, Button, Checkbox, Label, Obj, Slider, Switch, WidgetError};
-use oxivgl_sys::lv_screen_active;
+use oxivgl::widgets::{Bar, Button, Checkbox, Label, Obj, Screen, Slider, Switch, WidgetError};
+
+fn on_demo_button_click(_event: &Event) {
+    info!("oxivgl direct btn CLICKED (Obj::on)");
+}
 
 /// Multi-widget demo inspired by LVGL `lv_demo_widgets` / OxivGL examples.
 #[derive(Default)]
@@ -44,6 +47,7 @@ impl View for WidgetView {
             .bubble_events();
         let btn_label = Label::new(&btn)?;
         btn_label.text("Tap counter").center();
+        btn.on(EventCode::CLICKED, on_demo_button_click);
 
         let slider = Slider::new(container)?;
         slider
@@ -81,13 +85,15 @@ impl View for WidgetView {
         self._switch = Some(switch);
         self._checkbox = Some(checkbox);
         self.info_label = Some(info);
+        container.update_layout();
         Ok(())
     }
 
     fn register_events(&mut self) {
         // Screen-level handler catches bubbled events from children.
-        // SAFETY: lv_init() completed; screen is active.
-        register_event_on(self, unsafe { lv_screen_active() });
+        if let Some(screen) = Screen::active() {
+            register_event_on(self, screen.handle());
+        }
 
         if let Some(ref btn) = self._btn {
             register_event_on(self, btn.handle());
@@ -106,6 +112,7 @@ impl View for WidgetView {
     fn on_event(&mut self, event: &Event) -> NavAction {
         let code = event.code();
         match code {
+            EventCode::PRESSED => info!("oxivgl widget pressed ({:?})", code.0),
             EventCode::CLICKED
             | EventCode::SHORT_CLICKED
             | EventCode::SINGLE_CLICKED => {
@@ -114,7 +121,7 @@ impl View for WidgetView {
                 self.refresh_info();
             }
             EventCode::VALUE_CHANGED => {
-                info!("oxivgl widget value changed");
+                info!("oxivgl widget value changed ({:?})", code.0);
                 if let (Some(slider), Some(bar)) = (self._slider.as_ref(), self.bar.as_ref()) {
                     let _ = bar.set_value(slider.get_value() as f32);
                 }
@@ -131,6 +138,17 @@ impl View for WidgetView {
 }
 
 impl WidgetView {
+    /// Log widget bounds once (RTT) to verify touch hit targets.
+    pub fn log_layout(&self) {
+        if let Some(ref btn) = self._btn {
+            let area = btn.get_coords();
+            info!(
+                "oxivgl btn area x1={} y1={} x2={} y2={}",
+                area.x1, area.y1, area.x2, area.y2
+            );
+        }
+    }
+
     fn refresh_info(&mut self) {
         let level = self._slider.as_ref().map(|s| s.get_value()).unwrap_or(0);
         let switch_on = self
