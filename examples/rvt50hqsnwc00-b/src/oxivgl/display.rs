@@ -11,13 +11,16 @@ use oxivgl::display::{LvglBuffers, DISPLAY_READY};
 use oxivgl_sys::{
     lv_area_t, lv_display_create, lv_display_flush_ready, lv_display_set_buffers,
     lv_display_set_color_format, lv_display_set_flush_cb, lv_display_t,
-    lv_color_format_t_LV_COLOR_FORMAT_RGB565_SWAPPED,
+    lv_color_format_t_LV_COLOR_FORMAT_RGB565,
     lv_display_render_mode_t_LV_DISPLAY_RENDER_MODE_PARTIAL,
 };
 
 use crate::rvt50_board::{DISPLAY_HEIGHT, DISPLAY_WIDTH};
 
 const FB_BYTES: usize = DISPLAY_WIDTH * DISPLAY_HEIGHT * 2;
+
+/// LVGL display handle (set once in [`lvgl_disp_init_ltdc`]).
+static mut LVGL_DISP: *mut lv_display_t = core::ptr::null_mut();
 
 /// Which LTDC buffer is currently shown (0 or 1).
 static mut PRESENT_IDX: u8 = 0;
@@ -48,6 +51,30 @@ fn back_ptr() -> *mut u8 {
     .cast::<u8>()
 }
 
+/// Return the LVGL display created by [`lvgl_disp_init_ltdc`].
+pub fn lvgl_display() -> *mut lv_display_t {
+    // SAFETY: written once during init before the UI loop runs.
+    unsafe { LVGL_DISP }
+}
+
+fn rgb565(r: u8, g: u8, b: u8) -> u16 {
+    ((r as u16 >> 3) << 11) | ((g as u16 >> 2) << 5) | (b as u16 >> 3)
+}
+
+/// Fill both LTDC framebuffers with the demo panel background (matches rlvgl).
+pub fn prefill_background() {
+    let px = rgb565(16, 32, 48).to_le_bytes();
+    // SAFETY: only the UI task touches these static mut buffers.
+    unsafe {
+        for fb in [ptr::addr_of_mut!(PRESENT_FB0), ptr::addr_of_mut!(PRESENT_FB1)] {
+            let base = fb.cast::<u8>();
+            for i in (0..FB_BYTES).step_by(2) {
+                ptr::copy_nonoverlapping(px.as_ptr(), base.add(i), 2);
+            }
+        }
+    }
+}
+
 /// Register LVGL display buffers and wire the LTDC flush callback.
 ///
 /// # Safety
@@ -57,7 +84,7 @@ pub unsafe fn lvgl_disp_init_ltdc<const BYTES: usize>(
     w: i32,
     h: i32,
     bufs: &'static mut LvglBuffers<BYTES>,
-) {
+) -> *mut lv_display_t {
     // SAFETY: single init; pointers come from static mut framebuffers.
     unsafe {
         let buf1_ptr = ptr::addr_of_mut!(bufs.buf1) as *mut c_void;
@@ -66,7 +93,8 @@ pub unsafe fn lvgl_disp_init_ltdc<const BYTES: usize>(
         let disp = lv_display_create(w, h);
         assert!(!disp.is_null(), "lv_display_create returned NULL");
 
-        lv_display_set_color_format(disp, lv_color_format_t_LV_COLOR_FORMAT_RGB565_SWAPPED);
+        // Embassy LTDC RGB565 matches standard (non-swapped) channel order.
+        lv_display_set_color_format(disp, lv_color_format_t_LV_COLOR_FORMAT_RGB565);
         lv_display_set_buffers(
             disp,
             buf1_ptr,
@@ -75,7 +103,9 @@ pub unsafe fn lvgl_disp_init_ltdc<const BYTES: usize>(
             lv_display_render_mode_t_LV_DISPLAY_RENDER_MODE_PARTIAL,
         );
         lv_display_set_flush_cb(disp, Some(flush_callback));
+        LVGL_DISP = disp;
         DISPLAY_READY.signal(());
+        disp
     }
 }
 

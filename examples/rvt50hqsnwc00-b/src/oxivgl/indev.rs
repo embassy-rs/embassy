@@ -1,9 +1,9 @@
 //! Capacitive touch input device for OxivGL on the Riverdi RVT50.
 
 use oxivgl_sys::{
-    lv_indev_create, lv_indev_data_t, lv_indev_set_read_cb, lv_indev_set_type, lv_indev_t,
-    lv_indev_state_t_LV_INDEV_STATE_PRESSED, lv_indev_state_t_LV_INDEV_STATE_RELEASED,
-    lv_indev_type_t_LV_INDEV_TYPE_POINTER,
+    lv_display_t, lv_indev_create, lv_indev_data_t, lv_indev_set_display, lv_indev_set_read_cb,
+    lv_indev_set_type, lv_indev_t, lv_indev_state_t_LV_INDEV_STATE_PRESSED,
+    lv_indev_state_t_LV_INDEV_STATE_RELEASED, lv_indev_type_t_LV_INDEV_TYPE_POINTER,
 };
 
 /// Latest touch sample written by the UI task before `lv_timer_handler()`.
@@ -31,13 +31,15 @@ pub fn publish_touch(sample: TouchSample) {
 /// Create a pointer input device backed by [`publish_touch`] samples.
 ///
 /// # Safety
-/// `lv_init()` must have been called.
-pub unsafe fn register_pointer_indev() -> *mut lv_indev_t {
+/// `lv_init()` must have been called. `disp` must be the active LVGL display.
+pub unsafe fn register_pointer_indev(disp: *mut lv_display_t) -> *mut lv_indev_t {
+    assert!(!disp.is_null(), "LVGL display cannot be null");
     // SAFETY: lv_init() was called by `LvglDriver::init`.
     let indev = unsafe { lv_indev_create() };
     assert!(!indev.is_null(), "lv_indev_create returned NULL");
     unsafe {
         lv_indev_set_type(indev, lv_indev_type_t_LV_INDEV_TYPE_POINTER);
+        lv_indev_set_display(indev, disp);
         lv_indev_set_read_cb(indev, Some(pointer_read_cb));
     }
     indev

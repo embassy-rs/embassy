@@ -10,7 +10,10 @@ use oxivgl::driver::LvglDriver;
 use oxivgl::view::{register_view_events, View};
 use oxivgl_sys::{lv_obj_t, lv_screen_active, LV_DEF_REFR_PERIOD};
 
-use crate::oxivgl::display::{lvgl_disp_init_ltdc, present_framebuffer, sync_back_from_front};
+use crate::oxivgl::display::{
+    lvgl_disp_init_ltdc, lvgl_display, prefill_background, present_framebuffer,
+    sync_back_from_front,
+};
 use crate::oxivgl::widget_view::WidgetView;
 use crate::rvt50_board::DISPLAY_WIDTH;
 
@@ -30,6 +33,45 @@ async fn init_ltdc_layer(ltdc: &mut Ltdc<'static, peripherals::LTDC, ltdc::Rgb56
         window_y1: crate::rvt50_board::DISPLAY_HEIGHT as _,
     };
     ltdc.init_layer(&layer_config, None);
+}
+
+#[cfg(feature = "touch")]
+use defmt::info;
+
+#[cfg(feature = "touch")]
+static mut TOUCH_WAS_PRESSED: bool = false;
+
+#[cfg(feature = "touch")]
+fn publish_board_touch(
+    i2c: &mut embassy_stm32::i2c::I2c<
+        'static,
+        embassy_stm32::mode::Blocking,
+        embassy_stm32::i2c::Master,
+    >,
+) {
+    let touch = crate::rvt50_board::read_touch(i2c);
+    // SAFETY: UI task only.
+    let was_pressed = unsafe { TOUCH_WAS_PRESSED };
+    if touch.pressed && !was_pressed {
+        info!(
+            "oxivgl touch down x={} y={} raw=0x{:02x} i2c_ok={}",
+            touch.x,
+            touch.y,
+            touch.raw_status,
+            touch.i2c_ok
+        );
+    } else if !touch.pressed && was_pressed {
+        info!("oxivgl touch up");
+    }
+  // SAFETY: UI task only.
+    unsafe {
+        TOUCH_WAS_PRESSED = touch.pressed;
+    }
+    crate::oxivgl::indev::publish_touch(crate::oxivgl::indev::TouchSample {
+        x: touch.x as i32,
+        y: touch.y as i32,
+        pressed: touch.pressed,
+    });
 }
 
 /// Run the OxivGL widget demo (touch optional via `touch` feature).
@@ -53,15 +95,17 @@ pub async fn run_widget_demo(
             DISPLAY_WIDTH as i32,
             crate::rvt50_board::DISPLAY_HEIGHT as i32,
             bufs,
-        )
+        );
     };
 
     DISPLAY_READY.wait().await;
+    prefill_background();
 
     #[cfg(feature = "touch")]
     {
-        // SAFETY: lv_init() completed.
-        let _indev = unsafe { crate::oxivgl::indev::register_pointer_indev() };
+        let disp = lvgl_display();
+        // SAFETY: display was created above; lv_init() completed.
+        let _indev = unsafe { crate::oxivgl::indev::register_pointer_indev(disp) };
     }
 
     let mut view = WidgetView::default();
@@ -77,24 +121,19 @@ pub async fn run_widget_demo(
     register_view_events(&mut view);
 
     loop {
-        #[cfg(feature = "touch")]
-        if let Some(i2c) = i2c.as_mut() {
-            let touch = crate::rvt50_board::read_touch(i2c);
-            crate::oxivgl::indev::publish_touch(crate::oxivgl::indev::TouchSample {
-                x: touch.x as i32,
-                y: touch.y as i32,
-                pressed: touch.pressed,
-            });
-        }
-
-        let _ = view.update();
-
         sync_back_from_front();
 
         for _ in 0..4 {
+            #[cfg(feature = "touch")]
+            if let Some(i2c) = i2c.as_mut() {
+                publish_board_touch(i2c);
+            }
+
             driver.timer_handler();
             Timer::after(Duration::from_millis(LVGL_TICK_MS)).await;
         }
+
+        let _ = view.update();
 
         let fb_ptr = present_framebuffer();
         ltdc.init_buffer(LtdcLayer::Layer1, fb_ptr as *const _);

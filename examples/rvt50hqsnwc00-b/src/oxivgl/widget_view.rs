@@ -75,6 +75,12 @@ impl View for WidgetView {
         if let Some(ref slider) = self._slider {
             register_event_on(self, slider.handle());
         }
+        if let Some(ref switch) = self._switch {
+            register_event_on(self, switch.handle());
+        }
+        if let Some(ref checkbox) = self._checkbox {
+            register_event_on(self, checkbox.handle());
+        }
     }
 
     fn on_event(&mut self, event: &Event) -> NavAction {
