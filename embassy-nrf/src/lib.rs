@@ -348,6 +348,23 @@ pub mod config {
         CK64,
     }
 
+    /// FLPR (VPR coprocessor) startup behavior, applied at the very start of
+    /// [`init`](super::init).
+    ///
+    /// A program loaded onto the FLPR keeps running across a debugger reset
+    /// (`SYSRESETREQ`). A leftover FLPR not only wastes power but can interfere
+    /// with — and even stall — `init`, so by default it is stopped and reset on
+    /// every boot. Select [`FlprReset::Leave`] if your application core boots
+    /// alongside an FLPR program that was started by an earlier stage and must
+    /// keep running.
+    #[cfg(all(feature = "_nrf54l", feature = "_s"))]
+    pub enum FlprReset {
+        /// Stop and reset the FLPR, clearing any previously-loaded program.
+        Reset,
+        /// Leave the FLPR untouched.
+        Leave,
+    }
+
     /// High frequency clock source.
     pub enum HfclkSource {
         /// Internal source
@@ -626,6 +643,9 @@ pub mod config {
         /// Clock speed configuration.
         #[cfg(feature = "_nrf54l")]
         pub clock_speed: ClockSpeed,
+        /// FLPR (VPR coprocessor) startup behavior.
+        #[cfg(all(feature = "_nrf54l", feature = "_s"))]
+        pub flpr_reset: FlprReset,
     }
 
     impl Default for Config {
@@ -668,6 +688,8 @@ pub mod config {
                 debug: Debug::Allowed,
                 #[cfg(feature = "_nrf54l")]
                 clock_speed: ClockSpeed::CK64,
+                #[cfg(all(feature = "_nrf54l", feature = "_s"))]
+                flpr_reset: FlprReset::Reset,
             }
         }
     }
@@ -779,6 +801,14 @@ pub fn init(config: config::Config) -> Peripherals {
     // Do this first, so that it panics if user is calling `init` a second time
     // before doing anything important.
     let peripherals = Peripherals::take();
+
+    // Clear an FLPR program left running from a previous boot (it survives a
+    // debugger reset) before it can interfere with the rest of init.
+    #[cfg(all(feature = "_nrf54l", feature = "_s"))]
+    if let config::FlprReset::Reset = config.flpr_reset {
+        vpr::make_secure();
+        vpr::stop_reset(pac::VPR00);
+    }
 
     #[allow(unused_mut)]
     let mut needs_reset = false;

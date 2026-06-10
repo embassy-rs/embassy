@@ -6,16 +6,16 @@
 //! nRF54L's FLPR RISC-V coprocessor (VPR00). Unlike a hardware peripheral its
 //! register interface lives in shared RAM, not at a fixed MMIO address: the
 //! host CPU and the FLPR communicate through a "virtual register block"
-//! (mirroring the C `NRF_SP_QSPI_Type`, see the [`regs`] submodule) that the
-//! firmware emulates as if it were a real QSPI peripheral.
+//! (see the [`regs`] submodule) that the firmware emulates as if it were a real
+//! QSPI peripheral.
 //!
 //! This driver exposes the same API shape as the hardware [`crate::qspi`]
 //! driver (the same `read`/`write`/`erase` methods, blocking variants,
 //! `custom_instruction`, and the `embedded-storage` `NorFlash` traits), with
 //! two extra constructor arguments specific to a soft peripheral:
 //!
-//! - `firmware`: the FLPR firmware blob (starts with a `softperipheral_metadata_t`
-//!   header). The caller owns and provides it (e.g. via `include_bytes!`).
+//! - `firmware`: the FLPR firmware blob (starts with a metadata header). The
+//!   caller owns and provides it (e.g. via `include_bytes!`).
 //! - `ram`: a RAM buffer the firmware code, its working RAM, and the virtual
 //!   register block are placed into.
 //!
@@ -47,7 +47,7 @@ use core::mem::MaybeUninit;
 use core::ptr;
 use core::task::Poll;
 
-use embassy_hal_internal::{Peri, PeripheralType};
+use embassy_hal_internal::Peri;
 use embassy_sync::waitqueue::AtomicWaker;
 use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
 // Re-exported so callers can spell `sqspi::MODE_0` etc., matching `spim`/`qspi`.
@@ -58,20 +58,13 @@ use crate::interrupt::typelevel::Interrupt;
 use crate::pac::gpio::vals as gpiovals;
 use crate::{interrupt, pac};
 
-// ============================================================================
-// Firmware metadata
-// ============================================================================
-
 /// Expected sQSPI soft peripheral ID in the firmware metadata header.
-///
-/// See `softperipheral_meta.h`: `SOFTPERIPHERAL_META_SOFTPERIPHERAL_ID_SQSPI`.
 const SOFTPERIPHERAL_ID_SQSPI: u16 = 0x45b1;
 
 /// Parsed firmware metadata from the start of the sQSPI firmware blob.
 ///
-/// The blob begins with a `softperipheral_metadata_t` header (8 x u32 = 32
-/// bytes, defined in the Nordic SDK header `softperipheral_meta.h`). Header
-/// versions 1 and 2 share the field layout for the fields the driver uses.
+/// The blob begins with a 32-byte (8 x u32) metadata header. Header versions 1
+/// and 2 share the field layout for the fields the driver uses.
 struct FirmwareMetadata {
     /// If true the VPR boots directly from the firmware address (NVM); if false
     /// the driver must copy the firmware code into RAM (the usual case).
@@ -136,10 +129,6 @@ impl FirmwareMetadata {
         self.code_size_bytes() + self.fw_shared_ram_addr_offset as usize
     }
 }
-
-// ============================================================================
-// Config
-// ============================================================================
 
 /// sQSPI bus frequency.
 ///
@@ -206,7 +195,7 @@ pub enum Lines {
 
 impl Lines {
     /// `CTRLR0.SPI_FRF`: 0 = standard, 1 = dual, 2 = quad.
-    fn spi_frf(self) -> u32 {
+    fn spi_frf(self) -> u8 {
         match self {
             Lines::Single => 0,
             Lines::Dual1_1_2 | Lines::Dual1_2_2 => 1,
@@ -216,7 +205,7 @@ impl Lines {
 
     /// `SPICTRLR0.TRANSTYPE`: 0 = address on the command line, 1 = address in
     /// `SPI_FRF` (data-line) mode.
-    fn transtype(self) -> u32 {
+    fn transtype(self) -> u8 {
         match self {
             Lines::Single | Lines::Dual1_1_2 | Lines::Quad1_1_4 => 0,
             Lines::Dual1_2_2 | Lines::Quad1_4_4 => 1,
@@ -295,11 +284,15 @@ pub enum Error {
     OutOfBounds,
     /// The transfer was aborted by the peripheral (bus error).
     Transfer,
+    /// The VPR coprocessor could not be started.
+    Vpr,
 }
 
-// ============================================================================
-// Transfer direction
-// ============================================================================
+impl From<crate::vpr::Error> for Error {
+    fn from(_: crate::vpr::Error) -> Self {
+        Error::Vpr
+    }
+}
 
 /// `CTRLR0.TMOD` transfer direction.
 #[repr(u32)]
@@ -311,10 +304,6 @@ enum Dir {
     Rx = 2,
 }
 
-// ============================================================================
-// Interrupt handler
-// ============================================================================
-
 /// Interrupt handler for the sQSPI driver.
 ///
 /// Bind it to the `VPR00` interrupt: the FLPR raises it (via the VPR
@@ -325,17 +314,13 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        let vpr = T::vpr_regs();
+        let vpr = <T as crate::vpr::SealedInstance>::regs();
         if vpr.events_triggered(regs::SP_VPR_EVENT_IDX).read() != 0 {
             vpr.events_triggered(regs::SP_VPR_EVENT_IDX).write_value(0);
             T::state().waker.wake();
         }
     }
 }
-
-// ============================================================================
-// Driver
-// ============================================================================
 
 /// sQSPI flash driver.
 pub struct Sqspi<'d> {
@@ -355,7 +340,7 @@ impl<'d> Sqspi<'d> {
     /// the `firmware` / `ram` requirements.
     #[allow(clippy::too_many_arguments)]
     pub fn new<T: Instance>(
-        _peri: Peri<'d, T>,
+        peri: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         firmware: &[u8],
         ram: &'d mut [MaybeUninit<u8>],
@@ -368,25 +353,17 @@ impl<'d> Sqspi<'d> {
         config: Config,
     ) -> Result<Self, Error> {
         let meta = FirmwareMetadata::parse(firmware)?;
-        let vpr = T::vpr_regs();
+        let vpr = <T as crate::vpr::SealedInstance>::regs();
         let state = T::state();
 
-        // Grant the application core secure access to the VPR00 peripheral.
-        // VPR00 resets to non-secure; without this its (secure-alias) registers
-        // bus-fault. VPR00 is peripheral index 12 in SPU00.
-        pac::SPU00.periph(12).perm().write(|w| {
-            w.set_secattr(true);
-            w.set_dmasec(pac::spu::vals::Dmasec::Secure);
-        });
+        // Stop a still-running FLPR before touching its RAM, in case this driver
+        // is being re-created. (A cold-boot leftover is already cleared by
+        // `embassy_nrf::init`; see `config::FlprReset`.)
+        crate::vpr::make_secure();
+        crate::vpr::stop_reset(vpr);
 
-        // Stop any previously-running FLPR before we touch its RAM. (A leftover
-        // FLPR also stalls `embassy_nrf::init`; if that happens, the host must
-        // stop/reset the FLPR before init — see the chip notes.)
-        Self::stop_vpr(vpr);
-
-        // ---- RAM layout ------------------------------------------------------
-        // [ align pad | firmware code | working RAM | shared register block ]
-        // The VPR INITPC ignores the low 7 bits, so the base must be 128-aligned.
+        // RAM layout: [ align pad | firmware code | working RAM | register block ].
+        // INITPC ignores the low 7 bits, so the base must be 128-aligned.
         unsafe { ptr::write_bytes(ram.as_mut_ptr(), 0, ram.len()) };
         let raw_base = ram.as_mut_ptr() as usize;
         let base = (raw_base + 127) & !127;
@@ -401,28 +378,20 @@ impl<'d> Sqspi<'d> {
         let reg_ptr = (base + reg_offset) as *mut ();
         let sp = unsafe { regs::Regs::from_ptr(reg_ptr) };
 
-        // ---- Boot the firmware (mirrors nrf_sqspi_init) ----------------------
-        // Arm the boot handshake: host sets ENABLE=1, firmware clears it when
-        // ready. (The whole buffer, including the register block, is zeroed.)
+        // Boot the firmware through the VPR driver: `Vpr::new` sets INITPC, then
+        // arm the handshake (host sets ENABLE, firmware clears it when ready),
+        // load the code (the .bss tail past the blob stays zeroed), and run.
+        let mut coproc = crate::vpr::Vpr::new(peri, base as *const u8)?;
         sp.enable().write_value(1);
-
-        // Copy the firmware code into RAM (unless it self-boots from NVM). The
-        // blob may be shorter than the code region; the tail is .bss and stays
-        // zero from the buffer wipe above.
         if !meta.self_boot {
             let copy_len = firmware.len().min(meta.code_size_bytes());
-            unsafe { ptr::copy_nonoverlapping(firmware.as_ptr(), base as *mut u8, copy_len) };
+            coproc.load(&firmware[..copy_len])?;
         }
-
-        // Start the VPR at the firmware base and wait for it to become ready.
-        vpr.initpc().write_value(base as u32);
-        vpr.cpurun().write(|w| w.set_en(pac::vpr::vals::CpurunEn::Running));
+        coproc.start();
         while sp.enable().read() != 0 {}
 
-        // ---- Pin configuration ----------------------------------------------
-        // SCK/CSN are outputs; IO0..3 are bidirectional. All are routed to the
-        // FLPR (CTRLSEL=VPR). In a non-quad mode IO2/IO3 aren't driven by the
-        // firmware, so hold them high as plain GPIO to keep WP#/HOLD# released.
+        // IO2/IO3 double as quad data lines; outside quad mode they're held high
+        // as plain GPIO so WP#/HOLD# stay released.
         Self::config_pin(&*sck, false, true);
         Self::config_pin(&*csn, false, true);
         Self::config_pin(&*io0, true, true);
@@ -430,24 +399,23 @@ impl<'d> Sqspi<'d> {
         Self::config_pin(&*io2, true, config.lines.uses_io2_io3());
         Self::config_pin(&*io3, true, config.lines.uses_io2_io3());
 
-        // ---- Data format (8-bit flash frames, MSB first) --------------------
+        // 8-bit flash frames, MSB first.
         sp.format().dfs().write_value(7);
         sp.format().bpp().write_value(8);
         sp.format().bitorder().write_value(0);
         sp.core().dr(22).write_value(32); // firmware-private "32 - padding"
 
-        // Enable the DMA completion events that notify the host (DMADONE |
-        // DMAABORTED | DMADONEJOB). Written to INTEN, which the firmware reads.
-        sp.inten().write_value((1 << 9) | (1 << 12) | (1 << 5));
+        // Notify the host on DMA done/aborted/donejob.
+        sp.inten().write(|w| {
+            w.set_dmadone(true);
+            w.set_dmaaborted(true);
+            w.set_dmadonejob(true);
+        });
 
-        // Baud rate: SCKDV lives at bit 1, so the divider is shifted left by 1.
-        sp.core().baudr().write_value(((config.frequency as u32) << 1) & 0xFFFE);
-
-        // RX sample delay (must be >= 1 for normal speed; see Config docs).
+        sp.core().baudr().write(|w| w.set_sckdv(config.frequency as u16));
         sp.core().rxsampledelay().write_value(config.sample_delay as u32);
 
-        // ---- Activate (mirrors nrf_sqspi_activate) --------------------------
-        sp.enable().write_value(1);
+        sp.enable().write_value(1); // activate
 
         let mut this = Self {
             regs: sp,
@@ -466,19 +434,6 @@ impl<'d> Sqspi<'d> {
         unsafe { T::Interrupt::enable() };
 
         Ok(this)
-    }
-
-    /// Stop and reset the VPR coprocessor.
-    fn stop_vpr(vpr: pac::vpr::Vpr) {
-        vpr.cpurun().write(|w| w.set_en(pac::vpr::vals::CpurunEn::Stopped));
-        vpr.debugif().dmcontrol().write(|w| {
-            w.set_ndmreset(true);
-            w.set_dmactive(true);
-        });
-        vpr.debugif().dmcontrol().write(|w| {
-            w.set_ndmreset(false);
-            w.set_dmactive(false);
-        });
     }
 
     /// Configure a pin: `input` connects the input buffer (data lines), `to_vpr`
@@ -505,15 +460,12 @@ impl<'d> Sqspi<'d> {
         });
     }
 
-    // ---- Synchronization barriers (softperipheral_regif.h __XSBx) ------------
-
     /// Extended sync barrier: publish the task counter, trigger the VPR task,
-    /// and spin until the firmware echoes the counter back.
+    /// and spin until the firmware echoes it back.
     fn xsb(&mut self, task: usize) {
         let aux = self.regs.spsync();
         aux.aux(0).write_value(self.task_count);
-        // Order the shared-RAM (Normal memory) writes before the Device-memory
-        // task trigger so the FLPR sees a consistent state.
+        // Order the shared-RAM (Normal) writes before the Device-memory trigger.
         cortex_m::asm::dmb();
         self.vpr.tasks_trigger(task).write_value(1);
         while aux.aux(0).read() != aux.aux(1).read() {
@@ -533,8 +485,6 @@ impl<'d> Sqspi<'d> {
         self.xsb(regs::SP_VPR_TASK_ACTION_IDX);
     }
 
-    // ---- Transfer engine -----------------------------------------------------
-
     /// Configure and kick off one SPI transaction. Completion is awaited
     /// separately via [`wait_done`](Self::wait_done) / [`blocking_wait_done`].
     #[allow(clippy::too_many_arguments)]
@@ -548,29 +498,24 @@ impl<'d> Sqspi<'d> {
         core.dr(23).write_value(ndf); // firmware-private byte count
         format.cilen().write_value(1); // 8-bit command => one 32-bit word
 
-        let scph = match self.config.spi_mode.phase {
-            Phase::CaptureOnFirstTransition => 0u32,
-            Phase::CaptureOnSecondTransition => 1,
-        };
-        let scpol = match self.config.spi_mode.polarity {
-            Polarity::IdleLow => 0u32,
-            Polarity::IdleHigh => 1,
-        };
-        let ctrlr0 = (1 << 31)              // SQSPIISMST = controller
-            | 0x7                            // DFS = 8-bit frames
-            | (0x7 << 16)                    // CFS = 8-bit
-            | ((dir as u32) << 10)           // TMOD
-            | (lines.spi_frf() << 22)        // SPI_FRF
-            | (scph << 8)
-            | (scpol << 9);
-        core.ctrlr0().write_value(ctrlr0);
+        let scph = self.config.spi_mode.phase == Phase::CaptureOnSecondTransition;
+        let scpol = self.config.spi_mode.polarity == Polarity::IdleHigh;
+        core.ctrlr0().write(|w| {
+            w.set_sqspiismst(true);
+            w.set_dfs(7); // 8-bit frames
+            w.set_cfs(7); // 8-bit control frames
+            w.set_tmod(dir as u8);
+            w.set_spi_frf(lines.spi_frf());
+            w.set_scph(scph);
+            w.set_scpol(scpol);
+        });
 
-        let addrl = (addr_bits / 4) & 0xF;
-        let spictrlr0 = lines.transtype()
-            | (addrl << 2)
-            | (2 << 8)               // INSTL = 8-bit instruction
-            | ((dummy & 0x1F) << 11); // WAITCYCLES
-        core.spictrlr0().write_value(spictrlr0);
+        core.spictrlr0().write(|w| {
+            w.set_transtype(lines.transtype());
+            w.set_addrl((addr_bits / 4) as u8);
+            w.set_instl(2); // 8-bit instruction
+            w.set_waitcycles(dummy as u8);
+        });
 
         let address = address as u64;
         core.dr(0).write_value(opcode as u32);
@@ -631,12 +576,9 @@ impl<'d> Sqspi<'d> {
         res
     }
 
-    // ---- Flash command helpers ----------------------------------------------
-    //
-    // SPI NOR flashes ignore program/erase commands unless write-enable (WREN,
-    // 0x06) sets the WEL bit first, and stay busy (WIP=1 in RDSR/0x05) for
-    // milliseconds afterwards. The hardware `qspi` peripheral automates this in
-    // CINSTRCONF; on sQSPI we do it in software.
+    // SPI NOR ignores program/erase unless WREN (0x06) sets WEL first, and stays
+    // busy (WIP=1 in RDSR/0x05) for milliseconds after. The hardware `qspi`
+    // peripheral automates this in CINSTRCONF; on sQSPI we do it in software.
 
     async fn write_enable(&mut self) -> Result<(), Error> {
         self.start(0x06, 0, 0, 0, 0, 0, Dir::Tx, Lines::Single);
@@ -669,8 +611,6 @@ impl<'d> Sqspi<'d> {
             }
         }
     }
-
-    // ---- Public API ---------------------------------------------------------
 
     /// Do a custom SPI instruction (single line).
     ///
@@ -842,13 +782,9 @@ impl<'d> Drop for Sqspi<'d> {
         self.regs.core().sqspienr().write_value(0);
         self.regs.enable().write_value(0);
         self.asb();
-        Self::stop_vpr(self.vpr);
+        crate::vpr::stop_reset(self.vpr);
     }
 }
-
-// ============================================================================
-// embedded-storage traits
-// ============================================================================
 
 impl NorFlashError for Error {
     fn kind(&self) -> NorFlashErrorKind {
@@ -925,10 +861,6 @@ mod _eh1 {
     }
 }
 
-// ============================================================================
-// Instance traits
-// ============================================================================
-
 /// Peripheral static state.
 pub(crate) struct State {
     waker: AtomicWaker,
@@ -943,30 +875,24 @@ impl State {
 }
 
 pub(crate) trait SealedInstance {
-    fn vpr_regs() -> pac::vpr::Vpr;
     fn state() -> &'static State;
 }
 
 /// sQSPI peripheral instance (the VPR coprocessor running the firmware).
+///
+/// Builds on [`vpr::Instance`](crate::vpr::Instance), which provides the VPR
+/// registers and the completion interrupt.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
-    /// Interrupt raised by the VPR when a transfer completes.
-    type Interrupt: interrupt::typelevel::Interrupt;
-}
+pub trait Instance: crate::vpr::Instance + SealedInstance {}
 
 macro_rules! impl_sqspi {
-    ($type:ident, $pac_vpr:ident, $irq:ident) => {
+    ($type:ident) => {
         impl crate::sqspi::SealedInstance for peripherals::$type {
-            fn vpr_regs() -> pac::vpr::Vpr {
-                pac::$pac_vpr
-            }
             fn state() -> &'static crate::sqspi::State {
                 static STATE: crate::sqspi::State = crate::sqspi::State::new();
                 &STATE
             }
         }
-        impl crate::sqspi::Instance for peripherals::$type {
-            type Interrupt = crate::interrupt::typelevel::$irq;
-        }
+        impl crate::sqspi::Instance for peripherals::$type {}
     };
 }

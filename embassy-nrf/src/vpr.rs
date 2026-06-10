@@ -7,7 +7,38 @@ use core::ptr::copy_nonoverlapping;
 use embassy_hal_internal::{Peri, PeripheralType};
 
 use crate::pac::spu::vals::Dmasec;
+use crate::pac::vpr::vals::CpurunEn;
 use crate::{interrupt, pac};
+
+/// SPU peripheral index of the VPR (FLPR) coprocessor.
+const FLPR_SPU_INDEX: usize = 12;
+
+/// Grant the application core secure access to the VPR (FLPR).
+///
+/// The VPR resets to non-secure; without this, accessing its secure-alias
+/// registers bus-faults.
+pub(crate) fn make_secure() {
+    pac::SPU00.periph(FLPR_SPU_INDEX).perm().write(|w| {
+        w.set_secattr(true);
+        w.set_dmasec(Dmasec::Secure);
+    });
+}
+
+/// Stop the coprocessor and pulse its debug-module reset.
+///
+/// This clears any program still running on it (a loaded program survives a
+/// system reset). Requires [`make_secure`] to have been called first.
+pub(crate) fn stop_reset(regs: pac::vpr::Vpr) {
+    regs.cpurun().write(|w| w.set_en(CpurunEn::Stopped));
+    regs.debugif().dmcontrol().write(|w| {
+        w.set_ndmreset(true);
+        w.set_dmactive(true);
+    });
+    regs.debugif().dmcontrol().write(|w| {
+        w.set_ndmreset(false);
+        w.set_dmactive(false);
+    });
+}
 
 /// VPR coprocessor driver.
 pub struct Vpr<'d> {
@@ -21,12 +52,7 @@ impl<'d> Vpr<'d> {
     ///
     /// The address must be an 8-byte aligned in RAM.
     pub fn new<T: Instance>(_peri: Peri<'d, T>, address: *const u8) -> Result<Self, Error> {
-        let spu = pac::SPU00;
-        let flpr_index = 12;
-        spu.periph(flpr_index).perm().write(|w| {
-            w.set_secattr(true);
-            w.set_dmasec(Dmasec::Secure);
-        });
+        make_secure();
 
         let mut this = Self {
             regs: T::regs(),

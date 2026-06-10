@@ -26,7 +26,7 @@ use core::mem::MaybeUninit;
 use defmt::{assert_eq, info, unwrap};
 use embassy_executor::Spawner;
 use embassy_nrf::sqspi::{self, Config};
-use embassy_nrf::{bind_interrupts, pac, peripherals};
+use embassy_nrf::{bind_interrupts, peripherals};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -46,32 +46,11 @@ const PAGE_SIZE: usize = 4096;
 #[repr(C, align(4))]
 struct AlignedBuf([u8; PAGE_SIZE]);
 
-/// Stop and reset the FLPR before `embassy_nrf::init`. A previously-started
-/// FLPR survives the debugger's soft reset and stalls init, so clear it first
-/// for clean re-runs. (See the nRF54L FLPR notes.)
-fn flpr_stop_reset() {
-    use pac::spu::vals::Dmasec;
-    use pac::vpr::vals::CpurunEn;
-    // VPR00 resets to non-secure; mark it secure or the secure-alias writes fault.
-    pac::SPU00.periph(12).perm().write(|w| {
-        w.set_secattr(true);
-        w.set_dmasec(Dmasec::Secure);
-    });
-    pac::VPR00.cpurun().write(|w| w.set_en(CpurunEn::Stopped));
-    pac::VPR00.debugif().dmcontrol().write(|w| {
-        w.set_ndmreset(true);
-        w.set_dmactive(true);
-    });
-    pac::VPR00.debugif().dmcontrol().write(|w| {
-        w.set_ndmreset(false);
-        w.set_dmactive(false);
-    });
-}
-
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     info!("sqspi driver example: boot");
-    flpr_stop_reset();
+    // `embassy_nrf::init` stops and resets the FLPR by default
+    // (`config::FlprReset::Reset`), so re-runs start from a clean state.
     let p = embassy_nrf::init(Default::default());
 
     let ram = FW_RAM.init([MaybeUninit::uninit(); 0x4000]);
@@ -85,12 +64,10 @@ async fn main(_spawner: Spawner) {
     ));
     info!("driver ready");
 
-    // Read JEDEC id.
     let mut id = [0; 3];
     unwrap!(q.custom_instruction(0x9F, &[], &mut id).await);
     info!("id: {}", id);
 
-    // Read status register.
     let mut status = [0; 1];
     unwrap!(q.custom_instruction(0x05, &[], &mut status).await);
     info!("status: {=u8:#04x}", status[0]);
@@ -127,8 +104,4 @@ async fn main(_spawner: Spawner) {
     }
 
     info!("done!");
-
-    loop {
-        cortex_m::asm::wfi();
-    }
 }
