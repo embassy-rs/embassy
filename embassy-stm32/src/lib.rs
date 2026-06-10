@@ -721,15 +721,9 @@ fn init_hw(config: Config) -> Peripherals {
             crate::pac::DBGMCU.cr().read();
         }
 
-        #[cfg(all(dbgmcu, stm32c5))]
-        let dcr = crate::pac::DBGMCU.dbgmcu_cr();
-
-        #[cfg(all(dbgmcu, not(stm32c5)))]
-        let dcr = crate::pac::DBGMCU.cr();
-
         #[cfg(dbgmcu)]
-        dcr.modify(|cr| {
-            #[cfg(all(dbgmcu, stm32c5))]
+        crate::pac::DBGMCU.cr().modify(|cr| {
+            #[cfg(stm32c5)]
             let _ = cr;
 
             #[cfg(dbgmcu_h5)]
