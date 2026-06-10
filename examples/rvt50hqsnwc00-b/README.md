@@ -45,6 +45,7 @@ This will:
 - `gpio.rs` - Poll the user button (`PH3`) and flash the user LED (`PE5`)
 - `can_raw.rs` - FDCAN demo on connector P5 (pattern TX + LED state RX)
 - `rlvgl_demo.rs` - Minimal [rlvgl](https://github.com/SoftOboros/rlvgl) UI (label + tappable button)
+- `widget_demo.rs` - Multi-widget LVGL-style demo (label, button, slider, bar, switch, checkbox)
 
 ### rlvgl demo
 
@@ -54,6 +55,17 @@ The `rlvgl_demo` binary uses **rlvgl 0.2.1** with an Embassy LTDC RGB565 backend
 cargo run --bin rlvgl_demo --features rlvgl
 cargo run --bin rlvgl_demo --features rlvgl,touch   # capacitive touch input
 ```
+
+### Widget demo
+
+The `widget_demo` binary showcases several rlvgl widgets on the 800×480 panel — the Embassy/Rust counterpart to widget examples in Riverdi's [riverdi-50-stm32u5-lvgl](https://github.com/riverdi/riverdi-50-stm32u5-lvgl) Cube project (`Middlewares/Third_Party/LVGL`).
+
+```bash
+cargo run --bin widget_demo --features rlvgl
+cargo run --bin widget_demo --features rlvgl,touch
+```
+
+> **Note:** [OxivGL](https://github.com/emobotics-dev/oxivgl) (safe Rust bindings over C LVGL v9.5) currently targets ESP32 and host SDL2. This example uses **rlvgl**, the pure-Rust LVGL-style library already integrated with Embassy LTDC on the RVT50.
 
 ## Configuration
 
