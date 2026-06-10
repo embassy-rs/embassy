@@ -49,9 +49,9 @@ use core::task::Poll;
 
 use embassy_hal_internal::Peri;
 use embassy_sync::waitqueue::AtomicWaker;
-use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
 // Re-exported so callers can spell `sqspi::MODE_0` etc., matching `spim`/`qspi`.
-pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_3};
+pub use embedded_hal_02::spi::{MODE_0, MODE_3, Mode, Phase, Polarity};
+use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
 
 use crate::gpio::{Pin as GpioPin, SealedPin};
 use crate::interrupt::typelevel::Interrupt;
@@ -488,7 +488,17 @@ impl<'d> Sqspi<'d> {
     /// Configure and kick off one SPI transaction. Completion is awaited
     /// separately via [`wait_done`](Self::wait_done) / [`blocking_wait_done`].
     #[allow(clippy::too_many_arguments)]
-    fn start(&mut self, opcode: u8, address: u32, addr_bits: u32, dummy: u32, ptr: u32, len: usize, dir: Dir, lines: Lines) {
+    fn start(
+        &mut self,
+        opcode: u8,
+        address: u32,
+        addr_bits: u32,
+        dummy: u32,
+        ptr: u32,
+        len: usize,
+        dir: Dir,
+        lines: Lines,
+    ) {
         let core = self.regs.core();
         let format = self.regs.format();
 
@@ -621,7 +631,16 @@ impl<'d> Sqspi<'d> {
     pub async fn custom_instruction(&mut self, opcode: u8, req: &[u8], resp: &mut [u8]) -> Result<(), Error> {
         self.write_enable().await?;
         if !resp.is_empty() {
-            self.start(opcode, 0, 0, 0, resp.as_mut_ptr() as u32, resp.len(), Dir::Rx, Lines::Single);
+            self.start(
+                opcode,
+                0,
+                0,
+                0,
+                resp.as_mut_ptr() as u32,
+                resp.len(),
+                Dir::Rx,
+                Lines::Single,
+            );
         } else {
             self.start(opcode, 0, 0, 0, req.as_ptr() as u32, req.len(), Dir::Tx, Lines::Single);
         }
@@ -633,7 +652,16 @@ impl<'d> Sqspi<'d> {
     pub fn blocking_custom_instruction(&mut self, opcode: u8, req: &[u8], resp: &mut [u8]) -> Result<(), Error> {
         self.blocking_write_enable()?;
         if !resp.is_empty() {
-            self.start(opcode, 0, 0, 0, resp.as_mut_ptr() as u32, resp.len(), Dir::Rx, Lines::Single);
+            self.start(
+                opcode,
+                0,
+                0,
+                0,
+                resp.as_mut_ptr() as u32,
+                resp.len(),
+                Dir::Rx,
+                Lines::Single,
+            );
         } else {
             self.start(opcode, 0, 0, 0, req.as_ptr() as u32, req.len(), Dir::Tx, Lines::Single);
         }
@@ -647,7 +675,16 @@ impl<'d> Sqspi<'d> {
             return Ok(());
         }
         let (op, addr_bits, dummy, lines) = self.read_params();
-        self.start(op, address, addr_bits, dummy, data.as_mut_ptr() as u32, data.len(), Dir::Rx, lines);
+        self.start(
+            op,
+            address,
+            addr_bits,
+            dummy,
+            data.as_mut_ptr() as u32,
+            data.len(),
+            Dir::Rx,
+            lines,
+        );
         self.wait_done().await
     }
 
@@ -674,7 +711,16 @@ impl<'d> Sqspi<'d> {
             return Ok(());
         }
         let (op, addr_bits, dummy, lines) = self.read_params();
-        self.start(op, address, addr_bits, dummy, data.as_mut_ptr() as u32, data.len(), Dir::Rx, lines);
+        self.start(
+            op,
+            address,
+            addr_bits,
+            dummy,
+            data.as_mut_ptr() as u32,
+            data.len(),
+            Dir::Rx,
+            lines,
+        );
         self.blocking_wait_done()
     }
 
@@ -711,7 +757,16 @@ impl<'d> Sqspi<'d> {
     pub async fn erase(&mut self, address: u32) -> Result<(), Error> {
         self.erase_bounds(address)?;
         self.write_enable().await?;
-        self.start(0x20, address, self.config.address_mode.bits(), 0, 0, 0, Dir::Tx, Lines::Single);
+        self.start(
+            0x20,
+            address,
+            self.config.address_mode.bits(),
+            0,
+            0,
+            0,
+            Dir::Tx,
+            Lines::Single,
+        );
         self.wait_done().await?;
         self.wait_wip().await
     }
@@ -732,7 +787,16 @@ impl<'d> Sqspi<'d> {
     pub fn blocking_erase(&mut self, address: u32) -> Result<(), Error> {
         self.erase_bounds(address)?;
         self.blocking_write_enable()?;
-        self.start(0x20, address, self.config.address_mode.bits(), 0, 0, 0, Dir::Tx, Lines::Single);
+        self.start(
+            0x20,
+            address,
+            self.config.address_mode.bits(),
+            0,
+            0,
+            0,
+            Dir::Tx,
+            Lines::Single,
+        );
         self.blocking_wait_done()?;
         self.blocking_wait_wip()
     }
@@ -747,7 +811,11 @@ impl<'d> Sqspi<'d> {
     }
 
     fn write_params(&self) -> (u8, u32, Lines) {
-        (self.config.write_opcode, self.config.address_mode.bits(), self.config.lines)
+        (
+            self.config.write_opcode,
+            self.config.address_mode.bits(),
+            self.config.lines,
+        )
     }
 
     /// Bytes that can be programmed at `addr` without crossing a page boundary.

@@ -8,7 +8,7 @@
 //! unused by the current driver; that's intentional.
 #![allow(dead_code)]
 
-use crate::pac::common::{Reg, R, RW, W};
+use crate::pac::common::{R, RW, Reg, W};
 
 // ============================================================================
 // Top-level register block

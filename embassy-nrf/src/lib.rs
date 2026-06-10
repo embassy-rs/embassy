@@ -189,6 +189,16 @@ pub mod saadc;
 pub mod spim;
 #[cfg(not(feature = "_nrf51"))]
 pub mod spis;
+#[cfg(all(
+    any(
+        feature = "_nrf54l15-app",
+        feature = "_nrf54l10-app",
+        feature = "_nrf54l05-app",
+        feature = "_nrf54lm20-app"
+    ),
+    feature = "_s"
+))]
+pub mod sqspi;
 #[cfg(not(any(feature = "_nrf5340-app", feature = "_nrf91")))]
 pub mod temp;
 pub mod timer;
@@ -208,16 +218,6 @@ pub mod uarte;
 #[cfg_attr(feature = "_nrf54lm20-app", path = "usb/usbhs.rs")]
 #[cfg_attr(not(feature = "_nrf54lm20-app"), path = "usb/mod.rs")]
 pub mod usb;
-#[cfg(all(
-    any(
-        feature = "_nrf54l15-app",
-        feature = "_nrf54l10-app",
-        feature = "_nrf54l05-app",
-        feature = "_nrf54lm20-app"
-    ),
-    feature = "_s"
-))]
-pub mod sqspi;
 #[cfg(all(
     any(
         feature = "_nrf54l15-app",
