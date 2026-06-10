@@ -4,13 +4,16 @@ use core::marker::PhantomData;
 use core::mem::ManuallyDrop;
 
 use super::low_level::{CountingMode, OutputCompareMode, OutputPolarity, RoundTo, Timer};
+#[cfg(not(stm32c5))]
 use super::ringbuffered::RingBufferedPwmChannel;
 use super::{Ch1, Ch2, Ch3, Ch4, Channel, GeneralInstance4Channel, TimerChannel, TimerPin};
 use crate::Peri;
+#[cfg(not(stm32c5))]
 use crate::dma::word::Word;
 #[cfg(gpio_v2)]
 use crate::gpio::Pull;
 use crate::gpio::{AfType, Flex, OutputType, Speed};
+#[cfg(not(stm32c5))]
 use crate::pac::timer::vals::Ccds;
 use crate::time::Hertz;
 #[cfg(timer_v2)]
@@ -173,6 +176,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwmChannel<'d, T> {
         self.timer.set_output_compare_clear_enable(self.channel, enable);
     }
 
+    #[cfg(not(stm32c5))]
     /// Convert this PWM channel into a ring-buffered PWM channel.
     ///
     /// This allows continuous PWM waveform generation using a DMA ring buffer.
@@ -466,6 +470,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         self.inner.set_compare_dither_value(channel, dither);
     }
 
+    #[cfg(not(stm32c5))]
     /// Generate a sequence of PWM waveform
     ///
     /// Note:
@@ -486,6 +491,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         self.inner.set_cc_dma_enable_state(C::CHANNEL, false);
     }
 
+    #[cfg(not(stm32c5))]
     /// Generate a sequence of PWM waveform
     ///
     /// Note:
@@ -506,6 +512,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         self.inner.enable_update_dma(false);
     }
 
+    #[cfg(not(stm32c5))]
     /// Generate a multichannel sequence of PWM waveforms using DMA triggered by timer update events.
     ///
     /// This method utilizes the timer's DMA burst transfer capability to update multiple CCRx registers

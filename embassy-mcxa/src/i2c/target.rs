@@ -1262,10 +1262,7 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
         Ok(ReadStatus::NeedMore(count))
     }
 
-    async fn async_respond_to_write_internal<'a>(
-        &'a mut self,
-        buf: &'a mut [u8],
-    ) -> Result<WriteStatus, IOError> {
+    async fn async_respond_to_write_internal<'a>(&'a mut self, buf: &'a mut [u8]) -> Result<WriteStatus, IOError> {
         let mut count = 0;
 
         self.clear_status();

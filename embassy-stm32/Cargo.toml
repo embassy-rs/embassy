@@ -126,6 +126,7 @@ flavors = [
     { regex_feature = "stm32f7[67]..[ig]", target = "thumbv7em-none-eabi", features = ["dual-bank"] },
     { regex_feature = "stm32f7.*", target = "thumbv7em-none-eabi" },
     { regex_feature = "stm32c0.*", target = "thumbv6m-none-eabi" },
+    { regex_feature = "stm32c5.*", target = "thumbv8m.main-none-eabihf" },
     { regex_feature = "stm32g0...c", target = "thumbv6m-none-eabi", features = ["dual-bank"] },
     { regex_feature = "stm32g0.*", target = "thumbv6m-none-eabi" },
     { regex_feature = "stm32g4[78].*", target = "thumbv7em-none-eabi", features = ["low-power", "dual-bank"] },
@@ -186,7 +187,7 @@ cortex-m = "0.7.6"
 futures-util = { version = "0.3.30", default-features = false }
 sdio-host = "0.9.0"
 dsp-fixedpoint = { version = "0.1.0", default-features = false }
-critical-section = "1.1"
+critical-section = { version = "1.1", default-features = false }
 
 vcell = "0.1.3"
 nb = "1.0.0"
@@ -210,11 +211,11 @@ heapless = "0.9.1"
 once_cell = { version = "1.21.4", default-features = false, features=["critical-section"] }
 
 # stm32-metapac = { version = "21" }
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-efbc4aab23acca680b52fda1f70c82cdca01a43f" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-d56a8a06825dc3980088b1e5f24f422dfabe5c26" }
 
 [build-dependencies]
 # stm32-metapac = { version = "21", default-features = false, features = ["metadata"]}
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-efbc4aab23acca680b52fda1f70c82cdca01a43f", default-features = false, features = ["metadata"] }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-d56a8a06825dc3980088b1e5f24f422dfabe5c26", default-features = false, features = ["metadata"] }
 
 proc-macro2 = "1.0.36"
 quote = "1.0.15"

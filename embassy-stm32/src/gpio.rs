@@ -692,7 +692,7 @@ fn set_as_af(pin_port: PinNumber, af_num: u8, af_type: AfType) {
 }
 
 #[inline(never)]
-#[cfg(gpio_v2)]
+#[cfg(all(gpio_v2, not(stm32c5)))]
 fn set_speed(pin_port: PinNumber, speed: Speed) {
     let pin = unsafe { AnyPin::steal(pin_port) };
     let r = pin.block();
@@ -722,6 +722,7 @@ pub(crate) fn set_as_analog(pin_port: PinNumber) {
 }
 
 #[inline(never)]
+#[cfg(not(stm32c5))]
 fn get_pull(pin_port: PinNumber) -> Pull {
     let pin = unsafe { AnyPin::steal(pin_port) };
     let r = pin.block();
@@ -803,7 +804,7 @@ pub(crate) trait SealedPin {
     }
 
     #[inline]
-    #[cfg(gpio_v2)]
+    #[cfg(all(gpio_v2, not(stm32c5)))]
     fn set_speed(&self, speed: Speed) {
         set_speed(self.pin_port(), speed)
     }
@@ -827,6 +828,7 @@ pub(crate) trait SealedPin {
 
     /// Get the pull-up configuration.
     #[inline]
+    #[cfg(not(stm32c5))]
     fn pull(&self) -> Pull {
         critical_section::with(|_| get_pull(self.pin_port()))
     }
@@ -839,7 +841,7 @@ pub(crate) trait SealedPin {
 pub type PinNumber = u8;
 
 /// Pin that can be used to configure an [ExtiInput](crate::exti::ExtiInput). This trait is lost when converting to [AnyPin].
-#[cfg(feature = "exti")]
+#[cfg(all(feature = "exti", not(stm32c5)))]
 #[allow(private_bounds)]
 pub trait ExtiPin: PeripheralType + SealedPin {
     /// EXTI channel assigned to this pin.
@@ -923,7 +925,7 @@ foreach_pin!(
     ($pin_name:ident, $port_name:ident, $port_num:expr, $pin_num:expr, $exti_ch:ident) => {
         impl Pin for peripherals::$pin_name {
         }
-        #[cfg(feature = "exti")]
+        #[cfg(all(feature = "exti", not(stm32c5)))]
         impl ExtiPin for peripherals::$pin_name {
             type ExtiChannel = peripherals::$exti_ch;
         }
