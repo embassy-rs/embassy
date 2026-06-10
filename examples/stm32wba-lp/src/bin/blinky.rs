@@ -14,6 +14,8 @@ use embassy_stm32::rcc::*;
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
+const MEASURE_POWER: bool = true;
+
 #[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
@@ -30,12 +32,22 @@ async fn main(_spawner: Spawner) {
         lse: None,
     };
 
-    // Disable debug peripherals during STOP to minimise leakage.
-    // Set to `true` when debugging with probe-rs / RTT.
-    config.enable_debug_during_sleep = false;
+    if MEASURE_POWER {
+        // Lowest leakage profile for current measurements.
+        config.enable_debug_during_sleep = false;
+        config.min_stop_pause = embassy_time::Duration::from_millis(100);
+    } else {
+        // Easier debug/reflash profile, but with higher STOP current.
+        config.enable_debug_during_sleep = true;
+        config.min_stop_pause = embassy_time::Duration::from_millis(20);
+    }
 
     let p = embassy_stm32::init(config);
     info!("Hello from STM32WBA low-power blinky!");
+    info!(
+        "Power profile: {}",
+        if MEASURE_POWER { "measurement" } else { "debug-friendly" }
+    );
 
     let mut led = Output::new(p.PB4, Level::High, Speed::Low);
 
