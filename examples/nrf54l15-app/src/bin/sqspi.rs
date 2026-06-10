@@ -1,0 +1,134 @@
+#![no_std]
+#![no_main]
+
+//! Example for the `embassy-nrf` **sQSPI** driver on the nRF54L15-DK.
+//!
+//! This drives an external MX25R64 (e.g. the chip on the nRF52840-DK) in Quad
+//! I/O mode through the high-level [`embassy_nrf::sqspi`] driver, performing the
+//! same erase / program / read-back / verify sequence as the nRF52840 `qspi`
+//! example. It uses the async API, so completion is driven by the VPR00
+//! interrupt rather than polling.
+//!
+//! ## Wiring (external MX25R64)
+//! | Flash pin | nRF54L15 |
+//! |-----------|----------|
+//! | SCLK      | P2.01    |
+//! | SI / IO0  | P2.02    |
+//! | SO / IO1  | P2.04    |
+//! | WP# / IO2 | P2.03    |
+//! | HOLD#/IO3 | P2.00    |
+//! | CS#       | P2.05    |
+//!
+//! `sqspi_firmware.bin` next to this file is the FLPR firmware blob (v1.2.1).
+
+use core::mem::MaybeUninit;
+
+use defmt::{assert_eq, info, unwrap};
+use embassy_executor::Spawner;
+use embassy_nrf::sqspi::{self, Config};
+use embassy_nrf::{bind_interrupts, pac, peripherals};
+use static_cell::StaticCell;
+use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    VPR00 => sqspi::InterruptHandler<peripherals::VPR>;
+});
+
+/// FLPR firmware (`self_boot == 0`, copied into RAM by the driver).
+static FW: &[u8] = include_bytes!("sqspi_firmware.bin");
+
+/// RAM region for the firmware code, working RAM, and register block. The
+/// driver aligns the start up to 128 bytes, so size with a little slack.
+static FW_RAM: StaticCell<[MaybeUninit<u8>; 0x4000]> = StaticCell::new();
+
+const PAGE_SIZE: usize = 4096;
+
+#[repr(C, align(4))]
+struct AlignedBuf([u8; PAGE_SIZE]);
+
+/// Stop and reset the FLPR before `embassy_nrf::init`. A previously-started
+/// FLPR survives the debugger's soft reset and stalls init, so clear it first
+/// for clean re-runs. (See the nRF54L FLPR notes.)
+fn flpr_stop_reset() {
+    use pac::spu::vals::Dmasec;
+    use pac::vpr::vals::CpurunEn;
+    // VPR00 resets to non-secure; mark it secure or the secure-alias writes fault.
+    pac::SPU00.periph(12).perm().write(|w| {
+        w.set_secattr(true);
+        w.set_dmasec(Dmasec::Secure);
+    });
+    pac::VPR00.cpurun().write(|w| w.set_en(CpurunEn::Stopped));
+    pac::VPR00.debugif().dmcontrol().write(|w| {
+        w.set_ndmreset(true);
+        w.set_dmactive(true);
+    });
+    pac::VPR00.debugif().dmcontrol().write(|w| {
+        w.set_ndmreset(false);
+        w.set_dmactive(false);
+    });
+}
+
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
+    info!("sqspi driver example: boot");
+    flpr_stop_reset();
+    let p = embassy_nrf::init(Default::default());
+
+    let ram = FW_RAM.init([MaybeUninit::uninit(); 0x4000]);
+
+    // Quad I/O (1-4-4) at 8 MHz, 8 MB capacity — same as the nRF52840 example.
+    let mut config = Config::default();
+    config.capacity = 8 * 1024 * 1024;
+
+    let mut q = unwrap!(sqspi::Sqspi::new(
+        p.VPR, Irqs, FW, ram, p.P2_01, p.P2_05, p.P2_02, p.P2_04, p.P2_03, p.P2_00, config,
+    ));
+    info!("driver ready");
+
+    // Read JEDEC id.
+    let mut id = [0; 3];
+    unwrap!(q.custom_instruction(0x9F, &[], &mut id).await);
+    info!("id: {}", id);
+
+    // Read status register.
+    let mut status = [0; 1];
+    unwrap!(q.custom_instruction(0x05, &[], &mut status).await);
+    info!("status: {=u8:#04x}", status[0]);
+
+    // Quad I/O needs the QE bit (status bit 6). Writing 0x40 sets QE and clears
+    // the block-protection bits, which would otherwise make program/erase fail.
+    info!("enabling quad mode (QE)...");
+    unwrap!(q.custom_instruction(0x01, &[0x40], &mut []).await);
+    unwrap!(q.custom_instruction(0x05, &[], &mut status).await);
+    info!("status now: {=u8:#04x} (QE={=u8})", status[0], (status[0] >> 6) & 1);
+
+    let mut buf = AlignedBuf([0u8; PAGE_SIZE]);
+    let pattern = |a: u32| (a ^ (a >> 8) ^ (a >> 16) ^ (a >> 24)) as u8;
+
+    for i in 0..8 {
+        info!("page {}: erasing...", i);
+        unwrap!(q.erase(i * PAGE_SIZE as u32).await);
+
+        for j in 0..PAGE_SIZE {
+            buf.0[j] = pattern(j as u32 + i * PAGE_SIZE as u32);
+        }
+        info!("programming...");
+        unwrap!(q.write(i * PAGE_SIZE as u32, &buf.0).await);
+    }
+
+    for i in 0..8 {
+        info!("page {}: reading...", i);
+        unwrap!(q.read(i * PAGE_SIZE as u32, &mut buf.0).await);
+
+        info!("verifying...");
+        for j in 0..PAGE_SIZE {
+            assert_eq!(buf.0[j], pattern(j as u32 + i * PAGE_SIZE as u32));
+        }
+    }
+
+    info!("done!");
+
+    loop {
+        cortex_m::asm::wfi();
+    }
+}

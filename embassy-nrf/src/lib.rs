@@ -217,6 +217,16 @@ pub mod usb;
     ),
     feature = "_s"
 ))]
+pub mod sqspi;
+#[cfg(all(
+    any(
+        feature = "_nrf54l15-app",
+        feature = "_nrf54l10-app",
+        feature = "_nrf54l05-app",
+        feature = "_nrf54lm20-app"
+    ),
+    feature = "_s"
+))]
 pub mod vpr;
 pub mod wdt;
 
