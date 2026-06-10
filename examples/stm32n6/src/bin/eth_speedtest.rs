@@ -21,7 +21,6 @@
 
 use cortex_m::peripheral::MPU;
 use defmt::*;
-use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_net::tcp::TcpSocket;
@@ -33,8 +32,8 @@ use embassy_stm32::{Config, bind_interrupts, eth};
 use embassy_time::{Duration, Instant};
 use embedded_io_async::{Read, Write};
 use heapless::Vec;
-use panic_probe as _;
 use static_cell::StaticCell;
+use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     ETH1 => eth::InterruptHandler;

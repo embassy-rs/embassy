@@ -5,11 +5,11 @@
 #[cfg_attr(eth_v2, path = "v2/mod.rs")]
 #[cfg_attr(eth_v2a, path = "v2a/mod.rs")]
 mod _version;
+mod generic_phy;
+mod sma;
 // Descriptor ring handling shared by the eth_v2 and eth_v2a drivers.
 #[cfg(any(eth_v2, eth_v2a))]
 mod v2_descriptors;
-mod generic_phy;
-mod sma;
 
 use core::mem::MaybeUninit;
 use core::task::Context;
