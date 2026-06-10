@@ -65,9 +65,9 @@ async fn main(spawner: Spawner) -> ! {
 
     #[cfg(feature = "touch")]
     {
-        let rvt50_board::DisplayResources { ltdc, i2c, touch_int } =
+        let rvt50_board::DisplayResources { ltdc, i2c, touch_int: _ } =
             rvt50_board::init_display(p).await;
-        spawner.spawn(unwrap!(ui_touch_task(ltdc, i2c, touch_int, bufs)));
+        spawner.spawn(unwrap!(ui_touch_task(ltdc, i2c, bufs)));
     }
 
     #[cfg(not(feature = "touch"))]
@@ -107,8 +107,7 @@ async fn ui_touch_task(
         embassy_stm32::mode::Blocking,
         embassy_stm32::i2c::Master,
     >,
-    touch_int: embassy_stm32::exti::ExtiInput<'static, embassy_stm32::mode::Async>,
     bufs: &'static mut LvglBuffers<{ LVGL_BUF_BYTES }>,
 ) -> ! {
-    platform::run_widget_demo(ltdc, bufs, i2c, touch_int).await
+    platform::run_widget_demo(ltdc, bufs, i2c).await
 }

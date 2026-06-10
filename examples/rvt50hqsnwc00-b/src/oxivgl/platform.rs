@@ -2,21 +2,20 @@
 
 extern crate alloc;
 
-#[cfg(feature = "touch")]
-use embassy_futures::select::select;
 use embassy_stm32::ltdc::{self, Ltdc, LtdcLayer, LtdcLayerConfig};
 use embassy_stm32::peripherals;
 use embassy_time::{Duration, Instant, Timer};
-use oxivgl::display::{LvglBuffers, DISPLAY_READY};
+use oxivgl::display::{DISPLAY_READY, LvglBuffers};
 use oxivgl::driver::LvglDriver;
-use oxivgl::view::{register_view_events, View};
+use oxivgl::view::{View, register_view_events};
 use oxivgl::widgets::{Obj, Screen};
 use oxivgl_sys::LV_DEF_REFR_PERIOD;
 use static_cell::StaticCell;
 
 use crate::oxivgl::display::{
-    front_framebuffer, prefill_background, present_framebuffer, sync_back_from_front, LtdcDisplay,
+    LtdcDisplay, front_framebuffer, prefill_background, present_framebuffer, sync_back_from_front,
 };
+#[cfg(feature = "touch")]
 use crate::oxivgl::indev::{TouchInput, TouchSample};
 use crate::oxivgl::widget_view::WidgetView;
 use crate::rvt50_board::DISPLAY_WIDTH;
@@ -24,6 +23,10 @@ use crate::rvt50_board::DISPLAY_WIDTH;
 const LVGL_TICK_MS: u64 = LV_DEF_REFR_PERIOD as u64 / 4;
 /// LTDC refresh cadence (~30 fps).
 const PRESENT_PERIOD_MS: u64 = 33;
+/// Touch sample cadence. Matches the rlvgl touch demos and avoids missing
+/// short presses when the controller does not emit a separate release edge.
+#[cfg(feature = "touch")]
+const TOUCH_POLL_MS: u64 = 5;
 /// Extra LVGL timer passes per LTDC present to keep animations smooth.
 const PRESENT_LVGL_TICKS: usize = 3;
 
@@ -37,55 +40,61 @@ static VIEW: StaticCell<WidgetView> = StaticCell::new();
 // Touch poller (touch feature only)
 // ---------------------------------------------------------------------------
 
-/// Reads the I2C touch panel on demand and tracks press/release transitions.
-///
-/// Normally the caller waits for [`TouchPoller::wait_for_int`] (the
-/// `CTP_INT` falling edge) before polling, so I2C traffic only occurs on
-/// actual touch events instead of every 5 ms.
+/// Reads the I2C touch panel and tracks press/release transitions.
 #[cfg(feature = "touch")]
 struct TouchPoller {
-    i2c: embassy_stm32::i2c::I2c<
-        'static,
-        embassy_stm32::mode::Blocking,
-        embassy_stm32::i2c::Master,
-    >,
-    int_pin: embassy_stm32::exti::ExtiInput<'static, embassy_stm32::mode::Async>,
+    i2c: embassy_stm32::i2c::I2c<'static, embassy_stm32::mode::Blocking, embassy_stm32::i2c::Master>,
     was_pressed: bool,
+    last_x: i32,
+    last_y: i32,
 }
 
 #[cfg(feature = "touch")]
 impl TouchPoller {
-    fn new(
-        i2c: embassy_stm32::i2c::I2c<
-            'static,
-            embassy_stm32::mode::Blocking,
-            embassy_stm32::i2c::Master,
-        >,
-        int_pin: embassy_stm32::exti::ExtiInput<'static, embassy_stm32::mode::Async>,
-    ) -> Self {
-        Self { i2c, int_pin, was_pressed: false }
-    }
-
-    /// Block until `CTP_INT` falls (touch event) or `deadline` is reached.
-    async fn wait_for_int(&mut self, deadline: Instant) {
-        let _ = select(self.int_pin.wait_for_falling_edge(), Timer::at(deadline)).await;
+    fn new(i2c: embassy_stm32::i2c::I2c<'static, embassy_stm32::mode::Blocking, embassy_stm32::i2c::Master>) -> Self {
+        Self {
+            i2c,
+            was_pressed: false,
+            last_x: 0,
+            last_y: 0,
+        }
     }
 
     /// Read the current touch state from I2C and log transitions.
     fn poll(&mut self) -> TouchSample {
         use defmt::info;
         let t = crate::rvt50_board::read_touch(&mut self.i2c);
+
+        if t.pressed {
+            self.last_x = t.x as i32;
+            self.last_y = t.y as i32;
+        }
+        // Idle reads park at the panel edge; keep releases on the last contact
+        // point so LVGL can finish click hit-testing on the pressed widget.
+        let sample = TouchSample {
+            x: self.last_x,
+            y: self.last_y,
+            pressed: t.pressed,
+        };
+
         if t.pressed && !self.was_pressed {
             info!(
                 "oxivgl touch down x={} y={} raw=0x{:02x}",
-                t.x, t.y, t.raw_status
+                sample.x, sample.y, t.raw_status
             );
         } else if !t.pressed && self.was_pressed {
-            info!("oxivgl touch up");
+            info!("oxivgl touch up x={} y={}", sample.x, sample.y);
         }
         self.was_pressed = t.pressed;
-        TouchSample { x: t.x as i32, y: t.y as i32, pressed: t.pressed }
+        sample
     }
+}
+
+#[cfg(feature = "touch")]
+fn pump_touch(driver: &LvglDriver, touch: &TouchInput, poller: &mut TouchPoller) {
+    touch.publish(poller.poll());
+    driver.timer_handler();
+    touch.sync_read();
 }
 
 // ---------------------------------------------------------------------------
@@ -148,9 +157,9 @@ async fn lvgl_present_batch(
 /// Run the OxivGL widget demo.
 ///
 /// With the `touch` feature: `i2c` is the blocking I2C bus to the touch
-/// controller, and `touch_int` is the `CTP_INT` EXTI input (PE6, active-low).
-/// The main loop sleeps until the INT falls (touch event) or the 33 ms present
-/// deadline, so no I2C traffic occurs while the screen is idle.
+/// controller. Touch is polled at a small fixed cadence so press/release
+/// transitions are delivered to LVGL even when the controller interrupt line
+/// does not produce a distinct edge for every state change.
 pub async fn run_widget_demo(
     mut ltdc: Ltdc<'static, peripherals::LTDC, ltdc::Rgb565>,
     bufs: &'static mut LvglBuffers<{ LVGL_BUF_BYTES }>,
@@ -159,19 +168,11 @@ pub async fn run_widget_demo(
         embassy_stm32::mode::Blocking,
         embassy_stm32::i2c::Master,
     >,
-    #[cfg(feature = "touch")] touch_int: embassy_stm32::exti::ExtiInput<
-        'static,
-        embassy_stm32::mode::Async,
-    >,
 ) -> ! {
     init_ltdc_layer(&mut ltdc).await;
 
     let driver = LvglDriver::init(DISPLAY_WIDTH as i32, crate::rvt50_board::DISPLAY_HEIGHT as i32);
-    let _display = LtdcDisplay::init(
-        DISPLAY_WIDTH as i32,
-        crate::rvt50_board::DISPLAY_HEIGHT as i32,
-        bufs,
-    );
+    let _display = LtdcDisplay::init(DISPLAY_WIDTH as i32, crate::rvt50_board::DISPLAY_HEIGHT as i32, bufs);
 
     DISPLAY_READY.wait().await;
     prefill_background();
@@ -194,7 +195,7 @@ pub async fn run_widget_demo(
     #[cfg(feature = "touch")]
     let touch = TouchInput::register();
     #[cfg(feature = "touch")]
-    let mut poller = TouchPoller::new(i2c, touch_int);
+    let mut poller = TouchPoller::new(i2c);
 
     // Initial flush: settle the display before entering the main loop.
     #[cfg(feature = "touch")]
@@ -205,19 +206,15 @@ pub async fn run_widget_demo(
     let mut next_present = Instant::now() + Duration::from_millis(PRESENT_PERIOD_MS);
 
     loop {
-        // Sleep until CTP_INT asserts (touch event) or the present deadline —
-        // whichever comes first. No I2C traffic while the screen is idle.
         #[cfg(feature = "touch")]
-        poller.wait_for_int(next_present).await;
+        Timer::after(Duration::from_millis(TOUCH_POLL_MS)).await;
         #[cfg(not(feature = "touch"))]
         Timer::at(next_present).await;
 
-        // Sample touch, tick LVGL, dispatch input events.
         #[cfg(feature = "touch")]
-        touch.publish(poller.poll());
+        pump_touch(&driver, &touch, &mut poller);
+        #[cfg(not(feature = "touch"))]
         driver.timer_handler();
-        #[cfg(feature = "touch")]
-        touch.sync_read();
 
         if Instant::now() >= next_present {
             #[cfg(feature = "touch")]

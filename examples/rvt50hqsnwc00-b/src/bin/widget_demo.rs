@@ -56,7 +56,8 @@ async fn main(spawner: Spawner) -> ! {
 
     #[cfg(feature = "touch")]
     {
-        let rvt50_board::DisplayResources { ltdc, i2c } = rvt50_board::init_display(p).await;
+        let rvt50_board::DisplayResources { ltdc, i2c, touch_int: _ } =
+            rvt50_board::init_display(p).await;
         spawner.spawn(unwrap!(ui_touch_task(ltdc, i2c, root, fb1, fb2)));
     }
 
