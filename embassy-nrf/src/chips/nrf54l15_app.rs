@@ -382,7 +382,9 @@ embassy_hal_internal::peripherals! {
     // GPIO port 1
     P1_00,
     P1_01,
+    #[cfg(feature = "nfc-pins-as-gpio")]
     P1_02,
+    #[cfg(feature = "nfc-pins-as-gpio")]
     P1_03,
     P1_04,
     P1_05,
@@ -482,6 +484,9 @@ embassy_hal_internal::peripherals! {
     WDT0,
     #[cfg(feature = "_s")]
     WDT1,
+
+    // VPR
+    VPR
 }
 
 impl_pin!(P0_00, 0, 0);
@@ -494,7 +499,9 @@ impl_pin!(P0_06, 0, 6);
 
 impl_pin!(P1_00, 1, 0);
 impl_pin!(P1_01, 1, 1);
+#[cfg(feature = "nfc-pins-as-gpio")]
 impl_pin!(P1_02, 1, 2);
+#[cfg(feature = "nfc-pins-as-gpio")]
 impl_pin!(P1_03, 1, 3);
 impl_pin!(P1_04, 1, 4);
 impl_pin!(P1_05, 1, 5);
@@ -534,7 +541,9 @@ cfg_if::cfg_if! {
 
         impl_gpiote_pin!(P1_00, GPIOTE20);
         impl_gpiote_pin!(P1_01, GPIOTE20);
+        #[cfg(feature = "nfc-pins-as-gpio")]
         impl_gpiote_pin!(P1_02, GPIOTE20);
+        #[cfg(feature = "nfc-pins-as-gpio")]
         impl_gpiote_pin!(P1_03, GPIOTE20);
         impl_gpiote_pin!(P1_04, GPIOTE20);
         impl_gpiote_pin!(P1_05, GPIOTE20);
@@ -614,13 +623,13 @@ impl_ppi_group!(PPI20_GROUP5, DPPIC20, 5);
 impl_ppi_group!(PPI30_GROUP0, DPPIC30, 0);
 impl_ppi_group!(PPI30_GROUP1, DPPIC30, 1);
 
-impl_timer!(TIMER00, TIMER00, TIMER00);
-impl_timer!(TIMER10, TIMER10, TIMER10);
-impl_timer!(TIMER20, TIMER20, TIMER20);
-impl_timer!(TIMER21, TIMER21, TIMER21);
-impl_timer!(TIMER22, TIMER22, TIMER22);
-impl_timer!(TIMER23, TIMER23, TIMER23);
-impl_timer!(TIMER24, TIMER24, TIMER24);
+impl_timer!(TIMER00, TIMER00, TIMER00, 6);
+impl_timer!(TIMER10, TIMER10, TIMER10, 8);
+impl_timer!(TIMER20, TIMER20, TIMER20, 6);
+impl_timer!(TIMER21, TIMER21, TIMER21, 6);
+impl_timer!(TIMER22, TIMER22, TIMER22, 6);
+impl_timer!(TIMER23, TIMER23, TIMER23, 6);
+impl_timer!(TIMER24, TIMER24, TIMER24, 6);
 
 impl_twim!(SERIAL20, TWIM20, SERIAL20);
 impl_twim!(SERIAL21, TWIM21, SERIAL21);
@@ -642,8 +651,8 @@ impl_spim!(
     SPIM00,
     SERIAL00,
     match pac::OSCILLATORS_S.pll().currentfreq().read().currentfreq() {
-        pac::oscillators::vals::Currentfreq::CK128M => 128_000_000,
-        pac::oscillators::vals::Currentfreq::CK64M => 64_000_000,
+        pac::oscillators::vals::Currentfreq::Ck128m => 128_000_000,
+        pac::oscillators::vals::Currentfreq::Ck64m => 64_000_000,
         _ => unreachable!(),
     }
 );
@@ -653,8 +662,8 @@ impl_spim!(
     SPIM00,
     SERIAL00,
     match pac::OSCILLATORS_NS.pll().currentfreq().read().currentfreq() {
-        pac::oscillators::vals::Currentfreq::CK128M => 128_000_000,
-        pac::oscillators::vals::Currentfreq::CK64M => 64_000_000,
+        pac::oscillators::vals::Currentfreq::Ck128m => 128_000_000,
+        pac::oscillators::vals::Currentfreq::Ck64m => 64_000_000,
         _ => unreachable!(),
     }
 );
@@ -686,6 +695,9 @@ impl_saadc_input!(P1_14, 1, 14);
 
 #[cfg(feature = "_s")]
 impl_cracen!(CRACEN, CRACEN, CRACEN);
+
+#[cfg(feature = "_s")]
+impl_vpr!(VPR, VPR00, VPR00);
 
 embassy_hal_internal::interrupt_mod!(
     SWI00,

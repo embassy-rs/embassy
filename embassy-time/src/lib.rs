@@ -23,6 +23,8 @@ mod driver_mock;
 #[cfg(feature = "mock-driver")]
 pub use driver_mock::MockDriver;
 
+#[cfg(feature = "cmsdk")]
+pub mod driver_cmsdk;
 #[cfg(feature = "std")]
 mod driver_std;
 #[cfg(feature = "wasm")]

@@ -18,6 +18,7 @@ defmt-rtt = "1.0.0"
 cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
+stm32-hrtim = "0.2.0"
 
 [profile.release]
 debug = 2

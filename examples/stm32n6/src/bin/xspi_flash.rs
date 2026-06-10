@@ -38,10 +38,10 @@ async fn main(_spawner: Spawner) {
     // Configure RCC with IC4 for XSPI2 kernel clock
     let mut config = embassy_stm32::Config::default();
     config.rcc.ic4 = Some(IcConfig {
-        source: Icsel::PLL2,          // PLL2 in bypass mode = HSI 64 MHz
+        source: Icsel::Pll2,          // PLL2 in bypass mode = HSI 64 MHz
         divider: Icint::from_bits(0), // DIV1 = no division
     });
-    config.rcc.mux.xspi2sel = XspiClkSrc::IC4; // Select IC4 for XSPI2 kernel clock
+    config.rcc.mux.xspi2sel = XspiClkSrc::Ic4; // Select IC4 for XSPI2 kernel clock
     config.rcc.vddio3_1v8 = true;
     let p = embassy_stm32::init(config);
     info!("XSPI Flash Example for STM32N6570-DK");

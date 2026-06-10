@@ -3,7 +3,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::dac::{DacChannel, ValueArray};
+use embassy_stm32::dac::DacChannel;
 use embassy_stm32::mode::Async;
 use embassy_stm32::pac::timer::vals::Mms;
 use embassy_stm32::peripherals::{DMA1_CH3, DMA1_CH4, TIM6, TIM7};
@@ -25,34 +25,34 @@ async fn main(spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
     {
         use embassy_stm32::rcc::*;
-        config.rcc.hsi = Some(HSIPrescaler::DIV1);
+        config.rcc.hsi = Some(HSIPrescaler::Div1);
         config.rcc.csi = true;
         config.rcc.pll1 = Some(Pll {
-            source: PllSource::HSI,
-            prediv: PllPreDiv::DIV4,
-            mul: PllMul::MUL50,
+            source: PllSource::Hsi,
+            prediv: PllPreDiv::Div4,
+            mul: PllMul::Mul50,
             fracn: None,
-            divp: Some(PllDiv::DIV2),
-            divq: Some(PllDiv::DIV8), // 100mhz
+            divp: Some(PllDiv::Div2),
+            divq: Some(PllDiv::Div8), // 100mhz
             divr: None,
         });
         config.rcc.pll2 = Some(Pll {
-            source: PllSource::HSI,
-            prediv: PllPreDiv::DIV4,
-            mul: PllMul::MUL50,
+            source: PllSource::Hsi,
+            prediv: PllPreDiv::Div4,
+            mul: PllMul::Mul50,
             fracn: None,
-            divp: Some(PllDiv::DIV8), // 100mhz
+            divp: Some(PllDiv::Div8), // 100mhz
             divq: None,
             divr: None,
         });
-        config.rcc.sys = Sysclk::PLL1_P; // 400 Mhz
-        config.rcc.ahb_pre = AHBPrescaler::DIV2; // 200 Mhz
-        config.rcc.apb1_pre = APBPrescaler::DIV2; // 100 Mhz
-        config.rcc.apb2_pre = APBPrescaler::DIV2; // 100 Mhz
-        config.rcc.apb3_pre = APBPrescaler::DIV2; // 100 Mhz
-        config.rcc.apb4_pre = APBPrescaler::DIV2; // 100 Mhz
+        config.rcc.sys = Sysclk::Pll1P; // 400 Mhz
+        config.rcc.ahb_pre = AHBPrescaler::Div2; // 200 Mhz
+        config.rcc.apb1_pre = APBPrescaler::Div2; // 100 Mhz
+        config.rcc.apb2_pre = APBPrescaler::Div2; // 100 Mhz
+        config.rcc.apb3_pre = APBPrescaler::Div2; // 100 Mhz
+        config.rcc.apb4_pre = APBPrescaler::Div2; // 100 Mhz
         config.rcc.voltage_scale = VoltageScale::Scale1;
-        config.rcc.mux.adcsel = mux::Adcsel::PLL2_P;
+        config.rcc.mux.adcsel = mux::Adcsel::Pll2P;
     }
 
     // Initialize the board and obtain a Peripherals instance
@@ -88,7 +88,7 @@ async fn dac_task1(tim: Peri<'static, TIM6>, mut dac: DacChannel<'static, Async>
 
     let tim = Timer::new(tim);
     tim.regs_basic().arr().modify(|w| w.set_arr(reload as u16 - 1));
-    tim.regs_basic().cr2().modify(|w| w.set_mms(Mms::UPDATE));
+    tim.regs_basic().cr2().modify(|w| w.set_mms(Mms::Update));
     tim.regs_basic().cr1().modify(|w| {
         w.set_opm(false);
         w.set_cen(true);
@@ -106,7 +106,7 @@ async fn dac_task1(tim: Peri<'static, TIM6>, mut dac: DacChannel<'static, Async>
     // Loop technically not necessary if DMA circular mode is enabled
     loop {
         info!("Loop DAC1");
-        dac.write(ValueArray::Bit8(data), true).await;
+        dac.write(data, true).await;
     }
 }
 
@@ -125,7 +125,7 @@ async fn dac_task2(tim: Peri<'static, TIM7>, mut dac: DacChannel<'static, Async>
 
     let tim = Timer::new(tim);
     tim.regs_basic().arr().modify(|w| w.set_arr(reload as u16 - 1));
-    tim.regs_basic().cr2().modify(|w| w.set_mms(Mms::UPDATE));
+    tim.regs_basic().cr2().modify(|w| w.set_mms(Mms::Update));
     tim.regs_basic().cr1().modify(|w| {
         w.set_opm(false);
         w.set_cen(true);
@@ -143,7 +143,7 @@ async fn dac_task2(tim: Peri<'static, TIM7>, mut dac: DacChannel<'static, Async>
         data.len()
     );
 
-    dac.write(ValueArray::Bit8(data), true).await;
+    dac.write(data, true).await;
 }
 
 fn to_sine_wave(v: u8) -> u8 {

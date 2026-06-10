@@ -11,8 +11,8 @@ pub enum ChannelDirection {
 impl From<ChannelDirection> for vals::Ccsel {
     fn from(direction: ChannelDirection) -> Self {
         match direction {
-            ChannelDirection::OutputPwm => vals::Ccsel::OUTPUT_COMPARE,
-            ChannelDirection::InputCapture => vals::Ccsel::INPUT_CAPTURE,
+            ChannelDirection::OutputPwm => vals::Ccsel::OutputCompare,
+            ChannelDirection::InputCapture => vals::Ccsel::InputCapture,
         }
     }
 }

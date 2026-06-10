@@ -7,28 +7,29 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
-use embassy_stm32::rcc::WPAN_DEFAULT;
+use embassy_stm32::rcc::Config as RccConfig;
 use embassy_stm32_wpan::TlMbox;
-use embassy_stm32_wpan::hci::event::command::{CommandComplete, ReturnParameters};
-use embassy_stm32_wpan::hci::host::uart::{Packet, UartHci};
-use embassy_stm32_wpan::hci::host::{AdvertisingFilterPolicy, EncryptionKey, HostHci, OwnAddressType};
-use embassy_stm32_wpan::hci::types::AdvertisingType;
-use embassy_stm32_wpan::hci::vendor::command::gap::{
+use embassy_stm32_wpan::lhci::LhciC1DeviceInformationCcrp;
+use embassy_stm32_wpan::sub::ble::ControllerAdapter;
+use embassy_stm32_wpan::sub::mm;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::{Channel, Sender};
+use static_cell::StaticCell;
+use stm32wb_hci::host::uart::{Packet, UartHci};
+use stm32wb_hci::host::{AdvertisingFilterPolicy, EncryptionKey, HostHci, OwnAddressType};
+use stm32wb_hci::types::AdvertisingType;
+use stm32wb_hci::vendor::command::gap::{
     AddressType, AuthenticationRequirements, DiscoverableParameters, GapCommands, IoCapability, LocalName, Pin, Role,
     SecureConnectionSupport,
 };
-use embassy_stm32_wpan::hci::vendor::command::gatt::{
+use stm32wb_hci::vendor::command::gatt::{
     AddCharacteristicParameters, AddServiceParameters, CharacteristicEvent, CharacteristicPermission,
     CharacteristicProperty, EncryptionKeySize, GattCommands, ServiceType, UpdateCharacteristicValueParameters, Uuid,
     WriteResponseParameters,
 };
-use embassy_stm32_wpan::hci::vendor::command::hal::{ConfigData, HalCommands, PowerLevel};
-use embassy_stm32_wpan::hci::vendor::event::command::VendorReturnParameters;
-use embassy_stm32_wpan::hci::vendor::event::{self, AttributeHandle, VendorEvent};
-use embassy_stm32_wpan::hci::{BdAddr, Event};
-use embassy_stm32_wpan::lhci::LhciC1DeviceInformationCcrp;
-use embassy_stm32_wpan::sub::ble::Ble;
-use embassy_stm32_wpan::sub::mm;
+use stm32wb_hci::vendor::command::hal::{ConfigData, HalCommands, PowerLevel};
+use stm32wb_hci::vendor::event::{self, AttributeHandle, VendorEvent};
+use stm32wb_hci::{BdAddr, Event};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs{
@@ -63,92 +64,97 @@ async fn main(spawner: Spawner) {
         Note: extended stack versions are not supported at this time. Do not attempt to install a stack with "extended" in the name.
     */
 
+    static PACKET_CHANNEL: static_cell::StaticCell<Channel<CriticalSectionRawMutex, Packet, 3>> = StaticCell::new();
+    static CONTROLLER: static_cell::StaticCell<ControllerAdapter<'static>> = StaticCell::new();
+
     let mut config = embassy_stm32::Config::default();
-    config.rcc = WPAN_DEFAULT;
+    config.rcc = RccConfig::new_wpan();
     let p = embassy_stm32::init(config);
     info!("Hello World!");
 
     let config = Config::default();
-    let mbox = TlMbox::init(p.IPCC, Irqs, config).await.unwrap();
-    let mut sys = mbox.sys_subsystem;
-    let mut ble = mbox.ble_subsystem;
+    let (ble, mm) = TlMbox::wait_ready(p.IPCC, Irqs, config)
+        .await
+        .unwrap()
+        .init_ble(Default::default())
+        .await
+        .unwrap();
 
-    spawner.spawn(run_mm_queue(mbox.mm_subsystem).unwrap());
+    let pkt_channel = PACKET_CHANNEL.init(Channel::new());
+    let ble = CONTROLLER.init(ControllerAdapter::new(ble));
+    let pkt_sender = pkt_channel.sender();
+    let pkt_receiver = pkt_channel.receiver();
 
-    let _ = sys.shci_c2_ble_init(Default::default()).await;
+    spawner.spawn(run_mm_queue(mm).unwrap());
+    spawner.spawn(receive_packets(ble, pkt_sender).unwrap());
 
     info!("resetting BLE...");
-    ble.reset().await;
-    let response = ble.read().await;
+    let response = ble.reset().await;
     defmt::debug!("{}", response);
 
     info!("config public address...");
-    ble.write_config_data(&ConfigData::public_address(get_bd_addr()).build())
+    let response = ble
+        .write_config_data(&ConfigData::public_address(get_bd_addr()).build())
         .await;
-    let response = ble.read().await;
     defmt::debug!("{}", response);
 
     info!("config random address...");
-    ble.write_config_data(&ConfigData::random_address(get_random_addr()).build())
+    let response = ble
+        .write_config_data(&ConfigData::random_address(get_random_addr()).build())
         .await;
-    let response = ble.read().await;
     defmt::debug!("{}", response);
 
     info!("config identity root...");
-    ble.write_config_data(&ConfigData::identity_root(&get_irk()).build())
+    let response = ble
+        .write_config_data(&ConfigData::identity_root(&get_irk()).build())
         .await;
-    let response = ble.read().await;
     defmt::debug!("{}", response);
 
     info!("config encryption root...");
-    ble.write_config_data(&ConfigData::encryption_root(&get_erk()).build())
+    let response = ble
+        .write_config_data(&ConfigData::encryption_root(&get_erk()).build())
         .await;
-    let response = ble.read().await;
     defmt::debug!("{}", response);
 
     info!("config tx power level...");
-    ble.set_tx_power_level(PowerLevel::ZerodBm).await;
-    let response = ble.read().await;
+    let response = ble.set_tx_power_level(PowerLevel::ZerodBm).await;
     defmt::debug!("{}", response);
 
     info!("GATT init...");
-    ble.init_gatt().await;
-    let response = ble.read().await;
+    let response = ble.init_gatt().await;
     defmt::debug!("{}", response);
 
     info!("GAP init...");
-    ble.init_gap(Role::PERIPHERAL, false, BLE_GAP_DEVICE_NAME_LENGTH).await;
-    let response = ble.read().await;
+    let response = ble.init_gap(Role::PERIPHERAL, false, BLE_GAP_DEVICE_NAME_LENGTH).await;
     defmt::debug!("{}", response);
 
     info!("set IO capabilities...");
-    ble.set_io_capability(IoCapability::DisplayConfirm).await;
-    let response = ble.read().await;
+    let response = ble.set_io_capability(IoCapability::DisplayConfirm).await;
     defmt::debug!("{}", response);
 
     info!("set authentication requirements...");
-    ble.set_authentication_requirement(&AuthenticationRequirements {
-        bonding_required: false,
-        keypress_notification_support: false,
-        mitm_protection_required: false,
-        encryption_key_size_range: (8, 16),
-        fixed_pin: Pin::Requested,
-        identity_address_type: AddressType::Public,
-        secure_connection_support: SecureConnectionSupport::Optional,
-    })
-    .await
-    .unwrap();
-    let response = ble.read().await;
+    let response = ble
+        .set_authentication_requirement(&AuthenticationRequirements {
+            bonding_required: false,
+            keypress_notification_support: false,
+            mitm_protection_required: false,
+            encryption_key_size_range: (8, 16),
+            fixed_pin: Pin::Requested,
+            identity_address_type: AddressType::Public,
+            secure_connection_support: SecureConnectionSupport::Optional,
+        })
+        .await;
     defmt::debug!("{}", response);
 
     info!("set scan response data...");
-    ble.le_set_scan_response_data(b"TXTX").await.unwrap();
-    let response = ble.read().await;
+    let response = ble.le_set_scan_response_data(b"TXTX").await;
     defmt::debug!("{}", response);
 
     defmt::info!("initializing services and characteristics...");
-    let mut ble_context = init_gatt_services(&mut ble).await.unwrap();
+    let ble_context = init_gatt_services(&ble).await;
     defmt::info!("{}", ble_context);
+
+    let mut ble_context = ble_context.unwrap();
 
     let discovery_params = DiscoverableParameters {
         advertising_type: AdvertisingType::ConnectableUndirected,
@@ -161,15 +167,15 @@ async fn main(spawner: Spawner) {
     };
 
     info!("set discoverable...");
-    ble.set_discoverable(&discovery_params).await.unwrap();
-    let response = ble.read().await;
+    let response = ble.set_discoverable(&discovery_params).await;
     defmt::debug!("{}", response);
 
     loop {
-        let response = ble.read().await;
+        let response = pkt_receiver.receive().await;
         defmt::debug!("{}", response);
 
-        if let Ok(Packet::Event(event)) = response {
+        #[allow(irrefutable_let_patterns)]
+        if let Packet::Event(event) = response {
             match event {
                 Event::LeConnectionComplete(_) => {
                     defmt::info!("connected");
@@ -182,7 +188,7 @@ async fn main(spawner: Spawner) {
                 Event::Vendor(vendor_event) => match vendor_event {
                     VendorEvent::AttReadPermitRequest(read_req) => {
                         defmt::info!("read request received {}, allowing", read_req);
-                        ble.allow_read(read_req.conn_handle).await
+                        ble.allow_read(read_req.conn_handle).await.unwrap();
                     }
                     VendorEvent::AttWritePermitRequest(write_req) => {
                         defmt::info!("write request received {}, allowing", write_req);
@@ -211,6 +217,21 @@ async fn main(spawner: Spawner) {
                 },
                 _ => {}
             }
+        }
+    }
+}
+
+#[embassy_executor::task]
+async fn receive_packets(
+    controller: &'static ControllerAdapter<'static>,
+    pkt_sender: Sender<'static, CriticalSectionRawMutex, Packet, 3>,
+) {
+    loop {
+        let response = controller.read_packet().await;
+        defmt::debug!("{}", response);
+
+        if let Ok(packet) = response {
+            pkt_sender.send(packet).await;
         }
     }
 }
@@ -277,11 +298,11 @@ pub struct CharHandles {
     pub notify: AttributeHandle,
 }
 
-pub async fn init_gatt_services<'a>(ble_subsystem: &mut Ble<'a>) -> Result<BleContext, ()> {
-    let service_handle = gatt_add_service(ble_subsystem, Uuid::Uuid16(0x500)).await?;
+pub async fn init_gatt_services<'a>(controller: &ControllerAdapter<'a>) -> Result<BleContext, ()> {
+    let service_handle = gatt_add_service(controller, Uuid::Uuid16(0x500)).await?;
 
     let read = gatt_add_char(
-        ble_subsystem,
+        controller,
         service_handle,
         Uuid::Uuid16(0x501),
         CharacteristicProperty::READ,
@@ -290,7 +311,7 @@ pub async fn init_gatt_services<'a>(ble_subsystem: &mut Ble<'a>) -> Result<BleCo
     .await?;
 
     let write = gatt_add_char(
-        ble_subsystem,
+        controller,
         service_handle,
         Uuid::Uuid16(0x502),
         CharacteristicProperty::WRITE_WITHOUT_RESPONSE | CharacteristicProperty::WRITE | CharacteristicProperty::READ,
@@ -299,7 +320,7 @@ pub async fn init_gatt_services<'a>(ble_subsystem: &mut Ble<'a>) -> Result<BleCo
     .await?;
 
     let notify = gatt_add_char(
-        ble_subsystem,
+        controller,
         service_handle,
         Uuid::Uuid16(0x503),
         CharacteristicProperty::NOTIFY | CharacteristicProperty::READ,
@@ -314,26 +335,17 @@ pub async fn init_gatt_services<'a>(ble_subsystem: &mut Ble<'a>) -> Result<BleCo
     })
 }
 
-async fn gatt_add_service<'a>(ble_subsystem: &mut Ble<'a>, uuid: Uuid) -> Result<AttributeHandle, ()> {
-    ble_subsystem
+async fn gatt_add_service<'a>(controller: &ControllerAdapter<'a>, uuid: Uuid) -> Result<AttributeHandle, ()> {
+    let response = controller
         .add_service(&AddServiceParameters {
             uuid,
             service_type: ServiceType::Primary,
             max_attribute_records: 8,
         })
         .await;
-    let response = ble_subsystem.read().await;
     defmt::debug!("{}", response);
 
-    if let Ok(Packet::Event(Event::CommandComplete(CommandComplete {
-        return_params:
-            ReturnParameters::Vendor(VendorReturnParameters::GattAddService(event::command::GattService {
-                service_handle,
-                ..
-            })),
-        ..
-    }))) = response
-    {
+    if let Ok(event::command::GattService { service_handle }) = response {
         Ok(service_handle)
     } else {
         Err(())
@@ -341,13 +353,13 @@ async fn gatt_add_service<'a>(ble_subsystem: &mut Ble<'a>, uuid: Uuid) -> Result
 }
 
 async fn gatt_add_char<'a>(
-    ble_subsystem: &mut Ble<'a>,
+    controller: &ControllerAdapter<'a>,
     service_handle: AttributeHandle,
     characteristic_uuid: Uuid,
     characteristic_properties: CharacteristicProperty,
     default_value: Option<&[u8]>,
 ) -> Result<AttributeHandle, ()> {
-    ble_subsystem
+    let response = controller
         .add_characteristic(&AddCharacteristicParameters {
             service_handle,
             characteristic_uuid,
@@ -359,30 +371,19 @@ async fn gatt_add_char<'a>(
             is_variable: true,
         })
         .await;
-    let response = ble_subsystem.read().await;
     defmt::debug!("{}", response);
 
-    if let Ok(Packet::Event(Event::CommandComplete(CommandComplete {
-        return_params:
-            ReturnParameters::Vendor(VendorReturnParameters::GattAddCharacteristic(event::command::GattCharacteristic {
-                characteristic_handle,
-                ..
-            })),
-        ..
-    }))) = response
-    {
+    if let Ok(event::command::GattCharacteristic { characteristic_handle }) = response {
         if let Some(value) = default_value {
-            ble_subsystem
+            let response = controller
                 .update_characteristic_value(&UpdateCharacteristicValueParameters {
                     service_handle,
                     characteristic_handle,
                     offset: 0,
                     value,
                 })
-                .await
-                .unwrap();
+                .await;
 
-            let response = ble_subsystem.read().await;
             defmt::debug!("{}", response);
         }
         Ok(characteristic_handle)

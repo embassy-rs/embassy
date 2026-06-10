@@ -1,4 +1,3 @@
-use core::marker::PhantomData;
 use core::sync::atomic::{Ordering, compiler_fence};
 
 #[allow(unused_imports)]
@@ -10,38 +9,28 @@ use crate::adc::{Instance, RxDma};
 use crate::dma::Channel;
 #[allow(unused_imports)]
 use crate::dma::{ReadableRingBuffer, TransferOptions};
-use crate::rcc;
+use crate::rcc::{RccInfo, WakeGuard};
 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct OverrunError;
 
-pub struct RingBufferedAdc<'d, T: Instance> {
-    _phantom: PhantomData<T>,
+#[allow(private_bounds)]
+pub struct RingBufferedAdc<'d, R: AdcRegs> {
+    regs: R,
+    info: RccInfo,
     ring_buf: ReadableRingBuffer<'d, u16>,
+    _wake_guard: WakeGuard,
 }
 
-impl<'d, T: Instance> RingBufferedAdc<'d, T> {
-    pub(crate) fn new<D: RxDma<T>>(
+#[allow(private_bounds)]
+impl<'d, R: AdcRegs> RingBufferedAdc<'d, R> {
+    pub(crate) fn new<T: Instance<Regs = R>, D: RxDma<T>>(
         dma: Peri<'d, D>,
         irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         dma_buf: &'d mut [u16],
         sequence_len: usize,
     ) -> Self {
-        // DMA side setup - configuration differs between DMA/BDMA and GPDMA
-        // For DMA/BDMA: use circular mode via TransferOptions
-        // For GPDMA: circular mode is achieved via linked-list ping-pong
-        #[cfg(not(gpdma))]
-        let opts = TransferOptions {
-            half_transfer_ir: true,
-            circular: true,
-            ..Default::default()
-        };
-
-        #[cfg(gpdma)]
-        let opts = TransferOptions {
-            half_transfer_ir: true,
-            ..Default::default()
-        };
+        let opts = Default::default();
 
         // Safety: we forget the struct before this function returns.
         let request = dma.request();
@@ -54,7 +43,9 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
         ring_buf.set_alignment(sequence_len);
 
         Self {
-            _phantom: PhantomData,
+            regs: T::regs(),
+            info: T::RCC_INFO,
+            _wake_guard: T::RCC_INFO.wake_guard(),
             ring_buf,
         }
     }
@@ -64,7 +55,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
         compiler_fence(Ordering::SeqCst);
         self.ring_buf.start();
 
-        T::regs().start();
+        self.regs.start();
     }
 
     pub fn stop(&mut self) {
@@ -102,15 +93,13 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
     /// use embassy_stm32::adc::{Adc, AdcChannel}
     ///
     /// let mut adc = Adc::new(p.ADC1);
-    /// let mut adc_pin0 = p.PA0.degrade_adc();
-    /// let mut adc_pin1 = p.PA1.degrade_adc();
     /// let adc_dma_buf = [0u16; DMA_BUF_LEN];
     ///
     /// let mut ring_buffered_adc: RingBufferedAdc<embassy_stm32::peripherals::ADC1> = adc.into_ring_buffered(
     ///     p.DMA2_CH0,
     ///      adc_dma_buf, [
-    ///         (&mut *adc_pin0, SampleTime::CYCLES160_5),
-    ///         (&mut *adc_pin1, SampleTime::CYCLES160_5),
+    ///         (p.PA0.reborrow_adc(), SampleTime::CYCLES160_5),
+    ///         (p.PA1.reborrow_adc(), SampleTime::CYCLES160_5),
     ///     ].into_iter());
     ///
     ///
@@ -210,13 +199,13 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
     }
 }
 
-impl<T: Instance> Drop for RingBufferedAdc<'_, T> {
+impl<R: AdcRegs> Drop for RingBufferedAdc<'_, R> {
     fn drop(&mut self) {
-        T::regs().stop();
+        self.regs.stop(true);
 
         compiler_fence(Ordering::SeqCst);
 
         self.ring_buf.request_pause();
-        rcc::disable::<T>();
+        self.info.disable();
     }
 }

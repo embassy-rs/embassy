@@ -12,7 +12,7 @@ use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time_driver::{Driver, TICK_HZ};
 use embassy_time_queue_utils::Queue;
-use stm32_metapac::lptim::{Lptim, regs};
+use stm32_metapac::lptim::Lptim;
 
 use super::AlarmState;
 use crate::interrupt::typelevel::Interrupt;
@@ -30,6 +30,71 @@ type T = peripherals::LPTIM3;
 
 fn regs_lptim() -> Lptim {
     T::regs()
+}
+
+// LPTIM v2a (STM32WBA) renames the interrupt enable register from IER to DIER
+// and uses IcrAdv/DierAdv register types instead of Icr/Ier.
+// The compare register also changes from a single `cmp()` to an indexed `ccr(n)`.
+
+/// Read the interrupt enable register value as a raw u32.
+fn ier_read(r: Lptim) -> u32 {
+    #[cfg(not(stm32wba))]
+    {
+        r.ier().read().0
+    }
+    #[cfg(stm32wba)]
+    {
+        r.dier().read().0
+    }
+}
+
+/// Check if the compare-capture interrupt is enabled for channel `n`.
+fn ier_ccie(r: Lptim, n: usize) -> bool {
+    #[cfg(not(stm32wba))]
+    {
+        r.ier().read().ccie(n)
+    }
+    #[cfg(stm32wba)]
+    {
+        r.dier().read().ccie(n)
+    }
+}
+
+/// Modify the interrupt enable register.
+fn ier_set_ueie(r: Lptim, val: bool) {
+    #[cfg(not(stm32wba))]
+    r.ier().modify(|w| w.set_ueie(val));
+    #[cfg(stm32wba)]
+    r.dier().modify(|w| w.set_ueie(val));
+}
+
+fn ier_set_ccie(r: Lptim, n: usize, val: bool) {
+    #[cfg(not(stm32wba))]
+    r.ier().modify(|w| w.set_ccie(n, val));
+    #[cfg(stm32wba)]
+    r.dier().modify(|w| w.set_ccie(n, val));
+}
+
+/// Write a raw value to the ICR (interrupt clear register).
+fn icr_write_raw(r: Lptim, val: u32) {
+    #[cfg(not(stm32wba))]
+    r.icr().write_value(stm32_metapac::lptim::regs::Icr(val));
+    #[cfg(stm32wba)]
+    r.icr().write_value(stm32_metapac::lptim::regs::IcrAdv(val));
+}
+
+/// Write the compare value and wait for the write to be acknowledged.
+fn write_compare(r: Lptim, val: u16) {
+    #[cfg(not(stm32wba))]
+    {
+        r.cmp().write(|w| w.set_cmp(val));
+        while !r.isr().read().cmpok(0) {}
+    }
+    #[cfg(stm32wba)]
+    {
+        r.ccr(0).write(|w| w.set_ccr(val));
+        while !r.isr().read().cmpok(0) {}
+    }
 }
 
 pub(crate) struct RtcDriver {
@@ -61,7 +126,7 @@ impl RtcDriver {
         let r = regs_lptim();
 
         // we want this to increment the stop mode counter (some lp timer can't do STOP2)
-        rcc::enable_and_reset_without_stop::<T>();
+        rcc::enable_and_reset::<T>();
 
         let timer_freq = T::frequency();
 
@@ -70,14 +135,14 @@ impl RtcDriver {
         // let psc = timer_freq.0 / TICK_HZ as u32 - 1;
         let psc = timer_freq.0 / TICK_HZ as u32;
         let psc = match psc {
-            128 => vals::Presc::DIV128,
-            64 => vals::Presc::DIV64,
-            32 => vals::Presc::DIV32,
-            16 => vals::Presc::DIV16,
-            8 => vals::Presc::DIV8,
-            4 => vals::Presc::DIV4,
-            2 => vals::Presc::DIV2,
-            1 => vals::Presc::DIV1,
+            128 => vals::Presc::Div128,
+            64 => vals::Presc::Div64,
+            32 => vals::Presc::Div32,
+            16 => vals::Presc::Div16,
+            8 => vals::Presc::Div8,
+            4 => vals::Presc::Div4,
+            2 => vals::Presc::Div2,
+            1 => vals::Presc::Div1,
             // TODO: we could compute the valid TICK_HZ for the valid prescalers to include in the panic message
             _ => panic!("Invalid prescaler: {} for timer frequency: {}Hz", psc, timer_freq.0),
         };
@@ -95,7 +160,7 @@ impl RtcDriver {
         r.arr().write(|w| w.set_arr(u16::MAX));
 
         // Enable overflow interrupts
-        T::regs().ier().modify(|w| w.set_ueie(true));
+        ier_set_ueie(T::regs(), true);
 
         <T as crate::lptim::SealedBasicInstance>::GlobalInterrupt::unpend();
         unsafe {
@@ -103,34 +168,41 @@ impl RtcDriver {
         }
         #[cfg(feature = "low-power")]
         {
-            // TODO: use a crate constant for the core number!!!!!!
-            #[cfg(feature = "_core-cm4")]
-            const CPU: usize = 0;
-            #[cfg(feature = "_core-cm0p")]
-            const CPU: usize = 1;
-            // TODO: define these elsewhere?
-            #[cfg(all(any(stm32wlex, stm32wl5x), time_driver_lptim1))]
-            const EXTI_WAKEUP_LINE: usize = 29;
-            #[cfg(all(any(stm32wlex, stm32wl5x), time_driver_lptim2))]
-            const EXTI_WAKEUP_LINE: usize = 30;
-            #[cfg(all(any(stm32wlex, stm32wl5x), time_driver_lptim3))]
-            const EXTI_WAKEUP_LINE: usize = 31;
+            // Configure EXTI wakeup lines for LPTIM on chips that require
+            // explicit EXTI routing to wake from STOP mode.
+            //
+            // STM32WL: LPTIM1/2/3 use EXTI lines 29/30/31 respectively.
+            // STM32WBA: LPTIM interrupts wake from STOP directly — no EXTI
+            //           routing needed.
+            #[cfg(any(stm32wlex, stm32wl5x))]
+            {
+                #[cfg(time_driver_lptim1)]
+                const EXTI_WAKEUP_LINE: usize = 29;
+                #[cfg(time_driver_lptim2)]
+                const EXTI_WAKEUP_LINE: usize = 30;
+                #[cfg(time_driver_lptim3)]
+                const EXTI_WAKEUP_LINE: usize = 31;
 
-            #[cfg(any(stm32wb, stm32wl5x))]
-            {
-                crate::pac::EXTI
-                    .cpu(CPU)
-                    .imr(0)
-                    .modify(|w| w.set_line(EXTI_WAKEUP_LINE, true));
-                // TODO: from the RM: after line 22 all are reserved - try removing this
-                crate::pac::EXTI
-                    .cpu(CPU)
-                    .emr(0)
-                    .modify(|w| w.set_line(EXTI_WAKEUP_LINE, true));
-            }
-            #[cfg(not(any(stm32wb, stm32wl5x)))]
-            {
-                crate::pac::EXTI.imr(0).modify(|w| w.set_line(EXTI_WAKEUP_LINE, true));
+                #[cfg(stm32wl5x)]
+                {
+                    #[cfg(feature = "_core-cm4")]
+                    const CPU: usize = 0;
+                    #[cfg(feature = "_core-cm0p")]
+                    const CPU: usize = 1;
+
+                    crate::pac::EXTI
+                        .cpu(CPU)
+                        .imr(0)
+                        .modify(|w| w.set_line(EXTI_WAKEUP_LINE, true));
+                    crate::pac::EXTI
+                        .cpu(CPU)
+                        .emr(0)
+                        .modify(|w| w.set_line(EXTI_WAKEUP_LINE, true));
+                }
+                #[cfg(stm32wlex)]
+                {
+                    crate::pac::EXTI.imr(0).modify(|w| w.set_line(EXTI_WAKEUP_LINE, true));
+                }
             }
         }
     }
@@ -145,19 +217,18 @@ impl RtcDriver {
 
         critical_section::with(|cs| {
             let sr = r.isr().read();
-            let ier = r.ier().read();
-            trace!("on_interrupt: sr: {:?}, ier: {:?}", sr, ier);
+            let ier = ier_read(r);
 
             // Clear all interrupt flags. Bits in ICR are "write 1 to clear"
-            r.icr().write_value(regs::Icr(ier.0));
-            r.icr().write_value(regs::Icr(sr.0));
+            icr_write_raw(r, ier);
+            icr_write_raw(r, sr.0);
 
             // Overflow
             if sr.ue() {
                 self.next_period();
             }
 
-            if sr.ccif(0) && ier.ccie(0) {
+            if sr.ccif(0) && ier_ccie(r, 0) {
                 self.trigger_alarm(cs);
             }
         })
@@ -172,15 +243,13 @@ impl RtcDriver {
         let t = (period as u64) << 16;
 
         critical_section::with(move |cs| {
-            r.ier().modify(move |w| {
-                let alarm = self.alarm.borrow(cs);
-                let at = alarm.timestamp.get();
+            let alarm = self.alarm.borrow(cs);
+            let at = alarm.timestamp.get();
 
-                if at < t + 0xc000 {
-                    // just enable it. `set_alarm` has already set the correct CCR val.
-                    w.set_ccie(0, true);
-                }
-            })
+            if at < t + 0xc000 {
+                // just enable it. `set_alarm` has already set the correct CCR val.
+                ier_set_ccie(r, 0, true);
+            }
         })
     }
 
@@ -203,7 +272,7 @@ impl RtcDriver {
             trace!("set_alarm: timestamp <= t");
             // If alarm timestamp has passed the alarm will not fire.
             // Disarm the alarm and return `false` to indicate that.
-            r.ier().modify(|w| w.set_ccie(0, false));
+            ier_set_ccie(r, 0, false);
 
             self.alarm.borrow(cs).timestamp.set(u64::MAX);
 
@@ -212,13 +281,11 @@ impl RtcDriver {
 
         // Write the CCR value regardless of whether we're going to enable it now or not.
         // This way, when we enable it later, the right value is already set.
-        r.cmp().write(|w| w.set_cmp(timestamp as u16));
-        while !r.isr().read().cmpok(0) {}
-        // r.icr().write(|w| w.set_cmpokcf(0, true));
+        write_compare(r, timestamp as u16);
 
         // Enable it if it'll happen soon. Otherwise, `next_period` will enable it.
         let diff = timestamp - t;
-        r.ier().modify(|w| w.set_ccie(0, diff < 0xc000));
+        ier_set_ccie(r, 0, diff < 0xc000);
 
         // Reevaluate if the alarm timestamp is still in the future
         let t = self.now();
@@ -228,7 +295,7 @@ impl RtcDriver {
             // the alarm may or may not have fired.
             // Disarm the alarm and return `false` to indicate that.
             // It is the caller's responsibility to handle this ambiguity.
-            r.ier().modify(|w| w.set_ccie(0, false));
+            ier_set_ccie(r, 0, false);
 
             self.alarm.borrow(cs).timestamp.set(u64::MAX);
 
@@ -270,11 +337,6 @@ impl super::LPTimeDriver for RtcDriver {
     fn resume_time(&self, _cs: CriticalSection) {
         trace!("resume_time");
         self.is_stopped.store(false, Ordering::Relaxed);
-    }
-
-    /// Returns whether time is currently "stopped"
-    fn is_stopped(&self) -> bool {
-        self.is_stopped.load(Ordering::Relaxed)
     }
 }
 

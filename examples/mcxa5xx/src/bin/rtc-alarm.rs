@@ -8,7 +8,7 @@ use hal::rtc::{DateTime, InterruptHandler, Month, Rtc, Weekday};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
-    RTC => InterruptHandler<RTC0>;
+    RTC0 => InterruptHandler<RTC0>;
 });
 
 #[embassy_executor::main]

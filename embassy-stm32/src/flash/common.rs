@@ -154,7 +154,7 @@ pub(super) unsafe fn blocking_erase(
 
     let mut address = start_address;
     while address < end_address {
-        let sector = get_sector(address, regions);
+        let sector = get_sector(address, regions)?;
         trace!("Erasing sector: {:?}", sector);
         erase_sector(&sector)?;
         address += sector.size;
@@ -177,7 +177,7 @@ pub(super) unsafe fn erase_sector_with_critical_section(sector: &FlashSector) ->
     critical_section::with(|_| erase_sector_unlocked(sector))
 }
 
-pub(super) fn get_sector(address: u32, regions: &[&FlashRegion]) -> FlashSector {
+pub(super) fn get_sector(address: u32, regions: &[&FlashRegion]) -> Result<FlashSector, Error> {
     let mut current_bank = FlashBank::Bank1;
     let mut bank_offset = 0;
     for region in regions {
@@ -188,18 +188,18 @@ pub(super) fn get_sector(address: u32, regions: &[&FlashRegion]) -> FlashSector 
 
         if address >= region.base() && address < region.end() {
             let index_in_region = (address - region.base()) / region.erase_size;
-            return FlashSector {
+            return Ok(FlashSector {
                 bank: region.bank,
                 index_in_bank: bank_offset + index_in_region as u8,
                 start: region.base() + index_in_region * region.erase_size,
                 size: region.erase_size,
-            };
+            });
         }
 
         bank_offset += region.sectors();
     }
 
-    panic!("Flash sector not found");
+    Err(Error::Miss)
 }
 
 pub(super) fn ensure_sector_aligned(
@@ -209,7 +209,7 @@ pub(super) fn ensure_sector_aligned(
 ) -> Result<(), Error> {
     let mut address = start_address;
     while address < end_address {
-        let sector = get_sector(address, regions);
+        let sector = get_sector(address, regions)?;
         if sector.start != address {
             return Err(Error::Unaligned);
         }

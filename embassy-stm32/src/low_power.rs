@@ -24,19 +24,20 @@
 //! in the `embassy_stm32::executor` module, and is enabled by the `executor-thread` or `executor-interrupt` features. This stm32-specific
 //! executor is the preferred way to lower power consumption if you're using `async`, instead of calling `sleep()` directly.
 
-use core::mem;
-use core::sync::atomic::{Ordering, compiler_fence};
+use core::ops::{Deref, DerefMut};
+use core::sync::atomic::{AtomicBool, Ordering, compiler_fence};
+use core::{mem, ptr};
 
 use cortex_m::peripheral::SCB;
 use critical_section::CriticalSection;
 
-#[cfg(not(feature = "_lp-time-driver"))]
+#[cfg(all(feature = "rt", not(feature = "_lp-time-driver")))]
 use crate::interrupt;
 pub use crate::rcc::StopMode;
 use crate::rcc::get_stop_mode;
 use crate::time_driver::{LPTimeDriver, get_driver};
 
-#[cfg(not(any(stm32u0, feature = "_lp-time-driver")))]
+#[cfg(all(feature = "rt", not(any(stm32u0, feature = "_lp-time-driver"))))]
 foreach_interrupt! {
     (RTC, rtc, $block:ident, WKUP, $irq:ident) => {
         #[interrupt]
@@ -46,7 +47,7 @@ foreach_interrupt! {
     };
 }
 
-#[cfg(stm32u0)]
+#[cfg(all(feature = "rt", stm32u0))]
 foreach_interrupt! {
     (RTC, rtc, $block:ident, TAMP, $irq:ident) => {
         #[interrupt]
@@ -63,13 +64,13 @@ use crate::pac::pwr::vals::Lpms;
 impl Into<Lpms> for StopMode {
     fn into(self) -> Lpms {
         match self {
-            StopMode::Stop1 => Lpms::STOP1,
+            StopMode::Stop1 => Lpms::Stop1,
             #[cfg(not(stm32wba))]
-            StopMode::Standby | StopMode::Stop2 => Lpms::STOP2,
+            StopMode::Standby | StopMode::Stop2 => Lpms::Stop2,
             #[cfg(stm32wba)]
             // WBA STOP2 is auto-entered by hardware when LPMS=STOP0 and
             // the 2.4 GHz radio is in deep sleep. It's not a separate LPMS value.
-            StopMode::Standby | StopMode::Stop2 => Lpms::STOP0,
+            StopMode::Standby | StopMode::Stop2 => Lpms::Stop0,
         }
     }
 }
@@ -85,25 +86,17 @@ mod platform {
         fn enter_stop_stm32wb(
             _cs: CriticalSection<'_>,
         ) -> Result<crate::hsem::HardwareSemaphoreMutex<'_, crate::peripherals::HSEM>, ()> {
-            use core::task::Poll;
-
-            use embassy_futures::poll_once;
-
             use crate::hsem::get_hsem;
             use crate::pac::rcc::vals::{Smps, Sw};
             use crate::pac::{PWR, RCC};
 
             trace!("low power: trying to get sem3");
 
-            let sem3_mutex = match poll_once(get_hsem(3).lock(0)) {
-                Poll::Pending => None,
-                Poll::Ready(mutex) => Some(mutex),
-            }
-            .ok_or(())?;
+            let sem3_mutex = get_hsem(3).try_fast_lock_with_interrupt().ok_or(())?;
 
             trace!("low power: got sem3");
 
-            let sem4_mutex = get_hsem(4).try_lock(0);
+            let sem4_mutex = get_hsem(4).try_fast_lock();
             if let Some(sem4_mutex) = sem4_mutex {
                 trace!("low power: got sem4");
 
@@ -125,15 +118,15 @@ mod platform {
 
             // Set SW to HSI
             RCC.cfgr().modify(|w| {
-                w.set_sw(Sw::HSI);
+                w.set_sw(Sw::Hsi);
             });
 
             // Wait for SWS to report HSI
-            while !RCC.cfgr().read().sws().eq(&Sw::HSI) {}
+            while !RCC.cfgr().read().sws().eq(&Sw::Hsi) {}
 
             // Set SMPSSEL to HSI
             RCC.smpscr().modify(|w| {
-                w.set_smpssel(Smps::HSI);
+                w.set_smpssel(Smps::Hsi);
             });
 
             Ok(sem3_mutex)
@@ -172,16 +165,16 @@ mod platform {
         #[cfg(stm32h5)]
         crate::pac::PWR.pmcr().modify(|v| {
             use crate::pac::pwr::vals;
-            v.set_lpms(vals::Lpms::STOP);
-            v.set_svos(vals::Svos::SCALE3);
+            v.set_lpms(vals::Lpms::Stop);
+            v.set_svos(vals::Svos::Scale3);
         });
 
         #[cfg(stm32l0)]
         {
-            use crate::pac::pwr::vals::Pdds;
+            use crate::pac::pwr::vals;
             crate::pac::PWR.cr().modify(|w| {
-                w.set_pdds(Pdds::STOP_MODE);
-                w.set_cwuf(true);
+                w.set_pdds(vals::Pdds::StopMode);
+                w.set_lpsdsr(vals::Mode::LowPowerMode);
             });
         }
 
@@ -204,6 +197,9 @@ mod platform {
         });
         #[cfg(stm32wba)]
         crate::pac::PWR.sr().modify(|w| w.set_cssf(true));
+        #[cfg(stm32wba)]
+        // Clear WKUP1..WKUP8 pending flags (CWUFx) before stop entry.
+        crate::pac::PWR.wuscr().write(|w| w.0 = 0xff);
 
         #[cfg(stm32l0)]
         crate::pac::PWR.cr().modify(|w| w.set_cwuf(true));
@@ -211,7 +207,7 @@ mod platform {
 
     /// Exit stop mode, reinitializing timer and rcc if required
     pub fn exit_stop(_cs: CriticalSection) {
-        #[cfg(any(stm32l0, stm32wl, stm32wb, stm32wba))]
+        #[cfg(any(stm32wl, stm32wb, stm32wba))]
         {
             // stm32wl5x is dual core and we don't want BOTH cores to re-initialize RCC so we hold a lock
             #[cfg(stm32wl5x)]
@@ -223,11 +219,8 @@ mod platform {
             #[cfg(stm32wba)]
             let es = crate::pac::PWR.sr().read();
 
-            #[cfg(stm32l0)]
-            let es = crate::pac::PWR.csr().read();
-
             // we need to re-initialize RCC if *BOTH* cores have been in some STOP mode!
-            #[cfg(any(stm32l0, stm32wl, stm32wba))]
+            #[cfg(any(stm32wl, stm32wba))]
             let re_initialize_rcc = {
                 #[cfg(stm32wl5x)]
                 {
@@ -241,10 +234,6 @@ mod platform {
                 #[cfg(stm32wba)]
                 {
                     es.stopf()
-                }
-                #[cfg(stm32l0)]
-                {
-                    es.wuf()
                 }
             };
 
@@ -264,7 +253,7 @@ mod platform {
                 }
             };
 
-            #[cfg(any(stm32l0, stm32wl, stm32wba))]
+            #[cfg(any(stm32wl, stm32wba))]
             if re_initialize_rcc {
                 // when we wake from any stop mode we need to re-initialize the rcc
                 crate::rcc::reinit_saved(_cs);
@@ -302,12 +291,6 @@ mod platform {
                 (false, false) => trace!("low power: stop mode not entered"),
             };
 
-            #[cfg(stm32l0)]
-            match es.wuf() {
-                true => debug!("low power: L0 has been in stop"),
-                _ => {}
-            };
-
             clear_flags();
 
             #[cfg(stm32wl5x)]
@@ -324,18 +307,17 @@ mod platform {
     }
 }
 
-unsafe fn on_wakeup_irq_or_event() {
-    if !get_driver().is_stopped() {
-        //trace!("low power: time driver not stopped!");
-        return;
-    }
+static STOP_ENTERED: AtomicBool = AtomicBool::new(false);
 
-    critical_section::with(|cs| {
+unsafe fn on_wakeup(cs: CriticalSection) {
+    if STOP_ENTERED.load(Ordering::Acquire) {
         platform::exit_stop(cs);
 
         get_driver().resume_time(cs);
         trace!("low power: resumed");
-    });
+    }
+
+    STOP_ENTERED.store(false, Ordering::Release);
 }
 
 fn configure_pwr(cs: CriticalSection) {
@@ -349,25 +331,24 @@ fn configure_pwr(cs: CriticalSection) {
     compiler_fence(Ordering::Acquire);
 
     let Some(stop_mode) = get_stop_mode(cs) else {
-        //trace!("low power: no stop mode available");
         return;
     };
 
     if get_driver().pause_time(cs).is_err() {
-        warn!("low_power: failed to pause time, not entering stop");
+        trace!("low_power: failed to pause time, not entering stop");
+    } else if platform::enter_stop(cs, stop_mode).is_err() {
+        trace!("low_power: failed to enter stop");
+    } else {
+        #[cfg(stm32l0)]
+        trace!("low power: enter stop");
+        #[cfg(not(stm32l0))]
+        trace!("low power: enter stop: {}", stop_mode);
+
+        STOP_ENTERED.store(true, Ordering::Release);
+
+        #[cfg(not(feature = "low-power-debug-with-sleep"))]
+        get_scb().set_sleepdeep();
     }
-
-    if platform::enter_stop(cs, stop_mode).is_err() {
-        warn!("low_power: failed to enter stop");
-    }
-
-    #[cfg(stm32l0)]
-    trace!("low power: enter stop");
-    #[cfg(not(stm32l0))]
-    trace!("low power: enter stop: {}", stop_mode);
-
-    #[cfg(not(feature = "low-power-debug-with-sleep"))]
-    get_scb().set_sleepdeep();
 }
 
 /// Sleep with WFI, attempting to enter the deepest STOP mode possible.
@@ -391,5 +372,139 @@ pub unsafe fn sleep(cs: CriticalSection) {
     cortex_m::asm::dsb();
     cortex_m::asm::wfi();
 
-    on_wakeup_irq_or_event();
+    cortex_m::asm::isb();
+    cortex_m::asm::dsb();
+
+    on_wakeup(cs);
+}
+
+trait_set::trait_set! {
+    /// Peripheral that can be suspended
+    #[allow(private_bounds)]
+    pub trait SuspendablePeripheral = SealedSuspendablePeripheral;
+}
+
+pub(crate) trait SealedSuspendablePeripheral {
+    type InternalState;
+
+    #[allow(dead_code)]
+    fn suspend(self) -> Self::InternalState;
+    #[allow(dead_code)]
+    fn resume(state: Self::InternalState) -> Self;
+}
+
+/// A suspended peripheral
+pub struct SuspendedPeripheral<T: SuspendablePeripheral> {
+    state: T::InternalState,
+}
+
+impl<T: SuspendablePeripheral> SuspendedPeripheral<T> {
+    /// Suspend a peripheral
+    pub fn from(peripheral: T) -> Self {
+        Self {
+            state: T::suspend(peripheral),
+        }
+    }
+
+    /// Resume a peripheral
+    pub fn resume(self) -> T {
+        T::resume(self.state)
+    }
+}
+
+enum ResumableState<T: SuspendablePeripheral> {
+    Suspended(SuspendedPeripheral<T>),
+    Resumed(T),
+}
+
+impl<T: SuspendablePeripheral> ResumableState<T> {
+    pub fn resume(&mut self) -> &mut T {
+        if let ResumableState::Suspended(peripheral) = &self {
+            unsafe {
+                let peripheral = ptr::read(peripheral).resume();
+
+                ptr::write(self, ResumableState::Resumed(peripheral));
+            }
+        }
+
+        if let ResumableState::Resumed(peripheral) = self {
+            peripheral
+        } else {
+            unreachable!()
+        }
+    }
+
+    pub fn suspend(&mut self) {
+        if let ResumableState::Resumed(peripheral) = &self {
+            unsafe {
+                let peripheral = SuspendedPeripheral::from(ptr::read(peripheral));
+
+                ptr::write(self, ResumableState::Suspended(peripheral));
+            }
+        }
+    }
+}
+
+/// A mutex-like object to resume a peripheral
+pub struct ResumablePeripheral<T: SuspendablePeripheral> {
+    state: ResumableState<T>,
+}
+
+impl<T: SuspendablePeripheral> ResumablePeripheral<T> {
+    /// Create the object. Will suspend the peripheral as soon as it is passed.
+    pub fn new(peripheral: T) -> Self {
+        Self {
+            state: ResumableState::Suspended(SuspendedPeripheral::from(peripheral)),
+        }
+    }
+
+    /// Suspend the peripheral, if it is resumed
+    pub fn suspend(&mut self) {
+        self.state.suspend()
+    }
+
+    /// Resume the peripheral and get a mutable reference to it
+    pub fn resume(&mut self) -> &mut T {
+        self.state.resume()
+    }
+
+    /// Get a guard that will put the peripheral back to sleep once it is dropped
+    pub fn borrow(&mut self) -> ResumablePeripheralGuard<'_, T> {
+        self.state.resume();
+
+        ResumablePeripheralGuard { state: &mut self.state }
+    }
+}
+
+/// A mutex-like object guard, that when held, activates the peripheral
+pub struct ResumablePeripheralGuard<'a, T: SuspendablePeripheral> {
+    state: &'a mut ResumableState<T>,
+}
+
+impl<'a, T: SuspendablePeripheral> Drop for ResumablePeripheralGuard<'a, T> {
+    fn drop(&mut self) {
+        self.state.suspend();
+    }
+}
+
+impl<'a, T: SuspendablePeripheral> Deref for ResumablePeripheralGuard<'a, T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        if let ResumableState::Resumed(peripheral) = &self.state {
+            peripheral
+        } else {
+            unreachable!()
+        }
+    }
+}
+
+impl<'a, T: SuspendablePeripheral> DerefMut for ResumablePeripheralGuard<'a, T> {
+    fn deref_mut(&mut self) -> &mut T {
+        if let ResumableState::Resumed(peripheral) = &mut self.state {
+            peripheral
+        } else {
+            unreachable!()
+        }
+    }
 }

@@ -82,7 +82,7 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
 pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
     #[cfg(feature = "trustzone-secure")]
     pac::FLASH.seccr().modify(|w| {
-        w.set_per(pac::flash::vals::SeccrPer::B_0X1);
+        w.set_per(pac::flash::vals::SeccrPer::B0x1);
         w.set_pnb(sector.index_in_bank);
         // TODO: add check for bank swap
         w.set_bker(match sector.bank {

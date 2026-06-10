@@ -1,5 +1,6 @@
 //! Universal Asynchronous Receiver Transmitter (UART) driver.
 
+use core::cmp::Reverse;
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicU8, Ordering, compiler_fence};
@@ -360,6 +361,35 @@ impl UartRx<'_, Blocking> {
     }
 }
 
+// Smaller values of OSR can make the sampling position within a data
+// bit less accurate and may potentially cause more noise errors or
+// incorrect data.
+fn calculate_baudrate(src_clock_hz: u32, baudrate: u32) -> Result<(u8, u16)> {
+    (5..=16u32)
+        .flat_map(|osr| {
+            // Ideal BRG
+            let ideal_brg = (src_clock_hz / (baudrate * osr)) as i32;
+
+            // Search through a small window around the ideal SBR to
+            // find the best match.
+            (-2..=2i32).filter_map(move |delta| {
+                let brg = ideal_brg + delta;
+
+                if (1..=65536).contains(&brg) {
+                    let brg = brg as u32;
+                    let calculated_baud = src_clock_hz / (osr * brg);
+                    let diff = calculated_baud.abs_diff(baudrate);
+                    (diff <= (baudrate / 100) * 3).then_some((diff, osr, brg))
+                } else {
+                    None
+                }
+            })
+        })
+        .min_by_key(|&(diff, osr, _)| (diff, Reverse(osr)))
+        .map(|(_, osr, brg)| (osr as u8, brg as u16))
+        .ok_or(Error::UnsupportedBaudrate)
+}
+
 impl<'a, M: Mode> Uart<'a, M> {
     fn init<T: Instance>(
         tx: Option<Peri<'a, AnyPin>>,
@@ -427,51 +457,13 @@ impl<'a, M: Mode> Uart<'a, M> {
                 regs.brg().write(|w| unsafe { w.brgval().bits(brgval as u16) });
             }
         } else {
-            // Smaller values of OSR can make the sampling position within a
-            // data bit less accurate and may potentially cause more noise
-            // errors or incorrect data.
-            let (_, osr, brg) = (8..16).rev().fold(
-                (u32::MAX, u32::MAX, u32::MAX),
-                |(best_diff, best_osr, best_brg), osrval| {
-                    // Compare source_clock_hz agaist with ((osrval + 1) * baudrate) to make sure
-                    // (source_clock_hz / ((osrval + 1) * baudrate)) is not less than 0.
-                    if source_clock_hz < ((osrval + 1) * baudrate) {
-                        (best_diff, best_osr, best_brg)
-                    } else {
-                        let brgval = (source_clock_hz / ((osrval + 1) * baudrate)) - 1;
-                        // We know brgval will not be less than 0 now, it should have already been a valid u32 value,
-                        // then compare it agaist with 65535.
-                        if brgval > 65535 {
-                            (best_diff, best_osr, best_brg)
-                        } else {
-                            // Calculate the baud rate based on the BRG value
-                            let candidate = source_clock_hz / ((osrval + 1) * (brgval + 1));
-
-                            // Calculate the difference between the
-                            // current baud rate and the desired baud rate
-                            let diff = (candidate as i32 - baudrate as i32).unsigned_abs();
-
-                            // Check if the current calculated difference is the best so far
-                            if diff < best_diff {
-                                (diff, osrval, brgval)
-                            } else {
-                                (best_diff, best_osr, best_brg)
-                            }
-                        }
-                    }
-                },
-            );
-
-            // Value over range
-            if brg > 65535 {
-                return Err(Error::UnsupportedBaudrate);
-            }
+            let (osr, brg) = calculate_baudrate(source_clock_hz, baudrate)?;
 
             // SAFETY: unsafe only used for .bits()
-            regs.osr().write(|w| unsafe { w.osrval().bits(osr as u8) });
+            regs.osr().write(|w| unsafe { w.osrval().bits(osr - 1) });
 
             // SAFETY: unsafe only used for .bits()
-            regs.brg().write(|w| unsafe { w.brgval().bits(brg as u16) });
+            regs.brg().write(|w| unsafe { w.brgval().bits(brg - 1) });
         }
 
         Ok(())

@@ -4,7 +4,7 @@ use core::marker::PhantomData;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-use super::low_level::{CountingMode, InputCaptureMode, InputTISelection, SlaveMode, Timer, TriggerSource};
+use super::low_level::{CountingMode, InputCaptureMode, InputCaptureSelection, SlaveMode, Timer, TriggerSource};
 use super::{CaptureCompareInterruptHandler, Ch1, Ch2, Channel, GeneralInstance4Channel, TimerPin};
 use crate::Peri;
 use crate::gpio::{AfType, Pull};
@@ -60,19 +60,19 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
         // Configuration steps from ST RM0390 (STM32F446) chapter 17.3.6
         // or ST RM0008 (STM32F103) chapter 15.3.6 Input capture mode
         // or ST RM0440 (STM32G4) chapter 30.4.8 PWM input mode
-        inner.set_input_ti_selection(ch1, InputTISelection::Normal);
+        inner.set_input_capture_selection(ch1, InputCaptureSelection::Normal);
         inner.set_input_capture_mode(ch1, InputCaptureMode::Rising);
 
-        inner.set_input_ti_selection(ch2, InputTISelection::Alternate);
+        inner.set_input_capture_selection(ch2, InputCaptureSelection::Alternate);
         inner.set_input_capture_mode(ch2, InputCaptureMode::Falling);
 
         inner.set_trigger_source(match ch1 {
-            Channel::Ch1 => TriggerSource::TI1FP1,
-            Channel::Ch2 => TriggerSource::TI2FP2,
+            Channel::Ch1 => TriggerSource::Ti1fp1,
+            Channel::Ch2 => TriggerSource::Ti2fp2,
             _ => panic!("Invalid channel for PWM input"),
         });
 
-        inner.set_slave_mode(SlaveMode::RESET_MODE);
+        inner.set_slave_mode(SlaveMode::ResetMode);
 
         // Must call the `enable` function after
 

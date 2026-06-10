@@ -5,7 +5,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
-use embassy_stm32::rcc::WPAN_DEFAULT;
+use embassy_stm32::rcc::Config as RccConfig;
 use embassy_stm32_wpan::TlMbox;
 use embassy_stm32_wpan::sub::mm;
 use {defmt_rtt as _, panic_probe as _};
@@ -46,25 +46,26 @@ async fn main(spawner: Spawner) {
     */
 
     let mut config = embassy_stm32::Config::default();
-    config.rcc = WPAN_DEFAULT;
+    config.rcc = RccConfig::new_wpan();
     let p = embassy_stm32::init(config);
     info!("Hello World!");
 
     let config = Config::default();
-    let mbox = TlMbox::init(p.IPCC, Irqs, config).await.unwrap();
-    let mut sys = mbox.sys_subsystem;
+    let (_mac, mm) = TlMbox::wait_ready(p.IPCC, Irqs, config)
+        .await
+        .unwrap()
+        .init_mac()
+        .await
+        .unwrap();
 
-    spawner.spawn(run_mm_queue(mbox.mm_subsystem).unwrap());
-
-    let result = sys.shci_c2_mac_802_15_4_init().await;
-    info!("initialized mac: {}", result);
+    spawner.spawn(run_mm_queue(mm).unwrap());
 
     //
     //    info!("starting ble...");
-    //    mbox.ble_subsystem.t_write(0x0c, &[]).await;
+    //    mbox.ble.t_write(0x0c, &[]).await;
     //
     //    info!("waiting for ble...");
-    //    let ble_event = mbox.ble_subsystem.tl_read().await;
+    //    let ble_event = mbox.ble.tl_read().await;
     //
     //    info!("ble event: {}", ble_event.payload());
 

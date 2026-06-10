@@ -16,79 +16,78 @@
 #![no_std]
 #![no_main]
 
-use core::cell::RefCell;
-
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::peripherals::RNG;
-use embassy_stm32::rcc::{
-    AHB5Prescaler, AHBPrescaler, APBPrescaler, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale, mux,
-};
+use embassy_stm32::aes::{self, Aes};
+use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph};
+use embassy_stm32::pka::{self, Pka};
+use embassy_stm32::rcc::{self};
 use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::{Config, bind_interrupts};
-use embassy_stm32_wpan::gap::{ConnectionInitParams, GapEvent, ParsedAdvData, ScanParams, ScanType};
-use embassy_stm32_wpan::hci::event::EventParams;
-use embassy_stm32_wpan::{Ble, ble_runner};
-use embassy_sync::blocking_mutex::Mutex;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use static_cell::StaticCell;
+use embassy_stm32_wpan::bluetooth::HCI;
+use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
+use embassy_stm32_wpan::bluetooth::gap::{ConnectionInitParams, GapEvent, ParsedAdvData, ScanParams, ScanType};
+use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams};
+use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
+use stm32wb_hci::event::ConnectionRole;
+use stm32wb_hci::{BdAddrType, Event};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<embassy_stm32::peripherals::RNG>;
+    AES => aes::InterruptHandler<AesPeriph>;
+    PKA => pka::InterruptHandler<PkaPeriph>;
+    RADIO => HighInterruptHandler;
+    HASH => LowInterruptHandler;
 });
 
 /// BLE runner task - drives the BLE stack sequencer
 #[embassy_executor::task]
-async fn ble_runner_task() {
-    ble_runner().await
+async fn ble_runner_task(platform: &'static Platform) {
+    platform.run_ble().await
 }
 
 /// Target device name to connect to (set to None to connect to first discovered device)
 const TARGET_DEVICE_NAME: Option<&str> = None; // e.g., Some("Embassy-Peripheral")
 
-/// Minimum RSSI to consider a device (helps filter out far away devices)
-const MIN_RSSI: i8 = -80;
+// ---- Test configuration ----
+const ADDR_TYPE: OwnAddressType = OwnAddressType::Random;
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let mut config = Config::default();
-
-    // Configure PLL1 (required on WBA)
-    config.rcc.pll1 = Some(embassy_stm32::rcc::Pll {
-        source: PllSource::HSI,
-        prediv: PllPreDiv::DIV1,
-        mul: PllMul::MUL30,
-        divr: Some(PllDiv::DIV5),
-        divq: None,
-        divp: Some(PllDiv::DIV30),
-        frac: Some(0),
-    });
-
-    config.rcc.ahb_pre = AHBPrescaler::DIV1;
-    config.rcc.apb1_pre = APBPrescaler::DIV1;
-    config.rcc.apb2_pre = APBPrescaler::DIV1;
-    config.rcc.apb7_pre = APBPrescaler::DIV1;
-    config.rcc.ahb5_pre = AHB5Prescaler::DIV4;
-    config.rcc.voltage_scale = VoltageScale::RANGE1;
-    config.rcc.sys = Sysclk::PLL1_R;
-    config.rcc.mux.rngsel = mux::Rngsel::HSI;
+    config.rcc = rcc::Config::new_wpan();
 
     let p = embassy_stm32::init(config);
+
     info!("Embassy STM32WBA BLE Central Example");
 
-    // Initialize RNG (required by BLE stack)
-    static RNG: StaticCell<Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>> = StaticCell::new();
-    let rng = RNG.init(Mutex::new(RefCell::new(Rng::new(p.RNG, Irqs))));
-    info!("RNG initialized");
+    // Initialize hardware peripherals required by BLE stack
+    let (platform, runtime) = new_platform!(
+        Rng::new(p.RNG, Irqs),
+        Pka::new(p.PKA, Irqs),
+        Aes::new_blocking(p.AES, Irqs),
+        8
+    );
 
-    // Initialize BLE stack
-    let mut ble = Ble::new(rng);
-    ble.init().expect("BLE initialization failed");
-    info!("BLE stack initialized");
+    info!("Hardware peripherals initialized (RNG, AES, PKA)");
 
     // Spawn the BLE runner task (required for proper BLE operation)
-    spawner.spawn(ble_runner_task().expect("Failed to create BLE runner task"));
+    spawner.spawn(ble_runner_task(platform).expect("Failed to spawn BLE runner"));
+
+    // Initialize BLE stack
+    let mut ble = match ADDR_TYPE {
+        OwnAddressType::Public => {
+            let gap_params = GapInitParams {
+                bd_addr: [0x01, 0x00, 0x00, 0xE1, 0x80, 0x00],
+                address_type: AddressType::Public,
+                ..GapInitParams::default()
+            };
+            HCI::new_with_gap_params(platform, runtime, Irqs, gap_params).await
+        }
+        _ => HCI::new(platform, runtime, Irqs).await,
+    }
+    .expect("BLE initialization failed");
 
     // State machine for central role
     let mut state = CentralState::Scanning;
@@ -101,10 +100,8 @@ async fn main(spawner: Spawner) {
         .with_filter_duplicates(false); // Want to see devices multiple times to catch scan responses
 
     // Start scanning
-    {
-        let mut scanner = ble.scanner();
-        scanner.start(scan_params.clone()).expect("Failed to start scanning");
-    }
+    ble.start_scan_observation(scan_params.clone())
+        .expect("Failed to start scanning");
 
     info!("=== BLE Central Started ===");
     if let Some(name) = TARGET_DEVICE_NAME {
@@ -121,10 +118,10 @@ async fn main(spawner: Spawner) {
         match state {
             CentralState::Scanning => {
                 // Process advertising reports
-                if let EventParams::LeAdvertisingReport { reports } = &event.params {
+                if let Event::LeAdvertisingReport(reports) = event {
                     for report in reports.iter() {
                         // Skip weak signals
-                        if report.rssi < MIN_RSSI {
+                        if report.rssi.is_none() {
                             continue;
                         }
 
@@ -141,15 +138,20 @@ async fn main(spawner: Spawner) {
                         };
 
                         if should_connect {
+                            let report_address = match report.address {
+                                BdAddrType::Public(addr) => addr,
+                                BdAddrType::Random(addr) => addr,
+                            };
+
                             info!("=== Found Target Device ===");
                             info!(
                                 "  Address: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
-                                report.address.0[5],
-                                report.address.0[4],
-                                report.address.0[3],
-                                report.address.0[2],
-                                report.address.0[1],
-                                report.address.0[0]
+                                report_address.0[5],
+                                report_address.0[4],
+                                report_address.0[3],
+                                report_address.0[2],
+                                report_address.0[1],
+                                report_address.0[0]
                             );
                             if let Some(name) = parsed.name {
                                 info!("  Name: \"{}\"", name);
@@ -157,15 +159,11 @@ async fn main(spawner: Spawner) {
                             info!("  RSSI: {} dBm", report.rssi);
 
                             // Stop scanning
-                            {
-                                let mut scanner = ble.scanner();
-                                scanner.stop().expect("Failed to stop scanning");
-                            }
+                            ble.stop_scan().expect("Failed to stop scanning");
                             info!("Scanning stopped");
 
                             // Initiate connection
                             let conn_params = ConnectionInitParams {
-                                peer_address_type: report.address_type,
                                 peer_address: report.address,
                                 ..ConnectionInitParams::default()
                             };
@@ -174,8 +172,8 @@ async fn main(spawner: Spawner) {
                             if let Err(e) = ble.connect(&conn_params) {
                                 error!("Failed to initiate connection: {:?}", e);
                                 // Restart scanning on failure
-                                let mut scanner = ble.scanner();
-                                scanner.start(scan_params.clone()).expect("Failed to restart scanning");
+                                ble.start_scan_observation(scan_params.clone())
+                                    .expect("Failed to restart scanning");
                             } else {
                                 state = CentralState::Connecting;
                             }
@@ -202,28 +200,26 @@ async fn main(spawner: Spawner) {
                             info!(
                                 "  Role: {}",
                                 match conn.role {
-                                    embassy_stm32_wpan::gap::ConnectionRole::Central => "Central",
-                                    embassy_stm32_wpan::gap::ConnectionRole::Peripheral => "Peripheral",
+                                    ConnectionRole::Central => "Central",
+                                    ConnectionRole::Peripheral => "Peripheral",
                                 }
                             );
-                            info!(
-                                "  Interval: {} ({}ms)",
-                                conn.params.interval,
-                                (conn.params.interval as u32 * 125) / 100
-                            );
-                            info!("  Latency: {}", conn.params.latency);
-                            info!(
-                                "  Timeout: {} ({}ms)",
-                                conn.params.supervision_timeout,
-                                conn.params.supervision_timeout as u32 * 10
-                            );
+                            info!("  Interval: {}", conn.interval.interval(),);
+                            info!("  Latency: {}", conn.interval.conn_latency());
+                            info!("  Timeout: {} ", conn.interval.supervision_timeout());
 
                             state = CentralState::Connected;
                             info!("");
                             info!("Connection established! As a central, you can now:");
-                            info!("  - Discover services (not implemented in this example)");
+                            info!("  - Discover services");
                             info!("  - Read/write characteristics");
                             info!("  - Subscribe to notifications");
+
+                            // Kick off a simple GATT client procedure for demo purposes.
+                            let gatt_client = ble.gatt_client();
+                            if let Err(e) = gatt_client.discover_all_primary_services(conn.handle.0) {
+                                warn!("Failed to start primary service discovery: {:?}", e);
+                            }
                         }
 
                         GapEvent::Disconnected { handle, reason } => {
@@ -231,8 +227,8 @@ async fn main(spawner: Spawner) {
                             error!("  Handle: 0x{:04X}, Reason: 0x{:02X}", handle.0, reason);
 
                             // Go back to scanning
-                            let mut scanner = ble.scanner();
-                            scanner.start(scan_params.clone()).expect("Failed to restart scanning");
+                            ble.start_scan_observation(scan_params.clone())
+                                .expect("Failed to restart scanning");
                             state = CentralState::Scanning;
                             info!("Restarted scanning...");
                         }
@@ -252,27 +248,18 @@ async fn main(spawner: Spawner) {
                             info!("  Reason: 0x{:02X} ({})", reason, disconnect_reason_str(reason));
 
                             // Go back to scanning
-                            let mut scanner = ble.scanner();
-                            scanner.start(scan_params.clone()).expect("Failed to restart scanning");
+                            ble.start_scan_observation(scan_params.clone())
+                                .expect("Failed to restart scanning");
                             state = CentralState::Scanning;
                             info!("Restarted scanning...");
                         }
 
-                        GapEvent::ConnectionParamsUpdated {
-                            handle,
-                            interval,
-                            latency,
-                            supervision_timeout,
-                        } => {
+                        GapEvent::ConnectionParamsUpdated { handle, interval } => {
                             info!("=== CONNECTION PARAMS UPDATED ===");
                             info!("  Handle: 0x{:04X}", handle.0);
-                            info!("  New Interval: {} ({}ms)", interval, (interval as u32 * 125) / 100);
-                            info!("  New Latency: {}", latency);
-                            info!(
-                                "  New Timeout: {} ({}ms)",
-                                supervision_timeout,
-                                supervision_timeout as u32 * 10
-                            );
+                            info!("  New Interval: {}", interval.interval());
+                            info!("  New Latency: {}", interval.conn_latency());
+                            info!("  New Timeout: {} ", interval.supervision_timeout());
                         }
 
                         GapEvent::PhyUpdated { handle, tx_phy, rx_phy } => {
@@ -298,15 +285,95 @@ async fn main(spawner: Spawner) {
                     }
                 }
 
-                // Log other interesting events
-                match &event.params {
-                    EventParams::AttExchangeMtuResponse {
-                        conn_handle,
-                        server_mtu,
-                    } => {
-                        info!("MTU Exchange: conn 0x{:04X}, MTU={}", conn_handle.0, server_mtu);
+                // Log GATT client-side responses (service discovery/read/etc).
+                for client_event in ble.process_gatt_client_events(&event) {
+                    match client_event {
+                        embassy_stm32_wpan::bluetooth::gatt::GattClientEvent::PrimaryServiceFound {
+                            conn_handle,
+                            start_handle,
+                            end_handle,
+                            uuid,
+                        } => info!(
+                            "Service: conn=0x{:04X} start=0x{:04X} end=0x{:04X} uuid={=[u8]:02X}",
+                            conn_handle.0, start_handle, end_handle, uuid
+                        ),
+                        embassy_stm32_wpan::bluetooth::gatt::GattClientEvent::ProcedureComplete {
+                            conn_handle,
+                            success,
+                        } => info!(
+                            "GATT procedure complete: conn=0x{:04X} success={}",
+                            conn_handle.0, success
+                        ),
+                        embassy_stm32_wpan::bluetooth::gatt::GattClientEvent::ErrorResponse {
+                            conn_handle,
+                            request_opcode,
+                            attribute_handle,
+                            error_code,
+                        } => warn!(
+                            "GATT error: conn=0x{:04X} req=0x{:02X} attr=0x{:04X} err=0x{:02X}",
+                            conn_handle.0, request_opcode, attribute_handle, error_code
+                        ),
+                        _ => {}
                     }
-                    _ => {}
+                }
+
+                // Log high-level GATT server/client stream events, including extended payload events.
+                if let Some(gatt_event) = ble.process_gatt_event(&event) {
+                    match gatt_event {
+                        embassy_stm32_wpan::bluetooth::gatt::GattEvent::ReadResponseExt {
+                            conn_handle,
+                            offset,
+                            value,
+                        } => info!(
+                            "GATT read ext: conn=0x{:04X} off={} len={}",
+                            conn_handle.0,
+                            offset,
+                            value.len()
+                        ),
+                        embassy_stm32_wpan::bluetooth::gatt::GattEvent::NotificationReceivedExt {
+                            conn_handle,
+                            attr_handle,
+                            offset,
+                            data,
+                        } => info!(
+                            "GATT notif ext: conn=0x{:04X} attr=0x{:04X} off={} len={}",
+                            conn_handle.0,
+                            attr_handle,
+                            offset,
+                            data.len()
+                        ),
+                        embassy_stm32_wpan::bluetooth::gatt::GattEvent::IndicationReceivedExt {
+                            conn_handle,
+                            attr_handle,
+                            offset,
+                            data,
+                        } => info!(
+                            "GATT ind ext: conn=0x{:04X} attr=0x{:04X} off={} len={}",
+                            conn_handle.0,
+                            attr_handle,
+                            offset,
+                            data.len()
+                        ),
+                        embassy_stm32_wpan::bluetooth::gatt::GattEvent::MultiNotificationReceived {
+                            conn_handle,
+                            offset,
+                            data,
+                        } => info!(
+                            "GATT multi notif: conn=0x{:04X} off={} len={}",
+                            conn_handle.0,
+                            offset,
+                            data.len()
+                        ),
+                        embassy_stm32_wpan::bluetooth::gatt::GattEvent::EattBearerStateChanged {
+                            channel_index,
+                            state,
+                            success,
+                        } => info!(
+                            "EATT bearer: channel={} state={:?} success={}",
+                            channel_index, state, success
+                        ),
+                        _ => {}
+                    }
                 }
             }
         }

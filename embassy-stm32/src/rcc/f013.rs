@@ -133,7 +133,7 @@ impl Config {
             hse: None,
             #[cfg(crs)]
             hsi48: Some(crate::rcc::Hsi48Config::new()),
-            sys: Sysclk::HSI,
+            sys: Sysclk::Hsi,
             pll: None,
 
             #[cfg(any(stm32f105,stm32f107))]
@@ -141,17 +141,17 @@ impl Config {
             #[cfg(any(stm32f105,stm32f107))]
             pll3: None,
             #[cfg(any(stm32f105,stm32f107))]
-            prediv2: PllPreDiv::DIV1,
+            prediv2: PllPreDiv::Div1,
 
-            ahb_pre: AHBPrescaler::DIV1,
-            apb1_pre: APBPrescaler::DIV1,
+            ahb_pre: AHBPrescaler::Div1,
+            apb1_pre: APBPrescaler::Div1,
             #[cfg(not(stm32f0))]
-            apb2_pre: APBPrescaler::DIV1,
+            apb2_pre: APBPrescaler::Div1,
             ls: crate::rcc::LsConfig::new(),
 
             #[cfg(stm32f1)]
             // ensure ADC is not out of range by default even if APB2 is maxxed out (36mhz)
-            adc_pre: ADCPrescaler::DIV6,
+            adc_pre: ADCPrescaler::Div6,
 
             #[cfg(all(stm32f3, not(rcc_f37)))]
             adc: AdcClockSource::Hclk(AdcHclkPrescaler::Div1),
@@ -159,9 +159,9 @@ impl Config {
             adc34: AdcClockSource::Hclk(AdcHclkPrescaler::Div1),
 
             #[cfg(any(stm32f105,stm32f107))]
-            i2s2_src: I2s2src::SYS,
+            i2s2_src: I2s2src::Sys,
             #[cfg(any(stm32f105,stm32f107))]
-            i2s3_src: I2s2src::SYS,
+            i2s3_src: I2s2src::Sys,
 
             mux: super::mux::ClockMux::default(),
         }
@@ -181,8 +181,8 @@ pub(crate) unsafe fn init(config: Config) {
     while !RCC.cr().read().hsirdy() {}
 
     // Use the HSI clock as system clock during the actual clock setup
-    RCC.cfgr().modify(|w| w.set_sw(Sysclk::HSI));
-    while RCC.cfgr().read().sws() != Sysclk::HSI {}
+    RCC.cfgr().modify(|w| w.set_sw(Sysclk::Hsi));
+    while RCC.cfgr().read().sws() != Sysclk::Hsi {}
 
     // Configure HSI
     let hsi = match config.hsi {
@@ -241,34 +241,34 @@ pub(crate) unsafe fn init(config: Config) {
     let pll = config.pll.map(|pll| {
         let (src_val, src_freq) = match pll.src {
             #[cfg(any(rcc_f0v3, rcc_f0v4, rcc_f3v3))]
-            PllSource::HSI => (Pllsrc::HSI_DIV_PREDIV, unwrap!(hsi)),
+            PllSource::HSI => (Pllsrc::HsiDivPrediv, unwrap!(hsi)),
             #[cfg(not(any(rcc_f0v3, rcc_f0v4, rcc_f3v3)))]
             PllSource::HSI => {
-                if pll.prediv != PllPreDiv::DIV2 {
+                if pll.prediv != PllPreDiv::Div2 {
                     panic!("if PLL source is HSI, PLL prediv must be 2.");
                 }
-                (Pllsrc::HSI_DIV2, unwrap!(hsi))
+                (Pllsrc::HsiDiv2, unwrap!(hsi))
             }
             PllSource::HSE => {
                 #[cfg(any(stm32f105, stm32f107))]
-                RCC.cfgr2().modify(|w| w.set_prediv1src(Prediv1src::HSE));
+                RCC.cfgr2().modify(|w| w.set_prediv1src(Prediv1src::Hse));
 
-                (Pllsrc::HSE_DIV_PREDIV, unwrap!(hse))
+                (Pllsrc::HseDivPrediv, unwrap!(hse))
             }
             #[cfg(rcc_f0v4)]
-            PllSource::HSI48 => (Pllsrc::HSI48_DIV_PREDIV, unwrap!(hsi48)),
+            PllSource::HSI48 => (Pllsrc::Hsi48DivPrediv, unwrap!(hsi48)),
             #[cfg(any(stm32f105, stm32f107))]
             PllSource::PLL2 => {
                 if config.pll2.is_none() {
                     panic!("if PLL source is PLL2, Config::pll2 must also be set.");
                 }
-                RCC.cfgr2().modify(|w| w.set_prediv1src(Prediv1src::PLL2));
+                RCC.cfgr2().modify(|w| w.set_prediv1src(Prediv1src::Pll2));
 
                 let pll2 = unwrap!(config.pll2);
                 let in_freq = hse.unwrap() / config.prediv2;
                 let pll2freq = in_freq * pll2.mul;
 
-                (Pllsrc::HSE_DIV_PREDIV, pll2freq)
+                (Pllsrc::HseDivPrediv, pll2freq)
             }
         };
         let in_freq = src_freq / pll.prediv;
@@ -297,8 +297,8 @@ pub(crate) unsafe fn init(config: Config) {
 
     #[cfg(any(rcc_f1, rcc_f1cl, stm32f3, stm32f105, stm32f107))]
     let usb = match pll {
-        Some(Hertz(72_000_000)) => Some(crate::pac::rcc::vals::Usbpre::DIV1_5),
-        Some(Hertz(48_000_000)) => Some(crate::pac::rcc::vals::Usbpre::DIV1),
+        Some(Hertz(72_000_000)) => Some(crate::pac::rcc::vals::Usbpre::Div15),
+        Some(Hertz(48_000_000)) => Some(crate::pac::rcc::vals::Usbpre::Div1),
         _ => None,
     }
     .map(|usbpre| {
@@ -308,11 +308,11 @@ pub(crate) unsafe fn init(config: Config) {
 
     // Configure sysclk
     let sys = match config.sys {
-        Sysclk::HSI => unwrap!(hsi),
-        Sysclk::HSE => unwrap!(hse),
-        Sysclk::PLL1_P => unwrap!(pll),
+        Sysclk::Hsi => unwrap!(hsi),
+        Sysclk::Hse => unwrap!(hse),
+        Sysclk::Pll1P => unwrap!(pll),
         #[cfg(crs)]
-        Sysclk::HSI48 => unwrap!(hsi48),
+        Sysclk::Hsi48 => unwrap!(hsi48),
         #[cfg(not(crs))]
         _ => unreachable!(),
     };
@@ -337,14 +337,14 @@ pub(crate) unsafe fn init(config: Config) {
     // Set latency based on HCLK frquency
     #[cfg(stm32f0)]
     let latency = match hclk.0 {
-        ..=24_000_000 => Latency::WS0,
-        _ => Latency::WS1,
+        ..=24_000_000 => Latency::Ws0,
+        _ => Latency::Ws1,
     };
     #[cfg(any(stm32f1, stm32f3))]
     let latency = match hclk.0 {
-        ..=24_000_000 => Latency::WS0,
-        ..=48_000_000 => Latency::WS1,
-        _ => Latency::WS2,
+        ..=24_000_000 => Latency::Ws0,
+        ..=48_000_000 => Latency::Ws1,
+        _ => Latency::Ws2,
     };
     FLASH.acr().modify(|w| {
         w.set_latency(latency);
@@ -352,7 +352,7 @@ pub(crate) unsafe fn init(config: Config) {
         // different from 1 on the AHB clock.", "Half-cycle access cannot be
         // used when there is a prescaler different from 1 on the AHB clock"
         #[cfg(stm32f3)]
-        if config.ahb_pre != AHBPrescaler::DIV1 {
+        if config.ahb_pre != AHBPrescaler::Div1 {
             w.set_hlfcya(false);
             w.set_prftbe(true);
         }
@@ -413,17 +413,17 @@ pub(crate) unsafe fn init(config: Config) {
         match config.adc {
             AdcClockSource::Pll(adcpres) => {
                 RCC.cfgr2().modify(|w| w.set_adc12pres(adcpres));
-                common.ccr().modify(|w| w.set_ckmode(Ckmode::ASYNCHRONOUS));
+                common.ccr().modify(|w| w.set_ckmode(Ckmode::Asynchronous));
 
                 unwrap!(pll) / adcpres
             }
             AdcClockSource::Hclk(adcpres) => {
-                assert!(!(adcpres == AdcHclkPrescaler::Div1 && config.ahb_pre != AHBPrescaler::DIV1));
+                assert!(!(adcpres == AdcHclkPrescaler::Div1 && config.ahb_pre != AHBPrescaler::Div1));
 
                 let (div, ckmode) = match adcpres {
-                    AdcHclkPrescaler::Div1 => (1u32, Ckmode::SYNC_DIV1),
-                    AdcHclkPrescaler::Div2 => (2u32, Ckmode::SYNC_DIV2),
-                    AdcHclkPrescaler::Div4 => (4u32, Ckmode::SYNC_DIV4),
+                    AdcHclkPrescaler::Div1 => (1u32, Ckmode::SyncDiv1),
+                    AdcHclkPrescaler::Div2 => (2u32, Ckmode::SyncDiv2),
+                    AdcHclkPrescaler::Div4 => (4u32, Ckmode::SyncDiv4),
                 };
                 common.ccr().modify(|w| w.set_ckmode(ckmode));
 
@@ -442,17 +442,17 @@ pub(crate) unsafe fn init(config: Config) {
         match config.adc34 {
             AdcClockSource::Pll(adcpres) => {
                 RCC.cfgr2().modify(|w| w.set_adc34pres(adcpres));
-                common.ccr().modify(|w| w.set_ckmode(Ckmode::ASYNCHRONOUS));
+                common.ccr().modify(|w| w.set_ckmode(Ckmode::Asynchronous));
 
                 unwrap!(pll) / adcpres
             }
             AdcClockSource::Hclk(adcpres) => {
-                assert!(!(adcpres == AdcHclkPrescaler::Div1 && config.ahb_pre != AHBPrescaler::DIV1));
+                assert!(!(adcpres == AdcHclkPrescaler::Div1 && config.ahb_pre != AHBPrescaler::Div1));
 
                 let (div, ckmode) = match adcpres {
-                    AdcHclkPrescaler::Div1 => (1u32, Ckmode::SYNC_DIV1),
-                    AdcHclkPrescaler::Div2 => (2u32, Ckmode::SYNC_DIV2),
-                    AdcHclkPrescaler::Div4 => (4u32, Ckmode::SYNC_DIV4),
+                    AdcHclkPrescaler::Div1 => (1u32, Ckmode::SyncDiv1),
+                    AdcHclkPrescaler::Div2 => (2u32, Ckmode::SyncDiv2),
+                    AdcHclkPrescaler::Div4 => (4u32, Ckmode::SyncDiv4),
                 };
                 common.ccr().modify(|w| w.set_ckmode(ckmode));
 

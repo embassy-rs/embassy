@@ -55,7 +55,7 @@ async fn main(_spawner: Spawner) {
     };
 
     // Create LPUART with DMA support for both TX and RX, then split
-    let lpuart = Lpuart::new_async_with_dma(p.LPUART1, p.P1_9, p.P1_8, p.DMA_CH1, p.DMA_CH0, config).unwrap();
+    let lpuart = Lpuart::new_async_with_dma(p.LPUART1, p.P1_9, p.P1_8, p.DMA0_CH1, p.DMA0_CH0, config).unwrap();
     let (mut tx, mut rx) = lpuart.split();
 
     tx.write(b"LPUART Ring Buffer DMA Example\r\n").await.unwrap();

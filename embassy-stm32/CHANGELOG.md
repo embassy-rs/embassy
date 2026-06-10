@@ -8,8 +8,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+CAN:
+- fix: stm32/can/fdcan: write `FilterType::Range` bounds in the correct order (`from`→SFID1/EFID1, `to`→SFID2/EFID2). The swapped order prevented normal multi-ID ranges from matching, breaking both accepting and rejecting range filters.
+
+DMA:
+- fix: stm32/dma: fix HTIF masking TCIF in on_irq when both flags fire simultaneously
+- fix: stm32/dma: defer read_index advance until after copy in read_raw to avoid partial-advance on overrun
+- fix: stm32/dma: eliminate second sync_len() call in read_raw to prevent consuming a lap count mid-copy
+- fix: stm32/dma: assert minimum buffer size of 2 frames in set_alignment
+- fix: stm32/dma: fix read_latest incorrectly resetting read_index when diff == 0 (no data available)
+- feat: stm32/dma: expose write_pos() on WritableRingBuffer for timing-safe TX frame alignment after overrun
+- fix: stm32/dma: fix WritableDmaRingBuffer::new using out-of-range pos (cap) instead of {complete_count:1, pos:0}
+- fix: stm32/dma: eliminate second sync_len() call in write_raw to prevent consuming a lap count mid-copy
+- feat: stm32/dma: ungate `TransferOptions::burst_length` on GPDMA (was stm32n6-only)
+- fix: stm32/dma: auto-set `TR1.PAM = Pack` on GPDMA when source and destination widths differ, instead of silently zero-extending one beat per destination beat
+- fix: stm32/dma: compute GPDMA `BR1.BNDT` from the memory-side width regardless of direction, fixing destination overrun on reads with peripheral width > memory width
+
 ADC:
 - feat: stm32/adc: add `VrefInt::calibrated_value()` for additional chips
+
+RNG:
+- feat: stm32/rng: add configurable initialization policy (`RngConfig`) with `new_with_config` and health-test profile control
+
+COMP:
+- feat: stm32/comp: add support for comp_v1 (used on G0)
+
+Timer:
+- feat: stm32/timer/input_capture: add per-channel split API for concurrent multi-channel capture
+- feat: stm32/timer: add timer_v2 dithering APIs (`DitheringConfig`, ARR/CCR fractional nibble setters) in low-level, simple PWM, and complementary PWM drivers
+- feat: stm32/timer: add low-level timer status helpers for UIF remap control and counting direction (`is_counting_up`/`is_counting_down`)
+
+PKA:
+- feat: stm32/pka: extend ECC point buffer support to 640-bit operands (80-byte coordinates) in public point types and Jacobian conversion paths
+
+CRYP:
+- feat: stm32/cryp: batch full-block DMA in payload and use 4-beat bursts on GPDMA
+- perf: stm32/cryp: aad/payload async API takes a faster path when user buffers are 4-byte aligned
+
+SAES:
+- feat: stm32/saes: expose explicit key-mode starters (`start_with_mode`, `start_wrapped_key`, `start_shared_key`) and async `aad`/`payload`/`finish` parity methods
 
 ## 0.6.0 - 2026-03-10
 
@@ -126,6 +163,7 @@ SMI:
 
 RCC:
 - fix: stm32/rcc: allow linker to optimize out expensive PLL init functions in binaries where the PLL is not used (e.g. most bootloaders)
+- fix: stm32/bkpsram: Fix unsound Backup SRAM API (breaking change)
 
 USB:
 - fix: don't put USB pins into alternate mode on chips where USB is an additional function

@@ -155,7 +155,7 @@ impl<'a> Control<'a> {
 
     /// Write slice of firmware to a device.
     ///
-    /// [`ota_begin`] must be called first.
+    /// [`ota_begin`][Self::ota_begin] must be called first.
     ///
     /// The slice is split into chunks that can be sent across
     /// the ioctl protocol to the wifi adapter.
@@ -171,7 +171,7 @@ impl<'a> Control<'a> {
 
     /// End the OTA session.
     ///
-    /// [`ota_begin`] must be called first.
+    /// [`ota_begin`][Self::ota_begin] must be called first.
     ///
     /// NOTE: Will reset the wifi adapter after 5 seconds.
     pub async fn ota_end(&mut self) -> Result<(), Error> {

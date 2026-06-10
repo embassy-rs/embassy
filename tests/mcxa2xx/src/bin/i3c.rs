@@ -14,7 +14,7 @@ use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 bind_interrupts!(
     struct Irqs {
-        I3C0 => embassy_mcxa::i3c::InterruptHandler<I3C0>;
+        I3C0 => embassy_mcxa::i3c::controller::InterruptHandler<I3C0>;
     }
 );
 

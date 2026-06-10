@@ -31,10 +31,10 @@ impl Registers {
         &mut self.msg_ram_mut().transmit.tbsa[bufidx]
     }
     pub fn msg_ram_mut(&self) -> &mut RegisterBlock {
-        #[cfg(can_fdcan_h7)]
+        #[cfg(can_fdcan_v2)]
         let ptr = self.msgram.ram(self.msg_ram_offset / 4).as_ptr() as *mut RegisterBlock;
 
-        #[cfg(not(can_fdcan_h7))]
+        #[cfg(not(can_fdcan_v2))]
         let ptr = self.msgram.as_ptr() as *mut RegisterBlock;
 
         unsafe { &mut (*ptr) }
@@ -115,7 +115,7 @@ impl Registers {
     pub fn curr_error(&self) -> Option<BusError> {
         let err = { self.regs.psr().read() };
         cfg_if! {
-            if #[cfg(can_fdcan_h7)] {
+            if #[cfg(can_fdcan_v2)] {
                 let lec = err.lec();
             } else {
                 let lec = err.lec().to_bits();
@@ -309,7 +309,7 @@ impl Registers {
 
     /// Moves out of PoweredDownMode and into ConfigMode
     #[inline]
-    pub fn into_config_mode(self, _config: FdCanConfig) {
+    pub fn into_config_mode(&self, _config: FdCanConfig) {
         self.set_power_down_mode(false);
         self.enter_init_mode();
         self.reset_msg_ram();
@@ -343,14 +343,14 @@ impl Registers {
         // set extended filters list size to 8
         // REQUIRED: we use the memory map as if these settings are set
         // instead of re-calculating them.
-        #[cfg(not(can_fdcan_h7))]
+        #[cfg(not(can_fdcan_v2))]
         {
             self.regs.rxgfc().modify(|w| {
                 w.set_lss(crate::can::fd::message_ram::STANDARD_FILTER_MAX);
                 w.set_lse(crate::can::fd::message_ram::EXTENDED_FILTER_MAX);
             });
         }
-        #[cfg(can_fdcan_h7)]
+        #[cfg(can_fdcan_v2)]
         {
             self.regs
                 .sidfc()
@@ -363,11 +363,11 @@ impl Registers {
         self.configure_msg_ram();
 
         // Enable timestamping
-        #[cfg(not(can_fdcan_h7))]
+        #[cfg(not(can_fdcan_v2))]
         self.regs
             .tscc()
-            .write(|w| w.set_tss(stm32_metapac::can::vals::Tss::INCREMENT));
-        #[cfg(can_fdcan_h7)]
+            .write(|w| w.set_tss(stm32_metapac::can::vals::Tss::Increment));
+        #[cfg(can_fdcan_v2)]
         self.regs.tscc().write(|w| w.set_tss(0x01));
 
         // this isn't really documented in the reference manual
@@ -385,6 +385,7 @@ impl Registers {
         });
 
         self.set_data_bit_timing(config.dbtr);
+        self.set_transceiver_delay_compensation(config.dbtr);
         self.set_nominal_bit_timing(config.nbtr);
         self.set_automatic_retransmit(config.automatic_retransmit);
         self.set_transmit_pause(config.transmit_pause);
@@ -449,6 +450,15 @@ impl Registers {
             w.set_dtseg1(btr.dtseg1() - 1);
             w.set_dtseg2(btr.dtseg2() - 1);
             w.set_dsjw(btr.dsjw() - 1);
+            w.set_tdc(btr.transceiver_delay_compensation);
+        });
+    }
+
+    #[inline]
+    pub fn set_transceiver_delay_compensation(&self, btr: DataBitTiming) {
+        self.regs.tdcr().write(|w| {
+            w.set_tdco(btr.tdco());
+            w.set_tdcf(btr.tdcf());
         });
     }
 
@@ -500,9 +510,9 @@ impl Registers {
 
         self.regs.cccr().modify(|w| {
             w.set_fdoe(fdoe);
-            #[cfg(can_fdcan_h7)]
+            #[cfg(can_fdcan_v2)]
             w.set_bse(brse);
-            #[cfg(not(can_fdcan_h7))]
+            #[cfg(not(can_fdcan_v2))]
             w.set_brse(brse);
         });
     }
@@ -517,18 +527,18 @@ impl Registers {
     #[inline]
     #[allow(unused)]
     pub fn set_timestamp_counter_source(&self, select: TimestampSource) {
-        #[cfg(can_fdcan_h7)]
+        #[cfg(can_fdcan_v2)]
         let (tcp, tss) = match select {
             TimestampSource::None => (0, 0),
             TimestampSource::Prescaler(p) => (p as u8, 1),
             TimestampSource::FromTIM3 => (0, 2),
         };
 
-        #[cfg(not(can_fdcan_h7))]
+        #[cfg(not(can_fdcan_v2))]
         let (tcp, tss) = match select {
-            TimestampSource::None => (0, stm32_metapac::can::vals::Tss::ZERO),
-            TimestampSource::Prescaler(p) => (p as u8, stm32_metapac::can::vals::Tss::INCREMENT),
-            TimestampSource::FromTIM3 => (0, stm32_metapac::can::vals::Tss::EXTERNAL),
+            TimestampSource::None => (0, stm32_metapac::can::vals::Tss::Zero),
+            TimestampSource::Prescaler(p) => (p as u8, stm32_metapac::can::vals::Tss::Increment),
+            TimestampSource::FromTIM3 => (0, stm32_metapac::can::vals::Tss::External),
         };
 
         self.regs.tscc().write(|w| {
@@ -537,19 +547,19 @@ impl Registers {
         });
     }
 
-    #[cfg(not(can_fdcan_h7))]
+    #[cfg(not(can_fdcan_v2))]
     /// Configures the global filter settings
     #[inline]
     pub fn set_global_filter(&self, filter: GlobalFilter) {
         let anfs = match filter.handle_standard_frames {
-            crate::can::fd::config::NonMatchingFilter::IntoRxFifo0 => stm32_metapac::can::vals::Anfs::ACCEPT_FIFO_0,
-            crate::can::fd::config::NonMatchingFilter::IntoRxFifo1 => stm32_metapac::can::vals::Anfs::ACCEPT_FIFO_1,
-            crate::can::fd::config::NonMatchingFilter::Reject => stm32_metapac::can::vals::Anfs::REJECT,
+            crate::can::fd::config::NonMatchingFilter::IntoRxFifo0 => stm32_metapac::can::vals::Anfs::AcceptFifo0,
+            crate::can::fd::config::NonMatchingFilter::IntoRxFifo1 => stm32_metapac::can::vals::Anfs::AcceptFifo1,
+            crate::can::fd::config::NonMatchingFilter::Reject => stm32_metapac::can::vals::Anfs::Reject,
         };
         let anfe = match filter.handle_extended_frames {
-            crate::can::fd::config::NonMatchingFilter::IntoRxFifo0 => stm32_metapac::can::vals::Anfe::ACCEPT_FIFO_0,
-            crate::can::fd::config::NonMatchingFilter::IntoRxFifo1 => stm32_metapac::can::vals::Anfe::ACCEPT_FIFO_1,
-            crate::can::fd::config::NonMatchingFilter::Reject => stm32_metapac::can::vals::Anfe::REJECT,
+            crate::can::fd::config::NonMatchingFilter::IntoRxFifo0 => stm32_metapac::can::vals::Anfe::AcceptFifo0,
+            crate::can::fd::config::NonMatchingFilter::IntoRxFifo1 => stm32_metapac::can::vals::Anfe::AcceptFifo1,
+            crate::can::fd::config::NonMatchingFilter::Reject => stm32_metapac::can::vals::Anfe::Reject,
         };
 
         self.regs.rxgfc().modify(|w| {
@@ -560,7 +570,7 @@ impl Registers {
         });
     }
 
-    #[cfg(can_fdcan_h7)]
+    #[cfg(can_fdcan_v2)]
     /// Configures the global filter settings
     #[inline]
     pub fn set_global_filter(&self, filter: GlobalFilter) {
@@ -584,10 +594,10 @@ impl Registers {
         });
     }
 
-    #[cfg(not(can_fdcan_h7))]
+    #[cfg(not(can_fdcan_v2))]
     fn configure_msg_ram(&self) {}
 
-    #[cfg(can_fdcan_h7)]
+    #[cfg(can_fdcan_v2)]
     fn configure_msg_ram(&self) {
         let r = self.regs;
 
@@ -677,7 +687,7 @@ fn put_tx_header(mailbox: &mut TxBufferElement, header: &Header) {
     mailbox.header.write(|w| {
         unsafe { w.id().bits(id) }
             .rtr()
-            .bit(header.len() == 0 && header.rtr())
+            .bit(header.rtr())
             .xtd()
             .set_id_type(id_type)
             .set_len(DataLength::new(header.len(), frame_format))

@@ -3,17 +3,24 @@
 use core::marker::PhantomData;
 
 pub use super::low_level::FilterValue;
+#[cfg(timer_v2)]
+use super::low_level::OcrefClearSource;
 use super::low_level::{CountingMode, OutputPolarity, RoundTo, Timer};
 use super::simple_pwm::PwmPin;
 use super::{AdvancedInstance4Channel, Ch1, Ch2, Ch3, Ch4, Channel, TimerComplementaryPin};
 use crate::Peri;
+#[cfg(not(stm32c5))]
 use crate::dma::word::Word;
 use crate::gpio::{AfType, Flex, OutputType};
+#[cfg(timer_v2)]
+pub use crate::pac::timer::vals::{Bkbid as BreakBidirectionalMode, Bkdsrm as BreakDisarmMode};
 pub use crate::pac::timer::vals::{
     Bkinp as BreakComparatorPolarity, Bkp as BreakInputPolarity, Ccds, Ckd, Mms2, Ossi, Ossr,
 };
 use crate::time::Hertz;
 use crate::timer::TimerChannel;
+#[cfg(timer_v2)]
+use crate::timer::low_level::DitheringConfig;
 use crate::timer::low_level::OutputCompareMode;
 use crate::timer::simple_pwm::PwmPinConfig;
 
@@ -167,6 +174,42 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         }
     }
 
+    /// Sets the idle state for the normal (OISx) channels only. OISxN is not modified.
+    ///
+    /// When OSSI is enabled (`set_off_state_selection_idle(Ossi::IdleLevel)`), the timer
+    /// drives outputs to the configured idle state whenever MOE=0, regardless of GPIO
+    /// push-pull configuration. This makes idle behavior deterministic across platforms.
+    ///
+    /// **Constraint**: OISx and OISxN must not both map to the active output state for the same
+    /// channel. After a break event the timer inserts a dead time before settling outputs to their
+    /// idle state, and the hardware prevents both complementary outputs from being active
+    /// simultaneously to avoid a shoot-through condition in half-bridge configurations.
+    ///
+    /// - `ois_active = true`:  normal outputs go active when idle (OISx=1)
+    /// - `ois_active = false`: normal outputs go inactive when idle (OISx=0)
+    pub fn set_normal_output_idle_state(&mut self, channels: &[Channel], ois_active: bool) {
+        for &channel in channels {
+            self.inner.set_ois(channel, ois_active);
+        }
+    }
+
+    /// Sets the idle state for the complementary (OISxN) channels only. OISx is not modified.
+    ///
+    /// When OSSI is enabled (`set_off_state_selection_idle(Ossi::IdleLevel)`), the timer
+    /// drives outputs to the configured idle state whenever MOE=0, regardless of GPIO
+    /// push-pull configuration. This makes idle behavior deterministic across platforms.
+    ///
+    /// **Constraint**: OISx and OISxN must not both map to the active output state for the same
+    /// channel. See [`set_normal_output_idle_state`] for details.
+    ///
+    /// - `oisn_active = true`:  complementary outputs go active when idle (OISxN=1)
+    /// - `oisn_active = false`: complementary outputs go inactive when idle (OISxN=0)
+    pub fn set_complementary_output_idle_state(&mut self, channels: &[Channel], oisn_active: bool) {
+        for &channel in channels {
+            self.inner.set_oisn(channel, oisn_active);
+        }
+    }
+
     /// Set state of OSSI-bit in BDTR register
     pub fn set_off_state_selection_idle(&mut self, val: Ossi) {
         self.inner.set_ossi(val);
@@ -195,6 +238,12 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Set Master Output Enable
     pub fn set_master_output_enable(&mut self, enable: bool) {
         self.inner.set_moe(enable);
+    }
+
+    #[cfg(timer_v2)]
+    /// Select OCREF clear source.
+    pub fn set_ocref_clear_source(&mut self, source: OcrefClearSource) {
+        self.inner.set_ocref_clear_source(source);
     }
 
     /// Get Master Output Enable
@@ -239,6 +288,30 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.get_break_filter()
     }
 
+    #[cfg(timer_v2)]
+    /// Set break input 1 disarm mode.
+    pub fn set_break_disarm_mode(&mut self, mode: BreakDisarmMode) {
+        self.inner.set_break_disarm_mode(mode);
+    }
+
+    #[cfg(timer_v2)]
+    /// Get break input 1 disarm mode.
+    pub fn get_break_disarm_mode(&self) -> BreakDisarmMode {
+        self.inner.get_break_disarm_mode()
+    }
+
+    #[cfg(timer_v2)]
+    /// Set break input 1 bidirectional mode.
+    pub fn set_break_bidirectional_mode(&mut self, mode: BreakBidirectionalMode) {
+        self.inner.set_break_bidirectional_mode(mode);
+    }
+
+    #[cfg(timer_v2)]
+    /// Get break input 1 bidirectional mode.
+    pub fn get_break_bidirectional_mode(&self) -> BreakBidirectionalMode {
+        self.inner.get_break_bidirectional_mode()
+    }
+
     /// Enable/disable break input 2.
     pub fn set_break2_enable(&mut self, enable: bool) {
         self.inner.set_break2_enable(enable);
@@ -267,6 +340,30 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Get break input 2 digital filter.
     pub fn get_break2_filter(&self) -> FilterValue {
         self.inner.get_break2_filter()
+    }
+
+    #[cfg(timer_v2)]
+    /// Set break input 2 disarm mode.
+    pub fn set_break2_disarm_mode(&mut self, mode: BreakDisarmMode) {
+        self.inner.set_break2_disarm_mode(mode);
+    }
+
+    #[cfg(timer_v2)]
+    /// Get break input 2 disarm mode.
+    pub fn get_break2_disarm_mode(&self) -> BreakDisarmMode {
+        self.inner.get_break2_disarm_mode()
+    }
+
+    #[cfg(timer_v2)]
+    /// Set break input 2 bidirectional mode.
+    pub fn set_break2_bidirectional_mode(&mut self, mode: BreakBidirectionalMode) {
+        self.inner.set_break2_bidirectional_mode(mode);
+    }
+
+    #[cfg(timer_v2)]
+    /// Get break input 2 bidirectional mode.
+    pub fn get_break2_bidirectional_mode(&self) -> BreakBidirectionalMode {
+        self.inner.get_break2_bidirectional_mode()
     }
 
     /// Enable/disable automatic output enable (AOE).
@@ -463,12 +560,29 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         }
     }
 
+    #[cfg(timer_v2)]
+    /// Configure timer dithering mode and ARR fractional nibble.
+    pub fn set_dithering(&mut self, config: DitheringConfig) {
+        self.inner.set_dithering(config);
+    }
+
+    #[cfg(timer_v2)]
+    /// Set CCR fractional nibble for one channel.
+    pub fn set_channel_dither(&mut self, channel: Channel, dither: u8) {
+        self.inner.set_compare_dither_value(channel, dither);
+    }
+
     /// Set the duty for a given channel.
     ///
     /// The value ranges from 0 for 0% duty, to [`get_max_duty`](Self::get_max_duty) for 100% duty, both included.
     pub fn set_duty(&mut self, channel: Channel, duty: u32) {
         assert!(duty <= self.get_max_duty());
         self.inner.set_compare_value(channel, unwrap!(duty.try_into()))
+    }
+
+    /// Enable/disable OCREF clear for a given channel.
+    pub fn set_output_compare_clear_enable(&mut self, channel: Channel, enable: bool) {
+        self.inner.set_output_compare_clear_enable(channel, enable);
     }
 
     /// Set the output polarity for a given channel.
@@ -495,6 +609,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.set_dead_time_value(value);
     }
 
+    #[cfg(not(stm32c5))]
     /// Generate a sequence of PWM waveform
     ///
     /// Note:
@@ -509,12 +624,13 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.enable_channel(channel, true);
         self.inner.enable_channel(C::CHANNEL, true);
         self.inner.clamp_compare_value::<W>(channel);
-        self.inner.set_cc_dma_selection(Ccds::ON_UPDATE);
+        self.inner.set_cc_dma_selection(Ccds::OnUpdate);
         self.inner.set_cc_dma_enable_state(C::CHANNEL, true);
         self.inner.setup_channel_update_dma(dma, irq, channel, duty).await;
         self.inner.set_cc_dma_enable_state(C::CHANNEL, false);
     }
 
+    #[cfg(not(stm32c5))]
     /// Generate a sequence of PWM waveform
     ///
     /// Note:
@@ -533,6 +649,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.enable_update_dma(false);
     }
 
+    #[cfg(not(stm32c5))]
     /// Generate a multichannel sequence of PWM waveforms using DMA triggered by timer update events.
     ///
     /// This method utilizes the timer's DMA burst transfer capability to update multiple CCRx registers
@@ -657,14 +774,14 @@ fn compute_dead_time_value(value: u16) -> (Ckd, u8) {
     */
 
     let mut error = u16::MAX;
-    let mut ckd = Ckd::DIV1;
+    let mut ckd = Ckd::Div1;
     let mut bits = 0u8;
 
-    for this_ckd in [Ckd::DIV1, Ckd::DIV2, Ckd::DIV4] {
+    for this_ckd in [Ckd::Div1, Ckd::Div2, Ckd::Div4] {
         let outdiv = match this_ckd {
-            Ckd::DIV1 => 1,
-            Ckd::DIV2 => 2,
-            Ckd::DIV4 => 4,
+            Ckd::Div1 => 1,
+            Ckd::Div2 => 2,
+            Ckd::Div4 => 4,
             _ => unreachable!(),
         };
 
@@ -722,32 +839,32 @@ mod tests {
         let fn_results = [
             TestRun {
                 value: 1,
-                ckd: Ckd::DIV1,
+                ckd: Ckd::Div1,
                 bits: 1,
             },
             TestRun {
                 value: 125,
-                ckd: Ckd::DIV1,
+                ckd: Ckd::Div1,
                 bits: 125,
             },
             TestRun {
                 value: 245,
-                ckd: Ckd::DIV1,
+                ckd: Ckd::Div1,
                 bits: 64 + 245 / 2,
             },
             TestRun {
                 value: 255,
-                ckd: Ckd::DIV2,
+                ckd: Ckd::Div2,
                 bits: 127,
             },
             TestRun {
                 value: 400,
-                ckd: Ckd::DIV1,
+                ckd: Ckd::Div1,
                 bits: 210,
             },
             TestRun {
                 value: 600,
-                ckd: Ckd::DIV4,
+                ckd: Ckd::Div4,
                 bits: 64 + (600u16 / 8) as u8,
             },
         ];

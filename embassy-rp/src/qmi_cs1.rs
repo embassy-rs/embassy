@@ -28,7 +28,7 @@ impl<'d> QmiCs1<'d> {
             #[cfg(feature = "_rp235x")]
             w.set_iso(false);
             w.set_ie(true);
-            w.set_drive(pac::pads::vals::Drive::_12M_A);
+            w.set_drive(pac::pads::vals::Drive::_12mA);
             w.set_slewfast(true);
         });
 

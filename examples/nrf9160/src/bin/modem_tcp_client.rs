@@ -124,7 +124,7 @@ async fn main(spawner: Spawner) {
 
     static mut TRACE_BUF: [u8; 4096] = [0u8; 4096];
     let mut config = uarte::Config::default();
-    config.baudrate = Baudrate::BAUD1M;
+    config.baudrate = Baudrate::Baud1m;
     let uart = BufferedUarteTx::new(
         //let trace_uart = BufferedUarteTx::new(
         unsafe { peripherals::SERIAL0::steal() },

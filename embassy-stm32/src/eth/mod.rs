@@ -2,7 +2,7 @@
 #![macro_use]
 
 #[cfg_attr(any(eth_v1a, eth_v1b, eth_v1c), path = "v1/mod.rs")]
-#[cfg_attr(eth_v2, path = "v2/mod.rs")]
+#[cfg_attr(any(eth_v2, eth_v2a), path = "v2/mod.rs")]
 mod _version;
 mod generic_phy;
 mod sma;
@@ -107,15 +107,25 @@ impl<'d, T: Instance, P: Phy> embassy_net_driver::Driver for Ethernet<'d, T, P> 
         let mut caps = Capabilities::default();
         caps.max_transmission_unit = MTU;
         caps.max_burst_size = Some(self.tx.len());
+        // The v2a MAC offloads the IPv4 header and TCP/UDP payload
+        // checksums in hardware (MACCR.IPC + TDES3.CIC; bad RX frames are dropped
+        // in the descriptor ring), so smoltcp can skip them.
+        #[cfg(eth_v2a)]
+        {
+            use embassy_net_driver::Checksum;
+            caps.checksum.ipv4 = Checksum::None;
+            caps.checksum.tcp = Checksum::None;
+            caps.checksum.udp = Checksum::None;
+        }
         caps
     }
 
     fn link_state(&mut self, cx: &mut Context) -> LinkState {
-        if self.phy.poll_link(cx) {
-            LinkState::Up
-        } else {
-            LinkState::Down
+        if let Some(link_state) = self.phy.poll_link(cx) {
+            self.link_state = if link_state { LinkState::Up } else { LinkState::Down };
         }
+
+        self.link_state
     }
 
     fn hardware_address(&self) -> HardwareAddress {
@@ -166,7 +176,7 @@ pub trait Phy {
     /// PHY initialisation.
     fn phy_init(&mut self);
     /// Poll link to see if it is up and FD with 100Mbps
-    fn poll_link(&mut self, cx: &mut Context) -> bool;
+    fn poll_link(&mut self, cx: &mut Context) -> Option<bool>;
 }
 
 impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
@@ -189,12 +199,24 @@ trait SealedInstance {
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + PeripheralType + RccPeripheral + Send + 'static {}
 
+#[cfg(not(eth_v2a))]
 impl SealedInstance for crate::peripherals::ETH {
     fn regs() -> crate::pac::eth::Eth {
         crate::pac::ETH
     }
 }
+
+#[cfg(eth_v2a)]
+impl SealedInstance for crate::peripherals::ETH1 {
+    fn regs() -> crate::pac::eth::Eth {
+        crate::pac::ETH1
+    }
+}
+
+#[cfg(not(eth_v2a))]
 impl Instance for crate::peripherals::ETH {}
+#[cfg(eth_v2a)]
+impl Instance for crate::peripherals::ETH1 {}
 
 pin_trait!(RXClkPin, Instance, @A);
 pin_trait!(TXClkPin, Instance, @A);
@@ -212,3 +234,17 @@ pin_trait!(TXD1Pin, Instance, @A);
 pin_trait!(TXD2Pin, Instance, @A);
 pin_trait!(TXD3Pin, Instance, @A);
 pin_trait!(TXEnPin, Instance, @A);
+
+pin_trait!(RGMIIGTXClkPin, Instance, @A);
+pin_trait!(RGMIIRXClkPin, Instance, @A);
+pin_trait!(RGMIIRXCtlPin, Instance, @A);
+pin_trait!(RGMIITXCtlPin, Instance, @A);
+pin_trait!(RGMIIRXD0Pin, Instance, @A);
+pin_trait!(RGMIIRXD1Pin, Instance, @A);
+pin_trait!(RGMIIRXD2Pin, Instance, @A);
+pin_trait!(RGMIIRXD3Pin, Instance, @A);
+pin_trait!(RGMIITXD0Pin, Instance, @A);
+pin_trait!(RGMIITXD1Pin, Instance, @A);
+pin_trait!(RGMIITXD2Pin, Instance, @A);
+pin_trait!(RGMIITXD3Pin, Instance, @A);
+pin_trait!(RGMIICLK125Pin, Instance, @A);

@@ -53,7 +53,7 @@ impl CoreId {
     }
 
     /// Translates the core ID to an index into the interrupt registers.
-    pub const fn to_index(&self) -> usize {
+    pub const fn to_index(&self) -> u8 {
         match &self {
             CoreId::Core0 => 0,
             #[cfg(any(stm32h745, stm32h747, stm32h755, stm32h757, stm32wb, stm32wl))]

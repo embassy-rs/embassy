@@ -17,9 +17,6 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::comp::{Comp, Config, Hysteresis, InvertingInput, OutputPolarity, PowerMode};
-use embassy_stm32::rcc::{
-    AHB5Prescaler, AHBPrescaler, APBPrescaler, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale,
-};
 use embassy_stm32::{bind_interrupts, comp};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
@@ -30,27 +27,9 @@ bind_interrupts!(struct Irqs {
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let mut config = embassy_stm32::Config::default();
+    let config = embassy_stm32::Config::default();
 
     // Configure PLL for system clock
-    config.rcc.pll1 = Some(embassy_stm32::rcc::Pll {
-        source: PllSource::HSI,
-        prediv: PllPreDiv::DIV1,
-        mul: PllMul::MUL30,
-        divr: Some(PllDiv::DIV5),
-        divq: None,
-        divp: Some(PllDiv::DIV30),
-        frac: Some(0),
-    });
-
-    config.rcc.ahb_pre = AHBPrescaler::DIV1;
-    config.rcc.apb1_pre = APBPrescaler::DIV1;
-    config.rcc.apb2_pre = APBPrescaler::DIV1;
-    config.rcc.apb7_pre = APBPrescaler::DIV1;
-    config.rcc.ahb5_pre = AHB5Prescaler::DIV4;
-    config.rcc.voltage_scale = VoltageScale::RANGE1;
-    config.rcc.sys = Sysclk::PLL1_R;
-
     let p = embassy_stm32::init(config);
     info!("COMP example starting!");
 

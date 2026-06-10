@@ -23,6 +23,7 @@ for i in range(15, 50):
     ticks.append(20 * i * 1_000_000)
 
 ticks.append(375 * 1000)
+ticks.append(62500 * 1000)
 ticks.append(133 * 1_000_000)
 
 seen = set()

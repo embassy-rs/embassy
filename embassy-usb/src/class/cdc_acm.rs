@@ -400,6 +400,11 @@ impl<'d> ControlChanged<'d> {
     pub fn rts(&self) -> bool {
         self.control.rts.load(Ordering::Relaxed)
     }
+
+    /// Gets the current line coding (baud rate, data bits, parity, stop bits).
+    pub fn line_coding(&self) -> LineCoding {
+        self.control.line_coding.lock(Cell::get)
+    }
 }
 
 /// CDC ACM class packet sender.

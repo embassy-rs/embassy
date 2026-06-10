@@ -7,14 +7,17 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 #[cfg(not(stm32l0))]
 pub mod complementary_pwm;
+pub mod hall;
 pub mod input_capture;
 pub mod low_level;
 pub mod one_pulse;
 pub mod pwm_input;
 pub mod qei;
+#[cfg(not(stm32c5))]
 pub mod ringbuffered;
 pub mod simple_pwm;
 
+#[cfg(not(stm32c5))]
 use crate::dma::word::Word;
 use crate::fmt::Debuggable;
 use crate::interrupt;
@@ -46,13 +49,13 @@ impl Channel {
 }
 
 /// Channel 1 marker type.
-pub enum Ch1 {}
+pub struct Ch1;
 /// Channel 2 marker type.
-pub enum Ch2 {}
+pub struct Ch2;
 /// Channel 3 marker type.
-pub enum Ch3 {}
+pub struct Ch3;
 /// Channel 4 marker type.
-pub enum Ch4 {}
+pub struct Ch4;
 
 /// Timer channel trait.
 #[allow(private_bounds)]
@@ -158,6 +161,16 @@ trait SealedInstance: RccPeripheral + PeripheralType {
     fn state() -> &'static State;
 }
 
+#[cfg(stm32c5)]
+trait Word: Sized {
+    fn bits() -> usize {
+        size_of::<Self>()
+    }
+}
+
+#[cfg(stm32c5)]
+impl<T: Sized> Word for T {}
+
 /// Core timer instance.
 #[allow(private_bounds)]
 pub trait CoreInstance: SealedInstance + 'static {
@@ -231,6 +244,8 @@ pub trait AdvancedInstance2Channel: BasicInstance + GeneralInstance2Channel + Ad
 /// Advanced 16-bit timer with 4 channels instance.
 pub trait AdvancedInstance4Channel: AdvancedInstance2Channel + GeneralInstance4Channel {}
 
+trigger_trait!(TimerInputTrigger, GeneralInstance4Channel, TimerChannel);
+
 pin_trait!(TimerPin, GeneralInstance4Channel, TimerChannel, @A);
 pin_trait!(ExternalTriggerPin, GeneralInstance4Channel, @A);
 
@@ -241,9 +256,11 @@ pin_trait!(BreakInputPin, AdvancedInstance4Channel, BreakInput, @A);
 pin_trait!(BreakInputComparator1Pin, AdvancedInstance4Channel, BreakInput, @A);
 pin_trait!(BreakInputComparator2Pin, AdvancedInstance4Channel, BreakInput, @A);
 
+#[cfg(not(stm32c5))]
 // Update Event trigger DMA for every timer
 dma_trait!(UpDma, BasicInstance);
 
+#[cfg(not(stm32c5))]
 dma_trait!(Dma, GeneralInstance4Channel, TimerChannel);
 
 #[allow(unused)]
@@ -400,7 +417,7 @@ foreach_interrupt! {
 
 /// Update interrupt handler.
 pub struct UpdateInterruptHandler<T: CoreInstance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: CoreInstance> interrupt::typelevel::Handler<T::UpdateInterrupt> for UpdateInterruptHandler<T> {
@@ -425,7 +442,7 @@ impl<T: CoreInstance> interrupt::typelevel::Handler<T::UpdateInterrupt> for Upda
 
 /// Capture/Compare interrupt handler.
 pub struct CaptureCompareInterruptHandler<T: GeneralInstance1Channel> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: GeneralInstance1Channel> interrupt::typelevel::Handler<T::CaptureCompareInterrupt>

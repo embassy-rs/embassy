@@ -54,8 +54,8 @@ impl Registers {
     /// Enables or disables silent mode: Disconnects the TX signal from the pin.
     pub fn set_silent(&self, enabled: bool) {
         let mode = match enabled {
-            false => stm32_metapac::can::vals::Silm::NORMAL,
-            true => stm32_metapac::can::vals::Silm::SILENT,
+            false => stm32_metapac::can::vals::Silm::Normal,
+            true => stm32_metapac::can::vals::Silm::Silent,
         };
         self.0.btr().modify(|reg| reg.set_silm(mode));
     }
@@ -67,7 +67,7 @@ impl Registers {
     ///
     /// Automatic retransmission is enabled by default.
     pub fn set_automatic_retransmit(&self, enabled: bool) {
-        self.0.mcr().modify(|reg| reg.set_nart(enabled));
+        self.0.mcr().modify(|reg| reg.set_nart(!enabled));
     }
 
     /// Enables or disables loopback mode: Internally connects the TX and RX
@@ -160,16 +160,16 @@ impl Registers {
         self.0.ier().modify(|i| i.set_errie(true));
 
         let err = self.0.esr().read();
-        if err.lec() != Lec::NO_ERROR {
+        if err.lec() != Lec::NoError {
             return Some(match err.lec() {
-                Lec::STUFF => BusError::Stuff,
-                Lec::FORM => BusError::Form,
-                Lec::ACK => BusError::Acknowledge,
-                Lec::BIT_RECESSIVE => BusError::BitRecessive,
-                Lec::BIT_DOMINANT => BusError::BitDominant,
-                Lec::CRC => BusError::Crc,
-                Lec::CUSTOM => BusError::Software,
-                Lec::NO_ERROR => unreachable!(),
+                Lec::Stuff => BusError::Stuff,
+                Lec::Form => BusError::Form,
+                Lec::Ack => BusError::Acknowledge,
+                Lec::BitRecessive => BusError::BitRecessive,
+                Lec::BitDominant => BusError::BitDominant,
+                Lec::Crc => BusError::Crc,
+                Lec::Custom => BusError::Software,
+                Lec::NoError => unreachable!(),
             });
         }
         None
@@ -301,7 +301,7 @@ impl Registers {
             w.0 = id.0;
             w.set_txrq(true);
             if frame.header().rtr() {
-                w.set_rtr(Rtr::REMOTE);
+                w.set_rtr(Rtr::Remote);
             }
         });
     }
@@ -400,7 +400,7 @@ impl Registers {
         }
 
         let rir = fifo.rir().read();
-        let id: embedded_can::Id = if rir.ide() == Ide::STANDARD {
+        let id: embedded_can::Id = if rir.ide() == Ide::Standard {
             unwrap!(embedded_can::StandardId::new(rir.stid())).into()
         } else {
             let stid = (rir.stid() & 0x7FF) as u32;
@@ -410,7 +410,7 @@ impl Registers {
         };
         let rdtr = fifo.rdtr().read();
         let data_len = rdtr.dlc();
-        let rtr = rir.rtr() == stm32_metapac::can::vals::Rtr::REMOTE;
+        let rtr = rir.rtr() == stm32_metapac::can::vals::Rtr::Remote;
 
         #[cfg(not(feature = "time"))]
         let ts = rdtr.time();

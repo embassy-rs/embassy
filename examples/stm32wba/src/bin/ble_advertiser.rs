@@ -17,70 +17,76 @@
 #![no_std]
 #![no_main]
 
-use core::cell::RefCell;
-
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::peripherals::RNG;
-use embassy_stm32::rcc::{
-    AHB5Prescaler, AHBPrescaler, APBPrescaler, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale, mux,
-};
+use embassy_stm32::aes::{self, Aes};
+use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph};
+use embassy_stm32::pka::{self, Pka};
+use embassy_stm32::rcc::{self};
 use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::{Config, bind_interrupts};
-use embassy_stm32_wpan::Ble;
-use embassy_stm32_wpan::gap::{AdvData, AdvParams, AdvType};
-use embassy_stm32_wpan::gatt::{CharProperties, GattEventMask, GattServer, SecurityPermissions, ServiceType, Uuid};
-use embassy_sync::blocking_mutex::Mutex;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use static_cell::StaticCell;
+use embassy_stm32_wpan::bluetooth::HCI;
+use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
+use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType};
+use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams};
+use embassy_stm32_wpan::bluetooth::gatt::{CharProperties, GattEventMask, SecurityPermissions, ServiceType, Uuid};
+use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use {defmt_rtt as _, panic_probe as _};
+
+// ---- Test configuration ----
+const ADDR_TYPE: OwnAddressType = OwnAddressType::Random;
 
 bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<embassy_stm32::peripherals::RNG>;
+    AES => aes::InterruptHandler<AesPeriph>;
+    PKA => pka::InterruptHandler<PkaPeriph>;
+    RADIO => HighInterruptHandler;
+    HASH => LowInterruptHandler;
 });
 
+/// BLE runner task - drives the BLE stack sequencer
+#[embassy_executor::task]
+async fn ble_runner_task(platform: &'static Platform) {
+    platform.run_ble().await
+}
+
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) {
+async fn main(spawner: Spawner) {
     let mut config = Config::default();
-
-    // Configure PLL1 (required on WBA)
-    config.rcc.pll1 = Some(embassy_stm32::rcc::Pll {
-        source: PllSource::HSI,
-        prediv: PllPreDiv::DIV1,  // PLLM = 1 → HSI / 1 = 16 MHz
-        mul: PllMul::MUL30,       // PLLN = 30 → 16 MHz * 30 = 480 MHz VCO
-        divr: Some(PllDiv::DIV5), // PLLR = 5 → 96 MHz (Sysclk)
-        divq: None,
-        divp: Some(PllDiv::DIV30), // PLLP = 30 → 16 MHz (required for SAI)
-        frac: Some(0),
-    });
-
-    config.rcc.ahb_pre = AHBPrescaler::DIV1;
-    config.rcc.apb1_pre = APBPrescaler::DIV1;
-    config.rcc.apb2_pre = APBPrescaler::DIV1;
-    config.rcc.apb7_pre = APBPrescaler::DIV1;
-    config.rcc.ahb5_pre = AHB5Prescaler::DIV4;
-    config.rcc.voltage_scale = VoltageScale::RANGE1;
-    config.rcc.sys = Sysclk::PLL1_R;
-
-    // Configure RNG clock source to HSI (required for WBA)
-    config.rcc.mux.rngsel = mux::Rngsel::HSI;
+    config.rcc = rcc::Config::new_wpan();
 
     let p = embassy_stm32::init(config);
+
     info!("Embassy STM32WBA BLE Advertiser Example");
 
-    // Initialize RNG (required by BLE stack)
-    static RNG: StaticCell<Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>> = StaticCell::new();
-    let rng = RNG.init(Mutex::new(RefCell::new(Rng::new(p.RNG, Irqs))));
-    info!("RNG initialized");
+    // Initialize hardware peripherals required by BLE stack
+    let (platform, runtime) = new_platform!(
+        Rng::new(p.RNG, Irqs),
+        Pka::new(p.PKA, Irqs),
+        Aes::new_blocking(p.AES, Irqs),
+        8
+    );
+
+    info!("Hardware peripherals initialized (RNG, AES, PKA)");
+
+    // Spawn the BLE runner task (required for proper BLE operation)
+    spawner.spawn(ble_runner_task(platform).expect("Failed to spawn BLE runner"));
 
     // Initialize BLE stack
-    let mut ble = Ble::new(rng);
-    ble.init().expect("BLE initialization failed");
-    info!("BLE stack initialized");
-
+    let mut ble = match ADDR_TYPE {
+        OwnAddressType::Public => {
+            let gap_params = GapInitParams {
+                bd_addr: [0x01, 0x00, 0x00, 0xE1, 0x80, 0x00],
+                address_type: AddressType::Public,
+                ..GapInitParams::default()
+            };
+            HCI::new_with_gap_params(platform, runtime, Irqs, gap_params).await
+        }
+        _ => HCI::new(platform, runtime, Irqs).await,
+    }
+    .expect("BLE initialization failed");
     // Initialize GATT server
-    let mut gatt = GattServer::new();
-    gatt.init().expect("GATT initialization failed");
+    let mut gatt = ble.gatt_server();
     info!("GATT server initialized");
 
     // Create a custom service (UUID: 0x1234)
@@ -130,13 +136,13 @@ async fn main(_spawner: Spawner) {
         interval_min: 0x0080, // 80 ms
         interval_max: 0x0080, // 80 ms
         adv_type: AdvType::ConnectableUndirected,
+        own_addr_type: ADDR_TYPE,
         ..AdvParams::default()
     };
 
     // Start advertising
-    let mut advertiser = ble.advertiser();
-    advertiser
-        .start(adv_params, adv_data, None)
+    ble.start_advertising(adv_params, adv_data, None)
+        .await
         .expect("Failed to start advertising");
 
     info!("BLE advertising started!");

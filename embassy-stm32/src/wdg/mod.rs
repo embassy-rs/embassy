@@ -53,7 +53,7 @@ impl<'d, T: Instance> IndependentWatchdog<'d, T> {
         let rl = reload_value(psc, timeout_us);
 
         let wdg = T::regs();
-        wdg.kr().write(|w| w.set_key(Key::ENABLE));
+        wdg.kr().write(|w| w.set_key(Key::Enable));
         wdg.pr().write(|w| w.set_pr(Pr::from_bits(pr)));
         wdg.rlr().write(|w| w.set_rl(rl));
 
@@ -70,12 +70,12 @@ impl<'d, T: Instance> IndependentWatchdog<'d, T> {
 
     /// Unleash (start) the watchdog.
     pub fn unleash(&mut self) {
-        T::regs().kr().write(|w| w.set_key(Key::START));
+        T::regs().kr().write(|w| w.set_key(Key::Start));
     }
 
     /// Pet (reload, refresh) the watchdog.
     pub fn pet(&mut self) {
-        T::regs().kr().write(|w| w.set_key(Key::RESET));
+        T::regs().kr().write(|w| w.set_key(Key::Reset));
     }
 }
 

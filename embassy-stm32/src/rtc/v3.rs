@@ -12,9 +12,9 @@ impl super::Rtc {
         self.write(true, |rtc| {
             rtc.cr().modify(|w| {
                 w.set_bypshad(true);
-                w.set_fmt(Fmt::TWENTY_FOUR_HOUR);
-                w.set_osel(Osel::DISABLED);
-                w.set_pol(Pol::HIGH);
+                w.set_fmt(Fmt::TwentyFourHour);
+                w.set_osel(Osel::Disabled);
+                w.set_pol(Pol::High);
             });
 
             rtc.prer().modify(|w| {
@@ -25,7 +25,7 @@ impl super::Rtc {
             // TODO: configuration for output pins
             rtc.cr().modify(|w| {
                 w.set_out2en(false);
-                w.set_tampalrm_type(TampalrmType::PUSH_PULL);
+                w.set_tampalrm_type(TampalrmType::PushPull);
                 w.set_tampalrm_pu(false);
             });
         });
@@ -56,10 +56,10 @@ impl super::Rtc {
             rtc.calr().write(|w| {
                 match period {
                     RtcCalibrationCyclePeriod::Seconds8 => {
-                        w.set_calw8(Calw8::EIGHT_SECONDS);
+                        w.set_calw8(Calw8::EightSeconds);
                     }
                     RtcCalibrationCyclePeriod::Seconds16 => {
-                        w.set_calw16(Calw16::SIXTEEN_SECONDS);
+                        w.set_calw16(Calw16::SixteenSeconds);
                     }
                     RtcCalibrationCyclePeriod::Seconds32 => {
                         // Set neither `calw8` nor `calw16` to use 32 seconds
@@ -79,7 +79,7 @@ impl super::Rtc {
                     // When the offset is positive (0 to 512), the opposite of
                     // the offset (512 - offset) is masked, i.e. for the
                     // maximum offset (512), 0 pulses are masked.
-                    w.set_calp(Calp::INCREASE_FREQ);
+                    w.set_calp(Calp::IncreaseFreq);
                     w.set_calm(512 - clock_drift as u16);
                 } else {
                     // Minimum (about -510.7) rounds to -511.
@@ -88,7 +88,7 @@ impl super::Rtc {
                     // When the offset is negative or zero (-511 to 0),
                     // the absolute offset is masked, i.e. for the minimum
                     // offset (-511), 511 pulses are masked.
-                    w.set_calp(Calp::NO_CHANGE);
+                    w.set_calp(Calp::NoChange);
                     w.set_calm((clock_drift * -1.0) as u16);
                 }
             });
@@ -102,8 +102,8 @@ impl super::Rtc {
         let r = RTC::regs();
         // Disable write protection.
         // This is safe, as we're only writin the correct and expected values.
-        r.wpr().write(|w| w.set_key(Key::DEACTIVATE1));
-        r.wpr().write(|w| w.set_key(Key::DEACTIVATE2));
+        r.wpr().write(|w| w.set_key(Key::Deactivate1));
+        r.wpr().write(|w| w.set_key(Key::Deactivate2));
 
         if init_mode && !r.icsr().read().initf() {
             r.icsr().modify(|w| w.set_init(true));
@@ -120,7 +120,7 @@ impl super::Rtc {
 
         // Re-enable write protection.
         // This is safe, as the field accepts the full range of 8-bit values.
-        r.wpr().write(|w| w.set_key(Key::ACTIVATE));
+        r.wpr().write(|w| w.set_key(Key::Activate));
 
         result
     }
@@ -154,6 +154,10 @@ impl SealedInstance for crate::peripherals::RTC {
             type WakeupInterrupt = crate::interrupt::typelevel::RTC;
         }
     );
+
+    fn shpf() -> bool {
+        Self::regs().icsr().read().shpf()
+    }
 
     fn read_backup_register(_rtc: Rtc, register: usize) -> Option<u32> {
         #[allow(clippy::if_same_then_else)]

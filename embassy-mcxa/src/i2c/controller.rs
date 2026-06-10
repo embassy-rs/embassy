@@ -74,8 +74,7 @@ use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, TransferOptions};
 use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
-use crate::pac::lpi2c::regs::Msr;
-use crate::pac::lpi2c::vals::{Alf, Cmd, Dmf, Dozen, Epf, McrRrf, McrRtf, MsrFef, MsrSdf, Ndf, Pltf, Stf};
+use crate::pac::lpi2c::{Alf, Cmd, Dmf, Dozen, Epf, McrRrf, McrRtf, Msr, MsrFef, MsrSdf, Ndf, Pltf, Prescale, Stf};
 
 /// Errors exclusive to HW initialization
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -176,18 +175,83 @@ impl From<Speed> for u32 {
     }
 }
 
-impl From<Speed> for (u8, u8, u8, u8) {
-    fn from(value: Speed) -> (u8, u8, u8, u8) {
-        match value {
-            Speed::Standard => (0x3d, 0x37, 0x3b, 0x1d),
-            Speed::Fast => (0x0e, 0x0c, 0x0d, 0x06),
-            Speed::FastPlus => (0x04, 0x03, 0x03, 0x02),
+/// Compute LPI2C controller MCFGR1.PRESCALE + MCCR0 fields from peripheral
+/// input frequency and target SCL frequency.
+///
+/// Mirrors the NXP SDK `LPI2C_MasterSetBaudRate` algorithm
+/// (see `fsl_lpi2c.c`). For each prescaler 0..=7, computes the period
+/// in periph cycles using round-to-nearest division, picks the one with
+/// the smallest absolute error to the target. Then derives:
+///   - CLKHI = (clkCycle - SCL_LATENCY) / 2, clamped down so that
+///     tBUF >= 0.52/baud.
+///   - CLKLO = clkCycle - CLKHI.
+///   - SETHOLD = clk_bdr/divider/2 - 1   (~half SCL period).
+///   - DATAVD  = clk_bdr/divider/4 - 1   (~quarter SCL period).
+///
+/// Where SCL_LATENCY = (2 + FILTSCL) / 2^prescale and we assume FILTSCL=0
+/// (we do not program MCFGR2 in this driver).
+fn compute_baud_params(src_hz: u32, baud_hz: u32) -> (Prescale, u8, u8, u8, u8) {
+    let filt_scl: u32 = 0;
 
-            // UltraFast is "special". Leaving it unimplemented until
-            // the driver and the clock API is further stabilized.
-            Speed::UltraFast => todo!(),
-        }
+    let prescalers = [
+        Prescale::DivideBy1,
+        Prescale::DivideBy2,
+        Prescale::DivideBy4,
+        Prescale::DivideBy8,
+        Prescale::DivideBy16,
+        Prescale::DivideBy32,
+        Prescale::DivideBy64,
+        Prescale::DivideBy128,
+    ];
+
+    let (best_prescale, best_div, best_clk_cycle, _) = prescalers.iter().fold(
+        (Prescale::DivideBy1, 1u32, 0u32, u32::MAX),
+        |best @ (_, _, _, best_err), &prescale| {
+            let divider: u32 = 1u32 << (prescale as u8);
+            let scl_lat = (2 + filt_scl) / divider;
+
+            // a = round(src / divider / baud)
+            let a = (10 * src_hz / divider / baud_hz + 5) / 10;
+            let b = scl_lat + 2;
+            if a <= b {
+                return best;
+            }
+            let clk_cycle = a - b;
+            if clk_cycle > 120u32.saturating_sub(scl_lat) {
+                return best;
+            }
+
+            let computed = (src_hz / divider) / (clk_cycle + 2 + scl_lat);
+            let abs_err = computed.abs_diff(baud_hz);
+            if abs_err < best_err {
+                (prescale, divider, clk_cycle, abs_err)
+            } else {
+                best
+            }
+        },
+    );
+
+    let scl_lat = (2 + filt_scl) / best_div;
+    let mut tmp_high = best_clk_cycle.saturating_sub(scl_lat) / 2;
+
+    // Clamp tmp_high so tBUF >= 0.52 * SCL period:
+    //   CLKHI <= clkCycle - 0.52*src/baud/divider + 1
+    let a_tbuf = 13 * src_hz / baud_hz / best_div / 25;
+    let max_high = best_clk_cycle.saturating_sub(a_tbuf).saturating_add(1);
+    if tmp_high > max_high {
+        tmp_high = max_high;
     }
+
+    let clk_bdr = src_hz / baud_hz;
+    let tmp_hold = (clk_bdr / best_div / 2).saturating_sub(1);
+    let tmp_datavd = (clk_bdr / best_div / 4).saturating_sub(1);
+
+    let clkhi = (tmp_high & 0x3F) as u8;
+    let clklo = ((best_clk_cycle - tmp_high) & 0x3F) as u8;
+    let sethold = (tmp_hold & 0x3F) as u8;
+    let datavd = (tmp_datavd & 0xFF) as u8;
+
+    (best_prescale, clklo, clkhi, sethold, datavd)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -237,6 +301,10 @@ pub struct I2c<'d, M: Mode> {
     _sda: Peri<'d, AnyPin>,
     mode: M,
     is_hs: bool,
+    /// Peripheral input clock frequency in Hz, captured at construction.
+    /// Used to compute MCCR0 timing parameters (e.g. when [`set_config`]
+    /// changes the bus speed).
+    freq: u32,
     _wg: Option<WakeGuard>,
 }
 
@@ -311,6 +379,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             _sda,
             mode,
             is_hs: config.speed == Speed::UltraFast,
+            freq: parts.freq,
             _wg: parts.wake_guard,
         };
 
@@ -333,58 +402,93 @@ impl<'d, M: Mode> I2c<'d, M> {
             self.info.regs().mcr().modify(|w| w.set_rst(false));
 
             self.info.regs().mcr().modify(|w| {
-                w.set_dozen(Dozen::ENABLED);
+                w.set_dozen(Dozen::Enabled);
                 w.set_dbgen(false);
             });
         });
 
-        let (clklo, clkhi, sethold, datavd) = config.speed.into();
+        let target_hz: u32 = config.speed.into();
+        // UltraFast (HS) mode requires programming MCCR1 and special start
+        // commands beyond what this driver currently supports. Leave it
+        // explicitly unimplemented until the HS path is wired up end-to-end.
+        if config.speed == Speed::UltraFast {
+            todo!("LPI2C UltraFast (HS) mode is not yet supported");
+        }
+        let (prescale, clklo, clkhi, sethold, datavd) = compute_baud_params(self.freq, target_hz);
 
         critical_section::with(|_| {
+            self.info.regs().mcfgr1().modify(|w| w.set_prescale(prescale));
             self.info.regs().mccr0().modify(|w| {
                 w.set_clklo(clklo);
                 w.set_clkhi(clkhi);
                 w.set_sethold(sethold);
                 w.set_datavd(datavd);
-            })
-        });
+            });
 
-        // Enable the controller.
-        critical_section::with(|_| self.info.regs().mcr().modify(|w| w.set_men(true)));
+            // Enable the controller.
+            self.info.regs().mcr().modify(|w| w.set_men(true));
+        });
 
         // Clear all flags
         self.info.regs().msr().write(|w| {
-            w.set_epf(Epf::INT_YES);
-            w.set_sdf(MsrSdf::INT_YES);
-            w.set_ndf(Ndf::INT_YES);
-            w.set_alf(Alf::INT_YES);
-            w.set_fef(MsrFef::INT_YES);
-            w.set_pltf(Pltf::INT_YES);
-            w.set_dmf(Dmf::INT_YES);
-            w.set_stf(Stf::INT_YES);
+            w.set_epf(Epf::IntYes);
+            w.set_sdf(MsrSdf::IntYes);
+            w.set_ndf(Ndf::IntYes);
+            w.set_alf(Alf::IntYes);
+            w.set_fef(MsrFef::IntYes);
+            w.set_pltf(Pltf::IntYes);
+            w.set_dmf(Dmf::IntYes);
+            w.set_stf(Stf::IntYes);
         });
     }
 
     fn remediation(&self) {
         #[cfg(feature = "defmt")]
-        defmt::trace!("Future dropped, issuing stop",);
+        defmt::trace!("Future dropped, recovering controller",);
 
-        // if the FIFO is not empty, drop its contents.
-        if !self.is_tx_fifo_empty_or_error() {
-            self.reset_fifos();
-        }
-
-        // send a stop command
+        // Send a STOP. After an address NACK with empty TX FIFO and
+        // autostop disabled, this releases the bus.
+        //
+        // Important: `stop()` busy-waits on `is_tx_fifo_empty_or_error`,
+        // which returns true on *any* error (e.g., FEF raised because
+        // the master was already in idle when STOP was queued). In
+        // that case the STOP command may still be sitting in the TX
+        // FIFO, ready to confuse the next transaction. Always reset
+        // the FIFOs after the STOP attempt to guarantee a clean slate.
         let _ = self.stop();
+        self.reset_fifos();
+
+        // Clear any residual MSR flags raised by the recovery STOP
+        // (FEF in particular) so the next transaction starts clean.
+        let msr = self.info.regs().msr().read();
+        self.info.regs().msr().write(|w| *w = msr);
     }
 
     /// Resets both TX and RX FIFOs dropping their contents.
     fn reset_fifos(&self) {
         critical_section::with(|_| {
             self.info.regs().mcr().modify(|w| {
-                w.set_rtf(McrRtf::RESET);
-                w.set_rrf(McrRrf::RESET);
+                w.set_rtf(McrRtf::Reset);
+                w.set_rrf(McrRrf::Reset);
             });
+        });
+    }
+
+    /// Recover from an I2C error by resetting FIFOs and clearing all
+    /// status flags.  Without this, a NACK or FIFO error leaves the
+    /// LPI2C controller in a state where every subsequent transaction
+    /// fails with FifoError.
+    fn recover_from_error(&self) {
+        self.reset_fifos();
+        self.info.regs().msr().write(|w| {
+            w.set_epf(Epf::IntYes);
+            w.set_sdf(MsrSdf::IntYes);
+            w.set_ndf(Ndf::IntYes);
+            w.set_alf(Alf::IntYes);
+            w.set_fef(MsrFef::IntYes);
+            w.set_pltf(Pltf::IntYes);
+            w.set_dmf(Dmf::IntYes);
+            w.set_stf(Stf::IntYes);
         });
     }
 
@@ -412,11 +516,11 @@ impl<'d, M: Mode> I2c<'d, M> {
     /// Parses the controller status producing an
     /// appropriate `Result<(), Error>` variant.
     fn parse_status(&self, msr: &Msr) -> Result<(), IOError> {
-        if msr.ndf() == Ndf::INT_YES {
+        if msr.ndf() == Ndf::IntYes {
             Err(IOError::AddressNack)
-        } else if msr.alf() == Alf::INT_YES {
+        } else if msr.alf() == Alf::IntYes {
             Err(IOError::ArbitrationLoss)
-        } else if msr.fef() == MsrFef::INT_YES {
+        } else if msr.fef() == MsrFef::IntYes {
             Err(IOError::FifoError)
         } else {
             Ok(())
@@ -898,11 +1002,18 @@ impl<'d> AsyncEngine for I2c<'d, Async> {
             return Err(IOError::InvalidReadBufferLength);
         }
 
-        // perform corrective action if the future is dropped
-        let on_drop = OnDrop::new(|| self.remediation());
-
         for chunk in read.chunks_mut(256) {
             self.async_start(address, true).await?;
+
+            // perform corrective action if the future is dropped or an
+            // error happens between here and the end of the read.
+            //
+            // NOTE: this *must* be set up *after* async_start. async_start
+            // already runs `status_and_act`, which on NACK performs its
+            // own remediation; if we set OnDrop earlier, the early `?`
+            // return would invoke remediation a second time and corrupt
+            // the controller state for the next transaction.
+            let on_drop = OnDrop::new(|| self.remediation());
 
             // send receive command
             self.send_cmd(Cmd::RECEIVE, (chunk.len() - 1) as u8);
@@ -932,14 +1043,14 @@ impl<'d> AsyncEngine for I2c<'d, Async> {
 
                 *byte = self.info.regs().mrdr().read().data();
             }
+
+            // defuse it; we'll re-arm on the next chunk if any.
+            on_drop.defuse();
         }
 
         if send_stop == SendStop::Yes {
             self.async_stop().await?;
         }
-
-        // defuse it if the future is not dropped
-        on_drop.defuse();
 
         Ok(())
     }
@@ -1075,14 +1186,21 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
             return Err(IOError::InvalidReadBufferLength);
         }
 
-        // perform corrective action if the future is dropped
-        let on_drop = OnDrop::new(|| {
-            self.remediation();
-            self.info.regs().mder().modify(|w| w.set_rdde(false));
-        });
-
         for chunk in read.chunks_mut(256) {
             self.async_start(address, true).await?;
+
+            // perform corrective action if the future is dropped or an
+            // error happens between here and the end of the read.
+            //
+            // NOTE: this *must* be set up *after* async_start. async_start
+            // already runs `status_and_act`, which on NACK performs its
+            // own remediation; if we set OnDrop earlier, the early `?`
+            // return would invoke remediation a second time and corrupt
+            // the controller state for the next transaction.
+            let on_drop = OnDrop::new(|| {
+                self.remediation();
+                self.info.regs().mder().modify(|w| w.set_rdde(false));
+            });
 
             // send receive command
             self.send_cmd(Cmd::RECEIVE, (chunk.len() - 1) as u8);
@@ -1116,7 +1234,7 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
 
             // Wait for completion asynchronously
             core::future::poll_fn(|cx| {
-                self.mode.rx_dma.waker().register(cx.waker());
+                let _ = self.mode.rx_dma.wait_cell().poll_wait(cx);
                 if self.mode.rx_dma.is_done() {
                     core::task::Poll::Ready(())
                 } else {
@@ -1133,14 +1251,14 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
                 self.mode.rx_dma.disable_request();
                 self.mode.rx_dma.clear_done();
             }
+
+            // defuse it; we'll re-arm on the next chunk if any.
+            on_drop.defuse();
         }
 
         if send_stop == SendStop::Yes {
             self.async_stop().await?;
         }
-
-        // defuse it if the future is not dropped
-        on_drop.defuse();
 
         Ok(())
     }
@@ -1202,7 +1320,7 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
 
             // Wait for completion asynchronously
             core::future::poll_fn(|cx| {
-                self.mode.tx_dma.waker().register(cx.waker());
+                let _ = self.mode.tx_dma.wait_cell().poll_wait(cx);
                 if self.mode.tx_dma.is_done() {
                     core::task::Poll::Ready(())
                 } else {
@@ -1319,25 +1437,36 @@ impl<'d, M: Mode> embedded_hal_1::i2c::I2c for I2c<'d, M> {
         address: u8,
         operations: &mut [embedded_hal_1::i2c::Operation<'_>],
     ) -> Result<(), Self::Error> {
-        if let Some((last, rest)) = operations.split_last_mut() {
-            for op in rest {
-                match op {
-                    embedded_hal_1::i2c::Operation::Read(buf) => {
-                        self.blocking_read_internal(address, buf, SendStop::No)?
-                    }
-                    embedded_hal_1::i2c::Operation::Write(buf) => {
-                        self.blocking_write_internal(address, buf, SendStop::No)?
+        let result = (|| {
+            if let Some((last, rest)) = operations.split_last_mut() {
+                for op in rest {
+                    match op {
+                        embedded_hal_1::i2c::Operation::Read(buf) => {
+                            self.blocking_read_internal(address, buf, SendStop::No)?
+                        }
+                        embedded_hal_1::i2c::Operation::Write(buf) => {
+                            self.blocking_write_internal(address, buf, SendStop::No)?
+                        }
                     }
                 }
-            }
 
-            match last {
-                embedded_hal_1::i2c::Operation::Read(buf) => self.blocking_read_internal(address, buf, SendStop::Yes),
-                embedded_hal_1::i2c::Operation::Write(buf) => self.blocking_write_internal(address, buf, SendStop::Yes),
+                match last {
+                    embedded_hal_1::i2c::Operation::Read(buf) => {
+                        self.blocking_read_internal(address, buf, SendStop::Yes)
+                    }
+                    embedded_hal_1::i2c::Operation::Write(buf) => {
+                        self.blocking_write_internal(address, buf, SendStop::Yes)
+                    }
+                }
+            } else {
+                Ok(())
             }
-        } else {
-            Ok(())
+        })();
+
+        if result.is_err() {
+            self.recover_from_error();
         }
+        result
     }
 }
 
@@ -1350,29 +1479,37 @@ where
         address: u8,
         operations: &mut [embedded_hal_async::i2c::Operation<'_>],
     ) -> Result<(), Self::Error> {
-        if let Some((last, rest)) = operations.split_last_mut() {
-            for op in rest {
-                match op {
+        let result = async {
+            if let Some((last, rest)) = operations.split_last_mut() {
+                for op in rest {
+                    match op {
+                        embedded_hal_async::i2c::Operation::Read(buf) => {
+                            <Self as AsyncEngine>::async_read_internal(self, address, buf, SendStop::No).await?
+                        }
+                        embedded_hal_async::i2c::Operation::Write(buf) => {
+                            <Self as AsyncEngine>::async_write_internal(self, address, buf, SendStop::No).await?
+                        }
+                    }
+                }
+
+                match last {
                     embedded_hal_async::i2c::Operation::Read(buf) => {
-                        <Self as AsyncEngine>::async_read_internal(self, address, buf, SendStop::No).await?
+                        <Self as AsyncEngine>::async_read_internal(self, address, buf, SendStop::Yes).await
                     }
                     embedded_hal_async::i2c::Operation::Write(buf) => {
-                        <Self as AsyncEngine>::async_write_internal(self, address, buf, SendStop::No).await?
+                        <Self as AsyncEngine>::async_write_internal(self, address, buf, SendStop::Yes).await
                     }
                 }
+            } else {
+                Ok(())
             }
-
-            match last {
-                embedded_hal_async::i2c::Operation::Read(buf) => {
-                    <Self as AsyncEngine>::async_read_internal(self, address, buf, SendStop::Yes).await
-                }
-                embedded_hal_async::i2c::Operation::Write(buf) => {
-                    <Self as AsyncEngine>::async_write_internal(self, address, buf, SendStop::Yes).await
-                }
-            }
-        } else {
-            Ok(())
         }
+        .await;
+
+        if result.is_err() {
+            self.recover_from_error();
+        }
+        result
     }
 }
 

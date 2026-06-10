@@ -624,9 +624,9 @@ impl<'d> Flex<'d> {
 
         pin.gpio().ctrl().write(|w| {
             #[cfg(feature = "rp2040")]
-            w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::SIO_0 as _);
+            w.set_funcsel(pac::io::vals::Gpio0CtrlFuncsel::Sio0 as _);
             #[cfg(feature = "_rp235x")]
-            w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::SIOB_PROC_0 as _);
+            w.set_funcsel(pac::io::vals::Gpio0CtrlFuncsel::SiobProc0 as _);
         });
 
         Self { pin: pin.into() }
@@ -657,10 +657,10 @@ impl<'d> Flex<'d> {
     pub fn set_drive_strength(&mut self, strength: Drive) {
         self.pin.pad_ctrl().modify(|w| {
             w.set_drive(match strength {
-                Drive::_2mA => pac::pads::vals::Drive::_2M_A,
-                Drive::_4mA => pac::pads::vals::Drive::_4M_A,
-                Drive::_8mA => pac::pads::vals::Drive::_8M_A,
-                Drive::_12mA => pac::pads::vals::Drive::_12M_A,
+                Drive::_2mA => pac::pads::vals::Drive::_2mA,
+                Drive::_4mA => pac::pads::vals::Drive::_4mA,
+                Drive::_8mA => pac::pads::vals::Drive::_8mA,
+                Drive::_12mA => pac::pads::vals::Drive::_12mA,
             });
         });
     }
@@ -715,9 +715,9 @@ impl<'d> Flex<'d> {
     pub fn set_input_inversion(&mut self, invert: bool) {
         self.pin.gpio().ctrl().modify(|w| {
             w.set_inover(if invert {
-                pac::io::vals::Inover::INVERT
+                pac::io::vals::Inover::Invert
             } else {
-                pac::io::vals::Inover::NORMAL
+                pac::io::vals::Inover::Normal
             })
         });
     }
@@ -727,9 +727,9 @@ impl<'d> Flex<'d> {
     pub fn set_output_enable_inversion(&mut self, invert: bool) {
         self.pin.gpio().ctrl().modify(|w| {
             w.set_oeover(if invert {
-                pac::io::vals::Oeover::INVERT
+                pac::io::vals::Oeover::Invert
             } else {
-                pac::io::vals::Oeover::NORMAL
+                pac::io::vals::Oeover::Normal
             })
         })
     }
@@ -739,9 +739,9 @@ impl<'d> Flex<'d> {
     pub fn set_output_inversion(&mut self, invert: bool) {
         self.pin.gpio().ctrl().modify(|w| {
             w.set_outover(if invert {
-                pac::io::vals::Outover::INVERT
+                pac::io::vals::Outover::Invert
             } else {
-                pac::io::vals::Outover::NORMAL
+                pac::io::vals::Outover::Normal
             })
         });
     }
@@ -875,9 +875,9 @@ impl<'d> Drop for Flex<'d> {
         let idx = self.pin._pin() as usize;
         self.pin.pad_ctrl().write(|_| {});
         self.pin.gpio().ctrl().write(|w| {
-            w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::NULL as _);
-            w.set_inover(pac::io::vals::Inover::NORMAL);
-            w.set_outover(pac::io::vals::Outover::NORMAL);
+            w.set_funcsel(pac::io::vals::Gpio0CtrlFuncsel::Null as _);
+            w.set_inover(pac::io::vals::Inover::Normal);
+            w.set_outover(pac::io::vals::Outover::Normal);
         });
         self.pin.io().int_dormant_wake().inte(idx / 8).write_clear(|w| {
             w.set_edge_high(idx % 8, true);

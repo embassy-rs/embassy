@@ -1,10 +1,12 @@
 //! I3C Controller driver.
 
+use core::marker::PhantomData;
+
 use embassy_hal_internal::Peri;
 use embassy_hal_internal::drop::OnDrop;
-use nxp_pac::i3c::vals::{MdmactrlDmafb, MdmactrlDmatb};
+use nxp_pac::i3c::{MdmactrlDmafb, MdmactrlDmatb};
 
-use super::{Async, AsyncMode, Blocking, Dma, Info, Instance, InterruptHandler, Mode, SclPin, SdaPin};
+use super::{Async, AsyncMode, Blocking, Dma, Info, Instance, Mode, SclPin, SdaPin};
 use crate::clocks::periph_helpers::{Div4, I3cClockSel, I3cConfig};
 use crate::clocks::{ClockError, PoweredClock, WakeGuard, enable_and_reset};
 use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, TransferOptions};
@@ -12,11 +14,11 @@ use crate::gpio::{AnyPin, SealedPin};
 pub use crate::i2c::controller::Speed;
 use crate::interrupt::typelevel;
 use crate::interrupt::typelevel::Interrupt;
-use crate::pac::i3c::vals::{
-    Disto, Hkeep, Ibiresp, MctrlDir as I3cDir, MdatactrlRxtrig, MdatactrlTxtrig, Mstena, Request, State, Type,
+use crate::pac::i3c::{
+    Disto, Hkeep, Ibiresp, Ibitype, MctrlDir as I3cDir, MdatactrlRxtrig, MdatactrlTxtrig, Mstena, Request, State, Type,
 };
 
-const MAX_CHUNK_SIZE: usize = 255;
+const MAX_CHUNK_SIZE: usize = 256;
 
 /// Setup Errors
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -66,6 +68,8 @@ pub enum IOError {
     InvalidReadBufferLength,
     /// Other internal errors or unexpected state.
     Other,
+    /// Requested IBI slot already holds a different address.
+    IbiSlotOccupied,
 }
 
 impl From<crate::dma::InvalidParameters> for IOError {
@@ -74,14 +78,34 @@ impl From<crate::dma::InvalidParameters> for IOError {
     }
 }
 
+/// Outcome of [`async_wait_for_rx_fifo`].
+///
+/// Distinguishes a normal "data available" wake-up from a target-terminated
+/// end-of-transaction (slave drove the T-bit to 0 with fewer bytes than the
+/// controller requested). Callers use this to drain remaining FIFO data and
+/// then break the read loop cleanly without reading phantom zeros from an
+/// empty FIFO.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+enum RxFifoStatus {
+    /// `MSTATUS.RXPEND` is set: at least one byte is in the RX FIFO.
+    RxPending,
+    /// `MSTATUS.COMPLETE` is set without `RXPEND`: transaction ended (the
+    /// slave T-bit'd) and the FIFO is drained.
+    Complete,
+}
+
+/// Whether to send a STOP condition after the transfer.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-enum SendStop {
+pub enum SendStop {
+    /// Do not send STOP (for repeated-START sequences).
     #[default]
     No,
+    /// Send STOP after the transfer.
     Yes,
 }
 
+/// Bus transfer type.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[allow(dead_code)]
@@ -98,9 +122,52 @@ pub enum BusType {
 impl From<BusType> for Type {
     fn from(value: BusType) -> Self {
         match value {
-            BusType::I3cSdr => Self::I3C,
-            BusType::I2c => Self::I2C,
-            BusType::I3cDdr => Self::DDR,
+            BusType::I3cSdr => Self::I3c,
+            BusType::I2c => Self::I2c,
+            BusType::I3cDdr => Self::Ddr,
+        }
+    }
+}
+
+/// IBI registration slot in the controller's `MIBIRULES` table.
+///
+/// The MCXA I3C controller has five address slots used to recognize IBI source
+/// addresses. Pick one slot per registered target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum IbiSlot {
+    /// `MIBIRULES.ADDR0`.
+    Slot0,
+    /// `MIBIRULES.ADDR1`.
+    Slot1,
+    /// `MIBIRULES.ADDR2`.
+    Slot2,
+    /// `MIBIRULES.ADDR3`.
+    Slot3,
+    /// `MIBIRULES.ADDR4`.
+    Slot4,
+}
+
+/// Whether the registered IBI source emits a Mandatory Data Byte (MDB).
+///
+/// Note that the underlying `MIBIRULES.NOBYTE` field is a single bit shared by
+/// all five slots, so this setting is honoured only on the **first**
+/// registration; later registrations leave it untouched.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Payload {
+    /// Target does not emit an MDB byte after the IBI header.
+    #[default]
+    No,
+    /// Target emits an MDB byte after the IBI header.
+    Yes,
+}
+
+impl From<Payload> for crate::pac::i3c::Nobyte {
+    fn from(value: Payload) -> Self {
+        match value {
+            Payload::Yes => Self::Ibibyte,
+            Payload::No => Self::NoIbibyte,
         }
     }
 }
@@ -116,8 +183,8 @@ enum Dir {
 impl From<Dir> for I3cDir {
     fn from(value: Dir) -> Self {
         match value {
-            Dir::Write => Self::DIRWRITE,
-            Dir::Read => Self::DIRREAD,
+            Dir::Write => Self::Dirwrite,
+            Dir::Read => Self::Dirread,
         }
     }
 }
@@ -128,8 +195,20 @@ pub struct Config {
     /// I3C push-pull bus frequency in Hz.
     pub push_pull_freq: u32,
 
-    /// I3C open-drain frequency in Hz.
+    /// I3C open-drain bus frequency in Hz.
     pub open_drain_freq: u32,
+
+    /// Open-drain SCL waveform mode (MCONFIG.ODHPP).
+    ///
+    /// - `false` (symmetric OD): SCL HIGH = SCL LOW = (ODBAUD+1)·(PPBAUD+1)·Tfclk.
+    ///   Safe on long cables, weak pull-ups, or buses shared with FM/FM+ I²C
+    ///   devices. Caps open-drain SCL at ~`push_pull_freq / 2`.
+    /// - `true` (high-speed OD, default): SCL HIGH = (PPBAUD+1)·Tfclk
+    ///   (push-pull-fast), SCL LOW unchanged. Faster open-drain addressing,
+    ///   ENTDAA and CCC phases. Requires a strong / active pull-up — the
+    ///   on-chip I3C_PUR FET driven by the controller. With ODHPP=1 the
+    ///   open-drain SCL frequency = `2·pp_freq / (ODBAUD+2)`.
+    pub odhpp: bool,
 
     /// I2C bus speed
     pub i2c_speed: Speed,
@@ -143,6 +222,7 @@ impl Default for Config {
         Self {
             push_pull_freq: 1_500_000,
             open_drain_freq: 750_000,
+            odhpp: true,
             i2c_speed: Speed::Fast,
             clock_config: ClockConfig::default(),
         }
@@ -174,6 +254,39 @@ impl Default for ClockConfig {
 fn calculate_error(cur_freq: u32, desired_freq: u32) -> u32 {
     let delta = cur_freq.abs_diff(desired_freq);
     delta * 100 / desired_freq
+}
+
+/// DAA device information
+#[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct DeviceInfo {
+    /// Vendor ID
+    pub vid: u16,
+
+    /// Part number
+    pub partno: u32,
+
+    /// Bus Characteristics Register
+    pub bcr: u8,
+
+    /// Device Characteristics Register
+    pub dcr: u8,
+
+    /// Dynamic address
+    pub addr: u8,
+}
+
+impl DeviceInfo {
+    // Create a new Device Info
+    pub const fn new() -> Self {
+        Self {
+            vid: 0,
+            partno: 0,
+            bcr: 0,
+            dcr: 0,
+            addr: 0,
+        }
+    }
 }
 
 /// I3C controller driver.
@@ -228,28 +341,35 @@ impl<'d, M: Mode> I3c<'d, M> {
             w.set_flushtb(true);
             w.set_flushfb(true);
             w.set_unlock(true);
-            w.set_txtrig(MdatactrlTxtrig::FULL_OR_LESS);
-            w.set_rxtrig(MdatactrlRxtrig::NOT_EMPTY);
+            w.set_txtrig(MdatactrlTxtrig::FullOrLess);
+            w.set_rxtrig(MdatactrlRxtrig::NotEmpty);
         });
 
-        let (ppbaud, odbaud, i2cbaud) = self.calculate_baud_rate_params(config)?;
+        // ODHPP must match between the baud calc and the value programmed
+        // into MCONFIG — otherwise the calc picks ODBAUD for one timing
+        // formula while the HW runs the other, and the actual open-drain
+        // SCL overshoots (or undershoots) the target. Use the same value
+        // from `config` in both places.
+        let odhpp_enabled = config.odhpp;
+
+        let (ppbaud, odbaud, i2cbaud) = self.calculate_baud_rate_params(config, odhpp_enabled)?;
 
         self.info.regs().mconfig().write(|w| {
             w.set_ppbaud(ppbaud as u8);
             w.set_odbaud(odbaud as u8);
             w.set_i2cbaud(i2cbaud as u8);
-            w.set_mstena(Mstena::MASTER_ON);
-            w.set_disto(Disto::ENABLE);
-            w.set_hkeep(Hkeep::NONE);
+            w.set_mstena(Mstena::MasterOn);
+            w.set_disto(Disto::Enable);
+            w.set_hkeep(Hkeep::None);
             w.set_odstop(false);
-            w.set_odhpp(true);
+            w.set_odhpp(odhpp_enabled);
         });
 
         Ok(())
     }
 
     // REVISIT: not very readable
-    fn calculate_baud_rate_params(&self, config: &Config) -> Result<(u32, u32, u32), SetupError> {
+    fn calculate_baud_rate_params(&self, config: &Config, odhpp_enabled: bool) -> Result<(u32, u32, u32), SetupError> {
         const NSEC_PER_SEC: u32 = 1_000_000_000;
 
         let fclk = self.fclk;
@@ -270,9 +390,18 @@ impl<'d, M: Mode> I3c<'d, M> {
         /* -------------------------------------------------------------
          * 1) Push‑Pull baud (PPBAUD)
          *    Generated from fclk / 2
+         *    Max achievable SCL = fclk / 2 (PPBAUD = 0).
          * ------------------------------------------------------------- */
 
         let mut pp_src_hz = fclk / 2;
+
+        // Reject configurations the clock source can't deliver, instead of
+        // silently clamping. Otherwise the driver would happily program a
+        // slower-than-requested bus and the user would only find out with
+        // a scope.
+        if pp_src_hz < target_pp_hz {
+            return Err(SetupError::InvalidConfiguration);
+        }
 
         let mut pp_div = (pp_src_hz / target_pp_hz).max(1);
         if pp_src_hz / pp_div > max_pp_hz {
@@ -286,13 +415,23 @@ impl<'d, M: Mode> I3c<'d, M> {
 
         /* -------------------------------------------------------------
          * 2) Open‑Drain baud (ODBAUD)
-         *    Depends on ODHPP mode
+         *    Depends on ODHPP mode. Caller (set_configuration) MUST
+         *    program MCONFIG.ODHPP to the same value passed here.
+         *
+         *    ODHPP = 1: SCL_HIGH = (PPBAUD+1)·Tfclk,
+         *               SCL_LOW  = (ODBAUD+1)·(PPBAUD+1)·Tfclk
+         *               → od_freq = 2·pp_freq / (ODBAUD + 2)
+         *    ODHPP = 0: SCL_HIGH = SCL_LOW = (ODBAUD+1)·(PPBAUD+1)·Tfclk
+         *               → od_freq = pp_freq / (ODBAUD + 1)
          * ------------------------------------------------------------- */
-
-        let odhpp_enabled = self.info.regs().mconfig().read().odhpp();
 
         let (od_baud, _od_src_hz) = if odhpp_enabled {
             // OD rate derived from 2×PP clock
+            let max_od_achievable = 2 * pp_src_hz / 2; // ODBAUD = 0 → freq = pp_freq
+            if max_od_achievable < target_od_hz {
+                return Err(SetupError::InvalidConfiguration);
+            }
+
             let mut div = ((2 * pp_src_hz) / target_od_hz).max(2);
             if (2 * pp_src_hz) / div > max_od_hz {
                 div += 1;
@@ -301,6 +440,10 @@ impl<'d, M: Mode> I3c<'d, M> {
             (div - 2, (2 * pp_src_hz) / div)
         } else {
             // OD rate derived directly
+            if pp_src_hz < target_od_hz {
+                return Err(SetupError::InvalidConfiguration);
+            }
+
             let mut div = (pp_src_hz / target_od_hz).max(1);
             if pp_src_hz / div > max_od_hz {
                 div += 1;
@@ -359,6 +502,21 @@ impl<'d, M: Mode> I3c<'d, M> {
             w.set_complete(true);
             w.set_ibiwon(true);
             w.set_nowmaster(true);
+        });
+    }
+
+    fn clear_errors(&self) {
+        self.info.regs().merrwarn().write(|w| {
+            w.set_urun(true);
+            w.set_nack(true);
+            w.set_wrabt(true);
+            w.set_hpar(true);
+            w.set_hcrc(true);
+            w.set_oread(true);
+            w.set_owrite(true);
+            w.set_msgerr(true);
+            w.set_invreq(true);
+            w.set_timeout(true);
         });
     }
 
@@ -423,9 +581,9 @@ impl<'d, M: Mode> I3c<'d, M> {
             w.set_addr(address);
             w.set_rdterm(len);
             w.set_type_(bus_type.into());
-            w.set_request(Request::EMITSTARTADDR);
+            w.set_request(Request::Emitstartaddr);
             w.set_dir(dir.into());
-            w.set_ibiresp(Ibiresp::ACK);
+            w.set_ibiresp(Ibiresp::Ack);
         });
 
         self.blocking_wait_for_ctrldone();
@@ -439,7 +597,7 @@ impl<'d, M: Mode> I3c<'d, M> {
     /// waiting for the FIFO to become empty ensuring the command was
     /// sent.
     fn blocking_stop(&self, bus_type: BusType) -> Result<(), IOError> {
-        if self.info.regs().mstatus().read().state() != State::NORMACT {
+        if self.info.regs().mstatus().read().state() != State::Normact {
             Err(IOError::InvalidRequest)
         } else {
             // NOTE: Section 41.3.2.1 states that "when sending STOP
@@ -450,7 +608,7 @@ impl<'d, M: Mode> I3c<'d, M> {
                 .mconfig()
                 .modify(|w| w.set_odstop(bus_type == BusType::I2c));
             self.info.regs().mctrl().write(|w| {
-                w.set_request(Request::EMITSTOP);
+                w.set_request(Request::Emitstop);
                 w.set_type_(bus_type.into())
             });
             self.blocking_wait_for_ctrldone();
@@ -542,6 +700,86 @@ impl<'d, M: Mode> I3c<'d, M> {
 
     // Public API: Blocking
 
+    /// Reset dynamic address assignment
+    pub fn blocking_reset_daa(&mut self) -> Result<(), IOError> {
+        self.blocking_write(0x7e, &[0x06], BusType::I3cSdr)
+    }
+
+    /// DAA sequence
+    pub fn daa(&mut self, devices: &mut [DeviceInfo], starting_address: u8) -> Result<(), IOError> {
+        let mut address = starting_address;
+
+        if address == 0 || address >= 0x7e || (address as usize) + devices.len() >= 0x7e {
+            return Err(IOError::AddressOutOfRange(address));
+        }
+
+        // Check if the bus is already in use.
+        if self.info.regs().mstatus().read().state() != State::Idle {
+            return Err(IOError::Other);
+        }
+
+        self.clear_errors();
+        self.clear_flags();
+
+        // Start DAA sequence
+        self.info.regs().mctrl().write(|w| {
+            w.set_request(Request::Processdaa);
+        });
+
+        // Here
+        for device in devices {
+            // Wait for controller event
+            loop {
+                let s = self.info.regs().mstatus().read();
+
+                if s.errwarn() {
+                    return self.status();
+                }
+
+                if s.complete() {
+                    return Err(IOError::Other);
+                }
+
+                if s.mctrldone() && s.state() == State::Daa {
+                    break;
+                }
+            }
+
+            // Read exactly 8 bytes from the RX FIFO: PID[6] + BCR + DCR
+            let mut buf = [0u8; 8];
+            for b in &mut buf {
+                while self.info.regs().mdatactrl().read().rxempty() {}
+                *b = self.info.regs().mrdatab().read().value();
+            }
+
+            // Decode data
+            let vid = (((buf[0] as u16) << 8) | (buf[1] as u16)) >> 1;
+            let partno = ((buf[2] as u32) << 24) | (buf[3] as u32) << 16 | (buf[4] as u32) << 8 | (buf[5] as u32);
+            let bcr = buf[6];
+            let dcr = buf[7];
+
+            // Update the device data
+            device.vid = vid;
+            device.partno = partno;
+            device.bcr = bcr;
+            device.dcr = dcr;
+            device.addr = address;
+
+            // Write DA
+            self.info.regs().mwdatab().write(|w| w.set_value(address));
+
+            // Trigger DAA processing
+            self.info.regs().mctrl().write(|w| w.set_request(Request::Processdaa));
+
+            address += 1;
+        }
+
+        self.clear_flags();
+        self.clear_errors();
+
+        Ok(())
+    }
+
     /// Read from address into buffer blocking caller until done.
     pub fn blocking_read(&mut self, address: u8, read: &mut [u8], bus_type: BusType) -> Result<(), IOError> {
         self.blocking_read_internal(address, read, bus_type, SendStop::Yes)
@@ -562,6 +800,30 @@ impl<'d, M: Mode> I3c<'d, M> {
     ) -> Result<(), IOError> {
         self.blocking_write_internal(address, write, bus_type, SendStop::No)?;
         self.blocking_read_internal(address, read, bus_type, SendStop::Yes)
+    }
+
+    /// Execute a series of I3C operations (reads/writes) with
+    /// repeated start conditions.
+    pub fn blocking_transaction(&mut self, operations: &mut [Operation<'_>], bus_type: BusType) -> Result<(), IOError> {
+        let Some((last, rest)) = operations.split_last_mut() else {
+            return Ok(());
+        };
+
+        for op in rest {
+            match op {
+                Operation::Read { address, buf } => {
+                    self.blocking_read_internal(*address, buf, bus_type, SendStop::No)?
+                }
+                Operation::Write { address, buf } => {
+                    self.blocking_write_internal(*address, buf, bus_type, SendStop::No)?
+                }
+            }
+        }
+
+        match last {
+            Operation::Read { address, buf } => self.blocking_read_internal(*address, buf, bus_type, SendStop::Yes),
+            Operation::Write { address, buf } => self.blocking_write_internal(*address, buf, bus_type, SendStop::Yes),
+        }
     }
 }
 
@@ -586,7 +848,7 @@ trait AsyncEngine {
         read: &'a mut [u8],
         bus_type: BusType,
         send_stop: SendStop,
-    ) -> impl Future<Output = Result<(), IOError>> + 'a;
+    ) -> impl Future<Output = Result<usize, IOError>> + 'a;
 
     fn async_write_internal<'a>(
         &'a self,
@@ -626,7 +888,7 @@ impl<'d> AsyncEngine for I3c<'d, Async> {
         read: &mut [u8],
         bus_type: BusType,
         send_stop: SendStop,
-    ) -> Result<(), IOError> {
+    ) -> Result<usize, IOError> {
         if read.is_empty() {
             return Err(IOError::InvalidReadBufferLength);
         }
@@ -636,24 +898,65 @@ impl<'d> AsyncEngine for I3c<'d, Async> {
             self.blocking_remediation(bus_type);
         });
 
-        for chunk in read.chunks_mut(MAX_CHUNK_SIZE) {
-            self.async_start(address, bus_type, Dir::Read, chunk.len() as u8)
-                .await?;
+        let mut bytes_received: usize = 0;
+        // Track final result; we never early-`return` so a single Stop
+        // path at the bottom can run regardless of error.
+        let mut result: Result<usize, IOError> = Ok(0);
+
+        'outer: for chunk in read.chunks_mut(MAX_CHUNK_SIZE) {
+            // `chunk.len() as u8` gives RDTERM=N for 1..=255 and RDTERM=0
+            // for exactly 256 (matches SDK: "no controller-side termination;
+            // slave drives end via T-bit").
+            if let Err(e) = self.async_start(address, bus_type, Dir::Read, chunk.len() as u8).await {
+                result = Err(e);
+                break 'outer;
+            }
 
             for byte in chunk.iter_mut() {
-                self.async_wait_for_rx_fifo().await?;
-                *byte = self.info.regs().mrdatab().read().value();
+                match self.async_wait_for_rx_fifo().await {
+                    Ok(RxFifoStatus::RxPending) => {
+                        *byte = self.info.regs().mrdatab().read().value();
+                        bytes_received += 1;
+                    }
+                    Ok(RxFifoStatus::Complete) => {
+                        // Slave T-bit'd before our requested length: clean
+                        // target-terminated short read. Report what we got
+                        // and exit before reading phantom bytes out of an
+                        // empty FIFO.
+                        result = Ok(bytes_received);
+                        break 'outer;
+                    }
+                    Err(e) => {
+                        // Real bus error. Any bytes already received =>
+                        // spec-compliant short read; suppress and return Ok.
+                        // Zero bytes => propagate the error.
+                        if bytes_received > 0 {
+                            self.clear_errors();
+                            result = Ok(bytes_received);
+                        } else {
+                            result = Err(e);
+                        }
+                        break 'outer;
+                    }
+                }
             }
+            result = Ok(bytes_received);
         }
 
+        // Always emit Stop on the configured send_stop path, regardless of
+        // success or short-read. After a short read the slave already
+        // released the bus; Stop may report InvalidRequest (state != Normact)
+        // which is benign here. Matches SDK StopState semantics
+        // (fsl_i3c.c:2293). Without this, the target sees a dirty bus on
+        // its next listen and raises SdrParity.
         if send_stop == SendStop::Yes {
-            self.async_stop(bus_type).await?;
+            let _ = self.async_stop(bus_type).await;
         }
 
         // defuse it if the future is not dropped
         on_drop.defuse();
 
-        Ok(())
+        result
     }
 
     async fn async_write_internal(
@@ -765,7 +1068,7 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
         read: &mut [u8],
         bus_type: BusType,
         send_stop: SendStop,
-    ) -> Result<(), IOError> {
+    ) -> Result<usize, IOError> {
         if read.is_empty() {
             return Err(IOError::InvalidReadBufferLength);
         }
@@ -776,12 +1079,22 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
             self.info
                 .regs()
                 .mdmactrl()
-                .modify(|w| w.set_dmafb(MdmactrlDmafb::NOT_USED));
+                .modify(|w| w.set_dmafb(MdmactrlDmafb::NotUsed));
         });
 
-        for chunk in read.chunks_mut(MAX_CHUNK_SIZE) {
-            self.async_start(address, bus_type, Dir::Read, chunk.len() as u8)
-                .await?;
+        let mut bytes_received: usize = 0;
+        // Track final result; we never early-`return` so a single Stop
+        // path at the bottom can run regardless of error.
+        let mut result: Result<usize, IOError> = Ok(0);
+
+        'outer: for chunk in read.chunks_mut(MAX_CHUNK_SIZE) {
+            // `chunk.len() as u8` gives RDTERM=N for 1..=255 and RDTERM=0
+            // for exactly 256 (matches SDK: "no controller-side termination;
+            // slave drives end via T-bit").
+            if let Err(e) = self.async_start(address, bus_type, Dir::Read, chunk.len() as u8).await {
+                result = Err(e);
+                break 'outer;
+            }
 
             let peri_addr = self.info.regs().mrdatab().as_ptr() as *const u8;
 
@@ -795,27 +1108,43 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
                 self.mode.rx_dma.set_request_source(self.mode.rx_request);
 
                 // Configure TCD for peripheral-to-memory transfer
-                self.mode.rx_dma.setup_read_from_peripheral(
+                if let Err(e) = self.mode.rx_dma.setup_read_from_peripheral(
                     peri_addr,
                     chunk,
                     false,
                     TransferOptions::COMPLETE_INTERRUPT,
-                )?;
+                ) {
+                    result = Err(e.into());
+                    break 'outer;
+                }
 
                 // Enable I3C RX DMA request
                 self.info
                     .regs()
                     .mdmactrl()
-                    .modify(|w| w.set_dmafb(MdmactrlDmafb::ENABLE));
+                    .modify(|w| w.set_dmafb(MdmactrlDmafb::Enable));
 
                 // Enable DMA channel request
                 self.mode.rx_dma.enable_request();
             }
 
-            // Wait for completion asynchronously
+            // Race DMA-done vs I3C COMPLETE/errwarn. The target may end
+            // the read early via T-bit; in that case the IP fires COMPLETE
+            // but DMA stalls. Without this race we'd hang until something
+            // else nudges us, then misreport the latched MERRWARN.
             core::future::poll_fn(|cx| {
-                self.mode.rx_dma.waker().register(cx.waker());
-                if self.mode.rx_dma.is_done() {
+                let _ = self.mode.rx_dma.wait_cell().poll_wait(cx);
+                let _ = self.info.wait_cell().poll_wait(cx);
+
+                // Enable I3C complete + errwarn interrupts so the I3C IRQ
+                // can wake us if DMA never finishes.
+                self.info.regs().mintset().write(|w| {
+                    w.set_complete(true);
+                    w.set_errwarn(true);
+                });
+
+                let st = self.info.regs().mstatus().read();
+                if self.mode.rx_dma.is_done() || st.complete() || st.errwarn() {
                     core::task::Poll::Ready(())
                 } else {
                     core::task::Poll::Pending
@@ -825,25 +1154,72 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
 
             // Ensure DMA writes are visible to CPU
             cortex_m::asm::dsb();
+
+            // How many bytes did DMA actually move into this chunk?
+            let chunk_done = self.mode.rx_dma.transferred_bytes().min(chunk.len());
+
             // Cleanup
             self.info
                 .regs()
                 .mdmactrl()
-                .modify(|w| w.set_dmafb(MdmactrlDmafb::NOT_USED));
+                .modify(|w| w.set_dmafb(MdmactrlDmafb::NotUsed));
             unsafe {
                 self.mode.rx_dma.disable_request();
                 self.mode.rx_dma.clear_done();
             }
+
+            let st_after = self.info.regs().mstatus().read();
+            bytes_received += chunk_done;
+
+            // Classify the outcome. Per spec, target-terminated SDR reads
+            // can end before RDTERM with no error — and that's what SDK
+            // sees (status=0). The MCXA IP may still latch MERRWARN bits
+            // (nack/term/etc.) on certain RDTERM mismatch patterns.
+            //
+            // Rule (mirrors SDK behavior):
+            //   - bytes_received > 0 with any errwarn → spec-compliant
+            //     short read; suppress, return Ok(bytes_received).
+            //   - bytes_received == 0 with errwarn → real bus error
+            //     (true address NACK, parity, etc.); propagate.
+            //   - errwarn at chunk boundary with full chunk: same rule
+            //     (we got the bytes we asked for, suppress).
+            if chunk_done < chunk.len() {
+                if st_after.errwarn() {
+                    if bytes_received > 0 {
+                        self.clear_errors();
+                        result = Ok(bytes_received);
+                    } else {
+                        result = Err(self.status().err().unwrap_or(IOError::Other));
+                    }
+                } else {
+                    result = Ok(bytes_received);
+                }
+                break 'outer;
+            } else {
+                if st_after.errwarn() {
+                    // Full chunk delivered + errwarn. Suppress as long as
+                    // we did get data.
+                    self.clear_errors();
+                }
+                result = Ok(bytes_received);
+            }
         }
 
+        // Always emit Stop on the configured send_stop path, regardless of
+        // success or short-read. After a short read the slave already
+        // released the bus; Stop may report InvalidRequest (state != Normact)
+        // which is benign here. Matches SDK StopState semantics
+        // (fsl_i3c.c:2293) which emits Stop unconditionally after COMPLETE.
+        // Without this, the target sees a dirty bus on its next listen and
+        // raises SdrParity.
         if send_stop == SendStop::Yes {
-            self.async_stop(bus_type).await?;
+            let _ = self.async_stop(bus_type).await;
         }
 
         // defuse it if the future is not dropped
         on_drop.defuse();
 
-        Ok(())
+        result
     }
 
     async fn async_write_internal(
@@ -859,7 +1235,7 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
             self.info
                 .regs()
                 .mdmactrl()
-                .modify(|w| w.set_dmatb(MdmactrlDmatb::NOT_USED));
+                .modify(|w| w.set_dmatb(MdmactrlDmatb::NotUsed));
         });
 
         self.async_start(address, bus_type, Dir::Write, 0).await?;
@@ -911,7 +1287,7 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
                 self.info
                     .regs()
                     .mdmactrl()
-                    .modify(|w| w.set_dmatb(MdmactrlDmatb::ENABLE));
+                    .modify(|w| w.set_dmatb(MdmactrlDmatb::Enable));
 
                 // Enable DMA channel request
                 self.mode.tx_dma.enable_request();
@@ -919,7 +1295,7 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
 
             // Wait for completion asynchronously
             core::future::poll_fn(|cx| {
-                self.mode.tx_dma.waker().register(cx.waker());
+                let _ = self.mode.tx_dma.wait_cell().poll_wait(cx);
                 if self.mode.tx_dma.is_done() {
                     core::task::Poll::Ready(())
                 } else {
@@ -934,7 +1310,7 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
             self.info
                 .regs()
                 .mdmactrl()
-                .modify(|w| w.set_dmatb(MdmactrlDmatb::NOT_USED));
+                .modify(|w| w.set_dmatb(MdmactrlDmatb::NotUsed));
             unsafe {
                 self.mode.tx_dma.disable_request();
                 self.mode.tx_dma.clear_done();
@@ -1013,20 +1389,39 @@ where
             .map_err(|_| IOError::Overwrite)
     }
 
-    async fn async_wait_for_rx_fifo(&self) -> Result<(), IOError> {
+    async fn async_wait_for_rx_fifo(&self) -> Result<RxFifoStatus, IOError> {
         self.info
             .wait_cell()
             .wait_for(|| {
-                // enable RXPEND interrupt
+                // enable RXPEND, COMPLETE, and ERRWARN interrupts so any of
+                // them wakes us. A target-terminated SDR read fires COMPLETE
+                // with no further bytes in the FIFO; we must distinguish
+                // that from "more data is coming".
                 self.info.regs().mintset().write(|w| {
                     w.set_rxpend(true);
+                    w.set_complete(true);
                     w.set_errwarn(true);
                 });
-                // if the rx FIFO is pending, we need to read bytes
-                self.info.regs().mstatus().read().rxpend() || self.info.regs().mstatus().read().errwarn()
+                let status = self.info.regs().mstatus().read();
+                status.rxpend() || status.complete() || status.errwarn()
             })
             .await
-            .map_err(|_| IOError::Overread)
+            .map_err(|_| IOError::Overread)?;
+
+        let status = self.info.regs().mstatus().read();
+        // Order matters: drain any pending FIFO byte first; on the next call
+        // we'll observe Complete without RxPending and report the early end.
+        // ERRWARN takes precedence only when the FIFO is already empty,
+        // otherwise we'd lose the last byte of a transaction that ended with
+        // a benign warning latched alongside the final byte.
+        if status.rxpend() {
+            Ok(RxFifoStatus::RxPending)
+        } else if status.errwarn() {
+            Err(self.status().err().unwrap_or(IOError::Other))
+        } else {
+            // complete() must be set (predicate above).
+            Ok(RxFifoStatus::Complete)
+        }
     }
 
     /// Prepares an appropriate Start condition on bus by issuing a
@@ -1034,14 +1429,20 @@ where
     /// (i3c sdr, i3c ddr, or i2c), and R/w bit.
     async fn async_start(&self, address: u8, bus_type: BusType, dir: Dir, len: u8) -> Result<(), IOError> {
         self.clear_flags();
+        // Also clear MERRWARN. clear_flags() only touches MSTATUS bits; any
+        // sticky warning latched by the previous transaction (e.g. a stale
+        // OWRITE from a tight FIFO push) would otherwise be misreported as
+        // a fresh error by status() below. Matches the SDK master driver,
+        // which clears error flags at the start of each transaction.
+        self.clear_errors();
 
         self.info.regs().mctrl().write(|w| {
             w.set_addr(address);
             w.set_rdterm(len);
             w.set_type_(bus_type.into());
-            w.set_request(Request::EMITSTARTADDR);
+            w.set_request(Request::Emitstartaddr);
             w.set_dir(dir.into());
-            w.set_ibiresp(Ibiresp::ACK);
+            w.set_ibiresp(Ibiresp::Ack);
         });
 
         self.async_wait_for_ctrldone().await?;
@@ -1055,7 +1456,7 @@ where
     /// waiting for the FIFO to become empty ensuring the command was
     /// sent.
     async fn async_stop(&self, bus_type: BusType) -> Result<(), IOError> {
-        if self.info.regs().mstatus().read().state() != State::NORMACT {
+        if self.info.regs().mstatus().read().state() != State::Normact {
             Err(IOError::InvalidRequest)
         } else {
             // NOTE: Section 41.3.2.1 states that "when sending STOP
@@ -1067,7 +1468,7 @@ where
                 .modify(|w| w.set_odstop(bus_type == BusType::I2c));
 
             self.info.regs().mctrl().write(|w| {
-                w.set_request(Request::EMITSTOP);
+                w.set_request(Request::Emitstop);
                 w.set_type_(bus_type.into());
             });
             self.async_wait_for_ctrldone().await?;
@@ -1077,13 +1478,193 @@ where
 
     // Public API: Async
 
+    /// Register a target's 7-bit dynamic address in `MIBIRULES` so the controller
+    /// captures the Mandatory Data Byte (MDB) sent during that target's IBIs.
+    ///
+    /// On NXP MCXA, the MDB byte is only written into the controller's RX FIFO when
+    /// the IBI source address matches one of the five registered slots in `MIBIRULES`
+    /// and `NOBYTE=0` (i.e., [`Payload::Yes`]). Without this, AUTO_IBI ACKs the IBI
+    /// and consumes the MDB on the wire but discards it, leaving `rxcount=0` and
+    /// frequently desyncing the post-IBI directed read.
+    ///
+    /// Re-registering the same address into the same slot is a no-op and returns
+    /// `Ok(())` without touching any register. If the slot already holds a different
+    /// address, returns [`IOError::IbiSlotOccupied`] and leaves `MIBIRULES` unchanged.
+    ///
+    /// `MIBIRULES.NOBYTE` is a single bit shared across all five slots. This method
+    /// writes it only on the *first* registration (when all five `ADDRn` fields are
+    /// zero); subsequent calls keep `payload` for documentation only.
+    pub fn register_ibi(&mut self, slot: IbiSlot, addr: u8, payload: Payload) -> Result<(), IOError> {
+        let regs = self.info.regs();
+        let r = regs.mibirules().read();
+
+        let current = match slot {
+            IbiSlot::Slot0 => r.addr0(),
+            IbiSlot::Slot1 => r.addr1(),
+            IbiSlot::Slot2 => r.addr2(),
+            IbiSlot::Slot3 => r.addr3(),
+            IbiSlot::Slot4 => r.addr4(),
+        };
+
+        if addr == current {
+            return Ok(());
+        }
+
+        if current != 0 {
+            return Err(IOError::IbiSlotOccupied);
+        }
+
+        regs.mibirules().modify(|w| {
+            match slot {
+                IbiSlot::Slot0 => w.set_addr0(addr),
+                IbiSlot::Slot1 => w.set_addr1(addr),
+                IbiSlot::Slot2 => w.set_addr2(addr),
+                IbiSlot::Slot3 => w.set_addr3(addr),
+                IbiSlot::Slot4 => w.set_addr4(addr),
+            }
+            w.set_nobyte(payload.into());
+        });
+
+        Ok(())
+    }
+
+    /// Wait for a target IBI, ACK it, and drain any payload bytes.
+    ///
+    /// Returns the IBI target address and the number of payload bytes written into `buf`.
+    /// The P3T1755 (and most sensors) set BCR\[2\]=0 so no payload bytes follow the address header;
+    /// in that case this returns `(addr, 0)`.
+    ///
+    /// **Bus state on return:** the controller has emitted a Stop, so the
+    /// bus is idle. This matches the NXP SDK master driver behavior on
+    /// `kStatus_I3C_IBIWon` (see `I3C_MasterTransferHandleIRQ` in
+    /// `fsl_i3c.c`) and is what spec-compliant targets expect before the
+    /// next directed transfer. The caller should follow up with
+    /// [`Self::async_read`] or [`Self::async_write`] as needed.
+    pub async fn async_wait_for_ibi(&mut self, buf: &mut [u8]) -> Result<(u8, usize), IOError> {
+        // Step 1: Wait for SLVSTART (a target is asserting SDA low to request the bus).
+        //
+        // NOTE: we deliberately do *not* gate on `mstatus.state() == Slvreq`
+        // here. SLVSTART is a sticky edge latch, while `state` reflects the
+        // current bus FSM which transitions through SLVREQ in a handful of
+        // SCL cycles when no controller is driving the bus. With BBQ-backed
+        // targets the IRQ-to-IBI latency is high enough that the FSM has
+        // typically already moved on by the time we wake. The latched
+        // SLVSTART is sufficient evidence to proceed — if the target
+        // subsequently gives up, AUTO_IBI in step 4 will surface errwarn.
+        self.info
+            .wait_cell()
+            .wait_for(|| {
+                self.info.regs().mintset().write(|w| {
+                    w.set_slvstart(true);
+                    w.set_errwarn(true);
+                });
+                let status = self.info.regs().mstatus().read();
+                status.slvstart() || status.errwarn()
+            })
+            .await
+            .map_err(|_| IOError::Other)?;
+
+        self.status()?;
+
+        // Step 2: Pre-clear IBIWON in case it was already set, so AUTO_IBI doesn't return early.
+        self.info.regs().mstatus().write(|w| w.set_ibiwon(true));
+
+        // Step 3: Issue AUTO_IBI with ACK — hardware handles the IBI protocol handshake.
+        self.info.regs().mctrl().write(|w| {
+            w.set_request(Request::Autoibi);
+            w.set_ibiresp(Ibiresp::Ack);
+        });
+
+        // Step 4: Wait for IBIWON — the IBI has been accepted and the address header received.
+        self.info
+            .wait_cell()
+            .wait_for(|| {
+                self.info.regs().mintset().write(|w| {
+                    w.set_ibiwon(true);
+                    w.set_errwarn(true);
+                });
+                let status = self.info.regs().mstatus().read();
+                status.ibiwon() || status.errwarn()
+            })
+            .await
+            .map_err(|_| IOError::Other)?;
+
+        self.status()?;
+
+        let mstatus = self.info.regs().mstatus().read();
+        let ibi_addr = mstatus.ibiaddr();
+        let ibi_type = mstatus.ibitype();
+
+        // Step 5: For normal IBIs (not Hot-Join or Controller-Request), drain the RX FIFO payload.
+        let mut payload_len = 0;
+        if ibi_type == Ibitype::Ibi && !buf.is_empty() {
+            'read: for byte in buf.iter_mut() {
+                loop {
+                    // Drain available RX FIFO bytes.
+                    if self.info.regs().mdatactrl().read().rxcount() != 0 {
+                        *byte = self.info.regs().mrdatab().read().value();
+                        payload_len += 1;
+                        break;
+                    }
+
+                    // COMPLETE means the target has sent all its payload bytes.
+                    if self.info.regs().mstatus().read().complete() {
+                        break 'read;
+                    }
+
+                    // Wait for more bytes (rxpend) or end of message (complete).
+                    self.info
+                        .wait_cell()
+                        .wait_for(|| {
+                            self.info.regs().mintset().write(|w| {
+                                w.set_rxpend(true);
+                                w.set_complete(true);
+                                w.set_errwarn(true);
+                            });
+                            let s = self.info.regs().mstatus().read();
+                            s.rxpend() || s.complete() || s.errwarn()
+                        })
+                        .await
+                        .map_err(|_| IOError::Other)?;
+
+                    self.status()?;
+                }
+            }
+
+            // Drain any remaining bytes the caller's buffer couldn't hold.
+            while self.info.regs().mdatactrl().read().rxcount() != 0 {
+                let _ = self.info.regs().mrdatab().read().value();
+            }
+        }
+
+        // Step 6: Wait for COMPLETE (marks end of IBI reception, state transitions to NORMACT).
+        if !self.info.regs().mstatus().read().complete() {
+            self.async_wait_for_complete().await?;
+        }
+
+        // Step 7: Clear status flags and emit a STOP to terminate the IBI
+        // sequence on the bus before the caller issues their follow-on
+        // transfer. This matches the NXP SDK master driver
+        // (`fsl_i3c.c` I3C_MasterTransferHandleIRQ → I3C_MasterEmitStop on
+        // `kStatus_I3C_IBIWon`) and is what spec-compliant targets expect.
+        self.clear_flags();
+        self.async_stop(BusType::I3cSdr).await?;
+
+        Ok((ibi_addr, payload_len))
+    }
+
     /// Read from address into buffer asynchronously.
+    ///
+    /// Returns the number of bytes actually read. On a spec-compliant
+    /// target-terminated short read (slave T-bits before `buf.len()` is
+    /// reached), this returns `Ok(n)` where `n < buf.len()`. Callers that
+    /// require the exact length should check `n == buf.len()` themselves.
     pub fn async_read<'a>(
         &'a mut self,
         address: u8,
         read: &'a mut [u8],
         bus_type: BusType,
-    ) -> impl Future<Output = Result<(), IOError>> + 'a {
+    ) -> impl Future<Output = Result<usize, IOError>> + 'a {
         <Self as AsyncEngine>::async_read_internal(self, address, read, bus_type, SendStop::Yes)
     }
 
@@ -1098,16 +1679,72 @@ where
     }
 
     /// Write to address from bytes and then read from address into buffer asynchronously.
+    ///
+    /// Returns the number of bytes actually read (see [`Self::async_read`]).
     pub async fn async_write_read<'a>(
         &'a mut self,
         address: u8,
         write: &'a [u8],
         read: &'a mut [u8],
         bus_type: BusType,
-    ) -> Result<(), IOError> {
+    ) -> Result<usize, IOError> {
         <Self as AsyncEngine>::async_write_internal(self, address, write, bus_type, SendStop::No).await?;
         <Self as AsyncEngine>::async_read_internal(self, address, read, bus_type, SendStop::Yes).await
     }
+
+    /// Asynchronously execute a series of I3C operations
+    /// (reads/writes) with repeated start conditions.
+    pub async fn async_transaction<'a>(
+        &'a mut self,
+        operations: &'a mut [Operation<'a>],
+        bus_type: BusType,
+    ) -> Result<(), IOError> {
+        let Some((last, rest)) = operations.split_last_mut() else {
+            return Ok(());
+        };
+
+        for op in rest {
+            match op {
+                Operation::Read { address, buf } => {
+                    <Self as AsyncEngine>::async_read_internal(self, *address, buf, bus_type, SendStop::No).await?;
+                }
+                Operation::Write { address, buf } => {
+                    <Self as AsyncEngine>::async_write_internal(self, *address, buf, bus_type, SendStop::No).await?
+                }
+            }
+        }
+
+        match last {
+            Operation::Read { address, buf } => {
+                <Self as AsyncEngine>::async_read_internal(self, *address, buf, bus_type, SendStop::Yes)
+                    .await
+                    .map(|_| ())
+            }
+            Operation::Write { address, buf } => {
+                <Self as AsyncEngine>::async_write_internal(self, *address, buf, bus_type, SendStop::Yes).await
+            }
+        }
+    }
+}
+
+/// I3c Operation.
+///
+/// Several operations can be combined as part of a single transaction.
+pub enum Operation<'a> {
+    /// Read from the given address into the buffer.
+    Read {
+        /// Target address.
+        address: u8,
+        /// Buffer to read into.
+        buf: &'a mut [u8],
+    },
+    /// Write the buffer contents to the given address.
+    Write {
+        /// Target address.
+        address: u8,
+        /// Data to write.
+        buf: &'a [u8],
+    },
 }
 
 impl<'d, M: Mode> Drop for I3c<'d, M> {
@@ -1238,7 +1875,7 @@ where
         for op in rest {
             match op {
                 embedded_hal_async::i2c::Operation::Read(buf) => {
-                    <Self as AsyncEngine>::async_read_internal(self, address, buf, BusType::I2c, SendStop::No).await?
+                    <Self as AsyncEngine>::async_read_internal(self, address, buf, BusType::I2c, SendStop::No).await?;
                 }
                 embedded_hal_async::i2c::Operation::Write(buf) => {
                     <Self as AsyncEngine>::async_write_internal(self, address, buf, BusType::I2c, SendStop::No).await?
@@ -1248,11 +1885,49 @@ where
 
         match last {
             embedded_hal_async::i2c::Operation::Read(buf) => {
-                <Self as AsyncEngine>::async_read_internal(self, address, buf, BusType::I2c, SendStop::Yes).await
+                <Self as AsyncEngine>::async_read_internal(self, address, buf, BusType::I2c, SendStop::Yes)
+                    .await
+                    .map(|_| ())
             }
             embedded_hal_async::i2c::Operation::Write(buf) => {
                 <Self as AsyncEngine>::async_write_internal(self, address, buf, BusType::I2c, SendStop::Yes).await
             }
+        }
+    }
+}
+
+/// I3C interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let status = T::info().regs().mintmasked().read();
+        T::PERF_INT_INCR();
+
+        if status.nowmaster()
+            || status.complete()
+            || status.mctrldone()
+            || status.slvstart()
+            || status.errwarn()
+            || status.rxpend()
+            || status.txnotfull()
+            || status.ibiwon()
+        {
+            T::info().regs().mintclr().write(|w| {
+                w.set_nowmaster(true);
+                w.set_complete(true);
+                w.set_mctrldone(true);
+                w.set_slvstart(true);
+                w.set_errwarn(true);
+                w.set_rxpend(true);
+                w.set_txnotfull(true);
+                w.set_ibiwon(true);
+            });
+
+            T::PERF_INT_WAKE_INCR();
+            T::info().wait_cell().wake();
         }
     }
 }

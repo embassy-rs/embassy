@@ -65,7 +65,7 @@ impl<'d> Channel<'d> {
     }
 
     /// Get the channel number.
-    fn number(&self) -> u8 {
+    pub fn number(&self) -> u8 {
         self.number
     }
 
@@ -244,7 +244,7 @@ impl<'d> Channel<'d> {
             W::size(),
             true,
             true,
-            vals::TreqSel::PERMANENT,
+            vals::TreqSel::Permanent,
             false,
         );
         Transfer::new(self.reborrow())
@@ -266,6 +266,11 @@ impl<'a> Transfer<'a> {
 impl<'a> Drop for Transfer<'a> {
     fn drop(&mut self) {
         let p = self.channel.regs();
+        // RP2350 errata RP2350-E5: clear the enable bit of the aborted channel
+        // before the abort to prevent re-triggering.
+        // See pico-sdk dma_channel_abort() docs.
+        #[cfg(feature = "_rp235x")]
+        p.ctrl_trig().modify(|w| w.set_en(false));
         pac::DMA
             .chan_abort()
             .modify(|m| m.set_chan_abort(1 << self.channel.number()));
@@ -323,21 +328,21 @@ pub trait Word: SealedWord {
 impl SealedWord for u8 {}
 impl Word for u8 {
     fn size() -> vals::DataSize {
-        vals::DataSize::SIZE_BYTE
+        vals::DataSize::SizeByte
     }
 }
 
 impl SealedWord for u16 {}
 impl Word for u16 {
     fn size() -> vals::DataSize {
-        vals::DataSize::SIZE_HALFWORD
+        vals::DataSize::SizeHalfword
     }
 }
 
 impl SealedWord for u32 {}
 impl Word for u32 {
     fn size() -> vals::DataSize {
-        vals::DataSize::SIZE_WORD
+        vals::DataSize::SizeWord
     }
 }
 

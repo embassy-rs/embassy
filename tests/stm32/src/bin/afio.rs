@@ -10,7 +10,7 @@ use embassy_stm32::gpio::{AfioRemap, OutputType, Pull};
 use embassy_stm32::pac::AFIO;
 use embassy_stm32::time::khz;
 use embassy_stm32::timer::complementary_pwm::{ComplementaryPwm, ComplementaryPwmPin};
-use embassy_stm32::timer::input_capture::{CapturePin, InputCapture};
+use embassy_stm32::timer::input_capture::{CaptureInput, InputCapture};
 use embassy_stm32::timer::pwm_input::PwmInput;
 use embassy_stm32::timer::qei::Qei;
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
@@ -254,7 +254,7 @@ async fn main(_spawner: Spawner) {
         reset_afio_registers();
         InputCapture::new::<AfioRemap<1>>(
             p.TIM1.reborrow(),
-            Some(CapturePin::new(p.PA8.reborrow(), Pull::Down)),
+            CaptureInput::from_pin(p.PA8.reborrow(), Pull::Down),
             None,
             None,
             None,
@@ -1151,7 +1151,7 @@ fn afio_registers_set_remap() {
 
 fn set_afio_registers(bool_val: bool, num_val: u8) {
     AFIO.mapr().modify(|w| {
-        w.set_swj_cfg(embassy_stm32::pac::afio::vals::SwjCfg::NO_OP);
+        w.set_swj_cfg(embassy_stm32::pac::afio::vals::SwjCfg::NoOp);
         w.set_can1_remap(num_val);
         w.set_can2_remap(bool_val);
         w.set_eth_remap(bool_val);

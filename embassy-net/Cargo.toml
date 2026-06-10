@@ -1,6 +1,6 @@
 [package]
 name = "embassy-net"
-version = "0.9.0"
+version = "0.9.1"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Async TCP/IP network stack for embedded systems"
@@ -28,6 +28,7 @@ build = [
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ip", "proto-ipv4", "proto-ipv6", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "medium-ip", "proto-ipv4", "proto-ipv6", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "medium-ieee802154", "medium-ip", "proto-ipv4", "proto-ipv6", "tcp", "udp"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "medium-ieee802154", "medium-ip", "proto-ipv4", "proto-ipv6", "tcp", "udp", "packetmeta-id"]},
     # Xtensa builds
     {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["defmt", "tcp", "udp", "dns", "proto-ipv4", "medium-ethernet", "packet-trace"]},
     {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["defmt", "tcp", "udp", "dns", "proto-ipv4", "multicast", "medium-ethernet"]},
@@ -46,13 +47,15 @@ build = [
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-v$VERSION/embassy-net/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net/src/"
-features = ["defmt", "tcp", "udp", "raw", "dns", "icmp", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "multicast", "dhcpv4-hostname"]
+features = ["defmt", "tcp", "udp", "raw", "dns", "icmp", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "multicast", "dhcpv4-hostname", "packetmeta-id"]
 target = "thumbv7em-none-eabi"
 
 [package.metadata.docs.rs]
-features = ["defmt", "tcp", "udp", "raw", "dns", "icmp", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "multicast", "dhcpv4-hostname"]
+features = ["defmt", "tcp", "udp", "raw", "dns", "icmp", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "multicast", "dhcpv4-hostname", "packetmeta-id"]
 
 [features]
+default = ["auto-icmp-echo-reply"]
+
 ## Enable defmt
 defmt = ["dep:defmt", "smoltcp/defmt", "embassy-net-driver/defmt", "embassy-time/defmt", "heapless/defmt", "defmt?/ip_in_core"]
 ## Enable log
@@ -101,13 +104,15 @@ slaac = ["proto-ipv6", "multicast", "smoltcp/proto-ipv6-slaac"]
 std = ["smoltcp/std"]
 ## Enable smoltcp alloc feature (necessary if using "managed" crate alloc feature)
 alloc = ["smoltcp/alloc"]
+## Enable smoltcp packetmeta-id feature
+packetmeta-id = [ "smoltcp/packetmeta-id", "embassy-net-driver/packetmeta-id" ]
 
 [dependencies]
 
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
 
-smoltcp = {  git = "https://github.com/smoltcp-rs/smoltcp", rev = "2b9ae80c75329c92a2bc88192e1db008081df09c", default-features = false, features = [
+smoltcp = {  version = "0.13.0", default-features = false, features = [
   "socket",
   "async",
 ] }

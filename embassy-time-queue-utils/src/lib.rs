@@ -5,11 +5,16 @@
 use core::task::Waker;
 
 pub mod queue_generic;
+
+// Not explicitly enabled - acts as default, but cannot be relied upon as an implementation detail.
+#[cfg(all(not(feature = "integrated-timers"), not(feature = "_generic-queue")))]
+mod queue_integrated;
+#[cfg(feature = "integrated-timers")]
 pub mod queue_integrated;
 
-#[cfg(feature = "_generic-queue")]
+#[cfg(all(not(feature = "integrated-timers"), feature = "_generic-queue"))]
 type QueueImpl = queue_generic::Queue;
-#[cfg(not(feature = "_generic-queue"))]
+#[cfg(any(feature = "integrated-timers", not(feature = "_generic-queue")))]
 type QueueImpl = queue_integrated::Queue;
 
 /// The default timer queue, configured by the crate's features.

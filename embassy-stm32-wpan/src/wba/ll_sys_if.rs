@@ -335,8 +335,8 @@ use super::bindings::{link_layer, mac};
 use super::util_seq;
 
 const UTIL_SEQ_RFU: u32 = 0;
-const TASK_LINK_LAYER_MASK: u32 = 1 << mac::CFG_TASK_ID_T_CFG_TASK_LINK_LAYER;
-const TASK_PRIO_LINK_LAYER: u32 = mac::CFG_SEQ_PRIO_ID_T_CFG_SEQ_PRIO_0 as u32;
+pub const TASK_LINK_LAYER_MASK: u32 = 1 << mac::CFG_Task_Id_t_CFG_TASK_LINK_LAYER;
+pub const TASK_PRIO_LINK_LAYER: u32 = mac::CFG_SEQ_Prio_Id_t_CFG_SEQ_PRIO_0 as u32;
 
 /**
  * @brief  Link Layer background process initialization
@@ -345,7 +345,10 @@ const TASK_PRIO_LINK_LAYER: u32 = mac::CFG_SEQ_PRIO_ID_T_CFG_SEQ_PRIO_0 as u32;
  */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ll_sys_bg_process_init() {
-    util_seq::UTIL_SEQ_RegTask(TASK_LINK_LAYER_MASK, UTIL_SEQ_RFU, Some(link_layer::ll_sys_bg_process));
+    unsafe extern "C" fn bg_process_wrapper() {
+        link_layer::ll_sys_bg_process();
+    }
+    util_seq::UTIL_SEQ_RegTask(TASK_LINK_LAYER_MASK, UTIL_SEQ_RFU, Some(bg_process_wrapper));
 }
 
 /**
@@ -358,11 +361,6 @@ pub unsafe extern "C" fn ll_sys_schedule_bg_process() {
     util_seq::UTIL_SEQ_SetTask(TASK_LINK_LAYER_MASK, TASK_PRIO_LINK_LAYER);
 }
 
-/**
- * @brief  Link Layer background process next iteration scheduling from ISR
- * @param  None
- * @retval None
- */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ll_sys_schedule_bg_process_isr() {
     util_seq::UTIL_SEQ_SetTask(TASK_LINK_LAYER_MASK, TASK_PRIO_LINK_LAYER);
@@ -397,20 +395,71 @@ pub unsafe extern "C" fn ll_sys_reset() {
 }
 
 /// Select the sleep-clock source used by the Link Layer.
-/// Defaults to the crystal oscillator when no explicit configuration is available.
+/// Reads the RCC BDCR register to determine which clock source has been
+/// configured for the radio sleep timer and tells the link-layer accordingly.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ll_sys_sleep_clock_source_selection() {
+    use embassy_stm32::pac::RCC;
+    use embassy_stm32::pac::rcc::vals::Radiostsel;
+
+    let radiostsel = RCC.bdcr().read().radiostsel();
+    let slp_clk_src = match radiostsel {
+        Radiostsel::Lse => link_layer::_slptmr_src_type_e_RTC_SLPTMR as u8,
+        Radiostsel::Lsi => link_layer::_slptmr_src_type_e_RCO_SLPTMR as u8,
+        Radiostsel::Hse => link_layer::_slptmr_src_type_e_CRYSTAL_OSCILLATOR_SLPTMR as u8,
+        Radiostsel::Disable => panic!("Radio sleep timer clock not configured (RADIOSTSEL=DISABLE)"),
+    };
+
     let mut frequency: u16 = 0;
-    let _ = link_layer::ll_intf_cmn_le_select_slp_clk_src(
-        link_layer::_SLPTMR_SRC_TYPE_E_CRYSTAL_OSCILLATOR_SLPTMR as u8,
-        &mut frequency as *mut u16,
-    );
+    let _ = link_layer::ll_intf_cmn_le_select_slp_clk_src(slp_clk_src, &mut frequency as *mut u16);
 }
 
 /// Determine the BLE sleep-clock accuracy used by the stack.
-/// Returns zero when board-specific calibration data is unavailable.
+///
+/// Values follow the BLE Sleep Clock Accuracy range encoding used by the
+/// link-layer/HCI (0 = 251-500 ppm ... 7 = 0-20 ppm).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ll_sys_BLE_sleep_clock_accuracy_selection() -> u8 {
-    // TODO: derive the board-specific sleep clock accuracy once calibration data is available.
-    0
+    use embassy_stm32::pac::RCC;
+    use embassy_stm32::pac::rcc::vals::Radiostsel;
+
+    // BLE SCA range encoding (Bluetooth Core, Vol 6, Part B).
+    const BLE_SCA_251_TO_500_PPM: u8 = 0;
+    const BLE_SCA_021_TO_030_PPM: u8 = 6;
+
+    // Optional build-time override for board-specific characterization.
+    //
+    // Example:
+    // EMBASSY_WBA_BLE_SCA_RANGE=7 cargo build ...
+    //
+    // Valid values: 0..=7 (BLE SCA encoding).
+    if let Some(override_sca) = parse_ble_sca_override() {
+        return override_sca;
+    }
+
+    match RCC.bdcr().read().radiostsel() {
+        // Typical 32.768 kHz crystal population on WBA boards targets this range.
+        // If your board's 32 kHz source is better, this can be tightened later.
+        Radiostsel::Lse => BLE_SCA_021_TO_030_PPM,
+        // LSI is RC-based and significantly less accurate.
+        Radiostsel::Lsi => BLE_SCA_251_TO_500_PPM,
+        // HSE/1000 sleep-timer source is usually crystal-derived and tight.
+        Radiostsel::Hse => BLE_SCA_021_TO_030_PPM,
+        Radiostsel::Disable => BLE_SCA_251_TO_500_PPM,
+    }
+}
+
+#[inline]
+fn parse_ble_sca_override() -> Option<u8> {
+    match option_env!("EMBASSY_WBA_BLE_SCA_RANGE") {
+        Some("0") => Some(0),
+        Some("1") => Some(1),
+        Some("2") => Some(2),
+        Some("3") => Some(3),
+        Some("4") => Some(4),
+        Some("5") => Some(5),
+        Some("6") => Some(6),
+        Some("7") => Some(7),
+        _ => None,
+    }
 }

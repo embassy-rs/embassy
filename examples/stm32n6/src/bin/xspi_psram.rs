@@ -93,7 +93,7 @@ async fn main(_spawner: Spawner) {
 
     // Configure PLL1: HSI 64MHz / 4 * 75 = 1200MHz
     config.rcc.pll1 = Some(Pll::Oscillator {
-        source: Pllsel::HSI,
+        source: Pllsel::Hsi,
         divm: Plldivm::from_bits(4), // 64MHz / 4 = 16MHz VCO input
         fractional: 0,
         divn: 75,                     // 16MHz * 75 = 1200MHz VCO
@@ -103,33 +103,33 @@ async fn main(_spawner: Spawner) {
 
     // Configure IC1: CPU clock = PLL1 / 2 = 600 MHz
     config.rcc.ic1 = Some(IcConfig {
-        source: Icsel::PLL1,
+        source: Icsel::Pll1,
         divider: Icint::from_bits(1), // DIV2: (1+1) = 2
     });
     config.rcc.cpu = CpuClk::Ic1;
 
     // Configure IC2/IC6/IC11: System bus = PLL1 / 3 = 400 MHz
     config.rcc.ic2 = Some(IcConfig {
-        source: Icsel::PLL1,
+        source: Icsel::Pll1,
         divider: Icint::from_bits(2), // DIV3: (2+1) = 3
     });
     config.rcc.ic6 = Some(IcConfig {
-        source: Icsel::PLL1,
+        source: Icsel::Pll1,
         divider: Icint::from_bits(3), // DIV4: (3+1) = 4 (C HAL uses /4)
     });
     config.rcc.ic11 = Some(IcConfig {
-        source: Icsel::PLL1,
+        source: Icsel::Pll1,
         divider: Icint::from_bits(3), // DIV4: (3+1) = 4 (C HAL uses /4)
     });
     config.rcc.sys = SysClk::Ic2;
 
     // Configure IC3: XSPI1 kernel clock = PLL1 / 6 = 200 MHz
     config.rcc.ic3 = Some(IcConfig {
-        source: Icsel::PLL1,
+        source: Icsel::Pll1,
         divider: Icint::from_bits(5), // DIV6: (5+1) = 6
     });
 
-    config.rcc.mux.xspi1sel = XspiClkSrc::IC3;
+    config.rcc.mux.xspi1sel = XspiClkSrc::Ic3;
     config.rcc.vddio2_1v8 = true; // Critical: GPIOO/GPIOP require 1.8V for PSRAM
     let p = embassy_stm32::init(config);
 

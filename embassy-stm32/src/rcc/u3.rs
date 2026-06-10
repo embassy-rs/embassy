@@ -43,14 +43,14 @@ pub enum MSIRange {
 impl From<MSIRange> for Msisdiv {
     fn from(range: MSIRange) -> Self {
         match range {
-            MSIRange::RANGE0_96MHZ => Msisdiv::DIV1,
-            MSIRange::RANGE1_48MHZ => Msisdiv::DIV2,
-            MSIRange::RANGE2_24MHZ => Msisdiv::DIV4,
-            MSIRange::RANGE3_12MHZ => Msisdiv::DIV8,
-            MSIRange::RANGE4_24MHZ => Msisdiv::DIV1,
-            MSIRange::RANGE5_12MHZ => Msisdiv::DIV2,
-            MSIRange::RANGE6_6MHZ => Msisdiv::DIV4,
-            MSIRange::RANGE7_3MHZ => Msisdiv::DIV8,
+            MSIRange::RANGE0_96MHZ => Msisdiv::Div1,
+            MSIRange::RANGE1_48MHZ => Msisdiv::Div2,
+            MSIRange::RANGE2_24MHZ => Msisdiv::Div4,
+            MSIRange::RANGE3_12MHZ => Msisdiv::Div8,
+            MSIRange::RANGE4_24MHZ => Msisdiv::Div1,
+            MSIRange::RANGE5_12MHZ => Msisdiv::Div2,
+            MSIRange::RANGE6_6MHZ => Msisdiv::Div4,
+            MSIRange::RANGE7_3MHZ => Msisdiv::Div8,
         }
     }
 }
@@ -58,14 +58,14 @@ impl From<MSIRange> for Msisdiv {
 impl From<MSIRange> for Msikdiv {
     fn from(range: MSIRange) -> Self {
         match range {
-            MSIRange::RANGE0_96MHZ => Msikdiv::DIV1,
-            MSIRange::RANGE1_48MHZ => Msikdiv::DIV2,
-            MSIRange::RANGE2_24MHZ => Msikdiv::DIV4,
-            MSIRange::RANGE3_12MHZ => Msikdiv::DIV8,
-            MSIRange::RANGE4_24MHZ => Msikdiv::DIV1,
-            MSIRange::RANGE5_12MHZ => Msikdiv::DIV2,
-            MSIRange::RANGE6_6MHZ => Msikdiv::DIV4,
-            MSIRange::RANGE7_3MHZ => Msikdiv::DIV8,
+            MSIRange::RANGE0_96MHZ => Msikdiv::Div1,
+            MSIRange::RANGE1_48MHZ => Msikdiv::Div2,
+            MSIRange::RANGE2_24MHZ => Msikdiv::Div4,
+            MSIRange::RANGE3_12MHZ => Msikdiv::Div8,
+            MSIRange::RANGE4_24MHZ => Msikdiv::Div1,
+            MSIRange::RANGE5_12MHZ => Msikdiv::Div2,
+            MSIRange::RANGE6_6MHZ => Msikdiv::Div4,
+            MSIRange::RANGE7_3MHZ => Msikdiv::Div8,
         }
     }
 }
@@ -164,11 +164,11 @@ impl Config {
             hse: None,
             hsi: false,
             hsi48: Some(crate::rcc::Hsi48Config::new()),
-            sys: Sysclk::MSIS,
-            ahb_pre: AHBPrescaler::DIV1,
-            apb1_pre: APBPrescaler::DIV1,
-            apb2_pre: APBPrescaler::DIV1,
-            apb3_pre: APBPrescaler::DIV1,
+            sys: Sysclk::Msis,
+            ahb_pre: AHBPrescaler::Div1,
+            apb1_pre: APBPrescaler::Div1,
+            apb2_pre: APBPrescaler::Div1,
+            apb3_pre: APBPrescaler::Div1,
             voltage_range: VoltageScale::RANGE1,
             ls: crate::rcc::LsConfig::new(),
             mux: super::mux::ClockMux::default(),
@@ -264,14 +264,14 @@ pub(crate) unsafe fn init(config: Config) {
 
         // Use MSIRC0 or MSIRC1 depending on requested range.
         let msissel = if msirange_to_hertz(range).0 <= 24_000_000 {
-            Msissel::MSIRC1_24MHZ
+            Msissel::Msirc124mhz
         } else {
-            Msissel::MSIRC0_96MHZ
+            Msissel::Msirc096mhz
         };
         RCC.icscr1().modify(|w| {
             w.set_msissel(msissel);
             w.set_msisdiv(range.into());
-            w.set_msirgsel(Msirgsel::RCC_ICSCR1);
+            w.set_msirgsel(Msirgsel::RccIcscr1);
         });
         RCC.cr().write(|w| {
             // Out of reset MSIPLLxEN and MSIPLLSEL are 0
@@ -284,11 +284,11 @@ pub(crate) unsafe fn init(config: Config) {
             (lse_calibration_freq, config.auto_calibration.base_mode())
         {
             // Enable the MSIS auto-calibration feature
-            if msissel == Msissel::MSIRC0_96MHZ {
-                RCC.icscr1().modify(|w| w.set_msipll0sel(Msipllsel::LSE));
+            if msissel == Msissel::Msirc096mhz {
+                RCC.icscr1().modify(|w| w.set_msipll0sel(Msipllsel::Lse));
                 RCC.cr().modify(|w| w.set_msipll0en(true));
             } else {
-                RCC.icscr1().modify(|w| w.set_msipll1sel(Msipllsel::LSE));
+                RCC.icscr1().modify(|w| w.set_msipll1sel(Msipllsel::Lse));
                 RCC.cr().modify(|w| w.set_msipll1en(true));
             }
             calculate_calibrated_msi_frequency(range, freq)
@@ -318,7 +318,7 @@ pub(crate) unsafe fn init(config: Config) {
 
         RCC.icscr1().modify(|w| {
             w.set_msikdiv(range.into());
-            w.set_msirgsel(Msirgsel::RCC_ICSCR1);
+            w.set_msirgsel(Msirgsel::RccIcscr1);
         });
         RCC.cr().modify(|w| {
             w.set_msikon(true);
@@ -387,8 +387,8 @@ pub(crate) unsafe fn init(config: Config) {
             w.set_hseon(true);
             w.set_hsebyp(hse.mode != HseMode::Oscillator);
             w.set_hseext(match hse.mode {
-                HseMode::Oscillator | HseMode::Bypass => Hseext::ANALOG,
-                HseMode::BypassDigital => Hseext::DIGITAL,
+                HseMode::Oscillator | HseMode::Bypass => Hseext::Analog,
+                HseMode::BypassDigital => Hseext::Digital,
             });
         });
         while !RCC.cr().read().hserdy() {}
@@ -404,9 +404,9 @@ pub(crate) unsafe fn init(config: Config) {
     // let pll3 = init_pll(PllInstance::Pll3, config.pll3, &pll_input, config.voltage_range);
 
     let sys_clk = match config.sys {
-        Sysclk::HSE => hse.unwrap(),
-        Sysclk::HSI16 => hsi.unwrap(),
-        Sysclk::MSIS => msis.unwrap(),
+        Sysclk::Hse => hse.unwrap(),
+        Sysclk::Hsi16 => hsi.unwrap(),
+        Sysclk::Msis => msis.unwrap(),
         Sysclk::_RESERVED_3 => unreachable!(),
         // Sysclk:: => pll1.r.unwrap(),
     };

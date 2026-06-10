@@ -9,19 +9,21 @@ use core::time::Duration;
 
 use common::*;
 use embassy_executor::Spawner;
+use embassy_futures::join::join;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
-use embassy_stm32::rcc::WPAN_DEFAULT;
+use embassy_stm32::rcc::Config as RccConfig;
 use embassy_stm32_wpan::TlMbox;
-use embassy_stm32_wpan::hci::BdAddr;
-use embassy_stm32_wpan::hci::host::uart::UartHci;
-use embassy_stm32_wpan::hci::host::{AdvertisingFilterPolicy, EncryptionKey, HostHci, OwnAddressType};
-use embassy_stm32_wpan::hci::types::AdvertisingType;
-use embassy_stm32_wpan::hci::vendor::command::gap::{AdvertisingDataType, DiscoverableParameters, GapCommands, Role};
-use embassy_stm32_wpan::hci::vendor::command::gatt::GattCommands;
-use embassy_stm32_wpan::hci::vendor::command::hal::{ConfigData, HalCommands, PowerLevel};
 use embassy_stm32_wpan::lhci::LhciC1DeviceInformationCcrp;
+use embassy_stm32_wpan::sub::ble::ControllerAdapter;
 use embassy_stm32_wpan::sub::mm;
+use stm32wb_hci::BdAddr;
+use stm32wb_hci::host::uart::UartHci;
+use stm32wb_hci::host::{AdvertisingFilterPolicy, EncryptionKey, HostHci, OwnAddressType};
+use stm32wb_hci::types::AdvertisingType;
+use stm32wb_hci::vendor::command::gap::{AdvertisingDataType, DiscoverableParameters, GapCommands, Role};
+use stm32wb_hci::vendor::command::gatt::GattCommands;
+use stm32wb_hci::vendor::command::hal::{ConfigData, HalCommands, PowerLevel};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs{
@@ -43,19 +45,15 @@ async fn run_mm_queue(mut memory_manager: mm::MemoryManager<'static>) {
 #[cfg_attr(not(feature = "stop"), embassy_executor::main)]
 async fn main(spawner: Spawner) {
     let mut config = config();
-    config.rcc = WPAN_DEFAULT;
+    config.rcc = RccConfig::new_wpan();
 
     let p = init_with_config(config);
     info!("Hello World!");
 
     let config = Config::default();
-    let mbox = TlMbox::init(p.IPCC, Irqs, config).await.unwrap();
-    let mut sys = mbox.sys_subsystem;
-    let mut ble = mbox.ble_subsystem;
+    let mbox = TlMbox::wait_ready(p.IPCC, Irqs, config).await.unwrap();
 
-    spawner.spawn(run_mm_queue(mbox.mm_subsystem).unwrap());
-
-    let fw_info = sys.wireless_fw_info().unwrap();
+    let fw_info = mbox.sys.wireless_fw_info().unwrap();
     let version_major = fw_info.version_major();
     let version_minor = fw_info.version_minor();
     let subversion = fw_info.subversion();
@@ -68,112 +66,118 @@ async fn main(spawner: Spawner) {
         version_major, version_minor, subversion, sram2a_size, sram2b_size
     );
 
-    let _ = sys.shci_c2_ble_init(Default::default()).await;
+    let (ble, mm) = mbox.init_ble(Default::default()).await.unwrap();
 
-    info!("resetting BLE...");
-    ble.reset().await;
-    let response = ble.read().await.unwrap();
-    info!("{}", response);
+    spawner.spawn(run_mm_queue(mm).unwrap());
 
-    info!("config public address...");
-    ble.write_config_data(&ConfigData::public_address(get_bd_addr()).build())
-        .await;
-    let response = ble.read().await.unwrap();
-    info!("{}", response);
+    let ble = ControllerAdapter::new(ble);
 
-    info!("config random address...");
-    ble.write_config_data(&ConfigData::random_address(get_random_addr()).build())
-        .await;
-    let response = ble.read().await.unwrap();
-    info!("{}", response);
+    join(
+        async {
+            loop {
+                let pkt = ble.read_packet().await;
 
-    info!("config identity root...");
-    ble.write_config_data(&ConfigData::identity_root(&get_irk()).build())
-        .await;
-    let response = ble.read().await.unwrap();
-    info!("{}", response);
+                info!("pkt: {}", pkt);
+            }
+        },
+        async {
+            info!("resetting BLE...");
+            let response = ble.reset().await;
+            info!("{}", response);
 
-    info!("config encryption root...");
-    ble.write_config_data(&ConfigData::encryption_root(&get_erk()).build())
-        .await;
-    let response = ble.read().await.unwrap();
-    info!("{}", response);
+            info!("config public address...");
 
-    info!("config tx power level...");
-    ble.set_tx_power_level(PowerLevel::ZerodBm).await;
-    let response = ble.read().await.unwrap();
-    info!("{}", response);
+            let response = ble
+                .write_config_data(&ConfigData::public_address(get_bd_addr()).build())
+                .await;
+            info!("{}", response);
 
-    info!("GATT init...");
-    ble.init_gatt().await;
-    let response = ble.read().await.unwrap();
-    info!("{}", response);
+            info!("config random address...");
+            let response = ble
+                .write_config_data(&ConfigData::random_address(get_random_addr()).build())
+                .await;
+            info!("{}", response);
 
-    info!("GAP init...");
-    ble.init_gap(Role::PERIPHERAL, false, BLE_GAP_DEVICE_NAME_LENGTH).await;
-    let response = ble.read().await.unwrap();
-    info!("{}", response);
+            info!("config identity root...");
+            let response = ble
+                .write_config_data(&ConfigData::identity_root(&get_irk()).build())
+                .await;
+            info!("{}", response);
 
-    // info!("set scan response...");
-    // ble.le_set_scan_response_data(&[]).await.unwrap();
-    // let response = ble.read().await.unwrap();
-    // info!("{}", response);
+            info!("config encryption root...");
+            let response = ble
+                .write_config_data(&ConfigData::encryption_root(&get_erk()).build())
+                .await;
+            info!("{}", response);
 
-    info!("set discoverable...");
-    ble.set_discoverable(&DiscoverableParameters {
-        advertising_type: AdvertisingType::NonConnectableUndirected,
-        advertising_interval: Some((Duration::from_millis(250), Duration::from_millis(250))),
-        address_type: OwnAddressType::Public,
-        filter_policy: AdvertisingFilterPolicy::AllowConnectionAndScan,
-        local_name: None,
-        advertising_data: &[],
-        conn_interval: (None, None),
-    })
-    .await
-    .unwrap();
+            info!("config tx power level...");
+            let response = ble.set_tx_power_level(PowerLevel::ZerodBm).await;
+            info!("{}", response);
 
-    let response = ble.read().await;
-    info!("{}", response);
+            info!("GATT init...");
+            let response = ble.init_gatt().await;
+            info!("{}", response);
 
-    // remove some advertisement to decrease the packet size
-    info!("delete tx power ad type...");
-    ble.delete_ad_type(AdvertisingDataType::TxPowerLevel).await;
-    let response = ble.read().await.unwrap();
-    info!("{}", response);
+            info!("GAP init...");
+            let response = ble.init_gap(Role::PERIPHERAL, false, BLE_GAP_DEVICE_NAME_LENGTH).await;
+            info!("{}", response);
 
-    info!("delete conn interval ad type...");
-    ble.delete_ad_type(AdvertisingDataType::PeripheralConnectionInterval)
-        .await;
-    let response = ble.read().await.unwrap();
-    info!("{}", response);
+            // info!("set scan response...");
+            // ble.le_set_scan_response_data(&[]).await.unwrap();
+            // let response = ble.read().await.unwrap();
+            // info!("{}", response);
 
-    info!("update advertising data...");
-    ble.update_advertising_data(&eddystone_advertising_data())
-        .await
-        .unwrap();
-    let response = ble.read().await.unwrap();
-    info!("{}", response);
+            info!("set discoverable...");
+            let response = ble
+                .set_discoverable(&DiscoverableParameters {
+                    advertising_type: AdvertisingType::NonConnectableUndirected,
+                    advertising_interval: Some((Duration::from_millis(250), Duration::from_millis(250))),
+                    address_type: OwnAddressType::Public,
+                    filter_policy: AdvertisingFilterPolicy::AllowConnectionAndScan,
+                    local_name: None,
+                    advertising_data: &[],
+                    conn_interval: (None, None),
+                })
+                .await
+                .unwrap();
+            info!("{}", response);
 
-    info!("update advertising data type...");
-    ble.update_advertising_data(&[3, AdvertisingDataType::UuidCompleteList16 as u8, 0xaa, 0xfe])
-        .await
-        .unwrap();
-    let response = ble.read().await.unwrap();
-    info!("{}", response);
+            // remove some advertisement to decrease the packet size
+            info!("delete tx power ad type...");
+            let response = ble.delete_ad_type(AdvertisingDataType::TxPowerLevel).await;
+            info!("{}", response);
 
-    info!("update advertising data flags...");
-    ble.update_advertising_data(&[
-        2,
-        AdvertisingDataType::Flags as u8,
-        (0x02 | 0x04) as u8, // BLE general discoverable, without BR/EDR support
-    ])
-    .await
-    .unwrap();
-    let response = ble.read().await.unwrap();
-    info!("{}", response);
+            info!("delete conn interval ad type...");
+            let response = ble
+                .delete_ad_type(AdvertisingDataType::PeripheralConnectionInterval)
+                .await;
+            info!("{}", response);
 
-    info!("Test OK");
-    cortex_m::asm::bkpt();
+            info!("update advertising data...");
+            let response = ble.update_advertising_data(&eddystone_advertising_data()).await;
+            info!("{}", response);
+
+            info!("update advertising data type...");
+            let response = ble
+                .update_advertising_data(&[3, AdvertisingDataType::UuidCompleteList16 as u8, 0xaa, 0xfe])
+                .await;
+            info!("{}", response);
+
+            info!("update advertising data flags...");
+            let response = ble
+                .update_advertising_data(&[
+                    2,
+                    AdvertisingDataType::Flags as u8,
+                    (0x02 | 0x04) as u8, // BLE general discoverable, without BR/EDR support
+                ])
+                .await;
+            info!("{}", response);
+
+            info!("Tesk OK");
+            cortex_m::asm::bkpt();
+        },
+    )
+    .await;
 }
 
 fn get_bd_addr() -> BdAddr {

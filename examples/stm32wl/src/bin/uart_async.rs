@@ -29,7 +29,7 @@ but can be surely changed for your needs.
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
-    config.rcc.sys = embassy_stm32::rcc::Sysclk::HSE;
+    config.rcc.sys = embassy_stm32::rcc::Sysclk::Hse;
     let p = embassy_stm32::init_primary(config, &SHARED_DATA);
 
     defmt::info!("Starting system");

@@ -175,6 +175,8 @@ define_counters!(
     interrupt_i2c2_wake,
     interrupt_i2c3,
     interrupt_i2c3_wake,
+    interrupt_i2c4,
+    interrupt_i2c4_wake,
     interrupt_i3c0,
     interrupt_i3c0_wake,
     #[cfg(feature = "mcxa5xx")]

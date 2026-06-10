@@ -13,7 +13,7 @@ async fn main(_spawner: Spawner) -> ! {
     defmt::info!("Hello World!");
 
     // replace PC13 with the right pin for your board.
-    let _mco = Mco::new(p.MCO, p.PA8, McoSource::SYS, McoConfig::default());
+    let _mco = Mco::new(p.MCO, p.PA8, McoSource::Sys, McoConfig::default());
     loop {
         defmt::info!("on!");
         Timer::after_millis(1000).await;

@@ -28,6 +28,7 @@ flavors = [
 ]
 
 [dependencies]
+bbqueue = { version = "0.7.0", features = ["disable-cache-padding"] }
 cortex-m = { version = "0.7", features = ["critical-section-single-core", "inline-asm"] }
 # If you would like "device" to be an optional feature, please open an issue.
 cortex-m-rt = { version = "0.7", features = ["device"] }
@@ -35,7 +36,7 @@ critical-section = "1.2.0"
 defmt = { version = "1.0", optional = true }
 embassy-embedded-hal = { version = "0.6.0", path = "../embassy-embedded-hal" }
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
-embassy-hal-internal = { version = "0.4.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-3"] }
+embassy-hal-internal = { version = "0.5.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-3"] }
 embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
@@ -43,11 +44,8 @@ embedded-hal-async = { version = "1.0" }
 embedded-hal-nb = { version = "1.0" }
 embedded-io = "0.7"
 embedded-io-async = { version = "0.7.0" }
-heapless = "0.9"
-maitake-sync = { version = "0.3.0", default-features = false, features = ["critical-section", "no-cache-pad"] }
-nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "c2f056f666c766563c7a22cb48d5f7a199714d7f", features = ["rt"] }
-nb = "1.1.0"
-paste = "1.0.15"
+embedded-mcu-hal = { version = "0.2.0", optional = true }
+embedded-storage = "0.3.1"
 
 # Custom executor support
 embassy-executor = { version = "0.10.0", path = "../embassy-executor" }
@@ -55,20 +53,37 @@ embassy-executor = { version = "0.10.0", path = "../embassy-executor" }
 # `time` dependencies
 embassy-time = { version = "0.5.1", path = "../embassy-time" }
 embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", features = ["tick-hz-1_000_000"] }
-embassy-time-queue-utils = { version = "0.3.0", path = "../embassy-time-queue-utils" }
+embassy-time-queue-utils = { version = "0.3.2", path = "../embassy-time-queue-utils" }
+
+grounded = { version = "0.2.1", features = ["cas", "critical-section"] }
+heapless = "0.9"
+maitake-sync = { version = "0.3.0", default-features = false, features = ["critical-section", "no-cache-pad"] }
+nb = "1.1.0"
+nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "de562468e3956108913453f7a049d5fe7758de0b", features = ["rt"] }
+paste = "1.0.15"
 
 rand-core-06 = { package = "rand_core", version = "0.6" }
 rand-core-09 = { package = "rand_core", version = "0.9" }
-embedded-storage = "0.3.1"
-bbqueue = { version = "0.7.0", features = ["disable-cache-padding"] }
-grounded = { version = "0.2.1", features = ["cas", "critical-section"] }
+rand-core-10 = { package = "rand_core", version = "0.10" }
+
+[build-dependencies]
+nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "de562468e3956108913453f7a049d5fe7758de0b", default-features = false, features = ["metadata"] }
+proc-macro2 = "1.0.106"
+quote = "1.0.45"
+regex = "1.12.3"
+syn = "2.0.117"
+convert_case = "0.11"
+indexmap = "2.14.0"
 
 [features]
-default = ["rt", "swd-swo-as-gpio"]
+default = ["rt", "swd-swo-as-gpio", "dma-ipd-req"]
 
 # Base defmt feature enables core + panic handler
 # Use with one logger feature: defmt-rtt (preferred) or defmt-uart (fallback)
 defmt = ["dep:defmt", "nxp-pac/defmt"]
+
+# Enable optional embedded-mcu-hal traits
+embedded-mcu-hal = ["dep:embedded-mcu-hal"]
 
 unstable-pac = []
 
@@ -117,6 +132,13 @@ jtag-extras-as-gpio = []
 # feature. Use at your own risk!
 dangerous-reset-as-gpio = []
 
+# Unmasks DMA IPD_REQ hardware lines in AHBSC during init. (only on MCXA5xx)
+#
+# If this feature is not set, something else is responsible for unmasking them
+# when driving DMA transfers from hardware peripheral requests.
+# This can either be another (trustzone secure) binary or from IFR0 CFPA Trustzone presets.
+dma-ipd-req = []
+
 # dummy feature to silence embassy-hal-internal lint
 #
 # This feature makes no change to embassy-mcxa's operation.
@@ -124,6 +146,9 @@ rt = []
 
 # Enable perf counters
 perf = []
+
+# Enable irq tracing
+trace = []
 
 # Enable the custom executor platform implementation, which allows for low-power modes.
 #

@@ -8,18 +8,27 @@ use core::sync::atomic::{AtomicU32, Ordering, compiler_fence};
 use critical_section::CriticalSection;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_time_driver::{Driver, TICK_HZ};
+use embassy_time_driver::Driver;
+#[cfg(not(stm32c5))]
+use embassy_time_driver::TICK_HZ;
 use embassy_time_queue_utils::Queue;
-use stm32_metapac::timer::{TimGp16, regs};
+use stm32_metapac::timer::TimGp16;
+#[cfg(feature = "rt")]
+use stm32_metapac::timer::regs;
 
 use super::AlarmState;
+#[cfg(not(stm32c5))]
 use crate::interrupt::typelevel::Interrupt;
+#[cfg(not(stm32c5))]
 use crate::pac::timer::vals;
 use crate::peripherals;
+#[cfg(not(stm32c5))]
 use crate::rcc::{self, SealedRccPeripheral};
 #[cfg(feature = "low-power")]
 use crate::rtc::Rtc;
-use crate::timer::{CoreInstance, GeneralInstance1Channel};
+use crate::timer::CoreInstance;
+#[cfg(not(stm32c5))]
+use crate::timer::GeneralInstance1Channel;
 
 // NOTE regarding ALARM_COUNT:
 //
@@ -110,6 +119,7 @@ embassy_time_driver::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
 });
 
 impl RtcDriver {
+    #[cfg(not(stm32c5))]
     /// initialize the timer, but don't start it.  Used for chips like stm32wle5
     /// for low power where the timer config is lost in STOP2.
     pub(crate) fn init_timer(&'static self, cs: critical_section::CriticalSection) {
@@ -132,9 +142,9 @@ impl RtcDriver {
         r.arr().write(|w| w.set_arr(u16::MAX));
 
         // Set URS, generate update and clear URS
-        r.cr1().modify(|w| w.set_urs(vals::Urs::COUNTER_ONLY));
+        r.cr1().modify(|w| w.set_urs(vals::Urs::CounterOnly));
         r.egr().write(|w| w.set_ug(true));
-        r.cr1().modify(|w| w.set_urs(vals::Urs::ANY_EVENT));
+        r.cr1().modify(|w| w.set_urs(vals::Urs::AnyEvent));
 
         // Mid-way point
         r.ccr(0).write(|w| w.set_ccr(0x8000));
@@ -156,11 +166,13 @@ impl RtcDriver {
         }
     }
 
+    #[cfg(not(stm32c5))]
     fn init(&'static self, cs: CriticalSection) {
         self.init_timer(cs);
         regs_gp16().cr1().modify(|w| w.set_cen(true));
     }
 
+    #[cfg(feature = "rt")]
     pub(crate) fn on_interrupt(&self) {
         let r = regs_gp16();
 
@@ -190,6 +202,7 @@ impl RtcDriver {
         })
     }
 
+    #[cfg(feature = "rt")]
     fn next_period(&self) {
         let r = regs_gp16();
 
@@ -303,10 +316,6 @@ impl super::LPTimeDriver for RtcDriver {
 
         let time_until_next_alarm = self.time_until_next_alarm(cs);
         if time_until_next_alarm < self.min_stop_pause.borrow(cs).get() {
-            trace!(
-                "time_until_next_alarm < self.min_stop_pause ({})",
-                time_until_next_alarm
-            );
             Err(())
         } else {
             self.rtc
@@ -336,10 +345,6 @@ impl super::LPTimeDriver for RtcDriver {
         );
 
         regs_gp16().cr1().modify(|w| w.set_cen(true));
-    }
-
-    fn is_stopped(&self) -> bool {
-        !regs_gp16().cr1().read().cen()
     }
 }
 
@@ -371,6 +376,7 @@ pub(crate) const fn get_driver() -> &'static RtcDriver {
     &DRIVER
 }
 
+#[cfg(not(stm32c5))]
 pub(crate) fn init(cs: CriticalSection) {
     DRIVER.init(cs)
 }

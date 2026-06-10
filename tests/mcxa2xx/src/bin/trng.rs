@@ -24,28 +24,9 @@ async fn main(_spawner: Spawner) {
 
     // Note: this test might fail once every ~2^28 or so.
 
-    // Static
-    let mut trng = Trng::new_blocking_128(p.TRNG0.reborrow());
-    let rand1 = trng.blocking_next_u32();
-    let rand2 = trng.blocking_next_u32();
-    assert_ne!(rand1, rand2);
-    drop(trng);
-
-    let mut trng = Trng::new_blocking_256(p.TRNG0.reborrow());
-    let rand1 = trng.blocking_next_u32();
-    let rand2 = trng.blocking_next_u32();
-    assert_ne!(rand1, rand2);
-    drop(trng);
-
-    let mut trng = Trng::new_blocking_512(p.TRNG0.reborrow());
-    let rand1 = trng.blocking_next_u32();
-    let rand2 = trng.blocking_next_u32();
-    assert_ne!(rand1, rand2);
-    drop(trng);
-
     // Blocking
     let config = trng::Config::default();
-    let mut trng = Trng::new_blocking_with_custom_config(p.TRNG0.reborrow(), config);
+    let mut trng = Trng::new_blocking(p.TRNG0.reborrow(), config);
 
     let rand1 = trng.blocking_next_u32();
     let rand2 = trng.blocking_next_u32();
@@ -65,7 +46,7 @@ async fn main(_spawner: Spawner) {
     drop(trng);
 
     // Async
-    let mut trng = Trng::new_with_custom_config(p.TRNG0.reborrow(), Irqs, config);
+    let mut trng = Trng::new_async(p.TRNG0.reborrow(), Irqs, config);
 
     let rand1 = trng.async_next_u32().await.unwrap();
     let rand2 = trng.async_next_u32().await.unwrap();

@@ -27,9 +27,7 @@
 
 use defmt::*;
 use embassy_stm32::pka::{EccPoint, EcdsaCurveParams, Pka};
-use embassy_stm32::rcc::{
-    AHB5Prescaler, AHBPrescaler, APBPrescaler, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale, mux,
-};
+use embassy_stm32::rcc::mux;
 use embassy_stm32::rng::Rng;
 use embassy_stm32::{Config, bind_interrupts, peripherals};
 use {defmt_rtt as _, panic_probe as _};
@@ -42,24 +40,8 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(_spawner: embassy_executor::Spawner) {
     let mut config = Config::default();
-    config.rcc.pll1 = Some(embassy_stm32::rcc::Pll {
-        source: PllSource::HSI,
-        prediv: PllPreDiv::DIV1,
-        mul: PllMul::MUL30,
-        divr: Some(PllDiv::DIV5),
-        divq: None,
-        divp: Some(PllDiv::DIV30),
-        frac: Some(0),
-    });
-    config.rcc.ahb_pre = AHBPrescaler::DIV1;
-    config.rcc.apb1_pre = APBPrescaler::DIV1;
-    config.rcc.apb2_pre = APBPrescaler::DIV1;
-    config.rcc.apb7_pre = APBPrescaler::DIV1;
-    config.rcc.ahb5_pre = AHB5Prescaler::DIV4;
-    config.rcc.voltage_scale = VoltageScale::RANGE1;
-    config.rcc.sys = Sysclk::PLL1_R;
     // RNG requires HSI clock source on WBA
-    config.rcc.mux.rngsel = mux::Rngsel::HSI;
+    config.rcc.mux.rngsel = mux::Rngsel::Hsi;
 
     let p = embassy_stm32::init(config);
     info!("PKA ECDH Key Agreement Example");
@@ -89,7 +71,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     // Compute Alice's public key: A = alice_private * G
     let mut alice_public = EccPoint::new(32);
-    match pka.ecc_mul(
+    match pka.ecc_mul_blocking(
         &curve,
         &alice_private,
         curve.generator_x,
@@ -127,7 +109,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     // Compute Bob's public key: B = bob_private * G
     let mut bob_public = EccPoint::new(32);
-    match pka.ecc_mul(
+    match pka.ecc_mul_blocking(
         &curve,
         &bob_private,
         curve.generator_x,
@@ -150,7 +132,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     info!("=== Validating Public Keys ===");
 
     // Alice validates Bob's public key
-    match pka.point_check(&curve, &bob_public.x[..32], &bob_public.y[..32]) {
+    match pka.point_check_blocking(&curve, &bob_public.x[..32], &bob_public.y[..32]) {
         Ok(true) => {
             info!("Bob's public key is valid (on curve)");
         }
@@ -169,7 +151,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     }
 
     // Bob validates Alice's public key
-    match pka.point_check(&curve, &alice_public.x[..32], &alice_public.y[..32]) {
+    match pka.point_check_blocking(&curve, &alice_public.x[..32], &alice_public.y[..32]) {
         Ok(true) => {
             info!("Alice's public key is valid (on curve)");
         }
@@ -192,7 +174,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     // Alice computes shared secret: S_alice = alice_private * bob_public
     let mut alice_shared = EccPoint::new(32);
-    match pka.ecc_mul(
+    match pka.ecc_mul_blocking(
         &curve,
         &alice_private,
         &bob_public.x[..32],
@@ -212,7 +194,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     // Bob computes shared secret: S_bob = bob_private * alice_public
     let mut bob_shared = EccPoint::new(32);
-    match pka.ecc_mul(
+    match pka.ecc_mul_blocking(
         &curve,
         &bob_private,
         &alice_public.x[..32],
@@ -269,7 +251,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     info!("Computing public key from known private key...");
     let mut test_public = EccPoint::new(32);
-    match pka.ecc_mul(
+    match pka.ecc_mul_blocking(
         &curve,
         &test_private,
         curve.generator_x,
