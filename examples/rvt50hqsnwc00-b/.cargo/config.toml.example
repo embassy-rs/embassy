@@ -1,6 +1,6 @@
-# Reference snippets for non-Debian/Ubuntu toolchains.
-# `.cargo/config.toml` already covers the standard `apt install gcc-arm-none-eabi`
-# layout — copy from here into `.cargo/config.toml` only if you need to override.
+# Reference snippets for non-default probe-rs or toolchain layouts.
+# `.cargo/config.toml` already covers the standard setup — copy from here only
+# if you need to override.
 
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
 runner = "probe-rs run --chip STM32U5A9NJHxQ --preverify"
@@ -13,25 +13,3 @@ linker = "rust-lld"
 
 [env]
 DEFMT_LOG = "info"
-DEP_LV_CONFIG_PATH = { value = "lvgl", relative = true }
-
-# Cross C compiler (use names on PATH or absolute paths):
-"CC_thumbv8m.main-none-eabihf" = "arm-none-eabi-gcc"
-"AR_thumbv8m.main-none-eabihf" = "arm-none-eabi-ar"
-"CFLAGS_thumbv8m.main-none-eabihf" = "-mcpu=cortex-m33 -mthumb -mfloat-abi=hard -mfpu=fpv5-sp-d16"
-
-# Bindgen / clang flags for `lvgl-sys`. Required by lvgl-sys's bindgen step
-# to find <string.h>, etc. The path is host-specific; the easiest way to
-# set it is `source scripts/lvgl-env.sh` before `cargo build`. Pin one of
-# the snippets below into `.cargo/config.toml` to skip the script.
-#
-# Debian/Ubuntu (libnewlib-dev or picolibc-arm-none-eabi installed):
-# BINDGEN_EXTRA_CLANG_ARGS = "--target=thumbv8m.main-none-eabihf -mcpu=cortex-m33 -mthumb -isystem /usr/lib/arm-none-eabi/include"
-#
-# PlatformIO toolchain:
-# "CC_thumbv8m.main-none-eabihf" = "/home/USER/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-gcc"
-# "AR_thumbv8m.main-none-eabihf" = "/home/USER/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-ar"
-# BINDGEN_EXTRA_CLANG_ARGS = "--target=thumbv8m.main-none-eabihf -mcpu=cortex-m33 -mthumb -isystem /home/USER/.platformio/packages/toolchain-gccarmnoneeabi/arm-none-eabi/include"
-#
-# ARM-provided GCC tarball (e.g. /opt/gcc-arm-none-eabi/):
-# BINDGEN_EXTRA_CLANG_ARGS = "--target=thumbv8m.main-none-eabihf -mcpu=cortex-m33 -mthumb -isystem /opt/gcc-arm-none-eabi/arm-none-eabi/include"

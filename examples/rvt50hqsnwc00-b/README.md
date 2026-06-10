@@ -41,98 +41,9 @@ This will:
 
 ## Available Examples
 
-### Basic Examples
-
 - `hello_world.rs` - Simple hello world that prints messages via RTT
-
-### Display Examples
-
-- `lvgl_minimal.rs` - Minimal display example with LTDC and double buffering
-  - Demonstrates LTDC initialization
-  - Shows basic graphics (gradient, moving rectangle, borders)
-  - Uses RGB565 format (16 bits per pixel)
-  - Double buffering for smooth animation
-  - Run with: `cargo run --bin lvgl_minimal`
-
-- `lvgl_simple.rs` - Simple LVGL foundation example
-  - Similar to lvgl_minimal but with simpler code structure
-  - Good starting point for adding LVGL widgets
-  - Run with: `cargo run --bin lvgl_simple`
-
-### LVGL Examples (Optional)
-
-The following examples require the LVGL feature to be enabled:
-
-- `lvgl_demo.rs` - Full LVGL demo with widgets
-  - Requires `lvgl` and `lvgl-sys` crates
-  - Enable with: `cargo run --features lvgl --bin lvgl_demo`
-  - Demonstrates various LVGL widgets (buttons, labels, sliders, etc.)
-  - Includes touch input support (I2C)
-
-To enable LVGL support, uncomment the LVGL dependencies in `Cargo.toml`:
-
-```toml
-[dependencies]
-# Uncomment these for LVGL support
-lvgl = "0.6.2"
-lvgl-sys = "0.6.2"
-```
-
-Or use the feature flag:
-```bash
-cargo run --features lvgl --bin lvgl_demo
-```
-
-- `lvgl_touch.rs` - LVGL with capacitive touch input
-  - Run with: `cargo run --bin lvgl_touch --features lvgl,touch`
-
-- `lvgl_buttons.rs` - **Minimal "buttons on screen" demo** (a good starting point)
-  - Three coloured buttons (`A` / `B` / `C`) plus a status label, all built
-    end to end against the safe [lv_binding_rust](https://github.com/lvgl/lv_binding_rust)
-    API (vendored master under `vendor/lv_binding_rust/`).
-  - Run with: `cargo run --bin lvgl_buttons --features lvgl,touch`
-
-- `lvgl_touch_can.rs` - JSON-driven hall lighting UI with CAN press/hold/repeat
-  - Project configs in `touch-projects/SporthalleLudwigsfelde/`
-  - UI via [lv_binding_rust](https://github.com/lvgl/lv_binding_rust) in `src/lvgl/`:
-    - `display.rs` - safe `Display::register` wrapper, RGB565 framebuffer flush
-    - `input.rs` - safe `Pointer::register` wrapper backed by atomic touch state
-    - `theme.rs` - shared LVGL `Style`s (cards, header, buttons)
-    - `hall_ui.rs` - `HallUi` widget tree built from `touch_config` (`tick_and_run`, `set_touch`, `set_button_active`)
-  - Board patterns from [riverdi-50-stm32u5-lvgl](https://github.com/riverdi/riverdi-50-stm32u5-lvgl); legacy C port in `lvgl-port/` is only used by `lvgl_touch.rs` / `lvgl_demo.rs`
-  - One-hot TX on CAN ID `0x200`, `minp` feedback on `0x285`
-
-### Building the LVGL examples
-
-Both `lvgl_buttons.rs` and `lvgl_touch_can.rs` build against the vendored
-`lv_binding_rust` master under `vendor/lv_binding_rust/`. We vendor master
-(rather than depend on the published `lvgl 0.6.2` from crates.io) because
-0.6.2 pins `bindgen 0.64`, which silently produces opaque LVGL structs when
-combined with `libclang ≥ 18` and modern newlib headers; master ships a
-newer bindgen and the API fixes that go with it.
-
-```bash
-# Install GCC + libc headers (newlib OR picolibc):
-sudo apt install gcc-arm-none-eabi libnewlib-dev      # Debian/Ubuntu
-# sudo pacman -S arm-none-eabi-gcc arm-none-eabi-newlib   # Arch
-# brew install --cask gcc-arm-embedded                    # macOS
-
-# bash/zsh:
-source scripts/lvgl-env.sh
-# fish:
-# source scripts/lvgl-env.fish
-
-cargo run --bin lvgl_buttons   --features lvgl,touch    # quick demo
-cargo run --bin lvgl_touch_can --features lvgl,touch    # full hall UI
-```
-
-The `lvgl-env` script queries `arm-none-eabi-gcc` for its libc include path
-and exports `BINDGEN_EXTRA_CLANG_ARGS` (so `lvgl-sys`' bindgen can find
-`<string.h>`). Works with Debian/Ubuntu apt, Arch, the ARM-provided GCC
-tarball, PlatformIO, and Homebrew. Cross-compiler env (`CC` / `AR` /
-`CFLAGS`) is set in `.cargo/config.toml`. To skip the script paste a
-snippet from `.cargo/config.toml.example` into your local
-`.cargo/config.toml`.
+- `gpio.rs` - Poll the user button (`PH3`) and flash the user LED (`PE5`)
+- `can_raw.rs` - FDCAN demo on connector P5 (pattern TX + LED state RX)
 
 ## Configuration
 
@@ -148,14 +59,16 @@ The `memory-x` feature in `embassy-stm32` automatically provides the correct mem
 The LTDC (LCD-TFT Display Controller) is configured with:
 - **Resolution**: 800x480 pixels
 - **Color Format**: RGB565 (16 bits per pixel)
-- **Pixel Clock**: ~30 MHz (from PLL3)
+- **Pixel Clock**: ~25 MHz (from PLL3)
 - **Timing Parameters**:
-  - Horizontal Sync: 5 pulses
-  - Horizontal Back Porch: 40 pulses
-  - Horizontal Front Porch: 20 pulses
-  - Vertical Sync: 5 pulses
-  - Vertical Back Porch: 10 pulses
-  - Vertical Front Porch: 20 pulses
+  - Horizontal Sync: 4 pulses
+  - Horizontal Back Porch: 8 pulses
+  - Horizontal Front Porch: 8 pulses
+  - Vertical Sync: 4 pulses
+  - Vertical Back Porch: 8 pulses
+  - Vertical Front Porch: 8 pulses
+
+Board support helpers for LTDC init live in `src/rvt50_board.rs` (`init_display`, `ltdc_configuration`).
 
 ### Pin Configuration
 
@@ -166,26 +79,18 @@ The following pins are used for LTDC:
 | CLK    | PD3 | Pixel clock |
 | HSYNC  | PE0 | Horizontal sync |
 | VSYNC  | PD13 | Vertical sync |
-| DE     | PD6 | Data enable |
-| R0     | PC6 | Red bit 0 |
-| R1     | PC7 | Red bit 1 |
-| R2     | PE15 | Red bit 2 |
+| DE     | PF11 | Data enable |
 | R3     | PD8 | Red bit 3 |
 | R4     | PD9 | Red bit 4 |
 | R5     | PD10 | Red bit 5 |
 | R6     | PD11 | Red bit 6 |
 | R7     | PD12 | Red bit 7 |
-| G0     | PC8 | Green bit 0 |
-| G1     | PC9 | Green bit 1 |
 | G2     | PE9 | Green bit 2 |
 | G3     | PE10 | Green bit 3 |
 | G4     | PE11 | Green bit 4 |
 | G5     | PE12 | Green bit 5 |
 | G6     | PE13 | Green bit 6 |
 | G7     | PE14 | Green bit 7 |
-| B0     | PB9 | Blue bit 0 |
-| B1     | PB2 | Blue bit 1 |
-| B2     | PD14 | Blue bit 2 |
 | B3     | PD15 | Blue bit 3 |
 | B4     | PD0 | Blue bit 4 |
 | B5     | PD1 | Blue bit 5 |
@@ -195,13 +100,14 @@ The following pins are used for LTDC:
 ### Touch Controller
 
 The touch controller typically uses I2C:
-- **SCL**: PB6
-- **SDA**: PB7
-- **Address**: 0x38 (common for FT5x06/GT911 controllers)
+- **SCL**: PG13
+- **SDA**: PG14
+- **Reset**: PE3
+- **Address**: 0x41 (touch-panel variants)
 
 ## Memory Usage
 
-The STM32U5A9NJH6Q has 2.5MB of RAM. The display examples use:
+The STM32U5A9NJH6Q has 2.5MB of RAM. A full-screen double-buffered RGB565 display uses:
 - **Frame Buffer 1**: 800 * 480 * 2 = 768,000 bytes (~750KB)
 - **Frame Buffer 2**: 800 * 480 * 2 = 768,000 bytes (~750KB)
 - **Total for double buffering**: ~1.5MB
@@ -240,42 +146,6 @@ async fn main(_spawner: Spawner) -> ! {
     }
 }
 ```
-
-## LVGL Integration Notes
-
-To integrate LVGL with the display:
-
-1. **Add LVGL dependencies** to `Cargo.toml`:
-   ```toml
-   lvgl = "0.6.2"
-   lvgl-sys = "0.6.2"
-   ```
-
-2. **Create a display driver** that implements `lvgl::Display` trait
-
-3. **Create an input device driver** that implements `lvgl::InputDevice` trait
-
-4. **Initialize LVGL** in your task:
-   ```rust
-   let mut display = lvgl::Display::new(DISPLAY_WIDTH as u16, DISPLAY_HEIGHT as u16);
-   let draw_buf = lvgl::DrawBuffer::new(...);
-   display.set_draw_buffer(&draw_buf);
-   ```
-
-5. **Register drivers** with LVGL:
-   ```rust
-   lvgl::Display::register(&mut my_display);
-   lvgl::InputDevice::register(&mut my_touch);
-   ```
-
-6. **Main loop**:
-   ```rust
-   loop {
-       lvgl::tick_inc(5); // Increment LVGL tick
-       lvgl::handler();   // Handle LVGL tasks
-       // Your rendering code here
-   }
-   ```
 
 ## User button (PH3 / BOOT0)
 
@@ -342,7 +212,7 @@ Make sure your probe is properly connected and the board is powered.
 
 ### Display Not Working
 
-1. Check that the LTDC clock is configured correctly (typically 25-30 MHz)
+1. Check that the LTDC clock is configured correctly (typically 25 MHz)
 2. Verify the display timing parameters match your panel specifications
 3. Ensure all RGB data lines are properly connected
 4. Check that the display enable (DE) and control signals are active
@@ -362,7 +232,6 @@ Make sure your probe is properly connected and the board is powered.
 - [STM32U5 Series Reference Manual](https://www.st.com/resource/en/reference_manual/dm00314054-stm32u5-series-advanced-arm-based-mcus-stmicroelectronics.pdf)
 - [Embassy Documentation](https://docs.embassy.dev/)
 - [probe-rs Documentation](https://probe.rs/docs/getting-started/installation/)
-- [LVGL Documentation](https://docs.lvgl.io/master/)
 
 ## License
 

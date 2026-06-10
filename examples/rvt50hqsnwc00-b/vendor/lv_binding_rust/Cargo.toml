@@ -1,8 +1,0 @@
-[workspace]
-members = [
-    "lvgl",
-    "lvgl-codegen",
-    "lvgl-sys",
-]
-
-resolver = "2"

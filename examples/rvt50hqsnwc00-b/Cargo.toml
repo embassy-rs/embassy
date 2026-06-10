@@ -7,10 +7,6 @@ publish = false
 
 description = "Examples for Riverdi RVT50HQSNWC00-B board with STM32U5A9NJH6Q"
 
-[build-dependencies]
-cc = "1.2"
-serde_json = "1.0"
-
 [dependencies]
 # RVT50HQSNWC00-B uses STM32U5A9NJH6Q with 4MB Flash, 2.5MB RAM
 embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = ["defmt", "unstable-pac", "stm32u5a9nj", "time-driver-any", "memory-x", "exti"] }
@@ -19,7 +15,6 @@ embassy-executor = { version = "0.10.0", path = "../../embassy-executor", featur
 embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
 
-# Display and graphics
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
 
@@ -28,33 +23,10 @@ cortex-m-rt = "0.7.0"
 embedded-hal = "0.2.6"
 embedded-can = "0.4"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
-heapless = { version = "0.9", default-features = false }
 static_cell = "2"
 
-# Optional LVGL dependencies (lvgl-sys builds the C library; port.c provides drivers)
-# 0.8.x to match the embedded-graphics dep used by the vendored
-# `lv_binding_rust` master under `vendor/lv_binding_rust/`.
-embedded-graphics = { version = "0.8.0", default-features = false, optional = true }
-lvgl = { version = "0.6.2", optional = true, default-features = false, features = [
-  "unsafe_no_autoinit",
-  "embedded_graphics",
-  "lvgl_alloc",
-] }
-lvgl-sys = { version = "0.6.2", optional = true }
-cstr_core = { version = "0.2.6", optional = true, default-features = false, features = ["alloc"] }
-
-[features]
-default = []
-# Capacitive touch panel (RVT50HQSNWC00 and similar variants)
-touch = []
-# Enable LVGL support (requires lv_conf.h via DEP_LV_CONFIG_PATH)
-lvgl = ["dep:lvgl-sys", "dep:lvgl", "dep:cstr_core", "dep:embedded-graphics"]
-# Convenience alias for the touch demo binary
-lvgl-touch = ["lvgl", "touch"]
-# JSON-driven hall lighting UI with CAN press/hold/repeat
-lvgl-touch-can = ["lvgl", "touch"]
-
 ## Use secure registers when TrustZone is enabled
+[features]
 trustzone-secure = ["embassy-stm32/trustzone-secure"]
 
 [profile.release]
@@ -64,12 +36,3 @@ debug = 2
 build = [
   { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/rvt50hqsnwc00-b" }
 ]
-
-# Bindgen 0.64 (used by lvgl-sys 0.6.2 on crates.io) silently produces opaque
-# `_lv_*` structs (only an `_address` field) when libclang ≥18 hits newer
-# newlib (≥4.5) headers. Pin to a vendored fork of `lv_binding_rust` master
-# with bindgen bumped to 0.72, which parses the same headers correctly.
-[patch.crates-io]
-lvgl = { path = "vendor/lv_binding_rust/lvgl" }
-lvgl-sys = { path = "vendor/lv_binding_rust/lvgl-sys" }
-lvgl-codegen = { path = "vendor/lv_binding_rust/lvgl-codegen" }

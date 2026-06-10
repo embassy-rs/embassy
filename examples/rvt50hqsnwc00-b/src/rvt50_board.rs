@@ -5,23 +5,17 @@
 //!
 //! Pin assignments follow the
 //! [BD_50STM32U5 Rev.1.1](https://download.riverdi.com/RVT50HQSNWN00/BD_50STM32U5_Rev.1.1.pdf)
-//! schematic and the official
-//! [LVGL Riverdi STM32U5 port](https://github.com/lvgl/lv_port_riverdi_stm32u5).
+//! schematic and the Riverdi STM32U5 reference design.
 
 use defmt::info;
 use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::gpio::{Input, Level, Output, Pin, Pull, Speed};
 use embassy_stm32::interrupt;
 use embassy_stm32::ltdc::{self, Ltdc, LtdcConfiguration, PolarityActive, PolarityEdge};
+use embassy_stm32::mode::Async;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{bind_interrupts, can, peripherals, Config, Peri, Peripherals, rcc};
 use embassy_time::{Duration, Timer};
-
-#[cfg(feature = "touch")]
-use embassy_stm32::i2c::{self, Config as I2cConfig, I2c};
-use embassy_stm32::mode::Async;
-#[cfg(feature = "touch")]
-use embassy_stm32::mode::Blocking;
 
 pub const DISPLAY_WIDTH: usize = 800;
 pub const DISPLAY_HEIGHT: usize = 480;
@@ -57,10 +51,6 @@ pub fn can_frame_standard_id(frame: &can::frame::Frame) -> Option<u16> {
 pub fn can_led_state_from_payload(data: &[u8]) -> Option<bool> {
     data.first().map(|byte| byte & 1 != 0)
 }
-
-/// Capacitive touch controller on I2C1 (7-bit address), touch-panel variants only.
-#[cfg(feature = "touch")]
-pub const TOUCH_I2C_ADDR: u8 = 0x41;
 
 /// Board layout and pin assignments from BD_50STM32U5 Rev.1.1.
 pub mod pins {
@@ -143,13 +133,9 @@ pub mod pins {
     pub const SD_CK: &str = "PC12";
     pub const SD_CMD: &str = "PD2";
 
-    #[cfg(feature = "touch")]
     pub const CTP_RST: &str = "PE3";
-    #[cfg(feature = "touch")]
     pub const CTP_INT: &str = "PE6";
-    #[cfg(feature = "touch")]
     pub const TOUCH_I2C_SCL: &str = "PG13";
-    #[cfg(feature = "touch")]
     pub const TOUCH_I2C_SDA: &str = "PG14";
 }
 
@@ -187,7 +173,7 @@ pub fn init_clocks() -> Peripherals {
     config.rcc.sys = rcc::Sysclk::Pll1R;
     config.rcc.mux.fdcan1sel = rcc::mux::Fdcansel::Pll1Q;
 
-    // 16 MHz / 4 * 75 / 12 = 25 MHz LTDC clock (matches lv_port_riverdi_stm32u5)
+    // 16 MHz / 4 * 75 / 12 = 25 MHz LTDC clock (matches Riverdi CubeMX reference)
     config.rcc.pll3 = Some(rcc::Pll {
         source: rcc::PllSource::Hse,
         prediv: rcc::PllPreDiv::Div4,
@@ -207,7 +193,7 @@ pub fn enable_icache() {
     });
 }
 
-/// Riverdi RK050HR18 panel timing from lv_port_riverdi_stm32u5 / CubeMX.
+/// Riverdi RK050HR18 panel timing from the Riverdi CubeMX reference.
 pub fn ltdc_configuration() -> LtdcConfiguration {
     LtdcConfiguration {
         active_width: DISPLAY_WIDTH as _,
@@ -266,24 +252,6 @@ pub fn init_can(
     can::CanConfigurator::new(fdcan, rx, tx, CanIrqs)
 }
 
-#[cfg(feature = "touch")]
-pub struct DisplayResources {
-    pub ltdc: Ltdc<'static, peripherals::LTDC, ltdc::Rgb565>,
-    pub i2c: I2c<'static, Blocking, i2c::Master>,
-}
-
-/// Display, touch, and CAN peripherals for the hall touch UI example.
-#[cfg(feature = "touch")]
-pub struct TouchCanResources {
-    pub ltdc: Ltdc<'static, peripherals::LTDC, ltdc::Rgb565>,
-    pub i2c: I2c<'static, Blocking, i2c::Master>,
-    pub fdcan: Peri<'static, peripherals::FDCAN1>,
-    pub can_rx_pin: Peri<'static, peripherals::PB8>,
-    pub can_tx_pin: Peri<'static, peripherals::PB9>,
-    pub can_stb: Peri<'static, peripherals::PI6>,
-}
-
-#[cfg(not(feature = "touch"))]
 pub struct DisplayResources {
     pub ltdc: Ltdc<'static, peripherals::LTDC, ltdc::Rgb565>,
 }
@@ -300,41 +268,8 @@ fn init_backlight(pin: Peri<'static, impl Pin>) {
     backlight.set_high();
 }
 
-/// Initialize LTDC, panel reset/backlight, and optionally touch I2C.
+/// Initialize LTDC, panel reset, and backlight.
 pub async fn init_display(p: Peripherals) -> DisplayResources {
-    #[cfg(feature = "touch")]
-    let Peripherals {
-        LTDC,
-        PD3,
-        PE0,
-        PD13,
-        PF11,
-        PD15,
-        PD0,
-        PD1,
-        PE7,
-        PE8,
-        PE9,
-        PE10,
-        PE11,
-        PE12,
-        PE13,
-        PE14,
-        PD8,
-        PD9,
-        PD10,
-        PD11,
-        PD12,
-        PH7,
-        PB14,
-        PE3,
-        PG13,
-        PG14,
-        I2C1,
-        ..
-    } = p;
-
-    #[cfg(not(feature = "touch"))]
     let Peripherals {
         LTDC,
         PD3,
@@ -393,122 +328,6 @@ pub async fn init_display(p: Peripherals) -> DisplayResources {
     );
     ltdc.init(&ltdc_configuration());
 
-    #[cfg(feature = "touch")]
-    {
-        // Touch controller reset (PE3 / CTP_RST)
-        let mut touch_reset = Output::new(PE3, Level::Low, Speed::Low);
-        touch_reset.set_high();
-        Timer::after(Duration::from_millis(10)).await;
-        touch_reset.set_low();
-        Timer::after(Duration::from_millis(10)).await;
-        touch_reset.set_high();
-        Timer::after(Duration::from_millis(10)).await;
-
-        let i2c = I2c::new_blocking(I2C1, PG14, PG13, I2cConfig::default());
-        info!("LTDC and touch I2C initialized");
-        return DisplayResources { ltdc, i2c };
-    }
-
-    #[cfg(not(feature = "touch"))]
-    {
-        info!("LTDC initialized");
-        DisplayResources { ltdc }
-    }
-}
-
-/// Initialize display, touch, and CAN for the hall touch UI example.
-#[cfg(feature = "touch")]
-pub async fn init_touch_can(p: Peripherals) -> TouchCanResources {
-    let Peripherals {
-        LTDC,
-        PD3,
-        PE0,
-        PD13,
-        PF11,
-        PD15,
-        PD0,
-        PD1,
-        PE7,
-        PE8,
-        PE9,
-        PE10,
-        PE11,
-        PE12,
-        PE13,
-        PE14,
-        PD8,
-        PD9,
-        PD10,
-        PD11,
-        PD12,
-        PH7,
-        PB14,
-        PE3,
-        PG13,
-        PG14,
-        I2C1,
-        FDCAN1,
-        PB8,
-        PB9,
-        PI6,
-        ..
-    } = p;
-
-    info!("Initializing LTDC (Riverdi RVT50 timing)...");
-
-    reset_panel(PH7).await;
-    init_backlight(PB14);
-
-    let mut ltdc = Ltdc::<_, ltdc::Rgb565>::new_with_pins(
-        LTDC,
-        Irqs,
-        PD3, PE0, PD13, PF11, PD15, PD0, PD1, PE7, PE8, PE9, PE10, PE11, PE12, PE13, PE14, PD8, PD9,
-        PD10, PD11, PD12,
-    );
-    ltdc.init(&ltdc_configuration());
-
-    let mut touch_reset = Output::new(PE3, Level::Low, Speed::Low);
-    touch_reset.set_high();
-    Timer::after(Duration::from_millis(10)).await;
-    touch_reset.set_low();
-    Timer::after(Duration::from_millis(10)).await;
-    touch_reset.set_high();
-    Timer::after(Duration::from_millis(10)).await;
-
-    let i2c = I2c::new_blocking(I2C1, PG14, PG13, I2cConfig::default());
-    info!("LTDC, touch I2C, and CAN pins initialized");
-
-    TouchCanResources {
-        ltdc,
-        i2c,
-        fdcan: FDCAN1,
-        can_rx_pin: PB8,
-        can_tx_pin: PB9,
-        can_stb: PI6,
-    }
-}
-
-#[derive(Clone, Copy, Default)]
-pub struct TouchPoint {
-    pub x: u16,
-    pub y: u16,
-    pub pressed: bool,
-}
-
-/// Read touch coordinates (FT5x06-style protocol from lv_port_riverdi_stm32u5).
-#[cfg(feature = "touch")]
-pub fn read_touch(i2c: &mut I2c<'static, Blocking, i2c::Master>) -> TouchPoint {
-    let mut data = [0u8; 16];
-    match i2c.blocking_write_read(TOUCH_I2C_ADDR, &[0x10], &mut data) {
-        Ok(()) => {
-            let x = u16::from(data[3] & 0x0F) << 8 | u16::from(data[2]);
-            let y = u16::from(data[5] & 0x0F) << 8 | u16::from(data[4]);
-            TouchPoint {
-                x: x.min(DISPLAY_WIDTH as u16 - 1),
-                y: y.min(DISPLAY_HEIGHT as u16 - 1),
-                pressed: true,
-            }
-        }
-        Err(_) => TouchPoint::default(),
-    }
+    info!("LTDC initialized");
+    DisplayResources { ltdc }
 }
