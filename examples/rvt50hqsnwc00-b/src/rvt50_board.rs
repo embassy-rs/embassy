@@ -1,7 +1,7 @@
 //! Board support for Riverdi STM32 embedded 5" displays (STM32U5A9NJH6Q).
 //!
-//! Default configuration matches [RVT50HQSNWN00](https://download.riverdi.com/RVT50HQSNWN00/DS_RVT50HQSNWN00_Rev.1.1.pdf):
-//! 800×480 RGB565 panel, no touch panel.
+//! Default configuration matches [RVT50HQSNWC00-B](https://download.riverdi.com/RVT50HQSNWC00-B/DS_RVT50HQSNWC00-B_Rev.1.1.pdf):
+//! 800×480 RGB565 panel with capacitive touch (I2C + `CTP_INT`).
 //!
 //! Pin assignments follow the
 //! [BD_50STM32U5 Rev.1.1](https://download.riverdi.com/RVT50HQSNWN00/BD_50STM32U5_Rev.1.1.pdf)
@@ -17,9 +17,9 @@ use embassy_stm32::time::Hertz;
 use embassy_stm32::{bind_interrupts, can, peripherals, Config, Peri, Peripherals, rcc};
 use embassy_time::{Duration, Timer};
 
-#[cfg(feature = "touch")]
+#[cfg(feature = "oxivgl")]
 use embassy_stm32::i2c::{self, Config as I2cConfig, I2c};
-#[cfg(feature = "touch")]
+#[cfg(feature = "oxivgl")]
 use embassy_stm32::mode::Blocking;
 
 pub const DISPLAY_WIDTH: usize = 800;
@@ -57,8 +57,8 @@ pub fn can_led_state_from_payload(data: &[u8]) -> Option<bool> {
     data.first().map(|byte| byte & 1 != 0)
 }
 
-/// Capacitive touch controller on I2C1 (7-bit address), touch-panel variants only.
-#[cfg(feature = "touch")]
+/// Capacitive touch controller on I2C1 (7-bit address).
+#[cfg(feature = "oxivgl")]
 pub const TOUCH_I2C_ADDR: u8 = 0x41;
 
 /// Board layout and pin assignments from BD_50STM32U5 Rev.1.1.
@@ -68,7 +68,7 @@ pub mod pins {
     //! ```text
     //!                    +-------- MCU (STM32U5A9NJH6Q) --------+
     //!                    |                                      |
-    //!   LCD + CTP -------+ LTDC / I2C1 (touch variants)         |
+    //!   LCD + CTP -------+ LTDC / I2C1                          |
     //!   BACKLIGHT -------+ PB14 (TIM15 PWM)                     |
     //!   CAN (P5) --------+ PB8/PB9 + PI6 (TJA1441)              |
     //!   RS485 (P7) ------+ USART6 + PE4 (ST3485)                |
@@ -162,7 +162,7 @@ bind_interrupts!(pub struct ButtonIrqs {
 });
 
 /// Interrupt binding for the capacitive touch panel INT line (`CTP_INT` / PE6).
-#[cfg(feature = "touch")]
+#[cfg(feature = "oxivgl")]
 bind_interrupts!(pub struct TouchIrqs {
     EXTI6 => exti::InterruptHandler<interrupt::typelevel::EXTI6>;
 });
@@ -269,10 +269,10 @@ pub fn init_can(
 
 pub struct DisplayResources {
     pub ltdc: Ltdc<'static, peripherals::LTDC, ltdc::Rgb565>,
-    #[cfg(feature = "touch")]
+    #[cfg(feature = "oxivgl")]
     pub i2c: I2c<'static, Blocking, i2c::Master>,
     /// EXTI input on `CTP_INT` (PE6, active-low). Asserts on touch events.
-    #[cfg(feature = "touch")]
+    #[cfg(feature = "oxivgl")]
     pub touch_int: ExtiInput<'static, Async>,
 }
 
@@ -288,9 +288,9 @@ fn init_backlight(pin: Peri<'static, impl Pin>) {
     backlight.set_high();
 }
 
-/// Initialize LTDC, panel reset, backlight, and optionally touch I2C.
+/// Initialize LTDC, panel reset, backlight, and (with `oxivgl`) touch I2C + `CTP_INT`.
 pub async fn init_display(p: Peripherals) -> DisplayResources {
-    #[cfg(feature = "touch")]
+    #[cfg(feature = "oxivgl")]
     let Peripherals {
         LTDC,
         PD3,
@@ -324,7 +324,7 @@ pub async fn init_display(p: Peripherals) -> DisplayResources {
         ..
     } = p;
 
-    #[cfg(not(feature = "touch"))]
+    #[cfg(not(feature = "oxivgl"))]
     let Peripherals {
         LTDC,
         PD3,
@@ -383,7 +383,7 @@ pub async fn init_display(p: Peripherals) -> DisplayResources {
     );
     ltdc.init(&ltdc_configuration());
 
-    #[cfg(feature = "touch")]
+    #[cfg(feature = "oxivgl")]
     {
         let mut touch_reset = Output::new(PE3, Level::Low, Speed::Low);
         touch_reset.set_high();
@@ -400,7 +400,7 @@ pub async fn init_display(p: Peripherals) -> DisplayResources {
         return DisplayResources { ltdc, i2c, touch_int };
     }
 
-    #[cfg(not(feature = "touch"))]
+    #[cfg(not(feature = "oxivgl"))]
     {
         info!("LTDC initialized");
         DisplayResources { ltdc }
@@ -423,7 +423,7 @@ pub struct TouchPoint {
 /// Register `0x10` is read over I2C; contact is inferred from the status byte
 /// and coordinates (not from I2C success alone). Idle reads return `raw` `0x00`
 /// or `0xFE` and coordinates parked at the panel edge.
-#[cfg(feature = "touch")]
+#[cfg(feature = "oxivgl")]
 pub fn read_touch(i2c: &mut I2c<'static, Blocking, i2c::Master>) -> TouchPoint {
     let mut data = [0u8; 16];
     match i2c.blocking_write_read(TOUCH_I2C_ADDR, &[0x10], &mut data) {
@@ -446,7 +446,7 @@ pub fn read_touch(i2c: &mut I2c<'static, Blocking, i2c::Master>) -> TouchPoint {
     }
 }
 
-#[cfg(feature = "touch")]
+#[cfg(feature = "oxivgl")]
 fn touch_is_active(raw_status: u8, x: u16, y: u16) -> bool {
     if raw_status == 0x00 || raw_status == 0xFE {
         return false;

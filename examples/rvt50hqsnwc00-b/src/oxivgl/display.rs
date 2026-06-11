@@ -1,6 +1,6 @@
 //! STM32U5 LTDC display flush for OxivGL / LVGL v9.5 on the Riverdi RVT50.
 //!
-//! Uses two full-screen RGB565 buffers (like the rlvgl demos) instead of a
+//! Uses two full-screen RGB565 buffers instead of a
 //! separate shadow framebuffer, keeping RAM within the STM32U5A9 2.5 MiB budget.
 
 use core::ffi::c_void;
@@ -80,7 +80,7 @@ fn rgb565(r: u8, g: u8, b: u8) -> u16 {
     ((r as u16 >> 3) << 11) | ((g as u16 >> 2) << 5) | (b as u16 >> 3)
 }
 
-/// Fill both LTDC framebuffers with the demo panel background (matches rlvgl).
+/// Fill both LTDC framebuffers with the demo panel background.
 pub fn prefill_background() {
     let px = rgb565(16, 32, 48).to_le_bytes();
     // SAFETY: only the UI task touches these static mut buffers.

@@ -44,48 +44,20 @@ This will:
 - `hello_world.rs` - Simple hello world that prints messages via RTT
 - `gpio.rs` - Poll the user button (`PH3`) and flash the user LED (`PE5`)
 - `can_raw.rs` - FDCAN demo on connector P5 (pattern TX + LED state RX)
-- `rlvgl_demo.rs` - Minimal [rlvgl](https://github.com/SoftOboros/rlvgl) UI (label + tappable button)
-- `widget_demo.rs` - Multi-widget **rlvgl** demo (label, button, slider, bar, switch, checkbox)
 - `oxivgl_widget_demo.rs` - Multi-widget **OxivGL** demo (real C LVGL v9.5 via [oxivgl](https://github.com/emobotics-dev/oxivgl))
 
-### UI stacks (`rlvgl` vs `oxivgl`)
+### OxivGL widget demo
 
-| Feature | Library | Toolchain | Description |
-|---------|---------|-----------|-------------|
-| `rlvgl` | [rlvgl](https://github.com/SoftOboros/rlvgl) | Stable Rust 1.92+ | Pure-Rust LVGL-style UI on Embassy LTDC |
-| `oxivgl` | [oxivgl](https://github.com/emobotics-dev/oxivgl) | **Nightly** (see `rust-toolchain.toml`) | C LVGL v9.5 — same generation as [Riverdi's Cube LVGL port](https://github.com/riverdi/riverdi-50-stm32u5-lvgl) |
+Real LVGL v9.5 via OxivGL, with `conf/lv_conf.h` and an STM32U5 LTDC flush driver in `src/oxivgl/`. Capacitive touch is always enabled with the `oxivgl` feature.
 
-Enable **one** UI feature per binary, e.g. `--features rlvgl` or `--features oxivgl`.
+```bash
+cargo run --bin oxivgl_widget_demo --features oxivgl
+```
 
 OxivGL builds also need:
 
 - `arm-none-eabi-gcc` and `libnewlib-arm-none-eabi` (LVGL is compiled from source by `oxivgl-sys`)
 - **Nightly Rust** (`rust-toolchain.toml` in this crate)
-
-### rlvgl demo
-
-The `rlvgl_demo` binary uses **rlvgl 0.2.1** with an Embassy LTDC RGB565 backend. It draws a title and a counter button on the 800×480 panel.
-
-```bash
-cargo run --bin rlvgl_demo --features rlvgl
-cargo run --bin rlvgl_demo --features rlvgl,touch   # capacitive touch input
-```
-
-### rlvgl widget demo
-
-```bash
-cargo run --bin widget_demo --features rlvgl
-cargo run --bin widget_demo --features rlvgl,touch
-```
-
-### OxivGL widget demo
-
-Real LVGL v9.5 via OxivGL, with `conf/lv_conf.h` and an STM32U5 LTDC flush driver in `src/oxivgl/`.
-
-```bash
-cargo run --bin oxivgl_widget_demo --features oxivgl
-cargo run --bin oxivgl_widget_demo --features oxivgl,touch
-```
 
 Touch uses two Embassy tasks: `touch_feed::run_touch_int_task` sleeps on the
 `CTP_INT` EXTI line (PE6, active-low) and only polls I2C while a contact is
@@ -95,12 +67,13 @@ mutex) and calls `lv_indev_read()` after each `timer_handler()` (EVENT-mode
 indev with paused read timer — required on STM32; TIMER mode left `pt=(0,0)`
 in logs). Between taps the touch task is fully idle — zero I2C traffic.
 
-With `touch`, RTT logs include:
+RTT logs trace the touch → widget pipeline:
 
 - `oxivgl touch task: interrupt-driven via CTP_INT` — task start (boot)
 - `oxivgl touch down/up` — raw I2C coordinates
 - `oxivgl touch int wake / spurious` (`DEFMT_LOG=debug`) — EXTI wake-ups
-- `oxivgl indev pressed` — LVGL pointer state vs layout hit-test index
+- `oxivgl touch→widget feed` (`DEFMT_LOG=debug`) — sample + layout hit-test before LVGL
+- `oxivgl indev pressed/released` — LVGL pointer state vs layout hit-test index
 - `oxivgl widget event` — bubbled `PRESSED` / `CLICKED` on scene buttons
 - `oxivgl touch dbg` (every 2 s) — `i2c_ok`, `active_obj`, `layout_hit`,
   `lvgl_events`, `int_wakeups`
@@ -176,11 +149,12 @@ The following pins are used for LTDC:
 
 ### Touch Controller
 
-The touch controller typically uses I2C:
+The touch controller uses I2C:
 - **SCL**: PG13
 - **SDA**: PG14
 - **Reset**: PE3
-- **Address**: 0x41 (touch-panel variants)
+- **Interrupt**: PE6 (`CTP_INT`, active-low)
+- **Address**: 0x41
 
 ## Memory Usage
 

@@ -25,9 +25,8 @@ embedded-can = "0.4"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 static_cell = "2"
 
-# rlvgl — pure-Rust LVGL-style UI (no C LVGL)
-rlvgl = { version = "0.2.1", default-features = false, optional = true }
-# oxivgl — safe Rust bindings over C LVGL v9.5 (Riverdi Cube-compatible sources)
+# oxivgl — safe Rust bindings over C LVGL v9.5 (Riverdi Cube-compatible sources).
+# Capacitive touch (CTP_INT + I2C) is always enabled with this feature.
 oxivgl = { version = "0.1.2", default-features = false, optional = true }
 oxivgl-sys = { version = "0.1.2", default-features = false, optional = true }
 embedded-alloc = { version = "0.6.0", features = ["llff"], optional = true }
@@ -35,19 +34,8 @@ embedded-alloc = { version = "0.6.0", features = ["llff"], optional = true }
 ## Use secure registers when TrustZone is enabled
 [features]
 default = []
-# Pick one UI stack per binary (rlvgl *or* oxivgl).
-rlvgl = ["dep:rlvgl", "dep:embedded-alloc"]
 oxivgl = ["dep:oxivgl", "dep:oxivgl-sys", "dep:embedded-alloc"]
-touch = []
 trustzone-secure = ["embassy-stm32/trustzone-secure"]
-
-[[bin]]
-name = "rlvgl_demo"
-required-features = ["rlvgl"]
-
-[[bin]]
-name = "widget_demo"
-required-features = ["rlvgl"]
 
 [[bin]]
 name = "oxivgl_widget_demo"

@@ -1,6 +1,6 @@
 //! STM32U5 + Embassy LTDC platform glue for OxivGL.
 //!
-//! **Two tasks (touch builds):**
+//! **Two tasks:**
 //! - [`super::touch_feed::run_touch_int_task`] — CTP_INT wake → I2C → channel queue
 //! - `run_widget_demo` — sole LVGL/LTDC owner; drains every queued sample
 
@@ -19,16 +19,13 @@ use static_cell::StaticCell;
 use crate::oxivgl::display::{
     LtdcDisplay, front_framebuffer, prefill_background, present_framebuffer, sync_back_from_front,
 };
-#[cfg(feature = "touch")]
 use crate::oxivgl::indev::{TouchInput, TouchSample};
-#[cfg(feature = "touch")]
 use crate::oxivgl::touch_feed::{self, TouchBoardSample};
 use crate::oxivgl::widget_view::WidgetView;
 use crate::rvt50_board::DISPLAY_WIDTH;
 
 const LVGL_TICK_MS: u64 = LV_DEF_REFR_PERIOD as u64 / 4;
 const PRESENT_PERIOD_MS: u64 = 33;
-#[cfg(feature = "touch")]
 const UI_TICK_MS: u64 = 5;
 const PRESENT_LVGL_TICKS: usize = 4;
 
@@ -37,7 +34,6 @@ pub const LVGL_BUF_BYTES: usize = crate::rvt50_board::DISPLAY_WIDTH * COLOR_BUF_
 
 static VIEW: StaticCell<WidgetView> = StaticCell::new();
 
-#[cfg(feature = "touch")]
 fn drain_touch_queue(
     rx: &mut embassy_sync::channel::Receiver<
         'static,
@@ -82,18 +78,17 @@ async fn lvgl_present_batch(
     driver: &LvglDriver,
     view: &mut WidgetView,
     ltdc: &mut Ltdc<'static, peripherals::LTDC, ltdc::Rgb565>,
-    #[cfg(feature = "touch")] touch_rx: &mut embassy_sync::channel::Receiver<
+    touch_rx: &mut embassy_sync::channel::Receiver<
         'static,
         embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex,
         TouchBoardSample,
         16,
     >,
-    #[cfg(feature = "touch")] touch: &TouchInput,
+    touch: &TouchInput,
 ) {
     sync_back_from_front();
 
     for _ in 0..PRESENT_LVGL_TICKS {
-        #[cfg(feature = "touch")]
         drain_touch_queue(touch_rx, driver, touch, view);
         driver.timer_handler();
         Timer::after(Duration::from_millis(LVGL_TICK_MS)).await;
@@ -131,38 +126,22 @@ pub async fn run_widget_demo(
     register_view_events(view);
     view.log_layout();
 
-    #[cfg(feature = "touch")]
     let touch = TouchInput::register();
-    #[cfg(feature = "touch")]
     let mut touch_rx = touch_feed::receiver();
 
-    #[cfg(feature = "touch")]
     lvgl_present_batch(&driver, view, &mut ltdc, &mut touch_rx, &touch).await;
-    #[cfg(not(feature = "touch"))]
-    lvgl_present_batch(&driver, view, &mut ltdc).await;
 
     let mut next_present = Instant::now() + Duration::from_millis(PRESENT_PERIOD_MS);
 
     loop {
-        #[cfg(feature = "touch")]
         Timer::after(Duration::from_millis(UI_TICK_MS)).await;
-        #[cfg(not(feature = "touch"))]
-        Timer::at(next_present).await;
 
-        #[cfg(feature = "touch")]
-        {
-            drain_touch_queue(&mut touch_rx, &driver, &touch, view);
-            // Keep LVGL alive between touch edges.
-            driver.timer_handler();
-        }
-        #[cfg(not(feature = "touch"))]
+        drain_touch_queue(&mut touch_rx, &driver, &touch, view);
+        // Keep LVGL alive between touch edges.
         driver.timer_handler();
 
         if Instant::now() >= next_present {
-            #[cfg(feature = "touch")]
             lvgl_present_batch(&driver, view, &mut ltdc, &mut touch_rx, &touch).await;
-            #[cfg(not(feature = "touch"))]
-            lvgl_present_batch(&driver, view, &mut ltdc).await;
             next_present = Instant::now() + Duration::from_millis(PRESENT_PERIOD_MS);
         }
     }

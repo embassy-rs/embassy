@@ -10,13 +10,12 @@
 //!
 //! **Requires nightly Rust** (see `rust-toolchain.toml` in this crate).
 //!
-//! With `touch`, I2C sampling runs in a dedicated interrupt-driven Embassy task
-//! ([`touch_feed::run_touch_int_task`], woken by `CTP_INT`); the UI task owns
-//! LVGL and LTDC.
+//! Capacitive touch is always enabled: I2C sampling runs in a dedicated
+//! interrupt-driven Embassy task ([`touch_feed::run_touch_int_task`], woken by
+//! `CTP_INT`); the UI task owns LVGL and LTDC.
 //!
 //! ```bash
 //! cargo run --bin oxivgl_widget_demo --features oxivgl
-//! cargo run --bin oxivgl_widget_demo --features oxivgl,touch
 //! ```
 
 extern crate alloc;
@@ -26,7 +25,6 @@ use core::mem::MaybeUninit;
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
 use embassy_rvt50hqsnwc00_b_examples::oxivgl::platform::{self, LVGL_BUF_BYTES};
-#[cfg(feature = "touch")]
 use embassy_rvt50hqsnwc00_b_examples::oxivgl::touch_feed;
 use embassy_rvt50hqsnwc00_b_examples::rvt50_board::{self, DISPLAY_HEIGHT, DISPLAY_WIDTH};
 use embassy_stm32::ltdc::{self, Ltdc};
@@ -36,7 +34,6 @@ use embedded_alloc::LlffHeap as Heap;
 use oxivgl::display::LvglBuffers;
 use {defmt_rtt as _, panic_probe as _};
 
-/// Match rlvgl demo heap sizing; LVGL also uses its built-in allocator in `lv_conf.h`.
 const HEAP_SIZE: usize = 256 * 1024;
 
 #[global_allocator]
@@ -65,22 +62,11 @@ async fn main(spawner: Spawner) -> ! {
     let bufs = unsafe { &mut LVGL_BUFS };
 
     spawner.spawn(unwrap!(heartbeat_info_task()));
-
-    #[cfg(feature = "touch")]
     spawner.spawn(unwrap!(touch_info_task()));
 
-    #[cfg(feature = "touch")]
-    {
-        let rvt50_board::DisplayResources { ltdc, i2c, touch_int } = rvt50_board::init_display(p).await;
-        spawner.spawn(unwrap!(touch_feed::run_touch_int_task(i2c, touch_int)));
-        spawner.spawn(unwrap!(ui_touch_task(ltdc, bufs)));
-    }
-
-    #[cfg(not(feature = "touch"))]
-    {
-        let rvt50_board::DisplayResources { ltdc } = rvt50_board::init_display(p).await;
-        spawner.spawn(unwrap!(ui_task(ltdc, bufs)));
-    }
+    let rvt50_board::DisplayResources { ltdc, i2c, touch_int } = rvt50_board::init_display(p).await;
+    spawner.spawn(unwrap!(touch_feed::run_touch_int_task(i2c, touch_int)));
+    spawner.spawn(unwrap!(ui_task(ltdc, bufs)));
 
     loop {
         Timer::after_secs(60).await;
@@ -95,7 +81,6 @@ async fn heartbeat_info_task() -> ! {
     }
 }
 
-#[cfg(feature = "touch")]
 #[embassy_executor::task]
 async fn touch_info_task() -> ! {
     use core::sync::atomic::Ordering;
@@ -121,18 +106,8 @@ async fn touch_info_task() -> ! {
     }
 }
 
-#[cfg(not(feature = "touch"))]
 #[embassy_executor::task]
 async fn ui_task(
-    ltdc: Ltdc<'static, peripherals::LTDC, ltdc::Rgb565>,
-    bufs: &'static mut LvglBuffers<{ LVGL_BUF_BYTES }>,
-) -> ! {
-    platform::run_widget_demo(ltdc, bufs).await
-}
-
-#[cfg(feature = "touch")]
-#[embassy_executor::task]
-async fn ui_touch_task(
     ltdc: Ltdc<'static, peripherals::LTDC, ltdc::Rgb565>,
     bufs: &'static mut LvglBuffers<{ LVGL_BUF_BYTES }>,
 ) -> ! {

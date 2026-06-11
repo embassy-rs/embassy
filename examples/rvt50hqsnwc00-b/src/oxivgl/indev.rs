@@ -126,6 +126,10 @@ impl TouchInput {
 
     /// Publish, read indev (before and after timer), run LVGL timers.
     pub fn feed(&self, driver: &LvglDriver, sample: TouchSample, hit_btn: Option<usize>) {
+        debug!(
+            "oxivgl touch→widget feed pressed={} sample=({},{}) layout_hit={:?}",
+            sample.pressed, sample.x, sample.y, hit_btn
+        );
         self.publish(sample);
         let before = self.sync_read();
         driver.timer_handler();
@@ -136,9 +140,7 @@ impl TouchInput {
                 sample.x, sample.y
             );
         }
-        if sample.pressed {
-            self.log_debug(sample, hit_btn);
-        }
+        self.log_debug(sample, hit_btn);
     }
 
     /// Log LVGL pointer indev state and update [`touch_dbg`] atomics.
@@ -163,6 +165,11 @@ impl TouchInput {
             info!(
                 "oxivgl indev pressed state={} pt=({},{}) active_obj={:08x} layout_hit={:?} sample=({},{})",
                 state, pt.x, pt.y, active as u32, hit_btn, sample.x, sample.y
+            );
+        } else {
+            debug!(
+                "oxivgl indev released state={} pt=({},{}) active_obj={:08x} layout_hit={:?}",
+                state, pt.x, pt.y, active as u32, hit_btn
             );
         }
     }

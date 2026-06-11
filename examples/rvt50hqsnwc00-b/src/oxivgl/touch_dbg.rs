@@ -25,7 +25,6 @@ pub static EVENT_COUNT: AtomicU32 = AtomicU32::new(0);
 pub static INT_WAKEUPS: AtomicU32 = AtomicU32::new(0);
 
 /// Store the latest board touch sample for the heartbeat task.
-#[cfg(feature = "touch")]
 pub fn publish_touch(x: i32, y: i32, pressed: bool, i2c_ok: bool, raw_status: u8) {
     X.store(x, Ordering::Relaxed);
     Y.store(y, Ordering::Relaxed);
@@ -46,7 +45,6 @@ pub fn bump_event_count() {
 }
 
 /// Increment the `CTP_INT` wake-up counter (called from the touch task).
-#[cfg(feature = "touch")]
 pub fn bump_int_wakeups() {
     INT_WAKEUPS.fetch_add(1, Ordering::Relaxed);
 }
