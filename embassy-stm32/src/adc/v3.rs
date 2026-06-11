@@ -200,7 +200,7 @@ impl super::AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn stop(&self, _disable: bool) {
+    fn stop(&self) {
         // Ensure conversions are finished.
         if self.cr().read().adstart() && !self.cr().read().addis() {
             self.cr().modify(|reg| {
@@ -220,6 +220,14 @@ impl super::AdcRegs for crate::pac::adc::Adc {
             reg.set_cont(false);
             reg.set_dmaen(false);
         });
+    }
+
+    fn power_down(&self) {
+        self.stop();
+        if self.cr().read().aden() {
+            self.cr().modify(|reg| reg.set_addis(true));
+            while self.cr().read().aden() {}
+        }
     }
 
     /// Perform a single conversion.
@@ -562,14 +570,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     /// This stops ADC operation and may reduce power consumption.
     /// A later read will enable it automatically.
     pub fn power_down(&mut self) {
-        T::regs().stop(false);
-
-        if T::regs().cr().read().aden() {
-            T::regs().cr().modify(|reg| {
-                reg.set_addis(true);
-            });
-            while T::regs().cr().read().aden() {}
-        }
+        T::regs().power_down();
     }
 
     #[cfg(adc_u0)]
