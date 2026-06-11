@@ -10,9 +10,13 @@ pub struct PtpTimestamp {
 
 #[cfg(all(feature = "ptp", any(eth_v2, eth_v2a)))]
 mod imp {
-    use core::sync::atomic::{AtomicU32, Ordering};
+    use core::{
+        sync::atomic::{AtomicU32, Ordering},
+        task::{Context, Poll},
+    };
 
     use embassy_net_driver::PacketMeta;
+    use embassy_sync::waitqueue::AtomicWaker;
 
     use super::PtpTimestamp;
 
@@ -23,6 +27,7 @@ mod imp {
     pub struct PtpTimestampStore<const TX: usize, const RX: usize> {
         tx: [TimestampSlot; TX],
         rx: [TimestampSlot; RX],
+        tx_waker: AtomicWaker,
     }
 
     impl<const TX: usize, const RX: usize> PtpTimestampStore<TX, RX> {
@@ -31,6 +36,7 @@ mod imp {
             Self {
                 tx: [const { TimestampSlot::new() }; TX],
                 rx: [const { TimestampSlot::new() }; RX],
+                tx_waker: AtomicWaker::new(),
             }
         }
 
@@ -40,6 +46,25 @@ mod imp {
         /// was not hardware timestamped, or if the history slot was overwritten.
         pub fn tx_timestamp(&self, meta: PacketMeta) -> Option<PtpTimestamp> {
             find_timestamp(&self.tx, meta.id)
+        }
+
+        /// Poll until the transmit timestamp for `meta` is available.
+        ///
+        /// This registers `cx` for future transmit completions. It can remain
+        /// pending forever if the packet is not hardware timestamped or if its
+        /// history slot is overwritten before it is read. Only one task should
+        /// poll transmit timestamps from a store at a time.
+        pub fn poll_tx_timestamp(&self, meta: PacketMeta, cx: &mut Context<'_>) -> Poll<PtpTimestamp> {
+            if let Some(timestamp) = self.tx_timestamp(meta) {
+                return Poll::Ready(timestamp);
+            }
+
+            self.tx_waker.register(cx.waker());
+
+            match self.tx_timestamp(meta) {
+                Some(timestamp) => Poll::Ready(timestamp),
+                None => Poll::Pending,
+            }
         }
 
         /// Get the receive timestamp recorded for `meta`.
@@ -61,11 +86,16 @@ mod imp {
     pub(crate) struct PtpStorage {
         tx: Option<&'static [TimestampSlot]>,
         rx: Option<&'static [TimestampSlot]>,
+        tx_waker: Option<&'static AtomicWaker>,
     }
 
     impl PtpStorage {
         pub(crate) const fn new() -> Self {
-            Self { tx: None, rx: None }
+            Self {
+                tx: None,
+                rx: None,
+                tx_waker: None,
+            }
         }
 
         pub(crate) const fn new_with_store<const TX: usize, const RX: usize>(
@@ -74,11 +104,15 @@ mod imp {
             Self {
                 tx: Some(&store.tx),
                 rx: Some(&store.rx),
+                tx_waker: Some(&store.tx_waker),
             }
         }
 
         pub(crate) fn tx(&self) -> TxPtpRing<'static> {
-            TxPtpRing { slots: self.tx }
+            TxPtpRing {
+                slots: self.tx,
+                waker: self.tx_waker,
+            }
         }
 
         pub(crate) fn rx(&self) -> RxPtpRing<'static> {
@@ -88,6 +122,7 @@ mod imp {
 
     pub(crate) struct TxPtpRing<'a> {
         slots: Option<&'a [TimestampSlot]>,
+        waker: Option<&'a AtomicWaker>,
     }
 
     impl TxPtpRing<'_> {
@@ -96,9 +131,14 @@ mod imp {
         }
 
         pub(crate) fn store(&self, packet_id: u32, timestamp: Option<PtpTimestamp>) {
-            if let (Some(slots), Some(timestamp)) = (self.slots, timestamp) {
-                if packet_id != 0 && !slots.is_empty() {
-                    slots[slot_index(slots, packet_id)].store(packet_id, timestamp);
+            if packet_id != 0 {
+                if let (Some(slots), Some(timestamp)) = (self.slots, timestamp) {
+                    if !slots.is_empty() {
+                        slots[slot_index(slots, packet_id)].store(packet_id, timestamp);
+                    }
+                }
+                if let Some(waker) = self.waker {
+                    waker.wake();
                 }
             }
         }
