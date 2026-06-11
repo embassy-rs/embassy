@@ -3,23 +3,16 @@
 
 //! Example for the `embassy-nrf` **sQSPI** driver on the nRF54L15-DK.
 //!
-//! This drives an external MX25R64 (e.g. the chip on the nRF52840-DK) in Quad
-//! I/O mode through the high-level [`embassy_nrf::sqspi`] driver, performing the
-//! same erase / program / read-back / verify sequence as the nRF52840 `qspi`
-//! example. It uses the async API, so completion is driven by the VPR00
-//! interrupt rather than polling.
+//! ## Wiring
+//! | Flash pin | nRF54L15-DK |
+//! |-----------|-------------|
+//! | SCLK      | P2.01       |
+//! | SI / IO0  | P2.02       |
+//! | SO / IO1  | P2.04       |
+//! | WP# / IO2 | P2.03       |
+//! | HOLD#/IO3 | P2.00       |
+//! | CS#       | P2.05       |
 //!
-//! ## Wiring (external MX25R64)
-//! | Flash pin | nRF54L15 |
-//! |-----------|----------|
-//! | SCLK      | P2.01    |
-//! | SI / IO0  | P2.02    |
-//! | SO / IO1  | P2.04    |
-//! | WP# / IO2 | P2.03    |
-//! | HOLD#/IO3 | P2.00    |
-//! | CS#       | P2.05    |
-//!
-//! `sqspi_firmware.bin` next to this file is the FLPR firmware blob (v1.2.1).
 
 use core::mem::MaybeUninit;
 
