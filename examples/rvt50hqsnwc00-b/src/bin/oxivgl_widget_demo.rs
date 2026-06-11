@@ -10,8 +10,9 @@
 //!
 //! **Requires nightly Rust** (see `rust-toolchain.toml` in this crate).
 //!
-//! With `touch`, I2C sampling runs in a dedicated Embassy task
-//! ([`touch_feed::run_touch_poll_task`]); the UI task owns LVGL and LTDC.
+//! With `touch`, I2C sampling runs in a dedicated interrupt-driven Embassy task
+//! ([`touch_feed::run_touch_int_task`], woken by `CTP_INT`); the UI task owns
+//! LVGL and LTDC.
 //!
 //! ```bash
 //! cargo run --bin oxivgl_widget_demo --features oxivgl
@@ -23,7 +24,6 @@ extern crate alloc;
 use core::mem::MaybeUninit;
 
 use defmt::{info, unwrap};
-use embedded_alloc::LlffHeap as Heap;
 use embassy_executor::Spawner;
 use embassy_rvt50hqsnwc00_b_examples::oxivgl::platform::{self, LVGL_BUF_BYTES};
 #[cfg(feature = "touch")]
@@ -32,6 +32,7 @@ use embassy_rvt50hqsnwc00_b_examples::rvt50_board::{self, DISPLAY_HEIGHT, DISPLA
 use embassy_stm32::ltdc::{self, Ltdc};
 use embassy_stm32::peripherals;
 use embassy_time::Timer;
+use embedded_alloc::LlffHeap as Heap;
 use oxivgl::display::LvglBuffers;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -55,10 +56,7 @@ fn init_heap() {
 async fn main(spawner: Spawner) -> ! {
     init_heap();
 
-    info!(
-        "RVT50 OxivGL widget demo ({}x{})",
-        DISPLAY_WIDTH, DISPLAY_HEIGHT
-    );
+    info!("RVT50 OxivGL widget demo ({}x{})", DISPLAY_WIDTH, DISPLAY_HEIGHT);
 
     let p = rvt50_board::init_clocks();
     rvt50_board::enable_icache();
@@ -73,9 +71,8 @@ async fn main(spawner: Spawner) -> ! {
 
     #[cfg(feature = "touch")]
     {
-        let rvt50_board::DisplayResources { ltdc, i2c, touch_int: _ } =
-            rvt50_board::init_display(p).await;
-        spawner.spawn(unwrap!(touch_feed::run_touch_poll_task(i2c)));
+        let rvt50_board::DisplayResources { ltdc, i2c, touch_int } = rvt50_board::init_display(p).await;
+        spawner.spawn(unwrap!(touch_feed::run_touch_int_task(i2c, touch_int)));
         spawner.spawn(unwrap!(ui_touch_task(ltdc, bufs)));
     }
 
@@ -114,17 +111,11 @@ async fn touch_info_task() -> ! {
         let active = touch_dbg::ACTIVE_OBJ.load(Ordering::Relaxed);
         let hit_btn = touch_dbg::HIT_BTN.load(Ordering::Relaxed);
         let events = touch_dbg::EVENT_COUNT.load(Ordering::Relaxed);
+        let int_wakeups = touch_dbg::INT_WAKEUPS.load(Ordering::Relaxed);
 
         info!(
-            "oxivgl touch dbg i2c_ok={} raw=0x{:02x} pressed={} x={} y={} active_obj={:08x} layout_hit={} lvgl_events={}",
-            i2c_ok,
-            raw,
-            pressed,
-            x,
-            y,
-            active,
-            hit_btn,
-            events
+            "oxivgl touch dbg i2c_ok={} raw=0x{:02x} pressed={} x={} y={} active_obj={:08x} layout_hit={} lvgl_events={} int_wakeups={}",
+            i2c_ok, raw, pressed, x, y, active, hit_btn, events, int_wakeups
         );
         Timer::after_secs(2).await;
     }

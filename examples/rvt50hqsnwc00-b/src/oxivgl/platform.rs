@@ -1,7 +1,7 @@
 //! STM32U5 + Embassy LTDC platform glue for OxivGL.
 //!
 //! **Two tasks (touch builds):**
-//! - [`super::touch_feed::run_touch_poll_task`] — I2C → channel queue
+//! - [`super::touch_feed::run_touch_int_task`] — CTP_INT wake → I2C → channel queue
 //! - `run_widget_demo` — sole LVGL/LTDC owner; drains every queued sample
 
 extern crate alloc;
@@ -52,8 +52,7 @@ fn drain_touch_queue(
     while let Ok(board) = rx.try_receive() {
         let sample = TouchSample::from(board);
         let hit_btn = if sample.pressed {
-            view.find_button_at(sample.x, sample.y)
-                .map(|(idx, _)| idx)
+            view.find_button_at(sample.x, sample.y).map(|(idx, _)| idx)
         } else {
             None
         };

@@ -3,7 +3,7 @@
 //! Atomics let a low-priority heartbeat task print the latest touch sample and
 //! LVGL indev feedback without spamming the UI loop.
 
-use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU8, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicU32, Ordering};
 
 /// Latest touch X coordinate (display pixels).
 pub static X: AtomicI32 = AtomicI32::new(0);
@@ -21,6 +21,8 @@ pub static ACTIVE_OBJ: AtomicU32 = AtomicU32::new(0);
 pub static HIT_BTN: AtomicI32 = AtomicI32::new(-1);
 /// Number of widget events handled by [`super::widget_view::WidgetView::on_event`].
 pub static EVENT_COUNT: AtomicU32 = AtomicU32::new(0);
+/// Number of `CTP_INT` wake-ups handled by the interrupt-driven touch task.
+pub static INT_WAKEUPS: AtomicU32 = AtomicU32::new(0);
 
 /// Store the latest board touch sample for the heartbeat task.
 #[cfg(feature = "touch")]
@@ -41,4 +43,10 @@ pub fn publish_indev(active_obj: *mut oxivgl_sys::lv_obj_t, hit_btn: Option<usiz
 /// Increment the widget event counter (called from `WidgetView::on_event`).
 pub fn bump_event_count() {
     EVENT_COUNT.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Increment the `CTP_INT` wake-up counter (called from the touch task).
+#[cfg(feature = "touch")]
+pub fn bump_int_wakeups() {
+    INT_WAKEUPS.fetch_add(1, Ordering::Relaxed);
 }

@@ -87,17 +87,23 @@ cargo run --bin oxivgl_widget_demo --features oxivgl
 cargo run --bin oxivgl_widget_demo --features oxivgl,touch
 ```
 
-Touch uses two Embassy tasks: `touch_feed` polls I2C into a `Watch`, the UI
-task publishes samples and calls `lv_indev_read()` after each `timer_handler()`
-(EVENT-mode indev with paused read timer — required on STM32; TIMER mode left
-`pt=(0,0)` in logs).
+Touch uses two Embassy tasks: `touch_feed::run_touch_int_task` sleeps on the
+`CTP_INT` EXTI line (PE6, active-low) and only polls I2C while a contact is
+active, queueing press/release samples into a bounded channel; the UI task
+drains the queue, publishes each sample (safe, no `unsafe` — critical-section
+mutex) and calls `lv_indev_read()` after each `timer_handler()` (EVENT-mode
+indev with paused read timer — required on STM32; TIMER mode left `pt=(0,0)`
+in logs). Between taps the touch task is fully idle — zero I2C traffic.
 
 With `touch`, RTT logs include:
 
+- `oxivgl touch task: interrupt-driven via CTP_INT` — task start (boot)
 - `oxivgl touch down/up` — raw I2C coordinates
+- `oxivgl touch int wake / spurious` (`DEFMT_LOG=debug`) — EXTI wake-ups
 - `oxivgl indev pressed` — LVGL pointer state vs layout hit-test index
 - `oxivgl widget event` — bubbled `PRESSED` / `CLICKED` on scene buttons
-- `oxivgl touch dbg` (every 2 s) — `i2c_ok`, `active_obj`, `layout_hit`, `lvgl_events`
+- `oxivgl touch dbg` (every 2 s) — `i2c_ok`, `active_obj`, `layout_hit`,
+  `lvgl_events`, `int_wakeups`
 
 ### OxivGL host demo (SDL, no hardware)
 
