@@ -565,14 +565,6 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
         Self { adc }
     }
 
-    /// Power down the ADC.
-    ///
-    /// This stops ADC operation and may reduce power consumption.
-    /// A later read will enable it automatically.
-    pub fn power_down(&mut self) {
-        T::regs().power_down();
-    }
-
     #[cfg(adc_u0)]
     pub fn enable_auto_off(&mut self) {
         T::regs().cfgr1().modify(|reg| {

@@ -247,15 +247,6 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         s
     }
 
-    /// Power down the ADC.
-    ///
-    /// This stops ADC operation and powers down ADC-specific circuitry.
-    /// Later reads will enable the ADC again, but internal measurement paths
-    /// such as VREFINT or temperature sensing may need to be re-enabled.
-    pub fn power_down(&mut self) {
-        T::regs().power_down();
-    }
-
     #[cfg(not(adc_l0))]
     pub fn enable_vbat(&mut self) -> Vbat {
         // SMP must be ≥ 56 ADC clock cycles when using HSI14.
