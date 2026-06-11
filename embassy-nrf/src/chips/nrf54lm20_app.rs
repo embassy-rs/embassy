@@ -805,7 +805,7 @@ impl_cracen!(CRACEN, CRACEN, CRACEN);
 impl_vpr!(VPR, VPR00, VPR00);
 
 #[cfg(feature = "_s")]
-impl_sqspi!(VPR, VPR00, VPR00);
+impl_sqspi!(VPR);
 
 embassy_hal_internal::interrupt_mod!(
     SWI00,
