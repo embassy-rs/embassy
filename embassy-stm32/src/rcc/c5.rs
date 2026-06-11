@@ -1,3 +1,5 @@
+use stm32_metapac::FLASH;
+
 use crate::pac::RCC;
 pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Ppre as APBPrescaler, Sw as Sysclk};
 use crate::time::Hertz;
@@ -52,9 +54,11 @@ impl Default for Config {
 }
 
 pub(crate) unsafe fn init(config: Config) {
+    // Turn on clock sources. Keep hsidiv3(the default)
+    // on for now since that will be used during init
     RCC.cr().modify(|w| {
         w.set_hsion(config.hsi);
-        w.set_hsidiv3on(config.hsi_div3);
+        w.set_hsidiv3on(true);
     });
 
     if config.hsi {
@@ -68,8 +72,14 @@ pub(crate) unsafe fn init(config: Config) {
     let hsi = config.hsi.then_some(HSI_FREQ);
     let hsi_div3 = config.hsi_div3.then_some(Hertz(HSI_FREQ.0 / 3));
 
-    RCC.cfgr().modify(|w| w.set_sw(Sysclk::Hsi));
-    while RCC.cfgr().read().sws() != Sysclk::Hsi {}
+    RCC.cfgr().modify(|w| w.set_sw(config.sys));
+    while RCC.cfgr().read().sws() != config.sys {}
+
+    // Turn off unused clock sources
+    RCC.cr().modify(|w| {
+        w.set_hsion(config.hsi);
+        w.set_hsidiv3on(config.hsi_div3);
+    });
 
     // TODO: Configure HSE
 
@@ -110,24 +120,24 @@ pub(crate) unsafe fn init(config: Config) {
     });
 }
 
-// TODO: Do this once the FLASH peripheral gains its registers in the pac
-//   The reset values should be safe for all speeds
-fn flash_setup(_hclk: Hertz) {
-    // let (latency, wrhighfreq) = match hclk.0 {
-    //     ..=34_000_000 => (0, 0b00),
-    //     34_000_000..=68_000_000 => (1, 0b00),
-    //     68_000_000..=102_000_000 => (2, 0b01),
-    //     102_000_000..=136_000_000 => (3, 0b01),
-    //     136_000_000..=144_000_000 => (4, 0b10),
-    // };
+fn flash_setup(hclk: Hertz) {
+    let (latency, wrhighfreq) = match hclk.0 {
+        ..=34_000_000 => (0, 0b00),
+        ..=68_000_000 => (1, 0b00),
+        ..=102_000_000 => (2, 0b01),
+        ..=136_000_000 => (3, 0b01),
+        ..=144_000_000 => (4, 0b10),
+        _ => unreachable!(),
+    };
+    let latency = latency.into();
 
-    // debug!("flash: latency={} wrhighfreq={}", latency, wrhighfreq);
+    debug!("flash: latency={} wrhighfreq={}", latency, wrhighfreq);
 
-    //FLASH.acr().write(|w| {
-    //    w.set_wrhighfreq(wrhighfreq);
-    //    w.set_latency(latency);
-    //});
-    //while FLASH.acr().read().latency() != latency {}
+    FLASH.acr().write(|w| {
+        w.set_wrhighfreq(wrhighfreq);
+        w.set_latency(latency);
+    });
+    while FLASH.acr().read().latency() != latency {}
 }
 
 mod max {
