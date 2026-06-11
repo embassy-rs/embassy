@@ -284,8 +284,24 @@ impl AdcRegs for crate::pac::adc::Adc4 {
             while self.cr().read().adstart() {}
         }
 
-        // Clear DMAEN so a stale DMA request is not serviced while the DMA
-        // channel is reconfigured after stop().
+        // Disable only when the caller requests it (disable=true).  Keeping the
+        // ADC enabled (disable=false) after ADSTP leaves it in a suspended state
+        // where CFGR1/CHSELR/AWD registers can be safely reconfigured, and a
+        // subsequent `start()` call restarts conversion without the ADEN startup
+        // sequence.  This is the correct mode for RingBufferedAdc::stop() /
+        // start() used as a suspend/resume pair.
+        //
+        // TODO: align `disable` flag semantics with other ADC impls (c0, f1, l1,
+        // g4, v1-v4, f3 all handle this differently); ideally all impls expose a
+        // consistent enable/disable API so callers aren't surprised when porting.
+        if disable && cr.aden() {
+            // ADSTART=1 implies ADEN=1, so checking aden() alone is sufficient.
+            self.cr().modify(|w| w.set_addis(true));
+            while self.cr().read().aden() {}
+        }
+
+        // Always clear DMAEN so a stale DMA request is not serviced if the ADC
+        // is left enabled (disable=false) and the DMA channel is reconfigured.
         self.cfgr1().modify(|reg| {
             reg.set_dmaen(false);
         });
