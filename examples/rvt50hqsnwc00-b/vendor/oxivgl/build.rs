@@ -20,6 +20,13 @@ fn main() {
         return;
     }
 
+    let manifest_dir = std::path::PathBuf::from(
+        std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set"),
+    );
+    if !manifest_dir.join("examples/assets/img_cogwheel_argb.png").exists() {
+        return;
+    }
+
     let cfg = oxivgl_build::ImageConfig::from_env();
     cfg.image_asset("img_cogwheel_argb", "examples/assets/img_cogwheel_argb.png");
     cfg.image_asset("img_skew_strip", "examples/assets/img_skew_strip.png");

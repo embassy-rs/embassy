@@ -1,0 +1,4 @@
+# OxivGL requires nightly (edition 2024 / LVGL bindgen).
+[toolchain]
+channel = "nightly-2025-12-11"
+components = ["rustfmt"]

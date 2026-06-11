@@ -451,6 +451,15 @@ fn touch_is_active(raw_status: u8, x: u16, y: u16) -> bool {
     if raw_status == 0x00 || raw_status == 0xFE {
         return false;
     }
-    // Idle/no-contact reads on the RVT50 panel park at the bottom-right pixel.
-    x < DISPLAY_WIDTH as u16 - 1 || y < DISPLAY_HEIGHT as u16 - 1
+    // Idle reads park at panel edges (observed: top-right (799,0), corners).
+    if x == 0 && y == 0 {
+        return false;
+    }
+    if x == DISPLAY_WIDTH as u16 - 1 && y == 0 {
+        return false;
+    }
+    if x == DISPLAY_WIDTH as u16 - 1 && y == DISPLAY_HEIGHT as u16 - 1 {
+        return false;
+    }
+    true
 }

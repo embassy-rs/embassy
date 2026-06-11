@@ -10,6 +10,9 @@
 //!
 //! **Requires nightly Rust** (see `rust-toolchain.toml` in this crate).
 //!
+//! With `touch`, I2C sampling runs in a dedicated Embassy task
+//! ([`touch_feed::run_touch_poll_task`]); the UI task owns LVGL and LTDC.
+//!
 //! ```bash
 //! cargo run --bin oxivgl_widget_demo --features oxivgl
 //! cargo run --bin oxivgl_widget_demo --features oxivgl,touch
@@ -23,6 +26,8 @@ use defmt::{info, unwrap};
 use embedded_alloc::LlffHeap as Heap;
 use embassy_executor::Spawner;
 use embassy_rvt50hqsnwc00_b_examples::oxivgl::platform::{self, LVGL_BUF_BYTES};
+#[cfg(feature = "touch")]
+use embassy_rvt50hqsnwc00_b_examples::oxivgl::touch_feed;
 use embassy_rvt50hqsnwc00_b_examples::rvt50_board::{self, DISPLAY_HEIGHT, DISPLAY_WIDTH};
 use embassy_stm32::ltdc::{self, Ltdc};
 use embassy_stm32::peripherals;
@@ -64,10 +69,14 @@ async fn main(spawner: Spawner) -> ! {
     spawner.spawn(unwrap!(heartbeat_info_task()));
 
     #[cfg(feature = "touch")]
+    spawner.spawn(unwrap!(touch_info_task()));
+
+    #[cfg(feature = "touch")]
     {
         let rvt50_board::DisplayResources { ltdc, i2c, touch_int: _ } =
             rvt50_board::init_display(p).await;
-        spawner.spawn(unwrap!(ui_touch_task(ltdc, i2c, bufs)));
+        spawner.spawn(unwrap!(touch_feed::run_touch_poll_task(i2c)));
+        spawner.spawn(unwrap!(ui_touch_task(ltdc, bufs)));
     }
 
     #[cfg(not(feature = "touch"))]
@@ -89,6 +98,38 @@ async fn heartbeat_info_task() -> ! {
     }
 }
 
+#[cfg(feature = "touch")]
+#[embassy_executor::task]
+async fn touch_info_task() -> ! {
+    use core::sync::atomic::Ordering;
+
+    use embassy_rvt50hqsnwc00_b_examples::oxivgl::touch_dbg;
+
+    loop {
+        let pressed = touch_dbg::PRESSED.load(Ordering::Relaxed);
+        let i2c_ok = touch_dbg::I2C_OK.load(Ordering::Relaxed);
+        let raw = touch_dbg::RAW_STATUS.load(Ordering::Relaxed);
+        let x = touch_dbg::X.load(Ordering::Relaxed);
+        let y = touch_dbg::Y.load(Ordering::Relaxed);
+        let active = touch_dbg::ACTIVE_OBJ.load(Ordering::Relaxed);
+        let hit_btn = touch_dbg::HIT_BTN.load(Ordering::Relaxed);
+        let events = touch_dbg::EVENT_COUNT.load(Ordering::Relaxed);
+
+        info!(
+            "oxivgl touch dbg i2c_ok={} raw=0x{:02x} pressed={} x={} y={} active_obj={:08x} layout_hit={} lvgl_events={}",
+            i2c_ok,
+            raw,
+            pressed,
+            x,
+            y,
+            active,
+            hit_btn,
+            events
+        );
+        Timer::after_secs(2).await;
+    }
+}
+
 #[cfg(not(feature = "touch"))]
 #[embassy_executor::task]
 async fn ui_task(
@@ -102,12 +143,7 @@ async fn ui_task(
 #[embassy_executor::task]
 async fn ui_touch_task(
     ltdc: Ltdc<'static, peripherals::LTDC, ltdc::Rgb565>,
-    i2c: embassy_stm32::i2c::I2c<
-        'static,
-        embassy_stm32::mode::Blocking,
-        embassy_stm32::i2c::Master,
-    >,
     bufs: &'static mut LvglBuffers<{ LVGL_BUF_BYTES }>,
 ) -> ! {
-    platform::run_widget_demo(ltdc, bufs, i2c).await
+    platform::run_widget_demo(ltdc, bufs).await
 }
