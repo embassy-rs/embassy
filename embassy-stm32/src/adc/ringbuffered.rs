@@ -51,6 +51,9 @@ impl<'d, R: AdcRegs> RingBufferedAdc<'d, R> {
     }
 
     /// Turns on ADC if it is not already turned on and starts continuous DMA transfer.
+    ///
+    /// Can be called after [`stop`] to resume a suspended scan without repeating the
+    /// full channel/DMA configuration — the ring buffer and sequence are preserved.
     pub fn start(&mut self) {
         compiler_fence(Ordering::SeqCst);
         self.ring_buf.start();
@@ -58,7 +61,24 @@ impl<'d, R: AdcRegs> RingBufferedAdc<'d, R> {
         self.regs.start();
     }
 
+    /// Suspend the continuous DMA scan.
+    ///
+    /// Issues ADSTP on the ADC hardware (leaving the ADC *enabled* and fully
+    /// configured) and pauses the DMA ring buffer.  The channel sequence, DMA
+    /// buffer, and all ADC register settings are preserved; call [`start`] to
+    /// resume from where the scan left off.
+    ///
+    /// This is intended as a lightweight suspend/resume pair for cases such as
+    /// low-power sleep modes where the caller needs to temporarily halt the scan
+    /// and optionally reconfigure the ADC (e.g. change trigger source, enable an
+    /// analog watchdog) before resuming.  It does **not** disable the ADC, so
+    /// CFGR1 and other configuration registers can be written immediately after
+    /// this call without going through the enable sequence again.
     pub fn stop(&mut self) {
+        // Stop ADC hardware first (ADSTP, leave ADEN=1) so it stops issuing DMA
+        // requests before we pause the DMA channel.
+        self.regs.stop(false);
+
         self.ring_buf.request_pause();
 
         compiler_fence(Ordering::SeqCst);
