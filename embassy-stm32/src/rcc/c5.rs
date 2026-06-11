@@ -7,27 +7,20 @@ use crate::time::Hertz;
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(144_000_000);
 
-pub enum HsiMode {
-    /// Full 144MHz speed
-    FullSpeed,
-
-    /// HSI divided by 3 144/3=48MHz
-    Div3,
-}
-
 /// Configuration of the core clocks
 #[non_exhaustive]
 #[derive(Clone, Copy)]
 pub struct Config {
-    ///
+    /// Enable HSI full speed tap (144MHz)
     pub hsi: bool,
 
+    /// Enable HSI Div 3 tap (48MHz)
     pub hsi_div3: bool,
 
+    /// System Clock Configuration
     pub sys: Sysclk,
 
     pub ahb_pre: AHBPrescaler,
-
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
     pub apb3_pre: APBPrescaler,
@@ -108,11 +101,9 @@ pub(crate) unsafe fn init(config: Config) {
 
     //let rtc = config.ls.init();
 
-    // Set hpre
     RCC.cfgr2().modify(|w| w.set_hpre(config.ahb_pre));
     while RCC.cfgr2().read().hpre() != config.ahb_pre {}
 
-    // set ppre
     RCC.cfgr2().modify(|w| {
         w.set_ppre1(config.apb1_pre);
         w.set_ppre2(config.apb2_pre);
