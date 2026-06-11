@@ -249,6 +249,8 @@ defmt = [
 ]
 ## Use log for logging
 log = ["dep:log"]
+## Enable Ethernet PTP hardware timestamping.
+ptp = ["embassy-net-driver/packetmeta-id"]
 ## Enable chrono support
 chrono = ["dep:chrono"]
 ## Enable cyw

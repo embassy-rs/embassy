@@ -492,11 +492,13 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             w.set_rbsz(RX_BUFFER_SIZE as u16);
         });
 
+        let (tx_packets, rx_packets) = queue.packet_state.rings();
+
         let mut this = Self {
             _peri: peri,
             _wake_guard: T::RCC_INFO.wake_guard(),
-            tx: TDesRing::new(&mut queue.tx_desc, &mut queue.tx_buf),
-            rx: RDesRing::new(&mut queue.rx_desc, &mut queue.rx_buf),
+            tx: TDesRing::new(&mut queue.tx_desc, &mut queue.tx_buf, tx_packets),
+            rx: RDesRing::new(&mut queue.rx_desc, &mut queue.rx_buf, rx_packets),
             _pins: pins,
             phy,
             mac_addr,

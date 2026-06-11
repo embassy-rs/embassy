@@ -2,11 +2,14 @@ use core::sync::atomic::{Ordering, fence};
 
 use vcell::VolatileCell;
 
+use crate::eth::packet_state::{RxPacketStateRing, TxPacketStateRing};
+use crate::eth::ptp::PtpTimestamp;
 use crate::eth::{Packet, RX_BUFFER_SIZE, TX_BUFFER_SIZE};
 #[cfg(eth_v2)]
 use crate::pac::ETH;
 #[cfg(eth_v2a)]
 use crate::pac::ETH1 as ETH;
+use embassy_net_driver::PacketMeta;
 
 /// Access a per-channel DMA register at channel 0.
 ///
@@ -36,17 +39,20 @@ mod emac_consts {
     pub const EMAC_DES0_BUF1AP: u32 = 0xFFFF_FFFF;
 
     pub const EMAC_TDES2_IOC: u32 = 0x8000_0000;
+    pub const EMAC_TDES2_TTSE: u32 = 0x4000_0000;
     pub const EMAC_TDES2_B1L: u32 = 0x0000_3FFF;
 
     // TX checksum insertion control (TDES3, read format), bits [17:16]. 0b11 =
     // insert IP header + payload checksums, with the pseudo-header computed by
     // hardware (full offload). eth_v2a only.
     pub const EMAC_TDES3_CIC_FULL: u32 = 0x0003_0000;
+    pub const EMAC_TDES3_TTSS: u32 = 0x0002_0000;
 
     pub const EMAC_RDES3_IOC: u32 = 0x4000_0000;
     pub const EMAC_RDES3_PL: u32 = 0x0000_7FFF;
     pub const EMAC_RDES3_BUF1V: u32 = 0x0100_0000;
     pub const EMAC_RDES3_PKTLEN: u32 = 0x0000_7FFF;
+    pub const EMAC_RDES3_RS1V: u32 = 0x0400_0000;
 
     // RX checksum status (RDES1, write-back format). These are NOT folded into
     // the RDES3 error summary, so they must be inspected separately. eth_v2a only.
@@ -55,6 +61,7 @@ mod emac_consts {
     pub const EMAC_RDES1_PT: u32 = 0x0000_0003; // payload type
     pub const EMAC_RDES1_PT_UDP: u32 = 1;
     pub const EMAC_RDES1_PT_TCP: u32 = 2;
+    pub const EMAC_RDES1_TSA: u32 = 0x0000_4000; // timestamp available
 }
 use emac_consts::*;
 
@@ -86,17 +93,30 @@ impl TDes {
     fn available(&self) -> bool {
         self.tdes3.get() & EMAC_DES3_OWN == 0
     }
+
+    fn timestamp(&self) -> Option<PtpTimestamp> {
+        (self.tdes3.get() & EMAC_TDES3_TTSS != 0).then(|| PtpTimestamp {
+            seconds: self.tdes1.get(),
+            nanos: self.tdes0.get(),
+        })
+    }
 }
 
 pub(crate) struct TDesRing<'a> {
     descriptors: &'a mut [TDes],
     buffers: &'a mut [Packet<TX_BUFFER_SIZE>],
+    packets: TxPacketStateRing<'a>,
     index: usize,
+    completion_index: usize,
 }
 
 impl<'a> TDesRing<'a> {
     /// Initialise this TDesRing. Assume TDesRing is corrupt.
-    pub fn new(descriptors: &'a mut [TDes], buffers: &'a mut [Packet<TX_BUFFER_SIZE>]) -> Self {
+    pub fn new(
+        descriptors: &'a mut [TDes],
+        buffers: &'a mut [Packet<TX_BUFFER_SIZE>],
+        packets: TxPacketStateRing<'a>,
+    ) -> Self {
         assert!(descriptors.len() > 0);
         assert!(descriptors.len() == buffers.len());
 
@@ -114,7 +134,9 @@ impl<'a> TDesRing<'a> {
         Self {
             descriptors,
             buffers,
+            packets,
             index: 0,
+            completion_index: 0,
         }
     }
 
@@ -124,12 +146,52 @@ impl<'a> TDesRing<'a> {
 
     /// Return the next available packet buffer for transmitting, or None
     pub(crate) fn available(&mut self) -> Option<&mut [u8]> {
+        self.collect_completed();
+
         let d = &mut self.descriptors[self.index];
         if d.available() {
             Some(&mut self.buffers[self.index].0)
         } else {
             None
         }
+    }
+
+    fn collect_completed(&mut self) {
+        while self.packets.pending(self.completion_index) {
+            let descriptor = &self.descriptors[self.completion_index];
+            if !descriptor.available() {
+                break;
+            }
+
+            let timestamp = descriptor.timestamp();
+            let packet_id = self.packets.id(self.completion_index);
+            if packet_id != 0 {
+                if timestamp.is_some() {
+                    trace!(
+                        "eth ptp tx complete idx={=usize} packet_id={=u32} tdes3={=u32:#010x} tdes1={=u32} tdes0={=u32}",
+                        self.completion_index,
+                        packet_id,
+                        descriptor.tdes3.get(),
+                        descriptor.tdes1.get(),
+                        descriptor.tdes0.get()
+                    );
+                } else {
+                    trace!(
+                        "eth ptp tx complete no-ts idx={=usize} packet_id={=u32} tdes3={=u32:#010x} tdes2={=u32:#010x}",
+                        self.completion_index,
+                        packet_id,
+                        descriptor.tdes3.get(),
+                        descriptor.tdes2.get()
+                    );
+                }
+            }
+            self.packets.complete(self.completion_index, timestamp);
+            self.completion_index = (self.completion_index + 1) % self.descriptors.len();
+        }
+    }
+
+    pub(crate) fn set_meta(&mut self, meta: PacketMeta) {
+        self.packets.set_meta(meta);
     }
 
     /// Transmit the packet written in a buffer returned by `available`.
@@ -140,7 +202,14 @@ impl<'a> TDesRing<'a> {
 
         // Read format
         td.tdes0.set(self.buffers[self.index].0.as_ptr() as u32);
-        td.tdes2.set(len as u32 & EMAC_TDES2_B1L | EMAC_TDES2_IOC);
+        let packet_id = self.packets.next_id();
+        let timestamp_enabled = self.packets.timestamp_enabled();
+        let mut tdes2 = len as u32 & EMAC_TDES2_B1L | EMAC_TDES2_IOC;
+        if timestamp_enabled {
+            tdes2 |= EMAC_TDES2_TTSE;
+        }
+        td.tdes2.set(tdes2);
+        self.packets.commit(self.index);
 
         // FD: Contains first buffer of packet
         // LD: Contains last buffer of packet
@@ -150,6 +219,12 @@ impl<'a> TDesRing<'a> {
         #[cfg(eth_v2a)]
         let tdes3 = tdes3 | EMAC_TDES3_CIC_FULL;
         td.tdes3.set(tdes3);
+        if timestamp_enabled {
+            trace!(
+                "eth ptp tx submit idx={=usize} packet_id={=u32} len={=usize} tdes2={=u32:#010x}",
+                self.index, packet_id, len, tdes2
+            );
+        }
 
         // Ensure changes to the descriptor are committed before DMA engine sees tail pointer store.
         // This will generate an DMB instruction.
@@ -227,17 +302,35 @@ impl RDes {
         self.rdes0.set(buf as u32);
         self.rdes3.set(EMAC_RDES3_BUF1V | EMAC_RDES3_IOC | EMAC_DES3_OWN);
     }
+
+    fn context_available(&self) -> bool {
+        self.rdes3.get() & (EMAC_DES3_OWN | EMAC_DES3_CTXT) == EMAC_DES3_CTXT
+    }
+
+    fn context_timestamp(&self) -> Option<PtpTimestamp> {
+        let corrupted = self.rdes0.get() == u32::MAX && self.rdes1.get() == u32::MAX;
+        (self.context_available() && !corrupted).then(|| PtpTimestamp {
+            seconds: self.rdes1.get(),
+            nanos: self.rdes0.get(),
+        })
+    }
 }
 
 /// Rx ring of descriptors and packets
 pub(crate) struct RDesRing<'a> {
     descriptors: &'a mut [RDes],
     buffers: &'a mut [Packet<RX_BUFFER_SIZE>],
+    packets: RxPacketStateRing<'a>,
     index: usize,
+    consume_context: bool,
 }
 
 impl<'a> RDesRing<'a> {
-    pub(crate) fn new(descriptors: &'a mut [RDes], buffers: &'a mut [Packet<RX_BUFFER_SIZE>]) -> Self {
+    pub(crate) fn new(
+        descriptors: &'a mut [RDes],
+        buffers: &'a mut [Packet<RX_BUFFER_SIZE>],
+        packets: RxPacketStateRing<'a>,
+    ) -> Self {
         assert!(descriptors.len() > 1);
         assert!(descriptors.len() == buffers.len());
 
@@ -254,7 +347,9 @@ impl<'a> RDesRing<'a> {
         Self {
             descriptors,
             buffers,
+            packets,
             index: 0,
+            consume_context: false,
         }
     }
 
@@ -272,26 +367,70 @@ impl<'a> RDesRing<'a> {
                 return None;
             }
 
+            if descriptor.context_available() {
+                self.pop_current(false);
+                continue;
+            }
+
             // If packet is invalid, pop it and try again.
             if !descriptor.valid() {
                 warn!("invalid packet: {:08x}", descriptor.rdes0.get());
-                self.pop_packet();
+                self.pop_current(false);
                 continue;
             }
 
             break;
         }
 
-        let descriptor = &mut self.descriptors[self.index];
-        let len = (descriptor.rdes3.get() & EMAC_RDES3_PKTLEN) as usize;
+        let len = (self.descriptors[self.index].rdes3.get() & EMAC_RDES3_PKTLEN) as usize;
+        let Some((timestamp, consume_context)) = self.timestamp(self.index) else {
+            return None;
+        };
+        self.consume_context = consume_context;
+        self.packets.capture(self.index, timestamp);
         return Some(&mut self.buffers[self.index].0[..len]);
+    }
+
+    fn timestamp(&self, index: usize) -> Option<(Option<PtpTimestamp>, bool)> {
+        let descriptor = &self.descriptors[index];
+        let has_timestamp = descriptor.rdes1.get() & EMAC_RDES1_TSA != 0;
+        if !has_timestamp {
+            return Some((None, false));
+        }
+
+        let next = (index + 1) % self.descriptors.len();
+        let context = &self.descriptors[next];
+        if context.context_available() {
+            Some((context.context_timestamp(), true))
+        } else {
+            // Do not stall unrelated RX traffic waiting for an optional
+            // timestamp context descriptor.
+            Some((None, false))
+        }
+    }
+
+    pub(crate) fn meta(&self) -> PacketMeta {
+        self.packets.meta(self.index)
     }
 
     /// Pop the packet previously returned by `available`.
     pub(crate) fn pop_packet(&mut self) {
+        let consume_context = self.consume_context;
+        self.consume_context = false;
+
+        self.pop_current(true);
+        if consume_context {
+            self.pop_current(false);
+        }
+    }
+
+    fn pop_current(&mut self, packet: bool) {
         let rd = &mut self.descriptors[self.index];
         assert!(rd.available());
 
+        if packet {
+            self.packets.clear(self.index);
+        }
         rd.set_ready(self.buffers[self.index].0.as_mut_ptr());
 
         // "Preceding reads and writes cannot be moved past subsequent writes."

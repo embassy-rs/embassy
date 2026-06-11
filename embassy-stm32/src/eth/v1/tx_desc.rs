@@ -1,8 +1,10 @@
 use core::sync::atomic::{Ordering, compiler_fence, fence};
 
+use embassy_net_driver::PacketMeta;
 use vcell::VolatileCell;
 
 use crate::eth::TX_BUFFER_SIZE;
+use crate::eth::packet_state::TxPacketStateRing;
 use crate::pac::ETH;
 
 /// Transmit and Receive Descriptor fields
@@ -106,12 +108,17 @@ impl TDes {
 pub(crate) struct TDesRing<'a> {
     descriptors: &'a mut [TDes],
     buffers: &'a mut [Packet<TX_BUFFER_SIZE>],
+    packets: TxPacketStateRing<'a>,
     index: usize,
 }
 
 impl<'a> TDesRing<'a> {
     /// Initialise this TDesRing. Assume TDesRing is corrupt
-    pub(crate) fn new(descriptors: &'a mut [TDes], buffers: &'a mut [Packet<TX_BUFFER_SIZE>]) -> Self {
+    pub(crate) fn new(
+        descriptors: &'a mut [TDes],
+        buffers: &'a mut [Packet<TX_BUFFER_SIZE>],
+        packets: TxPacketStateRing<'a>,
+    ) -> Self {
         assert!(descriptors.len() > 0);
         assert!(descriptors.len() == buffers.len());
 
@@ -127,6 +134,7 @@ impl<'a> TDesRing<'a> {
         Self {
             descriptors,
             buffers,
+            packets,
             index: 0,
         }
     }
@@ -139,10 +147,15 @@ impl<'a> TDesRing<'a> {
     pub(crate) fn available(&mut self) -> Option<&mut [u8]> {
         let descriptor = &mut self.descriptors[self.index];
         if descriptor.available() {
+            self.packets.complete(self.index, None);
             Some(&mut self.buffers[self.index].0)
         } else {
             None
         }
+    }
+
+    pub(crate) fn set_meta(&mut self, meta: PacketMeta) {
+        self.packets.set_meta(meta);
     }
 
     /// Transmit the packet written in a buffer returned by `available`.
@@ -152,6 +165,7 @@ impl<'a> TDesRing<'a> {
 
         descriptor.set_buffer1(self.buffers[self.index].0.as_ptr());
         descriptor.set_buffer1_len(len);
+        self.packets.commit(self.index);
 
         descriptor.set_owned();
 
