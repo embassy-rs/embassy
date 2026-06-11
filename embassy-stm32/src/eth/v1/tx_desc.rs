@@ -143,6 +143,8 @@ impl<'a> TDesRing<'a> {
         self.descriptors.len()
     }
 
+    pub(crate) fn collect_completed(&mut self) {}
+
     /// Return the next available packet buffer for transmitting, or None
     pub(crate) fn available(&mut self) -> Option<&mut [u8]> {
         let descriptor = &mut self.descriptors[self.index];

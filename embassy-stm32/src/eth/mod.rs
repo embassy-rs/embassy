@@ -130,6 +130,7 @@ impl<'d, T: Instance, P: Phy> embassy_net_driver::Driver for Ethernet<'d, T, P> 
 
     fn receive(&mut self, cx: &mut Context) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         WAKER.register(cx.waker());
+        self.tx.collect_completed();
         if self.rx.available().is_some() && self.tx.available().is_some() {
             Some((RxToken { rx: &mut self.rx }, TxToken { tx: &mut self.tx }))
         } else {

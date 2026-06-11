@@ -156,7 +156,7 @@ impl<'a> TDesRing<'a> {
         }
     }
 
-    fn collect_completed(&mut self) {
+    pub(crate) fn collect_completed(&mut self) {
         while self.packets.pending(self.completion_index) {
             let descriptor = &self.descriptors[self.completion_index];
             if !descriptor.available() {
