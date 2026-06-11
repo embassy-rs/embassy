@@ -22,14 +22,14 @@
 //! # Example
 //! ```ignore
 //! use embassy_nrf::sqspi::{self, Config};
-//! use static_cell::StaticCell;
+//! use static_cell::ConstStaticCell;
 //! use core::mem::MaybeUninit;
 //!
 //! bind_interrupts!(struct Irqs { VPR00 => sqspi::InterruptHandler<peripherals::VPR>; });
 //!
 //! static FW: &[u8] = include_bytes!("sqspi_firmware.bin");
-//! static RAM: StaticCell<[MaybeUninit<u8>; 0x4000]> = StaticCell::new();
-//! let ram = RAM.init([MaybeUninit::uninit(); 0x4000]);
+//! static RAM: ConstStaticCell<[MaybeUninit<u8>; 0x4000]> = ConstStaticCell::new([MaybeUninit::uninit(); 0x4000]);
+//! let ram = RAM.take();
 //!
 //! let mut config = Config::default();
 //! config.capacity = 8 * 1024 * 1024;
