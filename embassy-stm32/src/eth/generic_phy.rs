@@ -23,6 +23,7 @@ mod phy_consts {
     pub const PHY_REG_ANEXP: u8 = 0x06;
     pub const PHY_REG_ANNPTX: u8 = 0x07;
     pub const PHY_REG_ANNPRX: u8 = 0x08;
+    pub const PHY_REG_GBCR: u8 = 0x09; // 1000BASE-T Control
     pub const PHY_REG_CTL: u8 = 0x0D; // Ethernet PHY Register Control
     pub const PHY_REG_ADDAR: u8 = 0x0E; // Ethernet PHY Address or Data
 
@@ -37,6 +38,10 @@ mod phy_consts {
     pub const PHY_REG_BCR_100M: u16 = 1 << 13;
     pub const PHY_REG_BCR_LOOPBACK: u16 = 1 << 14;
     pub const PHY_REG_BCR_RESET: u16 = 1 << 15;
+
+    pub const PHY_REG_ANTX_100BTX_FD: u16 = 0b1 << 8;
+
+    pub const PHY_REG_ANTX_TECH: u16 = 0b11111 << 5;
 
     pub const PHY_REG_BSR_JABBER: u16 = 1 << 1;
     pub const PHY_REG_BSR_UP: u16 = 1 << 2;
@@ -116,11 +121,12 @@ impl<SM: StationManagement> Phy for GenericPhy<SM> {
         self.smi_write_ext(PHY_REG_WUCSR, 0);
 
         // Enable auto-negotiation
-        self.sm.smi_write(
-            self.phy_addr,
-            PHY_REG_BCR,
-            PHY_REG_BCR_AN | PHY_REG_BCR_ANRST | PHY_REG_BCR_100M,
-        );
+        let antx = self.sm.smi_read(self.phy_addr, PHY_REG_ANTX);
+        let antx = (antx & !PHY_REG_ANTX_TECH) | PHY_REG_ANTX_100BTX_FD;
+        self.sm.smi_write(self.phy_addr, PHY_REG_ANTX, antx);
+        self.sm.smi_write(self.phy_addr, PHY_REG_GBCR, 0);
+        self.sm
+            .smi_write(self.phy_addr, PHY_REG_BCR, PHY_REG_BCR_AN | PHY_REG_BCR_ANRST);
     }
 
     fn poll_link(&mut self, cx: &mut Context) -> Option<bool> {
