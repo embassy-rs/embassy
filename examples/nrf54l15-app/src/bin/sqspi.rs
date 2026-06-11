@@ -20,7 +20,7 @@ use defmt::{assert_eq, info, unwrap};
 use embassy_executor::Spawner;
 use embassy_nrf::sqspi::{self, Config};
 use embassy_nrf::{bind_interrupts, peripherals};
-use static_cell::StaticCell;
+use static_cell::ConstStaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -32,7 +32,7 @@ static FW: &[u8] = include_bytes!("sqspi_firmware.bin");
 
 /// RAM region for the firmware code, working RAM, and register block. The
 /// driver aligns the start up to 128 bytes, so size with a little slack.
-static FW_RAM: StaticCell<[MaybeUninit<u8>; 0x4000]> = StaticCell::new();
+static FW_RAM: ConstStaticCell<[MaybeUninit<u8>; 0x4000]> = ConstStaticCell::new([MaybeUninit::uninit(); 0x4000]);
 
 const PAGE_SIZE: usize = 4096;
 
@@ -46,7 +46,7 @@ async fn main(_spawner: Spawner) {
     // (`config::FlprReset::Reset`), so re-runs start from a clean state.
     let p = embassy_nrf::init(Default::default());
 
-    let ram = FW_RAM.init([MaybeUninit::uninit(); 0x4000]);
+    let ram = FW_RAM.take();
 
     // Quad I/O (1-4-4) at 8 MHz, 8 MB capacity — same as the nRF52840 example.
     let mut config = Config::default();
