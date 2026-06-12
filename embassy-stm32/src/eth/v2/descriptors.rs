@@ -403,9 +403,10 @@ impl<'a> RDesRing<'a> {
         if context.context_available() {
             Some((context.context_timestamp(), true))
         } else {
-            // Do not stall unrelated RX traffic waiting for an optional
-            // timestamp context descriptor.
-            Some((None, false))
+            // Keep the packet queued until the following timestamp context
+            // descriptor is available. Dropping through here would expose a
+            // timestamped packet to the stack without its hardware timestamp.
+            None
         }
     }
 
