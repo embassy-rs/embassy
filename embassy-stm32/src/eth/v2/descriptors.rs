@@ -1,5 +1,6 @@
 use core::sync::atomic::{Ordering, fence};
 
+use embassy_net_driver::PacketMeta;
 use vcell::VolatileCell;
 
 use crate::eth::packet_state::{RxPacketStateRing, TxPacketStateRing};
@@ -9,7 +10,6 @@ use crate::eth::{Packet, RX_BUFFER_SIZE, TX_BUFFER_SIZE};
 use crate::pac::ETH;
 #[cfg(eth_v2a)]
 use crate::pac::ETH1 as ETH;
-use embassy_net_driver::PacketMeta;
 
 /// Access a per-channel DMA register at channel 0.
 ///

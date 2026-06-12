@@ -10,10 +10,8 @@ pub struct PtpTimestamp {
 
 #[cfg(feature = "ptp")]
 mod imp {
-    use core::{
-        sync::atomic::{AtomicU32, Ordering},
-        task::{Context, Poll},
-    };
+    use core::sync::atomic::{AtomicU32, Ordering};
+    use core::task::{Context, Poll};
 
     use embassy_net_driver::PacketMeta;
     use embassy_sync::waitqueue::AtomicWaker;
