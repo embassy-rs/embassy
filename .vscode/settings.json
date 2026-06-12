@@ -14,9 +14,17 @@
   "rust-analyzer.showUnlinkedFileNotification": false,
 
   // RVT50 (STM32U5A9NJH6Q, thumbv8m.main-none-eabihf)
+  // The example crate uses nightly (see examples/rvt50hqsnwc00-b/rust-toolchain.toml).
+  // Force the same toolchain here so proc-macro ABI matches the root rust-toolchain.toml (1.92 stable).
+  "rust-analyzer.server.extraEnv": {
+    "RUSTUP_TOOLCHAIN": "nightly-2025-12-11"
+  },
+  "rust-analyzer.cargo.extraEnv": {
+    "RUSTUP_TOOLCHAIN": "nightly-2025-12-11"
+  },
   "rust-analyzer.cargo.target": "thumbv8m.main-none-eabihf",
   // Uncomment for oxivgl_widget_demo analysis:
-  // "rust-analyzer.cargo.features": ["oxivgl"],
+  "rust-analyzer.cargo.features": ["oxivgl"],
 
   // To work on embassy-stm32 instead, comment the line below and restore
   // embassy-stm32/Cargo.toml plus the stm32f107 features block.

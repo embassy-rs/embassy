@@ -23,6 +23,8 @@ pub static HIT_BTN: AtomicI32 = AtomicI32::new(-1);
 pub static EVENT_COUNT: AtomicU32 = AtomicU32::new(0);
 /// Number of `CTP_INT` wake-ups handled by the interrupt-driven touch task.
 pub static INT_WAKEUPS: AtomicU32 = AtomicU32::new(0);
+/// Number of times LVGL invoked the pointer read callback.
+pub static READ_CB_COUNT: AtomicU32 = AtomicU32::new(0);
 
 /// Store the latest board touch sample for the heartbeat task.
 pub fn publish_touch(x: i32, y: i32, pressed: bool, i2c_ok: bool, raw_status: u8) {
@@ -47,4 +49,9 @@ pub fn bump_event_count() {
 /// Increment the `CTP_INT` wake-up counter (called from the touch task).
 pub fn bump_int_wakeups() {
     INT_WAKEUPS.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Increment the LVGL pointer read-callback counter.
+pub fn bump_read_cb() {
+    READ_CB_COUNT.fetch_add(1, Ordering::Relaxed);
 }

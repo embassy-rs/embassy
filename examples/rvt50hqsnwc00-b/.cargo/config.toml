@@ -9,6 +9,6 @@ target = "thumbv8m.main-none-eabihf"
 linker = "rust-lld"
 
 [env]
-DEFMT_LOG = "info"
+DEFMT_LOG = "debug"
 # Required by oxivgl-sys when building with `--features oxivgl`
 DEP_LV_CONFIG_PATH = { value = "conf", relative = true }

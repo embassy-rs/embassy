@@ -21,8 +21,8 @@ use oxivgl_sys::{
     lv_display_get_screen_prev, lv_indev_create, lv_indev_data_t, lv_indev_enable, lv_indev_get_active_obj,
     lv_indev_get_display, lv_indev_get_point, lv_indev_get_read_cb, lv_indev_get_state,
     lv_indev_mode_t_LV_INDEV_MODE_EVENT, lv_indev_read, lv_indev_set_display, lv_indev_set_mode, lv_indev_set_read_cb,
-    lv_indev_set_type, lv_indev_state_t_LV_INDEV_STATE_PRESSED, lv_indev_state_t_LV_INDEV_STATE_RELEASED, lv_indev_t,
-    lv_indev_type_t_LV_INDEV_TYPE_POINTER, lv_point_t,
+    lv_indev_set_type, lv_indev_state_t_LV_INDEV_STATE_PRESSED, lv_indev_state_t_LV_INDEV_STATE_RELEASED,
+    lv_indev_t, lv_indev_type_t_LV_INDEV_TYPE_POINTER, lv_point_t,
 };
 
 use crate::oxivgl::display::lvgl_display;
@@ -124,21 +124,21 @@ impl TouchInput {
         true
     }
 
-    /// Publish, read indev (before and after timer), run LVGL timers.
+    /// Publish, run LVGL timers, then push the sample into LVGL (EVENT-mode indev).
     pub fn feed(&self, driver: &LvglDriver, sample: TouchSample, hit_btn: Option<usize>) {
         debug!(
             "oxivgl touch→widget feed pressed={} sample=({},{}) layout_hit={:?}",
             sample.pressed, sample.x, sample.y, hit_btn
         );
         self.publish(sample);
-        let before = self.sync_read();
         driver.timer_handler();
-        let after = self.sync_read();
-        if sample.pressed && !before && !after {
-            warn!(
-                "oxivgl indev read skipped (prev_scr?) sample=({},{})",
-                sample.x, sample.y
-            );
+        if !self.sync_read() {
+            if sample.pressed {
+                warn!(
+                    "oxivgl indev read skipped (prev_scr?) sample=({},{})",
+                    sample.x, sample.y
+                );
+            }
         }
         self.log_debug(sample, hit_btn);
     }
@@ -163,32 +163,73 @@ impl TouchInput {
 
         if sample.pressed {
             info!(
-                "oxivgl indev pressed state={} pt=({},{}) active_obj={:08x} layout_hit={:?} sample=({},{})",
+                "oxivgl indev lvgl state={} pt=({},{}) active_obj={:08x} layout_hit={:?} sample=({},{})",
                 state, pt.x, pt.y, active as u32, hit_btn, sample.x, sample.y
             );
         } else {
             debug!(
-                "oxivgl indev released state={} pt=({},{}) active_obj={:08x} layout_hit={:?}",
+                "oxivgl indev lvgl state={} pt=({},{}) active_obj={:08x} layout_hit={:?}",
                 state, pt.x, pt.y, active as u32, hit_btn
             );
         }
     }
 }
 
+/// Write pointer fields into LVGL's out-parameter.
+///
+/// On 32-bit targets bindgen maps `lv_indev_gesture_type_t` as `u32` (24 B) while
+/// LVGL compiles the enum as `u8` (6 B + padding). That shifts `state`/`point` by
+/// 16 bytes and LVGL would otherwise keep seeing `(0,0)` / released.
+unsafe fn write_pointer_data(data: *mut lv_indev_data_t, sample: TouchSample) {
+    // SAFETY: `data` is LVGL's valid out-parameter for the duration of the read callback.
+    unsafe {
+        let Some(out) = data.as_mut() else {
+            return;
+        };
+
+        let state = if sample.pressed {
+            lv_indev_state_t_LV_INDEV_STATE_PRESSED
+        } else {
+            lv_indev_state_t_LV_INDEV_STATE_RELEASED
+        };
+
+        if core::mem::offset_of!(lv_indev_data_t, state) == 32 {
+            out.point.x = sample.x;
+            out.point.y = sample.y;
+            out.state = state;
+            out.continue_reading = false;
+            return;
+        }
+
+        if cfg!(target_pointer_width = "32") {
+            let base = data.cast::<u8>();
+            // Matches LVGL 9.5 `lv_indev_data_t` on Cortex-M (verified via offsetof).
+            core::ptr::write(base.add(32).cast(), state);
+            core::ptr::write(base.add(36).cast(), sample.x);
+            core::ptr::write(base.add(40).cast(), sample.y);
+            core::ptr::write(base.add(60).cast(), false);
+            return;
+        }
+
+        out.point.x = sample.x;
+        out.point.y = sample.y;
+        out.state = state;
+        out.continue_reading = false;
+    }
+}
+
 unsafe extern "C" fn pointer_read_cb(_indev: *mut lv_indev_t, data: *mut lv_indev_data_t) {
-    // SAFETY: `data` is a valid out-parameter from LVGL for the duration of this callback.
-    let Some(out) = (unsafe { data.as_mut() }) else {
-        return;
-    };
-
     let sample = TOUCH_SAMPLE.lock(Cell::get);
+    touch_dbg::bump_read_cb();
+    if sample.pressed {
+        debug!(
+            "oxivgl pointer_read_cb pressed sample=({},{})",
+            sample.x, sample.y
+        );
+    }
 
-    out.point.x = sample.x;
-    out.point.y = sample.y;
-    out.state = if sample.pressed {
-        lv_indev_state_t_LV_INDEV_STATE_PRESSED
-    } else {
-        lv_indev_state_t_LV_INDEV_STATE_RELEASED
-    };
-    out.continue_reading = false;
+    // SAFETY: `data` comes from LVGL's indev read path.
+    unsafe {
+        write_pointer_data(data, sample);
+    }
 }

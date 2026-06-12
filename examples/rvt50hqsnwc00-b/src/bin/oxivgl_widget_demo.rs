@@ -97,10 +97,11 @@ async fn touch_info_task() -> ! {
         let hit_btn = touch_dbg::HIT_BTN.load(Ordering::Relaxed);
         let events = touch_dbg::EVENT_COUNT.load(Ordering::Relaxed);
         let int_wakeups = touch_dbg::INT_WAKEUPS.load(Ordering::Relaxed);
+        let read_cb = touch_dbg::READ_CB_COUNT.load(Ordering::Relaxed);
 
         info!(
-            "oxivgl touch dbg i2c_ok={} raw=0x{:02x} pressed={} x={} y={} active_obj={:08x} layout_hit={} lvgl_events={} int_wakeups={}",
-            i2c_ok, raw, pressed, x, y, active, hit_btn, events, int_wakeups
+            "oxivgl touch dbg i2c_ok={} raw=0x{:02x} pressed={} x={} y={} active_obj={:08x} layout_hit={} lvgl_events={} int_wakeups={} read_cb={}",
+            i2c_ok, raw, pressed, x, y, active, hit_btn, events, int_wakeups, read_cb
         );
         Timer::after_secs(2).await;
     }
