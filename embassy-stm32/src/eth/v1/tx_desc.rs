@@ -108,7 +108,7 @@ impl TDes {
 pub(crate) struct TDesRing<'a> {
     descriptors: &'a mut [TDes],
     buffers: &'a mut [Packet<TX_BUFFER_SIZE>],
-    packets: TxPacketStateRing<'a>,
+    state: TxPacketStateRing<'a>,
     index: usize,
 }
 
@@ -117,7 +117,7 @@ impl<'a> TDesRing<'a> {
     pub(crate) fn new(
         descriptors: &'a mut [TDes],
         buffers: &'a mut [Packet<TX_BUFFER_SIZE>],
-        packets: TxPacketStateRing<'a>,
+        state: TxPacketStateRing<'a>,
     ) -> Self {
         assert!(descriptors.len() > 0);
         assert!(descriptors.len() == buffers.len());
@@ -134,7 +134,7 @@ impl<'a> TDesRing<'a> {
         Self {
             descriptors,
             buffers,
-            packets,
+            state,
             index: 0,
         }
     }
@@ -149,8 +149,6 @@ impl<'a> TDesRing<'a> {
     pub(crate) fn available(&mut self) -> Option<&mut [u8]> {
         let descriptor = &mut self.descriptors[self.index];
         if descriptor.available() {
-            #[cfg(feature = "ptp")]
-            self.packets.complete(self.index, None);
             Some(&mut self.buffers[self.index].0)
         } else {
             None
@@ -158,7 +156,7 @@ impl<'a> TDesRing<'a> {
     }
 
     pub(crate) fn set_meta(&mut self, meta: PacketMeta) {
-        self.packets.set_meta(meta);
+        self.state.set_meta(meta);
     }
 
     /// Transmit the packet written in a buffer returned by `available`.
@@ -168,7 +166,7 @@ impl<'a> TDesRing<'a> {
 
         descriptor.set_buffer1(self.buffers[self.index].0.as_ptr());
         descriptor.set_buffer1_len(len);
-        self.packets.commit(self.index);
+        self.state.commit(self.index);
 
         descriptor.set_owned();
 

@@ -106,7 +106,7 @@ impl TDes {
 pub(crate) struct TDesRing<'a> {
     descriptors: &'a mut [TDes],
     buffers: &'a mut [Packet<TX_BUFFER_SIZE>],
-    packets: TxPacketStateRing<'a>,
+    state: TxPacketStateRing<'a>,
     index: usize,
     #[cfg(feature = "ptp")]
     completion_index: usize,
@@ -117,7 +117,7 @@ impl<'a> TDesRing<'a> {
     pub fn new(
         descriptors: &'a mut [TDes],
         buffers: &'a mut [Packet<TX_BUFFER_SIZE>],
-        packets: TxPacketStateRing<'a>,
+        state: TxPacketStateRing<'a>,
     ) -> Self {
         assert!(descriptors.len() > 0);
         assert!(descriptors.len() == buffers.len());
@@ -136,7 +136,7 @@ impl<'a> TDesRing<'a> {
         Self {
             descriptors,
             buffers,
-            packets,
+            state,
             index: 0,
             #[cfg(feature = "ptp")]
             completion_index: 0,
@@ -161,14 +161,14 @@ impl<'a> TDesRing<'a> {
 
     pub(crate) fn collect_completed(&mut self) {
         #[cfg(feature = "ptp")]
-        while self.packets.pending(self.completion_index) {
+        while self.state.pending(self.completion_index) {
             let descriptor = &self.descriptors[self.completion_index];
             if !descriptor.available() {
                 break;
             }
 
             let timestamp = descriptor.timestamp();
-            let packet_id = self.packets.id(self.completion_index);
+            let packet_id = self.state.id(self.completion_index);
             if packet_id != 0 {
                 if timestamp.is_some() {
                     trace!(
@@ -189,13 +189,13 @@ impl<'a> TDesRing<'a> {
                     );
                 }
             }
-            self.packets.complete(self.completion_index, timestamp);
+            self.state.complete(self.completion_index, timestamp);
             self.completion_index = (self.completion_index + 1) % self.descriptors.len();
         }
     }
 
     pub(crate) fn set_meta(&mut self, meta: PacketMeta) {
-        self.packets.set_meta(meta);
+        self.state.set_meta(meta);
     }
 
     /// Transmit the packet written in a buffer returned by `available`.
@@ -207,9 +207,9 @@ impl<'a> TDesRing<'a> {
         // Read format
         td.tdes0.set(self.buffers[self.index].0.as_ptr() as u32);
         #[cfg(feature = "ptp")]
-        let packet_id = self.packets.next_id();
+        let packet_id = self.state.next_id();
         #[cfg(feature = "ptp")]
-        let timestamp_enabled = self.packets.timestamp_enabled();
+        let timestamp_enabled = self.state.timestamp_enabled();
         #[cfg(not(feature = "ptp"))]
         let timestamp_enabled = false;
         let mut tdes2 = len as u32 & EMAC_TDES2_B1L | EMAC_TDES2_IOC;
@@ -217,7 +217,7 @@ impl<'a> TDesRing<'a> {
             tdes2 |= EMAC_TDES2_TTSE;
         }
         td.tdes2.set(tdes2);
-        self.packets.commit(self.index);
+        self.state.commit(self.index);
 
         // FD: Contains first buffer of packet
         // LD: Contains last buffer of packet
@@ -329,7 +329,7 @@ impl RDes {
 pub(crate) struct RDesRing<'a> {
     descriptors: &'a mut [RDes],
     buffers: &'a mut [Packet<RX_BUFFER_SIZE>],
-    packets: RxPacketStateRing<'a>,
+    state: RxPacketStateRing<'a>,
     index: usize,
     consume_context: bool,
 }
@@ -338,7 +338,7 @@ impl<'a> RDesRing<'a> {
     pub(crate) fn new(
         descriptors: &'a mut [RDes],
         buffers: &'a mut [Packet<RX_BUFFER_SIZE>],
-        packets: RxPacketStateRing<'a>,
+        state: RxPacketStateRing<'a>,
     ) -> Self {
         assert!(descriptors.len() > 1);
         assert!(descriptors.len() == buffers.len());
@@ -356,7 +356,7 @@ impl<'a> RDesRing<'a> {
         Self {
             descriptors,
             buffers,
-            packets,
+            state,
             index: 0,
             consume_context: false,
         }
@@ -396,7 +396,7 @@ impl<'a> RDesRing<'a> {
             return None;
         };
         self.consume_context = consume_context;
-        self.packets.capture(self.index, timestamp);
+        self.state.capture(self.index, timestamp);
         return Some(&mut self.buffers[self.index].0[..len]);
     }
 
@@ -427,7 +427,7 @@ impl<'a> RDesRing<'a> {
     }
 
     pub(crate) fn meta(&self) -> PacketMeta {
-        self.packets.meta(self.index)
+        self.state.meta(self.index)
     }
 
     /// Pop the packet previously returned by `available`.
@@ -446,7 +446,7 @@ impl<'a> RDesRing<'a> {
         assert!(rd.available());
 
         if packet {
-            self.packets.clear(self.index);
+            self.state.clear(self.index);
         }
         rd.set_ready(self.buffers[self.index].0.as_mut_ptr());
 

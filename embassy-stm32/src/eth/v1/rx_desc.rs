@@ -135,7 +135,7 @@ pub enum RunningState {
 pub(crate) struct RDesRing<'a> {
     descriptors: &'a mut [RDes],
     buffers: &'a mut [Packet<RX_BUFFER_SIZE>],
-    packets: RxPacketStateRing<'a>,
+    state: RxPacketStateRing<'a>,
     index: usize,
 }
 
@@ -143,7 +143,7 @@ impl<'a> RDesRing<'a> {
     pub(crate) fn new(
         descriptors: &'a mut [RDes],
         buffers: &'a mut [Packet<RX_BUFFER_SIZE>],
-        packets: RxPacketStateRing<'a>,
+        state: RxPacketStateRing<'a>,
     ) -> Self {
         assert!(descriptors.len() > 1);
         assert!(descriptors.len() == buffers.len());
@@ -161,7 +161,7 @@ impl<'a> RDesRing<'a> {
         Self {
             descriptors,
             buffers,
-            packets,
+            state,
             index: 0,
         }
     }
@@ -219,12 +219,12 @@ impl<'a> RDesRing<'a> {
 
         let descriptor = &mut self.descriptors[self.index];
         let len = descriptor.packet_len();
-        self.packets.capture(self.index, None);
+        self.state.capture(self.index, None);
         return Some(&mut self.buffers[self.index].0[..len]);
     }
 
     pub(crate) fn meta(&self) -> PacketMeta {
-        self.packets.meta(self.index)
+        self.state.meta(self.index)
     }
 
     /// Pop the packet previously returned by `available`.
@@ -232,7 +232,7 @@ impl<'a> RDesRing<'a> {
         let descriptor = &mut self.descriptors[self.index];
         assert!(descriptor.available());
 
-        self.packets.clear(self.index);
+        self.state.clear(self.index);
         self.descriptors[self.index].set_ready(self.buffers[self.index].0.as_mut_ptr());
 
         self.demand_poll();
