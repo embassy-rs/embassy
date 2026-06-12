@@ -21,6 +21,14 @@ pub struct PacketMeta {
     pub id: u32,
 }
 
+impl PacketMeta {
+    /// Empty packet metadata.
+    pub const EMPTY: Self = Self {
+        #[cfg(feature = "packetmeta-id")]
+        id: 0,
+    };
+}
+
 /// Representation of an hardware address, such as an Ethernet address or an IEEE802.15.4 address.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
