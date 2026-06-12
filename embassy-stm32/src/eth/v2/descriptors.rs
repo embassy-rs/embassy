@@ -393,7 +393,11 @@ impl<'a> RDesRing<'a> {
 
     fn timestamp(&self, index: usize) -> Option<(Option<PtpTimestamp>, bool)> {
         let descriptor = &self.descriptors[index];
-        let has_timestamp = descriptor.rdes1.get() & EMAC_RDES1_TSA != 0;
+        // RDES1 status is valid only when RS1V is set in RDES3. Without this
+        // guard, stale buffer-address bits in RDES1 can be mistaken for TSA and
+        // wedge the RX ring waiting for a context descriptor that will not come.
+        let has_timestamp =
+            descriptor.rdes3.get() & EMAC_RDES3_RS1V != 0 && descriptor.rdes1.get() & EMAC_RDES1_TSA != 0;
         if !has_timestamp {
             return Some((None, false));
         }
@@ -402,10 +406,13 @@ impl<'a> RDesRing<'a> {
         let context = &self.descriptors[next];
         if context.context_available() {
             Some((context.context_timestamp(), true))
+        } else if context.available() {
+            Some((None, false))
         } else {
             // Keep the packet queued until the following timestamp context
-            // descriptor is available. Dropping through here would expose a
-            // timestamped packet to the stack without its hardware timestamp.
+            // descriptor has been written back. If it becomes a normal packet
+            // instead, do not block the RX ring waiting for a timestamp that
+            // the hardware did not provide.
             None
         }
     }
