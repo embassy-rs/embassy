@@ -1,4 +1,4 @@
-/// Ethernet MAC packet timestamp.
+/// Ethernet MAC PTP timestamp.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PtpTimestamp {
@@ -20,10 +20,13 @@ mod imp {
 
     use super::PtpTimestamp;
 
-    /// Shared PTP packet timestamp history.
+    /// Shared Ethernet PTP packet timestamp store.
     ///
     /// The `TX` and `RX` const parameters are timestamp history depths. They do
-    /// not need to match the Ethernet descriptor ring lengths.
+    /// not need to match the Ethernet descriptor ring lengths. Pass this store
+    /// to [`PacketQueue::new_with_ptp`](super::super::PacketQueue::new_with_ptp) or
+    /// [`PacketQueue::init_with_ptp`](super::super::PacketQueue::init_with_ptp),
+    /// then query it with the [`PacketMeta`] attached to RX and TX packets.
     pub struct PtpTimestampStore<const TX: usize, const RX: usize> {
         tx: [TimestampSlot; TX],
         rx: [TimestampSlot; RX],
@@ -40,7 +43,7 @@ mod imp {
             }
         }
 
-        /// Get the transmit timestamp recorded for `meta`.
+        /// Get the transmit timestamp for a packet.
         ///
         /// Returns `None` if the timestamp has not been recorded, if the packet
         /// was not hardware timestamped, or if the history slot was overwritten.
@@ -67,7 +70,7 @@ mod imp {
             }
         }
 
-        /// Get the receive timestamp recorded for `meta`.
+        /// Get the receive timestamp for a packet.
         ///
         /// Returns `None` if the timestamp was not recorded or if the history
         /// slot was overwritten.

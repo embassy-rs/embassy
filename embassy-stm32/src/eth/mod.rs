@@ -57,11 +57,13 @@ impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
         Self::new_inner(PtpTimestampSink::new())
     }
 
-    /// Create a new packet queue with Ethernet PTP timestamp storage.
+    /// Create a new packet queue with Ethernet PTP packet timestamps.
     ///
-    /// This attaches PTP timestamp storage to the descriptor rings. The MAC PTP
-    /// clock, snapshot control, and filters must be configured separately before
-    /// timestamps will be produced by hardware.
+    /// The queue records hardware RX/TX timestamps in `timestamps`. Use the
+    /// [`PacketMeta`] supplied by `embassy-net` to retrieve them from the store.
+    ///
+    /// The MAC PTP clock and timestamping registers must be configured
+    /// separately before the hardware will produce timestamps.
     #[cfg(feature = "ptp")]
     pub const fn new_with_ptp<const PTP_TX: usize, const PTP_RX: usize>(
         timestamps: &'static PtpTimestampStore<PTP_TX, PTP_RX>,
@@ -98,11 +100,11 @@ impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
         }
     }
 
-    /// Initialize a packet queue in-place with Ethernet PTP timestamp storage.
+    /// Initialize a packet queue in-place with Ethernet PTP packet timestamps.
     ///
     /// This is the PTP equivalent of [`PacketQueue::init`]. It avoids a
     /// temporary stack allocation of the full packet queue while still attaching
-    /// the timestamp storage required for PTP packet timestamp lookup.
+    /// the timestamp store used for packet timestamp lookup.
     #[cfg(feature = "ptp")]
     pub fn init_with_ptp<const PTP_TX: usize, const PTP_RX: usize>(
         this: &mut MaybeUninit<Self>,
