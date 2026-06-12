@@ -139,7 +139,7 @@ impl<T: Instance> PtpClock<T> {
 
     /// Step the MAC PTP time by `offset_nanos`.
     pub fn offset_time(&self, offset_nanos: i64) {
-        let (timestamp, subtract) = timestamp_from_offset(offset_nanos);
+        let (timestamp, subtract) = PtpTimestamp::from_offset_nanos(offset_nanos);
         apply_time_update::<T>(timestamp, subtract, TimeUpdate::Offset);
     }
 
@@ -203,23 +203,6 @@ fn wait_timestamp_init_or_update_clear<T: Instance>() {
         let control = mac.mactscr().read();
         control.tsinit() || control.tsupdt()
     } {}
-}
-
-fn timestamp_from_offset(offset_nanos: i64) -> (PtpTimestamp, bool) {
-    let subtract = offset_nanos < 0;
-    let nanos = if subtract {
-        offset_nanos.unsigned_abs()
-    } else {
-        offset_nanos as u64
-    };
-    let seconds = nanos / 1_000_000_000;
-    let (seconds, nanos) = if seconds > u64::from(u32::MAX) {
-        (u32::MAX, 999_999_999)
-    } else {
-        (seconds as u32, (nanos % 1_000_000_000) as u32)
-    };
-
-    (PtpTimestamp { seconds, nanos }, subtract)
 }
 
 #[cfg(test)]
