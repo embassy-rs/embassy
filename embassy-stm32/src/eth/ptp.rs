@@ -8,6 +8,26 @@ pub struct PtpTimestamp {
     pub nanos: u32,
 }
 
+impl PtpTimestamp {
+    #[cfg(feature = "ptp")]
+    pub(crate) fn from_offset_nanos(offset_nanos: i64) -> (Self, bool) {
+        let subtract = offset_nanos < 0;
+        let nanos = if subtract {
+            offset_nanos.unsigned_abs()
+        } else {
+            offset_nanos as u64
+        };
+        let seconds = nanos / 1_000_000_000;
+        let (seconds, nanos) = if seconds > u64::from(u32::MAX) {
+            (u32::MAX, 999_999_999)
+        } else {
+            (seconds as u32, (nanos % 1_000_000_000) as u32)
+        };
+
+        (Self { seconds, nanos }, subtract)
+    }
+}
+
 #[cfg(feature = "ptp")]
 mod imp {
     use core::sync::atomic::{AtomicU32, Ordering};
