@@ -9,6 +9,7 @@ pub struct PtpTimestamp {
 }
 
 impl PtpTimestamp {
+    #[cfg(feature = "ptp")]
     pub(crate) fn from_offset_nanos(offset_nanos: i64) -> (Self, bool) {
         let subtract = offset_nanos < 0;
         let nanos = if subtract {
