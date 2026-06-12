@@ -1,4 +1,6 @@
 mod descriptors;
+#[cfg(feature = "ptp")]
+mod ptp;
 
 use core::sync::atomic::{Ordering, fence};
 
@@ -8,8 +10,6 @@ use embassy_hal_internal::Peri;
 use stm32_metapac::syscfg::vals::EthSelPhy;
 
 use super::*;
-#[cfg(feature = "ptp")]
-use super::{PtpClock, PtpClockConfig};
 use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::interrupt;
 use crate::interrupt::InterruptExt;
@@ -18,6 +18,8 @@ use crate::pac::ETH;
 #[cfg(eth_v2a)]
 use crate::pac::ETH1 as ETH;
 use crate::rcc::WakeGuard;
+#[cfg(feature = "ptp")]
+pub use ptp::{PtpClock, PtpClockConfig, PtpSubsecondIncrement};
 
 // The two MACs sit behind different interrupt lines.
 #[cfg(eth_v2)]
