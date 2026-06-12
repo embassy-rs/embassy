@@ -25,7 +25,7 @@ pub use self::generic_phy::*;
 use self::packet_state::PacketState;
 use self::ptp::PtpTimestampSink;
 #[cfg(feature = "ptp")]
-pub use self::ptp::{PtpTimestamp, PtpTimestampStore};
+pub use self::ptp::{PtpClock, PtpClockConfig, PtpSubsecondIncrement, PtpTimestamp, PtpTimestampStore};
 pub use self::sma::{Instance as SmaInstance, Sma, StationManagement};
 use crate::rcc::RccPeripheral;
 
