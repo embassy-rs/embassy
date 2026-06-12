@@ -21,7 +21,7 @@ pub use self::_version::{InterruptHandler, *};
 pub use self::generic_phy::*;
 use self::packet_state::PacketStateStorage;
 use self::ptp::PtpStorage;
-#[cfg(all(feature = "ptp", any(eth_v2, eth_v2a)))]
+#[cfg(feature = "ptp")]
 pub use self::ptp::{PtpTimestamp, PtpTimestampStore};
 pub use self::sma::{Instance as SmaInstance, Sma, StationManagement};
 use crate::rcc::RccPeripheral;
@@ -70,7 +70,7 @@ impl PacketQueueConfig {
     ///
     /// The MAC PTP clock, snapshot control, and filters must be configured
     /// separately before timestamps will be produced by hardware.
-    #[cfg(all(feature = "ptp", any(eth_v2, eth_v2a)))]
+    #[cfg(feature = "ptp")]
     pub const fn ptp<const PTP_TX: usize, const PTP_RX: usize>(
         mut self,
         timestamps: &'static PtpTimestampStore<PTP_TX, PTP_RX>,
@@ -102,7 +102,7 @@ impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
     /// This attaches PTP timestamp storage to the descriptor rings. The MAC PTP
     /// clock, snapshot control, and filters must be configured separately before
     /// timestamps will be produced by hardware.
-    #[cfg(all(feature = "ptp", any(eth_v2, eth_v2a)))]
+    #[cfg(feature = "ptp")]
     pub const fn new_with_ptp<const PTP_TX: usize, const PTP_RX: usize>(
         timestamps: &'static PtpTimestampStore<PTP_TX, PTP_RX>,
     ) -> Self {
@@ -150,7 +150,7 @@ impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
     /// This is the PTP equivalent of [`PacketQueue::init`]. It avoids a
     /// temporary stack allocation of the full packet queue while still attaching
     /// the timestamp storage required for PTP packet timestamp lookup.
-    #[cfg(all(feature = "ptp", any(eth_v2, eth_v2a)))]
+    #[cfg(feature = "ptp")]
     pub fn init_with_ptp<const PTP_TX: usize, const PTP_RX: usize>(
         this: &mut MaybeUninit<Self>,
         timestamps: &'static PtpTimestampStore<PTP_TX, PTP_RX>,

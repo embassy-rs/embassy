@@ -15,6 +15,9 @@
 mod fmt;
 include!(concat!(env!("OUT_DIR"), "/_macros.rs"));
 
+#[cfg(all(feature = "ptp", not(any(eth_v2, eth_v2a))))]
+compile_error!("The 'ptp' feature is only supported on STM32 Ethernet MAC v2/v2a peripherals.");
+
 // Utilities
 mod macros;
 mod reg;

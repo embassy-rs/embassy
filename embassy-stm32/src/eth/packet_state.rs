@@ -78,7 +78,6 @@ impl TxPacketStateRing<'_> {
         let _ = index;
     }
 
-    #[cfg(any(eth_v2, eth_v2a))]
     pub(crate) fn pending(&self, index: usize) -> bool {
         #[cfg(feature = "ptp")]
         {
@@ -91,12 +90,10 @@ impl TxPacketStateRing<'_> {
         }
     }
 
-    #[cfg(any(eth_v2, eth_v2a))]
     pub(crate) fn timestamp_enabled(&self) -> bool {
         self.ptp.enabled() && self.next_id() != 0
     }
 
-    #[cfg(any(eth_v2, eth_v2a))]
     pub(crate) fn next_id(&self) -> u32 {
         #[cfg(feature = "ptp")]
         {
@@ -113,7 +110,6 @@ impl TxPacketStateRing<'_> {
         self.clear(index);
     }
 
-    #[cfg(any(eth_v2, eth_v2a))]
     pub(crate) fn id(&self, index: usize) -> u32 {
         #[cfg(feature = "ptp")]
         {

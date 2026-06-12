@@ -8,7 +8,7 @@ pub struct PtpTimestamp {
     pub nanos: u32,
 }
 
-#[cfg(all(feature = "ptp", any(eth_v2, eth_v2a)))]
+#[cfg(feature = "ptp")]
 mod imp {
     use core::{
         sync::atomic::{AtomicU32, Ordering},
@@ -235,7 +235,6 @@ mod imp {
     }
 
     impl TxPtpRing<'_> {
-        #[cfg(any(eth_v2, eth_v2a))]
         pub(crate) fn enabled(&self) -> bool {
             false
         }
@@ -256,6 +255,6 @@ mod imp {
     }
 }
 
-#[cfg(all(feature = "ptp", any(eth_v2, eth_v2a)))]
+#[cfg(feature = "ptp")]
 pub use imp::PtpTimestampStore;
 pub(crate) use imp::{PtpStorage, RxPtpRing, TxPtpRing};
