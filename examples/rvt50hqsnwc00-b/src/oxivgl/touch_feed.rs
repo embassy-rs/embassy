@@ -12,7 +12,6 @@
 //! press/release ordering intact. Idle samples are no longer queued at all — only
 //! press samples and one final release sample per contact.
 
-use defmt::{debug, info};
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::mode::Async;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -20,17 +19,14 @@ use embassy_sync::channel::Channel;
 use embassy_time::{Duration, Timer};
 
 use crate::oxivgl::indev::TouchSample;
-use crate::oxivgl::touch_dbg;
 use crate::rvt50_board;
 
-/// Latest raw touch sample from the board (includes I2C metadata for debug).
+/// Latest raw touch sample from the board.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TouchBoardSample {
     pub x: i32,
     pub y: i32,
     pub pressed: bool,
-    pub i2c_ok: bool,
-    pub raw_status: u8,
 }
 
 impl From<TouchBoardSample> for TouchSample {
@@ -70,8 +66,6 @@ pub async fn run_touch_int_task(
     let mut last_x = 0i32;
     let mut last_y = 0i32;
 
-    info!("oxivgl touch task: interrupt-driven via CTP_INT");
-
     loop {
         // Idle: zero I2C traffic until the controller asserts CTP_INT.
         if touch_int.is_high() {
@@ -81,8 +75,6 @@ pub async fn run_touch_int_task(
             // already active) — throttle so a stuck line cannot spam the bus.
             Timer::after(Duration::from_millis(TOUCH_ACTIVE_POLL_MS)).await;
         }
-        touch_dbg::bump_int_wakeups();
-        debug!("oxivgl touch int wake int_low={}", touch_int.is_low());
 
         // Active: poll until the contact ends or the wake-up proves spurious.
         let mut was_pressed = false;
@@ -102,33 +94,18 @@ pub async fn run_touch_int_task(
                 x: last_x,
                 y: last_y,
                 pressed: t.pressed,
-                i2c_ok: t.i2c_ok,
-                raw_status: t.raw_status,
             };
 
-            touch_dbg::publish_touch(sample.x, sample.y, sample.pressed, sample.i2c_ok, sample.raw_status);
-
             if t.pressed {
-                if !was_pressed {
-                    info!(
-                        "oxivgl touch down x={} y={} raw=0x{:02x}",
-                        sample.x, sample.y, t.raw_status
-                    );
-                }
                 was_pressed = true;
                 sender.send(sample).await;
             } else if was_pressed {
                 // Contact ended: deliver exactly one release sample, then re-arm.
-                info!("oxivgl touch up x={} y={}", sample.x, sample.y);
                 sender.send(sample).await;
                 break;
             } else {
                 settle_reads_left -= 1;
                 if settle_reads_left == 0 {
-                    debug!(
-                        "oxivgl touch int spurious i2c_ok={} raw=0x{:02x}",
-                        t.i2c_ok, t.raw_status
-                    );
                     break;
                 }
             }

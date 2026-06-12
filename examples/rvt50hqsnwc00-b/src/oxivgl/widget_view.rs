@@ -10,10 +10,7 @@ use oxivgl::event::Event;
 use oxivgl::fonts::{MONTSERRAT_14, MONTSERRAT_16};
 use oxivgl::style::Selector;
 use oxivgl::view::{NavAction, View, register_event_on};
-use oxivgl::draw::Area;
 use oxivgl::widgets::{AsLvHandle, Button, Label, Obj, RADIUS_MAX, Screen, TextAlign, WidgetError};
-
-use crate::oxivgl::touch_dbg;
 
 fn on_demo_button_click(_event: &Event) {
     info!("oxivgl light scene direct button CLICKED");
@@ -161,24 +158,7 @@ impl View for WidgetView {
     }
 
     fn on_event(&mut self, event: &Event) -> NavAction {
-        let code = event.code();
-        let target = event.target_handle() as u32;
-        let btn_idx = self.button_index_for_handle(event.target_handle());
-
-        match code {
-            EventCode::PRESSED | EventCode::PRESSING | EventCode::CLICKED
-            | EventCode::SHORT_CLICKED | EventCode::SINGLE_CLICKED | EventCode::LONG_PRESSED
-            | EventCode::LONG_PRESSED_REPEAT => {
-                touch_dbg::bump_event_count();
-                info!(
-                    "oxivgl widget event code={:?} target={:08x} btn={:?} clicks={}",
-                    code.0, target, btn_idx, self.clicks
-                );
-            }
-            _ => {}
-        }
-
-        match code {
+        match event.code() {
             EventCode::CLICKED | EventCode::SHORT_CLICKED | EventCode::SINGLE_CLICKED => {
                 self.clicks += 1;
             }
@@ -233,50 +213,6 @@ impl WidgetView {
 
         self.objects.push(card);
         Ok(())
-    }
-
-    /// Log widget bounds once (RTT) to verify touch hit targets.
-    pub fn log_layout(&self) {
-        info!("oxivgl scene buttons count={}", self.buttons.len());
-        if let Some(btn) = self.buttons.first() {
-            let area = btn.get_coords();
-            info!(
-                "oxivgl first scene btn area x1={} y1={} x2={} y2={} handle={:08x}",
-                area.x1,
-                area.y1,
-                area.x2,
-                area.y2,
-                btn.handle() as u32
-            );
-        }
-        if let Some(btn) = self.buttons.last() {
-            let area = btn.get_coords();
-            info!(
-                "oxivgl last scene btn area x1={} y1={} x2={} y2={} handle={:08x}",
-                area.x1,
-                area.y1,
-                area.x2,
-                area.y2,
-                btn.handle() as u32
-            );
-        }
-    }
-
-    /// Return the scene button whose layout bounds contain `(x, y)`, if any.
-    pub fn find_button_at(&self, x: i32, y: i32) -> Option<(usize, Area)> {
-        for (idx, btn) in self.buttons.iter().enumerate() {
-            let area = btn.get_coords();
-            if x >= area.x1 && x <= area.x2 && y >= area.y1 && y <= area.y2 {
-                return Some((idx, area));
-            }
-        }
-        None
-    }
-
-    fn button_index_for_handle(&self, handle: *mut oxivgl_sys::lv_obj_t) -> Option<usize> {
-        self.buttons
-            .iter()
-            .position(|btn| btn.handle() == handle)
     }
 }
 

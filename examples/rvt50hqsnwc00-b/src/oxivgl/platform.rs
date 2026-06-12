@@ -43,16 +43,9 @@ fn drain_touch_queue(
     >,
     driver: &LvglDriver,
     touch: &TouchInput,
-    view: &WidgetView,
 ) {
     while let Ok(board) = rx.try_receive() {
-        let sample = TouchSample::from(board);
-        let hit_btn = if sample.pressed {
-            view.find_button_at(sample.x, sample.y).map(|(idx, _)| idx)
-        } else {
-            None
-        };
-        touch.feed(driver, sample, hit_btn);
+        touch.feed(driver, TouchSample::from(board));
     }
 }
 
@@ -89,7 +82,7 @@ async fn lvgl_present_batch(
     sync_back_from_front();
 
     for _ in 0..PRESENT_LVGL_TICKS {
-        drain_touch_queue(touch_rx, driver, touch, view);
+        drain_touch_queue(touch_rx, driver, touch);
         driver.timer_handler();
         Timer::after(Duration::from_millis(LVGL_TICK_MS)).await;
     }
@@ -124,7 +117,6 @@ pub async fn run_widget_demo(
         }
     }
     register_view_events(view);
-    view.log_layout();
 
     let touch = TouchInput::register();
     let mut touch_rx = touch_feed::receiver();
@@ -136,7 +128,7 @@ pub async fn run_widget_demo(
     loop {
         Timer::after(Duration::from_millis(UI_TICK_MS)).await;
 
-        drain_touch_queue(&mut touch_rx, &driver, &touch, view);
+        drain_touch_queue(&mut touch_rx, &driver, &touch);
         // Keep LVGL alive between touch edges.
         driver.timer_handler();
 

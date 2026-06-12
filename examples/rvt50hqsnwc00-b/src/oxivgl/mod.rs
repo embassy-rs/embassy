@@ -11,6 +11,5 @@
 pub mod display;
 pub mod indev;
 pub mod platform;
-pub mod touch_dbg;
 pub mod touch_feed;
 pub mod widget_view;
