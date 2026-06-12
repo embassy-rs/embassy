@@ -1,13 +1,15 @@
 #![macro_use]
 //! Nonvolatile memory/Flash controller
 
-use crate::{Peri, pac};
 use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
 use core::task::Poll;
+
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use mspm0_metapac::flashctl::{Flashctl, regs, vals};
+
+use crate::{Peri, pac};
 
 pub struct FlashController<'d> {
     regs: Flashctl,
@@ -34,6 +36,7 @@ macro_rules! impl_flash_instance {
     };
 }
 
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FlashError {
     WriteProtected,
     VerifyFailed,
@@ -131,15 +134,16 @@ impl<'d> FlashController<'d> {
         self.regs.cmddataindex().write(|w| w.set_val(0));
         self.regs.cmdaddr().write(|w| *w = addr as *const _ as u32);
         self.regs.cmdbyten().write(|w| w.0 |= 0xff); // Write 8 bytes
-        // TODO: not sure this is correct ordering
-        self.regs.cmddata(0).write(|w| *w = (value & 0xffff) as u32);
-        self.regs.cmddata(1).write(|w| *w = (value >> 32) as u32);
+        // This ends up in cmddata(0) ends up in ptr+0x0000
+        self.regs.cmddata(0).write(|w| *w = (value >> 32) as u32);
+        // This ends up in cmddata(1) ends up in ptr+0x0004
+        self.regs.cmddata(1).write(|w| *w = (value & 0xffffffff) as u32);
         self.regs.cmdexec().write(|w| w.set_val(true));
         self.status_future()
     }
 
     /// NOTE: this will enable all dynamic write-protects
-    pub fn erase_page(&mut self, addr: &*mut u8) -> impl Future<Output = Result<(), FlashError>> {
+    pub fn erase_page(&mut self, addr: *mut u8) -> impl Future<Output = Result<(), FlashError>> {
         self.regs.cmdtype().write(|w| {
             w.set_command(vals::Command::ERASE);
             w.set_size(vals::Size::SECTOR);
