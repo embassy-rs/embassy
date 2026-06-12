@@ -80,9 +80,8 @@ impl<'d, PIO: Instance, const SM: usize> PioUartTx<'d, PIO, SM> {
         self.sm_tx.tx().wait_push(data as u32).await;
     }
 
-    /// Change Baud Rate, make sure the communication stopped before changingthe baud rate in run time
-    /// if not data can be lost  
-    pub fn change_baud_rate(&mut self, baud: u32) {
+    /// Change baud rate on run time  
+    pub fn set_baudrate(&mut self, baud: u32) {
         let clock_divider: FixedU32<U8> = (clk_sys_freq() / (8 * baud)).to_fixed();
         self.sm_tx.set_enable(false);
         self.sm_tx.clear_fifos();
@@ -186,9 +185,8 @@ impl<'d, PIO: Instance, const SM: usize> PioUartRx<'d, PIO, SM> {
         self.sm_rx.rx().wait_pull().await as u8
     }
 
-    /// Change Baud Rate, make sure the communication stopped before changing it in run time
-    /// if not data can be lost  
-    pub fn change_baud_rate(&mut self, baud: u32) {
+    /// Change Baud rate on runtime
+    pub fn set_baudrate(&mut self, baud: u32) {
         let clock_divider: FixedU32<U8> = (clk_sys_freq() / (8 * baud)).to_fixed();
         self.sm_rx.set_enable(false);
         self.sm_rx.clear_fifos();
