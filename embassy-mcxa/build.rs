@@ -56,6 +56,7 @@ fn main() {
         generate_ctimer_pin_impls(),
         generate_lpuart_pin_impls(),
         generate_flexspi_pin_impls(),
+        generate_dac_pin_impls(),
     ];
 
     let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
@@ -199,7 +200,7 @@ fn generate_instance_calls() -> TokenStream {
     let mut generated = TokenStream::new();
 
     const REQUIRES_INSTANCE: &[&str] = &[
-        "adc", "crc", "gpio", "trng", "wwdt", "ctimer", "lpi2c", "i3c", "lpuart", "lpspi", "flexspi",
+        "adc", "crc", "dac", "gpio", "trng", "wwdt", "ctimer", "lpi2c", "i3c", "lpuart", "lpspi", "flexspi",
     ];
 
     let peripheral_regex = Regex::new(r"(^.*\D)(\d+)?").unwrap();
@@ -406,6 +407,29 @@ fn generate_flexspi_pin_impls() -> TokenStream {
                 generated.extend(quote! {
                     #feature_gate
                     crate::impl_flexspi_pin!(#pin_name, #flexspi_name);
+                });
+            }
+        }
+    }
+
+    generated
+}
+
+fn generate_dac_pin_impls() -> TokenStream {
+    let mut generated = TokenStream::new();
+
+    let dac_regex = Regex::new(r"^DAC\d+").unwrap();
+    for dac in METADATA.peripherals.iter().filter(|p| dac_regex.is_match(p.name)) {
+        let dac_name = format_ident!("{}", dac.name);
+
+        for signal in dac.signals {
+            for pin in signal.pins {
+                let pin_name = format_ident!("{}", pin.pin);
+                let feature_gate = pin_feature_gate(pin.pin);
+
+                generated.extend(quote! {
+                    #feature_gate
+                    crate::impl_dac_pin!(#pin_name, #dac_name);
                 });
             }
         }

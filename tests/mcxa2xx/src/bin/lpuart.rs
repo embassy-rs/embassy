@@ -56,8 +56,8 @@ async fn main(spawner: Spawner) {
 
     let mut dma_uart = Lpuart::new_async_with_dma(
         p.LPUART2,  // Peripheral
-        p.P2_2,     // TX pin
-        p.P2_3,     // RX pin
+        p.P2_10,    // TX pin
+        p.P2_11,    // RX pin
         p.DMA0_CH0, // TX DMA channel
         p.DMA0_CH1, // RX DMA channel
         config,
