@@ -297,33 +297,32 @@ impl RccInfo {
     }
 
     // TODO: should this be `unsafe`?
-    pub(crate) fn enable_and_reset_with_cs(&self, cs: CriticalSection) -> Result<(), ()> {
+    pub(crate) fn enable_and_reset_with_cs(&self, cs: CriticalSection) {
         if let Some(refcount_idx) = self.refcount_idx {
             let refcount_idx = refcount_idx as usize;
             let refcount = unsafe { &mut (*&raw mut crate::_generated::REFCOUNTS)[refcount_idx] };
             *refcount += 1;
             if *refcount > 1 {
-                return Err(());
+                return;
             }
         }
 
         // set the xxxRST bit
-        let reset_ptr = self.reset_ptr();
-        if let Some(reset_ptr) = reset_ptr {
+        if let Some(reset_ptr) = self.reset_ptr() {
             #[cfg(not(stm32wl5x))]
             unsafe {
                 let val = reset_ptr.read_volatile();
                 reset_ptr.write_volatile(val | 1u32 << self.reset_bit);
             }
 
-            // on stm32wl5x each CPU has its own peripheral enable bits and if the othert CPU has enabled the peripheral we don;t want to reset it
+            // on stm32wl5x each CPU has its own peripheral enable bits and if the other CPU has enabled the peripheral we don't want to reset it
             // as that would reset the configuration that the other CPU has set up.
             // we hold a hardware lock to prevent the other CPU from enabling the peripheral while we are resetting it.
             #[cfg(stm32wl5x)]
             unsafe {
                 let _lock = crate::hsem::get_hsem(3).blocking_lock(0);
 
-                if !self.is_enabled_by_other_core() {
+                if (self.enable_ptr().read_volatile() & (1u32 << self.enable_bit)) == 0 {
                     let val = reset_ptr.read_volatile();
                     reset_ptr.write_volatile(val | 1u32 << self.reset_bit);
 
@@ -333,80 +332,66 @@ impl RccInfo {
         }
 
         self.enable_with_cs(cs);
-
-        Ok(())
     }
 
     // TODO: should this be `unsafe`?
-    pub(crate) fn enable_with_cs(&self, _cs: CriticalSection) {
+    pub(crate) fn enable_with_cs(&self, cs: CriticalSection) {
         // set the xxxEN bit
-        let enable_ptr = self.enable_ptr();
-        unsafe {
-            #[cfg(not(all(stm32wl5x, feature = "_core-cm0p")))]
-            {
-                let val = enable_ptr.read_volatile();
-                enable_ptr.write_volatile(val | 1u32 << self.enable_bit);
-            }
-            // second core enable for stm32wl5x is at offset 0x100
-            #[cfg(all(stm32wl5x, feature = "_core-cm0p"))]
-            {
-                let enable_ptr = enable_ptr.add(0x100 / 4);
-                let val = enable_ptr.read_volatile();
-                enable_ptr.write_volatile(val | 1u32 << self.enable_bit);
-            }
+        let already_enabled = unsafe {
+            let val = self.enable_ptr().read_volatile();
+            self.enable_ptr().write_volatile(val | 1u32 << self.enable_bit);
+
             trace!("rcc: enabled 0x{:x}:{}", self.enable_offset, self.enable_bit);
-        }
+
+            (val & 1u32 << self.enable_bit) > 0
+        };
 
         // we must wait two peripheral clock cycles before the clock is active
         // this seems to work, but might be incorrect
         // see http://efton.sk/STM32/gotcha/g183.html
 
         // dummy read (like in the ST HALs)
-        let _ = unsafe { enable_ptr.read_volatile() };
+        let _ = unsafe { self.enable_ptr().read_volatile() };
 
         // DSB for good measure
         cortex_m::asm::dsb();
 
         // clear the xxxRST bit
-        let reset_ptr = self.reset_ptr();
-        if let Some(reset_ptr) = reset_ptr {
+        if let Some(reset_ptr) = self.reset_ptr() {
             unsafe {
                 let val = reset_ptr.read_volatile();
                 reset_ptr.write_volatile(val & !(1u32 << self.reset_bit));
             }
         }
+
+        if !already_enabled {
+            self.increment_minimum_stop_refcount_with_cs(cs);
+        }
     }
 
     // TODO: should this be `unsafe`?
-    pub(crate) fn disable_with_cs(&self, _cs: CriticalSection) -> Result<(), ()> {
+    pub(crate) fn disable_with_cs(&self, cs: CriticalSection) {
         if let Some(refcount_idx) = self.refcount_idx {
             let refcount_idx = refcount_idx as usize;
             let refcount = unsafe { &mut (*&raw mut crate::_generated::REFCOUNTS)[refcount_idx] };
             *refcount -= 1;
             if *refcount > 0 {
-                return Err(());
+                return;
             }
         }
 
         // clear the xxxEN bit
-        let enable_ptr = self.enable_ptr();
-        unsafe {
-            #[cfg(not(all(stm32wl5x, feature = "_core-cm0p")))]
-            {
-                let val = enable_ptr.read_volatile();
-                enable_ptr.write_volatile(val & !(1u32 << self.enable_bit));
-            }
-            // second core enable for stm32wl5x is at offset 0x100
-            #[cfg(all(stm32wl5x, feature = "_core-cm0p"))]
-            {
-                let enable_ptr = enable_ptr.add(0x100 / 4);
-                let val = enable_ptr.read_volatile();
-                enable_ptr.write_volatile(val & !(1u32 << self.enable_bit));
-            }
+        let already_disabled = unsafe {
+            let val = self.enable_ptr().read_volatile();
+            self.enable_ptr().write_volatile(val & !(1u32 << self.enable_bit));
             trace!("rcc: disabled 0x{:x}:{}", self.enable_offset, self.enable_bit);
-        }
 
-        Ok(())
+            (val & 1u32 << self.enable_bit) == 0
+        };
+
+        if !already_disabled {
+            self.decrement_minimum_stop_refcount_with_cs(cs);
+        }
     }
 
     #[allow(dead_code)]
@@ -429,22 +414,12 @@ impl RccInfo {
 
     // TODO: should this be `unsafe`?
     pub(crate) fn enable_and_reset(&self) {
-        let _: Result<(), ()> = critical_section::with(|cs| {
-            self.enable_and_reset_with_cs(cs)?;
-            self.increment_minimum_stop_refcount_with_cs(cs);
-
-            Ok(())
-        });
+        critical_section::with(|cs| self.enable_and_reset_with_cs(cs))
     }
 
     // TODO: should this be `unsafe`?
     pub(crate) fn disable(&self) {
-        let _: Result<(), ()> = critical_section::with(|cs| {
-            self.disable_with_cs(cs)?;
-            self.decrement_minimum_stop_refcount_with_cs(cs);
-
-            Ok(())
-        });
+        critical_section::with(|cs| self.disable_with_cs(cs))
     }
 
     #[allow(dead_code)]
@@ -455,7 +430,7 @@ impl RccInfo {
         )
     }
 
-    fn reset_ptr(&self) -> Option<*mut u32> {
+    const fn reset_ptr(&self) -> Option<*mut u32> {
         if self.reset_offset_or_0xff != 0xff {
             Some(unsafe { (RCC.as_ptr() as *mut u32).add(self.reset_offset_or_0xff as _) })
         } else {
@@ -463,17 +438,16 @@ impl RccInfo {
         }
     }
 
-    fn enable_ptr(&self) -> *mut u32 {
-        unsafe { (RCC.as_ptr() as *mut u32).add(self.enable_offset as _) }
-    }
+    const fn enable_ptr(&self) -> *mut u32 {
+        #[cfg(all(stm32wl5x, feature = "_core-cm0p"))]
+        unsafe {
+            (RCC.as_ptr() as *mut u32).add(self.enable_offset as _).add(0x100 / 4)
+        }
 
-    #[cfg(stm32wl5x)]
-    unsafe fn is_enabled_by_other_core(&self) -> bool {
-        let ptr = self.enable_ptr();
-        #[cfg(feature = "_core-cm4")]
-        let ptr = ptr.add(0x100);
-
-        (ptr.read_volatile() & (1u32 << self.enable_bit)) != 0
+        #[cfg(not(all(stm32wl5x, feature = "_core-cm0p")))]
+        unsafe {
+            (RCC.as_ptr() as *mut u32).add(self.enable_offset as _)
+        }
     }
 }
 
