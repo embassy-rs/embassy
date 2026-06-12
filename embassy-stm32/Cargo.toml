@@ -55,6 +55,7 @@ build = [
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32f730i8", "time", "time-driver-any"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32h753zi", "time", "time-driver-any"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "ptp", "stm32h753zi"]},
+    {target = "thumbv7em-none-eabi", features = ["exti", "log", "ptp", "stm32h753zi"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32h735zg", "time", "time-driver-any"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "split-pc2", "split-pc3", "stm32h755zi-cm7", "time", "time-driver-any"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32h725re", "time", "time-driver-any"]},

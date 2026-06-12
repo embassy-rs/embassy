@@ -168,7 +168,7 @@ impl<'a> TDesRing<'a> {
             if packet_id != 0 {
                 if timestamp.is_some() {
                     trace!(
-                        "eth ptp tx complete idx={=usize} packet_id={=u32} tdes3={=u32:#010x} tdes1={=u32} tdes0={=u32}",
+                        "eth ptp tx complete idx={} packet_id={} tdes3={:#010x} tdes1={} tdes0={}",
                         self.completion_index,
                         packet_id,
                         descriptor.tdes3.get(),
@@ -177,7 +177,7 @@ impl<'a> TDesRing<'a> {
                     );
                 } else {
                     trace!(
-                        "eth ptp tx complete no-ts idx={=usize} packet_id={=u32} tdes3={=u32:#010x} tdes2={=u32:#010x}",
+                        "eth ptp tx complete no-ts idx={} packet_id={} tdes3={:#010x} tdes2={:#010x}",
                         self.completion_index,
                         packet_id,
                         descriptor.tdes3.get(),
@@ -221,7 +221,7 @@ impl<'a> TDesRing<'a> {
         td.tdes3.set(tdes3);
         if timestamp_enabled {
             trace!(
-                "eth ptp tx submit idx={=usize} packet_id={=u32} len={=usize} tdes2={=u32:#010x}",
+                "eth ptp tx submit idx={} packet_id={} len={} tdes2={:#010x}",
                 self.index, packet_id, len, tdes2
             );
         }
