@@ -1,9 +1,11 @@
 use core::sync::atomic::{Ordering, compiler_fence, fence};
 
+use embassy_net_driver::PacketMeta;
 use stm32_metapac::eth::vals::{Rpd, Rps};
 use vcell::VolatileCell;
 
 use crate::eth::RX_BUFFER_SIZE;
+use crate::eth::packet_state::RxPacketStateRing;
 use crate::pac::ETH;
 
 mod rx_consts {
@@ -133,11 +135,16 @@ pub enum RunningState {
 pub(crate) struct RDesRing<'a> {
     descriptors: &'a mut [RDes],
     buffers: &'a mut [Packet<RX_BUFFER_SIZE>],
+    state: RxPacketStateRing<'a>,
     index: usize,
 }
 
 impl<'a> RDesRing<'a> {
-    pub(crate) fn new(descriptors: &'a mut [RDes], buffers: &'a mut [Packet<RX_BUFFER_SIZE>]) -> Self {
+    pub(crate) fn new(
+        descriptors: &'a mut [RDes],
+        buffers: &'a mut [Packet<RX_BUFFER_SIZE>],
+        state: RxPacketStateRing<'a>,
+    ) -> Self {
         assert!(descriptors.len() > 1);
         assert!(descriptors.len() == buffers.len());
 
@@ -154,6 +161,7 @@ impl<'a> RDesRing<'a> {
         Self {
             descriptors,
             buffers,
+            state,
             index: 0,
         }
     }
@@ -211,7 +219,12 @@ impl<'a> RDesRing<'a> {
 
         let descriptor = &mut self.descriptors[self.index];
         let len = descriptor.packet_len();
+        self.state.capture(self.index, None);
         return Some(&mut self.buffers[self.index].0[..len]);
+    }
+
+    pub(crate) fn meta(&self) -> PacketMeta {
+        self.state.meta(self.index)
     }
 
     /// Pop the packet previously returned by `available`.
@@ -219,6 +232,7 @@ impl<'a> RDesRing<'a> {
         let descriptor = &mut self.descriptors[self.index];
         assert!(descriptor.available());
 
+        self.state.clear(self.index);
         self.descriptors[self.index].set_ready(self.buffers[self.index].0.as_mut_ptr());
 
         self.demand_poll();
