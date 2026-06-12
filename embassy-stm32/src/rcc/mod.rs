@@ -309,17 +309,11 @@ impl RccInfo {
 
         // set the xxxRST bit
         if let Some(reset_ptr) = self.reset_ptr() {
-            #[cfg(not(stm32wl5x))]
+            // if the other CPU has enabled the peripheral we don't want to reset it as that would reset the configuration
+            // that the other CPU has set up. we hold a hardware lock to prevent the other CPU from enabling the peripheral
+            // while we are resetting it.
             unsafe {
-                let val = reset_ptr.read_volatile();
-                reset_ptr.write_volatile(val | 1u32 << self.reset_bit);
-            }
-
-            // on stm32wl5x each CPU has its own peripheral enable bits and if the other CPU has enabled the peripheral we don't want to reset it
-            // as that would reset the configuration that the other CPU has set up.
-            // we hold a hardware lock to prevent the other CPU from enabling the peripheral while we are resetting it.
-            #[cfg(stm32wl5x)]
-            unsafe {
+                #[cfg(stm32wl5x)]
                 let _lock = crate::hsem::get_hsem(3).blocking_lock(0);
 
                 if (self.enable_ptr().read_volatile() & (1u32 << self.enable_bit)) == 0 {
@@ -327,6 +321,8 @@ impl RccInfo {
                     reset_ptr.write_volatile(val | 1u32 << self.reset_bit);
 
                     trace!("rcc: reset 0x{:x}:{}", self.enable_offset, self.enable_bit);
+                } else {
+                    trace!("rcc: skip reset 0x{:x}:{}", self.enable_offset, self.enable_bit);
                 }
             }
         }
