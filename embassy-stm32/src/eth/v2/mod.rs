@@ -6,6 +6,8 @@ use core::sync::atomic::{Ordering, fence};
 
 pub(crate) use descriptors::{RDes, RDesRing, TDes, TDesRing};
 use embassy_hal_internal::Peri;
+#[cfg(feature = "ptp")]
+pub use ptp::{PtpClock, PtpClockConfig, PtpSubsecondIncrement};
 #[cfg(eth_v2)]
 use stm32_metapac::syscfg::vals::EthSelPhy;
 
@@ -18,8 +20,6 @@ use crate::pac::ETH;
 #[cfg(eth_v2a)]
 use crate::pac::ETH1 as ETH;
 use crate::rcc::WakeGuard;
-#[cfg(feature = "ptp")]
-pub use ptp::{PtpClock, PtpClockConfig, PtpSubsecondIncrement};
 
 // The two MACs sit behind different interrupt lines.
 #[cfg(eth_v2)]

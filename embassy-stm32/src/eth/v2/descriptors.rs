@@ -206,7 +206,8 @@ impl<'a> TDesRing<'a> {
 
         // Read format
         td.tdes0.set(self.buffers[self.index].0.as_ptr() as u32);
-        let mut tdes2 = len as u32 & EMAC_TDES2_B1L | EMAC_TDES2_IOC;
+        let mut tdes2 = len as u32 & EMAC_TDES2_B1L;
+        tdes2 |= EMAC_TDES2_IOC;
         #[cfg(feature = "ptp")]
         if self.state.timestamp_enabled() {
             tdes2 |= EMAC_TDES2_TTSE;
