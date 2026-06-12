@@ -31,4 +31,12 @@ impl AtomicWaker {
             unsafe { Waker::from_turbo_ptr(ptr) }.wake();
         }
     }
+
+    /// Schedule the waking of a waker.
+    #[cfg(feature = "schedule-wake")]
+    pub fn wake_at(&mut self, time: embassy_time::Instant) {
+        if let Some(w) = self.waker.take() {
+            embassy_time_driver::schedule_wake(time.as_ticks(), &w);
+        }
+    }
 }
