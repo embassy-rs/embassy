@@ -1,0 +1,11 @@
+[package]
+edition = "2024"
+name = "touch-hall-common"
+version = "0.1.0"
+license = "MIT OR Apache-2.0"
+publish = false
+
+description = "Shared JSON-driven hall lighting UI config and CAN bitmask protocol"
+
+[build-dependencies]
+serde_json = "1"

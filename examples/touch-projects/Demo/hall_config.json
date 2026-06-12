@@ -1,0 +1,50 @@
+{
+  "app_title": "Sporthallen Tableau",
+  "page_title_prefix": "Lichtsteuerung",
+  "hall_name": "Sporthalle Demo",
+  "display_width": 800,
+  "display_height": 480,
+  "ui": {
+    "off_label": "Aus",
+    "lux_suffix": "Lux",
+    "field_eyebrow": "FELD",
+    "tribune_eyebrow": "HALLE",
+    "group_eyebrow": "ZENTRAL",
+    "all_fields_heading": "Alle Felder",
+    "all_prefix": "Alle",
+    "central_off_label": "Zentral Aus",
+    "summary_all_fields_prefix": "Alle Felder auf",
+    "summary_single_control_active": "Einzelsteuerung aktiv",
+    "summary_ready": "Lichtsteuerung bereit"
+  },
+  "fields": [
+    {
+      "id": "tribune",
+      "name": "Tribüne",
+      "label": "Tribüne",
+      "eyebrow": "Bereich",
+      "default_lux": 300
+    },
+    {
+      "id": "left",
+      "name": "Feld Links",
+      "label": "Links",
+      "eyebrow": "FELD",
+      "default_lux": 300
+    },
+    {
+      "id": "middle",
+      "name": "Feld Mitte",
+      "label": "Mitte",
+      "eyebrow": "FELD",
+      "default_lux": 300
+    },
+    {
+      "id": "right",
+      "name": "Feld Rechts",
+      "label": "Rechts",
+      "eyebrow": "FELD",
+      "default_lux": 300
+    }
+  ]
+}

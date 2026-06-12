@@ -276,6 +276,18 @@ pub struct DisplayResources {
     pub touch_int: ExtiInput<'static, Async>,
 }
 
+/// Display + FDCAN pins for the OxivGL hall lighting CAN demo.
+#[cfg(feature = "oxivgl")]
+pub struct OxivglCanResources {
+    pub ltdc: Ltdc<'static, peripherals::LTDC, ltdc::Rgb565>,
+    pub i2c: I2c<'static, Blocking, i2c::Master>,
+    pub touch_int: ExtiInput<'static, Async>,
+    pub fdcan: Peri<'static, peripherals::FDCAN1>,
+    pub can_rx: Peri<'static, peripherals::PB8>,
+    pub can_tx: Peri<'static, peripherals::PB9>,
+    pub can_stb: Peri<'static, peripherals::PI6>,
+}
+
 async fn reset_panel(reset: Peri<'static, impl Pin>) {
     let mut disp_reset = Output::new(reset, Level::Low, Speed::Low);
     disp_reset.set_high();
@@ -404,6 +416,82 @@ pub async fn init_display(p: Peripherals) -> DisplayResources {
     {
         info!("LTDC initialized");
         DisplayResources { ltdc }
+    }
+}
+
+/// Initialize LTDC, touch, and CAN connector pins for [`crate::oxivgl`] hall demos.
+#[cfg(feature = "oxivgl")]
+pub async fn init_oxivgl_can(p: Peripherals) -> OxivglCanResources {
+    let Peripherals {
+        LTDC,
+        PD3,
+        PE0,
+        PD13,
+        PF11,
+        PD15,
+        PD0,
+        PD1,
+        PE7,
+        PE8,
+        PE9,
+        PE10,
+        PE11,
+        PE12,
+        PE13,
+        PE14,
+        PD8,
+        PD9,
+        PD10,
+        PD11,
+        PD12,
+        PH7,
+        PB14,
+        PE3,
+        PE6,
+        EXTI6,
+        PG13,
+        PG14,
+        I2C1,
+        FDCAN1,
+        PB8,
+        PB9,
+        PI6,
+        ..
+    } = p;
+
+    info!("Initializing LTDC + touch + CAN (Riverdi RVT50)...");
+
+    reset_panel(PH7).await;
+    init_backlight(PB14);
+
+    let mut ltdc = Ltdc::<_, ltdc::Rgb565>::new_with_pins(
+        LTDC,
+        Irqs,
+        PD3, PE0, PD13, PF11, PD15, PD0, PD1, PE7, PE8, PE9, PE10, PE11, PE12, PE13, PE14, PD8,
+        PD9, PD10, PD11, PD12,
+    );
+    ltdc.init(&ltdc_configuration());
+
+    let mut touch_reset = Output::new(PE3, Level::Low, Speed::Low);
+    touch_reset.set_high();
+    Timer::after(Duration::from_millis(10)).await;
+    touch_reset.set_low();
+    Timer::after(Duration::from_millis(10)).await;
+    touch_reset.set_high();
+    Timer::after(Duration::from_millis(10)).await;
+
+    let i2c = I2c::new_blocking(I2C1, PG14, PG13, I2cConfig::default());
+    let touch_int = ExtiInput::new(PE6, EXTI6, Pull::Up, TouchIrqs);
+    info!("LTDC, touch I2C, CTP_INT, and CAN pins initialized");
+
+    OxivglCanResources {
+        ltdc,
+        i2c,
+        touch_int,
+        fdcan: FDCAN1,
+        can_rx: PB8,
+        can_tx: PB9,
+        can_stb: PI6,
     }
 }
 

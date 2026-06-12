@@ -10,6 +10,8 @@
 
 pub mod display;
 pub mod fonts;
+pub mod hall_platform;
+pub mod hall_view;
 pub mod indev;
 pub mod platform;
 pub mod touch_feed;

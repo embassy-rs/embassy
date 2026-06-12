@@ -45,6 +45,7 @@ This will:
 - `gpio.rs` - Poll the user button (`PH3`) and flash the user LED (`PE5`)
 - `can_raw.rs` - FDCAN demo on connector P5 (pattern TX + LED state RX)
 - `oxivgl_widget_demo.rs` - Multi-widget **OxivGL** demo (real C LVGL v9.5 via [oxivgl](https://github.com/emobotics-dev/oxivgl))
+- `oxivgl_touch_can.rs` - JSON-driven hall lighting UI with FDCAN press/hold/repeat (P5)
 
 ### OxivGL widget demo
 
@@ -52,6 +53,24 @@ Real LVGL v9.5 via OxivGL, with `conf/lv_conf.h` and an STM32U5 LTDC flush drive
 
 ```bash
 cargo run --bin oxivgl_widget_demo --features oxivgl
+```
+
+### OxivGL hall lighting + CAN
+
+Configurable UI strings and CAN `minp` map from
+`examples/touch-projects/Demo/{hall,can}_config.json` (default project name: **Demo**,
+`hall_name`: **Sporthalle Demo**). Uses the same **5-column shell layout** as
+`oxivgl_widget_demo` (800×480); JSON field geometry is not used. FDCAN bitrate comes
+from `can_config.json` (`baud`: 500000, `can0` on hardware).
+
+```bash
+cargo run --bin oxivgl_touch_can --features oxivgl
+```
+
+Override the touch project at build time:
+
+```bash
+TOUCH_PROJECT=Demo cargo run --bin oxivgl_touch_can --features oxivgl
 ```
 
 OxivGL builds also need:

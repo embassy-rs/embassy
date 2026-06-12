@@ -1,4 +1,6 @@
 [env]
+# Hall lighting CAN demo: SocketCAN on vcan0 (see touch-projects/DemoHost/).
+TOUCH_PROJECT = "DemoHost"
 # Reuse the Riverdi-tuned LVGL config (SDL enabled on Linux hosts).
 DEP_LV_CONFIG_PATH = { value = "../rvt50hqsnwc00-b/conf", relative = true }
 LVGL_FONTS_DIR = { value = "../rvt50hqsnwc00-b/fonts", relative = true }

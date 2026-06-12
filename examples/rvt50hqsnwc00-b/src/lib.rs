@@ -4,3 +4,6 @@ pub mod rvt50_board;
 
 #[cfg(feature = "oxivgl")]
 pub mod oxivgl;
+
+#[cfg(feature = "oxivgl")]
+pub mod touch_can;

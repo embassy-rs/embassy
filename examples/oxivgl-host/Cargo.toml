@@ -7,14 +7,24 @@ publish = false
 
 description = "Host (SDL2) port of the protronic OxivGL widget demo for touch/event debugging"
 
+[lib]
+name = "embassy_oxivgl_host_examples"
+path = "src/lib.rs"
+
 [dependencies]
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-std", "executor-thread", "log"] }
 embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["log", "std"] }
 oxivgl = { path = "../rvt50hqsnwc00-b/vendor/oxivgl", default-features = false, features = ["log-04"] }
 oxivgl-sys = { path = "../rvt50hqsnwc00-b/vendor/oxivgl-sys", default-features = false }
+touch-hall-common = { path = "../touch-hall-common" }
 env_logger = "0.9.0"
 log = "0.4.14"
+socketcan = "3"
 static_cell = "2"
+
+[[bin]]
+name = "oxivgl_touch_can"
+path = "src/bin/oxivgl_touch_can.rs"
 
 [profile.release]
 debug = 2

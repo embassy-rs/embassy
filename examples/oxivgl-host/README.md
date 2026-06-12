@@ -14,9 +14,35 @@ layout, event bubbling, and mouse click handling without hardware.
 
 ## Run
 
+### Widget scene demo (no CAN)
+
 ```bash
 cd examples/oxivgl-host
 cargo run
+```
+
+### Hall lighting UI with SocketCAN
+
+Same **5-column shell layout** as `oxivgl_widget_demo`, with UI strings from JSON.
+Default touch project: [`DemoHost`](../touch-projects/DemoHost/) (`hall_name`: **Sporthalle Demo**,
+SocketCAN on **`vcan0`**).
+
+```bash
+cd examples/oxivgl-host
+sudo modprobe vcan
+sudo ip link add dev vcan0 type vcan
+sudo ip link set vcan0 up
+cargo run --bin oxivgl_touch_can
+```
+
+Hold scene buttons in the SDL window to send the one-hot CAN command bitmask; release
+to send the all-zero frame. Button highlight state follows `minp` feedback on CAN ID `0x285`.
+
+To use a real CAN interface instead, override the project at build time:
+
+```bash
+TOUCH_PROJECT=Demo cargo run --bin oxivgl_touch_can
+# then bring up can0 at 500 kbit/s before running
 ```
 
 Latin-1 Montserrat fonts (ä ö ü ß, …) are compiled from
