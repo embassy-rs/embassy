@@ -492,7 +492,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             w.set_rbsz(RX_BUFFER_SIZE as u16);
         });
 
-        let (tx_packets, rx_packets) = queue.packet_state.rings();
+        let (tx_packets, rx_packets) = queue.packet_state.split();
 
         let mut this = Self {
             _peri: peri,

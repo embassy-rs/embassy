@@ -295,7 +295,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
 
         // TODO MTU size setting not found for v1 ethernet, check if correct
 
-        let (tx_packets, rx_packets) = queue.packet_state.rings();
+        let (tx_packets, rx_packets) = queue.packet_state.split();
 
         let mut this = Self {
             _peri: peri,

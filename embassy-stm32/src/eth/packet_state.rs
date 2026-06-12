@@ -1,19 +1,19 @@
 use embassy_net_driver::PacketMeta;
 
-use super::ptp::{PtpStorage, PtpTimestamp, RxPtpRing, TxPtpRing};
+use super::ptp::{PtpTimestamp, PtpTimestampSink, RxPtpRing, TxPtpRing};
 
-pub(crate) struct PacketStateStorage<const TX: usize, const RX: usize> {
+pub(crate) struct PacketState<const TX: usize, const RX: usize> {
     #[cfg(feature = "ptp")]
     tx_meta: [PacketMeta; TX],
     #[cfg(feature = "ptp")]
     tx_in_flight: [bool; TX],
     #[cfg(feature = "ptp")]
     rx_meta: [PacketMeta; RX],
-    ptp: PtpStorage,
+    ptp: PtpTimestampSink,
 }
 
-impl<const TX: usize, const RX: usize> PacketStateStorage<TX, RX> {
-    pub(crate) const fn new(ptp: PtpStorage) -> Self {
+impl<const TX: usize, const RX: usize> PacketState<TX, RX> {
+    pub(crate) const fn new(ptp: PtpTimestampSink) -> Self {
         Self {
             #[cfg(feature = "ptp")]
             tx_meta: [const { PacketMeta::EMPTY }; TX],
@@ -25,7 +25,7 @@ impl<const TX: usize, const RX: usize> PacketStateStorage<TX, RX> {
         }
     }
 
-    pub(crate) fn rings(&mut self) -> (TxPacketStateRing<'_>, RxPacketStateRing<'_>) {
+    pub(crate) fn split(&mut self) -> (TxPacketStateRing<'_>, RxPacketStateRing<'_>) {
         (
             TxPacketStateRing {
                 ptp: self.ptp.tx(),
@@ -78,6 +78,7 @@ impl TxPacketStateRing<'_> {
         let _ = index;
     }
 
+    #[cfg(any(eth_v2, eth_v2a))]
     pub(crate) fn pending(&self, index: usize) -> bool {
         #[cfg(feature = "ptp")]
         {
@@ -90,10 +91,12 @@ impl TxPacketStateRing<'_> {
         }
     }
 
+    #[cfg(any(eth_v2, eth_v2a))]
     pub(crate) fn timestamp_enabled(&self) -> bool {
         self.ptp.enabled() && self.next_id() != 0
     }
 
+    #[cfg(any(eth_v2, eth_v2a))]
     pub(crate) fn next_id(&self) -> u32 {
         #[cfg(feature = "ptp")]
         {

@@ -83,13 +83,13 @@ mod imp {
     }
 
     #[derive(Clone, Copy)]
-    pub(crate) struct PtpStorage {
+    pub(crate) struct PtpTimestampSink {
         tx: Option<&'static [TimestampSlot]>,
         rx: Option<&'static [TimestampSlot]>,
         tx_waker: Option<&'static AtomicWaker>,
     }
 
-    impl PtpStorage {
+    impl PtpTimestampSink {
         pub(crate) const fn new() -> Self {
             Self {
                 tx: None,
@@ -98,7 +98,7 @@ mod imp {
             }
         }
 
-        pub(crate) const fn new_with_store<const TX: usize, const RX: usize>(
+        pub(crate) const fn from_store<const TX: usize, const RX: usize>(
             store: &'static PtpTimestampStore<TX, RX>,
         ) -> Self {
             Self {
@@ -214,9 +214,9 @@ mod imp {
     use super::PtpTimestamp;
 
     #[derive(Clone, Copy)]
-    pub(crate) struct PtpStorage {}
+    pub(crate) struct PtpTimestampSink {}
 
-    impl PtpStorage {
+    impl PtpTimestampSink {
         pub(crate) const fn new() -> Self {
             Self {}
         }
@@ -235,6 +235,7 @@ mod imp {
     }
 
     impl TxPtpRing<'_> {
+        #[cfg(any(eth_v2, eth_v2a))]
         pub(crate) fn enabled(&self) -> bool {
             false
         }
@@ -257,4 +258,4 @@ mod imp {
 
 #[cfg(feature = "ptp")]
 pub use imp::PtpTimestampStore;
-pub(crate) use imp::{PtpStorage, RxPtpRing, TxPtpRing};
+pub(crate) use imp::{PtpTimestampSink, RxPtpRing, TxPtpRing};

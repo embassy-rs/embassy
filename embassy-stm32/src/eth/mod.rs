@@ -19,8 +19,8 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 pub use self::_version::{InterruptHandler, *};
 pub use self::generic_phy::*;
-use self::packet_state::PacketStateStorage;
-use self::ptp::PtpStorage;
+use self::packet_state::PacketState;
+use self::ptp::PtpTimestampSink;
 #[cfg(feature = "ptp")]
 pub use self::ptp::{PtpTimestamp, PtpTimestampStore};
 pub use self::sma::{Instance as SmaInstance, Sma, StationManagement};
@@ -48,53 +48,13 @@ pub struct PacketQueue<const TX: usize, const RX: usize> {
     rx_desc: [RDes; RX],
     tx_buf: [Packet<TX_BUFFER_SIZE>; TX],
     rx_buf: [Packet<RX_BUFFER_SIZE>; RX],
-    packet_state: PacketStateStorage<TX, RX>,
-}
-
-/// Ethernet packet queue configuration.
-///
-/// This carries optional packet-queue services that need storage owned outside
-/// the DMA descriptor rings.
-#[derive(Clone, Copy)]
-pub struct PacketQueueConfig {
-    ptp: PtpStorage,
-}
-
-impl PacketQueueConfig {
-    /// Create a packet queue configuration with no optional services enabled.
-    pub const fn new() -> Self {
-        Self { ptp: PtpStorage::new() }
-    }
-
-    /// Attach Ethernet PTP timestamp storage.
-    ///
-    /// The MAC PTP clock, snapshot control, and filters must be configured
-    /// separately before timestamps will be produced by hardware.
-    #[cfg(feature = "ptp")]
-    pub const fn ptp<const PTP_TX: usize, const PTP_RX: usize>(
-        mut self,
-        timestamps: &'static PtpTimestampStore<PTP_TX, PTP_RX>,
-    ) -> Self {
-        self.ptp = PtpStorage::new_with_store(timestamps);
-        self
-    }
-}
-
-impl Default for PacketQueueConfig {
-    fn default() -> Self {
-        Self::new()
-    }
+    packet_state: PacketState<TX, RX>,
 }
 
 impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
     /// Create a new packet queue.
     pub const fn new() -> Self {
-        Self::new_with_config(PacketQueueConfig::new())
-    }
-
-    /// Create a new packet queue with optional services.
-    pub const fn new_with_config(config: PacketQueueConfig) -> Self {
-        Self::new_inner(config)
+        Self::new_inner(PtpTimestampSink::new())
     }
 
     /// Create a new packet queue with Ethernet PTP timestamp storage.
@@ -106,16 +66,16 @@ impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
     pub const fn new_with_ptp<const PTP_TX: usize, const PTP_RX: usize>(
         timestamps: &'static PtpTimestampStore<PTP_TX, PTP_RX>,
     ) -> Self {
-        Self::new_with_config(PacketQueueConfig::new().ptp(timestamps))
+        Self::new_inner(PtpTimestampSink::from_store(timestamps))
     }
 
-    const fn new_inner(config: PacketQueueConfig) -> Self {
+    const fn new_inner(ptp: PtpTimestampSink) -> Self {
         Self {
             tx_desc: [const { TDes::new() }; TX],
             rx_desc: [const { RDes::new() }; RX],
             tx_buf: [Packet([0; TX_BUFFER_SIZE]); TX],
             rx_buf: [Packet([0; RX_BUFFER_SIZE]); RX],
-            packet_state: PacketStateStorage::new(config.ptp),
+            packet_state: PacketState::new(ptp),
         }
     }
 
@@ -132,16 +92,9 @@ impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
     ///
     /// After calling this function, calling `assume_init` on the MaybeUninit is guaranteed safe.
     pub fn init(this: &mut MaybeUninit<Self>) {
-        Self::init_with_config(this, PacketQueueConfig::new());
-    }
-
-    /// Initialize a packet queue in-place with optional services.
-    ///
-    /// This is the configurable equivalent of [`PacketQueue::init`].
-    pub fn init_with_config(this: &mut MaybeUninit<Self>, config: PacketQueueConfig) {
         unsafe {
             this.as_mut_ptr().write_bytes(0u8, 1);
-            addr_of_mut!((*this.as_mut_ptr()).packet_state).write(PacketStateStorage::new(config.ptp));
+            addr_of_mut!((*this.as_mut_ptr()).packet_state).write(PacketState::new(PtpTimestampSink::new()));
         }
     }
 
@@ -155,7 +108,11 @@ impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
         this: &mut MaybeUninit<Self>,
         timestamps: &'static PtpTimestampStore<PTP_TX, PTP_RX>,
     ) {
-        Self::init_with_config(this, PacketQueueConfig::new().ptp(timestamps));
+        unsafe {
+            this.as_mut_ptr().write_bytes(0u8, 1);
+            addr_of_mut!((*this.as_mut_ptr()).packet_state)
+                .write(PacketState::new(PtpTimestampSink::from_store(timestamps)));
+        }
     }
 }
 
