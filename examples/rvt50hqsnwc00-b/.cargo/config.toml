@@ -12,3 +12,4 @@ linker = "rust-lld"
 DEFMT_LOG = "debug"
 # Required by oxivgl-sys when building with `--features oxivgl`
 DEP_LV_CONFIG_PATH = { value = "conf", relative = true }
+LVGL_FONTS_DIR = { value = "fonts", relative = true }

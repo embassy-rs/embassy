@@ -179,10 +179,9 @@ fn main() {
             println!("cargo:rerun-if-changed={}", p.to_str().unwrap())
         }
 
-        println!(
-            "cargo:rerun-if-changed={}",
-            conf_path.join("lv_conf.h").to_str().unwrap()
-        );
+        let lv_conf_h = conf_path.join("lv_conf.h");
+        println!("cargo:rerun-if-changed={}", lv_conf_h.to_str().unwrap());
+        emit_font_cfgs(&lv_conf_h);
         #[cfg(feature = "drivers")]
         println!(
             "cargo:rerun-if-changed={}",
@@ -417,6 +416,45 @@ fn main() {
         println!("cargo:rustc-link-lib={a}");
         //println!("cargo:rustc-link-search=")
     })
+}
+
+/// Emit `cargo:rustc-cfg=lv_font_*` for each enabled font in `lv_conf.h`.
+fn emit_font_cfgs(lv_conf_h: &Path) {
+    for cfg in [
+        "lv_font_montserrat_14",
+        "lv_font_montserrat_16",
+        "lv_font_montserrat_14_latin",
+        "lv_font_montserrat_16_latin",
+    ] {
+        println!("cargo:rustc-check-cfg=cfg({cfg})");
+    }
+
+    let content = std::fs::read_to_string(lv_conf_h).expect("failed to read lv_conf.h");
+    for (macro_name, cfg_name) in [
+        ("LV_FONT_MONTSERRAT_14", "lv_font_montserrat_14"),
+        ("LV_FONT_MONTSERRAT_16", "lv_font_montserrat_16"),
+        ("LV_FONT_MONTSERRAT_14_LATIN", "lv_font_montserrat_14_latin"),
+        ("LV_FONT_MONTSERRAT_16_LATIN", "lv_font_montserrat_16_latin"),
+    ] {
+        if lv_conf_def_enabled(&content, macro_name) {
+            println!("cargo:rustc-cfg={cfg_name}");
+        }
+    }
+}
+
+fn lv_conf_def_enabled(content: &str, name: &str) -> bool {
+    for line in content.lines() {
+        let line = line.split("//").next().unwrap_or(line).trim();
+        let Some(rest) = line.strip_prefix("#define ") else {
+            continue;
+        };
+        let mut parts = rest.split_whitespace();
+        if parts.next() != Some(name) {
+            continue;
+        }
+        return parts.next().is_some_and(|v| v == "1");
+    }
+    false
 }
 
 fn add_font_headers(

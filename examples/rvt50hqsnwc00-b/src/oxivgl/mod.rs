@@ -9,6 +9,7 @@
 //! the UI task.
 
 pub mod display;
+pub mod fonts;
 pub mod indev;
 pub mod platform;
 pub mod touch_feed;

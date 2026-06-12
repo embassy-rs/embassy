@@ -89,7 +89,15 @@ unsafe extern "C" fn fixed_width_get_glyph_dsc(
     }
 }
 
-/// LVGL built-in Montserrat 14 pt (enabled in `conf/lv_conf.h`).
+/// LVGL built-in Montserrat 14 pt (when `LV_FONT_MONTSERRAT_14` is enabled).
+#[cfg(lv_font_montserrat_14)]
 pub static MONTSERRAT_14: Font = Font(addr_of!(oxivgl_sys::lv_font_montserrat_14));
-/// LVGL built-in Montserrat 16 pt (enabled in `conf/lv_conf.h`).
+/// LVGL built-in Montserrat 16 pt (when `LV_FONT_MONTSERRAT_16` is enabled).
+#[cfg(lv_font_montserrat_16)]
 pub static MONTSERRAT_16: Font = Font(addr_of!(oxivgl_sys::lv_font_montserrat_16));
+/// Custom Montserrat 14 pt with Latin-1 coverage (when enabled in `lv_conf.h`).
+#[cfg(all(not(lv_font_montserrat_14), lv_font_montserrat_14_latin))]
+pub static MONTSERRAT_14: Font = Font(addr_of!(oxivgl_sys::lv_font_montserrat_14_latin));
+/// Custom Montserrat 16 pt with Latin-1 coverage (when enabled in `lv_conf.h`).
+#[cfg(all(not(lv_font_montserrat_16), lv_font_montserrat_16_latin))]
+pub static MONTSERRAT_16: Font = Font(addr_of!(oxivgl_sys::lv_font_montserrat_16_latin));

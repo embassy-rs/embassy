@@ -1,3 +1,4 @@
 [env]
 # Reuse the Riverdi-tuned LVGL config (SDL enabled on Linux hosts).
 DEP_LV_CONFIG_PATH = { value = "../rvt50hqsnwc00-b/conf", relative = true }
+LVGL_FONTS_DIR = { value = "../rvt50hqsnwc00-b/fonts", relative = true }

@@ -19,6 +19,10 @@ cd examples/oxivgl-host
 cargo run
 ```
 
+Latin-1 Montserrat fonts (ä ö ü ß, …) are compiled from
+`examples/rvt50hqsnwc00-b/fonts/` via `LVGL_FONTS_DIR` in `.cargo/config.toml`.
+Regenerate with `examples/rvt50hqsnwc00-b/fonts/generate.sh` if glyph coverage changes.
+
 Click scene buttons in the SDL window. Terminal output shows:
 
 - Widget layout bounds at startup (compare touch coordinates on the board)

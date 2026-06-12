@@ -11,7 +11,7 @@ use oxivgl::draw::Area;
 use oxivgl::enums::{EventCode, ObjFlag};
 use oxivgl::event::Event;
 use oxivgl::fonts::{MONTSERRAT_14, MONTSERRAT_16};
-use oxivgl::style::Selector;
+use oxivgl::style::{GradDir, Selector};
 use oxivgl::view::{NavAction, View, register_event_on};
 use oxivgl::widgets::{AsLvHandle, Button, Label, Obj, RADIUS_MAX, Screen, TextAlign, WidgetError};
 
@@ -88,7 +88,12 @@ impl View for WidgetView {
         self.buttons.clear();
         self.objects.clear();
 
-        container.bg_color(SCREEN_BG).bg_opa(255).remove_scrollable().pad(0);
+        container
+            .bg_color(SCREEN_BG)
+            .bg_opa(255)
+            .style_bg_grad_dir(GradDir::None, Selector::DEFAULT)
+            .remove_scrollable()
+            .pad(0);
 
         let shell = Obj::new(container)?;
         shell
@@ -96,6 +101,7 @@ impl View for WidgetView {
             .pos(40, 25)
             .bg_color(SURFACE)
             .bg_opa(255)
+            .style_bg_grad_dir(GradDir::None, Selector::DEFAULT)
             .border_width(0)
             .radius(18, Selector::DEFAULT)
             .remove_scrollable()
@@ -117,6 +123,7 @@ impl View for WidgetView {
             .pos(305, 21)
             .bg_color(SURFACE)
             .bg_opa(255)
+            .style_bg_grad_dir(GradDir::None, Selector::DEFAULT)
             .border_width(1)
             .radius(RADIUS_MAX, Selector::DEFAULT)
             .remove_scrollable()
@@ -202,6 +209,7 @@ impl WidgetView {
             .pos(x, 82)
             .bg_color(if column.highlight { CARD_BG_HIGHLIGHT } else { CARD_BG })
             .bg_opa(255)
+            .style_bg_grad_dir(GradDir::None, Selector::DEFAULT)
             .border_width(1)
             .radius(14, Selector::DEFAULT)
             .remove_scrollable()
@@ -293,12 +301,14 @@ fn make_label(
     kind: LabelKind,
 ) -> Result<Label<'static>, WidgetError> {
     let label = Label::new(parent)?;
+    label.remove_style_all();
     label
         .text(text)
         .pos(x, y)
         .width(w)
         .text_color(color)
         .remove_scrollable();
+    set_text_opa(&label, 255);
 
     match kind {
         LabelKind::Eyebrow => {
@@ -334,10 +344,12 @@ fn make_scene_button(
 ) -> Result<Button<'static>, WidgetError> {
     let button = Button::new(parent)?;
     button
+        .remove_style_all()
         .size(102, 78)
         .pos(x, y)
         .bg_color(if active { BUTTON_BG_ACTIVE } else { BUTTON_BG })
         .bg_opa(255)
+        .style_bg_grad_dir(GradDir::None, Selector::DEFAULT)
         .border_width(1)
         .radius(10, Selector::DEFAULT)
         .style_bg_color(
@@ -351,6 +363,7 @@ fn make_scene_button(
     set_border_color(&button, if active { BORDER_ACTIVE } else { BORDER }, 255);
 
     let label = Label::new(&button)?;
+    label.remove_style_all();
     label
         .text(text)
         .width(92)
@@ -359,9 +372,16 @@ fn make_scene_button(
         .text_align(TextAlign::Center)
         .center()
         .remove_scrollable();
+    set_text_opa(&label, 255);
     labels.push(label);
 
     Ok(button)
+}
+
+fn set_text_opa(obj: &impl AsLvHandle, opa: u8) {
+    unsafe {
+        oxivgl_sys::lv_obj_set_style_text_opa(obj.lv_handle(), opa as oxivgl_sys::lv_opa_t, 0);
+    }
 }
 
 fn set_border_color(obj: &impl AsLvHandle, color: u32, opa: u8) {

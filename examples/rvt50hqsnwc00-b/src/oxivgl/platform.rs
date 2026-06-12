@@ -52,25 +52,6 @@ fn drain_touch_queue(
     had_touch
 }
 
-/// Run one LVGL tick: prepare the draw buffer, ingest touch, then refresh.
-///
-/// Returns `true` when at least one touch sample was consumed.
-fn lvgl_step(
-    driver: &LvglDriver,
-    touch_rx: &mut embassy_sync::channel::Receiver<
-        'static,
-        embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex,
-        TouchBoardSample,
-        16,
-    >,
-    touch: &TouchInput,
-) -> bool {
-    prepare_back_for_draw();
-    let had_touch = drain_touch_queue(touch_rx, touch);
-    driver.timer_handler();
-    had_touch
-}
-
 async fn init_ltdc_layer(ltdc: &mut Ltdc<'static, peripherals::LTDC, ltdc::Rgb565>) {
     let layer_config = LtdcLayerConfig {
         pixel_format: ltdc::PixelFormat::Rgb565,
@@ -102,7 +83,8 @@ async fn lvgl_present_batch(
     touch: &TouchInput,
 ) {
     for _ in 0..PRESENT_LVGL_TICKS {
-        lvgl_step(driver, touch_rx, touch);
+        let _ = drain_touch_queue(touch_rx, touch);
+        driver.timer_handler();
         Timer::after(Duration::from_millis(LVGL_TICK_MS)).await;
     }
 
@@ -148,14 +130,19 @@ pub async fn run_widget_demo(
     loop {
         Timer::after(Duration::from_millis(UI_TICK_MS)).await;
 
-        let had_touch = lvgl_step(&driver, &mut touch_rx, &touch);
+        prepare_back_for_draw();
+        let had_touch = drain_touch_queue(&mut touch_rx, &touch);
 
         if had_touch {
-            present_to_ltdc(&mut ltdc).await;
-            next_present = Instant::now() + Duration::from_millis(PRESENT_PERIOD_MS);
-        } else if Instant::now() >= next_present {
+            // Let LVGL finish gradients / state transitions before swapping buffers.
             lvgl_present_batch(&driver, view, &mut ltdc, &mut touch_rx, &touch).await;
             next_present = Instant::now() + Duration::from_millis(PRESENT_PERIOD_MS);
+        } else {
+            driver.timer_handler();
+            if Instant::now() >= next_present {
+                lvgl_present_batch(&driver, view, &mut ltdc, &mut touch_rx, &touch).await;
+                next_present = Instant::now() + Duration::from_millis(PRESENT_PERIOD_MS);
+            }
         }
     }
 }

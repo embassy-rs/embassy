@@ -182,8 +182,8 @@
 #define LV_FONT_MONTSERRAT_8  0
 #define LV_FONT_MONTSERRAT_10 0
 #define LV_FONT_MONTSERRAT_12 0
-#define LV_FONT_MONTSERRAT_14 1
-#define LV_FONT_MONTSERRAT_16 1
+#define LV_FONT_MONTSERRAT_14 0
+#define LV_FONT_MONTSERRAT_16 0
 #define LV_FONT_MONTSERRAT_18 0
 #define LV_FONT_MONTSERRAT_20 0
 #define LV_FONT_MONTSERRAT_22 0
@@ -209,9 +209,14 @@
 #define LV_FONT_UNSCII_8  0
 #define LV_FONT_UNSCII_16 0
 
-#define LV_FONT_CUSTOM_DECLARE
+#define LV_FONT_CUSTOM_DECLARE \
+    LV_FONT_DECLARE(lv_font_montserrat_14_latin); \
+    LV_FONT_DECLARE(lv_font_montserrat_16_latin);
 
-#define LV_FONT_DEFAULT &lv_font_montserrat_14
+#define LV_FONT_MONTSERRAT_14_LATIN 1
+#define LV_FONT_MONTSERRAT_16_LATIN 1
+
+#define LV_FONT_DEFAULT &lv_font_montserrat_14_latin
 #define LV_FONT_FMT_TXT_LARGE 0
 #define LV_USE_FONT_COMPRESSED 0
 #define LV_USE_FONT_PLACEHOLDER 1
@@ -290,11 +295,11 @@
  * THEMES
  *==================*/
 
-#define LV_USE_THEME_DEFAULT 1
+#define LV_USE_THEME_DEFAULT 0
 #if LV_USE_THEME_DEFAULT
-    #define LV_THEME_DEFAULT_DARK 1
-    #define LV_THEME_DEFAULT_GROW 1
-    #define LV_THEME_DEFAULT_TRANSITION_TIME 80
+    #define LV_THEME_DEFAULT_DARK 0
+    #define LV_THEME_DEFAULT_GROW 0
+    #define LV_THEME_DEFAULT_TRANSITION_TIME 0
 #endif
 
 #define LV_USE_THEME_SIMPLE 1
