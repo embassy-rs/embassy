@@ -15,7 +15,6 @@ use core::sync::atomic::{AtomicPtr, Ordering};
 
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use oxivgl::driver::LvglDriver;
 use oxivgl_sys::{
     lv_display_get_screen_prev, lv_indev_create, lv_indev_data_t, lv_indev_enable, lv_indev_set_display,
     lv_indev_set_mode, lv_indev_set_read_cb, lv_indev_set_type, lv_indev_state_t_LV_INDEV_STATE_PRESSED,
@@ -109,10 +108,9 @@ impl TouchInput {
         true
     }
 
-    /// Publish, run LVGL timers, then push the sample into LVGL (EVENT-mode indev).
-    pub fn feed(&self, driver: &LvglDriver, sample: TouchSample) {
+    /// Store a touch sample and push it into LVGL (`lv_indev_read`).
+    pub fn feed(&self, sample: TouchSample) {
         self.publish(sample);
-        driver.timer_handler();
         let _ = self.sync_read();
     }
 }

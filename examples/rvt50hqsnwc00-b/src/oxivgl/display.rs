@@ -25,6 +25,19 @@ static mut LVGL_DISP: *mut lv_display_t = core::ptr::null_mut();
 /// Which LTDC buffer is currently shown (0 or 1).
 static mut PRESENT_IDX: u8 = 0;
 
+/// Tracks whether the hidden back buffer matches the visible front buffer.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DrawBufferState {
+    /// Back already holds the first LVGL flush from widget `create()`.
+    InitialBack,
+    /// Back matches front; partial flushes can accumulate until the next swap.
+    Ready,
+    /// After swap — seed back from front before the next partial flush.
+    NeedsSync,
+}
+
+static mut DRAW_BUF: DrawBufferState = DrawBufferState::NeedsSync;
+
 /// Double full-screen buffers presented to LTDC (RGB565 byte pairs).
 static mut PRESENT_FB0: [u8; FB_BYTES] = [0; FB_BYTES];
 static mut PRESENT_FB1: [u8; FB_BYTES] = [0; FB_BYTES];
@@ -138,6 +151,27 @@ pub fn sync_back_from_front() {
     }
 }
 
+/// Mark the back buffer as holding the first post-`create()` LVGL flush.
+///
+/// Do not call [`sync_back_from_front`] until after the first present swap.
+pub fn draw_buffer_after_lvgl_create() {
+    // SAFETY: only the UI task touches draw-buffer state.
+    unsafe {
+        DRAW_BUF = DrawBufferState::InitialBack;
+    }
+}
+
+/// Seed the back buffer before the next partial LVGL flush, if needed.
+pub fn prepare_back_for_draw() {
+    // SAFETY: only the UI task touches draw-buffer state.
+    unsafe {
+        if DRAW_BUF == DrawBufferState::NeedsSync {
+            sync_back_from_front();
+            DRAW_BUF = DrawBufferState::Ready;
+        }
+    }
+}
+
 /// Pointer to the framebuffer currently shown on LTDC (before the next swap).
 pub fn front_framebuffer() -> *const u16 {
     // SAFETY: only the UI task touches these static mut buffers.
@@ -149,6 +183,7 @@ pub fn present_framebuffer() -> *const u16 {
     // SAFETY: only the UI task touches these static mut buffers.
     unsafe {
         PRESENT_IDX = 1 - PRESENT_IDX;
+        DRAW_BUF = DrawBufferState::NeedsSync;
         front_ptr() as *const u16
     }
 }
