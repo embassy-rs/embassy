@@ -30,6 +30,26 @@ const MUTED: u32 = 0x665F54;
 const ACCENT: u32 = 0xA37418;
 const LOGO: u32 = 0x6F6A62;
 
+/// Panel layout tuned for 800×480 — maximize touch targets.
+const SHELL_X: i32 = 16;
+const SHELL_Y: i32 = 12;
+const SHELL_W: i32 = 768;
+const SHELL_H: i32 = 456;
+
+const CARD_X0: i32 = 10;
+const CARD_COL_PITCH: i32 = 148;
+const CARD_W: i32 = 140;
+const CARD_Y: i32 = 56;
+const CARD_H: i32 = 388;
+const CARD_PAD_X: i32 = 10;
+const CARD_LABEL_W: i32 = CARD_W - CARD_PAD_X * 2;
+
+const BUTTON_W: i32 = 120;
+const BUTTON_H: i32 = 96;
+const BUTTON_Y0: i32 = 58;
+const BUTTON_Y_STEP: i32 = 106;
+const BUTTON_LABEL_W: i32 = BUTTON_W - 8;
+
 struct ColumnSpec {
     eyebrow: &'static str,
     title: &'static str,
@@ -63,7 +83,7 @@ const COLUMNS: [ColumnSpec; 5] = [
         highlight: false,
     },
     ColumnSpec {
-        eyebrow: "SAMMELBEFEHL",
+        eyebrow: "ZENTRAL",
         title: "Alle Felder",
         buttons: ["Alle\n500 Lux", "Alle\n300 Lux", "Zentral\nAus"],
         highlight: true,
@@ -94,8 +114,8 @@ impl View for WidgetView {
 
         let shell = Obj::new(container)?;
         shell
-            .size(720, 430)
-            .pos(40, 25)
+            .size(SHELL_W, SHELL_H)
+            .pos(SHELL_X, SHELL_Y)
             .bg_color(SURFACE)
             .bg_opa(255)
             .style_bg_grad_dir(GradDir::None, Selector::DEFAULT)
@@ -107,8 +127,8 @@ impl View for WidgetView {
         self.labels.push(make_label(
             &shell,
             "LICHTSZENENMODUL",
-            12,
-            12,
+            10,
+            8,
             250,
             ACCENT,
             LabelKind::Eyebrow,
@@ -117,7 +137,7 @@ impl View for WidgetView {
         let badge = Obj::new(&shell)?;
         badge
             .size(110, 28)
-            .pos(305, 21)
+            .pos(SHELL_W / 2 - 55, 16)
             .bg_color(SURFACE)
             .bg_opa(255)
             .border_width(1)
@@ -130,11 +150,11 @@ impl View for WidgetView {
         self.objects.push(badge);
 
         self.labels
-            .push(make_label(&shell, "protronic", 585, 22, 105, LOGO, LabelKind::Logo)?);
+            .push(make_label(&shell, "protronic", SHELL_W - 128, 16, 105, LOGO, LabelKind::Logo)?);
         let logo_dot = Obj::new(&shell)?;
         logo_dot
             .size(9, 9)
-            .pos(688, 18)
+            .pos(SHELL_W - 24, 12)
             .bg_color(LOGO)
             .bg_opa(255)
             .border_width(0)
@@ -143,7 +163,7 @@ impl View for WidgetView {
         self.objects.push(logo_dot);
 
         for (idx, column) in COLUMNS.iter().enumerate() {
-            let x = 12 + idx as i32 * 142;
+            let x = CARD_X0 + idx as i32 * CARD_COL_PITCH;
             self.create_column(&shell, column, x)?;
         }
 
@@ -186,8 +206,8 @@ impl WidgetView {
         x: i32,
     ) -> Result<(), WidgetError> {
         let card = Obj::new(parent)?;
-        card.size(130, 344)
-            .pos(x, 82)
+        card.size(CARD_W, CARD_H)
+            .pos(x, CARD_Y)
             .bg_color(if column.highlight { CARD_BG_HIGHLIGHT } else { CARD_BG })
             .bg_opa(255)
             .style_bg_grad_dir(GradDir::None, Selector::DEFAULT)
@@ -200,18 +220,32 @@ impl WidgetView {
         self.labels.push(make_label(
             &card,
             column.eyebrow,
-            14,
-            15,
-            102,
+            CARD_PAD_X,
+            12,
+            CARD_LABEL_W,
             ACCENT,
             LabelKind::Eyebrow,
         )?);
-        self.labels
-            .push(make_label(&card, column.title, 14, 33, 102, TEXT, LabelKind::Title)?);
+        self.labels.push(make_label(
+            &card,
+            column.title,
+            CARD_PAD_X,
+            28,
+            CARD_LABEL_W,
+            TEXT,
+            LabelKind::Title,
+        )?);
 
         for (idx, text) in column.buttons.iter().enumerate() {
             let active = column.highlight && idx == 2;
-            let button = make_scene_button(&card, text, 14, 70 + idx as i32 * 92, active, &mut self.labels)?;
+            let button = make_scene_button(
+                &card,
+                text,
+                CARD_PAD_X,
+                BUTTON_Y0 + idx as i32 * BUTTON_Y_STEP,
+                active,
+                &mut self.labels,
+            )?;
             if self.buttons.is_empty() {
                 button.on(EventCode::CLICKED, on_demo_button_click);
             }
@@ -285,7 +319,7 @@ fn make_scene_button(
     let button = Button::new(parent)?;
     button
         .remove_style_all()
-        .size(102, 78)
+        .size(BUTTON_W, BUTTON_H)
         .pos(x, y)
         .bg_color(if active { BUTTON_BG_ACTIVE } else { BUTTON_BG })
         .bg_opa(255)
@@ -306,7 +340,7 @@ fn make_scene_button(
     label.remove_style_all();
     label
         .text(text)
-        .width(92)
+        .width(BUTTON_LABEL_W)
         .text_color(TEXT)
         .text_font(MONTSERRAT_16)
         .text_align(TextAlign::Center)
