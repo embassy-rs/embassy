@@ -206,15 +206,17 @@ impl<'a> TDesRing<'a> {
 
         // Read format
         td.tdes0.set(self.buffers[self.index].0.as_ptr() as u32);
-        #[cfg(feature = "ptp")]
-        let packet_id = self.state.next_id();
-        #[cfg(feature = "ptp")]
-        let timestamp_enabled = self.state.timestamp_enabled();
-        #[cfg(not(feature = "ptp"))]
-        let timestamp_enabled = false;
         let mut tdes2 = len as u32 & EMAC_TDES2_B1L | EMAC_TDES2_IOC;
-        if timestamp_enabled {
+        #[cfg(feature = "ptp")]
+        if self.state.timestamp_enabled() {
             tdes2 |= EMAC_TDES2_TTSE;
+            trace!(
+                "eth ptp tx submit idx={} packet_id={} len={} tdes2={:#010x}",
+                self.index,
+                self.state.next_id(),
+                len,
+                tdes2
+            );
         }
         td.tdes2.set(tdes2);
         self.state.commit(self.index);
@@ -227,13 +229,6 @@ impl<'a> TDesRing<'a> {
         #[cfg(eth_v2a)]
         let tdes3 = tdes3 | EMAC_TDES3_CIC_FULL;
         td.tdes3.set(tdes3);
-        #[cfg(feature = "ptp")]
-        if timestamp_enabled {
-            trace!(
-                "eth ptp tx submit idx={} packet_id={} len={} tdes2={:#010x}",
-                self.index, packet_id, len, tdes2
-            );
-        }
 
         // Ensure changes to the descriptor are committed before DMA engine sees tail pointer store.
         // This will generate an DMB instruction.
@@ -441,11 +436,11 @@ impl<'a> RDesRing<'a> {
         }
     }
 
-    fn pop_current(&mut self, packet: bool) {
+    fn pop_current(&mut self, state: bool) {
         let rd = &mut self.descriptors[self.index];
         assert!(rd.available());
 
-        if packet {
+        if state {
             self.state.clear(self.index);
         }
         rd.set_ready(self.buffers[self.index].0.as_mut_ptr());
