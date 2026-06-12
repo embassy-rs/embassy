@@ -209,10 +209,6 @@ mod imp {
 
 #[cfg(not(feature = "ptp"))]
 mod imp {
-    use core::marker::PhantomData;
-
-    use super::PtpTimestamp;
-
     #[derive(Clone, Copy)]
     pub(crate) struct PtpTimestampSink {}
 
@@ -220,42 +216,11 @@ mod imp {
         pub(crate) const fn new() -> Self {
             Self {}
         }
-
-        pub(crate) fn tx(&self) -> TxPtpRing<'static> {
-            TxPtpRing { _lifetime: PhantomData }
-        }
-
-        pub(crate) fn rx(&self) -> RxPtpRing<'static> {
-            RxPtpRing { _lifetime: PhantomData }
-        }
-    }
-
-    pub(crate) struct TxPtpRing<'a> {
-        _lifetime: PhantomData<&'a ()>,
-    }
-
-    impl TxPtpRing<'_> {
-        #[cfg(any(eth_v2, eth_v2a))]
-        pub(crate) fn enabled(&self) -> bool {
-            false
-        }
-
-        pub(crate) fn store(&self, packet_id: u32, timestamp: Option<PtpTimestamp>) {
-            let _ = (packet_id, timestamp);
-        }
-    }
-
-    pub(crate) struct RxPtpRing<'a> {
-        _lifetime: PhantomData<&'a ()>,
-    }
-
-    impl RxPtpRing<'_> {
-        pub(crate) fn store(&self, packet_id: u32, timestamp: Option<PtpTimestamp>) {
-            let _ = (packet_id, timestamp);
-        }
     }
 }
 
+pub(crate) use imp::PtpTimestampSink;
 #[cfg(feature = "ptp")]
 pub use imp::PtpTimestampStore;
-pub(crate) use imp::{PtpTimestampSink, RxPtpRing, TxPtpRing};
+#[cfg(feature = "ptp")]
+pub(crate) use imp::{RxPtpRing, TxPtpRing};

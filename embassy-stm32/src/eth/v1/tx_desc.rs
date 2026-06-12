@@ -149,6 +149,7 @@ impl<'a> TDesRing<'a> {
     pub(crate) fn available(&mut self) -> Option<&mut [u8]> {
         let descriptor = &mut self.descriptors[self.index];
         if descriptor.available() {
+            #[cfg(feature = "ptp")]
             self.packets.complete(self.index, None);
             Some(&mut self.buffers[self.index].0)
         } else {

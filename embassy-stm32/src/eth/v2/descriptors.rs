@@ -94,6 +94,7 @@ impl TDes {
         self.tdes3.get() & EMAC_DES3_OWN == 0
     }
 
+    #[cfg(feature = "ptp")]
     fn timestamp(&self) -> Option<PtpTimestamp> {
         (self.tdes3.get() & EMAC_TDES3_TTSS != 0).then(|| PtpTimestamp {
             seconds: self.tdes1.get(),
@@ -107,6 +108,7 @@ pub(crate) struct TDesRing<'a> {
     buffers: &'a mut [Packet<TX_BUFFER_SIZE>],
     packets: TxPacketStateRing<'a>,
     index: usize,
+    #[cfg(feature = "ptp")]
     completion_index: usize,
 }
 
@@ -136,6 +138,7 @@ impl<'a> TDesRing<'a> {
             buffers,
             packets,
             index: 0,
+            #[cfg(feature = "ptp")]
             completion_index: 0,
         }
     }
@@ -157,6 +160,7 @@ impl<'a> TDesRing<'a> {
     }
 
     pub(crate) fn collect_completed(&mut self) {
+        #[cfg(feature = "ptp")]
         while self.packets.pending(self.completion_index) {
             let descriptor = &self.descriptors[self.completion_index];
             if !descriptor.available() {
@@ -202,8 +206,12 @@ impl<'a> TDesRing<'a> {
 
         // Read format
         td.tdes0.set(self.buffers[self.index].0.as_ptr() as u32);
+        #[cfg(feature = "ptp")]
         let packet_id = self.packets.next_id();
+        #[cfg(feature = "ptp")]
         let timestamp_enabled = self.packets.timestamp_enabled();
+        #[cfg(not(feature = "ptp"))]
+        let timestamp_enabled = false;
         let mut tdes2 = len as u32 & EMAC_TDES2_B1L | EMAC_TDES2_IOC;
         if timestamp_enabled {
             tdes2 |= EMAC_TDES2_TTSE;
@@ -219,6 +227,7 @@ impl<'a> TDesRing<'a> {
         #[cfg(eth_v2a)]
         let tdes3 = tdes3 | EMAC_TDES3_CIC_FULL;
         td.tdes3.set(tdes3);
+        #[cfg(feature = "ptp")]
         if timestamp_enabled {
             trace!(
                 "eth ptp tx submit idx={} packet_id={} len={} tdes2={:#010x}",
