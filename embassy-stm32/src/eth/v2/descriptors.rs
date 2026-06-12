@@ -393,9 +393,9 @@ impl<'a> RDesRing<'a> {
 
     fn timestamp(&self, index: usize) -> Option<(Option<PtpTimestamp>, bool)> {
         let descriptor = &self.descriptors[index];
-        // RDES1 status is valid only when RS1V is set in RDES3. Without this
-        // guard, stale buffer-address bits in RDES1 can be mistaken for TSA and
-        // wedge the RX ring waiting for a context descriptor that will not come.
+        // RDES1 write-back status is valid only when RS1V is set in RDES3.
+        // Descriptors returned to DMA are not required to clear RDES1, so do
+        // not interpret TSA unless the hardware says the status word is valid.
         let has_timestamp =
             descriptor.rdes3.get() & EMAC_RDES3_RS1V != 0 && descriptor.rdes1.get() & EMAC_RDES1_TSA != 0;
         if !has_timestamp {
