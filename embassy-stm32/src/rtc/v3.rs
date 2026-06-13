@@ -9,17 +9,24 @@ impl super::Rtc {
     /// Applies the RTC config
     /// It this changes the RTC clock source the time will be reset
     pub(super) fn configure(&mut self, async_psc: u8, sync_psc: u16) {
-        self.write(true, |rtc| {
+        let prer = RTC::regs().prer().read();
+        let needs_init = prer.prediv_s() != sync_psc
+            || prer.prediv_a() != async_psc
+            || RTC::regs().cr().read().fmt() != Fmt::TwentyFourHour;
+        
+        self.write(needs_init, |rtc| {
+            if needs_init {
+                rtc.cr().modify(|w| w.set_fmt(Fmt::TwentyFourHour));
+                rtc.prer().modify(|w| {
+                    w.set_prediv_s(sync_psc);
+                    w.set_prediv_a(async_psc);
+                }); 
+            }
+            
             rtc.cr().modify(|w| {
                 w.set_bypshad(true);
-                w.set_fmt(Fmt::TwentyFourHour);
                 w.set_osel(Osel::Disabled);
                 w.set_pol(Pol::High);
-            });
-
-            rtc.prer().modify(|w| {
-                w.set_prediv_s(sync_psc);
-                w.set_prediv_a(async_psc);
             });
 
             // TODO: configuration for output pins
