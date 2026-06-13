@@ -92,11 +92,12 @@ impl RpcBackend for FgBackend {
         match iface_type {
             0 => Some(InterfaceType::Sta),
             2 => Some(InterfaceType::Serial),
+            3 => Some(InterfaceType::Hci),
             _ => None,
         }
     }
 
-    async fn wifi_init(&self, _ctx: &mut IoctlCtx<'_>) -> Result<(), Error> {
+    async fn init_radio(&self, _ctx: &mut IoctlCtx<'_>) -> Result<(), Error> {
         Ok(())
     }
 

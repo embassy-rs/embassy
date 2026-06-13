@@ -6,7 +6,10 @@
 #![warn(missing_docs)]
 #![allow(async_fn_in_trait)]
 
-use embassy_futures::select::{Either4, select4};
+#[cfg(not(feature = "bluetooth"))]
+use embassy_futures::select::{Either4 as EitherMany, select4 as select_many};
+#[cfg(feature = "bluetooth")]
+use embassy_futures::select::{Either5 as EitherMany, select5 as select_many};
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::LinkState;
 use embassy_time::{Duration, Instant, Timer};
@@ -20,6 +23,8 @@ mod proto;
 // must be first
 mod fmt;
 
+#[cfg(feature = "bluetooth")]
+pub mod bluetooth;
 mod control;
 mod iface;
 mod ioctl;
@@ -120,6 +125,8 @@ const HEARTBEAT_MAX_GAP: Duration = Duration::from_secs(20);
 pub struct State {
     shared: Shared,
     ch: ch::State<MTU, 4, 4>,
+    #[cfg(feature = "bluetooth")]
+    bt: bluetooth::BtState,
 }
 
 impl State {
@@ -128,6 +135,8 @@ impl State {
         Self {
             shared: Shared::new(),
             ch: ch::State::new(),
+            #[cfg(feature = "bluetooth")]
+            bt: bluetooth::BtState::new(),
         }
     }
 }
@@ -135,21 +144,36 @@ impl State {
 /// Type alias for network driver.
 pub type NetDriver<'a> = ch::Device<'a, MTU>;
 
-/// Create a new esp-hosted driver using the provided state, interface, and reset pin.
+/// Handles returned by [`new`] for interacting with the esp-hosted driver.
+pub struct HostedResources<'a, I, OUT> {
+    /// Network device for use with embassy-net.
+    pub net_device: NetDriver<'a>,
+
+    /// Bluetooth HCI transport, for use with a `bt-hci` host stack.
+    #[cfg(feature = "bluetooth")]
+    pub bluetooth: bluetooth::BtDriver<'a>,
+
+    /// Control handle for managing WiFi and driver state.
+    pub control: Control<'a>,
+
+    /// Runner driving communication with the coprocessor. Must be spawned.
+    pub runner: Runner<'a, I, OUT>,
+}
+
+/// Create a new esp-hosted driver.
 ///
 /// Returns a device handle for interfacing with embassy-net, a control handle for
 /// interacting with the driver, and a runner for communicating with the WiFi device.
-pub async fn new<'a, I, OUT>(
-    state: &'a mut State,
-    iface: I,
-    reset: OUT,
-) -> (NetDriver<'a>, Control<'a>, Runner<'a, I, OUT>)
+pub async fn new<'a, I, OUT>(state: &'a mut State, iface: I, reset: OUT) -> HostedResources<'a, I, OUT>
 where
     I: Interface,
     OUT: OutputPin,
 {
     let (ch_runner, device) = ch::new(&mut state.ch, ch::driver::HardwareAddress::Ethernet([0; 6]));
     let state_ch = ch_runner.state_runner();
+
+    #[cfg(feature = "bluetooth")]
+    let (bt_runner, bt_driver) = bluetooth::new(&mut state.bt);
 
     let runner = Runner {
         ch: ch_runner,
@@ -160,9 +184,17 @@ where
         reset,
         iface,
         heartbeat_deadline: Instant::now() + HEARTBEAT_MAX_GAP,
+        #[cfg(feature = "bluetooth")]
+        bt: bt_runner,
     };
 
-    (device, Control::new(state_ch, &state.shared), runner)
+    HostedResources {
+        net_device: device,
+        #[cfg(feature = "bluetooth")]
+        bluetooth: bt_driver,
+        control: Control::new(state_ch, &state.shared),
+        runner,
+    }
 }
 
 /// Runner for communicating with the WiFi device.
@@ -177,6 +209,9 @@ pub struct Runner<'a, I, OUT> {
 
     iface: I,
     reset: OUT,
+
+    #[cfg(feature = "bluetooth")]
+    bt: bluetooth::BtRunner<'a>,
 }
 
 impl<'a, I, OUT> Runner<'a, I, OUT>
@@ -206,8 +241,18 @@ where
             let ev = self.iface.wait_for_ready();
             let hb = Timer::at(self.heartbeat_deadline);
 
-            match select4(ioctl, tx, ev, hb).await {
-                Either4::First(PendingIoctl { buf, req_len }) => {
+            let event = select_many(
+                ioctl,
+                tx,
+                ev,
+                hb,
+                #[cfg(feature = "bluetooth")]
+                self.bt.tx_chan.receive(),
+            )
+            .await;
+
+            match event {
+                EitherMany::First(PendingIoctl { buf, req_len }) => {
                     let if_type_and_num = unwrap!(self.backend.encode_iface_type(InterfaceType::Serial));
 
                     let payload_len = self
@@ -224,7 +269,7 @@ where
                     self.next_seq = self.next_seq.wrapping_add(1);
                     header.copy(&mut buffer);
                 }
-                Either4::Second(packet) => {
+                EitherMany::Second(packet) => {
                     if let Some(if_type_and_num) = self.backend.encode_iface_type(InterfaceType::Sta) {
                         buffer[PayloadHeader::SIZE..][..packet.len()].copy_from_slice(&packet);
 
@@ -241,16 +286,45 @@ where
 
                     packet.tx_done();
                 }
-                Either4::Third(()) => {
+                EitherMany::Third(()) => {
                     buffer[..PayloadHeader::SIZE].fill(0);
                 }
-                Either4::Fourth(()) => {
+                EitherMany::Fourth(()) => {
                     // Extend the deadline if initializing
                     if let ioctl::ControlState::Reboot = self.shared.state() {
                         self.heartbeat_deadline = Instant::now() + HEARTBEAT_MAX_GAP;
                         continue;
                     }
                     panic!("heartbeat from esp32 stopped")
+                }
+
+                // Bluetooth HCI packet queued by the host stack.
+                #[cfg(feature = "bluetooth")]
+                EitherMany::Fifth(slot) => {
+                    if let Some(if_type_and_num) = self.backend.encode_iface_type(InterfaceType::Hci) {
+                        // `slot.buf[0]` is the H4 packet type indicator; it travels in the
+                        // payload header's `hci_priv_packet_type` field, and the remaining
+                        // bytes are the HCI packet body.
+                        let pkt_type = slot.buf[0];
+                        let body = &slot.buf[1..slot.len];
+                        buffer[PayloadHeader::SIZE..][..body.len()].copy_from_slice(body);
+
+                        let header = PayloadHeader {
+                            if_type_and_num,
+                            len: body.len() as _,
+                            offset: PayloadHeader::SIZE as _,
+                            seq_num: self.next_seq,
+                            hci_priv_packet_type: pkt_type,
+                            ..Default::default()
+                        };
+                        self.next_seq = self.next_seq.wrapping_add(1);
+                        header.copy(&mut buffer);
+                    } else {
+                        // Backend doesn't support HCI (e.g. not yet initialized). Drop the
+                        // packet and send nothing this iteration.
+                        buffer[..PayloadHeader::SIZE].fill(0);
+                    }
+                    slot.receive_done();
                 }
             }
 
@@ -317,6 +391,15 @@ where
                     Some((false, data)) => self.shared.ioctl_done(data),
                     _ => {}
                 }
+            }
+            #[cfg(feature = "bluetooth")]
+            Some(InterfaceType::Hci) => {
+                #[cfg(feature = "log")]
+                trace!("hci rx: {:02x?}", payload);
+                #[cfg(feature = "defmt")]
+                trace!("hci rx: {=[u8]:02x}", payload);
+
+                self.bt.rx(payload);
             }
             _ => warn!("unknown iftype {}", if_type_and_num),
         }

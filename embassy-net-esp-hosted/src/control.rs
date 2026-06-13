@@ -143,8 +143,8 @@ impl<'a> Control<'a> {
         debug!("set heartbeat");
         self.backend.config_heartbeat(&mut ctx, 10).await?;
 
-        debug!("wifi_init");
-        self.backend.wifi_init(&mut ctx).await?;
+        debug!("init_radio");
+        self.backend.init_radio(&mut ctx).await?;
 
         debug!("set wifi mode");
         self.backend.set_mode(&mut ctx, WifiMode::Sta).await?;
