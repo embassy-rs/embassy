@@ -9,6 +9,12 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/embassy-net-esp-hosted"
 
+[package.metadata.embassy]
+build = [
+    {target = "thumbv7em-none-eabi", features = ["log"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt"]},
+]
+
 [features]
 defmt = ["dep:defmt", "heapless/defmt"]
 log = ["dep:log"]

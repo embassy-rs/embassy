@@ -87,7 +87,10 @@ impl<'a> Control<'a> {
         self.backend.set_sta_mode(&mut ctx).await?;
 
         let mac_addr = self.backend.get_mac_addr(&mut ctx).await?;
-        debug!("mac addr: {:02x}", mac_addr);
+        #[cfg(feature = "log")]
+        debug!("mac addr: {:02x?}", mac_addr);
+        #[cfg(feature = "defmt")]
+        debug!("mac addr: {=[u8]:02x}", mac_addr);
         self.state_ch.set_hardware_address(HardwareAddress::Ethernet(mac_addr));
 
         Ok(())
