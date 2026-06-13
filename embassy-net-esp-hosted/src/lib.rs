@@ -119,11 +119,14 @@ enum InterfaceType {
 }
 
 const MAX_BUFFER_SIZE: usize = 1600;
+// Theoretical max overhead is 29 bytes. Biggest message currently is OTA write with 256 bytes.
+const MAX_IOCTL_SIZE: usize = 256 + 29;
 const HEARTBEAT_MAX_GAP: Duration = Duration::from_secs(20);
 
 /// State for the esp-hosted driver.
 pub struct State {
     shared: Shared,
+    ioctl_buffer: [u8; MAX_IOCTL_SIZE],
     ch: ch::State<MTU, 4, 4>,
     #[cfg(feature = "bluetooth")]
     bt: bluetooth::BtState,
@@ -135,6 +138,7 @@ impl State {
         Self {
             shared: Shared::new(),
             ch: ch::State::new(),
+            ioctl_buffer: [0u8; MAX_IOCTL_SIZE],
             #[cfg(feature = "bluetooth")]
             bt: bluetooth::BtState::new(),
         }
@@ -192,7 +196,7 @@ where
         net_device: device,
         #[cfg(feature = "bluetooth")]
         bluetooth: bt_driver,
-        control: Control::new(state_ch, &state.shared),
+        control: Control::new(state_ch, &state.shared, &mut state.ioctl_buffer),
         runner,
     }
 }

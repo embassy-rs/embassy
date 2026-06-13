@@ -2,9 +2,9 @@ use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::{HardwareAddress, LinkState};
 use heapless::String;
 
-use crate::Backend;
 use crate::ioctl::Shared;
 use crate::rpc::{IoctlCtx, RpcBackend};
+use crate::{Backend, MAX_IOCTL_SIZE};
 
 /// Errors reported by control.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -65,7 +65,7 @@ pub enum Security {
 /// Handle for managing the network and WiFI state.
 pub struct Control<'a> {
     state_ch: ch::StateRunner<'a>,
-    shared: &'a Shared,
+    ioctl: IoctlCtx<'a>,
     backend: Backend,
 }
 
@@ -125,34 +125,40 @@ pub(crate) enum WifiMode {
 }
 
 impl<'a> Control<'a> {
-    pub(crate) fn new(state_ch: ch::StateRunner<'a>, shared: &'a Shared) -> Self {
+    pub(crate) fn new(
+        state_ch: ch::StateRunner<'a>,
+        shared: &'a Shared,
+        ioctl_buffer: &'a mut [u8; MAX_IOCTL_SIZE],
+    ) -> Self {
         Self {
             state_ch,
-            shared,
+            ioctl: IoctlCtx::new(shared, ioctl_buffer),
             backend: Backend::default(),
         }
+    }
+
+    fn shared(&self) -> &'a Shared {
+        self.ioctl.shared
     }
 
     /// Initialize device.
     pub async fn init(&mut self) -> Result<(), Error> {
         debug!("wait for init event...");
-        self.backend = self.shared.init_wait().await;
-
-        let mut ctx = IoctlCtx::new(self.shared);
+        self.backend = self.shared().init_wait().await;
 
         debug!("set heartbeat");
-        self.backend.config_heartbeat(&mut ctx, 10).await?;
+        self.backend.config_heartbeat(&mut self.ioctl, 10).await?;
 
         debug!("init_radio");
-        self.backend.init_radio(&mut ctx).await?;
+        self.backend.init_radio(&mut self.ioctl).await?;
 
         debug!("set wifi mode");
-        self.backend.set_mode(&mut ctx, WifiMode::Sta).await?;
+        self.backend.set_mode(&mut self.ioctl, WifiMode::Sta).await?;
 
         debug!("start wifi");
-        self.backend.start_wifi(&mut ctx).await?;
+        self.backend.start_wifi(&mut self.ioctl).await?;
 
-        let mac_addr = self.backend.get_mac_addr(&mut ctx).await?;
+        let mac_addr = self.backend.get_mac_addr(&mut self.ioctl).await?;
         #[cfg(feature = "log")]
         debug!("mac addr: {:02x?}", mac_addr);
         #[cfg(feature = "defmt")]
@@ -164,40 +170,35 @@ impl<'a> Control<'a> {
 
     /// Get the current status.
     pub async fn get_status(&mut self) -> Result<Status, Error> {
-        let mut ctx = IoctlCtx::new(self.shared);
-        self.backend.get_status(&mut ctx).await
+        self.backend.get_status(&mut self.ioctl).await
     }
 
     /// Connect to the network identified by ssid using the provided password.
     pub async fn connect(&mut self, ssid: &str, password: &str) -> Result<(), Error> {
-        self.shared.connect_begin();
+        self.shared().connect_begin();
 
-        let mut ctx = IoctlCtx::new(self.shared);
-        self.backend.connect_ap(&mut ctx, ssid, password).await?;
+        self.backend.connect_ap(&mut self.ioctl, ssid, password).await?;
 
-        self.shared.connect_wait().await.map_err(Error::Failed)?;
+        self.shared().connect_wait().await.map_err(Error::Failed)?;
 
         Ok(())
     }
 
     /// Disconnect from any currently connected network.
     pub async fn disconnect(&mut self) -> Result<(), Error> {
-        let mut ctx = IoctlCtx::new(self.shared);
-        self.backend.disconnect_ap(&mut ctx).await?;
+        self.backend.disconnect_ap(&mut self.ioctl).await?;
         self.state_ch.set_link_state(LinkState::Down);
         Ok(())
     }
 
     /// Return the firmware version of the device.
     pub async fn get_fw_version(&mut self) -> Result<FwVersion, Error> {
-        let mut ctx = IoctlCtx::new(self.shared);
-        self.backend.get_fw_version(&mut ctx).await
+        self.backend.get_fw_version(&mut self.ioctl).await
     }
 
     /// Initiate a firmware update.
     pub async fn ota_begin(&mut self) -> Result<(), Error> {
-        let mut ctx = IoctlCtx::new(self.shared);
-        self.backend.ota_begin(&mut ctx).await
+        self.backend.ota_begin(&mut self.ioctl).await
     }
 
     /// Write slice of firmware to a device.
@@ -207,9 +208,8 @@ impl<'a> Control<'a> {
     /// The slice is split into chunks that can be sent across
     /// the ioctl protocol to the wifi adapter.
     pub async fn ota_write(&mut self, data: &[u8]) -> Result<(), Error> {
-        let mut ctx = IoctlCtx::new(self.shared);
         for chunk in data.chunks(256) {
-            self.backend.ota_write(&mut ctx, chunk).await?;
+            self.backend.ota_write(&mut self.ioctl, chunk).await?;
         }
         Ok(())
     }
@@ -220,9 +220,8 @@ impl<'a> Control<'a> {
     ///
     /// NOTE: Will reset the wifi adapter after 5 seconds.
     pub async fn ota_end(&mut self) -> Result<(), Error> {
-        let mut ctx = IoctlCtx::new(self.shared);
-        self.backend.ota_end(&mut ctx).await?;
-        self.shared.ota_done();
+        self.backend.ota_end(&mut self.ioctl).await?;
+        self.shared().ota_done();
         // Wait for re-init
         self.init().await
     }

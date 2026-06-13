@@ -1,24 +1,24 @@
 use micropb::{MessageDecode, MessageEncode, PbEncoder};
 
+use crate::MAX_IOCTL_SIZE;
 use crate::control::Error;
 use crate::ioctl::Shared;
 
 /// One encode → ioctl → decode round-trip through [`Shared`].
 pub struct IoctlCtx<'a> {
-    shared: &'a Shared,
+    pub(crate) shared: &'a Shared,
+    ioctl_buffer: &'a mut [u8; MAX_IOCTL_SIZE],
 }
 
-impl IoctlCtx<'_> {
-    pub fn new(shared: &Shared) -> IoctlCtx<'_> {
-        IoctlCtx { shared }
+impl<'a> IoctlCtx<'a> {
+    pub fn new(shared: &'a Shared, ioctl_buffer: &'a mut [u8; MAX_IOCTL_SIZE]) -> IoctlCtx<'a> {
+        IoctlCtx { shared, ioctl_buffer }
     }
 
     pub async fn exchange(&mut self, msg: &mut (impl MessageDecode + MessageEncode)) -> Result<(), Error> {
-        // Theoretical max overhead is 29 bytes. Biggest message is OTA write with 256 bytes.
-        let mut buf = [0u8; 256 + 29];
-        let buf_len = buf.len();
+        let buf_len = self.ioctl_buffer.len();
 
-        let mut encoder = PbEncoder::new(&mut buf[..]);
+        let mut encoder = PbEncoder::new(&mut self.ioctl_buffer[..]);
         msg.encode(&mut encoder).map_err(|_| {
             warn!("failed to serialize control request");
             Error::Internal
@@ -42,11 +42,11 @@ impl IoctlCtx<'_> {
 
         let ioctl = CancelOnDrop(self.shared);
 
-        let resp_len = ioctl.0.ioctl(&mut buf, req_len).await;
+        let resp_len = ioctl.0.ioctl(self.ioctl_buffer, req_len).await;
 
         ioctl.defuse();
 
-        msg.decode_from_bytes(&buf[..resp_len]).map_err(|_| {
+        msg.decode_from_bytes(&self.ioctl_buffer[..resp_len]).map_err(|_| {
             warn!("failed to deserialize control response");
             Error::Internal
         })?;
