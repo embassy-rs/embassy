@@ -8,6 +8,8 @@ micropb-gen = "0.6.0"
 build.rs
 fn main() {
     let out_dir = std::env::var("OUT_DIR").unwrap();
+    // Or update the files directly:
+    // let out_dir = "src/proto";
 
     let mut g = micropb_gen::Generator::new();
     g.use_container_heapless();
@@ -36,7 +38,7 @@ fn main() {
 
     g.compile_protos(
         &["src/proto/fg/esp_hosted_config.proto"],
-        format!("{}/fg_proto.rs", out_dir),
+        format!("{}/fg/mod.rs", out_dir),
     )
     .unwrap();
 
@@ -57,7 +59,7 @@ fn main() {
 
     g.compile_protos(
         &["src/proto/mcu/esp_hosted_rpc.proto"],
-        format!("{}/mcu_proto.rs", out_dir),
+        format!("{}/mcu/mod.rs", out_dir),
     )
     .unwrap();
 

@@ -9,7 +9,6 @@ use crate::proto::fg::{
     CtrlMsg_Req_GetMacAddress, CtrlMsg_Req_GetStatus, CtrlMsg_Req_OTABegin, CtrlMsg_Req_OTAEnd, CtrlMsg_Req_OTAWrite,
     CtrlMsg_Req_SetMode, CtrlMsgId, CtrlMsgType,
 };
-
 use crate::{FwVersion, InterfaceType, WifiMode};
 
 macro_rules! exchange {

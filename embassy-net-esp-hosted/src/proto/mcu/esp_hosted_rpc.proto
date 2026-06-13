@@ -94,203 +94,203 @@ enum RpcId {
 	MsgId_Invalid = 0;
 
 	/** Request Msgs **/
-	Req_Base                          = 256; //0x100
+	//Req_Base                          = 256; //0x100
 
 	Req_GetMACAddress                 = 257; //0x101
-	Req_SetMacAddress                 = 258; //0x102
-	Req_GetWifiMode                   = 259; //0x103
+	//Req_SetMacAddress                 = 258; //0x102
+	//Req_GetWifiMode                   = 259; //0x103
 	Req_SetWifiMode                   = 260; //0x104
 
-	Req_SuppDppInit                   = 261; //0x105
-	Req_SuppDppDeinit                 = 262; //0x106
-	Req_SuppDppBootstrapGen           = 263; //0x107
-	Req_SuppDppStartListen            = 264; //0x108
-	Req_SuppDppStopListen             = 265; //0x109
+	//Req_SuppDppInit                   = 261; //0x105
+	//Req_SuppDppDeinit                 = 262; //0x106
+	//Req_SuppDppBootstrapGen           = 263; //0x107
+	//Req_SuppDppStartListen            = 264; //0x108
+	//Req_SuppDppStopListen             = 265; //0x109
 
 	Req_OTAActivate                   = 266; //0x10a
 
-	Req_AppGetDesc                    = 267; //0x10b
-	Req_MemMonitor                    = 268; //0x10c
-	Req_WifiScanParams                = 269; //0x10d
+	//Req_AppGetDesc                    = 267; //0x10b
+	//Req_MemMonitor                    = 268; //0x10c
+	//Req_WifiScanParams                = 269; //0x10d
 
-	Req_WifiSetPs                     = 270; //0x10e
-	Req_WifiGetPs                     = 271; //0x10f
+	//Req_WifiSetPs                     = 270; //0x10e
+	//Req_WifiGetPs                     = 271; //0x10f
 
 	Req_OTABegin                      = 272; //0x110
 	Req_OTAWrite                      = 273; //0x111
 	Req_OTAEnd                        = 274; //0x112
 
-	Req_WifiSetMaxTxPower             = 275;  //0x113
-	Req_WifiGetMaxTxPower             = 276; //0x114
+	//Req_WifiSetMaxTxPower             = 275;  //0x113
+	//Req_WifiGetMaxTxPower             = 276; //0x114
 
 	Req_ConfigHeartbeat               = 277; //0x115
 
 	Req_WifiInit                      = 278; //0x116
-	Req_WifiDeinit                    = 279; //0x117
+	//Req_WifiDeinit                    = 279; //0x117
 	Req_WifiStart                     = 280; //0x118
-	Req_WifiStop                      = 281; //0x119
+	//Req_WifiStop                      = 281; //0x119
 	Req_WifiConnect                   = 282; //0x11a
 	Req_WifiDisconnect                = 283; //0x11b
 	Req_WifiSetConfig                 = 284; //0x11c
-	Req_WifiGetConfig                 = 285; //0x11d
+	//Req_WifiGetConfig                 = 285; //0x11d
 
-	Req_WifiScanStart                 = 286; //0x11e
-	Req_WifiScanStop                  = 287; //0x11f
-	Req_WifiScanGetApNum              = 288; //0x120
-	Req_WifiScanGetApRecords          = 289; //0x121
-	Req_WifiClearApList               = 290; //0x122
+	//Req_WifiScanStart                 = 286; //0x11e
+	//Req_WifiScanStop                  = 287; //0x11f
+	//Req_WifiScanGetApNum              = 288; //0x120
+	//Req_WifiScanGetApRecords          = 289; //0x121
+	//Req_WifiClearApList               = 290; //0x122
 
-	Req_WifiRestore                   = 291; //0x123
-	Req_WifiClearFastConnect          = 292; //0x124
-	Req_WifiDeauthSta                 = 293; //0x125
+	//Req_WifiRestore                   = 291; //0x123
+	//Req_WifiClearFastConnect          = 292; //0x124
+	//Req_WifiDeauthSta                 = 293; //0x125
 	Req_WifiStaGetApInfo              = 294; //0x126
 	//Req_WifiSetPs                     = 295; //0x127
 	//Req_WifiGetPs                     = 296; //0x128
-	Req_WifiSetProtocol               = 297; //0x129
-	Req_WifiGetProtocol               = 298; //0x12a
-	Req_WifiSetBandwidth              = 299; //0x12b
-	Req_WifiGetBandwidth              = 300; //0x12c
-	Req_WifiSetChannel                = 301; //0x12d
-	Req_WifiGetChannel                = 302; //0x12e
-	Req_WifiSetCountry                = 303; //0x12f
-	Req_WifiGetCountry                = 304; //0x130
+	//Req_WifiSetProtocol               = 297; //0x129
+	//Req_WifiGetProtocol               = 298; //0x12a
+	//Req_WifiSetBandwidth              = 299; //0x12b
+	//Req_WifiGetBandwidth              = 300; //0x12c
+	//Req_WifiSetChannel                = 301; //0x12d
+	//Req_WifiGetChannel                = 302; //0x12e
+	//Req_WifiSetCountry                = 303; //0x12f
+	//Req_WifiGetCountry                = 304; //0x130
 
 //  Req_WifiSetPromiscuousRxCb        = 305; //0x131
-	Req_WifiSetPromiscuous            = 305; //0x131
-	Req_WifiGetPromiscuous            = 306; //0x132
-	Req_WifiSetPromiscuousFilter      = 307; //0x133
-	Req_WifiGetPromiscuousFilter      = 308; //0x134
-	Req_WifiSetPromiscuousCtrlFilter  = 309; //0x135
-	Req_WifiGetPromiscuousCtrlFilter  = 310; //0x136
+	//Req_WifiSetPromiscuous            = 305; //0x131
+	//Req_WifiGetPromiscuous            = 306; //0x132
+	//Req_WifiSetPromiscuousFilter      = 307; //0x133
+	//Req_WifiGetPromiscuousFilter      = 308; //0x134
+	//Req_WifiSetPromiscuousCtrlFilter  = 309; //0x135
+	//Req_WifiGetPromiscuousCtrlFilter  = 310; //0x136
 
-	Req_WifiApGetStaList              = 311; //0x137
-	Req_WifiApGetStaAid               = 312; //0x138
-	Req_WifiSetStorage                = 313; //0x139
-	Req_WifiSetVendorIe               = 314; //0x13a
+	//Req_WifiApGetStaList              = 311; //0x137
+	//Req_WifiApGetStaAid               = 312; //0x138
+	//Req_WifiSetStorage                = 313; //0x139
+	//Req_WifiSetVendorIe               = 314; //0x13a
 //  Req_WifiSetVendorIeCb             = 315; //0x13b
-	Req_WifiSetEventMask              = 315; //0x13b
-	Req_WifiGetEventMask              = 316; //0x13c
-	Req_Wifi80211Tx                   = 317; //0x13d
+	//Req_WifiSetEventMask              = 315; //0x13b
+	//Req_WifiGetEventMask              = 316; //0x13c
+	//Req_Wifi80211Tx                   = 317; //0x13d
 
 //	Req_WifiSetCsiRxCb                = 318; //0x13e
-	Req_WifiSetCsiConfig              = 318; //0x13e
-	Req_WifiSetCsi                    = 319; //0x13f
+	//Req_WifiSetCsiConfig              = 318; //0x13e
+	//Req_WifiSetCsi                    = 319; //0x13f
 
-	Req_WifiSetAntGpio                = 320; //0x140
-	Req_WifiGetAntGpio                = 321; //0x141
-	Req_WifiSetAnt                    = 322; //0x142
-	Req_WifiGetAnt                    = 323; //0x143
+	//Req_WifiSetAntGpio                = 320; //0x140
+	//Req_WifiGetAntGpio                = 321; //0x141
+	//Req_WifiSetAnt                    = 322; //0x142
+	//Req_WifiGetAnt                    = 323; //0x143
 
-	Req_WifiGetTsfTime                = 324; //0x144
-	Req_WifiSetInactiveTime           = 325; //0x145
-	Req_WifiGetInactiveTime           = 326; //0x146
-	Req_WifiStatisDump                = 327; //0x147
-	Req_WifiSetRssiThreshold          = 328; //0x148
+	//Req_WifiGetTsfTime                = 324; //0x144
+	//Req_WifiSetInactiveTime           = 325; //0x145
+	//Req_WifiGetInactiveTime           = 326; //0x146
+	//Req_WifiStatisDump                = 327; //0x147
+	//Req_WifiSetRssiThreshold          = 328; //0x148
 
-	Req_WifiFtmInitiateSession        = 329; //0x149
-	Req_WifiFtmEndSession             = 330; //0x14a
-	Req_WifiFtmRespSetOffset          = 331; //0x14b
+	//Req_WifiFtmInitiateSession        = 329; //0x149
+	//Req_WifiFtmEndSession             = 330; //0x14a
+	//Req_WifiFtmRespSetOffset          = 331; //0x14b
 
-	Req_WifiConfig11bRate             = 332; //0x14c
-	Req_WifiConnectionlessModuleSetWakeInterval = 333; //0x14d
-	Req_WifiSetCountryCode            = 334; //0x14e
-	Req_WifiGetCountryCode            = 335; //0x14f
-	Req_WifiConfig80211TxRate         = 336; //0x150
-	Req_WifiDisablePmfConfig          = 337; //0x151
-	Req_WifiStaGetAid                 = 338; //0x152
-	Req_WifiStaGetNegotiatedPhymode   = 339; //0x153
-	Req_WifiSetDynamicCs              = 340; //0x154
-	Req_WifiStaGetRssi                = 341; //0x155
+	//Req_WifiConfig11bRate             = 332; //0x14c
+	//Req_WifiConnectionlessModuleSetWakeInterval = 333; //0x14d
+	//Req_WifiSetCountryCode            = 334; //0x14e
+	//Req_WifiGetCountryCode            = 335; //0x14f
+	//Req_WifiConfig80211TxRate         = 336; //0x150
+	//Req_WifiDisablePmfConfig          = 337; //0x151
+	//Req_WifiStaGetAid                 = 338; //0x152
+	//Req_WifiStaGetNegotiatedPhymode   = 339; //0x153
+	//Req_WifiSetDynamicCs              = 340; //0x154
+	//Req_WifiStaGetRssi                = 341; //0x155
 
-	Req_WifiSetProtocols              = 342; //0x156
-	Req_WifiGetProtocols              = 343; //0x157
-	Req_WifiSetBandwidths             = 344; //0x158
-	Req_WifiGetBandwidths             = 345; //0x159
+	//Req_WifiSetProtocols              = 342; //0x156
+	//Req_WifiGetProtocols              = 343; //0x157
+	//Req_WifiSetBandwidths             = 344; //0x158
+	//Req_WifiGetBandwidths             = 345; //0x159
 
-	Req_WifiSetBand                   = 346; //0x15a
-	Req_WifiGetBand                   = 347; //0x15b
-	Req_WifiSetBandMode               = 348; //0x15c
-	Req_WifiGetBandMode               = 349; //0x15d
+	//Req_WifiSetBand                   = 346; //0x15a
+	//Req_WifiGetBand                   = 347; //0x15b
+	//Req_WifiSetBandMode               = 348; //0x15c
+	//Req_WifiGetBandMode               = 349; //0x15d
 
 	Req_GetCoprocessorFwVersion       = 350; //0x15e
 
-	Req_WifiScanGetApRecord           = 351; //0x15f
+	//Req_WifiScanGetApRecord           = 351; //0x15f
 
-	Req_SetDhcpDnsStatus              = 352; //0x160
-	Req_GetDhcpDnsStatus              = 353; //0x161
+	//Req_SetDhcpDnsStatus              = 352; //0x160
+	//Req_GetDhcpDnsStatus              = 353; //0x161
 
-	Req_WifiStaTwtConfig              = 354; //0x162
-	Req_WifiStaItwtSetup              = 355; //0x163
-	Req_WifiStaItwtTeardown           = 356; //0x164
-	Req_WifiStaItwtSuspend            = 357; //0x165
-	Req_WifiStaItwtGetFlowIdStatus    = 358; //0x166
-	Req_WifiStaItwtSendProbeReq       = 359; //0x167
-	Req_WifiStaItwtSetTargetWakeTimeOffset = 360; //0x168
+	//Req_WifiStaTwtConfig              = 354; //0x162
+	//Req_WifiStaItwtSetup              = 355; //0x163
+	//Req_WifiStaItwtTeardown           = 356; //0x164
+	//Req_WifiStaItwtSuspend            = 357; //0x165
+	//Req_WifiStaItwtGetFlowIdStatus    = 358; //0x166
+	//Req_WifiStaItwtSendProbeReq       = 359; //0x167
+	//Req_WifiStaItwtSetTargetWakeTimeOffset = 360; //0x168
 
-	Req_WifiStaEnterpriseEnable       = 361; //0x169
-	Req_WifiStaEnterpriseDisable      = 362; //0x16A
-	Req_EapSetIdentity                = 363; //0x16B
-	Req_EapClearIdentity              = 364; //0x16C
-	Req_EapSetUsername                = 365; //0x16D
-	Req_EapClearUsername              = 366; //0x16E
-	Req_EapSetPassword                = 367; //0x16F
-	Req_EapClearPassword              = 368; //0x170
-	Req_EapSetNewPassword             = 369; //0x171
-	Req_EapClearNewPassword           = 370; //0x172
-	Req_EapSetCaCert                  = 371; //0x173
-	Req_EapClearCaCert                = 372; //0x174
-	Req_EapSetCertificateAndKey       = 373; //0x175
-	Req_EapClearCertificateAndKey     = 374; //0x176
-	Req_EapGetDisableTimeCheck        = 375; //0x177
-	Req_EapSetTtlsPhase2Method        = 376; //0x178
-	Req_EapSetSuitebCertification     = 377; //0x179
-	Req_EapSetPacFile                 = 378; //0x17A
-	Req_EapSetFastParams              = 379; //0x17B
-	Req_EapUseDefaultCertBundle       = 380; //0x17C
-	Req_WifiSetOkcSupport             = 381; //0x17D
-	Req_EapSetDomainName              = 382; //0x17E
-	Req_EapSetDisableTimeCheck        = 383; //0x17F
-	Req_EapSetEapMethods              = 384; //0x180
+	//Req_WifiStaEnterpriseEnable       = 361; //0x169
+	//Req_WifiStaEnterpriseDisable      = 362; //0x16A
+	//Req_EapSetIdentity                = 363; //0x16B
+	//Req_EapClearIdentity              = 364; //0x16C
+	//Req_EapSetUsername                = 365; //0x16D
+	//Req_EapClearUsername              = 366; //0x16E
+	//Req_EapSetPassword                = 367; //0x16F
+	//Req_EapClearPassword              = 368; //0x170
+	//Req_EapSetNewPassword             = 369; //0x171
+	//Req_EapClearNewPassword           = 370; //0x172
+	//Req_EapSetCaCert                  = 371; //0x173
+	//Req_EapClearCaCert                = 372; //0x174
+	//Req_EapSetCertificateAndKey       = 373; //0x175
+	//Req_EapClearCertificateAndKey     = 374; //0x176
+	//Req_EapGetDisableTimeCheck        = 375; //0x177
+	//Req_EapSetTtlsPhase2Method        = 376; //0x178
+	//Req_EapSetSuitebCertification     = 377; //0x179
+	//Req_EapSetPacFile                 = 378; //0x17A
+	//Req_EapSetFastParams              = 379; //0x17B
+	//Req_EapUseDefaultCertBundle       = 380; //0x17C
+	//Req_WifiSetOkcSupport             = 381; //0x17D
+	//Req_EapSetDomainName              = 382; //0x17E
+	//Req_EapSetDisableTimeCheck        = 383; //0x17F
+	//Req_EapSetEapMethods              = 384; //0x180
 
-	Req_IfaceMacAddrSetGet            = 385; //0x181
-	Req_IfaceMacAddrLenGet            = 386; //0x182
+	//Req_IfaceMacAddrSetGet            = 385; //0x181
+	//Req_IfaceMacAddrLenGet            = 386; //0x182
 
 	/* Common RPC to handle simple feature control with one optional parameter
 	 * Supported Features:
 	 * - BT Init/Deinit/Enable/Disable
 	 */
-	Req_FeatureControl                = 387; //0x183
+	//Req_FeatureControl                = 387; //0x183
 
 	/* Custom RPC for user-defined packed structures */
-	Req_CustomRpc                     = 388; //0x184
+	//Req_CustomRpc                     = 388; //0x184
 
-	Req_GpioConfig                    = 389; // 0x185
-	Req_GpioResetPin                  = 390; // 0x186
-	Req_GpioSetLevel                  = 391; // 0x187
-	Req_GpioGetLevel                  = 392; // 0x188
-	Req_GpioSetDirection              = 393; // 0x189
-	Req_GpioInputEnable               = 394; // 0x18a
-	Req_GpioSetPullMode               = 395; // 0x18B
+	//Req_GpioConfig                    = 389; // 0x185
+	//Req_GpioResetPin                  = 390; // 0x186
+	//Req_GpioSetLevel                  = 391; // 0x187
+	//Req_GpioGetLevel                  = 392; // 0x188
+	//Req_GpioSetDirection              = 393; // 0x189
+	//Req_GpioInputEnable               = 394; // 0x18a
+	//Req_GpioSetPullMode               = 395; // 0x18B
 
-	Req_ExtCoex                      = 396; // 0x18C
+	//Req_ExtCoex                      = 396; // 0x18C
 
 	/* Add new control path command response before Req_Max
 	 * and update Req_Max */
-	Req_Max = 397; //0x18D
+	//Req_Max = 397; //0x18D
 
 	/** Response Msgs **/
-	Resp_Base                         = 512;
+	//Resp_Base                         = 512;
 
 	Resp_GetMACAddress                = 513;
-	Resp_SetMacAddress                = 514;
-	Resp_GetWifiMode                  = 515;
+	//Resp_SetMacAddress                = 514;
+	//Resp_GetWifiMode                  = 515;
 	Resp_SetWifiMode                  = 516;
 
-	Resp_SuppDppInit                   = 517;
-	Resp_SuppDppDeinit                 = 518;
-	Resp_SuppDppBootstrapGen           = 519;
-	Resp_SuppDppStartListen            = 520;
-	Resp_SuppDppStopListen             = 521;
+	//Resp_SuppDppInit                   = 517;
+	//Resp_SuppDppDeinit                 = 518;
+	//Resp_SuppDppBootstrapGen           = 519;
+	//Resp_SuppDppStartListen            = 520;
+	//Resp_SuppDppStopListen             = 521;
 
 	//Resp_SetSoftAPVendorSpecificIE    = 522;
 	//Resp_StartSoftAP                  = 523;
@@ -298,202 +298,202 @@ enum RpcId {
 	//Resp_StopSoftAP                   = 525;
 	Resp_OTAActivate                  = 522;
 
-	Resp_AppGetDesc                   = 523;
-	Resp_MemMonitor                   = 524;
-	Resp_WifiScanParams               = 525;
+	//Resp_AppGetDesc                   = 523;
+	//Resp_MemMonitor                   = 524;
+	//Resp_WifiScanParams               = 525;
 
-	Resp_WifiSetPs                    = 526;
-	Resp_WifiGetPs                    = 527;
+	//Resp_WifiSetPs                    = 526;
+	//Resp_WifiGetPs                    = 527;
 
 	Resp_OTABegin                     = 528;
 	Resp_OTAWrite                     = 529;
 	Resp_OTAEnd                       = 530;
 
-	Resp_WifiSetMaxTxPower            = 531;
-	Resp_WifiGetMaxTxPower            = 532;
+	//Resp_WifiSetMaxTxPower            = 531;
+	//Resp_WifiGetMaxTxPower            = 532;
 
 	Resp_ConfigHeartbeat              = 533;
 
 	Resp_WifiInit                     = 534;
-	Resp_WifiDeinit                   = 535;
+	//Resp_WifiDeinit                   = 535;
 	Resp_WifiStart                    = 536;
-	Resp_WifiStop                     = 537;
+	//Resp_WifiStop                     = 537;
 	Resp_WifiConnect                  = 538;
 	Resp_WifiDisconnect               = 539;
 	Resp_WifiSetConfig                = 540;
-	Resp_WifiGetConfig                = 541;
+	//Resp_WifiGetConfig                = 541;
 
-	Resp_WifiScanStart                = 542;
-	Resp_WifiScanStop                 = 543;
-	Resp_WifiScanGetApNum             = 544;
-	Resp_WifiScanGetApRecords         = 545;
-	Resp_WifiClearApList              = 546;
+	//Resp_WifiScanStart                = 542;
+	//Resp_WifiScanStop                 = 543;
+	//Resp_WifiScanGetApNum             = 544;
+	//Resp_WifiScanGetApRecords         = 545;
+	//Resp_WifiClearApList              = 546;
 
-	Resp_WifiRestore                  = 547;
-	Resp_WifiClearFastConnect         = 548;
-	Resp_WifiDeauthSta                = 549;
+	//Resp_WifiRestore                  = 547;
+	//Resp_WifiClearFastConnect         = 548;
+	//Resp_WifiDeauthSta                = 549;
 	Resp_WifiStaGetApInfo             = 550;
 	//Resp_WifiSetPs                    = 551;
 	//Resp_WifiGetPs                    = 552;
-	Resp_WifiSetProtocol              = 553;
-	Resp_WifiGetProtocol              = 554;
-	Resp_WifiSetBandwidth             = 555;
-	Resp_WifiGetBandwidth             = 556;
-	Resp_WifiSetChannel               = 557;
-	Resp_WifiGetChannel               = 558;
-	Resp_WifiSetCountry               = 559;
-	Resp_WifiGetCountry               = 560;
+	//Resp_WifiSetProtocol              = 553;
+	//Resp_WifiGetProtocol              = 554;
+	//Resp_WifiSetBandwidth             = 555;
+	//Resp_WifiGetBandwidth             = 556;
+	//Resp_WifiSetChannel               = 557;
+	//Resp_WifiGetChannel               = 558;
+	//Resp_WifiSetCountry               = 559;
+	//Resp_WifiGetCountry               = 560;
 
 //  Resp_WifiSetPromiscuousRxCb       = 561;
-	Resp_WifiSetPromiscuous           = 561;
-	Resp_WifiGetPromiscuous           = 562;
-	Resp_WifiSetPromiscuousFilter     = 563;
-	Resp_WifiGetPromiscuousFilter     = 564;
-	Resp_WifiSetPromiscuousCtrlFilter = 565;
-	Resp_WifiGetPromiscuousCtrlFilter = 566;
+	//Resp_WifiSetPromiscuous           = 561;
+	//Resp_WifiGetPromiscuous           = 562;
+	//Resp_WifiSetPromiscuousFilter     = 563;
+	//Resp_WifiGetPromiscuousFilter     = 564;
+	//Resp_WifiSetPromiscuousCtrlFilter = 565;
+	//Resp_WifiGetPromiscuousCtrlFilter = 566;
 
-	Resp_WifiApGetStaList             = 567;
-	Resp_WifiApGetStaAid              = 568;
-	Resp_WifiSetStorage               = 569;
-	Resp_WifiSetVendorIe              = 570;
+	//Resp_WifiApGetStaList             = 567;
+	//Resp_WifiApGetStaAid              = 568;
+	//Resp_WifiSetStorage               = 569;
+	//Resp_WifiSetVendorIe              = 570;
 //  Resp_WifiSetVendorIeCb            = 571;
-	Resp_WifiSetEventMask             = 571;
-	Resp_WifiGetEventMask             = 572;
-	Resp_Wifi80211Tx                  = 573;
+	//Resp_WifiSetEventMask             = 571;
+	//Resp_WifiGetEventMask             = 572;
+	//Resp_Wifi80211Tx                  = 573;
 
 //	Resp_WifiSetCsiRxCb               = 573;
-	Resp_WifiSetCsiConfig             = 574;
-	Resp_WifiSetCsi                   = 575;
+	//Resp_WifiSetCsiConfig             = 574;
+	//Resp_WifiSetCsi                   = 575;
 
-	Resp_WifiSetAntGpio               = 576;
-	Resp_WifiGetAntGpio               = 577;
-	Resp_WifiSetAnt                   = 578;
-	Resp_WifiGetAnt                   = 579;
+	//Resp_WifiSetAntGpio               = 576;
+	//Resp_WifiGetAntGpio               = 577;
+	//Resp_WifiSetAnt                   = 578;
+	//Resp_WifiGetAnt                   = 579;
 
-	Resp_WifiGetTsfTime               = 580;
-	Resp_WifiSetInactiveTime          = 581;
-	Resp_WifiGetInactiveTime          = 582;
-	Resp_WifiStatisDump               = 583;
-	Resp_WifiSetRssiThreshold         = 584;
+	//Resp_WifiGetTsfTime               = 580;
+	//Resp_WifiSetInactiveTime          = 581;
+	//Resp_WifiGetInactiveTime          = 582;
+	//Resp_WifiStatisDump               = 583;
+	//Resp_WifiSetRssiThreshold         = 584;
 
-	Resp_WifiFtmInitiateSession       = 585;
-	Resp_WifiFtmEndSession            = 586;
-	Resp_WifiFtmRespSetOffset         = 587;
+	//Resp_WifiFtmInitiateSession       = 585;
+	//Resp_WifiFtmEndSession            = 586;
+	//Resp_WifiFtmRespSetOffset         = 587;
 
-	Resp_WifiConfig11bRate            = 588;
-	Resp_WifiConnectionlessModuleSetWakeInterval = 589;
-	Resp_WifiSetCountryCode           = 590;
-	Resp_WifiGetCountryCode           = 591;
-	Resp_WifiConfig80211TxRate        = 592;
-	Resp_WifiDisablePmfConfig         = 593;
-	Resp_WifiStaGetAid                = 594;
-	Resp_WifiStaGetNegotiatedPhymode  = 595;
-	Resp_WifiSetDynamicCs             = 596;
-	Resp_WifiStaGetRssi               = 597;
+	//Resp_WifiConfig11bRate            = 588;
+	//Resp_WifiConnectionlessModuleSetWakeInterval = 589;
+	//Resp_WifiSetCountryCode           = 590;
+	//Resp_WifiGetCountryCode           = 591;
+	//Resp_WifiConfig80211TxRate        = 592;
+	//Resp_WifiDisablePmfConfig         = 593;
+	//Resp_WifiStaGetAid                = 594;
+	//Resp_WifiStaGetNegotiatedPhymode  = 595;
+	//Resp_WifiSetDynamicCs             = 596;
+	//Resp_WifiStaGetRssi               = 597;
 
-	Resp_WifiSetProtocols             = 598;
-	Resp_WifiGetProtocols             = 599;
-	Resp_WifiSetBandwidths            = 600;
-	Resp_WifiGetBandwidths            = 601;
+	//Resp_WifiSetProtocols             = 598;
+	//Resp_WifiGetProtocols             = 599;
+	//Resp_WifiSetBandwidths            = 600;
+	//Resp_WifiGetBandwidths            = 601;
 
-	Resp_WifiSetBand                  = 602;
-	Resp_WifiGetBand                  = 603;
-	Resp_WifiSetBandMode              = 604;
-	Resp_WifiGetBandMode              = 605;
+	//Resp_WifiSetBand                  = 602;
+	//Resp_WifiGetBand                  = 603;
+	//Resp_WifiSetBandMode              = 604;
+	//Resp_WifiGetBandMode              = 605;
 
 	Resp_GetCoprocessorFwVersion      = 606;
 
-	Resp_WifiScanGetApRecord          = 607;
+	//Resp_WifiScanGetApRecord          = 607;
 
-	Resp_SetDhcpDnsStatus             = 608;
-	Resp_GetDhcpDnsStatus             = 609;
+	//Resp_SetDhcpDnsStatus             = 608;
+	//Resp_GetDhcpDnsStatus             = 609;
 
-	Resp_WifiStaTwtConfig             = 610;
-	Resp_WifiStaItwtSetup             = 611;
-	Resp_WifiStaItwtTeardown          = 612;
-	Resp_WifiStaItwtSuspend           = 613;
-	Resp_WifiStaItwtGetFlowIdStatus   = 614;
-	Resp_WifiStaItwtSendProbeReq      = 615;
-	Resp_WifiStaItwtSetTargetWakeTimeOffset = 616;
+	//Resp_WifiStaTwtConfig             = 610;
+	//Resp_WifiStaItwtSetup             = 611;
+	//Resp_WifiStaItwtTeardown          = 612;
+	//Resp_WifiStaItwtSuspend           = 613;
+	//Resp_WifiStaItwtGetFlowIdStatus   = 614;
+	//Resp_WifiStaItwtSendProbeReq      = 615;
+	//Resp_WifiStaItwtSetTargetWakeTimeOffset = 616;
 
-	Resp_WifiStaEnterpriseEnable              = 617;
-	Resp_WifiStaEnterpriseDisable             = 618;
-	Resp_EapSetIdentity                       = 619;
-	Resp_EapClearIdentity                     = 620;
-	Resp_EapSetUsername                       = 621;
-	Resp_EapClearUsername                     = 622;
-	Resp_EapSetPassword                       = 623;
-	Resp_EapClearPassword                     = 624;
-	Resp_EapSetNewPassword                    = 625;
-	Resp_EapClearNewPassword                  = 626;
-	Resp_EapSetCaCert                         = 627;
-	Resp_EapClearCaCert                       = 628;
-	Resp_EapSetCertificateAndKey              = 629;
-	Resp_EapClearCertificateAndKey            = 630;
-	Resp_EapGetDisableTimeCheck               = 631;
-	Resp_EapSetTtlsPhase2Method               = 632;
-	Resp_EapSetSuitebCertification            = 633;
-	Resp_EapSetPacFile                        = 634;
-	Resp_EapSetFastParams                     = 635;
-	Resp_EapUseDefaultCertBundle              = 636;
-	Resp_WifiSetOkcSupport                    = 637;
-	Resp_EapSetDomainName                     = 638;
-	Resp_EapSetDisableTimeCheck               = 639;
-	Resp_EapSetEapMethods                     = 640;
+	//Resp_WifiStaEnterpriseEnable              = 617;
+	//Resp_WifiStaEnterpriseDisable             = 618;
+	//Resp_EapSetIdentity                       = 619;
+	//Resp_EapClearIdentity                     = 620;
+	//Resp_EapSetUsername                       = 621;
+	//Resp_EapClearUsername                     = 622;
+	//Resp_EapSetPassword                       = 623;
+	//Resp_EapClearPassword                     = 624;
+	//Resp_EapSetNewPassword                    = 625;
+	//Resp_EapClearNewPassword                  = 626;
+	//Resp_EapSetCaCert                         = 627;
+	//Resp_EapClearCaCert                       = 628;
+	//Resp_EapSetCertificateAndKey              = 629;
+	//Resp_EapClearCertificateAndKey            = 630;
+	//Resp_EapGetDisableTimeCheck               = 631;
+	//Resp_EapSetTtlsPhase2Method               = 632;
+	//Resp_EapSetSuitebCertification            = 633;
+	//Resp_EapSetPacFile                        = 634;
+	//Resp_EapSetFastParams                     = 635;
+	//Resp_EapUseDefaultCertBundle              = 636;
+	//Resp_WifiSetOkcSupport                    = 637;
+	//Resp_EapSetDomainName                     = 638;
+	//Resp_EapSetDisableTimeCheck               = 639;
+	//Resp_EapSetEapMethods                     = 640;
 
-	Resp_IfaceMacAddrSetGet                   = 641;
-	Resp_IfaceMacAddrLenGet                   = 642;
-	Resp_FeatureControl                       = 643;
+	//Resp_IfaceMacAddrSetGet                   = 641;
+	//Resp_IfaceMacAddrLenGet                   = 642;
+	//Resp_FeatureControl                       = 643;
 
-	Resp_CustomRpc                            = 644;
+	//Resp_CustomRpc                            = 644;
 
-	Resp_GpioConfig                           = 645;
-	Resp_GpioResetPin                         = 646;
-	Resp_GpioSetLevel                         = 647;
-	Resp_GpioGetLevel                         = 648;
-	Resp_GpioSetDirection                     = 649;
-	Resp_GpioInputEnable                      = 650;
-	Resp_GpioSetPullMode                      = 651;
-	Resp_ExtCoex                              = 652;
+	//Resp_GpioConfig                           = 645;
+	//Resp_GpioResetPin                         = 646;
+	//Resp_GpioSetLevel                         = 647;
+	//Resp_GpioGetLevel                         = 648;
+	//Resp_GpioSetDirection                     = 649;
+	//Resp_GpioInputEnable                      = 650;
+	//Resp_GpioSetPullMode                      = 651;
+	//Resp_ExtCoex                              = 652;
 
 	/* Add new control path command response before Resp_Max
 	 * and update Resp_Max */
-	Resp_Max = 653;
+	//Resp_Max = 653;
 
 	/** Event Msgs **/
-	Event_Base = 768;
+	//Event_Base = 768;
 	Event_ESPInit = 769;
 	Event_Heartbeat = 770;
 	Event_AP_StaConnected = 771;
 	Event_AP_StaDisconnected = 772;
-	Event_WifiEventNoArgs = 773;
-	Event_StaScanDone = 774;
-	Event_StaConnected = 775;
-	Event_StaDisconnected = 776;
-	Event_DhcpDnsStatus = 777;
+	//Event_WifiEventNoArgs = 773;
+	//Event_StaScanDone = 774;
+	//Event_StaConnected = 775;
+	//Event_StaDisconnected = 776;
+	//Event_DhcpDnsStatus = 777;
 
-	Event_StaItwtSetup = 778;
-	Event_StaItwtTeardown = 779;
-	Event_StaItwtSuspend = 780;
-	Event_StaItwtProbe = 781;
+	//Event_StaItwtSetup = 778;
+	//Event_StaItwtTeardown = 779;
+	//Event_StaItwtSuspend = 780;
+	//Event_StaItwtProbe = 781;
 
 	// Supplicant DPP Events received by dpp callback on host
-	Event_SuppDppUriReady = 782;
-	Event_SuppDppCfgRecvd = 783;
-	Event_SuppDppFail = 784;
+	//Event_SuppDppUriReady = 782;
+	//Event_SuppDppCfgRecvd = 783;
+	//Event_SuppDppFail = 784;
 	// Wifi DPP Events
-	Event_WifiDppUriReady = 785;
-	Event_WifiDppCfgRecvd = 786;
-	Event_WifiDppFail = 787;
+	//Event_WifiDppUriReady = 785;
+	//Event_WifiDppCfgRecvd = 786;
+	//Event_WifiDppFail = 787;
 
 	/* Custom RPC event for user-defined packed structures */
-	Event_CustomRpc = 788;
+	//Event_CustomRpc = 788;
 
-	Event_MemMonitor = 789;
+	//Event_MemMonitor = 789;
 
 	/* Add new control path command notification before Event_Max
 	 * and update Event_Max */
-	Event_Max = 790;
+	//Event_Max = 790;
 }
 
 message wifi_init_config {
@@ -2164,305 +2164,305 @@ message Rpc {
 	oneof payload {
 		/** Requests **/
 		Rpc_Req_GetMacAddress               req_get_mac_address               = 257;
-		Rpc_Req_SetMacAddress               req_set_mac_address               = 258;
-		Rpc_Req_GetMode                     req_get_wifi_mode                 = 259;
+		//Rpc_Req_SetMacAddress               req_set_mac_address               = 258;
+		//Rpc_Req_GetMode                     req_get_wifi_mode                 = 259;
 		Rpc_Req_SetMode                     req_set_wifi_mode                 = 260;
 
-		Rpc_Req_SuppDppInit                 req_supp_dpp_init                 = 261;
-		Rpc_Req_SuppDppDeinit               req_supp_dpp_deinit               = 262;
-		Rpc_Req_SuppDppBootstrapGen         req_supp_dpp_bootstrap_gen        = 263;
-		Rpc_Req_SuppDppStartListen          req_supp_dpp_start_listen         = 264;
-		Rpc_Req_SuppDppStopListen           req_supp_dpp_stop_listen          = 265;
+		//Rpc_Req_SuppDppInit                 req_supp_dpp_init                 = 261;
+		//Rpc_Req_SuppDppDeinit               req_supp_dpp_deinit               = 262;
+		//Rpc_Req_SuppDppBootstrapGen         req_supp_dpp_bootstrap_gen        = 263;
+		//Rpc_Req_SuppDppStartListen          req_supp_dpp_start_listen         = 264;
+		//Rpc_Req_SuppDppStopListen           req_supp_dpp_stop_listen          = 265;
 
 		Rpc_Req_OTAActivate                 req_ota_activate                  = 266;
 
-		Rpc_Req_AppGetDesc                  req_app_get_desc                  = 267;
+		//Rpc_Req_AppGetDesc                  req_app_get_desc                  = 267;
 
-		Rpc_Req_MemMonitor                  req_mem_monitor                   = 268;
-		Rpc_Req_WifiScanParams              req_wifi_scan_params              = 269;
+		//Rpc_Req_MemMonitor                  req_mem_monitor                   = 268;
+		//Rpc_Req_WifiScanParams              req_wifi_scan_params              = 269;
 
-		Rpc_Req_SetPs                       req_wifi_set_ps                   = 270;
-		Rpc_Req_GetPs                       req_wifi_get_ps                   = 271;
+		//Rpc_Req_SetPs                       req_wifi_set_ps                   = 270;
+		//Rpc_Req_GetPs                       req_wifi_get_ps                   = 271;
 
 		Rpc_Req_OTABegin                    req_ota_begin                     = 272;
 		Rpc_Req_OTAWrite                    req_ota_write                     = 273;
 		Rpc_Req_OTAEnd                      req_ota_end                       = 274;
 
-		Rpc_Req_WifiSetMaxTxPower           req_set_wifi_max_tx_power         = 275;
-		Rpc_Req_WifiGetMaxTxPower           req_get_wifi_max_tx_power         = 276;
+		//Rpc_Req_WifiSetMaxTxPower           req_set_wifi_max_tx_power         = 275;
+		//Rpc_Req_WifiGetMaxTxPower           req_get_wifi_max_tx_power         = 276;
 		Rpc_Req_ConfigHeartbeat             req_config_heartbeat              = 277;
 
 		Rpc_Req_WifiInit                    req_wifi_init                     = 278;
-		Rpc_Req_WifiDeinit                  req_wifi_deinit                   = 279;
+		//Rpc_Req_WifiDeinit                  req_wifi_deinit                   = 279;
 		Rpc_Req_WifiStart                   req_wifi_start                    = 280;
-		Rpc_Req_WifiStop                    req_wifi_stop                     = 281;
+		//Rpc_Req_WifiStop                    req_wifi_stop                     = 281;
 		Rpc_Req_WifiConnect                 req_wifi_connect                  = 282;
 		Rpc_Req_WifiDisconnect              req_wifi_disconnect               = 283;
 		Rpc_Req_WifiSetConfig               req_wifi_set_config               = 284;
-		Rpc_Req_WifiGetConfig               req_wifi_get_config               = 285;
+		//Rpc_Req_WifiGetConfig               req_wifi_get_config               = 285;
 
-		Rpc_Req_WifiScanStart               req_wifi_scan_start               = 286;
-		Rpc_Req_WifiScanStop                req_wifi_scan_stop                = 287;
-		Rpc_Req_WifiScanGetApNum            req_wifi_scan_get_ap_num          = 288;
-		Rpc_Req_WifiScanGetApRecords        req_wifi_scan_get_ap_records      = 289;
-		Rpc_Req_WifiClearApList             req_wifi_clear_ap_list            = 290;
+		//Rpc_Req_WifiScanStart               req_wifi_scan_start               = 286;
+		//Rpc_Req_WifiScanStop                req_wifi_scan_stop                = 287;
+		//Rpc_Req_WifiScanGetApNum            req_wifi_scan_get_ap_num          = 288;
+		//Rpc_Req_WifiScanGetApRecords        req_wifi_scan_get_ap_records      = 289;
+		//Rpc_Req_WifiClearApList             req_wifi_clear_ap_list            = 290;
 
-		Rpc_Req_WifiRestore                 req_wifi_restore                  = 291;
-		Rpc_Req_WifiClearFastConnect        req_wifi_clear_fast_connect       = 292;
-		Rpc_Req_WifiDeauthSta               req_wifi_deauth_sta               = 293;
+		//Rpc_Req_WifiRestore                 req_wifi_restore                  = 291;
+		//Rpc_Req_WifiClearFastConnect        req_wifi_clear_fast_connect       = 292;
+		//Rpc_Req_WifiDeauthSta               req_wifi_deauth_sta               = 293;
 		Rpc_Req_WifiStaGetApInfo            req_wifi_sta_get_ap_info          = 294;
 
-		Rpc_Req_WifiSetProtocol             req_wifi_set_protocol             = 297;
-		Rpc_Req_WifiGetProtocol             req_wifi_get_protocol             = 298;
-		Rpc_Req_WifiSetBandwidth            req_wifi_set_bandwidth            = 299;
-		Rpc_Req_WifiGetBandwidth            req_wifi_get_bandwidth            = 300;
-		Rpc_Req_WifiSetChannel              req_wifi_set_channel              = 301;
-		Rpc_Req_WifiGetChannel              req_wifi_get_channel              = 302;
-		Rpc_Req_WifiSetCountry              req_wifi_set_country              = 303;
-		Rpc_Req_WifiGetCountry              req_wifi_get_country              = 304;
+		//Rpc_Req_WifiSetProtocol             req_wifi_set_protocol             = 297;
+		//Rpc_Req_WifiGetProtocol             req_wifi_get_protocol             = 298;
+		//Rpc_Req_WifiSetBandwidth            req_wifi_set_bandwidth            = 299;
+		//Rpc_Req_WifiGetBandwidth            req_wifi_get_bandwidth            = 300;
+		//Rpc_Req_WifiSetChannel              req_wifi_set_channel              = 301;
+		//Rpc_Req_WifiGetChannel              req_wifi_get_channel              = 302;
+		//Rpc_Req_WifiSetCountry              req_wifi_set_country              = 303;
+		//Rpc_Req_WifiGetCountry              req_wifi_get_country              = 304;
 
-		Rpc_Req_WifiApGetStaList            req_wifi_ap_get_sta_list          = 311;
-		Rpc_Req_WifiApGetStaAid             req_wifi_ap_get_sta_aid           = 312;
-		Rpc_Req_WifiSetStorage              req_wifi_set_storage              = 313;
+		//Rpc_Req_WifiApGetStaList            req_wifi_ap_get_sta_list          = 311;
+		//Rpc_Req_WifiApGetStaAid             req_wifi_ap_get_sta_aid           = 312;
+		//Rpc_Req_WifiSetStorage              req_wifi_set_storage              = 313;
 
-		Rpc_Req_WifiSetInactiveTime         req_wifi_set_inactive_time        = 325;
-		Rpc_Req_WifiGetInactiveTime         req_wifi_get_inactive_time        = 326;
+		//Rpc_Req_WifiSetInactiveTime         req_wifi_set_inactive_time        = 325;
+		//Rpc_Req_WifiGetInactiveTime         req_wifi_get_inactive_time        = 326;
 
-		Rpc_Req_WifiSetCountryCode          req_wifi_set_country_code         = 334;
-		Rpc_Req_WifiGetCountryCode          req_wifi_get_country_code         = 335;
-		Rpc_Req_WifiStaGetAid               req_wifi_sta_get_aid              = 338;
-		Rpc_Req_WifiStaGetNegotiatedPhymode req_wifi_sta_get_negotiated_phymode = 339;
+		//Rpc_Req_WifiSetCountryCode          req_wifi_set_country_code         = 334;
+		//Rpc_Req_WifiGetCountryCode          req_wifi_get_country_code         = 335;
+		//Rpc_Req_WifiStaGetAid               req_wifi_sta_get_aid              = 338;
+		//Rpc_Req_WifiStaGetNegotiatedPhymode req_wifi_sta_get_negotiated_phymode = 339;
 
-		Rpc_Req_WifiStaGetRssi              req_wifi_sta_get_rssi             = 341;
+		//Rpc_Req_WifiStaGetRssi              req_wifi_sta_get_rssi             = 341;
 
-		Rpc_Req_WifiSetProtocols            req_wifi_set_protocols            = 342;
-		Rpc_Req_WifiGetProtocols            req_wifi_get_protocols            = 343;
-		Rpc_Req_WifiSetBandwidths           req_wifi_set_bandwidths           = 344;
-		Rpc_Req_WifiGetBandwidths           req_wifi_get_bandwidths           = 345;
+		//Rpc_Req_WifiSetProtocols            req_wifi_set_protocols            = 342;
+		//Rpc_Req_WifiGetProtocols            req_wifi_get_protocols            = 343;
+		//Rpc_Req_WifiSetBandwidths           req_wifi_set_bandwidths           = 344;
+		//Rpc_Req_WifiGetBandwidths           req_wifi_get_bandwidths           = 345;
 
-		Rpc_Req_WifiSetBand                 req_wifi_set_band                 = 346;
-		Rpc_Req_WifiGetBand                 req_wifi_get_band                 = 347;
-		Rpc_Req_WifiSetBandMode             req_wifi_set_bandmode             = 348;
-		Rpc_Req_WifiGetBandMode             req_wifi_get_bandmode             = 349;
+		//Rpc_Req_WifiSetBand                 req_wifi_set_band                 = 346;
+		//Rpc_Req_WifiGetBand                 req_wifi_get_band                 = 347;
+		//Rpc_Req_WifiSetBandMode             req_wifi_set_bandmode             = 348;
+		//Rpc_Req_WifiGetBandMode             req_wifi_get_bandmode             = 349;
 
 		Rpc_Req_GetCoprocessorFwVersion     req_get_coprocessor_fwversion     = 350;
 
-		Rpc_Req_WifiScanGetApRecord         req_wifi_scan_get_ap_record       = 351;
+		//Rpc_Req_WifiScanGetApRecord         req_wifi_scan_get_ap_record       = 351;
 
-		Rpc_Req_SetDhcpDnsStatus            req_set_dhcp_dns                  = 352;
-		Rpc_Req_GetDhcpDnsStatus            req_get_dhcp_dns                  = 353;
+		//Rpc_Req_SetDhcpDnsStatus            req_set_dhcp_dns                  = 352;
+		//Rpc_Req_GetDhcpDnsStatus            req_get_dhcp_dns                  = 353;
 
-		Rpc_Req_WifiStaTwtConfig            req_wifi_sta_twt_config           = 354;
-		Rpc_Req_WifiStaItwtSetup            req_wifi_sta_itwt_setup           = 355;
-		Rpc_Req_WifiStaItwtTeardown         req_wifi_sta_itwt_teardown        = 356;
-		Rpc_Req_WifiStaItwtSuspend          req_wifi_sta_itwt_suspend         = 357;
-		Rpc_Req_WifiStaItwtGetFlowIdStatus  req_wifi_sta_itwt_get_flow_id_status = 358;
-		Rpc_Req_WifiStaItwtSendProbeReq     req_wifi_sta_itwt_send_probe_req  = 359;
-		Rpc_Req_WifiStaItwtSetTargetWakeTimeOffset req_wifi_sta_itwt_set_target_wake_time_offset = 360;
+		//Rpc_Req_WifiStaTwtConfig            req_wifi_sta_twt_config           = 354;
+		//Rpc_Req_WifiStaItwtSetup            req_wifi_sta_itwt_setup           = 355;
+		//Rpc_Req_WifiStaItwtTeardown         req_wifi_sta_itwt_teardown        = 356;
+		//Rpc_Req_WifiStaItwtSuspend          req_wifi_sta_itwt_suspend         = 357;
+		//Rpc_Req_WifiStaItwtGetFlowIdStatus  req_wifi_sta_itwt_get_flow_id_status = 358;
+		//Rpc_Req_WifiStaItwtSendProbeReq     req_wifi_sta_itwt_send_probe_req  = 359;
+		//Rpc_Req_WifiStaItwtSetTargetWakeTimeOffset req_wifi_sta_itwt_set_target_wake_time_offset = 360;
 
-		Rpc_Req_WifiStaEnterpriseEnable         req_wifi_sta_enterprise_enable          = 361;
-		Rpc_Req_WifiStaEnterpriseDisable        req_wifi_sta_enterprise_disable         = 362;
-		Rpc_Req_EapSetIdentity                  req_eap_set_identity                    = 363;
-		Rpc_Req_EapClearIdentity                req_eap_clear_identity                  = 364;
-		Rpc_Req_EapSetUsername                  req_eap_set_username                    = 365;
-		Rpc_Req_EapClearUsername                req_eap_clear_username                  = 366;
-		Rpc_Req_EapSetPassword                  req_eap_set_password                    = 367;
-		Rpc_Req_EapClearPassword                req_eap_clear_password                  = 368;
-		Rpc_Req_EapSetNewPassword               req_eap_set_new_password                = 369;
-		Rpc_Req_EapClearNewPassword             req_eap_clear_new_password              = 370;
-		Rpc_Req_EapSetCaCert                    req_eap_set_ca_cert                     = 371;
-		Rpc_Req_EapClearCaCert                  req_eap_clear_ca_cert                   = 372;
-		Rpc_Req_EapSetCertificateAndKey         req_eap_set_certificate_and_key         = 373;
-		Rpc_Req_EapClearCertificateAndKey       req_eap_clear_certificate_and_key       = 374;
-		Rpc_Req_EapGetDisableTimeCheck          req_eap_get_disable_time_check          = 375;
-		Rpc_Req_EapSetTtlsPhase2Method          req_eap_set_ttls_phase2_method          = 376;
-		Rpc_Req_EapSetSuiteb192bitCertification req_eap_set_suiteb_certification        = 377;
-		Rpc_Req_EapSetPacFile                   req_eap_set_pac_file                    = 378;
-		Rpc_Req_EapSetFastParams                req_eap_set_fast_params                 = 379;
-		Rpc_Req_EapUseDefaultCertBundle         req_eap_use_default_cert_bundle         = 380;
-		Rpc_Req_WifiSetOkcSupport               req_wifi_set_okc_support                = 381;
-		Rpc_Req_EapSetDomainName                req_eap_set_domain_name                 = 382;
-		Rpc_Req_EapSetDisableTimeCheck          req_eap_set_disable_time_check          = 383;
-		Rpc_Req_EapSetEapMethods                req_eap_set_eap_methods                 = 384;
+		//Rpc_Req_WifiStaEnterpriseEnable         req_wifi_sta_enterprise_enable          = 361;
+		//Rpc_Req_WifiStaEnterpriseDisable        req_wifi_sta_enterprise_disable         = 362;
+		//Rpc_Req_EapSetIdentity                  req_eap_set_identity                    = 363;
+		//Rpc_Req_EapClearIdentity                req_eap_clear_identity                  = 364;
+		//Rpc_Req_EapSetUsername                  req_eap_set_username                    = 365;
+		//Rpc_Req_EapClearUsername                req_eap_clear_username                  = 366;
+		//Rpc_Req_EapSetPassword                  req_eap_set_password                    = 367;
+		//Rpc_Req_EapClearPassword                req_eap_clear_password                  = 368;
+		//Rpc_Req_EapSetNewPassword               req_eap_set_new_password                = 369;
+		//Rpc_Req_EapClearNewPassword             req_eap_clear_new_password              = 370;
+		//Rpc_Req_EapSetCaCert                    req_eap_set_ca_cert                     = 371;
+		//Rpc_Req_EapClearCaCert                  req_eap_clear_ca_cert                   = 372;
+		//Rpc_Req_EapSetCertificateAndKey         req_eap_set_certificate_and_key         = 373;
+		//Rpc_Req_EapClearCertificateAndKey       req_eap_clear_certificate_and_key       = 374;
+		//Rpc_Req_EapGetDisableTimeCheck          req_eap_get_disable_time_check          = 375;
+		//Rpc_Req_EapSetTtlsPhase2Method          req_eap_set_ttls_phase2_method          = 376;
+		//Rpc_Req_EapSetSuiteb192bitCertification req_eap_set_suiteb_certification        = 377;
+		//Rpc_Req_EapSetPacFile                   req_eap_set_pac_file                    = 378;
+		//Rpc_Req_EapSetFastParams                req_eap_set_fast_params                 = 379;
+		//Rpc_Req_EapUseDefaultCertBundle         req_eap_use_default_cert_bundle         = 380;
+		//Rpc_Req_WifiSetOkcSupport               req_wifi_set_okc_support                = 381;
+		//Rpc_Req_EapSetDomainName                req_eap_set_domain_name                 = 382;
+		//Rpc_Req_EapSetDisableTimeCheck          req_eap_set_disable_time_check          = 383;
+		//Rpc_Req_EapSetEapMethods                req_eap_set_eap_methods                 = 384;
 
-		Rpc_Req_IfaceMacAddrSetGet          req_iface_mac_addr_set_get        = 385;
-		Rpc_Req_IfaceMacAddrLenGet          req_iface_mac_addr_len_get        = 386;
+		//Rpc_Req_IfaceMacAddrSetGet          req_iface_mac_addr_set_get        = 385;
+		//Rpc_Req_IfaceMacAddrLenGet          req_iface_mac_addr_len_get        = 386;
 
-		Rpc_Req_FeatureControl              req_feature_control               = 387;
+		//Rpc_Req_FeatureControl              req_feature_control               = 387;
 
-		Rpc_Req_CustomRpc                   req_custom_rpc                    = 388;
+		//Rpc_Req_CustomRpc                   req_custom_rpc                    = 388;
 
-		Rpc_Req_GpioConfig                  req_gpio_config                   = 389;
-		Rpc_Req_GpioResetPin                req_gpio_reset_pin                = 390;
-		Rpc_Req_GpioSetLevel                req_gpio_set_level                = 391;
-		Rpc_Req_GpioGetLevel                req_gpio_get_level                = 392;
-		Rpc_Req_GpioSetDirection            req_gpio_set_direction            = 393;
-		Rpc_Req_GpioInputEnable             req_gpio_input_enable             = 394;
-		Rpc_Req_GpioSetPullMode             req_gpio_set_pull_mode            = 395;
+		//Rpc_Req_GpioConfig                  req_gpio_config                   = 389;
+		//Rpc_Req_GpioResetPin                req_gpio_reset_pin                = 390;
+		//Rpc_Req_GpioSetLevel                req_gpio_set_level                = 391;
+		//Rpc_Req_GpioGetLevel                req_gpio_get_level                = 392;
+		//Rpc_Req_GpioSetDirection            req_gpio_set_direction            = 393;
+		//Rpc_Req_GpioInputEnable             req_gpio_input_enable             = 394;
+		//Rpc_Req_GpioSetPullMode             req_gpio_set_pull_mode            = 395;
 
-		Rpc_Req_ExtCoex                     req_ext_coex                      = 396;
+		//Rpc_Req_ExtCoex                     req_ext_coex                      = 396;
 
 		/** Responses **/
 		Rpc_Resp_GetMacAddress              resp_get_mac_address               = 513;
-		Rpc_Resp_SetMacAddress              resp_set_mac_address               = 514;
-		Rpc_Resp_GetMode                    resp_get_wifi_mode                 = 515;
+		//Rpc_Resp_SetMacAddress              resp_set_mac_address               = 514;
+		//Rpc_Resp_GetMode                    resp_get_wifi_mode                 = 515;
 		Rpc_Resp_SetMode                    resp_set_wifi_mode                 = 516;
 
-		Rpc_Resp_SuppDppInit                resp_supp_dpp_init                 = 517;
-		Rpc_Resp_SuppDppDeinit              resp_supp_dpp_deinit               = 518;
-		Rpc_Resp_SuppDppBootstrapGen        resp_supp_dpp_bootstrap_gen        = 519;
-		Rpc_Resp_SuppDppStartListen         resp_supp_dpp_start_listen         = 520;
-		Rpc_Resp_SuppDppStopListen          resp_supp_dpp_stop_listen          = 521;
+		//Rpc_Resp_SuppDppInit                resp_supp_dpp_init                 = 517;
+		//Rpc_Resp_SuppDppDeinit              resp_supp_dpp_deinit               = 518;
+		//Rpc_Resp_SuppDppBootstrapGen        resp_supp_dpp_bootstrap_gen        = 519;
+		//Rpc_Resp_SuppDppStartListen         resp_supp_dpp_start_listen         = 520;
+		//Rpc_Resp_SuppDppStopListen          resp_supp_dpp_stop_listen          = 521;
 
 		Rpc_Resp_OTAActivate                resp_ota_activate                  = 522;
 
-		Rpc_Resp_AppGetDesc                 resp_app_get_desc                  = 523;
+		//Rpc_Resp_AppGetDesc                 resp_app_get_desc                  = 523;
 
-		Rpc_Resp_MemMonitor                 resp_mem_monitor                   = 524;
-		Rpc_Resp_WifiScanParams             resp_wifi_scan_params              = 525;
+		//Rpc_Resp_MemMonitor                 resp_mem_monitor                   = 524;
+		//Rpc_Resp_WifiScanParams             resp_wifi_scan_params              = 525;
 
-		Rpc_Resp_SetPs                      resp_wifi_set_ps                   = 526;
-		Rpc_Resp_GetPs                      resp_wifi_get_ps                   = 527;
+		//Rpc_Resp_SetPs                      resp_wifi_set_ps                   = 526;
+		//Rpc_Resp_GetPs                      resp_wifi_get_ps                   = 527;
 
 		Rpc_Resp_OTABegin                   resp_ota_begin                     = 528;
 		Rpc_Resp_OTAWrite                   resp_ota_write                     = 529;
 		Rpc_Resp_OTAEnd                     resp_ota_end                       = 530;
-		Rpc_Resp_WifiSetMaxTxPower          resp_set_wifi_max_tx_power         = 531;
-		Rpc_Resp_WifiGetMaxTxPower          resp_get_wifi_max_tx_power         = 532;
+		//Rpc_Resp_WifiSetMaxTxPower          resp_set_wifi_max_tx_power         = 531;
+		//Rpc_Resp_WifiGetMaxTxPower          resp_get_wifi_max_tx_power         = 532;
 		Rpc_Resp_ConfigHeartbeat            resp_config_heartbeat              = 533;
 
 		Rpc_Resp_WifiInit                   resp_wifi_init                     = 534;
-		Rpc_Resp_WifiDeinit                 resp_wifi_deinit                   = 535;
+		//Rpc_Resp_WifiDeinit                 resp_wifi_deinit                   = 535;
 		Rpc_Resp_WifiStart                  resp_wifi_start                    = 536;
-		Rpc_Resp_WifiStop                   resp_wifi_stop                     = 537;
+		//Rpc_Resp_WifiStop                   resp_wifi_stop                     = 537;
 		Rpc_Resp_WifiConnect                resp_wifi_connect                  = 538;
 		Rpc_Resp_WifiDisconnect             resp_wifi_disconnect               = 539;
 		Rpc_Resp_WifiSetConfig              resp_wifi_set_config               = 540;
-		Rpc_Resp_WifiGetConfig              resp_wifi_get_config               = 541;
+		//Rpc_Resp_WifiGetConfig              resp_wifi_get_config               = 541;
 
-		Rpc_Resp_WifiScanStart              resp_wifi_scan_start               = 542;
-		Rpc_Resp_WifiScanStop               resp_wifi_scan_stop                = 543;
-		Rpc_Resp_WifiScanGetApNum           resp_wifi_scan_get_ap_num          = 544;
-		Rpc_Resp_WifiScanGetApRecords       resp_wifi_scan_get_ap_records      = 545;
-		Rpc_Resp_WifiClearApList            resp_wifi_clear_ap_list            = 546;
+		//Rpc_Resp_WifiScanStart              resp_wifi_scan_start               = 542;
+		//Rpc_Resp_WifiScanStop               resp_wifi_scan_stop                = 543;
+		//Rpc_Resp_WifiScanGetApNum           resp_wifi_scan_get_ap_num          = 544;
+		//Rpc_Resp_WifiScanGetApRecords       resp_wifi_scan_get_ap_records      = 545;
+		//Rpc_Resp_WifiClearApList            resp_wifi_clear_ap_list            = 546;
 
-		Rpc_Resp_WifiRestore                resp_wifi_restore                  = 547;
-		Rpc_Resp_WifiClearFastConnect       resp_wifi_clear_fast_connect       = 548;
-		Rpc_Resp_WifiDeauthSta              resp_wifi_deauth_sta               = 549;
+		//Rpc_Resp_WifiRestore                resp_wifi_restore                  = 547;
+		//Rpc_Resp_WifiClearFastConnect       resp_wifi_clear_fast_connect       = 548;
+		//Rpc_Resp_WifiDeauthSta              resp_wifi_deauth_sta               = 549;
 		Rpc_Resp_WifiStaGetApInfo           resp_wifi_sta_get_ap_info          = 550;
 
-		Rpc_Resp_WifiSetProtocol            resp_wifi_set_protocol             = 553;
-		Rpc_Resp_WifiGetProtocol            resp_wifi_get_protocol             = 554;
-		Rpc_Resp_WifiSetBandwidth           resp_wifi_set_bandwidth            = 555;
-		Rpc_Resp_WifiGetBandwidth           resp_wifi_get_bandwidth            = 556;
-		Rpc_Resp_WifiSetChannel             resp_wifi_set_channel              = 557;
-		Rpc_Resp_WifiGetChannel             resp_wifi_get_channel              = 558;
-		Rpc_Resp_WifiSetCountry             resp_wifi_set_country              = 559;
-		Rpc_Resp_WifiGetCountry             resp_wifi_get_country              = 560;
+		//Rpc_Resp_WifiSetProtocol            resp_wifi_set_protocol             = 553;
+		//Rpc_Resp_WifiGetProtocol            resp_wifi_get_protocol             = 554;
+		//Rpc_Resp_WifiSetBandwidth           resp_wifi_set_bandwidth            = 555;
+		//Rpc_Resp_WifiGetBandwidth           resp_wifi_get_bandwidth            = 556;
+		//Rpc_Resp_WifiSetChannel             resp_wifi_set_channel              = 557;
+		//Rpc_Resp_WifiGetChannel             resp_wifi_get_channel              = 558;
+		//Rpc_Resp_WifiSetCountry             resp_wifi_set_country              = 559;
+		//Rpc_Resp_WifiGetCountry             resp_wifi_get_country              = 560;
 
-		Rpc_Resp_WifiApGetStaList           resp_wifi_ap_get_sta_list          = 567;
-		Rpc_Resp_WifiApGetStaAid            resp_wifi_ap_get_sta_aid           = 568;
-		Rpc_Resp_WifiSetStorage             resp_wifi_set_storage              = 569;
+		//Rpc_Resp_WifiApGetStaList           resp_wifi_ap_get_sta_list          = 567;
+		//Rpc_Resp_WifiApGetStaAid            resp_wifi_ap_get_sta_aid           = 568;
+		//Rpc_Resp_WifiSetStorage             resp_wifi_set_storage              = 569;
 
-		Rpc_Resp_WifiSetInactiveTime        resp_wifi_set_inactive_time        = 581;
-		Rpc_Resp_WifiGetInactiveTime        resp_wifi_get_inactive_time        = 582;
+		//Rpc_Resp_WifiSetInactiveTime        resp_wifi_set_inactive_time        = 581;
+		//Rpc_Resp_WifiGetInactiveTime        resp_wifi_get_inactive_time        = 582;
 
-		Rpc_Resp_WifiSetCountryCode         resp_wifi_set_country_code         = 590;
-		Rpc_Resp_WifiGetCountryCode         resp_wifi_get_country_code         = 591;
-		Rpc_Resp_WifiStaGetAid              resp_wifi_sta_get_aid              = 594;
-		Rpc_Resp_WifiStaGetNegotiatedPhymode resp_wifi_sta_get_negotiated_phymode = 595;
+		//Rpc_Resp_WifiSetCountryCode         resp_wifi_set_country_code         = 590;
+		//Rpc_Resp_WifiGetCountryCode         resp_wifi_get_country_code         = 591;
+		//Rpc_Resp_WifiStaGetAid              resp_wifi_sta_get_aid              = 594;
+		//Rpc_Resp_WifiStaGetNegotiatedPhymode resp_wifi_sta_get_negotiated_phymode = 595;
 
-		Rpc_Resp_WifiStaGetRssi             resp_wifi_sta_get_rssi             = 597;
+		//Rpc_Resp_WifiStaGetRssi             resp_wifi_sta_get_rssi             = 597;
 
-		Rpc_Resp_WifiSetProtocols           resp_wifi_set_protocols            = 598;
-		Rpc_Resp_WifiGetProtocols           resp_wifi_get_protocols            = 599;
-		Rpc_Resp_WifiSetBandwidths          resp_wifi_set_bandwidths           = 600;
-		Rpc_Resp_WifiGetBandwidths          resp_wifi_get_bandwidths           = 601;
+		//Rpc_Resp_WifiSetProtocols           resp_wifi_set_protocols            = 598;
+		//Rpc_Resp_WifiGetProtocols           resp_wifi_get_protocols            = 599;
+		//Rpc_Resp_WifiSetBandwidths          resp_wifi_set_bandwidths           = 600;
+		//Rpc_Resp_WifiGetBandwidths          resp_wifi_get_bandwidths           = 601;
 
-		Rpc_Resp_WifiSetBand                resp_wifi_set_band                 = 602;
-		Rpc_Resp_WifiGetBand                resp_wifi_get_band                 = 603;
-		Rpc_Resp_WifiSetBandMode            resp_wifi_set_bandmode             = 604;
-		Rpc_Resp_WifiGetBandMode            resp_wifi_get_bandmode             = 605;
+		//Rpc_Resp_WifiSetBand                resp_wifi_set_band                 = 602;
+		//Rpc_Resp_WifiGetBand                resp_wifi_get_band                 = 603;
+		//Rpc_Resp_WifiSetBandMode            resp_wifi_set_bandmode             = 604;
+		//Rpc_Resp_WifiGetBandMode            resp_wifi_get_bandmode             = 605;
 
 		Rpc_Resp_GetCoprocessorFwVersion    resp_get_coprocessor_fwversion     = 606;
 
-		Rpc_Resp_WifiScanGetApRecord        resp_wifi_scan_get_ap_record       = 607;
+		//Rpc_Resp_WifiScanGetApRecord        resp_wifi_scan_get_ap_record       = 607;
 
-		Rpc_Resp_SetDhcpDnsStatus           resp_set_dhcp_dns                  = 608;
-		Rpc_Resp_GetDhcpDnsStatus           resp_get_dhcp_dns                  = 609;
+		//Rpc_Resp_SetDhcpDnsStatus           resp_set_dhcp_dns                  = 608;
+		//Rpc_Resp_GetDhcpDnsStatus           resp_get_dhcp_dns                  = 609;
 
-		Rpc_Resp_WifiStaTwtConfig           resp_wifi_sta_twt_config           = 610;
-		Rpc_Resp_WifiStaItwtSetup           resp_wifi_sta_itwt_setup           = 611;
-		Rpc_Resp_WifiStaItwtTeardown        resp_wifi_sta_itwt_teardown        = 612;
-		Rpc_Resp_WifiStaItwtSuspend         resp_wifi_sta_itwt_suspend         = 613;
-		Rpc_Resp_WifiStaItwtGetFlowIdStatus resp_wifi_sta_itwt_get_flow_id_status = 614;
-		Rpc_Resp_WifiStaItwtSendProbeReq    resp_wifi_sta_itwt_send_probe_req  = 615;
-		Rpc_Resp_WifiStaItwtSetTargetWakeTimeOffset resp_wifi_sta_itwt_set_target_wake_time_offset = 616;
+		//Rpc_Resp_WifiStaTwtConfig           resp_wifi_sta_twt_config           = 610;
+		//Rpc_Resp_WifiStaItwtSetup           resp_wifi_sta_itwt_setup           = 611;
+		//Rpc_Resp_WifiStaItwtTeardown        resp_wifi_sta_itwt_teardown        = 612;
+		//Rpc_Resp_WifiStaItwtSuspend         resp_wifi_sta_itwt_suspend         = 613;
+		//Rpc_Resp_WifiStaItwtGetFlowIdStatus resp_wifi_sta_itwt_get_flow_id_status = 614;
+		//Rpc_Resp_WifiStaItwtSendProbeReq    resp_wifi_sta_itwt_send_probe_req  = 615;
+		//Rpc_Resp_WifiStaItwtSetTargetWakeTimeOffset resp_wifi_sta_itwt_set_target_wake_time_offset = 616;
 
-		Rpc_Resp_WifiStaEnterpriseEnable       resp_wifi_sta_enterprise_enable         = 617;
-		Rpc_Resp_WifiStaEnterpriseDisable      resp_wifi_sta_enterprise_disable        = 618;
-		Rpc_Resp_EapSetIdentity                resp_eap_set_identity                   = 619;
-		Rpc_Resp_EapClearIdentity              resp_eap_clear_identity                 = 620;
-		Rpc_Resp_EapSetUsername                resp_eap_set_username                   = 621;
-		Rpc_Resp_EapClearUsername              resp_eap_clear_username                 = 622;
-		Rpc_Resp_EapSetPassword                resp_eap_set_password                   = 623;
-		Rpc_Resp_EapClearPassword              resp_eap_clear_password                 = 624;
-		Rpc_Resp_EapSetNewPassword             resp_eap_set_new_password               = 625;
-		Rpc_Resp_EapClearNewPassword           resp_eap_clear_new_password             = 626;
-		Rpc_Resp_EapSetCaCert                  resp_eap_set_ca_cert                    = 627;
-		Rpc_Resp_EapClearCaCert                resp_eap_clear_ca_cert                  = 628;
-		Rpc_Resp_EapSetCertificateAndKey       resp_eap_set_certificate_and_key        = 629;
-		Rpc_Resp_EapClearCertificateAndKey     resp_eap_clear_certificate_and_key      = 630;
-		Rpc_Resp_EapGetDisableTimeCheck        resp_eap_get_disable_time_check         = 631;
-		Rpc_Resp_EapSetTtlsPhase2Method        resp_eap_set_ttls_phase2_method         = 632;
-		Rpc_Resp_EapSetSuiteb192bitCertification resp_eap_set_suiteb_certification      = 633;
-		Rpc_Resp_EapSetPacFile                 resp_eap_set_pac_file                   = 634;
-		Rpc_Resp_EapSetFastParams              resp_eap_set_fast_params                = 635;
-		Rpc_Resp_EapUseDefaultCertBundle       resp_eap_use_default_cert_bundle        = 636;
-		Rpc_Resp_WifiSetOkcSupport             resp_wifi_set_okc_support               = 637;
-		Rpc_Resp_EapSetDomainName              resp_eap_set_domain_name                = 638;
-		Rpc_Resp_EapSetDisableTimeCheck        resp_eap_set_disable_time_check         = 639;
-		Rpc_Resp_EapSetEapMethods              resp_eap_set_eap_methods                = 640;
+		//Rpc_Resp_WifiStaEnterpriseEnable       resp_wifi_sta_enterprise_enable         = 617;
+		//Rpc_Resp_WifiStaEnterpriseDisable      resp_wifi_sta_enterprise_disable        = 618;
+		//Rpc_Resp_EapSetIdentity                resp_eap_set_identity                   = 619;
+		//Rpc_Resp_EapClearIdentity              resp_eap_clear_identity                 = 620;
+		//Rpc_Resp_EapSetUsername                resp_eap_set_username                   = 621;
+		//Rpc_Resp_EapClearUsername              resp_eap_clear_username                 = 622;
+		//Rpc_Resp_EapSetPassword                resp_eap_set_password                   = 623;
+		//Rpc_Resp_EapClearPassword              resp_eap_clear_password                 = 624;
+		//Rpc_Resp_EapSetNewPassword             resp_eap_set_new_password               = 625;
+		//Rpc_Resp_EapClearNewPassword           resp_eap_clear_new_password             = 626;
+		//Rpc_Resp_EapSetCaCert                  resp_eap_set_ca_cert                    = 627;
+		//Rpc_Resp_EapClearCaCert                resp_eap_clear_ca_cert                  = 628;
+		//Rpc_Resp_EapSetCertificateAndKey       resp_eap_set_certificate_and_key        = 629;
+		//Rpc_Resp_EapClearCertificateAndKey     resp_eap_clear_certificate_and_key      = 630;
+		//Rpc_Resp_EapGetDisableTimeCheck        resp_eap_get_disable_time_check         = 631;
+		//Rpc_Resp_EapSetTtlsPhase2Method        resp_eap_set_ttls_phase2_method         = 632;
+		//Rpc_Resp_EapSetSuiteb192bitCertification resp_eap_set_suiteb_certification      = 633;
+		//Rpc_Resp_EapSetPacFile                 resp_eap_set_pac_file                   = 634;
+		//Rpc_Resp_EapSetFastParams              resp_eap_set_fast_params                = 635;
+		//Rpc_Resp_EapUseDefaultCertBundle       resp_eap_use_default_cert_bundle        = 636;
+		//Rpc_Resp_WifiSetOkcSupport             resp_wifi_set_okc_support               = 637;
+		//Rpc_Resp_EapSetDomainName              resp_eap_set_domain_name                = 638;
+		//Rpc_Resp_EapSetDisableTimeCheck        resp_eap_set_disable_time_check         = 639;
+		//Rpc_Resp_EapSetEapMethods              resp_eap_set_eap_methods                = 640;
 
-		Rpc_Resp_IfaceMacAddrSetGet         resp_iface_mac_addr_set_get        = 641;
-		Rpc_Resp_IfaceMacAddrLenGet         resp_iface_mac_addr_len_get        = 642;
+		//Rpc_Resp_IfaceMacAddrSetGet         resp_iface_mac_addr_set_get        = 641;
+		//Rpc_Resp_IfaceMacAddrLenGet         resp_iface_mac_addr_len_get        = 642;
 
-		Rpc_Resp_FeatureControl             resp_feature_control               = 643;
+		//Rpc_Resp_FeatureControl             resp_feature_control               = 643;
 
-		Rpc_Resp_CustomRpc                  resp_custom_rpc                    = 644;
+		//Rpc_Resp_CustomRpc                  resp_custom_rpc                    = 644;
 
-		Rpc_Resp_GpioConfig               	resp_gpio_config                   = 645;
-		Rpc_Resp_GpioResetPin               resp_gpio_reset                    = 646;
-		Rpc_Resp_GpioSetLevel               resp_gpio_set_level                = 647;
-		Rpc_Resp_GpioGetLevel               resp_gpio_get_level                = 648;
-		Rpc_Resp_GpioSetDirection           resp_gpio_set_direction            = 649;
-		Rpc_Resp_GpioInputEnable            resp_gpio_input_enable             = 650;
-		Rpc_Resp_GpioSetPullMode            resp_gpio_set_pull_mode            = 651;
+		//Rpc_Resp_GpioConfig               	resp_gpio_config                   = 645;
+		//Rpc_Resp_GpioResetPin               resp_gpio_reset                    = 646;
+		//Rpc_Resp_GpioSetLevel               resp_gpio_set_level                = 647;
+		//Rpc_Resp_GpioGetLevel               resp_gpio_get_level                = 648;
+		//Rpc_Resp_GpioSetDirection           resp_gpio_set_direction            = 649;
+		//Rpc_Resp_GpioInputEnable            resp_gpio_input_enable             = 650;
+		//Rpc_Resp_GpioSetPullMode            resp_gpio_set_pull_mode            = 651;
 
-		Rpc_Resp_ExtCoex                    resp_ext_coex                     = 652;
+		//Rpc_Resp_ExtCoex                    resp_ext_coex                     = 652;
 
 		/** Notifications **/
 		Rpc_Event_ESPInit                   event_esp_init                     = 769;
 		Rpc_Event_Heartbeat                 event_heartbeat                    = 770;
-		Rpc_Event_AP_StaConnected           event_ap_sta_connected             = 771;
-		Rpc_Event_AP_StaDisconnected        event_ap_sta_disconnected          = 772;
-		Rpc_Event_WifiEventNoArgs           event_wifi_event_no_args           = 773;
-		Rpc_Event_StaScanDone               event_sta_scan_done                = 774;
+		//Rpc_Event_AP_StaConnected           event_ap_sta_connected             = 771;
+		//Rpc_Event_AP_StaDisconnected        event_ap_sta_disconnected          = 772;
+		//Rpc_Event_WifiEventNoArgs           event_wifi_event_no_args           = 773;
+		//Rpc_Event_StaScanDone               event_sta_scan_done                = 774;
 		Rpc_Event_StaConnected              event_sta_connected                = 775;
 		Rpc_Event_StaDisconnected           event_sta_disconnected             = 776;
-		Rpc_Event_DhcpDnsStatus             event_dhcp_dns                     = 777;
-		Rpc_Event_StaItwtSetup              event_sta_itwt_setup               = 778;
-		Rpc_Event_StaItwtTeardown           event_sta_itwt_teardown            = 779;
-		Rpc_Event_StaItwtSuspend            event_sta_itwt_suspend             = 780;
-		Rpc_Event_StaItwtProbe              event_sta_itwt_probe               = 781;
-		Rpc_Event_SuppDppUriReady           event_supp_dpp_uri_ready           = 782;
-		Rpc_Event_SuppDppCfgRecvd           event_supp_dpp_cfg_recvd           = 783;
-		Rpc_Event_SuppDppFail               event_supp_dpp_fail                = 784;
-		Rpc_Event_WifiDppUriReady           event_wifi_dpp_uri_ready           = 785;
-		Rpc_Event_WifiDppCfgRecvd           event_wifi_dpp_cfg_recvd           = 786;
-		Rpc_Event_WifiDppFail               event_wifi_dpp_fail                = 787;
+		//Rpc_Event_DhcpDnsStatus             event_dhcp_dns                     = 777;
+		//Rpc_Event_StaItwtSetup              event_sta_itwt_setup               = 778;
+		//Rpc_Event_StaItwtTeardown           event_sta_itwt_teardown            = 779;
+		//Rpc_Event_StaItwtSuspend            event_sta_itwt_suspend             = 780;
+		//Rpc_Event_StaItwtProbe              event_sta_itwt_probe               = 781;
+		//Rpc_Event_SuppDppUriReady           event_supp_dpp_uri_ready           = 782;
+		//Rpc_Event_SuppDppCfgRecvd           event_supp_dpp_cfg_recvd           = 783;
+		//Rpc_Event_SuppDppFail               event_supp_dpp_fail                = 784;
+		//Rpc_Event_WifiDppUriReady           event_wifi_dpp_uri_ready           = 785;
+		//Rpc_Event_WifiDppCfgRecvd           event_wifi_dpp_cfg_recvd           = 786;
+		//Rpc_Event_WifiDppFail               event_wifi_dpp_fail                = 787;
 
-		Rpc_Event_CustomRpc                 event_custom_rpc                   = 788;
-		Rpc_Event_MemMonitor                event_mem_monitor                  = 789;
+		//Rpc_Event_CustomRpc                 event_custom_rpc                   = 788;
+		//Rpc_Event_MemMonitor                event_mem_monitor                  = 789;
 	}
 }
