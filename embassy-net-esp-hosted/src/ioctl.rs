@@ -24,8 +24,17 @@ pub struct Shared(RefCell<SharedInner>);
 struct SharedInner {
     ioctl: IoctlState,
     state: ControlState,
+    connect: ConnectState,
     control_waker: WakerRegistration,
     runner_waker: WakerRegistration,
+}
+
+#[derive(Clone, Copy)]
+enum ConnectState {
+    Idle,
+    Pending,
+    Done,
+    Failed(u32),
 }
 
 #[derive(Clone, Copy)]
@@ -40,6 +49,7 @@ impl Shared {
         Self(RefCell::new(SharedInner {
             ioctl: IoctlState::Done { resp_len: 0 },
             state: ControlState::Init,
+            connect: ConnectState::Idle,
             control_waker: WakerRegistration::new(),
             runner_waker: WakerRegistration::new(),
         }))
@@ -131,6 +141,51 @@ impl Shared {
             } else {
                 this.control_waker.register(cx.waker());
                 Poll::Pending
+            }
+        })
+    }
+
+    pub fn connect_begin(&self) {
+        let mut this = self.0.borrow_mut();
+        this.connect = ConnectState::Pending;
+    }
+
+    pub(crate) fn connect_is_pending(&self) -> bool {
+        matches!(self.0.borrow().connect, ConnectState::Pending)
+    }
+
+    pub fn connect_done(&self) {
+        let mut this = self.0.borrow_mut();
+        if matches!(this.connect, ConnectState::Pending) {
+            this.connect = ConnectState::Done;
+            this.control_waker.wake();
+        }
+    }
+
+    pub fn connect_failed(&self, reason: u32) {
+        let mut this = self.0.borrow_mut();
+        if matches!(this.connect, ConnectState::Pending) {
+            this.connect = ConnectState::Failed(reason);
+            this.control_waker.wake();
+        }
+    }
+
+    pub fn connect_wait(&self) -> impl Future<Output = Result<(), u32>> + '_ {
+        poll_fn(|cx| {
+            let mut this = self.0.borrow_mut();
+            match this.connect {
+                ConnectState::Done => {
+                    this.connect = ConnectState::Idle;
+                    Poll::Ready(Ok(()))
+                }
+                ConnectState::Failed(reason) => {
+                    this.connect = ConnectState::Idle;
+                    Poll::Ready(Err(reason))
+                }
+                ConnectState::Idle | ConnectState::Pending => {
+                    this.control_waker.register(cx.waker());
+                    Poll::Pending
+                }
             }
         })
     }
