@@ -259,7 +259,7 @@ enum RpcId {
 	 * Supported Features:
 	 * - BT Init/Deinit/Enable/Disable
 	 */
-	//Req_FeatureControl                = 387; //0x183
+	Req_FeatureControl                = 387; //0x183
 
 	/* Custom RPC for user-defined packed structures */
 	//Req_CustomRpc                     = 388; //0x184
@@ -443,7 +443,7 @@ enum RpcId {
 
 	//Resp_IfaceMacAddrSetGet                   = 641;
 	//Resp_IfaceMacAddrLenGet                   = 642;
-	//Resp_FeatureControl                       = 643;
+	Resp_FeatureControl                       = 643;
 
 	//Resp_CustomRpc                            = 644;
 
@@ -2288,7 +2288,7 @@ message Rpc {
 		//Rpc_Req_IfaceMacAddrSetGet          req_iface_mac_addr_set_get        = 385;
 		//Rpc_Req_IfaceMacAddrLenGet          req_iface_mac_addr_len_get        = 386;
 
-		//Rpc_Req_FeatureControl              req_feature_control               = 387;
+		Rpc_Req_FeatureControl              req_feature_control               = 387;
 
 		//Rpc_Req_CustomRpc                   req_custom_rpc                    = 388;
 
@@ -2427,7 +2427,7 @@ message Rpc {
 		//Rpc_Resp_IfaceMacAddrSetGet         resp_iface_mac_addr_set_get        = 641;
 		//Rpc_Resp_IfaceMacAddrLenGet         resp_iface_mac_addr_len_get        = 642;
 
-		//Rpc_Resp_FeatureControl             resp_feature_control               = 643;
+		Rpc_Resp_FeatureControl             resp_feature_control               = 643;
 
 		//Rpc_Resp_CustomRpc                  resp_custom_rpc                    = 644;
 

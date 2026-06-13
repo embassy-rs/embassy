@@ -49759,6 +49759,19 @@ impl ::micropb::MessageDecode for Rpc {
                     };
                     mut_ref.decode_len_delimited(decoder)?;
                 }
+                387u32 => {
+                    let mut_ref = loop {
+                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
+                            if let Rpc_::Payload::ReqFeatureControl(variant) = &mut *variant {
+                                break &mut *variant;
+                            }
+                        }
+                        self.r#payload = ::core::option::Option::Some(Rpc_::Payload::ReqFeatureControl(
+                            ::core::default::Default::default(),
+                        ));
+                    };
+                    mut_ref.decode_len_delimited(decoder)?;
+                }
                 513u32 => {
                     let mut_ref = loop {
                         if let ::core::option::Option::Some(variant) = &mut self.r#payload {
@@ -49936,6 +49949,19 @@ impl ::micropb::MessageDecode for Rpc {
                             }
                         }
                         self.r#payload = ::core::option::Option::Some(Rpc_::Payload::RespGetCoprocessorFwversion(
+                            ::core::default::Default::default(),
+                        ));
+                    };
+                    mut_ref.decode_len_delimited(decoder)?;
+                }
+                643u32 => {
+                    let mut_ref = loop {
+                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
+                            if let Rpc_::Payload::RespFeatureControl(variant) = &mut *variant {
+                                break &mut *variant;
+                            }
+                        }
+                        self.r#payload = ::core::option::Option::Some(Rpc_::Payload::RespFeatureControl(
                             ::core::default::Default::default(),
                         ));
                     };
@@ -50244,6 +50270,21 @@ impl ::micropb::MessageEncode for Rpc {
                 }
             }
             match ::micropb::const_map!(
+                ::micropb::const_map!(<Rpc_Req_FeatureControl as ::micropb::MessageEncode>::MAX_SIZE, |size| {
+                    ::micropb::size::sizeof_len_record(size)
+                }),
+                |size| size + 2usize
+            ) {
+                ::core::result::Result::Ok(size) => {
+                    if size > max_size {
+                        max_size = size;
+                    }
+                }
+                ::core::result::Result::Err(err) => {
+                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
+                }
+            }
+            match ::micropb::const_map!(
                 ::micropb::const_map!(<Rpc_Resp_GetMacAddress as ::micropb::MessageEncode>::MAX_SIZE, |size| {
                     ::micropb::size::sizeof_len_record(size)
                 }),
@@ -50458,6 +50499,22 @@ impl ::micropb::MessageEncode for Rpc {
                 }
             }
             match ::micropb::const_map!(
+                ::micropb::const_map!(
+                    <Rpc_Resp_FeatureControl as ::micropb::MessageEncode>::MAX_SIZE,
+                    |size| ::micropb::size::sizeof_len_record(size)
+                ),
+                |size| size + 2usize
+            ) {
+                ::core::result::Result::Ok(size) => {
+                    if size > max_size {
+                        max_size = size;
+                    }
+                }
+                ::core::result::Result::Err(err) => {
+                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
+                }
+            }
+            match ::micropb::const_map!(
                 ::micropb::const_map!(<Rpc_Event_ESPInit as ::micropb::MessageEncode>::MAX_SIZE, |size| {
                     ::micropb::size::sizeof_len_record(size)
                 }),
@@ -50627,6 +50684,11 @@ impl ::micropb::MessageEncode for Rpc {
                     encoder.encode_varint32(2802u32)?;
                     val_ref.encode_len_delimited(encoder)?;
                 }
+                Rpc_::Payload::ReqFeatureControl(val_ref) => {
+                    let val_ref = &*val_ref;
+                    encoder.encode_varint32(3098u32)?;
+                    val_ref.encode_len_delimited(encoder)?;
+                }
                 Rpc_::Payload::RespGetMacAddress(val_ref) => {
                     let val_ref = &*val_ref;
                     encoder.encode_varint32(4106u32)?;
@@ -50695,6 +50757,11 @@ impl ::micropb::MessageEncode for Rpc {
                 Rpc_::Payload::RespGetCoprocessorFwversion(val_ref) => {
                     let val_ref = &*val_ref;
                     encoder.encode_varint32(4850u32)?;
+                    val_ref.encode_len_delimited(encoder)?;
+                }
+                Rpc_::Payload::RespFeatureControl(val_ref) => {
+                    let val_ref = &*val_ref;
+                    encoder.encode_varint32(5146u32)?;
                     val_ref.encode_len_delimited(encoder)?;
                 }
                 Rpc_::Payload::EventEspInit(val_ref) => {
@@ -50800,6 +50867,10 @@ impl ::micropb::MessageEncode for Rpc {
                     let val_ref = &*val_ref;
                     size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
                 }
+                Rpc_::Payload::ReqFeatureControl(val_ref) => {
+                    let val_ref = &*val_ref;
+                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
+                }
                 Rpc_::Payload::RespGetMacAddress(val_ref) => {
                     let val_ref = &*val_ref;
                     size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
@@ -50856,6 +50927,10 @@ impl ::micropb::MessageEncode for Rpc {
                     let val_ref = &*val_ref;
                     size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
                 }
+                Rpc_::Payload::RespFeatureControl(val_ref) => {
+                    let val_ref = &*val_ref;
+                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
+                }
                 Rpc_::Payload::EventEspInit(val_ref) => {
                     let val_ref = &*val_ref;
                     size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
@@ -50908,6 +50983,7 @@ pub mod Rpc_ {
         ///Rpc_Req_WifiDeauthSta               req_wifi_deauth_sta               = 293;
         ReqWifiStaGetApInfo(super::Rpc_Req_WifiStaGetApInfo),
         ReqGetCoprocessorFwversion(super::Rpc_Req_GetCoprocessorFwVersion),
+        ReqFeatureControl(super::Rpc_Req_FeatureControl),
         ///* Responses *
         RespGetMacAddress(super::Rpc_Resp_GetMacAddress),
         ///Rpc_Resp_SetMacAddress              resp_set_mac_address               = 514;
@@ -50933,6 +51009,7 @@ pub mod Rpc_ {
         ///Rpc_Resp_WifiDeauthSta              resp_wifi_deauth_sta               = 549;
         RespWifiStaGetApInfo(super::Rpc_Resp_WifiStaGetApInfo),
         RespGetCoprocessorFwversion(super::Rpc_Resp_GetCoprocessorFwVersion),
+        RespFeatureControl(super::Rpc_Resp_FeatureControl),
         ///* Notifications *
         EventEspInit(super::Rpc_Event_ESPInit),
         EventHeartbeat(super::Rpc_Event_Heartbeat),
@@ -51230,6 +51307,12 @@ impl RpcId {
     pub const ReqWifiStaGetApInfo: Self = Self(294);
     ///0x15e
     pub const ReqGetCoprocessorFwVersion: Self = Self(350);
+    /// Common RPC to handle simple feature control with one optional parameter
+    /// Supported Features:
+    /// - BT Init/Deinit/Enable/Disable
+    ///
+    ///0x183
+    pub const ReqFeatureControl: Self = Self(387);
     pub const RespGetMacAddress: Self = Self(513);
     ///Resp_SetMacAddress                = 514;
     ///Resp_GetWifiMode                  = 515;
@@ -51267,6 +51350,9 @@ impl RpcId {
     ///Resp_WifiGetCountry               = 560;
     pub const RespWifiStaGetApInfo: Self = Self(550);
     pub const RespGetCoprocessorFwVersion: Self = Self(606);
+    ///Resp_IfaceMacAddrSetGet                   = 641;
+    ///Resp_IfaceMacAddrLenGet                   = 642;
+    pub const RespFeatureControl: Self = Self(643);
     ///Event_Base = 768;
     pub const EventEspInit: Self = Self(769);
     pub const EventHeartbeat: Self = Self(770);

@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- `embassy_net_esp_hosted::new` now returns an `HostedResources` struct with named fields.
+- Added Bluetooth (BLE) support via the new `bluetooth` feature. `new` returns a `bluetooth::BtDriver` implementing `bt_hci::transport::Transport`, exposing the ESP coprocessor's HCI controller over the ESP-Hosted HCI interface.
 - Added `FwVersion` struct and `Control::get_fw_version`.
 - Fixed compilation error with the `log` feature.
 - `Interface::transfer` now exchanges the buffer in place.

@@ -10,6 +10,8 @@ use crate::proto::mcu::{
     Rpc_Req_WifiInit, Rpc_Req_WifiSetConfig, Rpc_Req_WifiStaGetApInfo, Rpc_Req_WifiStart, RpcId, RpcType, wifi_config,
     wifi_config_, wifi_init_config, wifi_scan_threshold, wifi_sta_config,
 };
+#[cfg(feature = "bluetooth")]
+use crate::proto::mcu::{Rpc_Req_FeatureControl, RpcFeature, RpcFeatureCommand, RpcFeatureOption};
 use crate::{FwVersion, InterfaceType, WifiMode};
 
 macro_rules! exchange {
@@ -100,11 +102,12 @@ impl RpcBackend for McuBackend {
         match iface_type {
             1 => Some(InterfaceType::Sta),
             3 => Some(InterfaceType::Serial),
+            4 => Some(InterfaceType::Hci),
             _ => None,
         }
     }
 
-    async fn wifi_init(&self, ctx: &mut IoctlCtx<'_>) -> Result<(), Error> {
+    async fn init_radio(&self, ctx: &mut IoctlCtx<'_>) -> Result<(), Error> {
         let mut req = Rpc_Req_WifiInit::default();
         req.set_cfg(
             // TODO: this should be user-configurable, either in build-time or runtime
@@ -121,6 +124,40 @@ impl RpcBackend for McuBackend {
         );
 
         exchange!(ctx, ReqWifiInit, RespWifiInit, req);
+
+        #[cfg(feature = "bluetooth")]
+        {
+            // Since esp-hosted-mcu v2.5.2 the BT controller is disabled by default and must be
+            // explicitly initialized and enabled via the FeatureControl RPC before the BT host
+            // stack can talk to it over the HCI interface.
+            match self.get_fw_version(ctx).await? {
+                #[cfg(feature = "esp-hosted-fg")]
+                FwVersion::Fg { .. } => return Err(Error::Internal),
+
+                FwVersion::Mcu { major, minor, patch } => {
+                    if major < 2 || (major == 2 && minor < 5) || (major == 2 && minor == 5 && patch < 2) {
+                        return Ok(());
+                    }
+                }
+            }
+
+            debug!("Enabling Bluetooth though FeatureControl");
+
+            let req = Rpc_Req_FeatureControl {
+                feature: RpcFeature::FeatureBluetooth,
+                command: RpcFeatureCommand::FeatureCommandBtInit,
+                option: RpcFeatureOption::FeatureOptionNone,
+            };
+            exchange!(ctx, ReqFeatureControl, RespFeatureControl, req);
+
+            let req = Rpc_Req_FeatureControl {
+                feature: RpcFeature::FeatureBluetooth,
+                command: RpcFeatureCommand::FeatureCommandBtEnable,
+                option: RpcFeatureOption::FeatureOptionNone,
+            };
+            exchange!(ctx, ReqFeatureControl, RespFeatureControl, req);
+        }
+
         Ok(())
     }
 

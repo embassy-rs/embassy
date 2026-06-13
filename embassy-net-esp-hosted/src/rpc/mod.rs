@@ -42,7 +42,7 @@ pub trait RpcBackend {
     fn encode_iface_type(&self, iface_type: InterfaceType) -> Option<u8>;
     fn decode_iface_type(&self, iface_type: u8) -> Option<InterfaceType>;
 
-    async fn wifi_init(&self, ctx: &mut IoctlCtx<'_>) -> Result<(), Error>;
+    async fn init_radio(&self, ctx: &mut IoctlCtx<'_>) -> Result<(), Error>;
     async fn start_wifi(&self, ctx: &mut IoctlCtx<'_>) -> Result<(), Error>;
     async fn config_heartbeat(&self, ctx: &mut IoctlCtx<'_>, secs: u32) -> Result<(), Error>;
     async fn set_mode(&self, ctx: &mut IoctlCtx<'_>, mode: WifiMode) -> Result<(), Error>;
@@ -93,7 +93,7 @@ impl RpcBackend for Backend {
 
             async fn start_wifi(&self, _ctx: &mut IoctlCtx<'_>) -> Result<(), Error>;
             async fn config_heartbeat(&self, ctx: &mut IoctlCtx<'_>, secs: u32) -> Result<(), Error>;
-            async fn wifi_init(&self, ctx: &mut IoctlCtx<'_>) -> Result<(), Error>;
+            async fn init_radio(&self, ctx: &mut IoctlCtx<'_>) -> Result<(), Error>;
             async fn set_mode(&self, ctx: &mut IoctlCtx<'_>, mode: WifiMode) -> Result<(), Error>;
             async fn get_mac_addr(&self, ctx: &mut IoctlCtx<'_>) -> Result<[u8; 6], Error>;
             async fn connect_ap(&self, ctx: &mut IoctlCtx<'_>, ssid: &str, pwd: &str) -> Result<(), Error>;
@@ -189,21 +189,20 @@ impl RpcBackend for NoBackend {
         None
     }
     fn decode_iface_type(&self, iface_type: u8) -> Option<InterfaceType> {
-        let iface = None::<InterfaceType>;
-
         #[cfg(feature = "esp-hosted-fg")]
-        let iface = iface.or_else(|| fg::FgBackend.decode_iface_type(iface_type));
-        #[cfg(feature = "esp-hosted-mcu")]
-        let iface = iface.or_else(|| mcu::McuBackend.decode_iface_type(iface_type));
-
-        if iface == Some(InterfaceType::Serial) {
-            Some(InterfaceType::Serial)
-        } else {
-            None
+        if let Some(InterfaceType::Serial) = fg::FgBackend.decode_iface_type(iface_type) {
+            return Some(InterfaceType::Serial);
         }
+
+        #[cfg(feature = "esp-hosted-mcu")]
+        if let Some(InterfaceType::Serial) = mcu::McuBackend.decode_iface_type(iface_type) {
+            return Some(InterfaceType::Serial);
+        }
+
+        None
     }
 
-    async fn wifi_init(&self, _ctx: &mut IoctlCtx<'_>) -> Result<(), Error> {
+    async fn init_radio(&self, _ctx: &mut IoctlCtx<'_>) -> Result<(), Error> {
         Err(Error::Internal)
     }
 
