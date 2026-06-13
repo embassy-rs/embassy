@@ -1,5 +1,5 @@
 use stm32_metapac::pwr::vals::{
-    Vddio2rdy, Vddio2sv, Vddio2vrsel, Vddio3rdy, Vddio3sv, Vddio3vrsel, Vddio4sv, Vddio5sv,
+    Vddio2rdy, Vddio2sv, Vddio2vrsel, Vddio3rdy, Vddio3sv, Vddio3vrsel, Vddio4sv, Vddio5sv, Vos,
 };
 use stm32_metapac::rcc::vals::{
     Cpusw, Cpusws, Hseext, Hsitrim, Msifreqsel, Persel, Pllmodssdis, Syssw, Syssws, Timpre,
@@ -44,6 +44,12 @@ pub struct Hsi {
 pub enum SupplyConfig {
     Smps,
     External,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum VoltageScale {
+    Scale0,
+    Scale1,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -162,6 +168,7 @@ pub struct Config {
     pub apb5: ApbPrescaler,
 
     pub supply_config: SupplyConfig,
+    pub voltage_scale: VoltageScale,
 
     /// VddIO2 voltage range (Ports O/P, XSPI1)
     /// true = 1.8V, false = 3.3V (default)
@@ -222,6 +229,7 @@ impl Config {
             apb5: ApbPrescaler::Div1,
 
             supply_config: SupplyConfig::Smps,
+            voltage_scale: VoltageScale::Scale0,
 
             vddio2_1v8: false, // Default to 3.3V
             vddio3_1v8: false, // Default to 3.3V
@@ -667,8 +675,8 @@ impl Default for Config {
     }
 }
 
-fn power_supply_config(supply_config: SupplyConfig) {
-    // power supply config
+fn power_supply_config(supply_config: SupplyConfig, voltage_scale: VoltageScale) {
+    // Power supply config
     PWR.cr1().modify(|w| {
         w.set_sden(match supply_config {
             SupplyConfig::External => false,
@@ -678,6 +686,17 @@ fn power_supply_config(supply_config: SupplyConfig) {
 
     // Validate supply configuration
     while !PWR.voscr().read().actvosrdy() {}
+
+    // Voltage scale setting
+    PWR.voscr().modify(|w| {
+        w.set_vos(match voltage_scale {
+            VoltageScale::Scale0 => Vos::B0x1,
+            VoltageScale::Scale1 => Vos::B0x0,
+        });
+    });
+
+    // Validate voltage scale configuration
+    while !PWR.voscr().read().vosrdy() {}
 }
 
 struct PllInput {
@@ -1228,7 +1247,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     debug!("setting power supply config");
 
-    power_supply_config(config.supply_config);
+    power_supply_config(config.supply_config, config.voltage_scale);
 
     // VddIO power domain configuration per STM32N6 errata ES0620
     // This must be done early in boot - set SV bits and wait for RDY
