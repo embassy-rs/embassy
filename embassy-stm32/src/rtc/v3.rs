@@ -13,16 +13,16 @@ impl super::Rtc {
         let needs_init = prer.prediv_s() != sync_psc
             || prer.prediv_a() != async_psc
             || RTC::regs().cr().read().fmt() != Fmt::TwentyFourHour;
-        
+
         self.write(needs_init, |rtc| {
             if needs_init {
                 rtc.cr().modify(|w| w.set_fmt(Fmt::TwentyFourHour));
                 rtc.prer().modify(|w| {
                     w.set_prediv_s(sync_psc);
                     w.set_prediv_a(async_psc);
-                }); 
+                });
             }
-            
+
             rtc.cr().modify(|w| {
                 w.set_bypshad(true);
                 w.set_osel(Osel::Disabled);
