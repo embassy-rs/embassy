@@ -602,7 +602,8 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     /// Performing an I2C bus scan using zero-length writes to check device presence:
     ///
     /// ```rust,no_run
-    /// use embassy_stm32::i2c::{I2c, Operation};
+    /// use embassy_stm32::i2c::I2c;
+    /// use embedded_hal_1::i2c::Operation;
     ///
     /// # macro_rules! host_code { () => {
     /// let mut i2c: I2c<'_, _, _> = ...;
@@ -1261,7 +1262,8 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     /// Performing an I2C bus scan using zero-length writes to check device presence:
     ///
     /// ```rust,no_run
-    /// use embassy_stm32::i2c::{I2c, Operation};
+    /// use embassy_stm32::i2c::I2c;
+    /// use embedded_hal_1::i2c::Operation;
     ///
     /// # macro_rules! host_code { () => {
     /// let mut i2c: I2c<'_, _, _> = ...;
