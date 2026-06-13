@@ -241,7 +241,10 @@ where
             }
 
             if buffer[0] != 0 {
-                trace!("tx: {:02x}", &buffer[..40]);
+                #[cfg(feature = "log")]
+                trace!("tx: {:02x?}", &buffer[..40]);
+                #[cfg(feature = "defmt")]
+                trace!("tx: {=[u8]:02x}", &buffer[..40]);
             }
 
             self.iface.transfer(&mut buffer).await;
@@ -251,7 +254,10 @@ where
     }
 
     fn handle_rx(&mut self, buf: &mut [u8]) {
-        trace!("rx: {:02x}", &buf[..40]);
+        #[cfg(feature = "log")]
+        trace!("rx: {:02x?}", &buf[..40]);
+        #[cfg(feature = "defmt")]
+        trace!("rx: {=[u8]:02x}", &buf[..40]);
 
         let buf_len = buf.len();
         let h = PayloadHeader::from_bytes_mut((&mut buf[..PayloadHeader::SIZE]).try_into().unwrap());
@@ -287,7 +293,10 @@ where
                 None => warn!("failed to push rxd packet to the channel."),
             },
             Some(InterfaceType::Serial) => {
-                trace!("serial rx: {:02x}", payload);
+                #[cfg(feature = "log")]
+                trace!("serial rx: {:02x?}", payload);
+                #[cfg(feature = "defmt")]
+                trace!("serial rx: {=[u8]:02x}", payload);
 
                 match self.backend.process_serial_data(payload) {
                     Some((true, data)) => self.handle_event(data),

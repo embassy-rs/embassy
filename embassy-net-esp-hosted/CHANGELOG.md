@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Fixed compilation error with the `log` feature.
 - `Interface::transfer` now exchanges the buffer in place.
 - The SPI interface now waits for the handshake pin to be low before returning.
 - `Control::connect` now waits for a `StationConnectedToAP` event before marking the link up; a successful connect ioctl alone no longer sets `LinkState::Up`. Disconnect event during a pending connect returns `Error::Failed` with the firmware disconnect reason.
