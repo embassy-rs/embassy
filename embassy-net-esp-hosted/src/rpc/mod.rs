@@ -189,18 +189,17 @@ impl RpcBackend for NoBackend {
         None
     }
     fn decode_iface_type(&self, iface_type: u8) -> Option<InterfaceType> {
-        let iface = None::<InterfaceType>;
-
         #[cfg(feature = "esp-hosted-fg")]
-        let iface = iface.or_else(|| fg::FgBackend.decode_iface_type(iface_type));
-        #[cfg(feature = "esp-hosted-mcu")]
-        let iface = iface.or_else(|| mcu::McuBackend.decode_iface_type(iface_type));
-
-        if iface == Some(InterfaceType::Serial) {
-            Some(InterfaceType::Serial)
-        } else {
-            None
+        if let Some(InterfaceType::Serial) = fg::FgBackend.decode_iface_type(iface_type) {
+            return Some(InterfaceType::Serial);
         }
+
+        #[cfg(feature = "esp-hosted-mcu")]
+        if let Some(InterfaceType::Serial) = mcu::McuBackend.decode_iface_type(iface_type) {
+            return Some(InterfaceType::Serial);
+        }
+
+        None
     }
 
     async fn wifi_init(&self, _ctx: &mut IoctlCtx<'_>) -> Result<(), Error> {
