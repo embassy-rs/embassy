@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Added `FwVersion` struct and `Control::get_fw_version`.
 - Fixed compilation error with the `log` feature.
 - `Interface::transfer` now exchanges the buffer in place.
 - The SPI interface now waits for the handshake pin to be low before returning.

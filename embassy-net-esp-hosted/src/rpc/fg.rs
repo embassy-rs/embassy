@@ -3,13 +3,13 @@ use heapless::String;
 use micropb::MessageDecode;
 
 use super::{HostedEvent, IoctlCtx, RpcBackend};
-use crate::InterfaceType;
 use crate::control::{Error, Security, Status};
 use crate::proto::fg::{
     CtrlMsg, CtrlMsg_, CtrlMsg_Req_ConfigHeartbeat, CtrlMsg_Req_ConnectAP, CtrlMsg_Req_GetAPConfig,
     CtrlMsg_Req_GetMacAddress, CtrlMsg_Req_GetStatus, CtrlMsg_Req_OTABegin, CtrlMsg_Req_OTAEnd, CtrlMsg_Req_OTAWrite,
     CtrlMsg_Req_SetMode, CtrlMsgId, CtrlMsgType,
 };
+use crate::{FwVersion, InterfaceType};
 
 #[expect(unused)]
 enum WifiMode {
@@ -154,6 +154,19 @@ impl RpcBackend for FgBackend {
             rssi: resp.rssi as _,
             channel: resp.chnl as u32,
             security: map_fg_security(resp.sec_prot.0),
+        })
+    }
+
+    async fn get_fw_version(&self, ctx: &mut IoctlCtx<'_>) -> Result<FwVersion, Error> {
+        let req = crate::proto::fg::CtrlMsg_Req_GetFwVersion {};
+        let resp = exchange!(ctx, ReqGetFwVersion, RespGetFwVersion, req);
+        debug!("raw: {:?}", resp);
+        Ok(FwVersion::Fg {
+            major1: resp.major1,
+            major2: resp.major2,
+            minor: resp.minor,
+            rev_patch1: resp.rev_patch1,
+            rev_patch2: resp.rev_patch2,
         })
     }
 
