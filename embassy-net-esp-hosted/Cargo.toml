@@ -56,4 +56,4 @@ target = "thumbv7em-none-eabi"
 features = ["defmt", "esp-hosted-fg", "esp-hosted-mcu"]
 
 [package.metadata.docs.rs]
-features = ["defmt"]
+features = ["defmt", "esp-hosted-fg", "esp-hosted-mcu"]
