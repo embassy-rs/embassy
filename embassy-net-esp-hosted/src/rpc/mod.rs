@@ -6,8 +6,8 @@ mod ioctl_ctx;
 pub use fg::FgBackend;
 pub use ioctl_ctx::IoctlCtx;
 
-use crate::InterfaceType;
 use crate::control::{Error, Status};
+use crate::{FwVersion, InterfaceType};
 
 /// Normalized control-path events from the coprocessor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,6 +42,7 @@ pub trait RpcBackend {
     async fn get_mac_addr(&self, ctx: &mut IoctlCtx<'_>) -> Result<[u8; 6], Error>;
     async fn connect_ap(&self, ctx: &mut IoctlCtx<'_>, ssid: &str, pwd: &str) -> Result<(), Error>;
     async fn disconnect_ap(&self, ctx: &mut IoctlCtx<'_>) -> Result<(), Error>;
+    async fn get_fw_version(&self, ctx: &mut IoctlCtx<'_>) -> Result<FwVersion, Error>;
     async fn get_status(&self, ctx: &mut IoctlCtx<'_>) -> Result<Status, Error>;
     async fn ota_begin(&self, ctx: &mut IoctlCtx<'_>) -> Result<(), Error>;
     async fn ota_write(&self, ctx: &mut IoctlCtx<'_>, chunk: &[u8]) -> Result<(), Error>;

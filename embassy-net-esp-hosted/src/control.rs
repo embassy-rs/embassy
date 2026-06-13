@@ -64,6 +64,25 @@ pub struct Status {
     pub security: Security,
 }
 
+/// Firmware version.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum FwVersion {
+    /// esp-hosted-fg version
+    Fg {
+        /// First major version component.
+        major1: u32,
+        /// Second major version component.
+        major2: u32,
+        /// Minor version component.
+        minor: u32,
+        /// First patch version component.
+        rev_patch1: u32,
+        /// Second patch version component.
+        rev_patch2: u32,
+    },
+}
+
 impl<'a> Control<'a> {
     pub(crate) fn new(state_ch: ch::StateRunner<'a>, shared: &'a Shared) -> Self {
         Self {
@@ -120,6 +139,12 @@ impl<'a> Control<'a> {
         self.backend.disconnect_ap(&mut ctx).await?;
         self.state_ch.set_link_state(LinkState::Down);
         Ok(())
+    }
+
+    /// Return the firmware version of the device.
+    pub async fn get_fw_version(&mut self) -> Result<FwVersion, Error> {
+        let mut ctx = IoctlCtx::new(self.shared);
+        self.backend.get_fw_version(&mut ctx).await
     }
 
     /// Initiate a firmware update.
