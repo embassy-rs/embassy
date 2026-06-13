@@ -2,8 +2,9 @@ use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::{HardwareAddress, LinkState};
 use heapless::String;
 
+use crate::Backend;
 use crate::ioctl::Shared;
-use crate::rpc::{FgBackend, IoctlCtx, RpcBackend};
+use crate::rpc::{IoctlCtx, RpcBackend};
 
 /// Errors reported by control.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -31,12 +32,32 @@ pub enum Security {
     Wpa2Psk,
     /// WPA/WPA2-PSK.
     WpaWpa2Psk,
-    /// WPA2-Enterprise.
+    /// Wi-Fi EAP security, treated the same as Wpa2Enterprise
+    Enterprise,
+    /// Wi-Fi EAP security, Authenticate mode : WPA2-Enterprise security
     Wpa2Enterprise,
     /// WPA3-PSK.
     Wpa3Psk,
     /// WPA2/WPA3-PSK.
     Wpa2Wpa3Psk,
+    /// WAPI-PSK.
+    WapiPsk,
+    /// Opportunistic Wireless Encryption.
+    Owe,
+    /// WPA‑EAP‑Suite‑B‑192.
+    Wpa3Ent192,
+    /// This authentication mode will yield same result as Wpa3Psk and not recommended to be used. It will be deprecated in future, please use Wpa3Psk instead.
+    Wpa3ExtPsk,
+    /// This authentication mode will yield same result as Wpa3Psk and not recommended to be used. It will be deprecated in future, please use Wpa3Psk instead.
+    Wpa3ExtPskMixedMode,
+    /// Device Provisioning Protocol.
+    Dpp,
+    /// WPA3-Enterprise Only Mode.
+    Wpa3Enterprise,
+    /// WPA3-Enterprise Transition Mode.
+    Wpa2Wpa3Enterprise,
+    /// WPA-Enterprise security.
+    WpaEnterprise,
     /// Unknown security mode reported by firmware.
     Unknown(i32),
 }
@@ -45,7 +66,7 @@ pub enum Security {
 pub struct Control<'a> {
     state_ch: ch::StateRunner<'a>,
     shared: &'a Shared,
-    backend: FgBackend,
+    backend: Backend,
 }
 
 /// WiFi status.
@@ -69,6 +90,7 @@ pub struct Status {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FwVersion {
     /// esp-hosted-fg version
+    #[cfg(feature = "esp-hosted-fg")]
     Fg {
         /// First major version component.
         major1: u32,
@@ -81,6 +103,25 @@ pub enum FwVersion {
         /// Second patch version component.
         rev_patch2: u32,
     },
+
+    /// esp-hosted-mcu version
+    #[cfg(feature = "esp-hosted-mcu")]
+    Mcu {
+        /// Major version component.
+        major: u32,
+        /// Minor version component.
+        minor: u32,
+        /// Patch version component.
+        patch: u32,
+    },
+}
+
+#[expect(unused)]
+pub(crate) enum WifiMode {
+    None = 0,
+    Sta = 1,
+    Ap = 2,
+    ApSta = 3,
 }
 
 impl<'a> Control<'a> {
@@ -88,22 +129,28 @@ impl<'a> Control<'a> {
         Self {
             state_ch,
             shared,
-            backend: FgBackend,
+            backend: Backend::default(),
         }
     }
 
     /// Initialize device.
     pub async fn init(&mut self) -> Result<(), Error> {
         debug!("wait for init event...");
-        self.shared.init_wait().await;
+        self.backend = self.shared.init_wait().await;
 
         let mut ctx = IoctlCtx::new(self.shared);
 
         debug!("set heartbeat");
         self.backend.config_heartbeat(&mut ctx, 10).await?;
 
+        debug!("wifi_init");
+        self.backend.wifi_init(&mut ctx).await?;
+
         debug!("set wifi mode");
-        self.backend.set_sta_mode(&mut ctx).await?;
+        self.backend.set_mode(&mut ctx, WifiMode::Sta).await?;
+
+        debug!("start wifi");
+        self.backend.start_wifi(&mut ctx).await?;
 
         let mac_addr = self.backend.get_mac_addr(&mut ctx).await?;
         #[cfg(feature = "log")]

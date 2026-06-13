@@ -15,7 +15,7 @@ embassy-net = { version = "0.9.1", path = "../../embassy-net", features = ["defm
 embassy-usb = { version = "0.6.0", path = "../../embassy-usb", features = ["defmt"] }
 embedded-io = { version = "0.7.1", features = ["defmt"]  }
 embedded-io-async = { version = "0.7.0", features = ["defmt"] }
-embassy-net-esp-hosted = { version = "0.3.0", path = "../../embassy-net-esp-hosted", features = ["defmt"] }
+embassy-net-esp-hosted = { version = "0.3.0", path = "../../embassy-net-esp-hosted", features = ["defmt", "esp-hosted-fg"] }
 embassy-net-enc28j60 = { version = "0.3.0", path = "../../embassy-net-enc28j60", features = ["defmt"] }
 
 defmt = "1.0.1"
