@@ -165,6 +165,8 @@ pub mod ospi;
 pub mod pka;
 #[cfg(quadspi)]
 pub mod qspi;
+#[cfg(rifsc)]
+pub mod rif;
 #[cfg(rng)]
 pub mod rng;
 #[cfg(all(rtc, not(rtc_v1)))]
