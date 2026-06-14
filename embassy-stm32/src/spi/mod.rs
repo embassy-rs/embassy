@@ -1129,8 +1129,6 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
 
         self.set_word_size(W::CONFIG);
 
-        // spi_v4 clears rxfifo on SPE=0
-        #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
         flush_rx_fifo(self.info.regs);
 
         set_rxdmaen(self.info.regs, true);
@@ -1157,10 +1155,6 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
         self.info.regs.cr1().modify(|w| {
             w.set_spe(true);
         });
-        #[cfg(any(spi_v4, spi_v5, spi_v6))]
-        self.info.regs.cr1().modify(|w| {
-            w.set_cstart(true);
-        });
 
         if let Some(tx_f) = tx_f {
             join(tx_f, rx_f).await;
@@ -1175,12 +1169,7 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
 
             // The peripheral automatically disables the DMA stream on completion without error,
             // but it does not clear the RXDMAEN flag in CR2.
-            #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
             self.info.regs.cr2().modify(|w| {
-                w.set_rxdmaen(false);
-            });
-            #[cfg(any(spi_v4, spi_v5, spi_v6))]
-            self.info.regs.cfg1().modify(|w| {
                 w.set_rxdmaen(false);
             });
         }
