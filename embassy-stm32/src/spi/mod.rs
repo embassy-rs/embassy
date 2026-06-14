@@ -296,10 +296,13 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
                 w.set_ssm(ssm);
                 w.set_crcen(false);
                 w.set_bidimode(vals::Bidimode::Unidirectional);
-                // we're doing "fake rxonly", by actually writing one
-                // byte to TXDR for each byte we want to receive. if we
-                // set OUTPUTDISABLED here, this hangs.
-                w.set_rxonly(vals::Rxonly::FullDuplex);
+                w.set_rxonly(match (&self.rx_dma, &self.tx_dma) {
+                    (Some(_), None) => vals::Rxonly::OutputDisabled,
+                    // we're doing "fake rxonly", by actually writing one
+                    // byte to TXDR for each byte we want to receive. if we
+                    // set OUTPUTDISABLED here, this hangs.
+                    _ => vals::Rxonly::FullDuplex,
+                });
                 w.set_dff(<u8 as SealedWord>::CONFIG)
             });
         }
@@ -779,6 +782,28 @@ impl<'d> Spi<'d, Async, Slave> {
             config,
         )
     }
+
+    /// Create a new SPI slave driver in RX-only mode (only MOSI pin, no MISO).
+    pub fn new_rxonly_slave<T: Instance, D1: RxDma<T>, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        sck: Peri<'d, if_afio!(impl SckPin<T, A>)>,
+        mosi: Peri<'d, if_afio!(impl MosiPin<T, A>)>,
+        cs: Peri<'d, if_afio!(impl CsPin<T, A>)>,
+        rx_dma: Peri<'d, D1>,
+        _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>> + 'd,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(sck, config.sck_af()),
+            new_pin!(mosi, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            None,
+            new_pin!(cs, AfType::input(Pull::None)),
+            None,
+            new_dma!(rx_dma, _irq),
+            config,
+        )
+    }
 }
 
 impl<'d> Spi<'d, Async, Master> {
@@ -1117,14 +1142,14 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
 
         let tx_dst = self.info.regs.tx_ptr();
         let clock_byte = W::default();
-        let tx_f = unsafe {
-            self.tx_dma
-                .as_mut()
-                .unwrap()
-                .write_repeated(&clock_byte, clock_byte_count, tx_dst, Default::default())
-        };
+        let tx_f = self
+            .tx_dma
+            .as_mut()
+            .map(|tx_dma| unsafe { tx_dma.write_repeated(&clock_byte, clock_byte_count, tx_dst, Default::default()) });
 
-        set_txdmaen(self.info.regs, true);
+        if tx_f.is_some() {
+            set_txdmaen(self.info.regs, true);
+        }
 
         // Memory barrier after DMA setup to ensure register writes complete before command
         fence(Ordering::SeqCst);
@@ -1137,9 +1162,28 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
             w.set_cstart(true);
         });
 
-        join(tx_f, rx_f).await;
+        if let Some(tx_f) = tx_f {
+            join(tx_f, rx_f).await;
 
-        finish_dma(self.info.regs);
+            finish_dma(self.info.regs);
+        } else {
+            rx_f.await;
+            // In receiving mode RXNE flag should be prefered over BSY flag.
+            // When using DMA the RXNE flag is cleared after DMA reads data.
+            // Since DMA has already finished reading previously specified
+            // amount of data, then there is no need to check for RXNE flag.
+
+            // The peripheral automatically disables the DMA stream on completion without error,
+            // but it does not clear the RXDMAEN flag in CR2.
+            #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
+            self.info.regs.cr2().modify(|w| {
+                w.set_rxdmaen(false);
+            });
+            #[cfg(any(spi_v4, spi_v5, spi_v6))]
+            self.info.regs.cfg1().modify(|w| {
+                w.set_rxdmaen(false);
+            });
+        }
 
         Ok(())
     }
