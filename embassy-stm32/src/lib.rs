@@ -44,13 +44,7 @@ pub mod mode {
     impl_mode!(Async);
 }
 
-#[cfg(stm32c5)]
-macro_rules! dma_channel_impl {
-    ($channel_peri:ident, $irq:ty) => {};
-}
-
 // Always-present hardware
-#[cfg(not(stm32c5))]
 pub mod dma;
 pub mod gpio;
 pub mod rcc;
@@ -923,7 +917,6 @@ fn init_hw(config: Config) -> Peripherals {
             #[cfg(stm32f1)]
             crate::pac::AFIO.mapr().modify(|w| w.set_swj_cfg(config.swj.into()));
 
-            #[cfg(not(stm32c5))]
             dma::init(
                 cs,
                 #[cfg(bdma)]

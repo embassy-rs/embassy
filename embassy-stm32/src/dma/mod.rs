@@ -7,11 +7,11 @@ mod dma_bdma;
 #[cfg(any(bdma, dma, mdma))]
 pub use dma_bdma::*;
 
-#[cfg(gpdma)]
+#[cfg(any(gpdma, stm32c5))]
 pub(crate) mod gpdma;
-#[cfg(gpdma)]
+#[cfg(any(gpdma, stm32c5))]
 pub use gpdma::ringbuffered::*;
-#[cfg(gpdma)]
+#[cfg(any(gpdma, stm32c5))]
 pub use gpdma::*;
 
 #[cfg(dmamux)]
@@ -59,10 +59,10 @@ pub enum Increment {
 }
 
 /// DMA request type alias. (also known as DMA channel number in some chips)
-#[cfg(any(dma_v2, bdma_v2, gpdma, dmamux))]
+#[cfg(any(dma_v2, bdma_v2, gpdma, dmamux, stm32c5))]
 pub type Request = u8;
 /// DMA request type alias. (also known as DMA channel number in some chips)
-#[cfg(not(any(dma_v2, bdma_v2, gpdma, dmamux)))]
+#[cfg(not(any(dma_v2, bdma_v2, gpdma, dmamux, stm32c5)))]
 pub type Request = ();
 
 /// DMA channel driver
