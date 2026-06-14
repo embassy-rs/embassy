@@ -13,14 +13,17 @@ use super::{Channel, Dir, Request, STATE};
 use crate::_generated::DmaChannel;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac;
-use crate::pac::gpdma::vals;
+#[cfg(not(stm32c5))]
+use crate::pac::gpdma::{Gpdma, vals};
+#[cfg(stm32c5)]
+use crate::pac::lpdma::{Lpdma as Gpdma, vals};
 use crate::rcc::WakeGuard;
 
 pub mod linked_list;
 pub mod ringbuffered;
 
 pub(crate) struct ChannelInfo {
-    pub(crate) dma: pac::gpdma::Gpdma,
+    pub(crate) dma: Gpdma,
     pub(crate) num: usize,
     #[cfg(feature = "_dual-core")]
     pub(crate) irq: pac::Interrupt,
@@ -51,13 +54,13 @@ pub enum Priority {
     VeryHigh,
 }
 
-impl From<Priority> for pac::gpdma::vals::Prio {
+impl From<Priority> for vals::Prio {
     fn from(value: Priority) -> Self {
         match value {
-            Priority::Low => pac::gpdma::vals::Prio::LowWithLowhWeight,
-            Priority::Medium => pac::gpdma::vals::Prio::LowWithMidWeight,
-            Priority::High => pac::gpdma::vals::Prio::LowWithHighWeight,
-            Priority::VeryHigh => pac::gpdma::vals::Prio::High,
+            Priority::Low => vals::Prio::LowWithLowhWeight,
+            Priority::Medium => vals::Prio::LowWithMidWeight,
+            Priority::High => vals::Prio::LowWithHighWeight,
+            Priority::VeryHigh => vals::Prio::High,
         }
     }
 }
@@ -305,6 +308,7 @@ pub struct TransferOptions {
     /// threshold (notably the JPEG codec on N6), and some require multi-beat
     /// bursts to handshake correctly under `BREQ=Burst` (e.g. CRYP wants
     /// 4-beat bursts, matching one AES block per peripheral request).
+    #[cfg(not(stm32c5))]
     pub burst_length: Burst,
     /// Select whether peripheral handshaking is done at burst or block level.
     pub request_mode: RequestMode,
@@ -320,6 +324,8 @@ impl Default for TransferOptions {
             complete_transfer_ir: true,
             #[cfg(stm32n6)]
             secure: false,
+
+            #[cfg(not(stm32c5))]
             burst_length: Burst::_1Beats,
             request_mode: RequestMode::Burst,
             trigger: None,
@@ -529,19 +535,26 @@ impl<'d> Channel<'d> {
             if data_size != dst_size {
                 w.set_pam(vals::Pam::Pack);
             }
+            #[cfg(not(stm32c5))]
             w.set_dap(match dir {
                 Dir::MemoryToPeripheral => vals::Ap::Port1, // Destination is peripheral on AHB for HPDMA
                 Dir::PeripheralToMemory => vals::Ap::Port0, // Destination is memory on AXI for HPDMA
                 Dir::MemoryToMemory => panic!("memory-to-memory transfers not implemented for GPDMA"),
             });
+            #[cfg(not(stm32c5))]
             w.set_sap(match dir {
                 Dir::MemoryToPeripheral => vals::Ap::Port0, // Source is memory on AXI for HPDMA
                 Dir::PeripheralToMemory => vals::Ap::Port1, // Source is peripheral on AHB for HPDMA
                 Dir::MemoryToMemory => panic!("memory-to-memory transfers not implemented for GPDMA"),
             });
-            let bl: u8 = options.burst_length.into();
-            w.set_sbl_1(bl);
-            w.set_dbl_1(bl);
+
+            #[cfg(not(stm32c5))]
+            {
+                let bl: u8 = options.burst_length.into();
+                w.set_sbl_1(bl);
+                w.set_dbl_1(bl);
+            }
+
             #[cfg(stm32n6)]
             {
                 w.set_ssec(options.secure);
