@@ -10,10 +10,10 @@ impl super::Rtc {
     /// It this changes the RTC clock source the time will be reset
     pub(super) fn configure(&mut self, async_psc: u8, sync_psc: u16) {
         let prer = RTC::regs().prer().read();
-        if (prer.prediv_s() == sync_psc
+        if prer.prediv_s() == sync_psc
             && prer.prediv_a() == async_psc
             && RTC::regs().cr().read().fmt() == Fmt::TwentyFourHour
-            && RTC::regs().icsr().read().inits())
+            && RTC::regs().icsr().read().inits()
         {
             return;
         }
