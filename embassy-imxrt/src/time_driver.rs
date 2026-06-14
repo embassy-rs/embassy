@@ -29,8 +29,8 @@ impl AlarmState {
 }
 
 #[cfg(feature = "time-driver-rtc")]
-fn rtc() -> &'static pac::rtc::RegisterBlock {
-    unsafe { &*pac::Rtc::ptr() }
+fn rtc() -> pac::rtc::Rtc {
+    pac::RTC
 }
 
 /// Calculate the timestamp from the period count and the tick count.
@@ -66,44 +66,26 @@ struct Rtc {
 
 #[cfg(feature = "time-driver-rtc")]
 impl Rtc {
-    /// Access the GPREG0 register to use it as a 31-bit counter.
-    #[inline]
-    fn counter_reg(&self) -> &pac::rtc::Gpreg {
-        rtc().gpreg(0)
-    }
-
-    /// Access the GPREG1 register to use it as a compare register for triggering alarms.
-    #[inline]
-    fn compare_reg(&self) -> &pac::rtc::Gpreg {
-        rtc().gpreg(1)
-    }
-
-    /// Access the GPREG2 register to use it to enable or disable interrupts (int_en).
-    #[inline]
-    fn int_en_reg(&self) -> &pac::rtc::Gpreg {
-        rtc().gpreg(2)
-    }
-
     fn init(&'static self, irq_prio: crate::interrupt::Priority) {
         let r = rtc();
         // enable RTC int (1kHz since subsecond doesn't generate an int)
-        r.ctrl().modify(|_r, w| w.rtc1khz_en().set_bit());
-        // TODO: low power support. line above is leaving out write to .wakedpd_en().set_bit())
+        r.ctrl().modify(|w| w.set_rtc1khz_en(true));
+        // TODO: low power support. line above is leaving out write to .set_wakedpd_en(true)
         // which enables wake from deep power down
 
-        // safety: Writing to the gregs is always considered unsafe, gpreg1 is used
-        // as a compare register for triggering an alarm so to avoid unnecessary triggers
-        // after initialization, this is set to 0x:FFFF_FFFF
-        self.compare_reg().write(|w| unsafe { w.gpdata().bits(u32::MAX) });
-        // safety: writing a value to the 1kHz RTC wake counter is always considered unsafe.
+        // gpreg1 is used as a compare register for triggering an alarm so to avoid
+        // unnecessary triggers after initialization, this is set to 0x:FFFF_FFFF
+        rtc().gpreg(1).write(|w| w.set_gpdata(u32::MAX));
         // The following loads 10 into the count-down timer.
-        r.wake().write(|w| unsafe { w.bits(0xA) });
+        r.wake().write_value(pac::rtc::regs::Wake(0xA));
         interrupt::RTC.set_priority(irq_prio);
         unsafe { interrupt::RTC.enable() };
     }
 
     #[cfg(feature = "rt")]
     fn on_interrupt(&self) {
+        use crate::pac::rtc::vals::Wake1khz;
+
         let r = rtc();
         // This interrupt fires every 10 ticks of the 1kHz RTC high res clk and adds
         // 10 to the 31 bit counter gpreg0. The 32nd bit is used for parity detection
@@ -112,22 +94,20 @@ impl Rtc {
         //
         // TODO: this is admittedly not great for power that we're generating this
         // many interrupts, will probably get updated in future iterations.
-        if r.ctrl().read().wake1khz().bit_is_set() {
-            r.ctrl().modify(|_r, w| w.wake1khz().set_bit());
-            // safety: writing a value to the 1kHz RTC wake counter is always considered unsafe.
+        if r.ctrl().read().wake1khz() == Wake1khz::TIME_OUT {
+            r.ctrl().modify(|w| w.set_wake1khz(Wake1khz::TIME_OUT));
             // The following reloads 10 into the count-down timer after it triggers an int.
             // The countdown begins anew after the write so time can continue to be measured.
-            r.wake().write(|w| unsafe { w.bits(0xA) });
-            if (self.counter_reg().read().bits() + 0xA) > 0x8000_0000 {
+            r.wake().write_value(pac::rtc::regs::Wake(0xA));
+            if (rtc().gpreg(0).read().0 + 0xA) > 0x8000_0000 {
                 // if we're going to "overflow", increase the period
                 self.next_period();
-                let rollover_diff = 0x8000_0000 - (self.counter_reg().read().bits() + 0xA);
-                // safety: writing to gpregs is always considered unsafe. In order to
-                // not "lose" time when incrementing the period, gpreg0, the extended
-                // counter, is restarted at the # of ticks it would overflow by
-                self.counter_reg().write(|w| unsafe { w.bits(rollover_diff) });
+                let rollover_diff = 0x8000_0000 - (rtc().gpreg(0).read().0 + 0xA);
+                // In order to not "lose" time when incrementing the period, gpreg0,
+                // the extended counter, is restarted at the # of ticks it would overflow by
+                rtc().gpreg(0).write_value(pac::rtc::regs::Gpreg(rollover_diff));
             } else {
-                self.counter_reg().modify(|r, w| unsafe { w.bits(r.bits() + 0xA) });
+                rtc().gpreg(0).modify(|w| w.0 = w.0 + 0xA);
             }
         }
 
@@ -135,10 +115,10 @@ impl Rtc {
             // gpreg2 as an "int_en" set by next_period(). This is
             // 1 when the timestamp for the alarm deadline expires
             // before the counter register overflows again.
-            if self.int_en_reg().read().gpdata().bits() == 1 {
+            if rtc().gpreg(2).read().gpdata() == 1 {
                 // gpreg0 is our extended counter register, check if
                 // our counter is larger than the compare value
-                if self.counter_reg().read().bits() > self.compare_reg().read().bits() {
+                if rtc().gpreg(0).read().0 > rtc().gpreg(1).read().0 {
                     self.trigger_alarm(cs);
                 }
             }
@@ -162,10 +142,10 @@ impl Rtc {
             let alarm = &self.alarms.borrow(cs);
             let at = alarm.timestamp.get();
             if at < t + 0xc000_0000 {
-                // safety: writing to gpregs is always unsafe, gpreg2 is an alarm
-                // enable. If the alarm must trigger within the next period, then
-                // just enable it. `set_alarm` has already set the correct CC val.
-                self.int_en_reg().write(|w| unsafe { w.gpdata().bits(1) });
+                // gpreg2 is an alarm enable. If the alarm must trigger within the
+                // next period, then just enable it. `set_alarm` has already set the
+                // correct CC val.
+                rtc().gpreg(2).write(|w| w.set_gpdata(1));
             }
         })
     }
@@ -177,11 +157,10 @@ impl Rtc {
 
         let t = self.now();
         if timestamp <= t {
-            // safety: Writing to the gpregs is always unsafe, gpreg2 is
-            // always just used as the alarm enable for the timer driver.
+            // gpreg2 is always just used as the alarm enable for the timer driver.
             // If alarm timestamp has passed the alarm will not fire.
             // Disarm the alarm and return `false` to indicate that.
-            self.int_en_reg().write(|w| unsafe { w.gpdata().bits(0) });
+            rtc().gpreg(2).write(|w| w.set_gpdata(0));
 
             alarm.timestamp.set(u64::MAX);
 
@@ -193,26 +172,26 @@ impl Rtc {
         // What's not allowed is triggering alarms *before* their scheduled time,
         let safe_timestamp = timestamp.max(t + 10); //t+3 was done for nrf chip, choosing 10
 
-        // safety: writing to the gregs is always unsafe. When a new alarm is set,
-        // the compare register, gpreg1, is set to the last 31 bits of the timestamp
-        // as the 32nd and final bit is used for the parity check in `next_period`
-        // `period` will be used for the upper bits in a timestamp comparison.
-        self.compare_reg()
-            .modify(|_r, w| unsafe { w.bits(safe_timestamp as u32 & 0x7FFF_FFFF) });
+        // When a new alarm is set, the compare register, gpreg1, is set to the last
+        // 31 bits of the timestamp as the 32nd and final bit is used for the parity
+        // check in `next_period`. `period` will be used for the upper bits in a
+        // timestamp comparison.
+        rtc()
+            .gpreg(1)
+            .write_value(pac::rtc::regs::Gpreg(safe_timestamp as u32 & 0x7FFF_FFFF));
 
         // The following checks that the difference in timestamp is less than the overflow period
         let diff = timestamp - t;
         if diff < 0xc000_0000 {
             // this is 0b11 << (30). NRF chip used 23 bit periods and checked against 0b11<<22
 
-            // safety: writing to the gpregs is always unsafe. If the alarm
-            // must trigger within the next period, set the "int enable"
-            self.int_en_reg().write(|w| unsafe { w.gpdata().bits(1) });
+            // If the alarm must trigger within the next period, set the "int enable"
+            rtc().gpreg(2).write(|w| w.set_gpdata(1));
         } else {
-            // safety: writing to the gpregs is always unsafe. If alarm must trigger
-            // some time after the current period, too far in the future, don't setup
-            // the alarm enable, gpreg2, yet. It will be setup later by `next_period`.
-            self.int_en_reg().write(|w| unsafe { w.gpdata().bits(0) });
+            // If alarm must trigger some time after the current period, too far in the
+            // future, don't setup the alarm enable, gpreg2, yet. It will be setup
+            // later by `next_period`.
+            rtc().gpreg(2).write(|w| w.set_gpdata(0));
         }
 
         true
@@ -233,7 +212,7 @@ impl Driver for Rtc {
         // `period` MUST be read before `counter`, see comment at the top for details.
         let period = self.period.load(Ordering::Acquire);
         compiler_fence(Ordering::Acquire);
-        let counter = self.counter_reg().read().bits();
+        let counter = rtc().gpreg(0).read().0;
         calc_now(period, counter)
     }
 
@@ -259,8 +238,8 @@ fn RTC() {
 }
 
 #[cfg(feature = "time-driver-os-timer")]
-fn os() -> &'static pac::ostimer0::RegisterBlock {
-    unsafe { &*pac::Ostimer0::ptr() }
+fn os() -> pac::ostimer::Ostimer {
+    pac::OSTIMER0
 }
 
 /// Convert gray to decimal
@@ -321,11 +300,11 @@ impl OsTimer {
         interrupt::OS_EVENT.disable();
 
         // Make sure interrupt is masked
-        os().osevent_ctrl().modify(|_, w| w.ostimer_intena().clear_bit());
+        os().osevent_ctrl().modify(|w| w.set_ostimer_intena(false));
 
         // Default to the end of time
-        os().match_l().write(|w| unsafe { w.bits(0xffff_ffff) });
-        os().match_h().write(|w| unsafe { w.bits(0xffff_ffff) });
+        os().match_l().write_value(pac::ostimer::regs::MatchL(0xffff_ffff));
+        os().match_h().write_value(pac::ostimer::regs::MatchH(0xffff_ffff));
 
         interrupt::OS_EVENT.unpend();
         interrupt::OS_EVENT.set_priority(irq_prio);
@@ -338,11 +317,11 @@ impl OsTimer {
 
         // Wait until we're allowed to write to MATCH_L/MATCH_H
         // registers
-        while os().osevent_ctrl().read().match_wr_rdy().bit_is_set() {}
+        while os().osevent_ctrl().read().match_wr_rdy() {}
 
         let t = self.now();
         if timestamp <= t {
-            os().osevent_ctrl().modify(|_, w| w.ostimer_intena().clear_bit());
+            os().osevent_ctrl().modify(|w| w.set_ostimer_intena(false));
             alarm.timestamp.set(u64::MAX);
             return false;
         }
@@ -350,10 +329,10 @@ impl OsTimer {
         let gray_timestamp = dec_to_gray(timestamp);
 
         os().match_l()
-            .write(|w| unsafe { w.bits(gray_timestamp as u32 & 0xffff_ffff) });
+            .write_value(pac::ostimer::regs::MatchL(gray_timestamp as u32 & 0xffff_ffff));
         os().match_h()
-            .write(|w| unsafe { w.bits((gray_timestamp >> 32) as u32) });
-        os().osevent_ctrl().modify(|_, w| w.ostimer_intena().set_bit());
+            .write_value(pac::ostimer::regs::MatchH((gray_timestamp >> 32) as u32));
+        os().osevent_ctrl().modify(|w| w.set_ostimer_intena(true));
 
         true
     }
@@ -369,9 +348,11 @@ impl OsTimer {
     #[cfg(feature = "rt")]
     fn on_interrupt(&self) {
         critical_section::with(|cs| {
-            if os().osevent_ctrl().read().ostimer_intrflag().bit_is_set() {
-                os().osevent_ctrl()
-                    .modify(|_, w| w.ostimer_intena().clear_bit().ostimer_intrflag().set_bit());
+            if os().osevent_ctrl().read().ostimer_intrflag() {
+                os().osevent_ctrl().modify(|w| {
+                    w.set_ostimer_intena(false);
+                    w.set_ostimer_intrflag(true);
+                });
                 self.trigger_alarm(cs);
             }
         });
@@ -381,9 +362,9 @@ impl OsTimer {
 #[cfg(feature = "time-driver-os-timer")]
 impl Driver for OsTimer {
     fn now(&self) -> u64 {
-        let mut t = os().evtimerh().read().bits() as u64;
+        let mut t = os().evtimerh().read().0 as u64;
         t <<= 32;
-        t |= os().evtimerl().read().bits() as u64;
+        t |= os().evtimerl().read().0 as u64;
         gray_to_dec(t)
     }
 
