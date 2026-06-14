@@ -1039,7 +1039,6 @@ fn main() {
     });
 
     let clocks_macro = quote!(
-        #[cfg(not(stm32c5))]
         macro_rules! set_clocks {
             ($($(#[$m:meta])* $k:ident: $v:expr,)*) => {
                 {
