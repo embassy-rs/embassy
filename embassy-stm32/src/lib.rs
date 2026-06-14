@@ -945,7 +945,7 @@ fn init_hw(config: Config) -> Peripherals {
             hsem::init_hsem(cs);
 
             // must be after rcc init
-            #[cfg(all(feature = "_time-driver", not(stm32c5)))]
+            #[cfg(feature = "_time-driver")]
             crate::time_driver::init(cs);
 
             // must be after time-driver init

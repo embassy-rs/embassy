@@ -87,7 +87,7 @@ pub(crate) fn set_rcc_config_ptr(config: *mut MaybeUninit<Option<Config>>) {
     RCC_CONFIG_PTR.store(config, core::sync::atomic::Ordering::SeqCst);
 }
 
-#[cfg(all(not(feature = "_dual-core"), not(stm32c5)))]
+#[cfg(all(not(feature = "_dual-core")))]
 /// Sets the clock frequencies
 ///
 /// Safety: Sets a mutable global.

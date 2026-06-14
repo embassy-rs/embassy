@@ -109,6 +109,23 @@ pub(crate) unsafe fn init(config: Config) {
         w.set_ppre2(config.apb2_pre);
         w.set_ppre3(config.apb3_pre);
     });
+
+    set_clocks!(
+        sys: Some(sys),
+        hclk1: Some(hclk),
+        pclk1: Some(apb1),
+        pclk1_tim: Some(hclk),
+        pclk2: Some(apb2),
+        pclk2_tim: Some(hclk),
+
+        hsi: hsi,
+
+        // TODO
+        lsi: None,
+        lse: None,
+
+        rtc: None,
+    );
 }
 
 fn flash_setup(hclk: Hertz) {
