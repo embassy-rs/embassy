@@ -49390,58 +49390,6 @@ impl ::micropb::MessageDecode for Rpc {
                     };
                     mut_ref.decode_len_delimited(decoder)?;
                 }
-                769u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let Rpc_::Payload::EventEspInit(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(Rpc_::Payload::EventEspInit(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                770u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let Rpc_::Payload::EventHeartbeat(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(Rpc_::Payload::EventHeartbeat(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                775u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let Rpc_::Payload::EventStaConnected(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(Rpc_::Payload::EventStaConnected(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                776u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let Rpc_::Payload::EventStaDisconnected(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(Rpc_::Payload::EventStaDisconnected(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
                 _ => {
                     decoder.skip_wire_value(tag.wire_type())?;
                 }
@@ -50063,67 +50011,6 @@ impl ::micropb::MessageEncode for Rpc {
                     break 'oneof (::core::result::Result::<usize, _>::Err(err));
                 }
             }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(<Rpc_Event_ESPInit as ::micropb::MessageEncode>::MAX_SIZE, |size| {
-                    ::micropb::size::sizeof_len_record(size)
-                }),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(<Rpc_Event_Heartbeat as ::micropb::MessageEncode>::MAX_SIZE, |size| {
-                    ::micropb::size::sizeof_len_record(size)
-                }),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(<Rpc_Event_StaConnected as ::micropb::MessageEncode>::MAX_SIZE, |size| {
-                    ::micropb::size::sizeof_len_record(size)
-                }),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
-                    <Rpc_Event_StaDisconnected as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
             ::core::result::Result::Ok(max_size)
         } {
             ::core::result::Result::Ok(size) => {
@@ -50353,26 +50240,6 @@ impl ::micropb::MessageEncode for Rpc {
                     encoder.encode_varint32(5146u32)?;
                     val_ref.encode_len_delimited(encoder)?;
                 }
-                Rpc_::Payload::EventEspInit(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(6154u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                Rpc_::Payload::EventHeartbeat(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(6162u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                Rpc_::Payload::EventStaConnected(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(6202u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                Rpc_::Payload::EventStaDisconnected(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(6210u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
             }
         }
         Ok(())
@@ -50552,22 +50419,6 @@ impl ::micropb::MessageEncode for Rpc {
                     let val_ref = &*val_ref;
                     size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
                 }
-                Rpc_::Payload::EventEspInit(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                Rpc_::Payload::EventHeartbeat(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                Rpc_::Payload::EventStaConnected(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                Rpc_::Payload::EventStaDisconnected(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
             }
         }
         size
@@ -50643,6 +50494,397 @@ pub mod Rpc_ {
         RespGetCoprocessorFwversion(super::Rpc_Resp_GetCoprocessorFwVersion),
         RespWifiScanGetApRecord(super::Rpc_Resp_WifiScanGetApRecord),
         RespFeatureControl(super::Rpc_Resp_FeatureControl),
+    }
+}
+#[derive(Debug, Default, PartialEq, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct RpcEvent {
+    /// msg_type could be req, resp or Event
+    pub r#msg_type: RpcType,
+    /// msg id
+    pub r#msg_id: RpcId,
+    /// UID of message
+    pub r#uid: u32,
+    /// union of all msg ids
+    ///
+    /// End of manual change
+    pub r#payload: ::core::option::Option<RpcEvent_::Payload>,
+}
+impl RpcEvent {
+    /// Return a reference to `msg_type`
+    #[inline]
+    pub fn r#msg_type(&self) -> &RpcType {
+        &self.r#msg_type
+    }
+    /// Return a mutable reference to `msg_type`
+    #[inline]
+    pub fn mut_msg_type(&mut self) -> &mut RpcType {
+        &mut self.r#msg_type
+    }
+    /// Set the value of `msg_type`
+    #[inline]
+    pub fn set_msg_type(&mut self, value: RpcType) -> &mut Self {
+        self.r#msg_type = value.into();
+        self
+    }
+    /// Builder method that sets the value of `msg_type`. Useful for initializing the message.
+    #[inline]
+    pub fn init_msg_type(mut self, value: RpcType) -> Self {
+        self.r#msg_type = value.into();
+        self
+    }
+    /// Return a reference to `msg_id`
+    #[inline]
+    pub fn r#msg_id(&self) -> &RpcId {
+        &self.r#msg_id
+    }
+    /// Return a mutable reference to `msg_id`
+    #[inline]
+    pub fn mut_msg_id(&mut self) -> &mut RpcId {
+        &mut self.r#msg_id
+    }
+    /// Set the value of `msg_id`
+    #[inline]
+    pub fn set_msg_id(&mut self, value: RpcId) -> &mut Self {
+        self.r#msg_id = value.into();
+        self
+    }
+    /// Builder method that sets the value of `msg_id`. Useful for initializing the message.
+    #[inline]
+    pub fn init_msg_id(mut self, value: RpcId) -> Self {
+        self.r#msg_id = value.into();
+        self
+    }
+    /// Return a reference to `uid`
+    #[inline]
+    pub fn r#uid(&self) -> &u32 {
+        &self.r#uid
+    }
+    /// Return a mutable reference to `uid`
+    #[inline]
+    pub fn mut_uid(&mut self) -> &mut u32 {
+        &mut self.r#uid
+    }
+    /// Set the value of `uid`
+    #[inline]
+    pub fn set_uid(&mut self, value: u32) -> &mut Self {
+        self.r#uid = value.into();
+        self
+    }
+    /// Builder method that sets the value of `uid`. Useful for initializing the message.
+    #[inline]
+    pub fn init_uid(mut self, value: u32) -> Self {
+        self.r#uid = value.into();
+        self
+    }
+}
+impl ::micropb::MessageDecode for RpcEvent {
+    fn decode<IMPL_MICROPB_READ: ::micropb::PbRead>(
+        &mut self,
+        decoder: &mut ::micropb::PbDecoder<IMPL_MICROPB_READ>,
+        len: usize,
+    ) -> Result<(), ::micropb::DecodeError<IMPL_MICROPB_READ::Error>> {
+        use ::micropb::{FieldDecode, PbBytes, PbMap, PbString, PbVec};
+        let before = decoder.bytes_read();
+        while decoder.bytes_read() - before < len {
+            let tag = decoder.decode_tag()?;
+            match tag.field_num() {
+                0 => return Err(::micropb::DecodeError::ZeroField),
+                1u32 => {
+                    let mut_ref = &mut self.r#msg_type;
+                    {
+                        let val = decoder.decode_int32().map(|n| RpcType(n as _))?;
+                        let val_ref = &val;
+                        if val_ref.0 != 0 {
+                            *mut_ref = val as _;
+                        }
+                    };
+                }
+                2u32 => {
+                    let mut_ref = &mut self.r#msg_id;
+                    {
+                        let val = decoder.decode_int32().map(|n| RpcId(n as _))?;
+                        let val_ref = &val;
+                        if val_ref.0 != 0 {
+                            *mut_ref = val as _;
+                        }
+                    };
+                }
+                3u32 => {
+                    let mut_ref = &mut self.r#uid;
+                    {
+                        let val = decoder.decode_varint32()?;
+                        let val_ref = &val;
+                        if *val_ref != 0 {
+                            *mut_ref = val as _;
+                        }
+                    };
+                }
+                769u32 => {
+                    let mut_ref = loop {
+                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
+                            if let RpcEvent_::Payload::EventEspInit(variant) = &mut *variant {
+                                break &mut *variant;
+                            }
+                        }
+                        self.r#payload = ::core::option::Option::Some(RpcEvent_::Payload::EventEspInit(
+                            ::core::default::Default::default(),
+                        ));
+                    };
+                    mut_ref.decode_len_delimited(decoder)?;
+                }
+                770u32 => {
+                    let mut_ref = loop {
+                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
+                            if let RpcEvent_::Payload::EventHeartbeat(variant) = &mut *variant {
+                                break &mut *variant;
+                            }
+                        }
+                        self.r#payload = ::core::option::Option::Some(RpcEvent_::Payload::EventHeartbeat(
+                            ::core::default::Default::default(),
+                        ));
+                    };
+                    mut_ref.decode_len_delimited(decoder)?;
+                }
+                775u32 => {
+                    let mut_ref = loop {
+                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
+                            if let RpcEvent_::Payload::EventStaConnected(variant) = &mut *variant {
+                                break &mut *variant;
+                            }
+                        }
+                        self.r#payload = ::core::option::Option::Some(RpcEvent_::Payload::EventStaConnected(
+                            ::core::default::Default::default(),
+                        ));
+                    };
+                    mut_ref.decode_len_delimited(decoder)?;
+                }
+                776u32 => {
+                    let mut_ref = loop {
+                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
+                            if let RpcEvent_::Payload::EventStaDisconnected(variant) = &mut *variant {
+                                break &mut *variant;
+                            }
+                        }
+                        self.r#payload = ::core::option::Option::Some(RpcEvent_::Payload::EventStaDisconnected(
+                            ::core::default::Default::default(),
+                        ));
+                    };
+                    mut_ref.decode_len_delimited(decoder)?;
+                }
+                _ => {
+                    decoder.skip_wire_value(tag.wire_type())?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+impl ::micropb::MessageEncode for RpcEvent {
+    const MAX_SIZE: ::core::result::Result<usize, &'static str> = 'msg: {
+        let mut max_size = 0;
+        match ::micropb::const_map!(::core::result::Result::Ok(RpcType::_MAX_SIZE), |size| size + 1usize) {
+            ::core::result::Result::Ok(size) => {
+                max_size += size;
+            }
+            ::core::result::Result::Err(err) => {
+                break 'msg (::core::result::Result::<usize, _>::Err(err));
+            }
+        }
+        match ::micropb::const_map!(::core::result::Result::Ok(RpcId::_MAX_SIZE), |size| size + 1usize) {
+            ::core::result::Result::Ok(size) => {
+                max_size += size;
+            }
+            ::core::result::Result::Err(err) => {
+                break 'msg (::core::result::Result::<usize, _>::Err(err));
+            }
+        }
+        match ::micropb::const_map!(::core::result::Result::Ok(5usize), |size| size + 1usize) {
+            ::core::result::Result::Ok(size) => {
+                max_size += size;
+            }
+            ::core::result::Result::Err(err) => {
+                break 'msg (::core::result::Result::<usize, _>::Err(err));
+            }
+        }
+        match 'oneof: {
+            let mut max_size = 0;
+            match ::micropb::const_map!(
+                ::micropb::const_map!(<Rpc_Event_ESPInit as ::micropb::MessageEncode>::MAX_SIZE, |size| {
+                    ::micropb::size::sizeof_len_record(size)
+                }),
+                |size| size + 2usize
+            ) {
+                ::core::result::Result::Ok(size) => {
+                    if size > max_size {
+                        max_size = size;
+                    }
+                }
+                ::core::result::Result::Err(err) => {
+                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
+                }
+            }
+            match ::micropb::const_map!(
+                ::micropb::const_map!(<Rpc_Event_Heartbeat as ::micropb::MessageEncode>::MAX_SIZE, |size| {
+                    ::micropb::size::sizeof_len_record(size)
+                }),
+                |size| size + 2usize
+            ) {
+                ::core::result::Result::Ok(size) => {
+                    if size > max_size {
+                        max_size = size;
+                    }
+                }
+                ::core::result::Result::Err(err) => {
+                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
+                }
+            }
+            match ::micropb::const_map!(
+                ::micropb::const_map!(<Rpc_Event_StaConnected as ::micropb::MessageEncode>::MAX_SIZE, |size| {
+                    ::micropb::size::sizeof_len_record(size)
+                }),
+                |size| size + 2usize
+            ) {
+                ::core::result::Result::Ok(size) => {
+                    if size > max_size {
+                        max_size = size;
+                    }
+                }
+                ::core::result::Result::Err(err) => {
+                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
+                }
+            }
+            match ::micropb::const_map!(
+                ::micropb::const_map!(
+                    <Rpc_Event_StaDisconnected as ::micropb::MessageEncode>::MAX_SIZE,
+                    |size| ::micropb::size::sizeof_len_record(size)
+                ),
+                |size| size + 2usize
+            ) {
+                ::core::result::Result::Ok(size) => {
+                    if size > max_size {
+                        max_size = size;
+                    }
+                }
+                ::core::result::Result::Err(err) => {
+                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
+                }
+            }
+            ::core::result::Result::Ok(max_size)
+        } {
+            ::core::result::Result::Ok(size) => {
+                max_size += size;
+            }
+            ::core::result::Result::Err(err) => {
+                break 'msg (::core::result::Result::<usize, _>::Err(err));
+            }
+        }
+        ::core::result::Result::Ok(max_size)
+    };
+    fn encode<IMPL_MICROPB_WRITE: ::micropb::PbWrite>(
+        &self,
+        encoder: &mut ::micropb::PbEncoder<IMPL_MICROPB_WRITE>,
+    ) -> Result<(), IMPL_MICROPB_WRITE::Error> {
+        use ::micropb::{FieldEncode, PbMap};
+        {
+            let val_ref = &self.r#msg_type;
+            if val_ref.0 != 0 {
+                encoder.encode_varint32(8u32)?;
+                encoder.encode_int32(val_ref.0 as _)?;
+            }
+        }
+        {
+            let val_ref = &self.r#msg_id;
+            if val_ref.0 != 0 {
+                encoder.encode_varint32(16u32)?;
+                encoder.encode_int32(val_ref.0 as _)?;
+            }
+        }
+        {
+            let val_ref = &self.r#uid;
+            if *val_ref != 0 {
+                encoder.encode_varint32(24u32)?;
+                encoder.encode_varint32(*val_ref as _)?;
+            }
+        }
+        if let Some(oneof) = &self.r#payload {
+            match &*oneof {
+                RpcEvent_::Payload::EventEspInit(val_ref) => {
+                    let val_ref = &*val_ref;
+                    encoder.encode_varint32(6154u32)?;
+                    val_ref.encode_len_delimited(encoder)?;
+                }
+                RpcEvent_::Payload::EventHeartbeat(val_ref) => {
+                    let val_ref = &*val_ref;
+                    encoder.encode_varint32(6162u32)?;
+                    val_ref.encode_len_delimited(encoder)?;
+                }
+                RpcEvent_::Payload::EventStaConnected(val_ref) => {
+                    let val_ref = &*val_ref;
+                    encoder.encode_varint32(6202u32)?;
+                    val_ref.encode_len_delimited(encoder)?;
+                }
+                RpcEvent_::Payload::EventStaDisconnected(val_ref) => {
+                    let val_ref = &*val_ref;
+                    encoder.encode_varint32(6210u32)?;
+                    val_ref.encode_len_delimited(encoder)?;
+                }
+            }
+        }
+        Ok(())
+    }
+    fn compute_size(&self) -> usize {
+        use ::micropb::{FieldEncode, PbMap};
+        let mut size = 0;
+        {
+            let val_ref = &self.r#msg_type;
+            if val_ref.0 != 0 {
+                size += 1usize + ::micropb::size::sizeof_int32(val_ref.0 as _);
+            }
+        }
+        {
+            let val_ref = &self.r#msg_id;
+            if val_ref.0 != 0 {
+                size += 1usize + ::micropb::size::sizeof_int32(val_ref.0 as _);
+            }
+        }
+        {
+            let val_ref = &self.r#uid;
+            if *val_ref != 0 {
+                size += 1usize + ::micropb::size::sizeof_varint32(*val_ref as _);
+            }
+        }
+        if let Some(oneof) = &self.r#payload {
+            match &*oneof {
+                RpcEvent_::Payload::EventEspInit(val_ref) => {
+                    let val_ref = &*val_ref;
+                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
+                }
+                RpcEvent_::Payload::EventHeartbeat(val_ref) => {
+                    let val_ref = &*val_ref;
+                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
+                }
+                RpcEvent_::Payload::EventStaConnected(val_ref) => {
+                    let val_ref = &*val_ref;
+                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
+                }
+                RpcEvent_::Payload::EventStaDisconnected(val_ref) => {
+                    let val_ref = &*val_ref;
+                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
+                }
+            }
+        }
+        size
+    }
+}
+/// Inner types for `RpcEvent`
+pub mod RpcEvent_ {
+    /// union of all msg ids
+    ///
+    /// End of manual change
+    #[derive(Debug, PartialEq, Clone)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    pub enum Payload {
         ///* Notifications *
         EventEspInit(super::Rpc_Event_ESPInit),
         EventHeartbeat(super::Rpc_Event_Heartbeat),

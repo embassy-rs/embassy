@@ -2440,7 +2440,23 @@ message Rpc {
 		//Rpc_Resp_GpioSetPullMode            resp_gpio_set_pull_mode            = 651;
 
 		//Rpc_Resp_ExtCoex                    resp_ext_coex                     = 652;
+// Start of manual change - separate Event message to improve code size
+	}
+}
 
+message RpcEvent {
+	/* msg_type could be req, resp or Event */
+	RpcType msg_type = 1;
+
+	/* msg id */
+	RpcId msg_id = 2;
+
+	/* UID of message */
+	uint32 uid = 3;
+
+	/* union of all msg ids */
+	oneof payload {
+// End of manual change
 		/** Notifications **/
 		Rpc_Event_ESPInit                   event_esp_init                     = 769;
 		Rpc_Event_Heartbeat                 event_heartbeat                    = 770;

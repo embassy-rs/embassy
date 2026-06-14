@@ -613,7 +613,26 @@ message CtrlMsg {
         //CtrlMsg_Resp_SetDhcpDnsStatus resp_set_dhcp_dns_status = 226;
         //CtrlMsg_Resp_GetDhcpDnsStatus resp_get_dhcp_dns_status = 227;
         //CtrlMsg_Resp_CustomRpcUnserialisedMsg resp_custom_rpc_unserialised_msg = 228;
+// Start of manual change - separate Event message to improve code size
+    }
+}
 
+message CtrlEvent {
+    /* msg_type could be req, resp or Event */
+    CtrlMsgType msg_type = 1;
+
+    /* msg id */
+    CtrlMsgId msg_id = 2;
+
+    /* UID of message */
+    int32 uid = 3;
+
+    /* Request/response type: sync or async */
+    uint32 req_resp_type = 4;
+
+    /* union of all msg ids */
+    oneof payload {
+// End of manual change
         /** Notifications **/
         CtrlMsg_Event_ESPInit event_esp_init = 301;
         CtrlMsg_Event_Heartbeat event_heartbeat = 302;

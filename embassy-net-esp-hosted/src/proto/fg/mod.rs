@@ -11504,58 +11504,6 @@ impl ::micropb::MessageDecode for CtrlMsg {
                     };
                     mut_ref.decode_len_delimited(decoder)?;
                 }
-                301u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::EventEspInit(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::EventEspInit(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                302u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::EventHeartbeat(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::EventHeartbeat(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                303u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::EventStationDisconnectFromAp(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::EventStationDisconnectFromAp(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                305u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::EventStationConnectedToAp(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::EventStationConnectedToAp(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
                 _ => {
                     decoder.skip_wire_value(tag.wire_type())?;
                 }
@@ -11940,69 +11888,6 @@ impl ::micropb::MessageEncode for CtrlMsg {
                     break 'oneof (::core::result::Result::<usize, _>::Err(err));
                 }
             }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(<CtrlMsg_Event_ESPInit as ::micropb::MessageEncode>::MAX_SIZE, |size| {
-                    ::micropb::size::sizeof_len_record(size)
-                }),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
-                    <CtrlMsg_Event_Heartbeat as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
-                    <CtrlMsg_Event_StationDisconnectFromAP as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
-                    <CtrlMsg_Event_StationConnectedToAP as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
             ::core::result::Result::Ok(max_size)
         } {
             ::core::result::Result::Ok(size) => {
@@ -12159,26 +12044,6 @@ impl ::micropb::MessageEncode for CtrlMsg {
                     encoder.encode_varint32(1786u32)?;
                     val_ref.encode_len_delimited(encoder)?;
                 }
-                CtrlMsg_::Payload::EventEspInit(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(2410u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::EventHeartbeat(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(2418u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::EventStationDisconnectFromAp(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(2426u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::EventStationConnectedToAp(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(2442u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
             }
         }
         Ok(())
@@ -12300,22 +12165,6 @@ impl ::micropb::MessageEncode for CtrlMsg {
                     let val_ref = &*val_ref;
                     size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
                 }
-                CtrlMsg_::Payload::EventEspInit(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::EventHeartbeat(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::EventStationDisconnectFromAp(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::EventStationConnectedToAp(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
             }
         }
         size
@@ -12372,7 +12221,456 @@ pub mod CtrlMsg_ {
         ///CtrlMsg_Resp_SetDhcpDnsStatus resp_set_dhcp_dns_status = 226;
         ///CtrlMsg_Resp_GetDhcpDnsStatus resp_get_dhcp_dns_status = 227;
         ///CtrlMsg_Resp_CustomRpcUnserialisedMsg resp_custom_rpc_unserialised_msg = 228;
+        /// Start of manual change - separate Event message to improve code size
         RespGetFwVersion(super::CtrlMsg_Resp_GetFwVersion),
+    }
+}
+#[derive(Debug, Default, PartialEq, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct CtrlEvent {
+    /// msg_type could be req, resp or Event
+    pub r#msg_type: CtrlMsgType,
+    /// msg id
+    pub r#msg_id: CtrlMsgId,
+    /// UID of message
+    pub r#uid: i32,
+    /// Request/response type: sync or async
+    pub r#req_resp_type: u32,
+    /// union of all msg ids
+    ///
+    /// End of manual change
+    pub r#payload: ::core::option::Option<CtrlEvent_::Payload>,
+}
+impl CtrlEvent {
+    /// Return a reference to `msg_type`
+    #[inline]
+    pub fn r#msg_type(&self) -> &CtrlMsgType {
+        &self.r#msg_type
+    }
+    /// Return a mutable reference to `msg_type`
+    #[inline]
+    pub fn mut_msg_type(&mut self) -> &mut CtrlMsgType {
+        &mut self.r#msg_type
+    }
+    /// Set the value of `msg_type`
+    #[inline]
+    pub fn set_msg_type(&mut self, value: CtrlMsgType) -> &mut Self {
+        self.r#msg_type = value.into();
+        self
+    }
+    /// Builder method that sets the value of `msg_type`. Useful for initializing the message.
+    #[inline]
+    pub fn init_msg_type(mut self, value: CtrlMsgType) -> Self {
+        self.r#msg_type = value.into();
+        self
+    }
+    /// Return a reference to `msg_id`
+    #[inline]
+    pub fn r#msg_id(&self) -> &CtrlMsgId {
+        &self.r#msg_id
+    }
+    /// Return a mutable reference to `msg_id`
+    #[inline]
+    pub fn mut_msg_id(&mut self) -> &mut CtrlMsgId {
+        &mut self.r#msg_id
+    }
+    /// Set the value of `msg_id`
+    #[inline]
+    pub fn set_msg_id(&mut self, value: CtrlMsgId) -> &mut Self {
+        self.r#msg_id = value.into();
+        self
+    }
+    /// Builder method that sets the value of `msg_id`. Useful for initializing the message.
+    #[inline]
+    pub fn init_msg_id(mut self, value: CtrlMsgId) -> Self {
+        self.r#msg_id = value.into();
+        self
+    }
+    /// Return a reference to `uid`
+    #[inline]
+    pub fn r#uid(&self) -> &i32 {
+        &self.r#uid
+    }
+    /// Return a mutable reference to `uid`
+    #[inline]
+    pub fn mut_uid(&mut self) -> &mut i32 {
+        &mut self.r#uid
+    }
+    /// Set the value of `uid`
+    #[inline]
+    pub fn set_uid(&mut self, value: i32) -> &mut Self {
+        self.r#uid = value.into();
+        self
+    }
+    /// Builder method that sets the value of `uid`. Useful for initializing the message.
+    #[inline]
+    pub fn init_uid(mut self, value: i32) -> Self {
+        self.r#uid = value.into();
+        self
+    }
+    /// Return a reference to `req_resp_type`
+    #[inline]
+    pub fn r#req_resp_type(&self) -> &u32 {
+        &self.r#req_resp_type
+    }
+    /// Return a mutable reference to `req_resp_type`
+    #[inline]
+    pub fn mut_req_resp_type(&mut self) -> &mut u32 {
+        &mut self.r#req_resp_type
+    }
+    /// Set the value of `req_resp_type`
+    #[inline]
+    pub fn set_req_resp_type(&mut self, value: u32) -> &mut Self {
+        self.r#req_resp_type = value.into();
+        self
+    }
+    /// Builder method that sets the value of `req_resp_type`. Useful for initializing the message.
+    #[inline]
+    pub fn init_req_resp_type(mut self, value: u32) -> Self {
+        self.r#req_resp_type = value.into();
+        self
+    }
+}
+impl ::micropb::MessageDecode for CtrlEvent {
+    fn decode<IMPL_MICROPB_READ: ::micropb::PbRead>(
+        &mut self,
+        decoder: &mut ::micropb::PbDecoder<IMPL_MICROPB_READ>,
+        len: usize,
+    ) -> Result<(), ::micropb::DecodeError<IMPL_MICROPB_READ::Error>> {
+        use ::micropb::{FieldDecode, PbBytes, PbMap, PbString, PbVec};
+        let before = decoder.bytes_read();
+        while decoder.bytes_read() - before < len {
+            let tag = decoder.decode_tag()?;
+            match tag.field_num() {
+                0 => return Err(::micropb::DecodeError::ZeroField),
+                1u32 => {
+                    let mut_ref = &mut self.r#msg_type;
+                    {
+                        let val = decoder.decode_int32().map(|n| CtrlMsgType(n as _))?;
+                        let val_ref = &val;
+                        if val_ref.0 != 0 {
+                            *mut_ref = val as _;
+                        }
+                    };
+                }
+                2u32 => {
+                    let mut_ref = &mut self.r#msg_id;
+                    {
+                        let val = decoder.decode_int32().map(|n| CtrlMsgId(n as _))?;
+                        let val_ref = &val;
+                        if val_ref.0 != 0 {
+                            *mut_ref = val as _;
+                        }
+                    };
+                }
+                3u32 => {
+                    let mut_ref = &mut self.r#uid;
+                    {
+                        let val = decoder.decode_int32()?;
+                        let val_ref = &val;
+                        if *val_ref != 0 {
+                            *mut_ref = val as _;
+                        }
+                    };
+                }
+                4u32 => {
+                    let mut_ref = &mut self.r#req_resp_type;
+                    {
+                        let val = decoder.decode_varint32()?;
+                        let val_ref = &val;
+                        if *val_ref != 0 {
+                            *mut_ref = val as _;
+                        }
+                    };
+                }
+                301u32 => {
+                    let mut_ref = loop {
+                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
+                            if let CtrlEvent_::Payload::EventEspInit(variant) = &mut *variant {
+                                break &mut *variant;
+                            }
+                        }
+                        self.r#payload = ::core::option::Option::Some(CtrlEvent_::Payload::EventEspInit(
+                            ::core::default::Default::default(),
+                        ));
+                    };
+                    mut_ref.decode_len_delimited(decoder)?;
+                }
+                302u32 => {
+                    let mut_ref = loop {
+                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
+                            if let CtrlEvent_::Payload::EventHeartbeat(variant) = &mut *variant {
+                                break &mut *variant;
+                            }
+                        }
+                        self.r#payload = ::core::option::Option::Some(CtrlEvent_::Payload::EventHeartbeat(
+                            ::core::default::Default::default(),
+                        ));
+                    };
+                    mut_ref.decode_len_delimited(decoder)?;
+                }
+                303u32 => {
+                    let mut_ref = loop {
+                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
+                            if let CtrlEvent_::Payload::EventStationDisconnectFromAp(variant) = &mut *variant {
+                                break &mut *variant;
+                            }
+                        }
+                        self.r#payload = ::core::option::Option::Some(
+                            CtrlEvent_::Payload::EventStationDisconnectFromAp(::core::default::Default::default()),
+                        );
+                    };
+                    mut_ref.decode_len_delimited(decoder)?;
+                }
+                305u32 => {
+                    let mut_ref = loop {
+                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
+                            if let CtrlEvent_::Payload::EventStationConnectedToAp(variant) = &mut *variant {
+                                break &mut *variant;
+                            }
+                        }
+                        self.r#payload = ::core::option::Option::Some(CtrlEvent_::Payload::EventStationConnectedToAp(
+                            ::core::default::Default::default(),
+                        ));
+                    };
+                    mut_ref.decode_len_delimited(decoder)?;
+                }
+                _ => {
+                    decoder.skip_wire_value(tag.wire_type())?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+impl ::micropb::MessageEncode for CtrlEvent {
+    const MAX_SIZE: ::core::result::Result<usize, &'static str> = 'msg: {
+        let mut max_size = 0;
+        match ::micropb::const_map!(::core::result::Result::Ok(CtrlMsgType::_MAX_SIZE), |size| size + 1usize) {
+            ::core::result::Result::Ok(size) => {
+                max_size += size;
+            }
+            ::core::result::Result::Err(err) => {
+                break 'msg (::core::result::Result::<usize, _>::Err(err));
+            }
+        }
+        match ::micropb::const_map!(::core::result::Result::Ok(CtrlMsgId::_MAX_SIZE), |size| size + 1usize) {
+            ::core::result::Result::Ok(size) => {
+                max_size += size;
+            }
+            ::core::result::Result::Err(err) => {
+                break 'msg (::core::result::Result::<usize, _>::Err(err));
+            }
+        }
+        match ::micropb::const_map!(::core::result::Result::Ok(10usize), |size| size + 1usize) {
+            ::core::result::Result::Ok(size) => {
+                max_size += size;
+            }
+            ::core::result::Result::Err(err) => {
+                break 'msg (::core::result::Result::<usize, _>::Err(err));
+            }
+        }
+        match ::micropb::const_map!(::core::result::Result::Ok(5usize), |size| size + 1usize) {
+            ::core::result::Result::Ok(size) => {
+                max_size += size;
+            }
+            ::core::result::Result::Err(err) => {
+                break 'msg (::core::result::Result::<usize, _>::Err(err));
+            }
+        }
+        match 'oneof: {
+            let mut max_size = 0;
+            match ::micropb::const_map!(
+                ::micropb::const_map!(<CtrlMsg_Event_ESPInit as ::micropb::MessageEncode>::MAX_SIZE, |size| {
+                    ::micropb::size::sizeof_len_record(size)
+                }),
+                |size| size + 2usize
+            ) {
+                ::core::result::Result::Ok(size) => {
+                    if size > max_size {
+                        max_size = size;
+                    }
+                }
+                ::core::result::Result::Err(err) => {
+                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
+                }
+            }
+            match ::micropb::const_map!(
+                ::micropb::const_map!(
+                    <CtrlMsg_Event_Heartbeat as ::micropb::MessageEncode>::MAX_SIZE,
+                    |size| ::micropb::size::sizeof_len_record(size)
+                ),
+                |size| size + 2usize
+            ) {
+                ::core::result::Result::Ok(size) => {
+                    if size > max_size {
+                        max_size = size;
+                    }
+                }
+                ::core::result::Result::Err(err) => {
+                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
+                }
+            }
+            match ::micropb::const_map!(
+                ::micropb::const_map!(
+                    <CtrlMsg_Event_StationDisconnectFromAP as ::micropb::MessageEncode>::MAX_SIZE,
+                    |size| ::micropb::size::sizeof_len_record(size)
+                ),
+                |size| size + 2usize
+            ) {
+                ::core::result::Result::Ok(size) => {
+                    if size > max_size {
+                        max_size = size;
+                    }
+                }
+                ::core::result::Result::Err(err) => {
+                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
+                }
+            }
+            match ::micropb::const_map!(
+                ::micropb::const_map!(
+                    <CtrlMsg_Event_StationConnectedToAP as ::micropb::MessageEncode>::MAX_SIZE,
+                    |size| ::micropb::size::sizeof_len_record(size)
+                ),
+                |size| size + 2usize
+            ) {
+                ::core::result::Result::Ok(size) => {
+                    if size > max_size {
+                        max_size = size;
+                    }
+                }
+                ::core::result::Result::Err(err) => {
+                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
+                }
+            }
+            ::core::result::Result::Ok(max_size)
+        } {
+            ::core::result::Result::Ok(size) => {
+                max_size += size;
+            }
+            ::core::result::Result::Err(err) => {
+                break 'msg (::core::result::Result::<usize, _>::Err(err));
+            }
+        }
+        ::core::result::Result::Ok(max_size)
+    };
+    fn encode<IMPL_MICROPB_WRITE: ::micropb::PbWrite>(
+        &self,
+        encoder: &mut ::micropb::PbEncoder<IMPL_MICROPB_WRITE>,
+    ) -> Result<(), IMPL_MICROPB_WRITE::Error> {
+        use ::micropb::{FieldEncode, PbMap};
+        {
+            let val_ref = &self.r#msg_type;
+            if val_ref.0 != 0 {
+                encoder.encode_varint32(8u32)?;
+                encoder.encode_int32(val_ref.0 as _)?;
+            }
+        }
+        {
+            let val_ref = &self.r#msg_id;
+            if val_ref.0 != 0 {
+                encoder.encode_varint32(16u32)?;
+                encoder.encode_int32(val_ref.0 as _)?;
+            }
+        }
+        {
+            let val_ref = &self.r#uid;
+            if *val_ref != 0 {
+                encoder.encode_varint32(24u32)?;
+                encoder.encode_int32(*val_ref as _)?;
+            }
+        }
+        {
+            let val_ref = &self.r#req_resp_type;
+            if *val_ref != 0 {
+                encoder.encode_varint32(32u32)?;
+                encoder.encode_varint32(*val_ref as _)?;
+            }
+        }
+        if let Some(oneof) = &self.r#payload {
+            match &*oneof {
+                CtrlEvent_::Payload::EventEspInit(val_ref) => {
+                    let val_ref = &*val_ref;
+                    encoder.encode_varint32(2410u32)?;
+                    val_ref.encode_len_delimited(encoder)?;
+                }
+                CtrlEvent_::Payload::EventHeartbeat(val_ref) => {
+                    let val_ref = &*val_ref;
+                    encoder.encode_varint32(2418u32)?;
+                    val_ref.encode_len_delimited(encoder)?;
+                }
+                CtrlEvent_::Payload::EventStationDisconnectFromAp(val_ref) => {
+                    let val_ref = &*val_ref;
+                    encoder.encode_varint32(2426u32)?;
+                    val_ref.encode_len_delimited(encoder)?;
+                }
+                CtrlEvent_::Payload::EventStationConnectedToAp(val_ref) => {
+                    let val_ref = &*val_ref;
+                    encoder.encode_varint32(2442u32)?;
+                    val_ref.encode_len_delimited(encoder)?;
+                }
+            }
+        }
+        Ok(())
+    }
+    fn compute_size(&self) -> usize {
+        use ::micropb::{FieldEncode, PbMap};
+        let mut size = 0;
+        {
+            let val_ref = &self.r#msg_type;
+            if val_ref.0 != 0 {
+                size += 1usize + ::micropb::size::sizeof_int32(val_ref.0 as _);
+            }
+        }
+        {
+            let val_ref = &self.r#msg_id;
+            if val_ref.0 != 0 {
+                size += 1usize + ::micropb::size::sizeof_int32(val_ref.0 as _);
+            }
+        }
+        {
+            let val_ref = &self.r#uid;
+            if *val_ref != 0 {
+                size += 1usize + ::micropb::size::sizeof_int32(*val_ref as _);
+            }
+        }
+        {
+            let val_ref = &self.r#req_resp_type;
+            if *val_ref != 0 {
+                size += 1usize + ::micropb::size::sizeof_varint32(*val_ref as _);
+            }
+        }
+        if let Some(oneof) = &self.r#payload {
+            match &*oneof {
+                CtrlEvent_::Payload::EventEspInit(val_ref) => {
+                    let val_ref = &*val_ref;
+                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
+                }
+                CtrlEvent_::Payload::EventHeartbeat(val_ref) => {
+                    let val_ref = &*val_ref;
+                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
+                }
+                CtrlEvent_::Payload::EventStationDisconnectFromAp(val_ref) => {
+                    let val_ref = &*val_ref;
+                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
+                }
+                CtrlEvent_::Payload::EventStationConnectedToAp(val_ref) => {
+                    let val_ref = &*val_ref;
+                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
+                }
+            }
+        }
+        size
+    }
+}
+/// Inner types for `CtrlEvent`
+pub mod CtrlEvent_ {
+    /// union of all msg ids
+    ///
+    /// End of manual change
+    #[derive(Debug, PartialEq, Clone)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    pub enum Payload {
         ///* Notifications *
         EventEspInit(super::CtrlMsg_Event_ESPInit),
         EventHeartbeat(super::CtrlMsg_Event_Heartbeat),
