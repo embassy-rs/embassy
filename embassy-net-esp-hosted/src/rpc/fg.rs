@@ -1,11 +1,12 @@
-use CtrlMsg_::Payload;
 use heapless::{String, Vec};
 use micropb::MessageDecode;
 
 use super::{HostedEvent, IoctlCtx, RpcBackend, check_resp};
 use crate::control::{Error, Security, Status};
+use crate::proto::fg::CtrlEvent_::Payload as EventPayload;
+use crate::proto::fg::CtrlMsg_::Payload;
 use crate::proto::fg::{
-    CtrlMsg, CtrlMsg_, CtrlMsg_Req_ConfigHeartbeat, CtrlMsg_Req_ConnectAP, CtrlMsg_Req_GetAPConfig,
+    CtrlEvent, CtrlMsg, CtrlMsg_Req_ConfigHeartbeat, CtrlMsg_Req_ConnectAP, CtrlMsg_Req_GetAPConfig,
     CtrlMsg_Req_GetMacAddress, CtrlMsg_Req_GetStatus, CtrlMsg_Req_OTABegin, CtrlMsg_Req_OTAEnd, CtrlMsg_Req_OTAWrite,
     CtrlMsg_Req_ScanResult, CtrlMsg_Req_SetMode, CtrlMsgId, CtrlMsgType, ScanResult,
 };
@@ -235,7 +236,7 @@ impl RpcBackend for FgBackend {
 
     #[inline]
     fn normalize_event(&self, raw: &[u8]) -> Option<HostedEvent> {
-        let mut event = CtrlMsg::default();
+        let mut event = CtrlEvent::default();
         if event.decode_from_bytes(raw).is_err() {
             warn!("failed to parse event");
             return None;
@@ -245,11 +246,10 @@ impl RpcBackend for FgBackend {
 
         let payload = event.payload.as_ref()?;
         match payload {
-            Payload::EventEspInit(_) => Some(HostedEvent::Init),
-            Payload::EventHeartbeat(_) => Some(HostedEvent::Heartbeat),
-            Payload::EventStationConnectedToAp(e) => Some(HostedEvent::StaConnected { resp: e.resp }),
-            Payload::EventStationDisconnectFromAp(e) => Some(HostedEvent::StaDisconnected { reason: e.reason }),
-            _ => None,
+            EventPayload::EventEspInit(_) => Some(HostedEvent::Init),
+            EventPayload::EventHeartbeat(_) => Some(HostedEvent::Heartbeat),
+            EventPayload::EventStationConnectedToAp(e) => Some(HostedEvent::StaConnected { resp: e.resp }),
+            EventPayload::EventStationDisconnectFromAp(e) => Some(HostedEvent::StaDisconnected { reason: e.reason }),
         }
     }
 }

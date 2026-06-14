@@ -4,12 +4,13 @@ use micropb::MessageDecode;
 use super::{HostedEvent, IoctlCtx, RpcBackend, check_resp};
 use crate::control::{Error, Security, Status};
 use crate::proto::mcu::Rpc_::Payload;
+use crate::proto::mcu::RpcEvent_::Payload as EventPayload;
 use crate::proto::mcu::{
     Rpc, Rpc_Req_ConfigHeartbeat, Rpc_Req_GetCoprocessorFwVersion, Rpc_Req_GetMacAddress, Rpc_Req_OTAActivate,
     Rpc_Req_OTABegin, Rpc_Req_OTAEnd, Rpc_Req_OTAWrite, Rpc_Req_SetMode, Rpc_Req_WifiClearApList, Rpc_Req_WifiConnect,
     Rpc_Req_WifiDisconnect, Rpc_Req_WifiInit, Rpc_Req_WifiScanGetApNum, Rpc_Req_WifiScanGetApRecord,
-    Rpc_Req_WifiScanStart, Rpc_Req_WifiSetConfig, Rpc_Req_WifiStaGetApInfo, Rpc_Req_WifiStart, RpcId, RpcType,
-    wifi_ap_record, wifi_config, wifi_config_, wifi_init_config, wifi_scan_threshold, wifi_sta_config,
+    Rpc_Req_WifiScanStart, Rpc_Req_WifiSetConfig, Rpc_Req_WifiStaGetApInfo, Rpc_Req_WifiStart, RpcEvent, RpcId,
+    RpcType, wifi_ap_record, wifi_config, wifi_config_, wifi_init_config, wifi_scan_threshold, wifi_sta_config,
 };
 #[cfg(feature = "bluetooth")]
 use crate::proto::mcu::{Rpc_Req_FeatureControl, RpcFeature, RpcFeatureCommand, RpcFeatureOption};
@@ -330,7 +331,7 @@ impl RpcBackend for McuBackend {
 
     #[inline]
     fn normalize_event(&self, raw: &[u8]) -> Option<HostedEvent> {
-        let mut event = Rpc::default();
+        let mut event = RpcEvent::default();
         if event.decode_from_bytes(raw).is_err() {
             warn!("failed to parse event");
             return None;
@@ -340,13 +341,12 @@ impl RpcBackend for McuBackend {
 
         let payload = event.payload.as_ref()?;
         match payload {
-            Payload::EventEspInit(_) => Some(HostedEvent::Init),
-            Payload::EventHeartbeat(_) => Some(HostedEvent::Heartbeat),
-            Payload::EventStaConnected(e) => Some(HostedEvent::StaConnected { resp: e.resp }),
-            Payload::EventStaDisconnected(e) => Some(HostedEvent::StaDisconnected {
+            EventPayload::EventEspInit(_) => Some(HostedEvent::Init),
+            EventPayload::EventHeartbeat(_) => Some(HostedEvent::Heartbeat),
+            EventPayload::EventStaConnected(e) => Some(HostedEvent::StaConnected { resp: e.resp }),
+            EventPayload::EventStaDisconnected(e) => Some(HostedEvent::StaDisconnected {
                 reason: e.sta_disconnected().map(|d| d.reason).unwrap_or(0),
             }),
-            _ => None,
         }
     }
 }
