@@ -1,5 +1,5 @@
 use CtrlMsg_::Payload;
-use heapless::String;
+use heapless::{String, Vec};
 use micropb::MessageDecode;
 
 use super::{HostedEvent, IoctlCtx, RpcBackend, check_resp};
@@ -7,13 +7,16 @@ use crate::control::{Error, Security, Status};
 use crate::proto::fg::{
     CtrlMsg, CtrlMsg_, CtrlMsg_Req_ConfigHeartbeat, CtrlMsg_Req_ConnectAP, CtrlMsg_Req_GetAPConfig,
     CtrlMsg_Req_GetMacAddress, CtrlMsg_Req_GetStatus, CtrlMsg_Req_OTABegin, CtrlMsg_Req_OTAEnd, CtrlMsg_Req_OTAWrite,
-    CtrlMsg_Req_SetMode, CtrlMsgId, CtrlMsgType,
+    CtrlMsg_Req_ScanResult, CtrlMsg_Req_SetMode, CtrlMsgId, CtrlMsgType, ScanResult,
 };
-use crate::{FwVersion, InterfaceType, WifiMode};
+use crate::rpc::from_utf8_lossy;
+use crate::{FwVersion, InterfaceType, Network, WifiMode};
 
 macro_rules! exchange {
     ($ctx:ident, $req_variant:ident, $resp_variant:ident, $req:expr) => {{
-        let mut msg = CtrlMsg {
+        let (mut ioctl, msg) = $ctx.fg();
+
+        *msg = CtrlMsg {
             msg_id: CtrlMsgId::$req_variant,
             msg_type: CtrlMsgType::Req,
             payload: Some(Payload::$req_variant($req)),
@@ -22,10 +25,10 @@ macro_rules! exchange {
         };
 
         debug!("ioctl req: {:?}", msg);
-        $ctx.exchange(&mut msg).await?;
+        ioctl.exchange(msg).await?;
         debug!("ioctl resp: {:?}", msg);
 
-        let Some(Payload::$resp_variant(resp)) = msg.payload else {
+        let Some(Payload::$resp_variant(ref resp)) = msg.payload else {
             return Err(Error::Internal);
         };
         check_resp(resp.resp)?;
@@ -127,6 +130,38 @@ impl RpcBackend for FgBackend {
         let resp = exchange!(ctx, ReqGetMacAddress, RespGetMacAddress, req);
         let mac_str = core::str::from_utf8(&resp.mac).map_err(|_| Error::Internal)?;
         parse_mac(mac_str)
+    }
+
+    async fn scan<const N: usize>(&self, ctx: &mut IoctlCtx<'_>, result: &mut Vec<Network, N>) -> Result<(), Error> {
+        let req = CtrlMsg_Req_ScanResult {};
+
+        let (mut ioctl, msg) = ctx.fg();
+
+        // Different names :(
+        *msg = CtrlMsg {
+            msg_id: CtrlMsgId::ReqGetApScanList,
+            msg_type: CtrlMsgType::Req,
+            payload: Some(Payload::ReqScanApList(req)),
+            req_resp_type: 0,
+            uid: 0,
+        };
+
+        debug!("ioctl req: {:?}", msg);
+        ioctl.exchange(msg).await?;
+        debug!("ioctl resp: {:?}", msg);
+
+        let Some(Payload::RespScanApList(ref resp)) = msg.payload else {
+            return Err(Error::Internal);
+        };
+        check_resp(resp.resp)?;
+
+        result.clear();
+        for network in resp.entries.iter() {
+            if result.push(network.try_into()?).is_err() {
+                break;
+            }
+        }
+        Ok(())
     }
 
     async fn connect_ap(&self, ctx: &mut IoctlCtx<'_>, ssid: &str, pwd: &str) -> Result<(), Error> {
@@ -256,4 +291,18 @@ fn parse_mac(mac: &str) -> Result<[u8; 6], Error> {
         *b = (nibble_from_hex(mac[i * 3])? << 4) | nibble_from_hex(mac[i * 3 + 1])?
     }
     Ok(res)
+}
+
+impl TryFrom<&ScanResult> for Network {
+    type Error = Error;
+
+    fn try_from(value: &ScanResult) -> Result<Self, Error> {
+        Ok(Network {
+            ssid: from_utf8_lossy(&value.ssid),
+            bssid: str::from_utf8(&value.bssid)
+                .map_err(|_| Error::Internal)
+                .and_then(parse_mac)?,
+            security: map_fg_security(value.sec_prot.0),
+        })
+    }
 }
