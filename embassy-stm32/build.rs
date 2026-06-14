@@ -2550,7 +2550,7 @@ fn main() {
             "gpdma" => quote!(crate::pac::#dma),
             "mdma" => quote!(crate::dma::DmaInfo::Mdma(crate::pac::#dma)),
             "lpdma" => {
-                quote!(unsafe { crate::pac::gpdma::Gpdma::from_ptr(crate::pac::#dma.as_ptr())})
+                quote!(unsafe { crate::pac::lpdma::Lpdma::from_ptr(crate::pac::#dma.as_ptr())})
             }
             _ => panic!("bad dma channel kind {}", bi.kind),
         };
@@ -2597,7 +2597,6 @@ fn main() {
     }
 
     g.extend(quote! {
-        #[cfg(not(stm32c5))]
         pub(crate) const DMA_CHANNELS: &[crate::dma::ChannelInfo] = &[#dmas];
     });
 
