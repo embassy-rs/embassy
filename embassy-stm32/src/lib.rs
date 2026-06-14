@@ -122,7 +122,7 @@ pub mod dsihost;
 pub mod dts;
 #[cfg(eth)]
 pub mod eth;
-#[cfg(all(feature = "exti", not(stm32c5)))]
+#[cfg(feature = "exti")]
 pub mod exti;
 #[cfg(all(flash, not(stm32c5)))]
 pub mod flash;
