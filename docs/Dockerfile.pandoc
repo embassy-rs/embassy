@@ -1,0 +1,24 @@
+# pandoc/latex with extra fonts for xelatex Unicode coverage and nice
+# typography. Used by `make pdf` to build the Embassy Book PDF.
+#
+# Bundled font families (all usable via MAIN_FONT / SANS_FONT / MONO_FONT):
+#   - DejaVu Serif / DejaVu Sans / DejaVu Sans Mono   (broad Unicode coverage)
+#   - IBM Plex Serif / IBM Plex Sans / IBM Plex Mono  (nice prose + code look)
+FROM pandoc/latex:latest
+
+RUN apk add --no-cache font-dejavu fontconfig
+
+# IBM Plex (OTFs ship inside the texlive `plex` package, ~32MB) and the
+# LaTeX packages our pandoc-header.tex uses (titlesec for sans-family
+# section heads; mdframed + needspace + zref for the framed code blocks).
+RUN tlmgr install plex titlesec mdframed needspace zref
+
+# Expose TeX Live's IBM Plex OTF directory to fontconfig so fontspec can
+# resolve "IBM Plex Mono" etc. by family name.
+RUN printf '%s\n' \
+    '<?xml version="1.0"?>' \
+    '<!DOCTYPE fontconfig SYSTEM "fonts.dtd">' \
+    '<fontconfig>' \
+    '  <dir>/opt/texlive/texdir/texmf-dist/fonts/opentype/ibm/plex</dir>' \
+    '</fontconfig>' > /etc/fonts/conf.d/99-texlive-plex.conf \
+    && fc-cache -f
