@@ -596,15 +596,33 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     /// Consecutive operations of same type are merged. See [transaction contract] for details.
     ///
     /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
+    ///
+    /// # Example
+    ///
+    /// Performing an I2C bus scan using zero-length writes to check device presence:
+    ///
+    /// ```rust,no_run
+    /// use embassy_stm32::i2c::I2c;
+    /// use embedded_hal_1::i2c::Operation;
+    ///
+    /// # macro_rules! host_code { () => {
+    /// let mut i2c: I2c<'_, _, _> = ...;
+    ///
+    /// for addr in 0x08..0x78 {
+    ///     // A zero-length write transaction will send the address and check for ACK/NACK
+    ///     // without transferring any data bytes.
+    ///     let mut ops = [Operation::Write(&[])];
+    ///     if i2c.blocking_transaction(addr, &mut ops).is_ok() {
+    ///         defmt::info!("Device found at address 0x{:02x}", addr);
+    ///     }
+    /// }
+    /// # } }
+    /// ```
     pub fn blocking_transaction(
         &mut self,
         addr: impl Into<Address>,
         operations: &mut [Operation<'_>],
     ) -> Result<(), Error> {
-        if operations.is_empty() {
-            return Err(Error::ZeroLengthTransfer);
-        }
-
         let address = addr.into();
         let timeout = self.timeout();
 
@@ -662,11 +680,13 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
 
         if total_bytes == 0 {
             // Handle empty write group - just send address
-            if is_first_group {
-                Self::master_write(self.info, address, 0, Stop::Software, false, !is_first_group, timeout)?;
-            }
+            Self::master_write(self.info, address, 0, Stop::Software, false, !is_first_group, timeout)?;
             if is_last_group {
+                self.wait_tc(timeout)?;
                 self.master_stop();
+                self.wait_stop(timeout)?;
+            } else {
+                self.wait_tc(timeout)?;
             }
             return Ok(());
         }
@@ -736,17 +756,15 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
 
         if total_bytes == 0 {
             // Handle empty read group
-            if is_first_group {
-                Self::master_read(
-                    self.info,
-                    address,
-                    0,
-                    if is_last_group { Stop::Automatic } else { Stop::Software },
-                    false, // reload
-                    !is_first_group,
-                    timeout,
-                )?;
-            }
+            Self::master_read(
+                self.info,
+                address,
+                0,
+                if is_last_group { Stop::Automatic } else { Stop::Software },
+                false, // reload
+                !is_first_group,
+                timeout,
+            )?;
             if is_last_group {
                 self.wait_stop(timeout)?;
             }
@@ -817,7 +835,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     /// The buffers are concatenated in a single write transaction.
     pub fn blocking_write_vectored(&mut self, address: u8, write: &[&[u8]]) -> Result<(), Error> {
         if write.is_empty() {
-            return Err(Error::ZeroLengthTransfer);
+            return self.write_internal(address.into(), &[], true, self.timeout());
         }
 
         let timeout = self.timeout();
@@ -1165,7 +1183,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         let timeout = self.timeout();
 
         if write.is_empty() {
-            return Err(Error::ZeroLengthTransfer);
+            return self.write_internal(address, &[], true, timeout);
         }
 
         let mut iter = write.iter();
@@ -1238,15 +1256,34 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     /// Consecutive operations of same type are merged. See [transaction contract] for details.
     ///
     /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
+    ///
+    /// # Example
+    ///
+    /// Performing an I2C bus scan using zero-length writes to check device presence:
+    ///
+    /// ```rust,no_run
+    /// use embassy_stm32::i2c::I2c;
+    /// use embedded_hal_1::i2c::Operation;
+    ///
+    /// # macro_rules! host_code { () => {
+    /// let mut i2c: I2c<'_, _, _> = ...;
+    ///
+    /// for addr in 0x08..0x78 {
+    ///     // A zero-length write transaction will send the address and check for ACK/NACK
+    ///     // without transferring any data bytes.
+    ///     let mut ops = [Operation::Write(&[])];
+    ///     if i2c.transaction(addr, &mut ops).await.is_ok() {
+    ///         defmt::info!("Device found at address 0x{:02x}", addr);
+    ///     }
+    /// }
+    /// # } }
+    /// ```
     pub async fn transaction(
         &mut self,
         addr: impl Into<Address>,
         operations: &mut [Operation<'_>],
     ) -> Result<(), Error> {
         let _scoped_wake_guard = self.info.rcc.wake_guard();
-        if operations.is_empty() {
-            return Err(Error::ZeroLengthTransfer);
-        }
 
         let address = addr.into();
         let timeout = self.timeout();
@@ -1307,11 +1344,13 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
         if total_bytes == 0 {
             // Handle empty write group using blocking call
-            if is_first_group {
-                Self::master_write(self.info, address, 0, Stop::Software, false, !is_first_group, timeout)?;
-            }
+            Self::master_write(self.info, address, 0, Stop::Software, false, !is_first_group, timeout)?;
             if is_last_group {
+                self.wait_tc(timeout)?;
                 self.master_stop();
+                self.wait_stop(timeout)?;
+            } else {
+                self.wait_tc(timeout)?;
             }
             return Ok(());
         }
@@ -1364,17 +1403,15 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
         if total_bytes == 0 {
             // Handle empty read group using blocking call
-            if is_first_group {
-                Self::master_read(
-                    self.info,
-                    address,
-                    0,
-                    if is_last_group { Stop::Automatic } else { Stop::Software },
-                    false, // reload
-                    !is_first_group,
-                    timeout,
-                )?;
-            }
+            Self::master_read(
+                self.info,
+                address,
+                0,
+                if is_last_group { Stop::Automatic } else { Stop::Software },
+                false, // reload
+                !is_first_group,
+                timeout,
+            )?;
             if is_last_group {
                 self.wait_stop(timeout)?;
             }
