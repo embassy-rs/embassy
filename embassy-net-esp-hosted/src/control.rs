@@ -1,8 +1,9 @@
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::{HardwareAddress, LinkState};
-use heapless::String;
+use heapless::{String, Vec};
 
 use crate::ioctl::Shared;
+use crate::rpc::ioctl_ctx::IoctlMessage;
 use crate::rpc::{IoctlCtx, RpcBackend};
 use crate::{Backend, MAX_IOCTL_SIZE};
 
@@ -85,6 +86,18 @@ pub struct Status {
     pub security: Security,
 }
 
+/// WiFi network information.
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Network {
+    /// Service Set Identifier.
+    pub ssid: String<32>,
+    /// Basic Service Set Identifier.
+    pub bssid: [u8; 6],
+    /// Security mode.
+    pub security: Security,
+}
+
 /// Firmware version.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -129,10 +142,11 @@ impl<'a> Control<'a> {
         state_ch: ch::StateRunner<'a>,
         shared: &'a Shared,
         ioctl_buffer: &'a mut [u8; MAX_IOCTL_SIZE],
+        msg_buffer: &'a mut IoctlMessage,
     ) -> Self {
         Self {
             state_ch,
-            ioctl: IoctlCtx::new(shared, ioctl_buffer),
+            ioctl: IoctlCtx::new(shared, ioctl_buffer, msg_buffer),
             backend: Backend::default(),
         }
     }
@@ -171,6 +185,11 @@ impl<'a> Control<'a> {
     /// Get the current status.
     pub async fn get_status(&mut self) -> Result<Status, Error> {
         self.backend.get_status(&mut self.ioctl).await
+    }
+
+    /// Scan for available networks.
+    pub async fn scan<const N: usize>(&mut self, result: &mut Vec<Network, N>) -> Result<(), Error> {
+        self.backend.scan(&mut self.ioctl, result).await
     }
 
     /// Connect to the network identified by ssid using the provided password.

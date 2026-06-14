@@ -61,7 +61,7 @@ async fn main(_spawner: Spawner) {
                 data[i] = wheel((((i * 256) as u16 / NUM_LEDS as u16 + j as u16) & 255) as u8);
                 debug!("R: {} G: {} B: {}", data[i].r, data[i].g, data[i].b);
             }
-            ws2812.write(&data).await;
+            ws2812.write_slice(&data).await;
 
             ticker.next().await;
         }

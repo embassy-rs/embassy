@@ -134,11 +134,11 @@ enum RpcId {
 	Req_WifiSetConfig                 = 284; //0x11c
 	//Req_WifiGetConfig                 = 285; //0x11d
 
-	//Req_WifiScanStart                 = 286; //0x11e
+	Req_WifiScanStart                 = 286; //0x11e
 	//Req_WifiScanStop                  = 287; //0x11f
-	//Req_WifiScanGetApNum              = 288; //0x120
+	Req_WifiScanGetApNum              = 288; //0x120
 	//Req_WifiScanGetApRecords          = 289; //0x121
-	//Req_WifiClearApList               = 290; //0x122
+	Req_WifiClearApList               = 290; //0x122
 
 	//Req_WifiRestore                   = 291; //0x123
 	//Req_WifiClearFastConnect          = 292; //0x124
@@ -214,7 +214,7 @@ enum RpcId {
 
 	Req_GetCoprocessorFwVersion       = 350; //0x15e
 
-	//Req_WifiScanGetApRecord           = 351; //0x15f
+	Req_WifiScanGetApRecord           = 351; //0x15f
 
 	//Req_SetDhcpDnsStatus              = 352; //0x160
 	//Req_GetDhcpDnsStatus              = 353; //0x161
@@ -323,11 +323,11 @@ enum RpcId {
 	Resp_WifiSetConfig                = 540;
 	//Resp_WifiGetConfig                = 541;
 
-	//Resp_WifiScanStart                = 542;
+	Resp_WifiScanStart                = 542;
 	//Resp_WifiScanStop                 = 543;
-	//Resp_WifiScanGetApNum             = 544;
+	Resp_WifiScanGetApNum             = 544;
 	//Resp_WifiScanGetApRecords         = 545;
-	//Resp_WifiClearApList              = 546;
+	Resp_WifiClearApList              = 546;
 
 	//Resp_WifiRestore                  = 547;
 	//Resp_WifiClearFastConnect         = 548;
@@ -403,7 +403,7 @@ enum RpcId {
 
 	Resp_GetCoprocessorFwVersion      = 606;
 
-	//Resp_WifiScanGetApRecord          = 607;
+	Resp_WifiScanGetApRecord          = 607;
 
 	//Resp_SetDhcpDnsStatus             = 608;
 	//Resp_GetDhcpDnsStatus             = 609;
@@ -2201,11 +2201,11 @@ message Rpc {
 		Rpc_Req_WifiSetConfig               req_wifi_set_config               = 284;
 		//Rpc_Req_WifiGetConfig               req_wifi_get_config               = 285;
 
-		//Rpc_Req_WifiScanStart               req_wifi_scan_start               = 286;
+		Rpc_Req_WifiScanStart               req_wifi_scan_start               = 286;
 		//Rpc_Req_WifiScanStop                req_wifi_scan_stop                = 287;
-		//Rpc_Req_WifiScanGetApNum            req_wifi_scan_get_ap_num          = 288;
+		Rpc_Req_WifiScanGetApNum            req_wifi_scan_get_ap_num          = 288;
 		//Rpc_Req_WifiScanGetApRecords        req_wifi_scan_get_ap_records      = 289;
-		//Rpc_Req_WifiClearApList             req_wifi_clear_ap_list            = 290;
+		Rpc_Req_WifiClearApList             req_wifi_clear_ap_list            = 290;
 
 		//Rpc_Req_WifiRestore                 req_wifi_restore                  = 291;
 		//Rpc_Req_WifiClearFastConnect        req_wifi_clear_fast_connect       = 292;
@@ -2247,7 +2247,7 @@ message Rpc {
 
 		Rpc_Req_GetCoprocessorFwVersion     req_get_coprocessor_fwversion     = 350;
 
-		//Rpc_Req_WifiScanGetApRecord         req_wifi_scan_get_ap_record       = 351;
+		Rpc_Req_WifiScanGetApRecord         req_wifi_scan_get_ap_record       = 351;
 
 		//Rpc_Req_SetDhcpDnsStatus            req_set_dhcp_dns                  = 352;
 		//Rpc_Req_GetDhcpDnsStatus            req_get_dhcp_dns                  = 353;
@@ -2340,11 +2340,11 @@ message Rpc {
 		Rpc_Resp_WifiSetConfig              resp_wifi_set_config               = 540;
 		//Rpc_Resp_WifiGetConfig              resp_wifi_get_config               = 541;
 
-		//Rpc_Resp_WifiScanStart              resp_wifi_scan_start               = 542;
+		Rpc_Resp_WifiScanStart              resp_wifi_scan_start               = 542;
 		//Rpc_Resp_WifiScanStop               resp_wifi_scan_stop                = 543;
-		//Rpc_Resp_WifiScanGetApNum           resp_wifi_scan_get_ap_num          = 544;
+		Rpc_Resp_WifiScanGetApNum           resp_wifi_scan_get_ap_num          = 544;
 		//Rpc_Resp_WifiScanGetApRecords       resp_wifi_scan_get_ap_records      = 545;
-		//Rpc_Resp_WifiClearApList            resp_wifi_clear_ap_list            = 546;
+		Rpc_Resp_WifiClearApList            resp_wifi_clear_ap_list            = 546;
 
 		//Rpc_Resp_WifiRestore                resp_wifi_restore                  = 547;
 		//Rpc_Resp_WifiClearFastConnect       resp_wifi_clear_fast_connect       = 548;
@@ -2386,7 +2386,7 @@ message Rpc {
 
 		Rpc_Resp_GetCoprocessorFwVersion    resp_get_coprocessor_fwversion     = 606;
 
-		//Rpc_Resp_WifiScanGetApRecord        resp_wifi_scan_get_ap_record       = 607;
+		Rpc_Resp_WifiScanGetApRecord        resp_wifi_scan_get_ap_record       = 607;
 
 		//Rpc_Resp_SetDhcpDnsStatus           resp_set_dhcp_dns                  = 608;
 		//Rpc_Resp_GetDhcpDnsStatus           resp_get_dhcp_dns                  = 609;
@@ -2440,7 +2440,23 @@ message Rpc {
 		//Rpc_Resp_GpioSetPullMode            resp_gpio_set_pull_mode            = 651;
 
 		//Rpc_Resp_ExtCoex                    resp_ext_coex                     = 652;
+// Start of manual change - separate Event message to improve code size
+	}
+}
 
+message RpcEvent {
+	/* msg_type could be req, resp or Event */
+	RpcType msg_type = 1;
+
+	/* msg id */
+	RpcId msg_id = 2;
+
+	/* UID of message */
+	uint32 uid = 3;
+
+	/* union of all msg ids */
+	oneof payload {
+// End of manual change
 		/** Notifications **/
 		Rpc_Event_ESPInit                   event_esp_init                     = 769;
 		Rpc_Event_Heartbeat                 event_heartbeat                    = 770;

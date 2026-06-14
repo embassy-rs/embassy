@@ -35,6 +35,11 @@ fn main() {
         ".CtrlMsg_Req_VendorIEData.payload",
         micropb_gen::Config::new().max_bytes(64),
     );
+    // Scan result is extremely big
+    g.configure(
+        ".CtrlMsg_Resp_ScanResult.entries",
+        micropb_gen::Config::new().max_len(8),
+    );
 
     g.compile_protos(
         &["src/proto/fg/esp_hosted_config.proto"],
@@ -56,6 +61,17 @@ fn main() {
     // Special config for things that need to be larger
     g.configure(".Rpc_Req_OTAWrite.ota_data", micropb_gen::Config::new().max_bytes(256));
     g.configure(".Rpc_Event_ESPInit.init_data", micropb_gen::Config::new().max_bytes(64));
+    // Scan result is extremely big, skip unused fields
+    g.configure(".wifi_ap_record.second", micropb_gen::Config::new().skip(true));
+    g.configure(".wifi_ap_record.pairwise_cipher", micropb_gen::Config::new().skip(true));
+    g.configure(".wifi_ap_record.group_cipher", micropb_gen::Config::new().skip(true));
+    g.configure(".wifi_ap_record.ant", micropb_gen::Config::new().skip(true));
+    g.configure(".wifi_ap_record.bitmask", micropb_gen::Config::new().skip(true));
+    g.configure(".wifi_ap_record.country", micropb_gen::Config::new().skip(true));
+    g.configure(".wifi_ap_record.he_ap", micropb_gen::Config::new().skip(true));
+    g.configure(".wifi_ap_record.bandwidth", micropb_gen::Config::new().skip(true));
+    g.configure(".wifi_ap_record.vht_ch_freq1", micropb_gen::Config::new().skip(true));
+    g.configure(".wifi_ap_record.vht_ch_freq2", micropb_gen::Config::new().skip(true));
 
     g.compile_protos(
         &["src/proto/mcu/esp_hosted_rpc.proto"],

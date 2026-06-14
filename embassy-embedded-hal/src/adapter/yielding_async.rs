@@ -1,5 +1,7 @@
 use embassy_futures::yield_now;
 
+use crate::SetConfig;
+
 /// Wrapper that yields for each operation to the wrapped instance
 ///
 /// This can be used in combination with [super::BlockingAsync] to enforce yields
@@ -101,6 +103,18 @@ where
         self.wrapped.transfer_in_place(words).await?;
         yield_now().await;
         Ok(())
+    }
+}
+
+///
+/// Implementations relating to both I2C and SPI
+///
+
+impl<T: SetConfig> SetConfig for YieldingAsync<T> {
+    type Config = T::Config;
+    type ConfigError = T::ConfigError;
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
+        self.wrapped.set_config(config)
     }
 }
 

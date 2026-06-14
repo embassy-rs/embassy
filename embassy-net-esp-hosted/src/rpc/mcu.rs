@@ -4,19 +4,23 @@ use micropb::MessageDecode;
 use super::{HostedEvent, IoctlCtx, RpcBackend, check_resp};
 use crate::control::{Error, Security, Status};
 use crate::proto::mcu::Rpc_::Payload;
+use crate::proto::mcu::RpcEvent_::Payload as EventPayload;
 use crate::proto::mcu::{
     Rpc, Rpc_Req_ConfigHeartbeat, Rpc_Req_GetCoprocessorFwVersion, Rpc_Req_GetMacAddress, Rpc_Req_OTAActivate,
-    Rpc_Req_OTABegin, Rpc_Req_OTAEnd, Rpc_Req_OTAWrite, Rpc_Req_SetMode, Rpc_Req_WifiConnect, Rpc_Req_WifiDisconnect,
-    Rpc_Req_WifiInit, Rpc_Req_WifiSetConfig, Rpc_Req_WifiStaGetApInfo, Rpc_Req_WifiStart, RpcId, RpcType, wifi_config,
-    wifi_config_, wifi_init_config, wifi_scan_threshold, wifi_sta_config,
+    Rpc_Req_OTABegin, Rpc_Req_OTAEnd, Rpc_Req_OTAWrite, Rpc_Req_SetMode, Rpc_Req_WifiClearApList, Rpc_Req_WifiConnect,
+    Rpc_Req_WifiDisconnect, Rpc_Req_WifiInit, Rpc_Req_WifiScanGetApNum, Rpc_Req_WifiScanGetApRecord,
+    Rpc_Req_WifiScanStart, Rpc_Req_WifiSetConfig, Rpc_Req_WifiStaGetApInfo, Rpc_Req_WifiStart, RpcEvent, RpcId,
+    RpcType, wifi_ap_record, wifi_config, wifi_config_, wifi_init_config, wifi_scan_threshold, wifi_sta_config,
 };
 #[cfg(feature = "bluetooth")]
 use crate::proto::mcu::{Rpc_Req_FeatureControl, RpcFeature, RpcFeatureCommand, RpcFeatureOption};
-use crate::{FwVersion, InterfaceType, WifiMode};
+use crate::rpc::from_utf8_lossy;
+use crate::{FwVersion, InterfaceType, Network, WifiMode};
 
 macro_rules! exchange {
     ($ctx:ident, $req_variant:ident, $resp_variant:ident, $req:expr) => {{
-        let mut msg = Rpc {
+        let (mut ioctl, msg) = $ctx.mcu();
+        *msg = Rpc {
             msg_id: RpcId::$req_variant,
             msg_type: RpcType::Req,
             uid: 0,
@@ -24,10 +28,10 @@ macro_rules! exchange {
         };
 
         debug!("ioctl req: {:?}", msg);
-        $ctx.exchange(&mut msg).await?;
+        ioctl.exchange(msg).await?;
         debug!("ioctl resp: {:?}", msg);
 
-        let Some(Payload::$resp_variant(resp)) = msg.payload else {
+        let Some(Payload::$resp_variant(ref resp)) = msg.payload else {
             return Err(Error::Internal);
         };
         check_resp(resp.resp)?;
@@ -190,6 +194,47 @@ impl RpcBackend for McuBackend {
         Ok(resp.mac[..6].try_into().unwrap())
     }
 
+    async fn scan<const N: usize>(&self, ctx: &mut IoctlCtx<'_>, result: &mut Vec<Network, N>) -> Result<(), Error> {
+        async fn read_one<'a>(ctx: &mut IoctlCtx<'a>) -> Result<Network, Error> {
+            let req = Rpc_Req_WifiScanGetApRecord {};
+            let resp = exchange!(ctx, ReqWifiScanGetApRecord, RespWifiScanGetApRecord, req);
+            Network::try_from(&resp.ap_record)
+        }
+
+        let req = Rpc_Req_WifiScanStart {
+            block: true,
+            ..Default::default()
+        };
+        exchange!(ctx, ReqWifiScanStart, RespWifiScanStart, req);
+
+        let req = Rpc_Req_WifiScanGetApNum {};
+        let ap_num = exchange!(ctx, ReqWifiScanGetApNum, RespWifiScanGetApNum, req);
+
+        debug!("Visible APs: {}", ap_num.number);
+        let aps = (ap_num.number as usize).min(N);
+        result.clear();
+
+        let mut res = Ok(());
+        for _ in 0..aps {
+            let network = match read_one(ctx).await {
+                Ok(network) => network,
+                Err(e) => {
+                    res = Err(e);
+                    break;
+                }
+            };
+            if result.push(network).is_err() {
+                break;
+            }
+        }
+
+        // Avoid leaking memory on the device.
+        let req = Rpc_Req_WifiClearApList {};
+        exchange!(ctx, ReqWifiClearApList, RespWifiClearApList, req);
+
+        res
+    }
+
     async fn connect_ap(&self, ctx: &mut IoctlCtx<'_>, ssid: &str, pwd: &str) -> Result<(), Error> {
         let mut req = Rpc_Req_WifiSetConfig::default();
         req.set_iface(WifiInterface::Sta as _);
@@ -234,7 +279,9 @@ impl RpcBackend for McuBackend {
     async fn get_fw_version(&self, ctx: &mut IoctlCtx<'_>) -> Result<FwVersion, Error> {
         let req = Rpc_Req_GetCoprocessorFwVersion::default();
 
-        let mut msg = Rpc {
+        // Different names :(
+        let (mut ioctl, msg) = ctx.mcu();
+        *msg = Rpc {
             msg_id: RpcId::ReqGetCoprocessorFwVersion,
             msg_type: RpcType::Req,
             uid: 0,
@@ -242,10 +289,10 @@ impl RpcBackend for McuBackend {
         };
 
         debug!("ioctl req: {:?}", msg);
-        ctx.exchange(&mut msg).await?;
+        ioctl.exchange(msg).await?;
         debug!("ioctl resp: {:?}", msg);
 
-        let Some(Payload::RespGetCoprocessorFwversion(resp)) = msg.payload else {
+        let Some(Payload::RespGetCoprocessorFwversion(ref resp)) = msg.payload else {
             return Err(Error::Internal);
         };
         check_resp(resp.resp)?;
@@ -284,7 +331,7 @@ impl RpcBackend for McuBackend {
 
     #[inline]
     fn normalize_event(&self, raw: &[u8]) -> Option<HostedEvent> {
-        let mut event = Rpc::default();
+        let mut event = RpcEvent::default();
         if event.decode_from_bytes(raw).is_err() {
             warn!("failed to parse event");
             return None;
@@ -294,13 +341,12 @@ impl RpcBackend for McuBackend {
 
         let payload = event.payload.as_ref()?;
         match payload {
-            Payload::EventEspInit(_) => Some(HostedEvent::Init),
-            Payload::EventHeartbeat(_) => Some(HostedEvent::Heartbeat),
-            Payload::EventStaConnected(e) => Some(HostedEvent::StaConnected { resp: e.resp }),
-            Payload::EventStaDisconnected(e) => Some(HostedEvent::StaDisconnected {
+            EventPayload::EventEspInit(_) => Some(HostedEvent::Init),
+            EventPayload::EventHeartbeat(_) => Some(HostedEvent::Heartbeat),
+            EventPayload::EventStaConnected(e) => Some(HostedEvent::StaConnected { resp: e.resp }),
+            EventPayload::EventStaDisconnected(e) => Some(HostedEvent::StaDisconnected {
                 reason: e.sta_disconnected().map(|d| d.reason).unwrap_or(0),
             }),
-            _ => None,
         }
     }
 }
@@ -497,3 +543,15 @@ const NO_CHANNEL_PREFERENCE: u32 = 0;
 const DEFAULT_LISTEN_INTERVAL: u32 = 3;
 const DEFAULT_FAILURE_RETRY_CNT: u32 = 0;
 const DEFAULT_SAE_PWE_H2E: i32 = 3;
+
+impl TryFrom<&wifi_ap_record> for Network {
+    type Error = Error;
+
+    fn try_from(value: &wifi_ap_record) -> Result<Self, Error> {
+        Ok(Network {
+            ssid: from_utf8_lossy(&value.ssid),
+            bssid: (&value.bssid[..]).try_into().map_err(|_| Error::Internal)?,
+            security: map_mcu_security(value.authmode),
+        })
+    }
+}
