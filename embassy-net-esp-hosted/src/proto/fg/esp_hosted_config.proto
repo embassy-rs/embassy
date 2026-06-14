@@ -78,7 +78,7 @@ enum CtrlMsgId {
     //Req_GetWifiMode = 103;
     Req_SetWifiMode = 104;
 
-    //Req_GetAPScanList = 105;
+    Req_GetAPScanList = 105;
     Req_GetAPConfig = 106;
     Req_ConnectAP = 107;
     Req_DisconnectAP = 108;
@@ -119,7 +119,7 @@ enum CtrlMsgId {
     //Resp_GetWifiMode = 203;
     Resp_SetWifiMode = 204;
 
-    //Resp_GetAPScanList = 205;
+    Resp_GetAPScanList = 205;
     Resp_GetAPConfig = 206;
     Resp_ConnectAP = 207;
     Resp_DisconnectAP = 208;
@@ -551,7 +551,7 @@ message CtrlMsg {
         //CtrlMsg_Req_GetMode req_get_wifi_mode = 103;
         CtrlMsg_Req_SetMode req_set_wifi_mode = 104;
 
-        //CtrlMsg_Req_ScanResult req_scan_ap_list = 105;
+        CtrlMsg_Req_ScanResult req_scan_ap_list = 105;
         CtrlMsg_Req_GetAPConfig req_get_ap_config = 106;
         CtrlMsg_Req_ConnectAP req_connect_ap = 107;
         CtrlMsg_Req_GetStatus req_disconnect_ap = 108;
@@ -586,7 +586,7 @@ message CtrlMsg {
         //CtrlMsg_Resp_GetMode resp_get_wifi_mode = 203;
         CtrlMsg_Resp_SetMode resp_set_wifi_mode = 204;
 
-        //CtrlMsg_Resp_ScanResult resp_scan_ap_list = 205;
+        CtrlMsg_Resp_ScanResult resp_scan_ap_list = 205;
         CtrlMsg_Resp_GetAPConfig resp_get_ap_config = 206;
         CtrlMsg_Resp_ConnectAP resp_connect_ap = 207;
         CtrlMsg_Resp_GetStatus resp_disconnect_ap = 208;

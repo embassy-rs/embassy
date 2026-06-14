@@ -5,14 +5,15 @@ compile_error!("At least one esp-hosted-* feature is required");
 
 #[cfg(feature = "esp-hosted-fg")]
 mod fg;
-mod ioctl_ctx;
+pub(crate) mod ioctl_ctx;
 #[cfg(feature = "esp-hosted-mcu")]
 mod mcu;
 
+use heapless::Vec;
 pub use ioctl_ctx::IoctlCtx;
 
 use crate::control::{Error, Status};
-use crate::{FwVersion, InterfaceType, WifiMode};
+use crate::{FwVersion, InterfaceType, Network, WifiMode};
 
 /// Normalized control-path events from the coprocessor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +48,7 @@ pub trait RpcBackend {
     async fn config_heartbeat(&self, ctx: &mut IoctlCtx<'_>, secs: u32) -> Result<(), Error>;
     async fn set_mode(&self, ctx: &mut IoctlCtx<'_>, mode: WifiMode) -> Result<(), Error>;
     async fn get_mac_addr(&self, ctx: &mut IoctlCtx<'_>) -> Result<[u8; 6], Error>;
+    async fn scan<const N: usize>(&self, ctx: &mut IoctlCtx<'_>, result: &mut Vec<Network, N>) -> Result<(), Error>;
     async fn connect_ap(&self, ctx: &mut IoctlCtx<'_>, ssid: &str, pwd: &str) -> Result<(), Error>;
     async fn disconnect_ap(&self, ctx: &mut IoctlCtx<'_>) -> Result<(), Error>;
     async fn get_fw_version(&self, ctx: &mut IoctlCtx<'_>) -> Result<FwVersion, Error>;
@@ -96,6 +98,7 @@ impl RpcBackend for Backend {
             async fn init_radio(&self, ctx: &mut IoctlCtx<'_>) -> Result<(), Error>;
             async fn set_mode(&self, ctx: &mut IoctlCtx<'_>, mode: WifiMode) -> Result<(), Error>;
             async fn get_mac_addr(&self, ctx: &mut IoctlCtx<'_>) -> Result<[u8; 6], Error>;
+            async fn scan<const N: usize>(&self, ctx: &mut IoctlCtx<'_>, result: &mut Vec<Network, N>) -> Result<(), Error>;
             async fn connect_ap(&self, ctx: &mut IoctlCtx<'_>, ssid: &str, pwd: &str) -> Result<(), Error>;
             async fn disconnect_ap(&self, ctx: &mut IoctlCtx<'_>) -> Result<(), Error>;
             async fn get_status(&self, ctx: &mut IoctlCtx<'_>) -> Result<Status, Error>;
@@ -219,6 +222,9 @@ impl RpcBackend for NoBackend {
     async fn get_mac_addr(&self, _ctx: &mut IoctlCtx<'_>) -> Result<[u8; 6], Error> {
         Err(Error::Internal)
     }
+    async fn scan<const N: usize>(&self, _ctx: &mut IoctlCtx<'_>, _result: &mut Vec<Network, N>) -> Result<(), Error> {
+        Err(Error::Internal)
+    }
     async fn connect_ap(&self, _ctx: &mut IoctlCtx<'_>, _ssid: &str, _pwd: &str) -> Result<(), Error> {
         Err(Error::Internal)
     }
@@ -251,4 +257,26 @@ fn check_resp(resp: i32) -> Result<(), Error> {
     } else {
         Ok(())
     }
+}
+
+fn from_utf8_lossy<const N: usize>(bytes: &[u8]) -> heapless::String<N> {
+    const REPLACEMENT: &str = "\u{FFFD}";
+
+    let mut str = heapless::String::new();
+
+    let end = bytes.iter().position(|c| *c == b'\x00').unwrap_or(bytes.len());
+    let bytes = &bytes[..end];
+
+    for chunk in bytes.utf8_chunks() {
+        if str.push_str(chunk.valid()).is_err() {
+            break;
+        }
+        if !chunk.invalid().is_empty() {
+            if str.push_str(REPLACEMENT).is_err() {
+                break;
+            }
+        }
+    }
+
+    str
 }

@@ -3778,7 +3778,7 @@ impl ::micropb::MessageEncode for CtrlMsg_Req_ScanResult {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsg_Resp_ScanResult {
     pub r#count: u32,
-    pub r#entries: ::heapless::Vec<ScanResult, 16>,
+    pub r#entries: ::heapless::Vec<ScanResult, 8>,
     pub r#resp: i32,
 }
 impl CtrlMsg_Resp_ScanResult {
@@ -3892,7 +3892,7 @@ impl ::micropb::MessageEncode for CtrlMsg_Resp_ScanResult {
             ::micropb::const_map!(<ScanResult as ::micropb::MessageEncode>::MAX_SIZE, |size| {
                 ::micropb::size::sizeof_len_record(size)
             }),
-            |size| (size + 1usize) * 16usize
+            |size| (size + 1usize) * 8usize
         ) {
             ::core::result::Result::Ok(size) => {
                 max_size += size;
@@ -11244,6 +11244,19 @@ impl ::micropb::MessageDecode for CtrlMsg {
                     };
                     mut_ref.decode_len_delimited(decoder)?;
                 }
+                105u32 => {
+                    let mut_ref = loop {
+                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
+                            if let CtrlMsg_::Payload::ReqScanApList(variant) = &mut *variant {
+                                break &mut *variant;
+                            }
+                        }
+                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::ReqScanApList(
+                            ::core::default::Default::default(),
+                        ));
+                    };
+                    mut_ref.decode_len_delimited(decoder)?;
+                }
                 106u32 => {
                     let mut_ref = loop {
                         if let ::core::option::Option::Some(variant) = &mut self.r#payload {
@@ -11369,6 +11382,19 @@ impl ::micropb::MessageDecode for CtrlMsg {
                             }
                         }
                         self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::RespSetWifiMode(
+                            ::core::default::Default::default(),
+                        ));
+                    };
+                    mut_ref.decode_len_delimited(decoder)?;
+                }
+                205u32 => {
+                    let mut_ref = loop {
+                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
+                            if let CtrlMsg_::Payload::RespScanApList(variant) = &mut *variant {
+                                break &mut *variant;
+                            }
+                        }
+                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::RespScanApList(
                             ::core::default::Default::default(),
                         ));
                     };
@@ -11607,6 +11633,21 @@ impl ::micropb::MessageEncode for CtrlMsg {
                 }
             }
             match ::micropb::const_map!(
+                ::micropb::const_map!(<CtrlMsg_Req_ScanResult as ::micropb::MessageEncode>::MAX_SIZE, |size| {
+                    ::micropb::size::sizeof_len_record(size)
+                }),
+                |size| size + 2usize
+            ) {
+                ::core::result::Result::Ok(size) => {
+                    if size > max_size {
+                        max_size = size;
+                    }
+                }
+                ::core::result::Result::Err(err) => {
+                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
+                }
+            }
+            match ::micropb::const_map!(
                 ::micropb::const_map!(
                     <CtrlMsg_Req_GetAPConfig as ::micropb::MessageEncode>::MAX_SIZE,
                     |size| ::micropb::size::sizeof_len_record(size)
@@ -11749,6 +11790,22 @@ impl ::micropb::MessageEncode for CtrlMsg {
                 ::micropb::const_map!(<CtrlMsg_Resp_SetMode as ::micropb::MessageEncode>::MAX_SIZE, |size| {
                     ::micropb::size::sizeof_len_record(size)
                 }),
+                |size| size + 2usize
+            ) {
+                ::core::result::Result::Ok(size) => {
+                    if size > max_size {
+                        max_size = size;
+                    }
+                }
+                ::core::result::Result::Err(err) => {
+                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
+                }
+            }
+            match ::micropb::const_map!(
+                ::micropb::const_map!(
+                    <CtrlMsg_Resp_ScanResult as ::micropb::MessageEncode>::MAX_SIZE,
+                    |size| ::micropb::size::sizeof_len_record(size)
+                ),
                 |size| size + 2usize
             ) {
                 ::core::result::Result::Ok(size) => {
@@ -12002,6 +12059,11 @@ impl ::micropb::MessageEncode for CtrlMsg {
                     encoder.encode_varint32(834u32)?;
                     val_ref.encode_len_delimited(encoder)?;
                 }
+                CtrlMsg_::Payload::ReqScanApList(val_ref) => {
+                    let val_ref = &*val_ref;
+                    encoder.encode_varint32(842u32)?;
+                    val_ref.encode_len_delimited(encoder)?;
+                }
                 CtrlMsg_::Payload::ReqGetApConfig(val_ref) => {
                     let val_ref = &*val_ref;
                     encoder.encode_varint32(850u32)?;
@@ -12050,6 +12112,11 @@ impl ::micropb::MessageEncode for CtrlMsg {
                 CtrlMsg_::Payload::RespSetWifiMode(val_ref) => {
                     let val_ref = &*val_ref;
                     encoder.encode_varint32(1634u32)?;
+                    val_ref.encode_len_delimited(encoder)?;
+                }
+                CtrlMsg_::Payload::RespScanApList(val_ref) => {
+                    let val_ref = &*val_ref;
+                    encoder.encode_varint32(1642u32)?;
                     val_ref.encode_len_delimited(encoder)?;
                 }
                 CtrlMsg_::Payload::RespGetApConfig(val_ref) => {
@@ -12153,6 +12220,10 @@ impl ::micropb::MessageEncode for CtrlMsg {
                     let val_ref = &*val_ref;
                     size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
                 }
+                CtrlMsg_::Payload::ReqScanApList(val_ref) => {
+                    let val_ref = &*val_ref;
+                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
+                }
                 CtrlMsg_::Payload::ReqGetApConfig(val_ref) => {
                     let val_ref = &*val_ref;
                     size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
@@ -12190,6 +12261,10 @@ impl ::micropb::MessageEncode for CtrlMsg {
                     size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
                 }
                 CtrlMsg_::Payload::RespSetWifiMode(val_ref) => {
+                    let val_ref = &*val_ref;
+                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
+                }
+                CtrlMsg_::Payload::RespScanApList(val_ref) => {
                     let val_ref = &*val_ref;
                     size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
                 }
@@ -12257,7 +12332,7 @@ pub mod CtrlMsg_ {
         ///CtrlMsg_Req_SetMacAddress req_set_mac_address = 102;
         ///CtrlMsg_Req_GetMode req_get_wifi_mode = 103;
         ReqSetWifiMode(super::CtrlMsg_Req_SetMode),
-        ///CtrlMsg_Req_ScanResult req_scan_ap_list = 105;
+        ReqScanApList(super::CtrlMsg_Req_ScanResult),
         ReqGetApConfig(super::CtrlMsg_Req_GetAPConfig),
         ReqConnectAp(super::CtrlMsg_Req_ConnectAP),
         ReqDisconnectAp(super::CtrlMsg_Req_GetStatus),
@@ -12280,7 +12355,7 @@ pub mod CtrlMsg_ {
         ///CtrlMsg_Resp_SetMacAddress resp_set_mac_address = 202;
         ///CtrlMsg_Resp_GetMode resp_get_wifi_mode = 203;
         RespSetWifiMode(super::CtrlMsg_Resp_SetMode),
-        ///CtrlMsg_Resp_ScanResult resp_scan_ap_list = 205;
+        RespScanApList(super::CtrlMsg_Resp_ScanResult),
         RespGetApConfig(super::CtrlMsg_Resp_GetAPConfig),
         RespConnectAp(super::CtrlMsg_Resp_ConnectAP),
         RespDisconnectAp(super::CtrlMsg_Resp_GetStatus),
@@ -12505,7 +12580,7 @@ impl CtrlMsgId {
     ///Req_SetMacAddress = 102;
     ///Req_GetWifiMode = 103;
     pub const ReqSetWifiMode: Self = Self(104);
-    ///Req_GetAPScanList = 105;
+    pub const ReqGetApScanList: Self = Self(105);
     pub const ReqGetApConfig: Self = Self(106);
     pub const ReqConnectAp: Self = Self(107);
     pub const ReqDisconnectAp: Self = Self(108);
@@ -12525,7 +12600,7 @@ impl CtrlMsgId {
     ///Resp_SetMacAddress = 202;
     ///Resp_GetWifiMode = 203;
     pub const RespSetWifiMode: Self = Self(204);
-    ///Resp_GetAPScanList = 205;
+    pub const RespGetApScanList: Self = Self(205);
     pub const RespGetApConfig: Self = Self(206);
     pub const RespConnectAp: Self = Self(207);
     pub const RespDisconnectAp: Self = Self(208);

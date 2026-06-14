@@ -3185,7 +3185,7 @@ impl ::micropb::MessageEncode for r#wifi_he_ap_info {
         size
     }
 }
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, PartialEq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct r#wifi_ap_record {
     ///*< MAC address of AP 6char
@@ -3194,69 +3194,10 @@ pub struct r#wifi_ap_record {
     pub r#ssid: ::heapless::Vec<u8, 32>,
     ///*< channel of AP
     pub r#primary: u32,
-    ///*< secondary channel of AP
-    pub r#second: i32,
     ///*< signal strength of AP
     pub r#rssi: i32,
     ///*< authmode of AP
     pub r#authmode: i32,
-    ///*< pairwise cipher of AP
-    pub r#pairwise_cipher: i32,
-    ///*< group cipher of AP
-    pub r#group_cipher: i32,
-    ///*< antenna used to receive beacon from AP
-    pub r#ant: i32,
-    ///uint32_t phy_11b:1;                       /**< bit: 0 flag to identify if 11b mode is enabled or not */
-    ///uint32_t phy_11g:1;                       /**< bit: 1 flag to identify if 11g mode is enabled or not */
-    ///uint32_t phy_11n:1;                       /**< bit: 2 flag to identify if 11n mode is enabled or not */
-    ///uint32_t phy_lr:1;                        /**< bit: 3 flag to identify if low rate is enabled or not */
-    ///uint32_t wps:1;                           /**< bit: 4 flag to identify if WPS is supported or not */
-    ///uint32_t ftm_responder:1;                 /**< bit: 5 flag to identify if FTM is supported in responder mode */
-    ///uint32_t ftm_initiator:1;                 /**< bit: 6 flag to identify if FTM is supported in initiator mode */
-    ///uint32_t reserved:25;                     /**< bit: 7..31 reserved */
-    ///
-    /// Manually have to parse for above bits
-    pub r#bitmask: u32,
-    ///*< country information of AP
-    ///
-    /// *Note:* The presence of this field is tracked separately in the `_has` field. It's recommended to access this field via the accessor rather than directly.
-    pub r#country: r#wifi_country,
-    /// *Note:* The presence of this field is tracked separately in the `_has` field. It's recommended to access this field via the accessor rather than directly.
-    pub r#he_ap: r#wifi_he_ap_info,
-    ///*< For AP 20 MHz this value is set to 1. For AP 40 MHz this value is set to 2.
-    ///For AP 80 MHz this value is set to 3. For AP 160MHz this value is set to 4.
-    ///For AP 80+80MHz this value is set to 5
-    pub r#bandwidth: u32,
-    ///*< This fields are used only AP bandwidth is 80 and 160 MHz, to transmit the center channel
-    ///frequency of the BSS. For AP bandwidth is 80 + 80 MHz, it is the center channel frequency
-    ///of the lower frequency segment.
-    pub r#vht_ch_freq1: u32,
-    ///*< This fields are used only AP bandwidth is 80 + 80 MHz, and is used to transmit the center
-    ///channel frequency of the second segment.
-    pub r#vht_ch_freq2: u32,
-    /// Tracks presence of optional and message fields
-    pub _has: wifi_ap_record_::_Hazzer,
-}
-impl ::core::cmp::PartialEq for r#wifi_ap_record {
-    fn eq(&self, other: &Self) -> bool {
-        let mut ret = true;
-        ret &= (self.r#bssid == other.r#bssid);
-        ret &= (self.r#ssid == other.r#ssid);
-        ret &= (self.r#primary == other.r#primary);
-        ret &= (self.r#second == other.r#second);
-        ret &= (self.r#rssi == other.r#rssi);
-        ret &= (self.r#authmode == other.r#authmode);
-        ret &= (self.r#pairwise_cipher == other.r#pairwise_cipher);
-        ret &= (self.r#group_cipher == other.r#group_cipher);
-        ret &= (self.r#ant == other.r#ant);
-        ret &= (self.r#bitmask == other.r#bitmask);
-        ret &= (self.r#country() == other.r#country());
-        ret &= (self.r#he_ap() == other.r#he_ap());
-        ret &= (self.r#bandwidth == other.r#bandwidth);
-        ret &= (self.r#vht_ch_freq1 == other.r#vht_ch_freq1);
-        ret &= (self.r#vht_ch_freq2 == other.r#vht_ch_freq2);
-        ret
-    }
 }
 impl r#wifi_ap_record {
     /// Return a reference to `bssid`
@@ -3325,28 +3266,6 @@ impl r#wifi_ap_record {
         self.r#primary = value.into();
         self
     }
-    /// Return a reference to `second`
-    #[inline]
-    pub fn r#second(&self) -> &i32 {
-        &self.r#second
-    }
-    /// Return a mutable reference to `second`
-    #[inline]
-    pub fn mut_second(&mut self) -> &mut i32 {
-        &mut self.r#second
-    }
-    /// Set the value of `second`
-    #[inline]
-    pub fn set_second(&mut self, value: i32) -> &mut Self {
-        self.r#second = value.into();
-        self
-    }
-    /// Builder method that sets the value of `second`. Useful for initializing the message.
-    #[inline]
-    pub fn init_second(mut self, value: i32) -> Self {
-        self.r#second = value.into();
-        self
-    }
     /// Return a reference to `rssi`
     #[inline]
     pub fn r#rssi(&self) -> &i32 {
@@ -3391,232 +3310,6 @@ impl r#wifi_ap_record {
         self.r#authmode = value.into();
         self
     }
-    /// Return a reference to `pairwise_cipher`
-    #[inline]
-    pub fn r#pairwise_cipher(&self) -> &i32 {
-        &self.r#pairwise_cipher
-    }
-    /// Return a mutable reference to `pairwise_cipher`
-    #[inline]
-    pub fn mut_pairwise_cipher(&mut self) -> &mut i32 {
-        &mut self.r#pairwise_cipher
-    }
-    /// Set the value of `pairwise_cipher`
-    #[inline]
-    pub fn set_pairwise_cipher(&mut self, value: i32) -> &mut Self {
-        self.r#pairwise_cipher = value.into();
-        self
-    }
-    /// Builder method that sets the value of `pairwise_cipher`. Useful for initializing the message.
-    #[inline]
-    pub fn init_pairwise_cipher(mut self, value: i32) -> Self {
-        self.r#pairwise_cipher = value.into();
-        self
-    }
-    /// Return a reference to `group_cipher`
-    #[inline]
-    pub fn r#group_cipher(&self) -> &i32 {
-        &self.r#group_cipher
-    }
-    /// Return a mutable reference to `group_cipher`
-    #[inline]
-    pub fn mut_group_cipher(&mut self) -> &mut i32 {
-        &mut self.r#group_cipher
-    }
-    /// Set the value of `group_cipher`
-    #[inline]
-    pub fn set_group_cipher(&mut self, value: i32) -> &mut Self {
-        self.r#group_cipher = value.into();
-        self
-    }
-    /// Builder method that sets the value of `group_cipher`. Useful for initializing the message.
-    #[inline]
-    pub fn init_group_cipher(mut self, value: i32) -> Self {
-        self.r#group_cipher = value.into();
-        self
-    }
-    /// Return a reference to `ant`
-    #[inline]
-    pub fn r#ant(&self) -> &i32 {
-        &self.r#ant
-    }
-    /// Return a mutable reference to `ant`
-    #[inline]
-    pub fn mut_ant(&mut self) -> &mut i32 {
-        &mut self.r#ant
-    }
-    /// Set the value of `ant`
-    #[inline]
-    pub fn set_ant(&mut self, value: i32) -> &mut Self {
-        self.r#ant = value.into();
-        self
-    }
-    /// Builder method that sets the value of `ant`. Useful for initializing the message.
-    #[inline]
-    pub fn init_ant(mut self, value: i32) -> Self {
-        self.r#ant = value.into();
-        self
-    }
-    /// Return a reference to `bitmask`
-    #[inline]
-    pub fn r#bitmask(&self) -> &u32 {
-        &self.r#bitmask
-    }
-    /// Return a mutable reference to `bitmask`
-    #[inline]
-    pub fn mut_bitmask(&mut self) -> &mut u32 {
-        &mut self.r#bitmask
-    }
-    /// Set the value of `bitmask`
-    #[inline]
-    pub fn set_bitmask(&mut self, value: u32) -> &mut Self {
-        self.r#bitmask = value.into();
-        self
-    }
-    /// Builder method that sets the value of `bitmask`. Useful for initializing the message.
-    #[inline]
-    pub fn init_bitmask(mut self, value: u32) -> Self {
-        self.r#bitmask = value.into();
-        self
-    }
-    /// Return a reference to `country` as an `Option`
-    #[inline]
-    pub fn r#country(&self) -> ::core::option::Option<&r#wifi_country> {
-        self._has.r#country().then_some(&self.r#country)
-    }
-    /// Set the value and presence of `country`
-    #[inline]
-    pub fn set_country(&mut self, value: r#wifi_country) -> &mut Self {
-        self._has.set_country();
-        self.r#country = value.into();
-        self
-    }
-    /// Return a mutable reference to `country` as an `Option`
-    #[inline]
-    pub fn mut_country(&mut self) -> ::core::option::Option<&mut r#wifi_country> {
-        self._has.r#country().then_some(&mut self.r#country)
-    }
-    /// Clear the presence of `country`
-    #[inline]
-    pub fn clear_country(&mut self) -> &mut Self {
-        self._has.clear_country();
-        self
-    }
-    /// Take the value of `country` and clear its presence
-    #[inline]
-    pub fn take_country(&mut self) -> ::core::option::Option<r#wifi_country> {
-        let val = self._has.r#country().then(|| ::core::mem::take(&mut self.r#country));
-        self._has.clear_country();
-        val
-    }
-    /// Builder method that sets the value of `country`. Useful for initializing the message.
-    #[inline]
-    pub fn init_country(mut self, value: r#wifi_country) -> Self {
-        self.set_country(value);
-        self
-    }
-    /// Return a reference to `he_ap` as an `Option`
-    #[inline]
-    pub fn r#he_ap(&self) -> ::core::option::Option<&r#wifi_he_ap_info> {
-        self._has.r#he_ap().then_some(&self.r#he_ap)
-    }
-    /// Set the value and presence of `he_ap`
-    #[inline]
-    pub fn set_he_ap(&mut self, value: r#wifi_he_ap_info) -> &mut Self {
-        self._has.set_he_ap();
-        self.r#he_ap = value.into();
-        self
-    }
-    /// Return a mutable reference to `he_ap` as an `Option`
-    #[inline]
-    pub fn mut_he_ap(&mut self) -> ::core::option::Option<&mut r#wifi_he_ap_info> {
-        self._has.r#he_ap().then_some(&mut self.r#he_ap)
-    }
-    /// Clear the presence of `he_ap`
-    #[inline]
-    pub fn clear_he_ap(&mut self) -> &mut Self {
-        self._has.clear_he_ap();
-        self
-    }
-    /// Take the value of `he_ap` and clear its presence
-    #[inline]
-    pub fn take_he_ap(&mut self) -> ::core::option::Option<r#wifi_he_ap_info> {
-        let val = self._has.r#he_ap().then(|| ::core::mem::take(&mut self.r#he_ap));
-        self._has.clear_he_ap();
-        val
-    }
-    /// Builder method that sets the value of `he_ap`. Useful for initializing the message.
-    #[inline]
-    pub fn init_he_ap(mut self, value: r#wifi_he_ap_info) -> Self {
-        self.set_he_ap(value);
-        self
-    }
-    /// Return a reference to `bandwidth`
-    #[inline]
-    pub fn r#bandwidth(&self) -> &u32 {
-        &self.r#bandwidth
-    }
-    /// Return a mutable reference to `bandwidth`
-    #[inline]
-    pub fn mut_bandwidth(&mut self) -> &mut u32 {
-        &mut self.r#bandwidth
-    }
-    /// Set the value of `bandwidth`
-    #[inline]
-    pub fn set_bandwidth(&mut self, value: u32) -> &mut Self {
-        self.r#bandwidth = value.into();
-        self
-    }
-    /// Builder method that sets the value of `bandwidth`. Useful for initializing the message.
-    #[inline]
-    pub fn init_bandwidth(mut self, value: u32) -> Self {
-        self.r#bandwidth = value.into();
-        self
-    }
-    /// Return a reference to `vht_ch_freq1`
-    #[inline]
-    pub fn r#vht_ch_freq1(&self) -> &u32 {
-        &self.r#vht_ch_freq1
-    }
-    /// Return a mutable reference to `vht_ch_freq1`
-    #[inline]
-    pub fn mut_vht_ch_freq1(&mut self) -> &mut u32 {
-        &mut self.r#vht_ch_freq1
-    }
-    /// Set the value of `vht_ch_freq1`
-    #[inline]
-    pub fn set_vht_ch_freq1(&mut self, value: u32) -> &mut Self {
-        self.r#vht_ch_freq1 = value.into();
-        self
-    }
-    /// Builder method that sets the value of `vht_ch_freq1`. Useful for initializing the message.
-    #[inline]
-    pub fn init_vht_ch_freq1(mut self, value: u32) -> Self {
-        self.r#vht_ch_freq1 = value.into();
-        self
-    }
-    /// Return a reference to `vht_ch_freq2`
-    #[inline]
-    pub fn r#vht_ch_freq2(&self) -> &u32 {
-        &self.r#vht_ch_freq2
-    }
-    /// Return a mutable reference to `vht_ch_freq2`
-    #[inline]
-    pub fn mut_vht_ch_freq2(&mut self) -> &mut u32 {
-        &mut self.r#vht_ch_freq2
-    }
-    /// Set the value of `vht_ch_freq2`
-    #[inline]
-    pub fn set_vht_ch_freq2(&mut self, value: u32) -> &mut Self {
-        self.r#vht_ch_freq2 = value.into();
-        self
-    }
-    /// Builder method that sets the value of `vht_ch_freq2`. Useful for initializing the message.
-    #[inline]
-    pub fn init_vht_ch_freq2(mut self, value: u32) -> Self {
-        self.r#vht_ch_freq2 = value.into();
-        self
-    }
 }
 impl ::micropb::MessageDecode for r#wifi_ap_record {
     fn decode<IMPL_MICROPB_READ: ::micropb::PbRead>(
@@ -3652,16 +3345,6 @@ impl ::micropb::MessageDecode for r#wifi_ap_record {
                         }
                     };
                 }
-                4u32 => {
-                    let mut_ref = &mut self.r#second;
-                    {
-                        let val = decoder.decode_int32()?;
-                        let val_ref = &val;
-                        if *val_ref != 0 {
-                            *mut_ref = val as _;
-                        }
-                    };
-                }
                 5u32 => {
                     let mut_ref = &mut self.r#rssi;
                     {
@@ -3676,90 +3359,6 @@ impl ::micropb::MessageDecode for r#wifi_ap_record {
                     let mut_ref = &mut self.r#authmode;
                     {
                         let val = decoder.decode_int32()?;
-                        let val_ref = &val;
-                        if *val_ref != 0 {
-                            *mut_ref = val as _;
-                        }
-                    };
-                }
-                7u32 => {
-                    let mut_ref = &mut self.r#pairwise_cipher;
-                    {
-                        let val = decoder.decode_int32()?;
-                        let val_ref = &val;
-                        if *val_ref != 0 {
-                            *mut_ref = val as _;
-                        }
-                    };
-                }
-                8u32 => {
-                    let mut_ref = &mut self.r#group_cipher;
-                    {
-                        let val = decoder.decode_int32()?;
-                        let val_ref = &val;
-                        if *val_ref != 0 {
-                            *mut_ref = val as _;
-                        }
-                    };
-                }
-                9u32 => {
-                    let mut_ref = &mut self.r#ant;
-                    {
-                        let val = decoder.decode_int32()?;
-                        let val_ref = &val;
-                        if *val_ref != 0 {
-                            *mut_ref = val as _;
-                        }
-                    };
-                }
-                10u32 => {
-                    let mut_ref = &mut self.r#bitmask;
-                    {
-                        let val = decoder.decode_varint32()?;
-                        let val_ref = &val;
-                        if *val_ref != 0 {
-                            *mut_ref = val as _;
-                        }
-                    };
-                }
-                11u32 => {
-                    let mut_ref = &mut self.r#country;
-                    {
-                        mut_ref.decode_len_delimited(decoder)?;
-                    };
-                    self._has.set_country();
-                }
-                12u32 => {
-                    let mut_ref = &mut self.r#he_ap;
-                    {
-                        mut_ref.decode_len_delimited(decoder)?;
-                    };
-                    self._has.set_he_ap();
-                }
-                13u32 => {
-                    let mut_ref = &mut self.r#bandwidth;
-                    {
-                        let val = decoder.decode_varint32()?;
-                        let val_ref = &val;
-                        if *val_ref != 0 {
-                            *mut_ref = val as _;
-                        }
-                    };
-                }
-                14u32 => {
-                    let mut_ref = &mut self.r#vht_ch_freq1;
-                    {
-                        let val = decoder.decode_varint32()?;
-                        let val_ref = &val;
-                        if *val_ref != 0 {
-                            *mut_ref = val as _;
-                        }
-                    };
-                }
-                15u32 => {
-                    let mut_ref = &mut self.r#vht_ch_freq2;
-                    {
-                        let val = decoder.decode_varint32()?;
                         let val_ref = &val;
                         if *val_ref != 0 {
                             *mut_ref = val as _;
@@ -3817,96 +3416,6 @@ impl ::micropb::MessageEncode for r#wifi_ap_record {
                 break 'msg (::core::result::Result::<usize, _>::Err(err));
             }
         }
-        match ::micropb::const_map!(::core::result::Result::Ok(10usize), |size| size + 1usize) {
-            ::core::result::Result::Ok(size) => {
-                max_size += size;
-            }
-            ::core::result::Result::Err(err) => {
-                break 'msg (::core::result::Result::<usize, _>::Err(err));
-            }
-        }
-        match ::micropb::const_map!(::core::result::Result::Ok(10usize), |size| size + 1usize) {
-            ::core::result::Result::Ok(size) => {
-                max_size += size;
-            }
-            ::core::result::Result::Err(err) => {
-                break 'msg (::core::result::Result::<usize, _>::Err(err));
-            }
-        }
-        match ::micropb::const_map!(::core::result::Result::Ok(10usize), |size| size + 1usize) {
-            ::core::result::Result::Ok(size) => {
-                max_size += size;
-            }
-            ::core::result::Result::Err(err) => {
-                break 'msg (::core::result::Result::<usize, _>::Err(err));
-            }
-        }
-        match ::micropb::const_map!(::core::result::Result::Ok(10usize), |size| size + 1usize) {
-            ::core::result::Result::Ok(size) => {
-                max_size += size;
-            }
-            ::core::result::Result::Err(err) => {
-                break 'msg (::core::result::Result::<usize, _>::Err(err));
-            }
-        }
-        match ::micropb::const_map!(::core::result::Result::Ok(5usize), |size| size + 1usize) {
-            ::core::result::Result::Ok(size) => {
-                max_size += size;
-            }
-            ::core::result::Result::Err(err) => {
-                break 'msg (::core::result::Result::<usize, _>::Err(err));
-            }
-        }
-        match ::micropb::const_map!(
-            ::micropb::const_map!(<r#wifi_country as ::micropb::MessageEncode>::MAX_SIZE, |size| {
-                ::micropb::size::sizeof_len_record(size)
-            }),
-            |size| size + 1usize
-        ) {
-            ::core::result::Result::Ok(size) => {
-                max_size += size;
-            }
-            ::core::result::Result::Err(err) => {
-                break 'msg (::core::result::Result::<usize, _>::Err(err));
-            }
-        }
-        match ::micropb::const_map!(
-            ::micropb::const_map!(<r#wifi_he_ap_info as ::micropb::MessageEncode>::MAX_SIZE, |size| {
-                ::micropb::size::sizeof_len_record(size)
-            }),
-            |size| size + 1usize
-        ) {
-            ::core::result::Result::Ok(size) => {
-                max_size += size;
-            }
-            ::core::result::Result::Err(err) => {
-                break 'msg (::core::result::Result::<usize, _>::Err(err));
-            }
-        }
-        match ::micropb::const_map!(::core::result::Result::Ok(5usize), |size| size + 1usize) {
-            ::core::result::Result::Ok(size) => {
-                max_size += size;
-            }
-            ::core::result::Result::Err(err) => {
-                break 'msg (::core::result::Result::<usize, _>::Err(err));
-            }
-        }
-        match ::micropb::const_map!(::core::result::Result::Ok(5usize), |size| size + 1usize) {
-            ::core::result::Result::Ok(size) => {
-                max_size += size;
-            }
-            ::core::result::Result::Err(err) => {
-                break 'msg (::core::result::Result::<usize, _>::Err(err));
-            }
-        }
-        match ::micropb::const_map!(::core::result::Result::Ok(5usize), |size| size + 1usize) {
-            ::core::result::Result::Ok(size) => {
-                max_size += size;
-            }
-            ::core::result::Result::Err(err) => {
-                break 'msg (::core::result::Result::<usize, _>::Err(err));
-            }
-        }
         ::core::result::Result::Ok(max_size)
     };
     fn encode<IMPL_MICROPB_WRITE: ::micropb::PbWrite>(
@@ -3936,13 +3445,6 @@ impl ::micropb::MessageEncode for r#wifi_ap_record {
             }
         }
         {
-            let val_ref = &self.r#second;
-            if *val_ref != 0 {
-                encoder.encode_varint32(32u32)?;
-                encoder.encode_int32(*val_ref as _)?;
-            }
-        }
-        {
             let val_ref = &self.r#rssi;
             if *val_ref != 0 {
                 encoder.encode_varint32(40u32)?;
@@ -3954,67 +3456,6 @@ impl ::micropb::MessageEncode for r#wifi_ap_record {
             if *val_ref != 0 {
                 encoder.encode_varint32(48u32)?;
                 encoder.encode_int32(*val_ref as _)?;
-            }
-        }
-        {
-            let val_ref = &self.r#pairwise_cipher;
-            if *val_ref != 0 {
-                encoder.encode_varint32(56u32)?;
-                encoder.encode_int32(*val_ref as _)?;
-            }
-        }
-        {
-            let val_ref = &self.r#group_cipher;
-            if *val_ref != 0 {
-                encoder.encode_varint32(64u32)?;
-                encoder.encode_int32(*val_ref as _)?;
-            }
-        }
-        {
-            let val_ref = &self.r#ant;
-            if *val_ref != 0 {
-                encoder.encode_varint32(72u32)?;
-                encoder.encode_int32(*val_ref as _)?;
-            }
-        }
-        {
-            let val_ref = &self.r#bitmask;
-            if *val_ref != 0 {
-                encoder.encode_varint32(80u32)?;
-                encoder.encode_varint32(*val_ref as _)?;
-            }
-        }
-        {
-            if let ::core::option::Option::Some(val_ref) = self.r#country() {
-                encoder.encode_varint32(90u32)?;
-                val_ref.encode_len_delimited(encoder)?;
-            }
-        }
-        {
-            if let ::core::option::Option::Some(val_ref) = self.r#he_ap() {
-                encoder.encode_varint32(98u32)?;
-                val_ref.encode_len_delimited(encoder)?;
-            }
-        }
-        {
-            let val_ref = &self.r#bandwidth;
-            if *val_ref != 0 {
-                encoder.encode_varint32(104u32)?;
-                encoder.encode_varint32(*val_ref as _)?;
-            }
-        }
-        {
-            let val_ref = &self.r#vht_ch_freq1;
-            if *val_ref != 0 {
-                encoder.encode_varint32(112u32)?;
-                encoder.encode_varint32(*val_ref as _)?;
-            }
-        }
-        {
-            let val_ref = &self.r#vht_ch_freq2;
-            if *val_ref != 0 {
-                encoder.encode_varint32(120u32)?;
-                encoder.encode_varint32(*val_ref as _)?;
             }
         }
         Ok(())
@@ -4041,12 +3482,6 @@ impl ::micropb::MessageEncode for r#wifi_ap_record {
             }
         }
         {
-            let val_ref = &self.r#second;
-            if *val_ref != 0 {
-                size += 1usize + ::micropb::size::sizeof_int32(*val_ref as _);
-            }
-        }
-        {
             let val_ref = &self.r#rssi;
             if *val_ref != 0 {
                 size += 1usize + ::micropb::size::sizeof_int32(*val_ref as _);
@@ -4058,123 +3493,7 @@ impl ::micropb::MessageEncode for r#wifi_ap_record {
                 size += 1usize + ::micropb::size::sizeof_int32(*val_ref as _);
             }
         }
-        {
-            let val_ref = &self.r#pairwise_cipher;
-            if *val_ref != 0 {
-                size += 1usize + ::micropb::size::sizeof_int32(*val_ref as _);
-            }
-        }
-        {
-            let val_ref = &self.r#group_cipher;
-            if *val_ref != 0 {
-                size += 1usize + ::micropb::size::sizeof_int32(*val_ref as _);
-            }
-        }
-        {
-            let val_ref = &self.r#ant;
-            if *val_ref != 0 {
-                size += 1usize + ::micropb::size::sizeof_int32(*val_ref as _);
-            }
-        }
-        {
-            let val_ref = &self.r#bitmask;
-            if *val_ref != 0 {
-                size += 1usize + ::micropb::size::sizeof_varint32(*val_ref as _);
-            }
-        }
-        {
-            if let ::core::option::Option::Some(val_ref) = self.r#country() {
-                size += 1usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-            }
-        }
-        {
-            if let ::core::option::Option::Some(val_ref) = self.r#he_ap() {
-                size += 1usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-            }
-        }
-        {
-            let val_ref = &self.r#bandwidth;
-            if *val_ref != 0 {
-                size += 1usize + ::micropb::size::sizeof_varint32(*val_ref as _);
-            }
-        }
-        {
-            let val_ref = &self.r#vht_ch_freq1;
-            if *val_ref != 0 {
-                size += 1usize + ::micropb::size::sizeof_varint32(*val_ref as _);
-            }
-        }
-        {
-            let val_ref = &self.r#vht_ch_freq2;
-            if *val_ref != 0 {
-                size += 1usize + ::micropb::size::sizeof_varint32(*val_ref as _);
-            }
-        }
         size
-    }
-}
-/// Inner types for `wifi_ap_record`
-pub mod wifi_ap_record_ {
-    /// Compact bitfield for tracking presence of optional and message fields
-    #[derive(Debug, Default, PartialEq, Clone, Copy)]
-    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-    pub struct _Hazzer([u8; 1]);
-    impl _Hazzer {
-        /// New hazzer with all fields set to off
-        #[inline]
-        pub const fn _new() -> Self {
-            Self([0; 1])
-        }
-        /// Query presence of `country`
-        #[inline]
-        pub const fn r#country(&self) -> bool {
-            (self.0[0] & 1) != 0
-        }
-        /// Set presence of `country`
-        #[inline]
-        pub const fn set_country(&mut self) -> &mut Self {
-            let elem = &mut self.0[0];
-            *elem |= 1;
-            self
-        }
-        /// Clear presence of `country`
-        #[inline]
-        pub const fn clear_country(&mut self) -> &mut Self {
-            let elem = &mut self.0[0];
-            *elem &= !1;
-            self
-        }
-        /// Builder method that sets the presence of `country`. Useful for initializing the Hazzer.
-        #[inline]
-        pub const fn init_country(mut self) -> Self {
-            self.set_country();
-            self
-        }
-        /// Query presence of `he_ap`
-        #[inline]
-        pub const fn r#he_ap(&self) -> bool {
-            (self.0[0] & 2) != 0
-        }
-        /// Set presence of `he_ap`
-        #[inline]
-        pub const fn set_he_ap(&mut self) -> &mut Self {
-            let elem = &mut self.0[0];
-            *elem |= 2;
-            self
-        }
-        /// Clear presence of `he_ap`
-        #[inline]
-        pub const fn clear_he_ap(&mut self) -> &mut Self {
-            let elem = &mut self.0[0];
-            *elem &= !2;
-            self
-        }
-        /// Builder method that sets the presence of `he_ap`. Useful for initializing the Hazzer.
-        #[inline]
-        pub const fn init_he_ap(mut self) -> Self {
-            self.set_he_ap();
-            self
-        }
     }
 }
 #[derive(Debug, Default, PartialEq, Clone, Copy)]
@@ -49733,6 +49052,45 @@ impl ::micropb::MessageDecode for Rpc {
                     };
                     mut_ref.decode_len_delimited(decoder)?;
                 }
+                286u32 => {
+                    let mut_ref = loop {
+                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
+                            if let Rpc_::Payload::ReqWifiScanStart(variant) = &mut *variant {
+                                break &mut *variant;
+                            }
+                        }
+                        self.r#payload = ::core::option::Option::Some(Rpc_::Payload::ReqWifiScanStart(
+                            ::core::default::Default::default(),
+                        ));
+                    };
+                    mut_ref.decode_len_delimited(decoder)?;
+                }
+                288u32 => {
+                    let mut_ref = loop {
+                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
+                            if let Rpc_::Payload::ReqWifiScanGetApNum(variant) = &mut *variant {
+                                break &mut *variant;
+                            }
+                        }
+                        self.r#payload = ::core::option::Option::Some(Rpc_::Payload::ReqWifiScanGetApNum(
+                            ::core::default::Default::default(),
+                        ));
+                    };
+                    mut_ref.decode_len_delimited(decoder)?;
+                }
+                290u32 => {
+                    let mut_ref = loop {
+                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
+                            if let Rpc_::Payload::ReqWifiClearApList(variant) = &mut *variant {
+                                break &mut *variant;
+                            }
+                        }
+                        self.r#payload = ::core::option::Option::Some(Rpc_::Payload::ReqWifiClearApList(
+                            ::core::default::Default::default(),
+                        ));
+                    };
+                    mut_ref.decode_len_delimited(decoder)?;
+                }
                 294u32 => {
                     let mut_ref = loop {
                         if let ::core::option::Option::Some(variant) = &mut self.r#payload {
@@ -49754,6 +49112,19 @@ impl ::micropb::MessageDecode for Rpc {
                             }
                         }
                         self.r#payload = ::core::option::Option::Some(Rpc_::Payload::ReqGetCoprocessorFwversion(
+                            ::core::default::Default::default(),
+                        ));
+                    };
+                    mut_ref.decode_len_delimited(decoder)?;
+                }
+                351u32 => {
+                    let mut_ref = loop {
+                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
+                            if let Rpc_::Payload::ReqWifiScanGetApRecord(variant) = &mut *variant {
+                                break &mut *variant;
+                            }
+                        }
+                        self.r#payload = ::core::option::Option::Some(Rpc_::Payload::ReqWifiScanGetApRecord(
                             ::core::default::Default::default(),
                         ));
                     };
@@ -49928,6 +49299,45 @@ impl ::micropb::MessageDecode for Rpc {
                     };
                     mut_ref.decode_len_delimited(decoder)?;
                 }
+                542u32 => {
+                    let mut_ref = loop {
+                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
+                            if let Rpc_::Payload::RespWifiScanStart(variant) = &mut *variant {
+                                break &mut *variant;
+                            }
+                        }
+                        self.r#payload = ::core::option::Option::Some(Rpc_::Payload::RespWifiScanStart(
+                            ::core::default::Default::default(),
+                        ));
+                    };
+                    mut_ref.decode_len_delimited(decoder)?;
+                }
+                544u32 => {
+                    let mut_ref = loop {
+                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
+                            if let Rpc_::Payload::RespWifiScanGetApNum(variant) = &mut *variant {
+                                break &mut *variant;
+                            }
+                        }
+                        self.r#payload = ::core::option::Option::Some(Rpc_::Payload::RespWifiScanGetApNum(
+                            ::core::default::Default::default(),
+                        ));
+                    };
+                    mut_ref.decode_len_delimited(decoder)?;
+                }
+                546u32 => {
+                    let mut_ref = loop {
+                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
+                            if let Rpc_::Payload::RespWifiClearApList(variant) = &mut *variant {
+                                break &mut *variant;
+                            }
+                        }
+                        self.r#payload = ::core::option::Option::Some(Rpc_::Payload::RespWifiClearApList(
+                            ::core::default::Default::default(),
+                        ));
+                    };
+                    mut_ref.decode_len_delimited(decoder)?;
+                }
                 550u32 => {
                     let mut_ref = loop {
                         if let ::core::option::Option::Some(variant) = &mut self.r#payload {
@@ -49949,6 +49359,19 @@ impl ::micropb::MessageDecode for Rpc {
                             }
                         }
                         self.r#payload = ::core::option::Option::Some(Rpc_::Payload::RespGetCoprocessorFwversion(
+                            ::core::default::Default::default(),
+                        ));
+                    };
+                    mut_ref.decode_len_delimited(decoder)?;
+                }
+                607u32 => {
+                    let mut_ref = loop {
+                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
+                            if let Rpc_::Payload::RespWifiScanGetApRecord(variant) = &mut *variant {
+                                break &mut *variant;
+                            }
+                        }
+                        self.r#payload = ::core::option::Option::Some(Rpc_::Payload::RespWifiScanGetApRecord(
                             ::core::default::Default::default(),
                         ));
                     };
@@ -50238,6 +49661,53 @@ impl ::micropb::MessageEncode for Rpc {
                 }
             }
             match ::micropb::const_map!(
+                ::micropb::const_map!(<Rpc_Req_WifiScanStart as ::micropb::MessageEncode>::MAX_SIZE, |size| {
+                    ::micropb::size::sizeof_len_record(size)
+                }),
+                |size| size + 2usize
+            ) {
+                ::core::result::Result::Ok(size) => {
+                    if size > max_size {
+                        max_size = size;
+                    }
+                }
+                ::core::result::Result::Err(err) => {
+                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
+                }
+            }
+            match ::micropb::const_map!(
+                ::micropb::const_map!(
+                    <Rpc_Req_WifiScanGetApNum as ::micropb::MessageEncode>::MAX_SIZE,
+                    |size| ::micropb::size::sizeof_len_record(size)
+                ),
+                |size| size + 2usize
+            ) {
+                ::core::result::Result::Ok(size) => {
+                    if size > max_size {
+                        max_size = size;
+                    }
+                }
+                ::core::result::Result::Err(err) => {
+                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
+                }
+            }
+            match ::micropb::const_map!(
+                ::micropb::const_map!(
+                    <Rpc_Req_WifiClearApList as ::micropb::MessageEncode>::MAX_SIZE,
+                    |size| ::micropb::size::sizeof_len_record(size)
+                ),
+                |size| size + 2usize
+            ) {
+                ::core::result::Result::Ok(size) => {
+                    if size > max_size {
+                        max_size = size;
+                    }
+                }
+                ::core::result::Result::Err(err) => {
+                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
+                }
+            }
+            match ::micropb::const_map!(
                 ::micropb::const_map!(
                     <Rpc_Req_WifiStaGetApInfo as ::micropb::MessageEncode>::MAX_SIZE,
                     |size| ::micropb::size::sizeof_len_record(size)
@@ -50256,6 +49726,22 @@ impl ::micropb::MessageEncode for Rpc {
             match ::micropb::const_map!(
                 ::micropb::const_map!(
                     <Rpc_Req_GetCoprocessorFwVersion as ::micropb::MessageEncode>::MAX_SIZE,
+                    |size| ::micropb::size::sizeof_len_record(size)
+                ),
+                |size| size + 2usize
+            ) {
+                ::core::result::Result::Ok(size) => {
+                    if size > max_size {
+                        max_size = size;
+                    }
+                }
+                ::core::result::Result::Err(err) => {
+                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
+                }
+            }
+            match ::micropb::const_map!(
+                ::micropb::const_map!(
+                    <Rpc_Req_WifiScanGetApRecord as ::micropb::MessageEncode>::MAX_SIZE,
                     |size| ::micropb::size::sizeof_len_record(size)
                 ),
                 |size| size + 2usize
@@ -50467,6 +49953,53 @@ impl ::micropb::MessageEncode for Rpc {
                 }
             }
             match ::micropb::const_map!(
+                ::micropb::const_map!(<Rpc_Resp_WifiScanStart as ::micropb::MessageEncode>::MAX_SIZE, |size| {
+                    ::micropb::size::sizeof_len_record(size)
+                }),
+                |size| size + 2usize
+            ) {
+                ::core::result::Result::Ok(size) => {
+                    if size > max_size {
+                        max_size = size;
+                    }
+                }
+                ::core::result::Result::Err(err) => {
+                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
+                }
+            }
+            match ::micropb::const_map!(
+                ::micropb::const_map!(
+                    <Rpc_Resp_WifiScanGetApNum as ::micropb::MessageEncode>::MAX_SIZE,
+                    |size| ::micropb::size::sizeof_len_record(size)
+                ),
+                |size| size + 2usize
+            ) {
+                ::core::result::Result::Ok(size) => {
+                    if size > max_size {
+                        max_size = size;
+                    }
+                }
+                ::core::result::Result::Err(err) => {
+                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
+                }
+            }
+            match ::micropb::const_map!(
+                ::micropb::const_map!(
+                    <Rpc_Resp_WifiClearApList as ::micropb::MessageEncode>::MAX_SIZE,
+                    |size| ::micropb::size::sizeof_len_record(size)
+                ),
+                |size| size + 2usize
+            ) {
+                ::core::result::Result::Ok(size) => {
+                    if size > max_size {
+                        max_size = size;
+                    }
+                }
+                ::core::result::Result::Err(err) => {
+                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
+                }
+            }
+            match ::micropb::const_map!(
                 ::micropb::const_map!(
                     <Rpc_Resp_WifiStaGetApInfo as ::micropb::MessageEncode>::MAX_SIZE,
                     |size| ::micropb::size::sizeof_len_record(size)
@@ -50485,6 +50018,22 @@ impl ::micropb::MessageEncode for Rpc {
             match ::micropb::const_map!(
                 ::micropb::const_map!(
                     <Rpc_Resp_GetCoprocessorFwVersion as ::micropb::MessageEncode>::MAX_SIZE,
+                    |size| ::micropb::size::sizeof_len_record(size)
+                ),
+                |size| size + 2usize
+            ) {
+                ::core::result::Result::Ok(size) => {
+                    if size > max_size {
+                        max_size = size;
+                    }
+                }
+                ::core::result::Result::Err(err) => {
+                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
+                }
+            }
+            match ::micropb::const_map!(
+                ::micropb::const_map!(
+                    <Rpc_Resp_WifiScanGetApRecord as ::micropb::MessageEncode>::MAX_SIZE,
                     |size| ::micropb::size::sizeof_len_record(size)
                 ),
                 |size| size + 2usize
@@ -50674,6 +50223,21 @@ impl ::micropb::MessageEncode for Rpc {
                     encoder.encode_varint32(2274u32)?;
                     val_ref.encode_len_delimited(encoder)?;
                 }
+                Rpc_::Payload::ReqWifiScanStart(val_ref) => {
+                    let val_ref = &*val_ref;
+                    encoder.encode_varint32(2290u32)?;
+                    val_ref.encode_len_delimited(encoder)?;
+                }
+                Rpc_::Payload::ReqWifiScanGetApNum(val_ref) => {
+                    let val_ref = &*val_ref;
+                    encoder.encode_varint32(2306u32)?;
+                    val_ref.encode_len_delimited(encoder)?;
+                }
+                Rpc_::Payload::ReqWifiClearApList(val_ref) => {
+                    let val_ref = &*val_ref;
+                    encoder.encode_varint32(2322u32)?;
+                    val_ref.encode_len_delimited(encoder)?;
+                }
                 Rpc_::Payload::ReqWifiStaGetApInfo(val_ref) => {
                     let val_ref = &*val_ref;
                     encoder.encode_varint32(2354u32)?;
@@ -50682,6 +50246,11 @@ impl ::micropb::MessageEncode for Rpc {
                 Rpc_::Payload::ReqGetCoprocessorFwversion(val_ref) => {
                     let val_ref = &*val_ref;
                     encoder.encode_varint32(2802u32)?;
+                    val_ref.encode_len_delimited(encoder)?;
+                }
+                Rpc_::Payload::ReqWifiScanGetApRecord(val_ref) => {
+                    let val_ref = &*val_ref;
+                    encoder.encode_varint32(2810u32)?;
                     val_ref.encode_len_delimited(encoder)?;
                 }
                 Rpc_::Payload::ReqFeatureControl(val_ref) => {
@@ -50749,6 +50318,21 @@ impl ::micropb::MessageEncode for Rpc {
                     encoder.encode_varint32(4322u32)?;
                     val_ref.encode_len_delimited(encoder)?;
                 }
+                Rpc_::Payload::RespWifiScanStart(val_ref) => {
+                    let val_ref = &*val_ref;
+                    encoder.encode_varint32(4338u32)?;
+                    val_ref.encode_len_delimited(encoder)?;
+                }
+                Rpc_::Payload::RespWifiScanGetApNum(val_ref) => {
+                    let val_ref = &*val_ref;
+                    encoder.encode_varint32(4354u32)?;
+                    val_ref.encode_len_delimited(encoder)?;
+                }
+                Rpc_::Payload::RespWifiClearApList(val_ref) => {
+                    let val_ref = &*val_ref;
+                    encoder.encode_varint32(4370u32)?;
+                    val_ref.encode_len_delimited(encoder)?;
+                }
                 Rpc_::Payload::RespWifiStaGetApInfo(val_ref) => {
                     let val_ref = &*val_ref;
                     encoder.encode_varint32(4402u32)?;
@@ -50757,6 +50341,11 @@ impl ::micropb::MessageEncode for Rpc {
                 Rpc_::Payload::RespGetCoprocessorFwversion(val_ref) => {
                     let val_ref = &*val_ref;
                     encoder.encode_varint32(4850u32)?;
+                    val_ref.encode_len_delimited(encoder)?;
+                }
+                Rpc_::Payload::RespWifiScanGetApRecord(val_ref) => {
+                    let val_ref = &*val_ref;
+                    encoder.encode_varint32(4858u32)?;
                     val_ref.encode_len_delimited(encoder)?;
                 }
                 Rpc_::Payload::RespFeatureControl(val_ref) => {
@@ -50859,11 +50448,27 @@ impl ::micropb::MessageEncode for Rpc {
                     let val_ref = &*val_ref;
                     size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
                 }
+                Rpc_::Payload::ReqWifiScanStart(val_ref) => {
+                    let val_ref = &*val_ref;
+                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
+                }
+                Rpc_::Payload::ReqWifiScanGetApNum(val_ref) => {
+                    let val_ref = &*val_ref;
+                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
+                }
+                Rpc_::Payload::ReqWifiClearApList(val_ref) => {
+                    let val_ref = &*val_ref;
+                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
+                }
                 Rpc_::Payload::ReqWifiStaGetApInfo(val_ref) => {
                     let val_ref = &*val_ref;
                     size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
                 }
                 Rpc_::Payload::ReqGetCoprocessorFwversion(val_ref) => {
+                    let val_ref = &*val_ref;
+                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
+                }
+                Rpc_::Payload::ReqWifiScanGetApRecord(val_ref) => {
                     let val_ref = &*val_ref;
                     size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
                 }
@@ -50919,11 +50524,27 @@ impl ::micropb::MessageEncode for Rpc {
                     let val_ref = &*val_ref;
                     size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
                 }
+                Rpc_::Payload::RespWifiScanStart(val_ref) => {
+                    let val_ref = &*val_ref;
+                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
+                }
+                Rpc_::Payload::RespWifiScanGetApNum(val_ref) => {
+                    let val_ref = &*val_ref;
+                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
+                }
+                Rpc_::Payload::RespWifiClearApList(val_ref) => {
+                    let val_ref = &*val_ref;
+                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
+                }
                 Rpc_::Payload::RespWifiStaGetApInfo(val_ref) => {
                     let val_ref = &*val_ref;
                     size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
                 }
                 Rpc_::Payload::RespGetCoprocessorFwversion(val_ref) => {
+                    let val_ref = &*val_ref;
+                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
+                }
+                Rpc_::Payload::RespWifiScanGetApRecord(val_ref) => {
                     let val_ref = &*val_ref;
                     size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
                 }
@@ -50978,11 +50599,17 @@ pub mod Rpc_ {
         ReqWifiDisconnect(super::Rpc_Req_WifiDisconnect),
         ///Rpc_Req_WifiGetConfig               req_wifi_get_config               = 285;
         ReqWifiSetConfig(super::Rpc_Req_WifiSetConfig),
+        ReqWifiScanStart(super::Rpc_Req_WifiScanStart),
+        ///Rpc_Req_WifiScanStop                req_wifi_scan_stop                = 287;
+        ReqWifiScanGetApNum(super::Rpc_Req_WifiScanGetApNum),
+        ///Rpc_Req_WifiScanGetApRecords        req_wifi_scan_get_ap_records      = 289;
+        ReqWifiClearApList(super::Rpc_Req_WifiClearApList),
         ///Rpc_Req_WifiRestore                 req_wifi_restore                  = 291;
         ///Rpc_Req_WifiClearFastConnect        req_wifi_clear_fast_connect       = 292;
         ///Rpc_Req_WifiDeauthSta               req_wifi_deauth_sta               = 293;
         ReqWifiStaGetApInfo(super::Rpc_Req_WifiStaGetApInfo),
         ReqGetCoprocessorFwversion(super::Rpc_Req_GetCoprocessorFwVersion),
+        ReqWifiScanGetApRecord(super::Rpc_Req_WifiScanGetApRecord),
         ReqFeatureControl(super::Rpc_Req_FeatureControl),
         ///* Responses *
         RespGetMacAddress(super::Rpc_Resp_GetMacAddress),
@@ -51004,11 +50631,17 @@ pub mod Rpc_ {
         RespWifiDisconnect(super::Rpc_Resp_WifiDisconnect),
         ///Rpc_Resp_WifiGetConfig              resp_wifi_get_config               = 541;
         RespWifiSetConfig(super::Rpc_Resp_WifiSetConfig),
+        RespWifiScanStart(super::Rpc_Resp_WifiScanStart),
+        ///Rpc_Resp_WifiScanStop               resp_wifi_scan_stop                = 543;
+        RespWifiScanGetApNum(super::Rpc_Resp_WifiScanGetApNum),
+        ///Rpc_Resp_WifiScanGetApRecords       resp_wifi_scan_get_ap_records      = 545;
+        RespWifiClearApList(super::Rpc_Resp_WifiClearApList),
         ///Rpc_Resp_WifiRestore                resp_wifi_restore                  = 547;
         ///Rpc_Resp_WifiClearFastConnect       resp_wifi_clear_fast_connect       = 548;
         ///Rpc_Resp_WifiDeauthSta              resp_wifi_deauth_sta               = 549;
         RespWifiStaGetApInfo(super::Rpc_Resp_WifiStaGetApInfo),
         RespGetCoprocessorFwversion(super::Rpc_Resp_GetCoprocessorFwVersion),
+        RespWifiScanGetApRecord(super::Rpc_Resp_WifiScanGetApRecord),
         RespFeatureControl(super::Rpc_Resp_FeatureControl),
         ///* Notifications *
         EventEspInit(super::Rpc_Event_ESPInit),
@@ -51299,6 +50932,16 @@ impl RpcId {
     pub const ReqWifiDisconnect: Self = Self(283);
     ///0x11c
     pub const ReqWifiSetConfig: Self = Self(284);
+    ///0x11e
+    pub const ReqWifiScanStart: Self = Self(286);
+    ///Req_WifiScanStop                  = 287; //0x11f
+    ///
+    ///0x120
+    pub const ReqWifiScanGetApNum: Self = Self(288);
+    ///Req_WifiScanGetApRecords          = 289; //0x121
+    ///
+    ///0x122
+    pub const ReqWifiClearApList: Self = Self(290);
     ///Req_WifiRestore                   = 291; //0x123
     ///Req_WifiClearFastConnect          = 292; //0x124
     ///Req_WifiDeauthSta                 = 293; //0x125
@@ -51307,6 +50950,8 @@ impl RpcId {
     pub const ReqWifiStaGetApInfo: Self = Self(294);
     ///0x15e
     pub const ReqGetCoprocessorFwVersion: Self = Self(350);
+    ///0x15f
+    pub const ReqWifiScanGetApRecord: Self = Self(351);
     /// Common RPC to handle simple feature control with one optional parameter
     /// Supported Features:
     /// - BT Init/Deinit/Enable/Disable
@@ -51334,6 +50979,11 @@ impl RpcId {
     pub const RespWifiDisconnect: Self = Self(539);
     ///Resp_WifiGetConfig                = 541;
     pub const RespWifiSetConfig: Self = Self(540);
+    pub const RespWifiScanStart: Self = Self(542);
+    ///Resp_WifiScanStop                 = 543;
+    pub const RespWifiScanGetApNum: Self = Self(544);
+    ///Resp_WifiScanGetApRecords         = 545;
+    pub const RespWifiClearApList: Self = Self(546);
     ///Resp_WifiRestore                  = 547;
     ///Resp_WifiClearFastConnect         = 548;
     ///Resp_WifiDeauthSta                = 549;
@@ -51350,6 +51000,7 @@ impl RpcId {
     ///Resp_WifiGetCountry               = 560;
     pub const RespWifiStaGetApInfo: Self = Self(550);
     pub const RespGetCoprocessorFwVersion: Self = Self(606);
+    pub const RespWifiScanGetApRecord: Self = Self(607);
     ///Resp_IfaceMacAddrSetGet                   = 641;
     ///Resp_IfaceMacAddrLenGet                   = 642;
     pub const RespFeatureControl: Self = Self(643);
