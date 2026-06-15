@@ -59,3 +59,8 @@ pub fn active_button() -> Option<u8> {
         index => Some(index),
     }
 }
+
+/// Token string for a button index (`field:…` / `group:…`), if in range.
+pub fn button_token(index: usize) -> &'static str {
+    crate::BUTTON_TOKENS.get(index).copied().unwrap_or("?")
+}
