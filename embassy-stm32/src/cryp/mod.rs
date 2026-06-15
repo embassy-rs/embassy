@@ -1092,6 +1092,9 @@ impl<'d, T: Instance, M: Mode> Cryp<'d, T, M> {
 
         ctx.cipher.init_phase_blocking(T::regs(), self);
 
+        #[cfg(any(cryp_v3, cryp_v4))]
+        T::regs().cr().modify(|w| w.set_npblb(0));
+
         self.store_context(&mut ctx);
 
         ctx
@@ -1560,6 +1563,9 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
         T::regs().cr().modify(|w| w.set_fflush(true));
 
         ctx.cipher.init_phase(T::regs(), self).await;
+
+        #[cfg(any(cryp_v3, cryp_v4))]
+        T::regs().cr().modify(|w| w.set_npblb(0));
 
         self.store_context(&mut ctx);
 
