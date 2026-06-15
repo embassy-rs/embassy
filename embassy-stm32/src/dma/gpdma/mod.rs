@@ -15,7 +15,6 @@ use pac::lpdma::{Lpdma as Gpdma, vals};
 use super::word::{Word, WordSize};
 use super::{Channel, Dir, Request, STATE};
 use crate::_generated::DmaChannel;
-#[cfg(not(gpdma))]
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac;
 use crate::rcc::WakeGuard;
@@ -400,7 +399,6 @@ pub(crate) unsafe fn init(cs: critical_section::CriticalSection, irq_priority: c
     foreach_interrupt! {
         ($peri:ident, lpdma, $block:ident, $signal_name:ident, $irq:ident) => {
             crate::interrupt::typelevel::$irq::set_priority_with_cs(cs, irq_priority);
-            #[cfg(not(feature = "_dual-core"))]
             crate::interrupt::typelevel::$irq::enable();
         };
     }
