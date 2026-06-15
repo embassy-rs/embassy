@@ -8,7 +8,8 @@ use std::time::Duration as StdDuration;
 use log::{debug, info, warn};
 use socketcan::{CanFrame, CanSocket, EmbeddedFrame, Socket, StandardId};
 use touch_hall_common::can_bridge::{button_token, command_payload, handle_minp_frame, set_active_button};
-use touch_hall_common::{BUTTON_COUNT, BUTTON_TOKENS, CAN_CHANNEL, CAN_COMMAND_REPEAT_MS, CAN_ENABLED, CAN_RECV_TIMEOUT_MS, CAN_TX_ID, MINP_RX_ID};
+use touch_hall_common::rhai_state::StateMachine;
+use touch_hall_common::{BUTTON_COUNT, BUTTON_TOKENS, CAN_CHANNEL, CAN_COMMAND_REPEAT_MS, CAN_ENABLED, CAN_RECV_TIMEOUT_MS, CAN_TX_ID, MINP_RX_ID, STATE_SCRIPT_ENABLED};
 
 const MAX_BUTTONS: usize = 64;
 
@@ -153,7 +154,11 @@ fn spawn_rx_thread() {
             return;
         };
         info!("CAN RX on {CAN_CHANNEL}: minp id=0x{MINP_RX_ID:03x}");
+        if STATE_SCRIPT_ENABLED {
+            info!("Rhai state script enabled for button feedback");
+        }
 
+        let mut state_machine = StateMachine::new();
         let mut scratch = [0u8; MAX_BUTTONS];
         let timeout = StdDuration::from_millis(CAN_RECV_TIMEOUT_MS);
 
@@ -166,15 +171,19 @@ fn spawn_rx_thread() {
                     };
                     let data = frame.data();
                     log_rx_frame(id, data);
-                    if id != MINP_RX_ID {
-                        continue;
-                    }
                     let mut before = [0u8; MAX_BUTTONS];
                     for (i, atom) in BUTTON_STATUS.iter().enumerate().take(BUTTON_COUNT) {
                         before[i] = atom.load(Ordering::Relaxed);
                         scratch[i] = before[i];
                     }
-                    handle_minp_frame(id, data, &mut scratch[..BUTTON_COUNT]);
+
+                    if let Some(machine) = state_machine.as_mut() {
+                        machine.on_can_rx(id, data);
+                        machine.eval_button_status(&mut scratch[..BUTTON_COUNT]);
+                    } else if id == MINP_RX_ID {
+                        handle_minp_frame(id, data, &mut scratch[..BUTTON_COUNT]);
+                    }
+
                     log_minp_changes(&before[..BUTTON_COUNT], &scratch[..BUTTON_COUNT]);
                     for (i, value) in scratch.iter().enumerate().take(BUTTON_COUNT) {
                         BUTTON_STATUS[i].store(*value, Ordering::Relaxed);

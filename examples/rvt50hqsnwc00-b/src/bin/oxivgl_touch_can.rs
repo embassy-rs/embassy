@@ -8,6 +8,10 @@
 //! Configuration is generated at build time from
 //! `examples/touch-projects/Demo/{hall,can}_config.json`.
 //!
+//! Button highlight state is driven by an optional Rhai script (`state_script` in
+//! `can_config.json`). Edit `state.rhai` in the touch project to use logic
+//! expressions over incoming CAN data (`can_bit`, `can_byte`, `minp_*` helpers).
+//!
 //! ```bash
 //! cargo run --bin oxivgl_touch_can --features oxivgl
 //! ```

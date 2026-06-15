@@ -11,6 +11,7 @@
   "websocket_port": 63150,
   "touch_websocket_enabled": true,
   "touch_websocket_port": 63151,
+  "state_script": "state.rhai",
   "minp": [
     [512, 1, 0, 0],
     [512, 1, 0, 1],

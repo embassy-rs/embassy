@@ -1,7 +1,12 @@
 //! Host (SDL2) port of the JSON-driven hall lighting UI with Linux SocketCAN.
 //!
+//! Button highlight state is driven by an optional Rhai script (`state_script` in
+//! `can_config.json`). Edit `state.rhai` in the touch project to use logic
+//! expressions over incoming CAN data (`can_bit`, `can_byte`, `minp_*` helpers).
+//!
 //! ```bash
 //! cd examples/oxivgl-host
+//! # optional: TOUCH_PROJECT=DemoHost cargo run ...
 //! sudo ip link set can0 up type can bitrate 500000
 //! cargo run --bin oxivgl_touch_can
 //! ```

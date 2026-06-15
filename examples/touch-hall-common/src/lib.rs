@@ -5,6 +5,9 @@
 
 pub mod can_bridge;
 
+#[cfg(feature = "rhai")]
+pub mod rhai_state;
+
 mod config {
     include!(concat!(env!("OUT_DIR"), "/touch_config.rs"));
 }

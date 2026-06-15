@@ -176,6 +176,16 @@ pub fn generate_touch_config(manifest_dir: &Path, out_dir: &Path) {
     let touch_websocket_enabled = can_json["touch_websocket_enabled"].as_bool().unwrap_or(false);
     let touch_websocket_port = can_json["touch_websocket_port"].as_u64().unwrap_or(63151) as u16;
     let minp = can_json["minp"].as_array().expect("minp array");
+    let state_script_name = can_json["state_script"].as_str().unwrap_or("");
+    let state_script_path = project.join(state_script_name);
+    let (state_script_enabled, state_script) = if state_script_name.is_empty() {
+        (false, String::new())
+    } else {
+        println!("cargo:rerun-if-changed={}", state_script_path.display());
+        let script = fs::read_to_string(&state_script_path)
+            .unwrap_or_else(|_| panic!("read state script {}", state_script_path.display()));
+        (true, script)
+    };
 
     writeln!(rust, "pub const CAN_ENABLED: bool = {enabled};").unwrap();
     writeln!(rust, "pub const CAN_CHANNEL: &str = {channel:?};").unwrap();
@@ -214,6 +224,9 @@ pub fn generate_touch_config(manifest_dir: &Path, out_dir: &Path) {
         .unwrap();
     }
     writeln!(rust, "];").unwrap();
+    writeln!(rust).unwrap();
+    writeln!(rust, "pub const STATE_SCRIPT_ENABLED: bool = {state_script_enabled};").unwrap();
+    writeln!(rust, "pub const STATE_SCRIPT: &str = {:?};", state_script).unwrap();
 
     fs::write(out_dir.join("touch_config.rs"), rust).expect("write touch_config.rs");
 }
