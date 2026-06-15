@@ -226,6 +226,15 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         Ok(())
     }
 
+    fn reload_regs(info: &'static Info, length: usize, will_reload: bool, stop: Stop) {
+        assert!(length < 256 && length > 0);
+        info.regs.cr2().modify(|w| {
+            w.set_nbytes(length as u8);
+            w.set_reload(Self::to_reload(will_reload));
+            w.set_autoend(stop.autoend());
+        });
+    }
+
     fn reload(
         info: &'static Info,
         length: usize,
@@ -906,6 +915,121 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
 }
 
 impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
+    async fn wait_tc_async(&mut self, timeout: Timeout) -> Result<(), Error> {
+        let state = self.state;
+        let regs = self.info.regs;
+
+        // Enable interrupts: this is the initial arm before the first poll.
+        regs.cr1().modify(|w| {
+            w.set_tcie(true);
+            w.set_nackie(true);
+            w.set_errie(true);
+        });
+
+        let _on_drop = OnDrop::new(|| {
+            regs.cr1().modify(|w| {
+                w.set_tcie(false);
+                w.set_nackie(false);
+                w.set_errie(false);
+            });
+        });
+
+        timeout
+            .with(poll_fn(|cx| {
+                state.waker.register(cx.waker());
+                let isr = regs.isr().read();
+
+                if isr.nackf() {
+                    regs.icr().modify(|reg| reg.set_nackcf(true));
+                    return Poll::Ready(Err(Error::Nack));
+                } else if isr.berr() {
+                    regs.icr().modify(|reg| reg.set_berrcf(true));
+                    self.soft_reset();
+                    return Poll::Ready(Err(Error::Bus));
+                } else if isr.arlo() {
+                    regs.icr().modify(|reg| reg.set_arlocf(true));
+                    self.soft_reset();
+                    return Poll::Ready(Err(Error::Arbitration));
+                } else if isr.ovr() {
+                    regs.icr().modify(|reg| reg.set_ovrcf(true));
+                    return Poll::Ready(Err(Error::Overrun));
+                }
+
+                if isr.tc() || isr.tcr() {
+                    Poll::Ready(Ok(()))
+                } else {
+                    regs.cr1().modify(|w| {
+                        w.set_tcie(true);
+                        w.set_nackie(true);
+                        w.set_errie(true);
+                    });
+                    if let Err(e) = timeout.check() {
+                        return Poll::Ready(Err(e));
+                    }
+                    Poll::Pending
+                }
+            }))
+            .await
+    }
+
+    async fn wait_stop_async(&mut self, timeout: Timeout) -> Result<(), Error> {
+        let state = self.state;
+        let regs = self.info.regs;
+
+        // Enable interrupts: this is the initial arm before the first poll.
+        regs.cr1().modify(|w| {
+            w.set_stopie(true);
+            w.set_nackie(true);
+            w.set_errie(true);
+        });
+
+        let _on_drop = OnDrop::new(|| {
+            regs.cr1().modify(|w| {
+                w.set_stopie(false);
+                w.set_nackie(false);
+                w.set_errie(false);
+            });
+        });
+
+        timeout
+            .with(poll_fn(|cx| {
+                state.waker.register(cx.waker());
+                let isr = regs.isr().read();
+
+                if isr.nackf() {
+                    regs.icr().modify(|reg| reg.set_nackcf(true));
+                    return Poll::Ready(Err(Error::Nack));
+                } else if isr.berr() {
+                    regs.icr().modify(|reg| reg.set_berrcf(true));
+                    self.soft_reset();
+                    return Poll::Ready(Err(Error::Bus));
+                } else if isr.arlo() {
+                    regs.icr().modify(|reg| reg.set_arlocf(true));
+                    self.soft_reset();
+                    return Poll::Ready(Err(Error::Arbitration));
+                } else if isr.ovr() {
+                    regs.icr().modify(|reg| reg.set_ovrcf(true));
+                    return Poll::Ready(Err(Error::Overrun));
+                }
+
+                if isr.stopf() {
+                    regs.icr().write(|reg| reg.set_stopcf(true));
+                    Poll::Ready(Ok(()))
+                } else {
+                    regs.cr1().modify(|w| {
+                        w.set_stopie(true);
+                        w.set_nackie(true);
+                        w.set_errie(true);
+                    });
+                    if let Err(e) = timeout.check() {
+                        return Poll::Ready(Err(e));
+                    }
+                    Poll::Pending
+                }
+            }))
+            .await
+    }
+
     async fn write_dma_internal(
         &mut self,
         address: Address,
@@ -935,7 +1059,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
         let mut remaining_len = total_len;
 
-        let on_drop = OnDrop::new(|| {
+        let _on_drop = OnDrop::new(|| {
             let regs = self.info.regs;
             let isr = regs.isr().read();
             regs.cr1().modify(|w| {
@@ -989,13 +1113,12 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                         timeout,
                     )?;
                 } else {
-                    Self::reload(
+                    Self::reload_regs(
                         self.info,
                         total_len.min(255),
                         (total_len > 255) || !last_slice,
                         Stop::Software,
-                        timeout,
-                    )?;
+                    );
                     self.info.regs.cr1().modify(|w| w.set_tcie(true));
                 }
             } else if !(isr.tcr() || isr.tc()) {
@@ -1004,15 +1127,12 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             } else if remaining_len == 0 {
                 return Poll::Ready(Ok(()));
             } else {
-                if let Err(e) = Self::reload(
+                Self::reload_regs(
                     self.info,
                     remaining_len.min(255),
                     (remaining_len > 255) || !last_slice,
                     Stop::Software,
-                    timeout,
-                ) {
-                    return Poll::Ready(Err(e));
-                }
+                );
                 self.info.regs.cr1().modify(|w| w.set_tcie(true));
             }
 
@@ -1024,13 +1144,11 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         dma_transfer.await;
 
         // Always wait for TC after DMA completes - needed for consecutive buffers
-        self.wait_tc(timeout)?;
+        self.wait_tc_async(timeout).await?;
 
         if last_slice & send_stop {
             self.master_stop();
         }
-
-        drop(on_drop);
 
         Ok(())
     }
@@ -1059,7 +1177,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
         let mut remaining_len = total_len;
 
-        let on_drop = OnDrop::new(|| {
+        let _on_drop = OnDrop::new(|| {
             let regs = self.info.regs;
             let isr = regs.isr().read();
             regs.cr1().modify(|w| {
@@ -1116,9 +1234,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                 // Transfer Complete Reload - need to set up next chunk
                 let last_piece = remaining_len <= 255;
 
-                if let Err(e) = Self::reload(self.info, remaining_len.min(255), !last_piece, Stop::Automatic, timeout) {
-                    return Poll::Ready(Err(e));
-                }
+                Self::reload_regs(self.info, remaining_len.min(255), !last_piece, Stop::Automatic);
                 // Return here if we are on last chunk,
                 // end of transfer will be awaited with the DMA below
                 if last_piece {
@@ -1136,7 +1252,6 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         .await?;
 
         dma_transfer.await;
-        drop(on_drop);
 
         Ok(())
     }
@@ -1376,7 +1491,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                 )?;
             }
             if is_last_group {
-                self.wait_stop(timeout)?;
+                self.wait_stop_async(timeout).await?;
             }
             return Ok(());
         }
@@ -1430,7 +1545,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
         // Wait for transfer to complete
         if is_last_group {
-            self.wait_stop(timeout)?;
+            self.wait_stop_async(timeout).await?;
         }
 
         Ok(())
@@ -1462,7 +1577,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
         let mut remaining_len = total_len;
 
-        let on_drop = OnDrop::new(|| {
+        let _on_drop = OnDrop::new(|| {
             let regs = self.info.regs;
             let isr = regs.isr().read();
             regs.cr1().modify(|w| {
@@ -1519,9 +1634,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                 // Transfer Complete Reload - need to set up next chunk
                 let last_piece = remaining_len <= 255;
 
-                if let Err(e) = Self::reload(self.info, remaining_len.min(255), !last_piece, stop_mode, timeout) {
-                    return Poll::Ready(Err(e));
-                }
+                Self::reload_regs(self.info, remaining_len.min(255), !last_piece, stop_mode);
                 // Return here if we are on last chunk,
                 // end of transfer will be awaited with the DMA below
                 if last_piece {
@@ -1539,7 +1652,6 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         .await?;
 
         dma_transfer.await;
-        drop(on_drop);
 
         Ok(())
     }
@@ -1982,7 +2094,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
 
         let state = self.state;
 
-        let on_drop = OnDrop::new(|| {
+        let _on_drop = OnDrop::new(|| {
             regs.cr1().modify(|w| {
                 w.set_rxdmaen(false);
                 w.set_stopie(false);
@@ -2030,15 +2142,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
             } else if isr.tcr() {
                 // Transfer Complete Reload - need to set up next chunk
                 let is_last_slice = remaining_len <= 255;
-                if let Err(e) = Self::reload(
-                    self.info,
-                    remaining_len.min(255),
-                    !is_last_slice,
-                    Stop::Software,
-                    timeout,
-                ) {
-                    return Poll::Ready(Err(e));
-                }
+                Self::reload_regs(self.info, remaining_len.min(255), !is_last_slice, Stop::Software);
                 remaining_len = remaining_len.saturating_sub(255);
                 regs.cr1().modify(|w| {
                     w.set_tcie(true);
@@ -2070,18 +2174,16 @@ impl<'d> I2c<'d, Async, MultiMaster> {
         // Disable DMA before potentially draining
         regs.cr1().modify(|w| w.set_rxdmaen(false));
 
-        drop(on_drop);
-
         // If STOP wasn't received during DMA, we need to drain any excess bytes
         // the master might be sending
         if !stop_received {
-            self.drain_rxdr_until_stop(timeout)?;
+            self.drain_rxdr_until_stop_async(timeout).await?;
         }
 
         Ok(total_received)
     }
 
-    async fn write_dma_internal_slave(&mut self, buffer: &[u8], timeout: Timeout) -> Result<SendStatus, Error> {
+    async fn write_dma_internal_slave(&mut self, buffer: &[u8], _timeout: Timeout) -> Result<SendStatus, Error> {
         let total_len = buffer.len();
         let mut remaining_len = total_len;
 
@@ -2097,7 +2199,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
             self.tx_dma.as_mut().unwrap().write(buffer, dst, Default::default())
         };
 
-        let on_drop = OnDrop::new(|| {
+        let _on_drop = OnDrop::new(|| {
             let regs = self.info.regs;
             regs.cr1().modify(|w| {
                 w.set_txdmaen(false);
@@ -2124,15 +2226,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                 Poll::Pending
             } else if isr.tcr() {
                 let is_last_slice = remaining_len <= 255;
-                if let Err(e) = Self::reload(
-                    self.info,
-                    remaining_len.min(255),
-                    !is_last_slice,
-                    Stop::Software,
-                    timeout,
-                ) {
-                    return Poll::Ready(Err(e));
-                }
+                Self::reload_regs(self.info, remaining_len.min(255), !is_last_slice, Stop::Software);
                 remaining_len = remaining_len.saturating_sub(255);
                 self.info.regs.cr1().modify(|w| {
                     w.set_tcie(true);
@@ -2170,9 +2264,83 @@ impl<'d> I2c<'d, Async, MultiMaster> {
         dma_transfer.request_pause();
         dma_transfer.await;
 
-        drop(on_drop);
-
         Ok(size)
+    }
+
+    async fn drain_rxdr_until_stop_async(&mut self, timeout: Timeout) -> Result<usize, Error> {
+        let state = self.state;
+        let regs = self.info.regs;
+        let mut discarded = 0;
+
+        // Enable interrupts: this is the initial arm before the first poll.
+        regs.cr1().modify(|w| {
+            w.set_stopie(true);
+            w.set_addrie(true);
+            w.set_rxie(true);
+            w.set_nackie(true);
+            w.set_errie(true);
+        });
+
+        let _on_drop = OnDrop::new(|| {
+            regs.cr1().modify(|w| {
+                w.set_stopie(false);
+                w.set_addrie(false);
+                w.set_rxie(false);
+                w.set_nackie(false);
+                w.set_errie(false);
+            });
+        });
+
+        timeout
+            .with(poll_fn(|cx| {
+                state.waker.register(cx.waker());
+                let isr = regs.isr().read();
+
+                if isr.nackf() {
+                    regs.icr().modify(|reg| reg.set_nackcf(true));
+                    return Poll::Ready(Err(Error::Nack));
+                } else if isr.berr() {
+                    regs.icr().modify(|reg| reg.set_berrcf(true));
+                    self.soft_reset();
+                    return Poll::Ready(Err(Error::Bus));
+                } else if isr.arlo() {
+                    regs.icr().modify(|reg| reg.set_arlocf(true));
+                    self.soft_reset();
+                    return Poll::Ready(Err(Error::Arbitration));
+                } else if isr.ovr() {
+                    regs.icr().modify(|reg| reg.set_ovrcf(true));
+                    return Poll::Ready(Err(Error::Overrun));
+                }
+
+                while regs.isr().read().rxne() {
+                    let _ = regs.rxdr().read().rxdata();
+                    discarded += 1;
+                }
+
+                let isr = regs.isr().read();
+                if isr.stopf() {
+                    regs.icr().write(|w| w.set_stopcf(true));
+                    return Poll::Ready(Ok(discarded));
+                }
+
+                if isr.addr() {
+                    return Poll::Ready(Ok(discarded));
+                }
+
+                regs.cr1().modify(|w| {
+                    w.set_stopie(true);
+                    w.set_addrie(true);
+                    w.set_rxie(true);
+                    w.set_nackie(true);
+                    w.set_errie(true);
+                });
+
+                if let Err(e) = timeout.check() {
+                    return Poll::Ready(Err(e));
+                }
+                Poll::Pending
+            }))
+            .await
     }
 }
 
