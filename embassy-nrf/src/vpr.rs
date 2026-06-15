@@ -88,13 +88,15 @@ impl<'d> Vpr<'d> {
 }
 
 /// Error
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, thiserror::Error)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
     /// Unaligned address
+    #[error("unaligned address")]
     NotAligned,
     /// Core is already running
+    #[error("core is already running")]
     Running,
 }
 
