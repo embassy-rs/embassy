@@ -1,154 +1,99 @@
-//! Rhai-driven button state machine for CAN feedback.
+//! PLC-style Rhai controller — single `cycle()` scan entry point.
 //!
-//! Scripts define `button_active(index)` (and optionally `on_can_rx(id)`) to map
-//! incoming CAN frames to per-button highlight state using logic expressions.
+//! Rhai defines WHAT to send (`can_tx`, `ui`). Rust decides WHEN (see [`crate::can_scheduler`]).
 
 extern crate alloc;
 
 use alloc::boxed::Box;
-use core::ptr::NonNull;
 
-use rhai::{
-    AST, Dynamic, Engine, EvalAltResult, Scope, packages::BasicMathPackage, packages::Package,
-};
+use rhai::{Array, AST, Dynamic, Engine, EvalAltResult, Scope, packages::BasicMathPackage, packages::Package};
 
-use crate::{BUTTON_COUNT, MINP, MINP_COUNT, STATE_SCRIPT, STATE_SCRIPT_ENABLED};
+use crate::can_input;
+use crate::input_state;
+use crate::{BUTTON_COUNT, CAN_TX_ID, LONG_PRESS_MS, MINP, MINP_RX_ID, STATE_SCRIPT, STATE_SCRIPT_ENABLED};
 
-const MAX_TRACKED_IDS: usize = 8;
-const MAX_FRAME_BYTES: usize = 8;
+const OUT_UI: &str = "ui";
+const OUT_CAN_TX: &str = "can_tx";
 
-#[derive(Clone, Copy)]
-struct FrameSlot {
-    id: u16,
-    len: u8,
-    data: [u8; MAX_FRAME_BYTES],
+const CAN_TX_NONE: i64 = -1;
+const CAN_TX_RELEASE: i64 = 255;
+
+fn minp_in(index: usize) -> bool {
+    can_input::minp_active(index)
 }
 
-impl FrameSlot {
-    const fn empty() -> Self {
-        Self {
-            id: 0,
-            len: 0,
-            data: [0; MAX_FRAME_BYTES],
+fn register_api(engine: &mut Engine) {
+    engine.register_fn("button_indices", || -> Array {
+        let mut indices = Array::new();
+        for i in 0..BUTTON_COUNT {
+            indices.push(Dynamic::from(i as i32));
         }
-    }
-}
-
-struct FrameStore {
-    slots: [FrameSlot; MAX_TRACKED_IDS],
-}
-
-impl FrameStore {
-    const fn new() -> Self {
-        Self {
-            slots: [FrameSlot::empty(); MAX_TRACKED_IDS],
-        }
-    }
-
-    fn store(&mut self, id: u16, data: &[u8]) {
-        let len = data.len().min(MAX_FRAME_BYTES) as u8;
-        if let Some(slot) = self.slots.iter_mut().find(|slot| slot.id == id) {
-            slot.len = len;
-            slot.data[..len as usize].copy_from_slice(&data[..len as usize]);
-            return;
-        }
-        if let Some(slot) = self.slots.iter_mut().find(|slot| slot.id == 0) {
-            slot.id = id;
-            slot.len = len;
-            slot.data[..len as usize].copy_from_slice(&data[..len as usize]);
-        }
-    }
-
-    fn find(&self, id: u16) -> Option<&FrameSlot> {
-        self.slots.iter().find(|slot| slot.id == id)
-    }
-
-    fn len(&self, id: u16) -> usize {
-        self.find(id).map(|slot| slot.len as usize).unwrap_or(0)
-    }
-
-    fn byte(&self, id: u16, index: usize) -> u8 {
-        self.find(id)
-            .and_then(|slot| slot.data.get(index).copied())
-            .unwrap_or(0)
-    }
-
-    fn bit(&self, id: u16, byte_index: usize, bit_index: u8) -> bool {
-        if bit_index >= 8 {
-            return false;
-        }
-        (self.byte(id, byte_index) >> bit_index) & 1 != 0
-    }
-}
-
-fn register_api(engine: &mut Engine, frames: NonNull<FrameStore>) {
-    engine.register_fn("can_len", move |id: i64| -> i64 {
-        unsafe { frames.as_ref().len(id as u16) as i64 }
+        indices
     });
-    engine.register_fn("can_byte", move |id: i64, byte_index: i64| -> i64 {
-        unsafe { frames.as_ref().byte(id as u16, byte_index as usize) as i64 }
+
+    engine.register_fn("can_in_len", |id: i64| -> i64 { can_input::frame_len(id as u16) as i64 });
+    engine.register_fn("can_in_byte", |id: i64, byte_index: i64| -> i64 {
+        can_input::frame_byte(id as u16, byte_index as usize) as i64
     });
-    engine.register_fn("can_bit", move |id: i64, byte_index: i64, bit_index: i64| -> bool {
-        unsafe { frames.as_ref().bit(id as u16, byte_index as usize, bit_index as u8) }
+    engine.register_fn("can_in_bit", |id: i64, byte_index: i64, bit_index: i64| -> bool {
+        can_input::frame_bit(id as u16, byte_index as usize, bit_index as u8)
     });
-    engine.register_fn("minp_can_id", |index: i64| -> i64 {
+
+    engine.register_fn("minp_in", |index: i32| -> bool { minp_in(index as usize) });
+    engine.register_fn("minp_can_id", |index: i32| -> i64 {
         MINP.get(index as usize)
             .map(|entry| entry.can_id as i64)
             .unwrap_or(-1)
     });
-    engine.register_fn("minp_byte", |index: i64| -> i64 {
+    engine.register_fn("minp_byte", |index: i32| -> i64 {
         MINP.get(index as usize)
             .map(|entry| entry.byte_index as i64)
             .unwrap_or(-1)
     });
-    engine.register_fn("minp_bit", |index: i64| -> i64 {
+    engine.register_fn("minp_bit", |index: i32| -> i64 {
         MINP.get(index as usize)
             .map(|entry| entry.bit_index as i64)
             .unwrap_or(-1)
     });
-    engine.register_fn("minp_active_val", |index: i64| -> i64 {
+    engine.register_fn("minp_active_val", |index: i32| -> i64 {
         MINP.get(index as usize)
             .map(|entry| entry.active_value as i64)
             .unwrap_or(0)
     });
-    engine.register_fn("button_count", || -> i64 { BUTTON_COUNT as i64 });
-    engine.register_fn("minp_count", || -> i64 { MINP_COUNT as i64 });
+    engine.register_fn("minp_rx_id", || -> i64 { MINP_RX_ID as i64 });
+
+    engine.register_fn("btn_held", |index: i32| -> bool { input_state::held(index as usize) });
+    engine.register_fn("btn_short_take", |index: i32| -> bool { input_state::take_short(index as usize) });
+    engine.register_fn("btn_long_take", |index: i32| -> bool { input_state::take_long(index as usize) });
+    engine.register_fn("btn_release_take", |index: i32| -> bool { input_state::take_release(index as usize) });
+
+    engine.register_fn("button_count", || -> i32 { BUTTON_COUNT as i32 });
+    engine.register_fn("long_press_ms", || -> i64 { LONG_PRESS_MS as i64 });
+    engine.register_fn("can_tx_id", || -> i64 { CAN_TX_ID as i64 });
 }
 
-fn default_minp_bit(frames: &FrameStore, index: usize) -> bool {
-    let Some(entry) = MINP.get(index) else {
-        return false;
-    };
-    if entry.active_value == 0 {
-        return false;
-    }
-    if entry.byte_index as usize >= frames.len(entry.can_id) {
-        return false;
-    }
-    frames.bit(entry.can_id, entry.byte_index as usize, entry.bit_index)
+fn seed_scope(scope: &mut Scope<'_>) {
+    scope.push_constant("CAN_TX_NONE", -1i32);
+    scope.push_constant("CAN_TX_RELEASE", 255i32);
+    scope.push(OUT_CAN_TX, -1i32);
 }
 
-/// Rhai state machine for CAN-driven button highlight state.
-pub struct StateMachine {
-    frames: FrameStore,
+/// PLC Rhai controller — call `cycle()` each scan; read outputs from script scope.
+pub struct Plc {
     engine: Engine,
     scope: Scope<'static>,
     ast: AST,
-    has_on_can_rx: bool,
 }
 
-impl StateMachine {
-    /// Build the state machine from the generated `STATE_SCRIPT`, if enabled.
+impl Plc {
     pub fn new() -> Option<Self> {
         if !STATE_SCRIPT_ENABLED {
             return None;
         }
 
-        let mut frames = FrameStore::new();
-        let frames_ptr = NonNull::from(&mut frames);
         let mut engine = Engine::new();
         BasicMathPackage::new().register_into_engine(&mut engine);
-        register_api(&mut engine, frames_ptr);
+        register_api(&mut engine);
 
         let ast = match engine.compile(STATE_SCRIPT) {
             Ok(ast) => ast,
@@ -158,97 +103,140 @@ impl StateMachine {
             }
         };
 
-        let has_button_fn = ast
-            .iter_functions()
-            .any(|func| func.name == "button_active");
-        if !has_button_fn {
-            log_missing_button_fn();
+        if !ast.iter_functions().any(|func| func.name == "cycle") {
+            log_missing_cycle_fn();
             return None;
         }
 
-        let has_on_can_rx = ast.iter_functions().any(|func| func.name == "on_can_rx");
-
         let mut scope = Scope::new();
+        seed_scope(&mut scope);
         if let Err(err) = engine.run_ast_with_scope(&mut scope, &ast) {
             log_load_error(err);
             return None;
         }
 
-        Some(Self {
-            frames,
-            engine,
-            scope,
-            ast,
-            has_on_can_rx,
-        })
+        if ast.iter_functions().any(|func| func.name == "init") {
+            if let Err(err) = engine.call_fn::<Dynamic>(&mut scope, &ast, "init", ()) {
+                log_init_error(err);
+                return None;
+            }
+        }
+
+        let mut plc = Self { engine, scope, ast };
+        if let Err(err) = plc.cycle() {
+            log_cycle_error(err);
+            return None;
+        }
+        Some(plc)
     }
 
-    /// Store the latest payload for `id` and run the optional `on_can_rx` hook.
-    pub fn on_can_rx(&mut self, id: u16, data: &[u8]) {
-        self.frames.store(id, data);
-        if self.has_on_can_rx {
-            let _ = self.engine.call_fn::<Dynamic>(
-                &mut self.scope,
-                &self.ast,
-                "on_can_rx",
-                (id as i64,),
-            );
-        }
+    /// Run one PLC scan. Script must define `fn cycle()`.
+    pub fn cycle(&mut self) -> Result<(), Box<EvalAltResult>> {
+        let _ = self.engine.call_fn::<Dynamic>(&mut self.scope, &self.ast, "cycle", ())?;
+        Ok(())
     }
 
-    /// Evaluate highlight state for one button via the Rhai `button_active` function.
-    pub fn button_active(&mut self, index: usize) -> bool {
-        if index >= BUTTON_COUNT {
-            return default_minp_bit(&self.frames, index);
-        }
-        match self.engine.call_fn::<bool>(
-            &mut self.scope,
-            &self.ast,
-            "button_active",
-            (index as i64,),
-        ) {
-            Ok(active) => active,
-            Err(_) => default_minp_bit(&self.frames, index),
-        }
+    /// UI highlight for one button (reads `ui` output array from script scope).
+    pub fn ui_active(&self, index: usize) -> bool {
+        let Some(ui) = self.scope.get_value::<Dynamic>(OUT_UI) else {
+            return false;
+        };
+        let Some(array) = ui.clone().try_cast::<Array>() else {
+            return false;
+        };
+        let Some(value) = array.get(index) else {
+            return false;
+        };
+        value.clone().try_cast::<bool>().unwrap_or(false)
     }
 
-    /// Evaluate all configured buttons into `out`.
-    pub fn eval_button_status(&mut self, out: &mut [u8]) {
+    /// Copy all `ui` outputs into `out`.
+    pub fn read_ui(&self, out: &mut [u8]) {
         let count = out.len().min(BUTTON_COUNT);
+        let Some(ui) = self.scope.get_value::<Dynamic>(OUT_UI) else {
+            return;
+        };
+        let Some(array) = ui.clone().try_cast::<Array>() else {
+            return;
+        };
         for (i, slot) in out.iter_mut().enumerate().take(count) {
-            *slot = self.button_active(i) as u8;
+            let active = if let Some(value) = array.get(i) {
+                let value: Dynamic = value.clone();
+                value.try_cast::<bool>().unwrap_or(false)
+            } else {
+                false
+            };
+            *slot = active as u8;
+        }
+    }
+
+    /// CAN TX command from this scan (`can_tx` output variable).
+    pub fn can_tx(&self) -> Option<u8> {
+        let value = self
+            .scope
+            .get_value::<Dynamic>(OUT_CAN_TX)
+            .and_then(|v| v.as_int().ok())
+            .unwrap_or(CAN_TX_NONE as i32) as i64;
+        match value {
+            CAN_TX_NONE => None,
+            CAN_TX_RELEASE => Some(255),
+            btn if (0..=254).contains(&(btn as i32)) => Some(btn as u8),
+            _ => None,
         }
     }
 }
 
 #[cfg(feature = "log")]
+fn log_cycle_error(err: Box<EvalAltResult>) {
+    log::error!("PLC script cycle error: {err}");
+}
+
+#[cfg(all(feature = "defmt", not(feature = "log")))]
+fn log_cycle_error(_err: Box<EvalAltResult>) {
+    defmt::warn!("PLC script cycle error");
+}
+
+#[cfg(not(any(feature = "log", feature = "defmt")))]
+fn log_cycle_error(_err: Box<EvalAltResult>) {}
+
+#[cfg(feature = "log")]
 fn log_compile_error(err: rhai::ParseError) {
-    log::error!("failed to compile state script: {err}");
+    log::error!("PLC script compile error: {err}");
 }
 
 #[cfg(feature = "log")]
 fn log_load_error(err: Box<EvalAltResult>) {
-    log::error!("failed to load state script: {err}");
+    log::error!("PLC script load error: {err}");
 }
 
 #[cfg(feature = "log")]
-fn log_missing_button_fn() {
-    log::error!("state script must define fn button_active(index)");
+fn log_init_error(err: Box<EvalAltResult>) {
+    log::error!("PLC script init error: {err}");
 }
 
-#[cfg(feature = "defmt")]
+#[cfg(feature = "log")]
+fn log_missing_cycle_fn() {
+    log::error!("PLC script must define fn cycle()");
+}
+
+#[cfg(all(feature = "defmt", not(feature = "log")))]
 fn log_compile_error(_err: rhai::ParseError) {
-    defmt::warn!("failed to compile state script");
+    defmt::warn!("PLC script compile error");
 }
 
-#[cfg(feature = "defmt")]
+#[cfg(all(feature = "defmt", not(feature = "log")))]
 fn log_load_error(_err: Box<EvalAltResult>) {
-    defmt::warn!("failed to load state script");
+    defmt::warn!("PLC script load error");
 }
 
-#[cfg(feature = "defmt")]
-fn log_missing_button_fn() {
-    defmt::warn!("state script must define fn button_active(index)");
+#[cfg(all(feature = "defmt", not(feature = "log")))]
+fn log_init_error(_err: Box<EvalAltResult>) {
+    defmt::warn!("PLC script init error");
+}
+
+#[cfg(all(feature = "defmt", not(feature = "log")))]
+fn log_missing_cycle_fn() {
+    defmt::warn!("PLC script must define fn cycle()");
 }
 
 #[cfg(not(any(feature = "log", feature = "defmt")))]
@@ -258,4 +246,7 @@ fn log_compile_error(_err: rhai::ParseError) {}
 fn log_load_error(_err: Box<EvalAltResult>) {}
 
 #[cfg(not(any(feature = "log", feature = "defmt")))]
-fn log_missing_button_fn() {}
+fn log_init_error(_err: Box<EvalAltResult>) {}
+
+#[cfg(not(any(feature = "log", feature = "defmt")))]
+fn log_missing_cycle_fn() {}

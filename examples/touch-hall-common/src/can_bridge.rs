@@ -5,7 +5,7 @@
 
 use core::sync::atomic::{AtomicU8, Ordering};
 
-use crate::{BUTTON_COUNT, MINP, MINP_COUNT};
+use crate::{BUTTON_COUNT, MINP_COUNT};
 
 /// Highest button index currently held (255 = none).
 pub static ACTIVE_BUTTON: AtomicU8 = AtomicU8::new(255);
@@ -30,20 +30,26 @@ pub fn command_payload(button_index: u8) -> [u8; 6] {
     data
 }
 
-/// Apply `minp` feedback bits from a received CAN frame.
+/// Release frame payload: six zero bytes.
+pub fn release_payload() -> [u8; 6] {
+    [0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+}
+
+/// Map PLC/Rust TX index to CAN data (255 = release).
+pub fn tx_payload(button_index: u8) -> [u8; 6] {
+    if button_index == 255 {
+        release_payload()
+    } else {
+        command_payload(button_index)
+    }
+}
+
+/// Apply debounced `minp` feedback into `button_status`.
 pub fn handle_minp_frame(can_id: u16, data: &[u8], button_status: &mut [u8]) {
+    crate::can_input::store_rx(can_id, data);
     let count = button_status.len().min(MINP_COUNT).min(BUTTON_COUNT);
-    for (i, entry) in MINP.iter().enumerate().take(count) {
-        if entry.active_value == 0 || entry.can_id != can_id {
-            continue;
-        }
-        let byte_index = entry.byte_index as usize;
-        let bit_index = entry.bit_index;
-        if byte_index >= data.len() {
-            continue;
-        }
-        let active = (data[byte_index] >> bit_index) & 1;
-        button_status[i] = active;
+    for (i, slot) in button_status.iter_mut().enumerate().take(count) {
+        *slot = crate::can_input::minp_active(i) as u8;
     }
 }
 

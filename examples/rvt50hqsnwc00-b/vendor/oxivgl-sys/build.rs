@@ -93,6 +93,10 @@ fn main() {
 
     let project_dir = canonicalize(PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()));
     let shims_dir = project_dir.join("shims");
+    println!(
+        "cargo:rerun-if-changed={}",
+        shims_dir.join("lvgl_sys.h").to_str().unwrap()
+    );
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
     let lvgl_dir = ensure_lvgl_source(&out_path);
     let lvgl_src = lvgl_dir.join("src");
@@ -285,6 +289,10 @@ fn main() {
     let mut additional_args = Vec::new();
     // Add SDL2 include paths for bindgen on native host builds only
     if is_native_host && !target.starts_with("xtensa-") {
+        // libclang may predefine __ARM_ARCH even on x86_64 hosts, which forces
+        // LV_USE_SDL=0 in lv_conf.h and drops SDL driver symbols from bindgen.
+        additional_args.push("-U__ARM_ARCH".to_string());
+        additional_args.push("-D__linux__".to_string());
         if let Ok(lib) = pkg_config::probe_library("sdl2") {
             for p in &lib.include_paths {
                 additional_args.push("-I".to_string());

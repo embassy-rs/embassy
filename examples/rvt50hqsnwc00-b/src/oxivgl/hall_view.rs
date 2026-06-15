@@ -21,6 +21,7 @@ use touch_hall_common::{
     ALL_FIELDS_HEADING, ALL_PREFIX, CENTRAL_OFF_LABEL, FIELDS, GROUP_BUTTON_BASE, GROUP_EYEBROW,
     HALL_NAME, LUX_SUFFIX, OFF_LABEL, PAGE_TITLE_PREFIX, TRIBUNE_EYEBROW,
 };
+use touch_hall_common::touch_hold;
 
 use crate::oxivgl::fonts::{MONTSERRAT_14, MONTSERRAT_16};
 use crate::touch_can::{self, on_button_press, on_button_release};
@@ -77,6 +78,7 @@ pub struct HallView {
     button_indices: Vec<u8>,
     objects: Vec<Obj<'static>>,
     button_active: Vec<bool>,
+    pressed_can_button: Option<u8>,
 }
 
 impl View for HallView {
@@ -170,13 +172,23 @@ impl View for HallView {
             EventCode::PRESSED => {
                 if let Some(ui_idx) = btn_idx {
                     if let Some(index) = self.button_indices.get(ui_idx) {
+                        self.pressed_can_button = Some(*index);
                         on_button_press(*index);
                         info!("hall button press {}", index);
                     }
                 }
             }
-            code if code == EVENT_RELEASED || code == EVENT_PRESS_LOST => {
-                on_button_release();
+            code if code == EVENT_RELEASED => {
+                if let Some(ui_idx) = btn_idx {
+                    if let Some(index) = self.button_indices.get(ui_idx) {
+                        if self.pressed_can_button == Some(*index) {
+                            on_button_release();
+                            if !touch_hold::is_latched() {
+                                self.pressed_can_button = None;
+                            }
+                        }
+                    }
+                }
             }
             _ => {}
         }
@@ -243,13 +255,12 @@ impl HallView {
         )?);
 
         for (idx, text) in column.buttons.iter().enumerate() {
-            let style_active = column.highlight && idx == 2;
             let button = make_scene_button(
                 &card,
                 text,
                 CARD_PAD_X,
                 BUTTON_Y0 + idx as i32 * BUTTON_Y_STEP,
-                style_active,
+                false,
                 &mut self.labels,
             )?;
             self.buttons.push(button);

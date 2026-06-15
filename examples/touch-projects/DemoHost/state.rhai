@@ -1,44 +1,24 @@
-// Button highlight state machine for oxivgl_touch_can.
+// Rhai: WHAT (can_tx, ui). Rust: WHEN (touch repeat, CAN RX on change, idle refresh).
 //
-// Required:
-//   fn button_active(index) -> bool
-//
-// Optional:
-//   fn on_can_rx(id) { ... }   // called after each CAN frame is stored
-//
-// CAN helpers:
-//   can_len(id)                latest payload length for that standard ID
-//   can_byte(id, byte_index)   raw byte (0 if missing)
-//   can_bit(id, byte_index, bit_index)
-//
-// minp helpers (from can_config.json):
-//   minp_can_id(index), minp_byte(index), minp_bit(index), minp_active_val(index)
-//   button_count(), minp_count()
+// btn_held(i)  — touch press
+// minp_in(i)   — CAN RX edge
+// can_tx       — -1 none, 0..254 button, 255 release
 
-fn button_active(index) {
-    let active_val = minp_active_val(index);
-    if active_val == 0 {
-        return false;
+let ui = [];
+let can_tx = CAN_TX_RELEASE;
+
+fn init() {
+    for i in button_indices() {
+        ui.push(false);
     }
-
-    let id = minp_can_id(index);
-    let byte = minp_byte(index);
-    let bit = minp_bit(index);
-    if can_len(id) <= byte {
-        return false;
-    }
-
-    can_bit(id, byte, bit)
 }
 
-// Example compound logic (replace `button_active` above):
-//
-// fn button_active(index) {
-//     if index == 0 {
-//         return can_bit(512, 0, 0) && !can_bit(512, 0, 2);
-//     }
-//     if index == 1 {
-//         return can_bit(512, 0, 1) || can_bit(512, 0, 3);
-//     }
-//     return can_bit(minp_can_id(index), minp_byte(index), minp_bit(index));
-// }
+fn cycle() {
+    can_tx = CAN_TX_RELEASE;
+    for (v, i) in ui {
+        ui[i] ^= minp_in(i);
+        if ui[i] {
+            can_tx = i;
+        }
+    }
+}

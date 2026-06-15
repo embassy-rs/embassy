@@ -77,6 +77,7 @@ pub struct HallView {
     button_indices: Vec<u8>,
     objects: Vec<Obj<'static>>,
     button_active: Vec<bool>,
+    pressed_can_button: Option<u8>,
 }
 
 impl View for HallView {
@@ -170,13 +171,21 @@ impl View for HallView {
             EventCode::PRESSED => {
                 if let Some(ui_idx) = btn_idx {
                     if let Some(index) = self.button_indices.get(ui_idx) {
+                        self.pressed_can_button = Some(*index);
                         on_button_press(*index);
                         info!("hall button press {index}");
                     }
                 }
             }
-            code if code == EVENT_RELEASED || code == EVENT_PRESS_LOST => {
-                on_button_release();
+            code if code == EVENT_RELEASED => {
+                if let Some(ui_idx) = btn_idx {
+                    if let Some(index) = self.button_indices.get(ui_idx) {
+                        if self.pressed_can_button == Some(*index) {
+                            self.pressed_can_button = None;
+                            on_button_release();
+                        }
+                    }
+                }
             }
             _ => {}
         }
@@ -188,13 +197,12 @@ impl View for HallView {
             .button_indices
             .iter()
             .enumerate()
-            .filter_map(|(ui_idx, protocol_idx)| {
+            .map(|(ui_idx, protocol_idx)| {
                 let active = touch_can::button_status(*protocol_idx as usize);
-                if self.button_active.get(ui_idx).copied().unwrap_or(false) != active {
-                    Some((ui_idx, active))
-                } else {
-                    None
-                }
+                (ui_idx, active)
+            })
+            .filter(|(ui_idx, active)| {
+                self.button_active.get(*ui_idx).copied().unwrap_or(false) != *active
             })
             .collect();
         for (ui_idx, active) in updates {
@@ -243,13 +251,12 @@ impl HallView {
         )?);
 
         for (idx, text) in column.buttons.iter().enumerate() {
-            let style_active = column.highlight && idx == 2;
             let button = make_scene_button(
                 &card,
                 text,
                 CARD_PAD_X,
                 BUTTON_Y0 + idx as i32 * BUTTON_Y_STEP,
-                style_active,
+                false,
                 &mut self.labels,
             )?;
             self.buttons.push(button);

@@ -170,7 +170,14 @@ pub fn generate_touch_config(manifest_dir: &Path, out_dir: &Path) {
     let tx_id = can_json["tx_id"].as_u64().unwrap_or(512) as u16;
     let tx_endian = can_json["tx_endian"].as_str().unwrap_or("little");
     let command_repeat_ms = can_json["command_repeat_ms"].as_u64().unwrap_or(25);
+    let long_press_ms = can_json["long_press_ms"].as_u64().unwrap_or(800);
     let recv_timeout_ms = (can_json["recv_timeout"].as_f64().unwrap_or(0.2) * 1000.0).round() as u64;
+    let rx_debounce_ms = can_json["rx_debounce_ms"].as_u64().unwrap_or(50);
+    let rx_poll_ms = if rx_debounce_ms == 0 {
+        recv_timeout_ms
+    } else {
+        recv_timeout_ms.min((rx_debounce_ms / 2).max(10))
+    };
     let websocket_enabled = can_json["websocket_enabled"].as_bool().unwrap_or(false);
     let websocket_port = can_json["websocket_port"].as_u64().unwrap_or(63150) as u16;
     let touch_websocket_enabled = can_json["touch_websocket_enabled"].as_bool().unwrap_or(false);
@@ -193,7 +200,10 @@ pub fn generate_touch_config(manifest_dir: &Path, out_dir: &Path) {
     writeln!(rust, "pub const CAN_TX_ID: u16 = {tx_id};").unwrap();
     writeln!(rust, "pub const CAN_TX_LITTLE_ENDIAN: bool = {};", tx_endian == "little").unwrap();
     writeln!(rust, "pub const CAN_COMMAND_REPEAT_MS: u64 = {command_repeat_ms};").unwrap();
+    writeln!(rust, "pub const LONG_PRESS_MS: u64 = {long_press_ms};").unwrap();
     writeln!(rust, "pub const CAN_RECV_TIMEOUT_MS: u64 = {recv_timeout_ms};").unwrap();
+    writeln!(rust, "pub const CAN_RX_DEBOUNCE_MS: u64 = {rx_debounce_ms};").unwrap();
+    writeln!(rust, "pub const CAN_RX_POLL_MS: u64 = {rx_poll_ms};").unwrap();
     writeln!(rust, "pub const CAN_WEBSOCKET_ENABLED: bool = {websocket_enabled};").unwrap();
     writeln!(rust, "pub const CAN_WEBSOCKET_PORT: u16 = {websocket_port};").unwrap();
     writeln!(rust, "pub const CAN_TOUCH_WEBSOCKET_ENABLED: bool = {touch_websocket_enabled};").unwrap();

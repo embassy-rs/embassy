@@ -41,6 +41,8 @@ impl From<TouchBoardSample> for TouchSample {
 
 /// Poll cadence while a contact is active (pointer-move tracking).
 const TOUCH_ACTIVE_POLL_MS: u64 = 5;
+/// Consecutive idle reads required before a release is delivered to LVGL.
+const TOUCH_RELEASE_CONFIRM_READS: u8 = 8;
 /// Reads tolerated after an INT edge before the wake-up counts as spurious.
 /// Covers controllers whose status register lags the INT assertion.
 const TOUCH_SETTLE_READS: u8 = 10;
@@ -79,9 +81,23 @@ pub async fn run_touch_int_task(
         // Active: poll until the contact ends or the wake-up proves spurious.
         let mut was_pressed = false;
         let mut settle_reads_left = TOUCH_SETTLE_READS;
+        let mut release_reads = 0u8;
 
         loop {
             let t = rvt50_board::read_touch(&mut i2c);
+
+            if !t.i2c_ok {
+                if was_pressed {
+                    Timer::after(Duration::from_millis(TOUCH_ACTIVE_POLL_MS)).await;
+                    continue;
+                }
+                settle_reads_left = settle_reads_left.saturating_sub(1);
+                if settle_reads_left == 0 {
+                    break;
+                }
+                Timer::after(Duration::from_millis(TOUCH_ACTIVE_POLL_MS)).await;
+                continue;
+            }
 
             if t.pressed {
                 last_x = t.x as i32;
@@ -98,11 +114,14 @@ pub async fn run_touch_int_task(
 
             if t.pressed {
                 was_pressed = true;
+                release_reads = 0;
                 sender.send(sample).await;
             } else if was_pressed {
-                // Contact ended: deliver exactly one release sample, then re-arm.
-                sender.send(sample).await;
-                break;
+                release_reads += 1;
+                if release_reads >= TOUCH_RELEASE_CONFIRM_READS {
+                    sender.send(sample).await;
+                    break;
+                }
             } else {
                 settle_reads_left -= 1;
                 if settle_reads_left == 0 {

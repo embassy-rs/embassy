@@ -1,26 +1,36 @@
 //! CAN press/hold/repeat tasks for the hall touch UI.
 
-use core::sync::atomic::{AtomicU8, Ordering};
-
 use defmt::{debug, info, warn};
 use embassy_futures::select::{select, Either};
 use embassy_stm32::can::{CanRx, CanTx};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
-use embassy_time::{Duration, Timer};
-use touch_hall_common::can_bridge::{button_token, command_payload, handle_minp_frame, set_active_button};
-use touch_hall_common::rhai_state::StateMachine;
-use touch_hall_common::{BUTTON_COUNT, CAN_ENABLED, CAN_TX_ID, MINP_RX_ID, STATE_SCRIPT_ENABLED};
+use embassy_time::{Duration, Instant, Timer};
+use touch_hall_common::button_status;
+use touch_hall_common::can_bridge::{active_button, button_token, handle_minp_frame, tx_payload};
+use touch_hall_common::can_input;
+use touch_hall_common::can_refresh::CAN_REFRESH_MS;
+use touch_hall_common::can_scheduler;
+use touch_hall_common::input_state;
+use touch_hall_common::touch_feedback;
+use touch_hall_common::touch_hold;
+use touch_hall_common::rhai_state::Plc;
+use touch_hall_common::{
+    BUTTON_COUNT, CAN_COMMAND_REPEAT_MS, CAN_ENABLED, CAN_RX_DEBOUNCE_MS, CAN_RX_POLL_MS, CAN_TX_ID,
+    LONG_PRESS_MS, MINP_RX_ID, STATE_SCRIPT_ENABLED,
+};
 
 const MAX_BUTTONS: usize = 64;
+const MIN_HOLD_BEFORE_RELEASE_MS: u64 = 120;
+const RELEASE_CONFIRM_MS: u64 = 120;
 
-pub enum Action {
+enum Action {
     Press(u8),
     Release,
+    CanRx,
 }
 
 static ACTIONS: Channel<CriticalSectionRawMutex, Action, 8> = Channel::new();
-static BUTTON_STATUS: [AtomicU8; MAX_BUTTONS] = [const { AtomicU8::new(0) }; MAX_BUTTONS];
 
 pub fn on_button_press(index: u8) {
     let _ = ACTIONS.try_send(Action::Press(index));
@@ -31,36 +41,94 @@ pub fn on_button_release() {
 }
 
 pub fn button_status(index: usize) -> bool {
-    BUTTON_STATUS
-        .get(index)
-        .map(|s| s.load(Ordering::Relaxed) != 0)
-        .unwrap_or(false)
+    if let Some(active) = touch_feedback::hold_highlight(index) {
+        return active;
+    }
+    button_status::plc_active(index)
 }
 
-async fn send_command(tx: &mut CanTx<'static>, button_index: u8, repeat: bool) -> bool {
-    let payload = command_payload(button_index);
-    log_tx_payload(button_index, &payload, repeat);
+async fn send_plc_cmd(tx: &mut CanTx<'static>, button_index: u8, refresh: bool) -> bool {
+    if button_index == 255
+        && !refresh
+        && (touch_hold::is_latched() || input_state::any_held() || active_button().is_some())
+    {
+        return false;
+    }
+    let payload = tx_payload(button_index);
+    log_tx_payload(button_index, &payload, refresh);
     let frame = embassy_stm32::can::frame::Frame::new_standard(CAN_TX_ID, &payload);
-    match frame {
+    let ok = match frame {
         Ok(frame) => tx.write(&frame).await.is_some(),
         Err(_) => false,
+    };
+    if ok {
+        touch_hall_common::can_refresh::note_tx(button_index);
+    }
+    ok
+}
+
+async fn send_cycle_output(tx: &mut CanTx<'static>, cmd: Option<u8>) {
+    if let Some(btn) = cmd {
+        if !send_plc_cmd(tx, btn, false).await {
+            warn!("CAN output failed for button {}", btn);
+        }
     }
 }
 
-async fn send_release(tx: &mut CanTx<'static>) -> bool {
-    let payload = [0u8; 6];
-    log_tx_payload(255, &payload, false);
-    let frame = embassy_stm32::can::frame::Frame::new_standard(CAN_TX_ID, &payload);
-    match frame {
-        Ok(frame) => tx.write(&frame).await.is_some(),
-        Err(_) => false,
+fn drain_pending_releases() {
+    loop {
+        match ACTIONS.try_receive() {
+            Ok(Action::Release) => {}
+            Ok(Action::CanRx) => {
+                let _ = ACTIONS.try_send(Action::CanRx);
+                break;
+            }
+            Ok(other @ Action::Press(_)) => {
+                let _ = ACTIONS.try_send(other);
+                break;
+            }
+            Err(_) => break,
+        }
     }
 }
 
-fn log_tx_payload(button_index: u8, payload: &[u8; 6], repeat: bool) {
-    if repeat {
-        debug!(
-            "CAN TX id=0x{:03x} btn={} token={} repeat data={:02x} {:02x} {:02x} {:02x} {:02x} {:02x}",
+enum ReleaseConfirm {
+    Ignored,
+    Resumed(u8),
+    Confirmed,
+}
+
+async fn confirm_touch_release(press_start: Instant) -> ReleaseConfirm {
+    if press_start.elapsed() < Duration::from_millis(MIN_HOLD_BEFORE_RELEASE_MS) {
+        return ReleaseConfirm::Ignored;
+    }
+
+    let confirm_until = Instant::now() + Duration::from_millis(RELEASE_CONFIRM_MS);
+    while Instant::now() < confirm_until {
+        let remaining = confirm_until
+            .checked_duration_since(Instant::now())
+            .unwrap_or(Duration::from_millis(0));
+        if remaining == Duration::from_millis(0) {
+            break;
+        }
+
+        match select(ACTIONS.receive(), Timer::after(remaining)).await {
+            Either::First(Action::Press(index)) => return ReleaseConfirm::Resumed(index),
+            Either::First(Action::CanRx) => {
+                let _ = ACTIONS.try_send(Action::CanRx);
+            }
+            Either::First(Action::Release) => {}
+            Either::Second(()) => break,
+        }
+    }
+
+    ReleaseConfirm::Confirmed
+}
+
+fn log_tx_payload(button_index: u8, payload: &[u8; 6], refresh: bool) {
+    if refresh {
+        info!(
+            "CAN TX id=0x{:03x} btn={} token={} refresh data={:02x} {:02x} {:02x} {:02x} {:02x} {:02x}",
             CAN_TX_ID,
             button_index,
             button_token(button_index as usize),
@@ -108,24 +176,177 @@ fn log_rx_frame(id: u16, data: &[u8]) {
     );
 }
 
-fn log_minp_changes(before: &[u8], after: &[u8]) {
-    for (i, (prev, next)) in before.iter().zip(after.iter()).enumerate() {
-        if prev != next {
-            info!(
-                "CAN minp btn={} token={} active {} -> {}",
-                i,
-                button_token(i),
-                *prev != 0,
-                *next != 0,
-            );
-        }
-    }
-}
-
 fn frame_standard_id(frame: &embassy_stm32::can::frame::Frame) -> Option<u16> {
     match frame.header().id() {
         embedded_can::Id::Standard(id) => Some(id.as_raw()),
         _ => None,
+    }
+}
+
+async fn plc_tx_loop(tx: &mut CanTx<'static>, mut plc: Plc) {
+    let touch_tick = Duration::from_millis(CAN_COMMAND_REPEAT_MS);
+    let refresh_every = Duration::from_millis(CAN_REFRESH_MS as u64);
+    let mut scratch = [0u8; MAX_BUTTONS];
+    let tx_state = can_scheduler::PlcTxState::new();
+
+    loop {
+        match select(ACTIONS.receive(), Timer::after(refresh_every)).await {
+            Either::Second(()) => {
+                if let Some(btn) = can_scheduler::idle_refresh_button() {
+                    if send_plc_cmd(tx, btn, true).await {
+                        tx_state.note_sent(btn);
+                    }
+                }
+            }
+            Either::First(first) => match first {
+                Action::CanRx => {
+                    send_cycle_output(tx, can_scheduler::on_can_rx(&mut plc, &mut scratch, &tx_state)).await;
+                }
+                Action::Press(index) => {
+                    drain_pending_releases();
+                    can_scheduler::on_touch_press(&mut plc, &mut scratch, index);
+
+                    let mut press_start = Instant::now();
+                    let mut long_fired = false;
+                    let mut held = index;
+
+                    loop {
+                        match select(ACTIONS.receive(), Timer::after(touch_tick)).await {
+                            Either::First(Action::CanRx) => {
+                                send_cycle_output(
+                                    tx,
+                                    can_scheduler::on_can_rx(&mut plc, &mut scratch, &tx_state),
+                                )
+                                .await;
+                            }
+                            Either::First(Action::Release) => {
+                                match confirm_touch_release(press_start).await {
+                                    ReleaseConfirm::Ignored => continue,
+                                    ReleaseConfirm::Resumed(new_index) => {
+                                        let prev = held;
+                                        held = new_index;
+                                        press_start = Instant::now();
+                                        long_fired = false;
+                                        can_scheduler::on_touch_switch(
+                                            &mut plc,
+                                            &mut scratch,
+                                            prev,
+                                            new_index,
+                                        );
+                                    }
+                                    ReleaseConfirm::Confirmed => {
+                                        can_scheduler::on_touch_release(
+                                            &mut plc,
+                                            &mut scratch,
+                                            held,
+                                            long_fired,
+                                        );
+                                        break;
+                                    }
+                                }
+                            }
+                            Either::First(Action::Press(new_index)) => {
+                                let prev = held;
+                                held = new_index;
+                                press_start = Instant::now();
+                                long_fired = false;
+                                can_scheduler::on_touch_switch(&mut plc, &mut scratch, prev, new_index);
+                            }
+                            Either::Second(()) => {
+                                can_scheduler::on_touch_hold_tick(
+                                    &mut plc,
+                                    &mut scratch,
+                                    held,
+                                    press_start.elapsed().as_millis() as u64,
+                                    &mut long_fired,
+                                );
+                            }
+                        }
+                    }
+                }
+                Action::Release => {
+                    send_cycle_output(
+                        tx,
+                        can_scheduler::on_idle_release(&mut plc, &mut scratch, &tx_state),
+                    )
+                    .await;
+                }
+            },
+        }
+    }
+}
+
+async fn legacy_tx_loop(tx: &mut CanTx<'static>) {
+    let tick = Duration::from_millis(CAN_COMMAND_REPEAT_MS);
+    let refresh_every = Duration::from_millis(CAN_REFRESH_MS as u64);
+
+    loop {
+        match select(ACTIONS.receive(), Timer::after(refresh_every)).await {
+            Either::Second(()) => {
+                if let Some(btn) = can_scheduler::idle_refresh_button() {
+                    let _ = send_plc_cmd(tx, btn, true).await;
+                }
+            }
+            Either::First(first) => match first {
+                Action::CanRx => {}
+                Action::Press(index) => {
+                    drain_pending_releases();
+                    can_scheduler::touch_begin(index);
+                    let _ = send_plc_cmd(tx, index, false).await;
+
+                    let mut press_start = Instant::now();
+                    let mut long_fired = false;
+                    let mut held = index;
+
+                    loop {
+                        match select(ACTIONS.receive(), Timer::after(tick)).await {
+                            Either::First(Action::CanRx) => {}
+                            Either::First(Action::Release) => {
+                                match confirm_touch_release(press_start).await {
+                                    ReleaseConfirm::Ignored => continue,
+                                    ReleaseConfirm::Resumed(new_index) => {
+                                        let prev = held;
+                                        held = new_index;
+                                        can_scheduler::touch_switch(prev, new_index);
+                                        press_start = Instant::now();
+                                        long_fired = false;
+                                        let _ = send_plc_cmd(tx, new_index, false).await;
+                                    }
+                                    ReleaseConfirm::Confirmed => {
+                                        can_scheduler::touch_end(held, long_fired);
+                                        let _ = send_plc_cmd(tx, 255, false).await;
+                                        break;
+                                    }
+                                }
+                            }
+                            Either::First(Action::Press(new_index)) => {
+                                let prev = held;
+                                held = new_index;
+                                can_scheduler::touch_switch(prev, new_index);
+                                press_start = Instant::now();
+                                long_fired = false;
+                                let _ = send_plc_cmd(tx, new_index, false).await;
+                            }
+                            Either::Second(()) => {
+                                can_scheduler::touch_maybe_long(
+                                    held,
+                                    press_start.elapsed().as_millis() as u64,
+                                    &mut long_fired,
+                                );
+                                let _ = send_plc_cmd(tx, held, false).await;
+                            }
+                        }
+                    }
+                }
+                Action::Release => {
+                    if touch_hold::is_latched() {
+                        continue;
+                    }
+                    touch_hall_common::can_bridge::set_active_button(None);
+                    let _ = send_plc_cmd(tx, 255, false).await;
+                }
+            },
+        }
     }
 }
 
@@ -142,52 +363,79 @@ pub async fn tx_task(tx: &'static mut CanTx<'static>) {
         info!("button[{}] = {}", i, token);
     }
     info!(
-        "CAN TX: id=0x{:03x}, repeat={}ms",
-        CAN_TX_ID,
-        touch_hall_common::CAN_COMMAND_REPEAT_MS,
+        "CAN TX: id=0x{:03x}, repeat={}ms, refresh={}ms idle (00×6), long_press={}ms",
+        CAN_TX_ID, CAN_COMMAND_REPEAT_MS, CAN_REFRESH_MS, LONG_PRESS_MS,
     );
 
-    let repeat = Duration::from_millis(touch_hall_common::CAN_COMMAND_REPEAT_MS);
+    if STATE_SCRIPT_ENABLED {
+        let Some(plc) = Plc::new() else {
+            warn!("PLC script required but failed to load — TX disabled");
+            loop {
+                Timer::after_secs(60).await;
+            }
+        };
+        info!("PLC scan cycle active (fn cycle)");
+        plc_tx_loop(tx, plc).await;
+    } else {
+        legacy_tx_loop(tx).await;
+    }
+}
+
+async fn plc_rx_loop(rx: &mut CanRx<'static>) {
+    let poll = Duration::from_millis(CAN_RX_POLL_MS);
 
     loop {
-        match ACTIONS.receive().await {
-            Action::Press(index) => {
-                set_active_button(Some(index));
-                if !send_command(tx, index, false).await {
-                    warn!("CAN send_command failed for button {}", index);
-                }
+        can_input::advance_time_ms(Instant::now().as_millis() as u32);
 
-                let mut held = index;
-                loop {
-                    match select(ACTIONS.receive(), Timer::after(repeat)).await {
-                        Either::First(Action::Release) => {
-                            set_active_button(None);
-                            if !send_release(tx).await {
-                                warn!("CAN send_release failed");
-                            }
-                            break;
-                        }
-                        Either::First(Action::Press(new_index)) => {
-                            held = new_index;
-                            set_active_button(Some(new_index));
-                            if !send_command(tx, new_index, false).await {
-                                warn!("CAN send_command failed for button {}", new_index);
-                            }
-                        }
-                        Either::Second(()) => {
-                            if !send_command(tx, held, true).await {
-                                warn!("CAN repeat failed for button {}", held);
-                            }
-                        }
+        match select(rx.read(), Timer::after(poll)).await {
+            Either::First(Ok(envelope)) => {
+                let (frame, _) = envelope.parts();
+                if let Some(id) = frame_standard_id(&frame) {
+                    let data = frame.data();
+                    log_rx_frame(id, data);
+                    if can_input::store_rx(id, data) {
+                        let _ = ACTIONS.try_send(Action::CanRx);
                     }
                 }
             }
-            Action::Release => {
-                set_active_button(None);
-                if !send_release(tx).await {
-                    warn!("CAN send_release failed");
+            Either::First(Err(_)) => {}
+            Either::Second(()) => {}
+        }
+    }
+}
+
+async fn legacy_rx_loop(rx: &mut CanRx<'static>) {
+    let mut scratch = [0u8; MAX_BUTTONS];
+    let poll = Duration::from_millis(CAN_RX_POLL_MS);
+
+    loop {
+        can_input::advance_time_ms(Instant::now().as_millis() as u32);
+
+        match select(rx.read(), Timer::after(poll)).await {
+            Either::First(Ok(envelope)) => {
+                let (frame, _) = envelope.parts();
+                if let Some(id) = frame_standard_id(&frame) {
+                    let data = frame.data();
+                    log_rx_frame(id, data);
+
+                    let mut before = [0u8; MAX_BUTTONS];
+                    button_status::snapshot(&mut before, BUTTON_COUNT);
+                    for (i, value) in scratch.iter_mut().enumerate().take(BUTTON_COUNT) {
+                        *value = before[i];
+                    }
+
+                    if id == MINP_RX_ID {
+                        handle_minp_frame(id, data, &mut scratch[..BUTTON_COUNT]);
+                    }
+
+                    can_scheduler::log_minp_scratch(&before[..BUTTON_COUNT], &scratch[..BUTTON_COUNT]);
+                    for (i, value) in scratch.iter().enumerate().take(BUTTON_COUNT) {
+                        button_status::store(i, *value);
+                    }
                 }
             }
+            Either::First(Err(_)) => {}
+            Either::Second(()) => {}
         }
     }
 }
@@ -200,38 +448,12 @@ pub async fn rx_task(rx: &'static mut CanRx<'static>) {
         }
     }
 
-    info!("CAN RX: minp id=0x{:03x}", MINP_RX_ID);
+    info!("CAN RX: minp id=0x{:03x}, debounce={}ms", MINP_RX_ID, CAN_RX_DEBOUNCE_MS);
+
     if STATE_SCRIPT_ENABLED {
-        info!("Rhai state script enabled for button feedback");
-    }
-
-    let mut state_machine = StateMachine::new();
-    let mut scratch = [0u8; MAX_BUTTONS];
-
-    loop {
-        if let Ok(envelope) = rx.read().await {
-            let (frame, _) = envelope.parts();
-            if let Some(id) = frame_standard_id(&frame) {
-                let data = frame.data();
-                log_rx_frame(id, data);
-                let mut before = [0u8; MAX_BUTTONS];
-                for (i, atom) in BUTTON_STATUS.iter().enumerate().take(BUTTON_COUNT) {
-                    before[i] = atom.load(Ordering::Relaxed);
-                    scratch[i] = before[i];
-                }
-
-                if let Some(machine) = state_machine.as_mut() {
-                    machine.on_can_rx(id, data);
-                    machine.eval_button_status(&mut scratch[..BUTTON_COUNT]);
-                } else if id == MINP_RX_ID {
-                    handle_minp_frame(id, data, &mut scratch[..BUTTON_COUNT]);
-                }
-
-                log_minp_changes(&before[..BUTTON_COUNT], &scratch[..BUTTON_COUNT]);
-                for (i, value) in scratch.iter().enumerate().take(BUTTON_COUNT) {
-                    BUTTON_STATUS[i].store(*value, Ordering::Relaxed);
-                }
-            }
-        }
+        info!("PLC scan cycle active (fn cycle)");
+        plc_rx_loop(rx).await;
+    } else {
+        legacy_rx_loop(rx).await;
     }
 }
