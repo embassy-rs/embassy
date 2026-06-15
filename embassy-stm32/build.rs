@@ -2550,7 +2550,12 @@ fn main() {
             "gpdma" => quote!(crate::pac::#dma),
             "mdma" => quote!(crate::dma::DmaInfo::Mdma(crate::pac::#dma)),
             "lpdma" => {
-                quote!(unsafe { crate::pac::lpdma::Lpdma::from_ptr(crate::pac::#dma.as_ptr())})
+                if METADATA.family == "STM32U5" {
+                    // STM32U5 has both GPDMA and LPDMA where LPDMA is strict subset of GPDMA
+                    quote!(unsafe { crate::pac::gpdma::Gpdma::from_ptr(crate::pac::#dma.as_ptr())})
+                } else {
+                    quote!(crate::pac::#dma)
+                }
             }
             _ => panic!("bad dma channel kind {}", bi.kind),
         };

@@ -7,14 +7,15 @@ use core::task::{Context, Poll};
 
 use embassy_sync::waitqueue::AtomicWaker;
 use linked_list::Table;
-#[cfg(not(stm32c5))]
+#[cfg(gpdma)]
 use pac::gpdma::{Gpdma, vals};
-#[cfg(stm32c5)]
+#[cfg(not(gpdma))]
 use pac::lpdma::{Lpdma as Gpdma, vals};
 
 use super::word::{Word, WordSize};
 use super::{Channel, Dir, Request, STATE};
 use crate::_generated::DmaChannel;
+#[cfg(not(gpdma))]
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac;
 use crate::rcc::WakeGuard;
@@ -385,8 +386,19 @@ impl ChannelState {
 
 /// safety: must be called only once
 pub(crate) unsafe fn init(cs: critical_section::CriticalSection, irq_priority: crate::interrupt::Priority) {
+    #[cfg(gpdma)]
     foreach_interrupt! {
         ($peri:ident, gpdma, $block:ident, $signal_name:ident, $irq:ident) => {
+            crate::interrupt::typelevel::$irq::set_priority_with_cs(cs, irq_priority);
+            #[cfg(not(feature = "_dual-core"))]
+            crate::interrupt::typelevel::$irq::enable();
+        };
+    }
+
+    // Only LPDMA available
+    #[cfg(not(gpdma))]
+    foreach_interrupt! {
+        ($peri:ident, lpdma, $block:ident, $signal_name:ident, $irq:ident) => {
             crate::interrupt::typelevel::$irq::set_priority_with_cs(cs, irq_priority);
             #[cfg(not(feature = "_dual-core"))]
             crate::interrupt::typelevel::$irq::enable();
@@ -1009,6 +1021,7 @@ impl<'a> Transfer<'a> {
         core::mem::forget(self);
     }
 
+    #[cfg(not(stm32c5))]
     pub(crate) unsafe fn unchecked_extend_lifetime(self) -> Transfer<'static> {
         unsafe { core::mem::transmute(self) }
     }
