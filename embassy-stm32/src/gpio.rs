@@ -841,7 +841,7 @@ pub(crate) trait SealedPin {
 pub type PinNumber = u8;
 
 /// Pin that can be used to configure an [ExtiInput](crate::exti::ExtiInput). This trait is lost when converting to [AnyPin].
-#[cfg(all(feature = "exti", not(stm32c5)))]
+#[cfg(feature = "exti")]
 #[allow(private_bounds)]
 pub trait ExtiPin: PeripheralType + SealedPin {
     /// EXTI channel assigned to this pin.
@@ -925,7 +925,7 @@ foreach_pin!(
     ($pin_name:ident, $port_name:ident, $port_num:expr, $pin_num:expr, $exti_ch:ident) => {
         impl Pin for peripherals::$pin_name {
         }
-        #[cfg(all(feature = "exti", not(stm32c5)))]
+        #[cfg(feature = "exti")]
         impl ExtiPin for peripherals::$pin_name {
             type ExtiChannel = peripherals::$exti_ch;
         }

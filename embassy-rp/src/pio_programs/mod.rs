@@ -4,6 +4,7 @@ pub mod clk;
 pub mod clock_divider;
 pub mod hd44780;
 pub mod i2s;
+pub mod ir_nec;
 pub mod onewire;
 pub mod pwm;
 pub mod rotary_encoder;

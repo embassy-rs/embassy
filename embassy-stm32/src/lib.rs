@@ -15,9 +15,6 @@
 mod fmt;
 include!(concat!(env!("OUT_DIR"), "/_macros.rs"));
 
-#[cfg(all(feature = "ptp", not(any(eth_v2, eth_v2a))))]
-compile_error!("The 'ptp' feature is only supported on STM32 Ethernet MAC v2/v2a peripherals.");
-
 // Utilities
 mod macros;
 mod reg;
@@ -125,7 +122,7 @@ pub mod dsihost;
 pub mod dts;
 #[cfg(eth)]
 pub mod eth;
-#[cfg(all(feature = "exti", not(stm32c5)))]
+#[cfg(feature = "exti")]
 pub mod exti;
 #[cfg(all(flash, not(stm32c5)))]
 pub mod flash;
@@ -168,6 +165,8 @@ pub mod ospi;
 pub mod pka;
 #[cfg(quadspi)]
 pub mod qspi;
+#[cfg(rifsc)]
+pub mod rif;
 #[cfg(rng)]
 pub mod rng;
 #[cfg(all(rtc, not(rtc_v1)))]
@@ -936,7 +935,7 @@ fn init_hw(config: Config) -> Peripherals {
                 #[cfg(mdma)]
                 config.mdma_interrupt_priority,
             );
-            #[cfg(all(feature = "exti", not(stm32c5)))]
+            #[cfg(feature = "exti")]
             exti::init(cs);
 
             rcc::init_rcc(cs, config.rcc);
@@ -946,7 +945,7 @@ fn init_hw(config: Config) -> Peripherals {
             hsem::init_hsem(cs);
 
             // must be after rcc init
-            #[cfg(all(feature = "_time-driver", not(stm32c5)))]
+            #[cfg(feature = "_time-driver")]
             crate::time_driver::init(cs);
 
             // must be after time-driver init

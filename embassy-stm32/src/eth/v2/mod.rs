@@ -1,9 +1,13 @@
 mod descriptors;
+#[cfg(feature = "ptp")]
+mod ptp;
 
 use core::sync::atomic::{Ordering, fence};
 
 pub(crate) use descriptors::{RDes, RDesRing, TDes, TDesRing};
 use embassy_hal_internal::Peri;
+#[cfg(feature = "ptp")]
+pub use ptp::{PtpClock, PtpClockConfig, PtpSubsecondIncrement};
 #[cfg(eth_v2)]
 use stm32_metapac::syscfg::vals::EthSelPhy;
 
@@ -71,6 +75,8 @@ pub struct Ethernet<'d, T: Instance, P: Phy> {
     _pins: Pins<'d>,
     pub(crate) phy: P,
     pub(crate) mac_addr: [u8; 6],
+    #[cfg(feature = "ptp")]
+    ptp_clock_taken: bool,
 }
 
 /// Pins of ethernet driver.
@@ -503,6 +509,8 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             phy,
             mac_addr,
             link_state: LinkState::Down,
+            #[cfg(feature = "ptp")]
+            ptp_clock_taken: false,
         };
 
         fence(Ordering::SeqCst);
@@ -542,6 +550,18 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         }
 
         this
+    }
+
+    /// Start the Ethernet MAC PTP clock.
+    #[cfg(feature = "ptp")]
+    pub fn start_ptp(&mut self, config: PtpClockConfig) -> PtpClock<T> {
+        if self.ptp_clock_taken {
+            panic!("Ethernet PTP clock already started");
+        }
+
+        let clock = PtpClock::start(config);
+        self.ptp_clock_taken = true;
+        clock
     }
 }
 

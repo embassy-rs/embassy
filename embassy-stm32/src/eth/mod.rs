@@ -1,6 +1,9 @@
 //! Ethernet (ETH)
 #![macro_use]
 
+#[cfg(all(feature = "ptp", not(eth_v2), not(eth_v2a)))]
+compile_error!("The 'ptp' feature is only supported on STM32 Ethernet MAC v2/v2a peripherals.");
+
 #[cfg_attr(any(eth_v1a, eth_v1b, eth_v1c), path = "v1/mod.rs")]
 #[cfg_attr(any(eth_v2, eth_v2a), path = "v2/mod.rs")]
 mod _version;

@@ -3778,7 +3778,7 @@ impl ::micropb::MessageEncode for CtrlMsg_Req_ScanResult {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsg_Resp_ScanResult {
     pub r#count: u32,
-    pub r#entries: ::heapless::Vec<ScanResult, 16>,
+    pub r#entries: ::heapless::Vec<ScanResult, 8>,
     pub r#resp: i32,
 }
 impl CtrlMsg_Resp_ScanResult {
@@ -3892,7 +3892,7 @@ impl ::micropb::MessageEncode for CtrlMsg_Resp_ScanResult {
             ::micropb::const_map!(<ScanResult as ::micropb::MessageEncode>::MAX_SIZE, |size| {
                 ::micropb::size::sizeof_len_record(size)
             }),
-            |size| (size + 1usize) * 16usize
+            |size| (size + 1usize) * 8usize
         ) {
             ::core::result::Result::Ok(size) => {
                 max_size += size;
@@ -11231,32 +11231,6 @@ impl ::micropb::MessageDecode for CtrlMsg {
                     };
                     mut_ref.decode_len_delimited(decoder)?;
                 }
-                102u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::ReqSetMacAddress(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::ReqSetMacAddress(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                103u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::ReqGetWifiMode(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::ReqGetWifiMode(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
                 104u32 => {
                     let mut_ref = loop {
                         if let ::core::option::Option::Some(variant) = &mut self.r#payload {
@@ -11322,97 +11296,6 @@ impl ::micropb::MessageDecode for CtrlMsg {
                     };
                     mut_ref.decode_len_delimited(decoder)?;
                 }
-                109u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::ReqGetSoftapConfig(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::ReqGetSoftapConfig(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                110u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::ReqSetSoftapVendorSpecificIe(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::ReqSetSoftapVendorSpecificIe(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                111u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::ReqStartSoftap(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::ReqStartSoftap(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                112u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::ReqSoftapConnectedStasList(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::ReqSoftapConnectedStasList(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                113u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::ReqStopSoftap(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::ReqStopSoftap(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                114u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::ReqSetPowerSaveMode(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::ReqSetPowerSaveMode(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                115u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::ReqGetPowerSaveMode(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::ReqGetPowerSaveMode(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
                 116u32 => {
                     let mut_ref = loop {
                         if let ::core::option::Option::Some(variant) = &mut self.r#payload {
@@ -11452,32 +11335,6 @@ impl ::micropb::MessageDecode for CtrlMsg {
                     };
                     mut_ref.decode_len_delimited(decoder)?;
                 }
-                119u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::ReqSetWifiMaxTxPower(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::ReqSetWifiMaxTxPower(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                120u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::ReqGetWifiCurrTxPower(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::ReqGetWifiCurrTxPower(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
                 121u32 => {
                     let mut_ref = loop {
                         if let ::core::option::Option::Some(variant) = &mut self.r#payload {
@@ -11486,19 +11343,6 @@ impl ::micropb::MessageDecode for CtrlMsg {
                             }
                         }
                         self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::ReqConfigHeartbeat(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                122u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::ReqEnableDisableFeat(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::ReqEnableDisableFeat(
                             ::core::default::Default::default(),
                         ));
                     };
@@ -11517,71 +11361,6 @@ impl ::micropb::MessageDecode for CtrlMsg {
                     };
                     mut_ref.decode_len_delimited(decoder)?;
                 }
-                124u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::ReqSetCountryCode(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::ReqSetCountryCode(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                125u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::ReqGetCountryCode(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::ReqGetCountryCode(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                126u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::ReqSetDhcpDnsStatus(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::ReqSetDhcpDnsStatus(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                127u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::ReqGetDhcpDnsStatus(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::ReqGetDhcpDnsStatus(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                128u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::ReqCustomRpcUnserialisedMsg(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::ReqCustomRpcUnserialisedMsg(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
                 201u32 => {
                     let mut_ref = loop {
                         if let ::core::option::Option::Some(variant) = &mut self.r#payload {
@@ -11590,32 +11369,6 @@ impl ::micropb::MessageDecode for CtrlMsg {
                             }
                         }
                         self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::RespGetMacAddress(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                202u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::RespSetMacAddress(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::RespSetMacAddress(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                203u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::RespGetWifiMode(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::RespGetWifiMode(
                             ::core::default::Default::default(),
                         ));
                     };
@@ -11686,97 +11439,6 @@ impl ::micropb::MessageDecode for CtrlMsg {
                     };
                     mut_ref.decode_len_delimited(decoder)?;
                 }
-                209u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::RespGetSoftapConfig(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::RespGetSoftapConfig(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                210u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::RespSetSoftapVendorSpecificIe(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(
-                            CtrlMsg_::Payload::RespSetSoftapVendorSpecificIe(::core::default::Default::default()),
-                        );
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                211u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::RespStartSoftap(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::RespStartSoftap(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                212u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::RespSoftapConnectedStasList(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::RespSoftapConnectedStasList(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                213u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::RespStopSoftap(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::RespStopSoftap(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                214u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::RespSetPowerSaveMode(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::RespSetPowerSaveMode(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                215u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::RespGetPowerSaveMode(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::RespGetPowerSaveMode(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
                 216u32 => {
                     let mut_ref = loop {
                         if let ::core::option::Option::Some(variant) = &mut self.r#payload {
@@ -11816,32 +11478,6 @@ impl ::micropb::MessageDecode for CtrlMsg {
                     };
                     mut_ref.decode_len_delimited(decoder)?;
                 }
-                219u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::RespSetWifiMaxTxPower(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::RespSetWifiMaxTxPower(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                220u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::RespGetWifiCurrTxPower(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::RespGetWifiCurrTxPower(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
                 221u32 => {
                     let mut_ref = loop {
                         if let ::core::option::Option::Some(variant) = &mut self.r#payload {
@@ -11850,19 +11486,6 @@ impl ::micropb::MessageDecode for CtrlMsg {
                             }
                         }
                         self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::RespConfigHeartbeat(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                222u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::RespEnableDisableFeat(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::RespEnableDisableFeat(
                             ::core::default::Default::default(),
                         ));
                     };
@@ -11878,175 +11501,6 @@ impl ::micropb::MessageDecode for CtrlMsg {
                         self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::RespGetFwVersion(
                             ::core::default::Default::default(),
                         ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                224u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::RespSetCountryCode(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::RespSetCountryCode(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                225u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::RespGetCountryCode(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::RespGetCountryCode(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                226u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::RespSetDhcpDnsStatus(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::RespSetDhcpDnsStatus(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                227u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::RespGetDhcpDnsStatus(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::RespGetDhcpDnsStatus(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                228u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::RespCustomRpcUnserialisedMsg(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::RespCustomRpcUnserialisedMsg(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                301u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::EventEspInit(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::EventEspInit(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                302u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::EventHeartbeat(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::EventHeartbeat(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                303u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::EventStationDisconnectFromAp(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::EventStationDisconnectFromAp(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                304u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::EventStationDisconnectFromEspSoftAp(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(
-                            CtrlMsg_::Payload::EventStationDisconnectFromEspSoftAp(::core::default::Default::default()),
-                        );
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                305u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::EventStationConnectedToAp(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::EventStationConnectedToAp(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                306u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::EventStationConnectedToEspSoftAp(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(
-                            CtrlMsg_::Payload::EventStationConnectedToEspSoftAp(::core::default::Default::default()),
-                        );
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                307u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::EventSetDhcpDnsStatus(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(CtrlMsg_::Payload::EventSetDhcpDnsStatus(
-                            ::core::default::Default::default(),
-                        ));
-                    };
-                    mut_ref.decode_len_delimited(decoder)?;
-                }
-                308u32 => {
-                    let mut_ref = loop {
-                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
-                            if let CtrlMsg_::Payload::EventCustomRpcUnserialisedMsg(variant) = &mut *variant {
-                                break &mut *variant;
-                            }
-                        }
-                        self.r#payload = ::core::option::Option::Some(
-                            CtrlMsg_::Payload::EventCustomRpcUnserialisedMsg(::core::default::Default::default()),
-                        );
                     };
                     mut_ref.decode_len_delimited(decoder)?;
                 }
@@ -12100,37 +11554,6 @@ impl ::micropb::MessageEncode for CtrlMsg {
                     <CtrlMsg_Req_GetMacAddress as ::micropb::MessageEncode>::MAX_SIZE,
                     |size| ::micropb::size::sizeof_len_record(size)
                 ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
-                    <CtrlMsg_Req_SetMacAddress as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(<CtrlMsg_Req_GetMode as ::micropb::MessageEncode>::MAX_SIZE, |size| {
-                    ::micropb::size::sizeof_len_record(size)
-                }),
                 |size| size + 2usize
             ) {
                 ::core::result::Result::Ok(size) => {
@@ -12219,115 +11642,6 @@ impl ::micropb::MessageEncode for CtrlMsg {
                 }
             }
             match ::micropb::const_map!(
-                ::micropb::const_map!(
-                    <CtrlMsg_Req_GetSoftAPConfig as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
-                    <CtrlMsg_Req_SetSoftAPVendorSpecificIE as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
-                    <CtrlMsg_Req_StartSoftAP as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
-                    <CtrlMsg_Req_SoftAPConnectedSTA as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(<CtrlMsg_Req_GetStatus as ::micropb::MessageEncode>::MAX_SIZE, |size| {
-                    ::micropb::size::sizeof_len_record(size)
-                }),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(<CtrlMsg_Req_SetMode as ::micropb::MessageEncode>::MAX_SIZE, |size| {
-                    ::micropb::size::sizeof_len_record(size)
-                }),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(<CtrlMsg_Req_GetMode as ::micropb::MessageEncode>::MAX_SIZE, |size| {
-                    ::micropb::size::sizeof_len_record(size)
-                }),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
                 ::micropb::const_map!(<CtrlMsg_Req_OTABegin as ::micropb::MessageEncode>::MAX_SIZE, |size| {
                     ::micropb::size::sizeof_len_record(size)
                 }),
@@ -12374,55 +11688,7 @@ impl ::micropb::MessageEncode for CtrlMsg {
             }
             match ::micropb::const_map!(
                 ::micropb::const_map!(
-                    <CtrlMsg_Req_SetWifiMaxTxPower as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
-                    <CtrlMsg_Req_GetWifiCurrTxPower as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
                     <CtrlMsg_Req_ConfigHeartbeat as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
-                    <CtrlMsg_Req_EnableDisable as ::micropb::MessageEncode>::MAX_SIZE,
                     |size| ::micropb::size::sizeof_len_record(size)
                 ),
                 |size| size + 2usize
@@ -12454,120 +11720,9 @@ impl ::micropb::MessageEncode for CtrlMsg {
             }
             match ::micropb::const_map!(
                 ::micropb::const_map!(
-                    <CtrlMsg_Req_SetCountryCode as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
-                    <CtrlMsg_Req_GetCountryCode as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
-                    <CtrlMsg_Req_SetDhcpDnsStatus as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
-                    <CtrlMsg_Req_GetDhcpDnsStatus as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
-                    <CtrlMsg_Req_CustomRpcUnserialisedMsg as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
                     <CtrlMsg_Resp_GetMacAddress as ::micropb::MessageEncode>::MAX_SIZE,
                     |size| ::micropb::size::sizeof_len_record(size)
                 ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
-                    <CtrlMsg_Resp_SetMacAddress as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(<CtrlMsg_Resp_GetMode as ::micropb::MessageEncode>::MAX_SIZE, |size| {
-                    ::micropb::size::sizeof_len_record(size)
-                }),
                 |size| size + 2usize
             ) {
                 ::core::result::Result::Ok(size) => {
@@ -12657,115 +11812,6 @@ impl ::micropb::MessageEncode for CtrlMsg {
                 }
             }
             match ::micropb::const_map!(
-                ::micropb::const_map!(
-                    <CtrlMsg_Resp_GetSoftAPConfig as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
-                    <CtrlMsg_Resp_SetSoftAPVendorSpecificIE as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
-                    <CtrlMsg_Resp_StartSoftAP as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
-                    <CtrlMsg_Resp_SoftAPConnectedSTA as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(<CtrlMsg_Resp_GetStatus as ::micropb::MessageEncode>::MAX_SIZE, |size| {
-                    ::micropb::size::sizeof_len_record(size)
-                }),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(<CtrlMsg_Resp_SetMode as ::micropb::MessageEncode>::MAX_SIZE, |size| {
-                    ::micropb::size::sizeof_len_record(size)
-                }),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(<CtrlMsg_Resp_GetMode as ::micropb::MessageEncode>::MAX_SIZE, |size| {
-                    ::micropb::size::sizeof_len_record(size)
-                }),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
                 ::micropb::const_map!(<CtrlMsg_Resp_OTABegin as ::micropb::MessageEncode>::MAX_SIZE, |size| {
                     ::micropb::size::sizeof_len_record(size)
                 }),
@@ -12812,38 +11858,6 @@ impl ::micropb::MessageEncode for CtrlMsg {
             }
             match ::micropb::const_map!(
                 ::micropb::const_map!(
-                    <CtrlMsg_Resp_SetWifiMaxTxPower as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
-                    <CtrlMsg_Resp_GetWifiCurrTxPower as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
                     <CtrlMsg_Resp_ConfigHeartbeat as ::micropb::MessageEncode>::MAX_SIZE,
                     |size| ::micropb::size::sizeof_len_record(size)
                 ),
@@ -12860,230 +11874,7 @@ impl ::micropb::MessageEncode for CtrlMsg {
             }
             match ::micropb::const_map!(
                 ::micropb::const_map!(
-                    <CtrlMsg_Resp_EnableDisable as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
                     <CtrlMsg_Resp_GetFwVersion as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
-                    <CtrlMsg_Resp_SetCountryCode as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
-                    <CtrlMsg_Resp_GetCountryCode as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
-                    <CtrlMsg_Resp_SetDhcpDnsStatus as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
-                    <CtrlMsg_Resp_GetDhcpDnsStatus as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
-                    <CtrlMsg_Resp_CustomRpcUnserialisedMsg as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(<CtrlMsg_Event_ESPInit as ::micropb::MessageEncode>::MAX_SIZE, |size| {
-                    ::micropb::size::sizeof_len_record(size)
-                }),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
-                    <CtrlMsg_Event_Heartbeat as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
-                    <CtrlMsg_Event_StationDisconnectFromAP as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
-                    <CtrlMsg_Event_StationDisconnectFromESPSoftAP as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
-                    <CtrlMsg_Event_StationConnectedToAP as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
-                    <CtrlMsg_Event_StationConnectedToESPSoftAP as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
-                    <CtrlMsg_Event_SetDhcpDnsStatus as ::micropb::MessageEncode>::MAX_SIZE,
-                    |size| ::micropb::size::sizeof_len_record(size)
-                ),
-                |size| size + 2usize
-            ) {
-                ::core::result::Result::Ok(size) => {
-                    if size > max_size {
-                        max_size = size;
-                    }
-                }
-                ::core::result::Result::Err(err) => {
-                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
-                }
-            }
-            match ::micropb::const_map!(
-                ::micropb::const_map!(
-                    <CtrlMsg_Event_CustomRpcUnserialisedMsg as ::micropb::MessageEncode>::MAX_SIZE,
                     |size| ::micropb::size::sizeof_len_record(size)
                 ),
                 |size| size + 2usize
@@ -13148,16 +11939,6 @@ impl ::micropb::MessageEncode for CtrlMsg {
                     encoder.encode_varint32(810u32)?;
                     val_ref.encode_len_delimited(encoder)?;
                 }
-                CtrlMsg_::Payload::ReqSetMacAddress(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(818u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::ReqGetWifiMode(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(826u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
                 CtrlMsg_::Payload::ReqSetWifiMode(val_ref) => {
                     let val_ref = &*val_ref;
                     encoder.encode_varint32(834u32)?;
@@ -13183,41 +11964,6 @@ impl ::micropb::MessageEncode for CtrlMsg {
                     encoder.encode_varint32(866u32)?;
                     val_ref.encode_len_delimited(encoder)?;
                 }
-                CtrlMsg_::Payload::ReqGetSoftapConfig(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(874u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::ReqSetSoftapVendorSpecificIe(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(882u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::ReqStartSoftap(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(890u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::ReqSoftapConnectedStasList(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(898u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::ReqStopSoftap(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(906u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::ReqSetPowerSaveMode(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(914u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::ReqGetPowerSaveMode(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(922u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
                 CtrlMsg_::Payload::ReqOtaBegin(val_ref) => {
                     let val_ref = &*val_ref;
                     encoder.encode_varint32(930u32)?;
@@ -13233,24 +11979,9 @@ impl ::micropb::MessageEncode for CtrlMsg {
                     encoder.encode_varint32(946u32)?;
                     val_ref.encode_len_delimited(encoder)?;
                 }
-                CtrlMsg_::Payload::ReqSetWifiMaxTxPower(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(954u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::ReqGetWifiCurrTxPower(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(962u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
                 CtrlMsg_::Payload::ReqConfigHeartbeat(val_ref) => {
                     let val_ref = &*val_ref;
                     encoder.encode_varint32(970u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::ReqEnableDisableFeat(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(978u32)?;
                     val_ref.encode_len_delimited(encoder)?;
                 }
                 CtrlMsg_::Payload::ReqGetFwVersion(val_ref) => {
@@ -13258,44 +11989,9 @@ impl ::micropb::MessageEncode for CtrlMsg {
                     encoder.encode_varint32(986u32)?;
                     val_ref.encode_len_delimited(encoder)?;
                 }
-                CtrlMsg_::Payload::ReqSetCountryCode(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(994u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::ReqGetCountryCode(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(1002u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::ReqSetDhcpDnsStatus(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(1010u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::ReqGetDhcpDnsStatus(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(1018u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::ReqCustomRpcUnserialisedMsg(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(1026u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
                 CtrlMsg_::Payload::RespGetMacAddress(val_ref) => {
                     let val_ref = &*val_ref;
                     encoder.encode_varint32(1610u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::RespSetMacAddress(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(1618u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::RespGetWifiMode(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(1626u32)?;
                     val_ref.encode_len_delimited(encoder)?;
                 }
                 CtrlMsg_::Payload::RespSetWifiMode(val_ref) => {
@@ -13323,41 +12019,6 @@ impl ::micropb::MessageEncode for CtrlMsg {
                     encoder.encode_varint32(1666u32)?;
                     val_ref.encode_len_delimited(encoder)?;
                 }
-                CtrlMsg_::Payload::RespGetSoftapConfig(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(1674u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::RespSetSoftapVendorSpecificIe(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(1682u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::RespStartSoftap(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(1690u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::RespSoftapConnectedStasList(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(1698u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::RespStopSoftap(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(1706u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::RespSetPowerSaveMode(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(1714u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::RespGetPowerSaveMode(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(1722u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
                 CtrlMsg_::Payload::RespOtaBegin(val_ref) => {
                     let val_ref = &*val_ref;
                     encoder.encode_varint32(1730u32)?;
@@ -13373,94 +12034,14 @@ impl ::micropb::MessageEncode for CtrlMsg {
                     encoder.encode_varint32(1746u32)?;
                     val_ref.encode_len_delimited(encoder)?;
                 }
-                CtrlMsg_::Payload::RespSetWifiMaxTxPower(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(1754u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::RespGetWifiCurrTxPower(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(1762u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
                 CtrlMsg_::Payload::RespConfigHeartbeat(val_ref) => {
                     let val_ref = &*val_ref;
                     encoder.encode_varint32(1770u32)?;
                     val_ref.encode_len_delimited(encoder)?;
                 }
-                CtrlMsg_::Payload::RespEnableDisableFeat(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(1778u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
                 CtrlMsg_::Payload::RespGetFwVersion(val_ref) => {
                     let val_ref = &*val_ref;
                     encoder.encode_varint32(1786u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::RespSetCountryCode(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(1794u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::RespGetCountryCode(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(1802u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::RespSetDhcpDnsStatus(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(1810u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::RespGetDhcpDnsStatus(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(1818u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::RespCustomRpcUnserialisedMsg(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(1826u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::EventEspInit(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(2410u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::EventHeartbeat(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(2418u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::EventStationDisconnectFromAp(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(2426u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::EventStationDisconnectFromEspSoftAp(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(2434u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::EventStationConnectedToAp(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(2442u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::EventStationConnectedToEspSoftAp(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(2450u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::EventSetDhcpDnsStatus(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(2458u32)?;
-                    val_ref.encode_len_delimited(encoder)?;
-                }
-                CtrlMsg_::Payload::EventCustomRpcUnserialisedMsg(val_ref) => {
-                    let val_ref = &*val_ref;
-                    encoder.encode_varint32(2466u32)?;
                     val_ref.encode_len_delimited(encoder)?;
                 }
             }
@@ -13500,14 +12081,6 @@ impl ::micropb::MessageEncode for CtrlMsg {
                     let val_ref = &*val_ref;
                     size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
                 }
-                CtrlMsg_::Payload::ReqSetMacAddress(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::ReqGetWifiMode(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
                 CtrlMsg_::Payload::ReqSetWifiMode(val_ref) => {
                     let val_ref = &*val_ref;
                     size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
@@ -13528,34 +12101,6 @@ impl ::micropb::MessageEncode for CtrlMsg {
                     let val_ref = &*val_ref;
                     size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
                 }
-                CtrlMsg_::Payload::ReqGetSoftapConfig(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::ReqSetSoftapVendorSpecificIe(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::ReqStartSoftap(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::ReqSoftapConnectedStasList(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::ReqStopSoftap(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::ReqSetPowerSaveMode(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::ReqGetPowerSaveMode(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
                 CtrlMsg_::Payload::ReqOtaBegin(val_ref) => {
                     let val_ref = &*val_ref;
                     size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
@@ -13568,19 +12113,7 @@ impl ::micropb::MessageEncode for CtrlMsg {
                     let val_ref = &*val_ref;
                     size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
                 }
-                CtrlMsg_::Payload::ReqSetWifiMaxTxPower(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::ReqGetWifiCurrTxPower(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
                 CtrlMsg_::Payload::ReqConfigHeartbeat(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::ReqEnableDisableFeat(val_ref) => {
                     let val_ref = &*val_ref;
                     size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
                 }
@@ -13588,35 +12121,7 @@ impl ::micropb::MessageEncode for CtrlMsg {
                     let val_ref = &*val_ref;
                     size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
                 }
-                CtrlMsg_::Payload::ReqSetCountryCode(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::ReqGetCountryCode(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::ReqSetDhcpDnsStatus(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::ReqGetDhcpDnsStatus(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::ReqCustomRpcUnserialisedMsg(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
                 CtrlMsg_::Payload::RespGetMacAddress(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::RespSetMacAddress(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::RespGetWifiMode(val_ref) => {
                     let val_ref = &*val_ref;
                     size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
                 }
@@ -13640,34 +12145,6 @@ impl ::micropb::MessageEncode for CtrlMsg {
                     let val_ref = &*val_ref;
                     size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
                 }
-                CtrlMsg_::Payload::RespGetSoftapConfig(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::RespSetSoftapVendorSpecificIe(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::RespStartSoftap(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::RespSoftapConnectedStasList(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::RespStopSoftap(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::RespSetPowerSaveMode(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::RespGetPowerSaveMode(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
                 CtrlMsg_::Payload::RespOtaBegin(val_ref) => {
                     let val_ref = &*val_ref;
                     size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
@@ -13680,75 +12157,11 @@ impl ::micropb::MessageEncode for CtrlMsg {
                     let val_ref = &*val_ref;
                     size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
                 }
-                CtrlMsg_::Payload::RespSetWifiMaxTxPower(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::RespGetWifiCurrTxPower(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
                 CtrlMsg_::Payload::RespConfigHeartbeat(val_ref) => {
                     let val_ref = &*val_ref;
                     size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
                 }
-                CtrlMsg_::Payload::RespEnableDisableFeat(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
                 CtrlMsg_::Payload::RespGetFwVersion(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::RespSetCountryCode(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::RespGetCountryCode(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::RespSetDhcpDnsStatus(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::RespGetDhcpDnsStatus(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::RespCustomRpcUnserialisedMsg(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::EventEspInit(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::EventHeartbeat(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::EventStationDisconnectFromAp(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::EventStationDisconnectFromEspSoftAp(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::EventStationConnectedToAp(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::EventStationConnectedToEspSoftAp(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::EventSetDhcpDnsStatus(val_ref) => {
-                    let val_ref = &*val_ref;
-                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
-                }
-                CtrlMsg_::Payload::EventCustomRpcUnserialisedMsg(val_ref) => {
                     let val_ref = &*val_ref;
                     size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
                 }
@@ -13765,71 +12178,509 @@ pub mod CtrlMsg_ {
     pub enum Payload {
         ///* Requests *
         ReqGetMacAddress(super::CtrlMsg_Req_GetMacAddress),
-        ReqSetMacAddress(super::CtrlMsg_Req_SetMacAddress),
-        ReqGetWifiMode(super::CtrlMsg_Req_GetMode),
+        ///CtrlMsg_Req_SetMacAddress req_set_mac_address = 102;
+        ///CtrlMsg_Req_GetMode req_get_wifi_mode = 103;
         ReqSetWifiMode(super::CtrlMsg_Req_SetMode),
         ReqScanApList(super::CtrlMsg_Req_ScanResult),
         ReqGetApConfig(super::CtrlMsg_Req_GetAPConfig),
         ReqConnectAp(super::CtrlMsg_Req_ConnectAP),
         ReqDisconnectAp(super::CtrlMsg_Req_GetStatus),
-        ReqGetSoftapConfig(super::CtrlMsg_Req_GetSoftAPConfig),
-        ReqSetSoftapVendorSpecificIe(super::CtrlMsg_Req_SetSoftAPVendorSpecificIE),
-        ReqStartSoftap(super::CtrlMsg_Req_StartSoftAP),
-        ReqSoftapConnectedStasList(super::CtrlMsg_Req_SoftAPConnectedSTA),
-        ReqStopSoftap(super::CtrlMsg_Req_GetStatus),
-        ReqSetPowerSaveMode(super::CtrlMsg_Req_SetMode),
-        ReqGetPowerSaveMode(super::CtrlMsg_Req_GetMode),
         ReqOtaBegin(super::CtrlMsg_Req_OTABegin),
         ReqOtaWrite(super::CtrlMsg_Req_OTAWrite),
         ReqOtaEnd(super::CtrlMsg_Req_OTAEnd),
-        ReqSetWifiMaxTxPower(super::CtrlMsg_Req_SetWifiMaxTxPower),
-        ReqGetWifiCurrTxPower(super::CtrlMsg_Req_GetWifiCurrTxPower),
+        ///CtrlMsg_Req_SetWifiMaxTxPower req_set_wifi_max_tx_power = 119;
+        ///CtrlMsg_Req_GetWifiCurrTxPower req_get_wifi_curr_tx_power = 120;
         ReqConfigHeartbeat(super::CtrlMsg_Req_ConfigHeartbeat),
-        ReqEnableDisableFeat(super::CtrlMsg_Req_EnableDisable),
+        ///CtrlMsg_Req_EnableDisable req_enable_disable_feat = 122;
+        ///
+        ///CtrlMsg_Req_SetCountryCode req_set_country_code = 124;
+        ///CtrlMsg_Req_GetCountryCode req_get_country_code = 125;
+        ///CtrlMsg_Req_SetDhcpDnsStatus req_set_dhcp_dns_status = 126;
+        ///CtrlMsg_Req_GetDhcpDnsStatus req_get_dhcp_dns_status = 127;
+        ///CtrlMsg_Req_CustomRpcUnserialisedMsg req_custom_rpc_unserialised_msg = 128;
         ReqGetFwVersion(super::CtrlMsg_Req_GetFwVersion),
-        ReqSetCountryCode(super::CtrlMsg_Req_SetCountryCode),
-        ReqGetCountryCode(super::CtrlMsg_Req_GetCountryCode),
-        ReqSetDhcpDnsStatus(super::CtrlMsg_Req_SetDhcpDnsStatus),
-        ReqGetDhcpDnsStatus(super::CtrlMsg_Req_GetDhcpDnsStatus),
-        ReqCustomRpcUnserialisedMsg(super::CtrlMsg_Req_CustomRpcUnserialisedMsg),
         ///* Responses *
         RespGetMacAddress(super::CtrlMsg_Resp_GetMacAddress),
-        RespSetMacAddress(super::CtrlMsg_Resp_SetMacAddress),
-        RespGetWifiMode(super::CtrlMsg_Resp_GetMode),
+        ///CtrlMsg_Resp_SetMacAddress resp_set_mac_address = 202;
+        ///CtrlMsg_Resp_GetMode resp_get_wifi_mode = 203;
         RespSetWifiMode(super::CtrlMsg_Resp_SetMode),
         RespScanApList(super::CtrlMsg_Resp_ScanResult),
         RespGetApConfig(super::CtrlMsg_Resp_GetAPConfig),
         RespConnectAp(super::CtrlMsg_Resp_ConnectAP),
         RespDisconnectAp(super::CtrlMsg_Resp_GetStatus),
-        RespGetSoftapConfig(super::CtrlMsg_Resp_GetSoftAPConfig),
-        RespSetSoftapVendorSpecificIe(super::CtrlMsg_Resp_SetSoftAPVendorSpecificIE),
-        RespStartSoftap(super::CtrlMsg_Resp_StartSoftAP),
-        RespSoftapConnectedStasList(super::CtrlMsg_Resp_SoftAPConnectedSTA),
-        RespStopSoftap(super::CtrlMsg_Resp_GetStatus),
-        RespSetPowerSaveMode(super::CtrlMsg_Resp_SetMode),
-        RespGetPowerSaveMode(super::CtrlMsg_Resp_GetMode),
         RespOtaBegin(super::CtrlMsg_Resp_OTABegin),
         RespOtaWrite(super::CtrlMsg_Resp_OTAWrite),
         RespOtaEnd(super::CtrlMsg_Resp_OTAEnd),
-        RespSetWifiMaxTxPower(super::CtrlMsg_Resp_SetWifiMaxTxPower),
-        RespGetWifiCurrTxPower(super::CtrlMsg_Resp_GetWifiCurrTxPower),
+        ///CtrlMsg_Resp_SetWifiMaxTxPower resp_set_wifi_max_tx_power = 219;
+        ///CtrlMsg_Resp_GetWifiCurrTxPower resp_get_wifi_curr_tx_power = 220;
         RespConfigHeartbeat(super::CtrlMsg_Resp_ConfigHeartbeat),
-        RespEnableDisableFeat(super::CtrlMsg_Resp_EnableDisable),
+        ///CtrlMsg_Resp_EnableDisable resp_enable_disable_feat = 222;
+        ///
+        ///CtrlMsg_Resp_SetCountryCode resp_set_country_code = 224;
+        ///CtrlMsg_Resp_GetCountryCode resp_get_country_code = 225;
+        ///CtrlMsg_Resp_SetDhcpDnsStatus resp_set_dhcp_dns_status = 226;
+        ///CtrlMsg_Resp_GetDhcpDnsStatus resp_get_dhcp_dns_status = 227;
+        ///CtrlMsg_Resp_CustomRpcUnserialisedMsg resp_custom_rpc_unserialised_msg = 228;
+        /// Start of manual change - separate Event message to improve code size
         RespGetFwVersion(super::CtrlMsg_Resp_GetFwVersion),
-        RespSetCountryCode(super::CtrlMsg_Resp_SetCountryCode),
-        RespGetCountryCode(super::CtrlMsg_Resp_GetCountryCode),
-        RespSetDhcpDnsStatus(super::CtrlMsg_Resp_SetDhcpDnsStatus),
-        RespGetDhcpDnsStatus(super::CtrlMsg_Resp_GetDhcpDnsStatus),
-        RespCustomRpcUnserialisedMsg(super::CtrlMsg_Resp_CustomRpcUnserialisedMsg),
+    }
+}
+#[derive(Debug, Default, PartialEq, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct CtrlEvent {
+    /// msg_type could be req, resp or Event
+    pub r#msg_type: CtrlMsgType,
+    /// msg id
+    pub r#msg_id: CtrlMsgId,
+    /// UID of message
+    pub r#uid: i32,
+    /// Request/response type: sync or async
+    pub r#req_resp_type: u32,
+    /// union of all msg ids
+    ///
+    /// End of manual change
+    pub r#payload: ::core::option::Option<CtrlEvent_::Payload>,
+}
+impl CtrlEvent {
+    /// Return a reference to `msg_type`
+    #[inline]
+    pub fn r#msg_type(&self) -> &CtrlMsgType {
+        &self.r#msg_type
+    }
+    /// Return a mutable reference to `msg_type`
+    #[inline]
+    pub fn mut_msg_type(&mut self) -> &mut CtrlMsgType {
+        &mut self.r#msg_type
+    }
+    /// Set the value of `msg_type`
+    #[inline]
+    pub fn set_msg_type(&mut self, value: CtrlMsgType) -> &mut Self {
+        self.r#msg_type = value.into();
+        self
+    }
+    /// Builder method that sets the value of `msg_type`. Useful for initializing the message.
+    #[inline]
+    pub fn init_msg_type(mut self, value: CtrlMsgType) -> Self {
+        self.r#msg_type = value.into();
+        self
+    }
+    /// Return a reference to `msg_id`
+    #[inline]
+    pub fn r#msg_id(&self) -> &CtrlMsgId {
+        &self.r#msg_id
+    }
+    /// Return a mutable reference to `msg_id`
+    #[inline]
+    pub fn mut_msg_id(&mut self) -> &mut CtrlMsgId {
+        &mut self.r#msg_id
+    }
+    /// Set the value of `msg_id`
+    #[inline]
+    pub fn set_msg_id(&mut self, value: CtrlMsgId) -> &mut Self {
+        self.r#msg_id = value.into();
+        self
+    }
+    /// Builder method that sets the value of `msg_id`. Useful for initializing the message.
+    #[inline]
+    pub fn init_msg_id(mut self, value: CtrlMsgId) -> Self {
+        self.r#msg_id = value.into();
+        self
+    }
+    /// Return a reference to `uid`
+    #[inline]
+    pub fn r#uid(&self) -> &i32 {
+        &self.r#uid
+    }
+    /// Return a mutable reference to `uid`
+    #[inline]
+    pub fn mut_uid(&mut self) -> &mut i32 {
+        &mut self.r#uid
+    }
+    /// Set the value of `uid`
+    #[inline]
+    pub fn set_uid(&mut self, value: i32) -> &mut Self {
+        self.r#uid = value.into();
+        self
+    }
+    /// Builder method that sets the value of `uid`. Useful for initializing the message.
+    #[inline]
+    pub fn init_uid(mut self, value: i32) -> Self {
+        self.r#uid = value.into();
+        self
+    }
+    /// Return a reference to `req_resp_type`
+    #[inline]
+    pub fn r#req_resp_type(&self) -> &u32 {
+        &self.r#req_resp_type
+    }
+    /// Return a mutable reference to `req_resp_type`
+    #[inline]
+    pub fn mut_req_resp_type(&mut self) -> &mut u32 {
+        &mut self.r#req_resp_type
+    }
+    /// Set the value of `req_resp_type`
+    #[inline]
+    pub fn set_req_resp_type(&mut self, value: u32) -> &mut Self {
+        self.r#req_resp_type = value.into();
+        self
+    }
+    /// Builder method that sets the value of `req_resp_type`. Useful for initializing the message.
+    #[inline]
+    pub fn init_req_resp_type(mut self, value: u32) -> Self {
+        self.r#req_resp_type = value.into();
+        self
+    }
+}
+impl ::micropb::MessageDecode for CtrlEvent {
+    fn decode<IMPL_MICROPB_READ: ::micropb::PbRead>(
+        &mut self,
+        decoder: &mut ::micropb::PbDecoder<IMPL_MICROPB_READ>,
+        len: usize,
+    ) -> Result<(), ::micropb::DecodeError<IMPL_MICROPB_READ::Error>> {
+        use ::micropb::{FieldDecode, PbBytes, PbMap, PbString, PbVec};
+        let before = decoder.bytes_read();
+        while decoder.bytes_read() - before < len {
+            let tag = decoder.decode_tag()?;
+            match tag.field_num() {
+                0 => return Err(::micropb::DecodeError::ZeroField),
+                1u32 => {
+                    let mut_ref = &mut self.r#msg_type;
+                    {
+                        let val = decoder.decode_int32().map(|n| CtrlMsgType(n as _))?;
+                        let val_ref = &val;
+                        if val_ref.0 != 0 {
+                            *mut_ref = val as _;
+                        }
+                    };
+                }
+                2u32 => {
+                    let mut_ref = &mut self.r#msg_id;
+                    {
+                        let val = decoder.decode_int32().map(|n| CtrlMsgId(n as _))?;
+                        let val_ref = &val;
+                        if val_ref.0 != 0 {
+                            *mut_ref = val as _;
+                        }
+                    };
+                }
+                3u32 => {
+                    let mut_ref = &mut self.r#uid;
+                    {
+                        let val = decoder.decode_int32()?;
+                        let val_ref = &val;
+                        if *val_ref != 0 {
+                            *mut_ref = val as _;
+                        }
+                    };
+                }
+                4u32 => {
+                    let mut_ref = &mut self.r#req_resp_type;
+                    {
+                        let val = decoder.decode_varint32()?;
+                        let val_ref = &val;
+                        if *val_ref != 0 {
+                            *mut_ref = val as _;
+                        }
+                    };
+                }
+                301u32 => {
+                    let mut_ref = loop {
+                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
+                            if let CtrlEvent_::Payload::EventEspInit(variant) = &mut *variant {
+                                break &mut *variant;
+                            }
+                        }
+                        self.r#payload = ::core::option::Option::Some(CtrlEvent_::Payload::EventEspInit(
+                            ::core::default::Default::default(),
+                        ));
+                    };
+                    mut_ref.decode_len_delimited(decoder)?;
+                }
+                302u32 => {
+                    let mut_ref = loop {
+                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
+                            if let CtrlEvent_::Payload::EventHeartbeat(variant) = &mut *variant {
+                                break &mut *variant;
+                            }
+                        }
+                        self.r#payload = ::core::option::Option::Some(CtrlEvent_::Payload::EventHeartbeat(
+                            ::core::default::Default::default(),
+                        ));
+                    };
+                    mut_ref.decode_len_delimited(decoder)?;
+                }
+                303u32 => {
+                    let mut_ref = loop {
+                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
+                            if let CtrlEvent_::Payload::EventStationDisconnectFromAp(variant) = &mut *variant {
+                                break &mut *variant;
+                            }
+                        }
+                        self.r#payload = ::core::option::Option::Some(
+                            CtrlEvent_::Payload::EventStationDisconnectFromAp(::core::default::Default::default()),
+                        );
+                    };
+                    mut_ref.decode_len_delimited(decoder)?;
+                }
+                305u32 => {
+                    let mut_ref = loop {
+                        if let ::core::option::Option::Some(variant) = &mut self.r#payload {
+                            if let CtrlEvent_::Payload::EventStationConnectedToAp(variant) = &mut *variant {
+                                break &mut *variant;
+                            }
+                        }
+                        self.r#payload = ::core::option::Option::Some(CtrlEvent_::Payload::EventStationConnectedToAp(
+                            ::core::default::Default::default(),
+                        ));
+                    };
+                    mut_ref.decode_len_delimited(decoder)?;
+                }
+                _ => {
+                    decoder.skip_wire_value(tag.wire_type())?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+impl ::micropb::MessageEncode for CtrlEvent {
+    const MAX_SIZE: ::core::result::Result<usize, &'static str> = 'msg: {
+        let mut max_size = 0;
+        match ::micropb::const_map!(::core::result::Result::Ok(CtrlMsgType::_MAX_SIZE), |size| size + 1usize) {
+            ::core::result::Result::Ok(size) => {
+                max_size += size;
+            }
+            ::core::result::Result::Err(err) => {
+                break 'msg (::core::result::Result::<usize, _>::Err(err));
+            }
+        }
+        match ::micropb::const_map!(::core::result::Result::Ok(CtrlMsgId::_MAX_SIZE), |size| size + 1usize) {
+            ::core::result::Result::Ok(size) => {
+                max_size += size;
+            }
+            ::core::result::Result::Err(err) => {
+                break 'msg (::core::result::Result::<usize, _>::Err(err));
+            }
+        }
+        match ::micropb::const_map!(::core::result::Result::Ok(10usize), |size| size + 1usize) {
+            ::core::result::Result::Ok(size) => {
+                max_size += size;
+            }
+            ::core::result::Result::Err(err) => {
+                break 'msg (::core::result::Result::<usize, _>::Err(err));
+            }
+        }
+        match ::micropb::const_map!(::core::result::Result::Ok(5usize), |size| size + 1usize) {
+            ::core::result::Result::Ok(size) => {
+                max_size += size;
+            }
+            ::core::result::Result::Err(err) => {
+                break 'msg (::core::result::Result::<usize, _>::Err(err));
+            }
+        }
+        match 'oneof: {
+            let mut max_size = 0;
+            match ::micropb::const_map!(
+                ::micropb::const_map!(<CtrlMsg_Event_ESPInit as ::micropb::MessageEncode>::MAX_SIZE, |size| {
+                    ::micropb::size::sizeof_len_record(size)
+                }),
+                |size| size + 2usize
+            ) {
+                ::core::result::Result::Ok(size) => {
+                    if size > max_size {
+                        max_size = size;
+                    }
+                }
+                ::core::result::Result::Err(err) => {
+                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
+                }
+            }
+            match ::micropb::const_map!(
+                ::micropb::const_map!(
+                    <CtrlMsg_Event_Heartbeat as ::micropb::MessageEncode>::MAX_SIZE,
+                    |size| ::micropb::size::sizeof_len_record(size)
+                ),
+                |size| size + 2usize
+            ) {
+                ::core::result::Result::Ok(size) => {
+                    if size > max_size {
+                        max_size = size;
+                    }
+                }
+                ::core::result::Result::Err(err) => {
+                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
+                }
+            }
+            match ::micropb::const_map!(
+                ::micropb::const_map!(
+                    <CtrlMsg_Event_StationDisconnectFromAP as ::micropb::MessageEncode>::MAX_SIZE,
+                    |size| ::micropb::size::sizeof_len_record(size)
+                ),
+                |size| size + 2usize
+            ) {
+                ::core::result::Result::Ok(size) => {
+                    if size > max_size {
+                        max_size = size;
+                    }
+                }
+                ::core::result::Result::Err(err) => {
+                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
+                }
+            }
+            match ::micropb::const_map!(
+                ::micropb::const_map!(
+                    <CtrlMsg_Event_StationConnectedToAP as ::micropb::MessageEncode>::MAX_SIZE,
+                    |size| ::micropb::size::sizeof_len_record(size)
+                ),
+                |size| size + 2usize
+            ) {
+                ::core::result::Result::Ok(size) => {
+                    if size > max_size {
+                        max_size = size;
+                    }
+                }
+                ::core::result::Result::Err(err) => {
+                    break 'oneof (::core::result::Result::<usize, _>::Err(err));
+                }
+            }
+            ::core::result::Result::Ok(max_size)
+        } {
+            ::core::result::Result::Ok(size) => {
+                max_size += size;
+            }
+            ::core::result::Result::Err(err) => {
+                break 'msg (::core::result::Result::<usize, _>::Err(err));
+            }
+        }
+        ::core::result::Result::Ok(max_size)
+    };
+    fn encode<IMPL_MICROPB_WRITE: ::micropb::PbWrite>(
+        &self,
+        encoder: &mut ::micropb::PbEncoder<IMPL_MICROPB_WRITE>,
+    ) -> Result<(), IMPL_MICROPB_WRITE::Error> {
+        use ::micropb::{FieldEncode, PbMap};
+        {
+            let val_ref = &self.r#msg_type;
+            if val_ref.0 != 0 {
+                encoder.encode_varint32(8u32)?;
+                encoder.encode_int32(val_ref.0 as _)?;
+            }
+        }
+        {
+            let val_ref = &self.r#msg_id;
+            if val_ref.0 != 0 {
+                encoder.encode_varint32(16u32)?;
+                encoder.encode_int32(val_ref.0 as _)?;
+            }
+        }
+        {
+            let val_ref = &self.r#uid;
+            if *val_ref != 0 {
+                encoder.encode_varint32(24u32)?;
+                encoder.encode_int32(*val_ref as _)?;
+            }
+        }
+        {
+            let val_ref = &self.r#req_resp_type;
+            if *val_ref != 0 {
+                encoder.encode_varint32(32u32)?;
+                encoder.encode_varint32(*val_ref as _)?;
+            }
+        }
+        if let Some(oneof) = &self.r#payload {
+            match &*oneof {
+                CtrlEvent_::Payload::EventEspInit(val_ref) => {
+                    let val_ref = &*val_ref;
+                    encoder.encode_varint32(2410u32)?;
+                    val_ref.encode_len_delimited(encoder)?;
+                }
+                CtrlEvent_::Payload::EventHeartbeat(val_ref) => {
+                    let val_ref = &*val_ref;
+                    encoder.encode_varint32(2418u32)?;
+                    val_ref.encode_len_delimited(encoder)?;
+                }
+                CtrlEvent_::Payload::EventStationDisconnectFromAp(val_ref) => {
+                    let val_ref = &*val_ref;
+                    encoder.encode_varint32(2426u32)?;
+                    val_ref.encode_len_delimited(encoder)?;
+                }
+                CtrlEvent_::Payload::EventStationConnectedToAp(val_ref) => {
+                    let val_ref = &*val_ref;
+                    encoder.encode_varint32(2442u32)?;
+                    val_ref.encode_len_delimited(encoder)?;
+                }
+            }
+        }
+        Ok(())
+    }
+    fn compute_size(&self) -> usize {
+        use ::micropb::{FieldEncode, PbMap};
+        let mut size = 0;
+        {
+            let val_ref = &self.r#msg_type;
+            if val_ref.0 != 0 {
+                size += 1usize + ::micropb::size::sizeof_int32(val_ref.0 as _);
+            }
+        }
+        {
+            let val_ref = &self.r#msg_id;
+            if val_ref.0 != 0 {
+                size += 1usize + ::micropb::size::sizeof_int32(val_ref.0 as _);
+            }
+        }
+        {
+            let val_ref = &self.r#uid;
+            if *val_ref != 0 {
+                size += 1usize + ::micropb::size::sizeof_int32(*val_ref as _);
+            }
+        }
+        {
+            let val_ref = &self.r#req_resp_type;
+            if *val_ref != 0 {
+                size += 1usize + ::micropb::size::sizeof_varint32(*val_ref as _);
+            }
+        }
+        if let Some(oneof) = &self.r#payload {
+            match &*oneof {
+                CtrlEvent_::Payload::EventEspInit(val_ref) => {
+                    let val_ref = &*val_ref;
+                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
+                }
+                CtrlEvent_::Payload::EventHeartbeat(val_ref) => {
+                    let val_ref = &*val_ref;
+                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
+                }
+                CtrlEvent_::Payload::EventStationDisconnectFromAp(val_ref) => {
+                    let val_ref = &*val_ref;
+                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
+                }
+                CtrlEvent_::Payload::EventStationConnectedToAp(val_ref) => {
+                    let val_ref = &*val_ref;
+                    size += 2usize + ::micropb::size::sizeof_len_record(val_ref.compute_size());
+                }
+            }
+        }
+        size
+    }
+}
+/// Inner types for `CtrlEvent`
+pub mod CtrlEvent_ {
+    /// union of all msg ids
+    ///
+    /// End of manual change
+    #[derive(Debug, PartialEq, Clone)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    pub enum Payload {
         ///* Notifications *
         EventEspInit(super::CtrlMsg_Event_ESPInit),
         EventHeartbeat(super::CtrlMsg_Event_Heartbeat),
         EventStationDisconnectFromAp(super::CtrlMsg_Event_StationDisconnectFromAP),
-        EventStationDisconnectFromEspSoftAp(super::CtrlMsg_Event_StationDisconnectFromESPSoftAP),
+        ///CtrlMsg_Event_StationDisconnectFromESPSoftAP event_station_disconnect_from_ESP_SoftAP = 304;
+        ///
+        ///CtrlMsg_Event_StationConnectedToESPSoftAP event_station_connected_to_ESP_SoftAP = 306;
+        ///CtrlMsg_Event_SetDhcpDnsStatus event_set_dhcp_dns_status = 307;
+        ///CtrlMsg_Event_CustomRpcUnserialisedMsg event_custom_rpc_unserialised_msg = 308;
         EventStationConnectedToAp(super::CtrlMsg_Event_StationConnectedToAP),
-        EventStationConnectedToEspSoftAp(super::CtrlMsg_Event_StationConnectedToESPSoftAP),
-        EventSetDhcpDnsStatus(super::CtrlMsg_Event_SetDhcpDnsStatus),
-        EventCustomRpcUnserialisedMsg(super::CtrlMsg_Event_CustomRpcUnserialisedMsg),
     }
 }
 /// Enums similar to ESP IDF
@@ -14023,85 +12874,56 @@ impl CtrlMsgId {
     /// Maximum encoded size of the enum
     pub const _MAX_SIZE: usize = 10usize;
     pub const MsgIdInvalid: Self = Self(0);
-    ///* Request Msgs *
-    pub const ReqBase: Self = Self(100);
     pub const ReqGetMacAddress: Self = Self(101);
-    pub const ReqSetMacAddress: Self = Self(102);
-    pub const ReqGetWifiMode: Self = Self(103);
+    ///Req_SetMacAddress = 102;
+    ///Req_GetWifiMode = 103;
     pub const ReqSetWifiMode: Self = Self(104);
     pub const ReqGetApScanList: Self = Self(105);
     pub const ReqGetApConfig: Self = Self(106);
     pub const ReqConnectAp: Self = Self(107);
     pub const ReqDisconnectAp: Self = Self(108);
-    pub const ReqGetSoftApConfig: Self = Self(109);
-    pub const ReqSetSoftApVendorSpecificIe: Self = Self(110);
-    pub const ReqStartSoftAp: Self = Self(111);
-    pub const ReqGetSoftApConnectedStaList: Self = Self(112);
-    pub const ReqStopSoftAp: Self = Self(113);
-    pub const ReqSetPowerSaveMode: Self = Self(114);
-    pub const ReqGetPowerSaveMode: Self = Self(115);
     pub const ReqOtaBegin: Self = Self(116);
     pub const ReqOtaWrite: Self = Self(117);
     pub const ReqOtaEnd: Self = Self(118);
-    pub const ReqSetWifiMaxTxPower: Self = Self(119);
-    pub const ReqGetWifiCurrTxPower: Self = Self(120);
     pub const ReqConfigHeartbeat: Self = Self(121);
-    pub const ReqEnableDisable: Self = Self(122);
+    ///Req_EnableDisable = 122;
+    ///
+    ///Req_SetCountryCode = 124;
+    ///Req_GetCountryCode = 125;
+    ///Req_SetDhcpDnsStatus = 126;
+    ///Req_GetDhcpDnsStatus = 127;
+    ///Req_Custom_RPC_Unserialised_Msg = 128;
     pub const ReqGetFwVersion: Self = Self(123);
-    pub const ReqSetCountryCode: Self = Self(124);
-    pub const ReqGetCountryCode: Self = Self(125);
-    pub const ReqSetDhcpDnsStatus: Self = Self(126);
-    pub const ReqGetDhcpDnsStatus: Self = Self(127);
-    pub const ReqCustomRpcUnserialisedMsg: Self = Self(128);
-    /// Add new control path command response before Req_Max
-    /// and update Req_Max
-    pub const ReqMax: Self = Self(129);
-    ///* Response Msgs *
-    pub const RespBase: Self = Self(200);
     pub const RespGetMacAddress: Self = Self(201);
-    pub const RespSetMacAddress: Self = Self(202);
-    pub const RespGetWifiMode: Self = Self(203);
+    ///Resp_SetMacAddress = 202;
+    ///Resp_GetWifiMode = 203;
     pub const RespSetWifiMode: Self = Self(204);
     pub const RespGetApScanList: Self = Self(205);
     pub const RespGetApConfig: Self = Self(206);
     pub const RespConnectAp: Self = Self(207);
     pub const RespDisconnectAp: Self = Self(208);
-    pub const RespGetSoftApConfig: Self = Self(209);
-    pub const RespSetSoftApVendorSpecificIe: Self = Self(210);
-    pub const RespStartSoftAp: Self = Self(211);
-    pub const RespGetSoftApConnectedStaList: Self = Self(212);
-    pub const RespStopSoftAp: Self = Self(213);
-    pub const RespSetPowerSaveMode: Self = Self(214);
-    pub const RespGetPowerSaveMode: Self = Self(215);
     pub const RespOtaBegin: Self = Self(216);
     pub const RespOtaWrite: Self = Self(217);
     pub const RespOtaEnd: Self = Self(218);
-    pub const RespSetWifiMaxTxPower: Self = Self(219);
-    pub const RespGetWifiCurrTxPower: Self = Self(220);
     pub const RespConfigHeartbeat: Self = Self(221);
-    pub const RespEnableDisable: Self = Self(222);
+    ///Resp_EnableDisable = 222;
+    ///
+    ///Resp_SetCountryCode = 224;
+    ///Resp_GetCountryCode = 225;
+    ///Resp_SetDhcpDnsStatus = 226;
+    ///Resp_GetDhcpDnsStatus = 227;
+    ///Resp_Custom_RPC_Unserialised_Msg = 228;
     pub const RespGetFwVersion: Self = Self(223);
-    pub const RespSetCountryCode: Self = Self(224);
-    pub const RespGetCountryCode: Self = Self(225);
-    pub const RespSetDhcpDnsStatus: Self = Self(226);
-    pub const RespGetDhcpDnsStatus: Self = Self(227);
-    pub const RespCustomRpcUnserialisedMsg: Self = Self(228);
-    /// Add new control path command response before Resp_Max
-    /// and update Resp_Max
-    pub const RespMax: Self = Self(229);
-    ///* Event Msgs *
-    pub const EventBase: Self = Self(300);
+    ///Event_Base = 300;
     pub const EventEspInit: Self = Self(301);
     pub const EventHeartbeat: Self = Self(302);
     pub const EventStationDisconnectFromAp: Self = Self(303);
-    pub const EventStationDisconnectFromEspSoftAp: Self = Self(304);
+    ///Event_StationDisconnectFromESPSoftAP = 304;
+    ///
+    ///Event_StationConnectedToESPSoftAP = 306;
+    ///Event_SetDhcpDnsStatus = 307;
+    ///Event_Custom_RPC_Unserialised_Msg = 308;
     pub const EventStationConnectedToAp: Self = Self(305);
-    pub const EventStationConnectedToEspSoftAp: Self = Self(306);
-    pub const EventSetDhcpDnsStatus: Self = Self(307);
-    pub const EventCustomRpcUnserialisedMsg: Self = Self(308);
-    /// Add new control path command notification before Event_Max
-    /// and update Event_Max
-    pub const EventMax: Self = Self(309);
 }
 impl core::default::Default for CtrlMsgId {
     fn default() -> Self {
