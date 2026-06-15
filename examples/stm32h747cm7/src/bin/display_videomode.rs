@@ -47,50 +47,50 @@ async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     config.rcc.supply_config = embassy_stm32::rcc::SupplyConfig::DirectSMPS;
     config.rcc.voltage_scale = embassy_stm32::rcc::VoltageScale::Scale0;
-    config.rcc.sys = embassy_stm32::rcc::Sysclk::PLL1_P;
+    config.rcc.sys = embassy_stm32::rcc::Sysclk::Pll1P;
     config.rcc.hse = Some(Hse {
         freq: Hertz::mhz(25),
         mode: embassy_stm32::rcc::HseMode::Bypass,
     });
     config.rcc.pll1 = Some(Pll {
-        source: embassy_stm32::rcc::PllSource::HSE,
-        prediv: embassy_stm32::rcc::PllPreDiv::DIV5,
-        mul: embassy_stm32::rcc::PllMul::MUL192,
-        divp: Some(embassy_stm32::rcc::PllDiv::DIV2),
-        divq: Some(embassy_stm32::rcc::PllDiv::DIV8),
+        source: embassy_stm32::rcc::PllSource::Hse,
+        prediv: embassy_stm32::rcc::PllPreDiv::Div5,
+        mul: embassy_stm32::rcc::PllMul::Mul192,
+        divp: Some(embassy_stm32::rcc::PllDiv::Div2),
+        divq: Some(embassy_stm32::rcc::PllDiv::Div8),
         divr: None,
     });
 
     config.rcc.pll2 = Some(Pll {
-        source: embassy_stm32::rcc::PllSource::HSE,
-        prediv: embassy_stm32::rcc::PllPreDiv::DIV5,
-        mul: embassy_stm32::rcc::PllMul::MUL120,
-        divp: Some(embassy_stm32::rcc::PllDiv::DIV3),
-        divq: Some(embassy_stm32::rcc::PllDiv::DIV2),
-        divr: Some(embassy_stm32::rcc::PllDiv::DIV3), // 200MHz SDRAM clock
+        source: embassy_stm32::rcc::PllSource::Hse,
+        prediv: embassy_stm32::rcc::PllPreDiv::Div5,
+        mul: embassy_stm32::rcc::PllMul::Mul120,
+        divp: Some(embassy_stm32::rcc::PllDiv::Div3),
+        divq: Some(embassy_stm32::rcc::PllDiv::Div2),
+        divr: Some(embassy_stm32::rcc::PllDiv::Div3), // 200MHz SDRAM clock
     });
 
     config.rcc.pll3 = Some(Pll {
-        source: embassy_stm32::rcc::PllSource::HSE,
-        prediv: embassy_stm32::rcc::PllPreDiv::DIV5,
-        mul: embassy_stm32::rcc::PllMul::MUL132,
-        divp: Some(embassy_stm32::rcc::PllDiv::DIV2),
-        divq: Some(embassy_stm32::rcc::PllDiv::DIV2),
+        source: embassy_stm32::rcc::PllSource::Hse,
+        prediv: embassy_stm32::rcc::PllPreDiv::Div5,
+        mul: embassy_stm32::rcc::PllMul::Mul132,
+        divp: Some(embassy_stm32::rcc::PllDiv::Div2),
+        divq: Some(embassy_stm32::rcc::PllDiv::Div2),
 
         // LTDC is clocked from PLL3R
         // 30MHz pixel clock
-        divr: Some(embassy_stm32::rcc::PllDiv::DIV22),
+        divr: Some(embassy_stm32::rcc::PllDiv::Div22),
     });
-    config.rcc.d1c_pre = embassy_stm32::rcc::AHBPrescaler::DIV1;
-    config.rcc.ahb_pre = embassy_stm32::rcc::AHBPrescaler::DIV2;
-    config.rcc.apb1_pre = embassy_stm32::rcc::APBPrescaler::DIV2;
-    config.rcc.apb2_pre = embassy_stm32::rcc::APBPrescaler::DIV2;
-    config.rcc.apb3_pre = embassy_stm32::rcc::APBPrescaler::DIV2;
-    config.rcc.apb4_pre = embassy_stm32::rcc::APBPrescaler::DIV2;
+    config.rcc.d1c_pre = embassy_stm32::rcc::AHBPrescaler::Div1;
+    config.rcc.ahb_pre = embassy_stm32::rcc::AHBPrescaler::Div2;
+    config.rcc.apb1_pre = embassy_stm32::rcc::APBPrescaler::Div2;
+    config.rcc.apb2_pre = embassy_stm32::rcc::APBPrescaler::Div2;
+    config.rcc.apb3_pre = embassy_stm32::rcc::APBPrescaler::Div2;
+    config.rcc.apb4_pre = embassy_stm32::rcc::APBPrescaler::Div2;
     config.rcc.hsi48 = Some(Default::default());
     config.rcc.csi = true;
-    config.rcc.mux.fmcsel = embassy_stm32::rcc::mux::Fmcsel::PLL2_R; // Use PLL2_R for SDRAM (100MHz)
-    config.rcc.mux.dsisel = embassy_stm32::rcc::mux::Dsisel::DSI_PHY_DIV_8; // Use DSI PHY / 8 for byte lane clock (62.5MHz lane byte clock)
+    config.rcc.mux.fmcsel = embassy_stm32::rcc::mux::Fmcsel::Pll2R; // Use PLL2_R for SDRAM (100MHz)
+    config.rcc.mux.dsisel = embassy_stm32::rcc::mux::Dsisel::DsiPhyDiv8; // Use DSI PHY / 8 for byte lane clock (62.5MHz lane byte clock)
     config.rcc.dsi = Some(dsi_pll);
 
     let p = embassy_stm32::init_primary(config, &SHARED_DATA);
@@ -176,7 +176,7 @@ async fn main(_spawner: Spawner) {
     // Configure LTDC Layer 1 in ARGB8888 color mode with a rectangle covering panel active region
     let layer = LtdcLayerConfig {
         layer: LtdcLayer::Layer1,
-        pixel_format: PixelFormat::ARGB8888,
+        pixel_format: PixelFormat::Argb8888,
         window_x0: 0,
         window_x1: Glass::ACTIVE_WIDTH,
         window_y0: 0,

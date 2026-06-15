@@ -44,8 +44,8 @@ static _MAC_CALLBACKS: ST_MAC_callbacks_t = ST_MAC_callbacks_t {
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
 
-    config.rcc.sys = Sysclk::HSI;
-    config.rcc.mux.rngsel = mux::Rngsel::HSI;
+    config.rcc.sys = Sysclk::Hsi;
+    config.rcc.mux.rngsel = mux::Rngsel::Hsi;
 
     let _p = embassy_stm32::init(config);
     info!("Hello World!");
