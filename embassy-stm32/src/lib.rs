@@ -935,7 +935,7 @@ fn init_hw(config: Config) -> Peripherals {
                 #[cfg(mdma)]
                 config.mdma_interrupt_priority,
             );
-            #[cfg(all(feature = "exti", not(stm32c5)))]
+            #[cfg(feature = "exti")]
             exti::init(cs);
 
             rcc::init_rcc(cs, config.rcc);
