@@ -7,16 +7,16 @@ use core::task::{Context, Poll};
 
 use embassy_sync::waitqueue::AtomicWaker;
 use linked_list::Table;
+#[cfg(not(stm32c5))]
+use pac::gpdma::{Gpdma, vals};
+#[cfg(stm32c5)]
+use pac::lpdma::{Lpdma as Gpdma, vals};
 
 use super::word::{Word, WordSize};
 use super::{Channel, Dir, Request, STATE};
 use crate::_generated::DmaChannel;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac;
-#[cfg(not(stm32c5))]
-use crate::pac::gpdma::{Gpdma, vals};
-#[cfg(stm32c5)]
-use crate::pac::lpdma::{Lpdma as Gpdma, vals};
 use crate::rcc::WakeGuard;
 
 pub mod linked_list;
