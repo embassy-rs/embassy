@@ -1,0 +1,5 @@
+# OxivGL (C LVGL v9.5 via oxivgl-sys) requires a nightly toolchain.
+[toolchain]
+channel = "nightly-2025-12-11"
+components = ["rust-src", "rustfmt"]
+targets = ["thumbv8m.main-none-eabihf"]

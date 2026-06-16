@@ -1,0 +1,69 @@
+[package]
+edition = "2024"
+name = "embassy-rp2350-touch-lcd-7-examples"
+version = "0.1.0"
+license = "MIT OR Apache-2.0"
+publish = false
+
+description = "OxivGL + GT911 touch + XL2515 CAN for Waveshare RP2350-Touch-LCD-7"
+
+[dependencies]
+embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-cortex-m", "executor-thread", "defmt"] }
+embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
+embassy-rp = { version = "0.10.0", path = "../../embassy-rp", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp235xb", "binary-info"] }
+embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }
+embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
+embassy-usb = { version = "0.5.1", features = ["defmt"] }
+touch-hall-common = { path = "../touch-hall-common", features = ["rhai", "defmt"] }
+
+defmt = "1.0.1"
+defmt-embassy-usbserial = { version = "0.2.1", default-features = false, features = ["buffersize-64"] }
+cortex-m = { version = "0.7.6", features = ["inline-asm"] }
+cortex-m-rt = "0.7.0"
+embedded-can = "0.4"
+embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
+panic-probe = { version = "1.0.0", features = ["print-defmt"] }
+static_cell = "2"
+
+oxivgl = { version = "0.1.2", default-features = false, optional = true }
+oxivgl-sys = { version = "0.1.2", default-features = false, optional = true }
+embedded-alloc = { version = "0.6.0", features = ["llff"], optional = true }
+
+[features]
+default = []
+oxivgl = ["dep:oxivgl", "dep:oxivgl-sys", "dep:embedded-alloc"]
+
+[[bin]]
+name = "can_raw"
+required-features = []
+
+[[bin]]
+name = "gt911_touch"
+required-features = []
+
+[[bin]]
+name = "oxivgl_widget_demo"
+required-features = ["oxivgl"]
+
+[[bin]]
+name = "oxivgl_touch_can"
+required-features = ["oxivgl"]
+
+[profile.release]
+debug = 2
+
+[build-dependencies]
+serde_json = "1.0"
+
+[patch.crates-io]
+embassy-time = { path = "../../embassy-time" }
+embassy-sync = { path = "../../embassy-sync" }
+embassy-futures = { path = "../../embassy-futures" }
+embassy-usb-driver = { path = "../../embassy-usb-driver" }
+oxivgl = { path = "../rvt50hqsnwc00-b/vendor/oxivgl" }
+oxivgl-sys = { path = "../rvt50hqsnwc00-b/vendor/oxivgl-sys" }
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/rp2350-touch-lcd-7" }
+]
