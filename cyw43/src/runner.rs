@@ -1077,8 +1077,12 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                     // Events indicating that the link is down
                     // Event LINK with flag 0 indicates link down. reason = 1: loss of signal (e.g. out of range), reason = 2: controlled network shutdown
                     // Event AUTH with status FAIL, reason 16, and auth_type 3 is specific for WPA3 networks
+                    // Event DEAUTH_IND is an AP-initiated deauth (e.g. AP reset); any status/reason means the link is down
+                    // Event DISASSOC_IND is an AP-initiated disassoc (e.g. idle-station inactivity timeout); any status/reason means the link is down
                     (Event::LINK, EStatus::SUCCESS, 0, ..)
                     | (Event::DEAUTH, EStatus::SUCCESS, ..)
+                    | (Event::DEAUTH_IND, ..)
+                    | (Event::DISASSOC_IND, ..)
                     | (Event::AUTH, EStatus::FAIL, _, 16, 3) => {
                         self.auth_ok = false;
                         self.join_ok = false;
