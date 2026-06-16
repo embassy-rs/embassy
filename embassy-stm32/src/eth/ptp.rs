@@ -8,6 +8,7 @@ pub struct PtpTimestamp {
     pub nanos: u32,
 }
 
+#[cfg(feature = "ptp")]
 impl PtpTimestamp {
     /// Add a duration to this timestamp.
     ///
@@ -50,7 +51,6 @@ impl PtpTimestamp {
         Some(core::time::Duration::new(seconds as u64, nanos))
     }
 
-    #[cfg(feature = "ptp")]
     pub(crate) fn from_offset_nanos(offset_nanos: i64) -> (Self, bool) {
         let subtract = offset_nanos < 0;
         let nanos = if subtract {
@@ -285,7 +285,7 @@ pub(crate) use imp::PtpTimestampSink;
 #[cfg(feature = "ptp")]
 pub use imp::PtpTimestampStore;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "ptp"))]
 mod tests {
     use core::time::Duration;
 
