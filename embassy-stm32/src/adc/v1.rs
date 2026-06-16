@@ -99,7 +99,7 @@ impl AdcRegs for crate::pac::adc::Adc {
         self.cr().modify(|reg| reg.set_adstart(true));
     }
 
-    fn stop(&self, _disable: bool) {
+    fn stop(&self) {
         // Stop conversion
         while self.cr().read().addis() {}
 
@@ -122,6 +122,14 @@ impl AdcRegs for crate::pac::adc::Adc {
         }
 
         self.cfgr1().modify(|w| w.set_awden(false));
+    }
+
+    fn power_down(&self) {
+        self.stop();
+        if self.cr().read().aden() {
+            self.cr().modify(|reg| reg.set_addis(true));
+            while self.cr().read().aden() {}
+        }
     }
 
     fn wait_done(&self) -> bool {
@@ -237,21 +245,6 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         }
 
         s
-    }
-
-    /// Power down the ADC.
-    ///
-    /// This stops ADC operation and powers down ADC-specific circuitry.
-    /// Later reads will enable the ADC again, but internal measurement paths
-    /// such as VREFINT or temperature sensing may need to be re-enabled.
-    pub fn power_down(&mut self) {
-        T::regs().stop(false);
-
-        let r = T::regs();
-        if r.cr().read().aden() {
-            r.cr().modify(|reg| reg.set_addis(true));
-            while r.cr().read().aden() {}
-        }
     }
 
     #[cfg(not(adc_l0))]
