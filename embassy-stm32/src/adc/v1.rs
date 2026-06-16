@@ -189,6 +189,8 @@ impl AdcRegs for crate::pac::adc::Adc {
             "F0/L0 channels must be passed in order.",
         );
 
+        self.smpr().modify(|reg| reg.set_smp(sample_time.into()));
+
         self.cfgr1().modify(|w| {
             w.set_scandir(if is_ordered_up {
                 Scandir::Upward
