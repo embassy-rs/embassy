@@ -46,6 +46,7 @@ embedded-io = "0.7"
 embedded-io-async = { version = "0.7.0" }
 embedded-mcu-hal = { version = "0.2.0", optional = true }
 embedded-storage = "0.3.1"
+embedded-can = "0.4.1"
 
 # Custom executor support
 embassy-executor = { version = "0.10.0", path = "../embassy-executor" }
