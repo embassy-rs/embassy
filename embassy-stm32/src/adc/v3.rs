@@ -11,9 +11,7 @@ pub use pac::adc::vals::{Ovsr, Ovss, Presc};
 
 #[allow(unused_imports)]
 use crate::adc::SealedAdcChannel;
-use crate::adc::{
-    Adc, Averaging, ConversionMode, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt,
-};
+use crate::adc::{Adc, Averaging, ConversionMode, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt};
 use crate::wait::block_for_us;
 use crate::{Peri, pac, rcc};
 
